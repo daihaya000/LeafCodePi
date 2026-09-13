@@ -200,6 +200,33 @@ it("clears loaded Bot history when the conversation is reset", async () => {
   expect(screen.queryByRole("button", { name: "過去の履歴を読み込む" })).toBeNull();
 });
 
+it("refreshes the newest Bot page when an older-history cursor is stale", async () => {
+  const messagePath = "/api/tasks/bot%3Aone/messages";
+  const old = { id: "old", role: "assistant", createdAt: 1, parts: [{ id: "old-text", type: "text", text: "old reply" }] };
+  const fresh = { id: "fresh", role: "assistant", createdAt: 2, parts: [{ id: "fresh-text", type: "text", text: "fresh reply" }] };
+  mocks.getJson.mockImplementation((url: string, params?: { before?: string }) => {
+    if (url === messagePath && params?.before) {
+      return Promise.reject(Object.assign(new Error("履歴カーソルが無効です"), { status: 409 }));
+    }
+    if (url === messagePath) {
+      return Promise.resolve({ messages: [fresh], messageHistory: { hasMore: true, nextCursor: "fresh-cursor" } });
+    }
+    if (url === "/api/models") return Promise.resolve({ models: [] });
+    if (url.endsWith("/routines")) return Promise.resolve({ routines: [] });
+    return Promise.resolve({ bot: testBot });
+  });
+  render(<ShellProvider><BotView id="one" /></ShellProvider>);
+  await screen.findByRole("button", { name: "設定" });
+  snapshot({ messages: [old], messageHistory: { hasMore: true, nextCursor: "stale-cursor" } });
+  await screen.findByRole("button", { name: "過去の履歴を読み込む" });
+  await act(async () => {
+    fireEvent.click(screen.getByRole("button", { name: "過去の履歴を読み込む" }));
+    await Promise.resolve();
+  });
+  await waitFor(() => expect(mocks.getJson).toHaveBeenCalledWith(messagePath));
+  expect(screen.queryByText("履歴カーソルが無効です")).toBeNull();
+});
+
 it("ignores a stale SSE snapshot after switching ids", async () => {
   const botOne = { ...testBot, id: "one", name: "One" };
   const botTwo = { ...testBot, id: "two", name: "Two" };

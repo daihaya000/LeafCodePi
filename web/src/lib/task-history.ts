@@ -1,5 +1,5 @@
 import type { TaskMessageHistory, UiMessage } from "./types";
-import { dedupeUiMessages, stabilizeUiMessages } from "./stabilize-messages";
+import { dedupeUiMessages, messageRenderKey, stabilizeUiMessages } from "./stabilize-messages";
 
 export const TASK_MESSAGE_PAGE_SIZE = 50;
 
@@ -13,6 +13,32 @@ export class InvalidTaskMessageCursorError extends Error {
     super("履歴カーソルが無効です");
     this.name = "InvalidTaskMessageCursorError";
   }
+}
+
+/** API clients expose invalid cursors as HTTP 409 errors. */
+export function isInvalidTaskMessageCursorError(error: unknown): boolean {
+  return (
+    error instanceof InvalidTaskMessageCursorError ||
+    (typeof error === "object" &&
+      error !== null &&
+      (error as { status?: unknown }).status === 409)
+  );
+}
+
+/** Keep a loaded-page cursor valid when a streamed message receives its persisted id. */
+export function remapTaskMessageCursor(
+  history: TaskMessageHistory,
+  current: readonly UiMessage[],
+  incoming: readonly UiMessage[],
+): TaskMessageHistory {
+  const cursor = history.nextCursor;
+  if (!cursor) return history;
+  const currentMessage = current.find((message) => message.id === cursor);
+  if (!currentMessage) return history;
+  const renderKey = messageRenderKey(currentMessage);
+  const replacement = incoming.find((message) => messageRenderKey(message) === renderKey);
+  if (!replacement || replacement.id === cursor) return history;
+  return { ...history, nextCursor: replacement.id };
 }
 
 /** Return the newest page, or the page immediately before a known message. */

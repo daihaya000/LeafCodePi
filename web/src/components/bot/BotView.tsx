@@ -34,8 +34,10 @@ import { cancelPendingSseReconnect, closeSseSource, sseReconnectDelayMs } from "
 import { messageRenderKey, stabilizeUiMessages, upsertUiMessage } from "@/lib/stabilize-messages";
 import {
   EMPTY_TASK_MESSAGE_HISTORY,
+  isInvalidTaskMessageCursorError,
   mergeNewerTaskMessages,
   prependOlderTaskMessages,
+  remapTaskMessageCursor,
 } from "@/lib/task-history";
 import { readTaskTtsEnabled, speakText, stopSpeaking, subscribeTaskTtsEnabled, writeTaskTtsEnabled } from "@/lib/tts-playback";
 import { detectTtsBackend, getTtsBackend, type TtsVoiceOption, type TtsVoicesDto } from "@/lib/tts-backends";
@@ -153,6 +155,8 @@ export const BotView = memo(function BotView({ id, active = true }: { id: string
   const [messages, setMessages] = useState<UiMessage[]>([]);
   const [messageHistory, setMessageHistory] = useState<TaskMessageHistory>(EMPTY_TASK_MESSAGE_HISTORY);
   const messageHistoryRef = useRef(messageHistory);
+  const messagesRef = useRef(messages);
+  messagesRef.current = messages;
   const historyLoadedRef = useRef(false);
   const historyLoadingRef = useRef(false);
   const historyRequestEpochRef = useRef(0);
@@ -241,6 +245,21 @@ export const BotView = memo(function BotView({ id, active = true }: { id: string
         currentViewport.scrollTop = previousTop + currentViewport.scrollHeight - previousHeight;
       });
     } catch (error) {
+      if (requestEpoch === historyRequestEpochRef.current && isInvalidTaskMessageCursorError(error)) {
+        try {
+          const latest = await getJson<TaskMessagePage>(
+            `/api/tasks/${encodeURIComponent(`bot:${id}`)}/messages`,
+          );
+          if (requestEpoch !== historyRequestEpochRef.current) return;
+          historyLoadedRef.current = false;
+          messageHistoryRef.current = latest.messageHistory;
+          setMessageHistory(latest.messageHistory);
+          setMessages(() => stabilizeUiMessages([], latest.messages));
+          return;
+        } catch (refreshError) {
+          error = refreshError;
+        }
+      }
       if (requestEpoch === historyRequestEpochRef.current) {
         setHistoryError(error instanceof Error ? error.message : "過去の履歴を読み込めませんでした");
       }
@@ -467,6 +486,17 @@ export const BotView = memo(function BotView({ id, active = true }: { id: string
             setHistoryError(null);
             setMessages(() => stabilizeUiMessages([], payload.messages ?? []));
           } else if (payload.messages) {
+            if (!payload.messageHistory || historyLoadedRef.current) {
+              const remapped = remapTaskMessageCursor(
+                messageHistoryRef.current,
+                messagesRef.current,
+                payload.messages,
+              );
+              if (remapped !== messageHistoryRef.current) {
+                messageHistoryRef.current = remapped;
+                setMessageHistory(remapped);
+              }
+            }
             setMessages((current) => mergeNewerTaskMessages(current, payload.messages!));
           }
           if (payload.messageHistory && (!historyLoadedRef.current || resetHistory)) {
@@ -489,6 +519,17 @@ export const BotView = memo(function BotView({ id, active = true }: { id: string
             isStreaming?: boolean;
           };
           if (payload.message) {
+            if (historyLoadedRef.current) {
+              const remapped = remapTaskMessageCursor(
+                messageHistoryRef.current,
+                messagesRef.current,
+                [payload.message],
+              );
+              if (remapped !== messageHistoryRef.current) {
+                messageHistoryRef.current = remapped;
+                setMessageHistory(remapped);
+              }
+            }
             setMessages((current) => upsertUiMessage(current, payload.message!));
           }
           if (payload.isStreaming !== undefined) setSending(payload.isStreaming);
@@ -807,6 +848,13 @@ export const BotView = memo(function BotView({ id, active = true }: { id: string
     setError(null);
     try {
       await sendJson<{ bot: BotDto }>(`/api/bots/${encodeURIComponent(id)}`, { resetMessages: true }, "PATCH");
+      historyRequestEpochRef.current += 1;
+      historyLoadedRef.current = false;
+      historyLoadingRef.current = false;
+      messageHistoryRef.current = EMPTY_TASK_MESSAGE_HISTORY;
+      setMessageHistory(EMPTY_TASK_MESSAGE_HISTORY);
+      setHistoryLoading(false);
+      setHistoryError(null);
       setMessages([]);
       setPermission(null);
       setQuestion(null);

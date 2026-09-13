@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   InvalidTaskMessageCursorError,
   mergeNewerTaskMessages,
+  remapTaskMessageCursor,
   pageTaskMessages,
   pageTaskSnapshotPayload,
   prependOlderTaskMessages,
@@ -73,6 +74,17 @@ describe("task history pagination", () => {
     const persisted = { ...streamed, id: "entry-42" };
 
     expect(mergeNewerTaskMessages([streamed], [persisted])).toEqual([persisted]);
+  });
+
+  it("remaps a loaded-page cursor when a streamed id becomes persisted", () => {
+    const streamed = message("msg-3");
+    const persisted = { ...streamed, id: "entry-42" };
+
+    expect(remapTaskMessageCursor(
+      { hasMore: true, nextCursor: streamed.id },
+      [streamed],
+      [persisted],
+    )).toEqual({ hasMore: true, nextCursor: persisted.id });
   });
 
   it("prepends an older page and deduplicates its boundary", () => {

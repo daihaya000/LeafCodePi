@@ -121,9 +121,11 @@ import {
 import { messageNavigationTarget } from "@/lib/message-navigation";
 import {
   EMPTY_TASK_MESSAGE_HISTORY,
+  isInvalidTaskMessageCursorError,
   mergeNewerTaskMessages,
   pageTaskMessages,
   prependOlderTaskMessages,
+  remapTaskMessageCursor,
 } from "@/lib/task-history";
 import {
   normalizeTaskPanelState,
@@ -764,6 +766,8 @@ export const TaskView = memo(function TaskView({
     () => cachedSession?.messageHistory ?? EMPTY_TASK_MESSAGE_HISTORY,
   );
   const messageHistoryRef = useRef(messageHistory);
+  const messagesRef = useRef(messages);
+  messagesRef.current = messages;
   const historyLoadingRef = useRef(false);
   const historyRequestEpochRef = useRef(0);
   const [historyLoading, setHistoryLoading] = useState(false);
@@ -1283,6 +1287,13 @@ export const TaskView = memo(function TaskView({
         if (isBootstrap) {
           setSessionHydrating(true);
           setCompactionSuggested(false);
+          if (
+            payload.messagesReused &&
+            cachedSession?.messageHistory?.hasMore &&
+            cachedSession.messageHistory.nextCursor
+          ) {
+            historyLoadedRef.current = true;
+          }
         }
         startTransition(() => {
           if (resetHistory) {
@@ -1336,6 +1347,17 @@ export const TaskView = memo(function TaskView({
           if (resetHistory) {
             setMessages(stabilizeUiMessages([], payload.messages ?? []));
           } else if (payload.messages && (!isBootstrap || payload.messages.length > 0)) {
+            if (!payload.messageHistory || historyLoadedRef.current) {
+              const remapped = remapTaskMessageCursor(
+                messageHistoryRef.current,
+                messagesRef.current,
+                payload.messages,
+              );
+              if (remapped !== messageHistoryRef.current) {
+                messageHistoryRef.current = remapped;
+                setMessageHistory(remapped);
+              }
+            }
             setMessages((prev) => mergeNewerTaskMessages(prev, payload.messages!));
           }
           if (payload.messageHistory && (!historyLoadedRef.current || resetHistory)) {
@@ -1445,6 +1467,17 @@ export const TaskView = memo(function TaskView({
             });
           }
           if (payload.message) {
+            if (historyLoadedRef.current) {
+              const remapped = remapTaskMessageCursor(
+                messageHistoryRef.current,
+                messagesRef.current,
+                [payload.message],
+              );
+              if (remapped !== messageHistoryRef.current) {
+                messageHistoryRef.current = remapped;
+                setMessageHistory(remapped);
+              }
+            }
             setMessages((prev) => upsertUiMessage(prev, payload.message!));
           }
           if ("contextUsage" in payload) {
@@ -1560,6 +1593,21 @@ export const TaskView = memo(function TaskView({
         lastScrollTopRef.current = currentViewport.scrollTop;
       });
     } catch (error) {
+      if (requestEpoch === historyRequestEpochRef.current && isInvalidTaskMessageCursorError(error)) {
+        try {
+          const latest = await getJson<TaskMessagePage>(
+            `/api/tasks/${encodeURIComponent(taskId)}/messages`,
+          );
+          if (requestEpoch !== historyRequestEpochRef.current) return;
+          historyLoadedRef.current = false;
+          messageHistoryRef.current = latest.messageHistory;
+          setMessageHistory(latest.messageHistory);
+          setMessages(() => stabilizeUiMessages([], latest.messages));
+          return;
+        } catch (refreshError) {
+          error = refreshError;
+        }
+      }
       if (requestEpoch === historyRequestEpochRef.current) {
         setHistoryError(error instanceof Error ? error.message : "過去の履歴を読み込めませんでした");
       }
@@ -1576,10 +1624,9 @@ export const TaskView = memo(function TaskView({
   };
 
   const scrollToBottom = useCallback((el: HTMLElement) => {
-    el.scrollTo({
-      top: clampScrollTop(el.scrollHeight, el.clientHeight, el.scrollHeight),
-      behavior: "auto",
-    });
+    const top = clampScrollTop(el.scrollHeight, el.clientHeight, el.scrollHeight);
+    el.scrollTo({ top, behavior: "auto" });
+    lastScrollTopRef.current = top;
   }, []);
 
   const scheduleScrollToBottom = useCallback(() => {
@@ -1621,22 +1668,19 @@ export const TaskView = memo(function TaskView({
     if (!el || !targetEl) return;
     const line = el.scrollTop + 4;
     const targetTop = el.scrollTop + targetEl.offsetTop - line;
-    el.scrollTo({
-      top: clampScrollTop(targetTop, el.clientHeight, el.scrollHeight),
-      behavior: "smooth",
-    });
+    const nextTop = clampScrollTop(targetTop, el.clientHeight, el.scrollHeight);
     stickRef.current = false;
+    el.scrollTo({ top: nextTop, behavior: "smooth" });
+    lastScrollTopRef.current = nextTop;
   }, []);
 
   // 最新位置（タイムライン最下部）へ戻り、追従モードを復帰する。
   const jumpToLatest = useCallback(() => {
     const el = scrollRef.current;
     if (!el) return;
-    el.scrollTo({
-      top: clampScrollTop(el.scrollHeight, el.clientHeight, el.scrollHeight),
-      behavior: "smooth",
-    });
+    const top = clampScrollTop(el.scrollHeight, el.clientHeight, el.scrollHeight);
     stickRef.current = true;
+    el.scrollTo({ top, behavior: "smooth" });
   }, []);
 
   useLayoutEffect(() => {

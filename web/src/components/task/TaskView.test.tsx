@@ -76,6 +76,122 @@ it("does not reconnect SSE when the status callback identity changes", async () 
   expect(connections).toBe(1);
 });
 
+it("stops following the bottom after the user scrolls up from a programmatic follow", async () => {
+  class TestEventSource extends EventTarget {
+    static latest: TestEventSource | null = null;
+    constructor() {
+      super();
+      TestEventSource.latest = this;
+    }
+    close() {}
+  }
+  vi.stubGlobal("EventSource", TestEventSource);
+  const messages: UiMessage[] = Array.from({ length: 51 }, (_, index) => ({
+    id: `history-${index}`,
+    role: "user" as const,
+    createdAt: index,
+    parts: [{ id: `history-${index}-text`, type: "text" as const, text: `message-${index}` }],
+  }));
+  render(<TaskView taskId={task.id} mdUp />);
+  const viewport = document.querySelector<HTMLElement>(".overflow-y-auto");
+  if (!viewport || !TestEventSource.latest) throw new Error("Task timeline was not rendered");
+  Object.defineProperties(viewport, {
+    scrollHeight: { configurable: true, value: 1000 },
+    clientHeight: { configurable: true, value: 200 },
+    scrollTop: { configurable: true, writable: true, value: 0 },
+  });
+  Object.defineProperty(viewport, "scrollTo", {
+    configurable: true,
+    value: ({ top }: { top: number }) => { viewport.scrollTop = top; },
+  });
+
+  await act(async () => {
+    TestEventSource.latest!.dispatchEvent(new MessageEvent("snapshot", {
+      data: JSON.stringify({
+        eventType: "ready",
+        task,
+        messages,
+        messageHistory: { hasMore: true, nextCursor: "history-0" },
+        isStreaming: false,
+      }),
+    }));
+    await Promise.resolve();
+  });
+  expect(viewport.scrollTop).toBe(800);
+
+  viewport.scrollTop = 400;
+  fireEvent.scroll(viewport);
+  await act(async () => {
+    TestEventSource.latest!.dispatchEvent(new MessageEvent("delta", {
+      data: JSON.stringify({
+        message: {
+          id: "new-message",
+          role: "user",
+          createdAt: 52,
+          parts: [{ id: "new-message-text", type: "text", text: "new" }],
+        },
+      }),
+    }));
+    await Promise.resolve();
+  });
+  expect(viewport.scrollTop).toBe(400);
+});
+
+it("refreshes the newest page when an older-history cursor is stale", async () => {
+  const latest: UiMessage = {
+    id: "fresh-message",
+    role: "user",
+    createdAt: 2,
+    parts: [{ id: "fresh-message-text", type: "text", text: "fresh" }],
+  };
+  const messagePath = `/api/tasks/${encodeURIComponent(task.id)}/messages`;
+  mocks.getJson.mockImplementation((path: string, params?: { before?: string }) => {
+    if (path === messagePath && params?.before) {
+      return Promise.reject(Object.assign(new Error("履歴カーソルが無効です"), { status: 409 }));
+    }
+    if (path === messagePath) {
+      return Promise.resolve({
+        messages: [latest],
+        messageHistory: { hasMore: true, nextCursor: "fresh-cursor" },
+      });
+    }
+    return Promise.resolve({ models: [], agents: [], skills: [], accounts: [] });
+  });
+  class TestEventSource extends EventTarget {
+    static latest: TestEventSource | null = null;
+    constructor() {
+      super();
+      TestEventSource.latest = this;
+    }
+    close() {}
+  }
+  vi.stubGlobal("EventSource", TestEventSource);
+  render(<TaskView taskId={task.id} mdUp />);
+  const messages: UiMessage[] = [
+    { id: "stale-message", role: "user", createdAt: 1, parts: [{ id: "stale-text", type: "text", text: "stale" }] },
+  ];
+  await waitFor(() => expect(TestEventSource.latest).toBeTruthy());
+  TestEventSource.latest!.dispatchEvent(new MessageEvent("snapshot", {
+    data: JSON.stringify({
+      eventType: "ready",
+      task,
+      messages,
+      messageHistory: { hasMore: true, nextCursor: "stale-cursor" },
+      isStreaming: false,
+    }),
+  }));
+  await waitFor(() => expect(screen.getByRole("button", { name: "過去の履歴を読み込む" })).toBeTruthy());
+  await act(async () => {
+    fireEvent.click(screen.getByRole("button", { name: "過去の履歴を読み込む" }));
+    await Promise.resolve();
+  });
+  await waitFor(() => expect(mocks.getJson).toHaveBeenCalledWith(messagePath));
+  expect(mocks.getJson.mock.calls.filter(([path]) => path === messagePath)).toEqual(
+    expect.arrayContaining([[messagePath, { before: "stale-cursor" }], [messagePath]]),
+  );
+  expect(screen.queryByText("履歴カーソルが無効です")).toBeNull();
+});
+
 it("ignores callbacks from an SSE source replaced after a transport error", async () => {
   vi.useFakeTimers();
   try {
