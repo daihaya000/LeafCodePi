@@ -745,12 +745,15 @@ export const BotView = memo(function BotView({ id, active = true }: { id: string
 
   const updatePermissionMode = async (value: NonNullable<BotDto["permissionMode"]>) => {
     const previous = permissionMode;
+    const requestContext = botRequestContextRef.current;
     setPermissionMode(value);
     try {
       const result = await sendJson<{ bot: BotDto }>(`/api/bots/${encodeURIComponent(id)}`, { permissionMode: value }, "PATCH");
+      if (botRequestContextRef.current !== requestContext) return;
       applyBotUpdate(result.bot);
       setPermissionMode(result.bot.permissionMode ?? "allow");
     } catch (reason) {
+      if (botRequestContextRef.current !== requestContext) return;
       setPermissionMode(previous);
       setError(reason instanceof Error ? reason.message : "ツール権限の保存に失敗しました");
     }

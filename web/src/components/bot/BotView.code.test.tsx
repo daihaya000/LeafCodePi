@@ -335,6 +335,48 @@ it("ignores a stale Code auto-approve result after switching ids", async () => {
   expect((await screen.findByRole("switch", { name: "Codeを常に許可" })).getAttribute("aria-checked")).toBe("true");
 });
 
+it("ignores a stale permission mode result after switching ids", async () => {
+  const botOne = { ...testBot, id: "one", name: "One", permissionMode: "allow" as const };
+  const botTwo = { ...testBot, id: "two", name: "Two", permissionMode: "deny" as const };
+  let resolvePatch!: (result: { bot: typeof botOne }) => void;
+  const patchRequest = new Promise<{ bot: typeof botOne }>((resolve) => { resolvePatch = resolve; });
+  let resolveTwo!: (result: { bot: typeof botTwo }) => void;
+  const twoResponse = new Promise<{ bot: typeof botTwo }>((resolve) => { resolveTwo = resolve; });
+  mocks.getJson.mockImplementation((url: string) => {
+    if (url === "/api/bots/one") return Promise.resolve({ bot: botOne });
+    if (url === "/api/bots/two") return twoResponse;
+    if (url === "/api/models") return Promise.resolve({ models: [] });
+    if (url.endsWith("/routines")) return Promise.resolve({ routines: [] });
+    return Promise.resolve({ bot: botOne });
+  });
+  mocks.sendJson.mockImplementation((url: string) => url === "/api/bots/one" ? patchRequest : Promise.resolve({ bot: botTwo }));
+
+  const view = render(<ShellProvider><BotView id="one" /></ShellProvider>);
+  await screen.findByRole("heading", { name: "One" });
+  fireEvent.click(screen.getByRole("button", { name: "設定" }));
+  const select = await screen.findByRole("combobox", { name: "ツール権限" });
+  fireEvent.change(select, { target: { value: "ask" } });
+  await waitFor(() => expect(mocks.sendJson).toHaveBeenCalledWith(
+    "/api/bots/one",
+    { permissionMode: "ask" },
+    "PATCH",
+  ));
+
+  view.rerender(<ShellProvider><BotView id="two" /></ShellProvider>);
+  await waitFor(() => expect(mocks.getJson).toHaveBeenCalledWith("/api/bots/two"));
+  await act(async () => { resolveTwo({ bot: botTwo }); await twoResponse; });
+  expect(screen.getByRole("heading", { name: "Two" })).toBeTruthy();
+
+  await act(async () => {
+    resolvePatch({ bot: botOne });
+    await patchRequest;
+  });
+
+  expect(screen.getByRole("heading", { name: "Two" })).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "設定" }));
+  expect((await screen.findByRole("combobox", { name: "ツール権限" }) as HTMLSelectElement).value).toBe("deny");
+});
+
 it("ignores a late prompt failure after switching ids", async () => {
   const botOne = { ...testBot, id: "one", name: "One" };
   const botTwo = { ...testBot, id: "two", name: "Two" };
