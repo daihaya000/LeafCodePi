@@ -517,6 +517,10 @@ function ProjectIconPicker({
   );
 }
 
+function isCodeTask(task: TaskSummary): boolean {
+  return task.kind !== "bot";
+}
+
 function countRunningTasks(tasks: TaskSummary[]): number {
   return tasks.filter((task) => task.status === "working").length;
 }
@@ -1145,6 +1149,7 @@ const SidebarView = memo(function SidebarView({
   const tasksByProject = useMemo(() => {
     const map = new Map<string | null, TaskSummary[]>();
     for (const task of tasks) {
+      if (!isCodeTask(task)) continue;
       const list = map.get(task.projectId) ?? [];
       list.push(task);
       map.set(task.projectId, list);
@@ -1178,6 +1183,7 @@ const SidebarView = memo(function SidebarView({
   const archivedGroups = useMemo(() => {
     const groups = new Map<string, { name: string; tasks: TaskSummary[] }>();
     for (const task of archivedTasks) {
+      if (!isCodeTask(task)) continue;
       const key = task.projectId ? `project:${task.projectId}` : "no-project";
       const group = groups.get(key) ?? { name: task.projectName, tasks: [] };
       group.tasks.push(task);
@@ -1862,7 +1868,7 @@ const SidebarView = memo(function SidebarView({
           >
             <Archive className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
             <span className="min-w-0 flex-1 truncate">アーカイブ</span>
-            <span className="tabular-nums text-[10px] text-muted">{archivedTasks.length}</span>
+            <span className="tabular-nums text-[10px] text-muted">{archivedTasks.filter(isCodeTask).length}</span>
             <ChevronRight
               className={cx("h-3 w-3 shrink-0 transition-transform", archivedExpanded && "rotate-90")}
               aria-hidden="true"

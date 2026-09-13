@@ -680,6 +680,61 @@ describe("Sidebar project ordering", () => {
     });
   });
 
+  it("does not show Bot tasks in the Code project list", async () => {
+    const tasks = [
+      {
+        id: "bot:bot-1",
+        kind: "bot" as const,
+        projectId: null,
+        projectName: "Bots",
+        title: "Bot task",
+        directory: "C:\\bots\\bot-1",
+        isolation: "current_folder" as const,
+        status: "idle" as const,
+        sessionId: null,
+        sessionFile: null,
+        createdAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+      },
+      {
+        id: "code-1",
+        kind: "code" as const,
+        projectId: null,
+        projectName: "プロジェクトなし",
+        title: "Code task",
+        directory: "C:\\work",
+        isolation: "current_folder" as const,
+        status: "idle" as const,
+        sessionId: null,
+        sessionFile: null,
+        createdAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+      },
+    ];
+    mocks.getJson.mockImplementation((path: string) => {
+      if (path === "/api/projects?archived=1") return Promise.resolve({ projects: [] });
+      if (path === "/api/tasks?archived=1&kind=all") return Promise.resolve({ tasks });
+      if (path === "/api/health") {
+        return Promise.resolve({
+          ok: true,
+          engine: "pi",
+          engineOk: true,
+          version: "1.0.0",
+          modelCount: 0,
+          dataDir: "C:\\data",
+          error: null,
+        });
+      }
+      return Promise.reject(new Error(`Unexpected request: ${path}`));
+    });
+
+    render(<Sidebar mobileOpen={false} onClose={vi.fn()} />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "プロジェクトなしを展開" }));
+    expect(await screen.findByText("Code task")).toBeTruthy();
+    expect(screen.queryByText("Bot task")).toBeNull();
+  });
+
   it("shows the no-project entry even before the first no-project task exists", async () => {
     mocks.getJson.mockImplementation((path: string) => {
       if (path === "/api/projects?archived=1") return Promise.resolve({ projects: [] });
