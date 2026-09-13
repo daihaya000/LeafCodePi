@@ -863,7 +863,7 @@ export const BotView = memo(function BotView({ id, active = true }: { id: string
       <div className={`${settingsOpen ? "hidden lg:flex" : "flex"} min-h-0 min-w-0 flex-1 flex-col`}>
       <BotChatHeader
         title={bot.name}
-        subtitle={"\u4e00\u5bfe\u4e00 \u30dc\u30c3\u30c8"}
+        subtitle={bot.label}
         bot={bot}
         settingsOpen={settingsOpen}
         active={sending}

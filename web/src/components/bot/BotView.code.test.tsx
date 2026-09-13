@@ -294,7 +294,7 @@ it("stops speaking when the shared TTS toggle is turned off mid-playback", async
 
 it("renders bot empty-state copy instead of literal Unicode escapes", async () => {
   render(<ShellProvider><BotView id="one" /></ShellProvider>);
-  expect(await screen.findByText("一対一 ボット")).toBeTruthy();
+  expect(await screen.findByText("Label")).toBeTruthy();
   expect(screen.getByText("下の入力欄からメッセージを送って会話を始めましょう。")).toBeTruthy();
 });
 
