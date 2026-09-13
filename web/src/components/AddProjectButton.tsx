@@ -149,7 +149,7 @@ export function AddProjectButton({
     setError(null);
     try {
       const result = await sendJson<{ project: ProjectDto }>("/api/projects", { rootPath });
-      notifyTasksChanged();
+      notifyTasksChanged(result.project.id);
       onAdded?.(result.project);
       setOpen(false);
     } catch (err) {

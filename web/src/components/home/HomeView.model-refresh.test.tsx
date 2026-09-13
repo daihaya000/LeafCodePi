@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { ModelOption } from "@/lib/types";
+import type { ModelOption, ProjectDto } from "@/lib/types";
 
 const mocks = vi.hoisted(() => ({
   getJson: vi.fn(),
@@ -29,15 +29,17 @@ function model(value: string, label: string): ModelOption {
 }
 
 let modelResponses: Promise<{ models: ModelOption[] }>[] = [];
+let projectResponses: Promise<{ projects: ProjectDto[] }>[] = [];
 
 beforeEach(() => {
   localStorage.clear();
   clearCachedModels();
   vi.clearAllMocks();
   modelResponses = [];
+  projectResponses = [];
   mocks.getJson.mockImplementation((path: string) => {
     if (path === "/api/models") return modelResponses.shift() ?? Promise.resolve({ models: [] });
-    if (path === "/api/projects") return Promise.resolve({ projects: [] });
+    if (path === "/api/projects") return projectResponses.shift() ?? Promise.resolve({ projects: [] });
     if (path === "/api/health") return Promise.resolve({ engineOk: false });
     if (path === "/api/agents") return Promise.resolve({ agents: [] });
     if (path === "/api/skills") return Promise.resolve({ skills: [] });
@@ -53,6 +55,37 @@ afterEach(() => {
 });
 
 describe("HomeView model refresh", () => {
+  it("refreshes and activates a project added from the sidebar", async () => {
+    const initial = deferred<{ projects: ProjectDto[] }>();
+    const refreshed = deferred<{ projects: ProjectDto[] }>();
+    projectResponses.push(initial.promise, refreshed.promise);
+    const project: ProjectDto = {
+      id: "project-2",
+      name: "New project",
+      rootPath: "/tmp/new-project",
+      favorite: false,
+      archived: false,
+      createdAt: "2026-09-13T00:00:00.000Z",
+      lastOpenedAt: null,
+    };
+
+    render(<HomeView initialNoProject />);
+    await act(async () => { initial.resolve({ projects: [] }); });
+    const trigger = await screen.findByRole("button", { name: "プロジェクト" });
+    expect(trigger.textContent).toContain("プロジェクトなし");
+
+    await act(async () => {
+      window.dispatchEvent(new CustomEvent("webui:tasks-changed", { detail: { projectId: project.id } }));
+      refreshed.resolve({ projects: [project] });
+    });
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "プロジェクト" }).textContent).toContain("New project");
+    });
+    fireEvent.click(screen.getByRole("button", { name: "プロジェクト" }));
+    expect(await screen.findByRole("option", { name: "New project" })).toBeTruthy();
+  });
+
   it("ignores an older model response after an overlapping refresh", async () => {
     const first = deferred<{ models: ModelOption[] }>();
     const second = deferred<{ models: ModelOption[] }>();

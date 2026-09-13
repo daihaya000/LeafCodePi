@@ -202,6 +202,7 @@ export const HomeView = memo(function HomeView({
   const composingRef = useRef(false);
   const modelsRef = useRef<ModelOption[]>(models);
   const modelRefreshRef = useRef(0);
+  const projectRefreshRef = useRef(0);
 
   const selectedProject = projectId
     ? projects.find((project) => project.id === projectId)
@@ -214,9 +215,10 @@ export const HomeView = memo(function HomeView({
     [selectedModel],
   );
 
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async (preferredProjectId?: string) => {
     if (modelsRef.current.length === 0) setModelsLoading(true);
     const refreshId = ++modelRefreshRef.current;
+    const projectRefreshId = ++projectRefreshRef.current;
     const modelRequest = getJson<{ models: ModelOption[] }>("/api/models");
     void modelRequest
       .then((result) => {
@@ -250,7 +252,7 @@ export const HomeView = memo(function HomeView({
       getJson<{ agents: { name: string; description?: string; enabled: boolean; tools?: string[] }[] }>("/api/agents"),
       getJson<{ skills: { name: string; description?: string; enabled: boolean }[] }>("/api/skills"),
     ]);
-    if (projectRes.status === "fulfilled") {
+    if (projectRes.status === "fulfilled" && projectRefreshRef.current === projectRefreshId) {
       const nextProjects = projectRes.value.projects;
       setProjects((current) =>
         current.length === nextProjects.length &&
@@ -261,6 +263,9 @@ export const HomeView = memo(function HomeView({
           : nextProjects,
       );
       setProjectId((current) => {
+        if (preferredProjectId && nextProjects.some((project) => project.id === preferredProjectId)) {
+          return preferredProjectId;
+        }
         if (current === null) return null;
         if (current && nextProjects.some((project) => project.id === current)) return current;
         return nextProjects[0]?.id ?? null;
@@ -292,6 +297,12 @@ export const HomeView = memo(function HomeView({
 
   useEffect(() => {
     void refresh();
+    const onTasksChanged = (event: Event) => {
+      const projectId = (event as CustomEvent<{ projectId?: unknown }>).detail?.projectId;
+      if (typeof projectId === "string" && projectId) void refresh(projectId);
+    };
+    window.addEventListener("webui:tasks-changed", onTasksChanged);
+    return () => window.removeEventListener("webui:tasks-changed", onTasksChanged);
   }, [refresh]);
 
   useEffect(() => {
@@ -455,7 +466,7 @@ export const HomeView = memo(function HomeView({
                     buttonSize="sm"
                     className="w-full"
                     onAdded={(project) => {
-                      void refresh().then(() => setProjectId(project.id));
+                      void refresh(project.id);
                     }}
                   />
                 }

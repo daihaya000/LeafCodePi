@@ -2,18 +2,32 @@
 
 const DEBOUNCE_MS = 400;
 
+type TasksChangedDetail = { projectId: string };
+
 let timer: ReturnType<typeof setTimeout> | null = null;
+let pendingProjectId: string | undefined;
 let botSidebarRefreshId = 0;
 
-export function notifyTasksChanged() {
+function dispatchTasksChanged(projectId?: string) {
   if (typeof window === "undefined") return;
+  window.dispatchEvent(
+    projectId
+      ? new CustomEvent<TasksChangedDetail>("webui:tasks-changed", { detail: { projectId } })
+      : new Event("webui:tasks-changed"),
+  );
+}
+
+export function notifyTasksChanged(projectId?: string) {
+  if (typeof window === "undefined") return;
+  if (projectId) pendingProjectId = projectId;
   if (timer != null) return;
   timer = setTimeout(() => {
     timer = null;
+    const changedProjectId = pendingProjectId;
+    pendingProjectId = undefined;
     // タイマー発火時にも window を再検査する。テスト環境の破棄などで
     // 発火時に window が消えていると未処理例外になるため。
-    if (typeof window === "undefined") return;
-    window.dispatchEvent(new Event("webui:tasks-changed"));
+    dispatchTasksChanged(changedProjectId);
   }, DEBOUNCE_MS);
 }
 
@@ -30,7 +44,7 @@ export function flushNotifyTasksChangedForTests() {
     clearTimeout(timer);
     timer = null;
   }
-  if (typeof window !== "undefined") {
-    window.dispatchEvent(new Event("webui:tasks-changed"));
-  }
+  const changedProjectId = pendingProjectId;
+  pendingProjectId = undefined;
+  dispatchTasksChanged(changedProjectId);
 }

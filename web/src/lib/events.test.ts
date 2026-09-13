@@ -34,6 +34,15 @@ describe("events", () => {
     expect(dispatchEvent.mock.calls[0][0].type).toBe("webui:tasks-changed");
   });
 
+  it("プロジェクト追加時は変更されたプロジェクトIDを引き継ぐ", () => {
+    vi.useFakeTimers();
+    const dispatchEvent = vi.fn();
+    vi.stubGlobal("window", { dispatchEvent });
+    notifyTasksChanged("project-1");
+    vi.advanceTimersByTime(400);
+    expect(dispatchEvent.mock.calls[0][0].detail).toEqual({ projectId: "project-1" });
+  });
+
   it("デバウンス発火前に window が消えても未処理例外にならない", () => {
     vi.useFakeTimers();
     const dispatchEvent = vi.fn();
