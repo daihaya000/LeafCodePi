@@ -135,6 +135,17 @@ describe("runtimeClockContext", () => {
     assert.match(tokyo, /UTC: 2026-09-13T15:00:01\.234Z/);
     assert.match(utc, /UTC: 2026-09-13T15:00:01\.234Z/);
   });
+
+  it("uses the current instant when no timestamp is supplied", () => {
+    const before = Date.now();
+    const context = runtimeClockContext();
+    const after = Date.now();
+    const match = context.match(/^UTC: (.+)\.$/m);
+
+    assert.ok(match);
+    const generated = Date.parse(match[1]!);
+    assert.ok(generated >= before && generated <= after);
+  });
 });
 
 describe("harness prompt abort generation", () => {
