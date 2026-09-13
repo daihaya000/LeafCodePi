@@ -285,6 +285,46 @@ it("keeps the streaming placeholder header out of the timeline until its content
   expect(document.querySelector('[data-task-part-view="streaming"]')).toBeNull();
 });
 
+it("does not split activity logs on completed empty assistant messages", () => {
+  const toolMessage = (id: string): UiMessage => ({
+    id,
+    role: "assistant",
+    createdAt: 1,
+    parts: [{
+      id: `${id}-part`,
+      type: "tool",
+      tool: "read",
+      callID: `${id}-call`,
+      state: { status: "completed", input: { path: "README.md" } },
+    }],
+  });
+  saveTaskSessionCache({
+    task,
+    messages: [
+      toolMessage("tool-1"),
+      { id: "silent-reply", role: "assistant", createdAt: 2, model: "model-a", parts: [] },
+      { id: "whitespace-reply", role: "assistant", createdAt: 3, parts: [{ id: "whitespace-text", type: "text", text: " " }] },
+      toolMessage("tool-2"),
+    ],
+    isStreaming: false,
+    isCompacting: false,
+  });
+  mocks.partView.mockImplementation(({ message }: { message: UiMessage }) => (
+    <div data-task-part-view={message.id} />
+  ));
+  mocks.toolCard.mockImplementation(({ part }: { part: { id: string } }) => (
+    <div data-task-tool-card={part.id} />
+  ));
+  render(<TaskView taskId={task.id} mdUp />);
+
+  const groups = document.querySelectorAll<HTMLDetailsElement>("details[data-task-tool-group]");
+  expect(groups).toHaveLength(1);
+  expect(groups[0]!.querySelector("summary")?.textContent).toContain("2件");
+  expect(groups[0]!.querySelectorAll("[data-task-tool-card]")).toHaveLength(2);
+  expect(document.querySelector('[data-task-part-view="silent-reply"]')).toBeNull();
+  expect(document.querySelector('[data-task-part-view="whitespace-reply"]')).toBeNull();
+});
+
 it("keeps whitespace-only assistant text inside the activity log", () => {
   const toolMessage = (id: string): UiMessage => ({
     id,

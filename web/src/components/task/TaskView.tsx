@@ -528,6 +528,18 @@ function hasVisibleAssistantText(message: UiMessage): boolean {
   );
 }
 
+/** 履歴に残る無言assistantは活動グループの境界ではないため表示しない。 */
+function isEmptyAssistantMessage(message: UiMessage): boolean {
+  return (
+    message.role === "assistant" &&
+    !message.goalLoopTurn &&
+    !message.error &&
+    (message.diagnostics?.length ?? 0) === 0 &&
+    !hasVisibleAssistantText(message) &&
+    message.parts.every((part) => part.type === "text")
+  );
+}
+
 function buildTaskActivityEntry(message: UiMessage): TaskActivityEntry | null {
   if (message.role !== "assistant") return null;
   const activityParts = message.parts.filter((part) => part.type !== "text");
@@ -570,7 +582,6 @@ function taskActivityCount(entry: TaskActivityEntry): number {
 function taskMessageBlocks(
   messages: UiMessage[],
   ungroupedMessageId?: string,
-  working = false,
 ): TaskMessageBlock[] {
   const blocks: TaskMessageBlock[] = [];
   let groupedEntries: TaskActivityEntry[] = [];
@@ -601,18 +612,9 @@ function taskMessageBlocks(
   };
 
   messages.forEach((message, index) => {
-    // 生成直後の空メッセージはヘッダーの行き先が未確定。枠外に出すと最初の thinking /
-    // tool が届いた瞬間にヘッダーが作業ログへ飛び、開いていたグループも分断される。
-    if (
-      working &&
-      index === messages.length - 1 &&
-      message.role === "assistant" &&
-      message.parts.length === 0 &&
-      !message.error &&
-      (message.diagnostics?.length ?? 0) === 0
-    ) {
-      return;
-    }
+    // 無言終了したassistantを単独行にすると、作業ログが前後に分断される。
+    // resume判定は表示前のvisibleMessagesを使うので、履歴情報は失わない。
+    if (isEmptyAssistantMessage(message)) return;
     const activity = message.id === ungroupedMessageId ? null : taskActivityEntry(message);
     const hasText = hasVisibleAssistantText(message);
     const boundary = isGoalLoopTurnBoundary(messages, index);
@@ -2796,9 +2798,8 @@ export const TaskView = memo(function TaskView({
       taskMessageBlocks(
         renderedMessages,
         resumeInsideExistingBanner ? resumeTarget?.messageId : undefined,
-        working,
       ),
-    [renderedMessages, resumeInsideExistingBanner, resumeTarget?.messageId, working],
+    [renderedMessages, resumeInsideExistingBanner, resumeTarget?.messageId],
   );
   const resumeBannerText =
     resumeTarget?.reason === "silent"
