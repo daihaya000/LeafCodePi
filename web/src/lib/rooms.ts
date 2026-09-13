@@ -128,7 +128,7 @@ function assertId(id: string): void {
 function roomPath(id: string): string { assertId(id); return join(roomsRoot(), `${id}.json`); }
 function normalizeOutcome(value: unknown): RoomOutcome | undefined {
   const outcome = value as Partial<RoomOutcome> | undefined;
-  const kinds = ["code-wait", "members", "turns", "repeat", "done"];
+  const kinds = ["code-wait", "members", "turns", "repeat", "done", "mention"];
   return outcome && typeof outcome.requestId === "string" && typeof outcome.kind === "string" && kinds.includes(outcome.kind)
     ? { kind: outcome.kind as RoomOutcome["kind"], requestId: outcome.requestId }
     : undefined;

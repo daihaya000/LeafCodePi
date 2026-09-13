@@ -49,9 +49,9 @@ vi.mock("./room-opener", async (importOriginal) => {
 });
 
 import { createBot, patchBot } from "./bots";
-import { createRoom, ensureRoomBotTask, getRoom, appendRoomMessage, patchRoom, revertRoomTo, setRoomOutcome, updateRoomHandoffs, updateRoomMessage } from "./rooms";
+import { appendRoomMessage, consumeRoomRelayEnvelope, createRoom, ensureRoomBotTask, getRoom, issueRoomRelayEnvelope, patchRoom, revertRoomTo, setRoomOutcome, updateRoomHandoffs, updateRoomMessage } from "./rooms";
 import { getTask, patchTask } from "./store";
-import { cancelPendingRoomHandoffs, deliverRoomCodeReport, reconcileRoomRuntime, registerRoomHandoff, resumeRoomAfterCode, runRoomConversation, settleRoomHandoffs, settleRoomHandoffsForCode, settleStaleRoomTurns } from "./room-runtime";
+import { cancelPendingRoomHandoffs, deliverRoomCodeReport, reconcileRoomRuntime, registerRoomHandoff, resumeRoomAfterCode, runRoomConversation, runRoomFanOut, settleRoomHandoffs, settleRoomHandoffsForCode, settleStaleRoomTurns } from "./room-runtime";
 
 function assistant(id: string, text: string): UiMessage {
   return { id, role: "assistant", createdAt: Date.now(), parts: [{ id: `${id}-text`, type: "text", text }] };
@@ -555,5 +555,114 @@ describe("registered room handoffs", () => {
     expect(states[crashed.id]).toMatchObject({ state: "failed" });
     expect(states[finished.id]).toMatchObject({ state: "done" });
     expect(states[waiting.id]).toMatchObject({ state: "failed" });
+  });
+});
+
+describe("implicit @mention handoffs", () => {
+  function replyWith(id: string, text: string) {
+    const detail = state.details.get(id)!;
+    detail.messages = [...detail.messages, assistant(`reply-${detail.messages.length}`, text)];
+  }
+
+  it("wakes the mentioned peer from a formal @pill via the room_handoff path", async () => {
+    const { room, bots, user } = setup(["デザイナー", "デバッガー"]);
+    const designerTask = `bot:${bots[0].id}:room:${room.id}`;
+    const debuggerTask = `bot:${bots[1].id}:room:${room.id}`;
+    state.promptTask.mockImplementation(async (id: string) => {
+      replyWith(id, id === designerTask
+        ? `@${bots[1].name}、既知の不具合と重ならない観点で結果を確認して。\nROOM_ACTION: DONE`
+        : "確認した。\nROOM_ACTION: DONE");
+    });
+    const response = appendRoomMessage(room.id, { role: "assistant", botId: bots[0].id, botName: bots[0].name, text: "", status: "working" })!;
+    await runRoomFanOut(room, [bots[0]], "バグを一つ見つけて", [response.id], user.id);
+    expect(state.promptTask.mock.calls.map((call) => call[0])).toEqual([designerTask, debuggerTask]);
+    expect(getRoom(room.id)!.handoffs).toEqual([expect.objectContaining({
+      toBotId: bots[1].id, implicit: true, state: "done", fromBotId: bots[0].id,
+    })]);
+    expect(state.promptTask.mock.calls[1][1]).toContain("既知の不具合と重ならない観点");
+  });
+
+  it("still wakes the peer when bot relay is off, because the pill is server-initiated", async () => {
+    const { room, bots, user } = setup(["デザイナー", "デバッガー"]);
+    patchRoom(room.id, { botRelayEnabled: false });
+    const designerTask = `bot:${bots[0].id}:room:${room.id}`;
+    state.promptTask.mockImplementation(async (id: string) => {
+      replyWith(id, id === designerTask ? `@${bots[1].name} 確認して。` : "確認した。\nROOM_ACTION: DONE");
+    });
+    const response = appendRoomMessage(room.id, { role: "assistant", botId: bots[0].id, botName: bots[0].name, text: "", status: "working" })!;
+    await runRoomFanOut(room, [bots[0]], "バグを一つ見つけて", [response.id], user.id);
+    expect(state.promptTask.mock.calls.map((call) => call[0])).toEqual([designerTask, `bot:${bots[1].id}:room:${room.id}`]);
+    expect(getRoom(room.id)!.handoffs?.[0]).toMatchObject({ implicit: true, state: "done", toBotId: bots[1].id });
+  });
+
+  it("wakes the mentioned peer during a /discuss turn instead of ending on DONE", async () => {
+    const { room, bots, user } = setup(["デザイナー", "デバッガー"]);
+    state.promptTask.mockImplementation(async (id: string) => {
+      replyWith(id, id.includes(bots[0].id)
+        ? `@${bots[1].name}、結果を確認して。\nROOM_ACTION: DONE`
+        : "確認した。\nROOM_ACTION: DONE");
+    });
+    await runRoomConversation(room, bots, "二人で会話してみて", user.id);
+    expect(state.promptTask.mock.calls.map((call) => call[0])).toEqual([
+      `bot:${bots[0].id}:room:${room.id}`, `bot:${bots[1].id}:room:${room.id}`,
+    ]);
+    expect(getRoom(room.id)!.handoffs?.[0]).toMatchObject({ implicit: true, toBotId: bots[1].id, state: "done" });
+  });
+
+  it("does not register a handoff from a bare name in prose", async () => {
+    const { room, bots, user } = setup(["デザイナー", "デバッガー"]);
+    state.promptTask.mockImplementation(async (id: string) => {
+      replyWith(id, `${bots[1].name}、確認して。\nROOM_ACTION: DONE`);
+    });
+    await runRoomConversation(room, bots, "二人で会話してみて", user.id);
+    expect(state.promptTask.mock.calls.map((call) => call[0])).toEqual([`bot:${bots[0].id}:room:${room.id}`]);
+    expect(getRoom(room.id)!.handoffs ?? []).toEqual([]);
+    expect(getRoom(room.id)?.lastOutcome?.kind).toBe("done");
+  });
+
+  it("registers only one implicit handoff when the same turn mentions two members", async () => {
+    const { room, bots, user } = setup(["デザイナー", "デバッガー", "レビュアー"]);
+    state.promptTask.mockImplementation(async (id: string) => {
+      replyWith(id, id.includes(bots[0].id)
+        ? `@${bots[1].name} と @${bots[2].name}、両方確認して。\nROOM_ACTION: DONE`
+        : "確認した。\nROOM_ACTION: DONE");
+    });
+    const response = appendRoomMessage(room.id, { role: "assistant", botId: bots[0].id, botName: bots[0].name, text: "", status: "working" })!;
+    await runRoomFanOut(room, [bots[0]], "確認して", [response.id], user.id);
+    expect(getRoom(room.id)!.handoffs).toHaveLength(1);
+    expect(getRoom(room.id)!.handoffs?.[0]).toMatchObject({ toBotId: bots[1].id, implicit: true });
+    expect(state.promptTask.mock.calls.map((call) => call[0])).toEqual([
+      `bot:${bots[0].id}:room:${room.id}`, `bot:${bots[1].id}:room:${room.id}`,
+    ]);
+  });
+
+  it("refuses silent completion when a valid @pill cannot register a handoff", async () => {
+    const { room, bots, user } = setup(["A", "B"]);
+    const first = appendRoomMessage(room.id, { role: "assistant", botId: bots[0].id, text: "依頼した", status: "done", conversation: { requestId: user.id, participantIds: room.members, turn: 1, maxTurns: 6 } })!;
+    registerRoomHandoff({ roomId: room.id, requestId: user.id, fromMessageId: first.id, fromBotId: bots[0].id, toBotId: bots[1].id, task: "hop" });
+    updateRoomHandoffs(room.id, (handoffs) => handoffs.map((item) => ({ ...item, state: "done" as const, relayDepth: 0, responseMessageId: first.id })));
+    state.promptTask.mockImplementation(async (id: string) => {
+      replyWith(id, `@${bots[0].name} に戻して。\nROOM_ACTION: DONE`);
+    });
+    await runRoomConversation(room, bots, "二人で会話してみて", user.id, { startTurn: 2, maxTurns: 6, nextBotId: bots[1].id });
+    expect(getRoom(room.id)?.lastOutcome).toEqual({ kind: "mention", requestId: user.id });
+    const extra = (getRoom(room.id)!.handoffs ?? []).filter((item) => item.implicit);
+    expect(extra).toEqual([]);
+    expect(state.promptTask).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not weaken envelope anti-spoofing: forged and replayed tokens stay rejected", () => {
+    const { room, bots } = setup(["A", "B"]);
+    expect(consumeRoomRelayEnvelope(room.id, "forged")).toBeUndefined();
+    const token = issueRoomRelayEnvelope(room.id, bots[0].id, [bots[1].id]);
+    expect(token).toBeDefined();
+    expect(consumeRoomRelayEnvelope(room.id, token!)).toBeDefined();
+    expect(consumeRoomRelayEnvelope(room.id, token!)).toBeUndefined();
+    expect(issueRoomRelayEnvelope(room.id, bots[1].id, [bots[0].id], token)).toBeUndefined();
+    patchRoom(room.id, { botRelayEnabled: false });
+    expect(issueRoomRelayEnvelope(room.id, bots[0].id, [bots[1].id])).toBeUndefined();
+    expect(() => registerRoomHandoff({
+      roomId: room.id, requestId: getRoom(room.id)!.messages[0]!.id, fromMessageId: "missing", fromBotId: bots[0].id, toBotId: bots[1].id, task: "nope",
+    })).toThrow(/disabled/i);
   });
 });
