@@ -434,16 +434,22 @@ export function RoomView({ id, active = true }: { id: string; active?: boolean }
 
   const revertMessage = useCallback(async (messageId: string) => {
     if (reverting) return;
+    const requestContext = roomRequestContextRef.current;
     setReverting(true);
     setError(null);
     try {
       const result = await sendJson<{ room: RoomDto; text: string; images?: ComposerAttachment[]; files?: ComposerAttachment[] }>(`/api/bots/rooms/${encodeURIComponent(id)}/revert`, { messageId });
+      if (roomRequestContextRef.current !== requestContext) return;
       setRoom(result.room);
       setPrompt(result.text);
       setAttachments([...(result.images ?? []), ...(result.files ?? [])]);
       requestAnimationFrame(() => promptRef.current?.focus());
-    } catch (reason) { setError(reason instanceof Error ? reason.message : "巻き戻しに失敗しました"); }
-    finally { setReverting(false); }
+    } catch (reason) {
+      if (roomRequestContextRef.current === requestContext) setError(reason instanceof Error ? reason.message : "巻き戻しに失敗しました");
+    }
+    finally {
+      if (roomRequestContextRef.current === requestContext) setReverting(false);
+    }
   }, [id, reverting]);
 
   const rendered = useMemo(() => (room?.messages ?? []).map((message) => {

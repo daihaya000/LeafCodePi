@@ -115,6 +115,36 @@ describe("RoomView loading", () => {
     expect(screen.queryByText("old failure")).toBeNull();
   });
 
+  it("ignores a stale revert result after switching ids", async () => {
+    const roomOne = { ...room, id: "room-1", name: "One" };
+    const roomTwo = { ...room, id: "room-2", name: "Two" };
+    let resolveRevert!: (result: { room: typeof room; text: string; images: never[] }) => void;
+    const revertRequest = new Promise<{ room: typeof room; text: string; images: never[] }>((resolve) => { resolveRevert = resolve; });
+    mocks.getJson.mockImplementation((path: string) => {
+      if (path === "/api/bots/rooms/room-1") return Promise.resolve({ room: roomOne });
+      if (path === "/api/bots/rooms/room-2") return Promise.resolve({ room: roomTwo });
+      if (path === "/api/bots") return Promise.resolve({ bots: [bot] });
+      return Promise.resolve({ room: roomOne });
+    });
+    mocks.sendJson.mockImplementation((path: string) => path.endsWith("/revert") ? revertRequest : Promise.resolve({ room: roomOne }));
+    const view = render(<RoomView id="room-1" />);
+    await screen.findByRole("heading", { name: "One" });
+    fireEvent.click(screen.getByRole("button", { name: /入力欄に戻す/ }));
+    await vi.waitFor(() => expect(mocks.sendJson).toHaveBeenCalledWith(
+      "/api/bots/rooms/room-1/revert",
+      { messageId: "message-1" },
+    ));
+
+    view.rerender(<RoomView id="room-2" />);
+    await screen.findByRole("heading", { name: "Two" });
+    await act(async () => {
+      resolveRevert({ room: roomOne, text: "old prompt", images: [] });
+      await revertRequest;
+    });
+
+    expect(screen.queryByDisplayValue("old prompt")).toBeNull();
+  });
+
   it("ignores a stale SSE snapshot after switching ids", async () => {
     const roomOne = {
       ...room,
