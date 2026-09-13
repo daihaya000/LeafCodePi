@@ -736,11 +736,16 @@ async function ensureOptionalProviders(
   }
 }
 
-async function ensureRuntime(): Promise<void> {
+async function ensureRuntime(
+  options: { skipDefaultRuntime?: boolean } = {},
+): Promise<void> {
   startBotCodeRelay();
   reconcileOrphanedWorkingTasks();
   const current = state();
-  if (!current.modelRuntime && !current.initPromise) {
+  // Account sessions own an isolated ModelRuntime. Do not make them wait for
+  // the unrelated shared catalog and optional-provider network warm-up.
+  const ensureDefaultRuntime = options.skipDefaultRuntime !== true;
+  if (ensureDefaultRuntime && !current.modelRuntime && !current.initPromise) {
     current.initPromise = (async () => {
       try {
         const pi = await loadPi();
@@ -758,8 +763,8 @@ async function ensureRuntime(): Promise<void> {
       }
     })();
   }
-  if (current.initPromise) await current.initPromise;
-  if (current.modelRuntime) {
+  if (ensureDefaultRuntime && current.initPromise) await current.initPromise;
+  if (ensureDefaultRuntime && current.modelRuntime) {
     await ensureOptionalProviders(current.modelRuntime);
   }
   if (!current.watchdogRegistered) {
@@ -2252,7 +2257,7 @@ async function createSession(options: {
   const botSoulBotId =
     sessionTask?.kind === "bot" && sessionTask.botId ? sessionTask.botId : undefined;
   const pi = await loadPi();
-  await ensureRuntime();
+  await ensureRuntime({ skipDefaultRuntime: Boolean(options.accountId) });
   const agentDir = pi.getAgentDir();
   const sessionManager = options.sessionFile
     ? pi.SessionManager.open(options.sessionFile)
@@ -2767,7 +2772,6 @@ async function resolveConcreteModel(
   requestedAccountId?: string | null,
   options?: { strictAccountId?: boolean; accountIdExplicit?: boolean },
 ): Promise<ConcreteModelRoute | undefined> {
-  await ensureRuntime();
   const parsed = parseModelValue(value);
   if (!parsed) return undefined;
 
@@ -2826,6 +2830,7 @@ async function resolveConcreteModel(
 
   // Shared providers never use an account runtime, even when a caller carries
   // a task account for a different provider.
+  await ensureRuntime();
   if (providerIsHardLimited(parsed.providerID)) {
     throw routeLimitError(providerResetAt(parsed.providerID));
   }

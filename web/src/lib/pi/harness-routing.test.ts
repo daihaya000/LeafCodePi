@@ -373,6 +373,38 @@ describe("mergeBundledSkills", () => {
 });
 
 describe("integrated session routing", () => {
+  it("opens an account Bot without waiting for the shared runtime", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "leafcode-pi-account-bot-cold-start-"));
+    tempDirs.push(dir);
+    process.env.LEAFCODE_PI_DATA_DIR = dir;
+    process.env.PI_CODING_AGENT_DIR = join(dir, "agent");
+    __resetPiAgentDirCacheForTests();
+
+    const account = createAccount({ label: "Bot用", providers: ["anthropic"] });
+    storeProviderAuth(account.id, process.env.PI_CODING_AGENT_DIR!);
+    installHarness(new Map([[account.id, runtime(account.id)]]));
+    const harness = (globalThis as Record<string, unknown>)[GLOBAL_KEY] as {
+      modelRuntime: unknown;
+    };
+    // The fake SDK intentionally has no ModelRuntime.create. A cold account
+    // Bot must not initialize the unrelated shared runtime first.
+    harness.modelRuntime = null;
+
+    const bot = createBot({ name: "Account Bot" });
+    patchTask(botTaskId(bot.id), {
+      providerID: "anthropic",
+      modelID: "claude-sonnet",
+      accountId: account.id,
+    });
+
+    await promptTask(botTaskId(bot.id), "返答してください", undefined, {
+      waitForCompletion: true,
+    });
+
+    expect(fakePi.sessions[0]?.accountId).toBe(account.id);
+    expect(fakePi.sessions[0]?.prompts).toEqual(["返答してください"]);
+  });
+
   it("switches a cold task away from an unavailable previous model", async () => {
     const dir = mkdtempSync(join(tmpdir(), "leafcode-pi-cold-model-switch-"));
     tempDirs.push(dir);
