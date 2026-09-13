@@ -78,6 +78,40 @@ describe("createSseWriter", () => {
     void stream.cancel();
   });
 
+  it("closes on request abort and removes its listener", async () => {
+    let controller!: ReadableStreamDefaultController<Uint8Array>;
+    const stream = new ReadableStream<Uint8Array>({
+      start(started) {
+        controller = started;
+      },
+    });
+    const request = new AbortController();
+    const removeEventListener = vi.spyOn(request.signal, "removeEventListener");
+    const sse = createSseWriter(controller, { signal: request.signal });
+
+    request.abort();
+
+    expect(sse.closed).toBe(true);
+    expect(removeEventListener).toHaveBeenCalledWith("abort", expect.any(Function));
+    await stream.cancel();
+  });
+
+  it("starts closed when the request is already aborted", async () => {
+    let controller!: ReadableStreamDefaultController<Uint8Array>;
+    const stream = new ReadableStream<Uint8Array>({
+      start(started) {
+        controller = started;
+      },
+    });
+    const request = new AbortController();
+    request.abort();
+
+    const sse = createSseWriter(controller, { signal: request.signal });
+
+    expect(sse.closed).toBe(true);
+    await stream.cancel();
+  });
+
   it("reports serialization and enqueue timings when requested", () => {
     let controller!: ReadableStreamDefaultController<Uint8Array>;
     const stream = new ReadableStream<Uint8Array>({

@@ -15,7 +15,7 @@ export async function GET(
   const stream = new ReadableStream({
     start(controller) {
       let unsubscribe = () => {};
-      sse = createSseWriter(controller);
+      sse = createSseWriter(controller, { signal: req.signal });
       sse.onCleanup(() => unsubscribe());
       const active = getActiveProviderLogin();
       if (!active || active.providerId !== id) {
@@ -49,7 +49,6 @@ export async function GET(
         return;
       }
       sse.startHeartbeat();
-      req.signal.addEventListener("abort", () => sse?.close());
     },
     cancel() {
       sse?.cleanup();

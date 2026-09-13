@@ -245,6 +245,35 @@ it("defers model loading until a hidden Bot tab is activated", async () => {
   await waitFor(() => expect(mocks.getJson).toHaveBeenCalledWith("/api/models"));
 });
 
+it("ignores callbacks from an SSE source replaced after a transport error", async () => {
+  vi.useFakeTimers();
+  try {
+    class TestSource {
+      static instances: TestSource[] = [];
+      onerror: (() => void) | null = null;
+      closed = false;
+      constructor() { TestSource.instances.push(this); }
+      addEventListener() {}
+      close() { this.closed = true; }
+    }
+    vi.stubGlobal("EventSource", TestSource);
+    render(<ShellProvider><BotView id="one" active /></ShellProvider>);
+
+    const first = TestSource.instances[0];
+    if (!first) throw new Error("Initial EventSource was not created");
+    act(() => first.onerror?.());
+    await act(async () => { vi.advanceTimersByTime(1_000); });
+
+    const second = TestSource.instances[1];
+    if (!second) throw new Error("Reconnect EventSource was not created");
+    expect(second.closed).toBe(false);
+    act(() => first.onerror?.());
+    expect(second.closed).toBe(false);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
 it("shows a server-side SSE error instead of reconnecting forever", async () => {
   render(<ShellProvider><BotView id="one" active /></ShellProvider>);
   await screen.findByRole("heading", { name: "Bot" });

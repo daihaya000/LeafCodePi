@@ -189,9 +189,11 @@ export function RoomView({ id, active = true }: { id: string; active?: boolean }
       if (closed) return;
       retry = cancelPendingSseReconnect(retry);
       source = closeSseSource(source);
-      source = new EventSource(`/api/bots/rooms/${encodeURIComponent(id)}/events?epoch=${Date.now()}`);
-      source.addEventListener("snapshot", (event) => {
-        if (closed) return;
+      const nextSource = new EventSource(`/api/bots/rooms/${encodeURIComponent(id)}/events?epoch=${Date.now()}`);
+      source = nextSource;
+      const isCurrentSource = () => !closed && source === nextSource;
+      nextSource.addEventListener("snapshot", (event) => {
+        if (!isCurrentSource()) return;
         retryCount = 0;
         try {
           const payload = JSON.parse((event as MessageEvent).data) as { room?: RoomDto; attention?: RoomAttention[] };
@@ -215,9 +217,9 @@ export function RoomView({ id, active = true }: { id: string; active?: boolean }
           });
         } catch { setError("イベントの解析に失敗しました"); }
       });
-      source.onerror = () => {
-        if (closed) return;
-        source = closeSseSource(source);
+      nextSource.onerror = () => {
+        if (!isCurrentSource()) return;
+        source = closeSseSource(nextSource);
         retry = cancelPendingSseReconnect(retry);
         retryCount += 1;
         retry = setTimeout(connect, sseReconnectDelayMs(retryCount));

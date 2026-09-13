@@ -12,7 +12,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
   let sse: ReturnType<typeof createSseWriter> | undefined;
   const stream = new ReadableStream({
     start(controller) {
-      sse = createSseWriter(controller);
+      sse = createSseWriter(controller, { signal: req.signal });
       const subscriptions = new Map<string, () => void>();
       let previous = "";
       const snapshot = () => {
@@ -38,7 +38,6 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
       sse.onCleanup(() => { unsubscribe(); clearInterval(refresh); for (const off of subscriptions.values()) off(); });
       sse.startHeartbeat();
       snapshot();
-      req.signal.addEventListener("abort", () => sse?.close());
     },
     cancel() { sse?.cleanup(); },
   });

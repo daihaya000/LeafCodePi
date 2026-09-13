@@ -122,6 +122,36 @@ describe("RoomView loading", () => {
   });
 });
 
+it("ignores callbacks from an SSE source replaced after a transport error", async () => {
+  vi.useFakeTimers();
+  try {
+    class TestSource {
+      static instances: TestSource[] = [];
+      readonly listeners = new Map<string, (event: MessageEvent) => void>();
+      onerror: (() => void) | null = null;
+      closed = false;
+      constructor() { TestSource.instances.push(this); }
+      addEventListener(type: string, listener: (event: MessageEvent) => void) { this.listeners.set(type, listener); }
+      close() { this.closed = true; }
+    }
+    vi.stubGlobal("EventSource", TestSource);
+    render(<RoomView id="room-1" />);
+
+    const first = TestSource.instances[0];
+    if (!first) throw new Error("Initial EventSource was not created");
+    act(() => first.onerror?.());
+    await act(async () => { vi.advanceTimersByTime(1_000); });
+
+    const second = TestSource.instances[1];
+    if (!second) throw new Error("Reconnect EventSource was not created");
+    expect(second.closed).toBe(false);
+    act(() => first.onerror?.());
+    expect(second.closed).toBe(false);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
 describe("RoomView mention chips", () => {
   it("turns an addressed participant into an avatar chip in both bot Markdown and user text", async () => {
     const { act } = await import("@testing-library/react");

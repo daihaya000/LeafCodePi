@@ -53,10 +53,10 @@ export async function GET(
       let ready = false;
       const pendingPayloads: Record<string, unknown>[] = [];
       const requestStartedAt = TASK_SSE_PERF_ENABLED ? performance.now() : 0;
-      sse = createSseWriter(
-        controller,
-        reportTransportTiming ? { onTiming: reportTransportTiming } : undefined,
-      );
+      sse = createSseWriter(controller, {
+        ...(reportTransportTiming ? { onTiming: reportTransportTiming } : {}),
+        signal: req.signal,
+      });
       sse.onCleanup(() => {
         unsubscribe();
         stopRemotePoll();
@@ -262,7 +262,6 @@ export async function GET(
         unsubscribe();
         return;
       }
-      req.signal.addEventListener("abort", () => sse?.close());
     },
     cancel() {
       sse?.cleanup();

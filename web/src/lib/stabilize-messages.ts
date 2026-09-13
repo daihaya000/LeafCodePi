@@ -49,13 +49,14 @@ export function stabilizeIdentifiedList<T extends { id: string }>(prev: T[], nex
   if (prev.length === 0) return next;
   const prevById = new Map(prev.map((message) => [message.id, message]));
   let changed = prev.length !== next.length;
-  const out = next.map((message) => {
+  const out = next.map((message, index) => {
     const old = prevById.get(message.id);
     if (!old) {
       changed = true;
       return message;
     }
     if (old === message || messageFingerprint(old) === messageFingerprint(message)) {
+      if (prev[index] !== old) changed = true;
       return old;
     }
     changed = true;

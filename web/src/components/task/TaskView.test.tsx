@@ -76,6 +76,37 @@ it("does not reconnect SSE when the status callback identity changes", async () 
   expect(connections).toBe(1);
 });
 
+it("ignores callbacks from an SSE source replaced after a transport error", async () => {
+  vi.useFakeTimers();
+  try {
+    class TestEventSource extends EventTarget {
+      static instances: TestEventSource[] = [];
+      closed = false;
+      constructor() {
+        super();
+        TestEventSource.instances.push(this);
+      }
+      close() { this.closed = true; }
+    }
+    vi.stubGlobal("EventSource", TestEventSource);
+    render(<TaskView taskId={task.id} mdUp />);
+
+    const first = TestEventSource.instances[0];
+    if (!first) throw new Error("Initial EventSource was not created");
+    act(() => first.dispatchEvent(new Event("error")));
+    expect(vi.getTimerCount()).toBeGreaterThan(0);
+    await act(async () => { vi.advanceTimersByTime(1_000); });
+
+    const second = TestEventSource.instances[1];
+    if (!second) throw new Error("Reconnect EventSource was not created");
+    expect(second.closed).toBe(false);
+    act(() => first.dispatchEvent(new Event("error")));
+    expect(second.closed).toBe(false);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
 it("shows one Goal Loop turn divider per turn boundary", () => {
   const turnMessage = (id: string, turn: number, kind: "goal" | "verification"): UiMessage => ({
     id,

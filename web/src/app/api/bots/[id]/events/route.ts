@@ -39,7 +39,7 @@ export async function GET(
         }
         sse?.send(safePayload.type === "delta" ? "delta" : "snapshot", safePayload);
       });
-      sse = createSseWriter(controller);
+      sse = createSseWriter(controller, { signal: req.signal });
       sse.onCleanup(sub);
       sse.startHeartbeat();
       try {
@@ -86,7 +86,6 @@ export async function GET(
         sse.send("error", { error: error instanceof Error ? error.message : String(error) });
         sse.close();
       }
-      req.signal.addEventListener("abort", () => sse?.close());
     },
     cancel() {
       sse?.cleanup();

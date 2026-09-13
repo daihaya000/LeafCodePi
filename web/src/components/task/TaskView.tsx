@@ -1215,9 +1215,11 @@ export const TaskView = memo(function TaskView({
         eventParams.set("cachedTaskUpdatedAt", cachedSession.updatedAt);
         eventParams.set("cachedSessionId", cachedSession.sessionId);
       }
-      source = new EventSource(`/api/tasks/${taskId}/events?${eventParams.toString()}`);
-      source.addEventListener("snapshot", (event) => {
-        if (closed) return;
+      const nextSource = new EventSource(`/api/tasks/${taskId}/events?${eventParams.toString()}`);
+      source = nextSource;
+      const isCurrentSource = () => !closed && source === nextSource;
+      nextSource.addEventListener("snapshot", (event) => {
+        if (!isCurrentSource()) return;
         const rawData = (event as MessageEvent).data as string;
         if (TASK_PERF_ENABLED && perf) {
           perf.snapshotCount += 1;
@@ -1396,8 +1398,8 @@ export const TaskView = memo(function TaskView({
         const status = snapshotTask?.status;
         if (status) onStatusRef.current?.(taskId, status);
       });
-      source.addEventListener("delta", (event) => {
-        if (closed) return;
+      nextSource.addEventListener("delta", (event) => {
+        if (!isCurrentSource()) return;
         const rawData = (event as MessageEvent).data as string;
         if (TASK_PERF_ENABLED && perf) {
           perf.deltaCount += 1;
@@ -1456,12 +1458,12 @@ export const TaskView = memo(function TaskView({
         notifySidebarIfNeeded(payload.task);
         if (payload.task?.status) onStatusRef.current?.(taskId, payload.task.status);
       });
-      source.addEventListener("error", (event) => {
-        if (closed) return;
+      nextSource.addEventListener("error", (event) => {
+        if (!isCurrentSource()) return;
         if (event instanceof MessageEvent && typeof event.data === "string") {
           closed = true;
           setSseReconnecting(false);
-          source = closeSseSource(source);
+          source = closeSseSource(nextSource);
           retryTimer = cancelPendingSseReconnect(retryTimer);
           try {
             const payload = JSON.parse(event.data) as { error?: string };
@@ -1474,7 +1476,7 @@ export const TaskView = memo(function TaskView({
         setSseReconnecting(true);
         setError(null);
         // Auto-reconnect: close the broken stream and retry with backoff.
-        source = closeSseSource(source);
+        source = closeSseSource(nextSource);
         retryTimer = cancelPendingSseReconnect(retryTimer);
         retryCount += 1;
         const delay = sseReconnectDelayMs(retryCount);

@@ -111,6 +111,18 @@ describe("stabilizeUiMessages", () => {
     expect(out[0]).toBe(prev[0]);
   });
 
+  it("keeps a changed SSE ordering instead of returning the old array", () => {
+    const prev = [textMessage("first", "first"), textMessage("second", "second")];
+    const next = [textMessage("second", "second"), textMessage("first", "first")];
+
+    const out = stabilizeUiMessages(prev, next);
+
+    expect(out).not.toBe(prev);
+    expect(out.map((message) => message.id)).toEqual(["second", "first"]);
+    expect(out[0]).toBe(prev[1]);
+    expect(out[1]).toBe(prev[0]);
+  });
+
   it("updates only changed messages", () => {
     const prev = [textMessage("a", "hello"), textMessage("b", "world")];
     const next = [textMessage("a", "hello"), textMessage("b", "world!")];

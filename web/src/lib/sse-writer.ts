@@ -14,6 +14,7 @@ export type SseWriterTiming = {
 
 export type SseWriterOptions = {
   onTiming?: (timing: SseWriterTiming) => void;
+  signal?: AbortSignal;
 };
 
 export function createSseWriter(
@@ -96,5 +97,15 @@ export function createSseWriter(
       }
     },
   };
+  const signal = options.signal;
+  if (signal) {
+    const abort = () => writer.close();
+    if (signal.aborted) {
+      abort();
+    } else {
+      signal.addEventListener("abort", abort, { once: true });
+      cleanupFns.push(() => signal.removeEventListener("abort", abort));
+    }
+  }
   return writer;
 }

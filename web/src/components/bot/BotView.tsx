@@ -415,9 +415,11 @@ export const BotView = memo(function BotView({ id, active = true }: { id: string
       if (closed) return;
       retry = cancelPendingSseReconnect(retry);
       source = closeSseSource(source);
-      source = new EventSource(`/api/bots/${encodeURIComponent(id)}/events?epoch=${Date.now()}`);
-      source.addEventListener("snapshot", (event) => {
-        if (closed) return;
+      const nextSource = new EventSource(`/api/bots/${encodeURIComponent(id)}/events?epoch=${Date.now()}`);
+      source = nextSource;
+      const isCurrentSource = () => !closed && source === nextSource;
+      nextSource.addEventListener("snapshot", (event) => {
+        if (!isCurrentSource()) return;
         retryCount = 0;
         try {
           const payload = JSON.parse((event as MessageEvent).data) as {
@@ -459,8 +461,8 @@ export const BotView = memo(function BotView({ id, active = true }: { id: string
           if (payload.error) setError(payload.error);
         } catch { setError("イベントの解析に失敗しました"); }
       });
-      source.addEventListener("delta", (event) => {
-        if (closed) return;
+      nextSource.addEventListener("delta", (event) => {
+        if (!isCurrentSource()) return;
         try {
           const payload = JSON.parse((event as MessageEvent).data) as {
             message?: UiMessage | null;
@@ -475,10 +477,10 @@ export const BotView = memo(function BotView({ id, active = true }: { id: string
       // The route uses a named SSE error event for server-side failures. Handle
       // it separately from EventSource's transport error so a failed cold
       // session is shown to the user instead of reconnecting forever.
-      source.addEventListener("error", (event) => {
-        if (closed || !(event instanceof MessageEvent) || typeof event.data !== "string") return;
+      nextSource.addEventListener("error", (event) => {
+        if (!isCurrentSource() || !(event instanceof MessageEvent) || typeof event.data !== "string") return;
         closed = true;
-        source = closeSseSource(source);
+        source = closeSseSource(nextSource);
         retry = cancelPendingSseReconnect(retry);
         try {
           const payload = JSON.parse(event.data) as { error?: string };
@@ -487,9 +489,9 @@ export const BotView = memo(function BotView({ id, active = true }: { id: string
           setError("イベント接続に失敗しました");
         }
       });
-      source.onerror = () => {
-        if (closed) return;
-        source = closeSseSource(source);
+      nextSource.onerror = () => {
+        if (!isCurrentSource()) return;
+        source = closeSseSource(nextSource);
         retry = cancelPendingSseReconnect(retry);
         retryCount += 1;
         retry = setTimeout(connect, sseReconnectDelayMs(retryCount));
