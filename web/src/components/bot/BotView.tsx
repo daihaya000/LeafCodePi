@@ -699,13 +699,16 @@ export const BotView = memo(function BotView({ id, active = true }: { id: string
 
   const updateNotifications = async (value: boolean) => {
     const previous = notificationsEnabled;
+    const requestContext = botRequestContextRef.current;
     setNotificationsEnabled(value);
     setError(null);
     try {
       const result = await sendJson<{ bot: BotDto }>(`/api/bots/${encodeURIComponent(id)}`, { notificationsEnabled: value }, "PATCH");
+      if (botRequestContextRef.current !== requestContext) return;
       applyBotUpdate(result.bot);
       setNotificationsEnabled(result.bot.notificationsEnabled);
     } catch (reason) {
+      if (botRequestContextRef.current !== requestContext) return;
       setNotificationsEnabled(previous);
       setError(reason instanceof Error ? reason.message : "\u901a\u77e5\u8a2d\u5b9a\u306e\u4fdd\u5b58\u306b\u5931\u6557\u3057\u307e\u3057\u305f");
     }
