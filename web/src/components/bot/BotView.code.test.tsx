@@ -81,6 +81,49 @@ it("notifies a hidden tab once per finished reply, and stays silent when the Bot
   }
 });
 
+it("does not notify completion from the previous Bot after switching ids", async () => {
+  const sent: string[] = [];
+  class FakeNotification {
+    static permission = "granted";
+    constructor(title: string) { sent.push(title); }
+  }
+  class TestSource {
+    static instances: TestSource[] = [];
+    listeners = new Map<string, (event: { data: string }) => void>();
+    constructor() { TestSource.instances.push(this); }
+    addEventListener(name: string, callback: (event: { data: string }) => void) { this.listeners.set(name, callback); }
+    close() {}
+  }
+  vi.stubGlobal("Notification", FakeNotification);
+  vi.stubGlobal("EventSource", TestSource);
+  Object.defineProperty(document, "hidden", { configurable: true, value: true });
+  const botOne = { ...testBot, id: "one", name: "One" };
+  const botTwo = { ...testBot, id: "two", name: "Two" };
+  mocks.getJson.mockImplementation(async (url: string) => {
+    if (url === "/api/bots/one") return { bot: botOne };
+    if (url === "/api/bots/two") return { bot: botTwo };
+    if (url === "/api/models") return { models: [] };
+    if (url.endsWith("/routines")) return { routines: [] };
+    return { bot: botOne };
+  });
+  try {
+    const view = render(<ShellProvider><BotView id="one" /></ShellProvider>);
+    await screen.findByRole("heading", { name: "One" });
+    const first = TestSource.instances[0];
+    if (!first) throw new Error("Initial EventSource was not created");
+    await act(async () => { first.listeners.get("snapshot")?.({ data: JSON.stringify({ isStreaming: true }) }); });
+
+    view.rerender(<ShellProvider><BotView id="two" /></ShellProvider>);
+    await screen.findByRole("heading", { name: "Two" });
+    const second = TestSource.instances[1];
+    if (!second) throw new Error("Replacement EventSource was not created");
+    await act(async () => { second.listeners.get("snapshot")?.({ data: JSON.stringify({ isStreaming: false }) }); });
+    expect(sent).toEqual([]);
+  } finally {
+    Reflect.deleteProperty(document, "hidden");
+  }
+});
+
 it("notifies a hidden tab when the Bot is waiting for approval", async () => {
   const sent: string[] = [];
   class FakeNotification {
@@ -163,6 +206,36 @@ it("ignores a stale Bot response after switching ids", async () => {
   await act(async () => { resolveOne({ bot: botOne }); await oneResponse; });
   expect(screen.getByRole("heading", { name: "Two" })).toBeTruthy();
   expect(screen.queryByRole("heading", { name: "One" })).toBeNull();
+});
+
+it("ignores a late prompt failure after switching ids", async () => {
+  const botOne = { ...testBot, id: "one", name: "One" };
+  const botTwo = { ...testBot, id: "two", name: "Two" };
+  let rejectPrompt!: (reason: Error) => void;
+  const promptRequest = new Promise<never>((_, reject) => { rejectPrompt = reject; });
+  mocks.getJson.mockImplementation((url: string) => {
+    if (url === "/api/bots/one") return Promise.resolve({ bot: botOne });
+    if (url === "/api/bots/two") return Promise.resolve({ bot: botTwo });
+    if (url === "/api/models") return Promise.resolve({ models: [] });
+    if (url.endsWith("/routines")) return Promise.resolve({ routines: [] });
+    return Promise.resolve({ bot: botOne });
+  });
+  mocks.sendJson.mockImplementation((url: string) => url.endsWith("/prompt") ? promptRequest : Promise.resolve({ bot: botTwo }));
+  const view = render(<ShellProvider><BotView id="one" /></ShellProvider>);
+  const input = await screen.findByRole("textbox", { name: /Oneにメッセージ/ });
+  fireEvent.change(input, { target: { value: "old prompt" } });
+  fireEvent.keyDown(input, { key: "Enter", ctrlKey: true });
+  await waitFor(() => expect(mocks.sendJson).toHaveBeenCalledWith("/api/bots/one/prompt", { prompt: "old prompt" }));
+
+  view.rerender(<ShellProvider><BotView id="two" /></ShellProvider>);
+  await screen.findByRole("heading", { name: "Two" });
+  await act(async () => {
+    rejectPrompt(new Error("old failure"));
+    await promptRequest.catch(() => undefined);
+  });
+
+  expect(screen.queryByDisplayValue("old prompt")).toBeNull();
+  expect(screen.queryByText("old failure")).toBeNull();
 });
 
 it("ignores stale routine data after switching ids", async () => {
@@ -302,15 +375,31 @@ it("ignores callbacks from an SSE source replaced after a transport error", asyn
 });
 
 it("shows a server-side SSE error instead of reconnecting forever", async () => {
-  render(<ShellProvider><BotView id="one" active /></ShellProvider>);
-  await screen.findByRole("heading", { name: "Bot" });
-  if (!errorListener) throw new Error("SSE error listener was not registered");
+  const notifications: string[] = [];
+  class FakeNotification {
+    static permission = "granted";
+    constructor(title: string) { notifications.push(title); }
+  }
+  vi.stubGlobal("Notification", FakeNotification);
+  Object.defineProperty(document, "hidden", { configurable: true, value: true });
+  try {
+    render(<ShellProvider><BotView id="one" active /></ShellProvider>);
+    await screen.findByRole("heading", { name: "Bot" });
+    if (!errorListener) throw new Error("SSE error listener was not registered");
+    snapshot({ isStreaming: true });
+    expect(screen.getByRole("button", { name: "応答を停止" })).toBeTruthy();
 
-  await act(async () => {
-    errorListener(new MessageEvent("error", { data: JSON.stringify({ error: "モデルを利用できません" }) }));
-  });
+    await act(async () => {
+      errorListener(new MessageEvent("error", { data: JSON.stringify({ error: "モデルを利用できません" }) }));
+    });
 
-  expect(screen.getByRole("alert").textContent).toContain("モデルを利用できません");
+    expect(screen.getByRole("alert").textContent).toContain("モデルを利用できません");
+    expect(screen.queryByRole("button", { name: "応答を停止" })).toBeNull();
+    expect(screen.getByRole("button", { name: "送信" })).toBeTruthy();
+    expect(notifications).toEqual([]);
+  } finally {
+    Reflect.deleteProperty(document, "hidden");
+  }
 });
 
 it("ignores a late SSE error from the previous model after switching models", async () => {

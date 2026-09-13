@@ -94,11 +94,14 @@ export function RoomView({ id, active = true }: { id: string; active?: boolean }
   const [memberSaving, setMemberSaving] = useState(false);
   const [approveSaving, setApproveSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [sseError, setSseError] = useState<string | null>(null);
   const [mentionContext, setMentionContext] = useState<MentionContext | null>(null);
   const [mentionIndex, setMentionIndex] = useState(0);
   const composingRef = useRef(false);
   const promptRef = useRef<HTMLTextAreaElement>(null);
   const router = useRouter();
+  const roomRequestContextRef = useRef({ id });
+  if (roomRequestContextRef.current.id !== id) roomRequestContextRef.current = { id };
 
   const load = useCallback((isCurrent: () => boolean) => {
     return Promise.all([
@@ -127,6 +130,7 @@ export function RoomView({ id, active = true }: { id: string; active?: boolean }
     setAttention([]);
     setAttentionBusy(null);
     setError(null);
+    setSseError(null);
     setPrompt("");
     setAttachments([]);
     setBusy(false);
@@ -157,7 +161,14 @@ export function RoomView({ id, active = true }: { id: string; active?: boolean }
   // A room that finishes answering while you are on another tab should still reach you.
   const prevAttentionRef = useRef(false);
   const prevWorkingRef = useRef(false);
+  const notificationRoomIdRef = useRef(id);
   useEffect(() => {
+    if (notificationRoomIdRef.current !== id) {
+      notificationRoomIdRef.current = id;
+      prevAttentionRef.current = false;
+      prevWorkingRef.current = false;
+      return;
+    }
     if (typeof Notification === "undefined" || !room) return;
     const busyNow = isRoomBusy(room);
     const attentionNow = attention.length > 0;
@@ -197,6 +208,7 @@ export function RoomView({ id, active = true }: { id: string; active?: boolean }
         retryCount = 0;
         try {
           const payload = JSON.parse((event as MessageEvent).data) as { room?: RoomDto; attention?: RoomAttention[] };
+          setSseError(null);
           if (payload.room) setRoom((current) => applyRoomSnapshot(current, payload.room!));
           setAttention((current) => {
             const next = payload.attention ?? [];
@@ -215,10 +227,11 @@ export function RoomView({ id, active = true }: { id: string; active?: boolean }
             }
             return next;
           });
-        } catch { setError("イベントの解析に失敗しました"); }
+        } catch { setSseError("イベントの解析に失敗しました"); }
       });
       nextSource.onerror = () => {
         if (!isCurrentSource()) return;
+        setSseError("イベント接続を再試行しています");
         source = closeSseSource(nextSource);
         retry = cancelPendingSseReconnect(retry);
         retryCount += 1;
@@ -353,6 +366,7 @@ export function RoomView({ id, active = true }: { id: string; active?: boolean }
   const send = async () => {
     const value = prompt.trim();
     if ((!value && attachments.length === 0) || busy) return;
+    const requestContext = roomRequestContextRef.current;
     const submittedAttachments = attachments;
     const { images, files } = composerPromptAttachments(submittedAttachments);
     setPrompt("");
@@ -370,20 +384,23 @@ export function RoomView({ id, active = true }: { id: string; active?: boolean }
           ...(files.length > 0 ? { files } : {}),
         },
       );
-      if (result.room) {
+      if (roomRequestContextRef.current === requestContext && result.room) {
         setRoom(result.room);
         notifyBotSidebarChanged();
       }
       // Redirecting a turn already being written is a real outcome, even with nobody newly routed.
-      if (!result.stopped && result.routedBotIds?.length === 0 && !result.steeredBotIds?.length) {
+      if (roomRequestContextRef.current === requestContext && !result.stopped && result.routedBotIds?.length === 0 && !result.steeredBotIds?.length) {
         setError("応答できるボットがいません。有効なメンバーとメンション先を確認してください。");
       }
     } catch (reason) {
+      if (roomRequestContextRef.current !== requestContext) return;
       setPrompt((current) => current || value);
       setAttachments((current) => current.length > 0 ? current : submittedAttachments);
       setError(reason instanceof Error ? reason.message : "リクエストに失敗しました");
     }
-    finally { setBusy(false); }
+    finally {
+      if (roomRequestContextRef.current === requestContext) setBusy(false);
+    }
   };
 
   const respond = async (item: RoomAttention, approved: boolean) => {
@@ -476,6 +493,7 @@ export function RoomView({ id, active = true }: { id: string; active?: boolean }
   const attentionScrollKey = attention
     .map((item) => `${item.taskId}:${item.permission?.id ?? ""}:${item.question?.id ?? ""}`)
     .join("|");
+  const displayError = error ?? sseError;
   const chatScrollKey = useMemo(() => ({
     messages: room?.messages,
     attention: attentionScrollKey,
@@ -483,7 +501,7 @@ export function RoomView({ id, active = true }: { id: string; active?: boolean }
     outcome: outcome ?? "",
   }), [room?.messages, attentionScrollKey, working, outcome]);
 
-  if (!room) return <div className="p-5 text-sm text-muted">{error ?? "読み込み中…"}</div>;
+  if (!room) return <div className="p-5 text-sm text-muted">{displayError ?? "読み込み中…"}</div>;
 
   return (
     <div className="flex h-full min-h-0 bg-bot-chat">
@@ -547,7 +565,7 @@ export function RoomView({ id, active = true }: { id: string; active?: boolean }
         footer={<><button type="button" aria-pressed={broadcast} onClick={() => setBroadcast((value) => !value)} className={`rounded-full px-2 py-1 font-medium ${broadcast ? "bg-accent/10 text-accent" : "hover:bg-surface-2 hover:text-text"}`}>{broadcast ? "全員が個別回答" : "メンバーで対話"}</button><button type="button" onClick={() => setSettingsOpen(true)} className="shrink-0 hover:text-text">{`\u30e1\u30f3\u30d0\u30fc: ${room.members.length}`}</button></>}
         inputOverlay={mentionCandidates.length > 0 ? <div id="room-mention-options" role="listbox" aria-label={"\u30e1\u30f3\u30b7\u30e7\u30f3\u5148\u5019\u88dc"} className="absolute bottom-full left-0 z-20 mb-2 max-h-56 w-full overflow-y-auto rounded-xl border border-border bg-surface p-1 shadow-[0_8px_30px_rgba(0,0,0,0.12)]">{mentionCandidates.map((candidate, index) => <button key={candidate.key} type="button" role="option" aria-selected={index === mentionIndex} onMouseDown={(event) => event.preventDefault()} onClick={() => insertMention(candidate)} className={`flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left ${index === mentionIndex ? "bg-surface-2" : "hover:bg-surface-2"}`}>{candidate.bot ? <BotAvatar size={24} {...candidate.bot} /> : <span className="flex h-6 w-6 items-center justify-center rounded-full bg-accent/10 text-xs font-semibold text-accent">@</span>}<span className="min-w-0"><span className="block truncate text-sm font-medium">{candidate.label}</span><span className="block truncate text-[11px] text-muted">{candidate.description}</span></span></button>)}</div> : null}
       />
-      {!settingsOpen && error && <p role="alert" className="mx-auto max-w-3xl px-3 pb-2 text-xs text-danger">{error}</p>}
+      {!settingsOpen && displayError && <p role="alert" className="mx-auto max-w-3xl px-3 pb-2 text-xs text-danger">{displayError}</p>}
       </div>
       {settingsOpen && (
         <aside id="room-settings-panel" onKeyDown={(event) => { if (event.key === "Escape") setSettingsOpen(false); }} aria-label="ルーム設定" className="flex h-full w-full shrink-0 flex-col border-bot-outline bg-bot-chat lg:w-[22rem] lg:border-l xl:w-[24.5rem]">
@@ -556,7 +574,7 @@ export function RoomView({ id, active = true }: { id: string; active?: boolean }
             <button type="button" autoFocus aria-label="設定を閉じる" onClick={() => setSettingsOpen(false)} className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-muted hover:bg-surface-2 hover:text-text"><X className="h-4 w-4" /></button>
           </div>
           <div className="min-h-0 flex-1 space-y-5 overflow-y-auto p-5">
-            {error && <p role="alert" className="text-sm text-danger">{error}</p>}
+            {displayError && <p role="alert" className="text-sm text-danger">{displayError}</p>}
             <div className="flex flex-col items-center gap-2 py-2"><span className="flex h-20 w-20 items-center justify-center rounded-full bg-success-bg text-success"><Users className="h-8 w-8" /></span><p className="text-xs text-muted">ルームのプロフィール</p></div>
             <label className="block text-sm"><span className="font-medium">名前</span><div className="mt-2 rounded-xl border border-border bg-bg px-3 py-2.5">{room.name}</div></label>
             <div className="rounded-2xl border border-border bg-bg p-4">

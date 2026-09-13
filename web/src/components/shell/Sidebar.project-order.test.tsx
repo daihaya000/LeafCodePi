@@ -590,7 +590,7 @@ describe("Sidebar project ordering", () => {
     expect(mocks.sendJson).toHaveBeenCalledWith("/api/bots/rooms", { name: "新規" });
   });
 
-  it("refreshes bot entries after navigation and hides the profile label", async () => {
+  it("refreshes bot entries after navigation and shows the profile label", async () => {
     const initialBot = {
       id: "bot-1",
       name: "Test",
@@ -624,7 +624,7 @@ describe("Sidebar project ordering", () => {
 
     const view = render(<Sidebar mobileOpen={false} onClose={vi.fn()} />);
     expect(await screen.findByText("Test")).toBeTruthy();
-    expect(screen.queryByText("1:1 アシスタント")).toBeNull();
+    expect(screen.getByText("1:1 アシスタント")).toBeTruthy();
 
     currentBots = [nextBot];
     mocks.usePathname.mockReturnValue("/bots/bot-2");

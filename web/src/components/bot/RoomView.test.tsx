@@ -83,6 +83,38 @@ describe("RoomView loading", () => {
     expect(screen.queryByRole("heading", { name: "One" })).toBeNull();
   });
 
+  it("ignores a late prompt failure after switching ids", async () => {
+    const roomOne = { ...room, id: "room-1", name: "One" };
+    const roomTwo = { ...room, id: "room-2", name: "Two" };
+    let rejectPrompt!: (reason: Error) => void;
+    const promptRequest = new Promise<never>((_, reject) => { rejectPrompt = reject; });
+    mocks.getJson.mockImplementation((path: string) => {
+      if (path === "/api/bots/rooms/room-1") return Promise.resolve({ room: roomOne });
+      if (path === "/api/bots/rooms/room-2") return Promise.resolve({ room: roomTwo });
+      if (path === "/api/bots") return Promise.resolve({ bots: [bot] });
+      return Promise.resolve({ room: roomOne });
+    });
+    mocks.sendJson.mockImplementation((path: string) => path.endsWith("/prompt") ? promptRequest : Promise.resolve({ room: roomTwo }));
+    const view = render(<RoomView id="room-1" />);
+    const input = await screen.findByRole("textbox", { name: /Oneにメッセージ/ });
+    fireEvent.change(input, { target: { value: "old prompt" } });
+    fireEvent.keyDown(input, { key: "Enter", ctrlKey: true });
+    await vi.waitFor(() => expect(mocks.sendJson).toHaveBeenCalledWith(
+      "/api/bots/rooms/room-1/prompt",
+      expect.objectContaining({ prompt: "old prompt", broadcast: false }),
+    ));
+
+    view.rerender(<RoomView id="room-2" />);
+    await screen.findByRole("heading", { name: "Two" });
+    await act(async () => {
+      rejectPrompt(new Error("old failure"));
+      await promptRequest.catch(() => undefined);
+    });
+
+    expect(screen.queryByDisplayValue("old prompt")).toBeNull();
+    expect(screen.queryByText("old failure")).toBeNull();
+  });
+
   it("ignores a stale SSE snapshot after switching ids", async () => {
     const roomOne = {
       ...room,
@@ -120,6 +152,21 @@ describe("RoomView loading", () => {
     expect(screen.queryByRole("heading", { name: "One" })).toBeNull();
     expect(screen.queryByText("old room reply")).toBeNull();
   });
+});
+
+it("reports an SSE transport error while retrying the connection", async () => {
+  class TestSource {
+    static last: TestSource | undefined;
+    onerror: (() => void) | null = null;
+    constructor() { TestSource.last = this; }
+    addEventListener() {}
+    close() {}
+  }
+  vi.stubGlobal("EventSource", TestSource);
+  render(<RoomView id="room-1" />);
+  await screen.findByRole("heading", { name: "Team" });
+  act(() => TestSource.last?.onerror?.());
+  expect(screen.getByRole("alert").textContent).toContain("イベント接続を再試行しています");
 });
 
 it("ignores callbacks from an SSE source replaced after a transport error", async () => {
@@ -373,6 +420,50 @@ describe("RoomView delegated work", () => {
 });
 
 describe("RoomView notifications", () => {
+  it("does not notify completion from the previous room after switching ids", async () => {
+    const sent: string[] = [];
+    class FakeNotification {
+      static permission = "granted";
+      constructor(title: string) { sent.push(title); }
+    }
+    class TestSource {
+      static instances: TestSource[] = [];
+      listeners = new Map<string, (event: MessageEvent) => void>();
+      constructor() { TestSource.instances.push(this); }
+      addEventListener(name: string, callback: (event: MessageEvent) => void) { this.listeners.set(name, callback); }
+      close() {}
+    }
+    vi.stubGlobal("Notification", FakeNotification);
+    vi.stubGlobal("EventSource", TestSource);
+    Object.defineProperty(document, "hidden", { configurable: true, value: true });
+    const roomOne = { ...room, id: "room-1", name: "One" };
+    const roomTwo = { ...room, id: "room-2", name: "Two" };
+    const busyRoom = { ...roomOne, messages: [...roomOne.messages, { id: "reply", role: "assistant" as const, botId: bot.id, text: "作業中", status: "working" as const, createdAt: 2 }] };
+    const doneRoom = { ...roomTwo, messages: [...roomTwo.messages, { id: "reply", role: "assistant" as const, botId: bot.id, text: "完了", status: "done" as const, createdAt: 2 }] };
+    mocks.getJson.mockImplementation((path: string) => {
+      if (path === "/api/bots") return Promise.resolve({ bots: [bot] });
+      if (path === "/api/bots/rooms/room-1") return Promise.resolve({ room: roomOne });
+      if (path === "/api/bots/rooms/room-2") return Promise.resolve({ room: roomTwo });
+      return Promise.resolve({ room: roomOne });
+    });
+    try {
+      const view = render(<RoomView id="room-1" />);
+      await screen.findByRole("heading", { name: "One" });
+      const first = TestSource.instances[0];
+      if (!first) throw new Error("Initial EventSource was not created");
+      await act(async () => { first.listeners.get("snapshot")?.({ data: JSON.stringify({ room: busyRoom }) } as MessageEvent); });
+
+      view.rerender(<RoomView id="room-2" />);
+      await screen.findByRole("heading", { name: "Two" });
+      const second = TestSource.instances[1];
+      if (!second) throw new Error("Replacement EventSource was not created");
+      await act(async () => { second.listeners.get("snapshot")?.({ data: JSON.stringify({ room: doneRoom }) } as MessageEvent); });
+      expect(sent).toEqual([]);
+    } finally {
+      Reflect.deleteProperty(document, "hidden");
+    }
+  });
+
   it("notifies a hidden tab once per finished reply, unless every member Bot turned notifications off", async () => {
     const sent: string[] = [];
     class FakeNotification {

@@ -213,6 +213,8 @@ export const BotView = memo(function BotView({ id, active = true }: { id: string
   const soulDraftRef = useRef("");
   const autoSaveQueueRef = useRef(Promise.resolve());
   const router = useRouter();
+  const botRequestContextRef = useRef({ id });
+  if (botRequestContextRef.current.id !== id) botRequestContextRef.current = { id };
   const applyBotUpdate = (next: BotDto) => {
     setBot(next);
     notifyBotSidebarChanged();
@@ -378,7 +380,14 @@ export const BotView = memo(function BotView({ id, active = true }: { id: string
   // notification toggle decides whether this Bot may interrupt you at all.
   const prevAttentionRef = useRef(false);
   const prevWorkingRef = useRef(false);
+  const notificationBotIdRef = useRef(id);
   useEffect(() => {
+    if (notificationBotIdRef.current !== id) {
+      notificationBotIdRef.current = id;
+      prevAttentionRef.current = false;
+      prevWorkingRef.current = false;
+      return;
+    }
     if (typeof Notification === "undefined" || !bot) return;
     const attentionNow = Boolean(permission || question);
     const kind = decideNotification({
@@ -545,8 +554,14 @@ export const BotView = memo(function BotView({ id, active = true }: { id: string
         retry = cancelPendingSseReconnect(retry);
         try {
           const payload = JSON.parse(event.data) as { error?: string };
+          prevAttentionRef.current = false;
+          prevWorkingRef.current = false;
+          setSending(false);
           setError(payload.error ?? "イベント接続に失敗しました");
         } catch {
+          prevAttentionRef.current = false;
+          prevWorkingRef.current = false;
+          setSending(false);
           setError("イベント接続に失敗しました");
         }
       });
@@ -599,6 +614,7 @@ export const BotView = memo(function BotView({ id, active = true }: { id: string
   const send = async () => {
     const value = prompt.trim();
     if ((!value && attachments.length === 0) || sending) return;
+    const requestContext = botRequestContextRef.current;
     const submittedAttachments = attachments;
     const { images, files } = composerPromptAttachments(submittedAttachments);
     setPrompt("");
@@ -611,8 +627,9 @@ export const BotView = memo(function BotView({ id, active = true }: { id: string
         ...(images.length > 0 ? { images } : {}),
         ...(files.length > 0 ? { files } : {}),
       });
-      notifyBotSidebarChanged();
+      if (botRequestContextRef.current === requestContext) notifyBotSidebarChanged();
     } catch (reason) {
+      if (botRequestContextRef.current !== requestContext) return;
       setSending(false);
       setPrompt((current) => current || value);
       setAttachments((current) => current.length > 0 ? current : submittedAttachments);
