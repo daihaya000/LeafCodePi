@@ -12,7 +12,7 @@ export const MAX_PANES = 4;
 export const MAX_TABS_PER_PANE = 5;
 export const TASK_PANES_STORAGE_KEY = "webui:task-panes";
 export const TASK_PANE_PREFER_NEW_EVENT = "webui:task-pane-prefer-new";
-export const DEFAULT_PREFER_NEW_PANE = true;
+export const DEFAULT_PREFER_NEW_PANE = false;
 const TASK_PANE_PREFER_NEW_STORAGE_KEY = "webui:task-pane-prefer-new";
 /** 新規作成（HomeView）を表す特殊タブID。タスク ID 空間と衝突しない固定値。 */
 export const HOME_TAB_ID = "home";
@@ -798,7 +798,7 @@ export function saveTaskPanes(state: TaskPanesState): void {
 export function readPreferNewPane(): boolean {
   if (typeof window === "undefined") return DEFAULT_PREFER_NEW_PANE;
   try {
-    return localStorage.getItem(TASK_PANE_PREFER_NEW_STORAGE_KEY) !== "0";
+    return localStorage.getItem(TASK_PANE_PREFER_NEW_STORAGE_KEY) === "1";
   } catch {
     return DEFAULT_PREFER_NEW_PANE;
   }

@@ -23,7 +23,7 @@ describe("NavigatorSettings", () => {
     expect(html).toContain('value="0.6"');
     expect(html).not.toContain('value="0.8"');
     expect(html).toContain('aria-label="新規セッション・Botを新しいペインで開く"');
-    expect(html).toContain('aria-checked="true"');
+    expect(html).toContain('aria-checked="false"');
   });
 
   it("mount後にlocalStorageの保存値を反映する", async () => {
@@ -46,12 +46,12 @@ describe("NavigatorSettings", () => {
     render(<NavigatorSettings />);
 
     const toggle = screen.getByRole("switch", { name: "新規セッション・Botを新しいペインで開く" });
-    expect(toggle.getAttribute("aria-checked")).toBe("true");
-    fireEvent.click(toggle);
-    expect(localStorage.getItem("webui:task-pane-prefer-new")).toBe("0");
     expect(toggle.getAttribute("aria-checked")).toBe("false");
     fireEvent.click(toggle);
     expect(localStorage.getItem("webui:task-pane-prefer-new")).toBe("1");
     expect(toggle.getAttribute("aria-checked")).toBe("true");
+    fireEvent.click(toggle);
+    expect(localStorage.getItem("webui:task-pane-prefer-new")).toBe("0");
+    expect(toggle.getAttribute("aria-checked")).toBe("false");
   });
 });
