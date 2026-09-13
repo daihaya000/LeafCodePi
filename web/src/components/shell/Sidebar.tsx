@@ -9,7 +9,6 @@ import {
   ArchiveRestore,
   ChevronRight,
   CodeXml,
-  Columns2,
   Cpu,
   Folder,
   FolderUp,
@@ -24,6 +23,7 @@ import {
   X,
 } from "lucide-react";
 import { AddProjectButton } from "@/components/AddProjectButton";
+import { WorkingTasksButton } from "@/components/WorkingTasksButton";
 import { ProjectIcon } from "@/components/ProjectIcon";
 import { CodexBarWidget } from "@/components/codexbar/CodexBarWidget";
 import { SystemMonitorWidget } from "@/components/sysmon/SystemMonitorWidget";
@@ -179,39 +179,6 @@ function ModeSegment({ mode, onChange }: { mode: AppMode; onChange: (mode: AppMo
       {item === "code" ? "Code" : "Bot"}
     </button>)}
   </div>;
-}
-
-function WorkingTasksButton({
-  hasWorking,
-  mdUp,
-  onClick,
-  className,
-}: {
-  hasWorking: boolean;
-  mdUp: boolean;
-  onClick: () => void;
-  className?: string;
-}) {
-  const title = !mdUp
-    ? "進行中タスクの分割表示はデスクトップで利用できます"
-    : hasWorking
-      ? "進行中タスクを分割表示"
-      : "進行中のタスクはないためホームを表示";
-  return (
-    <button
-      type="button"
-      aria-label="進行中タスクを分割表示"
-      title={title}
-      disabled={!mdUp}
-      onClick={onClick}
-      className={cx(
-        "inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-muted hover:bg-surface-2 hover:text-text disabled:cursor-not-allowed disabled:opacity-40",
-        className,
-      )}
-    >
-      <Columns2 className="h-4 w-4" aria-hidden="true" />
-    </button>
-  );
 }
 
 function SidebarFooter({ health, onSettings }: { health: HealthDto | null; onSettings: () => void }) {

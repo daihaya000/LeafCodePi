@@ -4,8 +4,10 @@ import dynamic from "next/dynamic";
 import { usePathname, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useRef, useState, type DragEvent } from "react";
 import { useGetStatusFor, useReportStatus, useTaskPanesNavigation } from "@/components/shell/TaskPanesContext";
+import { WorkingTasksButton } from "@/components/WorkingTasksButton";
 import { cx } from "@/components/ui";
-import type { TaskStatus } from "@/lib/types";
+import { getJson } from "@/lib/client";
+import type { TaskStatus, TaskSummary } from "@/lib/types";
 import { isTaskDrag, taskDragIdFrom } from "@/lib/task-drag";
 import {
   HOME_TAB_ID,
@@ -216,6 +218,8 @@ type PaneBranchProps = {
   noProject: boolean;
   mdUp: boolean;
   reportStatus: (taskId: string, status: TaskStatus) => void;
+  workingTasksBusy: boolean;
+  onShowWorkingTasks: () => void;
   canAddPane: boolean;
   lastPaneId: string | undefined;
   splitRatios: Record<string, number>;
@@ -263,6 +267,8 @@ function PaneSection({
   noProject,
   mdUp,
   reportStatus,
+  workingTasksBusy,
+  onShowWorkingTasks,
   canAddPane,
   lastPaneId,
   onPaneDragOver,
@@ -299,21 +305,32 @@ function PaneSection({
         if (!isActivePane) onActivatePane(pane.id);
       }}
     >
-      {!single && (
-        <TaskTabs
-          pane={pane}
-          isActivePane={isActivePane}
-          canAddPane={canAddPane}
-          showAddButton={pane.id === lastPaneId}
-          onActivateTab={(taskId) => onActivateTab(pane.id, taskId)}
-          onCloseTab={(taskId) => onCloseTab(pane.id, taskId)}
-          onClearPane={() => onClearPane(pane.id)}
-          onReorderTabs={(tabs) => onReorderTabs(pane.id, tabs)}
-          onMoveTab={onMoveTab}
-          onAddPane={onAddPane}
-          onOpenHome={() => onOpenHome(pane.id)}
+      <div className="flex min-h-9 min-w-0 shrink-0 items-stretch bg-surface">
+        <WorkingTasksButton
+          compact
+          mdUp={mdUp}
+          busy={workingTasksBusy}
+          onClick={onShowWorkingTasks}
+          className="m-1"
         />
-      )}
+        {!single && (
+          <div className="min-w-0 flex-1">
+            <TaskTabs
+              pane={pane}
+              isActivePane={isActivePane}
+              canAddPane={canAddPane}
+              showAddButton={pane.id === lastPaneId}
+              onActivateTab={(taskId) => onActivateTab(pane.id, taskId)}
+              onCloseTab={(taskId) => onCloseTab(pane.id, taskId)}
+              onClearPane={() => onClearPane(pane.id)}
+              onReorderTabs={(tabs) => onReorderTabs(pane.id, tabs)}
+              onMoveTab={onMoveTab}
+              onAddPane={onAddPane}
+              onOpenHome={() => onOpenHome(pane.id)}
+            />
+          </div>
+        )}
+      </div>
       {isActivePane && (
         <span
           aria-hidden="true"
@@ -467,9 +484,30 @@ export function TaskPanesHost() {
   );
   // 各 split node の比率。ペイン構成が変わったときだけ初期化する。
   const [splitRatios, setSplitRatios] = useState<Record<string, number>>({});
+  const [workingTasksBusy, setWorkingTasksBusy] = useState(false);
   // 一度開いたタブのみマウントする（初回読み込み・SSE 接続を遅延）。
   // アクティブタブは開封済み集合へ追加、タブが閉じられたら除去して再オープン時に再読み込み。
   const [openedTabs, setOpenedTabs] = useState<Set<string>>(() => new Set());
+  const showWorkingTasks = useCallback(async () => {
+    if (workingTasksBusy) return;
+    setWorkingTasksBusy(true);
+    try {
+      const result = await getJson<{ tasks?: TaskSummary[] }>("/api/tasks?archived=1");
+      const taskIds = (Array.isArray(result.tasks) ? result.tasks : [])
+        .filter((task) => task.status === "working")
+        .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
+        .map((task) => task.id);
+      dispatch(
+        taskIds.length > 0
+          ? { type: "showWorkingTasks", taskIds }
+          : { type: "resetToTab", taskId: HOME_TAB_ID },
+      );
+    } catch {
+      // Keep the current layout when the task list cannot be refreshed.
+    } finally {
+      setWorkingTasksBusy(false);
+    }
+  }, [dispatch, workingTasksBusy]);
   const addPane = useCallback(() => dispatch({ type: "addPane" }), [dispatch]);
   const paneLayoutKey = state.panes.map((pane) => pane.id).join("|");
 
@@ -650,6 +688,8 @@ export function TaskPanesHost() {
         noProject={noProject}
         mdUp={mdUp}
         reportStatus={reportStatus}
+        workingTasksBusy={workingTasksBusy}
+        onShowWorkingTasks={() => void showWorkingTasks()}
         canAddPane={canAddPane}
         lastPaneId={lastPaneId}
         splitRatios={splitRatios}

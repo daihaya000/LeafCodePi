@@ -4,10 +4,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { PaneLayout, TaskPanesState } from "@/lib/task-panes";
 
 const mocks = vi.hoisted(() => ({
+  getJson: vi.fn(),
   useTaskPanes: vi.fn(),
   usePathname: vi.fn(() => "/task/active"),
   useSearchParams: vi.fn(() => ({ get: () => null })),
 }));
+
+vi.mock("@/lib/client", () => ({ getJson: mocks.getJson }));
 
 vi.mock("@/components/shell/TaskPanesContext", () => ({
   useTaskPanesNavigation: () => {
@@ -115,6 +118,7 @@ function createThreePaneState(): TaskPanesState {
 
 describe("TaskPanesHost lazy tab mounting", () => {
   beforeEach(() => {
+    mocks.getJson.mockResolvedValue({ tasks: [] });
     mocks.useTaskPanes.mockReturnValue({
       state: createState(),
       statusFor: () => null,
@@ -153,6 +157,39 @@ describe("TaskPanesHost lazy tab mounting", () => {
       expect(screen.getAllByTestId("dynamic-pane")).toHaveLength(1);
     });
     expect(screen.getByTestId("dynamic-pane").getAttribute("data-task-id")).toBe("active");
+  });
+
+  it("各ペインの左上から進行中タスクを分割表示できる", async () => {
+    const contextValue = {
+      state: createTreeState(),
+      statusFor: () => null,
+      reportStatus: vi.fn(),
+      dispatch: vi.fn(),
+      retargetToUrl: vi.fn(),
+      activeTaskId: "task-1",
+      titleFor: () => null,
+      mdUp: true,
+    };
+    mocks.useTaskPanes.mockReturnValue(contextValue);
+    mocks.getJson.mockResolvedValue({
+      tasks: [
+        { id: "older", status: "working", updatedAt: "2026-01-01T00:01:00.000Z" },
+        { id: "done", status: "idle", updatedAt: "2026-01-01T00:03:00.000Z" },
+        { id: "newer", status: "working", updatedAt: "2026-01-01T00:02:00.000Z" },
+      ],
+    });
+
+    render(<TaskPanesHost />);
+
+    const buttons = screen.getAllByRole("button", { name: "進行中タスクを分割表示" });
+    expect(buttons).toHaveLength(4);
+    expect(buttons[0]?.closest("[data-pane-id]")?.firstElementChild?.contains(buttons[0])).toBe(true);
+
+    fireEvent.click(buttons[0]!);
+    await waitFor(() => expect(contextValue.dispatch).toHaveBeenCalledWith({
+      type: "showWorkingTasks",
+      taskIds: ["newer", "older"],
+    }));
   });
 
   it("3 ペインは初期表示で各ペインを均等幅にする", () => {
