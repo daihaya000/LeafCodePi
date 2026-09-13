@@ -167,6 +167,8 @@ it("shows a routine's consecutive failures and keeps an auto-disabled routine fr
   expect(await screen.findByText("連続失敗: 3回")).toBeTruthy();
   const routineRegion = screen.getByRole("region", { name: "ルーティン設定" });
   expect(routineRegion.closest("details")).toBeNull();
+  const permissionSelect = screen.getByRole<HTMLSelectElement>("combobox", { name: "ツール権限" });
+  expect(routineRegion.compareDocumentPosition(permissionSelect)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
   expect(screen.getByText("無効")).toBeTruthy();
   // 自動無効化されたルーティンは手動実行できないが、有効化で戻せる。
   expect(screen.getByRole<HTMLButtonElement>("button", { name: "今すぐ実行" }).disabled).toBe(true);
