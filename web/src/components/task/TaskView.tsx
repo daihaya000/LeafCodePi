@@ -521,6 +521,12 @@ function taskActivityEntry(message: UiMessage): TaskActivityEntry | null {
   return entry;
 }
 
+function hasVisibleAssistantText(message: UiMessage): boolean {
+  return message.role === "assistant" && message.parts.some(
+    (part) => part.type === "text" && Boolean(part.text.trim()),
+  );
+}
+
 function buildTaskActivityEntry(message: UiMessage): TaskActivityEntry | null {
   if (message.role !== "assistant") return null;
   const activityParts = message.parts.filter((part) => part.type !== "text");
@@ -533,7 +539,7 @@ function buildTaskActivityEntry(message: UiMessage): TaskActivityEntry | null {
       activityParts.length === message.parts.length
         ? message
         : { ...message, parts: activityParts },
-    showHeader: !message.parts.some((part) => part.type === "text"),
+    showHeader: !hasVisibleAssistantText(message),
   };
 }
 
@@ -607,8 +613,7 @@ function taskMessageBlocks(
       return;
     }
     const activity = message.id === ungroupedMessageId ? null : taskActivityEntry(message);
-    const hasText =
-      message.role === "assistant" && message.parts.some((part) => part.type === "text");
+    const hasText = hasVisibleAssistantText(message);
     const boundary = isGoalLoopTurnBoundary(messages, index);
     if (hasText) {
       // thinking / tool は本文より前に起きているので、本文より先に活動として畳む。
