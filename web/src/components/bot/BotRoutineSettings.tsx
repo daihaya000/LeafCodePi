@@ -2,12 +2,13 @@
 
 import { useMemo, useState } from "react";
 import { sendJson } from "@/lib/client";
-import { nextRoutineRunAt } from "@/lib/routine-schedule";
+import { DEFAULT_ROUTINE_SCHEDULE, describeRoutineSchedule, nextRoutineRunAt } from "@/lib/routine-schedule";
+import { RoutineSchedulePicker } from "./RoutineSchedulePicker";
 import type { RoutineDto } from "@/lib/types";
 import { Button } from "@/components/ui";
 
 type RoutineDraft = { name: string; prompt: string; schedule: string };
-const EMPTY_DRAFT: RoutineDraft = { name: "", prompt: "", schedule: "0 * * * *" };
+const EMPTY_DRAFT: RoutineDraft = { name: "", prompt: "", schedule: DEFAULT_ROUTINE_SCHEDULE };
 
 type BotRoutineSettingsProps = {
   botId: string;
@@ -104,19 +105,18 @@ export function BotRoutineSettings({ botId, routines, onRefresh, onError }: BotR
       <div className="flex items-center justify-between gap-2">
         <div>
           <h3 className="text-sm font-medium">ルーティン</h3>
-          <p className="mt-1 text-xs text-muted">定期的な指示を保存して自動実行します。時刻はこの環境のローカル時刻です。</p>
+          <p className="mt-1 text-xs text-muted">曜日や時刻を指定して、Botへの指示を自動実行します。</p>
         </div>
-        <Button size="sm" onClick={formOpen && !editingId ? closeForm : openCreate}>{formOpen && !editingId ? "閉じる" : "作成"}</Button>
+        <Button size="sm" disabled={saving} onClick={formOpen && !editingId ? closeForm : openCreate}>{formOpen && !editingId ? "閉じる" : "作成"}</Button>
       </div>
       {formOpen && (
         <div className="space-y-2 rounded-xl border border-accent/40 bg-surface p-3" role="dialog" aria-label={editingId ? "ルーティンを編集" : "ルーティンを作成"}>
           <p className="text-xs font-medium text-accent">{editingId ? "ルーティンを編集" : "ルーティンを作成"}</p>
           <input value={draft.name} onChange={(event) => setDraft((current) => ({ ...current, name: event.target.value }))} placeholder="名前（例: 朝の確認）" aria-label="ルーティン名" className="w-full rounded-lg border border-border bg-bg px-3 py-2 text-sm outline-none focus:border-accent" />
           <textarea value={draft.prompt} onChange={(event) => setDraft((current) => ({ ...current, prompt: event.target.value }))} placeholder="Bot に実行させる指示" aria-label="ルーティンの指示" rows={3} className="w-full resize-y rounded-lg border border-border bg-bg px-3 py-2 text-sm outline-none focus:border-accent" />
-          <input value={draft.schedule} onChange={(event) => setDraft((current) => ({ ...current, schedule: event.target.value }))} aria-label="cron スケジュール" placeholder="0 * * * *" className="w-full rounded-lg border border-border bg-bg px-3 py-2 font-mono text-sm outline-none focus:border-accent" />
-          <p className="text-[11px] text-muted">形式: 分 時 日 月 曜日（最短間隔 5 分）</p>
+          <RoutineSchedulePicker key={editingId ?? "create"} initialSchedule={draft.schedule} onChange={(schedule) => setDraft((current) => ({ ...current, schedule }))} disabled={saving} />
           <div className="flex justify-end gap-2">
-            <Button size="sm" variant="ghost" onClick={closeForm}>キャンセル</Button>
+            <Button size="sm" variant="ghost" disabled={saving} onClick={closeForm}>キャンセル</Button>
             <Button size="sm" onClick={() => void save()} busy={saving} disabled={!draft.name.trim() || !draft.prompt.trim() || !draft.schedule.trim()}>{editingId ? "変更を保存" : "作成"}</Button>
           </div>
         </div>
@@ -130,7 +130,7 @@ export function BotRoutineSettings({ botId, routines, onRefresh, onError }: BotR
             <div className="flex items-start justify-between gap-2">
               <div className="min-w-0">
                 <p className="font-medium">{routine.name} {routine.enabled ? <span className="text-success">有効</span> : <span className="text-muted">無効</span>}</p>
-                <p className="mt-1 font-mono text-muted">{routine.schedule}</p>
+                <p className="mt-1 break-words text-muted">{describeRoutineSchedule(routine.schedule)}</p>
                 <p className="mt-1 break-words text-muted">{routine.prompt}</p>
                 <p className="mt-1 text-muted">最終実行: {formatDate(routine.lastRunAt)}</p>
                 <p className="text-muted">{routine.enabled ? `次回実行: ${nextRun ? formatDate(nextRun.toISOString()) : "なし"}` : "次回実行: 一時停止中"}</p>
@@ -139,7 +139,7 @@ export function BotRoutineSettings({ botId, routines, onRefresh, onError }: BotR
               <div className="flex shrink-0 flex-col items-stretch gap-1">
                 <Button size="sm" variant="ghost" disabled={busy} aria-label={routine.enabled ? "無効化" : "有効化"} onClick={() => void toggle(routine)}>{routine.enabled ? "一時停止" : "再開"}</Button>
                 <Button size="sm" variant="ghost" disabled={busy || !routine.enabled} aria-label="今すぐ実行" onClick={() => void testRun(routine)}>テスト実行</Button>
-                <Button size="sm" variant="ghost" disabled={busy} onClick={() => openEdit(routine)}>編集</Button>
+                <Button size="sm" variant="ghost" disabled={busy || saving || editingId === routine.id} onClick={() => openEdit(routine)}>編集</Button>
                 <button type="button" disabled={busy} onClick={() => void remove(routine)} className="px-2 py-1 text-danger hover:underline disabled:opacity-50">削除</button>
               </div>
             </div>
