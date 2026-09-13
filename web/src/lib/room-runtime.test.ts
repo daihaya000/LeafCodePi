@@ -37,7 +37,7 @@ vi.mock("@/lib/pi/bot-code-relay", () => ({
   settledRoomCodeRequest: (_roomId: string, requestId: string) => state.settledCodeRequests.get(requestId),
 }));
 
-import { createBot } from "./bots";
+import { createBot, patchBot } from "./bots";
 import { createRoom, ensureRoomBotTask, getRoom, appendRoomMessage, patchRoom, revertRoomTo, setRoomOutcome, updateRoomHandoffs, updateRoomMessage } from "./rooms";
 import { getTask, patchTask } from "./store";
 import { cancelPendingRoomHandoffs, deliverRoomCodeReport, reconcileRoomRuntime, registerRoomHandoff, resumeRoomAfterCode, runRoomConversation, settleRoomHandoffs, settleRoomHandoffsForCode, settleStaleRoomTurns } from "./room-runtime";
@@ -48,6 +48,7 @@ function assistant(id: string, text: string): UiMessage {
 function setup(names = ["A", "B"]) {
   const bots = names.map((name) => createBot({ name }));
   const room = createRoom({ members: bots.map((bot) => bot.id) });
+  patchRoom(room.id, { botRelayEnabled: true });
   for (const bot of bots) {
     const taskId = ensureRoomBotTask(room, bot);
     state.details.set(taskId, { ...getTask(taskId)!, messages: [], isStreaming: false, isCompacting: false });
@@ -356,6 +357,43 @@ describe("room conversation with delegated work", () => {
 });
 
 describe("registered room handoffs", () => {
+  it("rejects handoffs when botRelayEnabled is off by default", () => {
+    const bots = ["A", "B"].map((name) => createBot({ name }));
+    const room = createRoom({ members: bots.map((bot) => bot.id) });
+    expect(room.botRelayEnabled).toBe(false);
+    for (const bot of bots) {
+      const taskId = ensureRoomBotTask(room, bot);
+      state.details.set(taskId, { ...getTask(taskId)!, messages: [], isStreaming: false, isCompacting: false });
+    }
+    const user = appendRoomMessage(room.id, { role: "user", text: "ask" })!;
+    const turn = appendRoomMessage(room.id, { role: "assistant", botId: bots[0].id, botName: "A", text: "", status: "working", conversation: { requestId: user.id, participantIds: room.members, turn: 1, maxTurns: 6 } })!;
+    expect(() => registerRoomHandoff({ roomId: room.id, requestId: user.id, fromMessageId: turn.id, fromBotId: bots[0].id, toBotId: bots[1].id, task: "verify" })).toThrow(/disabled/i);
+  });
+
+  it("blocks handoff re-entry and excessive depth", () => {
+    const { room, bots, user } = setup(["A", "B", "C", "D", "E", "F"]);
+    const turns = bots.map((bot) => appendRoomMessage(room.id, { role: "assistant", botId: bot.id, botName: bot.name, text: "ok", status: "done", conversation: { requestId: user.id, participantIds: room.members, turn: 1, maxTurns: 8 } })!);
+    registerRoomHandoff({ roomId: room.id, requestId: user.id, fromMessageId: turns[0].id, fromBotId: bots[0].id, toBotId: bots[1].id, task: "hop1" });
+    // Re-entry is judged after the hop has spoken/claimed (running|done), matching durable envelope claims.
+    updateRoomHandoffs(room.id, (handoffs) => handoffs.map((h) => ({ ...h, state: "done" as const, relayDepth: 0, responseMessageId: turns[1].id })));
+    expect(() => registerRoomHandoff({ roomId: room.id, requestId: user.id, fromMessageId: turns[1].id, fromBotId: bots[1].id, toBotId: bots[0].id, task: "loop" })).toThrow(/participated|rejected/i);
+    // Chain A->B->C->D->E (depth 0..3), then F exceeds MAX_ROOM_RELAY_DEPTH.
+    registerRoomHandoff({ roomId: room.id, requestId: user.id, fromMessageId: turns[1].id, fromBotId: bots[1].id, toBotId: bots[2].id, task: "hop2" });
+    updateRoomHandoffs(room.id, (handoffs) => handoffs.map((h) => h.toBotId === bots[2].id ? { ...h, state: "done" as const, relayDepth: 1, responseMessageId: turns[2].id } : h));
+    registerRoomHandoff({ roomId: room.id, requestId: user.id, fromMessageId: turns[2].id, fromBotId: bots[2].id, toBotId: bots[3].id, task: "hop3" });
+    updateRoomHandoffs(room.id, (handoffs) => handoffs.map((h) => h.toBotId === bots[3].id ? { ...h, state: "done" as const, relayDepth: 2, responseMessageId: turns[3].id } : h));
+    registerRoomHandoff({ roomId: room.id, requestId: user.id, fromMessageId: turns[3].id, fromBotId: bots[3].id, toBotId: bots[4].id, task: "hop4" });
+    updateRoomHandoffs(room.id, (handoffs) => handoffs.map((h) => h.toBotId === bots[4].id ? { ...h, state: "done" as const, relayDepth: 3, responseMessageId: turns[4].id } : h));
+    expect(() => registerRoomHandoff({ roomId: room.id, requestId: user.id, fromMessageId: turns[4].id, fromBotId: bots[4].id, toBotId: bots[5].id, task: "hop5" })).toThrow(/depth/i);
+  });
+
+  it("rejects handoffs to disabled bots", () => {
+    const { room, bots, user } = setup(["A", "B"]);
+    patchBot(bots[1].id, { enabled: false });
+    const turn = appendRoomMessage(room.id, { role: "assistant", botId: bots[0].id, botName: "A", text: "", status: "working", conversation: { requestId: user.id, participantIds: room.members, turn: 1, maxTurns: 6 } })!;
+    expect(() => registerRoomHandoff({ roomId: room.id, requestId: user.id, fromMessageId: turn.id, fromBotId: bots[0].id, toBotId: bots[1].id, task: "nope" })).toThrow();
+  });
+
   function completedTurn(roomId: string, botId: string, requestId: string, members: string[]) {
     return appendRoomMessage(roomId, { role: "assistant", botId, botName: "turn", text: "依頼した", status: "done", conversation: { requestId, participantIds: members, turn: 1, maxTurns: 6 } })!;
   }

@@ -44,7 +44,7 @@ const room = (id: string, message?: { text: string; createdAt: number }): RoomDt
   ({
     id,
     name: `Room ${id}`,
-    members: [],
+    members: [], botRelayEnabled: false,
     createdAt: "",
     updatedAt: "",
     messages: message ? [message as never] : [],

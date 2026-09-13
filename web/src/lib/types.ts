@@ -58,6 +58,11 @@ export type RoomMessage = {
   codeActivity?: string;
   /** Display mirror of the handoffs registered from this message; the room file owns the records. */
   handoffs?: { id: string; toBotId: string; toBotName: string; state: RoomHandoffState }[];
+  /** Bot-to-bot relay metadata. These fields are absent for ordinary user messages. */
+  sourceBotId?: string;
+  relayTurnId?: string;
+  relayDepth?: number;
+  relayParentMessageId?: string;
 };
 
 export const ROOM_HANDOFF_STATES = ["waiting", "ready", "running", "done", "failed", "cancelled"] as const;
@@ -80,6 +85,10 @@ export type RoomHandoff = {
   responseMessageId?: string;
   /** Tool call that registered it; replays of the same call return the same receipt. */
   toolCallId?: string;
+  /** Opaque server envelope token; claimed at delivery (never client-supplied). */
+  relayEnvelopeToken?: string;
+  /** Server-derived hop depth for loop prevention. */
+  relayDepth?: number;
   createdAt: number;
   updatedAt: number;
 };
@@ -88,6 +97,8 @@ export type RoomDto = {
   id: string;
   name: string;
   members: string[];
+  /** Explicit opt-in for directed bot-to-bot relay / room_handoff. Default false. */
+  botRelayEnabled: boolean;
   /** Operator opt-in: this room's Code requests skip the per-request approval prompt. */
   codeAutoApprove?: boolean;
   lastOutcome?: RoomOutcome;

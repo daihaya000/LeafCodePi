@@ -17,7 +17,7 @@ afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.clearAllMocks(); });
 it("shows each parallel Code request its own live tool label instead of one shared line", async () => {
   const bot = { id: "bot", name: "Bot", enabled: true };
   const room: RoomDto = {
-    id: "room", name: "Room", members: [bot.id], createdAt: "", updatedAt: "",
+    id: "room", name: "Room", members: [bot.id], botRelayEnabled: false, createdAt: "", updatedAt: "",
     messages: [
       { id: "user", role: "user", text: "two jobs", createdAt: 1 },
       {
@@ -50,7 +50,7 @@ it("shows each parallel Code request its own live tool label instead of one shar
 it("renders every request in one Room turn, stops them separately, and stays busy until all settle", async () => {
   const bot = { id: "bot", name: "Bot", enabled: true };
   const room: RoomDto = {
-    id: "room", name: "Room", members: [bot.id], createdAt: "", updatedAt: "",
+    id: "room", name: "Room", members: [bot.id], botRelayEnabled: false, createdAt: "", updatedAt: "",
     messages: [{ id: "user", role: "user", text: "two jobs", createdAt: 1 }, {
       id: "response", role: "assistant", botId: bot.id, text: "依頼しました", status: "done", createdAt: 2,
       conversation: { requestId: "user", participantIds: [bot.id], turn: 1, maxTurns: 4 },

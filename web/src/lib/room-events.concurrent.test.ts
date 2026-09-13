@@ -4,7 +4,7 @@ import type { RoomDto } from "./types";
 
 it("detects a sibling Code request changing within the same millisecond", () => {
   const room: RoomDto = {
-    id: "room", name: "Room", members: ["bot"], createdAt: "", updatedAt: "",
+    id: "room", name: "Room", members: ["bot"], botRelayEnabled: false, createdAt: "", updatedAt: "",
     messages: [{ id: "response", role: "assistant", text: "two jobs", createdAt: 1, codeRequests: [
       { id: "first", taskId: "code-1", state: "running" },
       { id: "second", taskId: "code-2", state: "running" },

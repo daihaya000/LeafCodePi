@@ -1,13 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
-import { appendRoomMessage, botsForRoomPrompt, getRoom, roomFileRejection, roomImageRejection, saveRoomFiles, saveRoomImages, updateRoomMessage } from "@/lib/rooms";
+import { appendRoomMessage, botsForRoomPrompt, consumeRoomRelayEnvelope, getRoom, roomFileRejection, roomImageRejection, saveRoomFiles, saveRoomImages, updateRoomMessage } from "@/lib/rooms";
+import { getBot } from "@/lib/bots";
+import type { BotDto, RoomMessage } from "@/lib/types";
 import { isPromptFileList, isPromptImageList, MAX_PROMPT_ATTACHMENTS, type PromptFileInput } from "@/lib/prompt-images";
 import { jsonError } from "@/lib/pi/harness";
 import { isRoomConversationRequest, isRoomStopRequest, MAX_ROOM_CONVERSATION_PARTICIPANTS } from "@/lib/room-conversation";
-import { cancelPendingRoomHandoffs, deliverReadyRoomHandoffs, runRoomConversation, runRoomFanOut, settleRoomHandoffs, settleStaleRoomTurns, steerRoomTurns, stopRoomTurns } from "@/lib/room-runtime";
+import { cancelPendingRoomHandoffs, deliverReadyRoomHandoffs, runRoomBot, runRoomConversation, runRoomFanOut, settleRoomHandoffs, settleStaleRoomTurns, steerRoomTurns, stopRoomTurns } from "@/lib/room-runtime";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-type PromptBody = { prompt?: unknown; broadcast?: unknown; images?: unknown; files?: unknown };
+type PromptBody = { prompt?: unknown; broadcast?: unknown; fromBot?: unknown; relayEnvelope?: unknown; images?: unknown; files?: unknown };
 
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
@@ -15,6 +17,21 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     const room = getRoom(id);
     if (!room) return NextResponse.json({ error: "Room not found" }, { status: 404 });
     const body = (await req.json().catch(() => null)) as PromptBody | null;
+    const isRelayRequest = body?.fromBot === true || body?.relayEnvelope !== undefined;
+    if (isRelayRequest) {
+      if (typeof body?.prompt !== "string" || !body.prompt.trim()) return NextResponse.json({ error: "Prompt is required" }, { status: 400 });
+      // Only a server-issued, single-use envelope can establish source, targets, depth, and turn.
+      // Client fromBot / turnId / sourceBotId / depth are never trusted.
+      const envelope = typeof body.relayEnvelope === "string" ? consumeRoomRelayEnvelope(id, body.relayEnvelope) : undefined;
+      if (!envelope) return NextResponse.json({ error: "A valid server relay envelope is required" }, { status: 403 });
+      const prompt = body.prompt.trim();
+      const userMessage = appendRoomMessage(id, { role: "user", text: prompt, sourceBotId: envelope.sourceBotId, relayTurnId: envelope.turnId, relayDepth: envelope.depth });
+      if (!userMessage) return NextResponse.json({ error: "Room not found" }, { status: 404 });
+      const targets = envelope.targetBotIds.map((botId) => getBot(botId)).filter((bot): bot is BotDto => Boolean(bot));
+      const responses = targets.map((bot) => appendRoomMessage(id, { role: "assistant", botId: bot.id, botName: bot.name, text: "", status: "working", sourceBotId: envelope.sourceBotId, relayTurnId: envelope.turnId, relayDepth: envelope.depth, relayParentMessageId: userMessage.id })).filter((item): item is RoomMessage => Boolean(item));
+      for (const [index, bot] of targets.entries()) { const response = responses[index]; if (response) void runRoomBot(room, bot, prompt, response.id, userMessage.id); }
+      return NextResponse.json({ room: getRoom(id), routedBotIds: targets.map((bot) => bot.id), relay: true, relayDepth: envelope.depth, relayTurnId: envelope.turnId });
+    }
     if (typeof body?.prompt !== "string") return NextResponse.json({ error: "Prompt is required" }, { status: 400 });
     // Attachments only ever come from the user composer, never from a relayed bot payload.
     if (body.images !== undefined && !isPromptImageList(body.images)) return NextResponse.json({ error: "invalid images" }, { status: 400 });

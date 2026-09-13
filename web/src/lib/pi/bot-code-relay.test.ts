@@ -49,7 +49,7 @@ function roomSetup() {
   store.tasks.set("bot:two:room:room-1", task("bot:two:room:room-1", { kind: "bot", botId: "two" }));
   const conversation = { requestId: "user-1", participantIds: ["one", "two"], turn: 1, maxTurns: 6 };
   store.rooms.set("room-1", {
-    id: "room-1", name: "Room", members: ["one", "two"], createdAt: "", updatedAt: "",
+    id: "room-1", name: "Room", members: ["one", "two"], botRelayEnabled: false, createdAt: "", updatedAt: "",
     messages: [
       { id: "user-1", role: "user", text: "残作業も進めて", createdAt: 1 },
       { id: "turn-1", role: "assistant", botId: "one", text: "", status: "working", createdAt: 2, conversation },

@@ -93,6 +93,7 @@ export function RoomView({ id, active = true }: { id: string; active?: boolean }
   const [resetting, setResetting] = useState(false);
   const [memberSaving, setMemberSaving] = useState(false);
   const [approveSaving, setApproveSaving] = useState(false);
+  const [relaySaving, setRelaySaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [sseError, setSseError] = useState<string | null>(null);
   const [mentionContext, setMentionContext] = useState<MentionContext | null>(null);
@@ -277,6 +278,18 @@ export function RoomView({ id, active = true }: { id: string; active?: boolean }
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "設定の保存に失敗しました");
     } finally { setApproveSaving(false); }
+  };
+
+  const saveBotRelay = async (value: boolean) => {
+    if (!room || relaySaving) return;
+    setRelaySaving(true);
+    setError(null);
+    try {
+      const result = await sendJson<{ room: RoomDto }>(`/api/bots/rooms/${encodeURIComponent(id)}`, { botRelayEnabled: value }, "PATCH");
+      setRoom(result.room);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "リレー設定の保存に失敗しました");
+    } finally { setRelaySaving(false); }
   };
 
   const saveMembers = async (next: string[]) => {
@@ -608,6 +621,15 @@ export function RoomView({ id, active = true }: { id: string; active?: boolean }
                 <span className="min-w-0">
                   <span className="block font-medium">Codeを毎回承認せずに実行</span>
                   <span className="mt-1 block text-xs text-muted">このルームの依頼だけ、承認ダイアログを省略します。Bot自身は変更できません。</span>
+                </span>
+              </label>
+            </div>
+            <div className="rounded-2xl border border-border bg-bg p-4">
+              <label className="flex cursor-pointer items-start gap-3 text-sm">
+                <input type="checkbox" className="mt-0.5" disabled={relaySaving} checked={room.botRelayEnabled === true} onChange={(event) => void saveBotRelay(event.target.checked)} />
+                <span className="min-w-0">
+                  <span className="block font-medium">Bot間リレーを許可</span>
+                  <span className="mt-1 block text-xs text-muted">room_handoff とサーバー発行エンベロープによるメンション連鎖を有効にします。既定はオフで、変更には Web UI トークン認証が必要です。</span>
                 </span>
               </label>
             </div>

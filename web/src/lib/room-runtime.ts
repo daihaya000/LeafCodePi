@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { appendRoomMessage, appendRoomMessageIf, ensureRoomBotTask, getRoom, listRooms, roomBotTaskId, roomRequestFiles, roomRequestImages, setRoomOutcome, updateRoomHandoffs, updateRoomMessage } from "./rooms";
+import { appendRoomMessage, appendRoomMessageIf, consumeRoomRelayEnvelope, ensureRoomBotTask, getRoom, issueRoomRelayEnvelope, listRooms, MAX_ROOM_RELAY_DEPTH, roomBotTaskId, roomRequestFiles, roomRequestImages, setRoomOutcome, updateRoomHandoffs, updateRoomMessage } from "./rooms";
 import { getBot } from "./bots";
 import { getTask } from "./store";
 import { getTaskDetail, promptTask, subscribeTask, abortTask } from "./pi/harness";
@@ -370,6 +370,7 @@ export function registerRoomHandoff(input: {
 }): { handoff: RoomHandoff; duplicate: boolean } {
   const room = getRoom(input.roomId);
   if (!room || latestRoomRequest(room)?.id !== input.requestId) throw new Error("Room request is no longer active");
+  if (!room.botRelayEnabled) throw new Error("Bot relay is disabled for this room");
   const from = room.messages.find((message) => message.id === input.fromMessageId);
   if (!from || from.botId !== input.fromBotId || !(from.status === "working" || from.conversation?.requestId === input.requestId)) {
     throw new Error("This turn can no longer register handoffs");
@@ -391,12 +392,22 @@ export function registerRoomHandoff(input: {
     && handoff.waitForCodeRequestId === input.waitForCodeRequestId && handoff.task.replace(/\s+/g, " ") === normalized
     && (handoff.state === "waiting" || handoff.state === "ready" || handoff.state === "running"));
   if (equivalent) return { handoff: equivalent, duplicate: true };
+  // Loop prevention (df3dee2 bar): only bots that already spoke/claimed this turn are blocked.
+  // Multiple pending handoffs to the same target remain allowed; delivery claims the envelope.
+  const related = existing.filter((item) => item.requestId === input.requestId && item.state !== "failed" && item.state !== "cancelled");
+  const spoken = related.filter((item) => item.state === "running" || item.state === "done");
+  const participants = new Set<string>();
+  for (const item of spoken) { participants.add(item.fromBotId); participants.add(item.toBotId); }
+  if (participants.has(target.id)) throw new Error("Relay rejected: target already participated in this turn");
+  const inbound = related.filter((item) => item.toBotId === input.fromBotId);
+  const relayDepth = inbound.length > 0 ? Math.max(...inbound.map((item) => item.relayDepth ?? 0)) + 1 : 0;
+  if (relayDepth > MAX_ROOM_RELAY_DEPTH) throw new Error("Relay rejected: maximum depth exceeded");
   const now = Date.now();
   const handoff: RoomHandoff = {
     id: randomUUID(), requestId: input.requestId, fromMessageId: input.fromMessageId, fromBotId: input.fromBotId,
     toBotId: target.id, task, ...(input.waitForCodeRequestId ? { waitForCodeRequestId: input.waitForCodeRequestId } : {}),
     state: input.waitForCodeRequestId ? "waiting" : "ready", ...(input.toolCallId ? { toolCallId: input.toolCallId } : {}),
-    createdAt: now, updatedAt: now,
+    relayDepth, createdAt: now, updatedAt: now,
   };
   updateRoomHandoffs(input.roomId, (handoffs) => {
     // Make room for the new record by dropping the oldest settled one.
@@ -500,6 +511,23 @@ export async function deliverReadyRoomHandoffs(roomId: string): Promise<void> {
       patchHandoff(roomId, next.id, (current) => ({ ...current, state: "failed", reason: "宛先Botが無効なため実行しません", updatedAt: Date.now() }));
       continue;
     }
+    // Validate-then-claim: issue a server envelope then consume it under durable relay state.
+    if (!room.botRelayEnabled) {
+      patchHandoff(roomId, next.id, (current) => ({ ...current, state: "failed", reason: "Botリレーが無効なため実行しません", updatedAt: Date.now() }));
+      continue;
+    }
+    const parentToken = (room.handoffs ?? []).find((item) => item.requestId === next.requestId && item.toBotId === next.fromBotId && item.relayEnvelopeToken && (item.state === "running" || item.state === "done") && item.id !== next.id)?.relayEnvelopeToken;
+    const token = next.relayEnvelopeToken ?? issueRoomRelayEnvelope(roomId, next.fromBotId, [next.toBotId], parentToken);
+    if (!token) {
+      patchHandoff(roomId, next.id, (current) => ({ ...current, state: "failed", reason: "リレーエンベロープを発行できませんでした（ループ・深度・無効化）", updatedAt: Date.now() }));
+      continue;
+    }
+    const envelope = consumeRoomRelayEnvelope(roomId, token);
+    if (!envelope) {
+      patchHandoff(roomId, next.id, (current) => ({ ...current, state: "failed", reason: "リレーエンベロープを主張できませんでした（再送・ループ・無効化）", updatedAt: Date.now() }));
+      continue;
+    }
+    patchHandoff(roomId, next.id, (current) => current.state === "ready" ? { ...current, relayEnvelopeToken: token, relayDepth: envelope.depth, updatedAt: Date.now() } : current);
     // Claim before opening the turn: a concurrent deliverer loses the race here.
     const claimed = updateRoomHandoffs(roomId, (handoffs) => handoffs.map((handoff) => handoff.id === next.id && handoff.state === "ready"
       ? { ...handoff, state: "running", updatedAt: Date.now() }

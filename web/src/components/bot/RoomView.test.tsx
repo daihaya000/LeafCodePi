@@ -29,7 +29,7 @@ const bot = { id: "bot-1", name: "Alpha", avatarColor: "#0071E3", enabled: true 
 const room = {
   id: "room-1",
   name: "Team",
-  members: [bot.id],
+  members: [bot.id], botRelayEnabled: false,
   createdAt: "2026-01-01T00:00:00.000Z",
   updatedAt: "2026-01-01T00:00:00.000Z",
   messages: [{ id: "message-1", role: "user" as const, text: "@here hello", createdAt: 1 }],

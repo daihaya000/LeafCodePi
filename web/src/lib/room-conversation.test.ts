@@ -8,7 +8,7 @@ const bots = [
 ] as BotDto[];
 const user: RoomMessage = { id: "request", role: "user", text: "二人で会話してみて", createdAt: 1 };
 function room(messages: RoomMessage[] = [user]): RoomDto {
-  return { id: "room", name: "Room", members: ["a", "b"], messages, createdAt: "", updatedAt: "" };
+  return { id: "room", name: "Room", members: ["a", "b"], botRelayEnabled: false, messages, createdAt: "", updatedAt: "" };
 }
 function transcriptOf(prompt: string): Array<{ speaker: string; botId?: string; text: string; truncated?: boolean }> {
   return JSON.parse(prompt.split("Recent transcript (older/oversized messages may be omitted or truncated):\n")[1].split(/\n(?:User request|Current bot relay message)/)[0]);
