@@ -62,3 +62,27 @@ it("ignores a stale session response after switching bot ids", async () => {
   expect(screen.getByText("New task")).toBeTruthy();
   expect(screen.queryByText("Old task")).toBeNull();
 });
+
+it("clears the previous bot's tasks while the next session is loading", async () => {
+  let resolveNext!: (value: { tasks: typeof newTask[] }) => void;
+  const nextResponse = new Promise<{ tasks: typeof newTask[] }>((resolve) => { resolveNext = resolve; });
+  mocks.getJson.mockImplementation((url: string) => {
+    if (url === "/api/bots/one/code-session") return Promise.resolve({ tasks: [oldTask] });
+    if (url === "/api/bots/two/code-session") return nextResponse;
+    if (url === "/api/projects") return Promise.resolve({ projects: [project] });
+    return Promise.resolve({ loop: null });
+  });
+
+  const view = render(<BotCodeSessionPanel botId="one" />);
+  expect(await screen.findByText("Old task")).toBeTruthy();
+
+  view.rerender(<BotCodeSessionPanel botId="two" />);
+  await waitFor(() => expect(mocks.getJson).toHaveBeenCalledWith("/api/bots/two/code-session"));
+  await waitFor(() => expect(screen.queryByText("Old task")).toBeNull());
+
+  await act(async () => {
+    resolveNext({ tasks: [newTask] });
+    await nextResponse;
+  });
+  expect(screen.getByText("New task")).toBeTruthy();
+});

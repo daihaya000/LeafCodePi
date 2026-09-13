@@ -65,7 +65,12 @@ export function BotCodeSessionPanel({ botId, onClose }: { botId: string; onClose
       setError(reason instanceof Error ? reason.message : "Codeセッションを読み込めませんでした");
     }
   }, [botId]);
-  useEffect(() => { void load(); }, [load]);
+  useEffect(() => {
+    setTasks([]);
+    setLoops({});
+    setError(null);
+    void load();
+  }, [load]);
   useEffect(() => { if (!tasks.some((task) => task.status === "working" || (task.goalLoopSummary && LIVE_GOAL_LOOP_STATUSES.has(task.goalLoopSummary.status)))) return; const timer = window.setInterval(() => void load(), 2_000); return () => window.clearInterval(timer); }, [load, tasks]);
 
   const launch = async () => {
