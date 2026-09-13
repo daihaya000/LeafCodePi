@@ -95,10 +95,14 @@ export function AddProjectButton({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const pathInputRef = useRef<HTMLInputElement>(null);
+  const listingRequestRef = useRef(0);
 
   useEffect(() => {
     if (!open) return;
     void loadDir();
+    return () => {
+      listingRequestRef.current += 1;
+    };
   }, [open]);
 
   useEffect(() => {
@@ -115,17 +119,21 @@ export function AddProjectButton({
   }, [open]);
 
   async function loadDir(next?: string) {
+    const requestId = ++listingRequestRef.current;
     setLoading(true);
     setError(null);
     try {
       const data = await getJson<DirList>("/api/browse/dirs", next ? { path: next } : undefined);
+      if (requestId !== listingRequestRef.current) return;
       setListing(data);
       if (data.path) setPath(data.path);
       setError(data.error ?? null);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "フォルダ一覧を取得できません");
+      if (requestId === listingRequestRef.current) {
+        setError(err instanceof Error ? err.message : "フォルダ一覧を取得できません");
+      }
     } finally {
-      setLoading(false);
+      if (requestId === listingRequestRef.current) setLoading(false);
     }
   }
 
