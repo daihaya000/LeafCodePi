@@ -17,8 +17,10 @@ vi.mock("@/lib/direct-generation", () => ({
 }));
 
 import {
+  AUTO_AGENT_RULES,
   autoAgentHasOwnModel,
   formatAutoAgentPrompt,
+  matchAutoAgentByRule,
   parseAutoAgentResponse,
   resolveAutoAgent,
   type AutoAgentCandidate,
@@ -27,6 +29,11 @@ import {
 const candidates: AutoAgentCandidate[] = [
   { name: "builder", description: "実装を進める", canModifyFiles: true },
   { name: "reviewer", description: "差分をレビューする", canModifyFiles: false },
+];
+
+const researchCandidates: AutoAgentCandidate[] = [
+  ...candidates,
+  { name: "researcher", description: "調査する", canModifyFiles: false },
 ];
 
 beforeEach(() => {
@@ -125,7 +132,7 @@ describe("auto-agent", () => {
     await expect(
       resolveAutoAgent({
         conversation: [{ role: "user", text: "差分を作りました" }],
-        prompt: "レビューして",
+        prompt: "差分を確認して",
       }),
     ).resolves.toBe("reviewer");
 
@@ -133,7 +140,7 @@ describe("auto-agent", () => {
     expect(generated.system).toContain("レビューは reviewer を優先");
     expect(generated.system).toContain("現在の依頼を最優先");
     expect(generated.system).toContain("canModifyFiles=false");
-    expect(generated.prompt).toContain("レビューして");
+    expect(generated.prompt).toContain("差分を確認して");
     expect(generated.prompt).toContain("reviewer");
     expect(generated.prompt).toContain('"canModifyFiles":false');
     expect(generated.prompt).not.toContain("disabled");
@@ -176,18 +183,18 @@ describe("auto-agent", () => {
     });
 
     await expect(
-      resolveAutoAgent({ conversation: [], prompt: "実装して" }),
+      resolveAutoAgent({ conversation: [], prompt: "この方針で進めて" }),
     ).resolves.toBe("builder");
 
     mocks.generateDirectTextWithFallbackResult.mockRejectedValue(new Error("offline"));
     await expect(
-      resolveAutoAgent({ conversation: [], prompt: "実装して" }),
+      resolveAutoAgent({ conversation: [], prompt: "この方針で進めて" }),
     ).resolves.toBe("builder");
   });
 
   it("uses the deterministic fallback when no generation model is available", async () => {
     await expect(
-      resolveAutoAgent({ conversation: [], prompt: "実装して" }),
+      resolveAutoAgent({ conversation: [], prompt: "この方針で進めて" }),
     ).resolves.toBe("builder");
     expect(mocks.generateDirectTextWithFallbackResult).not.toHaveBeenCalled();
   });
@@ -249,7 +256,7 @@ describe("auto-agent", () => {
     });
 
     await expect(
-      resolveAutoAgent({ conversation: [], prompt: "実装して" }),
+      resolveAutoAgent({ conversation: [], prompt: "この方針で進めて" }),
     ).resolves.toBe("builder");
 
     const generated = mocks.generateDirectTextWithFallbackResult.mock.calls[0]?.[0];
@@ -275,7 +282,7 @@ describe("auto-agent", () => {
           }),
       );
 
-      const result = resolveAutoAgent({ conversation: [], prompt: "実装して" });
+      const result = resolveAutoAgent({ conversation: [], prompt: "この方針で進めて" });
       await vi.advanceTimersByTimeAsync(30_000);
       await expect(result).resolves.toBe("builder");
     } finally {
@@ -301,5 +308,203 @@ describe("auto-agent", () => {
     const withPrompt = mocks.generateDirectTextWithFallbackResult.mock.calls[1]?.[0]?.prompt;
     expect(withPrompt).toContain("前回の依頼");
     expect(withPrompt).not.toContain("\n（なし）\n");
+  });
+});
+
+describe("auto-agent rule-first", () => {
+  it("keeps the rule table super-narrow", () => {
+    expect(AUTO_AGENT_RULES.map((rule) => rule.kind)).toEqual([
+      "implement",
+      "review",
+      "research",
+    ]);
+    expect(AUTO_AGENT_RULES.flatMap((rule) => [...rule.promptKeywords])).toEqual([
+      "実装",
+      "implement",
+      "レビュー",
+      "review",
+      "調査",
+      "research",
+    ]);
+  });
+
+  it("matches a unique implement candidate from canModifyFiles and narrow keywords", () => {
+    expect(matchAutoAgentByRule("この関数を実装して", candidates)).toEqual({
+      agent: "builder",
+      kind: "implement",
+    });
+    expect(matchAutoAgentByRule("Please implement this helper", candidates)).toEqual({
+      agent: "builder",
+      kind: "implement",
+    });
+  });
+
+  it("matches a unique review candidate from canModifyFiles and narrow keywords", () => {
+    expect(matchAutoAgentByRule("この差分をレビューして", candidates)).toEqual({
+      agent: "reviewer",
+      kind: "review",
+    });
+    expect(matchAutoAgentByRule("Please review this diff", candidates)).toEqual({
+      agent: "reviewer",
+      kind: "review",
+    });
+  });
+
+  it("matches a unique research candidate from canModifyFiles and narrow keywords", () => {
+    expect(matchAutoAgentByRule("原因を調査して", researchCandidates)).toEqual({
+      agent: "researcher",
+      kind: "research",
+    });
+    expect(matchAutoAgentByRule("Please research this failure", researchCandidates)).toEqual({
+      agent: "researcher",
+      kind: "research",
+    });
+  });
+
+  it("returns undefined when the request is ambiguous or mixed", () => {
+    expect(matchAutoAgentByRule("この方針で進めて", candidates)).toBeUndefined();
+    expect(matchAutoAgentByRule("指摘事項を修正して", candidates)).toBeUndefined();
+    expect(matchAutoAgentByRule("実装してからレビューして", candidates)).toBeUndefined();
+    expect(matchAutoAgentByRule("preview the plan", candidates)).toBeUndefined();
+    expect(matchAutoAgentByRule("implementation notes", candidates)).toBeUndefined();
+  });
+
+  it("returns undefined when canModifyFiles or agent keywords are not unique", () => {
+    expect(
+      matchAutoAgentByRule("実装して", [
+        { name: "writer", description: "コードを書く", canModifyFiles: true },
+        { name: "reviewer", description: "差分をレビューする", canModifyFiles: false },
+      ]),
+    ).toBeUndefined();
+    expect(
+      matchAutoAgentByRule("実装して", [
+        { name: "builder", description: "実装を進める", canModifyFiles: true },
+        { name: "coder", description: "実装も担当する", canModifyFiles: true },
+      ]),
+    ).toBeUndefined();
+  });
+
+  it("skips the LLM on a confident implement request and logs the skip", async () => {
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    mocks.buildDirectGenerationCandidates.mockReturnValue([
+      { model: { providerID: "p", modelID: "m" } },
+    ]);
+
+    try {
+      await expect(
+        resolveAutoAgent({ conversation: [], prompt: "この関数を実装して" }),
+      ).resolves.toBe("builder");
+      expect(mocks.generateDirectTextWithFallbackResult).not.toHaveBeenCalled();
+      expect(log).toHaveBeenCalledWith(
+        "[auto-agent] rule-first skip LLM",
+        JSON.stringify({ agent: "builder", kind: "implement" }),
+      );
+    } finally {
+      log.mockRestore();
+    }
+  });
+
+  it("skips the LLM on a confident review request", async () => {
+    mocks.buildDirectGenerationCandidates.mockReturnValue([
+      { model: { providerID: "p", modelID: "m" } },
+    ]);
+
+    await expect(
+      resolveAutoAgent({ conversation: [], prompt: "この差分をレビューして" }),
+    ).resolves.toBe("reviewer");
+    expect(mocks.generateDirectTextWithFallbackResult).not.toHaveBeenCalled();
+  });
+
+  it("skips the LLM on a confident research request", async () => {
+    mocks.listAgents.mockReturnValue({
+      agents: [
+        {
+          name: "reviewer",
+          description: "差分をレビューする",
+          enabled: true,
+          tools: ["read", "grep"],
+        },
+        {
+          name: "builder",
+          description: "実装を進める",
+          enabled: true,
+          tools: ["read", "edit", "write"],
+        },
+        {
+          name: "researcher",
+          description: "調査する",
+          enabled: true,
+          tools: ["read", "grep"],
+        },
+      ],
+      agentsDir: "",
+    });
+    mocks.buildDirectGenerationCandidates.mockReturnValue([
+      { model: { providerID: "p", modelID: "m" } },
+    ]);
+
+    await expect(
+      resolveAutoAgent({ conversation: [], prompt: "原因を調査して" }),
+    ).resolves.toBe("researcher");
+    expect(mocks.generateDirectTextWithFallbackResult).not.toHaveBeenCalled();
+  });
+
+  it("keeps the LLM router for ambiguous requests", async () => {
+    const model = { providerID: "p", modelID: "m" };
+    mocks.buildDirectGenerationCandidates.mockReturnValue([{ model }]);
+    mocks.generateDirectTextWithFallbackResult.mockResolvedValue({
+      text: '{"agent":"builder"}',
+      model,
+    });
+
+    await expect(
+      resolveAutoAgent({ conversation: [], prompt: "この方針で進めて" }),
+    ).resolves.toBe("builder");
+    expect(mocks.generateDirectTextWithFallbackResult).toHaveBeenCalled();
+  });
+
+  it("falls back to DEFAULT when the LLM fails on an ambiguous request", async () => {
+    mocks.buildDirectGenerationCandidates.mockReturnValue([
+      { model: { providerID: "p", modelID: "m" } },
+    ]);
+    mocks.generateDirectTextWithFallbackResult.mockRejectedValue(new Error("offline"));
+
+    await expect(
+      resolveAutoAgent({ conversation: [], prompt: "この方針で進めて" }),
+    ).resolves.toBe("builder");
+  });
+
+  it("falls back to DEFAULT when rule matching throws", async () => {
+    mocks.listAgents.mockReturnValue({
+      agents: [
+        {
+          name: "reviewer",
+          description: "差分をレビューする",
+          enabled: true,
+          tools: ["read", "grep"],
+        },
+        {
+          name: "builder",
+          description: "実装を進める",
+          enabled: true,
+          tools: ["read", "edit", "write"],
+        },
+      ],
+      agentsDir: "",
+    });
+    mocks.buildDirectGenerationCandidates.mockReturnValue([
+      { model: { providerID: "p", modelID: "m" } },
+    ]);
+    const prompt = new String("実装して") as string;
+    Object.defineProperty(prompt, "trim", {
+      value: () => {
+        throw new Error("rule boom");
+      },
+    });
+
+    await expect(
+      resolveAutoAgent({ conversation: [], prompt }),
+    ).resolves.toBe("builder");
+    expect(mocks.generateDirectTextWithFallbackResult).not.toHaveBeenCalled();
   });
 });

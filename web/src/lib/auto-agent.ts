@@ -54,6 +54,38 @@ export type AutoAgentCandidate = {
   canModifyFiles: boolean;
 };
 
+export type AutoAgentRuleKind = "implement" | "review" | "research";
+
+export type AutoAgentRuleMatch = {
+  agent: string;
+  kind: AutoAgentRuleKind;
+};
+
+/**
+ * Super-narrow rule-first criteria only.
+ * Do not expand this into a general keyword router.
+ */
+export const AUTO_AGENT_RULES = [
+  {
+    kind: "implement" as const,
+    canModifyFiles: true,
+    promptKeywords: ["実装", "implement"],
+    agentKeywords: ["実装", "implement", "builder"],
+  },
+  {
+    kind: "review" as const,
+    canModifyFiles: false,
+    promptKeywords: ["レビュー", "review"],
+    agentKeywords: ["レビュー", "review", "reviewer"],
+  },
+  {
+    kind: "research" as const,
+    canModifyFiles: false,
+    promptKeywords: ["調査", "research"],
+    agentKeywords: ["調査", "research", "researcher"],
+  },
+] as const;
+
 function truncate(text: string, max: number, keepEnd = false): string {
   const codePoints = Array.from(text);
   return codePoints.slice(keepEnd ? -max : 0, keepEnd ? undefined : max).join("");
@@ -89,6 +121,50 @@ function enabledCandidates(): AutoAgentCandidate[] {
 
 function fallbackAgent(candidates: readonly AutoAgentCandidate[]): string | undefined {
   return candidates.find((agent) => agent.name === DEFAULT_AGENT)?.name ?? candidates[0]?.name;
+}
+
+function hasNarrowKeyword(text: string, keyword: string): boolean {
+  if (!text || !keyword) return false;
+  if (/^[a-z]+$/i.test(keyword)) {
+    const escaped = keyword.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    return new RegExp(`\\b${escaped}\\b`, "i").test(text);
+  }
+  return text.toLowerCase().includes(keyword.toLowerCase());
+}
+
+function textHasAnyKeyword(text: string, keywords: readonly string[]): boolean {
+  return keywords.some((keyword) => hasNarrowKeyword(text, keyword));
+}
+
+function agentMatchesRule(
+  agent: AutoAgentCandidate,
+  rule: (typeof AUTO_AGENT_RULES)[number],
+): boolean {
+  if (agent.canModifyFiles !== rule.canModifyFiles) return false;
+  const hay = `${agent.name}\n${agent.description ?? ""}`;
+  return textHasAnyKeyword(hay, rule.agentKeywords);
+}
+
+/**
+ * Confident unique match only. Ambiguous or mixed requests return undefined
+ * so the existing LLM JSON router still runs.
+ */
+export function matchAutoAgentByRule(
+  prompt: string,
+  candidates: readonly AutoAgentCandidate[],
+): AutoAgentRuleMatch | undefined {
+  const text = prompt.trim();
+  if (!text) return undefined;
+
+  const matchedRules = AUTO_AGENT_RULES.filter((rule) =>
+    textHasAnyKeyword(text, rule.promptKeywords),
+  );
+  if (matchedRules.length !== 1) return undefined;
+
+  const rule = matchedRules[0];
+  const hits = candidates.filter((agent) => agentMatchesRule(agent, rule));
+  if (hits.length !== 1) return undefined;
+  return { agent: hits[0].name, kind: rule.kind };
 }
 
 function buildSelectionPrompt(
@@ -192,6 +268,19 @@ export async function resolveAutoAgent(options: AutoAgentOptions): Promise<strin
   }
   // One candidate is the only possible answer; the router call cannot change it.
   if (candidates.length === 1) return fallback;
+
+  try {
+    const ruled = matchAutoAgentByRule(options.prompt, candidates);
+    if (ruled) {
+      console.log(
+        "[auto-agent] rule-first skip LLM",
+        JSON.stringify({ agent: ruled.agent, kind: ruled.kind }),
+      );
+      return ruled.agent;
+    }
+  } catch {
+    return fallback;
+  }
 
   const prompt = buildSelectionPrompt(
     options.conversation,
