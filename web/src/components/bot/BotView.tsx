@@ -767,7 +767,7 @@ export const BotView = memo(function BotView({ id, active = true }: { id: string
   const saveProfile = async (nextName: string, nextLabel: string) => {
     const name = nextName.trim();
     const label = nextLabel.trim();
-    if (!name || !label) return;
+    if (!name) return;
     setSavingProfile(true);
     setError(null);
     try {

@@ -734,6 +734,9 @@ it("renders SOUL.md as Markdown by default and auto-saves after entering edit mo
   fireEvent.change(screen.getByRole("textbox", { name: "ボットの名前" }), { target: { value: "New Bot" } });
   await waitFor(() => expect(mocks.sendJson).toHaveBeenCalledWith("/api/bots/one", { name: "New Bot", label: "Label" }, "PATCH"));
 
+  fireEvent.change(screen.getByRole("textbox", { name: "ボットのラベル" }), { target: { value: "" } });
+  await waitFor(() => expect(mocks.sendJson).toHaveBeenCalledWith("/api/bots/one", { name: "New Bot", label: "" }, "PATCH"));
+
   const viewer = screen.getByRole("heading", { name: "役割" }).closest("div.md");
   expect(viewer?.classList.contains("h-48")).toBe(true);
   expect(viewer?.classList.contains("overflow-y-auto")).toBe(true);

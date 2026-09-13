@@ -124,6 +124,14 @@ describe("PATCH /api/bots/[id]", () => {
     );
   });
 
+  it("allows clearing the optional label", async () => {
+    mocks.getBot.mockReturnValue(bot());
+    mocks.patchBot.mockReturnValue({ ...bot(), label: "" });
+    const response = await PATCH(jsonRequest({ label: "" }), params("one"));
+    expect(response.status).toBe(200);
+    expect(mocks.patchBot).toHaveBeenCalledWith("one", { label: "" });
+  });
+
   it("accepts intercom in the Bot tool allowlist", async () => {
     mocks.getBot.mockReturnValue(bot());
     mocks.patchBot.mockReturnValue({ ...bot(), tools: ["read", "intercom"] });

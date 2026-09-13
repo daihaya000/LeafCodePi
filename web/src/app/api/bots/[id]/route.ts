@@ -50,7 +50,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   if (
     !body ||
     (body.name !== undefined && (typeof body.name !== "string" || !body.name.trim())) ||
-    (body.label !== undefined && (typeof body.label !== "string" || !body.label.trim())) ||
+    (body.label !== undefined && typeof body.label !== "string") ||
     soulValidationError !== null ||
     (body.avatarColor !== undefined && !isAvatarColor(body.avatarColor)) ||
     (body.avatarShape !== undefined && !isAvatarShape(body.avatarShape)) ||
