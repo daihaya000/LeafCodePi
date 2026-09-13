@@ -408,20 +408,19 @@ describe("TaskView draft submission", () => {
     expect(screen.getByTitle("平均 tok/s（応答ごとの tok/s の平均）").className).toContain("@min-[36rem]/task:inline");
   });
 
-  it("keeps the full title in its edit target and separates secondary actions", () => {
+  it("edits the full title directly and keeps secondary actions separate", () => {
     const title = "再起動オーバーレイの表示条件とヘッダーレイアウトを改善する";
     saveTaskSessionCache({ task: { ...task, title }, messages: [], isStreaming: false, isCompacting: false });
     render(<TaskView taskId={task.id} mdUp={false} />);
 
     const heading = screen.getByRole("heading", { name: title });
-    const edit = screen.getByRole("button", { name: `タイトルを編集: ${title}` });
-    expect(heading.contains(edit)).toBe(true);
-    expect(edit.textContent).toBe(title);
+    expect(screen.queryByRole("button", { name: `タイトルを編集: ${title}` })).toBeNull();
+    expect(heading.textContent).toBe(title);
     expect(screen.getAllByText("クリーン")).toHaveLength(1);
     const generateTitle = screen.getByRole("button", { name: "タイトルを生成" });
     expect(screen.getByRole("group", { name: "タスク操作" }).contains(generateTitle)).toBe(false);
-    expect(edit.compareDocumentPosition(generateTitle) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    fireEvent.click(edit);
+    expect(heading.compareDocumentPosition(generateTitle) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    fireEvent.click(heading);
     const input = screen.getByRole("textbox", { name: "セッションタイトル" });
     expect(document.activeElement).toBe(input);
     fireEvent.keyDown(input, { key: "Escape" });
@@ -434,7 +433,7 @@ describe("TaskView draft submission", () => {
     mocks.sendJson.mockResolvedValue({ task: updatedTask });
     render(<TaskView taskId={task.id} mdUp />);
 
-    fireEvent.click(screen.getByRole("button", { name: /^タイトルを編集:/ }));
+    fireEvent.click(screen.getByRole("heading", { name: task.title }));
     const input = screen.getByRole("textbox", { name: "セッションタイトル" }) as HTMLInputElement;
     fireEvent.change(input, { target: { value: "手動タイトル" } });
     fireEvent.click(screen.getByRole("button", { name: "タイトルを保存" }));

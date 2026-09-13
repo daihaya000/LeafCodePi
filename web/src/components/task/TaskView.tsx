@@ -11,7 +11,6 @@ import {
   GitGraph,
   ListPlus,
   PanelRight,
-  Pencil,
   Plus,
   RotateCcw,
   Shrink,
@@ -2915,18 +2914,23 @@ export const TaskView = memo(function TaskView({
                 </Button>
               </form>
             ) : (
-              <h1 className="min-w-0 max-w-full text-sm font-semibold" aria-label={task?.title ?? "読み込み中…"}>
-                <button
-                  type="button"
-                  className="group/title flex min-h-11 w-full min-w-0 items-center gap-2 rounded-lg text-left disabled:cursor-default @min-[48rem]/task:min-h-8"
-                  aria-label={`タイトルを編集: ${task?.title ?? "読み込み中…"}`}
-                  title={task?.title}
-                  disabled={!task || archived || titleBusy}
-                  onClick={beginTitleEdit}
-                >
-                  <span className="truncate">{task?.title ?? "読み込み中…"}</span>
-                  <Pencil aria-hidden="true" className="h-3.5 w-3.5 shrink-0 text-muted group-hover/title:text-accent" />
-                </button>
+              <h1
+                className={cx(
+                  "min-w-0 max-w-full flex-1 text-sm font-semibold",
+                  task && !archived && !titleBusy && "cursor-text",
+                )}
+                aria-label={task?.title ?? "読み込み中…"}
+                tabIndex={task && !archived && !titleBusy ? 0 : undefined}
+                title={task?.title}
+                onClick={beginTitleEdit}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    beginTitleEdit();
+                  }
+                }}
+              >
+                <span className="block truncate">{task?.title ?? "読み込み中…"}</span>
               </h1>
             )}
             <Button
