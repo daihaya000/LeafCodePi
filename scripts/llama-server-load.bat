@@ -65,8 +65,8 @@ if not "%SPEC_TYPE%"=="" set "SPEC_ARGS=--spec-type %SPEC_TYPE% --spec-draft-n-m
 rem Vision projector (mmproj) for image input. MODEL_DIR-relative path, e.g.
 rem "Ornith-1.5-35B-A3B-GGUF\mmproj.gguf". Empty = text-only (fastest start).
 if not defined MMPROJ_FILE set "MMPROJ_FILE="
-set "MMPROJ_ARGS="
-if defined MODEL_FILE if not "%MODEL_FILE%"=="" if not "%MMPROJ_FILE%"=="" set "MMPROJ_ARGS=--mmproj %MODEL_DIR%\%MMPROJ_FILE%"
+set "MMPROJ_PATH="
+if defined MODEL_FILE if not "%MODEL_FILE%"=="" if not "%MMPROJ_FILE%"=="" set "MMPROJ_PATH=%MODEL_DIR%\%MMPROJ_FILE%"
 rem Shared perf + sampling flags: match the Linux Vulkan profile while keeping
 rem GPU_DEVICE optional for Windows CUDA/Vulkan builds.
 set "DEVICE_ARGS="
@@ -139,9 +139,16 @@ set "LAUNCH_MODE=router"
 goto :launch
 
 :launch
-if "%LAUNCH_MODE%"=="single_kwargs" start "llama-server" /min cmd.exe /c ""%LLAMA_SERVER_BIN%" -m "%MODEL_PATH%" --alias "%MODEL_ALIAS%" --host %LLAMA_SERVER_HOST% --port %SERVER_PORT% -np %PARALLEL% %DEVICE_ARGS% %PERF_ARGS% %CACHE_ARGS% %SPEC_ARGS% %MMPROJ_ARGS% --jinja --chat-template-kwargs "{\"reasoning_effort\":\"%REASONING_EFFORT%\"}" >> "%LLAMA_SERVER_LOG%" 2>&1"
-if "%LAUNCH_MODE%"=="single_plain" start "llama-server" /min cmd.exe /c ""%LLAMA_SERVER_BIN%" -m "%MODEL_PATH%" --alias "%MODEL_ALIAS%" --host %LLAMA_SERVER_HOST% --port %SERVER_PORT% -np %PARALLEL% %DEVICE_ARGS% %PERF_ARGS% %CACHE_ARGS% %SPEC_ARGS% %MMPROJ_ARGS% --jinja >> "%LLAMA_SERVER_LOG%" 2>&1"
-if "%LAUNCH_MODE%"=="router" start "llama-server" /min cmd.exe /c ""%LLAMA_SERVER_BIN%" --models-dir "%MODEL_DIR%" --host %LLAMA_SERVER_HOST% --port %SERVER_PORT% -np %PARALLEL% %DEVICE_ARGS% %PERF_ARGS% %CACHE_ARGS% %SPEC_ARGS% %MMPROJ_ARGS% --jinja >> "%LLAMA_SERVER_LOG%" 2>&1"
+if defined MMPROJ_PATH goto :launch_with_mmproj
+if "%LAUNCH_MODE%"=="single_kwargs" start "llama-server" /min cmd.exe /c ""%LLAMA_SERVER_BIN%" -m "%MODEL_PATH%" --alias "%MODEL_ALIAS%" --host %LLAMA_SERVER_HOST% --port %SERVER_PORT% -np %PARALLEL% %DEVICE_ARGS% %PERF_ARGS% %CACHE_ARGS% %SPEC_ARGS% --jinja --chat-template-kwargs "{\"reasoning_effort\":\"%REASONING_EFFORT%\"}" >> "%LLAMA_SERVER_LOG%" 2>&1"
+if "%LAUNCH_MODE%"=="single_plain" start "llama-server" /min cmd.exe /c ""%LLAMA_SERVER_BIN%" -m "%MODEL_PATH%" --alias "%MODEL_ALIAS%" --host %LLAMA_SERVER_HOST% --port %SERVER_PORT% -np %PARALLEL% %DEVICE_ARGS% %PERF_ARGS% %CACHE_ARGS% %SPEC_ARGS% --jinja >> "%LLAMA_SERVER_LOG%" 2>&1"
+if "%LAUNCH_MODE%"=="router" start "llama-server" /min cmd.exe /c ""%LLAMA_SERVER_BIN%" --models-dir "%MODEL_DIR%" --host %LLAMA_SERVER_HOST% --port %SERVER_PORT% -np %PARALLEL% %DEVICE_ARGS% %PERF_ARGS% %CACHE_ARGS% %SPEC_ARGS% --jinja >> "%LLAMA_SERVER_LOG%" 2>&1"
+goto :wait_health
+
+:launch_with_mmproj
+if "%LAUNCH_MODE%"=="single_kwargs" start "llama-server" /min cmd.exe /c ""%LLAMA_SERVER_BIN%" -m "%MODEL_PATH%" --alias "%MODEL_ALIAS%" --host %LLAMA_SERVER_HOST% --port %SERVER_PORT% -np %PARALLEL% %DEVICE_ARGS% %PERF_ARGS% %CACHE_ARGS% %SPEC_ARGS% --mmproj "%MMPROJ_PATH%" --jinja --chat-template-kwargs "{\"reasoning_effort\":\"%REASONING_EFFORT%\"}" >> "%LLAMA_SERVER_LOG%" 2>&1"
+if "%LAUNCH_MODE%"=="single_plain" start "llama-server" /min cmd.exe /c ""%LLAMA_SERVER_BIN%" -m "%MODEL_PATH%" --alias "%MODEL_ALIAS%" --host %LLAMA_SERVER_HOST% --port %SERVER_PORT% -np %PARALLEL% %DEVICE_ARGS% %PERF_ARGS% %CACHE_ARGS% %SPEC_ARGS% --mmproj "%MMPROJ_PATH%" --jinja >> "%LLAMA_SERVER_LOG%" 2>&1"
+if "%LAUNCH_MODE%"=="router" start "llama-server" /min cmd.exe /c ""%LLAMA_SERVER_BIN%" --models-dir "%MODEL_DIR%" --host %LLAMA_SERVER_HOST% --port %SERVER_PORT% -np %PARALLEL% %DEVICE_ARGS% %PERF_ARGS% %CACHE_ARGS% %SPEC_ARGS% --mmproj "%MMPROJ_PATH%" --jinja >> "%LLAMA_SERVER_LOG%" 2>&1"
 
 :wait_health
 echo [llama-server] Waiting for the server to become healthy...
@@ -161,9 +168,13 @@ if defined LAUNCH_RETRIED (
   exit /b 3
 )
 set "LAUNCH_RETRIED=1"
-echo [llama-server] Not healthy; retrying once ^(killing port %SERVER_PORT% listeners, waiting for VRAM release^)...
-for /f "tokens=5" %%P in ('netstat -ano ^| findstr /r /c:":%SERVER_PORT% .*LISTENING"') do (
-  taskkill /F /PID %%P >nul 2>&1
+echo [llama-server] Not healthy; retrying once ^(waiting for VRAM release^)...
+rem Never kill an arbitrary process that may have claimed the port during the
+rem wait. If a listener appeared, leave it untouched and fail safely.
+netstat -ano | findstr /r /c:":%SERVER_PORT% .*LISTENING" >nul
+if not errorlevel 1 (
+  echo [FAIL] Port %SERVER_PORT% became occupied; refusing to kill an unrelated listener.
+  exit /b 3
 )
 ping -n 21 127.0.0.1 >nul
 goto :launch

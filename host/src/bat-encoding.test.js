@@ -112,6 +112,15 @@ test("tracked batch files use platform-safe line endings when git is available",
 
 const messageDir = join(repoRoot, "scripts", "setup-messages");
 
+test("Windows launcher quotes mmproj paths and avoids arbitrary listener kills", () => {
+  const launcher = readFileSync(join(repoRoot, "scripts", "llama-server-load.bat"), "ascii");
+  assert.match(launcher, /set "MMPROJ_PATH=%MODEL_DIR%\\%MMPROJ_FILE%"/);
+  assert.equal((launcher.match(/--mmproj "%MMPROJ_PATH%"/g) ?? []).length, 3);
+  assert.doesNotMatch(launcher, /MMPROJ_ARGS/);
+  assert.match(launcher, /refusing to kill an unrelated listener/);
+  assert.doesNotMatch(launcher, /taskkill/);
+});
+
 test("setup message files are UTF-8 without BOM and platform-safe line endings", () => {
   const names = readdirSync(messageDir).filter((name) => name.endsWith(".txt"));
   assert.ok(names.length >= 3, `expected setup messages, got ${names.length}`);
