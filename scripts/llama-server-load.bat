@@ -5,7 +5,11 @@ rem
 rem Override via env (host passes these from Settings > Engine > llama-server):
 rem   LLAMA_SERVER_BIN, MODEL_DIR, MODEL_FILE, LLAMA_SERVER_HOST,
 rem   CONTEXT_LENGTH, PARALLEL, REASONING_EFFORT, LLAMA_SERVER_LOG,
-rem   SAMPLING_TEMP, TOP_P, TOP_K
+rem   THREADS, THREADS_BATCH, BATCH_SIZE, UBATCH, SAMPLING_TEMP, TOP_P, TOP_K,
+rem   SAMPLING_SEED, SAMPLING_REPEAT_LAST_N, SAMPLING_REPEAT_PENALTY,
+rem   SAMPLING_DRY_MULTIPLIER, SAMPLING_DRY_BASE, SAMPLING_DRY_ALLOWED_LENGTH,
+rem   SAMPLING_DRY_PENALTY_LAST_N, REASONING_BUDGET, REASONING_BUDGET_MESSAGE,
+rem   GPU_DEVICE
 rem
 rem If MODEL_FILE is empty: router mode (--models-dir), then load a model.
 rem If MODEL_FILE is set: single-model mode (-m).
@@ -24,16 +28,29 @@ if not defined REASONING_EFFORT set "REASONING_EFFORT=low"
 if "%LEAFCODE_PI_EMPTY_EFFORT%"=="1" set "REASONING_EFFORT="
 if not defined CONTEXT_LENGTH set "CONTEXT_LENGTH=32768"
 if not defined PARALLEL set "PARALLEL=1"
+if not defined THREADS set "THREADS=8"
+if not defined THREADS_BATCH set "THREADS_BATCH=16"
+if not defined BATCH_SIZE set "BATCH_SIZE=2048"
 if not defined UBATCH set "UBATCH=2048"
 if not defined SAMPLING_TEMP set "SAMPLING_TEMP=0.6"
 if not defined TOP_P set "TOP_P=0.95"
 if not defined TOP_K set "TOP_K=20"
+if not defined SAMPLING_SEED set "SAMPLING_SEED=42"
+if not defined SAMPLING_REPEAT_LAST_N set "SAMPLING_REPEAT_LAST_N=256"
+if not defined SAMPLING_REPEAT_PENALTY set "SAMPLING_REPEAT_PENALTY=1.03"
+if not defined SAMPLING_DRY_MULTIPLIER set "SAMPLING_DRY_MULTIPLIER=0.35"
+if not defined SAMPLING_DRY_BASE set "SAMPLING_DRY_BASE=1.75"
+if not defined SAMPLING_DRY_ALLOWED_LENGTH set "SAMPLING_DRY_ALLOWED_LENGTH=4"
+if not defined SAMPLING_DRY_PENALTY_LAST_N set "SAMPLING_DRY_PENALTY_LAST_N=2048"
+if not defined REASONING_BUDGET set "REASONING_BUDGET=1536"
+if not defined REASONING_BUDGET_MESSAGE set "REASONING_BUDGET_MESSAGE=Reasoning limit reached. Stop analysis and provide the best concise final answer now."
+if not defined GPU_DEVICE set "GPU_DEVICE="
 if not defined LLAMA_SERVER_BIN set "LLAMA_SERVER_BIN=C:\tools\llama.cpp\llama-server.exe"
 rem KV cache types (f16 default). q8_0 halves KV VRAM at ~0 quality cost and
 rem was measurably fine on both local models (Ornith-1.5-35B-A3B, Qwen3.8-27B).
-rem Leave empty to use llama.cpp defaults.
-if not defined CT_K set "CT_K="
-if not defined CT_V set "CT_V="
+rem Explicit f16 matches the Linux Vulkan profile; q8_0 is useful when VRAM is tight.
+if not defined CT_K set "CT_K=f16"
+if not defined CT_V set "CT_V=f16"
 set "CACHE_ARGS="
 if not "%CT_K%"=="" set "CACHE_ARGS=%CACHE_ARGS% --cache-type-k %CT_K%"
 if not "%CT_V%"=="" set "CACHE_ARGS=%CACHE_ARGS% --cache-type-v %CT_V%"
@@ -42,17 +59,20 @@ rem MTP tensors (e.g. Ornith-1.5 AtomicChat builds) - they fail to load with
 rem --spec-type draft-mtp. Qwen3.5-class dense builds (nextn_predict_layers=1,
 rem e.g. Qwen3.8-27B) gain ~10x decode speed from draft-mtp.
 if not defined SPEC_TYPE set "SPEC_TYPE="
+if not defined DRAFT_MAX set "DRAFT_MAX=3"
 set "SPEC_ARGS="
-if not "%SPEC_TYPE%"=="" set "SPEC_ARGS=--spec-type %SPEC_TYPE%"
+if not "%SPEC_TYPE%"=="" set "SPEC_ARGS=--spec-type %SPEC_TYPE% --spec-draft-n-max %DRAFT_MAX%"
 rem Vision projector (mmproj) for image input. MODEL_DIR-relative path, e.g.
 rem "Ornith-1.5-35B-A3B-GGUF\mmproj.gguf". Empty = text-only (fastest start).
 if not defined MMPROJ_FILE set "MMPROJ_FILE="
 set "MMPROJ_ARGS="
 if defined MODEL_FILE if not "%MODEL_FILE%"=="" if not "%MMPROJ_FILE%"=="" set "MMPROJ_ARGS=--mmproj %MODEL_DIR%\%MMPROJ_FILE%"
-rem Shared perf + sampling flags: FlashAttention on (Ornith-1.5 / Qwen3 recommended),
-rem server-side sampling defaults (clients may still override per request).
-rem ubatch 2048: +20% prompt processing on Vulkan vs 512 (measured, tg unchanged).
-set "PERF_ARGS=-fa on --temp %SAMPLING_TEMP% --top-p %TOP_P% --top-k %TOP_K% -ub %UBATCH%"
+rem Shared perf + sampling flags: match the Linux Vulkan profile while keeping
+rem GPU_DEVICE optional for Windows CUDA/Vulkan builds.
+set "DEVICE_ARGS="
+if not "%GPU_DEVICE%"=="" set "DEVICE_ARGS=--device %GPU_DEVICE%"
+set "REASONING_ARGS=--reasoning-budget %REASONING_BUDGET% --reasoning-budget-message ^"%REASONING_BUDGET_MESSAGE%^""
+set "PERF_ARGS=--split-mode none --fit off --no-host --threads %THREADS% --threads-batch %THREADS_BATCH% --gpu-layers all --n-cpu-moe 0 --flash-attn on --ctx-size %CONTEXT_LENGTH% --batch-size %BATCH_SIZE% --ubatch-size %UBATCH% --temp %SAMPLING_TEMP% --top-p %TOP_P% --top-k %TOP_K% --seed %SAMPLING_SEED% --repeat-last-n %SAMPLING_REPEAT_LAST_N% --repeat-penalty %SAMPLING_REPEAT_PENALTY% --dry-multiplier %SAMPLING_DRY_MULTIPLIER% --dry-base %SAMPLING_DRY_BASE% --dry-allowed-length %SAMPLING_DRY_ALLOWED_LENGTH% --dry-penalty-last-n %SAMPLING_DRY_PENALTY_LAST_N% %REASONING_ARGS% --metrics"
 set "MODEL_ALIAS="
 
 if /i "%~1"=="/dry-run" (
@@ -119,9 +139,9 @@ set "LAUNCH_MODE=router"
 goto :launch
 
 :launch
-if "%LAUNCH_MODE%"=="single_kwargs" start "llama-server" /min cmd.exe /c ""%LLAMA_SERVER_BIN%" -m "%MODEL_PATH%" --alias "%MODEL_ALIAS%" --host %LLAMA_SERVER_HOST% --port %SERVER_PORT% -c %CONTEXT_LENGTH% -np %PARALLEL% -ngl 999 %PERF_ARGS% %CACHE_ARGS% %SPEC_ARGS% %MMPROJ_ARGS% --jinja --chat-template-kwargs "{\"reasoning_effort\":\"%REASONING_EFFORT%\"}" >> "%LLAMA_SERVER_LOG%" 2>&1"
-if "%LAUNCH_MODE%"=="single_plain" start "llama-server" /min cmd.exe /c ""%LLAMA_SERVER_BIN%" -m "%MODEL_PATH%" --alias "%MODEL_ALIAS%" --host %LLAMA_SERVER_HOST% --port %SERVER_PORT% -c %CONTEXT_LENGTH% -np %PARALLEL% -ngl 999 %PERF_ARGS% %CACHE_ARGS% %SPEC_ARGS% %MMPROJ_ARGS% --jinja >> "%LLAMA_SERVER_LOG%" 2>&1"
-if "%LAUNCH_MODE%"=="router" start "llama-server" /min cmd.exe /c ""%LLAMA_SERVER_BIN%" --models-dir "%MODEL_DIR%" --host %LLAMA_SERVER_HOST% --port %SERVER_PORT% -c %CONTEXT_LENGTH% -np %PARALLEL% -ngl 999 %PERF_ARGS% %CACHE_ARGS% %SPEC_ARGS% %MMPROJ_ARGS% --jinja >> "%LLAMA_SERVER_LOG%" 2>&1"
+if "%LAUNCH_MODE%"=="single_kwargs" start "llama-server" /min cmd.exe /c ""%LLAMA_SERVER_BIN%" -m "%MODEL_PATH%" --alias "%MODEL_ALIAS%" --host %LLAMA_SERVER_HOST% --port %SERVER_PORT% -np %PARALLEL% %DEVICE_ARGS% %PERF_ARGS% %CACHE_ARGS% %SPEC_ARGS% %MMPROJ_ARGS% --jinja --chat-template-kwargs "{\"reasoning_effort\":\"%REASONING_EFFORT%\"}" >> "%LLAMA_SERVER_LOG%" 2>&1"
+if "%LAUNCH_MODE%"=="single_plain" start "llama-server" /min cmd.exe /c ""%LLAMA_SERVER_BIN%" -m "%MODEL_PATH%" --alias "%MODEL_ALIAS%" --host %LLAMA_SERVER_HOST% --port %SERVER_PORT% -np %PARALLEL% %DEVICE_ARGS% %PERF_ARGS% %CACHE_ARGS% %SPEC_ARGS% %MMPROJ_ARGS% --jinja >> "%LLAMA_SERVER_LOG%" 2>&1"
+if "%LAUNCH_MODE%"=="router" start "llama-server" /min cmd.exe /c ""%LLAMA_SERVER_BIN%" --models-dir "%MODEL_DIR%" --host %LLAMA_SERVER_HOST% --port %SERVER_PORT% -np %PARALLEL% %DEVICE_ARGS% %PERF_ARGS% %CACHE_ARGS% %SPEC_ARGS% %MMPROJ_ARGS% --jinja >> "%LLAMA_SERVER_LOG%" 2>&1"
 
 :wait_health
 echo [llama-server] Waiting for the server to become healthy...

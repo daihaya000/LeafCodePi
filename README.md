@@ -22,7 +22,7 @@
 - `MODEL_FILE` 未指定 → ルーター（`--models-dir`）でモデルを切り替え。
 - `MODEL_FILE` 指定 → 単体 GGUF（`-m`）。プロバイダー ID `llama-server`。
 - Windows のバイナリ既定: `C:\tools\llama.cpp\llama-server.exe`
-- Linux/macOS: 設定画面でバイナリを指定するか、`LEAFCODE_PI_LLAMA_SERVER_BIN`（未設定時は PATH の `llama-server`）を設定します。モデルディレクトリの既定は `~/models/llm` です。Linux/macOS では host がバイナリを detached process として直接起動します。
+- Linux/macOS: 設定画面でバイナリを指定するか、`LEAFCODE_PI_LLAMA_SERVER_BIN`（未設定時は PATH の `llama-server`）を設定します。モデルディレクトリの既定は `~/models/llm` です。Linux では Vulkan `Vulkan0` を選び、CPU offload を無効にした LeafCodeCloud 相当の起動設定を使います（`LEAFCODE_PI_LLAMA_GPU_DEVICE` で変更、空文字で無効化）。Windows も同じ sampling / KV cache / CPU offload 防止設定を使います。Linux/macOS では host がバイナリを detached process として直接起動します。
 
 ## Ollama Cloud
 
@@ -291,6 +291,9 @@ npm run check
 | `LEAFCODE_PI_NONINTERACTIVE` | `1` で失敗時の pause を省略 |
 | `LEAFCODE_PI_LLAMA_SERVER_BIN` | Linux/macOS の llama-server バイナリ（未設定時は PATH の `llama-server`） |
 | `LEAFCODE_PI_LLAMA_MODEL_DIR` | Linux/macOS のモデルディレクトリ（未設定時は `~/models/llm`） |
+| `LEAFCODE_PI_LLAMA_GPU_DEVICE` | Linux の Vulkan デバイス（既定 `Vulkan0`） |
+| `LEAFCODE_PI_LLAMA_DRAFT_MODEL` | Linux の speculative decoding 用 draft GGUF（省略可） |
+| `LEAFCODE_PI_LLAMA_MMPROJ_PATH` | Linux の vision projector GGUF（省略可） |
 | `ANTHROPIC_API_KEY` など | Pi が読むプロバイダーキー |
 
 

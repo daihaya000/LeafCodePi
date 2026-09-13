@@ -18,7 +18,8 @@ import { homedir, tmpdir } from 'os';
 import { dirname, isAbsolute, join, posix, sep } from 'path';
 
 /**
- * Optional overrides for the start config. All map to the bat's env vars.
+ * Optional overrides for the start config. Windows maps these to the bat's
+ * environment; Linux passes the equivalent values as direct argv options.
  * @typedef {Object} LlamaServerStartConfig
  * @property {string} [effort] REASONING_EFFORT default (low|medium|xhigh).
  * @property {number} [contextLength] CONTEXT_LENGTH (-c).
@@ -26,6 +27,9 @@ import { dirname, isAbsolute, join, posix, sep } from 'path';
  * @property {string} [llamaServerBin] LLAMA_SERVER_BIN (llama-server.exe path).
  * @property {string} [modelDir] MODEL_DIR (GGUF model root).
  * @property {string} [modelFile] MODEL_FILE (model path relative to MODEL_DIR).
+ * @property {string} [gpuDevice] Linux Vulkan device (for example Vulkan0).
+ * @property {string} [draftModelPath] Linux speculative-decoding draft GGUF.
+ * @property {string} [mmprojPath] Linux vision projector GGUF.
  * @property {'127.0.0.1' | '0.0.0.0'} [llamaServerHost] LLAMA_SERVER_HOST
  *   (bind address; 0.0.0.0 opens the server to LAN/Tailscale clients).
  * @property {string} [specType] SPEC_TYPE (--spec-type; "" = off). Only
@@ -42,6 +46,7 @@ import { dirname, isAbsolute, join, posix, sep } from 'path';
  */
 const WINDOWS_UNSAFE_PATH_CHARS = /["%!&|<>^*?\u0000-\u001f]/;
 const POSIX_UNSAFE_PATH_CHARS = /[\u0000-\u001f]/;
+const POSIX_LLAMA_OVERRIDE_PREFIX = 'LLAMA_ARG_';
 
 /** @param {unknown} value @param {string} platform */
 function isUnsafePathValue(value, platform = process.platform) {
@@ -84,6 +89,7 @@ function isSafeModelFile(value, platform = process.platform) {
  *   fetch?: typeof fetch,
  *   spawn?: typeof spawn,
  *   spawnSync?: typeof spawnSync,
+ *   env?: NodeJS.ProcessEnv,
  *   writeFile?: (path: string, data: string) => void,
  *   tmpDir?: () => string,
  *   trayScript?: string | null,
@@ -96,17 +102,44 @@ function isSafeModelFile(value, platform = process.platform) {
 export function createLlamaServerService(deps) {
   const platform = deps.platform ?? process.platform;
   const isWindows = platform === 'win32';
+  const isLinux = platform === 'linux';
   const batPath = deps.batPath;
   const port = deps.port;
+  const launchEnvironment = deps.env ?? process.env;
+  const firstEnvironmentValue = (names, fallback = '') => {
+    for (const name of names) {
+      if (Object.prototype.hasOwnProperty.call(launchEnvironment, name)) {
+        return String(launchEnvironment[name] ?? '').trim();
+      }
+    }
+    return fallback;
+  };
+  const firstNonEmptyEnvironmentValue = (names, fallback = '') => {
+    for (const name of names) {
+      const value = firstEnvironmentValue([name]);
+      if (value) return value;
+    }
+    return fallback;
+  };
+  const configuredBin = firstNonEmptyEnvironmentValue([
+    'LEAFCODE_PI_LLAMA_SERVER_BIN',
+    'LLAMA_SERVER_BIN',
+  ]);
+  const configuredBinDir = firstNonEmptyEnvironmentValue(['BIN_DIR']);
   const defaultBin = deps.defaultBin ?? (
     isWindows
       ? null
-      : process.env.LEAFCODE_PI_LLAMA_SERVER_BIN?.trim() || process.env.LLAMA_SERVER_BIN?.trim() || 'llama-server'
+      : configuredBin || (isLinux && configuredBinDir
+        ? posix.join(configuredBinDir, 'llama-server')
+        : 'llama-server')
   );
   const defaultModelDir = deps.defaultModelDir ?? (
     isWindows
       ? null
-      : process.env.LEAFCODE_PI_LLAMA_MODEL_DIR?.trim() || join(homedir(), 'models', 'llm')
+      : firstNonEmptyEnvironmentValue(
+        ['LEAFCODE_PI_LLAMA_MODEL_DIR', 'MODEL_DIR', 'QWEN_MODEL_DIR'],
+        join(homedir(), 'models', 'llm'),
+      )
   );
   const pathJoin = isWindows ? join : posix.join;
   const pathSeparator = isWindows ? sep : posix.sep;
@@ -399,6 +432,10 @@ export function createLlamaServerService(deps) {
     if (config.modelFile) lines.push(`set "MODEL_FILE=${config.modelFile}"`);
     if (config.llamaServerHost)
       lines.push(`set "LLAMA_SERVER_HOST=${config.llamaServerHost}"`);
+    const gpuDevice = config.gpuDevice !== undefined
+      ? String(config.gpuDevice).trim()
+      : firstEnvironmentValue(['LEAFCODE_PI_LLAMA_GPU_DEVICE', 'GPU_DEVICE']);
+    if (gpuDevice) lines.push(`set "GPU_DEVICE=${gpuDevice}"`);
     if (config.specType) lines.push(`set "SPEC_TYPE=${config.specType}"`);
     if (config.cacheTypeK) lines.push(`set "CT_K=${config.cacheTypeK}"`);
     if (config.cacheTypeV) lines.push(`set "CT_V=${config.cacheTypeV}"`);
@@ -479,39 +516,213 @@ export function createLlamaServerService(deps) {
     }
   }
 
-  /** Build a direct POSIX launch; unlike the Windows bat this needs no shell. */
+  /**
+   * Build a direct POSIX launch; unlike the Windows bat this needs no shell.
+   * Linux follows the known-good Vulkan launch profile used by LeafCodeCloud:
+   * disable automatic fitting/CPU offload, pin the device, and make the
+   * server-side sampling defaults explicit. macOS keeps the portable launch
+   * used before the Linux tuning was added.
+   */
   function buildPosixLaunch(config) {
     const binary = config.llamaServerBin?.trim() || defaultBin;
     if (!binary) throw new Error('llama-server binary is not configured');
     const modelDir = config.modelDir?.trim() || defaultModelDir;
     if (!modelDir) throw new Error('llama-server model directory is not configured');
-    const args = [
+    const modelFile = config.modelFile
+      ? String(config.modelFile).replaceAll('\\', pathSeparator)
+      : '';
+    const modelPath = modelFile ? pathJoin(modelDir, modelFile) : null;
+    const alias = modelFile?.split(pathSeparator).pop()?.replace(/\.gguf$/i, '') || 'model';
+
+    if (!isLinux) {
+      const args = [
+        '--host', config.llamaServerHost || '127.0.0.1',
+        '--port', String(port),
+        '-c', String(config.contextLength || 32768),
+        '-np', String(config.parallel || 1),
+        '-ngl', '999',
+        '-fa', 'on',
+        '--temp', '0.6',
+        '--top-p', '0.95',
+        '--top-k', '20',
+        '--jinja',
+      ];
+      if (config.cacheTypeK) args.push('--cache-type-k', config.cacheTypeK);
+      if (config.cacheTypeV) args.push('--cache-type-v', config.cacheTypeV);
+      if (config.specType) args.push('--spec-type', config.specType);
+      if (config.effort) {
+        args.push('--chat-template-kwargs', JSON.stringify({ reasoning_effort: config.effort }));
+      }
+      if (modelPath) args.push('-m', modelPath, '--alias', alias);
+      else args.push('--models-dir', modelDir);
+      return { binary, args };
+    }
+
+    const modelName = modelFile.toLowerCase();
+    const batchDefaults = modelName.includes('promptrefiner')
+      ? { batch: '1024', ubatch: '512' }
+      : /qwen3[._]?8|qwen3[._]?5|qwen35/.test(modelName)
+        ? { batch: '4096', ubatch: '2048' }
+        : { batch: '2048', ubatch: '1024' };
+    const value = (configValue, names, fallback) =>
+      configValue !== undefined
+        ? String(configValue).trim()
+        : firstEnvironmentValue(names, fallback);
+    const gpuDevice = value(
+      config.gpuDevice,
+      ['LEAFCODE_PI_LLAMA_GPU_DEVICE', 'GPU_DEVICE'],
+      'Vulkan0',
+    );
+    const contextLength = value(
+      config.contextLength,
+      ['LEAFCODE_PI_LLAMA_CONTEXT_SIZE', 'CONTEXT_SIZE', 'CONTEXT_LENGTH'],
+      '32768',
+    );
+    const parallel = value(config.parallel, ['LEAFCODE_PI_LLAMA_PARALLEL', 'PARALLEL'], '1');
+    const threads = value(undefined, ['LEAFCODE_PI_LLAMA_THREADS', 'THREADS'], '8');
+    const threadsBatch = value(undefined, ['LEAFCODE_PI_LLAMA_THREADS_BATCH', 'THREADS_BATCH'], '16');
+    const batchSize = value(
+      undefined,
+      ['LEAFCODE_PI_LLAMA_BATCH_SIZE', 'BATCH_SIZE'],
+      batchDefaults.batch,
+    );
+    const ubatchSize = value(
+      undefined,
+      ['LEAFCODE_PI_LLAMA_UBATCH_SIZE', 'UBATCH_SIZE', 'UBATCH'],
+      batchDefaults.ubatch,
+    );
+    const cacheTypeK = value(
+      config.cacheTypeK || undefined,
+      ['LEAFCODE_PI_LLAMA_CACHE_TYPE_K', 'CACHE_TYPE_K', 'CT_K'],
+      'f16',
+    );
+    const cacheTypeV = value(
+      config.cacheTypeV || undefined,
+      ['LEAFCODE_PI_LLAMA_CACHE_TYPE_V', 'CACHE_TYPE_V', 'CT_V'],
+      'f16',
+    );
+    const specType = value(
+      config.specType,
+      ['LEAFCODE_PI_LLAMA_SPEC_TYPE', 'SPEC_TYPE'],
+      '',
+    );
+    const draftMax = value(
+      undefined,
+      ['LEAFCODE_PI_LLAMA_DRAFT_MAX', 'DRAFT_MAX'],
+      /qwen3[._]?8|qwen3[._]?5|qwen35/.test(modelName) && modelName.includes('uncensored') ? '2' : '3',
+    );
+    const reasoningBudget = value(
+      undefined,
+      ['LEAFCODE_PI_LLAMA_REASONING_BUDGET', 'REASONING_BUDGET'],
+      '1536',
+    );
+    const reasoningBudgetMessage = value(
+      undefined,
+      ['LEAFCODE_PI_LLAMA_REASONING_BUDGET_MESSAGE', 'REASONING_BUDGET_MESSAGE'],
+      'Reasoning limit reached. Stop analysis and provide the best concise final answer now.',
+    );
+    const samplingTemperature = value(
+      undefined,
+      ['LEAFCODE_PI_LLAMA_SAMPLING_TEMPERATURE', 'SAMPLING_TEMPERATURE', 'SAMPLING_TEMP'],
+      '0.6',
+    );
+    const samplingTopP = value(undefined, ['LEAFCODE_PI_LLAMA_SAMPLING_TOP_P', 'SAMPLING_TOP_P', 'TOP_P'], '0.95');
+    const samplingTopK = value(undefined, ['LEAFCODE_PI_LLAMA_SAMPLING_TOP_K', 'SAMPLING_TOP_K', 'TOP_K'], '20');
+    const samplingSeed = value(undefined, ['LEAFCODE_PI_LLAMA_SAMPLING_SEED', 'SAMPLING_SEED'], '42');
+    const repeatLastN = value(undefined, ['LEAFCODE_PI_LLAMA_REPEAT_LAST_N', 'SAMPLING_REPEAT_LAST_N'], '256');
+    const repeatPenalty = value(undefined, ['LEAFCODE_PI_LLAMA_REPEAT_PENALTY', 'SAMPLING_REPEAT_PENALTY'], '1.03');
+    const dryMultiplier = value(undefined, ['LEAFCODE_PI_LLAMA_DRY_MULTIPLIER', 'SAMPLING_DRY_MULTIPLIER'], '0.35');
+    const dryBase = value(undefined, ['LEAFCODE_PI_LLAMA_DRY_BASE', 'SAMPLING_DRY_BASE'], '1.75');
+    const dryAllowedLength = value(undefined, ['LEAFCODE_PI_LLAMA_DRY_ALLOWED_LENGTH', 'SAMPLING_DRY_ALLOWED_LENGTH'], '4');
+    const dryPenaltyLastN = value(undefined, ['LEAFCODE_PI_LLAMA_DRY_PENALTY_LAST_N', 'SAMPLING_DRY_PENALTY_LAST_N'], '2048');
+    const draftModelPath = value(
+      config.draftModelPath,
+      ['LEAFCODE_PI_LLAMA_DRAFT_MODEL', 'DRAFT_MODEL_PATH'],
+      '',
+    );
+    const mmprojPath = value(
+      config.mmprojPath,
+      ['LEAFCODE_PI_LLAMA_MMPROJ_PATH', 'MMPROJ_PATH'],
+      '',
+    );
+    const resolveAssetPath = (assetPath) => {
+      if (!assetPath) return '';
+      const normalized = String(assetPath).replaceAll('\\', '/');
+      return posix.isAbsolute(normalized) ? normalized : posix.join(modelDir, normalized);
+    };
+
+    const args = [];
+    if (modelPath) args.push('-m', modelPath, '--alias', alias);
+    else args.push('--models-dir', modelDir);
+    if (mmprojPath) args.push('--mmproj', resolveAssetPath(mmprojPath));
+    if (draftModelPath) {
+      const draftArgs = [
+        '--model-draft', resolveAssetPath(draftModelPath),
+        '--spec-type', specType || 'draft-mtp',
+        '--spec-draft-n-max', draftMax,
+      ];
+      if (gpuDevice) draftArgs.push('--device-draft', gpuDevice);
+      draftArgs.push('--gpu-layers-draft', 'all', '--n-cpu-moe-draft', '0');
+      args.push(...draftArgs);
+    } else if (specType) {
+      args.push('--spec-type', specType, '--spec-draft-n-max', draftMax);
+    }
+    args.push(
       '--host', config.llamaServerHost || '127.0.0.1',
       '--port', String(port),
-      '-c', String(config.contextLength || 32768),
-      '-np', String(config.parallel || 1),
-      '-ngl', '999',
-      '-fa', 'on',
-      '--temp', '0.6',
-      '--top-p', '0.95',
-      '--top-k', '20',
+    );
+    if (gpuDevice) args.push('--device', gpuDevice);
+    args.push(
+      '--split-mode', 'none',
+      '--fit', 'off',
+      '--no-host',
+      '--threads', threads,
+      '--threads-batch', threadsBatch,
+      '--gpu-layers', 'all',
+      '--n-cpu-moe', '0',
+      '--n-cpu-ffn', '0',
+      '--flash-attn', 'on',
+      '--ctx-size', contextLength,
+      '--batch-size', batchSize,
+      '--ubatch-size', ubatchSize,
+      '--parallel', parallel,
+      '--cache-type-k', cacheTypeK,
+      '--cache-type-v', cacheTypeV,
+      '--temp', samplingTemperature,
+      '--top-p', samplingTopP,
+      '--top-k', samplingTopK,
+      '--seed', samplingSeed,
+      '--repeat-last-n', repeatLastN,
+      '--repeat-penalty', repeatPenalty,
+      '--dry-multiplier', dryMultiplier,
+      '--dry-base', dryBase,
+      '--dry-allowed-length', dryAllowedLength,
+      '--dry-penalty-last-n', dryPenaltyLastN,
       '--jinja',
-    ];
-    if (config.cacheTypeK) args.push('--cache-type-k', config.cacheTypeK);
-    if (config.cacheTypeV) args.push('--cache-type-v', config.cacheTypeV);
-    if (config.specType) args.push('--spec-type', config.specType);
+    );
     if (config.effort) {
       args.push('--chat-template-kwargs', JSON.stringify({ reasoning_effort: config.effort }));
     }
-    if (config.modelFile) {
-      const modelFile = String(config.modelFile).replaceAll('\\', pathSeparator);
-      const modelPath = pathJoin(modelDir, modelFile);
-      const alias = modelFile.split(pathSeparator).pop()?.replace(/\.gguf$/i, '') || 'model';
-      args.push('-m', modelPath, '--alias', alias);
-    } else {
-      args.push('--models-dir', modelDir);
+    if (reasoningBudget) {
+      args.push('--reasoning-budget', reasoningBudget);
+      if (reasoningBudgetMessage) args.push('--reasoning-budget-message', reasoningBudgetMessage);
     }
+    args.push('--metrics');
     return { binary, args };
+  }
+
+  function buildLinuxEnvironment(binary) {
+    const childEnv = { ...launchEnvironment };
+    for (const key of Object.keys(childEnv)) {
+      if (key.startsWith(POSIX_LLAMA_OVERRIDE_PREFIX)) delete childEnv[key];
+    }
+    const binaryDir = dirname(binary);
+    if (binaryDir && binaryDir !== '.') {
+      childEnv.LD_LIBRARY_PATH = childEnv.LD_LIBRARY_PATH
+        ? `${binaryDir}:${childEnv.LD_LIBRARY_PATH}`
+        : binaryDir;
+    }
+    return childEnv;
   }
 
   function launchDetached(command, args, options = {}) {
@@ -575,10 +786,16 @@ export function createLlamaServerService(deps) {
     if (existingListeners.listening) {
       return { ok: false, pid: null, error: 'llama-server port is already in use' };
     }
-    for (const key of ['llamaServerBin', 'modelDir']) {
+    for (const key of ['llamaServerBin', 'modelDir', 'draftModelPath', 'mmprojPath']) {
       if (config[key] !== undefined && isUnsafePathValue(config[key], platform)) {
         return { ok: false, pid: null, error: `unsafe llama-server path value: ${key}` };
       }
+    }
+    const configuredGpuDevice = config.gpuDevice !== undefined
+      ? String(config.gpuDevice)
+      : firstEnvironmentValue(['LEAFCODE_PI_LLAMA_GPU_DEVICE', 'GPU_DEVICE']);
+    if (isUnsafePathValue(configuredGpuDevice, platform)) {
+      return { ok: false, pid: null, error: 'unsafe llama-server gpu device value' };
     }
     if (config.modelFile !== undefined && !isSafeModelFile(config.modelFile, platform)) {
       return { ok: false, pid: null, error: 'unsafe llama-server path value: modelFile' };
@@ -590,7 +807,11 @@ export function createLlamaServerService(deps) {
         const launch = buildPosixLaunch(config);
         serverCommandMarker = serverMarker(config);
         ownedCommandMarker = launch.binary;
-        const started = launchDetached(launch.binary, launch.args);
+        const started = launchDetached(
+          launch.binary,
+          launch.args,
+          isLinux ? { env: buildLinuxEnvironment(launch.binary) } : {},
+        );
         ownedPid = started.pid;
         // Always observe the launch promise before validating the PID. A failed
         // spawn can report no PID and emit `error` on the next tick; throwing

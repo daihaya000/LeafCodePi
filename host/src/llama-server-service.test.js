@@ -132,12 +132,14 @@ test('start maps llama.cpp path, model dir and model file into the launcher bat'
     modelDir: 'D:\\models\\llm',
     modelFile: 'repoA\\model-Q4_K_S.gguf',
     llamaServerHost: '0.0.0.0',
+    gpuDevice: 'Vulkan0',
   });
   assert.equal(result.ok, true);
   assert.match(written, /set "LLAMA_SERVER_BIN=D:\\tools\\llama.cpp\\llama-server.exe"/);
   assert.match(written, /set "MODEL_DIR=D:\\models\\llm"/);
   assert.match(written, /set "MODEL_FILE=repoA\\model-Q4_K_S.gguf"/);
   assert.match(written, /set "LLAMA_SERVER_HOST=0.0.0.0"/);
+  assert.match(written, /set "GPU_DEVICE=Vulkan0"/);
 });
 
 test('start falls back to an in-process cmd.exe spawn when WMI fails', async () => {
@@ -465,6 +467,13 @@ test('Linux starts llama-server directly without PowerShell or a tray', async ()
       defaultBin: '/usr/local/bin/llama-server',
       defaultModelDir: '/home/test/models',
       trayScript: '/tmp/llama-server-tray.mjs',
+      env: {
+        PATH: '/usr/bin',
+        LD_LIBRARY_PATH: '/opt/llama/lib',
+        LLAMA_ARG_DEVICE: 'CUDA0',
+        LLAMA_ARG_N_GPU_LAYERS: '1',
+        LLAMA_ARG_TEMP: '0.1',
+      },
       spawnSync: () => { throw new Error('PowerShell must not be called'); },
       spawn: (command, args, options) => {
         spawned = { command, args, options };
@@ -483,12 +492,97 @@ test('Linux starts llama-server directly without PowerShell or a tray', async ()
   assert.equal(result.trayPid, null);
   assert.equal(spawned.command, '/usr/local/bin/llama-server');
   assert.deepEqual(spawned.args, [
-    '--host', '127.0.0.1', '--port', '8080', '-c', '65536', '-np', '2',
-    '-ngl', '999', '-fa', 'on', '--temp', '0.6', '--top-p', '0.95', '--top-k', '20', '--jinja',
-    '--chat-template-kwargs', '{"reasoning_effort":"medium"}',
     '-m', '/home/test/models/repo/model-Q4_K_S.gguf', '--alias', 'model-Q4_K_S',
+    '--host', '127.0.0.1', '--port', '8080', '--device', 'Vulkan0',
+    '--split-mode', 'none', '--fit', 'off', '--no-host',
+    '--threads', '8', '--threads-batch', '16', '--gpu-layers', 'all',
+    '--n-cpu-moe', '0', '--n-cpu-ffn', '0', '--flash-attn', 'on',
+    '--ctx-size', '65536', '--batch-size', '2048', '--ubatch-size', '1024',
+    '--parallel', '2', '--cache-type-k', 'f16', '--cache-type-v', 'f16',
+    '--temp', '0.6', '--top-p', '0.95', '--top-k', '20', '--seed', '42',
+    '--repeat-last-n', '256', '--repeat-penalty', '1.03',
+    '--dry-multiplier', '0.35', '--dry-base', '1.75', '--dry-allowed-length', '4',
+    '--dry-penalty-last-n', '2048', '--jinja',
+    '--chat-template-kwargs', '{"reasoning_effort":"medium"}',
+    '--reasoning-budget', '1536',
+    '--reasoning-budget-message', 'Reasoning limit reached. Stop analysis and provide the best concise final answer now.',
+    '--metrics',
   ]);
   assert.equal(spawned.options.detached, true);
+  assert.equal(spawned.options.env.LD_LIBRARY_PATH, '/usr/local/bin:/opt/llama/lib');
+  assert.equal(spawned.options.env.LLAMA_ARG_DEVICE, undefined);
+  assert.equal(spawned.options.env.LLAMA_ARG_N_GPU_LAYERS, undefined);
+  assert.equal(spawned.options.env.LLAMA_ARG_TEMP, undefined);
+});
+
+test('Linux maps Vulkan, draft and sampling settings without inheriting offload overrides', async () => {
+  let spawned = null;
+  const svc = createLlamaServerService(
+    makeDeps({
+      platform: 'linux',
+      defaultBin: '/opt/llama-b10679/llama-server',
+      defaultModelDir: '/srv/models',
+      env: {
+        PATH: '/usr/bin',
+        THREADS: '12',
+        THREADS_BATCH: '24',
+        BATCH_SIZE: '3000',
+        UBATCH_SIZE: '1500',
+        DRAFT_MAX: '4',
+        SAMPLING_SEED: '7',
+        REASONING_BUDGET: '2048',
+        REASONING_BUDGET_MESSAGE: 'stop now',
+        LLAMA_ARG_FIT: 'auto',
+      },
+      spawn: (command, args, options) => {
+        spawned = { command, args, options };
+        return { pid: 2468, once() {}, unref() {} };
+      },
+    }),
+  );
+  const result = await svc.start({
+    modelFile: 'Qwen3.8-27B-Q4_K_M.gguf',
+    contextLength: 131072,
+    parallel: 1,
+    effort: 'low',
+    gpuDevice: 'Vulkan1',
+    draftModelPath: 'mtp-Qwen3.8-27B-Q4_0.gguf',
+    mmprojPath: 'mmproj-Qwen3.8-F16.gguf',
+    specType: 'draft-mtp',
+    cacheTypeK: 'q8_0',
+    cacheTypeV: 'q8_0',
+  });
+  assert.equal(result.ok, true);
+  assert.equal(spawned.command, '/opt/llama-b10679/llama-server');
+  for (const pair of [
+    ['--device', 'Vulkan1'],
+    ['--split-mode', 'none'],
+    ['--fit', 'off'],
+    ['--no-host', undefined],
+    ['--threads', '12'],
+    ['--threads-batch', '24'],
+    ['--gpu-layers', 'all'],
+    ['--n-cpu-moe', '0'],
+    ['--n-cpu-ffn', '0'],
+    ['--flash-attn', 'on'],
+    ['--ctx-size', '131072'],
+    ['--batch-size', '3000'],
+    ['--ubatch-size', '1500'],
+    ['--parallel', '1'],
+    ['--cache-type-k', 'q8_0'],
+    ['--cache-type-v', 'q8_0'],
+    ['--seed', '7'],
+    ['--reasoning-budget', '2048'],
+    ['--reasoning-budget-message', 'stop now'],
+  ]) {
+    const index = spawned.args.indexOf(pair[0]);
+    assert.notEqual(index, -1, `missing ${pair[0]}`);
+    if (pair[1] !== undefined) assert.equal(spawned.args[index + 1], pair[1]);
+  }
+  assert.ok(spawned.args.includes('/srv/models/mtp-Qwen3.8-27B-Q4_0.gguf'));
+  assert.ok(spawned.args.includes('/srv/models/mmproj-Qwen3.8-F16.gguf'));
+  assert.equal(spawned.options.env.LLAMA_ARG_FIT, undefined);
+  assert.equal(spawned.options.env.LD_LIBRARY_PATH, '/opt/llama-b10679');
 });
 
 test('Linux accepts POSIX path characters that do not reach a shell', async () => {
