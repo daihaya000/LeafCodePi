@@ -134,10 +134,12 @@ describe("SettingsView", () => {
     ).toEqual(["モデルカタログ", "自動選択と生成", "プロバイダー接続"]);
     expect(Array.from(modelsPanel.querySelectorAll("h3")).map((heading) => heading.textContent)).toEqual([
       "モデル",
+      "起動時の既定値",
       "Autoモデル",
       "生成モデル",
       "プロバイダー",
     ]);
+    expect(screen.getByRole("heading", { name: "起動時の既定値" }).closest('[role="tabpanel"]')?.id).toBe("settings-panel-models");
     expect(screen.queryByRole("navigation", { name: "モデル設定内" })).toBeNull();
     const modelSettings = document.getElementById("models-auto");
     expect(modelSettings?.parentElement?.className).toContain("space-y-4");
@@ -287,6 +289,7 @@ describe("SettingsView", () => {
     const userProfile = screen.getByRole("heading", { name: "USER.md" });
     expect(userProfile.closest('[role="tabpanel"]')?.id).toBe("settings-panel-engine");
     expect(screen.getByRole("heading", { name: "ブラウザ設定" })).toBeTruthy();
+    expect(enginePanel?.querySelector("#composer-defaults-heading")).toBeNull();
     const displaySection = screen.getByRole("heading", { name: "表示と通知" }).closest("section");
     const displayGrid = displaySection?.querySelector(":scope > div.grid");
     expect(displayGrid?.className).toContain("xl:grid-cols-2");

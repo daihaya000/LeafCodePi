@@ -321,10 +321,9 @@ export function SettingsView() {
               <SettingsGroup
                 id="engine-display-heading"
                 title="表示と通知"
-                description="起動時の既定値、表示、通知音、メッセージ移動ボタンを設定します。"
+                description="表示、通知音、メッセージ移動ボタンを設定します。"
               >
                 <div className="grid gap-4 xl:grid-cols-2">
-                  <ComposerDefaultsSettings refreshToken={modelsRevision} />
                   <BrowserSettings />
                   <NavigatorSettings />
                   <NotificationSoundSettings />
@@ -376,9 +375,10 @@ export function SettingsView() {
               <SettingsGroup
                 id="models-generation-heading"
                 title="自動選択と生成"
-                description="自動ルーティングと、タイトル・提案などに使う生成モデルを設定します。"
+                description="起動時の既定値、自動ルーティングと、タイトル・提案などに使う生成モデルを設定します。"
               >
                 <div className="space-y-4">
+                  <ComposerDefaultsSettings refreshToken={modelsRevision} />
                   <div id="models-auto" className="scroll-mt-24">
                     <AutoModelSettings refreshToken={modelsRevision} />
                   </div>
