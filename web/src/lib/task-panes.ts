@@ -817,22 +817,30 @@ export function isSplitHostPath(pathname: string | null | undefined): boolean {
 
 /**
  * アクティブタブを urlTaskId へ向けた新 state を返す（URL → panes 反映用）。
- * タブとして未登録なら panes[0] に新規タブで追加する。満杯時は最も古いタブ
- * （tabs 先頭）を閉じてから新規タブで開く。
+ * 新規セッションと Home は、ペイン上限までは新しいペインで開く。上限時は
+ * 従来どおり panes[0] へタブ追加し、満杯なら最も古いタブを置き換える。
  * 変更不要なら同一参照を返す。
+ *
+ * localStorage 復元など、直リンク互換の呼び出しでは preferNewPane=false を渡す。
  */
 export function retargetActiveTab(
   state: TaskPanesState,
   urlTaskId: string,
+  options: { preferNewPane?: boolean } = {},
 ): TaskPanesState {
+  const sessionTab =
+    urlTaskId !== HOME_TAB_ID &&
+    urlTaskId !== SETTINGS_TAB_ID &&
+    !isBotTabId(urlTaskId);
+  const preferNewPane = options.preferNewPane !== false && (urlTaskId === HOME_TAB_ID || sessionTab);
+
   // 新規作成（Home）タブは入口であり、実タスクを開いたら自動クローズする。
-  // Home へ戻る遷移では既存タブを活性化、または通常どおり追加する。
+  // 新しいペインを優先する場合も Home は残さず、空いたペインを維持して分割する。
   if (urlTaskId !== HOME_TAB_ID) {
-    // HomeView から開始したタスクは、Home タブのあるペインで置き換える。
-    // 残ると非表示マウントの HomeView がポーリングし続け、URL/projectId も不整合になる
     const homePane = state.panes.find((pane) => pane.tabs.includes(HOME_TAB_ID));
     const existing = state.panes.find((pane) => pane.tabs.includes(urlTaskId));
-    if (homePane && !existing) {
+    if (homePane && !existing && !preferNewPane) {
+      // 設定・Botなどの特殊タブは従来どおり Home ペインを置き換える。
       return {
         ...state,
         activePaneId: homePane.id,
@@ -861,6 +869,9 @@ export function retargetActiveTab(
         pane.id === existing.id ? { ...pane, activeTabId: urlTaskId } : pane,
       ),
     };
+  }
+  if (preferNewPane && state.panes.length < MAX_PANES) {
+    return taskPanesReducer(state, { type: "openInNewPane", taskId: urlTaskId });
   }
   const [first, ...rest] = state.panes;
   const nextFirst: TaskPane = { ...first, activeTabId: urlTaskId };
@@ -895,7 +906,7 @@ export function restoreTaskPanesForUrl(
         ),
       };
     }
-    return retargetActiveTab(saved, urlTaskId);
+    return retargetActiveTab(saved, urlTaskId, { preferNewPane: false });
   }
   return saved;
 }

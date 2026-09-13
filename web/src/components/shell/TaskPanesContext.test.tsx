@@ -40,7 +40,8 @@ function ActivePaneProbe() {
 
 function ActiveTabProbe() {
   const { state } = useTaskPanes();
-  return <output data-testid="active-tab">{state.panes[0]?.activeTabId}</output>;
+  const activePane = state.panes.find((pane) => pane.id === state.activePaneId) ?? state.panes[0];
+  return <output data-testid="active-tab">{activePane?.activeTabId}</output>;
 }
 
 function DispatchProbe() {

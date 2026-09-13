@@ -89,7 +89,11 @@ describe("createState", () => {
     const created = createState(null);
     expect(created.panes[0].tabs).toEqual([HOME_TAB_ID]);
     expect(created.panes[0].activeTabId).toBe(HOME_TAB_ID);
-    expect(retargetActiveTab(created, "task-a").panes[0].tabs).toEqual(["task-a"]);
+    const next = retargetActiveTab(created, "task-a");
+    expect(next.panes).toHaveLength(2);
+    expect(next.panes[0].tabs).toEqual([]);
+    expect(next.panes[1].tabs).toEqual(["task-a"]);
+    expect(next.activePaneId).toBe(next.panes[1].id);
   });
 });
 
@@ -705,20 +709,29 @@ describe("retargetActiveTab", () => {
     expect(next.panes[1].activeTabId).toBe("url-task");
   });
 
-  it("未登録なら panes[0] のタブへ追加して活性化する", () => {
+  it("未登録なら新しいペインで開いて活性化する", () => {
     const base = state(pane(P1, ["a"]), pane(P2, []));
     const next = retargetActiveTab(base, "fresh");
-    expect(next.panes[0].tabs).toEqual(["a", "fresh"]);
-    expect(next.panes[0].activeTabId).toBe("fresh");
-    expect(next.activePaneId).toBe(P1);
+    expect(next.panes[0].tabs).toEqual(["a"]);
+    expect(next.panes[1].tabs).toEqual([]);
+    expect(next.panes[2].tabs).toEqual(["fresh"]);
+    expect(next.panes[2].activeTabId).toBe("fresh");
+    expect(next.activePaneId).toBe(next.panes[2].id);
   });
 
-  it("panes[0] 満杯時は activeTabId 差し替えのみ（タブ数は増やさない）", () => {
+  it(`ペイン上限 ${MAX_PANES} 到達時は従来どおりタブへ追加する`, () => {
     const full = Array.from({ length: MAX_TABS_PER_PANE }, (_, i) => `t${i}`);
-    const base = state(pane(P1, full));
+    const base = state(
+      pane(P1, full),
+      pane(P2, ["p2"]),
+      pane(P3, ["p3"]),
+      pane("pane-4", ["p4"]),
+    );
     const next = retargetActiveTab(base, "fresh");
+    expect(next.panes).toHaveLength(MAX_PANES);
     expect(next.panes[0].tabs).toEqual([...full.slice(1), "fresh"]);
     expect(next.panes[0].activeTabId).toBe("fresh");
+    expect(next.activePaneId).toBe(P1);
   });
 
   it("変更不要なら同一参照を返す", () => {
@@ -726,29 +739,33 @@ describe("retargetActiveTab", () => {
     expect(retargetActiveTab(base, "a")).toBe(base);
   });
 
-  it("Home タブから実タスクを開くと Home タブは自動クローズされる", () => {
+  it("Home タブから実タスクを開くと Home タブを閉じて新しいペインを作る", () => {
     const base = state(pane(P1, [HOME_TAB_ID]));
     const next = retargetActiveTab(base, "fresh");
-    expect(next.panes[0].tabs).toEqual(["fresh"]);
-    expect(next.panes[0].activeTabId).toBe("fresh");
+    expect(next.panes[0].tabs).toEqual([]);
+    expect(next.panes[1].tabs).toEqual(["fresh"]);
+    expect(next.panes[1].activeTabId).toBe("fresh");
+    expect(next.activePaneId).toBe(next.panes[1].id);
   });
 
-  it("HomeView と同じペインで実タスクを開く", () => {
+  it("HomeView のペインを空けて実タスクを新しいペインで開く", () => {
     const base = state(pane(P1, ["existing"]), pane(P2, [HOME_TAB_ID]), pane(P3, ["other"]));
     const next = retargetActiveTab(base, "fresh");
-    expect(next.activePaneId).toBe(P2);
+    expect(next.activePaneId).toBe(next.panes[2].id);
     expect(next.panes).toEqual([
       pane(P1, ["existing"]),
-      pane(P2, ["fresh"]),
       pane(P3, ["other"]),
+      pane(next.panes[2].id, ["fresh"]),
     ]);
   });
 
-  it("実タスクから Home へ戻ると Home タブを開く", () => {
+  it("実タスクから Home へ戻ると新しいペインで Home を開く", () => {
     const base = state(pane(P1, ["task-a"]));
     const next = retargetActiveTab(base, HOME_TAB_ID);
-    expect(next.panes[0].tabs).toEqual(["task-a", HOME_TAB_ID]);
-    expect(next.panes[0].activeTabId).toBe(HOME_TAB_ID);
+    expect(next.panes[0].tabs).toEqual(["task-a"]);
+    expect(next.panes[1].tabs).toEqual([HOME_TAB_ID]);
+    expect(next.panes[1].activeTabId).toBe(HOME_TAB_ID);
+    expect(next.activePaneId).toBe(next.panes[1].id);
   });
 });
 
