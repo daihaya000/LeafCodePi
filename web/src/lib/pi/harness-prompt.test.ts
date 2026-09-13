@@ -124,6 +124,17 @@ describe("runtimeClockContext", () => {
     assert.match(context, /UTC: 2026-09-12T19:51:50\.011Z/);
     assert.match(context, /instead of model memory or web search/);
   });
+
+  it("represents one instant consistently in Tokyo and UTC across a date boundary", () => {
+    const instant = new Date("2026-09-13T15:00:01.234Z");
+    const tokyo = runtimeClockContext(instant, "Asia/Tokyo");
+    const utc = runtimeClockContext(instant, "UTC");
+
+    assert.match(tokyo, /Host clock .*2026-09-14 00:00:01 \(Asia\/Tokyo\)/);
+    assert.match(utc, /Host clock .*2026-09-13 15:00:01 \(UTC\)/);
+    assert.match(tokyo, /UTC: 2026-09-13T15:00:01\.234Z/);
+    assert.match(utc, /UTC: 2026-09-13T15:00:01\.234Z/);
+  });
 });
 
 describe("harness prompt abort generation", () => {
