@@ -69,24 +69,33 @@ export function ReasoningTranslationSettings() {
   // 導入中は完了／失敗が status に反映されるまでポーリングする。
   useEffect(() => {
     if (!installing) return;
-    const timer = window.setInterval(() => {
-      void fetch("/api/translation/status", { cache: "no-store" })
-        .then(async (response) =>
-          (await response.json().catch(() => null)) as TranslationStatus | null,
-        )
-        .then((body) => {
-          if (body?.installState === "running") return;
-          setInstalling(false);
-          setServiceState(formatTranslationServiceState(body));
-          setInstallError(
-            body?.installState === "error" && typeof body.installError === "string"
-              ? body.installError
-              : null,
-          );
-        })
-        .catch(() => {});
-    }, 3_000);
-    return () => window.clearInterval(timer);
+    let active = true;
+    let inFlight = false;
+    const poll = async () => {
+      if (!active || inFlight) return;
+      inFlight = true;
+      try {
+        const response = await fetch("/api/translation/status", { cache: "no-store" });
+        const body = (await response.json().catch(() => null)) as TranslationStatus | null;
+        if (!active || body?.installState === "running") return;
+        setInstalling(false);
+        setServiceState(formatTranslationServiceState(body));
+        setInstallError(
+          body?.installState === "error" && typeof body.installError === "string"
+            ? body.installError
+            : null,
+        );
+      } catch {
+        /* Keep polling while the host is temporarily unavailable. */
+      } finally {
+        inFlight = false;
+      }
+    };
+    const timer = window.setInterval(() => void poll(), 3_000);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+    };
   }, [installing]);
 
   const startInstall = async () => {

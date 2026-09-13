@@ -11,6 +11,8 @@ import {
   getTtsBackend,
   voiceLabel,
   type TtsBackendId,
+  type TtsVoiceOption,
+  type TtsVoicesDto,
 } from "@/lib/tts-backends";
 import type { TtsConfigDto } from "@/lib/tts-config";
 import { speakText, stopSpeaking } from "@/lib/tts-playback";
@@ -42,6 +44,8 @@ export function TtsSettings() {
   const [serverBusy, setServerBusy] = useState(false);
   const [playbackRate, setPlaybackRate] = useState(readPlaybackRate);
   const [playbackVolume, setPlaybackVolume] = useState(readPlaybackVolume);
+  const [aivisVoices, setAivisVoices] = useState<TtsVoiceOption[] | null>(null);
+  const [voiceReload, setVoiceReload] = useState(0);
   const [testError, setTestError] = useState<string | null>(null);
 
   // 再生中に設定画面を閉じたら止める。
@@ -88,6 +92,7 @@ export function TtsSettings() {
   };
 
   const reload = useCallback(() => {
+    setVoiceReload((value) => value + 1);
     void getJson<TtsConfigDto>("/api/settings/tts")
       .then((result) => {
         setForm(result);
@@ -130,7 +135,30 @@ export function TtsSettings() {
   const current = form ?? DEFAULT_FORM;
   const backendId = detectTtsBackend(current.url);
   const backend = getTtsBackend(backendId);
-  const voices = useMemo(() => backend?.voices ?? [], [backend]);
+
+  useEffect(() => {
+    if (!ready || backendId !== "aivis") {
+      setAivisVoices(null);
+      return;
+    }
+    let currentRequest = true;
+    setAivisVoices(null);
+    void getJson<TtsVoicesDto>("/api/settings/tts/voices")
+      .then((result) => {
+        if (currentRequest) setAivisVoices(Array.isArray(result?.voices) ? result.voices : null);
+      })
+      .catch(() => {
+        if (currentRequest) setAivisVoices(null);
+      });
+    return () => {
+      currentRequest = false;
+    };
+  }, [backendId, current.url, ready, voiceReload]);
+
+  const voices = useMemo(
+    () => backendId === "aivis" && aivisVoices !== null ? aivisVoices : backend?.voices ?? [],
+    [aivisVoices, backend, backendId],
+  );
   const selectedVoice =
     voices.find((option) => option.id === current.voice)?.id ?? voices[0]?.id ?? current.voice;
 
@@ -209,7 +237,7 @@ export function TtsSettings() {
               disabled={!ready || busy}
               aria-label="TTS 音声"
               icon={<AudioLines className="h-3.5 w-3.5" />}
-              valueLabel={voiceLabel(backendId, selectedVoice)}
+              valueLabel={voiceLabel(backendId, selectedVoice, voices)}
               onChange={applyVoice}
               className="h-9 w-full max-w-md"
             >

@@ -6,6 +6,7 @@ import {
   detectTtsBackend,
   getTtsBackend,
   normalizeTtsUrl,
+  parseAivisSpeakers,
   voiceLabel,
 } from "./tts-backends";
 
@@ -28,5 +29,24 @@ describe("tts-backends", () => {
     assert.equal(backendLabel("custom"), "カスタム URL");
     assert.equal(voiceLabel("aivis", "888753760"), "まお / ノーマル");
     assert.equal(normalizeTtsUrl("http://x/"), "http://x");
+  });
+
+  it("parses installed AivisSpeech talk styles and ignores duplicate or singing styles", () => {
+    assert.deepEqual(
+      parseAivisSpeakers([
+        {
+          name: "追加モデル",
+          styles: [
+            { id: 1, name: "ノーマル", type: "talk" },
+            { id: 2, name: "歌", type: "sing" },
+          ],
+        },
+        { name: "別モデル", styles: [{ id: 1, name: "重複", type: "talk" }, { id: "3", name: "静か" }] },
+      ]),
+      [
+        { id: "1", label: "追加モデル / ノーマル" },
+        { id: "3", label: "別モデル / 静か" },
+      ],
+    );
   });
 });

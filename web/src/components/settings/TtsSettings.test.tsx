@@ -87,6 +87,27 @@ describe("TtsSettings", () => {
     expect(screen.getByRole("option", { name: "ramuchi / ノーマル" })).toBeTruthy();
   });
 
+  it("shows newly installed AivisSpeech models from the live speaker list", async () => {
+    getJson.mockImplementation(async (path: string) => {
+      if (path === "/api/settings/tts/server") return { running: false };
+      if (path === "/api/settings/tts/voices") {
+        return { voices: [{ id: "2000000001", label: "追加モデル / ノーマル" }] };
+      }
+      return {
+        enabled: false,
+        voice: "2000000001",
+        rate: 0,
+        url: "http://127.0.0.1:10101",
+      };
+    });
+
+    render(<TtsSettings />);
+    const trigger = await screen.findByRole("button", { name: "TTS 音声" });
+    await waitFor(() => expect(trigger.textContent).toContain("追加モデル / ノーマル"));
+    fireEvent.click(trigger);
+    expect(screen.getByRole("option", { name: "追加モデル / ノーマル" })).toBeTruthy();
+  });
+
   it("plays a test utterance with the synthesize API", async () => {
     const play = vi.fn(async () => undefined);
     vi.stubGlobal("Audio", class {

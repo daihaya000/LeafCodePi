@@ -38,7 +38,7 @@ import {
   prependOlderTaskMessages,
 } from "@/lib/task-history";
 import { readTaskTtsEnabled, speakText, stopSpeaking, subscribeTaskTtsEnabled, writeTaskTtsEnabled } from "@/lib/tts-playback";
-import { detectTtsBackend, getTtsBackend } from "@/lib/tts-backends";
+import { detectTtsBackend, getTtsBackend, type TtsVoiceOption, type TtsVoicesDto } from "@/lib/tts-backends";
 import type { TtsConfigDto } from "@/lib/tts-config";
 import { BOT_DEFAULT_TOOL_NAMES, BOT_TOOL_NAMES, type BotDto, type BotToolName, type ModelOption, type PermissionRequestDto, type QuestionRequestDto, type RoutineDto, type TaskMessageHistory, type TaskMessagePage, type ThinkingLevel, type UiMessage, type UiPart } from "@/lib/types";
 
@@ -169,6 +169,7 @@ export const BotView = memo(function BotView({ id, active = true }: { id: string
   const [ttsEnabled, setTtsEnabled] = useState(false);
   const [ttsVoice, setTtsVoice] = useState("");
   const [ttsConfig, setTtsConfig] = useState<TtsConfigDto | null>(null);
+  const [aivisVoices, setAivisVoices] = useState<TtsVoiceOption[] | null>(null);
   const [ttsError, setTtsError] = useState<string | null>(null);
   const [codeAutoApprove, setCodeAutoApprove] = useState(true);
   const [permissionMode, setPermissionMode] = useState<NonNullable<BotDto["permissionMode"]>>("allow");
@@ -296,6 +297,25 @@ export const BotView = memo(function BotView({ id, active = true }: { id: string
       .catch(() => { if (current) setTtsConfig(null); });
     return () => { current = false; };
   }, [active, settingsOpen]);
+  const ttsBackendId = ttsConfig ? detectTtsBackend(ttsConfig.url) : null;
+  useEffect(() => {
+    if (!active || !settingsOpen || ttsBackendId !== "aivis") {
+      setAivisVoices(null);
+      return;
+    }
+    let current = true;
+    setAivisVoices(null);
+    void getJson<TtsVoicesDto>("/api/settings/tts/voices")
+      .then((result) => {
+        if (current) setAivisVoices(Array.isArray(result?.voices) ? result.voices : null);
+      })
+      .catch(() => {
+        if (current) setAivisVoices(null);
+      });
+    return () => {
+      current = false;
+    };
+  }, [active, settingsOpen, ttsBackendId, ttsConfig?.url]);
   const toggleTts = () => {
     const next = !ttsEnabled;
     setTtsEnabled(next);
@@ -514,12 +534,14 @@ export const BotView = memo(function BotView({ id, active = true }: { id: string
   const thinkingValue: ThinkingLevel = bot?.thinkingLevel && thinkingLevels.includes(bot.thinkingLevel)
     ? bot.thinkingLevel
     : (thinkingLevels[0] ?? "off");
-  const ttsBackend = ttsConfig ? getTtsBackend(detectTtsBackend(ttsConfig.url)) : null;
+  const ttsBackend = ttsConfig ? getTtsBackend(ttsBackendId ?? "custom") : null;
   const ttsVoiceOptions = useMemo(() => {
-    const options = ttsBackend?.id === "sapi" || !ttsBackend ? [] : [...ttsBackend.voices];
+    const options = ttsBackend?.id === "aivis" && aivisVoices !== null
+      ? [...aivisVoices]
+      : ttsBackend?.id === "sapi" || !ttsBackend ? [] : [...ttsBackend.voices];
     if (ttsVoice && !options.some((option) => option.id === ttsVoice)) options.unshift({ id: ttsVoice, label: `現在の設定 (${ttsVoice})` });
     return options;
-  }, [ttsBackend, ttsVoice]);
+  }, [aivisVoices, ttsBackend, ttsVoice]);
   // Bot設定の保存たびに bot 参照が変わっても、表示名・見た目が同じなら同一配列を使い回す。
   // BotMessageMarkdown の memo が効き続け、履歴全体の再パースを避けられる。
   const botMentions = useMemo(() => bot ? [bot] : [],

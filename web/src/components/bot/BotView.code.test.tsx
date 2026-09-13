@@ -741,6 +741,23 @@ it("saves the Bot-specific TTS voice", async () => {
   await waitFor(() => expect(mocks.sendJson).toHaveBeenCalledWith("/api/bots/one", { ttsVoice: "1257529344" }, "PATCH"));
 });
 
+it("shows a newly installed AivisSpeech model in the Bot voice dropdown", async () => {
+  const configuredBot = { ...testBot, ttsVoice: "2000000001" };
+  mocks.getJson.mockImplementation(async (url: string) => {
+    if (url === "/api/models") return { models: [] };
+    if (url.endsWith("/routines")) return { routines: [] };
+    if (url === "/api/settings/tts") return { enabled: true, voice: "871574624", rate: 10, url: "http://127.0.0.1:10101" };
+    if (url === "/api/settings/tts/voices") return { voices: [{ id: "2000000001", label: "追加モデル / ノーマル" }] };
+    return { bot: configuredBot };
+  });
+
+  render(<ShellProvider><BotView id="one" /></ShellProvider>);
+  fireEvent.click(await screen.findByRole("button", { name: "設定" }));
+  const select = await screen.findByRole("combobox", { name: "ボットのTTS音声" });
+  await waitFor(() => expect(screen.getByRole("option", { name: "追加モデル / ノーマル" })).toBeTruthy());
+  expect((select as HTMLSelectElement).value).toBe("2000000001");
+});
+
 it("resets the Bot conversation after confirmation", async () => {
   const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
   render(<ShellProvider><BotView id="one" /></ShellProvider>);

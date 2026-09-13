@@ -7,6 +7,10 @@ export type TtsVoiceOption = {
   label: string;
 };
 
+export type TtsVoicesDto = {
+  voices: TtsVoiceOption[];
+};
+
 export type TtsBackendPreset = {
   id: Exclude<TtsBackendId, "custom">;
   label: string;
@@ -80,10 +84,44 @@ export function backendLabel(id: TtsBackendId): string {
   return getTtsBackend(id)?.label ?? id;
 }
 
-export function voiceLabel(backendId: TtsBackendId, voice: string): string {
+export function voiceLabel(
+  backendId: TtsBackendId,
+  voice: string,
+  options?: readonly TtsVoiceOption[],
+): string {
   const backend = getTtsBackend(backendId);
-  const match = backend?.voices.find((option) => option.id === voice);
+  const match = (options ?? backend?.voices)?.find((option) => option.id === voice);
   if (match) return match.label;
   if (backendId === "custom") return voice.trim() || "（未設定）";
-  return voice.trim() || backend?.voices[0]?.label || "（未設定）";
+  return voice.trim() || options?.[0]?.label || backend?.voices[0]?.label || "（未設定）";
+}
+
+/** Convert AivisSpeech's VOICEVOX-compatible /speakers response to UI options. */
+export function parseAivisSpeakers(payload: unknown): TtsVoiceOption[] {
+  if (!Array.isArray(payload)) return [];
+  const options: TtsVoiceOption[] = [];
+  const seen = new Set<string>();
+
+  for (const speaker of payload) {
+    if (!speaker || typeof speaker !== "object") continue;
+    const speakerRecord = speaker as { name?: unknown; styles?: unknown };
+    const speakerName = typeof speakerRecord.name === "string" ? speakerRecord.name.trim() : "";
+    if (!Array.isArray(speakerRecord.styles)) continue;
+
+    for (const style of speakerRecord.styles) {
+      if (!style || typeof style !== "object") continue;
+      const styleRecord = style as { id?: unknown; name?: unknown; type?: unknown };
+      // AivisSpeech also exposes singing styles, which are not valid for /audio_query.
+      if (styleRecord.type !== undefined && styleRecord.type !== "talk") continue;
+      const id = typeof styleRecord.id === "number" && Number.isSafeInteger(styleRecord.id)
+        ? String(styleRecord.id)
+        : typeof styleRecord.id === "string" ? styleRecord.id.trim() : "";
+      if (!id || seen.has(id)) continue;
+      const styleName = typeof styleRecord.name === "string" ? styleRecord.name.trim() : "";
+      options.push({ id, label: [speakerName, styleName].filter(Boolean).join(" / ") || id });
+      seen.add(id);
+    }
+  }
+
+  return options;
 }
