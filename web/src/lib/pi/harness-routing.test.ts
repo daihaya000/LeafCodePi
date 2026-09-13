@@ -385,10 +385,12 @@ describe("integrated session routing", () => {
     installHarness(new Map([[account.id, runtime(account.id)]]));
     const harness = (globalThis as Record<string, unknown>)[GLOBAL_KEY] as {
       modelRuntime: unknown;
+      initPromise: Promise<void> | null;
     };
-    // The fake SDK intentionally has no ModelRuntime.create. A cold account
-    // Bot must not initialize the unrelated shared runtime first.
+    // Keep shared initialization pending: an account Bot must not wait for the
+    // unrelated shared catalog and optional-provider network warm-up.
     harness.modelRuntime = null;
+    harness.initPromise = new Promise<void>(() => {});
 
     const bot = createBot({ name: "Account Bot" });
     patchTask(botTaskId(bot.id), {
