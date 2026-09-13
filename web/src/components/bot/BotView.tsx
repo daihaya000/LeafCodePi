@@ -719,13 +719,16 @@ export const BotView = memo(function BotView({ id, active = true }: { id: string
 
   const updateCodeAutoApprove = async (value: boolean) => {
     const previous = codeAutoApprove;
+    const requestContext = botRequestContextRef.current;
     setCodeAutoApprove(value);
     setError(null);
     try {
       const result = await sendJson<{ bot: BotDto }>(`/api/bots/${encodeURIComponent(id)}`, { codeAutoApprove: value }, "PATCH");
+      if (botRequestContextRef.current !== requestContext) return;
       applyBotUpdate(result.bot);
       setCodeAutoApprove(result.bot.codeAutoApprove === true);
     } catch (reason) {
+      if (botRequestContextRef.current !== requestContext) return;
       setCodeAutoApprove(previous);
       setError(reason instanceof Error ? reason.message : "Code設定の保存に失敗しました");
     }
