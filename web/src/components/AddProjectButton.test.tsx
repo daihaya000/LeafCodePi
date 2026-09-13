@@ -18,6 +18,26 @@ afterEach(() => {
 });
 
 describe("AddProjectButton", () => {
+  it("gives a long directory list a constrained scroll viewport", async () => {
+    getJson.mockResolvedValue({
+      path: "C:\\Users\\Daichi",
+      parent: null,
+      entries: Array.from({ length: 40 }, (_, index) => ({
+        name: `Folder ${index}`,
+        path: `C:\\Users\\Daichi\\Folder ${index}`,
+      })),
+    });
+
+    render(<AddProjectButton />);
+    fireEvent.click(screen.getByRole("button", { name: "プロジェクトを追加" }));
+
+    await screen.findByText("Folder 39");
+    const dialog = screen.getByRole("dialog");
+    const list = screen.getByText("Folder 39").closest("ul");
+    expect(dialog.className).toContain("h-[min(46rem,calc(100dvh-2rem))]");
+    expect(list?.className).toContain("overflow-y-auto");
+  });
+
   it("ignores a directory response from a dialog opened before the current one", async () => {
     let resolveFirst!: (value: { path: string; parent: null; entries: never[] }) => void;
     let resolveSecond!: (value: { path: string; parent: null; entries: never[] }) => void;

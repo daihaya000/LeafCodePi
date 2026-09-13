@@ -61,7 +61,14 @@ function isValidPathShape(value: string): boolean {
 }
 
 function samePath(left: string | null, right: string): boolean {
-  return Boolean(left) && left!.replace(/[\\/]+$/, "").toLowerCase() === right.replace(/[\\/]+$/, "").toLowerCase();
+  if (!left) return false;
+  const normalize = (value: string) => value.replace(/[\\/]+$/, "") || value;
+  const leftPath = normalize(left);
+  const rightPath = normalize(right);
+  const isWindowsPath = /^[A-Za-z]:[\\/]/.test(leftPath) || leftPath.startsWith("\\\\");
+  return isWindowsPath
+    ? leftPath.toLowerCase() === rightPath.toLowerCase()
+    : leftPath === rightPath;
 }
 
 /** ネイティブダイアログはホスト PC の画面に開く。リモートからは要求しない。 */
@@ -169,8 +176,11 @@ export function AddProjectButton({
         }
         // キャンセルは無操作で閉じる
         return;
-      } catch (err) {
-        setError(err instanceof Error ? err.message : "フォルダ選択に失敗しました");
+      } catch {
+        // Native dialogs can be unavailable when the host has no interactive desktop.
+        // Keep the feature usable by falling back to the in-app browser.
+        setListing(null);
+        setOpen(true);
       } finally {
         setBusy(false);
       }
@@ -186,6 +196,8 @@ export function AddProjectButton({
       const result = await sendJson<{ path?: string; cancelled?: boolean; error?: string }>(
         "/api/browse/dirs",
         {},
+        "POST",
+        { timeoutMs: 135_000 },
       );
       if (result.path) {
         setPath(result.path);
@@ -259,7 +271,7 @@ export function AddProjectButton({
             role="dialog"
             aria-modal="true"
             aria-labelledby="add-project-title"
-            className="flex max-h-[min(46rem,calc(100vh-2rem))] w-full max-w-4xl flex-col overflow-hidden rounded-2xl border border-border bg-surface shadow-2xl"
+            className="flex h-[min(46rem,calc(100dvh-2rem))] max-h-[calc(100dvh-2rem)] w-full max-w-4xl flex-col overflow-hidden rounded-2xl border border-border bg-surface shadow-2xl"
           >
             <div className="flex items-center justify-between border-b border-border px-4 py-3 sm:px-5">
               <div className="min-w-0">
@@ -360,7 +372,7 @@ export function AddProjectButton({
                         <span>種類</span>
                         <span />
                       </div>
-                      <ul className="min-h-0 flex-1 overflow-y-auto p-1">
+                      <ul className="min-h-0 flex-1 overscroll-y-contain overflow-y-auto p-1">
                         {listing.entries.length > 0 ? listing.entries.map((entry) => (
                           <li key={entry.path}>
                             <button
