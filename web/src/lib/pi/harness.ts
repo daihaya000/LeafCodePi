@@ -2171,6 +2171,15 @@ export function runtimeClockContext(
   ].join("\n");
 }
 
+function refreshRuntimeClock(session: Pick<AgentSession, "agent">): void {
+  const state = session.agent?.state;
+  if (!state) return;
+  const clock = runtimeClockContext();
+  state.systemPrompt = state.systemPrompt.includes("<leafcode_clock>")
+    ? state.systemPrompt.replace(/<leafcode_clock>[\s\S]*?<\/leafcode_clock>/, clock)
+    : `${state.systemPrompt}\n\n${clock}`;
+}
+
 export function isOneToOneBotTask(
   task: Pick<TaskSummary, "id" | "kind" | "botId"> | null | undefined,
 ): boolean {
@@ -6204,19 +6213,25 @@ function queuePrompt(
       persistManualAbortedAssistantId(live.taskId, previousManualAbort);
     };
     const promptToSend = meta?.files?.length ? formatPromptWithFiles(prompt, meta.files) : prompt;
+    const sendCustomTurn = (
+      message: Parameters<AgentSession["sendCustomMessage"]>[0],
+    ) => {
+      refreshRuntimeClock(activeLive.session);
+      return activeLive.session.sendCustomMessage(message, { triggerTurn: true });
+    };
     const sendPrompt = () => meta?.codeResult
-      ? activeLive.session.sendCustomMessage({
+      ? sendCustomTurn({
           customType: BOT_CODE_RESULT,
           content: promptToSend,
           display: false,
           details: { requestId: meta.codeResult.id, codeTaskId: meta.codeResult.codeTaskId },
-        }, { triggerTurn: true })
+        })
       : meta?.isProviderFallback
-        ? activeLive.session.sendCustomMessage({
+        ? sendCustomTurn({
             customType: PROVIDER_FALLBACK_CUSTOM_TYPE,
             content: promptToSend,
             display: false,
-          }, { triggerTurn: true })
+          })
         : activeLive.session.prompt(promptToSend, options);
     try {
       await sendPrompt();
