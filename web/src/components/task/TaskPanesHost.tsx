@@ -492,7 +492,7 @@ export function TaskPanesHost() {
     if (workingTasksBusy) return;
     setWorkingTasksBusy(true);
     try {
-      const result = await getJson<{ tasks?: TaskSummary[] }>("/api/tasks?archived=1");
+      const result = await getJson<{ tasks?: TaskSummary[] }>("/api/tasks?archived=1&kind=all");
       const taskIds = (Array.isArray(result.tasks) ? result.tasks : [])
         .filter((task) => task.status === "working")
         .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))

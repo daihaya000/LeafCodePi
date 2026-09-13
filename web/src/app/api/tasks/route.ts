@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { listTasks } from "@/lib/store";
+import { listTasks, type TaskKind } from "@/lib/store";
 import {
   createTask,
   destroyArchivedTasksByProject,
@@ -44,6 +44,8 @@ export const dynamic = "force-dynamic";
 
 export async function GET(req: NextRequest) {
   const includeArchived = req.nextUrl.searchParams.get("archived") === "1";
+  const requestedKind = req.nextUrl.searchParams.get("kind");
+  const kind: TaskKind = requestedKind === "all" || requestedKind === "bot" ? requestedKind : "code";
   // GlobalAttentionProvider のポーリング用（軽量リスト）。
   if (req.nextUrl.searchParams.get("attention") === "1") {
     return NextResponse.json({ attention: listPendingAttention() });
@@ -51,9 +53,9 @@ export async function GET(req: NextRequest) {
   // TaskPanesContext のタブ名・存在確認用（todoProgress 計算と toSummary の
   // ライブ走査を伴わない生レコードで返す）。
   if (req.nextUrl.searchParams.get("titles") === "1") {
-    return NextResponse.json({ tasks: listTasks(includeArchived) });
+    return NextResponse.json({ tasks: listTasks(includeArchived, kind) });
   }
-  return NextResponse.json({ tasks: await getTaskSummariesWithTodoProgress(includeArchived) });
+  return NextResponse.json({ tasks: await getTaskSummariesWithTodoProgress(includeArchived, kind) });
 }
 
 export async function DELETE(req: NextRequest) {

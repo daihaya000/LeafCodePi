@@ -186,6 +186,7 @@ describe("TaskPanesHost lazy tab mounting", () => {
     expect(buttons[0]?.closest("[data-pane-id]")?.firstElementChild?.contains(buttons[0])).toBe(true);
 
     fireEvent.click(buttons[0]!);
+    expect(mocks.getJson).toHaveBeenCalledWith("/api/tasks?archived=1&kind=all");
     await waitFor(() => expect(contextValue.dispatch).toHaveBeenCalledWith({
       type: "showWorkingTasks",
       taskIds: ["newer", "older"],

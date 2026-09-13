@@ -554,6 +554,7 @@ describe("TaskPanesProvider", () => {
     expect(mocks.getJson).toHaveBeenCalledWith("/api/tasks", {
       titles: "1",
       archived: "1",
+      kind: "all",
     });
   });
 

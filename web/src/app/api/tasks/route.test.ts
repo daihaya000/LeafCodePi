@@ -5,6 +5,7 @@ const mocks = vi.hoisted(() => ({
   createTask: vi.fn(),
   destroyArchivedTasksByProject: vi.fn(),
   getTaskSummariesWithTodoProgress: vi.fn(),
+  listTasks: vi.fn(),
   listPendingAttention: vi.fn(),
   resolveAutoAgent: vi.fn(),
   autoAgentHasOwnModel: vi.fn(),
@@ -21,6 +22,7 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("@/lib/pi/harness", () => mocks);
+vi.mock("@/lib/store", () => ({ listTasks: mocks.listTasks }));
 vi.mock("@/lib/auto-agent", () => ({
   resolveAutoAgent: mocks.resolveAutoAgent,
   autoAgentHasOwnModel: mocks.autoAgentHasOwnModel,
@@ -29,7 +31,38 @@ vi.mock("@/lib/direct-generation", () => ({ parseDirectModelKey: mocks.parseDire
 
 import { AUTO_AGENT_VALUE } from "@/lib/default-agent";
 import { MAX_PROMPT_ATTACHMENTS, MAX_PROMPT_IMAGE_BYTES } from "@/lib/prompt-images";
-import { POST } from "./route";
+import { GET, POST } from "./route";
+
+describe("GET /api/tasks", () => {
+  it("lists every task kind when kind=all is requested", async () => {
+    const tasks = [
+      { id: "bot-task", kind: "bot", status: "working" },
+      { id: "code-task", kind: "code", status: "working" },
+    ];
+    mocks.listTasks.mockReturnValue(tasks);
+
+    const response = await GET(
+      new NextRequest("http://localhost/api/tasks?archived=1&titles=1&kind=all"),
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ tasks });
+    expect(mocks.listTasks).toHaveBeenCalledWith(true, "all");
+  });
+
+  it("passes kind=all to the hydrated summary path", async () => {
+    const tasks = [{ id: "bot-task", kind: "bot", status: "working" }];
+    mocks.getTaskSummariesWithTodoProgress.mockResolvedValue(tasks);
+
+    const response = await GET(
+      new NextRequest("http://localhost/api/tasks?archived=1&kind=all"),
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ tasks });
+    expect(mocks.getTaskSummariesWithTodoProgress).toHaveBeenCalledWith(true, "all");
+  });
+});
 
 describe("POST /api/tasks", () => {
   beforeEach(() => {

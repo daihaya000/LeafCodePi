@@ -16,6 +16,30 @@ describe("store", () => {
     rmSync(dir, { recursive: true, force: true });
   });
 
+  it("lists Code and Bot tasks together when requested", async () => {
+    const dir = join(tmpdir(), `leafcode-pi-test-${Date.now()}-all`);
+    mkdirSync(dir, { recursive: true });
+    process.env.LEAFCODE_PI_DATA_DIR = dir;
+    const store = await import("./store");
+    const code = store.insertTask({ project: null, title: "Code" });
+    const bot = store.insertBotTask({
+      id: "bot:one",
+      botId: "one",
+      name: "Bot",
+      directory: "C:\\bot",
+    });
+    store.setTaskStatus(code.id, "working");
+    store.setTaskStatus(bot.id, "working");
+
+    expect(store.listTasks(false, "all").map((task) => task.id)).toEqual([bot.id, code.id]);
+    expect(store.listTasks(false, "bot").map((task) => task.id)).toEqual([bot.id]);
+
+    store.setTaskStatus(bot.id, "archived");
+    expect(store.listTasks(false, "all").map((task) => task.id)).toEqual([code.id]);
+    expect(store.listTasks(true, "all").map((task) => task.id)).toEqual([bot.id, code.id]);
+    rmSync(dir, { recursive: true, force: true });
+  });
+
   it("re-adding an archived project restores it", async () => {
     const dir = join(tmpdir(), `leafcode-pi-test-${Date.now()}`);
     mkdirSync(dir, { recursive: true });

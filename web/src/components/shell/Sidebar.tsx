@@ -40,7 +40,7 @@ import {
   subscribeBotSidebar,
 } from "@/lib/bot-sidebar-store";
 import { getLastReadAt, hasUnread } from "@/lib/bot-unread";
-import { BOTS_TAB_ID, HOME_TAB_ID, isBotTabId, SETTINGS_TAB_ID, type TaskPanesAction } from "@/lib/task-panes";
+import { HOME_TAB_ID, SETTINGS_TAB_ID, type TaskPanesAction } from "@/lib/task-panes";
 import { NO_PROJECT_NAME, type BotDto, type HealthDto, type RoomDto, type ProjectDto, type TaskSummary } from "@/lib/types";
 
 type ProjectTaskMenuState = {
@@ -221,14 +221,16 @@ const BotSidebarBody = memo(function BotSidebarBody({
   collapsed,
   onCollapse,
   onExpand,
-  onShowWorkingBots,
+  onShowWorkingTasks,
+  hasWorking,
   health,
 }: {
   onClose: () => void;
   onChangeMode: (mode: AppMode) => void;
   onSettings: () => void;
   health: HealthDto | null;
-  onShowWorkingBots: (botIds: string[]) => void;
+  onShowWorkingTasks: () => void;
+  hasWorking: boolean;
   mdUp: boolean;
   collapsed: boolean;
   onCollapse: () => void;
@@ -299,13 +301,9 @@ const BotSidebarBody = memo(function BotSidebarBody({
     }
   }
   const sidebarError = createError ?? loadError;
-  const workingBotIds = bots
-    .filter((bot) => bot.codeInProgress === true)
-    .map((bot) => `/bots/${encodeURIComponent(bot.id)}`);
-  const showWorkingBots = () => {
+  const showWorkingTasks = () => {
     if (!mdUp) return;
-    onShowWorkingBots(workingBotIds);
-    onClose();
+    onShowWorkingTasks();
   };
   if (collapsed) {
     return (
@@ -390,7 +388,7 @@ const BotSidebarBody = memo(function BotSidebarBody({
           </ul>
         </div>
         <div className="flex w-full flex-col items-center gap-1 border-t border-border py-2">
-          <WorkingTasksButton hasWorking={workingBotIds.length > 0} mdUp={mdUp} onClick={showWorkingBots} />
+          <WorkingTasksButton hasWorking={hasWorking} mdUp={mdUp} onClick={showWorkingTasks} />
           <button
             type="button"
             aria-label="Botを追加"
@@ -446,7 +444,7 @@ const BotSidebarBody = memo(function BotSidebarBody({
           <img src="/icon.svg" alt="" className="h-6 w-6 rounded-[5px]" />
           <span className="truncate text-sm font-semibold">LeafCodePi</span>
         </Link>
-        <WorkingTasksButton hasWorking={workingBotIds.length > 0} mdUp={mdUp} onClick={showWorkingBots} className="ml-auto" />
+        <WorkingTasksButton hasWorking={hasWorking} mdUp={mdUp} onClick={showWorkingTasks} className="ml-auto" />
         <button
           type="button"
           aria-label="Botを追加"
@@ -930,7 +928,7 @@ const SidebarView = memo(function SidebarView({
     const gen = ++refreshGenRef.current;
     const [projectRes, taskRes, healthRes, botRes] = await Promise.allSettled([
       getJson<{ projects: ProjectDto[] }>("/api/projects?archived=1"),
-      getJson<{ tasks: TaskSummary[] }>("/api/tasks?archived=1"),
+      getJson<{ tasks: TaskSummary[] }>("/api/tasks?archived=1&kind=all"),
       getJson<HealthDto>("/api/health"),
       mode === "code"
         ? getJson<{ bots: BotDto[] }>("/api/bots")
@@ -1143,16 +1141,6 @@ const SidebarView = memo(function SidebarView({
     dispatch({ type: "showWorkingTasks", taskIds: workingTaskIds });
     onClose();
   }, [dispatch, onClose, paneMdUp, resetPanesToTab, workingTaskIds]);
-
-  const showWorkingBotsFallback = useCallback((botIds: string[]) => {
-    if (!paneMdUp) return;
-    if (botIds.length === 0) {
-      resetPanesToTab(isBotTabId(pathname) ? pathname : BOTS_TAB_ID);
-    } else {
-      dispatch({ type: "showWorkingTasks", taskIds: botIds });
-      onClose();
-    }
-  }, [dispatch, onClose, paneMdUp, pathname, resetPanesToTab]);
 
   const tasksByProject = useMemo(() => {
     const map = new Map<string | null, TaskSummary[]>();
@@ -2045,7 +2033,8 @@ const SidebarView = memo(function SidebarView({
       collapsed={collapsed && mdUp}
       onCollapse={collapseBotSidebar}
       onExpand={expandBotSidebar}
-      onShowWorkingBots={showWorkingBotsFallback}
+      onShowWorkingTasks={showWorkingTasks}
+      hasWorking={hasWorking}
     />
   );
 

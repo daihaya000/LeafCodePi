@@ -147,8 +147,12 @@ export function patchProject(
   return project;
 }
 
-export function listTasks(includeArchived = false, kind: "code" | "bot" = "code"): TaskSummary[] {
-  const tasks = readStore().tasks.filter((task) => (task.kind ?? "code") === kind);
+export type TaskKind = "code" | "bot" | "all";
+
+export function listTasks(includeArchived = false, kind: TaskKind = "code"): TaskSummary[] {
+  const tasks = readStore().tasks.filter(
+    (task) => kind === "all" || (task.kind ?? "code") === kind,
+  );
   return includeArchived ? tasks : tasks.filter((task) => task.status !== "archived");
 }
 

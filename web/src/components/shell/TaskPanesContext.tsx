@@ -349,6 +349,7 @@ export function TaskPanesProvider({ children }: { children: React.ReactNode }) {
           const { tasks } = await getJson<{ tasks: TaskSummary[] }>("/api/tasks", {
             titles: "1",
             archived: "1",
+            kind: "all",
           });
           let titlesDirty = false;
           for (const task of tasks) {

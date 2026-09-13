@@ -28,6 +28,7 @@ import {
   insertTask,
   listProjects,
   listTasks,
+  type TaskKind,
   patchProject,
   patchTask,
   setTaskStatus,
@@ -4858,9 +4859,12 @@ export function archiveProject(id: string): ProjectDto {
   return project;
 }
 
-export function getTaskSummaries(includeArchived = false): TaskSummary[] {
+export function getTaskSummaries(
+  includeArchived = false,
+  kind: TaskKind = "code",
+): TaskSummary[] {
   reconcileOrphanedWorkingTasks();
-  return listTasks(includeArchived).map(toSummary);
+  return listTasks(includeArchived, kind).map(toSummary);
 }
 
 function readOfflineSessionSnapshot(sessionFile: string): {
@@ -4948,27 +4952,30 @@ export function readTodoProgress(
   }
 }
 
-/** includeArchived ごとに構築を重複実行しない（サイドバーとBotコード一覧の同時呼び出し対策）。 */
-const taskSummariesInflight = new Map<boolean, Promise<TaskSummary[]>>();
+/** includeArchived/kind ごとに構築を重複実行しない（サイドバーとBotコード一覧の同時呼び出し対策）。 */
+const taskSummariesInflight = new Map<string, Promise<TaskSummary[]>>();
 
 export async function getTaskSummariesWithTodoProgress(
   includeArchived = false,
+  kind: TaskKind = "code",
 ): Promise<TaskSummary[]> {
-  const inflight = taskSummariesInflight.get(includeArchived);
+  const key = `${kind}:${includeArchived ? "archived" : "active"}`;
+  const inflight = taskSummariesInflight.get(key);
   if (inflight) return inflight;
-  const promise = buildTaskSummariesWithTodoProgress(includeArchived).finally(() => {
-    if (taskSummariesInflight.get(includeArchived) === promise) {
-      taskSummariesInflight.delete(includeArchived);
+  const promise = buildTaskSummariesWithTodoProgress(includeArchived, kind).finally(() => {
+    if (taskSummariesInflight.get(key) === promise) {
+      taskSummariesInflight.delete(key);
     }
   });
-  taskSummariesInflight.set(includeArchived, promise);
+  taskSummariesInflight.set(key, promise);
   return promise;
 }
 
 async function buildTaskSummariesWithTodoProgress(
   includeArchived: boolean,
+  kind: TaskKind,
 ): Promise<TaskSummary[]> {
-  const summaries = getTaskSummaries(includeArchived);
+  const summaries = getTaskSummaries(includeArchived, kind);
   // アーカイブタスクは Sidebar の進捗表示対象外（TodoProgressBar は active のみ）。
   // 復元時は status が変わり再読込されるため、進捗の欠落は生じない。
   const coldTasks = summaries.filter(
