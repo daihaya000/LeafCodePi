@@ -389,6 +389,35 @@ describe("integrated session routing", () => {
     expect(fakePi.sessions[1]?.systemPrompts[0]).toContain("<leafcode_clock>");
   });
 
+  it("reopens a Bot session before the next prompt after a SOUL update", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "leafcode-pi-bot-soul-reload-"));
+    tempDirs.push(dir);
+    process.env.LEAFCODE_PI_DATA_DIR = dir;
+    process.env.PI_CODING_AGENT_DIR = join(dir, "agent");
+    __resetPiAgentDirCacheForTests();
+    installHarness(new Map());
+
+    const bot = createBot({ name: "Soul reload bot" });
+    const taskId = botTaskId(bot.id);
+    await promptTask(taskId, "initial", undefined, { waitForCompletion: true });
+    await waitFor(() => getTask(taskId)?.status === "idle");
+
+    const harness = (globalThis as Record<string, unknown>)[GLOBAL_KEY] as {
+      live: Map<string, { soulReloadPending: boolean }>;
+    };
+    const first = fakePi.sessions[0]!;
+    harness.live.get(taskId)!.soulReloadPending = true;
+    first.emit?.({ type: "agent_settled" });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(first.disposed).toBe(false);
+
+    await promptTask(taskId, "next", undefined, { waitForCompletion: true });
+
+    expect(fakePi.sessions).toHaveLength(2);
+    expect(first.disposed).toBe(true);
+    expect(fakePi.sessions[1]?.prompts).toEqual(["next"]);
+  });
+
   it("uses persisted Auto settings when resolving the Auto task sentinel", async () => {
     const dir = mkdtempSync(join(tmpdir(), "leafcode-pi-auto-settings-"));
     tempDirs.push(dir);

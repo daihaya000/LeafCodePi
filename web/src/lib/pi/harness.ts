@@ -1458,6 +1458,7 @@ function openSettingsManager() {
 }
 
 const providerFallbackInflight = new Map<string, Promise<void>>();
+const soulReloadInflight = new Map<string, Promise<LiveRuntime>>();
 /** Session entry customType for the hidden provider-limit resume prompt. */
 const PROVIDER_FALLBACK_CUSTOM_TYPE = "leafcode-pi.provider-fallback";
 
@@ -1660,7 +1661,8 @@ async function attachSession(
     reasoningFallbackTried: false,
     pendingProviderFallback: existing?.pendingProviderFallback ?? null,
     restoreAutoRetry: false,
-    soulReloadPending: existing?.soulReloadPending ?? false,
+    // A newly created session has already re-read the Bot's SOUL.md.
+    soulReloadPending: false,
   };
 
   const unsubscribe = session.subscribe((event) => {
@@ -1750,16 +1752,10 @@ async function attachSession(
       }
       const goalLoopTurnActive = live.goalLoopTurnActive;
       live.goalLoopTurnActive = false;
-      const soulReloadPending = live.soulReloadPending;
-      live.soulReloadPending = false;
-      if (soulReloadPending) {
-        // Wait until the SDK has finished dispatching agent_settled before disposing the session.
-        setTimeout(() => {
-          if (state().live.get(taskId) === live) resetTaskSession(taskId);
-        }, 0);
-      } else if (!goalLoopTurnActive) {
-        scheduleAutoCompaction(live);
-      }
+      // A pending SOUL update is applied by replacing the idle session before
+      // the next prompt. Disposing here would make Goal Loop's session_shutdown
+      // handler pause an otherwise active loop.
+      if (!goalLoopTurnActive) scheduleAutoCompaction(live);
       const pending = live.pendingProviderFallback;
       live.pendingProviderFallback = null;
       if (pending && pending.modelID) {
@@ -5621,6 +5617,62 @@ async function replaceLiveForAgent(
   }
 }
 
+/** Reopen the same transcript after a Bot changed its own SOUL.md. */
+async function replaceLiveForSoul(live: LiveRuntime): Promise<LiveRuntime> {
+  const task = getTask(live.taskId);
+  if (!task) throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });
+  if (state().live.get(task.id) !== live) {
+    return state().live.get(task.id) ?? ensureLive(task.id);
+  }
+  const sessionFile = live.session.sessionFile ?? task.sessionFile;
+  if (!sessionFile) {
+    resetTaskSession(task.id);
+    return ensureLive(task.id);
+  }
+  const project = task.projectId ? getProject(task.projectId) : undefined;
+  const bot = task.kind === "bot" && task.botId ? getBot(task.botId) : undefined;
+  const thinkingLevel =
+    typeof live.session.thinkingLevel === "string" && isThinkingLevel(live.session.thinkingLevel)
+      ? live.session.thinkingLevel
+      : task.thinkingLevel;
+  const setup = await createSession({
+    cwd: project?.rootPath ?? task.directory,
+    sessionFile,
+    sessionName: task.kind === "bot" ? `bot:${task.title}` : task.title,
+    ...botSessionOptions(task),
+    accountId: live.accountId,
+    model: live.session.model ?? undefined,
+    thinkingLevel,
+    skillPermission: live.skillPermission,
+    permissionMode: task.kind === "bot" ? (bot?.permissionMode ?? task.permissionMode) : task.permissionMode,
+    agentName: task.agent ?? null,
+    taskId: task.id,
+    goalLoop: isActiveGoalLoopSession(live.session),
+  });
+  try {
+    return await attachSession(task.id, setup.session, setup.skillPermissionRef);
+  } catch (error) {
+    setup.session.dispose();
+    throw error;
+  }
+}
+
+async function reloadLiveForSoulIfNeeded(live: LiveRuntime): Promise<LiveRuntime> {
+  const current = state().live.get(live.taskId) ?? live;
+  if (!current.soulReloadPending || current.session.isStreaming || current.session.isCompacting) {
+    return current;
+  }
+  const inflight = soulReloadInflight.get(current.taskId);
+  if (inflight) return inflight;
+  const operation = replaceLiveForSoul(current).finally(() => {
+    if (soulReloadInflight.get(current.taskId) === operation) {
+      soulReloadInflight.delete(current.taskId);
+    }
+  });
+  soulReloadInflight.set(current.taskId, operation);
+  return operation;
+}
+
 async function prepareAutoAgentForGoalLoop(
   live: LiveRuntime,
   task: TaskSummary,
@@ -5764,6 +5816,7 @@ async function prepareLiveForPrompt(
   if (pendingSettings) {
     currentLive = await applyPendingLiveSettings(currentLive, pendingSettings);
   }
+  currentLive = await reloadLiveForSoulIfNeeded(currentLive);
   const task = getTask(currentLive.taskId);
   const isGoalLoopTurn = isActiveGoalLoopSession(currentLive.session);
   const canRoute = Boolean(
