@@ -1,13 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
-import { appendRoomMessage, botsForRoomPrompt, getRoom, roomImageRejection, saveRoomImages, updateRoomMessage } from "@/lib/rooms";
-import { isPromptImageList } from "@/lib/prompt-images";
+import { appendRoomMessage, botsForRoomPrompt, getRoom, roomFileRejection, roomImageRejection, saveRoomFiles, saveRoomImages, updateRoomMessage } from "@/lib/rooms";
+import { isPromptFileList, isPromptImageList, MAX_PROMPT_ATTACHMENTS, type PromptFileInput } from "@/lib/prompt-images";
 import { jsonError } from "@/lib/pi/harness";
 import { isRoomConversationRequest, isRoomStopRequest, MAX_ROOM_CONVERSATION_PARTICIPANTS } from "@/lib/room-conversation";
 import { cancelPendingRoomHandoffs, deliverReadyRoomHandoffs, runRoomConversation, runRoomFanOut, settleRoomHandoffs, settleStaleRoomTurns, steerRoomTurns, stopRoomTurns } from "@/lib/room-runtime";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-type PromptBody = { prompt?: unknown; broadcast?: unknown; images?: unknown };
+type PromptBody = { prompt?: unknown; broadcast?: unknown; images?: unknown; files?: unknown };
 
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
@@ -18,10 +18,15 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     if (typeof body?.prompt !== "string") return NextResponse.json({ error: "Prompt is required" }, { status: 400 });
     // Attachments only ever come from the user composer, never from a relayed bot payload.
     if (body.images !== undefined && !isPromptImageList(body.images)) return NextResponse.json({ error: "invalid images" }, { status: 400 });
-    const attachments = body.images ?? [];
-    const rejection = attachments.length > 0 ? roomImageRejection(attachments) : undefined;
-    if (rejection) return NextResponse.json({ error: rejection }, { status: 400 });
-    if (!body.prompt.trim() && attachments.length === 0) return NextResponse.json({ error: "Prompt is required" }, { status: 400 });
+    if (body.files !== undefined && !isPromptFileList(body.files)) return NextResponse.json({ error: "invalid files" }, { status: 400 });
+    const images = body.images ?? [];
+    const files = body.files ?? [];
+    if (images.length + files.length > MAX_PROMPT_ATTACHMENTS) return NextResponse.json({ error: `添付は${MAX_PROMPT_ATTACHMENTS}件までです` }, { status: 400 });
+    const imageRejection = images.length > 0 ? roomImageRejection(images) : undefined;
+    if (imageRejection) return NextResponse.json({ error: imageRejection }, { status: 400 });
+    const fileRejection = files.length > 0 ? roomFileRejection(files as PromptFileInput[]) : undefined;
+    if (fileRejection) return NextResponse.json({ error: fileRejection }, { status: 400 });
+    if (!body.prompt.trim() && images.length === 0 && files.length === 0) return NextResponse.json({ error: "Prompt is required" }, { status: 400 });
     const prompt = body.prompt.trim();
     settleStaleRoomTurns(id);
     if (isRoomStopRequest(prompt)) {
@@ -37,9 +42,13 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     const userMessage = appendRoomMessage(id, { role: "user", text: prompt });
     if (!userMessage) return NextResponse.json({ error: "Room not found" }, { status: 404 });
     // ponytail: attachment files outlive a revert; the whole directory goes when the room is deleted.
-    if (attachments.length > 0) {
-      const saved = saveRoomImages(id, userMessage.id, attachments);
+    if (images.length > 0) {
+      const saved = saveRoomImages(id, userMessage.id, images);
       if (saved.length > 0) updateRoomMessage(id, userMessage.id, { images: saved });
+    }
+    if (files.length > 0) {
+      const saved = saveRoomFiles(id, userMessage.id, files as PromptFileInput[]);
+      if (saved.length > 0) updateRoomMessage(id, userMessage.id, { files: saved });
     }
     // A new instruction redirects the turns already being written; those bots answer once, there.
     const steered = new Set(await steerRoomTurns(id, prompt));

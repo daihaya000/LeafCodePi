@@ -2,7 +2,7 @@
 import { useRef, useState } from "react";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
-import { Composer, type ComposerAttachment } from "./Composer";
+import { composerPromptAttachments, Composer, type ComposerAttachment } from "./Composer";
 
 function TestComposer({
   value,
@@ -92,6 +92,16 @@ function SettingsComposer() {
 
 describe("Composer", () => {
   afterEach(cleanup);
+
+  it("separates image and text-file payloads without dropping names", () => {
+    expect(composerPromptAttachments([
+      { uri: "data:image/png;base64,aW1hZ2U=", mime: "image/png", name: "shot.png" },
+      { uri: "data:text/plain;base64,bm90ZXM=", mime: "text/plain", name: "notes.txt" },
+    ])).toEqual({
+      images: [{ mimeType: "image/png", data: "aW1hZ2U=" }],
+      files: [{ name: "notes.txt", mimeType: "text/plain", data: "bm90ZXM=" }],
+    });
+  });
 
   it("grows with new lines and removes the blue focus outline", () => {
     const view = render(<TestComposer value="一行目" />);

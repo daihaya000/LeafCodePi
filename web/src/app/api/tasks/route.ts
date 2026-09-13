@@ -20,7 +20,15 @@ import {
   type AutoRouteConfig,
 } from "@/lib/auto-model";
 import { parseDirectModelKey } from "@/lib/direct-generation";
-import { isPromptImageList, isPromptImageWithinSize } from "@/lib/prompt-images";
+import {
+  isPromptFileList,
+  isPromptFileText,
+  isPromptFileWithinSize,
+  isPromptImageList,
+  isPromptImageWithinSize,
+  MAX_PROMPT_ATTACHMENTS,
+  type PromptFileInput,
+} from "@/lib/prompt-images";
 import { isThinkingLevel } from "@/lib/thinking-levels";
 import { autoAgentHasOwnModel, resolveAutoAgent } from "@/lib/auto-agent";
 import { AUTO_AGENT_VALUE } from "@/lib/default-agent";
@@ -74,6 +82,7 @@ export async function POST(req: NextRequest) {
       autoRouteOverrides?: unknown;
       variant?: unknown;
       images?: { mimeType: string; data: string }[];
+      files?: PromptFileInput[];
       agent?: string;
       accountId?: unknown;
       subagentPermission?: unknown;
@@ -132,7 +141,13 @@ export async function POST(req: NextRequest) {
     if (body.images !== undefined && (!isPromptImageList(body.images) || body.images.some((image) => !isPromptImageWithinSize(image)))) {
       return NextResponse.json({ error: "invalid images" }, { status: 400 });
     }
-    if (!body.prompt?.trim() && !body.images?.length) {
+    if (body.files !== undefined && (!isPromptFileList(body.files) || body.files.some((file) => !isPromptFileWithinSize(file) || !isPromptFileText(file)))) {
+      return NextResponse.json({ error: "invalid files: UTF-8 text only" }, { status: 400 });
+    }
+    if ((body.images?.length ?? 0) + (body.files?.length ?? 0) > MAX_PROMPT_ATTACHMENTS) {
+      return NextResponse.json({ error: `添付は${MAX_PROMPT_ATTACHMENTS}件までです` }, { status: 400 });
+    }
+    if (!body.prompt?.trim() && !body.images?.length && !body.files?.length) {
       return NextResponse.json(
         { error: "projectId（null可）と prompt が必要です" },
         { status: 400 },
@@ -173,8 +188,8 @@ export async function POST(req: NextRequest) {
         { status: 400 },
       );
     }
-    if (body.goalLoop?.enabled === true && body.images?.length) {
-      return NextResponse.json({ error: "Goal loop の開始では画像添付は使えません" }, { status: 400 });
+    if (body.goalLoop?.enabled === true && (body.images?.length || body.files?.length)) {
+      return NextResponse.json({ error: "Goal loop の開始ではファイル添付は使えません" }, { status: 400 });
     }
     let goalLoop:
       | { acceptance: string[]; maxTurns: number; cooldownSeconds: number; forceFullRun: boolean }
@@ -245,7 +260,7 @@ export async function POST(req: NextRequest) {
         (await resolveAutoModel({
           prompt,
           hasImages,
-          attachmentCount: body.images?.length ?? 0,
+          attachmentCount: (body.images?.length ?? 0) + (body.files?.length ?? 0),
           mode: isAutoOptimizeMode(body.autoOptimize)
             ? body.autoOptimize
             : DEFAULT_AUTO_OPTIMIZE_MODE,
@@ -288,6 +303,7 @@ export async function POST(req: NextRequest) {
       ...(model && model !== AUTO_MODEL_VALUE ? { model } : {}),
       ...(thinkingLevel ? { thinkingLevel } : {}),
       images: body.images,
+      files: body.files,
       ...(agent ? { agent } : {}),
       accountId,
       ...(body.auto === true ? { accountIdExplicit: false } : {}),

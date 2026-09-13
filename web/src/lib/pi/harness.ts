@@ -40,6 +40,7 @@ import {
   type AuthTypeDto,
   type LoginSessionEvent,
 } from "@/lib/pi/auth-login";
+import { formatPromptWithFiles, parsePromptFileMarkers, type PromptFileInput } from "@/lib/prompt-images";
 import { toolResultText, titleFromPrompt, toolTimingFromSessionEntries } from "@/lib/pi/messages";
 import {
   applyMessageAccountIds,
@@ -789,6 +790,7 @@ async function ensureRuntime(): Promise<void> {
         const live = current.live.get(taskId);
         if (!live) return;
         queuePrompt(live, input.prompt, input.images, {
+          files: input.files,
           agent: input.agent,
           subagentPermission: input.subagentPermission,
           permissionMode: input.permissionMode,
@@ -5255,6 +5257,7 @@ export async function createTask(input: {
   model?: string;
   thinkingLevel?: ThinkingLevel;
   images?: PromptImage[];
+  files?: PromptFileInput[];
   agent?: string;
   subagentPermission?: "allow" | "deny";
   permissionMode?: "allow" | "ask" | "deny";
@@ -5275,6 +5278,9 @@ export async function createTask(input: {
     autoAgent?: boolean;
   };
 }): Promise<TaskSummary> {
+  if (input.goalLoop && (input.images?.length || input.files?.length)) {
+    throw Object.assign(new Error("Goal loop の開始ではファイル添付は使えません"), { status: 400 });
+  }
   const project = input.projectId ? getProject(input.projectId) ?? null : null;
   if (input.projectId && !project)
     throw Object.assign(new Error("プロジェクトが見つかりません"), {
@@ -5288,7 +5294,7 @@ export async function createTask(input: {
     const autoDecision = await resolveConfiguredAutoModel(
       input.prompt,
       Boolean(input.images?.length),
-      input.images?.length ?? 0,
+      (input.images?.length ?? 0) + (input.files?.length ?? 0),
     );
     modelValue = autoModelValue(autoDecision);
     thinkingLevelInput = autoVariantToThinkingLevel(autoDecision.variant);
@@ -5493,6 +5499,7 @@ export async function createTask(input: {
       });
     } else {
       queuePrompt(live, input.prompt, input.images, {
+        files: input.files,
         agent: input.agent,
         subagentPermission: input.subagentPermission,
         permissionMode: input.permissionMode,
@@ -6024,6 +6031,7 @@ function queuePrompt(
   prompt: string,
   images?: PromptImage[],
   meta?: {
+    files?: PromptFileInput[];
     agent?: string;
     subagentPermission?: "allow" | "deny";
     permissionMode?: "allow" | "ask" | "deny";
@@ -6050,6 +6058,7 @@ function queuePrompt(
       taskId: live.taskId,
       prompt,
       images,
+      ...(meta?.files?.length ? { files: meta.files } : {}),
       ...(meta?.agent ? { agent: meta.agent } : {}),
       ...(meta?.subagentPermission
         ? { subagentPermission: meta.subagentPermission }
@@ -6077,6 +6086,7 @@ function queuePrompt(
     // Stream ended (or never opened) while the client still looked "working".
     // Run as the next serial turn instead of silently dropping the text.
     queuePrompt(live, prompt, images, {
+      ...(meta?.files?.length ? { files: meta.files } : {}),
       ...(meta?.agent ? { agent: meta.agent } : {}),
       ...(meta?.subagentPermission
         ? { subagentPermission: meta.subagentPermission }
@@ -6162,20 +6172,21 @@ function queuePrompt(
       if (!stillQueued()) return;
       persistManualAbortedAssistantId(live.taskId, previousManualAbort);
     };
+    const promptToSend = meta?.files?.length ? formatPromptWithFiles(prompt, meta.files) : prompt;
     const sendPrompt = () => meta?.codeResult
       ? activeLive.session.sendCustomMessage({
           customType: BOT_CODE_RESULT,
-          content: prompt,
+          content: promptToSend,
           display: false,
           details: { requestId: meta.codeResult.id, codeTaskId: meta.codeResult.codeTaskId },
         }, { triggerTurn: true })
       : meta?.isProviderFallback
         ? activeLive.session.sendCustomMessage({
             customType: PROVIDER_FALLBACK_CUSTOM_TYPE,
-            content: prompt,
+            content: promptToSend,
             display: false,
           }, { triggerTurn: true })
-        : activeLive.session.prompt(prompt, options);
+        : activeLive.session.prompt(promptToSend, options);
     try {
       await sendPrompt();
     } catch (error) {
@@ -6278,6 +6289,7 @@ function promptOptionsForWorker(
 ): CodePromptOptions {
   return {
     ...(images?.length ? { images } : {}),
+    ...(options?.files?.length ? { files: options.files } : {}),
     ...(options?.agent !== undefined ? { agent: options.agent } : {}),
     ...(options?.model !== undefined ? { model: options.model } : {}),
     ...(options?.thinkingLevel !== undefined ? { thinkingLevel: options.thinkingLevel } : {}),
@@ -6295,6 +6307,7 @@ export async function promptTask(
   prompt: string,
   images?: PromptImage[],
   options?: {
+    files?: PromptFileInput[];
     agent?: string;
     model?: string;
     thinkingLevel?: ThinkingLevel;
@@ -6390,6 +6403,7 @@ export async function promptTask(
   }
   persistRevertLeafId(id, null);
   const completion = queuePrompt(live, prompt, images, {
+    files: options?.files,
     agent: options?.agent,
     subagentPermission: options?.subagentPermission,
     permissionMode: options?.permissionMode,
@@ -7116,7 +7130,7 @@ export async function abortTaskCompaction(id: string): Promise<TaskDetail> {
 
 /**
  * 巻き戻し: 指定ユーザーメッセージ（UI のメッセージ id）以降を破棄し、その
- * 内容を text / images として返す（本家 LeafCode の「入力欄に戻す」と同じ）。
+ * 内容を text / images / files として返す（本家 LeafCode の「入力欄に戻す」と同じ）。
  * Pi コアの navigateTree は user メッセージをターゲットにすると leaf を親へ
  * 移し、破棄した分の入力を editorText として返す。
  */
@@ -7127,6 +7141,7 @@ export async function revertTask(
   task: TaskDetail;
   text: string;
   images: { uri: string; mime: string; name?: string }[];
+  files: { uri: string; mime: string; name?: string }[];
 }> {
   const live = await ensureLive(id);
   if (live.session.isStreaming) {
@@ -7172,10 +7187,18 @@ export async function revertTask(
     revertLeafId: live.revertLeafId,
     eventType: "revert",
   });
+  const restoredPrompt = parsePromptFileMarkers(
+    typeof result.editorText === "string"
+      ? result.editorText
+      : typeof entry.message.content === "string"
+        ? entry.message.content
+        : "",
+  );
   return {
     task: taskDetail,
-    text: result.editorText ?? "",
+    text: restoredPrompt.text,
     images: imagesFromEntry(entry),
+    files: filesFromEntry(entry),
   };
 }
 
@@ -7249,6 +7272,18 @@ export function imagesFromEntry(entry: {
     });
   });
   return images;
+}
+
+/** user エントリの transport marker を Composer 添付相当に変換する。 */
+export function filesFromEntry(entry: {
+  message: { role: string; content: unknown };
+}): { uri: string; mime: string; name?: string }[] {
+  if (typeof entry.message.content !== "string") return [];
+  return parsePromptFileMarkers(entry.message.content).files.map((file) => ({
+    uri: `data:${file.mimeType};base64,${file.data}`,
+    mime: file.mimeType,
+    name: file.name,
+  }));
 }
 
 /** Persist the pre-revert leaf so restore survives reload and session replace. */

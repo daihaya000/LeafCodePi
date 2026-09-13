@@ -28,7 +28,7 @@ vi.mock("@/lib/auto-agent", () => ({
 vi.mock("@/lib/direct-generation", () => ({ parseDirectModelKey: mocks.parseDirectModelKey }));
 
 import { AUTO_AGENT_VALUE } from "@/lib/default-agent";
-import { MAX_PROMPT_IMAGE_BYTES } from "@/lib/prompt-images";
+import { MAX_PROMPT_ATTACHMENTS, MAX_PROMPT_IMAGE_BYTES } from "@/lib/prompt-images";
 import { POST } from "./route";
 
 describe("POST /api/tasks", () => {
@@ -293,6 +293,41 @@ describe("POST /api/tasks", () => {
         images: [{ mimeType: "image/png", data: "abc" }],
       }),
     );
+  });
+
+  it("creates a task from a UTF-8 text file when the prompt is empty", async () => {
+    const file = { name: "notes.txt", mimeType: "text/plain", data: Buffer.from("添付内容", "utf8").toString("base64") };
+    const response = await POST(
+      new NextRequest("http://localhost/api/tasks", {
+        method: "POST",
+        body: JSON.stringify({ projectId: null, prompt: "", files: [file] }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(mocks.createTask).toHaveBeenCalledWith(expect.objectContaining({ projectId: null, prompt: "", files: [file] }));
+  });
+
+  it("rejects binary files and too many combined attachments before creating a task", async () => {
+    const binary = { name: "data.bin", mimeType: "application/octet-stream", data: Buffer.from([0xff]).toString("base64") };
+    const binaryResponse = await POST(
+      new NextRequest("http://localhost/api/tasks", {
+        method: "POST",
+        body: JSON.stringify({ projectId: null, prompt: "確認", files: [binary] }),
+      }),
+    );
+    expect(binaryResponse.status).toBe(400);
+    expect(mocks.createTask).not.toHaveBeenCalled();
+
+    const files = Array.from({ length: MAX_PROMPT_ATTACHMENTS }, (_, index) => ({ name: `${index}.txt`, mimeType: "text/plain", data: "YQ==" }));
+    const tooManyResponse = await POST(
+      new NextRequest("http://localhost/api/tasks", {
+        method: "POST",
+        body: JSON.stringify({ projectId: null, prompt: "確認", images: [{ mimeType: "image/png", data: "YQ==" }], files }),
+      }),
+    );
+    expect(tooManyResponse.status).toBe(400);
+    expect(mocks.createTask).not.toHaveBeenCalled();
   });
 
   it("rejects oversized images before creating a task", async () => {

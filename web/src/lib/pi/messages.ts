@@ -164,6 +164,50 @@ function imagePartsFromBlocks(blocks: unknown[], prefix: string): UiPart[] {
   return parts;
 }
 
+function utf8Base64(value: string): string {
+  const bytes = new TextEncoder().encode(value);
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary);
+}
+
+/** File markers are transport-only prompt text; project them as compact metadata cards. */
+function filePartsFromPromptText(value: string, prefix: string): { text: string; parts: UiPart[] } {
+  const parts: UiPart[] = [];
+  const marker = /(?:^|\n\n)<leafcode-file>\r?\n([\s\S]*?)\r?\n<\/leafcode-file>/g;
+  let text = "";
+  let cursor = 0;
+  for (const match of value.matchAll(marker)) {
+    const full = match[0] ?? "";
+    const start = match.index ?? 0;
+    const end = start + full.length;
+    text += value.slice(cursor, start);
+    try {
+      const payload = JSON.parse(match[1] ?? "") as { name?: unknown; mimeType?: unknown; content?: unknown };
+      if (
+        typeof payload.name !== "string" ||
+        !payload.name.trim() ||
+        typeof payload.mimeType !== "string" ||
+        !payload.mimeType.trim() ||
+        typeof payload.content !== "string"
+      ) throw new Error("invalid marker");
+      const content = payload.content;
+      parts.push({
+        id: `${prefix}-file-${parts.length}`,
+        type: "file",
+        name: payload.name,
+        mime: payload.mimeType,
+        size: new TextEncoder().encode(content).byteLength,
+        data: utf8Base64(content),
+      });
+    } catch {
+      text += value.slice(start, end);
+    }
+    cursor = end;
+  }
+  return { text: text + value.slice(cursor), parts };
+}
+
 /**
  * pi-subagents は tool result の `details` に実行 ID を載せる
  * （`runId` / `asyncId` / `results[].runId`）。入れ子パネルがどの実行を
@@ -353,9 +397,13 @@ export function projectPiMessages(raw: unknown[], indexOffset = 0): UiMessage[] 
       const parts: UiPart[] = [];
       const rawText = typeof item.content === "string" ? item.content : textFromBlocks(blocks);
       const hangRetry = rawText.startsWith(HANG_RETRY_PREFIX);
-      const text = hangRetry ? stripHangRetryPrefix(rawText) : rawText;
-      if (text) parts.push({ id: `${id}-text`, type: "text", text });
+      const parsedFiles = filePartsFromPromptText(
+        hangRetry ? stripHangRetryPrefix(rawText) : rawText,
+        id,
+      );
+      if (parsedFiles.text) parts.push({ id: `${id}-text`, type: "text", text: parsedFiles.text });
       parts.push(...imagePartsFromBlocks(blocks, id));
+      parts.push(...parsedFiles.parts);
       messages.push({
         id,
         role: "user",

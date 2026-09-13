@@ -2,7 +2,15 @@ import { NextRequest, NextResponse } from "next/server";
 import { getTask } from "@/lib/store";
 import { readSessionConversation } from "@/lib/direct-session";
 import { parseDirectModelKey } from "@/lib/direct-generation";
-import { isPromptImageList, isPromptImageWithinSize } from "@/lib/prompt-images";
+import {
+  isPromptFileList,
+  isPromptFileText,
+  isPromptFileWithinSize,
+  isPromptImageList,
+  isPromptImageWithinSize,
+  MAX_PROMPT_ATTACHMENTS,
+  type PromptFileInput,
+} from "@/lib/prompt-images";
 import { autoAgentHasOwnModel, resolveAutoAgent } from "@/lib/auto-agent";
 import { AUTO_AGENT_VALUE } from "@/lib/default-agent";
 import {
@@ -34,6 +42,7 @@ export async function POST(
     const body = (await req.json().catch(() => null)) as {
       prompt?: string;
       images?: { mimeType: string; data: string }[];
+      files?: PromptFileInput[];
       model?: string;
       thinkingLevel?: ThinkingLevel;
       auto?: unknown;
@@ -47,11 +56,17 @@ export async function POST(
       streamingBehavior?: "steer" | "followUp";
       resume?: boolean;
     } | null;
-    if (!body?.prompt?.trim() && !body?.images?.length) {
+    if (!body?.prompt?.trim() && !body?.images?.length && !body?.files?.length) {
       return NextResponse.json({ error: "prompt が必要です" }, { status: 400 });
     }
     if (body?.images !== undefined && (!isPromptImageList(body.images) || body.images.some((image) => !isPromptImageWithinSize(image)))) {
       return NextResponse.json({ error: "invalid images" }, { status: 400 });
+    }
+    if (body?.files !== undefined && (!isPromptFileList(body.files) || body.files.some((file) => !isPromptFileWithinSize(file) || !isPromptFileText(file)))) {
+      return NextResponse.json({ error: "invalid files: UTF-8 text only" }, { status: 400 });
+    }
+    if ((body?.images?.length ?? 0) + (body?.files?.length ?? 0) > MAX_PROMPT_ATTACHMENTS) {
+      return NextResponse.json({ error: `添付は${MAX_PROMPT_ATTACHMENTS}件までです` }, { status: 400 });
     }
     if (body?.agent !== undefined && typeof body.agent !== "string") {
       return NextResponse.json({ error: "invalid agent" }, { status: 400 });
@@ -141,7 +156,7 @@ export async function POST(
         (await resolveAutoModel({
           prompt: body.prompt ?? "",
           hasImages: Boolean(body.images?.length),
-          attachmentCount: body.images?.length ?? 0,
+          attachmentCount: (body.images?.length ?? 0) + (body.files?.length ?? 0),
           historyMessageCount: readSessionConversation(currentTask.sessionFile).length,
           recentFailure:
             currentTask.status === "error" || Boolean(currentTask.error),
@@ -193,6 +208,7 @@ export async function POST(
       }
     }
     const task = await promptTask(id, body.prompt ?? "", body.images, {
+      files: body.files,
       model,
       thinkingLevel,
       ...(body?.auto === true ? { accountIdExplicit: false } : {}),

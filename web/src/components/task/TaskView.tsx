@@ -24,6 +24,8 @@ import {
 import {
   COMPOSER_ACTION_BUTTON_CLASS,
   Composer,
+  composerPromptAttachments,
+  readComposerFiles,
   type ComposerAttachment,
   type ComposerReference,
 } from "@/components/Composer";
@@ -1752,16 +1754,10 @@ export const TaskView = memo(function TaskView({
     return () => window.clearInterval(id);
   }, [scheduleScrollToBottom, taskId]);
 
-  function addImageFiles(files: FileList) {
+  function addFiles(files: FileList) {
     if (!canAttachComposerImages({ goalLoopEnabled, compacting: isCompacting, archived: task?.status === "archived" })) return;
-    Array.from(files).forEach((file) => {
-      if (!file.type.startsWith("image/")) return;
-      const reader = new FileReader();
-      reader.onload = () => {
-        const uri = String(reader.result ?? "");
-        setAttachments((current) => [...current, { uri, mime: file.type, name: file.name }]);
-      };
-      reader.readAsDataURL(file);
+    readComposerFiles(files, (attachment) => {
+      setAttachments((current) => [...current, attachment]);
     });
   }
 
@@ -1982,7 +1978,12 @@ export const TaskView = memo(function TaskView({
     setRevertBusy(true);
     setError(null);
     try {
-      const result = await sendJson<{ task: TaskDetail; text: string; images: ComposerAttachment[] }>(
+      const result = await sendJson<{
+        task: TaskDetail;
+        text: string;
+        images: ComposerAttachment[];
+        files?: ComposerAttachment[];
+      }>(
         `/api/tasks/${taskId}/revert`,
         { entryId: target.messageId },
       );
@@ -1995,8 +1996,8 @@ export const TaskView = memo(function TaskView({
         );
         setAttachments((current) => [
           ...current,
-          ...result.images.filter(
-            (image) => !current.some((item) => item.uri === image.uri),
+          ...[...result.images, ...(result.files ?? [])].filter(
+            (file) => !current.some((item) => item.uri === file.uri),
           ),
         ]);
       }
@@ -2075,18 +2076,12 @@ export const TaskView = memo(function TaskView({
     setSubmitting(true);
     setError(null);
     try {
-      const images = submittedAttachments
-        .map((attachment) => {
-          const comma = attachment.uri.indexOf(",");
-          if (comma < 0) return null;
-          return { mimeType: attachment.mime, data: attachment.uri.slice(comma + 1) };
-        })
-        .filter((item): item is { mimeType: string; data: string } => item !== null);
+      const { images, files } = composerPromptAttachments(submittedAttachments);
       const isAuto = modelValue === AUTO_MODEL_VALUE;
       let resolvedAgent: string | null | undefined;
       let resolvedAutoDecision: AutoDecision | undefined;
       if (goalLoopEnabled) {
-        if (images.length > 0) throw new Error("Goal loop の開始では画像添付は使えません");
+        if (images.length > 0 || files.length > 0) throw new Error("Goal loop の開始ではファイル添付は使えません");
         setPrompt("");
         setAttachments([]);
         draftCleared = true;
@@ -2135,13 +2130,26 @@ export const TaskView = memo(function TaskView({
           });
         }
         submittedAttachments.forEach((attachment, index) => {
-          optimisticMessage.parts.push({
-            id: `${optimisticId}:image:${index}`,
-            type: "image",
-            url: attachment.uri,
-            mime: attachment.mime,
-            filename: attachment.name,
-          });
+          if (attachment.mime.toLowerCase().startsWith("image/")) {
+            optimisticMessage.parts.push({
+              id: `${optimisticId}:image:${index}`,
+              type: "image",
+              url: attachment.uri,
+              mime: attachment.mime,
+              filename: attachment.name,
+            });
+            return;
+          }
+          const comma = attachment.uri.indexOf(",");
+          if (comma >= 0) {
+            optimisticMessage.parts.push({
+              id: `${optimisticId}:file:${index}`,
+              type: "file",
+              name: attachment.name ?? "添付ファイル",
+              mime: attachment.mime,
+              data: attachment.uri.slice(comma + 1),
+            });
+          }
         });
         // Steer does not append a user message to history, so an optimistic
         // row would never clear via baselineUserCount and would ghost forever.
@@ -2167,6 +2175,7 @@ export const TaskView = memo(function TaskView({
         }>(`/api/tasks/${taskId}/prompt`, {
           prompt: submittedPrompt,
           images,
+          files,
           ...(isAuto
             ? {
                 auto: true,
@@ -2185,7 +2194,7 @@ export const TaskView = memo(function TaskView({
       if (isAuto && resolvedAutoDecision) {
         const nextRecord: AutoTaskRecord = {
           decision: resolvedAutoDecision,
-          ...(!images.length && submittedPrompt.length <= AUTO_TASK_PROMPT_MAX
+          ...(!images.length && !files.length && submittedPrompt.length <= AUTO_TASK_PROMPT_MAX
             ? { prompt: submittedPrompt }
             : {}),
           ...(resolvedAgent?.trim() ? { agent: resolvedAgent.trim() } : {}),
@@ -2482,18 +2491,13 @@ export const TaskView = memo(function TaskView({
     stickRef.current = true;
     try {
       const resumeMode = readAutoResumeMode();
-      const images = shouldAttachResumeImages(resumeMode, target.text, target.files.length)
-        ? target.files
-            .map((file) => {
-              const comma = file.uri.indexOf(",");
-              if (comma < 0) return null;
-              return { mimeType: file.mime, data: file.uri.slice(comma + 1) };
-            })
-            .filter((item): item is { mimeType: string; data: string } => item !== null)
-        : [];
+      const resumedAttachments = shouldAttachResumeImages(resumeMode, target.text, target.files.length)
+        ? composerPromptAttachments(target.files)
+        : { images: [], files: [] };
       await sendJson(`/api/tasks/${taskId}/prompt`, {
         prompt: autoResumePrompt(resumeMode, target.text),
-        images,
+        images: resumedAttachments.images,
+        files: resumedAttachments.files,
         resume: true,
         ...(target.model
           ? {
@@ -3616,7 +3620,7 @@ export const TaskView = memo(function TaskView({
             onPaste: (event) => {
               // 添付不可でも画像ペーストは検出して preventDefault する。
               // 早期 return すると textarea へ画像が落ちる。
-              if (pasteImage(addImageFiles, event)) event.preventDefault();
+              if (pasteImage(addFiles, event)) event.preventDefault();
             },
             onCompositionStart: () => {
               composingRef.current = true;
@@ -3658,7 +3662,7 @@ export const TaskView = memo(function TaskView({
             inputDisabled: !canAttachComposerImages({ goalLoopEnabled, compacting, archived }),
             buttonDisabled: !canAttachComposerImages({ goalLoopEnabled, compacting, archived }),
             buttonTitle: "ファイルを添付",
-            onFilesSelected: addImageFiles,
+            onFilesSelected: addFiles,
             onTrigger: () => fileInputRef.current?.click(),
           }}
           settingsGroups={[

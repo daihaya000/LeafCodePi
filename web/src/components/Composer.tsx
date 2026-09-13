@@ -16,7 +16,7 @@ import type {
   UIEventHandler,
 } from "react";
 import { createPortal } from "react-dom";
-import { Paperclip, UsersRound, Wrench, X } from "lucide-react";
+import { FileText, Paperclip, UsersRound, Wrench, X } from "lucide-react";
 import {
   composerReferenceInsertion,
   composerReferenceToolNames,
@@ -37,6 +37,49 @@ export type ComposerAttachment = {
   mime: string;
   name?: string;
 };
+
+export type ComposerPromptPayload = {
+  images: { mimeType: string; data: string }[];
+  files: { name: string; mimeType: string; data: string }[];
+};
+
+export function composerPromptAttachments(attachments: ComposerAttachment[]): ComposerPromptPayload {
+  return attachments.reduce<ComposerPromptPayload>(
+    (payload, attachment) => {
+      const comma = attachment.uri.indexOf(",");
+      if (comma < 0) return payload;
+      const data = attachment.uri.slice(comma + 1);
+      if (attachment.mime.toLowerCase().startsWith("image/")) {
+        payload.images.push({ mimeType: attachment.mime, data });
+      } else {
+        payload.files.push({
+          name: attachment.name?.trim() || "attachment",
+          mimeType: attachment.mime || "application/octet-stream",
+          data,
+        });
+      }
+      return payload;
+    },
+    { images: [], files: [] },
+  );
+}
+
+export function readComposerFiles(
+  files: FileList,
+  onFile: (attachment: ComposerAttachment) => void,
+): void {
+  Array.from(files).forEach((file) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      onFile({
+        uri: String(reader.result ?? ""),
+        mime: file.type || "application/octet-stream",
+        name: file.name || "attachment",
+      });
+    };
+    reader.readAsDataURL(file);
+  });
+}
 
 export type ComposerReferences = {
   skills?: readonly ComposerReference[];
@@ -267,7 +310,6 @@ export function Composer({
     <input
       ref={attachmentControl.inputRef}
       type="file"
-      accept="image/*"
       multiple
       hidden
       disabled={attachmentControl.inputDisabled}
@@ -292,27 +334,38 @@ export function Composer({
     <>
       {attachments.length > 0 && (
         <div className="mb-2 flex flex-wrap gap-2">
-          {attachments.map((attachment, index) => (
-            <span
-              key={`${attachment.uri}-${index}`}
-              className="relative inline-flex overflow-hidden rounded-lg border border-border"
-            >
-              <ImageLightbox
-                src={attachment.uri}
-                alt={attachment.name ?? "添付画像"}
-                className="h-16 w-16 object-cover"
-              />
-              <button
-                type="button"
-                disabled={attachmentRemovalDisabled}
-                aria-label={`${attachment.name ?? "添付画像"}を削除`}
-                onClick={() => onRemoveAttachment(index)}
-                className="absolute top-0.5 right-0.5 inline-flex h-5 w-5 items-center justify-center rounded-full bg-surface/90 text-muted"
+          {attachments.map((attachment, index) => {
+            const name = attachment.name ?? "添付ファイル";
+            const isImage = attachment.mime.toLowerCase().startsWith("image/");
+            return (
+              <span
+                key={`${attachment.uri}-${index}`}
+                className="relative inline-flex overflow-hidden rounded-lg border border-border"
               >
-                <X className="h-3 w-3" />
-              </button>
-            </span>
-          ))}
+                {isImage ? (
+                  <ImageLightbox
+                    src={attachment.uri}
+                    alt={name}
+                    className="h-16 w-16 object-cover"
+                  />
+                ) : (
+                  <span className="flex h-16 w-40 items-center gap-2 px-2 text-xs text-muted">
+                    <FileText className="h-5 w-5 shrink-0 text-accent" aria-hidden="true" />
+                    <span className="min-w-0 truncate" title={name}>{name}</span>
+                  </span>
+                )}
+                <button
+                  type="button"
+                  disabled={attachmentRemovalDisabled}
+                  aria-label={`${name}を削除`}
+                  onClick={() => onRemoveAttachment(index)}
+                  className="absolute top-0.5 right-0.5 inline-flex h-5 w-5 items-center justify-center rounded-full bg-surface/90 text-muted"
+                >
+                  <X className="h-3 w-3" />
+                </button>
+              </span>
+            );
+          })}
         </div>
       )}
       <div className="relative">

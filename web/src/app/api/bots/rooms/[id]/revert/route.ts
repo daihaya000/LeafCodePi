@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getRoom, revertRoomTo } from "@/lib/rooms";
+import { getRoom, readRoomFile, readRoomImage, revertRoomTo } from "@/lib/rooms";
 import { jsonError } from "@/lib/pi/harness";
 import { stopRoomTurns } from "@/lib/room-runtime";
 import { cancelRoomCodeRequests } from "@/lib/pi/bot-code-relay";
@@ -24,7 +24,19 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     // Work started for removed requests has nowhere to report back to.
     let cancelled = 0;
     for (const requestId of reverted.requestIds) cancelled += await cancelRoomCodeRequests(id, requestId);
-    return NextResponse.json({ room: getRoom(id), text: reverted.text, cancelledCodeRequests: cancelled });
+    const images = reverted.images.flatMap((image) => {
+      const stored = readRoomImage(id, image.file);
+      return stored
+        ? [{ uri: `data:${stored.mimeType};base64,${stored.bytes.toString("base64")}`, mime: stored.mimeType }]
+        : [];
+    });
+    const files = reverted.files.flatMap((file) => {
+      const stored = readRoomFile(id, file.file);
+      return stored
+        ? [{ uri: `data:${file.mimeType};base64,${stored.bytes.toString("base64")}`, mime: file.mimeType, name: file.name }]
+        : [];
+    });
+    return NextResponse.json({ room: getRoom(id), text: reverted.text, images, files, cancelledCodeRequests: cancelled });
   } catch (error) {
     const { error: message, status } = jsonError(error);
     return NextResponse.json({ error: message }, { status });

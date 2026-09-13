@@ -9,6 +9,8 @@ import { AutoOptimizeSelect } from "@/components/AutoOptimizeSelect";
 import {
   COMPOSER_ACTION_BUTTON_CLASS,
   Composer,
+  composerPromptAttachments,
+  readComposerFiles,
   type ComposerAttachment,
   type ComposerReference,
 } from "@/components/Composer";
@@ -358,16 +360,10 @@ export const HomeView = memo(function HomeView({
     };
   }, [health?.engineOk, refresh]);
 
-  function addImageFiles(files: FileList) {
+  function addFiles(files: FileList) {
     if (!canAttachComposerImages({ goalLoopEnabled, submitting })) return;
-    Array.from(files).forEach((file) => {
-      if (!file.type.startsWith("image/")) return;
-      const reader = new FileReader();
-      reader.onload = () => {
-        const uri = String(reader.result ?? "");
-        setAttachments((current) => [...current, { uri, mime: file.type, name: file.name }]);
-      };
-      reader.readAsDataURL(file);
+    readComposerFiles(files, (attachment) => {
+      setAttachments((current) => [...current, attachment]);
     });
   }
 
@@ -377,15 +373,9 @@ export const HomeView = memo(function HomeView({
     setError(null);
     try {
       if (goalLoopEnabled && attachments.length > 0) {
-        throw new Error("Goal loop の開始では画像添付は使えません");
+        throw new Error("Goal loop の開始ではファイル添付は使えません");
       }
-      const images = attachments
-        .map((attachment) => {
-          const comma = attachment.uri.indexOf(",");
-          if (comma < 0) return null;
-          return { mimeType: attachment.mime, data: attachment.uri.slice(comma + 1) };
-        })
-        .filter((item): item is { mimeType: string; data: string } => item !== null);
+      const { images, files } = composerPromptAttachments(attachments);
       const isAuto = model === AUTO_MODEL_VALUE;
       const autoRouteConfig = readAutoRouteConfig();
       const result = await sendJson<{ task: TaskSummary; autoDecision?: AutoDecision }>("/api/tasks", {
@@ -402,6 +392,7 @@ export const HomeView = memo(function HomeView({
             }
           : {}),
         images,
+        files,
         ...(agent ? { agent } : {}),
         ...(selectedModel?.accountId ? { accountId: selectedModel.accountId } : {}),
         subagentPermission,
@@ -422,7 +413,7 @@ export const HomeView = memo(function HomeView({
       if (isAuto && result.autoDecision) {
         writeAutoTaskRecord(result.task.id, {
           decision: result.autoDecision,
-          ...(!images.length && prompt.length <= AUTO_TASK_PROMPT_MAX ? { prompt } : {}),
+          ...(!images.length && !files.length && prompt.length <= AUTO_TASK_PROMPT_MAX ? { prompt } : {}),
           ...(result.task.agent?.trim() ? { agent: result.task.agent.trim() } : {}),
         });
       }
@@ -519,7 +510,7 @@ export const HomeView = memo(function HomeView({
                 onPaste: (event) => {
                   // 添付不可でも画像ペーストは検出して preventDefault する。
                   // 早期 return すると textarea へ画像が落ちる。
-                  if (pasteImage(addImageFiles, event)) event.preventDefault();
+                  if (pasteImage(addFiles, event)) event.preventDefault();
                 },
                 onCompositionStart: () => {
                   composingRef.current = true;
@@ -552,7 +543,7 @@ export const HomeView = memo(function HomeView({
                 inputDisabled: !canAttachComposerImages({ goalLoopEnabled, submitting }),
                 buttonDisabled: !canAttachComposerImages({ goalLoopEnabled, submitting }),
                 buttonTitle: "ファイルを添付",
-                onFilesSelected: addImageFiles,
+                onFilesSelected: addFiles,
                 onTrigger: () => fileInputRef.current?.click(),
               }}
               settingsGroups={[

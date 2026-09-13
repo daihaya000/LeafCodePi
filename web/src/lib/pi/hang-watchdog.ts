@@ -18,6 +18,7 @@ import {
   readHangTimeoutSettingMs,
 } from "@/lib/pi/hang-settings";
 import type { PromptImage } from "@/lib/pi/harness";
+import type { PromptFileInput } from "@/lib/prompt-images";
 import type { UiMessage } from "@/lib/types";
 
 export const HANG_WATCHDOG_INTERVAL_MS = 15_000;
@@ -30,6 +31,7 @@ export type TaskHangWatchRow = {
   taskId: string;
   prompt: string;
   images: PromptImage[];
+  files: PromptFileInput[];
   agent?: string;
   subagentPermission?: "allow" | "deny";
   permissionMode?: "allow" | "ask" | "deny";
@@ -49,6 +51,7 @@ export type ArmTaskHangWatchInput = {
   taskId: string;
   prompt: string;
   images?: PromptImage[];
+  files?: PromptFileInput[];
   agent?: string;
   subagentPermission?: "allow" | "deny";
   permissionMode?: "allow" | "ask" | "deny";
@@ -71,6 +74,7 @@ export type HangWatchdogHooks = {
     input: {
       prompt: string;
       images?: PromptImage[];
+      files?: PromptFileInput[];
       agent?: string;
       subagentPermission?: "allow" | "deny";
       permissionMode?: "allow" | "ask" | "deny";
@@ -133,10 +137,14 @@ export function registerHangWatchdogHooks(next: HangWatchdogHooks): void {
 export function estimateWatchBodyBytes(input: {
   prompt: string;
   images?: PromptImage[];
+  files?: PromptFileInput[];
 }): number {
   let total = input.prompt.length;
   for (const image of input.images ?? []) {
     total += image.data.length + (image.mimeType?.length ?? 0);
+  }
+  for (const file of input.files ?? []) {
+    total += file.data.length + file.name.length + file.mimeType.length;
   }
   return total;
 }
@@ -150,6 +158,7 @@ export function progressFingerprint(messages: UiMessage[]): string {
           if (part.type === "thinking") return `k:${part.text.length}`;
           if (part.type === "tool") return `o:${part.state.status}`;
           if (part.type === "image") return "i:1";
+          if (part.type === "file") return `f:${part.name}`;
           return "?";
         })
         .join(",");
@@ -210,7 +219,10 @@ export function turnHasOnlyActiveSubagentTool(
 function syncMemoryFromDisk(): void {
   memoryWatches.clear();
   for (const row of readStore().watches) {
-    memoryWatches.set(row.taskId, row);
+    memoryWatches.set(row.taskId, {
+      ...row,
+      files: Array.isArray(row.files) ? row.files : [],
+    });
   }
 }
 
@@ -228,9 +240,9 @@ export function recoverInterruptedHangWatches(): void {
 export function armTaskHangWatch(input: ArmTaskHangWatchInput): void {
   const taskId = input.taskId.trim();
   if (!taskId) return;
-  if (!input.prompt.trim() && (input.images?.length ?? 0) === 0) return;
+  if (!input.prompt.trim() && (input.images?.length ?? 0) === 0 && (input.files?.length ?? 0) === 0) return;
 
-  const bodyBytes = estimateWatchBodyBytes({ prompt: input.prompt, images: input.images });
+  const bodyBytes = estimateWatchBodyBytes({ prompt: input.prompt, images: input.images, files: input.files });
   const resumeAllowed = bodyBytes <= MAX_WATCH_BODY_BYTES;
   const startedAt = input.startedAt ?? Date.now();
   const preserveRetry = input.isHangRetry === true;
@@ -240,6 +252,7 @@ export function armTaskHangWatch(input: ArmTaskHangWatchInput): void {
     taskId,
     prompt: input.prompt,
     images: input.images ?? [],
+    files: input.files ?? [],
     ...(input.agent ? { agent: input.agent } : {}),
     ...(input.subagentPermission ? { subagentPermission: input.subagentPermission } : {}),
     ...(input.permissionMode ? { permissionMode: input.permissionMode } : {}),
@@ -332,9 +345,9 @@ async function resolveHang(row: TaskHangWatchRow): Promise<void> {
   }
 
   const resumeMode = readAutoResumeModeSetting();
-  const attachImages =
+  const attachFiles =
     row.resumeAllowed &&
-    shouldAttachResumeImages(resumeMode, row.prompt, row.images.length);
+    shouldAttachResumeImages(resumeMode, row.prompt, row.images.length + row.files.length);
   if (!row.resumeAllowed && !(resumeMode === "continue" && row.prompt.trim())) {
     disarmTaskHangWatch(row.taskId);
     logWatchdog("stopped without resuming (request body was too large to store)", row);
@@ -352,7 +365,8 @@ async function resolveHang(row: TaskHangWatchRow): Promise<void> {
 
   hooks.resumePrompt(row.taskId, {
     prompt: markHangRetryPrompt(autoResumePrompt(resumeMode, row.prompt)),
-    images: attachImages ? row.images : [],
+    images: attachFiles ? row.images : [],
+    files: attachFiles ? row.files : [],
     ...(row.agent ? { agent: row.agent } : {}),
     ...(row.subagentPermission ? { subagentPermission: row.subagentPermission } : {}),
     ...(row.permissionMode ? { permissionMode: row.permissionMode } : {}),

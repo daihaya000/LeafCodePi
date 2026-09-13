@@ -20,9 +20,9 @@ import { BotEmptyState } from "@/components/bot/BotEmptyState";
 import { BotChatHeader } from "@/components/bot/BotChatHeader";
 import { useReportStatus } from "@/components/shell/TaskPanesContext";
 import { BotComposer } from "@/components/bot/BotComposer";
-import { type ComposerAttachment } from "@/components/Composer";
+import { composerPromptAttachments, readComposerFiles, type ComposerAttachment } from "@/components/Composer";
 import { canAttachComposerImages, pasteImage } from "@/lib/clipboard-image";
-import { BotMessageError, BotMessageImages, BotMessageList, BotChatMessage, BotMessageSender, BotPermissionCard, BotResponseStatus, BotRevertButton } from "@/components/bot/BotMessageList";
+import { BotMessageError, BotMessageFiles, BotMessageImages, BotMessageList, BotChatMessage, BotMessageSender, BotPermissionCard, BotResponseStatus, BotRevertButton } from "@/components/bot/BotMessageList";
 import { BotCodeSessionPanel } from "@/components/bot/BotCodeSessionPanel";
 import { BotCodeRequests } from "@/components/bot/BotCodeRequests";
 import { ToolPermissionList } from "@/components/ToolPermissionList";
@@ -45,6 +45,7 @@ import { BOT_DEFAULT_TOOL_NAMES, BOT_TOOL_NAMES, type BotDto, type BotToolName, 
 type BotMessageDisplayData = {
   text: string;
   images: Extract<UiPart, { type: "image" }>[];
+  files: Extract<UiPart, { type: "file" }>[];
   tools: Extract<UiPart, { type: "tool" }>[];
   requestIds: string[];
 };
@@ -56,6 +57,7 @@ function botMessageDisplayData(message: UiMessage): BotMessageDisplayData {
   if (cached) return cached;
 
   const images = message.parts.filter((part): part is Extract<UiPart, { type: "image" }> => part.type === "image");
+  const files = message.parts.filter((part): part is Extract<UiPart, { type: "file" }> => part.type === "file");
   const tools = message.role === "assistant"
     ? message.parts.filter((part): part is Extract<UiPart, { type: "tool" }> => part.type === "tool")
     : [];
@@ -69,6 +71,7 @@ function botMessageDisplayData(message: UiMessage): BotMessageDisplayData {
   const data = {
     text: message.parts.filter((part) => part.type === "text").map((part) => part.text).join(""),
     images,
+    files,
     tools,
     requestIds,
   } satisfies BotMessageDisplayData;
@@ -81,9 +84,9 @@ function BotToolActivityGroup({ messages, bot, botId, active }: { messages: UiMe
   return (
     <ActivityLog kind="bot" count={parts.length} parts={parts} active={active}>
       {messages.map((message) => {
-        const { text, tools, images, requestIds } = botMessageDisplayData(message);
+        const { text, tools, images, files, requestIds } = botMessageDisplayData(message);
         return <div key={messageRenderKey(message)} className="min-w-0 space-y-2">
-          {!text && !images.length && !message.error && !requestIds.length && <MessageHeader><BotMessageSender {...bot} name={bot?.name ?? "ボット"} createdAt={message.createdAt} /></MessageHeader>}
+          {!text && !images.length && !files.length && !message.error && !requestIds.length && <MessageHeader><BotMessageSender {...bot} name={bot?.name ?? "ボット"} createdAt={message.createdAt} /></MessageHeader>}
           {tools.map((part) => {
             const partKey = part.id || part.callID;
             const cardKey = part.state.status === "error" || part.state.status === "cancelled" ? `${partKey}:expanded` : partKey;
@@ -505,32 +508,33 @@ export const BotView = memo(function BotView({ id, active = true }: { id: string
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [bot?.id, bot?.name, bot?.avatarColor, bot?.avatarShape, bot?.avatarEyeColor, bot?.avatarGlasses, bot?.avatarMustache, bot?.avatarImage]);
 
-  const addImageFiles = (files: FileList) => {
+  const addFiles = (files: FileList) => {
     if (!canAttachComposerImages({ submitting: sending })) return;
-    Array.from(files).forEach((file) => {
-      if (!file.type.startsWith("image/")) return;
-      const reader = new FileReader();
-      reader.onload = () => setAttachments((current) => [...current, { uri: String(reader.result), mime: file.type, name: file.name }]);
-      reader.readAsDataURL(file);
+    readComposerFiles(files, (attachment) => {
+      setAttachments((current) => [...current, attachment]);
     });
   };
 
   const send = async () => {
     const value = prompt.trim();
     if ((!value && attachments.length === 0) || sending) return;
-    const images = attachments.map((attachment) => {
-      const comma = attachment.uri.indexOf(",");
-      return comma < 0 ? null : { mimeType: attachment.mime, data: attachment.uri.slice(comma + 1) };
-    }).filter((image): image is { mimeType: string; data: string } => image !== null);
+    const submittedAttachments = attachments;
+    const { images, files } = composerPromptAttachments(submittedAttachments);
     setPrompt("");
     setAttachments([]);
     setError(null);
     setSending(true);
     try {
-      await sendJson(`/api/bots/${encodeURIComponent(id)}/prompt`, { prompt: value, ...(images.length > 0 ? { images } : {}) });
+      await sendJson(`/api/bots/${encodeURIComponent(id)}/prompt`, {
+        prompt: value,
+        ...(images.length > 0 ? { images } : {}),
+        ...(files.length > 0 ? { files } : {}),
+      });
       notifyBotSidebarChanged();
     } catch (reason) {
       setSending(false);
+      setPrompt((current) => current || value);
+      setAttachments((current) => current.length > 0 ? current : submittedAttachments);
       setError(reason instanceof Error ? reason.message : "リクエストに失敗しました");
     }
   };
@@ -540,12 +544,12 @@ export const BotView = memo(function BotView({ id, active = true }: { id: string
     setReverting(true);
     setError(null);
     try {
-      const result = await sendJson<{ text: string; images: ComposerAttachment[] }>(
+      const result = await sendJson<{ text: string; images: ComposerAttachment[]; files?: ComposerAttachment[] }>(
         `/api/bots/${encodeURIComponent(id)}/revert`,
         { entryId: message.id },
       );
       setPrompt(result.text);
-      setAttachments(result.images ?? []);
+      setAttachments([...(result.images ?? []), ...(result.files ?? [])]);
       requestAnimationFrame(() => inputRef.current?.focus());
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "巻き戻しに失敗しました");
@@ -807,11 +811,12 @@ export const BotView = memo(function BotView({ id, active = true }: { id: string
 
     for (const message of messages) {
       const user = message.role === "user";
-      const { text, images, tools, requestIds } = botMessageDisplayData(message);
+      const { text, images, files, tools, requestIds } = botMessageDisplayData(message);
       const toolOnly =
         !user &&
         !text &&
         images.length === 0 &&
+        files.length === 0 &&
         tools.length > 0 &&
         !message.error &&
         requestIds.length === 0;
@@ -826,14 +831,15 @@ export const BotView = memo(function BotView({ id, active = true }: { id: string
         groupedTools.push(message);
       }
       flushTools();
-      if (!text && images.length === 0 && tools.length === 0 && !message.error && requestIds.length === 0) {
+      if (!text && images.length === 0 && files.length === 0 && tools.length === 0 && !message.error && requestIds.length === 0) {
         continue;
       }
-      const hasBubble = user || Boolean(text || images.length > 0 || message.error || requestIds.length > 0);
+      const hasBubble = user || Boolean(text || images.length > 0 || files.length > 0 || message.error || requestIds.length > 0);
       rows.push(
         <BotChatMessage key={messageRenderKey(message)} user={user} createdAt={message.createdAt}
           sender={{ ...(bot ?? {}), name: bot?.name ?? "ボット" }} text={text} mentions={botMentions}
           images={<BotMessageImages images={images.flatMap((part) => part.type === "image" ? [{ key: part.id, src: part.url, alt: part.filename ?? undefined }] : [])} />}
+          files={<BotMessageFiles files={files.map((part) => ({ key: part.id, name: part.name, mime: part.mime, size: part.size }))} />}
           bubble={hasBubble}
           footer={user ? <BotRevertButton title="このコメントを入力欄に戻して巻き戻す" disabled={reverting || sending} onClick={() => void revertMessage(message)} /> : undefined}>
           {message.error && <BotMessageError text={message.error} />}
@@ -930,9 +936,9 @@ export const BotView = memo(function BotView({ id, active = true }: { id: string
         inputRef={inputRef}
         attachments={attachments}
         onRemoveAttachment={(index) => setAttachments((current) => current.filter((_, itemIndex) => itemIndex !== index))}
-        onFilesSelected={addImageFiles}
+        onFilesSelected={addFiles}
         attachmentDisabled={!canAttachComposerImages({ submitting: sending })}
-        onPaste={(event) => { if (pasteImage(addImageFiles, event)) event.preventDefault(); }}
+        onPaste={(event) => { if (pasteImage(addFiles, event)) event.preventDefault(); }}
         onChange={(event) => setPrompt(event.target.value)}
         onCompositionStart={() => { composingRef.current = true; }}
         onCompositionEnd={() => { composingRef.current = false; }}

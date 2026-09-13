@@ -23,7 +23,7 @@ export type ResumableTurn = {
   messageId: string;
   /** 再送するプロンプト本文。 */
   text: string;
-  /** 元のプロンプトに添付されていた画像。 */
+  /** 元のプロンプトに添付されていたファイル（画像を含む）。 */
   files: { uri: string; mime: string; name?: string }[];
   /** そのターンのモデル（あれば同じモデルで再送する）。 */
   model?: { providerID: string; modelID: string; accountId?: string };
@@ -130,19 +130,22 @@ function promptTextOf(message: UiMessage): string {
     .trim();
 }
 
-/** user メッセージの image パートを再送形式へ戻す。 */
+/** user メッセージの添付パートを再送形式へ戻す。 */
 function promptFilesOf(
   message: UiMessage,
 ): { uri: string; mime: string; name?: string }[] {
   return message.parts.flatMap((part) => {
-    if (part.type !== "image" || !part.url || !part.mime) return [];
-    return [
-      {
-        uri: part.url,
+    if (part.type === "image" && part.url && part.mime) {
+      return [{ uri: part.url, mime: part.mime, ...(part.filename ? { name: part.filename } : {}) }];
+    }
+    if (part.type === "file" && part.mime && part.data) {
+      return [{
+        uri: `data:${part.mime};base64,${part.data}`,
         mime: part.mime,
-        ...(part.filename ? { name: part.filename } : {}),
-      },
-    ];
+        name: part.name,
+      }];
+    }
+    return [];
   });
 }
 
@@ -253,7 +256,7 @@ export function findResumableTurn(
   return build(messages[messages.length - 1]!, "silent");
 }
 
-/** Image-only turns still need attachments on resume, even in continue mode. */
+/** Attachment-only turns still need attachments on resume, even in continue mode. */
 export function shouldAttachResumeImages(
   mode: "same" | "continue",
   text: string,

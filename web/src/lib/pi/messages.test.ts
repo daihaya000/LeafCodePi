@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { findResumableTurn } from "../aborted-resume";
+import { formatPromptWithFiles } from "../prompt-images";
 import {
   entryIdsForProjectedMessages,
   MAX_UI_TOOL_OUTPUT_CHARS,
@@ -302,6 +303,26 @@ describe("projectPiMessages", () => {
       reason: "aborted",
       messageId: "a1",
       text: "続けて",
+    });
+  });
+
+  it("projects file markers as metadata and keeps them resumable", () => {
+    const file = {
+      name: "notes.txt",
+      mimeType: "text/plain",
+      data: Buffer.from("添付内容", "utf8").toString("base64"),
+    };
+    const messages = projectPiMessages([
+      { role: "user", id: "u-file", timestamp: 1, content: formatPromptWithFiles("確認", [file]) },
+      { role: "assistant", id: "a-file", timestamp: 2, stopReason: "aborted", content: [] },
+    ]);
+    expect(messages[0]?.parts).toEqual([
+      { id: "u-file-text", type: "text", text: "確認" },
+      { id: "u-file-file-0", type: "file", name: "notes.txt", mime: "text/plain", size: 12, data: file.data },
+    ]);
+    expect(findResumableTurn(messages)).toMatchObject({
+      text: "確認",
+      files: [{ name: "notes.txt", mime: "text/plain", uri: `data:text/plain;base64,${file.data}` }],
     });
   });
 

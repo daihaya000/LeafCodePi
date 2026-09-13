@@ -4,7 +4,7 @@ import { memo, type AnchorHTMLAttributes, type ReactNode, type RefObject, useEff
 import Link from "next/link";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { RotateCcw } from "lucide-react";
+import { FileText, RotateCcw } from "lucide-react";
 import { conversationViewportClass, MessageBubble, MessageHeader, messageRowClassFor } from "@/components/ConversationLayout";
 import { BotAvatar, type BotFace } from "@/components/bot/BotAvatar";
 import { ProjectIcon } from "@/components/ProjectIcon";
@@ -174,7 +174,7 @@ export function BotMessageRow({ user, createdAt, children, footer, header, after
 }
 
 /** Shared conversation presentation; callers supply only conversation-specific content/actions. */
-export function BotChatMessage({ user, createdAt, sender, text, mentions = [], children, images, footer, after, bubble = true }: {
+export function BotChatMessage({ user, createdAt, sender, text, mentions = [], children, images, files, footer, after, bubble = true }: {
   user: boolean;
   createdAt: number;
   sender: BotFace & { name: string; active?: boolean };
@@ -182,6 +182,7 @@ export function BotChatMessage({ user, createdAt, sender, text, mentions = [], c
   mentions?: BotDto[];
   children?: ReactNode;
   images?: ReactNode;
+  files?: ReactNode;
   footer?: ReactNode;
   after?: ReactNode;
   bubble?: boolean;
@@ -192,6 +193,7 @@ export function BotChatMessage({ user, createdAt, sender, text, mentions = [], c
       ? <div className="whitespace-pre-wrap [overflow-wrap:anywhere]">{renderMentions(text, mentions, "user", "user")}</div>
       : <BotMessageMarkdown text={text} mentions={mentions} />)}
     {images}
+    {files}
     {children}
   </BotMessageRow>;
 }
@@ -204,6 +206,17 @@ export function BotRevertButton({ title, disabled, onClick }: { title: string; d
 export function BotMessageImages({ images }: { images: { key: string; src: string; alt?: string }[] }) {
   if (images.length === 0) return null;
   return <div className="mb-2 flex flex-wrap gap-2">{images.map((image) => <ImageLightbox key={image.key} src={image.src} alt={image.alt ?? "添付画像"} className="max-h-48 max-w-full rounded-xl object-contain" />)}</div>;
+}
+
+export function BotMessageFiles({ files }: { files: { key: string; name: string; mime?: string; size?: number; href?: string }[] }) {
+  if (files.length === 0) return null;
+  return <div className="mb-2 flex flex-wrap gap-2">{files.map((file) => {
+    const content = <><FileText className="h-4 w-4 shrink-0 text-accent" aria-hidden="true" /><span className="min-w-0 truncate" title={file.name}>{file.name}</span>{file.mime && <span className="shrink-0 text-[10px] text-faint">{file.mime}</span>}</>;
+    const className = "inline-flex max-w-full items-center gap-2 rounded-lg border border-border bg-surface-2 px-2.5 py-2 text-xs text-muted";
+    return file.href
+      ? <a key={file.key} href={file.href} download={file.name} className={`${className} hover:text-text`} aria-label={`${file.name}をダウンロード`}>{content}</a>
+      : <span key={file.key} className={className}>{content}</span>;
+  })}</div>;
 }
 
 export function BotPermissionCard({ label, title, message, command, disabled, onAllow, onDeny }: {

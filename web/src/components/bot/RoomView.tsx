@@ -16,8 +16,8 @@ import { BotEmptyState } from "@/components/bot/BotEmptyState";
 import { BotChatHeader } from "@/components/bot/BotChatHeader";
 import { ActivityLog, conversationContentClass, MessageHeader } from "@/components/ConversationLayout";
 import { BotComposer } from "@/components/bot/BotComposer";
-import { BotMessageError, BotMessageImages, BotMessageList, BotChatMessage, BotMessageSender, BotPermissionCard, BotRevertButton } from "@/components/bot/BotMessageList";
-import { type ComposerAttachment, type ComposerReference } from "@/components/Composer";
+import { BotMessageError, BotMessageFiles, BotMessageImages, BotMessageList, BotChatMessage, BotMessageSender, BotPermissionCard, BotRevertButton } from "@/components/bot/BotMessageList";
+import { composerPromptAttachments, readComposerFiles, type ComposerAttachment, type ComposerReference } from "@/components/Composer";
 import { canAttachComposerImages, pasteImage } from "@/lib/clipboard-image";
 import { stabilizeIdentifiedList } from "@/lib/stabilize-messages";
 import { cancelPendingSseReconnect, closeSseSource, sseReconnectDelayMs } from "@/lib/sse-reconnect";
@@ -341,23 +341,18 @@ export function RoomView({ id, active = true }: { id: string; active?: boolean }
     }
   };
 
-  const addImageFiles = useCallback((files: FileList) => {
+  const addFiles = useCallback((files: FileList) => {
     if (!canAttachComposerImages({ submitting: busy })) return;
-    Array.from(files).forEach((file) => {
-      if (!file.type.startsWith("image/")) return;
-      const reader = new FileReader();
-      reader.onload = () => setAttachments((current) => [...current, { uri: String(reader.result), mime: file.type, name: file.name }]);
-      reader.readAsDataURL(file);
+    readComposerFiles(files, (attachment) => {
+      setAttachments((current) => [...current, attachment]);
     });
   }, [busy]);
 
   const send = async () => {
     const value = prompt.trim();
     if ((!value && attachments.length === 0) || busy) return;
-    const images = attachments.flatMap((attachment) => {
-      const comma = attachment.uri.indexOf(",");
-      return comma < 0 ? [] : [{ mimeType: attachment.mime, data: attachment.uri.slice(comma + 1) }];
-    });
+    const submittedAttachments = attachments;
+    const { images, files } = composerPromptAttachments(submittedAttachments);
     setPrompt("");
     setAttachments([]);
     setMentionContext(null);
@@ -366,7 +361,12 @@ export function RoomView({ id, active = true }: { id: string; active?: boolean }
     try {
       const result = await sendJson<{ room: RoomDto; routedBotIds?: string[]; steeredBotIds?: string[]; stopped?: boolean }>(
         `/api/bots/rooms/${encodeURIComponent(id)}/prompt`,
-        { prompt: value, broadcast, ...(images.length > 0 ? { images } : {}) },
+        {
+          prompt: value,
+          broadcast,
+          ...(images.length > 0 ? { images } : {}),
+          ...(files.length > 0 ? { files } : {}),
+        },
       );
       if (result.room) {
         setRoom(result.room);
@@ -376,7 +376,11 @@ export function RoomView({ id, active = true }: { id: string; active?: boolean }
       if (!result.stopped && result.routedBotIds?.length === 0 && !result.steeredBotIds?.length) {
         setError("応答できるボットがいません。有効なメンバーとメンション先を確認してください。");
       }
-    } catch (reason) { setError(reason instanceof Error ? reason.message : "リクエストに失敗しました"); }
+    } catch (reason) {
+      setPrompt((current) => current || value);
+      setAttachments((current) => current.length > 0 ? current : submittedAttachments);
+      setError(reason instanceof Error ? reason.message : "リクエストに失敗しました");
+    }
     finally { setBusy(false); }
   };
 
@@ -414,9 +418,10 @@ export function RoomView({ id, active = true }: { id: string; active?: boolean }
     setReverting(true);
     setError(null);
     try {
-      const result = await sendJson<{ room: RoomDto; text: string }>(`/api/bots/rooms/${encodeURIComponent(id)}/revert`, { messageId });
+      const result = await sendJson<{ room: RoomDto; text: string; images?: ComposerAttachment[]; files?: ComposerAttachment[] }>(`/api/bots/rooms/${encodeURIComponent(id)}/revert`, { messageId });
       setRoom(result.room);
       setPrompt(result.text);
+      setAttachments([...(result.images ?? []), ...(result.files ?? [])]);
       requestAnimationFrame(() => promptRef.current?.focus());
     } catch (reason) { setError(reason instanceof Error ? reason.message : "巻き戻しに失敗しました"); }
     finally { setReverting(false); }
@@ -427,7 +432,7 @@ export function RoomView({ id, active = true }: { id: string; active?: boolean }
     const bot = message.botId ? botById.get(message.botId) : undefined;
     const text = message.text || (message.status === "working" ? "応答中…" : "");
     const requests = codeRequests(message);
-    const hasMessageContent = Boolean(text || message.images?.length || message.handoffs?.length || message.status === "error");
+    const hasMessageContent = Boolean(text || message.images?.length || message.files?.length || message.handoffs?.length || message.status === "error");
     if (!hasMessageContent && !requests.length) return null;
     const sender = { ...bot, name: bot?.name ?? message.botName ?? "ボット", active: message.status === "working" };
     return (
@@ -441,6 +446,7 @@ export function RoomView({ id, active = true }: { id: string; active?: boolean }
         {hasMessageContent && (
           <BotChatMessage user={user} createdAt={message.createdAt} sender={sender} text={text} mentions={bots}
             images={<BotMessageImages images={(message.images ?? []).map((image) => ({ key: image.file, src: `/api/bots/rooms/${encodeURIComponent(id)}/images/${encodeURIComponent(image.file)}` }))} />}
+            files={<BotMessageFiles files={(message.files ?? []).map((file) => ({ key: file.file, name: file.name, mime: file.mimeType, size: file.size, href: `/api/bots/rooms/${encodeURIComponent(id)}/files/${encodeURIComponent(file.file)}` }))} />}
             footer={user ? <BotRevertButton title="この発言以降を入力欄に戻して巻き戻す" disabled={reverting} onClick={() => void revertMessage(message.id)} /> : undefined}>
             {message.handoffs?.length ? (
               <div className="flex flex-wrap gap-1.5">
@@ -533,9 +539,9 @@ export function RoomView({ id, active = true }: { id: string; active?: boolean }
         onValueChange={setPrompt}
         attachments={attachments}
         onRemoveAttachment={(index) => setAttachments((current) => current.filter((_, position) => position !== index))}
-        onFilesSelected={addImageFiles}
+        onFilesSelected={addFiles}
         attachmentDisabled={!canAttachComposerImages({ submitting: busy })}
-        onPaste={(event) => { if (pasteImage(addImageFiles, event)) event.preventDefault(); }}
+        onPaste={(event) => { if (pasteImage(addFiles, event)) event.preventDefault(); }}
         footer={<><button type="button" aria-pressed={broadcast} onClick={() => setBroadcast((value) => !value)} className={`rounded-full px-2 py-1 font-medium ${broadcast ? "bg-accent/10 text-accent" : "hover:bg-surface-2 hover:text-text"}`}>{broadcast ? "全員が個別回答" : "メンバーで対話"}</button><button type="button" onClick={() => setSettingsOpen(true)} className="shrink-0 hover:text-text">{`\u30e1\u30f3\u30d0\u30fc: ${room.members.length}`}</button></>}
         inputOverlay={mentionCandidates.length > 0 ? <div id="room-mention-options" role="listbox" aria-label={"\u30e1\u30f3\u30b7\u30e7\u30f3\u5148\u5019\u88dc"} className="absolute bottom-full left-0 z-20 mb-2 max-h-56 w-full overflow-y-auto rounded-xl border border-border bg-surface p-1 shadow-[0_8px_30px_rgba(0,0,0,0.12)]">{mentionCandidates.map((candidate, index) => <button key={candidate.key} type="button" role="option" aria-selected={index === mentionIndex} onMouseDown={(event) => event.preventDefault()} onClick={() => insertMention(candidate)} className={`flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left ${index === mentionIndex ? "bg-surface-2" : "hover:bg-surface-2"}`}>{candidate.bot ? <BotAvatar size={24} {...candidate.bot} /> : <span className="flex h-6 w-6 items-center justify-center rounded-full bg-accent/10 text-xs font-semibold text-accent">@</span>}<span className="min-w-0"><span className="block truncate text-sm font-medium">{candidate.label}</span><span className="block truncate text-[11px] text-muted">{candidate.description}</span></span></button>)}</div> : null}
       />

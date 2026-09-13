@@ -55,6 +55,16 @@ const structuredResultLabels: Record<StructuredResultStatus, string> = {
   blocked: "要対応",
 };
 
+function FilePartView({ part }: { part: Extract<UiPart, { type: "file" }> }) {
+  return (
+    <div className="inline-flex max-w-full items-center gap-2 rounded-lg border border-border bg-surface-2 px-2.5 py-2 text-xs text-muted">
+      <FileText className="h-4 w-4 shrink-0 text-accent" aria-hidden="true" />
+      <span className="min-w-0 truncate" title={part.name}>{part.name}</span>
+      <span className="shrink-0 text-[10px] text-faint">{part.mime}</span>
+    </div>
+  );
+}
+
 function structuredResultBadgeClass(status: StructuredResultStatus): string {
   if (status === "completed" || status === "verified_completed") {
     return "bg-success/15 text-success";
@@ -1034,6 +1044,7 @@ export const PartView = memo(
               if (part.type === "text") {
                 return <UserTextPart key={part.id} text={part.text} references={references} />;
               }
+              if (part.type === "file") return <FilePartView key={part.id} part={part} />;
               if (part.type !== "image") return null;
               return (
                 <ImageLightbox
@@ -1049,6 +1060,7 @@ export const PartView = memo(
           message.parts.map((part) => {
             if (part.type === "text") return <AssistantTextPart key={part.id} text={part.text} />;
             if (part.type === "thinking") return <ReasoningView key={part.id} text={part.text} />;
+            if (part.type === "file") return <FilePartView key={part.id} part={part} />;
             if (part.type === "image") {
               return (
                 <ImageLightbox

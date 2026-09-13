@@ -3,7 +3,7 @@ type ClipboardEventLike = {
   preventDefault: () => void;
 };
 
-/** Composer の画像添付が今受けられるか（ボタン無効と同じ条件）。 */
+/** Composer の添付が今受けられるか（ボタン無効と同じ条件）。 */
 export function canAttachComposerImages(input: {
   goalLoopEnabled?: boolean;
   compacting?: boolean;

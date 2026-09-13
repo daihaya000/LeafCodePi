@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const testState = vi.hoisted(() => ({ root: "" }));
 vi.mock("./paths", async (importOriginal) => { const actual = await importOriginal<typeof import("./paths")>(); return { ...actual, dataDir: () => testState.root, storePath: () => join(testState.root, "store.json") }; });
 import { botTaskId, createBot, deleteBot } from "./bots";
-import { appendRoomMessage, botsForRoomPrompt, createRoom, deleteRoom, ensureRoomBotTask, getRoom, patchRoom, readRoomImage, roomImageRejection, roomRequestImages, saveRoomImages, updateRoomMessage } from "./rooms";
+import { appendRoomMessage, botsForRoomPrompt, createRoom, deleteRoom, ensureRoomBotTask, getRoom, patchRoom, readRoomFile, readRoomImage, roomFileRejection, roomImageRejection, roomRequestFiles, roomRequestImages, saveRoomFiles, saveRoomImages, updateRoomMessage } from "./rooms";
 import { getTask } from "./store";
 
 describe("room store and mention routing", () => {
@@ -62,6 +62,22 @@ describe("room store and mention routing", () => {
     // The transcript keeps only the reference, so a turn write never re-serialises the bytes.
     expect(readFileSync(join(root, "bots", "rooms", `${room.id}.json`), "utf8")).not.toContain(png.toString("base64"));
     expect(roomRequestImages(room.id, message.id)).toEqual([{ mimeType: "image/png", data: png.toString("base64") }]);
+  });
+
+  it("stores text attachments beside the room and rejects binary data", () => {
+    const room = createRoom({ name: "Team" });
+    const message = appendRoomMessage(room.id, { role: "user", text: "読んで" })!;
+    const text = Buffer.from("日本語のメモ\\n");
+    const file = { name: "メモ.txt", mimeType: "text/plain", data: text.toString("base64") };
+    const saved = saveRoomFiles(room.id, message.id, [file]);
+    expect(saved).toEqual([{ file: `${message.id}-0.dat`, mimeType: "text/plain", name: "メモ.txt", size: text.length }]);
+    expect(roomFileRejection([file])).toBeUndefined();
+    expect(roomFileRejection([{ ...file, data: Buffer.from([0xff]).toString("base64") }])).toContain("UTF-8");
+    updateRoomMessage(room.id, message.id, { files: saved });
+    expect(readRoomFile(room.id, saved[0].file)?.bytes.equals(text)).toBe(true);
+    expect(readRoomFile(room.id, "../../store.json")).toBeUndefined();
+    expect(roomRequestFiles(room.id, message.id)).toEqual([file]);
+    expect(readFileSync(join(root, "bots", "rooms", `${room.id}.json`), "utf8")).not.toContain(text.toString("base64"));
   });
 
   it("keeps the live room bounded and moves older turns to append-only history", () => {

@@ -32,8 +32,10 @@ export type RoomConversationTurn = { requestId: string; participantIds: string[]
 export type RoomOutcome = { kind: "code-wait" | "members" | "turns" | "repeat" | "done"; requestId: string };
 export type CodeRequestState = "queued" | "starting" | "running" | "ready" | "delivered" | "cancelled";
 export type RoomAttention = { botId: string; taskId: string; permission: PermissionRequestDto | null; question: QuestionRequestDto | null };
-/** Attachment stored beside the room file; `file` is server-generated and served by the images route. */
+/** Image attachment stored beside the room file; `file` is server-generated. */
 export type RoomImage = { file: string; mimeType: string };
+/** Non-image attachment stored beside the room file and served by the files route. */
+export type RoomFile = { file: string; mimeType: string; name: string; size: number };
 
 export type RoomMessage = {
   id: string;
@@ -41,6 +43,7 @@ export type RoomMessage = {
   text: string;
   createdAt: number;
   images?: RoomImage[];
+  files?: RoomFile[];
   botId?: string;
   botName?: string;
   status?: "working" | "done" | "error";
@@ -314,7 +317,8 @@ export type UiPart =
       callID: string;
       state: ToolState;
     }
-  | { id: string; type: "image"; url: string; mime: string; filename?: string };
+  | { id: string; type: "image"; url: string; mime: string; filename?: string }
+  | { id: string; type: "file"; name: string; mime: string; size?: number; data?: string; url?: string };
 
 export type UiDiagnostic = {
   type: string;

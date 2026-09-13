@@ -6,10 +6,8 @@ import { dataDir } from "./paths";
 import { botTaskId, botWorkspace, getBot, listBots } from "./bots";
 import { deleteTask, getTask, insertBotTask, listTasks, patchTask } from "./store";
 import { ROOM_HANDOFF_STATES } from "./types";
-import type { BotDto, RoomDto, RoomHandoff, RoomImage, RoomMessage, RoomOutcome } from "./types";
-import { isPromptImageWithinSize, type PromptImageInput } from "./prompt-images";
-
-type RoomFile = RoomDto;
+import type { BotDto, RoomDto, RoomFile, RoomHandoff, RoomImage, RoomMessage, RoomOutcome } from "./types";
+import { isPromptFileText, isPromptFileWithinSize, isPromptImageWithinSize, type PromptFileInput, type PromptImageInput } from "./prompt-images";
 const roomEvents = new EventEmitter();
 
 /** Per-room data directory: archived history and attachments live here. */
@@ -53,9 +51,9 @@ function normalizeOutcome(value: unknown): RoomOutcome | undefined {
     ? { kind: outcome.kind as RoomOutcome["kind"], requestId: outcome.requestId }
     : undefined;
 }
-function normalizeRoom(value: Partial<RoomFile>, id: string): RoomDto | null {
+function normalizeRoom(value: Partial<RoomDto>, id: string): RoomDto | null {
   if (value.id !== id || typeof value.name !== "string" || !Array.isArray(value.members)) return null;
-  const messages = Array.isArray(value.messages) ? value.messages.filter((item): item is RoomMessage => Boolean(item && typeof item === "object" && typeof item.id === "string" && (item.role === "user" || item.role === "assistant") && typeof item.text === "string" && typeof item.createdAt === "number")) : [];
+  const messages = Array.isArray(value.messages) ? value.messages.filter((item): item is RoomMessage => Boolean(item && typeof item === "object" && typeof item.id === "string" && (item.role === "user" || item.role === "assistant") && typeof item.text === "string" && typeof item.createdAt === "number" && (!("files" in item) || (Array.isArray(item.files) && item.files.every((file) => Boolean(file && typeof file === "object" && typeof file.file === "string" && typeof file.name === "string" && typeof file.mimeType === "string" && typeof file.size === "number")))))) : [];
   const lastOutcome = normalizeOutcome(value.lastOutcome);
   const isHandoff = (item: unknown): item is RoomHandoff => {
     const handoff = item as RoomHandoff | undefined;
@@ -77,7 +75,7 @@ function normalizeRoom(value: Partial<RoomFile>, id: string): RoomDto | null {
   };
 }
 function readRoom(id: string): RoomDto | undefined {
-  try { return normalizeRoom(JSON.parse(readFileSync(roomPath(id), "utf8")) as Partial<RoomFile>, id) ?? undefined; } catch { return undefined; }
+  try { return normalizeRoom(JSON.parse(readFileSync(roomPath(id), "utf8")) as Partial<RoomDto>, id) ?? undefined; } catch { return undefined; }
 }
 function writeRoom(room: RoomDto): void {
   mkdirSync(roomsRoot(), { recursive: true });
@@ -179,7 +177,7 @@ export function appendRoomMessageIf(id: string, predicate: (room: RoomDto) => bo
     return appendRoomMessageLocked(room, message);
   });
 }
-type RoomMessagePatch = Partial<Pick<RoomMessage, "text" | "status" | "botName" | "conversation" | "codeRequestId" | "codeTaskId" | "codeState" | "codeRequests" | "codeActivity" | "images" | "handoffs">>;
+type RoomMessagePatch = Partial<Pick<RoomMessage, "text" | "status" | "botName" | "conversation" | "codeRequestId" | "codeTaskId" | "codeState" | "codeRequests" | "codeActivity" | "images" | "files" | "handoffs">>;
 export function updateRoomMessage(id: string, messageId: string, patch: RoomMessagePatch | ((message: RoomMessage) => RoomMessagePatch)): RoomMessage | undefined {
   return withRoomLock(id, () => {
     const room = readRoom(id);
@@ -257,6 +255,41 @@ export function readRoomImage(roomId: string, file: string): { bytes: Buffer; mi
     return mimeType ? { bytes: readFileSync(roomImagePath(roomId, file)), mimeType } : undefined;
   } catch { return undefined; }
 }
+
+const ROOM_FILE_PATTERN = /^[0-9a-f-]{36}-\d{1,2}\.dat$/i;
+const MAX_ROOM_FILES = 8;
+const MAX_ROOM_FILE_BYTES = 8 * 1024 * 1024;
+function roomFilePath(roomId: string, file: string): string {
+  assertId(roomId);
+  if (!ROOM_FILE_PATTERN.test(file)) throw new Error("invalid room file");
+  return join(roomDataRoot(roomId), "files", file);
+}
+export function roomFileRejection(files: PromptFileInput[]): string | undefined {
+  if (files.length > MAX_ROOM_FILES) return `ファイルは${MAX_ROOM_FILES}件までです`;
+  for (const file of files) {
+    const bytes = Buffer.byteLength(file.data, "base64");
+    if (bytes === 0) return "ファイルデータが空です";
+    if (bytes > MAX_ROOM_FILE_BYTES) return "ファイルは1件8MBまでです";
+    if (!isPromptFileWithinSize(file)) return "ファイルデータが不正です";
+    if (!isPromptFileText(file)) return "添付ファイルはUTF-8テキストのみ対応しています";
+  }
+  return undefined;
+}
+export function saveRoomFiles(roomId: string, messageId: string, files: PromptFileInput[]): RoomFile[] {
+  assertId(roomId);
+  assertId(messageId);
+  mkdirSync(join(roomDataRoot(roomId), "files"), { recursive: true });
+  return files.slice(0, MAX_ROOM_FILES).flatMap((file, index) => {
+    const bytes = Buffer.from(file.data, "base64");
+    if (bytes.length === 0 || bytes.length > MAX_ROOM_FILE_BYTES || !isPromptFileText(file)) return [];
+    const filename = `${messageId}-${index}.dat`;
+    writeFileSync(roomFilePath(roomId, filename), bytes);
+    return [{ file: filename, mimeType: file.mimeType, name: file.name, size: bytes.length }];
+  });
+}
+export function readRoomFile(roomId: string, file: string): { bytes: Buffer } | undefined {
+  try { return { bytes: readFileSync(roomFilePath(roomId, file)) }; } catch { return undefined; }
+}
 /** Attachments of a request, read back for the model. Turns after the first already have them in session. */
 export function roomRequestImages(roomId: string, messageId: string): PromptImageInput[] {
   const message = getRoom(roomId)?.messages.find((item) => item.id === messageId);
@@ -265,12 +298,19 @@ export function roomRequestImages(roomId: string, messageId: string): PromptImag
     return stored ? [{ mimeType: stored.mimeType, data: stored.bytes.toString("base64") }] : [];
   });
 }
+export function roomRequestFiles(roomId: string, messageId: string): PromptFileInput[] {
+  const message = getRoom(roomId)?.messages.find((item) => item.id === messageId);
+  return (message?.files ?? []).flatMap((file) => {
+    const stored = readRoomFile(roomId, file.file);
+    return stored ? [{ name: file.name, mimeType: file.mimeType, data: stored.bytes.toString("base64") }] : [];
+  });
+}
 
 /**
  * Drop a user request and everything said after it, returning its text for the composer.
  * Bot sessions keep their own history: only the shared room transcript is rewound.
  */
-export function revertRoomTo(id: string, messageId: string): { text: string; requestId: string; requestIds: string[] } | undefined {
+export function revertRoomTo(id: string, messageId: string): { text: string; requestId: string; requestIds: string[]; images: RoomImage[]; files: RoomFile[] } | undefined {
   return withRoomLock(id, () => {
     const room = readRoom(id);
     const index = room?.messages.findIndex((item) => item.id === messageId) ?? -1;
@@ -286,7 +326,13 @@ export function revertRoomTo(id: string, messageId: string): { text: string; req
     }
     room.updatedAt = new Date().toISOString();
     writeRoom(room);
-    return { text: target.text, requestId: messageId, requestIds: [...removedRequestIds] };
+    return {
+      text: target.text,
+      requestId: messageId,
+      requestIds: [...removedRequestIds],
+      images: [...(target.images ?? [])],
+      files: [...(target.files ?? [])],
+    };
   });
 }
 export function subscribeRoom(id: string, listener: (room: RoomDto | null) => void): () => void {

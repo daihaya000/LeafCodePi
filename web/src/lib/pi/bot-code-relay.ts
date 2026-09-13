@@ -15,6 +15,7 @@ import {
 import { NO_PROJECT_NAME, type CodeRequestGoalLoopReport, type CodeRequestState, type GoalLoopDto, type RoomConversationTurn, type TaskSummary, type UiMessage } from "@/lib/types";
 import { getRoom, roomBotTaskId, updateRoomMessage } from "@/lib/rooms";
 import { AUTO_MODEL_VALUE } from "@/lib/auto-model";
+import type { PromptFileInput } from "@/lib/prompt-images";
 
 export const BOT_CODE_TOOL = "code_session";
 export const BOT_CODE_RESULT = "bot-code-result";
@@ -26,6 +27,7 @@ export const MAX_AUTO_CODE_CHAIN = 5;
 /** Prompt options persisted for a Code input that must be delivered by its owning worker. */
 export type CodePromptOptions = {
   images?: { mimeType: string; data: string }[];
+  files?: PromptFileInput[];
   agent?: string;
   model?: string;
   thinkingLevel?: TaskSummary["thinkingLevel"];

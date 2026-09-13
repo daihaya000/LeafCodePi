@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { appendRoomMessage, appendRoomMessageIf, ensureRoomBotTask, getRoom, listRooms, roomBotTaskId, roomRequestImages, setRoomOutcome, updateRoomHandoffs, updateRoomMessage } from "./rooms";
+import { appendRoomMessage, appendRoomMessageIf, ensureRoomBotTask, getRoom, listRooms, roomBotTaskId, roomRequestFiles, roomRequestImages, setRoomOutcome, updateRoomHandoffs, updateRoomMessage } from "./rooms";
 import { getBot } from "./bots";
 import { getTask } from "./store";
 import { getTaskDetail, promptTask, subscribeTask, abortTask } from "./pi/harness";
@@ -118,9 +118,16 @@ export async function runRoomBot(room: RoomDto, bot: BotDto, prompt: string, res
     const context = roomBotPrompt(currentRoom, bot, participants, prompt, requestId, turn);
     const stopStreaming = streamRoomReply(taskId, room.id, responseId, before);
     // Attachments belong to the request: send them once, on this bot's first turn for it.
-    const images = (turn?.turn ?? 1) === 1 ? roomRequestImages(room.id, requestId) : [];
+    const firstTurn = (turn?.turn ?? 1) === 1;
+    const images = firstTurn ? roomRequestImages(room.id, requestId) : [];
+    const files = firstTurn ? roomRequestFiles(room.id, requestId) : [];
     // Wait for the exact queue entry, not an idle-looking acceptance snapshot.
-    try { await promptTask(taskId, context, images.length > 0 ? images : undefined, { waitForCompletion: true }); } finally { stopStreaming(); }
+    try {
+      await promptTask(taskId, context, images.length > 0 ? images : undefined, {
+        waitForCompletion: true,
+        ...(files.length > 0 ? { files } : {}),
+      });
+    } finally { stopStreaming(); }
     const detail = await getTaskDetail(taskId);
     const assistant = [...detail.messages].reverse().find((message) => message.role === "assistant" && !before.has(message.id));
     const error = detail.error || assistant?.error;
