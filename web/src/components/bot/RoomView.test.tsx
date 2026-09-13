@@ -229,6 +229,27 @@ it("ignores callbacks from an SSE source replaced after a transport error", asyn
   }
 });
 
+describe("RoomView opener reason chips", () => {
+  it("shows a short chip for keyword and LLM opener reasons", async () => {
+    const { act } = await import("@testing-library/react");
+    const { container } = render(<RoomView id={room.id} />);
+    await screen.findByRole("textbox");
+    act(() => pushSnapshot({
+      room: { ...room, messages: [
+        { id: "user-kw", role: "user", text: "バグを見つけて", createdAt: 2 },
+        { id: "reply-kw", role: "assistant", botId: bot.id, botName: bot.name, text: "再現を見ます", status: "done", createdAt: 3, openerReason: "keyword" },
+        { id: "user-llm", role: "user", text: "残作業も進めて", createdAt: 4 },
+        { id: "reply-llm", role: "assistant", botId: bot.id, botName: bot.name, text: "進めます", status: "done", createdAt: 5, openerReason: "llm" },
+      ] },
+    }));
+    const chips = [...container.querySelectorAll("[data-opener-reason]")];
+    expect(chips.map((chip) => [chip.getAttribute("data-opener-reason"), chip.textContent])).toEqual([
+      ["keyword", "キーワード一致"],
+      ["llm", "LLM選択"],
+    ]);
+  });
+});
+
 describe("RoomView mention chips", () => {
   it("turns an addressed participant into an avatar chip in both bot Markdown and user text", async () => {
     const { act } = await import("@testing-library/react");

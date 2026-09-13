@@ -9,6 +9,7 @@ import { markRead } from "@/lib/bot-unread";
 import type { SkillDto } from "@/lib/skills";
 import { decideNotification } from "@/lib/notify";
 import type { BotDto, QuestionRequestDto, RoomAttention, RoomDto, RoomHandoffState, RoomMessage } from "@/lib/types";
+import { roomOpenerReasonLabel } from "@/lib/room-opener-labels";
 import { QuestionCard } from "@/components/task/QuestionCard";
 import { Button } from "@/components/ui";
 import { BotAvatar } from "@/components/bot/BotAvatar";
@@ -486,6 +487,11 @@ export function RoomView({ id, active = true }: { id: string; active?: boolean }
             images={<BotMessageImages images={(message.images ?? []).map((image) => ({ key: image.file, src: `/api/bots/rooms/${encodeURIComponent(id)}/images/${encodeURIComponent(image.file)}` }))} />}
             files={<BotMessageFiles files={(message.files ?? []).map((file) => ({ key: file.file, name: file.name, mime: file.mimeType, size: file.size, href: `/api/bots/rooms/${encodeURIComponent(id)}/files/${encodeURIComponent(file.file)}` }))} />}
             footer={user ? <BotRevertButton title="この発言以降を入力欄に戻して巻き戻す" disabled={reverting} onClick={() => void revertMessage(message.id)} /> : undefined}>
+            {message.openerReason ? (
+              <span data-opener-reason={message.openerReason} className="inline-flex items-center gap-1 rounded-full border border-border bg-surface-2 px-2 py-0.5 text-[11px] text-muted" title="このBotが開いた理由">
+                {roomOpenerReasonLabel(message.openerReason)}
+              </span>
+            ) : null}
             {message.handoffs?.length ? (
               <div className="flex flex-wrap gap-1.5">
                 {message.handoffs.map((handoff) => (

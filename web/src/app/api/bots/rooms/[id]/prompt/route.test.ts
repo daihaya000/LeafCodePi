@@ -12,7 +12,15 @@ const state = vi.hoisted(() => ({
   completions: new Map<string, () => void>(),
   promptTask: vi.fn(),
   abortTask: vi.fn(),
+  resolveRoomOpener: vi.fn(),
 }));
+vi.mock("@/lib/room-opener", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/room-opener")>();
+  return {
+    ...actual,
+    resolveRoomOpener: (...args: unknown[]) => state.resolveRoomOpener(...args),
+  };
+});
 vi.mock("@/lib/paths", async (importOriginal) => ({
   ...await importOriginal<typeof import("@/lib/paths")>(),
   dataDir: () => state.root,
@@ -71,6 +79,12 @@ function setup(names = ["A"]) {
 
 beforeEach(() => {
   state.root = mkdtempSync(join(tmpdir(), "leafcode-room-prompt-"));
+  state.resolveRoomOpener.mockReset();
+  state.resolveRoomOpener.mockImplementation(async ({ prompt, bots }: { prompt: string; bots: { id: string; name: string; enabled?: boolean; label?: string; soul?: string }[] }) => {
+    const { matchRoomIntentBot } = await import("@/lib/room-conversation");
+    const matched = matchRoomIntentBot(prompt, bots as never);
+    return matched ? { bot: matched, reason: "keyword" as const } : undefined;
+  });
   state.promptTask.mockImplementation(async (id: string, _prompt: string, _images: unknown, options?: { waitForCompletion?: boolean }) => {
     snapshot(id, "prompt_accepted", { status: "working", isStreaming: false, error: null });
     if (options?.waitForCompletion) {
@@ -177,6 +191,43 @@ describe("room mention responses", () => {
     const result = await (await send(room.id, "残作業も進めて")).json();
     expect(result.routedBotIds).toEqual([]);
     expect(state.promptTask).not.toHaveBeenCalled();
+  });
+
+  it("uses LLM opener for ambiguous @-less work and records the reason chip", async () => {
+    const { room, bots, taskIds } = setup(["Designer", "Planner"]);
+    state.resolveRoomOpener.mockResolvedValueOnce({ bot: bots[1], reason: "llm" });
+    const result = await (await send(room.id, "残作業も進めて")).json();
+    expect(result.routedBotIds).toEqual([bots[1].id]);
+    expect(state.resolveRoomOpener).toHaveBeenCalled();
+    const working = getRoom(room.id)?.messages.find((message) => message.botId === bots[1].id);
+    expect(working?.openerReason).toBe("llm");
+    await vi.waitFor(() => expect(state.promptTask).toHaveBeenCalledTimes(1));
+    expect(state.promptTask.mock.calls[0][0]).toBe(taskIds[1]);
+    finish(taskIds[1], { messages: [assistant("llm-1", "進めます")] });
+    await vi.waitFor(() => expect(getRoom(room.id)?.messages.some((message) => message.status === "done")).toBe(true));
+  });
+
+  it("keeps keyword-first for confident debug work without calling a custom LLM pick", async () => {
+    const { room, bots, taskIds } = setup(["Designer", "Debugger"]);
+    const result = await (await send(room.id, "バグを見つけて")).json();
+    expect(result.routedBotIds).toEqual([bots[1].id]);
+    expect(state.resolveRoomOpener).toHaveBeenCalled();
+    const working = getRoom(room.id)?.messages.find((message) => message.botId === bots[1].id);
+    expect(working?.openerReason).toBe("keyword");
+    await vi.waitFor(() => expect(state.promptTask).toHaveBeenCalledTimes(1));
+    finish(taskIds[1], { messages: [assistant("kw-1", "再現を見ます")] });
+    await vi.waitFor(() => expect(getRoom(room.id)?.messages.some((message) => message.status === "done")).toBe(true));
+  });
+
+  it("falls back to discuss rotate when LLM opener fails", async () => {
+    const { room, bots, taskIds } = setup(["Designer", "Planner"]);
+    rooms.appendRoomMessage(room.id, { role: "assistant", botId: bots[0].id, botName: bots[0].name, text: "前回", status: "done" });
+    state.resolveRoomOpener.mockResolvedValue(undefined);
+    await send(room.id, "/discuss 方針を話し合って");
+    await vi.waitFor(() => expect(state.promptTask).toHaveBeenCalled());
+    expect(state.promptTask.mock.calls[0][0]).toBe(taskIds[1]);
+    finish(taskIds[1], { messages: [assistant("fail-rotate-1", "範囲を切ります\nROOM_ACTION: DONE")] });
+    await vi.waitFor(() => expect(getRoom(room.id)?.messages.some((message) => message.status === "done" && message.botId === bots[1].id)).toBe(true));
   });
 
   it("ends immediately on DONE without dragging in a silent participant", async () => {

@@ -261,7 +261,7 @@ export function appendRoomMessageIf(id: string, predicate: (room: RoomDto) => bo
     return appendRoomMessageLocked(room, message);
   });
 }
-type RoomMessagePatch = Partial<Pick<RoomMessage, "text" | "status" | "botName" | "conversation" | "codeRequestId" | "codeTaskId" | "codeState" | "codeRequests" | "codeActivity" | "images" | "files" | "handoffs">>;
+type RoomMessagePatch = Partial<Pick<RoomMessage, "text" | "status" | "botName" | "conversation" | "codeRequestId" | "codeTaskId" | "codeState" | "codeRequests" | "codeActivity" | "images" | "files" | "handoffs" | "openerReason">>;
 export function updateRoomMessage(id: string, messageId: string, patch: RoomMessagePatch | ((message: RoomMessage) => RoomMessagePatch)): RoomMessage | undefined {
   return withRoomLock(id, () => {
     const room = readRoom(id);

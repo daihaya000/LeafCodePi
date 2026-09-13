@@ -4,7 +4,8 @@ import { getBot } from "@/lib/bots";
 import type { BotDto, RoomMessage } from "@/lib/types";
 import { isPromptFileList, isPromptImageList, MAX_PROMPT_ATTACHMENTS, type PromptFileInput } from "@/lib/prompt-images";
 import { jsonError } from "@/lib/pi/harness";
-import { isRoomConversationRequest, isRoomStopRequest, matchRoomIntentBot, MAX_ROOM_CONVERSATION_PARTICIPANTS } from "@/lib/room-conversation";
+import { isRoomConversationRequest, isRoomStopRequest, MAX_ROOM_CONVERSATION_PARTICIPANTS } from "@/lib/room-conversation";
+import { resolveRoomOpener, type RoomOpenerReason } from "@/lib/room-opener";
 import { cancelPendingRoomHandoffs, deliverReadyRoomHandoffs, runRoomBot, runRoomConversation, runRoomFanOut, settleRoomHandoffs, settleStaleRoomTurns, steerRoomTurns, stopRoomTurns } from "@/lib/room-runtime";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -69,16 +70,20 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     }
     // A new instruction redirects the turns already being written; those bots answer once, there.
     const steered = new Set(await steerRoomTurns(id, prompt));
-    // Everyday @-less work is single-bot (intent match). Open rotate is reserved for /discuss-like only.
+    // Everyday @-less work is single-bot (keyword first, else LLM). Open rotate is reserved for /discuss-like only.
     const conversation = isRoomConversationRequest(prompt);
     let routed = botsForRoomPrompt(room, prompt, body.broadcast === true);
+    let singleOpenerReason: RoomOpenerReason | undefined;
     if (routed.bots.length === 0 && !prompt.includes("@") && body.broadcast !== true) {
       if (conversation) {
         routed = botsForRoomPrompt(room, prompt, true);
       } else {
-        const members = botsForRoomPrompt(room, prompt, true).bots;
-        const matched = matchRoomIntentBot(prompt, [...members].sort((a, b) => room.members.indexOf(a.id) - room.members.indexOf(b.id)));
-        if (matched) routed = { bots: [matched], broadcast: false };
+        const members = [...botsForRoomPrompt(room, prompt, true).bots].sort((a, b) => room.members.indexOf(a.id) - room.members.indexOf(b.id));
+        const opener = await resolveRoomOpener({ prompt, bots: members });
+        if (opener) {
+          routed = { bots: [opener.bot], broadcast: false };
+          singleOpenerReason = opener.reason;
+        }
       }
     }
     const pending = routed.bots.filter((bot) => !steered.has(bot.id));
@@ -87,7 +92,10 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       void runRoomConversation(room, participants, prompt, userMessage.id).catch(() => console.error("Room conversation failed"));
       return NextResponse.json({ room: getRoom(id), routedBotIds: participants.map((bot) => bot.id), steeredBotIds: [...steered], broadcast: routed.broadcast });
     }
-    const responses = pending.map((bot) => appendRoomMessage(id, { role: "assistant", botId: bot.id, botName: bot.name, text: "", status: "working" })).filter((item): item is NonNullable<typeof item> => Boolean(item));
+    const responses = pending.map((bot, index) => appendRoomMessage(id, {
+      role: "assistant", botId: bot.id, botName: bot.name, text: "", status: "working",
+      ...(index === 0 && singleOpenerReason ? { openerReason: singleOpenerReason } : {}),
+    })).filter((item): item is NonNullable<typeof item> => Boolean(item));
     void runRoomFanOut(room, pending, prompt, responses.map((response) => response.id), userMessage.id).catch(() => console.error("Room fan-out failed"));
     return NextResponse.json({ room: getRoom(id), routedBotIds: pending.map((bot) => bot.id), steeredBotIds: [...steered], broadcast: routed.broadcast });
   } catch (error) { const { error: message, status } = jsonError(error); return NextResponse.json({ error: message }, { status }); }

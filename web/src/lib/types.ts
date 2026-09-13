@@ -28,6 +28,8 @@ const BOT_DEFAULT_DISABLED_TOOL_SET = new Set<string>(BOT_DEFAULT_DISABLED_TOOL_
 export const BOT_DEFAULT_TOOL_NAMES: readonly BotToolName[] = BOT_TOOL_NAMES.filter((tool) => !BOT_DEFAULT_DISABLED_TOOL_SET.has(tool));
 
 export type RoomConversationTurn = { requestId: string; participantIds: string[]; turn: number; maxTurns: number };
+/** Why the opener bot was chosen for this turn (Room opener v2). */
+export type RoomOpenerReasonKind = "keyword" | "llm";
 /** Why an exchange stopped, so a quiet room is not mistaken for a finished one. */
 export type RoomOutcome = { kind: "code-wait" | "members" | "turns" | "repeat" | "done"; requestId: string };
 export type CodeRequestState = "queued" | "starting" | "running" | "ready" | "delivered" | "cancelled";
@@ -58,6 +60,8 @@ export type RoomMessage = {
   codeActivity?: string;
   /** Display mirror of the handoffs registered from this message; the room file owns the records. */
   handoffs?: { id: string; toBotId: string; toBotName: string; state: RoomHandoffState }[];
+  /** Short opener selection reason for UI chips (keyword hit vs LLM pick). */
+  openerReason?: RoomOpenerReasonKind;
   /** Bot-to-bot relay metadata. These fields are absent for ordinary user messages. */
   sourceBotId?: string;
   relayTurnId?: string;

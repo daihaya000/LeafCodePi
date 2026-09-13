@@ -2,7 +2,7 @@
 
 ## 使い方
 
-- `/discuss`（または「話し合って」など対話意図）は有効メンバーが互いの発言を読んで対話する。冒頭の発言者は意図キーワード（バグ/デバッグ/再現/受け入れ 等）で bot 名・label・SOUL に合うメンバーを優先し、外れは従来どおりローテ。メンションなしの日常作業（例: `バグを見つけて`）はマッチした単一 Bot だけが開始し、全員対話にはしない。
+- `/discuss`（または「話し合って」など対話意図）は有効メンバーが互いの発言を読んで対話する。冒頭の発言者は意図キーワード（バグ/デバッグ/再現/受け入れ 等）で bot 名・label・SOUL に合うメンバーを優先し、キーワードが確信できないときだけ LLM で1名を選ぶ。LLM 失敗時は従来どおりローテ。メンションなしの日常作業（例: `バグを見つけて`）はキーワード一致の単一 Bot、またはキーワード不確実時の LLM 選択で開始し、全員対話にはしない。LLM 失敗かつキーワードなしの @なし作業は開始しない。オープナー理由（キーワード一致 / LLM選択）は発言に短いチップで示す。
 - `@デバッガー @プランナー 設計案を比較して`：指定した参加者だけで対話する。名前の後ろに空白を入れる。
 - `@Bot名 質問` はそのBotだけが直接回答。`@here` や「全員が個別回答」は従来どおり独立した一斉回答。
 - 実作業は会話の中で `code_session` を使い、ユーザー承認後にCodeで実行して結果をこのRoomへ戻す。承認・質問・実行状態はRoom上で確認・応答できる。
@@ -19,7 +19,7 @@
 | [OpenBot exchange.ts](https://github.com/ashhart/OpenBot/blob/b544cb743986193fdc3d234ae66c8e44ef68fc00/src/main/agent/exchange.ts)、[exchangeBrief.ts](https://github.com/ashhart/OpenBot/blob/b544cb743986193fdc3d234ae66c8e44ef68fc00/src/main/agent/exchangeBrief.ts)、[turnAction.ts](https://github.com/ashhart/OpenBot/blob/b544cb743986193fdc3d234ae66c8e44ef68fc00/src/main/agent/turnAction.ts) | 自己申告の発言制御行、発言ごとの司会指示、最終行・コードフェンス検査、反復停止 | ツール非依存の受け渡し、短いターン指示、反復停止を採用。装飾された制御行の寛容な解釈や再問い合わせは採用せず、曖昧な出力は通常発言として扱う。 |
 | [GrokBot SDK discussOnce](https://github.com/Adam91holt/grokbot-sdk/blob/c14347fa82d167b9a5984ec1baff56b2f074485a/sdk/src/gateway/oneshot.ts) | 指定席を複製して一時グループを作り、全参加者のidleを待ち、全発言を回収。SDK自体はホストの対話エンジンを実装しない | 発言者付き共有履歴と参加者限定を重視。既存Room専用セッションを再利用し、Bot複製やSDK依存は追加しない。 |
 | [grok-bot-rooms README](https://github.com/mrlynn/grok-bot-plugin-example/blob/bf5aa243641c007690cd69b22e2b2a5f172f7bbc/README.md) | 登録・在室・メッセージログを共有するMCPレジストリ。Grok Botネイティブのグループチャットではない | 会話スケジューラの参考としては採用しない。外部ホストや共有認証も追加しない。 |
-| [AutoGen Termination](https://microsoft.github.io/autogen/stable/user-guide/agentchat-user-guide/tutorial/termination.html) | 各返答後に終了条件を評価し、発言数上限・終了文字列・外部停止などを組み合わせる | 結論・上限・反復・ユーザー割り込みを組み合わせる。別LLMによる発言者選択やフレームワーク導入はしない。 |
+| [AutoGen Termination](https://microsoft.github.io/autogen/stable/user-guide/agentchat-user-guide/tutorial/termination.html) | 各返答後に終了条件を評価し、発言数上限・終了文字列・外部停止などを組み合わせる | 結論・上限・反復・ユーザー割り込みを組み合わせる。フレームワーク導入はしない。冒頭オープナーだけ、キーワード不確実時に LLM 名選択を許可する（ターン進行の司会LLMは使わない）。 |
 | [AutoGen Handoffs](https://microsoft.github.io/autogen/stable/user-guide/core-user-guide/design-patterns/handoffs.html) | 委譲時に会話履歴ごと渡し、完了後に応答を元の宛先へ戻す。人間専用の受け手も同一経路 | Code依頼でもRoomの共有履歴を渡し、結果を同じRoomへ戻す。トピック配信基盤や自律的な再委譲は導入しない。 |
 | [OpenBot tasks.ts](https://github.com/ashhart/OpenBot/blob/b544cb743986193fdc3d234ae66c8e44ef68fc00/src/main/tasks.ts) | 背景作業の同時実行数・未完了数を上限で囲い、完了・失敗を別途通知する | Roomあたり1件の実作業に制限し、結果を会話内へ戻す。並列キュー・カンバン・通知基盤は作らない。 |
 | [LangGraph Interrupts](https://docs.langchain.com/oss/javascript/langgraph/interrupts) | 中断前の副作用はidempotentにし、状態を永続化して再開する | 承認待ちで会話を止め、固定IDで報告を一度だけ追加する。グラフ実行エンジンは導入せず、既存の永続アウトボックスを使う。 |
@@ -33,7 +33,8 @@
 - 自分自身・無効なBot・今回選択されていないBotへの制御行、引用・コード内・途中の制御行は実行しない。正規の制御行だけを表示用本文から除く。
 - 制御行と同じ行に文が続いていても、マーカーだけを除いて本文として残す（画面に `ROOM_ACTION:` を漏らさない）。`**ROOM_ACTION: DONE**` のような装飾も同様に扱う。
 - 次の相手はIDと完全一致の名前のどちらでも指定でき、長いラベルを優先する。名前の直後が語の途中なら一致とみなさない（短い名前が後続の単語を飲み込まない）。使えない相手を指定した場合は受け渡しず、その行ごと除く。
-- 会話の最初の発言者は意図キーワードが bot 名・label・SOUL に当たればその Bot、外れは直前に発言したBotを避けてローテ。
+- 会話の最初の発言者は意図キーワードが bot 名・label・SOUL に当たればその Bot（キーワードセットは広げない）。キーワード不確実なときだけ LLM で参加者から1名を選ぶ（Auto の名前選択 JSON と同形）。LLM 失敗時は直前に発言したBotを避けてローテ。司会・ターン進行の LLM は使わない。
+- メンションなしの日常作業も同じハイブリッドで単一 Bot を開き、LLM 失敗時は開始しない（discuss のローテへは落とさない）。
 - プロセスが落ちて残った「応答中」の未完了発言は、次のユーザー発言時に5分超過のものだけを失敗として確定させる。実行中の発言（自ワーカーの実行キューにいるもの、または5分以内に更新されたタスク記録）は止めない。
 - 会話が止まった理由（Code待ち・メンバー不足・発言上限・反復・完了）をRoomに記録し、最新の依頼に対するものだけを画面に表示する。モデルへは戻さない。
 - 発言はチャットとして短く保つよう指示する（目安は3文以内、見出し・番号付き計画・状況報告なし）。
@@ -78,7 +79,7 @@
 
 ```text
 cd web
-npx vitest run src/lib/room-conversation.test.ts src/lib/room-runtime.test.ts src/lib/rooms.test.ts src/lib/room-events.test.ts src/lib/pi/bot-code-relay.test.ts src/lib/pi/harness-bot-code.test.ts src/components/bot/RoomView.test.tsx "src/app/api/bots/rooms/[id]/prompt/route.test.ts" "src/app/api/bots/rooms/[id]/revert/route.test.ts"
+npx vitest run src/lib/room-conversation.test.ts src/lib/room-opener.test.ts src/lib/room-runtime.test.ts src/lib/rooms.test.ts src/lib/room-events.test.ts src/lib/pi/bot-code-relay.test.ts src/lib/pi/harness-bot-code.test.ts src/components/bot/RoomView.test.tsx "src/app/api/bots/rooms/[id]/prompt/route.test.ts" "src/app/api/bots/rooms/[id]/revert/route.test.ts"
 npm run typecheck
 ```
 

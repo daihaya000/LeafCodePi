@@ -36,6 +36,17 @@ vi.mock("@/lib/pi/bot-code-relay", () => ({
   roomCodeRequestForRoom: (_roomId: string, requestId: string) => state.activeCodeRequests.get(requestId),
   settledRoomCodeRequest: (_roomId: string, requestId: string) => state.settledCodeRequests.get(requestId),
 }));
+vi.mock("./room-opener", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./room-opener")>();
+  const { matchRoomIntentBot } = await import("./room-conversation");
+  return {
+    ...actual,
+    resolveRoomOpener: async ({ prompt, bots }: { prompt: string; bots: import("./types").BotDto[] }) => {
+      const matched = matchRoomIntentBot(prompt, bots);
+      return matched ? { bot: matched, reason: "keyword" as const } : undefined;
+    },
+  };
+});
 
 import { createBot, patchBot } from "./bots";
 import { createRoom, ensureRoomBotTask, getRoom, appendRoomMessage, patchRoom, revertRoomTo, setRoomOutcome, updateRoomHandoffs, updateRoomMessage } from "./rooms";
