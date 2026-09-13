@@ -81,7 +81,7 @@ describe("GET /api/bots/sidebar", () => {
     mocks.listBots.mockReturnValue([bot("one"), bot("two")]);
     mocks.getTask.mockReturnValue(undefined);
     mocks.listBotCodeRequests.mockImplementation((id: string) =>
-      id === "one" ? [{ state: "running" }] : [],
+      id === "one" ? [{ state: "running" }] : [{ state: "ready" }, { state: "delivered" }, { state: "cancelled" }],
     );
     mocks.listRooms.mockReturnValue([]);
 
