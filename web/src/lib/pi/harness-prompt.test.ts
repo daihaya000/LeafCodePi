@@ -19,6 +19,7 @@ import {
   waitForSessionStreaming,
   cancelPendingTaskSnapshot,
   resolveSummaryStatus,
+  refreshRuntimeClock,
   runtimeClockContext,
 } from "./harness";
 import type { ThroughputTiming } from "@/lib/token-throughput";
@@ -145,6 +146,25 @@ describe("runtimeClockContext", () => {
     assert.ok(match);
     const generated = Date.parse(match[1]!);
     assert.ok(generated >= before && generated <= after);
+  });
+
+  it("refreshes a stale clock block for direct custom turns", () => {
+    const session = {
+      agent: {
+        state: {
+          systemPrompt: "base\n\n<leafcode_clock>old</leafcode_clock>\n\nbot context",
+        },
+      },
+    };
+    refreshRuntimeClock(session, new Date("2026-09-14T00:00:01.234Z"));
+
+    assert.equal(
+      (session.agent.state.systemPrompt.match(/<leafcode_clock>/g) ?? []).length,
+      1,
+    );
+    assert.match(session.agent.state.systemPrompt, /UTC: 2026-09-14T00:00:01\.234Z/);
+    assert.doesNotMatch(session.agent.state.systemPrompt, /old/);
+    assert.match(session.agent.state.systemPrompt, /bot context/);
   });
 });
 

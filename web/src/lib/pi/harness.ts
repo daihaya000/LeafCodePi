@@ -2171,10 +2171,13 @@ export function runtimeClockContext(
   ].join("\n");
 }
 
-function refreshRuntimeClock(session: Pick<AgentSession, "agent">): void {
+export function refreshRuntimeClock(
+  session: { agent?: { state?: { systemPrompt: string } } },
+  now = new Date(),
+): void {
   const state = session.agent?.state;
   if (!state) return;
-  const clock = runtimeClockContext();
+  const clock = runtimeClockContext(now);
   state.systemPrompt = state.systemPrompt.includes("<leafcode_clock>")
     ? state.systemPrompt.replace(/<leafcode_clock>[\s\S]*?<\/leafcode_clock>/, clock)
     : `${state.systemPrompt}\n\n${clock}`;
