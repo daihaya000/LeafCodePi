@@ -926,6 +926,8 @@ export const BotView = memo(function BotView({ id, active = true }: { id: string
         inputRef={inputRef}
         attachments={attachments}
         onRemoveAttachment={(index) => setAttachments((current) => current.filter((_, itemIndex) => itemIndex !== index))}
+        onFilesSelected={addImageFiles}
+        attachmentDisabled={!canAttachComposerImages({ submitting: sending })}
         onPaste={(event) => { if (pasteImage(addImageFiles, event)) event.preventDefault(); }}
         onChange={(event) => setPrompt(event.target.value)}
         onCompositionStart={() => { composingRef.current = true; }}
