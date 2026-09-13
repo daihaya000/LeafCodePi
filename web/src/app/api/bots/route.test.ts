@@ -22,6 +22,12 @@ describe("/api/bots", () => {
     insertTask({ project: null, title: "待機中", botId: bot.id });
     const working = insertTask({ project: null, title: "進行中", botId: bot.id });
     setTaskStatus(working.id, "working");
+    const ready = insertTask({ project: null, title: "完了待ち", botId: bot.id });
+    setTaskStatus(ready.id, "ready");
+    const failed = insertTask({ project: null, title: "失敗", botId: bot.id });
+    setTaskStatus(failed.id, "error");
+    const aborted = insertTask({ project: null, title: "中断", botId: bot.id });
+    setTaskStatus(aborted.id, "archived");
 
     const listed = await GET();
     expect((await listed.json()).bots[0].codeSessionCount).toBe(1);
