@@ -40,7 +40,7 @@ import {
   subscribeBotSidebar,
 } from "@/lib/bot-sidebar-store";
 import { getLastReadAt, hasUnread } from "@/lib/bot-unread";
-import { HOME_TAB_ID, SETTINGS_TAB_ID, type TaskPanesAction } from "@/lib/task-panes";
+import { HOME_TAB_ID, paneTabIdsForWorkingTasks, SETTINGS_TAB_ID, type TaskPanesAction } from "@/lib/task-panes";
 import { NO_PROJECT_NAME, type BotDto, type HealthDto, type RoomDto, type ProjectDto, type TaskSummary } from "@/lib/types";
 
 type ProjectTaskMenuState = {
@@ -983,7 +983,9 @@ const SidebarView = memo(function SidebarView({
   }, [mode]);
 
   const workingTaskIds = useMemo(
-    () => tasksForSidebar(tasks.filter((task) => task.status === "working"), pinnedTaskIds).map((task) => task.id),
+    () => paneTabIdsForWorkingTasks(
+      tasksForSidebar(tasks.filter((task) => task.status === "working"), pinnedTaskIds),
+    ),
     [pinnedTaskIds, tasks],
   );
   const hasWorking = workingTaskIds.length > 0;

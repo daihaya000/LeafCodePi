@@ -25,6 +25,63 @@ export function isBotTabId(id: string | null | undefined): boolean {
   return id === BOTS_TAB_ID || /^\/bots\/(?:rooms\/)?[^/]+$/.test(id ?? "");
 }
 
+/** Stored Bot conversation / Room-member task IDs (`bot:<id>`, `bot:<id>:room:<room>`). */
+export function isBotOwnedTaskId(id: string | null | undefined): boolean {
+  return Boolean(id && /^bot:[^/]+$/.test(id));
+}
+
+/** Tabs that must mount BotView / RoomView, not TaskView. */
+export function isBotSurfaceTabId(id: string | null | undefined): boolean {
+  return isBotTabId(id) || isBotOwnedTaskId(id);
+}
+
+export type PaneTaskRef = {
+  id: string;
+  kind?: string | null;
+  botId?: string | null;
+};
+
+function botIdFromStoredTaskId(taskId: string): string | null {
+  const room = /^bot:([^:]+):room:(.+)$/.exec(taskId);
+  if (room) return room[1]!;
+  const bot = /^bot:([^:]+)$/.exec(taskId);
+  return bot?.[1] ?? null;
+}
+
+/**
+ * Map a stored working task onto the pane surface it should occupy.
+ * Bot conversation tasks and Bot-owned Code sessions stay on BotView
+ * (`/bots/<id>` or `/bots/rooms/<id>`), never TaskView (`/task/<id>`).
+ */
+export function paneTabIdForTask(task: PaneTaskRef): string {
+  if (!task.id || isBotTabId(task.id) || task.id === HOME_TAB_ID || task.id === SETTINGS_TAB_ID) {
+    return task.id;
+  }
+  const botId = (typeof task.botId === "string" && task.botId) || botIdFromStoredTaskId(task.id);
+  if (!botId) return task.id;
+  const roomPrefix = `bot:${botId}:room:`;
+  if (task.id.startsWith(roomPrefix)) {
+    return `/bots/rooms/${encodeURIComponent(task.id.slice(roomPrefix.length))}`;
+  }
+  if (task.kind === "bot" || task.id === `bot:${botId}` || Boolean(task.botId)) {
+    return `/bots/${encodeURIComponent(botId)}`;
+  }
+  return task.id;
+}
+
+/** Preserve caller order while collapsing Bot-owned tasks onto one Bot/Room tab. */
+export function paneTabIdsForWorkingTasks(tasks: readonly PaneTaskRef[]): string[] {
+  const ids: string[] = [];
+  const seen = new Set<string>();
+  for (const task of tasks) {
+    const tabId = paneTabIdForTask(task);
+    if (!tabId || seen.has(tabId)) continue;
+    seen.add(tabId);
+    ids.push(tabId);
+  }
+  return ids;
+}
+
 export type TaskPane = {
   id: string;
   tabs: string[];
@@ -507,9 +564,10 @@ export function taskPanesReducer(
       const uniqueTaskIds: string[] = [];
       const seen = new Set<string>();
       for (const taskId of action.taskIds) {
-        if (!taskId || seen.has(taskId)) continue;
-        seen.add(taskId);
-        uniqueTaskIds.push(taskId);
+        const tabId = paneTabIdForTask({ id: taskId });
+        if (!tabId || seen.has(tabId)) continue;
+        seen.add(tabId);
+        uniqueTaskIds.push(tabId);
         if (uniqueTaskIds.length >= MAX_PANES * MAX_TABS_PER_PANE) break;
       }
       if (uniqueTaskIds.length === 0) return state;
