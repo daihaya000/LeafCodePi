@@ -230,6 +230,39 @@ describe("HomeView model refresh", () => {
     expect(screen.getByRole("button", { name: "思考レベル" })).toBeTruthy();
   });
 
+  it("applies a model default effort and sends an explicit override only after editing", async () => {
+    const pending = deferred<{ models: ModelOption[] }>();
+    modelResponses.push(pending.promise);
+    mocks.sendJson.mockResolvedValue({ task: { id: "task-1" } });
+    const modelA = {
+      ...model("provider::model-a", "Model A"),
+      thinkingLevels: ["low", "medium", "high"] as ModelOption["thinkingLevels"],
+      defaultThinkingLevel: "high" as const,
+    };
+
+    render(<HomeView initialNoProject />);
+    await act(async () => { pending.resolve({ models: [modelA] }); });
+    await waitFor(() => expect(screen.getByRole("button", { name: "思考レベル" }).textContent).toContain("high"));
+
+    fireEvent.click(screen.getByRole("button", { name: "思考レベル" }));
+    fireEvent.click(await screen.findByRole("option", { name: "low" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "思考レベル" }).textContent).toContain("low"));
+    fireEvent.change(screen.getByRole("textbox", { name: "タスクの説明" }), {
+      target: { value: "draft prompt" },
+    });
+    fireEvent.submit(screen.getByRole("form", { name: "タスク作成" }));
+
+    await waitFor(() => {
+      expect(mocks.sendJson).toHaveBeenCalledWith(
+        "/api/tasks",
+        expect.objectContaining({
+          model: "provider::model-a",
+          thinkingLevel: "low",
+        }),
+      );
+    });
+  });
+
   it("does not send on Ctrl+Enter with IME keyCode 229", async () => {
     // compositionStart 欠落時も isImeComposingEvent(keyCode 229) で送信を抑止する。
     const pending = deferred<{ models: ModelOption[] }>();

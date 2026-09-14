@@ -1,12 +1,16 @@
 import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { dataDir } from "@/lib/paths";
+import { isThinkingLevel } from "@/lib/thinking-levels";
+import type { ThinkingLevel } from "@/lib/types";
 
 export type ProviderModelState = {
   disabled: Record<string, true>;
   providerOrder: string[];
   modelOrder: Record<string, string[]>;
   contextWindow?: Record<string, number>;
+  /** Per-model default thinking level, keyed like contextWindow. */
+  defaultThinkingLevel?: Record<string, ThinkingLevel>;
   /** Provider/model keys seen in a previous catalog refresh. */
   knownModels?: Record<string, true>;
 };
@@ -22,6 +26,7 @@ function emptyState(): ProviderModelState {
     providerOrder: [],
     modelOrder: {},
     contextWindow: {},
+    defaultThinkingLevel: {},
   };
 }
 
@@ -107,11 +112,18 @@ export function readProviderModelState(
         }
       }
     }
+    const defaultThinkingLevel: Record<string, ThinkingLevel> = {};
+    if (parsed.defaultThinkingLevel && typeof parsed.defaultThinkingLevel === "object" && !Array.isArray(parsed.defaultThinkingLevel)) {
+      for (const [key, value] of Object.entries(parsed.defaultThinkingLevel)) {
+        if (isThinkingLevel(value)) defaultThinkingLevel[key] = value;
+      }
+    }
     return {
       disabled,
       providerOrder,
       modelOrder,
       contextWindow,
+      defaultThinkingLevel,
       ...(knownModels ? { knownModels } : {}),
     };
   } catch {
@@ -224,6 +236,31 @@ export function contextWindowForModel(
     ? state.contextWindow?.[accountModelKey(providerID, modelID, accountId)]
     : undefined;
   return accountValue ?? state.contextWindow?.[accountModelKey(providerID, modelID)];
+}
+
+export async function setProviderModelDefaultThinkingLevel(
+  providerID: string,
+  modelID: string,
+  level: ThinkingLevel | null,
+  accountId?: string | null,
+): Promise<void> {
+  await withStateLock((state) => {
+    const key = accountModelKey(providerID, modelID, accountId);
+    if (level === null) delete state.defaultThinkingLevel?.[key];
+    else (state.defaultThinkingLevel ??= {})[key] = level;
+  });
+}
+
+export function defaultThinkingLevelForModel(
+  providerID: string,
+  modelID: string,
+  state = readProviderModelState(),
+  accountId?: string | null,
+): ThinkingLevel | undefined {
+  const accountValue = accountId
+    ? state.defaultThinkingLevel?.[accountModelKey(providerID, modelID, accountId)]
+    : undefined;
+  return accountValue ?? state.defaultThinkingLevel?.[accountModelKey(providerID, modelID)];
 }
 
 export async function setProviderModelDisabled(

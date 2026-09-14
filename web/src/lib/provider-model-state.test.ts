@@ -8,12 +8,14 @@ import {
   accountModelKey,
   accountProviderModelKey,
   contextWindowForModel,
+  defaultThinkingLevelForModel,
   ensureProviderModelsKnown,
   isModelDisabled,
   isProviderDisabled,
   providerModelStatePath,
   readProviderModelState,
   setProviderModelContextWindow,
+  setProviderModelDefaultThinkingLevel,
   setProviderModelDisabled,
   setProviderModelOrder,
   sortByPreferredOrder,
@@ -91,6 +93,34 @@ describe("provider-model-state", () => {
     assert.equal(contextWindowForModel("openai-codex", "gpt-5", state), 65_536);
     assert.equal(contextWindowForModel("openai-codex", "gpt-5", state, "acc-1"), 131_072);
     assert.equal(contextWindowForModel("openai-codex", "gpt-5", state, "acc-2"), 65_536);
+  });
+
+  it("persists per-model default thinking levels independently by account", async () => {
+    const dir = tempDataDir();
+    await setProviderModelDefaultThinkingLevel("openai-codex", "gpt-5", "high");
+    await setProviderModelDefaultThinkingLevel("openai-codex", "gpt-5", "low", "acc-1");
+
+    const state = readProviderModelState(providerModelStatePath(dir));
+    assert.equal(defaultThinkingLevelForModel("openai-codex", "gpt-5", state), "high");
+    assert.equal(
+      defaultThinkingLevelForModel("openai-codex", "gpt-5", state, "acc-1"),
+      "low",
+    );
+    assert.equal(
+      defaultThinkingLevelForModel("openai-codex", "gpt-5", state, "acc-2"),
+      "high",
+    );
+
+    await setProviderModelDefaultThinkingLevel("openai-codex", "gpt-5", null, "acc-1");
+    assert.equal(
+      defaultThinkingLevelForModel(
+        "openai-codex",
+        "gpt-5",
+        readProviderModelState(providerModelStatePath(dir)),
+        "acc-1",
+      ),
+      "high",
+    );
   });
 
   it("sortByPreferredOrder keeps unknowns after preferred ids", () => {

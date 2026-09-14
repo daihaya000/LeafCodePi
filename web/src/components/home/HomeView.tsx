@@ -139,6 +139,7 @@ function sameModelOptions(
       sameList(model.input, candidate?.input) &&
       model.reasoning === candidate?.reasoning &&
       sameList(model.thinkingLevels, candidate?.thinkingLevels) &&
+      model.defaultThinkingLevel === candidate?.defaultThinkingLevel &&
       model.codexbarUsedPercent === candidate?.codexbarUsedPercent &&
       model.codexbarIntegratedUsedPercent === candidate?.codexbarIntegratedUsedPercent &&
       model.codexbarLimited === candidate?.codexbarLimited &&
@@ -200,6 +201,8 @@ export const HomeView = memo(function HomeView({
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const composingRef = useRef(false);
+  const thinkingLevelTouchedRef = useRef(false);
+  const thinkingModelRef = useRef<string | undefined>(undefined);
   const modelsRef = useRef<ModelOption[]>(models);
   const modelRefreshRef = useRef(0);
   const projectRefreshRef = useRef(0);
@@ -345,8 +348,16 @@ export const HomeView = memo(function HomeView({
   }, []);
 
   useEffect(() => {
-    if (!selectedModel) return;
-    const safeLevel = resolveThinkingLevel(thinkingLevels, thinkingLevel);
+    if (!selectedModel || !selectedModel.thinkingLevels) return;
+    if (thinkingModelRef.current !== selectedModel.value) {
+      thinkingModelRef.current = selectedModel.value;
+      thinkingLevelTouchedRef.current = false;
+    }
+    const preferred =
+      !thinkingLevelTouchedRef.current && selectedModel.defaultThinkingLevel
+        ? selectedModel.defaultThinkingLevel
+        : thinkingLevel;
+    const safeLevel = resolveThinkingLevel(thinkingLevels, preferred);
     if (safeLevel === thinkingLevel) return;
     // 現レベルが新モデルに無ければ既定（medium 相当）へ。最高レベルへの
     // 暗黙昇格は Qwen 切替で長ループを招いたためしない。
@@ -394,7 +405,14 @@ export const HomeView = memo(function HomeView({
         prompt,
         // アカウントタグ付きモデルの value は「accountId::provider::model」。送信時は
         // Pi が解釈できる「provider::model」へ戻す（accountId は別フィールドで渡す）。
-        ...(!isAuto ? { model: plainModelValue(model, models), thinkingLevel } : {}),
+        ...(!isAuto
+          ? {
+              model: plainModelValue(model, models),
+              ...(!selectedModel?.defaultThinkingLevel || thinkingLevelTouchedRef.current
+                ? { thinkingLevel }
+                : {}),
+            }
+          : {}),
         ...(isAuto
           ? {
               auto: true,
@@ -569,6 +587,7 @@ export const HomeView = memo(function HomeView({
                     loading={modelsLoading}
                     options={modelOptions}
                     onChange={(value) => {
+                      thinkingLevelTouchedRef.current = false;
                       setModel(value);
                       writeStoredModel(value);
                     }}
@@ -591,6 +610,7 @@ export const HomeView = memo(function HomeView({
                       value={thinkingLevel}
                       disabled={submitting}
                       onChange={(value) => {
+                        thinkingLevelTouchedRef.current = true;
                         setThinkingLevel(value);
                         writeStoredThinkingLevel(value);
                       }}

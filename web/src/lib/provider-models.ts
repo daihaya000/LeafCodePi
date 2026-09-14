@@ -1,19 +1,24 @@
 import {
   accountModelKey,
   accountProviderModelKey,
+  defaultThinkingLevelForModel,
   isModelDisabled,
   contextWindowForModel,
   isProviderDisabled,
   readProviderModelState,
   sortByPreferredOrder,
 } from "@/lib/provider-model-state";
-import type { ModelOption } from "@/lib/types";
+import { thinkingLevelsForModel } from "@/lib/thinking-levels";
+import type { Api, Model } from "@earendil-works/pi-ai";
+import type { ModelOption, ThinkingLevel } from "@/lib/types";
 
 export type ProviderModelRow = {
   id: string;
   name: string;
   enabled: boolean;
   contextWindow?: number;
+  thinkingLevels?: ThinkingLevel[];
+  defaultThinkingLevel?: ThinkingLevel;
 };
 
 export type ProviderModelsRow = {
@@ -31,7 +36,7 @@ type RuntimeModel = { id: string; name?: string; provider?: string };
 type RuntimeLike = {
   getProviders(): readonly { id: string; name: string }[];
   getModels(providerId?: string): readonly RuntimeModel[];
-  getModel?: (providerId: string, modelId: string) => { contextWindow?: number } | undefined;
+  getModel?: (providerId: string, modelId: string) => Model<Api> | undefined;
   hasConfiguredAuth(providerId: string): boolean;
 };
 
@@ -49,6 +54,13 @@ export function buildProviderModelsCatalog(
     const models = (modelSnapshot?.get(provider.id) ?? runtime.getModels(provider.id)).map((model) => {
       const modelID = model.id;
       const modelKey = accountModelKey(provider.id, modelID, accountId);
+      const runtimeModel = runtime.getModel?.(provider.id, modelID);
+      const configuredThinkingLevel = defaultThinkingLevelForModel(
+        provider.id,
+        modelID,
+        state,
+        accountId,
+      );
       return {
         id: modelID,
         name: model.name || modelID,
@@ -58,7 +70,13 @@ export function buildProviderModelsCatalog(
           (state.knownModels === undefined || state.knownModels[modelKey] === true),
         contextWindow:
           contextWindowForModel(provider.id, modelID, state, accountId) ??
-          runtime.getModel?.(provider.id, modelID)?.contextWindow,
+          runtimeModel?.contextWindow,
+        ...(runtimeModel
+          ? { thinkingLevels: thinkingLevelsForModel(runtimeModel) }
+          : {}),
+        ...(configuredThinkingLevel
+          ? { defaultThinkingLevel: configuredThinkingLevel }
+          : {}),
       };
     });
     if (models.length === 0) continue;
@@ -110,13 +128,18 @@ export function mergeIntegratedProviderRows(
       )
     : rows;
   const models = new Map<string, ProviderModelRow>();
+  const defaults = new Map<string, ThinkingLevel | undefined>();
   for (const row of orderedRows) {
     for (const model of row.models) {
       const current = models.get(model.id);
       if (!current) {
         models.set(model.id, { ...model });
-      } else if (model.enabled) {
-        current.enabled = true;
+        defaults.set(model.id, model.defaultThinkingLevel);
+      } else {
+        if (model.enabled) current.enabled = true;
+        if (defaults.get(model.id) !== model.defaultThinkingLevel) {
+          delete current.defaultThinkingLevel;
+        }
       }
     }
   }
@@ -141,6 +164,9 @@ export function enabledModelOptionsFromCatalog(
         label: model.name,
         providerID: provider.id,
         modelID: model.id,
+        ...(model.defaultThinkingLevel
+          ? { defaultThinkingLevel: model.defaultThinkingLevel }
+          : {}),
       });
     }
   }

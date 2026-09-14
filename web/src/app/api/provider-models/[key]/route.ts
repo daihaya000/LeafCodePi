@@ -1,6 +1,10 @@
 import { NextResponse } from "next/server";
-import { jsonError, setProviderOrModelEnabled } from "@/lib/pi/harness";
-import { setProviderModelContextWindow } from "@/lib/provider-model-state";
+import { invalidateHealthCache, jsonError, setProviderOrModelEnabled } from "@/lib/pi/harness";
+import {
+  setProviderModelContextWindow,
+  setProviderModelDefaultThinkingLevel,
+} from "@/lib/provider-model-state";
+import { isThinkingLevel } from "@/lib/thinking-levels";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -20,26 +24,44 @@ export async function PATCH(
       accountId?: string;
       modelIds?: unknown;
       contextWindow?: unknown;
+      defaultThinkingLevel?: unknown;
     };
-    if (body.contextWindow !== undefined) {
-      if (
-        typeof body.contextWindow !== "number" ||
-        !Number.isSafeInteger(body.contextWindow) ||
-        body.contextWindow < 4096 ||
-        body.contextWindow > 1_000_000
-      ) {
-        return NextResponse.json({ error: "contextWindow は4096〜1000000の整数で指定してください" }, { status: 400 });
-      }
-      const separator = key.lastIndexOf("::");
+    const separator = key.lastIndexOf("::");
+    if (body.contextWindow !== undefined || body.defaultThinkingLevel !== undefined) {
       if (separator <= 0 || separator === key.length - 2) {
         return NextResponse.json({ error: "モデルキーが不正です" }, { status: 400 });
       }
-      await setProviderModelContextWindow(
-        decodeURIComponent(key.slice(0, separator)),
-        decodeURIComponent(key.slice(separator + 2)),
-        body.contextWindow,
-        typeof body.accountId === "string" ? body.accountId : undefined,
-      );
+      const providerID = decodeURIComponent(key.slice(0, separator));
+      const modelID = decodeURIComponent(key.slice(separator + 2));
+      const accountId = typeof body.accountId === "string" ? body.accountId : undefined;
+      if (body.contextWindow !== undefined) {
+        if (
+          typeof body.contextWindow !== "number" ||
+          !Number.isSafeInteger(body.contextWindow) ||
+          body.contextWindow < 4096 ||
+          body.contextWindow > 1_000_000
+        ) {
+          return NextResponse.json({ error: "contextWindow は4096〜1000000の整数で指定してください" }, { status: 400 });
+        }
+        await setProviderModelContextWindow(
+          providerID,
+          modelID,
+          body.contextWindow,
+          accountId,
+        );
+      } else {
+        const level = body.defaultThinkingLevel;
+        if (level !== null && !isThinkingLevel(level)) {
+          return NextResponse.json({ error: "defaultThinkingLevel が不正です" }, { status: 400 });
+        }
+        await setProviderModelDefaultThinkingLevel(
+          providerID,
+          modelID,
+          level === null ? null : level,
+          accountId,
+        );
+      }
+      invalidateHealthCache();
       return NextResponse.json({ ok: true });
     }
     if (typeof body.enabled !== "boolean") {

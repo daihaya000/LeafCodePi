@@ -491,6 +491,8 @@ export type ModelOption = {
   input?: string[];
   reasoning?: boolean;
   thinkingLevels?: ThinkingLevel[];
+  /** Settings→モデルで保存した、このモデルの既定 effort。 */
+  defaultThinkingLevel?: ThinkingLevel;
   /** CodexBar usage percent (0..100+) of the backing provider, when known. */
   codexbarUsedPercent?: number | null;
   /** Average CodexBar usage for an integrated provider, used for picker color only. */

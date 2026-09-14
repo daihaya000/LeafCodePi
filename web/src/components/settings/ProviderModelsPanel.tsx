@@ -1,11 +1,17 @@
 "use client";
 
 import { useCallback, useEffect, useId, useRef, useState } from "react";
-import { ChevronDown, ChevronUp, GripVertical } from "lucide-react";
-import { Badge, Button, Switch, cx } from "@/components/ui";
+import { Brain, ChevronDown, ChevronUp, GripVertical } from "lucide-react";
+import { Badge, Button, GhostSelect, Switch, cx } from "@/components/ui";
 import { ProviderIcon } from "@/components/ProviderIcon";
 import { ApiError, getJson, sendJson } from "@/lib/client";
-import type { ProviderModelsRow } from "@/lib/provider-models";
+import {
+  ALL_THINKING_LEVELS,
+  THINKING_LEVEL_LABELS,
+  isThinkingLevel,
+} from "@/lib/thinking-levels";
+import type { ProviderModelRow, ProviderModelsRow } from "@/lib/provider-models";
+import type { ThinkingLevel } from "@/lib/types";
 
 type DragState =
   | { kind: "provider"; rowKey: string }
@@ -19,6 +25,12 @@ function providerDisplayName(provider: ProviderModelsRow): string {
   return provider.accountLabel
     ? `${provider.name} · ${provider.accountLabel}`
     : provider.name;
+}
+
+function effortLevelsForModel(model: ProviderModelRow): ThinkingLevel[] {
+  const allowed = new Set<ThinkingLevel>(model.thinkingLevels ?? []);
+  if (model.defaultThinkingLevel) allowed.add(model.defaultThinkingLevel);
+  return ALL_THINKING_LEVELS.filter((level) => allowed.has(level));
 }
 
 function moveItem<T>(items: T[], from: number, to: number): T[] {
@@ -79,6 +91,7 @@ function ProviderRow({
   onToggleProvider,
   onToggleModel,
   onContextWindowChange,
+  onDefaultThinkingLevelChange,
   onMoveProvider,
   onMoveModel,
   onDragStartProvider,
@@ -93,6 +106,7 @@ function ProviderRow({
   onToggleProvider: (enabled: boolean) => void;
   onToggleModel: (modelId: string, enabled: boolean) => void;
   onContextWindowChange: (modelId: string, contextWindow: number) => void;
+  onDefaultThinkingLevelChange: (modelId: string, level: ThinkingLevel | null) => void;
   onMoveProvider: (direction: -1 | 1) => void;
   onMoveModel: (modelId: string, direction: -1 | 1) => void;
   onDragStartProvider: () => void;
@@ -187,6 +201,10 @@ function ProviderRow({
             const modelKey = `${rowKey}::${model.id}`;
             const modelBusy = busyId === modelKey;
             const parentDisabled = !provider.enabled;
+            const effortLevels = effortLevelsForModel(model);
+            const showEffort =
+              effortLevels.length > 0 &&
+              (effortLevels.length > 1 || effortLevels[0] !== "off");
             return (
               <li
                 key={model.id}
@@ -220,27 +238,53 @@ function ProviderRow({
                     </Badge>
                   </div>
                 </div>
-                <label className="col-start-2 row-start-2 flex min-w-0 flex-wrap items-center gap-1 text-xs text-muted sm:col-auto sm:row-auto sm:shrink-0 sm:flex-nowrap">
-                  <span className="sr-only">{model.name} のコンテキストサイズ</span>
-                  <input
-                    type="number"
-                    min={4096}
-                    max={1_000_000}
-                    step={1024}
-                    defaultValue={model.contextWindow}
-                    placeholder="既定"
-                    disabled={parentDisabled || modelBusy}
-                    onBlur={(event) => {
-                      const value = Number(event.currentTarget.value);
-                      if (Number.isSafeInteger(value) && value >= 4096 && value <= 1_000_000) {
-                        onContextWindowChange(model.id, value);
+                <div className="col-start-2 row-start-2 flex min-w-0 flex-wrap items-center gap-2 text-xs text-muted sm:col-auto sm:row-auto sm:shrink-0">
+                  <label className="flex min-w-0 flex-wrap items-center gap-1 sm:flex-nowrap">
+                    <span className="sr-only">{model.name} のコンテキストサイズ</span>
+                    <input
+                      type="number"
+                      min={4096}
+                      max={1_000_000}
+                      step={1024}
+                      defaultValue={model.contextWindow}
+                      placeholder="既定"
+                      disabled={parentDisabled || modelBusy}
+                      onBlur={(event) => {
+                        const value = Number(event.currentTarget.value);
+                        if (Number.isSafeInteger(value) && value >= 4096 && value <= 1_000_000) {
+                          onContextWindowChange(model.id, value);
+                        }
+                      }}
+                      className="w-28 max-w-full rounded-lg border border-border bg-surface-2 px-2 py-1.5 text-right text-xs text-text"
+                      aria-label={`${model.name} のコンテキストサイズ`}
+                    />
+                    <span className="shrink-0">tokens</span>
+                  </label>
+                  {showEffort && (
+                    <GhostSelect
+                      value={model.defaultThinkingLevel ?? ""}
+                      disabled={parentDisabled || modelBusy}
+                      aria-label={`${model.name} の既定effort`}
+                      title="このモデルを選んだ時の既定effort"
+                      icon={<Brain className="h-3.5 w-3.5" />}
+                      valueLabel={model.defaultThinkingLevel ? THINKING_LEVEL_LABELS[model.defaultThinkingLevel] : "既定"}
+                      onChange={(next) =>
+                        onDefaultThinkingLevelChange(
+                          model.id,
+                          isThinkingLevel(next) ? next : null,
+                        )
                       }
-                    }}
-                    className="w-28 max-w-full rounded-lg border border-border bg-surface-2 px-2 py-1.5 text-right text-xs text-text"
-                    aria-label={`${model.name} のコンテキストサイズ`}
-                  />
-                  <span className="shrink-0">tokens</span>
-                </label>
+                      className="max-w-[8rem] shrink-0"
+                    >
+                      <option value="">既定</option>
+                      {effortLevels.map((level) => (
+                        <option key={level} value={level}>
+                          {THINKING_LEVEL_LABELS[level]}
+                        </option>
+                      ))}
+                    </GhostSelect>
+                  )}
+                </div>
                 <div className="col-start-3 row-start-1 sm:col-auto sm:row-auto">
                   <Switch
                     checked={model.enabled}
@@ -326,6 +370,50 @@ export function ProviderModelsPanel({
         setProviders((prev) => prev.map((current) =>
           providerRowKey(current) === rowKey
             ? { ...current, models: current.models.map((model) => model.id === modelId ? { ...model, contextWindow } : model) }
+            : current,
+        ));
+      } catch (err) {
+        if (mountedRef.current) setActionError(err instanceof ApiError ? err.message : String(err));
+      } finally {
+        if (mountedRef.current) setBusyId(null);
+      }
+    },
+    [],
+  );
+
+  const setDefaultThinkingLevel = useCallback(
+    async (
+      provider: ProviderModelsRow,
+      modelId: string,
+      level: ThinkingLevel | null,
+    ) => {
+      const rowKey = providerRowKey(provider);
+      const modelKey = `${rowKey}::${modelId}`;
+      setBusyId(modelKey);
+      setActionError(null);
+      try {
+        await sendJson(
+          `/api/provider-models/${encodeURIComponent(`${provider.id}::${modelId}`)}`,
+          {
+            defaultThinkingLevel: level,
+            ...(provider.accountId ? { accountId: provider.accountId } : {}),
+          },
+          "PATCH",
+        );
+        setProviders((prev) => prev.map((current) =>
+          providerRowKey(current) === rowKey
+            ? {
+                ...current,
+                models: current.models.map((model) => {
+                  if (model.id !== modelId) return model;
+                  if (level === null) {
+                    const next = { ...model };
+                    delete next.defaultThinkingLevel;
+                    return next;
+                  }
+                  return { ...model, defaultThinkingLevel: level };
+                }),
+              }
             : current,
         ));
       } catch (err) {
@@ -527,6 +615,7 @@ export function ProviderModelsPanel({
         onToggleProvider={(enabled) => void toggle(provider, undefined, enabled)}
         onToggleModel={(modelId, enabled) => void toggle(provider, modelId, enabled)}
         onContextWindowChange={(modelId, contextWindow) => void setContextWindow(provider, modelId, contextWindow)}
+        onDefaultThinkingLevelChange={(modelId, level) => void setDefaultThinkingLevel(provider, modelId, level)}
       />
     );
   };

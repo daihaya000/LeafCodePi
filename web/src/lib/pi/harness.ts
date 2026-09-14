@@ -76,6 +76,7 @@ import {
 import {
   accountProviderModelKey,
   contextWindowForModel,
+  defaultThinkingLevelForModel as storedDefaultThinkingLevelForModel,
   ensureProviderModelsKnown,
   readProviderModelState,
   setProviderModelDisabled,
@@ -240,8 +241,8 @@ export function mergeBundledSkills<T extends {
 }
 import {
   clampThinkingLevelForModel,
-  defaultThinkingLevel,
   isThinkingLevel,
+  resolveThinkingLevel,
   thinkingLevelsForModel,
 } from "@/lib/thinking-levels";
 import {
@@ -2559,6 +2560,44 @@ function modelWithContextWindow(
   return contextWindow === undefined ? model : { ...model, contextWindow, maxTokens: Math.min(model.maxTokens, contextWindow) };
 }
 
+function configuredThinkingLevelForModel(
+  model: Model,
+  accountId?: string | null,
+): ThinkingLevel | undefined {
+  const ids = modelId(model);
+  return ids.providerID && ids.modelID
+    ? storedDefaultThinkingLevelForModel(
+        ids.providerID,
+        ids.modelID,
+        readProviderModelState(),
+        accountId,
+      )
+    : undefined;
+}
+
+/** Resolve a saved model default, falling back to Pi's existing medium-like default. */
+function defaultThinkingLevelForRoute(
+  model: Model,
+  accountId?: string | null,
+): ThinkingLevel {
+  return resolveThinkingLevel(
+    thinkingLevelsForModel(model),
+    configuredThinkingLevelForModel(model, accountId),
+  );
+}
+
+function thinkingLevelForModelSelection(
+  model: Model,
+  accountId: string | null | undefined,
+  current: unknown,
+  modelChanged: boolean,
+): ThinkingLevel {
+  const preferred = modelChanged
+    ? configuredThinkingLevelForModel(model, accountId) ?? current
+    : current;
+  return resolveThinkingLevel(thinkingLevelsForModel(model), preferred);
+}
+
 function routeLimitError(resetAt: string | null): Error {
   return Object.assign(
     new Error(
@@ -3158,6 +3197,11 @@ async function ensureLive(
         ? task.accountId ?? null
         : null;
     const sessionAccountId = modelRoute?.accountId ?? taskAccountForSession;
+    const sessionThinkingLevel = isThinkingLevel(task.thinkingLevel)
+      ? task.thinkingLevel
+      : model
+        ? defaultThinkingLevelForRoute(model, sessionAccountId)
+        : undefined;
     const setup = await createSession({
       cwd,
       sessionFile: task.sessionFile,
@@ -3165,7 +3209,7 @@ async function ensureLive(
       ...botSessionOptions(task),
       accountId: sessionAccountId,
       model,
-      thinkingLevel: task.thinkingLevel,
+      thinkingLevel: sessionThinkingLevel,
       skillPermission: task.skillPermission,
       permissionMode: isBot ? (bot?.permissionMode ?? task.permissionMode) : task.permissionMode,
       agentName: task.agent ?? null,
@@ -3184,6 +3228,7 @@ async function ensureLive(
       sessionId: setup.session.sessionId,
       sessionFile: setup.session.sessionFile,
       ...modelId(setup.session.model),
+      ...(sessionThinkingLevel ? { thinkingLevel: sessionThinkingLevel } : {}),
       accountId: sessionAccountId ?? undefined,
       accountIdExplicit:
         sessionAccountId && accountIdExplicit ? true : undefined,
@@ -3492,9 +3537,9 @@ async function buildModelOptions(
     accountId,
     snapshot.models,
   );
-  const enabled = new Set(
-    enabledModelOptionsFromCatalog(catalog).map((option) => option.value),
-  );
+  const catalogOptions = enabledModelOptionsFromCatalog(catalog);
+  const enabled = new Set(catalogOptions.map((option) => option.value));
+  const catalogByValue = new Map(catalogOptions.map((option) => [option.value, option]));
   const available = providerIds
     ? (
         await Promise.all(
@@ -3516,12 +3561,13 @@ async function buildModelOptions(
       input: [...model.input],
       reasoning: Boolean(model.reasoning),
       thinkingLevels: thinkingLevelsForModel(model),
+      ...(catalogByValue.get(value)?.defaultThinkingLevel
+        ? { defaultThinkingLevel: catalogByValue.get(value)!.defaultThinkingLevel }
+        : {}),
     });
   }
   // Preserve settings order from the catalog.
-  const order = enabledModelOptionsFromCatalog(catalog).map(
-    (option) => option.value,
-  );
+  const order = catalogOptions.map((option) => option.value);
   const rank = new Map(order.map((value, index) => [value, index]));
   options.sort(
     (a, b) => (rank.get(a.value) ?? 1e9) - (rank.get(b.value) ?? 1e9),
@@ -3731,6 +3777,12 @@ function integratedOption(
   const thinkingLevels = intersection(
     records.map((record) => record.option.thinkingLevels),
   );
+  const defaultValues = records.map((record) => record.option.defaultThinkingLevel);
+  const defaultThinkingLevel = defaultValues.every(
+    (value) => value === defaultValues[0],
+  )
+    ? defaultValues[0]
+    : undefined;
   return {
     value: `${providerID}::${modelID}`,
     label: first.option.label,
@@ -3739,6 +3791,9 @@ function integratedOption(
     ...(input ? { input } : {}),
     reasoning: records.every((record) => record.option.reasoning === true),
     ...(thinkingLevels ? { thinkingLevels } : {}),
+    ...(defaultThinkingLevel
+      ? { defaultThinkingLevel }
+      : {}),
     codexbarUsedPercent:
       decision.allMaxed
         ? 100
@@ -5435,12 +5490,13 @@ export async function createTask(input: {
     model: Model | undefined,
     accountId: string | null,
     accountIdExplicit: boolean,
+    thinkingLevel?: ThinkingLevel,
   ): TaskSummary => {
     const selectedIds = modelId(model);
     return insertTask({
       project,
       title: titleFromPrompt(input.prompt),
-      thinkingLevel: thinkingLevelInput,
+      thinkingLevel,
       providerID: selectedIds.providerID ?? parsed?.providerID,
       modelID: selectedIds.modelID ?? parsed?.modelID,
       ...(accountId ? { accountId } : {}),
@@ -5486,12 +5542,16 @@ export async function createTask(input: {
         }
         try {
           if (project) patchProject(project.id, { lastOpenedAt: new Date().toISOString() });
+          const thinkingLevel = isThinkingLevel(thinkingLevelInput)
+            ? thinkingLevelInput
+            : defaultThinkingLevelForRoute(route.model, route.accountId);
           return {
             route,
             task: insertStoredTask(
               route.model,
               route.accountId,
               requestedAccountExplicit,
+              thinkingLevel,
             ),
           };
         } catch (error) {
@@ -5531,7 +5591,9 @@ export async function createTask(input: {
   const model = modelRoute?.model;
   const requestedThinking = isThinkingLevel(thinkingLevelInput)
     ? thinkingLevelInput
-    : "off";
+    : model
+      ? defaultThinkingLevelForRoute(model, concreteAccountId)
+      : "off";
   // The provider adapter performs the final model-specific clamping when it
   // builds the request. Do not clamp from the session-creation model metadata.
   const thinkingLevel = requestedThinking;
@@ -5631,12 +5693,12 @@ async function replaceLiveForRoute(
   if (!sessionFile) {
     throw new Error("セッションを別アカウントへ切り替えられません");
   }
-  const thinkingLevel = clampThinkingLevelForModel(
-    route.model,
-    isThinkingLevel(live.session.thinkingLevel)
-      ? live.session.thinkingLevel
-      : task.thinkingLevel,
-  );
+  const requestedThinkingLevel = isThinkingLevel(live.session.thinkingLevel)
+    ? live.session.thinkingLevel
+    : task.thinkingLevel;
+  const thinkingLevel = requestedThinkingLevel
+    ? clampThinkingLevelForModel(route.model, requestedThinkingLevel)
+    : defaultThinkingLevelForRoute(route.model, route.accountId);
   const goalLoop = isActiveGoalLoopSession(live.session);
   const setup = await createSession({
     cwd: project?.rootPath ?? task.directory,
@@ -7048,7 +7110,10 @@ export async function setTaskModel(
   const targetAccountId = modelRoute.accountId;
   const model = modelRoute.model;
   const targetIds = modelId(model);
-  const levels = thinkingLevelsForModel(model);
+  const sameModel =
+    targetIds.providerID === task.providerID &&
+    targetIds.modelID === task.modelID &&
+    targetAccountId === (task.accountId ?? null);
   const persistColdTaskModel = (thinkingLevel: ThinkingLevel): TaskSummary | null => {
     if (state().live.get(id)) return null;
     // A failed cold session may still be in ensureLiveInflight. Advance its epoch
@@ -7072,12 +7137,12 @@ export async function setTaskModel(
   // アカウント切替はセッションの再作成が必要なため、実行中は次ターンへ保留する。
   // 先に ensureLive を待って作成中セッションとの競合をなくす。
   if (targetAccountId !== (task.accountId ?? null)) {
-    const thinkingLevel = (() => {
-      const current = isThinkingLevel(task.thinkingLevel)
-        ? task.thinkingLevel
-        : "off";
-      return levels.includes(current) ? current : defaultThinkingLevel(levels);
-    })();
+    const thinkingLevel = thinkingLevelForModelSelection(
+      model,
+      targetAccountId,
+      task.thinkingLevel,
+      true,
+    );
     const coldSummary = persistColdTaskModel(thinkingLevel);
     if (coldSummary) return coldSummary;
     const live = await ensureLive(id);
@@ -7117,12 +7182,12 @@ export async function setTaskModel(
     return summary;
   }
 
-  const current = isThinkingLevel(task.thinkingLevel)
-    ? task.thinkingLevel
-    : "off";
-  const thinkingLevel = current && levels.includes(current)
-    ? current
-    : defaultThinkingLevel(levels);
+  const thinkingLevel = thinkingLevelForModelSelection(
+    model,
+    targetAccountId,
+    task.thinkingLevel,
+    !sameModel,
+  );
   const coldSummary = persistColdTaskModel(thinkingLevel);
   if (coldSummary) return coldSummary;
   const live = await ensureLive(id);
@@ -7147,15 +7212,8 @@ export async function setTaskModel(
   await live.session.setModel(model);
   applySessionCompactionSettings(live.session);
   const ids = modelId(live.session.model ?? model);
-  const appliedCurrent = isThinkingLevel(live.session.thinkingLevel)
-    ? live.session.thinkingLevel
-    : getTask(id)?.thinkingLevel;
-  // 現レベルが新モデルでも有効なら維持、無ければ既定（medium 相当）へ。
-  // clampThinkingLevel は上位レベルへ昇格するため使わない。
-  const appliedThinkingLevel =
-    appliedCurrent && levels.includes(appliedCurrent)
-      ? appliedCurrent
-      : defaultThinkingLevel(levels);
+  // 保存済みモデル既定値（未設定時は従来の既定値）を新モデルへ適用する。
+  const appliedThinkingLevel = thinkingLevel;
   if (live.session.thinkingLevel !== appliedThinkingLevel) {
     live.session.setThinkingLevel(appliedThinkingLevel);
   }

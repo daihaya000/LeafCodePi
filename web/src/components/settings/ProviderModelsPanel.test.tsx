@@ -123,6 +123,53 @@ describe("ProviderModelsPanel account model settings", () => {
     ).toBeTruthy();
   });
 
+  it("saves the selected model's default effort for its account", async () => {
+    fetchMock.mockImplementationOnce(() =>
+      Promise.resolve(
+        jsonResponse({
+          providers: [
+            {
+              id: "openai-codex",
+              name: "OpenAI Codex",
+              accountId: "acc-1",
+              accountLabel: "仕事用",
+              enabled: true,
+              models: [
+                {
+                  id: "gpt-5",
+                  name: "GPT-5",
+                  enabled: true,
+                  thinkingLevels: ["low", "medium", "high"],
+                  defaultThinkingLevel: "medium",
+                },
+              ],
+            },
+          ],
+        }),
+      ),
+    );
+    render(<ProviderModelsPanel />);
+    await screen.findByRole("heading", { name: "モデル" });
+    fireEvent.click(
+      screen.getByRole("button", { name: "OpenAI Codex · 仕事用 のモデルを展開" }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "GPT-5 の既定effort" }));
+    fireEvent.click(await screen.findByRole("option", { name: "high" }));
+
+    await waitFor(() => {
+      const patch = fetchMock.mock.calls.find(
+        ([input, init]) =>
+          String(input).includes("/api/provider-models/openai-codex%3A%3Agpt-5") &&
+          init?.method === "PATCH",
+      );
+      expect(patch).toBeTruthy();
+      expect(JSON.parse(String(patch?.[1]?.body))).toEqual({
+        defaultThinkingLevel: "high",
+        accountId: "acc-1",
+      });
+    });
+  });
+
   it("updates only the selected account model", async () => {
     render(<ProviderModelsPanel />);
     await screen.findByRole("heading", { name: "モデル" });

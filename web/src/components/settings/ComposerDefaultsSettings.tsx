@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { getJson } from "@/lib/client";
 import { AUTO_MODEL_OPTION } from "@/lib/auto-model";
 import {
@@ -28,6 +28,8 @@ export function ComposerDefaultsSettings({ refreshToken = 0 }: { refreshToken?: 
   );
   const [error, setError] = useState<string | null>(null);
   const touchedRef = useRef(false);
+  const thinkingLevelTouchedRef = useRef(false);
+  const thinkingModelRef = useRef<string | undefined>(undefined);
 
   useEffect(() => {
     let active = true;
@@ -70,12 +72,12 @@ export function ComposerDefaultsSettings({ refreshToken = 0 }: { refreshToken?: 
     };
   }, []);
 
-  const change = (patch: Partial<ComposerDefaults>) => {
+  const change = useCallback((patch: Partial<ComposerDefaults>) => {
     touchedRef.current = true;
     const next = { ...defaults, ...patch };
     setDefaults(next);
     writeComposerDefaults(next);
-  };
+  }, [defaults]);
 
   const modelOptions = [AUTO_MODEL_OPTION, ...models];
   // ModelSelect/HomeView と同じ照合にし、integrated / 旧アカウント接頭辞でも effort を失わない。
@@ -91,11 +93,19 @@ export function ComposerDefaultsSettings({ refreshToken = 0 }: { refreshToken?: 
     if (!selectedModel || selectedModel.value === defaults.model) return;
     // 旧アカウント接頭辞値は候補の正規 value へ寄せ、select の不一致と未接続表示を防ぐ。
     change({ model: selectedModel.value });
-  }, [defaults.model, selectedModel]);
+  }, [defaults.model, selectedModel, change]);
 
   useEffect(() => {
-    if (!selectedModel || selectedModel.value === AUTO_MODEL_OPTION.value) return;
-    const safeLevel = resolveThinkingLevel(thinkingLevels, thinkingLevel);
+    if (!selectedModel || selectedModel.value === AUTO_MODEL_OPTION.value || !selectedModel.thinkingLevels) return;
+    if (thinkingModelRef.current !== selectedModel.value) {
+      thinkingModelRef.current = selectedModel.value;
+      thinkingLevelTouchedRef.current = false;
+    }
+    const preferred =
+      !thinkingLevelTouchedRef.current && selectedModel.defaultThinkingLevel
+        ? selectedModel.defaultThinkingLevel
+        : thinkingLevel;
+    const safeLevel = resolveThinkingLevel(thinkingLevels, preferred);
     if (safeLevel !== thinkingLevel) {
       setThinkingLevel(safeLevel);
       writeStoredThinkingLevel(safeLevel);
@@ -115,7 +125,10 @@ export function ComposerDefaultsSettings({ refreshToken = 0 }: { refreshToken?: 
             <ModelSelect
               value={selectModelValue}
               options={modelOptions}
-              onChange={(value) => change({ model: value })}
+              onChange={(value) => {
+                thinkingLevelTouchedRef.current = false;
+                change({ model: value });
+              }}
               ariaLabel="既定のモデル"
               emptyLabel={modelKnown ? "モデルなし" : `${defaults.model}（未接続）`}
               className="h-9 w-full"
@@ -136,6 +149,7 @@ export function ComposerDefaultsSettings({ refreshToken = 0 }: { refreshToken?: 
                 levels={thinkingLevels}
                 value={thinkingLevel}
                 onChange={(level) => {
+                  thinkingLevelTouchedRef.current = true;
                   setThinkingLevel(level);
                   writeStoredThinkingLevel(level);
                 }}
