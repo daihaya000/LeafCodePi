@@ -499,6 +499,10 @@ export function RoomView({ id, active = true }: { id: string; active?: boolean }
       const result = await sendJson<{ room: RoomDto; text: string; images?: ComposerAttachment[]; files?: ComposerAttachment[] }>(`/api/bots/rooms/${encodeURIComponent(id)}/revert`, { messageId });
       if (roomRequestContextRef.current !== requestContext) return;
       setRoom(result.room);
+      setAttention([]);
+      setAttentionBusy(null);
+      clearedPermissionIdsRef.current.clear();
+      clearedQuestionIdsRef.current.clear();
       setPrompt(result.text);
       setAttachments([...(result.images ?? []), ...(result.files ?? [])]);
       requestAnimationFrame(() => promptRef.current?.focus());

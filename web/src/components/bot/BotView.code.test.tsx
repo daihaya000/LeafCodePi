@@ -1115,6 +1115,28 @@ it("does not revive an answered permission from a stale SSE snapshot", async () 
   expect(screen.queryByRole("button", { name: "許可" })).toBeNull();
 });
 
+it("clears permission after reverting a user message", async () => {
+  mocks.sendJson.mockImplementation(async (url: string) => {
+    if (url.endsWith("/revert")) return { text: "やり直したい依頼", images: [], files: [] };
+    return { bot: testBot };
+  });
+  render(<ShellProvider><BotView id="one" /></ShellProvider>);
+  await screen.findByRole("button", { name: "設定" });
+  snapshot({
+    messages: [{ id: "user-1", role: "user", createdAt: 1, parts: [{ type: "text", text: "やり直したい依頼" }] }],
+    permissionRequest: { id: "permission-1", sessionId: "code-session", command: "code_session", labels: [], message: "Codeへ依頼します" },
+  });
+  expect(screen.getByRole("button", { name: "許可" })).toBeTruthy();
+
+  fireEvent.click(screen.getByRole("button", { name: /入力欄に戻す/ }));
+  await waitFor(() => {
+    expect(mocks.sendJson).toHaveBeenCalledWith("/api/bots/one/revert", { entryId: "user-1" });
+  });
+  await waitFor(() => {
+    expect(screen.queryByRole("button", { name: "許可" })).toBeNull();
+  });
+});
+
 it("ignores a second permission click while the first is in flight", async () => {
   render(<ShellProvider><BotView id="one" /></ShellProvider>);
   await screen.findByRole("button", { name: "設定" });

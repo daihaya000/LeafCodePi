@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getRoom, readRoomFile, readRoomImage, revertRoomTo } from "@/lib/rooms";
-import { jsonError } from "@/lib/pi/harness";
+import { getRoom, readRoomFile, readRoomImage, revertRoomTo, roomBotTaskId } from "@/lib/rooms";
+import { clearPendingAttentionForTask, jsonError } from "@/lib/pi/harness";
 import { stopRoomTurns } from "@/lib/room-runtime";
 import { cancelRoomCodeRequests } from "@/lib/pi/bot-code-relay";
 export const runtime = "nodejs";
@@ -13,7 +13,8 @@ export const dynamic = "force-dynamic";
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
     const id = (await params).id;
-    if (!getRoom(id)) return NextResponse.json({ error: "Room not found" }, { status: 404 });
+    const existing = getRoom(id);
+    if (!existing) return NextResponse.json({ error: "Room not found" }, { status: 404 });
     const body = (await req.json().catch(() => null)) as { messageId?: unknown } | null;
     const messageId = typeof body?.messageId === "string" ? body.messageId.trim() : "";
     if (!messageId) return NextResponse.json({ error: "messageId が指定されていません" }, { status: 400 });
@@ -21,6 +22,10 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     await stopRoomTurns(id);
     const reverted = revertRoomTo(id, messageId);
     if (!reverted) return NextResponse.json({ error: "巻き戻せるユーザー発言が見つかりません" }, { status: 404 });
+    // Drop member attention raised for the discarded transcript context.
+    for (const memberId of existing.members) {
+      clearPendingAttentionForTask(roomBotTaskId(id, memberId));
+    }
     // Work started for removed requests has nowhere to report back to.
     let cancelled = 0;
     for (const requestId of reverted.requestIds) cancelled += await cancelRoomCodeRequests(id, requestId);

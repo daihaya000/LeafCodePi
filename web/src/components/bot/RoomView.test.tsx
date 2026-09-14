@@ -365,6 +365,24 @@ describe("RoomView delegated work", () => {
     expect(input.value).toBe("やり直したい依頼");
   });
 
+  it("clears attention after reverting a room message", async () => {
+    const { act, waitFor } = await import("@testing-library/react");
+    mocks.sendJson.mockResolvedValueOnce({ room: { ...room, messages: [] }, text: "やり直したい依頼" });
+    render(<RoomView id={room.id} />);
+    await screen.findByRole("textbox");
+    const permission = { id: "permission-1", command: "code_session", message: "Codeへ依頼します", labels: [] };
+    act(() => pushSnapshot({
+      room: { ...room, messages: [{ id: "user-9", role: "user" as const, text: "やり直したい依頼", createdAt: 2 }] },
+      attention: [{ botId: bot.id, taskId: `bot:${bot.id}:room:${room.id}`, permission, question: null }],
+    }));
+    expect(screen.getByRole("alertdialog", { name: "Alphaの権限確認" })).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: /入力欄に戻す/ }));
+    await waitFor(() => {
+      expect(screen.queryByRole("alertdialog", { name: "Alphaの権限確認" })).toBeNull();
+    });
+  });
+
   it("saves standing Code approval without Web UI token auth", async () => {
     mocks.sendJson.mockResolvedValueOnce({ room: { ...room, codeAutoApprove: true } });
     render(<RoomView id={room.id} />);

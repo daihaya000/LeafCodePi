@@ -706,6 +706,11 @@ export const BotView = memo(function BotView({ id, active = true }: { id: string
         { entryId: message.id },
       );
       if (botRequestContextRef.current !== requestContext) return;
+      setPermission(null);
+      setQuestion(null);
+      setAttentionBusy(null);
+      clearedPermissionIdsRef.current.clear();
+      clearedQuestionIdsRef.current.clear();
       setPrompt(result.text);
       setAttachments([...(result.images ?? []), ...(result.files ?? [])]);
       requestAnimationFrame(() => inputRef.current?.focus());

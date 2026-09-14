@@ -112,4 +112,16 @@ describe("delegated Code attention in the Bot conversation", () => {
     expect(responded).toBe(true);
     await expect(approval).resolves.toBe(true);
   });
+
+  it("clears delegated Code attention when clearing the originating Bot task", async () => {
+    pendingPermissionForTask("code");
+    const approval = requestWebUiPermission({ sessionId: "code-session", command: "edit", labels: [], message: "Approve Code edit" });
+    expect(pendingPermissionForTask("bot:one")).not.toBeNull();
+
+    clearPendingAttentionForTask("bot:one");
+
+    expect(pendingPermissionForTask("bot:one")).toBeNull();
+    expect(pendingPermissionForTask("code")).toBeNull();
+    await expect(approval).resolves.toBe(false);
+  });
 });

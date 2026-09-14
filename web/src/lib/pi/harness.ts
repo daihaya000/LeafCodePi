@@ -8290,6 +8290,8 @@ export async function revertTask(
   }
   live.revertLeafId = captureRevertLeafId(previousLeafId);
   persistRevertLeafId(id, live.revertLeafId);
+  // Revert drops the conversational context that raised the prompt; keep abort/reset parity.
+  clearPendingAttentionForTask(id);
   const taskDetail = await getTaskDetail(id);
   emit(id, {
     type: "snapshot",
@@ -8650,6 +8652,12 @@ export function pendingPermissionForTask(
 export function clearPendingAttentionForTask(taskId: string): void {
   ensurePermissionPromptService().clearPendingForTask(taskId);
   ensureQuestionPromptService().clearPendingForTask(taskId);
+  // Bot UIs surface delegated Code prompts via botAttentionSource; clear those too.
+  if (!taskId.startsWith("bot:")) return;
+  for (const linked of botCodeRelay().codeTasksForOrigin(taskId)) {
+    ensurePermissionPromptService().clearPendingForTask(linked);
+    ensureQuestionPromptService().clearPendingForTask(linked);
+  }
 }
 
 export function respondToPermissionPrompt(

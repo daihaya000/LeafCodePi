@@ -4,17 +4,26 @@ import { join } from "node:path";
 import { NextRequest } from "next/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const state = vi.hoisted(() => ({ root: "", cancel: vi.fn<(roomId: string, requestId: string) => number>(() => 0), stop: vi.fn(async () => 0) }));
+const state = vi.hoisted(() => ({
+  root: "",
+  cancel: vi.fn<(roomId: string, requestId: string) => number>(() => 0),
+  stop: vi.fn(async () => 0),
+  clearAttention: vi.fn(),
+}));
 vi.mock("@/lib/paths", async (importOriginal) => ({
   ...await importOriginal<typeof import("@/lib/paths")>(),
   dataDir: () => state.root,
   storePath: () => join(state.root, "store.json"),
 }));
-vi.mock("@/lib/pi/harness", () => ({ jsonError: (error: Error) => ({ error: error.message, status: 500 }) }));
+vi.mock("@/lib/pi/harness", () => ({
+  jsonError: (error: Error) => ({ error: error.message, status: 500 }),
+  clearPendingAttentionForTask: state.clearAttention,
+}));
 vi.mock("@/lib/pi/bot-code-relay", () => ({ cancelRoomCodeRequests: state.cancel }));
 vi.mock("@/lib/room-runtime", () => ({ stopRoomTurns: state.stop }));
 
 import { appendRoomMessage, createRoom, getRoom, setRoomOutcome } from "@/lib/rooms";
+import { createBot } from "@/lib/bots";
 import { POST } from "./route";
 
 function send(id: string, body: unknown) {
@@ -22,15 +31,22 @@ function send(id: string, body: unknown) {
 }
 
 beforeEach(() => { state.root = mkdtempSync(join(tmpdir(), "leafcode-room-revert-")); });
-afterEach(() => { rmSync(state.root, { recursive: true, force: true }); state.cancel.mockClear(); state.stop.mockClear(); });
+afterEach(() => {
+  rmSync(state.root, { recursive: true, force: true });
+  state.cancel.mockClear();
+  state.stop.mockClear();
+  state.clearAttention.mockClear();
+});
 
 describe("room revert", () => {
   it("removes the request and everything after it, returning its text for the composer", async () => {
-    const room = createRoom({ name: "Team" });
+    const alpha = createBot({ name: "Alpha" });
+    const beta = createBot({ name: "Beta" });
+    const room = createRoom({ name: "Team", members: [alpha.id, beta.id] });
     const first = appendRoomMessage(room.id, { role: "user", text: "最初の依頼" })!;
-    appendRoomMessage(room.id, { role: "assistant", botId: "a", text: "最初の返答", status: "done" });
+    appendRoomMessage(room.id, { role: "assistant", botId: alpha.id, text: "最初の返答", status: "done" });
     const second = appendRoomMessage(room.id, { role: "user", text: "やり直したい依頼" })!;
-    appendRoomMessage(room.id, { role: "assistant", botId: "a", text: "途中の返答", status: "working" });
+    appendRoomMessage(room.id, { role: "assistant", botId: alpha.id, text: "途中の返答", status: "working" });
     const third = appendRoomMessage(room.id, { role: "user", text: "さらにやり直したい依頼" })!;
     setRoomOutcome(room.id, { kind: "code-wait", requestId: third.id });
     state.cancel.mockReturnValue(1);
@@ -46,6 +62,8 @@ describe("room revert", () => {
     expect(state.cancel).toHaveBeenNthCalledWith(2, room.id, third.id);
     // A running conversation would otherwise append new turns into the rewound transcript.
     expect(state.stop).toHaveBeenCalledWith(room.id);
+    expect(state.clearAttention).toHaveBeenCalledWith(`bot:${alpha.id}:room:${room.id}`);
+    expect(state.clearAttention).toHaveBeenCalledWith(`bot:${beta.id}:room:${room.id}`);
   });
 
   it("refuses an unknown room, a missing id, and a bot reply", async () => {
@@ -57,5 +75,6 @@ describe("room revert", () => {
     expect((await send(room.id, { messageId: "unknown" })).status).toBe(404);
     expect(getRoom(room.id)!.messages).toHaveLength(1);
     expect(state.cancel).not.toHaveBeenCalled();
+    expect(state.clearAttention).not.toHaveBeenCalled();
   });
 });

@@ -2062,6 +2062,11 @@ export const TaskView = memo(function TaskView({
           ),
         ]);
       }
+      clearedPermissionIdsRef.current.clear();
+      clearedQuestionIdsRef.current.clear();
+      setPermissionRequest(null);
+      setQuestionRequest(null);
+      setPermissionBusy(false);
       applyDetail(result.task);
       notifyTasksChanged();
     } catch (err) {
