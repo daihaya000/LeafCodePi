@@ -2,7 +2,9 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { NextRequest } from "next/server";
 import { accountStoredProviders } from "@/lib/accounts";
+import { GET as getCodexBarUsage } from "@/app/api/codexbar/usage/route";
 import { roamingConfigDir } from "./app-paths";
 import { defaultOpenCodeCookiePath } from "./browser-cookies";
 import { loadCodexBarConfig } from "./codexbar-config";
@@ -84,7 +86,7 @@ describe("CodexBar and Cursor config paths on Linux", () => {
     }
   });
 
-  it("does not crash when CodexBar config and Pi auth.json are absent", () => {
+  it("does not crash when CodexBar config and Pi auth.json are absent", async () => {
     const dir = mkdtempSync(join(tmpdir(), "leafcode-linux-auth-smoke-"));
     const previousAppData = process.env.APPDATA;
     const previousAgent = process.env.PI_CODING_AGENT_DIR;
@@ -106,6 +108,12 @@ describe("CodexBar and Cursor config paths on Linux", () => {
       });
       expect(() => cursor.isConfigured()).not.toThrow();
       expect(cursor.isConfigured()).toBe(false);
+      const usage = await getCodexBarUsage(
+        new NextRequest("http://127.0.0.1/api/codexbar/usage?scope=default"),
+      );
+      expect(usage.status).toBe(200);
+      const body = (await usage.json()) as { available?: boolean };
+      expect(body).toEqual(expect.objectContaining({ available: expect.any(Boolean) }));
     } finally {
       if (previousAppData === undefined) delete process.env.APPDATA;
       else process.env.APPDATA = previousAppData;

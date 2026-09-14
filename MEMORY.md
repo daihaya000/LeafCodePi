@@ -53,13 +53,27 @@ GUI ブラウザは **WebUI を見ているクライアント**で `window.open`
 
 偽アカウントでの実 OAuth 完了はしていない。
 
-### テスト（Linux）
+### テスト（Linux, Node v22.14.0）
 
-関連 vitest を実行。件数は後続コミットに追記。
+Web 関連 36 files / **284 passed**（vitest、失敗 0）:
+
+- `src/lib/codexbar`（app-paths / pi-auth / orchestrator / cookie / providers / config / cache ほか）
+- `src/app/api/codexbar`（usage / providers / reset-credits）
+- `src/app/api/accounts` + cookie ルート
+- `src/app/api/providers`（login / base-url）
+- `src/app/api/models/map`
+- `src/components/codexbar`、`ProviderAuthPanel`、`TaskAccountBadge`
+- `src/lib/accounts`、`auth-login`、`account-runtime-manager`、`cursor-provider`、`ollama-cloud-provider`
+- `localhost-redirect`、`webui-auth`、`auto-model`
+
+スモーク（秘密なし）: 欠落 `config.json` / `auth.json` で `loadCodexBarConfig()=={}`、`readPiOAuthTokens==null`、`GET /api/codexbar/usage?scope=default` が 200。実 OAuth は未実施。
+
+Host 37 passed: `config` / `index` / `isolation` / `webui-auth`。`dataDir({})` = `~/.leafcode-pi`。Linux tray 既定オフ。
 
 ### ブランチ / PR
 
-`cursor/linux-codexbar-paths-e138`
+`cursor/linux-codexbar-paths-e138` / https://github.com/daihaya000/LeafCodePi/pull/9
+実装 SHA: 後続コミットに追記
 
 ---
 
