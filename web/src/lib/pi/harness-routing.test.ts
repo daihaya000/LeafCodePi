@@ -756,10 +756,15 @@ describe("integrated session routing", () => {
     mkdirSync(dirname(taskRuntimeLeasePath(task.id)), { recursive: true });
     writeFileSync(taskRuntimeLeasePath(task.id), JSON.stringify({ token: "other-worker", pid: process.pid, acquiredAt: Date.now(), heartbeatAt: Date.now() }), "utf8");
     const before = fakePi.sessions.at(-1)?.prompts.length ?? 0;
-    const result = await promptTask(task.id, "must-not-prompt", undefined, { waitForCompletion: true });
+    await expect(
+      promptTask(task.id, "must-not-prompt", undefined, { waitForCompletion: true }),
+    ).rejects.toMatchObject({
+      message: "タスクは別のワーカーで実行中です",
+      status: 409,
+    });
     expect(fakePi.sessions.at(-1)?.prompts.length ?? 0).toBe(before);
-    expect(result.status).toBe("error");
-    expect(getTask(task.id)?.status).toBe("error");
+    // The foreign lease blocks before queuePrompt; local task status stays idle.
+    expect(getTask(task.id)?.status).toBe("idle");
   });
 
   it("queues a prompt for a Bot-owned Code session held by another worker", async () => {

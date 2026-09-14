@@ -231,6 +231,16 @@
 ### 検証（Tick46）
 `bots/[id]` / `harness-prompt` / `harness-agent` — **80 passed**
 
+### Tick47–49（ループ継続）
+1. Bot `enabled:false` — 実行中の 1:1（`bot:${id}`）も `abortTask`（新規 DM は従来どおり許可）
+2. code-session API — disabled Bot の POST / prompt / Goal resume を 403；pause/stop/abort は継続可
+3. bot-code-relay — owner 失敗時に Code タスクも abort（cancel-only の orphan 防止）
+4. Goal Loop — `prepareGoalLoopTurn` 成功時に `armTaskHangWatch`
+5. harness-routing — 外部 lease は 409 throw を期待するようテスト修正
+
+### 検証（Tick47–49）
+`bots/[id]` / `code-session` / `bot-code-relay` / `harness-routing` — **131 passed**
+
 ---
 
 ## 2026-09-14: Stale production rebuild / next build exit 1

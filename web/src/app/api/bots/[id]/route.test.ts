@@ -264,6 +264,7 @@ describe("PATCH /api/bots/[id]", () => {
     expect(mocks.detachBotFromRoomRuntime).not.toHaveBeenCalledWith("room-b", "one");
     expect(mocks.cancelBotCodeRequests).toHaveBeenCalledWith("one");
     expect(mocks.stopBotCodeTask).not.toHaveBeenCalled();
+    expect(mocks.abortTask).toHaveBeenCalledWith("bot:one");
     expect(mocks.patchRoom).not.toHaveBeenCalled();
   });
 
@@ -276,6 +277,7 @@ describe("PATCH /api/bots/[id]", () => {
     expect(response.status).toBe(200);
     expect(mocks.cancelBotCodeRequests).toHaveBeenCalledWith("one");
     expect(mocks.stopBotCodeTask).toHaveBeenCalledWith("one", "code-loop");
+    expect(mocks.abortTask).toHaveBeenCalledWith("bot:one");
   });
 });
 

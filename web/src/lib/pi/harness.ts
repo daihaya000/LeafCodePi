@@ -2415,18 +2415,34 @@ function registerGoalLoopTurnRouting(taskId: string): (pi: ExtensionAPI) => void
         );
         if (after.session !== before.session) return false;
         if (isLiveBusyForReplace(after)) return "retry";
+        const armHangWatchForGoalTurn = () => {
+          const task = getTask(taskId);
+          const permissionMode =
+            after.pendingSettings?.permissionMode ?? task?.permissionMode;
+          armTaskHangWatch({
+            taskId,
+            prompt,
+            ...(permissionMode ? { permissionMode } : {}),
+          });
+        };
         const loop = readGoalLoopState(
           after.session.sessionManager.getCwd(),
           after.session.sessionId,
         );
-        if (loop?.autoAgent !== true) return true;
+        if (loop?.autoAgent !== true) {
+          armHangWatchForGoalTurn();
+          return true;
+        }
         const task = getTask(taskId);
         if (!task) {
           throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });
         }
         const routed = await prepareAutoAgentForGoalLoop(after, task, prompt);
         if (routed === "retry") return "retry";
-        if (routed.session === after.session) return true;
+        if (routed.session === after.session) {
+          armHangWatchForGoalTurn();
+          return true;
+        }
         emitTaskSnapshot(routed, "agent_routed");
         return false;
       };

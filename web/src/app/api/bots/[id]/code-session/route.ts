@@ -79,6 +79,9 @@ export async function POST(
       if (bot.permissionMode === "deny") {
         return NextResponse.json({ error: "ツール権限が「すべて拒否」のボットはCodeを起動できません" }, { status: 403 });
       }
+      if (bot.enabled === false) {
+        return NextResponse.json({ error: "無効なボットではCodeセッションを起動できません" }, { status: 403 });
+      }
       const body = (await req.json().catch(() => null)) as {
         projectId?: unknown;
         prompt?: unknown;
@@ -180,6 +183,10 @@ export async function PATCH(
         ) {
           return NextResponse.json({ error: "invalid goalLoopAction" }, { status: 400 });
         }
+        // Resume starts new Goal work; pause/stop/complete must still work after disable.
+        if (body.goalLoopAction === "resume" && bot.enabled === false) {
+          return NextResponse.json({ error: "無効なボットではGoal Loopを再開できません" }, { status: 403 });
+        }
         const loop = await goalLoopCommand(taskId, {
           action: body.goalLoopAction,
           maxTurns:
@@ -199,6 +206,9 @@ export async function PATCH(
         // Continuing a Code session is delegation too: a Bot that denies everything must not drive it.
         if (bot.permissionMode === "deny") {
           return NextResponse.json({ error: "ツール権限が「すべて拒否」のボットはCodeを起動できません" }, { status: 403 });
+        }
+        if (bot.enabled === false) {
+          return NextResponse.json({ error: "無効なボットではCodeセッションを続行できません" }, { status: 403 });
         }
         return NextResponse.json({ task: await continueBotCodeTask(id, taskId, body.prompt.trim()) });
       }

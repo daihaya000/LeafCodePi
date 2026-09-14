@@ -44,6 +44,7 @@ const bot = {
   thinkingLevel: null,
   permissionMode: null,
   codeSessionTaskId: null,
+  enabled: true,
 };
 
 function request(method: string, body?: unknown): NextRequest {
@@ -179,6 +180,42 @@ describe("Bot Code session control", () => {
 
     expect(response.status).toBe(403);
     expect(mocks.continueBotCodeTask).not.toHaveBeenCalled();
+  });
+
+  it("rejects starting or continuing Code when the Bot is disabled", async () => {
+    mocks.getBot.mockReturnValue({ ...bot, enabled: false, codeSessionTaskId: "code-1" });
+    mocks.getTask.mockReturnValue({ id: "code-1", status: "idle", botId: "bot-1" });
+
+    const create = await POST(request("POST", { projectId: "project-1", prompt: "起動" }), {
+      params: Promise.resolve({ id: "bot-1" }),
+    });
+    const cont = await PATCH(request("PATCH", { action: "prompt", prompt: "続けて" }), {
+      params: Promise.resolve({ id: "bot-1" }),
+    });
+    const resume = await PATCH(
+      request("PATCH", { action: "goal-loop", goalLoopAction: "resume", maxTurns: 2 }),
+      { params: Promise.resolve({ id: "bot-1" }) },
+    );
+
+    expect(create.status).toBe(403);
+    expect(cont.status).toBe(403);
+    expect(resume.status).toBe(403);
+    expect(mocks.createBotCodeTask).not.toHaveBeenCalled();
+    expect(mocks.continueBotCodeTask).not.toHaveBeenCalled();
+    expect(mocks.goalLoopCommand).not.toHaveBeenCalled();
+  });
+
+  it("still allows pause/stop on a linked Code Goal Loop after disable", async () => {
+    mocks.getBot.mockReturnValue({ ...bot, enabled: false, codeSessionTaskId: "code-1" });
+    mocks.getTask.mockReturnValue({ id: "code-1", status: "working", botId: "bot-1" });
+
+    const response = await PATCH(
+      request("PATCH", { action: "goal-loop", goalLoopAction: "stop" }),
+      { params: Promise.resolve({ id: "bot-1" }) },
+    );
+
+    expect(response.status).toBe(200);
+    expect(mocks.goalLoopCommand).toHaveBeenCalledWith("code-1", { action: "stop", maxTurns: undefined });
   });
 
   it("clears an archived linked task", async () => {

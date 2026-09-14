@@ -646,6 +646,7 @@ describe("Bot ⇄ Code relay", () => {
     expect(relay.codeForOrigin("bot:other")).toBeNull();
     store.bots.get("one")!.enabled = false;
     await relay.tick(); expect(record().state).toBe("cancelled");
+    expect(deps.abort).toHaveBeenCalledWith("code");
     expect(deps.deliver).not.toHaveBeenCalled();
   });
 

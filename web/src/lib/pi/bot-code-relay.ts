@@ -790,7 +790,21 @@ export function createBotCodeRelay(deps: RelayDependencies) {
     await withBotCodeSessionLock(`request-${id}`, async () => {
       const request = read(id);
       if (!request || !active(request)) return;
-      try { owner(request.originTaskId); } catch { request.state = "cancelled"; save(request); return; }
+      try { owner(request.originTaskId); } catch {
+        const taskToStop = request.state === "queued" ? null : request.codeTaskId;
+        request.state = "cancelled";
+        save(request);
+        if (taskToStop) {
+          try { await deps.abort(taskToStop); }
+          catch (error) {
+            console.warn(
+              "[bot-code-relay] disabled-owner Code task could not be stopped:",
+              error instanceof Error ? error.message : String(error),
+            );
+          }
+        }
+        return;
+      }
       if (request.userIntervention) {
         await dispatchUserIntervention(request);
         return;

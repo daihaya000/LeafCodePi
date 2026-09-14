@@ -149,6 +149,16 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
           }
         }
       }
+      // Stop in-flight 1:1 turns / Goal Loop on bot:${id}. New direct messages stay allowed
+      // (prompt/route); this only aborts work already accepted before disable.
+      try {
+        await abortTask(botTaskId(id));
+      } catch (error) {
+        console.warn(
+          `[bots] failed to abort 1:1 task on disable:`,
+          error instanceof Error ? error.message : String(error),
+        );
+      }
     }
     if (hasResetMessages) await resetTaskConversation(botTaskId(id));
     // SOUL and the per-Bot skill allowlist both shape the system prompt. Do not dispose a working
