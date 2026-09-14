@@ -1,18 +1,27 @@
 import { createCipheriv, pbkdf2Sync } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import {
   DEFAULT_LINUX_SAFE_STORAGE_PASSWORD,
   decryptChromiumSafeStorageCookie,
   deriveChromiumSafeStorageKey,
   lookupLinuxSafeStoragePasswordSync,
-} from "../../../../extensions/leafcode-web-access/chromium-cookie-crypto.ts";
+} from "./chromium-cookie-crypto";
 import {
   listChromiumBrowserRoots,
   readChromiumCookiesFromProfile,
 } from "./chromium-cookies";
 import { extractOpenCodeCookieHeader } from "./browser-cookies";
+
+const HERE = dirname(fileURLToPath(import.meta.url));
+
+/** Drop the leading block comment so the two "Must match" headers can differ. */
+function bodyAfterHeader(source: string): string {
+  return source.replace(/^\/\*[\s\S]*?\*\/\s*/, "");
+}
 
 function encryptLinuxCookie(plaintext: string, password = DEFAULT_LINUX_SAFE_STORAGE_PASSWORD): Buffer {
   const key = pbkdf2Sync(password, "saltysalt", 1, 16, "sha1");
@@ -20,6 +29,17 @@ function encryptLinuxCookie(plaintext: string, password = DEFAULT_LINUX_SAFE_STO
   const encrypted = Buffer.concat([cipher.update(plaintext, "utf8"), cipher.final()]);
   return Buffer.concat([Buffer.from("v10"), encrypted]);
 }
+
+describe("chromium-cookie-crypto parity with leafcode-web-access", () => {
+  it("keeps the same implementation body as the extension copy", () => {
+    const webCopy = readFileSync(join(HERE, "chromium-cookie-crypto.ts"), "utf8");
+    const extensionCopy = readFileSync(
+      join(HERE, "..", "..", "..", "..", "extensions", "leafcode-web-access", "chromium-cookie-crypto.ts"),
+      "utf8",
+    );
+    expect(bodyAfterHeader(webCopy)).toBe(bodyAfterHeader(extensionCopy));
+  });
+});
 
 describe("Linux Chromium Safe Storage crypto", () => {
   it("round-trips AES-128-CBC with the peanuts key (no real cookie bytes)", () => {

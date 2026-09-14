@@ -27,7 +27,7 @@ import {
   listChromiumProfileDirs,
   lookupLinuxSafeStoragePasswordSync,
   type ChromiumBrowserConfig,
-} from "../../../../extensions/leafcode-web-access/chromium-cookie-crypto.ts";
+} from "./chromium-cookie-crypto";
 
 export type ChromiumCookieRow = {
   hostKey: string;

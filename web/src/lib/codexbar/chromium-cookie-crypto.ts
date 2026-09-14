@@ -4,8 +4,8 @@
  * leafcode-web-access (Gemini / fetch cookies) and CodexBar cookie auto-pull
  * both use this. Windows DPAPI / AES-GCM stays in each consumer.
  *
- * Must match web/src/lib/codexbar/chromium-cookie-crypto.ts (that copy is what
- * Next bundles; production mirrors only sync `web/`).
+ * Must match extensions/leafcode-web-access/chromium-cookie-crypto.ts (that
+ * copy stays installable with the extension; this copy is what Next bundles).
  */
 
 import { execFile, execFileSync } from "node:child_process";

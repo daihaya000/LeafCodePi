@@ -1,4 +1,24 @@
-﻿# MEMORY
+# MEMORY
+
+## 2026-09-14: Stale production rebuild / next build exit 1
+
+### Symptom
+Host crashed with `Stale production rebuild failed and sources are still newer than the build (next build exited 1)` after `[build-web] rebuild failed; restored previous production build`.
+
+### Root cause
+`web/src/lib/codexbar/chromium-cookies.ts` imported `../../../../extensions/leafcode-web-access/chromium-cookie-crypto.ts`.
+Production builds run in `%LOCALAPPDATA%\leafcode-pi\build\<slug>\`, which only mirrors `web/`. Turbopack cannot resolve modules outside that project root, so `next build` failed with Module not found.
+
+### Fix
+- Vendored shared crypto at `web/src/lib/codexbar/chromium-cookie-crypto.ts` (Must match the extension copy; extension remains installable alone).
+- Pointed CodexBar imports at the in-tree module.
+- Added a parity test so the two implementation bodies stay identical.
+
+### Verify
+- `node scripts/build-web.mjs --skip-guard` → exit 0
+- `npx vitest run src/lib/codexbar/chromium-cookies.test.ts` → 10 passed
+
+---
 
 ## 2026-09-14: Linux/macOS トレイをデスクトップ既定に
 
