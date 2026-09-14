@@ -373,6 +373,25 @@ describe("mergeBundledSkills", () => {
 });
 
 describe("integrated session routing", () => {
+  it("rejects a model/account mismatch before opening a session", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "leafcode-pi-model-account-mismatch-"));
+    tempDirs.push(dir);
+    process.env.LEAFCODE_PI_DATA_DIR = dir;
+    process.env.PI_CODING_AGENT_DIR = join(dir, "agent");
+    __resetPiAgentDirCacheForTests();
+
+    const account = createAccount({ label: "選択アカウント", providers: ["anthropic"] });
+    installHarness(new Map([[account.id, runtime(account.id)]]));
+
+    await expect(createTask({
+      projectId: null,
+      prompt: "開始",
+      model: `${account.id}::anthropic::claude-sonnet`,
+      accountId: "別アカウント",
+    })).rejects.toMatchObject({ status: 400 });
+    expect(fakePi.sessions).toHaveLength(0);
+  });
+
   it("opens an account Bot without waiting for the shared runtime", async () => {
     const dir = mkdtempSync(join(tmpdir(), "leafcode-pi-account-bot-cold-start-"));
     tempDirs.push(dir);

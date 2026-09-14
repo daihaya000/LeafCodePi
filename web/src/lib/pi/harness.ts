@@ -876,6 +876,29 @@ function parseModelValue(value: string | undefined): ParsedModelValue | null {
   return { providerID, modelID };
 }
 
+function validateModelAccountSelection(
+  parsed: ParsedModelValue | null,
+  requestedAccountId: string | undefined,
+  explicitAccountId?: string | null,
+): void {
+  if (explicitAccountId && parsed?.accountId && explicitAccountId !== parsed.accountId) {
+    throw Object.assign(new Error("モデルとアカウントの指定が一致しません"), {
+      status: 400,
+    });
+  }
+  if (requestedAccountId && !getAccount(requestedAccountId)) {
+    throw Object.assign(new Error("アカウントが見つかりません"), {
+      status: 404,
+    });
+  }
+  if (requestedAccountId && parsed && !isAccountRoutingProvider(parsed.providerID)) {
+    throw Object.assign(
+      new Error("共有プロバイダーにはアカウントを指定できません"),
+      { status: 400 },
+    );
+  }
+}
+
 function modelId(model: Model | undefined): {
   providerID?: string;
   modelID?: string;
@@ -5384,20 +5407,7 @@ export async function validateTaskModelSelection(
     throw Object.assign(new Error("モデルが見つかりません"), { status: 400 });
   }
   const requested = requestedAccountId?.trim() || parsed.accountId;
-  if (requestedAccountId && parsed.accountId && requestedAccountId !== parsed.accountId) {
-    throw Object.assign(new Error("モデルとアカウントの指定が一致しません"), {
-      status: 400,
-    });
-  }
-  if (requested && !getAccount(requested)) {
-    throw Object.assign(new Error("アカウントが見つかりません"), { status: 404 });
-  }
-  if (requested && !isAccountRoutingProvider(parsed.providerID)) {
-    throw Object.assign(
-      new Error("共有プロバイダーにはアカウントを指定できません"),
-      { status: 400 },
-    );
-  }
+  validateModelAccountSelection(parsed, requested, requestedAccountId);
   const accountIdExplicit =
     options?.accountIdExplicit ?? Boolean(requested);
   const route = await withRouteLock(
@@ -5468,30 +5478,7 @@ export async function createTask(input: {
   const requestedAccountId = accountIdInput?.trim() || parsed?.accountId;
   const requestedAccountExplicit =
     accountIdExplicitInput ?? Boolean(requestedAccountId);
-  if (
-    accountIdInput &&
-    parsed?.accountId &&
-    accountIdInput !== parsed.accountId
-  ) {
-    throw Object.assign(new Error("モデルとアカウントの指定が一致しません"), {
-      status: 400,
-    });
-  }
-  if (requestedAccountId && !getAccount(requestedAccountId)) {
-    throw Object.assign(new Error("アカウントが見つかりません"), {
-      status: 404,
-    });
-  }
-  if (
-    requestedAccountId &&
-    parsed &&
-    !isAccountRoutingProvider(parsed.providerID)
-  ) {
-    throw Object.assign(
-      new Error("共有プロバイダーにはアカウントを指定できません"),
-      { status: 400 },
-    );
-  }
+  validateModelAccountSelection(parsed, requestedAccountId, accountIdInput);
   const insertStoredTask = (
     model: Model | undefined,
     accountId: string | null,
