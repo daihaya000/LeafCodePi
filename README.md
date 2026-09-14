@@ -182,7 +182,7 @@ OpenCode 版 LeafCode にあった worktree 分離、差分ペイン、Caddy は
 | Linux/macOS のプロセス検出 | `ss` または `lsof`、`ps`（WebUI の build guard / 停止に使用） |
 | PowerShell（Windows のみ） | Pi 0.84.4 の標準ツール。`pwsh.exe` を優先し、なければ Windows PowerShell を使います |
 | Bash（Linux/macOS） | Pi の標準シェルツール。Windows では必要時のみ明示的に有効化します |
-| Linux のトレイ（任意） | グラフィカルセッションと systray 対応環境。既定はヘッドレスです |
+| Linux/macOS のトレイ | グラフィカルセッションでは既定で有効。systray / AppIndicator 対応環境を推奨 |
 
 ## 起動
 
@@ -201,12 +201,17 @@ chmod +x start.sh
 
 手動で起動する場合は `npm --prefix web install`、`npm --prefix host install` の後に `npm run host` でも構いません。
 
-Linux/macOS は既定でトレイを使わないため、SSH やヘッドレス環境でも起動できます。Linux デスクトップでトレイを出す場合だけ、グラフィカルセッションで `LEAFCODE_PI_TRAY=1` を付けます（`LEAFCODE_PI_HEADLESS=1` のときは出ません）。
+グラフィカルなデスクトップ（Ubuntu の通常セッション、macOS のローカル端末など）では、Windows と同様にトレイアイコンが既定で出ます。`LEAFCODE_PI_TRAY=1` は不要です。Linux で `DISPLAY` / `WAYLAND_DISPLAY` がどちらも無い SSH やサーバ起動では、トレイを自動的にスキップします（失敗ログを連発しません）。macOS は Aqua が `DISPLAY` を付けないため、`SSH_CONNECTION` / `SSH_TTY` が無いローカル起動をグラフィカルとみなします。
+
+トレイを出さない場合は `LEAFCODE_PI_HEADLESS=1`（または `--headless`）を付けます。デスクトップでアイコンだけ消したいときは `LEAFCODE_PI_TRAY=0` です。ディスプレイ無しでも強制したいときだけ `LEAFCODE_PI_TRAY=1` を使います（`HEADLESS=1` のときは出ません）。AppIndicator 等が無くトレイ起動に失敗しても、ホストはトレイ無しで動き続けます。
 
 ```bash
-LEAFCODE_PI_TRAY=1 ./start.sh
+./start.sh
 # または
-LEAFCODE_PI_TRAY=1 npm run host
+npm run host
+
+# SSH / サーバ / トレイ無し
+LEAFCODE_PI_HEADLESS=1 ./start.sh
 ```
 
 ブラウザ自動起動は設定画面で有効にした場合のみ行われ、Linux は `xdg-open`、macOS は `open` を使います。
@@ -279,7 +284,7 @@ npm run check
 ## 構成
 
 - `web/` — Next.js UI と BFF
-- `host/` — Next.js の起動・監視・再起動。Windows はトレイ常駐、Linux/macOS は既定でヘッドレス
+- `host/` — Next.js の起動・監視・再起動。グラフィカルデスクトップではトレイ常駐（SSH / `LEAFCODE_PI_HEADLESS=1` ではトレイなし）
 - `start.bat` / `start.sh` — 導入とホスト起動
 - `scripts/build-web.mjs` — production build の唯一の入口（ソース差分同期 → ローカル依存準備 → `next build` → BUILD_ID 検証）
 - `scripts/web-build-mirror.mjs` — 既存のOneDrive外ビルド領域へのソース差分同期
@@ -305,8 +310,8 @@ npm run check
 | `LEAFCODE_PI_SKILLS_DIR` | 組み込みスキルのディレクトリ（host が自動設定、既定はリポジトリの `skills/`） |
 | `XDG_CACHE_HOME` | Linux/macOS の production build ミラー基底ディレクトリ |
 | `LEAFCODE_PI_USE_WEBPACK` | `1` で `next build` を Turbopack でなく webpack で行う（切り分け用） |
-| `LEAFCODE_PI_HEADLESS` | `1` でトレイなし |
-| `LEAFCODE_PI_TRAY` | `1` で Linux/macOS のトレイを opt-in（グラフィカルセッションが必要） |
+| `LEAFCODE_PI_HEADLESS` | `1` でトレイなし（`--headless` と同じ。`LEAFCODE_PI_TRAY=1` より優先） |
+| `LEAFCODE_PI_TRAY` | 未設定はデスクトップでトレイ ON、Linux で `DISPLAY`/`WAYLAND_DISPLAY` 無しなら OFF。`0` で明示オフ、`1` でディスプレイ無しでも強制 ON |
 | `LEAFCODE_PI_NO_BROWSER` | `1` で起動時にブラウザを開かない |
 | `LEAFCODE_PI_NONINTERACTIVE` | `1` で失敗時の pause を省略 |
 | `LEAFCODE_PI_LLAMA_SERVER_BIN` | Linux/macOS の llama-server バイナリ（未設定時は PATH の `llama-server`） |

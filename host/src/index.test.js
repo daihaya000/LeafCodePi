@@ -5,6 +5,7 @@ import { join, relative } from "node:path";
 import {
   bindHost,
   findTailscaleIPv4,
+  hasGraphicalSession,
   isHeadless,
   isTailscaleCgnatIPv4,
   publicHost,
@@ -38,11 +39,35 @@ test("shouldOpenBrowser defaults on", () => {
   assert.equal(shouldOpenBrowser({ LEAFCODE_PI_NO_BROWSER: "1" }), false);
 });
 
-test("shouldUseTray keeps non-Windows hosts headless unless opted in", () => {
+test("hasGraphicalSession treats Windows and desktop Linux/macOS as graphical", () => {
+  assert.equal(hasGraphicalSession({}, "win32"), true);
+  assert.equal(hasGraphicalSession({}, "linux"), false);
+  assert.equal(hasGraphicalSession({ DISPLAY: ":0" }, "linux"), true);
+  assert.equal(hasGraphicalSession({ WAYLAND_DISPLAY: "wayland-0" }, "linux"), true);
+  assert.equal(hasGraphicalSession({ DISPLAY: "  " }, "linux"), false);
+  assert.equal(hasGraphicalSession({}, "darwin"), true);
+  assert.equal(hasGraphicalSession({ SSH_CONNECTION: "1.2.3.4 22 5.6.7.8 22" }, "darwin"), false);
+  assert.equal(hasGraphicalSession({ SSH_TTY: "/dev/pts/0" }, "darwin"), false);
+  assert.equal(hasGraphicalSession({ DISPLAY: ":0", SSH_CONNECTION: "1 2 3 4" }, "darwin"), true);
+});
+
+test("shouldUseTray defaults on for a graphical desktop", () => {
   assert.equal(shouldUseTray({}, [], "win32"), true);
+  assert.equal(shouldUseTray({ DISPLAY: ":0" }, [], "linux"), true);
+  assert.equal(shouldUseTray({ WAYLAND_DISPLAY: "wayland-0" }, [], "linux"), true);
+  assert.equal(shouldUseTray({}, [], "darwin"), true);
   assert.equal(shouldUseTray({}, [], "linux"), false);
+  assert.equal(shouldUseTray({ SSH_CONNECTION: "1 2 3 4" }, [], "darwin"), false);
+});
+
+test("shouldUseTray honors explicit tray and headless flags", () => {
+  assert.equal(shouldUseTray({ LEAFCODE_PI_TRAY: "0" }, [], "win32"), false);
+  assert.equal(shouldUseTray({ LEAFCODE_PI_TRAY: "0", DISPLAY: ":0" }, [], "linux"), false);
   assert.equal(shouldUseTray({ LEAFCODE_PI_TRAY: "1" }, [], "linux"), true);
+  assert.equal(shouldUseTray({ LEAFCODE_PI_HEADLESS: "1" }, [], "win32"), false);
+  assert.equal(shouldUseTray({ LEAFCODE_PI_HEADLESS: "1", DISPLAY: ":0" }, [], "linux"), false);
   assert.equal(shouldUseTray({ LEAFCODE_PI_TRAY: "1", LEAFCODE_PI_HEADLESS: "1" }, [], "linux"), false);
+  assert.equal(shouldUseTray({ DISPLAY: ":0" }, ["node", "index.js", "--headless"], "linux"), false);
 });
 
 test("bindHost resolves tailscale or falls back to loopback", () => {

@@ -985,10 +985,15 @@ async function main() {
     try {
       await startTray();
     } catch (err) {
-      await stopWeb();
-      removeLock(LOCK_FILE);
       error(`Tray failed to start: ${err instanceof Error ? err.message : String(err)}`);
-      process.exit(1);
+      // Windows users expect the tray as the host UI; keep a hard fail there.
+      // Linux/macOS continue so a missing AppIndicator / systray helper is not fatal.
+      if (process.platform === "win32") {
+        await stopWeb();
+        removeLock(LOCK_FILE);
+        process.exit(1);
+      }
+      log("Continuing without a tray icon.");
     }
   } else {
     log("Headless mode (no tray). Ctrl+C to quit.");

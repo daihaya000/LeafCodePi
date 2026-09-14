@@ -1,5 +1,26 @@
 ﻿# MEMORY
 
+## 2026-09-14: Linux/macOS トレイをデスクトップ既定に
+
+ユーザー要望「標準対応」。Windows のトレイ既定は維持。OAuth / TTS / cookies は未変更。
+
+### 方針
+- グラフィカルデスクトップではトレイ ON（`./start.sh` / `npm run host` に `LEAFCODE_PI_TRAY=1` 不要）
+- オフ: `LEAFCODE_PI_HEADLESS=1` / `--headless`（常に優先）、または `LEAFCODE_PI_TRAY=0`
+- Linux で `DISPLAY` / `WAYLAND_DISPLAY` 無し（素の SSH）はトレイを自動スキップ
+- macOS は Aqua が DISPLAY を付けないため、SSH 無しをグラフィカル扱い。`LEAFCODE_PI_TRAY=1` はディスプレイ無しでも強制 ON
+
+### 実装
+- `host/src/config.js` `hasGraphicalSession()` / `shouldUseTray()`
+- Linux/macOS の初回トレイ失敗はホストを落とさず継続（AppIndicator 欠如を hard crash にしない）。Windows は従来どおり失敗で終了
+- README の Linux 起動節と環境変数表を更新
+
+### 検証
+`npm --prefix host test -- src/index.test.js`（shouldUseTray / hasGraphicalSession）
+
+---
+
+
 ## 2026-09-14: Linux parity remaining（Chromium cookie・TTS・OAuth 文書・noProjectRoot）
 
 master `028a3459`（PR #8/#9/#10 後）から `cursor/linux-parity-remaining-3e61`。Windows DPAPI / SAPI / start.bat は維持。
