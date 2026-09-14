@@ -5872,6 +5872,11 @@ function insertTaskForCreateTask(input: {
   });
 }
 
+function markProjectOpened(project: ProjectDto | null): void {
+  if (!project) return;
+  patchProject(project.id, { lastOpenedAt: new Date().toISOString() });
+}
+
 async function resolveAndInsertTaskRoute(input: {
   routeKey: string;
   modelValue: string;
@@ -5905,9 +5910,7 @@ async function resolveAndInsertTaskRoute(input: {
       reserveRoute(reservedRoute.providerID, reservedRoute.accountId);
     }
     try {
-      if (input.project) {
-        patchProject(input.project.id, { lastOpenedAt: new Date().toISOString() });
-      }
+      markProjectOpened(input.project);
       const thinkingLevel = isThinkingLevel(input.thinkingLevelInput)
         ? input.thinkingLevelInput
         : defaultThinkingLevelForRoute(route.model, route.accountId);
@@ -6134,7 +6137,7 @@ export async function createTask(input: {
     reservedAccount = reservedAccountForRoute(modelRoute);
     task = routed.task;
   } else {
-    if (project) patchProject(project.id, { lastOpenedAt: new Date().toISOString() });
+    markProjectOpened(project);
     task = insertStoredTask(
       undefined,
       concreteAccountId,
