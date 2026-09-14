@@ -1828,6 +1828,28 @@ function buildLiveRuntime(input: {
   };
 }
 
+function detachExistingLive(
+  existing: LiveRuntime | undefined,
+  session: AgentSession,
+  attachedAccountId: string | null,
+): void {
+  existing?.unsubscribe();
+  if (
+    existing &&
+    existing.accountId &&
+    existing.accountId !== attachedAccountId
+  ) {
+    accountRuntimeManager().release(existing.accountId);
+  }
+  const replacedSession = existing?.session;
+  if (replacedSession && replacedSession !== session) {
+    replacedSession.dispose();
+  }
+  if (existing?.snapshotTimer) {
+    clearTimeout(existing.snapshotTimer);
+  }
+}
+
 async function attachSession(
   taskId: string,
   session: AgentSession,
@@ -1845,22 +1867,7 @@ async function attachSession(
   if (attachedAccountId && !keepsExistingAccountRef) {
     await accountRuntimeManager().acquire(attachedAccountId);
   }
-  existing?.unsubscribe();
-  if (
-    existing &&
-    existing.accountId &&
-    existing.accountId !== attachedAccountId
-  ) {
-    accountRuntimeManager().release(existing.accountId);
-  }
-  const replacedSession = existing?.session;
-  if (replacedSession && replacedSession !== session) {
-    replacedSession.dispose();
-  }
-
-  if (existing?.snapshotTimer) {
-    clearTimeout(existing.snapshotTimer);
-  }
+  detachExistingLive(existing, session, attachedAccountId);
 
   const live = buildLiveRuntime({
     taskId,
