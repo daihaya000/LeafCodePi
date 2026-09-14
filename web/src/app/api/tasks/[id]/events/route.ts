@@ -252,6 +252,9 @@ export async function GET(
                 delete (taskSummary as Record<string, unknown>)[key];
               }
               const messagePage = pageTaskMessages(detail.messages);
+              // offline detail always nulls permission/question. Omit them so a
+              // buffered live control event (or local pending at ready) is not
+              // wiped every 2s while another worker holds the lease.
               writer.send("snapshot", {
                 type: "snapshot",
                 task: taskSummary,
@@ -263,8 +266,6 @@ export async function GET(
                 compactionSuggested: detail.compactionSuggested,
                 goalLoop: detail.goalLoop,
                 todos: detail.todos,
-                permissionRequest: detail.permissionRequest ?? null,
-                questionRequest: detail.questionRequest ?? null,
                 manualAbortedAssistantId: detail.manualAbortedAssistantId ?? null,
                 hangRetryCount: detail.hangRetryCount ?? 0,
                 revertLeafId: detail.revertLeafId ?? null,

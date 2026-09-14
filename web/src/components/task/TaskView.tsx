@@ -1499,6 +1499,8 @@ export const TaskView = memo(function TaskView({
         if (event instanceof MessageEvent && typeof event.data === "string") {
           closed = true;
           setSseReconnecting(false);
+          // ready 未到達の fatal でも hydration を解除し、キュー drain / resume を永久ブロックしない。
+          setSessionHydrating(false);
           source = closeSseSource(nextSource);
           retryTimer = cancelPendingSseReconnect(retryTimer);
           try {
@@ -2501,6 +2503,9 @@ export const TaskView = memo(function TaskView({
       setCompactingLocal(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : "圧縮のキャンセルに失敗しました");
+      // abort API 失敗時も UI フラグを落とさないと、送信が永久ブロックされる。
+      setCompactingLocal(false);
+      setIsCompacting(false);
     }
   }
 

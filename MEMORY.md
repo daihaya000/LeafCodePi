@@ -100,6 +100,14 @@
 ### 検証（Tick11）
 `hang-watchdog` / `GlobalAttention` — **37 passed**
 
+### Tick19（ループ継続）
+1. TaskView — `abortCompact` 失敗時も `isCompacting` / `compactingLocal` をクリア
+2. SSE fatal error — `sessionHydrating` を解除しキュー drain / resume を永久ブロックしない
+3. remote_poll — offline null の permission/question を送らず、バッファ済み attention を消さない
+
+### 検証（Tick19）
+`TaskView` / `events/route` — **60 passed**
+
 ---
 
 ## 2026-09-14: Stale production rebuild / next build exit 1

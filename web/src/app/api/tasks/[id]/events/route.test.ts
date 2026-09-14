@@ -233,6 +233,8 @@ describe("/api/tasks/[id]/events", () => {
       const remotePayload = eventData(await readChunk(reader));
       expect(remotePayload.eventType).toBe("remote_poll");
       expect(remotePayload.messages).toEqual(finalDetail.messages);
+      expect(remotePayload).not.toHaveProperty("permissionRequest");
+      expect(remotePayload).not.toHaveProperty("questionRequest");
       expect(mocks.getTaskDetail).toHaveBeenLastCalledWith("task-1", { offline: true });
 
       await reader.cancel();

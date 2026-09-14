@@ -590,6 +590,72 @@ describe("TaskView draft submission", () => {
     releaseCompact();
   });
 
+  it("clears compacting flags when abort compact API fails", async () => {
+    let releaseCompact!: () => void;
+    const compactGate = new Promise<void>((resolve) => {
+      releaseCompact = resolve;
+    });
+    mocks.sendJson.mockImplementation(async (url: string) => {
+      if (String(url).includes("/compact/abort")) {
+        throw new Error("abort failed");
+      }
+      if (String(url).includes("/compact")) {
+        await compactGate;
+        throw new Error("compact aborted");
+      }
+      return { task: { ...task, messages: [], isStreaming: false, isCompacting: false } };
+    });
+    render(<TaskView taskId={task.id} mdUp />);
+
+    fireEvent.click(screen.getByRole("button", { name: "コンテキスト圧縮" }));
+    await waitFor(() => {
+      expect(screen.getByText(/コンテキストを圧縮しています/)).toBeTruthy();
+    });
+    fireEvent.click(screen.getByRole("button", { name: "キャンセル" }));
+    await waitFor(() => {
+      expect(screen.getByText(/abort failed/)).toBeTruthy();
+    });
+    await waitFor(() => {
+      expect(screen.queryByText(/コンテキストを圧縮しています/)).toBeNull();
+    });
+    expect(
+      (screen.getByRole("button", { name: "コンテキスト圧縮" }) as HTMLButtonElement).disabled,
+    ).toBe(false);
+    releaseCompact();
+  });
+
+  it("clears session hydration after a fatal SSE error event", async () => {
+    class TestEventSource extends EventTarget {
+      static latest: TestEventSource | null = null;
+      constructor() {
+        super();
+        TestEventSource.latest = this;
+      }
+      close() {}
+    }
+    vi.stubGlobal("EventSource", TestEventSource);
+    render(<TaskView taskId={task.id} mdUp />);
+    const source = TestEventSource.latest;
+    if (!source) throw new Error("EventSource was not created");
+
+    await waitFor(() => {
+      expect(screen.getByText(/セッションを準備しています/)).toBeTruthy();
+    });
+
+    await act(async () => {
+      source.dispatchEvent(
+        new MessageEvent("error", {
+          data: JSON.stringify({ error: "task gone" }),
+        }),
+      );
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText(/task gone/)).toBeTruthy();
+    });
+    expect(screen.queryByText(/セッションを準備しています/)).toBeNull();
+  });
+
   it("shows and applies a context compaction suggestion", async () => {
     class TestEventSource extends EventTarget {
       static latest: TestEventSource | null = null;
