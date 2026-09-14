@@ -172,6 +172,15 @@ export type BotDto = {
 /** Versioned Bot-to-Bot DM. Later fields must be ignored by old receivers. */
 export const BOT_INTERCOM_SCHEMA_VERSION = 1;
 export type BotIntercomMessageKind = "send" | "ask" | "reply";
+export type BotIntercomPresence = "online" | "busy" | "offline";
+export type BotIntercomDelivery = "delivered" | "queued" | "steered" | "cancelled" | "superseded";
+export type BotIntercomAttachmentMeta = {
+  kind: "image" | "file";
+  name: string;
+  mimeType: string;
+  file: string;
+  bytes: number;
+};
 export type BotIntercomMessageV1 = {
   v: typeof BOT_INTERCOM_SCHEMA_VERSION;
   id: string;
@@ -186,6 +195,13 @@ export type BotIntercomMessageV1 = {
   replyTo?: string;
   /** True when the recipient had no live 1:1 session at send time (mailbox queue). */
   queued?: boolean;
+  /** Phase C+. Delivery / cancel / replace. Old receivers ignore these. */
+  delivery?: BotIntercomDelivery;
+  attachments?: BotIntercomAttachmentMeta[];
+  supersedes?: string;
+  supersededBy?: string;
+  retryOf?: string;
+  cancelled?: boolean;
 };
 export type BotIntercomInboxItemDto = BotIntercomMessageV1 & { fromName: string };
 export type BotIntercomInboxPreviewDto = {
@@ -204,11 +220,18 @@ export type BotIntercomPendingAskDto = {
   createdAt: number;
   expiresAt: number;
 };
+export type BotIntercomPeerPresenceDto = {
+  botId: string;
+  name: string;
+  status: BotIntercomPresence;
+};
 export type BotIntercomInboxDto = {
   messages: BotIntercomInboxItemDto[];
   unreadCount: number;
   preview: BotIntercomInboxPreviewDto | null;
   pendingAsks: BotIntercomPendingAskDto[];
+  /** Latest counterpart's online/busy/offline. Absent on empty inboxes. */
+  peerPresence?: BotIntercomPeerPresenceDto | null;
 };
 
 export type ProjectDto = {

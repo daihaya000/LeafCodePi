@@ -16,7 +16,10 @@ import {
   MAX_BOT_INTERCOM_ASK_ROUNDTRIPS,
   MAX_BOT_INTERCOM_DEPTH,
   askBotIntercom,
+  botIntercomAttachmentsDirForTests,
   botIntercomMailboxPathForTests,
+  botIntercomPresence,
+  cancelBotIntercom,
   getBotIntercomInbox,
   listBotIntercomPeers,
   listPendingBotIntercomAsks,
@@ -25,6 +28,7 @@ import {
   resetBotIntercomForTests,
   sendBotIntercom,
   setBotIntercomAskTimeoutMsForTests,
+  setBotIntercomBusyLookup,
   setBotIntercomResidentLookup,
 } from "./bot-intercom";
 
@@ -293,5 +297,198 @@ describe("bot intercom Phase B contract", () => {
     const replied = replyBotIntercom({ fromBotId: bob.id, replyTo: askId, text: "after restart" });
     expect(replied.replyTo).toBe(askId);
     expect(getBotIntercomInbox(alice.id).messages.some((message) => message.text === "after restart")).toBe(true);
+  });
+});
+
+const PNG_1X1 =
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+
+describe("bot intercom Phase C contract", () => {
+  let root = "";
+  const residents = new Set<string>();
+  const busy = new Set<string>();
+
+  beforeEach(() => {
+    root = mkdtempSync(join(tmpdir(), "leafcode-bot-intercom-c-"));
+    botTestState.root = root;
+    residents.clear();
+    busy.clear();
+    resetBotIntercomForTests();
+    setBotIntercomResidentLookup((id) => residents.has(id));
+    setBotIntercomBusyLookup((id) => busy.has(id));
+  });
+
+  afterEach(() => {
+    resetBotIntercomForTests();
+    rmSync(root, { recursive: true, force: true });
+    botTestState.root = "";
+  });
+
+  it("reports online, busy, and offline presence on peers and the inbox", () => {
+    const alice = enableIntercom(createBot({ name: "Alice" }).id)!;
+    const bob = enableIntercom(createBot({ name: "Bob" }).id)!;
+    const carol = enableIntercom(createBot({ name: "Carol" }).id)!;
+    residents.add(bob.id);
+    residents.add(carol.id);
+    busy.add(carol.id);
+
+    expect(botIntercomPresence(bob.id)).toBe("online");
+    expect(botIntercomPresence(carol.id)).toBe("busy");
+    expect(botIntercomPresence(alice.id)).toBe("offline");
+    expect(listBotIntercomPeers(alice.id)).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: bob.id, presence: "online", resident: true }),
+      expect.objectContaining({ id: carol.id, presence: "busy", resident: true }),
+    ]));
+
+    sendBotIntercom({ fromBotId: alice.id, to: bob.id, text: "hi" });
+    expect(getBotIntercomInbox(alice.id).peerPresence).toMatchObject({ botId: bob.id, name: "Bob", status: "online" });
+    expect(getBotIntercomInbox(bob.id).peerPresence).toMatchObject({ botId: alice.id, status: "offline" });
+  });
+
+  it("steers send to a busy resident Bot instead of queueing", () => {
+    const alice = enableIntercom(createBot({ name: "Alice" }).id)!;
+    const bob = enableIntercom(createBot({ name: "Bob" }).id)!;
+    residents.add(bob.id);
+    busy.add(bob.id);
+
+    const sent = sendBotIntercom({ fromBotId: alice.id, to: bob.id, text: "steer this" });
+    expect(sent.delivery).toBe("steered");
+    expect(sent.queued).toBeUndefined();
+    expect(getBotIntercomInbox(bob.id).messages.some((message) => message.text === "steer this")).toBe(true);
+  });
+
+  it("accepts Room-aligned attachments and rejects oversize, bad MIME, and too many", () => {
+    const alice = enableIntercom(createBot({ name: "Alice" }).id)!;
+    const bob = enableIntercom(createBot({ name: "Bob" }).id)!;
+    residents.add(bob.id);
+
+    const sent = sendBotIntercom({
+      fromBotId: alice.id,
+      to: bob.id,
+      text: "files",
+      attachments: [
+        { mimeType: "image/png", data: PNG_1X1 },
+        { name: "note.txt", mimeType: "text/plain", data: Buffer.from("hello", "utf8").toString("base64") },
+      ],
+    });
+    expect(sent.attachments).toEqual([
+      expect.objectContaining({ kind: "image", mimeType: "image/png", name: "image-1.png" }),
+      expect.objectContaining({ kind: "file", mimeType: "text/plain", name: "note.txt" }),
+    ]);
+    expect(existsSync(join(botIntercomAttachmentsDirForTests(), sent.attachments![0]!.file))).toBe(true);
+    expect(getBotIntercomInbox(bob.id).messages[0]?.attachments).toHaveLength(2);
+
+    expect(() => sendBotIntercom({
+      fromBotId: alice.id,
+      to: bob.id,
+      text: "svg",
+      attachments: [{ mimeType: "image/svg+xml", name: "x.svg", data: Buffer.from("<svg/>", "utf8").toString("base64") }],
+    })).toThrow(/画像形式/);
+
+    expect(() => sendBotIntercom({
+      fromBotId: alice.id,
+      to: bob.id,
+      text: "binary",
+      attachments: [{ name: "blob.bin", mimeType: "application/octet-stream", data: Buffer.from([0xff, 0xfe]).toString("base64") }],
+    })).toThrow(/UTF-8|テキスト/);
+
+    expect(() => sendBotIntercom({
+      fromBotId: alice.id,
+      to: bob.id,
+      text: "too many images",
+      attachments: Array.from({ length: 9 }, () => ({ mimeType: "image/png", data: PNG_1X1 })),
+    })).toThrow(/画像は8件/);
+
+    const huge = Buffer.alloc(8 * 1024 * 1024 + 1).toString("base64");
+    expect(() => sendBotIntercom({
+      fromBotId: alice.id,
+      to: bob.id,
+      text: "too big",
+      attachments: [{ mimeType: "image/png", data: huge }],
+    })).toThrow(/8MB|不正/);
+  });
+
+  it("cancels an outbound send for both sender and recipient and drops unread", () => {
+    const alice = enableIntercom(createBot({ name: "Alice" }).id)!;
+    const bob = enableIntercom(createBot({ name: "Bob" }).id)!;
+    const mallory = enableIntercom(createBot({ name: "Mallory" }).id)!;
+    residents.add(bob.id);
+
+    const sent = sendBotIntercom({ fromBotId: alice.id, to: bob.id, text: "take this back" });
+    expect(getBotIntercomInbox(bob.id).unreadCount).toBe(1);
+
+    const cancelled = cancelBotIntercom({ fromBotId: alice.id, messageId: sent.id });
+    expect(cancelled.cancelled).toBe(true);
+    expect(cancelled.delivery).toBe("cancelled");
+    expect(getBotIntercomInbox(bob.id).messages.find((message) => message.id === sent.id)).toMatchObject({
+      cancelled: true,
+      delivery: "cancelled",
+    });
+    expect(getBotIntercomInbox(alice.id).messages.find((message) => message.id === sent.id)?.cancelled).toBe(true);
+    expect(getBotIntercomInbox(bob.id).unreadCount).toBe(0);
+
+    expect(() => cancelBotIntercom({ fromBotId: bob.id, messageId: sent.id })).toThrow(/sender/i);
+    expect(() => cancelBotIntercom({ fromBotId: mallory.id, messageId: sent.id })).toThrow(/Unknown message|sender/i);
+    expect(() => cancelBotIntercom({ fromBotId: alice.id, messageId: sent.id })).toThrow(/already cancelled or superseded/i);
+  });
+
+  it("supersedes only on the same sender-recipient pair and replaces both mailboxes", () => {
+    const alice = enableIntercom(createBot({ name: "Alice" }).id)!;
+    const bob = enableIntercom(createBot({ name: "Bob" }).id)!;
+    const carol = enableIntercom(createBot({ name: "Carol" }).id)!;
+    residents.add(bob.id);
+    residents.add(carol.id);
+
+    const first = sendBotIntercom({ fromBotId: alice.id, to: bob.id, text: "old" });
+    expect(() => sendBotIntercom({
+      fromBotId: alice.id,
+      to: carol.id,
+      text: "wrong pair",
+      supersedes: first.id,
+    })).toThrow(/same sender and recipient/i);
+
+    const replacement = sendBotIntercom({
+      fromBotId: alice.id,
+      to: bob.id,
+      text: "new",
+      supersedes: first.id,
+      retryOf: first.id,
+    });
+    expect(replacement.supersedes).toBe(first.id);
+    expect(replacement.retryOf).toBe(first.id);
+    expect(getBotIntercomInbox(bob.id).messages.find((message) => message.id === first.id)).toMatchObject({
+      supersededBy: replacement.id,
+      delivery: "superseded",
+    });
+    expect(getBotIntercomInbox(alice.id).messages.find((message) => message.id === first.id)?.supersededBy).toBe(replacement.id);
+    expect(getBotIntercomInbox(bob.id).unreadCount).toBe(1);
+    expect(getBotIntercomInbox(bob.id).messages.some((message) => message.text === "new")).toBe(true);
+  });
+
+  it("cancels a pending ask for both sides and rejects the waiter", async () => {
+    const alice = enableIntercom(createBot({ name: "Alice" }).id)!;
+    const bob = enableIntercom(createBot({ name: "Bob" }).id)!;
+    residents.add(alice.id);
+    residents.add(bob.id);
+    busy.add(bob.id);
+
+    const waiting = askBotIntercom({ fromBotId: alice.id, to: bob.id, text: "still?" });
+    const askId = listPendingBotIntercomAsks(bob.id)[0]?.id;
+    expect(askId).toEqual(expect.any(String));
+    expect(getBotIntercomInbox(alice.id).messages.find((message) => message.id === askId)?.delivery).toBe("steered");
+
+    cancelBotIntercom({ fromBotId: alice.id, messageId: askId! });
+    await expect(waiting).rejects.toThrow(/Cancelled/);
+    expect(listPendingBotIntercomAsks(bob.id)).toHaveLength(0);
+    expect(getBotIntercomInbox(bob.id).messages.find((message) => message.id === askId)?.cancelled).toBe(true);
+  });
+
+  it("does not start cancel during a Room turn", () => {
+    const alice = enableIntercom(createBot({ name: "Alice" }).id)!;
+    const bob = enableIntercom(createBot({ name: "Bob" }).id)!;
+    residents.add(bob.id);
+    const sent = sendBotIntercom({ fromBotId: alice.id, to: bob.id, text: "keep" });
+    expect(() => cancelBotIntercom({ fromBotId: alice.id, messageId: sent.id, roomTurn: true })).toThrow(/Room turn|room_handoff/i);
+    expect(getBotIntercomInbox(bob.id).messages.find((message) => message.id === sent.id)?.cancelled).toBeUndefined();
   });
 });

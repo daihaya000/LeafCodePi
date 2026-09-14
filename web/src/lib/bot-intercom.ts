@@ -4,18 +4,37 @@ import { dirname, join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { getBot, listBots } from "@/lib/bots";
 import { dataDir } from "@/lib/paths";
-import { MAX_ROOM_RELAY_DEPTH } from "@/lib/rooms";
+import {
+  isPromptFileText,
+  isPromptFileWithinSize,
+  type PromptFileInput,
+  type PromptImageInput,
+} from "@/lib/prompt-images";
+import { MAX_ROOM_RELAY_DEPTH, roomFileRejection, roomImageRejection } from "@/lib/rooms";
 import {
   BOT_INTERCOM_SCHEMA_VERSION,
+  type BotIntercomAttachmentMeta,
+  type BotIntercomDelivery,
   type BotIntercomInboxDto,
   type BotIntercomInboxItemDto,
   type BotIntercomMessageKind,
   type BotIntercomMessageV1,
+  type BotIntercomPeerPresenceDto,
   type BotIntercomPendingAskDto,
+  type BotIntercomPresence,
 } from "@/lib/types";
 
 export { BOT_INTERCOM_SCHEMA_VERSION };
-export type { BotIntercomInboxDto, BotIntercomInboxItemDto, BotIntercomMessageV1, BotIntercomPendingAskDto };
+export type {
+  BotIntercomAttachmentMeta,
+  BotIntercomDelivery,
+  BotIntercomInboxDto,
+  BotIntercomInboxItemDto,
+  BotIntercomMessageV1,
+  BotIntercomPeerPresenceDto,
+  BotIntercomPendingAskDto,
+  BotIntercomPresence,
+};
 
 /** Same hop budget as Room relay (`MAX_ROOM_RELAY_DEPTH`). */
 export const MAX_BOT_INTERCOM_DEPTH = MAX_ROOM_RELAY_DEPTH;
@@ -26,11 +45,25 @@ export const BOT_INTERCOM_MESSAGE_MAX = 2_000;
 export const BOT_INTERCOM_MAILBOX_MAX = 256;
 export const BOT_INTERCOM_ASK_TIMEOUT_MS = 10 * 60 * 1000;
 
+const INTERCOM_IMAGE_EXTENSIONS: Record<string, string> = {
+  "image/png": "png",
+  "image/jpeg": "jpg",
+  "image/webp": "webp",
+  "image/gif": "gif",
+};
+
 export type BotIntercomPeerDto = {
   id: string;
   name: string;
   resident: boolean;
   intercomEnabled: boolean;
+  presence: BotIntercomPresence;
+};
+
+export type BotIntercomAttachmentInput = {
+  name?: string;
+  mimeType: string;
+  data: string;
 };
 
 export type SendBotIntercomInput = {
@@ -40,6 +73,9 @@ export type SendBotIntercomInput = {
   text: string;
   /** Room turns keep formal @ on room_handoff; the DM path must not run. */
   roomTurn?: boolean;
+  attachments?: BotIntercomAttachmentInput[];
+  supersedes?: string;
+  retryOf?: string;
 };
 
 export type AskBotIntercomInput = SendBotIntercomInput & {
@@ -51,6 +87,13 @@ export type ReplyBotIntercomInput = {
   text: string;
   to?: string;
   replyTo?: string;
+  roomTurn?: boolean;
+  attachments?: BotIntercomAttachmentInput[];
+};
+
+export type CancelBotIntercomInput = {
+  fromBotId: string;
+  messageId: string;
   roomTurn?: boolean;
 };
 
@@ -98,6 +141,7 @@ const waitingBots = new Set<string>();
 
 let threadsLoaded = false;
 let residentLookup: (botId: string) => boolean = () => false;
+let busyLookup: (botId: string) => boolean = () => false;
 let askTimeoutMs = BOT_INTERCOM_ASK_TIMEOUT_MS;
 
 const BOT_ID_RE = /^[0-9a-f]{8}-[0-9a-f-]{27,}$/i;
@@ -107,8 +151,19 @@ export function setBotIntercomResidentLookup(lookup: (botId: string) => boolean)
   residentLookup = lookup;
 }
 
+/** Harness installs this so "busy" means the 1:1 session is prompting / streaming. */
+export function setBotIntercomBusyLookup(lookup: (botId: string) => boolean): void {
+  busyLookup = lookup;
+}
+
 export function isBotIntercomResident(botId: string): boolean {
   return residentLookup(botId);
+}
+
+export function botIntercomPresence(botId: string): BotIntercomPresence {
+  if (!isBotIntercomResident(botId)) return "offline";
+  if (waitingBots.has(botId) || busyLookup(botId)) return "busy";
+  return "online";
 }
 
 export function setBotIntercomAskTimeoutMsForTests(ms: number): void {
@@ -137,6 +192,7 @@ export function resetBotIntercomForTests(): void {
   threadsLoaded = false;
   inboxEvents.removeAllListeners();
   residentLookup = () => false;
+  busyLookup = () => false;
   askTimeoutMs = BOT_INTERCOM_ASK_TIMEOUT_MS;
 }
 
@@ -152,11 +208,31 @@ function threadsPath(): string {
   return join(dataDir(), "bots", ".intercom", "threads.json");
 }
 
+function attachmentsDir(): string {
+  return join(dataDir(), "bots", ".intercom", "attachments");
+}
+
 function atomicWrite(file: string, value: unknown): void {
   mkdirSync(dirname(file), { recursive: true });
   const temporary = `${file}.${process.pid}.${Math.random().toString(16).slice(2)}.tmp`;
   writeFileSync(temporary, `${JSON.stringify(value)}\n`, "utf8");
   renameSync(temporary, file);
+}
+
+function asDelivery(value: unknown): BotIntercomDelivery | undefined {
+  if (value === "delivered" || value === "queued" || value === "steered" || value === "cancelled" || value === "superseded") {
+    return value;
+  }
+  return undefined;
+}
+
+function asAttachmentMeta(value: unknown): BotIntercomAttachmentMeta | null {
+  if (!value || typeof value !== "object") return null;
+  const row = value as Partial<BotIntercomAttachmentMeta>;
+  if (row.kind !== "image" && row.kind !== "file") return null;
+  if (typeof row.name !== "string" || typeof row.mimeType !== "string" || typeof row.file !== "string") return null;
+  if (typeof row.bytes !== "number") return null;
+  return { kind: row.kind, name: row.name, mimeType: row.mimeType, file: row.file, bytes: row.bytes };
 }
 
 function asMessage(value: unknown): BotIntercomMessageV1 | null {
@@ -166,6 +242,10 @@ function asMessage(value: unknown): BotIntercomMessageV1 | null {
   if (typeof row.id !== "string" || typeof row.fromBotId !== "string" || typeof row.toBotId !== "string") return null;
   if (typeof row.text !== "string" || typeof row.createdAt !== "number" || typeof row.depth !== "number") return null;
   const kind = row.kind === "ask" || row.kind === "reply" || row.kind === "send" ? row.kind : undefined;
+  const delivery = asDelivery(row.delivery);
+  const attachments = Array.isArray(row.attachments)
+    ? row.attachments.map(asAttachmentMeta).filter((item): item is BotIntercomAttachmentMeta => Boolean(item))
+    : undefined;
   return {
     v: BOT_INTERCOM_SCHEMA_VERSION,
     id: row.id,
@@ -178,6 +258,12 @@ function asMessage(value: unknown): BotIntercomMessageV1 | null {
     ...(typeof row.conversationId === "string" ? { conversationId: row.conversationId } : {}),
     ...(typeof row.replyTo === "string" ? { replyTo: row.replyTo } : {}),
     ...(row.queued === true ? { queued: true } : {}),
+    ...(delivery ? { delivery } : {}),
+    ...(attachments && attachments.length > 0 ? { attachments } : {}),
+    ...(typeof row.supersedes === "string" ? { supersedes: row.supersedes } : {}),
+    ...(typeof row.supersededBy === "string" ? { supersededBy: row.supersededBy } : {}),
+    ...(typeof row.retryOf === "string" ? { retryOf: row.retryOf } : {}),
+    ...(row.cancelled === true ? { cancelled: true } : {}),
   };
 }
 
@@ -330,11 +416,28 @@ function deliverToMailboxes(message: BotIntercomMessageV1): void {
   if (message.fromBotId !== message.toBotId) emitInbox(message.fromBotId);
 }
 
+function isActiveInboxMessage(message: BotIntercomMessageV1): boolean {
+  return message.cancelled !== true && !message.supersededBy;
+}
+
+function counterpartPresence(botId: string, messages: BotIntercomMessageV1[]): BotIntercomPeerPresenceDto | null {
+  const latest = messages[messages.length - 1];
+  if (!latest) return null;
+  const otherId = latest.fromBotId === botId ? latest.toBotId : latest.fromBotId;
+  const other = getBot(otherId);
+  if (!other) return null;
+  return { botId: otherId, name: other.name, status: botIntercomPresence(otherId) };
+}
+
 export function getBotIntercomInbox(botId: string): BotIntercomInboxDto {
   pruneExpiredAsks(botId);
   const state = inboxState(botId);
   const messages = state.messages.map(toInboxItem);
-  const unreadCount = messages.filter((message) => message.toBotId === botId && message.createdAt > state.lastReadAt).length;
+  const unreadCount = messages.filter((message) => (
+    message.toBotId === botId
+    && message.createdAt > state.lastReadAt
+    && isActiveInboxMessage(message)
+  )).length;
   const latest = [...messages].reverse().find((message) => message.toBotId === botId) ?? messages[messages.length - 1];
   return {
     messages,
@@ -343,12 +446,13 @@ export function getBotIntercomInbox(botId: string): BotIntercomInboxDto {
       ? {
           fromBotId: latest.fromBotId,
           fromName: latest.fromName,
-          text: previewText(latest.text),
+          text: previewText(latest.text || (latest.attachments?.length ? latest.attachments[0]!.name : "")),
           createdAt: latest.createdAt,
           ...(latest.kind ? { kind: latest.kind } : {}),
         }
       : null,
     pendingAsks: state.pendingAsks.map(toPendingDto),
+    peerPresence: counterpartPresence(botId, state.messages),
   };
 }
 
@@ -369,6 +473,7 @@ export function listBotIntercomPeers(fromBotId: string): BotIntercomPeerDto[] {
       name: bot.name,
       resident: isBotIntercomResident(bot.id),
       intercomEnabled: bot.intercomEnabled === true,
+      presence: botIntercomPresence(bot.id),
     }));
 }
 
@@ -438,16 +543,142 @@ function rememberThread(thread: PairThread, fromBotId: string, toBotId: string, 
   persistThreads();
 }
 
+function deliveryFor(toBotId: string): BotIntercomDelivery {
+  if (!isBotIntercomResident(toBotId)) return "queued";
+  if (botIntercomPresence(toBotId) === "busy") return "steered";
+  return "delivered";
+}
+
+function normalizeAttachmentInputs(inputs: BotIntercomAttachmentInput[]): {
+  images: PromptImageInput[];
+  files: PromptFileInput[];
+} {
+  const images: PromptImageInput[] = [];
+  const files: PromptFileInput[] = [];
+  for (const item of inputs) {
+    if (!item || typeof item.mimeType !== "string" || typeof item.data !== "string") {
+      throw new Error("添付の形式が不正です");
+    }
+    const mime = item.mimeType.toLowerCase();
+    if (mime.startsWith("image/")) {
+      if (!INTERCOM_IMAGE_EXTENSIONS[mime]) {
+        throw new Error(`対応していない画像形式です: ${item.mimeType}`);
+      }
+      images.push({ mimeType: mime, data: item.data });
+      continue;
+    }
+    const name = item.name?.trim() || "file.txt";
+    files.push({ name, mimeType: item.mimeType, data: item.data });
+  }
+  return { images, files };
+}
+
+function storeAttachments(messageId: string, inputs: BotIntercomAttachmentInput[] | undefined): BotIntercomAttachmentMeta[] {
+  if (!inputs || inputs.length === 0) return [];
+  if (!BOT_ID_RE.test(messageId)) throw new Error("Invalid message id");
+  const { images, files } = normalizeAttachmentInputs(inputs);
+  const imageError = roomImageRejection(images);
+  if (imageError) throw new Error(imageError);
+  const fileError = roomFileRejection(files);
+  if (fileError) throw new Error(fileError);
+  for (const file of files) {
+    if (!isPromptFileWithinSize(file) || !isPromptFileText(file)) {
+      throw new Error("添付ファイルはUTF-8テキストのみ対応しています");
+    }
+  }
+
+  mkdirSync(attachmentsDir(), { recursive: true });
+  const stored: BotIntercomAttachmentMeta[] = [];
+  let index = 0;
+  for (const image of images) {
+    const extension = INTERCOM_IMAGE_EXTENSIONS[image.mimeType.toLowerCase()];
+    if (!extension) continue;
+    const bytes = Buffer.from(image.data, "base64");
+    const file = `${messageId}-${index}.${extension}`;
+    writeFileSync(join(attachmentsDir(), file), bytes);
+    stored.push({
+      kind: "image",
+      name: `image-${index + 1}.${extension}`,
+      mimeType: image.mimeType.toLowerCase(),
+      file,
+      bytes: bytes.length,
+    });
+    index += 1;
+  }
+  for (const fileInput of files) {
+    const bytes = Buffer.from(fileInput.data, "base64");
+    const file = `${messageId}-${index}.dat`;
+    writeFileSync(join(attachmentsDir(), file), bytes);
+    stored.push({
+      kind: "file",
+      name: fileInput.name,
+      mimeType: fileInput.mimeType,
+      file,
+      bytes: bytes.length,
+    });
+    index += 1;
+  }
+  return stored;
+}
+
+function findOwnedMessage(fromBotId: string, messageId: string): BotIntercomMessageV1 | undefined {
+  return inboxState(fromBotId).messages.find((message) => message.id === messageId && message.fromBotId === fromBotId);
+}
+
+function patchMessageCopies(messageId: string, patch: (message: BotIntercomMessageV1) => void, botIds: string[]): void {
+  const seen = new Set<string>();
+  for (const botId of botIds) {
+    if (seen.has(botId)) continue;
+    seen.add(botId);
+    const state = inboxState(botId);
+    const message = state.messages.find((item) => item.id === messageId);
+    if (!message) continue;
+    patch(message);
+    persistMailbox(botId, state);
+    emitInbox(botId);
+  }
+}
+
+function assertSupersedeTarget(fromBotId: string, toBotId: string, oldId: string): BotIntercomMessageV1 {
+  const trimmed = oldId.trim();
+  if (!trimmed) throw new Error("supersedes target not found");
+  const old = findOwnedMessage(fromBotId, trimmed);
+  if (!old) throw new Error("supersedes target not found");
+  if (old.fromBotId !== fromBotId || old.toBotId !== toBotId) {
+    throw new Error("supersedes must be the same sender and recipient");
+  }
+  if (old.cancelled || old.supersededBy) {
+    throw new Error("Message already cancelled or superseded");
+  }
+  return old;
+}
+
+function markSuperseded(old: BotIntercomMessageV1, newId: string): void {
+  patchMessageCopies(old.id, (message) => {
+    message.supersededBy = newId;
+    message.delivery = "superseded";
+  }, [old.fromBotId, old.toBotId]);
+  if (pendingAsks.has(old.id)) {
+    detachPendingAsk(old.id);
+    rejectWaiter(old.id, new Error(`Superseded (messageId: ${old.id})`));
+  }
+}
+
 function prepareDelivery(input: SendBotIntercomInput, kind: BotIntercomMessageKind): {
   fromBotId: string;
   toBotId: string;
   text: string;
   hop: { thread: PairThread; depth: number };
   queued: boolean;
+  delivery: BotIntercomDelivery;
+  attachments: BotIntercomAttachmentInput[] | undefined;
+  supersedes?: string;
+  retryOf?: string;
 } {
   assertDmAllowed(input.roomTurn);
   const text = input.text.trim();
-  if (!text) throw new Error("Message text is required");
+  const attachments = input.attachments && input.attachments.length > 0 ? input.attachments : undefined;
+  if (!text && !attachments) throw new Error("Message text is required");
   if (text.length > BOT_INTERCOM_MESSAGE_MAX) throw new Error("Message text is too long");
 
   const fromBotId = input.fromBotId.trim();
@@ -466,12 +697,17 @@ function prepareDelivery(input: SendBotIntercomInput, kind: BotIntercomMessageKi
     throw new Error("Intercom rejected: maximum ask/reply depth exceeded");
   }
 
+  const delivery = deliveryFor(toBotId);
   return {
     fromBotId,
     toBotId,
     text,
     hop,
-    queued: !isBotIntercomResident(toBotId),
+    queued: delivery === "queued",
+    delivery,
+    attachments,
+    ...(input.supersedes?.trim() ? { supersedes: input.supersedes.trim() } : {}),
+    ...(input.retryOf?.trim() ? { retryOf: input.retryOf.trim() } : {}),
   };
 }
 
@@ -482,11 +718,19 @@ function buildMessage(
   text: string,
   depth: number,
   conversationId: string,
-  extras: { replyTo?: string; queued?: boolean } = {},
+  extras: {
+    id?: string;
+    replyTo?: string;
+    queued?: boolean;
+    delivery?: BotIntercomDelivery;
+    attachments?: BotIntercomAttachmentMeta[];
+    supersedes?: string;
+    retryOf?: string;
+  } = {},
 ): BotIntercomMessageV1 {
   return {
     v: BOT_INTERCOM_SCHEMA_VERSION,
-    id: randomUUID(),
+    id: extras.id ?? randomUUID(),
     fromBotId,
     toBotId,
     text,
@@ -496,21 +740,48 @@ function buildMessage(
     conversationId,
     ...(extras.replyTo ? { replyTo: extras.replyTo } : {}),
     ...(extras.queued ? { queued: true } : {}),
+    ...(extras.delivery ? { delivery: extras.delivery } : {}),
+    ...(extras.attachments && extras.attachments.length > 0 ? { attachments: extras.attachments } : {}),
+    ...(extras.supersedes ? { supersedes: extras.supersedes } : {}),
+    ...(extras.retryOf ? { retryOf: extras.retryOf } : {}),
   };
 }
 
-/** Deliver a `send`. Sender identity is only the provided fromBotId. Offline bots are queued. */
-export function sendBotIntercom(input: SendBotIntercomInput): BotIntercomMessageV1 {
-  const prepared = prepareDelivery(input, "send");
+function commitOutgoing(
+  kind: BotIntercomMessageKind,
+  prepared: ReturnType<typeof prepareDelivery>,
+  extras: { replyTo?: string } = {},
+): BotIntercomMessageV1 {
+  const superseded = prepared.supersedes
+    ? assertSupersedeTarget(prepared.fromBotId, prepared.toBotId, prepared.supersedes)
+    : undefined;
+  const id = randomUUID();
+  const attachments = storeAttachments(id, prepared.attachments);
   const message = buildMessage(
-    "send",
+    kind,
     prepared.fromBotId,
     prepared.toBotId,
     prepared.text,
     prepared.hop.depth,
     prepared.hop.thread.id,
-    { queued: prepared.queued },
+    {
+      id,
+      queued: prepared.queued,
+      delivery: prepared.delivery,
+      attachments,
+      supersedes: prepared.supersedes,
+      retryOf: prepared.retryOf,
+      replyTo: extras.replyTo,
+    },
   );
+  if (superseded) markSuperseded(superseded, message.id);
+  return message;
+}
+
+/** Deliver a `send`. Sender identity is only the provided fromBotId. Offline bots are queued. Busy bots are steered. */
+export function sendBotIntercom(input: SendBotIntercomInput): BotIntercomMessageV1 {
+  const prepared = prepareDelivery(input, "send");
+  const message = commitOutgoing("send", prepared);
   rememberThread(prepared.hop.thread, prepared.fromBotId, prepared.toBotId, prepared.hop.depth);
   deliverToMailboxes(message);
   return message;
@@ -600,15 +871,13 @@ export function askBotIntercom(input: AskBotIntercomInput): Promise<BotIntercomM
   waitingBots.add(prepared.fromBotId);
 
   const askRoundTrips = prepared.hop.thread.askRoundTrips + 1;
-  const message = buildMessage(
-    "ask",
-    prepared.fromBotId,
-    prepared.toBotId,
-    prepared.text,
-    prepared.hop.depth,
-    prepared.hop.thread.id,
-    { queued: prepared.queued },
-  );
+  let message: BotIntercomMessageV1;
+  try {
+    message = commitOutgoing("ask", prepared);
+  } catch (error) {
+    waitingBots.delete(prepared.fromBotId);
+    throw error;
+  }
   const record: PendingAskRecord = {
     id: message.id,
     conversationId: prepared.hop.thread.id,
@@ -665,7 +934,8 @@ export function askBotIntercom(input: AskBotIntercomInput): Promise<BotIntercomM
 export function replyBotIntercom(input: ReplyBotIntercomInput): BotIntercomMessageV1 {
   assertDmAllowed(input.roomTurn);
   const text = input.text.trim();
-  if (!text) throw new Error("Message text is required");
+  const attachments = input.attachments && input.attachments.length > 0 ? input.attachments : undefined;
+  if (!text && !attachments) throw new Error("Message text is required");
   if (text.length > BOT_INTERCOM_MESSAGE_MAX) throw new Error("Message text is too long");
 
   const fromBotId = input.fromBotId.trim();
@@ -682,9 +952,15 @@ export function replyBotIntercom(input: ReplyBotIntercomInput): BotIntercomMessa
   // Reply completes the ask. It reverses the pair so the next ask counts as a hop,
   // but does not increment depth (otherwise the finishing reply could hang the waiter).
   const depth = hop.thread.depth;
+  const delivery = deliveryFor(toBotId);
+  const id = randomUUID();
+  const stored = storeAttachments(id, attachments);
   const message = buildMessage("reply", fromBotId, toBotId, text, depth, pending.conversationId, {
+    id,
     replyTo: pending.id,
-    queued: !isBotIntercomResident(toBotId),
+    queued: delivery === "queued",
+    delivery,
+    attachments: stored,
   });
   rememberThread(hop.thread, fromBotId, toBotId, depth, hop.thread.askRoundTrips);
   detachPendingAsk(pending.id);
@@ -697,6 +973,42 @@ export function replyBotIntercom(input: ReplyBotIntercomInput): BotIntercomMessa
   return message;
 }
 
+/** Cancel an outbound message. Same sender only; both mailboxes see cancelled. */
+export function cancelBotIntercom(input: CancelBotIntercomInput): BotIntercomMessageV1 {
+  assertDmAllowed(input.roomTurn);
+  const fromBotId = input.fromBotId.trim();
+  if (!getBot(fromBotId)) throw new Error("Sender Bot is not available");
+  assertSendConsent(fromBotId, "sender");
+
+  const messageId = input.messageId.trim();
+  if (!messageId) throw new Error("Unknown message");
+  const owned = findOwnedMessage(fromBotId, messageId);
+  if (!owned) {
+    const existing = inboxState(fromBotId).messages.find((message) => message.id === messageId);
+    if (existing) throw new Error("Only the sender can cancel");
+    throw new Error("Unknown message");
+  }
+  if (owned.cancelled || owned.supersededBy) {
+    throw new Error("Message already cancelled or superseded");
+  }
+
+  patchMessageCopies(owned.id, (message) => {
+    message.cancelled = true;
+    message.delivery = "cancelled";
+  }, [owned.fromBotId, owned.toBotId]);
+  if (pendingAsks.has(owned.id)) {
+    detachPendingAsk(owned.id);
+    rejectWaiter(owned.id, new Error(`Cancelled (messageId: ${owned.id})`));
+  }
+  const updated = findOwnedMessage(fromBotId, owned.id);
+  if (!updated) throw new Error("Unknown message");
+  return updated;
+}
+
 export function botIntercomMailboxPathForTests(botId: string): string {
   return mailboxPath(botId);
+}
+
+export function botIntercomAttachmentsDirForTests(): string {
+  return attachmentsDir();
 }

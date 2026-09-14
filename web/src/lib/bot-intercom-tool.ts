@@ -5,18 +5,20 @@ import { roomForCodeOrigin } from "@/lib/pi/bot-code-relay";
 import {
   BOT_INTERCOM_MESSAGE_MAX,
   askBotIntercom,
+  cancelBotIntercom,
   listBotIntercomPeers,
   listPendingBotIntercomAsks,
   replyBotIntercom,
   sendBotIntercom,
+  type BotIntercomAttachmentInput,
 } from "@/lib/bot-intercom";
 
 export const BOT_INTERCOM_TOOL = "intercom";
 
 const BOT_INTERCOM_TOOL_DESCRIPTION =
-  "Send a 1:1 Bot intercom message by Bot id only. Phase B supports list, send, ask, reply, and pending. Do not pass a session id, display name, or fromBot — the server derives the sender from this Bot. Room turns must not use this tool; a formal @Name of a room member is an implicit room_handoff only. ask waits for reply as the tool result. Use send to queue a mailbox delivery when the named Bot is offline.";
+  "Send a 1:1 Bot intercom message by Bot id only. Phase C supports list, send, ask, reply, pending, and cancel. Do not pass a session id, display name, or fromBot — the server derives the sender from this Bot. Room turns must not use this tool; a formal @Name of a room member is an implicit room_handoff only. ask waits for reply as the tool result. Use send to queue or steer a mailbox delivery (offline = queued, busy = steered). cancel and supersedes are the same sender-recipient pair only. Attachments follow Room limits (images png/jpeg/webp/gif, UTF-8 files, 8 each, 8MB).";
 
-type IntercomAction = "list" | "send" | "ask" | "reply" | "pending";
+type IntercomAction = "list" | "send" | "ask" | "reply" | "pending" | "cancel";
 
 function toolResult(text: string, details: Record<string, unknown>, error = false) {
   return {
@@ -37,6 +39,23 @@ function isRoomTurn(originTaskId: string): boolean {
   return Boolean(roomForCodeOrigin(getTask(originTaskId)));
 }
 
+function asAttachmentInputs(value: unknown): BotIntercomAttachmentInput[] | undefined {
+  if (value == null) return undefined;
+  if (!Array.isArray(value)) throw new Error("attachments must be an array");
+  return value.map((item, index) => {
+    if (!item || typeof item !== "object") throw new Error(`attachments[${index}] is invalid`);
+    const row = item as { name?: unknown; mimeType?: unknown; data?: unknown };
+    if (typeof row.mimeType !== "string" || typeof row.data !== "string") {
+      throw new Error(`attachments[${index}] needs mimeType and data`);
+    }
+    return {
+      mimeType: row.mimeType,
+      data: row.data,
+      ...(typeof row.name === "string" ? { name: row.name } : {}),
+    };
+  });
+}
+
 async function executeBotIntercom(
   originTaskId: string,
   input: {
@@ -44,14 +63,18 @@ async function executeBotIntercom(
     to?: string;
     message?: string;
     replyTo?: string;
+    messageId?: string;
+    supersedes?: string;
+    retryOf?: string;
+    attachments?: unknown;
     fromBot?: string;
     fromBotId?: string;
   },
   signal?: AbortSignal,
 ) {
   const action = (input.action ?? "").trim() as IntercomAction | "";
-  if (action !== "list" && action !== "send" && action !== "ask" && action !== "reply" && action !== "pending") {
-    return toolResult("Phase B supports action=list, send, ask, reply, or pending", { action: input.action ?? null }, true);
+  if (action !== "list" && action !== "send" && action !== "ask" && action !== "reply" && action !== "pending" && action !== "cancel") {
+    return toolResult("Phase C supports action=list, send, ask, reply, pending, or cancel", { action: input.action ?? null }, true);
   }
 
   const fromBotId = senderBotId(originTaskId);
@@ -71,6 +94,7 @@ async function executeBotIntercom(
     }
     const lines = peers.map((peer) => {
       const flags = [
+        peer.presence,
         peer.resident ? "resident" : "not-resident (mailbox)",
         peer.intercomEnabled ? "opted-in" : "opted-out",
       ].join(", ");
@@ -93,13 +117,33 @@ async function executeBotIntercom(
   }
 
   try {
+    if (action === "cancel") {
+      const message = cancelBotIntercom({
+        fromBotId,
+        messageId: input.messageId ?? "",
+      });
+      return toolResult(`Cancelled ${message.id}`, {
+        v: message.v,
+        messageId: message.id,
+        fromBotId: message.fromBotId,
+        toBotId: message.toBotId,
+        delivery: message.delivery,
+        cancelled: true,
+      });
+    }
+
+    const attachments = asAttachmentInputs(input.attachments);
+
     if (action === "send") {
       const message = sendBotIntercom({
         fromBotId,
         to: input.to ?? "",
         text: input.message ?? "",
+        attachments,
+        supersedes: input.supersedes,
+        retryOf: input.retryOf,
       });
-      return toolResult(`${message.queued ? "Queued for" : "Sent to"} Bot ${message.toBotId}`, {
+      return toolResult(`${message.queued ? "Queued for" : message.delivery === "steered" ? "Steered to" : "Sent to"} Bot ${message.toBotId}`, {
         v: message.v,
         messageId: message.id,
         fromBotId: message.fromBotId,
@@ -107,6 +151,9 @@ async function executeBotIntercom(
         depth: message.depth,
         conversationId: message.conversationId,
         queued: message.queued === true,
+        delivery: message.delivery,
+        ...(message.supersedes ? { supersedes: message.supersedes } : {}),
+        ...(message.attachments ? { attachments: message.attachments } : {}),
       });
     }
 
@@ -115,6 +162,9 @@ async function executeBotIntercom(
         fromBotId,
         to: input.to ?? "",
         text: input.message ?? "",
+        attachments,
+        supersedes: input.supersedes,
+        retryOf: input.retryOf,
         signal,
       });
       const name = reply.fromBotId;
@@ -126,6 +176,7 @@ async function executeBotIntercom(
         replyTo: reply.replyTo,
         conversationId: reply.conversationId,
         depth: reply.depth,
+        delivery: reply.delivery,
       });
     }
 
@@ -134,6 +185,7 @@ async function executeBotIntercom(
       to: input.to,
       replyTo: input.replyTo,
       text: input.message ?? "",
+      attachments,
     });
     return toolResult(`Reply sent to Bot ${message.toBotId}`, {
       v: message.v,
@@ -143,6 +195,8 @@ async function executeBotIntercom(
       replyTo: message.replyTo,
       conversationId: message.conversationId,
       depth: message.depth,
+      delivery: message.delivery,
+      ...(message.attachments ? { attachments: message.attachments } : {}),
     });
   } catch (error) {
     return toolResult(error instanceof Error ? error.message : String(error), { error: true }, true);
@@ -155,7 +209,7 @@ function registerBridgeTool(pi: ExtensionAPI, originTaskId: string): void {
     label: "内線",
     description: BOT_INTERCOM_TOOL_DESCRIPTION,
     parameters: Type.Object({
-      action: Type.String({ description: "list, send, ask, reply, or pending (Phase B)" }),
+      action: Type.String({ description: "list, send, ask, reply, pending, or cancel (Phase C)" }),
       to: Type.Optional(Type.String({ description: "Destination Bot id only (required for send/ask; disambiguates reply)" })),
       message: Type.Optional(Type.String({
         minLength: 1,
@@ -163,6 +217,14 @@ function registerBridgeTool(pi: ExtensionAPI, originTaskId: string): void {
         description: "Message text for send, ask, or reply",
       })),
       replyTo: Type.Optional(Type.String({ description: "Ask message id when more than one inbound ask is pending" })),
+      messageId: Type.Optional(Type.String({ description: "Outbound message id to cancel" })),
+      supersedes: Type.Optional(Type.String({ description: "Outbound message id this send/ask replaces (same sender and recipient)" })),
+      retryOf: Type.Optional(Type.String({ description: "Optional metadata linking this message as a retry" })),
+      attachments: Type.Optional(Type.Array(Type.Object({
+        mimeType: Type.String({ description: "image/png, image/jpeg, image/webp, image/gif, or a UTF-8 text MIME type" }),
+        data: Type.String({ description: "Base64 payload. Room limits: 8 images + 8 files, 8MB each" }),
+        name: Type.Optional(Type.String({ description: "File name (required for non-image attachments)" })),
+      }), { maxItems: 16, description: "Room-aligned attachments (8 images + 8 UTF-8 files, 8MB each)" })),
     }),
     async execute(_toolCallId, input, signal) {
       return executeBotIntercom(originTaskId, input as {
@@ -170,6 +232,10 @@ function registerBridgeTool(pi: ExtensionAPI, originTaskId: string): void {
         to?: string;
         message?: string;
         replyTo?: string;
+        messageId?: string;
+        supersedes?: string;
+        retryOf?: string;
+        attachments?: unknown;
         fromBot?: string;
         fromBotId?: string;
       }, signal);

@@ -18,6 +18,7 @@ import {
   getBotIntercomInbox,
   resetBotIntercomForTests,
   setBotIntercomAskTimeoutMsForTests,
+  setBotIntercomBusyLookup,
   setBotIntercomResidentLookup,
 } from "./bot-intercom";
 import { BOT_INTERCOM_TOOL, botIntercomTool } from "./bot-intercom-tool";
@@ -183,5 +184,72 @@ describe("bot intercom tool", () => {
     expect(result.details.error).toBe(true);
     expect(result.content[0]?.text).toMatch(/Room turn|room_handoff/i);
     expect(getBotIntercomInbox(bob.id).pendingAsks).toHaveLength(0);
+  });
+
+  it("lists presence and steers or cancels without spoofing the sender", async () => {
+    const alice = enableIntercom(createBot({ name: "Alice" }).id)!;
+    const bob = enableIntercom(createBot({ name: "Bob" }).id)!;
+    const mallory = enableIntercom(createBot({ name: "Mallory" }).id)!;
+    residents.add(bob.id);
+    setBotIntercomBusyLookup((id) => id === bob.id);
+    const aliceTool = install(`bot:${alice.id}`).tool;
+    const malloryTool = install(`bot:${mallory.id}`).tool;
+
+    const listed = await aliceTool.execute("list", { action: "list" });
+    expect(listed.content[0]?.text).toMatch(/busy/);
+    expect((listed.details.bots as { id: string; presence: string }[]).find((peer) => peer.id === bob.id)?.presence).toBe("busy");
+
+    const sent = await aliceTool.execute("send", {
+      action: "send",
+      to: bob.id,
+      message: "steer me",
+      fromBotId: mallory.id,
+    });
+    expect(sent.details.error).toBeUndefined();
+    expect(sent.details.fromBotId).toBe(alice.id);
+    expect(sent.details.delivery).toBe("steered");
+    expect(sent.content[0]?.text).toMatch(/Steered/);
+
+    const cancelled = await aliceTool.execute("cancel", {
+      action: "cancel",
+      messageId: sent.details.messageId,
+      fromBot: mallory.id,
+    });
+    expect(cancelled.details).toMatchObject({ fromBotId: alice.id, cancelled: true, delivery: "cancelled" });
+
+    const again = await aliceTool.execute("send", { action: "send", to: bob.id, message: "old" });
+    const replaced = await aliceTool.execute("send", {
+      action: "send",
+      to: bob.id,
+      message: "new",
+      supersedes: again.details.messageId,
+    });
+    expect(replaced.details.supersedes).toBe(again.details.messageId);
+
+    const stolen = await malloryTool.execute("cancel", { action: "cancel", messageId: replaced.details.messageId });
+    expect(stolen.details.error).toBe(true);
+
+    const png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+    const attached = await aliceTool.execute("send", {
+      action: "send",
+      to: bob.id,
+      message: "pic",
+      attachments: [{ mimeType: "image/png", data: png }],
+    });
+    expect(attached.details.error).toBeUndefined();
+    expect(attached.details.attachments).toEqual([expect.objectContaining({ kind: "image", mimeType: "image/png" })]);
+  });
+
+  it("does not fire cancel during a Room turn", async () => {
+    const alice = enableIntercom(createBot({ name: "Alice" }).id)!;
+    const bob = enableIntercom(createBot({ name: "Bob" }).id)!;
+    residents.add(bob.id);
+    const sent = await install(`bot:${alice.id}`).tool.execute("send", { action: "send", to: bob.id, message: "keep" });
+    const room = createRoom({ name: "Room", members: [alice.id, bob.id] });
+    const { tool } = install(ensureRoomBotTask(room, getBot(alice.id)!));
+    const result = await tool.execute("cancel", { action: "cancel", messageId: sent.details.messageId });
+    expect(result.details.error).toBe(true);
+    expect(result.content[0]?.text).toMatch(/Room turn|room_handoff/i);
+    expect(getBotIntercomInbox(bob.id).messages.find((message) => message.id === sent.details.messageId)?.cancelled).toBeUndefined();
   });
 });
