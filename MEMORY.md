@@ -68,6 +68,14 @@
 ### 検証（Tick7）
 `accounts` / `room-runtime` / `hang-watchdog` — **71 passed**
 
+### Tick8（ループ継続）
+1. provider-limit fallback — `finally` で `promptActive` 中の lease を解放しない
+2. `isTaskRuntimeOwnedElsewhere` — bot 限定をやめ、外部 lease 全般で offline/409
+3. auto-compaction — `pendingProviderFallback` / inflight fallback 中はスキップ
+
+### 検証（Tick8）
+`harness-limit-fallback` / `harness-agent` / `events` / `task-runtime-lease` — **41 passed**
+
 ---
 
 ## 2026-09-14: Stale production rebuild / next build exit 1

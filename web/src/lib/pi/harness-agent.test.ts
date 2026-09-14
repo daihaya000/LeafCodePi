@@ -10,7 +10,8 @@ import {
   getTaskHangWatch,
   stopHangWatchdogForTests,
 } from "./hang-watchdog";
-import { abortLiveForHangWatchdog, abortTask, archiveTask, destroyProject, destroyTask, getTaskDetail, isLiveBusyForReplace, markTaskWorkingIfIdle, restoreTask, setTaskAgent, throwIfBusyForModelChange, throwIfBusyForPermissionChange, throwIfBusyForSkillPermissionChange, throwIfBusyForThinkingChange } from "./harness";
+import { abortLiveForHangWatchdog, abortTask, archiveTask, destroyProject, destroyTask, getTaskDetail, isLiveBusyForReplace, isTaskRuntimeOwnedElsewhere, markTaskWorkingIfIdle, restoreTask, setTaskAgent, throwIfBusyForModelChange, throwIfBusyForPermissionChange, throwIfBusyForSkillPermissionChange, throwIfBusyForThinkingChange } from "./harness";
+import { taskRuntimeLeasePath } from "@/lib/task-runtime-lease";
 
 const GLOBAL_KEY = "__leafcodePiHarness";
 const previousHarness = (globalThis as Record<string, unknown>)[GLOBAL_KEY];
@@ -871,5 +872,27 @@ describe("destroyTask", () => {
     assert.equal(getTask(task.id), undefined);
     assert.equal(getProject(project.id), undefined);
     assert.equal(live.has(task.id), false);
+  });
+});
+
+describe("isTaskRuntimeOwnedElsewhere", () => {
+  it("detects a foreign lease on ordinary Code tasks without a botId", () => {
+    const dir = mkdtempSync(join(tmpdir(), "leafcode-pi-owned-elsewhere-"));
+    tempDirs.push(dir);
+    process.env.LEAFCODE_PI_DATA_DIR = dir;
+    mkdirSync(join(dir, "task-leases"), { recursive: true });
+    const project = upsertProject({ name: "demo", rootPath: dir });
+    const task = insertTask({ project, title: "plain code" });
+    writeFileSync(
+      taskRuntimeLeasePath(task.id),
+      `${JSON.stringify({
+        token: "other-worker",
+        pid: process.pid,
+        acquiredAt: Date.now(),
+        heartbeatAt: Date.now(),
+      })}\n`,
+    );
+    assert.equal(isTaskRuntimeOwnedElsewhere(getTask(task.id)!), true);
+    assert.equal(task.botId, undefined);
   });
 });

@@ -1531,6 +1531,8 @@ function scheduleAutoCompaction(live: LiveRuntime): void {
     blocksAutoCompactionAfterManualAbort(live.manualAbortedAssistantId) ||
     live.nativeCompactionAttempted ||
     live.goalLoopTurnActive ||
+    live.pendingProviderFallback ||
+    providerFallbackInflight.has(live.taskId) ||
     live.session.isCompacting ||
     isActiveGoalLoopSession(live.session)
   ) {
@@ -1680,7 +1682,13 @@ async function fallbackProviderAfterLimit(
         },
       );
     } finally {
-      releaseTaskLease(live.taskId);
+      // A queued user prompt may already have re-entered promptActive on this
+      // lease while fallback was replacing the route. Releasing here would drop
+      // that turn's lease; settle of that turn releases instead.
+      const current = state().live.get(live.taskId);
+      if (!current?.promptActive) {
+        releaseTaskLease(live.taskId);
+      }
     }
   })().finally(() => {
     if (providerFallbackInflight.get(live.taskId) === operation) {
@@ -1794,8 +1802,10 @@ function finishSettledTurn(
   // A pending SOUL update is applied by replacing the idle session before
   // the next prompt. Disposing here would make Goal Loop's session_shutdown
   // handler pause an otherwise active loop.
-  if (!goalLoopTurnActive) scheduleAutoCompaction(live);
   const pending = live.pendingProviderFallback;
+  // Provider-limit recovery replaces this session; compacting the exhausted
+  // route first only delays fallback and can race with replaceLiveForRoute.
+  if (!goalLoopTurnActive && !pending) scheduleAutoCompaction(live);
   live.pendingProviderFallback = null;
   const settledError = session.agent.state.errorMessage ?? null;
   // Provider-limit recovery uses a hidden custom message, so the
@@ -3752,6 +3762,9 @@ async function ensureLive(
       throw Object.assign(new Error("アーカイブされたタスクです"), {
         status: 409,
       });
+    }
+    if (hasActiveTaskLease(taskId) && !ownsTaskLease(taskId)) {
+      throw Object.assign(new Error(TASK_LEASE_BUSY_ERROR), { status: 409 });
     }
     const project = task.projectId ? getProject(task.projectId) : undefined;
     const isBot = task.kind === "bot" && Boolean(task.botId);
@@ -5856,8 +5869,9 @@ export async function getTaskDetail(
     return detail;
   }
   // A Code task owned by another Next worker cannot be opened as a live SDK session here.
-  // Read its append-only transcript instead; prompts are delivered through the relay outbox.
-  if (options.offline || shouldForwardBotCodePrompt(task)) {
+  // Read its append-only transcript instead; prompts are delivered through the relay outbox
+  // (Bot Code) or rejected with 409 (ordinary Code).
+  if (options.offline || isTaskRuntimeOwnedElsewhere(task)) {
     const parts = await offlineDetailParts(task, options.onTiming);
     const detail = {
       ...toSummary(task),
@@ -7313,8 +7327,9 @@ function shouldForwardBotCodePrompt(task: TaskSummary): boolean {
   );
 }
 
+/** True when another worker holds the runtime lease for this task (any kind). */
 export function isTaskRuntimeOwnedElsewhere(task: TaskSummary): boolean {
-  return shouldForwardBotCodePrompt(task);
+  return hasActiveTaskLease(task.id) && !ownsTaskLease(task.id);
 }
 
 function promptSelectionOptionsForWorker(
@@ -7460,6 +7475,9 @@ export async function promptTask(
       promptOptionsForWorker(images, options),
     );
     return toSummary(taskBeforePrompt);
+  }
+  if (isTaskRuntimeOwnedElsewhere(taskBeforePrompt)) {
+    throw Object.assign(new Error(TASK_LEASE_BUSY_ERROR), { status: 409 });
   }
   const task = await applyPromptSelections(id, options);
   const live = await ensureLive(id);
