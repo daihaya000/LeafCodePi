@@ -6113,6 +6113,19 @@ function resolveCreateTaskProject(projectId: string | null): ProjectDto | null {
   return project;
 }
 
+function validateGoalLoopAttachments(
+  goalLoop: boolean,
+  images?: PromptImage[],
+  files?: PromptFileInput[],
+): void {
+  if (goalLoop && (images?.length || files?.length)) {
+    throw Object.assign(
+      new Error("Goal loop の開始ではファイル添付は使えません"),
+      { status: 400 },
+    );
+  }
+}
+
 export async function createTask(input: {
   projectId: string | null;
   prompt: string;
@@ -6140,9 +6153,11 @@ export async function createTask(input: {
     autoAgent?: boolean;
   };
 }): Promise<TaskSummary> {
-  if (input.goalLoop && (input.images?.length || input.files?.length)) {
-    throw Object.assign(new Error("Goal loop の開始ではファイル添付は使えません"), { status: 400 });
-  }
+  validateGoalLoopAttachments(
+    Boolean(input.goalLoop),
+    input.images,
+    input.files,
+  );
   const project = resolveCreateTaskProject(input.projectId);
   const {
     modelValue,
