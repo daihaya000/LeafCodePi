@@ -1248,6 +1248,72 @@ it("shows the intercom thread and ask-waiting line from SSE", async () => {
   expect(screen.getByRole("list", { name: "内線スレッド" }).textContent).toContain("可否は？");
 });
 
+it("shows counterpart presence from the intercom SSE snapshot", async () => {
+  render(<ShellProvider><BotView id="one" active /></ShellProvider>);
+  await screen.findByRole("region", { name: "内線受信箱" });
+  snapshot({
+    intercomInbox: {
+      messages: [{
+        v: 1,
+        id: "send-1",
+        fromBotId: "alice",
+        fromName: "Alice",
+        toBotId: "one",
+        text: "steer",
+        createdAt: 1,
+        depth: 0,
+        kind: "send",
+        delivery: "steered",
+      }],
+      unreadCount: 1,
+      preview: { fromBotId: "alice", fromName: "Alice", text: "steer", createdAt: 1 },
+      pendingAsks: [],
+      peerPresence: { botId: "alice", name: "Alice", status: "busy" },
+    },
+  });
+  expect(await screen.findByLabelText("在席 取り込み中")).toBeTruthy();
+});
+
+it("notifies a hidden tab when intercom unread rises, and stays silent when notifications are off", async () => {
+  const sent: string[] = [];
+  class FakeNotification {
+    static permission = "granted";
+    constructor(title: string) { sent.push(title); }
+  }
+  vi.stubGlobal("Notification", FakeNotification);
+  Object.defineProperty(document, "hidden", { configurable: true, value: true });
+  try {
+    render(<ShellProvider><BotView id="one" active /></ShellProvider>);
+    await screen.findByRole("region", { name: "内線受信箱" });
+    snapshot({
+      intercomInbox: {
+        messages: [],
+        unreadCount: 1,
+        preview: { fromBotId: "alice", fromName: "Alice", text: "確認お願いします", createdAt: 1 },
+        pendingAsks: [],
+      },
+    });
+    expect(sent).toEqual(["内線メッセージ"]);
+
+    mocks.getJson.mockImplementation(async (url: string) => url === "/api/models" ? { models: [] } : url.endsWith("/routines") ? { routines: [] } : { bot: { ...testBot, notificationsEnabled: false } });
+    cleanup();
+    sent.length = 0;
+    render(<ShellProvider><BotView id="one" active /></ShellProvider>);
+    await screen.findByRole("region", { name: "内線受信箱" });
+    snapshot({
+      intercomInbox: {
+        messages: [],
+        unreadCount: 1,
+        preview: { fromBotId: "alice", fromName: "Alice", text: "確認お願いします", createdAt: 1 },
+        pendingAsks: [],
+      },
+    });
+    expect(sent).toEqual([]);
+  } finally {
+    Reflect.deleteProperty(document, "hidden");
+  }
+});
+
 it("persists the Bot intercom opt-in from settings", async () => {
   mocks.sendJson.mockImplementation(async (_url: string, patch: object) => ({ bot: { ...testBot, ...patch } }));
   render(<ShellProvider><BotView id="one" active /></ShellProvider>);

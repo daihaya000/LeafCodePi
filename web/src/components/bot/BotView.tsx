@@ -410,6 +410,29 @@ export const BotView = memo(function BotView({ id, active = true }: { id: string
     // One notification per Bot replaces the previous one instead of stacking.
     if (kind && notificationsEnabled) new Notification(kind === "attention" ? "承認が必要です" : "新しい返信があります", { body: bot.name, tag: `bot-${id}` });
   }, [bot, id, notificationsEnabled, permission, question, sending]);
+  const prevIntercomUnreadRef = useRef<number | null>(null);
+  const intercomNotifyBotIdRef = useRef(id);
+  useEffect(() => {
+    if (intercomNotifyBotIdRef.current !== id) {
+      intercomNotifyBotIdRef.current = id;
+      prevIntercomUnreadRef.current = null;
+    }
+    if (prevIntercomUnreadRef.current === null) {
+      prevIntercomUnreadRef.current = intercomInbox.unreadCount;
+      return;
+    }
+    if (!bot) return;
+    const previousUnread = prevIntercomUnreadRef.current;
+    prevIntercomUnreadRef.current = intercomInbox.unreadCount;
+    if (!notificationsEnabled) return;
+    if (typeof Notification === "undefined" || Notification.permission !== "granted") return;
+    if (typeof document !== "undefined" && !document.hidden) return;
+    if (intercomInbox.unreadCount <= previousUnread) return;
+    const line = intercomInbox.preview
+      ? `${intercomInbox.preview.fromName}: ${intercomInbox.preview.text}`
+      : "内線メッセージ";
+    new Notification("内線メッセージ", { body: line, tag: `bot-${id}` });
+  }, [bot, id, intercomInbox, notificationsEnabled]);
   // 発言が完了した（working → idle）タイミングで、直前のBotの返信をこのタブでだけ読み上げる。
   // 非表示タブ（裏のペイン等）は喋らない。完了通知が履歴更新より先に届いても待つ。
   const prevTtsSendingRef = useRef(false);

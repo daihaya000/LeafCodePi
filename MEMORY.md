@@ -1,5 +1,28 @@
 ﻿# MEMORY
 
+## 2026-09-14: Bot Intercom Bridge Phase C
+
+### 実装
+運用感の肉付け。presence（online/busy/offline）、Roomと同じ添付制限、`cancel` / `supersedes`（同一sender→recipientのみ）。忙しい常駐Botへのsendは `delivery: steered`。オフラインは従来どおり queued。既存の `notificationsEnabled` で内線未読増分をデスクトップ通知。メッセージ契約は `v: 1` のまま任意フィールド追加（`delivery` `attachments` `supersedes` `supersededBy` `retryOf` `cancelled`）。`confirmSend` は肥大化するため未実装（任意）。
+
+コア契約は維持: Bot id のみ / fromBot 詐称不可 / 深さ・ループ上限 / Room二重発火なし / opt-in + allowlist / 同一スレッド ask 往復 = MAX_ROOM_RELAY_DEPTH（3）。
+
+添付は Room と同じ: 画像 png/jpeg/webp/gif 最大8件 8MB、UTF-8テキスト最大8件 8MB。本体は `bots/.intercom/attachments/`、mailbox にはメタのみ。
+
+### UI
+受信箱に在席表示、添付チップ、取消/差替、折りたたみ詳細（messageId / delivery / depth）。Room / opener / Auto / Computer / leafcode-intercom 本体は未変更。
+
+### 検証
+bot-intercom 21 / bot-intercom-tool 9 / BotIntercomInbox 5 / BotView.code 53 / intercom route 3 / room-runtime 42 / bots 21 / bots route 13 / events 3 = 170 PASS。typecheck OK。
+
+### 意図的に残した（D+）
+confirmSend、scopeId、fanout、wakeOnDm / Routine、クロスマシン。leafcode-intercom 本体は未変更。
+
+### ブランチ / PR
+`cursor/bot-intercom-bridge-phase-c-fcd9`
+
+---
+
 ## 2026-09-14: Bot→Code ユーザー画像添付
 
 ### 問題

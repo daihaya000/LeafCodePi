@@ -21,7 +21,7 @@ import { roomRequestImages } from "@/lib/rooms";
 import { BOT_SOUL_TOOL, botSoulTool } from "@/lib/pi/bot-soul-tool";
 import { ROOM_HANDOFF_TOOL, roomHandoffTool } from "@/lib/room-handoff-tool";
 import { botIntercomTool } from "@/lib/bot-intercom-tool";
-import { setBotIntercomResidentLookup } from "@/lib/bot-intercom";
+import { setBotIntercomBusyLookup, setBotIntercomResidentLookup } from "@/lib/bot-intercom";
 import { ROOM_SYSTEM_PROMPT, roomBotPrompt } from "@/lib/room-conversation";
 import { requestWebUiPermission } from "@/lib/pi/webui-permission-bridge";
 import {
@@ -597,6 +597,10 @@ function state(): HarnessState {
   };
   if (!globalRef[GLOBAL_KEY]) {
     setBotIntercomResidentLookup((botId) => Boolean(globalRef[GLOBAL_KEY]?.live.has(`bot:${botId}`)));
+    setBotIntercomBusyLookup((botId) => {
+      const live = globalRef[GLOBAL_KEY]?.live.get(`bot:${botId}`);
+      return Boolean(live && (live.promptActive || live.session.isStreaming || live.session.isCompacting));
+    });
     globalRef[GLOBAL_KEY] = {
       pi: null,
       modelRuntime: null,

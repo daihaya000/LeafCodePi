@@ -71,3 +71,45 @@ it("shows the thread and an ask-waiting line on the same inbox", () => {
   expect(screen.getByRole("list", { name: "内線スレッド" }).textContent).toContain("可否は？");
   expect(screen.getByRole("list", { name: "内線スレッド" }).textContent).toContain("質問");
 });
+
+it("shows counterpart presence, attachments, and cancelled state", () => {
+  const inbox: BotIntercomInboxDto = {
+    messages: [
+      {
+        v: 1,
+        id: "msg-1",
+        fromBotId: "alice",
+        fromName: "Alice",
+        toBotId: "bob",
+        text: "差し替え前",
+        createdAt: 1,
+        depth: 0,
+        kind: "send",
+        cancelled: true,
+        delivery: "cancelled",
+      },
+      {
+        v: 1,
+        id: "msg-2",
+        fromBotId: "alice",
+        fromName: "Alice",
+        toBotId: "bob",
+        text: "画像です",
+        createdAt: 2,
+        depth: 0,
+        kind: "send",
+        delivery: "steered",
+        attachments: [{ kind: "image", name: "image-1.png", mimeType: "image/png", file: "msg-2-0.png", bytes: 12 }],
+      },
+    ],
+    unreadCount: 1,
+    preview: { fromBotId: "alice", fromName: "Alice", text: "画像です", createdAt: 2 },
+    pendingAsks: [],
+    peerPresence: { botId: "alice", name: "Alice", status: "busy" },
+  };
+  render(<BotIntercomInbox inbox={inbox} />);
+  expect(screen.getByLabelText("在席 取り込み中")).toBeTruthy();
+  expect(screen.getByLabelText("添付 image-1.png")).toBeTruthy();
+  expect(screen.getByRole("list", { name: "内線スレッド" }).textContent).toContain("取消");
+  expect(screen.getAllByText("詳細").length).toBeGreaterThan(0);
+});
