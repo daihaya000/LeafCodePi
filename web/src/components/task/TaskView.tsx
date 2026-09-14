@@ -2359,7 +2359,6 @@ export const TaskView = memo(function TaskView({
 
   useEffect(() => {
     if (
-      (error && task?.status !== "error") ||
       agentChanging ||
       archived ||
       !shouldDrainQueuedFollowUp({
@@ -2385,7 +2384,6 @@ export const TaskView = memo(function TaskView({
     queuedSendRef.current = next;
     setQueuedAutoSend(true);
   }, [
-    error,
     agentChanging,
     archived,
     compacting,
@@ -2398,7 +2396,6 @@ export const TaskView = memo(function TaskView({
     sseReconnecting,
     stopRequested,
     submitting,
-    task?.status,
     working,
   ]);
 

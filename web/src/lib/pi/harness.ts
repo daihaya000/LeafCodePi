@@ -1752,7 +1752,11 @@ function applySettledTaskStatus(
   // A Goal Loop stop aborts its own turn and Pi reports that abort as an error message. The loop
   // file already says "stopped", so this is the user's deliberate stop, not a failure: keep the
   // same shape as abortTask (idle + the manual-abort sentinel) instead of painting the task red.
-  const stoppedByUser = settledError !== null && isAbortErrorMessage(settledError) && goalLoopIsStopped(live);
+  // Manual Stop also leaves manualAbortedAssistantId set (possibly "") before agent_settled.
+  const stoppedByUser =
+    settledError !== null &&
+    isAbortErrorMessage(settledError) &&
+    (goalLoopIsStopped(live) || live.manualAbortedAssistantId !== null);
   if (stoppedByUser) persistManualAbortedAssistantId(taskId, "");
   setTaskStatus(taskId, stoppedByUser || !settledError ? "idle" : "error", stoppedByUser ? null : settledError);
   releaseTaskLease(taskId);
@@ -7185,6 +7189,12 @@ function queuePrompt(
   const handlePromptError = (error: unknown) => {
     const message = error instanceof Error ? error.message : String(error);
     const currentLive = state().live.get(live.taskId) ?? activeLive;
+    if (
+      isAbortErrorMessage(message) &&
+      currentLive.manualAbortedAssistantId !== null
+    ) {
+      return;
+    }
     setTaskStatus(live.taskId, "error", message);
     releaseTaskLease(live.taskId);
     emit(live.taskId, {

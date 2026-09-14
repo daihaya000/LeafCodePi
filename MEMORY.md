@@ -33,6 +33,11 @@
 5. TaskView: エラーターン終了後のキュー drain 回帰テスト
 6. `sysmon-linux` — sysfs 結合を常に `posix.join`（Windows 上の Linux モック失敗を修正）
 
+### Tick2（ループ継続）
+1. TaskView キュー drain — クライアント `error` バナーで永久停止しない
+2. `generateDirectText` — `model.accountId` だけでは explicit pin にしない
+3. `applySettledTaskStatus` / `handlePromptError` — 手動 Stop 後の abort settle を idle 維持
+
 ---
 
 ## 2026-09-14: Stale production rebuild / next build exit 1

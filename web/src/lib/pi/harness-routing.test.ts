@@ -435,6 +435,33 @@ describe("integrated session routing", () => {
     expect(getTask(task.id)).toMatchObject({ status: "idle", manualAbortedAssistantId: "" });
   });
 
+  it("keeps a manual Stop idle after Pi reports an abort settle", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "leafcode-pi-manual-abort-settle-"));
+    tempDirs.push(dir);
+    process.env.LEAFCODE_PI_DATA_DIR = dir;
+    process.env.PI_CODING_AGENT_DIR = join(dir, "agent");
+    __resetPiAgentDirCacheForTests();
+    installHarness(new Map());
+
+    const project = upsertProject({ name: "demo", rootPath: dir });
+    const task = await createTask({ projectId: project.id, prompt: "初回" });
+    await waitFor(() => getTask(task.id)?.status === "idle");
+    const harness = (globalThis as Record<string, unknown>)[GLOBAL_KEY] as {
+      live: Map<
+        string,
+        {
+          session: { agent: { state: { errorMessage?: string } } };
+          manualAbortedAssistantId: string | null;
+        }
+      >;
+    };
+    const live = harness.live.get(task.id)!;
+    live.manualAbortedAssistantId = "";
+    live.session.agent.state.errorMessage = "Request was aborted";
+    fakePi.sessions[0]?.emit?.({ type: "agent_settled" });
+    expect(getTask(task.id)).toMatchObject({ status: "idle", error: null });
+  });
+
   it("opens an account Bot without waiting for the shared runtime", async () => {
     const dir = mkdtempSync(join(tmpdir(), "leafcode-pi-account-bot-cold-start-"));
     tempDirs.push(dir);

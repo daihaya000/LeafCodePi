@@ -108,6 +108,44 @@ describe("direct-generation", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it("does not treat model.accountId alone as an explicit pin", async () => {
+    completeModelText.mockResolvedValue("ok");
+    await generateDirectText({
+      model: {
+        providerID: "anthropic",
+        modelID: "claude-sonnet",
+        accountId: "acc-routed",
+      },
+      system: "system",
+      prompt: "prompt",
+    });
+    expect(completeModelText).toHaveBeenCalledWith(
+      expect.objectContaining({
+        accountId: "acc-routed",
+      }),
+    );
+    expect(completeModelText.mock.calls[0]?.[0]).not.toHaveProperty(
+      "accountIdExplicit",
+    );
+  });
+
+  it("passes accountIdExplicit only when the caller requests it", async () => {
+    completeModelText.mockResolvedValue("ok");
+    await generateDirectText({
+      model: { providerID: "anthropic", modelID: "claude-sonnet" },
+      accountId: "acc-1",
+      accountIdExplicit: true,
+      system: "system",
+      prompt: "prompt",
+    });
+    expect(completeModelText).toHaveBeenCalledWith(
+      expect.objectContaining({
+        accountId: "acc-1",
+        accountIdExplicit: true,
+      }),
+    );
+  });
+
   it("calls the OpenAI-compatible endpoint without tools", async () => {
     const fetchMock = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
       const body = JSON.parse(String(init?.body));

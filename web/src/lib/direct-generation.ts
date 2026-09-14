@@ -170,8 +170,7 @@ export async function generateDirectText(options: {
     if (model.providerID !== LLAMA_SERVER_PROVIDER_ID) {
       const reasoning = runtimeReasoningForEffort(options.effort);
       const accountId = model.accountId ?? options.accountId;
-      const accountIdExplicit =
-        options.accountIdExplicit === true || Boolean(model.accountId);
+      const accountIdExplicit = options.accountIdExplicit === true;
       const text = await completeModelText({
         ...model,
         ...(accountId ? { accountId } : {}),
