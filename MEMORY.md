@@ -24,12 +24,13 @@ master `e2bb92f4` から `cursor/linux-parity-cleanup-e913`。Windows 挙動は�
 - Intel iGPU（信頼できる util+temp なし）
 - センサー無し VM / `LEAFCODE_SYSMON_THERMAL=0`
 
-### 検証
-web: paths / host-launch-hints / tts-backends / TtsSettings / HostRestartPanel / browse-quick-access / xdg-user-dirs / sysmon-linux / ProjectExplorerButton
-host: open-explorer
+### 検証（Linux）
+- web 10 files / 44 tests PASS（paths, hints, TTS, Quick Access, sysmon-linux, Explorer button, cache）
+- host open-explorer 2 PASS
+- 空 sysfs を 0 にしないよう `parseAmdGpuBusyPercent` / `parseVramBytes` を修正
 
 ### ブランチ / PR
-`cursor/linux-parity-cleanup-e913`
+`cursor/linux-parity-cleanup-e913` / https://github.com/daihaya000/LeafCodePi/pull/10
 
 ---
 
