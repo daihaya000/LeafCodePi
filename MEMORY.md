@@ -305,6 +305,14 @@
 ### 検証（Tick61）
 `bots/[id]` / `bot-code-relay` / `harness-lifecycle` / `harness-agent` / `code-session` — **142 passed**
 
+### Tick62–63（ループ継続）
+1. Bot DELETE — `listTasks(true,"all")` で kind=code も `destroyTask`（孤児 Code タスク掃除）；`deleteBot` も all
+2. Code 依頼 abort（Bot/Room）+ Task abort + code-session fallback — `abortTaskIncludingColdGoalLoop`
+3. hang watchdog `onMissingLive` — error 前に cold Goal Loop を停止
+
+### 検証（Tick62–63）
+`bots/[id]` / `code-session` / `rooms/.../code` / `harness-lifecycle` / `hang-watchdog` — **67 passed**
+
 ---
 
 ## 2026-09-14: Stale production rebuild / next build exit 1
