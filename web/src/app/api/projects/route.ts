@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
   addProject,
-  archiveProject,
+  archiveProjectAndStopTasks,
   destroyProject,
   getProjects,
   jsonError,
@@ -38,7 +38,7 @@ export async function PATCH(req: NextRequest) {
       return NextResponse.json({ error: "id is required" }, { status: 400 });
     }
     if (body.archived === true) {
-      return NextResponse.json({ project: archiveProject(body.id) });
+      return NextResponse.json({ project: await archiveProjectAndStopTasks(body.id) });
     }
     if (body.archived === false) {
       return NextResponse.json({ project: restoreProject(body.id) });

@@ -620,8 +620,8 @@ export function cancelPendingRoomHandoffsForBot(roomId: string, botId: string): 
 export async function detachBotFromRoomRuntime(roomId: string, botId: string): Promise<void> {
   await stopRoomMemberTurns(roomId, botId);
   cancelPendingRoomHandoffsForBot(roomId, botId);
-  const { cancelRoomCodeRequestsForBot } = await import("@/lib/pi/bot-code-relay");
-  await cancelRoomCodeRequestsForBot(roomId, botId);
+  const { stopRoomCodeSessionsForBot } = await import("@/lib/pi/bot-code-relay");
+  await stopRoomCodeSessionsForBot(roomId, botId);
 }
 
 /** Deliver every ready handoff of this room, one at a time; claims under the room lock prevent double runs. */

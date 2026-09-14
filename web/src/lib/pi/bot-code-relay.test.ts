@@ -6,7 +6,10 @@ import type { BotDto, RoomDto, RoomMessage, TaskSummary, UiMessage } from "@/lib
 
 const store = vi.hoisted(() => ({ root: "", bots: new Map<string, BotDto>(), tasks: new Map<string, TaskSummary>(), projects: [{ id: "project", name: "Project", archived: false }], rooms: new Map<string, RoomDto>(), abortTask: vi.fn(async (id: string) => store.tasks.get(id)) }));
 vi.mock("@/lib/paths", () => ({ dataDir: () => store.root }));
-vi.mock("@/lib/pi/harness", () => ({ abortTask: store.abortTask }));
+vi.mock("@/lib/pi/harness", () => ({
+  abortTask: store.abortTask,
+  abortTaskIncludingColdGoalLoop: store.abortTask,
+}));
 vi.mock("@/lib/bots", () => ({
   getBot: (id: string) => store.bots.get(id),
   patchBot: (id: string, patch: Partial<BotDto>) => { const bot = store.bots.get(id); if (bot) Object.assign(bot, patch); return bot; },

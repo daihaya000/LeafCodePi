@@ -443,8 +443,8 @@ async function cancelRequests(stale: CodeRequest[]): Promise<number> {
     if (!taskToStop) continue;
     try {
       // Keep this import lazy: harness owns the relay singleton and statically importing it here would cycle.
-      const { abortTask } = await import("@/lib/pi/harness");
-      await abortTask(taskToStop);
+      const { abortTaskIncludingColdGoalLoop } = await import("@/lib/pi/harness");
+      await abortTaskIncludingColdGoalLoop(taskToStop);
     } catch (error) {
       console.warn("[bot-code-relay] reverted Code task could not be stopped:", error instanceof Error ? error.message : String(error));
     }
@@ -465,11 +465,33 @@ export async function cancelAllRoomCodeRequests(roomId: string): Promise<number>
  * outbox but still have a live Goal Loop / working status (isBusy cold-gap orphans).
  */
 export async function stopAllRoomCodeSessions(roomId: string): Promise<number> {
-  const cancelled = await cancelAllRoomCodeRequests(roomId);
+  return stopRoomCodeSessions(
+    (request) => request.room?.id === roomId && Boolean(request.codeTaskId),
+    () => cancelAllRoomCodeRequests(roomId),
+  );
+}
+
+/** Member leave / Bot detach: same as stopAllRoomCodeSessions but scoped to one Bot origin. */
+export async function stopRoomCodeSessionsForBot(roomId: string, botId: string): Promise<number> {
+  const origin = roomBotTaskId(roomId, botId);
+  return stopRoomCodeSessions(
+    (request) =>
+      request.room?.id === roomId &&
+      request.originTaskId === origin &&
+      Boolean(request.codeTaskId),
+    () => cancelRoomCodeRequestsForBot(roomId, botId),
+  );
+}
+
+async function stopRoomCodeSessions(
+  match: (request: CodeRequest) => boolean,
+  cancelActive: () => Promise<number>,
+): Promise<number> {
+  const cancelled = await cancelActive();
   const taskIds = [
     ...new Set(
       requests()
-        .filter((request) => request.room?.id === roomId && request.codeTaskId)
+        .filter(match)
         .map((request) => request.codeTaskId as string),
     ),
   ];
@@ -481,8 +503,8 @@ export async function stopAllRoomCodeSessions(roomId: string): Promise<number> {
     const loop = readGoalLoopState(task.directory, task.sessionId);
     if (task.status !== "working" && !isGoalLoopLiveStatus(loop?.status)) continue;
     try {
-      const { abortTask } = await import("@/lib/pi/harness");
-      await abortTask(taskId);
+      const { abortTaskIncludingColdGoalLoop } = await import("@/lib/pi/harness");
+      await abortTaskIncludingColdGoalLoop(taskId);
       stopped += 1;
     } catch (error) {
       console.warn(
@@ -493,6 +515,7 @@ export async function stopAllRoomCodeSessions(roomId: string): Promise<number> {
   }
   return cancelled + stopped;
 }
+
 /** Cancel outstanding Room Code jobs owned by one member Bot. */
 export async function cancelRoomCodeRequestsForBot(roomId: string, botId: string): Promise<number> {
   const origin = roomBotTaskId(roomId, botId);

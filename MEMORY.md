@@ -288,6 +288,14 @@
 ### 検証（Tick57–58）
 `code-session` / `rooms/[id]` / `task-panes` / `GlobalAttentionProvider` — **136 passed**
 
+### Tick59–60（ループ継続）
+1. `abortTaskIncludingColdGoalLoop` — live 無しの Goal Loop を `goalLoopCommand(stop)` してから abort（destroy/archive/relay cancel 共通）
+2. `stopRoomCodeSessionsForBot` + `detachBotFromRoomRuntime` — メンバー除去でも cold Goal Loop Code を停止
+3. `archiveProjectAndStopTasks` — プロジェクトアーカイブ前に配下タスクを停止
+
+### 検証（Tick59–60）
+`harness-lifecycle` / `bot-code-relay` / `rooms/[id]` / `bots/[id]` / `harness-agent` — **122 passed**
+
 ---
 
 ## 2026-09-14: Stale production rebuild / next build exit 1

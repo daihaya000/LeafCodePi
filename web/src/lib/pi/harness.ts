@@ -5632,6 +5632,26 @@ export function archiveProject(id: string): ProjectDto {
   return project;
 }
 
+/** Archive a project and stop its Code / Goal Loop work (including cold Goal Loop files). */
+export async function archiveProjectAndStopTasks(id: string): Promise<ProjectDto> {
+  const project = getProject(id);
+  if (!project)
+    throw Object.assign(new Error("プロジェクトが見つかりません"), {
+      status: 404,
+    });
+  for (const task of listTasks(false).filter((entry) => entry.projectId === id)) {
+    try {
+      await abortTaskIncludingColdGoalLoop(task.id);
+    } catch (error) {
+      console.warn(
+        `[archive-project] failed to stop task ${task.id}:`,
+        error instanceof Error ? error.message : String(error),
+      );
+    }
+  }
+  return archiveProject(id);
+}
+
 export function getTaskSummaries(
   includeArchived = false,
   kind: TaskKind = "code",
@@ -8000,6 +8020,33 @@ export async function abortTask(id: string): Promise<TaskSummary> {
   return toSummary(task);
 }
 
+/**
+ * Like abortTask, but also stops a Goal Loop that exists only on disk after the
+ * live session was disposed (worker restart / turn-gap cooldown).
+ */
+export async function abortTaskIncludingColdGoalLoop(id: string): Promise<TaskSummary | null> {
+  const task = getTask(id);
+  if (!task || task.status === "archived") return null;
+  const live = state().live.get(id);
+  if (!live) {
+    const loop = readGoalLoopState(task.directory, task.sessionId);
+    if (isGoalLoopLiveStatus(loop?.status)) {
+      try {
+        // ensureLive inside goalLoopCommand so /goal-stop can update goals-loop/*.json.
+        await goalLoopCommand(id, { action: "stop" });
+      } catch (error) {
+        console.warn(
+          `[harness] cold goal-stop failed for ${id}:`,
+          error instanceof Error ? error.message : String(error),
+        );
+      }
+    } else if (task.status !== "working") {
+      return toSummary(task);
+    }
+  }
+  return abortTask(id);
+}
+
 /** abort() leaves steer/follow-up queues; drop them so a later run cannot drain stale work. */
 export function clearSessionQueue(session: { clearQueue?: () => unknown }): void {
   try {
@@ -8752,13 +8799,11 @@ export async function setCompactionEnabled(
 }
 
 async function abortThenDispose(id: string, logLabel: string): Promise<void> {
-  if (state().live.get(id)) {
-    try {
-      await abortTask(id);
-    } catch (error) {
-      const reason = error instanceof Error ? error.message : String(error);
-      console.warn(`[${logLabel}] abort before teardown failed: ${reason}`);
-    }
+  try {
+    await abortTaskIncludingColdGoalLoop(id);
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    console.warn(`[${logLabel}] abort before teardown failed: ${reason}`);
   }
   disposeLive(id);
 }

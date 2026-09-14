@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { getTask, insertTask, patchTask, upsertProject } from "@/lib/store";
-import { abortLiveForHangWatchdog, abortTask, isStaleHarnessPrompt, waitForSessionStreaming } from "./harness";
+import { abortLiveForHangWatchdog, abortTask, abortTaskIncludingColdGoalLoop, isStaleHarnessPrompt, waitForSessionStreaming } from "./harness";
 import { armTaskHangWatch, getTaskHangWatch, stopHangWatchdogForTests } from "./hang-watchdog";
 
 const globalKey = "__leafcodePiHarness";
@@ -106,5 +106,18 @@ describe("harness lifecycle characterization", () => {
     await vi.advanceTimersByTimeAsync(10);
     expect(await waiting).toBe(false);
     expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("abortTaskIncludingColdGoalLoop leaves idle tasks without a Goal Loop untouched", async () => {
+    const root = mkdtempSync(join(tmpdir(), "leafcode-harness-cold-abort-"));
+    roots.push(root);
+    vi.stubEnv("LEAFCODE_PI_DATA_DIR", join(root, "data"));
+    vi.stubEnv("PI_CODING_AGENT_DIR", join(root, "agent"));
+    const project = upsertProject({ name: "cold", rootPath: root });
+    const task = insertTask({ project, title: "Idle" });
+    const summary = await abortTaskIncludingColdGoalLoop(task.id);
+    expect(summary?.id).toBe(task.id);
+    expect(summary?.status).toBe("idle");
+    expect(getTask(task.id)?.status).toBe("idle");
   });
 });
