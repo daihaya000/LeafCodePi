@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui";
+import { HOST_LAUNCH_REQUIRED_HINT_ANY, HOST_RESTART_READY_HINT_ANY } from "@/lib/host-launch-hints";
 import type { HealthDto } from "@/lib/types";
 
 type RestartTarget = "webui" | "host";
@@ -122,8 +123,8 @@ export function HostRestartPanel({ onRestarted }: { onRestarted?: () => void }) 
         {hostOk === null
           ? "接続を確認しています…"
           : hostOk === false
-          ? "start.bat（トレイホスト）経由の起動が必要です。"
-          : "トレイメニューの Restart WebUI と同じ操作です。"}
+          ? HOST_LAUNCH_REQUIRED_HINT_ANY
+          : HOST_RESTART_READY_HINT_ANY}
       </p>
       <div className="mt-3 flex flex-wrap gap-2">
         <Button

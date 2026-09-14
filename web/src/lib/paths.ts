@@ -29,6 +29,30 @@ export function storePath(): string {
   return join(dataDir(), "store.json");
 }
 
+export function webUiAuthConfigPath(): string {
+  return join(dataDir(), "webui-auth.json");
+}
+
+/**
+ * User-facing data-dir path. Uses the familiar env/tilde form for defaults so
+ * Linux users are not shown a Windows %APPDATA% location.
+ */
+export function displayLeafcodePiDataPath(
+  relative = "",
+  platform = process.platform,
+  dataDirOverride = process.env.LEAFCODE_PI_DATA_DIR,
+): string {
+  const override = dataDirOverride?.trim();
+  const separator = platform === "win32" ? "\\" : "/";
+  const rel = relative.replace(/^[\\/]+/, "").replaceAll(/[\\/]/g, separator);
+  if (override) {
+    const root = override.replace(/[\\/]+$/, "");
+    return rel ? `${root}${separator}${rel}` : root;
+  }
+  const root = platform === "win32" ? "%APPDATA%\\leafcode-pi" : "~/.leafcode-pi";
+  return rel ? `${root}${separator}${rel}` : root;
+}
+
 export function pathKey(value: string, platform = process.platform): string {
   const path = platform === "win32" ? win32.resolve(value) : posix.resolve(value);
   return platform === "win32" ? path.toLowerCase() : path;

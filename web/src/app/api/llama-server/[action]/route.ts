@@ -4,6 +4,7 @@ import {
   resolveHostControlUrl,
   type HostLlamaServerAction,
 } from "@/lib/host-control";
+import { llamaServerHostCheckHint } from "@/lib/host-launch-hints";
 import { invalidateHealthCache } from "@/lib/pi/harness";
 import {
   isSafeLlamaModelFile,
@@ -151,7 +152,7 @@ async function forward(action: HostLlamaServerAction, body?: StartBody) {
           err instanceof Error
             ? `llama-server 制御に接続できません: ${err.message}`
             : "llama-server 制御に接続できません",
-        hint: "start.bat（トレイホスト）が起動しているか確認してください",
+        hint: llamaServerHostCheckHint(),
       },
       { status: 502 },
     );

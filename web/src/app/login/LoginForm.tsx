@@ -3,7 +3,7 @@
 import { useRouter, useSearchParams } from "next/navigation";
 import { FormEvent, useState } from "react";
 
-export default function LoginForm() {
+export default function LoginForm({ authFileDisplayPath }: { authFileDisplayPath: string }) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const next = searchParams.get("next") || "/";
@@ -41,7 +41,7 @@ export default function LoginForm() {
         <h1 className="text-lg font-semibold">LeafCodePi にサインイン</h1>
         <p className="mt-2 text-sm text-muted">
           リモートアクセス用トークンを入力してください。ホスト起動ログまたは{" "}
-          <code className="rounded bg-surface-2 px-1">%APPDATA%\leafcode-pi\webui-auth.json</code>{" "}
+          <code className="rounded bg-surface-2 px-1">{authFileDisplayPath}</code>{" "}
           を確認できます。
         </p>
         <form className="mt-5 space-y-4" onSubmit={onSubmit}>

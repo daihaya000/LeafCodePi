@@ -1,7 +1,9 @@
 import { Suspense } from "react";
+import { displayLeafcodePiDataPath } from "@/lib/paths";
 import LoginForm from "./LoginForm";
 
 export default function LoginPage() {
+  const authFileDisplayPath = displayLeafcodePiDataPath("webui-auth.json");
   return (
     <Suspense
       fallback={
@@ -10,7 +12,7 @@ export default function LoginPage() {
         </main>
       }
     >
-      <LoginForm />
+      <LoginForm authFileDisplayPath={authFileDisplayPath} />
     </Suspense>
   );
 }

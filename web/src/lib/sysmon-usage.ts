@@ -9,6 +9,7 @@ import {
   type GpuMetric,
   type SystemUsage,
 } from "@/lib/sysmon";
+import { collectLinuxAmdGpus, collectLinuxCpuTemperature, createNodeSysFs } from "@/lib/sysmon-linux";
 
 /** execFile を Promise 化。実 execFile は cb(err, stdout, stderr) で解決する。 */
 function execFileAsync(
@@ -137,8 +138,7 @@ if ($temperatureRecords.Count -eq 0) {
 }
 `.trim();
 
-async function collectCpuTemperature(): Promise<number | null> {
-  if (process.platform !== "win32") return null;
+async function collectCpuTemperatureWindows(): Promise<number | null> {
   try {
     const { stdout } = await execFileAsync(
       powershellBin(),
@@ -149,6 +149,20 @@ async function collectCpuTemperature(): Promise<number | null> {
   } catch {
     return null;
   }
+}
+
+async function collectCpuTemperature(): Promise<number | null> {
+  if (process.env.LEAFCODE_SYSMON_THERMAL === "0") return null;
+  if (process.platform === "win32") return collectCpuTemperatureWindows();
+  if (process.platform === "linux") {
+    try {
+      return await collectLinuxCpuTemperature(createNodeSysFs());
+    } catch {
+      return null;
+    }
+  }
+  // macOS has no stable sysfs thermal API here; leave null rather than guess.
+  return null;
 }
 
 /**
@@ -515,8 +529,7 @@ async function collectNvidiaGpu(): Promise<GpuMetric | null> {
 }
 
 /** Windows標準カウンター経由でAMDの使用率・VRAMを取得する。複数GPU（dGPU/iGPU）を返す。 */
-async function collectAmdGpu(): Promise<GpuMetric[]> {
-  if (process.platform !== "win32") return [];
+async function collectAmdGpuWindows(): Promise<GpuMetric[]> {
   try {
     const { stdout } = await execFileAsync(
       powershellBin(),
@@ -545,6 +558,20 @@ async function collectAmdGpu(): Promise<GpuMetric[]> {
   } catch {
     return [];
   }
+}
+
+async function collectAmdGpu(): Promise<GpuMetric[]> {
+  if (process.platform === "win32") return collectAmdGpuWindows();
+  if (process.platform === "linux") {
+    try {
+      // amdgpu sysfs (busy / VRAM / hwmon). Intel iGPU has no reliable
+      // util+temp source here, so it stays omitted rather than guessed.
+      return await collectLinuxAmdGpus(createNodeSysFs());
+    } catch {
+      return [];
+    }
+  }
+  return [];
 }
 
 /**

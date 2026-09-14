@@ -82,7 +82,7 @@ describe("ProjectExplorerButton", () => {
     })).toBeNull();
   });
 
-  it("非Windowsホストでは表示しない", async () => {
+  it("ホストが explorer 非対応なら表示しない", async () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(json({
         controlUrl: "http://127.0.0.1:18775",
@@ -97,5 +97,26 @@ describe("ProjectExplorerButton", () => {
     expect(screen.queryByRole("button", {
       name: "プロジェクトをエクスプローラーで開く",
     })).toBeNull();
+  });
+
+  it("Linuxホストでも capability があれば表示してフォルダを開く", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(json({
+        controlUrl: "http://127.0.0.1:18775",
+        path: "/home/user/project",
+      }))
+      .mockResolvedValueOnce(json({ ok: true, explorer: true }))
+      .mockResolvedValueOnce(json({ ok: true }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<ProjectExplorerButton projectId="project-1" onError={vi.fn()} />);
+    fireEvent.click(await screen.findByRole("button", {
+      name: "プロジェクトをエクスプローラーで開く",
+    }));
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3));
+    expect(JSON.parse(String(fetchMock.mock.calls[2]?.[1]?.body))).toEqual({
+      path: "/home/user/project",
+    });
   });
 });
