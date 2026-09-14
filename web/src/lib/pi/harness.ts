@@ -6433,6 +6433,39 @@ async function sendPromptWithReasoningFallback(
   }
 }
 
+async function waitForSteerStreamIfNeeded(
+  currentLive: LiveRuntime,
+  live: LiveRuntime,
+  streamingBehavior: "steer" | "followUp" | undefined,
+  stillQueued: () => boolean,
+  demoteInterruptToNormalPrompt: () => void,
+): Promise<LiveRuntime | null> {
+  if (!streamingBehavior || currentLive.session.isStreaming) return currentLive;
+  if (
+    !shouldWaitForSteerStream({
+      isStreaming: currentLive.session.isStreaming,
+      promptActive: currentLive.promptActive,
+    })
+  ) {
+    demoteInterruptToNormalPrompt();
+    return null;
+  }
+  // prompt_accepted makes working=true before the SDK stream opens; wait
+  // so steer is not serialized onto promptChain as a post-turn prompt.
+  const started = await waitForSessionStreaming(
+    () => (state().live.get(live.taskId) ?? live).session.isStreaming,
+    () =>
+      stillQueued() &&
+      Boolean((state().live.get(live.taskId) ?? live).promptActive),
+  );
+  if (!stillQueued()) return null;
+  if (!started) {
+    demoteInterruptToNormalPrompt();
+    return null;
+  }
+  return state().live.get(live.taskId) ?? live;
+}
+
 function queuePrompt(
   live: LiveRuntime,
   prompt: string,
@@ -6509,31 +6542,15 @@ function queuePrompt(
     if (pendingCompaction) await pendingCompaction;
     if (!stillQueued()) return;
     let currentLive = state().live.get(live.taskId) ?? live;
-    if (meta?.streamingBehavior && !currentLive.session.isStreaming) {
-      if (
-        !shouldWaitForSteerStream({
-          isStreaming: currentLive.session.isStreaming,
-          promptActive: currentLive.promptActive,
-        })
-      ) {
-        demoteInterruptToNormalPrompt();
-        return;
-      }
-      // prompt_accepted makes working=true before the SDK stream opens; wait
-      // so steer is not serialized onto promptChain as a post-turn prompt.
-      const started = await waitForSessionStreaming(
-        () => (state().live.get(live.taskId) ?? live).session.isStreaming,
-        () =>
-          stillQueued() &&
-          Boolean((state().live.get(live.taskId) ?? live).promptActive),
-      );
-      if (!stillQueued()) return;
-      if (!started) {
-        demoteInterruptToNormalPrompt();
-        return;
-      }
-      currentLive = state().live.get(live.taskId) ?? live;
-    }
+    const waitedLive = await waitForSteerStreamIfNeeded(
+      currentLive,
+      live,
+      meta?.streamingBehavior,
+      stillQueued,
+      demoteInterruptToNormalPrompt,
+    );
+    if (!waitedLive) return;
+    currentLive = waitedLive;
     const streamingBehavior = resolveStreamingBehaviorForPrompt(
       meta?.streamingBehavior,
       currentLive.session.isStreaming,
