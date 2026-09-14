@@ -115,7 +115,7 @@ export function GoalLoopPanel({
           aria-expanded={expanded}
           aria-controls={detailsId}
           onClick={() => setExpanded((value) => !value)}
-          className="flex min-h-11 min-w-0 flex-1 cursor-pointer flex-wrap items-center gap-1 rounded-lg px-1 text-left text-xs hover:bg-surface-2"
+          className="flex min-h-11 min-w-0 flex-1 cursor-pointer flex-wrap items-center gap-1 rounded-lg px-1 text-left text-xs hover:bg-surface-2 @lg/goal:min-h-6"
         >
           <ChevronDown className={cx("h-3.5 w-3.5 shrink-0 text-muted transition-transform", expanded && "rotate-180")} aria-hidden="true" />
           <span className="font-medium">ループ</span>
@@ -128,13 +128,13 @@ export function GoalLoopPanel({
         </button>
         <div className={cx("flex shrink-0 flex-wrap items-center justify-end gap-1", canResume && needsTurns && "w-full @lg/goal:w-auto")}>
           {canPause && (
-            <Button variant="secondary" size="sm" className="min-h-11 min-w-11" aria-label="一時停止" title="一時停止" disabled={busy} onClick={() => onAction("pause")}>
+            <Button variant="secondary" size="sm" className="min-h-11 min-w-11 @lg/goal:!h-6 @lg/goal:!min-h-6" aria-label="一時停止" title="一時停止" disabled={busy} onClick={() => onAction("pause")}>
               <Pause className="h-3.5 w-3.5" aria-hidden="true" />
               <span className="hidden @lg/goal:inline">一時停止</span>
             </Button>
           )}
           {canComplete && (
-            <Button variant="primary" size="sm" className="min-h-11" disabled={busy} onClick={() => onAction("complete")}>
+            <Button variant="primary" size="sm" className="min-h-11 @lg/goal:!h-6 @lg/goal:!min-h-6" disabled={busy} onClick={() => onAction("complete")}>
               <Check className="h-3.5 w-3.5" aria-hidden="true" />完了
             </Button>
           )}
@@ -149,13 +149,13 @@ export function GoalLoopPanel({
                   disabled={busy}
                   aria-label="再開後の最大ターン数"
                   onChange={(event) => setMaxTurns(event.target.value)}
-                  className="h-11 w-16 rounded-lg border border-border bg-bg px-2 text-base outline-none focus:border-primary @lg/goal:text-sm"
+                  className="h-11 w-16 rounded-lg border border-border bg-bg px-2 text-base outline-none focus:border-primary @lg/goal:!h-6 @lg/goal:text-sm"
                 />
               )}
               <Button
                 variant="secondary"
                 size="sm"
-                className="min-h-11"
+                className="min-h-11 @lg/goal:!h-6 @lg/goal:!min-h-6"
                 disabled={busy}
                 onClick={() => (needsTurns ? commitMaxTurns() : onResume())}
               >
@@ -164,7 +164,7 @@ export function GoalLoopPanel({
             </>
           )}
           {canPause && (
-            <Button variant="danger" size="sm" className="min-h-11 min-w-11" aria-label="停止" title="停止" disabled={busy} onClick={() => onAction("stop")}>
+            <Button variant="danger" size="sm" className="min-h-11 min-w-11 @lg/goal:!h-6 @lg/goal:!min-h-6" aria-label="停止" title="停止" disabled={busy} onClick={() => onAction("stop")}>
               <Square className="h-3.5 w-3.5" aria-hidden="true" />
               <span className="hidden @lg/goal:inline">停止</span>
             </Button>

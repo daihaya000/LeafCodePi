@@ -60,6 +60,14 @@ describe("GoalLoopPanel progress", () => {
     expect(screen.getByText("無制限")).toBeTruthy();
   });
 
+  it("uses compact upper controls on wide loop containers", () => {
+    render(<GoalLoopPanel loop={loopFixture()} busy={false} onAction={() => {}} onResume={() => {}} />);
+
+    expect(screen.getByRole("button", { name: "ループの詳細" }).className).toContain("@lg/goal:min-h-6");
+    expect(screen.getByRole("button", { name: "一時停止" }).className).toContain("@lg/goal:!h-6");
+    expect(screen.getByRole("button", { name: "停止" }).className).toContain("@lg/goal:!h-6");
+  });
+
   it("uses blue while running and green only after completion", () => {
     const { rerender } = render(
       <GoalLoopPanel
