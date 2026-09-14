@@ -116,7 +116,9 @@ const llamaServerService = createLlamaServerService({
   isOwnedProcess,
   isLlamaServerProcess,
   stopProcessTreeGracefully,
-  trayEnabled: shouldUseTray(),
+  // Host tray follows shouldUseTray(). The extra llama-server icon is Windows-only
+  // (WMI-detached so it can outlive the host). Linux/macOS keep a single host tray.
+  trayEnabled: process.platform === "win32" && shouldUseTray(),
   trayScript: join(__dirname, "llama-server-tray.mjs"),
 });
 

@@ -13,10 +13,11 @@
 ### 実装
 - `host/src/config.js` `hasGraphicalSession()` / `shouldUseTray()`
 - Linux/macOS の初回トレイ失敗はホストを落とさず継続（AppIndicator 欠如を hard crash にしない）。Windows は従来どおり失敗で終了
+- llama-server の独立トレイは Windows のみ（ホストトレイと二重にしない）
 - README の Linux 起動節と環境変数表を更新
 
 ### 検証
-`npm --prefix host test -- src/index.test.js`（shouldUseTray / hasGraphicalSession）
+host `src/index.test.js` + `src/isolation.test.js` **32 passed**。host 全体 **177 passed**。
 
 ---
 
