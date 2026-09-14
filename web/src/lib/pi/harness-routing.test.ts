@@ -392,6 +392,49 @@ describe("integrated session routing", () => {
     expect(fakePi.sessions).toHaveLength(0);
   });
 
+  it("marks a settled session error, but keeps a stopped Goal loop idle", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "leafcode-pi-settled-status-"));
+    tempDirs.push(dir);
+    process.env.LEAFCODE_PI_DATA_DIR = dir;
+    process.env.PI_CODING_AGENT_DIR = join(dir, "agent");
+    __resetPiAgentDirCacheForTests();
+    installHarness(new Map());
+
+    const project = upsertProject({ name: "demo", rootPath: dir });
+    const task = await createTask({ projectId: project.id, prompt: "初回" });
+    await waitFor(() => getTask(task.id)?.status === "idle");
+    const harness = (globalThis as Record<string, unknown>)[GLOBAL_KEY] as {
+      live: Map<string, { session: { sessionId: string; agent: { state: { errorMessage?: string } } } }>;
+    };
+    const live = harness.live.get(task.id)!;
+
+    live.session.agent.state.errorMessage = "接続に失敗しました";
+    fakePi.sessions[0]?.emit?.({ type: "agent_settled" });
+    expect(getTask(task.id)).toMatchObject({ status: "error", error: "接続に失敗しました" });
+
+    // Goal loop の停止は自身のターンを abort するため、失敗ではなく idle 扱いにする。
+    const loopFile = goalLoopStateFile(dir, live.session.sessionId);
+    mkdirSync(dirname(loopFile), { recursive: true });
+    writeFileSync(
+      loopFile,
+      JSON.stringify({
+        id: live.session.sessionId,
+        sessionId: live.session.sessionId,
+        cwd: dir,
+        status: "stopped",
+        goal: "停止済みの目標",
+        acceptance: [],
+        maxTurns: 1,
+        turnCount: 1,
+      }),
+      "utf8",
+    );
+    live.session.agent.state.errorMessage = "Request was aborted";
+    fakePi.sessions[0]?.emit?.({ type: "agent_settled" });
+
+    expect(getTask(task.id)).toMatchObject({ status: "idle", manualAbortedAssistantId: "" });
+  });
+
   it("opens an account Bot without waiting for the shared runtime", async () => {
     const dir = mkdtempSync(join(tmpdir(), "leafcode-pi-account-bot-cold-start-"));
     tempDirs.push(dir);

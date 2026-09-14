@@ -1638,6 +1638,173 @@ async function fallbackProviderAfterLimit(
   }
 }
 
+type SessionEvent = Parameters<Parameters<AgentSession["subscribe"]>[0]>[0];
+
+/** Track native-compaction and Goal Loop flags for the run that owns this event. */
+function trackTurnLifecycleFlags(
+  live: LiveRuntime,
+  session: AgentSession,
+  event: SessionEvent,
+): void {
+  if (event.type === "agent_start") {
+    live.nativeCompactionAttempted = false;
+    live.goalLoopTurnActive = isActiveGoalLoopSession(session);
+    applySessionCompactionSettings(session, undefined, live.goalLoopTurnActive);
+  }
+  if (event.type === "compaction_start" && event.reason !== "manual") {
+    live.nativeCompactionAttempted = true;
+  }
+  if (event.type === "agent_end" && isActiveGoalLoopSession(session)) {
+    live.goalLoopTurnActive = true;
+  }
+}
+
+/** Mark or clear the provider usage limit reported by a finished agent run. */
+function trackProviderLimit(
+  live: LiveRuntime,
+  session: AgentSession,
+  event: SessionEvent,
+): void {
+  if (event.type !== "agent_end") return;
+  const ids = modelId(session.model);
+  if (!ids.providerID) return;
+  const limitMessage = lastAssistantLimitError(event);
+  if (!limitMessage) {
+    if (!event.willRetry) clearRouteLimit(ids.providerID, live.accountId);
+    return;
+  }
+  markRouteLimited(ids.providerID, live.accountId);
+  live.pendingProviderFallback = {
+    providerID: ids.providerID,
+    modelID: ids.modelID ?? "",
+    message: limitMessage,
+  };
+  if (
+    session.autoRetryEnabled &&
+    typeof session.setAutoRetryEnabled === "function"
+  ) {
+    session.setAutoRetryEnabled(false);
+    live.restoreAutoRetry = true;
+  }
+}
+
+/** Publish the terminal status of a finished turn. */
+function applySettledTaskStatus(
+  live: LiveRuntime,
+  session: AgentSession,
+  taskId: string,
+): void {
+  const settledError = session.agent.state.errorMessage ?? null;
+  // A Goal Loop stop aborts its own turn and Pi reports that abort as an error message. The loop
+  // file already says "stopped", so this is the user's deliberate stop, not a failure: keep the
+  // same shape as abortTask (idle + the manual-abort sentinel) instead of painting the task red.
+  const stoppedByUser = settledError !== null && isAbortErrorMessage(settledError) && goalLoopIsStopped(live);
+  if (stoppedByUser) persistManualAbortedAssistantId(taskId, "");
+  setTaskStatus(taskId, stoppedByUser || !settledError ? "idle" : "error", stoppedByUser ? null : settledError);
+  releaseTaskLease(taskId);
+}
+
+/** Post-turn work that runs once the SDK reports the session settled. */
+function finishSettledTurn(
+  live: LiveRuntime,
+  session: AgentSession,
+  taskId: string,
+): void {
+  if (live.restoreAutoRetry) {
+    session.setAutoRetryEnabled(true);
+    live.restoreAutoRetry = false;
+  }
+  const goalLoopTurnActive = live.goalLoopTurnActive;
+  live.goalLoopTurnActive = false;
+  // A pending SOUL update is applied by replacing the idle session before
+  // the next prompt. Disposing here would make Goal Loop's session_shutdown
+  // handler pause an otherwise active loop.
+  if (!goalLoopTurnActive) scheduleAutoCompaction(live);
+  const pending = live.pendingProviderFallback;
+  live.pendingProviderFallback = null;
+  const settledError = session.agent.state.errorMessage ?? null;
+  // Provider-limit recovery uses a hidden custom message, so the
+  // watchdog cannot identify its completed turn from the projected UI
+  // history (there is no visible user message to anchor it). Once the
+  // fallback settles successfully, its watch is terminal. Keep the watch
+  // for ordinary provider errors so the existing recovery path remains.
+  if (
+    !pending &&
+    !settledError &&
+    getTaskHangWatch(taskId)?.isProviderFallback
+  ) {
+    disarmTaskHangWatch(taskId);
+  }
+  if (pending && pending.modelID) {
+    void fallbackProviderAfterLimit(live, pending).catch((error) => {
+      console.warn(
+        `[leafcode-pi] provider fallback failed: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+    });
+  }
+}
+
+/** Carry per-task state across a session replacement, or load it from the session file. */
+function buildLiveRuntime(input: {
+  taskId: string;
+  session: AgentSession;
+  skillPermissionRef: { current: SkillPermission };
+  existing: LiveRuntime | undefined;
+  accountId: string | null;
+  agentName: string | null;
+  botId: string | undefined;
+}): LiveRuntime {
+  const { taskId, session, skillPermissionRef, existing } = input;
+  const loaded = existing ? null : loadThroughputFromSession(session);
+  const loadedToolTiming = existing ? null : loadToolTimingFromSession(session);
+  const task = getTask(taskId);
+  return {
+    taskId,
+    accountId: input.accountId,
+    accountByMessageId: existing?.accountByMessageId ?? new Map(),
+    agentName: input.agentName,
+    agentByMessageId: existing?.agentByMessageId ?? new Map(),
+    session,
+    skillPermission: skillPermissionRef.current,
+    skillPermissionRef,
+    unsubscribe: () => undefined,
+    // Keep a queued prompt chain when an idle session is replaced for the
+    // next turn. The current run owns this promise, so follow-ups submitted
+    // during session creation still wait for it.
+    promptChain: existing?.promptChain ?? Promise.resolve(),
+    autoCompactionPromise: null,
+    manualCompactionInProgress: false,
+    nativeCompactionAttempted: false,
+    goalLoopTurnActive: false,
+    promptActive: existing?.promptActive ?? false,
+    pendingSettings: existing?.pendingSettings,
+    promptEpoch: existing?.promptEpoch ?? 0,
+    throughputByStartedAt:
+      existing?.throughputByStartedAt ?? loaded?.timings ?? new Map(),
+    persistedThroughputKeys:
+      existing?.persistedThroughputKeys ?? loaded?.persistedKeys ?? new Set(),
+    toolStartedAt: existing?.toolStartedAt ?? loadedToolTiming?.startedAt ?? new Map(),
+    toolEndedAt: existing?.toolEndedAt ?? loadedToolTiming?.endedAt ?? new Map(),
+    toolPartialOutputByCallId: existing?.toolPartialOutputByCallId ?? new Map(),
+    snapshotTimer: null,
+    pendingSnapshotEventType: null,
+    pendingSnapshotIsDelta: false,
+    pendingSnapshotExtra: undefined,
+    revertLeafId: existing?.revertLeafId ?? task?.revertLeafId ?? null,
+    manualAbortedAssistantId:
+      existing?.manualAbortedAssistantId ?? task?.manualAbortedAssistantId ?? null,
+    hangRetryCount: existing?.hangRetryCount ?? task?.hangRetryCount ?? 0,
+    reasoningFallbackTried: false,
+    pendingProviderFallback: existing?.pendingProviderFallback ?? null,
+    restoreAutoRetry: false,
+    // A newly created session has already re-read the Bot's SOUL.md.
+    soulReloadPending: false,
+    soulRevision: input.botId ? botSoulRevision(input.botId) : null,
+  };
+}
+
 async function attachSession(
   taskId: string,
   session: AgentSession,
@@ -1668,97 +1835,23 @@ async function attachSession(
     replacedSession.dispose();
   }
 
-  const loaded = existing ? null : loadThroughputFromSession(session);
-  const loadedToolTiming = existing ? null : loadToolTimingFromSession(session);
-
   if (existing?.snapshotTimer) {
     clearTimeout(existing.snapshotTimer);
   }
 
-  const live: LiveRuntime = {
+  const live = buildLiveRuntime({
     taskId,
-    accountId: attachedAccountId,
-    accountByMessageId: existing?.accountByMessageId ?? new Map(),
-    agentName: attachedAgentName,
-    agentByMessageId: existing?.agentByMessageId ?? new Map(),
     session,
-    skillPermission: skillPermissionRef.current,
     skillPermissionRef,
-    unsubscribe: () => undefined,
-    // Keep a queued prompt chain when an idle session is replaced for the
-    // next turn. The current run owns this promise, so follow-ups submitted
-    // during session creation still wait for it.
-    promptChain: existing?.promptChain ?? Promise.resolve(),
-    autoCompactionPromise: null,
-    manualCompactionInProgress: false,
-    nativeCompactionAttempted: false,
-    goalLoopTurnActive: false,
-    promptActive: existing?.promptActive ?? false,
-    pendingSettings: existing?.pendingSettings,
-    promptEpoch: existing?.promptEpoch ?? 0,
-    throughputByStartedAt:
-      existing?.throughputByStartedAt ?? loaded?.timings ?? new Map(),
-    persistedThroughputKeys:
-      existing?.persistedThroughputKeys ?? loaded?.persistedKeys ?? new Set(),
-    toolStartedAt: existing?.toolStartedAt ?? loadedToolTiming?.startedAt ?? new Map(),
-    toolEndedAt: existing?.toolEndedAt ?? loadedToolTiming?.endedAt ?? new Map(),
-    toolPartialOutputByCallId: existing?.toolPartialOutputByCallId ?? new Map(),
-    snapshotTimer: null,
-    pendingSnapshotEventType: null,
-    pendingSnapshotIsDelta: false,
-    pendingSnapshotExtra: undefined,
-    revertLeafId: existing?.revertLeafId ?? getTask(taskId)?.revertLeafId ?? null,
-    manualAbortedAssistantId:
-      existing?.manualAbortedAssistantId ??
-      getTask(taskId)?.manualAbortedAssistantId ??
-      null,
-    hangRetryCount:
-      existing?.hangRetryCount ?? getTask(taskId)?.hangRetryCount ?? 0,
-    reasoningFallbackTried: false,
-    pendingProviderFallback: existing?.pendingProviderFallback ?? null,
-    restoreAutoRetry: false,
-    // A newly created session has already re-read the Bot's SOUL.md.
-    soulReloadPending: false,
-    soulRevision: attachedBotId ? botSoulRevision(attachedBotId) : null,
-  };
+    existing,
+    accountId: attachedAccountId,
+    agentName: attachedAgentName,
+    botId: attachedBotId,
+  });
 
   const unsubscribe = session.subscribe((event) => {
-    if (event.type === "agent_start") {
-      live.nativeCompactionAttempted = false;
-      live.goalLoopTurnActive = isActiveGoalLoopSession(session);
-      applySessionCompactionSettings(
-        session,
-        undefined,
-        live.goalLoopTurnActive,
-      );
-    }
-    if (event.type === "compaction_start" && event.reason !== "manual") {
-      live.nativeCompactionAttempted = true;
-    }
-    if (event.type === "agent_end" && isActiveGoalLoopSession(session)) {
-      live.goalLoopTurnActive = true;
-    }
-    const limitMessage = lastAssistantLimitError(event);
-    const ids = modelId(session.model);
-    if (event.type === "agent_end" && ids.providerID) {
-      if (limitMessage) {
-        markRouteLimited(ids.providerID, live.accountId);
-        live.pendingProviderFallback = {
-          providerID: ids.providerID,
-          modelID: ids.modelID ?? "",
-          message: limitMessage,
-        };
-        if (
-          session.autoRetryEnabled &&
-          typeof session.setAutoRetryEnabled === "function"
-        ) {
-          session.setAutoRetryEnabled(false);
-          live.restoreAutoRetry = true;
-        }
-      } else if (!event.willRetry) {
-        clearRouteLimit(ids.providerID, live.accountId);
-      }
-    }
+    trackTurnLifecycleFlags(live, session, event);
+    trackProviderLimit(live, session, event);
 
     const harnessAutoCompactionError =
       event.type === "compaction_end" &&
@@ -1793,51 +1886,9 @@ async function attachSession(
       event.type === "agent_settled" ||
       (event.type === "agent_end" && !event.willRetry)
     ) {
-      const settledError = session.agent.state.errorMessage ?? null;
-      // A Goal Loop stop aborts its own turn and Pi reports that abort as an error message. The loop
-      // file already says "stopped", so this is the user's deliberate stop, not a failure: keep the
-      // same shape as abortTask (idle + the manual-abort sentinel) instead of painting the task red.
-      const stoppedByUser = settledError !== null && isAbortErrorMessage(settledError) && goalLoopIsStopped(live);
-      if (stoppedByUser) persistManualAbortedAssistantId(taskId, "");
-      setTaskStatus(taskId, stoppedByUser || !settledError ? "idle" : "error", stoppedByUser ? null : settledError);
-      releaseTaskLease(taskId);
+      applySettledTaskStatus(live, session, taskId);
     }
-    if (event.type === "agent_settled") {
-      if (live.restoreAutoRetry) {
-        session.setAutoRetryEnabled(true);
-        live.restoreAutoRetry = false;
-      }
-      const goalLoopTurnActive = live.goalLoopTurnActive;
-      live.goalLoopTurnActive = false;
-      // A pending SOUL update is applied by replacing the idle session before
-      // the next prompt. Disposing here would make Goal Loop's session_shutdown
-      // handler pause an otherwise active loop.
-      if (!goalLoopTurnActive) scheduleAutoCompaction(live);
-      const pending = live.pendingProviderFallback;
-      live.pendingProviderFallback = null;
-      const settledError = session.agent.state.errorMessage ?? null;
-      // Provider-limit recovery uses a hidden custom message, so the
-      // watchdog cannot identify its completed turn from the projected UI
-      // history (there is no visible user message to anchor it). Once the
-      // fallback settles successfully, its watch is terminal. Keep the watch
-      // for ordinary provider errors so the existing recovery path remains.
-      if (
-        !pending &&
-        !settledError &&
-        getTaskHangWatch(taskId)?.isProviderFallback
-      ) {
-        disarmTaskHangWatch(taskId);
-      }
-      if (pending && pending.modelID) {
-        void fallbackProviderAfterLimit(live, pending).catch((error) => {
-          console.warn(
-            `[leafcode-pi] provider fallback failed: ${
-              error instanceof Error ? error.message : String(error)
-            }`,
-          );
-        });
-      }
-    }
+    if (event.type === "agent_settled") finishSettledTurn(live, session, taskId);
     if (
       event.type === "compaction_end" &&
       !event.aborted &&
