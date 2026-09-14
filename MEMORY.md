@@ -17,8 +17,9 @@ master `c8fe752` の Ubuntu 検証で落ちていた host 3 + web 8 を修正。
 - host `web-build-mirror.test.js`: 37 pass
 - web browse-paths 6 / bots route 2 / harness-limit-fallback 3 / harness-prompt 33 / harness-routing 23 / paths 4 = 71 pass
 
-### ブランチ
-`cursor/linux-test-isolation-a602`
+### ブランチ / PR
+`cursor/linux-test-isolation-a602` / https://github.com/daihaya000/LeafCodePi/pull/8
+実装 SHA: `226c6595`
 
 ---
 
