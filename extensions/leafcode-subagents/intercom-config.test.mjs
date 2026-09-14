@@ -33,14 +33,14 @@ test("LeafCode agents can load intercom without disabling ambient extensions", (
   }
 });
 
-test("role-specific agent allowlists expose write tools only to implementation roles", () => {
+test("role-specific agent allowlists expose write tools only to roles with file-edit authority", () => {
   const agentsDir = resolve(root, "agents");
   const writableRoles = new Set([
-    "builder", "debugger", "delegate", "docs-writer", "lead-programmer", "programmer", "retrospective", "scout", "test-writer", "worker",
+    "builder", "debugger", "delegate", "docs-writer", "lead-programmer", "programmer", "retrospective", "scout", "test-writer", "ui-ux-designer", "worker",
   ]);
   const readOnlyRoles = new Set([
     "code-reviewer", "critical-architect", "finance-expert", "oracle", "planner", "researcher", "reviewer",
-    "security-auditor", "ui-ux-designer", "ui-ux-reviewer",
+    "security-auditor", "ui-ux-reviewer",
   ]);
   const files = [
     ...readdirSync(agentsDir).filter((name) => name.endsWith(".md")),

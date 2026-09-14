@@ -31,7 +31,8 @@ self-contained assignment with the user goal, constraints, files, and expected
 artifact. Keep scopes non-overlapping.
 
 - `ui-ux-designer`: acceptance criteria before a new screen, flow, responsive
-  behavior, or substantial UI change; it does not edit code.
+  behavior, or substantial UI change; when explicitly requested, it may make
+  scoped UI/UX file edits.
 - `programmer`: focused production change in one or two files.
 - `lead-programmer`: coordinated work across roughly three or more files,
   modules, or a large codebase.
