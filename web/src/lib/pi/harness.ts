@@ -6466,6 +6466,38 @@ async function waitForSteerStreamIfNeeded(
   return state().live.get(live.taskId) ?? live;
 }
 
+async function preparePromptLiveForSend(
+  activeLive: LiveRuntime,
+  meta:
+    | {
+        subagentPermission?: "allow" | "deny";
+        streamingBehavior?: "steer" | "followUp";
+      }
+    | undefined,
+  stillQueued: () => boolean,
+  demoteInterruptToNormalPrompt: () => void,
+): Promise<ReturnType<typeof resolveStreamingBehaviorForPrompt> | null> {
+  const activeCompaction = activeLive.autoCompactionPromise;
+  if (activeCompaction) await activeCompaction;
+  if (!stillQueued()) return null;
+  if (
+    meta?.subagentPermission !== undefined ||
+    getTask(activeLive.taskId)?.kind !== "bot"
+  ) {
+    applySubagentPermission(activeLive.session, meta?.subagentPermission);
+  }
+  applySessionCompactionSettings(activeLive.session);
+  const finalBehavior = resolveStreamingBehaviorForPrompt(
+    meta?.streamingBehavior,
+    activeLive.session.isStreaming,
+  );
+  if (meta?.streamingBehavior && !finalBehavior) {
+    demoteInterruptToNormalPrompt();
+    return null;
+  }
+  return finalBehavior;
+}
+
 function queuePrompt(
   live: LiveRuntime,
   prompt: string,
@@ -6565,24 +6597,13 @@ function queuePrompt(
       ? await prepareLiveForPrompt(live, !streamingBehavior, pendingSettings)
       : await prepareLiveForPrompt(live, !streamingBehavior);
     if (!stillQueued()) return;
-    const activeCompaction = activeLive.autoCompactionPromise;
-    if (activeCompaction) await activeCompaction;
-    if (!stillQueued()) return;
-    if (
-      meta?.subagentPermission !== undefined ||
-      getTask(activeLive.taskId)?.kind !== "bot"
-    ) {
-      applySubagentPermission(activeLive.session, meta?.subagentPermission);
-    }
-    applySessionCompactionSettings(activeLive.session);
-    const finalBehavior = resolveStreamingBehaviorForPrompt(
-      meta?.streamingBehavior,
-      activeLive.session.isStreaming,
+    const finalBehavior = await preparePromptLiveForSend(
+      activeLive,
+      meta,
+      stillQueued,
+      demoteInterruptToNormalPrompt,
     );
-    if (meta?.streamingBehavior && !finalBehavior) {
-      demoteInterruptToNormalPrompt();
-      return;
-    }
+    if (finalBehavior === null) return;
     const options = buildPromptOptions({
       images,
       streamingBehavior: finalBehavior,
