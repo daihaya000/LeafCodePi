@@ -255,6 +255,7 @@ import {
   toPersistedThroughput,
   type ThroughputTiming,
 } from "@/lib/token-throughput";
+import { BOT_CODE_SESSION_CHANGED_EVENT } from "@/lib/types";
 import type {
   CompactionSettingsDto,
   GoalLoopDto,
@@ -1216,10 +1217,33 @@ function emit(
   } : payload);
 }
 
+const BOT_CODE_SESSION_EVENT_CHANNEL = "__bot_code_session_changed__";
+
+export function subscribeBotCodeSession(
+  listener: (payload: Record<string, unknown>) => void,
+): () => void {
+  const handler = (payload: Record<string, unknown>) => listener(payload);
+  state().events.on(BOT_CODE_SESSION_EVENT_CHANNEL, handler);
+  return () => state().events.off(BOT_CODE_SESSION_EVENT_CHANNEL, handler);
+}
+
 function emitAttention(taskId: string, payload: { type: string; [key: string]: unknown }): void {
   emit(taskId, payload);
   const origin = botCodeRelay().originForCode(taskId);
   if (origin) emit(origin, { type: "snapshot", eventType: payload.eventType, ...permissionSnapshotExtras(origin) });
+}
+
+/** Tell the originating Bot/Room stream about a Code request's terminal state without mounting Code UI. */
+function emitCodeSessionChanged(request: CodeRequest): void {
+  const payload = {
+    type: "snapshot",
+    eventType: BOT_CODE_SESSION_CHANGED_EVENT,
+    codeRequestId: request.id,
+    codeTaskId: request.codeTaskId,
+    codeState: request.state,
+  } satisfies Record<string, unknown>;
+  emit(request.originTaskId, payload);
+  state().events.emit(BOT_CODE_SESSION_EVENT_CHANNEL, payload);
 }
 
 /** プロバイダが「思考オフ不可」の 400 を返したか。 */
@@ -1939,10 +1963,16 @@ function botCodeRelay(): ReturnType<typeof createBotCodeRelay> {
     afterDelivery: async (request) => {
       if (request.room) await (await import("@/lib/room-runtime")).resumeRoomAfterCode(request);
     },
+    onCodeSessionSettled: emitCodeSessionChanged,
   });
 }
 
 export function startBotCodeRelay(): void { botCodeRelay().start(); }
+
+/** Capture a stopped request immediately after its Code task has been aborted. */
+export async function completeBotCodeRequest(requestId: string): Promise<void> {
+  await botCodeRelay().complete(requestId);
+}
 
 /**
  * Code session started from the Bot screen. It is registered in the same outbox as a delegated
@@ -1963,6 +1993,7 @@ export async function createBotCodeTask(
       codeRequestId,
       beforePrompt: (task) => link(task.id),
     }),
+    emitCodeSessionChanged,
   );
 }
 
@@ -1985,6 +2016,7 @@ export async function continueBotCodeTask(botId: string, taskId: string, prompt:
       link(taskId);
       return promptTask(taskId, prompt, undefined, { codeRequestId });
     },
+    emitCodeSessionChanged,
   );
 }
 
@@ -1993,8 +2025,13 @@ export async function continueBotCodeTask(botId: string, taskId: string, prompt:
  * result is reported as a stop and the Bot cannot continue it on its own.
  */
 export async function stopBotCodeTask(botId: string, taskId: string): Promise<TaskSummary> {
+  const relay = botCodeRelay();
+  const requestId = relay.requestIdForCode(taskId);
   await stopBotCodeRequestForTask(botId, taskId);
-  return abortTask(taskId);
+  const task = await abortTask(taskId);
+  // Capture immediately after an explicit stop instead of waiting for the relay scan.
+  if (requestId) await relay.complete(requestId);
+  return task;
 }
 
 function botAttentionSource(taskId: string, kind: "permission" | "question", requestId?: string): string {

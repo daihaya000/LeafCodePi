@@ -43,7 +43,7 @@ import {
 import { readTaskTtsEnabled, speakText, stopSpeaking, subscribeTaskTtsEnabled, writeTaskTtsEnabled } from "@/lib/tts-playback";
 import { detectTtsBackend, getTtsBackend, type TtsVoiceOption, type TtsVoicesDto } from "@/lib/tts-backends";
 import type { TtsConfigDto } from "@/lib/tts-config";
-import { BOT_DEFAULT_TOOL_NAMES, BOT_TOOL_NAMES, type BotDto, type BotIntercomInboxDto, type BotToolName, type ModelOption, type PermissionRequestDto, type QuestionRequestDto, type RoutineDto, type TaskMessageHistory, type TaskMessagePage, type ThinkingLevel, type UiMessage, type UiPart } from "@/lib/types";
+import { BOT_CODE_SESSION_CHANGED_EVENT, BOT_DEFAULT_TOOL_NAMES, BOT_TOOL_NAMES, type BotDto, type BotIntercomInboxDto, type BotToolName, type ModelOption, type PermissionRequestDto, type QuestionRequestDto, type RoutineDto, type TaskMessageHistory, type TaskMessagePage, type ThinkingLevel, type UiMessage, type UiPart } from "@/lib/types";
 
 type BotMessageDisplayData = {
   text: string;
@@ -489,7 +489,9 @@ export const BotView = memo(function BotView({ id, active = true }: { id: string
             questionRequest?: QuestionRequestDto | null;
             intercomInbox?: BotIntercomInboxDto;
             eventType?: string;
+            codeRequestId?: string;
           };
+          if (payload.eventType === BOT_CODE_SESSION_CHANGED_EVENT) notifyBotSidebarChanged(payload.codeRequestId);
           const resetHistory =
             payload.historyReset === true ||
             payload.eventType === "revert" ||
@@ -522,11 +524,15 @@ export const BotView = memo(function BotView({ id, active = true }: { id: string
             messageHistoryRef.current = payload.messageHistory;
             setMessageHistory(payload.messageHistory);
           }
-          const permission = payload.permissionRequest ?? null;
-          setPermission((current) => current?.id === permission?.id ? current : permission);
-          const question = payload.questionRequest ?? null;
-          setQuestion((current) => current?.id === question?.id ? current : question);
-          setSending(Boolean(payload.isStreaming));
+          if (payload.permissionRequest !== undefined) {
+            const permission = payload.permissionRequest ?? null;
+            setPermission((current) => current?.id === permission?.id ? current : permission);
+          }
+          if (payload.questionRequest !== undefined) {
+            const question = payload.questionRequest ?? null;
+            setQuestion((current) => current?.id === question?.id ? current : question);
+          }
+          if (payload.isStreaming !== undefined) setSending(payload.isStreaming);
           if (payload.intercomInbox) setIntercomInbox(payload.intercomInbox);
           if (payload.error) setError(payload.error);
         } catch { setError("イベントの解析に失敗しました"); }

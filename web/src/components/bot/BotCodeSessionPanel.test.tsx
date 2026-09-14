@@ -83,7 +83,7 @@ it("notifies the Bot sidebar when Code starts", async () => {
   await waitFor(() => expect(mocks.notifyBotSidebarChanged).toHaveBeenCalledTimes(1));
 });
 
-it.each(["idle", "error", "archived"] as const)("notifies the Bot sidebar when a Code task becomes %s", async (status) => {
+it.each(["idle", "error", "archived"] as const)("does not notify the Bot sidebar from polling when a Code task becomes %s", async (status) => {
   vi.useFakeTimers();
   const workingTask = { ...oldTask, id: "live-task", title: "Live task", status: "working" as const };
   let currentTask: Record<string, unknown> = workingTask;
@@ -106,7 +106,7 @@ it.each(["idle", "error", "archived"] as const)("notifies the Bot sidebar when a
     await Promise.resolve();
   });
 
-  expect(mocks.notifyBotSidebarChanged).toHaveBeenCalledTimes(1);
+  expect(mocks.notifyBotSidebarChanged).not.toHaveBeenCalled();
 });
 
 it("clears the previous bot's tasks while the next session is loading", async () => {

@@ -52,11 +52,16 @@ describe("sse-ready-buffer", () => {
 
   it("treats archived, restored, and conversation reset snapshots as control events", () => {
     const ready = rankMessageList([{ id: "latest", createdAt: 5 }]);
-    for (const eventType of ["archived", "restored", "conversation_reset"]) {
+    for (const eventType of ["archived", "restored", "conversation_reset", "code_session_changed"]) {
       expect(
         shouldFlushPendingAfterReady({ type: "snapshot", eventType, messages: [{ id: "old", createdAt: 1 }] }, ready),
       ).toBe(true);
     }
+    const code = preparePendingPayloadForReadyFlush(
+      { type: "snapshot", eventType: "code_session_changed", codeRequestId: "request-1" },
+      ready,
+    );
+    expect(code).toMatchObject({ eventType: "code_session_changed", codeRequestId: "request-1" });
     const reset = preparePendingPayloadForReadyFlush(
       { type: "snapshot", eventType: "conversation_reset", messages: [] },
       ready,

@@ -38,7 +38,6 @@ export function BotCodeSessionPanel({ botId, onClose }: { botId: string; onClose
   const [controlBusy, setControlBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const loadGenerationRef = useRef(0);
-  const sessionSignatureRef = useRef<string | null>(null);
 
   useEffect(() => () => { loadGenerationRef.current += 1; }, []);
 
@@ -51,9 +50,6 @@ export function BotCodeSessionPanel({ botId, onClose }: { botId: string; onClose
       ]);
       const nextTasks = session.tasks ?? ((session as { task?: TaskSummary | null }).task ? [(session as { task: TaskSummary }).task] : []);
       if (generation !== loadGenerationRef.current) return;
-      const nextSessionSignature = nextTasks.map((task) => `${task.id}:${task.status}`).sort().join("|");
-      if (sessionSignatureRef.current !== null && sessionSignatureRef.current !== nextSessionSignature) notifyBotSidebarChanged();
-      sessionSignatureRef.current = nextSessionSignature;
       setTasks(nextTasks);
       const activeProjects = projectResult.projects.filter((project) => !project.archived);
       setProjects(activeProjects);
@@ -71,7 +67,6 @@ export function BotCodeSessionPanel({ botId, onClose }: { botId: string; onClose
     }
   }, [botId]);
   useEffect(() => {
-    sessionSignatureRef.current = null;
     setTasks([]);
     setLoops({});
     setError(null);
@@ -89,7 +84,7 @@ export function BotCodeSessionPanel({ botId, onClose }: { botId: string; onClose
   const control = async (task: TaskSummary, action: "abort" | "prompt") => {
     const value = followUps[task.id]; if (controlBusy || (action === "prompt" && !value?.trim())) return;
     setControlBusy(task.id); setError(null);
-    try { const result = await sendJson<{ task: TaskSummary }>(`/api/bots/${encodeURIComponent(botId)}/code-session`, action === "prompt" ? { action, prompt: value.trim(), taskId: task.id } : { action, taskId: task.id }, "PATCH"); notifyBotSidebarChanged(); setTasks((current) => current.map((item) => item.id === task.id ? result.task : item)); if (action === "prompt") setFollowUps((current) => ({ ...current, [task.id]: "" })); }
+    try { const result = await sendJson<{ task: TaskSummary }>(`/api/bots/${encodeURIComponent(botId)}/code-session`, action === "prompt" ? { action, prompt: value.trim(), taskId: task.id } : { action, taskId: task.id }, "PATCH"); if (action === "prompt") notifyBotSidebarChanged(); setTasks((current) => current.map((item) => item.id === task.id ? result.task : item)); if (action === "prompt") setFollowUps((current) => ({ ...current, [task.id]: "" })); }
     catch (reason) { setError(reason instanceof Error ? reason.message : "Codeセッションの操作に失敗しました"); }
     finally { setControlBusy(null); }
   };
@@ -98,7 +93,7 @@ export function BotCodeSessionPanel({ botId, onClose }: { botId: string; onClose
     setControlBusy(taskId); setError(null);
     try {
       const result = await sendJson<{ loop: GoalLoopDto | null }>(`/api/bots/${encodeURIComponent(botId)}/code-session`, { action: "goal-loop", goalLoopAction: action, taskId, ...(maxTurns === undefined ? {} : { maxTurns }) }, "PATCH");
-      notifyBotSidebarChanged();
+      if (action === "resume") notifyBotSidebarChanged();
       setLoops((current) => ({ ...current, [taskId]: result.loop }));
       setTasks((current) => current.map((task) => task.id === taskId ? { ...task, goalLoopSummary: result.loop ? { status: result.loop.status, maxTurns: result.loop.maxTurns, turnCount: result.loop.turnCount } : undefined } : task));
     } catch (reason) { setError(reason instanceof Error ? reason.message : "Goal Loopの操作に失敗しました"); }

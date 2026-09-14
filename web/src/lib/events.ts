@@ -1,12 +1,15 @@
 /** Fire when projects/tasks change so the sidebar can refresh. Debounced to avoid SSE floods. */
 
 const DEBOUNCE_MS = 400;
+const BOT_SIDEBAR_DEDUPE_MS = 1_000;
 
 type TasksChangedDetail = { projectId: string };
 
 let timer: ReturnType<typeof setTimeout> | null = null;
 let pendingProjectId: string | undefined;
 let botSidebarRefreshId = 0;
+let lastBotSidebarDedupeKey: string | undefined;
+let lastBotSidebarDedupeAt = 0;
 
 function dispatchTasksChanged(projectId?: string) {
   if (typeof window === "undefined") return;
@@ -32,9 +35,15 @@ export function notifyTasksChanged(projectId?: string) {
 }
 
 /** Notify the Bot sidebar after a Bot or room mutation. */
-export function notifyBotSidebarChanged() {
+export function notifyBotSidebarChanged(dedupeKey?: string) {
   if (typeof window === "undefined") return;
-  const refresh = `${Date.now()}-${++botSidebarRefreshId}`;
+  const now = Date.now();
+  if (dedupeKey && dedupeKey === lastBotSidebarDedupeKey && now - lastBotSidebarDedupeAt < BOT_SIDEBAR_DEDUPE_MS) return;
+  if (dedupeKey) {
+    lastBotSidebarDedupeKey = dedupeKey;
+    lastBotSidebarDedupeAt = now;
+  }
+  const refresh = `${now}-${++botSidebarRefreshId}`;
   window.dispatchEvent(new CustomEvent("webui:bot-sidebar-changed", { detail: { refresh } }));
 }
 

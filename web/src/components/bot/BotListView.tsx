@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { CopyPlus, Sparkles } from "lucide-react";
 import { getJson, sendJson } from "@/lib/client";
 import { notifyBotSidebarChanged } from "@/lib/events";
-import type { BotDto } from "@/lib/types";
+import { BOT_CODE_SESSION_CHANGED_EVENT, type BotDto } from "@/lib/types";
 import { BOT_TEMPLATES } from "@/lib/bot-marketplace";
 import { Button } from "@/components/ui";
 import { BotAvatar } from "@/components/bot/BotAvatar";
@@ -30,6 +30,23 @@ export function BotListView() {
     window.addEventListener("webui:bot-sidebar-changed", onBotSidebarChanged);
     return () => window.removeEventListener("webui:bot-sidebar-changed", onBotSidebarChanged);
   }, [refresh]);
+
+  useEffect(() => {
+    if (typeof EventSource === "undefined") return;
+    let closed = false;
+    const source = new EventSource(`/api/bots/events?epoch=${Date.now()}`);
+    source.addEventListener("snapshot", (event) => {
+      if (closed) return;
+      try {
+        const payload = JSON.parse((event as MessageEvent).data) as { eventType?: string; codeRequestId?: string };
+        if (payload.eventType === BOT_CODE_SESSION_CHANGED_EVENT) notifyBotSidebarChanged(payload.codeRequestId);
+      } catch { /* Ignore malformed events; the next snapshot/poll remains authoritative. */ }
+    });
+    return () => {
+      closed = true;
+      source.close();
+    };
+  }, []);
 
   async function create(input: { name?: string; templateId?: string } = {}) {
     if (busy || templateBusy) return;

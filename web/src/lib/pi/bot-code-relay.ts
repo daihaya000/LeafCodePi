@@ -96,12 +96,24 @@ type RelayDependencies = {
   /** Persisted Goal Loop state of a Code task, so a loop run is judged by the loop, not by its last message. */
   goalLoop: (task: TaskSummary) => GoalLoopDto | null;
   messages: (task: TaskSummary) => Promise<UiMessage[]>;
+  /** Notify the originating Bot/Room SSE after a Code request reaches a terminal result. */
+  onCodeSessionSettled?: (request: CodeRequest) => void;
   /** User-uploaded images in this Bot/Room conversation (oldest-first). */
   conversationImages?: (originTaskId: string) => ConversationUserImage[] | Promise<ConversationUserImage[]>;
   deliver: (request: CodeRequest) => Promise<boolean>;
   afterDelivery?: (request: CodeRequest) => Promise<void>;
 };
 
+function notifyCodeSessionSettled(
+  callback: ((request: CodeRequest) => void) | undefined,
+  request: CodeRequest,
+): void {
+  try {
+    callback?.(request);
+  } catch (error) {
+    console.warn("[bot-code-relay] Code session notification failed:", error instanceof Error ? error.message : String(error));
+  }
+}
 function root(): string { return join(dataDir(), "bot-code-requests"); }
 
 /** What the Bot needs to judge a loop run: the promise, the verdict, and the loop's own evidence. */
@@ -361,6 +373,7 @@ export async function runUserBotCodeRequest(
   botId: string,
   input: { prompt: string; projectId: string | null; goalLoop?: CodeGoalLoop; followUp?: { codeTaskId: string; baseline: string | null } },
   launch: (codeRequestId: string, link: (codeTaskId: string) => void) => Promise<TaskSummary>,
+  onSettled?: (request: CodeRequest) => void,
 ): Promise<TaskSummary> {
   const followUp = input.followUp;
   const request: CodeRequest = {
@@ -395,6 +408,7 @@ export async function runUserBotCodeRequest(
         codeTaskId: request.codeTaskId,
       });
       save(request);
+      notifyCodeSessionSettled(onSettled, request);
       throw error;
     }
   });
@@ -484,6 +498,7 @@ export function createBotCodeRelay(deps: RelayDependencies) {
   let timer: ReturnType<typeof setInterval> | undefined;
   let ticking = false;
   const reporting = new Map<string, { room: boolean; followUpStarted: boolean; userStopped: boolean; autoChain: number }>();
+  const notifySettled = (request: CodeRequest) => notifyCodeSessionSettled(deps.onCodeSessionSettled, request);
 
   function originForCode(taskId: string): string | null {
     const request = requests().find((item) => item.codeTaskId === taskId && !item.userIntervention && item.state === "running");
@@ -492,7 +507,7 @@ export function createBotCodeRelay(deps: RelayDependencies) {
   }
 
   function requestIdForCode(taskId: string): string | undefined {
-    return requests().find((item) => item.codeTaskId === taskId && !item.userIntervention && item.state === "running")?.id;
+    return requests().find((item) => item.codeTaskId === taskId && !item.userIntervention && (item.state === "starting" || item.state === "running"))?.id;
   }
 
   /** Every Code session this Bot conversation is currently waiting on, not just the first one. */
@@ -632,6 +647,7 @@ export function createBotCodeRelay(deps: RelayDependencies) {
     });
     request.state = "ready";
     save(request);
+    notifySettled(request);
   }
 
   // Called from the exact delegated queue entry, before a directly queued Code turn starts.
@@ -640,7 +656,14 @@ export function createBotCodeRelay(deps: RelayDependencies) {
     if (!initial) return;
     await withBotCodeSessionLock(`request-${id}`, async () => {
       const request = read(id);
-      if (request?.state === "running") await captureResult(request);
+      if (request?.state === "running") {
+        await captureResult(request);
+      } else if (request?.state === "starting" && request.stoppedByUser) {
+        markUserStoppedResult(request);
+        request.state = "ready";
+        save(request);
+        notifySettled(request);
+      }
     });
   }
 
@@ -688,6 +711,7 @@ export function createBotCodeRelay(deps: RelayDependencies) {
       request.state = "ready";
       request.result = `Codeへの依頼に失敗しました: ${error instanceof Error ? error.message : String(error)}`;
       save(request);
+      notifySettled(request);
       throw error;
     }
   }
@@ -721,6 +745,8 @@ export function createBotCodeRelay(deps: RelayDependencies) {
     const initial = read(id);
     if (!initial || !active(initial)) return;
     let delivered: CodeRequest | undefined;
+    let settledFromStarting = false;
+    let settledFromRunning = false;
     await withBotCodeSessionLock(`request-${id}`, async () => {
       const request = read(id);
       if (!request || !active(request)) return;
@@ -743,14 +769,21 @@ export function createBotCodeRelay(deps: RelayDependencies) {
         if (request.stoppedByUser) markUserStoppedResult(request);
         else request.result = "Codeへの依頼準備が再起動などにより中断されました。自動で再実行はしていません。";
         request.state = "ready";
+        settledFromStarting = true;
       }
       if (request.state === "running") {
         const task = request.codeTaskId ? getTask(request.codeTaskId) : undefined;
         if (task && deps.isBusy(task.id)) return;
-        if (request.stoppedByUser) markUserStoppedResult(request);
-        else await captureResult(request);
+        if (request.stoppedByUser) {
+          markUserStoppedResult(request);
+          request.state = "ready";
+          settledFromRunning = true;
+        } else {
+          await captureResult(request);
+        }
       }
       save(request);
+      if (settledFromStarting || settledFromRunning) notifySettled(request);
     });
     // Reports share the Bot's conversation, but must never block another Code task's result capture.
     await withBotCodeSessionLock(initial.botId, async () => {

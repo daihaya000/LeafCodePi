@@ -10,6 +10,8 @@ export type ThinkingLevel =
   | "max";
 
 export const NO_PROJECT_NAME = "プロジェクトなし";
+/** SSE marker emitted on the Bot conversation when an owned Code request settles. */
+export const BOT_CODE_SESSION_CHANGED_EVENT = "code_session_changed";
 
 export type BotSkillsConfig = {
   mode: "inherit" | "include" | "exclude";

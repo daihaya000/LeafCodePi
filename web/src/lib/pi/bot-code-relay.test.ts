@@ -532,12 +532,29 @@ describe("Bot ⇄ Code relay", () => {
   });
 
   it("keeps a failed user-started launch as a reportable outcome", async () => {
+    const onSettled = vi.fn();
     await expect(runUserBotCodeRequest("one", { prompt: "起動できない", projectId: "project" }, async () => {
       throw new Error("モデルが見つかりません");
-    })).rejects.toThrow("モデルが見つかりません");
+    }, onSettled)).rejects.toThrow("モデルが見つかりません");
 
     expect(record()).toMatchObject({ state: "ready", codeTaskId: null });
     expect(record().result).toContain("失敗");
+    expect(onSettled).toHaveBeenCalledTimes(1);
+  });
+
+  it("notifies a short Code session once when completion and relay polling race", async () => {
+    const onSettled = vi.fn();
+    deps.onCodeSessionSettled = onSettled;
+    await launch();
+    const requestId = record().id;
+    store.tasks.get("code")!.status = "idle";
+    messages = [answer("done", "短時間で終了")];
+
+    await Promise.all([relay.complete(requestId), relay.tick()]);
+    await relay.tick();
+
+    expect(onSettled).toHaveBeenCalledTimes(1);
+    expect(onSettled).toHaveBeenCalledWith(expect.objectContaining({ id: requestId, state: "ready" }));
   });
 
   it("rejects a stop that does not belong to the Bot", async () => {
@@ -551,6 +568,8 @@ describe("Bot ⇄ Code relay", () => {
   });
 
   it("makes a stop by Code task id final too", async () => {
+    const onSettled = vi.fn();
+    deps.onCodeSessionSettled = onSettled;
     await launch();
 
     expect(await stopBotCodeRequestForTask("one", "code")).toMatchObject({ state: "running", codeTaskId: "code" });
@@ -558,6 +577,7 @@ describe("Bot ⇄ Code relay", () => {
     await deps.abort("code");
     await relay.tick();
     expect(record().result).toContain("ユーザーが停止");
+    expect(onSettled).toHaveBeenCalledTimes(1);
   });
 
   it("keeps attention attached to the originating Bot even after manual unlink", async () => {

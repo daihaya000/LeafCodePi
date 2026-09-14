@@ -74,6 +74,7 @@ export const SSE_CONTROL_SNAPSHOT_EVENT_TYPES = new Set([
   "archived",
   "restored",
   "conversation_reset",
+  "code_session_changed",
 ]);
 
 export function isControlSnapshot(payload: Record<string, unknown>): boolean {

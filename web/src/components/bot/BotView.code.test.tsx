@@ -2,8 +2,9 @@
 import { act, cleanup, createEvent, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { ReactNode } from "react";
-const mocks = vi.hoisted(() => ({ getJson: vi.fn(), sendJson: vi.fn(), markRead: vi.fn(), reportStatus: vi.fn(), botFor: vi.fn((): { codeSessionCount?: number } | undefined => undefined), apiUrl: (path: string) => path }));
+const mocks = vi.hoisted(() => ({ getJson: vi.fn(), sendJson: vi.fn(), markRead: vi.fn(), reportStatus: vi.fn(), botFor: vi.fn((): { codeSessionCount?: number } | undefined => undefined), notifyBotSidebarChanged: vi.fn(), apiUrl: (path: string) => path }));
 vi.mock("@/components/shell/TaskPanesContext", () => ({ useReportStatus: () => mocks.reportStatus, useBotFor: () => mocks.botFor }));
+vi.mock("@/lib/events", () => ({ notifyBotSidebarChanged: mocks.notifyBotSidebarChanged }));
 vi.mock("@/lib/bot-unread", () => ({ markRead: mocks.markRead }));
 vi.mock("@/lib/client", () => mocks);
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn() }) }));
@@ -12,7 +13,7 @@ vi.mock("next/image", () => ({ default: () => null }));
 import { BotView } from "./BotView";
 import { BOT_AVATAR_SHAPES } from "@/lib/bot-avatar";
 import { toolNameLabel } from "@/lib/tool-labels";
-import { BOT_DEFAULT_DISABLED_TOOL_NAMES, BOT_TOOL_NAMES } from "@/lib/types";
+import { BOT_CODE_SESSION_CHANGED_EVENT, BOT_DEFAULT_DISABLED_TOOL_NAMES, BOT_TOOL_NAMES } from "@/lib/types";
 import { ShellProvider } from "@/components/shell/ShellContext";
 import { writeTaskTtsEnabled } from "@/lib/tts-playback";
 let listener: (event: { data: string }) => void;
@@ -123,6 +124,26 @@ it("does not notify completion from the previous Bot after switching ids", async
   } finally {
     Reflect.deleteProperty(document, "hidden");
   }
+});
+
+it("refreshes the sidebar from a Code completion event while the Code panel is unmounted", async () => {
+  render(<ShellProvider><BotView id="one" active /></ShellProvider>);
+  await screen.findByRole("button", { name: "設定" });
+  expect(screen.queryByRole("region", { name: "Codeセッション" })).toBeNull();
+
+  snapshot({ eventType: BOT_CODE_SESSION_CHANGED_EVENT, codeRequestId: "request-1" });
+
+  expect(mocks.notifyBotSidebarChanged).toHaveBeenCalledTimes(1);
+});
+
+it("does not handle a Code completion event after the Bot SSE subscription is removed", async () => {
+  const view = render(<ShellProvider><BotView id="one" active /></ShellProvider>);
+  await screen.findByRole("button", { name: "設定" });
+  view.unmount();
+
+  snapshot({ eventType: BOT_CODE_SESSION_CHANGED_EVENT, codeRequestId: "request-1" });
+
+  expect(mocks.notifyBotSidebarChanged).not.toHaveBeenCalled();
 });
 
 it("notifies a hidden tab when the Bot is waiting for approval", async () => {

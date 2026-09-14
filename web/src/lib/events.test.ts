@@ -65,6 +65,15 @@ describe("events", () => {
     expect(dispatchEvent.mock.calls[0][0].detail.refresh).toMatch(/^\d+-\d+$/);
   });
 
+  it("同じ Code 完了通知の重複を短時間だけ抑止する", () => {
+    const dispatchEvent = vi.fn();
+    vi.stubGlobal("window", { dispatchEvent });
+    notifyBotSidebarChanged("request-1");
+    notifyBotSidebarChanged("request-1");
+    notifyBotSidebarChanged("request-2");
+    expect(dispatchEvent).toHaveBeenCalledTimes(2);
+  });
+
   it("flush ヘルパーは保留中のイベントを同期的に発火する", () => {
     vi.useFakeTimers();
     const dispatchEvent = vi.fn();

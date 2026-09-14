@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getRoom } from "@/lib/rooms";
-import { abortTask, jsonError } from "@/lib/pi/harness";
+import { abortTask, completeBotCodeRequest, jsonError } from "@/lib/pi/harness";
 import { pendingRoomCodeRequestForRoom, roomCodeRequestForRoom, stopBotCodeRequest } from "@/lib/pi/bot-code-relay";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -17,9 +17,12 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     if (!request) return NextResponse.json({ error: "No running Code request" }, { status: 404 });
     const stopped = await stopBotCodeRequest(request.botId, request.id);
     if (!stopped) return NextResponse.json({ error: "Code request changed" }, { status: 409 });
-    return NextResponse.json(stopped.codeTaskId
-      ? { task: await abortTask(stopped.codeTaskId) }
-      : { requestId: request.id, state: stopped.state });
+    if (stopped.codeTaskId) {
+      const task = await abortTask(stopped.codeTaskId);
+      await completeBotCodeRequest(request.id);
+      return NextResponse.json({ task });
+    }
+    return NextResponse.json({ requestId: request.id, state: stopped.state });
   } catch (error) {
     const { error: message, status } = jsonError(error);
     return NextResponse.json({ error: message }, { status });

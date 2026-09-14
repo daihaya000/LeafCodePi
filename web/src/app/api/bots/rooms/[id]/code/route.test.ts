@@ -5,13 +5,13 @@ import { NextRequest } from "next/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { CodeRequest } from "@/lib/pi/bot-code-relay";
 
-const state = vi.hoisted(() => ({ root: "", abortTask: vi.fn(), pendingRoom: vi.fn<(roomId: string) => CodeRequest | undefined>(() => undefined), roomRequest: vi.fn<(roomId: string, requestId: string) => CodeRequest | undefined>(() => undefined), stopRequest: vi.fn() }));
+const state = vi.hoisted(() => ({ root: "", abortTask: vi.fn(), completeBotCodeRequest: vi.fn(), pendingRoom: vi.fn<(roomId: string) => CodeRequest | undefined>(() => undefined), roomRequest: vi.fn<(roomId: string, requestId: string) => CodeRequest | undefined>(() => undefined), stopRequest: vi.fn() }));
 vi.mock("@/lib/paths", async (importOriginal) => ({
   ...await importOriginal<typeof import("@/lib/paths")>(),
   dataDir: () => state.root,
   storePath: () => join(state.root, "store.json"),
 }));
-vi.mock("@/lib/pi/harness", () => ({ abortTask: state.abortTask, jsonError: (error: Error) => ({ error: error.message, status: 500 }) }));
+vi.mock("@/lib/pi/harness", () => ({ abortTask: state.abortTask, completeBotCodeRequest: state.completeBotCodeRequest, jsonError: (error: Error) => ({ error: error.message, status: 500 }) }));
 vi.mock("@/lib/pi/bot-code-relay", () => ({ pendingRoomCodeRequestForRoom: state.pendingRoom, roomCodeRequestForRoom: state.roomRequest, stopBotCodeRequest: state.stopRequest }));
 
 import { createRoom } from "@/lib/rooms";
@@ -29,6 +29,7 @@ beforeEach(() => {
 afterEach(() => {
   rmSync(state.root, { recursive: true, force: true });
   state.abortTask.mockReset();
+  state.completeBotCodeRequest.mockReset();
   state.pendingRoom.mockReset();
   state.roomRequest.mockReset();
   state.stopRequest.mockReset();
@@ -43,6 +44,7 @@ describe("room Code control", () => {
     // Marks the request as user-stopped before aborting, so the Bot cannot continue it by itself.
     expect(state.stopRequest).toHaveBeenCalledWith("bot-1", "request");
     expect(state.abortTask).toHaveBeenCalledWith("code-1");
+    expect(state.completeBotCodeRequest).toHaveBeenCalledWith("request");
   });
 
   it.each(["starting", "queued"])("cancels an unlaunched %s request by its own id", async (status) => {

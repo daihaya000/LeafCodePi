@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getBot } from "@/lib/bots";
 import { listBotCodeRequests, stopBotCodeRequest } from "@/lib/pi/bot-code-relay";
-import { abortTask, jsonError } from "@/lib/pi/harness";
+import { abortTask, completeBotCodeRequest, jsonError } from "@/lib/pi/harness";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -22,10 +22,12 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     if (typeof body.requestId !== "string") return NextResponse.json({ error: "requestId is required" }, { status: 400 });
     const stopped = await stopBotCodeRequest(id, body.requestId);
     if (!stopped) return NextResponse.json({ error: "実行中のCode依頼がありません" }, { status: 404 });
+    const task = stopped.codeTaskId ? await abortTask(stopped.codeTaskId) : undefined;
+    if (stopped.codeTaskId) await completeBotCodeRequest(body.requestId);
     return NextResponse.json({
       requestId: body.requestId,
       state: stopped.state,
-      ...(stopped.codeTaskId ? { task: await abortTask(stopped.codeTaskId) } : {}),
+      ...(task ? { task } : {}),
     });
   } catch (error) {
     const { error: message, status } = jsonError(error);
