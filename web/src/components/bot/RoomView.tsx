@@ -338,6 +338,14 @@ export function RoomView({ id, active = true }: { id: string; active?: boolean }
     try {
       const result = await sendJson<{ room: RoomDto }>(`/api/bots/rooms/${encodeURIComponent(id)}`, { resetMessages: true }, "PATCH");
       setRoom(result.room);
+      setAttention([]);
+      setAttentionBusy(null);
+      clearedPermissionIdsRef.current.clear();
+      clearedQuestionIdsRef.current.clear();
+      setBusy(false);
+      setStoppingCode([]);
+      setPrompt("");
+      setAttachments([]);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "会話のリセットに失敗しました");
     } finally {

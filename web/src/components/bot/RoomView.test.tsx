@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { act, cleanup, createEvent, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, createEvent, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -479,6 +479,28 @@ describe("RoomView delegated work", () => {
       attention: [{ botId: bot.id, taskId: `bot:${bot.id}:room:${room.id}`, permission, question: null }],
     }));
     expect(screen.queryByRole("alertdialog", { name: "Alphaの権限確認" })).toBeNull();
+  });
+
+  it("clears attention after resetting the room conversation", async () => {
+    vi.stubGlobal("confirm", () => true);
+    mocks.sendJson.mockResolvedValue({ room: { ...room, messages: [] } });
+    render(<RoomView id={room.id} />);
+    await screen.findByRole("textbox");
+    const permission = { id: "permission-1", command: "code_session", message: "Codeへ依頼します", labels: [] };
+    act(() => pushSnapshot({
+      room,
+      attention: [{ botId: bot.id, taskId: `bot:${bot.id}:room:${room.id}`, permission, question: null }],
+    }));
+    expect(screen.getByRole("alertdialog", { name: "Alphaの権限確認" })).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "設定" }));
+    fireEvent.click(await screen.findByRole("button", { name: "会話をリセット" }));
+    await waitFor(() => {
+      expect(mocks.sendJson).toHaveBeenCalledWith(`/api/bots/rooms/${encodeURIComponent(room.id)}`, { resetMessages: true }, "PATCH");
+    });
+    await waitFor(() => {
+      expect(screen.queryByRole("alertdialog", { name: "Alphaの権限確認" })).toBeNull();
+    });
   });
 });
 

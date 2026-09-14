@@ -450,6 +450,10 @@ async function cancelRequests(stale: CodeRequest[]): Promise<number> {
 export async function cancelRoomCodeRequests(roomId: string, requestId: string): Promise<number> {
   return cancelRequests(requests().filter((request) => request.room?.id === roomId && request.room.conversation.requestId === requestId && active(request)));
 }
+/** Cancel every outstanding Code job for a Room (conversation reset / room teardown). */
+export async function cancelAllRoomCodeRequests(roomId: string): Promise<number> {
+  return cancelRequests(requests().filter((request) => request.room?.id === roomId && active(request)));
+}
 /** A reverted 1:1 conversation has no context left either: Room jobs keep their own conversation. */
 export async function cancelBotCodeRequests(botId: string): Promise<number> {
   const origin = `bot:${botId}`;

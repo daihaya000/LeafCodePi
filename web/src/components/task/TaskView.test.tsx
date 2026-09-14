@@ -1341,6 +1341,61 @@ describe("TaskView draft submission", () => {
     expect(screen.getByText("回答待ち")).toBeTruthy();
   });
 
+  it("does not revive an answered permission from a stale SSE snapshot", async () => {
+    class TestEventSource extends EventTarget {
+      static latest: TestEventSource | null = null;
+      constructor() {
+        super();
+        TestEventSource.latest = this;
+      }
+      close() {}
+    }
+    vi.stubGlobal("EventSource", TestEventSource);
+    mocks.sendJson.mockResolvedValue({});
+    render(<TaskView taskId={task.id} mdUp />);
+    const source = TestEventSource.latest;
+    if (!source) throw new Error("EventSource was not created");
+
+    const permission = {
+      id: "request-1",
+      sessionId: "session-1",
+      command: "echo test",
+      labels: [],
+      message: "許可が必要です",
+    };
+    await act(async () => {
+      source.dispatchEvent(new MessageEvent("snapshot", {
+        data: JSON.stringify({
+          eventType: "ready",
+          task: { ...task, sessionId: "session-1", messages: [], isStreaming: false },
+          messages: [],
+          permissionRequest: permission,
+        }),
+      }));
+    });
+    fireEvent.click(await screen.findByRole("button", { name: "許可" }));
+    await waitFor(() => {
+      expect(mocks.sendJson).toHaveBeenCalledWith(`/api/tasks/${task.id}/permission`, {
+        requestId: "request-1",
+        approved: true,
+      });
+    });
+    await waitFor(() => {
+      expect(screen.queryByRole("button", { name: "許可" })).toBeNull();
+    });
+
+    await act(async () => {
+      source.dispatchEvent(new MessageEvent("snapshot", {
+        data: JSON.stringify({
+          eventType: "remote_poll",
+          task: { ...task, sessionId: "session-1", status: "working" },
+          permissionRequest: permission,
+        }),
+      }));
+    });
+    expect(screen.queryByRole("button", { name: "許可" })).toBeNull();
+  });
+
   it("clears goal loop state when a snapshot explicitly sends null", async () => {
     class TestEventSource extends EventTarget {
       static latest: TestEventSource | null = null;

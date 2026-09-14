@@ -139,6 +139,14 @@
 ### 検証（Tick26–27）
 `task-panes` / `GlobalAttention` / `BotView.code` — **169 passed**
 
+### Tick28（ループ継続）
+1. TaskView — cleared permission/question id で stale SSE スナップショットからの attention 復活を防止
+2. RoomView — `resetConversation` で attention / busy / cleared refs をクリア
+3. Room `resetMessages` — ターン停止・handoff 取消・Code 取消・メンバー会話リセット後にパッチ
+
+### 検証（Tick28）
+`TaskView` / `RoomView` / `rooms/[id]` / `bot-code-relay` — **141 passed**
+
 ---
 
 ## 2026-09-14: Stale production rebuild / next build exit 1

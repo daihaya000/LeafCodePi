@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import { deleteRoom, getRoom, patchRoom } from "@/lib/rooms";
-import { destroyTask } from "@/lib/pi/harness";
-import { listTasks } from "@/lib/store";
+import { deleteRoom, getRoom, patchRoom, roomBotTaskId } from "@/lib/rooms";
+import { destroyTask, resetTaskConversation } from "@/lib/pi/harness";
+import { cancelAllRoomCodeRequests } from "@/lib/pi/bot-code-relay";
+import { cancelPendingRoomHandoffs, stopRoomTurns } from "@/lib/room-runtime";
+import { getTask, listTasks } from "@/lib/store";
 import { isWebUiRequestAuthorized } from "@/lib/webui-auth";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -15,7 +17,21 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   if (!body || (body.name !== undefined && typeof body.name !== "string") || (body.members !== undefined && (!Array.isArray(body.members) || body.members.some((item) => typeof item !== "string"))) || (body.botRelayEnabled !== undefined && typeof body.botRelayEnabled !== "boolean") || (body.codeAutoApprove !== undefined && typeof body.codeAutoApprove !== "boolean") || (body.resetMessages !== undefined && typeof body.resetMessages !== "boolean")) return NextResponse.json({ error: "\u30eb\u30fc\u30e0\u8a2d\u5b9a\u304c\u4e0d\u6b63\u3067\u3059" }, { status: 400 });
   // Relay administration is a privileged mutation (df3dee2 bar): require Web UI token.
   if (body?.botRelayEnabled !== undefined && !isWebUiRequestAuthorized(req)) return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
-  const room = patchRoom(await idOf(params), { ...(body.name !== undefined ? { name: body.name } : {}), ...(body.members !== undefined ? { members: body.members as string[] } : {}), ...(body.botRelayEnabled !== undefined ? { botRelayEnabled: body.botRelayEnabled } : {}), ...(body.codeAutoApprove !== undefined ? { codeAutoApprove: body.codeAutoApprove } : {}), ...(body.resetMessages !== undefined ? { resetMessages: body.resetMessages } : {}) });
+  const id = await idOf(params);
+  const existing = getRoom(id);
+  if (!existing) return NextResponse.json({ error: "\u30eb\u30fc\u30e0\u304c\u898b\u3064\u304b\u308a\u307e\u305b\u3093" }, { status: 404 });
+  if (body.resetMessages === true) {
+    // Mirror 1:1 Bot reset: stop live turns, cancel Code outbox/handoffs, then wipe member sessions
+    // before clearing the shared transcript so attention/Code cannot report into an empty room.
+    await stopRoomTurns(id);
+    cancelPendingRoomHandoffs(id);
+    await cancelAllRoomCodeRequests(id);
+    for (const memberId of existing.members) {
+      const taskId = roomBotTaskId(id, memberId);
+      if (getTask(taskId)) await resetTaskConversation(taskId);
+    }
+  }
+  const room = patchRoom(id, { ...(body.name !== undefined ? { name: body.name } : {}), ...(body.members !== undefined ? { members: body.members as string[] } : {}), ...(body.botRelayEnabled !== undefined ? { botRelayEnabled: body.botRelayEnabled } : {}), ...(body.codeAutoApprove !== undefined ? { codeAutoApprove: body.codeAutoApprove } : {}), ...(body.resetMessages !== undefined ? { resetMessages: body.resetMessages } : {}) });
   return room ? NextResponse.json({ room }) : NextResponse.json({ error: "\u30eb\u30fc\u30e0\u304c\u898b\u3064\u304b\u308a\u307e\u305b\u3093" }, { status: 404 });
 }
 export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {

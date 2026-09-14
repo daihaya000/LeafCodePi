@@ -899,6 +899,8 @@ export const TaskView = memo(function TaskView({
   const [permissionRequest, setPermissionRequest] = useState<PermissionRequestDto | null>(null);
   const [questionRequest, setQuestionRequest] = useState<QuestionRequestDto | null>(null);
   const [permissionBusy, setPermissionBusy] = useState(false);
+  const clearedPermissionIdsRef = useRef(new Set<string>());
+  const clearedQuestionIdsRef = useRef(new Set<string>());
   useEffect(() => {
     const unsubscribeMode = subscribeAutoSetting(AUTO_OPTIMIZE_SETTING_KEY, () =>
       setAutoOptimizeMode(readAutoOptimizeMode()),
@@ -1143,8 +1145,14 @@ export const TaskView = memo(function TaskView({
     setCompactionSuggested(Boolean((detail as TaskDetailWithCompactionSuggestion).compactionSuggested));
     setIsCompacting(Boolean(detail.isCompacting));
     setSessionHydrating(false);
-    setPermissionRequest(detail.permissionRequest ?? null);
-    setQuestionRequest(detail.questionRequest ?? null);
+    const nextPermission = detail.permissionRequest ?? null;
+    setPermissionRequest(
+      nextPermission && clearedPermissionIdsRef.current.has(nextPermission.id) ? null : nextPermission,
+    );
+    const nextQuestion = detail.questionRequest ?? null;
+    setQuestionRequest(
+      nextQuestion && clearedQuestionIdsRef.current.has(nextQuestion.id) ? null : nextQuestion,
+    );
     if ("manualAbortedAssistantId" in detail) {
       setManualAbortedAssistantId(detail.manualAbortedAssistantId ?? null);
     }
@@ -1404,18 +1412,18 @@ export const TaskView = memo(function TaskView({
             });
           }
           if ("permissionRequest" in payload) {
-            setPermissionRequest((current) =>
-              samePermissionRequest(current, payload.permissionRequest ?? null)
-                ? current
-                : payload.permissionRequest ?? null,
-            );
+            setPermissionRequest((current) => {
+              const next = payload.permissionRequest ?? null;
+              if (next && clearedPermissionIdsRef.current.has(next.id)) return null;
+              return samePermissionRequest(current, next) ? current : next;
+            });
           }
           if ("questionRequest" in payload) {
-            setQuestionRequest((current) =>
-              sameQuestionRequest(current, payload.questionRequest ?? null)
-                ? current
-                : payload.questionRequest ?? null,
-            );
+            setQuestionRequest((current) => {
+              const next = payload.questionRequest ?? null;
+              if (next && clearedQuestionIdsRef.current.has(next.id)) return null;
+              return sameQuestionRequest(current, next) ? current : next;
+            });
           }
         });
         if (payload.error) setError(payload.error);
@@ -1746,6 +1754,8 @@ export const TaskView = memo(function TaskView({
     setPermissionRequest(null);
     setQuestionRequest(null);
     setPermissionBusy(false);
+    clearedPermissionIdsRef.current.clear();
+    clearedQuestionIdsRef.current.clear();
     setSkillPermission(cached?.skillPermission ?? readSkillPermission());
     setPermissionMode(cached?.permissionMode ?? readPermissionMode());
     const nextAgent = cached?.agent?.trim() || DEFAULT_AGENT;
@@ -3475,11 +3485,13 @@ export const TaskView = memo(function TaskView({
                         requestId: answeredId,
                         approved: true,
                       });
+                      clearedPermissionIdsRef.current.add(answeredId);
                       setPermissionRequest((cur) => (cur?.id === answeredId ? null : cur));
                     } catch (err) {
                       const message = err instanceof Error ? err.message : "許可の送信に失敗しました";
                       setError(message);
                       if (/not found|見つかりません/i.test(message)) {
+                        clearedPermissionIdsRef.current.add(answeredId);
                         setPermissionRequest((cur) => (cur?.id === answeredId ? null : cur));
                       }
                     } finally {
@@ -3505,11 +3517,13 @@ export const TaskView = memo(function TaskView({
                         requestId: answeredId,
                         approved: false,
                       });
+                      clearedPermissionIdsRef.current.add(answeredId);
                       setPermissionRequest((cur) => (cur?.id === answeredId ? null : cur));
                     } catch (err) {
                       const message = err instanceof Error ? err.message : "拒否の送信に失敗しました";
                       setError(message);
                       if (/not found|見つかりません/i.test(message)) {
+                        clearedPermissionIdsRef.current.add(answeredId);
                         setPermissionRequest((cur) => (cur?.id === answeredId ? null : cur));
                       }
                     } finally {
@@ -3535,10 +3549,12 @@ export const TaskView = memo(function TaskView({
                     requestId: answeredId,
                     answers,
                   });
+                  clearedQuestionIdsRef.current.add(answeredId);
                   setQuestionRequest((cur) => (cur?.id === answeredId ? null : cur));
                 } catch (err) {
                   const message = err instanceof Error ? err.message : "回答の送信に失敗しました";
                   if (/not found|見つかりません/i.test(message)) {
+                    clearedQuestionIdsRef.current.add(answeredId);
                     setQuestionRequest((cur) => (cur?.id === answeredId ? null : cur));
                   }
                   throw err;
@@ -3552,10 +3568,12 @@ export const TaskView = memo(function TaskView({
                     requestId: answeredId,
                     reject: true,
                   });
+                  clearedQuestionIdsRef.current.add(answeredId);
                   setQuestionRequest((cur) => (cur?.id === answeredId ? null : cur));
                 } catch (err) {
                   const message = err instanceof Error ? err.message : "拒否の送信に失敗しました";
                   if (/not found|見つかりません/i.test(message)) {
+                    clearedQuestionIdsRef.current.add(answeredId);
                     setQuestionRequest((cur) => (cur?.id === answeredId ? null : cur));
                   }
                   throw err;
