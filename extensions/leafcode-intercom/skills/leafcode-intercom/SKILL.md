@@ -54,6 +54,22 @@ intercom({
 })
 ```
 
+## LeafCodePi Bot-to-Bot
+
+On a LeafCodePi Bot task, `intercom` is bridged to **Bot id** addressing. Do not pass a session id, display name, or `fromBot`.
+
+- **`list` / `list-cwd`**: same-scope Bot roster only. `list-cwd` with `cwd` further filters to Bots that share that extraRoot or workspace path. Out-of-scope Bots never appear.
+- **`send` / `ask`**: destination is a Bot id from that roster. Out-of-scope send is rejected.
+- **`fanout`**: guarded same-scope broadcast. Default **off** until the sender's Bot setting `intercomFanoutEnabled` is on. Max 8 Bot ids, no amplify of a received fanout, Room turns refused. Do not invent a `forEach` send loop around the whole machine roster.
+- Room turns must not use this tool; a formal `@Name` of a room member stays on `room_handoff`.
+
+```typescript
+intercom({ action: "list" })
+intercom({ action: "list-cwd", cwd: "/path/to/project" })
+intercom({ action: "send", to: "<bot-id>", message: "Need a review of src/api/client.ts." })
+intercom({ action: "fanout", toIds: ["<bot-id-1>", "<bot-id-2>"], message: "Standup: lock the shared fixture file before editing." })
+```
+
 **Worker asks for clarification** (blocks until answer):
 ```typescript
 intercom({

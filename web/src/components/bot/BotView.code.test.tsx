@@ -1398,3 +1398,30 @@ it("persists the Bot intercom opt-in from settings", async () => {
     "PATCH",
   ));
 });
+
+it("persists the intercom scope and fanout opt-in from settings", async () => {
+  mocks.sendJson.mockImplementation(async (_url: string, patch: object) => ({ bot: { ...testBot, intercomEnabled: true, ...patch } }));
+  mocks.getJson.mockImplementation(async (url: string) => (
+    url === "/api/models"
+      ? { models: [] }
+      : url.endsWith("/routines")
+        ? { routines: [] }
+        : { bot: { ...testBot, intercomEnabled: true } }
+  ));
+  render(<ShellProvider><BotView id="one" active /></ShellProvider>);
+  fireEvent.click(await screen.findByRole("button", { name: "設定" }));
+  const scope = await screen.findByLabelText("内線スコープ");
+  fireEvent.change(scope, { target: { value: "proj-a" } });
+  fireEvent.blur(scope);
+  await waitFor(() => expect(mocks.sendJson).toHaveBeenCalledWith(
+    "/api/bots/one",
+    { intercomScopeId: "proj-a" },
+    "PATCH",
+  ));
+  fireEvent.click(await screen.findByRole("switch", { name: "一斉送信" }));
+  await waitFor(() => expect(mocks.sendJson).toHaveBeenCalledWith(
+    "/api/bots/one",
+    { intercomFanoutEnabled: true },
+    "PATCH",
+  ));
+});

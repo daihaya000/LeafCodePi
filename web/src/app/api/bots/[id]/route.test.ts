@@ -140,6 +140,24 @@ describe("PATCH /api/bots/[id]", () => {
     expect(mocks.patchBot).toHaveBeenCalledWith("one", expect.objectContaining({ intercomEnabled: true }));
   });
 
+  it("accepts intercom scope and fanout opt-in", async () => {
+    mocks.getBot.mockReturnValue(bot());
+    mocks.patchBot.mockReturnValue({ ...bot(), intercomScopeId: "proj-a", intercomFanoutEnabled: true });
+    const response = await PATCH(jsonRequest({ intercomScopeId: " proj-a ", intercomFanoutEnabled: true }), params("one"));
+    expect(response.status).toBe(200);
+    expect(mocks.patchBot).toHaveBeenCalledWith("one", expect.objectContaining({
+      intercomScopeId: "proj-a",
+      intercomFanoutEnabled: true,
+    }));
+  });
+
+  it("rejects an oversized intercom scope id", async () => {
+    mocks.getBot.mockReturnValue(bot());
+    const response = await PATCH(jsonRequest({ intercomScopeId: "x".repeat(65) }), params("one"));
+    expect(response.status).toBe(400);
+    expect(mocks.patchBot).not.toHaveBeenCalled();
+  });
+
   it("accepts intercom in the Bot tool allowlist", async () => {
     mocks.getBot.mockReturnValue(bot());
     mocks.patchBot.mockReturnValue({ ...bot(), tools: ["read", "intercom"] });

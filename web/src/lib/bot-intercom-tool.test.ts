@@ -252,4 +252,72 @@ describe("bot intercom tool", () => {
     expect(result.content[0]?.text).toMatch(/Room turn|room_handoff/i);
     expect(getBotIntercomInbox(bob.id).messages.find((message) => message.id === sent.details.messageId)?.cancelled).toBeUndefined();
   });
+
+  it("lists only same-scope Bots and rejects out-of-scope send", async () => {
+    const alice = enableIntercom(createBot({ name: "Alice" }).id)!;
+    const bob = enableIntercom(createBot({ name: "Bob" }).id)!;
+    const mallory = enableIntercom(createBot({ name: "Mallory" }).id)!;
+    patchBot(mallory.id, { intercomScopeId: "other-project" });
+    residents.add(bob.id);
+    residents.add(mallory.id);
+    const { tool } = install(`bot:${alice.id}`);
+
+    const listed = await tool.execute("list", { action: "list" });
+    const bots = listed.details.bots as { id: string }[];
+    expect(bots.map((peer) => peer.id)).toEqual([bob.id]);
+    expect(listed.content[0]?.text).toMatch(/Same-scope/);
+
+    const cwdListed = await tool.execute("list-cwd", { action: "list-cwd" });
+    expect((cwdListed.details.bots as { id: string }[]).map((peer) => peer.id)).toEqual([bob.id]);
+
+    const sent = await tool.execute("send", { action: "send", to: mallory.id, message: "nope" });
+    expect(sent.details.error).toBe(true);
+    expect(sent.content[0]?.text).toMatch(/out of scope/i);
+    expect(getBotIntercomInbox(mallory.id).messages).toHaveLength(0);
+  });
+
+  it("fans out only with sender opt-in and ignores spoofed fromBot", async () => {
+    const alice = enableIntercom(createBot({ name: "Alice" }).id)!;
+    const bob = enableIntercom(createBot({ name: "Bob" }).id)!;
+    const carol = enableIntercom(createBot({ name: "Carol" }).id)!;
+    const mallory = enableIntercom(createBot({ name: "Mallory" }).id)!;
+    residents.add(bob.id);
+    residents.add(carol.id);
+    const aliceTool = install(`bot:${alice.id}`).tool;
+
+    const denied = await aliceTool.execute("fanout", {
+      action: "fanout",
+      toIds: [bob.id, carol.id],
+      message: "standup",
+      fromBotId: mallory.id,
+    });
+    expect(denied.details.error).toBe(true);
+    expect(denied.content[0]?.text).toMatch(/opt-in|disabled/i);
+
+    patchBot(alice.id, { intercomFanoutEnabled: true });
+    const sent = await aliceTool.execute("fanout", {
+      action: "fanout",
+      to: `${bob.id},${carol.id}`,
+      message: "standup",
+      fromBotId: mallory.id,
+    });
+    expect(sent.details.error).toBeUndefined();
+    expect(sent.details.fromBotId).toBe(alice.id);
+    expect(sent.details.fanout).toBe(true);
+    expect(sent.details.count).toBe(2);
+    expect(getBotIntercomInbox(bob.id).messages[0]?.fromBotId).toBe(alice.id);
+  });
+
+  it("does not fire fanout during a Room turn", async () => {
+    const alice = enableIntercom(createBot({ name: "Alice" }).id)!;
+    const bob = enableIntercom(createBot({ name: "Bob" }).id)!;
+    patchBot(alice.id, { intercomFanoutEnabled: true });
+    const room = createRoom({ name: "Room", members: [alice.id, bob.id] });
+    residents.add(bob.id);
+    const { tool } = install(ensureRoomBotTask(room, getBot(alice.id)!));
+    const result = await tool.execute("fanout", { action: "fanout", toIds: [bob.id], message: "room" });
+    expect(result.details.error).toBe(true);
+    expect(result.content[0]?.text).toMatch(/Room turn|room_handoff/i);
+    expect(getBotIntercomInbox(bob.id).messages).toHaveLength(0);
+  });
 });

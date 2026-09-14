@@ -160,6 +160,13 @@ export type BotDto = {
    * Sending also requires `intercom` on the tool allowlist.
    */
   intercomEnabled?: boolean;
+  /**
+   * Intercom roster / send scope (workspace or project). Empty = `default`.
+   * Bots in different scopes never list or accept send from each other.
+   */
+  intercomScopeId?: string;
+  /** Opt-in for guarded multi-Bot fanout. Default off. */
+  intercomFanoutEnabled?: boolean;
   /** Skip the approval prompt for Code requests originating from this Bot. */
   codeAutoApprove: boolean;
   /** The Code task currently controlled by this Bot, when one is linked. */
@@ -202,6 +209,11 @@ export type BotIntercomMessageV1 = {
   supersededBy?: string;
   retryOf?: string;
   cancelled?: boolean;
+  /** Phase D+. Same-scope send; old receivers ignore it. */
+  scopeId?: string;
+  /** Phase D+. True when this delivery was part of an explicit fanout. */
+  fanout?: boolean;
+  fanoutDepth?: number;
 };
 export type BotIntercomInboxItemDto = BotIntercomMessageV1 & { fromName: string };
 export type BotIntercomInboxPreviewDto = {

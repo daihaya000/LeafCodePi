@@ -4,8 +4,11 @@ import { getTask } from "@/lib/store";
 import { roomForCodeOrigin } from "@/lib/pi/bot-code-relay";
 import {
   BOT_INTERCOM_MESSAGE_MAX,
+  MAX_BOT_INTERCOM_FANOUT,
   askBotIntercom,
   cancelBotIntercom,
+  fanoutBotIntercom,
+  listBotIntercomCwdPeers,
   listBotIntercomPeers,
   listPendingBotIntercomAsks,
   replyBotIntercom,
@@ -16,9 +19,9 @@ import {
 export const BOT_INTERCOM_TOOL = "intercom";
 
 const BOT_INTERCOM_TOOL_DESCRIPTION =
-  "Send a 1:1 Bot intercom message by Bot id only. Phase C supports list, send, ask, reply, pending, and cancel. Do not pass a session id, display name, or fromBot — the server derives the sender from this Bot. Room turns must not use this tool; a formal @Name of a room member is an implicit room_handoff only. ask waits for reply as the tool result. Use send to queue or steer a mailbox delivery (offline = queued, busy = steered). cancel and supersedes are the same sender-recipient pair only. Attachments follow Room limits (images png/jpeg/webp/gif, UTF-8 files, 8 each, 8MB).";
+  "Send a 1:1 Bot intercom message by Bot id only. Phase D supports list, list-cwd, send, ask, reply, pending, cancel, and fanout. Do not pass a session id, display name, or fromBot — the server derives the sender from this Bot. list and list-cwd return the same-scope Bot roster (list-cwd may also filter by a shared extraRoot/workspace path). Out-of-scope Bots are never listed and cannot be sent to. fanout is a guarded same-scope broadcast: default OFF, requires the sender's fanout opt-in, max 8 recipients, and cannot amplify a received fanout. Room turns must not use this tool; a formal @Name of a room member is an implicit room_handoff only. ask waits for reply as the tool result. Use send to queue or steer a mailbox delivery (offline = queued, busy = steered). cancel and supersedes are the same sender-recipient pair only. Attachments follow Room limits (images png/jpeg/webp/gif, UTF-8 files, 8 each, 8MB).";
 
-type IntercomAction = "list" | "send" | "ask" | "reply" | "pending" | "cancel";
+type IntercomAction = "list" | "list-cwd" | "send" | "ask" | "reply" | "pending" | "cancel" | "fanout";
 
 function toolResult(text: string, details: Record<string, unknown>, error = false) {
   return {
@@ -37,6 +40,16 @@ function senderBotId(originTaskId: string): string {
 
 function isRoomTurn(originTaskId: string): boolean {
   return Boolean(roomForCodeOrigin(getTask(originTaskId)));
+}
+
+function asFanoutTargets(to: string | undefined, toIds: unknown): string[] {
+  const fromArray = Array.isArray(toIds)
+    ? toIds.filter((id): id is string => typeof id === "string").map((id) => id.trim()).filter(Boolean)
+    : [];
+  const fromString = typeof to === "string"
+    ? to.split(/[,\s]+/).map((id) => id.trim()).filter(Boolean)
+    : [];
+  return [...new Set([...fromArray, ...fromString])];
 }
 
 function asAttachmentInputs(value: unknown): BotIntercomAttachmentInput[] | undefined {
@@ -67,14 +80,16 @@ async function executeBotIntercom(
     supersedes?: string;
     retryOf?: string;
     attachments?: unknown;
+    cwd?: string;
+    toIds?: unknown;
     fromBot?: string;
     fromBotId?: string;
   },
   signal?: AbortSignal,
 ) {
   const action = (input.action ?? "").trim() as IntercomAction | "";
-  if (action !== "list" && action !== "send" && action !== "ask" && action !== "reply" && action !== "pending" && action !== "cancel") {
-    return toolResult("Phase C supports action=list, send, ask, reply, pending, or cancel", { action: input.action ?? null }, true);
+  if (action !== "list" && action !== "list-cwd" && action !== "send" && action !== "ask" && action !== "reply" && action !== "pending" && action !== "cancel" && action !== "fanout") {
+    return toolResult("Phase D supports action=list, list-cwd, send, ask, reply, pending, cancel, or fanout", { action: input.action ?? null }, true);
   }
 
   const fromBotId = senderBotId(originTaskId);
@@ -87,20 +102,28 @@ async function executeBotIntercom(
     );
   }
 
-  if (action === "list") {
-    const peers = listBotIntercomPeers(fromBotId);
+  if (action === "list" || action === "list-cwd") {
+    const peers = action === "list-cwd"
+      ? listBotIntercomCwdPeers(fromBotId, input.cwd)
+      : listBotIntercomPeers(fromBotId);
     if (peers.length === 0) {
-      return toolResult("No other Bots are available.", { bots: [] });
+      return toolResult(
+        action === "list-cwd" ? "No same-scope Bots match this directory." : "No other same-scope Bots are available.",
+        { bots: [], scope: true },
+      );
     }
     const lines = peers.map((peer) => {
       const flags = [
         peer.presence,
+        `scope ${peer.scopeId}`,
         peer.resident ? "resident" : "not-resident (mailbox)",
         peer.intercomEnabled ? "opted-in" : "opted-out",
+        peer.fanoutEnabled ? "fanout-on" : "fanout-off",
       ].join(", ");
       return `- ${peer.name} · ${peer.id} · ${flags}`;
     });
-    return toolResult(`**Bots (id only):**\n${lines.join("\n")}`, { bots: peers });
+    const heading = action === "list-cwd" ? "**Same-scope Bots (cwd filter, id only):**" : "**Same-scope Bots (id only):**";
+    return toolResult(`${heading}\n${lines.join("\n")}`, { bots: peers });
   }
 
   if (action === "pending") {
@@ -133,6 +156,26 @@ async function executeBotIntercom(
     }
 
     const attachments = asAttachmentInputs(input.attachments);
+
+    if (action === "fanout") {
+      const messages = fanoutBotIntercom({
+        fromBotId,
+        to: asFanoutTargets(input.to, input.toIds),
+        text: input.message ?? "",
+        attachments,
+      });
+      const ids = messages.map((message) => message.toBotId);
+      return toolResult(`Fanout delivered to ${messages.length} Bot${messages.length === 1 ? "" : "s"}`, {
+        v: messages[0]?.v,
+        fanout: true,
+        count: messages.length,
+        toBotIds: ids,
+        messageIds: messages.map((message) => message.id),
+        fromBotId: messages[0]?.fromBotId,
+        scopeId: messages[0]?.scopeId,
+        fanoutDepth: messages[0]?.fanoutDepth,
+      });
+    }
 
     if (action === "send") {
       const message = sendBotIntercom({
@@ -209,17 +252,19 @@ function registerBridgeTool(pi: ExtensionAPI, originTaskId: string): void {
     label: "内線",
     description: BOT_INTERCOM_TOOL_DESCRIPTION,
     parameters: Type.Object({
-      action: Type.String({ description: "list, send, ask, reply, pending, or cancel (Phase C)" }),
-      to: Type.Optional(Type.String({ description: "Destination Bot id only (required for send/ask; disambiguates reply)" })),
+      action: Type.String({ description: "list, list-cwd, send, ask, reply, pending, cancel, or fanout (Phase D)" }),
+      to: Type.Optional(Type.String({ description: "Destination Bot id only (required for send/ask; disambiguates reply). For fanout, comma-separated Bot ids." })),
+      toIds: Type.Optional(Type.Array(Type.String({ description: "Destination Bot ids for fanout (alternative to comma-separated to)" }), { maxItems: MAX_BOT_INTERCOM_FANOUT })),
       message: Type.Optional(Type.String({
         minLength: 1,
         maxLength: BOT_INTERCOM_MESSAGE_MAX,
-        description: "Message text for send, ask, or reply",
+        description: "Message text for send, ask, reply, or fanout",
       })),
       replyTo: Type.Optional(Type.String({ description: "Ask message id when more than one inbound ask is pending" })),
       messageId: Type.Optional(Type.String({ description: "Outbound message id to cancel" })),
       supersedes: Type.Optional(Type.String({ description: "Outbound message id this send/ask replaces (same sender and recipient)" })),
       retryOf: Type.Optional(Type.String({ description: "Optional metadata linking this message as a retry" })),
+      cwd: Type.Optional(Type.String({ description: "Directory filter for list-cwd. Matches a Bot workspace or extraRoot. Omit to list the same-scope roster." })),
       attachments: Type.Optional(Type.Array(Type.Object({
         mimeType: Type.String({ description: "image/png, image/jpeg, image/webp, image/gif, or a UTF-8 text MIME type" }),
         data: Type.String({ description: "Base64 payload. Room limits: 8 images + 8 files, 8MB each" }),
@@ -236,6 +281,8 @@ function registerBridgeTool(pi: ExtensionAPI, originTaskId: string): void {
         supersedes?: string;
         retryOf?: string;
         attachments?: unknown;
+        cwd?: string;
+        toIds?: unknown;
         fromBot?: string;
         fromBotId?: string;
       }, signal);
