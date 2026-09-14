@@ -547,12 +547,15 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
 
   async function stopLogin() {
     const activeLogin = login;
-    if (!activeLogin) return;
+    if (!activeLogin?.sessionId) {
+      setLogin(null);
+      return;
+    }
     const generation = ++loginGenerationRef.current;
     try {
       await fetch(
         apiUrl(
-          `/api/providers/${encodeURIComponent(activeLogin.providerId)}/login/answer`,
+          `/api/providers/${encodeURIComponent(activeLogin.providerId)}/login/answer?sessionId=${encodeURIComponent(activeLogin.sessionId)}`,
         ),
         {
           method: "DELETE",

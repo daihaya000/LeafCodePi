@@ -164,7 +164,14 @@ export async function runRoomBot(room: RoomDto, bot: BotDto, prompt: string, res
     const error = detail.error || assistant?.error;
     const raw = assistant ? textOf(assistant) : "";
     const settledRoom = getRoom(room.id);
-    if (!settledRoom || latestRoomRequest(settledRoom)?.id !== requestId) return;
+    if (!settledRoom || latestRoomRequest(settledRoom)?.id !== requestId) {
+      updateRoomMessage(room.id, responseId, (message) =>
+        message.status === "working"
+          ? { text: "Conversation superseded by a newer user message.", status: "done" }
+          : {},
+      );
+      return;
+    }
     const parsed = turn ? parseRoomReply(raw, bot.id, participants) : { text: raw };
     const reply = bindImplicitMentionHandoff({
       roomId: room.id, requestId, fromMessageId: responseId, fromBotId: bot.id, reply: parsed,
@@ -574,8 +581,12 @@ export function registerRoomHandoff(input: {
     relayDepth, createdAt: now, updatedAt: now,
   };
   updateRoomHandoffs(input.roomId, (handoffs) => {
-    // Make room for the new record by dropping the oldest settled one.
-    const firstSettled = handoffs.find((item) => item.state === "done" || item.state === "failed" || item.state === "cancelled");
+    // Prefer dropping settled rows without toolCallId so idempotent replays keep working.
+    const evictable = (item: RoomHandoff) =>
+      item.state === "done" || item.state === "failed" || item.state === "cancelled";
+    const firstSettled =
+      handoffs.find((item) => evictable(item) && !item.toolCallId) ??
+      handoffs.find((item) => evictable(item));
     const kept = handoffs.length >= MAX_ROOM_HANDOFFS && firstSettled
       ? handoffs.filter((item) => item.id !== firstSettled.id)
       : handoffs;
@@ -701,32 +712,34 @@ export async function deliverReadyRoomHandoffs(roomId: string): Promise<void> {
       patchHandoff(roomId, next.id, (current) => ({ ...current, state: "failed", reason: "宛先Botが無効なため実行しません", updatedAt: Date.now() }));
       continue;
     }
-    // Validate-then-claim: issue a server envelope then consume it under durable relay state.
+    // Claim before envelope consume so a crash cannot leave ready+spent-token forever.
     // Implicit @mention handoffs may run when relay is off; they are server-initiated, so there is
     // no client envelope to spoof. Explicit tool handoffs still require the opt-in + envelope.
     if (!room.botRelayEnabled && !next.implicit) {
       patchHandoff(roomId, next.id, (current) => ({ ...current, state: "failed", reason: "Botリレーが無効なため実行しません", updatedAt: Date.now() }));
       continue;
     }
-    if (room.botRelayEnabled) {
-      const parentToken = (room.handoffs ?? []).find((item) => item.requestId === next.requestId && item.toBotId === next.fromBotId && item.relayEnvelopeToken && (item.state === "running" || item.state === "done") && item.id !== next.id)?.relayEnvelopeToken;
-      const token = next.relayEnvelopeToken ?? issueRoomRelayEnvelope(roomId, next.fromBotId, [next.toBotId], parentToken);
-      if (!token) {
-        patchHandoff(roomId, next.id, (current) => ({ ...current, state: "failed", reason: "リレーエンベロープを発行できませんでした（ループ・深度・無効化）", updatedAt: Date.now() }));
-        continue;
-      }
-      const envelope = consumeRoomRelayEnvelope(roomId, token);
-      if (!envelope) {
-        patchHandoff(roomId, next.id, (current) => ({ ...current, state: "failed", reason: "リレーエンベロープを主張できませんでした（再送・ループ・無効化）", updatedAt: Date.now() }));
-        continue;
-      }
-      patchHandoff(roomId, next.id, (current) => current.state === "ready" ? { ...current, relayEnvelopeToken: token, relayDepth: envelope.depth, updatedAt: Date.now() } : current);
-    }
-    // Claim before opening the turn: a concurrent deliverer loses the race here.
     const claimed = updateRoomHandoffs(roomId, (handoffs) => handoffs.map((handoff) => handoff.id === next.id && handoff.state === "ready"
       ? { ...handoff, state: "running", updatedAt: Date.now() }
       : handoff));
     if (!claimed?.some((handoff) => handoff.id === next.id && handoff.state === "running")) continue;
+    if (room.botRelayEnabled) {
+      const parentToken = (room.handoffs ?? []).find((item) => item.requestId === next.requestId && item.toBotId === next.fromBotId && item.relayEnvelopeToken && (item.state === "running" || item.state === "done") && item.id !== next.id)?.relayEnvelopeToken;
+      let token = next.relayEnvelopeToken;
+      let envelope = token ? consumeRoomRelayEnvelope(roomId, token) : undefined;
+      // Spent/stale token after a prior crash: issue a fresh envelope instead of failing forever.
+      if (!envelope) {
+        token = issueRoomRelayEnvelope(roomId, next.fromBotId, [next.toBotId], parentToken);
+        envelope = token ? consumeRoomRelayEnvelope(roomId, token) : undefined;
+      }
+      if (!token || !envelope) {
+        patchHandoff(roomId, next.id, (current) => ({ ...current, state: "failed", reason: "リレーエンベロープを主張できませんでした（再送・ループ・無効化）", updatedAt: Date.now() }));
+        continue;
+      }
+      patchHandoff(roomId, next.id, (current) => current.state === "running"
+        ? { ...current, relayEnvelopeToken: token, relayDepth: envelope.depth, updatedAt: Date.now() }
+        : current);
+    }
     const participants = room.members.map(getBot).filter((member): member is BotDto => Boolean(member?.enabled));
     const turnIndex = (room.handoffs?.filter((handoff) => handoff.responseMessageId).length ?? 0) + 1;
     const placeholder = appendRoomMessage(roomId, {
@@ -748,6 +761,13 @@ export async function deliverReadyRoomHandoffs(roomId: string): Promise<void> {
       handoff: { fromBotName: getBot(next.fromBotId)?.name ?? "他のBot", task: next.task },
     };
     const reply = await runRoomBot(room, bot, latestRoomRequest(room)?.text ?? "", placeholder.id, requestId, turn);
+    if (!reply) {
+      updateRoomMessage(roomId, placeholder.id, (message) =>
+        message.status === "working"
+          ? { text: "応答を取得できませんでした", status: "error" }
+          : {},
+      );
+    }
     patchHandoff(roomId, next.id, (current) => current.state !== "running" ? current
       : reply ? { ...current, state: "done", updatedAt: Date.now() }
       : { ...current, state: "failed", reason: "応答を取得できませんでした", updatedAt: Date.now() });

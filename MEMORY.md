@@ -337,6 +337,15 @@
 ### 検証（Tick68）
 `direct-title` / `room-opener` — **9 passed**
 
+### Tick69（ループ継続・[Hunt non-lifecycle bugs](b415cde0) 追随）
+1. `runRoomBot` — prompt 後の supersede でも placeholder を閉じる（`working` 残留防止）
+2. `deliverReadyRoomHandoffs` — claim→envelope、消費済み token は再発行；reply なし時に placeholder 閉じ
+3. `registerRoomHandoff` — evict 時は `toolCallId` 無し settled を優先
+4. provider login DELETE — `sessionId` 必須（`cancelProviderLogin(sessionId)`）
+
+### 検証（Tick69）
+`room-runtime` / `login/answer` — **55 passed**
+
 ---
 
 ## 2026-09-14: Stale production rebuild / next build exit 1

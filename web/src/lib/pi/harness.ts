@@ -5415,9 +5415,20 @@ export function answerProviderLogin(
   session.answer(promptId, value);
 }
 
-export function cancelProviderLogin(): void {
+export function cancelProviderLogin(sessionId?: string | null): void {
   const current = state();
-  current.loginSession?.cancel();
+  const session = current.loginSession;
+  if (!session) return;
+  const expected = typeof sessionId === "string" ? sessionId.trim() : "";
+  if (!expected) {
+    throw Object.assign(new Error("sessionId が必要です"), { status: 400 });
+  }
+  if (session.id !== expected) {
+    throw Object.assign(new Error("ログインセッションが一致しません"), {
+      status: 409,
+    });
+  }
+  session.cancel();
   current.loginSession = null;
 }
 

@@ -893,4 +893,32 @@ describe("room stop and fan-out", () => {
       text: "Handoff took the floor.",
     });
   });
+
+  it("closes the placeholder when a newer user message supersedes after prompt", async () => {
+    const { room, bots, user } = setup(["A"]);
+    let release!: () => void;
+    const hold = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    state.promptTask.mockImplementation(async (id: string) => {
+      await hold;
+      const detail = state.details.get(id)!;
+      detail.messages = [...detail.messages, assistant("late", "stale reply\nROOM_ACTION: DONE")];
+    });
+    const response = appendRoomMessage(room.id, {
+      role: "assistant",
+      botId: bots[0].id,
+      text: "",
+      status: "working",
+    })!;
+    const run = runRoomBot(getRoom(room.id)!, bots[0], "old", response.id, user.id);
+    await vi.waitFor(() => expect(state.promptTask).toHaveBeenCalled());
+    appendRoomMessage(room.id, { role: "user", text: "新しい指示" });
+    release();
+    await run;
+    expect(getRoom(room.id)!.messages.find((message) => message.id === response.id)).toMatchObject({
+      status: "done",
+      text: "Conversation superseded by a newer user message.",
+    });
+  });
 });

@@ -25,9 +25,20 @@ export async function POST(req: Request) {
   }
 }
 
-export async function DELETE() {
+export async function DELETE(req: Request) {
   try {
-    cancelProviderLogin();
+    const url = new URL(req.url);
+    const fromQuery = url.searchParams.get("sessionId");
+    const raw = fromQuery ? null : await req.json().catch(() => null);
+    const fromBody =
+      raw && typeof raw === "object" && !Array.isArray(raw) && typeof (raw as { sessionId?: unknown }).sessionId === "string"
+        ? (raw as { sessionId: string }).sessionId
+        : null;
+    const sessionId = (fromQuery ?? fromBody ?? "").trim();
+    if (!sessionId) {
+      return NextResponse.json({ error: "sessionId が必要です" }, { status: 400 });
+    }
+    cancelProviderLogin(sessionId);
     return NextResponse.json({ ok: true });
   } catch (error) {
     const { error: message, status } = jsonError(error);
