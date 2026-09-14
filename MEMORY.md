@@ -76,6 +76,14 @@
 ### 検証（Tick8）
 `harness-limit-fallback` / `harness-agent` / `events` / `task-runtime-lease` — **41 passed**
 
+### Tick9（ループ継続）
+1. TaskView compact 失敗時に `isCompacting` をクリア（送信ブロック防止）
+2. Bot intercom steer — mailbox 添付を `promptTask` に渡す
+3. Room handoff — `appendRoomMessage` 失敗時に `running` 固定せず `failed` へ
+
+### 検証（Tick9）
+`TaskView` / `bot-intercom` / `room-runtime` — **117 passed**
+
 ---
 
 ## 2026-09-14: Stale production rebuild / next build exit 1

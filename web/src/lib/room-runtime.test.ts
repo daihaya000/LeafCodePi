@@ -54,7 +54,8 @@ import { createBot, patchBot } from "./bots";
 import { appendRoomMessage, consumeRoomRelayEnvelope, createRoom, ensureRoomBotTask, getRoom, issueRoomRelayEnvelope, patchRoom, revertRoomTo, setRoomOutcome, updateRoomHandoffs, updateRoomMessage } from "./rooms";
 import { getTask, patchTask } from "./store";
 import { acquireTaskLease, releaseTaskLease } from "./task-runtime-lease";
-import { cancelPendingRoomHandoffs, deliverRoomCodeReport, reconcileRoomRuntime, registerRoomHandoff, resumeRoomAfterCode, runRoomBot, runRoomConversation, runRoomFanOut, settleRoomHandoffs, settleRoomHandoffsForCode, settleStaleRoomTurns, stopRoomTurns } from "./room-runtime";
+import { cancelPendingRoomHandoffs, deliverReadyRoomHandoffs, deliverRoomCodeReport, reconcileRoomRuntime, registerRoomHandoff, resumeRoomAfterCode, runRoomBot, runRoomConversation, runRoomFanOut, settleRoomHandoffs, settleRoomHandoffsForCode, settleStaleRoomTurns, stopRoomTurns } from "./room-runtime";
+import * as rooms from "./rooms";
 import { getBotIntercomInbox, resetBotIntercomForTests, setBotIntercomResidentLookup } from "./bot-intercom";
 import { BOT_DEFAULT_TOOL_NAMES } from "./types";
 
@@ -432,6 +433,40 @@ describe("registered room handoffs", () => {
     patchBot(bots[1].id, { enabled: false });
     const turn = appendRoomMessage(room.id, { role: "assistant", botId: bots[0].id, botName: "A", text: "", status: "working", conversation: { requestId: user.id, participantIds: room.members, turn: 1, maxTurns: 6 } })!;
     expect(() => registerRoomHandoff({ roomId: room.id, requestId: user.id, fromMessageId: turn.id, fromBotId: bots[0].id, toBotId: bots[1].id, task: "nope" })).toThrow();
+  });
+
+  it("marks a claimed handoff failed when the room message cannot be created", async () => {
+    const { room, bots, user } = setup(["A", "B"]);
+    const turn = appendRoomMessage(room.id, {
+      role: "assistant",
+      botId: bots[0].id,
+      botName: "A",
+      text: "引き継ぎ",
+      status: "done",
+      conversation: { requestId: user.id, participantIds: room.members, turn: 1, maxTurns: 6 },
+    })!;
+    const { handoff } = registerRoomHandoff({
+      roomId: room.id,
+      requestId: user.id,
+      fromMessageId: turn.id,
+      fromBotId: bots[0].id,
+      toBotId: bots[1].id,
+      task: "verify",
+    });
+    updateRoomHandoffs(room.id, (handoffs) =>
+      handoffs.map((item) => (item.id === handoff.id ? { ...item, state: "ready" as const } : item)),
+    );
+    const spy = vi.spyOn(rooms, "appendRoomMessage").mockReturnValueOnce(undefined);
+    try {
+      await deliverReadyRoomHandoffs(room.id);
+      expect(getRoom(room.id)!.handoffs?.find((item) => item.id === handoff.id)).toMatchObject({
+        state: "failed",
+        reason: expect.stringContaining("Roomメッセージ"),
+      });
+      expect(state.promptTask).not.toHaveBeenCalled();
+    } finally {
+      spy.mockRestore();
+    }
   });
 
   function completedTurn(roomId: string, botId: string, requestId: string, members: string[]) {

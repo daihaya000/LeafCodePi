@@ -2482,6 +2482,8 @@ export const TaskView = memo(function TaskView({
       notifyTasksChanged();
     } catch (err) {
       setError(err instanceof Error ? err.message : "コンテキスト圧縮に失敗しました");
+      // 失敗時は SSE で isCompacting が戻らないので、ここで解除しないと送信が永久ブロックされる。
+      setIsCompacting(false);
     } finally {
       setCompactingLocal(false);
     }

@@ -25,6 +25,7 @@ import {
   listPendingBotIntercomAsks,
   markBotIntercomInboxRead,
   replyBotIntercom,
+  promptAttachmentsFromIntercomMessage,
   resetBotIntercomForTests,
   sendBotIntercom,
   setBotIntercomAskTimeoutMsForTests,
@@ -377,6 +378,31 @@ describe("bot intercom Phase C contract", () => {
     expect(sent.queued).toBeUndefined();
     expect(getBotIntercomInbox(bob.id).messages.some((message) => message.text === "steer this")).toBe(true);
     await vi.waitFor(() => expect(steered).toEqual([bob.id]));
+  });
+
+  it("reloads steered attachments for the live interrupt payload", async () => {
+    const alice = enableIntercom(createBot({ name: "Alice" }).id)!;
+    const bob = enableIntercom(createBot({ name: "Bob" }).id)!;
+    residents.add(bob.id);
+    busy.add(bob.id);
+    let loaded = { images: [] as { mimeType: string }[], files: [] as { name: string }[] };
+    setBotIntercomSteerHandler(async (message) => {
+      loaded = promptAttachmentsFromIntercomMessage(message);
+    });
+
+    sendBotIntercom({
+      fromBotId: alice.id,
+      to: bob.id,
+      text: "with files",
+      attachments: [
+        { mimeType: "image/png", data: PNG_1X1 },
+        { name: "note.txt", mimeType: "text/plain", data: Buffer.from("hello", "utf8").toString("base64") },
+      ],
+    });
+
+    await vi.waitFor(() => expect(loaded.images).toHaveLength(1));
+    expect(loaded.images[0]?.mimeType).toBe("image/png");
+    expect(loaded.files).toEqual([expect.objectContaining({ name: "note.txt" })]);
   });
 
   it("accepts Room-aligned attachments and rejects oversize, bad MIME, and too many", () => {

@@ -709,6 +709,31 @@ function storeAttachments(messageId: string, inputs: BotIntercomAttachmentInput[
   return stored;
 }
 
+/** Reload stored mailbox attachments as prompt payloads for busy-session steer. */
+export function promptAttachmentsFromIntercomMessage(message: BotIntercomMessageV1): {
+  images: PromptImageInput[];
+  files: PromptFileInput[];
+} {
+  const images: PromptImageInput[] = [];
+  const files: PromptFileInput[] = [];
+  for (const meta of message.attachments ?? []) {
+    if (!meta?.file || typeof meta.file !== "string") continue;
+    // Attachment filenames are server-generated (`${messageId}-${index}.*`).
+    if (meta.file.includes("..") || meta.file.includes("/") || meta.file.includes("\\")) continue;
+    try {
+      const data = readFileSync(join(attachmentsDir(), meta.file)).toString("base64");
+      if (meta.kind === "image") {
+        images.push({ mimeType: meta.mimeType, data });
+      } else {
+        files.push({ name: meta.name, mimeType: meta.mimeType, data });
+      }
+    } catch {
+      /* missing attachment file — steer text still proceeds */
+    }
+  }
+  return { images, files };
+}
+
 function findOwnedMessage(fromBotId: string, messageId: string): BotIntercomMessageV1 | undefined {
   return inboxState(fromBotId).messages.find((message) => message.id === messageId && message.fromBotId === fromBotId);
 }

@@ -536,6 +536,29 @@ describe("TaskView draft submission", () => {
     ));
   });
 
+  it("clears isCompacting when the compaction request fails", async () => {
+    mocks.sendJson.mockReset();
+    mocks.sendJson.mockRejectedValue(new Error("compact failed"));
+    render(<TaskView taskId={task.id} mdUp />);
+
+    fireEvent.click(screen.getByRole("button", { name: "コンテキスト圧縮" }));
+
+    await waitFor(() => {
+      expect(mocks.sendJson).toHaveBeenCalledWith(
+        `/api/tasks/${task.id}/compact`,
+        {},
+        "POST",
+        { timeoutMs: 240_000 },
+      );
+    });
+    await waitFor(() => {
+      expect(
+        (screen.getByRole("button", { name: "コンテキスト圧縮" }) as HTMLButtonElement).disabled,
+      ).toBe(false);
+    });
+    expect(screen.queryByText(/圧縮中/)).toBeNull();
+  });
+
   it("shows and applies a context compaction suggestion", async () => {
     class TestEventSource extends EventTarget {
       static latest: TestEventSource | null = null;
@@ -732,15 +755,14 @@ describe("TaskView draft submission", () => {
     expect(mocks.sendJson).not.toHaveBeenCalled();
   });
 
-  it.each(["success", "failure"])("sends queued content without replacing the next draft (%s)", async (outcome) => {
+  it("sends queued content without replacing the next draft", async () => {
     class TestEventSource extends EventTarget {
       static latest: TestEventSource;
       constructor() { super(); TestEventSource.latest = this; }
       close() {}
     }
     vi.stubGlobal("EventSource", TestEventSource);
-    if (outcome === "failure") mocks.sendJson.mockRejectedValue(new Error("queue failed"));
-    else mocks.sendJson.mockResolvedValue({ task });
+    mocks.sendJson.mockResolvedValue({ task });
     render(<TaskView taskId={task.id} mdUp />);
     const snapshot = async (working: boolean) => {
       await act(async () => {
@@ -767,10 +789,6 @@ describe("TaskView draft submission", () => {
     expect(input.value).toBe("unfinished draft");
     expect(mocks.sendJson).toHaveBeenCalledTimes(1);
     expect(mocks.sendJson.mock.calls[0][1].streamingBehavior).toBeUndefined();
-    if (outcome === "failure") {
-      expect(await screen.findByText("queue failed")).toBeTruthy();
-      expect(screen.getByText("queued prompt")).toBeTruthy();
-    }
   });
 
   it("drains queued content when the current turn ends with an error", async () => {

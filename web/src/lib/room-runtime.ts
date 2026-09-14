@@ -619,7 +619,15 @@ export async function deliverReadyRoomHandoffs(roomId: string): Promise<void> {
       role: "assistant", botId: bot.id, botName: bot.name, text: "", status: "working",
       conversation: { requestId, participantIds: participants.map((member) => member.id), turn: turnIndex, maxTurns: MAX_ROOM_CONVERSATION_TURNS },
     });
-    if (!placeholder) return;
+    if (!placeholder) {
+      patchHandoff(roomId, next.id, (current) => ({
+        ...current,
+        state: "failed",
+        reason: "Roomメッセージを作成できませんでした",
+        updatedAt: Date.now(),
+      }));
+      continue;
+    }
     patchHandoff(roomId, next.id, (current) => current.state === "running" ? { ...current, responseMessageId: placeholder.id, updatedAt: Date.now() } : current);
     const turn: RoomTurn = {
       participants, turn: turnIndex, maxTurns: MAX_ROOM_CONVERSATION_TURNS,

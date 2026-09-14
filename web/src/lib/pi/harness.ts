@@ -22,6 +22,7 @@ import { BOT_SOUL_TOOL, botSoulTool } from "@/lib/pi/bot-soul-tool";
 import { ROOM_HANDOFF_TOOL, roomHandoffTool } from "@/lib/room-handoff-tool";
 import { botIntercomTool } from "@/lib/bot-intercom-tool";
 import {
+  promptAttachmentsFromIntercomMessage,
   setBotIntercomBusyLookup,
   setBotIntercomResidentLookup,
   setBotIntercomSteerHandler,
@@ -610,7 +611,11 @@ function state(): HarnessState {
     setBotIntercomSteerHandler(async (message) => {
       const taskId = `bot:${message.toBotId}`;
       const content = `[Bot間メッセージ] 実行中ターンへの割り込み（from ${message.fromBotId}）:\n${message.text}`;
-      await promptTask(taskId, content, undefined, { streamingBehavior: "steer" });
+      const { images, files } = promptAttachmentsFromIntercomMessage(message);
+      await promptTask(taskId, content, images.length > 0 ? images : undefined, {
+        streamingBehavior: "steer",
+        ...(files.length > 0 ? { files } : {}),
+      });
     });
     globalRef[GLOBAL_KEY] = {
       pi: null,
