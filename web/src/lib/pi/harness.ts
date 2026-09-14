@@ -4627,13 +4627,10 @@ export async function setProviderOrModelEnabled(
   invalidateHealthCache();
 }
 
-export async function saveProviderModelsOrder(input: {
-  providerOrder?: string[];
-  modelOrder?: Record<string, string[]>;
-  accountModelOrder?: Record<string, Record<string, string[]>>;
-}): Promise<void> {
-  const modelOrder = { ...(input.modelOrder ?? {}) };
-  const routingState = readProviderRouting();
+function expandIntegratedModelOrder(
+  modelOrder: Record<string, string[]>,
+  routingState: ReturnType<typeof readProviderRouting>,
+): void {
   for (const [providerId, order] of Object.entries(modelOrder)) {
     if (
       !isAccountRoutingProvider(providerId) ||
@@ -4648,6 +4645,16 @@ export async function saveProviderModelsOrder(input: {
       }
     }
   }
+}
+
+export async function saveProviderModelsOrder(input: {
+  providerOrder?: string[];
+  modelOrder?: Record<string, string[]>;
+  accountModelOrder?: Record<string, Record<string, string[]>>;
+}): Promise<void> {
+  const modelOrder = { ...(input.modelOrder ?? {}) };
+  const routingState = readProviderRouting();
+  expandIntegratedModelOrder(modelOrder, routingState);
   if (input.accountModelOrder !== undefined) {
     if (
       typeof input.accountModelOrder !== "object" ||
