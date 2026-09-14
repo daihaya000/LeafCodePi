@@ -4,10 +4,15 @@ import { join } from "node:path";
 import { NextRequest } from "next/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const state = vi.hoisted(() => ({ promptTask: vi.fn(), goalLoopCommand: vi.fn() }));
+const state = vi.hoisted(() => ({
+  promptTask: vi.fn(),
+  goalLoopCommand: vi.fn(),
+  isTaskRuntimeBusyForDestructiveEdit: vi.fn(() => false),
+}));
 vi.mock("../../../../../lib/pi/harness", () => ({
   promptTask: state.promptTask,
   goalLoopCommand: state.goalLoopCommand,
+  isTaskRuntimeBusyForDestructiveEdit: state.isTaskRuntimeBusyForDestructiveEdit,
   jsonError: (error: Error) => ({ error: error.message, status: 500 }),
 }));
 
@@ -35,6 +40,8 @@ describe("POST /api/bots/[id]/prompt", () => {
   afterEach(() => {
     state.promptTask.mockReset();
     state.goalLoopCommand.mockReset();
+    state.isTaskRuntimeBusyForDestructiveEdit.mockReset();
+    state.isTaskRuntimeBusyForDestructiveEdit.mockReturnValue(false);
     vi.unstubAllEnvs();
     rmSync(root, { recursive: true, force: true });
   });
@@ -141,5 +148,18 @@ describe("POST /api/bots/[id]/prompt", () => {
       task: null,
       loop: { id: "loop-1", status: "queued" },
     });
+  });
+
+  it("rejects a non-live Goal Loop start result", async () => {
+    const bot = createBot({ name: "Loop bot" });
+    state.goalLoopCommand.mockResolvedValue({ id: "loop-1", status: "paused" });
+
+    const response = await POST(
+      request("調査して修正する", { acceptance: ["テストが通る"] }),
+      { params: Promise.resolve({ id: bot.id }) },
+    );
+
+    expect(response.status).toBe(409);
+    expect(await response.json()).toEqual({ error: "Goal Loop を開始できませんでした" });
   });
 });

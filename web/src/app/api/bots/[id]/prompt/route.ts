@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getBot, botTaskId } from "@/lib/bots";
 import { isPromptFileList, isPromptFileText, isPromptFileWithinSize, isPromptImageList, isPromptImageWithinSize, MAX_PROMPT_ATTACHMENTS, type PromptFileInput } from "@/lib/prompt-images";
 import { goalLoopCommand, isTaskRuntimeBusyForDestructiveEdit, jsonError, promptTask } from "@/lib/pi/harness";
+import { isGoalLoopLiveStatus } from "@/lib/pi/goal-loop-state";
 import { clampGoalLoopCooldownSeconds, clampGoalLoopMaxTurns, DEFAULT_GOAL_LOOP_MAX_TURNS } from "@/lib/goal-loop-settings";
 export const runtime = "nodejs"; export const dynamic = "force-dynamic";
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -31,6 +32,9 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         cooldownSeconds: clampGoalLoopCooldownSeconds(loop.cooldownSeconds),
         forceFullRun: loop.forceFullRun === true,
       });
+      if (!result || !isGoalLoopLiveStatus(result.status)) {
+        return NextResponse.json({ error: "Goal Loop を開始できませんでした" }, { status: 409 });
+      }
       return NextResponse.json({ task: null, loop: result });
     }
     const task = body.files === undefined

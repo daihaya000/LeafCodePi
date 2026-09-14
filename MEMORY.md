@@ -429,6 +429,15 @@
 ### 検証（Tick81–83）
 `get-task-detail-bounded` / `accounts` / `routines` / Task+Bot SSE events — **76 passed**
 
+### Tick84–85（ループ継続・[Hunt Tick84–85](897f0949) 追随）
+1. `goalLoopCommand` — pause/stop/complete は stale epoch でも `/goal-*` を送る（hang abort 後の無音 no-op 防止）
+2. Bot abort — `abortTaskIncludingColdGoalLoop`（Task abort / Bot disable と対称）
+3. Bot prompt Goal Loop start — `isGoalLoopLiveStatus` で非 live を 409
+4. `createTask` Goal Loop — 開始結果が非 live なら 409
+
+### 検証（Tick84–85）
+`bots/abort` / `bots/prompt` / `harness-lifecycle` / `goal-loop/route` — **29 passed**
+
 ---
 
 ## 2026-09-14: Stale production rebuild / next build exit 1

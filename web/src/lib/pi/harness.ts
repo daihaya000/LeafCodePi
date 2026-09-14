@@ -6114,6 +6114,8 @@ export async function goalLoopCommand(
     );
   }
   const current = state().live.get(taskId) ?? live;
+  const isControlAction =
+    input.action === "pause" || input.action === "stop" || input.action === "complete";
   const rollbackStaleGoalPrepare = (liveState: typeof current) => {
     // prepareLiveForPrompt may have set working + lease after abort already idled us.
     // Roll that back when we still own the lease and nothing else is running.
@@ -6130,7 +6132,9 @@ export async function goalLoopCommand(
       emitTaskSnapshot(liveState, "goal_command_stale");
     }
   };
-  if (isStaleHarnessPrompt(startedEpoch, current.promptEpoch)) {
+  // pause/stop/complete must still reach the session after hang abort bumps epoch;
+  // otherwise disk Goal Loop stays live while the API looks successful.
+  if (!isControlAction && isStaleHarnessPrompt(startedEpoch, current.promptEpoch)) {
     rollbackStaleGoalPrepare(current);
     return readGoalLoopState(
       current.session.sessionManager.getCwd(),
@@ -6139,7 +6143,7 @@ export async function goalLoopCommand(
   }
   // Re-check after prepare awaits: abort/disable can bump promptEpoch before session.prompt.
   const latest = state().live.get(taskId) ?? current;
-  if (isStaleHarnessPrompt(startedEpoch, latest.promptEpoch)) {
+  if (!isControlAction && isStaleHarnessPrompt(startedEpoch, latest.promptEpoch)) {
     rollbackStaleGoalPrepare(latest);
     return readGoalLoopState(
       latest.session.sessionManager.getCwd(),
@@ -6624,7 +6628,14 @@ export async function createTask(input: {
       codeRequestId: input.codeRequestId,
       goalLoop: input.goalLoop,
     });
-    if (promptStart) await promptStart;
+    if (promptStart) {
+      const loop = await promptStart;
+      if (input.goalLoop && (!loop || !isGoalLoopLiveStatus(loop.status))) {
+        throw Object.assign(new Error("Goal Loop を開始できませんでした"), {
+          status: 409,
+        });
+      }
+    }
     return currentTaskSummary(task.id, task);
   } finally {
     releaseReservedAccount(reservedAccount);
