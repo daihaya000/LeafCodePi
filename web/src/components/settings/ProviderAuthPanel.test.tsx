@@ -804,4 +804,14 @@ describe("ProviderAuthPanel provider-scoped accounts", () => {
       expect(JSON.parse(String(login?.[1]?.body))).toEqual({ type: "api_key" });
     });
   });
+
+  it("documents remote OAuth port-forward in the provider help", () => {
+    mockAccountsApi();
+    render(<ProviderAuthPanel providers={providers} onChanged={() => {}} />);
+    fireEvent.click(screen.getByText("対応・設定方法"));
+    expect(
+      screen.getByText(/ssh -N -L 53692:127.0.0.1:53692 -L 1455:127.0.0.1:1455 user@host/),
+    ).toBeTruthy();
+    expect(screen.getByText(/デバイスコード/)).toBeTruthy();
+  });
 });

@@ -9,12 +9,14 @@ import {
   backendLabel,
   detectTtsBackend,
   getTtsBackend,
+  selectableTtsBackendIds,
+  ttsUnsetGuidance,
   voiceLabel,
   type TtsBackendId,
   type TtsVoiceOption,
   type TtsVoicesDto,
 } from "@/lib/tts-backends";
-import type { TtsConfigDto } from "@/lib/tts-config";
+import type { TtsConfigDto, TtsSettingsDto } from "@/lib/tts-config";
 import { speakText, stopSpeaking } from "@/lib/tts-playback";
 import {
   MAX_PLAYBACK_RATE,
@@ -34,6 +36,7 @@ const DEFAULT_FORM: TtsConfigDto = {
 
 export function TtsSettings() {
   const [form, setForm] = useState<TtsConfigDto | null>(null);
+  const [sapiAvailable, setSapiAvailable] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loaded, setLoaded] = useState(false);
@@ -54,9 +57,15 @@ export function TtsSettings() {
 
   const reload = useCallback(() => {
     setVoiceReload((value) => value + 1);
-    void getJson<TtsConfigDto>("/api/settings/tts")
+    void getJson<TtsSettingsDto>("/api/settings/tts")
       .then((result) => {
-        setForm(result);
+        setSapiAvailable(result.sapiAvailable ?? true);
+        setForm({
+          enabled: result.enabled,
+          voice: result.voice,
+          rate: result.rate,
+          url: result.url,
+        });
         setLoaded(true);
         setError(null);
       })
@@ -79,8 +88,14 @@ export function TtsSettings() {
     const previous = form;
     setForm({ ...form, ...patch });
     try {
-      const result = await sendJson<TtsConfigDto>("/api/settings/tts", patch, "PATCH");
-      setForm(result);
+      const result = await sendJson<TtsSettingsDto>("/api/settings/tts", patch, "PATCH");
+      setSapiAvailable(result.sapiAvailable ?? sapiAvailable);
+      setForm({
+        enabled: result.enabled,
+        voice: result.voice,
+        rate: result.rate,
+        url: result.url,
+      });
       setSaved(true);
       window.setTimeout(() => setSaved(false), 1500);
     } catch (err) {
@@ -145,6 +160,9 @@ export function TtsSettings() {
       <h3 className="text-sm font-semibold">読み上げ (TTS)</h3>
       <p className="mt-1 text-xs text-muted">
         Bot / エージェントの発言を読み上げます。この全体スイッチはCLIとブラウザの両方に効きます。ブラウザのタスク／BotごとのON/OFFは各画面のヘッダーで切り替えます。
+        {sapiAvailable
+          ? " Windows では空の URL が SAPI、HTTP エンジンは AivisSpeech かカスタム URL です。"
+          : " Linux/macOS では SAPI は使えません。AivisSpeech かカスタム HTTP を設定してください。"}
       </p>
 
       <div className="mt-3 flex flex-wrap items-center gap-3">
@@ -176,13 +194,15 @@ export function TtsSettings() {
             disabled={!ready || busy}
             aria-label="TTS バックエンド"
             icon={<AudioLines className="h-3.5 w-3.5" />}
-            valueLabel={backendLabel(backendId)}
+            valueLabel={backendLabel(backendId, sapiAvailable)}
             onChange={(value) => applyBackend(value as TtsBackendId)}
             className="h-9 w-full max-w-md"
           >
-            {TTS_BACKENDS.map((item) => (
+            {TTS_BACKENDS.filter((item) =>
+              selectableTtsBackendIds(sapiAvailable).includes(item.id),
+            ).map((item) => (
               <option key={item.id} value={item.id}>
-                {item.label}
+                {item.id === "aivis" && !sapiAvailable ? `${item.label}（推奨）` : item.label}
               </option>
             ))}
             <option value="custom">カスタム URL</option>
@@ -215,7 +235,7 @@ export function TtsSettings() {
               type="text"
               value={current.voice}
               disabled={!ready || busy}
-              placeholder="style id または SAPI 音声名"
+              placeholder={sapiAvailable ? "style id または SAPI 音声名" : "style id（AivisSpeech / HTTP）"}
               aria-label="TTS 音声名"
               onChange={(event) => setForm({ ...current, voice: event.target.value })}
               onBlur={() => {
@@ -228,7 +248,9 @@ export function TtsSettings() {
         )}
 
         <label className="flex flex-col gap-1.5 sm:flex-row sm:items-center sm:gap-3">
-          <span className="shrink-0 text-sm text-muted">速度（SAPI -10..10）</span>
+          <span className="shrink-0 text-sm text-muted">
+            {sapiAvailable ? "速度（SAPI -10..10）" : "速度（SAPI 用・HTTP では未使用）"}
+          </span>
           <span className="flex min-w-0 flex-1 items-center gap-3">
             <input
               type="range"
@@ -303,7 +325,9 @@ export function TtsSettings() {
 
         {backendId === "custom" && (
           <label className="flex flex-col gap-1.5">
-            <span className="text-sm text-muted">HTTP 合成 URL（空なら SAPI）</span>
+            <span className="text-sm text-muted">
+              {sapiAvailable ? "HTTP 合成 URL（空なら SAPI）" : "HTTP 合成 URL"}
+            </span>
             <input
               type="url"
               value={current.url}
@@ -322,6 +346,12 @@ export function TtsSettings() {
 
         {backendId !== "custom" && current.url && (
           <p className="font-mono text-[11px] text-muted">{current.url}</p>
+        )}
+
+        {!current.url && ttsUnsetGuidance(sapiAvailable) && (
+          <p className="text-xs text-muted" role="note">
+            {ttsUnsetGuidance(sapiAvailable)}
+          </p>
         )}
       </div>
 

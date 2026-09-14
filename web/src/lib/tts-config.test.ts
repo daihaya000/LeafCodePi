@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import assert from "node:assert/strict";
 import { afterEach, beforeEach, describe, it } from "vitest";
-import { TTS_CONFIG_FILE, readTtsConfig, writeTtsConfig } from "./tts-config";
+import { TTS_CONFIG_FILE, readTtsConfig, ttsHostCapabilities, writeTtsConfig } from "./tts-config";
 
 describe("tts-config", () => {
   let previousDataDir: string | undefined;
@@ -69,5 +69,16 @@ describe("tts-config", () => {
   it("ignores corrupt json", () => {
     writeFileSync(join(data, TTS_CONFIG_FILE), "{not-json", "utf8");
     assert.deepEqual(readTtsConfig(), { enabled: false, voice: "", rate: 10, url: "" });
+  });
+
+  it("reports SAPI availability from the host platform", () => {
+    assert.deepEqual(ttsHostCapabilities("win32"), {
+      hostPlatform: "win32",
+      sapiAvailable: true,
+    });
+    assert.deepEqual(ttsHostCapabilities("linux"), {
+      hostPlatform: "linux",
+      sapiAvailable: false,
+    });
   });
 });

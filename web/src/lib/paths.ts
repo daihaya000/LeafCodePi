@@ -1,4 +1,4 @@
-import { mkdirSync } from "node:fs";
+import { mkdirSync, existsSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join, posix, resolve, win32 } from "node:path";
 
@@ -74,10 +74,29 @@ export function sameOrDescendantPath(
 }
 
 /** Base directory for tasks started without a registered project. */
+export function resolveNoProjectRoot(options?: {
+  home?: string;
+  env?: NodeJS.Dict<string>;
+  platform?: NodeJS.Platform;
+  exists?: (path: string) => boolean;
+}): string {
+  const env = options?.env ?? process.env;
+  const platform = options?.platform ?? process.platform;
+  const home = options?.home ?? homedir();
+  const exists = options?.exists ?? existsSync;
+  const override = env.LEAFCODE_PI_DEFAULT_DIR?.trim();
+  if (override) return resolve(override);
+  const documents = join(home, "Documents");
+  if (exists(documents)) return join(documents, "LeafCodePi");
+  if (platform === "win32") return join(home, "LeafCodePi");
+  const xdg = env.XDG_DATA_HOME?.trim();
+  if (xdg) return join(xdg, "LeafCodePi");
+  return join(home, ".local", "share", "LeafCodePi");
+}
+
+/** Base directory for tasks started without a registered project. */
 export function noProjectRoot(): string {
-  const override = process.env.LEAFCODE_PI_DEFAULT_DIR?.trim();
-  if (override) return assertTestSafe(resolve(override));
-  return assertTestSafe(join(homedir(), "Documents", "LeafCodePi"));
+  return assertTestSafe(resolveNoProjectRoot());
 }
 
 function twoDigits(value: number): string {

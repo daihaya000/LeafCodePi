@@ -5,8 +5,11 @@ import {
   backendLabel,
   detectTtsBackend,
   getTtsBackend,
+  isSapiAvailable,
   normalizeTtsUrl,
   parseAivisSpeakers,
+  selectableTtsBackendIds,
+  ttsUnsetGuidance,
   voiceLabel,
 } from "./tts-backends";
 
@@ -26,6 +29,7 @@ describe("tts-backends", () => {
     assert.equal(voiceLabel("aivis", "1257529344"), "kanna / ノーマル");
     assert.equal(getTtsBackend("aivis")?.url, "http://127.0.0.1:10101");
     assert.equal(backendLabel("sapi"), "Windows SAPI");
+    assert.equal(backendLabel("sapi", false), "未設定（SAPI は Windows のみ）");
     assert.equal(backendLabel("custom"), "カスタム URL");
     assert.equal(voiceLabel("aivis", "888753760"), "まお / ノーマル");
     assert.equal(normalizeTtsUrl("http://x/"), "http://x");
@@ -55,5 +59,14 @@ describe("tts-backends", () => {
         { id: "3", label: "別モデル / 静か" },
       ],
     );
+  });
+
+  it("hides Windows SAPI on non-Windows hosts and explains the empty state", () => {
+    assert.equal(isSapiAvailable("win32"), true);
+    assert.equal(isSapiAvailable("linux"), false);
+    assert.deepEqual(selectableTtsBackendIds(true), ["sapi", "aivis", "custom"]);
+    assert.deepEqual(selectableTtsBackendIds(false), ["aivis", "custom"]);
+    assert.equal(ttsUnsetGuidance(true), null);
+    assert.match(ttsUnsetGuidance(false) ?? "", /AivisSpeech/);
   });
 });

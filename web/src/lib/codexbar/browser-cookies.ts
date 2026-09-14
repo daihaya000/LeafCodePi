@@ -3,8 +3,8 @@
  *
  * Order (CodexBarWin parity):
  * 1. Netscape cookie files under CodexBar config dir (and legacy cokkie/)
- * 2. OpenCodeTray DPAPI credentials via PowerShell ProtectedData
- * 3. Chrome/Edge Cookies SQLite + AES-GCM (Windows, node:sqlite)
+ * 2. OpenCodeTray DPAPI credentials via PowerShell ProtectedData (Windows)
+ * 3. Chrome/Edge/Chromium Cookies SQLite (Windows DPAPI / Linux secret-tool)
  */
 
 import {
@@ -182,11 +182,12 @@ function qwenNetscapePaths(): string[] {
 }
 
 function extractQwenCloudSessionFromChromium(): BrowserCookieSession | null {
-  if (process.platform !== "win32") return null;
   for (const browser of listChromiumBrowserRoots()) {
     for (const profile of listChromiumProfiles(browser.userData)) {
-      const rows = readChromiumCookiesFromProfile(profile, (host) =>
-        isQwenCloudDomain(host),
+      const rows = readChromiumCookiesFromProfile(
+        profile,
+        (host) => isQwenCloudDomain(host),
+        { secretToolApp: browser.secretToolApp },
       );
       if (rows.length === 0) continue;
       const cookies: BrowserCookie[] = rows.map((r) => ({
@@ -226,13 +227,16 @@ export function extractQwenCloudSession(): BrowserCookieSession | null {
 }
 
 function extractOpenCodeCookieFromChromium(): string | null {
-  if (process.platform !== "win32") return null;
   for (const browser of listChromiumBrowserRoots()) {
     for (const profile of listChromiumProfiles(browser.userData)) {
-      const rows = readChromiumCookiesFromProfile(profile, (host) => {
-        const d = host.replace(/^\./, "").toLowerCase();
-        return d === OPENCODE_DOMAIN || d.endsWith(`.${OPENCODE_DOMAIN}`);
-      });
+      const rows = readChromiumCookiesFromProfile(
+        profile,
+        (host) => {
+          const d = host.replace(/^\./, "").toLowerCase();
+          return d === OPENCODE_DOMAIN || d.endsWith(`.${OPENCODE_DOMAIN}`);
+        },
+        { secretToolApp: browser.secretToolApp },
+      );
       if (rows.length === 0) continue;
       return rows.map((r) => `${r.name}=${r.value}`).join("; ");
     }

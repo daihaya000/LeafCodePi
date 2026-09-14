@@ -72,9 +72,24 @@ export function getTtsBackend(id: TtsBackendId): TtsBackendPreset | null {
   return TTS_BACKENDS.find((backend) => backend.id === id) ?? null;
 }
 
-export function backendLabel(id: TtsBackendId): string {
+export function backendLabel(id: TtsBackendId, sapiAvailable = true): string {
   if (id === "custom") return "カスタム URL";
+  if (id === "sapi" && !sapiAvailable) return "未設定（SAPI は Windows のみ）";
   return getTtsBackend(id)?.label ?? id;
+}
+
+export function isSapiAvailable(platform: NodeJS.Platform | string = process.platform): boolean {
+  return platform === "win32";
+}
+
+/** Backends the settings dropdown should offer on this host. */
+export function selectableTtsBackendIds(sapiAvailable: boolean): TtsBackendId[] {
+  return sapiAvailable ? ["sapi", "aivis", "custom"] : ["aivis", "custom"];
+}
+
+export function ttsUnsetGuidance(sapiAvailable: boolean): string | null {
+  if (sapiAvailable) return null;
+  return "このホストでは Windows SAPI は使えません。AivisSpeech（推奨）かカスタム HTTP を選んでください。未設定のままではブラウザもエージェントも無音です。";
 }
 
 export function voiceLabel(

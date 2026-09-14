@@ -1,13 +1,13 @@
 /**
- * Best-effort Chrome/Edge cookie decryption on Windows (CodexBarWin parity).
- * Local State DPAPI key + Cookies SQLite AES-GCM (v10/v11).
+ * Best-effort Chrome/Edge cookie decryption.
+ * Windows: Local State DPAPI key + Cookies SQLite AES-GCM (v10/v11).
+ * Linux: same secret-tool / AES-128-CBC path as leafcode-web-access.
  */
 
 import {
   copyFileSync,
   existsSync,
   mkdirSync,
-  readdirSync,
   readFileSync,
   unlinkSync,
 } from "node:fs";
@@ -17,6 +17,17 @@ import { homedir, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { asRecord } from "@/lib/codexbar/utils";
+import {
+  LINUX_BROWSER_CONFIGS,
+  WINDOWS_BROWSER_CONFIGS,
+  chromiumCookieDatabasePath,
+  chromiumUserDataDir,
+  decryptChromiumSafeStorageCookie,
+  deriveChromiumSafeStorageKey,
+  listChromiumProfileDirs,
+  lookupLinuxSafeStoragePasswordSync,
+  type ChromiumBrowserConfig,
+} from "../../../../extensions/leafcode-web-access/chromium-cookie-crypto.ts";
 
 export type ChromiumCookieRow = {
   hostKey: string;
@@ -27,11 +38,7 @@ export type ChromiumCookieRow = {
   isSecure: boolean;
 };
 
-function localAppData(): string {
-  return (
-    process.env.LOCALAPPDATA || join(homedir(), "AppData", "Local")
-  );
-}
+const linuxSafeStorageKeyCache = new Map<string, Buffer>();
 
 function dpapiUnprotect(ciphertext: Buffer): Buffer | null {
   if (process.platform !== "win32" || ciphertext.length === 0) return null;
@@ -76,6 +83,16 @@ function loadChromiumMasterKey(userDataDir: string): Buffer | null {
   } catch {
     return null;
   }
+}
+
+function loadLinuxSafeStorageKey(secretToolApp?: string): Buffer | null {
+  const cacheKey = secretToolApp ?? "";
+  const cached = linuxSafeStorageKeyCache.get(cacheKey);
+  if (cached) return cached;
+  const { password, cacheable } = lookupLinuxSafeStoragePasswordSync(secretToolApp);
+  const key = deriveChromiumSafeStorageKey(password, "linux");
+  if (cacheable) linuxSafeStorageKeyCache.set(cacheKey, key);
+  return key;
 }
 
 function decryptChromeCookie(
@@ -170,20 +187,8 @@ function openSqliteReadonlyCopy(dbPath: string): {
   }
 }
 
-function enumerateProfiles(userDataDir: string): string[] {
-  const profiles: string[] = [];
-  const defaultProfile = join(userDataDir, "Default");
-  if (existsSync(defaultProfile)) profiles.push(defaultProfile);
-  try {
-    for (const name of readdirSync(userDataDir)) {
-      if (/^Profile /i.test(name)) {
-        profiles.push(join(userDataDir, name));
-      }
-    }
-  } catch {
-    /* ignore */
-  }
-  return [...new Set(profiles)];
+export function listChromiumProfiles(userDataDir: string): string[] {
+  return listChromiumProfileDirs(userDataDir);
 }
 
 function chromeExpiryToDate(expiresUtc: number): Date | null {
@@ -195,37 +200,76 @@ function chromeExpiryToDate(expiresUtc: number): Date | null {
   return Number.isNaN(d.getTime()) ? null : d;
 }
 
-export function listChromiumBrowserRoots(): Array<{
+export type ChromiumBrowserRoot = {
   name: string;
   userData: string;
-}> {
-  const local = localAppData();
-  return [
-    { name: "Chrome", userData: join(local, "Google", "Chrome", "User Data") },
-    { name: "Edge", userData: join(local, "Microsoft", "Edge", "User Data") },
-  ];
+  secretToolApp?: string;
+};
+
+function browserRootsFromConfigs(
+  configs: ChromiumBrowserConfig[],
+  home = homedir(),
+  env: NodeJS.Dict<string> = process.env,
+): ChromiumBrowserRoot[] {
+  return configs.map((config) => ({
+    name: config.name,
+    userData: chromiumUserDataDir(config, home, env),
+    secretToolApp: config.secretToolApp,
+  }));
 }
 
-export function listChromiumProfiles(userDataDir: string): string[] {
-  return enumerateProfiles(userDataDir);
+export function listChromiumBrowserRoots(
+  platform: NodeJS.Platform = process.platform,
+  home = homedir(),
+  env: NodeJS.Dict<string> = process.env,
+): ChromiumBrowserRoot[] {
+  if (platform === "linux") {
+    return browserRootsFromConfigs(LINUX_BROWSER_CONFIGS, home, env);
+  }
+  if (platform === "win32") {
+    return browserRootsFromConfigs(WINDOWS_BROWSER_CONFIGS, home, env);
+  }
+  return [];
+}
+
+function readCookieMetaVersion(db: { prepare: (sql: string) => { all: () => Record<string, unknown>[] } }): number {
+  try {
+    const rows = db.prepare("SELECT value FROM meta WHERE key = 'version'").all();
+    const value = rows[0]?.value;
+    if (typeof value === "number") return Math.floor(value);
+    if (typeof value === "string") return parseInt(value, 10) || 0;
+  } catch {
+    /* missing meta table is fine */
+  }
+  return 0;
 }
 
 /**
  * Read decrypted cookies from a Chromium profile Cookies DB.
  * `hostFilter` returns true for host_key values to keep.
+ * Linux uses secret-tool + AES-128-CBC; Windows stays DPAPI + AES-GCM.
  */
 export function readChromiumCookiesFromProfile(
   profileDir: string,
   hostFilter: (hostKey: string) => boolean,
+  options?: { secretToolApp?: string; platform?: NodeJS.Platform },
 ): ChromiumCookieRow[] {
-  const cookieDb = join(profileDir, "Network", "Cookies");
-  if (!existsSync(cookieDb)) return [];
+  const cookieDb = chromiumCookieDatabasePath(profileDir);
+  if (!cookieDb) return [];
 
-  const masterKey = loadChromiumMasterKey(dirname(profileDir));
+  const platform = options?.platform ?? process.platform;
+  const masterKey =
+    platform === "win32"
+      ? loadChromiumMasterKey(dirname(profileDir))
+      : platform === "linux"
+        ? loadLinuxSafeStorageKey(options?.secretToolApp)
+        : null;
   const opened = openSqliteReadonlyCopy(cookieDb);
   if (!opened) return [];
 
   try {
+    const stripHash =
+      platform === "linux" && readCookieMetaVersion(opened.db) >= 24;
     const rows = opened.db
       .prepare(
         `SELECT host_key, name, value, encrypted_value, path, expires_utc, is_secure
@@ -251,7 +295,10 @@ export function readChromiumCookiesFromProfile(
         typeof row.value === "string" && row.value.length > 0 ? row.value : "";
       if (!value && row.encrypted_value) {
         const enc = Buffer.from(row.encrypted_value as Uint8Array);
-        value = decryptChromeCookie(enc, masterKey) ?? "";
+        value =
+          platform === "linux"
+            ? decryptChromiumSafeStorageCookie(enc, masterKey ?? Buffer.alloc(0), stripHash) ?? ""
+            : decryptChromeCookie(enc, masterKey) ?? "";
       }
       if (!value) continue;
 

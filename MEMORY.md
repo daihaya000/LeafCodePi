@@ -1,5 +1,41 @@
 ﻿# MEMORY
 
+## 2026-09-14: Linux parity remaining（Chromium cookie・TTS・OAuth 文書・noProjectRoot）
+
+master `028a3459`（PR #8/#9/#10 後）から `cursor/linux-parity-remaining-3e61`。Windows DPAPI / SAPI / start.bat は維持。
+
+### 1. CodexBar Chromium cookie（Linux）
+- `extensions/leafcode-web-access/chromium-cookie-crypto.ts` に secret-tool / peanuts / AES-128-CBC / ブラウザパスを抽出
+- `chrome-cookies.ts` と CodexBar `chromium-cookies.ts` が共有。Windows は従来どおり DPAPI + AES-GCM
+- `browser-cookies.ts` の `process.platform !== "win32"` 早期 return を削除。Netscape 手動フォールバックは維持
+- Cookie DB は `Network/Cookies` 優先、なければ legacy `Cookies`
+- Linux ルート: Chromium / Chrome / Brave / Edge（XDG `~/.config/...`）
+
+### 2. Linux TTS UX
+- ホストが非 win32 なら SAPI を選択肢から外し、AivisSpeech を推奨表示
+- 空 URL の empty-state で無音の理由を説明。既存 AivisSpeech URL はそのまま
+- Qwen TTS サーバーは再導入しない。CLI 拡張も Linux で空 URL の SAPI を起動しない
+
+### 3. Remote OAuth
+- README サブスク節に SSH `-L 53692 -L 1455` / API キー / device_code
+- ProviderAuthPanel の「対応・設定方法」と OAuth ログイン面に同じヒント。redirect URI は変更なし
+
+### 4. Tray
+- README の Linux 起動節に `LEAFCODE_PI_TRAY=1` を明示。ヘッドレス既定は維持
+
+### 5. noProjectRoot
+- `~/Documents` があれば `~/Documents/LeafCodePi`
+- 無ければ Linux/macOS は `$XDG_DATA_HOME/LeafCodePi` または `~/.local/share/LeafCodePi`
+- Windows は Documents が無ければ `~/LeafCodePi`
+
+### 6. Sysmon
+- 変更なし（macOS / Intel iGPU / センサー無し VM は null のまま）
+
+### 検証
+関連 vitest 11 files / **101 passed**（chromium-cookies, cookie-providers, paths, tts-backends/config/synthesize, TtsSettings, ProviderAuthPanel, oauth-loopback, leafcode-tts, app-paths）。Web 全体も 325 files / 2612 passed。
+
+---
+
 ## 2026-09-14: Linux parity / cleanup（docs・Qwen TTS 削除・Explorer・sysmon）
 
 master `e2bb92f4` から `cursor/linux-parity-cleanup-e913`。Windows 挙動は維持。

@@ -21,6 +21,7 @@ import {
   type CodexBarUsage,
   type UsageTone,
 } from "@/lib/codexbar";
+import { REMOTE_OAUTH_HINT } from "@/lib/oauth-loopback";
 
 type LoginUiState = {
   providerId: string;
@@ -1446,6 +1447,9 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
             を登録できます。Ollama Cloud / LeafCodeCloud の API URL は各行で変更でき、
             次回起動から反映されます。
           </p>
+          <p className="mt-2">
+            {REMOTE_OAUTH_HINT}
+          </p>
         </details>
         <ul className="grid items-stretch gap-3 lg:grid-cols-2">
           {orderedProviders.length === 0 && (
@@ -1502,6 +1506,9 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
             </Button>
           </div>
           <p className="text-sm text-muted">{login.status}</p>
+          {login.authType === "oauth" && (
+            <p className="mt-2 text-xs text-muted">{REMOTE_OAUTH_HINT}</p>
+          )}
           {login.authUrl && (
             <p className="mt-2 break-all text-xs">
               ブラウザが開かない場合:{" "}
