@@ -1,6 +1,5 @@
 import { randomUUID } from "node:crypto";
 import * as fs from "node:fs";
-import { isUnexplainedProcessSignal } from "../runs/shared/process-signal.ts";
 import {
 	type Details,
 	type IntercomEventBus,
@@ -17,28 +16,7 @@ import {
 	SUBAGENT_RESULT_INTERCOM_EVENT,
 } from "../shared/types.ts";
 
-export function resolveSubagentResultStatus(input: {
-	exitCode?: number;
-	success?: boolean;
-	state?: string;
-	interrupted?: boolean;
-	detached?: boolean;
-	processSignal?: string | null;
-	timedOut?: boolean;
-	stopped?: boolean;
-	turnBudgetExceeded?: boolean;
-}): SubagentResultStatus {
-	if (input.detached) return "detached";
-	if (input.stopped || input.state === "stopped") return "stopped";
-	if (input.interrupted || input.state === "paused") return "paused";
-	if (input.success === true) return "completed";
-	if (isUnexplainedProcessSignal(input) && input.exitCode !== 0) return "stopped";
-	if (input.success === false) return "failed";
-	if (input.state === "complete") return "completed";
-	if (input.state === "failed") return "failed";
-	if (typeof input.exitCode === "number") return input.exitCode === 0 ? "completed" : "failed";
-	return "failed";
-}
+export { resolveSubagentResultStatus } from "../runs/shared/result-status.ts";
 
 function countStatuses(children: SubagentResultIntercomChild[]): Record<SubagentResultStatus, number> {
 	const counts: Record<SubagentResultStatus, number> = {

@@ -131,6 +131,7 @@ import { attachContractProjections, isAgentContractV1 } from "../shared/agent-co
 import { waitForImportedAsyncRoot } from "./chain-root-attachment.ts";
 import { appendRunnerStepsToStatus, consumeChainAppendRequests, countPendingChainAppendRequests, statusStepDescription } from "./chain-append.ts";
 import { appendTurnBudgetSystemPrompt, formatTurnBudgetOutput, initialTurnBudgetState, turnBudgetDecision, turnBudgetDeferredNote, turnBudgetDeferredState, turnBudgetExceededMessage, turnBudgetSoftNote, turnBudgetState } from "../shared/turn-budget.ts";
+import { resolveAsyncStepOutcome, resolveSubagentResultStatus } from "../shared/result-status.ts";
 import { initialToolBudgetState, toolBudgetState } from "../shared/tool-budget.ts";
 import { effectiveToolTimeoutMs, formatToolTimeoutMessage, toolTimeoutCallKey } from "../shared/tool-timeout.ts";
 import { usageBudgetExceededMessage, usageBudgetState } from "../shared/usage-budget.ts";
@@ -3849,10 +3850,19 @@ async function runSubagent(
 				const taskEndTime = Date.now();
 				const childInterrupted = singleResult.interrupted === true;
 				const childStopped = singleResult.stopped === true;
-				requiredStatusStep(statusPayload, fi).status = stopped || childStopped ? "stopped" : timedOut ? "failed" : childInterrupted ? "paused" : singleResult.exitCode === 0 ? "complete" : "failed";
+				const stepOutcome = resolveAsyncStepOutcome({
+					parentStopped: stopped,
+					parentTimedOut: timedOut,
+					interrupted: childInterrupted,
+					stopped: childStopped,
+					timedOut: singleResult.timedOut,
+					turnBudgetExceeded: singleResult.turnBudgetExceeded,
+					exitCode: singleResult.exitCode,
+				});
+				requiredStatusStep(statusPayload, fi).status = stepOutcome.status;
 				requiredStatusStep(statusPayload, fi).endedAt = taskEndTime;
 				requiredStatusStep(statusPayload, fi).durationMs = taskEndTime - taskStartTime;
-				requiredStatusStep(statusPayload, fi).exitCode = stopped || childStopped ? 1 : timedOut ? 1 : childInterrupted ? 0 : singleResult.exitCode;
+				requiredStatusStep(statusPayload, fi).exitCode = stepOutcome.exitCode;
 				setOptionalProperty(requiredStatusStep(statusPayload, fi), "timedOut", timedOut || singleResult.timedOut ? true : undefined);
 				setOptionalProperty(requiredStatusStep(statusPayload, fi), "stopped", stopped || childStopped ? true : undefined);
 				setOptionalProperty(requiredStatusStep(statusPayload, fi), "turnBudget", singleResult.turnBudget);
@@ -3901,9 +3911,9 @@ async function runSubagent(
 				writeStatusPayload();
 				appendCapabilityCeilingAppliedEvent(eventsPath, id, fi, task.agent, singleResult);
 				appendJsonl(eventsPath, JSON.stringify({
-					type: stopped || childStopped ? "subagent.step.stopped" : timedOut ? "subagent.step.failed" : childInterrupted ? "subagent.step.paused" : singleResult.exitCode === 0 ? "subagent.step.completed" : "subagent.step.failed",
+					type: `subagent.step.${stepOutcome.event}`,
 					ts: taskEndTime, runId: id, stepIndex: fi, agent: task.agent,
-					exitCode: stopped || childStopped ? 1 : timedOut ? 1 : childInterrupted ? 0 : singleResult.exitCode, durationMs: taskEndTime - taskStartTime,
+					exitCode: stepOutcome.exitCode, durationMs: taskEndTime - taskStartTime,
 				}));
 				if (singleResult.exitCode !== 0 && failFast) aborted = true;
 				return stopped || childStopped ? { ...singleResult, output: stopMessage, error: stopMessage, exitCode: 1, interrupted: false, timedOut: false, stopped: true, skipped: false } : timedOut ? { ...singleResult, output: timeoutMessage ?? "Subagent timed out.", error: timeoutMessage ?? "Subagent timed out.", exitCode: 1, interrupted: false, timedOut: true, skipped: false } : { ...singleResult, skipped: false };
@@ -4242,11 +4252,20 @@ async function runSubagent(
 						const taskDuration = taskEndTime - taskStartTime;
 						const childInterrupted = singleResult.interrupted === true;
 						const childStopped = singleResult.stopped === true;
+						const stepOutcome = resolveAsyncStepOutcome({
+							parentStopped: stopped,
+							parentTimedOut: timedOut,
+							interrupted: childInterrupted,
+							stopped: childStopped,
+							timedOut: singleResult.timedOut,
+							turnBudgetExceeded: singleResult.turnBudgetExceeded,
+							exitCode: singleResult.exitCode,
+						});
 
-						requiredStatusStep(statusPayload, fi).status = stopped || childStopped ? "stopped" : timedOut ? "failed" : childInterrupted ? "paused" : singleResult.exitCode === 0 ? "complete" : "failed";
+						requiredStatusStep(statusPayload, fi).status = stepOutcome.status;
 						requiredStatusStep(statusPayload, fi).endedAt = taskEndTime;
 						requiredStatusStep(statusPayload, fi).durationMs = taskDuration;
-						requiredStatusStep(statusPayload, fi).exitCode = stopped || childStopped ? 1 : timedOut ? 1 : childInterrupted ? 0 : singleResult.exitCode;
+						requiredStatusStep(statusPayload, fi).exitCode = stepOutcome.exitCode;
 						setOptionalProperty(requiredStatusStep(statusPayload, fi), "timedOut", timedOut || singleResult.timedOut ? true : undefined);
 						setOptionalProperty(requiredStatusStep(statusPayload, fi), "stopped", stopped || childStopped ? true : undefined);
 						setOptionalProperty(requiredStatusStep(statusPayload, fi), "turnBudget", singleResult.turnBudget);
@@ -4295,9 +4314,9 @@ async function runSubagent(
 						appendCapabilityCeilingAppliedEvent(eventsPath, id, fi, task.agent, singleResult);
 
 						appendJsonl(eventsPath, JSON.stringify({
-							type: stopped || childStopped ? "subagent.step.stopped" : timedOut ? "subagent.step.failed" : childInterrupted ? "subagent.step.paused" : singleResult.exitCode === 0 ? "subagent.step.completed" : "subagent.step.failed",
+							type: `subagent.step.${stepOutcome.event}`,
 							ts: taskEndTime, runId: id, stepIndex: fi, agent: task.agent,
-							exitCode: stopped || childStopped ? 1 : timedOut ? 1 : childInterrupted ? 0 : singleResult.exitCode, durationMs: taskDuration,
+							exitCode: stepOutcome.exitCode, durationMs: taskDuration,
 						}));
 						if (singleResult.completionGuardTriggered) {
 							const event = buildControlEvent(omitUndefinedProperties({
@@ -4419,13 +4438,14 @@ async function runSubagent(
 						diffs: captured.diffs,
 						results: parallelResults.map((result) => ({
 							agent: result.agent,
-							status: result.stopped || (result.exitCode !== 0 && isUnexplainedProcessSignal(omitUndefinedProperties({
+							status: resolveSubagentResultStatus({
 								processSignal: result.processSignal,
 								interrupted: result.interrupted,
 								timedOut: result.timedOut,
 								stopped: result.stopped,
 								turnBudgetExceeded: result.turnBudgetExceeded,
-							}))) ? "stopped" as const : result.interrupted ? "paused" as const : result.exitCode === 0 ? "completed" as const : "failed" as const,
+								exitCode: result.exitCode,
+							}),
 							summary: result.output || result.error || "(no output)",
 							...(result.artifactPaths?.outputPath ? { outputPath: result.artifactPaths.outputPath } : {}),
 							...(result.structuredOutput !== undefined ? { structuredOutput: result.structuredOutput } : {}),
@@ -4641,10 +4661,19 @@ async function runSubagent(
 
 			const stepEndTime = Date.now();
 			const childInterrupted = singleResult.interrupted === true;
-			requiredStatusStep(statusPayload, flatIndex).status = stopped || childStopped ? "stopped" : timedOut ? "failed" : childInterrupted ? "paused" : singleResult.exitCode === 0 ? "complete" : "failed";
+			const stepOutcome = resolveAsyncStepOutcome({
+				parentStopped: stopped,
+				parentTimedOut: timedOut,
+				interrupted: childInterrupted,
+				stopped: childStopped,
+				timedOut: singleResult.timedOut,
+				turnBudgetExceeded: singleResult.turnBudgetExceeded,
+				exitCode: singleResult.exitCode,
+			});
+			requiredStatusStep(statusPayload, flatIndex).status = stepOutcome.status;
 			requiredStatusStep(statusPayload, flatIndex).endedAt = stepEndTime;
 			requiredStatusStep(statusPayload, flatIndex).durationMs = stepEndTime - stepStartTime;
-			requiredStatusStep(statusPayload, flatIndex).exitCode = stopped || childStopped ? 1 : timedOut ? 1 : childInterrupted ? 0 : singleResult.exitCode;
+			requiredStatusStep(statusPayload, flatIndex).exitCode = stepOutcome.exitCode;
 			setOptionalProperty(requiredStatusStep(statusPayload, flatIndex), "timedOut", timedOut || singleResult.timedOut ? true : undefined);
 			setOptionalProperty(requiredStatusStep(statusPayload, flatIndex), "stopped", stopped || childStopped ? true : undefined);
 			setOptionalProperty(requiredStatusStep(statusPayload, flatIndex), "turnBudget", singleResult.turnBudget);
@@ -4689,12 +4718,12 @@ async function runSubagent(
 			appendCapabilityCeilingAppliedEvent(eventsPath, id, flatIndex, seqStep.agent, singleResult);
 
 			appendJsonl(eventsPath, JSON.stringify({
-				type: stopped || childStopped ? "subagent.step.stopped" : timedOut ? "subagent.step.failed" : childInterrupted ? "subagent.step.paused" : singleResult.exitCode === 0 ? "subagent.step.completed" : "subagent.step.failed",
+				type: `subagent.step.${stepOutcome.event}`,
 				ts: stepEndTime,
 				runId: id,
 				stepIndex: flatIndex,
 				agent: seqStep.agent,
-				exitCode: stopped || childStopped ? 1 : timedOut ? 1 : childInterrupted ? 0 : singleResult.exitCode,
+				exitCode: stepOutcome.exitCode,
 				durationMs: stepEndTime - stepStartTime,
 				tokens: stepTokens,
 			}));
@@ -4714,7 +4743,13 @@ async function runSubagent(
 					diffs,
 					results: [{
 						agent: singleResult.agent,
-						status: singleResult.stopped ? "stopped" as const : singleResult.interrupted ? "paused" as const : singleResult.exitCode === 0 ? "completed" as const : "failed" as const,
+						status: resolveSubagentResultStatus({
+							interrupted: singleResult.interrupted,
+							timedOut: singleResult.timedOut,
+							stopped: singleResult.stopped,
+							turnBudgetExceeded: singleResult.turnBudgetExceeded,
+							exitCode: singleResult.exitCode,
+						}),
 						summary: singleResult.output || singleResult.error || "(no output)",
 						...(singleResult.artifactPaths?.outputPath ? { outputPath: singleResult.artifactPaths.outputPath } : {}),
 						...(singleResult.structuredOutput !== undefined ? { structuredOutput: singleResult.structuredOutput } : {}),

@@ -11,7 +11,7 @@ import { DIRS, type AsyncStatus, type Details, type ForegroundResumeRun, type Ne
 import { inspectActiveAsyncCapacityOwner, type ActiveAsyncCapacityInspection } from "./active-async-capacity.ts";
 import { readStatus } from "../../shared/utils.ts";
 import { resolveSubagentIntercomTarget } from "../../intercom/intercom-bridge.ts";
-import { resolveSubagentResultStatus } from "../../intercom/result-intercom.ts";
+import { resolveSubagentResultStatus } from "../shared/result-status.ts";
 import { readProcessTerminal, sanitizeProcessTerminal } from "./process-terminal.ts";
 import { formatWaitSubscriptions } from "./wait-subscriptions.ts";
 import { resolveAsyncRunLocation } from "./async-resume.ts";

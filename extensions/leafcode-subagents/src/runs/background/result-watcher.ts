@@ -17,8 +17,8 @@ import {
 	buildSubagentResultIntercomPayload,
 	compactNestedResultChildren,
 	deliverSubagentResultIntercomEvent,
-	resolveSubagentResultStatus,
 } from "../../intercom/result-intercom.ts";
+import { resolveSubagentResultStatus } from "../shared/result-status.ts";
 import { projectNestedRegistryForRoot, sanitizeSummary } from "../shared/nested-events.ts";
 import { resolveWatchPath } from "../../shared/utils.ts";
 import { recordWaitCompletion } from "./wait-completions.ts";

@@ -1,4 +1,5 @@
 import type { AgentContract, EffectsProjection, ExecutionProjection, ReviewProjection, SingleResult } from "../../shared/types.ts";
+import { resolveSubagentResultStatus } from "./result-status.ts";
 
 export function isAgentContractV1(contract: AgentContract | undefined): boolean {
 	return contract?.version === 1;
@@ -14,10 +15,13 @@ export function buildExecutionProjection(result: Pick<SingleResult, "exitCode" |
 	if (result.interrupted) {
 		return { status: "paused", success: true, exitCode: result.exitCode, interrupted: true, ...(result.error ? { error: result.error } : {}) };
 	}
-	const success = result.exitCode === 0 && !result.error && !result.timedOut;
+	const status = resolveSubagentResultStatus({
+		...result,
+		success: result.exitCode === 0 && !result.error && !result.timedOut,
+	});
 	return {
-		status: success ? "completed" : "failed",
-		success,
+		status,
+		success: status === "completed" || status === "paused",
 		exitCode: result.exitCode,
 		...(result.error ? { error: result.error } : {}),
 		...(result.timedOut ? { timedOut: true } : {}),
