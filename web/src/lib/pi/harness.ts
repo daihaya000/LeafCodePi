@@ -2382,6 +2382,57 @@ function settingsManagerExcludingReplacedPackages(
   }) as ReturnType<PiModule["SettingsManager"]["create"]>;
 }
 
+/**
+ * Tools registered on a new session. An agent-defined allowlist wins; otherwise
+ * the WebUI defaults apply. Bot sessions register every known Bot tool so the
+ * settings UI can enable one without replacing the live session; applyBotTools
+ * controls which of them are active.
+ */
+export function sessionToolNames(input: {
+  agentTools?: readonly string[];
+  botTools?: readonly string[];
+  subagentPermission?: "allow" | "deny";
+  botSoulTool?: boolean;
+  botCodeTool?: boolean;
+  roomHandoffTool?: boolean;
+  platform?: NodeJS.Platform;
+}): string[] {
+  const platform = input.platform ?? process.platform;
+  const shellTools = platform === "win32" ? ["powershell", "bash"] : ["bash"];
+  const configuredTools = input.agentTools
+    ? needsToolSearch(input.agentTools)
+      ? [...new Set([...input.agentTools, TOOL_SEARCH_NAME])]
+      : [...input.agentTools]
+    : [
+        "read",
+        "write",
+        "edit",
+        ...shellTools,
+        "question",
+        "grep",
+        "find",
+        "ls",
+        "memory_search",
+        "memory_add",
+        "memory_replace",
+        "memory_remove",
+        "session_search",
+        "skill_manage",
+        ...(input.subagentPermission === "allow" ? ["subagent"] : []),
+        "todowrite",
+        TOOL_SEARCH_NAME,
+      ];
+  const registeredTools = input.botTools
+    ? BOT_TOOL_NAMES.filter((tool) => tool !== "powershell" || platform === "win32")
+    : configuredTools;
+  return [...new Set([
+    ...registeredTools,
+    ...(input.botSoulTool ? [BOT_SOUL_TOOL] : []),
+    ...(input.botCodeTool ? [BOT_CODE_TOOL] : []),
+    ...(input.roomHandoffTool ? [ROOM_HANDOFF_TOOL] : []),
+  ])];
+}
+
 async function createSession(options: {
   cwd: string;
   sessionFile?: string | null;
@@ -2540,42 +2591,14 @@ async function createSession(options: {
   const permissionMode =
     options.permissionMode ?? readPermissionGateConfig();
   const persistPermission = options.permissionMode !== undefined;
-  // Agent-defined tool allowlist wins; otherwise default tools. Bot sessions
-  // register every known Bot tool so the settings UI can enable one without
-  // replacing the live session; applyBotTools controls which are active.
-  const shellTools = process.platform === "win32" ? ["powershell", "bash"] : ["bash"];
-  const configuredTools = agentOptions?.tools
-    ? needsToolSearch(agentOptions.tools)
-      ? [...new Set([...agentOptions.tools, TOOL_SEARCH_NAME])]
-      : agentOptions.tools
-    : [
-        "read",
-        "write",
-        "edit",
-        ...shellTools,
-        "question",
-        "grep",
-        "find",
-        "ls",
-        "memory_search",
-        "memory_add",
-        "memory_replace",
-        "memory_remove",
-        "session_search",
-        "skill_manage",
-        ...(options.subagentPermission === "allow" ? ["subagent"] : []),
-        "todowrite",
-        TOOL_SEARCH_NAME,
-      ];
-  const registeredTools = options.botTools
-    ? BOT_TOOL_NAMES.filter((tool) => tool !== "powershell" || process.platform === "win32")
-    : configuredTools;
-  const tools = [...new Set([
-    ...registeredTools,
-    ...(botSoulBotId ? [BOT_SOUL_TOOL] : []),
-    ...(botCodeTaskId ? [BOT_CODE_TOOL] : []),
-    ...(roomHandoffTaskId ? [ROOM_HANDOFF_TOOL] : []),
-  ])];
+  const tools = sessionToolNames({
+    agentTools: agentOptions?.tools,
+    botTools: options.botTools,
+    subagentPermission: options.subagentPermission,
+    botSoulTool: Boolean(botSoulBotId),
+    botCodeTool: Boolean(botCodeTaskId),
+    roomHandoffTool: Boolean(roomHandoffTaskId),
+  });
   const result = await pi.createAgentSession({
     cwd: options.cwd,
     agentDir,
