@@ -79,7 +79,8 @@ describe("bot intercom tool", () => {
     });
 
     expect(tool.name).toBe(BOT_INTERCOM_TOOL);
-    expect(result.details).toMatchObject({ fromBotId: alice.id, toBotId: bob.id, error: undefined });
+    expect(result.details).toMatchObject({ fromBotId: alice.id, toBotId: bob.id });
+    expect(result.details.error).toBeUndefined();
     expect(result.details.fromBotId).not.toBe(mallory.id);
     expect(getBotIntercomInbox(bob.id).messages[0]?.fromBotId).toBe(alice.id);
   });

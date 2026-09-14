@@ -18,7 +18,7 @@ export function BotIntercomInbox({
   return (
     <div
       className="flex shrink-0 items-center gap-2 border-b border-bot-outline bg-bot-chat px-4 py-1.5"
-      role="status"
+      role="region"
       aria-label="内線受信箱"
     >
       <span className="relative flex h-2.5 w-2.5 shrink-0 items-center justify-center">

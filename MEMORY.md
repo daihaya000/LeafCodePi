@@ -1,5 +1,25 @@
 # MEMORY
 
+## 2026-09-14: Bot Intercom Bridge Phase A
+
+### 実装
+Room外のBot同士1:1 DM。宛先は Bot id のみ（`stableId = botId`）。`send` のみ。送信者は実行中タスクの botId。深さは Room と同じ MAX=3。Roomターン中は DM 拒否（正式@は room_handoff のみ）。opt-in `intercomEnabled` 既定OFF + allowlist の `intercom` が双方必要。メッセージ `v: 1`。
+
+### UI
+BotView に受信箱（未読ドット + 誰/何1行）。Room UI と非混在。設定に「Bot間内線」トグル。
+
+### 検証
+bot-intercom 8 / bot-intercom-tool 4 / bots 21 / room-runtime 42 / bots route 13 / intercom route 3 / events 3 / BotIntercomInbox 3 / BotView.code 49 / harness-prompt 32 / RoomView 23 / rooms 12 / rooms route 1 = 214 PASS。typecheck OK。
+
+### 意図的に残した（B+）
+ask/reply/pending、永続mailbox、presence、添付、cancel/supersede、scopeId、fanout、wakeOnDm、クロスマシン。leafcode-intercom 本体（7d86dc0）は未変更。
+
+### ブランチ / PR
+`cursor/bot-intercom-bridge-phase-a-e6a2` / https://github.com/daihaya000/LeafCodePi/pull/3
+実装 SHA: （push後の本コミット）
+
+---
+
 ## 2026-09-14: 進行中タスク分割で Bot が TaskView になる不具合
 
 ### 問題

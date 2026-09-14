@@ -1167,7 +1167,7 @@ it("keeps the Bot settings panel visibility after remounting", async () => {
 
 it("shows the 1:1 intercom preview and unread dot from SSE", async () => {
   render(<ShellProvider><BotView id="one" active /></ShellProvider>);
-  expect(await screen.findByRole("status", { name: "内線受信箱" })).toBeTruthy();
+  expect(await screen.findByRole("region", { name: "内線受信箱" })).toBeTruthy();
   expect(screen.getByText("内線メッセージはありません")).toBeTruthy();
   snapshot({
     intercomInbox: {

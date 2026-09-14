@@ -133,7 +133,7 @@ describe("bot intercom Phase A contract", () => {
 
     patchBot(sender.id, { intercomEnabled: true, tools: [...BOT_DEFAULT_TOOL_NAMES] });
     expect(getBotIntercomInbox(recipient.id).messages).toHaveLength(0);
-    expect(() => sendBotIntercom({ fromBotId: sender.id, to: recipient.id, text: "nope" })).toThrow(/allowlist|opt-in|disabled/i);
+    expect(() => sendBotIntercom({ fromBotId: sender.id, to: recipient.id, text: "nope" })).toThrow(/allowlist|opt-in|opted in|disabled/i);
 
     enableIntercom(sender.id);
     expect(() => sendBotIntercom({ fromBotId: sender.id, to: recipient.id, text: "nope" })).toThrow(/opted in|allow/i);

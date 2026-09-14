@@ -531,13 +531,6 @@ export const BotView = memo(function BotView({ id, active = true }: { id: string
           if (payload.error) setError(payload.error);
         } catch { setError("イベントの解析に失敗しました"); }
       });
-      nextSource.addEventListener("intercom_inbox", (event) => {
-        if (!isCurrentSource()) return;
-        try {
-          const payload = JSON.parse((event as MessageEvent).data) as { inbox?: BotIntercomInboxDto };
-          if (payload.inbox) setIntercomInbox(payload.inbox);
-        } catch { setError("イベントの解析に失敗しました"); }
-      });
       nextSource.addEventListener("delta", (event) => {
         if (!isCurrentSource()) return;
         try {

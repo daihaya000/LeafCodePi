@@ -43,7 +43,7 @@ export async function GET(
       });
       const inboxSub = subscribeBotIntercomInbox(botId, (inbox) => {
         if (!ready) return;
-        sse?.send("intercom_inbox", { type: "intercom_inbox", inbox });
+        sse?.send("snapshot", { type: "snapshot", eventType: "intercom_inbox", intercomInbox: inbox });
       });
       sse = createSseWriter(controller, { signal: req.signal });
       sse.onCleanup(sub);
