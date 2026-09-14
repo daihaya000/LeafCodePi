@@ -5922,6 +5922,19 @@ async function resolveAndInsertTaskRoute(input: {
   });
 }
 
+async function createTaskSession(
+  options: Parameters<typeof createSession>[0],
+  thinkingLevel: ThinkingLevel,
+): Promise<SessionSetup> {
+  const setup = await createSession(options);
+  // createAgentSession may normalize the level from its model metadata. Keep
+  // the user's Auto effort in the session; the provider clamps at request time.
+  if (setup.session.thinkingLevel !== thinkingLevel) {
+    setup.session.setThinkingLevel(thinkingLevel);
+  }
+  return setup;
+}
+
 async function attachCreatedTaskSession(
   task: TaskSummary,
   setup: SessionSetup,
@@ -6127,25 +6140,23 @@ export async function createTask(input: {
   // builds the request. Do not clamp from the session-creation model metadata.
   const thinkingLevel = requestedThinking;
   try {
-    const setup = await createSession({
-      cwd: project?.rootPath ?? task.directory,
-      sessionName: task.title,
-      accountId: concreteAccountId,
-      model,
+    const setup = await createTaskSession(
+      {
+        cwd: project?.rootPath ?? task.directory,
+        sessionName: task.title,
+        accountId: concreteAccountId,
+        model,
+        thinkingLevel,
+        subagentPermission: input.subagentPermission,
+        permissionMode: input.permissionMode,
+        skillPermission: input.skillPermission,
+        // The selected agent talks as the main persona for this whole session.
+        agentName: input.agent ?? null,
+        taskId: task.id,
+        goalLoop: Boolean(input.goalLoop),
+      },
       thinkingLevel,
-      subagentPermission: input.subagentPermission,
-      permissionMode: input.permissionMode,
-      skillPermission: input.skillPermission,
-      // The selected agent talks as the main persona for this whole session.
-      agentName: input.agent ?? null,
-      taskId: task.id,
-      goalLoop: Boolean(input.goalLoop),
-    });
-    // createAgentSession may normalize the level from its model metadata. Keep
-    // the user's Auto effort in the session; the provider clamps at request time.
-    if (setup.session.thinkingLevel !== thinkingLevel) {
-      setup.session.setThinkingLevel(thinkingLevel);
-    }
+    );
     const live = await attachCreatedTaskSession(task, setup, thinkingLevel);
     runBeforePromptWithCleanup(task.id, task, input.beforePrompt);
     const promptStart = startCreatedTaskPrompt({
