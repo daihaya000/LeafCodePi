@@ -365,7 +365,7 @@ export function SettingsView() {
               <SettingsGroup
                 id="models-catalog-heading"
                 title="モデルカタログ"
-                description="利用可能なモデルの有効状態、表示順、コンテキストサイズを管理します。"
+                description="利用可能なモデルの有効状態と表示順を管理します。"
               >
                 <div id="models-catalog" className="scroll-mt-24 rounded-2xl border border-border bg-surface p-4">
                   <ProviderModelsPanel refreshToken={modelsRevision} />

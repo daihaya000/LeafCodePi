@@ -90,6 +90,15 @@ describe("ProviderModelsPanel account model settings", () => {
     expect(screen.queryByText("アカウント: 個人用")).toBeNull();
   });
 
+  it("hides context token controls from model rows", async () => {
+    render(<ProviderModelsPanel />);
+    await screen.findByRole("heading", { name: "モデル" });
+    fireEvent.click(screen.getByRole("button", { name: "Ollama Cloud のモデルを展開" }));
+
+    expect(screen.queryByText("tokens", { exact: true })).toBeNull();
+    expect(screen.queryByRole("spinbutton", { name: "Llama 3 のコンテキストサイズ" })).toBeNull();
+  });
+
   it("refreshes the catalog without losing expanded state", async () => {
     const { rerender } = render(<ProviderModelsPanel refreshToken={0} />);
     await screen.findByRole("button", {
