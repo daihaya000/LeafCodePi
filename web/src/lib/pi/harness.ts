@@ -285,6 +285,8 @@ type PiModule = typeof import("@earendil-works/pi-coding-agent");
 type AgentSession = Awaited<
   ReturnType<PiModule["createAgentSession"]>
 >["session"];
+type ResourceLoader = InstanceType<PiModule["DefaultResourceLoader"]>;
+type ResourceExtensions = ReturnType<ResourceLoader["getExtensions"]>["extensions"];
 type SessionPromptOptions = NonNullable<Parameters<AgentSession["prompt"]>[1]>;
 type ModelRuntime = Awaited<ReturnType<PiModule["ModelRuntime"]["create"]>>;
 type Model = NonNullable<AgentSession["model"]>;
@@ -2609,6 +2611,53 @@ function sessionAppendSystemPrompt(
   return merged.length ? { appendSystemPrompt: merged } : {};
 }
 
+type SessionExtensionFactory = (api: ExtensionAPI) => void;
+
+function sessionExtensionFactories(input: {
+  botSoulBotId?: string;
+  botToolAllowlist?: readonly string[];
+  taskId?: string;
+  hasBotSkills: boolean;
+  botCodeTaskId?: string;
+  roomHandoffTaskId?: string;
+  getExtensions: () => ResourceExtensions;
+}): SessionExtensionFactory[] {
+  const botSoulBotId = input.botSoulBotId;
+  return [
+    (api) => {
+      api.on("before_agent_start", (event) => ({
+        systemPrompt: `${event.systemPrompt}\n\n${runtimeClockContext()}`,
+      }));
+    },
+    ...(botSoulBotId
+      ? [botSoulTool(botSoulBotId, () => requestBotSoulReload(botSoulBotId))]
+      : []),
+    input.botToolAllowlist
+      ? (api: ExtensionAPI) =>
+          registerDeferredTools(api, input.botToolAllowlist)
+      : registerDeferredTools,
+    ...(input.taskId ? [registerGoalLoopTurnRouting(input.taskId)] : []),
+    ...(input.hasBotSkills
+      ? [
+          (api: ExtensionAPI) => {
+            api.on("before_agent_start", (event) => ({
+              systemPrompt: `${event.systemPrompt}\n\n${botRuntimeContext(input.getExtensions())}`,
+            }));
+          },
+        ]
+      : []),
+    ...(input.botCodeTaskId
+      ? [botCodeRelay().register(input.botCodeTaskId)]
+      : []),
+    ...(input.roomHandoffTaskId
+      ? [roomHandoffTool(input.roomHandoffTaskId)]
+      : []),
+    ...(botSoulBotId && input.taskId
+      ? [botIntercomTool(input.taskId)]
+      : []),
+  ];
+}
+
 type CreatedSessionSetup = {
   botTools?: readonly string[];
   subagentPermission?: "allow" | "deny";
@@ -2714,36 +2763,21 @@ async function createSession(options: {
     ? buildAgentResourceOptions(agentDefinition)
     : undefined;
   const botToolAllowlist = options.botTools;
-  const resourceLoader = new pi.DefaultResourceLoader({
+  const resourceLoader: ResourceLoader = new pi.DefaultResourceLoader({
     cwd: options.cwd,
     agentDir,
     ...(settingsManager ? { settingsManager } : {}),
     additionalExtensionPaths: bundled.map((entry) => entry.filePath),
     additionalSkillPaths: bundledSkills,
-    extensionFactories: [
-      (api: ExtensionAPI) => {
-        api.on("before_agent_start", (event) => ({
-          systemPrompt: `${event.systemPrompt}\n\n${runtimeClockContext()}`,
-        }));
-      },
-      ...(botSoulBotId
-        ? [botSoulTool(botSoulBotId, () => requestBotSoulReload(botSoulBotId))]
-        : []),
-      botToolAllowlist
-        ? (api: ExtensionAPI) => registerDeferredTools(api, botToolAllowlist)
-        : registerDeferredTools,
-      ...(options.taskId ? [registerGoalLoopTurnRouting(options.taskId)] : []),
-      ...(options.botSkills ? [(api: ExtensionAPI) => {
-        api.on("before_agent_start", (event) => ({
-          systemPrompt: `${event.systemPrompt}\n\n${botRuntimeContext(resourceLoader.getExtensions().extensions)}`,
-        }));
-      }] : []),
-      ...(botCodeTaskId ? [botCodeRelay().register(botCodeTaskId)] : []),
-      ...(roomHandoffTaskId ? [roomHandoffTool(roomHandoffTaskId)] : []),
-      ...(sessionTask?.kind === "bot" && sessionTask.botId && options.taskId
-        ? [botIntercomTool(options.taskId)]
-        : []),
-    ],
+    extensionFactories: sessionExtensionFactories({
+      botSoulBotId,
+      botToolAllowlist,
+      taskId: options.taskId,
+      hasBotSkills: Boolean(options.botSkills),
+      botCodeTaskId,
+      roomHandoffTaskId,
+      getExtensions: () => resourceLoader.getExtensions().extensions,
+    }),
     skillsOverride: (base) => {
       if (agentOptions?.noSkills || skillPermissionRef.current === "deny") {
         return { skills: [], diagnostics: base.diagnostics };
