@@ -5980,13 +5980,17 @@ async function attachCreatedTaskSession(
   }
 }
 
+function currentTaskSummary(taskId: string, fallback: TaskSummary): TaskSummary {
+  return toSummary(getTask(taskId) ?? fallback);
+}
+
 function runBeforePromptWithCleanup(
   taskId: string,
   task: TaskSummary,
   beforePrompt?: (task: TaskSummary) => void,
 ): void {
   try {
-    beforePrompt?.(toSummary(getTask(taskId) ?? task));
+    beforePrompt?.(currentTaskSummary(taskId, task));
   } catch (error) {
     releaseTaskLease(taskId);
     disposeLive(taskId);
@@ -6179,7 +6183,7 @@ export async function createTask(input: {
       goalLoop: input.goalLoop,
     });
     if (promptStart) await promptStart;
-    return toSummary(getTask(task.id) ?? task);
+    return currentTaskSummary(task.id, task);
   } finally {
     releaseReservedAccount(reservedAccount);
   }
