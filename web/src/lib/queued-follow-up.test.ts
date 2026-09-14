@@ -174,6 +174,9 @@ describe("queued follow-up hang events", () => {
     expect(shouldClearQueuedFollowUpOnEvent("hang_idle")).toBe(true);
     expect(shouldClearQueuedFollowUpOnEvent("hang_retry")).toBe(true);
     expect(shouldClearQueuedFollowUpOnEvent("abort")).toBe(true);
+    expect(shouldClearQueuedFollowUpOnEvent("archived")).toBe(true);
+    expect(shouldClearQueuedFollowUpOnEvent("conversation_reset")).toBe(true);
+    expect(shouldClearQueuedFollowUpOnEvent("restored")).toBe(false);
     expect(shouldClearQueuedFollowUpOnEvent(undefined)).toBe(false);
   });
 

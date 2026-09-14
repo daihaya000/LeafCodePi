@@ -172,6 +172,14 @@
 ### 検証（Tick34）
 `accounts` / `routines` / `harness-promote` / `harness-revert` — **76 passed**
 
+### Tick35–36（ループ継続）
+1. Room DELETE — resetMessages と同様に turns/handoff/Code を先に停止
+2. Bot skills PATCH — `resetTaskSession` ではなく SOUL と同じ `requestBotSoulReload`（busy 中 dispose 防止）
+3. follow-up キュー — `archived` / `conversation_reset` でクリア（restore 後の自動送信防止）
+
+### 検証（Tick35–36）
+`rooms/[id]` / `bots/[id]` / `queued-follow-up` — **35 passed**
+
 ---
 
 ## 2026-09-14: Stale production rebuild / next build exit 1

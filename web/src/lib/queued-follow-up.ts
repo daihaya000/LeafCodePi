@@ -98,13 +98,15 @@ export function shouldSendSteerBehavior(input: {
   return input.working && input.deliveryMode === "steer";
 }
 
-/** Abort / hang abort/retry must drop the client queue before the idle window can drain it. */
+/** Abort / hang / archive / conversation reset must drop the client queue before idle can drain it. */
 export function shouldClearQueuedFollowUpOnEvent(eventType: string | undefined): boolean {
   return (
     eventType === "abort" ||
     eventType === "hang_abort" ||
     eventType === "hang_idle" ||
-    eventType === "hang_retry"
+    eventType === "hang_retry" ||
+    eventType === "archived" ||
+    eventType === "conversation_reset"
   );
 }
 

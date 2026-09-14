@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { BOT_TOOL_NAMES, deleteBot, getBot, normalizeBotSkills, patchBot, botTaskId } from "@/lib/bots";
-import { destroyTask, requestBotSoulReload, resetTaskConversation, resetTaskSession, setBotTools, setTaskModel, setTaskThinkingLevel } from "@/lib/pi/harness";
+import { destroyTask, requestBotSoulReload, resetTaskConversation, setBotTools, setTaskModel, setTaskThinkingLevel } from "@/lib/pi/harness";
 import { validateBotSoulContent } from "@/lib/pi/bot-soul-tool";
 import { isThinkingLevel } from "@/lib/thinking-levels";
 import { isAvatarColor, isAvatarEyeColor, isAvatarImage, isAvatarShape } from "@/lib/bot-avatar";
@@ -119,8 +119,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     if (hasResetMessages) await resetTaskConversation(botTaskId(id));
     // SOUL and the per-Bot skill allowlist both shape the system prompt. Do not dispose a working
     // session: mark all local Bot conversations and rebuild them at their next safe turn boundary.
-    else if (body.soul !== undefined) requestBotSoulReload(id);
-    else if (hasSkills) resetTaskSession(botTaskId(id));
+    else if (body.soul !== undefined || hasSkills) requestBotSoulReload(id);
     return NextResponse.json({ bot });
   } catch (error) {
     const message = error instanceof Error ? error.message : "\u30dc\u30c3\u30c8\u8a2d\u5b9a\u304c\u4e0d\u6b63\u3067\u3059";

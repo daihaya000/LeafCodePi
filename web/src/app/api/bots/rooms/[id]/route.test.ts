@@ -56,6 +56,9 @@ describe("DELETE /api/bots/rooms/[id]", () => {
     });
 
     expect(response.status).toBe(200);
+    expect(state.stopRoomTurns).toHaveBeenCalledWith(room.id);
+    expect(state.cancelPendingRoomHandoffs).toHaveBeenCalledWith(room.id);
+    expect(state.cancelAllRoomCodeRequests).toHaveBeenCalledWith(room.id);
     expect(state.destroyTask).toHaveBeenCalledWith(taskId);
     expect(getTask(taskId)).toBeUndefined();
   });

@@ -195,8 +195,9 @@ describe("PATCH /api/bots/[id]", () => {
     const response = await PATCH(jsonRequest({ skills: { mode: "include", include: ["review"], exclude: [] } }), params("one"));
 
     expect(response.status).toBe(200);
-    // スキルはシステムプロンプトを構成するため、次のメッセージで効くようセッションを作り直す。
-    expect(mocks.resetTaskSession).toHaveBeenCalledWith("bot:one");
+    // Skills shape the system prompt like SOUL: defer reload until the next safe turn boundary.
+    expect(mocks.requestBotSoulReload).toHaveBeenCalledWith("one");
+    expect(mocks.resetTaskSession).not.toHaveBeenCalled();
     expect(mocks.resetTaskConversation).not.toHaveBeenCalled();
   });
 
