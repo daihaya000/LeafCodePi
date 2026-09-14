@@ -5865,6 +5865,63 @@ function insertTaskForCreateTask(input: {
   });
 }
 
+async function resolveAndInsertTaskRoute(input: {
+  routeKey: string;
+  modelValue: string;
+  requestedAccountId: string | null;
+  requestedAccountExplicit: boolean;
+  project: ProjectDto | null;
+  thinkingLevelInput: ThinkingLevel | undefined;
+  insertStoredTask: (
+    model: Model | undefined,
+    accountId: string | null,
+    accountIdExplicit: boolean,
+    thinkingLevel?: ThinkingLevel,
+  ) => TaskSummary;
+}): Promise<{ route: ConcreteModelRoute; task: TaskSummary }> {
+  return withRouteLock(input.routeKey, async () => {
+    const route = await resolveConcreteModelWithFallback(
+      input.modelValue,
+      input.requestedAccountId,
+      {
+        strictAccountId: input.requestedAccountExplicit,
+        accountIdExplicit: input.requestedAccountExplicit,
+        allowProviderFallback: true,
+      },
+    );
+    if (!route)
+      throw Object.assign(new Error("モデルが見つかりません"), {
+        status: 400,
+      });
+    const reservedRoute = reservedAccountForRoute(route);
+    if (reservedRoute) {
+      reserveRoute(reservedRoute.providerID, reservedRoute.accountId);
+    }
+    try {
+      if (input.project) {
+        patchProject(input.project.id, { lastOpenedAt: new Date().toISOString() });
+      }
+      const thinkingLevel = isThinkingLevel(input.thinkingLevelInput)
+        ? input.thinkingLevelInput
+        : defaultThinkingLevelForRoute(route.model, route.accountId);
+      return {
+        route,
+        task: input.insertStoredTask(
+          route.model,
+          route.accountId,
+          input.requestedAccountExplicit,
+          thinkingLevel,
+        ),
+      };
+    } catch (error) {
+      if (reservedRoute) {
+        releaseRoute(reservedRoute.providerID, reservedRoute.accountId);
+      }
+      throw error;
+    }
+  });
+}
+
 export async function createTask(input: {
   projectId: string | null;
   prompt: string;
@@ -5944,48 +6001,15 @@ export async function createTask(input: {
   let reservedAccount: { providerID: string; accountId: string } | undefined;
   let task: TaskSummary;
   if (modelValue) {
-    const routed = await withRouteLock(
-      `${parsed?.providerID ?? "default"}::${parsed?.modelID ?? "default"}`,
-      async () => {
-        const route = await resolveConcreteModelWithFallback(
-          modelValue,
-          requestedAccountId ?? null,
-          {
-            strictAccountId: requestedAccountExplicit,
-            accountIdExplicit: requestedAccountExplicit,
-            allowProviderFallback: true,
-          },
-        );
-        if (!route)
-          throw Object.assign(new Error("モデルが見つかりません"), {
-            status: 400,
-          });
-        const reservedRoute = reservedAccountForRoute(route);
-        if (reservedRoute) {
-          reserveRoute(reservedRoute.providerID, reservedRoute.accountId);
-        }
-        try {
-          if (project) patchProject(project.id, { lastOpenedAt: new Date().toISOString() });
-          const thinkingLevel = isThinkingLevel(thinkingLevelInput)
-            ? thinkingLevelInput
-            : defaultThinkingLevelForRoute(route.model, route.accountId);
-          return {
-            route,
-            task: insertStoredTask(
-              route.model,
-              route.accountId,
-              requestedAccountExplicit,
-              thinkingLevel,
-            ),
-          };
-        } catch (error) {
-          if (reservedRoute) {
-            releaseRoute(reservedRoute.providerID, reservedRoute.accountId);
-          }
-          throw error;
-        }
-      },
-    );
+    const routed = await resolveAndInsertTaskRoute({
+      routeKey: `${parsed?.providerID ?? "default"}::${parsed?.modelID ?? "default"}`,
+      modelValue,
+      requestedAccountId: requestedAccountId ?? null,
+      requestedAccountExplicit,
+      project,
+      thinkingLevelInput,
+      insertStoredTask,
+    });
     modelRoute = routed.route;
     concreteAccountId = routed.route.accountId;
     reservedAccount = reservedAccountForRoute(modelRoute);
