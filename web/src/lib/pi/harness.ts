@@ -2592,6 +2592,40 @@ export function sessionToolNames(input: {
   ])];
 }
 
+type CreatedSessionSetup = {
+  botTools?: readonly string[];
+  subagentPermission?: "allow" | "deny";
+  permissionMode: "allow" | "ask" | "deny";
+  persistPermission: boolean;
+  goalLoop: boolean;
+};
+
+async function configureCreatedSession(
+  session: AgentSession,
+  setup: CreatedSessionSetup,
+): Promise<void> {
+  // bindExtensions() emits session_start; bundled extensions (goal-loop 等)
+  // create their per-session runtime there. Without it /goal-start silently
+  // no-ops because the extension never sees a runtime.
+  await session.bindExtensions({
+    onError: (error) => {
+      console.error(
+        `[extension] ${error.extensionPath} (${error.event}):`,
+        error.error,
+      );
+    },
+  });
+  if (setup.botTools) applyBotTools(session, setup.botTools);
+  // Apply after bindExtensions() so an explicit mode wins over persisted state.
+  applyPermissionMode(session, setup.permissionMode, {
+    persist: setup.persistPermission,
+  });
+  // Agent-defined tools may include `subagent`; enforce the user choice after
+  // the full extension registry is ready, including the initial turn.
+  if (!setup.botTools) applySubagentPermission(session, setup.subagentPermission);
+  applySessionCompactionSettings(session, undefined, setup.goalLoop);
+}
+
 async function createSession(options: {
   cwd: string;
   sessionFile?: string | null;
@@ -2753,26 +2787,13 @@ async function createSession(options: {
     tools,
   });
   if (options.goalLoop) ensureSessionFilePersisted(sessionManager);
-  // bindExtensions() emits session_start; bundled extensions (goal-loop 等)
-  // create their per-session runtime there. Without it /goal-start silently
-  // no-ops because the extension never sees a runtime.
-  await result.session.bindExtensions({
-    onError: (error) => {
-      console.error(
-        `[extension] ${error.extensionPath} (${error.event}):`,
-        error.error,
-      );
-    },
+  await configureCreatedSession(result.session, {
+    botTools: options.botTools,
+    subagentPermission: options.subagentPermission,
+    permissionMode,
+    persistPermission,
+    goalLoop: options.goalLoop === true,
   });
-  if (options.botTools) applyBotTools(result.session, options.botTools);
-  // Apply after bindExtensions() so an explicit mode wins over persisted state.
-  applyPermissionMode(result.session, permissionMode, {
-    persist: persistPermission,
-  });
-  // Agent-defined tools may include `subagent`; enforce the user choice after
-  // the full extension registry is ready, including the initial turn.
-  if (!options.botTools) applySubagentPermission(result.session, options.subagentPermission);
-  applySessionCompactionSettings(result.session, undefined, options.goalLoop === true);
   return { session: result.session, skillPermissionRef };
 }
 
