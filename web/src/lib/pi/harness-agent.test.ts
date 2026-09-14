@@ -4,7 +4,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, it } from "vitest";
-import { getProject, getTask, insertBotTask, insertTask, patchTask, upsertProject } from "@/lib/store";
+import { getProject, getTask, insertBotTask, insertTask, patchProject, patchTask, upsertProject } from "@/lib/store";
 import {
   armTaskHangWatch,
   getTaskHangWatch,
@@ -523,6 +523,30 @@ describe("archiveTask", () => {
     assert.equal(getTask(task.id)?.status, "idle");
     assert.equal(emitted.at(-1)?.eventType, "restored");
     assert.equal(emitted.at(-1)?.status, "idle");
+  });
+
+  it("rejects restore when the parent project is still archived", async () => {
+    const root = mkdtempSync(join(tmpdir(), "leafcode-pi-harness-restore-archived-project-"));
+    tempDirs.push(root);
+    process.env.LEAFCODE_PI_DATA_DIR = join(root, "data");
+    const project = upsertProject({ name: "demo", rootPath: root });
+    const task = insertTask({ project, title: "restore under archived project" });
+    (globalThis as Record<string, unknown>)[GLOBAL_KEY] = {
+      live: new Map(),
+      events: new EventEmitter(),
+    };
+
+    await archiveTask(task.id);
+    patchProject(project.id, { archived: true });
+
+    assert.throws(
+      () => restoreTask(task.id),
+      (error: unknown) =>
+        error instanceof Error &&
+        (error as Error & { status?: number }).status === 409 &&
+        error.message.includes("アーカイブ済みのプロジェクト"),
+    );
+    assert.equal(getTask(task.id)?.status, "archived");
   });
 
   it("returns archived transcript without recreating a live session", async () => {

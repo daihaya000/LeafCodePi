@@ -2042,13 +2042,18 @@ async function attachSession(
   session: AgentSession,
   skillPermissionRef: { current: SkillPermission },
 ): Promise<LiveRuntime> {
+  const attachedTask = getTask(taskId);
+  // Hard-delete can race createSession; never attach a live map entry for a gone task.
+  if (!attachedTask) {
+    disposeSessionBestEffort(session);
+    throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });
+  }
   const current = state();
   const existing = current.live.get(taskId);
-  const attachedTask = getTask(taskId);
   // タスクの利用アカウント。セッション生存中はマネージャ参照で蒸発対象外にする。
-  const attachedAccountId = attachedTask?.accountId ?? null;
-  const attachedAgentName = attachedTask?.agent?.trim() || null;
-  const attachedBotId = attachedTask?.kind === "bot" ? attachedTask.botId : undefined;
+  const attachedAccountId = attachedTask.accountId ?? null;
+  const attachedAgentName = attachedTask.agent?.trim() || null;
+  const attachedBotId = attachedTask.kind === "bot" ? attachedTask.botId : undefined;
   const keepsExistingAccountRef =
     Boolean(attachedAccountId && existing?.accountId === attachedAccountId);
   if (attachedAccountId && !keepsExistingAccountRef) {
@@ -3788,6 +3793,10 @@ async function attachCreatedLiveSession(
   if ((ensureLiveEpoch.get(taskId) ?? 0) !== epoch) {
     disposeSessionBestEffort(setup.session);
     return ensureLive(taskId, options);
+  }
+  if (!getTask(taskId)) {
+    disposeSessionBestEffort(setup.session);
+    throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });
   }
   patchTask(taskId, {
     sessionId: setup.session.sessionId,
@@ -8949,6 +8958,16 @@ export function restoreTask(id: string): TaskSummary {
     throw Object.assign(new Error("アーカイブされたタスクのみ復元できます"), {
       status: 400,
     });
+  // Mirror promptTask: restoring under an archived project yields a dead UI (prompt 409).
+  if (task.projectId) {
+    const project = getProject(task.projectId);
+    if (project?.archived) {
+      throw Object.assign(
+        new Error("アーカイブ済みのプロジェクトではタスクを復元できません"),
+        { status: 409 },
+      );
+    }
+  }
   const restored = patchTask(id, { status: "idle" }) ?? task;
   // 開いたままの履歴タブが archived のまま残ると Composer が読み取り専用のまま。
   emit(id, {
@@ -8978,7 +8997,15 @@ export async function destroyTask(id: string): Promise<{ ok: true }> {
     throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });
   await abortThenDispose(id, "destroy");
   clearBotCodeSessionLinks(id);
+  // A concurrent ensureLive may have started createSession after disposeLive.
+  // Bump epoch, drain inflight, then delete — and bump again so late attach fails.
+  ensureLiveEpoch.set(id, (ensureLiveEpoch.get(id) ?? 0) + 1);
+  const inflight = ensureLiveInflight.get(id);
+  if (inflight) await inflight.catch(() => undefined);
+  if (state().live.has(id)) disposeLive(id);
   deleteTask(id);
+  ensureLiveEpoch.set(id, (ensureLiveEpoch.get(id) ?? 0) + 1);
+  if (state().live.has(id)) disposeLive(id);
   return { ok: true };
 }
 
