@@ -5922,6 +5922,44 @@ async function resolveAndInsertTaskRoute(input: {
   });
 }
 
+function startCreatedTaskPrompt(input: {
+  taskId: string;
+  live: LiveRuntime;
+  prompt: string;
+  images?: PromptImage[];
+  files?: PromptFileInput[];
+  agent?: string;
+  subagentPermission?: "allow" | "deny";
+  permissionMode?: "allow" | "ask" | "deny";
+  codeRequestId?: string;
+  goalLoop?: {
+    acceptance?: string[];
+    maxTurns?: number;
+    cooldownSeconds?: number;
+    forceFullRun?: boolean;
+    autoAgent?: boolean;
+  };
+}): Promise<GoalLoopDto | null> | undefined {
+  if (input.goalLoop) {
+    return goalLoopCommand(input.taskId, {
+      action: "start",
+      goal: input.prompt,
+      acceptance: input.goalLoop.acceptance,
+      maxTurns: input.goalLoop.maxTurns,
+      cooldownSeconds: input.goalLoop.cooldownSeconds,
+      forceFullRun: input.goalLoop.forceFullRun,
+      autoAgent: input.goalLoop.autoAgent === true,
+    });
+  }
+  queuePrompt(input.live, input.prompt, input.images, {
+    files: input.files,
+    agent: input.agent,
+    subagentPermission: input.subagentPermission,
+    permissionMode: input.permissionMode,
+    codeRequestId: input.codeRequestId,
+  });
+}
+
 export async function createTask(input: {
   projectId: string | null;
   prompt: string;
@@ -6085,25 +6123,19 @@ export async function createTask(input: {
       setTaskStatus(task.id, "error", error instanceof Error ? error.message : String(error));
       throw error;
     }
-    if (input.goalLoop) {
-      await goalLoopCommand(task.id, {
-        action: "start",
-        goal: input.prompt,
-        acceptance: input.goalLoop.acceptance,
-        maxTurns: input.goalLoop.maxTurns,
-        cooldownSeconds: input.goalLoop.cooldownSeconds,
-        forceFullRun: input.goalLoop.forceFullRun,
-        autoAgent: input.goalLoop.autoAgent === true,
-      });
-    } else {
-      queuePrompt(live, input.prompt, input.images, {
-        files: input.files,
-        agent: input.agent,
-        subagentPermission: input.subagentPermission,
-        permissionMode: input.permissionMode,
-        codeRequestId: input.codeRequestId,
-      });
-    }
+    const promptStart = startCreatedTaskPrompt({
+      taskId: task.id,
+      live,
+      prompt: input.prompt,
+      images: input.images,
+      files: input.files,
+      agent: input.agent,
+      subagentPermission: input.subagentPermission,
+      permissionMode: input.permissionMode,
+      codeRequestId: input.codeRequestId,
+      goalLoop: input.goalLoop,
+    });
+    if (promptStart) await promptStart;
     return toSummary(getTask(task.id) ?? task);
   } finally {
     if (reservedAccount) {
