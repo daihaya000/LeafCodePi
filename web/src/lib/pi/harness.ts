@@ -3207,24 +3207,20 @@ async function resolveConcreteModel(
     isAccountRoutingProvider(parsed.providerID) &&
     runsThroughAccounts(parsed.providerID)
   ) {
-    if (
-      listAccounts().some(
-        (account) =>
-          isAccountEnabled(account) &&
-          accountHasProvider(account, parsed.providerID),
-      )
-    ) {
-      return resolveIntegratedModelRoute(parsed.providerID, parsed.modelID);
+    const accounts = listAccounts();
+    if (accounts.some((account) => accountHasProvider(account, parsed.providerID))) {
+      if (
+        accounts.some(
+          (account) =>
+            isAccountEnabled(account) &&
+            accountHasProvider(account, parsed.providerID),
+        )
+      ) {
+        return resolveIntegratedModelRoute(parsed.providerID, parsed.modelID);
+      }
+      return undefined;
     }
-    return undefined;
   }
-  if (
-    isAccountRoutingProvider(parsed.providerID) &&
-    runsThroughAccounts(parsed.providerID)
-  ) {
-    return undefined;
-  }
-
   // Shared providers never use an account runtime, even when a caller carries
   // a task account for a different provider.
   await ensureRuntime();
@@ -3817,7 +3813,7 @@ async function rebuildHealth(): Promise<HealthDto> {
     /* initError is set */
   }
   const current = state();
-  const accounts = listAccounts();
+  const accounts = listAccounts().filter(isAccountEnabled);
   const accountSnapshot =
     current.accountModelCache?.key === accountModelsKey(accounts)
       ? current.accountModelCache.value
@@ -4339,6 +4335,7 @@ export async function resolveAutoModel(input: {
   const accounts = listAccounts().map((account) => ({
     id: account.id,
     label: account.label,
+    enabled: account.enabled,
     providers: account.providers,
   }));
   const models = await buildModelsForAccounts(accounts, 5 * 60 * 1000);
@@ -4649,7 +4646,7 @@ async function listProviderModelsCatalogUncached(): Promise<ProviderModelsRow[]>
   const routingState = readProviderRouting();
   const rows: ProviderModelsRow[] = [];
   const accountRows: ProviderModelsRow[] = [];
-  const accounts = listAccounts();
+  const accounts = listAccounts().filter(isAccountEnabled);
   const runtime = await getRuntimeFor();
   let agentDir: string | null = null;
   if (accounts.length > 0) {
@@ -4801,8 +4798,9 @@ export async function setProviderOrModelEnabled(
         { status: 400 },
       );
     }
-    const accounts = listAccounts().filter((account) =>
-      accountHasProvider(account, providerId),
+    const accounts = listAccounts().filter(
+      (account) =>
+        isAccountEnabled(account) && accountHasProvider(account, providerId),
     );
     if (accounts.length === 0) {
       throw Object.assign(new Error("ログインアカウントが見つかりません"), {
@@ -5019,8 +5017,10 @@ export async function setProviderAccountRoutingMode(
   }
   if (
     mode === "integrated" &&
-    listAccounts().filter((account) => accountHasProvider(account, providerId))
-      .length < 2
+    listAccounts().filter(
+      (account) =>
+        isAccountEnabled(account) && accountHasProvider(account, providerId),
+    ).length < 2
   ) {
     throw Object.assign(
       new Error("アカウント統合には2つ以上のアカウントが必要です"),
@@ -6355,6 +6355,10 @@ async function prepareLiveForPrompt(
   }
   currentLive = await reloadLiveForSoulIfNeeded(currentLive);
   const task = getTask(currentLive.taskId);
+  const taskAccount = task?.accountId ? getAccount(task.accountId) : undefined;
+  const taskAccountPaused = Boolean(
+    taskAccount && !isAccountEnabled(taskAccount),
+  );
   const isGoalLoopTurn = isActiveGoalLoopSession(currentLive.session);
   const canRoute = Boolean(
     reroute &&
@@ -6368,6 +6372,11 @@ async function prepareLiveForPrompt(
         !task.accountIdExplicit),
   );
   if (!canRoute || !task?.providerID || !task.modelID) {
+    if (taskAccountPaused) {
+      throw Object.assign(new Error("一時停止中のアカウントです"), {
+        status: 409,
+      });
+    }
     requireTaskLease(currentLive.taskId);
     setTaskStatus(currentLive.taskId, "working");
     return currentLive;
@@ -6380,6 +6389,18 @@ async function prepareLiveForPrompt(
       const latestTask = getTask(task.id);
       if (!latestTask) {
         throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });
+      }
+      const latestTaskAccount = latestTask.accountId
+        ? getAccount(latestTask.accountId)
+        : undefined;
+      if (
+        latestTask.accountIdExplicit &&
+        latestTaskAccount &&
+        !isAccountEnabled(latestTaskAccount)
+      ) {
+        throw Object.assign(new Error("一時停止中のアカウントです"), {
+          status: 409,
+        });
       }
       if (
         !latestTask.providerID ||

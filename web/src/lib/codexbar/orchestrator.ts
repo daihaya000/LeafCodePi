@@ -11,6 +11,7 @@ import {
   accountAuthPath,
   accountHasProvider,
   getAccount,
+  isAccountEnabled,
   listAccounts,
   resolvePiAgentDir,
   type AccountRecord,
@@ -140,12 +141,17 @@ async function buildFetchPlan(
   let accounts: AccountRecord[] = [];
   let agentDir: string | null = null;
   if (requestScope.kind === "all") {
-    accounts = listAccounts();
+    accounts = listAccounts().filter(isAccountEnabled);
   } else if (requestScope.kind === "account") {
     const account = getAccount(requestScope.accountId);
     if (!account) {
       throw Object.assign(new Error("アカウントが見つかりません"), {
         status: 404,
+      });
+    }
+    if (!isAccountEnabled(account)) {
+      throw Object.assign(new Error("一時停止中のアカウントです"), {
+        status: 409,
       });
     }
     accounts = [account];

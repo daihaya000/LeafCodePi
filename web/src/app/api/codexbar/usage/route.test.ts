@@ -32,6 +32,18 @@ describe("GET /api/codexbar/usage", () => {
     });
   });
 
+  it("rejects a paused account scope", async () => {
+    fetchNativeUsage.mockRejectedValueOnce(
+      Object.assign(new Error("一時停止中のアカウントです"), { status: 409 }),
+    );
+    const response = await GET(
+      new NextRequest(
+        "http://localhost/api/codexbar/usage?scope=account&accountId=paused",
+      ),
+    );
+    expect(response.status).toBe(409);
+  });
+
   it("rejects an unknown scope", async () => {
     const response = await GET(
       new NextRequest("http://localhost/api/codexbar/usage?scope=other"),

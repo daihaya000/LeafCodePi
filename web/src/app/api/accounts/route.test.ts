@@ -155,11 +155,23 @@ describe("/api/accounts", () => {
       await PATCH(
         jsonRequest(`http://localhost/api/accounts/${id}`, "PATCH", {
           label: "after",
+          enabled: false,
         }),
         idContext(id),
       ),
     );
     assert.equal((patched.account as { label: string }).label, "after");
+    assert.equal((patched.account as { enabled: boolean }).enabled, false);
+
+    const resumed = await responseJson(
+      await PATCH(
+        jsonRequest(`http://localhost/api/accounts/${id}`, "PATCH", {
+          enabled: true,
+        }),
+        idContext(id),
+      ),
+    );
+    assert.equal((resumed.account as { enabled: boolean }).enabled, true);
 
     const refused = await PATCH(
       jsonRequest(`http://localhost/api/accounts/${id}`, "PATCH", {
@@ -168,6 +180,14 @@ describe("/api/accounts", () => {
       idContext(id),
     );
     assert.equal(refused.status, 400);
+
+    const invalidEnabled = await PATCH(
+      jsonRequest(`http://localhost/api/accounts/${id}`, "PATCH", {
+        enabled: "false",
+      }),
+      idContext(id),
+    );
+    assert.equal(invalidEnabled.status, 400);
 
     const emptyPatch = await PATCH(
       jsonRequest(`http://localhost/api/accounts/${id}`, "PATCH", {}),

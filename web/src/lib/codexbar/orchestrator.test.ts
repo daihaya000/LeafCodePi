@@ -136,6 +136,34 @@ describe("fetchNativeUsage", () => {
     ]);
   }, 15_000);
 
+  it("does not fetch usage for paused accounts", async () => {
+    const { dataDir } = setupAccounts();
+    const accountData = JSON.parse(
+      readFileSync(join(dataDir, "accounts.json"), "utf8"),
+    ) as { accounts: Array<Record<string, unknown>> };
+    accountData.accounts[1] = { ...accountData.accounts[1], enabled: false };
+    writeJson(join(dataDir, "accounts.json"), {
+      version: 1,
+      accounts: accountData.accounts,
+    });
+    undiciFetch.mockImplementation(async () =>
+      new Response(
+        JSON.stringify({
+          rate_limit: { primary_window: { used_percent: 20 } },
+        }),
+        { status: 200 },
+      ),
+    );
+
+    const usage = await fetchNativeUsage({
+      forceRefresh: true,
+      scope: { kind: "all" },
+    });
+
+    expect(undiciFetch).toHaveBeenCalledTimes(1);
+    expect(usage.accounts?.map((account) => account.id)).toEqual(["acc-a"]);
+  });
+
   it("does not fall back to local auth when no account is registered", async () => {
     const { accountDir } = setupEmptyAccounts();
     writeJson(join(accountDir, "auth.json"), {

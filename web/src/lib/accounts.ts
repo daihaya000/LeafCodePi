@@ -57,6 +57,8 @@ export function isAccountOnlyProvider(
 export type AccountRecord = {
   id: string;
   label: string;
+  /** モデル選択・ルーティングで使用するアカウントか。 */
+  enabled: boolean;
   /** このアカウントでログイン可能なプロバイダー（作成時に確定、変更不可）。 */
   providers: AccountProviderId[];
   note?: string;
@@ -139,7 +141,14 @@ function readAccountsFile(): AccountsFile {
     if (!parsed || parsed.version !== 1 || !Array.isArray(parsed.accounts)) {
       return emptyAccountsFile();
     }
-    return parsed;
+    // enabled が無い旧データは従来どおり使用可能として移行する。
+    return {
+      version: 1,
+      accounts: parsed.accounts.map((account) => ({
+        ...account,
+        enabled: account.enabled !== false,
+      })),
+    };
   } catch {
     return emptyAccountsFile();
   }
@@ -194,6 +203,13 @@ export function accountHasProvider(
     Array.isArray(account.providers) &&
     account.providers.includes(providerId)
   );
+}
+
+/** 旧 accounts.json では enabled が無いため、false 以外は使用可能とする。 */
+export function isAccountEnabled(
+  account: Pick<AccountRecord, "enabled"> | { enabled?: boolean },
+): boolean {
+  return account.enabled !== false;
 }
 
 function normalizeProviders(input: unknown): AccountProviderId[] {
@@ -265,6 +281,7 @@ export function createAccount(input: {
   const record: AccountRecord = {
     id: randomUUID(),
     label: validateLabel(input.label),
+    enabled: true,
     providers: normalizeProviders(input.providers),
     ...(note ? { note } : {}),
     createdAt: now,
@@ -279,7 +296,7 @@ export function createAccount(input: {
 
 export function patchAccount(
   id: string,
-  patch: { label?: unknown; note?: unknown },
+  patch: { label?: unknown; note?: unknown; enabled?: unknown },
 ): AccountRecord {
   const file = readAccountsFile();
   const record = file.accounts.find((account) => account.id === id);
@@ -289,6 +306,12 @@ export function patchAccount(
     const note = validateNote(patch.note);
     if (note) record.note = note;
     else delete record.note;
+  }
+  if (patch.enabled !== undefined) {
+    if (typeof patch.enabled !== "boolean") {
+      throw badRequest("enabled は真偽値で指定してください");
+    }
+    record.enabled = patch.enabled;
   }
   record.updatedAt = new Date().toISOString();
   writeAccountsFile(file);

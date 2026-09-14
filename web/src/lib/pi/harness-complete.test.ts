@@ -7,6 +7,7 @@ import {
   __resetPiAgentDirCacheForTests,
   accountAuthPath,
   createAccount,
+  patchAccount,
 } from "@/lib/accounts";
 import { parseCodexBarSnapshot } from "@/lib/codexbar";
 import { clearCachedUsage, setCachedUsage } from "@/lib/codexbar/cache";
@@ -114,6 +115,23 @@ describe("completeModelText", () => {
     const account = createAccount({ label: "専用", providers: ["anthropic"] });
     await assert.rejects(
       validateTaskModelSelection("shared-provider::shared-model", account.id),
+      (error: unknown) =>
+        error instanceof Error &&
+        (error as Error & { status?: number }).status === 400,
+    );
+    const paused = patchAccount(
+      createAccount({ label: "停止中", providers: ["anthropic"] }).id,
+      { enabled: false },
+    );
+    await assert.rejects(
+      validateTaskModelSelection("anthropic::claude-sonnet", paused.id),
+      (error: unknown) =>
+        error instanceof Error &&
+        (error as Error & { status?: number }).status === 409,
+    );
+    patchAccount(account.id, { enabled: false });
+    await assert.rejects(
+      validateTaskModelSelection("anthropic::claude-sonnet"),
       (error: unknown) =>
         error instanceof Error &&
         (error as Error & { status?: number }).status === 400,

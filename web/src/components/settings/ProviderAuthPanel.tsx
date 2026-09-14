@@ -2,7 +2,7 @@
 
 import { memo, type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import { ChevronDown, ChevronUp, GripVertical } from "lucide-react";
-import { Badge, Button, cx } from "@/components/ui";
+import { Badge, Button, Switch, cx } from "@/components/ui";
 import { ProviderIcon } from "@/components/ProviderIcon";
 import { ApiError, apiUrl, getJson, sendJson } from "@/lib/client";
 import type { AccountProviderId, AccountRecord } from "@/lib/accounts";
@@ -733,6 +733,23 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
     }
   }
 
+  async function toggleAccount(account: AccountRecord) {
+    setAccountBusy(true);
+    try {
+      await sendJson(
+        `/api/accounts/${encodeURIComponent(account.id)}`,
+        { enabled: account.enabled === false },
+        "PATCH",
+      );
+      await refreshAccounts();
+      onChanged();
+    } catch (error) {
+      window.alert(error instanceof ApiError ? error.message : String(error));
+    } finally {
+      setAccountBusy(false);
+    }
+  }
+
   async function removeAccount(account: AccountRecord) {
     if (!window.confirm(`アカウント「${account.label}」を削除しますか？`))
       return;
@@ -921,6 +938,9 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
           Array.isArray(account.providers) &&
           account.providers.includes(providerId),
       ) ?? [];
+    const activeProviderAccountCount = providerAccounts.filter(
+      (account) => account.enabled !== false,
+    ).length;
     const isCreating = creatingFor === providerId;
     // OAuth 対応なら OAuth、API キー専用プロバイダーは API キー入力へ
     const accountAuthType: "api_key" | "oauth" | null =
@@ -945,7 +965,7 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
         >
           <div className="flex items-center gap-3">
             <h3 className="text-xs font-semibold text-muted">アカウント</h3>
-            {providerAccounts.length >= 2 && (
+            {activeProviderAccountCount >= 2 && (
               <label className="inline-flex cursor-pointer items-center gap-2 text-xs text-muted">
                 <input
                   type="checkbox"
@@ -1118,6 +1138,21 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
                               <Badge tone={authenticated ? "success" : "neutral"}>
                                 {authenticated ? "認証済" : "未ログイン"}
                               </Badge>
+                              {account.enabled === false && (
+                                <Badge tone="warning">一時停止中</Badge>
+                              )}
+                              <Switch
+                                checked={account.enabled !== false}
+                                label={`${account.label}を使用`}
+                                title={
+                                  account.enabled === false
+                                    ? "アカウントを再開"
+                                    : "アカウントを一時停止"
+                                }
+                                busy={accountBusy}
+                                disabled={Boolean(login)}
+                                onChange={() => void toggleAccount(account)}
+                              />
                             </div>
                             <div className="flex flex-wrap gap-1">
                               {accountAuthType && (

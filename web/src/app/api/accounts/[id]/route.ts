@@ -7,7 +7,7 @@ export const dynamic = "force-dynamic";
 
 type Context = { params: Promise<{ id: string }> };
 
-/** アカウントの表示名・メモを更新する（providers は作成時確定のため変更不可）。 */
+/** アカウントの表示名・メモ・使用状態を更新する（providers は変更不可）。 */
 export async function PATCH(req: NextRequest, context: Context) {
   const { id } = await context.params;
   try {
@@ -22,11 +22,12 @@ export async function PATCH(req: NextRequest, context: Context) {
       );
     }
     // 未指定のキーは未変更扱い（note の意図しない消去を防ぐため "in" で判定）
-    const patch: { label?: unknown; note?: unknown } = {};
+    const patch: { label?: unknown; note?: unknown; enabled?: unknown } = {};
     if ("label" in body) patch.label = body.label;
     if ("note" in body) patch.note = body.note;
-    if (!("label" in patch) && !("note" in patch)) {
-      return NextResponse.json({ error: "label か note を指定してください" }, { status: 400 });
+    if ("enabled" in body) patch.enabled = body.enabled;
+    if (!("label" in patch) && !("note" in patch) && !("enabled" in patch)) {
+      return NextResponse.json({ error: "label、note、enabled のいずれかを指定してください" }, { status: 400 });
     }
     const account = patchAccount(id, patch);
     return NextResponse.json({ account });

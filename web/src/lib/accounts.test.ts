@@ -134,6 +134,7 @@ describe("accounts store CRUD", () => {
       note: "メイン",
     });
     assert.equal(created.label, "仕事用 ChatGPT");
+    assert.equal(created.enabled, true);
     // 既定順（openai-codex → anthropic）で正規化される
     assert.deepEqual(created.providers, ["openai-codex", "anthropic"]);
     assert.equal(created.note, "メイン");
@@ -154,6 +155,28 @@ describe("accounts store CRUD", () => {
     };
     assert.equal(raw.version, 1);
     assert.equal(raw.accounts.length, 1);
+  });
+
+  it("treats legacy records without enabled as active", () => {
+    const dir = tempDataDir();
+    writeFileSync(
+      join(dir, "accounts.json"),
+      JSON.stringify({
+        version: 1,
+        accounts: [
+          {
+            id: "legacy",
+            label: "旧アカウント",
+            providers: ["anthropic"],
+            createdAt: "",
+            updatedAt: "",
+          },
+        ],
+      }),
+      "utf8",
+    );
+    assert.equal(listAccounts()[0]?.enabled, true);
+    assert.equal(getAccount("legacy")?.enabled, true);
   });
 
   it("rejects invalid input with status 400", () => {
@@ -214,9 +237,14 @@ describe("accounts store CRUD", () => {
       note: "old",
     });
 
-    const patched = patchAccount(created.id, { label: "after", note: "new" });
+    const patched = patchAccount(created.id, {
+      label: "after",
+      note: "new",
+      enabled: false,
+    });
     assert.equal(patched.label, "after");
     assert.equal(patched.note, "new");
+    assert.equal(patched.enabled, false);
     assert.deepEqual(patched.providers, ["anthropic"]);
 
     // 空文字の note は削除扱い
@@ -225,9 +253,17 @@ describe("accounts store CRUD", () => {
 
     const reloaded = getAccount(created.id);
     assert.equal(reloaded?.label, "after");
+    assert.equal(reloaded?.enabled, false);
     assert.deepEqual(reloaded?.providers, ["anthropic"]);
+
+    const resumed = patchAccount(created.id, { enabled: true });
+    assert.equal(resumed.enabled, true);
     assert.ok(reloaded && reloaded.updatedAt >= created.createdAt);
 
+    assert.throws(
+      () => patchAccount(created.id, { enabled: "false" }),
+      (error) => httpStatus(error) === 400,
+    );
     assert.throws(
       () => patchAccount("missing", { label: "x" }),
       (error) => httpStatus(error) === 404,

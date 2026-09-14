@@ -7,6 +7,7 @@ import {
   __resetPiAgentDirCacheForTests,
   accountAuthPath,
   createAccount,
+  patchAccount,
   type AccountRecord,
 } from "@/lib/accounts";
 import {
@@ -445,9 +446,18 @@ describe("getRuntimeFor", () => {
       label: "仕事用",
       providers: ["openai-codex"],
     });
+    const paused = patchAccount(
+      createAccount({
+        label: "停止中",
+        providers: ["openai-codex"],
+      }).id,
+      { enabled: false },
+    );
     storeAccountProviderAuth(account, agentDir, "openai-codex");
+    storeAccountProviderAuth(paused, agentDir, "openai-codex");
     const accounts: Pick<AccountRecord, "id" | "label" | "providers">[] = [
       account,
+      paused,
     ];
     const [models, duplicate] = await Promise.all([
       listModelsForAccounts(accounts),

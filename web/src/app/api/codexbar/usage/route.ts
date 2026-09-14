@@ -41,7 +41,7 @@ export async function GET(req: NextRequest) {
       error && typeof error === "object" && "status" in error
         ? Number((error as { status?: unknown }).status)
         : 503;
-    if (status === 400 || status === 404) {
+    if (status === 400 || status === 404 || status === 409) {
       return NextResponse.json(
         { error: error instanceof Error ? error.message : "リクエストが不正です" },
         { status },

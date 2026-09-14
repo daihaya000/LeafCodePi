@@ -29,6 +29,7 @@ export async function GET(req: NextRequest) {
       accounts.map((account) => ({
         id: account.id,
         label: account.label,
+        enabled: account.enabled,
         providers: account.providers,
       })),
     );

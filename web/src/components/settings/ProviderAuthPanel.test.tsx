@@ -43,6 +43,7 @@ const accounts = [
     id: "acc-1",
     label: "仕事用",
     providers: ["openai-codex"],
+    enabled: true,
     note: "メイン",
     createdAt: "",
     updatedAt: "",
@@ -51,6 +52,7 @@ const accounts = [
     id: "acc-2",
     label: "個人用",
     providers: ["anthropic"],
+    enabled: true,
     createdAt: "",
     updatedAt: "",
   },
@@ -70,6 +72,7 @@ const ollamaAccount = {
   id: "ollama-acc-1",
   label: "Ollama 個人用",
   providers: ["ollama-cloud"],
+  enabled: true,
   createdAt: "",
   updatedAt: "",
 };
@@ -100,6 +103,7 @@ const opencodeGoAccount = {
   id: "opencode-go-acc-1",
   label: "OpenCode Go 個人用",
   providers: ["opencode-go"],
+  enabled: true,
   createdAt: "",
   updatedAt: "",
 };
@@ -249,6 +253,7 @@ describe("ProviderAuthPanel provider-scoped accounts", () => {
         id: "acc-3",
         label: "予備用",
         providers: ["openai-codex"],
+        enabled: true,
         createdAt: "",
         updatedAt: "",
       },
@@ -285,6 +290,7 @@ describe("ProviderAuthPanel provider-scoped accounts", () => {
         id: "acc-3",
         label: "予備用",
         providers: ["openai-codex"],
+        enabled: true,
         createdAt: "",
         updatedAt: "",
       },
@@ -315,6 +321,41 @@ describe("ProviderAuthPanel provider-scoped accounts", () => {
       });
       expect(onChanged).toHaveBeenCalled();
     });
+  });
+
+  it("toggles account availability with the account PATCH API", async () => {
+    const onChanged = vi.fn();
+    mockAccountsApi();
+    render(<ProviderAuthPanel providers={[providers[1]]} onChanged={onChanged} />);
+
+    const codex = await accountRegion("OpenAI Codex");
+    fireEvent.click(
+      within(codex).getByRole("switch", { name: "仕事用を使用" }),
+    );
+
+    await waitFor(() => {
+      const patch = fetchMock.mock.calls.find(
+        ([input, init]) =>
+          String(input).endsWith("/api/accounts/acc-1") &&
+          init?.method === "PATCH",
+      );
+      expect(patch).toBeTruthy();
+      expect(JSON.parse(String(patch?.[1]?.body))).toEqual({ enabled: false });
+      expect(onChanged).toHaveBeenCalled();
+    });
+  });
+
+  it("marks paused accounts and renders the switch off", async () => {
+    mockAccountsApi([{ ...accounts[0], enabled: false }]);
+    render(<ProviderAuthPanel providers={[providers[1]]} onChanged={() => {}} />);
+
+    const codex = await accountRegion("OpenAI Codex");
+    expect(within(codex).getByText("一時停止中")).toBeTruthy();
+    expect(
+      within(codex)
+        .getByRole("switch", { name: "仕事用を使用" })
+        .getAttribute("aria-checked"),
+    ).toBe("false");
   });
 
   it("uses account controls instead of default authentication", async () => {
