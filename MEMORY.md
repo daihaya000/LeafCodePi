@@ -20,6 +20,7 @@ confirmSend、scopeId、fanout、wakeOnDm / Routine、クロスマシン。leafc
 
 ### ブランチ / PR
 `cursor/bot-intercom-bridge-phase-c-fcd9`
+実装 SHA: `65813ca8`
 
 ---
 
