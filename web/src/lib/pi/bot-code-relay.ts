@@ -459,6 +459,40 @@ export async function cancelRoomCodeRequests(roomId: string, requestId: string):
 export async function cancelAllRoomCodeRequests(roomId: string): Promise<number> {
   return cancelRequests(requests().filter((request) => request.room?.id === roomId && active(request)));
 }
+
+/**
+ * Room delete/reset: cancel active outbox, then stop Code sessions that already settled in the
+ * outbox but still have a live Goal Loop / working status (isBusy cold-gap orphans).
+ */
+export async function stopAllRoomCodeSessions(roomId: string): Promise<number> {
+  const cancelled = await cancelAllRoomCodeRequests(roomId);
+  const taskIds = [
+    ...new Set(
+      requests()
+        .filter((request) => request.room?.id === roomId && request.codeTaskId)
+        .map((request) => request.codeTaskId as string),
+    ),
+  ];
+  let stopped = 0;
+  for (const taskId of taskIds) {
+    const task = getTask(taskId);
+    if (!task || task.status === "archived") continue;
+    const { isGoalLoopLiveStatus, readGoalLoopState } = await import("@/lib/pi/goal-loop-state");
+    const loop = readGoalLoopState(task.directory, task.sessionId);
+    if (task.status !== "working" && !isGoalLoopLiveStatus(loop?.status)) continue;
+    try {
+      const { abortTask } = await import("@/lib/pi/harness");
+      await abortTask(taskId);
+      stopped += 1;
+    } catch (error) {
+      console.warn(
+        "[bot-code-relay] Room Code session could not be stopped:",
+        error instanceof Error ? error.message : String(error),
+      );
+    }
+  }
+  return cancelled + stopped;
+}
 /** Cancel outstanding Room Code jobs owned by one member Bot. */
 export async function cancelRoomCodeRequestsForBot(roomId: string, botId: string): Promise<number> {
   const origin = roomBotTaskId(roomId, botId);

@@ -2159,9 +2159,34 @@ function botCodeRelay(): ReturnType<typeof createBotCodeRelay> {
     isBusy: (id) => {
       reconcileOrphanedWorkingTasks();
       const live = state().live.get(id);
+      const task = getTask(id);
       // A Goal Loop task idles between turns (cooldown, verification). Reporting there would deliver a
       // half-finished run as the result, so keep it busy until the loop itself stops.
-      return getTask(id)?.status === "working" || getTaskHangWatch(id)?.state === "resolving" || Boolean(live && (live.promptActive || live.session.isStreaming || live.session.isCompacting || live.autoCompactionPromise || live.pendingProviderFallback || isActiveGoalLoopSession(live.session)));
+      if (
+        task?.status === "working" ||
+        getTaskHangWatch(id)?.state === "resolving" ||
+        Boolean(
+          live &&
+            (live.promptActive ||
+              live.session.isStreaming ||
+              live.session.isCompacting ||
+              live.autoCompactionPromise ||
+              live.pendingProviderFallback ||
+              isActiveGoalLoopSession(live.session)),
+        )
+      ) {
+        return true;
+      }
+      // After worker restart live may be gone while goals-loop/*.json is still live — do not deliver.
+      if (
+        task &&
+        isGoalLoopLiveStatus(
+          readGoalLoopState(task.directory, live?.session.sessionId ?? task.sessionId)?.status,
+        )
+      ) {
+        return true;
+      }
+      return false;
     },
     goalLoop: (task) => readGoalLoopState(task.directory, state().live.get(task.id)?.session.sessionId ?? task.sessionId),
     conversationImages: (originTaskId) => {

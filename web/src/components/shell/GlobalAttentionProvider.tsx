@@ -313,9 +313,10 @@ export function GlobalAttentionProvider() {
     }
   };
 
-  const openTask = (taskId: string) => {
+  const openTask = (taskId: string, originTaskId?: string | null) => {
     close();
-    const tab = paneTabIdForTask({ id: taskId });
+    // Delegated Code attention is answered on Bot/Room; open that surface, not /task/code-*.
+    const tab = paneTabIdForTask({ id: originTaskId || taskId });
     router.push(isBotTabId(tab) || tab.startsWith("/") ? tab : `/task/${encodeURIComponent(tab)}`);
   };
 
@@ -381,7 +382,7 @@ export function GlobalAttentionProvider() {
                   </span>
                   {item.kinds.includes("question") && <Badge tone="accent">質問</Badge>}
                   {item.kinds.includes("permission") && <Badge tone="warning">承認</Badge>}
-                  <Button variant="ghost" size="sm" onClick={() => openTask(item.taskId)}>
+                  <Button variant="ghost" size="sm" onClick={() => openTask(item.taskId, item.originTaskId)}>
                     開く
                   </Button>
                 </div>

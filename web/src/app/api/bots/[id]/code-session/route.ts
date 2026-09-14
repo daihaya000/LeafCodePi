@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getBot, patchBot } from "@/lib/bots";
 import { getProject, getTask } from "@/lib/store";
-import { continueBotCodeTask, createBotCodeTask, getTaskSummariesWithTodoProgress, goalLoopCommand, jsonError, stopBotCodeTask } from "@/lib/pi/harness";
+import { continueBotCodeTask, createBotCodeTask, getTaskSummariesWithTodoProgress, goalLoopCommand, jsonError, stopBotCodeTask, abortTask } from "@/lib/pi/harness";
 import { isThinkingLevel } from "@/lib/thinking-levels";
 import { reconcileOrphanedWorkingTasks } from "@/lib/task-runtime-lease";
 import { isRoomDelegatedCodeTask } from "@/lib/pi/bot-code-relay";
@@ -196,10 +196,15 @@ export async function PATCH(
           try {
             await stopBotCodeTask(id, taskId);
           } catch (error) {
-            console.warn(
-              `[code-session] failed to stop linked task ${taskId} on ${body.action}:`,
-              error instanceof Error ? error.message : String(error),
-            );
+            try {
+              await abortTask(taskId);
+            } catch (abortError) {
+              console.warn(
+                `[code-session] failed to stop linked task ${taskId} on ${body.action}:`,
+                abortError instanceof Error ? abortError.message : String(abortError),
+                error instanceof Error ? error.message : String(error),
+              );
+            }
           }
         }
         if (bot.codeSessionTaskId === taskId) {

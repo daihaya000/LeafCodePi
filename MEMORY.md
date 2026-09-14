@@ -279,6 +279,15 @@
 ### 検証（Tick55–56）
 `bots/[id]` / `task-panes` / `GlobalAttentionProvider` / `queued-follow-up` — **147 passed**
 
+### Tick57–58（ループ継続）
+1. GlobalAttention「開く」— `originTaskId` があれば Bot/Room タブへ（委任 Code を `/task/code-*` に誤誘導しない）
+2. code-session clear/unlink — `stopBotCodeTask` 失敗時に `abortTask` フォールバック（disable/delete と対称）
+3. relay `isBusy` — live 無しでも Goal Loop ファイルが live なら busy（ premature deliver 防止）
+4. Room DELETE/reset — `stopAllRoomCodeSessions` で outbox 外の working/Goal Loop Code も停止
+
+### 検証（Tick57–58）
+`code-session` / `rooms/[id]` / `task-panes` / `GlobalAttentionProvider` — **136 passed**
+
 ---
 
 ## 2026-09-14: Stale production rebuild / next build exit 1

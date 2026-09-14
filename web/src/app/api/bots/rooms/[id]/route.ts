@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { deleteRoom, getRoom, patchRoom, roomBotTaskId } from "@/lib/rooms";
 import { destroyTask, resetTaskConversation } from "@/lib/pi/harness";
-import { cancelAllRoomCodeRequests } from "@/lib/pi/bot-code-relay";
+import { stopAllRoomCodeSessions } from "@/lib/pi/bot-code-relay";
 import { cancelPendingRoomHandoffs, detachBotFromRoomRuntime, stopRoomTurns } from "@/lib/room-runtime";
 import { getTask, listTasks } from "@/lib/store";
 import { isWebUiRequestAuthorized } from "@/lib/webui-auth";
@@ -25,7 +25,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     // before clearing the shared transcript so attention/Code cannot report into an empty room.
     await stopRoomTurns(id);
     cancelPendingRoomHandoffs(id);
-    await cancelAllRoomCodeRequests(id);
+    await stopAllRoomCodeSessions(id);
     for (const memberId of existing.members) {
       const taskId = roomBotTaskId(id, memberId);
       if (getTask(taskId)) await resetTaskConversation(taskId);
@@ -44,7 +44,7 @@ export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ 
   // Same teardown as resetMessages: stop turns/handoffs/Code before destroying member tasks.
   await stopRoomTurns(id);
   cancelPendingRoomHandoffs(id);
-  await cancelAllRoomCodeRequests(id);
+  await stopAllRoomCodeSessions(id);
   for (const task of listTasks(true, "bot").filter((item) => item.id.endsWith(`:room:${id}`))) await destroyTask(task.id);
   return deleteRoom(id) ? NextResponse.json({ ok: true }) : NextResponse.json({ error: "\u30eb\u30fc\u30e0\u304c\u898b\u3064\u304b\u308a\u307e\u305b\u3093" }, { status: 404 });
 }

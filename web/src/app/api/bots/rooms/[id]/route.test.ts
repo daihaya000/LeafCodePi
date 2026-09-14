@@ -9,7 +9,7 @@ const state = vi.hoisted(() => ({
   resetTaskConversation: vi.fn(async (id: string) => ({ id })),
   stopRoomTurns: vi.fn(async () => 0),
   cancelPendingRoomHandoffs: vi.fn(() => 0),
-  cancelAllRoomCodeRequests: vi.fn(async () => 0),
+  stopAllRoomCodeSessions: vi.fn(async () => 0),
   detachBotFromRoomRuntime: vi.fn(async () => undefined),
 }));
 vi.mock("@/lib/pi/harness", () => ({
@@ -22,7 +22,7 @@ vi.mock("@/lib/room-runtime", () => ({
   detachBotFromRoomRuntime: state.detachBotFromRoomRuntime,
 }));
 vi.mock("@/lib/pi/bot-code-relay", () => ({
-  cancelAllRoomCodeRequests: state.cancelAllRoomCodeRequests,
+  stopAllRoomCodeSessions: state.stopAllRoomCodeSessions,
 }));
 
 import { createBot } from "@/lib/bots";
@@ -43,7 +43,7 @@ describe("DELETE /api/bots/rooms/[id]", () => {
     state.resetTaskConversation.mockClear();
     state.stopRoomTurns.mockClear();
     state.cancelPendingRoomHandoffs.mockClear();
-    state.cancelAllRoomCodeRequests.mockClear();
+    state.stopAllRoomCodeSessions.mockClear();
     state.detachBotFromRoomRuntime.mockClear();
     vi.unstubAllEnvs();
     rmSync(root, { recursive: true, force: true });
@@ -61,7 +61,7 @@ describe("DELETE /api/bots/rooms/[id]", () => {
     expect(response.status).toBe(200);
     expect(state.stopRoomTurns).toHaveBeenCalledWith(room.id);
     expect(state.cancelPendingRoomHandoffs).toHaveBeenCalledWith(room.id);
-    expect(state.cancelAllRoomCodeRequests).toHaveBeenCalledWith(room.id);
+    expect(state.stopAllRoomCodeSessions).toHaveBeenCalledWith(room.id);
     expect(state.destroyTask).toHaveBeenCalledWith(taskId);
     expect(getTask(taskId)).toBeUndefined();
   });
@@ -76,7 +76,7 @@ describe("PATCH /api/bots/rooms/[id] resetMessages", () => {
     state.resetTaskConversation.mockClear();
     state.stopRoomTurns.mockClear();
     state.cancelPendingRoomHandoffs.mockClear();
-    state.cancelAllRoomCodeRequests.mockClear();
+    state.stopAllRoomCodeSessions.mockClear();
   });
 
   afterEach(() => {
@@ -101,7 +101,7 @@ describe("PATCH /api/bots/rooms/[id] resetMessages", () => {
     expect(response.status).toBe(200);
     expect(state.stopRoomTurns).toHaveBeenCalledWith(room.id);
     expect(state.cancelPendingRoomHandoffs).toHaveBeenCalledWith(room.id);
-    expect(state.cancelAllRoomCodeRequests).toHaveBeenCalledWith(room.id);
+    expect(state.stopAllRoomCodeSessions).toHaveBeenCalledWith(room.id);
     expect(state.resetTaskConversation).toHaveBeenCalledWith(taskId);
     expect(getRoom(room.id)?.messages).toEqual([]);
   });
