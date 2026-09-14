@@ -27,6 +27,14 @@ function presenceClass(status: BotIntercomPresence): string {
   return "bg-muted";
 }
 
+function debugTitle(message: BotIntercomInboxItemDto): string {
+  const parts = [message.id];
+  if (message.delivery) parts.push(message.delivery);
+  parts.push(`depth ${message.depth}`);
+  if (message.supersedes) parts.push(`supersedes ${message.supersedes}`);
+  return parts.join(" · ");
+}
+
 export function BotIntercomInbox({
   inbox,
   onRead,
@@ -56,10 +64,11 @@ export function BotIntercomInbox({
         <p className="min-w-0 flex-1 truncate text-[11px] leading-4 text-muted">
           <span className="mr-1.5 font-medium text-text">内線</span>
           {presence && (
-            <span className="mr-1.5 inline-flex items-center gap-1" aria-label={`在席 ${presenceLabel(presence.status)}`}>
-              <span className={`h-1.5 w-1.5 rounded-full ${presenceClass(presence.status)}`} aria-hidden="true" />
-              {presenceLabel(presence.status)}
-            </span>
+            <span
+              className={`mr-1.5 inline-block h-1.5 w-1.5 shrink-0 translate-y-[-1px] rounded-full ${presenceClass(presence.status)}`}
+              title={presenceLabel(presence.status)}
+              aria-label={`在席 ${presenceLabel(presence.status)}`}
+            />
           )}
           {oneLine(inbox)}
         </p>
@@ -85,7 +94,11 @@ export function BotIntercomInbox({
             const tag = kindLabel(message);
             const inactive = Boolean(message.cancelled || message.supersededBy);
             return (
-              <li key={message.id} className={`text-[11px] leading-4 text-muted ${inactive ? "line-through opacity-70" : ""}`}>
+              <li
+                key={message.id}
+                title={debugTitle(message)}
+                className={`truncate text-[11px] leading-4 text-muted ${inactive ? "line-through opacity-70" : ""}`}
+              >
                 <span className="font-medium text-text">{message.fromName}</span>
                 {tag && <span className="ml-1 text-accent">{tag}</span>}
                 {message.text ? <span className="ml-1">{message.text}</span> : null}
@@ -94,13 +107,6 @@ export function BotIntercomInbox({
                     [{attachment.name}]
                   </span>
                 ))}
-                <details className="mt-0.5 text-[10px] text-muted">
-                  <summary>詳細</summary>
-                  {message.id}
-                  {message.delivery ? ` · ${message.delivery}` : ""}
-                  {` · depth ${message.depth}`}
-                  {message.supersedes ? ` · supersedes ${message.supersedes}` : ""}
-                </details>
               </li>
             );
           })}

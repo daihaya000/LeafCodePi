@@ -108,8 +108,12 @@ it("shows counterpart presence, attachments, and cancelled state", () => {
     peerPresence: { botId: "alice", name: "Alice", status: "busy" },
   };
   render(<BotIntercomInbox inbox={inbox} />);
-  expect(screen.getByLabelText("在席 取り込み中")).toBeTruthy();
+  const presence = screen.getByLabelText("在席 取り込み中");
+  expect(presence.getAttribute("title")).toBe("取り込み中");
+  expect(screen.getByRole("region", { name: "内線受信箱" }).textContent).toContain("Alice: 画像です");
+  expect(screen.getByRole("region", { name: "内線受信箱" }).textContent).not.toContain("取り込み中");
   expect(screen.getByLabelText("添付 image-1.png")).toBeTruthy();
   expect(screen.getByRole("list", { name: "内線スレッド" }).textContent).toContain("取消");
-  expect(screen.getAllByText("詳細").length).toBeGreaterThan(0);
+  expect(screen.queryByText("詳細")).toBeNull();
+  expect(screen.getByTitle("msg-2 · steered · depth 0")).toBeTruthy();
 });
