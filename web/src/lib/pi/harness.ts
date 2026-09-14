@@ -3025,6 +3025,44 @@ export async function resolveProviderFallbackModels(
     .filter((model): model is ProviderFallbackModel => model !== null);
 }
 
+async function resolveAccountModelRoute(
+  providerID: string,
+  modelID: string,
+  accountId: string,
+  strictAccountId: boolean,
+): Promise<ConcreteModelRoute | undefined> {
+  const account = getAccount(accountId);
+  if (!account) {
+    if (strictAccountId)
+      throw Object.assign(new Error("アカウントが見つかりません"), {
+        status: 404,
+      });
+    return undefined;
+  }
+  if (!accountHasProvider(account, providerID)) {
+    if (strictAccountId) {
+      throw Object.assign(
+        new Error("アカウントに紐づかないプロバイダーです"),
+        { status: 400 },
+      );
+    }
+    return undefined;
+  }
+  const record = (await collectAccountModelRecords([account])).find(
+    (entry) =>
+      entry.option.providerID === providerID && entry.option.modelID === modelID,
+  );
+  if (!record) return undefined;
+  const model = record.runtime.getModel(providerID, modelID);
+  return model
+    ? {
+        accountId,
+        runtime: record.runtime,
+        model: modelWithContextWindow(model, providerID, modelID, accountId),
+      }
+    : undefined;
+}
+
 async function resolveConcreteModel(
   value: string | undefined,
   requestedAccountId?: string | null,
@@ -3039,42 +3077,13 @@ async function resolveConcreteModel(
   const requested = requestedAccountId?.trim() || explicitAccountId;
   const strictAccountId = options?.strictAccountId ?? accountIdExplicit;
   if (requested && isAccountRoutingProvider(parsed.providerID)) {
-    const account = getAccount(requested);
-    if (!account) {
-      if (strictAccountId)
-        throw Object.assign(new Error("アカウントが見つかりません"), {
-          status: 404,
-        });
-    } else if (!accountHasProvider(account, parsed.providerID)) {
-      if (strictAccountId) {
-        throw Object.assign(
-          new Error("アカウントに紐づかないプロバイダーです"),
-          { status: 400 },
-        );
-      }
-    } else {
-      const record = (await collectAccountModelRecords([account])).find(
-        (entry) =>
-          entry.option.providerID === parsed.providerID &&
-          entry.option.modelID === parsed.modelID,
-      );
-      if (record) {
-        const model = record.runtime.getModel(parsed.providerID, parsed.modelID);
-        if (model) {
-          return {
-            accountId: requested,
-            runtime: record.runtime,
-            model: modelWithContextWindow(
-              model,
-              parsed.providerID,
-              parsed.modelID,
-              requested,
-            ),
-          };
-        }
-      }
-      if (strictAccountId) return undefined;
-    }
+    const accountRoute = await resolveAccountModelRoute(
+      parsed.providerID,
+      parsed.modelID,
+      requested,
+      strictAccountId,
+    );
+    if (accountRoute) return accountRoute;
   }
 
   if (
