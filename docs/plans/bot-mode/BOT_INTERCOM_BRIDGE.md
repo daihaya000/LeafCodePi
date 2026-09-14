@@ -1,7 +1,7 @@
 ﻿# Bot間通信（Room外）— intercom ブリッジ計画
 
 **更新:** リサちゃん（調査）／指揮はプラちゃん（2026-09-14）  
-**状態:** 設計のみ（実装GO待ち）  
+**状態:** Phase D 実装済み（A〜Cは master マージ済み。E+ は別GO）  
 **方針:** Roomリレーは会話ターン用のまま据え置き。Grok風のBot同士1:1は既存 `extensions/leafcode-intercom` の**型・輸送**を流用し、宛先を **Bot id** にブリッジする。将来拡張のフックを先に定義し、Phaseで段階導入する。
 
 ---
@@ -99,6 +99,8 @@
 - ガード付きfanout（深さ・人数・権限。既定オフ）
 - leafcode-intercom skillのBot向けパターン文書
 
+**実装:** Bot設定 `intercomScopeId`（空欄=`default`）で名簿/send/ask/fanoutを隔離。`list` と `list-cwd`（任意 `cwd` は extraRoot/workspace 一致）は同スコープのみ。`fanout` は `intercomFanoutEnabled` 明示opt-in、最大8件、受信fanoutの再放送禁止（`MAX_BOT_INTERCOM_FANOUT_DEPTH = 0`）、Roomターン拒否。メッセージ `v: 1` に任意 `scopeId` / `fanout` / `fanoutDepth`。
+
 **Done:** スコープ外Botへはlistにもsendにも出ない。fanoutは明示opt-inのみ。
 
 ### Phase E — ルーティン／外部イベント連携（別GO必須）
@@ -144,7 +146,7 @@
 | A | 受信箱・未読ドット・1行プレビュー |
 | B | スレッド／ask待ち表示 |
 | C | presence・添付・確認ダイアログ・通知 |
-| D | スコープ付き宛先ピッカー |
+| D | スコープ付き宛先（list / list-cwd が同スコープ名簿。設定にスコープと一斉送信opt-in） |
 | E+ | トリガ設定（wakeOnDm） |
 
 ---

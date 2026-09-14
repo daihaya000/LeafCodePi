@@ -2,8 +2,8 @@ import { EventEmitter } from "node:events";
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { randomUUID } from "node:crypto";
-import { getBot, listBots } from "@/lib/bots";
-import { dataDir } from "@/lib/paths";
+import { botWorkspace, getBot, listBots } from "@/lib/bots";
+import { dataDir, samePath } from "@/lib/paths";
 import {
   isPromptFileText,
   isPromptFileWithinSize,
@@ -40,6 +40,15 @@ export type {
 export const MAX_BOT_INTERCOM_DEPTH = MAX_ROOM_RELAY_DEPTH;
 /** Same-thread ask/reply round-trips share the Room hop budget. */
 export const MAX_BOT_INTERCOM_ASK_ROUNDTRIPS = MAX_BOT_INTERCOM_DEPTH;
+/** Empty / missing Bot `intercomScopeId` shares this implicit workspace. */
+export const DEFAULT_BOT_INTERCOM_SCOPE_ID = "default";
+/** Guarded fanout recipient cap. */
+export const MAX_BOT_INTERCOM_FANOUT = 8;
+/**
+ * Fanout is a single hop (no amplify). Nested fanout is rejected.
+ * Pair 1:1 depth still uses `MAX_BOT_INTERCOM_DEPTH`.
+ */
+export const MAX_BOT_INTERCOM_FANOUT_DEPTH = 0;
 
 export const BOT_INTERCOM_MESSAGE_MAX = 2_000;
 export const BOT_INTERCOM_MAILBOX_MAX = 256;
@@ -58,6 +67,8 @@ export type BotIntercomPeerDto = {
   resident: boolean;
   intercomEnabled: boolean;
   presence: BotIntercomPresence;
+  scopeId: string;
+  fanoutEnabled: boolean;
 };
 
 export type BotIntercomAttachmentInput = {
@@ -95,6 +106,14 @@ export type CancelBotIntercomInput = {
   fromBotId: string;
   messageId: string;
   roomTurn?: boolean;
+};
+
+export type FanoutBotIntercomInput = {
+  fromBotId: string;
+  to: string[];
+  text: string;
+  roomTurn?: boolean;
+  attachments?: BotIntercomAttachmentInput[];
 };
 
 type PairThread = {
@@ -264,6 +283,9 @@ function asMessage(value: unknown): BotIntercomMessageV1 | null {
     ...(typeof row.supersededBy === "string" ? { supersededBy: row.supersededBy } : {}),
     ...(typeof row.retryOf === "string" ? { retryOf: row.retryOf } : {}),
     ...(row.cancelled === true ? { cancelled: true } : {}),
+    ...(typeof row.scopeId === "string" ? { scopeId: row.scopeId } : {}),
+    ...(row.fanout === true ? { fanout: true } : {}),
+    ...(typeof row.fanoutDepth === "number" ? { fanoutDepth: row.fanoutDepth } : {}),
   };
 }
 
@@ -465,16 +487,48 @@ export function markBotIntercomInboxRead(botId: string, readAt = Date.now()): Bo
   return emitInbox(botId);
 }
 
-export function listBotIntercomPeers(fromBotId: string): BotIntercomPeerDto[] {
+export function listBotIntercomPeers(fromBotId: string, options?: { cwd?: string }): BotIntercomPeerDto[] {
+  const fromScope = botIntercomScopeId(getBot(fromBotId));
+  const cwd = options?.cwd?.trim();
   return listBots()
     .filter((bot) => bot.id !== fromBotId && bot.enabled)
+    .filter((bot) => botIntercomScopeId(bot) === fromScope)
+    .filter((bot) => !cwd || botMatchesIntercomCwd(bot, cwd))
     .map((bot) => ({
       id: bot.id,
       name: bot.name,
       resident: isBotIntercomResident(bot.id),
       intercomEnabled: bot.intercomEnabled === true,
       presence: botIntercomPresence(bot.id),
+      scopeId: botIntercomScopeId(bot),
+      fanoutEnabled: bot.intercomFanoutEnabled === true,
     }));
+}
+
+/** Same-scope roster, optionally filtered to a shared extraRoot / workspace path. */
+export function listBotIntercomCwdPeers(fromBotId: string, cwd?: string): BotIntercomPeerDto[] {
+  const filter = cwd?.trim();
+  if (!filter) return listBotIntercomPeers(fromBotId);
+  return listBotIntercomPeers(fromBotId, { cwd: filter });
+}
+
+export function botIntercomScopeId(bot: { intercomScopeId?: string | null } | undefined): string {
+  const trimmed = bot?.intercomScopeId?.trim();
+  return trimmed || DEFAULT_BOT_INTERCOM_SCOPE_ID;
+}
+
+function botIntercomRoots(bot: { id: string; extraRoots: string[] }): string[] {
+  return [botWorkspace(bot.id), ...bot.extraRoots];
+}
+
+function botMatchesIntercomCwd(bot: { id: string; extraRoots: string[] }, cwd: string): boolean {
+  return botIntercomRoots(bot).some((root) => {
+    try {
+      return samePath(root, cwd);
+    } catch {
+      return root === cwd;
+    }
+  });
 }
 
 export function listPendingBotIntercomAsks(botId: string): BotIntercomPendingAskDto[] {
@@ -513,6 +567,23 @@ function assertDmAllowed(roomTurn: boolean | undefined): void {
   if (roomTurn) {
     throw new Error("Intercom DM is not available during a Room turn; formal @ stays on room_handoff");
   }
+}
+
+function assertSameIntercomScope(fromBotId: string, toBotId: string): void {
+  const fromScope = botIntercomScopeId(getBot(fromBotId));
+  const toScope = botIntercomScopeId(getBot(toBotId));
+  if (fromScope !== toScope) {
+    throw new Error("Intercom rejected: destination is out of scope");
+  }
+}
+
+function nextFanoutDepth(fromBotId: string): number {
+  const inbound = inboxState(fromBotId).messages.filter(
+    (message) => message.toBotId === fromBotId && isActiveInboxMessage(message),
+  );
+  const latest = inbound[inbound.length - 1];
+  if (!latest?.fanout) return 0;
+  return (latest.fanoutDepth ?? 0) + 1;
 }
 
 function nextThreadHop(fromBotId: string, toBotId: string): { thread: PairThread; depth: number } {
@@ -672,6 +743,7 @@ function prepareDelivery(input: SendBotIntercomInput, kind: BotIntercomMessageKi
   queued: boolean;
   delivery: BotIntercomDelivery;
   attachments: BotIntercomAttachmentInput[] | undefined;
+  scopeId: string;
   supersedes?: string;
   retryOf?: string;
 } {
@@ -688,6 +760,7 @@ function prepareDelivery(input: SendBotIntercomInput, kind: BotIntercomMessageKi
 
   assertSendConsent(fromBotId, "sender");
   assertSendConsent(toBotId, "recipient");
+  assertSameIntercomScope(fromBotId, toBotId);
 
   const hop = nextThreadHop(fromBotId, toBotId);
   if (hop.depth > MAX_BOT_INTERCOM_DEPTH) {
@@ -706,6 +779,7 @@ function prepareDelivery(input: SendBotIntercomInput, kind: BotIntercomMessageKi
     queued: delivery === "queued",
     delivery,
     attachments,
+    scopeId: botIntercomScopeId(getBot(fromBotId)),
     ...(input.supersedes?.trim() ? { supersedes: input.supersedes.trim() } : {}),
     ...(input.retryOf?.trim() ? { retryOf: input.retryOf.trim() } : {}),
   };
@@ -726,6 +800,9 @@ function buildMessage(
     attachments?: BotIntercomAttachmentMeta[];
     supersedes?: string;
     retryOf?: string;
+    scopeId?: string;
+    fanout?: boolean;
+    fanoutDepth?: number;
   } = {},
 ): BotIntercomMessageV1 {
   return {
@@ -744,13 +821,16 @@ function buildMessage(
     ...(extras.attachments && extras.attachments.length > 0 ? { attachments: extras.attachments } : {}),
     ...(extras.supersedes ? { supersedes: extras.supersedes } : {}),
     ...(extras.retryOf ? { retryOf: extras.retryOf } : {}),
+    ...(extras.scopeId ? { scopeId: extras.scopeId } : {}),
+    ...(extras.fanout ? { fanout: true } : {}),
+    ...(typeof extras.fanoutDepth === "number" ? { fanoutDepth: extras.fanoutDepth } : {}),
   };
 }
 
 function commitOutgoing(
   kind: BotIntercomMessageKind,
   prepared: ReturnType<typeof prepareDelivery>,
-  extras: { replyTo?: string } = {},
+  extras: { replyTo?: string; fanout?: boolean; fanoutDepth?: number } = {},
 ): BotIntercomMessageV1 {
   const superseded = prepared.supersedes
     ? assertSupersedeTarget(prepared.fromBotId, prepared.toBotId, prepared.supersedes)
@@ -772,6 +852,9 @@ function commitOutgoing(
       supersedes: prepared.supersedes,
       retryOf: prepared.retryOf,
       replyTo: extras.replyTo,
+      scopeId: prepared.scopeId,
+      fanout: extras.fanout,
+      fanoutDepth: extras.fanoutDepth,
     },
   );
   if (superseded) markSuperseded(superseded, message.id);
@@ -785,6 +868,47 @@ export function sendBotIntercom(input: SendBotIntercomInput): BotIntercomMessage
   rememberThread(prepared.hop.thread, prepared.fromBotId, prepared.toBotId, prepared.hop.depth);
   deliverToMailboxes(message);
   return message;
+}
+
+/**
+ * Guarded same-scope broadcast. Default off (`intercomFanoutEnabled`).
+ * Fail-closed: every Bot id is validated before any mailbox write.
+ */
+export function fanoutBotIntercom(input: FanoutBotIntercomInput): BotIntercomMessageV1[] {
+  assertDmAllowed(input.roomTurn);
+  const fromBotId = input.fromBotId.trim();
+  const sender = getBot(fromBotId);
+  if (!sender) throw new Error("Sender Bot is not available");
+  assertSendConsent(fromBotId, "sender");
+  if (sender.intercomFanoutEnabled !== true) {
+    throw new Error("Fanout is disabled (opt-in setting)");
+  }
+
+  const toIds = [...new Set(input.to.map((id) => id.trim()).filter(Boolean))];
+  if (toIds.length === 0) throw new Error("Fanout requires at least one Bot id");
+  if (toIds.length > MAX_BOT_INTERCOM_FANOUT) {
+    throw new Error(`Fanout rejected: maximum recipient count is ${MAX_BOT_INTERCOM_FANOUT}`);
+  }
+
+  const fanoutDepth = nextFanoutDepth(fromBotId);
+  if (fanoutDepth > MAX_BOT_INTERCOM_FANOUT_DEPTH) {
+    throw new Error("Fanout rejected: maximum fanout depth exceeded");
+  }
+
+  const preparedList = toIds.map((to) => prepareDelivery({
+    fromBotId,
+    to,
+    text: input.text,
+    attachments: input.attachments,
+    roomTurn: input.roomTurn,
+  }, "send"));
+
+  return preparedList.map((prepared) => {
+    const message = commitOutgoing("send", prepared, { fanout: true, fanoutDepth });
+    rememberThread(prepared.hop.thread, prepared.fromBotId, prepared.toBotId, prepared.hop.depth);
+    deliverToMailboxes(message);
+    return message;
+  });
 }
 
 function pruneExpiredAsks(botId?: string): void {
@@ -961,6 +1085,7 @@ export function replyBotIntercom(input: ReplyBotIntercomInput): BotIntercomMessa
     queued: delivery === "queued",
     delivery,
     attachments: stored,
+    scopeId: botIntercomScopeId(getBot(fromBotId)),
   });
   rememberThread(hop.thread, fromBotId, toBotId, depth, hop.thread.askRoundTrips);
   detachPendingAsk(pending.id);

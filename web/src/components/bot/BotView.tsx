@@ -173,6 +173,8 @@ export const BotView = memo(function BotView({ id, active = true }: { id: string
   const [profileLabel, setProfileLabel] = useState("");
   const [notificationsEnabled, setNotificationsEnabled] = useState(true);
   const [intercomEnabled, setIntercomEnabled] = useState(false);
+  const [intercomScopeId, setIntercomScopeId] = useState("");
+  const [intercomFanoutEnabled, setIntercomFanoutEnabled] = useState(false);
   const [intercomInbox, setIntercomInbox] = useState<BotIntercomInboxDto>(EMPTY_INTERCOM_INBOX);
   const [ttsEnabled, setTtsEnabled] = useState(false);
   const [ttsVoice, setTtsVoice] = useState("");
@@ -292,6 +294,8 @@ export const BotView = memo(function BotView({ id, active = true }: { id: string
         setProfileLabel(result.bot.label);
         setNotificationsEnabled(result.bot.notificationsEnabled);
         setIntercomEnabled(result.bot.intercomEnabled === true);
+        setIntercomScopeId(result.bot.intercomScopeId ?? "");
+        setIntercomFanoutEnabled(result.bot.intercomFanoutEnabled === true);
         setTtsVoice(result.bot.ttsVoice ?? "");
         setCodeAutoApprove(result.bot.codeAutoApprove === true);
         setPermissionMode(result.bot.permissionMode ?? "allow");
@@ -374,6 +378,8 @@ export const BotView = memo(function BotView({ id, active = true }: { id: string
     setRoutines([]);
     setIntercomInbox(EMPTY_INTERCOM_INBOX);
     setIntercomEnabled(false);
+    setIntercomScopeId("");
+    setIntercomFanoutEnabled(false);
   }, [id]);
   const updateSettingsOpen = (open: boolean) => {
     settingsOpenRef.current = open;
@@ -750,10 +756,47 @@ export const BotView = memo(function BotView({ id, active = true }: { id: string
       if (botRequestContextRef.current !== requestContext) return;
       applyBotUpdate(result.bot);
       setIntercomEnabled(result.bot.intercomEnabled === true);
+      setIntercomScopeId(result.bot.intercomScopeId ?? "");
+      setIntercomFanoutEnabled(result.bot.intercomFanoutEnabled === true);
     } catch (reason) {
       if (botRequestContextRef.current !== requestContext) return;
       setIntercomEnabled(previous);
       setError(reason instanceof Error ? reason.message : "内線設定の保存に失敗しました");
+    }
+  };
+
+  const updateIntercomScopeId = async (value: string) => {
+    const previous = intercomScopeId;
+    const next = value.trim();
+    const requestContext = botRequestContextRef.current;
+    setIntercomScopeId(next);
+    setError(null);
+    try {
+      const result = await sendJson<{ bot: BotDto }>(`/api/bots/${encodeURIComponent(id)}`, { intercomScopeId: next }, "PATCH");
+      if (botRequestContextRef.current !== requestContext) return;
+      applyBotUpdate(result.bot);
+      setIntercomScopeId(result.bot.intercomScopeId ?? "");
+    } catch (reason) {
+      if (botRequestContextRef.current !== requestContext) return;
+      setIntercomScopeId(previous);
+      setError(reason instanceof Error ? reason.message : "内線スコープの保存に失敗しました");
+    }
+  };
+
+  const updateIntercomFanoutEnabled = async (value: boolean) => {
+    const previous = intercomFanoutEnabled;
+    const requestContext = botRequestContextRef.current;
+    setIntercomFanoutEnabled(value);
+    setError(null);
+    try {
+      const result = await sendJson<{ bot: BotDto }>(`/api/bots/${encodeURIComponent(id)}`, { intercomFanoutEnabled: value }, "PATCH");
+      if (botRequestContextRef.current !== requestContext) return;
+      applyBotUpdate(result.bot);
+      setIntercomFanoutEnabled(result.bot.intercomFanoutEnabled === true);
+    } catch (reason) {
+      if (botRequestContextRef.current !== requestContext) return;
+      setIntercomFanoutEnabled(previous);
+      setError(reason instanceof Error ? reason.message : "一斉送信設定の保存に失敗しました");
     }
   };
 
@@ -1224,7 +1267,42 @@ export const BotView = memo(function BotView({ id, active = true }: { id: string
               )}
             </div>
             <div className="flex items-center justify-between gap-4 rounded-2xl bg-surface-2 p-4 text-sm"><span><span className="font-medium">通知</span><span className="mt-1 block text-xs leading-5 text-muted">このBotが完了したとき、または入力が必要になったときに通知</span></span><button type="button" role="switch" aria-label="通知" aria-checked={notificationsEnabled} onClick={() => void updateNotifications(!notificationsEnabled)} className={notificationsEnabled ? "relative h-6 w-11 shrink-0 rounded-full bg-primary" : "relative h-6 w-11 shrink-0 rounded-full bg-surface-3"}><span className={notificationsEnabled ? "absolute left-6 top-1 h-4 w-4 rounded-full bg-primary-fg" : "absolute left-1 top-1 h-4 w-4 rounded-full bg-primary-fg"} /></button></div>
-            <div className="flex items-center justify-between gap-4 rounded-2xl bg-surface-2 p-4 text-sm"><span><span className="font-medium">Bot間内線</span><span className="mt-1 block text-xs leading-5 text-muted">他の常駐Botへ Bot id 宛に送信し、1:1受信箱で受け取ります。既定はオフです。ツール「内線」も許可してください。Roomの@handoffとは別経路です。</span></span><button type="button" role="switch" aria-label="Bot間内線" aria-checked={intercomEnabled} onClick={() => void updateIntercomEnabled(!intercomEnabled)} className={intercomEnabled ? "relative h-6 w-11 shrink-0 rounded-full bg-primary" : "relative h-6 w-11 shrink-0 rounded-full bg-surface-3"}><span className={intercomEnabled ? "absolute left-6 top-1 h-4 w-4 rounded-full bg-primary-fg" : "absolute left-1 top-1 h-4 w-4 rounded-full bg-primary-fg"} /></button></div>
+            <div className="space-y-3 rounded-2xl bg-surface-2 p-4 text-sm">
+              <div className="flex items-center justify-between gap-4">
+                <span>
+                  <span className="font-medium">Bot間内線</span>
+                  <span className="mt-1 block text-xs leading-5 text-muted">同じスコープの常駐Botへ Bot id 宛に送信し、1:1受信箱で受け取ります。既定はオフです。ツール「内線」も許可してください。Roomの@handoffとは別経路です。</span>
+                </span>
+                <button type="button" role="switch" aria-label="Bot間内線" aria-checked={intercomEnabled} onClick={() => void updateIntercomEnabled(!intercomEnabled)} className={intercomEnabled ? "relative h-6 w-11 shrink-0 rounded-full bg-primary" : "relative h-6 w-11 shrink-0 rounded-full bg-surface-3"}>
+                  <span className={intercomEnabled ? "absolute left-6 top-1 h-4 w-4 rounded-full bg-primary-fg" : "absolute left-1 top-1 h-4 w-4 rounded-full bg-primary-fg"} />
+                </button>
+              </div>
+              {intercomEnabled && (
+                <>
+                  <label className="block">
+                    <span className="text-xs font-medium">内線スコープ</span>
+                    <input
+                      value={intercomScopeId}
+                      onChange={(event) => setIntercomScopeId(event.target.value)}
+                      onBlur={() => void updateIntercomScopeId(intercomScopeId)}
+                      placeholder="default"
+                      aria-label="内線スコープ"
+                      className="mt-1 h-8 w-full rounded-lg border border-border bg-surface px-2 text-xs outline-none focus:border-accent"
+                    />
+                    <span className="mt-1 block text-[11px] leading-4 text-muted">同じ値のBotだけが名簿と送信先に出ます。空欄は default です。</span>
+                  </label>
+                  <div className="flex items-center justify-between gap-4">
+                    <span>
+                      <span className="text-xs font-medium">一斉送信</span>
+                      <span className="mt-1 block text-[11px] leading-4 text-muted">同スコープへの fanout。既定オフ。最大8件・再放送なし。</span>
+                    </span>
+                    <button type="button" role="switch" aria-label="一斉送信" aria-checked={intercomFanoutEnabled} onClick={() => void updateIntercomFanoutEnabled(!intercomFanoutEnabled)} className={intercomFanoutEnabled ? "relative h-6 w-11 shrink-0 rounded-full bg-primary" : "relative h-6 w-11 shrink-0 rounded-full bg-surface-3"}>
+                      <span className={intercomFanoutEnabled ? "absolute left-6 top-1 h-4 w-4 rounded-full bg-primary-fg" : "absolute left-1 top-1 h-4 w-4 rounded-full bg-primary-fg"} />
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
             <div className="flex items-center justify-between gap-4 rounded-2xl bg-surface-2 p-4 text-sm"><span><span className="font-medium">Codeを常に許可</span><span className="mt-1 block text-xs leading-5 text-muted">このBotのCode依頼だけ、承認ダイアログを省略します。</span></span><button type="button" role="switch" aria-label="Codeを常に許可" aria-checked={codeAutoApprove} onClick={() => void updateCodeAutoApprove(!codeAutoApprove)} className={codeAutoApprove ? "relative h-6 w-11 shrink-0 rounded-full bg-primary" : "relative h-6 w-11 shrink-0 rounded-full bg-surface-3"}><span className={codeAutoApprove ? "absolute left-6 top-1 h-4 w-4 shrink-0 rounded-full bg-primary-fg" : "absolute left-1 top-1 h-4 w-4 shrink-0 rounded-full bg-primary-fg"} /></button></div>
             <BotRoutineSettings botId={id} routines={routines} onRefresh={loadRoutines} onError={setError} />
             <label className="block text-sm"><span className="font-medium">ツール権限</span><select aria-label="ツール権限" value={permissionMode} onChange={(event) => void updatePermissionMode(event.target.value as NonNullable<BotDto["permissionMode"]>)} className="mt-2 h-9 w-full rounded-lg border border-border bg-surface px-2 text-sm"><option value="allow">すべて許可</option><option value="ask">実行前に確認</option><option value="deny">すべて拒否</option></select><span className="mt-1 block text-xs text-muted">Botがツールを実行するときの確認方法です。</span></label>

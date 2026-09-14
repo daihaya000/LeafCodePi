@@ -30,6 +30,11 @@ import {
   setBotIntercomAskTimeoutMsForTests,
   setBotIntercomBusyLookup,
   setBotIntercomResidentLookup,
+  fanoutBotIntercom,
+  listBotIntercomCwdPeers,
+  DEFAULT_BOT_INTERCOM_SCOPE_ID,
+  MAX_BOT_INTERCOM_FANOUT,
+  MAX_BOT_INTERCOM_FANOUT_DEPTH,
 } from "./bot-intercom";
 
 function enableIntercom(id: string) {
@@ -490,5 +495,120 @@ describe("bot intercom Phase C contract", () => {
     const sent = sendBotIntercom({ fromBotId: alice.id, to: bob.id, text: "keep" });
     expect(() => cancelBotIntercom({ fromBotId: alice.id, messageId: sent.id, roomTurn: true })).toThrow(/Room turn|room_handoff/i);
     expect(getBotIntercomInbox(bob.id).messages.find((message) => message.id === sent.id)?.cancelled).toBeUndefined();
+  });
+});
+
+describe("bot intercom Phase D contract", () => {
+  let root = "";
+  const residents = new Set<string>();
+
+  beforeEach(() => {
+    root = mkdtempSync(join(tmpdir(), "leafcode-bot-intercom-d-"));
+    botTestState.root = root;
+    residents.clear();
+    resetBotIntercomForTests();
+    setBotIntercomResidentLookup((id) => residents.has(id));
+  });
+
+  afterEach(() => {
+    resetBotIntercomForTests();
+    rmSync(root, { recursive: true, force: true });
+    botTestState.root = "";
+  });
+
+  it("omits out-of-scope Bots from list and rejects send", () => {
+    const alice = enableIntercom(createBot({ name: "Alice" }).id)!;
+    const bob = enableIntercom(createBot({ name: "Bob" }).id)!;
+    const mallory = enableIntercom(createBot({ name: "Mallory" }).id)!;
+    patchBot(mallory.id, { intercomScopeId: "other-project" });
+    residents.add(bob.id);
+    residents.add(mallory.id);
+
+    expect(listBotIntercomPeers(alice.id).map((peer) => peer.id)).toEqual([bob.id]);
+    expect(listBotIntercomPeers(alice.id)[0]?.scopeId).toBe(DEFAULT_BOT_INTERCOM_SCOPE_ID);
+    expect(() => sendBotIntercom({ fromBotId: alice.id, to: mallory.id, text: "cross talk" })).toThrow(/out of scope/i);
+    expect(() => { void askBotIntercom({ fromBotId: alice.id, to: mallory.id, text: "cross talk" }); }).toThrow(/out of scope/i);
+    expect(getBotIntercomInbox(mallory.id).messages.filter((message) => message.toBotId === mallory.id)).toHaveLength(0);
+  });
+
+  it("treats list-cwd without a path as the same-scope roster and filters extraRoots when cwd is set", () => {
+    const alice = enableIntercom(createBot({ name: "Alice" }).id)!;
+    const bob = enableIntercom(createBot({ name: "Bob" }).id)!;
+    const carol = enableIntercom(createBot({ name: "Carol" }).id)!;
+    const shared = join(root, "shared-proj");
+    const other = join(root, "other-proj");
+    patchBot(alice.id, { extraRoots: [shared] });
+    patchBot(bob.id, { extraRoots: [shared] });
+    patchBot(carol.id, { extraRoots: [other] });
+
+    expect(listBotIntercomCwdPeers(alice.id).map((peer) => peer.id).sort()).toEqual([bob.id, carol.id].sort());
+    expect(listBotIntercomCwdPeers(alice.id, shared).map((peer) => peer.id)).toEqual([bob.id]);
+    expect(listBotIntercomCwdPeers(alice.id, other).map((peer) => peer.id)).toEqual([carol.id]);
+  });
+
+  it("keeps fanout off until the sender opts in, then delivers only same-scope ids", () => {
+    const alice = enableIntercom(createBot({ name: "Alice" }).id)!;
+    const bob = enableIntercom(createBot({ name: "Bob" }).id)!;
+    const carol = enableIntercom(createBot({ name: "Carol" }).id)!;
+    const mallory = enableIntercom(createBot({ name: "Mallory" }).id)!;
+    patchBot(mallory.id, { intercomScopeId: "other-project" });
+    residents.add(bob.id);
+    residents.add(carol.id);
+    residents.add(mallory.id);
+
+    expect(MAX_BOT_INTERCOM_FANOUT_DEPTH).toBe(0);
+    expect(() => fanoutBotIntercom({ fromBotId: alice.id, to: [bob.id, carol.id], text: "standup" })).toThrow(/opt-in|disabled/i);
+    expect(getBotIntercomInbox(bob.id).messages).toHaveLength(0);
+
+    patchBot(alice.id, { intercomFanoutEnabled: true });
+    expect(() => fanoutBotIntercom({
+      fromBotId: alice.id,
+      to: [bob.id, mallory.id],
+      text: "no partial",
+    })).toThrow(/out of scope/i);
+    expect(getBotIntercomInbox(bob.id).messages.filter((message) => message.text === "no partial")).toHaveLength(0);
+
+    const sent = fanoutBotIntercom({ fromBotId: alice.id, to: [bob.id, carol.id], text: "standup" });
+    expect(sent).toHaveLength(2);
+    expect(sent.every((message) => message.fanout === true && message.fanoutDepth === 0 && message.scopeId === DEFAULT_BOT_INTERCOM_SCOPE_ID)).toBe(true);
+    expect(getBotIntercomInbox(bob.id).messages.some((message) => message.text === "standup" && message.fanout)).toBe(true);
+    expect(getBotIntercomInbox(carol.id).messages.some((message) => message.text === "standup")).toBe(true);
+  });
+
+  it("rejects fanout over the recipient cap and does not amplify a received fanout", () => {
+    const alice = enableIntercom(createBot({ name: "Alice" }).id)!;
+    patchBot(alice.id, { intercomFanoutEnabled: true });
+    const extras = Array.from({ length: MAX_BOT_INTERCOM_FANOUT + 1 }, (_, index) => (
+      enableIntercom(createBot({ name: `Peer-${index}` }).id)!
+    ));
+    expect(() => fanoutBotIntercom({
+      fromBotId: alice.id,
+      to: extras.map((bot) => bot.id),
+      text: "too many",
+    })).toThrow(/count/i);
+    expect(getBotIntercomInbox(extras[0]!.id).messages).toHaveLength(0);
+
+    const bob = extras[0]!;
+    const carol = extras[1]!;
+    residents.add(bob.id);
+    residents.add(carol.id);
+    fanoutBotIntercom({ fromBotId: alice.id, to: [bob.id, carol.id], text: "wave" });
+    patchBot(bob.id, { intercomFanoutEnabled: true });
+    expect(() => fanoutBotIntercom({ fromBotId: bob.id, to: [alice.id, carol.id], text: "amplify" })).toThrow(/fanout depth/i);
+    expect(getBotIntercomInbox(carol.id).messages.filter((message) => message.text === "amplify")).toHaveLength(0);
+  });
+
+  it("does not start fanout during a Room turn", () => {
+    const alice = enableIntercom(createBot({ name: "Alice" }).id)!;
+    const bob = enableIntercom(createBot({ name: "Bob" }).id)!;
+    patchBot(alice.id, { intercomFanoutEnabled: true });
+    residents.add(bob.id);
+    expect(() => fanoutBotIntercom({
+      fromBotId: alice.id,
+      to: [bob.id],
+      text: "room fanout",
+      roomTurn: true,
+    })).toThrow(/Room turn|room_handoff/i);
+    expect(getBotIntercomInbox(bob.id).messages).toHaveLength(0);
   });
 });

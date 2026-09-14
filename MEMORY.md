@@ -1,5 +1,27 @@
 ﻿# MEMORY
 
+## 2026-09-14: Bot Intercom Bridge Phase D
+
+### 実装
+無関係Botの混線防止とガード付き一斉送信。`intercomScopeId`（空欄=`default`）が同じBotだけ `list` / `list-cwd` / send / ask / fanout の対象。`list-cwd` は同スコープ名簿で、`cwd` 指定時は extraRoot または Bot workspace 一致で絞る。`fanout` は `intercomFanoutEnabled` 明示opt-in（既定OFF）、最大8件、受信fanoutの再放送禁止（`MAX_BOT_INTERCOM_FANOUT_DEPTH = 0`）、Roomターン拒否。メッセージ `v: 1` に任意 `scopeId` / `fanout` / `fanoutDepth`。
+
+コア契約は維持: Bot id のみ / fromBot 詐称不可 / 深さ・ループ上限 / Room二重発火なし / opt-in + allowlist / 同一スレッド ask 往復 = MAX_ROOM_RELAY_DEPTH（3）。Roomリレー・opener・Auto・Computer は未変更。leafcode-intercom 本体コードは未変更（skill に Bot向けパターンを追加）。
+
+### UI
+内線設定カードにスコープ入力と一斉送信トグル（内線ON時のみ）。受信箱はCのまま肥やさない。
+
+### 検証
+bot-intercom 26 / bot-intercom-tool 12 / BotIntercomInbox 5 / BotView.code 57 / intercom route 3 / events 3 / room-runtime 42 / bots 21 / bots route 15 = 184 PASS。typecheck OK。
+
+### 意図的に残した（E+）
+confirmSend、wakeOnDm / Routine / 外部inbound、クロスマシン。fanout のネストAPIは作らない。
+
+### ブランチ / PR
+`cursor/bot-intercom-bridge-phase-d-603f`
+実装 SHA: `c0c5ad08`
+
+---
+
 ## 2026-09-14: Bot Intercom Bridge Phase C
 
 ### 実装

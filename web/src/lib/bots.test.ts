@@ -178,14 +178,24 @@ describe("bot store", () => {
   it("keeps Bot intercom opt-in off until explicitly enabled", () => {
     const bot = createBot({ name: "Intercom bot" });
     expect(bot.intercomEnabled).toBe(false);
+    expect(bot.intercomFanoutEnabled).toBe(false);
+    expect(bot.intercomScopeId).toBe("");
     const configPath = join(root, "bots", bot.id, "config.json");
     const config = JSON.parse(readFileSync(configPath, "utf8"));
     delete config.intercomEnabled;
+    delete config.intercomFanoutEnabled;
+    delete config.intercomScopeId;
     fs.writeFileSync(configPath, JSON.stringify(config));
     expect(getBot(bot.id)?.intercomEnabled).toBe(false);
-    patchBot(bot.id, { intercomEnabled: true });
+    expect(getBot(bot.id)?.intercomFanoutEnabled).toBe(false);
+    expect(getBot(bot.id)?.intercomScopeId).toBe("");
+    patchBot(bot.id, { intercomEnabled: true, intercomFanoutEnabled: true, intercomScopeId: "proj-a" });
     expect(getBot(bot.id)?.intercomEnabled).toBe(true);
+    expect(getBot(bot.id)?.intercomFanoutEnabled).toBe(true);
+    expect(getBot(bot.id)?.intercomScopeId).toBe("proj-a");
     expect(JSON.parse(readFileSync(configPath, "utf8")).intercomEnabled).toBe(true);
+    expect(JSON.parse(readFileSync(configPath, "utf8")).intercomFanoutEnabled).toBe(true);
+    expect(JSON.parse(readFileSync(configPath, "utf8")).intercomScopeId).toBe("proj-a");
   });
   it("persists per-bot skill rules and extra roots", () => {
     const bot = createBot({ name: "Config bot" });
