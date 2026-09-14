@@ -841,11 +841,30 @@ function modelValue(providerID: string, modelID: string): string {
   return `${providerID}::${modelID}`;
 }
 
-type ParsedModelValue = {
+export type ParsedModelValue = {
   accountId?: string;
   providerID: string;
   modelID: string;
 };
+
+/**
+ * True when the task already points at the requested route. Re-resolving an
+ * unchanged model would collect every account's models (~1.3s) for nothing;
+ * the per-turn account choice is made by prepareLiveForPrompt anyway.
+ */
+export function taskMatchesRequestedModel(
+  task: Pick<TaskSummary, "providerID" | "modelID" | "accountId" | "accountIdExplicit">,
+  requested: ParsedModelValue | null,
+  accountIdExplicit: boolean,
+): boolean {
+  return (
+    requested !== null &&
+    task.providerID === requested.providerID &&
+    task.modelID === requested.modelID &&
+    (!requested.accountId || task.accountId === requested.accountId) &&
+    Boolean(task.accountIdExplicit) === accountIdExplicit
+  );
+}
 
 function parseModelValue(value: string | undefined): ParsedModelValue | null {
   if (!value) return null;
@@ -6592,21 +6611,12 @@ export async function promptTask(
     throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });
   // エージェント定義のmodel/thinkingはサブエージェント起動専用。
   // メイン対話者として直接選択した場合はComposerのモデル/Effortを使う。
-  // 同一モデルへの再解決（全アカウントのモデル収集 ≈1.3s）をスキップする。
-  // アカウントの現ターン選定は prepareLiveForPrompt が毎回行うため、タスクが
-  // 要求のプロバイダ/モデルを既に持つなら付与側の再解決は不要。
   let modelChanged = false;
   if (options?.model) {
     const requested = parseModelValue(options.model);
     const requestedAccountExplicit =
       options.accountIdExplicit ?? Boolean(requested?.accountId);
-    const unchanged =
-      requested !== null &&
-      task.providerID === requested.providerID &&
-      task.modelID === requested.modelID &&
-      (!requested.accountId || task.accountId === requested.accountId) &&
-      Boolean(task.accountIdExplicit) === requestedAccountExplicit;
-    if (!unchanged) {
+    if (!taskMatchesRequestedModel(task, requested, requestedAccountExplicit)) {
       try {
         await setTaskModel(id, options.model, {
           accountIdExplicit: options.accountIdExplicit,
