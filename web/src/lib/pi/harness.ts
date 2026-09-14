@@ -2383,6 +2383,42 @@ function settingsManagerExcludingReplacedPackages(
 }
 
 /**
+ * Bundled forks replace their upstream extension. `skipDiscovery` also drops the
+ * npm package from the loader search, which avoids its module import entirely
+ * (pi-mcp-adapter costs ~0.4s per cwd cache clear). The user's settings.json is
+ * never modified; the exclusion only applies inside this loader.
+ */
+const FORK_REPLACED_EXTENSIONS = [
+  { fork: "leafcode-subagents", upstream: "pi-subagents", skipDiscovery: false },
+  { fork: "leafcode-intercom", upstream: "pi-intercom", skipDiscovery: true },
+  { fork: "leafcode-mcp-adapter", upstream: "pi-mcp-adapter", skipDiscovery: true },
+] as const;
+
+/** npm packages excluded from discovery because a bundled fork replaces them. */
+export function replacedUpstreamPackages(
+  bundledNames: ReadonlySet<string>,
+): Set<string> {
+  return new Set(
+    FORK_REPLACED_EXTENSIONS.filter(
+      (entry) => entry.skipDiscovery && bundledNames.has(entry.fork),
+    ).map((entry) => entry.upstream),
+  );
+}
+
+/** Keep one copy of every extension: drop replaced upstreams and stale bundled duplicates. */
+export function keepsLoadedExtension(
+  extensionPath: string,
+  bundled: { names: ReadonlySet<string>; paths: ReadonlySet<string> },
+): boolean {
+  const key = basenameKey(extensionPath);
+  const replacedByFork = FORK_REPLACED_EXTENSIONS.some(
+    (entry) => bundled.names.has(entry.fork) && key === entry.upstream,
+  );
+  if (replacedByFork) return false;
+  return !bundled.names.has(key) || bundled.paths.has(resolve(extensionPath));
+}
+
+/**
  * Tools registered on a new session. An agent-defined allowlist wins; otherwise
  * the WebUI defaults apply. Bot sessions register every known Bot tool so the
  * settings UI can enable one without replacing the live session; applyBotTools
@@ -2480,19 +2516,11 @@ async function createSession(options: {
   // production WebUI supplies explicit roots because it runs from a mirror.
   const bundled = bundledExtensionEntries();
   const bundledSkills = bundledSkillPaths();
-  const bundledNames = new Set(bundled.map((entry) => entry.name));
-  const bundledPaths = new Set(bundled.map((entry) => entry.filePath));
-  // Bundled forks replace their upstream npm extensions. Drop those stale
-  // entries so their tools are never registered twice.
-  const forkOwnsSubagents = bundledNames.has("leafcode-subagents");
-  const forkOwnsIntercom = bundledNames.has("leafcode-intercom");
-  const forkOwnsMcpAdapter = bundledNames.has("leafcode-mcp-adapter");
-  // 同じ置換を探索段階で行い、置換先がある npm パッケージの module import
-  // （pi-mcp-adapter で約0.4秒/回、cwd キャッシュクリア毎に再課税）を省く。
-  // ユーザーの settings.json は変更せず、このローダー内だけの有効範囲。
-  const replacedPackageNames = new Set<string>();
-  if (forkOwnsMcpAdapter) replacedPackageNames.add("pi-mcp-adapter");
-  if (forkOwnsIntercom) replacedPackageNames.add("pi-intercom");
+  const bundledIndex = {
+    names: new Set(bundled.map((entry) => entry.name)),
+    paths: new Set(bundled.map((entry) => entry.filePath)),
+  };
+  const replacedPackageNames = replacedUpstreamPackages(bundledIndex.names);
   // テスト環境のSDKモックはSettingsManagerを持たないことがあるため、存在時だけ適用する。
   const settingsManager =
     replacedPackageNames.size > 0 && typeof pi.SettingsManager?.create === "function"
@@ -2558,16 +2586,8 @@ async function createSession(options: {
     extensionsOverride: (base) => ({
       ...base,
       extensions: filterExtensionsByState(
-        base.extensions.filter(
-          (extension) =>
-            !(
-              forkOwnsSubagents &&
-              basenameKey(extension.path) === "pi-subagents"
-            ) &&
-            !(forkOwnsIntercom && basenameKey(extension.path) === "pi-intercom") &&
-            !(forkOwnsMcpAdapter && basenameKey(extension.path) === "pi-mcp-adapter") &&
-            (!bundledNames.has(basenameKey(extension.path)) ||
-              bundledPaths.has(resolve(extension.path))),
+        base.extensions.filter((extension) =>
+          keepsLoadedExtension(extension.path, bundledIndex),
         ),
       ),
     }),

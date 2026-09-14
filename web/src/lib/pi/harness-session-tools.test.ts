@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
+import { resolve } from "node:path";
 import { describe, it } from "vitest";
-import { sessionToolNames } from "./harness";
+import { keepsLoadedExtension, replacedUpstreamPackages, sessionToolNames } from "./harness";
 
 describe("sessionToolNames", () => {
   it("registers the WebUI defaults with the platform shell and no subagent by default", () => {
@@ -44,5 +45,38 @@ describe("sessionToolNames", () => {
     assert.ok(botTools.includes("code_session"));
     assert.ok(botTools.includes("room_handoff"));
     assert.equal(new Set(botTools).size, botTools.length);
+  });
+});
+
+describe("session extension replacement", () => {
+  const bundled = (...names: string[]) => ({
+    names: new Set(names),
+    paths: new Set(names.map((name) => resolve(`/repo/extensions/${name}/index.ts`))),
+  });
+
+  it("skips discovery only for the npm packages a bundled fork replaces", () => {
+    assert.deepEqual(
+      [...replacedUpstreamPackages(new Set(["leafcode-intercom", "leafcode-mcp-adapter"]))],
+      ["pi-intercom", "pi-mcp-adapter"],
+    );
+    // The subagents fork keeps its upstream discoverable; only loaded copies are dropped.
+    assert.deepEqual([...replacedUpstreamPackages(new Set(["leafcode-subagents"]))], []);
+    assert.deepEqual([...replacedUpstreamPackages(new Set())], []);
+  });
+
+  it("drops replaced upstreams and stale copies of a bundled extension", () => {
+    const index = bundled("leafcode-subagents", "leafcode-intercom");
+    assert.equal(keepsLoadedExtension("/npm/pi-subagents/index.js", index), false);
+    assert.equal(keepsLoadedExtension("/npm/pi-intercom/index.js", index), false);
+    assert.equal(keepsLoadedExtension("/npm/pi-mcp-adapter/index.js", index), true);
+    assert.equal(keepsLoadedExtension("/other/leafcode-subagents/index.ts", index), false);
+    assert.equal(
+      keepsLoadedExtension(resolve("/repo/extensions/leafcode-subagents/index.ts"), index),
+      true,
+    );
+  });
+
+  it("keeps the upstream extension when its fork is not bundled", () => {
+    assert.equal(keepsLoadedExtension("/npm/pi-subagents/index.js", bundled()), true);
   });
 });
