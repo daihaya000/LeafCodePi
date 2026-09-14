@@ -180,6 +180,14 @@
 ### 検証（Tick35–36）
 `rooms/[id]` / `bots/[id]` / `queued-follow-up` — **35 passed**
 
+### Tick37–38（ループ継続）
+1. Bot DELETE — 所属 Room で `detachBotFromRoomRuntime` + 全 Code origin キャンセル後に destroy
+2. Room PATCH members — 外したメンバーを detach（turns/handoff/Code）してから membership 更新
+3. Bot PATCH permissionMode — `setTaskPermissionMode` で live セッションへ反映（busy 時 defer）
+
+### 検証（Tick37–38）
+`bots/[id]` / `rooms/[id]` / `bot-code-relay` — **87 passed**
+
 ---
 
 ## 2026-09-14: Stale production rebuild / next build exit 1
