@@ -1,5 +1,39 @@
 ﻿# MEMORY
 
+## 2026-09-14: Linux master 新規セットアップ検証
+
+対象: GitHub `master` tip `c8fe75212f0e01722431639ff728c79adb7bc616`（`origin/master` と一致）。
+環境: Ubuntu 24.04 x86_64。既定 PATH の Node は `/exec-daemon/node` **v22.14.0**（`engines.node >=22.19` 未満）。検証は nvm **v22.22.2** / npm 10.9.7。`ss` なし、`lsof`/`ps` あり。`llama-server` なし。OAuth/外部秘密なし。
+
+### 結果
+| 項目 | 判定 |
+| --- | --- |
+| 依存 install（web / host / todowrite / 主要拡張） | PASS |
+| `npm run typecheck`（web + todowrite） | PASS |
+| `npm --prefix extensions/leafcode-goal-loop test` | PASS 70/70 |
+| `npm --prefix host test` | PARTIAL 170/173 |
+| `npm --prefix web test` | PARTIAL 2564/2572（+ unhandled rejection 1） |
+| 起動スモーク `LEAFCODE_PI_MODE=dev` host + Next 16.3.1 | PASS |
+| `/api/health` | HTTP 200 `ok:true`（`engineOk:false` は未認証で想定） |
+| llama-server 欠如時の ENOENT | PASS（host は落ちない） |
+
+`start.sh` は Node 22.14.0 を正しく拒否（exit 1）。22.22.2 では version gate 通過。
+
+スモーク: `LEAFCODE_PI_HOST=127.0.0.1` `PORT=13010` `CONTROL=18785` `HEADLESS=1` `NO_BROWSER=1` 隔離 `LEAFCODE_PI_DATA_DIR`。`GET /` 200。`POST /llama-server/start` は `spawn llama-server ENOENT` / `spawn /usr/bin/definitely-missing-llama-server ENOENT` を `{ok:false}` で返し、host PID 生存。既知修正（`llama-server-service.js` start で `started.ready` を先に await）が有効。
+
+### host 失敗 3（Windows パス fixture。製品の Linux 起動は非ブロッカー）
+1. `host/src/web-build-mirror.test.js:309` `resolveMirrorRoot` — `LEAFCODE_PI_BUILD_DIR: "C:\\tmp\\mirror"` を Linux の `path.resolve` が相対扱いし `/workspace/host/C:\\tmp\\mirror`。
+2. 同ファイル `:435` / `:482` — `MIRROR = "C:\\local\\..."` を `isMirrorNextStart` が `resolve(mirrorRoot)` するため cwd 接頭辞で不一致。`productionWebUiIsIdle` が idle=true。
+
+### web 失敗 8
+- `browse-paths.test.ts` 3 + `api/bots/route.test.ts` 2: `web/src/test-environment.ts` が `LEAFCODE_PI_DATA_DIR` を削除。`vitest.config.ts` は `APPDATA` のみ。Linux の `dataDir()`（`web/src/lib/paths.ts`）は APPDATA を無視して `~/.leafcode-pi` を使い、`assertTestSafe` が throw。
+- `harness-limit-fallback.test.ts` 3: `waitFor` 2s timeout。隔離再実行でも再現。パス区切り起因ではなさそう。
+
+### Verdict
+**PARTIAL** — 新規 Linux セットアップ（Node 22.19+）の install / typecheck / 起動 / health / llama ENOENT は健全。`npm test`（web+host）は Linux 上で完全グリーンではない。製品修正 PR は出していない。
+
+---
+
 ## 2026-09-14: Bot Intercom Bridge Phase D
 
 ### 実装
