@@ -92,6 +92,14 @@
 ### 検証（Tick10）
 `GlobalAttention` / `bot-code-relay` / `TaskView` — **131 passed**
 
+### Tick11（ループ継続）
+1. GlobalAttention — question 拒否後も detail 再取得（キュー次質問を消さない）
+2. hang-watchdog — foreign lease 中は `missingLiveSince` をクリアし、lease 終了後に grace を振り直す
+3. TaskView SSE 再接続 — `questionRequest` も permission と同様にクリア
+
+### 検証（Tick11）
+`hang-watchdog` / `GlobalAttention` — **37 passed**
+
 ---
 
 ## 2026-09-14: Stale production rebuild / next build exit 1

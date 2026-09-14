@@ -400,7 +400,13 @@ async function evaluateWatch(row: TaskHangWatchRow, timeoutMs: number): Promise<
     if (now - row.missingLiveSince < MISSING_LIVE_GRACE_MS) return;
     // 別ワーカーが lease を持っているなら、こちらの getLive() が null なのは正常。
     // watch を外したり error に落とすと、実行中のタスクを誤停止する。
+    // grace も消費しない（lease 消滅直後に即 onMissingLive しないよう振り直す）。
     if (hasActiveTaskLease(row.taskId) && !ownsTaskLease(row.taskId)) {
+      if (row.missingLiveSince !== undefined) {
+        delete row.missingLiveSince;
+        row.updatedAt = now;
+        writeStore();
+      }
       logWatchdog("live session missing - another worker holds the lease", row);
       return;
     }

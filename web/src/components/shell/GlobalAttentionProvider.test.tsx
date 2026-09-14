@@ -408,6 +408,57 @@ describe("GlobalAttentionProvider", () => {
     expect(screen.queryByRole("button", { name: /承認・回答が必要なタスク/ })).toBeNull();
   });
 
+  it("keeps the next queued question after rejecting the first", async () => {
+    const first = {
+      id: "question-first",
+      sessionId: "sess-q",
+      questions: [{
+        question: "最初の質問ですか？",
+        options: [{ label: "はい" }],
+        custom: false,
+      }],
+    };
+    const second = {
+      id: "question-second",
+      sessionId: "sess-q",
+      questions: [{
+        question: "次の質問ですか？",
+        options: [{ label: "はい" }],
+        custom: false,
+      }],
+    };
+    let current = first;
+    mocks.getJson.mockImplementation(async (path: string) => {
+      if (path === "/api/tasks") {
+        return { attention: [{ taskId: "task-a", title: "タスクA", kinds: ["question"] }] };
+      }
+      if (path === "/api/tasks/task-a") {
+        return { task: { ...taskDetail("task-a"), title: "タスクA", questionRequest: current } };
+      }
+      throw new Error(`unexpected: ${path}`);
+    });
+    mocks.sendJson.mockImplementation(async (path: string, body?: unknown) => {
+      if (path.endsWith("/question") && body && typeof body === "object" && "reject" in body) {
+        current = second;
+        return {};
+      }
+      return {};
+    });
+    render(<GlobalAttentionProvider />);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(document.body.textContent ?? "").toContain("最初の質問ですか？");
+
+    await act(async () => {
+      screen.getByRole("button", { name: "キャンセル" }).click();
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(document.body.textContent ?? "").toContain("次の質問ですか？");
+    expect(document.body.textContent ?? "").toMatch(/承認・回答が必要です/);
+  });
+
   it("keeps the next queued permission after answering the first", async () => {
     const first = {
       id: "req-first",

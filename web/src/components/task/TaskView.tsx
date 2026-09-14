@@ -1193,6 +1193,7 @@ export const TaskView = memo(function TaskView({
     setHangRetryCount(0);
     setResumeTurnError(null);
     setPermissionRequest(null);
+    setQuestionRequest(null);
     setPermissionBusy(false);
     // Do not evaluate cached messages as authoritative until the SSE ready
     // snapshot replaces them with the server session state.

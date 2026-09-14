@@ -272,8 +272,16 @@ export function GlobalAttentionProvider() {
     }
   };
 
-  const respondToQuestion = async (taskId: string, request: QuestionRequestDto, answers: string[][]) => {
-    await sendJson(`/api/tasks/${taskId}/question`, { requestId: request.id, answers });
+  const respondToQuestion = async (
+    taskId: string,
+    request: QuestionRequestDto,
+    answers: string[][],
+    options?: { reject?: boolean },
+  ) => {
+    await sendJson(`/api/tasks/${taskId}/question`, {
+      requestId: request.id,
+      ...(options?.reject ? { reject: true } : { answers }),
+    });
     clearedQuestionIdsRef.current.add(request.id);
     try {
       const data = await getJson<{ task: TaskDetail }>(`/api/tasks/${taskId}`);
@@ -370,16 +378,7 @@ export function GlobalAttentionProvider() {
                     request={question}
                     onReply={(request, answers) => respondToQuestion(item.taskId, request, answers)}
                     onReject={(request) =>
-                      sendJson(`/api/tasks/${item.taskId}/question`, {
-                        requestId: request.id,
-                        reject: true,
-                      }).then(() => {
-                        clearedQuestionIdsRef.current.add(request.id);
-                        setDetails((current) => ({
-                          ...current,
-                          [item.taskId]: { ...current[item.taskId], questionRequest: null },
-                        }));
-                      })
+                      void respondToQuestion(item.taskId, request, [], { reject: true })
                     }
                   />
                 )}

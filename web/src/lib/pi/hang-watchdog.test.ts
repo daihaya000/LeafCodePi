@@ -293,10 +293,64 @@ describe("hang-watchdog helpers", () => {
     try {
       armTaskHangWatch({ taskId: "foreign-lease", prompt: "work", startedAt: 1_000_000 });
       await runHangWatchdogTick();
+      expect(getTaskHangWatch("foreign-lease")?.missingLiveSince).toBe(1_000_000);
       vi.setSystemTime(1_000_000 + MISSING_LIVE_GRACE_MS);
       await runHangWatchdogTick();
       expect(getTaskHangWatch("foreign-lease")).not.toBeNull();
+      expect(getTaskHangWatch("foreign-lease")?.missingLiveSince).toBeUndefined();
       expect(reason).toBe("");
+    } finally {
+      stopHangWatchdogForTests();
+      if (previousDataDir === undefined) delete process.env.LEAFCODE_PI_DATA_DIR;
+      else process.env.LEAFCODE_PI_DATA_DIR = previousDataDir;
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("restarts missing-live grace after a foreign lease is released", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(1_000_000);
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "leafcode-pi-hang-watchdog-lease-handoff-"));
+    const previousDataDir = process.env.LEAFCODE_PI_DATA_DIR;
+    process.env.LEAFCODE_PI_DATA_DIR = root;
+    const leaseFile = path.join(root, "task-leases", "lease-handoff.json");
+    fs.mkdirSync(path.join(root, "task-leases"), { recursive: true });
+    fs.writeFileSync(
+      leaseFile,
+      `${JSON.stringify({
+        token: "other-worker",
+        pid: process.pid,
+        acquiredAt: 1_000_000,
+        heartbeatAt: 1_000_000,
+      })}\n`,
+      "utf8",
+    );
+    let reason = "";
+    registerHangWatchdogHooks({
+      getLive: () => null,
+      abortTask: async () => undefined,
+      resumePrompt: () => undefined,
+      notifyHangRetry: () => undefined,
+      onMissingLive: (_taskId, message) => {
+        reason = message;
+      },
+    });
+    try {
+      armTaskHangWatch({ taskId: "lease-handoff", prompt: "work", startedAt: 1_000_000 });
+      await runHangWatchdogTick();
+      vi.setSystemTime(1_000_000 + MISSING_LIVE_GRACE_MS);
+      await runHangWatchdogTick();
+      expect(getTaskHangWatch("lease-handoff")?.missingLiveSince).toBeUndefined();
+
+      fs.unlinkSync(leaseFile);
+      await runHangWatchdogTick();
+      expect(getTaskHangWatch("lease-handoff")?.missingLiveSince).toBe(1_000_000 + MISSING_LIVE_GRACE_MS);
+      expect(reason).toBe("");
+
+      vi.setSystemTime(1_000_000 + MISSING_LIVE_GRACE_MS * 2);
+      await runHangWatchdogTick();
+      expect(getTaskHangWatch("lease-handoff")).toBeNull();
+      expect(reason).toContain("live session disappeared");
     } finally {
       stopHangWatchdogForTests();
       if (previousDataDir === undefined) delete process.env.LEAFCODE_PI_DATA_DIR;
