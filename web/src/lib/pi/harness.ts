@@ -3274,6 +3274,27 @@ function throwIfTaskArchived(taskId: string): void {
   }
 }
 
+function resolveLiveSessionAccount(
+  task: TaskSummary,
+  modelRoute: ConcreteModelRoute | undefined,
+  accountIdExplicit: boolean,
+): string | null | undefined {
+  const taskAccount = task.accountId ? getAccount(task.accountId) : undefined;
+  if (accountIdExplicit && task.accountId && !taskAccount) {
+    throw Object.assign(new Error("アカウントが見つかりません"), {
+      status: 404,
+    });
+  }
+  const taskAccountForSession =
+    taskAccount &&
+    (!task.providerID ||
+      (isAccountRoutingProvider(task.providerID) &&
+        accountHasProvider(taskAccount, task.providerID)))
+      ? task.accountId ?? null
+      : null;
+  return modelRoute?.accountId ?? taskAccountForSession;
+}
+
 async function resolveLiveSessionSettings(task: TaskSummary): Promise<{
   model: Model | undefined;
   sessionAccountId: string | null | undefined;
@@ -3299,20 +3320,11 @@ async function resolveLiveSessionSettings(task: TaskSummary): Promise<{
       { status: 503 },
     );
   }
-  const taskAccount = task.accountId ? getAccount(task.accountId) : undefined;
-  if (accountIdExplicit && task.accountId && !taskAccount) {
-    throw Object.assign(new Error("アカウントが見つかりません"), {
-      status: 404,
-    });
-  }
-  const taskAccountForSession =
-    taskAccount &&
-    (!task.providerID ||
-      (isAccountRoutingProvider(task.providerID) &&
-        accountHasProvider(taskAccount, task.providerID)))
-      ? task.accountId ?? null
-      : null;
-  const sessionAccountId = modelRoute?.accountId ?? taskAccountForSession;
+  const sessionAccountId = resolveLiveSessionAccount(
+    task,
+    modelRoute,
+    accountIdExplicit,
+  );
   const sessionThinkingLevel = isThinkingLevel(task.thinkingLevel)
     ? task.thinkingLevel
     : model
