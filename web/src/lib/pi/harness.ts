@@ -21,7 +21,11 @@ import { roomRequestImages } from "@/lib/rooms";
 import { BOT_SOUL_TOOL, botSoulTool } from "@/lib/pi/bot-soul-tool";
 import { ROOM_HANDOFF_TOOL, roomHandoffTool } from "@/lib/room-handoff-tool";
 import { botIntercomTool } from "@/lib/bot-intercom-tool";
-import { setBotIntercomBusyLookup, setBotIntercomResidentLookup } from "@/lib/bot-intercom";
+import {
+  setBotIntercomBusyLookup,
+  setBotIntercomResidentLookup,
+  setBotIntercomSteerHandler,
+} from "@/lib/bot-intercom";
 import { ROOM_SYSTEM_PROMPT, roomBotPrompt } from "@/lib/room-conversation";
 import { requestWebUiPermission } from "@/lib/pi/webui-permission-bridge";
 import {
@@ -602,6 +606,11 @@ function state(): HarnessState {
     setBotIntercomBusyLookup((botId) => {
       const live = globalRef[GLOBAL_KEY]?.live.get(`bot:${botId}`);
       return Boolean(live && (live.promptActive || live.session.isStreaming || live.session.isCompacting));
+    });
+    setBotIntercomSteerHandler(async (message) => {
+      const taskId = `bot:${message.toBotId}`;
+      const content = `[Bot間メッセージ] 実行中ターンへの割り込み（from ${message.fromBotId}）:\n${message.text}`;
+      await promptTask(taskId, content, undefined, { streamingBehavior: "steer" });
     });
     globalRef[GLOBAL_KEY] = {
       pi: null,

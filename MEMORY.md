@@ -48,6 +48,10 @@
 2. provider fallback — settle 時に lease を保持し fallback 完了時に解放
 3. Room `settleStaleRoomTurns` — 他ワーカーの `hasActiveTaskLease` を生存判定に使う
 
+### Tick5（ループ継続）
+1. `store.readStore` — 500ms TTL の blind return を廃止し、常に mtime/size で再検証（他ライター更新を即反映）
+2. bot-intercom — `steered` 時に harness の steer handler 経由で `promptTask(..., steer)` を実行
+
 ---
 
 ## 2026-09-14: Stale production rebuild / next build exit 1

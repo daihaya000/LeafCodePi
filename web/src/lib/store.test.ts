@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -226,6 +226,30 @@ describe("store", () => {
     store.upsertProject({ name: "three", rootPath: "C:\\tmp\\three" });
     expect(names()).toEqual(["one"]);
     expect(existsSync(`${join(dir, "store.json")}.tmp`)).toBe(false);
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("picks up another writer's store.json changes without a TTL blind spot", async () => {
+    const dir = join(tmpdir(), `leafcode-pi-test-${Date.now()}-cache`);
+    mkdirSync(dir, { recursive: true });
+    process.env.LEAFCODE_PI_DATA_DIR = dir;
+    const store = await import("./store");
+    const project = store.upsertProject({ name: "cache", rootPath: "C:\\tmp\\cache" });
+    const task = store.insertTask({ project, title: "before" });
+    expect(store.getTask(task.id)?.title).toBe("before");
+
+    const file = join(dir, "store.json");
+    const disk = JSON.parse(readFileSync(file, "utf8")) as {
+      version: number;
+      projects: unknown[];
+      tasks: Array<{ id: string; title: string }>;
+    };
+    const row = disk.tasks.find((entry) => entry.id === task.id);
+    expect(row).toBeTruthy();
+    row!.title = "from-other-writer";
+    writeFileSync(file, `${JSON.stringify(disk, null, 2)}\n`, "utf8");
+
+    expect(store.getTask(task.id)?.title).toBe("from-other-writer");
     rmSync(dir, { recursive: true, force: true });
   });
 });

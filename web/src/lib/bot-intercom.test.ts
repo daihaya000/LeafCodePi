@@ -30,6 +30,7 @@ import {
   setBotIntercomAskTimeoutMsForTests,
   setBotIntercomBusyLookup,
   setBotIntercomResidentLookup,
+  setBotIntercomSteerHandler,
   fanoutBotIntercom,
   listBotIntercomCwdPeers,
   DEFAULT_BOT_INTERCOM_SCOPE_ID,
@@ -361,16 +362,21 @@ describe("bot intercom Phase C contract", () => {
     expect(getBotIntercomInbox(bob.id).peerPresence).toMatchObject({ botId: alice.id, status: "offline" });
   });
 
-  it("steers send to a busy resident Bot instead of queueing", () => {
+  it("steers send to a busy resident Bot instead of queueing", async () => {
     const alice = enableIntercom(createBot({ name: "Alice" }).id)!;
     const bob = enableIntercom(createBot({ name: "Bob" }).id)!;
     residents.add(bob.id);
     busy.add(bob.id);
+    const steered: string[] = [];
+    setBotIntercomSteerHandler(async (message) => {
+      steered.push(message.toBotId);
+    });
 
     const sent = sendBotIntercom({ fromBotId: alice.id, to: bob.id, text: "steer this" });
     expect(sent.delivery).toBe("steered");
     expect(sent.queued).toBeUndefined();
     expect(getBotIntercomInbox(bob.id).messages.some((message) => message.text === "steer this")).toBe(true);
+    await vi.waitFor(() => expect(steered).toEqual([bob.id]));
   });
 
   it("accepts Room-aligned attachments and rejects oversize, bad MIME, and too many", () => {

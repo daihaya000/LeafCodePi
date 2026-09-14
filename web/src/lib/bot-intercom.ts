@@ -161,6 +161,8 @@ const waitingBots = new Set<string>();
 let threadsLoaded = false;
 let residentLookup: (botId: string) => boolean = () => false;
 let busyLookup: (botId: string) => boolean = () => false;
+let steerHandler: ((message: BotIntercomMessageV1) => void | Promise<void>) | null =
+  null;
 let askTimeoutMs = BOT_INTERCOM_ASK_TIMEOUT_MS;
 
 const BOT_ID_RE = /^[0-9a-f]{8}-[0-9a-f-]{27,}$/i;
@@ -173,6 +175,13 @@ export function setBotIntercomResidentLookup(lookup: (botId: string) => boolean)
 /** Harness installs this so "busy" means the 1:1 session is prompting / streaming. */
 export function setBotIntercomBusyLookup(lookup: (botId: string) => boolean): void {
   busyLookup = lookup;
+}
+
+/** Harness steers a live busy session when delivery is labeled "steered". */
+export function setBotIntercomSteerHandler(
+  handler: ((message: BotIntercomMessageV1) => void | Promise<void>) | null,
+): void {
+  steerHandler = handler;
 }
 
 export function isBotIntercomResident(botId: string): boolean {
@@ -212,6 +221,7 @@ export function resetBotIntercomForTests(): void {
   inboxEvents.removeAllListeners();
   residentLookup = () => false;
   busyLookup = () => false;
+  steerHandler = null;
   askTimeoutMs = BOT_INTERCOM_ASK_TIMEOUT_MS;
 }
 
@@ -436,6 +446,13 @@ function deliverToMailboxes(message: BotIntercomMessageV1): void {
   if (message.fromBotId !== message.toBotId) appendMailbox(message.fromBotId, message);
   emitInbox(message.toBotId);
   if (message.fromBotId !== message.toBotId) emitInbox(message.fromBotId);
+  if (message.delivery !== "steered" || !steerHandler) return;
+  void Promise.resolve(steerHandler(message)).catch((error) => {
+    console.warn(
+      "[bot-intercom] steer failed:",
+      error instanceof Error ? error.message : String(error),
+    );
+  });
 }
 
 function isActiveInboxMessage(message: BotIntercomMessageV1): boolean {

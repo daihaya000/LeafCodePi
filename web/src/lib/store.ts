@@ -10,14 +10,12 @@ type StoreFile = {
   tasks: TaskSummary[];
 };
 
-/** SSE snapshots read the same store repeatedly; recheck disk only twice/sec. */
-const STORE_CACHE_CHECK_MS = 500;
+/** SSE snapshots read the same store repeatedly; reuse parsed JSON when mtime/size match. */
 let cachedStore: {
   file: string;
   value: StoreFile;
   mtimeMs: number;
   size: number;
-  checkedAt: number;
 } | null = null;
 
 function emptyStore(): StoreFile {
@@ -26,10 +24,6 @@ function emptyStore(): StoreFile {
 
 function readStore(): StoreFile {
   const file = storePath();
-  const now = Date.now();
-  if (cachedStore?.file === file && now - cachedStore.checkedAt < STORE_CACHE_CHECK_MS) {
-    return cachedStore.value;
-  }
   let stat: ReturnType<typeof statSync>;
   try {
     stat = statSync(file);
@@ -42,7 +36,6 @@ function readStore(): StoreFile {
     cachedStore.mtimeMs === stat.mtimeMs &&
     cachedStore.size === stat.size
   ) {
-    cachedStore.checkedAt = now;
     return cachedStore.value;
   }
   try {
@@ -57,7 +50,6 @@ function readStore(): StoreFile {
       value: parsed,
       mtimeMs: stat.mtimeMs,
       size: stat.size,
-      checkedAt: now,
     };
     return parsed;
   } catch {
@@ -94,7 +86,16 @@ function writeStore(store: StoreFile): void {
   const temp = `${file}.tmp`;
   writeFileSync(temp, `${JSON.stringify(store, null, 2)}\n`, "utf8");
   renameSync(temp, file);
-  cachedStore = { file, value: store, mtimeMs: -1, size: -1, checkedAt: Date.now() };
+  let mtimeMs = -1;
+  let size = -1;
+  try {
+    const stat = statSync(file);
+    mtimeMs = stat.mtimeMs;
+    size = stat.size;
+  } catch {
+    /* keep sentinel values; next readStore will refresh */
+  }
+  cachedStore = { file, value: store, mtimeMs, size };
 }
 
 export function listProjects(includeArchived = false): ProjectDto[] {
