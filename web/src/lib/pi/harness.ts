@@ -2598,6 +2598,29 @@ export function sessionToolNames(input: {
   ])];
 }
 
+function sessionResourceOptions(input: {
+  systemPrompt?: string;
+  agentAppendSystemPrompt: readonly string[] | undefined;
+  botToolAllowlist: readonly string[] | undefined;
+  agentDir: string;
+  appendSystemPrompt: readonly string[] | undefined;
+  noContextFiles: boolean;
+}): Pick<
+  ResourceLoaderOptions,
+  "systemPrompt" | "appendSystemPrompt" | "noContextFiles"
+> {
+  return {
+    ...(input.systemPrompt ? { systemPrompt: input.systemPrompt } : {}),
+    ...sessionAppendSystemPrompt(
+      input.agentAppendSystemPrompt,
+      input.botToolAllowlist,
+      input.agentDir,
+      input.appendSystemPrompt,
+    ),
+    ...(input.noContextFiles ? { noContextFiles: true } : {}),
+  };
+}
+
 function sessionExtensionsOverride(
   bundled: { names: ReadonlySet<string>; paths: ReadonlySet<string> },
 ): NonNullable<ResourceLoaderOptions["extensionsOverride"]> {
@@ -2832,16 +2855,16 @@ async function createSession(options: {
       botSkills: options.botSkills,
     }),
     extensionsOverride: sessionExtensionsOverride(bundledIndex),
-    ...(agentOptions?.systemPrompt
-      ? { systemPrompt: agentOptions.systemPrompt }
-      : {}),
-    ...sessionAppendSystemPrompt(
-      agentOptions?.appendSystemPrompt,
+    ...sessionResourceOptions({
+      systemPrompt: agentOptions?.systemPrompt,
+      agentAppendSystemPrompt: agentOptions?.appendSystemPrompt,
       botToolAllowlist,
       agentDir,
-      options.appendSystemPrompt,
-    ),
-    ...(agentOptions?.noContextFiles || options.noContextFiles ? { noContextFiles: true } : {}),
+      appendSystemPrompt: options.appendSystemPrompt,
+      noContextFiles: Boolean(
+        agentOptions?.noContextFiles || options.noContextFiles,
+      ),
+    }),
   });
   await resourceLoader.reload();
   const permissionMode =
