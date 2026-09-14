@@ -5960,6 +5960,25 @@ async function attachCreatedTaskSession(
   }
 }
 
+function runBeforePromptWithCleanup(
+  taskId: string,
+  task: TaskSummary,
+  beforePrompt?: (task: TaskSummary) => void,
+): void {
+  try {
+    beforePrompt?.(toSummary(getTask(taskId) ?? task));
+  } catch (error) {
+    releaseTaskLease(taskId);
+    disposeLive(taskId);
+    setTaskStatus(
+      taskId,
+      "error",
+      error instanceof Error ? error.message : String(error),
+    );
+    throw error;
+  }
+}
+
 function startCreatedTaskPrompt(input: {
   taskId: string;
   live: LiveRuntime;
@@ -6128,14 +6147,7 @@ export async function createTask(input: {
       setup.session.setThinkingLevel(thinkingLevel);
     }
     const live = await attachCreatedTaskSession(task, setup, thinkingLevel);
-    try {
-      input.beforePrompt?.(toSummary(getTask(task.id) ?? task));
-    } catch (error) {
-      releaseTaskLease(task.id);
-      disposeLive(task.id);
-      setTaskStatus(task.id, "error", error instanceof Error ? error.message : String(error));
-      throw error;
-    }
+    runBeforePromptWithCleanup(task.id, task, input.beforePrompt);
     const promptStart = startCreatedTaskPrompt({
       taskId: task.id,
       live,
