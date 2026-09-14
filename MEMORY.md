@@ -469,6 +469,17 @@
 ### 検証（Tick93–95）
 `bots/[id]/route` / `rooms` — **34 passed**
 
+### Tick96–98（最終・ユーザー明示終了）
+1. `restoreTask` — 親プロジェクトが archived なら 409（偽 idle / 後続 prompt 409 防止）
+2. `destroyTask` — ensureLive epoch 再バンプ + inflight drain；`attachSession` / `attachCreatedLiveSession` はタスク消失時に attach 拒否
+3. 先送り: TTS settings URL の SSRF（localhost allowlist 要検討）
+
+### 検証（Tick96–98）
+`harness-agent` — **29 passed**
+
+### ループ終了
+ユーザー「現 tick 終了次第、完了報告して明示終了」により `AGENT_LOOP_TICK_thorough_bug_hunt`（5分間隔）を停止。
+
 ---
 
 ## 2026-09-14: Stale production rebuild / next build exit 1
