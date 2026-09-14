@@ -6339,6 +6339,43 @@ export function markTaskWorkingIfIdle(taskId: string): boolean {
   return true;
 }
 
+async function sendPromptWithReasoningFallback(
+  activeLive: LiveRuntime,
+  sendPrompt: () => Promise<unknown>,
+  stillQueued: () => boolean,
+  restoreManualAbortIfPromptNeverStarted: () => void,
+): Promise<void> {
+  try {
+    await sendPrompt();
+  } catch (error) {
+    if (!stillQueued()) return;
+    // 一部モデル（o系/gpt-5-pro 等）は思考オフ不可の 400 を返す。
+    // 思考レベルを引き上げて同じプロンプトを一度だけ再試行する。
+    if (!isReasoningMandatoryError(error) || activeLive.reasoningFallbackTried) {
+      restoreManualAbortIfPromptNeverStarted();
+      throw error;
+    }
+    activeLive.reasoningFallbackTried = true;
+    const level = reasoningFallbackLevel(activeLive.session.model);
+    if (activeLive.session.thinkingLevel !== level)
+      activeLive.session.setThinkingLevel(level);
+    patchTask(activeLive.taskId, { thinkingLevel: level });
+    emitTaskSnapshot(activeLive, "thinking_level_changed", {
+      thinkingLevel: level,
+    });
+    if (!stillQueued()) {
+      restoreManualAbortIfPromptNeverStarted();
+      return;
+    }
+    try {
+      await sendPrompt();
+    } catch (retryError) {
+      restoreManualAbortIfPromptNeverStarted();
+      throw retryError;
+    }
+  }
+}
+
 function queuePrompt(
   live: LiveRuntime,
   prompt: string,
@@ -6507,35 +6544,12 @@ function queuePrompt(
             display: false,
           })
         : activeLive.session.prompt(promptToSend, options);
-    try {
-      await sendPrompt();
-    } catch (error) {
-      if (!stillQueued()) return;
-      // 一部モデル（o系/gpt-5-pro 等）は思考オフ不可の 400 を返す。
-      // 思考レベルを引き上げて同じプロンプトを一度だけ再試行する。
-      if (!isReasoningMandatoryError(error) || activeLive.reasoningFallbackTried) {
-        restoreManualAbortIfPromptNeverStarted();
-        throw error;
-      }
-      activeLive.reasoningFallbackTried = true;
-      const level = reasoningFallbackLevel(activeLive.session.model);
-      if (activeLive.session.thinkingLevel !== level)
-        activeLive.session.setThinkingLevel(level);
-      patchTask(activeLive.taskId, { thinkingLevel: level });
-      emitTaskSnapshot(activeLive, "thinking_level_changed", {
-        thinkingLevel: level,
-      });
-      if (!stillQueued()) {
-        restoreManualAbortIfPromptNeverStarted();
-        return;
-      }
-      try {
-        await sendPrompt();
-      } catch (retryError) {
-        restoreManualAbortIfPromptNeverStarted();
-        throw retryError;
-      }
-    }
+    await sendPromptWithReasoningFallback(
+      activeLive,
+      sendPrompt,
+      stillQueued,
+      restoreManualAbortIfPromptNeverStarted,
+    );
   };
   const handlePromptError = (error: unknown) => {
     const message = error instanceof Error ? error.message : String(error);
