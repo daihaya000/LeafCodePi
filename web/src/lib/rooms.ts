@@ -176,6 +176,18 @@ function validMembers(members: string[]): string[] {
   return [...new Set(members)].filter((id) => Boolean(getBot(id)));
 }
 
+/** Reject unknown bot IDs so a PATCH cannot silently shrink the member list. */
+export function assertKnownRoomMembers(members: string[]): string[] {
+  const unique = [...new Set(members)];
+  const missing = unique.filter((id) => !getBot(id));
+  if (missing.length > 0) {
+    throw Object.assign(new Error(`不明な Bot が含まれています: ${missing.join(", ")}`), {
+      status: 400,
+    });
+  }
+  return unique;
+}
+
 export function listRooms(): RoomDto[] {
   if (!existsSync(roomsRoot())) return [];
   return readdirSync(roomsRoot(), { withFileTypes: true })
@@ -196,7 +208,7 @@ export function patchRoom(id: string, patch: { name?: string; members?: string[]
     const room = readRoom(id);
     if (!room) return undefined;
     if (patch.name !== undefined) room.name = patch.name.trim() || room.name;
-    if (patch.members !== undefined) room.members = validMembers(patch.members);
+    if (patch.members !== undefined) room.members = assertKnownRoomMembers(patch.members);
     if (patch.botRelayEnabled !== undefined) room.botRelayEnabled = patch.botRelayEnabled;
     if (patch.codeAutoApprove !== undefined) room.codeAutoApprove = patch.codeAutoApprove;
     if (patch.resetMessages) { room.messages = []; delete room.lastOutcome; delete room.handoffs; }

@@ -24,6 +24,7 @@ const mocks = vi.hoisted(() => ({
   detachBotFromRoomRuntime: vi.fn(async () => undefined),
   stopAllCodeSessionsForBot: vi.fn(async () => 0),
   stopOneToOneCodeSessionsForBot: vi.fn(async () => 0),
+  isWebUiRequestAuthorized: vi.fn(() => false),
 }));
 vi.mock("@/lib/bots", () => ({
   getBot: mocks.getBot,
@@ -52,6 +53,9 @@ vi.mock("@/lib/room-runtime", () => ({ detachBotFromRoomRuntime: mocks.detachBot
 vi.mock("@/lib/pi/bot-code-relay", () => ({
   stopAllCodeSessionsForBot: mocks.stopAllCodeSessionsForBot,
   stopOneToOneCodeSessionsForBot: mocks.stopOneToOneCodeSessionsForBot,
+}));
+vi.mock("@/lib/webui-auth", () => ({
+  isWebUiRequestAuthorized: mocks.isWebUiRequestAuthorized,
 }));
 
 import { NextRequest } from "next/server";
@@ -147,6 +151,23 @@ describe("PATCH /api/bots/[id]", () => {
     const response = await PATCH(jsonRequest({ label: "" }), params("one"));
     expect(response.status).toBe(200);
     expect(mocks.patchBot).toHaveBeenCalledWith("one", { label: "" });
+  });
+
+  it("rejects unauthenticated codeAutoApprove updates", async () => {
+    mocks.getBot.mockReturnValue(bot());
+    mocks.isWebUiRequestAuthorized.mockReturnValue(false);
+    const response = await PATCH(jsonRequest({ codeAutoApprove: true }), params("one"));
+    expect(response.status).toBe(403);
+    expect(mocks.patchBot).not.toHaveBeenCalled();
+  });
+
+  it("accepts authenticated codeAutoApprove updates", async () => {
+    mocks.getBot.mockReturnValue(bot());
+    mocks.isWebUiRequestAuthorized.mockReturnValue(true);
+    mocks.patchBot.mockReturnValue({ ...bot(), codeAutoApprove: true });
+    const response = await PATCH(jsonRequest({ codeAutoApprove: true }), params("one"));
+    expect(response.status).toBe(200);
+    expect(mocks.patchBot).toHaveBeenCalledWith("one", expect.objectContaining({ codeAutoApprove: true }));
   });
 
   it("accepts the intercom opt-in setting", async () => {

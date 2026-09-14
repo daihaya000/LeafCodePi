@@ -9,6 +9,7 @@ import { getTask, listTasks } from "@/lib/store";
 import { listRooms, patchRoom } from "@/lib/rooms";
 import { stopAllCodeSessionsForBot, stopOneToOneCodeSessionsForBot } from "@/lib/pi/bot-code-relay";
 import { detachBotFromRoomRuntime } from "@/lib/room-runtime";
+import { isWebUiRequestAuthorized } from "@/lib/webui-auth";
 import type { BotSkillsConfig } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -104,6 +105,10 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     return NextResponse.json({ error: "\u30dc\u30c3\u30c8\u8a2d\u5b9a\u304c\u4e0d\u6b63\u3067\u3059" }, { status: 400 });
   }
   if (!getBot(id)) return NextResponse.json({ error: "\u30dc\u30c3\u30c8\u304c\u898b\u3064\u304b\u308a\u307e\u305b\u3093" }, { status: 404 });
+  // Standing Code approval is a privileged mutation (same bar as Room codeAutoApprove).
+  if (hasCodeAutoApprove && !isWebUiRequestAuthorized(req)) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
+  }
 
   try {
     const patch: Parameters<typeof patchBot>[1] = {};

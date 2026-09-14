@@ -12,13 +12,20 @@ describe("room store and mention routing", () => {
   let root = "";
   beforeEach(() => { root = mkdtempSync(join(tmpdir(), "leafcode-rooms-")); testState.root = root; });
   afterEach(() => { rmSync(root, { recursive: true, force: true }); testState.root = ""; });
-  it("persists a room and keeps only bot allowlist members", () => {
+  it("persists a room and keeps only bot allowlist members on create", () => {
     const first = createBot({ name: "Alpha" });
     const second = createBot({ name: "Beta" });
     const room = createRoom({ name: "Team", members: [first.id, "not-a-bot", second.id] });
     expect(getRoom(room.id)?.members).toEqual([first.id, second.id]);
     expect(readFileSync(join(root, "bots", "rooms", `${room.id}.json`), "utf8")).toContain('"members"');
     expect(patchRoom(room.id, { members: [second.id] })?.members).toEqual([second.id]);
+  });
+
+  it("rejects unknown bot ids when patching room members", () => {
+    const first = createBot({ name: "Alpha" });
+    const room = createRoom({ name: "Team", members: [first.id] });
+    expect(() => patchRoom(room.id, { members: [first.id, "not-a-bot"] })).toThrow(/不明な Bot/);
+    expect(getRoom(room.id)?.members).toEqual([first.id]);
   });
   it("routes no mention, named mention, and broadcast correctly", () => {
     const alpha = createBot({ name: "Alpha" });
