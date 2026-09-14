@@ -20,6 +20,7 @@ presence、添付、cancel/supersede/confirmSend、scopeId、fanout、wakeOnDm /
 
 ### ブランチ / PR
 `cursor/bot-intercom-bridge-phase-b-21eb`
+実装 SHA: `7b716d75`
 
 ---
 
