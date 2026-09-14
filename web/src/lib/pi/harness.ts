@@ -6044,6 +6044,43 @@ function startCreatedTaskPrompt(input: {
   });
 }
 
+type CreateTaskModelInput = {
+  modelValue: string | undefined;
+  thinkingLevelInput: ThinkingLevel | undefined;
+  accountIdInput: string | undefined;
+  accountIdExplicitInput: boolean | undefined;
+};
+
+async function resolveCreateTaskModelInput(input: {
+  modelValue: string | undefined;
+  thinkingLevelInput: ThinkingLevel | undefined;
+  accountIdInput: string | undefined;
+  accountIdExplicitInput: boolean | undefined;
+  prompt: string;
+  hasImages: boolean;
+  attachmentCount: number;
+}): Promise<CreateTaskModelInput> {
+  if (input.modelValue !== AUTO_MODEL_VALUE) {
+    return {
+      modelValue: input.modelValue,
+      thinkingLevelInput: input.thinkingLevelInput,
+      accountIdInput: input.accountIdInput,
+      accountIdExplicitInput: input.accountIdExplicitInput,
+    };
+  }
+  const autoDecision = await resolveConfiguredAutoModel(
+    input.prompt,
+    input.hasImages,
+    input.attachmentCount,
+  );
+  return {
+    modelValue: autoModelValue(autoDecision),
+    thinkingLevelInput: autoVariantToThinkingLevel(autoDecision.variant),
+    accountIdInput: autoDecision.accountId,
+    accountIdExplicitInput: false,
+  };
+}
+
 function resolveCreateTaskModelSelection(input: {
   modelValue: string | undefined;
   accountIdInput: string | undefined;
@@ -6101,21 +6138,21 @@ export async function createTask(input: {
     throw Object.assign(new Error("プロジェクトが見つかりません"), {
       status: 404,
     });
-  let modelValue = input.model;
-  let thinkingLevelInput = input.thinkingLevel;
-  let accountIdInput = input.accountId;
-  let accountIdExplicitInput = input.accountIdExplicit;
-  if (modelValue === AUTO_MODEL_VALUE) {
-    const autoDecision = await resolveConfiguredAutoModel(
-      input.prompt,
-      Boolean(input.images?.length),
+  const {
+    modelValue,
+    thinkingLevelInput,
+    accountIdInput,
+    accountIdExplicitInput,
+  } = await resolveCreateTaskModelInput({
+    modelValue: input.model,
+    thinkingLevelInput: input.thinkingLevel,
+    accountIdInput: input.accountId,
+    accountIdExplicitInput: input.accountIdExplicit,
+    prompt: input.prompt,
+    hasImages: Boolean(input.images?.length),
+    attachmentCount:
       (input.images?.length ?? 0) + (input.files?.length ?? 0),
-    );
-    modelValue = autoModelValue(autoDecision);
-    thinkingLevelInput = autoVariantToThinkingLevel(autoDecision.variant);
-    accountIdInput = autoDecision.accountId;
-    accountIdExplicitInput = false;
-  }
+  });
   const {
     parsed,
     requestedAccountId,
