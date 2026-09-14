@@ -156,6 +156,22 @@
 ### 検証（Tick29–31）
 `harness-bot-code` / `rooms/revert` / `RoomView` / `BotView.code` — **94 passed**
 
+### Tick32–33（ループ継続）
+1. `revertTask` / `unrevertTask` — streaming・compacting・promptActive・Goal loop live を 409 拒否
+2. TaskView — 復元中/確認中は送信不可、working 中は復元ボタン無効
+3. RoomView / BotView — 巻き戻し中は composer 送信・添付をブロック
+
+### 検証（Tick32–33）
+`harness-revert` / `RoomView` / `BotView.code` / `TaskView` — **150 passed**
+
+### Tick34（ループ継続）
+1. `isTaskRuntimeBusyForDestructiveEdit` — lease / fallback / compaction を promote・revert 共通で拒否
+2. アカウント pause/delete — `hasActiveTaskLease` も 409（fallback 中の idle/error を含む）
+3. Bot ルーティン — `lastRunAt` は成功時のみ更新、lease busy は failureCount 非加算
+
+### 検証（Tick34）
+`accounts` / `routines` / `harness-promote` / `harness-revert` — **76 passed**
+
 ---
 
 ## 2026-09-14: Stale production rebuild / next build exit 1

@@ -228,4 +228,40 @@ describe("promoteTask", () => {
     );
     expect(existsSync(source)).toBe(true);
   });
+
+  it("rejects promote while provider-limit fallback is still pending", async () => {
+    const root = mkdtempSync(join(tmpdir(), "leafcode-pi-promote-"));
+    roots.push(root);
+    const noProjectRoot = join(root, "no-project");
+    process.env.LEAFCODE_PI_DATA_DIR = join(root, "data");
+    process.env.LEAFCODE_PI_DEFAULT_DIR = noProjectRoot;
+    const task = insertTask({ project: null, title: "fallback" });
+    const source = task.directory;
+    const sessionFile = join(source, "session.json");
+    writeFileSync(sessionFile, "session\n", "utf8");
+    patchTask(task.id, { status: "error", sessionId: "sess", sessionFile });
+    setHarness({
+      SessionManager: {
+        forkFrom: () => {
+          throw new Error("should not fork during fallback");
+        },
+      },
+    });
+    const harness = (globalThis as Record<string, unknown>)[GLOBAL_KEY] as {
+      live: Map<string, unknown>;
+    };
+    harness.live.set(task.id, {
+      taskId: task.id,
+      promptActive: false,
+      autoCompactionPromise: null,
+      manualCompactionInProgress: false,
+      pendingProviderFallback: { providerID: "openai-codex", modelID: "gpt", message: "limit" },
+      session: { isStreaming: false, isCompacting: false, sessionId: "sess" },
+    });
+
+    await expect(promoteTask(task.id, join(root, "project"))).rejects.toThrow(
+      "実行中のタスクは停止してから昇進してください",
+    );
+    expect(existsSync(source)).toBe(true);
+  });
 });

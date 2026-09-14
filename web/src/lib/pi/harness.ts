@@ -5453,15 +5453,7 @@ async function promoteTaskOnce(
       status: 409,
     });
 
-  const live = state().live.get(taskId);
-  const goalLoop = readGoalLoopState(task.directory, task.sessionId);
-  if (
-    task.status === "working" ||
-    live?.session.isStreaming ||
-    live?.session.isCompacting ||
-    live?.promptActive ||
-    isGoalLoopLiveStatus(goalLoop?.status)
-  ) {
+  if (isTaskRuntimeBusyForDestructiveEdit(taskId)) {
     throw Object.assign(new Error("実行中のタスクは停止してから昇進してください"), {
       status: 409,
     });
@@ -7881,6 +7873,33 @@ export function isLiveBusyForReplace(live: {
   return Boolean(live.promptActive || live.session.isStreaming || live.session.isCompacting);
 }
 
+/**
+ * True when promote / account disable / tree navigate must wait: leases, fallback,
+ * compaction, Goal loop, or an active prompt/stream.
+ */
+export function isTaskRuntimeBusyForDestructiveEdit(taskId: string): boolean {
+  const task = getTask(taskId);
+  const live = state().live.get(taskId);
+  const goalLoop = task
+    ? readGoalLoopState(task.directory, live?.session.sessionId ?? task.sessionId)
+    : null;
+  if (task?.status === "working") return true;
+  if (isGoalLoopLiveStatus(goalLoop?.status)) return true;
+  if (getTaskHangWatch(taskId)?.state === "resolving") return true;
+  // Own lease during provider-limit fallback, or a foreign worker's lease.
+  if (hasActiveTaskLease(taskId)) return true;
+  if (!live) return false;
+  return Boolean(
+    live.promptActive ||
+      live.session.isStreaming ||
+      live.session.isCompacting ||
+      live.manualCompactionInProgress ||
+      live.autoCompactionPromise ||
+      live.pendingProviderFallback ||
+      providerFallbackInflight.has(taskId),
+  );
+}
+
 export function throwIfBusyForModelChange(live: {
   promptActive?: boolean;
   session: { isStreaming?: boolean; isCompacting?: boolean };
@@ -8252,27 +8271,8 @@ export async function abortTaskCompaction(id: string): Promise<TaskDetail> {
  * Pi コアの navigateTree は user メッセージをターゲットにすると leaf を親へ
  * 移し、破棄した分の入力を editorText として返す。
  */
-function assertIdleForSessionTreeEdit(
-  id: string,
-  live: {
-    session: {
-      isStreaming: boolean;
-      isCompacting?: boolean;
-      sessionId?: string | null;
-    };
-    promptActive?: boolean;
-  },
-): void {
-  const task = getTask(id);
-  const goalLoop = task
-    ? readGoalLoopState(task.directory, live.session.sessionId ?? task.sessionId)
-    : null;
-  if (
-    live.session.isStreaming ||
-    Boolean(live.session.isCompacting) ||
-    Boolean(live.promptActive) ||
-    isGoalLoopLiveStatus(goalLoop?.status)
-  ) {
+function assertIdleForSessionTreeEdit(id: string): void {
+  if (isTaskRuntimeBusyForDestructiveEdit(id)) {
     throw Object.assign(
       new Error("応答中は巻き戻せません。停止してからお試しください"),
       { status: 409 },
@@ -8290,7 +8290,7 @@ export async function revertTask(
   files: { uri: string; mime: string; name?: string }[];
 }> {
   const live = await ensureLive(id);
-  assertIdleForSessionTreeEdit(id, live);
+  assertIdleForSessionTreeEdit(id);
   const entry = messageEntryById(live.session, messageId);
   if (!entry) {
     throw Object.assign(new Error("対象メッセージが見つかりません"), {
@@ -8476,7 +8476,7 @@ export function restoreExactSessionLeaf(
 /** 巻き戻し取消: revert 前の leaf へ戻す。 */
 export async function unrevertTask(id: string): Promise<TaskDetail> {
   const live = await ensureLive(id);
-  assertIdleForSessionTreeEdit(id, live);
+  assertIdleForSessionTreeEdit(id);
   const target = live.revertLeafId ?? getTask(id)?.revertLeafId ?? null;
   if (!target) {
     throw Object.assign(new Error("巻き戻しの対象がありません"), {

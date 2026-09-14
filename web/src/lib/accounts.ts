@@ -6,6 +6,7 @@ import { invalidateCachedUsage } from "./codexbar/cache";
 import { clearProviderCache } from "./codexbar/provider-cache";
 import { isGoalLoopLiveStatus, readGoalLoopState } from "./pi/goal-loop-state";
 import { listTasks } from "./store";
+import { hasActiveTaskLease } from "./task-runtime-lease";
 
 /**
  * マルチアカウント対応の model 層（docs/plans/multi-account.md Phase 1）。
@@ -296,13 +297,14 @@ export function createAccount(input: {
 }
 
 /**
- * 実行中タスク / live Goal Loop から参照されているアカウントは削除も一時停止も拒否する。
+ * 実行中タスク / live Goal Loop / ランタイム lease から参照されているアカウントは
+ * 削除も一時停止も拒否する（provider fallback 中は status が idle/error でも lease が残る）。
  */
 function assertAccountIdleForDisable(id: string, action: "delete" | "pause"): void {
   const verb = action === "delete" ? "削除" : "一時停止";
   for (const task of listTasks(false, "all")) {
     if (task.accountId !== id) continue;
-    if (task.status === "working") {
+    if (task.status === "working" || hasActiveTaskLease(task.id)) {
       throw Object.assign(
         new Error(`このアカウントで実行中のタスクがあるため${verb}できません`),
         { status: 409 },

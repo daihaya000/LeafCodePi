@@ -432,6 +432,33 @@ describe("accounts store CRUD", () => {
     );
     assert.equal(getAccount(account.id)?.enabled, true);
   });
+
+  it("refuses to pause while a runtime lease is held for an idle/error task", async () => {
+    tempDataDir();
+    const { acquireTaskLease, releaseTaskLease } = await import("@/lib/task-runtime-lease");
+    const project = upsertProject({
+      name: "lease-pause",
+      rootPath: join(tmpdir(), "lease-pause-root"),
+    });
+    const task = insertTask({ project, title: "fallback recovery" });
+    const account = createAccount({
+      label: "lease-pause",
+      providers: ["openai-codex"],
+    });
+    patchLoose(task.id, { status: "error", accountId: account.id });
+    assert.equal(acquireTaskLease(task.id), true);
+    try {
+      assert.throws(
+        () => patchAccount(account.id, { enabled: false }),
+        (error) =>
+          httpStatus(error) === 409 &&
+          String((error as Error).message).includes("一時停止"),
+      );
+      assert.equal(getAccount(account.id)?.enabled, true);
+    } finally {
+      releaseTaskLease(task.id);
+    }
+  });
 });
 
 type AccountRecordLike = {

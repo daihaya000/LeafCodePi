@@ -151,6 +151,20 @@ describe("routine cron and persistence", () => {
     await expect(runRoutine(bot.id, routine.id)).rejects.toThrow("ルーティンは無効です");
     expect(state.promptTask).toHaveBeenCalledTimes(3);
   });
+
+  it("does not consume lastRunAt or failureCount when the Bot lease is busy elsewhere", async () => {
+    const bot = createBot({ name: "Routine bot" });
+    const routine = createRoutine(bot.id, { name: "Hourly", prompt: "Check status", schedule: "0 * * * *" });
+    state.promptTask.mockRejectedValue(Object.assign(new Error("タスクは別のワーカーで実行中です"), { status: 409 }));
+
+    await expect(runRoutine(bot.id, routine.id)).rejects.toThrow("別のワーカーで実行中");
+    expect(getRoutine(bot.id, routine.id)).toMatchObject({
+      enabled: true,
+      failureCount: 0,
+      lastRunAt: null,
+    });
+    expect(state.promptTask).toHaveBeenCalledTimes(1);
+  });
   it("runs a due routine once when a scheduler tick overlaps its in-flight run", async () => {
     vi.useFakeTimers();
     try {

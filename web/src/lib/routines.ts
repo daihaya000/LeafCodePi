@@ -116,19 +116,73 @@ export function deleteRoutine(botId: string, routineId: string): boolean {
     return true;
   }));
 }
-function markRoutineStart(routine: RoutineDto): RoutineDto | undefined {
-  return withRoutineLock(routine.botId, routine.id, () => {
-    const current = getRoutine(routine.botId, routine.id);
-    return current ? writeRoutine({ ...current, lastRunAt: new Date().toISOString(), updatedAt: new Date().toISOString() }) : undefined;
-  });
-}
 function updateRoutine(botId: string, routineId: string, update: (routine: RoutineDto) => RoutineDto): RoutineDto | undefined {
   return withRoutineLock(botId, routineId, () => {
     const current = getRoutine(botId, routineId);
     return current ? writeRoutine(update(current)) : undefined;
   });
 }
-export async function runRoutine(botId: string, routineId: string): Promise<RoutineDto> { const key = `${botId}:${routineId}`; const running = routineRuns.get(key); if (running) { await running; const latest = getRoutine(botId, routineId); if (!latest) throw new Error("Routine not found"); return latest; } const run = (async () => { const routine = getRoutine(botId, routineId); const bot = getBot(botId); if (!routine || !bot) throw new Error("Routine not found"); if (!routine.enabled) throw new Error("ルーティンは無効です"); const started = markRoutineStart(routine); if (!started) throw new Error("Routine not found"); if (!started.enabled) throw new Error("ルーティンは無効です"); try { await promptTask(botTaskId(botId), `[ルーティン: ${started.name}]\n${started.prompt}`, undefined, { waitForCompletion: true, permissionMode: bot.permissionMode ?? undefined }); const detail = await getTaskDetail(botTaskId(botId)); const latest = [...detail.messages].reverse().find((message) => message.role === "assistant"); if (detail.status === "error" || detail.error || latest?.error) throw new Error(detail.error || latest?.error || "Bot の実行に失敗しました"); const updated = updateRoutine(botId, routineId, (current) => ({ ...current, failureCount: 0, updatedAt: new Date().toISOString() })); if (!updated) throw new Error("Routine was deleted"); return updated; } catch (error) { const updated = updateRoutine(botId, routineId, (current) => { const failureCount = current.failureCount + 1; return { ...current, failureCount, enabled: current.enabled && failureCount < ROUTINE_MAX_FAILURES, updatedAt: new Date().toISOString() }; }); if (!updated) throw error; const suffix = updated.failureCount >= ROUTINE_MAX_FAILURES ? "（連続失敗のため自動的に無効化しました）" : ""; throw new Error(`${error instanceof Error ? error.message : String(error)}${suffix}`); } })(); routineRuns.set(key, run); try { return await run; } finally { if (routineRuns.get(key) === run) routineRuns.delete(key); } }
+
+function isTransientRoutineStartError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return message.includes("別のワーカーで実行中");
+}
+
+export async function runRoutine(botId: string, routineId: string): Promise<RoutineDto> {
+  const key = `${botId}:${routineId}`;
+  const running = routineRuns.get(key);
+  if (running) {
+    await running;
+    const latest = getRoutine(botId, routineId);
+    if (!latest) throw new Error("Routine not found");
+    return latest;
+  }
+  const run = (async () => {
+    const routine = getRoutine(botId, routineId);
+    const bot = getBot(botId);
+    if (!routine || !bot) throw new Error("Routine not found");
+    if (!routine.enabled) throw new Error("ルーティンは無効です");
+    try {
+      await promptTask(botTaskId(botId), `[ルーティン: ${routine.name}]\n${routine.prompt}`, undefined, {
+        waitForCompletion: true,
+        permissionMode: bot.permissionMode ?? undefined,
+      });
+      const detail = await getTaskDetail(botTaskId(botId));
+      const latest = [...detail.messages].reverse().find((message) => message.role === "assistant");
+      if (detail.status === "error" || detail.error || latest?.error) {
+        throw new Error(detail.error || latest?.error || "Bot の実行に失敗しました");
+      }
+      const updated = updateRoutine(botId, routineId, (current) => ({
+        ...current,
+        lastRunAt: new Date().toISOString(),
+        failureCount: 0,
+        updatedAt: new Date().toISOString(),
+      }));
+      if (!updated) throw new Error("Routine was deleted");
+      return updated;
+    } catch (error) {
+      if (isTransientRoutineStartError(error)) throw error;
+      const updated = updateRoutine(botId, routineId, (current) => {
+        const failureCount = current.failureCount + 1;
+        return {
+          ...current,
+          failureCount,
+          enabled: current.enabled && failureCount < ROUTINE_MAX_FAILURES,
+          updatedAt: new Date().toISOString(),
+        };
+      });
+      if (!updated) throw error;
+      const suffix = updated.failureCount >= ROUTINE_MAX_FAILURES ? "（連続失敗のため自動的に無効化しました）" : "";
+      throw new Error(`${error instanceof Error ? error.message : String(error)}${suffix}`);
+    }
+  })();
+  routineRuns.set(key, run);
+  try {
+    return await run;
+  } finally {
+    if (routineRuns.get(key) === run) routineRuns.delete(key);
+  }
+}
 function tryRoutineSchedulerLock(): string | undefined {
   const lock = join(dataDir(), "bots", "routines.scheduler.lock");
   mkdirSync(join(dataDir(), "bots"), { recursive: true });
