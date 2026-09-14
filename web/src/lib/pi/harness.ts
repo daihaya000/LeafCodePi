@@ -6311,6 +6311,19 @@ export async function waitForSessionStreaming(
 
 const TASK_LEASE_BUSY_ERROR = "タスクは別のワーカーで実行中です";
 
+function pendingSettingsForPrompt(
+  streamingBehavior: "steer" | "followUp" | undefined,
+  hadActivePrompt: boolean,
+  live: LiveRuntime,
+  pendingSettingsAtQueue: PendingLiveSettings | undefined,
+): PendingLiveSettings | undefined {
+  if (streamingBehavior) return undefined;
+  if (!hadActivePrompt) return pendingSettingsAtQueue;
+  return copyPendingLiveSettings(
+    (state().live.get(live.taskId) ?? live).pendingSettings,
+  );
+}
+
 function requireTaskLease(taskId: string): void {
   if (!acquireTaskLease(taskId)) {
     throw Object.assign(new Error(TASK_LEASE_BUSY_ERROR), { status: 409 });
@@ -6431,11 +6444,12 @@ function queuePrompt(
       meta?.streamingBehavior,
       currentLive.session.isStreaming,
     );
-    const pendingSettings = meta?.streamingBehavior
-      ? undefined
-      : hadActivePrompt
-        ? copyPendingLiveSettings((state().live.get(live.taskId) ?? live).pendingSettings)
-        : pendingSettingsAtQueue;
+    const pendingSettings = pendingSettingsForPrompt(
+      meta?.streamingBehavior,
+      hadActivePrompt,
+      live,
+      pendingSettingsAtQueue,
+    );
     activeLive = pendingSettings
       ? await prepareLiveForPrompt(live, !streamingBehavior, pendingSettings)
       : await prepareLiveForPrompt(live, !streamingBehavior);
