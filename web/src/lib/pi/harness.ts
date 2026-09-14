@@ -3421,14 +3421,15 @@ async function resolveConcreteModelWithFallback(
       strictAccountId: options?.strictAccountId,
       accountIdExplicit: explicit,
     });
+    const limitedAccountId = route?.accountId ?? requestedAccountId;
     if (
       route &&
-      requestedAccountId &&
+      limitedAccountId &&
       isAccountRoutingProvider(parsed.providerID) &&
-      providerIsHardLimited(parsed.providerID, requestedAccountId)
+      providerIsHardLimited(parsed.providerID, limitedAccountId)
     ) {
       sourceError = routeLimitError(
-        providerResetAt(parsed.providerID, requestedAccountId),
+        providerResetAt(parsed.providerID, limitedAccountId),
       );
       route = undefined;
     }

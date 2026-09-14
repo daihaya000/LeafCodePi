@@ -25,6 +25,11 @@
 ### 検証
 関連 vitest 6 files / **81 passed**（harness-complete/runtime, reset-credits, direct-generation, auto-agent, accounts）
 
+### Tick1（同日継続）
+1. `resolveConcreteModelWithFallback` — limit 判定を `route.accountId` 基準に（要求アカウントの stale limit で健全ルートを捨てない）
+2. `bot-intercom` タイムアウトテスト — fake timers で flaky 解消
+3. `resolveNoProjectRoot` — `platform` に応じた `posix`/`win32` join（Windows 上の linux テスト失敗を修正）
+
 ---
 
 ## 2026-09-14: Stale production rebuild / next build exit 1

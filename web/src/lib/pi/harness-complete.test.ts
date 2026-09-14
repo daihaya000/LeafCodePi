@@ -11,7 +11,7 @@ import {
 } from "@/lib/accounts";
 import { parseCodexBarSnapshot } from "@/lib/codexbar";
 import { clearCachedUsage, setCachedUsage } from "@/lib/codexbar/cache";
-import { setAccountRoutingMode, __resetProviderRoutingQueueForTests } from "@/lib/provider-routing";
+import { setAccountRoutingMode, __resetProviderRoutingQueueForTests, markProviderLimited } from "@/lib/provider-routing";
 import { AccountRuntimeManager } from "./account-runtime-manager";
 import { completeModelText, createTask, validateTaskModelSelection } from "./harness";
 import type { AssistantMessage } from "@earendil-works/pi-ai";
@@ -277,6 +277,76 @@ describe("completeModelText", () => {
       prompt: "prompt",
     });
     assert.deepEqual(calls, [low.id]);
+  });
+
+  it("keeps a healthy integrated route when the requested account is limited", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "leafcode-pi-complete-limit-route-"));
+    tempDirs.push(dir);
+    process.env.LEAFCODE_PI_DATA_DIR = dir;
+    const agentDir = useTestAgentDir(dir);
+    const limited = createAccount({ label: "上限", providers: ["anthropic"] });
+    const healthy = createAccount({ label: "健全", providers: ["anthropic"] });
+    storeAccountProviderAuth(limited.id, agentDir);
+    storeAccountProviderAuth(healthy.id, agentDir);
+    await setAccountRoutingMode("anthropic", "integrated");
+    patchAccount(limited.id, { enabled: false });
+    markProviderLimited("anthropic", limited.id);
+
+    const calls: string[] = [];
+    const response = assistant({ content: [{ type: "text", text: "ok" }] });
+    const makeRuntime = (accountId: string) => ({
+      getProvider: () => ({ id: "stub" }),
+      registerProvider: () => {},
+      getProviders: () => [{ id: "anthropic", name: "Anthropic" }],
+      getModels: () => [{ id: "claude-sonnet", name: "Claude Sonnet" }],
+      hasConfiguredAuth: () => true,
+      getAvailable: async () => [
+        {
+          provider: "anthropic",
+          id: "claude-sonnet",
+          name: "Claude Sonnet",
+          input: ["text"],
+          reasoning: false,
+          thinkingLevelMap: { off: "none" },
+        },
+      ],
+      getModel: (providerID: string, modelID: string) =>
+        providerID === "anthropic" && modelID === "claude-sonnet"
+          ? {
+              provider: providerID,
+              id: modelID,
+              reasoning: false,
+              thinkingLevelMap: { off: "none" },
+              maxTokens: 32_768,
+            }
+          : undefined,
+      completeSimple: () => {
+        calls.push(accountId);
+        return Promise.resolve(response);
+      },
+    });
+    (globalThis as Record<string, unknown>)[GLOBAL_KEY] = {
+      pi: null,
+      modelRuntime: { getProvider: () => ({ id: "stub" }), registerProvider: () => {} },
+      accountRuntimes: new AccountRuntimeManager(async (accountId) => makeRuntime(accountId) as never),
+      initPromise: null,
+      initError: null,
+      live: new Map(),
+      watchdogRegistered: true,
+      lastProviderSyncWarnings: [],
+    };
+
+    await assert.equal(
+      await completeModelText({
+        providerID: "anthropic",
+        modelID: "claude-sonnet",
+        accountId: limited.id,
+        system: "system",
+        prompt: "prompt",
+      }),
+      "ok",
+    );
+    assert.deepEqual(calls, [healthy.id]);
   });
 
   it("holds an account runtime while direct completion is in flight", async () => {

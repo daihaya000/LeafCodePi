@@ -226,17 +226,28 @@ describe("bot intercom Phase B contract", () => {
   });
 
   it("times out an unanswered ask with an explicit message id", async () => {
-    const alice = enableIntercom(createBot({ name: "Alice" }).id)!;
-    const bob = enableIntercom(createBot({ name: "Bob" }).id)!;
-    residents.add(bob.id);
-    setBotIntercomAskTimeoutMsForTests(40);
+    vi.useFakeTimers();
+    try {
+      const alice = enableIntercom(createBot({ name: "Alice" }).id)!;
+      const bob = enableIntercom(createBot({ name: "Bob" }).id)!;
+      residents.add(bob.id);
+      setBotIntercomAskTimeoutMsForTests(40);
 
-    const waiting = askBotIntercom({ fromBotId: alice.id, to: bob.id, text: "will time out" });
-    const askId = listPendingBotIntercomAsks(bob.id)[0]?.id;
-    expect(askId).toEqual(expect.any(String));
-    await expect(waiting).rejects.toThrow(new RegExp(`timed out.*${askId}`, "i"));
-    expect(listPendingBotIntercomAsks(bob.id)).toHaveLength(0);
-    expect(getBotIntercomInbox(bob.id).messages.some((message) => message.id === askId)).toBe(true);
+      const waiting = askBotIntercom({ fromBotId: alice.id, to: bob.id, text: "will time out" });
+      const askId = listPendingBotIntercomAsks(bob.id)[0]?.id;
+      expect(askId).toEqual(expect.any(String));
+      const expectation = expect(waiting).rejects.toThrow(
+        new RegExp(`timed out.*${askId}`, "i"),
+      );
+      await vi.advanceTimersByTimeAsync(40);
+      await expectation;
+      expect(listPendingBotIntercomAsks(bob.id)).toHaveLength(0);
+      expect(
+        getBotIntercomInbox(bob.id).messages.some((message) => message.id === askId),
+      ).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("rejects a same-thread ask-reply loop after the Room-aligned round-trip limit", async () => {
