@@ -2926,6 +2926,85 @@ function sessionTaskContext(taskId?: string): {
   };
 }
 
+type ResourceLoaderProbeTarget = Record<string, unknown>;
+
+function instrumentResourceLoaderReload(
+  resourceLoader: ResourceLoader,
+  reporter?: TaskDetailTimingReporter,
+): void {
+  if (!reporter) return;
+  const asTarget = (value: unknown): ResourceLoaderProbeTarget | undefined =>
+    value && typeof value === "object"
+      ? (value as ResourceLoaderProbeTarget)
+      : undefined;
+  const loader = asTarget(resourceLoader);
+  if (!loader) return;
+  const wrap = (
+    target: ResourceLoaderProbeTarget | undefined,
+    method: string,
+    phase: string,
+    isAsync: boolean,
+  ): void => {
+    if (!target) return;
+    const original = target[method];
+    if (typeof original !== "function") return;
+    if (isAsync) {
+      target[method] = async function (
+        this: ResourceLoaderProbeTarget,
+        ...args: unknown[]
+      ) {
+        const startedAt = performance.now();
+        try {
+          return await (original as (...input: unknown[]) => unknown).apply(this, args);
+        } finally {
+          reportTaskDetailPhase(reporter, phase, startedAt);
+        }
+      };
+      return;
+    }
+    target[method] = function (
+      this: ResourceLoaderProbeTarget,
+      ...args: unknown[]
+    ) {
+      const startedAt = performance.now();
+      try {
+        return (original as (...input: unknown[]) => unknown).apply(this, args);
+      } finally {
+        reportTaskDetailPhase(reporter, phase, startedAt);
+      }
+    };
+  };
+
+  wrap(
+    asTarget(loader.settingsManager),
+    "reload",
+    "createSession.resourceLoader.settings",
+    true,
+  );
+  const packageManager = asTarget(loader.packageManager);
+  wrap(
+    packageManager,
+    "resolve",
+    "createSession.resourceLoader.packageResolve",
+    true,
+  );
+  wrap(
+    packageManager,
+    "resolveExtensionSources",
+    "createSession.resourceLoader.packageExtensionSources",
+    true,
+  );
+  wrap(
+    loader,
+    "loadFinalExtensionSet",
+    "createSession.resourceLoader.extensions",
+    true,
+  );
+  wrap(loader, "updateSkillsFromPaths", "createSession.resourceLoader.skills", false);
+  wrap(loader, "updatePromptsFromPaths", "createSession.resourceLoader.prompts", false);
+  wrap(loader, "updateThemesFromPaths", "createSession.resourceLoader.themes", false);
+}
+
 async function createSession(options: {
   cwd: string;
   sessionFile?: string | null;
@@ -3043,6 +3122,7 @@ async function createSession(options: {
       ),
     }),
   });
+  instrumentResourceLoaderReload(resourceLoader, options.onTiming);
   const resourceLoaderStartedAt = options.onTiming ? performance.now() : 0;
   await resourceLoader.reload();
   reportTaskDetailPhase(
