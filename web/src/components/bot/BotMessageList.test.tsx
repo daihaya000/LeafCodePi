@@ -5,7 +5,10 @@ import { BotChatMessage, BotMessageError, BotMessageImages, BotMessageList, BotM
 import type { UiMessage } from "@/lib/types";
 import { formatMessageTime } from "../ui";
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  vi.unstubAllGlobals();
+});
 
 it("follows loaded history and streaming, preserves reading position, and resets on conversation switch", () => {
   const loading = { id: "loading" };
@@ -37,6 +40,32 @@ it("does not scroll when only the rendered children change", () => {
   viewport.scrollTop = 100;
   rerender(<BotMessageList conversationId="a" contentKey={content}>Updated prompt-only child</BotMessageList>);
   expect(viewport.scrollTop).toBe(100);
+});
+
+it("follows asynchronous content growth without stealing an upward scroll", () => {
+  const resizeCallbacks: (() => void)[] = [];
+  vi.stubGlobal("ResizeObserver", class {
+    constructor(callback: () => void) { resizeCallbacks.push(callback); }
+    observe() {}
+    disconnect() {}
+  });
+  const { getByRole } = render(<BotMessageList conversationId="a" contentKey={{ id: "messages" }}>History</BotMessageList>);
+  const viewport = getByRole("main");
+  Object.defineProperties(viewport, {
+    scrollHeight: { configurable: true, value: 1000 },
+    clientHeight: { configurable: true, value: 200 },
+    scrollTop: { configurable: true, writable: true, value: 800 },
+  });
+  fireEvent.scroll(viewport);
+  Object.defineProperty(viewport, "scrollHeight", { configurable: true, value: 1400 });
+  resizeCallbacks.forEach((callback) => callback());
+  expect(viewport.scrollTop).toBe(1400);
+
+  viewport.scrollTop = 700;
+  fireEvent.scroll(viewport);
+  Object.defineProperty(viewport, "scrollHeight", { configurable: true, value: 1800 });
+  resizeCallbacks.forEach((callback) => callback());
+  expect(viewport.scrollTop).toBe(700);
 });
 
 it("keeps reading position when a stable contentKey fingerprint is reused across SSE-like redraws", () => {

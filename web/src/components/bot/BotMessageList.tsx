@@ -97,6 +97,7 @@ export function BotMessageList({ conversationId, contentKey, children, viewportR
 }) {
   const localViewport = useRef<HTMLElement>(null);
   const viewport = viewportRef ?? localViewport;
+  const contentRef = useRef<HTMLDivElement>(null);
   const following = useRef(true);
   // Keep prompt/settings-only parent renders from forcing a scroll layout read.
   const scrollKey = contentKey ?? children;
@@ -111,6 +112,17 @@ export function BotMessageList({ conversationId, contentKey, children, viewportR
     const element = viewport.current;
     if (element && following.current) element.scrollTop = element.scrollHeight;
   }, [active, conversationId, scrollKey, viewport]);
+  useLayoutEffect(() => {
+    if (!active || typeof ResizeObserver === "undefined") return;
+    const element = viewport.current;
+    const content = contentRef.current;
+    if (!element || !content) return;
+    const observer = new ResizeObserver(() => {
+      if (following.current) element.scrollTop = element.scrollHeight;
+    });
+    observer.observe(content);
+    return () => observer.disconnect();
+  }, [active, conversationId, viewport]);
 
   return (
     <main ref={viewport} onScroll={(event) => {
@@ -118,7 +130,7 @@ export function BotMessageList({ conversationId, contentKey, children, viewportR
       following.current = element.scrollHeight - element.scrollTop - element.clientHeight <= 48;
       if (element.scrollTop <= 80) onReachTop?.();
     }} className={conversationViewportClass}>
-      {children}
+      <div ref={contentRef}>{children}</div>
     </main>
   );
 }
