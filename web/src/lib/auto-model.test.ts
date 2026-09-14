@@ -221,6 +221,42 @@ describe("chooseAutoModel", () => {
     expect(decision).toMatchObject({ providerID: "beta", modelID: "claude-haiku-4-5" });
   });
 
+  it("always picks the lowest-usage account for the same model", () => {
+    const decision = chooseAutoModel({
+      models: [
+        model("claude-haiku-4-5", {
+          providerID: "provider",
+          value: "account-a::provider::haiku",
+          accountId: "account-a",
+        }),
+        model("claude-haiku-4-5", {
+          providerID: "provider",
+          value: "account-b::provider::haiku",
+          accountId: "account-b",
+        }),
+      ],
+      tier: "light",
+      hasImages: false,
+      config: {
+        version: 2,
+        modes: {
+          cost: {
+            light: {
+              candidates: [
+                { kind: "model", providerID: "provider", modelID: "claude-haiku-4-5" },
+              ],
+            },
+          },
+        },
+      },
+      usage: {
+        "account-a::provider": { usedPercent: 80, limited: false },
+        "account-b::provider": { usedPercent: 79, limited: false },
+      },
+    });
+    expect(decision).toMatchObject({ accountId: "account-b" });
+  });
+
   it("skips a limited configured provider and preserves account usage keys", () => {
     const usage = autoProviderUsageFromModels([
       model("claude-haiku-4-5", {

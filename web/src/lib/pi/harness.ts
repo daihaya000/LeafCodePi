@@ -286,6 +286,10 @@ type AgentSession = Awaited<
   ReturnType<PiModule["createAgentSession"]>
 >["session"];
 type ResourceLoader = InstanceType<PiModule["DefaultResourceLoader"]>;
+type ResourceLoaderOptions = ConstructorParameters<
+  PiModule["DefaultResourceLoader"]
+>[0];
+type SkillsOverride = NonNullable<ResourceLoaderOptions["skillsOverride"]>;
 type ResourceExtensions = ReturnType<ResourceLoader["getExtensions"]>["extensions"];
 type SessionPromptOptions = NonNullable<Parameters<AgentSession["prompt"]>[1]>;
 type ModelRuntime = Awaited<ReturnType<PiModule["ModelRuntime"]["create"]>>;
@@ -2594,6 +2598,34 @@ export function sessionToolNames(input: {
   ])];
 }
 
+function sessionSkillsOverride(input: {
+  noSkills: boolean | undefined;
+  skillPermissionRef: { current: SkillPermission };
+  bundledSkills: ReturnType<typeof bundledSkillPaths>;
+  pi: PiModule;
+  skillScope?: SkillScope;
+  botSkills?: BotSkillsConfig;
+}): SkillsOverride {
+  return (base) => {
+    if (input.noSkills || input.skillPermissionRef.current === "deny") {
+      return { skills: [], diagnostics: base.diagnostics };
+    }
+    const packagedSkills = input.bundledSkills.flatMap((dir) =>
+      input.pi.loadSkillsFromDir({ dir, source: "bundled" }).skills,
+    );
+    const skills = mergeBundledSkills(base.skills, packagedSkills);
+    return {
+      skills: compactSkillsForPrompt(
+        filterSkillsForBot(
+          filterSkillsByState(skills, undefined, input.skillScope ?? "code"),
+          input.botSkills ?? { mode: "inherit", include: [], exclude: [] },
+        ),
+      ),
+      diagnostics: base.diagnostics,
+    };
+  };
+}
+
 function sessionAppendSystemPrompt(
   agentAppendSystemPrompt: readonly string[] | undefined,
   botToolAllowlist: readonly string[] | undefined,
@@ -2778,19 +2810,14 @@ async function createSession(options: {
       roomHandoffTaskId,
       getExtensions: () => resourceLoader.getExtensions().extensions,
     }),
-    skillsOverride: (base) => {
-      if (agentOptions?.noSkills || skillPermissionRef.current === "deny") {
-        return { skills: [], diagnostics: base.diagnostics };
-      }
-      const packagedSkills = bundledSkills.flatMap((dir) =>
-        pi.loadSkillsFromDir({ dir, source: "bundled" }).skills,
-      );
-      const skills = mergeBundledSkills(base.skills, packagedSkills);
-      return {
-        skills: compactSkillsForPrompt(filterSkillsForBot(filterSkillsByState(skills, undefined, options.skillScope ?? "code"), options.botSkills ?? { mode: "inherit", include: [], exclude: [] })),
-        diagnostics: base.diagnostics,
-      };
-    },
+    skillsOverride: sessionSkillsOverride({
+      noSkills: agentOptions?.noSkills,
+      skillPermissionRef,
+      bundledSkills,
+      pi,
+      skillScope: options.skillScope,
+      botSkills: options.botSkills,
+    }),
     extensionsOverride: (base) => ({
       ...base,
       extensions: filterExtensionsByState(

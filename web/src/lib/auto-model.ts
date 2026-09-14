@@ -645,22 +645,30 @@ function pickBest(
   const normalHint = usageForCandidate(normalBest, usage);
   const normalUsage =
     normalHint?.stale === true ? null : normalHint?.usedPercent ?? null;
-  if (normalUsage === null) return normalBest;
-
-  const knownUsage = eligible.filter(
-    (candidate) => {
-      const hint = usageForCandidate(candidate, usage);
-      return hint?.stale !== true && hint?.usedPercent != null;
-    },
-  );
+  const knownUsage = eligible.filter((candidate) => {
+    const hint = usageForCandidate(candidate, usage);
+    return hint?.stale !== true && Number.isFinite(hint?.usedPercent);
+  });
   const lowestUsage = knownUsage.reduce<number | null>((lowest, candidate) => {
     const value = usageForCandidate(candidate, usage)?.usedPercent ?? null;
     return value === null || (lowest !== null && value >= lowest)
       ? lowest
       : value;
   }, null);
+  // Account routing must balance accounts even when their usage difference is
+  // small. The gap is still useful for Auto's cross-provider model choice.
+  const sameModelAccountRoute =
+    eligible.length > 1 &&
+    eligible.every(
+      (candidate) =>
+        candidate.accountId !== undefined &&
+        candidate.providerID === eligible[0]!.providerID &&
+        candidate.modelID === eligible[0]!.modelID,
+    );
   const usagePreferred =
-    lowestUsage !== null && normalUsage - lowestUsage >= AUTO_USAGE_REROUTE_GAP
+    lowestUsage !== null &&
+    (sameModelAccountRoute ||
+      (normalUsage !== null && normalUsage - lowestUsage >= AUTO_USAGE_REROUTE_GAP))
       ? knownUsage.filter(
           (candidate) => usageForCandidate(candidate, usage)?.usedPercent === lowestUsage,
         )
