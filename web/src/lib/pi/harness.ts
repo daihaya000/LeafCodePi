@@ -988,28 +988,26 @@ function assistantUsageOutput(message: unknown): number | null {
   return Math.max(0, Math.round(usage.output));
 }
 
-function trackThroughputEvent(
+function toolCallIdFromEvent(event: { [key: string]: unknown }): string {
+  return typeof event.toolCallId === "string"
+    ? event.toolCallId
+    : typeof event.toolCallID === "string"
+      ? event.toolCallID
+      : "";
+}
+
+export function trackThroughputEvent(
   live: LiveRuntime,
   event: { type: string; [key: string]: unknown },
 ): void {
   if (event.type === "tool_execution_start") {
-    const toolCallId =
-      typeof event.toolCallId === "string"
-        ? event.toolCallId
-        : typeof event.toolCallID === "string"
-          ? event.toolCallID
-          : "";
+    const toolCallId = toolCallIdFromEvent(event);
     if (toolCallId) live.toolStartedAt.set(toolCallId, Date.now());
     return;
   }
 
   if (event.type === "tool_execution_update") {
-    const toolCallId =
-      typeof event.toolCallId === "string"
-        ? event.toolCallId
-        : typeof event.toolCallID === "string"
-          ? event.toolCallID
-          : "";
+    const toolCallId = toolCallIdFromEvent(event);
     if (toolCallId) {
       live.toolPartialOutputByCallId.set(
         toolCallId,
@@ -1020,12 +1018,7 @@ function trackThroughputEvent(
   }
 
   if (event.type === "tool_execution_end") {
-    const toolCallId =
-      typeof event.toolCallId === "string"
-        ? event.toolCallId
-        : typeof event.toolCallID === "string"
-          ? event.toolCallID
-          : "";
+    const toolCallId = toolCallIdFromEvent(event);
     if (toolCallId) {
       live.toolEndedAt.set(toolCallId, Date.now());
       const output = toolResultText(event.result);
@@ -1036,16 +1029,31 @@ function trackThroughputEvent(
 
   if (event.type === "message_end") {
     const message = event.message;
-    if (
-      message &&
-      typeof message === "object" &&
-      (message as { role?: unknown }).role === "toolResult" &&
-      typeof (message as { toolCallId?: unknown }).toolCallId === "string"
-    ) {
-      live.toolPartialOutputByCallId.delete(
-        (message as { toolCallId: string }).toolCallId,
-      );
+    if (!message || typeof message !== "object") return;
+    const role = (message as { role?: unknown }).role;
+    if (role === "toolResult") {
+      const toolCallId = (message as { toolCallId?: unknown }).toolCallId;
+      if (typeof toolCallId === "string") {
+        live.toolPartialOutputByCallId.delete(toolCallId);
+      }
+      return;
     }
+    if (role !== "assistant") return;
+
+    const startedAt =
+      typeof (message as { timestamp?: unknown }).timestamp === "number"
+        ? (message as { timestamp: number }).timestamp
+        : null;
+    if (startedAt === null) return;
+    let timing =
+      live.throughputByStartedAt.get(startedAt) ??
+      createThroughputTiming(startedAt);
+    timing = noteReportedOutputTokens(timing, assistantUsageOutput(message));
+    if (timing.lastTokenAtMs === null) {
+      timing = { ...timing, lastTokenAtMs: Date.now() };
+    }
+    live.throughputByStartedAt.set(startedAt, timing);
+    persistThroughputSample(live, timing);
     return;
   }
 
@@ -1095,26 +1103,6 @@ function trackThroughputEvent(
     timing = noteReportedOutputTokens(timing, assistantUsageOutput(message));
     live.throughputByStartedAt.set(startedAt, timing);
     return;
-  }
-
-  if (event.type === "message_end") {
-    const message = event.message;
-    if (!message || typeof message !== "object") return;
-    if ((message as { role?: unknown }).role !== "assistant") return;
-    const startedAt =
-      typeof (message as { timestamp?: unknown }).timestamp === "number"
-        ? (message as { timestamp: number }).timestamp
-        : null;
-    if (startedAt === null) return;
-    let timing =
-      live.throughputByStartedAt.get(startedAt) ??
-      createThroughputTiming(startedAt);
-    timing = noteReportedOutputTokens(timing, assistantUsageOutput(message));
-    if (timing.lastTokenAtMs === null) {
-      timing = { ...timing, lastTokenAtMs: Date.now() };
-    }
-    live.throughputByStartedAt.set(startedAt, timing);
-    persistThroughputSample(live, timing);
   }
 }
 
