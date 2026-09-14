@@ -119,6 +119,31 @@ describe("resolveRoomOpener hybrid path", () => {
     expect(call?.system).toContain("最初の発言者");
   });
 
+  it("pins accountId when the caller supplies one", async () => {
+    const model = { providerID: "p", modelID: "m" };
+    mocks.getSetting.mockImplementation((key: string) =>
+      key.includes("generation-model") && !key.includes("fallback") ? "p/m" : undefined,
+    );
+    mocks.buildDirectGenerationCandidates.mockReturnValue([{ model }]);
+    mocks.generateDirectTextWithFallbackResult.mockResolvedValue({
+      text: '{"agent":"Planner"}',
+      model,
+    });
+
+    await resolveRoomOpener({
+      prompt: "残作業も進めて",
+      bots: [designer, planner],
+      accountId: "acc-room",
+    });
+
+    expect(mocks.generateDirectTextWithFallbackResult).toHaveBeenCalledWith(
+      expect.objectContaining({
+        accountId: "acc-room",
+        accountIdExplicit: true,
+      }),
+    );
+  });
+
   it("returns undefined on LLM failure so callers can rotate or not start", async () => {
     mocks.getSetting.mockImplementation((key: string) =>
       key.includes("generation-model") && !key.includes("fallback") ? "p/m" : undefined,

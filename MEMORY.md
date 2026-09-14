@@ -330,6 +330,13 @@
 ### 検証（Tick65–67）
 `room-runtime` — **48 passed**
 
+### Tick68（ループ継続）
+1. `refreshTaskTitleDirect` — `task.accountIdExplicit` を直接生成へ転送（一時停止アカウントの暗黙切替防止）
+2. `resolveRoomOpener` — 呼び出し元 `accountId` 指定時は `accountIdExplicit: true`
+
+### 検証（Tick68）
+`direct-title` / `room-opener` — **9 passed**
+
 ---
 
 ## 2026-09-14: Stale production rebuild / next build exit 1

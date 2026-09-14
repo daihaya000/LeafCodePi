@@ -146,6 +146,8 @@ export async function resolveRoomOpener(
     const generated = await generateDirectTextWithFallbackResult({
       candidates: directCandidates,
       accountId: options.accountId,
+      // Optional accountId on the opener is a hard pin (paused accounts must not silently switch).
+      ...(options.accountId ? { accountIdExplicit: true } : {}),
       system: ROOM_OPENER_SYSTEM_INSTRUCTION,
       prompt: selectionPrompt,
       maxTokens: 96,
