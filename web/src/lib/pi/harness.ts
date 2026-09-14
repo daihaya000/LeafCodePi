@@ -6033,7 +6033,15 @@ export function activeGoalLoopTaskIds(): string[] {
 
 export async function goalLoopState(
   taskId: string,
+  options?: { offline?: boolean },
 ): Promise<GoalLoopDto | null> {
+  if (options?.offline) {
+    const task = getTask(taskId);
+    if (!task) {
+      throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });
+    }
+    return readGoalLoopState(task.directory, task.sessionId);
+  }
   const live = await ensureLive(taskId);
   return readGoalLoopState(
     live.session.sessionManager.getCwd(),

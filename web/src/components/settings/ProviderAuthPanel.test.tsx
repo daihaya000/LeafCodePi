@@ -1011,6 +1011,60 @@ describe("ProviderAuthPanel provider-scoped accounts", () => {
     });
   });
 
+  it("cancels login before sessionId and tears down a late POST session", async () => {
+    let resolveLogin: ((value: Response) => void) | null = null;
+    fetchMock.mockImplementation(
+      (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        const method = (init?.method ?? "GET").toUpperCase();
+        if (url.endsWith("/api/accounts") && method === "GET") {
+          return Promise.resolve(jsonResponse({ accounts: [accounts[0]] }));
+        }
+        if (url.endsWith("/api/accounts/acc-1/auth-status")) {
+          return Promise.resolve(jsonResponse({ providers: ["openai-codex"] }));
+        }
+        if (
+          url.includes("/api/providers/openai-codex/login") &&
+          method === "POST" &&
+          !url.includes("/answer")
+        ) {
+          return new Promise<Response>((resolve) => {
+            resolveLogin = resolve;
+          });
+        }
+        return Promise.resolve(jsonResponse({}));
+      },
+    );
+    render(
+      <ProviderAuthPanel providers={[providers[1]]} onChanged={() => {}} />,
+    );
+    const codex = await accountRegion("OpenAI Codex");
+    fireEvent.click(
+      await within(codex).findByRole("button", { name: "再ログイン" }),
+    );
+    await waitFor(() => {
+      expect(screen.getByText("開始中…")).toBeTruthy();
+    });
+    fireEvent.click(screen.getByRole("button", { name: "キャンセル" }));
+    await waitFor(() => {
+      expect(screen.queryByText("開始中…")).toBeNull();
+    });
+    expect(resolveLogin).toBeTruthy();
+    await act(async () => {
+      resolveLogin?.(jsonResponse({ sessionId: "late-session" }));
+    });
+    await waitFor(() => {
+      expect(
+        fetchMock.mock.calls.some(
+          ([input, init]) =>
+            String(input).includes("sessionId=late-session") &&
+            (init?.method ?? "GET").toUpperCase() === "DELETE",
+        ),
+      ).toBe(true);
+    });
+    expect(screen.queryByText("認証フロー待機中…")).toBeNull();
+  });
+
   it("documents remote OAuth port-forward in the provider help", () => {
     mockAccountsApi();
     render(<ProviderAuthPanel providers={providers} onChanged={() => {}} />);

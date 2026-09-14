@@ -42,7 +42,7 @@ describe("/api/tasks/[id]/messages", () => {
       messages: messages.slice(1, 51),
       messageHistory: { hasMore: true, nextCursor: "m2" },
     });
-    expect(mocks.getTaskDetail).toHaveBeenCalledWith("task-1");
+    expect(mocks.getTaskDetail).toHaveBeenCalledWith("task-1", { offline: true });
   });
 
   it("rejects an empty or unknown cursor", async () => {

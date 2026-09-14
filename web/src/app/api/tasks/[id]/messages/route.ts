@@ -18,7 +18,8 @@ export async function GET(
     if (before !== null && (before.trim().length === 0 || before.length > 512)) {
       return NextResponse.json({ error: "履歴カーソルが不正です" }, { status: 400 });
     }
-    const detail = await getTaskDetail(id);
+    // History paging must not block on ensureLive; transcript on disk is enough.
+    const detail = await getTaskDetail(id, { offline: true });
     const page = pageTaskMessages(detail.messages, before);
     return NextResponse.json(page);
   } catch (error) {

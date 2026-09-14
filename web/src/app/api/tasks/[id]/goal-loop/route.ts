@@ -68,7 +68,7 @@ function acceptance(value: unknown): string[] | null {
 export async function GET(_req: NextRequest, { params }: Params) {
   try {
     const { id } = await params;
-    const loop = await goalLoopState(id);
+    const loop = await goalLoopState(id, { offline: true });
     return NextResponse.json({ loop });
   } catch (error) {
     const { error: message, status } = jsonError(error);

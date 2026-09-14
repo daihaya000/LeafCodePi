@@ -592,11 +592,10 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
 
   async function stopLogin() {
     const activeLogin = login;
-    if (!activeLogin?.sessionId) {
-      setLogin(null);
-      return;
-    }
-    const generation = ++loginGenerationRef.current;
+    // Always invalidate in-flight beginLogin so a late sessionId cannot revive UI.
+    ++loginGenerationRef.current;
+    setLogin(null);
+    if (!activeLogin?.sessionId) return;
     try {
       await fetch(
         apiUrl(
@@ -608,8 +607,6 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
       );
     } catch {
       /* ignore */
-    } finally {
-      if (loginGenerationRef.current === generation) setLogin(null);
     }
   }
 
@@ -641,8 +638,22 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
         }),
         { type: authType },
       );
+      if (loginGenerationRef.current !== generation) {
+        // Cancelled while POST was in flight — tear down the orphan server session.
+        try {
+          await fetch(
+            apiUrl(
+              `/api/providers/${encodeURIComponent(provider.id)}/login/answer?sessionId=${encodeURIComponent(result.sessionId)}`,
+            ),
+            { method: "DELETE" },
+          );
+        } catch {
+          /* ignore */
+        }
+        return;
+      }
       setLogin((prev) =>
-        loginGenerationRef.current === generation && prev
+        prev
           ? {
               ...prev,
               sessionId: result.sessionId,
@@ -914,7 +925,7 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
   }
 
   async function saveCookie(providerId: string, accountId: string) {
-    if (!cookieInput.trim() || cookieBusy) return;
+    if (!cookieInput.trim() || cookieBusy || login) return;
     const key = cookieKey(providerId, accountId);
     setCookieBusy(key);
     setCookieErrors((current) => {
@@ -1428,6 +1439,7 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
                                   busy={cookieAccountBusy}
                                   disabled={
                                     !cookieInput.trim() ||
+                                    Boolean(login) ||
                                     Boolean(cookieBusy && !cookieAccountBusy)
                                   }
                                 >

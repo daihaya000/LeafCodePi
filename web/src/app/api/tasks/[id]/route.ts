@@ -2,10 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import {
   archiveTask,
   destroyTask,
-  getTaskDetail,
   jsonError,
   restoreTask,
 } from "@/lib/pi/harness";
+import { getTaskDetailBounded } from "@/lib/pi/get-task-detail-bounded";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -16,7 +16,8 @@ export async function GET(
 ) {
   try {
     const { id } = await params;
-    return NextResponse.json({ task: await getTaskDetail(id) });
+    // CodeRequestCard polls this while Code runs; bound ensureLive hangs.
+    return NextResponse.json({ task: await getTaskDetailBounded(id) });
   } catch (error) {
     const { error: message, status } = jsonError(error);
     return NextResponse.json({ error: message }, { status });

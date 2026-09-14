@@ -410,6 +410,16 @@
 ### 検証（Tick79–80）
 `bots/[id]/events/route` / `ProviderAuthPanel` — **29 passed**
 
+### Tick80（ループ継続・[Hunt Tick80](0071c500) 追随）
+1. ProviderAuthPanel — `stopLogin` が常に generation を進め、開始中キャンセル後の遅延 `sessionId` は DELETE で孤児セッションを掃除
+2. GET `/api/tasks/[id]/messages` — `getTaskDetail(..., { offline: true })`（ensureLive ハング回避）
+3. GET `/api/tasks/[id]` — `getTaskDetailBounded`（30s → offline fallback）
+4. GET `/api/tasks/[id]/goal-loop` — `goalLoopState(..., { offline: true })`
+5. ProviderAuthPanel — ログイン中は cookie 保存を拒否
+
+### 検証（Tick80）
+`get-task-detail-bounded` / `messages/route` / `ProviderAuthPanel` / `goal-loop/route` — **38 passed**
+
 ---
 
 ## 2026-09-14: Stale production rebuild / next build exit 1
