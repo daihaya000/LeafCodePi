@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { AutoRouteOverridesEditor } from "./AutoRouteOverridesEditor";
+import { AutoRouteOverridesEditor, autoRouteModelOptions } from "./AutoRouteOverridesEditor";
 
 describe("AutoRouteOverridesEditor", () => {
   afterEach(cleanup);
@@ -157,5 +157,56 @@ describe("AutoRouteOverridesEditor", () => {
     const reset = screen.getByRole("button", { name: "全モードの設定をリセット" });
     fireEvent.click(reset);
     expect(onChange).toHaveBeenCalledWith({ version: 2, modes: {} });
+  });
+
+  it("keeps distinct accounts for the same provider/model in route options", () => {
+    const options = autoRouteModelOptions([
+      {
+        value: "acc-a::provider::model-a",
+        label: "Model A (A)",
+        providerID: "provider",
+        modelID: "model-a",
+        accountId: "acc-a",
+        accountLabel: "Account A",
+      },
+      {
+        value: "acc-b::provider::model-a",
+        label: "Model A (B)",
+        providerID: "provider",
+        modelID: "model-a",
+        accountId: "acc-b",
+        accountLabel: "Account B",
+      },
+    ]);
+    expect(options).toHaveLength(2);
+    expect(options.map((option) => option.accountId)).toEqual(["acc-a", "acc-b"]);
+
+    const onChange = vi.fn();
+    render(
+      <AutoRouteOverridesEditor
+        mode="cost"
+        config={{ version: 2, modes: {} }}
+        models={options}
+        onChange={onChange}
+      />,
+    );
+    fireEvent.click(screen.getAllByRole("button", { name: "候補を追加" })[0]!);
+    expect(onChange).toHaveBeenCalledWith({
+      version: 2,
+      modes: {
+        cost: {
+          light: {
+            candidates: [
+              {
+                kind: "model",
+                providerID: "provider",
+                modelID: "model-a",
+                accountId: "acc-a",
+              },
+            ],
+          },
+        },
+      },
+    });
   });
 });

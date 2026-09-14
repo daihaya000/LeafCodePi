@@ -97,28 +97,40 @@ function modelOptionsFromProviders(providers: AutoRouteProviders): ModelOption[]
   );
 }
 
+/** Stable select value for a concrete model candidate (account-aware). */
+export function autoRouteModelCandidateValue(candidate: {
+  providerID: string;
+  modelID: string;
+  accountId?: string;
+}): string {
+  return candidate.accountId
+    ? `${candidate.accountId}::${candidate.providerID}::${candidate.modelID}`
+    : `${candidate.providerID}::${candidate.modelID}`;
+}
+
 /** Connected and enabled model options, excluding the Auto pseudo-option. */
 export function autoRouteModelOptions(source: AutoRouteSource): ModelOption[] {
   const models = isProviderSource(source) ? modelOptionsFromProviders(source) : source;
   const seen = new Set<string>();
-  return models.filter((model) => {
-    if (model.value === "auto") return false;
-    const value = `${model.providerID}::${model.modelID}`;
-    if (seen.has(value)) return false;
+  return models.flatMap((model) => {
+    if (model.value === "auto") return [];
+    const value = autoRouteModelCandidateValue(model);
+    if (seen.has(value)) return [];
     seen.add(value);
-    return true;
-  }).map((model) => ({
-    ...model,
-    value: `${model.providerID}::${model.modelID}`,
-    accountId: undefined,
-    accountLabel: undefined,
-  }));
+    return [
+      {
+        ...model,
+        value,
+      },
+    ];
+  });
 }
 
 function modelVariantsFor(
   source: AutoRouteSource,
   providerID: string,
   modelID: string,
+  accountId?: string,
 ): IntelligenceVariant[] {
   if (isProviderSource(source)) {
     const model = source
@@ -127,7 +139,10 @@ function modelVariantsFor(
     return getIntelligenceVariants(model);
   }
   const model = source.find(
-    (candidate) => candidate.providerID === providerID && candidate.modelID === modelID,
+    (candidate) =>
+      candidate.providerID === providerID &&
+      candidate.modelID === modelID &&
+      (accountId === undefined || candidate.accountId === accountId),
   );
   return (model?.thinkingLevels ?? []).filter(isIntelligenceVariant) as unknown as IntelligenceVariant[];
 }
@@ -137,7 +152,7 @@ function effortOptionsFor(
   source: AutoRouteSource,
 ): IntelligenceVariant[] {
   return candidate.kind === "model"
-    ? modelVariantsFor(source, candidate.providerID, candidate.modelID)
+    ? modelVariantsFor(source, candidate.providerID, candidate.modelID, candidate.accountId)
     : [...ALL_INTELLIGENCE_VARIANTS];
 }
 
@@ -218,7 +233,7 @@ function CandidateRow({
       <span className="row-span-2 w-4 shrink-0 text-right text-[10px] text-faint">{index + 1}.</span>
       {candidate.kind === "model" && (
         <ModelSelect
-          value={`${candidate.providerID}::${candidate.modelID}`}
+          value={autoRouteModelCandidateValue(candidate)}
           options={modelOptions}
           ariaLabel={`候補${index + 1}のモデル`}
           emptyLabel="モデルなし"
@@ -226,10 +241,10 @@ function CandidateRow({
             const selected = modelOptions.find((option) => option.value === value);
             if (!selected) return;
             onChange({
-              ...candidate,
+              kind: "model",
               providerID: selected.providerID,
               modelID: selected.modelID,
-              variant: undefined,
+              ...(selected.accountId ? { accountId: selected.accountId } : {}),
             });
           }}
           className="min-w-0 w-full"
@@ -352,9 +367,7 @@ function TierEditor({
   const addableOptions = useMemo(() => {
     const used = new Set(
       candidates.flatMap((candidate) =>
-        candidate.kind === "model"
-          ? [`${candidate.providerID}::${candidate.modelID}`]
-          : [],
+        candidate.kind === "model" ? [autoRouteModelCandidateValue(candidate)] : [],
       ),
     );
     return modelOptions.filter((option) => !used.has(option.value));
@@ -365,7 +378,12 @@ function TierEditor({
     if (!option || candidates.length >= MAX_AUTO_ROUTE_CANDIDATES) return;
     setCandidates([
       ...candidates,
-      { kind: "model", providerID: option.providerID, modelID: option.modelID },
+      {
+        kind: "model",
+        providerID: option.providerID,
+        modelID: option.modelID,
+        ...(option.accountId ? { accountId: option.accountId } : {}),
+      },
     ]);
   };
 

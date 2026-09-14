@@ -311,6 +311,45 @@ describe("chooseAutoModel", () => {
     });
     expect(accountDecision).toMatchObject({ accountId: "account-b" });
 
+    const pinnedAccount = chooseAutoModel({
+      models: [
+        model("claude-haiku-4-5", {
+          providerID: "provider",
+          value: "account-a::provider::haiku",
+          accountId: "account-a",
+        }),
+        model("claude-haiku-4-5", {
+          providerID: "provider",
+          value: "account-b::provider::haiku",
+          accountId: "account-b",
+        }),
+      ],
+      tier: "light",
+      hasImages: false,
+      config: {
+        version: 2,
+        modes: {
+          cost: {
+            light: {
+              candidates: [
+                {
+                  kind: "model",
+                  providerID: "provider",
+                  modelID: "claude-haiku-4-5",
+                  accountId: "account-a",
+                },
+              ],
+            },
+          },
+        },
+      },
+      usage: {
+        "account-a::provider": { usedPercent: 90, limited: false },
+        "account-b::provider": { usedPercent: 5, limited: false },
+      },
+    });
+    expect(pinnedAccount).toMatchObject({ accountId: "account-a" });
+
     const modelScopedUsage = autoProviderUsageFromModels([
       model("claude-haiku-4-5", {
         providerID: "provider",

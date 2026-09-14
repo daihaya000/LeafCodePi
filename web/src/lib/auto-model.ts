@@ -69,6 +69,8 @@ export type AutoRouteCandidate =
       kind: "model";
       providerID: string;
       modelID: string;
+      /** Pin a multi-account provider runtime; omit to load-balance across accounts. */
+      accountId?: string;
       variant?: IntelligenceVariant | "";
     }
   | { kind: "cost"; cost: ModelCostTier; variant?: IntelligenceVariant | "" }
@@ -430,7 +432,7 @@ function candidateKey(candidate: AutoRouteCandidate): string {
   const variant = candidate.variant ?? "*";
   switch (candidate.kind) {
     case "model":
-      return `model:${candidate.providerID}::${candidate.modelID}::${variant}`;
+      return `model:${candidate.accountId ?? ""}:${candidate.providerID}::${candidate.modelID}::${variant}`;
     case "cost":
       return `cost:${candidate.cost}::${variant}`;
     case "strongest":
@@ -459,9 +461,19 @@ function normalizeCandidate(raw: unknown): AutoRouteCandidate | undefined {
     ) {
       return undefined;
     }
-    return variant === undefined
-      ? { kind: "model", providerID: object.providerID, modelID: object.modelID }
-      : { kind: "model", providerID: object.providerID, modelID: object.modelID, variant };
+    const accountId =
+      typeof object.accountId === "string" &&
+      object.accountId.length > 0 &&
+      !object.accountId.includes("::")
+        ? object.accountId
+        : undefined;
+    return {
+      kind: "model",
+      providerID: object.providerID,
+      modelID: object.modelID,
+      ...(accountId ? { accountId } : {}),
+      ...(variant === undefined ? {} : { variant }),
+    };
   }
   if (object.kind === "cost" && isModelCostTier(object.cost)) {
     return variant === undefined
@@ -775,7 +787,8 @@ function resolveCandidate(
     const matches = pool.filter(
       (item) =>
         item.providerID === candidate.providerID &&
-        item.modelID === candidate.modelID,
+        item.modelID === candidate.modelID &&
+        (candidate.accountId === undefined || item.accountId === candidate.accountId),
     );
     return matches.length > 0 ? pickBest(matches, usage) : undefined;
   }
