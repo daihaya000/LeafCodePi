@@ -900,12 +900,22 @@ export function taskIdFromPathname(pathname: string | null | undefined): string 
 /**
  * Attention item が現在の画面のインライン UI（TaskView / BotView / RoomView）で
  * 既に扱われているか。GlobalAttention の音・モーダル二重化防止に使う。
+ * `originTaskId` は委任 Code の Bot/Room origin（listPendingAttention が付与）。
  */
 export function isAttentionHandledOnPath(
   pathname: string | null | undefined,
   taskId: string,
+  originTaskId?: string | null,
 ): boolean {
   if (!pathname || !taskId) return false;
+  if (attentionMatchesPath(pathname, taskId)) return true;
+  if (originTaskId && originTaskId !== taskId && attentionMatchesPath(pathname, originTaskId)) {
+    return true;
+  }
+  return false;
+}
+
+function attentionMatchesPath(pathname: string, taskId: string): boolean {
   const taskPath = taskIdFromPathname(pathname);
   if (taskPath && taskPath === taskId) return true;
   const botMatch = /^\/bots\/([^/]+)$/.exec(pathname);

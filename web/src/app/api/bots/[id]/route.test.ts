@@ -285,6 +285,18 @@ describe("PATCH /api/bots/[id]", () => {
 });
 
 describe("DELETE /api/bots/[id]", () => {
+  it("stops a linked Code session on delete even without an active relay outbox", async () => {
+    mocks.getBot.mockReturnValue({ ...bot(), codeSessionTaskId: "code-loop" });
+    mocks.getTask.mockReturnValue({ id: "code-loop", status: "working" });
+    mocks.deleteBot.mockReturnValue(true);
+
+    const response = await DELETE(emptyRequest(), params("one"));
+
+    expect(response.status).toBe(200);
+    expect(mocks.cancelAllCodeRequestsForBot).toHaveBeenCalledWith("one");
+    expect(mocks.stopBotCodeTask).toHaveBeenCalledWith("one", "code-loop");
+  });
+
   it("destroys bot tasks, deletes the bot, and returns ok", async () => {
     mocks.listTasks.mockReturnValue([{ id: "bot-task", botId: "one" }] as never);
     mocks.deleteBot.mockReturnValue(true);

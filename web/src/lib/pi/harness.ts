@@ -6003,30 +6003,42 @@ export async function goalLoopCommand(
     );
   }
   const current = state().live.get(taskId) ?? live;
-  if (isStaleHarnessPrompt(startedEpoch, current.promptEpoch)) {
+  const rollbackStaleGoalPrepare = (liveState: typeof current) => {
     // prepareLiveForPrompt may have set working + lease after abort already idled us.
     // Roll that back when we still own the lease and nothing else is running.
     if (
       (input.action === "start" || input.action === "resume") &&
       ownsTaskLease(taskId) &&
       getTask(taskId)?.status === "working" &&
-      !current.promptActive &&
-      !current.session.isStreaming &&
-      !current.session.isCompacting
+      !liveState.promptActive &&
+      !liveState.session.isStreaming &&
+      !liveState.session.isCompacting
     ) {
       setTaskStatus(taskId, "idle");
       releaseTaskLease(taskId);
-      emitTaskSnapshot(current, "goal_command_stale");
+      emitTaskSnapshot(liveState, "goal_command_stale");
     }
+  };
+  if (isStaleHarnessPrompt(startedEpoch, current.promptEpoch)) {
+    rollbackStaleGoalPrepare(current);
     return readGoalLoopState(
       current.session.sessionManager.getCwd(),
       current.session.sessionId,
     );
   }
-  await current.session.prompt(command);
+  // Re-check after prepare awaits: abort/disable can bump promptEpoch before session.prompt.
+  const latest = state().live.get(taskId) ?? current;
+  if (isStaleHarnessPrompt(startedEpoch, latest.promptEpoch)) {
+    rollbackStaleGoalPrepare(latest);
+    return readGoalLoopState(
+      latest.session.sessionManager.getCwd(),
+      latest.session.sessionId,
+    );
+  }
+  await latest.session.prompt(command);
   return readGoalLoopState(
-    current.session.sessionManager.getCwd(),
-    current.session.sessionId,
+    latest.session.sessionManager.getCwd(),
+    latest.session.sessionId,
   );
 }
 
@@ -8942,7 +8954,15 @@ export function listPendingAttention(): AttentionItemDto[] {
     const kinds: AttentionItemDto["kinds"] = [];
     if (permissionIds.has(taskId)) kinds.push("permission");
     if (questionIds.has(taskId)) kinds.push("question");
-    if (kinds.length > 0) items.push({ taskId, title: task.title, kinds });
+    if (kinds.length === 0) continue;
+    // Delegated Code pending ids stay as taskId (respond API), but surface on Bot/Room via origin.
+    const originTaskId = botCodeRelay().originForCode(taskId) ?? undefined;
+    items.push({
+      taskId,
+      title: task.title,
+      kinds,
+      ...(originTaskId ? { originTaskId } : {}),
+    });
   }
   return items;
 }

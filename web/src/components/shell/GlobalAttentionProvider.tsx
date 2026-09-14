@@ -150,7 +150,9 @@ export function GlobalAttentionProvider() {
 
         if (fresh.length > 0) {
           const currentPath = window.location.pathname;
-          const onlyActive = fresh.every((item) => isAttentionHandledOnPath(currentPath, item.taskId));
+          const onlyActive = fresh.every((item) =>
+            isAttentionHandledOnPath(currentPath, item.taskId, item.originTaskId),
+          );
           // 表示中タスク自身の要求は TaskView / BotView / RoomView インライン UI が担当する。
           // 音もモーダルも二重化しない（両方「許可」できてしまう）。
           if (!onlyActive) {
@@ -321,7 +323,7 @@ export function GlobalAttentionProvider() {
     attentionItemStillOpen(item, details[item.taskId]),
   );
   const reopenableCount = visibleItems.filter(
-    (item) => !isAttentionHandledOnPath(pathname, item.taskId),
+    (item) => !isAttentionHandledOnPath(pathname, item.taskId, item.originTaskId),
   ).length;
   if (visibleItems.length === 0) return null;
   if (!open) {
@@ -370,7 +372,7 @@ export function GlobalAttentionProvider() {
             const detail = details[item.taskId];
             const question = detail?.questionRequest;
             const permission = detail?.permissionRequest;
-            const handledInline = isAttentionHandledOnPath(pathname, item.taskId);
+            const handledInline = isAttentionHandledOnPath(pathname, item.taskId, item.originTaskId);
             return (
               <li key={item.taskId} className="rounded-xl border border-border bg-surface-2 p-3">
                 <div className="mb-2 flex items-center gap-2">

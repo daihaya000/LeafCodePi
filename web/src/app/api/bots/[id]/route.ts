@@ -16,6 +16,29 @@ export const dynamic = "force-dynamic";
 
 async function idOf(params: Promise<{ id: string }>) { return (await params).id; }
 
+/** Stop panel/Goal-linked Code that is outside the relay outbox (disable / reset / delete). */
+async function stopLinkedBotCodeSession(
+  botId: string,
+  linkedId: string | null | undefined,
+  reason: string,
+): Promise<void> {
+  if (!linkedId) return;
+  const linked = getTask(linkedId);
+  if (!linked || linked.status === "archived") return;
+  try {
+    await stopBotCodeTask(botId, linkedId);
+  } catch {
+    try {
+      await abortTask(linkedId);
+    } catch (error) {
+      console.warn(
+        `[bots] failed to stop linked Code task ${linkedId} on ${reason}:`,
+        error instanceof Error ? error.message : String(error),
+      );
+    }
+  }
+}
+
 export async function GET(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const bot = getBot(await idOf(params));
   if (!bot) return NextResponse.json({ error: "\u30dc\u30c3\u30c8\u304c\u898b\u3064\u304b\u308a\u307e\u305b\u3093" }, { status: 404 });
@@ -131,24 +154,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       // 1:1 Code jobs are outside Room detach — cancel+abort them too.
       await cancelBotCodeRequests(id);
       // Goal Loop / continue without an active relay outbox still leave codeSessionTaskId running.
-      const linkedId = bot.codeSessionTaskId;
-      if (linkedId) {
-        const linked = getTask(linkedId);
-        if (linked && linked.status !== "archived") {
-          try {
-            await stopBotCodeTask(id, linkedId);
-          } catch {
-            try {
-              await abortTask(linkedId);
-            } catch (error) {
-              console.warn(
-                `[bots] failed to stop linked Code task ${linkedId} on disable:`,
-                error instanceof Error ? error.message : String(error),
-              );
-            }
-          }
-        }
-      }
+      await stopLinkedBotCodeSession(id, bot.codeSessionTaskId, "disable");
       // Stop in-flight 1:1 turns / Goal Loop on bot:${id}. New direct messages stay allowed
       // (prompt/route); this only aborts work already accepted before disable.
       try {
@@ -163,24 +169,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     if (hasResetMessages) {
       // Mirror Room reset / Bot disable: stop Code outbox and linked session before wiping chat.
       await cancelBotCodeRequests(id);
-      const linkedId = bot.codeSessionTaskId;
-      if (linkedId) {
-        const linked = getTask(linkedId);
-        if (linked && linked.status !== "archived") {
-          try {
-            await stopBotCodeTask(id, linkedId);
-          } catch {
-            try {
-              await abortTask(linkedId);
-            } catch (error) {
-              console.warn(
-                `[bots] failed to stop linked Code task ${linkedId} on reset:`,
-                error instanceof Error ? error.message : String(error),
-              );
-            }
-          }
-        }
-      }
+      await stopLinkedBotCodeSession(id, bot.codeSessionTaskId, "reset");
       await resetTaskConversation(botTaskId(id));
     }
     // SOUL and the per-Bot skill allowlist both shape the system prompt. Do not dispose a working
@@ -196,9 +185,13 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
 
 export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const id = await idOf(params);
+  // Read before teardown: deleteBot clears codeSessionTaskId with the Bot record.
+  const bot = getBot(id);
   const rooms = listRooms().filter((room) => room.members.includes(id));
   for (const room of rooms) await detachBotFromRoomRuntime(room.id, id);
   await cancelAllCodeRequestsForBot(id);
+  // Panel / Goal Loop Code is not kind=bot, so destroyTask below would miss it.
+  await stopLinkedBotCodeSession(id, bot?.codeSessionTaskId, "delete");
   for (const task of listTasks(true, "bot").filter((item) => item.botId === id)) await destroyTask(task.id);
   const deleted = deleteBot(id);
   if (!deleted) return NextResponse.json({ error: "\u30dc\u30c3\u30c8\u304c\u898b\u3064\u304b\u308a\u307e\u305b\u3093" }, { status: 404 });

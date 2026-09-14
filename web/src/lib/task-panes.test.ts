@@ -703,6 +703,11 @@ describe("tabIdFromPathname / taskIdFromPathname / isSplitHostPath", () => {
     expect(isAttentionHandledOnPath("/bots/rooms/room-1", "bot:two:room:room-1")).toBe(true);
     expect(isAttentionHandledOnPath("/bots/rooms/room-1", "bot:one")).toBe(false);
     expect(isAttentionHandledOnPath("/bots/rooms/room-1", "bot:one:room:other")).toBe(false);
+    // Delegated Code pending id + Bot/Room origin — BotView/RoomView already show the prompt.
+    expect(isAttentionHandledOnPath("/bots/one", "code-1", "bot:one")).toBe(true);
+    expect(isAttentionHandledOnPath("/bots/one", "code-1", "bot:two")).toBe(false);
+    expect(isAttentionHandledOnPath("/bots/rooms/room-1", "code-1", "bot:one:room:room-1")).toBe(true);
+    expect(isAttentionHandledOnPath("/task/code-1", "code-1", "bot:one")).toBe(true);
   });
 
   it("設定もタブIDへ変換し、分割ホストで扱う", () => {

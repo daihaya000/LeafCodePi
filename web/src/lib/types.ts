@@ -607,6 +607,8 @@ export type AttentionItemDto = {
   taskId: string;
   title: string;
   kinds: ("permission" | "question")[];
+  /** Bot/Room origin when `taskId` is a delegated Code session (inline UI lives on the origin). */
+  originTaskId?: string;
 };
 
 export type DiffLine = {
