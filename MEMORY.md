@@ -31,6 +31,7 @@ master `e2bb92f4` から `cursor/linux-parity-cleanup-e913`。Windows 挙動は�
 
 ### ブランチ / PR
 `cursor/linux-parity-cleanup-e913` / https://github.com/daihaya000/LeafCodePi/pull/10
+実装 SHA: `8cba33f4` / sysmon 空値修正: `4a25f5ea` / lock+MEMORY: `39e0e024`
 
 ---
 
