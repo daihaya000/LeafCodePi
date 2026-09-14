@@ -459,6 +459,40 @@ describe("accounts store CRUD", () => {
       releaseTaskLease(task.id);
     }
   });
+
+  it("refuses to pause while a hang watch is armed for an idle task", async () => {
+    tempDataDir();
+    const hang = await import("@/lib/pi/hang-watchdog");
+    hang.registerHangWatchdogHooks({
+      getLive: () => ({ isStreaming: false, isCompacting: false, messages: [] }),
+      abortTask: async () => undefined,
+      resumePrompt: () => undefined,
+      notifyHangRetry: () => undefined,
+    });
+    try {
+      const project = upsertProject({
+        name: "hang-pause",
+        rootPath: join(tmpdir(), "hang-pause-root"),
+      });
+      const task = insertTask({ project, title: "hang recovery" });
+      const account = createAccount({
+        label: "hang-pause",
+        providers: ["openai-codex"],
+      });
+      patchLoose(task.id, { status: "idle", accountId: account.id });
+      hang.armTaskHangWatch({ taskId: task.id, prompt: "continue" });
+      assert.throws(
+        () => patchAccount(account.id, { enabled: false }),
+        (error) =>
+          httpStatus(error) === 409 &&
+          String((error as Error).message).includes("ハング復旧"),
+      );
+      assert.equal(getAccount(account.id)?.enabled, true);
+      hang.disarmTaskHangWatch(task.id);
+    } finally {
+      hang.stopHangWatchdogForTests();
+    }
+  });
 });
 
 type AccountRecordLike = {

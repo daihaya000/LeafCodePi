@@ -2273,6 +2273,11 @@ function botCodeRelay(): ReturnType<typeof createBotCodeRelay> {
 
 export function startBotCodeRelay(): void { botCodeRelay().start(); }
 
+/** Active Code task ids linked to a Bot/Room origin (for SSE attention fan-in). */
+export function linkedCodeTaskIdsForOrigin(originTaskId: string): string[] {
+  return botCodeRelay().codeTasksForOrigin(originTaskId);
+}
+
 /** Capture a stopped request immediately after its Code task has been aborted. */
 export async function completeBotCodeRequest(requestId: string): Promise<void> {
   await botCodeRelay().complete(requestId);

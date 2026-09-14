@@ -136,7 +136,7 @@ describe("GlobalAttentionProvider", () => {
       if (path === "/api/tasks") {
         return { attention: [{ taskId: "bot:one", title: "Bot One", kinds: ["permission"] }] };
       }
-      if (path === "/api/tasks/bot:one") {
+      if (path === "/api/tasks/bot:one" || path === `/api/tasks/${encodeURIComponent("bot:one")}`) {
         return { task: { ...taskDetail("bot:one"), title: "Bot One" } };
       }
       throw new Error(`unexpected: ${path}`);

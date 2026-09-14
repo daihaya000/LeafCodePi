@@ -5,6 +5,7 @@ import { dataDir } from "./paths";
 import { invalidateCachedUsage } from "./codexbar/cache";
 import { clearProviderCache } from "./codexbar/provider-cache";
 import { isGoalLoopLiveStatus, readGoalLoopState } from "./pi/goal-loop-state";
+import { getTaskHangWatch } from "./pi/hang-watchdog";
 import { listTasks } from "./store";
 import { hasActiveTaskLease } from "./task-runtime-lease";
 
@@ -297,8 +298,9 @@ export function createAccount(input: {
 }
 
 /**
- * 実行中タスク / live Goal Loop / ランタイム lease から参照されているアカウントは
- * 削除も一時停止も拒否する（provider fallback 中は status が idle/error でも lease が残る）。
+ * 実行中タスク / live Goal Loop / ランタイム lease / hang 監視から参照されている
+ * アカウントは削除も一時停止も拒否する（provider fallback 中や hang abort→resume
+ * の隙間は status が idle でも lease / hang watch が残る）。
  */
 function assertAccountIdleForDisable(id: string, action: "delete" | "pause"): void {
   const verb = action === "delete" ? "削除" : "一時停止";
@@ -307,6 +309,14 @@ function assertAccountIdleForDisable(id: string, action: "delete" | "pause"): vo
     if (task.status === "working" || hasActiveTaskLease(task.id)) {
       throw Object.assign(
         new Error(`このアカウントで実行中のタスクがあるため${verb}できません`),
+        { status: 409 },
+      );
+    }
+    // Hang watchdog aborts to idle before resumePrompt; pausing here lets the
+    // auto-resume re-enter a disabled account.
+    if (getTaskHangWatch(task.id)) {
+      throw Object.assign(
+        new Error(`このアカウントでハング復旧中のタスクがあるため${verb}できません`),
         { status: 409 },
       );
     }

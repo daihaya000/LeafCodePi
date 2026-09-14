@@ -362,6 +362,14 @@
 ### 検証（Tick71–72）
 `tasks/route` / `bot-intercom` — **49 passed**
 
+### Tick73（ループ継続）
+1. アカウント一時停止/削除 — hang watchdog 監視中（abort→resume で status=idle の隙間）も 409
+2. GlobalAttention — Bot/Room の `taskId`（`:` 含む）を `encodeURIComponent` して detail/permission/question を呼ぶ
+3. Room events SSE — 委任 Code タスクにも `subscribeTask` し、許可待ちを 2s ポーリング待ちにしない
+
+### 検証（Tick73）
+`accounts` / `GlobalAttentionProvider` — **42 passed**
+
 ---
 
 ## 2026-09-14: Stale production rebuild / next build exit 1

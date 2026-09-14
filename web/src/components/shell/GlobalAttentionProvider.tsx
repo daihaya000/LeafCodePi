@@ -205,7 +205,9 @@ export function GlobalAttentionProvider() {
     void Promise.all(
       items.map(async (item) => {
         try {
-          const data = await getJson<{ task: TaskDetail }>(`/api/tasks/${item.taskId}`);
+          const data = await getJson<{ task: TaskDetail }>(
+            `/api/tasks/${encodeURIComponent(item.taskId)}`,
+          );
           return [item.taskId, data.task] as const;
         } catch {
           return null;
@@ -246,7 +248,7 @@ export function GlobalAttentionProvider() {
     setResponseBusy(request.id);
     setResponseError(null);
     try {
-      await sendJson(`/api/tasks/${taskId}/permission`, {
+      await sendJson(`/api/tasks/${encodeURIComponent(taskId)}/permission`, {
         requestId: request.id,
         approved,
       });
@@ -254,7 +256,9 @@ export function GlobalAttentionProvider() {
       // 次の pending が同じ kinds のまま残っていることがある。null 固定だと
       // attentionItemStillOpen が false になり、再フェッチまでモーダルが消える。
       try {
-        const data = await getJson<{ task: TaskDetail }>(`/api/tasks/${taskId}`);
+        const data = await getJson<{ task: TaskDetail }>(
+          `/api/tasks/${encodeURIComponent(taskId)}`,
+        );
         setDetails((current) => ({
           ...current,
           [taskId]: applyFetchedAttentionDetail(
@@ -285,13 +289,15 @@ export function GlobalAttentionProvider() {
     setResponseBusy(request.id);
     setResponseError(null);
     try {
-      await sendJson(`/api/tasks/${taskId}/question`, {
+      await sendJson(`/api/tasks/${encodeURIComponent(taskId)}/question`, {
         requestId: request.id,
         ...(options?.reject ? { reject: true } : { answers }),
       });
       clearedQuestionIdsRef.current.add(request.id);
       try {
-        const data = await getJson<{ task: TaskDetail }>(`/api/tasks/${taskId}`);
+        const data = await getJson<{ task: TaskDetail }>(
+          `/api/tasks/${encodeURIComponent(taskId)}`,
+        );
         setDetails((current) => ({
           ...current,
           [taskId]: applyFetchedAttentionDetail(

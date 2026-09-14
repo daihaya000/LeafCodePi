@@ -1,6 +1,11 @@
 import { NextRequest } from "next/server";
 import { getRoom, roomBotTaskId, subscribeRoom } from "@/lib/rooms";
-import { pendingPermissionForTask, pendingQuestionForTask, subscribeTask } from "@/lib/pi/harness";
+import {
+  linkedCodeTaskIdsForOrigin,
+  pendingPermissionForTask,
+  pendingQuestionForTask,
+  subscribeTask,
+} from "@/lib/pi/harness";
 import { createSseWriter } from "@/lib/sse-writer";
 import { roomSnapshotSignature } from "@/lib/room-events";
 import type { RoomAttention } from "@/lib/types";
@@ -20,6 +25,10 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
         const room = getRoom(id);
         if (!room) { sse?.close(); return; }
         const tasks = new Set(room.members.map((botId) => roomBotTaskId(id, botId)));
+        for (const botId of room.members) {
+          const origin = roomBotTaskId(id, botId);
+          for (const linked of linkedCodeTaskIdsForOrigin(origin)) tasks.add(linked);
+        }
         for (const [taskId, unsubscribe] of subscriptions) if (!tasks.has(taskId)) { unsubscribe(); subscriptions.delete(taskId); }
         for (const taskId of tasks) if (!subscriptions.has(taskId)) {
           subscriptions.set(taskId, subscribeTask(taskId, (payload) => { if (payload.type === "snapshot") snapshot(); }));
