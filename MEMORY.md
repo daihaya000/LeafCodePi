@@ -271,6 +271,14 @@
 ### 検証（Tick54）
 `bots/[id]` / `queued-follow-up` / `harness-bot-code` — **43 passed**
 
+### Tick55–56（ループ継続）
+1. Bot DELETE — linked `codeSessionTaskId` を stop/abort（disable/reset と対称。relay 外の Goal Loop/panel Code 孤児防止）
+2. `goalLoopCommand` — `session.prompt` 直前に `promptEpoch` を再検査（prepare 後の abort/disable TOCTOU）
+3. GlobalAttention — 委任 Code の `originTaskId` を返し、Bot/Room 画面ではインライン扱い（二重ベル/モーダル防止）
+
+### 検証（Tick55–56）
+`bots/[id]` / `task-panes` / `GlobalAttentionProvider` / `queued-follow-up` — **147 passed**
+
 ---
 
 ## 2026-09-14: Stale production rebuild / next build exit 1
