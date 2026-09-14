@@ -394,6 +394,14 @@
 ### 検証（Tick77）
 `auto-model` / `AutoRouteOverridesEditor` — **32 passed**
 
+### Tick78（ループ継続・[Hunt Tick76 fresh bugs](bb55ad66) 追随）
+1. Goal Loop POST rollback — `previousModel` に `accountId` を含める；非 live な開始結果は 409 扱いでロールバック
+2. Task SSE ready — `getTaskDetail` に 30s 上限、タイムアウト時は `offline` で degraded ready
+3. ProviderAuthPanel login SSE — `onerror`（CLOSED 時）と JSON.parse 保護
+
+### 検証（Tick78）
+`goal-loop/route` / `events/route` / `ProviderAuthPanel` — **45 passed**
+
 ---
 
 ## 2026-09-14: Stale production rebuild / next build exit 1
