@@ -93,6 +93,33 @@ export async function GET(
         });
         if (sse.closed) return;
         const hasCacheCandidate = Boolean(cachedTaskUpdatedAt && cachedSessionId);
+        // A matching idle cache already contains the timeline. Release the
+        // client hydration gate before cold Pi setup finishes; the full detail
+        // snapshot below still validates the revision and supplies controls.
+        const canSendCachedReady = Boolean(
+          hasCacheCandidate &&
+            pendingPayloads.length === 0 &&
+            cachedTaskUpdatedAt === bootstrap.updatedAt &&
+            cachedSessionId === bootstrap.sessionId &&
+            bootstrap.status !== "working" &&
+            !bootstrap.isStreaming &&
+            !bootstrap.isCompacting,
+        );
+        if (canSendCachedReady) {
+          sse.send("snapshot", {
+            type: "snapshot",
+            task: bootstrap,
+            messagesReused: true,
+            isStreaming: bootstrap.isStreaming,
+            isCompacting: bootstrap.isCompacting,
+            permissionRequest: pendingPermissionForTask(id),
+            questionRequest: pendingQuestionForTask(id),
+            manualAbortedAssistantId: bootstrap.manualAbortedAssistantId ?? null,
+            hangRetryCount: bootstrap.hangRetryCount ?? 0,
+            revertLeafId: bootstrap.revertLeafId ?? null,
+            eventType: "cache_ready",
+          });
+        }
         let detail = await getTaskDetail(id, {
           ...(hasCacheCandidate ? { includeMessages: false } : {}),
           ...(reportTiming ? { onTiming: reportTiming } : {}),

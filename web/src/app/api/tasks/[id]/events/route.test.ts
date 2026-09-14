@@ -147,6 +147,9 @@ describe("/api/tasks/[id]/events", () => {
     const reader = response.body!.getReader();
     await readChunk(reader);
 
+    const cachedReadyPayload = eventData(await readChunk(reader));
+    expect(cachedReadyPayload.eventType).toBe("cache_ready");
+    expect(cachedReadyPayload.messagesReused).toBe(true);
     const readyPayload = eventData(await readChunk(reader));
     expect(readyPayload.eventType).toBe("ready");
     expect(readyPayload.messagesReused).toBe(true);
@@ -154,6 +157,40 @@ describe("/api/tasks/[id]/events", () => {
     expect(mocks.getTaskDetail).toHaveBeenCalledOnce();
     expect(mocks.getTaskDetail).toHaveBeenCalledWith("task-1", { includeMessages: false });
 
+    await reader.cancel();
+  });
+
+  it("releases cached clients before cold detail hydration finishes", async () => {
+    const bootstrap = task({ messages: [], isStreaming: false, status: "idle" });
+    const detail = task({
+      messages: [{ id: "history", role: "user", createdAt: 1, parts: [{ id: "part", type: "text", text: "履歴" }] }],
+      isStreaming: false,
+      status: "idle",
+    });
+    let resolveDetail!: (value: TaskDetail) => void;
+    mocks.getTaskBootstrap.mockReturnValue(bootstrap);
+    mocks.getTaskDetail.mockReturnValue(new Promise<TaskDetail>((resolve) => {
+      resolveDetail = resolve;
+    }));
+    mocks.subscribeTask.mockReturnValue(vi.fn());
+
+    const response = await GET(
+      new NextRequest(
+        "http://127.0.0.1:3010/api/tasks/task-1/events?cachedTaskUpdatedAt=2026-01-01T00%3A00%3A00.000Z&cachedSessionId=session-1",
+      ),
+      { params: Promise.resolve({ id: "task-1" }) },
+    );
+    const reader = response.body!.getReader();
+    expect(eventData(await readChunk(reader)).eventType).toBe("bootstrap");
+
+    const cachedReady = eventData(await readChunk(reader));
+    expect(cachedReady.eventType).toBe("cache_ready");
+    expect(cachedReady.messagesReused).toBe(true);
+    expect(cachedReady.task).toHaveProperty("messages", []);
+    expect(mocks.getTaskDetail).toHaveBeenCalledWith("task-1", { includeMessages: false });
+
+    resolveDetail(detail);
+    expect(eventData(await readChunk(reader)).eventType).toBe("ready");
     await reader.cancel();
   });
 
