@@ -2863,6 +2863,13 @@ function reservedAccountForRoute(
   return { providerID: routeIds.providerID, accountId: route.accountId };
 }
 
+function releaseReservedAccount(
+  reservedAccount: { providerID: string; accountId: string } | undefined,
+): void {
+  if (!reservedAccount) return;
+  releaseRoute(reservedAccount.providerID, reservedAccount.accountId);
+}
+
 export type ProviderFallbackModel = {
   providerID: string;
   modelID: string;
@@ -6174,9 +6181,7 @@ export async function createTask(input: {
     if (promptStart) await promptStart;
     return toSummary(getTask(task.id) ?? task);
   } finally {
-    if (reservedAccount) {
-      releaseRoute(reservedAccount.providerID, reservedAccount.accountId);
-    }
+    releaseReservedAccount(reservedAccount);
   }
 }
 
