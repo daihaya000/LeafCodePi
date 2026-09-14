@@ -175,6 +175,8 @@ describe("Bot mode list", () => {
 
     render(<Sidebar mobileOpen={false} onClose={vi.fn()} />);
     await waitFor(() => expect(mocks.getJson).toHaveBeenCalledWith("/api/tasks?archived=1&kind=all"));
+    expect(screen.getByRole("button", { name: "Bot（進行中1件）" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Code（進行中1件）" })).toBeTruthy();
     fireEvent.click(await screen.findByRole("button", { name: "進行中タスクを分割表示" }));
     await waitFor(() => expect(mocks.dispatch).toHaveBeenCalledWith({
       type: "showWorkingTasks",

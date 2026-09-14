@@ -166,18 +166,24 @@ const PROJECT_ICON_ACCEPT = "image/png,image/jpeg,image/gif,image/webp";
 const MODE_KEY = "leafcodepi.mode";
 type AppMode = "code" | "bot";
 type BotListFilter = "all" | "bots" | "rooms";
+type WorkingCounts = Record<AppMode, number>;
 
-function ModeSegment({ mode, onChange }: { mode: AppMode; onChange: (mode: AppMode) => void }) {
+function ModeSegment({ mode, onChange, workingCounts }: { mode: AppMode; onChange: (mode: AppMode) => void; workingCounts: WorkingCounts }) {
   return <div className="mb-2 grid grid-cols-2 rounded-lg border border-border bg-surface-2 p-0.5">
-    {(["bot", "code"] as const).map((item) => <button key={item} type="button" aria-pressed={mode === item} onClick={() => onChange(item)} className={cx("flex items-center justify-center gap-2 rounded-md px-2 py-1.5 text-xs font-medium", mode === item ? "bg-surface text-text shadow-sm" : "text-muted hover:text-text")}>
-      {item === "bot" ? (
-        <svg aria-hidden="true" viewBox="0 0 24 24" className="h-4 w-4 shrink-0 text-[var(--brand)]">
-          <circle cx="12" cy="12" r="12" fill="currentColor" />
-          <path d="M8 7.5l.8 2.8M14.5 7l.8 2.8" fill="none" stroke="white" strokeWidth="2.2" strokeLinecap="round" />
-        </svg>
-      ) : <CodeXml aria-hidden="true" className="h-4 w-4 shrink-0" />}
-      {item === "code" ? "Code" : "Bot"}
-    </button>)}
+    {(["bot", "code"] as const).map((item) => {
+      const label = item === "code" ? "Code" : "Bot";
+      const count = workingCounts[item];
+      return <button key={item} type="button" aria-label={`${label}${count > 0 ? `（進行中${count}件）` : ""}`} aria-pressed={mode === item} onClick={() => onChange(item)} className={cx("flex items-center justify-center gap-2 rounded-md px-2 py-1.5 text-xs font-medium", mode === item ? "bg-surface text-text shadow-sm" : "text-muted hover:text-text")}>
+        {item === "bot" ? (
+          <svg aria-hidden="true" viewBox="0 0 24 24" className="h-4 w-4 shrink-0 text-[var(--brand)]">
+            <circle cx="12" cy="12" r="12" fill="currentColor" />
+            <path d="M8 7.5l.8 2.8M14.5 7l.8 2.8" fill="none" stroke="white" strokeWidth="2.2" strokeLinecap="round" />
+          </svg>
+        ) : <CodeXml aria-hidden="true" className="h-4 w-4 shrink-0" />}
+        <span>{label}</span>
+        {count > 0 && <span aria-hidden="true" className="inline-flex min-h-4 min-w-4 items-center justify-center rounded-full bg-accent px-1 text-[10px] font-semibold leading-4 text-white">{count}</span>}
+      </button>;
+    })}
   </div>;
 }
 
@@ -217,6 +223,7 @@ const BotSidebarBody = memo(function BotSidebarBody({
   onClose,
   onChangeMode,
   onSettings,
+  workingCounts,
   mdUp,
   collapsed,
   onCollapse,
@@ -228,6 +235,7 @@ const BotSidebarBody = memo(function BotSidebarBody({
   onClose: () => void;
   onChangeMode: (mode: AppMode) => void;
   onSettings: () => void;
+  workingCounts: WorkingCounts;
   health: HealthDto | null;
   onShowWorkingTasks: () => void;
   hasWorking: boolean;
@@ -467,7 +475,7 @@ const BotSidebarBody = memo(function BotSidebarBody({
         </button>
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
-        <ModeSegment mode="bot" onChange={onChangeMode} />
+        <ModeSegment mode="bot" onChange={onChangeMode} workingCounts={workingCounts} />
         <label className="mb-2 flex h-9 items-center gap-2 rounded-lg border border-border bg-bg px-2.5 text-xs text-muted focus-within:border-accent"><Search className="h-3.5 w-3.5 shrink-0" /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={"\u30dc\u30c3\u30c8\u3084\u30eb\u30fc\u30e0\u3092\u691c\u7d22"} aria-label={"\u30dc\u30c3\u30c8\u3084\u30eb\u30fc\u30e0\u3092\u691c\u7d22"} className="min-w-0 flex-1 bg-transparent outline-none placeholder:text-faint" /></label>
         {sidebarError && <p role="alert" className="mb-2 rounded-lg border border-danger/30 bg-danger-bg px-2.5 py-2 text-xs text-danger">{sidebarError}</p>}
         <div className="mb-2 flex gap-1 px-0.5" role="group" aria-label={"\u8868\u793a\u5bfe\u8c61"}>{([['all', '\u3059\u3079\u3066'], ['bots', 'Bot'], ['rooms', '\u30eb\u30fc\u30e0']] as const).map(([value, label]) => <button key={value} type="button" aria-label={value === "bots" ? "Bot filter" : value === "rooms" ? "Room filter" : "All filter"} aria-pressed={listFilter === value} onClick={() => setListFilter(value)} className={`rounded-full px-2.5 py-1 text-[11px] ${listFilter === value ? "bg-accent/10 font-medium text-accent" : "text-muted hover:bg-surface-2"}`}>{label}</button>)}</div>
@@ -993,6 +1001,10 @@ const SidebarView = memo(function SidebarView({
     [pinnedTaskIds, tasks],
   );
   const hasWorking = workingTaskIds.length > 0;
+  const workingCounts = useMemo<WorkingCounts>(() => ({
+    bot: tasks.filter((task) => task.status === "working" && task.kind === "bot").length,
+    code: tasks.filter((task) => task.status === "working" && task.kind !== "bot").length,
+  }), [tasks]);
 
   useEffect(() => {
     try {
@@ -1704,7 +1716,7 @@ const SidebarView = memo(function SidebarView({
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
-        <ModeSegment mode={mode} onChange={changeMode} />
+        <ModeSegment mode={mode} onChange={changeMode} workingCounts={workingCounts} />
         <label className="mb-2 flex h-9 items-center gap-2 rounded-lg border border-border bg-bg px-2.5 text-xs text-muted focus-within:border-accent">
           <Search className="h-3.5 w-3.5 shrink-0" />
           <input
@@ -2037,6 +2049,7 @@ const SidebarView = memo(function SidebarView({
       onClose={onClose}
       onChangeMode={changeMode}
       onSettings={openSettings}
+      workingCounts={workingCounts}
       health={health}
       mdUp={mdUp}
       collapsed={collapsed && mdUp}
