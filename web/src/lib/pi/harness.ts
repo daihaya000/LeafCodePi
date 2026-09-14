@@ -2592,6 +2592,23 @@ export function sessionToolNames(input: {
   ])];
 }
 
+function sessionAppendSystemPrompt(
+  agentAppendSystemPrompt: readonly string[] | undefined,
+  botToolAllowlist: readonly string[] | undefined,
+  agentDir: string,
+  appendSystemPrompt: readonly string[] | undefined,
+): { appendSystemPrompt?: string[] } {
+  // Bot sessions carry their own prompt sources; Code appends global
+  // SOUL.md/USER.md after AGENTS.md (re-read on reload).
+  const extra = botToolAllowlist ? [] : codePromptSources(agentDir);
+  const merged = [
+    ...(agentAppendSystemPrompt ?? []),
+    ...(appendSystemPrompt ?? []),
+    ...extra,
+  ];
+  return merged.length ? { appendSystemPrompt: merged } : {};
+}
+
 type CreatedSessionSetup = {
   botTools?: readonly string[];
   subagentPermission?: "allow" | "deny";
@@ -2751,17 +2768,12 @@ async function createSession(options: {
     ...(agentOptions?.systemPrompt
       ? { systemPrompt: agentOptions.systemPrompt }
       : {}),
-    ...(() => {
-      // Bot sessions carry their own prompt sources; Code appends global
-      // SOUL.md/USER.md after AGENTS.md (re-read on reload).
-      const extra = botToolAllowlist ? [] : codePromptSources(agentDir);
-      const merged = [
-        ...(agentOptions?.appendSystemPrompt ?? []),
-        ...(options.appendSystemPrompt ?? []),
-        ...extra,
-      ];
-      return merged.length ? { appendSystemPrompt: merged } : {};
-    })(),
+    ...sessionAppendSystemPrompt(
+      agentOptions?.appendSystemPrompt,
+      botToolAllowlist,
+      agentDir,
+      options.appendSystemPrompt,
+    ),
     ...(agentOptions?.noContextFiles || options.noContextFiles ? { noContextFiles: true } : {}),
   });
   await resourceLoader.reload();
