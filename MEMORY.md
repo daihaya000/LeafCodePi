@@ -23,7 +23,7 @@ Bot会話にユーザーが付けた画像は Bot セッション / Room ディ�
 
 ### ブランチ / PR
 `cursor/bot-code-image-attach-94ae` / https://github.com/daihaya000/LeafCodePi/pull/4
-実装 SHA: `5f41c7e5`
+実装 SHA: `5f41c7e5` / 検証追記+型修正: `4446a675`
 
 ---
 
