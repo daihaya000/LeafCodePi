@@ -5849,6 +5849,24 @@ async function replaceLiveForRoute(
   }
 }
 
+/** Record the persona transition in the existing transcript before reopening it. */
+async function recordAgentSwitch(
+  live: LiveRuntime,
+  task: TaskSummary,
+  agentName: string,
+): Promise<void> {
+  if (live.session.messages.length === 0) return;
+  await live.session.sendCustomMessage({
+    customType: AGENT_SWITCH_CUSTOM_TYPE,
+    content: agentSwitchNotice(task.agent?.trim(), agentName),
+    display: false,
+    details: {
+      previousAgent: task.agent?.trim() || null,
+      nextAgent: agentName.trim() || null,
+    },
+  });
+}
+
 /** Reopen the same transcript with a newly selected main persona. */
 async function replaceLiveForAgent(
   live: LiveRuntime,
@@ -5860,17 +5878,7 @@ async function replaceLiveForAgent(
   if (!sessionFile) {
     throw new Error("セッションのエージェントを切り替えられません");
   }
-  if (live.session.messages.length > 0) {
-    await live.session.sendCustomMessage({
-      customType: AGENT_SWITCH_CUSTOM_TYPE,
-      content: agentSwitchNotice(task.agent?.trim(), agentName),
-      display: false,
-      details: {
-        previousAgent: task.agent?.trim() || null,
-        nextAgent: agentName.trim() || null,
-      },
-    });
-  }
+  await recordAgentSwitch(live, task, agentName);
   const thinkingLevel =
     typeof live.session.thinkingLevel === "string" &&
     isThinkingLevel(live.session.thinkingLevel)
