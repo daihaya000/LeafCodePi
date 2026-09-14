@@ -1023,6 +1023,7 @@ export const BotView = memo(function BotView({ id, active = true }: { id: string
       <BotMessageList
         conversationId={id}
         contentKey={chatScrollKey}
+        active={active}
         viewportRef={viewportRef}
         onReachTop={() => void loadOlderMessages()}
       >

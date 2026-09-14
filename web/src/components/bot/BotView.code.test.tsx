@@ -152,6 +152,38 @@ it("does not mark hidden tab messages read until activation", async () => {
   expect(mocks.markRead).toHaveBeenCalledWith("bot", "one", 123);
 });
 
+it("scrolls to the latest message when a hidden Bot tab is activated", async () => {
+  let active = true;
+  let contentHeight = 1_000;
+  const renderBot = () => (
+    <div className={active ? "flex" : "hidden"}>
+      <ShellProvider><BotView id="one" active={active} /></ShellProvider>
+    </div>
+  );
+  const view = render(renderBot());
+  await screen.findByRole("button", { name: "設定" });
+  const viewport = screen.getByRole("main");
+  Object.defineProperties(viewport, {
+    clientHeight: { configurable: true, get: () => active ? 200 : 0 },
+    scrollHeight: { configurable: true, get: () => active ? contentHeight : 0 },
+    scrollTop: { configurable: true, writable: true, value: 0 },
+  });
+
+  snapshot({ messages: [{ id: "old", role: "assistant", createdAt: 1, parts: [{ type: "text", text: "old reply" }] }] });
+  expect(viewport.scrollTop).toBe(1_000);
+
+  // A hidden tab keeps its SSE connection, but the browser cannot measure its content.
+  active = false;
+  contentHeight = 1_200;
+  view.rerender(renderBot());
+  snapshot({ messages: [{ id: "old", role: "assistant", createdAt: 1, parts: [{ type: "text", text: "old reply" }] }, { id: "new", role: "assistant", createdAt: 2, parts: [{ type: "text", text: "new reply" }] }] });
+  expect(viewport.scrollTop).toBe(1_000);
+
+  active = true;
+  view.rerender(renderBot());
+  expect(viewport.scrollTop).toBe(1_200);
+});
+
 it("shows a routine's consecutive failures and keeps an auto-disabled routine from running", async () => {
   const autoDisabled = {
     id: "routine-1", botId: "one", name: "朝の確認", prompt: "Check status", schedule: "0 * * * *",

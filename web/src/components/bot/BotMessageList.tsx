@@ -87,12 +87,13 @@ export const BotMessageMarkdown = memo(function BotMessageMarkdown({ text, menti
   return <div className="md"><Markdown remarkPlugins={[remarkGfm]} components={{ ...components, a: ({ href, children, ...props }) => <TaskLink href={href} {...props}>{children}</TaskLink> }}>{linkBareTaskPaths(text)}</Markdown></div>;
 });
 
-export function BotMessageList({ conversationId, contentKey, children, viewportRef, onReachTop }: {
+export function BotMessageList({ conversationId, contentKey, children, viewportRef, onReachTop, active = true }: {
   conversationId: string;
   contentKey?: unknown;
   children: ReactNode;
   viewportRef?: RefObject<HTMLElement | null>;
   onReachTop?: () => void;
+  active?: boolean;
 }) {
   const localViewport = useRef<HTMLElement>(null);
   const viewport = viewportRef ?? localViewport;
@@ -100,11 +101,16 @@ export function BotMessageList({ conversationId, contentKey, children, viewportR
   // Keep prompt/settings-only parent renders from forcing a scroll layout read.
   const scrollKey = contentKey ?? children;
 
-  useLayoutEffect(() => { following.current = true; }, [conversationId]);
+  // Re-opening a hidden tab starts from the newest message, while updates in
+  // an active tab still respect an explicit upward user scroll.
   useLayoutEffect(() => {
+    if (active) following.current = true;
+  }, [active, conversationId]);
+  useLayoutEffect(() => {
+    if (!active) return;
     const element = viewport.current;
     if (element && following.current) element.scrollTop = element.scrollHeight;
-  }, [conversationId, scrollKey, viewport]);
+  }, [active, conversationId, scrollKey, viewport]);
 
   return (
     <main ref={viewport} onScroll={(event) => {
