@@ -8252,6 +8252,34 @@ export async function abortTaskCompaction(id: string): Promise<TaskDetail> {
  * Pi コアの navigateTree は user メッセージをターゲットにすると leaf を親へ
  * 移し、破棄した分の入力を editorText として返す。
  */
+function assertIdleForSessionTreeEdit(
+  id: string,
+  live: {
+    session: {
+      isStreaming: boolean;
+      isCompacting?: boolean;
+      sessionId?: string | null;
+    };
+    promptActive?: boolean;
+  },
+): void {
+  const task = getTask(id);
+  const goalLoop = task
+    ? readGoalLoopState(task.directory, live.session.sessionId ?? task.sessionId)
+    : null;
+  if (
+    live.session.isStreaming ||
+    Boolean(live.session.isCompacting) ||
+    Boolean(live.promptActive) ||
+    isGoalLoopLiveStatus(goalLoop?.status)
+  ) {
+    throw Object.assign(
+      new Error("応答中は巻き戻せません。停止してからお試しください"),
+      { status: 409 },
+    );
+  }
+}
+
 export async function revertTask(
   id: string,
   messageId: string,
@@ -8262,14 +8290,7 @@ export async function revertTask(
   files: { uri: string; mime: string; name?: string }[];
 }> {
   const live = await ensureLive(id);
-  if (live.session.isStreaming) {
-    throw Object.assign(
-      new Error("応答中は巻き戻せません。停止してからお試しください"),
-      {
-        status: 409,
-      },
-    );
-  }
+  assertIdleForSessionTreeEdit(id, live);
   const entry = messageEntryById(live.session, messageId);
   if (!entry) {
     throw Object.assign(new Error("対象メッセージが見つかりません"), {
@@ -8455,6 +8476,7 @@ export function restoreExactSessionLeaf(
 /** 巻き戻し取消: revert 前の leaf へ戻す。 */
 export async function unrevertTask(id: string): Promise<TaskDetail> {
   const live = await ensureLive(id);
+  assertIdleForSessionTreeEdit(id, live);
   const target = live.revertLeafId ?? getTask(id)?.revertLeafId ?? null;
   if (!target) {
     throw Object.assign(new Error("巻き戻しの対象がありません"), {

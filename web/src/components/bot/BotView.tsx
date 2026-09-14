@@ -671,7 +671,7 @@ export const BotView = memo(function BotView({ id, active = true }: { id: string
 
   const send = async () => {
     const value = prompt.trim();
-    if ((!value && attachments.length === 0) || sending) return;
+    if ((!value && attachments.length === 0) || sending || reverting) return;
     const requestContext = botRequestContextRef.current;
     const submittedAttachments = attachments;
     const { images, files } = composerPromptAttachments(submittedAttachments);
@@ -1209,7 +1209,7 @@ export const BotView = memo(function BotView({ id, active = true }: { id: string
         onKeyDown={(event) => { if (event.key === "Enter" && (event.metaKey || event.ctrlKey) && !composingRef.current) { event.preventDefault(); void send(); } }}
         placeholder={`${bot.name}\u306b\u30e1\u30c3\u30bb\u30fc\u30b8（Ctrl+Enterで送信、Enterで改行）`}
         sendDisabled={!prompt.trim() && attachments.length === 0}
-        busy={sending}
+        busy={sending || reverting}
         onSend={() => void send()}
         onAbort={() => void abort()}
         footer={<><button type="button" onClick={() => setRoutineCardOpen(true)} className="shrink-0 font-medium text-accent hover:underline">{"\u30eb\u30fc\u30c6\u30a3\u30f3\u3092\u4f5c\u6210"}</button><button type="button" aria-expanded={codePanelOpen} aria-controls="bot-code-session-panel" onClick={() => setCodePanelOpen((open) => !open)} className="shrink-0 font-medium text-accent hover:underline">Codeを操作</button><button type="button" onClick={() => updateSettingsOpen(true)} className="truncate hover:text-text">{"\u30e2\u30c7\u30eb"}: {selectedModel?.label ?? "\u672a\u9078\u629e"}</button><button type="button" onClick={() => updateSettingsOpen(true)} className="shrink-0 hover:text-text">{"\u601d\u8003"}: {thinkingValue}</button></>}

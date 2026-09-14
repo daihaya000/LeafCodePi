@@ -87,6 +87,112 @@ describe("unrevertTask", () => {
       rmSync(root, { recursive: true, force: true });
     }
   });
+
+  it("rejects restore while the session is streaming", async () => {
+    const { mkdtempSync, rmSync } = await import("node:fs");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    const root = mkdtempSync(join(tmpdir(), "leafcode-pi-unrevert-streaming-"));
+    const previousDataDir = process.env.LEAFCODE_PI_DATA_DIR;
+    const globalRef = globalThis as Record<string, unknown>;
+    const globalKey = "__leafcodePiHarness";
+    const previousHarness = globalRef[globalKey];
+    process.env.LEAFCODE_PI_DATA_DIR = join(root, "data");
+    try {
+      const { upsertProject, insertTask, getTask, patchTask } = await import("@/lib/store");
+      const project = upsertProject({ name: "demo", rootPath: root });
+      const task = insertTask({ project, title: "unrevert streaming" });
+      let navigated = false;
+      globalRef[globalKey] = {
+        live: new Map([[task.id, {
+          revertLeafId: "original-leaf",
+          session: {
+            isStreaming: true,
+            navigateTree: async () => {
+              navigated = true;
+              return { cancelled: false };
+            },
+          },
+        }]]),
+      };
+      patchTask(task.id, { revertLeafId: "original-leaf" });
+
+      await assert.rejects(unrevertTask(task.id), /応答中は巻き戻せません/);
+      assert.equal(navigated, false);
+      assert.equal(getTask(task.id)?.revertLeafId, "original-leaf");
+    } finally {
+      if (previousDataDir === undefined) delete process.env.LEAFCODE_PI_DATA_DIR;
+      else process.env.LEAFCODE_PI_DATA_DIR = previousDataDir;
+      if (previousHarness === undefined) delete globalRef[globalKey];
+      else globalRef[globalKey] = previousHarness;
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects restore while a Goal loop is live between turns", async () => {
+    const { mkdirSync, mkdtempSync, rmSync, writeFileSync } = await import("node:fs");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    const root = mkdtempSync(join(tmpdir(), "leafcode-pi-unrevert-goal-"));
+    const previousDataDir = process.env.LEAFCODE_PI_DATA_DIR;
+    const globalRef = globalThis as Record<string, unknown>;
+    const globalKey = "__leafcodePiHarness";
+    const previousHarness = globalRef[globalKey];
+    process.env.LEAFCODE_PI_DATA_DIR = join(root, "data");
+    try {
+      const { upsertProject, insertTask, getTask, patchTask } = await import("@/lib/store");
+      const project = upsertProject({ name: "demo", rootPath: root });
+      const task = insertTask({ project, title: "unrevert goal" });
+      patchTask(task.id, { revertLeafId: "original-leaf", sessionId: "sess-goal" });
+      mkdirSync(join(root, "data", "goals-loop"), { recursive: true });
+      writeFileSync(join(root, "data", "goals-loop", "sess-goal.json"), JSON.stringify({
+        id: "loop-1",
+        sessionId: "sess-goal",
+        cwd: root,
+        status: "queued",
+        goal: "ship",
+        acceptance: [],
+        maxTurns: 3,
+        cooldownSeconds: 1,
+        nextTurnAt: null,
+        forceFullRun: false,
+        turnCount: 1,
+        turnKind: "goal",
+        pauseReason: "",
+        error: "",
+        progress: [],
+        summary: "",
+        evidence: "",
+        blockedReason: "",
+        rejectedClaims: 0,
+        unreadableStreak: 0,
+      }));
+      let navigated = false;
+      globalRef[globalKey] = {
+        live: new Map([[task.id, {
+          revertLeafId: "original-leaf",
+          session: {
+            isStreaming: false,
+            sessionId: "sess-goal",
+            navigateTree: async () => {
+              navigated = true;
+              return { cancelled: false };
+            },
+          },
+        }]]),
+      };
+
+      await assert.rejects(unrevertTask(task.id), /応答中は巻き戻せません/);
+      assert.equal(navigated, false);
+      assert.equal(getTask(task.id)?.revertLeafId, "original-leaf");
+    } finally {
+      if (previousDataDir === undefined) delete process.env.LEAFCODE_PI_DATA_DIR;
+      else process.env.LEAFCODE_PI_DATA_DIR = previousDataDir;
+      if (previousHarness === undefined) delete globalRef[globalKey];
+      else globalRef[globalKey] = previousHarness;
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
 });
 
 describe("persistRevertLeafId", () => {

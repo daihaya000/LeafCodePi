@@ -147,6 +147,15 @@
 ### 検証（Tick28）
 `TaskView` / `RoomView` / `rooms/[id]` / `bot-code-relay` — **141 passed**
 
+### Tick29–31（ループ継続）
+1. `revertTask` — pending permission/question をクリア（abort/reset と同等）
+2. `clearPendingAttentionForTask` — Bot 起源の委任 Code キューもクリア
+3. Room revert API — メンバー task の attention をクリア
+4. RoomView / BotView / TaskView — 巻き戻し成功時に attention UI をクリア
+
+### 検証（Tick29–31）
+`harness-bot-code` / `rooms/revert` / `RoomView` / `BotView.code` — **94 passed**
+
 ---
 
 ## 2026-09-14: Stale production rebuild / next build exit 1

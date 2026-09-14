@@ -2079,7 +2079,7 @@ export const TaskView = memo(function TaskView({
   }
 
   async function unrevert() {
-    if (revertBusy || archived) return;
+    if (revertBusy || working || archived) return;
     setRevertBusy(true);
     setError(null);
     try {
@@ -2105,7 +2105,9 @@ export const TaskView = memo(function TaskView({
       resumingTurn ||
       compacting ||
       agentChanging ||
-      archived
+      archived ||
+      revertBusy ||
+      revertConfirmOpen
     ) {
       return;
     }
@@ -3596,6 +3598,7 @@ export const TaskView = memo(function TaskView({
               variant="secondary"
               size="sm"
               busy={revertBusy}
+              disabled={revertBusy || working}
               onClick={() => void unrevert()}
             >
               復元
@@ -4030,7 +4033,7 @@ export const TaskView = memo(function TaskView({
                 title={working ? (deliveryMode === "queue" ? "現在の処理後に送信" : "実行中の処理へ差し込む") : "送信"}
                 className={`${COMPOSER_ACTION_BUTTON_CLASS} !bg-accent !text-white hover:!bg-accent/90`}
                 busy={submitting}
-                disabled={archived || compacting || agentChanging || ((goalLoopEnabled || goalLoopLive) && working) || (!prompt.trim() && attachments.length === 0)}
+                disabled={archived || compacting || agentChanging || revertBusy || revertConfirmOpen || ((goalLoopEnabled || goalLoopLive) && working) || (!prompt.trim() && attachments.length === 0)}
               >
                 {!submitting && <ArrowUp className="h-4 w-4" />}
               </Button>

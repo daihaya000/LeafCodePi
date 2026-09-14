@@ -405,15 +405,15 @@ export function RoomView({ id, active = true }: { id: string; active?: boolean }
   };
 
   const addFiles = useCallback((files: FileList) => {
-    if (!canAttachComposerImages({ submitting: busy })) return;
+    if (!canAttachComposerImages({ submitting: busy || reverting })) return;
     readComposerFiles(files, (attachment) => {
       setAttachments((current) => [...current, attachment]);
     });
-  }, [busy]);
+  }, [busy, reverting]);
 
   const send = async () => {
     const value = prompt.trim();
-    if ((!value && attachments.length === 0) || busy) return;
+    if ((!value && attachments.length === 0) || busy || reverting) return;
     const requestContext = roomRequestContextRef.current;
     const submittedAttachments = attachments;
     const { images, files } = composerPromptAttachments(submittedAttachments);
@@ -626,14 +626,14 @@ export function RoomView({ id, active = true }: { id: string; active?: boolean }
         onKeyDown={handlePromptKeyDown}
         placeholder={broadcast ? `${room.name}の全員に個別回答を依頼（Ctrl+Enterで送信、Enterで改行）` : `${room.name}にメッセージ（@で相手、/でスキル、Ctrl+Enterで送信、Enterで改行）`}
         sendDisabled={!prompt.trim() && attachments.length === 0}
-        busy={busy}
+        busy={busy || reverting}
         onSend={() => void send()}
         references={{ skills }}
         onValueChange={setPrompt}
         attachments={attachments}
         onRemoveAttachment={(index) => setAttachments((current) => current.filter((_, position) => position !== index))}
         onFilesSelected={addFiles}
-        attachmentDisabled={!canAttachComposerImages({ submitting: busy })}
+        attachmentDisabled={!canAttachComposerImages({ submitting: busy || reverting })}
         onPaste={(event) => { if (pasteImage(addFiles, event)) event.preventDefault(); }}
         footer={<><button type="button" aria-pressed={broadcast} onClick={() => setBroadcast((value) => !value)} className={`rounded-full px-2 py-1 font-medium ${broadcast ? "bg-accent/10 text-accent" : "hover:bg-surface-2 hover:text-text"}`}>{broadcast ? "全員が個別回答" : "メンバーで対話"}</button><button type="button" onClick={() => setSettingsOpen(true)} className="shrink-0 hover:text-text">{`\u30e1\u30f3\u30d0\u30fc: ${room.members.length}`}</button></>}
         inputOverlay={mentionCandidates.length > 0 ? <div id="room-mention-options" role="listbox" aria-label={"\u30e1\u30f3\u30b7\u30e7\u30f3\u5148\u5019\u88dc"} className="absolute bottom-full left-0 z-20 mb-2 max-h-56 w-full overflow-y-auto rounded-xl border border-border bg-surface p-1 shadow-[0_8px_30px_rgba(0,0,0,0.12)]">{mentionCandidates.map((candidate, index) => <button key={candidate.key} type="button" role="option" aria-selected={index === mentionIndex} onMouseDown={(event) => event.preventDefault()} onClick={() => insertMention(candidate)} className={`flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left ${index === mentionIndex ? "bg-surface-2" : "hover:bg-surface-2"}`}>{candidate.bot ? <BotAvatar size={24} {...candidate.bot} /> : <span className="flex h-6 w-6 items-center justify-center rounded-full bg-accent/10 text-xs font-semibold text-accent">@</span>}<span className="min-w-0"><span className="block truncate text-sm font-medium">{candidate.label}</span><span className="block truncate text-[11px] text-muted">{candidate.description}</span></span></button>)}</div> : null}
