@@ -16,7 +16,7 @@ ask/reply/pending、永続mailbox、presence、添付、cancel/supersede、scope
 
 ### ブランチ / PR
 `cursor/bot-intercom-bridge-phase-a-e6a2` / https://github.com/daihaya000/LeafCodePi/pull/3
-実装 SHA: （push後の本コミット）
+実装 SHA: `70031d1a` / テスト修正+MEMORY: `f677801d`
 
 ---
 
