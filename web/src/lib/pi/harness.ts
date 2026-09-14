@@ -7204,24 +7204,30 @@ export async function setTaskModel(
     targetIds.providerID === task.providerID &&
     targetIds.modelID === task.modelID &&
     targetAccountId === (task.accountId ?? null);
+  const routePatch = (thinkingLevel: ThinkingLevel) => ({
+    providerID: targetIds.providerID ?? parsed.providerID,
+    modelID: targetIds.modelID ?? parsed.modelID,
+    thinkingLevel,
+    accountId: targetAccountId ?? undefined,
+    accountIdExplicit: targetAccountId && accountIdExplicit ? true : undefined,
+  });
+  const persistRoute = (
+    patch: Parameters<typeof patchTask>[1],
+    eventType?: string,
+  ): TaskSummary => {
+    const updatedTask = patchTask(id, patch);
+    if (!updatedTask)
+      throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });
+    const summary = toSummary(updatedTask);
+    emit(id, { type: "snapshot", task: summary, ...(eventType ? { eventType } : {}) });
+    return summary;
+  };
   const persistColdTaskModel = (thinkingLevel: ThinkingLevel): TaskSummary | null => {
     if (state().live.get(id)) return null;
     // A failed cold session may still be in ensureLiveInflight. Advance its epoch
     // before replacing the persisted route so it cannot restore the old model.
     disposeLive(id);
-    const updatedTask = patchTask(id, {
-      providerID: targetIds.providerID ?? parsed.providerID,
-      modelID: targetIds.modelID ?? parsed.modelID,
-      thinkingLevel,
-      accountId: targetAccountId ?? undefined,
-      accountIdExplicit:
-        targetAccountId && accountIdExplicit ? true : undefined,
-    });
-    if (!updatedTask)
-      throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });
-    const summary = toSummary(updatedTask);
-    emit(id, { type: "snapshot", task: summary, eventType: "model_changed" });
-    return summary;
+    return persistRoute(routePatch(thinkingLevel), "model_changed");
   };
 
   // アカウント切替はセッションの再作成が必要なため、実行中は次ターンへ保留する。
@@ -7245,31 +7251,12 @@ export async function setTaskModel(
         live,
         id,
         { model: pendingModel, thinkingLevel },
-        {
-          providerID: targetIds.providerID ?? parsed.providerID,
-          modelID: targetIds.modelID ?? parsed.modelID,
-          thinkingLevel,
-          accountId: targetAccountId ?? undefined,
-          accountIdExplicit:
-            targetAccountId && accountIdExplicit ? true : undefined,
-        },
+        routePatch(thinkingLevel),
       );
     }
     throwIfGoalLoopBlocksSessionReplace(task, live.session.sessionId);
     disposeLive(id);
-    const updatedTask = patchTask(id, {
-      providerID: targetIds.providerID ?? parsed.providerID,
-      modelID: targetIds.modelID ?? parsed.modelID,
-      thinkingLevel,
-      accountId: targetAccountId ?? undefined,
-      accountIdExplicit:
-        targetAccountId && accountIdExplicit ? true : undefined,
-    });
-    if (!updatedTask)
-      throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });
-    const summary = toSummary(updatedTask);
-    emit(id, { type: "snapshot", task: summary });
-    return summary;
+    return persistRoute(routePatch(thinkingLevel));
   }
 
   const thinkingLevel = thinkingLevelForModelSelection(
