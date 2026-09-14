@@ -313,6 +313,15 @@
 ### 検証（Tick62–63）
 `bots/[id]` / `code-session` / `rooms/.../code` / `harness-lifecycle` / `hang-watchdog` — **67 passed**
 
+### Tick64（ループ継続）
+1. Room fan-out — ready handoff がフロアを取ったら sibling placeholder を `"Handoff took the floor."` で止め、`deliverReadyRoomHandoffs`；次 sibling 開始前にも handoff 再確認
+2. `runRoomBot` — 最終 `done` 書き込みを `status === "working"` のときだけ原子的に行い、Stop/handoff 後の上書きを防止
+3. Settings 直接生成 — `accountId` 付き候補は `accountIdExplicit: true`（ピン固定）
+4. `getTaskDetail` — live/archive の attention を `pendingPermissionForTask` / `pendingQuestionForTask` に統一
+
+### 検証（Tick64）
+`room-runtime` / `direct-generation` — **64 passed**
+
 ---
 
 ## 2026-09-14: Stale production rebuild / next build exit 1

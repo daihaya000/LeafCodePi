@@ -5947,8 +5947,8 @@ export async function getTaskDetail(
       ...getTaskBootstrap(id),
       ...(await offlineDetailParts(task, options.onTiming)),
       isStreaming: false,
-      permissionRequest: ensurePermissionPromptService().pendingForTask(id),
-      questionRequest: ensureQuestionPromptService().pendingForTask(id),
+      permissionRequest: pendingPermissionForTask(id),
+      questionRequest: pendingQuestionForTask(id),
       goalLoop: null,
     };
     reportTaskDetailPhase(options.onTiming, "total", totalStartedAt);
@@ -5975,8 +5975,8 @@ export async function getTaskDetail(
   const detail = {
     ...toSummary(getTask(id) ?? task),
     ...live,
-    permissionRequest: ensurePermissionPromptService().pendingForTask(id),
-    questionRequest: ensureQuestionPromptService().pendingForTask(id),
+    permissionRequest: pendingPermissionForTask(id),
+    questionRequest: pendingQuestionForTask(id),
   };
   reportTaskDetailPhase(options.onTiming, "total", totalStartedAt);
   return detail;

@@ -806,4 +806,54 @@ describe("room stop and fan-out", () => {
     expect(state.promptTask).not.toHaveBeenCalled();
     expect(getRoom(room.id)!.messages.find((message) => message.id === response.id)?.status).toBe("error");
   });
+
+  it("stops sibling fan-out turns when a ready handoff takes the floor", async () => {
+    const replyWith = (id: string, text: string) => {
+      const detail = state.details.get(id)!;
+      detail.messages = [...detail.messages, assistant(`reply-${detail.messages.length}`, text)];
+    };
+    const { room, bots, user } = setup(["A", "B"]);
+    const bTask = `bot:${bots[1].id}:room:${room.id}`;
+    let bStarted!: () => void;
+    const bHasStarted = new Promise<void>((resolve) => {
+      bStarted = resolve;
+    });
+    let releaseB!: () => void;
+    const bHold = new Promise<void>((resolve) => {
+      releaseB = resolve;
+    });
+    state.promptTask.mockImplementation(async (id: string) => {
+      if (id === bTask) {
+        bStarted();
+        await bHold;
+        replyWith(id, "B still going\nROOM_ACTION: DONE");
+        return;
+      }
+      await bHasStarted;
+      replyWith(id, `@${bots[1].name} 確認して。\nROOM_ACTION: DONE`);
+    });
+    const responseA = appendRoomMessage(room.id, {
+      role: "assistant",
+      botId: bots[0].id,
+      botName: bots[0].name,
+      text: "",
+      status: "working",
+    })!;
+    const responseB = appendRoomMessage(room.id, {
+      role: "assistant",
+      botId: bots[1].id,
+      botName: bots[1].name,
+      text: "",
+      status: "working",
+    })!;
+    const run = runRoomFanOut(room, bots, "確認して", [responseA.id, responseB.id], user.id);
+    await bHasStarted;
+    await vi.waitFor(() => expect(state.abortTask).toHaveBeenCalledWith(bTask));
+    releaseB();
+    await run;
+    expect(getRoom(room.id)!.messages.find((message) => message.id === responseB.id)).toMatchObject({
+      status: "error",
+      text: "Handoff took the floor.",
+    });
+  });
 });

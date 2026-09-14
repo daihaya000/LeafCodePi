@@ -264,6 +264,29 @@ describe("direct-generation", () => {
     expect(completeModelText.mock.calls[1]?.[0]).not.toHaveProperty("reasoning");
   });
 
+  it("pins candidate.model.accountId as explicit in the fallback chain", async () => {
+    completeModelText.mockResolvedValue("ok");
+    await generateDirectTextWithFallback({
+      candidates: [
+        {
+          model: {
+            providerID: "anthropic",
+            modelID: "claude-sonnet",
+            accountId: "acc-settings",
+          },
+        },
+      ],
+      system: "system",
+      prompt: "prompt",
+    });
+    expect(completeModelText).toHaveBeenCalledWith(
+      expect.objectContaining({
+        accountId: "acc-settings",
+        accountIdExplicit: true,
+      }),
+    );
+  });
+
   it("tries the selected fallback model with its own effort", async () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(new Response("{}", { status: 503 }))

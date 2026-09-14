@@ -283,12 +283,17 @@ export async function generateDirectTextWithFallbackResult(
   const { candidates, ...base } = options;
   let lastError: unknown;
   for (const candidate of candidates) {
+    // Settings keys include accountId (acc::provider::model). Treat that as an explicit pin so a
+    // paused account does not silently route to another account mid-fallback chain.
+    const pinAccount =
+      base.accountIdExplicit === true || Boolean(candidate.model.accountId);
     try {
       return {
         text: await generateDirectText({
           ...base,
           model: candidate.model,
           effort: candidate.effort,
+          ...(pinAccount ? { accountIdExplicit: true } : {}),
         }),
         model: candidate.model,
       };
@@ -298,7 +303,11 @@ export async function generateDirectTextWithFallbackResult(
       if (candidate.effort && candidate.effort !== "off" && isProviderInternalError(error)) {
         try {
           return {
-            text: await generateDirectText({ ...base, model: candidate.model }),
+            text: await generateDirectText({
+              ...base,
+              model: candidate.model,
+              ...(pinAccount ? { accountIdExplicit: true } : {}),
+            }),
             model: candidate.model,
           };
         } catch (retryError) {

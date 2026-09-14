@@ -143,16 +143,26 @@ export async function runRoomBot(room: RoomDto, bot: BotDto, prompt: string, res
     const assistant = [...detail.messages].reverse().find((message) => message.role === "assistant" && !before.has(message.id));
     const error = detail.error || assistant?.error;
     const raw = assistant ? textOf(assistant) : "";
+    const settledRoom = getRoom(room.id);
+    if (!settledRoom || latestRoomRequest(settledRoom)?.id !== requestId) return;
     const parsed = turn ? parseRoomReply(raw, bot.id, participants) : { text: raw };
     const reply = bindImplicitMentionHandoff({
       roomId: room.id, requestId, fromMessageId: responseId, fromBotId: bot.id, reply: parsed,
     });
     const { text } = reply;
-    updateRoomMessage(room.id, responseId, { text: error || (text.trim() ? text : "Bot did not return a response."), status: error || !text.trim() ? "error" : "done" });
+    // Atomic: do not overwrite a placeholder already closed by Stop / handoff / supersede.
+    const updated = updateRoomMessage(room.id, responseId, (message) => {
+      if (message.status !== "working") return {};
+      return {
+        text: error || (text.trim() ? text : "Bot did not return a response."),
+        status: error || !text.trim() ? "error" : "done",
+      };
+    });
+    if (!updated || updated.status !== "done") return undefined;
     // The turn may have handed work to Code; show what that run is doing while the Room waits.
     // Parallel requests share one message, so every outstanding job mirrors its activity.
     for (const delegated of pendingRoomCodeRequestsForTurn(room.id, requestId)) trackRoomCodeProgress(room.id, delegated);
-    return error || !text.trim() ? undefined : reply;
+    return reply;
     }, { timeoutMs: ROOM_TURN_LOCK_TIMEOUT_MS });
   } catch (error) {
     updateRoomMessage(room.id, responseId, { text: error instanceof Error ? error.message : String(error), status: "error" });
@@ -224,14 +234,41 @@ const FAN_OUT_LIMIT = 4;
 /** Independent replies still cost a model call each: keep a large room from starting them all at once. */
 export async function runRoomFanOut(room: RoomDto, bots: BotDto[], prompt: string, responseIds: string[], requestId: string): Promise<void> {
   const queue = bots.map((bot, index) => ({ bot, responseId: responseIds[index] })).filter((entry) => entry.responseId);
+  const fanOutResponseIds = new Set(queue.map((entry) => entry.responseId));
   let next = 0;
+  // One worker may see a ready handoff while siblings are still prompting — take the floor once.
+  let floorTaken: Promise<void> | null = null;
+  const takeFloorForHandoff = () => {
+    if (!floorTaken) {
+      floorTaken = (async () => {
+        const turns = workingTurns(room.id).filter((entry) => fanOutResponseIds.has(entry.messageId));
+        for (const entry of turns) {
+          updateRoomMessage(room.id, entry.messageId, {
+            text: "Handoff took the floor.",
+            status: "error",
+          });
+        }
+        await Promise.allSettled(turns.map((entry) => abortTask(entry.taskId)));
+        await deliverReadyRoomHandoffs(room.id);
+      })();
+    }
+    return floorTaken;
+  };
+  const hasReadyHandoff = () =>
+    (getRoom(room.id)?.handoffs ?? []).some(
+      (handoff) => handoff.requestId === requestId && handoff.state === "ready",
+    );
   const worker = async () => {
     for (let index = next++; index < queue.length; index = next++) {
+      // Bail before starting another sibling once a peer already registered a ready handoff.
+      if (hasReadyHandoff()) {
+        await takeFloorForHandoff();
+        return;
+      }
       const entry = queue[index];
       await runRoomBot(room, entry.bot, prompt, entry.responseId, requestId);
-      // A ready handoff registered during this reply takes the floor once; concurrent workers are safe.
-      if ((getRoom(room.id)?.handoffs ?? []).some((handoff) => handoff.requestId === requestId && handoff.state === "ready")) {
-        await deliverReadyRoomHandoffs(room.id);
+      if (hasReadyHandoff()) {
+        await takeFloorForHandoff();
         return;
       }
     }
