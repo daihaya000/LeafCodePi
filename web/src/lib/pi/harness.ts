@@ -3166,6 +3166,32 @@ function toGoalLoopSummary(
   };
 }
 
+function pendingSummaryOverlay(live: LiveRuntime): Partial<TaskSummary> {
+  const pending = live.pendingSettings;
+  const pendingModel = pending?.model?.route;
+  return {
+    ...(pendingModel
+      ? {
+          providerID: modelId(pendingModel.model).providerID,
+          modelID: modelId(pendingModel.model).modelID,
+          ...(pendingModel.accountId
+            ? { accountId: pendingModel.accountId }
+            : { accountId: undefined }),
+          accountIdExplicit: pending.model?.accountIdExplicit ? true : undefined,
+        }
+      : {}),
+    ...(pending?.agentName !== undefined
+      ? { agent: pending.agentName ?? undefined }
+      : {}),
+    ...(pending?.permissionMode !== undefined
+      ? { permissionMode: pending.permissionMode }
+      : {}),
+    ...(pending?.skillPermission !== undefined
+      ? { skillPermission: pending.skillPermission }
+      : {}),
+  };
+}
+
 function toSummary(task: TaskSummary): TaskSummary {
   const limitError =
     task.status === "error" && isProviderLimitError(task.error)
@@ -3189,29 +3215,9 @@ function toSummary(task: TaskSummary): TaskSummary {
     isThinkingLevel(live.session.thinkingLevel)
       ? live.session.thinkingLevel
       : task.thinkingLevel);
-  const pendingModel = live.pendingSettings?.model?.route;
-  const pendingAgent = live.pendingSettings?.agentName;
   return {
     ...task,
-    ...(pendingModel
-      ? {
-          providerID: modelId(pendingModel.model).providerID ?? task.providerID,
-          modelID: modelId(pendingModel.model).modelID ?? task.modelID,
-          ...(pendingModel.accountId
-            ? { accountId: pendingModel.accountId }
-            : { accountId: undefined }),
-          accountIdExplicit: live.pendingSettings?.model?.accountIdExplicit
-            ? true
-            : undefined,
-        }
-      : {}),
-    ...(pendingAgent !== undefined ? { agent: pendingAgent ?? undefined } : {}),
-    ...(live.pendingSettings?.permissionMode !== undefined
-      ? { permissionMode: live.pendingSettings.permissionMode }
-      : {}),
-    ...(live.pendingSettings?.skillPermission !== undefined
-      ? { skillPermission: live.pendingSettings.skillPermission }
-      : {}),
+    ...pendingSummaryOverlay(live),
     // After an explicit idle/error/archived write, do not re-promote to working
     // from a stale session.isStreaming flag (hang abort / Stop races).
     status: resolveSummaryStatus(task.status, live.session.isStreaming),
