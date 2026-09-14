@@ -6561,54 +6561,27 @@ function promptOptionsForWorker(
   };
 }
 
-export async function promptTask(
+function requireTask(id: string): TaskSummary {
+  const task = getTask(id);
+  if (!task) throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });
+  return task;
+}
+
+/**
+ * Apply the Composer's agent/model/effort/permission selections before the turn
+ * is queued, and return the task snapshot the caller should keep using.
+ */
+async function applyPromptSelections(
   id: string,
-  prompt: string,
-  images?: PromptImage[],
-  options?: {
-    files?: PromptFileInput[];
-    agent?: string;
-    model?: string;
-    thinkingLevel?: ThinkingLevel;
-    subagentPermission?: "allow" | "deny";
-    permissionMode?: "allow" | "ask" | "deny";
-    skillPermission?: SkillPermission;
-    streamingBehavior?: "steer" | "followUp";
-    accountIdExplicit?: boolean;
-    /** Resume may carry a stale model/account from the interrupted message. */
-    resume?: boolean;
-    /** Wait for this normal prompt's queue entry, including preparation and retries. */
-    waitForCompletion?: boolean;
-    /** Internal Bot delegation receipt, never accepted from HTTP request bodies. */
-    codeRequestId?: string;
-  },
+  options: NonNullable<Parameters<typeof promptTask>[3]> | undefined,
 ): Promise<TaskSummary> {
-  const taskBeforePrompt = getTask(id);
-  if (!taskBeforePrompt)
-    throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });
-  if (shouldForwardBotCodePrompt(taskBeforePrompt)) {
-    startBotCodeRelay();
-    queueBotCodePrompt(
-      taskBeforePrompt.botId!,
-      taskBeforePrompt,
-      prompt,
-      promptOptionsForWorker(images, options),
-    );
-    return toSummary(taskBeforePrompt);
-  }
   if (options?.agent !== undefined) {
-    const task = getTask(id);
-    if (!task)
-      throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });
-    const requestedAgent = options.agent.trim();
-    const currentAgent = task.agent?.trim() ?? "";
-    if (requestedAgent !== currentAgent) {
+    const current = requireTask(id);
+    if (options.agent.trim() !== (current.agent?.trim() ?? "")) {
       await setTaskAgent(id, options.agent);
     }
   }
-  const task = getTask(id);
-  if (!task)
-    throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });
+  const task = requireTask(id);
   // エージェント定義のmodel/thinkingはサブエージェント起動専用。
   // メイン対話者として直接選択した場合はComposerのモデル/Effortを使う。
   let modelChanged = false;
@@ -6644,6 +6617,43 @@ export async function promptTask(
   if (options?.skillPermission !== undefined) {
     await setTaskSkillPermission(id, options.skillPermission);
   }
+  return task;
+}
+
+export async function promptTask(
+  id: string,
+  prompt: string,
+  images?: PromptImage[],
+  options?: {
+    files?: PromptFileInput[];
+    agent?: string;
+    model?: string;
+    thinkingLevel?: ThinkingLevel;
+    subagentPermission?: "allow" | "deny";
+    permissionMode?: "allow" | "ask" | "deny";
+    skillPermission?: SkillPermission;
+    streamingBehavior?: "steer" | "followUp";
+    accountIdExplicit?: boolean;
+    /** Resume may carry a stale model/account from the interrupted message. */
+    resume?: boolean;
+    /** Wait for this normal prompt's queue entry, including preparation and retries. */
+    waitForCompletion?: boolean;
+    /** Internal Bot delegation receipt, never accepted from HTTP request bodies. */
+    codeRequestId?: string;
+  },
+): Promise<TaskSummary> {
+  const taskBeforePrompt = requireTask(id);
+  if (shouldForwardBotCodePrompt(taskBeforePrompt)) {
+    startBotCodeRelay();
+    queueBotCodePrompt(
+      taskBeforePrompt.botId!,
+      taskBeforePrompt,
+      prompt,
+      promptOptionsForWorker(images, options),
+    );
+    return toSummary(taskBeforePrompt);
+  }
+  const task = await applyPromptSelections(id, options);
   const live = await ensureLive(id);
   if (
     options?.subagentPermission !== undefined ||
