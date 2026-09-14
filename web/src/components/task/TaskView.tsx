@@ -2496,6 +2496,8 @@ export const TaskView = memo(function TaskView({
         {},
       );
       applyDetail(result.task);
+      // compact() の finally より先に戻す。await 中の compactingLocal が残ると送信が最大数分ブロックされる。
+      setCompactingLocal(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : "圧縮のキャンセルに失敗しました");
     }

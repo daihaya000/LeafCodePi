@@ -559,6 +559,37 @@ describe("TaskView draft submission", () => {
     expect(screen.queryByText(/圧縮中/)).toBeNull();
   });
 
+  it("clears compactingLocal when compaction is aborted mid-flight", async () => {
+    let releaseCompact!: () => void;
+    const compactGate = new Promise<void>((resolve) => {
+      releaseCompact = resolve;
+    });
+    mocks.sendJson.mockImplementation(async (url: string) => {
+      if (String(url).includes("/compact/abort")) {
+        return { task: { ...task, messages: [], isStreaming: false, isCompacting: false } };
+      }
+      if (String(url).includes("/compact")) {
+        await compactGate;
+        throw new Error("compact aborted");
+      }
+      return { task: { ...task, messages: [], isStreaming: false, isCompacting: false } };
+    });
+    render(<TaskView taskId={task.id} mdUp />);
+
+    fireEvent.click(screen.getByRole("button", { name: "コンテキスト圧縮" }));
+    await waitFor(() => {
+      expect(screen.getByText(/コンテキストを圧縮しています/)).toBeTruthy();
+    });
+    fireEvent.click(screen.getByRole("button", { name: "キャンセル" }));
+    await waitFor(() => {
+      expect(screen.queryByText(/コンテキストを圧縮しています/)).toBeNull();
+    });
+    expect(
+      (screen.getByRole("button", { name: "コンテキスト圧縮" }) as HTMLButtonElement).disabled,
+    ).toBe(false);
+    releaseCompact();
+  });
+
   it("shows and applies a context compaction suggestion", async () => {
     class TestEventSource extends EventTarget {
       static latest: TestEventSource | null = null;

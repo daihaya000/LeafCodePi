@@ -247,10 +247,24 @@ export function GlobalAttentionProvider() {
         approved,
       });
       clearedPermissionIdsRef.current.add(request.id);
-      setDetails((current) => ({
-        ...current,
-        [taskId]: { ...current[taskId], permissionRequest: null },
-      }));
+      // 次の pending が同じ kinds のまま残っていることがある。null 固定だと
+      // attentionItemStillOpen が false になり、再フェッチまでモーダルが消える。
+      try {
+        const data = await getJson<{ task: TaskDetail }>(`/api/tasks/${taskId}`);
+        setDetails((current) => ({
+          ...current,
+          [taskId]: applyFetchedAttentionDetail(
+            data.task,
+            clearedPermissionIdsRef.current,
+            clearedQuestionIdsRef.current,
+          ),
+        }));
+      } catch {
+        setDetails((current) => ({
+          ...current,
+          [taskId]: { ...current[taskId], permissionRequest: null },
+        }));
+      }
     } catch (error) {
       setResponseError(error instanceof Error ? error.message : "承認の送信に失敗しました");
     } finally {
@@ -261,10 +275,22 @@ export function GlobalAttentionProvider() {
   const respondToQuestion = async (taskId: string, request: QuestionRequestDto, answers: string[][]) => {
     await sendJson(`/api/tasks/${taskId}/question`, { requestId: request.id, answers });
     clearedQuestionIdsRef.current.add(request.id);
-    setDetails((current) => ({
-      ...current,
-      [taskId]: { ...current[taskId], questionRequest: null },
-    }));
+    try {
+      const data = await getJson<{ task: TaskDetail }>(`/api/tasks/${taskId}`);
+      setDetails((current) => ({
+        ...current,
+        [taskId]: applyFetchedAttentionDetail(
+          data.task,
+          clearedPermissionIdsRef.current,
+          clearedQuestionIdsRef.current,
+        ),
+      }));
+    } catch {
+      setDetails((current) => ({
+        ...current,
+        [taskId]: { ...current[taskId], questionRequest: null },
+      }));
+    }
   };
 
   const openTask = (taskId: string) => {

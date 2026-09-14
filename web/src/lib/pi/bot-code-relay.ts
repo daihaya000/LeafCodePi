@@ -559,7 +559,6 @@ export function createBotCodeRelay(deps: RelayDependencies) {
     if (autoChain > MAX_AUTO_CODE_CHAIN) {
       throw new Error(`Autonomous Code continuations reached the cumulative limit of ${MAX_AUTO_CODE_CHAIN}. Report the remaining work and let the user decide.`);
     }
-    if (report) report.followUpStarted = true;
     const room = roomContext(originTaskId);
     const id = createHash("sha256").update(`${originTaskId}:${sessionId}:${toolCallId}`).digest("hex");
     const previous = read(id);
@@ -591,6 +590,8 @@ export function createBotCodeRelay(deps: RelayDependencies) {
       const approved = standing || await deps.approve(sessionId, `Codeへ依頼します。\nプロジェクト: ${project?.name ?? NO_PROJECT_NAME}${loopSummary}${imageNote}\n\n${input.prompt.trim()}`);
       if (!approved || signal?.aborted) throw new Error("Code request was not approved");
     }
+    // Only consume the report-turn follow-up slot after approval (and below, after launch).
+    // Setting this before approve left denials unable to retry ("Only one follow-up…").
     const execute = () => withBotCodeSessionLock(`request-${id}`, async () => {
       const current = owner(originTaskId);
       if (room && roomContext(originTaskId)?.responseId !== room.responseId) throw new Error("Room request is no longer active");
@@ -621,7 +622,14 @@ export function createBotCodeRelay(deps: RelayDependencies) {
       };
     });
     // Independent starts never share a lock. Follow-ups still protect their exact existing session.
-    return targetId ? withBotCodeSessionLock(`code-task-${targetId}`, execute) : execute();
+    try {
+      const result = targetId ? await withBotCodeSessionLock(`code-task-${targetId}`, execute) : await execute();
+      if (report) report.followUpStarted = true;
+      return result;
+    } catch (error) {
+      if (report) report.followUpStarted = false;
+      throw error;
+    }
   }
 
   async function captureResult(request: CodeRequest): Promise<void> {

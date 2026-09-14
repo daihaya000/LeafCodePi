@@ -618,6 +618,25 @@ describe("Bot ⇄ Code relay", () => {
     expect(records()).toHaveLength(2);
   });
 
+  it("allows another follow-up after a denied approval while reporting", async () => {
+    await launch();
+    store.tasks.get("code")!.status = "idle";
+    vi.mocked(deps.deliver).mockImplementationOnce(async () => {
+      vi.mocked(deps.approve).mockResolvedValueOnce(false);
+      await expect(
+        relay.run("bot:one", "denied-follow-up", { action: "start", projectId: "project", prompt: "却下される続き" }, "session"),
+      ).rejects.toThrow("not approved");
+      vi.mocked(deps.approve).mockResolvedValueOnce(true);
+      await expect(
+        relay.run("bot:one", "retry-follow-up", { action: "start", projectId: "project", prompt: "再試行の続き" }, "session"),
+      ).resolves.toMatchObject({ taskId: "code", state: "running" });
+      return true;
+    });
+    await relay.tick();
+    expect(deps.create).toHaveBeenCalledTimes(2);
+    expect(records().some((request) => request.prompt === "再試行の続き")).toBe(true);
+  });
+
   it("counts each autonomous continuation on the new request", async () => {
     await launch(); store.tasks.get("code")!.status = "idle";
     vi.mocked(deps.deliver).mockImplementationOnce(async () => {

@@ -408,6 +408,54 @@ describe("GlobalAttentionProvider", () => {
     expect(screen.queryByRole("button", { name: /承認・回答が必要なタスク/ })).toBeNull();
   });
 
+  it("keeps the next queued permission after answering the first", async () => {
+    const first = {
+      id: "req-first",
+      sessionId: "sess-queue",
+      message: "最初の許可",
+      command: "echo first",
+      labels: [],
+    };
+    const second = {
+      id: "req-second",
+      sessionId: "sess-queue",
+      message: "次の許可",
+      command: "echo second",
+      labels: [],
+    };
+    let current = first;
+    mocks.getJson.mockImplementation(async (path: string) => {
+      if (path === "/api/tasks") {
+        return { attention: [{ taskId: "task-a", title: "タスクA", kinds: ["permission"] }] };
+      }
+      if (path === "/api/tasks/task-a") {
+        return { task: { ...taskDetail("task-a"), title: "タスクA", permissionRequest: current } };
+      }
+      throw new Error(`unexpected: ${path}`);
+    });
+    mocks.sendJson.mockImplementation(async (path: string) => {
+      if (path.endsWith("/permission")) {
+        current = second;
+        return {};
+      }
+      if (path.endsWith("/permission/advice")) return { advice: "" };
+      return {};
+    });
+    render(<GlobalAttentionProvider />);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(document.body.textContent ?? "").toContain("最初の許可");
+
+    await act(async () => {
+      screen.getByRole("button", { name: "許可" }).click();
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(document.body.textContent ?? "").toContain("次の許可");
+    expect(document.body.textContent ?? "").toMatch(/承認・回答が必要です/);
+  });
+
   it("keeps mixed attention until both responses resolve", async () => {
     const permissionRequest = {
       id: "req-mixed",

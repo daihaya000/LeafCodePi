@@ -84,6 +84,14 @@
 ### 検証（Tick9）
 `TaskView` / `bot-intercom` / `room-runtime` — **117 passed**
 
+### Tick10（ループ継続）
+1. GlobalAttention — 承認/回答後に task detail を再取得し、キュー次件を消さない
+2. bot-code-relay — 承認前に `followUpStarted` を立てない（却下後の再試行可）
+3. TaskView — compact abort 時に `compactingLocal` をクリア
+
+### 検証（Tick10）
+`GlobalAttention` / `bot-code-relay` / `TaskView` — **131 passed**
+
 ---
 
 ## 2026-09-14: Stale production rebuild / next build exit 1
