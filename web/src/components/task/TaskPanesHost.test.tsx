@@ -226,6 +226,50 @@ describe("TaskPanesHost lazy tab mounting", () => {
     }));
   });
 
+  it("進行中のBotとBot紐づけCodeはBotViewタブへ寄せる", async () => {
+    const contextValue = {
+      state: createTreeState(),
+      statusFor: () => null,
+      reportStatus: vi.fn(),
+      dispatch: vi.fn(),
+      retargetToUrl: vi.fn(),
+      activeTaskId: "task-1",
+      titleFor: () => null,
+      mdUp: true,
+    };
+    mocks.useTaskPanes.mockReturnValue(contextValue);
+    mocks.getJson.mockResolvedValue({
+      tasks: [
+        { id: "code-linked", kind: "code", botId: "bot-a", status: "working", updatedAt: "2026-01-01T00:03:00.000Z" },
+        { id: "bot:bot-a", kind: "bot", botId: "bot-a", status: "working", updatedAt: "2026-01-01T00:02:00.000Z" },
+        { id: "plain", kind: "code", status: "working", updatedAt: "2026-01-01T00:01:00.000Z" },
+        { id: "bot:bot-a:room:room-1", kind: "bot", botId: "bot-a", status: "working", updatedAt: "2026-01-01T00:00:00.000Z" },
+      ],
+    });
+
+    render(<TaskPanesHost />);
+    fireEvent.click(screen.getAllByRole("button", { name: "進行中タスクを分割表示" })[0]!);
+
+    await waitFor(() => expect(contextValue.dispatch).toHaveBeenCalledWith({
+      type: "showWorkingTasks",
+      taskIds: ["/bots/bot-a", "plain", "/bots/rooms/room-1"],
+    }));
+  });
+
+  it("stored bot: tabs mount BotView instead of TaskView", async () => {
+    mocks.usePathname.mockReturnValue("/task/bot%3Aone");
+    mocks.useTaskPanes.mockReturnValue({
+      ...mocks.useTaskPanes(),
+      state: { panes: [{ id: "pane-1", tabs: ["bot:one"], activeTabId: "bot:one" }], activePaneId: "pane-1" },
+      activeTaskId: "bot:one",
+    });
+
+    render(<TaskPanesHost />);
+    await waitFor(() => expect(screen.getByTestId("dynamic-pane").getAttribute("data-bot-id")).toBe("one"));
+    expect(screen.getByTestId("dynamic-pane").getAttribute("data-task-id")).toBeNull();
+    mocks.usePathname.mockReturnValue("/task/active");
+  });
+
   it("3 ペインは初期表示で各ペインを均等幅にする", () => {
     mocks.useTaskPanes.mockReturnValue({
       state: createThreePaneState(),

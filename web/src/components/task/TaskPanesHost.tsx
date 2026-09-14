@@ -12,8 +12,11 @@ import { isTaskDrag, taskDragIdFrom } from "@/lib/task-drag";
 import {
   HOME_TAB_ID,
   BOTS_TAB_ID,
+  isBotSurfaceTabId,
   isBotTabId,
   isSplitHostPath,
+  paneTabIdForTask,
+  paneTabIdsForWorkingTasks,
   paneLayoutForState,
   resizeAdjacentPaneWidths,
   SETTINGS_TAB_ID,
@@ -198,9 +201,10 @@ const PaneBotListView = dynamic(
 );
 
 function BotTabView({ tabId, active = true }: { tabId: string; active?: boolean }) {
-  if (tabId === BOTS_TAB_ID) return <PaneBotListView />;
-  const room = tabId.startsWith("/bots/rooms/");
-  const encoded = tabId.slice(room ? "/bots/rooms/".length : "/bots/".length);
+  const surfaceId = paneTabIdForTask({ id: tabId });
+  if (surfaceId === BOTS_TAB_ID) return <PaneBotListView />;
+  const room = surfaceId.startsWith("/bots/rooms/");
+  const encoded = surfaceId.slice(room ? "/bots/rooms/".length : "/bots/".length);
   let id = encoded;
   try { id = decodeURIComponent(encoded); } catch { /* Keep malformed URL readable. */ }
   return room ? <PaneRoomView id={id} active={active} /> : <PaneBotView id={id} active={active} />;
@@ -355,7 +359,7 @@ function PaneSection({
       {pane.tabs.map((taskId) => {
         const isActiveTab = pane.activeTabId === taskId;
         if (!openedTabs.has(taskId)) return null;
-        if (isBotTabId(taskId)) {
+        if (isBotSurfaceTabId(taskId)) {
           return (
             <div key={taskId} className={cx("flex min-h-0 min-w-0 flex-1 flex-col", !isActiveTab && "hidden")}>
               <BotTabView tabId={taskId} active={isActiveTab} />
@@ -490,10 +494,11 @@ export function TaskPanesHost() {
     setWorkingTasksBusy(true);
     try {
       const result = await getJson<{ tasks?: TaskSummary[] }>("/api/tasks?archived=1&kind=all");
-      const taskIds = (Array.isArray(result.tasks) ? result.tasks : [])
-        .filter((task) => task.status === "working")
-        .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
-        .map((task) => task.id);
+      const taskIds = paneTabIdsForWorkingTasks(
+        (Array.isArray(result.tasks) ? result.tasks : [])
+          .filter((task) => task.status === "working")
+          .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt)),
+      );
       dispatch(
         taskIds.length > 0
           ? { type: "showWorkingTasks", taskIds }
@@ -572,7 +577,7 @@ export function TaskPanesHost() {
   // モバイルでは Provider の panes/復元を触らず、URL 由来の内容を直接 render する。
   // 「/」では Host を出さず page の HomeView（children）へ任せる。
   if (!mdUp) {
-    if (isBotTabId(urlTabId)) return <BotTabView key={urlTabId} tabId={urlTabId!} />;
+    if (isBotSurfaceTabId(urlTabId)) return <BotTabView key={urlTabId} tabId={urlTabId!} />;
     if (pathname === "/settings") {
       return (
         <div className="flex min-h-0 min-w-0 flex-1">
@@ -603,7 +608,7 @@ export function TaskPanesHost() {
     state.panes[0].tabs.length <= 1 &&
     state.panes[0].tabs[0] !== HOME_TAB_ID &&
     state.panes[0].tabs[0] !== SETTINGS_TAB_ID &&
-    !isBotTabId(state.panes[0].tabs[0]);
+    !isBotSurfaceTabId(state.panes[0].tabs[0]);
   const layout = paneLayoutForState(state);
   if (!layout) return null;
   const paneById = new Map(state.panes.map((pane) => [pane.id, pane]));

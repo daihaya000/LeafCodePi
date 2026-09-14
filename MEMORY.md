@@ -1,5 +1,27 @@
 # MEMORY
 
+## 2026-09-14: 進行中タスク分割で Bot が TaskView になる不具合
+
+### 問題
+Bot モードで「進行中タスクを分割」すると、本来 BotView（チャット + Code依頼カード）であるべき面が内部 TaskView として描画された。
+
+### 原因
+`349083d8` で Code/Bot の分割を共通化した際、旧 Bot 側は `codeInProgress` Bot を `/bots/<id>` タブで開いていた。共通化後は `kind=all` の生タスク ID（`bot:<id>` や Bot 紐づけ Code セッション）をそのまま `showWorkingTasks` に渡す。ホストは `isBotTabId`（`/bots/...` のみ）以外を TaskView に落とすため、Bot 会話タスクも Bot 起点 Code も TaskView 内部 UI になる。
+
+### 修正
+- `paneTabIdForTask` / `paneTabIdsForWorkingTasks`: Bot 会話・Room メンバー・Bot 所有 Code を `/bots/<id>` または `/bots/rooms/<id>` へ正規化
+- Sidebar / TaskPanesHost の分割収集で上記を使用（同一 Bot の会話+Code は1タブに畳む）
+- ホスト描画は `isBotSurfaceTabId` で `bot:` 残タブも BotView/RoomView
+- `isBotTabId` と Room opener / Auto / BOT_INTERCOM_BRIDGE は未変更
+
+### 検証
+task-panes.bot 9 / task-panes 84 / TaskPanesHost 9 / Sidebar.bot-rail 14 / Sidebar.project-order 19 / TaskPanesContext 17 = 152 PASS
+
+### ブランチ / PR
+`cursor/bot-split-keeps-botview-8e17` / https://github.com/daihaya000/LeafCodePi/pull/2
+
+---
+
 ## 2026-09-13: Room 正式 @mention pill → 暗黙 room_handoff
 
 ### 問題
