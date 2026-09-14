@@ -193,15 +193,21 @@ describe("CodexBarWidget", () => {
       loadError: null,
       refreshing: false,
       refresh,
-      now: Date.now(),
+      now: Date.parse("2026-09-14T00:00:00Z"),
     });
-    getJson.mockResolvedValueOnce({
+    getJson.mockResolvedValue({
       availableCount: 2,
       credits: [
         {
-          id: "RateLimitResetCredit_1",
+          id: "RateLimitResetCredit_later",
           title: "Full reset",
           expiresAt: "2026-10-01T00:00:00Z",
+          status: "available",
+        },
+        {
+          id: "RateLimitResetCredit_soon",
+          title: "Full reset",
+          expiresAt: "2026-09-20T00:00:00Z",
           status: "available",
         },
       ],
@@ -212,6 +218,7 @@ describe("CodexBarWidget", () => {
     render(<CodexBarWidget />);
 
     await waitFor(() => expect(screen.getByText("CodexBar 利用状況")).toBeTruthy());
+    await waitFor(() => expect(screen.getByText("最短期限まであと6日")).toBeTruthy());
     expect(screen.getByText(/リセット権/)).toBeTruthy();
     fireEvent.click(
       screen.getByRole("button", { name: "Codex の使用量リセット権を使う" }),

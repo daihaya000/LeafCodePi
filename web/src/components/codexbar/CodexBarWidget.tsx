@@ -372,6 +372,26 @@ function CreditsRow({ credits }: { credits: CodexBarCredits }) {
   );
 }
 
+const RESET_CREDIT_DAY_MS = 24 * 60 * 60 * 1000;
+
+function earliestResetCredit(
+  credits: readonly ResetCreditDto[],
+): ResetCreditDto | null {
+  return credits.reduce<ResetCreditDto | null>((earliest, credit) => {
+    if (!earliest) return credit;
+    const creditExpiry = credit.expiresAt
+      ? Date.parse(credit.expiresAt)
+      : Number.POSITIVE_INFINITY;
+    const earliestExpiry = earliest.expiresAt
+      ? Date.parse(earliest.expiresAt)
+      : Number.POSITIVE_INFINITY;
+    return Number.isFinite(creditExpiry) &&
+      (!Number.isFinite(earliestExpiry) || creditExpiry < earliestExpiry)
+      ? credit
+      : earliest;
+  }, null);
+}
+
 function formatResetExpiry(expiresAt: string | null, now: number): string {
   if (!expiresAt) return "期限不明";
   const ms = Date.parse(expiresAt);
@@ -381,17 +401,63 @@ function formatResetExpiry(expiresAt: string | null, now: number): string {
   return `期限 ${formatResetsIn(expiresAt, now) ?? expiresAt}`;
 }
 
+function formatResetCreditRemainingDays(
+  expiresAt: string | null,
+  now: number,
+): string | null {
+  if (!expiresAt) return null;
+  const ms = Date.parse(expiresAt);
+  if (!Number.isFinite(ms)) return null;
+  const remainingDays = Math.ceil((ms - now) / RESET_CREDIT_DAY_MS);
+  return remainingDays > 0
+    ? `最短期限まであと${remainingDays}日`
+    : "最短期限が切れています";
+}
+
 function ResetCreditsRow({
   available,
+  accountId,
+  now,
   busy,
   status,
   onRedeem,
 }: {
   available: number;
+  accountId?: string | null;
+  now: number;
   busy: boolean;
   status: string | null;
   onRedeem: () => void;
 }) {
+  const [expiresAt, setExpiresAt] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (available <= 0) {
+      setExpiresAt(null);
+      return;
+    }
+
+    let active = true;
+    void getJson<ResetCreditsListResponse>(
+      "/api/codexbar/reset-credits",
+      accountId ? { accountId } : undefined,
+    )
+      .then((list) => {
+        if (!active) return;
+        setExpiresAt(
+          earliestResetCredit(list.credits ?? [])?.expiresAt ?? null,
+        );
+      })
+      .catch(() => {
+        if (active) setExpiresAt(null);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [accountId, available]);
+
+  const remainingDays = formatResetCreditRemainingDays(expiresAt, now);
   if (available <= 0) return null;
   return (
     <div className="flex flex-col gap-1 border-t border-border pt-1.5">
@@ -417,6 +483,9 @@ function ResetCreditsRow({
           {busy ? "処理中…" : "使う"}
         </button>
       </div>
+      {remainingDays && (
+        <p className="text-right text-[10px] text-faint">{remainingDays}</p>
+      )}
       {status && (
         <p role="status" className="text-[10px] text-faint">
           {status}
@@ -541,6 +610,8 @@ function ProviderRow({
             onRedeemReset && (
               <ResetCreditsRow
                 available={p.resetCreditsAvailable ?? 0}
+                accountId={p.accountId}
+                now={now}
                 busy={resetBusy}
                 status={resetStatus}
                 onRedeem={() => onRedeemReset(p)}
@@ -702,7 +773,7 @@ export function CodexBarWidget({
           "/api/codexbar/reset-credits",
           provider.accountId ? { accountId: provider.accountId } : undefined,
         );
-        const credit = list.credits[0];
+        const credit = earliestResetCredit(list.credits ?? []);
         if (!credit) {
           setResetStatusByKey((prev) => ({
             ...prev,
