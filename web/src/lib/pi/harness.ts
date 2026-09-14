@@ -7233,6 +7233,39 @@ export async function setTaskAgent(
   return summary;
 }
 
+async function applyLiveModel(
+  id: string,
+  live: LiveRuntime,
+  model: Model,
+  fallbackProviderID: string,
+  fallbackModelID: string,
+  thinkingLevel: ThinkingLevel,
+  accountIdExplicit: boolean,
+): Promise<TaskSummary> {
+  await live.session.setModel(model);
+  applySessionCompactionSettings(live.session);
+  const ids = modelId(live.session.model ?? model);
+  if (live.session.thinkingLevel !== thinkingLevel) {
+    live.session.setThinkingLevel(thinkingLevel);
+  }
+  const updatedTask = patchTask(id, {
+    providerID: ids.providerID ?? fallbackProviderID,
+    modelID: ids.modelID ?? fallbackModelID,
+    thinkingLevel,
+    accountIdExplicit:
+      live.accountId && accountIdExplicit ? true : undefined,
+  });
+  if (!updatedTask)
+    throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });
+  const summary = toSummary(updatedTask);
+  emit(id, {
+    type: "snapshot",
+    task: summary,
+    ...liveSnapshotFields(live),
+  });
+  return summary;
+}
+
 export async function setTaskModel(
   id: string,
   modelValueRaw: string,
@@ -7344,30 +7377,16 @@ export async function setTaskModel(
     );
     return updated;
   }
-  await live.session.setModel(model);
-  applySessionCompactionSettings(live.session);
-  const ids = modelId(live.session.model ?? model);
   // 保存済みモデル既定値（未設定時は従来の既定値）を新モデルへ適用する。
-  const appliedThinkingLevel = thinkingLevel;
-  if (live.session.thinkingLevel !== appliedThinkingLevel) {
-    live.session.setThinkingLevel(appliedThinkingLevel);
-  }
-  const updatedTask = patchTask(id, {
-    providerID: ids.providerID ?? parsed.providerID,
-    modelID: ids.modelID ?? parsed.modelID,
-    thinkingLevel: appliedThinkingLevel,
-    accountIdExplicit:
-      live.accountId && accountIdExplicit ? true : undefined,
-  });
-  if (!updatedTask)
-    throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });
-  const summary = toSummary(updatedTask);
-  emit(id, {
-    type: "snapshot",
-    task: summary,
-    ...liveSnapshotFields(live),
-  });
-  return summary;
+  return applyLiveModel(
+    id,
+    live,
+    model,
+    parsed.providerID,
+    parsed.modelID,
+    thinkingLevel,
+    accountIdExplicit,
+  );
 }
 
 export async function setTaskThinkingLevel(
