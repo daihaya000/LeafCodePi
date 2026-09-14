@@ -52,6 +52,8 @@ import { createBot, patchBot } from "./bots";
 import { appendRoomMessage, consumeRoomRelayEnvelope, createRoom, ensureRoomBotTask, getRoom, issueRoomRelayEnvelope, patchRoom, revertRoomTo, setRoomOutcome, updateRoomHandoffs, updateRoomMessage } from "./rooms";
 import { getTask, patchTask } from "./store";
 import { cancelPendingRoomHandoffs, deliverRoomCodeReport, reconcileRoomRuntime, registerRoomHandoff, resumeRoomAfterCode, runRoomConversation, runRoomFanOut, settleRoomHandoffs, settleRoomHandoffsForCode, settleStaleRoomTurns } from "./room-runtime";
+import { getBotIntercomInbox, resetBotIntercomForTests, setBotIntercomResidentLookup } from "./bot-intercom";
+import { BOT_DEFAULT_TOOL_NAMES } from "./types";
 
 function assistant(id: string, text: string): UiMessage {
   return { id, role: "assistant", createdAt: Date.now(), parts: [{ id: `${id}-text`, type: "text", text }] };
@@ -91,6 +93,7 @@ beforeEach(() => {
   });
 });
 afterEach(() => {
+  resetBotIntercomForTests();
   rmSync(state.root, { recursive: true, force: true });
   state.listeners.clear();
   state.details.clear();
@@ -566,6 +569,10 @@ describe("implicit @mention handoffs", () => {
 
   it("wakes the mentioned peer from a formal @pill via the room_handoff path", async () => {
     const { room, bots, user } = setup(["デザイナー", "デバッガー"]);
+    for (const bot of bots) {
+      patchBot(bot.id, { intercomEnabled: true, tools: [...BOT_DEFAULT_TOOL_NAMES, "intercom"] });
+    }
+    setBotIntercomResidentLookup(() => true);
     const designerTask = `bot:${bots[0].id}:room:${room.id}`;
     const debuggerTask = `bot:${bots[1].id}:room:${room.id}`;
     state.promptTask.mockImplementation(async (id: string) => {
@@ -580,6 +587,8 @@ describe("implicit @mention handoffs", () => {
       toBotId: bots[1].id, implicit: true, state: "done", fromBotId: bots[0].id,
     })]);
     expect(state.promptTask.mock.calls[1][1]).toContain("既知の不具合と重ならない観点");
+    expect(getBotIntercomInbox(bots[0].id).messages).toHaveLength(0);
+    expect(getBotIntercomInbox(bots[1].id).messages).toHaveLength(0);
   });
 
   it("still wakes the peer when bot relay is off, because the pill is server-initiated", async () => {

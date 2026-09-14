@@ -153,6 +153,11 @@ export type BotDto = {
   enabled: boolean;
   /** Whether notifications for this bot are enabled in the Bot UI. */
   notificationsEnabled: boolean;
+  /**
+   * Opt-in for Bot-id intercom (Phase A). Default off.
+   * Sending also requires `intercom` on the tool allowlist.
+   */
+  intercomEnabled?: boolean;
   /** Skip the approval prompt for Code requests originating from this Bot. */
   codeAutoApprove: boolean;
   /** The Code task currently controlled by this Bot, when one is linked. */
@@ -160,6 +165,30 @@ export type BotDto = {
   /** 現在進行中のCodeセッション数。 */
   codeSessionCount?: number;
   soul: string;
+};
+
+/** Versioned Bot-to-Bot DM (Phase A). Later fields must be ignored by old receivers. */
+export const BOT_INTERCOM_SCHEMA_VERSION = 1;
+export type BotIntercomMessageV1 = {
+  v: typeof BOT_INTERCOM_SCHEMA_VERSION;
+  id: string;
+  fromBotId: string;
+  toBotId: string;
+  text: string;
+  createdAt: number;
+  depth: number;
+};
+export type BotIntercomInboxItemDto = BotIntercomMessageV1 & { fromName: string };
+export type BotIntercomInboxPreviewDto = {
+  fromBotId: string;
+  fromName: string;
+  text: string;
+  createdAt: number;
+};
+export type BotIntercomInboxDto = {
+  messages: BotIntercomInboxItemDto[];
+  unreadCount: number;
+  preview: BotIntercomInboxPreviewDto | null;
 };
 
 export type ProjectDto = {

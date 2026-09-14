@@ -132,6 +132,14 @@ describe("PATCH /api/bots/[id]", () => {
     expect(mocks.patchBot).toHaveBeenCalledWith("one", { label: "" });
   });
 
+  it("accepts the intercom opt-in setting", async () => {
+    mocks.getBot.mockReturnValue(bot());
+    mocks.patchBot.mockReturnValue({ ...bot(), intercomEnabled: true });
+    const response = await PATCH(jsonRequest({ intercomEnabled: true }), params("one"));
+    expect(response.status).toBe(200);
+    expect(mocks.patchBot).toHaveBeenCalledWith("one", expect.objectContaining({ intercomEnabled: true }));
+  });
+
   it("accepts intercom in the Bot tool allowlist", async () => {
     mocks.getBot.mockReturnValue(bot());
     mocks.patchBot.mockReturnValue({ ...bot(), tools: ["read", "intercom"] });

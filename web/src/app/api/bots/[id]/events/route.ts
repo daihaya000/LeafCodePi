@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
 import { botTaskId } from "@/lib/bots";
+import { getBotIntercomInbox, subscribeBotIntercomInbox } from "@/lib/bot-intercom";
 import {
   getTaskBootstrap,
   getTaskDetail,
@@ -31,6 +32,7 @@ export async function GET(
     start(controller) {
       let ready = false;
       const pendingPayloads: Record<string, unknown>[] = [];
+      const botId = taskId.slice("bot:".length);
       const sub = subscribeTask(taskId, (payload) => {
         const safePayload = pageTaskSnapshotPayload(payload);
         if (!ready) {
@@ -39,8 +41,13 @@ export async function GET(
         }
         sse?.send(safePayload.type === "delta" ? "delta" : "snapshot", safePayload);
       });
+      const inboxSub = subscribeBotIntercomInbox(botId, (inbox) => {
+        if (!ready) return;
+        sse?.send("intercom_inbox", { type: "intercom_inbox", inbox });
+      });
       sse = createSseWriter(controller, { signal: req.signal });
       sse.onCleanup(sub);
+      sse.onCleanup(inboxSub);
       sse.startHeartbeat();
       try {
         const bootstrap = getTaskBootstrap(taskId);
@@ -51,6 +58,7 @@ export async function GET(
           isStreaming: bootstrap.isStreaming,
           permissionRequest: pendingPermissionForTask(taskId),
           questionRequest: pendingQuestionForTask(taskId),
+          intercomInbox: getBotIntercomInbox(botId),
           eventType: "bootstrap",
         });
         void getTaskDetail(taskId)
@@ -66,6 +74,7 @@ export async function GET(
               isStreaming: detail.isStreaming,
               permissionRequest: pendingPermissionForTask(taskId),
               questionRequest: pendingQuestionForTask(taskId),
+              intercomInbox: getBotIntercomInbox(botId),
               eventType: "ready",
             });
             ready = true;

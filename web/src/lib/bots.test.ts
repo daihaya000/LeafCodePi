@@ -61,6 +61,8 @@ describe("bot store", () => {
     expect(readFileSync(join(root, "bots", bot.id, "MEMORY.md"), "utf8")).toContain("# Bot memory");
     const config = JSON.parse(readFileSync(join(root, "bots", bot.id, "config.json"), "utf8"));
     expect(config.skills.mode).toBe("inherit"); expect(config.enabled).toBe(true); expect(config.codeAutoApprove).toBe(true);
+    expect(bot.intercomEnabled).toBe(false);
+    expect(config.intercomEnabled).toBe(false);
   });
   it("migrates a legacy config without a tool list to the safe defaults", () => {
     const bot = createBot({ name: "Legacy tools bot" });
@@ -170,6 +172,18 @@ describe("bot store", () => {
     patchBot(bot.id, { notificationsEnabled: false });
     expect(getBot(bot.id)?.notificationsEnabled).toBe(false);
     expect(JSON.parse(readFileSync(join(root, "bots", bot.id, "config.json"), "utf8")).notificationsEnabled).toBe(false);
+  });
+  it("keeps Bot intercom opt-in off until explicitly enabled", () => {
+    const bot = createBot({ name: "Intercom bot" });
+    expect(bot.intercomEnabled).toBe(false);
+    const configPath = join(root, "bots", bot.id, "config.json");
+    const config = JSON.parse(readFileSync(configPath, "utf8"));
+    delete config.intercomEnabled;
+    fs.writeFileSync(configPath, JSON.stringify(config));
+    expect(getBot(bot.id)?.intercomEnabled).toBe(false);
+    patchBot(bot.id, { intercomEnabled: true });
+    expect(getBot(bot.id)?.intercomEnabled).toBe(true);
+    expect(JSON.parse(readFileSync(configPath, "utf8")).intercomEnabled).toBe(true);
   });
   it("persists per-bot skill rules and extra roots", () => {
     const bot = createBot({ name: "Config bot" });
