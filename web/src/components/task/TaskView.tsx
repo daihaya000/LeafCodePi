@@ -2359,7 +2359,7 @@ export const TaskView = memo(function TaskView({
 
   useEffect(() => {
     if (
-      error ||
+      (error && task?.status !== "error") ||
       agentChanging ||
       archived ||
       !shouldDrainQueuedFollowUp({

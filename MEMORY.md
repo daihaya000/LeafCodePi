@@ -29,6 +29,8 @@
 1. `resolveConcreteModelWithFallback` — limit 判定を `route.accountId` 基準に（要求アカウントの stale limit で健全ルートを捨てない）
 2. `bot-intercom` タイムアウトテスト — fake timers で flaky 解消
 3. `resolveNoProjectRoot` — `platform` に応じた `posix`/`win32` join（Windows 上の linux テスト失敗を修正）
+4. Cursor account-scoped `loadTokens` を configure/fetch 間でキャッシュ（auth.json 二重読込回避）
+5. TaskView: エラーターン終了後のキュー drain 回帰テスト
 
 ---
 
