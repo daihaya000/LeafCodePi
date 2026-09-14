@@ -1,10 +1,11 @@
 // @vitest-environment happy-dom
-import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { ReactNode } from "react";
 
-const mocks = vi.hoisted(() => ({ getJson: vi.fn(), sendJson: vi.fn() }));
+const mocks = vi.hoisted(() => ({ getJson: vi.fn(), sendJson: vi.fn(), notifyBotSidebarChanged: vi.fn() }));
 vi.mock("@/lib/client", () => mocks);
+vi.mock("@/lib/events", () => ({ notifyBotSidebarChanged: mocks.notifyBotSidebarChanged }));
 vi.mock("next/link", () => ({ default: ({ children }: { children: ReactNode }) => <span>{children}</span> }));
 
 import { BotCodeSessionPanel } from "./BotCodeSessionPanel";
@@ -36,8 +37,12 @@ const newTask = { ...oldTask, id: "new-task", title: "New task" };
 beforeEach(() => {
   mocks.getJson.mockReset();
   mocks.sendJson.mockReset();
+  mocks.notifyBotSidebarChanged.mockReset();
 });
-afterEach(() => cleanup());
+afterEach(() => {
+  cleanup();
+  vi.useRealTimers();
+});
 
 it("ignores a stale session response after switching bot ids", async () => {
   let resolveOld!: (value: { tasks: typeof oldTask[] }) => void;
@@ -61,6 +66,47 @@ it("ignores a stale session response after switching bot ids", async () => {
 
   expect(screen.getByText("New task")).toBeTruthy();
   expect(screen.queryByText("Old task")).toBeNull();
+});
+
+it("notifies the Bot sidebar when Code starts", async () => {
+  const task = { ...oldTask, id: "live-task", title: "Live task", status: "working" as const };
+  mocks.getJson.mockImplementation((url: string) => {
+    if (url === "/api/projects") return Promise.resolve({ projects: [project] });
+    return Promise.resolve({ tasks: [] });
+  });
+  mocks.sendJson.mockResolvedValue({ task });
+
+  render(<BotCodeSessionPanel botId="one" />);
+  fireEvent.change(await screen.findByRole("textbox", { name: "Codeへの指示" }), { target: { value: "run" } });
+  fireEvent.click(screen.getByRole("button", { name: "Codeを起動" }));
+
+  await waitFor(() => expect(mocks.notifyBotSidebarChanged).toHaveBeenCalledTimes(1));
+});
+
+it.each(["idle", "error", "archived"] as const)("notifies the Bot sidebar when a Code task becomes %s", async (status) => {
+  vi.useFakeTimers();
+  const workingTask = { ...oldTask, id: "live-task", title: "Live task", status: "working" as const };
+  let currentTask: Record<string, unknown> = workingTask;
+  mocks.getJson.mockImplementation((url: string) => {
+    if (url === "/api/projects") return Promise.resolve({ projects: [project] });
+    return Promise.resolve({ tasks: [currentTask] });
+  });
+
+  render(<BotCodeSessionPanel botId="one" />);
+  await act(async () => {
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+  expect(screen.getByText("実行中")).toBeTruthy();
+
+  currentTask = { ...workingTask, status };
+  await act(async () => {
+    vi.advanceTimersByTime(2_000);
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+
+  expect(mocks.notifyBotSidebarChanged).toHaveBeenCalledTimes(1);
 });
 
 it("clears the previous bot's tasks while the next session is loading", async () => {
