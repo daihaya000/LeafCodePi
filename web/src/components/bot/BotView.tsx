@@ -101,7 +101,7 @@ function BotToolActivityGroup({ messages, bot, botId, active }: { messages: UiMe
   );
 }
 
-const EMPTY_INTERCOM_INBOX: BotIntercomInboxDto = { messages: [], unreadCount: 0, preview: null };
+const EMPTY_INTERCOM_INBOX: BotIntercomInboxDto = { messages: [], unreadCount: 0, preview: null, pendingAsks: [] };
 const BOT_AUTO_SAVE_DELAY_MS = 600;
 const BOT_SETTINGS_OPEN_KEY_PREFIX = "webui:bot-settings-open:";
 const BOT_SETTINGS_WIDTH_KEY = "webui:bot-settings-width";

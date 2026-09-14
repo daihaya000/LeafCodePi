@@ -14,7 +14,12 @@ import { createBot, getBot, patchBot } from "@/lib/bots";
 import { createRoom, ensureRoomBotTask, getRoom } from "@/lib/rooms";
 import { getTask } from "@/lib/store";
 import { BOT_DEFAULT_TOOL_NAMES } from "@/lib/types";
-import { getBotIntercomInbox, resetBotIntercomForTests, setBotIntercomResidentLookup } from "./bot-intercom";
+import {
+  getBotIntercomInbox,
+  resetBotIntercomForTests,
+  setBotIntercomAskTimeoutMsForTests,
+  setBotIntercomResidentLookup,
+} from "./bot-intercom";
 import { BOT_INTERCOM_TOOL, botIntercomTool } from "./bot-intercom-tool";
 
 function enableIntercom(id: string) {
@@ -122,5 +127,61 @@ describe("bot intercom tool", () => {
     const { sessionStarts, tool } = install(`bot:${alice.id}`);
     expect(sessionStarts).toBe(1);
     expect(tool.name).toBe("intercom");
+  });
+
+  it("waits for ask and returns the reply as the tool result", async () => {
+    const alice = enableIntercom(createBot({ name: "Alice" }).id)!;
+    const bob = enableIntercom(createBot({ name: "Bob" }).id)!;
+    const mallory = enableIntercom(createBot({ name: "Mallory" }).id)!;
+    residents.add(alice.id);
+    residents.add(bob.id);
+    const aliceTool = install(`bot:${alice.id}`).tool;
+    const bobTool = install(`bot:${bob.id}`).tool;
+
+    const pending = aliceTool.execute("ask", {
+      action: "ask",
+      to: bob.id,
+      message: "可否は？",
+      fromBot: mallory.id,
+      fromBotId: mallory.id,
+    });
+    const listed = await bobTool.execute("pending", { action: "pending" });
+    expect(listed.content[0]?.text).toMatch(/Alice/);
+    expect(listed.details.error).toBeUndefined();
+
+    const reply = await bobTool.execute("reply", {
+      action: "reply",
+      message: "進めてください",
+      fromBot: mallory.id,
+    });
+    expect(reply.details).toMatchObject({ fromBotId: bob.id, toBotId: alice.id });
+    const asked = await pending;
+    expect(asked.details.error).toBeUndefined();
+    expect(asked.content[0]?.text).toMatch(/進めてください/);
+    expect(asked.details.fromBotId).toBe(bob.id);
+    expect(asked.details.fromBotId).not.toBe(mallory.id);
+  });
+
+  it("returns an explicit ask timeout from the tool", async () => {
+    const alice = enableIntercom(createBot({ name: "Alice" }).id)!;
+    const bob = enableIntercom(createBot({ name: "Bob" }).id)!;
+    residents.add(bob.id);
+    setBotIntercomAskTimeoutMsForTests(40);
+    const { tool } = install(`bot:${alice.id}`);
+    const result = await tool.execute("ask", { action: "ask", to: bob.id, message: "timeout?" });
+    expect(result.details.error).toBe(true);
+    expect(result.content[0]?.text).toMatch(/timed out/i);
+  });
+
+  it("does not fire ask during a Room turn", async () => {
+    const alice = enableIntercom(createBot({ name: "Alice" }).id)!;
+    const bob = enableIntercom(createBot({ name: "Bob" }).id)!;
+    const room = createRoom({ name: "Room", members: [alice.id, bob.id] });
+    residents.add(bob.id);
+    const { tool } = install(ensureRoomBotTask(room, getBot(alice.id)!));
+    const result = await tool.execute("ask", { action: "ask", to: bob.id, message: "room ask" });
+    expect(result.details.error).toBe(true);
+    expect(result.content[0]?.text).toMatch(/Room turn|room_handoff/i);
+    expect(getBotIntercomInbox(bob.id).pendingAsks).toHaveLength(0);
   });
 });

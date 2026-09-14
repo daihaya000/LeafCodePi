@@ -154,7 +154,7 @@ export type BotDto = {
   /** Whether notifications for this bot are enabled in the Bot UI. */
   notificationsEnabled: boolean;
   /**
-   * Opt-in for Bot-id intercom (Phase A). Default off.
+   * Opt-in for Bot-id intercom. Default off.
    * Sending also requires `intercom` on the tool allowlist.
    */
   intercomEnabled?: boolean;
@@ -167,8 +167,9 @@ export type BotDto = {
   soul: string;
 };
 
-/** Versioned Bot-to-Bot DM (Phase A). Later fields must be ignored by old receivers. */
+/** Versioned Bot-to-Bot DM. Later fields must be ignored by old receivers. */
 export const BOT_INTERCOM_SCHEMA_VERSION = 1;
+export type BotIntercomMessageKind = "send" | "ask" | "reply";
 export type BotIntercomMessageV1 = {
   v: typeof BOT_INTERCOM_SCHEMA_VERSION;
   id: string;
@@ -177,6 +178,12 @@ export type BotIntercomMessageV1 = {
   text: string;
   createdAt: number;
   depth: number;
+  /** Phase B+. Absent on Phase A records; old receivers ignore it. */
+  kind?: BotIntercomMessageKind;
+  conversationId?: string;
+  replyTo?: string;
+  /** True when the recipient had no live 1:1 session at send time (mailbox queue). */
+  queued?: boolean;
 };
 export type BotIntercomInboxItemDto = BotIntercomMessageV1 & { fromName: string };
 export type BotIntercomInboxPreviewDto = {
@@ -184,11 +191,22 @@ export type BotIntercomInboxPreviewDto = {
   fromName: string;
   text: string;
   createdAt: number;
+  kind?: BotIntercomMessageKind;
+};
+export type BotIntercomPendingAskDto = {
+  id: string;
+  conversationId: string;
+  fromBotId: string;
+  fromName: string;
+  text: string;
+  createdAt: number;
+  expiresAt: number;
 };
 export type BotIntercomInboxDto = {
   messages: BotIntercomInboxItemDto[];
   unreadCount: number;
   preview: BotIntercomInboxPreviewDto | null;
+  pendingAsks: BotIntercomPendingAskDto[];
 };
 
 export type ProjectDto = {
