@@ -244,6 +244,20 @@ describe("Bot Code session control", () => {
     expect(mocks.patchBot).toHaveBeenCalledWith("bot-1", { codeSessionTaskId: null });
   });
 
+  it("stops the requested taskId on unlink without clearing a different codeSessionTaskId", async () => {
+    mocks.getBot.mockReturnValue({ ...bot, codeSessionTaskId: "code-linked" });
+    mocks.getTask.mockReturnValue({ id: "code-other", status: "working", botId: "bot-1", kind: "code" });
+
+    const response = await PATCH(
+      request("PATCH", { action: "unlink", taskId: "code-other" }),
+      { params: Promise.resolve({ id: "bot-1" }) },
+    );
+
+    expect(response.status).toBe(200);
+    expect(mocks.stopBotCodeTask).toHaveBeenCalledWith("bot-1", "code-other");
+    expect(mocks.patchBot).not.toHaveBeenCalledWith("bot-1", { codeSessionTaskId: null });
+  });
+
   it("clears a dangling codeSessionTaskId when the linked task is gone", async () => {
     mocks.getBot.mockReturnValue({ ...bot, codeSessionTaskId: "missing-code" });
     mocks.getTask.mockReturnValue(undefined);

@@ -5990,7 +5990,7 @@ export async function goalLoopCommand(
   // would keep the old prompt and resume it mid-loop (aborting Goal as "user").
   disarmTaskHangWatch(taskId);
   // Capture epoch before await points so a concurrent abort/disable cannot
-  // race a stale /goal-start|/goal-resume into the session.
+  // race a stale /goal-* command into the session.
   const startedEpoch = live.promptEpoch;
   // Apply deferred tools/permission before /goal-start. Use reroute:false so the
   // first Goal turn's prepareGoalLoopTurn still owns integrated account selection
@@ -6004,6 +6004,20 @@ export async function goalLoopCommand(
   }
   const current = state().live.get(taskId) ?? live;
   if (isStaleHarnessPrompt(startedEpoch, current.promptEpoch)) {
+    // prepareLiveForPrompt may have set working + lease after abort already idled us.
+    // Roll that back when we still own the lease and nothing else is running.
+    if (
+      (input.action === "start" || input.action === "resume") &&
+      ownsTaskLease(taskId) &&
+      getTask(taskId)?.status === "working" &&
+      !current.promptActive &&
+      !current.session.isStreaming &&
+      !current.session.isCompacting
+    ) {
+      setTaskStatus(taskId, "idle");
+      releaseTaskLease(taskId);
+      emitTaskSnapshot(current, "goal_command_stale");
+    }
     return readGoalLoopState(
       current.session.sessionManager.getCwd(),
       current.session.sessionId,

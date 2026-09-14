@@ -249,6 +249,13 @@
 ### 検証（Tick50）
 `hang-watchdog` / `code-session` / `bots/[id]` / `harness-prompt` — **87 passed**
 
+### Tick51–52（ループ継続）
+1. `goalLoopCommand` stale — prepare 後の `working`+lease を rollback（ゾンビ working 防止）
+2. code-session clear/unlink — `body.taskId` を停止対象にし、`codeSessionTaskId` クリアは一致時のみ
+
+### 検証（Tick51–52）
+`code-session` / `harness-routing` / `bots/[id]` / `hang-watchdog` — **80 passed**（code-session 単独再実行 **20 passed**）
+
 ---
 
 ## 2026-09-14: Stale production rebuild / next build exit 1
