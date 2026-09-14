@@ -2849,6 +2849,20 @@ type ConcreteModelRoute = {
   model: Model;
 };
 
+function reservedAccountForRoute(
+  route: ConcreteModelRoute,
+): { providerID: string; accountId: string } | undefined {
+  const routeIds = modelId(route.model);
+  if (
+    !route.accountId ||
+    !routeIds.providerID ||
+    !isAccountRoutingProvider(routeIds.providerID)
+  ) {
+    return undefined;
+  }
+  return { providerID: routeIds.providerID, accountId: route.accountId };
+}
+
 export type ProviderFallbackModel = {
   providerID: string;
   modelID: string;
@@ -5946,13 +5960,9 @@ export async function createTask(input: {
           throw Object.assign(new Error("モデルが見つかりません"), {
             status: 400,
           });
-        const routeIds = modelId(route.model);
-        if (
-          route.accountId &&
-          routeIds.providerID &&
-          isAccountRoutingProvider(routeIds.providerID)
-        ) {
-          reserveRoute(routeIds.providerID, route.accountId);
+        const reservedRoute = reservedAccountForRoute(route);
+        if (reservedRoute) {
+          reserveRoute(reservedRoute.providerID, reservedRoute.accountId);
         }
         try {
           if (project) patchProject(project.id, { lastOpenedAt: new Date().toISOString() });
@@ -5969,12 +5979,8 @@ export async function createTask(input: {
             ),
           };
         } catch (error) {
-          if (
-            route.accountId &&
-            routeIds.providerID &&
-            isAccountRoutingProvider(routeIds.providerID)
-          ) {
-            releaseRoute(routeIds.providerID, route.accountId);
+          if (reservedRoute) {
+            releaseRoute(reservedRoute.providerID, reservedRoute.accountId);
           }
           throw error;
         }
@@ -5982,17 +5988,7 @@ export async function createTask(input: {
     );
     modelRoute = routed.route;
     concreteAccountId = routed.route.accountId;
-    const routeIds = modelId(modelRoute.model);
-    if (
-      modelRoute.accountId &&
-      routeIds.providerID &&
-      isAccountRoutingProvider(routeIds.providerID)
-    ) {
-      reservedAccount = {
-        providerID: routeIds.providerID,
-        accountId: modelRoute.accountId,
-      };
-    }
+    reservedAccount = reservedAccountForRoute(modelRoute);
     task = routed.task;
   } else {
     if (project) patchProject(project.id, { lastOpenedAt: new Date().toISOString() });
