@@ -1040,14 +1040,14 @@ function trackMessageEndEvent(
   persistThroughputSample(live, timing);
 }
 
-export function trackThroughputEvent(
+function trackToolExecutionEvent(
   live: LiveRuntime,
   event: { type: string; [key: string]: unknown },
-): void {
+): boolean {
   if (event.type === "tool_execution_start") {
     const toolCallId = toolCallIdFromEvent(event);
     if (toolCallId) live.toolStartedAt.set(toolCallId, Date.now());
-    return;
+    return true;
   }
 
   if (event.type === "tool_execution_update") {
@@ -1058,7 +1058,7 @@ export function trackThroughputEvent(
         toolResultText(event.partialResult),
       );
     }
-    return;
+    return true;
   }
 
   if (event.type === "tool_execution_end") {
@@ -1068,8 +1068,17 @@ export function trackThroughputEvent(
       const output = toolResultText(event.result);
       if (output) live.toolPartialOutputByCallId.set(toolCallId, output);
     }
-    return;
+    return true;
   }
+
+  return false;
+}
+
+export function trackThroughputEvent(
+  live: LiveRuntime,
+  event: { type: string; [key: string]: unknown },
+): void {
+  if (trackToolExecutionEvent(live, event)) return;
 
   if (event.type === "message_end") {
     trackMessageEndEvent(live, event);
