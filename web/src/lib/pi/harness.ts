@@ -2760,6 +2760,22 @@ async function configureCreatedSession(
   applySessionCompactionSettings(session, undefined, setup.goalLoop);
 }
 
+function sessionTaskContext(taskId?: string): {
+  botCodeTaskId: string | undefined;
+  roomHandoffTaskId: string | undefined;
+  botSoulBotId: string | undefined;
+} {
+  const sessionTask = taskId ? getTask(taskId) : undefined;
+  return {
+    botCodeTaskId: isBotCodeOriginTask(sessionTask) ? taskId : undefined,
+    roomHandoffTaskId: roomForCodeOrigin(sessionTask) ? taskId : undefined,
+    botSoulBotId:
+      sessionTask?.kind === "bot" && sessionTask.botId
+        ? sessionTask.botId
+        : undefined,
+  };
+}
+
 async function createSession(options: {
   cwd: string;
   sessionFile?: string | null;
@@ -2784,11 +2800,11 @@ async function createSession(options: {
   botTools?: readonly string[];
   skillScope?: SkillScope;
 }): Promise<SessionSetup> {
-  const sessionTask = options.taskId ? getTask(options.taskId) : undefined;
-  const botCodeTaskId = isBotCodeOriginTask(sessionTask) ? options.taskId : undefined;
-  const roomHandoffTaskId = roomForCodeOrigin(sessionTask) ? options.taskId : undefined;
-  const botSoulBotId =
-    sessionTask?.kind === "bot" && sessionTask.botId ? sessionTask.botId : undefined;
+  const {
+    botCodeTaskId,
+    roomHandoffTaskId,
+    botSoulBotId,
+  } = sessionTaskContext(options.taskId);
   const pi = await loadPi();
   await ensureRuntime({ skipDefaultRuntime: Boolean(options.accountId) });
   const agentDir = pi.getAgentDir();
