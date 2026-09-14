@@ -1,6 +1,6 @@
 /** Preset backends for the TTS settings dropdown. Keeps url/voice in sync with tts.json. */
 
-export type TtsBackendId = "sapi" | "aivis" | "qwen" | "custom";
+export type TtsBackendId = "sapi" | "aivis" | "custom";
 
 export type TtsVoiceOption = {
   id: string;
@@ -20,7 +20,7 @@ export type TtsBackendPreset = {
   voices: TtsVoiceOption[];
 };
 
-/** Known engines used in this project. Ports match local.rocm.json / AivisSpeech defaults. */
+/** Known engines used in this project. Ports match AivisSpeech defaults. */
 export const TTS_BACKENDS: TtsBackendPreset[] = [
   {
     id: "sapi",
@@ -50,13 +50,6 @@ export const TTS_BACKENDS: TtsBackendPreset[] = [
       { id: "1878365378", label: "コハク / せつなめ" },
       { id: "1878365379", label: "コハク / ねむたい" },
     ],
-  },
-  {
-    id: "qwen",
-    label: "Qwen3-TTS (ROCm)",
-    url: "http://127.0.0.1:18080/v1/audio/speech",
-    defaultVoice: "ramuchi",
-    voices: [{ id: "ramuchi", label: "ramuchi（Qwen 参照クローン）" }],
   },
 ];
 

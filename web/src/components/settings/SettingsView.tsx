@@ -259,7 +259,7 @@ export function SettingsView() {
               <SettingsGroup
                 id="engine-runtime-heading"
                 title="ランタイム"
-                description="Pi Coding Agent の状態を確認し、WebUI とトレイホストを管理します。"
+                description="Pi Coding Agent の状態を確認し、WebUI とホストを管理します。"
               >
                 <div className="grid gap-4 lg:grid-cols-2">
                   <div className="rounded-2xl border border-border bg-surface p-4">

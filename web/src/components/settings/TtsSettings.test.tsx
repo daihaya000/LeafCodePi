@@ -14,8 +14,7 @@ describe("TtsSettings", () => {
   beforeEach(() => {
     getJson.mockReset();
     sendJson.mockReset();
-    getJson.mockImplementation(async (path: string) => {
-      if (path === "/api/settings/tts/server") return { running: false };
+    getJson.mockImplementation(async () => {
       return {
         enabled: false,
         voice: "",
@@ -23,8 +22,7 @@ describe("TtsSettings", () => {
         url: "",
       };
     });
-    sendJson.mockImplementation(async (path: string, body: Record<string, unknown>) => {
-      if (path === "/api/settings/tts/server") return { started: true };
+    sendJson.mockImplementation(async (_path: string, body: Record<string, unknown>) => {
       return {
         enabled: typeof body.enabled === "boolean" ? body.enabled : false,
         voice: typeof body.voice === "string" ? body.voice : "",
@@ -68,8 +66,7 @@ describe("TtsSettings", () => {
   });
 
   it("shows ramuchi when the saved voice id is no longer in the preset list", async () => {
-    getJson.mockImplementation(async (path: string) => {
-      if (path === "/api/settings/tts/server") return { running: false };
+    getJson.mockImplementation(async () => {
       return {
         enabled: false,
         voice: "1455757728",
@@ -89,7 +86,6 @@ describe("TtsSettings", () => {
 
   it("shows newly installed AivisSpeech models from the live speaker list", async () => {
     getJson.mockImplementation(async (path: string) => {
-      if (path === "/api/settings/tts/server") return { running: false };
       if (path === "/api/settings/tts/voices") {
         return { voices: [{ id: "2000000001", label: "追加モデル / ノーマル" }] };
       }
@@ -151,8 +147,7 @@ describe("TtsSettings", () => {
   });
 
   it("keeps controls disabled when the initial fetch fails", async () => {
-    getJson.mockImplementation(async (path: string) => {
-      if (path === "/api/settings/tts/server") return { running: false };
+    getJson.mockImplementation(async () => {
       throw new Error("取得失敗");
     });
     render(<TtsSettings />);

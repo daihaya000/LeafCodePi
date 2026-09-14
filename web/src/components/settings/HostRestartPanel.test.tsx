@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { HOST_LAUNCH_REQUIRED_HINT_ANY } from "@/lib/host-launch-hints";
 import { HostRestartPanel } from "./HostRestartPanel";
 
 const fetchMock = vi.fn();
@@ -56,7 +57,7 @@ describe("HostRestartPanel", () => {
     render(<HostRestartPanel />);
 
     await waitFor(() => {
-      expect(screen.getByText("start.bat（トレイホスト）経由の起動が必要です。")).toBeTruthy();
+      expect(screen.getByText(HOST_LAUNCH_REQUIRED_HINT_ANY)).toBeTruthy();
     });
     expect(
       (screen.getByRole("button", { name: "WebUI を再起動" }) as HTMLButtonElement).disabled,

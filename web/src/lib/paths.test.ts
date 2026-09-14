@@ -2,7 +2,15 @@ import { describe, expect, it, afterEach, vi } from "vitest";
 import { existsSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { dataDir, noProjectRoot, noProjectSessionDir, sameOrDescendantPath, samePath } from "./paths";
+import {
+  dataDir,
+  displayLeafcodePiDataPath,
+  noProjectRoot,
+  noProjectSessionDir,
+  sameOrDescendantPath,
+  samePath,
+  webUiAuthConfigPath,
+} from "./paths";
 
 const roots: string[] = [];
 
@@ -34,6 +42,32 @@ describe("live data guard", () => {
     const root = join(tmpdir(), `leafcode-pi-guard-${Date.now()}`);
     vi.stubEnv("LEAFCODE_PI_DATA_DIR", root);
     expect(dataDir()).toBe(root);
+  });
+});
+
+describe("displayLeafcodePiDataPath", () => {
+  it("shows the OS-correct default data path for users", () => {
+    expect(displayLeafcodePiDataPath("webui-auth.json", "win32", "")).toBe(
+      "%APPDATA%\\leafcode-pi\\webui-auth.json",
+    );
+    expect(displayLeafcodePiDataPath("webui-auth.json", "linux", "")).toBe(
+      "~/.leafcode-pi/webui-auth.json",
+    );
+    expect(displayLeafcodePiDataPath("tts.json", "darwin", "")).toBe("~/.leafcode-pi/tts.json");
+    expect(displayLeafcodePiDataPath("", "linux", "")).toBe("~/.leafcode-pi");
+  });
+
+  it("uses an explicit data-dir override when present", () => {
+    expect(displayLeafcodePiDataPath("webui-auth.json", "linux", "/tmp/leafcode-data")).toBe(
+      "/tmp/leafcode-data/webui-auth.json",
+    );
+    expect(displayLeafcodePiDataPath("webui-auth.json", "win32", "D:\\data\\leafcode-pi")).toBe(
+      "D:\\data\\leafcode-pi\\webui-auth.json",
+    );
+  });
+
+  it("joins webui-auth.json onto the resolved data directory", () => {
+    expect(webUiAuthConfigPath()).toBe(join(dataDir(), "webui-auth.json"));
   });
 });
 
