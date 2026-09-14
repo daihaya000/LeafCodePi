@@ -1,4 +1,31 @@
-# MEMORY
+﻿# MEMORY
+
+## 2026-09-14: 徹底バグハント（アカウント一時停止）
+
+### ループ
+- `/loop 5m` 継続中（ユーザー明示停止まで）
+- センチネル: `AGENT_LOOP_TICK_thorough_bug_hunt`
+- プロンプト ASCII: `thorough bug hunt until user explicitly stops`（PowerShell 文字化け回避）
+
+### 修正
+1. `setProviderOrModelEnabled` — 一時停止アカウント / 統合全停止で 409
+2. `resolveConcreteModel` — 登録アカウント全停止時 409（旧: 400 モデル不明）
+3. `PATCH /api/accounts/[id]` — `enabled` 変更で `invalidateHealthCache()`
+4. `/api/codexbar/reset-credits` — 一時停止 409
+5. `validateModelAccountSelection` — create 前に 409（タスク孤児化防止）
+6. `saveProviderModelsOrder` — 一時停止アカウントの並び変更を拒否
+7. `setTaskModel` — 明示 pin / 一時停止を尊重（auto 時は再ルート可）
+8. `generateDirectText` + auto-agent / next-action / permission advice — `accountIdExplicit` 伝播
+
+### 残存リスク
+- 統合ルーティングで非明示タスクは別アカウントへ切替しうる
+- 進行中ストリームは一時停止直後も完走しうる
+- 有効アカウント < 2 でも integrated モードは自動降格しない
+
+### 検証
+関連 vitest 6 files / **81 passed**（harness-complete/runtime, reset-credits, direct-generation, auto-agent, accounts）
+
+---
 
 ## 2026-09-14: Stale production rebuild / next build exit 1
 

@@ -167,6 +167,7 @@ export async function POST(req: NextRequest, { params }: Params) {
           prompt: goal,
           ...(requestedModel ? { requestedModel } : {}),
           ...(currentTask.accountId ? { accountId: currentTask.accountId } : {}),
+          ...(currentTask.accountIdExplicit ? { accountIdExplicit: true } : {}),
         });
       }
     }

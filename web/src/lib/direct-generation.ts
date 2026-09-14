@@ -132,6 +132,8 @@ export async function generateDirectText(options: {
   model: DirectModel;
   /** Account runtime for account-scoped models; null/undefined uses default. */
   accountId?: string | null;
+  /** When true, refuse fallback away from the requested account (e.g. paused pin). */
+  accountIdExplicit?: boolean;
   system: string;
   prompt: string;
   maxTokens?: number;
@@ -167,12 +169,13 @@ export async function generateDirectText(options: {
     // keeps custom/API/OAuth providers direct without accepting a browser URL.
     if (model.providerID !== LLAMA_SERVER_PROVIDER_ID) {
       const reasoning = runtimeReasoningForEffort(options.effort);
+      const accountId = model.accountId ?? options.accountId;
+      const accountIdExplicit =
+        options.accountIdExplicit === true || Boolean(model.accountId);
       const text = await completeModelText({
         ...model,
-        ...(model.accountId ?? options.accountId
-          ? { accountId: model.accountId ?? options.accountId }
-          : {}),
-        ...(model.accountId ? { accountIdExplicit: true } : {}),
+        ...(accountId ? { accountId } : {}),
+        ...(accountIdExplicit ? { accountIdExplicit: true } : {}),
         system,
         prompt,
         maxTokens: options.maxTokens,

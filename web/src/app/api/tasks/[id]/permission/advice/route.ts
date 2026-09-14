@@ -83,6 +83,7 @@ export async function POST(
     const generated = await generateDirectTextWithFallbackResult({
       candidates,
       accountId: task.accountId,
+      ...(task.accountIdExplicit ? { accountIdExplicit: true } : {}),
       system: PERMISSION_ADVICE_SYSTEM_INSTRUCTION,
       prompt: permissionAdvicePrompt(permission.command, permission.labels),
       maxTokens: 160,

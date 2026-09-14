@@ -13,7 +13,7 @@ import { parseCodexBarSnapshot } from "@/lib/codexbar";
 import { clearCachedUsage, setCachedUsage } from "@/lib/codexbar/cache";
 import { setAccountRoutingMode, __resetProviderRoutingQueueForTests } from "@/lib/provider-routing";
 import { AccountRuntimeManager } from "./account-runtime-manager";
-import { completeModelText, validateTaskModelSelection } from "./harness";
+import { completeModelText, createTask, validateTaskModelSelection } from "./harness";
 import type { AssistantMessage } from "@earendil-works/pi-ai";
 
 const GLOBAL_KEY = "__leafcodePiHarness";
@@ -134,9 +134,29 @@ describe("completeModelText", () => {
       validateTaskModelSelection("anthropic::claude-sonnet"),
       (error: unknown) =>
         error instanceof Error &&
-        (error as Error & { status?: number }).status === 400,
+        (error as Error & { status?: number }).status === 409,
     );
     assert.equal(calls.length, 0);
+  });
+
+  it("rejects createTask with a paused account before insert", async () => {
+    installRuntime(assistant({ content: [{ type: "text", text: "unused" }] }));
+    const paused = patchAccount(
+      createAccount({ label: "停止中", providers: ["anthropic"] }).id,
+      { enabled: false },
+    );
+    await assert.rejects(
+      () =>
+        createTask({
+          projectId: null,
+          prompt: "hello",
+          model: "anthropic::claude-sonnet",
+          accountId: paused.id,
+        }),
+      (error: unknown) =>
+        error instanceof Error &&
+        (error as Error & { status?: number }).status === 409,
+    );
   });
 
   it("returns text on success", async () => {

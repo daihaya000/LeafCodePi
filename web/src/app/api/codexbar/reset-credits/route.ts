@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { getAccount, isAccountEnabled } from "@/lib/accounts";
 import { invalidateCachedUsage } from "@/lib/codexbar/cache";
 import { clearProviderCache } from "@/lib/codexbar/provider-cache";
 import { ProviderError } from "@/lib/codexbar/types";
@@ -33,12 +34,33 @@ function errorMessage(error: unknown, fallback: string): string {
   return fallback;
 }
 
+/** accountId 指定時は存在確認し、一時停止アカウントは 409 で拒否する。 */
+function assertAccountUsable(accountId: string | null): Response | null {
+  if (!accountId) return null;
+  const account = getAccount(accountId);
+  if (!account) {
+    return NextResponse.json(
+      { error: "アカウントが見つかりません" },
+      { status: 404 },
+    );
+  }
+  if (!isAccountEnabled(account)) {
+    return NextResponse.json(
+      { error: "一時停止中のアカウントです" },
+      { status: 409 },
+    );
+  }
+  return null;
+}
+
 /**
  * GET /api/codexbar/reset-credits — list banked Codex rate-limit resets.
  * Query: ?accountId=<leafcode-account-id> (optional; default/CLI auth when omitted).
  */
 export async function GET(req: NextRequest) {
   const accountId = req.nextUrl.searchParams.get("accountId");
+  const refused = assertAccountUsable(accountId);
+  if (refused) return refused;
   try {
     const { result, session } = await withOpenaiCodexWhamAuth(
       accountId,
@@ -92,6 +114,9 @@ export async function POST(req: NextRequest) {
     typeof body.redeemRequestId === "string" && body.redeemRequestId.trim()
       ? body.redeemRequestId.trim()
       : undefined;
+
+  const refused = assertAccountUsable(accountId);
+  if (refused) return refused;
 
   try {
     const { result, session } = await withOpenaiCodexWhamAuth(

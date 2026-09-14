@@ -1010,6 +1010,43 @@ describe("getRuntimeFor", () => {
     );
   });
 
+  it("rejects model toggles for paused accounts", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "leafcode-pi-harness-paused-toggle-"));
+    tempDirs.push(dir);
+    process.env.LEAFCODE_PI_DATA_DIR = dir;
+    const account = createAccount({
+      label: "仕事用",
+      providers: ["openai-codex"],
+    });
+    patchAccount(account.id, { enabled: false });
+
+    await assert.rejects(
+      () => setProviderOrModelEnabled("openai-codex::gpt-5", false, account.id),
+      (error) =>
+        (error as { status?: number }).status === 409 &&
+        (error as Error).message === "一時停止中のアカウントです",
+    );
+
+    await setAccountRoutingMode("openai-codex", "integrated");
+    await assert.rejects(
+      () => setProviderOrModelEnabled("openai-codex::gpt-5", false),
+      (error) =>
+        (error as { status?: number }).status === 409 &&
+        (error as Error).message === "一時停止中のアカウントです",
+    );
+    await assert.rejects(
+      () =>
+        saveProviderModelsOrder({
+          accountModelOrder: {
+            [account.id]: { "openai-codex": ["gpt-4", "gpt-5"] },
+          },
+        }),
+      (error) =>
+        (error as { status?: number }).status === 409 &&
+        (error as Error).message === "一時停止中のアカウントです",
+    );
+  });
+
   it("starts all child models disabled when enabling an account provider", async () => {
     const dir = mkdtempSync(join(tmpdir(), "leafcode-pi-harness-provider-enable-"));
     tempDirs.push(dir);

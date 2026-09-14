@@ -144,6 +144,7 @@ export async function POST(
             prompt: body.prompt ?? "",
             hasImages: Boolean(body.images?.length),
             ...(currentTask.accountId ? { accountId: currentTask.accountId } : {}),
+            ...(currentTask.accountIdExplicit ? { accountIdExplicit: true } : {}),
           })
         : undefined;
     // Model routing may reject first; keep this rejection handled either way.
@@ -204,6 +205,7 @@ export async function POST(
             hasImages: Boolean(body.images?.length),
             ...(requestedModel ? { requestedModel } : {}),
             ...(currentTask.accountId ? { accountId: currentTask.accountId } : {}),
+            ...(currentTask.accountIdExplicit ? { accountIdExplicit: true } : {}),
           }));
       }
     }

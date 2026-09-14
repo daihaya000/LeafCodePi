@@ -905,10 +905,18 @@ function validateModelAccountSelection(
       status: 400,
     });
   }
-  if (requestedAccountId && !getAccount(requestedAccountId)) {
-    throw Object.assign(new Error("アカウントが見つかりません"), {
-      status: 404,
-    });
+  if (requestedAccountId) {
+    const account = getAccount(requestedAccountId);
+    if (!account) {
+      throw Object.assign(new Error("アカウントが見つかりません"), {
+        status: 404,
+      });
+    }
+    if (!isAccountEnabled(account)) {
+      throw Object.assign(new Error("一時停止中のアカウントです"), {
+        status: 409,
+      });
+    }
   }
   if (requestedAccountId && parsed && !isAccountRoutingProvider(parsed.providerID)) {
     throw Object.assign(
@@ -3368,17 +3376,16 @@ async function resolveConcreteModel(
     runsThroughAccounts(parsed.providerID)
   ) {
     const accounts = listAccounts();
-    if (accounts.some((account) => accountHasProvider(account, parsed.providerID))) {
-      if (
-        accounts.some(
-          (account) =>
-            isAccountEnabled(account) &&
-            accountHasProvider(account, parsed.providerID),
-        )
-      ) {
+    const registered = accounts.filter((account) =>
+      accountHasProvider(account, parsed.providerID),
+    );
+    if (registered.length > 0) {
+      if (registered.some(isAccountEnabled)) {
         return resolveIntegratedModelRoute(parsed.providerID, parsed.modelID);
       }
-      return undefined;
+      throw Object.assign(new Error("一時停止中のアカウントです"), {
+        status: 409,
+      });
     }
   }
   // Shared providers never use an account runtime, even when a caller carries
@@ -4958,11 +4965,16 @@ export async function setProviderOrModelEnabled(
         { status: 400 },
       );
     }
-    const accounts = listAccounts().filter(
-      (account) =>
-        isAccountEnabled(account) && accountHasProvider(account, providerId),
+    const registered = listAccounts().filter((account) =>
+      accountHasProvider(account, providerId),
     );
+    const accounts = registered.filter(isAccountEnabled);
     if (accounts.length === 0) {
+      if (registered.length > 0) {
+        throw Object.assign(new Error("一時停止中のアカウントです"), {
+          status: 409,
+        });
+      }
       throw Object.assign(new Error("ログインアカウントが見つかりません"), {
         status: 404,
       });
@@ -4979,6 +4991,11 @@ export async function setProviderOrModelEnabled(
       throw Object.assign(new Error("アカウントが見つかりません"), {
         status: 404,
       });
+    if (!isAccountEnabled(account)) {
+      throw Object.assign(new Error("一時停止中のアカウントです"), {
+        status: 409,
+      });
+    }
     if (
       !isAccountProviderId(providerId) ||
       !accountHasProvider(account, providerId)
@@ -5043,6 +5060,11 @@ export async function saveProviderModelsOrder(input: {
         throw Object.assign(new Error("アカウントが見つかりません"), {
           status: 404,
         });
+      if (!isAccountEnabled(account)) {
+        throw Object.assign(new Error("一時停止中のアカウントです"), {
+          status: 409,
+        });
+      }
       if (
         typeof byProvider !== "object" ||
         byProvider === null ||
@@ -6560,6 +6582,7 @@ async function prepareAutoAgentForGoalLoop(
     prompt,
     ...(requestedModel ? { requestedModel } : {}),
     ...(live.accountId ? { accountId: live.accountId } : {}),
+    ...(task.accountIdExplicit ? { accountIdExplicit: true } : {}),
   });
   if (selected === (task.agent?.trim() ?? "")) return live;
   return replaceLiveForAgent(live, task, selected);
@@ -7934,11 +7957,27 @@ export async function setTaskModel(
     throw Object.assign(new Error("モデルが見つかりません"), { status: 400 });
   }
   const accountIdExplicit =
-    options?.accountIdExplicit ?? Boolean(parsed.accountId);
+    options?.accountIdExplicit ??
+    (task.accountIdExplicit === true || Boolean(parsed.accountId));
+  if (
+    task.accountIdExplicit &&
+    task.accountId &&
+    options?.accountIdExplicit !== false
+  ) {
+    const pinned = getAccount(task.accountId);
+    if (pinned && !isAccountEnabled(pinned)) {
+      throw Object.assign(new Error("一時停止中のアカウントです"), {
+        status: 409,
+      });
+    }
+  }
+  const requestedAccountId =
+    parsed.accountId ??
+    (accountIdExplicit ? task.accountId ?? null : null);
   const modelRoute = await withRouteLock(
     `${parsed.providerID}::${parsed.modelID}`,
     () =>
-      resolveConcreteModelWithFallback(modelValueRaw, parsed.accountId ?? null, {
+      resolveConcreteModelWithFallback(modelValueRaw, requestedAccountId, {
         accountIdExplicit,
         allowProviderFallback: true,
       }),

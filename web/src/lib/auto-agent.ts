@@ -46,6 +46,8 @@ export type AutoAgentOptions = {
   /** The selected/task model used when no generation model is configured. */
   requestedModel?: DirectModel;
   accountId?: string | null;
+  /** When true, refuse fallback away from the requested account. */
+  accountIdExplicit?: boolean;
 };
 
 export type AutoAgentCandidate = {
@@ -312,6 +314,7 @@ export async function resolveAutoAgent(options: AutoAgentOptions): Promise<strin
     const generated = await generateDirectTextWithFallbackResult({
       candidates: directCandidates,
       accountId: options.accountId,
+      ...(options.accountIdExplicit ? { accountIdExplicit: true } : {}),
       system: autoAgentSystemInstruction(),
       prompt,
       maxTokens: 96,

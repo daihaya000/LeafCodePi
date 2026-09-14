@@ -8,12 +8,16 @@ const {
   consumeCodexResetCredit,
   invalidateCachedUsage,
   clearProviderCache,
+  getAccount,
+  isAccountEnabled,
 } = vi.hoisted(() => ({
   withOpenaiCodexWhamAuth: vi.fn(),
   listCodexResetCredits: vi.fn(),
   consumeCodexResetCredit: vi.fn(),
   invalidateCachedUsage: vi.fn(),
   clearProviderCache: vi.fn(),
+  getAccount: vi.fn(),
+  isAccountEnabled: vi.fn(),
 }));
 
 vi.mock("@/lib/codexbar/providers/openai-codex", () => ({
@@ -34,6 +38,11 @@ vi.mock("@/lib/codexbar/provider-cache", () => ({
   clearProviderCache,
 }));
 
+vi.mock("@/lib/accounts", () => ({
+  getAccount,
+  isAccountEnabled,
+}));
+
 describe("/api/codexbar/reset-credits", () => {
   beforeEach(() => {
     withOpenaiCodexWhamAuth.mockReset();
@@ -41,6 +50,14 @@ describe("/api/codexbar/reset-credits", () => {
     consumeCodexResetCredit.mockReset();
     invalidateCachedUsage.mockReset();
     clearProviderCache.mockReset();
+    getAccount.mockReset();
+    isAccountEnabled.mockReset();
+    getAccount.mockImplementation((id: string) =>
+      id ? { id, enabled: true } : undefined,
+    );
+    isAccountEnabled.mockImplementation(
+      (account: { enabled?: boolean }) => account.enabled !== false,
+    );
   });
 
   it("GET lists credits for default auth when accountId is omitted", async () => {
@@ -96,6 +113,22 @@ describe("/api/codexbar/reset-credits", () => {
     );
     expect(response.status).toBe(200);
     expect(withOpenaiCodexWhamAuth.mock.calls[0][0]).toBe("acc-1");
+  });
+
+  it("GET rejects paused accounts with 409", async () => {
+    getAccount.mockReturnValueOnce({ id: "acc-paused", enabled: false });
+    isAccountEnabled.mockReturnValueOnce(false);
+
+    const response = await GET(
+      new NextRequest(
+        "http://localhost/api/codexbar/reset-credits?accountId=acc-paused",
+      ),
+    );
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toEqual({
+      error: "一時停止中のアカウントです",
+    });
+    expect(withOpenaiCodexWhamAuth).not.toHaveBeenCalled();
   });
 
   it("POST rejects missing creditId", async () => {

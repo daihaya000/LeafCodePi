@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { deleteAccount, patchAccount } from "@/lib/accounts";
-import { jsonError } from "@/lib/pi/harness";
+import { invalidateHealthCache, jsonError } from "@/lib/pi/harness";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -30,6 +30,9 @@ export async function PATCH(req: NextRequest, context: Context) {
       return NextResponse.json({ error: "label、note、enabled のいずれかを指定してください" }, { status: 400 });
     }
     const account = patchAccount(id, patch);
+    if ("enabled" in patch) {
+      invalidateHealthCache();
+    }
     return NextResponse.json({ account });
   } catch (error) {
     const { error: message, status } = jsonError(error);
