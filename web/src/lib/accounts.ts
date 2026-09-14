@@ -295,6 +295,29 @@ export function createAccount(input: {
   return { ...record };
 }
 
+/**
+ * 実行中タスク / live Goal Loop から参照されているアカウントは削除も一時停止も拒否する。
+ */
+function assertAccountIdleForDisable(id: string, action: "delete" | "pause"): void {
+  const verb = action === "delete" ? "削除" : "一時停止";
+  for (const task of listTasks(false, "all")) {
+    if (task.accountId !== id) continue;
+    if (task.status === "working") {
+      throw Object.assign(
+        new Error(`このアカウントで実行中のタスクがあるため${verb}できません`),
+        { status: 409 },
+      );
+    }
+    const loop = readGoalLoopState(task.directory, task.sessionId);
+    if (loop && isGoalLoopLiveStatus(loop.status)) {
+      throw Object.assign(
+        new Error(`このアカウントで Goal Loop が動作中のため${verb}できません`),
+        { status: 409 },
+      );
+    }
+  }
+}
+
 export function patchAccount(
   id: string,
   patch: { label?: unknown; note?: unknown; enabled?: unknown },
@@ -312,6 +335,9 @@ export function patchAccount(
     if (typeof patch.enabled !== "boolean") {
       throw badRequest("enabled は真偽値で指定してください");
     }
+    if (patch.enabled === false && record.enabled !== false) {
+      assertAccountIdleForDisable(id, "pause");
+    }
     record.enabled = patch.enabled;
   }
   record.updatedAt = new Date().toISOString();
@@ -327,22 +353,7 @@ export function patchAccount(
  */
 export function deleteAccount(id: string): void {
   // code / bot 双方。Goal Loop は idle でもループが生きていることがある。
-  for (const task of listTasks(false, "all")) {
-    if (task.accountId !== id) continue;
-    if (task.status === "working") {
-      throw Object.assign(
-        new Error("このアカウントで実行中のタスクがあるため削除できません"),
-        { status: 409 },
-      );
-    }
-    const loop = readGoalLoopState(task.directory, task.sessionId);
-    if (loop && isGoalLoopLiveStatus(loop.status)) {
-      throw Object.assign(
-        new Error("このアカウントで Goal Loop が動作中のため削除できません"),
-        { status: 409 },
-      );
-    }
-  }
+  assertAccountIdleForDisable(id, "delete");
   const file = readAccountsFile();
   const index = file.accounts.findIndex((account) => account.id === id);
   if (index === -1) throw notFound();

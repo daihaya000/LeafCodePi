@@ -116,6 +116,13 @@
 ### 検証（Tick20–21）
 `room-runtime` / `bot-code-relay` — **112 passed**
 
+### Tick22–23（ループ継続）
+1. Room steer — 割り込みメッセージの画像/ファイルを `promptTask` に渡す
+2. `patchAccount(enabled:false)` — delete と同様に working / live Goal Loop を 409 拒否
+
+### 検証（Tick22–23）
+`accounts` / `rooms/prompt` / `room-runtime` — **113 passed**
+
 ---
 
 ## 2026-09-14: Stale production rebuild / next build exit 1

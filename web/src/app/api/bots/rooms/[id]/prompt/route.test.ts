@@ -336,6 +336,30 @@ describe("room mention responses", () => {
     expect(state.promptTask).toHaveBeenCalledTimes(2);
   });
 
+  it("forwards interrupt attachments when steering a live Room turn", async () => {
+    const { room, bots, taskIds } = setup(["A"]);
+    await send(room.id, "@A first");
+    await vi.waitFor(() => expect(state.promptTask).toHaveBeenCalledTimes(1));
+
+    const result = await (
+      await send(room.id, "@A look at this", {
+        images: [{ mimeType: "image/png", data: Buffer.from("png").toString("base64") }],
+        files: [{ name: "note.txt", mimeType: "text/plain", data: Buffer.from("hi").toString("base64") }],
+      })
+    ).json();
+    expect(result.steeredBotIds).toEqual([bots[0].id]);
+    expect(state.promptTask).toHaveBeenCalledTimes(2);
+    const [, , images, options] = state.promptTask.mock.calls[1];
+    expect(images).toEqual([
+      expect.objectContaining({ mimeType: "image/png", data: expect.any(String) }),
+    ]);
+    expect(options).toMatchObject({
+      streamingBehavior: "steer",
+      files: [expect.objectContaining({ name: "note.txt", mimeType: "text/plain" })],
+    });
+    expect(taskIds).toHaveLength(1);
+  });
+
   it("still starts a turn for a bot that is not currently writing", async () => {
     const { room, bots, taskIds } = setup(["A", "B"]);
     await send(room.id, "@A first");

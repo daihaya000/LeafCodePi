@@ -371,6 +371,67 @@ describe("accounts store CRUD", () => {
         String((error as Error).message).includes("Goal Loop"),
     );
   });
+
+  it("refuses to pause while a working task references the account", () => {
+    tempDataDir();
+    const project = upsertProject({
+      name: "demo-pause",
+      rootPath: join(tmpdir(), "demo-pause-root"),
+    });
+    const task = insertTask({ project, title: "running task" });
+    const account = createAccount({
+      label: "pause-busy",
+      providers: ["openai-codex"],
+    });
+    patchLoose(task.id, { status: "working", accountId: account.id });
+    assert.throws(
+      () => patchAccount(account.id, { enabled: false }),
+      (error) =>
+        httpStatus(error) === 409 &&
+        String((error as Error).message).includes("一時停止"),
+    );
+    assert.equal(getAccount(account.id)?.enabled, true);
+  });
+
+  it("refuses to pause while a Goal Loop is live on the account", () => {
+    tempDataDir();
+    const project = upsertProject({
+      name: "goal-pause",
+      rootPath: join(tmpdir(), "goal-pause-root"),
+    });
+    const task = insertTask({ project, title: "goal pause task" });
+    const account = createAccount({
+      label: "goal-pause",
+      providers: ["openai-codex"],
+    });
+    patchLoose(task.id, {
+      status: "idle",
+      accountId: account.id,
+      sessionId: "goal-pause-session",
+    });
+    const loopFile = goalLoopStateFile(task.directory, "goal-pause-session");
+    mkdirSync(join(process.env.LEAFCODE_PI_DATA_DIR!, "goals-loop"), {
+      recursive: true,
+    });
+    writeFileSync(
+      loopFile,
+      JSON.stringify({
+        id: "loop-pause",
+        goal: "ship",
+        status: "queued",
+        maxTurns: 3,
+        cooldownSeconds: 0,
+      }),
+      "utf8",
+    );
+    assert.throws(
+      () => patchAccount(account.id, { enabled: false }),
+      (error) =>
+        httpStatus(error) === 409 &&
+        String((error as Error).message).includes("一時停止"),
+    );
+    assert.equal(getAccount(account.id)?.enabled, true);
+  });
 });
 
 type AccountRecordLike = {

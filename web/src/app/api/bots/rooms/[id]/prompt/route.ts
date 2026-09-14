@@ -69,7 +69,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       if (saved.length > 0) updateRoomMessage(id, userMessage.id, { files: saved });
     }
     // A new instruction redirects the turns already being written; those bots answer once, there.
-    const steered = new Set(await steerRoomTurns(id, prompt));
+    const steered = new Set(await steerRoomTurns(id, prompt, userMessage.id));
     // Everyday @-less work is single-bot (keyword first, else LLM). Open rotate is reserved for /discuss-like only.
     const conversation = isRoomConversationRequest(prompt);
     let routed = botsForRoomPrompt(room, prompt, body.broadcast === true);

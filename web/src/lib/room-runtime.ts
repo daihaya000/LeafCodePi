@@ -189,11 +189,21 @@ export async function stopRoomTurns(roomId: string): Promise<number> {
 /**
  * A new instruction redirects the turn already being written instead of queuing behind it.
  * The steered bots answer once, so the caller must not start a second turn for them.
+ * Attachments belong to the interrupting user message and must travel with the steer prompt.
  */
-export async function steerRoomTurns(roomId: string, prompt: string): Promise<string[]> {
+export async function steerRoomTurns(roomId: string, prompt: string, requestId?: string): Promise<string[]> {
   const turns = workingTurns(roomId);
   const content = `[割り込み] ユーザーの新しい指示: ${JSON.stringify(prompt)}\nこのターンはこの指示を優先して続ける。`;
-  const results = await Promise.allSettled(turns.map((entry) => promptTask(entry.taskId, content, undefined, { streamingBehavior: "steer" })));
+  const images = requestId ? roomRequestImages(roomId, requestId) : [];
+  const files = requestId ? roomRequestFiles(roomId, requestId) : [];
+  const results = await Promise.allSettled(
+    turns.map((entry) =>
+      promptTask(entry.taskId, content, images.length > 0 ? images : undefined, {
+        streamingBehavior: "steer",
+        ...(files.length > 0 ? { files } : {}),
+      }),
+    ),
+  );
   return turns.flatMap((entry, index) => results[index].status === "fulfilled" ? [entry.botId] : []);
 }
 
