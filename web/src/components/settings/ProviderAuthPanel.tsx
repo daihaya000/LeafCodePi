@@ -465,6 +465,8 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
         `/api/providers/${encodeURIComponent(providerId)}/login/events?sessionId=${encodeURIComponent(sessionId)}`,
       ),
     );
+    // EventSource reconnects replay history; open each OAuth/device URL once.
+    const openedAuthUrls = new Set<string>();
     es.addEventListener("notify", (raw) => {
       if (!isCurrent()) return;
       let payload: Extract<LoginSessionEvent, { type: "notify" }>;
@@ -483,14 +485,20 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
           authUrl: event.url,
           status: event.instructions ?? "ブラウザでログインしてください",
         }));
-        window.open(event.url, "_blank", "noopener,noreferrer");
+        if (!openedAuthUrls.has(event.url)) {
+          openedAuthUrls.add(event.url);
+          window.open(event.url, "_blank", "noopener,noreferrer");
+        }
       } else if (event.type === "device_code") {
         updateLogin((prev) => ({
           ...prev,
           deviceCode: event,
           status: "デバイスコードでログインしてください",
         }));
-        window.open(event.verificationUri, "_blank", "noopener,noreferrer");
+        if (!openedAuthUrls.has(event.verificationUri)) {
+          openedAuthUrls.add(event.verificationUri);
+          window.open(event.verificationUri, "_blank", "noopener,noreferrer");
+        }
       } else if (event.type === "progress" || event.type === "info") {
         updateLogin((prev) => ({ ...prev, status: event.message }));
       }
@@ -801,12 +809,14 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
       return;
     setAccountBusy(true);
     try {
+      // Cancel an in-flight login for this account before DELETE so the auth
+      // session cannot keep writing into a removed account.
+      if (login?.accountId === account.id) await stopLogin();
       await sendJson(
         `/api/accounts/${encodeURIComponent(account.id)}`,
         {},
         "DELETE",
       );
-      if (login?.accountId === account.id) stopLogin();
       await refreshAccounts();
       onChanged();
     } catch (error) {
@@ -1242,7 +1252,7 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
                               <Button
                                 size="sm"
                                 variant="danger"
-                                disabled={accountBusy}
+                                disabled={accountBusy || login?.accountId === account.id}
                                 onClick={() => void removeAccount(account)}
                               >
                                 削除

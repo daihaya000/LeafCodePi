@@ -402,6 +402,14 @@
 ### 検証（Tick78）
 `goal-loop/route` / `events/route` / `ProviderAuthPanel` — **45 passed**
 
+### Tick79–80（ループ継続・[Hunt Tick77 fresh bugs](3e8eac2b) 追随）
+1. Bot SSE ready — Task SSE と同型に `getTaskDetail` 30s 上限、タイムアウト時は `offline` degraded ready
+2. ProviderAuthPanel — `auth_url` / `device_code` の `window.open` を URL 単位で一度だけ（reconnect 履歴 replay の多重タブ防止）
+3. ProviderAuthPanel — アカウント削除前に `stopLogin()`；当該アカウントのログイン中は削除ボタンを disabled
+
+### 検証（Tick79–80）
+`bots/[id]/events/route` / `ProviderAuthPanel` — **29 passed**
+
 ---
 
 ## 2026-09-14: Stale production rebuild / next build exit 1

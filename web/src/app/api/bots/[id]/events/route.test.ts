@@ -132,4 +132,49 @@ describe("GET /api/bots/[id]/events", () => {
     expect(mocks.listener).toBeTypeOf("function");
     expect(() => mocks.listener?.({ type: "delta", message: message("m3", "途中") })).not.toThrow();
   });
+
+  it("falls back to offline ready when getTaskDetail hangs past the timeout", async () => {
+    vi.useFakeTimers();
+    mocks.getTaskBootstrap.mockReturnValue({ id: "bot:one", status: "idle", messages: [], isStreaming: false });
+    mocks.getTaskDetail
+      .mockReturnValueOnce(new Promise(() => undefined))
+      .mockResolvedValueOnce({
+        id: "bot:one",
+        status: "idle",
+        messages: [message("offline", "オフライン")],
+        isStreaming: false,
+        isCompacting: false,
+      });
+    try {
+      const response = await GET(request(), params);
+      const reader = response.body!.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      const events: Array<Record<string, unknown>> = [];
+      const collect = async () => {
+        while (events.length < 2) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          let index = buffer.indexOf("\n\n");
+          while (index >= 0) {
+            const block = buffer.slice(0, index);
+            buffer = buffer.slice(index + 2);
+            const dataLine = block.split("\n").find((line) => line.startsWith("data: "));
+            if (dataLine) events.push(JSON.parse(dataLine.slice(6)) as Record<string, unknown>);
+            index = buffer.indexOf("\n\n");
+          }
+        }
+      };
+      const collectPromise = collect();
+      await vi.advanceTimersByTimeAsync(30_000);
+      await collectPromise;
+      expect(events[0]?.eventType).toBe("bootstrap");
+      expect(events[1]?.eventType).toBe("ready");
+      expect(mocks.getTaskDetail).toHaveBeenLastCalledWith("bot:one", { offline: true });
+      await reader.cancel();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });

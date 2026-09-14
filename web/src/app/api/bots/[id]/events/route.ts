@@ -21,6 +21,38 @@ import {
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+/** Bound ready-path session opens so a hung ensureLive cannot block Bot SSE forever. */
+const BOT_SSE_DETAIL_TIMEOUT_MS = 30_000;
+
+function getTaskDetailForBotReady(taskId: string): Promise<Awaited<ReturnType<typeof getTaskDetail>>> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  return Promise.race([
+    getTaskDetail(taskId),
+    new Promise<never>((_, reject) => {
+      timer = setTimeout(() => {
+        reject(
+          Object.assign(new Error("タスク詳細の取得がタイムアウトしました"), {
+            status: 504,
+            timeout: true,
+          }),
+        );
+      }, BOT_SSE_DETAIL_TIMEOUT_MS);
+      timer.unref?.();
+    }),
+  ]).catch((error) => {
+    if (
+      typeof error === "object" &&
+      error !== null &&
+      "timeout" in error &&
+      (error as { timeout?: boolean }).timeout === true
+    ) {
+      return getTaskDetail(taskId, { offline: true });
+    }
+    throw error;
+  }).finally(() => {
+    if (timer !== undefined) clearTimeout(timer);
+  });
+}
 
 export async function GET(
   req: NextRequest,
@@ -61,7 +93,7 @@ export async function GET(
           intercomInbox: getBotIntercomInbox(botId),
           eventType: "bootstrap",
         });
-        void getTaskDetail(taskId)
+        void getTaskDetailForBotReady(taskId)
           .then((detail) => {
             const writer = sse;
             if (!writer || writer.closed) return;

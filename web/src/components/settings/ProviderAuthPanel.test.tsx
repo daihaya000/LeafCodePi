@@ -905,6 +905,112 @@ describe("ProviderAuthPanel provider-scoped accounts", () => {
     });
   });
 
+  it("opens an auth URL only once across replayed login notify events", async () => {
+    class TestEventSource extends EventTarget {
+      static instances: TestEventSource[] = [];
+      closed = false;
+      constructor() {
+        super();
+        TestEventSource.instances.push(this);
+      }
+      close() {
+        this.closed = true;
+      }
+    }
+    const openSpy = vi.spyOn(window, "open").mockReturnValue(null);
+    vi.stubGlobal("EventSource", TestEventSource);
+    fetchMock.mockImplementation(
+      (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        const method = (init?.method ?? "GET").toUpperCase();
+        if (url.endsWith("/api/accounts") && method === "GET") {
+          return Promise.resolve(jsonResponse({ accounts: [accounts[0]] }));
+        }
+        if (url.endsWith("/api/accounts/acc-1/auth-status")) {
+          return Promise.resolve(jsonResponse({ providers: ["openai-codex"] }));
+        }
+        if (
+          url.includes("/api/providers/openai-codex/login") &&
+          method === "POST"
+        ) {
+          return Promise.resolve(jsonResponse({ sessionId: "session-open" }));
+        }
+        return Promise.resolve(jsonResponse({}));
+      },
+    );
+    render(
+      <ProviderAuthPanel providers={[providers[1]]} onChanged={() => {}} />,
+    );
+    const codex = await accountRegion("OpenAI Codex");
+    fireEvent.click(
+      await within(codex).findByRole("button", { name: "再ログイン" }),
+    );
+    await waitFor(() => {
+      expect(TestEventSource.instances).toHaveLength(1);
+    });
+    const source = TestEventSource.instances[0];
+    if (!source) throw new Error("EventSource was not created");
+    const authPayload = JSON.stringify({
+      type: "notify",
+      event: { type: "auth_url", url: "https://example.test/oauth", instructions: "open" },
+    });
+    await act(async () => {
+      source.dispatchEvent(new MessageEvent("notify", { data: authPayload }));
+      source.dispatchEvent(new MessageEvent("notify", { data: authPayload }));
+    });
+    expect(openSpy).toHaveBeenCalledTimes(1);
+    openSpy.mockRestore();
+  });
+
+  it("disables account delete while that account is logging in", async () => {
+    class TestEventSource extends EventTarget {
+      static instances: TestEventSource[] = [];
+      closed = false;
+      constructor() {
+        super();
+        TestEventSource.instances.push(this);
+      }
+      close() {
+        this.closed = true;
+      }
+    }
+    vi.stubGlobal("EventSource", TestEventSource);
+    fetchMock.mockImplementation(
+      (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        const method = (init?.method ?? "GET").toUpperCase();
+        if (url.endsWith("/api/accounts") && method === "GET") {
+          return Promise.resolve(jsonResponse({ accounts: [accounts[0]] }));
+        }
+        if (url.endsWith("/api/accounts/acc-1/auth-status")) {
+          return Promise.resolve(jsonResponse({ providers: ["openai-codex"] }));
+        }
+        if (
+          url.includes("/api/providers/openai-codex/login") &&
+          method === "POST"
+        ) {
+          return Promise.resolve(jsonResponse({ sessionId: "session-del" }));
+        }
+        return Promise.resolve(jsonResponse({}));
+      },
+    );
+    render(
+      <ProviderAuthPanel providers={[providers[1]]} onChanged={() => {}} />,
+    );
+    const codex = await accountRegion("OpenAI Codex");
+    const deleteButton = await within(codex).findByRole("button", { name: "削除" });
+    expect((deleteButton as HTMLButtonElement).disabled).toBe(false);
+    fireEvent.click(
+      await within(codex).findByRole("button", { name: "再ログイン" }),
+    );
+    await waitFor(() => {
+      expect(
+        (within(codex).getByRole("button", { name: "削除" }) as HTMLButtonElement)
+          .disabled,
+      ).toBe(true);
+    });
+  });
+
   it("documents remote OAuth port-forward in the provider help", () => {
     mockAccountsApi();
     render(<ProviderAuthPanel providers={providers} onChanged={() => {}} />);
