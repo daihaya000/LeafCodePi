@@ -186,10 +186,13 @@ describe("PATCH /api/bots/[id]", () => {
 
   it("resets the whole conversation only for resetMessages, and re-reads the session for a SOUL edit", async () => {
     mocks.getBot.mockReturnValue(bot());
-    mocks.patchBot.mockReturnValue(bot());
+    mocks.patchBot.mockReturnValue({ ...bot(), codeSessionTaskId: "code-1" });
+    mocks.getTask.mockReturnValue({ id: "code-1", status: "working" });
 
     const reset = await PATCH(jsonRequest({ resetMessages: true }), params("one"));
     expect(reset.status).toBe(200);
+    expect(mocks.cancelBotCodeRequests).toHaveBeenCalledWith("one");
+    expect(mocks.stopBotCodeTask).toHaveBeenCalledWith("one", "code-1");
     expect(mocks.resetTaskConversation).toHaveBeenCalledWith("bot:one");
     expect(mocks.resetTaskSession).not.toHaveBeenCalled();
 

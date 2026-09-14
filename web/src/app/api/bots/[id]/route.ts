@@ -160,7 +160,29 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
         );
       }
     }
-    if (hasResetMessages) await resetTaskConversation(botTaskId(id));
+    if (hasResetMessages) {
+      // Mirror Room reset / Bot disable: stop Code outbox and linked session before wiping chat.
+      await cancelBotCodeRequests(id);
+      const linkedId = bot.codeSessionTaskId;
+      if (linkedId) {
+        const linked = getTask(linkedId);
+        if (linked && linked.status !== "archived") {
+          try {
+            await stopBotCodeTask(id, linkedId);
+          } catch {
+            try {
+              await abortTask(linkedId);
+            } catch (error) {
+              console.warn(
+                `[bots] failed to stop linked Code task ${linkedId} on reset:`,
+                error instanceof Error ? error.message : String(error),
+              );
+            }
+          }
+        }
+      }
+      await resetTaskConversation(botTaskId(id));
+    }
     // SOUL and the per-Bot skill allowlist both shape the system prompt. Do not dispose a working
     // session: mark all local Bot conversations and rebuild them at their next safe turn boundary.
     else if (body.soul !== undefined || hasSkills) requestBotSoulReload(id);

@@ -263,6 +263,14 @@
 ### 検証（Tick53）
 `code-session` / `bot-code-relay` — **90 passed**
 
+### Tick54（ループ継続）
+1. Bot `resetMessages` — `cancelBotCodeRequests` + linked `codeSessionTaskId` を stop/abort してから会話リセット（disable と対称）
+2. `listPendingAttention` — `listTasks(false)`（code のみ）ではなく pending id を `getTask` で解決（kind=bot の承認/質問が GlobalAttention に出る）
+3. queued follow-up — `goal_command_stale` でもクライアント側キューをクリア
+
+### 検証（Tick54）
+`bots/[id]` / `queued-follow-up` / `harness-bot-code` — **43 passed**
+
 ---
 
 ## 2026-09-14: Stale production rebuild / next build exit 1

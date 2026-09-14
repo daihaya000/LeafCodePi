@@ -106,7 +106,8 @@ export function shouldClearQueuedFollowUpOnEvent(eventType: string | undefined):
     eventType === "hang_idle" ||
     eventType === "hang_retry" ||
     eventType === "archived" ||
-    eventType === "conversation_reset"
+    eventType === "conversation_reset" ||
+    eventType === "goal_command_stale"
   );
 }
 

@@ -8934,15 +8934,15 @@ export function listPendingAttention(): AttentionItemDto[] {
   for (const id of permissionIds) candidateIds.add(id);
   for (const id of questionIds) candidateIds.add(id);
   if (candidateIds.size === 0) return items;
-  // 必要なのは id/title のみ。toSummary はライブタスクでメッセージ走査を伴うため、
-  // store の生レコードを直接使う（4 秒間隔ポーリングのコスト削減）。
-  for (const task of listTasks(false)) {
-    if (!candidateIds.has(task.id)) continue;
+  // Bot / Room tasks are kind=bot; listTasks(false) defaults to code-only and would drop them.
+  // Look up each pending id directly (title only — avoid toSummary on the poll path).
+  for (const taskId of candidateIds) {
+    const task = getTask(taskId);
+    if (!task || task.status === "archived") continue;
     const kinds: AttentionItemDto["kinds"] = [];
-    if (permissionIds.has(task.id)) kinds.push("permission");
-    if (questionIds.has(task.id)) kinds.push("question");
-    if (kinds.length > 0)
-      items.push({ taskId: task.id, title: task.title, kinds });
+    if (permissionIds.has(taskId)) kinds.push("permission");
+    if (questionIds.has(taskId)) kinds.push("question");
+    if (kinds.length > 0) items.push({ taskId, title: task.title, kinds });
   }
   return items;
 }
