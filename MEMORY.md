@@ -420,6 +420,15 @@
 ### 検証（Tick80）
 `get-task-detail-bounded` / `messages/route` / `ProviderAuthPanel` / `goal-loop/route` — **38 passed**
 
+### Tick81–83（ループ継続・[Hunt Tick81–83](fb85c6f1) 追随）
+1. `goalLoopCommand` start/resume — `prepareLiveForPrompt` 後に `isLiveBusyForReplace` を再チェック（二重 `session.prompt` 防止）
+2. `getTaskDetailBounded` — offline フォールバックにも 10s 上限、失敗時 503；Task/Bot SSE ready と remote_poll が共用
+3. Bot prompt Goal Loop start — `isTaskRuntimeBusyForDestructiveEdit` で 409
+4. `runRoutine` — 完了後の結果判定を `getTaskDetail(..., { offline: true })`
+
+### 検証（Tick81–83）
+`get-task-detail-bounded` / `accounts` / `routines` / Task+Bot SSE events — **76 passed**
+
 ---
 
 ## 2026-09-14: Stale production rebuild / next build exit 1

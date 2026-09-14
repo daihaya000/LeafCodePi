@@ -26,7 +26,7 @@ describe("getTaskDetailBounded", () => {
       id: "t1",
       messages: [],
     });
-    expect(mocks.getTaskDetail).toHaveBeenCalledWith("t1", {});
+    expect(mocks.getTaskDetail).toHaveBeenCalledWith("t1");
   });
 
   it("falls back to offline after timeout", async () => {
@@ -45,5 +45,21 @@ describe("getTaskDetailBounded", () => {
       offline: true,
     });
     expect(mocks.getTaskDetail).toHaveBeenLastCalledWith("t1", { offline: true });
+  });
+
+  it("rejects with 503 when offline fallback also times out", async () => {
+    mocks.getTaskDetail.mockImplementation(() => new Promise(() => {}));
+
+    const pending = getTaskDetailBounded("t1", {
+      timeoutMs: 1_000,
+      offlineTimeoutMs: 500,
+    });
+    const expectation = expect(pending).rejects.toMatchObject({
+      status: 503,
+      message: "タスク詳細を取得できませんでした",
+    });
+    await vi.advanceTimersByTimeAsync(1_000);
+    await vi.advanceTimersByTimeAsync(500);
+    await expectation;
   });
 });

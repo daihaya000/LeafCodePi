@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getBot, botTaskId } from "@/lib/bots";
 import { isPromptFileList, isPromptFileText, isPromptFileWithinSize, isPromptImageList, isPromptImageWithinSize, MAX_PROMPT_ATTACHMENTS, type PromptFileInput } from "@/lib/prompt-images";
-import { goalLoopCommand, jsonError, promptTask } from "@/lib/pi/harness";
+import { goalLoopCommand, isTaskRuntimeBusyForDestructiveEdit, jsonError, promptTask } from "@/lib/pi/harness";
 import { clampGoalLoopCooldownSeconds, clampGoalLoopMaxTurns, DEFAULT_GOAL_LOOP_MAX_TURNS } from "@/lib/goal-loop-settings";
 export const runtime = "nodejs"; export const dynamic = "force-dynamic";
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -19,6 +19,9 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       const validAcceptance = loop.acceptance === undefined || (Array.isArray(loop.acceptance) && loop.acceptance.every((item) => typeof item === "string"));
       const validNumber = (value: unknown) => value === undefined || typeof value === "number" || typeof value === "string";
       if (!validAcceptance || !validNumber(loop.maxTurns) || !validNumber(loop.cooldownSeconds) || (loop.forceFullRun !== undefined && typeof loop.forceFullRun !== "boolean")) return NextResponse.json({ error: "invalid goalLoop" }, { status: 400 });
+      if (isTaskRuntimeBusyForDestructiveEdit(botTaskId(id))) {
+        return NextResponse.json({ error: "タスクが実行中のため Goal Loop を開始できません" }, { status: 409 });
+      }
       const acceptance = loop.acceptance === undefined ? [] : loop.acceptance as string[];
       const result = await goalLoopCommand(botTaskId(id), {
         action: "start",

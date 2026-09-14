@@ -6146,6 +6146,17 @@ export async function goalLoopCommand(
       latest.session.sessionId,
     );
   }
+  // prepareLiveForPrompt may have awaited while a normal chat prompt started.
+  if (
+    (input.action === "start" || input.action === "resume") &&
+    isLiveBusyForReplace(latest) &&
+    !isActiveGoalLoopSession(latest.session)
+  ) {
+    rollbackStaleGoalPrepare(latest);
+    throw Object.assign(new Error("タスクが実行中のため Goal Loop を開始できません"), {
+      status: 409,
+    });
+  }
   await latest.session.prompt(command);
   return readGoalLoopState(
     latest.session.sessionManager.getCwd(),

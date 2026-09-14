@@ -148,7 +148,7 @@ export async function runRoutine(botId: string, routineId: string): Promise<Rout
         waitForCompletion: true,
         permissionMode: bot.permissionMode ?? undefined,
       });
-      const detail = await getTaskDetail(botTaskId(botId));
+      const detail = await getTaskDetail(botTaskId(botId), { offline: true });
       const latest = [...detail.messages].reverse().find((message) => message.role === "assistant");
       if (detail.status === "error" || detail.error || latest?.error) {
         throw new Error(detail.error || latest?.error || "Bot の実行に失敗しました");

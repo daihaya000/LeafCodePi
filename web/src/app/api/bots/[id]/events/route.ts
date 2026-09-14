@@ -8,6 +8,7 @@ import {
   pendingQuestionForTask,
   subscribeTask,
 } from "@/lib/pi/harness";
+import { getTaskDetailBounded } from "@/lib/pi/get-task-detail-bounded";
 import { createSseWriter } from "@/lib/sse-writer";
 import {
   bufferPendingSsePayload,
@@ -25,33 +26,7 @@ export const dynamic = "force-dynamic";
 const BOT_SSE_DETAIL_TIMEOUT_MS = 30_000;
 
 function getTaskDetailForBotReady(taskId: string): Promise<Awaited<ReturnType<typeof getTaskDetail>>> {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  return Promise.race([
-    getTaskDetail(taskId),
-    new Promise<never>((_, reject) => {
-      timer = setTimeout(() => {
-        reject(
-          Object.assign(new Error("タスク詳細の取得がタイムアウトしました"), {
-            status: 504,
-            timeout: true,
-          }),
-        );
-      }, BOT_SSE_DETAIL_TIMEOUT_MS);
-      timer.unref?.();
-    }),
-  ]).catch((error) => {
-    if (
-      typeof error === "object" &&
-      error !== null &&
-      "timeout" in error &&
-      (error as { timeout?: boolean }).timeout === true
-    ) {
-      return getTaskDetail(taskId, { offline: true });
-    }
-    throw error;
-  }).finally(() => {
-    if (timer !== undefined) clearTimeout(timer);
-  });
+  return getTaskDetailBounded(taskId, { timeoutMs: BOT_SSE_DETAIL_TIMEOUT_MS });
 }
 
 export async function GET(

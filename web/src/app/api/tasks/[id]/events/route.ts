@@ -7,6 +7,7 @@ import {
   pendingQuestionForTask,
   subscribeTask,
 } from "@/lib/pi/harness";
+import { getTaskDetailBounded } from "@/lib/pi/get-task-detail-bounded";
 import { getTask } from "@/lib/store";
 import { createSseWriter } from "@/lib/sse-writer";
 import {
@@ -29,38 +30,10 @@ async function getTaskDetailForReady(
   id: string,
   options?: Parameters<typeof getTaskDetail>[1],
 ): Promise<Awaited<ReturnType<typeof getTaskDetail>>> {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  try {
-    return await Promise.race([
-      options === undefined ? getTaskDetail(id) : getTaskDetail(id, options),
-      new Promise<never>((_, reject) => {
-        timer = setTimeout(() => {
-          reject(
-            Object.assign(new Error("タスク詳細の取得がタイムアウトしました"), {
-              status: 504,
-              timeout: true,
-            }),
-          );
-        }, TASK_SSE_DETAIL_TIMEOUT_MS);
-        timer.unref?.();
-      }),
-    ]);
-  } catch (error) {
-    if (
-      typeof error === "object" &&
-      error !== null &&
-      "timeout" in error &&
-      (error as { timeout?: boolean }).timeout === true
-    ) {
-      // Degraded ready: avoid leaving the client on bootstrap forever.
-      return options === undefined
-        ? getTaskDetail(id, { offline: true })
-        : getTaskDetail(id, { ...options, offline: true });
-    }
-    throw error;
-  } finally {
-    if (timer !== undefined) clearTimeout(timer);
-  }
+  return getTaskDetailBounded(id, {
+    ...options,
+    timeoutMs: TASK_SSE_DETAIL_TIMEOUT_MS,
+  });
 }
 
 export async function GET(
@@ -273,7 +246,10 @@ export async function GET(
                 stopRemotePoll();
                 return;
               }
-              const detail = await getTaskDetail(id, { offline: true });
+              const detail = await getTaskDetailBounded(id, {
+                offline: true,
+                timeoutMs: 10_000,
+              });
               if (writer.closed) return;
               const taskSummary = { ...detail };
               for (const key of [
