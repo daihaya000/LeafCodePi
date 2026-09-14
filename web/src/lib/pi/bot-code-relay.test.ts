@@ -25,7 +25,7 @@ vi.mock("@/lib/store", () => ({
   getProject: (id: string) => store.projects.find((project) => project.id === id),
   listProjects: () => store.projects.filter((project) => !project.archived),
 }));
-import { BOT_CODE_RESULT, BOT_CODE_TOOL, botCodeReportText, cancelBotCodeRequests, cancelRoomCodeRequests, createBotCodeRelay, hasBotCodeReport, isBotCodeOriginTask, listBotCodeRequests, MAX_AUTO_CODE_CHAIN, pendingRoomCodeRequestForRoom, pendingRoomCodeRequestForTurn, queueBotCodePrompt, roomCodeRequestsForTurn, roomForCodeOrigin, runUserBotCodeRequest, stopBotCodeRequest, stopBotCodeRequestForTask, type CodeRequest } from "./bot-code-relay";
+import { BOT_CODE_RESULT, BOT_CODE_TOOL, botCodeReportText, cancelBotCodeRequests, cancelRoomCodeRequests, createBotCodeRelay, hasBotCodeReport, isBotCodeOriginTask, isRoomDelegatedCodeTask, listBotCodeRequests, MAX_AUTO_CODE_CHAIN, pendingRoomCodeRequestForRoom, pendingRoomCodeRequestForTurn, queueBotCodePrompt, roomCodeRequestsForTurn, roomForCodeOrigin, runUserBotCodeRequest, stopBotCodeRequest, stopBotCodeRequestForTask, type CodeRequest } from "./bot-code-relay";
 
 type Dependencies = Parameters<typeof createBotCodeRelay>[0];
 let relay: ReturnType<typeof createBotCodeRelay>;
@@ -847,6 +847,8 @@ describe("Room ⇄ Code delegation", () => {
     expect(roomForCodeOrigin(store.tasks.get("bot:one:room:room-1"))?.id).toBe("room-1");
     expect(isBotCodeOriginTask(store.tasks.get("bot:one:room:room-1"))).toBe(true);
     expect(isBotCodeOriginTask({ id: "bot:one:room:missing", kind: "bot", botId: "one" })).toBe(false);
+    expect(isRoomDelegatedCodeTask("code")).toBe(true);
+    expect(isRoomDelegatedCodeTask("missing")).toBe(false);
   });
 
   it("continues the Room's own Code session rather than the Bot's 1:1 session", async () => {

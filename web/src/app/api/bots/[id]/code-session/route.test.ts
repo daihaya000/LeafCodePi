@@ -15,6 +15,11 @@ const mocks = vi.hoisted(() => ({
   promptTask: vi.fn(),
   reconcileOrphanedWorkingTasks: vi.fn(),
   withBotCodeSessionLock: vi.fn(async (_id: string, operation: () => Promise<unknown>) => operation()),
+  isRoomDelegatedCodeTask: vi.fn(() => false),
+  readGoalLoopState: vi.fn(() => null),
+  isGoalLoopLiveStatus: vi.fn((status: string | undefined) =>
+    status === "queued" || status === "running" || status === "verifying_completed",
+  ),
   jsonError: vi.fn((error: unknown) => ({
     error: error instanceof Error ? error.message : String(error),
     status: typeof error === "object" && error !== null && "status" in error ? Number(error.status) : 500,
@@ -25,6 +30,11 @@ vi.mock("@/lib/bots", () => ({ getBot: mocks.getBot, patchBot: mocks.patchBot })
 vi.mock("@/lib/task-runtime-lease", () => ({ reconcileOrphanedWorkingTasks: mocks.reconcileOrphanedWorkingTasks }));
 vi.mock("@/lib/bot-code-session-lock", () => ({ withBotCodeSessionLock: mocks.withBotCodeSessionLock }));
 vi.mock("@/lib/store", () => ({ getProject: mocks.getProject, getTask: mocks.getTask, listTasks: mocks.listTasks }));
+vi.mock("@/lib/pi/bot-code-relay", () => ({ isRoomDelegatedCodeTask: mocks.isRoomDelegatedCodeTask }));
+vi.mock("@/lib/pi/goal-loop-state", () => ({
+  readGoalLoopState: mocks.readGoalLoopState,
+  isGoalLoopLiveStatus: mocks.isGoalLoopLiveStatus,
+}));
 vi.mock("@/lib/pi/harness", () => ({
   createBotCodeTask: mocks.createBotCodeTask,
   continueBotCodeTask: mocks.continueBotCodeTask,
@@ -66,6 +76,11 @@ beforeEach(() => {
   mocks.createBotCodeTask.mockResolvedValue({ id: "code-1", status: "working" });
   mocks.stopBotCodeTask.mockResolvedValue({ id: "code-1", status: "idle" });
   mocks.promptTask.mockResolvedValue({ id: "code-1", status: "working" });
+  mocks.isRoomDelegatedCodeTask.mockReturnValue(false);
+  mocks.readGoalLoopState.mockReturnValue(null);
+  mocks.isGoalLoopLiveStatus.mockImplementation((status: string | undefined) =>
+    status === "queued" || status === "running" || status === "verifying_completed",
+  );
 });
 
 describe("Bot Code session control", () => {
@@ -343,6 +358,45 @@ describe("Bot Code session control", () => {
     expect(mocks.goalLoopCommand).not.toHaveBeenCalled();
     expect(mocks.continueBotCodeTask).not.toHaveBeenCalled();
     expect(mocks.stopBotCodeTask).not.toHaveBeenCalled();
+  });
+
+  it("does not let the Bot endpoint control Room-delegated Code tasks", async () => {
+    mocks.isRoomDelegatedCodeTask.mockReturnValue(true);
+    mocks.getTask.mockReturnValue({ id: "code-room", status: "working", botId: "bot-1", kind: "code" });
+
+    const abortResponse = await PATCH(request("PATCH", {
+      action: "abort",
+      taskId: "code-room",
+    }), { params: Promise.resolve({ id: "bot-1" }) });
+    const unlinkResponse = await PATCH(request("PATCH", {
+      action: "unlink",
+      taskId: "code-room",
+    }), { params: Promise.resolve({ id: "bot-1" }) });
+
+    expect(abortResponse.status).toBe(404);
+    expect(unlinkResponse.status).toBe(404);
+    expect(mocks.stopBotCodeTask).not.toHaveBeenCalled();
+  });
+
+  it("stops an idle Code task with a live Goal Loop on unlink", async () => {
+    mocks.getBot.mockReturnValue({ ...bot, codeSessionTaskId: "code-1" });
+    mocks.getTask.mockReturnValue({
+      id: "code-1",
+      status: "idle",
+      botId: "bot-1",
+      kind: "code",
+      directory: "/tmp",
+      sessionId: "sess",
+    });
+    mocks.readGoalLoopState.mockReturnValue({ status: "running" });
+
+    const response = await PATCH(request("PATCH", { action: "unlink" }), {
+      params: Promise.resolve({ id: "bot-1" }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(mocks.stopBotCodeTask).toHaveBeenCalledWith("bot-1", "code-1");
+    expect(mocks.patchBot).toHaveBeenCalledWith("bot-1", { codeSessionTaskId: null });
   });
 
   it("rejects Goal Loop control for another Bot's Code task", async () => {

@@ -258,6 +258,11 @@ export function roomForCodeOrigin(task: Pick<TaskSummary, "id" | "kind" | "botId
 export function isBotCodeOriginTask(task: Pick<TaskSummary, "id" | "kind" | "botId"> | undefined | null): boolean {
   return Boolean(task?.kind === "bot" && task.botId && (task.id === `bot:${task.botId}` || roomForCodeOrigin(task)));
 }
+/** True when this Code task was started for a Room conversation (not Bot 1:1 panel). */
+export function isRoomDelegatedCodeTask(taskId: string): boolean {
+  return requests().some((request) => request.codeTaskId === taskId && Boolean(request.room));
+}
+
 function owner(originTaskId: string) {
   const task = getTask(originTaskId);
   const bot = task?.kind === "bot" && task.botId ? getBot(task.botId) : undefined;

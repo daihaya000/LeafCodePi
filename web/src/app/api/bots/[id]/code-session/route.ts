@@ -4,6 +4,8 @@ import { getProject, getTask } from "@/lib/store";
 import { continueBotCodeTask, createBotCodeTask, getTaskSummariesWithTodoProgress, goalLoopCommand, jsonError, stopBotCodeTask } from "@/lib/pi/harness";
 import { isThinkingLevel } from "@/lib/thinking-levels";
 import { reconcileOrphanedWorkingTasks } from "@/lib/task-runtime-lease";
+import { isRoomDelegatedCodeTask } from "@/lib/pi/bot-code-relay";
+import { isGoalLoopLiveStatus, readGoalLoopState } from "@/lib/pi/goal-loop-state";
 import {
   clampGoalLoopCooldownSeconds,
   clampGoalLoopMaxTurns,
@@ -60,7 +62,10 @@ export async function GET(
   const bot = getBot(id);
   if (!bot) return NextResponse.json({ error: "Bot not found" }, { status: 404 });
   const tasks = (await getTaskSummariesWithTodoProgress(true)).filter(
-    (task) => task.botId === id && task.kind !== "bot",
+    (task) =>
+      task.botId === id &&
+      task.kind !== "bot" &&
+      !isRoomDelegatedCodeTask(task.id),
   );
   return NextResponse.json({ tasks });
 }
@@ -145,6 +150,18 @@ export async function POST(
   }
 }
 
+function isBotPanelCodeTask(
+  task: NonNullable<ReturnType<typeof getTask>>,
+  botId: string,
+): boolean {
+  return (
+    task.kind !== "bot" &&
+    task.botId === botId &&
+    task.status !== "archived" &&
+    !isRoomDelegatedCodeTask(task.id)
+  );
+}
+
 export async function PATCH(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
@@ -170,10 +187,12 @@ export async function PATCH(
           if (bot.codeSessionTaskId === taskId) patchBot(id, { codeSessionTaskId: null });
           return NextResponse.json({ task: null });
         }
-        if (linked.kind === "bot" || linked.botId !== id) {
+        if (!isBotPanelCodeTask(linked, id)) {
           return NextResponse.json({ error: "Code session not found" }, { status: 404 });
         }
-        if (linked.status === "working") {
+        const loop = readGoalLoopState(linked.directory, linked.sessionId);
+        // Goal Loop idles between turns; still stop so unlink does not leave the loop running.
+        if (linked.status === "working" || isGoalLoopLiveStatus(loop?.status)) {
           try {
             await stopBotCodeTask(id, taskId);
           } catch (error) {
@@ -189,9 +208,8 @@ export async function PATCH(
         return NextResponse.json({ task: null });
       }
       const task = getTask(taskId);
-      // Room workers are also stored as kind="bot" with the same botId. This endpoint is the
-      // Bot screen's 1:1 Code control surface and must never mutate a Room-owned task.
-      if (!task || task.kind === "bot" || task.botId !== id || task.status === "archived") {
+      // Room workers (kind=bot) and Room-delegated Code tasks are owned by the Room API.
+      if (!task || !isBotPanelCodeTask(task, id)) {
         if (bot.codeSessionTaskId === taskId) patchBot(id, { codeSessionTaskId: null });
         return NextResponse.json({ error: "Code session not found" }, { status: 404 });
       }

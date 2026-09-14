@@ -256,6 +256,13 @@
 ### 検証（Tick51–52）
 `code-session` / `harness-routing` / `bots/[id]` / `hang-watchdog` — **80 passed**（code-session 単独再実行 **20 passed**）
 
+### Tick53（ループ継続）
+1. code-session clear/unlink — Goal Loop live（task idle でも）なら `stopBotCodeTask`
+2. `isRoomDelegatedCodeTask` — Bot code-session API が Room 委譲 Code を abort/prompt/一覧しない
+
+### 検証（Tick53）
+`code-session` / `bot-code-relay` — **90 passed**
+
 ---
 
 ## 2026-09-14: Stale production rebuild / next build exit 1
