@@ -566,6 +566,7 @@ describe("Sidebar project ordering", () => {
 
   it("uses Bot terminology and creates from the header buttons", async () => {
     mocks.usePathname.mockReturnValue("/bots");
+    localStorage.setItem("leafcodepi.mode", "bot");
     mocks.getJson.mockImplementation((path: string) => {
       if (path === "/api/projects?archived=1") return Promise.resolve({ projects: [] });
       if (path === "/api/tasks?archived=1&kind=all") return Promise.resolve({ tasks: [] });
@@ -636,6 +637,7 @@ describe("Sidebar project ordering", () => {
       return Promise.reject(new Error(`Unexpected request: ${path}`));
     });
     mocks.usePathname.mockReturnValue("/bots/bot-1");
+    localStorage.setItem("leafcodepi.mode", "bot");
 
     const view = render(<Sidebar mobileOpen={false} onClose={vi.fn()} />);
     expect(await screen.findByText("Test")).toBeTruthy();
@@ -682,6 +684,7 @@ describe("Sidebar project ordering", () => {
       return Promise.reject(new Error(`Unexpected request: ${path}`));
     });
     mocks.usePathname.mockReturnValue("/bots/bot-1");
+    localStorage.setItem("leafcodepi.mode", "bot");
 
     render(<Sidebar mobileOpen={false} onClose={vi.fn()} />);
     expect(await screen.findByText("Test")).toBeTruthy();
