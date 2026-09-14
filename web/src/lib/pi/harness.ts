@@ -1008,6 +1008,38 @@ function toolCallIdFromEvent(event: { [key: string]: unknown }): string {
       : "";
 }
 
+function trackMessageEndEvent(
+  live: LiveRuntime,
+  event: { type: string; [key: string]: unknown },
+): void {
+  const message = event.message;
+  if (!message || typeof message !== "object") return;
+  const role = (message as { role?: unknown }).role;
+  if (role === "toolResult") {
+    const toolCallId = (message as { toolCallId?: unknown }).toolCallId;
+    if (typeof toolCallId === "string") {
+      live.toolPartialOutputByCallId.delete(toolCallId);
+    }
+    return;
+  }
+  if (role !== "assistant") return;
+
+  const startedAt =
+    typeof (message as { timestamp?: unknown }).timestamp === "number"
+      ? (message as { timestamp: number }).timestamp
+      : null;
+  if (startedAt === null) return;
+  let timing =
+    live.throughputByStartedAt.get(startedAt) ??
+    createThroughputTiming(startedAt);
+  timing = noteReportedOutputTokens(timing, assistantUsageOutput(message));
+  if (timing.lastTokenAtMs === null) {
+    timing = { ...timing, lastTokenAtMs: Date.now() };
+  }
+  live.throughputByStartedAt.set(startedAt, timing);
+  persistThroughputSample(live, timing);
+}
+
 export function trackThroughputEvent(
   live: LiveRuntime,
   event: { type: string; [key: string]: unknown },
@@ -1040,32 +1072,7 @@ export function trackThroughputEvent(
   }
 
   if (event.type === "message_end") {
-    const message = event.message;
-    if (!message || typeof message !== "object") return;
-    const role = (message as { role?: unknown }).role;
-    if (role === "toolResult") {
-      const toolCallId = (message as { toolCallId?: unknown }).toolCallId;
-      if (typeof toolCallId === "string") {
-        live.toolPartialOutputByCallId.delete(toolCallId);
-      }
-      return;
-    }
-    if (role !== "assistant") return;
-
-    const startedAt =
-      typeof (message as { timestamp?: unknown }).timestamp === "number"
-        ? (message as { timestamp: number }).timestamp
-        : null;
-    if (startedAt === null) return;
-    let timing =
-      live.throughputByStartedAt.get(startedAt) ??
-      createThroughputTiming(startedAt);
-    timing = noteReportedOutputTokens(timing, assistantUsageOutput(message));
-    if (timing.lastTokenAtMs === null) {
-      timing = { ...timing, lastTokenAtMs: Date.now() };
-    }
-    live.throughputByStartedAt.set(startedAt, timing);
-    persistThroughputSample(live, timing);
+    trackMessageEndEvent(live, event);
     return;
   }
 
