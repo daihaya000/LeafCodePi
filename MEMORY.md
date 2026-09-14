@@ -388,6 +388,12 @@
 ### 検証（Tick76）
 `goal-loop/route` / `sse-ready-buffer` — **passed**
 
+### Tick77（ループ継続）
+1. Auto ルート候補 — `accountId` を候補型・正規化・`resolveCandidate`・設定 UI に通し、同一 provider/model の複数アカウントを区別
+
+### 検証（Tick77）
+`auto-model` / `AutoRouteOverridesEditor` — **32 passed**
+
 ---
 
 ## 2026-09-14: Stale production rebuild / next build exit 1
