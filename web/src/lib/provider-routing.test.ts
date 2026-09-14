@@ -73,6 +73,14 @@ describe("routing candidate ranking", () => {
     assert.deepEqual(ranked.map((candidate) => candidate.accountId), ["low", "high"]);
   });
 
+  it("does not let active task count override a usage difference", () => {
+    const decision = chooseRoutingCandidate([
+      { accountId: "busy-low", accountIndex: 0, value: "busy-low", usage: usage(20), workingTaskCount: 3 },
+      { accountId: "idle-high", accountIndex: 1, value: "idle-high", usage: usage(80), workingTaskCount: 0 },
+    ]);
+    assert.equal(decision.candidate?.accountId, "busy-low");
+  });
+
   it("uses stale and unknown usage only after fresh usage", () => {
     const ranked = rankRoutingCandidates([
       { accountId: "unknown", accountIndex: 0, value: "unknown", usage: usage(null), workingTaskCount: 0 },
