@@ -73,7 +73,7 @@ Host 37 passed: `config` / `index` / `isolation` / `webui-auth`。`dataDir({})` 
 ### ブランチ / PR
 
 `cursor/linux-codexbar-paths-e138` / https://github.com/daihaya000/LeafCodePi/pull/9
-実装 SHA: 後続コミットに追記
+実装 SHA: `6fb12c98` / 監査記録: `69f8abd3`
 
 ---
 
