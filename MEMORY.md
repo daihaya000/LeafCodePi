@@ -34,6 +34,10 @@ master `028a3459`（PR #8/#9/#10 後）から `cursor/linux-parity-remaining-3e6
 ### 検証
 関連 vitest 11 files / **101 passed**（chromium-cookies, cookie-providers, paths, tts-backends/config/synthesize, TtsSettings, ProviderAuthPanel, oauth-loopback, leafcode-tts, app-paths）。Web 全体も 325 files / 2612 passed。
 
+### ブランチ / PR
+`cursor/linux-parity-remaining-3e61` / https://github.com/daihaya000/LeafCodePi/pull/11
+実装 SHA: `8a24abbb`
+
 ---
 
 ## 2026-09-14: Linux parity / cleanup（docs・Qwen TTS 削除・Explorer・sysmon）
