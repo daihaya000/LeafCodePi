@@ -5,6 +5,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { roamingConfigDir } from "@/lib/codexbar/app-paths";
 
 export type NetscapeCookie = {
   domain: string;
@@ -19,12 +20,10 @@ export type NetscapeCookie = {
 };
 
 export function codexBarConfigDir(): string {
-  const appData =
-    process.env.APPDATA || join(homedir(), "AppData", "Roaming");
-  return join(appData, "CodexBar");
+  return join(roamingConfigDir(), "CodexBar");
 }
 
-/** Candidate Netscape cookie paths under %APPDATA%\\CodexBar and legacy OneDrive layouts. */
+/** Candidate Netscape cookie paths under CodexBar config dir and legacy OneDrive layouts. */
 export function netscapeCookieCandidates(fileName: string): string[] {
   const home = homedir();
   const appData = codexBarConfigDir();

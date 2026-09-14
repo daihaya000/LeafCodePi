@@ -1,5 +1,68 @@
 ﻿# MEMORY
 
+## 2026-09-14: Linux CodexBar / マルチアカウント / プロバイダ認証監査
+
+master `08827d93`（PR #8 merge 後）を Ubuntu 上で調査。実ユーザートークンは使わず、偽 OAuth も作っていない。
+
+### Verdict
+
+| 領域 | 判定 | 理由 |
+| --- | --- | --- |
+| CodexBar | **PARTIAL** | 利用量 API・アカウントスコープ・Pi auth 読みは Linux で動く。既定スコープの Cursor IDE トークンと CodexBar 設定/cookie ディレクトリが `%APPDATA%` / `~/AppData/Roaming` 前提だった |
+| Multi-account | **OK** | `~/.pi/agent/accounts/<id>/auth.json`、Home composer の account picker、task `accountId` 束縛は OS 中立。欠落 auth.json は空扱い |
+| Provider auth | **PARTIAL** | Anthropic / Codex / API key / アカウント OAuth の保存先は Linux 正しい。OAuth コールバックはホスト loopback（`127.0.0.1:53692` / `localhost:1455`）。同一マシンのブラウザなら可。リモート/ヘッドレスはポートフォワードか API キーが必要。Chromium cookie 自動抽出は Windows のみ |
+
+### 今回直した Linux バグ（外科的）
+
+CodexBarWin 移植ヘルパーが `APPDATA` 未設定時に `~/AppData/Roaming` を作っていた。
+
+- `web/src/lib/codexbar/app-paths.ts` — `roamingConfigDir()`。`APPDATA` 明示時は従来どおり（既存テスト互換）。未設定なら Linux=`$XDG_CONFIG_HOME` or `~/.config`、macOS=Application Support、Windows=Roaming
+- `netscape-cookies.ts` `codexBarConfigDir()`、`cursor.ts` IDE パス、`browser-cookies.ts` の重複 APPDATA 解決をこのヘルパーへ集約
+
+本番 Linux（APPDATA 無し）:
+
+- CodexBar config / Ollama・OpenCode Netscape cookie → `~/.config/CodexBar/`
+- Cursor IDE `auth.json` / `state.vscdb` → `~/.config/Cursor/...`（Electron の実パス）
+
+### 残課題（今回は触らない）
+
+- Chromium cookie 自動抽出（Qwen / OpenCode Go）は `process.platform !== "win32"` で即 null。Linux は Netscape 貼り付けか API キー
+- `LoginForm.tsx` が `%APPDATA%\leafcode-pi\webui-auth.json` 固定。実体は `~/.leafcode-pi/webui-auth.json`
+- README マルチアカウント節が `%USERPROFILE%\.pi\agent\accounts\` 表記（本文 48 行は Linux の `~/.pi/agent/auth.json` を正しく記載）
+- リモート WebUI + 手元ブラウザの OAuth は、IdP がホスト loopback に戻すため失敗する（設計）。SSH `-L 53692 -L 1455` か device_code / API キー
+- `noProjectRoot()` は `~/Documents/LeafCodePi`（クラッシュしない）
+
+### 問題ないもの
+
+- `dataDir()`（web/host）は Linux で `~/.leafcode-pi`。APPDATA は見ない
+- Pi 既定 auth / アカウント auth、`~/.claude/.credentials.json`、`~/.codex/auth.json`
+- 欠落 `auth.json` / `config.json` は null / `{}`（例外にしない）
+- Host の WebUI 起動は Linux で `xdg-open`。トレイは Linux 既定オフ
+- CodexBar `/api/codexbar/usage` はプロバイダ失敗でも 200 + empty（アカウント scope 不正のみ 4xx）
+
+### OAuth とヘッドレス
+
+GUI ブラウザは **WebUI を見ているクライアント**で `window.open`。コールバックサーバは **WebUI プロセスの loopback**。
+
+| 構成 | 結果 |
+| --- | --- |
+| Linux デスクトップ、同じマシンのブラウザ | 可 |
+| Tailscale IP だがブラウザがホスト上（localhost-redirect） | だいたい可 |
+| SSH サーバ上の WebUI + 手元ブラウザ | 不可（callback が手元 localhost に着く） |
+| ディスプレイ無しサーバ | URL コピー + ポートフォワード、または API キー |
+
+偽アカウントでの実 OAuth 完了はしていない。
+
+### テスト（Linux）
+
+関連 vitest を実行。件数は後続コミットに追記。
+
+### ブランチ / PR
+
+`cursor/linux-codexbar-paths-e138`
+
+---
+
 ## 2026-09-14: Linux テスト隔離と provider-limit fallback 修正
 
 master `c8fe752` の Ubuntu 検証で落ちていた host 3 + web 8 を修正。
