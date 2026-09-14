@@ -1,5 +1,32 @@
 # MEMORY
 
+## 2026-09-14: Bot→Code ユーザー画像添付
+
+### 問題
+Bot会話にユーザーが付けた画像は Bot セッション / Room ディスクには届いていたが、`code_session` の start/prompt はテキストだけを Code に渡しており、Code は通常のユーザー添付と同じ画像を見ていなかった。
+
+### 方針（bot-code-images.ts と同期）
+1. Bot が `code_session.images` に 1-based index を渡したらその一覧だけを添付。`[]` は添付なし。
+2. 省略時のデフォルト: **直近ユーザーメッセージの画像だけ**（最大8件）。会話全体は捨てない。
+3. Goal Loop 開始は既存どおり添付不可。省略時は付けない（既存ループを壊さない）。明示指定 + goalLoop はエラー。
+4. カタログ範囲: 1:1 = 現在ブランチのユーザー画像。Room = **今のユーザー依頼だけ**（新しいユーザー発言は別会話）。
+
+### 実装
+- `code_session` に `images` 引数。`projects` / `status` / 受付結果に `availableImages`（バイトは載せない）
+- 解決した `{ mimeType, data }` を `CodeRequest.promptOptions.images` に保存し、`createTask` / `promptTask` へ通常のユーザー添付と同じ経路で渡す
+- テキストのみ・lease / archived project / G5 承認はそのまま
+
+### 検証
+- bot-code-images 9 / bot-code-relay 62 / bots 21 / room-conversation 55 = 147 PASS
+- 回帰: harness-bot-code 6 / harness-routing 23 / code-session route 15 / bot-code-session-lock 3 / room-runtime 42 / harness-prompt 32 = 121 PASS
+- `npm --prefix web run typecheck` OK
+
+### ブランチ / PR
+`cursor/bot-code-image-attach-94ae` / https://github.com/daihaya000/LeafCodePi/pull/4
+実装 SHA: `5f41c7e5` / 検証追記+型修正: `4446a675`
+
+---
+
 ## 2026-09-14: Bot Intercom Bridge Phase A
 
 ### 実装

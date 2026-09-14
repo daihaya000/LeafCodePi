@@ -633,7 +633,99 @@ describe("Bot ⇄ Code relay", () => {
     relay.register("bot:one")({ registerTool: (tool: never) => tools.push(tool) } as never);
     expect(tools[0].name).toBe("code_session");
     const result = await tools[0].execute("list", { action: "projects" }, undefined, undefined, { sessionManager: { getSessionId: () => "session" } });
-    expect(result).toMatchObject({ details: { projects: [{ id: null, name: "プロジェクトなし" }, { id: "project", name: "Project" }] } });
+    expect(result).toMatchObject({ details: { projects: [{ id: null, name: "プロジェクトなし" }, { id: "project", name: "Project" }], availableImages: [] } });
+  });
+});
+
+describe("Bot ⇄ Code image attachments", () => {
+  const catalog = [
+    { mimeType: "image/png", data: "old-shot", latestUser: false },
+    { mimeType: "image/jpeg", data: "latest-shot", latestUser: true },
+  ];
+
+  beforeEach(() => {
+    deps.conversationImages = vi.fn(async () => catalog);
+  });
+
+  it("forwards latest-user images by default on start and prompt", async () => {
+    const started = await launch();
+    expect(started).toMatchObject({ attachedImages: [2], availableImages: [{ index: 1, mimeType: "image/png", latestUser: false }, { index: 2, mimeType: "image/jpeg", latestUser: true }] });
+    expect(deps.create).toHaveBeenCalledWith(expect.objectContaining({
+      images: [{ mimeType: "image/jpeg", data: "latest-shot" }],
+    }));
+    expect(record().promptOptions).toEqual({ images: [{ mimeType: "image/jpeg", data: "latest-shot" }] });
+
+    store.tasks.get("code")!.status = "idle";
+    await relay.run("bot:one", "follow-img", { action: "prompt", prompt: "Use the screenshot" }, "session");
+    expect(deps.prompt).toHaveBeenCalledWith("code", "Use the screenshot", expect.any(String), {
+      images: [{ mimeType: "image/jpeg", data: "latest-shot" }],
+    });
+  });
+
+  it("honors explicit indexes and treats [] as no attachments", async () => {
+    await relay.run("bot:one", "pick-old", { action: "start", projectId: "project", prompt: "Fix from the first shot", images: [1] }, "session");
+    expect(deps.create).toHaveBeenCalledWith(expect.objectContaining({
+      images: [{ mimeType: "image/png", data: "old-shot" }],
+    }));
+    expect(deps.approve).toHaveBeenCalledWith("session", expect.stringContaining("添付画像: 1件"));
+
+    await relay.run("bot:one", "none", { action: "start", projectId: "project", prompt: "Text only work", images: [] }, "session");
+    expect(deps.create).toHaveBeenLastCalledWith(expect.not.objectContaining({ images: expect.anything() }));
+    expect(records().at(-1)?.promptOptions).toBeUndefined();
+  });
+
+  it("does not attach default images to a goal-loop start, and keeps text-only launches image-free when there are none", async () => {
+    const goalLoop = { acceptance: ["done"], maxTurns: 2, cooldownSeconds: 0, forceFullRun: false };
+    await relay.run("bot:one", "loop-no-img", { action: "start", projectId: "project", prompt: "目標を達成して", goalLoop }, "session");
+    expect(deps.create).toHaveBeenCalledWith(expect.objectContaining({ goalLoop }));
+    expect(deps.create).toHaveBeenCalledWith(expect.not.objectContaining({ images: expect.anything() }));
+
+    deps.conversationImages = vi.fn(async () => []);
+    await relay.run("bot:one", "plain", { action: "start", projectId: "project", prompt: "Fix the parser; run its test" }, "session");
+    expect(deps.create).toHaveBeenLastCalledWith(expect.not.objectContaining({ images: expect.anything() }));
+  });
+
+  it("rejects an unknown index and an explicit attach on a goal loop", async () => {
+    await expect(relay.run("bot:one", "bad-idx", { action: "start", projectId: "project", prompt: "see this", images: [9] }, "session")).rejects.toThrow("Unknown image index 9");
+    await expect(relay.run("bot:one", "loop-img", {
+      action: "start",
+      projectId: "project",
+      prompt: "目標を達成して",
+      goalLoop: { acceptance: ["done"], maxTurns: 1, cooldownSeconds: 0, forceFullRun: false },
+      images: [2],
+    }, "session")).rejects.toThrow("Goal loop");
+    expect(deps.create).not.toHaveBeenCalled();
+  });
+
+  it("lists availableImages on projects/status without launching Code", async () => {
+    await expect(relay.run("bot:one", "list", { action: "projects" }, "session")).resolves.toMatchObject({
+      availableImages: [
+        { index: 1, mimeType: "image/png", latestUser: false },
+        { index: 2, mimeType: "image/jpeg", latestUser: true },
+      ],
+    });
+    await launch();
+    await expect(relay.run("bot:one", "st", { action: "status" }, "session")).resolves.toMatchObject({
+      task: { id: "code" },
+      availableImages: [
+        { index: 1, mimeType: "image/png", latestUser: false },
+        { index: 2, mimeType: "image/jpeg", latestUser: true },
+      ],
+    });
+  });
+
+  it("forwards Room conversation images on start without touching the 1:1 session pointer", async () => {
+    roomSetup();
+    const result = await roomLaunch();
+    expect(result).toMatchObject({ attachedImages: [2], taskId: "code", state: "running" });
+    expect(deps.create).toHaveBeenCalledWith(expect.objectContaining({
+      images: [{ mimeType: "image/jpeg", data: "latest-shot" }],
+    }));
+    expect(store.bots.get("one")?.codeSessionTaskId).toBeNull();
+    expect(record()).toMatchObject({
+      originTaskId: "bot:one:room:room-1",
+      promptOptions: { images: [{ mimeType: "image/jpeg", data: "latest-shot" }] },
+    });
   });
 });
 

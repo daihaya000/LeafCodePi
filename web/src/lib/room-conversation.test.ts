@@ -225,6 +225,7 @@ describe("shared room context", () => {
     const prompt = roomBotPrompt(current, bots[1], bots, user.text, user.id, { participants: bots, turn: 2, maxTurns: 6 });
     expect(transcriptOf(prompt).at(-1)).toMatchObject({ code: { requestId: "request", taskId: "code", state: "running" } });
     expect(prompt).toContain("code_session");
+    expect(prompt).toContain("availableImages");
     expect(prompt).toContain("A promise to work is not execution");
   });
   it("includes every parallel Code receipt for precise follow-ups and handoffs", () => {

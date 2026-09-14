@@ -34,6 +34,8 @@ describe("bot runtime context", () => {
     expect(context).toContain("unless the user or established conversation identifies another project");
     expect(context).toContain("Bot workspace is not the application's source repository");
     expect(context).toContain("code_session projects");
+    expect(context).toContain("code_session images");
+    expect(context).toContain("availableImages");
     expect(context).toContain("do not ask the user to pick a project when the target is clear");
     expect(context).toContain("Never invent a projectId or silently substitute a projectless workspace");
     expect(context).toContain("Unless the user explicitly requests a demonstration");
