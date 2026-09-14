@@ -355,6 +355,13 @@
 ### 検証（Tick70）
 `bot-code-relay` / `tasks/route` / `bot-intercom` — **118 passed**
 
+### Tick71–72（ループ継続・通知スタック消化）
+1. Bot intercom resident — Room live（`bot:<id>:room:*`）も resident に含め、Room 専用稼働を offline 扱いしない
+2. POST `/api/tasks` — 非 auto + `accountId` 時は `createTask` にも `accountIdExplicit: true` を明示
+
+### 検証（Tick71–72）
+`tasks/route` / `bot-intercom` — **49 passed**
+
 ---
 
 ## 2026-09-14: Stale production rebuild / next build exit 1
