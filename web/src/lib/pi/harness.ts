@@ -1785,6 +1785,29 @@ function finishSettledTurn(
   }
 }
 
+function restoredThroughputState(
+  existing: LiveRuntime | undefined,
+  loaded: ReturnType<typeof loadThroughputFromSession> | null,
+  loadedToolTiming: ReturnType<typeof loadToolTimingFromSession> | null,
+): Pick<
+  LiveRuntime,
+  | "throughputByStartedAt"
+  | "persistedThroughputKeys"
+  | "toolStartedAt"
+  | "toolEndedAt"
+> {
+  return {
+    throughputByStartedAt:
+      existing?.throughputByStartedAt ?? loaded?.timings ?? new Map(),
+    persistedThroughputKeys:
+      existing?.persistedThroughputKeys ?? loaded?.persistedKeys ?? new Set(),
+    toolStartedAt:
+      existing?.toolStartedAt ?? loadedToolTiming?.startedAt ?? new Map(),
+    toolEndedAt:
+      existing?.toolEndedAt ?? loadedToolTiming?.endedAt ?? new Map(),
+  };
+}
+
 /** Carry per-task state across a session replacement, or load it from the session file. */
 function buildLiveRuntime(input: {
   taskId: string;
@@ -1820,12 +1843,7 @@ function buildLiveRuntime(input: {
     promptActive: existing?.promptActive ?? false,
     pendingSettings: existing?.pendingSettings,
     promptEpoch: existing?.promptEpoch ?? 0,
-    throughputByStartedAt:
-      existing?.throughputByStartedAt ?? loaded?.timings ?? new Map(),
-    persistedThroughputKeys:
-      existing?.persistedThroughputKeys ?? loaded?.persistedKeys ?? new Set(),
-    toolStartedAt: existing?.toolStartedAt ?? loadedToolTiming?.startedAt ?? new Map(),
-    toolEndedAt: existing?.toolEndedAt ?? loadedToolTiming?.endedAt ?? new Map(),
+    ...restoredThroughputState(existing, loaded, loadedToolTiming),
     toolPartialOutputByCallId: existing?.toolPartialOutputByCallId ?? new Map(),
     snapshotTimer: null,
     pendingSnapshotEventType: null,
