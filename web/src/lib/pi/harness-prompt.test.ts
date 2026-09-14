@@ -13,6 +13,8 @@ import {
   nextPromptEpoch,
   reasoningFallbackLevel,
   resolveStreamingBehaviorForPrompt,
+  pendingSettingsForPrompt,
+  softPendingLiveSettings,
   shouldBypassPromptChain,
   shouldWaitForSteerStream,
   syncSessionName,
@@ -230,6 +232,38 @@ describe("buildPromptOptions", () => {
     assert.equal(resolveStreamingBehaviorForPrompt("steer", false), undefined);
     assert.equal(resolveStreamingBehaviorForPrompt("steer", true), "steer");
     assert.equal(resolveStreamingBehaviorForPrompt(undefined, true), undefined);
+  });
+
+  it("applies full deferred settings after followUp demotes to a normal turn", () => {
+    const live = {
+      taskId: "t1",
+      pendingSettings: {
+        botTools: ["read"] as const,
+        permissionMode: "ask" as const,
+        thinkingLevel: "high" as const,
+      },
+    };
+    // Resolved behavior is undefined once the stream ended — pass that, not meta.followUp.
+    const pending = pendingSettingsForPrompt(undefined, true, live as never, undefined);
+    assert.deepEqual(pending?.botTools, ["read"]);
+    assert.equal(pending?.permissionMode, "ask");
+    assert.equal(pending?.thinkingLevel, "high");
+  });
+
+  it("keeps only soft settings for mid-stream steer/followUp inject", () => {
+    const full = {
+      botTools: ["read"] as const,
+      permissionMode: "deny" as const,
+      thinkingLevel: "high" as const,
+      agentName: "reviewer",
+    };
+    assert.deepEqual(softPendingLiveSettings(full), {
+      botTools: ["read"],
+      permissionMode: "deny",
+    });
+    const live = { taskId: "t1", pendingSettings: full };
+    const pending = pendingSettingsForPrompt("steer", true, live as never, undefined);
+    assert.deepEqual(pending, { botTools: ["read"], permissionMode: "deny" });
   });
 
   it("waits for the session stream before injecting steer", async () => {

@@ -7,7 +7,7 @@ import { isAvatarColor, isAvatarEyeColor, isAvatarImage, isAvatarShape } from "@
 import { isAbsolutePath } from "@/lib/paths";
 import { listTasks } from "@/lib/store";
 import { listRooms, patchRoom } from "@/lib/rooms";
-import { cancelAllCodeRequestsForBot } from "@/lib/pi/bot-code-relay";
+import { cancelAllCodeRequestsForBot, cancelBotCodeRequests } from "@/lib/pi/bot-code-relay";
 import { detachBotFromRoomRuntime } from "@/lib/room-runtime";
 import type { BotSkillsConfig } from "@/lib/types";
 
@@ -128,6 +128,8 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       for (const room of listRooms().filter((entry) => entry.members.includes(id))) {
         await detachBotFromRoomRuntime(room.id, id);
       }
+      // 1:1 Code jobs are outside Room detach — cancel+abort them too.
+      await cancelBotCodeRequests(id);
     }
     if (hasResetMessages) await resetTaskConversation(botTaskId(id));
     // SOUL and the per-Bot skill allowlist both shape the system prompt. Do not dispose a working

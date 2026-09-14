@@ -318,7 +318,7 @@ const NON_RENDERING_SESSION_EVENTS = new Set([
   "entry_appended",
 ]);
 
-type PendingLiveSettings = {
+export type PendingLiveSettings = {
   model?: {
     route: ConcreteModelRoute;
     accountIdExplicit: boolean;
@@ -5935,7 +5935,7 @@ export async function goalLoopCommand(
       }
     | { action: "pause" | "resume" | "stop" | "complete"; maxTurns?: number },
 ): Promise<GoalLoopDto | null> {
-  const live = await ensureLive(taskId);
+  let live = await ensureLive(taskId);
   if (input.action === "start") {
     ensureSessionFilePersisted(live.session.sessionManager);
   }
@@ -5972,6 +5972,15 @@ export async function goalLoopCommand(
   // Goal Loop does not go through queuePrompt, so a leftover chat hang watch
   // would keep the old prompt and resume it mid-loop (aborting Goal as "user").
   disarmTaskHangWatch(taskId);
+  // Apply deferred model/tools/permission before the first Goal turn (queuePrompt path
+  // already does this via prepareLiveForPrompt).
+  if (input.action === "start" || input.action === "resume") {
+    live = await prepareLiveForPrompt(
+      live,
+      true,
+      copyPendingLiveSettings((state().live.get(live.taskId) ?? live).pendingSettings),
+    );
+  }
   await live.session.prompt(command);
   return readGoalLoopState(
     live.session.sessionManager.getCwd(),
@@ -6738,7 +6747,27 @@ async function applyPendingLiveSettings(
   requested: PendingLiveSettings,
 ): Promise<LiveRuntime> {
   let current = state().live.get(live.taskId) ?? live;
-  if (current.session.isStreaming || current.session.isCompacting) return current;
+  const applySoftSettings = (): PendingLiveSettings => {
+    const applied: PendingLiveSettings = {};
+    if (requested.permissionMode !== undefined) {
+      applyPermissionMode(current.session, requested.permissionMode);
+      applied.permissionMode = requested.permissionMode;
+    }
+    if (requested.subagentPermission !== undefined) {
+      applySubagentPermission(current.session, requested.subagentPermission);
+      applied.subagentPermission = requested.subagentPermission;
+    }
+    if (requested.botTools !== undefined) {
+      applyBotTools(current.session, requested.botTools);
+      applied.botTools = requested.botTools;
+    }
+    return applied;
+  };
+  // Mid-stream / compact: apply allowlist + permission without session replace.
+  if (current.session.isStreaming || current.session.isCompacting) {
+    clearAppliedPendingLiveSettings(current, applySoftSettings());
+    return current;
+  }
   const task = getTask(current.taskId);
   if (!task) throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });
 
@@ -7005,20 +7034,39 @@ export async function waitForSessionStreaming(
 
 const TASK_LEASE_BUSY_ERROR = "タスクは別のワーカーで実行中です";
 
-function pendingSettingsForPrompt(
+/** Settings safe to apply without disposing/recreating the live session. */
+export function softPendingLiveSettings(
+  pending: PendingLiveSettings | undefined,
+): PendingLiveSettings | undefined {
+  if (!pending) return undefined;
+  const soft: PendingLiveSettings = {
+    ...(pending.permissionMode !== undefined
+      ? { permissionMode: pending.permissionMode }
+      : {}),
+    ...(pending.subagentPermission !== undefined
+      ? { subagentPermission: pending.subagentPermission }
+      : {}),
+    ...(pending.botTools !== undefined ? { botTools: pending.botTools } : {}),
+  };
+  return Object.keys(soft).length > 0 ? soft : undefined;
+}
+
+export function pendingSettingsForPrompt(
   streamingBehavior: "steer" | "followUp" | undefined,
   _hadActivePrompt: boolean,
   live: LiveRuntime,
   pendingSettingsAtQueue: PendingLiveSettings | undefined,
 ): PendingLiveSettings | undefined {
-  if (streamingBehavior) return undefined;
   // Prefer settings at run time so model/thinking changes made after queue but
   // before the turn starts are not dropped for one turn.
-  return (
+  const full =
     copyPendingLiveSettings(
       (state().live.get(live.taskId) ?? live).pendingSettings,
-    ) ?? pendingSettingsAtQueue
-  );
+    ) ?? pendingSettingsAtQueue;
+  // Pass the *resolved* streaming behavior: a followUp that runs after the stream
+  // ends must apply deferred settings. Mid-stream inject only gets soft settings.
+  if (streamingBehavior) return softPendingLiveSettings(full);
+  return full;
 }
 
 function requireTaskLease(taskId: string): void {
@@ -7228,7 +7276,7 @@ function queuePrompt(
       currentLive.session.isStreaming,
     );
     const pendingSettings = pendingSettingsForPrompt(
-      meta?.streamingBehavior,
+      streamingBehavior,
       hadActivePrompt,
       live,
       pendingSettingsAtQueue,

@@ -19,6 +19,7 @@ const mocks = vi.hoisted(() => ({
   patchRoom: vi.fn(),
   detachBotFromRoomRuntime: vi.fn(async () => undefined),
   cancelAllCodeRequestsForBot: vi.fn(async () => 0),
+  cancelBotCodeRequests: vi.fn(async () => 0),
 }));
 vi.mock("@/lib/bots", () => ({
   getBot: mocks.getBot,
@@ -41,7 +42,10 @@ vi.mock("@/lib/pi/harness", () => ({
 vi.mock("@/lib/store", () => ({ listTasks: mocks.listTasks }));
 vi.mock("@/lib/rooms", () => ({ listRooms: mocks.listRooms, patchRoom: mocks.patchRoom }));
 vi.mock("@/lib/room-runtime", () => ({ detachBotFromRoomRuntime: mocks.detachBotFromRoomRuntime }));
-vi.mock("@/lib/pi/bot-code-relay", () => ({ cancelAllCodeRequestsForBot: mocks.cancelAllCodeRequestsForBot }));
+vi.mock("@/lib/pi/bot-code-relay", () => ({
+  cancelAllCodeRequestsForBot: mocks.cancelAllCodeRequestsForBot,
+  cancelBotCodeRequests: mocks.cancelBotCodeRequests,
+}));
 
 import { NextRequest } from "next/server";
 import { beforeEach } from "vitest";
@@ -253,6 +257,7 @@ describe("PATCH /api/bots/[id]", () => {
     expect(response.status).toBe(200);
     expect(mocks.detachBotFromRoomRuntime).toHaveBeenCalledWith("room-a", "one");
     expect(mocks.detachBotFromRoomRuntime).not.toHaveBeenCalledWith("room-b", "one");
+    expect(mocks.cancelBotCodeRequests).toHaveBeenCalledWith("one");
     expect(mocks.patchRoom).not.toHaveBeenCalled();
   });
 });

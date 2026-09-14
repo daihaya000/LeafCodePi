@@ -214,6 +214,15 @@
 ### 検証（Tick42–43）
 `bots/[id]` / `harness-agent` — **44 passed**
 
+### Tick44–45（ループ継続）
+1. `pendingSettingsForPrompt` — resolved streamingBehavior を使い、終了後 followUp で deferred settings を適用
+2. mid-stream — soft settings（botTools / permission / subagent）のみ即時適用
+3. `goalLoopCommand` start/resume — `prepareLiveForPrompt` で deferred を先適用
+4. Bot `enabled:false` — Room detach に加え `cancelBotCodeRequests` で 1:1 Code も停止
+
+### 検証（Tick44–45）
+`bots/[id]` / `harness-prompt` / `harness-agent` — **79 passed**
+
 ---
 
 ## 2026-09-14: Stale production rebuild / next build exit 1
