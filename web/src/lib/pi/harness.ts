@@ -6567,13 +6567,10 @@ export function isTaskRuntimeOwnedElsewhere(task: TaskSummary): boolean {
   return shouldForwardBotCodePrompt(task);
 }
 
-function promptOptionsForWorker(
-  images: PromptImage[] | undefined,
+function promptSelectionOptionsForWorker(
   options: Parameters<typeof promptTask>[3] | undefined,
 ): CodePromptOptions {
   return {
-    ...(images?.length ? { images } : {}),
-    ...(options?.files?.length ? { files: options.files } : {}),
     ...(options?.agent !== undefined ? { agent: options.agent } : {}),
     ...(options?.model !== undefined ? { model: options.model } : {}),
     ...(options?.thinkingLevel !== undefined ? { thinkingLevel: options.thinkingLevel } : {}),
@@ -6583,6 +6580,17 @@ function promptOptionsForWorker(
     ...(options?.streamingBehavior !== undefined ? { streamingBehavior: options.streamingBehavior } : {}),
     ...(options?.accountIdExplicit !== undefined ? { accountIdExplicit: options.accountIdExplicit } : {}),
     ...(options?.resume !== undefined ? { resume: options.resume } : {}),
+  };
+}
+
+function promptOptionsForWorker(
+  images: PromptImage[] | undefined,
+  options: Parameters<typeof promptTask>[3] | undefined,
+): CodePromptOptions {
+  return {
+    ...(images?.length ? { images } : {}),
+    ...(options?.files?.length ? { files: options.files } : {}),
+    ...promptSelectionOptionsForWorker(options),
   };
 }
 
