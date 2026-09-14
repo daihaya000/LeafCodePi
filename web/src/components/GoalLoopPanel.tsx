@@ -201,6 +201,16 @@ export function GoalLoopPanel({
       </div>
       <div id={detailsId} hidden={!expanded} className="mt-2 space-y-1 border-t border-border pt-2 text-xs text-muted">
         <p className="whitespace-pre-wrap [overflow-wrap:anywhere]">{loop.goal}</p>
+        {loop.acceptance?.length ? (
+          <div>
+            <p className="font-medium">承認条件</p>
+            <ul className="mt-1 list-disc space-y-0.5 pl-5">
+              {loop.acceptance.map((item, index) => (
+                <li key={index} className="[overflow-wrap:anywhere]">{item}</li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
         {loop.forceFullRun && <p>完走モード</p>}
         {loop.cooldownSeconds > 0 && (
           <p>クールタイム: {formatGoalLoopCooldownSeconds(loop.cooldownSeconds)}</p>

@@ -109,6 +109,22 @@ describe("GoalLoopPanel progress", () => {
     expect(details.hidden).toBe(true);
   });
 
+  it("shows configured acceptance criteria in the expanded details", () => {
+    render(
+      <GoalLoopPanel
+        loop={loopFixture({ acceptance: ["テストが通ること", "検証結果を確認する"] })}
+        busy={false}
+        onAction={() => {}}
+        onResume={() => {}}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "ループの詳細" }));
+    expect(screen.getByText("承認条件")).toBeTruthy();
+    expect(screen.getByText("テストが通ること")).toBeTruthy();
+    expect(screen.getByText("検証結果を確認する")).toBeTruthy();
+  });
+
   it("keeps named pause and stop controls usable when collapsed and disabled while busy", () => {
     const onAction = vi.fn();
     const props = { loop: loopFixture(), onAction, onResume: () => {} };
