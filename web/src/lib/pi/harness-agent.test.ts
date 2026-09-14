@@ -4,14 +4,16 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, it } from "vitest";
-import { getProject, getTask, insertTask, patchTask, upsertProject } from "@/lib/store";
+import { getProject, getTask, insertBotTask, insertTask, patchTask, upsertProject } from "@/lib/store";
 import {
   armTaskHangWatch,
   getTaskHangWatch,
   stopHangWatchdogForTests,
 } from "./hang-watchdog";
-import { abortLiveForHangWatchdog, abortTask, archiveTask, destroyProject, destroyTask, getTaskDetail, isLiveBusyForReplace, isTaskRuntimeOwnedElsewhere, markTaskWorkingIfIdle, reloadLiveSessionsContext, restoreTask, setTaskAgent, throwIfBusyForModelChange, throwIfBusyForPermissionChange, throwIfBusyForSkillPermissionChange, throwIfBusyForThinkingChange } from "./harness";
+import { abortLiveForHangWatchdog, abortTask, archiveTask, destroyProject, destroyTask, getTaskDetail, isLiveBusyForReplace, isTaskRuntimeOwnedElsewhere, markTaskWorkingIfIdle, reloadLiveSessionsContext, restoreTask, setBotPermissionMode, setBotTools, setTaskAgent, throwIfBusyForModelChange, throwIfBusyForPermissionChange, throwIfBusyForSkillPermissionChange, throwIfBusyForThinkingChange } from "./harness";
 import { taskRuntimeLeasePath } from "@/lib/task-runtime-lease";
+import { botTaskId, createBot, getBot, patchBot } from "@/lib/bots";
+import { roomBotTaskId } from "@/lib/rooms";
 
 const GLOBAL_KEY = "__leafcodePiHarness";
 const previousHarness = (globalThis as Record<string, unknown>)[GLOBAL_KEY];
@@ -878,7 +880,6 @@ describe("destroyTask", () => {
     const dir = mkdtempSync(join(tmpdir(), "leafcode-pi-destroy-code-link-"));
     tempDirs.push(dir);
     process.env.LEAFCODE_PI_DATA_DIR = dir;
-    const { createBot, getBot, patchBot } = await import("@/lib/bots");
     const bot = createBot({ name: "Linked" });
     const project = upsertProject({ name: "demo", rootPath: dir });
     const task = insertTask({ project, title: "code" });
@@ -889,6 +890,131 @@ describe("destroyTask", () => {
 
     assert.equal(getTask(task.id), undefined);
     assert.equal(getBot(bot.id)?.codeSessionTaskId, null);
+  });
+});
+
+describe("archiveTask codeSession links", () => {
+  it("clears Bot codeSessionTaskId when archiving the linked Code task", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "leafcode-pi-archive-code-link-"));
+    tempDirs.push(dir);
+    process.env.LEAFCODE_PI_DATA_DIR = dir;
+    const bot = createBot({ name: "Archive link" });
+    const project = upsertProject({ name: "demo", rootPath: dir });
+    const task = insertTask({ project, title: "code" });
+    patchBot(bot.id, { codeSessionTaskId: task.id });
+    (globalThis as Record<string, unknown>)[GLOBAL_KEY] = {
+      live: new Map(),
+      events: new EventEmitter(),
+    };
+
+    await archiveTask(task.id);
+
+    assert.equal(getTask(task.id)?.status, "archived");
+    assert.equal(getBot(bot.id)?.codeSessionTaskId, null);
+  });
+});
+
+describe("setBotTools", () => {
+  it("defers tool changes while a Bot session is busy", () => {
+    const dir = mkdtempSync(join(tmpdir(), "leafcode-pi-bot-tools-defer-"));
+    tempDirs.push(dir);
+    process.env.LEAFCODE_PI_DATA_DIR = dir;
+    const bot = createBot({ name: "Tools defer" });
+    const taskId = botTaskId(bot.id);
+    let applied: string[] | null = null;
+    const liveEntry = {
+      taskId,
+      promptActive: true,
+      pendingSettings: undefined as { botTools?: readonly string[] } | undefined,
+      session: {
+        isStreaming: false,
+        isCompacting: false,
+        getActiveToolNames: () => ["read", "grep", "bash"],
+        setActiveToolsByName: (names: string[]) => {
+          applied = names;
+        },
+      },
+      unsubscribe: () => undefined,
+    };
+    (globalThis as Record<string, unknown>)[GLOBAL_KEY] = {
+      live: new Map([[taskId, liveEntry]]),
+      events: new EventEmitter(),
+    };
+
+    setBotTools(bot.id, ["read"]);
+
+    assert.equal(applied, null);
+    assert.deepEqual(liveEntry.pendingSettings?.botTools, ["read"]);
+  });
+
+  it("applies tools immediately when the Bot session is idle", () => {
+    const dir = mkdtempSync(join(tmpdir(), "leafcode-pi-bot-tools-idle-"));
+    tempDirs.push(dir);
+    process.env.LEAFCODE_PI_DATA_DIR = dir;
+    const bot = createBot({ name: "Tools idle" });
+    const taskId = botTaskId(bot.id);
+    let applied: string[] | null = null;
+    (globalThis as Record<string, unknown>)[GLOBAL_KEY] = {
+      live: new Map([[taskId, {
+        taskId,
+        promptActive: false,
+        session: {
+          isStreaming: false,
+          isCompacting: false,
+          getActiveToolNames: () => ["read", "grep", "bash"],
+          setActiveToolsByName: (names: string[]) => {
+            applied = names;
+          },
+        },
+        unsubscribe: () => undefined,
+      }]]),
+      events: new EventEmitter(),
+    };
+
+    setBotTools(bot.id, ["read"]);
+
+    assert.ok(applied);
+    assert.equal(applied.includes("read"), true);
+    assert.equal(applied.includes("bash"), false);
+  });
+});
+
+describe("setBotPermissionMode cold Room tasks", () => {
+  it("patches idle Room Bot task records without creating a live session", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "leafcode-pi-bot-perm-cold-"));
+    tempDirs.push(dir);
+    process.env.LEAFCODE_PI_DATA_DIR = dir;
+    const bot = createBot({ name: "Perm cold", permissionMode: "allow" });
+    const roomTaskId = roomBotTaskId("room-cold", bot.id);
+    insertBotTask({
+      id: roomTaskId,
+      botId: bot.id,
+      name: bot.name,
+      directory: join(dir, "room-ws"),
+      permissionMode: "allow",
+    });
+    const primaryId = botTaskId(bot.id);
+    (globalThis as Record<string, unknown>)[GLOBAL_KEY] = {
+      live: new Map([[primaryId, {
+        taskId: primaryId,
+        promptActive: false,
+        session: {
+          isStreaming: false,
+          isCompacting: false,
+          setPermissionMode: () => undefined,
+        },
+        unsubscribe: () => undefined,
+      }]]),
+      events: new EventEmitter(),
+    };
+
+    await setBotPermissionMode(bot.id, "ask");
+
+    assert.equal(getTask(roomTaskId)?.permissionMode, "ask");
+    assert.equal(
+      ((globalThis as Record<string, unknown>)[GLOBAL_KEY] as { live: Map<string, unknown> }).live.has(roomTaskId),
+      false,
+    );
   });
 });
 

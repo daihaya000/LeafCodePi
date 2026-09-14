@@ -329,6 +329,8 @@ type PendingLiveSettings = {
   permissionMode?: "allow" | "ask" | "deny";
   skillPermission?: SkillPermission;
   subagentPermission?: "allow" | "deny";
+  /** Bot tool allowlist deferred until the next idle prepareLiveForPrompt. */
+  botTools?: readonly string[];
 };
 
 type LiveRuntime = {
@@ -6633,11 +6635,15 @@ async function reloadLiveForSoulIfNeeded(live: LiveRuntime): Promise<LiveRuntime
   return operation;
 }
 
-/** Apply a deferred AGENTS/skills/MCP reload once the session is idle again. */
+/**
+ * Apply a deferred AGENTS/skills/MCP reload at the next prepareLiveForPrompt.
+ * Only skip while streaming/compacting — promptActive is already true during
+ * prepare for normal prompts, so treating it as busy would defer forever.
+ */
 async function reloadLiveContextIfNeeded(live: LiveRuntime): Promise<LiveRuntime> {
   const current = state().live.get(live.taskId) ?? live;
   if (!current.contextReloadPending) return current;
-  if (isLiveBusyForReplace(current)) return current;
+  if (current.session.isStreaming || current.session.isCompacting) return current;
   try {
     await current.session.reload();
     current.contextReloadPending = false;
@@ -6701,6 +6707,7 @@ function clearAppliedPendingLiveSettings(
     "permissionMode",
     "skillPermission",
     "subagentPermission",
+    "botTools",
   ] as const) {
     if (current[key] === applied[key]) delete next[key];
   }
@@ -6776,6 +6783,9 @@ async function applyPendingLiveSettings(
   }
   if (requested.subagentPermission !== undefined) {
     applySubagentPermission(current.session, requested.subagentPermission);
+  }
+  if (requested.botTools !== undefined) {
+    applyBotTools(current.session, requested.botTools);
   }
   if (requested.thinkingLevel !== undefined) {
     patchTask(current.taskId, { thinkingLevel: requested.thinkingLevel });
@@ -7588,13 +7598,22 @@ export function applyBotTools(
   session.setActiveToolsByName([...new Set([...preserved, ...requested])]);
 }
 
-/** Update every live session belonging to a Bot; cold sessions use config on next open. */
+/**
+ * Update every live session belonging to a Bot. Busy sessions defer via
+ * pendingSettings (same as permission/model); cold sessions read Bot config
+ * on next createSession.
+ */
 export function setBotTools(botId: string, tools: readonly string[]): void {
+  const nextTools = [...tools];
   for (const live of state().live.values()) {
     const task = getTask(live.taskId);
-    if (task?.kind === "bot" && task.botId === botId) {
-      applyBotTools(live.session, tools);
+    if (task?.kind !== "bot" || task.botId !== botId) continue;
+    if (shouldDeferLiveSetting(live, task)) {
+      live.pendingSettings = { ...live.pendingSettings, botTools: nextTools };
+      emitTaskSnapshot(live, "settings_pending");
+      continue;
     }
+    applyBotTools(live.session, nextTools);
   }
 }
 
@@ -7611,11 +7630,25 @@ async function applyBotSettingToLiveTasks(
   for (const taskId of ids) await apply(taskId);
 }
 
+/** Patch idle Room Bot task records without ensureLive (avoids spinning cold sessions). */
+function patchColdBotSiblingTasks(
+  botId: string,
+  patch: Parameters<typeof patchTask>[1],
+): void {
+  const primaryId = botTaskId(botId);
+  for (const task of listTasks(false, "bot")) {
+    if (task.botId !== botId || task.id === primaryId) continue;
+    if (state().live.get(task.id)) continue;
+    patchTask(task.id, patch);
+  }
+}
+
 export async function setBotPermissionMode(
   botId: string,
   mode: "allow" | "ask" | "deny",
 ): Promise<void> {
   await applyBotSettingToLiveTasks(botId, (taskId) => setTaskPermissionMode(taskId, mode));
+  patchColdBotSiblingTasks(botId, { permissionMode: mode });
 }
 
 export async function setBotModel(botId: string, model: string): Promise<TaskSummary> {
@@ -7624,7 +7657,15 @@ export async function setBotModel(botId: string, model: string): Promise<TaskSum
     const updated = await setTaskModel(taskId, model);
     if (taskId === botTaskId(botId)) primary = updated;
   });
-  return primary ?? (await setTaskModel(botTaskId(botId), model));
+  const summary = primary ?? (await setTaskModel(botTaskId(botId), model));
+  patchColdBotSiblingTasks(botId, {
+    providerID: summary.providerID,
+    modelID: summary.modelID,
+    thinkingLevel: summary.thinkingLevel,
+    accountId: summary.accountId,
+    accountIdExplicit: summary.accountIdExplicit,
+  });
+  return summary;
 }
 
 export async function setBotThinkingLevel(botId: string, level: string): Promise<TaskSummary> {
@@ -7633,7 +7674,9 @@ export async function setBotThinkingLevel(botId: string, level: string): Promise
     const updated = await setTaskThinkingLevel(taskId, level);
     if (taskId === botTaskId(botId)) primary = updated;
   });
-  return primary ?? (await setTaskThinkingLevel(botTaskId(botId), level));
+  const summary = primary ?? (await setTaskThinkingLevel(botTaskId(botId), level));
+  patchColdBotSiblingTasks(botId, { thinkingLevel: summary.thinkingLevel });
+  return summary;
 }
 
 /**
@@ -8599,6 +8642,7 @@ export async function archiveTask(id: string): Promise<TaskSummary> {
     throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });
   if (task.status === "archived") return toSummary(task);
   await abortThenDispose(id, "archive");
+  clearBotCodeSessionLinks(id);
   const archived = setTaskStatus(id, "archived");
   if (!archived)
     throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });

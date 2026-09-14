@@ -205,6 +205,15 @@
 ### 検証（Tick40–41）
 `bots/[id]` / `code-session` / `harness-agent` — **56 passed**
 
+### Tick42–43（ループ継続）
+1. `setBotTools` — busy 中は `pendingSettings.botTools` へ defer（mid-stream 即時変更を防止）
+2. `reloadLiveContextIfNeeded` — `promptActive` を busy 判定から除外（prepare 中の永久 defer を修正）
+3. `archiveTask` — `clearBotCodeSessionLinks` でアーカイブ後の dangling link を解除
+4. `patchColdBotSiblingTasks` — 非 live の Room Bot タスクへ permission/model/thinking を store 同期
+
+### 検証（Tick42–43）
+`bots/[id]` / `harness-agent` — **44 passed**
+
 ---
 
 ## 2026-09-14: Stale production rebuild / next build exit 1
