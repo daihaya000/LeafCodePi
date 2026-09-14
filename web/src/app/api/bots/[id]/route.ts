@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { BOT_TOOL_NAMES, deleteBot, getBot, normalizeBotSkills, patchBot, botTaskId } from "@/lib/bots";
-import { destroyTask, requestBotSoulReload, resetTaskConversation, setBotTools, setTaskModel, setTaskPermissionMode, setTaskThinkingLevel } from "@/lib/pi/harness";
+import { destroyTask, requestBotSoulReload, resetTaskConversation, setBotModel, setBotPermissionMode, setBotThinkingLevel, setBotTools } from "@/lib/pi/harness";
 import { validateBotSoulContent } from "@/lib/pi/bot-soul-tool";
 import { isThinkingLevel } from "@/lib/thinking-levels";
 import { isAvatarColor, isAvatarEyeColor, isAvatarImage, isAvatarShape } from "@/lib/bot-avatar";
@@ -99,8 +99,8 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     if (hasCodeAutoApprove) patch.codeAutoApprove = body.codeAutoApprove as boolean;
     if (hasPermissionMode) {
       const mode = body.permissionMode as "allow" | "ask" | "deny";
-      // Same live-session path as Code TaskView (defer while busy).
-      await setTaskPermissionMode(botTaskId(id), mode);
+      // Apply to the 1:1 task and every live Room conversation (tools/SOUL already do).
+      await setBotPermissionMode(id, mode);
       patch.permissionMode = mode;
     }
     if (hasEnabled) patch.enabled = body.enabled as boolean;
@@ -111,13 +111,13 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     if (hasTtsVoice) patch.ttsVoice = typeof body.ttsVoice === "string" ? body.ttsVoice.trim() || null : null;
     if (hasModel) {
       // Use the same route validation and live-session update as Code TaskView.
-      // setTaskModel updates the running bot session (or defers safely while busy).
-      const task = await setTaskModel(botTaskId(id), (body.model as string).trim());
+      // Cover Room lives too — setTaskModel alone only touches bot:${id}.
+      const task = await setBotModel(id, (body.model as string).trim());
       patch.model = (body.model as string).trim();
       if (!hasThinkingLevel && task.thinkingLevel) patch.thinkingLevel = task.thinkingLevel;
     }
     if (hasThinkingLevel) {
-      const task = await setTaskThinkingLevel(botTaskId(id), body.thinkingLevel as string);
+      const task = await setBotThinkingLevel(id, body.thinkingLevel as string);
       patch.thinkingLevel = task.thinkingLevel;
     }
     const bot = patchBot(id, patch);

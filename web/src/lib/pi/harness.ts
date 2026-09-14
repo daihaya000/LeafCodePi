@@ -13,7 +13,7 @@ import {
   samePath,
 } from "@/lib/paths";
 import { prepareWorkspaceMove, type PreparedWorkspaceMove } from "@/lib/workspace-move";
-import { BOT_DEFAULT_TOOL_NAMES, BOT_TOOL_NAMES, botPromptSources, botRuntimeContext, botSoulRevision, getBot } from "@/lib/bots";
+import { BOT_DEFAULT_TOOL_NAMES, BOT_TOOL_NAMES, botPromptSources, botRuntimeContext, botSoulRevision, botTaskId, getBot, listBots, patchBot } from "@/lib/bots";
 import { codePromptSources } from "@/lib/agents-md";
 import { BOT_CODE_RESULT, BOT_CODE_TOOL, botCodeReportText, createBotCodeRelay, hasBotCodeReport, isBotCodeOriginTask, queueBotCodePrompt, roomForCodeOrigin, runUserBotCodeRequest, stopBotCodeRequestForTask, type CodePromptOptions, type CodeRequest } from "@/lib/pi/bot-code-relay";
 import { catalogFromRoomUserRequest, catalogFromSessionEntries } from "@/lib/pi/bot-code-images";
@@ -397,6 +397,8 @@ type LiveRuntime = {
   soulReloadPending: boolean;
   /** SOUL.md revision observed when this session was created. */
   soulRevision: string | null;
+  /** Reload AGENTS/skills/MCP into a Code (or busy-skipped) session at the next idle prompt. */
+  contextReloadPending: boolean;
 };
 
 function messageContext(live: LiveRuntime): MessageAccountContext {
@@ -1942,6 +1944,7 @@ function buildLiveRuntime(input: {
     // A newly created session has already re-read the Bot's SOUL.md.
     soulReloadPending: false,
     soulRevision: input.botId ? botSoulRevision(input.botId) : null,
+    contextReloadPending: existing?.contextReloadPending ?? false,
   };
 }
 
@@ -6630,6 +6633,23 @@ async function reloadLiveForSoulIfNeeded(live: LiveRuntime): Promise<LiveRuntime
   return operation;
 }
 
+/** Apply a deferred AGENTS/skills/MCP reload once the session is idle again. */
+async function reloadLiveContextIfNeeded(live: LiveRuntime): Promise<LiveRuntime> {
+  const current = state().live.get(live.taskId) ?? live;
+  if (!current.contextReloadPending) return current;
+  if (isLiveBusyForReplace(current)) return current;
+  try {
+    await current.session.reload();
+    current.contextReloadPending = false;
+  } catch (error) {
+    console.warn(
+      `[reload] deferred context reload failed for ${current.taskId}:`,
+      error instanceof Error ? error.message : String(error),
+    );
+  }
+  return current;
+}
+
 async function prepareAutoAgentForGoalLoop(
   live: LiveRuntime,
   task: TaskSummary,
@@ -6800,6 +6820,7 @@ async function prepareLiveForPrompt(
     currentLive = await applyPendingLiveSettings(currentLive, pendingSettings);
   }
   currentLive = await reloadLiveForSoulIfNeeded(currentLive);
+  currentLive = await reloadLiveContextIfNeeded(currentLive);
   const task = getTask(currentLive.taskId);
   const taskAccount = task?.accountId ? getAccount(task.accountId) : undefined;
   const taskAccountPaused = Boolean(
@@ -7575,6 +7596,44 @@ export function setBotTools(botId: string, tools: readonly string[]): void {
       applyBotTools(live.session, tools);
     }
   }
+}
+
+/** Apply a setting to the 1:1 Bot task and every live Room conversation for that Bot. */
+async function applyBotSettingToLiveTasks(
+  botId: string,
+  apply: (taskId: string) => Promise<unknown>,
+): Promise<void> {
+  const ids = new Set<string>([botTaskId(botId)]);
+  for (const live of state().live.values()) {
+    const task = getTask(live.taskId);
+    if (task?.kind === "bot" && task.botId === botId) ids.add(live.taskId);
+  }
+  for (const taskId of ids) await apply(taskId);
+}
+
+export async function setBotPermissionMode(
+  botId: string,
+  mode: "allow" | "ask" | "deny",
+): Promise<void> {
+  await applyBotSettingToLiveTasks(botId, (taskId) => setTaskPermissionMode(taskId, mode));
+}
+
+export async function setBotModel(botId: string, model: string): Promise<TaskSummary> {
+  let primary: TaskSummary | undefined;
+  await applyBotSettingToLiveTasks(botId, async (taskId) => {
+    const updated = await setTaskModel(taskId, model);
+    if (taskId === botTaskId(botId)) primary = updated;
+  });
+  return primary ?? (await setTaskModel(botTaskId(botId), model));
+}
+
+export async function setBotThinkingLevel(botId: string, level: string): Promise<TaskSummary> {
+  let primary: TaskSummary | undefined;
+  await applyBotSettingToLiveTasks(botId, async (taskId) => {
+    const updated = await setTaskThinkingLevel(taskId, level);
+    if (taskId === botTaskId(botId)) primary = updated;
+  });
+  return primary ?? (await setTaskThinkingLevel(botTaskId(botId), level));
 }
 
 /**
@@ -8580,11 +8639,20 @@ export function restoreTask(id: string): TaskSummary {
   return restored;
 }
 
+function clearBotCodeSessionLinks(taskId: string): void {
+  for (const bot of listBots()) {
+    if (bot.codeSessionTaskId === taskId) {
+      patchBot(bot.id, { codeSessionTaskId: null });
+    }
+  }
+}
+
 export async function destroyTask(id: string): Promise<{ ok: true }> {
   const task = getTask(id);
   if (!task)
     throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });
   await abortThenDispose(id, "destroy");
+  clearBotCodeSessionLinks(id);
   deleteTask(id);
   return { ok: true };
 }
@@ -8598,6 +8666,7 @@ export async function destroyArchivedTasksByProject(projectId: string | null): P
   );
   for (const task of tasks) {
     await abortThenDispose(task.id, "destroy");
+    clearBotCodeSessionLinks(task.id);
     deleteTask(task.id);
   }
   return { ok: true, removed: tasks.length };
@@ -8621,6 +8690,7 @@ export async function destroyProject(id: string): Promise<{ ok: true }> {
   const tasks = listTasks(true).filter((task) => task.projectId === id);
   for (const task of tasks) {
     await abortThenDispose(task.id, "destroy");
+    clearBotCodeSessionLinks(task.id);
     deleteTask(task.id);
   }
   deleteProjectRecord(id);
@@ -8630,8 +8700,9 @@ export async function destroyProject(id: string): Promise<{ ok: true }> {
 /**
  * Reload AGENTS.md / skills / extensions into every in-memory AgentSession
  * (Pi's `/reload`). Next prompt uses the updated system prompt.
- * Busy sessions are skipped (Bot conversations get soulReloadPending) so a
- * settings toggle cannot interrupt streaming / Goal Loop / compaction.
+ * Busy sessions are skipped so a settings toggle cannot interrupt streaming /
+ * Goal Loop / compaction. Bot conversations get soulReloadPending; Code gets
+ * contextReloadPending and reloads on the next idle prepareLiveForPrompt.
  */
 export async function reloadLiveSessionsContext(): Promise<{
   reloaded: number;
@@ -8651,11 +8722,13 @@ export async function reloadLiveSessionsContext(): Promise<{
       isTaskRuntimeBusyForDestructiveEdit(live.taskId)
     ) {
       if (task?.kind === "bot" && task.botId) live.soulReloadPending = true;
+      else live.contextReloadPending = true;
       deferred += 1;
       continue;
     }
     try {
       await live.session.reload();
+      live.contextReloadPending = false;
       reloaded += 1;
     } catch (error) {
       failed += 1;

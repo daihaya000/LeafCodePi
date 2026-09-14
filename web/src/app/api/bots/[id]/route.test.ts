@@ -6,9 +6,9 @@ const mocks = vi.hoisted(() => ({
   patchBot: vi.fn(),
   deleteBot: vi.fn(),
   normalizeBotSkills: vi.fn((value: unknown) => value),
-  setTaskModel: vi.fn(),
-  setTaskThinkingLevel: vi.fn(),
-  setTaskPermissionMode: vi.fn(),
+  setBotModel: vi.fn(),
+  setBotThinkingLevel: vi.fn(),
+  setBotPermissionMode: vi.fn(),
   setBotTools: vi.fn(),
   resetTaskConversation: vi.fn(),
   requestBotSoulReload: vi.fn(),
@@ -29,9 +29,9 @@ vi.mock("@/lib/bots", () => ({
   BOT_TOOL_NAMES: ["bash", "powershell", "read", "write", "edit", "grep", "glob", "intercom"],
 }));
 vi.mock("@/lib/pi/harness", () => ({
-  setTaskModel: mocks.setTaskModel,
-  setTaskThinkingLevel: mocks.setTaskThinkingLevel,
-  setTaskPermissionMode: mocks.setTaskPermissionMode,
+  setBotModel: mocks.setBotModel,
+  setBotThinkingLevel: mocks.setBotThinkingLevel,
+  setBotPermissionMode: mocks.setBotPermissionMode,
   setBotTools: mocks.setBotTools,
   resetTaskConversation: mocks.resetTaskConversation,
   requestBotSoulReload: mocks.requestBotSoulReload,
@@ -212,7 +212,7 @@ describe("PATCH /api/bots/[id]", () => {
     mocks.patchBot.mockReturnValue({ ...bot(), ttsVoice: "1257529344" });
     const response = await PATCH(jsonRequest({ ttsVoice: " 1257529344 " }), params("one"));
     expect(response.status).toBe(200);
-    expect(mocks.setTaskModel).not.toHaveBeenCalled();
+    expect(mocks.setBotModel).not.toHaveBeenCalled();
     expect(mocks.patchBot).toHaveBeenCalledWith(
       "one",
       expect.objectContaining({ ttsVoice: "1257529344" }),
@@ -221,11 +221,11 @@ describe("PATCH /api/bots/[id]", () => {
 
   it("applies the model through the same live-session validation", async () => {
     mocks.getBot.mockReturnValue(bot());
-    mocks.setTaskModel.mockResolvedValue({ thinkingLevel: "high" });
+    mocks.setBotModel.mockResolvedValue({ thinkingLevel: "high" });
     mocks.patchBot.mockReturnValue({ ...bot(), model: "provider::model", thinkingLevel: "high" });
     const response = await PATCH(jsonRequest({ model: "provider::model" }), params("one"));
     expect(response.status).toBe(200);
-    expect(mocks.setTaskModel).toHaveBeenCalledWith("bot:one", "provider::model");
+    expect(mocks.setBotModel).toHaveBeenCalledWith("one", "provider::model");
     expect(mocks.patchBot).toHaveBeenCalledWith(
       "one",
       expect.objectContaining({ model: "provider::model", thinkingLevel: "high" }),
@@ -234,11 +234,11 @@ describe("PATCH /api/bots/[id]", () => {
 
   it("applies permissionMode through the live-session path", async () => {
     mocks.getBot.mockReturnValue(bot());
-    mocks.setTaskPermissionMode.mockResolvedValue({ permissionMode: "ask" });
+    mocks.setBotPermissionMode.mockResolvedValue(undefined);
     mocks.patchBot.mockReturnValue({ ...bot(), permissionMode: "ask" });
     const response = await PATCH(jsonRequest({ permissionMode: "ask" }), params("one"));
     expect(response.status).toBe(200);
-    expect(mocks.setTaskPermissionMode).toHaveBeenCalledWith("bot:one", "ask");
+    expect(mocks.setBotPermissionMode).toHaveBeenCalledWith("one", "ask");
     expect(mocks.patchBot).toHaveBeenCalledWith("one", expect.objectContaining({ permissionMode: "ask" }));
   });
 

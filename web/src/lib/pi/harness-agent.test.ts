@@ -873,6 +873,23 @@ describe("destroyTask", () => {
     assert.equal(getProject(project.id), undefined);
     assert.equal(live.has(task.id), false);
   });
+
+  it("clears Bot codeSessionTaskId links when destroying a Code task", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "leafcode-pi-destroy-code-link-"));
+    tempDirs.push(dir);
+    process.env.LEAFCODE_PI_DATA_DIR = dir;
+    const { createBot, getBot, patchBot } = await import("@/lib/bots");
+    const bot = createBot({ name: "Linked" });
+    const project = upsertProject({ name: "demo", rootPath: dir });
+    const task = insertTask({ project, title: "code" });
+    patchBot(bot.id, { codeSessionTaskId: task.id });
+    assert.equal(getBot(bot.id)?.codeSessionTaskId, task.id);
+
+    await destroyTask(task.id);
+
+    assert.equal(getTask(task.id), undefined);
+    assert.equal(getBot(bot.id)?.codeSessionTaskId, null);
+  });
 });
 
 describe("isTaskRuntimeOwnedElsewhere", () => {
@@ -904,6 +921,7 @@ describe("reloadLiveSessionsContext", () => {
     let idleReloads = 0;
     const busy = live.get(task.id)! as {
       soulReloadPending?: boolean;
+      contextReloadPending?: boolean;
       session: { reload?: () => Promise<void>; isStreaming: boolean; isCompacting: boolean };
       promptActive: boolean;
     };
@@ -917,6 +935,7 @@ describe("reloadLiveSessionsContext", () => {
       accountId: null,
       promptActive: false,
       soulReloadPending: false,
+      contextReloadPending: false,
       session: {
         isStreaming: false,
         isCompacting: false,
@@ -933,5 +952,6 @@ describe("reloadLiveSessionsContext", () => {
     assert.equal(idleReloads, 1);
     assert.equal(result.reloaded, 1);
     assert.equal(result.deferred, 1);
+    assert.equal(busy.contextReloadPending, true);
   });
 });

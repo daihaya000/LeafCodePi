@@ -196,6 +196,15 @@
 ### 検証（Tick39）
 `bots/[id]` / `routines` / `harness-agent` — **77 passed**
 
+### Tick40–41（ループ継続）
+1. Bot PATCH `permissionMode` / `model` / `thinkingLevel` — `applyBotSettingToLiveTasks` で 1:1 + 委任 Code + Room live へ反映
+2. `reloadLiveSessionsContext` — busy の非 Bot は `contextReloadPending`；次の `prepareLiveForPrompt` で `reloadLiveContextIfNeeded`
+3. `destroyTask` / `destroyProject` / archived-by-project — `clearBotCodeSessionLinks` で dangling `codeSessionTaskId` を解除
+4. code-session API — 欠損タスク参照時に `codeSessionTaskId` を自動クリア
+
+### 検証（Tick40–41）
+`bots/[id]` / `code-session` / `harness-agent` — **56 passed**
+
 ---
 
 ## 2026-09-14: Stale production rebuild / next build exit 1

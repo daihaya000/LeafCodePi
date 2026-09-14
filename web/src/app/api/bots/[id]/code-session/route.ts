@@ -168,6 +168,7 @@ export async function PATCH(
       // Room workers are also stored as kind="bot" with the same botId. This endpoint is the
       // Bot screen's 1:1 Code control surface and must never mutate a Room-owned task.
       if (!task || task.kind === "bot" || task.botId !== id || task.status === "archived") {
+        if (bot.codeSessionTaskId === taskId) patchBot(id, { codeSessionTaskId: null });
         return NextResponse.json({ error: "Code session not found" }, { status: 404 });
       }
       if (body?.action === "goal-loop") {
