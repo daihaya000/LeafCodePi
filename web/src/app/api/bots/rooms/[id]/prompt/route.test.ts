@@ -19,14 +19,14 @@ vi.mock("@/lib/room-opener", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/room-opener")>();
   return {
     ...actual,
-    resolveRoomOpener: (...args: unknown[]) => state.resolveRoomOpener(...args),
+    resolveRoomOpener: state.resolveRoomOpener as typeof actual.resolveRoomOpener,
   };
 });
 vi.mock("@/lib/pi/bot-code-relay", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/pi/bot-code-relay")>();
   return {
     ...actual,
-    cancelRoomCodeRequests: (...args: unknown[]) => state.cancelRoomCodeRequests(...args),
+    cancelRoomCodeRequests: state.cancelRoomCodeRequests as typeof actual.cancelRoomCodeRequests,
   };
 });
 vi.mock("@/lib/paths", async (importOriginal) => ({

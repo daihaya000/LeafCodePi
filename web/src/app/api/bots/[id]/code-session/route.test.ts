@@ -18,7 +18,7 @@ const mocks = vi.hoisted(() => ({
   reconcileOrphanedWorkingTasks: vi.fn(),
   withBotCodeSessionLock: vi.fn(async (_id: string, operation: () => Promise<unknown>) => operation()),
   isRoomDelegatedCodeTask: vi.fn(() => false),
-  readGoalLoopState: vi.fn(() => null),
+  readGoalLoopState: vi.fn((): { status: string } | null => null),
   isGoalLoopLiveStatus: vi.fn((status: string | undefined) =>
     status === "queued" || status === "running" || status === "verifying_completed",
   ),

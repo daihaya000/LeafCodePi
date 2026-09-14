@@ -66,6 +66,7 @@ function fixture(options: {
       sendCustomMessage: async (message: FixtureCustomMessage) => {
         customMessages.push(message);
       },
+      reload: async () => undefined,
       dispose: () => {
         disposed = true;
       },
@@ -997,9 +998,7 @@ describe("setBotTools", () => {
 
     setBotTools(bot.id, ["read"]);
 
-    assert.ok(applied);
-    assert.equal(applied.includes("read"), true);
-    assert.equal(applied.includes("bash"), false);
+    assert.deepEqual(applied, ["read"]);
   });
 });
 
@@ -1081,20 +1080,23 @@ describe("reloadLiveSessionsContext", () => {
 
     const idleId = `${task.id}-idle`;
     live.set(idleId, {
-      taskId: idleId,
       accountId: null,
       promptActive: false,
-      soulReloadPending: false,
-      contextReloadPending: false,
       session: {
         isStreaming: false,
         isCompacting: false,
+        messages: [],
+        sendCustomMessage: async (_message: FixtureCustomMessage) => undefined,
         reload: async () => {
           idleReloads += 1;
         },
         dispose: () => undefined,
       },
       unsubscribe: () => undefined,
+    });
+    Object.assign(live.get(idleId)!, {
+      soulReloadPending: false,
+      contextReloadPending: false,
     });
 
     const result = await reloadLiveSessionsContext();

@@ -480,6 +480,18 @@
 ### ループ終了
 ユーザー「現 tick 終了次第、完了報告して明示終了」により `AGENT_LOOP_TICK_thorough_bug_hunt`（5分間隔）を停止。
 
+## 2026-09-15: production typecheck 修復（Stale rebuild）
+
+`next build` が TS エラーで失敗し Host が exit 1。修正:
+
+1. `code-session/route.test.ts` — `readGoalLoopState` mock 戻り型を `{ status } | null`
+2. `rooms/.../prompt/route.test.ts` — mock を `as typeof actual.*`（spread TS2556 回避）
+3. `GlobalAttentionProvider` — `onReject` が `Promise<void>` を返すよう `void` 演算子を除去
+4. `direct-title.test.ts` — `getSetting` mock に key 引数
+5. `harness-agent.test.ts` — `applied` 断言と fixture `reload` / idle live エントリ型
+
+検証: `tsc --noEmit` 成功；関連 vitest **54 passed**
+
 ---
 
 ## 2026-09-14: Stale production rebuild / next build exit 1

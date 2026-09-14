@@ -400,7 +400,7 @@ export function GlobalAttentionProvider() {
                     request={question}
                     onReply={(request, answers) => respondToQuestion(item.taskId, request, answers)}
                     onReject={(request) =>
-                      void respondToQuestion(item.taskId, request, [], { reject: true })
+                      respondToQuestion(item.taskId, request, [], { reject: true })
                     }
                   />
                 )}
