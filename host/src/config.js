@@ -30,9 +30,30 @@ export function isHeadless(env = process.env, argv = process.argv) {
   return env.LEAFCODE_PI_HEADLESS === "1" || argv.includes("--headless");
 }
 
+function envFlag(value) {
+  return String(value ?? "").trim();
+}
+
 /**
- * Tray helpers need a graphical session. Keep Linux headless by default so a
- * server/SSH launch still works; opt in with LEAFCODE_PI_TRAY=1.
+ * True when a desktop session can host a systray icon.
+ * Windows always qualifies. Linux needs DISPLAY or WAYLAND_DISPLAY.
+ * macOS Aqua sessions usually have neither, so a local (non-SSH) darwin
+ * session counts as graphical.
+ */
+export function hasGraphicalSession(env = process.env, platform = process.platform) {
+  if (platform === "win32") return true;
+  if (envFlag(env.DISPLAY) || envFlag(env.WAYLAND_DISPLAY)) return true;
+  if (platform === "darwin") {
+    return !envFlag(env.SSH_CONNECTION) && !envFlag(env.SSH_TTY);
+  }
+  return false;
+}
+
+/**
+ * Tray is on by default for a normal desktop (Windows, Linux, macOS).
+ * Off: LEAFCODE_PI_HEADLESS=1, --headless, or LEAFCODE_PI_TRAY=0.
+ * Linux/SSH without DISPLAY/WAYLAND_DISPLAY skips tray unless LEAFCODE_PI_TRAY=1.
+ * HEADLESS always wins over TRAY=1.
  */
 export function shouldUseTray(
   env = process.env,
@@ -40,7 +61,10 @@ export function shouldUseTray(
   platform = process.platform,
 ) {
   if (isHeadless(env, argv)) return false;
-  return platform === "win32" || env.LEAFCODE_PI_TRAY === "1";
+  const tray = envFlag(env.LEAFCODE_PI_TRAY);
+  if (tray === "0") return false;
+  if (tray === "1") return true;
+  return hasGraphicalSession(env, platform);
 }
 
 export function shouldOpenBrowser(env = process.env) {

@@ -116,7 +116,9 @@ const llamaServerService = createLlamaServerService({
   isOwnedProcess,
   isLlamaServerProcess,
   stopProcessTreeGracefully,
-  trayEnabled: shouldUseTray(),
+  // Host tray follows shouldUseTray(). The extra llama-server icon is Windows-only
+  // (WMI-detached so it can outlive the host). Linux/macOS keep a single host tray.
+  trayEnabled: process.platform === "win32" && shouldUseTray(),
   trayScript: join(__dirname, "llama-server-tray.mjs"),
 });
 
@@ -985,10 +987,15 @@ async function main() {
     try {
       await startTray();
     } catch (err) {
-      await stopWeb();
-      removeLock(LOCK_FILE);
       error(`Tray failed to start: ${err instanceof Error ? err.message : String(err)}`);
-      process.exit(1);
+      // Windows users expect the tray as the host UI; keep a hard fail there.
+      // Linux/macOS continue so a missing AppIndicator / systray helper is not fatal.
+      if (process.platform === "win32") {
+        await stopWeb();
+        removeLock(LOCK_FILE);
+        process.exit(1);
+      }
+      log("Continuing without a tray icon.");
     }
   } else {
     log("Headless mode (no tray). Ctrl+C to quit.");
