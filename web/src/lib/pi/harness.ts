@@ -6122,6 +6122,31 @@ async function applyPendingLiveSettings(
   return current;
 }
 
+async function resolvePromptRoute(
+  providerID: string,
+  modelID: string,
+  accountId?: string,
+): Promise<ConcreteModelRoute> {
+  try {
+    const resolved = await resolveIntegratedModelRoute(providerID, modelID);
+    if (!resolved) {
+      throw Object.assign(new Error("モデルが見つかりません"), { status: 400 });
+    }
+    return resolved;
+  } catch (error) {
+    if (!isProviderLimitError(error)) throw error;
+    const fallbackRoute = (
+      await resolveProviderFallbackRoutes({
+        providerID,
+        modelID,
+        ...(accountId ? { accountId } : {}),
+      })
+    )[0];
+    if (!fallbackRoute) throw error;
+    return fallbackRoute;
+  }
+}
+
 /** Select a fresh account/provider before a queued user or Goal Loop turn. */
 async function prepareLiveForPrompt(
   live: LiveRuntime,
@@ -6177,30 +6202,11 @@ async function prepareLiveForPrompt(
 
       // 通常は既存の統合アカウント再選択だけを行い、全アカウント上限（429）時だけ
       // 別プロバイダーへフォールバックする。
-      let route: ConcreteModelRoute;
-      try {
-        const resolved = await resolveIntegratedModelRoute(
-          latestTask.providerID,
-          latestTask.modelID,
-        );
-        if (!resolved) {
-          throw Object.assign(new Error("モデルが見つかりません"), { status: 400 });
-        }
-        route = resolved;
-      } catch (error) {
-        if (!isProviderLimitError(error)) throw error;
-        const fallbackRoute = (
-          await resolveProviderFallbackRoutes({
-            providerID: latestTask.providerID,
-            modelID: latestTask.modelID,
-            ...(latestTask.accountId
-              ? { accountId: latestTask.accountId }
-              : {}),
-          })
-        )[0];
-        if (!fallbackRoute) throw error;
-        route = fallbackRoute;
-      }
+      const route = await resolvePromptRoute(
+        latestTask.providerID!,
+        latestTask.modelID!,
+        latestTask.accountId,
+      );
       const ids = modelId(route.model);
       const sameRoute =
         ids.providerID === latestTask.providerID &&
