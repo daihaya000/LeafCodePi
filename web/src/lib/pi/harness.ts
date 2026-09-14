@@ -5350,6 +5350,40 @@ async function offlineDetailParts(
   };
 }
 
+async function liveDetailParts(
+  id: string,
+  task: TaskSummary,
+  includeMessages: boolean,
+  onTiming?: TaskDetailTimingReporter,
+) {
+  let manualAbortedAssistantId: string | null = task.manualAbortedAssistantId ?? null;
+  let hangRetryCount = 0;
+  let revertLeafId: string | null = task.revertLeafId ?? null;
+  try {
+    const ensureLiveStartedAt = onTiming ? performance.now() : 0;
+    const live = await ensureLive(id);
+    reportTaskDetailPhase(onTiming, "ensureLive", ensureLiveStartedAt);
+    const fieldsStartedAt = onTiming ? performance.now() : 0;
+    const fields = liveSnapshotFields(live, includeMessages, onTiming);
+    reportTaskDetailPhase(onTiming, "snapshotFields", fieldsStartedAt);
+    manualAbortedAssistantId = live.manualAbortedAssistantId ?? manualAbortedAssistantId;
+    hangRetryCount = live.hangRetryCount || task.hangRetryCount || 0;
+    revertLeafId = live.revertLeafId ?? revertLeafId;
+    return {
+      ...fields,
+      manualAbortedAssistantId,
+      hangRetryCount,
+      revertLeafId,
+    };
+  } catch (error) {
+    if (error && typeof error === "object" && "status" in error) throw error;
+    throw Object.assign(
+      error instanceof Error ? error : new Error(String(error)),
+      { status: 503 },
+    );
+  }
+}
+
 export async function getTaskDetail(
   id: string,
   options: GetTaskDetailOptions = {},
@@ -5387,54 +5421,12 @@ export async function getTaskDetail(
     reportTaskDetailPhase(options.onTiming, "total", totalStartedAt);
     return detail;
   }
-  let messages: UiMessage[] = [];
-  let isStreaming = false;
-  let isCompacting = false;
-  let contextUsage: ContextUsageDto | undefined;
-  let compactionSuggested = false;
-  let goalLoop: GoalLoopDto | null = null;
-  let todos: TodoDto[] = [];
-  let hangRetryCount = 0;
-  let revertLeafId: string | null = task.revertLeafId ?? null;
-  let manualAbortedAssistantId: string | null = task.manualAbortedAssistantId ?? null;
-  try {
-    const ensureLiveStartedAt = options.onTiming ? performance.now() : 0;
-    const live = await ensureLive(id);
-    reportTaskDetailPhase(options.onTiming, "ensureLive", ensureLiveStartedAt);
-    const fieldsStartedAt = options.onTiming ? performance.now() : 0;
-    const fields = liveSnapshotFields(live, includeMessages, options.onTiming);
-    reportTaskDetailPhase(options.onTiming, "snapshotFields", fieldsStartedAt);
-    messages = fields.messages;
-    isStreaming = fields.isStreaming;
-    isCompacting = fields.isCompacting;
-    contextUsage = fields.contextUsage;
-    compactionSuggested = fields.compactionSuggested;
-    goalLoop = fields.goalLoop;
-    todos = fields.todos;
-    manualAbortedAssistantId = live.manualAbortedAssistantId ?? manualAbortedAssistantId;
-    hangRetryCount = live.hangRetryCount || task.hangRetryCount || 0;
-    revertLeafId = live.revertLeafId ?? revertLeafId;
-  } catch (error) {
-    if (error && typeof error === "object" && "status" in error) throw error;
-    throw Object.assign(
-      error instanceof Error ? error : new Error(String(error)),
-      { status: 503 },
-    );
-  }
+  const live = await liveDetailParts(id, task, includeMessages, options.onTiming);
   const detail = {
     ...toSummary(getTask(id) ?? task),
-    messages,
-    isStreaming,
-    isCompacting,
-    contextUsage,
-    compactionSuggested,
-    goalLoop,
-    todos,
+    ...live,
     permissionRequest: ensurePermissionPromptService().pendingForTask(id),
     questionRequest: ensureQuestionPromptService().pendingForTask(id),
-    manualAbortedAssistantId,
-    hangRetryCount,
-    revertLeafId,
   };
   reportTaskDetailPhase(options.onTiming, "total", totalStartedAt);
   return detail;
