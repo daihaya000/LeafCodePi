@@ -3,17 +3,18 @@ import { execFile } from "node:child_process";
 import { existsSync, statSync } from "node:fs";
 import { readdir, stat } from "node:fs/promises";
 import { homedir } from "node:os";
-import { basename, dirname, join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { promisify } from "node:util";
 import { browseAllowedRoots, isAllowedBrowsePath, oneDriveRoots } from "@/lib/browse-paths";
+import { buildQuickAccessEntries, type QuickAccessEntry } from "@/lib/browse-quick-access";
 import { isAbsolutePath } from "@/lib/paths";
 import { parseWindowsQuickAccess, type QuickAccessItem } from "@/lib/windows-quick-access";
+import { readXdgUserDirs } from "@/lib/xdg-user-dirs";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-type EntryKind = "home" | "oneDrive" | "desktop" | "documents" | "downloads" | "pictures" | "project";
-type DirEntry = { name: string; path: string; kind?: EntryKind };
+type DirEntry = QuickAccessEntry;
 
 function isDirectory(path: string): boolean {
   try {
@@ -23,42 +24,15 @@ function isDirectory(path: string): boolean {
   }
 }
 
-function quickAccessKey(path: string): string {
-  const resolved = resolve(path);
-  return process.platform === "win32" ? resolved.toLowerCase() : resolved;
-}
-
 function quickAccessEntries(windowsEntries: readonly QuickAccessItem[] = []): DirEntry[] {
-  const home = homedir();
-  const cloudRoot = oneDriveRoots()[0];
-  const entries: DirEntry[] = [];
-  const seen = new Set<string>();
-  const add = (name: string, path: string, kind?: EntryKind) => {
-    const resolved = resolve(path);
-    const key = quickAccessKey(resolved);
-    if (seen.has(key) || !isDirectory(resolved)) return;
-    seen.add(key);
-    entries.push(kind ? { name, path: resolved, kind } : { name, path: resolved });
-  };
-
-  add("ホーム", home, "home");
-  for (const [name, folders, kind] of [
-    ["デスクトップ", [join(home, "Desktop"), ...(cloudRoot ? [join(cloudRoot, "Desktop")] : [])], "desktop"],
-    ["ドキュメント", [join(home, "Documents"), ...(cloudRoot ? [join(cloudRoot, "Documents")] : [])], "documents"],
-    ["ダウンロード", [join(home, "Downloads")], "downloads"],
-    ["ピクチャ", [join(home, "Pictures")], "pictures"],
-  ] as const) {
-    const path = folders.find(isDirectory);
-    if (path) add(name, path, kind);
-  }
-  if (cloudRoot) add("OneDrive", cloudRoot, "oneDrive");
-
-  for (const entry of windowsEntries) add(entry.name, entry.path);
-  for (const root of browseAllowedRoots()) {
-    const path = resolve(root);
-    add(basename(path) || path, path, "project");
-  }
-  return entries;
+  return buildQuickAccessEntries({
+    home: homedir(),
+    cloudRoot: oneDriveRoots()[0],
+    xdg: process.platform === "win32" ? {} : readXdgUserDirs(),
+    windowsEntries,
+    projectRoots: browseAllowedRoots(),
+    isDirectory,
+  });
 }
 
 const execFileAsync = promisify(execFile);

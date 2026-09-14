@@ -1,5 +1,40 @@
 ﻿# MEMORY
 
+## 2026-09-14: Linux parity / cleanup（docs・Qwen TTS 削除・Explorer・sysmon）
+
+master `e2bb92f4` から `cursor/linux-parity-cleanup-e913`。Windows 挙動は維持。
+
+### 文言 / パス
+- LoginForm はサーバ側で `displayLeafcodePiDataPath("webui-auth.json")`（Linux `~/.leafcode-pi/webui-auth.json`）
+- README の Windows のみ bullets に Linux twin を追加
+- ホスト起動ヒント: API は OS 別、設定 UI はクライアントで OS が取れないため `start.bat` と `./start.sh` / `npm run host` の両記
+
+### 削除（Qwen TTS）
+- プリセット `qwen`、`/api/settings/tts/server`、`extensions/leafcode-tts/server/`（ROCm start/stop）
+- 残す: AivisSpeech / カスタム HTTP / SAPI。旧 `:18080` URL は custom 扱い（起動 UI なし）
+
+### 移植
+- host `openProjectInExplorer`: win32 `explorer.exe` / darwin `open` / linux `xdg-open`。常に register
+- Quick Access: XDG `user-dirs.dirs` + 日本語フォルダ名。Windows COM pin は未変更
+- sysmon CPU 温度: `/sys/class/thermal` + CPU hwmon（不明チップは読まない）
+- AMD GPU: amdgpu sysfs（busy / VRAM / temp）。nvidia-smi はそのまま
+
+### 残 null
+- macOS CPU 温度 / AMD GPU
+- Intel iGPU（信頼できる util+temp なし）
+- センサー無し VM / `LEAFCODE_SYSMON_THERMAL=0`
+
+### 検証（Linux）
+- web 10 files / 44 tests PASS（paths, hints, TTS, Quick Access, sysmon-linux, Explorer button, cache）
+- host open-explorer 2 PASS
+- 空 sysfs を 0 にしないよう `parseAmdGpuBusyPercent` / `parseVramBytes` を修正
+
+### ブランチ / PR
+`cursor/linux-parity-cleanup-e913` / https://github.com/daihaya000/LeafCodePi/pull/10
+実装 SHA: `8cba33f4` / sysmon 空値修正: `4a25f5ea` / lock+MEMORY: `39e0e024`
+
+---
+
 ## 2026-09-14: Linux CodexBar / マルチアカウント / プロバイダ認証監査
 
 master `08827d93`（PR #8 merge 後）を Ubuntu 上で調査。実ユーザートークンは使わず、偽 OAuth も作っていない。

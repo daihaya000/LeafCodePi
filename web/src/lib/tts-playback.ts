@@ -1,5 +1,5 @@
 /**
- * 設定の合成エンジン（AivisSpeech / Qwen3-TTS 等）の音声をブラウザで再生する。
+ * 設定の合成エンジン（AivisSpeech 等）の音声をブラウザで再生する。
  * per-task/per-bot なON/OFFトグル用。サーバー側の leafcode-tts 拡張（Windows SAPI、CLI用）とは別系統。
  */
 import { apiUrl } from "./client";

@@ -7,7 +7,7 @@
  * 既定バックエンドは Windows 標準の SAPI（System.Speech）。追加依存はない。
  * 設定に `url` を書くと HTTP 合成に切り替える。
  * - `http://127.0.0.1:10101` のようにパス無し → AivisSpeech / VOICEVOX（audio_query→synthesis）
- * - `.../v1/audio/speech` → OpenAI 互換（Qwen3-TTS など）
+ * - `.../v1/audio/speech` → OpenAI 互換 HTTP TTS
  */
 
 import { spawn, type ChildProcess } from "node:child_process";
@@ -31,7 +31,7 @@ export interface TtsConfig {
   voice?: string;
   /** SAPI の速度 -10..10。 */
   rate: number;
-  /** Qwen3-TTS などの HTTP 合成エンドポイント。未指定なら SAPI。 */
+  /** HTTP 合成エンドポイント（AivisSpeech / カスタム）。未指定なら SAPI。 */
   url?: string;
 }
 

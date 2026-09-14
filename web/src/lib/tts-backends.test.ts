@@ -15,16 +15,16 @@ describe("tts-backends", () => {
     assert.equal(detectTtsBackend(""), "sapi");
     assert.equal(detectTtsBackend("http://127.0.0.1:10101"), "aivis");
     assert.equal(detectTtsBackend("http://127.0.0.1:10101/"), "aivis");
-    assert.equal(detectTtsBackend("http://127.0.0.1:18080/v1/audio/speech"), "qwen");
+    assert.equal(detectTtsBackend("http://127.0.0.1:18080/v1/audio/speech"), "custom");
     assert.equal(detectTtsBackend("http://127.0.0.1:9999/tts"), "custom");
   });
 
   it("exposes preset defaults for each bundled backend", () => {
-    assert.equal(TTS_BACKENDS.length, 3);
+    assert.equal(TTS_BACKENDS.length, 2);
     assert.equal(getTtsBackend("aivis")?.defaultVoice, "871574624");
     assert.equal(voiceLabel("aivis", "871574624"), "ramuchi / ノーマル");
     assert.equal(voiceLabel("aivis", "1257529344"), "kanna / ノーマル");
-    assert.equal(getTtsBackend("qwen")?.url.includes("/v1/audio/speech"), true);
+    assert.equal(getTtsBackend("aivis")?.url, "http://127.0.0.1:10101");
     assert.equal(backendLabel("sapi"), "Windows SAPI");
     assert.equal(backendLabel("custom"), "カスタム URL");
     assert.equal(voiceLabel("aivis", "888753760"), "まお / ノーマル");

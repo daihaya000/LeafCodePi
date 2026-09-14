@@ -16,7 +16,7 @@
 
 ## ローカル LLM（llama-server）
 
-`start.bat` 起動後、設定 → エンジン → 「ローカル LLM (llama-server)」から起動・停止できます。
+`start.bat`（Windows）または `./start.sh` / `npm run host`（Linux/macOS）起動後、設定 → エンジン → 「ローカル LLM (llama-server)」から起動・停止できます。
 
 - ポート **8081**（LeafCode の llama-server と同じ。片方を起動すれば共有可）。
 - `MODEL_FILE` 未指定 → ルーター（`--models-dir`）でモデルを切り替え。
@@ -51,10 +51,10 @@ Cursor は非公式拡張です。本機の Cursor IDE / CLI のトークンを�
 
 設定 → モデル → 「アカウント」から、ChatGPT (Codex) と Claude のサブスクアカウントを複数登録してタスクごとに切り替えられます（[計画](docs/plans/multi-account.md)）。
 
-- 追加アカウントのトークンは `%USERPROFILE%\.pi\agent\accounts\<accountId>\auth.json` に保存されます（既定の auth.json は不変）
+- 追加アカウントのトークンは Windows `%USERPROFILE%\.pi\agent\accounts\<accountId>\auth.json`、Linux/macOS `~/.pi/agent/accounts/<accountId>/auth.json` に保存されます（既定の auth.json は不変）
 - Home の Composer でアカウントを選ぶと、そのタスクとモデル一覧がそのアカウントに紐づきます。未選択 = 既定
 - アカウントが無い場合は選択 UI 自体が非表示になります。OAuth のログインフローは同時に 1 件のみです
-- 実行中のタスクから参照されているアカウントは削除できません。認証ファイルは削除後も残ります（手動削除は `%USERPROFILE%\.pi\agent\accounts\` 配下）
+- 実行中のタスクから参照されているアカウントは削除できません。認証ファイルは削除後も残ります（手動削除は Windows `%USERPROFILE%\.pi\agent\accounts\`、Linux/macOS `~/.pi/agent/accounts/` 配下）
 
 ## 同梱拡張
 
@@ -119,7 +119,7 @@ pi install ./extensions/leafcode-mcp-adapter
 pi install ./extensions/leafcode-intercom
 ```
 
-設定は `%USERPROFILE%\.pi\agent\intercom\config.json` に記述します。`inboundTrigger` は `always`（既定）、`replies`、`never` を選べます。
+設定は Windows `%USERPROFILE%\.pi\agent\intercom\config.json`、Linux/macOS `~/.pi/agent/intercom/config.json` に記述します。`inboundTrigger` は `always`（既定）、`replies`、`never` を選べます。
 
 同梱の15エージェントは `intercom` を許可し、子セッションでは `subagentOnlyExtensions` でプロバイダーを読み込みます。関連作業・編集競合があるときだけ `list` で相手のID・cwdを確認し、短い `send` で共有します。`ask` はブロック時のみ、親への判断依頼は `contact_supervisor`、通常の完了は結果返却のままです。受信内容を権限や承認として扱わず、秘密情報の送信・定期通知・無断pane起動はしません。
 
@@ -127,7 +127,7 @@ pi install ./extensions/leafcode-intercom
 
 ### 読み上げ (`leafcode-tts`)
 
-`extensions/leafcode-tts` は Bot / エージェントの発言を読み上げます。既定は OFF で、`/tts`（`/tts on`・`/tts off`・`/tts test`）で切り替えます。`on` / `off` / トグルは `%APPDATA%\leafcode-pi\tts.json` の `enabled` に保存され、再起動後も維持されます。入力や次のエージェント開始で未再生分を捨て、発話中なら再生プロセスを止めて即断します。設定画面から無効化できる唯一の `leafcode-*` 拡張です。
+`extensions/leafcode-tts` は Bot / エージェントの発言を読み上げます。既定は OFF で、`/tts`（`/tts on`・`/tts off`・`/tts test`）で切り替えます。`on` / `off` / トグルは `%APPDATA%\leafcode-pi\tts.json`（Linux/macOS は `~/.leafcode-pi/tts.json`）の `enabled` に保存され、再起動後も維持されます。入力や次のエージェント開始で未再生分を捨て、発話中なら再生プロセスを止めて即断します。設定画面から無効化できる唯一の `leafcode-*` 拡張です。
 
 文章全体をまとめて渡さず、streaming の `text_delta` を「、」「。」「！」「？」と改行で短く区切り、合成と再生を並行させる Producer/Consumer 方式です。コードブロック・URL・Markdown 記法は読み上げません。サブエージェントの子プロセスでは無効です。
 
@@ -150,7 +150,7 @@ pi install ./extensions/leafcode-intercom
 | `.../v1/tts` | `{ "text", "speaker", "language": "Japanese" }` |
 | `.../v1/audio/speech` | OpenAI 互換 `{ "input", "voice", "response_format": "wav" }` |
 
-同梱の最小サーバーは `extensions/leafcode-tts/server`（Qwen3-TTS。ROCm/CUDA の `qwen-tts` が入っていれば WAV を返す）。WebUI の **設定 → エンジン → 表示と通知 → 読み上げ (TTS)** からも同じ `tts.json` を編集できます。合成に失敗したチャンクは読み飛ばし、読み上げ全体は止めません。
+HTTP 合成の既定は AivisSpeech（`http://127.0.0.1:10101`、VOICEVOX 互換の audio_query → synthesis）です。WebUI の **設定 → エンジン → 表示と通知 → 読み上げ (TTS)** からも同じ `tts.json` を編集できます。合成に失敗したチャンクは読み飛ばし、読み上げ全体は止めません。
 
 ```powershell
 npx --prefix extensions/leafcode-todowrite vitest run --dir extensions/leafcode-tts
@@ -260,7 +260,7 @@ npm run check
 
 - `web/` — Next.js UI と BFF
 - `host/` — Next.js の起動・監視・再起動。Windows はトレイ常駐、Linux/macOS は既定でヘッドレス
-- `start.bat` — 導入とホスト起動
+- `start.bat` / `start.sh` — 導入とホスト起動
 - `scripts/build-web.mjs` — production build の唯一の入口（ソース差分同期 → ローカル依存準備 → `next build` → BUILD_ID 検証）
 - `scripts/web-build-mirror.mjs` — 既存のOneDrive外ビルド領域へのソース差分同期
 - `extensions/` — Pi 拡張（Goal Loop、memory、subagents など）
@@ -279,7 +279,7 @@ npm run check
 | `LEAFCODE_PI_HOST` | WebUI 待ち受け。既定 `tailscale`（Tailscale IPv4。未検出時は 127.0.0.1）。`0.0.0.0` / 明示 IP も可 |
 | `LEAFCODE_PI_HOST_CONTROL_PORT` | ホスト制御（llama-server 起動など）。既定 **18775**（LeafCode の 18765 と別） |
 | `LEAFCODE_PI_LLAMA_PORT` | llama-server ポート。既定 **8081** |
-| `LEAFCODE_PI_MODE` | `prod`（既定・start.bat）または `dev` |
+| `LEAFCODE_PI_MODE` | `prod`（既定・start.bat / start.sh）または `dev` |
 | `LEAFCODE_PI_BUILD_DIR` | production build のミラー先（未設定時は Windows `%LOCALAPPDATA%\leafcode-pi\build\...`、Linux/macOS `$XDG_CACHE_HOME/leafcode-pi/build/...`） |
 | `LEAFCODE_PI_EXTENSIONS_DIR` | 組み込み拡張のディレクトリ（host が自動設定） |
 | `LEAFCODE_PI_SKILLS_DIR` | 組み込みスキルのディレクトリ（host が自動設定、既定はリポジトリの `skills/`） |

@@ -17,6 +17,7 @@ import { hardKillTree, stopProcessTreeGracefully } from "./process-stop.js";
 import { buildHostRestartScript } from "./host-restart.js";
 import { autoUpdatePiInBackground } from "./pi-update.js";
 import { createTranslationService } from "./translation-service.js";
+import { openProjectInExplorer } from "./open-explorer.js";
 import { withLocalLeafcodeTempEnv } from "./tray-temp.js";
 import {
   ensureWebUiAuth,
@@ -102,17 +103,6 @@ function isLocalClientOrigin(origin) {
   } catch {
     return false;
   }
-}
-
-function openProjectInExplorer(path) {
-  return new Promise((resolve, reject) => {
-    const child = spawn("explorer.exe", [path], { detached: true, stdio: "ignore" });
-    child.once("error", reject);
-    child.once("spawn", () => {
-      child.unref();
-      resolve({ ok: true });
-    });
-  });
 }
 
 const llamaServerService = createLlamaServerService({
@@ -825,7 +815,7 @@ async function startControlServer() {
       return { ...webUiAuthSettings(), restartAccepted: true, enabled: saved.enabled };
     },
     isLocalClientOrigin,
-    onOpenExplorer: process.platform === "win32" ? openProjectInExplorer : undefined,
+    onOpenExplorer: openProjectInExplorer,
     onTranslationStatus: () => translationService.status(),
     onTranslationStart: () => {
       translationService.start();

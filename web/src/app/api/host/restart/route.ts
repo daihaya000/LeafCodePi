@@ -4,6 +4,7 @@ import {
   resolveHostControlUrl,
   type HostRestartTarget,
 } from "@/lib/host-control";
+import { hostLaunchCheckHint } from "@/lib/host-launch-hints";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -62,7 +63,7 @@ export async function POST(req: Request) {
             ? `ホスト制御に接続できません: ${err.message}`
             : "ホスト制御に接続できません",
         target,
-        hint: "start.bat（トレイホスト）経由で起動しているか確認してください",
+        hint: hostLaunchCheckHint(),
       },
       { status: 502 },
     );

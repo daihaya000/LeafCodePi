@@ -1,4 +1,5 @@
 import { hostTranslationPath, resolveHostControlUrl } from "@/lib/host-control";
+import { hostLaunchCheckHint } from "@/lib/host-launch-hints";
 import { NextResponse } from "next/server";
 
 export const runtime = "nodejs";
@@ -31,7 +32,7 @@ export async function POST() {
           err instanceof Error
             ? `ホスト制御に接続できません: ${err.message}`
             : "ホスト制御に接続できません",
-        hint: "start.bat（トレイホスト）経由で起動しているか確認してください",
+        hint: hostLaunchCheckHint(),
       },
       { status: 502 },
     );
