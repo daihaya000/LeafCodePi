@@ -137,6 +137,12 @@ describe("POST /api/tasks", () => {
         accountIdExplicit: true,
       }),
     );
+    expect(mocks.createTask).toHaveBeenCalledWith(
+      expect.objectContaining({
+        accountId: "acc-pinned",
+        accountIdExplicit: true,
+      }),
+    );
   });
 
   it("marks a task Goal Loop for per-turn Auto agent routing", async () => {

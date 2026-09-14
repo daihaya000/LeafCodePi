@@ -608,7 +608,18 @@ function state(): HarnessState {
     [GLOBAL_KEY]?: HarnessState;
   };
   if (!globalRef[GLOBAL_KEY]) {
-    setBotIntercomResidentLookup((botId) => Boolean(globalRef[GLOBAL_KEY]?.live.has(`bot:${botId}`)));
+    // Resident = any live session for this Bot (1:1 or Room). Room-only bots were
+    // wrongly offline, so peers queued forever even while the Room turn was active.
+    setBotIntercomResidentLookup((botId) => {
+      const liveMap = globalRef[GLOBAL_KEY]?.live;
+      if (!liveMap) return false;
+      if (liveMap.has(`bot:${botId}`)) return true;
+      const prefix = `bot:${botId}:room:`;
+      for (const taskId of liveMap.keys()) {
+        if (taskId.startsWith(prefix)) return true;
+      }
+      return false;
+    });
     const liveBusy = (live: LiveRuntime | undefined) =>
       Boolean(live && (live.promptActive || live.session.isStreaming || live.session.isCompacting));
     setBotIntercomBusyLookup((botId) => liveBusy(globalRef[GLOBAL_KEY]?.live.get(`bot:${botId}`)));

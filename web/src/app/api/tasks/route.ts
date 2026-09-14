@@ -310,7 +310,11 @@ export async function POST(req: NextRequest) {
       files: body.files,
       ...(agent ? { agent } : {}),
       accountId,
-      ...(body.auto === true ? { accountIdExplicit: false } : {}),
+      ...(body.auto === true
+        ? { accountIdExplicit: false }
+        : accountId
+          ? { accountIdExplicit: true }
+          : {}),
       subagentPermission,
       permissionMode,
       skillPermission,

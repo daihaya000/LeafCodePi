@@ -168,7 +168,7 @@ let askTimeoutMs = BOT_INTERCOM_ASK_TIMEOUT_MS;
 
 const BOT_ID_RE = /^[0-9a-f]{8}-[0-9a-f-]{27,}$/i;
 
-/** Harness installs this so "resident" means a live 1:1 session (`bot:<id>`). */
+/** Harness installs this so "resident" means a live Bot session (1:1 `bot:<id>` or Room). */
 export function setBotIntercomResidentLookup(lookup: (botId: string) => boolean): void {
   residentLookup = lookup;
 }
