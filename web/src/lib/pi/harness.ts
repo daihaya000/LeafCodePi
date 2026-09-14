@@ -1808,9 +1808,8 @@ function restoredThroughputState(
   };
 }
 
-function restoredLiveTaskState(
+function restoredPromptState(
   existing: LiveRuntime | undefined,
-  task: ReturnType<typeof getTask>,
 ): Pick<
   LiveRuntime,
   | "accountByMessageId"
@@ -1820,10 +1819,6 @@ function restoredLiveTaskState(
   | "pendingSettings"
   | "promptEpoch"
   | "toolPartialOutputByCallId"
-  | "revertLeafId"
-  | "manualAbortedAssistantId"
-  | "hangRetryCount"
-  | "pendingProviderFallback"
 > {
   return {
     accountByMessageId: existing?.accountByMessageId ?? new Map(),
@@ -1836,6 +1831,20 @@ function restoredLiveTaskState(
     pendingSettings: existing?.pendingSettings,
     promptEpoch: existing?.promptEpoch ?? 0,
     toolPartialOutputByCallId: existing?.toolPartialOutputByCallId ?? new Map(),
+  };
+}
+
+function restoredTaskMetadata(
+  existing: LiveRuntime | undefined,
+  task: ReturnType<typeof getTask>,
+): Pick<
+  LiveRuntime,
+  | "revertLeafId"
+  | "manualAbortedAssistantId"
+  | "hangRetryCount"
+  | "pendingProviderFallback"
+> {
+  return {
     revertLeafId: existing?.revertLeafId ?? task?.revertLeafId ?? null,
     manualAbortedAssistantId:
       existing?.manualAbortedAssistantId ?? task?.manualAbortedAssistantId ?? null,
@@ -1861,7 +1870,8 @@ function buildLiveRuntime(input: {
   return {
     taskId,
     accountId: input.accountId,
-    ...restoredLiveTaskState(existing, task),
+    ...restoredPromptState(existing),
+    ...restoredTaskMetadata(existing, task),
     agentName: input.agentName,
     session,
     skillPermission: skillPermissionRef.current,
