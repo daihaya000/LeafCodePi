@@ -623,6 +623,7 @@ describe("Bot ⇄ Code relay", () => {
 
     expect(record()).toMatchObject({ state: "ready", codeTaskId: null });
     expect(record().result).toContain("失敗");
+    expect(listBotCodeRequests("one")[0]?.outcome).toBe("失敗");
     expect(onSettled).toHaveBeenCalledTimes(1);
   });
 

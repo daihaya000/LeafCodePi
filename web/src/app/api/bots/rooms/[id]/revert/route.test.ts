@@ -74,6 +74,7 @@ describe("room revert", () => {
     expect((await send(room.id, { messageId: reply.id })).status).toBe(404);
     expect((await send(room.id, { messageId: "unknown" })).status).toBe(404);
     expect(getRoom(room.id)!.messages).toHaveLength(1);
+    expect(state.stop).not.toHaveBeenCalled();
     expect(state.cancel).not.toHaveBeenCalled();
     expect(state.clearAttention).not.toHaveBeenCalled();
   });

@@ -500,7 +500,14 @@ function bindImplicitMentionHandoff(input: {
 }
 
 function handoffCodeOutcome(request: Pick<CodeRequest, "result">): string | undefined {
-  try { return JSON.parse(request.result ?? "{}").outcome; } catch { return undefined; }
+  if (!request.result) return undefined;
+  try {
+    const parsed = JSON.parse(request.result) as { outcome?: unknown };
+    return typeof parsed.outcome === "string" && parsed.outcome ? parsed.outcome : undefined;
+  } catch {
+    const outcome = request.result.trim();
+    return outcome || undefined;
+  }
 }
 function codeResultSucceeded(request: Pick<CodeRequest, "result">): boolean {
   const outcome = handoffCodeOutcome(request);

@@ -13,7 +13,8 @@ import { parseCodexBarSnapshot } from "@/lib/codexbar";
 import { clearCachedUsage, setCachedUsage } from "@/lib/codexbar/cache";
 import { setAccountRoutingMode, __resetProviderRoutingQueueForTests, markProviderLimited } from "@/lib/provider-routing";
 import { AccountRuntimeManager } from "./account-runtime-manager";
-import { completeModelText, createTask, validateTaskModelSelection } from "./harness";
+import { archiveProject, completeModelText, createTask, validateTaskModelSelection } from "./harness";
+import { upsertProject } from "@/lib/store";
 import type { AssistantMessage } from "@earendil-works/pi-ai";
 
 const GLOBAL_KEY = "__leafcodePiHarness";
@@ -156,6 +157,27 @@ describe("completeModelText", () => {
       (error: unknown) =>
         error instanceof Error &&
         (error as Error & { status?: number }).status === 409,
+    );
+  });
+
+  it("rejects createTask for an archived project", async () => {
+    installRuntime(assistant({ content: [{ type: "text", text: "unused" }] }));
+    const project = upsertProject({
+      name: "archived-project",
+      rootPath: join(tempDirs.at(-1)!, "proj"),
+    });
+    archiveProject(project.id);
+    await assert.rejects(
+      () =>
+        createTask({
+          projectId: project.id,
+          prompt: "hello",
+          model: "anthropic::claude-sonnet",
+        }),
+      (error: unknown) =>
+        error instanceof Error &&
+        (error as Error & { status?: number }).status === 409 &&
+        error.message.includes("アーカイブ"),
     );
   });
 

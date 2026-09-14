@@ -6469,6 +6469,11 @@ function resolveCreateTaskProject(projectId: string | null): ProjectDto | null {
       status: 404,
     });
   }
+  if (project?.archived) {
+    throw Object.assign(new Error("アーカイブ済みのプロジェクトではタスクを作成できません"), {
+      status: 409,
+    });
+  }
   return project;
 }
 
@@ -7736,6 +7741,15 @@ export async function promptTask(
   },
 ): Promise<TaskSummary> {
   const taskBeforePrompt = requireTask(id);
+  if (taskBeforePrompt.projectId) {
+    const project = getProject(taskBeforePrompt.projectId);
+    if (project?.archived) {
+      throw Object.assign(
+        new Error("アーカイブ済みのプロジェクトではプロンプトを送信できません"),
+        { status: 409 },
+      );
+    }
+  }
   if (shouldForwardBotCodePrompt(taskBeforePrompt)) {
     startBotCodeRelay();
     queueBotCodePrompt(

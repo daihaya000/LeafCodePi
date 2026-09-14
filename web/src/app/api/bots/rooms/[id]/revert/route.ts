@@ -18,6 +18,11 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     const body = (await req.json().catch(() => null)) as { messageId?: unknown } | null;
     const messageId = typeof body?.messageId === "string" ? body.messageId.trim() : "";
     if (!messageId) return NextResponse.json({ error: "messageId が指定されていません" }, { status: 400 });
+    // Validate before stop: an invalid target must not destroy in-flight turns.
+    const target = existing.messages.find((message) => message.id === messageId);
+    if (!target || target.role !== "user") {
+      return NextResponse.json({ error: "巻き戻せるユーザー発言が見つかりません" }, { status: 404 });
+    }
     // Stop first: a conversation still running would append new turns into the rewound transcript.
     await stopRoomTurns(id);
     const reverted = revertRoomTo(id, messageId);

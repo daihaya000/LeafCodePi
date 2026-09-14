@@ -446,6 +446,14 @@
 ### 検証（Tick86–87）
 `code-session` / `goal-loop` / `rooms/.../code` — **40 passed**
 
+### Tick88–89（ループ継続・[Hunt Tick88–89](149fe2c6) 追随）
+1. Room revert — 無効 `messageId` では `stopRoomTurns` 前に 404（進行中ターン破壊防止）
+2. `createTask` / `promptTask` — アーカイブ済みプロジェクトを 409 拒否
+3. Code outbox — 失敗 result を JSON 化し、非 JSON でも outcome フォールバック
+
+### 検証（Tick88–89）
+`rooms/.../revert` / `harness-complete` / `bot-code-relay` — **83 passed**
+
 ---
 
 ## 2026-09-14: Stale production rebuild / next build exit 1

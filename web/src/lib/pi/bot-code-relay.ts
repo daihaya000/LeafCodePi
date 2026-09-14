@@ -225,7 +225,11 @@ function requestPayload(request: CodeRequest): { outcome?: string; goalLoop?: Co
       ...(typeof parsed.outcome === "string" && parsed.outcome ? { outcome: parsed.outcome } : {}),
       ...(parsed.goalLoop && typeof parsed.goalLoop.status === "string" ? { goalLoop: parsed.goalLoop } : {}),
     };
-  } catch { return {}; }
+  } catch {
+    // Legacy plain-string failures still surface as an outcome for the UI/handoff.
+    const outcome = request.result.trim();
+    return outcome ? { outcome } : {};
+  }
 }
 function markUserStoppedResult(request: CodeRequest): void {
   let payload: Record<string, unknown> = {};
@@ -839,7 +843,14 @@ export function createBotCodeRelay(deps: RelayDependencies) {
       }
     } catch (error) {
       request.state = "ready";
-      request.result = `Codeへの依頼に失敗しました: ${error instanceof Error ? error.message : String(error)}`;
+      const message = error instanceof Error ? error.message : String(error);
+      request.result = JSON.stringify({
+        outcome: "失敗",
+        error: `Codeへの依頼に失敗しました: ${message}`,
+        output: "",
+        truncated: false,
+        codeTaskId: request.codeTaskId ?? null,
+      });
       save(request);
       notifySettled(request);
       throw error;
@@ -939,7 +950,15 @@ export function createBotCodeRelay(deps: RelayDependencies) {
         const task = getTask(request.codeTaskId);
         if (task && deps.isBusy(task.id)) return;
         if (request.stoppedByUser) markUserStoppedResult(request);
-        else request.result = "Codeへの依頼準備が再起動などにより中断されました。自動で再実行はしていません。";
+        else {
+          request.result = JSON.stringify({
+            outcome: "失敗",
+            error: "Codeへの依頼準備が再起動などにより中断されました。自動で再実行はしていません。",
+            output: "",
+            truncated: false,
+            codeTaskId: request.codeTaskId ?? null,
+          });
+        }
         request.state = "ready";
         settledFromStarting = true;
       }
