@@ -263,6 +263,48 @@ describe("hang-watchdog helpers", () => {
     }
   });
 
+  it("keeps a watch when another worker holds the active lease", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(1_000_000);
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "leafcode-pi-hang-watchdog-foreign-lease-"));
+    const previousDataDir = process.env.LEAFCODE_PI_DATA_DIR;
+    process.env.LEAFCODE_PI_DATA_DIR = root;
+    fs.mkdirSync(path.join(root, "task-leases"), { recursive: true });
+    fs.writeFileSync(
+      path.join(root, "task-leases", "foreign-lease.json"),
+      `${JSON.stringify({
+        token: "other-worker",
+        pid: process.pid,
+        acquiredAt: 1_000_000,
+        heartbeatAt: 1_000_000,
+      })}\n`,
+      "utf8",
+    );
+    let reason = "";
+    registerHangWatchdogHooks({
+      getLive: () => null,
+      abortTask: async () => undefined,
+      resumePrompt: () => undefined,
+      notifyHangRetry: () => undefined,
+      onMissingLive: (_taskId, message) => {
+        reason = message;
+      },
+    });
+    try {
+      armTaskHangWatch({ taskId: "foreign-lease", prompt: "work", startedAt: 1_000_000 });
+      await runHangWatchdogTick();
+      vi.setSystemTime(1_000_000 + MISSING_LIVE_GRACE_MS);
+      await runHangWatchdogTick();
+      expect(getTaskHangWatch("foreign-lease")).not.toBeNull();
+      expect(reason).toBe("");
+    } finally {
+      stopHangWatchdogForTests();
+      if (previousDataDir === undefined) delete process.env.LEAFCODE_PI_DATA_DIR;
+      else process.env.LEAFCODE_PI_DATA_DIR = previousDataDir;
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it("does not abort a parent turn while its only active tool is a subagent", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(1_000_000);

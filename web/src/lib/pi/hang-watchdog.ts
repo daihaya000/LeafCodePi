@@ -18,6 +18,7 @@ import {
   readHangTimeoutSettingMs,
 } from "@/lib/pi/hang-settings";
 import type { PromptImage } from "@/lib/pi/harness";
+import { hasActiveTaskLease, ownsTaskLease } from "@/lib/task-runtime-lease";
 import type { PromptFileInput } from "@/lib/prompt-images";
 import type { UiMessage } from "@/lib/types";
 
@@ -397,6 +398,12 @@ async function evaluateWatch(row: TaskHangWatchRow, timeoutMs: number): Promise<
       return;
     }
     if (now - row.missingLiveSince < MISSING_LIVE_GRACE_MS) return;
+    // 別ワーカーが lease を持っているなら、こちらの getLive() が null なのは正常。
+    // watch を外したり error に落とすと、実行中のタスクを誤停止する。
+    if (hasActiveTaskLease(row.taskId) && !ownsTaskLease(row.taskId)) {
+      logWatchdog("live session missing - another worker holds the lease", row);
+      return;
+    }
     disarmTaskHangWatch(row.taskId);
     hooks.onMissingLive?.(
       row.taskId,

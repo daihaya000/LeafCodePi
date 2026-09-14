@@ -10,11 +10,14 @@ export async function POST(req: Request) {
     if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
       return NextResponse.json({ error: "リクエストボディが不正です" }, { status: 400 });
     }
-    const body = raw as { promptId?: unknown; value?: unknown };
+    const body = raw as { promptId?: unknown; value?: unknown; sessionId?: unknown };
     if (typeof body.promptId !== "string" || !body.promptId.trim() || typeof body.value !== "string") {
       return NextResponse.json({ error: "promptId と value が必要です" }, { status: 400 });
     }
-    answerProviderLogin(body.promptId.trim(), body.value);
+    if (typeof body.sessionId !== "string" || !body.sessionId.trim()) {
+      return NextResponse.json({ error: "sessionId が必要です" }, { status: 400 });
+    }
+    answerProviderLogin(body.promptId.trim(), body.value, body.sessionId.trim());
     return NextResponse.json({ ok: true });
   } catch (error) {
     const { error: message, status } = jsonError(error);

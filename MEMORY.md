@@ -52,6 +52,14 @@
 1. `store.readStore` — 500ms TTL の blind return を廃止し、常に mtime/size で再検証（他ライター更新を即反映）
 2. bot-intercom — `steered` 時に harness の steer handler 経由で `promptTask(..., steer)` を実行
 
+### Tick6（ループ継続）
+1. hang-watchdog — 別ワーカーが `hasActiveTaskLease` を持つとき missing-live で誤停止しない
+2. TaskView 無言ターン自動再開 — 失敗時に `autoResumeKeyRef` をクリアして再試行可能に
+3. OAuth/API login — answer/events に `sessionId` 必須（他タブのセッションへ誤回答しない）
+
+### 検証（Tick6）
+`hang-watchdog` / `login/answer` / `ProviderAuthPanel` — **38 passed**
+
 ---
 
 ## 2026-09-14: Stale production rebuild / next build exit 1

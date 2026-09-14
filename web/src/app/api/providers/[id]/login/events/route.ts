@@ -10,6 +10,7 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> },
 ) {
   const { id } = await params;
+  const sessionId = req.nextUrl.searchParams.get("sessionId")?.trim() ?? "";
   let sse: ReturnType<typeof createSseWriter> | undefined;
 
   const stream = new ReadableStream({
@@ -17,8 +18,13 @@ export async function GET(
       let unsubscribe = () => {};
       sse = createSseWriter(controller, { signal: req.signal });
       sse.onCleanup(() => unsubscribe());
+      if (!sessionId) {
+        sse.send("done", { type: "done", ok: false, error: "sessionId が必要です" });
+        sse.close();
+        return;
+      }
       const active = getActiveProviderLogin();
-      if (!active || active.providerId !== id) {
+      if (!active || active.providerId !== id || active.sessionId !== sessionId) {
         sse.send("done", { type: "done", ok: false, error: "ログインセッションがありません" });
         sse.close();
         return;

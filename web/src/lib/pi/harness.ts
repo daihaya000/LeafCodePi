@@ -832,6 +832,8 @@ async function ensureRuntime(
         emitTaskSnapshot(live, "hang_retry", { hangRetryCount: retryCount });
       },
       onMissingLive: (taskId, reason) => {
+        // 別ワーカーが実行中なら、このプロセスの LiveRuntime 不在は想定内。
+        if (hasActiveTaskLease(taskId) && !ownsTaskLease(taskId)) return;
         const task = getTask(taskId);
         if (!task || task.status !== "working") return;
         const updated = setTaskStatus(taskId, "error", reason);
@@ -5317,12 +5319,22 @@ export async function startProviderLogin(
   return { sessionId: session.id };
 }
 
-export function answerProviderLogin(promptId: string, value: string): void {
+export function answerProviderLogin(
+  promptId: string,
+  value: string,
+  sessionId?: string | null,
+): void {
   const session = state().loginSession;
   if (!session)
     throw Object.assign(new Error("ログインセッションがありません"), {
       status: 409,
     });
+  const expected = typeof sessionId === "string" ? sessionId.trim() : "";
+  if (expected && session.id !== expected) {
+    throw Object.assign(new Error("ログインセッションが一致しません"), {
+      status: 409,
+    });
+  }
   session.answer(promptId, value);
 }
 

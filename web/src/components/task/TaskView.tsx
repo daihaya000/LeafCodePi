@@ -2526,7 +2526,7 @@ export const TaskView = memo(function TaskView({
   }
 
   const resumeTurn = useCallback(async (target: ResumableTurn, manual = false) => {
-    if (working || resumingTurn || archived) return;
+    if (working || resumingTurn || archived) return false;
     const wasStopped = stopRequestedRef.current;
     if (manual) {
       stopRequestedRef.current = false;
@@ -2556,12 +2556,14 @@ export const TaskView = memo(function TaskView({
       });
       setManualAbortedAssistantId(null);
       notifyTasksChanged();
+      return true;
     } catch (err) {
       if (manual && wasStopped) {
         stopRequestedRef.current = true;
         setStopRequested(true);
       }
       setResumeTurnError(err instanceof Error ? err.message : "再開に失敗しました");
+      return false;
     } finally {
       setResumingTurn(false);
     }
@@ -2824,7 +2826,10 @@ export const TaskView = memo(function TaskView({
     const key = `${taskId}:${resumeTarget.messageId}`;
     if (autoResumeKeyRef.current === key) return;
     autoResumeKeyRef.current = key;
-    void resumeTurn(resumeTarget);
+    void resumeTurn(resumeTarget).then((ok) => {
+      // 失敗時は key を戻し、次の effect で再試行できるようにする。
+      if (!ok && autoResumeKeyRef.current === key) autoResumeKeyRef.current = null;
+    });
   }, [autoResumeSilentTurn, currentPromptIsHangRetry, resumeTarget, resumeTurn, resumingTurn, showResume, task?.status, taskId]);
   const resumeMessage = resumeTarget
     ? visibleMessages.find((message) => message.id === resumeTarget.messageId)

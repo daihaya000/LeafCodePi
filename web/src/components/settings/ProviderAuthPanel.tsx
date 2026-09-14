@@ -461,7 +461,9 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
       );
     };
     const es = new EventSource(
-      apiUrl(`/api/providers/${encodeURIComponent(providerId)}/login/events`),
+      apiUrl(
+        `/api/providers/${encodeURIComponent(providerId)}/login/events?sessionId=${encodeURIComponent(sessionId)}`,
+      ),
     );
     es.addEventListener("notify", (raw) => {
       if (!isCurrent()) return;
@@ -627,11 +629,15 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
         : prev,
     );
     try {
+      if (!activeLogin.sessionId) {
+        throw new Error("ログインセッションがありません");
+      }
       await sendJson(
         `/api/providers/${encodeURIComponent(activeLogin.providerId)}/login/answer`,
         {
           promptId: prompt.id,
           value,
+          sessionId: activeLogin.sessionId,
         },
       );
       setLogin((prev) =>

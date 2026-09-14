@@ -33,4 +33,21 @@ describe("POST /api/providers/[id]/login/answer", () => {
     expect(response.status).toBe(400);
     expect(mocks.answerProviderLogin).not.toHaveBeenCalled();
   });
+
+  it("rejects a missing sessionId before answering", async () => {
+    const response = await POST(request({ promptId: "p1", value: "answer" }));
+
+    expect(response.status).toBe(400);
+    expect(mocks.answerProviderLogin).not.toHaveBeenCalled();
+  });
+
+  it("forwards sessionId when answering", async () => {
+    mocks.answerProviderLogin.mockReturnValue(undefined);
+    const response = await POST(
+      request({ promptId: "p1", value: "answer", sessionId: "sess-1" }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(mocks.answerProviderLogin).toHaveBeenCalledWith("p1", "answer", "sess-1");
+  });
 });
