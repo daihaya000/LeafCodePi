@@ -40,7 +40,9 @@ export function parseXdgUserDirsFile(contents: string, home: string): XdgUserDir
   return dirs;
 }
 
-function envXdgDir(env: NodeJS.ProcessEnv | undefined, key: XdgKey, home: string): string | undefined {
+type EnvMap = NodeJS.Dict<string>;
+
+function envXdgDir(env: EnvMap | undefined, key: XdgKey, home: string): string | undefined {
   const raw = env?.[key]?.trim();
   if (!raw) return undefined;
   const path = expandXdgValue(raw, home);
@@ -52,7 +54,7 @@ export function readXdgUserDirs(
   options: {
     home?: string;
     configPath?: string;
-    env?: NodeJS.ProcessEnv;
+    env?: EnvMap;
     readFile?: (path: string) => string;
   } = {},
 ): XdgUserDirs {

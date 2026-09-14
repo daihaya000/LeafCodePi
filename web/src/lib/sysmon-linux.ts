@@ -111,14 +111,18 @@ export function isAmdPciVendor(raw: string): boolean {
 }
 
 export function parseAmdGpuBusyPercent(raw: string): number | null {
-  const n = Number(String(raw).trim());
+  const trimmed = String(raw).trim();
+  if (!trimmed) return null;
+  const n = Number(trimmed);
   if (!Number.isFinite(n) || n < 0) return null;
   return clampPercent(n);
 }
 
 export function parseVramBytes(raw: string): number | null {
-  const n = Number(String(raw).trim());
-  if (!Number.isFinite(n) || n < 0) return null;
+  const trimmed = String(raw).trim();
+  if (!trimmed) return null;
+  const n = Number(trimmed);
+  if (!Number.isFinite(n) || n <= 0) return null;
   return n;
 }
 

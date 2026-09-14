@@ -88,7 +88,10 @@ describe("collectLinuxAmdGpus", () => {
   it("reads amdgpu sysfs cards and sorts larger VRAM first", async () => {
     expect(isAmdPciVendor("0x1002")).toBe(true);
     expect(parseAmdGpuBusyPercent("37\n")).toBe(37);
+    expect(parseAmdGpuBusyPercent("")).toBeNull();
     expect(parseVramBytes("2147483648")).toBe(2147483648);
+    expect(parseVramBytes("")).toBeNull();
+    expect(parseVramBytes("0")).toBeNull();
 
     const fs = memoryFs(
       {
