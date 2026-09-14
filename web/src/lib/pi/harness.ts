@@ -5317,6 +5317,33 @@ type GetTaskDetailOptions = {
   offline?: boolean;
 };
 
+/** Transcript-only fields shared by the archived and cross-worker (offline) reads. */
+async function offlineDetailParts(
+  task: TaskSummary,
+  onTiming?: TaskDetailTimingReporter,
+): Promise<{
+  messages: UiMessage[];
+  todos: TodoDto[];
+  isCompacting: false;
+  compactionSuggested: false;
+  hangRetryCount: number;
+  revertLeafId: string | null;
+  manualAbortedAssistantId: string | null;
+}> {
+  const startedAt = onTiming ? performance.now() : 0;
+  const offline = await readArchivedTaskSnapshot(task);
+  reportTaskDetailPhase(onTiming, "archivedRead", startedAt);
+  return {
+    messages: offline.messages,
+    todos: offline.todos,
+    isCompacting: false,
+    compactionSuggested: false,
+    hangRetryCount: task.hangRetryCount || 0,
+    revertLeafId: task.revertLeafId ?? null,
+    manualAbortedAssistantId: task.manualAbortedAssistantId ?? null,
+  };
+}
+
 export async function getTaskDetail(
   id: string,
   options: GetTaskDetailOptions = {},
@@ -5327,21 +5354,13 @@ export async function getTaskDetail(
   if (!task)
     throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });
   if (task.status === "archived") {
-    const offlineStartedAt = options.onTiming ? performance.now() : 0;
-    const offline = await readArchivedTaskSnapshot(task);
-    reportTaskDetailPhase(options.onTiming, "archivedRead", offlineStartedAt);
     const detail = {
       ...getTaskBootstrap(id),
-      messages: offline.messages,
-      todos: offline.todos,
+      ...(await offlineDetailParts(task, options.onTiming)),
       isStreaming: false,
-      compactionSuggested: false,
       permissionRequest: ensurePermissionPromptService().pendingForTask(id),
       questionRequest: ensureQuestionPromptService().pendingForTask(id),
       goalLoop: null,
-      hangRetryCount: task.hangRetryCount || 0,
-      revertLeafId: task.revertLeafId ?? null,
-      manualAbortedAssistantId: task.manualAbortedAssistantId ?? null,
     };
     reportTaskDetailPhase(options.onTiming, "total", totalStartedAt);
     return detail;
@@ -5349,22 +5368,15 @@ export async function getTaskDetail(
   // A Code task owned by another Next worker cannot be opened as a live SDK session here.
   // Read its append-only transcript instead; prompts are delivered through the relay outbox.
   if (options.offline || shouldForwardBotCodePrompt(task)) {
-    const offlineStartedAt = options.onTiming ? performance.now() : 0;
-    const offline = await readArchivedTaskSnapshot(task);
-    reportTaskDetailPhase(options.onTiming, "archivedRead", offlineStartedAt);
+    const parts = await offlineDetailParts(task, options.onTiming);
     const detail = {
       ...toSummary(task),
-      messages: includeMessages ? offline.messages : [],
-      todos: offline.todos,
+      ...parts,
+      messages: includeMessages ? parts.messages : [],
       isStreaming: task.status === "working",
-      isCompacting: false,
-      compactionSuggested: false,
       goalLoop: readGoalLoopState(task.directory, task.sessionId),
       permissionRequest: null,
       questionRequest: null,
-      hangRetryCount: task.hangRetryCount || 0,
-      revertLeafId: task.revertLeafId ?? null,
-      manualAbortedAssistantId: task.manualAbortedAssistantId ?? null,
     };
     reportTaskDetailPhase(options.onTiming, "total", totalStartedAt);
     return detail;
