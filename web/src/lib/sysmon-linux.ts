@@ -1,5 +1,5 @@
 import { readdir, readFile } from "node:fs/promises";
-import { join } from "node:path";
+import { posix } from "node:path";
 import { clampPercent, type GpuMetric } from "@/lib/sysmon";
 
 export type LinuxSysFs = {
@@ -22,6 +22,9 @@ const CPU_THERMAL_TYPES = /x86_pkg_temp|cpu-thermal|cpu_thermal|acpitz|soc-therm
 const IGNORE_THERMAL_TYPES = /nvme|wifi|wlan|pch|battery|ambient|iwlwifi|ath10k|ath11k|gpu|amdgpu|radeon|i915|nouveau/i;
 const CPU_HWMON_NAMES = /k10temp|coretemp|zenpower|acpitz|cpu_thermal|cpu-thermal|soc_thermal|soc-thermal/i;
 const CPU_HWMON_LABELS = /tctl|tdie|package|core(?!\s*temp)|cpu/i;
+
+/** Linux sysfs paths are always POSIX, even when unit tests run on Windows. */
+const join = posix.join;
 
 export function parseMilliCelsius(raw: string): number | null {
   const n = Number(String(raw).trim());

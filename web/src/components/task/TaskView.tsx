@@ -2398,6 +2398,7 @@ export const TaskView = memo(function TaskView({
     sseReconnecting,
     stopRequested,
     submitting,
+    task?.status,
     working,
   ]);
 

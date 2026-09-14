@@ -31,6 +31,7 @@
 3. `resolveNoProjectRoot` — `platform` に応じた `posix`/`win32` join（Windows 上の linux テスト失敗を修正）
 4. Cursor account-scoped `loadTokens` を configure/fetch 間でキャッシュ（auth.json 二重読込回避）
 5. TaskView: エラーターン終了後のキュー drain 回帰テスト
+6. `sysmon-linux` — sysfs 結合を常に `posix.join`（Windows 上の Linux モック失敗を修正）
 
 ---
 
