@@ -1,4 +1,4 @@
-# MEMORY
+﻿# MEMORY
 
 ## 2026-09-14: Bot→Code ユーザー画像添付
 
@@ -25,6 +25,29 @@ Bot会話にユーザーが付けた画像は Bot セッション / Room ディ�
 `cursor/bot-code-image-attach-94ae` / https://github.com/daihaya000/LeafCodePi/pull/4
 実装 SHA: `5f41c7e5` / 検証追記+型修正: `4446a675`
 
+---
+
+## 2026-09-14: Bot Intercom Bridge Phase B
+
+### 実装
+再起動後も未読が残る永続mailbox（`bots/<id>/intercom/mailbox.json`）と、Bot id 宛の `ask` / `reply` / `pending`。質問待ちはツール結果として返る。切断中の名前付きBotへの `send`/`ask` はmailboxにキュー。未読はサーバの `lastReadAt`（localStorage非依存）。
+
+コア契約は維持: 宛先は Bot id のみ / fromBot 詐称不可 / 深さ・ループ上限 / Roomターン中は DM 拒否 / opt-in + allowlist / メッセージ `v: 1`（`kind` `conversationId` `replyTo` `queued` は後方互換の任意フィールド）。
+
+同一スレッドの ask/reply 往復は Room と同じ `MAX_BOT_INTERCOM_ASK_ROUNDTRIPS = MAX_ROOM_RELAY_DEPTH`（3）。4回目の ask を拒否。reply の二重配送なし。相互 ask は元の ask が終わるまで拒否。
+
+### UI
+同じ受信箱にスレッド（直近）と「質問待ち」。Room / opener / Auto / Computer は未変更。
+
+### 検証
+bot-intercom 14 / bot-intercom-tool 7 / BotIntercomInbox 4 / BotView.code 51 / intercom route 3 / room-runtime 42 = 121 PASS。typecheck OK。
+
+### 意図的に残した（C+）
+presence、添付、cancel/supersede/confirmSend、scopeId、fanout、wakeOnDm / Routine、クロスマシン。leafcode-intercom 本体は未変更。
+
+### ブランチ / PR
+`cursor/bot-intercom-bridge-phase-b-21eb`
+実装 SHA: `7b716d75`
 ---
 
 ## 2026-09-14: Bot Intercom Bridge Phase A

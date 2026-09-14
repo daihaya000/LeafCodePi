@@ -16,7 +16,7 @@ vi.mock("@/lib/bot-intercom", () => ({
 
 import { GET, PATCH } from "./route";
 
-const emptyInbox: BotIntercomInboxDto = { messages: [], unreadCount: 0, preview: null };
+const emptyInbox: BotIntercomInboxDto = { messages: [], unreadCount: 0, preview: null, pendingAsks: [] };
 const params = { params: Promise.resolve({ id: "one" }) };
 
 beforeEach(() => {

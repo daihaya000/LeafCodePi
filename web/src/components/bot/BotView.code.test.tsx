@@ -1206,11 +1206,46 @@ it("shows the 1:1 intercom preview and unread dot from SSE", async () => {
       messages: [],
       unreadCount: 1,
       preview: { fromBotId: "alice", fromName: "Alice", text: "確認お願いします", createdAt: 1 },
+      pendingAsks: [],
     },
   });
   expect(await screen.findByText(/Alice: 確認お願いします/)).toBeTruthy();
   expect(screen.getByLabelText("未読")).toBeTruthy();
   expect(screen.queryByText("room_handoff")).toBeNull();
+});
+
+it("shows the intercom thread and ask-waiting line from SSE", async () => {
+  render(<ShellProvider><BotView id="one" active /></ShellProvider>);
+  await screen.findByRole("region", { name: "内線受信箱" });
+  snapshot({
+    intercomInbox: {
+      messages: [{
+        v: 1,
+        id: "ask-1",
+        fromBotId: "alice",
+        fromName: "Alice",
+        toBotId: "one",
+        text: "可否は？",
+        createdAt: 1,
+        depth: 0,
+        kind: "ask",
+        conversationId: "thread-1",
+      }],
+      unreadCount: 1,
+      preview: { fromBotId: "alice", fromName: "Alice", text: "可否は？", createdAt: 1, kind: "ask" },
+      pendingAsks: [{
+        id: "ask-1",
+        conversationId: "thread-1",
+        fromBotId: "alice",
+        fromName: "Alice",
+        text: "可否は？",
+        createdAt: 1,
+        expiresAt: 2,
+      }],
+    },
+  });
+  expect((await screen.findByLabelText("質問待ち")).textContent).toContain("Alice");
+  expect(screen.getByRole("list", { name: "内線スレッド" }).textContent).toContain("可否は？");
 });
 
 it("persists the Bot intercom opt-in from settings", async () => {
