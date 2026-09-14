@@ -165,6 +165,25 @@ describe("routine cron and persistence", () => {
     });
     expect(state.promptTask).toHaveBeenCalledTimes(1);
   });
+
+  it("skips scheduled and manual runs while the Bot itself is disabled", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date(2024, 0, 1, 0, 0, 0));
+      const bot = createBot({ name: "Routine bot" });
+      const routine = createRoutine(bot.id, { name: "Hourly", prompt: "Check status", schedule: "0 * * * *" });
+      const { patchBot } = await import("./bots");
+      patchBot(bot.id, { enabled: false });
+      state.promptTask.mockResolvedValue(undefined);
+
+      await expect(runRoutine(bot.id, routine.id)).rejects.toThrow("Botは無効です");
+      await tickRoutines(new Date(2024, 0, 1, 0, 0, 0));
+      expect(state.promptTask).not.toHaveBeenCalled();
+      expect(getRoutine(bot.id, routine.id)).toMatchObject({ enabled: true, failureCount: 0, lastRunAt: null });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
   it("runs a due routine once when a scheduler tick overlaps its in-flight run", async () => {
     vi.useFakeTimers();
     try {

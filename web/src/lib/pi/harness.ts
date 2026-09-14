@@ -8630,17 +8630,30 @@ export async function destroyProject(id: string): Promise<{ ok: true }> {
 /**
  * Reload AGENTS.md / skills / extensions into every in-memory AgentSession
  * (Pi's `/reload`). Next prompt uses the updated system prompt.
+ * Busy sessions are skipped (Bot conversations get soulReloadPending) so a
+ * settings toggle cannot interrupt streaming / Goal Loop / compaction.
  */
 export async function reloadLiveSessionsContext(): Promise<{
   reloaded: number;
+  deferred: number;
   failed: number;
   errors: string[];
 }> {
   const lives = [...state().live.values()];
   let reloaded = 0;
+  let deferred = 0;
   let failed = 0;
   const errors: string[] = [];
   for (const live of lives) {
+    const task = getTask(live.taskId);
+    if (
+      shouldDeferLiveSetting(live, task ?? undefined) ||
+      isTaskRuntimeBusyForDestructiveEdit(live.taskId)
+    ) {
+      if (task?.kind === "bot" && task.botId) live.soulReloadPending = true;
+      deferred += 1;
+      continue;
+    }
     try {
       await live.session.reload();
       reloaded += 1;
@@ -8650,7 +8663,7 @@ export async function reloadLiveSessionsContext(): Promise<{
       errors.push(`${live.taskId}: ${message}`);
     }
   }
-  return { reloaded, failed, errors };
+  return { reloaded, deferred, failed, errors };
 }
 
 export function subscribeTask(

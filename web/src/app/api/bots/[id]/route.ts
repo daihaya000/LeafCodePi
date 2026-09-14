@@ -123,6 +123,12 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     const bot = patchBot(id, patch);
     if (!bot) return NextResponse.json({ error: "\u30dc\u30c3\u30c8\u304c\u898b\u3064\u304b\u308a\u307e\u305b\u3093" }, { status: 404 });
     if (hasTools) setBotTools(id, bot.tools ?? []);
+    if (hasEnabled && bot.enabled === false) {
+      // Keep Room membership, but stop in-flight Room turns/handoffs/Code (same as leave/delete).
+      for (const room of listRooms().filter((entry) => entry.members.includes(id))) {
+        await detachBotFromRoomRuntime(room.id, id);
+      }
+    }
     if (hasResetMessages) await resetTaskConversation(botTaskId(id));
     // SOUL and the per-Bot skill allowlist both shape the system prompt. Do not dispose a working
     // session: mark all local Bot conversations and rebuild them at their next safe turn boundary.

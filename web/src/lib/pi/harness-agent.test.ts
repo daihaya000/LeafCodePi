@@ -10,7 +10,7 @@ import {
   getTaskHangWatch,
   stopHangWatchdogForTests,
 } from "./hang-watchdog";
-import { abortLiveForHangWatchdog, abortTask, archiveTask, destroyProject, destroyTask, getTaskDetail, isLiveBusyForReplace, isTaskRuntimeOwnedElsewhere, markTaskWorkingIfIdle, restoreTask, setTaskAgent, throwIfBusyForModelChange, throwIfBusyForPermissionChange, throwIfBusyForSkillPermissionChange, throwIfBusyForThinkingChange } from "./harness";
+import { abortLiveForHangWatchdog, abortTask, archiveTask, destroyProject, destroyTask, getTaskDetail, isLiveBusyForReplace, isTaskRuntimeOwnedElsewhere, markTaskWorkingIfIdle, reloadLiveSessionsContext, restoreTask, setTaskAgent, throwIfBusyForModelChange, throwIfBusyForPermissionChange, throwIfBusyForSkillPermissionChange, throwIfBusyForThinkingChange } from "./harness";
 import { taskRuntimeLeasePath } from "@/lib/task-runtime-lease";
 
 const GLOBAL_KEY = "__leafcodePiHarness";
@@ -894,5 +894,44 @@ describe("isTaskRuntimeOwnedElsewhere", () => {
     );
     assert.equal(isTaskRuntimeOwnedElsewhere(getTask(task.id)!), true);
     assert.equal(task.botId, undefined);
+  });
+});
+
+describe("reloadLiveSessionsContext", () => {
+  it("reloads idle sessions and defers busy ones without calling reload", async () => {
+    const { task, live } = fixture({ promptActive: true });
+    let busyReloads = 0;
+    let idleReloads = 0;
+    const busy = live.get(task.id)! as {
+      soulReloadPending?: boolean;
+      session: { reload?: () => Promise<void>; isStreaming: boolean; isCompacting: boolean };
+      promptActive: boolean;
+    };
+    busy.session.reload = async () => {
+      busyReloads += 1;
+    };
+
+    const idleId = `${task.id}-idle`;
+    live.set(idleId, {
+      taskId: idleId,
+      accountId: null,
+      promptActive: false,
+      soulReloadPending: false,
+      session: {
+        isStreaming: false,
+        isCompacting: false,
+        reload: async () => {
+          idleReloads += 1;
+        },
+        dispose: () => undefined,
+      },
+      unsubscribe: () => undefined,
+    });
+
+    const result = await reloadLiveSessionsContext();
+    assert.equal(busyReloads, 0);
+    assert.equal(idleReloads, 1);
+    assert.equal(result.reloaded, 1);
+    assert.equal(result.deferred, 1);
   });
 });

@@ -241,6 +241,20 @@ describe("PATCH /api/bots/[id]", () => {
     expect(mocks.setTaskPermissionMode).toHaveBeenCalledWith("bot:one", "ask");
     expect(mocks.patchBot).toHaveBeenCalledWith("one", expect.objectContaining({ permissionMode: "ask" }));
   });
+
+  it("detaches Room runtime when the Bot is disabled without removing membership", async () => {
+    mocks.getBot.mockReturnValue(bot());
+    mocks.patchBot.mockReturnValue({ ...bot(), enabled: false });
+    mocks.listRooms.mockReturnValue([
+      { id: "room-a", members: ["one", "two"] },
+      { id: "room-b", members: ["two"] },
+    ]);
+    const response = await PATCH(jsonRequest({ enabled: false }), params("one"));
+    expect(response.status).toBe(200);
+    expect(mocks.detachBotFromRoomRuntime).toHaveBeenCalledWith("room-a", "one");
+    expect(mocks.detachBotFromRoomRuntime).not.toHaveBeenCalledWith("room-b", "one");
+    expect(mocks.patchRoom).not.toHaveBeenCalled();
+  });
 });
 
 describe("DELETE /api/bots/[id]", () => {

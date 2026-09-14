@@ -141,6 +141,7 @@ export async function runRoutine(botId: string, routineId: string): Promise<Rout
     const routine = getRoutine(botId, routineId);
     const bot = getBot(botId);
     if (!routine || !bot) throw new Error("Routine not found");
+    if (!bot.enabled) throw new Error("Botは無効です");
     if (!routine.enabled) throw new Error("ルーティンは無効です");
     try {
       await promptTask(botTaskId(botId), `[ルーティン: ${routine.name}]\n${routine.prompt}`, undefined, {
@@ -205,7 +206,15 @@ export async function tickRoutines(now = new Date()): Promise<void> {
   if (!lock) return;
   try {
     const minute = new Date(now); minute.setSeconds(0, 0); const nowMs = now.getTime();
-    for (const bot of listBots()) { for (const routine of listRoutines(bot.id)) { if (!routine.enabled || !cronMatches(routine.schedule, minute)) continue; const lastRunAt = routine.lastRunAt ? new Date(routine.lastRunAt).getTime() : Number.NaN; if (Number.isFinite(lastRunAt) && nowMs - lastRunAt < ROUTINE_MIN_INTERVAL_MS) continue; void runRoutine(bot.id, routine.id).catch(() => undefined); } }
+    for (const bot of listBots()) {
+      if (!bot.enabled) continue;
+      for (const routine of listRoutines(bot.id)) {
+        if (!routine.enabled || !cronMatches(routine.schedule, minute)) continue;
+        const lastRunAt = routine.lastRunAt ? new Date(routine.lastRunAt).getTime() : Number.NaN;
+        if (Number.isFinite(lastRunAt) && nowMs - lastRunAt < ROUTINE_MIN_INTERVAL_MS) continue;
+        void runRoutine(bot.id, routine.id).catch(() => undefined);
+      }
+    }
   } finally {
     rmSync(lock, { recursive: true, force: true });
   }
