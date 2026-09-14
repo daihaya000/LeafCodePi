@@ -188,6 +188,14 @@
 ### 検証（Tick37–38）
 `bots/[id]` / `rooms/[id]` / `bot-code-relay` — **87 passed**
 
+### Tick39（ループ継続）
+1. Bot `enabled:false` — 所属 Room で `detachBotFromRoomRuntime`（membership は維持、1:1 は許可）
+2. ルーティン — `bot.enabled` を tick / run 両方で確認
+3. `reloadLiveSessionsContext` — busy セッションは skip（Bot は soulReloadPending）
+
+### 検証（Tick39）
+`bots/[id]` / `routines` / `harness-agent` — **77 passed**
+
 ---
 
 ## 2026-09-14: Stale production rebuild / next build exit 1
