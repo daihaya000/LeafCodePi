@@ -408,6 +408,35 @@ describe("snapshotMessages", () => {
     expect(latest).toEqual(snapshotMessages(session).at(-1));
   });
 
+  it("reuses a full projection patched by a latest-only in-history delta", () => {
+    const older = { role: "user", timestamp: 1, content: "確認して" };
+    const streaming = {
+      role: "assistant",
+      timestamp: 2,
+      content: [{ type: "text", text: "一" }],
+    };
+    const branch = [
+      { type: "message", id: "u1", message: older },
+      { type: "message", id: "a1", message: streaming },
+    ];
+    const fake = {
+      messages: [older, streaming],
+      agent: { state: { streamingMessage: streaming as unknown } },
+      sessionManager: { getLeafId: () => "a1", getBranch: () => branch },
+    };
+    const session = fake as unknown as Parameters<typeof snapshotMessages>[0];
+
+    const first = snapshotMessages(session);
+    streaming.content[0]!.text = "二";
+    expect(
+      snapshotMessages(session, undefined, undefined, undefined, undefined, true),
+    ).toMatchObject([{ parts: [{ type: "text", text: "二" }] }]);
+
+    const full = snapshotMessages(session);
+    expect(full.at(-1)?.parts[0]).toMatchObject({ text: "二" });
+    expect(full[0]).toBe(first[0]);
+  });
+
   it("retains the branch source while an in-history stream changes", () => {
     const streaming = {
       role: "assistant",

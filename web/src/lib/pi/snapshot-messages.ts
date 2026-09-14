@@ -20,7 +20,10 @@ type SnapshotProjectionCache = {
   source: readonly unknown[];
   length: number;
   last: unknown;
+  /** True only when a full projection may be reused without re-reading the stream. */
   projectedFresh: boolean;
+  /** Fingerprint of the in-history streaming message used for the cached projection. */
+  streamingFingerprint: string | null;
   projected: UiMessage[];
 };
 
@@ -28,9 +31,14 @@ type BranchProjectionCache = {
   leafId: string | null;
   raw: unknown[];
   entryIdByMessage: Map<unknown, string>;
+  /** True only when a full projection may be reused without re-reading the stream. */
   projectedFresh: boolean;
+  /** Fingerprint of the in-history streaming message used for the cached projection. */
+  streamingFingerprint: string | null;
   projected: UiMessage[];
 };
+
+type ProjectionCache = SnapshotProjectionCache | BranchProjectionCache;
 
 /** Stable session history is reused between 100ms SSE snapshots. */
 const snapshotProjectionCache = new WeakMap<object, SnapshotProjectionCache>();
@@ -68,6 +76,35 @@ function sameAssistantGeneration(a: unknown, b: unknown): boolean {
     }
   }
   return true;
+}
+
+/** Detect in-place stream mutations without reprojecting the whole history. */
+function fingerprintStreamingMessage(streaming: unknown): string | null {
+  try {
+    const fingerprint = JSON.stringify(streaming);
+    return typeof fingerprint === "string" ? fingerprint : null;
+  } catch {
+    // A non-serializable stream cannot be safely reused.
+    return null;
+  }
+}
+
+function cachedSourceLength(cache: ProjectionCache | undefined): number | undefined {
+  if (!cache) return undefined;
+  return "source" in cache ? cache.source.length : cache.raw.length;
+}
+
+/** Replace only the latest row in a cached full projection. */
+function patchCachedProjection(
+  cache: ProjectionCache | undefined,
+  latest: UiMessage | undefined,
+): UiMessage[] | null {
+  if (!cache || !latest) return null;
+  const index = cache.projected.findLastIndex((message) => message.id === latest.id);
+  if (index < 0) return null;
+  const projected = cache.projected.slice();
+  projected[index] = latest;
+  return projected;
 }
 
 /** Return the latest branch assistant if it represents the active stream. */
@@ -302,6 +339,7 @@ export function snapshotMessages(
           raw: historyRaw,
           entryIdByMessage,
           projectedFresh: true,
+          streamingFingerprint: null,
           projected,
         });
       }
@@ -322,6 +360,7 @@ export function snapshotMessages(
           length: stored.length,
           last,
           projectedFresh: true,
+          streamingFingerprint: null,
           projected,
         });
       }
@@ -342,35 +381,57 @@ export function snapshotMessages(
     // The streaming object can be present in session.messages while it is
     // mutated. Project only the final independent message and its trailing
     // tool results; reprojecting the whole branch defeats delta throttling.
-    projected = projectLatestWithEntryIds(historyRaw);
+    const latestProjection = projectLatestWithEntryIds(historyRaw);
+    const latest = latestProjection.at(-1);
+    const cached = useBranchHistory
+      ? cachedBranch
+      : snapshotProjectionCache.get(session);
+    const patched =
+      cachedSourceLength(cached) === historyRaw.length
+        ? patchCachedProjection(cached, latest)
+        : null;
+    const fingerprint = fingerprintStreamingMessage(streaming);
+    projected = latestProjection;
     if (useBranchHistory) {
       branchProjectionCache.set(session, {
         leafId: branchLeafId,
         raw: historyRaw,
         entryIdByMessage,
-        projectedFresh: false,
-        projected: cachedBranch?.projected ?? [],
+        projectedFresh: patched !== null && fingerprint !== null,
+        streamingFingerprint: patched !== null ? fingerprint : null,
+        projected: patched ?? cachedBranch?.projected ?? [],
       });
     } else {
-      const cached = snapshotProjectionCache.get(session);
       snapshotProjectionCache.set(session, {
         source: stored,
         length: stored.length,
         last: stored[stored.length - 1],
-        projectedFresh: false,
-        projected: cached?.projected ?? [],
+        projectedFresh: patched !== null && fingerprint !== null,
+        streamingFingerprint: patched !== null ? fingerprint : null,
+        projected: patched ?? cached?.projected ?? [],
       });
     }
   } else {
     const raw = streamingInHistory ? historyRaw : [...historyRaw, streaming];
-    projected = projectWithEntryIds(raw);
     if (streamingInHistory) {
+      const cached = useBranchHistory
+        ? cachedBranch
+        : snapshotProjectionCache.get(session);
+      const fingerprint = fingerprintStreamingMessage(streaming);
+      const canReuse =
+        cachedSourceLength(cached) === historyRaw.length &&
+        cached?.projectedFresh === true &&
+        fingerprint !== null &&
+        cached.streamingFingerprint === fingerprint;
+      projected = canReuse ? cached!.projected : projectWithEntryIds(raw);
       if (useBranchHistory) {
         branchProjectionCache.set(session, {
           leafId: branchLeafId,
           raw: historyRaw,
           entryIdByMessage,
-          projectedFresh: true,
+          // A full read is reusable only until the next full read or mutation.
+          projectedFresh: false,
+          streamingFingerprint: fingerprint,
           projected,
         });
       } else {
@@ -378,10 +439,14 @@ export function snapshotMessages(
           source: stored,
           length: stored.length,
           last: stored[stored.length - 1],
-          projectedFresh: true,
+          // A full read is reusable only until the next full read or mutation.
+          projectedFresh: false,
+          streamingFingerprint: fingerprint,
           projected,
         });
       }
+    } else {
+      projected = projectWithEntryIds(raw);
     }
   }
   if (latestOnly && projected.length > 1) {
