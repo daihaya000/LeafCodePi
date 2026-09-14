@@ -3274,6 +3274,58 @@ function throwIfTaskArchived(taskId: string): void {
   }
 }
 
+async function resolveLiveSessionSettings(task: TaskSummary): Promise<{
+  model: Model | undefined;
+  sessionAccountId: string | null | undefined;
+  sessionThinkingLevel: ThinkingLevel | undefined;
+  accountIdExplicit: boolean;
+}> {
+  const accountIdExplicit = task.accountIdExplicit === true;
+  const modelRoute = await resolveConcreteModel(
+    task.providerID && task.modelID
+      ? modelValue(task.providerID, task.modelID)
+      : undefined,
+    task.accountId ?? null,
+    {
+      strictAccountId: accountIdExplicit,
+      accountIdExplicit,
+    },
+  );
+  const model = modelRoute?.model;
+  const isBot = task.kind === "bot" && Boolean(task.botId);
+  if (isBot && task.providerID && task.modelID && !model) {
+    throw Object.assign(
+      new Error(`モデルを利用できません: ${task.providerID}::${task.modelID}`),
+      { status: 503 },
+    );
+  }
+  const taskAccount = task.accountId ? getAccount(task.accountId) : undefined;
+  if (accountIdExplicit && task.accountId && !taskAccount) {
+    throw Object.assign(new Error("アカウントが見つかりません"), {
+      status: 404,
+    });
+  }
+  const taskAccountForSession =
+    taskAccount &&
+    (!task.providerID ||
+      (isAccountRoutingProvider(task.providerID) &&
+        accountHasProvider(taskAccount, task.providerID)))
+      ? task.accountId ?? null
+      : null;
+  const sessionAccountId = modelRoute?.accountId ?? taskAccountForSession;
+  const sessionThinkingLevel = isThinkingLevel(task.thinkingLevel)
+    ? task.thinkingLevel
+    : model
+      ? defaultThinkingLevelForRoute(model, sessionAccountId)
+      : undefined;
+  return {
+    model,
+    sessionAccountId,
+    sessionThinkingLevel,
+    accountIdExplicit,
+  };
+}
+
 async function ensureLive(
   taskId: string,
   options?: { allowDuringPromotion?: boolean },
@@ -3321,43 +3373,12 @@ async function ensureLive(
     const persistedGoalLoop = task.sessionId
       ? readGoalLoopState(cwd, task.sessionId)
       : null;
-    const accountIdExplicit = task.accountIdExplicit === true;
-    const modelRoute = await resolveConcreteModel(
-      task.providerID && task.modelID
-        ? modelValue(task.providerID, task.modelID)
-        : undefined,
-      task.accountId ?? null,
-      {
-        strictAccountId: accountIdExplicit,
-        accountIdExplicit,
-      },
-    );
-    const model = modelRoute?.model;
-    if (isBot && task.providerID && task.modelID && !model) {
-      throw Object.assign(
-        new Error(`モデルを利用できません: ${task.providerID}::${task.modelID}`),
-        { status: 503 },
-      );
-    }
-    const taskAccount = task.accountId ? getAccount(task.accountId) : undefined;
-    if (accountIdExplicit && task.accountId && !taskAccount) {
-      throw Object.assign(new Error("アカウントが見つかりません"), {
-        status: 404,
-      });
-    }
-    const taskAccountForSession =
-      taskAccount &&
-      (!task.providerID ||
-        (isAccountRoutingProvider(task.providerID) &&
-          accountHasProvider(taskAccount, task.providerID)))
-        ? task.accountId ?? null
-        : null;
-    const sessionAccountId = modelRoute?.accountId ?? taskAccountForSession;
-    const sessionThinkingLevel = isThinkingLevel(task.thinkingLevel)
-      ? task.thinkingLevel
-      : model
-        ? defaultThinkingLevelForRoute(model, sessionAccountId)
-        : undefined;
+    const {
+      model,
+      sessionAccountId,
+      sessionThinkingLevel,
+      accountIdExplicit,
+    } = await resolveLiveSessionSettings(task);
     const setup = await createSession({
       cwd,
       sessionFile: task.sessionFile,
