@@ -3346,6 +3346,42 @@ function disposeSessionBestEffort(session: AgentSession): void {
   }
 }
 
+async function attachCreatedLiveSession(
+  taskId: string,
+  epoch: number,
+  setup: Awaited<ReturnType<typeof createSession>>,
+  sessionThinkingLevel: ThinkingLevel | undefined,
+  sessionAccountId: string | null | undefined,
+  accountIdExplicit: boolean,
+  options?: { allowDuringPromotion?: boolean },
+): Promise<LiveRuntime> {
+  if ((ensureLiveEpoch.get(taskId) ?? 0) !== epoch) {
+    disposeSessionBestEffort(setup.session);
+    return ensureLive(taskId, options);
+  }
+  patchTask(taskId, {
+    sessionId: setup.session.sessionId,
+    sessionFile: setup.session.sessionFile,
+    ...modelId(setup.session.model),
+    ...(sessionThinkingLevel ? { thinkingLevel: sessionThinkingLevel } : {}),
+    accountId: sessionAccountId ?? undefined,
+    accountIdExplicit:
+      sessionAccountId && accountIdExplicit ? true : undefined,
+  });
+  const attached = await attachSession(
+    taskId,
+    setup.session,
+    setup.skillPermissionRef,
+  );
+  if ((ensureLiveEpoch.get(taskId) ?? 0) !== epoch) {
+    if (state().live.get(taskId) === attached) {
+      disposeLive(taskId);
+    }
+    return ensureLive(taskId, options);
+  }
+  return attached;
+}
+
 async function ensureLive(
   taskId: string,
   options?: { allowDuringPromotion?: boolean },
@@ -3413,31 +3449,15 @@ async function ensureLive(
       taskId,
       goalLoop: isGoalLoopLiveStatus(persistedGoalLoop?.status),
     });
-    if ((ensureLiveEpoch.get(taskId) ?? 0) !== epoch) {
-      disposeSessionBestEffort(setup.session);
-      return ensureLive(taskId, options);
-    }
-    patchTask(taskId, {
-      sessionId: setup.session.sessionId,
-      sessionFile: setup.session.sessionFile,
-      ...modelId(setup.session.model),
-      ...(sessionThinkingLevel ? { thinkingLevel: sessionThinkingLevel } : {}),
-      accountId: sessionAccountId ?? undefined,
-      accountIdExplicit:
-        sessionAccountId && accountIdExplicit ? true : undefined,
-    });
-    const attached = await attachSession(
+    return attachCreatedLiveSession(
       taskId,
-      setup.session,
-      setup.skillPermissionRef,
+      epoch,
+      setup,
+      sessionThinkingLevel,
+      sessionAccountId,
+      accountIdExplicit,
+      options,
     );
-    if ((ensureLiveEpoch.get(taskId) ?? 0) !== epoch) {
-      if (state().live.get(taskId) === attached) {
-        disposeLive(taskId);
-      }
-      return ensureLive(taskId, options);
-    }
-    return attached;
   })().finally(() => {
     if (ensureLiveInflight.get(taskId) === promise) {
       ensureLiveInflight.delete(taskId);
