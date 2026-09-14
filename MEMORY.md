@@ -18,6 +18,7 @@ confirmSend、wakeOnDm / Routine / 外部inbound、クロスマシン。fanout �
 
 ### ブランチ / PR
 `cursor/bot-intercom-bridge-phase-d-603f`
+実装 SHA: `c0c5ad08`
 
 ---
 
