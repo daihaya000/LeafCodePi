@@ -336,6 +336,9 @@ function scopedAccessTokens(scope: UsageScope): string[] {
 
 export function createCursorProvider(scope: UsageScope): IUsageProvider {
   const accountScoped = scope.kind === "account";
+  // fetchOne checks isConfigured() immediately before fetch(). Hand off a
+  // successful read for that pair without retaining credentials after fetch.
+  let checkedTokens: string[] | undefined;
   const loadTokens = () =>
     accountScoped ? scopedAccessTokens(scope) : loadCandidateAccessTokens();
 
@@ -344,8 +347,11 @@ export function createCursorProvider(scope: UsageScope): IUsageProvider {
     name: "Cursor",
     isConfigured() {
       try {
-        return loadTokens().length > 0;
+        const tokens = loadTokens();
+        checkedTokens = tokens.length > 0 ? tokens : undefined;
+        return tokens.length > 0;
       } catch {
+        checkedTokens = undefined;
         return (
           !accountScoped &&
           (existsSync(/* turbopackIgnore: true */ cursorStateDbPath()) ||

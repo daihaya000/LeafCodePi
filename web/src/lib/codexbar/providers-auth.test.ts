@@ -142,6 +142,15 @@ describe("account-scoped API credentials", () => {
     });
   });
 
+  it("reuses account Cursor credentials between configuration check and fetch", async () => {
+    const provider = createCursorProvider(scope);
+
+    expect(provider.isConfigured()).toBe(true);
+    await expect(provider.fetch()).rejects.toThrow("Cursor");
+
+    expect(auth.read).toHaveBeenCalledOnce();
+  });
+
   it("does not use default Cursor auth for an account without auth path", () => {
     const previousAppData = process.env.APPDATA;
     const accountWithoutAuthPath = { ...scope, authPath: null };

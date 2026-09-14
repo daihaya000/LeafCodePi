@@ -772,6 +772,45 @@ describe("TaskView draft submission", () => {
       expect(screen.getByText("queued prompt")).toBeTruthy();
     }
   });
+
+  it("drains queued content when the current turn ends with an error", async () => {
+    class TestEventSource extends EventTarget {
+      static latest: TestEventSource;
+      constructor() { super(); TestEventSource.latest = this; }
+      close() {}
+    }
+    vi.stubGlobal("EventSource", TestEventSource);
+    mocks.sendJson.mockResolvedValue({ task: { ...task, status: "working", isStreaming: true } });
+    render(<TaskView taskId={task.id} mdUp />);
+    const source = TestEventSource.latest;
+    if (!source) throw new Error("EventSource was not created");
+    const sendSnapshot = async (status: "working" | "error", error?: string) => {
+      await act(async () => {
+        source.dispatchEvent(new MessageEvent("snapshot", {
+          data: JSON.stringify({
+            eventType: status,
+            task: { ...task, status, isStreaming: status === "working", ...(error ? { error } : {}) },
+            messages: [],
+            isStreaming: status === "working",
+            ...(error ? { error } : {}),
+          }),
+        }));
+      });
+    };
+    await sendSnapshot("working");
+    fireEvent.click(screen.getByRole("button", { name: "送信方式" }));
+    fireEvent.click(screen.getByRole("option", { name: "キュー" }));
+    const input = screen.getByRole("textbox", { name: "フォローアップ" });
+    fireEvent.change(input, { target: { value: "retry after error" } });
+    fireEvent.submit(screen.getByRole("form", { name: "フォローアップ" }));
+    expect(mocks.sendJson).not.toHaveBeenCalled();
+
+    await sendSnapshot("error", "current turn failed");
+    await waitFor(() => expect(mocks.sendJson).toHaveBeenCalledWith(
+      `/api/tasks/${task.id}/prompt`, expect.objectContaining({ prompt: "retry after error" }),
+    ));
+  });
+
   it.each([false, true])("uses steer only while working (working: %s)", async (working) => {
     saveTaskSessionCache({ task: { ...task, status: working ? "working" : "idle" }, messages: [], isStreaming: working, isCompacting: false });
     mocks.sendJson.mockResolvedValue({ task });
