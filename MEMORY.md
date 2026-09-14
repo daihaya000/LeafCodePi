@@ -322,6 +322,14 @@
 ### 検証（Tick64）
 `room-runtime` / `direct-generation` — **64 passed**
 
+### Tick65–67（ループ継続・通知スタック消化）
+1. `streamRoomReply` — 閉じ済み placeholder を late delta で `working` に戻さない
+2. `runRoomBot` catch / supersede / inactive — `status === "working"` のときだけ閉じる（handoff 文言の上書き防止）
+3. 回帰テスト: late stream が handoff close を復活させないこと
+
+### 検証（Tick65–67）
+`room-runtime` — **48 passed**
+
 ---
 
 ## 2026-09-14: Stale production rebuild / next build exit 1

@@ -856,4 +856,41 @@ describe("room stop and fan-out", () => {
       text: "Handoff took the floor.",
     });
   });
+
+  it("does not revive a closed placeholder with late stream deltas", async () => {
+    const { room, bots, user } = setup(["A"]);
+    let release!: () => void;
+    const hold = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    state.promptTask.mockImplementation(async (id: string) => {
+      const listeners = state.listeners.get(id);
+      listeners?.forEach((listener) => {
+        listener({ type: "delta", message: assistant("stream-1", "partial answer") });
+      });
+      await hold;
+      listeners?.forEach((listener) => {
+        listener({ type: "delta", message: assistant("stream-2", "late stream after close") });
+      });
+      const detail = state.details.get(id)!;
+      detail.messages = [...detail.messages, assistant("final", "should not overwrite\nROOM_ACTION: DONE")];
+    });
+    const response = appendRoomMessage(room.id, {
+      role: "assistant",
+      botId: bots[0].id,
+      text: "",
+      status: "working",
+    })!;
+    const run = runRoomBot(getRoom(room.id)!, bots[0], "go", response.id, user.id);
+    await vi.waitFor(() =>
+      expect(getRoom(room.id)!.messages.find((message) => message.id === response.id)?.text).toBe("partial answer"),
+    );
+    updateRoomMessage(room.id, response.id, { text: "Handoff took the floor.", status: "error" });
+    release();
+    await run;
+    expect(getRoom(room.id)!.messages.find((message) => message.id === response.id)).toMatchObject({
+      status: "error",
+      text: "Handoff took the floor.",
+    });
+  });
 });

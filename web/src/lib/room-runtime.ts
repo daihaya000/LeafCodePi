@@ -81,7 +81,11 @@ function streamRoomReply(taskId: string, roomId: string, responseId: string, bef
     if (!text || text === lastText || now - lastWriteAt < STREAM_INTERVAL_MS) return;
     lastText = text;
     lastWriteAt = now;
-    updateRoomMessage(roomId, responseId, { text, status: "working" });
+    // Stop / handoff may have already closed the placeholder — never revive it as working.
+    updateRoomMessage(roomId, responseId, (message) => {
+      if (message.status !== "working") return {};
+      return { text, status: "working" };
+    });
   });
 }
 
@@ -100,13 +104,21 @@ export async function runRoomBot(room: RoomDto, bot: BotDto, prompt: string, res
     if (!liveRoom) return;
     // fan-out も conversation と同様、Stop / 新リクエスト後は起こさない。
     if (latestRoomRequest(liveRoom)?.id !== requestId) {
-      updateRoomMessage(room.id, responseId, { text: "Conversation superseded by a newer user message.", status: "done" });
+      updateRoomMessage(room.id, responseId, (message) =>
+        message.status === "working"
+          ? { text: "Conversation superseded by a newer user message.", status: "done" }
+          : {},
+      );
       return;
     }
     const placeholder = liveRoom.messages.find((message) => message.id === responseId);
     if (placeholder && placeholder.status !== "working") return;
     if (!liveRoom.members.includes(bot.id) || !getBot(bot.id)?.enabled) {
-      updateRoomMessage(room.id, responseId, { text: "Bot is no longer active in this room.", status: "error" });
+      updateRoomMessage(room.id, responseId, (message) =>
+        message.status === "working"
+          ? { text: "Bot is no longer active in this room.", status: "error" }
+          : {},
+      );
       return;
     }
     ensureRoomBotTask(liveRoom, bot);
@@ -114,13 +126,21 @@ export async function runRoomBot(room: RoomDto, bot: BotDto, prompt: string, res
     const currentRoom = getRoom(room.id);
     if (!currentRoom) return;
     if (latestRoomRequest(currentRoom)?.id !== requestId) {
-      updateRoomMessage(room.id, responseId, { text: "Conversation superseded by a newer user message.", status: "done" });
+      updateRoomMessage(room.id, responseId, (message) =>
+        message.status === "working"
+          ? { text: "Conversation superseded by a newer user message.", status: "done" }
+          : {},
+      );
       return;
     }
     const currentPlaceholder = currentRoom.messages.find((message) => message.id === responseId);
     if (currentPlaceholder && currentPlaceholder.status !== "working") return;
     if (!currentRoom.members.includes(bot.id) || !getBot(bot.id)?.enabled) {
-      updateRoomMessage(room.id, responseId, { text: "Bot is no longer active in this room.", status: "error" });
+      updateRoomMessage(room.id, responseId, (message) =>
+        message.status === "working"
+          ? { text: "Bot is no longer active in this room.", status: "error" }
+          : {},
+      );
       return;
     }
     const participants = (turn?.participants ?? currentRoom.members.map(getBot).filter((member): member is BotDto => Boolean(member)))
@@ -165,7 +185,11 @@ export async function runRoomBot(room: RoomDto, bot: BotDto, prompt: string, res
     return reply;
     }, { timeoutMs: ROOM_TURN_LOCK_TIMEOUT_MS });
   } catch (error) {
-    updateRoomMessage(room.id, responseId, { text: error instanceof Error ? error.message : String(error), status: "error" });
+    // Abort after handoff/Stop must not replace the authoritative close text.
+    updateRoomMessage(room.id, responseId, (message) => {
+      if (message.status !== "working") return {};
+      return { text: error instanceof Error ? error.message : String(error), status: "error" };
+    });
   } finally {
     release();
     if (roomBotRuns.get(taskId) === current) roomBotRuns.delete(taskId);
