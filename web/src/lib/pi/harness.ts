@@ -6044,6 +6044,28 @@ function startCreatedTaskPrompt(input: {
   });
 }
 
+function resolveCreateTaskModelSelection(input: {
+  modelValue: string | undefined;
+  accountIdInput: string | undefined;
+  accountIdExplicitInput: boolean | undefined;
+}): {
+  parsed: ReturnType<typeof parseModelValue>;
+  requestedAccountId: string | undefined;
+  requestedAccountExplicit: boolean;
+} {
+  const parsed = parseModelValue(input.modelValue);
+  const requestedAccountId =
+    input.accountIdInput?.trim() || parsed?.accountId;
+  const requestedAccountExplicit =
+    input.accountIdExplicitInput ?? Boolean(requestedAccountId);
+  validateModelAccountSelection(
+    parsed,
+    requestedAccountId,
+    input.accountIdInput,
+  );
+  return { parsed, requestedAccountId, requestedAccountExplicit };
+}
+
 export async function createTask(input: {
   projectId: string | null;
   prompt: string;
@@ -6094,11 +6116,15 @@ export async function createTask(input: {
     accountIdInput = autoDecision.accountId;
     accountIdExplicitInput = false;
   }
-  const parsed = parseModelValue(modelValue);
-  const requestedAccountId = accountIdInput?.trim() || parsed?.accountId;
-  const requestedAccountExplicit =
-    accountIdExplicitInput ?? Boolean(requestedAccountId);
-  validateModelAccountSelection(parsed, requestedAccountId, accountIdInput);
+  const {
+    parsed,
+    requestedAccountId,
+    requestedAccountExplicit,
+  } = resolveCreateTaskModelSelection({
+    modelValue,
+    accountIdInput,
+    accountIdExplicitInput,
+  });
   const insertStoredTask = (
     model: Model | undefined,
     accountId: string | null,
