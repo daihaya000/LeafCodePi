@@ -49,26 +49,6 @@ vi.mock("./TaskTabs", () => ({
 }));
 vi.mock("@/components/ui", () => ({
   cx: (...values: unknown[]) => values.filter(Boolean).join(" "),
-  Switch: ({
-    checked,
-    onChange,
-    label,
-    title,
-  }: {
-    checked: boolean;
-    onChange: () => void;
-    label: string;
-    title?: string;
-  }) => (
-    <button
-      type="button"
-      role="switch"
-      aria-checked={checked}
-      aria-label={label}
-      title={title}
-      onClick={onChange}
-    />
-  ),
 }));
 vi.mock("@/lib/task-drag", () => ({
   isTaskDrag: () => false,
@@ -262,12 +242,15 @@ describe("TaskPanesHost lazy tab mounting", () => {
     expect(switches).toHaveLength(4);
     expect(switches[0]?.closest("[data-pane-id]")?.firstElementChild?.contains(switches[0])).toBe(true);
     expect(switches[0]?.getAttribute("aria-checked")).toBe("false");
+    expect(switches[0]?.querySelector("svg")).not.toBeNull();
+    expect(switches[0]?.className).toContain("text-muted");
 
     fireEvent.click(switches[0]!);
 
     await waitFor(() => {
       expect(localStorage.getItem("webui:task-pane-prefer-new")).toBe("1");
       expect(switches[0]?.getAttribute("aria-checked")).toBe("true");
+      expect(switches[0]?.className).toContain("text-accent");
     });
   });
 

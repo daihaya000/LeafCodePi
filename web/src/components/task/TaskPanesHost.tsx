@@ -1,11 +1,12 @@
 "use client";
 
 import dynamic from "next/dynamic";
+import { PanelRight } from "lucide-react";
 import { usePathname, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useRef, useState, type DragEvent } from "react";
 import { useGetStatusFor, useReportStatus, useTaskPanesNavigation } from "@/components/shell/TaskPanesContext";
 import { WorkingTasksButton } from "@/components/WorkingTasksButton";
-import { Switch, cx } from "@/components/ui";
+import { cx } from "@/components/ui";
 import { getJson } from "@/lib/client";
 import type { TaskStatus, TaskSummary } from "@/lib/types";
 import { isTaskDrag, taskDragIdFrom } from "@/lib/task-drag";
@@ -325,13 +326,22 @@ function PaneSection({
           onClick={onShowWorkingTasks}
           className="m-1"
         />
-        <Switch
-          checked={preferNewPane}
-          onChange={onTogglePreferNewPane}
-          label="新規セッション・Botを新しいペインで開く"
-          title="新規セッション・Botの開き方を切り替え"
-          className="m-1"
-        />
+        <button
+          type="button"
+          role="switch"
+          aria-checked={preferNewPane}
+          aria-label="新規セッション・Botを新しいペインで開く"
+          title={preferNewPane ? "新しいペインを優先（オン）" : "既存タブを優先（オフ）"}
+          onClick={onTogglePreferNewPane}
+          className={cx(
+            "m-1 inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md transition-colors",
+            preferNewPane
+              ? "text-accent hover:bg-surface-2"
+              : "text-muted hover:bg-surface-2 hover:text-text",
+          )}
+        >
+          <PanelRight className="h-4 w-4" aria-hidden="true" />
+        </button>
         <div className="min-w-0 flex-1">
           <TaskTabs
             pane={pane}
