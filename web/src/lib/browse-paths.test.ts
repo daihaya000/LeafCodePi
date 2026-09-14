@@ -5,12 +5,15 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { browseAllowedRoots, isAllowedBrowsePath } from "./browse-paths";
 
 const originalAppData = process.env.APPDATA;
+const originalDataDir = process.env.LEAFCODE_PI_DATA_DIR;
 const originalOneDrive = process.env.OneDrive;
 let appData: string;
 
 beforeEach(() => {
   appData = mkdtempSync(join(tmpdir(), "leafcode-pi-browse-"));
   process.env.APPDATA = appData;
+  // Windows dataDir() uses APPDATA; Linux needs the explicit override.
+  process.env.LEAFCODE_PI_DATA_DIR = join(appData, "leafcode-pi");
   mkdirSync(join(appData, "leafcode-pi"), { recursive: true });
   writeFileSync(
     join(appData, "leafcode-pi", "store.json"),
@@ -21,6 +24,8 @@ beforeEach(() => {
 afterEach(() => {
   if (originalAppData === undefined) delete process.env.APPDATA;
   else process.env.APPDATA = originalAppData;
+  if (originalDataDir === undefined) delete process.env.LEAFCODE_PI_DATA_DIR;
+  else process.env.LEAFCODE_PI_DATA_DIR = originalDataDir;
   if (originalOneDrive === undefined) delete process.env.OneDrive;
   else process.env.OneDrive = originalOneDrive;
   rmSync(appData, { recursive: true, force: true });

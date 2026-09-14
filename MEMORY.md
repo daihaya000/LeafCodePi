@@ -1,5 +1,27 @@
 ﻿# MEMORY
 
+## 2026-09-14: Linux テスト隔離と provider-limit fallback 修正
+
+master `c8fe752` の Ubuntu 検証で落ちていた host 3 + web 8 を修正。
+
+### Host（フィクスチャ）
+`web-build-mirror.test.js` が `C:\...` を生で渡し、Linux の `path.resolve` が cwd 相対にして `isMirrorNextStart` が不一致 → idle 誤判定。`os.tmpdir()` / `path.join` の実絶対パスに変更。LOCALAPPDATA / XDG_CACHE_HOME も同じ一時ディレクトリで検証。
+
+### Web（隔離）
+`test-environment.ts` が `LEAFCODE_PI_DATA_DIR` を削除し、`vitest.config.ts` は `APPDATA` だけ設定。Linux の `dataDir()` は APPDATA を見ないので `~/.leafcode-pi` → `assertTestSafe`。vitest に `LEAFCODE_PI_DATA_DIR` を足し、setup では消さない。`browse-paths` は store 書き込み先と一致するようテスト側でも設定。
+
+### Web（実バグ）
+`harness-limit-fallback` の 2s timeout はタイミングではなく、`refreshRuntimeClock` が置換セッションの未設定 `systemPrompt` に `.includes` して落ちていた。フォールバック再開（hidden custom turn）が error になり第2セッションへ prompt が届かない。未設定時は clock ブロックだけ入れる。
+
+### 検証（Linux）
+- host `web-build-mirror.test.js`: 37 pass
+- web browse-paths 6 / bots route 2 / harness-limit-fallback 3 / harness-prompt 33 / harness-routing 23 / paths 4 = 71 pass
+
+### ブランチ
+`cursor/linux-test-isolation-a602`
+
+---
+
 ## 2026-09-14: Bot Intercom Bridge Phase D
 
 ### 実装
