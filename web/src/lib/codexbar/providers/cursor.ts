@@ -360,7 +360,8 @@ export function createCursorProvider(scope: UsageScope): IUsageProvider {
       }
     },
     async fetch(signal) {
-      const accessTokens = loadTokens();
+      const accessTokens = checkedTokens ?? loadTokens();
+      checkedTokens = undefined;
       if (accessTokens.length === 0) {
         throw new ProviderError(
           accountScoped
