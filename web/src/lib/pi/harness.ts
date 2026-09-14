@@ -2422,6 +2422,7 @@ function registerGoalLoopTurnRouting(taskId: string): (pi: ExtensionAPI) => void
           armTaskHangWatch({
             taskId,
             prompt,
+            skipResume: true,
             ...(permissionMode ? { permissionMode } : {}),
           });
         };
@@ -5988,6 +5989,9 @@ export async function goalLoopCommand(
   // Goal Loop does not go through queuePrompt, so a leftover chat hang watch
   // would keep the old prompt and resume it mid-loop (aborting Goal as "user").
   disarmTaskHangWatch(taskId);
+  // Capture epoch before await points so a concurrent abort/disable cannot
+  // race a stale /goal-start|/goal-resume into the session.
+  const startedEpoch = live.promptEpoch;
   // Apply deferred tools/permission before /goal-start. Use reroute:false so the
   // first Goal turn's prepareGoalLoopTurn still owns integrated account selection
   // (avoids double resolvePromptRoute on start/resume).
@@ -5998,10 +6002,17 @@ export async function goalLoopCommand(
       copyPendingLiveSettings((state().live.get(live.taskId) ?? live).pendingSettings),
     );
   }
-  await live.session.prompt(command);
+  const current = state().live.get(taskId) ?? live;
+  if (isStaleHarnessPrompt(startedEpoch, current.promptEpoch)) {
+    return readGoalLoopState(
+      current.session.sessionManager.getCwd(),
+      current.session.sessionId,
+    );
+  }
+  await current.session.prompt(command);
   return readGoalLoopState(
-    live.session.sessionManager.getCwd(),
-    live.session.sessionId,
+    current.session.sessionManager.getCwd(),
+    current.session.sessionId,
   );
 }
 

@@ -38,6 +38,11 @@ export type TaskHangWatchRow = {
   permissionMode?: "allow" | "ask" | "deny";
   /** Keep provider-limit recovery prompts hidden across watchdog retries. */
   isProviderFallback?: boolean;
+  /**
+   * Goal Loop arms hang watches for abort-on-hang, but must not resume via
+   * queuePrompt (that would inject routing text as a normal chat turn).
+   */
+  skipResume?: boolean;
   resumeAllowed: boolean;
   startedAt: number;
   lastProgressAt: number;
@@ -59,6 +64,8 @@ export type ArmTaskHangWatchInput = {
   startedAt?: number;
   isHangRetry?: boolean;
   isProviderFallback?: boolean;
+  /** When true, hang abort does not call resumePrompt (Goal Loop turns). */
+  skipResume?: boolean;
 };
 
 export type HangWatchdogHooks = {
@@ -258,6 +265,7 @@ export function armTaskHangWatch(input: ArmTaskHangWatchInput): void {
     ...(input.subagentPermission ? { subagentPermission: input.subagentPermission } : {}),
     ...(input.permissionMode ? { permissionMode: input.permissionMode } : {}),
     ...(input.isProviderFallback ? { isProviderFallback: true } : {}),
+    ...(input.skipResume ? { skipResume: true } : {}),
     resumeAllowed,
     startedAt,
     lastProgressAt: startedAt,
@@ -342,6 +350,13 @@ async function resolveHang(row: TaskHangWatchRow): Promise<void> {
   // settling. Never revive a request that is no longer the current watch.
   if (!isCurrentWatch(row)) {
     logWatchdog("watch was cancelled while aborting — not resuming", row);
+    return;
+  }
+
+  // Goal Loop hang: stop the turn, but never re-inject the routing prompt as chat.
+  if (row.skipResume) {
+    disarmTaskHangWatch(row.taskId);
+    logWatchdog("stopped Goal Loop hang without chat resume", row);
     return;
   }
 

@@ -164,6 +164,26 @@ export async function PATCH(
       const taskId = typeof body?.taskId === "string" ? body.taskId : bot.codeSessionTaskId;
       if (!taskId) return NextResponse.json({ error: "Code session not found" }, { status: 404 });
       if (body?.action === "clear" || body?.action === "unlink") {
+        const linkedId = bot.codeSessionTaskId;
+        if (linkedId) {
+          const linked = getTask(linkedId);
+          if (
+            linked &&
+            linked.kind !== "bot" &&
+            linked.botId === id &&
+            linked.status !== "archived" &&
+            linked.status === "working"
+          ) {
+            try {
+              await stopBotCodeTask(id, linkedId);
+            } catch (error) {
+              console.warn(
+                `[code-session] failed to stop linked task ${linkedId} on ${body.action}:`,
+                error instanceof Error ? error.message : String(error),
+              );
+            }
+          }
+        }
         patchBot(id, { codeSessionTaskId: null });
         return NextResponse.json({ task: null });
       }

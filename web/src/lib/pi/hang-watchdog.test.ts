@@ -525,4 +525,38 @@ describe("hang-watchdog helpers", () => {
       fs.rmSync(root, { recursive: true, force: true });
     }
   });
+
+  it("aborts Goal Loop hangs without resuming via queuePrompt", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "leafcode-pi-hang-watchdog-goal-skip-"));
+    const previousDataDir = process.env.LEAFCODE_PI_DATA_DIR;
+    process.env.LEAFCODE_PI_DATA_DIR = root;
+    let resumed = 0;
+    let aborted = 0;
+    registerHangWatchdogHooks({
+      getLive: () => ({ isStreaming: false, isCompacting: false, messages: [] }),
+      abortTask: async () => {
+        aborted += 1;
+      },
+      resumePrompt: () => {
+        resumed += 1;
+      },
+      notifyHangRetry: () => undefined,
+    });
+    try {
+      armTaskHangWatch({
+        taskId: "goal-skip",
+        prompt: "<!-- webui-goal-loop-prompt --> continue the goal",
+        skipResume: true,
+      });
+      await resolveHangNow("goal-skip");
+      expect(aborted).toBe(1);
+      expect(resumed).toBe(0);
+      expect(getTaskHangWatch("goal-skip")).toBeNull();
+    } finally {
+      stopHangWatchdogForTests();
+      if (previousDataDir === undefined) delete process.env.LEAFCODE_PI_DATA_DIR;
+      else process.env.LEAFCODE_PI_DATA_DIR = previousDataDir;
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
 });

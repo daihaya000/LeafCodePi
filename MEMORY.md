@@ -241,6 +241,14 @@
 ### 検証（Tick47–49）
 `bots/[id]` / `code-session` / `bot-code-relay` / `harness-routing` — **131 passed**
 
+### Tick50（ループ継続）
+1. hang-watchdog — Goal Loop arm に `skipResume`（hang abort 後に routing 文を通常 chat 再送しない）
+2. `goalLoopCommand` — `promptEpoch` で abort/disable 後の stale `/goal-start|resume` を抑制
+3. code-session clear/unlink — working 中の linked Code を先に `stopBotCodeTask`
+
+### 検証（Tick50）
+`hang-watchdog` / `code-session` / `bots/[id]` / `harness-prompt` — **87 passed**
+
 ---
 
 ## 2026-09-14: Stale production rebuild / next build exit 1
