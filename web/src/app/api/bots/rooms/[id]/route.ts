@@ -15,8 +15,13 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const body = (await req.json().catch(() => null)) as { name?: unknown; members?: unknown; botRelayEnabled?: unknown; codeAutoApprove?: unknown; resetMessages?: unknown } | null;
   if (!body || (body.name !== undefined && typeof body.name !== "string") || (body.members !== undefined && (!Array.isArray(body.members) || body.members.some((item) => typeof item !== "string"))) || (body.botRelayEnabled !== undefined && typeof body.botRelayEnabled !== "boolean") || (body.codeAutoApprove !== undefined && typeof body.codeAutoApprove !== "boolean") || (body.resetMessages !== undefined && typeof body.resetMessages !== "boolean")) return NextResponse.json({ error: "\u30eb\u30fc\u30e0\u8a2d\u5b9a\u304c\u4e0d\u6b63\u3067\u3059" }, { status: 400 });
-  // Relay administration is a privileged mutation (df3dee2 bar): require Web UI token.
-  if (body?.botRelayEnabled !== undefined && !isWebUiRequestAuthorized(req)) return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
+  // Relay / standing Code approval are privileged mutations: require Web UI token.
+  if (
+    (body?.botRelayEnabled !== undefined || body?.codeAutoApprove !== undefined) &&
+    !isWebUiRequestAuthorized(req)
+  ) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
+  }
   const id = await idOf(params);
   const existing = getRoom(id);
   if (!existing) return NextResponse.json({ error: "\u30eb\u30fc\u30e0\u304c\u898b\u3064\u304b\u308a\u307e\u305b\u3093" }, { status: 404 });

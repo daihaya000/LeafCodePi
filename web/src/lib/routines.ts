@@ -10,10 +10,13 @@ export const ROUTINE_MAX_ENABLED = 10;
 export const ROUTINE_MAX_FAILURES = 3;
 const routineRuns = new Map<string, Promise<unknown>>();
 const ROUTINE_LOCK_STALE_MS = 30_000;
+/** Cross-worker run claim; long enough for a Bot prompt to finish. */
+const ROUTINE_RUN_LOCK_STALE_MS = 2 * 60 * 60 * 1000;
 type RoutineFile = RoutineDto;
 function routineDir(botId: string): string { return join(dataDir(), "bots", botId, "routines"); }
 function routinePath(botId: string, routineId: string): string { return join(routineDir(botId), `${routineId}.json`); }
 function routineLockPath(botId: string, routineId: string): string { return join(routineDir(botId), `${routineId}.lock`); }
+function routineRunLockPath(botId: string, routineId: string): string { return join(routineDir(botId), `${routineId}.run.lock`); }
 function withFileLock<T>(lock: string, parent: string, action: () => T): T {
   mkdirSync(parent, { recursive: true });
   const waitBuffer = new Int32Array(new SharedArrayBuffer(4));
@@ -128,6 +131,24 @@ function isTransientRoutineStartError(error: unknown): boolean {
   return message.includes("別のワーカーで実行中");
 }
 
+function tryClaimRoutineRun(botId: string, routineId: string): string | undefined {
+  const lock = routineRunLockPath(botId, routineId);
+  mkdirSync(routineDir(botId), { recursive: true });
+  try {
+    mkdirSync(lock);
+    return lock;
+  } catch {
+    try {
+      if (Date.now() - statSync(lock).mtimeMs > ROUTINE_RUN_LOCK_STALE_MS) {
+        rmSync(lock, { recursive: true, force: true });
+        mkdirSync(lock);
+        return lock;
+      }
+    } catch { /* another worker owns or replaced the lock */ }
+    return undefined;
+  }
+}
+
 export async function runRoutine(botId: string, routineId: string): Promise<RoutineDto> {
   const key = `${botId}:${routineId}`;
   const running = routineRuns.get(key);
@@ -138,43 +159,51 @@ export async function runRoutine(botId: string, routineId: string): Promise<Rout
     return latest;
   }
   const run = (async () => {
-    const routine = getRoutine(botId, routineId);
-    const bot = getBot(botId);
-    if (!routine || !bot) throw new Error("Routine not found");
-    if (!bot.enabled) throw new Error("Botは無効です");
-    if (!routine.enabled) throw new Error("ルーティンは無効です");
+    const claim = tryClaimRoutineRun(botId, routineId);
+    if (!claim) {
+      throw Object.assign(new Error("タスクは別のワーカーで実行中です"), { status: 409 });
+    }
     try {
-      await promptTask(botTaskId(botId), `[ルーティン: ${routine.name}]\n${routine.prompt}`, undefined, {
-        waitForCompletion: true,
-        permissionMode: bot.permissionMode ?? undefined,
-      });
-      const detail = await getTaskDetail(botTaskId(botId), { offline: true });
-      const latest = [...detail.messages].reverse().find((message) => message.role === "assistant");
-      if (detail.status === "error" || detail.error || latest?.error) {
-        throw new Error(detail.error || latest?.error || "Bot の実行に失敗しました");
-      }
-      const updated = updateRoutine(botId, routineId, (current) => ({
-        ...current,
-        lastRunAt: new Date().toISOString(),
-        failureCount: 0,
-        updatedAt: new Date().toISOString(),
-      }));
-      if (!updated) throw new Error("Routine was deleted");
-      return updated;
-    } catch (error) {
-      if (isTransientRoutineStartError(error)) throw error;
-      const updated = updateRoutine(botId, routineId, (current) => {
-        const failureCount = current.failureCount + 1;
-        return {
+      const routine = getRoutine(botId, routineId);
+      const bot = getBot(botId);
+      if (!routine || !bot) throw new Error("Routine not found");
+      if (!bot.enabled) throw new Error("Botは無効です");
+      if (!routine.enabled) throw new Error("ルーティンは無効です");
+      try {
+        await promptTask(botTaskId(botId), `[ルーティン: ${routine.name}]\n${routine.prompt}`, undefined, {
+          waitForCompletion: true,
+          permissionMode: bot.permissionMode ?? undefined,
+        });
+        const detail = await getTaskDetail(botTaskId(botId), { offline: true });
+        const latest = [...detail.messages].reverse().find((message) => message.role === "assistant");
+        if (detail.status === "error" || detail.error || latest?.error) {
+          throw new Error(detail.error || latest?.error || "Bot の実行に失敗しました");
+        }
+        const updated = updateRoutine(botId, routineId, (current) => ({
           ...current,
-          failureCount,
-          enabled: current.enabled && failureCount < ROUTINE_MAX_FAILURES,
+          lastRunAt: new Date().toISOString(),
+          failureCount: 0,
           updatedAt: new Date().toISOString(),
-        };
-      });
-      if (!updated) throw error;
-      const suffix = updated.failureCount >= ROUTINE_MAX_FAILURES ? "（連続失敗のため自動的に無効化しました）" : "";
-      throw new Error(`${error instanceof Error ? error.message : String(error)}${suffix}`);
+        }));
+        if (!updated) throw new Error("Routine was deleted");
+        return updated;
+      } catch (error) {
+        if (isTransientRoutineStartError(error)) throw error;
+        const updated = updateRoutine(botId, routineId, (current) => {
+          const failureCount = current.failureCount + 1;
+          return {
+            ...current,
+            failureCount,
+            enabled: current.enabled && failureCount < ROUTINE_MAX_FAILURES,
+            updatedAt: new Date().toISOString(),
+          };
+        });
+        if (!updated) throw error;
+        const suffix = updated.failureCount >= ROUTINE_MAX_FAILURES ? "（連続失敗のため自動的に無効化しました）" : "";
+        throw new Error(`${error instanceof Error ? error.message : String(error)}${suffix}`);
+      }
+    } finally {
+      rmSync(claim, { recursive: true, force: true });
     }
   })();
   routineRuns.set(key, run);

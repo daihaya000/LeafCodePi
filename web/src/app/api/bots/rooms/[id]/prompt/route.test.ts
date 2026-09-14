@@ -38,6 +38,7 @@ vi.mock("@/lib/pi/harness", () => ({
   getTaskDetail: vi.fn(async (id: string) => state.details.get(id)),
   promptTask: state.promptTask,
   abortTask: state.abortTask,
+  linkedCodeTaskIdsForOrigin: () => [],
   pendingPermissionForTask: vi.fn(() => null),
   pendingQuestionForTask: vi.fn(() => null),
   subscribeTask: (id: string, listener: (payload: Record<string, unknown>) => void) => {
@@ -555,13 +556,16 @@ describe("room mention responses", () => {
     await vi.waitFor(() => expect(getRoom(room.id)?.messages.at(-1)).toMatchObject({ status: "done", text: "Recovered" }));
   });
 
-  it("allows changing standing Code approval without Web UI token auth", async () => {
+  it("rejects unauthenticated Code auto-approve and accepts the configured Web UI token", async () => {
     const { room } = setup(["A", "B"]);
     vi.stubEnv("LEAFCODE_PI_WEBUI_AUTH", "required");
     vi.stubEnv("LEAFCODE_PI_WEBUI_TOKEN", "room-admin-token");
     const params = { params: Promise.resolve({ id: room.id }) };
-    const response = await PATCH(new NextRequest("http://localhost", { method: "PATCH", body: JSON.stringify({ codeAutoApprove: true }) }), params);
-    expect(response.status).toBe(200);
+    const unauthenticated = await PATCH(new NextRequest("http://localhost", { method: "PATCH", body: JSON.stringify({ codeAutoApprove: true }) }), params);
+    expect(unauthenticated.status).toBe(403);
+    expect(Boolean(getRoom(room.id)?.codeAutoApprove)).toBe(false);
+    const authorized = await PATCH(new NextRequest("http://localhost", { method: "PATCH", headers: { authorization: "Bearer room-admin-token" }, body: JSON.stringify({ codeAutoApprove: true }) }), params);
+    expect(authorized.status).toBe(200);
     expect(getRoom(room.id)?.codeAutoApprove).toBe(true);
   });
 

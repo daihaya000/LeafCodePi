@@ -207,6 +207,21 @@ describe("routine cron and persistence", () => {
     }
   });
 
+  it("skips a second worker claim while a routine run lock is held", async () => {
+    const bot = createBot({ name: "Routine bot" });
+    const routine = createRoutine(bot.id, { name: "Hourly", prompt: "Check status", schedule: "0 * * * *" });
+    mkdirSync(join(root, "bots", bot.id, "routines", `${routine.id}.run.lock`), { recursive: true });
+    state.promptTask.mockResolvedValue(undefined);
+
+    await expect(runRoutine(bot.id, routine.id)).rejects.toThrow("別のワーカーで実行中");
+    expect(state.promptTask).not.toHaveBeenCalled();
+    expect(getRoutine(bot.id, routine.id)).toMatchObject({
+      enabled: true,
+      failureCount: 0,
+      lastRunAt: null,
+    });
+  });
+
   it("persists routine fields under the bot home", () => {
     const bot = createBot({ name: "Routine bot" });
     const routine = createRoutine(bot.id, { name: "Hourly", prompt: "Check status", schedule: "0 * * * *" });

@@ -454,6 +454,13 @@
 ### 検証（Tick88–89）
 `rooms/.../revert` / `harness-complete` / `bot-code-relay` — **83 passed**
 
+### Tick90–92（ループ継続・[Hunt Tick90–92](4e461137) 追随）
+1. `runRoutine` — `${id}.run.lock` でクロスワーカー claim（二重実行防止、409 は transient）
+2. Room PATCH `codeAutoApprove` — `botRelayEnabled` と同様に Web UI トークン必須
+
+### 検証（Tick90–92）
+`routines` — **39 passed**；Room auth 関連 — **passed**
+
 ---
 
 ## 2026-09-14: Stale production rebuild / next build exit 1
