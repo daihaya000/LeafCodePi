@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { writeHangTimeoutSettingMs } from "@/lib/pi/hang-settings";
-import { setSetting } from "@/lib/pi/web-settings";
+import { getSetting, setSetting } from "@/lib/pi/web-settings";
 
 const previousDataDir = process.env.LEAFCODE_PI_DATA_DIR;
 
@@ -29,5 +29,13 @@ describe("web-settings persistence", () => {
     expect(saved["auto-route-overrides"]).toBe('{"version":2,"modes":{}}');
     expect(saved["hang-timeout"]).toBe(120_000);
     expect(readdirSync(root)).toEqual(["web-settings.json"]);
+  });
+
+  it("invalidates the read cache after an atomic settings update", () => {
+    setSetting("generation-model", "first");
+    expect(getSetting("generation-model")).toBe("first");
+
+    setSetting("generation-model", "second");
+    expect(getSetting("generation-model")).toBe("second");
   });
 });

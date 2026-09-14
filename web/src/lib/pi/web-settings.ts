@@ -27,13 +27,45 @@ function settingsPath(): string {
   return join(dataDir(), "web-settings.json");
 }
 
+let cachedSettings: {
+  file: string;
+  mtimeMs: number;
+  size: number;
+  value: WebSettingsFile;
+} | null = null;
+
 /** 破損・欠損時は空設定へフォールバック（例外で他設定まで巻き込まない）。 */
 export function readSettingsFile(): WebSettingsFile {
+  const file = settingsPath();
+  let stat: ReturnType<typeof statSync>;
   try {
-    const parsed = JSON.parse(readFileSync(settingsPath(), "utf8")) as WebSettingsFile;
-    if (!parsed || parsed.version !== 1) return { version: 1 };
+    stat = statSync(file);
+  } catch {
+    if (cachedSettings?.file === file) cachedSettings = null;
+    return { version: 1 };
+  }
+  if (
+    cachedSettings?.file === file &&
+    cachedSettings.mtimeMs === stat.mtimeMs &&
+    cachedSettings.size === stat.size
+  ) {
+    return cachedSettings.value;
+  }
+  try {
+    const parsed = JSON.parse(readFileSync(file, "utf8")) as WebSettingsFile;
+    if (!parsed || parsed.version !== 1) {
+      cachedSettings = null;
+      return { version: 1 };
+    }
+    cachedSettings = {
+      file,
+      mtimeMs: stat.mtimeMs,
+      size: stat.size,
+      value: parsed,
+    };
     return parsed;
   } catch {
+    cachedSettings = null;
     return { version: 1 };
   }
 }
@@ -54,6 +86,9 @@ export function writeSettingsFile(settings: WebSettingsFile): void {
     renameSync(tmp, file);
   } finally {
     rmSync(tmp, { force: true });
+    // The object passed to updateSettingsFile is mutable; never serve it from
+    // the read cache after a write attempt (including a failed one).
+    cachedSettings = null;
   }
 }
 
