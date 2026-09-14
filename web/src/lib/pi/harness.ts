@@ -2369,6 +2369,8 @@ function registerGoalLoopTurnRouting(taskId: string): (pi: ExtensionAPI) => void
         if (!before || before.session.sessionManager !== ctx.sessionManager) {
           return "retry";
         }
+        // Do not route/replace while another prompt is already accepted or streaming.
+        if (isLiveBusyForReplace(before)) return "retry";
         const after = await prepareLiveForPrompt(
           before,
           true,
@@ -6910,14 +6912,17 @@ const TASK_LEASE_BUSY_ERROR = "タスクは別のワーカーで実行中です"
 
 function pendingSettingsForPrompt(
   streamingBehavior: "steer" | "followUp" | undefined,
-  hadActivePrompt: boolean,
+  _hadActivePrompt: boolean,
   live: LiveRuntime,
   pendingSettingsAtQueue: PendingLiveSettings | undefined,
 ): PendingLiveSettings | undefined {
   if (streamingBehavior) return undefined;
-  if (!hadActivePrompt) return pendingSettingsAtQueue;
-  return copyPendingLiveSettings(
-    (state().live.get(live.taskId) ?? live).pendingSettings,
+  // Prefer settings at run time so model/thinking changes made after queue but
+  // before the turn starts are not dropped for one turn.
+  return (
+    copyPendingLiveSettings(
+      (state().live.get(live.taskId) ?? live).pendingSettings,
+    ) ?? pendingSettingsAtQueue
   );
 }
 
@@ -7187,6 +7192,7 @@ function queuePrompt(
     );
   };
   const handlePromptError = (error: unknown) => {
+    if (!stillQueued()) return;
     const message = error instanceof Error ? error.message : String(error);
     const currentLive = state().live.get(live.taskId) ?? activeLive;
     if (

@@ -38,6 +38,11 @@
 2. `generateDirectText` — `model.accountId` だけでは explicit pin にしない
 3. `applySettledTaskStatus` / `handlePromptError` — 手動 Stop 後の abort settle を idle 維持
 
+### Tick3（ループ継続）
+1. `handlePromptError` — `stillQueued()` で stale epoch の非 abort エラーによる idle→error 上書きを防止
+2. Goal Loop `prepareGoalLoopTurn` — 他プロンプト busy 中は prepare 前に `"retry"`
+3. `pendingSettingsForPrompt` — queue 時点スナップショットではなく run 時点の pending を優先
+
 ---
 
 ## 2026-09-14: Stale production rebuild / next build exit 1

@@ -462,6 +462,30 @@ describe("integrated session routing", () => {
     expect(getTask(task.id)).toMatchObject({ status: "idle", error: null });
   });
 
+  it("retries Goal Loop prepare while another prompt is already active", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "leafcode-pi-goal-loop-busy-"));
+    tempDirs.push(dir);
+    process.env.LEAFCODE_PI_DATA_DIR = dir;
+    process.env.PI_CODING_AGENT_DIR = join(dir, "agent");
+    __resetPiAgentDirCacheForTests();
+    installHarness(new Map());
+
+    const project = upsertProject({ name: "demo", rootPath: dir });
+    const task = await createTask({ projectId: project.id, prompt: "初回" });
+    await waitFor(() => getTask(task.id)?.status === "idle");
+    const harness = (globalThis as Record<string, unknown>)[GLOBAL_KEY] as {
+      live: Map<string, { promptActive: boolean; session: { sessionManager: unknown } }>;
+    };
+    const live = harness.live.get(task.id)!;
+    live.promptActive = true;
+    const prepare = fakePi.sessions[0]?.routingContext
+      ?.prepareGoalLoopTurn as
+      | ((prompt: string) => Promise<boolean | "retry">)
+      | undefined;
+    assert.ok(prepare);
+    assert.equal(await prepare("busy"), "retry");
+  });
+
   it("opens an account Bot without waiting for the shared runtime", async () => {
     const dir = mkdtempSync(join(tmpdir(), "leafcode-pi-account-bot-cold-start-"));
     tempDirs.push(dir);
