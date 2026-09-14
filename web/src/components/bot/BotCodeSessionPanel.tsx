@@ -6,6 +6,7 @@ import { GoalLoopOptions, GoalLoopToggle } from "@/components/GoalLoopComposer";
 import { GoalLoopPanel } from "@/components/GoalLoopPanel";
 import { Button } from "@/components/ui";
 import { getJson, sendJson } from "@/lib/client";
+import { notifyBotSidebarChanged } from "@/lib/events";
 import { DEFAULT_GOAL_LOOP_COOLDOWN_SECONDS, DEFAULT_GOAL_LOOP_MAX_TURNS } from "@/lib/goal-loop-settings";
 import { NO_PROJECT_NAME, type GoalLoopDto, type ProjectDto, type TaskSummary } from "@/lib/types";
 
@@ -76,14 +77,14 @@ export function BotCodeSessionPanel({ botId, onClose }: { botId: string; onClose
   const launch = async () => {
     if (projectId === undefined || !prompt.trim() || busy) return;
     setBusy(true); setError(null);
-    try { const result = await sendJson<{ task: TaskSummary }>(`/api/bots/${encodeURIComponent(botId)}/code-session`, { projectId: projectId ?? null, prompt: prompt.trim(), ...(goalLoopEnabled ? { goalLoop: goalLoopPayload(goalLoopAcceptance, goalLoopMaxTurns, goalLoopCooldownSeconds, goalLoopForceFullRun) } : {}) }, "POST"); setTasks((current) => [result.task, ...current.filter((task) => task.id !== result.task.id)]); setPrompt(""); setGoalLoopEnabled(false); await load(); }
+    try { const result = await sendJson<{ task: TaskSummary }>(`/api/bots/${encodeURIComponent(botId)}/code-session`, { projectId: projectId ?? null, prompt: prompt.trim(), ...(goalLoopEnabled ? { goalLoop: goalLoopPayload(goalLoopAcceptance, goalLoopMaxTurns, goalLoopCooldownSeconds, goalLoopForceFullRun) } : {}) }, "POST"); notifyBotSidebarChanged(); setTasks((current) => [result.task, ...current.filter((task) => task.id !== result.task.id)]); setPrompt(""); setGoalLoopEnabled(false); await load(); }
     catch (reason) { setError(reason instanceof Error ? reason.message : "Codeセッションの起動に失敗しました"); }
     finally { setBusy(false); }
   };
   const control = async (task: TaskSummary, action: "abort" | "prompt") => {
     const value = followUps[task.id]; if (controlBusy || (action === "prompt" && !value?.trim())) return;
     setControlBusy(task.id); setError(null);
-    try { const result = await sendJson<{ task: TaskSummary }>(`/api/bots/${encodeURIComponent(botId)}/code-session`, action === "prompt" ? { action, prompt: value.trim(), taskId: task.id } : { action, taskId: task.id }, "PATCH"); setTasks((current) => current.map((item) => item.id === task.id ? result.task : item)); if (action === "prompt") setFollowUps((current) => ({ ...current, [task.id]: "" })); }
+    try { const result = await sendJson<{ task: TaskSummary }>(`/api/bots/${encodeURIComponent(botId)}/code-session`, action === "prompt" ? { action, prompt: value.trim(), taskId: task.id } : { action, taskId: task.id }, "PATCH"); notifyBotSidebarChanged(); setTasks((current) => current.map((item) => item.id === task.id ? result.task : item)); if (action === "prompt") setFollowUps((current) => ({ ...current, [task.id]: "" })); }
     catch (reason) { setError(reason instanceof Error ? reason.message : "Codeセッションの操作に失敗しました"); }
     finally { setControlBusy(null); }
   };
@@ -92,6 +93,7 @@ export function BotCodeSessionPanel({ botId, onClose }: { botId: string; onClose
     setControlBusy(taskId); setError(null);
     try {
       const result = await sendJson<{ loop: GoalLoopDto | null }>(`/api/bots/${encodeURIComponent(botId)}/code-session`, { action: "goal-loop", goalLoopAction: action, taskId, ...(maxTurns === undefined ? {} : { maxTurns }) }, "PATCH");
+      notifyBotSidebarChanged();
       setLoops((current) => ({ ...current, [taskId]: result.loop }));
       setTasks((current) => current.map((task) => task.id === taskId ? { ...task, goalLoopSummary: result.loop ? { status: result.loop.status, maxTurns: result.loop.maxTurns, turnCount: result.loop.turnCount } : undefined } : task));
     } catch (reason) { setError(reason instanceof Error ? reason.message : "Goal Loopの操作に失敗しました"); }
