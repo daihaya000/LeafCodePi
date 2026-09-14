@@ -17,10 +17,13 @@ Bot会話にユーザーが付けた画像は Bot セッション / Room ディ�
 - テキストのみ・lease / archived project / G5 承認はそのまま
 
 ### 検証
-（テスト実行後に追記）
+- bot-code-images 9 / bot-code-relay 62 / bots 21 / room-conversation 55 = 147 PASS
+- 回帰: harness-bot-code 6 / harness-routing 23 / code-session route 15 / bot-code-session-lock 3 / room-runtime 42 / harness-prompt 32 = 121 PASS
+- `npm --prefix web run typecheck` OK
 
 ### ブランチ / PR
-`cursor/bot-code-image-attach-94ae`
+`cursor/bot-code-image-attach-94ae` / https://github.com/daihaya000/LeafCodePi/pull/4
+実装 SHA: `5f41c7e5`
 
 ---
 

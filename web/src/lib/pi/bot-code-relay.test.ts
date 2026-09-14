@@ -717,7 +717,7 @@ describe("Bot ⇄ Code image attachments", () => {
   it("forwards Room conversation images on start without touching the 1:1 session pointer", async () => {
     roomSetup();
     const result = await roomLaunch();
-    expect(result.attachedImages).toEqual([2]);
+    expect(result).toMatchObject({ attachedImages: [2], taskId: "code", state: "running" });
     expect(deps.create).toHaveBeenCalledWith(expect.objectContaining({
       images: [{ mimeType: "image/jpeg", data: "latest-shot" }],
     }));
