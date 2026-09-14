@@ -49,6 +49,26 @@ vi.mock("./TaskTabs", () => ({
 }));
 vi.mock("@/components/ui", () => ({
   cx: (...values: unknown[]) => values.filter(Boolean).join(" "),
+  Switch: ({
+    checked,
+    onChange,
+    label,
+    title,
+  }: {
+    checked: boolean;
+    onChange: () => void;
+    label: string;
+    title?: string;
+  }) => (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      aria-label={label}
+      title={title}
+      onClick={onChange}
+    />
+  ),
 }));
 vi.mock("@/lib/task-drag", () => ({
   isTaskDrag: () => false,
@@ -140,6 +160,7 @@ describe("TaskPanesHost lazy tab mounting", () => {
 
   afterEach(() => {
     cleanup();
+    localStorage.removeItem("webui:task-pane-prefer-new");
     vi.clearAllMocks();
   });
 
@@ -224,6 +245,30 @@ describe("TaskPanesHost lazy tab mounting", () => {
       type: "showWorkingTasks",
       taskIds: ["newer", "older"],
     }));
+  });
+
+  it("各ペインの左上から新規セッション・Botの開き方を切り替えられる", async () => {
+    localStorage.setItem("webui:task-pane-prefer-new", "0");
+    mocks.useTaskPanes.mockReturnValue({
+      ...mocks.useTaskPanes(),
+      state: createTreeState(),
+    });
+
+    render(<TaskPanesHost />);
+
+    const switches = screen.getAllByRole("switch", {
+      name: "新規セッション・Botを新しいペインで開く",
+    });
+    expect(switches).toHaveLength(4);
+    expect(switches[0]?.closest("[data-pane-id]")?.firstElementChild?.contains(switches[0])).toBe(true);
+    expect(switches[0]?.getAttribute("aria-checked")).toBe("false");
+
+    fireEvent.click(switches[0]!);
+
+    await waitFor(() => {
+      expect(localStorage.getItem("webui:task-pane-prefer-new")).toBe("1");
+      expect(switches[0]?.getAttribute("aria-checked")).toBe("true");
+    });
   });
 
   it("進行中のBotとBot紐づけCodeはBotViewタブへ寄せる", async () => {

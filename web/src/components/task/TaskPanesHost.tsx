@@ -5,11 +5,12 @@ import { usePathname, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useRef, useState, type DragEvent } from "react";
 import { useGetStatusFor, useReportStatus, useTaskPanesNavigation } from "@/components/shell/TaskPanesContext";
 import { WorkingTasksButton } from "@/components/WorkingTasksButton";
-import { cx } from "@/components/ui";
+import { Switch, cx } from "@/components/ui";
 import { getJson } from "@/lib/client";
 import type { TaskStatus, TaskSummary } from "@/lib/types";
 import { isTaskDrag, taskDragIdFrom } from "@/lib/task-drag";
 import {
+  DEFAULT_PREFER_NEW_PANE,
   HOME_TAB_ID,
   BOTS_TAB_ID,
   isBotSurfaceTabId,
@@ -18,8 +19,11 @@ import {
   paneTabIdForTask,
   paneTabIdsForWorkingTasks,
   paneLayoutForState,
+  readPreferNewPane,
   resizeAdjacentPaneWidths,
   SETTINGS_TAB_ID,
+  subscribePreferNewPane,
+  writePreferNewPane,
   tabIdFromPathname,
   type PaneLayout,
   type SplitDirection,
@@ -222,6 +226,8 @@ type PaneBranchProps = {
   noProject: boolean;
   mdUp: boolean;
   reportStatus: (taskId: string, status: TaskStatus) => void;
+  preferNewPane: boolean;
+  onTogglePreferNewPane: () => void;
   workingTasksBusy: boolean;
   onShowWorkingTasks: () => void;
   canAddPane: boolean;
@@ -271,6 +277,8 @@ function PaneSection({
   noProject,
   mdUp,
   reportStatus,
+  preferNewPane,
+  onTogglePreferNewPane,
   workingTasksBusy,
   onShowWorkingTasks,
   canAddPane,
@@ -315,6 +323,13 @@ function PaneSection({
           mdUp={mdUp}
           busy={workingTasksBusy}
           onClick={onShowWorkingTasks}
+          className="m-1"
+        />
+        <Switch
+          checked={preferNewPane}
+          onChange={onTogglePreferNewPane}
+          label="新規セッション・Botを新しいペインで開く"
+          title="新規セッション・Botの開き方を切り替え"
           className="m-1"
         />
         <div className="min-w-0 flex-1">
@@ -485,7 +500,12 @@ export function TaskPanesHost() {
   );
   // 各 split node の比率。ペイン構成が変わったときだけ初期化する。
   const [splitRatios, setSplitRatios] = useState<Record<string, number>>({});
+  const [preferNewPane, setPreferNewPane] = useState(DEFAULT_PREFER_NEW_PANE);
   const [workingTasksBusy, setWorkingTasksBusy] = useState(false);
+  useEffect(() => {
+    setPreferNewPane(readPreferNewPane());
+    return subscribePreferNewPane(() => setPreferNewPane(readPreferNewPane()));
+  }, []);
   // 一度開いたタブのみマウントする（初回読み込み・SSE 接続を遅延）。
   // アクティブタブは開封済み集合へ追加、タブが閉じられたら除去して再オープン時に再読み込み。
   const [openedTabs, setOpenedTabs] = useState<Set<string>>(() => new Set());
@@ -511,6 +531,9 @@ export function TaskPanesHost() {
     }
   }, [dispatch, workingTasksBusy]);
   const addPane = useCallback(() => dispatch({ type: "addPane" }), [dispatch]);
+  const togglePreferNewPane = useCallback(() => {
+    writePreferNewPane(!preferNewPane);
+  }, [preferNewPane]);
   const paneLayoutKey = state.panes.map((pane) => pane.id).join("|");
 
   useEffect(() => {
@@ -690,6 +713,8 @@ export function TaskPanesHost() {
         noProject={noProject}
         mdUp={mdUp}
         reportStatus={reportStatus}
+        preferNewPane={preferNewPane}
+        onTogglePreferNewPane={togglePreferNewPane}
         workingTasksBusy={workingTasksBusy}
         onShowWorkingTasks={() => void showWorkingTasks()}
         canAddPane={canAddPane}
