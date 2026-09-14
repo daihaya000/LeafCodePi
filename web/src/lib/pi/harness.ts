@@ -1808,6 +1808,42 @@ function restoredThroughputState(
   };
 }
 
+function restoredLiveTaskState(
+  existing: LiveRuntime | undefined,
+  task: ReturnType<typeof getTask>,
+): Pick<
+  LiveRuntime,
+  | "accountByMessageId"
+  | "agentByMessageId"
+  | "promptChain"
+  | "promptActive"
+  | "pendingSettings"
+  | "promptEpoch"
+  | "toolPartialOutputByCallId"
+  | "revertLeafId"
+  | "manualAbortedAssistantId"
+  | "hangRetryCount"
+  | "pendingProviderFallback"
+> {
+  return {
+    accountByMessageId: existing?.accountByMessageId ?? new Map(),
+    agentByMessageId: existing?.agentByMessageId ?? new Map(),
+    // Keep a queued prompt chain when an idle session is replaced for the
+    // next turn. The current run owns this promise, so follow-ups submitted
+    // during session creation still wait for it.
+    promptChain: existing?.promptChain ?? Promise.resolve(),
+    promptActive: existing?.promptActive ?? false,
+    pendingSettings: existing?.pendingSettings,
+    promptEpoch: existing?.promptEpoch ?? 0,
+    toolPartialOutputByCallId: existing?.toolPartialOutputByCallId ?? new Map(),
+    revertLeafId: existing?.revertLeafId ?? task?.revertLeafId ?? null,
+    manualAbortedAssistantId:
+      existing?.manualAbortedAssistantId ?? task?.manualAbortedAssistantId ?? null,
+    hangRetryCount: existing?.hangRetryCount ?? task?.hangRetryCount ?? 0,
+    pendingProviderFallback: existing?.pendingProviderFallback ?? null,
+  };
+}
+
 /** Carry per-task state across a session replacement, or load it from the session file. */
 function buildLiveRuntime(input: {
   taskId: string;
@@ -1825,36 +1861,22 @@ function buildLiveRuntime(input: {
   return {
     taskId,
     accountId: input.accountId,
-    accountByMessageId: existing?.accountByMessageId ?? new Map(),
+    ...restoredLiveTaskState(existing, task),
     agentName: input.agentName,
-    agentByMessageId: existing?.agentByMessageId ?? new Map(),
     session,
     skillPermission: skillPermissionRef.current,
     skillPermissionRef,
     unsubscribe: () => undefined,
-    // Keep a queued prompt chain when an idle session is replaced for the
-    // next turn. The current run owns this promise, so follow-ups submitted
-    // during session creation still wait for it.
-    promptChain: existing?.promptChain ?? Promise.resolve(),
     autoCompactionPromise: null,
     manualCompactionInProgress: false,
     nativeCompactionAttempted: false,
     goalLoopTurnActive: false,
-    promptActive: existing?.promptActive ?? false,
-    pendingSettings: existing?.pendingSettings,
-    promptEpoch: existing?.promptEpoch ?? 0,
     ...restoredThroughputState(existing, loaded, loadedToolTiming),
-    toolPartialOutputByCallId: existing?.toolPartialOutputByCallId ?? new Map(),
     snapshotTimer: null,
     pendingSnapshotEventType: null,
     pendingSnapshotIsDelta: false,
     pendingSnapshotExtra: undefined,
-    revertLeafId: existing?.revertLeafId ?? task?.revertLeafId ?? null,
-    manualAbortedAssistantId:
-      existing?.manualAbortedAssistantId ?? task?.manualAbortedAssistantId ?? null,
-    hangRetryCount: existing?.hangRetryCount ?? task?.hangRetryCount ?? 0,
     reasoningFallbackTried: false,
-    pendingProviderFallback: existing?.pendingProviderFallback ?? null,
     restoreAutoRetry: false,
     // A newly created session has already re-read the Bot's SOUL.md.
     soulReloadPending: false,
