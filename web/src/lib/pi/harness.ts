@@ -3338,6 +3338,14 @@ async function resolveLiveSessionSettings(task: TaskSummary): Promise<{
   };
 }
 
+function disposeSessionBestEffort(session: AgentSession): void {
+  try {
+    session.dispose();
+  } catch {
+    /* best-effort */
+  }
+}
+
 async function ensureLive(
   taskId: string,
   options?: { allowDuringPromotion?: boolean },
@@ -3406,11 +3414,7 @@ async function ensureLive(
       goalLoop: isGoalLoopLiveStatus(persistedGoalLoop?.status),
     });
     if ((ensureLiveEpoch.get(taskId) ?? 0) !== epoch) {
-      try {
-        setup.session.dispose();
-      } catch {
-        /* best-effort */
-      }
+      disposeSessionBestEffort(setup.session);
       return ensureLive(taskId, options);
     }
     patchTask(taskId, {
