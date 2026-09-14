@@ -38,6 +38,7 @@ export function BotCodeSessionPanel({ botId, onClose }: { botId: string; onClose
   const [controlBusy, setControlBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const loadGenerationRef = useRef(0);
+  const sessionSignatureRef = useRef<string | null>(null);
 
   useEffect(() => () => { loadGenerationRef.current += 1; }, []);
 
@@ -50,6 +51,9 @@ export function BotCodeSessionPanel({ botId, onClose }: { botId: string; onClose
       ]);
       const nextTasks = session.tasks ?? ((session as { task?: TaskSummary | null }).task ? [(session as { task: TaskSummary }).task] : []);
       if (generation !== loadGenerationRef.current) return;
+      const nextSessionSignature = nextTasks.map((task) => `${task.id}:${task.status}`).sort().join("|");
+      if (sessionSignatureRef.current !== null && sessionSignatureRef.current !== nextSessionSignature) notifyBotSidebarChanged();
+      sessionSignatureRef.current = nextSessionSignature;
       setTasks(nextTasks);
       const activeProjects = projectResult.projects.filter((project) => !project.archived);
       setProjects(activeProjects);
@@ -67,6 +71,7 @@ export function BotCodeSessionPanel({ botId, onClose }: { botId: string; onClose
     }
   }, [botId]);
   useEffect(() => {
+    sessionSignatureRef.current = null;
     setTasks([]);
     setLoops({});
     setError(null);
