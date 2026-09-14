@@ -89,7 +89,7 @@ export async function GET(req: NextRequest) {
   if (requestedPath && !isAbsolutePath(requestedPath)) {
     return NextResponse.json({ error: "絶対パスを指定してください", path: null, entries: [] }, { status: 400 });
   }
-  const target = requestedPath ? resolve(requestedPath) : homedir();
+  const target = requestedPath ? resolve(/*turbopackIgnore: true*/ requestedPath) : homedir();
   const windowsEntries = await windowsQuickAccessEntries();
   const quickAccess = quickAccessEntries(windowsEntries);
   const roots = allowedBrowseRoots(quickAccess);

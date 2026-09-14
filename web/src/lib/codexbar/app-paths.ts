@@ -3,7 +3,7 @@
  *
  * Windows CodexBar used %APPDATA%. Tests still set APPDATA on every OS, so an
  * explicit APPDATA wins. Otherwise Linux uses XDG, macOS uses Application
- * Support — never ~/AppData/Roaming.
+ * Support - never ~/AppData/Roaming.
  */
 
 import { homedir } from "node:os";

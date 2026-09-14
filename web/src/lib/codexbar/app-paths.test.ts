@@ -19,15 +19,15 @@ import {
 describe("roamingConfigDir", () => {
   it("prefers APPDATA when set, matching existing CodexBar tests", () => {
     expect(
-      roamingConfigDir({ APPDATA: "/tmp/isolated-appdata" }, "linux"),
+      roamingConfigDir({ NODE_ENV: "test", APPDATA: "/tmp/isolated-appdata" } as NodeJS.ProcessEnv, "linux"),
     ).toBe("/tmp/isolated-appdata");
     expect(
-      roamingConfigDir({ APPDATA: "C:\\Roaming" }, "win32"),
+      roamingConfigDir({ NODE_ENV: "test", APPDATA: "C:\\Roaming" } as NodeJS.ProcessEnv, "win32"),
     ).toBe("C:\\Roaming");
   });
 
   it("does not invent ~/AppData/Roaming on Linux", () => {
-    const env = { HOME: homedir() } as NodeJS.ProcessEnv;
+    const env = { NODE_ENV: "test", HOME: homedir() } as NodeJS.ProcessEnv;
     delete env.APPDATA;
     delete env.XDG_CONFIG_HOME;
     expect(roamingConfigDir(env, "linux")).toBe(join(homedir(), ".config"));
@@ -36,12 +36,12 @@ describe("roamingConfigDir", () => {
 
   it("uses XDG_CONFIG_HOME on Linux when APPDATA is unset", () => {
     expect(
-      roamingConfigDir({ XDG_CONFIG_HOME: "/xdg/config" }, "linux"),
+      roamingConfigDir({ NODE_ENV: "test", XDG_CONFIG_HOME: "/xdg/config" } as NodeJS.ProcessEnv, "linux"),
     ).toBe("/xdg/config");
   });
 
   it("uses Application Support on macOS and Roaming on Windows", () => {
-    const env = {} as NodeJS.ProcessEnv;
+    const env = { NODE_ENV: "test" } as NodeJS.ProcessEnv;
     expect(roamingConfigDir(env, "darwin")).toBe(
       join(homedir(), "Library", "Application Support"),
     );
