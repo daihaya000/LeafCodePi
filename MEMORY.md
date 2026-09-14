@@ -43,6 +43,11 @@
 2. Goal Loop `prepareGoalLoopTurn` — 他プロンプト busy 中は prepare 前に `"retry"`
 3. `pendingSettingsForPrompt` — queue 時点スナップショットではなく run 時点の pending を優先
 
+### Tick4（ループ継続）
+1. Goal Loop `canRetryGoalLoopProviderLimit` — pending クリア後も inflight / limit error から再試行可否を判定
+2. provider fallback — settle 時に lease を保持し fallback 完了時に解放
+3. Room `settleStaleRoomTurns` — 他ワーカーの `hasActiveTaskLease` を生存判定に使う
+
 ---
 
 ## 2026-09-14: Stale production rebuild / next build exit 1

@@ -1610,64 +1610,67 @@ async function fallbackProviderAfterLimit(
   const goalLoop = isActiveGoalLoopSession(live.session);
   let resumedLive: LiveRuntime | undefined;
   const operation = (async () => {
-    const task = getTask(live.taskId);
-    if (
-      !task ||
-      !task.providerID ||
-      !task.modelID ||
-      task.providerID !== pending.providerID ||
-      task.modelID !== pending.modelID ||
-      !canAutoFallbackTask(task, pending.providerID)
-    ) {
-      return;
-    }
+    try {
+      const task = getTask(live.taskId);
+      if (
+        !task ||
+        !task.providerID ||
+        !task.modelID ||
+        task.providerID !== pending.providerID ||
+        task.modelID !== pending.modelID ||
+        !canAutoFallbackTask(task, pending.providerID)
+      ) {
+        return;
+      }
 
-    await withRouteLock(
-      `${task.providerID}::${task.modelID}`,
-      async () => {
-        let currentLive = state().live.get(task.id) ?? live;
-        const pendingCompaction = currentLive.autoCompactionPromise;
-        if (pendingCompaction) {
-          await pendingCompaction.catch(() => undefined);
-          currentLive = state().live.get(task.id) ?? currentLive;
-        }
-        const latestTask = getTask(task.id);
-        if (
-          !latestTask ||
-          !latestTask.providerID ||
-          !latestTask.modelID ||
-          latestTask.providerID !== pending.providerID ||
-          latestTask.modelID !== pending.modelID ||
-          !canAutoFallbackTask(latestTask, pending.providerID) ||
-          currentLive.promptEpoch !== promptEpoch ||
-          currentLive.session.isStreaming
-        ) {
-          return;
-        }
-        const routes = await resolveProviderFallbackRoutes({
-          providerID: pending.providerID,
-          modelID: pending.modelID,
-          ...(currentLive.accountId ? { accountId: currentLive.accountId } : {}),
-        });
-        const route = routes[0];
-        if (!route || currentLive.promptEpoch !== promptEpoch) return;
-        const ids = modelId(route.model);
-        if (
-          ids.providerID === latestTask.providerID &&
-          ids.modelID === latestTask.modelID &&
-          route.accountId === (latestTask.accountId ?? null)
-        ) {
-          return;
-        }
-        const nextLive = await replaceLiveForRoute(currentLive, latestTask, route);
-        setTaskStatus(nextLive.taskId, "idle");
-        releaseTaskLease(nextLive.taskId);
-        emitTaskSnapshot(nextLive, "provider_fallback", {
-          fallbackFrom: `${pending.providerID}::${pending.modelID}`,
-        });
-        resumedLive = nextLive;
-      },
-    );
+      await withRouteLock(
+        `${task.providerID}::${task.modelID}`,
+        async () => {
+          let currentLive = state().live.get(task.id) ?? live;
+          const pendingCompaction = currentLive.autoCompactionPromise;
+          if (pendingCompaction) {
+            await pendingCompaction.catch(() => undefined);
+            currentLive = state().live.get(task.id) ?? currentLive;
+          }
+          const latestTask = getTask(task.id);
+          if (
+            !latestTask ||
+            !latestTask.providerID ||
+            !latestTask.modelID ||
+            latestTask.providerID !== pending.providerID ||
+            latestTask.modelID !== pending.modelID ||
+            !canAutoFallbackTask(latestTask, pending.providerID) ||
+            currentLive.promptEpoch !== promptEpoch ||
+            currentLive.session.isStreaming
+          ) {
+            return;
+          }
+          const routes = await resolveProviderFallbackRoutes({
+            providerID: pending.providerID,
+            modelID: pending.modelID,
+            ...(currentLive.accountId ? { accountId: currentLive.accountId } : {}),
+          });
+          const route = routes[0];
+          if (!route || currentLive.promptEpoch !== promptEpoch) return;
+          const ids = modelId(route.model);
+          if (
+            ids.providerID === latestTask.providerID &&
+            ids.modelID === latestTask.modelID &&
+            route.accountId === (latestTask.accountId ?? null)
+          ) {
+            return;
+          }
+          const nextLive = await replaceLiveForRoute(currentLive, latestTask, route);
+          setTaskStatus(nextLive.taskId, "idle");
+          emitTaskSnapshot(nextLive, "provider_fallback", {
+            fallbackFrom: `${pending.providerID}::${pending.modelID}`,
+          });
+          resumedLive = nextLive;
+        },
+      );
+    } finally {
+      releaseTaskLease(live.taskId);
+    }
   })().finally(() => {
     if (providerFallbackInflight.get(live.taskId) === operation) {
       providerFallbackInflight.delete(live.taskId);
@@ -1759,7 +1762,10 @@ function applySettledTaskStatus(
     (goalLoopIsStopped(live) || live.manualAbortedAssistantId !== null);
   if (stoppedByUser) persistManualAbortedAssistantId(taskId, "");
   setTaskStatus(taskId, stoppedByUser || !settledError ? "idle" : "error", stoppedByUser ? null : settledError);
-  releaseTaskLease(taskId);
+  // Keep the lease while provider-limit fallback still needs to replace the session.
+  if (!live.pendingProviderFallback) {
+    releaseTaskLease(taskId);
+  }
 }
 
 /** Post-turn work that runs once the SDK reports the session settled. */
@@ -2396,12 +2402,27 @@ function registerGoalLoopTurnRouting(taskId: string): (pi: ExtensionAPI) => void
       routingContext.canRetryGoalLoopProviderLimit = async () => {
         const live = state().live.get(taskId);
         const task = getTask(taskId);
-        const pending = live?.pendingProviderFallback;
         if (
           !live ||
           live.session.sessionManager !== ctx.sessionManager ||
-          !task ||
+          !task
+        ) {
+          return false;
+        }
+        // finishSettledTurn clears pendingProviderFallback before Goal Loop
+        // settles; also accept an in-flight fallback or the settled limit error.
+        const pending =
+          live.pendingProviderFallback ??
+          (providerFallbackInflight.has(taskId) ||
+          isProviderLimitError(live.session.agent.state.errorMessage)
+            ? {
+                providerID: task.providerID ?? "",
+                modelID: task.modelID ?? "",
+              }
+            : null);
+        if (
           !pending?.modelID ||
+          !pending.providerID ||
           !canAutoFallbackTask(task, pending.providerID)
         ) {
           return false;

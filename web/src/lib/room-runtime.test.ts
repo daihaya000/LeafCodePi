@@ -51,6 +51,7 @@ vi.mock("./room-opener", async (importOriginal) => {
 import { createBot, patchBot } from "./bots";
 import { appendRoomMessage, consumeRoomRelayEnvelope, createRoom, ensureRoomBotTask, getRoom, issueRoomRelayEnvelope, patchRoom, revertRoomTo, setRoomOutcome, updateRoomHandoffs, updateRoomMessage } from "./rooms";
 import { getTask, patchTask } from "./store";
+import { acquireTaskLease, releaseTaskLease } from "./task-runtime-lease";
 import { cancelPendingRoomHandoffs, deliverRoomCodeReport, reconcileRoomRuntime, registerRoomHandoff, resumeRoomAfterCode, runRoomConversation, runRoomFanOut, settleRoomHandoffs, settleRoomHandoffsForCode, settleStaleRoomTurns } from "./room-runtime";
 import { getBotIntercomInbox, resetBotIntercomForTests, setBotIntercomResidentLookup } from "./bot-intercom";
 import { BOT_DEFAULT_TOOL_NAMES } from "./types";
@@ -221,6 +222,27 @@ describe("room conversation with delegated work", () => {
     patchTask(`bot:${bots[0].id}:room:${room.id}`, { status: "working" });
     expect(settleStaleRoomTurns(room.id)).toBe(0);
     expect(getRoom(room.id)!.messages.find((message) => message.id === slow.id)?.status).toBe("working");
+  });
+
+  it("keeps a long turn alive when another worker still holds the task lease", () => {
+    const { room, bots } = setup();
+    const slow = appendRoomMessage(room.id, {
+      role: "assistant",
+      botId: bots[0].id,
+      text: "",
+      status: "working",
+      createdAt: Date.now() - 10 * 60_000,
+    })!;
+    const taskId = `bot:${bots[0].id}:room:${room.id}`;
+    expect(acquireTaskLease(taskId)).toBe(true);
+    try {
+      expect(settleStaleRoomTurns(room.id)).toBe(0);
+      expect(getRoom(room.id)!.messages.find((message) => message.id === slow.id)?.status).toBe(
+        "working",
+      );
+    } finally {
+      releaseTaskLease(taskId);
+    }
   });
 
   it("reconciles stale room placeholders when the worker starts", () => {

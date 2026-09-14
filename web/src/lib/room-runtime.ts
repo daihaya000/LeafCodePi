@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { appendRoomMessage, appendRoomMessageIf, consumeRoomRelayEnvelope, ensureRoomBotTask, getRoom, issueRoomRelayEnvelope, listRooms, MAX_ROOM_RELAY_DEPTH, roomBotTaskId, roomRequestFiles, roomRequestImages, setRoomOutcome, updateRoomHandoffs, updateRoomMessage } from "./rooms";
 import { getBot } from "./bots";
 import { getTask } from "./store";
+import { hasActiveTaskLease } from "./task-runtime-lease";
 import { getTaskDetail, promptTask, subscribeTask, abortTask } from "./pi/harness";
 import { withBotCodeSessionLock } from "./bot-code-session-lock";
 import { pendingRoomCodeRequestForTurn, pendingRoomCodeRequestsForTurn, roomCodeRequestsForTurn, roomCodeRequestForRoom, settledRoomCodeRequest, type CodeRequest } from "./pi/bot-code-relay";
@@ -208,6 +209,8 @@ export function settleStaleRoomTurns(roomId: string, now = Date.now()): number {
     // task record is still being updated by another worker.
     const taskId = roomBotTaskId(roomId, message.botId);
     if (roomBotRuns.has(taskId)) return false;
+    // Cross-worker: a live Code session holds a disk lease even when this Map is empty.
+    if (hasActiveTaskLease(taskId)) return false;
     const task = getTask(taskId);
     const touchedAt = task ? Date.parse(task.updatedAt) : Number.NaN;
     return !(task?.status === "working" && Number.isFinite(touchedAt) && now - touchedAt <= STALE_TURN_MS);
