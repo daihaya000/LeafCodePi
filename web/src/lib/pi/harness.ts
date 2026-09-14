@@ -6604,23 +6604,11 @@ async function applyPromptPermissions(
   }
 }
 
-/**
- * Apply the Composer's agent/model/effort/permission selections before the turn
- * is queued, and return the task snapshot the caller should keep using.
- */
-async function applyPromptSelections(
+async function applyPromptModelSelection(
   id: string,
+  task: TaskSummary,
   options: NonNullable<Parameters<typeof promptTask>[3]> | undefined,
-): Promise<TaskSummary> {
-  if (options?.agent !== undefined) {
-    const current = requireTask(id);
-    if (options.agent.trim() !== (current.agent?.trim() ?? "")) {
-      await setTaskAgent(id, options.agent);
-    }
-  }
-  const task = requireTask(id);
-  // エージェント定義のmodel/thinkingはサブエージェント起動専用。
-  // メイン対話者として直接選択した場合はComposerのモデル/Effortを使う。
+): Promise<boolean> {
   let modelChanged = false;
   if (options?.model) {
     const requested = parseModelValue(options.model);
@@ -6642,6 +6630,27 @@ async function applyPromptSelections(
       }
     }
   }
+  return modelChanged;
+}
+
+/**
+ * Apply the Composer's agent/model/effort/permission selections before the turn
+ * is queued, and return the task snapshot the caller should keep using.
+ */
+async function applyPromptSelections(
+  id: string,
+  options: NonNullable<Parameters<typeof promptTask>[3]> | undefined,
+): Promise<TaskSummary> {
+  if (options?.agent !== undefined) {
+    const current = requireTask(id);
+    if (options.agent.trim() !== (current.agent?.trim() ?? "")) {
+      await setTaskAgent(id, options.agent);
+    }
+  }
+  const task = requireTask(id);
+  // エージェント定義のmodel/thinkingはサブエージェント起動専用。
+  // メイン対話者として直接選択した場合はComposerのモデル/Effortを使う。
+  const modelChanged = await applyPromptModelSelection(id, task, options);
   if (
     options?.thinkingLevel &&
     (modelChanged || task.thinkingLevel !== options.thinkingLevel)
