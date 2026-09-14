@@ -461,6 +461,14 @@
 ### 検証（Tick90–92）
 `routines` — **39 passed**；Room auth 関連 — **passed**
 
+### Tick93–95（ループ継続・[Hunt Tick93–95](7518fc4a) 追随）
+1. Bot PATCH `codeAutoApprove` — Room と同様に Web UI トークン必須（未認証 403）
+2. Room `members` PATCH — 不明 Bot ID を黙って落とさず `assertKnownRoomMembers` で 400（偽 200 防止）
+3. 先送り: permission/question の in-memory 404（multi-worker）、routine `.run.lock` 2h stale reclaim
+
+### 検証（Tick93–95）
+`bots/[id]/route` / `rooms` — **34 passed**
+
 ---
 
 ## 2026-09-14: Stale production rebuild / next build exit 1
