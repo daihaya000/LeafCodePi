@@ -164,6 +164,7 @@ import {
   accountModelsStorePath,
   accountStoredProviders,
   getAccount,
+  isAccountEnabled,
   isAccountOnlyProvider,
   isAccountProviderId,
   listAccounts,
@@ -1939,6 +1940,18 @@ function shouldSyncTaskFromSessionEvent(
   );
 }
 
+function isHarnessAutoCompactionError(
+  event: SessionSyncEvent,
+  live: LiveRuntime,
+): boolean {
+  return (
+    event.type === "compaction_end" &&
+    !event.aborted &&
+    Boolean(event.errorMessage) &&
+    live.autoCompactionPromise !== null
+  );
+}
+
 async function attachSession(
   taskId: string,
   session: AgentSession,
@@ -1972,11 +1985,10 @@ async function attachSession(
     trackTurnLifecycleFlags(live, session, event);
     trackProviderLimit(live, session, event);
 
-    const harnessAutoCompactionError =
-      event.type === "compaction_end" &&
-      !event.aborted &&
-      Boolean(event.errorMessage) &&
-      live.autoCompactionPromise !== null;
+    const harnessAutoCompactionError = isHarnessAutoCompactionError(
+      event,
+      live,
+    );
     const syncTask = shouldSyncTaskFromSessionEvent(
       event,
       harnessAutoCompactionError,
@@ -2946,7 +2958,9 @@ async function resolveIntegratedModelRoute(
   const excluded = options?.excludeAccountId ?? null;
   const accounts = listAccounts().filter(
     (account) =>
-      accountHasProvider(account, providerID) && account.id !== excluded,
+      isAccountEnabled(account) &&
+      accountHasProvider(account, providerID) &&
+      account.id !== excluded,
   );
   const records = (await collectAccountModelRecords(accounts)).filter(
     (record) =>
@@ -3036,7 +3050,9 @@ async function resolveProviderFallbackRoutes(
     modelIdsByProvider.set(providerID, modelIds);
   };
   try {
-    for (const record of await collectAccountModelRecords(listAccounts())) {
+    for (const record of await collectAccountModelRecords(
+      listAccounts().filter(isAccountEnabled),
+    )) {
       addModel(record.option.providerID, record.option.modelID);
     }
   } catch {
@@ -3131,6 +3147,14 @@ async function resolveAccountModelRoute(
       });
     return undefined;
   }
+  if (!isAccountEnabled(account)) {
+    if (strictAccountId) {
+      throw Object.assign(new Error("一時停止中のアカウントです"), {
+        status: 409,
+      });
+    }
+    return undefined;
+  }
   if (!accountHasProvider(account, providerID)) {
     if (strictAccountId) {
       throw Object.assign(
@@ -3181,10 +3205,24 @@ async function resolveConcreteModel(
   if (
     !accountIdExplicit &&
     isAccountRoutingProvider(parsed.providerID) &&
-    runsThroughAccounts(parsed.providerID) &&
-    listAccounts().some((account) => accountHasProvider(account, parsed.providerID))
+    runsThroughAccounts(parsed.providerID)
   ) {
-    return resolveIntegratedModelRoute(parsed.providerID, parsed.modelID);
+    if (
+      listAccounts().some(
+        (account) =>
+          isAccountEnabled(account) &&
+          accountHasProvider(account, parsed.providerID),
+      )
+    ) {
+      return resolveIntegratedModelRoute(parsed.providerID, parsed.modelID);
+    }
+    return undefined;
+  }
+  if (
+    isAccountRoutingProvider(parsed.providerID) &&
+    runsThroughAccounts(parsed.providerID)
+  ) {
+    return undefined;
   }
 
   // Shared providers never use an account runtime, even when a caller carries
@@ -3370,8 +3408,14 @@ function resolveLiveSessionAccount(
       status: 404,
     });
   }
+  if (accountIdExplicit && taskAccount && !isAccountEnabled(taskAccount)) {
+    throw Object.assign(new Error("一時停止中のアカウントです"), {
+      status: 409,
+    });
+  }
   const taskAccountForSession =
     taskAccount &&
+    isAccountEnabled(taskAccount) &&
     (!task.providerID ||
       (isAccountRoutingProvider(task.providerID) &&
         accountHasProvider(taskAccount, task.providerID)))
@@ -3700,11 +3744,18 @@ export function invalidateHealthCache(): void {
   current.accountRecordsInflight = null;
 }
 
-function accountModelsKey(
-  accounts: readonly Pick<AccountRecord, "id" | "label" | "providers">[],
-): string {
+type AccountInput = Pick<AccountRecord, "id" | "label" | "providers"> & {
+  enabled?: boolean;
+};
+
+function accountModelsKey(accounts: readonly AccountInput[]): string {
   return JSON.stringify(
-    accounts.map((account) => [account.id, account.label, account.providers]),
+    accounts.map((account) => [
+      account.id,
+      account.label,
+      account.enabled !== false,
+      account.providers,
+    ]),
   );
 }
 
@@ -3902,8 +3953,9 @@ type AccountModelRecord = {
 };
 
 async function collectAccountModelRecords(
-  accounts: Pick<AccountRecord, "id" | "label" | "providers">[],
+  accounts: AccountInput[],
 ): Promise<AccountModelRecord[]> {
+  accounts = accounts.filter(isAccountEnabled);
   if (accounts.length === 0) return [];
   const current = state();
   const key = accountModelsKey(accounts);
@@ -4133,9 +4185,10 @@ function workingTaskCounts(
  * 統合モードのアカウント対応プロバイダーは provider/model ごとに 1 option へまとめる。
  */
 async function buildModelsForAccounts(
-  accounts: Pick<AccountRecord, "id" | "label" | "providers">[],
+  accounts: AccountInput[],
   usageTtlMs = 30 * 60 * 1000,
 ): Promise<ModelOption[]> {
+  accounts = accounts.filter(isAccountEnabled);
   const usageProviders =
     getCachedUsage(Date.now(), usageTtlMs)?.providers ?? [];
   const [sharedOptions, records] = await Promise.all([
@@ -4343,10 +4396,11 @@ async function resolveConfiguredAutoModel(
 }
 
 export async function listModelsForAccounts(
-  accounts: Pick<AccountRecord, "id" | "label" | "providers">[],
+  accounts: AccountInput[],
 ): Promise<ModelOption[]> {
   const current = state();
-  const key = accountModelsKey(accounts);
+  const usableAccounts = accounts.filter(isAccountEnabled);
+  const key = accountModelsKey(usableAccounts);
   const cached = current.accountModelCache;
   if (cached?.key === key) {
     const value = readModelCache(cached, Date.now());
@@ -4355,17 +4409,17 @@ export async function listModelsForAccounts(
     // モデル表示がアイドル後の再構築（秒単位）を待たないための緩和。
     const age = Date.now() - cached.at;
     if (age >= 0 && age < MODEL_STALE_SERVE_MS) {
-      void refreshAccountModels(current, accounts, key).catch(() => undefined);
+      void refreshAccountModels(current, usableAccounts, key).catch(() => undefined);
       return cached.value;
     }
   }
-  return refreshAccountModels(current, accounts, key);
+  return refreshAccountModels(current, usableAccounts, key);
 }
 
 /** 新しいモデル一覧を構築してキャッシュへ入れる。inflight重複は合成する。 */
 function refreshAccountModels(
   current: HarnessState,
-  accounts: Pick<AccountRecord, "id" | "label" | "providers">[],
+  accounts: AccountInput[],
   key: string,
 ): Promise<ModelOption[]> {
   if (current.accountModelInflight?.key === key) {
