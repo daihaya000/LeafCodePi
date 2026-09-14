@@ -2229,15 +2229,21 @@ export function runtimeClockContext(
 }
 
 export function refreshRuntimeClock(
-  session: { agent?: { state?: { systemPrompt: string } } },
+  session: { agent?: { state?: { systemPrompt?: string } } },
   now = new Date(),
 ): void {
   const state = session.agent?.state;
   if (!state) return;
   const clock = runtimeClockContext(now);
-  state.systemPrompt = state.systemPrompt.includes("<leafcode_clock>")
-    ? state.systemPrompt.replace(/<leafcode_clock>[\s\S]*?<\/leafcode_clock>/, clock)
-    : `${state.systemPrompt}\n\n${clock}`;
+  // A replacement session (provider-limit fallback, soul reload) may not have
+  // a system prompt yet. before_agent_start injects the clock later; do not
+  // throw while writing the hidden resume turn.
+  const current = typeof state.systemPrompt === "string" ? state.systemPrompt : "";
+  state.systemPrompt = current.includes("<leafcode_clock>")
+    ? current.replace(/<leafcode_clock>[\s\S]*?<\/leafcode_clock>/, clock)
+    : current
+      ? `${current}\n\n${clock}`
+      : clock;
 }
 
 export function isOneToOneBotTask(

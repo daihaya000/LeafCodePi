@@ -12,7 +12,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { homedir, tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { test } from "node:test";
 import {
@@ -307,13 +307,21 @@ test("failed dependency installs restore legacy dependencies and leave the previ
 });
 
 test("resolveMirrorRoot prefers the explicit override, then LOCALAPPDATA", () => {
+  const override = join(tmpdir(), "lcp-explicit-mirror");
+  const source = join(tmpdir(), "lcp-repo", "web");
   assert.equal(
-    resolveMirrorRoot({ LEAFCODE_PI_BUILD_DIR: "C:\\tmp\\mirror" }, "C:\\repo\\web"),
-    "C:\\tmp\\mirror",
+    resolveMirrorRoot({ LEAFCODE_PI_BUILD_DIR: override }, source),
+    resolve(override),
   );
+  const local = join(tmpdir(), "lcp-localappdata");
   assert.equal(
-    resolveMirrorRoot({ LOCALAPPDATA: "C:\\local" }, "C:\\repo\\web"),
-    join("C:\\local", "leafcode-pi", "build", mirrorSlug("C:\\repo\\web")),
+    resolveMirrorRoot({ LOCALAPPDATA: local }, source),
+    join(local, "leafcode-pi", "build", mirrorSlug(source)),
+  );
+  const cache = join(tmpdir(), "lcp-xdg-cache");
+  assert.equal(
+    resolveMirrorRoot({ XDG_CACHE_HOME: cache }, source),
+    join(cache, "leafcode-pi", "build", mirrorSlug(source)),
   );
 });
 
@@ -424,7 +432,10 @@ test("replantBuildCache is a no-op without a stashed cache", () => {
   }
 });
 
-const MIRROR = "C:\\local\\leafcode-pi\\build\\leafcodepi-abcd1234";
+// Must be a real absolute path on this host. `isMirrorNextStart` runs
+// `path.resolve(mirrorRoot)`, so a Windows `C:\...` fixture becomes
+// cwd-relative on Linux and no longer matches the stubbed command line.
+const MIRROR = join(tmpdir(), "leafcode-pi", "build", "leafcodepi-abcd1234");
 const NETSTAT = "  TCP    127.0.0.1:3010         0.0.0.0:0              LISTENING       4242\n";
 
 /** netstat first, then the per-PID command line lookup. */
@@ -432,20 +443,29 @@ function execStub(commandLine, netstat = NETSTAT) {
   return (cmd) => (cmd === "netstat" ? netstat : commandLine);
 }
 
+function nextCli(root, command, platform = "win32") {
+  const nextBin = join(root, "node_modules", "next", "dist", "bin", "next");
+  return platform === "win32"
+    ? `node ${nextBin} ${command} --port 3010`
+    : `/usr/bin/node ${nextBin} ${command} --hostname 127.0.0.1`;
+}
+
 test("the build guard refuses while next start serves the mirror", () => {
-  const serving = execStub(`node ${MIRROR}\\node_modules\\next\\dist\\bin\\next start --port 3010`);
+  const serving = execStub(nextCli(MIRROR, "start"));
   assert.equal(productionWebUiIsIdle({ platform: "win32", port: 3010, mirrorRoot: MIRROR, exec: serving }), false);
 });
 
 test("the build guard allows a rebuild while next dev holds the port", () => {
   // dev serves the repository's own output, which the mirror build never touches.
-  const dev = execStub("node C:\\repo\\web\\node_modules\\next\\dist\\bin\\next dev --port 3010");
+  const other = join(tmpdir(), "other-repo", "web");
+  const dev = execStub(nextCli(other, "dev"));
   assert.equal(productionWebUiIsIdle({ platform: "win32", port: 3010, mirrorRoot: MIRROR, exec: dev }), true);
 });
 
 test("the build guard ignores an unrelated next start from another checkout", () => {
-  const other = execStub("node C:\\other\\web\\node_modules\\next\\dist\\bin\\next start --port 3010");
-  assert.equal(productionWebUiIsIdle({ platform: "win32", port: 3010, mirrorRoot: MIRROR, exec: other }), true);
+  const other = join(tmpdir(), "other-repo", "web");
+  const otherStart = execStub(nextCli(other, "start"));
+  assert.equal(productionWebUiIsIdle({ platform: "win32", port: 3010, mirrorRoot: MIRROR, exec: otherStart }), true);
 });
 
 test("the build guard fails closed when a listener cannot be identified", () => {
@@ -481,7 +501,7 @@ test("the Linux build guard refuses an unidentified ss listener", () => {
 
 test("the Linux build guard uses ss and ps", () => {
   const calls = [];
-  const commandLine = `/usr/bin/node ${MIRROR}/node_modules/next/dist/bin/next start --hostname 127.0.0.1`;
+  const commandLine = nextCli(MIRROR, "start", "linux");
   const exec = (command) => {
     calls.push(command);
     if (command === "ss") {

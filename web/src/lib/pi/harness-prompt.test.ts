@@ -166,6 +166,17 @@ describe("runtimeClockContext", () => {
     assert.doesNotMatch(session.agent.state.systemPrompt, /old/);
     assert.match(session.agent.state.systemPrompt, /bot context/);
   });
+
+  it("installs a clock block when the replacement session has no system prompt yet", () => {
+    const session = {
+      agent: {
+        state: { systemPrompt: undefined as string | undefined },
+      },
+    };
+    refreshRuntimeClock(session, new Date("2026-09-14T00:00:01.234Z"));
+    assert.match(session.agent.state.systemPrompt ?? "", /<leafcode_clock>/);
+    assert.match(session.agent.state.systemPrompt ?? "", /UTC: 2026-09-14T00:00:01\.234Z/);
+  });
 });
 
 describe("harness prompt abort generation", () => {
