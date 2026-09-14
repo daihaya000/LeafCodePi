@@ -16,6 +16,8 @@ import { prepareWorkspaceMove, type PreparedWorkspaceMove } from "@/lib/workspac
 import { BOT_DEFAULT_TOOL_NAMES, BOT_TOOL_NAMES, botPromptSources, botRuntimeContext, botSoulRevision, getBot } from "@/lib/bots";
 import { codePromptSources } from "@/lib/agents-md";
 import { BOT_CODE_RESULT, BOT_CODE_TOOL, botCodeReportText, createBotCodeRelay, hasBotCodeReport, isBotCodeOriginTask, queueBotCodePrompt, roomForCodeOrigin, runUserBotCodeRequest, stopBotCodeRequestForTask, type CodePromptOptions, type CodeRequest } from "@/lib/pi/bot-code-relay";
+import { catalogFromRoomUserRequest, catalogFromSessionEntries } from "@/lib/pi/bot-code-images";
+import { roomRequestImages } from "@/lib/rooms";
 import { BOT_SOUL_TOOL, botSoulTool } from "@/lib/pi/bot-soul-tool";
 import { ROOM_HANDOFF_TOOL, roomHandoffTool } from "@/lib/room-handoff-tool";
 import { botIntercomTool } from "@/lib/bot-intercom-tool";
@@ -1889,6 +1891,16 @@ function botCodeRelay(): ReturnType<typeof createBotCodeRelay> {
       return getTask(id)?.status === "working" || getTaskHangWatch(id)?.state === "resolving" || Boolean(live && (live.promptActive || live.session.isStreaming || live.session.isCompacting || live.autoCompactionPromise || live.pendingProviderFallback || isActiveGoalLoopSession(live.session)));
     },
     goalLoop: (task) => readGoalLoopState(task.directory, state().live.get(task.id)?.session.sessionId ?? task.sessionId),
+    conversationImages: (originTaskId) => {
+      const task = getTask(originTaskId);
+      const room = roomForCodeOrigin(task);
+      if (room) {
+        return catalogFromRoomUserRequest(room.messages, (messageId) => roomRequestImages(room.id, messageId));
+      }
+      const live = state().live.get(originTaskId);
+      const manager = live?.session.sessionManager as { getBranch?: () => unknown[]; getEntries?: () => unknown[] } | undefined;
+      return catalogFromSessionEntries(manager?.getBranch?.() ?? manager?.getEntries?.() ?? []);
+    },
     messages: async (task) => {
       const live = state().live.get(task.id);
       return live ? snapshotMessages(
