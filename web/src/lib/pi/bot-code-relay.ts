@@ -465,7 +465,7 @@ export async function cancelAllRoomCodeRequests(roomId: string): Promise<number>
  * outbox but still have a live Goal Loop / working status (isBusy cold-gap orphans).
  */
 export async function stopAllRoomCodeSessions(roomId: string): Promise<number> {
-  return stopRoomCodeSessions(
+  return stopMatchedCodeSessions(
     (request) => request.room?.id === roomId && Boolean(request.codeTaskId),
     () => cancelAllRoomCodeRequests(roomId),
   );
@@ -474,7 +474,7 @@ export async function stopAllRoomCodeSessions(roomId: string): Promise<number> {
 /** Member leave / Bot detach: same as stopAllRoomCodeSessions but scoped to one Bot origin. */
 export async function stopRoomCodeSessionsForBot(roomId: string, botId: string): Promise<number> {
   const origin = roomBotTaskId(roomId, botId);
-  return stopRoomCodeSessions(
+  return stopMatchedCodeSessions(
     (request) =>
       request.room?.id === roomId &&
       request.originTaskId === origin &&
@@ -483,7 +483,36 @@ export async function stopRoomCodeSessionsForBot(roomId: string, botId: string):
   );
 }
 
-async function stopRoomCodeSessions(
+/** 1:1 Bot disable/reset: cancel active outbox and cold-sweep settled Code with live Goal Loop. */
+export async function stopOneToOneCodeSessionsForBot(botId: string): Promise<number> {
+  const origin = `bot:${botId}`;
+  return stopMatchedCodeSessions(
+    (request) => request.originTaskId === origin && !request.room && Boolean(request.codeTaskId),
+    () => cancelBotCodeRequests(botId),
+  );
+}
+
+/** Bot delete: 1:1 + Room-origin Code (Room detach may already have run; safe to repeat). */
+export async function stopAllCodeSessionsForBot(botId: string): Promise<number> {
+  const origin = `bot:${botId}`;
+  const roomPrefix = `bot:${botId}:room:`;
+  return stopMatchedCodeSessions(
+    (request) =>
+      Boolean(request.codeTaskId) &&
+      (request.originTaskId === origin || request.originTaskId.startsWith(roomPrefix)),
+    () => cancelAllCodeRequestsForBot(botId),
+  );
+}
+
+/** Project archive: stop Code sessions launched under this projectId. */
+export async function stopCodeSessionsForProject(projectId: string): Promise<number> {
+  return stopMatchedCodeSessions(
+    (request) => request.projectId === projectId && Boolean(request.codeTaskId),
+    () => cancelRequests(requests().filter((request) => active(request) && request.projectId === projectId)),
+  );
+}
+
+async function stopMatchedCodeSessions(
   match: (request: CodeRequest) => boolean,
   cancelActive: () => Promise<number>,
 ): Promise<number> {
@@ -508,7 +537,7 @@ async function stopRoomCodeSessions(
       stopped += 1;
     } catch (error) {
       console.warn(
-        "[bot-code-relay] Room Code session could not be stopped:",
+        "[bot-code-relay] Code session could not be stopped:",
         error instanceof Error ? error.message : String(error),
       );
     }

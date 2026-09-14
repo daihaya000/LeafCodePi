@@ -16,13 +16,14 @@ const mocks = vi.hoisted(() => ({
   destroyTask: vi.fn(),
   stopBotCodeTask: vi.fn(async () => ({ id: "code-1", status: "idle" })),
   abortTask: vi.fn(async () => ({ id: "code-1", status: "idle" })),
+  abortTaskIncludingColdGoalLoop: vi.fn(async () => ({ id: "code-1", status: "idle" })),
   listTasks: vi.fn(() => []),
   getTask: vi.fn(),
   listRooms: vi.fn(() => [] as { id: string; members: string[] }[]),
   patchRoom: vi.fn(),
   detachBotFromRoomRuntime: vi.fn(async () => undefined),
-  cancelAllCodeRequestsForBot: vi.fn(async () => 0),
-  cancelBotCodeRequests: vi.fn(async () => 0),
+  stopAllCodeSessionsForBot: vi.fn(async () => 0),
+  stopOneToOneCodeSessionsForBot: vi.fn(async () => 0),
 }));
 vi.mock("@/lib/bots", () => ({
   getBot: mocks.getBot,
@@ -43,13 +44,14 @@ vi.mock("@/lib/pi/harness", () => ({
   destroyTask: mocks.destroyTask,
   stopBotCodeTask: mocks.stopBotCodeTask,
   abortTask: mocks.abortTask,
+  abortTaskIncludingColdGoalLoop: mocks.abortTaskIncludingColdGoalLoop,
 }));
 vi.mock("@/lib/store", () => ({ listTasks: mocks.listTasks, getTask: mocks.getTask }));
 vi.mock("@/lib/rooms", () => ({ listRooms: mocks.listRooms, patchRoom: mocks.patchRoom }));
 vi.mock("@/lib/room-runtime", () => ({ detachBotFromRoomRuntime: mocks.detachBotFromRoomRuntime }));
 vi.mock("@/lib/pi/bot-code-relay", () => ({
-  cancelAllCodeRequestsForBot: mocks.cancelAllCodeRequestsForBot,
-  cancelBotCodeRequests: mocks.cancelBotCodeRequests,
+  stopAllCodeSessionsForBot: mocks.stopAllCodeSessionsForBot,
+  stopOneToOneCodeSessionsForBot: mocks.stopOneToOneCodeSessionsForBot,
 }));
 
 import { NextRequest } from "next/server";
@@ -191,7 +193,7 @@ describe("PATCH /api/bots/[id]", () => {
 
     const reset = await PATCH(jsonRequest({ resetMessages: true }), params("one"));
     expect(reset.status).toBe(200);
-    expect(mocks.cancelBotCodeRequests).toHaveBeenCalledWith("one");
+    expect(mocks.stopOneToOneCodeSessionsForBot).toHaveBeenCalledWith("one");
     expect(mocks.stopBotCodeTask).toHaveBeenCalledWith("one", "code-1");
     expect(mocks.resetTaskConversation).toHaveBeenCalledWith("bot:one");
     expect(mocks.resetTaskSession).not.toHaveBeenCalled();
@@ -265,9 +267,9 @@ describe("PATCH /api/bots/[id]", () => {
     expect(response.status).toBe(200);
     expect(mocks.detachBotFromRoomRuntime).toHaveBeenCalledWith("room-a", "one");
     expect(mocks.detachBotFromRoomRuntime).not.toHaveBeenCalledWith("room-b", "one");
-    expect(mocks.cancelBotCodeRequests).toHaveBeenCalledWith("one");
+    expect(mocks.stopOneToOneCodeSessionsForBot).toHaveBeenCalledWith("one");
     expect(mocks.stopBotCodeTask).not.toHaveBeenCalled();
-    expect(mocks.abortTask).toHaveBeenCalledWith("bot:one");
+    expect(mocks.abortTaskIncludingColdGoalLoop).toHaveBeenCalledWith("bot:one");
     expect(mocks.patchRoom).not.toHaveBeenCalled();
   });
 
@@ -278,9 +280,9 @@ describe("PATCH /api/bots/[id]", () => {
     mocks.listRooms.mockReturnValue([]);
     const response = await PATCH(jsonRequest({ enabled: false }), params("one"));
     expect(response.status).toBe(200);
-    expect(mocks.cancelBotCodeRequests).toHaveBeenCalledWith("one");
+    expect(mocks.stopOneToOneCodeSessionsForBot).toHaveBeenCalledWith("one");
     expect(mocks.stopBotCodeTask).toHaveBeenCalledWith("one", "code-loop");
-    expect(mocks.abortTask).toHaveBeenCalledWith("bot:one");
+    expect(mocks.abortTaskIncludingColdGoalLoop).toHaveBeenCalledWith("bot:one");
   });
 });
 
@@ -293,7 +295,7 @@ describe("DELETE /api/bots/[id]", () => {
     const response = await DELETE(emptyRequest(), params("one"));
 
     expect(response.status).toBe(200);
-    expect(mocks.cancelAllCodeRequestsForBot).toHaveBeenCalledWith("one");
+    expect(mocks.stopAllCodeSessionsForBot).toHaveBeenCalledWith("one");
     expect(mocks.stopBotCodeTask).toHaveBeenCalledWith("one", "code-loop");
   });
 
@@ -303,7 +305,7 @@ describe("DELETE /api/bots/[id]", () => {
     const response = await DELETE(emptyRequest(), params("one"));
     expect(response.status).toBe(200);
     expect((await response.json()).ok).toBe(true);
-    expect(mocks.cancelAllCodeRequestsForBot).toHaveBeenCalledWith("one");
+    expect(mocks.stopAllCodeSessionsForBot).toHaveBeenCalledWith("one");
     expect(mocks.destroyTask).toHaveBeenCalledWith("bot-task");
   });
 

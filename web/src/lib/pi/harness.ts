@@ -2302,7 +2302,9 @@ export async function stopBotCodeTask(botId: string, taskId: string): Promise<Ta
   const relay = botCodeRelay();
   const requestId = relay.requestIdForCode(taskId);
   await stopBotCodeRequestForTask(botId, taskId);
-  const task = await abortTask(taskId);
+  // Cold Goal Loop files survive a bare abort when live was disposed (worker restart / turn gap).
+  const task = await abortTaskIncludingColdGoalLoop(taskId);
+  if (!task) throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });
   // Capture immediately after an explicit stop instead of waiting for the relay scan.
   if (requestId) await relay.complete(requestId);
   return task;
@@ -5639,6 +5641,16 @@ export async function archiveProjectAndStopTasks(id: string): Promise<ProjectDto
     throw Object.assign(new Error("プロジェクトが見つかりません"), {
       status: 404,
     });
+  // Cancel relay outbox first so idle Code cannot deliver into archived work after restore.
+  try {
+    const { stopCodeSessionsForProject } = await import("@/lib/pi/bot-code-relay");
+    await stopCodeSessionsForProject(id);
+  } catch (error) {
+    console.warn(
+      `[archive-project] failed to stop Code sessions for ${id}:`,
+      error instanceof Error ? error.message : String(error),
+    );
+  }
   for (const task of listTasks(false).filter((entry) => entry.projectId === id)) {
     try {
       await abortTaskIncludingColdGoalLoop(task.id);

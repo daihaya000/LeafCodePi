@@ -1,13 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { BOT_TOOL_NAMES, deleteBot, getBot, normalizeBotSkills, patchBot, botTaskId } from "@/lib/bots";
-import { abortTask, destroyTask, requestBotSoulReload, resetTaskConversation, setBotModel, setBotPermissionMode, setBotThinkingLevel, setBotTools, stopBotCodeTask } from "@/lib/pi/harness";
+import { abortTaskIncludingColdGoalLoop, destroyTask, requestBotSoulReload, resetTaskConversation, setBotModel, setBotPermissionMode, setBotThinkingLevel, setBotTools, stopBotCodeTask } from "@/lib/pi/harness";
 import { validateBotSoulContent } from "@/lib/pi/bot-soul-tool";
 import { isThinkingLevel } from "@/lib/thinking-levels";
 import { isAvatarColor, isAvatarEyeColor, isAvatarImage, isAvatarShape } from "@/lib/bot-avatar";
 import { isAbsolutePath } from "@/lib/paths";
 import { getTask, listTasks } from "@/lib/store";
 import { listRooms, patchRoom } from "@/lib/rooms";
-import { cancelAllCodeRequestsForBot, cancelBotCodeRequests } from "@/lib/pi/bot-code-relay";
+import { stopAllCodeSessionsForBot, stopOneToOneCodeSessionsForBot } from "@/lib/pi/bot-code-relay";
 import { detachBotFromRoomRuntime } from "@/lib/room-runtime";
 import type { BotSkillsConfig } from "@/lib/types";
 
@@ -29,7 +29,7 @@ async function stopLinkedBotCodeSession(
     await stopBotCodeTask(botId, linkedId);
   } catch {
     try {
-      await abortTask(linkedId);
+      await abortTaskIncludingColdGoalLoop(linkedId);
     } catch (error) {
       console.warn(
         `[bots] failed to stop linked Code task ${linkedId} on ${reason}:`,
@@ -151,14 +151,14 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       for (const room of listRooms().filter((entry) => entry.members.includes(id))) {
         await detachBotFromRoomRuntime(room.id, id);
       }
-      // 1:1 Code jobs are outside Room detach — cancel+abort them too.
-      await cancelBotCodeRequests(id);
+      // 1:1 Code jobs are outside Room detach — cancel+cold-sweep them too.
+      await stopOneToOneCodeSessionsForBot(id);
       // Goal Loop / continue without an active relay outbox still leave codeSessionTaskId running.
       await stopLinkedBotCodeSession(id, bot.codeSessionTaskId, "disable");
       // Stop in-flight 1:1 turns / Goal Loop on bot:${id}. New direct messages stay allowed
       // (prompt/route); this only aborts work already accepted before disable.
       try {
-        await abortTask(botTaskId(id));
+        await abortTaskIncludingColdGoalLoop(botTaskId(id));
       } catch (error) {
         console.warn(
           `[bots] failed to abort 1:1 task on disable:`,
@@ -168,7 +168,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     }
     if (hasResetMessages) {
       // Mirror Room reset / Bot disable: stop Code outbox and linked session before wiping chat.
-      await cancelBotCodeRequests(id);
+      await stopOneToOneCodeSessionsForBot(id);
       await stopLinkedBotCodeSession(id, bot.codeSessionTaskId, "reset");
       await resetTaskConversation(botTaskId(id));
     }
@@ -189,7 +189,7 @@ export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ 
   const bot = getBot(id);
   const rooms = listRooms().filter((room) => room.members.includes(id));
   for (const room of rooms) await detachBotFromRoomRuntime(room.id, id);
-  await cancelAllCodeRequestsForBot(id);
+  await stopAllCodeSessionsForBot(id);
   // Panel / Goal Loop Code is not kind=bot, so destroyTask below would miss it.
   await stopLinkedBotCodeSession(id, bot?.codeSessionTaskId, "delete");
   for (const task of listTasks(true, "bot").filter((item) => item.botId === id)) await destroyTask(task.id);

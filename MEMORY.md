@@ -296,6 +296,15 @@
 ### 検証（Tick59–60）
 `harness-lifecycle` / `bot-code-relay` / `rooms/[id]` / `bots/[id]` / `harness-agent` — **122 passed**
 
+### Tick61（ループ継続）
+1. `stopBotCodeTask` — `abortTaskIncludingColdGoalLoop`（linked Code の cold Goal Loop）
+2. `stopOneToOneCodeSessionsForBot` / `stopAllCodeSessionsForBot` — 1:1 disable/reset/delete でも Room 相当の cold sweep
+3. `stopCodeSessionsForProject` — archive 時に relay outbox も停止（restore 後のゴースト配信防止）
+4. Bot disable の 1:1 abort も cold Goal Loop 対応
+
+### 検証（Tick61）
+`bots/[id]` / `bot-code-relay` / `harness-lifecycle` / `harness-agent` / `code-session` — **142 passed**
+
 ---
 
 ## 2026-09-14: Stale production rebuild / next build exit 1
