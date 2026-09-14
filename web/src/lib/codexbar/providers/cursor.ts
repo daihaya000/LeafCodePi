@@ -4,9 +4,10 @@
  */
 
 import { copyFileSync, existsSync, readFileSync, unlinkSync } from "node:fs";
-import { homedir, tmpdir } from "node:os";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
+import { roamingConfigDir } from "@/lib/codexbar/app-paths";
 import {
   ProviderError,
   type IUsageProvider,
@@ -26,16 +27,14 @@ import type { UsageScope } from "@/lib/codexbar/types";
 const USAGE_SUMMARY_URL = "https://cursor.com/api/usage-summary";
 const AUTH_ME_URL = "https://cursor.com/api/auth/me";
 
-function appData(): string {
-  return process.env.APPDATA || join(homedir(), "AppData", "Roaming");
+/** Cursor IDE auth.json (Electron roaming config). Exported for path tests. */
+export function cursorAuthJsonPath(): string {
+  return join(roamingConfigDir(), "Cursor", "auth.json");
 }
 
-function stateDbPath(): string {
-  return join(appData(), "Cursor", "User", "globalStorage", "state.vscdb");
-}
-
-function authJsonPath(): string {
-  return join(appData(), "Cursor", "auth.json");
+/** Cursor IDE state.vscdb. Exported for path tests. */
+export function cursorStateDbPath(): string {
+  return join(roamingConfigDir(), "Cursor", "User", "globalStorage", "state.vscdb");
 }
 
 function prettyPlan(raw: string | null | undefined): string | null {
@@ -77,7 +76,7 @@ function tokenIssuedAt(accessToken: string): number {
 
 function tryLoadAccessTokenFromAuthJson(): string | null {
   try {
-    const path = authJsonPath();
+    const path = cursorAuthJsonPath();
     if (!existsSync(/* turbopackIgnore: true */ path)) return null;
     const root = asRecord(JSON.parse(readFileSync(path, "utf8")));
     const at = root?.accessToken;
@@ -145,7 +144,7 @@ function readItemFromDbCopy(dbPath: string, key: string): string | null {
 }
 
 function tryLoadAccessTokenFromStateDb(): string | null {
-  const path = stateDbPath();
+  const path = cursorStateDbPath();
   if (!existsSync(/* turbopackIgnore: true */ path)) return null;
   try {
     return readItemFromDb(path, "cursorAuth/accessToken");
@@ -155,7 +154,7 @@ function tryLoadAccessTokenFromStateDb(): string | null {
 }
 
 function readItem(key: string): string | null {
-  const path = stateDbPath();
+  const path = cursorStateDbPath();
   if (!existsSync(/* turbopackIgnore: true */ path)) return null;
   try {
     return readItemFromDb(path, key);
@@ -349,8 +348,8 @@ export function createCursorProvider(scope: UsageScope): IUsageProvider {
       } catch {
         return (
           !accountScoped &&
-          (existsSync(/* turbopackIgnore: true */ stateDbPath()) ||
-            existsSync(/* turbopackIgnore: true */ authJsonPath()))
+          (existsSync(/* turbopackIgnore: true */ cursorStateDbPath()) ||
+            existsSync(/* turbopackIgnore: true */ cursorAuthJsonPath()))
         );
       }
     },
