@@ -5816,6 +5816,41 @@ export async function validateTaskModelSelection(
   }
 }
 
+function insertTaskForCreateTask(input: {
+  project: ProjectDto | null;
+  prompt: string;
+  model: Model | undefined;
+  accountId: string | null;
+  accountIdExplicit: boolean;
+  thinkingLevel?: ThinkingLevel;
+  parsed: ReturnType<typeof parseModelValue>;
+  botId?: string;
+  agent?: string;
+  skillPermission?: SkillPermission;
+  permissionMode?: "allow" | "ask" | "deny";
+}): TaskSummary {
+  const selectedIds = modelId(input.model);
+  return insertTask({
+    project: input.project,
+    title: titleFromPrompt(input.prompt),
+    thinkingLevel: input.thinkingLevel,
+    providerID: selectedIds.providerID ?? input.parsed?.providerID,
+    modelID: selectedIds.modelID ?? input.parsed?.modelID,
+    ...(input.accountId ? { accountId: input.accountId } : {}),
+    ...(input.accountId && input.accountIdExplicit
+      ? { accountIdExplicit: true }
+      : {}),
+    ...(input.botId ? { botId: input.botId } : {}),
+    ...(input.agent ? { agent: input.agent.trim() } : {}),
+    ...(input.skillPermission
+      ? { skillPermission: input.skillPermission }
+      : {}),
+    ...(input.permissionMode
+      ? { permissionMode: input.permissionMode }
+      : {}),
+  });
+}
+
 export async function createTask(input: {
   projectId: string | null;
   prompt: string;
@@ -5876,26 +5911,20 @@ export async function createTask(input: {
     accountId: string | null,
     accountIdExplicit: boolean,
     thinkingLevel?: ThinkingLevel,
-  ): TaskSummary => {
-    const selectedIds = modelId(model);
-    return insertTask({
+  ): TaskSummary =>
+    insertTaskForCreateTask({
       project,
-      title: titleFromPrompt(input.prompt),
+      prompt: input.prompt,
+      model,
+      accountId,
+      accountIdExplicit,
       thinkingLevel,
-      providerID: selectedIds.providerID ?? parsed?.providerID,
-      modelID: selectedIds.modelID ?? parsed?.modelID,
-      ...(accountId ? { accountId } : {}),
-      ...(accountId && accountIdExplicit ? { accountIdExplicit: true } : {}),
-      ...(input.botId ? { botId: input.botId } : {}),
-      ...(input.agent ? { agent: input.agent.trim() } : {}),
-      ...(input.skillPermission
-        ? { skillPermission: input.skillPermission }
-        : {}),
-      ...(input.permissionMode
-        ? { permissionMode: input.permissionMode }
-        : {}),
+      parsed,
+      botId: input.botId,
+      agent: input.agent,
+      skillPermission: input.skillPermission,
+      permissionMode: input.permissionMode,
     });
-  };
   let modelRoute: ConcreteModelRoute | undefined;
   let concreteAccountId = requestedAccountId ?? null;
   let reservedAccount: { providerID: string; accountId: string } | undefined;
