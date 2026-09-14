@@ -1850,6 +1850,29 @@ function detachExistingLive(
   }
 }
 
+type SessionSyncEvent = {
+  type: string;
+  willRetry?: boolean;
+  aborted?: boolean;
+  errorMessage?: string;
+  reason?: string;
+};
+
+function shouldSyncTaskFromSessionEvent(
+  event: SessionSyncEvent,
+  harnessAutoCompactionError: boolean,
+): boolean {
+  return (
+    event.type === "agent_start" ||
+    event.type === "agent_settled" ||
+    (event.type === "agent_end" && !event.willRetry) ||
+    (event.type === "compaction_end" &&
+      !event.aborted &&
+      Boolean(event.errorMessage) &&
+      (event.reason !== "manual" || harnessAutoCompactionError))
+  );
+}
+
 async function attachSession(
   taskId: string,
   session: AgentSession,
@@ -1888,14 +1911,10 @@ async function attachSession(
       !event.aborted &&
       Boolean(event.errorMessage) &&
       live.autoCompactionPromise !== null;
-    const syncTask =
-      event.type === "agent_start" ||
-      event.type === "agent_settled" ||
-      (event.type === "agent_end" && !event.willRetry) ||
-      (event.type === "compaction_end" &&
-        !event.aborted &&
-        Boolean(event.errorMessage) &&
-        (event.reason !== "manual" || harnessAutoCompactionError));
+    const syncTask = shouldSyncTaskFromSessionEvent(
+      event,
+      harnessAutoCompactionError,
+    );
     // Message/tool deltas arrive much more often than task metadata changes.
     // Avoid a synchronous store read for every token; status/identity changes
     // still use the existing path below.
