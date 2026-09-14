@@ -2949,19 +2949,30 @@ async function createSession(options: {
   botSkills?: BotSkillsConfig;
   botTools?: readonly string[];
   skillScope?: SkillScope;
+  onTiming?: TaskDetailTimingReporter;
 }): Promise<SessionSetup> {
   const {
     botCodeTaskId,
     roomHandoffTaskId,
     botSoulBotId,
   } = sessionTaskContext(options.taskId);
+  const loadPiStartedAt = options.onTiming ? performance.now() : 0;
   const pi = await loadPi();
+  reportTaskDetailPhase(options.onTiming, "createSession.loadPi", loadPiStartedAt);
+  const runtimeStartedAt = options.onTiming ? performance.now() : 0;
   await ensureRuntime({ skipDefaultRuntime: Boolean(options.accountId) });
+  reportTaskDetailPhase(options.onTiming, "createSession.ensureRuntime", runtimeStartedAt);
   const agentDir = pi.getAgentDir();
+  const sessionManagerStartedAt = options.onTiming ? performance.now() : 0;
   const sessionManager = options.sessionFile
     ? pi.SessionManager.open(options.sessionFile)
     : pi.SessionManager.create(options.cwd);
   syncSessionName(sessionManager, options.sessionName);
+  reportTaskDetailPhase(
+    options.onTiming,
+    "createSession.sessionManager",
+    sessionManagerStartedAt,
+  );
   const skillPermissionRef = {
     current: options.skillPermission ?? ("allow" as SkillPermission),
   };
@@ -3032,7 +3043,13 @@ async function createSession(options: {
       ),
     }),
   });
+  const resourceLoaderStartedAt = options.onTiming ? performance.now() : 0;
   await resourceLoader.reload();
+  reportTaskDetailPhase(
+    options.onTiming,
+    "createSession.resourceLoader",
+    resourceLoaderStartedAt,
+  );
   const permissionMode =
     options.permissionMode ?? readPermissionGateConfig();
   const persistPermission = options.permissionMode !== undefined;
@@ -3044,6 +3061,14 @@ async function createSession(options: {
     botCodeTool: Boolean(botCodeTaskId),
     roomHandoffTool: Boolean(roomHandoffTaskId),
   });
+  const modelRuntimeStartedAt = options.onTiming ? performance.now() : 0;
+  const modelRuntime = (await getRuntimeFor(options.accountId)) ?? undefined;
+  reportTaskDetailPhase(
+    options.onTiming,
+    "createSession.modelRuntime",
+    modelRuntimeStartedAt,
+  );
+  const agentSessionStartedAt = options.onTiming ? performance.now() : 0;
   const result = await pi.createAgentSession({
     cwd: options.cwd,
     agentDir,
@@ -3051,10 +3076,15 @@ async function createSession(options: {
     thinkingLevel: options.thinkingLevel,
     sessionManager,
     resourceLoader,
-    modelRuntime: (await getRuntimeFor(options.accountId)) ?? undefined,
+    modelRuntime,
     tools,
   });
-  if (options.goalLoop) ensureSessionFilePersisted(sessionManager);
+  reportTaskDetailPhase(
+    options.onTiming,
+    "createSession.agentSession",
+    agentSessionStartedAt,
+  );
+  const configureStartedAt = options.onTiming ? performance.now() : 0;
   await configureCreatedSession(result.session, {
     botTools: options.botTools,
     subagentPermission: options.subagentPermission,
@@ -3062,6 +3092,20 @@ async function createSession(options: {
     persistPermission,
     goalLoop: options.goalLoop === true,
   });
+  reportTaskDetailPhase(
+    options.onTiming,
+    "createSession.configure",
+    configureStartedAt,
+  );
+  if (options.goalLoop) {
+    const persistStartedAt = options.onTiming ? performance.now() : 0;
+    ensureSessionFilePersisted(sessionManager);
+    reportTaskDetailPhase(
+      options.onTiming,
+      "createSession.persistSessionFile",
+      persistStartedAt,
+    );
+  }
   return { session: result.session, skillPermissionRef };
 }
 
@@ -3788,7 +3832,10 @@ async function attachCreatedLiveSession(
   sessionThinkingLevel: ThinkingLevel | undefined,
   sessionAccountId: string | null | undefined,
   accountIdExplicit: boolean,
-  options?: { allowDuringPromotion?: boolean },
+  options?: {
+    allowDuringPromotion?: boolean;
+    onTiming?: TaskDetailTimingReporter;
+  },
 ): Promise<LiveRuntime> {
   if ((ensureLiveEpoch.get(taskId) ?? 0) !== epoch) {
     disposeSessionBestEffort(setup.session);
@@ -3823,7 +3870,10 @@ async function attachCreatedLiveSession(
 
 async function ensureLive(
   taskId: string,
-  options?: { allowDuringPromotion?: boolean },
+  options?: {
+    allowDuringPromotion?: boolean;
+    onTiming?: TaskDetailTimingReporter;
+  },
 ): Promise<LiveRuntime> {
   throwIfTaskArchived(taskId);
   if (!options?.allowDuringPromotion) {
@@ -3871,12 +3921,19 @@ async function ensureLive(
     const persistedGoalLoop = task.sessionId
       ? readGoalLoopState(cwd, task.sessionId)
       : null;
+    const resolveSettingsStartedAt = options?.onTiming ? performance.now() : 0;
     const {
       model,
       sessionAccountId,
       sessionThinkingLevel,
       accountIdExplicit,
     } = await resolveLiveSessionSettings(task);
+    reportTaskDetailPhase(
+      options?.onTiming,
+      "ensureLive.resolveSettings",
+      resolveSettingsStartedAt,
+    );
+    const createSessionStartedAt = options?.onTiming ? performance.now() : 0;
     const setup = await createSession({
       cwd,
       sessionFile: task.sessionFile,
@@ -3890,8 +3947,15 @@ async function ensureLive(
       agentName: task.agent ?? null,
       taskId,
       goalLoop: isGoalLoopLiveStatus(persistedGoalLoop?.status),
+      onTiming: options?.onTiming,
     });
-    return attachCreatedLiveSession(
+    reportTaskDetailPhase(
+      options?.onTiming,
+      "ensureLive.createSession",
+      createSessionStartedAt,
+    );
+    const attachSessionStartedAt = options?.onTiming ? performance.now() : 0;
+    const attached = await attachCreatedLiveSession(
       taskId,
       epoch,
       setup,
@@ -3900,6 +3964,12 @@ async function ensureLive(
       accountIdExplicit,
       options,
     );
+    reportTaskDetailPhase(
+      options?.onTiming,
+      "ensureLive.attachSession",
+      attachSessionStartedAt,
+    );
+    return attached;
   })().finally(() => {
     if (ensureLiveInflight.get(taskId) === promise) {
       ensureLiveInflight.delete(taskId);
@@ -5955,7 +6025,7 @@ async function liveDetailParts(
   let revertLeafId: string | null = task.revertLeafId ?? null;
   try {
     const ensureLiveStartedAt = onTiming ? performance.now() : 0;
-    const live = await ensureLive(id);
+    const live = await ensureLive(id, { onTiming });
     reportTaskDetailPhase(onTiming, "ensureLive", ensureLiveStartedAt);
     const fieldsStartedAt = onTiming ? performance.now() : 0;
     const fields = liveSnapshotFields(live, includeMessages, onTiming);
