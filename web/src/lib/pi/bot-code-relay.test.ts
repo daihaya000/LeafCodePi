@@ -214,6 +214,46 @@ describe("Bot ⇄ Code relay", () => {
     expect(record().state).toBe("delivered");
   });
 
+  it("does not interrupt a launch still waiting for beforePrompt to link the task", async () => {
+    // Mid-create outbox: starting is persisted before beforePrompt links codeTaskId.
+    // Do not hold launch()'s request lock here — tick would deadlock on the same lock.
+    const id = "a".repeat(64);
+    mkdirSync(join(store.root, "bot-code-requests"), { recursive: true });
+    writeFileSync(
+      join(store.root, "bot-code-requests", `${id}.json`),
+      JSON.stringify({
+        id,
+        botId: "one",
+        originTaskId: "bot:one",
+        codeTaskId: null,
+        state: "starting",
+        action: "start",
+        projectId: "project",
+        queuedAt: Date.now(),
+        prompt: "Fix the parser",
+        baseline: null,
+      }),
+      "utf8",
+    );
+
+    await relay.tick();
+    expect(record()).toMatchObject({ id, state: "starting", codeTaskId: null });
+    expect(record().result).toBeUndefined();
+    expect(deps.deliver).not.toHaveBeenCalled();
+  });
+
+  it("recovers a stuck userIntervention left in starting after a crash", async () => {
+    const code = task("code", { kind: "code", botId: "one", status: "idle" });
+    store.tasks.set(code.id, code);
+    const request = queueBotCodePrompt("one", code, "確認して", { streamingBehavior: "steer" });
+    const stuck = { ...request, state: "starting" as const };
+    writeFileSync(join(store.root, "bot-code-requests", `${request.id}.json`), JSON.stringify(stuck), "utf8");
+
+    await relay.tick();
+    expect(deps.prompt).toHaveBeenCalledWith("code", "確認して", request.id, { streamingBehavior: "steer" });
+    expect(record()).toMatchObject({ id: request.id, state: "delivered" });
+  });
+
   it("stops a Code task when its Room request is reverted", async () => {
     roomSetup();
     await roomLaunch();

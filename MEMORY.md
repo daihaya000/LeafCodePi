@@ -108,6 +108,14 @@
 ### 検証（Tick19）
 `TaskView` / `events/route` — **60 passed**
 
+### Tick20–21（ループ継続）
+1. room-runtime — Code 進捗ミラーを request 単位で解除（兄弟 pending で listener が残らない）
+2. bot-code-relay — userIntervention が `starting` で永久停滞しないよう再キュー
+3. bot-code-relay — `starting` かつ `codeTaskId` 未リンク中は誤 interrupted しない
+
+### 検証（Tick20–21）
+`room-runtime` / `bot-code-relay` — **112 passed**
+
 ---
 
 ## 2026-09-14: Stale production rebuild / next build exit 1

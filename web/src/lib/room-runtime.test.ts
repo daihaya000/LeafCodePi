@@ -156,6 +156,7 @@ describe("room conversation with delegated work", () => {
     request.room!.responseId = turn.id;
     state.pendingRoom.mockReturnValue(request);
     state.pendingRooms.mockReturnValue([request]);
+    state.activeCodeRequests.set(request.id, request);
     // The bot's turn ends having handed work to Code.
     state.promptTask.mockImplementation(async (id: string) => {
       state.details.get(id)!.messages = [assistant("reply", "Codeに依頼しました。\nROOM_ACTION: DONE")];
@@ -167,7 +168,9 @@ describe("room conversation with delegated work", () => {
     expect(getRoom(room.id)!.messages.find((message) => message.id === turn.id)?.codeActivity).toContain("読取");
 
     // Once the request is no longer outstanding the activity line goes away and the listener is released.
+    state.activeCodeRequests.delete(request.id);
     state.pendingRoom.mockReturnValue(undefined);
+    state.pendingRooms.mockReturnValue([]);
     emit({ type: "delta", message: null });
     expect(getRoom(room.id)!.messages.find((message) => message.id === turn.id)?.codeActivity).toBe("");
     expect(state.listeners.get("code-task")?.size ?? 0).toBe(0);
@@ -180,6 +183,8 @@ describe("room conversation with delegated work", () => {
     const turn = appendRoomMessage(room.id, { role: "assistant", botId: bots[0].id, text: "二件依頼しました", status: "done" })!;
     first.room!.responseId = turn.id; second.room!.responseId = turn.id;
     state.pendingRooms.mockReturnValue([first, second]);
+    state.activeCodeRequests.set(first.id, first);
+    state.activeCodeRequests.set(second.id, second);
     state.promptTask.mockImplementation(async (id: string) => {
       state.details.get(id)!.messages = [assistant("reply", "二件依頼しました。\nROOM_ACTION: DONE")];
     });
@@ -187,6 +192,40 @@ describe("room conversation with delegated work", () => {
 
     expect(state.listeners.get("code-1")?.size ?? 0).toBe(1);
     expect(state.listeners.get("code-2")?.size ?? 0).toBe(1);
+
+    const emit = (taskId: string, payload: Record<string, unknown>) => {
+      for (const listener of state.listeners.get(taskId) ?? []) listener(payload);
+    };
+    emit("code-1", {
+      type: "delta",
+      message: {
+        id: "m1",
+        role: "assistant",
+        createdAt: 1,
+        parts: [{ id: "t1", type: "tool", tool: "read", callID: "c1", state: { status: "running", input: { path: "a.md" } } }],
+      },
+    });
+    expect(getRoom(room.id)!.messages.find((message) => message.id === turn.id)?.codeActivity).toContain("読取");
+
+    // First request settles while the second is still outstanding: release only that listener
+    // and keep the shared activity label for the sibling.
+    state.activeCodeRequests.delete(first.id);
+    state.pendingRooms.mockReturnValue([second]);
+    emit("code-1", { type: "delta", message: null });
+    expect(state.listeners.get("code-1")?.size ?? 0).toBe(0);
+    expect(state.listeners.get("code-2")?.size ?? 0).toBe(1);
+    expect(getRoom(room.id)!.messages.find((message) => message.id === turn.id)?.codeActivity).toContain("読取");
+
+    emit("code-2", {
+      type: "delta",
+      message: {
+        id: "m2",
+        role: "assistant",
+        createdAt: 2,
+        parts: [{ id: "t2", type: "tool", tool: "bash", callID: "c2", state: { status: "running", input: { command: "ls" } } }],
+      },
+    });
+    expect(getRoom(room.id)!.messages.find((message) => message.id === turn.id)?.codeActivity).toBe("コマンド");
   });
 
   it("records why the exchange stopped so a paused room is not read as a finished one", async () => {

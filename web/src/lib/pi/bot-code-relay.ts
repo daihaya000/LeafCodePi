@@ -725,7 +725,22 @@ export function createBotCodeRelay(deps: RelayDependencies) {
   }
 
   async function dispatchUserIntervention(request: CodeRequest): Promise<void> {
-    if (!request.codeTaskId || request.state !== "queued") return;
+    if (!request.codeTaskId) return;
+    if (request.state === "starting") {
+      const task = getTask(request.codeTaskId);
+      if (!task || task.status === "archived") {
+        request.state = "cancelled";
+        save(request);
+        return;
+      }
+      // Another worker owns the live session — leave starting until that owner drains it.
+      if (deps.ownsTaskLease && !deps.ownsTaskLease(task.id)) return;
+      // Still mid-prompt: wait. Crash left us starting with an idle task: re-queue.
+      if (deps.isBusy(task.id)) return;
+      request.state = "queued";
+      save(request);
+    }
+    if (request.state !== "queued") return;
     const task = getTask(request.codeTaskId);
     if (!task || task.status === "archived") {
       request.state = "cancelled";
@@ -771,8 +786,9 @@ export function createBotCodeRelay(deps: RelayDependencies) {
       }
       if (request.state === "starting") {
         // beforePrompt links the task before flipping the outbox to running. Do not
-        // mistake that short window for a crashed launch while another worker owns it.
-        const task = request.codeTaskId ? getTask(request.codeTaskId) : undefined;
+        // mistake that short window (or a create still in flight) for a crashed launch.
+        if (!request.codeTaskId) return;
+        const task = getTask(request.codeTaskId);
         if (task && deps.isBusy(task.id)) return;
         if (request.stoppedByUser) markUserStoppedResult(request);
         else request.result = "Codeへの依頼準備が再起動などにより中断されました。自動で再実行はしていません。";

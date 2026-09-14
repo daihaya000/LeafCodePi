@@ -39,12 +39,16 @@ function trackRoomCodeProgress(roomId: string, request: CodeRequest): void {
     if (!trackedCodeRequests.delete(key)) return;
     stop();
     clearTimeout(timer);
-    updateRoomMessage(roomId, messageId, { codeActivity: "" });
+    // Sibling Code requests share this message label; only clear when none remain.
+    if (!pendingRoomCodeRequestForTurn(roomId, requestId)) {
+      updateRoomMessage(roomId, messageId, { codeActivity: "" });
+    }
   };
   const timer = setTimeout(settle, CODE_TRACK_TIMEOUT_MS);
   timer.unref?.();
   stop = subscribeTask(taskId, (payload) => {
-    if (!pendingRoomCodeRequestForTurn(roomId, requestId)) return settle();
+    // Watch this request only — another outstanding request of the same turn must not keep us alive.
+    if (!roomCodeRequestForRoom(roomId, request.id)) return settle();
     const message = payload.type === "delta"
       ? payload.message as UiMessage | null
       : (payload.messages as UiMessage[] | undefined)?.at(-1) ?? null;
