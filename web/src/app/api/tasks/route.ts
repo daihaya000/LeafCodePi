@@ -297,6 +297,8 @@ export async function POST(req: NextRequest) {
           hasImages: Boolean(body.images?.length),
           ...(selectionModel ? { requestedModel: selectionModel } : {}),
           ...(accountId ? { accountId } : {}),
+          // Pinned create (non-auto) must not silently pick another account for agent selection.
+          ...(body.auto !== true && accountId ? { accountIdExplicit: true } : {}),
         }));
     }
     const task = await createTask({

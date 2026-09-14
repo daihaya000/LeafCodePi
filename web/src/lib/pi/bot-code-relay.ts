@@ -608,21 +608,35 @@ export function createBotCodeRelay(deps: RelayDependencies) {
   const reporting = new Map<string, { room: boolean; followUpStarted: boolean; userStopped: boolean; autoChain: number }>();
   const notifySettled = (request: CodeRequest) => notifyCodeSessionSettled(deps.onCodeSessionSettled, request);
 
+  function linkedOutboxForCode(taskId: string): CodeRequest | undefined {
+    return requests().find(
+      (item) =>
+        item.codeTaskId === taskId &&
+        !item.userIntervention &&
+        (item.state === "starting" || item.state === "running"),
+    );
+  }
+
   function originForCode(taskId: string): string | null {
-    const request = requests().find((item) => item.codeTaskId === taskId && !item.userIntervention && item.state === "running");
+    const request = linkedOutboxForCode(taskId);
     if (!request) return null;
     try { owner(request.originTaskId); return request.originTaskId; } catch { return null; }
   }
 
   function requestIdForCode(taskId: string): string | undefined {
-    return requests().find((item) => item.codeTaskId === taskId && !item.userIntervention && (item.state === "starting" || item.state === "running"))?.id;
+    return linkedOutboxForCode(taskId)?.id;
   }
 
   /** Every Code session this Bot conversation is currently waiting on, not just the first one. */
   function codeTasksForOrigin(originTaskId: string): string[] {
     try { owner(originTaskId); } catch { return []; }
     return requests().flatMap((item) => (
-      item.originTaskId === originTaskId && !item.userIntervention && item.state === "running" && item.codeTaskId ? [item.codeTaskId] : []
+      item.originTaskId === originTaskId &&
+      !item.userIntervention &&
+      (item.state === "starting" || item.state === "running") &&
+      item.codeTaskId
+        ? [item.codeTaskId]
+        : []
     ));
   }
 

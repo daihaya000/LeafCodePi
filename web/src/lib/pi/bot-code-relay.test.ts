@@ -1,4 +1,5 @@
 import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -184,6 +185,27 @@ describe("Bot ⇄ Code relay", () => {
     expect(record().state).toBe("delivered");
     expect(relay.originForCode("code")).toBeNull();
     await launch(); expect(deps.create).toHaveBeenCalledTimes(1);
+  });
+
+  it("resolves origin while the outbox is still starting", () => {
+    mkdirSync(join(store.root, "bot-code-requests"), { recursive: true });
+    const id = createHash("sha256").update("starting-origin-test").digest("hex");
+    const request = {
+      id,
+      botId: "one",
+      originTaskId: "bot:one",
+      codeTaskId: "code-start",
+      state: "starting" as const,
+      action: "start" as const,
+      projectId: "project",
+      prompt: "Fix",
+      baseline: null,
+      queuedAt: Date.now(),
+    };
+    writeFileSync(join(store.root, "bot-code-requests", `${id}.json`), `${JSON.stringify(request)}\n`);
+    store.tasks.set("code-start", task("code-start", { status: "working", kind: "code", botId: "one" }));
+    expect(relay.originForCode("code-start")).toBe("bot:one");
+    expect(relay.codeTasksForOrigin("bot:one")).toEqual(["code-start"]);
   });
 
   it("recovers the durable outbox after restart and waits while the Bot is busy", async () => {

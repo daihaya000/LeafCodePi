@@ -114,6 +114,31 @@ describe("POST /api/tasks", () => {
     expect(mocks.createTask.mock.calls[0]?.[0].agent).not.toBe(AUTO_AGENT_VALUE);
   });
 
+  it("pins accountId when resolving Auto agent on a non-auto create", async () => {
+    mocks.resolveAutoAgent.mockResolvedValue("reviewer");
+
+    const response = await POST(
+      new NextRequest("http://localhost/api/tasks", {
+        method: "POST",
+        body: JSON.stringify({
+          projectId: null,
+          prompt: "差分をレビューして",
+          agent: AUTO_AGENT_VALUE,
+          accountId: "acc-pinned",
+          model: "anthropic::claude-sonnet",
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(mocks.resolveAutoAgent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        accountId: "acc-pinned",
+        accountIdExplicit: true,
+      }),
+    );
+  });
+
   it("marks a task Goal Loop for per-turn Auto agent routing", async () => {
     mocks.resolveAutoAgent.mockResolvedValue("reviewer");
 

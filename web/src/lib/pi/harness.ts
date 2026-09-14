@@ -25,6 +25,7 @@ import {
   promptAttachmentsFromIntercomMessage,
   setBotIntercomBusyLookup,
   setBotIntercomResidentLookup,
+  setBotIntercomRoomBusyLookup,
   setBotIntercomSteerHandler,
 } from "@/lib/bot-intercom";
 import { ROOM_SYSTEM_PROMPT, roomBotPrompt } from "@/lib/room-conversation";
@@ -608,9 +609,17 @@ function state(): HarnessState {
   };
   if (!globalRef[GLOBAL_KEY]) {
     setBotIntercomResidentLookup((botId) => Boolean(globalRef[GLOBAL_KEY]?.live.has(`bot:${botId}`)));
-    setBotIntercomBusyLookup((botId) => {
-      const live = globalRef[GLOBAL_KEY]?.live.get(`bot:${botId}`);
-      return Boolean(live && (live.promptActive || live.session.isStreaming || live.session.isCompacting));
+    const liveBusy = (live: LiveRuntime | undefined) =>
+      Boolean(live && (live.promptActive || live.session.isStreaming || live.session.isCompacting));
+    setBotIntercomBusyLookup((botId) => liveBusy(globalRef[GLOBAL_KEY]?.live.get(`bot:${botId}`)));
+    setBotIntercomRoomBusyLookup((botId) => {
+      const liveMap = globalRef[GLOBAL_KEY]?.live;
+      if (!liveMap) return false;
+      const prefix = `bot:${botId}:room:`;
+      for (const [taskId, live] of liveMap) {
+        if (taskId.startsWith(prefix) && liveBusy(live)) return true;
+      }
+      return false;
     });
     setBotIntercomSteerHandler(async (message) => {
       const taskId = `bot:${message.toBotId}`;

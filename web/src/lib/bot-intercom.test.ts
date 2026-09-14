@@ -31,6 +31,7 @@ import {
   setBotIntercomAskTimeoutMsForTests,
   setBotIntercomBusyLookup,
   setBotIntercomResidentLookup,
+  setBotIntercomRoomBusyLookup,
   setBotIntercomSteerHandler,
   fanoutBotIntercom,
   listBotIntercomCwdPeers,
@@ -378,6 +379,24 @@ describe("bot intercom Phase C contract", () => {
     expect(sent.queued).toBeUndefined();
     expect(getBotIntercomInbox(bob.id).messages.some((message) => message.text === "steer this")).toBe(true);
     await vi.waitFor(() => expect(steered).toEqual([bob.id]));
+  });
+
+  it("queues while a Room turn is busy instead of steering the 1:1 DM", () => {
+    const alice = enableIntercom(createBot({ name: "Alice" }).id)!;
+    const bob = enableIntercom(createBot({ name: "Bob" }).id)!;
+    const roomBusy = new Set<string>();
+    residents.add(bob.id);
+    setBotIntercomRoomBusyLookup((id) => roomBusy.has(id));
+    roomBusy.add(bob.id);
+    const steered: string[] = [];
+    setBotIntercomSteerHandler(async (message) => {
+      steered.push(message.toBotId);
+    });
+
+    expect(botIntercomPresence(bob.id)).toBe("busy");
+    const sent = sendBotIntercom({ fromBotId: alice.id, to: bob.id, text: "wait for room" });
+    expect(sent.delivery).toBe("queued");
+    expect(steered).toEqual([]);
   });
 
   it("reloads steered attachments for the live interrupt payload", async () => {
