@@ -6592,6 +6592,18 @@ function requireTask(id: string): TaskSummary {
   return task;
 }
 
+async function applyPromptPermissions(
+  id: string,
+  options: NonNullable<Parameters<typeof promptTask>[3]> | undefined,
+): Promise<void> {
+  if (options?.permissionMode !== undefined) {
+    await setTaskPermissionMode(id, options.permissionMode);
+  }
+  if (options?.skillPermission !== undefined) {
+    await setTaskSkillPermission(id, options.skillPermission);
+  }
+}
+
 /**
  * Apply the Composer's agent/model/effort/permission selections before the turn
  * is queued, and return the task snapshot the caller should keep using.
@@ -6636,12 +6648,7 @@ async function applyPromptSelections(
   ) {
     await setTaskThinkingLevel(id, options.thinkingLevel);
   }
-  if (options?.permissionMode !== undefined) {
-    await setTaskPermissionMode(id, options.permissionMode);
-  }
-  if (options?.skillPermission !== undefined) {
-    await setTaskSkillPermission(id, options.skillPermission);
-  }
+  await applyPromptPermissions(id, options);
   return task;
 }
 
