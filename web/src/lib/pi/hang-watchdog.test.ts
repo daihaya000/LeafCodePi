@@ -6,6 +6,7 @@ import {
   armTaskHangWatch,
   disarmTaskHangWatch,
   estimateWatchBodyBytes,
+  MAX_HANG_RETRIES,
   MISSING_LIVE_GRACE_MS,
   getTaskHangWatch,
   progressFingerprint,
@@ -552,6 +553,37 @@ describe("hang-watchdog helpers", () => {
       expect(aborted).toBe(1);
       expect(resumed).toBe(0);
       expect(getTaskHangWatch("goal-skip")).toBeNull();
+    } finally {
+      stopHangWatchdogForTests();
+      if (previousDataDir === undefined) delete process.env.LEAFCODE_PI_DATA_DIR;
+      else process.env.LEAFCODE_PI_DATA_DIR = previousDataDir;
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("stops auto-resume after MAX_HANG_RETRIES", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "leafcode-pi-hang-watchdog-cap-"));
+    const previousDataDir = process.env.LEAFCODE_PI_DATA_DIR;
+    process.env.LEAFCODE_PI_DATA_DIR = root;
+    let resumed = 0;
+    registerHangWatchdogHooks({
+      getLive: () => ({ isStreaming: false, isCompacting: false, messages: [] }),
+      abortTask: async () => undefined,
+      resumePrompt: () => {
+        resumed += 1;
+      },
+      notifyHangRetry: () => undefined,
+    });
+    try {
+      armTaskHangWatch({ taskId: "cap", prompt: "keep going" });
+      for (let i = 0; i < MAX_HANG_RETRIES; i += 1) {
+        await resolveHangNow("cap");
+      }
+      expect(resumed).toBe(MAX_HANG_RETRIES);
+      expect(getTaskHangWatch("cap")?.retryUsed).toBe(MAX_HANG_RETRIES);
+      await resolveHangNow("cap");
+      expect(resumed).toBe(MAX_HANG_RETRIES);
+      expect(getTaskHangWatch("cap")).toBeNull();
     } finally {
       stopHangWatchdogForTests();
       if (previousDataDir === undefined) delete process.env.LEAFCODE_PI_DATA_DIR;

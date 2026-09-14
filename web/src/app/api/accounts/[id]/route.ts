@@ -45,6 +45,7 @@ export async function DELETE(_req: NextRequest, context: Context) {
   const { id } = await context.params;
   try {
     deleteAccount(id);
+    invalidateHealthCache();
     return NextResponse.json({ ok: true });
   } catch (error) {
     const { error: message, status } = jsonError(error);

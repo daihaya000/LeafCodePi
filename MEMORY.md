@@ -370,6 +370,17 @@
 ### 検証（Tick73）
 `accounts` / `GlobalAttentionProvider` — **42 passed**
 
+### Tick74–75（ループ継続・[Hunt remaining](4a97a950) / [Hunt Tick73](870f68d7) / [Hunt Tick73 fresh](bf053a0d) 追随）
+1. DELETE `/api/accounts/[id]` — `invalidateHealthCache()`（PATCH enabled と対称）
+2. SSE ready buffer — `missing_live_session` を control snapshot に追加
+3. Goal Loop `turn_timeout` — pause 後に `ctx.abort()`（ユーザー pause と同型）
+4. hang-watchdog — `MAX_HANG_RETRIES=3` で auto-resume 打ち切り
+5. steer demote — `skipHangRearm` で割り込み文が hang resume を上書きしない（実行開始時に arm）
+6. git commit パス選択 — 欠落パスは `git add -u` で削除をステージ（rename 由来 pathspec miss は許容）
+
+### 検証（Tick74–75）
+`hang-watchdog` / `sse-ready-buffer` / `git/commit` / `accounts` / goal-loop extension — **passed**
+
 ---
 
 ## 2026-09-14: Stale production rebuild / next build exit 1

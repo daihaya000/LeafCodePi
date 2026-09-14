@@ -68,8 +68,11 @@ export async function POST(req: NextRequest) {
       if (err) return NextResponse.json({ error: err }, { status: 400 });
     }
     // A staged rename has already removed its old path from the index.
-    // Stage existing paths (including new files); commit --paths records deletions.
+    // Stage existing paths (including new files). Missing paths are deletions
+    // (or rename sources) — update the index with `add -u` so commit --paths
+    // can record them (plain `git commit -- path` only uses the index).
     const stagePaths = validPaths.filter((p) => lstatSync(resolve(directory, p), { throwIfNoEntry: false }));
+    const missingPaths = validPaths.filter((p) => !stagePaths.includes(p));
     if (stagePaths.length > 0) {
       const add = await runGit(directory, ["--literal-pathspecs", "add", "--", ...stagePaths]);
       if (add.code !== 0) {
@@ -77,6 +80,19 @@ export async function POST(req: NextRequest) {
           { error: add.stderr.trim() || "git add failed" },
           { status: 500 },
         );
+      }
+    }
+    if (missingPaths.length > 0) {
+      const update = await runGit(directory, ["--literal-pathspecs", "add", "-u", "--", ...missingPaths]);
+      if (update.code !== 0) {
+        const stderr = update.stderr.trim();
+        // Rename sources are already staged by `git mv`; pathspec then misses.
+        if (!/did not match any files/i.test(stderr)) {
+          return NextResponse.json(
+            { error: stderr || "git add -u failed" },
+            { status: 500 },
+          );
+        }
       }
     }
   } else {

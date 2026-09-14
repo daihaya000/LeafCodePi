@@ -59,6 +59,31 @@ describe("POST /api/git/commit", () => {
     }
   });
 
+  it("commits a deletion-only path selection", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "leafcode-selected-delete-"));
+    const { runGit } = await vi.importActual<typeof import("@/lib/git")>("@/lib/git");
+    const run: typeof runGit = (cwd, args, timeout, env) => runGit(cwd, [
+      "-c", "user.name=Test", "-c", "user.email=test@example.invalid",
+      "-c", "commit.gpgSign=false", "-c", `core.hooksPath=${join(dir, "no-hooks")}`, ...args,
+    ], timeout, env);
+    try {
+      expect((await run(dir, ["init"])).code).toBe(0);
+      writeFileSync(join(dir, "keep.txt"), "keep\n");
+      writeFileSync(join(dir, "gone.txt"), "gone\n");
+      expect((await run(dir, ["add", "."])).code).toBe(0);
+      expect((await run(dir, ["commit", "-m", "initial"])).code).toBe(0);
+      const { unlinkSync } = await import("node:fs");
+      unlinkSync(join(dir, "gone.txt"));
+      mocks.runGit.mockImplementation(run);
+
+      const response = await POST(request({ directory: dir, message: "delete gone", paths: ["gone.txt"] }));
+      expect(await response.json()).toMatchObject({ ok: true });
+      expect((await run(dir, ["ls-tree", "--name-only", "HEAD"])).stdout).toBe("keep.txt\n");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it("rejects a non-string agent before invoking git", async () => {
     const response = await POST(
       request({ directory: "C:\\work", message: "commit", paths: ["src/app.ts"], agent: 123 }),

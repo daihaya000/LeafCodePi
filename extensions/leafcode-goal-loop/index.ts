@@ -1357,7 +1357,16 @@ async function sendTurn(runtime: Runtime): Promise<void> {
     if (!isActiveRuntime(runtime)) return;
     const current = currentLoop(runtime);
     if (runtime.awaitingTurn && current?.status === "running") {
-      pauseLoop(runtime, "turn_timeout", "応答が確認できないまま時間切れになったため一時停止しました。");
+      if (!pauseLoop(runtime, "turn_timeout", "応答が確認できないまま時間切れになったため一時停止しました。")) {
+        return;
+      }
+      // Match user pause: stop the in-flight model run so a hung tool/stream
+      // cannot keep consuming tokens after the loop is already paused.
+      try {
+        if (!runtime.ctx.isIdle()) runtime.ctx.abort();
+      } catch {
+        // Already settled.
+      }
     }
   }, turnTimeoutMs());
   runtime.timeoutTimer.unref?.();

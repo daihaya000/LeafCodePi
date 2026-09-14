@@ -197,6 +197,20 @@ describe("sse-ready-buffer", () => {
       shouldFlushPendingAfterReady(
         {
           type: "snapshot",
+          eventType: "missing_live_session",
+          status: "error",
+          messages: [
+            { id: "history", createdAt: 1 },
+            { id: "latest", createdAt: 5 },
+          ],
+        },
+        ready,
+      ),
+    ).toBe(true);
+    expect(
+      shouldFlushPendingAfterReady(
+        {
+          type: "snapshot",
           eventType: "prompt_accepted",
           messages: [
             { id: "history", createdAt: 1 },

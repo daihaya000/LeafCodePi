@@ -7358,6 +7358,8 @@ function queuePrompt(
     streamingBehavior?: "steer" | "followUp";
     codeResult?: CodeRequest;
     codeRequestId?: string;
+    /** Queue without replacing an in-flight hang-watch resume prompt. */
+    skipHangRearm?: boolean;
   },
 ): Promise<void> {
   const hadActivePrompt = live.promptActive || live.session.isStreaming || live.session.isCompacting;
@@ -7387,7 +7389,8 @@ function queuePrompt(
   };
   // Steer/follow-up must not replace the hang-watch resume prompt. Re-arming
   // with the short steer text would resume the wrong turn after a hang.
-  if (!meta?.streamingBehavior && !meta?.codeResult) {
+  // Demoted interrupts also skip until the serial turn actually starts.
+  if (!meta?.streamingBehavior && !meta?.codeResult && !meta?.skipHangRearm) {
     armHangWatchForPrompt();
   }
   // Internal result delivery is retried by its durable outbox, never replayed as user input.
@@ -7402,6 +7405,8 @@ function queuePrompt(
   const demoteInterruptToNormalPrompt = () => {
     // Stream ended (or never opened) while the client still looked "working".
     // Run as the next serial turn instead of silently dropping the text.
+    // Do not re-arm hang-watch at queue time — that would overwrite the
+    // in-flight turn's resume prompt with this interrupt text.
     queuePrompt(live, prompt, images, {
       ...(meta?.files?.length ? { files: meta.files } : {}),
       ...(meta?.agent ? { agent: meta.agent } : {}),
@@ -7411,10 +7416,12 @@ function queuePrompt(
       ...(meta?.permissionMode ? { permissionMode: meta.permissionMode } : {}),
       ...(meta?.isHangRetry ? { isHangRetry: true } : {}),
       ...(meta?.isProviderFallback ? { isProviderFallback: true } : {}),
+      skipHangRearm: true,
     });
   };
   const runPrompt = async () => {
     if (!stillQueued()) return;
+    if (meta?.skipHangRearm) armHangWatchForPrompt();
     const pendingCompaction = live.autoCompactionPromise;
     if (pendingCompaction) await pendingCompaction;
     if (!stillQueued()) return;

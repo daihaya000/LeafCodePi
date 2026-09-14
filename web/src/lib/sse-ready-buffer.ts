@@ -61,6 +61,7 @@ export const SSE_CONTROL_SNAPSHOT_EVENT_TYPES = new Set([
   "hang_retry",
   "hang_abort",
   "hang_idle",
+  "missing_live_session",
   "error",
   "thinking_level_changed",
   "agent_changed",

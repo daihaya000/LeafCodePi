@@ -27,6 +27,8 @@ export const MAX_WATCH_BODY_BYTES = 2_000_000;
 export const HANG_CONFIRM_GRACE_MS = 30_000;
 export const SILENT_RESPONSE_GRACE_MS = 30_000;
 export const MISSING_LIVE_GRACE_MS = 30_000;
+/** Auto-resume after hang abort stops once this many retries have been used. */
+export const MAX_HANG_RETRIES = 3;
 
 export type TaskHangWatchRow = {
   taskId: string;
@@ -357,6 +359,15 @@ async function resolveHang(row: TaskHangWatchRow): Promise<void> {
   if (row.skipResume) {
     disarmTaskHangWatch(row.taskId);
     logWatchdog("stopped Goal Loop hang without chat resume", row);
+    return;
+  }
+
+  if (row.retryUsed >= MAX_HANG_RETRIES) {
+    disarmTaskHangWatch(row.taskId);
+    logWatchdog(
+      `stopped after ${row.retryUsed} hang retries without resuming`,
+      row,
+    );
     return;
   }
 
