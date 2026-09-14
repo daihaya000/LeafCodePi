@@ -22,6 +22,46 @@ import {
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 const TASK_SSE_PERF_ENABLED = process.env.NODE_ENV === "development";
+/** Bound ready-path session opens so a hung ensureLive cannot block SSE forever. */
+const TASK_SSE_DETAIL_TIMEOUT_MS = 30_000;
+
+async function getTaskDetailForReady(
+  id: string,
+  options?: Parameters<typeof getTaskDetail>[1],
+): Promise<Awaited<ReturnType<typeof getTaskDetail>>> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      options === undefined ? getTaskDetail(id) : getTaskDetail(id, options),
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => {
+          reject(
+            Object.assign(new Error("タスク詳細の取得がタイムアウトしました"), {
+              status: 504,
+              timeout: true,
+            }),
+          );
+        }, TASK_SSE_DETAIL_TIMEOUT_MS);
+        timer.unref?.();
+      }),
+    ]);
+  } catch (error) {
+    if (
+      typeof error === "object" &&
+      error !== null &&
+      "timeout" in error &&
+      (error as { timeout?: boolean }).timeout === true
+    ) {
+      // Degraded ready: avoid leaving the client on bootstrap forever.
+      return options === undefined
+        ? getTaskDetail(id, { offline: true })
+        : getTaskDetail(id, { ...options, offline: true });
+    }
+    throw error;
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+  }
+}
 
 export async function GET(
   req: NextRequest,
@@ -120,7 +160,7 @@ export async function GET(
             eventType: "cache_ready",
           });
         }
-        let detail = await getTaskDetail(id, {
+        let detail = await getTaskDetailForReady(id, {
           ...(hasCacheCandidate ? { includeMessages: false } : {}),
           ...(reportTiming ? { onTiming: reportTiming } : {}),
         });
@@ -144,8 +184,8 @@ export async function GET(
           // correctness; stable idle cache hits keep the expensive projection
           // out of the ready path.
           detail = reportTiming
-            ? await getTaskDetail(id, { onTiming: reportTiming })
-            : await getTaskDetail(id);
+            ? await getTaskDetailForReady(id, { onTiming: reportTiming })
+            : await getTaskDetailForReady(id);
           if (sse.closed) return;
           canReuseCachedMessages = matchesCachedRevision(detail);
         }

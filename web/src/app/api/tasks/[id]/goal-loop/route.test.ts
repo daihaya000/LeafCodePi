@@ -58,6 +58,7 @@ describe("POST /api/tasks/[id]/goal-loop", () => {
     sessionFile: string;
     providerID?: string;
     modelID?: string;
+    accountId?: string;
     thinkingLevel?: string;
     accountIdExplicit?: boolean;
   };
@@ -70,6 +71,8 @@ describe("POST /api/tasks/[id]/goal-loop", () => {
       sessionFile: "C:\\sessions\\task-1.jsonl",
       providerID: "openai-codex",
       modelID: "gpt-5.4",
+      accountId: "acc-old",
+      accountIdExplicit: true,
       thinkingLevel: "low",
     };
     mocks.getTask.mockReset();
@@ -124,9 +127,12 @@ describe("POST /api/tasks/[id]/goal-loop", () => {
         { role: "assistant", text: "問題を確認します" },
       ],
       prompt: "テストを追加する",
+      accountId: "acc-old",
+      accountIdExplicit: true,
       requestedModel: {
         providerID: "openai-codex",
         modelID: "gpt-5.4",
+        accountId: "acc-old",
       },
     });
     expect(mocks.setTaskAgent).toHaveBeenCalledWith("task-1", "reviewer");
@@ -254,9 +260,30 @@ describe("POST /api/tasks/[id]/goal-loop", () => {
     expect(mocks.setTaskAgent).toHaveBeenLastCalledWith("task-1", "builder");
     expect(mocks.setTaskModel).toHaveBeenLastCalledWith(
       "task-1",
-      "openai-codex::gpt-5.4",
-      { accountIdExplicit: false },
+      "acc-old::openai-codex::gpt-5.4",
+      { accountIdExplicit: true },
     );
     expect(mocks.setTaskThinkingLevel).toHaveBeenLastCalledWith("task-1", "low");
+  });
+
+  it("treats a non-live goalLoopCommand result as failure and rolls back", async () => {
+    mocks.goalLoopCommand.mockResolvedValue({ id: "loop-1", status: "paused" });
+
+    const response = await POST(
+      request({
+        action: "start",
+        goal: "作業",
+        agent: "reviewer",
+        model: "acc-new::openai-codex::gpt-5.6-sol",
+      }),
+      { params: Promise.resolve({ id: "task-1" }) },
+    );
+
+    expect(response.status).toBe(409);
+    expect(mocks.setTaskModel).toHaveBeenLastCalledWith(
+      "task-1",
+      "acc-old::openai-codex::gpt-5.4",
+      { accountIdExplicit: true },
+    );
   });
 });

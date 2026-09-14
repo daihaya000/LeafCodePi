@@ -442,6 +442,49 @@ describe("/api/tasks/[id]/events", () => {
     await reader.cancel();
   });
 
+  it("falls back to offline ready when getTaskDetail hangs past the timeout", async () => {
+    vi.useFakeTimers();
+    const bootstrap = task({ messages: [], isStreaming: false, status: "idle" });
+    const offline = task({
+      messages: [
+        { id: "u1", role: "user", createdAt: 1, parts: [{ id: "p1", type: "text", text: "hi" }] },
+      ],
+      isStreaming: false,
+      status: "idle",
+    });
+    mocks.getTaskBootstrap.mockReturnValue(bootstrap);
+    mocks.getTaskDetail
+      .mockReturnValueOnce(new Promise<TaskDetail>(() => undefined))
+      .mockResolvedValueOnce(offline);
+    mocks.subscribeTask.mockReturnValue(vi.fn());
+
+    try {
+      const response = await GET(
+        new NextRequest("http://127.0.0.1:3010/api/tasks/task-1/events"),
+        { params: Promise.resolve({ id: "task-1" }) },
+      );
+      const reader = response.body!.getReader();
+      expect(eventData(await readChunk(reader)).eventType).toBe("bootstrap");
+      await vi.advanceTimersByTimeAsync(30_000);
+      await Promise.resolve();
+      let readyPayload: Record<string, unknown> | undefined;
+      for (let attempt = 0; attempt < 10; attempt += 1) {
+        const chunk = await readChunk(reader);
+        if (!chunk.includes("data: ")) continue;
+        const payload = eventData(chunk);
+        if (payload.eventType === "ready") {
+          readyPayload = payload;
+          break;
+        }
+      }
+      expect(readyPayload?.eventType).toBe("ready");
+      expect(mocks.getTaskDetail).toHaveBeenLastCalledWith("task-1", { offline: true });
+      await reader.cancel();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("puts abort and hang retry state on the ready snapshot", async () => {
     const messages = [
       { id: "u1", role: "user" as const, createdAt: 1, parts: [{ id: "p1", type: "text" as const, text: "質問" }] },

@@ -4,6 +4,7 @@ import { readSessionConversation } from "@/lib/direct-session";
 import { parseDirectModelKey } from "@/lib/direct-generation";
 import { resolveAutoAgent } from "@/lib/auto-agent";
 import { AUTO_AGENT_VALUE } from "@/lib/default-agent";
+import { isGoalLoopLiveStatus } from "@/lib/pi/goal-loop-state";
 import {
   goalLoopCommand,
   goalLoopState,
@@ -183,7 +184,11 @@ export async function POST(req: NextRequest, { params }: Params) {
     const previousAgent = currentTask.agent?.trim() || undefined;
     const previousModel =
       currentTask.providerID && currentTask.modelID
-        ? `${currentTask.providerID}::${currentTask.modelID}`
+        ? autoModelValue({
+            providerID: currentTask.providerID,
+            modelID: currentTask.modelID,
+            ...(currentTask.accountId ? { accountId: currentTask.accountId } : {}),
+          })
         : undefined;
     const previousThinking = currentTask.thinkingLevel;
     const previousAccountExplicit = currentTask.accountIdExplicit === true;
@@ -209,6 +214,14 @@ export async function POST(req: NextRequest, { params }: Params) {
         forceFullRun: body?.forceFullRun === true,
         autoAgent: autoAgentRequested,
       });
+      // Stale epoch can return a non-live loop without throwing — treat as failure
+      // so route mutations roll back instead of looking like a successful start.
+      if (!loop || !isGoalLoopLiveStatus(loop.status)) {
+        throw Object.assign(
+          new Error("Goal Loop を開始できませんでした"),
+          { status: 409 },
+        );
+      }
       return NextResponse.json({
         loop,
         agent: getTask(id)?.agent ?? null,

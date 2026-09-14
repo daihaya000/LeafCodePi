@@ -467,10 +467,15 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
     );
     es.addEventListener("notify", (raw) => {
       if (!isCurrent()) return;
-      const payload = JSON.parse((raw as MessageEvent).data) as Extract<
-        LoginSessionEvent,
-        { type: "notify" }
-      >;
+      let payload: Extract<LoginSessionEvent, { type: "notify" }>;
+      try {
+        payload = JSON.parse((raw as MessageEvent).data) as Extract<
+          LoginSessionEvent,
+          { type: "notify" }
+        >;
+      } catch {
+        return;
+      }
       const event = payload.event;
       if (event.type === "auth_url") {
         updateLogin((prev) => ({
@@ -492,10 +497,15 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
     });
     es.addEventListener("prompt", (raw) => {
       if (!isCurrent()) return;
-      const payload = JSON.parse((raw as MessageEvent).data) as Extract<
-        LoginSessionEvent,
-        { type: "prompt" }
-      >;
+      let payload: Extract<LoginSessionEvent, { type: "prompt" }>;
+      try {
+        payload = JSON.parse((raw as MessageEvent).data) as Extract<
+          LoginSessionEvent,
+          { type: "prompt" }
+        >;
+      } catch {
+        return;
+      }
       updateLogin((prev) => ({
         ...prev,
         prompt: { id: payload.id, prompt: payload.prompt },
@@ -506,10 +516,23 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
     });
     es.addEventListener("done", (raw) => {
       if (!isCurrent()) return;
-      const payload = JSON.parse((raw as MessageEvent).data) as Extract<
-        LoginSessionEvent,
-        { type: "done" }
-      >;
+      let payload: Extract<LoginSessionEvent, { type: "done" }>;
+      try {
+        payload = JSON.parse((raw as MessageEvent).data) as Extract<
+          LoginSessionEvent,
+          { type: "done" }
+        >;
+      } catch {
+        closed = true;
+        es.close();
+        updateLogin((prev) => ({
+          ...prev,
+          busy: false,
+          error: "ログイン完了イベントを解釈できませんでした",
+          status: "失敗",
+        }));
+        return;
+      }
       closed = true;
       es.close();
       if (payload.ok) {
@@ -538,6 +561,20 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
         }));
       }
     });
+    es.onerror = () => {
+      if (!isCurrent()) return;
+      // EventSource may emit transient errors while reconnecting; only fail
+      // once the connection is closed for good.
+      if (es.readyState !== EventSource.CLOSED) return;
+      closed = true;
+      es.close();
+      updateLogin((prev) => ({
+        ...prev,
+        busy: false,
+        error: "ログインイベント接続に失敗しました",
+        status: "失敗",
+      }));
+    };
     return () => {
       closed = true;
       if (finishTimer !== undefined) window.clearTimeout(finishTimer);

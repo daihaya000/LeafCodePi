@@ -846,6 +846,65 @@ describe("ProviderAuthPanel provider-scoped accounts", () => {
     });
   });
 
+  it("surfaces a closed login EventSource as a failed login", async () => {
+    class TestEventSource extends EventTarget {
+      static instances: TestEventSource[] = [];
+      static CONNECTING = 0;
+      static OPEN = 1;
+      static CLOSED = 2;
+      readyState = TestEventSource.OPEN;
+      closed = false;
+      onerror: ((ev: Event) => void) | null = null;
+      constructor() {
+        super();
+        TestEventSource.instances.push(this);
+      }
+      close() {
+        this.closed = true;
+        this.readyState = TestEventSource.CLOSED;
+      }
+    }
+    vi.stubGlobal("EventSource", TestEventSource);
+    fetchMock.mockImplementation(
+      (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        const method = (init?.method ?? "GET").toUpperCase();
+        if (url.endsWith("/api/accounts") && method === "GET") {
+          return Promise.resolve(jsonResponse({ accounts: [accounts[0]] }));
+        }
+        if (url.endsWith("/api/accounts/acc-1/auth-status")) {
+          return Promise.resolve(jsonResponse({ providers: ["openai-codex"] }));
+        }
+        if (
+          url.includes("/api/providers/openai-codex/login") &&
+          method === "POST"
+        ) {
+          return Promise.resolve(jsonResponse({ sessionId: "session-err" }));
+        }
+        return Promise.resolve(jsonResponse({}));
+      },
+    );
+    render(
+      <ProviderAuthPanel providers={[providers[1]]} onChanged={() => {}} />,
+    );
+    const codex = await accountRegion("OpenAI Codex");
+    fireEvent.click(
+      await within(codex).findByRole("button", { name: "再ログイン" }),
+    );
+    await waitFor(() => {
+      expect(TestEventSource.instances).toHaveLength(1);
+    });
+    const source = TestEventSource.instances[0];
+    if (!source) throw new Error("EventSource was not created");
+    source.readyState = TestEventSource.CLOSED;
+    await act(async () => {
+      source.onerror?.(new Event("error"));
+    });
+    await waitFor(() => {
+      expect(screen.getByText("ログインイベント接続に失敗しました")).toBeTruthy();
+    });
+  });
+
   it("documents remote OAuth port-forward in the provider help", () => {
     mockAccountsApi();
     render(<ProviderAuthPanel providers={providers} onChanged={() => {}} />);
