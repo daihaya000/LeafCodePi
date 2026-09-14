@@ -223,6 +223,14 @@
 ### 検証（Tick44–45）
 `bots/[id]` / `harness-prompt` / `harness-agent` — **79 passed**
 
+### Tick46（ループ継続）
+1. Bot `enabled:false` — `codeSessionTaskId` の linked Code（Goal Loop 等、relay なし）も `stopBotCodeTask` で停止
+2. `goalLoopCommand` prepare — `reroute:false` に変更（turn 側 prepare との二重アカウント再選択を回避）
+3. 残存: Goal Loop ターン自体の hang watchdog 武装は未着手（queuePrompt 経路のみ）
+
+### 検証（Tick46）
+`bots/[id]` / `harness-prompt` / `harness-agent` — **80 passed**
+
 ---
 
 ## 2026-09-14: Stale production rebuild / next build exit 1

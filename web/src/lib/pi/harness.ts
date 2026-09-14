@@ -5972,12 +5972,13 @@ export async function goalLoopCommand(
   // Goal Loop does not go through queuePrompt, so a leftover chat hang watch
   // would keep the old prompt and resume it mid-loop (aborting Goal as "user").
   disarmTaskHangWatch(taskId);
-  // Apply deferred model/tools/permission before the first Goal turn (queuePrompt path
-  // already does this via prepareLiveForPrompt).
+  // Apply deferred tools/permission before /goal-start. Use reroute:false so the
+  // first Goal turn's prepareGoalLoopTurn still owns integrated account selection
+  // (avoids double resolvePromptRoute on start/resume).
   if (input.action === "start" || input.action === "resume") {
     live = await prepareLiveForPrompt(
       live,
-      true,
+      false,
       copyPendingLiveSettings((state().live.get(live.taskId) ?? live).pendingSettings),
     );
   }

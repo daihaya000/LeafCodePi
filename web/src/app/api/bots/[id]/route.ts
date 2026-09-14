@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { BOT_TOOL_NAMES, deleteBot, getBot, normalizeBotSkills, patchBot, botTaskId } from "@/lib/bots";
-import { destroyTask, requestBotSoulReload, resetTaskConversation, setBotModel, setBotPermissionMode, setBotThinkingLevel, setBotTools } from "@/lib/pi/harness";
+import { abortTask, destroyTask, requestBotSoulReload, resetTaskConversation, setBotModel, setBotPermissionMode, setBotThinkingLevel, setBotTools, stopBotCodeTask } from "@/lib/pi/harness";
 import { validateBotSoulContent } from "@/lib/pi/bot-soul-tool";
 import { isThinkingLevel } from "@/lib/thinking-levels";
 import { isAvatarColor, isAvatarEyeColor, isAvatarImage, isAvatarShape } from "@/lib/bot-avatar";
 import { isAbsolutePath } from "@/lib/paths";
-import { listTasks } from "@/lib/store";
+import { getTask, listTasks } from "@/lib/store";
 import { listRooms, patchRoom } from "@/lib/rooms";
 import { cancelAllCodeRequestsForBot, cancelBotCodeRequests } from "@/lib/pi/bot-code-relay";
 import { detachBotFromRoomRuntime } from "@/lib/room-runtime";
@@ -130,6 +130,25 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       }
       // 1:1 Code jobs are outside Room detach — cancel+abort them too.
       await cancelBotCodeRequests(id);
+      // Goal Loop / continue without an active relay outbox still leave codeSessionTaskId running.
+      const linkedId = bot.codeSessionTaskId;
+      if (linkedId) {
+        const linked = getTask(linkedId);
+        if (linked && linked.status !== "archived") {
+          try {
+            await stopBotCodeTask(id, linkedId);
+          } catch {
+            try {
+              await abortTask(linkedId);
+            } catch (error) {
+              console.warn(
+                `[bots] failed to stop linked Code task ${linkedId} on disable:`,
+                error instanceof Error ? error.message : String(error),
+              );
+            }
+          }
+        }
+      }
     }
     if (hasResetMessages) await resetTaskConversation(botTaskId(id));
     // SOUL and the per-Bot skill allowlist both shape the system prompt. Do not dispose a working
