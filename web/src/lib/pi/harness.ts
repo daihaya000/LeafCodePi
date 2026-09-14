@@ -18,6 +18,8 @@ import { codePromptSources } from "@/lib/agents-md";
 import { BOT_CODE_RESULT, BOT_CODE_TOOL, botCodeReportText, createBotCodeRelay, hasBotCodeReport, isBotCodeOriginTask, queueBotCodePrompt, roomForCodeOrigin, runUserBotCodeRequest, stopBotCodeRequestForTask, type CodePromptOptions, type CodeRequest } from "@/lib/pi/bot-code-relay";
 import { BOT_SOUL_TOOL, botSoulTool } from "@/lib/pi/bot-soul-tool";
 import { ROOM_HANDOFF_TOOL, roomHandoffTool } from "@/lib/room-handoff-tool";
+import { botIntercomTool } from "@/lib/bot-intercom-tool";
+import { setBotIntercomResidentLookup } from "@/lib/bot-intercom";
 import { ROOM_SYSTEM_PROMPT, roomBotPrompt } from "@/lib/room-conversation";
 import { requestWebUiPermission } from "@/lib/pi/webui-permission-bridge";
 import {
@@ -592,6 +594,7 @@ function state(): HarnessState {
     [GLOBAL_KEY]?: HarnessState;
   };
   if (!globalRef[GLOBAL_KEY]) {
+    setBotIntercomResidentLookup((botId) => Boolean(globalRef[GLOBAL_KEY]?.live.has(`bot:${botId}`)));
     globalRef[GLOBAL_KEY] = {
       pi: null,
       modelRuntime: null,
@@ -2358,6 +2361,9 @@ async function createSession(options: {
       }] : []),
       ...(botCodeTaskId ? [botCodeRelay().register(botCodeTaskId)] : []),
       ...(roomHandoffTaskId ? [roomHandoffTool(roomHandoffTaskId)] : []),
+      ...(sessionTask?.kind === "bot" && sessionTask.botId && options.taskId
+        ? [botIntercomTool(options.taskId)]
+        : []),
     ],
     skillsOverride: (base) => {
       if (agentOptions?.noSkills || skillPermissionRef.current === "deny") {

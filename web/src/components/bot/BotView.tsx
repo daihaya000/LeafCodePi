@@ -18,6 +18,7 @@ import { RoutineSchedulePicker } from "@/components/bot/RoutineSchedulePicker";
 import { DEFAULT_ROUTINE_SCHEDULE } from "@/lib/routine-schedule";
 import { BotEmptyState } from "@/components/bot/BotEmptyState";
 import { BotChatHeader } from "@/components/bot/BotChatHeader";
+import { BotIntercomInbox } from "@/components/bot/BotIntercomInbox";
 import { useBotFor, useReportStatus } from "@/components/shell/TaskPanesContext";
 import { BotComposer } from "@/components/bot/BotComposer";
 import { composerPromptAttachments, readComposerFiles, type ComposerAttachment } from "@/components/Composer";
@@ -42,7 +43,7 @@ import {
 import { readTaskTtsEnabled, speakText, stopSpeaking, subscribeTaskTtsEnabled, writeTaskTtsEnabled } from "@/lib/tts-playback";
 import { detectTtsBackend, getTtsBackend, type TtsVoiceOption, type TtsVoicesDto } from "@/lib/tts-backends";
 import type { TtsConfigDto } from "@/lib/tts-config";
-import { BOT_DEFAULT_TOOL_NAMES, BOT_TOOL_NAMES, type BotDto, type BotToolName, type ModelOption, type PermissionRequestDto, type QuestionRequestDto, type RoutineDto, type TaskMessageHistory, type TaskMessagePage, type ThinkingLevel, type UiMessage, type UiPart } from "@/lib/types";
+import { BOT_DEFAULT_TOOL_NAMES, BOT_TOOL_NAMES, type BotDto, type BotIntercomInboxDto, type BotToolName, type ModelOption, type PermissionRequestDto, type QuestionRequestDto, type RoutineDto, type TaskMessageHistory, type TaskMessagePage, type ThinkingLevel, type UiMessage, type UiPart } from "@/lib/types";
 
 type BotMessageDisplayData = {
   text: string;
@@ -100,6 +101,7 @@ function BotToolActivityGroup({ messages, bot, botId, active }: { messages: UiMe
   );
 }
 
+const EMPTY_INTERCOM_INBOX: BotIntercomInboxDto = { messages: [], unreadCount: 0, preview: null };
 const BOT_AUTO_SAVE_DELAY_MS = 600;
 const BOT_SETTINGS_OPEN_KEY_PREFIX = "webui:bot-settings-open:";
 const BOT_SETTINGS_WIDTH_KEY = "webui:bot-settings-width";
@@ -170,6 +172,8 @@ export const BotView = memo(function BotView({ id, active = true }: { id: string
   const [profileName, setProfileName] = useState("");
   const [profileLabel, setProfileLabel] = useState("");
   const [notificationsEnabled, setNotificationsEnabled] = useState(true);
+  const [intercomEnabled, setIntercomEnabled] = useState(false);
+  const [intercomInbox, setIntercomInbox] = useState<BotIntercomInboxDto>(EMPTY_INTERCOM_INBOX);
   const [ttsEnabled, setTtsEnabled] = useState(false);
   const [ttsVoice, setTtsVoice] = useState("");
   const [ttsConfig, setTtsConfig] = useState<TtsConfigDto | null>(null);
@@ -287,6 +291,7 @@ export const BotView = memo(function BotView({ id, active = true }: { id: string
         setProfileName(result.bot.name);
         setProfileLabel(result.bot.label);
         setNotificationsEnabled(result.bot.notificationsEnabled);
+        setIntercomEnabled(result.bot.intercomEnabled === true);
         setTtsVoice(result.bot.ttsVoice ?? "");
         setCodeAutoApprove(result.bot.codeAutoApprove === true);
         setPermissionMode(result.bot.permissionMode ?? "allow");
@@ -367,6 +372,8 @@ export const BotView = memo(function BotView({ id, active = true }: { id: string
     setPrompt("");
     setAttachments([]);
     setRoutines([]);
+    setIntercomInbox(EMPTY_INTERCOM_INBOX);
+    setIntercomEnabled(false);
   }, [id]);
   const updateSettingsOpen = (open: boolean) => {
     settingsOpenRef.current = open;
@@ -480,6 +487,7 @@ export const BotView = memo(function BotView({ id, active = true }: { id: string
             error?: string;
             permissionRequest?: PermissionRequestDto | null;
             questionRequest?: QuestionRequestDto | null;
+            intercomInbox?: BotIntercomInboxDto;
             eventType?: string;
           };
           const resetHistory =
@@ -519,6 +527,7 @@ export const BotView = memo(function BotView({ id, active = true }: { id: string
           const question = payload.questionRequest ?? null;
           setQuestion((current) => current?.id === question?.id ? current : question);
           setSending(Boolean(payload.isStreaming));
+          if (payload.intercomInbox) setIntercomInbox(payload.intercomInbox);
           if (payload.error) setError(payload.error);
         } catch { setError("イベントの解析に失敗しました"); }
       });
@@ -700,6 +709,36 @@ export const BotView = memo(function BotView({ id, active = true }: { id: string
       setTtsVoice(previous);
       setError(reason instanceof Error ? reason.message : "TTS音声の保存に失敗しました");
     } finally { setUpdatingTtsVoice(false); }
+  };
+
+  const updateIntercomEnabled = async (value: boolean) => {
+    const previous = intercomEnabled;
+    const requestContext = botRequestContextRef.current;
+    setIntercomEnabled(value);
+    setError(null);
+    try {
+      const result = await sendJson<{ bot: BotDto }>(`/api/bots/${encodeURIComponent(id)}`, { intercomEnabled: value }, "PATCH");
+      if (botRequestContextRef.current !== requestContext) return;
+      applyBotUpdate(result.bot);
+      setIntercomEnabled(result.bot.intercomEnabled === true);
+    } catch (reason) {
+      if (botRequestContextRef.current !== requestContext) return;
+      setIntercomEnabled(previous);
+      setError(reason instanceof Error ? reason.message : "内線設定の保存に失敗しました");
+    }
+  };
+
+  const markIntercomRead = async () => {
+    try {
+      const result = await sendJson<{ inbox: BotIntercomInboxDto }>(
+        `/api/bots/${encodeURIComponent(id)}/intercom`,
+        { action: "read" },
+        "PATCH",
+      );
+      if (result.inbox) setIntercomInbox(result.inbox);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "内線の既読に失敗しました");
+    }
   };
 
   const updateNotifications = async (value: boolean) => {
@@ -1018,7 +1057,7 @@ export const BotView = memo(function BotView({ id, active = true }: { id: string
           </>
         }
       />
-
+      <BotIntercomInbox inbox={intercomInbox} onRead={() => void markIntercomRead()} />
 
       <BotMessageList
         conversationId={id}
@@ -1156,6 +1195,7 @@ export const BotView = memo(function BotView({ id, active = true }: { id: string
               )}
             </div>
             <div className="flex items-center justify-between gap-4 rounded-2xl bg-surface-2 p-4 text-sm"><span><span className="font-medium">通知</span><span className="mt-1 block text-xs leading-5 text-muted">このBotが完了したとき、または入力が必要になったときに通知</span></span><button type="button" role="switch" aria-label="通知" aria-checked={notificationsEnabled} onClick={() => void updateNotifications(!notificationsEnabled)} className={notificationsEnabled ? "relative h-6 w-11 shrink-0 rounded-full bg-primary" : "relative h-6 w-11 shrink-0 rounded-full bg-surface-3"}><span className={notificationsEnabled ? "absolute left-6 top-1 h-4 w-4 rounded-full bg-primary-fg" : "absolute left-1 top-1 h-4 w-4 rounded-full bg-primary-fg"} /></button></div>
+            <div className="flex items-center justify-between gap-4 rounded-2xl bg-surface-2 p-4 text-sm"><span><span className="font-medium">Bot間内線</span><span className="mt-1 block text-xs leading-5 text-muted">他の常駐Botへ Bot id 宛に送信し、1:1受信箱で受け取ります。既定はオフです。ツール「内線」も許可してください。Roomの@handoffとは別経路です。</span></span><button type="button" role="switch" aria-label="Bot間内線" aria-checked={intercomEnabled} onClick={() => void updateIntercomEnabled(!intercomEnabled)} className={intercomEnabled ? "relative h-6 w-11 shrink-0 rounded-full bg-primary" : "relative h-6 w-11 shrink-0 rounded-full bg-surface-3"}><span className={intercomEnabled ? "absolute left-6 top-1 h-4 w-4 rounded-full bg-primary-fg" : "absolute left-1 top-1 h-4 w-4 rounded-full bg-primary-fg"} /></button></div>
             <div className="flex items-center justify-between gap-4 rounded-2xl bg-surface-2 p-4 text-sm"><span><span className="font-medium">Codeを常に許可</span><span className="mt-1 block text-xs leading-5 text-muted">このBotのCode依頼だけ、承認ダイアログを省略します。</span></span><button type="button" role="switch" aria-label="Codeを常に許可" aria-checked={codeAutoApprove} onClick={() => void updateCodeAutoApprove(!codeAutoApprove)} className={codeAutoApprove ? "relative h-6 w-11 shrink-0 rounded-full bg-primary" : "relative h-6 w-11 shrink-0 rounded-full bg-surface-3"}><span className={codeAutoApprove ? "absolute left-6 top-1 h-4 w-4 shrink-0 rounded-full bg-primary-fg" : "absolute left-1 top-1 h-4 w-4 shrink-0 rounded-full bg-primary-fg"} /></button></div>
             <BotRoutineSettings botId={id} routines={routines} onRefresh={loadRoutines} onError={setError} />
             <label className="block text-sm"><span className="font-medium">ツール権限</span><select aria-label="ツール権限" value={permissionMode} onChange={(event) => void updatePermissionMode(event.target.value as NonNullable<BotDto["permissionMode"]>)} className="mt-2 h-9 w-full rounded-lg border border-border bg-surface px-2 text-sm"><option value="allow">すべて許可</option><option value="ask">実行前に確認</option><option value="deny">すべて拒否</option></select><span className="mt-1 block text-xs text-muted">Botがツールを実行するときの確認方法です。</span></label>

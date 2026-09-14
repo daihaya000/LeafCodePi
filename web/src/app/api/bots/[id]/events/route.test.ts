@@ -17,6 +17,10 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("@/lib/bots", () => ({ botTaskId: (id: string) => `bot:${id}` }));
+vi.mock("@/lib/bot-intercom", () => ({
+  getBotIntercomInbox: () => ({ messages: [], unreadCount: 0, preview: null }),
+  subscribeBotIntercomInbox: () => () => undefined,
+}));
 vi.mock("@/lib/pi/harness", () => ({
   subscribeTask: mocks.subscribeTask,
   getTaskBootstrap: mocks.getTaskBootstrap,

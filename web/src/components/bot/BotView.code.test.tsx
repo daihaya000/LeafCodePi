@@ -1196,3 +1196,33 @@ it("keeps the Bot settings panel visibility after remounting", async () => {
   await screen.findByRole("button", { name: "設定" });
   expect(screen.queryByRole("dialog", { name: "設定" })).toBeNull();
 });
+
+it("shows the 1:1 intercom preview and unread dot from SSE", async () => {
+  render(<ShellProvider><BotView id="one" active /></ShellProvider>);
+  expect(await screen.findByRole("region", { name: "内線受信箱" })).toBeTruthy();
+  expect(screen.getByText("内線メッセージはありません")).toBeTruthy();
+  snapshot({
+    intercomInbox: {
+      messages: [],
+      unreadCount: 1,
+      preview: { fromBotId: "alice", fromName: "Alice", text: "確認お願いします", createdAt: 1 },
+    },
+  });
+  expect(await screen.findByText(/Alice: 確認お願いします/)).toBeTruthy();
+  expect(screen.getByLabelText("未読")).toBeTruthy();
+  expect(screen.queryByText("room_handoff")).toBeNull();
+});
+
+it("persists the Bot intercom opt-in from settings", async () => {
+  mocks.sendJson.mockImplementation(async (_url: string, patch: object) => ({ bot: { ...testBot, ...patch } }));
+  render(<ShellProvider><BotView id="one" active /></ShellProvider>);
+  fireEvent.click(await screen.findByRole("button", { name: "設定" }));
+  const toggle = await screen.findByRole("switch", { name: "Bot間内線" });
+  expect(toggle.getAttribute("aria-checked")).toBe("false");
+  fireEvent.click(toggle);
+  await waitFor(() => expect(mocks.sendJson).toHaveBeenCalledWith(
+    "/api/bots/one",
+    { intercomEnabled: true },
+    "PATCH",
+  ));
+});
