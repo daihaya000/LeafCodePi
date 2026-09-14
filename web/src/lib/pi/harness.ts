@@ -541,14 +541,7 @@ function permissionSnapshotExtras(taskId: string): Record<string, unknown> {
   if (!live || !task) return {};
   return {
     task: toSummary(task),
-    ...sessionSnapshotFields(
-      live.session,
-      live.throughputByStartedAt,
-      live.toolStartedAt,
-      live.toolEndedAt,
-      live.toolPartialOutputByCallId,
-      messageContext(live),
-    ),
+    ...liveSnapshotFields(live),
     manualAbortedAssistantId: live.manualAbortedAssistantId,
     hangRetryCount: live.hangRetryCount,
     revertLeafId: live.revertLeafId,
@@ -1222,6 +1215,24 @@ function sessionSnapshotFields(
   };
 }
 
+/** Snapshot fields for a live runtime: every caller projects the same maps and account/agent context. */
+function liveSnapshotFields(
+  live: LiveRuntime,
+  includeMessages = true,
+  reporter?: TaskDetailTimingReporter,
+): ReturnType<typeof sessionSnapshotFields> {
+  return sessionSnapshotFields(
+    live.session,
+    live.throughputByStartedAt,
+    live.toolStartedAt,
+    live.toolEndedAt,
+    live.toolPartialOutputByCallId,
+    messageContext(live),
+    includeMessages,
+    reporter,
+  );
+}
+
 function emit(
   taskId: string,
   payload: { type: string; [key: string]: unknown },
@@ -1292,14 +1303,7 @@ function emitTaskSnapshot(
   emit(live.taskId, {
     type: "snapshot",
     task: toSummary(task),
-    ...sessionSnapshotFields(
-      live.session,
-      live.throughputByStartedAt,
-      live.toolStartedAt,
-      live.toolEndedAt,
-      live.toolPartialOutputByCallId,
-      messageContext(live),
-    ),
+    ...liveSnapshotFields(live),
     manualAbortedAssistantId: live.manualAbortedAssistantId,
     hangRetryCount: live.hangRetryCount,
     revertLeafId: live.revertLeafId,
@@ -5318,16 +5322,7 @@ export async function getTaskDetail(
     const live = await ensureLive(id);
     reportTaskDetailPhase(options.onTiming, "ensureLive", ensureLiveStartedAt);
     const fieldsStartedAt = options.onTiming ? performance.now() : 0;
-    const fields = sessionSnapshotFields(
-      live.session,
-      live.throughputByStartedAt,
-      live.toolStartedAt,
-      live.toolEndedAt,
-      live.toolPartialOutputByCallId,
-      messageContext(live),
-      includeMessages,
-      options.onTiming,
-    );
+    const fields = liveSnapshotFields(live, includeMessages, options.onTiming);
     reportTaskDetailPhase(options.onTiming, "snapshotFields", fieldsStartedAt);
     messages = fields.messages;
     isStreaming = fields.isStreaming;
@@ -7262,14 +7257,7 @@ export async function setTaskModel(
   emit(id, {
     type: "snapshot",
     task: summary,
-    ...sessionSnapshotFields(
-      live.session,
-      live.throughputByStartedAt,
-      live.toolStartedAt,
-      live.toolEndedAt,
-      live.toolPartialOutputByCallId,
-      messageContext(live),
-    ),
+    ...liveSnapshotFields(live),
   });
   return summary;
 }
@@ -7299,14 +7287,7 @@ export async function setTaskThinkingLevel(
   emit(id, {
     type: "snapshot",
     task: summary,
-    ...sessionSnapshotFields(
-      live.session,
-      live.throughputByStartedAt,
-      live.toolStartedAt,
-      live.toolEndedAt,
-      live.toolPartialOutputByCallId,
-      messageContext(live),
-    ),
+    ...liveSnapshotFields(live),
   });
   return summary;
 }
@@ -7397,14 +7378,7 @@ export async function revertTask(
   emit(id, {
     type: "snapshot",
     task: toSummary(getTask(id)!),
-    ...sessionSnapshotFields(
-      live.session,
-      live.throughputByStartedAt,
-      live.toolStartedAt,
-      live.toolEndedAt,
-      live.toolPartialOutputByCallId,
-      messageContext(live),
-    ),
+    ...liveSnapshotFields(live),
     revertLeafId: live.revertLeafId,
     eventType: "revert",
   });
@@ -7581,14 +7555,7 @@ export async function unrevertTask(id: string): Promise<TaskDetail> {
   emit(id, {
     type: "snapshot",
     task: toSummary(getTask(id)!),
-    ...sessionSnapshotFields(
-      live.session,
-      live.throughputByStartedAt,
-      live.toolStartedAt,
-      live.toolEndedAt,
-      live.toolPartialOutputByCallId,
-      messageContext(live),
-    ),
+    ...liveSnapshotFields(live),
     revertLeafId: null,
     eventType: "unrevert",
   });
