@@ -6103,6 +6103,16 @@ function resolveCreateTaskModelSelection(input: {
   return { parsed, requestedAccountId, requestedAccountExplicit };
 }
 
+function resolveCreateTaskProject(projectId: string | null): ProjectDto | null {
+  const project = projectId ? getProject(projectId) ?? null : null;
+  if (projectId && !project) {
+    throw Object.assign(new Error("プロジェクトが見つかりません"), {
+      status: 404,
+    });
+  }
+  return project;
+}
+
 export async function createTask(input: {
   projectId: string | null;
   prompt: string;
@@ -6133,11 +6143,7 @@ export async function createTask(input: {
   if (input.goalLoop && (input.images?.length || input.files?.length)) {
     throw Object.assign(new Error("Goal loop の開始ではファイル添付は使えません"), { status: 400 });
   }
-  const project = input.projectId ? getProject(input.projectId) ?? null : null;
-  if (input.projectId && !project)
-    throw Object.assign(new Error("プロジェクトが見つかりません"), {
-      status: 404,
-    });
+  const project = resolveCreateTaskProject(input.projectId);
   const {
     modelValue,
     thinkingLevelInput,
