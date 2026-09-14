@@ -42,6 +42,22 @@ export function normalizeTtsConfig(raw: Partial<TtsConfigDto> | null | undefined
   };
 }
 
+export type TtsHostCapabilities = {
+  hostPlatform: NodeJS.Platform;
+  sapiAvailable: boolean;
+};
+
+export function ttsHostCapabilities(
+  platform: NodeJS.Platform = process.platform,
+): TtsHostCapabilities {
+  return {
+    hostPlatform: platform,
+    sapiAvailable: platform === "win32",
+  };
+}
+
+export type TtsSettingsDto = TtsConfigDto & TtsHostCapabilities;
+
 export function readTtsConfig(): TtsConfigDto {
   try {
     const file = ttsConfigPath();

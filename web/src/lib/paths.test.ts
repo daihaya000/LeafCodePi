@@ -7,6 +7,7 @@ import {
   displayLeafcodePiDataPath,
   noProjectRoot,
   noProjectSessionDir,
+  resolveNoProjectRoot,
   sameOrDescendantPath,
   samePath,
   webUiAuthConfigPath,
@@ -83,5 +84,57 @@ describe("no-project workspace paths", () => {
     expect(noProjectSessionDir(date)).toBe(join(root, "250714_153012"));
     expect(noProjectSessionDir(date)).toBe(join(root, "250714_153012_1"));
     expect(existsSync(join(root, "250714_1530"))).toBe(true);
+  });
+
+  it("uses Documents when that folder exists", () => {
+    expect(
+      resolveNoProjectRoot({
+        home: "/home/me",
+        env: {},
+        platform: "linux",
+        exists: (path) => path === "/home/me/Documents",
+      }),
+    ).toBe("/home/me/Documents/LeafCodePi");
+  });
+
+  it("falls back to XDG data home when Documents is missing", () => {
+    expect(
+      resolveNoProjectRoot({
+        home: "/home/me",
+        env: { XDG_DATA_HOME: "/xdg/data" },
+        platform: "linux",
+        exists: () => false,
+      }),
+    ).toBe("/xdg/data/LeafCodePi");
+  });
+
+  it("uses ~/.local/share/LeafCodePi when Documents and XDG_DATA_HOME are absent", () => {
+    expect(
+      resolveNoProjectRoot({
+        home: "/home/me",
+        env: {},
+        platform: "linux",
+        exists: () => false,
+      }),
+    ).toBe("/home/me/.local/share/LeafCodePi");
+  });
+
+  it("keeps Windows Documents when present and otherwise ~/LeafCodePi", () => {
+    expect(
+      resolveNoProjectRoot({
+        home: "C:\\Users\\sam",
+        env: {},
+        platform: "win32",
+        exists: (path) => path === join("C:\\Users\\sam", "Documents"),
+      }),
+    ).toBe(join("C:\\Users\\sam", "Documents", "LeafCodePi"));
+    expect(
+      resolveNoProjectRoot({
+        home: "C:\\Users\\sam",
+        env: {},
+        platform: "win32",
+        exists: () => false,
+      }),
+    ).toBe(join("C:\\Users\\sam", "LeafCodePi"));
   });
 });

@@ -20,6 +20,8 @@ describe("TtsSettings", () => {
         voice: "",
         rate: 0,
         url: "",
+        sapiAvailable: true,
+        hostPlatform: "win32",
       };
     });
     sendJson.mockImplementation(async (_path: string, body: Record<string, unknown>) => {
@@ -28,6 +30,8 @@ describe("TtsSettings", () => {
         voice: typeof body.voice === "string" ? body.voice : "",
         rate: typeof body.rate === "number" ? body.rate : 0,
         url: typeof body.url === "string" ? body.url : "",
+        sapiAvailable: true,
+        hostPlatform: "win32",
       };
     });
   });
@@ -156,5 +160,25 @@ describe("TtsSettings", () => {
     });
     expect(screen.getByRole("switch", { name: "読み上げを有効にする" })).toHaveProperty("disabled", true);
     expect(sendJson).not.toHaveBeenCalled();
+  });
+
+  it("on Linux hides SAPI and explains why speak is silent until HTTP is set", async () => {
+    getJson.mockImplementation(async () => {
+      return {
+        enabled: false,
+        voice: "",
+        rate: 0,
+        url: "",
+        sapiAvailable: false,
+        hostPlatform: "linux",
+      };
+    });
+    render(<TtsSettings />);
+    const trigger = await screen.findByRole("button", { name: "TTS バックエンド" });
+    expect(trigger.textContent).toContain("未設定（SAPI は Windows のみ）");
+    expect(screen.getByRole("note").textContent).toMatch(/AivisSpeech/);
+    fireEvent.click(trigger);
+    expect(screen.queryByRole("option", { name: "Windows SAPI" })).toBeNull();
+    expect(screen.getByRole("option", { name: "AivisSpeech（推奨）" })).toBeTruthy();
   });
 });

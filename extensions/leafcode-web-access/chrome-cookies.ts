@@ -1,21 +1,24 @@
 import { execFile } from "node:child_process";
-import { pbkdf2Sync, createDecipheriv } from "node:crypto";
+import { createDecipheriv } from "node:crypto";
 import { copyFileSync, existsSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir, homedir } from "node:os";
 import { isAbsolute, join, sep } from "node:path";
 import { isBrowserCookieAccessAllowed, type BrowserCookiePreset } from "./gemini-web-config.ts";
+import {
+	LINUX_BROWSER_CONFIGS,
+	MACOS_BROWSER_CONFIGS,
+	WINDOWS_BROWSER_CONFIGS,
+	chromiumCookieDatabasePath,
+	chromiumUserDataDir,
+	decryptChromiumSafeStorageCookie,
+	deriveChromiumSafeStorageKey,
+	lookupLinuxSafeStoragePassword,
+	type ChromiumBrowserConfig,
+} from "./chromium-cookie-crypto.ts";
 
 export type CookieMap = Record<string, string>;
 
-interface BrowserConfig {
-	id: BrowserCookiePreset;
-	name: string;
-	baseDir: string;
-	usesLocalAppData?: boolean;
-	keychainService?: string;
-	keychainAccount?: string;
-	secretToolApp?: string;
-}
+type BrowserConfig = ChromiumBrowserConfig;
 
 type SqliteRow = Record<string, unknown>;
 type SqliteFailure = "unavailable" | "query";
@@ -58,23 +61,6 @@ const ALL_COOKIE_NAMES = new Set([
 	"__Secure-BUCKET", "__Secure-ENID", "SID", "HSID", "SSID", "APISID", "SAPISID", "__Secure-3PSID",
 	"__Secure-3PSIDTS", "__Secure-3PAPISID", "SIDCC",
 ]);
-
-const MACOS_BROWSER_CONFIGS: BrowserConfig[] = [
-	{ id: "helium", name: "Helium", baseDir: "Library/Application Support/net.imput.helium", keychainService: "Helium Storage Key", keychainAccount: "Helium" },
-	{ id: "chrome", name: "Chrome", baseDir: "Library/Application Support/Google/Chrome", keychainService: "Chrome Safe Storage", keychainAccount: "Chrome" },
-	{ id: "brave", name: "Brave", baseDir: "Library/Application Support/BraveSoftware/Brave-Browser", keychainService: "Brave Safe Storage", keychainAccount: "Brave" },
-	{ id: "arc", name: "Arc", baseDir: "Library/Application Support/Arc/User Data", keychainService: "Arc Safe Storage", keychainAccount: "Arc" },
-];
-
-const LINUX_BROWSER_CONFIGS: BrowserConfig[] = [
-	{ id: "chromium", name: "Chromium", baseDir: ".config/chromium", secretToolApp: "chromium" },
-	{ id: "chrome", name: "Chrome", baseDir: ".config/google-chrome", secretToolApp: "chrome" },
-];
-
-const WINDOWS_BROWSER_CONFIGS: BrowserConfig[] = [
-	{ id: "chrome", name: "Chrome", baseDir: "Google/Chrome/User Data", usesLocalAppData: true },
-	{ id: "edge", name: "Edge", baseDir: "Microsoft/Edge/User Data", usesLocalAppData: true },
-];
 
 const browserPasswordCache = new Map<string, Promise<string | null>>();
 let lastCookieDiagnostic: string | null = null;
@@ -166,7 +152,7 @@ export async function getBrowserCookiesForHosts(
 				recordCookieAttempt(attempts, config, profile, "missing-database");
 				continue;
 			}
-			const cookiesPath = cookieDatabasePath(profilePath, config);
+			const cookiesPath = cookieDatabasePath(profilePath);
 			if (!cookiesPath) {
 				recordCookieAttempt(attempts, config, profile, "missing-database");
 				continue;
@@ -196,7 +182,7 @@ export async function getBrowserCookiesForHosts(
 
 				const key = currentPlatform === "win32"
 					? await readWindowsEncryptionKey(config, home)
-					: await readBrowserPassword(config, currentPlatform).then((password) => password ? pbkdf2Sync(password, "saltysalt", currentPlatform === "darwin" ? 1003 : 1, 16, "sha1") : null);
+					: await readBrowserPassword(config, currentPlatform).then((password) => password ? deriveChromiumSafeStorageKey(password, currentPlatform) : null);
 				if (!key) {
 					warningSet.add(currentPlatform === "win32"
 						? `Could not read ${config.name} Windows cookie encryption key`
@@ -229,7 +215,7 @@ export async function getBrowserCookiesForHosts(
 						if (currentPlatform === "win32" && encrypted.subarray(0, 3).toString("utf8") === "v20") sawWindowsAppBoundCookie = true;
 						value = currentPlatform === "win32"
 							? decryptWindowsCookieValue(encrypted, key, metaVersion.value >= 24)
-							: decryptCookieValue(encrypted, key, metaVersion.value >= 24);
+							: decryptChromiumSafeStorageCookie(encrypted, key, metaVersion.value >= 24);
 						if (!value && requiredCookies?.includes(name)) requiredDecryptFailures.add(name);
 					}
 					if (!value) continue;
@@ -315,7 +301,7 @@ function normalizeProfileName(value: string | undefined): string | undefined {
 function resolveProfilePath(home: string, config: BrowserConfig, profile: string): string | "outside-root" | null {
 	const basePath = browserBasePath(home, config);
 	const profilePath = join(basePath, profile);
-	if (!cookieDatabasePath(profilePath, config)) return null;
+	if (!cookieDatabasePath(profilePath)) return null;
 	try {
 		const baseRealPath = realpathSync(basePath);
 		const profileRealPath = realpathSync(profilePath);
@@ -326,17 +312,12 @@ function resolveProfilePath(home: string, config: BrowserConfig, profile: string
 	}
 }
 
-function cookieDatabasePath(profilePath: string, config: BrowserConfig): string | null {
-	const networkCookies = join(profilePath, "Network", "Cookies");
-	if (config.usesLocalAppData && existsSync(networkCookies)) return networkCookies;
-	const legacyCookies = join(profilePath, "Cookies");
-	return existsSync(legacyCookies) ? legacyCookies : null;
+function cookieDatabasePath(profilePath: string): string | null {
+	return chromiumCookieDatabasePath(profilePath);
 }
 
 function browserBasePath(home: string, config: BrowserConfig): string {
-	return config.usesLocalAppData
-		? join(process.env.LOCALAPPDATA || join(home, "AppData", "Local"), config.baseDir)
-		: join(home, config.baseDir);
+	return chromiumUserDataDir(config, home, process.env);
 }
 
 function normalizeCookieNames(names: string[] | undefined): string[] | undefined {
@@ -355,7 +336,7 @@ function listBrowserProfiles(home: string, config: BrowserConfig): string[] {
 	const profiles = new Set<string>();
 	try {
 		for (const entry of readdirSync(basePath, { withFileTypes: true })) {
-			if (entry.isDirectory() && cookieDatabasePath(join(basePath, entry.name), config)) profiles.add(entry.name);
+			if (entry.isDirectory() && cookieDatabasePath(join(basePath, entry.name))) profiles.add(entry.name);
 		}
 	} catch {
 	}
@@ -377,25 +358,6 @@ function compareProfileNames(a: string, b: string): number {
 	return ap - bp || ai - bi || a.localeCompare(b, undefined, { sensitivity: "base", numeric: true });
 }
 
-function decryptCookieValue(encrypted: Uint8Array, key: Buffer, stripHash: boolean): string | null {
-	const buf = Buffer.from(encrypted);
-	if (buf.length < 3 || !/^v\d\d$/.test(buf.subarray(0, 3).toString("utf8"))) return null;
-	const ciphertext = buf.subarray(3);
-	if (!ciphertext.length) return "";
-	try {
-		const decipher = createDecipheriv("aes-128-cbc", key, Buffer.alloc(16, 0x20));
-		decipher.setAutoPadding(false);
-		const unpadded = removePkcs7Padding(Buffer.concat([decipher.update(ciphertext), decipher.final()]));
-		const bytes = stripHash && unpadded.length >= 32 ? unpadded.subarray(32) : unpadded;
-		const decoded = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
-		let i = 0;
-		while (i < decoded.length && decoded.charCodeAt(i) < 0x20) i++;
-		return decoded.slice(i);
-	} catch {
-		return null;
-	}
-}
-
 function decryptWindowsCookieValue(encrypted: Uint8Array, key: Buffer, stripHash: boolean): string | null {
 	const buf = Buffer.from(encrypted);
 	if (buf.subarray(0, 3).toString("utf8") !== "v10" || buf.length < 3 + 12 + 16) return null;
@@ -411,12 +373,6 @@ function decryptWindowsCookieValue(encrypted: Uint8Array, key: Buffer, stripHash
 	}
 }
 
-function removePkcs7Padding(buf: Buffer): Buffer {
-	if (!buf.length) return buf;
-	const padding = buf[buf.length - 1];
-	return !padding || padding > 16 ? buf : buf.subarray(0, buf.length - padding);
-}
-
 function readBrowserPassword(config: BrowserConfig, currentPlatform: typeof process.platform): Promise<string | null> {
 	const cacheKey = `${currentPlatform}:${config.name}`;
 	const cached = browserPasswordCache.get(cacheKey);
@@ -426,7 +382,7 @@ function readBrowserPassword(config: BrowserConfig, currentPlatform: typeof proc
 			? readKeychainPassword(config.keychainAccount, config.keychainService).then(password => ({ password, cacheable: Boolean(password) }))
 			: Promise.resolve({ password: null, cacheable: false })
 		: currentPlatform === "linux"
-			? readLinuxPassword(config.secretToolApp)
+			? lookupLinuxSafeStoragePassword(config.secretToolApp)
 			: Promise.resolve({ password: null, cacheable: false });
 	const passwordPromise = passwordResult.then(({ password, cacheable }) => {
 		if (!cacheable) browserPasswordCache.delete(cacheKey);
@@ -473,17 +429,6 @@ function readKeychainPassword(account: string, service: string): Promise<string 
 		execFile("security", ["find-generic-password", "-w", "-a", account, "-s", service], { timeout: 5000 }, (err, stdout) => {
 			if (err) { resolve(null); return; }
 			resolve(stdout.trim() || null);
-		});
-	});
-}
-
-function readLinuxPassword(secretToolApp: string | undefined): Promise<{ password: string; cacheable: boolean }> {
-	if (!secretToolApp) return Promise.resolve({ password: "peanuts", cacheable: true });
-	return new Promise((resolve) => {
-		execFile("secret-tool", ["lookup", "application", secretToolApp], { timeout: 5000 }, (err, stdout) => {
-			if (err) { resolve({ password: "peanuts", cacheable: false }); return; }
-			const password = stdout.trim();
-			resolve(password ? { password, cacheable: true } : { password: "peanuts", cacheable: false });
 		});
 	});
 }

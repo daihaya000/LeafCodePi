@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
-import { readTtsConfig, writeTtsConfig, type TtsConfigDto } from "@/lib/tts-config";
+import { readTtsConfig, writeTtsConfig, ttsHostCapabilities, type TtsConfigDto, type TtsSettingsDto } from "@/lib/tts-config";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-function dto(config = readTtsConfig()): TtsConfigDto {
-  return config;
+function dto(config = readTtsConfig()): TtsSettingsDto {
+  return { ...config, ...ttsHostCapabilities() };
 }
 
 export async function GET() {

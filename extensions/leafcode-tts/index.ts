@@ -5,6 +5,7 @@
  * `text_delta` を「、。！？」で短く区切り、合成と再生を並行させる Producer/Consumer 方式。
  *
  * 既定バックエンドは Windows 標準の SAPI（System.Speech）。追加依存はない。
+ * Linux/macOS では SAPI は使えない。設定の `url` に AivisSpeech かカスタム HTTP が必要。
  * 設定に `url` を書くと HTTP 合成に切り替える。
  * - `http://127.0.0.1:10101` のようにパス無し → AivisSpeech / VOICEVOX（audio_query→synthesis）
  * - `.../v1/audio/speech` → OpenAI 互換 HTTP TTS
@@ -232,6 +233,7 @@ export class Speaker {
   say(text: string): void {
     const clean = speakable(text);
     if (!clean) return;
+    if (!this.config.url && process.platform !== "win32") return;
     // ponytail: 合成要求は投入時に並列で走らせる。chunk は LLM の生成速度でしか増えないので上限は置かない。
     const job: Job = this.config.url
       ? { kind: "P", body: this.synthesize(clean, this.config.url) }
@@ -455,7 +457,11 @@ export default function (pi: ExtensionAPI): void {
       // ponytail: このセッションの enabled だけを切り替える。tts.json には書かない＝他セッションや次回起動の既定値には影響しない。
       enabled = arg === "on" ? true : arg === "off" ? false : !enabled;
       if (!enabled) stop();
-      const backend = config.url ? `HTTP ${config.url}` : "Windows SAPI";
+      const backend = config.url
+        ? `HTTP ${config.url}`
+        : process.platform === "win32"
+          ? "Windows SAPI"
+          : "未設定（AivisSpeech か HTTP URL が必要）";
       ctx.ui.notify(`TTS: ${enabled ? `ON (${backend})` : "OFF"} (このセッションのみ)`, "info");
     },
   });

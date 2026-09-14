@@ -75,7 +75,7 @@ async function synthesizeVoicevox(baseUrl: string, text: string, voice: string):
 export async function synthesizeTts(text: string, url: string, voice: string): Promise<{ audio: Buffer; contentType: string }> {
   const clean = text.trim();
   if (!clean) throw new TtsSynthesizeError("読み上げる文章が空です", 400);
-  if (!url.trim()) throw new TtsSynthesizeError("合成エンジンが未設定です（設定→読み上げでURLを指定）", 400);
+  if (!url.trim()) throw new TtsSynthesizeError("合成エンジンが未設定です（設定→読み上げで AivisSpeech または HTTP URL を指定）", 400);
   if (isVoicevoxEngineUrl(url)) return synthesizeVoicevox(url, clean, voice.trim());
   let res: Response;
   try {

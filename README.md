@@ -47,6 +47,18 @@ Cursor は非公式拡張です。本機の Cursor IDE / CLI のトークンを�
 
 トークンは Windows では `%USERPROFILE%\.pi\agent\auth.json`、Linux/macOS では `~/.pi/agent/auth.json` に保存されます。コールバックは本機の `127.0.0.1:53692`（Anthropic）と `localhost:1455`（OpenAI Codex）を使います。通常の API キー（`ANTHROPIC_API_KEY` など）も併用できます。
 
+リモートマシン上の WebUI を手元のブラウザで開いている場合、IdP はホストの loopback に戻すため、そのままではログインできません。次のいずれかにしてください。
+
+```bash
+ssh -N -L 53692:127.0.0.1:53692 -L 1455:127.0.0.1:1455 user@host
+```
+
+- 上記の SSH ローカルフォワード（Claude 53692 / Codex 1455）
+- API キー
+- プロバイダーが出すデバイスコード
+
+同一マシン上のブラウザ、またはホスト上で開いたブラウザならポートフォワードは不要です。コールバック URI 自体は変えません。
+
 ## マルチアカウント（ChatGPT / Claude の複数アカウント）
 
 設定 → モデル → 「アカウント」から、ChatGPT (Codex) と Claude のサブスクアカウントを複数登録してタスクごとに切り替えられます（[計画](docs/plans/multi-account.md)）。
@@ -131,7 +143,7 @@ pi install ./extensions/leafcode-intercom
 
 文章全体をまとめて渡さず、streaming の `text_delta` を「、」「。」「！」「？」と改行で短く区切り、合成と再生を並行させる Producer/Consumer 方式です。コードブロック・URL・Markdown 記法は読み上げません。サブエージェントの子プロセスでは無効です。
 
-既定の合成は Windows 標準の SAPI（`System.Speech`）で、追加依存はありません。日本語は `Microsoft Haruka Desktop` が使えます。設定は `%APPDATA%\leafcode-pi\tts.json`（Linux/macOS は `~/.leafcode-pi/tts.json`）です。
+既定の合成は Windows 標準の SAPI（`System.Speech`）で、追加依存はありません。日本語は `Microsoft Haruka Desktop` が使えます。**Linux/macOS に SAPI は無く、空の `url` のままだと読み上げは無音です。** AivisSpeech（`http://127.0.0.1:10101`）かカスタム HTTP を設定してください。Qwen 向けの ROCm TTS サーバー UI は同梱していません。設定は `%APPDATA%\leafcode-pi\tts.json`（Linux/macOS は `~/.leafcode-pi/tts.json`）です。
 
 ```json
 {
@@ -189,7 +201,15 @@ chmod +x start.sh
 
 手動で起動する場合は `npm --prefix web install`、`npm --prefix host install` の後に `npm run host` でも構いません。
 
-Linux/macOS は既定でトレイを使わないため、SSH やヘッドレス環境でも起動できます。デスクトップのトレイを試す場合だけ `LEAFCODE_PI_TRAY=1 npm run host` を使います。ブラウザ自動起動は設定画面で有効にした場合のみ行われ、Linux は `xdg-open`、macOS は `open` を使います。
+Linux/macOS は既定でトレイを使わないため、SSH やヘッドレス環境でも起動できます。Linux デスクトップでトレイを出す場合だけ、グラフィカルセッションで `LEAFCODE_PI_TRAY=1` を付けます（`LEAFCODE_PI_HEADLESS=1` のときは出ません）。
+
+```bash
+LEAFCODE_PI_TRAY=1 ./start.sh
+# または
+LEAFCODE_PI_TRAY=1 npm run host
+```
+
+ブラウザ自動起動は設定画面で有効にした場合のみ行われ、Linux は `xdg-open`、macOS は `open` を使います。
 
 本番ビルドを使わず開発モードで起動する場合は `LEAFCODE_PI_MODE=dev npm run host` とします。`npm run dev` は WebUI だけを起動するため、host 制御 API や llama-server 連携は使いません。
 
@@ -274,7 +294,7 @@ npm run check
 | 変数 | 内容 |
 | --- | --- |
 | `LEAFCODE_PI_DATA_DIR` | ストアと host.lock / host.log の保存先（未設定時は Windows `%APPDATA%\leafcode-pi`、Linux/macOS `~/.leafcode-pi`） |
-| `LEAFCODE_PI_DEFAULT_DIR` | プロジェクト未登録タスクの作業ルート（未設定時は `~/Documents/LeafCodePi`） |
+| `LEAFCODE_PI_DEFAULT_DIR` | プロジェクト未登録タスクの作業ルート（未設定時は `~/Documents` があれば `~/Documents/LeafCodePi`、無ければ Linux/macOS は `$XDG_DATA_HOME/LeafCodePi` または `~/.local/share/LeafCodePi`、Windows は `%USERPROFILE%\LeafCodePi`） |
 | `LEAFCODE_PI_PORT` | WebUI ポート（既定 **3010**。LeafCode の 3000 と衝突しない） |
 | `LEAFCODE_PI_HOST` | WebUI 待ち受け。既定 `tailscale`（Tailscale IPv4。未検出時は 127.0.0.1）。`0.0.0.0` / 明示 IP も可 |
 | `LEAFCODE_PI_HOST_CONTROL_PORT` | ホスト制御（llama-server 起動など）。既定 **18775**（LeafCode の 18765 と別） |
