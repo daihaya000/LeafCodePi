@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   resolveAutoModel: vi.fn(),
   goalLoopCommand: vi.fn(),
   goalLoopState: vi.fn(),
+  isTaskRuntimeBusyForDestructiveEdit: vi.fn(() => false),
   setTaskAgent: vi.fn(),
   setTaskModel: vi.fn(),
   setTaskThinkingLevel: vi.fn(),
@@ -29,6 +30,7 @@ vi.mock("@/lib/auto-agent", () => ({ resolveAutoAgent: mocks.resolveAutoAgent })
 vi.mock("@/lib/pi/harness", () => ({
   goalLoopCommand: mocks.goalLoopCommand,
   goalLoopState: mocks.goalLoopState,
+  isTaskRuntimeBusyForDestructiveEdit: mocks.isTaskRuntimeBusyForDestructiveEdit,
   jsonError: mocks.jsonError,
   resolveAutoModel: mocks.resolveAutoModel,
   setTaskAgent: mocks.setTaskAgent,
@@ -49,7 +51,16 @@ function request(body: unknown): NextRequest {
 }
 
 describe("POST /api/tasks/[id]/goal-loop", () => {
-  let task: { id: string; status: string; agent: string; sessionFile: string };
+  let task: {
+    id: string;
+    status: string;
+    agent: string;
+    sessionFile: string;
+    providerID?: string;
+    modelID?: string;
+    thinkingLevel?: string;
+    accountIdExplicit?: boolean;
+  };
 
   beforeEach(() => {
     task = {
@@ -57,6 +68,9 @@ describe("POST /api/tasks/[id]/goal-loop", () => {
       status: "idle",
       agent: "builder",
       sessionFile: "C:\\sessions\\task-1.jsonl",
+      providerID: "openai-codex",
+      modelID: "gpt-5.4",
+      thinkingLevel: "low",
     };
     mocks.getTask.mockReset();
     mocks.readSessionConversation.mockReset();
@@ -64,10 +78,12 @@ describe("POST /api/tasks/[id]/goal-loop", () => {
     mocks.resolveAutoModel.mockReset();
     mocks.goalLoopCommand.mockReset();
     mocks.goalLoopState.mockReset();
+    mocks.isTaskRuntimeBusyForDestructiveEdit.mockReset();
     mocks.setTaskAgent.mockReset();
     mocks.setTaskModel.mockReset();
     mocks.setTaskThinkingLevel.mockReset();
     mocks.validateTaskModelSelection.mockReset();
+    mocks.isTaskRuntimeBusyForDestructiveEdit.mockReturnValue(false);
     mocks.getTask.mockImplementation(() => task);
     mocks.readSessionConversation.mockReturnValue([
       { role: "user", text: "調査する" },
@@ -108,6 +124,10 @@ describe("POST /api/tasks/[id]/goal-loop", () => {
         { role: "assistant", text: "問題を確認します" },
       ],
       prompt: "テストを追加する",
+      requestedModel: {
+        providerID: "openai-codex",
+        modelID: "gpt-5.4",
+      },
     });
     expect(mocks.setTaskAgent).toHaveBeenCalledWith("task-1", "reviewer");
     expect(mocks.goalLoopCommand).toHaveBeenCalledWith(
@@ -191,5 +211,52 @@ describe("POST /api/tasks/[id]/goal-loop", () => {
     expect(response.status).toBe(400);
     expect(mocks.resolveAutoAgent).not.toHaveBeenCalled();
     expect(mocks.goalLoopCommand).not.toHaveBeenCalled();
+  });
+
+  it("refuses to mutate route when the task is already busy", async () => {
+    mocks.isTaskRuntimeBusyForDestructiveEdit.mockReturnValue(true);
+
+    const response = await POST(
+      request({
+        action: "start",
+        goal: "作業",
+        agent: "reviewer",
+        model: "openai-codex::gpt-5.6-sol",
+      }),
+      { params: Promise.resolve({ id: "task-1" }) },
+    );
+
+    expect(response.status).toBe(409);
+    expect(mocks.setTaskAgent).not.toHaveBeenCalled();
+    expect(mocks.setTaskModel).not.toHaveBeenCalled();
+    expect(mocks.goalLoopCommand).not.toHaveBeenCalled();
+  });
+
+  it("rolls back model and agent when goalLoopCommand fails after applying them", async () => {
+    mocks.goalLoopCommand.mockRejectedValue(
+      Object.assign(new Error("タスクが実行中のため Goal Loop を開始できません"), { status: 409 }),
+    );
+
+    const response = await POST(
+      request({
+        action: "start",
+        goal: "作業",
+        agent: "reviewer",
+        model: "openai-codex::gpt-5.6-sol",
+        thinkingLevel: "high",
+      }),
+      { params: Promise.resolve({ id: "task-1" }) },
+    );
+
+    expect(response.status).toBe(409);
+    expect(mocks.setTaskAgent).toHaveBeenCalledWith("task-1", "reviewer");
+    expect(mocks.setTaskModel).toHaveBeenCalledWith("task-1", "openai-codex::gpt-5.6-sol", undefined);
+    expect(mocks.setTaskAgent).toHaveBeenLastCalledWith("task-1", "builder");
+    expect(mocks.setTaskModel).toHaveBeenLastCalledWith(
+      "task-1",
+      "openai-codex::gpt-5.4",
+      { accountIdExplicit: false },
+    );
+    expect(mocks.setTaskThinkingLevel).toHaveBeenLastCalledWith("task-1", "low");
   });
 });

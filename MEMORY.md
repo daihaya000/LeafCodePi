@@ -381,6 +381,13 @@
 ### 検証（Tick74–75）
 `hang-watchdog` / `sse-ready-buffer` / `git/commit` / `accounts` / goal-loop extension — **passed**
 
+### Tick76（ループ継続）
+1. POST `/api/tasks/[id]/goal-loop` — 開始前に `isTaskRuntimeBusyForDestructiveEdit`；`goalLoopCommand` 失敗時は model/agent/thinking をロールバック
+2. SSE ready buffer — `agent_routed` / `settings_pending` / `model_changed` を control に追加（ready 待ち中の破棄防止）
+
+### 検証（Tick76）
+`goal-loop/route` / `sse-ready-buffer` — **passed**
+
 ---
 
 ## 2026-09-14: Stale production rebuild / next build exit 1

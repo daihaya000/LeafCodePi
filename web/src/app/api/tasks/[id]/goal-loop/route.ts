@@ -7,6 +7,7 @@ import { AUTO_AGENT_VALUE } from "@/lib/default-agent";
 import {
   goalLoopCommand,
   goalLoopState,
+  isTaskRuntimeBusyForDestructiveEdit,
   jsonError,
   resolveAutoModel,
   setTaskAgent,
@@ -171,31 +172,70 @@ export async function POST(req: NextRequest, { params }: Params) {
         });
       }
     }
-    if (agent && agent !== (currentTask.agent?.trim() || undefined)) {
-      await setTaskAgent(id, agent);
-    }
-    if (model) {
-      await setTaskModel(
-        id,
-        model,
-        body?.auto === true ? { accountIdExplicit: false } : undefined,
+    const nextAgent =
+      agent && agent !== (currentTask.agent?.trim() || undefined) ? agent : undefined;
+    if (isTaskRuntimeBusyForDestructiveEdit(id)) {
+      return NextResponse.json(
+        { error: "タスクが実行中のため Goal Loop を開始できません" },
+        { status: 409 },
       );
     }
-    if (thinkingLevel) await setTaskThinkingLevel(id, thinkingLevel);
-    const loop = await goalLoopCommand(id, {
-      action: "start",
-      goal,
-      acceptance: criteria,
-      maxTurns: clampGoalLoopMaxTurns(body?.maxTurns, DEFAULT_GOAL_LOOP_MAX_TURNS),
-      cooldownSeconds: clampGoalLoopCooldownSeconds(body?.cooldownSeconds),
-      forceFullRun: body?.forceFullRun === true,
-      autoAgent: autoAgentRequested,
-    });
-    return NextResponse.json({
-      loop,
-      agent: getTask(id)?.agent ?? null,
-      ...(autoDecision ? { autoDecision } : {}),
-    });
+    const previousAgent = currentTask.agent?.trim() || undefined;
+    const previousModel =
+      currentTask.providerID && currentTask.modelID
+        ? `${currentTask.providerID}::${currentTask.modelID}`
+        : undefined;
+    const previousThinking = currentTask.thinkingLevel;
+    const previousAccountExplicit = currentTask.accountIdExplicit === true;
+    const changedAgent = Boolean(nextAgent);
+    const changedModel = Boolean(model);
+    const changedThinking = Boolean(thinkingLevel);
+    try {
+      if (nextAgent) await setTaskAgent(id, nextAgent);
+      if (model) {
+        await setTaskModel(
+          id,
+          model,
+          body?.auto === true ? { accountIdExplicit: false } : undefined,
+        );
+      }
+      if (thinkingLevel) await setTaskThinkingLevel(id, thinkingLevel);
+      const loop = await goalLoopCommand(id, {
+        action: "start",
+        goal,
+        acceptance: criteria,
+        maxTurns: clampGoalLoopMaxTurns(body?.maxTurns, DEFAULT_GOAL_LOOP_MAX_TURNS),
+        cooldownSeconds: clampGoalLoopCooldownSeconds(body?.cooldownSeconds),
+        forceFullRun: body?.forceFullRun === true,
+        autoAgent: autoAgentRequested,
+      });
+      return NextResponse.json({
+        loop,
+        agent: getTask(id)?.agent ?? null,
+        ...(autoDecision ? { autoDecision } : {}),
+      });
+    } catch (error) {
+      // Goal Loop did not start — undo route mutations so a 409/500 does not
+      // leave the task on a different model/agent than the user expects.
+      try {
+        if (changedAgent && previousAgent && previousAgent !== getTask(id)?.agent) {
+          await setTaskAgent(id, previousAgent);
+        }
+        if (changedModel && previousModel) {
+          await setTaskModel(
+            id,
+            previousModel,
+            previousAccountExplicit ? { accountIdExplicit: true } : { accountIdExplicit: false },
+          );
+        }
+        if (changedThinking && previousThinking) {
+          await setTaskThinkingLevel(id, previousThinking);
+        }
+      } catch {
+        // best-effort rollback
+      }
+      throw error;
+    }
   } catch (error) {
     const { error: message, status } = jsonError(error);
     return NextResponse.json({ error: message }, { status });
