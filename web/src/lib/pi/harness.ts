@@ -6633,6 +6633,20 @@ async function applyPromptModelSelection(
   return modelChanged;
 }
 
+async function applyPromptThinkingLevel(
+  id: string,
+  task: TaskSummary,
+  options: NonNullable<Parameters<typeof promptTask>[3]> | undefined,
+  modelChanged: boolean,
+): Promise<void> {
+  if (
+    options?.thinkingLevel &&
+    (modelChanged || task.thinkingLevel !== options.thinkingLevel)
+  ) {
+    await setTaskThinkingLevel(id, options.thinkingLevel);
+  }
+}
+
 /**
  * Apply the Composer's agent/model/effort/permission selections before the turn
  * is queued, and return the task snapshot the caller should keep using.
@@ -6651,12 +6665,7 @@ async function applyPromptSelections(
   // エージェント定義のmodel/thinkingはサブエージェント起動専用。
   // メイン対話者として直接選択した場合はComposerのモデル/Effortを使う。
   const modelChanged = await applyPromptModelSelection(id, task, options);
-  if (
-    options?.thinkingLevel &&
-    (modelChanged || task.thinkingLevel !== options.thinkingLevel)
-  ) {
-    await setTaskThinkingLevel(id, options.thinkingLevel);
-  }
+  await applyPromptThinkingLevel(id, task, options, modelChanged);
   await applyPromptPermissions(id, options);
   return task;
 }
