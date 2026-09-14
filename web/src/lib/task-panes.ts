@@ -897,6 +897,41 @@ export function taskIdFromPathname(pathname: string | null | undefined): string 
   }
 }
 
+/**
+ * Attention item が現在の画面のインライン UI（TaskView / BotView / RoomView）で
+ * 既に扱われているか。GlobalAttention の音・モーダル二重化防止に使う。
+ */
+export function isAttentionHandledOnPath(
+  pathname: string | null | undefined,
+  taskId: string,
+): boolean {
+  if (!pathname || !taskId) return false;
+  const taskPath = taskIdFromPathname(pathname);
+  if (taskPath && taskPath === taskId) return true;
+  const botMatch = /^\/bots\/([^/]+)$/.exec(pathname);
+  if (botMatch) {
+    let botId = botMatch[1]!;
+    try {
+      botId = decodeURIComponent(botId);
+    } catch {
+      /* keep encoded */
+    }
+    return taskId === `bot:${botId}`;
+  }
+  const roomMatch = /^\/bots\/rooms\/([^/]+)$/.exec(pathname);
+  if (roomMatch) {
+    let roomId = roomMatch[1]!;
+    try {
+      roomId = decodeURIComponent(roomId);
+    } catch {
+      /* keep encoded */
+    }
+    const escaped = roomId.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    return new RegExp(`^bot:[^:]+:room:${escaped}$`).test(taskId);
+  }
+  return false;
+}
+
 /** URL パスからペインに表示するタブIDを取り出す。 */
 export function tabIdFromPathname(pathname: string | null | undefined): string | null {
   if (isBotTabId(pathname)) return pathname!;

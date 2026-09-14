@@ -154,6 +154,9 @@ export const BotView = memo(function BotView({ id, active = true }: { id: string
   const [modelsLoading, setModelsLoading] = useState(true);
   const [permission, setPermission] = useState<PermissionRequestDto | null>(null);
   const [question, setQuestion] = useState<QuestionRequestDto | null>(null);
+  const [attentionBusy, setAttentionBusy] = useState<string | null>(null);
+  const clearedPermissionIdsRef = useRef(new Set<string>());
+  const clearedQuestionIdsRef = useRef(new Set<string>());
   const [messages, setMessages] = useState<UiMessage[]>([]);
   const [messageHistory, setMessageHistory] = useState<TaskMessageHistory>(EMPTY_TASK_MESSAGE_HISTORY);
   const messageHistoryRef = useRef(messageHistory);
@@ -371,6 +374,9 @@ export const BotView = memo(function BotView({ id, active = true }: { id: string
     setHistoryError(null);
     setPermission(null);
     setQuestion(null);
+    setAttentionBusy(null);
+    clearedPermissionIdsRef.current.clear();
+    clearedQuestionIdsRef.current.clear();
     setSending(false);
     setError(null);
     setPrompt("");
@@ -555,11 +561,17 @@ export const BotView = memo(function BotView({ id, active = true }: { id: string
           }
           if (payload.permissionRequest !== undefined) {
             const permission = payload.permissionRequest ?? null;
-            setPermission((current) => current?.id === permission?.id ? current : permission);
+            setPermission((current) => {
+              if (permission && clearedPermissionIdsRef.current.has(permission.id)) return null;
+              return current?.id === permission?.id ? current : permission;
+            });
           }
           if (payload.questionRequest !== undefined) {
             const question = payload.questionRequest ?? null;
-            setQuestion((current) => current?.id === question?.id ? current : question);
+            setQuestion((current) => {
+              if (question && clearedQuestionIdsRef.current.has(question.id)) return null;
+              return current?.id === question?.id ? current : question;
+            });
           }
           if (payload.isStreaming !== undefined) setSending(payload.isStreaming);
           if (payload.intercomInbox) setIntercomInbox(payload.intercomInbox);
@@ -705,19 +717,28 @@ export const BotView = memo(function BotView({ id, active = true }: { id: string
   };
 
   const respond = async (approved: boolean) => {
-    if (!permission) return;
+    if (!permission || attentionBusy) return;
+    const requestId = permission.id;
+    setAttentionBusy(requestId);
     try {
-      await sendJson(`/api/tasks/${encodeURIComponent(`bot:${id}`)}/permission`, { requestId: permission.id, approved });
-      setPermission((current) => current?.id === permission.id ? null : current);
+      await sendJson(`/api/tasks/${encodeURIComponent(`bot:${id}`)}/permission`, { requestId, approved });
+      clearedPermissionIdsRef.current.add(requestId);
+      setPermission((current) => current?.id === requestId ? null : current);
     } catch (reason) { setError(reason instanceof Error ? reason.message : "権限リクエストに失敗しました"); }
+    finally { setAttentionBusy(null); }
   };
 
   const answerQuestion = async (request: QuestionRequestDto, answers?: string[][]) => {
+    if (attentionBusy) return;
+    setAttentionBusy(request.id);
     try {
       await sendJson(`/api/tasks/${encodeURIComponent(`bot:${id}`)}/question`, { requestId: request.id, ...(answers ? { answers } : { reject: true }) });
+      clearedQuestionIdsRef.current.add(request.id);
       setQuestion((current) => current?.id === request.id ? null : current);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "質問への回答に失敗しました");
+    } finally {
+      setAttentionBusy(null);
     }
   };
 
@@ -1002,6 +1023,9 @@ export const BotView = memo(function BotView({ id, active = true }: { id: string
       setMessages([]);
       setPermission(null);
       setQuestion(null);
+      setAttentionBusy(null);
+      clearedPermissionIdsRef.current.clear();
+      clearedQuestionIdsRef.current.clear();
       setSending(false);
       notifyBotSidebarChanged();
     } catch (reason) {
@@ -1159,7 +1183,7 @@ export const BotView = memo(function BotView({ id, active = true }: { id: string
           {routines.some((routine) => routine.failureCount > 0) && <div role="status" className="rounded-2xl border border-danger/40 bg-danger/5 p-4 text-sm"><p className="font-medium text-danger">{"\u30eb\u30fc\u30c6\u30a3\u30f3\u306e\u5b9f\u884c\u306b\u5931\u6557\u3057\u3066\u3044\u307e\u3059"}</p><div className="mt-2 space-y-1 text-xs text-muted">{routines.filter((routine) => routine.failureCount > 0).map((routine) => <p key={routine.id}><span className="font-medium text-text">{routine.name}</span>{"\uFF1A"}{"\u9023\u7d9a\u5931\u6557"} {routine.failureCount}{"\u56de"}{routine.enabled ? "" : "\u3002\u5b89\u5168\u306e\u305f\u3081\u81ea\u52d5\u7684\u306b\u7121\u52b9\u5316\u3057\u307e\u3057\u305f"}</p>)}</div></div>}
           {routineCardOpen && <div className="rounded-2xl border border-accent/40 bg-surface p-4 shadow-sm" role="dialog" aria-label="ルーティン作成の確認"><p className="font-medium text-accent">ルーティンを作成</p><p className="mt-1 text-xs text-muted">内容を確認してから保存します。</p><div className="mt-3 space-y-2"><input value={routineName} onChange={(event) => setRoutineName(event.target.value)} placeholder="名前（例: 朝の確認）" className="w-full rounded-lg border border-border bg-bg px-3 py-2 text-sm outline-none focus:border-accent" /><textarea value={routinePrompt} onChange={(event) => setRoutinePrompt(event.target.value)} placeholder="Bot に実行させる指示" rows={3} className="w-full resize-y rounded-lg border border-border bg-bg px-3 py-2 text-sm outline-none focus:border-accent" /><RoutineSchedulePicker initialSchedule={routineSchedule} onChange={setRoutineSchedule} disabled={creatingRoutine} /></div><div className="mt-3 flex justify-end gap-2"><Button size="sm" variant="ghost" disabled={creatingRoutine} onClick={() => setRoutineCardOpen(false)}>キャンセル</Button><Button size="sm" onClick={() => void createRoutine()} busy={creatingRoutine} disabled={!routineName.trim() || !routinePrompt.trim() || !routineSchedule.trim()}>この内容で作成</Button></div></div>}
           {rendered}
-          {permission && <BotPermissionCard label="権限の確認" title="権限の確認が必要です" message={permission.message} command={permission.command} onAllow={() => void respond(true)} onDeny={() => void respond(false)} />}
+          {permission && <BotPermissionCard label="権限の確認" title="権限の確認が必要です" message={permission.message} command={permission.command} disabled={Boolean(attentionBusy)} onAllow={() => void respond(true)} onDeny={() => void respond(false)} />}
           {question && <QuestionCard request={question} onReply={answerQuestion} onReject={(request) => answerQuestion(request)} />}
           {sending && <BotResponseStatus messages={messages} avatar={bot} />}
           {codePanelOpen && <BotCodeSessionPanel botId={id} onClose={() => setCodePanelOpen(false)} />}

@@ -17,6 +17,7 @@ import {
   removeTaskEverywhere,
   tabIdFromPathname,
   taskIdFromPathname,
+  isAttentionHandledOnPath,
   taskIdsToAutoClose,
   taskPanesReducer as reducer,
   type PaneLayout,
@@ -691,6 +692,17 @@ describe("tabIdFromPathname / taskIdFromPathname / isSplitHostPath", () => {
     expect(taskIdFromPathname("/")).toBeNull();
     expect(taskIdFromPathname("/settings")).toBeNull();
     expect(taskIdFromPathname(null)).toBeNull();
+  });
+
+  it("maps Bot and Room paths to their inline attention task ids", () => {
+    expect(isAttentionHandledOnPath("/task/abc", "abc")).toBe(true);
+    expect(isAttentionHandledOnPath("/task/abc", "other")).toBe(false);
+    expect(isAttentionHandledOnPath("/bots/one", "bot:one")).toBe(true);
+    expect(isAttentionHandledOnPath("/bots/one", "bot:two")).toBe(false);
+    expect(isAttentionHandledOnPath("/bots/rooms/room-1", "bot:one:room:room-1")).toBe(true);
+    expect(isAttentionHandledOnPath("/bots/rooms/room-1", "bot:two:room:room-1")).toBe(true);
+    expect(isAttentionHandledOnPath("/bots/rooms/room-1", "bot:one")).toBe(false);
+    expect(isAttentionHandledOnPath("/bots/rooms/room-1", "bot:one:room:other")).toBe(false);
   });
 
   it("設定もタブIDへ変換し、分割ホストで扱う", () => {

@@ -130,6 +130,30 @@ describe("GlobalAttentionProvider", () => {
     expect(document.body.textContent ?? "").not.toMatch(/承認・回答が必要です/);
   });
 
+  it("does not auto-open when the fresh attention is only for the active Bot", async () => {
+    window.history.pushState({}, "", "/bots/one");
+    mocks.getJson.mockImplementation(async (path: string) => {
+      if (path === "/api/tasks") {
+        return { attention: [{ taskId: "bot:one", title: "Bot One", kinds: ["permission"] }] };
+      }
+      if (path === "/api/tasks/bot:one") {
+        return { task: { ...taskDetail("bot:one"), title: "Bot One" } };
+      }
+      throw new Error(`unexpected: ${path}`);
+    });
+    render(<GlobalAttentionProvider />);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(4_000);
+      await vi.advanceTimersByTimeAsync(0);
+      window.dispatchEvent(new Event("focusout"));
+      await vi.advanceTimersByTimeAsync(0);
+    });
+
+    expect(mocks.playAttentionRequiredSound).not.toHaveBeenCalled();
+    expect(document.body.textContent ?? "").not.toMatch(/承認・回答が必要です/);
+  });
+
   it("alerts once the user leaves the task that owned the fresh question", async () => {
     window.history.pushState({}, "", "/task/task-a");
     mocks.getJson.mockImplementation(async (path: string) => {

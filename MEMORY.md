@@ -131,6 +131,14 @@
 ### 検証（Tick24–25）
 `bot-code-relay` / `rooms/prompt` / `RoomView` / `GlobalAttention` / `room-runtime` — **213 passed**
 
+### Tick26–27（ループ継続）
+1. BotView — cleared permission/question id + attentionBusy（stale SSE 復活／二重送信防止）
+2. GlobalAttention — `/bots/*`・`/bots/rooms/*` をインライン扱いに（音・モーダル二重化防止）
+3. openTask — Bot/Room attention は `paneTabIdForTask` へ遷移
+
+### 検証（Tick26–27）
+`task-panes` / `GlobalAttention` / `BotView.code` — **169 passed**
+
 ---
 
 ## 2026-09-14: Stale production rebuild / next build exit 1

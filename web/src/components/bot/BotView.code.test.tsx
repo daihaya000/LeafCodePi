@@ -1102,6 +1102,33 @@ it("shows the exact Code command and does not erase a newer approval on response
   expect(mocks.sendJson).toHaveBeenCalledWith("/api/tasks/bot%3Aone/permission", { requestId: "first", approved: true });
 });
 
+it("does not revive an answered permission from a stale SSE snapshot", async () => {
+  render(<ShellProvider><BotView id="one" /></ShellProvider>);
+  await screen.findByRole("button", { name: "設定" });
+  const permission = { id: "permission-1", sessionId: "code-session", command: "code_session", labels: [], message: "Codeへ依頼します" };
+  snapshot({ permissionRequest: permission });
+  expect(screen.getByRole("button", { name: "許可" })).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "許可" }));
+  await waitFor(() => expect(mocks.sendJson).toHaveBeenCalledWith("/api/tasks/bot%3Aone/permission", { requestId: "permission-1", approved: true }));
+  await waitFor(() => expect(screen.queryByRole("button", { name: "許可" })).toBeNull());
+  snapshot({ permissionRequest: permission });
+  expect(screen.queryByRole("button", { name: "許可" })).toBeNull();
+});
+
+it("ignores a second permission click while the first is in flight", async () => {
+  render(<ShellProvider><BotView id="one" /></ShellProvider>);
+  await screen.findByRole("button", { name: "設定" });
+  snapshot({ permissionRequest: { id: "permission-1", sessionId: "code-session", command: "code_session", labels: [], message: "Codeへ依頼します" } });
+  let finish!: () => void;
+  mocks.sendJson.mockImplementationOnce(() => new Promise<void>((resolve) => { finish = resolve; }));
+  const allow = screen.getByRole("button", { name: "許可" });
+  fireEvent.click(allow);
+  expect(allow).toHaveProperty("disabled", true);
+  fireEvent.click(allow);
+  await act(async () => finish());
+  expect(mocks.sendJson).toHaveBeenCalledTimes(1);
+});
+
 it("resizes the Bot settings panel by dragging its separator", async () => {
   render(<ShellProvider><BotView id="one" /></ShellProvider>);
   fireEvent.click(await screen.findByRole("button", { name: "設定" }));

@@ -7,7 +7,7 @@ import { Button, cx } from "@/components/ui";
 import { PermissionAdvice } from "@/components/task/PermissionAdvice";
 import { QuestionCard } from "@/components/task/QuestionCard";
 import { getJson, sendJson } from "@/lib/client";
-import { taskIdFromPathname } from "@/lib/task-panes";
+import { isAttentionHandledOnPath, isBotTabId, paneTabIdForTask, taskIdFromPathname } from "@/lib/task-panes";
 import { playAttentionRequiredSound } from "@/lib/session-complete-sound";
 import type {
   AttentionItemDto,
@@ -94,7 +94,9 @@ function hasEditingFocus(): boolean {
 export function GlobalAttentionProvider() {
   const router = useRouter();
   const pathname = usePathname();
-  const activeTaskId = taskIdFromPathname(pathname);
+  const onInlineSurface = Boolean(
+    taskIdFromPathname(pathname) || (pathname != null && isBotTabId(pathname)),
+  );
   const [items, setItems] = useState<AttentionItemDto[]>([]);
   const [details, setDetails] = useState<Record<string, TaskDetail>>({});
   const [open, setOpen] = useState(false);
@@ -147,9 +149,9 @@ export function GlobalAttentionProvider() {
         }
 
         if (fresh.length > 0) {
-          const currentTaskId = taskIdFromPathname(window.location.pathname);
-          const onlyActive = fresh.every((item) => item.taskId === currentTaskId);
-          // 表示中タスク自身の要求は TaskView インライン UI が担当する。
+          const currentPath = window.location.pathname;
+          const onlyActive = fresh.every((item) => isAttentionHandledOnPath(currentPath, item.taskId));
+          // 表示中タスク自身の要求は TaskView / BotView / RoomView インライン UI が担当する。
           // 音もモーダルも二重化しない（両方「許可」できてしまう）。
           if (!onlyActive) {
             playAttentionRequiredSound();
@@ -311,13 +313,16 @@ export function GlobalAttentionProvider() {
 
   const openTask = (taskId: string) => {
     close();
-    router.push(`/task/${taskId}`);
+    const tab = paneTabIdForTask({ id: taskId });
+    router.push(isBotTabId(tab) || tab.startsWith("/") ? tab : `/task/${encodeURIComponent(tab)}`);
   };
 
   const visibleItems = items.filter((item) =>
     attentionItemStillOpen(item, details[item.taskId]),
   );
-  const reopenableCount = visibleItems.filter((item) => item.taskId !== activeTaskId).length;
+  const reopenableCount = visibleItems.filter(
+    (item) => !isAttentionHandledOnPath(pathname, item.taskId),
+  ).length;
   if (visibleItems.length === 0) return null;
   if (!open) {
     if (reopenableCount === 0) return null;
@@ -328,7 +333,7 @@ export function GlobalAttentionProvider() {
         onClick={() => setOpen(true)}
         className={cx(
           "fixed right-4 z-[80] flex h-12 min-w-12 items-center justify-center gap-1 rounded-full border border-warning/40 bg-warning-bg px-3 text-sm font-semibold text-warning shadow-lg",
-          activeTaskId ? ATTENTION_BELL_BOTTOM_TASK : ATTENTION_BELL_BOTTOM_HOME,
+          onInlineSurface ? ATTENTION_BELL_BOTTOM_TASK : ATTENTION_BELL_BOTTOM_HOME,
         )}
       >
         <BellRing className="h-4 w-4" aria-hidden="true" />
@@ -365,7 +370,7 @@ export function GlobalAttentionProvider() {
             const detail = details[item.taskId];
             const question = detail?.questionRequest;
             const permission = detail?.permissionRequest;
-            const handledInline = item.taskId === activeTaskId;
+            const handledInline = isAttentionHandledOnPath(pathname, item.taskId);
             return (
               <li key={item.taskId} className="rounded-xl border border-border bg-surface-2 p-3">
                 <div className="mb-2 flex items-center gap-2">
