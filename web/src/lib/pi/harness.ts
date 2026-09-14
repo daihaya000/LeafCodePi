@@ -5923,6 +5923,17 @@ export async function goalLoopCommand(
   if (input.action === "start") {
     ensureSessionFilePersisted(live.session.sessionManager);
   }
+  // start/resume は queuePrompt を通らない直 prompt。通常チャット実行中に投げると
+  // 二重 session.prompt になる。pause/stop/complete はループ中断のため busy でも通す。
+  if (
+    (input.action === "start" || input.action === "resume") &&
+    isLiveBusyForReplace(live) &&
+    !isActiveGoalLoopSession(live.session)
+  ) {
+    throw Object.assign(new Error("タスクが実行中のため Goal Loop を開始できません"), {
+      status: 409,
+    });
+  }
   let command: string;
   if (input.action === "start") {
     const payload = Buffer.from(

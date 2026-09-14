@@ -4,6 +4,7 @@ import { dirname, join } from "node:path";
 import { dataDir } from "./paths";
 import { invalidateCachedUsage } from "./codexbar/cache";
 import { clearProviderCache } from "./codexbar/provider-cache";
+import { isGoalLoopLiveStatus, readGoalLoopState } from "./pi/goal-loop-state";
 import { listTasks } from "./store";
 
 /**
@@ -325,17 +326,22 @@ export function patchAccount(
  * （実行中セッションが認証を読み続けられるようにするため。再作成時も同じパスを使う）。
  */
 export function deleteAccount(id: string): void {
-  // accountId は Phase 5 で TaskSummary に正式追加される。それまでは緩く参照する。
-  const running = listTasks().some(
-    (task) =>
-      task.status === "working" &&
-      (task as Record<string, unknown>).accountId === id,
-  );
-  if (running) {
-    throw Object.assign(
-      new Error("このアカウントで実行中のタスクがあるため削除できません"),
-      { status: 409 },
-    );
+  // code / bot 双方。Goal Loop は idle でもループが生きていることがある。
+  for (const task of listTasks(false, "all")) {
+    if (task.accountId !== id) continue;
+    if (task.status === "working") {
+      throw Object.assign(
+        new Error("このアカウントで実行中のタスクがあるため削除できません"),
+        { status: 409 },
+      );
+    }
+    const loop = readGoalLoopState(task.directory, task.sessionId);
+    if (loop && isGoalLoopLiveStatus(loop.status)) {
+      throw Object.assign(
+        new Error("このアカウントで Goal Loop が動作中のため削除できません"),
+        { status: 409 },
+      );
+    }
   }
   const file = readAccountsFile();
   const index = file.accounts.findIndex((account) => account.id === id);

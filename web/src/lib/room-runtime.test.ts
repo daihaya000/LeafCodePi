@@ -7,6 +7,7 @@ import type { BotDto, RoomDto, RoomHandoff, TaskDetail, UiMessage } from "./type
 
 const state = vi.hoisted(() => ({
   root: "", details: new Map<string, TaskDetail>(), promptTask: vi.fn(),
+  abortTask: vi.fn(async () => undefined),
   pendingRoom: vi.fn<(roomId: string, requestId: string, excludeRequestId?: string) => CodeRequest | undefined>(() => undefined),
   pendingRooms: vi.fn<(roomId: string, requestId: string, excludeRequestId?: string) => CodeRequest[]>(() => []),
   turnRequests: vi.fn<(roomId: string, requestId: string) => CodeRequest[]>(() => []),
@@ -22,6 +23,7 @@ vi.mock("@/lib/paths", async (importOriginal) => ({
 vi.mock("@/lib/pi/harness", () => ({
   getTaskDetail: async (id: string) => state.details.get(id),
   promptTask: state.promptTask,
+  abortTask: state.abortTask,
   subscribeTask: (id: string, listener: (payload: Record<string, unknown>) => void) => {
     const listeners = state.listeners.get(id) ?? new Set<(payload: Record<string, unknown>) => void>();
     state.listeners.set(id, listeners);
@@ -52,7 +54,7 @@ import { createBot, patchBot } from "./bots";
 import { appendRoomMessage, consumeRoomRelayEnvelope, createRoom, ensureRoomBotTask, getRoom, issueRoomRelayEnvelope, patchRoom, revertRoomTo, setRoomOutcome, updateRoomHandoffs, updateRoomMessage } from "./rooms";
 import { getTask, patchTask } from "./store";
 import { acquireTaskLease, releaseTaskLease } from "./task-runtime-lease";
-import { cancelPendingRoomHandoffs, deliverRoomCodeReport, reconcileRoomRuntime, registerRoomHandoff, resumeRoomAfterCode, runRoomConversation, runRoomFanOut, settleRoomHandoffs, settleRoomHandoffsForCode, settleStaleRoomTurns } from "./room-runtime";
+import { cancelPendingRoomHandoffs, deliverRoomCodeReport, reconcileRoomRuntime, registerRoomHandoff, resumeRoomAfterCode, runRoomBot, runRoomConversation, runRoomFanOut, settleRoomHandoffs, settleRoomHandoffsForCode, settleStaleRoomTurns, stopRoomTurns } from "./room-runtime";
 import { getBotIntercomInbox, resetBotIntercomForTests, setBotIntercomResidentLookup } from "./bot-intercom";
 import { BOT_DEFAULT_TOOL_NAMES } from "./types";
 
@@ -99,6 +101,8 @@ afterEach(() => {
   state.listeners.clear();
   state.details.clear();
   state.promptTask.mockReset();
+  state.abortTask.mockReset();
+  state.abortTask.mockImplementation(async () => undefined);
   state.pendingRoom.mockReset();
   state.pendingRooms.mockReset();
   state.turnRequests.mockReset();
@@ -695,5 +699,37 @@ describe("implicit @mention handoffs", () => {
     expect(() => registerRoomHandoff({
       roomId: room.id, requestId: getRoom(room.id)!.messages[0]!.id, fromMessageId: "missing", fromBotId: bots[0].id, toBotId: bots[1].id, task: "nope",
     })).toThrow(/disabled/i);
+  });
+});
+
+describe("room stop and fan-out", () => {
+  it("marks working room turns as stopped and aborts their tasks", async () => {
+    const { room, bots } = setup(["A"]);
+    const response = appendRoomMessage(room.id, {
+      role: "assistant",
+      botId: bots[0].id,
+      text: "",
+      status: "working",
+    })!;
+    const stopped = await stopRoomTurns(room.id);
+    expect(stopped).toBe(1);
+    expect(getRoom(room.id)!.messages.find((message) => message.id === response.id)).toMatchObject({
+      status: "error",
+      text: "Stopped by user.",
+    });
+    expect(state.abortTask).toHaveBeenCalledWith(`bot:${bots[0].id}:room:${room.id}`);
+  });
+
+  it("does not prompt a fan-out bot when its placeholder is no longer working", async () => {
+    const { room, bots, user } = setup(["A"]);
+    const response = appendRoomMessage(room.id, {
+      role: "assistant",
+      botId: bots[0].id,
+      text: "Stopped by user.",
+      status: "error",
+    })!;
+    await runRoomBot(getRoom(room.id)!, bots[0], "should not run", response.id, user.id);
+    expect(state.promptTask).not.toHaveBeenCalled();
+    expect(getRoom(room.id)!.messages.find((message) => message.id === response.id)?.status).toBe("error");
   });
 });

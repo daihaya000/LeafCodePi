@@ -60,6 +60,14 @@
 ### 検証（Tick6）
 `hang-watchdog` / `login/answer` / `ProviderAuthPanel` — **38 passed**
 
+### Tick7（ループ継続）
+1. `goalLoopCommand` — 通常チャット busy 中の start/resume を 409（二重 `session.prompt` 防止）
+2. `deleteAccount` — bot タスク + Goal Loop live（queued/running/verifying）も 409
+3. Room — fan-out も supersede/stop 後は再 prompt しない；`stopRoomTurns` が placeholder を先に閉じる
+
+### 検証（Tick7）
+`accounts` / `room-runtime` / `hang-watchdog` — **71 passed**
+
 ---
 
 ## 2026-09-14: Stale production rebuild / next build exit 1

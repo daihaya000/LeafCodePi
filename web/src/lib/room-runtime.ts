@@ -94,10 +94,13 @@ export async function runRoomBot(room: RoomDto, bot: BotDto, prompt: string, res
     return await withBotCodeSessionLock(`room-turn-${room.id}-${bot.id}`, async () => {
     const liveRoom = getRoom(room.id);
     if (!liveRoom) return;
-    if (turn && latestRoomRequest(liveRoom)?.id !== requestId) {
+    // fan-out も conversation と同様、Stop / 新リクエスト後は起こさない。
+    if (latestRoomRequest(liveRoom)?.id !== requestId) {
       updateRoomMessage(room.id, responseId, { text: "Conversation superseded by a newer user message.", status: "done" });
       return;
     }
+    const placeholder = liveRoom.messages.find((message) => message.id === responseId);
+    if (placeholder && placeholder.status !== "working") return;
     if (!liveRoom.members.includes(bot.id) || !getBot(bot.id)?.enabled) {
       updateRoomMessage(room.id, responseId, { text: "Bot is no longer active in this room.", status: "error" });
       return;
@@ -106,10 +109,12 @@ export async function runRoomBot(room: RoomDto, bot: BotDto, prompt: string, res
     const before = new Set((await getTaskDetail(taskId)).messages.map((message) => message.id));
     const currentRoom = getRoom(room.id);
     if (!currentRoom) return;
-    if (turn && latestRoomRequest(currentRoom)?.id !== requestId) {
+    if (latestRoomRequest(currentRoom)?.id !== requestId) {
       updateRoomMessage(room.id, responseId, { text: "Conversation superseded by a newer user message.", status: "done" });
       return;
     }
+    const currentPlaceholder = currentRoom.messages.find((message) => message.id === responseId);
+    if (currentPlaceholder && currentPlaceholder.status !== "working") return;
     if (!currentRoom.members.includes(bot.id) || !getBot(bot.id)?.enabled) {
       updateRoomMessage(room.id, responseId, { text: "Bot is no longer active in this room.", status: "error" });
       return;
@@ -166,6 +171,13 @@ function workingTurns(roomId: string): { messageId: string; botId: string; taskI
 /** "Stop now" ends the turns being written. Delegated Code keeps running; it has its own control. */
 export async function stopRoomTurns(roomId: string): Promise<number> {
   const turns = workingTurns(roomId);
+  // 先に placeholder を閉じ、キュー待ちの runRoomBot が await previous 後に再開しないようにする。
+  for (const entry of turns) {
+    updateRoomMessage(roomId, entry.messageId, {
+      text: "Stopped by user.",
+      status: "error",
+    });
+  }
   const results = await Promise.allSettled(turns.map((entry) => abortTask(entry.taskId)));
   return results.filter((result) => result.status === "fulfilled").length;
 }

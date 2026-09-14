@@ -23,7 +23,8 @@ import {
   patchAccount,
   reorderAccounts,
 } from "@/lib/accounts";
-import { insertTask, patchTask, upsertProject } from "@/lib/store";
+import { insertBotTask, insertTask, patchTask, upsertProject } from "@/lib/store";
+import { goalLoopStateFile } from "@/lib/pi/goal-loop-state";
 import type { TaskSummary } from "@/lib/types";
 
 const dirs: string[] = [];
@@ -310,6 +311,64 @@ describe("accounts store CRUD", () => {
     assert.throws(
       () => deleteAccount(busy.id),
       (error) => httpStatus(error) === 409,
+    );
+  });
+
+  it("refuses to delete while a working bot task references the account", () => {
+    tempDataDir();
+    const account = createAccount({
+      label: "bot-busy",
+      providers: ["openai-codex"],
+    });
+    const botTask = insertBotTask({
+      id: "bot:demo",
+      botId: "demo",
+      name: "Demo",
+      directory: join(tmpdir(), "bot-demo"),
+    });
+    patchLoose(botTask.id, { status: "working", accountId: account.id });
+    assert.throws(
+      () => deleteAccount(account.id),
+      (error) => httpStatus(error) === 409,
+    );
+  });
+
+  it("refuses to delete while a Goal Loop is live on the account", () => {
+    tempDataDir();
+    const project = upsertProject({
+      name: "goal-demo",
+      rootPath: join(tmpdir(), "goal-demo-root"),
+    });
+    const task = insertTask({ project, title: "goal task" });
+    const account = createAccount({
+      label: "goal-busy",
+      providers: ["openai-codex"],
+    });
+    patchLoose(task.id, {
+      status: "idle",
+      accountId: account.id,
+      sessionId: "goal-session-1",
+    });
+    const loopFile = goalLoopStateFile(task.directory, "goal-session-1");
+    mkdirSync(join(process.env.LEAFCODE_PI_DATA_DIR!, "goals-loop"), {
+      recursive: true,
+    });
+    writeFileSync(
+      loopFile,
+      JSON.stringify({
+        id: "loop-1",
+        goal: "ship",
+        status: "queued",
+        maxTurns: 3,
+        cooldownSeconds: 0,
+      }),
+      "utf8",
+    );
+    assert.throws(
+      () => deleteAccount(account.id),
+      (error) =>
+        httpStatus(error) === 409 &&
+        String((error as Error).message).includes("Goal Loop"),
     );
   });
 });
