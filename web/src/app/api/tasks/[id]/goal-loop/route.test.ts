@@ -40,11 +40,19 @@ vi.mock("@/lib/pi/harness", () => ({
 }));
 
 import { AUTO_AGENT_VALUE } from "@/lib/default-agent";
-import { POST } from "./route";
+import { PATCH, POST } from "./route";
 
 function request(body: unknown): NextRequest {
   return new NextRequest("http://localhost/api/tasks/task-1/goal-loop", {
     method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
+
+function patchRequest(body: unknown): NextRequest {
+  return new NextRequest("http://localhost/api/tasks/task-1/goal-loop", {
+    method: "PATCH",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),
   });
@@ -285,5 +293,37 @@ describe("POST /api/tasks/[id]/goal-loop", () => {
       "acc-old::openai-codex::gpt-5.4",
       { accountIdExplicit: true },
     );
+  });
+});
+
+describe("PATCH /api/tasks/[id]/goal-loop", () => {
+  beforeEach(() => {
+    mocks.goalLoopCommand.mockReset();
+    mocks.jsonError.mockClear();
+  });
+
+  it("rejects a non-live resume result", async () => {
+    mocks.goalLoopCommand.mockResolvedValue({ id: "loop-1", status: "paused" });
+
+    const response = await PATCH(patchRequest({ action: "resume" }), {
+      params: Promise.resolve({ id: "task-1" }),
+    });
+
+    expect(response.status).toBe(409);
+    expect(await response.json()).toEqual({ error: "Goal Loop を再開できませんでした" });
+  });
+
+  it("accepts a live resume result", async () => {
+    mocks.goalLoopCommand.mockResolvedValue({ id: "loop-1", status: "queued" });
+
+    const response = await PATCH(patchRequest({ action: "resume", maxTurns: 5 }), {
+      params: Promise.resolve({ id: "task-1" }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(mocks.goalLoopCommand).toHaveBeenCalledWith("task-1", {
+      action: "resume",
+      maxTurns: 5,
+    });
   });
 });

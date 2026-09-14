@@ -22,10 +22,14 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     if (typeof body.requestId !== "string") return NextResponse.json({ error: "requestId is required" }, { status: 400 });
     const stopped = await stopBotCodeRequest(id, body.requestId);
     if (!stopped) return NextResponse.json({ error: "実行中のCode依頼がありません" }, { status: 404 });
-    const task = stopped.codeTaskId
-      ? await abortTaskIncludingColdGoalLoop(stopped.codeTaskId)
-      : undefined;
-    if (stopped.codeTaskId) await completeBotCodeRequest(body.requestId);
+    let task: Awaited<ReturnType<typeof abortTaskIncludingColdGoalLoop>> | undefined;
+    try {
+      if (stopped.codeTaskId) {
+        task = await abortTaskIncludingColdGoalLoop(stopped.codeTaskId);
+      }
+    } finally {
+      if (stopped.codeTaskId) await completeBotCodeRequest(body.requestId);
+    }
     return NextResponse.json({
       requestId: body.requestId,
       state: stopped.state,

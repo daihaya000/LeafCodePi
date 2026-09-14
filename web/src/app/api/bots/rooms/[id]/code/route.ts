@@ -18,9 +18,12 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     const stopped = await stopBotCodeRequest(request.botId, request.id);
     if (!stopped) return NextResponse.json({ error: "Code request changed" }, { status: 409 });
     if (stopped.codeTaskId) {
-      const task = await abortTaskIncludingColdGoalLoop(stopped.codeTaskId);
-      await completeBotCodeRequest(request.id);
-      return NextResponse.json({ task });
+      try {
+        const task = await abortTaskIncludingColdGoalLoop(stopped.codeTaskId);
+        return NextResponse.json({ task });
+      } finally {
+        await completeBotCodeRequest(request.id);
+      }
     }
     return NextResponse.json({ requestId: request.id, state: stopped.state });
   } catch (error) {

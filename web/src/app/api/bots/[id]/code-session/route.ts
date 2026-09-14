@@ -206,6 +206,19 @@ export async function PATCH(
               );
             }
           }
+          const after = getTask(taskId);
+          const afterLoop = after
+            ? readGoalLoopState(after.directory, after.sessionId)
+            : null;
+          if (
+            after &&
+            (after.status === "working" || isGoalLoopLiveStatus(afterLoop?.status))
+          ) {
+            return NextResponse.json(
+              { error: "Code セッションを停止できませんでした" },
+              { status: 409 },
+            );
+          }
         }
         if (bot.codeSessionTaskId === taskId) {
           patchBot(id, { codeSessionTaskId: null });
@@ -238,6 +251,15 @@ export async function PATCH(
               ? clampGoalLoopMaxTurns(body.maxTurns, DEFAULT_GOAL_LOOP_MAX_TURNS)
               : undefined,
         });
+        if (
+          body.goalLoopAction === "resume" &&
+          (!loop || !isGoalLoopLiveStatus(loop.status))
+        ) {
+          return NextResponse.json(
+            { error: "Goal Loop を再開できませんでした" },
+            { status: 409 },
+          );
+        }
         return NextResponse.json({ loop });
       }
       if (body?.action === "abort") {

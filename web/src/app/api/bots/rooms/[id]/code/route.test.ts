@@ -47,6 +47,15 @@ describe("room Code control", () => {
     expect(state.completeBotCodeRequest).toHaveBeenCalledWith("request");
   });
 
+  it("still completes the outbox when abort fails after stop", async () => {
+    const room = createRoom({ name: "Team" });
+    state.pendingRoom.mockReturnValue({ id: "request", botId: "bot-1", codeTaskId: "code-1", room: { id: room.id } } as CodeRequest);
+    state.abortTaskIncludingColdGoalLoop.mockRejectedValueOnce(new Error("abort failed"));
+    const result = await send(room.id, { action: "abort" });
+    expect(result.status).toBe(500);
+    expect(state.completeBotCodeRequest).toHaveBeenCalledWith("request");
+  });
+
   it.each(["starting", "queued"])("cancels an unlaunched %s request by its own id", async (status) => {
     const room = createRoom({ name: "Team" });
     state.roomRequest.mockReturnValue({ id: "request-2", botId: "bot-1", state: status, codeTaskId: null, room: { id: room.id } } as CodeRequest);

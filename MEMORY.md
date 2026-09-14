@@ -438,6 +438,14 @@
 ### 検証（Tick84–85）
 `bots/abort` / `bots/prompt` / `harness-lifecycle` / `goal-loop/route` — **29 passed**
 
+### Tick86–87（ループ継続・[Hunt Tick86–87](6711b209) 追随）
+1. Code session unlink/clear — 停止失敗時は link を残して 409（偽成功防止）
+2. Goal Loop resume（Task PATCH / Bot code-session）— 非 live 結果は 409
+3. Bot/Room Code abort — abort 失敗でも `completeBotCodeRequest` を finally で実行
+
+### 検証（Tick86–87）
+`code-session` / `goal-loop` / `rooms/.../code` — **40 passed**
+
 ---
 
 ## 2026-09-14: Stale production rebuild / next build exit 1

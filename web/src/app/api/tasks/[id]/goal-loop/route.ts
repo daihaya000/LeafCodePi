@@ -270,6 +270,12 @@ export async function PATCH(req: NextRequest, { params }: Params) {
           ? clampGoalLoopMaxTurns(body.maxTurns, DEFAULT_GOAL_LOOP_MAX_TURNS)
           : undefined,
     });
+    if (action === "resume" && (!loop || !isGoalLoopLiveStatus(loop.status))) {
+      return NextResponse.json(
+        { error: "Goal Loop を再開できませんでした" },
+        { status: 409 },
+      );
+    }
     return NextResponse.json({ loop });
   } catch (error) {
     const { error: message, status } = jsonError(error);

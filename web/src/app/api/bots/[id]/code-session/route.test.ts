@@ -252,7 +252,9 @@ describe("Bot Code session control", () => {
 
   it("stops a working linked Code task before clear/unlink", async () => {
     mocks.getBot.mockReturnValue({ ...bot, codeSessionTaskId: "code-1" });
-    mocks.getTask.mockReturnValue({ id: "code-1", status: "working", botId: "bot-1", kind: "code" });
+    mocks.getTask
+      .mockReturnValueOnce({ id: "code-1", status: "working", botId: "bot-1", kind: "code" })
+      .mockReturnValueOnce({ id: "code-1", status: "idle", botId: "bot-1", kind: "code" });
 
     const response = await PATCH(request("PATCH", { action: "unlink" }), {
       params: Promise.resolve({ id: "bot-1" }),
@@ -265,7 +267,9 @@ describe("Bot Code session control", () => {
 
   it("falls back to abortTaskIncludingColdGoalLoop when stopBotCodeTask fails on unlink", async () => {
     mocks.getBot.mockReturnValue({ ...bot, codeSessionTaskId: "code-1" });
-    mocks.getTask.mockReturnValue({ id: "code-1", status: "working", botId: "bot-1", kind: "code" });
+    mocks.getTask
+      .mockReturnValueOnce({ id: "code-1", status: "working", botId: "bot-1", kind: "code" })
+      .mockReturnValueOnce({ id: "code-1", status: "idle", botId: "bot-1", kind: "code" });
     mocks.stopBotCodeTask.mockRejectedValueOnce(new Error("stop failed"));
     mocks.abortTaskIncludingColdGoalLoop.mockResolvedValueOnce({ id: "code-1", status: "idle" });
 
@@ -278,9 +282,26 @@ describe("Bot Code session control", () => {
     expect(mocks.patchBot).toHaveBeenCalledWith("bot-1", { codeSessionTaskId: null });
   });
 
+  it("keeps the link when unlink cannot stop a running Code task", async () => {
+    mocks.getBot.mockReturnValue({ ...bot, codeSessionTaskId: "code-1" });
+    mocks.getTask.mockReturnValue({ id: "code-1", status: "working", botId: "bot-1", kind: "code" });
+    mocks.stopBotCodeTask.mockRejectedValueOnce(new Error("stop failed"));
+    mocks.abortTaskIncludingColdGoalLoop.mockRejectedValueOnce(new Error("abort failed"));
+
+    const response = await PATCH(request("PATCH", { action: "unlink" }), {
+      params: Promise.resolve({ id: "bot-1" }),
+    });
+
+    expect(response.status).toBe(409);
+    expect(await response.json()).toEqual({ error: "Code セッションを停止できませんでした" });
+    expect(mocks.patchBot).not.toHaveBeenCalled();
+  });
+
   it("stops the requested taskId on unlink without clearing a different codeSessionTaskId", async () => {
     mocks.getBot.mockReturnValue({ ...bot, codeSessionTaskId: "code-linked" });
-    mocks.getTask.mockReturnValue({ id: "code-other", status: "working", botId: "bot-1", kind: "code" });
+    mocks.getTask
+      .mockReturnValueOnce({ id: "code-other", status: "working", botId: "bot-1", kind: "code" })
+      .mockReturnValueOnce({ id: "code-other", status: "idle", botId: "bot-1", kind: "code" });
 
     const response = await PATCH(
       request("PATCH", { action: "unlink", taskId: "code-other" }),
@@ -340,6 +361,7 @@ describe("Bot Code session control", () => {
 
   it("controls Goal Loop only for a Code task owned by this Bot", async () => {
     mocks.getTask.mockReturnValue({ id: "code-1", status: "idle", botId: "bot-1" });
+    mocks.goalLoopCommand.mockResolvedValue({ id: "loop-1", status: "queued", maxTurns: 3, turnCount: 1 });
 
     const response = await PATCH(request("PATCH", {
       action: "goal-loop",
@@ -408,6 +430,10 @@ describe("Bot Code session control", () => {
       sessionId: "sess",
     });
     mocks.readGoalLoopState.mockReturnValue({ status: "running" });
+    mocks.stopBotCodeTask.mockImplementation(async () => {
+      mocks.readGoalLoopState.mockReturnValue({ status: "stopped" });
+      return { id: "code-1", status: "idle" };
+    });
 
     const response = await PATCH(request("PATCH", { action: "unlink" }), {
       params: Promise.resolve({ id: "bot-1" }),
