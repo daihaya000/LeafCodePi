@@ -1021,6 +1021,20 @@ describe("Room ⇄ Code delegation", () => {
     await relay.tick();
     expect(deps.afterDelivery).toHaveBeenCalledTimes(1);
   });
+
+  it("cancels a running Room Code request when a newer user turn supersedes it", async () => {
+    roomSetup();
+    await roomLaunch();
+    expect(record().state).toBe("running");
+    const room = store.rooms.get("room-1")!;
+    room.messages.push({ id: "user-2", role: "user", text: "別の依頼", createdAt: 3 });
+
+    await relay.tick();
+    expect(record().state).toBe("cancelled");
+    expect(deps.abort).toHaveBeenCalledWith("code");
+    expect(deps.deliver).not.toHaveBeenCalled();
+    expect(deps.afterDelivery).not.toHaveBeenCalled();
+  });
 });
 
 describe("durable Bot report acknowledgement", () => {

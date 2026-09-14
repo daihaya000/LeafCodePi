@@ -31,6 +31,23 @@ function applyRoomSnapshot(current: RoomDto | null, next: RoomDto): RoomDto {
   return messages === next.messages ? next : { ...next, messages };
 }
 
+/** Drop answered attention that a stale SSE snapshot may still carry. */
+function applyClearedRoomAttention(
+  items: RoomAttention[],
+  clearedPermissionIds: ReadonlySet<string>,
+  clearedQuestionIds: ReadonlySet<string>,
+): RoomAttention[] {
+  return items
+    .map((item) => ({
+      ...item,
+      permission:
+        item.permission && clearedPermissionIds.has(item.permission.id) ? null : item.permission,
+      question:
+        item.question && clearedQuestionIds.has(item.question.id) ? null : item.question,
+    }))
+    .filter((item) => item.permission != null || item.question != null);
+}
+
 type MentionContext = { start: number; end: number; query: string };
 
 const HANDOFF_STATE_TEXT: Record<RoomHandoffState, string> = {
@@ -100,6 +117,8 @@ export function RoomView({ id, active = true }: { id: string; active?: boolean }
   const [sseError, setSseError] = useState<string | null>(null);
   const [mentionContext, setMentionContext] = useState<MentionContext | null>(null);
   const [mentionIndex, setMentionIndex] = useState(0);
+  const clearedPermissionIdsRef = useRef(new Set<string>());
+  const clearedQuestionIdsRef = useRef(new Set<string>());
   const composingRef = useRef(false);
   const promptRef = useRef<HTMLTextAreaElement>(null);
   const router = useRouter();
@@ -132,6 +151,8 @@ export function RoomView({ id, active = true }: { id: string; active?: boolean }
     setRoom(null);
     setAttention([]);
     setAttentionBusy(null);
+    clearedPermissionIdsRef.current.clear();
+    clearedQuestionIdsRef.current.clear();
     setError(null);
     setSseError(null);
     setPrompt("");
@@ -214,7 +235,11 @@ export function RoomView({ id, active = true }: { id: string; active?: boolean }
           setSseError(null);
           if (payload.room) setRoom((current) => applyRoomSnapshot(current, payload.room!));
           setAttention((current) => {
-            const next = payload.attention ?? [];
+            const next = applyClearedRoomAttention(
+              payload.attention ?? [],
+              clearedPermissionIdsRef.current,
+              clearedQuestionIdsRef.current,
+            );
             if (
               current.length === next.length
               && current.every((item, index) => {
@@ -424,16 +449,26 @@ export function RoomView({ id, active = true }: { id: string; active?: boolean }
     setAttentionBusy(requestId);
     try {
       await sendJson(`/api/tasks/${encodeURIComponent(item.taskId)}/permission`, { requestId, approved });
-      setAttention((current) => current.map((entry) => entry.permission?.id === requestId ? { ...entry, permission: null } : entry));
+      clearedPermissionIdsRef.current.add(requestId);
+      setAttention((current) =>
+        applyClearedRoomAttention(current.map((entry) => entry.permission?.id === requestId ? { ...entry, permission: null } : entry), clearedPermissionIdsRef.current, clearedQuestionIdsRef.current),
+      );
     } catch (reason) { setError(reason instanceof Error ? reason.message : "権限リクエストに失敗しました"); }
     finally { setAttentionBusy(null); }
   };
   const answerQuestion = async (taskId: string, request: QuestionRequestDto, answers?: string[][]) => {
+    if (attentionBusy) return;
+    setAttentionBusy(request.id);
     try {
       await sendJson(`/api/tasks/${encodeURIComponent(taskId)}/question`, { requestId: request.id, ...(answers ? { answers } : { reject: true }) });
-      setAttention((current) => current.map((entry) => entry.question?.id === request.id ? { ...entry, question: null } : entry));
+      clearedQuestionIdsRef.current.add(request.id);
+      setAttention((current) =>
+        applyClearedRoomAttention(current.map((entry) => entry.question?.id === request.id ? { ...entry, question: null } : entry), clearedPermissionIdsRef.current, clearedQuestionIdsRef.current),
+      );
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "質問への回答に失敗しました");
+    } finally {
+      setAttentionBusy(null);
     }
   };
 

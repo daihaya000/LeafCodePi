@@ -4,9 +4,10 @@ import { getBot } from "@/lib/bots";
 import type { BotDto, RoomMessage } from "@/lib/types";
 import { isPromptFileList, isPromptImageList, MAX_PROMPT_ATTACHMENTS, type PromptFileInput } from "@/lib/prompt-images";
 import { jsonError } from "@/lib/pi/harness";
-import { isRoomConversationRequest, isRoomStopRequest, MAX_ROOM_CONVERSATION_PARTICIPANTS } from "@/lib/room-conversation";
+import { isRoomConversationRequest, isRoomStopRequest, MAX_ROOM_CONVERSATION_PARTICIPANTS, latestRoomRequest } from "@/lib/room-conversation";
 import { resolveRoomOpener, type RoomOpenerReason } from "@/lib/room-opener";
 import { cancelPendingRoomHandoffs, deliverReadyRoomHandoffs, runRoomBot, runRoomConversation, runRoomFanOut, settleRoomHandoffs, settleStaleRoomTurns, steerRoomTurns, stopRoomTurns } from "@/lib/room-runtime";
+import { cancelRoomCodeRequests } from "@/lib/pi/bot-code-relay";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
@@ -57,8 +58,15 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     // Recovery scan before the new request lands: resolve handoffs whose trigger was missed
     // (restart, crash) and let ready ones claim the floor first; a new user message can steer them.
     if (settleRoomHandoffs(id) > 0) void deliverReadyRoomHandoffs(id).catch(() => console.error("Room handoff delivery failed"));
+    const supersededRequestId = latestRoomRequest(getRoom(id) ?? room)?.id;
     const userMessage = appendRoomMessage(id, { role: "user", text: prompt });
     if (!userMessage) return NextResponse.json({ error: "Room not found" }, { status: 404 });
+    // A newer user turn supersedes prior Code outbox jobs (same finality as revert).
+    if (supersededRequestId) {
+      void cancelRoomCodeRequests(id, supersededRequestId).catch((error) =>
+        console.warn("[room-prompt] superseded Code cancel failed:", error instanceof Error ? error.message : String(error)),
+      );
+    }
     // ponytail: attachment files outlive a revert; the whole directory goes when the room is deleted.
     if (images.length > 0) {
       const saved = saveRoomImages(id, userMessage.id, images);

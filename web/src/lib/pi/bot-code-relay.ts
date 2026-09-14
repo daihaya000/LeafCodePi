@@ -778,9 +778,21 @@ export function createBotCodeRelay(deps: RelayDependencies) {
         await dispatchUserIntervention(request);
         return;
       }
+      // A newer Room user turn supersedes this outbox row even mid-run / mid-report.
+      if (request.room && !roomRequestIsCurrent(request)) {
+        const taskToStop = request.state === "queued" ? null : request.codeTaskId;
+        request.state = "cancelled";
+        save(request);
+        if (taskToStop) {
+          try { await deps.abort(taskToStop); }
+          catch (error) {
+            console.warn("[bot-code-relay] superseded Code task could not be stopped:", error instanceof Error ? error.message : String(error));
+          }
+        }
+        return;
+      }
       // Compatibility only: drain old approved records immediately, never queue new requests.
       if (request.state === "queued") {
-        if (!roomRequestIsCurrent(request)) { request.state = "cancelled"; save(request); return; }
         await launchRequest(request);
         return;
       }
@@ -813,6 +825,11 @@ export function createBotCodeRelay(deps: RelayDependencies) {
     await withBotCodeSessionLock(initial.botId, async () => {
       const request = read(id);
       if (!request || request.state !== "ready") return;
+      if (request.room && !roomRequestIsCurrent(request)) {
+        request.state = "cancelled";
+        save(request);
+        return;
+      }
       if (deps.isBusy(request.originTaskId) || (request.nextAttemptAt ?? 0) > Date.now()) return;
       request.nextAttemptAt = Date.now() + 30_000;
       save(request);

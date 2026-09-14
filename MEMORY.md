@@ -123,6 +123,14 @@
 ### 検証（Tick22–23）
 `accounts` / `rooms/prompt` / `room-runtime` — **113 passed**
 
+### Tick24–25（ループ継続）
+1. Room 新指示 — 旧 Code outbox を `cancelRoomCodeRequests`；relay は superseded を running/ready でも cancel+abort
+2. RoomView — 回答済み permission/question を cleared-id で stale SSE から復活させない
+3. GlobalAttention — question 応答にも busy / エラー処理
+
+### 検証（Tick24–25）
+`bot-code-relay` / `rooms/prompt` / `RoomView` / `GlobalAttention` / `room-runtime` — **213 passed**
+
 ---
 
 ## 2026-09-14: Stale production rebuild / next build exit 1

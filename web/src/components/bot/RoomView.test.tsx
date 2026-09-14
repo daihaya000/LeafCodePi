@@ -467,6 +467,18 @@ describe("RoomView delegated work", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "許可" }));
     expect(mocks.sendJson).toHaveBeenCalledWith(`/api/tasks/${encodeURIComponent(`bot:${bot.id}:room:${room.id}`)}/permission`, { requestId: permission.id, approved: true });
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(screen.queryByRole("alertdialog", { name: "Alphaの権限確認" })).toBeNull();
+
+    // A stale snapshot that still carries the answered permission must not revive the card.
+    act(() => pushSnapshot({
+      room: { ...room, messages: [...room.messages, { id: "reply-1", role: "assistant", botId: bot.id, text: "修正を依頼しました", status: "done", createdAt: 2, codeRequestId: "request", codeTaskId: "code-1", codeState: "running" }] },
+      attention: [{ botId: bot.id, taskId: `bot:${bot.id}:room:${room.id}`, permission, question: null }],
+    }));
+    expect(screen.queryByRole("alertdialog", { name: "Alphaの権限確認" })).toBeNull();
   });
 });
 

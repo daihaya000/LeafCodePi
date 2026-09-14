@@ -612,6 +612,52 @@ describe("GlobalAttentionProvider", () => {
     expect(document.body.textContent ?? "").toContain("許可に失敗しても質問を残す");
   });
 
+  it("keeps permission after a question response fails", async () => {
+    const permissionRequest = {
+      id: "req-after-question-fail",
+      sessionId: "sess-q-fail",
+      message: "質問失敗後も許可を残す",
+      command: "echo keep",
+      labels: [],
+    };
+    const questionRequest = {
+      id: "question-fail",
+      sessionId: "sess-q-fail",
+      questions: [{
+        question: "失敗する質問ですか？",
+        options: [{ label: "はい" }],
+        custom: false,
+      }],
+    };
+    mocks.sendJson.mockImplementation(async (path: string) => {
+      if (path.endsWith("/permission/advice")) return { advice: "" };
+      if (path.endsWith("/question")) throw new Error("question failed");
+      return {};
+    });
+    mocks.getJson.mockImplementation(async (path: string) => {
+      if (path === "/api/tasks") {
+        return { attention: [{ taskId: "task-a", title: "タスクA", kinds: ["permission", "question"] }] };
+      }
+      if (path === "/api/tasks/task-a") {
+        return { task: { ...taskDetail("task-a"), title: "タスクA", permissionRequest, questionRequest } };
+      }
+      throw new Error(`unexpected: ${path}`);
+    });
+    render(<GlobalAttentionProvider />);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+      await vi.advanceTimersByTimeAsync(0);
+    });
+
+    await act(async () => {
+      screen.getByRole("radio", { name: "はい" }).click();
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(screen.getByText("question failed")).toBeTruthy();
+    expect(document.body.textContent ?? "").toContain("質問失敗後も許可を残す");
+    expect(document.body.textContent ?? "").toContain("失敗する質問ですか？");
+  });
+
   it("hides the modal as soon as the user answers a permission", async () => {
     const permissionRequest = {
       id: "req-a",

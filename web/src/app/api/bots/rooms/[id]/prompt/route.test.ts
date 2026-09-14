@@ -13,12 +13,20 @@ const state = vi.hoisted(() => ({
   promptTask: vi.fn(),
   abortTask: vi.fn(),
   resolveRoomOpener: vi.fn(),
+  cancelRoomCodeRequests: vi.fn(async () => 0),
 }));
 vi.mock("@/lib/room-opener", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/room-opener")>();
   return {
     ...actual,
     resolveRoomOpener: (...args: unknown[]) => state.resolveRoomOpener(...args),
+  };
+});
+vi.mock("@/lib/pi/bot-code-relay", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/pi/bot-code-relay")>();
+  return {
+    ...actual,
+    cancelRoomCodeRequests: (...args: unknown[]) => state.cancelRoomCodeRequests(...args),
   };
 });
 vi.mock("@/lib/paths", async (importOriginal) => ({
@@ -79,6 +87,8 @@ function setup(names = ["A"]) {
 
 beforeEach(() => {
   state.root = mkdtempSync(join(tmpdir(), "leafcode-room-prompt-"));
+  state.cancelRoomCodeRequests.mockClear();
+  state.cancelRoomCodeRequests.mockResolvedValue(0);
   state.resolveRoomOpener.mockReset();
   state.resolveRoomOpener.mockImplementation(async ({ prompt, bots }: { prompt: string; bots: { id: string; name: string; enabled?: boolean; label?: string; soul?: string }[] }) => {
     const { matchRoomIntentBot } = await import("@/lib/room-conversation");
@@ -358,6 +368,17 @@ describe("room mention responses", () => {
       files: [expect.objectContaining({ name: "note.txt", mimeType: "text/plain" })],
     });
     expect(taskIds).toHaveLength(1);
+  });
+
+  it("cancels superseded Room Code requests when a newer user message arrives", async () => {
+    const { room, bots } = setup(["A"]);
+    const first = await send(room.id, "@A first");
+    expect(first.status).toBe(200);
+    const firstUserId = getRoom(room.id)!.messages.find((message) => message.role === "user")!.id;
+
+    await send(room.id, "@A second");
+    expect(state.cancelRoomCodeRequests).toHaveBeenCalledWith(room.id, firstUserId);
+    expect(bots[0].id).toBeTruthy();
   });
 
   it("still starts a turn for a bot that is not currently writing", async () => {

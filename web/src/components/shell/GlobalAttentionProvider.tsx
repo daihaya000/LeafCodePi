@@ -278,26 +278,34 @@ export function GlobalAttentionProvider() {
     answers: string[][],
     options?: { reject?: boolean },
   ) => {
-    await sendJson(`/api/tasks/${taskId}/question`, {
-      requestId: request.id,
-      ...(options?.reject ? { reject: true } : { answers }),
-    });
-    clearedQuestionIdsRef.current.add(request.id);
+    setResponseBusy(request.id);
+    setResponseError(null);
     try {
-      const data = await getJson<{ task: TaskDetail }>(`/api/tasks/${taskId}`);
-      setDetails((current) => ({
-        ...current,
-        [taskId]: applyFetchedAttentionDetail(
-          data.task,
-          clearedPermissionIdsRef.current,
-          clearedQuestionIdsRef.current,
-        ),
-      }));
-    } catch {
-      setDetails((current) => ({
-        ...current,
-        [taskId]: { ...current[taskId], questionRequest: null },
-      }));
+      await sendJson(`/api/tasks/${taskId}/question`, {
+        requestId: request.id,
+        ...(options?.reject ? { reject: true } : { answers }),
+      });
+      clearedQuestionIdsRef.current.add(request.id);
+      try {
+        const data = await getJson<{ task: TaskDetail }>(`/api/tasks/${taskId}`);
+        setDetails((current) => ({
+          ...current,
+          [taskId]: applyFetchedAttentionDetail(
+            data.task,
+            clearedPermissionIdsRef.current,
+            clearedQuestionIdsRef.current,
+          ),
+        }));
+      } catch {
+        setDetails((current) => ({
+          ...current,
+          [taskId]: { ...current[taskId], questionRequest: null },
+        }));
+      }
+    } catch (error) {
+      setResponseError(error instanceof Error ? error.message : "質問への回答に失敗しました");
+    } finally {
+      setResponseBusy(null);
     }
   };
 
