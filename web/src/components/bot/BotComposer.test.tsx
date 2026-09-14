@@ -51,14 +51,13 @@ it("does not consume Ctrl+Enter while a reference suggestion is open", () => {
   expect(onKeyDown.mock.calls[0]?.[0]).toMatchObject({ key: "Enter", ctrlKey: true });
 });
 
-it("keeps options out of the compact input row and preserves send/stop actions", () => {
+it("hides the options toggle and preserves send/stop actions", () => {
   const onSend = vi.fn();
   const onAbort = vi.fn();
   const props = { value: "Hello", onChange: vi.fn(), onKeyDown: vi.fn(), onSend, onAbort, placeholder: "Message", footer: <button>Model options</button> };
   const { getByRole, queryByRole, rerender } = render(<BotComposer {...props} />);
+  expect(queryByRole("button", { name: "会話のオプション" })).toBeNull();
   expect(queryByRole("button", { name: "Model options" })).toBeNull();
-  fireEvent.click(getByRole("button", { name: "会話のオプション" }));
-  expect(getByRole("button", { name: "Model options" })).toBeTruthy();
   fireEvent.click(getByRole("button", { name: "送信" }));
   expect(onSend).toHaveBeenCalledOnce();
   rerender(<BotComposer {...props} busy />);
