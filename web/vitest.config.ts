@@ -25,6 +25,10 @@ export default defineConfig({
     env: {
       NODE_ENV: "test",
       APPDATA: join(testDataRoot, "appdata"),
+      // Linux `dataDir()` ignores APPDATA and uses ~/.leafcode-pi unless this
+      // override is set. Keep the fallback inside tmpdir so assertTestSafe
+      // accepts it when a test forgets to isolate itself.
+      LEAFCODE_PI_DATA_DIR: join(testDataRoot, "data"),
       LEAFCODE_PI_DEFAULT_DIR: join(testDataRoot, "workspaces"),
     },
     setupFiles: ["./src/test-environment.ts"],

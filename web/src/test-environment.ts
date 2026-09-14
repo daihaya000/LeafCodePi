@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, vi } from "vitest";
 
-delete process.env.LEAFCODE_PI_DATA_DIR;
+// Keep LEAFCODE_PI_DATA_DIR from vitest.config.ts. Linux dataDir() ignores
+// APPDATA, so deleting the override sent tests at ~/.leafcode-pi and
+// assertTestSafe threw. Windows still uses APPDATA when the override is empty.
 const initialEnv = { ...process.env };
 
 function restoreEnv(): void {
