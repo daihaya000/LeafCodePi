@@ -288,4 +288,31 @@ describe("/api/settings/[key]", () => {
     );
     expect(invalid.status).toBe(400);
   });
+
+  it("normalizes and persists pinned task ids", async () => {
+    const response = await PUT(
+      request("sidebar-pinned-tasks", { value: JSON.stringify(["task-2", "task-1", "task-2"]) }),
+      { params: Promise.resolve({ key: "sidebar-pinned-tasks" }) },
+    );
+
+    expect(response.status).toBe(200);
+    expect(settings.setSetting).toHaveBeenCalledWith(
+      "sidebar-pinned-tasks",
+      JSON.stringify(["task-2", "task-1"]),
+    );
+  });
+
+  it.each([
+    JSON.stringify({ task: "task-1" }),
+    JSON.stringify(["task-1", 2]),
+    "not-json",
+  ])("rejects an invalid pinned task list: %s", async (value) => {
+    const response = await PUT(
+      request("sidebar-pinned-tasks", { value }),
+      { params: Promise.resolve({ key: "sidebar-pinned-tasks" }) },
+    );
+
+    expect(response.status).toBe(400);
+    expect(settings.setSetting).not.toHaveBeenCalled();
+  });
 });

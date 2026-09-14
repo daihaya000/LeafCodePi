@@ -754,6 +754,55 @@ describe("Sidebar project ordering", () => {
     expect(screen.queryByText("Bot task")).toBeNull();
   });
 
+  it("loads pinned sessions from the server and saves changes there", async () => {
+    const tasks = [{
+      id: "session-a",
+      projectId: null,
+      projectName: "プロジェクトなし",
+      title: "Pinned session",
+      directory: "C:\\work",
+      isolation: "current_folder" as const,
+      status: "idle" as const,
+      sessionId: "session-a",
+      sessionFile: null,
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    }];
+    mocks.getJson.mockImplementation((path: string) => {
+      if (path === "/api/projects?archived=1") return Promise.resolve({ projects: [] });
+      if (path === "/api/tasks?archived=1&kind=all") return Promise.resolve({ tasks });
+      if (path === "/api/settings/sidebar-pinned-tasks") {
+        return Promise.resolve({ value: JSON.stringify(["session-a"]) });
+      }
+      if (path === "/api/health") {
+        return Promise.resolve({
+          ok: true,
+          engine: "pi",
+          engineOk: true,
+          version: "1.0.0",
+          modelCount: 0,
+          dataDir: "C:\\data",
+          error: null,
+        });
+      }
+      return Promise.reject(new Error(`Unexpected request: ${path}`));
+    });
+
+    render(<Sidebar mobileOpen={false} onClose={vi.fn()} />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "プロジェクトなしを展開" }));
+    const pin = await screen.findByRole("button", { name: "「Pinned session」のピン留めを解除" });
+    expect(pin.getAttribute("aria-pressed")).toBe("true");
+    fireEvent.click(pin);
+
+    await waitFor(() => expect(mocks.sendJson).toHaveBeenCalledWith(
+      "/api/settings/sidebar-pinned-tasks",
+      { value: "[]" },
+      "PUT",
+    ));
+    expect(localStorage.getItem("webui.sidebar.pinned_tasks")).toBeNull();
+  });
+
   it("shows the no-project entry even before the first no-project task exists", async () => {
     mocks.getJson.mockImplementation((path: string) => {
       if (path === "/api/projects?archived=1") return Promise.resolve({ projects: [] });

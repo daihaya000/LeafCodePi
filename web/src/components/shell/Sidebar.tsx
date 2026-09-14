@@ -41,6 +41,7 @@ import {
 } from "@/lib/bot-sidebar-store";
 import { getLastReadAt, hasUnread } from "@/lib/bot-unread";
 import { HOME_TAB_ID, paneTabIdsForWorkingTasks, SETTINGS_TAB_ID, type TaskPanesAction } from "@/lib/task-panes";
+import { PINNED_TASKS_API_PATH, parsePinnedTaskIds, serializePinnedTaskIds } from "@/lib/sidebar-settings";
 import { NO_PROJECT_NAME, type BotDto, type HealthDto, type RoomDto, type ProjectDto, type TaskSummary } from "@/lib/types";
 
 type ProjectTaskMenuState = {
@@ -56,7 +57,8 @@ const WIDTH_KEY = "webui.sidebar.width";
 const COLLAPSED_KEY = "webui.sidebar.collapsed";
 const EXPANDED_KEY = "webui.sidebar.expanded";
 const PROJECT_ORDER_KEY = "webui.sidebar.project_order";
-const PINNED_TASKS_KEY = "webui.sidebar.pinned_tasks";
+/** 旧localStorage値の一度きりのサーバー移行にだけ使う。 */
+const LEGACY_PINNED_TASKS_KEY = "webui.sidebar.pinned_tasks";
 const ARCHIVED_EXPANDED_KEY = "webui.sidebar.archived_expanded";
 const ARCHIVED_PROJECTS_EXPANDED_KEY = "webui.sidebar.archived_projects_expanded";
 const DEFAULT_WIDTH = 240;
@@ -698,22 +700,19 @@ function saveExpanded(ids: Set<string>): void {
   }
 }
 
-function loadPinnedTaskIds(): Set<string> {
+function loadLegacyPinnedTaskIds(): Set<string> {
   try {
-    const raw = localStorage.getItem(PINNED_TASKS_KEY);
-    if (!raw) return new Set();
-    const parsed = JSON.parse(raw) as unknown;
-    return new Set(
-      Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === "string") : [],
-    );
+    const raw = localStorage.getItem(LEGACY_PINNED_TASKS_KEY);
+    const ids = parsePinnedTaskIds(raw);
+    return new Set(ids ?? []);
   } catch {
     return new Set();
   }
 }
 
-function savePinnedTaskIds(ids: Set<string>): void {
+function clearLegacyPinnedTaskIds(): void {
   try {
-    localStorage.setItem(PINNED_TASKS_KEY, JSON.stringify([...ids]));
+    localStorage.removeItem(LEGACY_PINNED_TASKS_KEY);
   } catch {
     /* ignore */
   }
@@ -914,7 +913,11 @@ const SidebarView = memo(function SidebarView({
   );
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [projectOrder, setProjectOrder] = useState<string[]>(() => loadProjectOrder());
-  const [pinnedTaskIds, setPinnedTaskIds] = useState<Set<string>>(() => loadPinnedTaskIds());
+  const [pinnedTaskIds, setPinnedTaskIds] = useState<Set<string>>(new Set());
+  const pinnedTaskIdsRef = useRef(new Set<string>());
+  const pinnedPendingTogglesRef = useRef<string[]>([]);
+  const pinnedLoadedRef = useRef(false);
+  const pinnedWriteQueueRef = useRef<Promise<unknown>>(Promise.resolve());
   const [archivedExpanded, setArchivedExpanded] = useState(false);
   const [archivedProjectsExpanded, setArchivedProjectsExpanded] = useState(false);
   const [draggedProjectId, setDraggedProjectId] = useState<string | null>(null);
@@ -993,6 +996,16 @@ const SidebarView = memo(function SidebarView({
     }
   }, [mode]);
 
+  const persistPinnedTaskIds = useCallback((ids: ReadonlySet<string>): Promise<unknown> => {
+    const request = pinnedWriteQueueRef.current
+      .catch(() => undefined)
+      .then(() => sendJson(PINNED_TASKS_API_PATH, { value: serializePinnedTaskIds(ids) }, "PUT"));
+    pinnedWriteQueueRef.current = request.catch((error) => {
+      setActionError(error instanceof Error && error.message ? error.message : "ピン留めの保存に失敗しました");
+    });
+    return request;
+  }, []);
+
   const workingTaskIds = useMemo(
     () => paneTabIdsForWorkingTasks(
       tasksForSidebar(tasks.filter((task) => task.status === "working"), pinnedTaskIds),
@@ -1026,6 +1039,59 @@ const SidebarView = memo(function SidebarView({
       window.removeEventListener("webui:tasks-changed", onChange);
     };
   }, [paneMdUp, refresh, pathname]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const legacyIds = loadLegacyPinnedTaskIds();
+    if (legacyIds.size > 0) {
+      pinnedTaskIdsRef.current = legacyIds;
+      setPinnedTaskIds(legacyIds);
+    }
+
+    void getJson<{ value?: string | null }>(PINNED_TASKS_API_PATH)
+      .then((data) => {
+        if (cancelled) return;
+        const raw = data?.value;
+        const serverIds = raw === null || raw === undefined ? null : parsePinnedTaskIds(raw);
+        // 設定ファイルが壊れている場合は、既存値を推測で上書きしない。
+        if (typeof raw === "string" && serverIds === null) {
+          pinnedLoadedRef.current = true;
+          return;
+        }
+
+        const pendingToggles = pinnedPendingTogglesRef.current;
+        const next = new Set(serverIds ?? legacyIds);
+        for (const taskId of pendingToggles) {
+          if (next.has(taskId)) next.delete(taskId);
+          else next.add(taskId);
+        }
+        pinnedPendingTogglesRef.current = [];
+        pinnedLoadedRef.current = true;
+        pinnedTaskIdsRef.current = next;
+        setPinnedTaskIds(next);
+
+        if (typeof raw !== "string") {
+          if (legacyIds.size > 0 || pendingToggles.length > 0) {
+            void persistPinnedTaskIds(next)
+              .then(clearLegacyPinnedTaskIds)
+              .catch(() => undefined);
+          }
+        } else {
+          clearLegacyPinnedTaskIds();
+          if (pendingToggles.length > 0) {
+            void persistPinnedTaskIds(next).catch(() => undefined);
+          }
+        }
+      })
+      .catch(() => {
+        // サーバーに接続できない場合も、現在のUI状態は維持する。
+        if (!cancelled) pinnedLoadedRef.current = true;
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [persistPinnedTaskIds]);
 
   const changeMode = useCallback((next: AppMode) => {
     setMode(next);
@@ -1259,13 +1325,13 @@ const SidebarView = memo(function SidebarView({
   }
 
   function togglePinned(taskId: string) {
-    setPinnedTaskIds((current) => {
-      const next = new Set(current);
-      if (next.has(taskId)) next.delete(taskId);
-      else next.add(taskId);
-      savePinnedTaskIds(next);
-      return next;
-    });
+    const next = new Set(pinnedTaskIdsRef.current);
+    if (next.has(taskId)) next.delete(taskId);
+    else next.add(taskId);
+    pinnedTaskIdsRef.current = next;
+    if (!pinnedLoadedRef.current) pinnedPendingTogglesRef.current.push(taskId);
+    setPinnedTaskIds(next);
+    if (pinnedLoadedRef.current) void persistPinnedTaskIds(next).catch(() => undefined);
   }
 
   const reorderProjects = useCallback(

@@ -11,11 +11,12 @@ import { dirname, join } from "node:path";
 import { dataDir } from "@/lib/paths";
 
 /**
- * 文字列設定の永続バックアップ（本家 LeafCode の settings 表相当）。
- * hang-settings.ts と同じ web-settings.json を共有し、read/write もここへ集約する
+ * 文字列設定の永続保存（本家 LeafCode の settings 表相当）。
+ * localStorage 同期を使う設定のバックアップだけでなく、サーバーを正本とする設定も
+ * hang-settings.ts と同じ web-settings.json を共有し、read/write もここへ集約する。
  * （旧: hang-settings.ts が同じファイルを別実装で読み書きしており、開発サーバの
  * 再起動やクラッシュで書き込み途中のファイルが読まれて設定が丸ごと消える障害があった）。
- * localStorage が同期読み取りの正本で、ここは永続バックアップ。
+ * setting-sync を使う設定では localStorage が同期読み取りの正本で、ここは永続バックアップ。
  */
 export type WebSettingsFile = {
   version: 1;

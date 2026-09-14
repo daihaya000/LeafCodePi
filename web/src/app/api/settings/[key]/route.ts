@@ -32,6 +32,7 @@ import {
   normalizeAutoRouteConfig,
 } from "@/lib/auto-model";
 import { BOT_DEFAULT_PERMISSION_KEY, BOT_DEFAULT_THINKING_KEY, BOT_DEFAULT_PERMISSION_VALUES, BOT_DEFAULT_THINKING_VALUES } from "@/lib/bot-settings";
+import { PINNED_TASKS_SETTING_KEY, parsePinnedTaskIds } from "@/lib/sidebar-settings";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -54,6 +55,7 @@ const ALLOWED_KEYS = new Set<string>([
   COMPACTION_THRESHOLD_SETTING_KEY,
   TITLE_AUTO_UPDATE_FREQUENCY_SETTING_KEY,
   TITLE_AUTO_UPDATE_ENABLED_SETTING_KEY,
+  PINNED_TASKS_SETTING_KEY,
 ]);
 
 function normalizedGenerationModelValue(value: string): string | null {
@@ -85,6 +87,10 @@ function validateValue(key: string, value: string): string | null {
   }
   if (key === "auto-agent-prompt") {
     return value.trim() ? value : null;
+  }
+  if (key === PINNED_TASKS_SETTING_KEY) {
+    const ids = parsePinnedTaskIds(value);
+    return ids === null ? null : JSON.stringify(ids);
   }
   if (key === COMPACTION_ACTION_SETTING_KEY) {
     return value === "suggest" || value === "auto" || value === "off" ? value : null;
