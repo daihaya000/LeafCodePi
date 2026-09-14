@@ -2598,6 +2598,19 @@ export function sessionToolNames(input: {
   ])];
 }
 
+function sessionExtensionsOverride(
+  bundled: { names: ReadonlySet<string>; paths: ReadonlySet<string> },
+): NonNullable<ResourceLoaderOptions["extensionsOverride"]> {
+  return (base) => ({
+    ...base,
+    extensions: filterExtensionsByState(
+      base.extensions.filter((extension) =>
+        keepsLoadedExtension(extension.path, bundled),
+      ),
+    ),
+  });
+}
+
 function sessionSkillsOverride(input: {
   noSkills: boolean | undefined;
   skillPermissionRef: { current: SkillPermission };
@@ -2818,14 +2831,7 @@ async function createSession(options: {
       skillScope: options.skillScope,
       botSkills: options.botSkills,
     }),
-    extensionsOverride: (base) => ({
-      ...base,
-      extensions: filterExtensionsByState(
-        base.extensions.filter((extension) =>
-          keepsLoadedExtension(extension.path, bundledIndex),
-        ),
-      ),
-    }),
+    extensionsOverride: sessionExtensionsOverride(bundledIndex),
     ...(agentOptions?.systemPrompt
       ? { systemPrompt: agentOptions.systemPrompt }
       : {}),
