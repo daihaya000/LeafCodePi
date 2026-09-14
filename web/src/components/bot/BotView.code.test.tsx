@@ -937,6 +937,56 @@ it("pauses Code request polling while the Bot tab is hidden", async () => {
   await waitFor(() => expect(mocks.getJson).toHaveBeenCalledWith("/api/bots/one/code-requests"));
 });
 
+it("follows the Bot viewport when a Code request card arrives asynchronously", async () => {
+  const request = { id: "request-1", codeTaskId: null, state: "running" as const, prompt: "first" };
+  let resolveRequests!: (value: { requests: Array<typeof request> }) => void;
+  const requestResponse = new Promise<{ requests: Array<typeof request> }>((resolve) => { resolveRequests = resolve; });
+  const resizeCallbacks: (() => void)[] = [];
+  vi.stubGlobal("ResizeObserver", class {
+    constructor(callback: () => void) { resizeCallbacks.push(callback); }
+    observe() {}
+    disconnect() {}
+  });
+  mocks.getJson.mockImplementation(async (url: string) => {
+    if (url.endsWith("/code-requests")) return requestResponse;
+    if (url === "/api/models") return { models: [] };
+    if (url.endsWith("/routines")) return { routines: [] };
+    return { bot: testBot };
+  });
+
+  render(<ShellProvider><BotView id="one" active /></ShellProvider>);
+  await screen.findByRole("button", { name: "設定" });
+  const viewport = screen.getByRole("main");
+  let contentHeight = 1_000;
+  Object.defineProperties(viewport, {
+    scrollHeight: { configurable: true, get: () => contentHeight },
+    clientHeight: { configurable: true, value: 200 },
+    scrollTop: { configurable: true, writable: true, value: 0 },
+  });
+  snapshot({ messages: [{
+    id: "bot-1",
+    role: "assistant",
+    createdAt: 2,
+    parts: [{ type: "tool", tool: "code_session", callID: "call-1", state: { status: "completed", output: JSON.stringify({ requestId: request.id }) } }],
+  }] });
+  expect(viewport.scrollTop).toBe(1_000);
+
+  contentHeight = 1_300;
+  await act(async () => {
+    resolveRequests({ requests: [request] });
+    await requestResponse;
+  });
+  expect(await screen.findByText("Code依頼")).toBeTruthy();
+  resizeCallbacks.forEach((callback) => callback());
+  expect(viewport.scrollTop).toBe(1_300);
+
+  viewport.scrollTop = 700;
+  fireEvent.scroll(viewport);
+  contentHeight = 1_500;
+  resizeCallbacks.forEach((callback) => callback());
+  expect(viewport.scrollTop).toBe(700);
+});
+
 it("shares Code request polling across multiple cards for one Bot", async () => {
   const requests = [
     { id: "request-1", codeTaskId: null, state: "running" as const, prompt: "first" },
