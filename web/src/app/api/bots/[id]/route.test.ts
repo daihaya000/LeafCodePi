@@ -299,14 +299,19 @@ describe("DELETE /api/bots/[id]", () => {
     expect(mocks.stopBotCodeTask).toHaveBeenCalledWith("one", "code-loop");
   });
 
-  it("destroys bot tasks, deletes the bot, and returns ok", async () => {
-    mocks.listTasks.mockReturnValue([{ id: "bot-task", botId: "one" }] as never);
+  it("destroys bot and Code tasks, deletes the bot, and returns ok", async () => {
+    mocks.listTasks.mockReturnValue([
+      { id: "bot-task", botId: "one", kind: "bot" },
+      { id: "code-task", botId: "one", kind: "code" },
+    ] as never);
     mocks.deleteBot.mockReturnValue(true);
     const response = await DELETE(emptyRequest(), params("one"));
     expect(response.status).toBe(200);
     expect((await response.json()).ok).toBe(true);
     expect(mocks.stopAllCodeSessionsForBot).toHaveBeenCalledWith("one");
+    expect(mocks.listTasks).toHaveBeenCalledWith(true, "all");
     expect(mocks.destroyTask).toHaveBeenCalledWith("bot-task");
+    expect(mocks.destroyTask).toHaveBeenCalledWith("code-task");
   });
 
   it("removes the deleted Bot from every Room it was a member of", async () => {

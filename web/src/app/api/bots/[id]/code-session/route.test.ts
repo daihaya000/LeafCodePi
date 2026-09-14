@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
   continueBotCodeTask: vi.fn(),
   stopBotCodeTask: vi.fn(),
   abortTask: vi.fn(),
+  abortTaskIncludingColdGoalLoop: vi.fn(),
   getTaskSummariesWithTodoProgress: vi.fn(),
   goalLoopCommand: vi.fn(),
   promptTask: vi.fn(),
@@ -41,6 +42,7 @@ vi.mock("@/lib/pi/harness", () => ({
   continueBotCodeTask: mocks.continueBotCodeTask,
   stopBotCodeTask: mocks.stopBotCodeTask,
   abortTask: mocks.abortTask,
+  abortTaskIncludingColdGoalLoop: mocks.abortTaskIncludingColdGoalLoop,
   getTaskSummariesWithTodoProgress: mocks.getTaskSummariesWithTodoProgress,
   goalLoopCommand: mocks.goalLoopCommand,
   promptTask: mocks.promptTask,
@@ -261,18 +263,18 @@ describe("Bot Code session control", () => {
     expect(mocks.patchBot).toHaveBeenCalledWith("bot-1", { codeSessionTaskId: null });
   });
 
-  it("falls back to abortTask when stopBotCodeTask fails on unlink", async () => {
+  it("falls back to abortTaskIncludingColdGoalLoop when stopBotCodeTask fails on unlink", async () => {
     mocks.getBot.mockReturnValue({ ...bot, codeSessionTaskId: "code-1" });
     mocks.getTask.mockReturnValue({ id: "code-1", status: "working", botId: "bot-1", kind: "code" });
     mocks.stopBotCodeTask.mockRejectedValueOnce(new Error("stop failed"));
-    mocks.abortTask.mockResolvedValueOnce({ id: "code-1", status: "idle" });
+    mocks.abortTaskIncludingColdGoalLoop.mockResolvedValueOnce({ id: "code-1", status: "idle" });
 
     const response = await PATCH(request("PATCH", { action: "unlink" }), {
       params: Promise.resolve({ id: "bot-1" }),
     });
 
     expect(response.status).toBe(200);
-    expect(mocks.abortTask).toHaveBeenCalledWith("code-1");
+    expect(mocks.abortTaskIncludingColdGoalLoop).toHaveBeenCalledWith("code-1");
     expect(mocks.patchBot).toHaveBeenCalledWith("bot-1", { codeSessionTaskId: null });
   });
 

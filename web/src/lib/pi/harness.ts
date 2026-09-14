@@ -845,18 +845,28 @@ async function ensureRuntime(
         if (hasActiveTaskLease(taskId) && !ownsTaskLease(taskId)) return;
         const task = getTask(taskId);
         if (!task || task.status !== "working") return;
-        const updated = setTaskStatus(taskId, "error", reason);
-        if (!updated) return;
-        emit(taskId, {
-          type: "snapshot",
-          task: toSummary(updated),
-          isStreaming: false,
-          isCompacting: false,
-          permissionRequest: null,
-          questionRequest: null,
-          eventType: "missing_live_session",
-          error: reason,
-        });
+        // Stop cold Goal Loop / leftover work before marking error — otherwise disk loop stays live.
+        void abortTaskIncludingColdGoalLoop(taskId)
+          .catch((error) => {
+            console.warn(
+              `[hang-watchdog] failed to stop missing-live task ${taskId}:`,
+              error instanceof Error ? error.message : String(error),
+            );
+          })
+          .finally(() => {
+            const updated = setTaskStatus(taskId, "error", reason);
+            if (!updated) return;
+            emit(taskId, {
+              type: "snapshot",
+              task: toSummary(updated),
+              isStreaming: false,
+              isCompacting: false,
+              permissionRequest: null,
+              questionRequest: null,
+              eventType: "missing_live_session",
+              error: reason,
+            });
+          });
       },
     });
     startHangWatchdog();

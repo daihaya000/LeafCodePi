@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { abortTask, jsonError } from "@/lib/pi/harness";
+import { abortTaskIncludingColdGoalLoop, jsonError } from "@/lib/pi/harness";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -10,7 +10,9 @@ export async function POST(
 ) {
   try {
     const { id } = await params;
-    return NextResponse.json({ task: await abortTask(id) });
+    const task = await abortTaskIncludingColdGoalLoop(id);
+    if (!task) return NextResponse.json({ error: "タスクが見つかりません" }, { status: 404 });
+    return NextResponse.json({ task });
   } catch (error) {
     const { error: message, status } = jsonError(error);
     return NextResponse.json({ error: message }, { status });
