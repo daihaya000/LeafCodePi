@@ -17,6 +17,68 @@ type DragState =
   | { kind: "provider"; rowKey: string }
   | { kind: "model"; rowKey: string; id: string };
 
+type ResetCreditDto = {
+  expiresAt: string | null;
+};
+
+type ResetCreditsListResponse = {
+  credits?: ResetCreditDto[];
+};
+
+const RESET_CREDIT_DAY_MS = 24 * 60 * 60 * 1000;
+
+function earliestResetExpiry(
+  credits: readonly ResetCreditDto[],
+): string | null {
+  let earliest: { expiresAt: string; timestamp: number } | null = null;
+  for (const credit of credits) {
+    if (!credit.expiresAt) continue;
+    const timestamp = Date.parse(credit.expiresAt);
+    if (!Number.isFinite(timestamp)) continue;
+    if (!earliest || timestamp < earliest.timestamp) {
+      earliest = { expiresAt: credit.expiresAt, timestamp };
+    }
+  }
+  return earliest?.expiresAt ?? null;
+}
+
+function formatResetCreditRemainingDays(expiresAt: string | null): string | null {
+  if (!expiresAt) return null;
+  const remainingDays = Math.ceil(
+    (Date.parse(expiresAt) - Date.now()) / RESET_CREDIT_DAY_MS,
+  );
+  if (!Number.isFinite(remainingDays)) return null;
+  return remainingDays > 0
+    ? `最短期限まであと${remainingDays}日`
+    : "最短期限が切れています";
+}
+
+function ResetCreditExpiry({ accountId }: { accountId?: string }) {
+  const [expiresAt, setExpiresAt] = useState<string | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    void getJson<ResetCreditsListResponse>(
+      "/api/codexbar/reset-credits",
+      accountId ? { accountId } : undefined,
+    )
+      .then((result) => {
+        if (active) setExpiresAt(earliestResetExpiry(result.credits ?? []));
+      })
+      .catch(() => {
+        if (active) setExpiresAt(null);
+      });
+    return () => {
+      active = false;
+    };
+  }, [accountId]);
+
+  const remainingDays = formatResetCreditRemainingDays(expiresAt);
+  return remainingDays ? (
+    <p className="mt-1 text-[11px] text-muted">リセット権: {remainingDays}</p>
+  ) : null;
+}
+
 function providerRowKey(provider: ProviderModelsRow): string {
   return provider.accountId ? `${provider.accountId}::${provider.id}` : provider.id;
 }
@@ -177,6 +239,9 @@ function ProviderRow({
               {provider.enabled ? "有効" : "無効"}
             </Badge>
           </div>
+          {provider.id === "openai-codex" && (
+            <ResetCreditExpiry accountId={provider.accountId} />
+          )}
         </div>
         <Switch
           checked={provider.enabled}

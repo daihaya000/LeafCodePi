@@ -99,6 +99,34 @@ describe("ProviderModelsPanel account model settings", () => {
     expect(screen.queryByRole("spinbutton", { name: "Llama 3 のコンテキストサイズ" })).toBeNull();
   });
 
+  it("shows the nearest Codex reset credit expiry", async () => {
+    const dayMs = 24 * 60 * 60 * 1000;
+    const soon = new Date(Date.now() + 2 * dayMs).toISOString();
+    const later = new Date(Date.now() + 10 * dayMs).toISOString();
+    fetchMock.mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = new URL(String(input), "http://localhost");
+      const method = (init?.method ?? "GET").toUpperCase();
+      if (url.pathname === "/api/provider-models" && method === "GET") {
+        return Promise.resolve(jsonResponse({ providers }));
+      }
+      if (url.pathname === "/api/codexbar/reset-credits" && method === "GET") {
+        return Promise.resolve(
+          jsonResponse({
+            credits:
+              url.searchParams.get("accountId") === "acc-1"
+                ? [{ expiresAt: later }, { expiresAt: soon }]
+                : [],
+          }),
+        );
+      }
+      return Promise.resolve(jsonResponse({}));
+    });
+
+    render(<ProviderModelsPanel />);
+
+    expect(await screen.findByText("リセット権: 最短期限まであと2日")).toBeTruthy();
+  });
+
   it("refreshes the catalog without losing expanded state", async () => {
     const { rerender } = render(<ProviderModelsPanel refreshToken={0} />);
     await screen.findByRole("button", {
