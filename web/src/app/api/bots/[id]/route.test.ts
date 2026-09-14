@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   normalizeBotSkills: vi.fn((value: unknown) => value),
   setTaskModel: vi.fn(),
   setTaskThinkingLevel: vi.fn(),
+  setTaskPermissionMode: vi.fn(),
   setBotTools: vi.fn(),
   resetTaskConversation: vi.fn(),
   requestBotSoulReload: vi.fn(),
@@ -16,6 +17,8 @@ const mocks = vi.hoisted(() => ({
   listTasks: vi.fn(() => []),
   listRooms: vi.fn(() => [] as { id: string; members: string[] }[]),
   patchRoom: vi.fn(),
+  detachBotFromRoomRuntime: vi.fn(async () => undefined),
+  cancelAllCodeRequestsForBot: vi.fn(async () => 0),
 }));
 vi.mock("@/lib/bots", () => ({
   getBot: mocks.getBot,
@@ -28,6 +31,7 @@ vi.mock("@/lib/bots", () => ({
 vi.mock("@/lib/pi/harness", () => ({
   setTaskModel: mocks.setTaskModel,
   setTaskThinkingLevel: mocks.setTaskThinkingLevel,
+  setTaskPermissionMode: mocks.setTaskPermissionMode,
   setBotTools: mocks.setBotTools,
   resetTaskConversation: mocks.resetTaskConversation,
   requestBotSoulReload: mocks.requestBotSoulReload,
@@ -36,6 +40,8 @@ vi.mock("@/lib/pi/harness", () => ({
 }));
 vi.mock("@/lib/store", () => ({ listTasks: mocks.listTasks }));
 vi.mock("@/lib/rooms", () => ({ listRooms: mocks.listRooms, patchRoom: mocks.patchRoom }));
+vi.mock("@/lib/room-runtime", () => ({ detachBotFromRoomRuntime: mocks.detachBotFromRoomRuntime }));
+vi.mock("@/lib/pi/bot-code-relay", () => ({ cancelAllCodeRequestsForBot: mocks.cancelAllCodeRequestsForBot }));
 
 import { NextRequest } from "next/server";
 import { beforeEach } from "vitest";
@@ -225,6 +231,16 @@ describe("PATCH /api/bots/[id]", () => {
       expect.objectContaining({ model: "provider::model", thinkingLevel: "high" }),
     );
   });
+
+  it("applies permissionMode through the live-session path", async () => {
+    mocks.getBot.mockReturnValue(bot());
+    mocks.setTaskPermissionMode.mockResolvedValue({ permissionMode: "ask" });
+    mocks.patchBot.mockReturnValue({ ...bot(), permissionMode: "ask" });
+    const response = await PATCH(jsonRequest({ permissionMode: "ask" }), params("one"));
+    expect(response.status).toBe(200);
+    expect(mocks.setTaskPermissionMode).toHaveBeenCalledWith("bot:one", "ask");
+    expect(mocks.patchBot).toHaveBeenCalledWith("one", expect.objectContaining({ permissionMode: "ask" }));
+  });
 });
 
 describe("DELETE /api/bots/[id]", () => {
@@ -234,6 +250,7 @@ describe("DELETE /api/bots/[id]", () => {
     const response = await DELETE(emptyRequest(), params("one"));
     expect(response.status).toBe(200);
     expect((await response.json()).ok).toBe(true);
+    expect(mocks.cancelAllCodeRequestsForBot).toHaveBeenCalledWith("one");
     expect(mocks.destroyTask).toHaveBeenCalledWith("bot-task");
   });
 
@@ -247,6 +264,8 @@ describe("DELETE /api/bots/[id]", () => {
     const response = await DELETE(emptyRequest(), params("one"));
 
     expect(response.status).toBe(200);
+    expect(mocks.detachBotFromRoomRuntime).toHaveBeenCalledWith("room-a", "one");
+    expect(mocks.detachBotFromRoomRuntime).not.toHaveBeenCalledWith("room-b", "one");
     expect(mocks.patchRoom).toHaveBeenCalledTimes(1);
     expect(mocks.patchRoom).toHaveBeenCalledWith("room-a", { members: ["two"] });
   });

@@ -283,6 +283,25 @@ describe("Bot ⇄ Code relay", () => {
     expect(store.abortTask).not.toHaveBeenCalledWith("code-room-1");
   });
 
+  it("cancels every Code origin for a deleted Bot, including Room jobs", async () => {
+    await launch();
+    roomSetup();
+    let next = 0;
+    vi.mocked(deps.create).mockImplementation(async (input) => {
+      const code = task(`code-room-${(next += 1)}`, { status: "working" });
+      store.tasks.set(code.id, code);
+      input.beforePrompt(code);
+      return code;
+    });
+    await roomLaunch();
+    const { cancelAllCodeRequestsForBot } = await import("./bot-code-relay");
+
+    expect(await cancelAllCodeRequestsForBot("one")).toBe(2);
+    expect(records().every((request) => request.state === "cancelled")).toBe(true);
+    expect(store.abortTask).toHaveBeenCalledWith("code");
+    expect(store.abortTask).toHaveBeenCalledWith("code-room-1");
+  });
+
   it("does not abort the predecessor for a queued Room prompt", async () => {
     roomSetup();
     await roomLaunch();

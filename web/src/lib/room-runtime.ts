@@ -186,6 +186,19 @@ export async function stopRoomTurns(roomId: string): Promise<number> {
   return results.filter((result) => result.status === "fulfilled").length;
 }
 
+/** Abort only one member's in-flight Room turn (member leave / Bot delete). */
+export async function stopRoomMemberTurns(roomId: string, botId: string): Promise<number> {
+  const turns = workingTurns(roomId).filter((entry) => entry.botId === botId);
+  for (const entry of turns) {
+    updateRoomMessage(roomId, entry.messageId, {
+      text: "Bot is no longer active in this room.",
+      status: "error",
+    });
+  }
+  const results = await Promise.allSettled(turns.map((entry) => abortTask(entry.taskId)));
+  return results.filter((result) => result.status === "fulfilled").length;
+}
+
 /**
  * A new instruction redirects the turn already being written instead of queuing behind it.
  * The steered bots answer once, so the caller must not start a second turn for them.
@@ -583,6 +596,32 @@ export function cancelPendingRoomHandoffs(roomId: string): number {
     : handoff));
   mirrorHandoffs(roomId);
   return pending.length;
+}
+
+/** Cancel waiting/ready handoffs that involve a leaving Bot as sender or recipient. */
+export function cancelPendingRoomHandoffsForBot(roomId: string, botId: string): number {
+  const room = getRoom(roomId);
+  const pending = (room?.handoffs ?? []).filter((handoff) =>
+    (handoff.state === "waiting" || handoff.state === "ready") &&
+    (handoff.toBotId === botId || handoff.fromBotId === botId),
+  );
+  if (pending.length === 0) return 0;
+  updateRoomHandoffs(roomId, (handoffs) => handoffs.map((handoff) => pending.some((item) => item.id === handoff.id)
+    ? { ...handoff, state: "cancelled", reason: "Botがルームから外れたため実行しません", updatedAt: Date.now() }
+    : handoff));
+  mirrorHandoffs(roomId);
+  return pending.length;
+}
+
+/**
+ * Stop a Bot's Room work before membership is removed (leave / Bot delete).
+ * Does not cancel other members' turns or Code jobs.
+ */
+export async function detachBotFromRoomRuntime(roomId: string, botId: string): Promise<void> {
+  await stopRoomMemberTurns(roomId, botId);
+  cancelPendingRoomHandoffsForBot(roomId, botId);
+  const { cancelRoomCodeRequestsForBot } = await import("@/lib/pi/bot-code-relay");
+  await cancelRoomCodeRequestsForBot(roomId, botId);
 }
 
 /** Deliver every ready handoff of this room, one at a time; claims under the room lock prevent double runs. */

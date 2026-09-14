@@ -10,6 +10,7 @@ const state = vi.hoisted(() => ({
   stopRoomTurns: vi.fn(async () => 0),
   cancelPendingRoomHandoffs: vi.fn(() => 0),
   cancelAllRoomCodeRequests: vi.fn(async () => 0),
+  detachBotFromRoomRuntime: vi.fn(async () => undefined),
 }));
 vi.mock("@/lib/pi/harness", () => ({
   destroyTask: state.destroyTask,
@@ -18,6 +19,7 @@ vi.mock("@/lib/pi/harness", () => ({
 vi.mock("@/lib/room-runtime", () => ({
   stopRoomTurns: state.stopRoomTurns,
   cancelPendingRoomHandoffs: state.cancelPendingRoomHandoffs,
+  detachBotFromRoomRuntime: state.detachBotFromRoomRuntime,
 }));
 vi.mock("@/lib/pi/bot-code-relay", () => ({
   cancelAllRoomCodeRequests: state.cancelAllRoomCodeRequests,
@@ -42,6 +44,7 @@ describe("DELETE /api/bots/rooms/[id]", () => {
     state.stopRoomTurns.mockClear();
     state.cancelPendingRoomHandoffs.mockClear();
     state.cancelAllRoomCodeRequests.mockClear();
+    state.detachBotFromRoomRuntime.mockClear();
     vi.unstubAllEnvs();
     rmSync(root, { recursive: true, force: true });
   });
@@ -101,5 +104,24 @@ describe("PATCH /api/bots/rooms/[id] resetMessages", () => {
     expect(state.cancelAllRoomCodeRequests).toHaveBeenCalledWith(room.id);
     expect(state.resetTaskConversation).toHaveBeenCalledWith(taskId);
     expect(getRoom(room.id)?.messages).toEqual([]);
+  });
+
+  it("detaches removed members before patching membership", async () => {
+    const alpha = createBot({ name: "Alpha" });
+    const beta = createBot({ name: "Beta" });
+    const room = createRoom({ members: [alpha.id, beta.id] });
+
+    const response = await PATCH(
+      new NextRequest("http://localhost", {
+        method: "PATCH",
+        body: JSON.stringify({ members: [alpha.id] }),
+      }),
+      { params: Promise.resolve({ id: room.id }) },
+    );
+
+    expect(response.status).toBe(200);
+    expect(state.detachBotFromRoomRuntime).toHaveBeenCalledWith(room.id, beta.id);
+    expect(state.detachBotFromRoomRuntime).not.toHaveBeenCalledWith(room.id, alpha.id);
+    expect(getRoom(room.id)?.members).toEqual([alpha.id]);
   });
 });

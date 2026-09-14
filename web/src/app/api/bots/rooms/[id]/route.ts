@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { deleteRoom, getRoom, patchRoom, roomBotTaskId } from "@/lib/rooms";
 import { destroyTask, resetTaskConversation } from "@/lib/pi/harness";
 import { cancelAllRoomCodeRequests } from "@/lib/pi/bot-code-relay";
-import { cancelPendingRoomHandoffs, stopRoomTurns } from "@/lib/room-runtime";
+import { cancelPendingRoomHandoffs, detachBotFromRoomRuntime, stopRoomTurns } from "@/lib/room-runtime";
 import { getTask, listTasks } from "@/lib/store";
 import { isWebUiRequestAuthorized } from "@/lib/webui-auth";
 export const runtime = "nodejs";
@@ -30,6 +30,10 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       const taskId = roomBotTaskId(id, memberId);
       if (getTask(taskId)) await resetTaskConversation(taskId);
     }
+  } else if (body.members !== undefined) {
+    const nextMembers = body.members as string[];
+    const removed = existing.members.filter((memberId) => !nextMembers.includes(memberId));
+    for (const botId of removed) await detachBotFromRoomRuntime(id, botId);
   }
   const room = patchRoom(id, { ...(body.name !== undefined ? { name: body.name } : {}), ...(body.members !== undefined ? { members: body.members as string[] } : {}), ...(body.botRelayEnabled !== undefined ? { botRelayEnabled: body.botRelayEnabled } : {}), ...(body.codeAutoApprove !== undefined ? { codeAutoApprove: body.codeAutoApprove } : {}), ...(body.resetMessages !== undefined ? { resetMessages: body.resetMessages } : {}) });
   return room ? NextResponse.json({ room }) : NextResponse.json({ error: "\u30eb\u30fc\u30e0\u304c\u898b\u3064\u304b\u308a\u307e\u305b\u3093" }, { status: 404 });

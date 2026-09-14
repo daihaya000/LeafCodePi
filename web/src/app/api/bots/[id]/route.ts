@@ -1,12 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { BOT_TOOL_NAMES, deleteBot, getBot, normalizeBotSkills, patchBot, botTaskId } from "@/lib/bots";
-import { destroyTask, requestBotSoulReload, resetTaskConversation, setBotTools, setTaskModel, setTaskThinkingLevel } from "@/lib/pi/harness";
+import { destroyTask, requestBotSoulReload, resetTaskConversation, setBotTools, setTaskModel, setTaskPermissionMode, setTaskThinkingLevel } from "@/lib/pi/harness";
 import { validateBotSoulContent } from "@/lib/pi/bot-soul-tool";
 import { isThinkingLevel } from "@/lib/thinking-levels";
 import { isAvatarColor, isAvatarEyeColor, isAvatarImage, isAvatarShape } from "@/lib/bot-avatar";
 import { isAbsolutePath } from "@/lib/paths";
 import { listTasks } from "@/lib/store";
 import { listRooms, patchRoom } from "@/lib/rooms";
+import { cancelAllCodeRequestsForBot } from "@/lib/pi/bot-code-relay";
+import { detachBotFromRoomRuntime } from "@/lib/room-runtime";
 import type { BotSkillsConfig } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -95,7 +97,12 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     if (hasIntercomScopeId) patch.intercomScopeId = (body.intercomScopeId as string).trim();
     if (hasIntercomFanoutEnabled) patch.intercomFanoutEnabled = body.intercomFanoutEnabled as boolean;
     if (hasCodeAutoApprove) patch.codeAutoApprove = body.codeAutoApprove as boolean;
-    if (hasPermissionMode) patch.permissionMode = body.permissionMode as "allow" | "ask" | "deny";
+    if (hasPermissionMode) {
+      const mode = body.permissionMode as "allow" | "ask" | "deny";
+      // Same live-session path as Code TaskView (defer while busy).
+      await setTaskPermissionMode(botTaskId(id), mode);
+      patch.permissionMode = mode;
+    }
     if (hasEnabled) patch.enabled = body.enabled as boolean;
     if (hasSkills) patch.skills = skills as BotSkillsConfig;
     if (hasTools) patch.tools = tools as Parameters<typeof patchBot>[1]["tools"];
@@ -130,13 +137,16 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
 
 export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const id = await idOf(params);
+  const rooms = listRooms().filter((room) => room.members.includes(id));
+  for (const room of rooms) await detachBotFromRoomRuntime(room.id, id);
+  await cancelAllCodeRequestsForBot(id);
   for (const task of listTasks(true, "bot").filter((item) => item.botId === id)) await destroyTask(task.id);
   const deleted = deleteBot(id);
   if (!deleted) return NextResponse.json({ error: "\u30dc\u30c3\u30c8\u304c\u898b\u3064\u304b\u308a\u307e\u305b\u3093" }, { status: 404 });
   // A deleted Bot must not linger as a Room member: a dangling id keeps a member slot and shows up
   // in every room snapshot until someone happens to re-save the membership.
-  for (const room of listRooms()) {
-    if (room.members.includes(id)) patchRoom(room.id, { members: room.members.filter((member) => member !== id) });
+  for (const room of rooms) {
+    patchRoom(room.id, { members: room.members.filter((member) => member !== id) });
   }
   return NextResponse.json({ ok: true });
 }

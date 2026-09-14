@@ -454,10 +454,23 @@ export async function cancelRoomCodeRequests(roomId: string, requestId: string):
 export async function cancelAllRoomCodeRequests(roomId: string): Promise<number> {
   return cancelRequests(requests().filter((request) => request.room?.id === roomId && active(request)));
 }
+/** Cancel outstanding Room Code jobs owned by one member Bot. */
+export async function cancelRoomCodeRequestsForBot(roomId: string, botId: string): Promise<number> {
+  const origin = roomBotTaskId(roomId, botId);
+  return cancelRequests(requests().filter((request) => request.room?.id === roomId && request.originTaskId === origin && active(request)));
+}
 /** A reverted 1:1 conversation has no context left either: Room jobs keep their own conversation. */
 export async function cancelBotCodeRequests(botId: string): Promise<number> {
   const origin = `bot:${botId}`;
   return cancelRequests(requests().filter((request) => request.originTaskId === origin && active(request)));
+}
+/** Bot delete: stop 1:1 and every Room-origin Code job for this Bot. */
+export async function cancelAllCodeRequestsForBot(botId: string): Promise<number> {
+  const origin = `bot:${botId}`;
+  const roomPrefix = `bot:${botId}:room:`;
+  return cancelRequests(requests().filter((request) =>
+    active(request) && (request.originTaskId === origin || request.originTaskId.startsWith(roomPrefix)),
+  ));
 }
 function linkedCodeTaskId(originTaskId: string, bot: ReturnType<typeof owner>, taskId?: string): string | undefined {
   if (taskId !== undefined) {
