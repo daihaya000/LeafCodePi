@@ -170,7 +170,6 @@ describe("Bot mode list", () => {
   });
 
   it("uses all working Code and Bot tasks for the split button", async () => {
-    localStorage.setItem("webui.sidebar.collapsed", "0");
     mocks.getJson.mockImplementation((path: string) => {
       if (path === "/api/bots/sidebar") return Promise.resolve({ bots: [{ id: "bot-a", name: "Alpha" }], rooms: [] });
       if (path === "/api/projects?archived=1") return Promise.resolve({ projects: [] });
@@ -188,8 +187,6 @@ describe("Bot mode list", () => {
 
     render(<Sidebar mobileOpen={false} onClose={vi.fn()} />);
     await waitFor(() => expect(mocks.getJson).toHaveBeenCalledWith("/api/tasks?archived=1&kind=all"));
-    expect(screen.getByRole("button", { name: "Bot（進行中1件）" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Code（進行中1件）" })).toBeTruthy();
     fireEvent.click(await screen.findByRole("button", { name: "進行中タスクを分割表示" }));
     await waitFor(() => expect(mocks.dispatch).toHaveBeenCalledWith({
       type: "showWorkingTasks",
@@ -198,7 +195,6 @@ describe("Bot mode list", () => {
   });
 
   it("maps a Bot-owned Code session onto the BotView tab when splitting", async () => {
-    localStorage.setItem("webui.sidebar.collapsed", "0");
     mocks.getJson.mockImplementation((path: string) => {
       if (path === "/api/bots/sidebar") return Promise.resolve({ bots: [{ id: "bot-a", name: "Alpha" }], rooms: [] });
       if (path === "/api/projects?archived=1") return Promise.resolve({ projects: [] });

@@ -199,6 +199,7 @@ describe("Sidebar project ordering", () => {
       return Promise.reject(new Error(`Unexpected request: ${path}`));
     });
 
+    localStorage.setItem("webui.sidebar.collapsed", "1");
     render(<Sidebar mobileOpen={false} onClose={vi.fn()} />);
 
     fireEvent.click(await screen.findByRole("button", { name: "進行中タスクを分割表示" }));
