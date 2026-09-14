@@ -20,7 +20,7 @@ export function MessageHeader({ user = false, children }: { user?: boolean; chil
 export function MessageBubble({ user = false, neutral = false, className, children }: { user?: boolean; neutral?: boolean; className?: string; children: ReactNode }) {
   return <div className={cx(
     "min-w-0 max-w-bubble rounded-3xl px-4 py-3 text-base leading-7 [overflow-wrap:anywhere]",
-    user ? "ml-auto self-end" : "w-full self-start rounded-tl-lg",
+    user ? "ml-auto self-end" : "w-full self-start",
     user && !neutral ? "bg-bot-user text-white" : "bg-bot-assistant text-text",
     className,
   )}>{children}</div>;
