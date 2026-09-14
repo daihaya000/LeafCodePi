@@ -1,5 +1,5 @@
 /**
- * Read/write %APPDATA%\\CodexBar\\config.json without dropping unknown fields.
+ * Read/write CodexBar config.json without dropping unknown fields.
  */
 
 import { existsSync, readFileSync } from "node:fs";

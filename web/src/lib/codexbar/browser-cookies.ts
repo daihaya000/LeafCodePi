@@ -2,7 +2,7 @@
  * Browser / tray cookie extraction for OpenCode Go and Qwen Cloud.
  *
  * Order (CodexBarWin parity):
- * 1. Netscape cookie files under %APPDATA%\\CodexBar (and legacy cokkie/)
+ * 1. Netscape cookie files under CodexBar config dir (and legacy cokkie/)
  * 2. OpenCodeTray DPAPI credentials via PowerShell ProtectedData
  * 3. Chrome/Edge Cookies SQLite + AES-GCM (Windows, node:sqlite)
  */
@@ -18,8 +18,10 @@ import {
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { execFileSync } from "node:child_process";
+import { roamingConfigDir } from "@/lib/codexbar/app-paths";
 import {
   buildCookieHeader,
+  codexBarConfigDir,
   findFirstExistingCookieFile,
   netscapeCookieCandidates,
   parseNetscapeCookieText,
@@ -170,11 +172,11 @@ export function parseQwenCloudNetscapeText(
 
 function qwenNetscapePaths(): string[] {
   const home = homedir();
-  const appData = process.env.APPDATA || join(home, "AppData", "Roaming");
+  const configDir = codexBarConfigDir();
   return [
     join(home, "OneDrive", "AI", "CodexBarWin", "cokkie", QWEN_COOKIE_FILE),
-    join(appData, "CodexBar", "qwencloud_cookies.txt"),
-    join(appData, "CodexBar", "cokkie", QWEN_COOKIE_FILE),
+    join(configDir, "qwencloud_cookies.txt"),
+    join(configDir, "cokkie", QWEN_COOKIE_FILE),
     ...netscapeCookieCandidates(QWEN_COOKIE_FILE),
   ];
 }
@@ -239,8 +241,7 @@ function extractOpenCodeCookieFromChromium(): string | null {
 }
 
 export function defaultOpenCodeCookiePath(): string {
-  const appData = process.env.APPDATA || join(homedir(), "AppData", "Roaming");
-  return join(appData, "CodexBar", "opencode_cookies.txt");
+  return join(codexBarConfigDir(), "opencode_cookies.txt");
 }
 
 export function findOpenCodeNetscapeCookieFile(): string | null {
@@ -324,8 +325,7 @@ export function deleteAccountOpenCodeCookieFile(authPath: string): void {
 }
 
 function openCodeTrayCredentialsPath(): string {
-  const appData = process.env.APPDATA || join(homedir(), "AppData", "Roaming");
-  return join(appData, "OpenCodeTray", "credentials.dpapi");
+  return join(roamingConfigDir(), "OpenCodeTray", "credentials.dpapi");
 }
 
 function appliesToOpenCode(domain: string | null | undefined): boolean {
