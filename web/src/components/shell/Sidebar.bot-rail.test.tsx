@@ -101,6 +101,19 @@ describe("Bot mode list", () => {
     expect(localStorage.getItem("leafcodepi.mode")).toBe("code");
   });
 
+  it("switches to Code while a Bot tab is open", async () => {
+    localStorage.setItem("webui.sidebar.collapsed", "0");
+    mocks.usePathname.mockReturnValue("/bots/bot-a");
+    render(<Sidebar mobileOpen={false} onClose={vi.fn()} />);
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "Bot" }).getAttribute("aria-pressed")).toBe("true"));
+    fireEvent.click(screen.getByRole("button", { name: "Code" }));
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "Code" }).getAttribute("aria-pressed")).toBe("true"));
+    expect(mocks.push).not.toHaveBeenCalled();
+    expect(localStorage.getItem("leafcodepi.mode")).toBe("code");
+  });
+
   it("navigates to the Bot home when panes are unavailable", async () => {
     localStorage.setItem("leafcodepi.mode", "code");
     localStorage.setItem("webui.sidebar.collapsed", "0");

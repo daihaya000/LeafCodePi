@@ -1010,7 +1010,7 @@ const SidebarView = memo(function SidebarView({
     try {
       const storedMode = localStorage.getItem(MODE_KEY);
       if (storedMode === "bot" || storedMode === "code") setMode(storedMode);
-      if (pathname.startsWith("/bots")) setMode("bot");
+      if (pathname.startsWith("/bots") && !paneMdUp) setMode("bot");
       const storedWidth = Number(localStorage.getItem(WIDTH_KEY));
       if (Number.isFinite(storedWidth) && storedWidth >= MIN_WIDTH) setWidth(storedWidth);
       setCollapsed(localStorage.getItem(COLLAPSED_KEY) === "1");
@@ -1026,7 +1026,7 @@ const SidebarView = memo(function SidebarView({
     return () => {
       window.removeEventListener("webui:tasks-changed", onChange);
     };
-  }, [refresh, pathname]);
+  }, [paneMdUp, refresh, pathname]);
 
   const changeMode = useCallback((next: AppMode) => {
     setMode(next);
