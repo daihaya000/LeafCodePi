@@ -30,7 +30,7 @@ vi.mock("@/lib/auto-agent", () => ({
 vi.mock("@/lib/direct-generation", () => ({ parseDirectModelKey: mocks.parseDirectModelKey }));
 
 import { AUTO_AGENT_VALUE } from "@/lib/default-agent";
-import { MAX_PROMPT_ATTACHMENTS, MAX_PROMPT_IMAGE_BYTES } from "@/lib/prompt-images";
+import { MAX_PROMPT_ATTACHMENTS, MAX_PROMPT_IMAGE_BYTES, MAX_PROMPT_IMAGE_TOTAL_BYTES } from "@/lib/prompt-images";
 import { GET, POST } from "./route";
 
 describe("GET /api/tasks", () => {
@@ -394,7 +394,7 @@ describe("POST /api/tasks", () => {
     expect(mocks.createTask).not.toHaveBeenCalled();
   });
 
-  it("rejects oversized images before creating a task", async () => {
+  it("rejects oversized or aggregate images before creating a task", async () => {
     const response = await POST(
       new NextRequest("http://localhost/api/tasks", {
         method: "POST",
@@ -407,6 +407,24 @@ describe("POST /api/tasks", () => {
     );
 
     expect(response.status).toBe(400);
+    expect(mocks.createTask).not.toHaveBeenCalled();
+
+    const half = Math.floor(MAX_PROMPT_IMAGE_TOTAL_BYTES / 2) + 1;
+    const aggregateResponse = await POST(
+      new NextRequest("http://localhost/api/tasks", {
+        method: "POST",
+        body: JSON.stringify({
+          projectId: null,
+          prompt: "作業",
+          images: [
+            { mimeType: "image/png", data: Buffer.alloc(half).toString("base64") },
+            { mimeType: "image/png", data: Buffer.alloc(half).toString("base64") },
+          ],
+        }),
+      }),
+    );
+
+    expect(aggregateResponse.status).toBe(400);
     expect(mocks.createTask).not.toHaveBeenCalled();
   });
 
