@@ -101,6 +101,8 @@ it("places the user message time above the bubble and keeps the footer below", (
   const { container, rerender } = render(<BotMessageRow user createdAt={createdAt} footer={<button type="button">入力欄に戻す</button>}>エージェントは？</BotMessageRow>);
   const row = container.firstElementChild!;
   expect(row.className).toContain("items-end");
+  expect(row.className).toContain("[content-visibility:auto]");
+  expect(row.className).toContain("[contain-intrinsic-size:auto_8rem]");
   expect([...row.children].map((child) => child.tagName)).toEqual(["DIV", "DIV", "BUTTON"]);
   expect(row.children[0].querySelector("time")?.textContent).toBe(formatMessageTime(createdAt));
   const bubble = row.children[1];
