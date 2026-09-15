@@ -2718,7 +2718,7 @@ export const TaskView = memo(function TaskView({
     } finally {
       setResumingTurn(false);
     }
-  }, [archived, resumingTurn, subagentPermission, taskId, working]);
+  }, [archived, messages, resumingTurn, subagentPermission, taskId, working]);
 
   // タスクのアカウントを切替えるモデルも選べる（setTaskModel が再作成を担う）ため
   // 他アカウントのモデルも含めて全候補を出す。並び順は /api/models の providerOrder 準拠。
