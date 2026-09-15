@@ -65,7 +65,12 @@ export function CodeRequestCard({
   const live = state === "queued" || state === "starting" || state === "running";
 
   useEffect(() => {
-    if (!taskId) return;
+    if (!taskId || (!live && !open)) {
+      setTask(null);
+      setError(null);
+      setLoading(false);
+      return;
+    }
     let closed = false;
     let inFlight = false;
     const load = async () => {
