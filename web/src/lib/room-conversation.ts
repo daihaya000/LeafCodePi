@@ -152,8 +152,9 @@ export function parseRoomReply(raw: string, speakerId: string, participants: Bot
 function transcript(room: RoomDto, requestId: string, conversation: boolean) {
   const index = room.messages.findIndex((message) => message.id === requestId);
   // An unknown request id must not blank the history: fall back to the recent tail.
-  const end = conversation || index < 0 ? room.messages.length : index + 1;
-  const visible = room.messages.slice(0, end);
+  const end = conversation || index < 0 ? room.messages.length : index;
+  // The current request is emitted separately below; keeping it in history duplicates its tokens.
+  const visible = room.messages.slice(0, end).filter((message) => message.id !== requestId);
   // Failures stay out of the prose, but the newest one is worth one note so the next speaker
   // does not walk into the same wall.
   const lastErrorId = [...visible].reverse().find((message) => message.status === "error")?.id;
