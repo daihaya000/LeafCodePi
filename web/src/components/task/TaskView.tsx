@@ -3,7 +3,6 @@
 import { memo, startTransition, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowUp,
-  Bot,
   Check,
   ChevronDown,
   ChevronUp,
@@ -11,6 +10,7 @@ import {
   ChevronsUp,
   GitGraph,
   ListPlus,
+  Menu,
   PanelRight,
   Plus,
   RotateCcw,
@@ -3158,7 +3158,7 @@ export const TaskView = memo(function TaskView({
               )}
             >
               <span className="sr-only">Codeタスクを監督するBot</span>
-              {supervisor ? <BotAvatar size={20} {...supervisor} active={working} /> : <Bot className="h-4 w-4" aria-hidden="true" />}
+              {supervisor ? <BotAvatar size={20} {...supervisor} active={working} /> : <Menu className="h-4 w-4" aria-hidden="true" />}
               <select
                 aria-label="Codeタスクを監督するBot"
                 defaultValue=""

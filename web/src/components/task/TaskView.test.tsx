@@ -89,6 +89,7 @@ it("keeps the Bot control visible but disabled until an unassigned Code task sta
 
   const selector = await screen.findByRole("combobox", { name: "Codeタスクを監督するBot" });
   expect((selector as HTMLSelectElement).disabled).toBe(true);
+  expect(selector.closest("label")?.querySelector(".lucide-menu")).not.toBeNull();
   expect(selector.closest('[aria-label="タスクの状態"]')).toBeNull();
   expect(selector.closest('[aria-label="タスク操作"]')).not.toBeNull();
 });
