@@ -25,6 +25,8 @@ import {
 
 export const BOT_CODE_TOOL = "code_session";
 export const BOT_CODE_RESULT = "bot-code-result";
+/** A Bot only needs a concise Code outcome before responding to the user. */
+export const MAX_CODE_REPORT_OUTPUT_CHARS = 8_000;
 /**
  * Cumulative cap on Code requests the Bot starts by itself while reporting a result. Per-turn limits
  * cannot bound a chain that restarts every turn. A new user instruction resets the count to zero.
@@ -854,8 +856,8 @@ export function createBotCodeRelay(deps: RelayDependencies) {
     request.result = JSON.stringify({
       outcome,
       error: task?.error ?? latest?.error ?? null,
-      output: text.slice(0, 24_000),
-      truncated: text.length > 24_000,
+      output: text.slice(0, MAX_CODE_REPORT_OUTPUT_CHARS),
+      truncated: text.length > MAX_CODE_REPORT_OUTPUT_CHARS,
       codeTaskId: request.codeTaskId,
       ...(loop ? { goalLoop: goalLoopReport(loop, request.goalLoop) } : {}),
     });

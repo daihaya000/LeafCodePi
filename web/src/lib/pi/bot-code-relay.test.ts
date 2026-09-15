@@ -536,6 +536,18 @@ describe("Bot ⇄ Code relay", () => {
     expect(deps.deliver).toHaveBeenCalledTimes(1);
   });
 
+  it("caps Code output before returning it to the Bot", async () => {
+    await launch();
+    messages = [answer("long", "x".repeat(12_000))];
+    store.tasks.get("code")!.status = "idle";
+
+    await relay.tick();
+
+    const result = JSON.parse(record().result ?? "{}") as { output?: string; truncated?: boolean };
+    expect(result.output).toHaveLength(8_000);
+    expect(result.truncated).toBe(true);
+  });
+
   it("preserves pending results on delivery failure and retries with backoff", async () => {
     await launch(); store.tasks.get("code")!.status = "idle";
     vi.mocked(deps.deliver).mockResolvedValueOnce(false);
