@@ -339,6 +339,33 @@ describe("direct-generation", () => {
     expect(completeModelText.mock.calls[1]?.[0]).not.toHaveProperty("accountIdExplicit");
   });
 
+  it("keeps the explicit task account for a same-provider fallback", async () => {
+    accountState.accounts = [{ id: "acc-anthropic", providers: ["anthropic"] }];
+    completeModelText
+      .mockRejectedValueOnce(new Error("primary unavailable"))
+      .mockResolvedValueOnce("fallback result");
+
+    await expect(
+      generateDirectTextWithFallbackResult({
+        candidates: [
+          { model: { providerID: "anthropic", modelID: "primary" } },
+          { model: { providerID: "anthropic", modelID: "fallback" } },
+        ],
+        accountId: "acc-anthropic",
+        accountIdExplicit: true,
+        system: "system",
+        prompt: "prompt",
+      }),
+    ).resolves.toMatchObject({
+      text: "fallback result",
+      model: { providerID: "anthropic", modelID: "fallback" },
+    });
+    expect(completeModelText.mock.calls[1]?.[0]).toMatchObject({
+      accountId: "acc-anthropic",
+      accountIdExplicit: true,
+    });
+  });
+
   it("tries the selected fallback model with its own effort", async () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(new Response("{}", { status: 503 }))
