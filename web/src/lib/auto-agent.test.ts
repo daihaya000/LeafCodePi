@@ -80,6 +80,18 @@ describe("auto-agent", () => {
     expect(prompt).toContain('"canModifyFiles":false');
   });
 
+  it("caps router history and current request together", () => {
+    const prompt = formatAutoAgentPrompt(
+      [{ role: "user", text: "h".repeat(8_000) }],
+      "r".repeat(4_000),
+      candidates,
+    );
+    const history = prompt.match(/<conversation_history>\n([\s\S]*?)\n<\/conversation_history>/)?.[1] ?? "";
+    const current = prompt.match(/<current_request>\n([\s\S]*?)\n<\/current_request>/)?.[1] ?? "";
+
+    expect(Array.from(history).length + Array.from(current).length).toBeLessThanOrEqual(8_000);
+  });
+
   it("accepts only a candidate name from the JSON response", () => {
     expect(parseAutoAgentResponse('{"agent":"reviewer"}', candidates)).toBe("reviewer");
     expect(parseAutoAgentResponse("```json\n{\"agent\":\"builder\"}\n```", candidates)).toBe("builder");
@@ -266,6 +278,7 @@ describe("auto-agent", () => {
     expect(agentData).toHaveLength(24);
     expect(agentData.some((agent: { name?: string }) => agent.name === "builder")).toBe(true);
     expect(agentData[0]?.name).toBe("agent-0");
+    expect(agentData[0]?.description).toHaveLength(300);
   });
 
   it("uses one deadline across direct-generation fallbacks", async () => {

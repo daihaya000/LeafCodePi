@@ -15,8 +15,9 @@ import { getSetting } from "@/lib/pi/web-settings";
 import { buildTranscript, type ConversationMessage } from "@/lib/direct-generation-text";
 import { AUTO_AGENT_VALUE, DEFAULT_AGENT } from "@/lib/default-agent";
 
-const MAX_TRANSCRIPT_CHARS = 16_000;
-const MAX_DESCRIPTION_CHARS = 600;
+// The router returns one agent name; its current request plus history need not rival task context.
+const MAX_TRANSCRIPT_CHARS = 8_000;
+const MAX_DESCRIPTION_CHARS = 300;
 const MAX_CANDIDATES = 24;
 const AUTO_AGENT_TIMEOUT_MS = 30_000;
 const AUTO_AGENT_PROMPT_SETTING_KEY = "auto-agent-prompt";
