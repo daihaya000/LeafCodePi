@@ -25,9 +25,37 @@ import { cancelPendingSseReconnect, closeSseSource, sseReconnectDelayMs } from "
 
 import { CodeRequestCard } from "@/components/bot/CodeRequestCard";
 
-function applyRoomSnapshot(current: RoomDto | null, next: RoomDto): RoomDto {
+function sameStringList(current: readonly string[], next: readonly string[]): boolean {
+  return current.length === next.length && current.every((value, index) => value === next[index]);
+}
+
+function sameRoomHandoffStates(current: RoomDto["handoffs"], next: RoomDto["handoffs"]): boolean {
+  if (current === next) return true;
+  if (!current || !next || current.length !== next.length) return !current && !next;
+  return current.every((handoff, index) => {
+    const other = next[index];
+    return other && handoff.id === other.id && handoff.state === other.state;
+  });
+}
+
+/** Preserve room state identity when an SSE snapshot changes no visible values. */
+export function applyRoomSnapshot(current: RoomDto | null, next: RoomDto): RoomDto {
   if (!current || current.id !== next.id) return next;
   const messages = stabilizeIdentifiedList(current.messages, next.messages);
+  const sameOutcome =
+    current.lastOutcome?.kind === next.lastOutcome?.kind &&
+    current.lastOutcome?.requestId === next.lastOutcome?.requestId;
+  if (
+    messages === current.messages &&
+    current.name === next.name &&
+    current.botRelayEnabled === next.botRelayEnabled &&
+    current.codeAutoApprove === next.codeAutoApprove &&
+    sameOutcome &&
+    sameStringList(current.members, next.members) &&
+    sameRoomHandoffStates(current.handoffs, next.handoffs)
+  ) {
+    return current;
+  }
   return messages === next.messages ? next : { ...next, messages };
 }
 

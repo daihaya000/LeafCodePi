@@ -6,13 +6,30 @@ import type { RoomDto } from "@/lib/types";
 const mocks = vi.hoisted(() => ({ getJson: vi.fn(), sendJson: vi.fn() }));
 vi.mock("@/lib/client", () => mocks);
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn() }) }));
-import { RoomView } from "./RoomView";
+import { applyRoomSnapshot, RoomView } from "./RoomView";
 
 function toolMessage(id: string, tool: string, input: Record<string, unknown>) {
   return { id, role: "assistant" as const, createdAt: 1, parts: [{ id: `${id}-tool`, type: "tool" as const, tool, callID: id, state: { status: "running" as const, input } }] };
 }
 
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.clearAllMocks(); });
+
+it("keeps room state identity for an SSE snapshot without visible changes", () => {
+  const current: RoomDto = {
+    id: "room", name: "Room", members: ["bot"], botRelayEnabled: false,
+    createdAt: "", updatedAt: "first",
+    messages: [{ id: "message", role: "assistant", text: "same", createdAt: 1, status: "done" }],
+  };
+  const next: RoomDto = {
+    ...current,
+    updatedAt: "later",
+    members: [...current.members],
+    messages: current.messages.map((message) => ({ ...message })),
+  };
+
+  expect(applyRoomSnapshot(current, next)).toBe(current);
+  expect(applyRoomSnapshot(current, { ...next, messages: [{ ...next.messages[0]!, text: "changed" }] })).not.toBe(current);
+});
 
 it("shows each parallel Code request its own live tool label instead of one shared line", async () => {
   const bot = { id: "bot", name: "Bot", enabled: true };
