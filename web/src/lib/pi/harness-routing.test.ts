@@ -727,6 +727,10 @@ describe("integrated session routing", () => {
       accountId: anthropic.id,
     });
     expect(getTask(task.id)?.accountIdExplicit).toBeUndefined();
+
+    await expect(
+      setTaskModel(task.id, `${anthropic.id}::anthropic::claude-sonnet`),
+    ).resolves.toMatchObject({ accountId: anthropic.id, accountIdExplicit: true });
   });
 
   it("injects the runtime clock into both Code and Bot turns", async () => {
