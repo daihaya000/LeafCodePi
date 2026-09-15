@@ -235,7 +235,13 @@ function installHarness(runtimes: Map<string, ReturnType<typeof runtime>>) {
 function storeProviderAuth(accountId: string, agentDir: string, provider = PROVIDER): void {
   const path = accountAuthPath(accountId, agentDir);
   mkdirSync(dirname(path), { recursive: true });
-  writeFileSync(path, JSON.stringify({ [provider]: { type: "oauth", access: "t" } }), "utf8");
+  writeFileSync(
+    path,
+    JSON.stringify({
+      [provider]: { type: "oauth", access: "t", refresh: "r", expires: 1 },
+    }),
+    "utf8",
+  );
 }
 
 async function waitFor(check: () => boolean): Promise<void> {

@@ -111,6 +111,28 @@ export function accountModelsStorePath(id: string, agentDir: string): string {
   return join(accountDir(id, agentDir), "models-store.json");
 }
 
+function isStoredCredential(value: unknown): boolean {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const credential = value as Record<string, unknown>;
+  if (credential.type === "api_key") {
+    return (
+      (credential.key === undefined || typeof credential.key === "string") &&
+      (credential.env === undefined ||
+        (typeof credential.env === "object" &&
+          credential.env !== null &&
+          !Array.isArray(credential.env) &&
+          Object.values(credential.env).every((entry) => typeof entry === "string")))
+    );
+  }
+  return (
+    credential.type === "oauth" &&
+    typeof credential.access === "string" &&
+    typeof credential.refresh === "string" &&
+    typeof credential.expires === "number" &&
+    Number.isFinite(credential.expires)
+  );
+}
+
 /** アカウントの auth.json に保存済みのサブスクプロバイダー。SDK を介さない軽量ファイル読み。
  *  読めない（未ログイン・破損・書込中）場合は空配列。 */
 export function accountStoredProviders(
@@ -121,8 +143,10 @@ export function accountStoredProviders(
     const parsed = JSON.parse(
       readFileSync(accountAuthPath(id, agentDir), "utf8"),
     ) as Record<string, unknown> | null;
-    if (!parsed || typeof parsed !== "object") return [];
-    return ACCOUNT_PROVIDER_IDS.filter((provider) => provider in parsed);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return [];
+    return ACCOUNT_PROVIDER_IDS.filter((provider) =>
+      isStoredCredential(parsed[provider]),
+    );
   } catch {
     return [];
   }

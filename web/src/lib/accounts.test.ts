@@ -83,10 +83,10 @@ describe("accountStoredProviders", () => {
     writeFileSync(
       accountAuthPath("acc-9", agentDir),
       JSON.stringify({
-        "openai-codex": { type: "oauth" },
-        anthropic: { type: "oauth" },
-        cursor: { type: "oauth" },
-        commandcode: { type: "oauth" },
+        "openai-codex": { type: "oauth", access: "a", refresh: "r", expires: 1 },
+        anthropic: { type: "oauth", access: "a", refresh: "r", expires: 1 },
+        cursor: { type: "oauth", access: "a", refresh: "r", expires: 1 },
+        commandcode: { type: "oauth", access: "a", refresh: "r", expires: 1 },
         opencode: { type: "api_key" },
         "opencode-go": { type: "api_key" },
       }),
@@ -101,6 +101,25 @@ describe("accountStoredProviders", () => {
       "opencode",
       "opencode-go",
     ]);
+  });
+
+  it("excludes credentials the Pi SDK would reject", () => {
+    const agentDir = mkdtempSync(join(tmpdir(), "leafcode-pi-agentdir-"));
+    dirs.push(agentDir);
+    const dir = accountDir("invalid", agentDir);
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(
+      accountAuthPath("invalid", agentDir),
+      JSON.stringify({
+        "openai-codex": null,
+        anthropic: { type: "oauth", access: "a" },
+        cursor: { type: "api_key", key: 123 },
+        commandcode: { type: "oauth", access: "a", refresh: "r", expires: 1 },
+      }),
+      "utf8",
+    );
+
+    assert.deepEqual(accountStoredProviders("invalid", agentDir), ["commandcode"]);
   });
 
   it("returns empty when auth file is missing or broken", () => {
