@@ -3,13 +3,15 @@
  * 設計: docs/specs/taskview-tabs.md §1〜§5、docs/plans/taskview-tabs-implementation.md Phase 1
  *
  * 不変条件:
- * - panes は最小 1 / 最大 MAX_PANES
- * - 各ペインのタブは最大 MAX_TABS_PER_PANE、同一ペイン内に重複なし
+ * - panes は最小 1 / 最大 MAX_PANES（横分割は最大 5）
+ * - タブ総数は最大 MAX_OPEN_TABS、各ペインのタブは最大 MAX_TABS_PER_PANE
+ * - 同一タスクはペインをまたいで重複しない
  * - 上限超過・不正操作は前状態を**同一参照**のまま返す no-op（prev === next で拒否を検知可）
  */
 
-export const MAX_PANES = 4;
+export const MAX_PANES = 5;
 export const MAX_TABS_PER_PANE = 5;
+export const MAX_OPEN_TABS = 5;
 export const TASK_PANES_STORAGE_KEY = "webui:task-panes";
 export const TASK_PANE_PREFER_NEW_EVENT = "webui:task-pane-prefer-new";
 export const DEFAULT_PREFER_NEW_PANE = false;
@@ -122,6 +124,10 @@ export type TaskPanesState = {
   orientation?: PaneOrientation;
   layout?: PaneLayout;
 };
+
+function tabCount(panes: readonly TaskPane[]): number {
+  return panes.reduce((count, pane) => count + pane.tabs.length, 0);
+}
 
 /** 隣接する 2 ペインの幅を、指定した最小幅を保って調整する。 */
 export function resizeAdjacentPaneWidths(
@@ -467,7 +473,11 @@ export function taskPanesReducer(
       const existing = state.panes.find((pane) => pane.tabs.includes(action.taskId));
       if (existing) return activate(state, existing.id, action.taskId);
       const target = state.panes.find((pane) => pane.id === action.paneId);
-      if (!target || target.tabs.length >= MAX_TABS_PER_PANE) return state;
+      if (
+        !target ||
+        target.tabs.length >= MAX_TABS_PER_PANE ||
+        tabCount(state.panes) >= MAX_OPEN_TABS
+      ) return state;
       return {
         ...state,
         activePaneId: target.id,
@@ -484,6 +494,7 @@ export function taskPanesReducer(
       // direction 指定時は anchor の前後に挿入（Blender/Cursor 方式の端分割）。
       // 上限到達時は最後のペインのタブへフォールバック。
       const existing = state.panes.find((pane) => pane.tabs.includes(action.taskId));
+      if (!existing && tabCount(state.panes) >= MAX_OPEN_TABS) return state;
       let panes = state.panes;
       if (existing) {
         // 単独タブのペインなら移動しても見た目が同じため活性化のみ
@@ -579,7 +590,7 @@ export function taskPanesReducer(
         if (!tabId || seen.has(tabId)) continue;
         seen.add(tabId);
         uniqueTaskIds.push(tabId);
-        if (uniqueTaskIds.length >= MAX_PANES * MAX_TABS_PER_PANE) break;
+        if (uniqueTaskIds.length >= MAX_OPEN_TABS) break;
       }
       if (uniqueTaskIds.length === 0) return state;
 
@@ -803,6 +814,7 @@ export function normalize(input: unknown): TaskPanesState | null {
   if (!Array.isArray(raw.panes)) return null;
 
   const panes: TaskPane[] = [];
+  const seenTabs = new Set<string>();
   for (const item of raw.panes.slice(0, MAX_PANES)) {
     if (typeof item !== "object" || item === null) continue;
     const candidate = item as Partial<TaskPane>;
@@ -810,9 +822,10 @@ export function normalize(input: unknown): TaskPanesState | null {
     if (!Array.isArray(candidate.tabs)) continue;
     const tabs: string[] = [];
     for (const tab of candidate.tabs) {
-      if (typeof tab !== "string" || !tab || tabs.includes(tab)) continue;
-      if (tabs.length >= MAX_TABS_PER_PANE) break;
+      if (typeof tab !== "string" || !tab || seenTabs.has(tab)) continue;
+      if (tabs.length >= MAX_TABS_PER_PANE || seenTabs.size >= MAX_OPEN_TABS) break;
       tabs.push(tab);
+      seenTabs.add(tab);
     }
     const activeTabId =
       typeof candidate.activeTabId === "string" && tabs.includes(candidate.activeTabId)
@@ -1019,17 +1032,22 @@ export function retargetActiveTab(
       ),
     };
   }
-  if (preferNewPane && state.panes.length < MAX_PANES) {
+  if (preferNewPane && state.panes.length < MAX_PANES && tabCount(state.panes) < MAX_OPEN_TABS) {
     return taskPanesReducer(state, { type: "openInNewPane", taskId: urlTaskId });
   }
-  const [first, ...rest] = state.panes;
-  const nextFirst: TaskPane = { ...first, activeTabId: urlTaskId };
-  // 空きがなければ最も古いタブを閉じてから新規タブとして追加
-  nextFirst.tabs =
-    first.tabs.length < MAX_TABS_PER_PANE
-      ? [...first.tabs, urlTaskId]
-      : [...first.tabs.slice(1), urlTaskId];
-  return { ...state, panes: [nextFirst, ...rest], activePaneId: first.id };
+  const target = state.panes.find((pane) => pane.tabs.length > 0) ?? state.panes[0]!;
+  const atCapacity = tabCount(state.panes) >= MAX_OPEN_TABS;
+  const nextTarget: TaskPane = { ...target, activeTabId: urlTaskId };
+  // 総数上限またはペイン上限では最も古いタブを置き換える。
+  nextTarget.tabs =
+    !atCapacity && target.tabs.length < MAX_TABS_PER_PANE
+      ? [...target.tabs, urlTaskId]
+      : [...target.tabs.slice(1), urlTaskId];
+  return {
+    ...state,
+    panes: state.panes.map((pane) => (pane.id === target.id ? nextTarget : pane)),
+    activePaneId: target.id,
+  };
 }
 
 /**

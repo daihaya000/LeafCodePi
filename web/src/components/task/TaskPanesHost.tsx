@@ -14,6 +14,7 @@ import {
   DEFAULT_PREFER_NEW_PANE,
   HOME_TAB_ID,
   BOTS_TAB_ID,
+  MAX_PANES,
   isBotSurfaceTabId,
   isBotTabId,
   isSplitHostPath,
@@ -655,7 +656,7 @@ export function TaskPanesHost() {
   const paneById = new Map(state.panes.map((pane) => [pane.id, pane]));
   const paneIndexes = new Map(state.panes.map((pane, index) => [pane.id, index]));
   const lastPaneId = state.panes[state.panes.length - 1]?.id;
-  const canAddPane = state.panes.length < 4;
+  const canAddPane = state.panes.length < MAX_PANES;
   const updateSplitRatio = (splitId: string, ratio: number) => {
     if (!Number.isFinite(ratio)) return;
     const nextRatio = Math.max(0.05, Math.min(0.95, ratio));

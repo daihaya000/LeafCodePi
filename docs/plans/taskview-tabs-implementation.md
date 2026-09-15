@@ -2,7 +2,7 @@
 
 **仕様:** [`docs/specs/taskview-tabs.md`](../specs/taskview-tabs.md)
 
-**ゴール:** `/task/*` に複数タスクをタブで開き、最大 4 ペインまで分割できるようにする。ペイン単位の split tree と各ノードの方向を localStorage に永続化し、1 ペイン × 1 タブでもタブバーを表示する。
+**ゴール:** `/task/*` に複数タスクをタブで開き、最大 5 ペインまで分割できるようにする。タブ総数は最大 5 とし、ペイン単位の split tree と各ノードの方向を localStorage に永続化する。1 ペイン × 1 タブでもタブバーを表示する。
 
 **技術:** Next.js（App Router）、React、TypeScript、Vitest（node 環境・Testing Library なし）。DB / settings API は使わない。
 
@@ -43,8 +43,9 @@ Phase 1  task-panes model（型・reducer・localStorage）
 新規ファイル。React 非依存の純関数として実装し、vitest で直接テストする。
 
 ```ts
-export const MAX_PANES = 4;
+export const MAX_PANES = 5;
 export const MAX_TABS_PER_PANE = 5;
+export const MAX_OPEN_TABS = 5;
 export const TASK_PANES_STORAGE_KEY = "webui:task-panes";
 
 export type TaskPane = { id: string; tabs: string[]; activeTabId: string | null };
@@ -108,7 +109,7 @@ type Action =
 ### AppShell / Host
 
 - `AppShellInner` の `<section>` 内を `<TaskPanesProvider>` で囲み、children の代わりに `<TaskPanesHost />` を描く（task path のときのみ内容を出す）
-- `TaskPanesHost`: layout tree を再帰描画し、各 split node の orientation に応じた flex と局所リサイズハンドルを配置する。4 ペインでも 2x2 grid へ自動固定しない
+- `TaskPanesHost`: layout tree を再帰描画し、各 split node の orientation に応じた flex と局所リサイズハンドルを配置する。5 ペインでも 2x2 grid へ自動固定しない
   - TaskView は `next/dynamic(..., { ssr: false })` で読む（本家 SplitTaskView と同じ loading プレースホルダ付き）
   - **Phase 2 時点は 1 ペイン × 1 タブのみ動かし、現行 `/task/[id]` と見た目同等であることを確認**
 - `page.tsx`: `return null`（URL 初期化は provider の pathname 監視が担う。SSR 一瞬分は dynamic loading 表示で埋まる）
@@ -160,7 +161,7 @@ type Action =
 - 手動確認リスト:
   1. 1 ペイン × 1 タブでもタブバーを表示し、タブ操作を利用できる
   2. 複数タブ開く → 切替・閉じる・並び替え・Composer テキスト保持
-  3. 2〜4 ペイン分割・端ドロップごとの局所方向（4 ペインでも 2x2 固定なし）
+  3. 2〜5 ペイン分割・端ドロップごとの局所方向（5 ペインでも 2x2 固定なし）
   4. リロードで構成復元・直リンク (`/task/[id]`) で URL 優先
   5. Home ↔ task 往復で panes が保持され、戻るとそのまま再表示。エラーなし
   6. working 中タスクのバッジが裏タブでも更新される
@@ -171,7 +172,7 @@ type Action =
 
 ## リスク
 
-1. **20 EventSource**: 最大 4×5 の TaskView が常駐。BFF 内 harness 配信なので 1 接続あたりは軽いが、**Home/settings 表示中も接続が生存する**（panes 保持方式のため）。問題が出たら「Home 遷移時に SSE を一時停止」or「タブ総数上限 10」へ緩和を検討
+1. **5 EventSource**: 最大 5 の TaskView が常駐。BFF 内 harness 配信なので 1 接続あたりは軽いが、**Home/settings 表示中も接続が生存する**（panes 保持方式のため）。
 2. **replaceState と usePathname の整合**: Next.js の replaceState 対応は App Router 公式だが、pathname 監視 effect との二重同期で不整合が出たら監視条件を見直す（冪等 set で済む設計にしてある）
 3. **SSR 白画面**: `ssr: false` の dynamic import のため初回一瞬ローディング表示。本家と同じ許容
 4. **コンポーネントテスト不在**: Testing Library 未導入のため UI 分岐は model 層テスト + 手動確認で担保。導入する場合は別タスク

@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   HOME_TAB_ID,
   SETTINGS_TAB_ID,
+  MAX_OPEN_TABS,
   MAX_PANES,
   MAX_TABS_PER_PANE,
   TASK_PANES_STORAGE_KEY,
@@ -149,6 +150,15 @@ describe("openTab", () => {
     expect(next).toBe(base);
   });
 
+  it(`別ペインを含むタブ総数 ${MAX_OPEN_TABS} 到達時も no-op`, () => {
+    const base = state(
+      pane(P1, ["a", "b"]),
+      pane(P2, ["c", "d"]),
+      pane(P3, ["e"]),
+    );
+    expect(reducer(base, { type: "openTab", paneId: P3, taskId: "extra" })).toBe(base);
+  });
+
   it("不明ペイン ID は no-op", () => {
     const base = state(pane(P1, ["t1"]));
     expect(reducer(base, { type: "openTab", paneId: "nope", taskId: "t9" })).toBe(base);
@@ -183,13 +193,10 @@ describe("openInNewPane", () => {
     expect(next.panes[0].activeTabId).toBe("only");
   });
 
-  it("ペイン上限では最後のペインのタブへフォールバックする", () => {
+  it(`タブ総数 ${MAX_OPEN_TABS} 到達時は新規ペインを開かない`, () => {
     const full = Array.from({ length: MAX_PANES }, (_, i) => pane(`p${i}`, [`t${i}`]));
     const base = { panes: full, activePaneId: "p0" };
-    const next = reducer(base, { type: "openInNewPane", taskId: "extra" });
-    expect(next.panes).toHaveLength(MAX_PANES);
-    expect(next.panes[MAX_PANES - 1].tabs).toEqual(["t3", "extra"]);
-    expect(next.activePaneId).toBe("p3");
+    expect(reducer(base, { type: "openInNewPane", taskId: "extra" })).toBe(base);
   });
 
   it("ペイン上限かつフォールバック先満杯でも既存タスクを失わない", () => {
@@ -198,7 +205,8 @@ describe("openInNewPane", () => {
       pane(P1, ["keep", "moving"], "moving"),
       pane(P2, ["target"]),
       pane(P3, ["other"]),
-      pane("p4", full),
+      pane("p4", ["other-2"]),
+      pane("p5", full),
     );
     const next = reducer(base, {
       type: "openInNewPane",
@@ -411,14 +419,14 @@ describe("showWorkingTasks", () => {
     expect(next.activePaneId).toBe(next.panes[0].id);
   });
 
-  it("4 ペインを超えるタスクはタブへ分散し、重複を除く", () => {
+  it("最大5タブを5ペインへ分散し、重複を除く", () => {
     const next = reducer(state(pane(P1, ["old"])), {
       type: "showWorkingTasks",
       taskIds: ["a", "b", "c", "d", "e", "d"],
     });
 
     expect(next.panes).toHaveLength(MAX_PANES);
-    expect(next.panes.map((item) => item.tabs)).toEqual([["a", "b"], ["c"], ["d"], ["e"]]);
+    expect(next.panes.map((item) => item.tabs)).toEqual([["a"], ["b"], ["c"], ["d"], ["e"]]);
   });
 
   it("対象が空なら状態を変更しない", () => {
@@ -509,7 +517,13 @@ describe("addPane / closePane", () => {
   });
 
   it(`ペイン上限 ${MAX_PANES} 到達で no-op`, () => {
-    const base = state(pane(P1, ["a"]), pane(P2, ["b"]), pane(P3, ["c"]), pane("pane-4", ["d"]));
+    const base = state(
+      pane(P1, ["a"]),
+      pane(P2, ["b"]),
+      pane(P3, ["c"]),
+      pane("pane-4", ["d"]),
+      pane("pane-5", ["e"]),
+    );
     expect(reducer(base, { type: "addPane" })).toBe(base);
   });
 
@@ -567,7 +581,7 @@ describe("normalize", () => {
     expect(fixed?.panes[0].activeTabId).toBe("a");
   });
 
-  it("ペイン上限超過・タブ上限超過を切り詰める", () => {
+  it("ペイン上限超過・タブ総数上限超過を切り詰める", () => {
     const manyPanes = Array.from({ length: MAX_PANES + 2 }, (_, i) => ({
       id: `p${i}`,
       tabs: [`t${i}`],
@@ -578,6 +592,11 @@ describe("normalize", () => {
     const manyTabs = Array.from({ length: MAX_TABS_PER_PANE + 3 }, (_, i) => `t${i}`);
     const fixedTabs = normalize({ panes: [{ id: P1, tabs: manyTabs }] });
     expect(fixedTabs?.panes[0].tabs).toHaveLength(MAX_TABS_PER_PANE);
+
+    const fixedTotal = normalize({
+      panes: [pane(P1, ["a", "b", "c"]), pane(P2, ["d", "e", "f"])],
+    });
+    expect(fixedTotal?.panes.flatMap((item) => item.tabs)).toEqual(["a", "b", "c", "d", "e"]);
   });
 
   it("壊れた構造は null", () => {
@@ -736,17 +755,17 @@ describe("retargetActiveTab", () => {
     expect(next.activePaneId).toBe(next.panes[2].id);
   });
 
-  it(`ペイン上限 ${MAX_PANES} 到達時は従来どおりタブへ追加する`, () => {
-    const full = Array.from({ length: MAX_TABS_PER_PANE }, (_, i) => `t${i}`);
+  it(`タブ総数 ${MAX_OPEN_TABS} 到達時は最も古いタブを置き換える`, () => {
     const base = state(
-      pane(P1, full),
+      pane(P1, ["p1"]),
       pane(P2, ["p2"]),
       pane(P3, ["p3"]),
       pane("pane-4", ["p4"]),
+      pane("pane-5", ["p5"]),
     );
     const next = retargetActiveTab(base, "fresh");
     expect(next.panes).toHaveLength(MAX_PANES);
-    expect(next.panes[0].tabs).toEqual([...full.slice(1), "fresh"]);
+    expect(next.panes[0].tabs).toEqual(["fresh"]);
     expect(next.panes[0].activeTabId).toBe("fresh");
     expect(next.activePaneId).toBe(P1);
   });
