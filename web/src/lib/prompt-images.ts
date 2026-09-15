@@ -16,6 +16,8 @@ export const MAX_PROMPT_IMAGES = MAX_PROMPT_ATTACHMENTS;
 export const MAX_PROMPT_FILES = MAX_PROMPT_ATTACHMENTS;
 export const MAX_PROMPT_IMAGE_BYTES = 8 * 1024 * 1024;
 export const MAX_PROMPT_FILE_BYTES = MAX_PROMPT_IMAGE_BYTES;
+/** Total text inserted into one model prompt; oversized files should be read with tools instead. */
+export const MAX_PROMPT_FILE_TOTAL_BYTES = 64 * 1024;
 export const MAX_PROMPT_FILE_NAME_CHARS = 255;
 
 function hasSafeFileMetadata(name: unknown, mimeType: unknown): boolean {
@@ -59,8 +61,19 @@ export function isPromptFile(value: unknown): value is PromptFileInput {
   return hasSafeFileMetadata(file.name, file.mimeType) && typeof file.data === "string" && file.data.length > 0;
 }
 
+export function promptFileTotalBytes(files: readonly Pick<PromptFileInput, "data">[]): number {
+  return files.reduce((total, file) => total + Buffer.byteLength(file.data, "base64"), 0);
+}
+
+export function isPromptFilesWithinTotalSize(files: readonly Pick<PromptFileInput, "data">[]): boolean {
+  return promptFileTotalBytes(files) <= MAX_PROMPT_FILE_TOTAL_BYTES;
+}
+
 export function isPromptFileList(value: unknown): value is PromptFileInput[] {
-  return Array.isArray(value) && value.length <= MAX_PROMPT_FILES && value.every(isPromptFile);
+  return Array.isArray(value)
+    && value.length <= MAX_PROMPT_FILES
+    && value.every(isPromptFile)
+    && isPromptFilesWithinTotalSize(value);
 }
 
 export function isPromptFileWithinSize(file: PromptFileInput): boolean {
@@ -87,6 +100,9 @@ export function isPromptFileText(file: PromptFileInput): boolean {
 /** Keep file contents readable to the model while making them removable from UI history. */
 export function formatPromptWithFiles(prompt: string, files: PromptFileInput[]): string {
   if (files.length === 0) return prompt;
+  if (!isPromptFilesWithinTotalSize(files)) {
+    throw new Error(`添付ファイルは合計${MAX_PROMPT_FILE_TOTAL_BYTES / 1024}KiBまでです`);
+  }
   const markers = files.map((file) => {
     const content = decodePromptFile(file);
     if (content === null) throw new Error("添付ファイルはUTF-8テキストのみ対応しています");

@@ -7,7 +7,7 @@ import { botTaskId, botWorkspace, getBot, listBots } from "./bots";
 import { deleteTask, getTask, insertBotTask, listTasks, patchTask } from "./store";
 import { ROOM_HANDOFF_STATES } from "./types";
 import type { BotDto, RoomDto, RoomFile, RoomHandoff, RoomImage, RoomMessage, RoomOutcome } from "./types";
-import { isPromptFileText, isPromptFileWithinSize, isPromptImageWithinSize, type PromptFileInput, type PromptImageInput } from "./prompt-images";
+import { isPromptFileText, isPromptFilesWithinTotalSize, isPromptFileWithinSize, isPromptImageWithinSize, MAX_PROMPT_FILE_TOTAL_BYTES, type PromptFileInput, type PromptImageInput } from "./prompt-images";
 const roomEvents = new EventEmitter();
 
 /** Per-room data directory: archived history and attachments live here. */
@@ -362,6 +362,7 @@ function roomFilePath(roomId: string, file: string): string {
 }
 export function roomFileRejection(files: PromptFileInput[]): string | undefined {
   if (files.length > MAX_ROOM_FILES) return `ファイルは${MAX_ROOM_FILES}件までです`;
+  if (!isPromptFilesWithinTotalSize(files)) return `添付ファイルは合計${MAX_PROMPT_FILE_TOTAL_BYTES / 1024}KiBまでです`;
   for (const file of files) {
     const bytes = Buffer.byteLength(file.data, "base64");
     if (bytes === 0) return "ファイルデータが空です";

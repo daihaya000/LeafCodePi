@@ -3,7 +3,9 @@ import {
   decodePromptFile,
   formatPromptWithFiles,
   isPromptFile,
+  isPromptFileList,
   isPromptFileText,
+  MAX_PROMPT_FILE_TOTAL_BYTES,
   parsePromptFileMarkers,
 } from "./prompt-images";
 
@@ -26,6 +28,17 @@ describe("prompt file attachments", () => {
     const taggedParsed = parsePromptFileMarkers(formatPromptWithFiles("確認", [tagged]));
     expect(taggedParsed.text).toBe("確認");
     expect(taggedParsed.files).toEqual([tagged]);
+  });
+
+  it("bounds the aggregate text sent to the model", () => {
+    const half = Math.floor(MAX_PROMPT_FILE_TOTAL_BYTES / 2) + 1;
+    const files = [
+      { ...file, name: "first.txt", data: Buffer.alloc(half, "a").toString("base64") },
+      { ...file, name: "second.txt", data: Buffer.alloc(half, "b").toString("base64") },
+    ];
+
+    expect(isPromptFileList(files)).toBe(false);
+    expect(() => formatPromptWithFiles("確認", files)).toThrow("合計");
   });
 
   it("rejects binary content before it reaches the prompt", () => {

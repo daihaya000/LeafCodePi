@@ -6,6 +6,7 @@ const testState = vi.hoisted(() => ({ root: "" }));
 vi.mock("./paths", async (importOriginal) => { const actual = await importOriginal<typeof import("./paths")>(); return { ...actual, dataDir: () => testState.root, storePath: () => join(testState.root, "store.json") }; });
 import { botTaskId, createBot, deleteBot, patchBot } from "./bots";
 import { appendRoomMessage, botsForRoomPrompt, consumeRoomRelayEnvelope, createRoom, deleteRoom, ensureRoomBotTask, getRoom, issueRoomRelayEnvelope, patchRoom, readRoomFile, readRoomImage, roomFileRejection, roomImageRejection, roomRequestFiles, roomRequestImages, saveRoomFiles, saveRoomImages, updateRoomMessage } from "./rooms";
+import { MAX_PROMPT_FILE_TOTAL_BYTES } from "./prompt-images";
 import { getTask } from "./store";
 
 describe("room store and mention routing", () => {
@@ -80,6 +81,12 @@ describe("room store and mention routing", () => {
     expect(saved).toEqual([{ file: `${message.id}-0.dat`, mimeType: "text/plain", name: "メモ.txt", size: text.length }]);
     expect(roomFileRejection([file])).toBeUndefined();
     expect(roomFileRejection([{ ...file, data: Buffer.from([0xff]).toString("base64") }])).toContain("UTF-8");
+    expect(
+      roomFileRejection([
+        { ...file, name: "first.txt", data: Buffer.alloc(MAX_PROMPT_FILE_TOTAL_BYTES / 2 + 1, "a").toString("base64") },
+        { ...file, name: "second.txt", data: Buffer.alloc(MAX_PROMPT_FILE_TOTAL_BYTES / 2 + 1, "b").toString("base64") },
+      ]),
+    ).toContain("合計");
     updateRoomMessage(room.id, message.id, { files: saved });
     expect(readRoomFile(room.id, saved[0].file)?.bytes.equals(text)).toBe(true);
     expect(readRoomFile(room.id, "../../store.json")).toBeUndefined();
