@@ -28,10 +28,6 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { MemoryStore } from "./store/memory-store.js";
 import { SkillStore } from "./store/skill-store.js";
 import { DatabaseManager } from "./store/db.js";
-import { indexSession, upsertSessionFileMetadata } from "./store/session-indexer.js";
-import { scheduleSessionBackfill, waitForSessionBackfill, SESSION_BACKFILL_SHUTDOWN_TIMEOUT_MS } from "./handlers/session-backfill.js";
-import { scheduleLiveSessionIndex, waitForLiveSessionIndex, SESSION_LIVE_INDEX_SHUTDOWN_TIMEOUT_MS } from "./handlers/session-live-index.js";
-import { parseSessionFile } from "./store/session-parser.js";
 import { registerMemoryTool } from "./tools/memory-tool.js";
 import { registerSkillTool } from "./tools/skill-tool.js";
 import { registerSessionSearchTool } from "./tools/session-search-tool.js";
@@ -45,7 +41,6 @@ import { setupCorrectionDetector } from "./handlers/correction-detector.js";
 import { registerSkillsCommand } from "./handlers/skills-command.js";
 import { registerInterviewCommand } from "./handlers/interview.js";
 import { registerSwitchProjectCommand } from "./handlers/switch-project.js";
-import { registerIndexSessionsCommand } from "./handlers/index-sessions.js";
 import { registerLearnMemoryCommand } from "./handlers/learn-memory.js";
 import { migrateThenSyncMarkdownMemories, registerSyncMarkdownMemoriesCommand } from "./handlers/sync-markdown-memories.js";
 import { registerPreviewContextCommand } from "./handlers/preview-context.js";
@@ -115,6 +110,25 @@ export default function (pi: ExtensionAPI) {
     : [];
 
   let persistenceInitialized = false;
+  let sessionShuttingDown = false;
+  let sessionBackfillModulePromise: Promise<typeof import("./handlers/session-backfill.js")> | null = null;
+  let sessionLiveIndexModulePromise: Promise<typeof import("./handlers/session-live-index.js")> | null = null;
+  let sessionIndexerModulePromise: Promise<typeof import("./store/session-indexer.js")> | null = null;
+  let sessionParserModulePromise: Promise<typeof import("./store/session-parser.js")> | null = null;
+  let indexSessionsCommandPromise: Promise<void> | null = null;
+
+  const loadSessionBackfill = () => sessionBackfillModulePromise ??= import("./handlers/session-backfill.js");
+  const loadSessionLiveIndex = () => sessionLiveIndexModulePromise ??= import("./handlers/session-live-index.js");
+  const loadSessionIndexer = () => sessionIndexerModulePromise ??= import("./store/session-indexer.js");
+  const loadSessionParser = () => sessionParserModulePromise ??= import("./store/session-parser.js");
+  const ensureIndexSessionsCommand = () => {
+    if (indexSessionsCommandPromise) return;
+    indexSessionsCommandPromise = import("./handlers/index-sessions.js").then(({ registerIndexSessionsCommand }) => {
+      if (!sessionShuttingDown) registerIndexSessionsCommand(pi);
+    }).catch((error) => {
+      console.warn(`⚠️ Session indexing command unavailable: ${error instanceof Error ? error.message : String(error)}`);
+    });
+  };
 
   const store = new MemoryStore({ ...config, memoryDir: globalDir });
   let project = detectProject(config.projectsMemoryDir);
@@ -177,6 +191,7 @@ export default function (pi: ExtensionAPI) {
 
   // ── 1. Load memory from disk on session start ──
   pi.on("session_start", async (_event, ctx) => {
+    sessionShuttingDown = false;
     if (!persistenceInitialized) {
       try {
         for (const legacyDir of legacyDirsToMigrate) {
@@ -230,18 +245,26 @@ export default function (pi: ExtensionAPI) {
     if (projectStore) await projectStore.loadFromDisk();
     if (standingStore) await standingStore.load();
 
-    if (persistenceInitialized) scheduleSessionBackfill(dbManager, sessionsDir, {
-      notify: (message, level) => {
-        const ui = (ctx as { ui?: { notify?: (message: string, level?: string) => void } }).ui;
-        if (ui?.notify) {
-          ui.notify(message, level);
-        } else if (level === "error" || level === "warning") {
-          console.warn(message);
-        } else {
-          console.info(message);
-        }
-      },
-    });
+    if (persistenceInitialized) {
+      void loadSessionBackfill().then(({ scheduleSessionBackfill }) => {
+        if (sessionShuttingDown) return;
+        scheduleSessionBackfill(dbManager, sessionsDir, {
+          notify: (message, level) => {
+            const ui = (ctx as { ui?: { notify?: (message: string, level?: string) => void } }).ui;
+            if (ui?.notify) {
+              ui.notify(message, level);
+            } else if (level === "error" || level === "warning") {
+              console.warn(message);
+            } else {
+              console.info(message);
+            }
+          },
+        });
+      }).catch((error) => {
+        console.warn(`⚠️ Session backfill unavailable: ${error instanceof Error ? error.message : String(error)}`);
+      });
+    }
+    ensureIndexSessionsCommand();
   });
 
   registerProjectSkillDiscoveryHandler(pi, skillStore, config.projectsMemoryDir);
@@ -325,16 +348,20 @@ export default function (pi: ExtensionAPI) {
   if (standingStore) registerStandingPinCommand(pi, standingStore);
 
   // ── 11. Live session indexing ──
-  pi.on("message_end", async (_event, ctx) => {
-    scheduleLiveSessionIndex(dbManager, ctx.sessionManager, {
-      onError: (err) => console.warn(`⚠️ Live session indexing failed: ${err instanceof Error ? err.message : String(err)}`),
+  pi.on("message_end", (_event, ctx) => {
+    void loadSessionLiveIndex().then(({ scheduleLiveSessionIndex }) => {
+      if (sessionShuttingDown) return;
+      scheduleLiveSessionIndex(dbManager, ctx.sessionManager, {
+        onError: (err) => console.warn(`⚠️ Live session indexing failed: ${err instanceof Error ? err.message : String(err)}`),
+      });
+    }).catch((error) => {
+      console.warn(`⚠️ Live session indexing unavailable: ${error instanceof Error ? error.message : String(error)}`);
     });
   });
 
   // ── 12. SQLite session search + extended memory ──
   registerSessionSearchTool(pi, dbManager, config.sessionSearch ?? { variant: "legacy" });
   registerMemorySearchTool(pi, dbManager);
-  registerIndexSessionsCommand(pi);
 
   // ── 13. Auto-index session on shutdown ──
   // Registered last, so this runs after the session-flush shutdown handler and
@@ -348,9 +375,14 @@ export default function (pi: ExtensionAPI) {
   // DB-writing session_shutdown handler after this block — it would run after
   // close() and silently no-op.
   pi.on("session_shutdown", async (_event, ctx) => {
+    sessionShuttingDown = true;
     try {
       const sessionFile = ctx.sessionManager.getSessionFile();
       if (sessionFile && require("node:fs").existsSync(sessionFile)) {
+        const [{ parseSessionFile }, { indexSession, upsertSessionFileMetadata }] = await Promise.all([
+          loadSessionParser(),
+          loadSessionIndexer(),
+        ]);
         const sessionData = parseSessionFile(sessionFile);
         if (sessionData) {
           dbManager.withCorruptionRecovery(() => {
@@ -368,8 +400,12 @@ export default function (pi: ExtensionAPI) {
     } finally {
       try {
         await Promise.all([
-          waitForSessionBackfill(SESSION_BACKFILL_SHUTDOWN_TIMEOUT_MS),
-          waitForLiveSessionIndex(SESSION_LIVE_INDEX_SHUTDOWN_TIMEOUT_MS),
+          sessionBackfillModulePromise
+            ? sessionBackfillModulePromise.then(({ waitForSessionBackfill }) => waitForSessionBackfill())
+            : Promise.resolve(true),
+          sessionLiveIndexModulePromise
+            ? sessionLiveIndexModulePromise.then(({ waitForLiveSessionIndex }) => waitForLiveSessionIndex())
+            : Promise.resolve(true),
         ]);
       } catch {
         // Best effort only — shutdown should not be held up by indexing errors.
