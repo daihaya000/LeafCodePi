@@ -3483,7 +3483,7 @@ export const TaskView = memo(function TaskView({
                       ? `task-tool-group:${messageRenderKey(firstMessage)}`
                       : messageRenderKey(block.message)
                   }
-                  className="task-message-row"
+                  className="task-message-row [content-visibility:auto] [contain-intrinsic-size:auto_8rem]"
                   ref={(el) => {
                     const messagesToTrack =
                       block.kind === "tool-group"

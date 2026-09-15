@@ -153,4 +153,21 @@ describe("TaskView render stability", () => {
     });
     expect(mocks.partView).not.toHaveBeenCalled();
   });
+
+  it("uses content visibility to defer offscreen timeline row rendering", async () => {
+    const message: UiMessage = {
+      id: "assistant-row",
+      role: "assistant",
+      createdAt: 1,
+      parts: [{ id: "assistant-row-text", type: "text", text: "応答" }],
+    };
+    saveTaskSessionCache({ task, messages: [message], isStreaming: false, isCompacting: false });
+
+    const view = render(<TaskView taskId={task.id} mdUp />);
+    await waitFor(() => expect(mocks.partView).toHaveBeenCalledWith(message.id));
+
+    const row = view.container.querySelector(".task-message-row");
+    expect(row?.className).toContain("[content-visibility:auto]");
+    expect(row?.className).toContain("[contain-intrinsic-size:auto_8rem]");
+  });
 });
