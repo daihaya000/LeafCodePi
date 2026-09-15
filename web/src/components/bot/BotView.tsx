@@ -1,6 +1,6 @@
 "use client";
 
-import { memo, type CSSProperties, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, startTransition, type CSSProperties, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Volume2, VolumeX, X } from "lucide-react";
 import Markdown from "react-markdown";
@@ -598,21 +598,27 @@ export const BotView = memo(function BotView({ id, active = true }: { id: string
             message?: UiMessage | null;
             isStreaming?: boolean;
           };
-          if (payload.message) {
-            if (historyLoadedRef.current) {
-              const remapped = remapTaskMessageCursor(
-                messageHistoryRef.current,
-                messagesRef.current,
-                [payload.message],
-              );
-              if (remapped !== messageHistoryRef.current) {
-                messageHistoryRef.current = remapped;
-                setMessageHistory(remapped);
+          // Text/tool deltas can arrive several times per second. Keep them
+          // interruptible so typing and permission controls stay responsive.
+          startTransition(() => {
+            if (payload.message) {
+              if (historyLoadedRef.current) {
+                const remapped = remapTaskMessageCursor(
+                  messageHistoryRef.current,
+                  messagesRef.current,
+                  [payload.message],
+                );
+                if (remapped !== messageHistoryRef.current) {
+                  messageHistoryRef.current = remapped;
+                  setMessageHistory(remapped);
+                }
               }
+              setMessages((current) => upsertUiMessage(current, payload.message!));
             }
-            setMessages((current) => upsertUiMessage(current, payload.message!));
-          }
-          if (payload.isStreaming !== undefined) setSending(payload.isStreaming);
+            if (payload.isStreaming !== undefined) {
+              setSending((current) => current === payload.isStreaming ? current : payload.isStreaming!);
+            }
+          });
         } catch { setError("イベントの解析に失敗しました"); }
       });
       // The route uses a named SSE error event for server-side failures. Handle
