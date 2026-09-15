@@ -542,6 +542,25 @@ it("clears loaded Bot history when the conversation is reset", async () => {
   expect(screen.queryByRole("button", { name: "過去の履歴を読み込む" })).toBeNull();
 });
 
+it("does not load older Bot history while scrolling", async () => {
+  const messagePath = "/api/tasks/bot%3Aone/messages";
+  render(<ShellProvider><BotView id="one" /></ShellProvider>);
+  await screen.findByRole("button", { name: "設定" });
+  snapshot({
+    messages: [{ id: "latest", role: "assistant", createdAt: 1, parts: [{ id: "latest-text", type: "text", text: "latest reply" }] }],
+    messageHistory: { hasMore: true, nextCursor: "oldest" },
+  });
+  const viewport = screen.getByRole("main");
+  Object.defineProperties(viewport, {
+    scrollHeight: { configurable: true, value: 1_000 },
+    clientHeight: { configurable: true, value: 200 },
+    scrollTop: { configurable: true, writable: true, value: 0 },
+  });
+
+  fireEvent.scroll(viewport);
+  expect(mocks.getJson.mock.calls.some(([url]) => url === messagePath)).toBe(false);
+});
+
 it("refreshes the newest Bot page when an older-history cursor is stale", async () => {
   const messagePath = "/api/tasks/bot%3Aone/messages";
   const old = { id: "old", role: "assistant", createdAt: 1, parts: [{ id: "old-text", type: "text", text: "old reply" }] };

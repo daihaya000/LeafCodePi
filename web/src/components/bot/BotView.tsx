@@ -1182,7 +1182,6 @@ export const BotView = memo(function BotView({ id, active = true }: { id: string
         contentKey={chatScrollKey}
         active={active}
         viewportRef={viewportRef}
-        onReachTop={() => void loadOlderMessages()}
       >
         <div className={conversationContentClass}>
           {messageHistory.hasMore && (

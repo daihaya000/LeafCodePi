@@ -87,12 +87,11 @@ export const BotMessageMarkdown = memo(function BotMessageMarkdown({ text, menti
   return <div className="md"><Markdown remarkPlugins={[remarkGfm]} components={{ ...components, a: ({ href, children, ...props }) => <TaskLink href={href} {...props}>{children}</TaskLink> }}>{linkBareTaskPaths(text)}</Markdown></div>;
 });
 
-export function BotMessageList({ conversationId, contentKey, children, viewportRef, onReachTop, active = true }: {
+export function BotMessageList({ conversationId, contentKey, children, viewportRef, active = true }: {
   conversationId: string;
   contentKey?: unknown;
   children: ReactNode;
   viewportRef?: RefObject<HTMLElement | null>;
-  onReachTop?: () => void;
   active?: boolean;
 }) {
   const localViewport = useRef<HTMLElement>(null);
@@ -128,7 +127,6 @@ export function BotMessageList({ conversationId, contentKey, children, viewportR
     <main ref={viewport} onScroll={(event) => {
       const element = event.currentTarget;
       following.current = element.scrollHeight - element.scrollTop - element.clientHeight <= 48;
-      if (element.scrollTop <= 80) onReachTop?.();
     }} className={conversationViewportClass}>
       <div ref={contentRef}>{children}</div>
     </main>
