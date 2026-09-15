@@ -33,6 +33,8 @@ vi.mock("@/lib/bots", () => ({
   normalizeBotSkills: mocks.normalizeBotSkills,
   botTaskId: (id: string) => `bot:${id}`,
   BOT_TOOL_NAMES: ["bash", "powershell", "read", "write", "edit", "grep", "glob", "intercom"],
+  MAX_BOT_NAME_CHARS: 100,
+  MAX_BOT_LABEL_CHARS: 100,
 }));
 vi.mock("@/lib/pi/harness", () => ({
   setBotModel: mocks.setBotModel,
@@ -112,6 +114,8 @@ describe("PATCH /api/bots/[id]", () => {
     mocks.getBot.mockReturnValue(bot());
     for (const body of [
       { name: "  " },
+      { name: "x".repeat(101) },
+      { label: "x".repeat(101) },
       { soul: "x".repeat(128 * 1024 + 1) },
       { soul: "bad\0soul" },
       { model: "" },

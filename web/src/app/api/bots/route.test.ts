@@ -6,6 +6,7 @@ const botApiTestState = vi.hoisted(() => ({ root: "" }));
 vi.mock("../../../lib/paths", async (importOriginal) => { const actual = await importOriginal<typeof import("../../../lib/paths")>(); return { ...actual, dataDir: () => botApiTestState.root }; });
 import { NextRequest } from "next/server";
 import { insertTask, setTaskStatus } from "../../../lib/store";
+import { MAX_BOT_NAME_CHARS } from "../../../lib/bots";
 import { GET, POST } from "./route";
 
 describe("/api/bots", () => {
@@ -16,6 +17,13 @@ describe("/api/bots", () => {
     expect(response.status).toBe(201); const created = (await response.json()).bot;
     const listed = await GET(); expect((await listed.json()).bots[0].id).toBe(created.id);
   });
+  it("rejects an oversized name before creating a bot", async () => {
+    const response = await POST(new NextRequest("http://localhost/api/bots", { method: "POST", body: JSON.stringify({ name: "x".repeat(MAX_BOT_NAME_CHARS + 1) }) }));
+    expect(response.status).toBe(400);
+    const listed = await GET();
+    expect((await listed.json()).bots).toEqual([]);
+  });
+
   it("counts only working Code sessions", async () => {
     const response = await POST(new NextRequest("http://localhost/api/bots", { method: "POST", body: JSON.stringify({ name: "Working bot" }) }));
     const bot = (await response.json()).bot;

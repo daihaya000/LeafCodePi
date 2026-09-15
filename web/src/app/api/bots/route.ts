@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createBot, listBots, patchBot } from "@/lib/bots";
+import { createBot, listBots, MAX_BOT_NAME_CHARS, patchBot } from "@/lib/bots";
 import { listTasks } from "@/lib/store";
 import { botTemplateById } from "@/lib/bot-marketplace";
 import { getSetting } from "@/lib/pi/web-settings";
@@ -18,7 +18,7 @@ export async function GET() {
 }
 export async function POST(req: NextRequest) {
   const body = (await req.json().catch(() => null)) as { name?: unknown; templateId?: unknown } | null;
-  if (body?.name !== undefined && typeof body.name !== "string") return NextResponse.json({ error: "invalid name" }, { status: 400 });
+  if (body?.name !== undefined && (typeof body.name !== "string" || body.name.length > MAX_BOT_NAME_CHARS)) return NextResponse.json({ error: "invalid name" }, { status: 400 });
   if (body?.templateId !== undefined && typeof body.templateId !== "string") return NextResponse.json({ error: "invalid template" }, { status: 400 });
   const template = typeof body?.templateId === "string" ? botTemplateById(body.templateId) : undefined;
   if (body?.templateId !== undefined && !template) return NextResponse.json({ error: "unknown template" }, { status: 400 });

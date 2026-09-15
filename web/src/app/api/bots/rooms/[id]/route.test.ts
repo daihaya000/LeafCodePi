@@ -26,7 +26,7 @@ vi.mock("@/lib/pi/bot-code-relay", () => ({
 }));
 
 import { createBot } from "@/lib/bots";
-import { appendRoomMessage, createRoom, ensureRoomBotTask, getRoom } from "@/lib/rooms";
+import { appendRoomMessage, createRoom, ensureRoomBotTask, getRoom, MAX_ROOM_NAME_CHARS } from "@/lib/rooms";
 import { getTask } from "@/lib/store";
 import { DELETE, PATCH } from "./route";
 
@@ -104,6 +104,21 @@ describe("PATCH /api/bots/rooms/[id] resetMessages", () => {
     expect(state.stopAllRoomCodeSessions).toHaveBeenCalledWith(room.id);
     expect(state.resetTaskConversation).toHaveBeenCalledWith(taskId);
     expect(getRoom(room.id)?.messages).toEqual([]);
+  });
+
+  it("rejects an oversized name before patching a room", async () => {
+    const room = createRoom({ name: "Original" });
+
+    const response = await PATCH(
+      new NextRequest("http://localhost", {
+        method: "PATCH",
+        body: JSON.stringify({ name: "x".repeat(MAX_ROOM_NAME_CHARS + 1) }),
+      }),
+      { params: Promise.resolve({ id: room.id }) },
+    );
+
+    expect(response.status).toBe(400);
+    expect(getRoom(room.id)?.name).toBe("Original");
   });
 
   it("detaches removed members before patching membership", async () => {

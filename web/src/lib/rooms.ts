@@ -15,6 +15,8 @@ function roomDataRoot(roomId: string): string { return join(roomsRoot(), roomId)
 function roomLockPath(roomId: string): string { assertId(roomId); return join(roomsRoot(), `${roomId}.lock`); }
 
 export const MAX_ROOM_RELAY_DEPTH = 3;
+/** Repeated in every Bot's turn prompt (see room-conversation.ts roomBotPrompt); keep it short. */
+export const MAX_ROOM_NAME_CHARS = 100;
 type RoomRelayEnvelope = { roomId: string; sourceBotId: string; targetBotIds: string[]; turnId: string; depth: number; parentId?: string; consumed: boolean; expiresAt: number };
 type RoomRelayState = { envelopes: Record<string, RoomRelayEnvelope>; claims: Record<string, string[]> };
 const RELAY_ENVELOPE_TTL_MS = 10 * 60 * 1000;
