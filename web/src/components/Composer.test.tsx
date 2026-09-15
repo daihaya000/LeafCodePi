@@ -1,8 +1,9 @@
 // @vitest-environment happy-dom
 import { useRef, useState } from "react";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { composerPromptAttachments, Composer, type ComposerAttachment } from "./Composer";
+import { LARGE_PASTE_CHAR_LIMIT, PASTED_TEXT_FILE_NAME } from "@/lib/clipboard-image";
 
 function TestComposer({
   value,
@@ -157,6 +158,104 @@ describe("Composer", () => {
 
     fireEvent.keyDown(document, { key: "Escape" });
     expect(screen.queryByRole("dialog", { name: "shot.png（拡大表示）" })).toBeNull();
+  });
+
+  it("turns a large text paste into an attachment instead of filling the Code field", () => {
+    const onFilesSelected = vi.fn();
+    function PasteComposer() {
+      const [value, setValue] = useState("");
+      const textareaRef = useRef<HTMLTextAreaElement>(null);
+      const inputRef = useRef<HTMLInputElement>(null);
+      return (
+        <Composer
+          className=""
+          attachments={[]}
+          onRemoveAttachment={() => {}}
+          textarea={{
+            ref: textareaRef,
+            value,
+            rows: 1,
+            ariaLabel: "メッセージ",
+            placeholder: "入力",
+            className: "",
+            onChange: (event) => setValue(event.target.value),
+            onValueChange: setValue,
+            onKeyDown: () => {},
+          }}
+          attachmentControl={{
+            inputRef,
+            onFilesSelected,
+            onTrigger: () => {},
+            buttonTitle: "ファイルを添付",
+          }}
+          action={null}
+        />
+      );
+    }
+
+    render(<PasteComposer />);
+    const unit = "貼り付けるテキスト";
+    const text = unit.repeat(Math.ceil((LARGE_PASTE_CHAR_LIMIT + 1) / unit.length));
+    const textarea = screen.getByRole("textbox") as HTMLTextAreaElement;
+    fireEvent.paste(textarea, {
+      clipboardData: {
+        items: [],
+        getData: () => text,
+      },
+    });
+
+    expect(onFilesSelected).toHaveBeenCalledOnce();
+    const file = (onFilesSelected.mock.calls[0]?.[0] as FileList)[0];
+    expect(file?.name).toBe(PASTED_TEXT_FILE_NAME);
+    expect(file?.type).toBe("text/plain");
+    expect(textarea.value).toBe("");
+  });
+
+  it("restores a text attachment to the Code field", () => {
+    const text = "復元する長文";
+    function RestoreComposer() {
+      const [value, setValue] = useState("");
+      const [attachments, setAttachments] = useState<ComposerAttachment[]>([
+        {
+          uri: `data:text/plain;base64,${Buffer.from(text, "utf8").toString("base64")}`,
+          mime: "text/plain",
+          name: "pasted-text.txt",
+        },
+      ]);
+      const textareaRef = useRef<HTMLTextAreaElement>(null);
+      const inputRef = useRef<HTMLInputElement>(null);
+      return (
+        <Composer
+          className=""
+          attachments={attachments}
+          onRemoveAttachment={(index) => setAttachments((current) => current.filter((_, position) => position !== index))}
+          textarea={{
+            ref: textareaRef,
+            value,
+            rows: 1,
+            ariaLabel: "メッセージ",
+            placeholder: "入力",
+            className: "",
+            onChange: (event) => setValue(event.target.value),
+            onValueChange: setValue,
+            onKeyDown: () => {},
+          }}
+          attachmentControl={{
+            inputRef,
+            onFilesSelected: () => {},
+            onTrigger: () => {},
+            buttonTitle: "ファイルを添付",
+          }}
+          action={null}
+        />
+      );
+    }
+
+    render(<RestoreComposer />);
+    fireEvent.click(screen.getByRole("button", { name: "テキストフィールドに表示" }));
+
+    expect((screen.getByRole("textbox") as HTMLTextAreaElement).value).toBe(text);
+    expect(screen.queryByRole("button", { name: "テキストフィールドに表示" })).toBeNull();
   });
 
   it("suggests and highlights slash skill references", () => {

@@ -2,10 +2,13 @@ import { describe, expect, it, vi } from "vitest";
 import {
   canAttachComposerImages,
   clipboardHasImage,
+  LARGE_PASTE_CHAR_LIMIT,
   pasteImage,
+  pasteLargeText,
+  PASTED_TEXT_FILE_NAME,
 } from "./clipboard-image";
 
-function clipboardEvent(items: Array<{ kind: string; type: string; file?: File | null }>) {
+function clipboardEvent(items: Array<{ kind: string; type: string; file?: File | null }>, text = "") {
   return {
     clipboardData: {
       items: items.map((item) => ({
@@ -13,6 +16,7 @@ function clipboardEvent(items: Array<{ kind: string; type: string; file?: File |
         type: item.type,
         getAsFile: () => item.file ?? null,
       })),
+      getData: (type: string) => type === "text/plain" ? text : "",
     } as unknown as DataTransfer,
     preventDefault: vi.fn(),
   };
@@ -60,5 +64,29 @@ describe("pasteImage", () => {
     // Goal loop 等で添付拒否しても true を返し、呼び出し側が preventDefault できる。
     expect(pasteImage(onFiles, event)).toBe(true);
     expect(onFiles).toHaveBeenCalledOnce();
+  });
+});
+
+describe("pasteLargeText", () => {
+  it("turns text over the limit into a text attachment", async () => {
+    const text = "a".repeat(LARGE_PASTE_CHAR_LIMIT + 1);
+    const onFiles = vi.fn();
+    const event = clipboardEvent([], text);
+
+    expect(pasteLargeText(onFiles, event)).toBe(true);
+    const file = (onFiles.mock.calls[0]?.[0] as FileList)[0];
+    expect(file?.name).toBe(PASTED_TEXT_FILE_NAME);
+    expect(file?.type).toBe("text/plain");
+    await expect(file?.text()).resolves.toBe(text);
+  });
+
+  it("leaves short text and image clipboard contents alone", () => {
+    const onFiles = vi.fn();
+    const short = clipboardEvent([], "a".repeat(LARGE_PASTE_CHAR_LIMIT));
+    const image = clipboardEvent([{ kind: "file", type: "image/png", file: new File(["img"], "shot.png", { type: "image/png" }) }], "a".repeat(LARGE_PASTE_CHAR_LIMIT + 1));
+
+    expect(pasteLargeText(onFiles, short)).toBe(false);
+    expect(pasteLargeText(onFiles, image)).toBe(false);
+    expect(onFiles).not.toHaveBeenCalled();
   });
 });

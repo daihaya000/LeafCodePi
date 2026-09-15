@@ -3,6 +3,9 @@ type ClipboardEventLike = {
   preventDefault: () => void;
 };
 
+export const LARGE_PASTE_CHAR_LIMIT = 10_000;
+export const PASTED_TEXT_FILE_NAME = "pasted-text.txt";
+
 /** Composer の添付が今受けられるか（ボタン無効と同じ条件）。 */
 export function canAttachComposerImages(input: {
   goalLoopEnabled?: boolean;
@@ -45,5 +48,15 @@ export function pasteImage(onFiles: (files: FileList) => void, event: ClipboardE
   }
   if (files.length === 0) return false;
   onFiles(files as unknown as FileList);
+  return true;
+}
+
+/** 10,000文字を超える貼り付けを、編集可能なテキストファイルへ変換する。 */
+export function pasteLargeText(onFiles: (files: FileList) => void, event: ClipboardEventLike): boolean {
+  if (clipboardHasImage(event)) return false;
+  const text = event.clipboardData?.getData?.("text/plain") ?? "";
+  if (text.length <= LARGE_PASTE_CHAR_LIMIT) return false;
+  const file = new File([text], PASTED_TEXT_FILE_NAME, { type: "text/plain" });
+  onFiles([file] as unknown as FileList);
   return true;
 }

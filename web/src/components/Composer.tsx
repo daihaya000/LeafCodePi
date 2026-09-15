@@ -16,7 +16,7 @@ import type {
   UIEventHandler,
 } from "react";
 import { createPortal } from "react-dom";
-import { FileText, Paperclip, UsersRound, Wrench, X } from "lucide-react";
+import { ChevronRight, FileText, Paperclip, UsersRound, Wrench, X } from "lucide-react";
 import {
   composerReferenceInsertion,
   composerReferenceToolNames,
@@ -25,6 +25,7 @@ import {
   type ComposerReference,
 } from "@/lib/composer-references";
 import { isImeComposingEvent } from "@/lib/composer-ime";
+import { pasteLargeText } from "@/lib/clipboard-image";
 import { renderHighlightedReferenceText } from "@/components/ReferenceHighlight";
 
 export type { ComposerReference } from "@/lib/composer-references";
@@ -79,6 +80,29 @@ export function readComposerFiles(
     };
     reader.readAsDataURL(file);
   });
+}
+
+/** Restore a non-image data URL to editable text without replacing invalid bytes. */
+export function composerAttachmentText(attachment: ComposerAttachment): string | null {
+  if (attachment.mime.toLowerCase().startsWith("image/")) return null;
+  const comma = attachment.uri.indexOf(",");
+  if (comma < 0) return null;
+  const header = attachment.uri.slice(0, comma);
+  const data = attachment.uri.slice(comma + 1);
+  try {
+    if (/;base64(?:;|$)/i.test(header)) {
+      if (typeof atob !== "function" || typeof TextDecoder === "undefined") return null;
+      const binary = atob(data);
+      const bytes = new Uint8Array(binary.length);
+      for (let index = 0; index < binary.length; index += 1) {
+        bytes[index] = binary.charCodeAt(index);
+      }
+      return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+    }
+    return decodeURIComponent(data);
+  } catch {
+    return null;
+  }
 }
 
 export type ComposerReferences = {
@@ -299,6 +323,20 @@ export function Composer({
     textarea.onScroll?.(event);
   }
 
+  function restoreAttachment(index: number, text: string) {
+    if (!textarea.onValueChange) return;
+    const next = textarea.value
+      ? `${textarea.value}${textarea.value.endsWith("\n") ? "" : "\n\n"}${text}`
+      : text;
+    textarea.onValueChange(next);
+    onRemoveAttachment(index);
+    requestAnimationFrame(() => {
+      const element = textarea.ref.current;
+      element?.focus();
+      element?.setSelectionRange(next.length, next.length);
+    });
+  }
+
   const highlightedText = renderHighlightedReferenceText(textarea.value, availableReferences);
   useLayoutEffect(() => {
     if (!previewRef.current) return;
@@ -337,6 +375,9 @@ export function Composer({
           {attachments.map((attachment, index) => {
             const name = attachment.name ?? "添付ファイル";
             const isImage = attachment.mime.toLowerCase().startsWith("image/");
+            const restorableText = !isImage && textarea.onValueChange && !textarea.readOnly && !textarea.disabled && !attachmentRemovalDisabled
+              ? composerAttachmentText(attachment)
+              : null;
             return (
               <span
                 key={`${attachment.uri}-${index}`}
@@ -349,9 +390,22 @@ export function Composer({
                     className="h-16 w-16 object-cover"
                   />
                 ) : (
-                  <span className="flex h-16 w-40 items-center gap-2 px-2 text-xs text-muted">
-                    <FileText className="h-5 w-5 shrink-0 text-accent" aria-hidden="true" />
-                    <span className="min-w-0 truncate" title={name}>{name}</span>
+                  <span className="flex h-16 w-40 flex-col items-start justify-center gap-0.5 px-2 text-xs text-muted">
+                    <span className="flex min-w-0 max-w-full items-center gap-2">
+                      <FileText className="h-5 w-5 shrink-0 text-accent" aria-hidden="true" />
+                      <span className="min-w-0 truncate" title={name}>{name}</span>
+                    </span>
+                    {restorableText !== null && (
+                      <button
+                        type="button"
+                        aria-label="テキストフィールドに表示"
+                        onClick={() => restoreAttachment(index, restorableText)}
+                        className="inline-flex max-w-full items-center text-[10px] text-muted underline underline-offset-2 hover:text-accent"
+                      >
+                        <span className="truncate">テキストフィールドに表示</span>
+                        <ChevronRight className="h-3 w-3 shrink-0" aria-hidden="true" />
+                      </button>
+                    )}
                   </span>
                 )}
                 <button
@@ -403,7 +457,12 @@ export function Composer({
             textarea.onSelect?.(event);
             refreshCaret(event.currentTarget);
           }}
-          onPaste={textarea.onPaste}
+          onPaste={(event) => {
+            textarea.onPaste?.(event);
+            if (!event.defaultPrevented && !attachmentControl.buttonDisabled && pasteLargeText(attachmentControl.onFilesSelected, event)) {
+              event.preventDefault();
+            }
+          }}
           onCompositionStart={(event) => {
             composingRef.current = true;
             textarea.onCompositionStart?.(event);

@@ -1,9 +1,10 @@
 "use client";
 
 import { type ChangeEventHandler, type ClipboardEventHandler, type CompositionEventHandler, type KeyboardEventHandler, type ReactNode, type RefObject, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { ArrowUp, FileText, Paperclip, SlidersHorizontal, Square, UsersRound, Wrench } from "lucide-react";
-import { COMPOSER_ACTION_BUTTON_CLASS, ImageLightbox, type ComposerAttachment, type ComposerReferences } from "@/components/Composer";
+import { ArrowUp, ChevronRight, FileText, Paperclip, SlidersHorizontal, Square, UsersRound, Wrench } from "lucide-react";
+import { COMPOSER_ACTION_BUTTON_CLASS, composerAttachmentText, ImageLightbox, type ComposerAttachment, type ComposerReferences } from "@/components/Composer";
 import { composerReferenceInsertion, composerReferenceToolNames, filterComposerReferences, findComposerReferenceToken, type ComposerReference } from "@/lib/composer-references";
+import { pasteLargeText } from "@/lib/clipboard-image";
 import { isImeComposingEvent } from "@/lib/composer-ime";
 
 type BotComposerProps = {
@@ -108,10 +109,65 @@ export function BotComposer({
     });
   };
 
+  const restoreAttachment = (index: number, text: string) => {
+    if (!onValueChange) return;
+    const next = value
+      ? `${value}${value.endsWith("\n") ? "" : "\n\n"}${text}`
+      : text;
+    onValueChange(next);
+    onRemoveAttachment?.(index);
+    requestAnimationFrame(() => {
+      const input = textareaRef.current;
+      input?.focus();
+      input?.setSelectionRange(next.length, next.length);
+    });
+  };
+
   return (
     <div className="shrink-0 bg-bot-chat px-3 pb-[max(1rem,env(safe-area-inset-bottom))] pt-2 sm:px-4">
       <div className="bot-composer-shell mx-auto w-full rounded-3xl border border-bot-outline/70 bg-bot-panel px-2 py-1 transition-[border-color,box-shadow] focus-within:border-bot-outline">
-        {attachments && attachments.length > 0 && <div className="mb-2 flex flex-wrap gap-2">{attachments.map((attachment, index) => { const name = attachment.name ?? "添付ファイル"; const isImage = attachment.mime.toLowerCase().startsWith("image/"); return <span key={`${attachment.uri}-${index}`} className="relative overflow-hidden rounded-lg border border-border">{isImage ? <ImageLightbox src={attachment.uri} alt={name} className="h-16 w-16 object-cover" /> : <span className="flex h-16 w-40 items-center gap-2 px-2 text-xs text-muted"><FileText className="h-5 w-5 shrink-0 text-accent" aria-hidden="true" /><span className="min-w-0 truncate" title={name}>{name}</span></span>}<button type="button" aria-label={isImage ? `${index + 1}番目の画像を削除` : `${name}を削除`} onClick={() => onRemoveAttachment?.(index)} className="absolute right-0 top-0 rounded-bl bg-black/60 px-1 text-xs text-white">×</button></span>; })}</div>}
+        {attachments && attachments.length > 0 && (
+          <div className="mb-2 flex flex-wrap gap-2">
+            {attachments.map((attachment, index) => {
+              const name = attachment.name ?? "添付ファイル";
+              const isImage = attachment.mime.toLowerCase().startsWith("image/");
+              const restorableText = !isImage && onValueChange && !busy && onRemoveAttachment
+                ? composerAttachmentText(attachment)
+                : null;
+              return (
+                <span key={`${attachment.uri}-${index}`} className="relative overflow-hidden rounded-lg border border-border">
+                  {isImage ? (
+                    <ImageLightbox src={attachment.uri} alt={name} className="h-16 w-16 object-cover" />
+                  ) : (
+                    <span className="flex h-16 w-40 flex-col items-start justify-center gap-0.5 px-2 text-xs text-muted">
+                      <span className="flex min-w-0 max-w-full items-center gap-2">
+                        <FileText className="h-5 w-5 shrink-0 text-accent" aria-hidden="true" />
+                        <span className="min-w-0 truncate" title={name}>{name}</span>
+                      </span>
+                      {restorableText !== null && (
+                        <button
+                          type="button"
+                          aria-label="テキストフィールドに表示"
+                          onClick={() => restoreAttachment(index, restorableText)}
+                          className="inline-flex max-w-full items-center text-[10px] text-muted underline underline-offset-2 hover:text-accent"
+                        >
+                          <span className="truncate">テキストフィールドに表示</span>
+                          <ChevronRight className="h-3 w-3 shrink-0" aria-hidden="true" />
+                        </button>
+                      )}
+                    </span>
+                  )}
+                  <button
+                    type="button"
+                    aria-label={isImage ? `${index + 1}番目の画像を削除` : `${name}を削除`}
+                    onClick={() => onRemoveAttachment?.(index)}
+                    className="absolute right-0 top-0 rounded-bl bg-black/60 px-1 text-xs text-white"
+                  >×</button>
+                </span>
+              );
+            })}
+          </div>
+        )}
         <div className="flex items-end gap-2">
           {onFilesSelected && <>
             <input
@@ -143,7 +199,12 @@ export function BotComposer({
                 // compositionEnd 欠落で stuck すると候補確定ショートカットが死ぬ
                 composingRef.current = false;
               }}
-              onPaste={onPaste}
+              onPaste={(event) => {
+                onPaste?.(event);
+                if (!event.defaultPrevented && !attachmentDisabled && !busy && onFilesSelected && pasteLargeText(onFilesSelected, event)) {
+                  event.preventDefault();
+                }
+              }}
               onCompositionStart={(event) => { composingRef.current = true; onCompositionStart?.(event); }}
               onCompositionEnd={(event) => { composingRef.current = false; onCompositionEnd?.(event); refreshCaret(event.currentTarget); }}
               onKeyDown={(event) => {

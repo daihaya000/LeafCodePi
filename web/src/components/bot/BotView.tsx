@@ -1215,6 +1215,7 @@ export const BotView = memo(function BotView({ id, active = true }: { id: string
         attachmentDisabled={!canAttachComposerImages({ submitting: sending })}
         onPaste={(event) => { if (pasteImage(addFiles, event)) event.preventDefault(); }}
         onChange={(event) => setPrompt(event.target.value)}
+        onValueChange={setPrompt}
         onCompositionStart={() => { composingRef.current = true; }}
         onCompositionEnd={() => { composingRef.current = false; }}
         onKeyDown={(event) => { if (event.key === "Enter" && (event.metaKey || event.ctrlKey) && !composingRef.current) { event.preventDefault(); void send(); } }}

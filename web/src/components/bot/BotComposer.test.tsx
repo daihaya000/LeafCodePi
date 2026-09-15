@@ -3,6 +3,7 @@ import { useRef, useState } from "react";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 import { BotComposer } from "./BotComposer";
+import { LARGE_PASTE_CHAR_LIMIT, PASTED_TEXT_FILE_NAME } from "@/lib/clipboard-image";
 
 afterEach(cleanup);
 
@@ -11,6 +12,52 @@ it("forwards clipboard paste events to the input", () => {
   const { getByRole } = render(<BotComposer value="" onChange={vi.fn()} onPaste={onPaste} onKeyDown={vi.fn()} onSend={vi.fn()} placeholder="Message" />);
   fireEvent.paste(getByRole("textbox"), { clipboardData: { items: [] } });
   expect(onPaste).toHaveBeenCalledOnce();
+});
+
+it("turns a large text paste into a Bot attachment", () => {
+  const onFilesSelected = vi.fn();
+  const unit = "貼り付けるテキスト";
+  const text = unit.repeat(Math.ceil((LARGE_PASTE_CHAR_LIMIT + 1) / unit.length));
+  render(<BotComposer value="" onChange={vi.fn()} onFilesSelected={onFilesSelected} onKeyDown={vi.fn()} onSend={vi.fn()} placeholder="Message" />);
+
+  fireEvent.paste(screen.getByRole("textbox"), {
+    clipboardData: { items: [], getData: () => text },
+  });
+
+  expect(onFilesSelected).toHaveBeenCalledOnce();
+  const file = (onFilesSelected.mock.calls[0]?.[0] as FileList)[0];
+  expect(file?.name).toBe(PASTED_TEXT_FILE_NAME);
+  expect(file?.type).toBe("text/plain");
+});
+
+it("restores a text attachment to the Bot field", () => {
+  const text = "復元する長文";
+  function RestoreComposer() {
+    const [value, setValue] = useState("");
+    const [attachments, setAttachments] = useState([
+      {
+        uri: `data:text/plain;base64,${Buffer.from(text, "utf8").toString("base64")}`,
+        mime: "text/plain",
+        name: "pasted-text.txt",
+      },
+    ]);
+    return <BotComposer
+      value={value}
+      onChange={(event) => setValue(event.target.value)}
+      onValueChange={setValue}
+      attachments={attachments}
+      onRemoveAttachment={(index) => setAttachments((current) => current.filter((_, position) => position !== index))}
+      onKeyDown={vi.fn()}
+      onSend={vi.fn()}
+      placeholder="Message"
+    />;
+  }
+
+  render(<RestoreComposer />);
+  fireEvent.click(screen.getByRole("button", { name: "テキストフィールドに表示" }));
+
+  expect((screen.getByRole("textbox") as HTMLTextAreaElement).value).toBe(text);
+  expect(screen.queryByRole("button", { name: "テキストフィールドに表示" })).toBeNull();
 });
 
 it("opens the image picker and forwards selected files", () => {
