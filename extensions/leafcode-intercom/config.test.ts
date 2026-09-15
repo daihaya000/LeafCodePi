@@ -36,24 +36,24 @@ test("loadConfig reads config below PI_CODING_AGENT_DIR", async () => {
   }
 });
 
-test("loadConfig defaults inboundTrigger to current auto-trigger behavior", async () => {
+test("loadConfig defaults inboundTrigger to replies-only auto-trigger behavior", async () => {
   const root = mkdtempSync(join(tmpdir(), "pi-intercom-config-"));
   try {
     await withAgentDir(root, () => {
-      assert.equal(loadConfig().inboundTrigger, "always");
+      assert.equal(loadConfig().inboundTrigger, "replies");
     });
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
 });
 
-test("loadConfig accepts inboundTrigger replies policy", async () => {
+test("loadConfig accepts inboundTrigger always policy", async () => {
   const root = mkdtempSync(join(tmpdir(), "pi-intercom-config-"));
   try {
     mkdirSync(join(root, "intercom"), { recursive: true });
-    writeFileSync(join(root, "intercom", "config.json"), JSON.stringify({ inboundTrigger: "replies" }));
+    writeFileSync(join(root, "intercom", "config.json"), JSON.stringify({ inboundTrigger: "always" }));
     await withAgentDir(root, () => {
-      assert.equal(loadConfig().inboundTrigger, "replies");
+      assert.equal(loadConfig().inboundTrigger, "always");
     });
   } finally {
     rmSync(root, { recursive: true, force: true });

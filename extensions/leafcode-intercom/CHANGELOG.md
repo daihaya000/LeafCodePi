@@ -4,6 +4,9 @@ All notable changes to the `pi-intercom` extension will be documented in this fi
 
 ## [Unreleased]
 
+### Changed
+- Changed the default `inboundTrigger` policy from `always` to `replies`, so ordinary messages no longer start turns in idle sessions. Use `always` or `never` in `config.json` to override the default.
+
 ## [0.13.0] - 2026-09-02
 
 ### Highlights

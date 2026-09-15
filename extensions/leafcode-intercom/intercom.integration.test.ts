@@ -2023,29 +2023,56 @@ test("busy interactive sessions steer top-level asks without aborting", { concur
   }
 });
 
-test("idle interactive sessions trigger a new turn immediately", { concurrency: false }, async () => {
-	const { default: piIntercomExtension } = await import("./index.ts");
-	const { planner, cleanup } = await setupClients();
-	const harness = createExtensionHarness("idle-trigger-worker", {
-		hasUI: true,
-		isIdle: () => true,
-	});
+test("idle interactive sessions do not trigger a new turn by default", { concurrency: false }, async () => {
+  const { default: piIntercomExtension } = await import("./index.ts");
+  const { planner, cleanup } = await setupClients();
+  const harness = createExtensionHarness("idle-no-trigger-worker", {
+    hasUI: true,
+    isIdle: () => true,
+  });
 
-	try {
-		piIntercomExtension(harness.pi as never);
-		await harness.emitLifecycle("session_start");
-		const worker = await waitForSessionByName(planner, "idle-trigger-worker");
+  try {
+    piIntercomExtension(harness.pi as never);
+    await harness.emitLifecycle("session_start");
+    const worker = await waitForSessionByName(planner, "idle-no-trigger-worker");
 
-		assert.equal((await planner.send(worker.id, { messageId: "idle-trigger", text: "Handle this now" })).delivered, true);
-		await new Promise((resolve) => setTimeout(resolve, 20));
+    assert.equal((await planner.send(worker.id, { messageId: "idle-no-trigger", text: "Wait for the active task" })).delivered, true);
+    await new Promise((resolve) => setTimeout(resolve, 20));
 
-		assert.equal(harness.sentMessages.length, 1);
-		assert.equal(harness.sentMessages[0]?.options?.triggerTurn, true);
-		assert.equal(harness.sentMessages[0]?.options?.deliverAs, undefined);
-	} finally {
-		await harness.emitLifecycle("session_shutdown");
-		await cleanup();
-	}
+    assert.equal(harness.sentMessages.length, 1);
+    assert.equal(harness.sentMessages[0]?.options?.triggerTurn, undefined);
+    assert.equal(harness.sentMessages[0]?.options?.deliverAs, "steer");
+  } finally {
+    await harness.emitLifecycle("session_shutdown");
+    await cleanup();
+  }
+});
+
+test("idle interactive sessions trigger a new turn when always is configured", { concurrency: false }, async () => {
+  await withIntercomConfig({ inboundTrigger: "always" }, async () => {
+    const { default: piIntercomExtension } = await import("./index.ts");
+    const { planner, cleanup } = await setupClients();
+    const harness = createExtensionHarness("idle-trigger-worker", {
+      hasUI: true,
+      isIdle: () => true,
+    });
+
+    try {
+      piIntercomExtension(harness.pi as never);
+      await harness.emitLifecycle("session_start");
+      const worker = await waitForSessionByName(planner, "idle-trigger-worker");
+
+      assert.equal((await planner.send(worker.id, { messageId: "idle-trigger", text: "Handle this now" })).delivered, true);
+      await new Promise((resolve) => setTimeout(resolve, 20));
+
+      assert.equal(harness.sentMessages.length, 1);
+      assert.equal(harness.sentMessages[0]?.options?.triggerTurn, true);
+      assert.equal(harness.sentMessages[0]?.options?.deliverAs, undefined);
+    } finally {
+      await harness.emitLifecycle("session_shutdown");
+      await cleanup();
+    }
+  });
 });
 
 test("broker rejects changed duplicate message IDs and replays identical sends without reinjection", { concurrency: false }, async () => {

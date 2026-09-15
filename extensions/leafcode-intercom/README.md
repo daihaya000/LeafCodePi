@@ -26,7 +26,7 @@ Pi-intercom also integrates well with [pi-subagents](https://github.com/nicobail
 
 ## In One Minute
 
-Each pi session that has `pi-intercom` loaded and enabled connects to a tiny local broker over a local IPC transport. The broker keeps track of connected sessions and routes direct messages to the one you target by name or session ID. The extension gives you both a tool (`intercom`) and a small overlay UI (`/intercom` or `Alt+M`). Incoming messages are rendered inline inside the recipient session, can trigger a turn immediately by default, and are also stored in Pi session history as extension entries. If you want a stricter local trust posture, `inboundTrigger` can reduce or disable auto-triggering.
+Each pi session that has `pi-intercom` loaded and enabled connects to a tiny local broker over a local IPC transport. The broker keeps track of connected sessions and routes direct messages to the one you target by name or session ID. The extension gives you both a tool (`intercom`) and a small overlay UI (`/intercom` or `Alt+M`). Incoming messages are rendered inline inside the recipient session, and only replies auto-trigger a new turn by default. Use `inboundTrigger` to widen or further restrict auto-triggering.
 
 ## Install
 
@@ -145,7 +145,7 @@ Found the issue — UserService.validate() doesn't check for null input.
 See auth.ts:142-156.
 ```
 
-The reply hint (enabled by default) points to `intercom({ action: "reply", ... })`, so recipients do not need raw sender or `replyTo` IDs. Idle recipients get a new turn immediately; busy interactive recipients receive the message through Pi's steering queue at the next safe model boundary without aborting the active turn. Attachment content is included in the agent-visible body, and messages are rendered inline and stored in Pi session history.
+The reply hint (enabled by default) points to `intercom({ action: "reply", ... })`, so recipients do not need raw sender or `replyTo` IDs. Idle recipients start a new turn only when `inboundTrigger` permits it (by default, for messages with a `replyTo`); other messages remain visible without starting a turn. Busy interactive recipients receive messages through Pi's steering queue at the next safe model boundary without aborting the active turn. Attachment content is included in the agent-visible body, and messages are rendered inline and stored in Pi session history.
 
 ## Workflow: Planner-Worker Coordination
 
@@ -232,7 +232,7 @@ To reply, use the intercom tool: intercom({ action: "reply", message: "..." })
 Only GET/PUT/DELETE — never POST. Max 3 retries with exponential backoff starting at 100ms.
 ```
 
-This matters because the agent receiving the message doesn't need to reconstruct raw `to` and `replyTo` IDs — the hint is right there. Combined with immediate idle triggering and safe busy-turn steering, it enables real back-and-forth conversation without aborting work in progress or delaying messages until they become stale. If the reply happens later instead of in the triggered turn, `intercom({ action: "reply" })` falls back to the single unresolved inbound ask, and `intercom({ action: "pending" })` shows who is still waiting.
+This matters because the agent receiving the message doesn't need to reconstruct raw `to` and `replyTo` IDs — the hint is right there. Combined with reply-only idle triggering by default and safe busy-turn steering, it enables real back-and-forth conversation without aborting work in progress or waking an idle session for every notification. If the reply happens later instead of in the triggered turn, `intercom({ action: "reply" })` falls back to the single unresolved inbound ask, and `intercom({ action: "pending" })` shows who is still waiting.
 
 ### `send` vs `ask`
 
@@ -414,7 +414,7 @@ Create `~/.pi/agent/intercom/config.json`:
   "brokerCommand": "npx",
   "brokerArgs": ["--no-install", "tsx"],
   "confirmSend": false,
-  "inboundTrigger": "always",
+  "inboundTrigger": "replies",
   "enabled": true,
   "replyHint": true,
   "status": "researching"
@@ -426,7 +426,7 @@ Create `~/.pi/agent/intercom/config.json`:
 | `brokerCommand` | `"npx"` | Advanced trusted override for the broker executable. The default value is hardened internally to launch the resolved bundled `tsx` CLI through the current Node executable instead of resolving `npx` through `PATH`. |
 | `brokerArgs` | `["--no-install", "tsx"]` | Advanced trusted arguments passed to custom `brokerCommand` before the broker script path |
 | `confirmSend` | false | Show a confirmation dialog before ordinary or inferred sends from an interactive session with UI; caller-supplied `replyTo` skips it |
-| `inboundTrigger` | `"always"` | Auto-trigger policy for inbound broker messages: `"always"`, `"replies"`, or `"never"`. Local in-process subagent relay events still trigger the addressed session. |
+| `inboundTrigger` | `"replies"` | Auto-trigger policy for inbound broker messages: `"replies"` (default, only messages with `replyTo`), `"always"`, or `"never"`. Local in-process subagent relay events still trigger the addressed session. |
 | `enabled` | true | Enable/disable intercom entirely |
 | `replyHint` | true | Include reply instruction in incoming messages |
 | `status` | — | Optional custom status suffix shown after the automatic lifecycle status, for example `thinking · researching` |

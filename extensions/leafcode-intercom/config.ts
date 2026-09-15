@@ -35,7 +35,7 @@ export interface IntercomConfig {
   /** Require confirmation before non-reply sends from interactive sessions */
   confirmSend: boolean;
 
-  /** Controls whether inbound broker messages may automatically trigger a model turn */
+  /** Controls whether inbound broker messages may automatically trigger a model turn (default: "replies") */
   inboundTrigger: InboundTriggerPolicy;
 
   /** Optional custom status suffix shown after automatic lifecycle status */
@@ -59,7 +59,7 @@ const defaults: IntercomConfig = {
   brokerCommand: "npx",
   brokerArgs: ["--no-install", "tsx"],
   confirmSend: false,
-  inboundTrigger: "always",
+  inboundTrigger: "replies",
   enabled: true,
   replyHint: true,
 };
