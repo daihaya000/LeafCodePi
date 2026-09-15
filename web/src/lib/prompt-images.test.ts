@@ -8,8 +8,17 @@ import {
   isPromptFileText,
   MAX_PROMPT_FILE_TOTAL_BYTES,
   MAX_PROMPT_IMAGE_TOTAL_BYTES,
+  MAX_PROMPT_TEXT_CHARS,
+  isPromptTextWithinSize,
   parsePromptFileMarkers,
 } from "./prompt-images";
+
+describe("prompt text", () => {
+  it("bounds direct user input by code point", () => {
+    expect(isPromptTextWithinSize("😀".repeat(MAX_PROMPT_TEXT_CHARS))).toBe(true);
+    expect(isPromptTextWithinSize("😀".repeat(MAX_PROMPT_TEXT_CHARS + 1))).toBe(false);
+  });
+});
 
 describe("prompt image attachments", () => {
   it("bounds aggregate vision input", () => {

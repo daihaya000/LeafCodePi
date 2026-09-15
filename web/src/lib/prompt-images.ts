@@ -12,6 +12,8 @@ export type PromptFileInput = {
 
 const PROMPT_IMAGE_MIME_TYPES = new Set(["image/png", "image/jpeg", "image/webp", "image/gif"]);
 export const MAX_PROMPT_ATTACHMENTS = 8;
+/** User-authored text enters model context directly, unlike tool output and file text. */
+export const MAX_PROMPT_TEXT_CHARS = 32_000;
 export const MAX_PROMPT_IMAGES = MAX_PROMPT_ATTACHMENTS;
 export const MAX_PROMPT_FILES = MAX_PROMPT_ATTACHMENTS;
 export const MAX_PROMPT_IMAGE_BYTES = 8 * 1024 * 1024;
@@ -21,6 +23,10 @@ export const MAX_PROMPT_FILE_BYTES = MAX_PROMPT_IMAGE_BYTES;
 /** Total text inserted into one model prompt; oversized files should be read with tools instead. */
 export const MAX_PROMPT_FILE_TOTAL_BYTES = 64 * 1024;
 export const MAX_PROMPT_FILE_NAME_CHARS = 255;
+
+export function isPromptTextWithinSize(value: string): boolean {
+  return Array.from(value).length <= MAX_PROMPT_TEXT_CHARS;
+}
 
 function hasSafeFileMetadata(name: unknown, mimeType: unknown): boolean {
   return (
