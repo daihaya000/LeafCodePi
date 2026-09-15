@@ -24,6 +24,7 @@ import { ReasoningTranslationSettings } from "@/components/settings/ReasoningTra
 import { HangTimeoutSettings } from "@/components/settings/HangTimeoutSettings";
 import { NotificationSoundSettings } from "@/components/settings/NotificationSoundSettings";
 import { TtsSettings } from "@/components/settings/TtsSettings";
+import { IntercomSettings } from "@/components/settings/IntercomSettings";
 import { SystemSafetySettings } from "@/components/settings/SystemSafetySettings";
 import { BotDefaultsSettings } from "@/components/settings/BotDefaultsSettings";
 import { ComposerDefaultsSettings } from "@/components/settings/ComposerDefaultsSettings";
@@ -63,6 +64,7 @@ const CURRENT_HASH_TAB: Readonly<Record<string, Tab>> = {
   "bots-skills": "bots",
   extensions: "extensions",
   "extensions-list": "extensions",
+  "extensions-intercom": "extensions",
   "extensions-skills": "extensions",
   "extensions-mcp": "extensions",
   "extensions-memory": "engine",
@@ -467,6 +469,16 @@ export function SettingsView() {
               >
                 <div id="extensions-list" className="scroll-mt-24">
                   <ExtensionsSettings />
+                </div>
+              </SettingsGroup>
+
+              <SettingsGroup
+                id="extensions-intercom-heading"
+                title="Intercom"
+                description="受信メッセージによるセッションの自動起動範囲を設定します。"
+              >
+                <div id="extensions-intercom" className="scroll-mt-24">
+                  <IntercomSettings />
                 </div>
               </SettingsGroup>
 

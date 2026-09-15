@@ -52,6 +52,9 @@ vi.mock("@/components/settings/NotificationSoundSettings", () => ({
 vi.mock("@/components/settings/TtsSettings", () => ({
   TtsSettings: () => <h3>読み上げ (TTS)</h3>,
 }));
+vi.mock("@/components/settings/IntercomSettings", () => ({
+  IntercomSettings: () => <h3>Intercom受信</h3>,
+}));
 vi.mock("@/components/settings/NavigatorSettings", () => ({
   NavigatorSettings: () => <h3>ナビゲーター</h3>,
 }));
@@ -362,7 +365,7 @@ describe("SettingsView", () => {
     expect(document.getElementById("bots-skills")).not.toBeNull();
   });
 
-  it("拡張タブを拡張、MCP、スキルの順に分ける", () => {
+  it("拡張タブを拡張、Intercom、MCP、スキルの順に分ける", () => {
     render(<SettingsView />);
     fireEvent.click(screen.getByRole("tab", { name: /^拡張タブ$/ }));
 
@@ -371,9 +374,10 @@ describe("SettingsView", () => {
       Array.from(extensionsPanel.querySelectorAll("section[aria-labelledby] > header > h2")).map(
         (heading) => heading.textContent,
       ),
-    ).toEqual(["拡張機能の管理", "MCP", "スキル"]);
+    ).toEqual(["拡張機能の管理", "Intercom", "MCP", "スキル"]);
     expect(Array.from(extensionsPanel.querySelectorAll("h3")).map((heading) => heading.textContent)).toEqual([
       "拡張機能",
+      "Intercom受信",
       "MCPサーバー",
       "スキル",
     ]);
@@ -415,6 +419,14 @@ describe("SettingsView", () => {
 
     expect(screen.getByRole("tab", { name: "拡張タブ" }).getAttribute("aria-selected")).toBe("true");
     expect(document.getElementById("extensions-skills")).not.toBeNull();
+  });
+
+  it("Intercomセクションのハッシュから拡張タブを開く", () => {
+    window.history.replaceState(null, "", "/settings#extensions-intercom");
+    render(<SettingsView />);
+
+    expect(screen.getByRole("tab", { name: "拡張タブ" }).getAttribute("aria-selected")).toBe("true");
+    expect(document.getElementById("extensions-intercom")).not.toBeNull();
   });
 
   it("移動したローカル推論のハッシュからエンジンタブを開く", () => {
