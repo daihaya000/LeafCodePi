@@ -49,6 +49,7 @@ vi.mock("@/lib/pi/harness", () => ({
   jsonError: mocks.jsonError,
 }));
 
+import { MAX_PROMPT_TEXT_CHARS } from "@/lib/prompt-images";
 import { GET, PATCH, POST } from "./route";
 
 const bot = {
@@ -164,6 +165,16 @@ describe("Bot Code session control", () => {
       projectId: "project-1",
       goalLoop,
     }));
+  });
+
+  it("rejects oversized text before starting a Code task", async () => {
+    const response = await POST(
+      request("POST", { projectId: null, prompt: "x".repeat(MAX_PROMPT_TEXT_CHARS + 1) }),
+      { params: Promise.resolve({ id: "bot-1" }) },
+    );
+
+    expect(response.status).toBe(413);
+    expect(mocks.createBotCodeTask).not.toHaveBeenCalled();
   });
 
   it("rejects an unknown project before creating a Code task", async () => {
@@ -357,6 +368,19 @@ describe("Bot Code session control", () => {
     expect(abortResponse.status).toBe(200);
     // A panel stop is final: the owning request is marked before the task is aborted.
     expect(mocks.stopBotCodeTask).toHaveBeenCalledWith("bot-1", "code-1");
+  });
+
+  it("rejects oversized text before continuing a Code task", async () => {
+    mocks.getBot.mockReturnValue({ ...bot, codeSessionTaskId: "code-1" });
+    mocks.getTask.mockReturnValue({ id: "code-1", status: "idle", botId: "bot-1" });
+
+    const response = await PATCH(
+      request("PATCH", { action: "prompt", prompt: "x".repeat(MAX_PROMPT_TEXT_CHARS + 1) }),
+      { params: Promise.resolve({ id: "bot-1" }) },
+    );
+
+    expect(response.status).toBe(413);
+    expect(mocks.continueBotCodeTask).not.toHaveBeenCalled();
   });
 
   it("controls Goal Loop only for a Code task owned by this Bot", async () => {

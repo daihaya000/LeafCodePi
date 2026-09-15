@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getBot, patchBot } from "@/lib/bots";
+import { isPromptTextWithinSize } from "@/lib/prompt-images";
 import { getProject, getTask, patchTask } from "@/lib/store";
 import { continueBotCodeTask, createBotCodeTask, getTaskSummariesWithTodoProgress, goalLoopCommand, jsonError, stopBotCodeTask, abortTaskIncludingColdGoalLoop } from "@/lib/pi/harness";
 import { isThinkingLevel } from "@/lib/thinking-levels";
@@ -111,6 +112,9 @@ export async function POST(
       }
       if (typeof body.prompt !== "string" || !body.prompt.trim()) {
         return NextResponse.json({ error: "prompt is required" }, { status: 400 });
+      }
+      if (!isPromptTextWithinSize(body.prompt)) {
+        return NextResponse.json({ error: "本文プロンプトが長すぎます" }, { status: 413 });
       }
       if (body.model !== undefined && (typeof body.model !== "string" || !body.model.trim())) {
         return NextResponse.json({ error: "invalid model" }, { status: 400 });
@@ -270,6 +274,9 @@ export async function PATCH(
       if (body?.action === "prompt") {
         if (typeof body.prompt !== "string" || !body.prompt.trim()) {
           return NextResponse.json({ error: "prompt is required" }, { status: 400 });
+        }
+        if (!isPromptTextWithinSize(body.prompt)) {
+          return NextResponse.json({ error: "本文プロンプトが長すぎます" }, { status: 413 });
         }
         // Continuing a Code session is delegation too: a Bot that denies everything must not drive it.
         if (bot.permissionMode === "deny") {
