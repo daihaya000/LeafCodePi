@@ -55,6 +55,7 @@ import * as rooms from "@/lib/rooms";
 import { createRoom, ensureRoomBotTask, getRoom, issueRoomRelayEnvelope, patchRoom } from "@/lib/rooms";
 import { getTaskDetail } from "@/lib/pi/harness";
 import { getTask } from "@/lib/store";
+import { MAX_PROMPT_IMAGE_TOTAL_BYTES } from "@/lib/prompt-images";
 import { GET as events } from "../events/route";
 import { POST } from "./route";
 import { PATCH } from "../route";
@@ -120,6 +121,22 @@ describe("room mention responses", () => {
     const { room } = setup();
 
     const response = await send(room.id, "画像を確認して", { images: [{ mimeType: "image/png", data: "AA!!" }] });
+
+    expect(response.status).toBe(400);
+    expect(state.promptTask).not.toHaveBeenCalled();
+    expect(getRoom(room.id)?.messages).toHaveLength(0);
+  });
+
+  it("rejects aggregate images before persisting a room message", async () => {
+    const { room } = setup();
+    const half = Math.floor(MAX_PROMPT_IMAGE_TOTAL_BYTES / 2) + 1;
+
+    const response = await send(room.id, "画像を確認して", {
+      images: [
+        { mimeType: "image/png", data: Buffer.alloc(half).toString("base64") },
+        { mimeType: "image/png", data: Buffer.alloc(half).toString("base64") },
+      ],
+    });
 
     expect(response.status).toBe(400);
     expect(state.promptTask).not.toHaveBeenCalled();
