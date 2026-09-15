@@ -81,6 +81,38 @@ describe("task session cache", () => {
     })).toBe(false);
   });
 
+  it("validates only the requested entry when restoring a session", () => {
+    localStorage.setItem(
+      TASK_SESSION_CACHE_STORAGE_KEY,
+      JSON.stringify({
+        version: TASK_SESSION_CACHE_VERSION,
+        entries: {
+          [task.id]: {
+            cachedAt: 1,
+            task,
+            messages,
+            isStreaming: false,
+            isCompacting: false,
+          },
+          "other-task": {
+            cachedAt: 1,
+            task: { ...task, id: "other-task" },
+            messages,
+            isStreaming: false,
+            isCompacting: false,
+          },
+        },
+      }),
+    );
+    const now = vi.spyOn(Date, "now").mockReturnValue(2);
+    try {
+      expect(loadTaskSessionCache(task.id)?.id).toBe(task.id);
+      expect(now).toHaveBeenCalledOnce();
+    } finally {
+      now.mockRestore();
+    }
+  });
+
   it("round-trips a task snapshot without storing duplicate TaskDetail fields", () => {
     saveTaskSessionCache({
       task: {

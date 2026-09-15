@@ -207,16 +207,29 @@ function writeEntries(entries: Record<string, CachedTaskSession>): void {
 }
 
 export function loadTaskSessionCache(taskId: string): TaskDetail | null {
-  const cached = loadEntries()[taskId];
-  if (!cached) return null;
-  return {
-    ...cached.task,
-    messages: cached.messages,
-    ...(cached.messageHistory ? { messageHistory: cached.messageHistory } : {}),
-    isStreaming: cached.isStreaming,
-    isCompacting: cached.isCompacting,
-    ...(cached.contextUsage ? { contextUsage: cached.contextUsage } : {}),
-  };
+  if (typeof localStorage === "undefined") return null;
+  try {
+    const raw = localStorage.getItem(TASK_SESSION_CACHE_STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as unknown;
+    if (!isRecord(parsed) || parsed.version !== TASK_SESSION_CACHE_VERSION || !isRecord(parsed.entries)) {
+      return null;
+    }
+    // 表示する1セッションだけを検証する。20件分のメッセージ検証・重複除去を
+    // タブを開くたびに行わず、キャッシュヒット時の初回表示を軽くする。
+    const cached = parseEntry(taskId, parsed.entries[taskId]);
+    if (!cached) return null;
+    return {
+      ...cached.task,
+      messages: cached.messages,
+      ...(cached.messageHistory ? { messageHistory: cached.messageHistory } : {}),
+      isStreaming: cached.isStreaming,
+      isCompacting: cached.isCompacting,
+      ...(cached.contextUsage ? { contextUsage: cached.contextUsage } : {}),
+    };
+  } catch {
+    return null;
+  }
 }
 
 export function saveTaskSessionCache(snapshot: TaskSessionCacheSnapshot): void {
