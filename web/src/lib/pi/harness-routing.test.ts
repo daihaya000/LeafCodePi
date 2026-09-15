@@ -206,6 +206,56 @@ const fakePi = vi.hoisted(() => {
           session.thinkingLevel = level;
         },
         prompt: async (text: string) => {
+          // 実システムでは `/goal-start <payload>` は leafcode-goal-loop 拡張の registerCommand が
+          // モデルに届く前に隣取りし、goal-loop-state を同期的に書く（harness.ts の createTask は
+          // その直後に live 状態を検証する）。フェイクも同じ不変条件を再現する。
+          const goalStart = /^\/goal-start (\S+)/.exec(text);
+          if (goalStart) {
+            const { goalLoopStateFile } = await import("@/lib/pi/goal-loop-state");
+            const payload = JSON.parse(
+              Buffer.from(goalStart[1]!, "base64url").toString("utf8"),
+            ) as {
+              goal: string;
+              acceptance?: string[];
+              maxTurns?: number;
+              cooldownSeconds?: number;
+              forceFullRun?: boolean;
+              autoAgent?: boolean;
+            };
+            const file = goalLoopStateFile(manager.getCwd(), manager.__sessionId);
+            mkdirSync(dirname(file), { recursive: true });
+            writeFileSync(
+              file,
+              JSON.stringify({
+                id: manager.__sessionId,
+                sessionId: manager.__sessionId,
+                cwd: manager.getCwd(),
+                status: "queued",
+                goal: payload.goal,
+                acceptance: payload.acceptance ?? [],
+                maxTurns: payload.maxTurns ?? 20,
+                cooldownSeconds: payload.cooldownSeconds ?? 0,
+                nextTurnAt: null,
+                forceFullRun: payload.forceFullRun === true,
+                autoAgent: payload.autoAgent === true,
+                turnCount: 0,
+                turnKind: "goal",
+                pauseReason: "",
+                error: "",
+                progress: [],
+                summary: "",
+                evidence: "",
+                blockedReason: "",
+                rejectedClaims: 0,
+                unreadableStreak: 0,
+                createdAt: new Date().toISOString(),
+                updatedAt: new Date().toISOString(),
+              }),
+              "utf8",
+            );
+            entry.events.push("goal-start");
+            return;
+          }
           let systemPrompt = "base system prompt";
           for (const handler of extensionHandlers.get("before_agent_start") ?? []) {
             const result = await handler(
@@ -262,6 +312,7 @@ import { AUTO_MODEL_VALUE } from "@/lib/auto-model";
 import { setAccountRoutingMode, __resetProviderRoutingQueueForTests, markProviderLimited } from "@/lib/provider-routing";
 import { setSetting } from "@/lib/pi/web-settings";
 import { BOT_PROMPT_PREFIX } from "@/lib/pi/messages";
+import { disarmTaskHangWatch } from "@/lib/pi/hang-watchdog";
 import { AccountRuntimeManager } from "./account-runtime-manager";
 import { goalLoopStateFile } from "./goal-loop-state";
 import { taskRuntimeLeasePath } from "@/lib/task-runtime-lease";
@@ -1017,12 +1068,16 @@ describe("integrated session routing", () => {
     assert.equal(await firstPrepare("turn 1"), false);
     assert.equal(fakePi.sessions.length, 2);
     assert.equal(getTask(task.id)?.agent, "reviewer");
+    // Turn 1 prepares before the extension ever sends a turn message (sendTurn
+    // calls prepareGoalLoopTurn first), so the transcript is still empty here.
+    // replaceLiveForAgent skips the hidden switch notice on an empty transcript
+    // ("no stale persona history to disambiguate") — see harness.ts recordAgentSwitch.
     expect(fakePi.sessions[0]).toMatchObject({
       file: fakePi.sessions[1]?.file,
       disposed: true,
-      customMessages: [{ customType: "leafcode-pi.agent-switch" }],
+      customMessages: [],
     });
-    assert.equal(fakePi.sessions[1]?.initialMessageCount, 2);
+    assert.equal(fakePi.sessions[1]?.initialMessageCount, 0);
 
     const secondPrepare = fakePi.sessions[1]?.routingContext
       ?.prepareGoalLoopTurn as PrepareTurn;
@@ -1032,9 +1087,9 @@ describe("integrated session routing", () => {
     expect(fakePi.sessions[1]).toMatchObject({
       file: fakePi.sessions[2]?.file,
       disposed: true,
-      customMessages: [{ customType: "leafcode-pi.agent-switch" }],
+      customMessages: [],
     });
-    assert.equal(fakePi.sessions[2]?.initialMessageCount, 3);
+    assert.equal(fakePi.sessions[2]?.initialMessageCount, 0);
     expect(autoAgentMock).toHaveBeenCalledTimes(2);
     assert.equal(JSON.parse(readFileSync(loopFile, "utf8")).autoAgent, true);
   });
@@ -1238,6 +1293,11 @@ describe("integrated session routing", () => {
     });
     await waitFor(() => getTask(task.id)?.status === "idle");
     assert.equal(getTask(task.id)?.accountId, removed.id);
+    // The fake session never emits a real assistant turn, so the interval-based
+    // hang watchdog (never started in this test) cannot resolve the watch armed
+    // by createTask's initial prompt. Disarm it directly, matching what a
+    // completed turn would do in production before an operator deletes the account.
+    disarmTaskHangWatch(task.id);
 
     deleteAccount(removed.id);
     dropLiveSessions();

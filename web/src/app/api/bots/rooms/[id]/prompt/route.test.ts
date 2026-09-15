@@ -455,10 +455,16 @@ describe("room mention responses", () => {
     const { room, taskIds } = setup(["A", "B"]);
     await send(room.id, "二人で会話してみて");
     await vi.waitFor(() => expect(state.promptTask).toHaveBeenCalledTimes(1));
+    // "止めて" は isRoomStopRequest に一致し、stopRoomTurns が即時に作中の
+    // メッセージを error/"Stopped by user." で確定させる（route.ts の早期 return）。
+    // 後から届く本物の応答（finish）はこの確定を上書きしない（runRoomBotの
+    // status !== "working" ガード）。Code委譲のユーザー停止と同じで、停止は確定として扱う。
     await send(room.id, "止めて");
+    await vi.waitFor(() => expect(getRoom(room.id)?.messages.find((message) => message.role === "assistant")).toMatchObject({ status: "error", text: "Stopped by user." }));
     finish(taskIds[0], { messages: [assistant("first", "First reply")] });
-    await vi.waitFor(() => expect(getRoom(room.id)?.messages.find((message) => message.role === "assistant")?.status).toBe("done"));
     await new Promise((resolve) => setImmediate(resolve));
+    // 本物の応答が後から届いても、停止後の状態を上書きしない。
+    expect(getRoom(room.id)?.messages.find((message) => message.role === "assistant")).toMatchObject({ status: "error", text: "Stopped by user." });
     expect(state.promptTask).toHaveBeenCalledTimes(1);
   });
 

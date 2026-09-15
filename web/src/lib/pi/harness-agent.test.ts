@@ -57,6 +57,7 @@ function fixture(options: {
   let disposed = false;
   const customMessages: FixtureCustomMessage[] = [];
   const live = new Map([[task.id, {
+    taskId: task.id,
     accountId: null,
     promptActive: options.promptActive ?? false,
     session: {
@@ -1080,6 +1081,7 @@ describe("reloadLiveSessionsContext", () => {
 
     const idleId = `${task.id}-idle`;
     live.set(idleId, {
+      taskId: idleId,
       accountId: null,
       promptActive: false,
       session: {
