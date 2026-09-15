@@ -20,20 +20,28 @@ export function messageRenderKey(message: UiMessage): string {
   return firstPartId ? `part:${firstPartId}` : `message:${message.id}`;
 }
 
-/** Remove duplicate rows left when a streamed id changes to its persisted id. */
+/**
+ * Remove duplicate rows left when a streamed message is re-identified.
+ * Either side can change: the entry id is assigned on persist, and part ids are
+ * derived from the raw session index, so match on both keys.
+ */
 export function dedupeUiMessages(messages: UiMessage[]): UiMessage[] {
   if (messages.length < 2) return messages;
   const result: UiMessage[] = [];
-  const indexByRenderKey = new Map<string, number>();
+  const indexByKey = new Map<string, number>();
   let changed = false;
   for (const message of messages) {
-    const key = messageRenderKey(message);
-    const existing = indexByRenderKey.get(key);
+    const renderKey = messageRenderKey(message);
+    const idKey = `id:${message.id}`;
+    const existing = indexByKey.get(renderKey) ?? indexByKey.get(idKey);
     if (existing === undefined) {
-      indexByRenderKey.set(key, result.length);
+      indexByKey.set(renderKey, result.length);
+      indexByKey.set(idKey, result.length);
       result.push(message);
     } else {
       result[existing] = message;
+      indexByKey.set(renderKey, existing);
+      indexByKey.set(idKey, existing);
       changed = true;
     }
   }

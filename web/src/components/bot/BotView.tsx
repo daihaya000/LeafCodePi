@@ -522,6 +522,7 @@ export const BotView = memo(function BotView({ id, active = true }: { id: string
         retryCount = 0;
         try {
           const payload = JSON.parse((event as MessageEvent).data) as {
+            task?: { status?: string };
             messages?: UiMessage[];
             messageHistory?: TaskMessageHistory;
             historyReset?: boolean;
@@ -580,7 +581,12 @@ export const BotView = memo(function BotView({ id, active = true }: { id: string
               return current?.id === question?.id ? current : question;
             });
           }
-          if (payload.isStreaming !== undefined) setSending(payload.isStreaming);
+          // prompt_accepted is emitted before the SDK stream opens: the task is
+          // already working while isStreaming is still false. Mirror TaskView so
+          // the composer does not fall back to "not sent" right after sending.
+          if (payload.isStreaming !== undefined || payload.task) {
+            setSending(payload.isStreaming === true || payload.task?.status === "working");
+          }
           if (payload.intercomInbox) setIntercomInbox(payload.intercomInbox);
           if (payload.error) setError(payload.error);
         } catch { setError("イベントの解析に失敗しました"); }

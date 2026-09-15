@@ -76,6 +76,21 @@ describe("task history pagination", () => {
     expect(mergeNewerTaskMessages([streamed], [persisted])).toEqual([persisted]);
   });
 
+  it("does not duplicate a row when a snapshot reprojects its part ids", () => {
+    const reply: UiMessage = {
+      id: "entry-42",
+      role: "assistant",
+      createdAt: 2,
+      parts: [{ id: "msg-7-text-0", type: "text", text: "reply" }],
+    };
+    const reprojected: UiMessage = {
+      ...reply,
+      parts: [{ id: "msg-9-text-0", type: "text", text: "reply" }],
+    };
+
+    expect(mergeNewerTaskMessages([reply], [reprojected])).toEqual([reprojected]);
+  });
+
   it("remaps a loaded-page cursor when a streamed id becomes persisted", () => {
     const streamed = message("msg-3");
     const persisted = { ...streamed, id: "entry-42" };

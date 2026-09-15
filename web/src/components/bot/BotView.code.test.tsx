@@ -730,6 +730,21 @@ it("reports streaming activity for the Bot tab even when hidden", async () => {
   expect(mocks.reportStatus).toHaveBeenLastCalledWith("/bots/one", "idle");
 });
 
+it("keeps the composer sending between prompt_accepted and the first stream event", async () => {
+  render(<ShellProvider><BotView id="one" active /></ShellProvider>);
+  const input = await screen.findByRole("textbox", { name: /Botにメッセージ/ });
+  fireEvent.change(input, { target: { value: "依頼" } });
+  fireEvent.keyDown(input, { key: "Enter", ctrlKey: true });
+  await waitFor(() => expect(mocks.sendJson).toHaveBeenCalledWith("/api/bots/one/prompt", { prompt: "依頼" }));
+
+  // queuePrompt marks the task working before session.prompt() opens the stream.
+  snapshot({ eventType: "prompt_accepted", task: { status: "working" }, isStreaming: false });
+  expect(screen.getByRole("button", { name: "応答を停止" })).toBeTruthy();
+
+  snapshot({ eventType: "abort", task: { status: "idle" }, isStreaming: false });
+  expect(screen.getByRole("button", { name: "送信" })).toBeTruthy();
+});
+
 it("reads the new reply when idle arrives before the final message snapshot", async () => {
   const ttsFetch = vi.fn(async () => new Response(Buffer.from([1, 2, 3]), { status: 200 }));
   const play = vi.fn(async () => undefined);

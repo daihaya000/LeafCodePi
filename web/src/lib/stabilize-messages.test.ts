@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  dedupeUiMessages,
   messageRenderKey,
   stabilizeIdentifiedList,
   stabilizeUiMessages,
@@ -175,6 +176,27 @@ describe("stabilizeUiMessages", () => {
     const out = stabilizeUiMessages(prev, next);
     expect(out[0]).not.toBe(prev[0]);
     expect(out[0]?.diagnostics?.[0]?.details?.phase).toBe("sse");
+  });
+});
+
+describe("dedupeUiMessages", () => {
+  it("collapses a row whose part ids were reprojected under the same entry id", () => {
+    // Part ids come from the raw session index, so the same persisted message
+    // can be projected with a different part id after a branch/stored switch.
+    const first = textMessage("entry-42", "reply");
+    const reprojected: UiMessage = {
+      ...first,
+      parts: [{ type: "text", id: "msg-7-text-0", text: "reply" }],
+    };
+
+    expect(dedupeUiMessages([first, reprojected])).toEqual([reprojected]);
+  });
+
+  it("still collapses a streamed row that later gains its persisted id", () => {
+    const streamed = textMessage("msg-3", "reply");
+    const persisted = { ...streamed, id: "entry-42" };
+
+    expect(dedupeUiMessages([streamed, persisted])).toEqual([persisted]);
   });
 });
 
