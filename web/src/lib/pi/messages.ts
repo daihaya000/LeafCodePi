@@ -26,6 +26,19 @@ export function stripPromptMarkers(text: string): string {
   return stripBotPromptPrefix(stripHangRetryPrefix(text));
 }
 
+/** Bot送信マーカー付きの本文か（ハング再送で包まれていても判定する）。 */
+export function isBotPromptText(text: string): boolean {
+  return stripHangRetryPrefix(text).startsWith(BOT_PROMPT_PREFIX);
+}
+
+/** セッションの raw メッセージから user プロンプト本文を取る（マーカーは付けたまま）。user 以外は空。 */
+export function rawUserMessageText(item: unknown): string {
+  if (!isRecord(item) || asString(item.role) !== "user") return "";
+  return typeof item.content === "string"
+    ? item.content
+    : textFromBlocks(contentBlocks(item.content));
+}
+
 export function titleFromPrompt(prompt: string): string {
   const line = prompt
     .split(/\r?\n/)

@@ -52,7 +52,15 @@ import {
   type LoginSessionEvent,
 } from "@/lib/pi/auth-login";
 import { formatPromptWithFiles, parsePromptFileMarkers, type PromptFileInput } from "@/lib/prompt-images";
-import { toolResultText, markBotPrompt, titleFromPrompt, toolTimingFromSessionEntries } from "@/lib/pi/messages";
+import {
+  isBotPromptText,
+  markBotPrompt,
+  rawUserMessageText,
+  stripBotPromptPrefix,
+  titleFromPrompt,
+  toolResultText,
+  toolTimingFromSessionEntries,
+} from "@/lib/pi/messages";
 import { installToolResultCap } from "@/lib/pi/tool-result-cap";
 import {
   applyMessageAccountIds,
@@ -7814,6 +7822,16 @@ function queuePrompt(
   return promptChain;
 }
 
+/** 直前の user プロンプトが Bot 送信だったか。再開（再送）は送信者も引き継ぐ。 */
+function lastPromptWasBotSent(live: LiveRuntime): boolean {
+  const messages = live.session.messages;
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const text = rawUserMessageText(messages[index]);
+    if (text) return isBotPromptText(text);
+  }
+  return false;
+}
+
 function shouldForwardBotCodePrompt(task: TaskSummary): boolean {
   const botId = task.botId ?? task.supervisorBotId;
   return Boolean(
@@ -7843,6 +7861,8 @@ function promptSelectionOptionsForWorker(
     ...(options?.streamingBehavior !== undefined ? { streamingBehavior: options.streamingBehavior } : {}),
     ...(options?.accountIdExplicit !== undefined ? { accountIdExplicit: options.accountIdExplicit } : {}),
     ...(options?.resume !== undefined ? { resume: options.resume } : {}),
+    // 送信者は本文ではなくフラグで引き継ぐ（受け側ワーカーで再度マーカーを付け直す）。
+    ...(options?.fromBot ? { fromBot: true as const } : {}),
   };
 }
 
@@ -7969,7 +7989,8 @@ export async function promptTask(
   },
 ): Promise<TaskSummary> {
   const taskBeforePrompt = requireTask(id);
-  const promptText = options?.fromBot ? markBotPrompt(prompt) : prompt;
+  // 送信者はサーバー側でだけ決める。HTTP 本文にマーカーが含まれていてもBot送信にはしない。
+  const promptText = options?.fromBot ? markBotPrompt(prompt) : stripBotPromptPrefix(prompt);
   if (taskBeforePrompt.projectId) {
     const project = getProject(taskBeforePrompt.projectId);
     if (project?.archived) {
@@ -8001,7 +8022,12 @@ export async function promptTask(
     applySubagentPermission(live.session, options?.subagentPermission);
   }
   persistRevertLeafId(id, null);
-  const completion = queuePrompt(live, promptText, images, {
+  // 再開は直前プロンプトの再送。Bot送信のターンを操作者の送信に見せ替えない。
+  const resumedPromptText =
+    options?.resume && !options.fromBot && lastPromptWasBotSent(live)
+      ? markBotPrompt(promptText)
+      : promptText;
+  const completion = queuePrompt(live, resumedPromptText, images, {
     files: options?.files,
     agent: options?.agent,
     subagentPermission: options?.subagentPermission,

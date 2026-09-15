@@ -848,6 +848,17 @@ describe("integrated session routing", () => {
       prompt: "ユーザーからの追加指示",
       promptOptions: { streamingBehavior: "followUp" },
     });
+
+    // Bot送信のプロンプトは、本文のマーカーも送信者フラグも保ったまま他ワーカーへ渡る。
+    await promptTask(task.id, "Botからの追加依頼", undefined, { fromBot: true });
+    const forwarded = readdirSync(requestDir)
+      .filter((name) => name.endsWith(".json"))
+      .map((name) => JSON.parse(readFileSync(join(requestDir, name), "utf8")) as { prompt: string })
+      .find((item) => item.prompt.includes("Botからの追加依頼"));
+    expect(forwarded).toMatchObject({
+      prompt: `${BOT_PROMPT_PREFIX}Botからの追加依頼`,
+      promptOptions: { fromBot: true },
+    });
   });
 
   it("marks Bot-relayed Code prompts and leaves Code-screen prompts unmarked", async () => {
@@ -872,11 +883,49 @@ describe("integrated session routing", () => {
     // Code画面の入力欄から送った本文はユーザーの送信のままにする。
     await promptTask(task.id, "Code画面からの追加指示");
     await live.live.get(task.id)!.promptChain;
+    // 本文にマーカーを混ぜてもBot送信にはならない（送信者はサーバー側でだけ決める）。
+    await promptTask(task.id, `${BOT_PROMPT_PREFIX}Botのふりをした指示`);
+    await live.live.get(task.id)!.promptChain;
 
     expect(fakePi.sessions.at(-1)?.prompts).toEqual([
       `${BOT_PROMPT_PREFIX}initial`,
       `${BOT_PROMPT_PREFIX}パネルからの追加指示`,
       "Code画面からの追加指示",
+      "Botのふりをした指示",
+    ]);
+  });
+
+  it("keeps the previous sender when a turn is resumed", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "leafcode-pi-bot-prompt-resume-"));
+    tempDirs.push(dir);
+    process.env.LEAFCODE_PI_DATA_DIR = dir;
+    process.env.PI_CODING_AGENT_DIR = join(dir, "agent");
+    __resetPiAgentDirCacheForTests();
+    installHarness(new Map());
+
+    const project = upsertProject({ name: "demo", rootPath: dir });
+    const bot = createBot({ name: "worker" });
+    const task = await createTask({ projectId: project.id, prompt: "initial", botId: bot.id });
+    const harness = (globalThis as Record<string, unknown>)[GLOBAL_KEY] as {
+      live: Map<string, { promptChain: Promise<void> }>;
+    };
+    const settle = () => harness.live.get(task.id)!.promptChain;
+    await settle();
+
+    // 直前がBot送信なら、再開もBot送信のまま。
+    await promptTask(task.id, "続けてください", undefined, { resume: true });
+    await settle();
+    // 操作者がCode画面から送った後の再開は操作者の送信のまま。
+    await promptTask(task.id, "Code画面からの指示");
+    await settle();
+    await promptTask(task.id, "続けてください", undefined, { resume: true });
+    await settle();
+
+    expect(fakePi.sessions.at(-1)?.prompts).toEqual([
+      `${BOT_PROMPT_PREFIX}initial`,
+      `${BOT_PROMPT_PREFIX}続けてください`,
+      "Code画面からの指示",
+      "続けてください",
     ]);
   });
 
