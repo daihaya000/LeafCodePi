@@ -92,7 +92,7 @@ export function ActivityLog({ children, header, count, parts, active, kind }: {
     </details>
   );
   return header ? (
-    <div className="w-full min-w-0 max-w-bubble self-start space-y-2">
+    <div className="w-full min-w-0 self-start space-y-2">
       {header}
       {log}
     </div>

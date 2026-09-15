@@ -72,6 +72,7 @@ it("keeps the activity header visible outside the collapsible log frame", () => 
   const log = container.querySelector("details")!;
   expect(log.previousElementSibling?.textContent).toBe("Frame metadata");
   expect(log.parentElement?.className).toContain("space-y-2");
+  expect(log.parentElement?.className).not.toContain("max-w-bubble");
 });
 
 it("follows the newest activity while expanded until the user scrolls up", () => {
