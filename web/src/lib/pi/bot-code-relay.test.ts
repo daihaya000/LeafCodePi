@@ -29,7 +29,7 @@ vi.mock("@/lib/store", () => ({
   getProject: (id: string) => store.projects.find((project) => project.id === id),
   listProjects: () => store.projects.filter((project) => !project.archived),
 }));
-import { BOT_CODE_RESULT, BOT_CODE_TOOL, botCodeReportText, cancelBotCodeRequests, cancelRoomCodeRequests, createBotCodeRelay, hasBotCodeReport, isBotCodeOriginTask, isRoomDelegatedCodeTask, listBotCodeRequests, MAX_AUTO_CODE_CHAIN, pendingRoomCodeRequestForRoom, pendingRoomCodeRequestForTurn, queueBotCodePrompt, roomCodeRequestsForTurn, roomForCodeOrigin, runUserBotCodeRequest, stopBotCodeRequest, stopBotCodeRequestForTask, type CodeRequest } from "./bot-code-relay";
+import { BOT_CODE_RESULT, BOT_CODE_TOOL, botCodeReportText, cancelBotCodeRequests, cancelRoomCodeRequests, createBotCodeRelay, hasBotCodeReport, isBotCodeOriginTask, isRoomDelegatedCodeTask, listBotCodeRequests, MAX_AUTO_CODE_CHAIN, MAX_CODE_REPORT_REQUEST_CHARS, pendingRoomCodeRequestForRoom, pendingRoomCodeRequestForTurn, queueBotCodePrompt, roomCodeRequestsForTurn, roomForCodeOrigin, runUserBotCodeRequest, stopBotCodeRequest, stopBotCodeRequestForTask, truncateCodeReportRequest, type CodeRequest } from "./bot-code-relay";
 
 type Dependencies = Parameters<typeof createBotCodeRelay>[0];
 let relay: ReturnType<typeof createBotCodeRelay>;
@@ -1146,6 +1146,12 @@ describe("Room ⇄ Code delegation", () => {
 });
 
 describe("durable Bot report acknowledgement", () => {
+  it("bounds the repeated source request by code point", () => {
+    const truncated = truncateCodeReportRequest("😀".repeat(MAX_CODE_REPORT_REQUEST_CHARS + 1));
+    expect(Array.from(truncated)).toHaveLength(MAX_CODE_REPORT_REQUEST_CHARS);
+    expect(truncated).toMatch(/…$/);
+  });
+
   const marker = { type: "custom_message", customType: BOT_CODE_RESULT, details: { requestId: "request" } };
   const final = { type: "message", message: { role: "assistant", stopReason: "stop", content: [{ type: "text", text: "Report" }] } };
   it("returns the reported text so a Room can reuse it verbatim", () => {

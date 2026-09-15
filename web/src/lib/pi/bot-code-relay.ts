@@ -27,6 +27,15 @@ export const BOT_CODE_TOOL = "code_session";
 export const BOT_CODE_RESULT = "bot-code-result";
 /** A Bot only needs a concise Code outcome before responding to the user. */
 export const MAX_CODE_REPORT_OUTPUT_CHARS = 8_000;
+/** The source request is already in the Bot history; repeat only enough to identify the Code work. */
+export const MAX_CODE_REPORT_REQUEST_CHARS = 8_000;
+
+export function truncateCodeReportRequest(prompt: string): string {
+  const characters = Array.from(prompt);
+  return characters.length > MAX_CODE_REPORT_REQUEST_CHARS
+    ? `${characters.slice(0, MAX_CODE_REPORT_REQUEST_CHARS - 1).join("")}…`
+    : prompt;
+}
 /**
  * Cumulative cap on Code requests the Bot starts by itself while reporting a result. Per-turn limits
  * cannot bound a chain that restarts every turn. A new user instruction resets the count to zero.
