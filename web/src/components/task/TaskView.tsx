@@ -531,7 +531,6 @@ type TaskMessageBlock =
 // 派生メッセージは元メッセージごとにキャッシュする。毎レンダリングで作り直すと
 // PartView / ToolCard の memo 比較（参照一致）が常に外れ、SSE のたびに全行が再描画される。
 const taskActivityEntryCache = new WeakMap<UiMessage, TaskActivityEntry | null>();
-const taskTextMessageCache = new WeakMap<UiMessage, UiMessage>();
 
 /** assistant の本文だけをメッセージとして残し、それ以外の表示要素を活動グループへ送る。 */
 function taskActivityEntry(message: UiMessage): TaskActivityEntry | null {
@@ -562,31 +561,21 @@ function isEmptyAssistantMessage(message: UiMessage): boolean {
 
 function buildTaskActivityEntry(message: UiMessage): TaskActivityEntry | null {
   if (message.role !== "assistant") return null;
-  const activityParts = message.parts.filter((part) => part.type !== "text");
   const hasActivity =
-    activityParts.length > 0 || Boolean(message.error) || (message.diagnostics?.length ?? 0) > 0;
+    message.parts.some((part) => part.type !== "text") ||
+    Boolean(message.error) ||
+    (message.diagnostics?.length ?? 0) > 0;
   if (!hasActivity) return null;
+  // ツール実行を伴う本文は前置き（「次に〜する」）なので、本文だけ枠外へ出すと
+  // ツール1回ごとに作業ログが分断される。前置きごと作業ログへ入れる。
+  const parts = message.parts.filter(
+    (part) => part.type !== "text" || Boolean(part.text.trim()),
+  );
   return {
     message,
-    activityMessage:
-      activityParts.length === message.parts.length
-        ? message
-        : { ...message, parts: activityParts },
-    showHeader: !hasVisibleAssistantText(message),
+    activityMessage: parts.length === message.parts.length ? message : { ...message, parts },
+    showHeader: true,
   };
-}
-
-function taskTextMessage(message: UiMessage): UiMessage {
-  const cached = taskTextMessageCache.get(message);
-  if (cached) return cached;
-  const textMessage: UiMessage = {
-    ...message,
-    parts: message.parts.filter((part) => part.type === "text"),
-    error: undefined,
-    diagnostics: undefined,
-  };
-  taskTextMessageCache.set(message, textMessage);
-  return textMessage;
 }
 
 function taskActivityCount(entry: TaskActivityEntry): number {
@@ -636,21 +625,7 @@ function taskMessageBlocks(
     // resume判定は表示前のvisibleMessagesを使うので、履歴情報は失わない。
     if (isEmptyAssistantMessage(message)) return;
     const activity = message.id === ungroupedMessageId ? null : taskActivityEntry(message);
-    const hasText = hasVisibleAssistantText(message);
     const boundary = isGoalLoopTurnBoundary(messages, index);
-    if (hasText) {
-      // thinking / tool は本文より前に起きているので、本文より先に活動として畳む。
-      if (activity) addActivity(activity, index, boundary);
-      flushGroup();
-      blocks.push({
-        kind: "message",
-        message: activity ? taskTextMessage(message) : message,
-        index,
-        // 区切りは先に描かれる活動グループ側で出すので、二重に出さない。
-        showTurnDivider: boundary && !activity,
-      });
-      return;
-    }
     if (activity) {
       addActivity(activity, index, boundary);
       return;
