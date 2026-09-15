@@ -106,9 +106,8 @@ export async function GET(
         });
         if (sse.closed) return;
         const hasCacheCandidate = Boolean(cachedTaskUpdatedAt && cachedSessionId);
-        // A matching idle cache already contains the timeline. Release the
-        // client hydration gate before cold Pi setup finishes; the full detail
-        // snapshot below still validates the revision and supplies controls.
+        // A matching idle cache can render while cold Pi setup finishes. Keep
+        // this interim snapshot distinct; the client stays gated until ready.
         const canSendCachedReady = Boolean(
           hasCacheCandidate &&
             pendingPayloads.length === 0 &&

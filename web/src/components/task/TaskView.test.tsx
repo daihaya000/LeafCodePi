@@ -995,6 +995,80 @@ describe("TaskView draft submission", () => {
     expect(screen.queryByText(/セッションを準備しています/)).toBeNull();
   });
 
+  it("does not auto-resume cached silent turns before the authoritative ready snapshot", async () => {
+    class TestEventSource extends EventTarget {
+      static latest: TestEventSource | null = null;
+      constructor() {
+        super();
+        TestEventSource.latest = this;
+      }
+      close() {}
+    }
+    vi.stubGlobal("EventSource", TestEventSource);
+    const cachedTask = {
+      ...task,
+      sessionId: "session-1",
+      updatedAt: "2026-01-02T00:00:00.000Z",
+    };
+    saveTaskSessionCache({
+      task: cachedTask,
+      messages: [
+        {
+          id: "cached-prompt",
+          role: "user",
+          createdAt: 1,
+          parts: [{ id: "cached-prompt-text", type: "text", text: "元の指示" }],
+        },
+        { id: "cached-empty-reply", role: "assistant", createdAt: 2, parts: [] },
+      ],
+      isStreaming: false,
+      isCompacting: false,
+    });
+    render(<TaskView taskId={task.id} mdUp />);
+    const source = TestEventSource.latest;
+    if (!source) throw new Error("EventSource was not created");
+
+    await act(async () => {
+      source.dispatchEvent(new MessageEvent("snapshot", {
+        data: JSON.stringify({
+          eventType: "cache_ready",
+          task: cachedTask,
+          messagesReused: true,
+          isStreaming: false,
+          isCompacting: false,
+        }),
+      }));
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+    expect(mocks.sendJson.mock.calls.some(([url]) => url === `/api/tasks/${task.id}/prompt`)).toBe(false);
+
+    await act(async () => {
+      source.dispatchEvent(new MessageEvent("snapshot", {
+        data: JSON.stringify({
+          eventType: "ready",
+          task: cachedTask,
+          messages: [
+            {
+              id: "cached-prompt",
+              role: "user",
+              createdAt: 1,
+              parts: [{ id: "cached-prompt-text", type: "text", text: "元の指示" }],
+            },
+            {
+              id: "authoritative-reply",
+              role: "assistant",
+              createdAt: 2,
+              parts: [{ id: "authoritative-reply-text", type: "text", text: "完了しました" }],
+            },
+          ],
+          isStreaming: false,
+          isCompacting: false,
+        }),
+      }));
+    });
+    expect(mocks.sendJson.mock.calls.some(([url]) => url === `/api/tasks/${task.id}/prompt`)).toBe(false);
+  });
+
   it("places the read-aloud toggle immediately to the right of the Bot control", async () => {
     const delegatedTask = { ...task, kind: "code" as const, status: "working" as const, supervisorBotId: "bot-1" };
     saveTaskSessionCache({ task: delegatedTask, messages: [], isStreaming: true, isCompacting: false });

@@ -1351,7 +1351,8 @@ export const TaskView = memo(function TaskView({
           | undefined;
         const suggestedFromSnapshot =
           payload.compactionSuggested ?? snapshotTaskWithSuggestion?.compactionSuggested;
-        const isBootstrap = payload.eventType === "bootstrap";
+        const isBootstrap =
+          payload.eventType === "bootstrap" || payload.eventType === "cache_ready";
         const resetHistory =
           payload.historyReset === true ||
           payload.eventType === "revert" ||
