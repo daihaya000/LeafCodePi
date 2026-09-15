@@ -47,6 +47,21 @@ describe("tool result cap", () => {
     expect(capped![1]).toBe(content[1]);
   });
 
+  it("shares one text budget across multi-block results", () => {
+    const content = [
+      { type: "text", text: "a".repeat(20_000) },
+      { type: "text", text: "b".repeat(20_000) },
+      { type: "text", text: "c".repeat(20_000) },
+    ];
+    const capped = capToolResultContent(content);
+    const text = capped!.map((part) => part.text).join("");
+
+    expect(capped![0]?.text).toBe(content[0].text);
+    expect(capped![1]?.text).toContain("省略しました");
+    expect(capped![2]?.text).toBe("");
+    expect(text.length).toBeLessThan(MAX_TOOL_RESULT_CHARS + 1_000);
+  });
+
   it("caps the content an existing hook returned and keeps its other fields", async () => {
     const agent: ToolCappableAgent = {
       afterToolCall: async () => ({

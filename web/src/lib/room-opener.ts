@@ -18,8 +18,9 @@ import {
 import type { BotDto, RoomOpenerReasonKind } from "@/lib/types";
 import { roomOpenerReasonLabel } from "@/lib/room-opener-labels";
 
-const MAX_DESCRIPTION_CHARS = 600;
-const MAX_PROMPT_CHARS = 16_000;
+// The opener returns one name; a short request and role summary are sufficient.
+const MAX_DESCRIPTION_CHARS = 300;
+const MAX_PROMPT_CHARS = 8_000;
 const ROOM_OPENER_TIMEOUT_MS = 30_000;
 
 export const ROOM_OPENER_SYSTEM_INSTRUCTION = [

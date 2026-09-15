@@ -73,6 +73,15 @@ describe("room opener candidates and parse", () => {
     expect(parseRoomOpenerResponse('{"agent":"Debugger","extra":1}', candidates)).toBeUndefined();
   });
 
+  it("caps the routing request and each role summary", () => {
+    const candidates = roomOpenerCandidates([{ ...designer, soul: "x".repeat(600) }]);
+    const prompt = formatRoomOpenerPrompt("r".repeat(16_000), candidates);
+    const current = prompt.match(/<current_request>\n([\s\S]*?)\n<\/current_request>/)?.[1] ?? "";
+
+    expect(Array.from(current)).toHaveLength(8_000);
+    expect(candidates[0]?.description).toHaveLength(300);
+  });
+
   it("labels opener reasons for chips", () => {
     expect(roomOpenerReasonLabel("keyword")).toBe("キーワード一致");
     expect(roomOpenerReasonLabel("llm")).toBe("LLM選択");

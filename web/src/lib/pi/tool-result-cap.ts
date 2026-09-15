@@ -8,7 +8,7 @@
  * receives *and* what compaction has to keep.
  */
 
-/** Per text block. Multi-block text results are rare, so no shared budget. */
+/** Shared text budget per tool call. */
 export const MAX_TOOL_RESULT_CHARS = 25_000;
 
 /**
@@ -60,7 +60,7 @@ export function capToolResultText(
 }
 
 /**
- * Cap every text block of a tool result.
+ * Cap text blocks to one shared tool-result budget.
  * Returns `null` when nothing exceeded the limit, so callers can leave the
  * original result (and its details) untouched.
  */
@@ -70,12 +70,17 @@ export function capToolResultContent<T extends ToolResultPart>(
 ): T[] | null {
   if (!Array.isArray(content)) return null;
   let capped = false;
+  let remaining = limit;
   const next = content.map((part) => {
     if (!part || part.type !== "text" || typeof part.text !== "string") {
       return part;
     }
-    const text = capToolResultText(part.text, limit);
-    if (text === part.text) return part;
+    if (part.text.length <= remaining) {
+      remaining -= part.text.length;
+      return part;
+    }
+    const text = remaining > 0 ? capToolResultText(part.text, remaining) : "";
+    remaining = 0;
     capped = true;
     return { ...part, text };
   });
