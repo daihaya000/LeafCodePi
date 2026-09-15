@@ -1,9 +1,9 @@
 import type { RoomAttention, RoomDto } from "./types";
 
 /**
- * Cheap change key for the room stream. Every room write bumps `updatedAt`, so a task event that
+ * Change key for the room stream. Every room write bumps `updatedAt`, so a task event that
  * changed nothing costs a comparison instead of serialising the whole transcript. The last
- * message and the outcome are included because two writes can share one millisecond.
+ * message text and outcome are included because two writes can share one millisecond.
  */
 export function roomSnapshotSignature(room: RoomDto, attention: RoomAttention[]): string {
   const last = room.messages.at(-1);
@@ -13,7 +13,7 @@ export function roomSnapshotSignature(room: RoomDto, attention: RoomAttention[])
     room.messages.length,
     last?.id ?? "",
     last?.status ?? "",
-    last?.text.length ?? 0,
+    JSON.stringify(last?.text ?? ""),
     last?.codeState ?? "",
     last?.codeActivity ?? "",
     room.messages.flatMap((message) => (message.codeRequests ?? []).map((request) => `${request.id}:${request.taskId ?? ""}:${request.state}`)).join(","),

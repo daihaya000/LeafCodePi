@@ -22,6 +22,7 @@ describe("room snapshot signature", () => {
   it("catches changes that share one millisecond with the previous write", () => {
     const base = roomSnapshotSignature(room, []);
     const grown = { ...room, messages: [{ ...room.messages[0], text: "hi there" }] };
+    const rewritten = { ...room, messages: [{ ...room.messages[0], text: "yo" }] };
     const settled = { ...room, messages: [{ ...room.messages[0], status: "done" as const }] };
     const reported = { ...room, messages: [{ ...room.messages[0], codeState: "delivered" as const, codeActivity: "" }] };
     const codeRequests = {
@@ -32,6 +33,7 @@ describe("room snapshot signature", () => {
       }],
     };
     expect(roomSnapshotSignature(grown, [])).not.toBe(base);
+    expect(roomSnapshotSignature(rewritten, [])).not.toBe(base);
     expect(roomSnapshotSignature(settled, [])).not.toBe(base);
     expect(roomSnapshotSignature(reported, [])).not.toBe(base);
     expect(roomSnapshotSignature(codeRequests, [])).not.toBe(base);
