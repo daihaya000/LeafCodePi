@@ -16,17 +16,23 @@ const OMISSION_NOTICE =
 
 type ToolResultPart = { type?: unknown; text?: unknown };
 
+/** Move a cut off a surrogate pair so slicing cannot emit a lone surrogate. */
+function safeCut(text: string, index: number): number {
+  const code = text.charCodeAt(index - 1);
+  return code >= 0xd800 && code <= 0xdbff ? index - 1 : index;
+}
+
 /** Keep the head and tail so both the command echo and the conclusion survive. */
 export function capToolResultText(
   text: string,
   limit = MAX_TOOL_RESULT_CHARS,
 ): string {
   if (text.length <= limit) return text;
-  const head = Math.ceil(limit * 0.6);
-  const tail = limit - head;
-  const omitted = text.length - limit;
-  return `${text.slice(0, head)}\n\n[... ${omitted} ${OMISSION_NOTICE} ...]\n\n${
-    text.slice(text.length - tail)
+  const headEnd = safeCut(text, Math.ceil(limit * 0.6));
+  const tailStart = safeCut(text, text.length - (limit - headEnd));
+  const omitted = tailStart - headEnd;
+  return `${text.slice(0, headEnd)}\n\n[... ${omitted} ${OMISSION_NOTICE} ...]\n\n${
+    text.slice(tailStart)
   }`;
 }
 
@@ -73,6 +79,8 @@ export type AfterToolCall = (
  */
 export type ToolCappableAgent = { afterToolCall?: unknown };
 
+const installedOn = new WeakSet<ToolCappableAgent>();
+
 /**
  * Chain the cap onto the session's existing `afterToolCall` hook so extension
  * `tool_result` handlers still run first and their content is capped too.
@@ -84,6 +92,9 @@ export function installToolResultCap(
   limit = MAX_TOOL_RESULT_CHARS,
 ): void {
   if (!agent) return;
+  // Re-configuring a session must not stack wrappers on the same hook.
+  if (installedOn.has(agent)) return;
+  installedOn.add(agent);
   const previous =
     typeof agent.afterToolCall === "function"
       ? (agent.afterToolCall as AfterToolCall).bind(agent)

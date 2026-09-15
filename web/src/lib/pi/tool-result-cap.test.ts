@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   capToolResultContent,
   capToolResultText,
@@ -26,6 +26,12 @@ describe("tool result cap", () => {
     expect(capped.startsWith("START")).toBe(true);
     expect(capped.endsWith("END")).toBe(true);
     expect(capped).toContain("省略しました");
+  });
+
+  it("never splits a surrogate pair", () => {
+    const capped = capToolResultText(`START${"🍣".repeat(40_000)}END`);
+    expect(capped).not.toMatch(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/);
+    expect(capped).not.toMatch(/(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/);
   });
 
   it("caps text blocks and leaves other blocks alone", () => {
@@ -56,6 +62,17 @@ describe("tool result cap", () => {
     const [part] = result!.content as { text: string }[];
     expect(part.text.length).toBeLessThan(60_000);
     expect(part.text.startsWith("yyy")).toBe(true);
+  });
+
+  it("does not stack wrappers when a session is configured twice", async () => {
+    const previous = vi.fn(async () => undefined);
+    const agent: ToolCappableAgent = { afterToolCall: previous };
+
+    installToolResultCap(agent);
+    installToolResultCap(agent);
+    await hookOf(agent)({ result: { content: [{ type: "text", text: "ok" }] } });
+
+    expect(previous).toHaveBeenCalledTimes(1);
   });
 
   it("returns undefined when nothing needs capping, so details survive", async () => {
