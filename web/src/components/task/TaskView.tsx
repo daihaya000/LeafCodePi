@@ -3005,10 +3005,10 @@ export const TaskView = memo(function TaskView({
       className={cx("@container/task flex min-h-0 min-w-0 flex-1 flex-col bg-bot-chat", !active && "hidden")}
     >
       <header
-        className="grid min-h-11 shrink-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-2 border-b border-bot-outline bg-bot-chat px-3 pb-0.5 @min-[48rem]/task:grid-cols-[minmax(0,1fr)_auto_auto] @min-[48rem]/task:px-4"
+        className="grid min-h-11 shrink-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-2 border-b border-bot-outline bg-bot-chat px-3 pb-0.5 @min-[48rem]/task:px-4"
         style={{ paddingTop: "env(safe-area-inset-top)" }}
       >
-        <div className="col-span-2 flex min-w-0 items-center gap-2 @min-[48rem]/task:col-span-1">
+        <div className="col-span-2 flex min-w-0 items-center gap-2">
           <MobileMenuButton />
           <div className="flex min-w-0 flex-1 items-center gap-1">
             {titleEditing ? (
@@ -3093,7 +3093,7 @@ export const TaskView = memo(function TaskView({
             </Button>
           </div>
         </div>
-        <div aria-label="タスクの状態" className="col-span-1 col-start-1 row-start-2 flex min-w-0 items-center gap-x-2 overflow-hidden text-xs text-muted @max-[48rem]/task:-translate-y-0.5 @min-[48rem]/task:col-span-1 @min-[48rem]/task:col-start-2 @min-[48rem]/task:row-start-1">
+        <div aria-label="タスクの状態" className="col-span-1 col-start-1 row-start-2 flex min-w-0 items-center gap-x-2 overflow-hidden text-xs text-muted @max-[48rem]/task:-translate-y-0.5">
           {permissionRequest && <Badge tone="warning" className="shrink-0">承認待ち</Badge>}
           {questionRequest && <Badge tone="warning" className="shrink-0">回答待ち</Badge>}
           {displayedStatus && <StatusBadge status={displayedStatus} className="shrink-0" />}
@@ -3134,7 +3134,7 @@ export const TaskView = memo(function TaskView({
         <div
           role="group"
           aria-label="タスク操作"
-          className="flex items-center justify-end col-start-2 row-start-2 @min-[48rem]/task:col-start-3 @min-[48rem]/task:row-start-1"
+          className="flex items-center justify-end col-start-2 row-start-2"
         >
           {onAddPane && (
             <Button
