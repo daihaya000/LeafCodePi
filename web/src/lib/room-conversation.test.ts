@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { firstFormalRoomMemberMention, formalRoomMemberMentions, isRoomConversationRequest, isRoomStopRequest, latestRoomRequest, matchRoomIntentBot, parseRoomReply, roomBotPrompt } from "./room-conversation";
+import { firstFormalRoomMemberMention, formalRoomMemberMentions, isRoomConversationRequest, isRoomStopRequest, latestRoomRequest, matchRoomIntentBot, MAX_ROOM_REQUEST_CHARS, parseRoomReply, roomBotPrompt } from "./room-conversation";
 import type { BotDto, RoomDto, RoomMessage } from "./types";
 
 const bots = [
@@ -171,7 +171,9 @@ describe("shared room context", () => {
     const current = room([{ ...user, text: request }]);
     const prompt = roomBotPrompt(current, bots[0], bots, request, user.id, { participants: bots, turn: 1, maxTurns: 4 });
 
-    expect(prompt.split(request)).toHaveLength(2);
+    const sent = JSON.parse(prompt.match(/^User request: (.*)$/m)?.[1] ?? "null");
+    expect(Array.from(sent)).toHaveLength(MAX_ROOM_REQUEST_CHARS);
+    expect(sent).toMatch(/…$/);
     expect(transcriptOf(prompt)).toEqual([]);
   });
 
