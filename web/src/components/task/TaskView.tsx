@@ -2991,9 +2991,10 @@ export const TaskView = memo(function TaskView({
     task &&
       task.kind !== "bot" &&
       !task.botId &&
-      working &&
       !archived,
   );
+  const hasEligibleSupervisorBot = supervisorBots.some((bot) => bot.enabled && bot.permissionMode !== "deny");
+  const supervisorControlDisabled = supervisorBusy || (!supervisor && (!working || !hasEligibleSupervisorBot));
   const mobilePanelOpen = !mdUp && (graphOpen || diffOpen);
 
   return (
@@ -3096,13 +3097,44 @@ export const TaskView = memo(function TaskView({
           {permissionRequest && <Badge tone="warning" className="shrink-0">承認待ち</Badge>}
           {questionRequest && <Badge tone="warning" className="shrink-0">回答待ち</Badge>}
           {displayedStatus && <StatusBadge status={displayedStatus} className="shrink-0" />}
-          {supervisor && (
+          {supervisor && !canManageSupervisor && (
             <span
               title={`監督: ${supervisor.name}`}
               className="shrink-0 rounded-full ring-1 ring-working/25"
             >
               <BotAvatar size={20} {...supervisor} active={working} />
             </span>
+          )}
+          {canManageSupervisor && (
+            <label
+              title={supervisor ? `監督: ${supervisor.name}` : working ? "Botへ引き継ぐ" : "タスク実行中にBotへ引き継げます"}
+              className={cx(
+                "relative flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-muted hover:bg-surface-2 hover:text-text focus-within:ring-2 focus-within:ring-accent @min-[48rem]/task:h-9 @min-[48rem]/task:w-9",
+                supervisorControlDisabled && "cursor-not-allowed opacity-40",
+              )}
+            >
+              <span className="sr-only">Codeタスクを監督するBot</span>
+              {supervisor ? <BotAvatar size={20} {...supervisor} active={working} /> : <Bot className="h-4 w-4" aria-hidden="true" />}
+              <select
+                aria-label="Codeタスクを監督するBot"
+                defaultValue=""
+                disabled={supervisorControlDisabled}
+                onChange={(event) => {
+                  const value = event.target.value;
+                  if (value === USER_OWNERSHIP_OPTION) void setSupervisor(null);
+                  else if (value) void setSupervisor(value);
+                  event.currentTarget.value = "";
+                }}
+                className="absolute inset-0 h-full w-full cursor-pointer opacity-0 disabled:cursor-not-allowed"
+              >
+                <option value="">{supervisor ? "委任を解除…" : "Botへ引き継ぐ…"}</option>
+                {supervisor ? (
+                  <option value={USER_OWNERSHIP_OPTION}>委任を解除（ユーザー所有）</option>
+                ) : supervisorBots.filter((bot) => bot.enabled && bot.permissionMode !== "deny").map((bot) => (
+                  <option key={bot.id} value={bot.id}>{bot.name}</option>
+                ))}
+              </select>
+            </label>
           )}
           {contextUsage && <ContextUsageMeter usage={contextUsage} />}
           {stats.totalTokens > 0 && (
@@ -3146,34 +3178,6 @@ export const TaskView = memo(function TaskView({
             >
               <Plus className="h-4 w-4" />
             </Button>
-          )}
-          {canManageSupervisor && (task?.supervisorBotId || supervisorBots.some((bot) => bot.enabled && bot.permissionMode !== "deny")) && (
-            <label
-              title={task?.supervisorBotId ? "委任を解除" : "Botへ引き継ぐ"}
-              className="relative flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-muted hover:bg-surface-2 hover:text-text focus-within:ring-2 focus-within:ring-accent @min-[48rem]/task:h-9 @min-[48rem]/task:w-9"
-            >
-              <span className="sr-only">Codeタスクを監督するBot</span>
-              <Bot className="h-4 w-4" aria-hidden="true" />
-              <select
-                aria-label="Codeタスクを監督するBot"
-                defaultValue=""
-                disabled={supervisorBusy}
-                onChange={(event) => {
-                  const value = event.target.value;
-                  if (value === USER_OWNERSHIP_OPTION) void setSupervisor(null);
-                  else if (value) void setSupervisor(value);
-                  event.currentTarget.value = "";
-                }}
-                className="absolute inset-0 h-full w-full cursor-pointer opacity-0 disabled:cursor-not-allowed"
-              >
-                <option value="">{task?.supervisorBotId ? "委任を解除…" : "Botへ引き継ぐ…"}</option>
-                {task?.supervisorBotId ? (
-                  <option value={USER_OWNERSHIP_OPTION}>委任を解除（ユーザー所有）</option>
-                ) : supervisorBots.filter((bot) => bot.enabled && bot.permissionMode !== "deny").map((bot) => (
-                  <option key={bot.id} value={bot.id}>{bot.name}</option>
-                ))}
-              </select>
-            </label>
           )}
           <ProjectExplorerButton
             projectId={task?.projectId}

@@ -84,6 +84,15 @@ it("shows the supervising Bot as the sender of the prompts it relays into a user
   expect(screen.queryByText("監督: 監督Bot")).toBeNull();
 });
 
+it("keeps the Bot control visible but disabled until an unassigned Code task starts", async () => {
+  render(<TaskView taskId={task.id} mdUp />);
+
+  const selector = await screen.findByRole("combobox", { name: "Codeタスクを監督するBot" });
+  expect((selector as HTMLSelectElement).disabled).toBe(true);
+  expect(selector.closest('[aria-label="タスクの状態"]')).not.toBeNull();
+  expect(selector.closest('[aria-label="タスク操作"]')).toBeNull();
+});
+
 it("lets the user release a delegated Code task to user ownership", async () => {
   const activeTask = { ...task, kind: "code" as const, status: "working" as const, supervisorBotId: "bot-1" };
   saveTaskSessionCache({ task: activeTask, messages: [], isStreaming: true, isCompacting: false });
