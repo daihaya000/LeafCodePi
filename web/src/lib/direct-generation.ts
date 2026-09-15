@@ -280,12 +280,21 @@ type DirectGenerationFallbackOptions = Omit<Parameters<typeof generateDirectText
 export async function generateDirectTextWithFallbackResult(
   options: DirectGenerationFallbackOptions,
 ): Promise<DirectGenerationResult> {
-  const { candidates, ...base } = options;
+  const {
+    candidates,
+    accountId: taskAccountId,
+    accountIdExplicit: taskAccountExplicit,
+    ...base
+  } = options;
+  const taskAccount = taskAccountId
+    ? listAccounts().find((account) => account.id === taskAccountId)
+    : undefined;
+  if (taskAccountId && taskAccountExplicit && !taskAccount) {
+    throw new DirectGenerationError("アカウントが見つかりません", 404);
+  }
+
   let lastError: unknown;
   for (const candidate of candidates) {
-    const taskAccount = base.accountId
-      ? listAccounts().find((account) => account.id === base.accountId)
-      : undefined;
     // A task pin only applies to providers owned by that account. A configured
     // fallback for another provider must resolve its own account/runtime.
     const accountId =
@@ -295,12 +304,11 @@ export async function generateDirectTextWithFallbackResult(
         : undefined);
     const pinAccount =
       Boolean(candidate.model.accountId) ||
-      (base.accountIdExplicit === true && accountId === base.accountId);
-    const { accountId: _taskAccountId, accountIdExplicit: _taskAccountExplicit, ...candidateBase } = base;
+      (taskAccountExplicit === true && accountId === taskAccountId);
     try {
       return {
         text: await generateDirectText({
-          ...candidateBase,
+          ...base,
           ...(accountId ? { accountId } : {}),
           model: candidate.model,
           effort: candidate.effort,
@@ -315,7 +323,7 @@ export async function generateDirectTextWithFallbackResult(
         try {
           return {
             text: await generateDirectText({
-              ...candidateBase,
+              ...base,
               ...(accountId ? { accountId } : {}),
               model: candidate.model,
               ...(pinAccount ? { accountIdExplicit: true } : {}),

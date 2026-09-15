@@ -339,6 +339,24 @@ describe("direct-generation", () => {
     expect(completeModelText.mock.calls[1]?.[0]).not.toHaveProperty("accountIdExplicit");
   });
 
+  it("does not reroute a missing explicit task account", async () => {
+    completeModelText.mockResolvedValue("unexpected");
+
+    await expect(
+      generateDirectTextWithFallbackResult({
+        candidates: [{ model: { providerID: "anthropic", modelID: "primary" } }],
+        accountId: "missing-account",
+        accountIdExplicit: true,
+        system: "system",
+        prompt: "prompt",
+      }),
+    ).rejects.toMatchObject({
+      message: "アカウントが見つかりません",
+      status: 404,
+    });
+    expect(completeModelText).not.toHaveBeenCalled();
+  });
+
   it("keeps the explicit task account for a same-provider fallback", async () => {
     accountState.accounts = [{ id: "acc-anthropic", providers: ["anthropic"] }];
     completeModelText
