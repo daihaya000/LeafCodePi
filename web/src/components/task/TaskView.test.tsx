@@ -502,6 +502,44 @@ it("does not split the activity log on assistant text that precedes a tool call"
   expect(document.querySelector('[data-task-part-view="message"][data-message-id="reply"]')).not.toBeNull();
 });
 
+it("keeps a long reply outside the activity log even when a tool follows it", () => {
+  // 前置きと見なせない長い本文は、ツールと同じメッセージでも折りたたみへ隐さない。
+  saveTaskSessionCache({
+    task,
+    messages: [
+      {
+        id: "long-reply",
+        role: "assistant",
+        createdAt: 1,
+        parts: [
+          { id: "long-text", type: "text", text: "結果を報告します。".repeat(40) },
+          {
+            id: "long-tool",
+            type: "tool",
+            tool: "read",
+            callID: "long-call",
+            state: { status: "completed", input: { path: "README.md" } },
+          },
+        ],
+      },
+    ],
+    isStreaming: false,
+    isCompacting: false,
+  });
+  mocks.partView.mockImplementation(({ message, hideMeta }: { message: UiMessage; hideMeta?: boolean }) => (
+    <div
+      data-task-part-view={hideMeta ? "activity" : "message"}
+      data-message-id={message.id}
+      data-part-types={message.parts.map((part) => part.type).join(",")}
+    />
+  ));
+  render(<TaskView taskId={task.id} mdUp />);
+
+  const reply = document.querySelector('[data-task-part-view="message"][data-message-id="long-reply"]');
+  expect(reply?.getAttribute("data-part-types")).toBe("text");
+  expect(document.querySelector("details[data-task-tool-group]")?.contains(reply!)).toBe(false);
+});
+
 it("keeps a thinking-only reply visible outside the activity log", () => {
   // 回帰: ツールを伴わない thinking+本文はそのターンの回答なので、折りたたみに隐さない。
   saveTaskSessionCache({

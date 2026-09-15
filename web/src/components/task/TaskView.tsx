@@ -562,6 +562,22 @@ function isEmptyAssistantMessage(message: UiMessage): boolean {
   );
 }
 
+/**
+ * ツール呼び出しに付く前置きと、読む価値のある本文を分ける長さ。実測で前置きは
+ * 53〜227字、ターンの回答は437字以上だった。
+ * ponytail: 文字数だけのヒューリスティック。誤判定が目立つなら、そのターンの
+ * 最後のメッセージかどうかなど構造的な判定へ変える。
+ */
+const ACTIVITY_PREAMBLE_MAX_CHARS = 320;
+
+function assistantTextLength(message: UiMessage): number {
+  let length = 0;
+  for (const part of message.parts) {
+    if (part.type === "text") length += part.text.trim().length;
+  }
+  return length;
+}
+
 function buildTaskActivityEntry(message: UiMessage): TaskActivityEntry | null {
   if (message.role !== "assistant") return null;
   const hasActivity =
@@ -572,7 +588,9 @@ function buildTaskActivityEntry(message: UiMessage): TaskActivityEntry | null {
   // ツール呼び出しと同じメッセージの本文は前置き（「次に〜する」）なので、
   // 枠外へ出すとツール1回ごとに作業ログが分断される。一方で thinking だけを
   // 伴う本文はそのターンの回答なので、折りたたみに隠さず吹き出しへ残す。
-  const foldsText = message.parts.some((part) => part.type === "tool");
+  const foldsText =
+    message.parts.some((part) => part.type === "tool") &&
+    assistantTextLength(message) <= ACTIVITY_PREAMBLE_MAX_CHARS;
   const parts = message.parts.filter(
     (part) => part.type !== "text" || (foldsText && Boolean(part.text.trim())),
   );
