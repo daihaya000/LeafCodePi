@@ -502,11 +502,13 @@ function ProviderRow({
   onToggle,
   compact,
   labelOverride,
+  accountLabel,
   hideIcon = false,
   unconfigured = false,
   resetBusy = false,
   resetStatus = null,
   onRedeemReset,
+  className,
 }: {
   p: CodexBarProvider;
   now: number;
@@ -514,11 +516,13 @@ function ProviderRow({
   onToggle: () => void;
   compact?: boolean;
   labelOverride?: string;
+  accountLabel?: string;
   hideIcon?: boolean;
   unconfigured?: boolean;
   resetBusy?: boolean;
   resetStatus?: string | null;
   onRedeemReset?: (provider: CodexBarProvider) => void;
+  className?: string;
 }) {
   const tone = usageTone(p);
   const contentIndent = hideIcon ? undefined : "pl-6";
@@ -530,7 +534,10 @@ function ProviderRow({
   const planBadge = formatPlanBadge(p.plan, p.planMonthlyUsd);
 
   return (
-    <li className="flex min-w-0 flex-col gap-1 rounded-lg border border-border bg-surface-2/40 p-1.5">
+    <li className={cx(
+      "flex min-w-0 flex-col gap-1 rounded-lg border border-border bg-surface-2/40 p-1.5",
+      className,
+    )}>
       <button
         type="button"
         onClick={canExpand ? onToggle : undefined}
@@ -543,6 +550,14 @@ function ProviderRow({
       >
         {!hideIcon && <ProviderIcon p={p} tone={showErrorOnly ? "danger" : tone} />}
         <span className="min-w-0 flex-1 truncate font-semibold text-text">{label}</span>
+        {accountLabel && (
+          <span
+            className="min-w-0 max-w-28 truncate text-[10px] text-muted"
+            title={`アカウント: ${accountLabel}`}
+          >
+            {accountLabel}
+          </span>
+        )}
         {!compact && planBadge && (
           <span
             className="max-w-28 shrink truncate rounded border border-border bg-surface-3 px-1 text-[10px] font-medium text-muted"
@@ -1099,42 +1114,54 @@ export function CodexBarWidget({
               twoColumn ? "grid grid-cols-2 items-stretch gap-2" : "space-y-2.5",
             )}
           >
-            {providerGroups.map((group) =>
-              group.accountRows.length > 0 ? (
-                <ProviderGroupRow
-                  key={group.id}
-                  group={group}
-                  now={now}
-                  collapsed={!!providerCollapsed[group.id]}
-                  compact={twoColumn}
-                  onToggle={() => toggleProvider(group.id)}
-                  childCollapsed={(key) => !!providerCollapsed[key]}
-                  onToggleChild={toggleProvider}
-                  resetBusyKey={resetBusyKey}
-                  resetStatusByKey={resetStatusByKey}
-                  onRedeemReset={redeemResetCredit}
-                />
-              ) : (
+            {providerGroups.map((group) => {
+              if (group.accountRows.length > 1) {
+                return (
+                  <ProviderGroupRow
+                    key={group.id}
+                    group={group}
+                    now={now}
+                    collapsed={!!providerCollapsed[group.id]}
+                    compact={twoColumn}
+                    onToggle={() => toggleProvider(group.id)}
+                    childCollapsed={(key) => !!providerCollapsed[key]}
+                    onToggleChild={toggleProvider}
+                    resetBusyKey={resetBusyKey}
+                    resetStatusByKey={resetStatusByKey}
+                    onRedeemReset={redeemResetCredit}
+                  />
+                );
+              }
+
+              const account = group.accountRows[0];
+              const provider = account?.provider ?? group.provider;
+              const key =
+                account?.provider?.instanceId ??
+                account?.id ??
+                provider.instanceId ??
+                `default:${provider.id}`;
+              return (
                 <ProviderRow
                   key={group.id}
-                  p={group.provider}
+                  p={provider}
                   now={now}
                   collapsed={!!providerCollapsed[group.id]}
                   onToggle={() => toggleProvider(group.id)}
                   compact={twoColumn}
-                  resetBusy={
-                    resetBusyKey ===
-                    (group.provider.instanceId ?? `default:${group.provider.id}`)
+                  labelOverride={account ? providerLabel(group.id) : undefined}
+                  accountLabel={account?.label}
+                  unconfigured={
+                    account
+                      ? !account.configured || account.provider === null
+                      : false
                   }
-                  resetStatus={
-                    resetStatusByKey[
-                      group.provider.instanceId ?? `default:${group.provider.id}`
-                    ] ?? null
-                  }
+                  resetBusy={resetBusyKey === key}
+                  resetStatus={resetStatusByKey[key] ?? null}
                   onRedeemReset={redeemResetCredit}
+                  className={account ? "self-start" : undefined}
                 />
-              ),
-            )}
+              );
+            })}
           </ul>
         )}
       </div>

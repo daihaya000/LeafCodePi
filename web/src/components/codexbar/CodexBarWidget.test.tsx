@@ -150,6 +150,28 @@ describe("CodexBarWidget", () => {
     expect(screen.getByText("仕事用").closest("ul")?.className).not.toContain("pl-6");
   });
 
+  it("flattens a provider with one account into a single row", async () => {
+    localStorage.setItem("webui:codexbar:collapsed", "0");
+    useCodexUsage.mockReturnValue({
+      usage: {
+        ...accountUsage,
+        accounts: accountUsage.accounts?.slice(0, 1),
+        providers: accountUsage.providers.slice(0, 1),
+      },
+      loadError: null,
+      refreshing: false,
+      refresh: vi.fn().mockResolvedValue(undefined),
+      now: Date.now(),
+    });
+
+    render(<CodexBarWidget />);
+
+    const accountLabel = await screen.findByText("仕事用");
+    expect(accountLabel.closest("button")?.textContent).toContain("Codex");
+    expect(accountLabel.closest("li")?.querySelector("ul")).toBeNull();
+    expect(screen.getAllByRole("list")).toHaveLength(1);
+  });
+
   it("keeps the saved expanded view compact with two columns and inline update status", async () => {
     localStorage.setItem("webui:codexbar:collapsed", "0");
 
