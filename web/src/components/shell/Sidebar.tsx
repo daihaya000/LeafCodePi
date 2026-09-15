@@ -683,7 +683,7 @@ export const TaskActivityIcon = memo(function TaskActivityIcon({
   );
 });
 
-const SidebarTaskRow = memo(function SidebarTaskRow({
+export const SidebarTaskRow = memo(function SidebarTaskRow({
   task,
   active,
   bot,
