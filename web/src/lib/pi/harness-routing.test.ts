@@ -261,6 +261,7 @@ import type { ThinkingLevel } from "@/lib/types";
 import { AUTO_MODEL_VALUE } from "@/lib/auto-model";
 import { setAccountRoutingMode, __resetProviderRoutingQueueForTests, markProviderLimited } from "@/lib/provider-routing";
 import { setSetting } from "@/lib/pi/web-settings";
+import { BOT_PROMPT_PREFIX } from "@/lib/pi/messages";
 import { AccountRuntimeManager } from "./account-runtime-manager";
 import { goalLoopStateFile } from "./goal-loop-state";
 import { taskRuntimeLeasePath } from "@/lib/task-runtime-lease";
@@ -847,6 +848,36 @@ describe("integrated session routing", () => {
       prompt: "ユーザーからの追加指示",
       promptOptions: { streamingBehavior: "followUp" },
     });
+  });
+
+  it("marks Bot-relayed Code prompts and leaves Code-screen prompts unmarked", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "leafcode-pi-bot-prompt-sender-"));
+    tempDirs.push(dir);
+    process.env.LEAFCODE_PI_DATA_DIR = dir;
+    process.env.PI_CODING_AGENT_DIR = join(dir, "agent");
+    __resetPiAgentDirCacheForTests();
+    installHarness(new Map());
+
+    const project = upsertProject({ name: "demo", rootPath: dir });
+    const bot = createBot({ name: "worker" });
+    const task = await createTask({ projectId: project.id, prompt: "initial", botId: bot.id });
+    const live = (globalThis as Record<string, unknown>)[GLOBAL_KEY] as {
+      live: Map<string, { promptChain: Promise<void> }>;
+    };
+    await live.live.get(task.id)!.promptChain;
+
+    // Botが開始したセッションとBotパネルからの追加入力は、Botの送信として記録する。
+    await promptTask(task.id, "パネルからの追加指示", undefined, { fromBot: true });
+    await live.live.get(task.id)!.promptChain;
+    // Code画面の入力欄から送った本文はユーザーの送信のままにする。
+    await promptTask(task.id, "Code画面からの追加指示");
+    await live.live.get(task.id)!.promptChain;
+
+    expect(fakePi.sessions.at(-1)?.prompts).toEqual([
+      `${BOT_PROMPT_PREFIX}initial`,
+      `${BOT_PROMPT_PREFIX}パネルからの追加指示`,
+      "Code画面からの追加指示",
+    ]);
   });
 
   it("keeps Pi native compaction enabled for a Goal Loop session", async () => {

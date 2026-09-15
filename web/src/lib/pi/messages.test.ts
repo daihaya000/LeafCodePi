@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { findResumableTurn } from "../aborted-resume";
+import { HANG_RETRY_PREFIX } from "../hang-retry";
 import { formatPromptWithFiles } from "../prompt-images";
 import {
+  BOT_PROMPT_PREFIX,
   entryIdsForProjectedMessages,
   MAX_UI_TOOL_OUTPUT_CHARS,
   projectPiMessages,
@@ -61,6 +63,33 @@ describe("projectPiMessages", () => {
 
     expect(messages).toHaveLength(1);
     expect(messages[0]?.role).toBe("assistant");
+  });
+
+  it("marks a Bot-sent prompt as fromBot and strips the marker from the timeline", () => {
+    const messages = projectPiMessages([
+      { role: "user", id: "u-bot", timestamp: 1, content: `${BOT_PROMPT_PREFIX}Botからの依頼` },
+      { role: "assistant", id: "a-1", timestamp: 2, content: [{ type: "text", text: "了解" }] },
+      { role: "user", id: "u-user", timestamp: 3, content: "Code画面からの指示" },
+    ]);
+
+    expect(messages[0]).toMatchObject({ id: "u-bot", role: "user", fromBot: true });
+    expect(messages[0]?.parts).toEqual([{ id: "u-bot-text", type: "text", text: "Botからの依頼" }]);
+    expect(messages[2]?.fromBot).toBeUndefined();
+    expect(JSON.stringify(messages)).not.toContain("leafcode-pi-bot-prompt");
+  });
+
+  it("keeps fromBot and hangRetry on an automatically resent Bot prompt", () => {
+    const messages = projectPiMessages([
+      {
+        role: "user",
+        id: "u-retry",
+        timestamp: 1,
+        content: `${HANG_RETRY_PREFIX}${BOT_PROMPT_PREFIX}再送される依頼`,
+      },
+    ]);
+
+    expect(messages[0]).toMatchObject({ id: "u-retry", role: "user", hangRetry: true, fromBot: true });
+    expect(messages[0]?.parts).toEqual([{ id: "u-retry-text", type: "text", text: "再送される依頼" }]);
   });
 
   it("labels assistant messages generated from an intercom delivery", () => {

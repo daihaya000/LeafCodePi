@@ -52,7 +52,7 @@ import {
   type LoginSessionEvent,
 } from "@/lib/pi/auth-login";
 import { formatPromptWithFiles, parsePromptFileMarkers, type PromptFileInput } from "@/lib/prompt-images";
-import { toolResultText, titleFromPrompt, toolTimingFromSessionEntries } from "@/lib/pi/messages";
+import { toolResultText, markBotPrompt, titleFromPrompt, toolTimingFromSessionEntries } from "@/lib/pi/messages";
 import { installToolResultCap } from "@/lib/pi/tool-result-cap";
 import {
   applyMessageAccountIds,
@@ -2381,7 +2381,7 @@ export async function continueBotCodeTask(botId: string, taskId: string, prompt:
     (codeRequestId, link) => {
       // The session already exists: link it before prompting so the outbox owns the run from the start.
       link(taskId);
-      return promptTask(taskId, prompt, undefined, { codeRequestId });
+      return promptTask(taskId, prompt, undefined, { codeRequestId, fromBot: true });
     },
     emitCodeSessionChanged,
   );
@@ -6594,6 +6594,8 @@ function startCreatedTaskPrompt(input: {
   subagentPermission?: "allow" | "deny";
   permissionMode?: "allow" | "ask" | "deny";
   codeRequestId?: string;
+  /** Bot-started Code session: the prompt is rendered as the Bot's sender, not the operator's. */
+  fromBot?: boolean;
   goalLoop?: {
     acceptance?: string[];
     maxTurns?: number;
@@ -6613,7 +6615,7 @@ function startCreatedTaskPrompt(input: {
       autoAgent: input.goalLoop.autoAgent === true,
     });
   }
-  queuePrompt(input.live, input.prompt, input.images, {
+  queuePrompt(input.live, input.fromBot ? markBotPrompt(input.prompt) : input.prompt, input.images, {
     files: input.files,
     agent: input.agent,
     subagentPermission: input.subagentPermission,
@@ -6850,6 +6852,7 @@ export async function createTask(input: {
       subagentPermission: input.subagentPermission,
       permissionMode: input.permissionMode,
       codeRequestId: input.codeRequestId,
+      fromBot: Boolean(input.botId),
       goalLoop: input.goalLoop,
     });
     if (promptStart) {
@@ -7958,9 +7961,15 @@ export async function promptTask(
     waitForCompletion?: boolean;
     /** Internal Bot delegation receipt, never accepted from HTTP request bodies. */
     codeRequestId?: string;
+    /**
+     * Internal Bot-authored prompt (Bot panel / delegation), never accepted from HTTP request
+     * bodies. The Code timeline renders the sender as the Bot, not as the operator.
+     */
+    fromBot?: boolean;
   },
 ): Promise<TaskSummary> {
   const taskBeforePrompt = requireTask(id);
+  const promptText = options?.fromBot ? markBotPrompt(prompt) : prompt;
   if (taskBeforePrompt.projectId) {
     const project = getProject(taskBeforePrompt.projectId);
     if (project?.archived) {
@@ -7975,7 +7984,7 @@ export async function promptTask(
     queueBotCodePrompt(
       taskBeforePrompt.botId ?? taskBeforePrompt.supervisorBotId!,
       taskBeforePrompt,
-      prompt,
+      promptText,
       promptOptionsForWorker(images, options),
     );
     return toSummary(taskBeforePrompt);
@@ -7992,7 +8001,7 @@ export async function promptTask(
     applySubagentPermission(live.session, options?.subagentPermission);
   }
   persistRevertLeafId(id, null);
-  const completion = queuePrompt(live, prompt, images, {
+  const completion = queuePrompt(live, promptText, images, {
     files: options?.files,
     agent: options?.agent,
     subagentPermission: options?.subagentPermission,

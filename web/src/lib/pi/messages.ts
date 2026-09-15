@@ -1,6 +1,23 @@
 import { HANG_RETRY_PREFIX, stripHangRetryPrefix } from "../hang-retry";
 import type { GoalLoopTurn, ToolState, UiDiagnostic, UiMessage, UiPart } from "../types";
 
+/**
+ * Bot（Code委譲・Botパネル）が送ったプロンプトを識別するマーカー。
+ * user メッセージ先頭に付与し、UI では送信者をBotとして描画する（本文からは除去）。
+ * Code画面の入力欄からユーザーが送った本文には付かない。
+ */
+export const BOT_PROMPT_PREFIX = "<!-- leafcode-pi-bot-prompt -->\n";
+
+/** Bot送信プロンプトにマーカーを付ける（二重付与しない）。 */
+export function markBotPrompt(text: string): string {
+  return text.startsWith(BOT_PROMPT_PREFIX) ? text : `${BOT_PROMPT_PREFIX}${text}`;
+}
+
+/** 表示用にマーカーを除去する。 */
+export function stripBotPromptPrefix(text: string): string {
+  return text.startsWith(BOT_PROMPT_PREFIX) ? text.slice(BOT_PROMPT_PREFIX.length) : text;
+}
+
 export function titleFromPrompt(prompt: string): string {
   const line = prompt
     .split(/\r?\n/)
@@ -415,8 +432,11 @@ export function projectPiMessages(raw: unknown[], indexOffset = 0): UiMessage[] 
       const parts: UiPart[] = [];
       const rawText = typeof item.content === "string" ? item.content : textFromBlocks(blocks);
       const hangRetry = rawText.startsWith(HANG_RETRY_PREFIX);
+      const afterHangRetry = hangRetry ? stripHangRetryPrefix(rawText) : rawText;
+      // Bot送信マーカー付きの本文だけを Bot の送信として扱う（Code画面の入力欄からの送信と区別）。
+      const fromBot = afterHangRetry.startsWith(BOT_PROMPT_PREFIX);
       const parsedFiles = filePartsFromPromptText(
-        hangRetry ? stripHangRetryPrefix(rawText) : rawText,
+        fromBot ? stripBotPromptPrefix(afterHangRetry) : afterHangRetry,
         id,
       );
       if (parsedFiles.text) parts.push({ id: `${id}-text`, type: "text", text: parsedFiles.text });
@@ -428,6 +448,7 @@ export function projectPiMessages(raw: unknown[], indexOffset = 0): UiMessage[] 
         createdAt,
         parts,
         ...(hangRetry ? { hangRetry: true } : {}),
+        ...(fromBot ? { fromBot: true } : {}),
       });
       return;
     }

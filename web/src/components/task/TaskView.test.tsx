@@ -40,21 +40,26 @@ afterEach(() => {
   clearCachedModels();
 });
 
-it.each([undefined, "bot-1"])("passes Bot identity only to the sending side (botId: %s)", async (botId) => {
+it.each([undefined, "bot-1"])("passes Bot identity only to Bot-sent prompts (botId: %s)", async (botId) => {
   const bot = { id: "bot-1", name: "Code Bot" };
   mocks.botFor.mockImplementation((id) => id === bot.id ? bot : undefined);
   const messages: UiMessage[] = [
-    { id: "prompt", role: "user", createdAt: 1, parts: [{ id: "prompt-text", type: "text", text: "指示" }] },
+    { id: "prompt", role: "user", fromBot: true, createdAt: 1, parts: [{ id: "prompt-text", type: "text", text: "指示" }] },
     { id: "reply", role: "assistant", createdAt: 2, parts: [{ id: "reply-text", type: "text", text: "応答" }] },
+    { id: "follow-up", role: "user", createdAt: 3, parts: [{ id: "follow-up-text", type: "text", text: "Code画面からの追加指示" }] },
+    { id: "loop-goal", role: "user", goalLoopTurn: { goalId: "goal-1", turn: 1, kind: "goal" }, createdAt: 4, parts: [{ id: "loop-goal-text", type: "text", text: "ループ目標" }] },
   ];
   saveTaskSessionCache({ task: { ...task, botId }, messages, isStreaming: false, isCompacting: false });
   render(<TaskView taskId={task.id} mdUp />);
 
   await waitFor(() => expect(mocks.partView).toHaveBeenCalled());
-  const props = mocks.partView.mock.calls.map(([value]) => ({ role: value.message.role, bot: value.bot }));
+  const props = mocks.partView.mock.calls.map(([value]) => ({ id: value.message.id, role: value.message.role, bot: value.bot }));
   expect(props).toEqual(expect.arrayContaining([
-    { role: "user", bot: botId ? bot : undefined },
-    { role: "assistant", bot: undefined },
+    { id: "prompt", role: "user", bot: botId ? bot : undefined },
+    { id: "follow-up", role: "user", bot: undefined },
+    // Bot開始セッションのGoal Loop目標は、ユーザー入力欄からの送信ではないのでBotのまま。
+    { id: "loop-goal", role: "user", bot: botId ? bot : undefined },
+    { id: "reply", role: "assistant", bot: undefined },
   ]));
   expect(props.filter((value) => value.role === "assistant").every((value) => value.bot === undefined)).toBe(true);
 });

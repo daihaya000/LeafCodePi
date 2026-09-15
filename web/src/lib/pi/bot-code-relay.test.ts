@@ -469,7 +469,7 @@ describe("Bot ⇄ Code relay", () => {
     await launch(); messages = [answer("old", "Old answer")]; store.tasks.get("code")!.status = "idle";
     await relay.tick();
     await relay.run("bot:one", "follow-1", { action: "prompt", prompt: "Add an edge case" }, "session");
-    expect(deps.create).toHaveBeenCalledTimes(1); expect(deps.prompt).toHaveBeenCalledWith("code", "Add an edge case", expect.any(String));
+    expect(deps.create).toHaveBeenCalledTimes(1); expect(deps.prompt).toHaveBeenCalledWith("code", "Add an edge case", expect.any(String), { fromBot: true });
     store.tasks.get("code")!.status = "idle";
     await relay.tick();
     const delivered = vi.mocked(deps.deliver).mock.calls.at(-1)![0];
@@ -815,6 +815,7 @@ describe("Bot ⇄ Code image attachments", () => {
     await relay.run("bot:one", "follow-img", { action: "prompt", prompt: "Use the screenshot" }, "session");
     expect(deps.prompt).toHaveBeenCalledWith("code", "Use the screenshot", expect.any(String), {
       images: [{ mimeType: "image/jpeg", data: "latest-shot" }],
+      fromBot: true,
     });
   });
 
@@ -917,7 +918,7 @@ describe("Room ⇄ Code delegation", () => {
     await relay.tick();
     expect(await relay.run("bot:one:room:room-1", "room-status", { action: "status" }, "session")).toMatchObject({ task: { id: "code" } });
     await relay.run("bot:one:room:room-1", "room-follow", { action: "prompt", prompt: "Add a test" }, "session");
-    expect(deps.prompt).toHaveBeenCalledWith("code", "Add a test", expect.any(String));
+    expect(deps.prompt).toHaveBeenCalledWith("code", "Add a test", expect.any(String), { fromBot: true });
   });
 
   it("lists all persisted Code requests for one Room conversation", async () => {

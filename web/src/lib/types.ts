@@ -468,6 +468,8 @@ export type UiMessage = {
   agent?: string;
   /** ハング watchdog による自動再送 user メッセージ（UI 非表示）。 */
   hangRetry?: boolean;
+  /** この user メッセージはBot（Code委譲・Botパネル）が送った。Code画面の入力欄からの送信は未設定。 */
+  fromBot?: boolean;
   model?: string;
   provider?: string;
   error?: string;

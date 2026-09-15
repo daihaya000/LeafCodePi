@@ -463,6 +463,16 @@ function sameGoalLoopTurn(a: GoalLoopTurn, b: GoalLoopTurn): boolean {
   return a.goalId === b.goalId && a.turn === b.turn && a.kind === b.kind;
 }
 
+/**
+ * 送信者をBotとして描画する user メッセージか。
+ * Botが送った依頼（`fromBot`）と、Bot開始セッションのGoal Loop目標だけが該当し、
+ * Code画面の入力欄からユーザーが送った本文は該当しない。
+ */
+function isBotSentUserMessage(message: UiMessage, botId: string | undefined): boolean {
+  if (message.role !== "user") return false;
+  return Boolean(message.fromBot) || Boolean(botId && message.goalLoopTurn);
+}
+
 /** Show one divider per Goal Loop turn, even when compaction rows intervene. */
 function isGoalLoopTurnBoundary(messages: UiMessage[], index: number): boolean {
   const turn = messages[index]?.goalLoopTurn;
@@ -3425,7 +3435,7 @@ export const TaskView = memo(function TaskView({
                             : (taskAccountLabel ?? undefined)
                           : undefined
                       }
-                      bot={block.message.role === "user" ? botFor?.(task?.botId) : undefined}
+                      bot={isBotSentUserMessage(block.message, task?.botId) ? botFor?.(task?.botId) : undefined}
                       references={messageReferences}
                       taskId={taskId}
                       active={active}

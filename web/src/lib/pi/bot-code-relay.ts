@@ -44,6 +44,8 @@ export type CodePromptOptions = {
   streamingBehavior?: "steer" | "followUp";
   accountIdExplicit?: boolean;
   resume?: boolean;
+  /** Bot-authored prompt: the Code timeline shows the Bot as the sender. Absent for user interventions. */
+  fromBot?: boolean;
 };
 export type CodeRequest = {
   id: string;
@@ -895,9 +897,9 @@ export function createBotCodeRelay(deps: RelayDependencies) {
         request.state = "running";
         save(request);
         if (request.promptOptions?.images?.length) {
-          await deps.prompt(linked!.id, request.prompt, request.id, request.promptOptions);
+          await deps.prompt(linked!.id, request.prompt, request.id, { ...request.promptOptions, fromBot: true });
         } else {
-          await deps.prompt(linked!.id, request.prompt, request.id);
+          await deps.prompt(linked!.id, request.prompt, request.id, { fromBot: true });
         }
       }
     } catch (error) {

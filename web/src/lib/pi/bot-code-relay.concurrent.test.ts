@@ -96,7 +96,7 @@ it.each(["Bot", "Room"])("controls the exact older %s session and rejects a fore
   expect(store.tasks.get("code-2")!.status).toBe("working");
   await relay.complete(records().find((request) => request.codeTaskId === "code-1")!.id);
   await relay.run(origin, "follow", { action: "prompt", taskId: "code-1", prompt: "follow-up" }, "session");
-  expect(deps.prompt).toHaveBeenCalledWith("code-1", "follow-up", expect.any(String));
+  expect(deps.prompt).toHaveBeenCalledWith("code-1", "follow-up", expect.any(String), { fromBot: true });
   const foreign = mode === "Room" ? "bot:one" : roomOrigin;
   for (const action of ["status", "abort", "prompt"] as const) {
     await expect(relay.run(foreign, action, { action, taskId: "code-1", prompt: "wrong" }, "session")).rejects.toThrow("does not belong");
