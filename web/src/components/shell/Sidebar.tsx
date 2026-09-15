@@ -1025,12 +1025,17 @@ const SidebarView = memo(function SidebarView({
   const [railWidgetPos, setRailWidgetPos] = useState({ bottom: 0, left: 0 });
   const taskDragActiveRef = useRef(false);
   const refreshGenRef = useRef(0);
+  const refreshInFlightRef = useRef(false);
   const projectTaskMenuHideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const projectTaskMenuRef = useRef<HTMLDivElement | null>(null);
   const railWidgetHideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const railWidgetRef = useRef<HTMLDivElement | null>(null);
 
   const refresh = useCallback(async () => {
+    // Avoid piling up four JSON requests per poll while a slow host is still responding.
+    if (refreshInFlightRef.current) return;
+    refreshInFlightRef.current = true;
+    try {
     const gen = ++refreshGenRef.current;
     // アーカイブ済みセッションは展開時だけ取得する。通常表示の定期更新から
     // 履歴全件の転送・Todo進捗集計を外し、表示中のセッションを優先する。
@@ -1092,6 +1097,9 @@ const SidebarView = memo(function SidebarView({
         });
         return unchanged ? current : nextBots;
       });
+    }
+    } finally {
+      refreshInFlightRef.current = false;
     }
   }, [archivedExpanded, mode]);
 
