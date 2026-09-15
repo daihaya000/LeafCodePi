@@ -3,7 +3,7 @@ import { useLayoutEffect } from "react";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import type { UiMessage } from "@/lib/types";
-import { formatElapsed, PartView } from "./PartView";
+import { formatElapsed, MessageMetaHeader, PartView } from "./PartView";
 
 function bashMessage(output: string): UiMessage {
   return {
@@ -269,6 +269,29 @@ describe("PartView sender and response metadata", () => {
       expect(element.className).toContain("@min-[48rem]/task:inline");
       expect(element.className).not.toContain("sm:inline");
     }
+  });
+
+  it("omits per-response usage from a group header", () => {
+    render(
+      <MessageMetaHeader
+        message={{
+          id: "activity-header",
+          role: "assistant",
+          createdAt: 1,
+          model: "gpt",
+          outputTokens: 32,
+          tokensPerSecond: 22,
+          responseDurationMs: 3_000,
+          parts: [],
+        }}
+        showUsage={false}
+      />,
+    );
+
+    expect(screen.queryByText("32 tok")).toBeNull();
+    expect(screen.queryByText("22 tok/s")).toBeNull();
+    expect(screen.queryByText("3s")).toBeNull();
+    expect(screen.getByText("gpt")).toBeTruthy();
   });
 
   it("opens timeline images for enlarged viewing", () => {

@@ -676,6 +676,7 @@ export const MessageMetaHeader = memo(function MessageMetaHeader({
   effort,
   agent,
   accountLabel,
+  showUsage = true,
 }: {
   message: UiMessage;
   modelLabel?: string;
@@ -684,20 +685,22 @@ export const MessageMetaHeader = memo(function MessageMetaHeader({
   agent?: string;
   /** タスクに紐づく利用アカウントの表示名。 */
   accountLabel?: string;
+  /** グループ全体を表すヘッダーでは、個別応答の使用量を表示しない。 */
+  showUsage?: boolean;
 }) {
   const model = modelLabel?.trim() || message.model?.trim() || "";
   const tokens =
-    typeof message.outputTokens === "number" && message.outputTokens > 0
+    showUsage && typeof message.outputTokens === "number" && message.outputTokens > 0
       ? `${formatTokens(message.outputTokens)} tok`
       : "";
   const rate =
-    typeof message.tokensPerSecond === "number"
+    showUsage && typeof message.tokensPerSecond === "number"
       ? formatTokensPerSecond(message.tokensPerSecond)
       : "";
   // 応答全体の所要時間（直前レコードからの差分）。本家も同じ近似で
   // 「thinking 秒」として表示している。
   const thinking =
-    typeof message.responseDurationMs === "number" && message.responseDurationMs > 0
+    showUsage && typeof message.responseDurationMs === "number" && message.responseDurationMs > 0
       ? formatElapsed(message.responseDurationMs)
       : "";
   const fields = [

@@ -3215,6 +3215,7 @@ export const TaskView = memo(function TaskView({
                             effort={effortLabel}
                             agent={message.agent ?? task?.agent ?? undefined}
                             accountLabel={accountLabel}
+                            showUsage={false}
                           />
                         </MessageHeader>
                       );
