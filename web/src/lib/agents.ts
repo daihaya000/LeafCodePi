@@ -56,6 +56,8 @@ export type AgentDraft = {
 
 /** Agent prompts are reapplied whenever a session is created, so keep them bounded. */
 export const MAX_AGENT_SYSTEM_PROMPT_CHARS = 8_000;
+/** Repeated for every enabled agent on every Auto-routing decision; a short label, not a document. */
+export const MAX_AGENT_DESCRIPTION_CHARS = 500;
 
 export type AgentListResult = {
   agents: AgentDto[];
@@ -219,7 +221,7 @@ function discoverInDir(dir: string, source: AgentDto["source"]): DiscoveredAgent
     }
     const fm = parseAgentFile(content);
     if (typeof fm.name !== "string" || !fm.name.trim()) continue;
-    const description = typeof fm.description === "string" ? fm.description : undefined;
+    const description = typeof fm.description === "string" ? boundedDescription(fm.description) : undefined;
     const model = typeof fm.model === "string" && fm.model.trim() ? fm.model.trim() : undefined;
     const thinking = toThinking(fm.thinking);
     entries.push({ name: fm.name.trim(), description, model, thinking, tools: toTools(fm.tools), filePath: full });
@@ -477,6 +479,16 @@ function assertSystemPromptLength(value: string): void {
   }
 }
 
+function boundedDescription(value: string): string {
+  return Array.from(value.trim()).slice(0, MAX_AGENT_DESCRIPTION_CHARS).join("");
+}
+
+function assertDescriptionLength(value: string | undefined): void {
+  if (value !== undefined && Array.from(value.trim()).length > MAX_AGENT_DESCRIPTION_CHARS) {
+    throw new AgentsError("invalid-prompt", `説明は${MAX_AGENT_DESCRIPTION_CHARS}文字以内にしてください`);
+  }
+}
+
 /** Build markdown file with YAML frontmatter for a user agent. */
 export function serializeAgent(
   draft: AgentDraft,
@@ -501,6 +513,7 @@ export function serializeAgent(
     if (!(key in frontmatter)) frontmatter[key] = value;
   }
   assertSystemPromptLength(draft.systemPrompt);
+  assertDescriptionLength(draft.description);
   const prompt = boundedSystemPrompt(draft.systemPrompt);
   const body = prompt ? `\n${prompt}\n` : "";
   return `---\n${YAML.stringify(frontmatter).trimEnd()}\n---\n${body}`;
@@ -517,7 +530,7 @@ export function readUserAgent(name: string, agentDir = resolvePiAgentDir()): { d
     filePath,
     draft: {
       name,
-      description: typeof fm.description === "string" ? fm.description : undefined,
+      description: typeof fm.description === "string" ? boundedDescription(fm.description) : undefined,
       aliases: fromCsv(fm.aliases),
       tools: toTools(fm.tools),
       model: typeof fm.model === "string" ? fm.model : undefined,
@@ -616,7 +629,7 @@ export function loadAgentDefinition(
   return {
     name: dto.name,
     ...(typeof fm.description === "string" && fm.description.trim()
-      ? { description: fm.description.trim() }
+      ? { description: boundedDescription(fm.description) }
       : {}),
     tools: dto.tools,
     model: typeof fm.model === "string" && fm.model.trim() ? fm.model.trim() : undefined,

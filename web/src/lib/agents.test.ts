@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, it } from "vitest";
 import { AUTO_AGENT_VALUE } from "./default-agent";
-import { agentsDir, AgentsError, agentsErrorStatus, buildAgentResourceOptions, createAgent, deleteAgent, listAgents, loadAgentDefinition, MAX_AGENT_SYSTEM_PROMPT_CHARS, parseAgentFile, readUserAgent, serializeAgent, setAgentEnabled, setAgentModel, setAgentThinking, setAgentTools, updateAgent, type AgentDraft } from "./agents";
+import { agentsDir, AgentsError, agentsErrorStatus, buildAgentResourceOptions, createAgent, deleteAgent, listAgents, loadAgentDefinition, MAX_AGENT_DESCRIPTION_CHARS, MAX_AGENT_SYSTEM_PROMPT_CHARS, parseAgentFile, readUserAgent, serializeAgent, setAgentEnabled, setAgentModel, setAgentThinking, setAgentTools, updateAgent, type AgentDraft } from "./agents";
 
 const AGENT = `---
 name: __NAME__
@@ -411,6 +411,26 @@ describe("loadAgentDefinition / buildAgentResourceOptions", () => {
     const legacy = loadAgentDefinition("legacy", agentDir);
     assert.ok(legacy);
     assert.equal(Array.from(legacy.systemPrompt).length, MAX_AGENT_SYSTEM_PROMPT_CHARS);
+  });
+
+  it("rejects an oversized description and bounds one in a manually edited file", () => {
+    fixture();
+    const oversizedDescription = "y".repeat(MAX_AGENT_DESCRIPTION_CHARS + 1);
+    assert.throws(
+      () => createAgent({ name: "chatty", description: oversizedDescription, systemPrompt: "go" }, agentDir),
+      (error: unknown) => error instanceof AgentsError && error.code === "invalid-prompt",
+    );
+    writeFileSync(
+      join(agentDir, "agents", "legacy-desc.md"),
+      `---\nname: legacy-desc\ndescription: ${oversizedDescription}\n---\nbody\n`,
+      "utf8",
+    );
+    const legacy = loadAgentDefinition("legacy-desc", agentDir);
+    assert.ok(legacy);
+    assert.equal(Array.from(legacy.description ?? "").length, MAX_AGENT_DESCRIPTION_CHARS);
+    const listed = listAgents(agentDir).agents.find((agent) => agent.name === "legacy-desc");
+    assert.ok(listed);
+    assert.equal(Array.from(listed.description ?? "").length, MAX_AGENT_DESCRIPTION_CHARS);
   });
 
   it("returns undefined for disabled or unknown agents and delegate appends by default", () => {
