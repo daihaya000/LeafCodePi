@@ -16,7 +16,6 @@ import {
   Loader2,
   Minus,
   Phone,
-  RotateCcw,
   Search,
   Terminal,
   Trash2,
@@ -25,7 +24,7 @@ import {
 } from "lucide-react";
 import { AgentRoleIcon } from "@/components/AgentSelect";
 import type { BotFace } from "@/components/bot/BotAvatar";
-import { BotMessageSender } from "@/components/bot/BotMessageList";
+import { BotMessageSender, BotMessageTime, BotRevertButton } from "@/components/bot/BotMessageList";
 import { MessageBubble, MessageHeader, messageRowClassFor } from "@/components/ConversationLayout";
 import { ImageLightbox } from "@/components/Composer";
 import { ProviderIcon } from "@/components/ProviderIcon";
@@ -1028,7 +1027,7 @@ export const PartView = memo(
                   <BotMessageSender {...bot} createdAt={message.createdAt} />
                 </div>
               ) : (
-                <span className="text-[10px] text-faint">{formatMessageTime(message.createdAt)}</span>
+                <BotMessageTime createdAt={message.createdAt} className="mt-0" />
               ))
             ) : (
               <MessageMetaHeader
@@ -1083,15 +1082,10 @@ export const PartView = memo(
           })
         )}
         {isUser && !nested && onRevert && (
-          <button
-            type="button"
+          <BotRevertButton
             title="このコメントを入力欄に戻して巻き戻す"
             onClick={() => onRevert(message)}
-            className="ml-auto inline-flex cursor-pointer items-center gap-1 rounded-md px-1.5 py-0.5 text-[10px] text-faint transition-colors hover:bg-surface-2 hover:text-muted active:bg-surface-3 active:text-text disabled:opacity-40 touch-manipulation"
-          >
-            <RotateCcw className="h-3 w-3" />
-            入力欄に戻す
-          </button>
+          />
         )}
         {message.error && (
           <p

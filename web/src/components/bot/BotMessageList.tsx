@@ -213,7 +213,7 @@ export function BotChatMessage({ user, createdAt, sender, text, mentions = [], c
   return <BotMessageRow user={user} createdAt={createdAt} timeInHeader={!user}
     header={user ? undefined : <BotMessageSender {...sender} createdAt={createdAt} />} footer={footer} after={after} bubble={bubble}>
     {text && (user
-      ? <div className="whitespace-pre-wrap [overflow-wrap:anywhere]">{renderMentions(text, mentions, "user", "user")}</div>
+      ? <div className="whitespace-pre-wrap break-words">{renderMentions(text, mentions, "user", "user")}</div>
       : <BotMessageMarkdown text={text} mentions={mentions} />)}
     {images}
     {files}

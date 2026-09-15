@@ -174,6 +174,8 @@ describe("PartView sender and response metadata", () => {
     const bubble = screen.getByText("ユーザーからの指示").parentElement!;
     expect(bubble.className).toContain("bg-bot-user");
     expect(bubble.className).toContain("text-white");
+    expect(bubble.previousElementSibling?.querySelector("time")).not.toBeNull();
+    expect(bubble.nextElementSibling?.tagName).toBe("BUTTON");
     expect(screen.queryByText("Code Bot")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "入力欄に戻す" }));
     expect(reverted).toBe(message);
