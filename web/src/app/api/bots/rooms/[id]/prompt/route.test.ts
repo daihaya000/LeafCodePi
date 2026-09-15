@@ -55,7 +55,7 @@ import * as rooms from "@/lib/rooms";
 import { createRoom, ensureRoomBotTask, getRoom, issueRoomRelayEnvelope, patchRoom } from "@/lib/rooms";
 import { getTaskDetail } from "@/lib/pi/harness";
 import { getTask } from "@/lib/store";
-import { MAX_PROMPT_IMAGE_TOTAL_BYTES } from "@/lib/prompt-images";
+import { MAX_PROMPT_IMAGE_TOTAL_BYTES, MAX_PROMPT_TEXT_CHARS } from "@/lib/prompt-images";
 import { GET as events } from "../events/route";
 import { POST } from "./route";
 import { PATCH } from "../route";
@@ -117,6 +117,16 @@ afterEach(async () => {
 });
 
 describe("room mention responses", () => {
+  it("rejects oversized text before persisting a room message", async () => {
+    const { room } = setup();
+
+    const response = await send(room.id, "x".repeat(MAX_PROMPT_TEXT_CHARS + 1));
+
+    expect(response.status).toBe(413);
+    expect(state.promptTask).not.toHaveBeenCalled();
+    expect(getRoom(room.id)?.messages).toHaveLength(0);
+  });
+
   it("rejects malformed Base64 images before persisting a room message", async () => {
     const { room } = setup();
 

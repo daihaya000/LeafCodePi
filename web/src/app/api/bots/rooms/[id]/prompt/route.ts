@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { appendRoomMessage, botsForRoomPrompt, consumeRoomRelayEnvelope, getRoom, roomFileRejection, roomImageRejection, saveRoomFiles, saveRoomImages, updateRoomMessage } from "@/lib/rooms";
 import { getBot } from "@/lib/bots";
 import type { BotDto, RoomMessage } from "@/lib/types";
-import { isPromptFileList, isPromptImageList, MAX_PROMPT_ATTACHMENTS, type PromptFileInput } from "@/lib/prompt-images";
+import { isPromptFileList, isPromptImageList, isPromptTextWithinSize, MAX_PROMPT_ATTACHMENTS, type PromptFileInput } from "@/lib/prompt-images";
 import { jsonError } from "@/lib/pi/harness";
 import { isRoomConversationRequest, isRoomStopRequest, MAX_ROOM_CONVERSATION_PARTICIPANTS, latestRoomRequest } from "@/lib/room-conversation";
 import { resolveRoomOpener, type RoomOpenerReason } from "@/lib/room-opener";
@@ -19,6 +19,9 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     const room = getRoom(id);
     if (!room) return NextResponse.json({ error: "Room not found" }, { status: 404 });
     const body = (await req.json().catch(() => null)) as PromptBody | null;
+    if (typeof body?.prompt === "string" && !isPromptTextWithinSize(body.prompt)) {
+      return NextResponse.json({ error: "本文プロンプトが長すぎます" }, { status: 413 });
+    }
     const isRelayRequest = body?.fromBot === true || body?.relayEnvelope !== undefined;
     if (isRelayRequest) {
       if (typeof body?.prompt !== "string" || !body.prompt.trim()) return NextResponse.json({ error: "Prompt is required" }, { status: 400 });
