@@ -1081,8 +1081,11 @@ describe("TaskView draft submission", () => {
     render(<TaskView taskId={task.id} mdUp />);
 
     const selector = await screen.findByRole("combobox", { name: "Codeタスクを監督するBot" });
+    const botControl = selector.closest("label");
+    const compact = screen.getByRole("button", { name: "コンテキスト圧縮" });
     const tts = screen.getByRole("switch", { name: "読み上げ" });
-    expect(tts.previousElementSibling).toBe(selector.closest("label"));
+    expect(botControl?.previousElementSibling).toBe(compact);
+    expect(tts.previousElementSibling).toBe(botControl);
   });
 
   it("shows and applies a context compaction suggestion", async () => {

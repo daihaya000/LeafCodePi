@@ -3211,6 +3211,20 @@ export const TaskView = memo(function TaskView({
               <Plus className="h-4 w-4" />
             </Button>
           )}
+          {compactionAction !== "auto" && (
+            <Button
+              variant="ghost"
+              size="icon"
+              title="コンテキスト圧縮"
+              aria-label="コンテキスト圧縮"
+              busy={compacting}
+              disabled={!task || working || compacting || archived}
+              className="h-11 w-11 @min-[48rem]/task:h-9 @min-[48rem]/task:w-9"
+              onClick={() => void compact()}
+            >
+              {!compacting && <Shrink className="h-4 w-4" />}
+            </Button>
+          )}
           {canManageSupervisor && (
             <label
               title={supervisor ? `監督: ${supervisor.name}` : hasSupervisor ? "委任を解除" : working ? "Botへ引き継ぐ" : "タスク実行中にBotへ引き継げます"}
@@ -3263,20 +3277,6 @@ export const TaskView = memo(function TaskView({
             taskId={task?.id}
             onError={setError}
           />
-          {compactionAction !== "auto" && (
-            <Button
-              variant="ghost"
-              size="icon"
-              title="コンテキスト圧縮"
-              aria-label="コンテキスト圧縮"
-              busy={compacting}
-              disabled={!task || working || compacting || archived}
-              className="h-11 w-11 @min-[48rem]/task:h-9 @min-[48rem]/task:w-9"
-              onClick={() => void compact()}
-            >
-              {!compacting && <Shrink className="h-4 w-4" />}
-            </Button>
-          )}
           <Button
             variant="ghost"
             size="icon"
