@@ -683,6 +683,91 @@ export const TaskActivityIcon = memo(function TaskActivityIcon({
   );
 });
 
+const SidebarTaskRow = memo(function SidebarTaskRow({
+  task,
+  active,
+  bot,
+  pinned,
+  mdUp,
+  actionBusy,
+  onOpenTask,
+  onPinTask,
+  onPromoteTask,
+  onArchiveTask,
+  onDragStart,
+}: {
+  task: TaskSummary;
+  active: boolean;
+  bot?: BotFace & { name: string };
+  pinned: boolean;
+  mdUp: boolean;
+  actionBusy: boolean;
+  onOpenTask: (taskId: string) => void;
+  onPinTask: (taskId: string) => void;
+  onPromoteTask: (task: TaskSummary) => void;
+  onArchiveTask: (taskId: string) => void;
+  onDragStart: (event: React.DragEvent<HTMLButtonElement>, taskId: string) => void;
+}) {
+  const cannotPromote = promotionBlocked(task);
+  return (
+    <li className="group rounded-lg">
+      <div className="flex items-center">
+        <button
+          type="button"
+          draggable={mdUp}
+          onDragStart={(event) => onDragStart(event, task.id)}
+          onClick={() => onOpenTask(task.id)}
+          className={cx(
+            "flex min-h-11 min-w-0 flex-1 items-center gap-1.5 rounded-lg px-2 py-1.5 text-left md:min-h-8",
+            active ? "bg-surface-3 text-text" : "text-muted hover:bg-surface-2 hover:text-text",
+          )}
+        >
+          <TaskActivityIcon task={task} bot={bot} />
+          <span className="flex min-w-0 flex-1 flex-col items-start">
+            <span className="w-full truncate text-xs font-medium">{task.title}</span>
+            <span className="text-[10px] text-muted">{timeAgo(task.updatedAt)}</span>
+          </span>
+        </button>
+        <button
+          type="button"
+          aria-pressed={pinned}
+          aria-label={pinned ? `「${task.title}」のピン留めを解除` : `「${task.title}」をピン留め`}
+          title={pinned ? "ピン留めを解除" : "タスクをピン留め"}
+          onClick={() => onPinTask(task.id)}
+          className={cx(
+            "inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-md hover:bg-surface-2 md:h-6 md:w-6",
+            pinned ? "text-accent" : "text-muted hover:text-text",
+          )}
+        >
+          <Pin className={cx("h-3 w-3", pinned && "fill-current")} />
+        </button>
+        {task.projectId === null && (
+          <button
+            type="button"
+            aria-label={cannotPromote ? `「${task.title}」は実行中のため昇進できません` : `「${task.title}」をプロジェクトへ昇進`}
+            title={cannotPromote ? "実行中のタスクは昇進できません" : "プロジェクトへ昇進"}
+            disabled={actionBusy || cannotPromote}
+            onClick={() => onPromoteTask(task)}
+            className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-muted hover:bg-surface-2 hover:text-text disabled:cursor-not-allowed disabled:opacity-40 md:h-6 md:w-6"
+          >
+            <FolderUp className="h-3 w-3" />
+          </button>
+        )}
+        <button
+          type="button"
+          aria-label={`「${task.title}」をアーカイブ`}
+          title="タスクをアーカイブ"
+          className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-muted hover:bg-surface-2 hover:text-text md:h-6 md:w-6"
+          onClick={() => onArchiveTask(task.id)}
+        >
+          <Archive className="h-3 w-3" />
+        </button>
+      </div>
+      <TaskProgressBar task={task} className="mx-8 pb-1.5 md:mx-7" />
+    </li>
+  );
+});
+
 function loadExpanded(): Set<string> {
   try {
     const raw = localStorage.getItem(EXPANDED_KEY);
@@ -1349,7 +1434,7 @@ const SidebarView = memo(function SidebarView({
     });
   }
 
-  function togglePinned(taskId: string) {
+  const togglePinned = useCallback((taskId: string) => {
     const next = new Set(pinnedTaskIdsRef.current);
     if (next.has(taskId)) next.delete(taskId);
     else next.add(taskId);
@@ -1357,7 +1442,7 @@ const SidebarView = memo(function SidebarView({
     if (!pinnedLoadedRef.current) pinnedPendingTogglesRef.current.push(taskId);
     setPinnedTaskIds(next);
     if (pinnedLoadedRef.current) void persistPinnedTaskIds(next).catch(() => undefined);
-  }
+  }, [persistPinnedTaskIds]);
 
   const reorderProjects = useCallback(
     (sourceId: string, targetId: string, placement: ProjectDropPlacement = "before"): boolean => {
@@ -1471,7 +1556,7 @@ const SidebarView = memo(function SidebarView({
     [keyboardDraggedProjectId, orderedProjects, reorderProjects],
   );
 
-  async function runAction(key: string, action: () => Promise<unknown>) {
+  const runAction = useCallback(async (key: string, action: () => Promise<unknown>) => {
     if (actionBusyKey) return;
     setActionError(null);
     setActionBusyKey(key);
@@ -1485,7 +1570,19 @@ const SidebarView = memo(function SidebarView({
       void refresh();
       notifyTasksChanged();
     }
-  }
+  }, [actionBusyKey, refresh]);
+
+  const archiveTask = useCallback((taskId: string) => {
+    void runAction(`archive:${taskId}`, () =>
+      sendJson(`/api/tasks/${encodeURIComponent(taskId)}`, undefined, "DELETE"),
+    );
+  }, [runAction]);
+
+  const handleTaskDragStart = useCallback((event: React.DragEvent<HTMLButtonElement>, taskId: string) => {
+    taskDragActiveRef.current = true;
+    event.dataTransfer.effectAllowed = "move";
+    setTaskDragData(event.dataTransfer, taskId);
+  }, []);
 
   async function restoreArchivedTask(task: TaskSummary) {
     await runAction(`restore:${task.id}`, () =>
@@ -1676,86 +1773,33 @@ const SidebarView = memo(function SidebarView({
     [cancelProjectTaskMenuHide, cancelRailWidgetHide],
   );
 
-  function renderTaskList(children: TaskSummary[]) {
-    return (
-      <ul
-        className={cx(
-          "mb-1 ml-5 space-y-0.5 border-l border-border pl-1.5",
-          children.length >= 5 && "max-h-72 overflow-y-auto",
-        )}
-      >
-        {children.length === 0 ? (
-          <li className="px-2 py-1.5 text-[11px] text-muted">タスクなし</li>
-        ) : (
-          children.map((task) => (
-            <li key={task.id} className="group rounded-lg">
-              <div className="flex items-center">
-                <button
-                  type="button"
-                  draggable={mdUp}
-                  onDragStart={(event) => {
-                    taskDragActiveRef.current = true;
-                    event.dataTransfer.effectAllowed = "move";
-                    setTaskDragData(event.dataTransfer, task.id);
-                  }}
-                  onClick={() => openTask(task.id)}
-                  className={cx(
-                    "flex min-h-11 min-w-0 flex-1 items-center gap-1.5 rounded-lg px-2 py-1.5 text-left md:min-h-8",
-                    task.id === activeTaskId ? "bg-surface-3 text-text" : "text-muted hover:bg-surface-2 hover:text-text",
-                  )}
-                >
-                  <TaskActivityIcon task={task} bot={(task.botId ?? task.supervisorBotId) ? botsById.get(task.botId ?? task.supervisorBotId!) : undefined} />
-                  <span className="flex min-w-0 flex-1 flex-col items-start">
-                    <span className="w-full truncate text-xs font-medium">{task.title}</span>
-                    <span className="text-[10px] text-muted">{timeAgo(task.updatedAt)}</span>
-                  </span>
-                </button>
-                <button
-                  type="button"
-                  aria-pressed={pinnedTaskIds.has(task.id)}
-                  aria-label={pinnedTaskIds.has(task.id) ? `「${task.title}」のピン留めを解除` : `「${task.title}」をピン留め`}
-                  title={pinnedTaskIds.has(task.id) ? "ピン留めを解除" : "タスクをピン留め"}
-                  onClick={() => togglePinned(task.id)}
-                  className={cx(
-                    "inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-md hover:bg-surface-2 md:h-6 md:w-6",
-                    pinnedTaskIds.has(task.id) ? "text-accent" : "text-muted hover:text-text",
-                  )}
-                >
-                  <Pin className={cx("h-3 w-3", pinnedTaskIds.has(task.id) && "fill-current")} />
-                </button>
-                {task.projectId === null && (
-                  <button
-                    type="button"
-                    aria-label={promotionBlocked(task) ? `「${task.title}」は実行中のため昇進できません` : `「${task.title}」をプロジェクトへ昇進`}
-                    title={promotionBlocked(task) ? "実行中のタスクは昇進できません" : "プロジェクトへ昇進"}
-                    disabled={actionBusyKey !== null || promotionBlocked(task)}
-                    onClick={() => setPromotionTask(task)}
-                    className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-muted hover:bg-surface-2 hover:text-text disabled:cursor-not-allowed disabled:opacity-40 md:h-6 md:w-6"
-                  >
-                    <FolderUp className="h-3 w-3" />
-                  </button>
-                )}
-                <button
-                  type="button"
-                  aria-label={`「${task.title}」をアーカイブ`}
-                  title="タスクをアーカイブ"
-                  className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-muted hover:bg-surface-2 hover:text-text md:h-6 md:w-6"
-                  onClick={() =>
-                    void runAction(`archive:${task.id}`, () =>
-                      sendJson(`/api/tasks/${task.id}`, undefined, "DELETE"),
-                    )
-                  }
-                >
-                  <Archive className="h-3 w-3" />
-                </button>
-              </div>
-              <TaskProgressBar task={task} className="mx-8 pb-1.5 md:mx-7" />
-            </li>
-          ))
-        )}
-      </ul>
-    );
-  }
+  const renderTaskList = useCallback((children: TaskSummary[]) => (
+    <ul
+      className={cx(
+        "mb-1 ml-5 space-y-0.5 border-l border-border pl-1.5",
+        children.length >= 5 && "max-h-72 overflow-y-auto",
+      )}
+    >
+      {children.length === 0 ? (
+        <li className="px-2 py-1.5 text-[11px] text-muted">タスクなし</li>
+      ) : children.map((task) => (
+        <SidebarTaskRow
+          key={task.id}
+          task={task}
+          active={task.id === activeTaskId}
+          bot={(task.botId ?? task.supervisorBotId) ? botsById.get(task.botId ?? task.supervisorBotId!) : undefined}
+          pinned={pinnedTaskIds.has(task.id)}
+          mdUp={mdUp}
+          actionBusy={actionBusyKey !== null}
+          onOpenTask={openTask}
+          onPinTask={togglePinned}
+          onPromoteTask={setPromotionTask}
+          onArchiveTask={archiveTask}
+          onDragStart={handleTaskDragStart}
+        />
+      ))}
+    </ul>
+  ), [actionBusyKey, activeTaskId, archiveTask, botsById, handleTaskDragStart, mdUp, openTask, pinnedTaskIds, togglePinned]);
 
   // `collapsed` はデスクトップ専用のレール表示（collapsedRail）用。body は
   // デスクトップでは !collapsed のときだけ描画され、モバイルドロワーは常に全幅なので、
