@@ -18,7 +18,10 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       if (body.images?.length || body.files?.length) return NextResponse.json({ error: "Goal loop の開始ではファイル添付は使えません" }, { status: 400 });
       if (body.goalLoop === null || typeof body.goalLoop !== "object" || Array.isArray(body.goalLoop)) return NextResponse.json({ error: "invalid goalLoop" }, { status: 400 });
       const loop = body.goalLoop as { acceptance?: unknown; maxTurns?: unknown; cooldownSeconds?: unknown; forceFullRun?: unknown };
-      const validAcceptance = loop.acceptance === undefined || (Array.isArray(loop.acceptance) && loop.acceptance.every((item) => typeof item === "string"));
+      // Matches the bound in tasks/[id]/goal-loop and bots/[id]/code-session: acceptance is
+      // injected into every Goal Loop turn's prompt for the life of the run, so an unbounded
+      // list or item here (unlike its sibling routes) would repeat unbounded text every turn.
+      const validAcceptance = loop.acceptance === undefined || (Array.isArray(loop.acceptance) && loop.acceptance.length <= 10 && loop.acceptance.every((item) => typeof item === "string" && item.length <= 2_000));
       const validNumber = (value: unknown) => value === undefined || typeof value === "number" || typeof value === "string";
       if (!validAcceptance || !validNumber(loop.maxTurns) || !validNumber(loop.cooldownSeconds) || (loop.forceFullRun !== undefined && typeof loop.forceFullRun !== "boolean")) return NextResponse.json({ error: "invalid goalLoop" }, { status: 400 });
       if (isTaskRuntimeBusyForDestructiveEdit(botTaskId(id))) {

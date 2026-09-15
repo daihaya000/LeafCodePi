@@ -62,7 +62,15 @@ describe("POST /api/bots/[id]/prompt", () => {
     expect(state.goalLoopCommand).toHaveBeenCalledWith(`bot:${bot.id}`, expect.objectContaining({ maxTurns: 100, cooldownSeconds: 86400 }));
   });
 
-  it.each([null, [], "invalid", { acceptance: "invalid" }, { forceFullRun: "yes" }])("rejects malformed Goal Loop options: %j", async (goalLoop) => {
+  it.each([
+    null,
+    [],
+    "invalid",
+    { acceptance: "invalid" },
+    { forceFullRun: "yes" },
+    { acceptance: Array.from({ length: 11 }, (_, index) => `item ${index}`) },
+    { acceptance: ["x".repeat(2_001)] },
+  ])("rejects malformed Goal Loop options: %j", async (goalLoop) => {
     const bot = createBot({ name: "Loop bot" });
 
     const response = await POST(request("調査して修正する", goalLoop), { params: Promise.resolve({ id: bot.id }) });
