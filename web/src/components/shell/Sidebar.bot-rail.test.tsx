@@ -391,6 +391,24 @@ describe("Bot mode collapsed rail", () => {
   });
 });
 
+describe("モバイルナビゲーション", () => {
+  it("TaskView のペイン操作より前面で操作を受ける", async () => {
+    mocks.paneMdUp = false;
+    vi.stubGlobal("matchMedia", (query: string) => ({
+      matches: false,
+      media: query,
+      onchange: null,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    }));
+
+    render(<Sidebar mobileOpen onClose={vi.fn()} />);
+
+    expect((await screen.findAllByRole("button", { name: "メニューを閉じる" })).some((button) => button.className.includes("z-[90]"))).toBe(true);
+    expect(screen.getByRole("dialog", { name: "ナビゲーション" }).className).toContain("z-[100]");
+  });
+});
+
 describe("サイドバー幅のドラッグ", () => {
   it("ドラッグ中は端がカーソルに追従し、最小幅を下回るとレール表示、離すと吸着する", async () => {
     localStorage.setItem("webui.sidebar.collapsed", "0");

@@ -824,7 +824,7 @@ function PromoteTaskDialog({
   }
 
   return (
-    <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/40 p-3 backdrop-blur-[2px] sm:p-4">
+    <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/40 p-3 backdrop-blur-[2px] sm:p-4">
       <div
         role="dialog"
         aria-modal="true"
@@ -2418,7 +2418,7 @@ const SidebarView = memo(function SidebarView({
         <button
           type="button"
           aria-label="メニューを閉じる"
-          className="fixed inset-0 z-40 bg-black/40 md:hidden animate-[fade-in_0.15s_ease-out]"
+          className="fixed inset-0 z-[90] bg-black/40 md:hidden animate-[fade-in_0.15s_ease-out]"
           onClick={onClose}
         />
       )}
@@ -2479,7 +2479,7 @@ const SidebarView = memo(function SidebarView({
           role="dialog"
           aria-modal="true"
           aria-label="ナビゲーション"
-          className="fixed inset-y-0 left-0 z-50 w-[min(20rem,85vw)] border-r border-border bg-surface md:hidden animate-[nav-in_0.18s_ease-out]"
+          className="fixed inset-y-0 left-0 z-[100] w-[min(20rem,85vw)] border-r border-border bg-surface md:hidden animate-[nav-in_0.18s_ease-out]"
         >
           {mode === "bot" ? botBody : body}
         </aside>
