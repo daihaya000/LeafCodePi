@@ -401,11 +401,19 @@ describe("モバイルナビゲーション", () => {
       addEventListener: vi.fn(),
       removeEventListener: vi.fn(),
     }));
+    const onClose = vi.fn();
 
-    render(<Sidebar mobileOpen onClose={vi.fn()} />);
+    render(<Sidebar mobileOpen onClose={onClose} />);
 
-    expect((await screen.findAllByRole("button", { name: "メニューを閉じる" })).some((button) => button.className.includes("z-[90]"))).toBe(true);
+    const backdrop = (await screen.findAllByRole("button", { name: "メニューを閉じる" }))
+      .find((button) => button.className.includes("fixed"));
+    expect(backdrop).toBeTruthy();
+    // TaskPanesHost のリサイズハンドル（z-80）より上に置く。
+    expect(backdrop?.className).toContain("z-[90]");
     expect(screen.getByRole("dialog", { name: "ナビゲーション" }).className).toContain("z-[100]");
+
+    fireEvent.click(backdrop!);
+    expect(onClose).toHaveBeenCalledOnce();
   });
 });
 
