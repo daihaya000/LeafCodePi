@@ -72,6 +72,23 @@ describe("GlobalAttentionProvider", () => {
     vi.useRealTimers();
   });
 
+  it("skips attention scans while the page is hidden", async () => {
+    Object.defineProperty(document, "visibilityState", {
+      configurable: true,
+      value: "hidden",
+    });
+    render(<GlobalAttentionProvider />);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(4_000);
+    });
+    expect(mocks.getJson).not.toHaveBeenCalled();
+    Object.defineProperty(document, "visibilityState", {
+      configurable: true,
+      value: "visible",
+    });
+  });
+
   it("does not start a second poll while the first is still in flight", async () => {
     let attentionCalls = 0;
     let releaseFirst: () => void;

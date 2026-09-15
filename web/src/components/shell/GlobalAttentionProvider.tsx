@@ -128,6 +128,8 @@ export function GlobalAttentionProvider() {
     let timer: ReturnType<typeof setTimeout> | null = null;
 
     const poll = async () => {
+      // Background tabs cannot present the dialog; avoid full attention scans until visible.
+      if (document.visibilityState === "hidden") return;
       try {
         const data = await getJson<{ attention: AttentionItemDto[] }>(
           "/api/tasks",
