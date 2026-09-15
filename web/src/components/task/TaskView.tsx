@@ -3195,9 +3195,34 @@ export const TaskView = memo(function TaskView({
             {messageBlocks.map((block) => {
               const firstMessage = block.kind === "tool-group" ? block.entries[0]!.message : block.message;
               const turn = block.showTurnDivider ? firstMessage.goalLoopTurn : undefined;
+              const activityHeader =
+                block.kind === "tool-group"
+                  ? (() => {
+                      const entry = block.entries[0]!;
+                      const message = entry.message;
+                      const modelLabel =
+                        message.provider && message.model
+                          ? modelLabels[`${message.provider}::${message.model}`]
+                          : undefined;
+                      const accountLabel = message.accountId
+                        ? (accountLabels.get(message.accountId) ?? message.accountId)
+                        : (taskAccountLabel ?? undefined);
+                      return (
+                        <MessageHeader>
+                          <MessageMetaHeader
+                            message={message}
+                            modelLabel={modelLabel}
+                            effort={effortLabel}
+                            agent={message.agent ?? task?.agent ?? undefined}
+                            accountLabel={accountLabel}
+                          />
+                        </MessageHeader>
+                      );
+                    })()
+                  : undefined;
               const activityContents =
                 block.kind === "tool-group"
-                  ? block.entries.flatMap((entry) => {
+                  ? block.entries.flatMap((entry, entryIndex) => {
                       const message = entry.activityMessage;
                       const modelLabel =
                         message.provider && message.model
@@ -3206,9 +3231,9 @@ export const TaskView = memo(function TaskView({
                       const accountLabel = message.accountId
                         ? (accountLabels.get(message.accountId) ?? message.accountId)
                         : (taskAccountLabel ?? undefined);
-                      // メタ行は折りたたみの中に入れる。外へ出すと1グループ分の
-                      // ヘッダーがそのまま縦積みになり、タイムラインが埋まる。
-                      const header = entry.showHeader
+                      // 先頭のメタ行は折りたたみ状態でも応答元が分かるよう枠外へ出し、
+                      // 後続メッセージのメタ行だけ展開内容に残す。
+                      const header = entryIndex > 0 && entry.showHeader
                         ? [
                             <MessageHeader key={`task-tool-message-meta:${messageRenderKey(entry.message)}`}>
                               <MessageMetaHeader
@@ -3293,6 +3318,7 @@ export const TaskView = memo(function TaskView({
                   {block.kind === "tool-group" ? (
                     <ActivityLog
                       kind="task"
+                      header={activityHeader}
                       count={activityCount}
                       parts={block.entries.flatMap((entry) => entry.activityMessage.parts)}
                       active={active}

@@ -84,12 +84,19 @@ function botMessageDisplayData(message: UiMessage): BotMessageDisplayData {
 
 function BotToolActivityGroup({ messages, bot, botId, active }: { messages: UiMessage[]; bot: BotDto | null; botId: string; active: boolean }) {
   const parts = messages.flatMap((message) => botMessageDisplayData(message).tools);
+  const firstMessage = messages[0];
   return (
-    <ActivityLog kind="bot" count={parts.length} parts={parts} active={active}>
-      {messages.map((message) => {
+    <ActivityLog
+      kind="bot"
+      header={firstMessage ? <MessageHeader><BotMessageSender {...bot} name={bot?.name ?? "ボット"} createdAt={firstMessage.createdAt} /></MessageHeader> : undefined}
+      count={parts.length}
+      parts={parts}
+      active={active}
+    >
+      {messages.map((message, messageIndex) => {
         const { text, tools, images, files, requestIds } = botMessageDisplayData(message);
         return <div key={messageRenderKey(message)} className="min-w-0 space-y-2">
-          {!text && !images.length && !files.length && !message.error && !requestIds.length && <MessageHeader><BotMessageSender {...bot} name={bot?.name ?? "ボット"} createdAt={message.createdAt} /></MessageHeader>}
+          {messageIndex > 0 && !text && !images.length && !files.length && !message.error && !requestIds.length && <MessageHeader><BotMessageSender {...bot} name={bot?.name ?? "ボット"} createdAt={message.createdAt} /></MessageHeader>}
           {tools.map((part) => {
             const partKey = part.id || part.callID;
             const cardKey = part.state.status === "error" || part.state.status === "cancelled" ? `${partKey}:expanded` : partKey;

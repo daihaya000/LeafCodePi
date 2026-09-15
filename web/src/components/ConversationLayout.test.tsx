@@ -57,6 +57,23 @@ it("uses identical closed, scroll-bounded logs with full-width nested cards and 
   expect(task.open).toBe(false);
 });
 
+it("keeps the activity header visible outside the collapsible log frame", () => {
+  const { container } = render(
+    <ActivityLog
+      kind="task"
+      header={<MessageHeader>Frame metadata</MessageHeader>}
+      count={1}
+      parts={[]}
+      active={false}
+    >
+      <MessageBubble>Tool content</MessageBubble>
+    </ActivityLog>,
+  );
+  const log = container.querySelector("details")!;
+  expect(log.previousElementSibling?.textContent).toBe("Frame metadata");
+  expect(log.parentElement?.className).toContain("space-y-2");
+});
+
 it("follows the newest activity while expanded until the user scrolls up", () => {
   const grow: (() => void)[] = [];
   vi.stubGlobal("ResizeObserver", class {

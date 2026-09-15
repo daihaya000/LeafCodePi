@@ -27,8 +27,9 @@ export function MessageBubble({ user = false, neutral = false, className, childr
 }
 
 /** Keep Bot/Code log icons and layout here to prevent drift; callers own grouping and metadata. */
-export function ActivityLog({ children, count, parts, active, kind }: {
+export function ActivityLog({ children, header, count, parts, active, kind }: {
   children: ReactNode;
+  header?: ReactNode;
   count: number;
   parts: readonly UiPart[];
   active: boolean;
@@ -58,7 +59,7 @@ export function ActivityLog({ children, count, parts, active, kind }: {
     observer.observe(content);
     return () => observer.disconnect();
   }, [open]);
-  return (
+  const log = (
     <details
       data-bot-tool-group={kind === "bot" ? "" : undefined}
       data-task-tool-group={kind === "task" ? "" : undefined}
@@ -90,4 +91,10 @@ export function ActivityLog({ children, count, parts, active, kind }: {
       </div>
     </details>
   );
+  return header ? (
+    <div className="w-full min-w-0 max-w-bubble self-start space-y-2">
+      {header}
+      {log}
+    </div>
+  ) : log;
 }

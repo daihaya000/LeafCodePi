@@ -525,8 +525,13 @@ export function RoomView({ id, active = true }: { id: string; active?: boolean }
     return (
       <Fragment key={message.id}>
         {requests.length > 0 && (
-          <ActivityLog kind="bot" count={requests.length} parts={[]} active={message.status === "working"}>
-            {!hasMessageContent && !user && <MessageHeader><BotMessageSender {...sender} createdAt={message.createdAt} /></MessageHeader>}
+          <ActivityLog
+            kind="bot"
+            header={!user ? <MessageHeader><BotMessageSender {...sender} createdAt={message.createdAt} /></MessageHeader> : undefined}
+            count={requests.length}
+            parts={[]}
+            active={message.status === "working"}
+          >
             {requests.map((request) => <CodeRequestCard key={request.id ?? "legacy"} {...request} stopping={stoppingCode.includes(request.id ?? "legacy")} onStop={() => void stopCode(request.id)} />)}
           </ActivityLog>
         )}
