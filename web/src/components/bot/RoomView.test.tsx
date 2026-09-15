@@ -350,7 +350,7 @@ describe("RoomView delegated work", () => {
     expect(input.value).toBe("/skill:review ");
   });
 
-  it("loads Code task progress before opening its preview", async () => {
+  it("loads completed Code task progress only after opening its preview", async () => {
     const task = {
       id: "code-1",
       kind: "code",
@@ -377,8 +377,9 @@ describe("RoomView delegated work", () => {
     await screen.findByRole("textbox");
     act(() => pushSnapshot({ room: { ...room, messages: [{ id: "reply-code", role: "assistant", botId: bot.id, text: "", status: "done", createdAt: 2, codeTaskId: "code-1", codeState: "delivered" }] } }));
 
-    await vi.waitFor(() => expect(mocks.getJson).toHaveBeenCalledWith("/api/tasks/code-1"));
+    expect(mocks.getJson).not.toHaveBeenCalledWith("/api/tasks/code-1");
     fireEvent.click(screen.getByRole("button", { name: "プレビュー" }));
+    await vi.waitFor(() => expect(mocks.getJson).toHaveBeenCalledWith("/api/tasks/code-1"));
     expect((await screen.findByText("READMEの確認結果")).tagName).toBe("STRONG");
     expect(screen.getByText("完了")).toBeTruthy();
     expect(screen.queryByText("待機中")).toBeNull();
