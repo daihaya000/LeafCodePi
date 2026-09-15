@@ -30,7 +30,7 @@ vi.mock("@/lib/auto-agent", () => ({
 vi.mock("@/lib/direct-generation", () => ({ parseDirectModelKey: mocks.parseDirectModelKey }));
 
 import { AUTO_AGENT_VALUE } from "@/lib/default-agent";
-import { MAX_PROMPT_ATTACHMENTS, MAX_PROMPT_IMAGE_BYTES, MAX_PROMPT_IMAGE_TOTAL_BYTES } from "@/lib/prompt-images";
+import { MAX_PROMPT_ATTACHMENTS, MAX_PROMPT_IMAGE_BYTES, MAX_PROMPT_IMAGE_TOTAL_BYTES, MAX_PROMPT_TEXT_CHARS } from "@/lib/prompt-images";
 import { GET, POST } from "./route";
 
 describe("GET /api/tasks", () => {
@@ -425,6 +425,18 @@ describe("POST /api/tasks", () => {
     );
 
     expect(aggregateResponse.status).toBe(400);
+    expect(mocks.createTask).not.toHaveBeenCalled();
+  });
+
+  it("rejects oversized text before creating a task", async () => {
+    const response = await POST(
+      new NextRequest("http://localhost/api/tasks", {
+        method: "POST",
+        body: JSON.stringify({ projectId: null, prompt: "x".repeat(MAX_PROMPT_TEXT_CHARS + 1) }),
+      }),
+    );
+
+    expect(response.status).toBe(413);
     expect(mocks.createTask).not.toHaveBeenCalled();
   });
 

@@ -26,6 +26,7 @@ import {
   isPromptFileWithinSize,
   isPromptImageList,
   isPromptImageWithinSize,
+  isPromptTextWithinSize,
   MAX_PROMPT_ATTACHMENTS,
   type PromptFileInput,
 } from "@/lib/prompt-images";
@@ -108,6 +109,9 @@ export async function POST(req: NextRequest) {
         { error: "projectId（null可）と prompt が必要です" },
         { status: 400 },
       );
+    }
+    if (body.prompt !== undefined && !isPromptTextWithinSize(body.prompt)) {
+      return NextResponse.json({ error: "本文プロンプトが長すぎます" }, { status: 413 });
     }
     const projectId =
       typeof body.projectId === "string" && body.projectId.trim()
