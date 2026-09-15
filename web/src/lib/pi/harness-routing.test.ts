@@ -699,6 +699,36 @@ describe("integrated session routing", () => {
     expect(fakePi.sessions).toHaveLength(0);
   });
 
+  it("switches an explicitly pinned task to an unpinned model from another provider", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "leafcode-pi-cross-provider-switch-"));
+    tempDirs.push(dir);
+    process.env.LEAFCODE_PI_DATA_DIR = dir;
+    process.env.PI_CODING_AGENT_DIR = join(dir, "agent");
+    __resetPiAgentDirCacheForTests();
+
+    const codex = createAccount({ label: "Codex", providers: ["openai-codex"] });
+    const anthropic = createAccount({ label: "Claude", providers: ["anthropic"] });
+    storeProviderAuth(anthropic.id, process.env.PI_CODING_AGENT_DIR!);
+    installHarness(new Map([[anthropic.id, runtime(anthropic.id)]]));
+    await setAccountRoutingMode("anthropic", "integrated");
+
+    const task = insertTask({
+      project: null,
+      title: "cross provider switch",
+      providerID: "openai-codex",
+      modelID: "gpt-5",
+      accountId: codex.id,
+      accountIdExplicit: true,
+    });
+
+    await expect(setTaskModel(task.id, "anthropic::claude-sonnet")).resolves.toMatchObject({
+      providerID: "anthropic",
+      modelID: "claude-sonnet",
+      accountId: anthropic.id,
+    });
+    expect(getTask(task.id)?.accountIdExplicit).toBeUndefined();
+  });
+
   it("injects the runtime clock into both Code and Bot turns", async () => {
     const dir = mkdtempSync(join(tmpdir(), "leafcode-pi-runtime-clock-"));
     tempDirs.push(dir);

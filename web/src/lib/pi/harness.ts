@@ -8835,21 +8835,10 @@ export async function setTaskModel(
   if (!task || !parsed) {
     throw Object.assign(new Error("モデルが見つかりません"), { status: 400 });
   }
+  // An unprefixed selection comes from the Composer's integrated row. It must
+  // resolve the selected provider instead of inheriting a previous task pin.
   const accountIdExplicit =
-    options?.accountIdExplicit ??
-    (task.accountIdExplicit === true || Boolean(parsed.accountId));
-  if (
-    task.accountIdExplicit &&
-    task.accountId &&
-    options?.accountIdExplicit !== false
-  ) {
-    const pinned = getAccount(task.accountId);
-    if (pinned && !isAccountEnabled(pinned)) {
-      throw Object.assign(new Error("一時停止中のアカウントです"), {
-        status: 409,
-      });
-    }
-  }
+    options?.accountIdExplicit ?? Boolean(parsed.accountId);
   const requestedAccountId =
     parsed.accountId ??
     (accountIdExplicit ? task.accountId ?? null : null);
