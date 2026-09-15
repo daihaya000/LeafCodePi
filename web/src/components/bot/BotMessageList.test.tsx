@@ -96,13 +96,14 @@ it("follows when overlay contentKey changes even if messages stay the same", () 
   expect(viewport.scrollTop).toBe(1300);
 });
 
-it("places the time and footer below the bubble for user messages", () => {
+it("places the user message time above the bubble and keeps the footer below", () => {
   const createdAt = Date.UTC(2026, 8, 8, 2, 58);
   const { container, rerender } = render(<BotMessageRow user createdAt={createdAt} footer={<button type="button">入力欄に戻す</button>}>エージェントは？</BotMessageRow>);
   const row = container.firstElementChild!;
   expect(row.className).toContain("items-end");
-  expect([...row.children].map((child) => child.tagName)).toEqual(["DIV", "TIME", "BUTTON"]);
-  const bubble = row.children[0];
+  expect([...row.children].map((child) => child.tagName)).toEqual(["DIV", "DIV", "BUTTON"]);
+  expect(row.children[0].querySelector("time")?.textContent).toBe(formatMessageTime(createdAt));
+  const bubble = row.children[1];
   expect(bubble.className).toContain("max-w-bubble");
   expect(bubble.className).not.toContain("w-full");
   expect(bubble.className).toContain("bg-bot-user");
@@ -171,8 +172,10 @@ it("shares sender/time placement and Room mention chips across conversation mess
   expect(bubble.previousElementSibling?.querySelector("time")).toBeTruthy();
   expect(bubble.querySelector("ul li")?.textContent).toBe("item");
   rerender(<BotChatMessage {...props} user />);
+  const userBubble = container.querySelector(".bot-message-bubble")!;
   expect(container.querySelector("[data-mention='@here']")?.className).toContain("bg-white/90");
-  expect(container.querySelector(".bot-message-bubble")?.nextElementSibling?.tagName).toBe("TIME");
+  expect(userBubble.previousElementSibling?.querySelector("time")).toBeTruthy();
+  expect(userBubble.nextElementSibling?.tagName).not.toBe("TIME");
 });
 
 it("shows the animated bot and the current tool action while responding", () => {

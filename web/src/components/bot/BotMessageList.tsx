@@ -182,10 +182,15 @@ export function BotMessageSender({ name, createdAt, active = false, ...face }: B
 export function BotMessageRow({ user, createdAt, children, footer, header, after, bubble = true, timeInHeader = false }: { user: boolean; createdAt: number; children: ReactNode; footer?: ReactNode; header?: ReactNode; after?: ReactNode; bubble?: boolean; timeInHeader?: boolean }) {
   return (
     <div className={messageRowClassFor(user)}>
-      {header && <MessageHeader user={user}>{header}</MessageHeader>}
+      {(header || user) && (
+        <MessageHeader user={user}>
+          {user && <BotMessageTime createdAt={createdAt} className="mt-0" />}
+          {header}
+        </MessageHeader>
+      )}
       {bubble && <MessageBubble user={user} className="bot-message-bubble">{children}</MessageBubble>}
       {after}
-      {(!timeInHeader || user) && <BotMessageTime createdAt={createdAt} />}
+      {!timeInHeader && !user && <BotMessageTime createdAt={createdAt} />}
       {footer}
     </div>
   );
