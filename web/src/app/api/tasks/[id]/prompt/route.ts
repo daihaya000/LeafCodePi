@@ -8,6 +8,7 @@ import {
   isPromptFileWithinSize,
   isPromptImageList,
   isPromptImageWithinSize,
+  isPromptTextWithinSize,
   MAX_PROMPT_ATTACHMENTS,
   type PromptFileInput,
 } from "@/lib/prompt-images";
@@ -58,6 +59,9 @@ export async function POST(
     } | null;
     if (!body?.prompt?.trim() && !body?.images?.length && !body?.files?.length) {
       return NextResponse.json({ error: "prompt が必要です" }, { status: 400 });
+    }
+    if (typeof body?.prompt === "string" && !isPromptTextWithinSize(body.prompt)) {
+      return NextResponse.json({ error: "本文プロンプトが長すぎます" }, { status: 413 });
     }
     if (body?.images !== undefined && (!isPromptImageList(body.images) || body.images.some((image) => !isPromptImageWithinSize(image)))) {
       return NextResponse.json({ error: "invalid images" }, { status: 400 });

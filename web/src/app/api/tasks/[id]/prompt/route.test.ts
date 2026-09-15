@@ -36,7 +36,7 @@ vi.mock("@/lib/pi/harness", () => ({
 }));
 
 import { AUTO_AGENT_VALUE } from "@/lib/default-agent";
-import { MAX_PROMPT_IMAGE_BYTES } from "@/lib/prompt-images";
+import { MAX_PROMPT_IMAGE_BYTES, MAX_PROMPT_TEXT_CHARS } from "@/lib/prompt-images";
 import { POST } from "./route";
 
 function request(body: unknown): NextRequest {
@@ -290,6 +290,16 @@ describe("POST /api/tasks/[id]/prompt", () => {
     );
 
     expect(response.status).toBe(400);
+    expect(mocks.promptTask).not.toHaveBeenCalled();
+  });
+
+  it("rejects oversized text before prompting", async () => {
+    const response = await POST(
+      request({ prompt: "x".repeat(MAX_PROMPT_TEXT_CHARS + 1) }),
+      { params: Promise.resolve({ id: "task-1" }) },
+    );
+
+    expect(response.status).toBe(413);
     expect(mocks.promptTask).not.toHaveBeenCalled();
   });
 
