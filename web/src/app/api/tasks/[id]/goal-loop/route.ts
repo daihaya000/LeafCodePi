@@ -25,6 +25,10 @@ import {
   type AutoDecision,
 } from "@/lib/auto-model";
 import {
+  isPromptImageList,
+  isPromptImageWithinSize,
+} from "@/lib/prompt-images";
+import {
   clampGoalLoopCooldownSeconds,
   clampGoalLoopMaxTurns,
   DEFAULT_GOAL_LOOP_MAX_TURNS,
@@ -50,6 +54,7 @@ type Body = {
   autoOptimize?: unknown;
   autoRouteOverrides?: unknown;
   agent?: string;
+  images?: unknown;
 };
 
 // Distinct from normalizeGoalLoopAcceptance() (shared by the other three Goal Loop start
@@ -94,6 +99,9 @@ export async function POST(req: NextRequest, { params }: Params) {
     if (!goal || goal.length > 4_000 || !criteria) {
       return NextResponse.json({ error: "goal または acceptance が不正です" }, { status: 400 });
     }
+    if (body?.images !== undefined && (!isPromptImageList(body.images) || body.images.some((image) => !isPromptImageWithinSize(image)))) {
+      return NextResponse.json({ error: "invalid images" }, { status: 400 });
+    }
     if (body?.agent !== undefined && typeof body.agent !== "string") {
       return NextResponse.json({ error: "invalid agent" }, { status: 400 });
     }
@@ -130,7 +138,7 @@ export async function POST(req: NextRequest, { params }: Params) {
       autoDecision =
         (await resolveAutoModel({
           prompt: goal,
-          hasImages: false,
+          hasImages: Boolean(body.images?.length),
           historyMessageCount: readSessionConversation(currentTask.sessionFile).length,
           recentFailure:
             currentTask.status === "error" || Boolean(currentTask.error),
@@ -218,6 +226,7 @@ export async function POST(req: NextRequest, { params }: Params) {
         cooldownSeconds: clampGoalLoopCooldownSeconds(body?.cooldownSeconds),
         forceFullRun: body?.forceFullRun === true,
         autoAgent: autoAgentRequested,
+        images: body?.images,
       });
       // Stale epoch can return a non-live loop without throwing — treat as failure
       // so route mutations roll back instead of looking like a successful start.

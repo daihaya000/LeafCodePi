@@ -6402,6 +6402,7 @@ export async function goalLoopCommand(
         cooldownSeconds?: number;
         forceFullRun?: boolean;
         autoAgent?: boolean;
+        images?: PromptImage[];
       }
     | { action: "pause" | "resume" | "stop" | "complete"; maxTurns?: number },
 ): Promise<GoalLoopDto | null> {
@@ -6430,6 +6431,7 @@ export async function goalLoopCommand(
         cooldownSeconds: input.cooldownSeconds,
         forceFullRun: input.forceFullRun === true,
         autoAgent: input.autoAgent === true,
+        images: input.images,
       }),
       "utf8",
     ).toString("base64url");
@@ -6736,6 +6738,7 @@ function startCreatedTaskPrompt(input: {
       cooldownSeconds: input.goalLoop.cooldownSeconds,
       forceFullRun: input.goalLoop.forceFullRun,
       autoAgent: input.goalLoop.autoAgent === true,
+      images: input.images,
     });
   }
   queuePrompt(input.live, input.fromBot ? markBotPrompt(input.prompt) : input.prompt, input.images, {
@@ -6823,12 +6826,11 @@ function resolveCreateTaskProject(projectId: string | null): ProjectDto | null {
 
 function validateGoalLoopAttachments(
   goalLoop: boolean,
-  images?: PromptImage[],
   files?: PromptFileInput[],
 ): void {
-  if (goalLoop && (images?.length || files?.length)) {
+  if (goalLoop && files?.length) {
     throw Object.assign(
-      new Error("Goal loop の開始ではファイル添付は使えません"),
+      new Error("Goal loop の開始では画像のみ添付できます"),
       { status: 400 },
     );
   }
@@ -6861,11 +6863,7 @@ export async function createTask(input: {
     autoAgent?: boolean;
   };
 }): Promise<TaskSummary> {
-  validateGoalLoopAttachments(
-    Boolean(input.goalLoop),
-    input.images,
-    input.files,
-  );
+  validateGoalLoopAttachments(Boolean(input.goalLoop), input.files);
   const project = resolveCreateTaskProject(input.projectId);
   const {
     modelValue,

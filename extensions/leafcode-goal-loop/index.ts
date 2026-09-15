@@ -37,6 +37,12 @@ export type GoalLoopPauseReason =
   | "verification_rejected"
   | "scheduler_error";
 
+export type GoalLoopInitialImage = {
+  type: "image";
+  mimeType: string;
+  data: string;
+};
+
 export type GoalLoopProgress = {
   time: string;
   status: "progress" | "completed" | "verified_completed" | "blocked";
@@ -58,6 +64,8 @@ export type GoalLoop = {
   forceFullRun: boolean;
   /** Re-select the main persona before every Goal Loop turn. */
   autoAgent?: boolean;
+  /** Images are included in the first Goal turn only. */
+  initialImages?: GoalLoopInitialImage[];
   turnCount: number;
   turnKind: GoalLoopTurnKind;
   pauseReason: GoalLoopPauseReason;
@@ -315,6 +323,20 @@ function normalizeProgress(value: unknown): GoalLoopProgress[] {
     }));
 }
 
+function normalizeInitialImages(value: unknown): GoalLoopInitialImage[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const images = value.filter((image): image is GoalLoopInitialImage => {
+    const item = asRecord(image);
+    return (
+      item?.type === "image" &&
+      typeof item.mimeType === "string" &&
+      typeof item.data === "string" &&
+      item.data.length > 0
+    );
+  });
+  return images.length ? images : undefined;
+}
+
 function normalizeNextTurnAt(value: unknown): string | null {
   if (typeof value !== "string") return null;
   const text = value.trim();
@@ -342,6 +364,7 @@ function hydrateLoop(value: unknown, cwd: string, id: string): GoalLoop | null {
     nextTurnAt: normalizeNextTurnAt(raw.nextTurnAt),
     forceFullRun: raw.forceFullRun === true,
     autoAgent: raw.autoAgent === true,
+    initialImages: normalizeInitialImages(raw.initialImages),
     turnCount: Math.max(0, Math.trunc(Number(raw.turnCount) || 0)),
     turnKind: normalizeTurnKind(raw.turnKind),
     pauseReason: normalizePauseReason(raw.pauseReason),
@@ -482,7 +505,8 @@ function writeLoop(loop: GoalLoop): boolean {
 
 function appendSnapshot(runtime: Runtime, loop: GoalLoop): void {
   try {
-    runtime.pi.appendEntry(ENTRY_TYPE, { snapshot: loop, at: Date.now() });
+    const { initialImages: _initialImages, ...snapshot } = loop;
+    runtime.pi.appendEntry(ENTRY_TYPE, { snapshot, at: Date.now() });
   } catch {
     // State file remains authoritative.
   }
@@ -1300,6 +1324,7 @@ async function sendTurn(runtime: Runtime): Promise<void> {
   let prompt: string;
   let kind: GoalLoopTurnKind;
   let uiPrompt: string | undefined;
+  let isInitialTurn = false;
   if (loop.status === "queued") {
     const retryingUnreadableResult = loop.unreadableStreak === 1;
     if (loop.maxTurns > 0 && loop.turnCount >= loop.maxTurns && !retryingUnreadableResult) {
@@ -1318,7 +1343,7 @@ async function sendTurn(runtime: Runtime): Promise<void> {
     loop.turnKind = "goal";
     loop.nextTurnAt = null;
     kind = "goal";
-    const isInitialTurn = loop.turnCount === 1 && !retryingUnreadableResult;
+    isInitialTurn = loop.turnCount === 1 && !retryingUnreadableResult;
     prompt = isInitialTurn
       ? buildGoalPrompt(loop, loop.turnCount)
       : buildGoalContinuationPrompt(loop, loop.turnCount);
@@ -1375,7 +1400,9 @@ async function sendTurn(runtime: Runtime): Promise<void> {
     runtime.pi.sendMessage(
       {
         customType: kind === "verification" ? "leafcode-goal-verification" : "leafcode-goal-turn",
-        content: prompt,
+        content: isInitialTurn && loop.initialImages?.length
+          ? [{ type: "text" as const, text: prompt }, ...loop.initialImages]
+          : prompt,
         // Keep the raw prompt hidden in TUI and let the WebUI project only
         // the explicit user-facing text from details.uiPrompt.
         display: false,
@@ -1389,6 +1416,10 @@ async function sendTurn(runtime: Runtime): Promise<void> {
       },
       { triggerTurn: true, deliverAs: "followUp" },
     );
+    if (isInitialTurn && loop.initialImages?.length) {
+      delete loop.initialImages;
+      writeLoop(loop);
+    }
   } catch (error) {
     clearTimer(runtime);
     // sendMessage may throw after we already flipped to running/awaitingTurn.
@@ -1428,6 +1459,7 @@ function startLoop(
     cooldownSeconds?: unknown;
     forceFullRun?: unknown;
     autoAgent?: unknown;
+    initialImages?: unknown;
   },
 ): GoalLoop | null {
   const goal = config.goal.trim().slice(0, MAX_GOAL_CHARS);
@@ -1462,6 +1494,7 @@ function startLoop(
     nextTurnAt: null,
     forceFullRun: config.forceFullRun === true,
     autoAgent: config.autoAgent === true,
+    initialImages: normalizeInitialImages(config.initialImages),
     turnCount: 0,
     turnKind: "goal",
     pauseReason: "",
@@ -1731,6 +1764,7 @@ function decodeStartConfig(args: string): {
   cooldownSeconds?: unknown;
   forceFullRun?: unknown;
   autoAgent?: unknown;
+  initialImages?: unknown;
 } | null {
   try {
     const decoded = Buffer.from(args.trim(), "base64url").toString("utf8");
@@ -1743,6 +1777,7 @@ function decodeStartConfig(args: string): {
       cooldownSeconds: raw.cooldownSeconds,
       forceFullRun: raw.forceFullRun,
       autoAgent: raw.autoAgent,
+      initialImages: raw.images,
     };
   } catch {
     return null;

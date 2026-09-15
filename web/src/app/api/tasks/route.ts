@@ -194,8 +194,8 @@ export async function POST(req: NextRequest) {
         { status: 400 },
       );
     }
-    if (body.goalLoop?.enabled === true && (body.images?.length || body.files?.length)) {
-      return NextResponse.json({ error: "Goal loop の開始ではファイル添付は使えません" }, { status: 400 });
+    if (body.goalLoop?.enabled === true && body.files?.length) {
+      return NextResponse.json({ error: "Goal loop の開始では画像のみ添付できます" }, { status: 400 });
     }
     let goalLoop:
       | { acceptance: string[]; maxTurns: number; cooldownSeconds: number; forceFullRun: boolean }

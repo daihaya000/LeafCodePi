@@ -13,12 +13,7 @@ export function canAttachComposerImages(input: {
   submitting?: boolean;
   archived?: boolean;
 }): boolean {
-  return (
-    !input.goalLoopEnabled &&
-    !input.compacting &&
-    !input.submitting &&
-    !input.archived
-  );
+  return !input.compacting && !input.submitting && !input.archived;
 }
 
 /** クリップボードに画像ファイルがあるか（添付可否とは独立）。 */

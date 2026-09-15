@@ -25,7 +25,7 @@ function clipboardEvent(items: Array<{ kind: string; type: string; file?: File |
 describe("canAttachComposerImages", () => {
   it("matches the composer attachment-button disabled states", () => {
     expect(canAttachComposerImages({})).toBe(true);
-    expect(canAttachComposerImages({ goalLoopEnabled: true })).toBe(false);
+    expect(canAttachComposerImages({ goalLoopEnabled: true })).toBe(true);
     expect(canAttachComposerImages({ compacting: true })).toBe(false);
     expect(canAttachComposerImages({ submitting: true })).toBe(false);
     expect(canAttachComposerImages({ archived: true })).toBe(false);
@@ -53,7 +53,7 @@ describe("pasteImage", () => {
     expect(onFiles).not.toHaveBeenCalled();
   });
 
-  it("still reports images when the consumer rejects attachment", () => {
+  it("allows images while Goal Loop is enabled", () => {
     const file = new File(["img"], "shot.png", { type: "image/png" });
     const onFiles = vi.fn((files: FileList) => {
       if (!canAttachComposerImages({ goalLoopEnabled: true })) return;
@@ -61,7 +61,6 @@ describe("pasteImage", () => {
     });
     const event = clipboardEvent([{ kind: "file", type: "image/png", file }]);
 
-    // Goal loop 等で添付拒否しても true を返し、呼び出し側が preventDefault できる。
     expect(pasteImage(onFiles, event)).toBe(true);
     expect(onFiles).toHaveBeenCalledOnce();
   });

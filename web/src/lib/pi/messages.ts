@@ -492,7 +492,10 @@ export function projectPiMessages(raw: unknown[], indexOffset = 0): UiMessage[] 
         id,
         role: "user",
         createdAt,
-        parts: [{ id: `${id}-text`, type: "text", text }],
+        parts: [
+          { id: `${id}-text`, type: "text", text },
+          ...imagePartsFromBlocks(contentBlocks(item.content), id),
+        ],
         ...(activeGoalLoopTurn ? { goalLoopTurn: activeGoalLoopTurn } : {}),
       });
       return;

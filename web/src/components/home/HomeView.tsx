@@ -394,9 +394,6 @@ export const HomeView = memo(function HomeView({
     setSubmitting(true);
     setError(null);
     try {
-      if (goalLoopEnabled && attachments.length > 0) {
-        throw new Error("Goal loop の開始ではファイル添付は使えません");
-      }
       const { images, files } = composerPromptAttachments(attachments);
       const isAuto = model === AUTO_MODEL_VALUE;
       const autoRouteConfig = readAutoRouteConfig();

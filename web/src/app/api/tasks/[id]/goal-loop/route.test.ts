@@ -183,6 +183,36 @@ describe("POST /api/tasks/[id]/goal-loop", () => {
     expect(mocks.setTaskThinkingLevel).toHaveBeenCalledWith("task-1", "medium");
   });
 
+  it("passes validated images to the first Goal Loop turn", async () => {
+    const response = await POST(
+      request({
+        action: "start",
+        goal: "画像を確認する",
+        images: [{ mimeType: "image/png", data: "aW1hZ2U=" }],
+      }),
+      { params: Promise.resolve({ id: "task-1" }) },
+    );
+
+    expect(response.status).toBe(200);
+    expect(mocks.goalLoopCommand).toHaveBeenCalledWith(
+      "task-1",
+      expect.objectContaining({
+        action: "start",
+        images: [{ mimeType: "image/png", data: "aW1hZ2U=" }],
+      }),
+    );
+  });
+
+  it("rejects invalid Goal Loop images", async () => {
+    const response = await POST(
+      request({ action: "start", goal: "画像を確認する", images: [{ mimeType: "text/plain", data: "aW1hZ2U=" }] }),
+      { params: Promise.resolve({ id: "task-1" }) },
+    );
+
+    expect(response.status).toBe(400);
+    expect(mocks.goalLoopCommand).not.toHaveBeenCalled();
+  });
+
   it("applies an explicitly selected agent before starting Goal Loop", async () => {
     const response = await POST(
       request({ action: "start", goal: "レビューする", agent: "reviewer" }),

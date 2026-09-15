@@ -148,6 +148,27 @@ describe("projectPiMessages", () => {
     expect(JSON.stringify(messages)).not.toContain("internal instructions");
   });
 
+  it("projects images attached to the first Goal Loop prompt", () => {
+    const messages = projectPiMessages([
+      {
+        role: "custom",
+        customType: "leafcode-goal-turn",
+        content: [
+          { type: "text", text: "internal instructions" },
+          { type: "image", mimeType: "image/png", data: "aW1hZ2U=" },
+        ],
+        display: false,
+        details: { uiPrompt: "画像を確認する" },
+        timestamp: 1,
+      },
+    ]);
+
+    expect(messages[0]?.parts).toMatchObject([
+      { type: "text", text: "画像を確認する" },
+      { type: "image", mime: "image/png", url: "data:image/png;base64,aW1hZ2U=" },
+    ]);
+  });
+
   it("does not project a Goal Loop prompt without an explicit UI goal", () => {
     expect(
       projectPiMessages([

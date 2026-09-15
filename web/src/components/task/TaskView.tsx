@@ -2268,7 +2268,7 @@ export const TaskView = memo(function TaskView({
       let resolvedAgent: string | null | undefined;
       let resolvedAutoDecision: AutoDecision | undefined;
       if (goalLoopEnabled) {
-        if (images.length > 0 || files.length > 0) throw new Error("Goal loop の開始ではファイル添付は使えません");
+        if (files.length > 0) throw new Error("Goal loop の開始では画像のみ添付できます");
         setPrompt("");
         setAttachments([]);
         draftCleared = true;
@@ -2285,6 +2285,7 @@ export const TaskView = memo(function TaskView({
             maxTurns: goalLoopMaxTurns,
             cooldownSeconds: goalLoopCooldownSeconds,
             forceFullRun: goalLoopForceFullRun,
+            images,
             ...(agentSelection ? { agent: agentSelection } : {}),
             ...(isAuto
               ? {
