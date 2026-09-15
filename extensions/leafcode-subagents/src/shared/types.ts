@@ -2073,9 +2073,10 @@ export interface ExtensionConfig {
 // Constants
 // ============================================================================
 
+/** Inline child results are parent context, not an artifact transport. */
 export const DEFAULT_MAX_OUTPUT: Required<MaxOutputConfig> = {
-	bytes: 200 * 1024,
-	lines: 5000,
+	bytes: 32 * 1024,
+	lines: 1000,
 };
 
 export const DEFAULT_ARTIFACT_CONFIG: ArtifactConfig = {

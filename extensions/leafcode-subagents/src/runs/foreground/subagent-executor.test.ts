@@ -75,7 +75,8 @@ describe("executor timeout contract", () => {
 		expect(executorApi.resolveSingleAgentLaunchTimeout({ maxRuntimeMs: 100 }, async, 500)).toEqual({ timeoutMs: 100 });
 		expect(executorApi.resolveSingleAgentLaunchTimeout({ timeoutMs: 100, maxRuntimeMs: 100 }, async)).toEqual({ timeoutMs: 100 });
 	});
-	it("applies the default output cap when the caller omits one", async () => {
+	it("applies the compact default output cap when the caller omits one", async () => {
+		expect(DEFAULT_MAX_OUTPUT).toEqual({ bytes: 32 * 1024, lines: 1000 });
 		await execute({ agent: "worker", task: "Summarize" });
 		expect(launch.sync.mock.calls[0]?.[4]).toMatchObject({ maxOutput: DEFAULT_MAX_OUTPUT });
 	});
