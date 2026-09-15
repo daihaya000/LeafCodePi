@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, it } from "vitest";
 import { AUTO_AGENT_VALUE } from "./default-agent";
-import { agentsDir, AgentsError, agentsErrorStatus, buildAgentResourceOptions, createAgent, deleteAgent, listAgents, loadAgentDefinition, parseAgentFile, readUserAgent, serializeAgent, setAgentEnabled, setAgentModel, setAgentThinking, setAgentTools, updateAgent, type AgentDraft } from "./agents";
+import { agentsDir, AgentsError, agentsErrorStatus, buildAgentResourceOptions, createAgent, deleteAgent, listAgents, loadAgentDefinition, MAX_AGENT_SYSTEM_PROMPT_CHARS, parseAgentFile, readUserAgent, serializeAgent, setAgentEnabled, setAgentModel, setAgentThinking, setAgentTools, updateAgent, type AgentDraft } from "./agents";
 
 const AGENT = `---
 name: __NAME__
@@ -398,6 +398,19 @@ describe("loadAgentDefinition / buildAgentResourceOptions", () => {
     const options = buildAgentResourceOptions(def);
     assert.equal(options.systemPrompt, undefined);
     assert.equal(options.appendSystemPrompt, undefined);
+  });
+
+  it("rejects oversized user prompts and bounds manually edited agent files", () => {
+    fixture();
+    const oversized = "x".repeat(MAX_AGENT_SYSTEM_PROMPT_CHARS + 1);
+    assert.throws(
+      () => createAgent({ name: "too-long", systemPrompt: oversized }, agentDir),
+      (error: unknown) => error instanceof AgentsError && error.code === "invalid-prompt",
+    );
+    writeFileSync(join(agentDir, "agents", "legacy.md"), `---\nname: legacy\n---\n${oversized}\n`, "utf8");
+    const legacy = loadAgentDefinition("legacy", agentDir);
+    assert.ok(legacy);
+    assert.equal(Array.from(legacy.systemPrompt).length, MAX_AGENT_SYSTEM_PROMPT_CHARS);
   });
 
   it("returns undefined for disabled or unknown agents and delegate appends by default", () => {

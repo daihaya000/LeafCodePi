@@ -54,6 +54,9 @@ export type AgentDraft = {
   systemPrompt: string;
 };
 
+/** Agent prompts are reapplied whenever a session is created, so keep them bounded. */
+export const MAX_AGENT_SYSTEM_PROMPT_CHARS = 8_000;
+
 export type AgentListResult = {
   agents: AgentDto[];
   /** User agents dir (for display). */
@@ -62,7 +65,7 @@ export type AgentListResult = {
 
 export class AgentsError extends Error {
   constructor(
-    readonly code: "invalid-name" | "not-found" | "readonly",
+    readonly code: "invalid-name" | "invalid-prompt" | "not-found" | "readonly",
     message: string,
   ) {
     super(message);
@@ -71,7 +74,7 @@ export class AgentsError extends Error {
 
 export function agentsErrorStatus(error: unknown): number {
   if (error instanceof AgentsError) {
-    return error.code === "invalid-name" ? 400 : error.code === "readonly" ? 403 : 404;
+    return error.code === "invalid-name" || error.code === "invalid-prompt" ? 400 : error.code === "readonly" ? 403 : 404;
   }
   return 500;
 }
@@ -464,6 +467,16 @@ function joinCsv(values: string[] | undefined): string | undefined {
   return values.join(", ");
 }
 
+function boundedSystemPrompt(value: string): string {
+  return Array.from(value.trim()).slice(0, MAX_AGENT_SYSTEM_PROMPT_CHARS).join("");
+}
+
+function assertSystemPromptLength(value: string): void {
+  if (Array.from(value.trim()).length > MAX_AGENT_SYSTEM_PROMPT_CHARS) {
+    throw new AgentsError("invalid-prompt", `システムプロンプトは${MAX_AGENT_SYSTEM_PROMPT_CHARS}文字以内にしてください`);
+  }
+}
+
 /** Build markdown file with YAML frontmatter for a user agent. */
 export function serializeAgent(
   draft: AgentDraft,
@@ -487,7 +500,9 @@ export function serializeAgent(
   for (const [key, value] of Object.entries(extraFrontmatter ?? {})) {
     if (!(key in frontmatter)) frontmatter[key] = value;
   }
-  const body = draft.systemPrompt?.trim() ? `\n${draft.systemPrompt.trim()}\n` : "";
+  assertSystemPromptLength(draft.systemPrompt);
+  const prompt = boundedSystemPrompt(draft.systemPrompt);
+  const body = prompt ? `\n${prompt}\n` : "";
   return `---\n${YAML.stringify(frontmatter).trimEnd()}\n---\n${body}`;
 }
 
@@ -497,7 +512,7 @@ export function readUserAgent(name: string, agentDir = resolvePiAgentDir()): { d
   const content = readFileSync(filePath, "utf8");
   const fm = parseAgentFile(content);
   const match = /^---\s*\n[\s\S]*?\n---\n?([\s\S]*)$/.exec(content);
-  const systemPrompt = match?.[1]?.trim() ?? "";
+  const systemPrompt = boundedSystemPrompt(match?.[1] ?? "");
   return {
     filePath,
     draft: {
@@ -617,7 +632,7 @@ export function loadAgentDefinition(
         ? fm.inheritProjectContext
         : dto.name === "delegate",
     inheritSkills: typeof fm.inheritSkills === "boolean" ? fm.inheritSkills : true,
-    systemPrompt: (match?.[1] ?? "").trim(),
+    systemPrompt: boundedSystemPrompt(match?.[1] ?? ""),
   };
 }
 
