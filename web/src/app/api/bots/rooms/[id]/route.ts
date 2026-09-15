@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { deleteRoom, getRoom, MAX_ROOM_NAME_CHARS, patchRoom, roomBotTaskId, assertKnownRoomMembers } from "@/lib/rooms";
+import { deleteRoom, getRoom, isRoomNameWithinSize, patchRoom, roomBotTaskId, assertKnownRoomMembers } from "@/lib/rooms";
 import { destroyTask, jsonError, resetTaskConversation } from "@/lib/pi/harness";
 import { stopAllRoomCodeSessions } from "@/lib/pi/bot-code-relay";
 import { cancelPendingRoomHandoffs, detachBotFromRoomRuntime, stopRoomTurns } from "@/lib/room-runtime";
@@ -15,7 +15,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
   const body = (await req.json().catch(() => null)) as { name?: unknown; members?: unknown; botRelayEnabled?: unknown; codeAutoApprove?: unknown; resetMessages?: unknown } | null;
-  if (!body || (body.name !== undefined && (typeof body.name !== "string" || body.name.length > MAX_ROOM_NAME_CHARS)) || (body.members !== undefined && (!Array.isArray(body.members) || body.members.some((item) => typeof item !== "string"))) || (body.botRelayEnabled !== undefined && typeof body.botRelayEnabled !== "boolean") || (body.codeAutoApprove !== undefined && typeof body.codeAutoApprove !== "boolean") || (body.resetMessages !== undefined && typeof body.resetMessages !== "boolean")) return NextResponse.json({ error: "\u30eb\u30fc\u30e0\u8a2d\u5b9a\u304c\u4e0d\u6b63\u3067\u3059" }, { status: 400 });
+  if (!body || (body.name !== undefined && (typeof body.name !== "string" || !isRoomNameWithinSize(body.name))) || (body.members !== undefined && (!Array.isArray(body.members) || body.members.some((item) => typeof item !== "string"))) || (body.botRelayEnabled !== undefined && typeof body.botRelayEnabled !== "boolean") || (body.codeAutoApprove !== undefined && typeof body.codeAutoApprove !== "boolean") || (body.resetMessages !== undefined && typeof body.resetMessages !== "boolean")) return NextResponse.json({ error: "\u30eb\u30fc\u30e0\u8a2d\u5b9a\u304c\u4e0d\u6b63\u3067\u3059" }, { status: 400 });
   // Relay / standing Code approval are privileged mutations: require Web UI token.
   if (
     (body?.botRelayEnabled !== undefined || body?.codeAutoApprove !== undefined) &&

@@ -17,6 +17,11 @@ function roomLockPath(roomId: string): string { assertId(roomId); return join(ro
 export const MAX_ROOM_RELAY_DEPTH = 3;
 /** Repeated in every Bot's turn prompt (see room-conversation.ts roomBotPrompt); keep it short. */
 export const MAX_ROOM_NAME_CHARS = 100;
+
+/** Code points, not UTF-16 units — same basis as isBotNameWithinSize(). */
+export function isRoomNameWithinSize(value: string): boolean {
+  return Array.from(value).length <= MAX_ROOM_NAME_CHARS;
+}
 type RoomRelayEnvelope = { roomId: string; sourceBotId: string; targetBotIds: string[]; turnId: string; depth: number; parentId?: string; consumed: boolean; expiresAt: number };
 type RoomRelayState = { envelopes: Record<string, RoomRelayEnvelope>; claims: Record<string, string[]> };
 const RELAY_ENVELOPE_TTL_MS = 10 * 60 * 1000;

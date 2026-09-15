@@ -5,10 +5,30 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const botTestState = vi.hoisted(() => ({ root: "" }));
 vi.mock("./paths", async (importOriginal) => { const actual = await importOriginal<typeof import("./paths")>(); return { ...actual, dataDir: () => botTestState.root, storePath: () => join(botTestState.root, "store.json") }; });
-import { botPromptSources, botRuntimeContext, botSoul, createBot, deleteBot, getBot, listBots, patchBot } from "./bots";
+import { botPromptSources, botRuntimeContext, botSoul, createBot, deleteBot, getBot, isBotLabelWithinSize, isBotNameWithinSize, listBots, MAX_BOT_LABEL_CHARS, MAX_BOT_NAME_CHARS, patchBot } from "./bots";
 import { BOT_AVATAR_COLORS, avatarColorForId } from "./bot-avatar";
 import { BOT_DEFAULT_DISABLED_TOOL_NAMES, BOT_DEFAULT_TOOL_NAMES, BOT_TOOL_NAMES } from "./types";
 import type { BotDto } from "./types";
+
+describe("bot name and label bounds", () => {
+  it("counts code points so an emoji name is not charged twice", () => {
+    // "\u{1f916}" is one code point but two UTF-16 units: a bare .length check would
+    // reject this at half the documented limit.
+    const emojiAtLimit = "\u{1f916}".repeat(MAX_BOT_NAME_CHARS);
+    expect(emojiAtLimit.length).toBe(MAX_BOT_NAME_CHARS * 2);
+    expect(isBotNameWithinSize(emojiAtLimit)).toBe(true);
+    expect(isBotNameWithinSize(`${emojiAtLimit}\u{1f916}`)).toBe(false);
+
+    expect(isBotLabelWithinSize("\u{1f916}".repeat(MAX_BOT_LABEL_CHARS))).toBe(true);
+    expect(isBotLabelWithinSize("\u{1f916}".repeat(MAX_BOT_LABEL_CHARS + 1))).toBe(false);
+  });
+
+  it("still bounds plain text at the documented limit", () => {
+    expect(isBotNameWithinSize("x".repeat(MAX_BOT_NAME_CHARS))).toBe(true);
+    expect(isBotNameWithinSize("x".repeat(MAX_BOT_NAME_CHARS + 1))).toBe(false);
+    expect(isBotLabelWithinSize("")).toBe(true);
+  });
+});
 
 describe("bot runtime context", () => {
   it("identifies only loaded extensions and distinguishes dependencies from callable tools", () => {

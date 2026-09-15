@@ -8,6 +8,18 @@ import { botTaskId, createBot, deleteBot, patchBot } from "./bots";
 import { appendRoomMessage, botsForRoomPrompt, consumeRoomRelayEnvelope, createRoom, deleteRoom, ensureRoomBotTask, getRoom, issueRoomRelayEnvelope, patchRoom, readRoomFile, readRoomImage, roomFileRejection, roomImageRejection, roomRequestFiles, roomRequestImages, saveRoomFiles, saveRoomImages, updateRoomMessage } from "./rooms";
 import { MAX_PROMPT_FILE_TOTAL_BYTES, MAX_PROMPT_IMAGE_TOTAL_BYTES } from "./prompt-images";
 import { getTask } from "./store";
+import { isRoomNameWithinSize, MAX_ROOM_NAME_CHARS } from "./rooms";
+
+describe("room name bound", () => {
+  it("counts code points so an emoji name is not charged twice", () => {
+    const emojiAtLimit = "\u{1f3e0}".repeat(MAX_ROOM_NAME_CHARS);
+    expect(emojiAtLimit.length).toBe(MAX_ROOM_NAME_CHARS * 2);
+    expect(isRoomNameWithinSize(emojiAtLimit)).toBe(true);
+    expect(isRoomNameWithinSize(`${emojiAtLimit}\u{1f3e0}`)).toBe(false);
+    expect(isRoomNameWithinSize("x".repeat(MAX_ROOM_NAME_CHARS))).toBe(true);
+    expect(isRoomNameWithinSize("x".repeat(MAX_ROOM_NAME_CHARS + 1))).toBe(false);
+  });
+});
 
 describe("room store and mention routing", () => {
   let root = "";

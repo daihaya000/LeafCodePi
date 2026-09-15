@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { BOT_TOOL_NAMES, deleteBot, getBot, MAX_BOT_LABEL_CHARS, MAX_BOT_NAME_CHARS, normalizeBotSkills, patchBot, botTaskId } from "@/lib/bots";
+import { BOT_TOOL_NAMES, deleteBot, getBot, isBotLabelWithinSize, isBotNameWithinSize, normalizeBotSkills, patchBot, botTaskId } from "@/lib/bots";
 import { abortTaskIncludingColdGoalLoop, destroyTask, requestBotSoulReload, resetTaskConversation, setBotModel, setBotPermissionMode, setBotThinkingLevel, setBotTools, stopBotCodeTask } from "@/lib/pi/harness";
 import { validateBotSoulContent } from "@/lib/pi/bot-soul-tool";
 import { isThinkingLevel } from "@/lib/thinking-levels";
@@ -78,8 +78,8 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     : undefined;
   if (
     !body ||
-    (body.name !== undefined && (typeof body.name !== "string" || !body.name.trim() || body.name.length > MAX_BOT_NAME_CHARS)) ||
-    (body.label !== undefined && (typeof body.label !== "string" || body.label.length > MAX_BOT_LABEL_CHARS)) ||
+    (body.name !== undefined && (typeof body.name !== "string" || !body.name.trim() || !isBotNameWithinSize(body.name))) ||
+    (body.label !== undefined && (typeof body.label !== "string" || !isBotLabelWithinSize(body.label))) ||
     soulValidationError !== null ||
     (body.avatarColor !== undefined && !isAvatarColor(body.avatarColor)) ||
     (body.avatarShape !== undefined && !isAvatarShape(body.avatarShape)) ||
