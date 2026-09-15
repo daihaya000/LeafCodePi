@@ -554,7 +554,6 @@ function hasVisibleAssistantText(message: UiMessage): boolean {
 function isEmptyAssistantMessage(message: UiMessage): boolean {
   return (
     message.role === "assistant" &&
-    !message.goalLoopTurn &&
     !message.error &&
     (message.diagnostics?.length ?? 0) === 0 &&
     !hasVisibleAssistantText(message) &&
@@ -650,7 +649,7 @@ function taskMessageBlocks(
     if (groupStartIndex < 0) {
       groupStartIndex = index;
       groupShowTurnDivider = showTurnDivider;
-    } else if (isGoalLoopTurnBoundary(messages, index)) {
+    } else if (showTurnDivider) {
       flushGroup();
       groupStartIndex = index;
       groupShowTurnDivider = true;
@@ -658,12 +657,18 @@ function taskMessageBlocks(
     groupedEntries.push(entry);
   };
 
+  let pendingTurnBoundary = false;
   messages.forEach((message, index) => {
-    // 無言終了したassistantを単独行にすると、作業ログが前後に分断される。
+    // 無言終了したassistantを単独行にすると、ヘッダーだけの行が残り作業ログも分断される。
     // resume判定は表示前のvisibleMessagesを使うので、履歴情報は失わない。
-    if (isEmptyAssistantMessage(message)) return;
+    if (isEmptyAssistantMessage(message)) {
+      // Goal Loop の区切りだけは次に表示するブロックへ引き継ぐ。
+      if (isGoalLoopTurnBoundary(messages, index)) pendingTurnBoundary = true;
+      return;
+    }
     const activity = message.id === ungroupedMessageId ? null : taskActivityEntry(message);
-    const boundary = isGoalLoopTurnBoundary(messages, index);
+    const boundary = pendingTurnBoundary || isGoalLoopTurnBoundary(messages, index);
+    pendingTurnBoundary = false;
     if (activity) {
       addActivity(activity, index, boundary);
       if (activity.foldsText || !hasVisibleAssistantText(message)) return;

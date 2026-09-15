@@ -325,7 +325,13 @@ it("shows one Goal Loop turn divider per turn boundary", () => {
     role: "assistant",
     createdAt: turn,
     goalLoopTurn: { goalId: "loop-1", turn, kind },
-    parts: [],
+    parts: [{
+      id: `${id}-part`,
+      type: "tool",
+      tool: "read",
+      callID: `${id}-call`,
+      state: { status: "completed", input: { path: "README.md" } },
+    }],
   });
   saveTaskSessionCache({
     task,
@@ -707,6 +713,48 @@ it("keeps whitespace-only assistant text inside the activity log", () => {
   expect(groups[0]!.querySelectorAll("[data-task-tool-card]")).toHaveLength(3);
   expect(document.querySelector('[data-task-part-view="whitespace-reply"]')).toBeNull();
   expect(mocks.messageMetaHeader.mock.calls.some(([props]) => props.message.id === "whitespace-reply")).toBe(true);
+});
+
+it("hides empty Goal Loop assistants and keeps their turn divider on the next block", () => {
+  // 回帰: Goal Loop 中の空 assistant がヘッダーだけの行として残り、作業ログを分断していた。
+  const toolMessage = (id: string, turn: number): UiMessage => ({
+    id,
+    role: "assistant",
+    createdAt: turn,
+    goalLoopTurn: { goalId: "loop-1", turn, kind: "goal" },
+    parts: [{
+      id: `${id}-part`,
+      type: "tool",
+      tool: "read",
+      callID: `${id}-call`,
+      state: { status: "completed", input: { path: "README.md" } },
+    }],
+  });
+  saveTaskSessionCache({
+    task,
+    messages: [
+      toolMessage("tool-1", 1),
+      { id: "empty-1", role: "assistant", createdAt: 1, model: "model-a", goalLoopTurn: { goalId: "loop-1", turn: 1, kind: "goal" }, parts: [] },
+      toolMessage("tool-2", 1),
+      { id: "empty-2", role: "assistant", createdAt: 2, model: "model-a", goalLoopTurn: { goalId: "loop-1", turn: 2, kind: "goal" }, parts: [{ id: "empty-2-text", type: "text", text: "\n" }] },
+      toolMessage("tool-3", 2),
+    ],
+    isStreaming: false,
+    isCompacting: false,
+  });
+  mocks.partView.mockImplementation(({ message }: { message: UiMessage }) => (
+    <div data-task-part-view={message.id} />
+  ));
+  render(<TaskView taskId={task.id} mdUp />);
+
+  const groups = document.querySelectorAll<HTMLDetailsElement>("details[data-task-tool-group]");
+  expect(groups).toHaveLength(2);
+  expect(groups[0]!.querySelector("summary")?.textContent).toContain("2件");
+  expect(groups[1]!.querySelector("summary")?.textContent).toContain("1件");
+  expect(document.querySelector('[data-task-part-view="empty-1"]')).toBeNull();
+  expect(document.querySelector('[data-task-part-view="empty-2"]')).toBeNull();
+  // 空メッセージで始まるターンでも区切りは残す。
+  expect(screen.getByRole("separator", { name: "ループ 2" })).toBeTruthy();
 });
 
 it("splits tool groups at Goal Loop turn boundaries", () => {
