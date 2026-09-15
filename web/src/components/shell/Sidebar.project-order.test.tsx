@@ -90,7 +90,7 @@ beforeEach(() => {
   localStorage.setItem("leafcodepi.mode", "code");
   mocks.getJson.mockReset().mockImplementation((path: string) => {
     if (path === "/api/projects?archived=1") return Promise.resolve({ projects });
-    if (path === "/api/tasks?archived=1&kind=all") return Promise.resolve({ tasks: [] });
+    if (path === "/api/tasks?kind=all" || path === "/api/tasks?archived=1&kind=all") return Promise.resolve({ tasks: [] });
     if (path === "/api/health") {
       return Promise.resolve({
         ok: true,
@@ -184,7 +184,7 @@ describe("Sidebar project ordering", () => {
     ];
     mocks.getJson.mockImplementation((path: string) => {
       if (path === "/api/projects?archived=1") return Promise.resolve({ projects });
-      if (path === "/api/tasks?archived=1&kind=all") return Promise.resolve({ tasks: workingTasks });
+      if (path === "/api/tasks?kind=all" || path === "/api/tasks?archived=1&kind=all") return Promise.resolve({ tasks: workingTasks });
       if (path === "/api/health") {
         return Promise.resolve({
           ok: true,
@@ -240,7 +240,7 @@ describe("Sidebar project ordering", () => {
     ];
     mocks.getJson.mockImplementation((path: string) => {
       if (path === "/api/projects?archived=1") return Promise.resolve({ projects });
-      if (path === "/api/tasks?archived=1&kind=all") return Promise.resolve({ tasks: projectTasks });
+      if (path === "/api/tasks?kind=all" || path === "/api/tasks?archived=1&kind=all") return Promise.resolve({ tasks: projectTasks });
       if (path === "/api/health") {
         return Promise.resolve({
           ok: true,
@@ -425,7 +425,7 @@ describe("Sidebar project ordering", () => {
     }));
     mocks.getJson.mockImplementation((path: string) => {
       if (path === "/api/projects?archived=1") return Promise.resolve({ projects });
-      if (path === "/api/tasks?archived=1&kind=all") return Promise.resolve({ tasks: projectTasks });
+      if (path === "/api/tasks?kind=all" || path === "/api/tasks?archived=1&kind=all") return Promise.resolve({ tasks: projectTasks });
       if (path === "/api/health") {
         return Promise.resolve({
           ok: true,
@@ -465,7 +465,7 @@ describe("Sidebar project ordering", () => {
     mocks.activeTaskId = "task-1";
     mocks.getJson.mockImplementation((path: string) => {
       if (path === "/api/projects?archived=1") return Promise.resolve({ projects });
-      if (path === "/api/tasks?archived=1&kind=all") return Promise.resolve({ tasks: projectTasks });
+      if (path === "/api/tasks?kind=all" || path === "/api/tasks?archived=1&kind=all") return Promise.resolve({ tasks: projectTasks });
       if (path === "/api/health") {
         return Promise.resolve({
           ok: true,
@@ -510,7 +510,7 @@ describe("Sidebar project ordering", () => {
     mocks.activeTaskId = "task-1";
     mocks.getJson.mockImplementation((path: string) => {
       if (path === "/api/projects?archived=1") return Promise.resolve({ projects });
-      if (path === "/api/tasks?archived=1&kind=all") return Promise.resolve({ tasks: projectTasks });
+      if (path === "/api/tasks?kind=all" || path === "/api/tasks?archived=1&kind=all") return Promise.resolve({ tasks: projectTasks });
       if (path === "/api/health") {
         return Promise.resolve({ ok: true, engineOk: true, version: "1", modelCount: 0 });
       }
@@ -527,7 +527,7 @@ describe("Sidebar project ordering", () => {
   it("shows a user-facing error when sidebar data loading fails", async () => {
     mocks.getJson.mockImplementation((path: string) => {
       if (path === "/api/projects?archived=1") return Promise.reject(new Error("プロジェクト取得に失敗しました"));
-      if (path === "/api/tasks?archived=1&kind=all") return Promise.resolve({ tasks: [] });
+      if (path === "/api/tasks?kind=all" || path === "/api/tasks?archived=1&kind=all") return Promise.resolve({ tasks: [] });
       if (path === "/api/health") {
         return Promise.resolve({ ok: true, engineOk: true, version: "1", modelCount: 0 });
       }
@@ -570,7 +570,7 @@ describe("Sidebar project ordering", () => {
     localStorage.setItem("leafcodepi.mode", "bot");
     mocks.getJson.mockImplementation((path: string) => {
       if (path === "/api/projects?archived=1") return Promise.resolve({ projects: [] });
-      if (path === "/api/tasks?archived=1&kind=all") return Promise.resolve({ tasks: [] });
+      if (path === "/api/tasks?kind=all" || path === "/api/tasks?archived=1&kind=all") return Promise.resolve({ tasks: [] });
       if (path === "/api/health") {
         return Promise.resolve({
           ok: true,
@@ -622,7 +622,7 @@ describe("Sidebar project ordering", () => {
     let currentBots = [initialBot];
     mocks.getJson.mockImplementation((path: string) => {
       if (path === "/api/projects?archived=1") return Promise.resolve({ projects: [] });
-      if (path === "/api/tasks?archived=1&kind=all") return Promise.resolve({ tasks: [] });
+      if (path === "/api/tasks?kind=all" || path === "/api/tasks?archived=1&kind=all") return Promise.resolve({ tasks: [] });
       if (path === "/api/health") {
         return Promise.resolve({
           ok: true,
@@ -669,7 +669,7 @@ describe("Sidebar project ordering", () => {
     let currentBots = [initialBot];
     mocks.getJson.mockImplementation((path: string) => {
       if (path === "/api/projects?archived=1") return Promise.resolve({ projects: [] });
-      if (path === "/api/tasks?archived=1&kind=all") return Promise.resolve({ tasks: [] });
+      if (path === "/api/tasks?kind=all" || path === "/api/tasks?archived=1&kind=all") return Promise.resolve({ tasks: [] });
       if (path === "/api/health") {
         return Promise.resolve({
           ok: true,
@@ -732,7 +732,7 @@ describe("Sidebar project ordering", () => {
     ];
     mocks.getJson.mockImplementation((path: string) => {
       if (path === "/api/projects?archived=1") return Promise.resolve({ projects: [] });
-      if (path === "/api/tasks?archived=1&kind=all") return Promise.resolve({ tasks });
+      if (path === "/api/tasks?kind=all" || path === "/api/tasks?archived=1&kind=all") return Promise.resolve({ tasks });
       if (path === "/api/health") {
         return Promise.resolve({
           ok: true,
@@ -770,7 +770,7 @@ describe("Sidebar project ordering", () => {
     }];
     mocks.getJson.mockImplementation((path: string) => {
       if (path === "/api/projects?archived=1") return Promise.resolve({ projects: [] });
-      if (path === "/api/tasks?archived=1&kind=all") return Promise.resolve({ tasks });
+      if (path === "/api/tasks?kind=all" || path === "/api/tasks?archived=1&kind=all") return Promise.resolve({ tasks });
       if (path === "/api/settings/sidebar-pinned-tasks") {
         return Promise.resolve({ value: JSON.stringify(["session-a"]) });
       }
@@ -806,7 +806,7 @@ describe("Sidebar project ordering", () => {
   it("shows the no-project entry even before the first no-project task exists", async () => {
     mocks.getJson.mockImplementation((path: string) => {
       if (path === "/api/projects?archived=1") return Promise.resolve({ projects: [] });
-      if (path === "/api/tasks?archived=1&kind=all") return Promise.resolve({ tasks: [] });
+      if (path === "/api/tasks?kind=all" || path === "/api/tasks?archived=1&kind=all") return Promise.resolve({ tasks: [] });
       if (path === "/api/health") {
         return Promise.resolve({
           ok: true,
@@ -826,5 +826,17 @@ describe("Sidebar project ordering", () => {
     expect(await screen.findByRole("button", { name: "プロジェクトなしを展開" })).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "プロジェクトなしで新規タスクを作成" }));
     expect(mocks.retargetToUrl).toHaveBeenCalledWith("home");
+  });
+
+  it("loads archived sessions only after the archive is expanded", async () => {
+    render(<Sidebar mobileOpen={false} onClose={vi.fn()} />);
+
+    await waitFor(() => expect(mocks.getJson).toHaveBeenCalledWith("/api/tasks?kind=all"));
+    expect(mocks.getJson).not.toHaveBeenCalledWith("/api/tasks?archived=1&kind=all");
+
+    fireEvent.click(screen.getByRole("button", { name: "アーカイブを展開" }));
+    await waitFor(() => {
+      expect(mocks.getJson).toHaveBeenCalledWith("/api/tasks?archived=1&kind=all");
+    });
   });
 });

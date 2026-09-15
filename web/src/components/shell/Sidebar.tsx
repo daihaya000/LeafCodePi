@@ -947,9 +947,14 @@ const SidebarView = memo(function SidebarView({
 
   const refresh = useCallback(async () => {
     const gen = ++refreshGenRef.current;
+    // アーカイブ済みセッションは展開時だけ取得する。通常表示の定期更新から
+    // 履歴全件の転送・Todo進捗集計を外し、表示中のセッションを優先する。
+    const includeArchivedTasks = archivedExpanded;
     const [projectRes, taskRes, healthRes, botRes] = await Promise.allSettled([
       getJson<{ projects: ProjectDto[] }>("/api/projects?archived=1"),
-      getJson<{ tasks: TaskSummary[] }>("/api/tasks?archived=1&kind=all"),
+      getJson<{ tasks: TaskSummary[] }>(
+        includeArchivedTasks ? "/api/tasks?archived=1&kind=all" : "/api/tasks?kind=all",
+      ),
       getJson<HealthDto>("/api/health"),
       mode === "code"
         ? getJson<{ bots: BotDto[] }>("/api/bots")
@@ -983,9 +988,11 @@ const SidebarView = memo(function SidebarView({
     }
     if (taskRes.status === "fulfilled") {
       const nextTasks = taskRes.value.tasks.filter((task) => task.status !== "archived");
-      const nextArchivedTasks = taskRes.value.tasks.filter((task) => task.status === "archived");
       setTasks((current) => stabilizeTaskList(current, nextTasks));
-      setArchivedTasks((current) => stabilizeTaskList(current, nextArchivedTasks));
+      if (includeArchivedTasks) {
+        const nextArchivedTasks = taskRes.value.tasks.filter((task) => task.status === "archived");
+        setArchivedTasks((current) => stabilizeTaskList(current, nextArchivedTasks));
+      }
     }
     if (healthRes.status === "fulfilled") {
       setHealth((current) => (sameHealth(current, healthRes.value) ? current : healthRes.value));
@@ -1001,7 +1008,7 @@ const SidebarView = memo(function SidebarView({
         return unchanged ? current : nextBots;
       });
     }
-  }, [mode]);
+  }, [archivedExpanded, mode]);
 
   const persistPinnedTaskIds = useCallback((ids: ReadonlySet<string>): Promise<unknown> => {
     const request = pinnedWriteQueueRef.current
