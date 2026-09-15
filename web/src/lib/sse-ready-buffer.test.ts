@@ -50,6 +50,31 @@ describe("sse-ready-buffer", () => {
     ).toBe(true);
   });
 
+  it("does not let a part-less message_start placeholder supersede a ready tip", () => {
+    // 実稼働SSEの実測値: agent_settled の tip は永続id eba10dc7(part=msg-22-text-0)、
+    // message_start の tip は part を持たない streaming id msg-22。createdAt は同一。
+    const ready = rankMessageList([
+      { id: "eba10dc7", createdAt: 200, role: "assistant", parts: [{ id: "msg-22-text-0", type: "text", text: "4" }] },
+    ]);
+    const placeholder = {
+      type: "snapshot",
+      eventType: "message_start",
+      messages: [{ id: "msg-22", createdAt: 200, role: "assistant", parts: [] }],
+    };
+    expect(shouldFlushPendingAfterReady(placeholder, ready)).toBe(false);
+    expect(preparePendingPayloadForReadyFlush(placeholder, ready)).toBeNull();
+    // 本文が伸びた同型のスナップショットは従来どおり flush する。
+    expect(
+      shouldFlushPendingAfterReady(
+        {
+          type: "snapshot",
+          messages: [{ id: "msg-22", createdAt: 200, role: "assistant", parts: [{ id: "msg-22-text-0", type: "text", text: "45" }] }],
+        },
+        ready,
+      ),
+    ).toBe(true);
+  });
+
   it("treats archived, restored, and conversation reset snapshots as control events", () => {
     const ready = rankMessageList([{ id: "latest", createdAt: 5 }]);
     for (const eventType of ["archived", "restored", "conversation_reset", "code_session_changed"]) {

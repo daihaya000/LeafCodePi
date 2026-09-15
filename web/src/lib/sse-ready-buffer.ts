@@ -4,6 +4,8 @@ export type MessageListRank = {
   len: number;
   lastCreatedAt: number;
   lastId: string;
+  /** Tip message の part 数。0 は `message_start` のプレースホルダ、未指定は不明として扱う。 */
+  lastParts?: number;
   /** Stable content fingerprint, excluding projected id/timestamp churn. */
   contentKey?: string;
 };
@@ -22,6 +24,11 @@ function messageListContentKey(messages: unknown[]): string {
   return JSON.stringify(messages.map(messageContentKey)) ?? "";
 }
 
+function messagePartCount(message: Partial<UiMessage> | undefined): number {
+  const parts = message?.parts;
+  return Array.isArray(parts) ? parts.length : 0;
+}
+
 /** Compare message lists by length, tip timestamp, then content. */
 export function rankMessageList(messages: unknown): MessageListRank {
   const list = Array.isArray(messages) ? messages : [];
@@ -30,6 +37,7 @@ export function rankMessageList(messages: unknown): MessageListRank {
     len: list.length,
     lastCreatedAt: typeof last?.createdAt === "number" ? last.createdAt : 0,
     lastId: typeof last?.id === "string" ? last.id : "",
+    lastParts: messagePartCount(last),
     contentKey: messageListContentKey(list),
   };
 }
@@ -44,6 +52,10 @@ export function isFresherMessageList(
   }
   // Same length + same tip timestamp: ignore projected id churn, but keep
   // legitimate content/parts updates that can share both values.
+  // part を持たない tip は `message_start` のプレースホルダでしかない。その projected id
+  // (`msg-N`) は永続 entry id に置き換わるため、ready の後に適用すると part 付きの行を
+  // 空に戻したり、render key が一致せず別行として残る（二重表示・未送信に見える）。
+  if (candidate.lastParts === 0 && (baseline.lastParts ?? 0) > 0) return false;
   return (candidate.contentKey ?? "") !== (baseline.contentKey ?? "");
 }
 
