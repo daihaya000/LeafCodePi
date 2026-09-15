@@ -799,7 +799,7 @@ describe("LeafCode permission gate", () => {
     }
   });
 
-  it("standard intensity skips confirmation for everyday service changes", async () => {
+  it("standard intensity confirms classified system changes but skips read-only work", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "leafcode-permission-gate-standard-safety-"));
     const appDir = mkdtempSync(join(tmpdir(), "leafcode-permission-gate-standard-safety-data-"));
     const previousDataDir = process.env.LEAFCODE_PI_DATA_DIR;
@@ -841,8 +841,9 @@ describe("LeafCode permission gate", () => {
         approvalContext,
       );
       assert.equal(service, undefined);
-      assert.equal(prompt, "");
+      assert.match(prompt, /明示的に許可/);
 
+      prompt = "";
       const gitShow = await handlers.get("tool_call")?.(
         { toolName: "bash", input: { command: "git show HEAD" } },
         approvalContext,

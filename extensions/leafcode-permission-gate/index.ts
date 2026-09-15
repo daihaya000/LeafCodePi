@@ -280,11 +280,10 @@ export function configuredSafetyMatches(
       (match) => match.label === LEAFCODE_PI_STOP_LABEL || match.label === "protected OS path",
     );
   }
-  // low/standard: only machine-breaking ops. Everyday work (git show, services,
-  // packages, etc.) does not enter the approval flow.
-  if (level === "low" || level === "standard") {
-    return matches.filter((match) => isLowIntensityMatch(match));
-  }
+  // low is reserved for machine-breaking operations. Standard covers every
+  // classified system change, while read-only everyday work is filtered before
+  // this point (for example, git show).
+  if (level === "low") return matches.filter((match) => isLowIntensityMatch(match));
   return matches;
 }
 

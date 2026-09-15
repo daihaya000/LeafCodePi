@@ -25,12 +25,12 @@ export const SYSTEM_SAFETY_LEVEL_OPTIONS: ReadonlyArray<{
   {
     value: "low",
     label: "軽め",
-    description: "致命的な機械操作のみ確認（標準と同じフィルタ。将来の差別化用）",
+    description: "致命的な機械操作のみ確認。日常の開発操作は確認なし",
   },
   {
     value: "standard",
     label: "標準",
-    description: "致命的な機械操作のみ確認。git show など日常の開発操作は確認なし",
+    description: "OS変更系を確認。git show など日常の開発操作は確認なし",
   },
   {
     value: "strict",
