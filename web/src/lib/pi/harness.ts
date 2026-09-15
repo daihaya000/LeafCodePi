@@ -2899,6 +2899,10 @@ async function configureCreatedSession(
       );
     },
   });
+  // Goal Loop sessions can be replaced between turns. Codex's cached WebSocket
+  // cleanup closes sockets with debug_close, which can surface as a scheduler
+  // error; keep automation on the SSE path while normal chats retain WebSocket.
+  if (setup.goalLoop) session.agent.transport = "sse";
   if (setup.botTools) applyBotTools(session, setup.botTools);
   // Apply after bindExtensions() so an explicit mode wins over persisted state.
   applyPermissionMode(session, setup.permissionMode, {

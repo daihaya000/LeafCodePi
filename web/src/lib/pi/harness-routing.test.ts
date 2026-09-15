@@ -34,6 +34,7 @@ const fakePi = vi.hoisted(() => {
     initialMessageCount: number;
     customMessages: unknown[];
     compactionEnabledHistory: boolean[];
+    transport: "auto" | "sse";
     routingContext?: Record<string, unknown>;
     emit?: (event: FakeEvent) => void;
   }[] = [];
@@ -104,6 +105,7 @@ const fakePi = vi.hoisted(() => {
         initialMessageCount: number;
         customMessages: unknown[];
         compactionEnabledHistory: boolean[];
+        transport: "auto" | "sse";
         routingContext?: Record<string, unknown>;
         emit?: (event: FakeEvent) => void;
       } = {
@@ -117,6 +119,7 @@ const fakePi = vi.hoisted(() => {
         initialMessageCount: manager.history.length,
         customMessages: [],
         compactionEnabledHistory: [],
+        transport: "auto",
       };
       const listeners = new Set<(event: FakeEvent) => void>();
       const emit = (event: FakeEvent) => {
@@ -144,12 +147,21 @@ const fakePi = vi.hoisted(() => {
         sessionManager: manager,
       };
       entry.routingContext = extensionContext;
+      const agent = {
+        state: { errorMessage: undefined, streamingMessage: undefined },
+        get transport() {
+          return entry.transport;
+        },
+        set transport(value: "auto" | "sse") {
+          entry.transport = value;
+        },
+      };
       const session = {
         sessionFile: manager.__file,
         sessionId: manager.__sessionId,
         sessionManager: manager,
         messages: manager.history,
-        agent: { state: { errorMessage: undefined, streamingMessage: undefined } },
+        agent,
         model: options.model,
         thinkingLevel: "off" as ThinkingLevel,
         extensionRunner: { createContext: () => ({}) },
@@ -460,6 +472,38 @@ describe("integrated session routing", () => {
     live.session.agent.state.errorMessage = "Request was aborted";
     fakePi.sessions[0]?.emit?.({ type: "agent_settled" });
     expect(getTask(task.id)).toMatchObject({ status: "idle", error: null });
+  });
+
+  it("uses SSE when reopening an active Goal Loop session", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "leafcode-pi-goal-loop-transport-"));
+    tempDirs.push(dir);
+    process.env.LEAFCODE_PI_DATA_DIR = dir;
+    process.env.PI_CODING_AGENT_DIR = join(dir, "agent");
+    __resetPiAgentDirCacheForTests();
+    installHarness(new Map());
+
+    const task = insertTask({ project: null, title: "persisted goal loop" });
+    patchTask(task.id, { sessionId: "session-1" });
+    const loopFile = goalLoopStateFile(dir, "session-1");
+    mkdirSync(dirname(loopFile), { recursive: true });
+    writeFileSync(
+      loopFile,
+      JSON.stringify({
+        id: "session-1",
+        sessionId: "session-1",
+        cwd: task.directory,
+        status: "queued",
+        goal: "再開する目標",
+        acceptance: [],
+        maxTurns: 1,
+        turnCount: 0,
+      }),
+      "utf8",
+    );
+
+    await getTaskDetail(task.id, { includeMessages: false });
+
+    expect(fakePi.sessions[0]?.transport).toBe("sse");
   });
 
   it("retries Goal Loop prepare while another prompt is already active", async () => {
