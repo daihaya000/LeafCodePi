@@ -31,7 +31,7 @@ describe("HangTimeoutSettings", () => {
 
     expect(html).toContain('aria-label="ハング判定時間"');
     expect(html).toContain('value="5"');
-    expect(html).toContain('value="same" selected=""');
+    expect(html).toContain('value="continue" selected=""');
     expect(html).not.toContain('value="10"');
   });
 
