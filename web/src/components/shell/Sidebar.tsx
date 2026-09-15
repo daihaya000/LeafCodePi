@@ -901,6 +901,12 @@ const SidebarView = memo(function SidebarView({
   const [archivedTasks, setArchivedTasks] = useState<TaskSummary[]>([]);
   const [bots, setBots] = useState<BotDto[]>([]);
   const [health, setHealth] = useState<HealthDto | null>(null);
+  const botSidebar = useSyncExternalStore(
+    subscribeBotSidebar,
+    getBotSidebarSnapshot,
+    getBotSidebarServerSnapshot,
+  );
+  const botStatusFor = useBotStatusFor();
   const [collapsed, setCollapsed] = useState(false);
   const [width, setWidth] = useState(DEFAULT_WIDTH);
   /** ドラッグ中のみ端をカーソルへ追従させる幅（離したら null へ戻して吸着させる）。 */
@@ -1013,10 +1019,20 @@ const SidebarView = memo(function SidebarView({
     [pinnedTaskIds, tasks],
   );
   const hasWorking = workingTaskIds.length > 0;
-  const workingCounts = useMemo<WorkingCounts>(() => ({
-    bot: tasks.filter((task) => task.status === "working" && task.kind === "bot").length,
-    code: tasks.filter((task) => task.status === "working" && task.kind !== "bot").length,
-  }), [tasks]);
+  const workingCounts = useMemo<WorkingCounts>(() => {
+    const workingBotTasks = tasks.filter((task) => task.status === "working" && task.kind === "bot");
+    const primaryWorkingBotIds = new Set(
+      workingBotTasks.flatMap((task) => task.botId && task.id === `bot:${task.botId}` ? [task.botId] : []),
+    );
+    const activeBotTabs = botSidebar.bots.filter((bot) =>
+      (bot.codeInProgress === true || botStatusFor(`/bots/${encodeURIComponent(bot.id)}`) === "working")
+      && !primaryWorkingBotIds.has(bot.id),
+    ).length;
+    return {
+      bot: workingBotTasks.length + activeBotTabs,
+      code: tasks.filter((task) => task.status === "working" && task.kind !== "bot").length,
+    };
+  }, [botSidebar.bots, botStatusFor, tasks]);
 
   useEffect(() => {
     try {

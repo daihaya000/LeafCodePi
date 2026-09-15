@@ -332,22 +332,28 @@ describe("Bot mode collapsed rail", () => {
     expect(alert.textContent).toContain("Bot一覧の取得に失敗しました");
   });
 
-  it("animates a Bot with an in-progress Code session", async () => {
+  it("shows the Bot progress count when a Code session is active", async () => {
+    localStorage.setItem("webui.sidebar.collapsed", "0");
     mocks.getJson.mockImplementation((path: string) => {
       if (path === "/api/bots/sidebar") return Promise.resolve({ bots: [{ id: "bot-a", name: "Bot A", enabled: true, codeInProgress: true, lastMessageSummary: null, lastMessageAt: null }], rooms: [] });
       if (path === "/api/health") return Promise.resolve({ ok: true, engineOk: true, version: "1", modelCount: 0 });
+      if (path === "/api/projects?archived=1") return Promise.resolve({ projects: [] });
+      if (path === "/api/tasks?archived=1&kind=all") return Promise.resolve({ tasks: [] });
       return Promise.reject(new Error(`Unexpected request: ${path}`));
     });
     render(<Sidebar mobileOpen={false} onClose={vi.fn()} />);
     const avatar = await screen.findByRole("img", { name: "Bot Aのアバター" });
     expect(avatar.getAttribute("class") ?? "").toContain("bot-avatar-working");
+    expect(await screen.findByRole("button", { name: "Bot（進行中1件）" })).toBeTruthy();
   });
 
-  it("animates a Bot while its Bot response is active", async () => {
+  it("shows the Bot progress count while its Bot response is active", async () => {
+    localStorage.setItem("webui.sidebar.collapsed", "0");
     mocks.botStatus = "working";
     render(<Sidebar mobileOpen={false} onClose={vi.fn()} />);
     const avatar = await screen.findByRole("img", { name: "Bot Aのアバター" });
     expect(avatar.getAttribute("class") ?? "").toContain("bot-avatar-working");
+    expect(await screen.findByRole("button", { name: "Bot（進行中1件）" })).toBeTruthy();
   });
 
   it("shows rooms and bots as icons and can expand back", async () => {
