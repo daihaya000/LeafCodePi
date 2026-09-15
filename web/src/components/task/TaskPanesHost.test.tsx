@@ -284,6 +284,33 @@ describe("TaskPanesHost lazy tab mounting", () => {
     }));
   });
 
+  it("includes a Bot-owned Code request before its task is persisted", async () => {
+    const contextValue = {
+      state: createTreeState(),
+      statusFor: () => null,
+      reportStatus: vi.fn(),
+      dispatch: vi.fn(),
+      retargetToUrl: vi.fn(),
+      activeTaskId: "task-1",
+      titleFor: () => null,
+      mdUp: true,
+    };
+    mocks.useTaskPanes.mockReturnValue(contextValue);
+    mocks.getJson.mockImplementation((path: string) => {
+      if (path === "/api/tasks?archived=1&kind=all") return Promise.resolve({ tasks: [] });
+      if (path === "/api/bots/sidebar") return Promise.resolve({ bots: [{ id: "bot-a", codeInProgress: true }] });
+      return Promise.resolve({});
+    });
+
+    render(<TaskPanesHost />);
+    fireEvent.click(screen.getAllByRole("button", { name: "進行中タスクを分割表示" })[0]!);
+
+    await waitFor(() => expect(contextValue.dispatch).toHaveBeenCalledWith({
+      type: "showWorkingTasks",
+      taskIds: ["/bots/bot-a"],
+    }));
+  });
+
   it("stored bot: tabs mount BotView instead of TaskView", async () => {
     mocks.usePathname.mockReturnValue("/task/bot%3Aone");
     mocks.useTaskPanes.mockReturnValue({

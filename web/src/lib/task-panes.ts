@@ -70,12 +70,23 @@ export function paneTabIdForTask(task: PaneTaskRef): string {
 }
 
 /** Preserve caller order while collapsing Bot-owned tasks onto one Bot/Room tab. */
-export function paneTabIdsForWorkingTasks(tasks: readonly PaneTaskRef[]): string[] {
+export function paneTabIdsForWorkingTasks(
+  tasks: readonly PaneTaskRef[],
+  activeCodeBotIds: readonly string[] = [],
+): string[] {
   const ids: string[] = [];
   const seen = new Set<string>();
   for (const task of tasks) {
     const tabId = paneTabIdForTask(task);
     if (!tabId || seen.has(tabId)) continue;
+    seen.add(tabId);
+    ids.push(tabId);
+  }
+  // A Bot Code request can be starting before its Code task is persisted.
+  for (const botId of activeCodeBotIds) {
+    if (!botId) continue;
+    const tabId = `/bots/${encodeURIComponent(botId)}`;
+    if (seen.has(tabId)) continue;
     seen.add(tabId);
     ids.push(tabId);
   }

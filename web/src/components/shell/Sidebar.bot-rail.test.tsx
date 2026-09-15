@@ -219,6 +219,24 @@ describe("Bot mode list", () => {
     }));
   });
 
+  it("includes a Bot-owned Code request before its task is persisted", async () => {
+    mocks.getJson.mockImplementation((path: string) => {
+      if (path === "/api/bots/sidebar") return Promise.resolve({ bots: [{ id: "bot-a", name: "Alpha", codeInProgress: true }], rooms: [] });
+      if (path === "/api/projects?archived=1") return Promise.resolve({ projects: [] });
+      if (path === "/api/tasks?archived=1&kind=all") return Promise.resolve({ tasks: [] });
+      if (path === "/api/health") return Promise.resolve({ ok: true, engineOk: true, version: "1", modelCount: 0 });
+      return Promise.reject(new Error(`Unexpected request: ${path}`));
+    });
+
+    render(<Sidebar mobileOpen={false} onClose={vi.fn()} />);
+    await screen.findByRole("img", { name: "Alphaのアバター" });
+    fireEvent.click(screen.getByRole("button", { name: "進行中タスクを分割表示" }));
+    await waitFor(() => expect(mocks.dispatch).toHaveBeenCalledWith({
+      type: "showWorkingTasks",
+      taskIds: ["/bots/bot-a"],
+    }));
+  });
+
   it("filters bots and rooms by name and by the Bot/room filter", async () => {
     localStorage.setItem("webui.sidebar.collapsed", "0");
     mocks.getJson.mockImplementation((path: string) => {

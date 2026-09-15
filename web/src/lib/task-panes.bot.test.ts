@@ -56,6 +56,11 @@ describe("paneTabIdForTask keeps Bot-owned work on BotView", () => {
     ])).toEqual(["/bots/one", "plain-code"]);
   });
 
+  it("adds a Bot tab for a Code request that has no task record yet", () => {
+    expect(paneTabIdsForWorkingTasks([{ id: "plain-code", kind: "code" }], ["one", "two", "one"]))
+      .toEqual(["plain-code", "/bots/one", "/bots/two"]);
+  });
+
   it("showWorkingTasks rewrites stored bot: ids onto BotView tabs", () => {
     const next = taskPanesReducer(createState("old"), {
       type: "showWorkingTasks",

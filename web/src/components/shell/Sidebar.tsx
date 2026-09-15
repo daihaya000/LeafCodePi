@@ -1015,8 +1015,9 @@ const SidebarView = memo(function SidebarView({
   const workingTaskIds = useMemo(
     () => paneTabIdsForWorkingTasks(
       tasksForSidebar(tasks.filter((task) => task.status === "working"), pinnedTaskIds),
+      botSidebar.bots.filter((bot) => bot.codeInProgress === true).map((bot) => bot.id),
     ),
-    [pinnedTaskIds, tasks],
+    [botSidebar.bots, pinnedTaskIds, tasks],
   );
   const hasWorking = workingTaskIds.length > 0;
   const workingCounts = useMemo<WorkingCounts>(() => {

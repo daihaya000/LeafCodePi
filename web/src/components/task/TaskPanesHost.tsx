@@ -523,11 +523,19 @@ export function TaskPanesHost() {
     if (workingTasksBusy) return;
     setWorkingTasksBusy(true);
     try {
-      const result = await getJson<{ tasks?: TaskSummary[] }>("/api/tasks?archived=1&kind=all");
+      const [taskResult, botResult] = await Promise.all([
+        getJson<{ tasks?: TaskSummary[] }>("/api/tasks?archived=1&kind=all"),
+        getJson<{ bots?: { id: string; codeInProgress?: boolean }[] }>("/api/bots/sidebar")
+          .catch(() => ({ bots: [] })),
+      ]);
+      const activeCodeBotIds = (Array.isArray(botResult.bots) ? botResult.bots : [])
+        .filter((bot) => bot.codeInProgress === true)
+        .map((bot) => bot.id);
       const taskIds = paneTabIdsForWorkingTasks(
-        (Array.isArray(result.tasks) ? result.tasks : [])
+        (Array.isArray(taskResult.tasks) ? taskResult.tasks : [])
           .filter((task) => task.status === "working")
           .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt)),
+        activeCodeBotIds,
       );
       dispatch(
         taskIds.length > 0
