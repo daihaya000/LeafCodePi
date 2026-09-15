@@ -273,6 +273,7 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
   // アカウント（docs/plans/multi-account.md）。null = 未取得、[] = 取得済みで空。
   const [accounts, setAccounts] = useState<AccountRecord[] | null>(null);
   const [accountsError, setAccountsError] = useState<string | null>(null);
+  const accountsRequestGenerationRef = useRef(0);
   const [creatingFor, setCreatingFor] = useState<AccountProviderId | null>(
     null,
   );
@@ -438,8 +439,14 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
   );
 
   const refreshAccounts = useCallback(async () => {
+    const generation = ++accountsRequestGenerationRef.current;
     try {
-      const res = await getJson<{ accounts: AccountRecord[] }>("/api/accounts");
+      const res = await getJson<{ accounts: AccountRecord[] }>(
+        "/api/accounts",
+        undefined,
+        { coalesce: false },
+      );
+      if (generation !== accountsRequestGenerationRef.current) return;
       setAccounts(res.accounts);
       setAccountsError(null);
       // 各アカウントの保存済みプロバイダー（軽量ファイル読み）を取得してバッジへ反映。
@@ -464,6 +471,7 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
           }
         }),
       );
+      if (generation !== accountsRequestGenerationRef.current) return;
       setAuthStatuses(
         Object.fromEntries(
           statuses.map(([id, status]) => [id, status.providers]),
@@ -486,6 +494,7 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
         ),
       );
     } catch (error) {
+      if (generation !== accountsRequestGenerationRef.current) return;
       setAccountsError(
         error instanceof ApiError ? error.message : String(error),
       );

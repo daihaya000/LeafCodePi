@@ -227,6 +227,53 @@ describe("ProviderAuthPanel provider-scoped accounts", () => {
     expect(screen.queryByRole("heading", { name: "ログインアカウント" })).toBeNull();
   });
 
+  it("ignores an older account refresh after creating an account", async () => {
+    let resolveInitialAccounts!: (response: Response) => void;
+    const initialAccounts = new Promise<Response>((resolve) => {
+      resolveInitialAccounts = resolve;
+    });
+    let accountGetCount = 0;
+    const freshAccount = {
+      ...accounts[0],
+      id: "acc-fresh",
+      label: "追加直後",
+    };
+    fetchMock.mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = (init?.method ?? "GET").toUpperCase();
+      if (url.endsWith("/api/accounts") && method === "GET") {
+        accountGetCount += 1;
+        return accountGetCount === 1
+          ? initialAccounts
+          : Promise.resolve(jsonResponse({ accounts: [freshAccount] }));
+      }
+      if (url.endsWith("/api/accounts") && method === "POST") {
+        return Promise.resolve(jsonResponse({ account: freshAccount }));
+      }
+      if (url.includes("/auth-status")) {
+        return Promise.resolve(jsonResponse({ providers: ["openai-codex"] }));
+      }
+      return Promise.resolve(jsonResponse({}));
+    });
+
+    render(<ProviderAuthPanel providers={[providers[1]]} onChanged={() => {}} />);
+    await waitFor(() => expect(accountGetCount).toBe(1));
+
+    const codex = await accountRegion("OpenAI Codex");
+    fireEvent.click(within(codex).getByRole("button", { name: "アカウントを追加" }));
+    fireEvent.change(screen.getByLabelText("アカウント名"), {
+      target: { value: "新規" },
+    });
+    fireEvent.click(within(codex).getByRole("button", { name: "追加" }));
+
+    expect(await within(codex).findByText("追加直後")).toBeTruthy();
+    await act(async () => {
+      resolveInitialAccounts(jsonResponse({ accounts }));
+    });
+    await waitFor(() => expect(within(codex).queryByText("仕事用")).toBeNull());
+    expect(within(codex).getByText("追加直後")).toBeTruthy();
+  });
+
   it("keeps long account labels separate from their action buttons", async () => {
     const longLabel = "daihayao000@gmail.com";
     mockAccountsApi([{ ...accounts[0], label: longLabel }]);

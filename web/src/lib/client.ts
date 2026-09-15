@@ -29,9 +29,14 @@ async function parseError(res: Response): Promise<string> {
   return res.statusText || `HTTP ${res.status}`;
 }
 
-export async function getJson<T>(path: string, params?: Record<string, string | undefined>): Promise<T> {
+export async function getJson<T>(
+  path: string,
+  params?: Record<string, string | undefined>,
+  options?: { coalesce?: boolean },
+): Promise<T> {
   const url = apiUrl(path, params);
-  const existing = inflightGets.get(url);
+  const coalesce = options?.coalesce !== false;
+  const existing = coalesce ? inflightGets.get(url) : undefined;
   if (existing) return existing as Promise<T>;
 
   const request = (async () => {
@@ -39,11 +44,13 @@ export async function getJson<T>(path: string, params?: Record<string, string | 
     if (!res.ok) throw new ApiError(await parseError(res), res.status);
     return (await res.json()) as T;
   })();
-  inflightGets.set(url, request);
+  if (coalesce) inflightGets.set(url, request);
   try {
     return await request;
   } finally {
-    if (inflightGets.get(url) === request) inflightGets.delete(url);
+    if (coalesce && inflightGets.get(url) === request) {
+      inflightGets.delete(url);
+    }
   }
 }
 
