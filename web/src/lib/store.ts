@@ -247,6 +247,7 @@ export function patchTask(
       | "thinkingLevel"
       | "accountId"
       | "accountIdExplicit"
+      | "supervisorBotId"
       | "skillPermission"
       | "permissionMode"
       | "revertLeafId"

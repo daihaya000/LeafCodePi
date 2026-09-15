@@ -15,6 +15,10 @@ describe("taskSidebarNotifyKey", () => {
     ).not.toBe(taskSidebarNotifyKey({ ...task, goalLoopSummary: { ...task.goalLoopSummary, turnCount: 2 } }));
   });
 
+  it("changes when the supervising Bot changes", () => {
+    expect(taskSidebarNotifyKey(task)).not.toBe(taskSidebarNotifyKey({ ...task, supervisorBotId: "bot-1" }));
+  });
+
   it("does not require loop state for ordinary tasks", () => {
     expect(taskSidebarNotifyKey({ ...task, goalLoopSummary: undefined })).toBe("task-1|idle|タスクA|||");
   });

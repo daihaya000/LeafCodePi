@@ -82,6 +82,12 @@ beforeEach(() => {
     approve: vi.fn(async () => true),
     isBusy: (id) => store.tasks.get(id)?.status === "working",
     ownsTaskLease: vi.fn(() => true),
+    linkSupervisor: vi.fn((taskId, botId) => {
+      const code = store.tasks.get(taskId);
+      if (!code || (code.supervisorBotId && code.supervisorBotId !== botId)) return undefined;
+      code.supervisorBotId = botId;
+      return code;
+    }),
     goalLoop: vi.fn(() => null),
     messages: vi.fn(async () => messages),
     deliver: vi.fn(async () => true),
@@ -167,6 +173,31 @@ describe("Bot ⇄ Code relay", () => {
     expect(record()).toMatchObject({ id: request.id, state: "delivered" });
     expect(deps.deliver).not.toHaveBeenCalled();
     expect(listBotCodeRequests("one")).toEqual([]);
+  });
+
+  it("adopts an in-progress user Code task and reports its result to the Bot", async () => {
+    const code = task("user-code", { kind: "code", status: "working" });
+    store.tasks.set(code.id, code);
+    messages = [{ id: "user-request", role: "user", createdAt: 1, parts: [{ id: "text", type: "text", text: "既存タスクを確認して" }] }];
+
+    const adopted = await relay.adoptUserCodeTask("one", code.id);
+
+    expect(adopted.created).toBe(true);
+    expect(adopted.request).toMatchObject({
+      botId: "one",
+      originTaskId: "bot:one",
+      codeTaskId: "user-code",
+      state: "running",
+      supervision: true,
+      prompt: "既存タスクを確認して",
+    });
+    expect(code.supervisorBotId).toBe("one");
+    expect(relay.originForCode(code.id)).toBe("bot:one");
+
+    messages = [answer("final", "確認完了")];
+    code.status = "idle";
+    await relay.tick();
+    expect(deps.deliver).toHaveBeenCalledWith(expect.objectContaining({ codeTaskId: "user-code", supervision: true }));
   });
 
   it("persists the link before execution, returns immediately, then reports exactly once", async () => {

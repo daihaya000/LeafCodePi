@@ -267,6 +267,8 @@ export type TaskSummary = {
   kind?: "code" | "bot";
   /** Bot-originated Code sessions use this to identify the avatar shown in the task list. */
   botId?: string;
+  /** User-started Code task currently supervised by this Bot. */
+  supervisorBotId?: string | null;
   projectId: string | null;
   projectName: string;
   title: string;

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getBot, patchBot } from "@/lib/bots";
-import { getProject, getTask } from "@/lib/store";
+import { getProject, getTask, patchTask } from "@/lib/store";
 import { continueBotCodeTask, createBotCodeTask, getTaskSummariesWithTodoProgress, goalLoopCommand, jsonError, stopBotCodeTask, abortTaskIncludingColdGoalLoop } from "@/lib/pi/harness";
 import { isThinkingLevel } from "@/lib/thinking-levels";
 import { reconcileOrphanedWorkingTasks } from "@/lib/task-runtime-lease";
@@ -63,7 +63,7 @@ export async function GET(
   if (!bot) return NextResponse.json({ error: "Bot not found" }, { status: 404 });
   const tasks = (await getTaskSummariesWithTodoProgress(true)).filter(
     (task) =>
-      task.botId === id &&
+      (task.botId === id || task.supervisorBotId === id) &&
       task.kind !== "bot" &&
       !isRoomDelegatedCodeTask(task.id),
   );
@@ -156,7 +156,7 @@ function isBotPanelCodeTask(
 ): boolean {
   return (
     task.kind !== "bot" &&
-    task.botId === botId &&
+    (task.botId === botId || task.supervisorBotId === botId) &&
     task.status !== "archived" &&
     !isRoomDelegatedCodeTask(task.id)
   );
@@ -184,6 +184,7 @@ export async function PATCH(
         // Respect body.taskId (parallel Code sessions); only clear the Bot link when it matches.
         const linked = getTask(taskId);
         if (!linked || linked.status === "archived") {
+          if (linked?.supervisorBotId === id) patchTask(taskId, { supervisorBotId: null });
           if (bot.codeSessionTaskId === taskId) patchBot(id, { codeSessionTaskId: null });
           return NextResponse.json({ task: null });
         }
@@ -220,6 +221,7 @@ export async function PATCH(
             );
           }
         }
+        if (linked.supervisorBotId === id) patchTask(taskId, { supervisorBotId: null });
         if (bot.codeSessionTaskId === taskId) {
           patchBot(id, { codeSessionTaskId: null });
         }

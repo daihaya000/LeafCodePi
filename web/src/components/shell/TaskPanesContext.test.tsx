@@ -342,6 +342,21 @@ describe("TaskPanesProvider", () => {
     expect(iconRenderSpy.mock.calls.length).toBe(iconRenderCountAfterInitialData);
   });
 
+  it("renders a supervising Bot icon for a user-started Code task", async () => {
+    matches = true;
+    mocks.getJson.mockImplementation(async (url: string) => {
+      if (url.startsWith("/api/projects")) return { projects: [] };
+      if (url === "/api/bots/sidebar") return { bots: [{ id: "one", name: "One", avatarImage: "data:image/png;base64,bot" }], rooms: [] };
+      return { tasks: [{ id: "supervised", title: "Code", status: "working", projectId: null, botId: undefined, supervisorBotId: "one" }] };
+    });
+    function IconProbe() {
+      const iconFor = useIconFor();
+      return <div data-testid="supervised-icon">{iconFor("supervised")}</div>;
+    }
+    render(<TaskPanesProvider><IconProbe /></TaskPanesProvider>);
+    await waitFor(() => expect(screen.getByTestId("supervised-icon").querySelector("img")?.getAttribute("src")).toBe("data:image/png;base64,bot"));
+  });
+
   it.each([null, "data:image/png;base64,bot"])("animates Bot icons only while working (%s)", async (avatarImage) => {
     mocks.getJson.mockImplementation(async (url: string) => url.startsWith("/api/projects")
       ? { projects: [] }

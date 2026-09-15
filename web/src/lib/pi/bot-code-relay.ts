@@ -62,6 +62,8 @@ export type CodeRequest = {
   baseline: string | null;
   /** A prompt submitted from the Code UI while another worker owns the live session. */
   userIntervention?: boolean;
+  /** A user-started Code run handed to a Bot for monitoring and result review. */
+  supervision?: boolean;
   promptOptions?: CodePromptOptions;
   /** Set by an explicit user stop, so the captured result is never reported as success or auto-continued. */
   stoppedByUser?: boolean;
@@ -96,6 +98,8 @@ type RelayDependencies = {
   /** Persisted Goal Loop state of a Code task, so a loop run is judged by the loop, not by its last message. */
   goalLoop: (task: TaskSummary) => GoalLoopDto | null;
   messages: (task: TaskSummary) => Promise<UiMessage[]>;
+  /** Atomically link a user Code task to a supervisor while the task lock is held. */
+  linkSupervisor?: (taskId: string, botId: string) => TaskSummary | undefined;
   /** Notify the originating Bot/Room SSE after a Code request reaches a terminal result. */
   onCodeSessionSettled?: (request: CodeRequest) => void;
   /** User-uploaded images in this Bot/Room conversation (oldest-first). */
@@ -648,6 +652,61 @@ export function createBotCodeRelay(deps: RelayDependencies) {
     return codeTasksForOrigin(originTaskId)[0] ?? null;
   }
 
+  /** Register an already-running user Code task in the durable Bot result outbox. */
+  async function adoptUserCodeTask(
+    botId: string,
+    codeTaskId: string,
+  ): Promise<{ request: CodeRequest; created: boolean }> {
+    return withBotCodeSessionLock(`code-task-${codeTaskId}`, async () => {
+      const bot = owner(`bot:${botId}`);
+      const task = getTask(codeTaskId);
+      if (!task || (task.kind ?? "code") !== "code" || task.botId || roomForCodeOrigin(task)) {
+        throw new Error("ユーザーが開始したCodeタスクだけを監督できます");
+      }
+      if (task.supervisorBotId && task.supervisorBotId !== botId) {
+        throw new Error("このCodeタスクは別のBotが監督中です");
+      }
+      if (task.status !== "working" && !deps.isBusy(task.id)) {
+        throw new Error("実行中のCodeタスクだけを監督できます");
+      }
+      const existing = requests()
+        .filter((item) => item.codeTaskId === codeTaskId && !item.userIntervention && active(item))
+        .sort((a, b) => (b.queuedAt ?? 0) - (a.queuedAt ?? 0) || b.id.localeCompare(a.id))[0];
+      if (existing) {
+        if (existing.botId !== bot.id) throw new Error("このCodeタスクは別のBotが監督中です");
+        deps.linkSupervisor?.(codeTaskId, bot.id);
+        return { request: existing, created: false };
+      }
+      const messages = await deps.messages(task);
+      const userIndex = messages.findLastIndex((message) => message.role === "user");
+      const userMessage = userIndex >= 0 ? messages[userIndex] : undefined;
+      if (!userMessage) throw new Error("Codeタスクのユーザー依頼を取得できません");
+      const prompt = userMessage.parts
+        .filter((part): part is Extract<UiMessage["parts"][number], { type: "text" }> => part.type === "text")
+        .map((part) => part.text)
+        .join("\n")
+        .trim() || "ユーザーのCode依頼（添付を含む）";
+      const linked = deps.linkSupervisor?.(codeTaskId, bot.id);
+      if (deps.linkSupervisor && !linked) throw new Error("Codeタスクの監督リンクを作成できません");
+      const request: CodeRequest = {
+        id: randomBytes(32).toString("hex"),
+        botId: bot.id,
+        originTaskId: `bot:${bot.id}`,
+        codeTaskId,
+        state: "running",
+        action: "prompt",
+        projectId: task.projectId,
+        queuedAt: Date.now(),
+        prompt,
+        baseline: userIndex > 0 ? messages[userIndex - 1]?.id ?? null : null,
+        supervision: true,
+      };
+      save(request);
+      start();
+      return { request, created: true };
+    });
+  }
+
   async function conversationImageCatalog(originTaskId: string): Promise<ConversationUserImage[]> {
     return Promise.resolve(deps.conversationImages?.(originTaskId) ?? []);
   }
@@ -1044,5 +1103,5 @@ export function createBotCodeRelay(deps: RelayDependencies) {
       });
     };
   }
-  return { run, register, tick, start, complete, originForCode, codeForOrigin, codeTasksForOrigin, requestIdForCode, dispose: () => { if (timer) clearInterval(timer); timer = undefined; } };
+  return { run, register, tick, start, complete, adoptUserCodeTask, originForCode, codeForOrigin, codeTasksForOrigin, requestIdForCode, dispose: () => { if (timer) clearInterval(timer); timer = undefined; } };
 }

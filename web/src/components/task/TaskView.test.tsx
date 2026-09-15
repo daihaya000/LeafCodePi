@@ -59,6 +59,26 @@ it.each([undefined, "bot-1"])("passes Bot identity only to the sending side (bot
   expect(props.filter((value) => value.role === "assistant").every((value) => value.bot === undefined)).toBe(true);
 });
 
+it("lets the user hand an active Code task to an enabled Bot", async () => {
+  const activeTask = { ...task, kind: "code" as const, status: "working" as const };
+  saveTaskSessionCache({ task: activeTask, messages: [], isStreaming: true, isCompacting: false });
+  mocks.getJson.mockImplementation((path: string) => {
+    if (path === "/api/bots") return Promise.resolve({ bots: [{ id: "bot-1", name: "監督Bot", enabled: true }] });
+    return Promise.resolve({ models: [], agents: [], skills: [], accounts: [] });
+  });
+  const resultTask = { ...activeTask, supervisorBotId: "bot-1" };
+  mocks.sendJson.mockResolvedValue({ task: resultTask });
+  render(<TaskView taskId={task.id} mdUp />);
+
+  const selector = await screen.findByRole("combobox", { name: "Codeタスクを監督するBot" });
+  fireEvent.change(selector, { target: { value: "bot-1" } });
+  await waitFor(() => expect(mocks.sendJson).toHaveBeenCalledWith(
+    `/api/tasks/${task.id}/supervisor`,
+    { botId: "bot-1" },
+    "POST",
+  ));
+});
+
 it("does not reconnect SSE when the status callback identity changes", async () => {
   let connections = 0;
   class TestEventSource extends EventTarget {

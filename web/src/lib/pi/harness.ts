@@ -1412,6 +1412,12 @@ function emitTaskSnapshot(
   });
 }
 
+/** Emit a persisted task metadata change to any live SSE subscribers. */
+export function emitTaskChanged(taskId: string, eventType = "task_changed"): void {
+  const live = state().live.get(taskId);
+  if (live) emitTaskSnapshot(live, eventType);
+}
+
 /**
  * Stream only the newest projected message for token/tool updates.
  * Reuse the cached branch and project the streaming suffix alone through the
@@ -2191,6 +2197,11 @@ function botCodeRelay(): ReturnType<typeof createBotCodeRelay> {
       return requestWebUiPermission({ sessionId, command: BOT_CODE_TOOL, labels: ["Code delegation"], message });
     },
     ownsTaskLease,
+    linkSupervisor: (taskId, botId) => {
+      const task = getTask(taskId);
+      if (!task || (task.kind ?? "code") !== "code" || task.botId || (task.supervisorBotId && task.supervisorBotId !== botId)) return undefined;
+      return patchTask(taskId, { supervisorBotId: botId });
+    },
     isBusy: (id) => {
       reconcileOrphanedWorkingTasks();
       const live = state().live.get(id);
@@ -2312,13 +2323,54 @@ export async function createBotCodeTask(
 }
 
 /**
+ * Hand an in-progress user Code task to a Bot. The durable relay captures the final result and
+ * delivers it into the Bot conversation, while the Bot prompt provides the current request context.
+ */
+export async function handoffTaskToBot(botId: string, taskId: string): Promise<TaskSummary> {
+  const id = botId.trim();
+  if (!id) throw Object.assign(new Error("Botを選択してください"), { status: 400 });
+  const task = getTask(taskId);
+  if (!task) throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });
+  if ((task.kind ?? "code") !== "code" || task.botId || roomForCodeOrigin(task)) {
+    throw Object.assign(new Error("ユーザーが開始したCodeタスクだけを引き継げます"), { status: 409 });
+  }
+  if (task.supervisorBotId && task.supervisorBotId !== id) {
+    throw Object.assign(new Error("このCodeタスクは別のBotが監督中です"), { status: 409 });
+  }
+  const bot = getBot(id);
+  if (!bot) throw Object.assign(new Error("Botが見つかりません"), { status: 404 });
+  if (!bot.enabled) throw Object.assign(new Error("無効なBotには引き継げません"), { status: 403 });
+  if (bot.permissionMode === "deny") {
+    throw Object.assign(new Error("ツール権限が「すべて拒否」のBotには引き継げません"), { status: 403 });
+  }
+  startBotCodeRelay();
+  const adopted = await botCodeRelay().adoptUserCodeTask(id, taskId);
+  if (adopted.created) {
+    const notice = [
+      "ユーザー起点のCodeタスクの監督を引き継ぎました。",
+      `Codeタスク: ${taskId}`,
+      `ユーザーの依頼: ${adopted.request.prompt}`,
+      "実行中は code_session の status で進捗を確認し、追加作業や新しいCode依頼は開始せず、完了通知を待ってください。結果を受け取ったら、実際の変更・検証結果・未解決事項をユーザーへ報告してください。",
+    ].join("\n\n");
+    try {
+      await promptTask(botTaskId(id), notice);
+    } catch (error) {
+      // The outbox still owns result delivery when the Bot session is busy elsewhere.
+      console.warn("[bot-code-relay] supervisor notice deferred:", error instanceof Error ? error.message : String(error));
+    }
+  }
+  emitTaskChanged(taskId, "supervisor_handoff");
+  return toSummary(getTask(taskId) ?? task);
+}
+
+/**
  * Follow-up prompt on a Code session the user controls from the Bot screen. It is registered in the
  * same outbox as a launch, so its result also reports back into the conversation.
  */
 export async function continueBotCodeTask(botId: string, taskId: string, prompt: string): Promise<TaskSummary> {
   startBotCodeRelay();
   const task = getTask(taskId);
-  if (!task || task.botId !== botId || task.status === "archived") {
+  if (!task || (task.botId !== botId && task.supervisorBotId !== botId) || task.status === "archived") {
     throw Object.assign(new Error("Codeセッションが見つかりません"), { status: 404 });
   }
   const baseline = (await getTaskDetail(taskId)).messages.at(-1)?.id ?? null;
@@ -7756,10 +7808,11 @@ function queuePrompt(
 }
 
 function shouldForwardBotCodePrompt(task: TaskSummary): boolean {
+  const botId = task.botId ?? task.supervisorBotId;
   return Boolean(
     task.kind !== "bot" &&
-      task.botId &&
-      getBot(task.botId)?.enabled &&
+      botId &&
+      getBot(botId)?.enabled &&
       hasActiveTaskLease(task.id) &&
       !ownsTaskLease(task.id),
   );
@@ -7916,7 +7969,7 @@ export async function promptTask(
   if (shouldForwardBotCodePrompt(taskBeforePrompt)) {
     startBotCodeRelay();
     queueBotCodePrompt(
-      taskBeforePrompt.botId!,
+      taskBeforePrompt.botId ?? taskBeforePrompt.supervisorBotId!,
       taskBeforePrompt,
       prompt,
       promptOptionsForWorker(images, options),

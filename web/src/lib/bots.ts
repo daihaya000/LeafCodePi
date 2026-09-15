@@ -158,7 +158,10 @@ export function patchBot(id: string, patch: Partial<Pick<BotConfig, "name" | "la
 export function deleteBot(id: string): boolean {
   if (!parseConfig(id)) return false;
   // Removes the 1:1 task, Room sessions, and any Bot-owned Code tasks left after API teardown.
-  for (const task of listTasks(true, "all")) { if (task.botId === id) deleteTask(task.id); }
+  for (const task of listTasks(true, "all")) {
+    if (task.botId === id) deleteTask(task.id);
+    else if (task.supervisorBotId === id) patchTask(task.id, { supervisorBotId: null });
+  }
   rmSync(botRoot(id), { recursive: true, force: true }); return true;
 }
 export function botWorkspace(id: string): string { return join(botRoot(id), "workspace"); }

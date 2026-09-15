@@ -42,7 +42,7 @@ import { ProjectIcon } from "@/components/ProjectIcon";
 import { BotAvatar } from "@/components/bot/BotAvatar";
 import { cx } from "@/components/ui";
 
-type TaskIdentity = Pick<TaskSummary, "projectId" | "botId"> & Partial<Pick<TaskSummary, "status">>;
+type TaskIdentity = Pick<TaskSummary, "projectId" | "botId" | "supervisorBotId"> & Partial<Pick<TaskSummary, "status">>;
 type BotIconData = Pick<BotDto, "id" | "name" | "avatarColor" | "avatarShape" | "avatarEyeColor" | "avatarGlasses" | "avatarMustache" | "avatarImage">;
 type ProjectIconData = Pick<ProjectDto, "id" | "name" | "icon">;
 
@@ -302,7 +302,8 @@ export function TaskPanesProvider({ children }: { children: React.ReactNode }) {
       for (const pane of state.panes) {
         for (const taskId of pane.tabs) {
           const identity = taskIdentitiesRef.current.get(taskId);
-          const botChanged = identity?.botId != null && changedBotIds.has(identity.botId)
+          const botId = identity?.botId ?? identity?.supervisorBotId;
+          const botChanged = botId != null && changedBotIds.has(botId)
             || changedBotTabIds.has(taskId);
           const projectChanged = identity?.projectId != null && changedProjectIds.has(identity.projectId);
           if (botChanged || projectChanged) bumpTabIconVersion(taskId);
@@ -355,10 +356,16 @@ export function TaskPanesProvider({ children }: { children: React.ReactNode }) {
           let titlesDirty = false;
           for (const task of tasks) {
             const identity = taskIdentitiesRef.current.get(task.id);
-            const identityChanged = identity?.projectId !== task.projectId || identity?.botId !== task.botId;
+            const identityChanged = identity?.projectId !== task.projectId
+              || identity?.botId !== task.botId
+              || identity?.supervisorBotId !== task.supervisorBotId;
             const titleChanged = taskTitlesRef.current.get(task.id) !== task.title;
             if (identityChanged) {
-              taskIdentitiesRef.current.set(task.id, { projectId: task.projectId, botId: task.botId });
+              taskIdentitiesRef.current.set(task.id, {
+                projectId: task.projectId,
+                botId: task.botId,
+                supervisorBotId: task.supervisorBotId,
+              });
               titlesDirty = true;
             }
             if (titleChanged) {
@@ -583,9 +590,10 @@ export function TaskPanesProvider({ children }: { children: React.ReactNode }) {
   const iconFor = useCallback((taskId: string, size: 16 | 32 = 16, task?: TaskIdentity) => {
     void titlesVersion;
     const identity = task ?? taskIdentitiesRef.current.get(taskId);
-    const bot = iconBots.find((item) => item.id === identity?.botId)
+    const botId = identity?.botId ?? identity?.supervisorBotId;
+    const bot = iconBots.find((item) => item.id === botId)
       ?? iconBots.find((item) => `/bots/${encodeURIComponent(item.id)}` === taskId);
-    if (bot || identity?.botId) {
+    if (bot || botId) {
       return <span aria-hidden="true" className="shrink-0"><BotAvatar size={size} {...bot} active={(task?.status ?? statusMapRef.current.get(taskId)) === "working"} /></span>;
     }
     const project = iconProjects.find((item) => item.id === identity?.projectId);

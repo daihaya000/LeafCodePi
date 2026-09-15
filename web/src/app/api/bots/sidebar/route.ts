@@ -23,7 +23,8 @@ function safeIso(createdAt: number | undefined): string | null {
 export async function GET() {
   const counts = new Map<string, number>();
   for (const task of listTasks()) {
-    if (task.status === "working" && task.botId) counts.set(task.botId, (counts.get(task.botId) ?? 0) + 1);
+    const botId = task.botId ?? task.supervisorBotId;
+    if (task.status === "working" && botId) counts.set(botId, (counts.get(botId) ?? 0) + 1);
   }
   const bots = listBots();
   const botPreviews = bots.map((bot) => {

@@ -89,6 +89,7 @@ function sameTaskSummary(left: TaskSummary, right: TaskSummary): boolean {
     left.projectId === right.projectId &&
     left.projectName === right.projectName &&
     left.botId === right.botId &&
+    left.supervisorBotId === right.supervisorBotId &&
     left.updatedAt === right.updatedAt &&
     left.todoProgress?.completed === right.todoProgress?.completed &&
     left.todoProgress?.total === right.todoProgress?.total &&
@@ -661,7 +662,7 @@ export const TaskActivityIcon = memo(function TaskActivityIcon({
   task,
   bot,
 }: {
-  task: Pick<TaskSummary, "status" | "botId">;
+  task: Pick<TaskSummary, "status" | "botId" | "supervisorBotId">;
   bot?: BotFace & { name: string };
 }) {
   if (task.status === "working") {
@@ -1696,7 +1697,7 @@ const SidebarView = memo(function SidebarView({
                     task.id === activeTaskId ? "bg-surface-3 text-text" : "text-muted hover:bg-surface-2 hover:text-text",
                   )}
                 >
-                  <TaskActivityIcon task={task} bot={task.botId ? botsById.get(task.botId) : undefined} />
+                  <TaskActivityIcon task={task} bot={(task.botId ?? task.supervisorBotId) ? botsById.get(task.botId ?? task.supervisorBotId!) : undefined} />
                   <span className="min-w-0 flex-1 truncate text-xs font-medium">{task.title}</span>
                   <span className="shrink-0 text-[10px] text-muted">{timeAgo(task.updatedAt)}</span>
                 </button>
@@ -2397,7 +2398,7 @@ const SidebarView = memo(function SidebarView({
                       task.id === activeTaskId && "bg-surface-3 text-text",
                     )}
                   >
-                    <TaskActivityIcon task={task} bot={task.botId ? botsById.get(task.botId) : undefined} />
+                    <TaskActivityIcon task={task} bot={(task.botId ?? task.supervisorBotId) ? botsById.get(task.botId ?? task.supervisorBotId!) : undefined} />
                     <span className="min-w-0 flex-1 truncate font-medium">{task.title}</span>
                     <span className="shrink-0 text-[10px] text-faint">{timeAgo(task.updatedAt)}</span>
                   </button>

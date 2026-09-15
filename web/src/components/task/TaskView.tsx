@@ -107,7 +107,7 @@ import {
   writeTitleAutoUpdateFrequency,
 } from "@/lib/title-auto-update-settings";
 import { formatTokensPerSecond } from "@/lib/token-throughput";
-import { notifyTasksChanged } from "@/lib/events";
+import { notifyBotSidebarChanged, notifyTasksChanged } from "@/lib/events";
 import { taskSidebarNotifyKey } from "@/lib/task-sidebar-notify";
 import { getJson, sendJson } from "@/lib/client";
 import { readCachedModels, writeCachedModels } from "@/lib/models-cache";
@@ -220,6 +220,7 @@ import {
   type PermissionMode,
 } from "@/lib/permission-gate";
 import type {
+  BotDto,
   DiffFilesPayload,
   GoalLoopDto,
   GoalLoopTurn,
@@ -760,6 +761,8 @@ export const TaskView = memo(function TaskView({
     if (!enabled) stopSpeaking();
   }), [ttsKey]);
   const botFor = useBotFor();
+  const [supervisorBots, setSupervisorBots] = useState<BotDto[]>([]);
+  const [supervisorBusy, setSupervisorBusy] = useState(false);
   const [worktreeStatus, setWorktreeStatus] = useState<WorktreeStatus | null>(null);
   const [messages, setMessages] = useState<UiMessage[]>(() => cachedSession?.messages ?? []);
   const [messageHistory, setMessageHistory] = useState<TaskMessageHistory>(
@@ -1827,6 +1830,41 @@ export const TaskView = memo(function TaskView({
   const statusWorking = task?.status === "working";
   const working = Boolean(statusWorking || task?.isStreaming);
   const isReverted = Boolean(task?.revertLeafId);
+
+  const taskKind = task?.kind;
+  const taskSupervisorBotId = task?.supervisorBotId;
+  useEffect(() => {
+    if (taskKind === "bot" || (!working && !taskSupervisorBotId)) return;
+    let cancelled = false;
+    getJson<{ bots?: BotDto[] }>("/api/bots")
+      .then((result) => {
+        if (!cancelled) setSupervisorBots(result.bots ?? []);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [taskKind, taskSupervisorBotId, working]);
+
+  const handoffToBot = useCallback(async (botId: string) => {
+    if (!botId || supervisorBusy) return;
+    setSupervisorBusy(true);
+    setError(null);
+    try {
+      const result = await sendJson<{ task: TaskSummary }>(
+        `/api/tasks/${encodeURIComponent(taskId)}/supervisor`,
+        { botId },
+        "POST",
+      );
+      setTask((current) => (current ? { ...current, ...result.task } : current));
+      notifyTasksChanged();
+      notifyBotSidebarChanged();
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Botへの引き継ぎに失敗しました");
+    } finally {
+      setSupervisorBusy(false);
+    }
+  }, [supervisorBusy, taskId]);
 
   useEffect(() => {
     const wasStatusWorking = prevStatusWorkingRef.current;
@@ -2931,6 +2969,17 @@ export const TaskView = memo(function TaskView({
         ? worktreeStatus
         : task.status
     : null;
+  const supervisor = task?.supervisorBotId
+    ? botFor?.(task.supervisorBotId) ?? supervisorBots.find((bot) => bot.id === task.supervisorBotId)
+    : undefined;
+  const canHandoffToBot = Boolean(
+    task &&
+      task.kind !== "bot" &&
+      !task.botId &&
+      !task.supervisorBotId &&
+      working &&
+      !archived,
+  );
   const mobilePanelOpen = !mdUp && (graphOpen || diffOpen);
 
   return (
@@ -3033,6 +3082,7 @@ export const TaskView = memo(function TaskView({
           {permissionRequest && <Badge tone="warning" className="shrink-0">承認待ち</Badge>}
           {questionRequest && <Badge tone="warning" className="shrink-0">回答待ち</Badge>}
           {displayedStatus && <StatusBadge status={displayedStatus} className="shrink-0" />}
+          {supervisor && <Badge tone="working" className="shrink-0 max-w-36 truncate">監督: {supervisor.name}</Badge>}
           {contextUsage && <ContextUsageMeter usage={contextUsage} />}
           {stats.totalTokens > 0 && (
             <span
@@ -3075,6 +3125,27 @@ export const TaskView = memo(function TaskView({
             >
               <Plus className="h-4 w-4" />
             </Button>
+          )}
+          {canHandoffToBot && supervisorBots.some((bot) => bot.enabled && bot.permissionMode !== "deny") && (
+            <label className="flex shrink-0 items-center">
+              <span className="sr-only">Codeタスクを監督するBot</span>
+              <select
+                aria-label="Codeタスクを監督するBot"
+                defaultValue=""
+                disabled={supervisorBusy}
+                onChange={(event) => {
+                  const botId = event.target.value;
+                  if (botId) void handoffToBot(botId);
+                  event.currentTarget.value = "";
+                }}
+                className="h-9 max-w-36 rounded-lg border border-border bg-surface px-1.5 text-xs text-muted outline-none focus:border-accent @max-[48rem]/task:h-11"
+              >
+                <option value="">Botへ引き継ぐ…</option>
+                {supervisorBots.filter((bot) => bot.enabled && bot.permissionMode !== "deny").map((bot) => (
+                  <option key={bot.id} value={bot.id}>{bot.name}</option>
+                ))}
+              </select>
+            </label>
           )}
           <ProjectExplorerButton
             projectId={task?.projectId}
