@@ -30,6 +30,7 @@ function model(value: string, label: string): ModelOption {
 
 let modelResponses: Promise<{ models: ModelOption[] }>[] = [];
 let projectResponses: Promise<{ projects: ProjectDto[] }>[] = [];
+let healthResponses: { engineOk: boolean }[] = [];
 
 beforeEach(() => {
   localStorage.clear();
@@ -37,10 +38,11 @@ beforeEach(() => {
   vi.clearAllMocks();
   modelResponses = [];
   projectResponses = [];
+  healthResponses = [];
   mocks.getJson.mockImplementation((path: string) => {
     if (path === "/api/models") return modelResponses.shift() ?? Promise.resolve({ models: [] });
     if (path === "/api/projects") return projectResponses.shift() ?? Promise.resolve({ projects: [] });
-    if (path === "/api/health") return Promise.resolve({ engineOk: false });
+    if (path === "/api/health") return Promise.resolve(healthResponses.shift() ?? { engineOk: false });
     if (path === "/api/agents") return Promise.resolve({ agents: [] });
     if (path === "/api/skills") return Promise.resolve({ skills: [] });
     if (path.startsWith("/api/settings/")) return Promise.resolve({ value: null });
@@ -95,6 +97,7 @@ describe("HomeView model refresh", () => {
 
     render(<HomeView initialNoProject />);
     await screen.findByText(/Pi に利用可能なモデルがありません/);
+    healthResponses.push({ engineOk: true });
     Object.defineProperty(document, "visibilityState", {
       configurable: true,
       value: "visible",
@@ -124,6 +127,7 @@ describe("HomeView model refresh", () => {
     expect(screen.getByRole("button", { name: "モデル" }).textContent).toContain("Model B");
 
     await screen.findByText(/Pi に利用可能なモデルがありません/);
+    healthResponses.push({ engineOk: true });
     Object.defineProperty(document, "visibilityState", {
       configurable: true,
       value: "visible",
@@ -151,6 +155,7 @@ describe("HomeView model refresh", () => {
     fireEvent.click(screen.getByRole("option", { name: "Model B" }));
 
     await screen.findByText(/Pi に利用可能なモデルがありません/);
+    healthResponses.push({ engineOk: true });
     Object.defineProperty(document, "visibilityState", {
       configurable: true,
       value: "visible",

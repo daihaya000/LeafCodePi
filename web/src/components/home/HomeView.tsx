@@ -298,6 +298,17 @@ export const HomeView = memo(function HomeView({
     setLoaded(true);
   }, []);
 
+  const refreshHealth = useCallback(async () => {
+    try {
+      const next = await getJson<HealthDto>("/api/health");
+      setHealth((current) => current?.engineOk === next.engineOk ? current : next);
+      // Model/project inventories may have been unavailable while the engine was down.
+      if (next.engineOk) void refresh();
+    } catch {
+      /* Retry on the next health poll. */
+    }
+  }, [refresh]);
+
   useEffect(() => {
     void refresh();
     const onTasksChanged = (event: Event) => {
@@ -370,17 +381,17 @@ export const HomeView = memo(function HomeView({
     // エンジン停止中の回復検知は可視時のみ。バックグラウンドのポーリングを止め
     // バッテリー・帯域を節約する（他コンポーネントと同じ visibility ガード）。
     const timer = setInterval(() => {
-      if (document.visibilityState === "visible") void refresh();
+      if (document.visibilityState === "visible") void refreshHealth();
     }, 3000);
     const onVisible = () => {
-      if (document.visibilityState === "visible") void refresh();
+      if (document.visibilityState === "visible") void refreshHealth();
     };
     document.addEventListener("visibilitychange", onVisible);
     return () => {
       clearInterval(timer);
       document.removeEventListener("visibilitychange", onVisible);
     };
-  }, [health?.engineOk, refresh]);
+  }, [health?.engineOk, refreshHealth]);
 
   function addFiles(files: FileList) {
     if (!canAttachComposerImages({ goalLoopEnabled, submitting })) return;
