@@ -409,7 +409,7 @@ it("groups consecutive tool-only messages between agent responses", () => {
   expect(group!.open).toBe(true);
 });
 
-it("keeps tool-call preambles in one activity log and only text-only replies outside", () => {
+it("groups every non-message part while keeping each message header", () => {
   const mixedMessage: UiMessage = {
     id: "assistant-mixed",
     role: "assistant",
@@ -446,19 +446,21 @@ it("keeps tool-call preambles in one activity log and only text-only replies out
   render(<TaskView taskId={task.id} mdUp />);
 
   const groups = document.querySelectorAll<HTMLDetailsElement>("details[data-task-tool-group]");
-  // ツール付きの前置き本文で作業ログを分断しない。
-  expect(groups).toHaveLength(1);
-  expect(groups[0]!.querySelector("summary")?.textContent).toContain("6件");
+  expect(groups).toHaveLength(2);
+  expect(groups[0]!.querySelector("summary")?.textContent).toContain("4件");
+  expect(groups[1]!.querySelector("summary")?.textContent).toContain("1件");
+  // thinking や画像は本文より前に起きているので、本文より上へ出す。
   expect(
     [...document.querySelectorAll("[data-task-part-view]")].map(
       (node) => `${node.getAttribute("data-task-part-view")}:${node.getAttribute("data-message-id")}`,
     ),
   ).toEqual([
     "activity:assistant-mixed",
+    "message:assistant-mixed",
     "activity:activity-only",
     "message:reply",
   ]);
-  expect(document.querySelector('[data-task-part-view="activity"][data-message-id="assistant-mixed"]')?.getAttribute("data-part-types")).toBe("text,thinking,image");
+  expect(document.querySelector('[data-task-part-view="message"][data-message-id="assistant-mixed"]')?.getAttribute("data-part-types")).toBe("text");
   expect(mocks.messageMetaHeader.mock.calls.some(([props]) => props.message.id === "activity-only")).toBe(true);
 });
 
@@ -498,6 +500,50 @@ it("does not split the activity log on assistant text that precedes a tool call"
   expect(groups[0]!.querySelector("summary")?.textContent).toContain("4件");
   expect(groups[0]!.querySelectorAll("[data-task-part-view]")).toHaveLength(2);
   expect(document.querySelector('[data-task-part-view="message"][data-message-id="reply"]')).not.toBeNull();
+});
+
+it("keeps a thinking-only reply visible outside the activity log", () => {
+  // 回帰: ツールを伴わない thinking+本文はそのターンの回答なので、折りたたみに隐さない。
+  saveTaskSessionCache({
+    task,
+    messages: [
+      {
+        id: "tool-step",
+        role: "assistant",
+        createdAt: 1,
+        parts: [{
+          id: "tool-step-part",
+          type: "tool",
+          tool: "read",
+          callID: "tool-step-call",
+          state: { status: "completed", input: { path: "README.md" } },
+        }],
+      },
+      {
+        id: "final-reply",
+        role: "assistant",
+        createdAt: 2,
+        parts: [
+          { id: "final-thinking", type: "thinking", text: "まとめる" },
+          { id: "final-text", type: "text", text: "完了しました" },
+        ],
+      },
+    ],
+    isStreaming: false,
+    isCompacting: false,
+  });
+  mocks.partView.mockImplementation(({ message, hideMeta }: { message: UiMessage; hideMeta?: boolean }) => (
+    <div
+      data-task-part-view={hideMeta ? "activity" : "message"}
+      data-message-id={message.id}
+      data-part-types={message.parts.map((part) => part.type).join(",")}
+    />
+  ));
+  render(<TaskView taskId={task.id} mdUp />);
+
+  const reply = document.querySelector('[data-task-part-view="message"][data-message-id="final-reply"]');
+  expect(reply?.getAttribute("data-part-types")).toBe("text");
+  expect(document.querySelector("details[data-task-tool-group]")?.contains(reply!)).toBe(false);
 });
 
 it("keeps the streaming placeholder header out of the timeline until its content lands", () => {

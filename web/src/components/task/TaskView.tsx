@@ -517,6 +517,8 @@ type TaskActivityEntry = {
   message: UiMessage;
   activityMessage: UiMessage;
   showHeader: boolean;
+  /** 本文を作業ログへ畳んだか（畳んでいなければ本文を枠外の吹き出しに出す）。 */
+  foldsText: boolean;
 };
 
 type TaskMessageBlock =
@@ -531,6 +533,7 @@ type TaskMessageBlock =
 // 派生メッセージは元メッセージごとにキャッシュする。毎レンダリングで作り直すと
 // PartView / ToolCard の memo 比較（参照一致）が常に外れ、SSE のたびに全行が再描画される。
 const taskActivityEntryCache = new WeakMap<UiMessage, TaskActivityEntry | null>();
+const taskTextMessageCache = new WeakMap<UiMessage, UiMessage>();
 
 /** assistant の本文だけをメッセージとして残し、それ以外の表示要素を活動グループへ送る。 */
 function taskActivityEntry(message: UiMessage): TaskActivityEntry | null {
@@ -566,16 +569,33 @@ function buildTaskActivityEntry(message: UiMessage): TaskActivityEntry | null {
     Boolean(message.error) ||
     (message.diagnostics?.length ?? 0) > 0;
   if (!hasActivity) return null;
-  // ツール実行を伴う本文は前置き（「次に〜する」）なので、本文だけ枠外へ出すと
-  // ツール1回ごとに作業ログが分断される。前置きごと作業ログへ入れる。
+  // ツール呼び出しと同じメッセージの本文は前置き（「次に〜する」）なので、
+  // 枠外へ出すとツール1回ごとに作業ログが分断される。一方で thinking だけを
+  // 伴う本文はそのターンの回答なので、折りたたみに隠さず吹き出しへ残す。
+  const foldsText = message.parts.some((part) => part.type === "tool");
   const parts = message.parts.filter(
-    (part) => part.type !== "text" || Boolean(part.text.trim()),
+    (part) => part.type !== "text" || (foldsText && Boolean(part.text.trim())),
   );
   return {
     message,
     activityMessage: parts.length === message.parts.length ? message : { ...message, parts },
-    showHeader: true,
+    showHeader: foldsText || !hasVisibleAssistantText(message),
+    foldsText,
   };
+}
+
+/** 作業ログへ畳まない本文だけを残した表示用メッセージ。 */
+function taskTextMessage(message: UiMessage): UiMessage {
+  const cached = taskTextMessageCache.get(message);
+  if (cached) return cached;
+  const textMessage: UiMessage = {
+    ...message,
+    parts: message.parts.filter((part) => part.type === "text"),
+    error: undefined,
+    diagnostics: undefined,
+  };
+  taskTextMessageCache.set(message, textMessage);
+  return textMessage;
 }
 
 function taskActivityCount(entry: TaskActivityEntry): number {
@@ -628,6 +648,16 @@ function taskMessageBlocks(
     const boundary = isGoalLoopTurnBoundary(messages, index);
     if (activity) {
       addActivity(activity, index, boundary);
+      if (activity.foldsText || !hasVisibleAssistantText(message)) return;
+      // thinking は本文より前に起きているので、作業ログを先に閉じてから本文を出す。
+      flushGroup();
+      blocks.push({
+        kind: "message",
+        message: taskTextMessage(message),
+        index,
+        // 区切りは先に描かれる活動グループ側で出すので、二重に出さない。
+        showTurnDivider: false,
+      });
       return;
     }
     flushGroup();
