@@ -179,6 +179,22 @@ describe("POST /api/bots/[id]/prompt", () => {
     });
   });
 
+  it("passes images to a Goal Loop start", async () => {
+    const bot = createBot({ name: "Loop bot" });
+    const images = [{ mimeType: "image/png", data: "aW1hZ2U=" }];
+
+    const response = await POST(
+      request("画像を確認する", { acceptance: ["確認済み"] }, images),
+      { params: Promise.resolve({ id: bot.id }) },
+    );
+
+    expect(response.status).toBe(200);
+    expect(state.goalLoopCommand).toHaveBeenCalledWith(
+      `bot:${bot.id}`,
+      expect.objectContaining({ images }),
+    );
+  });
+
   it("rejects a non-live Goal Loop start result", async () => {
     const bot = createBot({ name: "Loop bot" });
     state.goalLoopCommand.mockResolvedValue({ id: "loop-1", status: "paused" });

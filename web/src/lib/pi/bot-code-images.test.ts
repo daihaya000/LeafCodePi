@@ -62,11 +62,11 @@ describe("resolveBotCodeImages", () => {
   const catalog = [png("old"), png("latest-a", true), png("latest-b", true)];
 
   it("honors explicit indexes and treats [] as none", () => {
-    expect(resolveBotCodeImages({ catalog, selected: [1], goalLoop: false })).toMatchObject({
+    expect(resolveBotCodeImages({ catalog, selected: [1] })).toMatchObject({
       images: [{ mimeType: "image/png", data: "old" }],
       attachedIndexes: [1],
     });
-    expect(resolveBotCodeImages({ catalog, selected: [], goalLoop: false })).toEqual({
+    expect(resolveBotCodeImages({ catalog, selected: [] })).toEqual({
       availableImages: [
         { index: 1, mimeType: "image/png", latestUser: false },
         { index: 2, mimeType: "image/png", latestUser: true },
@@ -77,7 +77,7 @@ describe("resolveBotCodeImages", () => {
   });
 
   it("defaults to latest-user images only", () => {
-    expect(resolveBotCodeImages({ catalog, goalLoop: false })).toMatchObject({
+    expect(resolveBotCodeImages({ catalog })).toMatchObject({
       images: [
         { mimeType: "image/png", data: "latest-a" },
         { mimeType: "image/png", data: "latest-b" },
@@ -86,12 +86,21 @@ describe("resolveBotCodeImages", () => {
     });
   });
 
-  it("skips the default when starting a goal loop, but rejects an explicit attach", () => {
-    expect(resolveBotCodeImages({ catalog, goalLoop: true })).toMatchObject({ attachedIndexes: [] });
-    expect(() => resolveBotCodeImages({ catalog, selected: [2], goalLoop: true })).toThrow("Goal loop");
+  it("honors selected images and otherwise uses latest-user images", () => {
+    expect(resolveBotCodeImages({ catalog, selected: [2] })).toMatchObject({
+      images: [{ mimeType: "image/png", data: "latest-a" }],
+      attachedIndexes: [2],
+    });
+    expect(resolveBotCodeImages({ catalog })).toMatchObject({
+      images: [
+        { mimeType: "image/png", data: "latest-a" },
+        { mimeType: "image/png", data: "latest-b" },
+      ],
+      attachedIndexes: [2, 3],
+    });
   });
 
   it("rejects unknown indexes", () => {
-    expect(() => resolveBotCodeImages({ catalog, selected: [9], goalLoop: false })).toThrow("Unknown image index 9");
+    expect(() => resolveBotCodeImages({ catalog, selected: [9] })).toThrow("Unknown image index 9");
   });
 });

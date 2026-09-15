@@ -15,7 +15,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     if ((body.images?.length ?? 0) + (body.files?.length ?? 0) > MAX_PROMPT_ATTACHMENTS) return NextResponse.json({ error: `添付は${MAX_PROMPT_ATTACHMENTS}件までです` }, { status: 400 });
     if (!body.prompt.trim() && !body.images?.length && !body.files?.length) return NextResponse.json({ error: "Prompt is required" }, { status: 400 });
     if (body.goalLoop !== undefined) {
-      if (body.images?.length || body.files?.length) return NextResponse.json({ error: "Goal loop の開始ではファイル添付は使えません" }, { status: 400 });
+      if (body.files?.length) return NextResponse.json({ error: "Goal loop の開始では画像のみ添付できます" }, { status: 400 });
       if (body.goalLoop === null || typeof body.goalLoop !== "object" || Array.isArray(body.goalLoop)) return NextResponse.json({ error: "invalid goalLoop" }, { status: 400 });
       const loop = body.goalLoop as { acceptance?: unknown; maxTurns?: unknown; cooldownSeconds?: unknown; forceFullRun?: unknown };
       // Shared with tasks/[id]/goal-loop, bots/[id]/code-session, and bot-code-relay.ts's
@@ -34,6 +34,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         maxTurns: clampGoalLoopMaxTurns(loop.maxTurns, DEFAULT_GOAL_LOOP_MAX_TURNS),
         cooldownSeconds: clampGoalLoopCooldownSeconds(loop.cooldownSeconds),
         forceFullRun: loop.forceFullRun === true,
+        images: body.images,
       });
       if (!result || !isGoalLoopLiveStatus(result.status)) {
         return NextResponse.json({ error: "Goal Loop を開始できませんでした" }, { status: 409 });

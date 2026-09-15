@@ -7,9 +7,8 @@ import { MAX_PROMPT_IMAGES, type PromptImageInput } from "@/lib/prompt-images";
  *    user-uploaded catalog, oldest-first): honor that exact list. `[]` attaches none.
  * 2. Omitted `images`: attach only images from the latest user message (capped at
  *    MAX_PROMPT_IMAGES). Older conversation images are not dumped unless selected.
- * 3. Goal-loop start cannot carry attachments (createTask already rejects that).
- *    Omitted images + goalLoop → attach none so existing loops keep working.
- *    Explicit non-empty images + goalLoop → error.
+ * 3. Goal-loop starts use the same image selection and attach images to their
+ *    first turn only.
  *
  * Catalog scope: 1:1 Bot = the current session branch. Room = the current user
  * request only (a new user message is a new conversation).
@@ -48,13 +47,9 @@ export function parseCodeSessionImageIndexes(value: unknown): number[] | undefin
 export function resolveBotCodeImages(input: {
   catalog: readonly ConversationUserImage[];
   selected?: number[];
-  goalLoop: boolean;
 }): { images?: PromptImageInput[]; availableImages: AvailableImageInfo[]; attachedIndexes: number[] } {
   const availableImages = availableImageInfo(input.catalog);
   if (input.selected) {
-    if (input.goalLoop && input.selected.length > 0) {
-      throw new Error("Goal loop start cannot include image attachments. Start without goalLoop to attach images, or omit images to use goalLoop.");
-    }
     const images = input.selected.map((index) => {
       const image = input.catalog[index - 1];
       if (!image) throw new Error(`Unknown image index ${index}. Use code_session projects or status to list availableImages.`);
@@ -66,7 +61,6 @@ export function resolveBotCodeImages(input: {
       attachedIndexes: images.length ? input.selected : [],
     };
   }
-  if (input.goalLoop) return { availableImages, attachedIndexes: [] };
   const attached: { image: PromptImageInput; index: number }[] = [];
   input.catalog.forEach((image, position) => {
     if (!image.latestUser || attached.length >= MAX_PROMPT_IMAGES) return;

@@ -747,7 +747,6 @@ export function createBotCodeRelay(deps: RelayDependencies) {
     const resolved = resolveBotCodeImages({
       catalog: await conversationImageCatalog(originTaskId),
       selected: [],
-      goalLoop: false,
     });
     return { availableImages: resolved.availableImages };
   }
@@ -787,7 +786,6 @@ export function createBotCodeRelay(deps: RelayDependencies) {
       : resolveBotCodeImages({
         catalog: await conversationImageCatalog(originTaskId),
         selected: selectedImages,
-        goalLoop: Boolean(goalLoop),
       });
     if (input.action !== "abort") {
       if (!input.prompt?.trim() || input.prompt.length > 32_000) throw new Error("A prompt of 1–32000 characters is required");
