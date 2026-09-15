@@ -43,6 +43,8 @@ export async function GET(
   const { id } = await params;
   const cachedTaskUpdatedAt = req.nextUrl.searchParams.get("cachedTaskUpdatedAt");
   const cachedSessionId = req.nextUrl.searchParams.get("cachedSessionId");
+  const cachedSilentResumeCandidate =
+    req.nextUrl.searchParams.get("cachedSilentResumeCandidate") === "1";
   const perfRequested = req.nextUrl.searchParams.get("perf") === "1";
   const serverTimings: { phase: string; durationMs: number }[] = [];
   const transportTimings: { phase: string; durationMs: number }[] = [];
@@ -133,7 +135,9 @@ export async function GET(
           });
         }
         let detail = await getTaskDetailForReady(id, {
-          ...(hasCacheCandidate ? { includeMessages: false } : {}),
+          ...(hasCacheCandidate && !cachedSilentResumeCandidate
+            ? { includeMessages: false }
+            : {}),
           ...(reportTiming ? { onTiming: reportTiming } : {}),
         });
         if (sse.closed) return;
@@ -147,9 +151,11 @@ export async function GET(
               !candidate.isStreaming &&
               !candidate.isCompacting,
           );
-        let canReuseCachedMessages = matchesCachedRevision(detail);
+        let canReuseCachedMessages =
+          !cachedSilentResumeCandidate && matchesCachedRevision(detail);
         if (
           hasCacheCandidate &&
+          !cachedSilentResumeCandidate &&
           (!canReuseCachedMessages || pendingPayloads.length > 0)
         ) {
           // A stale cache or buffered event needs the full server history for

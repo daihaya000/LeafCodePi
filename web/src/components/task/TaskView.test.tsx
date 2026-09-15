@@ -998,9 +998,11 @@ describe("TaskView draft submission", () => {
   it("does not auto-resume cached silent turns before the authoritative ready snapshot", async () => {
     class TestEventSource extends EventTarget {
       static latest: TestEventSource | null = null;
-      constructor() {
+      static latestUrl = "";
+      constructor(url: string) {
         super();
         TestEventSource.latest = this;
+        TestEventSource.latestUrl = url;
       }
       close() {}
     }
@@ -1027,6 +1029,9 @@ describe("TaskView draft submission", () => {
     render(<TaskView taskId={task.id} mdUp />);
     const source = TestEventSource.latest;
     if (!source) throw new Error("EventSource was not created");
+    expect(new URL(TestEventSource.latestUrl, "http://localhost").searchParams.get(
+      "cachedSilentResumeCandidate",
+    )).toBe("1");
 
     await act(async () => {
       source.dispatchEvent(new MessageEvent("snapshot", {

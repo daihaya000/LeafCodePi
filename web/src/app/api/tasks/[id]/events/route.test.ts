@@ -160,6 +160,40 @@ describe("/api/tasks/[id]/events", () => {
     await reader.cancel();
   });
 
+  it("loads ready history when a cached silent turn could auto-resume", async () => {
+    const bootstrap = task({ messages: [], isStreaming: false, status: "idle" });
+    const detail = task({
+      messages: [
+        { id: "prompt", role: "user", createdAt: 1, parts: [{ id: "prompt-part", type: "text", text: "指示" }] },
+        { id: "reply", role: "assistant", createdAt: 2, parts: [{ id: "reply-part", type: "text", text: "完了" }] },
+      ],
+      isStreaming: false,
+      status: "idle",
+    });
+    mocks.getTaskBootstrap.mockReturnValue(bootstrap);
+    mocks.getTaskDetail.mockResolvedValue(detail);
+    mocks.subscribeTask.mockReturnValue(vi.fn());
+
+    const response = await GET(
+      new NextRequest(
+        "http://127.0.0.1:3010/api/tasks/task-1/events?cachedTaskUpdatedAt=2026-01-01T00%3A00%3A00.000Z&cachedSessionId=session-1&cachedSilentResumeCandidate=1",
+      ),
+      { params: Promise.resolve({ id: "task-1" }) },
+    );
+    const reader = response.body!.getReader();
+    await readChunk(reader);
+    expect(eventData(await readChunk(reader)).eventType).toBe("cache_ready");
+
+    const readyPayload = eventData(await readChunk(reader));
+    expect(readyPayload.eventType).toBe("ready");
+    expect(readyPayload.messages).toEqual(detail.messages);
+    expect(readyPayload.messagesReused).toBeUndefined();
+    expect(mocks.getTaskDetail).toHaveBeenCalledOnce();
+    expect(mocks.getTaskDetail).toHaveBeenCalledWith("task-1");
+
+    await reader.cancel();
+  });
+
   it("releases cached clients before cold detail hydration finishes", async () => {
     const bootstrap = task({ messages: [], isStreaming: false, status: "idle" });
     const detail = task({

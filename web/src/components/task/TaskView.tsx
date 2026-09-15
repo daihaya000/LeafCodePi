@@ -1305,6 +1305,10 @@ export const TaskView = memo(function TaskView({
       ) {
         eventParams.set("cachedTaskUpdatedAt", cachedSession.updatedAt);
         eventParams.set("cachedSessionId", cachedSession.sessionId);
+        if (findResumableTurn(cachedSession.messages)?.reason === "silent") {
+          // Resume decisions require transcript truth, not only task revision.
+          eventParams.set("cachedSilentResumeCandidate", "1");
+        }
       }
       const nextSource = new EventSource(`/api/tasks/${taskId}/events?${eventParams.toString()}`);
       source = nextSource;
