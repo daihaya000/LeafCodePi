@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { ForegroundRunControl, SubagentState } from "../../shared/types.ts";
+import { DEFAULT_MAX_OUTPUT, type ForegroundRunControl, type SubagentState } from "../../shared/types.ts";
 import type { SubagentParamsLike } from "./subagent-executor.ts";
 
 const launch = vi.hoisted(() => ({ sync: vi.fn(), async: vi.fn() }));
@@ -75,6 +75,11 @@ describe("executor timeout contract", () => {
 		expect(executorApi.resolveSingleAgentLaunchTimeout({ maxRuntimeMs: 100 }, async, 500)).toEqual({ timeoutMs: 100 });
 		expect(executorApi.resolveSingleAgentLaunchTimeout({ timeoutMs: 100, maxRuntimeMs: 100 }, async)).toEqual({ timeoutMs: 100 });
 	});
+	it("applies the default output cap when the caller omits one", async () => {
+		await execute({ agent: "worker", task: "Summarize" });
+		expect(launch.sync.mock.calls[0]?.[4]).toMatchObject({ maxOutput: DEFAULT_MAX_OUTPUT });
+	});
+
 	it("leaves an async composite unbounded even with a configured default", () => {
 		for (const params of [{ workflowScript: "return 1" }, { tasks: [{ agent: "worker", task: "Summarize" }] }, { chain: [{ agent: "worker", task: "Summarize" }] }]) {
 			expect(executorApi.resolveSingleAgentLaunchTimeout(params, true, 500)).toEqual({});

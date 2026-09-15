@@ -161,6 +161,7 @@ import {
 	type SubagentState,
 	DIRS,
 	DEFAULT_ARTIFACT_CONFIG,
+	DEFAULT_MAX_OUTPUT,
 	DEFAULT_FORK_PREAMBLE,
 	SUBAGENT_ACTIONS,
 	SUBAGENT_CONTROL_EVENT,
@@ -3989,7 +3990,10 @@ export function createSubagentExecutor(deps: ExecutorDeps): {
 		deps.state.lastForegroundControlId ??= null;
 		const normalizedGate = normalizeGateParams(params);
 		if (!normalizedGate.ok) return buildRequestedModeError(params, normalizedGate.error);
-		const requestParams = normalizedGate.params;
+		const requestParams: SubagentParamsLike = {
+			...normalizedGate.params,
+			maxOutput: normalizedGate.params.maxOutput ?? DEFAULT_MAX_OUTPUT,
+		};
 		const normalizedAction = typeof requestParams.action === "string" ? requestParams.action.trim() : requestParams.action;
 		if (requestParams.workflowScript !== undefined && normalizedAction === undefined) {
 			const parentCwd = ctx.cwd;
