@@ -1,3 +1,5 @@
+import { stripPromptMarkers } from "@/lib/pi/messages";
+
 export const TITLE_TRANSCRIPT_MAX_CHARS = 24_000;
 export const TITLE_MAX_CHARS = 60;
 export const NEXT_ACTION_TRANSCRIPT_MAX_CHARS = 8_000;
@@ -81,7 +83,8 @@ function fenceSafe(text: string): string {
 export function conversationFromPiMessages(messages: readonly unknown[]): ConversationMessage[] {
   return messages.flatMap((message) => {
     if (!isRecord(message) || (message.role !== "user" && message.role !== "assistant")) return [];
-    const text = textFromContent(message.content).trim();
+    // 内部マーカーは会話の中身ではないので、タイトル生成・エージェント選択へ渡さない。
+    const text = stripPromptMarkers(textFromContent(message.content)).trim();
     return text ? [{ role: message.role, text }] : [];
   });
 }

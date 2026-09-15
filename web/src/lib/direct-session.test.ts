@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { readSessionConversation, readSessionLastMessage, readSessionWorkSummary } from "./direct-session";
+import { BOT_PROMPT_PREFIX } from "./pi/messages";
 
 const dirs: string[] = [];
 function tempFile(name: string, content: string): string {
@@ -57,6 +58,22 @@ describe("readSessionLastMessage", () => {
     const file = tempFile("meta-only.session", `${JSON.stringify({ type: "session", id: "s3", version: 1 })}\n`);
     expect(readSessionLastMessage(file)).toBeNull();
     expect(readSessionLastMessage(null)).toBeNull();
+  });
+
+  it("keeps internal prompt markers out of the preview text", () => {
+    const file = tempFile(
+      "bot-prompt.session",
+      [
+        entry({ type: "session", id: "s4", version: 1 }),
+        message("m1", "user", `${BOT_PROMPT_PREFIX}Botからの依頼`, 1_700_000_000_000),
+      ].join("\n"),
+    );
+
+    expect(readSessionLastMessage(file)).toEqual({
+      role: "user",
+      text: "Botからの依頼",
+      timestamp: 1_700_000_000_000,
+    });
   });
 });
 

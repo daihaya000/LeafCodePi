@@ -18,6 +18,14 @@ export function stripBotPromptPrefix(text: string): string {
   return text.startsWith(BOT_PROMPT_PREFIX) ? text.slice(BOT_PROMPT_PREFIX.length) : text;
 }
 
+/**
+ * user メッセージ本文から内部マーカー（ハング再送・Bot送信）をすべて除いた表示用テキスト。
+ * 生セッションを読む経路（サイドバーのプレビュー、タイトル生成、エージェント選択）で使う。
+ */
+export function stripPromptMarkers(text: string): string {
+  return stripBotPromptPrefix(stripHangRetryPrefix(text));
+}
+
 export function titleFromPrompt(prompt: string): string {
   const line = prompt
     .split(/\r?\n/)

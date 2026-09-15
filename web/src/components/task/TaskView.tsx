@@ -2982,6 +2982,8 @@ export const TaskView = memo(function TaskView({
   const supervisor = task?.supervisorBotId
     ? botFor?.(task.supervisorBotId) ?? supervisorBots.find((bot) => bot.id === task.supervisorBotId)
     : undefined;
+  // Bot送信プロンプトの送信者。Bot開始セッションは所有Bot、ユーザー開始の監督中タスクは監督Bot。
+  const senderBot = task?.botId ? botFor?.(task.botId) : supervisor;
   const canHandoffToBot = Boolean(
     task &&
       task.kind !== "bot" &&
@@ -3435,7 +3437,7 @@ export const TaskView = memo(function TaskView({
                             : (taskAccountLabel ?? undefined)
                           : undefined
                       }
-                      bot={isBotSentUserMessage(block.message, task?.botId) ? botFor?.(task?.botId) : undefined}
+                      bot={isBotSentUserMessage(block.message, task?.botId) ? senderBot : undefined}
                       references={messageReferences}
                       taskId={taskId}
                       active={active}

@@ -8,6 +8,7 @@ import {
   conversationFromPiMessages,
   type ConversationMessage,
 } from "@/lib/direct-generation-text";
+import { stripPromptMarkers } from "@/lib/pi/messages";
 import { toolLabel, toolSummary } from "@/lib/tool-labels";
 
 const MAX_SESSION_FILE_BYTES = 4_000_000;
@@ -155,16 +156,19 @@ const lastMessageCache = new Map<string, LastMessageCacheEntry>();
 const LAST_MESSAGE_ROLES = new Set(["user", "assistant", "bashExecution"]);
 
 function textFromPiContent(value: unknown): string {
-  if (typeof value === "string") return value;
+  // プレビューに内部マーカー（ハング再送・Bot送信）を出さない。
+  if (typeof value === "string") return stripPromptMarkers(value);
   if (!Array.isArray(value)) return "";
-  return value
-    .map((part) => {
-      if (typeof part !== "object" || part === null) return "";
-      const record = part as Record<string, unknown>;
-      return record.type === "text" && typeof record.text === "string" ? record.text : "";
-    })
-    .filter(Boolean)
-    .join("\n");
+  return stripPromptMarkers(
+    value
+      .map((part) => {
+        if (typeof part !== "object" || part === null) return "";
+        const record = part as Record<string, unknown>;
+        return record.type === "text" && typeof record.text === "string" ? record.text : "";
+      })
+      .filter(Boolean)
+      .join("\n"),
+  );
 }
 
 function lastMessageFromEntries(sessionEntries: unknown[]): SessionLastMessage | null {

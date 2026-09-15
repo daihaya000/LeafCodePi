@@ -64,6 +64,24 @@ it.each([undefined, "bot-1"])("passes Bot identity only to Bot-sent prompts (bot
   expect(props.filter((value) => value.role === "assistant").every((value) => value.bot === undefined)).toBe(true);
 });
 
+it("shows the supervising Bot as the sender of the prompts it relays into a user Code task", async () => {
+  const bot = { id: "bot-1", name: "監督Bot" };
+  mocks.botFor.mockImplementation((id) => id === bot.id ? bot : undefined);
+  const messages: UiMessage[] = [
+    { id: "bot-prompt", role: "user", fromBot: true, createdAt: 1, parts: [{ id: "bot-prompt-text", type: "text", text: "Botが中継した指示" }] },
+    { id: "user-prompt", role: "user", createdAt: 2, parts: [{ id: "user-prompt-text", type: "text", text: "Code画面からの指示" }] },
+  ];
+  saveTaskSessionCache({ task: { ...task, supervisorBotId: bot.id }, messages, isStreaming: false, isCompacting: false });
+  render(<TaskView taskId={task.id} mdUp />);
+
+  await waitFor(() => expect(mocks.partView).toHaveBeenCalled());
+  const props = mocks.partView.mock.calls.map(([value]) => ({ id: value.message.id, bot: value.bot }));
+  expect(props).toEqual(expect.arrayContaining([
+    { id: "bot-prompt", bot },
+    { id: "user-prompt", bot: undefined },
+  ]));
+});
+
 it("lets the user hand an active Code task to an enabled Bot", async () => {
   const activeTask = { ...task, kind: "code" as const, status: "working" as const };
   saveTaskSessionCache({ task: activeTask, messages: [], isStreaming: true, isCompacting: false });

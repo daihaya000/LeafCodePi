@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vitest";
+import { HANG_RETRY_PREFIX } from "./hang-retry";
+import { BOT_PROMPT_PREFIX } from "./pi/messages";
 import {
   buildTranscript,
   conversationFromPiMessages,
@@ -24,6 +26,17 @@ describe("conversationFromPiMessages", () => {
       { role: "user", text: "hello" },
       { role: "assistant", text: "hi" },
       { role: "user", text: "plain" },
+    ]);
+  });
+
+  it("drops internal prompt markers so they never reach the generation prompt", () => {
+    const messages = [
+      { role: "user", content: `${HANG_RETRY_PREFIX}${BOT_PROMPT_PREFIX}Botからの依頼` },
+      { role: "user", content: [{ type: "text", text: `${BOT_PROMPT_PREFIX}パネルからの指示` }] },
+    ];
+    expect(conversationFromPiMessages(messages)).toEqual([
+      { role: "user", text: "Botからの依頼" },
+      { role: "user", text: "パネルからの指示" },
     ]);
   });
 });
