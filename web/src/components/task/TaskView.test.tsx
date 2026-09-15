@@ -836,6 +836,7 @@ describe("TaskView draft submission", () => {
         id: "assistant-1",
         role: "assistant",
         createdAt: 1,
+        inputTokens: 3400,
         outputTokens: 1200,
         tokensPerSecond: 20,
         parts: [],
@@ -845,7 +846,7 @@ describe("TaskView draft submission", () => {
     });
     render(<TaskView taskId={task.id} mdUp={false} />);
 
-    expect(screen.getByTitle("合計 1.2k tok（出力のみ）").className).toContain("@min-[36rem]/task:inline");
+    expect(screen.getByTitle("合計 ↑3.4k ↓1.2k tok").className).toContain("@min-[36rem]/task:inline");
     expect(screen.getByTitle("平均 tok/s（応答ごとの tok/s の平均）").className).toContain("@min-[36rem]/task:inline");
   });
 

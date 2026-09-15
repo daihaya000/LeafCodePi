@@ -2837,7 +2837,8 @@ export const TaskView = memo(function TaskView({
     const userIds: string[] = [];
     const fallbackIds: string[] = [];
     let detectedHangRetryCount = 0;
-    let totalTokens = 0;
+    let totalInputTokens = 0;
+    let totalOutputTokens = 0;
     let rateSum = 0;
     let rateCount = 0;
     let durationMs = 0;
@@ -2858,8 +2859,11 @@ export const TaskView = memo(function TaskView({
       if (message.role === "user") userIds.push(message.id);
       else if (message.role !== "compaction") fallbackIds.push(message.id);
       if (message.role === "user" || message.role === "compaction") continue;
+      if (typeof message.inputTokens === "number" && message.inputTokens > 0) {
+        totalInputTokens += message.inputTokens;
+      }
       if (typeof message.outputTokens === "number" && message.outputTokens > 0) {
-        totalTokens += message.outputTokens;
+        totalOutputTokens += message.outputTokens;
       }
       if (typeof message.tokensPerSecond === "number" && message.tokensPerSecond > 0) {
         rateSum += message.tokensPerSecond;
@@ -2879,7 +2883,8 @@ export const TaskView = memo(function TaskView({
       lastUserMessage,
       currentPromptIsHangRetry,
       stats: {
-        totalTokens,
+        totalInputTokens,
+        totalOutputTokens,
         avgRate,
         durationMs: messages.length > 1 ? durationMs : 0,
       },
@@ -3139,12 +3144,12 @@ export const TaskView = memo(function TaskView({
             </span>
           )}
           {contextUsage && <ContextUsageMeter usage={contextUsage} />}
-          {stats.totalTokens > 0 && (
+          {(stats.totalInputTokens > 0 || stats.totalOutputTokens > 0) && (
             <span
               className="hidden font-mono tabular-nums @min-[36rem]/task:inline"
-              title={`合計 ${formatTokens(stats.totalTokens)} tok（出力のみ）`}
+              title={`合計${stats.totalInputTokens > 0 ? ` ↑${formatTokens(stats.totalInputTokens)}` : ""}${stats.totalOutputTokens > 0 ? ` ↓${formatTokens(stats.totalOutputTokens)}` : ""} tok`}
             >
-              {formatTokens(stats.totalTokens)} tok
+              {stats.totalInputTokens > 0 ? `↑${formatTokens(stats.totalInputTokens)} ` : ""}{stats.totalOutputTokens > 0 ? `↓${formatTokens(stats.totalOutputTokens)} ` : ""}tok
             </span>
           )}
           {stats.avgRate !== null && (

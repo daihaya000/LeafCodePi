@@ -476,6 +476,8 @@ export type UiMessage = {
   diagnostics?: UiDiagnostic[];
   /** Tokens estimated before this compaction (compaction role only). */
   tokensBefore?: number;
+  /** Provider-reported input tokens consumed to generate this assistant turn. */
+  inputTokens?: number;
   /** Assistant output tokens used for tok/s (provider usage or live estimate). */
   outputTokens?: number;
   /** Generation throughput in tokens/sec for this assistant turn. */

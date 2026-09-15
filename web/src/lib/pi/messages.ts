@@ -528,6 +528,13 @@ export function projectPiMessages(raw: unknown[], indexOffset = 0): UiMessage[] 
           });
         }
       });
+      const usageInput =
+        isRecord(item.usage) &&
+        typeof item.usage.input === "number" &&
+        Number.isFinite(item.usage.input) &&
+        item.usage.input > 0
+          ? Math.round(item.usage.input)
+          : undefined;
       const usageOutput =
         isRecord(item.usage) &&
         typeof item.usage.output === "number" &&
@@ -560,6 +567,7 @@ export function projectPiMessages(raw: unknown[], indexOffset = 0): UiMessage[] 
         // session reload, not only immediately after clicking Stop.
         ...(error ? { error } : {}),
         ...(diagnostics.length > 0 ? { diagnostics } : {}),
+        ...(usageInput !== undefined ? { inputTokens: usageInput } : {}),
         ...(usageOutput !== undefined ? { outputTokens: usageOutput } : {}),
       });
       return;

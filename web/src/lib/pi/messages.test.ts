@@ -344,6 +344,7 @@ describe("projectPiMessages", () => {
     ]);
     expect(messages[0]).toMatchObject({
       role: "assistant",
+      inputTokens: 10,
       outputTokens: 42,
     });
     // 応答時間は射影では付かない（throughput timing が無いメッセージは非表示）。
