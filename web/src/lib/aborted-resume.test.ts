@@ -5,7 +5,6 @@ import {
   MESSAGE_ABORTED_ERROR,
   blocksAutoCompactionAfterManualAbort,
   shouldAttachResumeImages,
-  shouldAutoResumeSilentTurn,
   shouldClearStopRequestedOnWorkingTransition,
 } from "./aborted-resume";
 import type { UiMessage } from "./types";
@@ -59,30 +58,6 @@ function completedToolAssistant(id: string): UiMessage {
   };
 }
 
-function assertAutoResume(
-  target: ReturnType<typeof findResumableTurn>,
-  sessionHydrating: boolean,
-  expected: boolean,
-  compacting = false,
-  sseReconnecting = false,
-  active = true,
-): void {
-  expect(
-    shouldAutoResumeSilentTurn({
-      target,
-      showResume: true,
-      active,
-      sessionHydrating,
-      compacting,
-      sseReconnecting,
-      taskStatus: "idle",
-      stopRequested: false,
-      resumingTurn: false,
-      currentPromptIsHangRetry: false,
-    }),
-  ).toBe(expected);
-}
-
 describe("isAbortedAssistantMessage", () => {
   it("detects MessageAbortedError and abort-like strings", () => {
     expect(isAbortedAssistantMessage(abortedAssistant("a1"))).toBe(true);
@@ -97,64 +72,6 @@ describe("isAbortedAssistantMessage", () => {
 });
 
 describe("findResumableTurn", () => {
-  it("does not auto-resume cached state before server hydration", () => {
-    const target = findResumableTurn([userMessage("u1"), emptyAssistant("a1")]);
-    assertAutoResume(target, true, false);
-    assertAutoResume(target, false, true);
-  });
-
-  it("does not auto-resume after a manual stop was requested", () => {
-    const target = findResumableTurn([userMessage("u1"), emptyAssistant("a1")]);
-    expect(
-      shouldAutoResumeSilentTurn({
-        target,
-        showResume: true,
-        active: true,
-        sessionHydrating: false,
-        compacting: false,
-        sseReconnecting: false,
-        taskStatus: "idle",
-        stopRequested: true,
-        resumingTurn: false,
-        currentPromptIsHangRetry: false,
-      }),
-    ).toBe(false);
-  });
-
-  it("does not auto-resume silent turns when a queued follow-up is pending", () => {
-    const target = findResumableTurn([userMessage("u1"), emptyAssistant("a1")]);
-    expect(
-      shouldAutoResumeSilentTurn({
-        target,
-        showResume: true,
-        active: true,
-        sessionHydrating: false,
-        compacting: false,
-        sseReconnecting: false,
-        taskStatus: "idle",
-        stopRequested: false,
-        resumingTurn: false,
-        currentPromptIsHangRetry: false,
-        hasQueuedFollowUp: true,
-      }),
-    ).toBe(false);
-    expect(
-      shouldAutoResumeSilentTurn({
-        target,
-        showResume: true,
-        active: true,
-        sessionHydrating: false,
-        compacting: false,
-        sseReconnecting: false,
-        taskStatus: "idle",
-        stopRequested: false,
-        resumingTurn: false,
-        currentPromptIsHangRetry: false,
-        queuedAutoSend: true,
-      }),
-    ).toBe(false);
-  });
-
   it("clears stopRequested only when task.status becomes working", () => {
     expect(shouldClearStopRequestedOnWorkingTransition(false, true, true)).toBe(true);
     expect(shouldClearStopRequestedOnWorkingTransition(true, true, true)).toBe(false);
@@ -181,23 +98,17 @@ describe("findResumableTurn", () => {
   });
 
   it("keeps a manual stop aborted when the recorded assistant id is gone", () => {
-    // 停止時の assistant id はストリーミング中の仮 id で、永続化時に差し替わる
-    // ことがある。silent に落ちると「続けて」が自動送信されてしまう。
     const target = findResumableTurn([userMessage("u1"), emptyAssistant("a1")], {
       manualAbortedAssistantId: "streamed-a1",
     });
     expect(target).toMatchObject({ reason: "aborted", messageId: "a1" });
-    assertAutoResume(target, false, false);
   });
 
   it("keeps a manual stop aborted when the response lands after the stop", () => {
-    // 停止時は assistant が 0 件（sentinel の空文字）でも、abort 処理中に
-    // 部分応答が履歴へ入ることがある。
     const target = findResumableTurn([userMessage("u1"), emptyAssistant("a1")], {
       manualAbortedAssistantId: "",
     });
     expect(target).toMatchObject({ reason: "aborted", messageId: "a1" });
-    assertAutoResume(target, false, false);
   });
 
   it("preserves the assistant account when preparing a resume", () => {
@@ -218,21 +129,6 @@ describe("findResumableTurn", () => {
         accountId: "acc-1",
       },
     });
-  });
-
-  it("does not auto-resume while context compaction is running", () => {
-    const target = findResumableTurn([userMessage("u1"), emptyAssistant("a1")]);
-    assertAutoResume(target, false, false, true);
-  });
-
-  it("does not auto-resume an inactive hidden task", () => {
-    const target = findResumableTurn([userMessage("u1"), emptyAssistant("a1")]);
-    assertAutoResume(target, false, false, false, false, false);
-  });
-
-  it("does not auto-resume while SSE is reconnecting", () => {
-    const target = findResumableTurn([userMessage("u1"), emptyAssistant("a1")]);
-    assertAutoResume(target, false, false, false, true);
   });
 
   it("returns silent resume for thinking-only assistant turn", () => {

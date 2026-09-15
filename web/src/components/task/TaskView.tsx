@@ -157,7 +157,6 @@ import {
 import {
   findResumableTurn,
   shouldAttachResumeImages,
-  shouldAutoResumeSilentTurn,
   shouldClearStopRequestedOnWorkingTransition,
   type ResumableTurn,
 } from "@/lib/aborted-resume";
@@ -903,11 +902,12 @@ export const TaskView = memo(function TaskView({
   const [stopRequested, setStopRequested] = useState(false);
   const stopRequestedRef = useRef(false);
   const prevStatusWorkingRef = useRef(false);
-  const autoResumeKeyRef = useRef<string | null>(null);
   const [hangRetryCount, setHangRetryCount] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [sessionHydrating, setSessionHydrating] = useState(Boolean(cachedSession));
   const [sseReconnecting, setSseReconnecting] = useState(false);
+  const [settledSilentMessageId, setSettledSilentMessageId] = useState<string | null>(null);
+  const autoResumeKeyRef = useRef<string | null>(null);
   const [agents, setAgents] = useState<ComposerReference[]>([]);
   const [skills, setSkills] = useState<ComposerReference[]>([]);
   const messageReferences = useMemo(
@@ -1396,6 +1396,16 @@ export const TaskView = memo(function TaskView({
             setHistoryError(null);
           }
           if (!isBootstrap) setSessionHydrating(false);
+          // `agent_settled` is the SDK's terminal event: only this snapshot
+          // may prove that a turn truly ended without output.
+          if (payload.eventType === "agent_settled") {
+            const settled = findResumableTurn(payload.messages ?? [], {
+              manualAbortedAssistantId: payload.manualAbortedAssistantId,
+            });
+            setSettledSilentMessageId(
+              settled?.reason === "silent" ? settled.messageId : null,
+            );
+          }
           if (snapshotTask) {
             const nextAgent = snapshotTask.agent?.trim() || DEFAULT_AGENT;
             setAgent(nextAgent);
@@ -1808,6 +1818,8 @@ export const TaskView = memo(function TaskView({
     setGoalLoopCooldownSeconds(0);
     setGoalLoopForceFullRun(false);
     setSessionHydrating(true);
+    setSettledSilentMessageId(null);
+    autoResumeKeyRef.current = null;
     setRevertConfirmOpen(false);
     setRevertBusy(false);
     revertEntryRef.current = null;
@@ -1835,7 +1847,6 @@ export const TaskView = memo(function TaskView({
     setAgent(nextAgent);
     // タスク切替時は当該タスクの agent を表示。Composer 既定 Auto や前タスクの Auto は引き継がない。
     setAgentSelection(nextAgent);
-    autoResumeKeyRef.current = null;
     messageElsRef.current.clear();
     navigationMessageIdsRef.current = [];
     stickRef.current = true;
@@ -2871,8 +2882,6 @@ export const TaskView = memo(function TaskView({
     userMessageIds,
     navigationMessageIds,
     stats,
-    lastUserMessage,
-    currentPromptIsHangRetry,
   } = useMemo(() => {
     const visible: UiMessage[] = [];
     const userIds: string[] = [];
@@ -2884,14 +2893,8 @@ export const TaskView = memo(function TaskView({
     let rateCount = 0;
     let durationMs = 0;
     let prevCreatedAt: number | null = null;
-    let lastUserMessage: UiMessage | undefined;
-    let currentPromptIsHangRetry = false;
     for (const message of messages) {
       const hangRetry = isHangRetryUserMessage(message);
-      if (message.role === "user") {
-        lastUserMessage = message;
-        currentPromptIsHangRetry = hangRetry;
-      }
       if (hangRetry) {
         detectedHangRetryCount += 1;
         continue;
@@ -2921,8 +2924,6 @@ export const TaskView = memo(function TaskView({
       detectedHangRetryCount,
       userMessageIds: userIds,
       navigationMessageIds: userIds.length > 0 ? userIds : fallbackIds,
-      lastUserMessage,
-      currentPromptIsHangRetry,
       stats: {
         totalInputTokens,
         totalOutputTokens,
@@ -2963,30 +2964,20 @@ export const TaskView = memo(function TaskView({
     !working &&
     !archived &&
     !goalLoopLive;
-  const autoResumeSilentTurn = shouldAutoResumeSilentTurn({
-    target: resumeTarget,
-    showResume,
-    active,
-    sessionHydrating,
-    compacting,
-    sseReconnecting,
-    taskStatus: task?.status,
-    stopRequested,
-    resumingTurn,
-    currentPromptIsHangRetry,
-    hasQueuedFollowUp: queuedFollowUps.length > 0,
-    queuedAutoSend,
-  });
   useEffect(() => {
-    if (!autoResumeSilentTurn || !resumeTarget) return;
+    if (
+      !settledSilentMessageId ||
+      !showResume ||
+      resumeTarget?.reason !== "silent" ||
+      resumeTarget.messageId !== settledSilentMessageId
+    ) return;
     const key = `${taskId}:${resumeTarget.messageId}`;
     if (autoResumeKeyRef.current === key) return;
     autoResumeKeyRef.current = key;
     void resumeTurn(resumeTarget).then((ok) => {
-      // 失敗時は key を戻し、次の effect で再試行できるようにする。
       if (!ok && autoResumeKeyRef.current === key) autoResumeKeyRef.current = null;
     });
-  }, [autoResumeSilentTurn, currentPromptIsHangRetry, resumeTarget, resumeTurn, resumingTurn, showResume, task?.status, taskId]);
+  }, [resumeTarget, resumeTurn, settledSilentMessageId, showResume, taskId]);
   const resumeMessage = resumeTarget
     ? visibleMessages.find((message) => message.id === resumeTarget.messageId)
     : undefined;

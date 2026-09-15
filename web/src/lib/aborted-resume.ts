@@ -44,37 +44,6 @@ export function blocksAutoCompactionAfterManualAbort(
   return manualAbortedAssistantId != null;
 }
 
-export function shouldAutoResumeSilentTurn(input: {
-  target: ResumableTurn | null;
-  showResume: boolean;
-  active: boolean;
-  sessionHydrating: boolean;
-  compacting: boolean;
-  sseReconnecting: boolean;
-  taskStatus?: string;
-  stopRequested: boolean;
-  resumingTurn: boolean;
-  currentPromptIsHangRetry: boolean;
-  /** Client queue must win over silent auto-resume of the prior prompt. */
-  hasQueuedFollowUp?: boolean;
-  queuedAutoSend?: boolean;
-}): boolean {
-  return Boolean(
-    input.showResume &&
-      input.active &&
-      !input.sessionHydrating &&
-      !input.compacting &&
-      !input.sseReconnecting &&
-      input.target?.reason === "silent" &&
-      input.taskStatus === "idle" &&
-      !input.stopRequested &&
-      !input.resumingTurn &&
-      !input.currentPromptIsHangRetry &&
-      !input.hasQueuedFollowUp &&
-      !input.queuedAutoSend,
-  );
-}
-
 /**
  * After a successful Stop, stopRequested stays true to block silent auto-resume
  * and queued follow-up drain. Clear only when task.status becomes "working"

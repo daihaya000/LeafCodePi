@@ -995,7 +995,7 @@ describe("TaskView draft submission", () => {
     expect(screen.queryByText(/セッションを準備しています/)).toBeNull();
   });
 
-  it("does not auto-resume cached silent turns before the authoritative ready snapshot", async () => {
+  it("auto-resumes a silent turn only after its agent_settled snapshot", async () => {
     class TestEventSource extends EventTarget {
       static latest: TestEventSource | null = null;
       static latestUrl = "";
@@ -1059,19 +1059,41 @@ describe("TaskView draft submission", () => {
               createdAt: 1,
               parts: [{ id: "cached-prompt-text", type: "text", text: "元の指示" }],
             },
-            {
-              id: "authoritative-reply",
-              role: "assistant",
-              createdAt: 2,
-              parts: [{ id: "authoritative-reply-text", type: "text", text: "完了しました" }],
-            },
+            { id: "authoritative-reply", role: "assistant", createdAt: 2, parts: [] },
           ],
           isStreaming: false,
           isCompacting: false,
         }),
       }));
+      await new Promise((resolve) => setTimeout(resolve, 20));
     });
     expect(mocks.sendJson.mock.calls.some(([url]) => url === `/api/tasks/${task.id}/prompt`)).toBe(false);
+
+    mocks.sendJson.mockResolvedValue({ task: cachedTask });
+    await act(async () => {
+      source.dispatchEvent(new MessageEvent("snapshot", {
+        data: JSON.stringify({
+          eventType: "agent_settled",
+          task: cachedTask,
+          messages: [
+            {
+              id: "cached-prompt",
+              role: "user",
+              createdAt: 1,
+              parts: [{ id: "cached-prompt-text", type: "text", text: "元の指示" }],
+            },
+            { id: "authoritative-reply", role: "assistant", createdAt: 2, parts: [] },
+          ],
+          isStreaming: false,
+          isCompacting: false,
+        }),
+      }));
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+    expect(mocks.sendJson).toHaveBeenCalledWith(
+      `/api/tasks/${task.id}/prompt`,
+      expect.objectContaining({ prompt: "続けて", resume: true }),
+    );
   });
 
   it("places the read-aloud toggle immediately to the right of the Bot control", async () => {
