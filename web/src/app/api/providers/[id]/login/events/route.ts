@@ -38,6 +38,10 @@ export async function GET(
       });
       try {
         unsubscribe = subscribeProviderLogin((payload) => {
+          // The route already sent a started event with the session id above.
+          // ProviderLoginSession replays its history to new subscribers, so
+          // forwarding its started record would duplicate that SSE event.
+          if (payload.type === "started") return;
           sse?.send(payload.type, payload);
           if (payload.type === "done") sse?.close();
         });
