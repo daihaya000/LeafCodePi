@@ -14,8 +14,8 @@ import {
   parseDirectModelKey,
   type DirectModel,
 } from "@/lib/direct-generation";
-import { readSessionConversation } from "@/lib/direct-session";
-import { formatTranscriptForTitle, sanitizeTitle } from "@/lib/direct-generation-text";
+import { readSessionConversation, readSessionWorkSummary } from "@/lib/direct-session";
+import { formatTranscriptForTitle, formatWorkSummaryForTitle, sanitizeTitle } from "@/lib/direct-generation-text";
 
 const TITLE_SYSTEM_INSTRUCTION =
   "会話を要約する簡潔な日本語タイトルを1件だけ生成してください。タイトルのみを返し、説明、引用符、見出し、改行は不要です。";
@@ -27,8 +27,13 @@ export async function refreshTaskTitleDirect(
   const task = getTask(taskId);
   if (!task) throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });
   const conversation = readSessionConversation(task.sessionFile);
-  const prompt = formatTranscriptForTitle(conversation);
-  if (!prompt) throw new DirectGenerationError("タイトルを生成できる会話がありません", 422);
+  // 圧縮直後・履歴退避などで会話が取れない時は ToDo と作業ログから生成する
+  const prompt =
+    formatTranscriptForTitle(conversation) ||
+    formatWorkSummaryForTitle(readSessionWorkSummary(task.sessionFile));
+  if (!prompt) {
+    throw new DirectGenerationError("タイトルを生成できる会話・ToDo・作業ログがありません", 422);
+  }
 
   const configuredModel = parseDirectModelKey(getSetting(GENERATION_MODEL_SETTING_KEY));
   const primaryModel =

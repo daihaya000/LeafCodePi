@@ -8,6 +8,7 @@ import {
   conversationFromPiMessages,
   type ConversationMessage,
 } from "@/lib/direct-generation-text";
+import { toolLabel, toolSummary } from "@/lib/tool-labels";
 
 const MAX_SESSION_FILE_BYTES = 4_000_000;
 /** 会話キャッシュの上限。超過時は最も古いエントリから追い出す（Map は挿入順）。 */
@@ -58,6 +59,82 @@ export function readSessionConversation(sessionFile: string | null | undefined):
   } catch {
     conversationCache.delete(sessionFile);
     return [];
+  }
+}
+
+export type SessionWorkSummaryTodo = { content: string; status: string };
+export type SessionWorkSummary = {
+  todos: SessionWorkSummaryTodo[];
+  activity: string[];
+};
+
+const WORK_SUMMARY_MAX_TODOS = 100;
+const WORK_SUMMARY_MAX_ACTIVITIES = 30;
+const WORK_SUMMARY_LINE_MAX_CHARS = 160;
+
+/**
+ * タイトル生成のフォールバック用。圧縮直後・履歴退避などで会話コンテキストが
+ * 空になっても、生エントリから最新の ToDo スナップショットとツール実行ログを拾う。
+ * 呼び出しは会話が取れなかった時だけなのでキャッシュは持たない。
+ */
+export function readSessionWorkSummary(sessionFile: string | null | undefined): SessionWorkSummary {
+  const empty: SessionWorkSummary = { todos: [], activity: [] };
+  if (!sessionFile || !existsSync(sessionFile)) return empty;
+  try {
+    const stats = statSync(sessionFile);
+    if (!stats.isFile() || stats.size > MAX_SESSION_FILE_BYTES) return empty;
+    const entries: unknown[] = parseSessionEntries(readFileSync(sessionFile, "utf8"));
+    migrateSessionEntries(entries as Parameters<typeof migrateSessionEntries>[0]);
+    let todos: SessionWorkSummaryTodo[] = [];
+    const activity: string[] = [];
+    for (const entry of entries) {
+      if (typeof entry !== "object" || entry === null) continue;
+      const record = entry as Record<string, unknown>;
+      if (record.type !== "message") continue;
+      const message = (
+        typeof record.message === "object" && record.message !== null ? record.message : record
+      ) as Record<string, unknown>;
+      if (message.role === "toolResult" && message.toolName === "todowrite") {
+        const details =
+          typeof message.details === "object" && message.details !== null
+            ? message.details as Record<string, unknown>
+            : null;
+        const list = Array.isArray(details?.todos) ? details.todos : [];
+        todos = list
+          .flatMap((item) => {
+            if (typeof item !== "object" || item === null) return [];
+            const todo = item as Record<string, unknown>;
+            const content = typeof todo.content === "string" ? todo.content.trim() : "";
+            const status = typeof todo.status === "string" ? todo.status : "pending";
+            return content ? [{ content, status }] : [];
+          })
+          .slice(0, WORK_SUMMARY_MAX_TODOS);
+        continue;
+      }
+      if (message.role !== "assistant" || !Array.isArray(message.content)) continue;
+      for (const part of message.content) {
+        if (typeof part !== "object" || part === null) continue;
+        const call = part as Record<string, unknown>;
+        if (call.type !== "toolCall" || typeof call.name !== "string" || call.name === "todowrite") {
+          continue;
+        }
+        const input =
+          typeof call.arguments === "object" && call.arguments !== null
+            ? call.arguments as Record<string, unknown>
+            : undefined;
+        const summary = toolSummary(call.name, { status: "completed", ...(input ? { input } : {}) });
+        const label = toolLabel(call.name, input);
+        const line = summary && summary !== call.name ? `${label}: ${summary}` : label;
+        activity.push(
+          line.length > WORK_SUMMARY_LINE_MAX_CHARS
+            ? `${line.slice(0, WORK_SUMMARY_LINE_MAX_CHARS)}…`
+            : line,
+        );
+      }
+    }
+    return { todos, activity: activity.slice(-WORK_SUMMARY_MAX_ACTIVITIES) };
+  } catch {
+    return empty;
   }
 }
 

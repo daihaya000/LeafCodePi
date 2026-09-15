@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { readSessionConversation, readSessionLastMessage } from "./direct-session";
+import { readSessionConversation, readSessionLastMessage, readSessionWorkSummary } from "./direct-session";
 
 const dirs: string[] = [];
 function tempFile(name: string, content: string): string {
@@ -57,6 +57,42 @@ describe("readSessionLastMessage", () => {
     const file = tempFile("meta-only.session", `${JSON.stringify({ type: "session", id: "s3", version: 1 })}\n`);
     expect(readSessionLastMessage(file)).toBeNull();
     expect(readSessionLastMessage(null)).toBeNull();
+  });
+});
+
+describe("readSessionWorkSummary", () => {
+  const entry = (value: Record<string, unknown>) => JSON.stringify(value);
+
+  it("extracts the latest ToDo snapshot and tool activity from raw entries", () => {
+    const file = tempFile(
+      "work-summary.session",
+      [
+        entry({ type: "session", id: "s1", version: 1 }),
+        entry({ type: "message", id: "m1", message: { role: "user", content: [{ type: "text", text: "q" }], timestamp: 1 } }),
+        entry({ type: "message", id: "m2", message: { role: "assistant", content: [{ type: "toolCall", id: "c1", name: "edit", arguments: { path: "a.ts" } }], timestamp: 2 } }),
+        entry({ type: "message", id: "m3", message: { role: "toolResult", toolName: "todowrite", details: { todos: [{ id: "t1", content: "古いToDo", status: "completed", priority: "high" }] }, content: [], timestamp: 3 } }),
+        entry({ type: "message", id: "m4", message: { role: "assistant", content: [{ type: "toolCall", id: "c2", name: "bash", arguments: { command: "git status" } }], timestamp: 4 } }),
+        entry({ type: "message", id: "m5", message: { role: "toolResult", toolName: "todowrite", details: { todos: [
+          { id: "t1", content: "古いToDo", status: "completed", priority: "high" },
+          { id: "t2", content: "新しいToDo", status: "in_progress", priority: "medium" },
+        ] }, content: [], timestamp: 5 } }),
+        entry({ type: "compaction", id: "c9", summary: "summary", tokensBefore: 999, timestamp: 6 }),
+      ].join("\n"),
+    );
+
+    const summary = readSessionWorkSummary(file);
+
+    expect(summary.todos).toEqual([
+      { content: "古いToDo", status: "completed" },
+      { content: "新しいToDo", status: "in_progress" },
+    ]);
+    expect(summary.activity).toEqual(["編集: a.ts", "コマンド: git status"]);
+  });
+
+  it("returns an empty summary for missing or broken session files", () => {
+    expect(readSessionWorkSummary(null)).toEqual({ todos: [], activity: [] });
+    expect(readSessionWorkSummary(join("C:", "no-such-file"))).toEqual({ todos: [], activity: [] });
+    expect(readSessionWorkSummary(tempFile("broken-work.session", "{not json\n"))).toEqual({ todos: [], activity: [] });
   });
 });
 

@@ -8,6 +8,12 @@ const state = vi.hoisted(() => ({
   generateDirectTextWithFallbackResult: vi.fn(),
   getSetting: vi.fn((_key: string) => ""),
   readSessionConversation: vi.fn(() => [{ role: "user", text: "hello" }]),
+  readSessionWorkSummary: vi.fn(
+    (): { todos: { content: string; status: string }[]; activity: string[] } => ({
+      todos: [],
+      activity: [],
+    }),
+  ),
 }));
 
 vi.mock("@/lib/paths", async (importOriginal) => ({
@@ -30,6 +36,7 @@ vi.mock("@/lib/pi/web-settings", () => ({
 
 vi.mock("@/lib/direct-session", () => ({
   readSessionConversation: state.readSessionConversation,
+  readSessionWorkSummary: state.readSessionWorkSummary,
 }));
 
 import { insertTask } from "./store";
@@ -46,6 +53,7 @@ describe("refreshTaskTitleDirect account pin", () => {
       key === GENERATION_MODEL_SETTING_KEY ? "anthropic::claude-sonnet" : "",
     );
     state.readSessionConversation.mockReset().mockReturnValue([{ role: "user", text: "hello" }]);
+    state.readSessionWorkSummary.mockReset().mockReturnValue({ todos: [], activity: [] });
     state.generateDirectTextWithFallbackResult.mockResolvedValue({
       text: "短いタイトル",
       model: { providerID: "anthropic", modelID: "claude-sonnet" },
@@ -90,5 +98,59 @@ describe("refreshTaskTitleDirect account pin", () => {
     const call = state.generateDirectTextWithFallbackResult.mock.calls[0]?.[0];
     expect(call).toMatchObject({ accountId: "acc-soft" });
     expect(call).not.toHaveProperty("accountIdExplicit");
+  });
+
+  it("falls back to the ToDo/work summary when the conversation is unavailable", async () => {
+    const task = insertTask({
+      project: null,
+      title: "t",
+      providerID: "anthropic",
+      modelID: "claude-sonnet",
+    });
+    state.readSessionConversation.mockReturnValue([]);
+    state.readSessionWorkSummary.mockReturnValue({
+      todos: [{ content: "履歴退避の不具合を直す", status: "in_progress" }],
+      activity: ["編集: web/src/lib/direct-session.ts"],
+    });
+
+    const result = await refreshTaskTitleDirect(task.id);
+
+    expect(result.title).toBe("短いタイトル");
+    const call = state.generateDirectTextWithFallbackResult.mock.calls[0]?.[0];
+    expect(call.prompt).toContain("履歴退避の不具合を直す");
+    expect(call.prompt).toContain("編集: web/src/lib/direct-session.ts");
+    expect(call.prompt).toContain("会話履歴は取得できませんでした");
+  });
+
+  it("prefers the conversation over the work summary when both exist", async () => {
+    const task = insertTask({
+      project: null,
+      title: "t",
+      providerID: "anthropic",
+      modelID: "claude-sonnet",
+    });
+    state.readSessionWorkSummary.mockReturnValue({
+      todos: [{ content: "使われないToDo", status: "pending" }],
+      activity: [],
+    });
+
+    await refreshTaskTitleDirect(task.id);
+
+    const call = state.generateDirectTextWithFallbackResult.mock.calls[0]?.[0];
+    expect(call.prompt).toContain("<transcript>");
+    expect(call.prompt).not.toContain("使われないToDo");
+  });
+
+  it("rejects with 422 when neither conversation nor work summary exists", async () => {
+    const task = insertTask({
+      project: null,
+      title: "t",
+      providerID: "anthropic",
+      modelID: "claude-sonnet",
+    });
+    state.readSessionConversation.mockReturnValue([]);
+
+    await expect(refreshTaskTitleDirect(task.id)).rejects.toMatchObject({ status: 422 });
+    expect(state.generateDirectTextWithFallbackResult).not.toHaveBeenCalled();
   });
 });

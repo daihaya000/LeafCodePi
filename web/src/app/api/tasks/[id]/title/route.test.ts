@@ -11,7 +11,10 @@ const mocks = vi.hoisted(() => ({
 const { getTask, patchTask, readSessionConversation, getSetting } = mocks;
 
 vi.mock("@/lib/store", () => ({ getTask: mocks.getTask, patchTask: mocks.patchTask }));
-vi.mock("@/lib/direct-session", () => ({ readSessionConversation: mocks.readSessionConversation }));
+vi.mock("@/lib/direct-session", () => ({
+  readSessionConversation: mocks.readSessionConversation,
+  readSessionWorkSummary: vi.fn(() => ({ todos: [], activity: [] })),
+}));
 vi.mock("@/lib/pi/web-settings", () => ({ getSetting: mocks.getSetting }));
 
 function request(body: unknown, method: "POST" | "PATCH" = "POST"): NextRequest {
