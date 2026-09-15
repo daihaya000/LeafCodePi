@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -6,7 +6,7 @@ const state = vi.hoisted(() => ({ root: "", promptTask: vi.fn(), getTaskDetail: 
 vi.mock("./paths", async (importOriginal) => { const actual = await importOriginal<typeof import("./paths")>(); return { ...actual, dataDir: () => state.root, storePath: () => join(state.root, "store.json") }; });
 vi.mock("./pi/harness", () => ({ promptTask: state.promptTask, getTaskDetail: state.getTaskDetail }));
 import { createBot } from "./bots";
-import { createRoutine, cronMatches, deleteRoutine, getRoutine, listRoutines, parseCron, patchRoutine, ROUTINE_MAX_ENABLED, runRoutine, tickRoutines, validateRoutineSchedule } from "./routines";
+import { createRoutine, cronMatches, deleteRoutine, getRoutine, listRoutines, parseCron, patchRoutine, ROUTINE_MAX_ENABLED, ROUTINE_MAX_PROMPT_CHARS, runRoutine, tickRoutines, validateRoutineSchedule } from "./routines";
 
 describe("routine cron and persistence", () => {
   let root = "";
@@ -52,6 +52,27 @@ describe("routine cron and persistence", () => {
     expect(() => patchRoutine(bot.id, routine.id, { schedule: "0 9 30 2 7" })).toThrow("この cron は実行されない日時を指定しています");
     expect(getRoutine(bot.id, routine.id)?.schedule).toBe("0 9 29 2 7");
   });
+  it("bounds routine prompts at creation and update", () => {
+    const bot = createBot({ name: "Routine bot" });
+    const oversized = "x".repeat(ROUTINE_MAX_PROMPT_CHARS + 1);
+
+    expect(() => createRoutine(bot.id, { name: "Too long", prompt: oversized, schedule: "0 * * * *" })).toThrow("プロンプトは");
+    const routine = createRoutine(bot.id, { name: "Hourly", prompt: "Check status", schedule: "0 * * * *" });
+    expect(() => patchRoutine(bot.id, routine.id, { prompt: oversized })).toThrow("プロンプトは");
+  });
+
+  it("blocks legacy oversized routines before they reach the Bot", async () => {
+    const bot = createBot({ name: "Routine bot" });
+    const routine = createRoutine(bot.id, { name: "Hourly", prompt: "Check status", schedule: "0 * * * *" });
+    writeFileSync(
+      join(root, "bots", bot.id, "routines", `${routine.id}.json`),
+      JSON.stringify({ ...routine, prompt: "x".repeat(ROUTINE_MAX_PROMPT_CHARS + 1) }),
+    );
+
+    await expect(runRoutine(bot.id, routine.id)).rejects.toThrow("プロンプトは");
+    expect(state.promptTask).not.toHaveBeenCalled();
+  });
+
   it("enforces the maximum number of enabled routines", () => {
     const bot = createBot({ name: "Routine bot" });
     for (let index = 0; index < ROUTINE_MAX_ENABLED; index += 1) createRoutine(bot.id, { name: `Routine ${index}`, prompt: "Check status", schedule: "0 * * * *" });
