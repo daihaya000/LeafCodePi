@@ -403,6 +403,10 @@ type LiveRuntime = {
     modelID: string;
     message: string;
   } | null;
+  /** A terminal WebSocket failure is retried once through SSE. */
+  pendingTransportRecovery: boolean;
+  /** Prevent a failed SSE recovery from recursively queueing more recoveries. */
+  transportRecoveryAttempted: boolean;
   /** Restore the user's retry setting after suppressing a duplicate limit retry. */
   restoreAutoRetry: boolean;
   /** Recreate this Bot session after update_soul so the next turn reads the new file. */
@@ -860,6 +864,7 @@ async function ensureRuntime(
           permissionMode: input.permissionMode,
           isHangRetry: true,
           isProviderFallback: input.isProviderFallback,
+          isTransportRecovery: input.isTransportRecovery,
           codeRequestId: botCodeRelay().requestIdForCode(taskId),
         });
       },
@@ -1637,6 +1642,88 @@ const providerFallbackInflight = new Map<string, Promise<void>>();
 const soulReloadInflight = new Map<string, Promise<LiveRuntime>>();
 /** Session entry customType for the hidden provider-limit resume prompt. */
 const PROVIDER_FALLBACK_CUSTOM_TYPE = "leafcode-pi.provider-fallback";
+/** Session entry customType for the hidden WebSocket-to-SSE recovery prompt. */
+const PROVIDER_TRANSPORT_RECOVERY_CUSTOM_TYPE = "leafcode-pi.provider-transport-recovery";
+const PROVIDER_TRANSPORT_RECOVERY_PROMPT =
+  "The previous response was interrupted by a WebSocket transport error. Continue the pending request from the existing conversation. Do not repeat completed actions.";
+
+function assistantFailureText(value: unknown): string {
+  if (value instanceof Error) return `${value.name} ${value.message}`;
+  if (typeof value === "string") return value;
+  if (!value || typeof value !== "object") return "";
+  const record = value as Record<string, unknown>;
+  const parts: string[] = [];
+  for (const key of ["errorMessage", "error"] as const) {
+    const direct = record[key];
+    if (typeof direct === "string") parts.push(direct);
+    else if (direct && typeof direct === "object") {
+      const error = direct as { name?: unknown; message?: unknown };
+      if (typeof error.name === "string") parts.push(error.name);
+      if (typeof error.message === "string") parts.push(error.message);
+    }
+  }
+  if (Array.isArray(record.diagnostics)) {
+    for (const diagnostic of record.diagnostics) {
+      if (!diagnostic || typeof diagnostic !== "object") continue;
+      const item = diagnostic as Record<string, unknown>;
+      if (typeof item.type === "string") parts.push(item.type);
+      const error = item.error;
+      if (error && typeof error === "object") {
+        const errorRecord = error as { name?: unknown; message?: unknown };
+        if (typeof errorRecord.name === "string") parts.push(errorRecord.name);
+        if (typeof errorRecord.message === "string") parts.push(errorRecord.message);
+      }
+    }
+  }
+  return parts.join("\n");
+}
+
+/** WebSocket failures are transient transport errors, not terminal task errors. */
+export function isWebSocketTransportError(value: unknown): boolean {
+  return /websocket\s*(?:error|closed)|websocketerror|provider[_\s-]*transport[_\s-]*failure/i.test(
+    assistantFailureText(value),
+  );
+}
+
+function lastAssistantWebSocketError(event: unknown): string | null {
+  if (!event || typeof event !== "object") return null;
+  const record = event as Record<string, unknown>;
+  if (record.type !== "agent_end" || !Array.isArray(record.messages)) return null;
+  for (let index = record.messages.length - 1; index >= 0; index -= 1) {
+    const message = record.messages[index];
+    if (!message || typeof message !== "object") continue;
+    const item = message as Record<string, unknown>;
+    if (item.role !== "assistant") continue;
+    const text = assistantFailureText(item);
+    return isWebSocketTransportError(text) ? text : null;
+  }
+  return null;
+}
+
+function noteWebSocketTransportFailure(
+  live: LiveRuntime,
+  session: AgentSession,
+  event: { type: string; willRetry?: boolean; messages?: unknown[] },
+): void {
+  if (event.type !== "agent_end") return;
+  const error = lastAssistantWebSocketError(event);
+  if (!error || isActiveGoalLoopSession(session)) return;
+  // The SDK may retry the current turn itself. Make that retry use SSE so it
+  // does not reconnect the failing WebSocket cache.
+  if (session.agent.transport !== "sse") {
+    session.agent.transport = "sse";
+    console.warn("[leafcode-pi] WebSocket transport failed; retrying with SSE");
+  }
+  // When SDK auto-retry is disabled/exhausted, queue one hidden continuation
+  // after agent_settled instead of leaving the task in the error state.
+  if (
+    !event.willRetry &&
+    !live.transportRecoveryAttempted &&
+    !live.pendingProviderFallback
+  ) {
+    live.pendingTransportRecovery = true;
+  }
+}
 
 function lastAssistantLimitError(event: unknown): string | null {
   if (!event || typeof event !== "object") return null;
@@ -1851,6 +1938,22 @@ function finishSettledTurn(
     session.setAutoRetryEnabled(true);
     live.restoreAutoRetry = false;
   }
+  if (live.pendingTransportRecovery) {
+    live.pendingTransportRecovery = false;
+    live.transportRecoveryAttempted = true;
+    setTaskStatus(taskId, "working");
+    emitTaskSnapshot(live, "transport_retry", { isStreaming: false });
+    void queuePrompt(live, PROVIDER_TRANSPORT_RECOVERY_PROMPT, undefined, {
+      isTransportRecovery: true,
+    }).catch((error) => {
+      console.warn(
+        `[leafcode-pi] WebSocket transport recovery failed: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+    });
+    return;
+  }
   const goalLoopTurnActive = live.goalLoopTurnActive;
   live.goalLoopTurnActive = false;
   // A pending SOUL update is applied by replacing the idle session before
@@ -1870,7 +1973,8 @@ function finishSettledTurn(
   if (
     !pending &&
     !settledError &&
-    getTaskHangWatch(taskId)?.isProviderFallback
+    (getTaskHangWatch(taskId)?.isProviderFallback ||
+      getTaskHangWatch(taskId)?.isTransportRecovery)
   ) {
     disarmTaskHangWatch(taskId);
   }
@@ -1987,6 +2091,8 @@ function buildLiveRuntime(input: {
     pendingSnapshotIsDelta: false,
     pendingSnapshotExtra: undefined,
     reasoningFallbackTried: false,
+    pendingTransportRecovery: false,
+    transportRecoveryAttempted: false,
     restoreAutoRetry: false,
     // A newly created session has already re-read the Bot's SOUL.md.
     soulReloadPending: false,
@@ -2089,6 +2195,7 @@ async function attachSession(
   const unsubscribe = session.subscribe((event) => {
     trackTurnLifecycleFlags(live, session, event);
     trackProviderLimit(live, session, event);
+    noteWebSocketTransportFailure(live, session, event);
 
     const harnessAutoCompactionError = isHarnessAutoCompactionError(
       event,
@@ -2115,8 +2222,9 @@ async function attachSession(
       setTaskStatus(taskId, "working");
     }
     if (
-      event.type === "agent_settled" ||
-      (event.type === "agent_end" && !event.willRetry)
+      !live.pendingTransportRecovery &&
+      (event.type === "agent_settled" ||
+        (event.type === "agent_end" && !event.willRetry))
     ) {
       applySettledTaskStatus(live, session, taskId);
     }
@@ -7627,6 +7735,8 @@ function queuePrompt(
     isHangRetry?: boolean;
     /** Internal provider-limit resume prompt; persist as a hidden custom message. */
     isProviderFallback?: boolean;
+    /** Internal WebSocket recovery prompt; persist as a hidden custom message. */
+    isTransportRecovery?: boolean;
     streamingBehavior?: "steer" | "followUp";
     codeResult?: CodeRequest;
     codeRequestId?: string;
@@ -7635,6 +7745,7 @@ function queuePrompt(
   },
 ): Promise<void> {
   const hadActivePrompt = live.promptActive || live.session.isStreaming || live.session.isCompacting;
+  if (!meta?.isTransportRecovery) live.transportRecoveryAttempted = false;
   const pendingSettingsAtQueue = copyPendingLiveSettings(live.pendingSettings);
   const isHangRetry =
     meta?.isHangRetry === true || prompt.startsWith(HANG_RETRY_PREFIX);
@@ -7656,6 +7767,7 @@ function queuePrompt(
         : {}),
       ...(meta?.permissionMode ? { permissionMode: meta.permissionMode } : {}),
       ...(meta?.isProviderFallback ? { isProviderFallback: true } : {}),
+      ...(meta?.isTransportRecovery ? { isTransportRecovery: true } : {}),
       isHangRetry,
     });
   };
@@ -7688,6 +7800,7 @@ function queuePrompt(
       ...(meta?.permissionMode ? { permissionMode: meta.permissionMode } : {}),
       ...(meta?.isHangRetry ? { isHangRetry: true } : {}),
       ...(meta?.isProviderFallback ? { isProviderFallback: true } : {}),
+      ...(meta?.isTransportRecovery ? { isTransportRecovery: true } : {}),
       skipHangRearm: true,
     });
   };
@@ -7762,7 +7875,13 @@ function queuePrompt(
             content: promptToSend,
             display: false,
           })
-        : activeLive.session.prompt(promptToSend, options);
+        : meta?.isTransportRecovery
+          ? sendCustomTurn({
+              customType: PROVIDER_TRANSPORT_RECOVERY_CUSTOM_TYPE,
+              content: promptToSend,
+              display: false,
+            })
+          : activeLive.session.prompt(promptToSend, options);
     await sendPromptWithReasoningFallback(
       activeLive,
       sendPrompt,
@@ -8287,6 +8406,7 @@ async function stopGoalLoopForTask(live: LiveRuntime): Promise<void> {
 function cancelHarnessPrompt(live: LiveRuntime): void {
   live.promptEpoch = nextPromptEpoch(live.promptEpoch);
   live.promptActive = false;
+  live.pendingTransportRecovery = false;
 }
 
 /** Pi aborts the running turn with a message like "Request was aborted". */

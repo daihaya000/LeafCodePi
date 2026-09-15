@@ -40,6 +40,8 @@ export type TaskHangWatchRow = {
   permissionMode?: "allow" | "ask" | "deny";
   /** Keep provider-limit recovery prompts hidden across watchdog retries. */
   isProviderFallback?: boolean;
+  /** Keep WebSocket recovery prompts hidden across watchdog retries. */
+  isTransportRecovery?: boolean;
   /**
    * Goal Loop arms hang watches for abort-on-hang, but must not resume via
    * queuePrompt (that would inject routing text as a normal chat turn).
@@ -66,6 +68,7 @@ export type ArmTaskHangWatchInput = {
   startedAt?: number;
   isHangRetry?: boolean;
   isProviderFallback?: boolean;
+  isTransportRecovery?: boolean;
   /** When true, hang abort does not call resumePrompt (Goal Loop turns). */
   skipResume?: boolean;
 };
@@ -89,6 +92,7 @@ export type HangWatchdogHooks = {
       subagentPermission?: "allow" | "deny";
       permissionMode?: "allow" | "ask" | "deny";
       isProviderFallback?: boolean;
+      isTransportRecovery?: boolean;
     },
   ) => void;
   notifyHangRetry: (taskId: string, retryCount: number) => void;
@@ -267,6 +271,7 @@ export function armTaskHangWatch(input: ArmTaskHangWatchInput): void {
     ...(input.subagentPermission ? { subagentPermission: input.subagentPermission } : {}),
     ...(input.permissionMode ? { permissionMode: input.permissionMode } : {}),
     ...(input.isProviderFallback ? { isProviderFallback: true } : {}),
+    ...(input.isTransportRecovery ? { isTransportRecovery: true } : {}),
     ...(input.skipResume ? { skipResume: true } : {}),
     resumeAllowed,
     startedAt,
@@ -398,6 +403,7 @@ async function resolveHang(row: TaskHangWatchRow): Promise<void> {
     ...(row.subagentPermission ? { subagentPermission: row.subagentPermission } : {}),
     ...(row.permissionMode ? { permissionMode: row.permissionMode } : {}),
     ...(row.isProviderFallback ? { isProviderFallback: true } : {}),
+    ...(row.isTransportRecovery ? { isTransportRecovery: true } : {}),
   });
   hooks.notifyHangRetry(row.taskId, row.retryUsed);
   logWatchdog(`resumed the request with ${resumeMode} mode (retry #${row.retryUsed})`, row);

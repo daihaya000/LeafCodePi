@@ -9,6 +9,7 @@ import {
   buildPromptOptions,
   clearSessionQueue,
   isReasoningMandatoryError,
+  isWebSocketTransportError,
   isStaleHarnessPrompt,
   nextPromptEpoch,
   reasoningFallbackLevel,
@@ -428,6 +429,25 @@ describe("applyToolOutput", () => {
       { type: "tool" }
     >;
     assert.equal(output.state.output, "final");
+  });
+});
+
+describe("WebSocket transport recovery", () => {
+  it("recognizes provider WebSocket errors without matching ordinary failures", () => {
+    assert.equal(isWebSocketTransportError("WebSocket error"), true);
+    assert.equal(isWebSocketTransportError("WebSocketError"), true);
+    assert.equal(
+      isWebSocketTransportError(Object.assign(new Error("closed"), { name: "WebSocketError" })),
+      true,
+    );
+    assert.equal(
+      isWebSocketTransportError({
+        errorMessage: "fetch failed",
+        diagnostics: [{ type: "provider_transport_failure", error: { message: "fetch failed" } }],
+      }),
+      true,
+    );
+    assert.equal(isWebSocketTransportError("fetch failed"), false);
   });
 });
 

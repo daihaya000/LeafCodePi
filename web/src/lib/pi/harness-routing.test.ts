@@ -558,6 +558,63 @@ describe("integrated session routing", () => {
     expect(fakePi.sessions[0]?.transport).toBe("sse");
   });
 
+  it("switches a WebSocket retry to SSE before the SDK continuation", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "leafcode-pi-websocket-retry-"));
+    tempDirs.push(dir);
+    process.env.LEAFCODE_PI_DATA_DIR = dir;
+    process.env.PI_CODING_AGENT_DIR = join(dir, "agent");
+    __resetPiAgentDirCacheForTests();
+    installHarness(new Map());
+
+    const project = upsertProject({ name: "demo", rootPath: dir });
+    const task = await createTask({ projectId: project.id, prompt: "初回" });
+    await waitFor(() => getTask(task.id)?.status === "idle");
+
+    fakePi.sessions[0]?.emit?.({
+      type: "agent_end",
+      willRetry: true,
+      messages: [{ role: "assistant", errorMessage: "WebSocket error" }],
+    });
+
+    expect(fakePi.sessions[0]?.transport).toBe("sse");
+  });
+
+  it("restarts a terminal WebSocket error with a hidden SSE continuation", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "leafcode-pi-websocket-recovery-"));
+    tempDirs.push(dir);
+    process.env.LEAFCODE_PI_DATA_DIR = dir;
+    process.env.PI_CODING_AGENT_DIR = join(dir, "agent");
+    __resetPiAgentDirCacheForTests();
+    installHarness(new Map());
+
+    const project = upsertProject({ name: "demo", rootPath: dir });
+    const task = await createTask({ projectId: project.id, prompt: "初回" });
+    await waitFor(() => getTask(task.id)?.status === "idle");
+
+    fakePi.sessions[0]?.emit?.({
+      type: "agent_end",
+      willRetry: false,
+      messages: [{
+        role: "assistant",
+        errorMessage: "fetch failed",
+        diagnostics: [{ type: "provider_transport_failure", error: { message: "fetch failed" } }],
+      }],
+    });
+    fakePi.sessions[0]?.emit?.({ type: "agent_settled" });
+
+    await waitFor(() => fakePi.sessions[0]?.customMessages.length === 1);
+    expect(fakePi.sessions[0]?.transport).toBe("sse");
+    expect(fakePi.sessions[0]?.customMessages[0]).toMatchObject({
+      customType: "leafcode-pi.provider-transport-recovery",
+      content: expect.stringContaining("Continue the pending request"),
+      display: false,
+    });
+
+    fakePi.sessions[0]?.emit?.({ type: "agent_settled" });
+    await waitFor(() => getTask(task.id)?.status === "idle");
+    disarmTaskHangWatch(task.id);
+  });
+
   it("retries Goal Loop prepare while another prompt is already active", async () => {
     const dir = mkdtempSync(join(tmpdir(), "leafcode-pi-goal-loop-busy-"));
     tempDirs.push(dir);
