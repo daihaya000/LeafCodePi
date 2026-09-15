@@ -1136,7 +1136,7 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
         ) : (
           <>
             {providerAccounts.length > 0 && (
-              <ul className="mt-2 divide-y divide-border overflow-hidden rounded-xl bg-surface-2">
+              <ul className="mt-2 space-y-2 rounded-xl bg-surface-2 p-2">
                 {providerAccounts.map((account, accountIndex) => {
                   const cookieConfigured =
                     providerId === "ollama-cloud"
@@ -1203,7 +1203,7 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
                         setDragOverAccountId(null);
                       }}
                       className={cx(
-                        "px-3 py-2",
+                        "rounded-xl border border-border bg-surface px-3 py-2 shadow-sm",
                         draggingAccountId === account.id && "opacity-50",
                         dragOverAccountId === account.id &&
                           draggingAccountId !== account.id &&
