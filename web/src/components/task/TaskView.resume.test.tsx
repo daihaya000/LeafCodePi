@@ -8,7 +8,9 @@ const mocks = vi.hoisted(() => ({ getJson: vi.fn(), sendJson: vi.fn() }));
 vi.mock("@/lib/client", () => mocks);
 vi.mock("@/components/shell/MobileMenuHeader", () => ({ MobileMenuButton: () => null }));
 vi.mock("@/components/task/PartView", () => ({
-  PartView: () => null,
+  PartView: ({ message }: { message?: { parts?: { text?: string }[] } }) => <>
+    {message?.parts?.map((part) => part.text).join("")}
+  </>,
   MessageMetaHeader: () => null,
   WorkingRow: () => null,
 }));
@@ -89,6 +91,8 @@ describe("TaskView resume payload", () => {
         resume: true,
       }),
     ));
+    // SSE の最初の snapshot が遅れても、再開操作はタイムライン上で即座に見える。
+    expect(screen.getByText("続けて")).toBeTruthy();
   });
 
   it("does not let a stale history request unlock a newer page load", async () => {

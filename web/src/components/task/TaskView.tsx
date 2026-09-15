@@ -2670,13 +2670,25 @@ export const TaskView = memo(function TaskView({
     setResumeTurnError(null);
     setResumingTurn(true);
     stickRef.current = true;
+    const resumeMode = readAutoResumeMode();
+    const resumedPrompt = autoResumePrompt(resumeMode, target.text);
+    const optimisticId = `optimistic:${taskId}:${nextOptimisticMessageIdRef.current++}`;
+    const optimisticMessage: UiMessage = {
+      id: optimisticId,
+      role: "user",
+      createdAt: Date.now(),
+      parts: [{ id: `${optimisticId}:text`, type: "text", text: resumedPrompt }],
+    };
+    setPendingUserMessage({
+      message: optimisticMessage,
+      baselineUserCount: messages.filter((message) => message.role === "user").length,
+    });
     try {
-      const resumeMode = readAutoResumeMode();
       const resumedAttachments = shouldAttachResumeImages(resumeMode, target.text, target.files.length)
         ? composerPromptAttachments(target.files)
         : { images: [], files: [] };
-      await sendJson(`/api/tasks/${taskId}/prompt`, {
-        prompt: autoResumePrompt(resumeMode, target.text),
+      const result = await sendJson<{ task: TaskSummary }>(`/api/tasks/${taskId}/prompt`, {
+        prompt: resumedPrompt,
         images: resumedAttachments.images,
         files: resumedAttachments.files,
         resume: true,
@@ -2689,10 +2701,14 @@ export const TaskView = memo(function TaskView({
           : {}),
         subagentPermission,
       });
+      setTask((current) => (current ? { ...current, ...result.task } : current));
       setManualAbortedAssistantId(null);
       notifyTasksChanged();
       return true;
     } catch (err) {
+      setPendingUserMessage((current) =>
+        current?.message.id === optimisticId ? null : current,
+      );
       if (manual && wasStopped) {
         stopRequestedRef.current = true;
         setStopRequested(true);
