@@ -93,6 +93,23 @@ it("keeps the Bot control visible but disabled until an unassigned Code task sta
   expect(selector.closest('[aria-label="タスク操作"]')).toBeNull();
 });
 
+it("lets the user release a delegated Code task before its Bot details load", async () => {
+  const delegatedTask = { ...task, kind: "code" as const, supervisorBotId: "bot-1" };
+  saveTaskSessionCache({ task: delegatedTask, messages: [], isStreaming: false, isCompacting: false });
+  mocks.sendJson.mockResolvedValue({ task: { ...delegatedTask, supervisorBotId: null } });
+  render(<TaskView taskId={task.id} mdUp />);
+
+  const selector = await screen.findByRole("combobox", { name: "Codeタスクを監督するBot" });
+  expect((selector as HTMLSelectElement).disabled).toBe(false);
+  expect(screen.getByRole("option", { name: "委任を解除（ユーザー所有）" })).toBeTruthy();
+  fireEvent.change(selector, { target: { value: "__user_ownership__" } });
+  await waitFor(() => expect(mocks.sendJson).toHaveBeenCalledWith(
+    `/api/tasks/${task.id}/supervisor`,
+    { botId: null },
+    "POST",
+  ));
+});
+
 it("lets the user release a delegated Code task to user ownership", async () => {
   const activeTask = { ...task, kind: "code" as const, status: "working" as const, supervisorBotId: "bot-1" };
   saveTaskSessionCache({ task: activeTask, messages: [], isStreaming: true, isCompacting: false });

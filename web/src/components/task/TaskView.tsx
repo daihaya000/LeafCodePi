@@ -2993,8 +2993,9 @@ export const TaskView = memo(function TaskView({
       !task.botId &&
       !archived,
   );
+  const hasSupervisor = Boolean(task?.supervisorBotId);
   const hasEligibleSupervisorBot = supervisorBots.some((bot) => bot.enabled && bot.permissionMode !== "deny");
-  const supervisorControlDisabled = supervisorBusy || (!supervisor && (!working || !hasEligibleSupervisorBot));
+  const supervisorControlDisabled = supervisorBusy || (!hasSupervisor && (!working || !hasEligibleSupervisorBot));
   const mobilePanelOpen = !mdUp && (graphOpen || diffOpen);
 
   return (
@@ -3107,7 +3108,7 @@ export const TaskView = memo(function TaskView({
           )}
           {canManageSupervisor && (
             <label
-              title={supervisor ? `監督: ${supervisor.name}` : working ? "Botへ引き継ぐ" : "タスク実行中にBotへ引き継げます"}
+              title={supervisor ? `監督: ${supervisor.name}` : hasSupervisor ? "委任を解除" : working ? "Botへ引き継ぐ" : "タスク実行中にBotへ引き継げます"}
               className={cx(
                 "relative flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-muted hover:bg-surface-2 hover:text-text focus-within:ring-2 focus-within:ring-accent @min-[48rem]/task:h-9 @min-[48rem]/task:w-9",
                 supervisorControlDisabled && "cursor-not-allowed opacity-40",
@@ -3127,8 +3128,8 @@ export const TaskView = memo(function TaskView({
                 }}
                 className="absolute inset-0 h-full w-full cursor-pointer opacity-0 disabled:cursor-not-allowed"
               >
-                <option value="">{supervisor ? "委任を解除…" : "Botへ引き継ぐ…"}</option>
-                {supervisor ? (
+                <option value="">{hasSupervisor ? "委任を解除…" : "Botへ引き継ぐ…"}</option>
+                {hasSupervisor ? (
                   <option value={USER_OWNERSHIP_OPTION}>委任を解除（ユーザー所有）</option>
                 ) : supervisorBots.filter((bot) => bot.enabled && bot.permissionMode !== "deny").map((bot) => (
                   <option key={bot.id} value={bot.id}>{bot.name}</option>
