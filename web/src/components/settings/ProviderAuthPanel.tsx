@@ -152,6 +152,60 @@ function resetCreditKey(provider: CodexBarProvider): string {
   );
 }
 
+const RESET_CREDIT_DAY_MS = 24 * 60 * 60 * 1000;
+
+function earliestResetExpiry(
+  credits: readonly Pick<ResetCreditDto, "expiresAt">[],
+): string | null {
+  let earliest: { expiresAt: string; timestamp: number } | null = null;
+  for (const credit of credits) {
+    if (!credit.expiresAt) continue;
+    const timestamp = Date.parse(credit.expiresAt);
+    if (!Number.isFinite(timestamp)) continue;
+    if (!earliest || timestamp < earliest.timestamp) {
+      earliest = { expiresAt: credit.expiresAt, timestamp };
+    }
+  }
+  return earliest?.expiresAt ?? null;
+}
+
+function formatResetCreditRemainingDays(expiresAt: string | null): string | null {
+  if (!expiresAt) return null;
+  const remainingDays = Math.ceil(
+    (Date.parse(expiresAt) - Date.now()) / RESET_CREDIT_DAY_MS,
+  );
+  if (!Number.isFinite(remainingDays)) return null;
+  return remainingDays > 0
+    ? `最短期限まであと${remainingDays}日`
+    : "最短期限が切れています";
+}
+
+function ResetCreditExpiry({ accountId }: { accountId?: string | null }) {
+  const [expiresAt, setExpiresAt] = useState<string | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    void getJson<ResetCreditsListResponse>(
+      "/api/codexbar/reset-credits",
+      accountId ? { accountId } : undefined,
+    )
+      .then((result) => {
+        if (active) setExpiresAt(earliestResetExpiry(result.credits ?? []));
+      })
+      .catch(() => {
+        if (active) setExpiresAt(null);
+      });
+    return () => {
+      active = false;
+    };
+  }, [accountId]);
+
+  const remainingDays = formatResetCreditRemainingDays(expiresAt);
+  return remainingDays ? (
+    <p className="text-xs text-muted">リセット権: {remainingDays}</p>
+  ) : null;
+}
+
 function ResetCreditsControl({
   provider,
   busy,
@@ -182,6 +236,7 @@ function ResetCreditsControl({
           {busy ? "処理中…" : "使う"}
         </Button>
       </div>
+      <ResetCreditExpiry accountId={provider.accountId} />
       {status && (
         <p role="status" className="text-xs text-muted">
           {status}

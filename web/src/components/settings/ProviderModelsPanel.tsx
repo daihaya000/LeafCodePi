@@ -53,25 +53,43 @@ function formatResetCreditRemainingDays(expiresAt: string | null): string | null
     : "最短期限が切れています";
 }
 
-function ResetCreditExpiry({ accountId }: { accountId?: string }) {
+function ResetCreditExpiry({
+  accountId,
+  accountIds,
+}: {
+  accountId?: string;
+  accountIds?: readonly string[];
+}) {
   const [expiresAt, setExpiresAt] = useState<string | null>(null);
 
   useEffect(() => {
+    const requestParams = accountIds
+      ? [...new Set(accountIds)].map((id) => ({ accountId: id }))
+      : [accountId ? { accountId } : undefined];
+    if (requestParams.length === 0) {
+      setExpiresAt(null);
+      return;
+    }
+
     let active = true;
-    void getJson<ResetCreditsListResponse>(
-      "/api/codexbar/reset-credits",
-      accountId ? { accountId } : undefined,
-    )
-      .then((result) => {
-        if (active) setExpiresAt(earliestResetExpiry(result.credits ?? []));
-      })
-      .catch(() => {
-        if (active) setExpiresAt(null);
-      });
+    void Promise.allSettled(
+      requestParams.map((params) =>
+        getJson<ResetCreditsListResponse>(
+          "/api/codexbar/reset-credits",
+          params,
+        ),
+      ),
+    ).then((results) => {
+      if (!active) return;
+      const credits = results.flatMap((result) =>
+        result.status === "fulfilled" ? result.value.credits ?? [] : [],
+      );
+      setExpiresAt(earliestResetExpiry(credits));
+    });
     return () => {
       active = false;
     };
-  }, [accountId]);
+  }, [accountId, accountIds]);
 
   const remainingDays = formatResetCreditRemainingDays(expiresAt);
   return remainingDays ? (
@@ -240,7 +258,10 @@ function ProviderRow({
             </Badge>
           </div>
           {provider.id === "openai-codex" && (
-            <ResetCreditExpiry accountId={provider.accountId} />
+            <ResetCreditExpiry
+              accountId={provider.accountId}
+              accountIds={provider.accountIds}
+            />
           )}
         </div>
         <Switch

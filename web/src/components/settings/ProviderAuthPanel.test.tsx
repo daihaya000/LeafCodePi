@@ -431,6 +431,7 @@ describe("ProviderAuthPanel provider-scoped accounts", () => {
   });
 
   it("shows and uses Codex reset credits from the CodexBar usage snapshot", async () => {
+    const soon = new Date(Date.now() + 2 * 24 * 60 * 60 * 1000).toISOString();
     fetchMock.mockImplementation(
       (input: RequestInfo | URL, init?: RequestInit) => {
         const url = String(input);
@@ -461,7 +462,7 @@ describe("ProviderAuthPanel provider-scoped accounts", () => {
                 {
                   id: "credit-1",
                   title: "使用量リセット",
-                  expiresAt: null,
+                  expiresAt: soon,
                 },
               ],
             }),
@@ -486,6 +487,9 @@ describe("ProviderAuthPanel provider-scoped accounts", () => {
     expect(resetCredits.parentElement?.textContent).toContain("2");
     expect(screen.getByText("使用量")).toBeTruthy();
     expect(screen.getByText("80%")).toBeTruthy();
+    expect(
+      await screen.findByText("リセット権: 最短期限まであと2日"),
+    ).toBeTruthy();
     const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
     fireEvent.click(
       screen.getByRole("button", {

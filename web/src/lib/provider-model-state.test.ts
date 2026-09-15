@@ -286,6 +286,7 @@ describe("buildProviderModelsCatalog", () => {
       id: "openai-codex",
       name: "OpenAI Codex",
       enabled: true,
+      accountIds: ["acc-2", "acc-1"],
       models: [
         { id: "gpt-5", name: "GPT-5", enabled: true },
         { id: "gpt-3", name: "GPT-3", enabled: false },

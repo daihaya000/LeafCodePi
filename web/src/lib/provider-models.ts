@@ -29,6 +29,8 @@ export type ProviderModelsRow = {
   /** 設定対象のログインアカウント。未指定は共有プロバイダ設定。 */
   accountId?: string;
   accountLabel?: string;
+  /** 統合行に含まれるログインアカウント。 */
+  accountIds?: string[];
 };
 
 type RuntimeModel = { id: string; name?: string; provider?: string };
@@ -143,11 +145,17 @@ export function mergeIntegratedProviderRows(
       }
     }
   }
+  const accountIds = [
+    ...new Set(
+      orderedRows.flatMap((row) => (row.accountId ? [row.accountId] : [])),
+    ),
+  ];
   return {
     id: first.id,
     name: first.name,
     enabled: orderedRows.some((row) => row.enabled),
     models: [...models.values()],
+    ...(accountIds.length > 0 ? { accountIds } : {}),
   };
 }
 
