@@ -3,6 +3,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-libra
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { saveTaskSessionCache } from "@/lib/task-session-cache";
 import type { ModelOption, TaskSummary, UiMessage } from "@/lib/types";
+import { COMPACTION_ACTION_SETTING_KEY } from "@/lib/compaction-settings";
 
 const mocks = vi.hoisted(() => ({ getJson: vi.fn(), sendJson: vi.fn(), apiUrl: (path: string) => path, partView: vi.fn(), toolCard: vi.fn(), messageMetaHeader: vi.fn(), botFor: vi.fn() }));
 vi.mock("@/lib/client", () => mocks);
@@ -30,7 +31,13 @@ beforeEach(() => {
   mocks.messageMetaHeader.mockReturnValue(null);
   mocks.botFor.mockReset();
   vi.stubGlobal("EventSource", class extends EventTarget { close() {} });
-  mocks.getJson.mockResolvedValue({ models: [], agents: [], skills: [], accounts: [] });
+  mocks.getJson.mockImplementation((path: string) =>
+    path === `/api/settings/${COMPACTION_ACTION_SETTING_KEY}`
+      ? Promise.resolve({ value: "suggest" })
+      : path === "/api/settings/tts"
+        ? Promise.resolve({ enabled: true })
+        : Promise.resolve({ models: [], agents: [], skills: [], accounts: [] }),
+  );
   saveTaskSessionCache({ task, messages: [], isStreaming: false, isCompacting: false });
 });
 afterEach(() => {
@@ -619,11 +626,37 @@ describe("TaskView draft submission", () => {
     });
     render(<TaskView taskId={task.id} mdUp />);
 
-    fireEvent.click(screen.getByRole("button", { name: "コンテキスト圧縮" }));
+    fireEvent.click(await screen.findByRole("button", { name: "コンテキスト圧縮" }));
 
     await waitFor(() => expect(mocks.sendJson).toHaveBeenCalledWith(
       `/api/tasks/${task.id}/compact`, {}, "POST", { timeoutMs: 240_000 },
     ));
+  });
+
+  it("hides the manual context compaction control for auto-compaction", async () => {
+    mocks.getJson.mockImplementation((path: string) =>
+      path === `/api/settings/${COMPACTION_ACTION_SETTING_KEY}`
+        ? Promise.resolve({ value: "auto" })
+        : Promise.resolve({ models: [], agents: [], skills: [], accounts: [] }),
+    );
+    render(<TaskView taskId={task.id} mdUp />);
+
+    await waitFor(() => expect(mocks.getJson).toHaveBeenCalledWith(
+      `/api/settings/${COMPACTION_ACTION_SETTING_KEY}`,
+    ));
+    expect(screen.queryByRole("button", { name: "コンテキスト圧縮" })).toBeNull();
+  });
+
+  it("hides the read-aloud toggle when global TTS is disabled", async () => {
+    mocks.getJson.mockImplementation((path: string) =>
+      path === "/api/settings/tts"
+        ? Promise.resolve({ enabled: false })
+        : Promise.resolve({ models: [], agents: [], skills: [], accounts: [] }),
+    );
+    render(<TaskView taskId={task.id} mdUp />);
+
+    await waitFor(() => expect(mocks.getJson).toHaveBeenCalledWith("/api/settings/tts"));
+    expect(screen.queryByRole("switch", { name: "読み上げ" })).toBeNull();
   });
 
   it("clears isCompacting when the compaction request fails", async () => {
@@ -631,7 +664,7 @@ describe("TaskView draft submission", () => {
     mocks.sendJson.mockRejectedValue(new Error("compact failed"));
     render(<TaskView taskId={task.id} mdUp />);
 
-    fireEvent.click(screen.getByRole("button", { name: "コンテキスト圧縮" }));
+    fireEvent.click(await screen.findByRole("button", { name: "コンテキスト圧縮" }));
 
     await waitFor(() => {
       expect(mocks.sendJson).toHaveBeenCalledWith(
@@ -666,7 +699,7 @@ describe("TaskView draft submission", () => {
     });
     render(<TaskView taskId={task.id} mdUp />);
 
-    fireEvent.click(screen.getByRole("button", { name: "コンテキスト圧縮" }));
+    fireEvent.click(await screen.findByRole("button", { name: "コンテキスト圧縮" }));
     await waitFor(() => {
       expect(screen.getByText(/コンテキストを圧縮しています/)).toBeTruthy();
     });
@@ -697,7 +730,7 @@ describe("TaskView draft submission", () => {
     });
     render(<TaskView taskId={task.id} mdUp />);
 
-    fireEvent.click(screen.getByRole("button", { name: "コンテキスト圧縮" }));
+    fireEvent.click(await screen.findByRole("button", { name: "コンテキスト圧縮" }));
     await waitFor(() => {
       expect(screen.getByText(/コンテキストを圧縮しています/)).toBeTruthy();
     });
@@ -744,6 +777,17 @@ describe("TaskView draft submission", () => {
       expect(screen.getByText(/task gone/)).toBeTruthy();
     });
     expect(screen.queryByText(/セッションを準備しています/)).toBeNull();
+  });
+
+  it("places the read-aloud toggle immediately to the right of the Bot control", async () => {
+    const delegatedTask = { ...task, kind: "code" as const, status: "working" as const, supervisorBotId: "bot-1" };
+    saveTaskSessionCache({ task: delegatedTask, messages: [], isStreaming: true, isCompacting: false });
+    mocks.botFor.mockImplementation((id) => id === "bot-1" ? { id, name: "監督Bot" } : undefined);
+    render(<TaskView taskId={task.id} mdUp />);
+
+    const selector = await screen.findByRole("combobox", { name: "Codeタスクを監督するBot" });
+    const tts = screen.getByRole("switch", { name: "読み上げ" });
+    expect(tts.previousElementSibling).toBe(selector.closest("label"));
   });
 
   it("shows and applies a context compaction suggestion", async () => {

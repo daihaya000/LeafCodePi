@@ -88,6 +88,11 @@ import {
   type AutoTaskRecord,
 } from "@/lib/auto-task-record";
 import { formatTokens, type ContextUsageDto } from "@/lib/context-usage";
+import {
+  COMPACTION_ACTION_SETTING_KEY,
+  parseCompactionAction,
+  type CompactionAction,
+} from "@/lib/compaction-settings";
 import { TITLE_MAX_CHARS } from "@/lib/direct-generation-text";
 import {
   DEFAULT_TITLE_AUTO_UPDATE_ENABLED,
@@ -755,7 +760,21 @@ export const TaskView = memo(function TaskView({
   // ponytail: キー共有だけで連携は済む。別管理に戻すときはこの1行を taskId に戻す。
   const ttsKey = task?.botId ?? taskId;
   const [ttsEnabled, setTtsEnabled] = useState(() => readTaskTtsEnabled(task?.botId ?? taskId));
+  const [ttsGlobalEnabled, setTtsGlobalEnabled] = useState(false);
   const [ttsError, setTtsError] = useState<string | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    getJson<{ enabled?: boolean }>("/api/settings/tts")
+      .then((result) => {
+        if (!cancelled) setTtsGlobalEnabled(result.enabled === true);
+      })
+      .catch(() => {
+        // 未取得時は既定の OFF のままボタンを表示しない。
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
   useEffect(() => {
     const enabled = readTaskTtsEnabled(ttsKey);
     setTtsEnabled(enabled);
@@ -811,6 +830,7 @@ export const TaskView = memo(function TaskView({
   const [compactionSuggested, setCompactionSuggested] = useState(
     () => Boolean((cachedSession as TaskDetailWithCompactionSuggestion | null)?.compactionSuggested),
   );
+  const [compactionAction, setCompactionAction] = useState<CompactionAction>("auto");
   const [isCompacting, setIsCompacting] = useState(Boolean(cachedSession?.isCompacting));
   const [compactingLocal, setCompactingLocal] = useState(false);
   const [revertConfirmOpen, setRevertConfirmOpen] = useState(false);
@@ -886,6 +906,19 @@ export const TaskView = memo(function TaskView({
   );
   const [agentChanging, setAgentChanging] = useState(false);
   const [accountLabels, setAccountLabels] = useState<Map<string, string>>(new Map());
+  useEffect(() => {
+    let cancelled = false;
+    getJson<{ value: string | null }>(`/api/settings/${COMPACTION_ACTION_SETTING_KEY}`)
+      .then(({ value }) => {
+        if (!cancelled) setCompactionAction(parseCompactionAction(value));
+      })
+      .catch(() => {
+        // 既定値の auto のまま、手動圧縮ボタンは表示しない。
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
   useEffect(() => {
     let cancelled = false;
     getJson<{ accounts: { id: string; label: string }[] }>("/api/accounts")
@@ -3179,35 +3212,41 @@ export const TaskView = memo(function TaskView({
               </select>
             </label>
           )}
+          {ttsGlobalEnabled && (
+            <>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={ttsEnabled}
+                aria-label="読み上げ"
+                title={ttsEnabled ? "読み上げ: ON" : "読み上げ: OFF"}
+                onClick={toggleTts}
+                className={`inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-lg @min-[48rem]/task:h-9 @min-[48rem]/task:w-9 ${ttsEnabled ? "text-accent" : "text-muted"} hover:bg-surface-2 hover:text-text`}
+              >
+                {ttsEnabled ? <Volume2 className="h-4 w-4" /> : <VolumeX className="h-4 w-4" />}
+              </button>
+              {ttsError && <span role="alert" title={ttsError} className="max-w-24 shrink-0 truncate text-[11px] text-danger @min-[48rem]/task:max-w-40">{ttsError}</span>}
+            </>
+          )}
           <ProjectExplorerButton
             projectId={task?.projectId}
             taskId={task?.id}
             onError={setError}
           />
-          <Button
-            variant="ghost"
-            size="icon"
-            title="コンテキスト圧縮"
-            aria-label="コンテキスト圧縮"
-            busy={compacting}
-            disabled={!task || working || compacting || archived}
-            className="h-11 w-11 @min-[48rem]/task:h-9 @min-[48rem]/task:w-9"
-            onClick={() => void compact()}
-          >
-            {!compacting && <Shrink className="h-4 w-4" />}
-          </Button>
-          {ttsError && <span role="alert" title={ttsError} className="max-w-24 shrink-0 truncate text-[11px] text-danger @min-[48rem]/task:max-w-40">{ttsError}</span>}
-          <button
-            type="button"
-            role="switch"
-            aria-checked={ttsEnabled}
-            aria-label="読み上げ"
-            title={ttsEnabled ? "読み上げ: ON" : "読み上げ: OFF"}
-            onClick={toggleTts}
-            className={`inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-lg @min-[48rem]/task:h-9 @min-[48rem]/task:w-9 ${ttsEnabled ? "text-accent" : "text-muted"} hover:bg-surface-2 hover:text-text`}
-          >
-            {ttsEnabled ? <Volume2 className="h-4 w-4" /> : <VolumeX className="h-4 w-4" />}
-          </button>
+          {compactionAction !== "auto" && (
+            <Button
+              variant="ghost"
+              size="icon"
+              title="コンテキスト圧縮"
+              aria-label="コンテキスト圧縮"
+              busy={compacting}
+              disabled={!task || working || compacting || archived}
+              className="h-11 w-11 @min-[48rem]/task:h-9 @min-[48rem]/task:w-9"
+              onClick={() => void compact()}
+            >
+              {!compacting && <Shrink className="h-4 w-4" />}
+            </Button>
+          )}
           <Button
             variant="ghost"
             size="icon"
