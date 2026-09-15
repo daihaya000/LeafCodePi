@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("@/lib/pi/harness", () => mocks);
 
+import { MAX_PROMPT_TEXT_CHARS } from "@/lib/prompt-images";
 import { POST } from "./route";
 
 function request(body: unknown): NextRequest {
@@ -35,5 +36,25 @@ describe("POST /api/tasks/[id]/compact", () => {
 
     expect(response.status).toBe(400);
     expect(mocks.compactTask).not.toHaveBeenCalled();
+  });
+
+  it("rejects oversized custom instructions before compacting", async () => {
+    const response = await POST(
+      request({ customInstructions: "x".repeat(MAX_PROMPT_TEXT_CHARS + 1) }),
+      { params: Promise.resolve({ id: "task-1" }) },
+    );
+
+    expect(response.status).toBe(413);
+    expect(mocks.compactTask).not.toHaveBeenCalled();
+  });
+
+  it("accepts custom instructions at the size limit", async () => {
+    const response = await POST(
+      request({ customInstructions: "x".repeat(MAX_PROMPT_TEXT_CHARS) }),
+      { params: Promise.resolve({ id: "task-1" }) },
+    );
+
+    expect(response.status).toBe(200);
+    expect(mocks.compactTask).toHaveBeenCalledWith("task-1", "x".repeat(MAX_PROMPT_TEXT_CHARS));
   });
 });
