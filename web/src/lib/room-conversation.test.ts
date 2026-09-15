@@ -186,7 +186,7 @@ describe("shared room context", () => {
     ]);
     const prompt = roomBotPrompt(current, bots[0], bots, user.text, user.id, { participants: bots, turn: 6, maxTurns: 6 });
     const history = transcriptOf(prompt);
-    expect(JSON.stringify(history).length).toBeLessThanOrEqual(24_000);
+    expect(JSON.stringify(history).length).toBeLessThanOrEqual(16_000);
     // The newest failure is kept as a one-line note; anything that no longer fits the budget is dropped.
     expect(history.at(-1)).toMatchObject({ speaker: "system" });
     expect(history.at(-1)?.text).toContain("failed output");
@@ -197,7 +197,7 @@ describe("shared room context", () => {
   it("truncates an oversized latest reply instead of dropping the whole history", () => {
     const current = room([user, { id: "huge", role: "assistant", botId: "b", text: "新しい意見🌿".repeat(20_000), status: "done", createdAt: 2 }]);
     const history = transcriptOf(roomBotPrompt(current, bots[0], bots, user.text, user.id, { participants: bots, turn: 2, maxTurns: 4 }));
-    expect(JSON.stringify(history).length).toBeLessThanOrEqual(24_000);
+    expect(JSON.stringify(history).length).toBeLessThanOrEqual(16_000);
     expect(history.at(-1)).toMatchObject({ speaker: "bot", botId: "b", truncated: true });
     expect(history.at(-1)?.text).toContain("新しい意見");
   });

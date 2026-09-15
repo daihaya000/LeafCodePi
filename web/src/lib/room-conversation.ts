@@ -4,7 +4,7 @@ export const ROOM_SYSTEM_PROMPT = "This session is a shared Bot Room, not a one-
 export const MAX_ROOM_CONVERSATION_TURNS = 8;
 /** Group chats stay legible with a handful of voices; extra members still read the room and can be mentioned. */
 export const MAX_ROOM_CONVERSATION_PARTICIPANTS = 6;
-const HISTORY_BUDGET = 24_000;
+const HISTORY_BUDGET = 16_000;
 /** Every conversation turn receives the request, so keep the repeated payload small. */
 export const MAX_ROOM_REQUEST_CHARS = 8_000;
 export type RoomTurn = { participants: BotDto[]; turn: number; maxTurns: number; handoff?: { fromBotName: string; task: string } };
