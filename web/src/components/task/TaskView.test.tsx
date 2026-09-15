@@ -398,13 +398,13 @@ it("groups consecutive tool-only messages between agent responses", () => {
   // 最初の開始(2.0s)から最後の終了(5.0s)までの経過時間。所要時間の合計(2s)ではない。
   expect(group!.querySelector("summary")?.textContent).toContain("3s");
   expect(group!.querySelectorAll("[data-task-tool-card]")).toHaveLength(2);
-  // 作業ログを開いたとき、先頭を含む各メッセージのメタ行を枠内に表示する。
-  expect(group!.previousElementSibling?.querySelector("[data-task-meta]")).toBeUndefined();
+  // 先頭のメタ行は閉じた状態でも見せ、展開内容にも各メッセージのメタ行を残す。
+  expect(group!.previousElementSibling?.querySelector("[data-task-meta]")?.getAttribute("data-task-meta")).toBe("tool-1");
   expect([...group!.querySelectorAll("[data-task-meta]")].map((node) => node.getAttribute("data-task-meta"))).toEqual([
     "tool-1",
     "tool-2",
   ]);
-  expect(document.querySelectorAll("[data-task-meta]")).toHaveLength(2);
+  expect(document.querySelectorAll("[data-task-meta]")).toHaveLength(3);
   fireEvent.click(group!.querySelector("summary")!);
   expect(group!.open).toBe(true);
 });

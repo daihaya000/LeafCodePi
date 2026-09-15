@@ -830,7 +830,7 @@ it("applies streaming deltas without waiting for a full snapshot", async () => {
   expect(screen.queryByText("途中")).toBeNull();
 });
 
-it("keeps the first tool header inside the log frame and puts a mixed reply after the log", async () => {
+it("keeps the first tool header above and inside the log, and puts a mixed reply after it", async () => {
   const { container } = render(<ShellProvider><BotView id="one" /></ShellProvider>);
   await screen.findByRole("button", { name: "設定" });
   const toolMessage = (id: string) => ({ id, role: "assistant", createdAt: 1, parts: [{ id: `${id}-tool`, type: "tool", tool: "read", callID: id, state: { status: "completed", input: { path: "README.md" }, output: "ok" } }] });
@@ -839,7 +839,7 @@ it("keeps the first tool header inside the log frame and puts a mixed reply afte
   snapshot({ messages: [first, mixed] });
   const log = container.querySelector<HTMLDetailsElement>("[data-bot-tool-group]")!;
   expect(log.querySelectorAll("time")).toHaveLength(2);
-  expect(log.parentElement?.querySelectorAll("time")).toHaveLength(2);
+  expect(log.parentElement?.querySelectorAll("time")).toHaveLength(3);
   expect(container.querySelector(".bot-message-bubble")).toBeNull();
   fireEvent.click(log.querySelector("summary")!);
   delta({ message: { ...mixed, parts: [...mixed.parts, { id: "text", type: "text", text: "Finished reply" }] } });

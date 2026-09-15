@@ -94,5 +94,10 @@ export function ActivityLog({ children, header, count, parts, active, kind }: {
       </div>
     </details>
   );
-  return log;
+  return header ? (
+    <div className="w-full min-w-0 self-start space-y-2">
+      {header}
+      {log}
+    </div>
+  ) : log;
 }
