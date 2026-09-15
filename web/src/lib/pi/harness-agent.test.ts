@@ -41,12 +41,19 @@ type FixtureCustomMessage = { customType: string; content: unknown; display: boo
  */
 type FixtureLive = { taskId: string } & Record<string, unknown>;
 
-/** GLOBAL_KEY へ live/events を入れる単一経路。taskId 必須を型で強制する。 */
+/**
+ * GLOBAL_KEY へ harness state を入れる唯一の経路。live の taskId 必須を型で強制するので、
+ * ここを通さない生代入を追加しないこと（型検査をすり抜けて undefined が混ざる）。
+ */
 function installFixtureHarness(
   live: Map<string, FixtureLive>,
-  events: EventEmitter = new EventEmitter(),
+  options: { events?: EventEmitter; pi?: unknown } = {},
 ): void {
-  (globalThis as Record<string, unknown>)[GLOBAL_KEY] = { live, events };
+  (globalThis as Record<string, unknown>)[GLOBAL_KEY] = {
+    live,
+    events: options.events ?? new EventEmitter(),
+    ...(options.pi === undefined ? {} : { pi: options.pi }),
+  };
 }
 
 function fixture(options: {
@@ -392,7 +399,7 @@ describe("abortTask", () => {
         hangIdleStatus = payload.task?.status;
       }
     });
-    installFixtureHarness(live, events);
+    installFixtureHarness(live, { events });
 
     armTaskHangWatch({ taskId: task.id, prompt: "作業" });
     await abortLiveForHangWatchdog(task.id);
@@ -490,7 +497,7 @@ describe("archiveTask", () => {
     events.on(task.id, (payload: { eventType?: string; task?: { status?: string } }) => {
       if (payload.eventType) emitted.push(payload.eventType);
     });
-    installFixtureHarness(live, events);
+    installFixtureHarness(live, { events });
 
     const archived = await archiveTask(task.id);
     const detail = await getTaskDetail(task.id);
@@ -515,7 +522,7 @@ describe("archiveTask", () => {
     events.on(task.id, (payload: { eventType?: string; task?: { status?: string } }) => {
       emitted.push({ eventType: payload.eventType, status: payload.task?.status });
     });
-    installFixtureHarness(live, events);
+    installFixtureHarness(live, { events });
 
     await archiveTask(task.id);
     const restored = restoreTask(task.id);
@@ -558,9 +565,7 @@ describe("archiveTask", () => {
     patchTask(task.id, { sessionFile, status: "archived" });
     const live = new Map();
     let opened = 0;
-    (globalThis as Record<string, unknown>)[GLOBAL_KEY] = {
-      live,
-      events: new EventEmitter(),
+    installFixtureHarness(live, {
       pi: {
         SessionManager: {
           open: (file: string) => {
@@ -581,7 +586,7 @@ describe("archiveTask", () => {
           },
         },
       },
-    };
+    });
 
     const detail = await getTaskDetail(task.id);
 
@@ -962,22 +967,19 @@ describe("setBotTools", () => {
     const bot = createBot({ name: "Tools idle" });
     const taskId = botTaskId(bot.id);
     let applied: string[] | null = null;
-    (globalThis as Record<string, unknown>)[GLOBAL_KEY] = {
-      live: new Map([[taskId, {
-        taskId,
-        promptActive: false,
-        session: {
-          isStreaming: false,
-          isCompacting: false,
-          getActiveToolNames: () => ["read", "grep", "bash"],
-          setActiveToolsByName: (names: string[]) => {
-            applied = names;
-          },
+    installFixtureHarness(new Map([[taskId, {
+      taskId,
+      promptActive: false,
+      session: {
+        isStreaming: false,
+        isCompacting: false,
+        getActiveToolNames: () => ["read", "grep", "bash"],
+        setActiveToolsByName: (names: string[]) => {
+          applied = names;
         },
-        unsubscribe: () => undefined,
-      }]]),
-      events: new EventEmitter(),
-    };
+      },
+      unsubscribe: () => undefined,
+    }]]));
 
     setBotTools(bot.id, ["read"]);
 
@@ -1000,19 +1002,16 @@ describe("setBotPermissionMode cold Room tasks", () => {
       permissionMode: "allow",
     });
     const primaryId = botTaskId(bot.id);
-    (globalThis as Record<string, unknown>)[GLOBAL_KEY] = {
-      live: new Map([[primaryId, {
-        taskId: primaryId,
-        promptActive: false,
-        session: {
-          isStreaming: false,
-          isCompacting: false,
-          setPermissionMode: () => undefined,
-        },
-        unsubscribe: () => undefined,
-      }]]),
-      events: new EventEmitter(),
-    };
+    installFixtureHarness(new Map([[primaryId, {
+      taskId: primaryId,
+      promptActive: false,
+      session: {
+        isStreaming: false,
+        isCompacting: false,
+        setPermissionMode: () => undefined,
+      },
+      unsubscribe: () => undefined,
+    }]]));
 
     await setBotPermissionMode(bot.id, "ask");
 

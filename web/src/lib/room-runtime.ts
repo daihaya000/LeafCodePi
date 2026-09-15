@@ -215,13 +215,11 @@ function workingTurns(roomId: string): { messageId: string; botId: string; taskI
 
 /**
  * "Stop now" ends the turns being written. Delegated Code keeps running; it has its own control.
+ * 仕様: docs/bot-room-conversations.md（`/stop`・`止めて` の項）を正とする。
  *
- * 停止は**確定**として扱う。placeholder を error/"Stopped by user." で閉じた後、
- * 後から届く本物の応答も runRoomBot の `status !== "working"` ガードで上書きしない。
- * Code委譲の `CodeRequest.stoppedByUser`（停止させた結果を成功として報告しない）と同じ契約で、
- * 「ユーザーが止めた」事実を後続の成功で塗り替えないための不変条件。
- * 送信文言の判定は isRoomStopRequest（"/stop"・"止めて"・"停止" 等）。別の文言なら
- * steer（割り込み転送）になり、作中の応答はそのまま完成するので扱いが違う。
+ * ここで守る実装側の不変条件は 1 つだけ: placeholder を error/"Stopped by user." で閉じたら、
+ * 後から届く本物の応答で上書きしない（実際に阻むのは runRoomBot の `status !== "working"` ガード）。
+ * Code委譲の `CodeRequest.stoppedByUser` と同じ「停止は確定」契約。
  * 回帰テスト: rooms/[id]/prompt/route.test.ts "stops the conversation when a newer user message arrives"。
  */
 export async function stopRoomTurns(roomId: string): Promise<number> {
