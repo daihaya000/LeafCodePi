@@ -182,6 +182,40 @@ describe("RoomView loading", () => {
     expect(screen.queryByRole("heading", { name: "One" })).toBeNull();
     expect(screen.queryByText("old room reply")).toBeNull();
   });
+
+  it("does not let an initial HTTP response overwrite a newer SSE room snapshot", async () => {
+    const staleRoom = { ...room, name: "Stale" };
+    const liveRoom = { ...room, name: "Live" };
+    let resolveRoom!: (result: { room: typeof room }) => void;
+    const roomRequest = new Promise<{ room: typeof room }>((resolve) => { resolveRoom = resolve; });
+    class TestSource {
+      static last: TestSource | undefined;
+      listeners = new Map<string, (event: MessageEvent) => void>();
+      constructor() { TestSource.last = this; }
+      addEventListener(type: string, listener: (event: MessageEvent) => void) { this.listeners.set(type, listener); }
+      close() {}
+    }
+    vi.stubGlobal("EventSource", TestSource);
+    mocks.getJson.mockImplementation((path: string) => {
+      if (path === "/api/bots/rooms/room-1") return roomRequest;
+      if (path === "/api/bots") return Promise.resolve({ bots: [bot] });
+      return Promise.resolve({ room });
+    });
+    render(<RoomView id="room-1" />);
+    await vi.waitFor(() => expect(TestSource.last).toBeTruthy());
+    const snapshot = TestSource.last?.listeners.get("snapshot");
+    if (!snapshot) throw new Error("Room SSE snapshot listener was not registered");
+    await act(async () => {
+      snapshot({ data: JSON.stringify({ room: liveRoom, attention: [] }) } as MessageEvent);
+    });
+    expect(screen.getByRole("heading", { name: "Live" })).toBeTruthy();
+    await act(async () => {
+      resolveRoom({ room: staleRoom });
+      await roomRequest;
+    });
+    expect(screen.getByRole("heading", { name: "Live" })).toBeTruthy();
+    expect(screen.queryByRole("heading", { name: "Stale" })).toBeNull();
+  });
 });
 
 it("reports an SSE transport error while retrying the connection", async () => {

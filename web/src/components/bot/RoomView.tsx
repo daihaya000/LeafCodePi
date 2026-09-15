@@ -123,15 +123,17 @@ export function RoomView({ id, active = true }: { id: string; active?: boolean }
   const promptRef = useRef<HTMLTextAreaElement>(null);
   const router = useRouter();
   const roomRequestContextRef = useRef({ id });
+  const roomSseVersionRef = useRef(0);
   if (roomRequestContextRef.current.id !== id) roomRequestContextRef.current = { id };
 
   const load = useCallback((isCurrent: () => boolean) => {
+    const roomSseVersion = roomSseVersionRef.current;
     return Promise.all([
       getJson<{ room: RoomDto }>(`/api/bots/rooms/${encodeURIComponent(id)}`),
       getJson<{ bots: BotDto[] }>("/api/bots"),
     ])
       .then(([roomResult, botResult]) => {
-        if (!isCurrent()) return;
+        if (!isCurrent() || roomSseVersion !== roomSseVersionRef.current) return;
         setRoom(roomResult.room);
         setBots(botResult.bots);
       })
@@ -233,7 +235,10 @@ export function RoomView({ id, active = true }: { id: string; active?: boolean }
         try {
           const payload = JSON.parse((event as MessageEvent).data) as { room?: RoomDto; attention?: RoomAttention[] };
           setSseError(null);
-          if (payload.room) setRoom((current) => applyRoomSnapshot(current, payload.room!));
+          if (payload.room) {
+            roomSseVersionRef.current += 1;
+            setRoom((current) => applyRoomSnapshot(current, payload.room!));
+          }
           setAttention((current) => {
             const next = applyClearedRoomAttention(
               payload.attention ?? [],
