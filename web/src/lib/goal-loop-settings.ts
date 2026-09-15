@@ -3,6 +3,16 @@ export const DEFAULT_GOAL_LOOP_MAX_TURNS = 10;
 export const MAX_GOAL_LOOP_TURNS = 100;
 export const DEFAULT_GOAL_LOOP_COOLDOWN_SECONDS = 0;
 export const MAX_GOAL_LOOP_COOLDOWN_SECONDS = 24 * 60 * 60;
+/**
+ * Every Goal Loop turn's prompt repeats every acceptance item for the life of the run
+ * (see extensions/leafcode-goal-loop/index.ts acceptanceText()), which trusts its caller
+ * to have already bounded this list. Four independent start endpoints duplicated this
+ * check; one (bots/[id]/prompt) drifted to no bound at all before being fixed to match
+ * the others. Use this shared helper for any new or changed entry point instead of a
+ * fifth copy.
+ */
+export const MAX_GOAL_LOOP_ACCEPTANCE_ITEMS = 10;
+export const MAX_GOAL_LOOP_ACCEPTANCE_ITEM_CHARS = 2_000;
 
 /** Zero is the explicit no-limit sentinel. */
 export function normalizeGoalLoopMaxTurns(value: unknown): number | null {
@@ -18,6 +28,24 @@ export function clampGoalLoopMaxTurns(
   fallback = DEFAULT_GOAL_LOOP_MAX_TURNS,
 ): number {
   return normalizeGoalLoopMaxTurns(value) ?? fallback;
+}
+
+/**
+ * Trim, drop blank entries, and bound an acceptance-criteria list.
+ * Returns null when the shape, count, or an item's length is invalid so callers can
+ * reject the request; an absent list normalizes to `[]`, not null.
+ */
+export function normalizeGoalLoopAcceptance(value: unknown): string[] | null {
+  if (value === undefined || value === null) return [];
+  if (!Array.isArray(value) || value.length > MAX_GOAL_LOOP_ACCEPTANCE_ITEMS) return null;
+  const result: string[] = [];
+  for (const item of value) {
+    if (typeof item !== "string") return null;
+    const text = item.trim();
+    if (text.length > MAX_GOAL_LOOP_ACCEPTANCE_ITEM_CHARS) return null;
+    if (text) result.push(text);
+  }
+  return result;
 }
 
 const DURATION_TOKEN = /(\d+(?:\.\d+)?)\s*([smhd])/gi;

@@ -28,6 +28,8 @@ import {
   clampGoalLoopCooldownSeconds,
   clampGoalLoopMaxTurns,
   DEFAULT_GOAL_LOOP_MAX_TURNS,
+  MAX_GOAL_LOOP_ACCEPTANCE_ITEM_CHARS,
+  MAX_GOAL_LOOP_ACCEPTANCE_ITEMS,
 } from "@/lib/goal-loop-settings";
 
 export const runtime = "nodejs";
@@ -50,16 +52,19 @@ type Body = {
   agent?: string;
 };
 
+// Distinct from normalizeGoalLoopAcceptance() (shared by the other three Goal Loop start
+// entry points): this is the only one of the four that also accepts a newline-delimited
+// string, and treats "" the same as omitted. The count/length bounds still match theirs.
 function acceptance(value: unknown): string[] | null {
   if (value === undefined || value === null || value === "") return [];
   const values = Array.isArray(value) ? value : typeof value === "string" ? value.split("\n") : null;
-  if (!values || values.length > 10) return null;
+  if (!values || values.length > MAX_GOAL_LOOP_ACCEPTANCE_ITEMS) return null;
   const result: string[] = [];
   for (const item of values) {
     if (typeof item !== "string") return null;
     const text = item.trim();
     if (!text) continue;
-    if (text.length > 2_000) return null;
+    if (text.length > MAX_GOAL_LOOP_ACCEPTANCE_ITEM_CHARS) return null;
     result.push(text);
   }
   return result;

@@ -3,7 +3,7 @@ import { getBot, botTaskId } from "@/lib/bots";
 import { isPromptFileList, isPromptFileText, isPromptFileWithinSize, isPromptImageList, isPromptImageWithinSize, isPromptTextWithinSize, MAX_PROMPT_ATTACHMENTS, type PromptFileInput } from "@/lib/prompt-images";
 import { goalLoopCommand, isTaskRuntimeBusyForDestructiveEdit, jsonError, promptTask } from "@/lib/pi/harness";
 import { isGoalLoopLiveStatus } from "@/lib/pi/goal-loop-state";
-import { clampGoalLoopCooldownSeconds, clampGoalLoopMaxTurns, DEFAULT_GOAL_LOOP_MAX_TURNS } from "@/lib/goal-loop-settings";
+import { clampGoalLoopCooldownSeconds, clampGoalLoopMaxTurns, DEFAULT_GOAL_LOOP_MAX_TURNS, normalizeGoalLoopAcceptance } from "@/lib/goal-loop-settings";
 export const runtime = "nodejs"; export const dynamic = "force-dynamic";
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try { const id = (await params).id; if (!getBot(id)) return NextResponse.json({ error: "Bot not found" }, { status: 404 });
@@ -18,16 +18,15 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       if (body.images?.length || body.files?.length) return NextResponse.json({ error: "Goal loop の開始ではファイル添付は使えません" }, { status: 400 });
       if (body.goalLoop === null || typeof body.goalLoop !== "object" || Array.isArray(body.goalLoop)) return NextResponse.json({ error: "invalid goalLoop" }, { status: 400 });
       const loop = body.goalLoop as { acceptance?: unknown; maxTurns?: unknown; cooldownSeconds?: unknown; forceFullRun?: unknown };
-      // Matches the bound in tasks/[id]/goal-loop and bots/[id]/code-session: acceptance is
-      // injected into every Goal Loop turn's prompt for the life of the run, so an unbounded
-      // list or item here (unlike its sibling routes) would repeat unbounded text every turn.
-      const validAcceptance = loop.acceptance === undefined || (Array.isArray(loop.acceptance) && loop.acceptance.length <= 10 && loop.acceptance.every((item) => typeof item === "string" && item.length <= 2_000));
+      // Shared with tasks/[id]/goal-loop, bots/[id]/code-session, and bot-code-relay.ts's
+      // code_session tool: acceptance repeats in every Goal Loop turn's prompt for the run's
+      // life, so every entry point that can start one must apply the same bound.
+      const acceptance = normalizeGoalLoopAcceptance(loop.acceptance);
       const validNumber = (value: unknown) => value === undefined || typeof value === "number" || typeof value === "string";
-      if (!validAcceptance || !validNumber(loop.maxTurns) || !validNumber(loop.cooldownSeconds) || (loop.forceFullRun !== undefined && typeof loop.forceFullRun !== "boolean")) return NextResponse.json({ error: "invalid goalLoop" }, { status: 400 });
+      if (acceptance === null || !validNumber(loop.maxTurns) || !validNumber(loop.cooldownSeconds) || (loop.forceFullRun !== undefined && typeof loop.forceFullRun !== "boolean")) return NextResponse.json({ error: "invalid goalLoop" }, { status: 400 });
       if (isTaskRuntimeBusyForDestructiveEdit(botTaskId(id))) {
         return NextResponse.json({ error: "タスクが実行中のため Goal Loop を開始できません" }, { status: 409 });
       }
-      const acceptance = loop.acceptance === undefined ? [] : loop.acceptance as string[];
       const result = await goalLoopCommand(botTaskId(id), {
         action: "start",
         goal: body.prompt,

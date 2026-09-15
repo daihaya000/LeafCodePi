@@ -11,6 +11,7 @@ import {
   clampGoalLoopCooldownSeconds,
   clampGoalLoopMaxTurns,
   DEFAULT_GOAL_LOOP_MAX_TURNS,
+  normalizeGoalLoopAcceptance,
 } from "@/lib/goal-loop-settings";
 
 export const runtime = "nodejs";
@@ -37,15 +38,14 @@ function parseGoalLoop(value: unknown): GoalLoopInput | null | undefined {
     forceFullRun?: unknown;
   };
   if (
-    (loop.acceptance !== undefined && (!Array.isArray(loop.acceptance) || loop.acceptance.some((item) => typeof item !== "string"))) ||
     (loop.maxTurns !== undefined && typeof loop.maxTurns !== "number" && typeof loop.maxTurns !== "string") ||
     (loop.cooldownSeconds !== undefined && typeof loop.cooldownSeconds !== "number" && typeof loop.cooldownSeconds !== "string") ||
     (loop.forceFullRun !== undefined && typeof loop.forceFullRun !== "boolean")
   ) {
     return null;
   }
-  const acceptance = (loop.acceptance ?? []).map((item) => item.trim()).filter(Boolean);
-  if (acceptance.length > 10 || acceptance.some((item) => item.length > 2_000)) return null;
+  const acceptance = normalizeGoalLoopAcceptance(loop.acceptance);
+  if (acceptance === null) return null;
   return {
     acceptance,
     maxTurns: clampGoalLoopMaxTurns(loop.maxTurns, DEFAULT_GOAL_LOOP_MAX_TURNS),

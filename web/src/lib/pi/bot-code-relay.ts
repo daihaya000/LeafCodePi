@@ -11,6 +11,7 @@ import {
   clampGoalLoopCooldownSeconds,
   clampGoalLoopMaxTurns,
   DEFAULT_GOAL_LOOP_MAX_TURNS,
+  normalizeGoalLoopAcceptance,
 } from "@/lib/goal-loop-settings";
 import { NO_PROJECT_NAME, type CodeRequestGoalLoopReport, type CodeRequestState, type GoalLoopDto, type RoomConversationTurn, type TaskSummary, type UiMessage } from "@/lib/types";
 import { getRoom, roomBotTaskId, updateRoomMessage } from "@/lib/rooms";
@@ -169,15 +170,14 @@ function parseGoalLoop(value: unknown): CodeGoalLoop | undefined {
     forceFullRun?: unknown;
   };
   if (
-    (loop.acceptance !== undefined && (!Array.isArray(loop.acceptance) || loop.acceptance.some((item) => typeof item !== "string"))) ||
     (loop.maxTurns !== undefined && typeof loop.maxTurns !== "number") ||
     (loop.cooldownSeconds !== undefined && typeof loop.cooldownSeconds !== "number") ||
     (loop.forceFullRun !== undefined && typeof loop.forceFullRun !== "boolean")
   ) {
     throw new Error("invalid goalLoop");
   }
-  const acceptance = (loop.acceptance ?? []).map((item) => item.trim()).filter(Boolean);
-  if (acceptance.length > 10 || acceptance.some((item) => item.length > 2_000)) throw new Error("invalid goalLoop acceptance");
+  const acceptance = normalizeGoalLoopAcceptance(loop.acceptance);
+  if (acceptance === null) throw new Error("invalid goalLoop acceptance");
   return {
     acceptance,
     maxTurns: clampGoalLoopMaxTurns(loop.maxTurns, DEFAULT_GOAL_LOOP_MAX_TURNS),
@@ -1121,7 +1121,8 @@ export function createBotCodeRelay(deps: RelayDependencies) {
           goalLoop: Type.Optional(Type.Object({
             // llama.cpp turns tool schemas into GBNF and emits unparseable grammar for a
             // *nested* string with maxLength >= 2000 (400 "failed to parse grammar",
-            // ggml-org/llama.cpp#25746). Nested limits stay in normalizeGoalLoop instead.
+            // ggml-org/llama.cpp#25746). The per-item length bound stays in
+            // normalizeGoalLoopAcceptance() (called from parseGoalLoop() below) instead.
             acceptance: Type.Optional(Type.Array(Type.String({ description: "Acceptance criterion (max 2000 chars)" }), { maxItems: 10 })),
             maxTurns: Type.Optional(Type.Number({ minimum: 0, maximum: 100 })),
             cooldownSeconds: Type.Optional(Type.Number({ minimum: 0, maximum: 86_400 })),
