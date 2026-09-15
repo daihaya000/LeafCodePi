@@ -43,6 +43,15 @@ describe("SystemSafetySettings", () => {
     expect(slider.getAttribute("aria-valuetext")).toBe("軽め");
   });
 
+  it("maps the legacy enabled flag to the standard level", async () => {
+    getJson.mockResolvedValue({ systemSafety: true });
+    render(<SystemSafetySettings />);
+
+    const slider = await screen.findByRole("slider", { name: "システム安全ガードの度合い" });
+    await waitFor(() => expect((slider as HTMLInputElement).value).toBe("2"));
+    expect(slider.getAttribute("aria-valuetext")).toBe("標準");
+  });
+
   it("rolls back the slider when saving fails", async () => {
     sendJson.mockRejectedValue(new Error("保存失敗"));
     render(<SystemSafetySettings />);

@@ -20,7 +20,9 @@ type SystemSafetyDto = {
 
 function levelFromDto(config: SystemSafetyDto): SystemSafetyLevel {
   if (isSystemSafetyLevel(config.level)) return config.level;
-  return config.systemSafety === false ? "off" : DEFAULT_SYSTEM_SAFETY_LEVEL;
+  if (config.systemSafety === false) return "off";
+  if (config.systemSafety === true) return "standard";
+  return DEFAULT_SYSTEM_SAFETY_LEVEL;
 }
 
 export function SystemSafetySettings() {
