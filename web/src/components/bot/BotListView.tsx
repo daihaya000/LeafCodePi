@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { CopyPlus, Sparkles } from "lucide-react";
@@ -20,9 +20,15 @@ export function BotListView() {
   const [templateBusy, setTemplateBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const router = useRouter();
+  const refreshEpochRef = useRef(0);
 
   const refresh = useCallback(() => {
-    void getJson<{ bots: BotDto[] }>("/api/bots").then((result) => setBots(result.bots)).catch(() => undefined);
+    const refreshEpoch = ++refreshEpochRef.current;
+    void getJson<{ bots: BotDto[] }>("/api/bots")
+      .then((result) => {
+        if (refreshEpoch === refreshEpochRef.current) setBots(result.bots);
+      })
+      .catch(() => undefined);
   }, []);
   useEffect(() => {
     refresh();

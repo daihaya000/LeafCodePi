@@ -68,6 +68,28 @@ it("refreshes the Code count from a Code SSE event without mounting BotView", as
   expect(mocks.notifyBotSidebarChanged).toHaveBeenCalledTimes(1);
 });
 
+it("does not let an earlier Bot refresh overwrite a newer sidebar refresh", async () => {
+  let resolveInitial!: (value: { bots: ReturnType<typeof bot>[] }) => void;
+  let resolveRefresh!: (value: { bots: ReturnType<typeof bot>[] }) => void;
+  const initial = new Promise<{ bots: ReturnType<typeof bot>[] }>((resolve) => { resolveInitial = resolve; });
+  const refresh = new Promise<{ bots: ReturnType<typeof bot>[] }>((resolve) => { resolveRefresh = resolve; });
+  mocks.getJson.mockReturnValueOnce(initial).mockReturnValueOnce(refresh);
+
+  render(<BotListView />);
+  act(() => window.dispatchEvent(new Event("webui:bot-sidebar-changed")));
+  await waitFor(() => expect(mocks.getJson).toHaveBeenCalledTimes(2));
+  await act(async () => {
+    resolveRefresh({ bots: [bot(1)] });
+    await refresh;
+  });
+  expect(screen.getByLabelText("Codeセッション1件")).toBeTruthy();
+  await act(async () => {
+    resolveInitial({ bots: [bot(0)] });
+    await initial;
+  });
+  expect(screen.getByLabelText("Codeセッション1件")).toBeTruthy();
+});
+
 it("refreshes the Code count and active Avatar after a sidebar change", async () => {
   let bots = [bot(0)];
   mocks.getJson.mockImplementation((url: string) => {
