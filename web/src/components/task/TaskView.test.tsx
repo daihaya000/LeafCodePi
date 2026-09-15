@@ -80,6 +80,8 @@ it("shows the supervising Bot as the sender of the prompts it relays into a user
     { id: "bot-prompt", bot },
     { id: "user-prompt", bot: undefined },
   ]));
+  expect(screen.getByRole("img", { name: "監督Botのアバター" })).toBeTruthy();
+  expect(screen.queryByText("監督: 監督Bot")).toBeNull();
 });
 
 it("lets the user hand an active Code task to an enabled Bot", async () => {

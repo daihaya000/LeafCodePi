@@ -31,6 +31,7 @@ import {
   type ComposerReference,
 } from "@/components/Composer";
 import { GoalLoopOptions, GoalLoopToggle } from "@/components/GoalLoopComposer";
+import { BotAvatar } from "@/components/bot/BotAvatar";
 import { AutoOptimizeSelect } from "@/components/AutoOptimizeSelect";
 import { canAttachComposerImages, pasteImage } from "@/lib/clipboard-image";
 import { isImeComposingEvent } from "@/lib/composer-ime";
@@ -3095,7 +3096,14 @@ export const TaskView = memo(function TaskView({
           {permissionRequest && <Badge tone="warning" className="shrink-0">承認待ち</Badge>}
           {questionRequest && <Badge tone="warning" className="shrink-0">回答待ち</Badge>}
           {displayedStatus && <StatusBadge status={displayedStatus} className="shrink-0" />}
-          {supervisor && <Badge tone="working" className="shrink-0 max-w-36 truncate">監督: {supervisor.name}</Badge>}
+          {supervisor && (
+            <span
+              title={`監督: ${supervisor.name}`}
+              className="shrink-0 rounded-full ring-1 ring-working/25"
+            >
+              <BotAvatar size={20} {...supervisor} active={working} />
+            </span>
+          )}
           {contextUsage && <ContextUsageMeter usage={contextUsage} />}
           {stats.totalTokens > 0 && (
             <span
