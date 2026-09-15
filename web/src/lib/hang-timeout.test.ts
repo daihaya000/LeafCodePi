@@ -11,7 +11,7 @@ describe("auto resume mode", () => {
     expect(isAutoResumeMode("same")).toBe(true);
     expect(isAutoResumeMode("continue")).toBe(true);
     expect(isAutoResumeMode("other")).toBe(false);
-    expect(DEFAULT_AUTO_RESUME_MODE).toBe("same");
+    expect(DEFAULT_AUTO_RESUME_MODE).toBe("continue");
   });
 
   it("uses the configured prompt", () => {

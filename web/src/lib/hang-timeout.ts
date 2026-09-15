@@ -8,7 +8,8 @@ const STORAGE_KEY = "webui:hang-timeout";
 export type AutoResumeMode = "same" | "continue";
 export const AUTO_RESUME_MODE_SETTING_KEY = "auto-resume-mode";
 export const AUTO_RESUME_MODE_EVENT = "webui:auto-resume-mode";
-export const DEFAULT_AUTO_RESUME_MODE: AutoResumeMode = "same";
+/** The original prompt remains in the session; continue avoids injecting it again. */
+export const DEFAULT_AUTO_RESUME_MODE: AutoResumeMode = "continue";
 export const CONTINUE_PROMPT = "続けて";
 const AUTO_RESUME_MODE_STORAGE_KEY = "webui:auto-resume-mode";
 
