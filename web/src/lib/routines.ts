@@ -10,6 +10,8 @@ export const ROUTINE_MAX_ENABLED = 10;
 export const ROUTINE_MAX_FAILURES = 3;
 /** Scheduled instructions repeat without user review, so keep their context bounded. */
 export const ROUTINE_MAX_PROMPT_CHARS = 8_000;
+/** Embedded in the prompt every scheduled run ("[ルーティン: name]"); a short label, not a document. */
+export const ROUTINE_MAX_NAME_CHARS = 100;
 const routineRuns = new Map<string, Promise<unknown>>();
 const ROUTINE_LOCK_STALE_MS = 30_000;
 /** Cross-worker run claim; long enough for a Bot prompt to finish. */
@@ -43,6 +45,11 @@ function assertRoutineId(value: string): void { if (!validId(value)) throw new E
 function assertRoutinePromptLength(prompt: string): void {
   if (Array.from(prompt).length > ROUTINE_MAX_PROMPT_CHARS) {
     throw new Error(`ルーチンのプロンプトは${ROUTINE_MAX_PROMPT_CHARS}文字以内にしてください`);
+  }
+}
+function assertRoutineNameLength(name: string): void {
+  if (Array.from(name).length > ROUTINE_MAX_NAME_CHARS) {
+    throw new Error(`ルーチン名は${ROUTINE_MAX_NAME_CHARS}文字以内にしてください`);
   }
 }
 function writeRoutine(routine: RoutineFile): RoutineDto { mkdirSync(routineDir(routine.botId), { recursive: true }); writeFileSync(routinePath(routine.botId, routine.id), `${JSON.stringify(routine, null, 2)}\n`, "utf8"); return routine; }
@@ -99,6 +106,7 @@ export function createRoutine(botId: string, input: { name: string; prompt: stri
     const prompt = input.prompt.trim();
     const schedule = input.schedule.trim();
     if (!name || !prompt) throw new Error("ルーティン名とプロンプトは必須です");
+    assertRoutineNameLength(name);
     assertRoutinePromptLength(prompt);
     validateRoutineSchedule(schedule);
     const enabled = input.enabled !== false;
@@ -114,6 +122,7 @@ export function patchRoutine(botId: string, routineId: string, patch: Partial<Pi
     if (!current) return undefined;
     const next = { ...current, ...patch, name: (patch.name ?? current.name).trim(), prompt: (patch.prompt ?? current.prompt).trim(), schedule: (patch.schedule ?? current.schedule).trim(), updatedAt: new Date().toISOString() };
     if (!next.name || !next.prompt) throw new Error("ルーティン名とプロンプトは必須です");
+    assertRoutineNameLength(next.name);
     assertRoutinePromptLength(next.prompt);
     validateRoutineSchedule(next.schedule);
     if (next.enabled && !current.enabled && listRoutines(botId).filter((item) => item.enabled).length >= ROUTINE_MAX_ENABLED) throw new Error(`有効なルーティンは最大 ${ROUTINE_MAX_ENABLED} 件です`);

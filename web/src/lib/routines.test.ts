@@ -6,7 +6,7 @@ const state = vi.hoisted(() => ({ root: "", promptTask: vi.fn(), getTaskDetail: 
 vi.mock("./paths", async (importOriginal) => { const actual = await importOriginal<typeof import("./paths")>(); return { ...actual, dataDir: () => state.root, storePath: () => join(state.root, "store.json") }; });
 vi.mock("./pi/harness", () => ({ promptTask: state.promptTask, getTaskDetail: state.getTaskDetail }));
 import { createBot } from "./bots";
-import { createRoutine, cronMatches, deleteRoutine, getRoutine, listRoutines, parseCron, patchRoutine, ROUTINE_MAX_ENABLED, ROUTINE_MAX_PROMPT_CHARS, runRoutine, tickRoutines, validateRoutineSchedule } from "./routines";
+import { createRoutine, cronMatches, deleteRoutine, getRoutine, listRoutines, parseCron, patchRoutine, ROUTINE_MAX_ENABLED, ROUTINE_MAX_NAME_CHARS, ROUTINE_MAX_PROMPT_CHARS, runRoutine, tickRoutines, validateRoutineSchedule } from "./routines";
 
 describe("routine cron and persistence", () => {
   let root = "";
@@ -59,6 +59,14 @@ describe("routine cron and persistence", () => {
     expect(() => createRoutine(bot.id, { name: "Too long", prompt: oversized, schedule: "0 * * * *" })).toThrow("プロンプトは");
     const routine = createRoutine(bot.id, { name: "Hourly", prompt: "Check status", schedule: "0 * * * *" });
     expect(() => patchRoutine(bot.id, routine.id, { prompt: oversized })).toThrow("プロンプトは");
+  });
+  it("bounds routine names at creation and update", () => {
+    const bot = createBot({ name: "Routine bot" });
+    const oversizedName = "n".repeat(ROUTINE_MAX_NAME_CHARS + 1);
+
+    expect(() => createRoutine(bot.id, { name: oversizedName, prompt: "Check status", schedule: "0 * * * *" })).toThrow("ルーチン名は");
+    const routine = createRoutine(bot.id, { name: "Hourly", prompt: "Check status", schedule: "0 * * * *" });
+    expect(() => patchRoutine(bot.id, routine.id, { name: oversizedName })).toThrow("ルーチン名は");
   });
 
   it("blocks legacy oversized routines before they reach the Bot", async () => {
