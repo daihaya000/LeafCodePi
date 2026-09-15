@@ -171,6 +171,7 @@ describe("CodexBarWidget", () => {
     expect(serviceLabel.className).toContain("flex-none");
     expect(serviceLabel.className).toContain("max-w-[45%]");
     expect(accountLabel.className).toContain("flex-1");
+    expect(accountLabel.closest("button")?.className).toContain("min-w-0");
     expect(accountLabel.closest("button")?.textContent).toContain("Codex");
     expect(accountLabel.closest("li")?.querySelector("ul")).toBeNull();
     expect(screen.getAllByRole("list")).toHaveLength(1);
@@ -185,6 +186,7 @@ describe("CodexBarWidget", () => {
 
     const providerGrid = screen.getByRole("list");
     expect(providerGrid.className).toContain("grid-cols-2");
+    expect(providerGrid.className).toContain("min-w-0");
     expect(providerGrid.className).toContain("items-stretch");
     const update = screen.getByText(/^更新 /);
     expect(update.parentElement?.className).toContain("border-b");

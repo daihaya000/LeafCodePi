@@ -544,7 +544,7 @@ function ProviderRow({
         aria-expanded={canExpand ? !collapsed : undefined}
         aria-label={canExpand ? `${label} を${collapsed ? "展開" : "最小化"}` : undefined}
         className={cx(
-          "flex w-full items-center gap-2 text-xs",
+          "flex min-w-0 w-full items-center gap-2 text-xs",
           canExpand && "cursor-pointer rounded-md -mx-1 px-1 py-0 hover:bg-surface-3",
         )}
       >
@@ -608,7 +608,7 @@ function ProviderRow({
       ) : showErrorOnly ? (
         <p className={cx(contentIndent, "text-[10px] text-faint")}>{p.error}</p>
       ) : canExpand ? (
-        <div className={cx("flex flex-col gap-1.5", contentIndent)}>
+        <div className={cx("min-w-0 flex flex-col gap-1.5", contentIndent)}>
           {p.windows.map((w) => (
             <WindowRow
               key={w.id || w.title}
@@ -685,7 +685,7 @@ function ProviderGroupRow({
         onClick={onToggle}
         aria-expanded={!collapsed}
         aria-label={`${label} を${collapsed ? "展開" : "最小化"}`}
-        className="-mx-1 flex w-full cursor-pointer items-center gap-2 rounded-md px-1 py-0 text-xs hover:bg-surface-3"
+        className="-mx-1 flex min-w-0 w-full cursor-pointer items-center gap-2 rounded-md px-1 py-0 text-xs hover:bg-surface-3"
       >
         <ProviderIcon p={p} tone={tone} />
         <span className="min-w-0 flex-1 truncate font-semibold text-text">{label}</span>
@@ -718,7 +718,7 @@ function ProviderGroupRow({
           <UsageBar tone={tone} percent={p.usedPercent} />
         </div>
       ) : (
-        <ul className="flex flex-col gap-1.5">
+        <ul className="min-w-0 flex flex-col gap-1.5">
           {group.accountRows.map((row) => {
             const key = row.provider?.instanceId ?? row.id;
             return (
@@ -1102,7 +1102,7 @@ export function CodexBarWidget({
         </section>
       )}
 
-      <div className="min-h-0 px-3 py-2.5">
+      <div className="min-h-0 min-w-0 px-3 py-2.5">
         {loadError && (
           <p role="alert" className="text-[11px] text-danger">
             読み込みエラー: {loadError}
@@ -1118,7 +1118,9 @@ export function CodexBarWidget({
         {!loadError && usage && usage.available && providerGroups.length > 0 && (
           <ul
             className={cx(
-              twoColumn ? "grid grid-cols-2 items-stretch gap-2" : "space-y-2.5",
+              twoColumn
+                ? "grid min-w-0 grid-cols-2 items-stretch gap-2"
+                : "min-w-0 space-y-2.5",
             )}
           >
             {providerGroups.map((group) => {
