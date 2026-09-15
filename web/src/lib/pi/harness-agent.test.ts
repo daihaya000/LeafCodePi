@@ -34,6 +34,21 @@ afterEach(() => {
 
 type FixtureCustomMessage = { customType: string; content: unknown; display: boolean };
 
+/**
+ * live エントリの最低要件。本体の LiveRuntime と同じく `taskId` を必須にしておく。
+ * harness 側は live.taskId を起点に getTask / getTaskHangWatch を引くため、
+ * これが欠けると undefined を渡して TypeError になる（型で検出できないと再発する）。
+ */
+type FixtureLive = { taskId: string } & Record<string, unknown>;
+
+/** GLOBAL_KEY へ live/events を入れる単一経路。taskId 必須を型で強制する。 */
+function installFixtureHarness(
+  live: Map<string, FixtureLive>,
+  events: EventEmitter = new EventEmitter(),
+): void {
+  (globalThis as Record<string, unknown>)[GLOBAL_KEY] = { live, events };
+}
+
 function fixture(options: {
   messages?: unknown[];
   promptActive?: boolean;
@@ -76,10 +91,7 @@ function fixture(options: {
       unsubscribed = true;
     },
   }]]);
-  (globalThis as Record<string, unknown>)[GLOBAL_KEY] = {
-    live,
-    events: new EventEmitter(),
-  };
+  installFixtureHarness(live);
   return {
     task,
     live,
@@ -267,7 +279,8 @@ describe("abortTask", () => {
         abortCount += 1;
       },
     };
-    const live = new Map([[task.id, {
+    const live: Map<string, FixtureLive> = new Map([[task.id, {
+      taskId: task.id,
       accountId: null,
       session,
       skillPermission: "allow",
@@ -288,10 +301,7 @@ describe("abortTask", () => {
       hangRetryCount: 0,
       reasoningFallbackTried: false,
     }]]);
-    (globalThis as Record<string, unknown>)[GLOBAL_KEY] = {
-      live,
-      events: new EventEmitter(),
-    };
+    installFixtureHarness(live);
 
     armTaskHangWatch({ taskId: task.id, prompt: "作業" });
     assert.ok(getTaskHangWatch(task.id));
@@ -382,10 +392,7 @@ describe("abortTask", () => {
         hangIdleStatus = payload.task?.status;
       }
     });
-    (globalThis as Record<string, unknown>)[GLOBAL_KEY] = {
-      live,
-      events,
-    };
+    installFixtureHarness(live, events);
 
     armTaskHangWatch({ taskId: task.id, prompt: "作業" });
     await abortLiveForHangWatchdog(task.id);
@@ -439,7 +446,8 @@ describe("abortTask", () => {
         events.push("abort");
       },
     };
-    const live = new Map([[task.id, {
+    const live: Map<string, FixtureLive> = new Map([[task.id, {
+      taskId: task.id,
       accountId: null,
       session,
       skillPermission: "allow",
@@ -460,10 +468,7 @@ describe("abortTask", () => {
       hangRetryCount: 0,
       reasoningFallbackTried: false,
     }]]);
-    (globalThis as Record<string, unknown>)[GLOBAL_KEY] = {
-      live,
-      events: new EventEmitter(),
-    };
+    installFixtureHarness(live);
 
     await abortTask(task.id);
 
@@ -485,10 +490,7 @@ describe("archiveTask", () => {
     events.on(task.id, (payload: { eventType?: string; task?: { status?: string } }) => {
       if (payload.eventType) emitted.push(payload.eventType);
     });
-    (globalThis as Record<string, unknown>)[GLOBAL_KEY] = {
-      live,
-      events,
-    };
+    installFixtureHarness(live, events);
 
     const archived = await archiveTask(task.id);
     const detail = await getTaskDetail(task.id);
@@ -513,10 +515,7 @@ describe("archiveTask", () => {
     events.on(task.id, (payload: { eventType?: string; task?: { status?: string } }) => {
       emitted.push({ eventType: payload.eventType, status: payload.task?.status });
     });
-    (globalThis as Record<string, unknown>)[GLOBAL_KEY] = {
-      live,
-      events,
-    };
+    installFixtureHarness(live, events);
 
     await archiveTask(task.id);
     const restored = restoreTask(task.id);
@@ -533,10 +532,7 @@ describe("archiveTask", () => {
     process.env.LEAFCODE_PI_DATA_DIR = join(root, "data");
     const project = upsertProject({ name: "demo", rootPath: root });
     const task = insertTask({ project, title: "restore under archived project" });
-    (globalThis as Record<string, unknown>)[GLOBAL_KEY] = {
-      live: new Map(),
-      events: new EventEmitter(),
-    };
+    installFixtureHarness(new Map());
 
     await archiveTask(task.id);
     patchProject(project.id, { archived: true });
@@ -630,7 +626,8 @@ describe("archiveTask", () => {
         disposed = true;
       },
     };
-    const live = new Map([[task.id, {
+    const live: Map<string, FixtureLive> = new Map([[task.id, {
+      taskId: task.id,
       accountId: null,
       session,
       skillPermission: "allow",
@@ -651,10 +648,7 @@ describe("archiveTask", () => {
       hangRetryCount: 0,
       reasoningFallbackTried: false,
     }]]);
-    (globalThis as Record<string, unknown>)[GLOBAL_KEY] = {
-      live,
-      events: new EventEmitter(),
-    };
+    installFixtureHarness(live);
 
     armTaskHangWatch({ taskId: task.id, prompt: "作業" });
     const archived = await archiveTask(task.id);
@@ -718,7 +712,8 @@ describe("archiveTask", () => {
         events.push("dispose");
       },
     };
-    const live = new Map([[task.id, {
+    const live: Map<string, FixtureLive> = new Map([[task.id, {
+      taskId: task.id,
       accountId: null,
       session,
       skillPermission: "allow",
@@ -739,10 +734,7 @@ describe("archiveTask", () => {
       hangRetryCount: 0,
       reasoningFallbackTried: false,
     }]]);
-    (globalThis as Record<string, unknown>)[GLOBAL_KEY] = {
-      live,
-      events: new EventEmitter(),
-    };
+    installFixtureHarness(live);
 
     await archiveTask(task.id);
 
@@ -792,7 +784,8 @@ describe("destroyTask", () => {
         disposed = true;
       },
     };
-    const live = new Map([[task.id, {
+    const live: Map<string, FixtureLive> = new Map([[task.id, {
+      taskId: task.id,
       accountId: null,
       session,
       skillPermission: "allow",
@@ -813,10 +806,7 @@ describe("destroyTask", () => {
       hangRetryCount: 0,
       reasoningFallbackTried: false,
     }]]);
-    (globalThis as Record<string, unknown>)[GLOBAL_KEY] = {
-      live,
-      events: new EventEmitter(),
-    };
+    installFixtureHarness(live);
 
     armTaskHangWatch({ taskId: task.id, prompt: "作業" });
     await destroyTask(task.id);
@@ -868,7 +858,8 @@ describe("destroyTask", () => {
         events.push("dispose");
       },
     };
-    const live = new Map([[task.id, {
+    const live: Map<string, FixtureLive> = new Map([[task.id, {
+      taskId: task.id,
       accountId: null,
       session,
       skillPermission: "allow",
@@ -889,10 +880,7 @@ describe("destroyTask", () => {
       hangRetryCount: 0,
       reasoningFallbackTried: false,
     }]]);
-    (globalThis as Record<string, unknown>)[GLOBAL_KEY] = {
-      live,
-      events: new EventEmitter(),
-    };
+    installFixtureHarness(live);
 
     await destroyProject(project.id);
 
@@ -928,10 +916,7 @@ describe("archiveTask codeSession links", () => {
     const project = upsertProject({ name: "demo", rootPath: dir });
     const task = insertTask({ project, title: "code" });
     patchBot(bot.id, { codeSessionTaskId: task.id });
-    (globalThis as Record<string, unknown>)[GLOBAL_KEY] = {
-      live: new Map(),
-      events: new EventEmitter(),
-    };
+    installFixtureHarness(new Map());
 
     await archiveTask(task.id);
 
@@ -962,10 +947,7 @@ describe("setBotTools", () => {
       },
       unsubscribe: () => undefined,
     };
-    (globalThis as Record<string, unknown>)[GLOBAL_KEY] = {
-      live: new Map([[taskId, liveEntry]]),
-      events: new EventEmitter(),
-    };
+    installFixtureHarness(new Map([[taskId, liveEntry]]));
 
     setBotTools(bot.id, ["read"]);
 
