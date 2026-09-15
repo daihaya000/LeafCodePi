@@ -3106,37 +3106,6 @@ export const TaskView = memo(function TaskView({
               <BotAvatar size={20} {...supervisor} active={working} />
             </span>
           )}
-          {canManageSupervisor && (
-            <label
-              title={supervisor ? `監督: ${supervisor.name}` : hasSupervisor ? "委任を解除" : working ? "Botへ引き継ぐ" : "タスク実行中にBotへ引き継げます"}
-              className={cx(
-                "relative flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-muted hover:bg-surface-2 hover:text-text focus-within:ring-2 focus-within:ring-accent @min-[48rem]/task:h-9 @min-[48rem]/task:w-9",
-                supervisorControlDisabled && "cursor-not-allowed opacity-40",
-              )}
-            >
-              <span className="sr-only">Codeタスクを監督するBot</span>
-              {supervisor ? <BotAvatar size={20} {...supervisor} active={working} /> : <Bot className="h-4 w-4" aria-hidden="true" />}
-              <select
-                aria-label="Codeタスクを監督するBot"
-                defaultValue=""
-                disabled={supervisorControlDisabled}
-                onChange={(event) => {
-                  const value = event.target.value;
-                  if (value === USER_OWNERSHIP_OPTION) void setSupervisor(null);
-                  else if (value) void setSupervisor(value);
-                  event.currentTarget.value = "";
-                }}
-                className="absolute inset-0 h-full w-full cursor-pointer opacity-0 disabled:cursor-not-allowed"
-              >
-                <option value="">{hasSupervisor ? "委任を解除…" : "Botへ引き継ぐ…"}</option>
-                {hasSupervisor ? (
-                  <option value={USER_OWNERSHIP_OPTION}>委任を解除（ユーザー所有）</option>
-                ) : supervisorBots.filter((bot) => bot.enabled && bot.permissionMode !== "deny").map((bot) => (
-                  <option key={bot.id} value={bot.id}>{bot.name}</option>
-                ))}
-              </select>
-            </label>
-          )}
           {contextUsage && <ContextUsageMeter usage={contextUsage} />}
           {stats.totalTokens > 0 && (
             <span
@@ -3179,6 +3148,37 @@ export const TaskView = memo(function TaskView({
             >
               <Plus className="h-4 w-4" />
             </Button>
+          )}
+          {canManageSupervisor && (
+            <label
+              title={supervisor ? `監督: ${supervisor.name}` : hasSupervisor ? "委任を解除" : working ? "Botへ引き継ぐ" : "タスク実行中にBotへ引き継げます"}
+              className={cx(
+                "relative flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-muted hover:bg-surface-2 hover:text-text focus-within:ring-2 focus-within:ring-accent @min-[48rem]/task:h-9 @min-[48rem]/task:w-9",
+                supervisorControlDisabled && "cursor-not-allowed opacity-40",
+              )}
+            >
+              <span className="sr-only">Codeタスクを監督するBot</span>
+              {supervisor ? <BotAvatar size={20} {...supervisor} active={working} /> : <Bot className="h-4 w-4" aria-hidden="true" />}
+              <select
+                aria-label="Codeタスクを監督するBot"
+                defaultValue=""
+                disabled={supervisorControlDisabled}
+                onChange={(event) => {
+                  const value = event.target.value;
+                  if (value === USER_OWNERSHIP_OPTION) void setSupervisor(null);
+                  else if (value) void setSupervisor(value);
+                  event.currentTarget.value = "";
+                }}
+                className="absolute inset-0 h-full w-full cursor-pointer opacity-0 disabled:cursor-not-allowed"
+              >
+                <option value="">{hasSupervisor ? "委任を解除…" : "Botへ引き継ぐ…"}</option>
+                {hasSupervisor ? (
+                  <option value={USER_OWNERSHIP_OPTION}>委任を解除（ユーザー所有）</option>
+                ) : supervisorBots.filter((bot) => bot.enabled && bot.permissionMode !== "deny").map((bot) => (
+                  <option key={bot.id} value={bot.id}>{bot.name}</option>
+                ))}
+              </select>
+            </label>
           )}
           <ProjectExplorerButton
             projectId={task?.projectId}
