@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
     status: 500,
   })),
   handoffTaskToBot: vi.fn(),
+  releaseTaskFromBot: vi.fn(),
 }));
 
 vi.mock("@/lib/pi/harness", () => mocks);
@@ -16,6 +17,7 @@ describe("POST /api/tasks/[id]/supervisor", () => {
   beforeEach(() => {
     mocks.jsonError.mockClear();
     mocks.handoffTaskToBot.mockReset();
+    mocks.releaseTaskFromBot.mockReset();
   });
 
   it("passes the selected Bot and task to the runtime", async () => {
@@ -32,6 +34,24 @@ describe("POST /api/tasks/[id]/supervisor", () => {
 
     expect(response.status).toBe(200);
     expect(mocks.handoffTaskToBot).toHaveBeenCalledWith("bot-1", "task-1");
+    expect(await response.json()).toEqual({ task });
+  });
+
+  it("releases the task to user ownership when Bot id is null", async () => {
+    const task = { id: "task-1", supervisorBotId: null };
+    mocks.releaseTaskFromBot.mockResolvedValue(task);
+
+    const response = await POST(
+      new NextRequest("http://localhost/api/tasks/task-1/supervisor", {
+        method: "POST",
+        body: JSON.stringify({ botId: null }),
+      }),
+      { params: Promise.resolve({ id: "task-1" }) },
+    );
+
+    expect(response.status).toBe(200);
+    expect(mocks.releaseTaskFromBot).toHaveBeenCalledWith("task-1");
+    expect(mocks.handoffTaskToBot).not.toHaveBeenCalled();
     expect(await response.json()).toEqual({ task });
   });
 

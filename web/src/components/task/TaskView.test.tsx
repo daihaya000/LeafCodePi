@@ -84,6 +84,23 @@ it("shows the supervising Bot as the sender of the prompts it relays into a user
   expect(screen.queryByText("監督: 監督Bot")).toBeNull();
 });
 
+it("lets the user release a delegated Code task to user ownership", async () => {
+  const activeTask = { ...task, kind: "code" as const, status: "working" as const, supervisorBotId: "bot-1" };
+  saveTaskSessionCache({ task: activeTask, messages: [], isStreaming: true, isCompacting: false });
+  mocks.botFor.mockImplementation((id) => id === "bot-1" ? { id, name: "監督Bot" } : undefined);
+  mocks.sendJson.mockResolvedValue({ task: { ...activeTask, supervisorBotId: null } });
+  render(<TaskView taskId={task.id} mdUp />);
+
+  const selector = await screen.findByRole("combobox", { name: "Codeタスクを監督するBot" });
+  expect(screen.getByRole("option", { name: "委任を解除（ユーザー所有）" })).toBeTruthy();
+  fireEvent.change(selector, { target: { value: "__user_ownership__" } });
+  await waitFor(() => expect(mocks.sendJson).toHaveBeenCalledWith(
+    `/api/tasks/${task.id}/supervisor`,
+    { botId: null },
+    "POST",
+  ));
+});
+
 it("lets the user hand an active Code task to an enabled Bot", async () => {
   const activeTask = { ...task, kind: "code" as const, status: "working" as const };
   saveTaskSessionCache({ task: activeTask, messages: [], isStreaming: true, isCompacting: false });

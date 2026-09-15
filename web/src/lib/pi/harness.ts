@@ -2208,7 +2208,7 @@ function botCodeRelay(): ReturnType<typeof createBotCodeRelay> {
     ownsTaskLease,
     linkSupervisor: (taskId, botId) => {
       const task = getTask(taskId);
-      if (!task || (task.kind ?? "code") !== "code" || task.botId || (task.supervisorBotId && task.supervisorBotId !== botId)) return undefined;
+      if (!task || (task.kind ?? "code") !== "code" || task.botId || (botId && task.supervisorBotId && task.supervisorBotId !== botId)) return undefined;
       return patchTask(taskId, { supervisorBotId: botId });
     },
     isBusy: (id) => {
@@ -2370,6 +2370,13 @@ export async function handoffTaskToBot(botId: string, taskId: string): Promise<T
   }
   emitTaskChanged(taskId, "supervisor_handoff");
   return toSummary(getTask(taskId) ?? task);
+}
+
+/** Return a delegated user Code task to user ownership without interrupting its current run. */
+export async function releaseTaskFromBot(taskId: string): Promise<TaskSummary> {
+  const task = await botCodeRelay().releaseUserCodeTask(taskId);
+  emitTaskChanged(taskId, "supervisor_released");
+  return toSummary(task);
 }
 
 /**

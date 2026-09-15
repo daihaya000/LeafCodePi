@@ -100,8 +100,8 @@ type RelayDependencies = {
   /** Persisted Goal Loop state of a Code task, so a loop run is judged by the loop, not by its last message. */
   goalLoop: (task: TaskSummary) => GoalLoopDto | null;
   messages: (task: TaskSummary) => Promise<UiMessage[]>;
-  /** Atomically link a user Code task to a supervisor while the task lock is held. */
-  linkSupervisor?: (taskId: string, botId: string) => TaskSummary | undefined;
+  /** Atomically set or clear a user Code task supervisor while the task lock is held. */
+  linkSupervisor?: (taskId: string, botId: string | null) => TaskSummary | undefined;
   /** Notify the originating Bot/Room SSE after a Code request reaches a terminal result. */
   onCodeSessionSettled?: (request: CodeRequest) => void;
   /** User-uploaded images in this Bot/Room conversation (oldest-first). */
@@ -709,6 +709,25 @@ export function createBotCodeRelay(deps: RelayDependencies) {
     });
   }
 
+  /** Return a delegated user Code task to user ownership without stopping its execution. */
+  async function releaseUserCodeTask(codeTaskId: string): Promise<TaskSummary> {
+    return withBotCodeSessionLock(`code-task-${codeTaskId}`, async () => {
+      const task = getTask(codeTaskId);
+      if (!task) throw new Error("タスクが見つかりません");
+      if ((task.kind ?? "code") !== "code" || task.botId || roomForCodeOrigin(task) || !task.supervisorBotId) {
+        throw new Error("ユーザーが委任したCodeタスクだけを解除できます");
+      }
+      const released = deps.linkSupervisor?.(codeTaskId, null);
+      if (deps.linkSupervisor && !released) throw new Error("Codeタスクの監督リンクを解除できません");
+      for (const request of requests()) {
+        if (request.codeTaskId !== codeTaskId || !request.supervision || !active(request)) continue;
+        request.state = "cancelled";
+        save(request);
+      }
+      return released ?? task;
+    });
+  }
+
   async function conversationImageCatalog(originTaskId: string): Promise<ConversationUserImage[]> {
     return Promise.resolve(deps.conversationImages?.(originTaskId) ?? []);
   }
@@ -1105,5 +1124,5 @@ export function createBotCodeRelay(deps: RelayDependencies) {
       });
     };
   }
-  return { run, register, tick, start, complete, adoptUserCodeTask, originForCode, codeForOrigin, codeTasksForOrigin, requestIdForCode, dispose: () => { if (timer) clearInterval(timer); timer = undefined; } };
+  return { run, register, tick, start, complete, adoptUserCodeTask, releaseUserCodeTask, originForCode, codeForOrigin, codeTasksForOrigin, requestIdForCode, dispose: () => { if (timer) clearInterval(timer); timer = undefined; } };
 }

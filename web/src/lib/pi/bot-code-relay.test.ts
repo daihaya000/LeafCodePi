@@ -82,9 +82,9 @@ beforeEach(() => {
     approve: vi.fn(async () => true),
     isBusy: (id) => store.tasks.get(id)?.status === "working",
     ownsTaskLease: vi.fn(() => true),
-    linkSupervisor: vi.fn((taskId, botId) => {
+    linkSupervisor: vi.fn((taskId, botId: string | null) => {
       const code = store.tasks.get(taskId);
-      if (!code || (code.supervisorBotId && code.supervisorBotId !== botId)) return undefined;
+      if (!code || (botId && code.supervisorBotId && code.supervisorBotId !== botId)) return undefined;
       code.supervisorBotId = botId;
       return code;
     }),
@@ -198,6 +198,22 @@ describe("Bot ⇄ Code relay", () => {
     code.status = "idle";
     await relay.tick();
     expect(deps.deliver).toHaveBeenCalledWith(expect.objectContaining({ codeTaskId: "user-code", supervision: true }));
+  });
+
+  it("returns a supervised user Code task to user ownership without stopping it", async () => {
+    const code = task("user-code", { kind: "code", status: "working" });
+    store.tasks.set(code.id, code);
+    messages = [{ id: "user-request", role: "user", createdAt: 1, parts: [{ id: "text", type: "text", text: "既存タスクを確認して" }] }];
+    await relay.adoptUserCodeTask("one", code.id);
+
+    const released = await relay.releaseUserCodeTask(code.id);
+
+    expect(released.supervisorBotId).toBeNull();
+    expect(record().state).toBe("cancelled");
+    expect(relay.originForCode(code.id)).toBeNull();
+    code.status = "idle";
+    await relay.tick();
+    expect(deps.deliver).not.toHaveBeenCalled();
   });
 
   it("persists the link before execution, returns immediately, then reports exactly once", async () => {
