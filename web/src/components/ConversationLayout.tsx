@@ -87,14 +87,12 @@ export function ActivityLog({ children, header, count, parts, active, kind }: {
         }}
         className="max-h-[min(28rem,50dvh)] min-w-0 overflow-y-auto overscroll-y-contain border-t border-border bg-surface p-2 [&_.max-w-bubble]:max-w-full"
       >
-        <div ref={contentRef} className="min-w-0 space-y-2">{children}</div>
+        <div ref={contentRef} className="min-w-0 space-y-2">
+          {header}
+          {children}
+        </div>
       </div>
     </details>
   );
-  return header ? (
-    <div className="w-full min-w-0 self-start space-y-2">
-      {header}
-      {log}
-    </div>
-  ) : log;
+  return log;
 }
