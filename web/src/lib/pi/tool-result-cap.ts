@@ -11,6 +11,29 @@
 /** Per text block. Multi-block text results are rare, so no shared budget. */
 export const MAX_TOOL_RESULT_CHARS = 25_000;
 
+/**
+ * Scans dump far more than the agent asked for: in two real sessions `grep`
+ * averaged 24k characters per call and was the single largest consumer. Their
+ * fix is a narrower pattern, not a longer result — unlike `read`, where the
+ * contiguous content is the point, so it keeps the larger limit.
+ */
+export const MAX_SCAN_RESULT_CHARS = 8_000;
+
+const SCAN_TOOLS = new Set([
+  "grep",
+  "powershell",
+  "bash",
+  "find",
+  "ls",
+  "session_search",
+]);
+
+export function limitForTool(toolName: unknown): number {
+  return typeof toolName === "string" && SCAN_TOOLS.has(toolName)
+    ? MAX_SCAN_RESULT_CHARS
+    : MAX_TOOL_RESULT_CHARS;
+}
+
 const OMISSION_NOTICE =
   "文字を省略しました。全体が必要なら範囲・パターン・件数を絞って再実行してください";
 
@@ -60,6 +83,7 @@ export function capToolResultContent<T extends ToolResultPart>(
 }
 
 export type AfterToolCallEvent = {
+  toolCall?: { name?: unknown };
   result?: { content?: readonly ToolResultPart[] };
 };
 
@@ -89,7 +113,7 @@ const installedOn = new WeakSet<ToolCappableAgent>();
  */
 export function installToolResultCap(
   agent: ToolCappableAgent | undefined,
-  limit = MAX_TOOL_RESULT_CHARS,
+  limitFor: (toolName: unknown) => number = limitForTool,
 ): void {
   if (!agent) return;
   // Re-configuring a session must not stack wrappers on the same hook.
@@ -102,7 +126,10 @@ export function installToolResultCap(
   const capped: AfterToolCall = async (event, signal) => {
     const hookResult = previous ? await previous(event, signal) : undefined;
     const content = hookResult?.content ?? event.result?.content;
-    const cappedContent = capToolResultContent(content, limit);
+    const cappedContent = capToolResultContent(
+      content,
+      limitFor(event.toolCall?.name),
+    );
     if (!cappedContent) return hookResult;
     return { ...(hookResult ?? {}), content: cappedContent };
   };

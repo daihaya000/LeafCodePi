@@ -3,6 +3,8 @@ import {
   capToolResultContent,
   capToolResultText,
   installToolResultCap,
+  limitForTool,
+  MAX_SCAN_RESULT_CHARS,
   MAX_TOOL_RESULT_CHARS,
   type AfterToolCall,
   type ToolCappableAgent,
@@ -62,6 +64,29 @@ describe("tool result cap", () => {
     const [part] = result!.content as { text: string }[];
     expect(part.text.length).toBeLessThan(60_000);
     expect(part.text.startsWith("yyy")).toBe(true);
+  });
+
+  it("caps scans harder than file reads", async () => {
+    expect(limitForTool("grep")).toBe(MAX_SCAN_RESULT_CHARS);
+    expect(limitForTool("powershell")).toBe(MAX_SCAN_RESULT_CHARS);
+    expect(limitForTool("read")).toBe(MAX_TOOL_RESULT_CHARS);
+    expect(limitForTool(undefined)).toBe(MAX_TOOL_RESULT_CHARS);
+
+    const text = "z".repeat(20_000);
+    const agent: ToolCappableAgent = {};
+    installToolResultCap(agent);
+
+    const grepped = await hookOf(agent)({
+      toolCall: { name: "grep" },
+      result: { content: [{ type: "text", text }] },
+    });
+    const read = await hookOf(agent)({
+      toolCall: { name: "read" },
+      result: { content: [{ type: "text", text }] },
+    });
+
+    expect(grepped?.content).toBeDefined();
+    expect(read).toBeUndefined();
   });
 
   it("does not stack wrappers when a session is configured twice", async () => {
