@@ -3157,7 +3157,7 @@ export const TaskView = memo(function TaskView({
               )}
             >
               <span className="sr-only">Codeタスクを監督するBot</span>
-              {supervisor ? <BotAvatar size={20} {...supervisor} active={working} /> : <BotAvatar size={20} />}
+              {supervisor ? <BotAvatar size={20} {...supervisor} active={working} /> : <BotAvatar size={20} avatarColor="currentColor" />}
               <select
                 aria-label="Codeタスクを監督するBot"
                 defaultValue=""
