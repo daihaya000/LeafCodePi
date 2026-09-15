@@ -1258,77 +1258,83 @@ export class SkillsManagerModal implements Focusable {
   }
 }
 
+export async function runSkillsCommand(
+  pi: ExtensionAPI,
+  store: SkillStore,
+  ctx: ExtensionCommandContext,
+): Promise<void> {
+  const getSkillCommands = (): SkillCommandInfo[] => {
+    const readCommands = (owner: unknown): SkillCommandInfo[] | null => {
+      try {
+        const getter = (owner as { getCommands?: () => unknown })?.getCommands;
+        if (typeof getter !== "function") return null;
+        const commands = getter.call(owner);
+        return Array.isArray(commands) ? commands as SkillCommandInfo[] : [];
+      } catch {
+        return null;
+      }
+    };
+
+    return readCommands(pi)
+      ?? readCommands(ctx)
+      ?? [];
+  };
+
+  const managedSkills = await store.loadIndex();
+  const loadedSkills = collectLoadedSkillsFromCommands(getSkillCommands());
+  const initialRows = buildUnifiedSkillRows(managedSkills, loadedSkills);
+  const projectName = store.getProjectName();
+
+  if (!ctx.hasUI || typeof ctx.ui.custom !== "function") {
+    ctx.ui.notify(formatSkillsList(initialRows, projectName), "info");
+    return;
+  }
+
+  try {
+    await ctx.ui.custom<void>(
+      (tui, theme, _keybindings, done) => new SkillsManagerModal(
+        tui,
+        theme,
+        initialRows,
+        {
+          moveSelected: (scope, skillIds) => moveSelectedSkills(store, skillIds, scope),
+          deleteSelected: (skillIds) => deleteSelectedSkills(store, skillIds),
+          close: () => done(undefined),
+          projectName,
+        },
+        {
+          managedSkills,
+          loadedSkills,
+        },
+      ),
+      {
+        overlay: true,
+        overlayOptions: {
+          anchor: "center",
+          width: "92%",
+          minWidth: 76,
+          maxHeight: "88%",
+          margin: 1,
+        },
+      },
+    );
+  } catch {
+    const latestManagedSkills = await store.loadIndex();
+    const latestRows = buildUnifiedSkillRows(
+      latestManagedSkills,
+      collectLoadedSkillsFromCommands(getSkillCommands()),
+    );
+    ctx.ui.notify(
+      "Interactive skills manager unavailable in this runtime; showing read-only list fallback.",
+      "warning",
+    );
+    ctx.ui.notify(formatSkillsList(latestRows, projectName), "info");
+  }
+}
+
 export function registerSkillsCommand(pi: ExtensionAPI, store: SkillStore): void {
   pi.registerCommand("memory-skills", {
     description: "Manage global, active-project, and loaded external procedural skills",
-    handler: async (_args, ctx: ExtensionCommandContext) => {
-      const getSkillCommands = (): SkillCommandInfo[] => {
-        const readCommands = (owner: unknown): SkillCommandInfo[] | null => {
-          try {
-            const getter = (owner as { getCommands?: () => unknown })?.getCommands;
-            if (typeof getter !== "function") return null;
-            const commands = getter.call(owner);
-            return Array.isArray(commands) ? commands as SkillCommandInfo[] : [];
-          } catch {
-            return null;
-          }
-        };
-
-        return readCommands(pi)
-          ?? readCommands(ctx)
-          ?? [];
-      };
-
-      const managedSkills = await store.loadIndex();
-      const loadedSkills = collectLoadedSkillsFromCommands(getSkillCommands());
-      const initialRows = buildUnifiedSkillRows(managedSkills, loadedSkills);
-      const projectName = store.getProjectName();
-
-      if (!ctx.hasUI || typeof ctx.ui.custom !== "function") {
-        ctx.ui.notify(formatSkillsList(initialRows, projectName), "info");
-        return;
-      }
-
-      try {
-        await ctx.ui.custom<void>(
-          (tui, theme, _keybindings, done) => new SkillsManagerModal(
-            tui,
-            theme,
-            initialRows,
-            {
-              moveSelected: (scope, skillIds) => moveSelectedSkills(store, skillIds, scope),
-              deleteSelected: (skillIds) => deleteSelectedSkills(store, skillIds),
-              close: () => done(undefined),
-              projectName,
-            },
-            {
-              managedSkills,
-              loadedSkills,
-            },
-          ),
-          {
-            overlay: true,
-            overlayOptions: {
-              anchor: "center",
-              width: "92%",
-              minWidth: 76,
-              maxHeight: "88%",
-              margin: 1,
-            },
-          },
-        );
-      } catch {
-        const latestManagedSkills = await store.loadIndex();
-        const latestRows = buildUnifiedSkillRows(
-          latestManagedSkills,
-          collectLoadedSkillsFromCommands(getSkillCommands()),
-        );
-        ctx.ui.notify(
-          "Interactive skills manager unavailable in this runtime; showing read-only list fallback.",
-          "warning",
-        );
-        ctx.ui.notify(formatSkillsList(latestRows, projectName), "info");
-      }
-    },
+    handler: async (_args, ctx) => runSkillsCommand(pi, store, ctx),
   });
 }

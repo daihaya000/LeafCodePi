@@ -42,7 +42,6 @@ import { setupFastCompaction } from "./handlers/fast-compaction.js";
 import { registerInsightsCommand } from "./handlers/insights.js";
 import { triggerConsolidation, registerConsolidateCommand } from "./handlers/auto-consolidate.js";
 import { setupCorrectionDetector } from "./handlers/correction-detector.js";
-import { registerSkillsCommand } from "./handlers/skills-command.js";
 import { registerInterviewCommand } from "./handlers/interview.js";
 import { registerSwitchProjectCommand } from "./handlers/switch-project.js";
 import { registerIndexSessionsCommand } from "./handlers/index-sessions.js";
@@ -316,7 +315,13 @@ export default function (pi: ExtensionAPI) {
 
   // ── 10. Register commands ──
   registerInsightsCommand(pi, store, projectStoreRef, projectNameRef);
-  registerSkillsCommand(pi, skillStore);
+  pi.registerCommand("memory-skills", {
+    description: "Manage global, active-project, and loaded external procedural skills",
+    handler: async (_args, ctx) => {
+      const { runSkillsCommand } = await import("./handlers/skills-command.js");
+      return runSkillsCommand(pi, skillStore, ctx);
+    },
+  });
   registerInterviewCommand(pi, store);
   registerSwitchProjectCommand(pi, config);
   registerLearnMemoryCommand(pi);
