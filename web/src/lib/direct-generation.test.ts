@@ -47,6 +47,17 @@ describe("direct-generation", () => {
     expect(Array.from(truncated)).toHaveLength(4_000);
   });
 
+  it("rejects an oversized helper prompt before calling a provider", async () => {
+    await expect(
+      generateDirectText({
+        model: { providerID: "ollama-cloud", modelID: "qwen3" },
+        system: "system",
+        prompt: "x".repeat(32_000),
+      }),
+    ).rejects.toMatchObject({ status: 413 });
+    expect(completeModelText).not.toHaveBeenCalled();
+  });
+
   it("deduplicates identical primary and fallback candidates", () => {
     const model = parseDirectModel({ providerID: "p", modelID: "m" })!;
     expect(sameDirectModel(model, model)).toBe(true);

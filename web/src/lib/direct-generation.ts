@@ -13,7 +13,7 @@ import type { ThinkingLevel } from "@/lib/types";
 
 const MAX_PROVIDER_ID_CHARS = 100;
 const MAX_MODEL_ID_CHARS = 200;
-const MAX_INPUT_CHARS = 120_000;
+const MAX_INPUT_CHARS = 32_000;
 const MAX_OUTPUT_CHARS = 4_000;
 const DEFAULT_TIMEOUT_MS = 30_000;
 const MAX_TIMEOUT_MS = 120_000;
