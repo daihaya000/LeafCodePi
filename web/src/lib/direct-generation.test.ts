@@ -1,10 +1,18 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-const { completeModelText } = vi.hoisted(() => ({
+const { completeModelText, accountState } = vi.hoisted(() => ({
   completeModelText: vi.fn(),
+  accountState: {
+    accounts: [] as { id: string; providers: string[] }[],
+  },
 }));
 
 vi.mock("@/lib/pi/harness", () => ({ completeModelText }));
+vi.mock("@/lib/accounts", () => ({
+  listAccounts: () => accountState.accounts,
+  accountHasProvider: (account: { providers: string[] }, providerID: string) =>
+    account.providers.includes(providerID),
+}));
 
 import {
   buildDirectGenerationCandidates,
@@ -19,6 +27,7 @@ import {
 describe("direct-generation", () => {
   afterEach(() => {
     completeModelText.mockReset();
+    accountState.accounts = [];
     vi.unstubAllGlobals();
   });
 
@@ -296,6 +305,38 @@ describe("direct-generation", () => {
         accountIdExplicit: true,
       }),
     );
+  });
+
+  it("does not pin the task account to a cross-provider fallback", async () => {
+    accountState.accounts = [{ id: "acc-anthropic", providers: ["anthropic"] }];
+    completeModelText
+      .mockRejectedValueOnce(new Error("primary unavailable"))
+      .mockImplementationOnce(async (options: { providerID: string; accountId?: string; accountIdExplicit?: boolean }) => {
+        const account = accountState.accounts.find((item) => item.id === options.accountId);
+        if (account && options.accountIdExplicit && !account.providers.includes(options.providerID)) {
+          throw new Error("アカウントに紐づかないプロバイダーです");
+        }
+        return "fallback result";
+      });
+
+    await expect(
+      generateDirectTextWithFallbackResult({
+        candidates: [
+          { model: { providerID: "anthropic", modelID: "primary" } },
+          { model: { providerID: "openai-codex", modelID: "fallback" } },
+        ],
+        accountId: "acc-anthropic",
+        accountIdExplicit: true,
+        system: "system",
+        prompt: "prompt",
+      }),
+    ).resolves.toMatchObject({
+      text: "fallback result",
+      model: { providerID: "openai-codex", modelID: "fallback" },
+    });
+    expect(completeModelText).toHaveBeenCalledTimes(2);
+    expect(completeModelText.mock.calls[1]?.[0]).not.toHaveProperty("accountId");
+    expect(completeModelText.mock.calls[1]?.[0]).not.toHaveProperty("accountIdExplicit");
   });
 
   it("tries the selected fallback model with its own effort", async () => {

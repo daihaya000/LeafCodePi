@@ -1,5 +1,5 @@
 import { completeModelText } from "@/lib/pi/harness";
-import { listAccounts } from "@/lib/accounts";
+import { accountHasProvider, listAccounts } from "@/lib/accounts";
 import { splitGenerationModel } from "@/lib/generation-model-key";
 import {
   DEFAULT_LLAMA_SERVER_BASE,
@@ -283,14 +283,25 @@ export async function generateDirectTextWithFallbackResult(
   const { candidates, ...base } = options;
   let lastError: unknown;
   for (const candidate of candidates) {
-    // Settings keys include accountId (acc::provider::model). Treat that as an explicit pin so a
-    // paused account does not silently route to another account mid-fallback chain.
+    const taskAccount = base.accountId
+      ? listAccounts().find((account) => account.id === base.accountId)
+      : undefined;
+    // A task pin only applies to providers owned by that account. A configured
+    // fallback for another provider must resolve its own account/runtime.
+    const accountId =
+      candidate.model.accountId ??
+      (taskAccount && accountHasProvider(taskAccount, candidate.model.providerID)
+        ? taskAccount.id
+        : undefined);
     const pinAccount =
-      base.accountIdExplicit === true || Boolean(candidate.model.accountId);
+      Boolean(candidate.model.accountId) ||
+      (base.accountIdExplicit === true && accountId === base.accountId);
+    const { accountId: _taskAccountId, accountIdExplicit: _taskAccountExplicit, ...candidateBase } = base;
     try {
       return {
         text: await generateDirectText({
-          ...base,
+          ...candidateBase,
+          ...(accountId ? { accountId } : {}),
           model: candidate.model,
           effort: candidate.effort,
           ...(pinAccount ? { accountIdExplicit: true } : {}),
@@ -304,7 +315,8 @@ export async function generateDirectTextWithFallbackResult(
         try {
           return {
             text: await generateDirectText({
-              ...base,
+              ...candidateBase,
+              ...(accountId ? { accountId } : {}),
               model: candidate.model,
               ...(pinAccount ? { accountIdExplicit: true } : {}),
             }),
