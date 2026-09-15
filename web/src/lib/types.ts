@@ -446,6 +446,11 @@ export type GoalLoopTurn = {
   kind: "goal" | "verification";
 };
 
+export type UiIntercomContext = {
+  /** Name of the peer that sent the inbound message, when available. */
+  from?: string;
+};
+
 export type UiMessage = {
   id: string;
   role: "user" | "assistant" | "compaction";
@@ -453,6 +458,8 @@ export type UiMessage = {
   parts: UiPart[];
   /** Goal Loop turn that produced this message, when the session marker is available. */
   goalLoopTurn?: GoalLoopTurn;
+  /** Assistant response generated for an inbound Bot intercom message. */
+  intercom?: UiIntercomContext;
   /** この応答を生成した認証アカウント（未設定 = 既定）。アカウント切替の履歴確認用。 */
   accountId?: string;
   /** この応答を生成したエージェント（Composer変更後も履歴ごとに保持）。 */

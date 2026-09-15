@@ -21,12 +21,28 @@ function asString(value: unknown): string {
 }
 
 const AGENT_SWITCH_CUSTOM_TYPE = "leafcode-pi.agent-switch";
+const INTERCOM_MESSAGE_CUSTOM_TYPE = "intercom_message";
 const DEFAULT_AGENT_LABEL = "the default assistant persona";
 
 type AgentSwitch = {
   previousAgent?: string;
   nextAgent?: string;
 };
+
+type IntercomContext = NonNullable<UiMessage["intercom"]>;
+
+/** Hidden intercom prompts are retained only as context on their assistant response. */
+function intercomContextFromRaw(item: Record<string, unknown>): IntercomContext | null {
+  if (asString(item.customType) !== INTERCOM_MESSAGE_CUSTOM_TYPE) return null;
+  const details = isRecord(item.details) ? item.details : null;
+  const from = isRecord(details?.from) ? details.from : null;
+  const label = asString(from?.name).trim() || asString(from?.id).trim().slice(0, 8);
+  return label ? { from: Array.from(label).slice(0, 80).join("") } : {};
+}
+
+export function isIntercomMessageMarker(item: unknown): boolean {
+  return isRecord(item) && intercomContextFromRaw(item) !== null;
+}
 
 function normalizedAgent(value: unknown): string | undefined {
   const name = asString(value).trim();
@@ -374,6 +390,7 @@ export function toolTimingFromSessionEntries(entries: unknown[]): {
 export function projectPiMessages(raw: unknown[], indexOffset = 0): UiMessage[] {
   const messages: UiMessage[] = [];
   let activeGoalLoopTurn: GoalLoopTurn | undefined;
+  let activeIntercom: IntercomContext | undefined;
   // The first marker describes the persona that produced the preceding history.
   // Later markers switch the active persona for messages that follow them.
   let activeAgent = raw
@@ -393,6 +410,7 @@ export function projectPiMessages(raw: unknown[], indexOffset = 0): UiMessage[] 
 
     if (role === "user") {
       activeGoalLoopTurn = undefined;
+      activeIntercom = undefined;
       const blocks = contentBlocks(item.content);
       const parts: UiPart[] = [];
       const rawText = typeof item.content === "string" ? item.content : textFromBlocks(blocks);
@@ -415,6 +433,12 @@ export function projectPiMessages(raw: unknown[], indexOffset = 0): UiMessage[] 
     }
 
     if (role === "custom") {
+      const intercom = intercomContextFromRaw(item);
+      if (intercom) {
+        activeIntercom = intercom;
+        return;
+      }
+      activeIntercom = undefined;
       const agentSwitch = agentSwitchFromRaw(item);
       if (agentSwitch) activeAgent = agentSwitch.nextAgent;
       if (isGoalLoopTurnMarker(item)) {
@@ -485,6 +509,7 @@ export function projectPiMessages(raw: unknown[], indexOffset = 0): UiMessage[] 
         createdAt,
         parts,
         ...(activeGoalLoopTurn ? { goalLoopTurn: activeGoalLoopTurn } : {}),
+        ...(activeIntercom ? { intercom: activeIntercom } : {}),
         ...(activeAgent ? { agent: activeAgent } : {}),
         model: asString(item.model) || undefined,
         provider: asString(item.provider) || undefined,
@@ -517,6 +542,7 @@ export function projectPiMessages(raw: unknown[], indexOffset = 0): UiMessage[] 
         role: "assistant",
         createdAt,
         ...(activeGoalLoopTurn ? { goalLoopTurn: activeGoalLoopTurn } : {}),
+        ...(activeIntercom ? { intercom: activeIntercom } : {}),
         ...(activeAgent ? { agent: activeAgent } : {}),
         parts: [
           {
@@ -537,6 +563,7 @@ export function projectPiMessages(raw: unknown[], indexOffset = 0): UiMessage[] 
     }
 
     if (role === "compactionSummary") {
+      activeIntercom = undefined;
       const summary = asString(item.summary);
       const tokensBefore =
         typeof item.tokensBefore === "number" && Number.isFinite(item.tokensBefore)

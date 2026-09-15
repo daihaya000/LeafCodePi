@@ -365,6 +365,45 @@ describe("snapshotMessages", () => {
     ]);
   });
 
+  it("keeps intercom metadata on latest-only projections", () => {
+    const marker = {
+      role: "custom",
+      customType: "intercom_message",
+      content: "hidden intercom context",
+      display: true,
+      details: { from: { id: "alice-session", name: "Alice" } },
+      timestamp: 1,
+    };
+    const streaming = {
+      role: "assistant",
+      timestamp: 2,
+      content: [{ type: "text", text: "内線を確認しました" }],
+    };
+    const branch = [
+      {
+        type: "custom_message",
+        id: "intercom-entry",
+        timestamp: "1970-01-01T00:00:00.001Z",
+        customType: marker.customType,
+        content: marker.content,
+        display: marker.display,
+        details: marker.details,
+      },
+    ];
+    const fake = {
+      messages: [marker, streaming],
+      agent: { state: { streamingMessage: streaming as unknown } },
+      sessionManager: { getLeafId: () => "intercom-entry", getBranch: () => branch },
+    };
+    const session = fake as unknown as Parameters<typeof snapshotMessages>[0];
+
+    expect(
+      snapshotMessages(session, undefined, undefined, undefined, undefined, true),
+    ).toMatchObject([
+      { id: "msg-1", intercom: { from: "Alice" } },
+    ]);
+  });
+
   it("projects a streaming delta without rereading the cached branch", () => {
     const stored: unknown[] = [{ role: "user", content: "確認して" }];
     const branch = [{ type: "message", id: "u1", message: stored[0] }];

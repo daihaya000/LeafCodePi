@@ -2,6 +2,7 @@ import {
   entryIdsForProjectedMessages,
   isAgentSwitchMarker,
   isGoalLoopTurnMarker,
+  isIntercomMessageMarker,
   piRawMessageProjectsToUi,
   projectPiMessages,
 } from "@/lib/pi/messages";
@@ -124,6 +125,30 @@ function latestGoalLoopMarkerIndex(raw: unknown[], endIndex = raw.length - 1): n
     if (isPlainUserMessage(item)) return -1;
   }
   return -1;
+}
+
+/** Keep the intercom marker when projecting only the latest streaming message. */
+function latestIntercomMarkerIndex(raw: unknown[], endIndex = raw.length - 1): number {
+  for (let index = Math.min(endIndex, raw.length - 1); index >= 0; index -= 1) {
+    const item = raw[index];
+    if (isIntercomMessageMarker(item)) return index;
+    if (
+      isPlainUserMessage(item) ||
+      (typeof item === "object" &&
+        item !== null &&
+        Object.prototype.hasOwnProperty.call(item, "customType"))
+    ) return -1;
+  }
+  return -1;
+}
+
+function latestContextMarkerIndexes(raw: unknown[], endIndex = raw.length - 1): number[] {
+  return [
+    latestGoalLoopMarkerIndex(raw, endIndex),
+    latestIntercomMarkerIndex(raw, endIndex),
+  ]
+    .filter((index) => index >= 0)
+    .sort((a, b) => a - b);
 }
 
 /** throughput timing をメッセージへ反映（tok/s + 実測の応答所要時間）。 */
@@ -262,7 +287,8 @@ export function snapshotMessages(
           if (
             !piRawMessageProjectsToUi(message) &&
             !isGoalLoopTurnMarker(message) &&
-            !isAgentSwitchMarker(message)
+            !isAgentSwitchMarker(message) &&
+            !isIntercomMessageMarker(message)
           ) return [];
           entryIdByMessage.set(message, entry.id);
           return [message];
@@ -322,8 +348,8 @@ export function snapshotMessages(
   const projectLatestWithEntryIds = (raw: unknown[]): UiMessage[] => {
     const latestIndex = raw.findLastIndex(piRawMessageProjectsToUi);
     if (latestIndex < 0) return [];
-    const markerIndex = latestGoalLoopMarkerIndex(raw, latestIndex);
-    const startIndex = markerIndex >= 0 ? markerIndex : latestIndex;
+    const markerIndexes = latestContextMarkerIndexes(raw, latestIndex);
+    const startIndex = markerIndexes.length > 0 ? markerIndexes[0]! : latestIndex;
     return projectWithEntryIds(raw.slice(startIndex), startIndex);
   };
 
@@ -366,10 +392,11 @@ export function snapshotMessages(
       }
     }
     if (canAppendStreaming) {
-      const markerIndex = latestGoalLoopMarkerIndex(historyRaw);
+      const markerIndexes = latestContextMarkerIndexes(historyRaw);
+      const markerMessages = markerIndexes.map((index) => historyRaw[index]);
       const streamingProjection = projectPiMessages(
-        markerIndex >= 0 ? [historyRaw[markerIndex], streaming] : [streaming],
-        markerIndex >= 0 ? Math.max(0, historyRaw.length - 1) : historyRaw.length,
+        [...markerMessages, streaming],
+        historyRaw.length - markerMessages.length,
       ).at(-1);
       if (streamingProjection) {
         projected = latestOnly

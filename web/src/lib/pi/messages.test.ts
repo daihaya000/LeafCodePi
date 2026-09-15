@@ -63,6 +63,41 @@ describe("projectPiMessages", () => {
     expect(messages[0]?.role).toBe("assistant");
   });
 
+  it("labels assistant messages generated from an intercom delivery", () => {
+    const messages = projectPiMessages([
+      {
+        role: "custom",
+        customType: "intercom_message",
+        content: "内部の受信内容はタイムラインへ出さない",
+        display: true,
+        details: { from: { id: "alice-session", name: "Alice" } },
+        timestamp: 1,
+      },
+      {
+        role: "assistant",
+        id: "a-intercom",
+        timestamp: 2,
+        content: [{ type: "text", text: "確認します" }],
+      },
+      { role: "user", id: "u-next", timestamp: 3, content: "通常の依頼" },
+      {
+        role: "assistant",
+        id: "a-next",
+        timestamp: 4,
+        content: [{ type: "text", text: "通常の回答" }],
+      },
+    ]);
+
+    expect(messages[0]).toMatchObject({
+      id: "a-intercom",
+      role: "assistant",
+      intercom: { from: "Alice" },
+    });
+    expect(messages[1]?.role).toBe("user");
+    expect(messages[2]?.intercom).toBeUndefined();
+    expect(JSON.stringify(messages)).not.toContain("内部の受信内容");
+  });
+
   it("projects only the user goal from a hidden Goal Loop prompt", () => {
     const messages = projectPiMessages([
       {

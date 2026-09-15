@@ -173,6 +173,20 @@ it("does not mark hidden tab messages read until activation", async () => {
   expect(mocks.markRead).toHaveBeenCalledWith("bot", "one", 123);
 });
 
+it("labels an assistant response generated from an intercom message", async () => {
+  render(<ShellProvider><BotView id="one" active /></ShellProvider>);
+  await screen.findByRole("button", { name: "設定" });
+  snapshot({ messages: [{
+    id: "intercom-reply",
+    role: "assistant",
+    createdAt: 123,
+    intercom: { from: "Alice" },
+    parts: [{ type: "text", text: "内線を確認しました" }],
+  }] });
+  expect(screen.getByText("Bot · 内線返信（Alice宛）")).toBeTruthy();
+  expect(screen.getByText("内線を確認しました")).toBeTruthy();
+});
+
 it("scrolls to the latest message when a hidden Bot tab is activated", async () => {
   let active = true;
   let contentHeight = 1_000;

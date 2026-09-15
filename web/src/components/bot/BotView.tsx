@@ -1098,9 +1098,13 @@ export const BotView = memo(function BotView({ id, active = true }: { id: string
         continue;
       }
       const hasBubble = user || Boolean(text || images.length > 0 || files.length > 0 || message.error || requestIds.length > 0);
+      const botName = bot?.name ?? "ボット";
+      const senderName = message.intercom
+        ? `${botName} · 内線返信${message.intercom.from ? `（${message.intercom.from}宛）` : ""}`
+        : botName;
       rows.push(
         <BotChatMessage key={messageRenderKey(message)} user={user} createdAt={message.createdAt}
-          sender={{ ...(bot ?? {}), name: bot?.name ?? "ボット" }} text={text} mentions={botMentions}
+          sender={{ ...(bot ?? {}), name: senderName }} text={text} mentions={botMentions}
           images={<BotMessageImages images={images.flatMap((part) => part.type === "image" ? [{ key: part.id, src: part.url, alt: part.filename ?? undefined }] : [])} />}
           files={<BotMessageFiles files={files.map((part) => ({ key: part.id, name: part.name, mime: part.mime, size: part.size }))} />}
           bubble={hasBubble}
