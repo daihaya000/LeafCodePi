@@ -3,6 +3,7 @@
 import { memo, startTransition, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowUp,
+  Bot,
   Check,
   ChevronDown,
   ChevronUp,
@@ -3139,8 +3140,12 @@ export const TaskView = memo(function TaskView({
             </Button>
           )}
           {canHandoffToBot && supervisorBots.some((bot) => bot.enabled && bot.permissionMode !== "deny") && (
-            <label className="flex shrink-0 items-center">
+            <label
+              title="Botへ引き継ぐ"
+              className="relative flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-muted hover:bg-surface-2 hover:text-text focus-within:ring-2 focus-within:ring-accent @min-[48rem]/task:h-9 @min-[48rem]/task:w-9"
+            >
               <span className="sr-only">Codeタスクを監督するBot</span>
+              <Bot className="h-4 w-4" aria-hidden="true" />
               <select
                 aria-label="Codeタスクを監督するBot"
                 defaultValue=""
@@ -3150,7 +3155,7 @@ export const TaskView = memo(function TaskView({
                   if (botId) void handoffToBot(botId);
                   event.currentTarget.value = "";
                 }}
-                className="h-9 max-w-36 rounded-lg border border-border bg-surface px-1.5 text-xs text-muted outline-none focus:border-accent @max-[48rem]/task:h-11"
+                className="absolute inset-0 h-full w-full cursor-pointer opacity-0 disabled:cursor-not-allowed"
               >
                 <option value="">Botへ引き継ぐ…</option>
                 {supervisorBots.filter((bot) => bot.enabled && bot.permissionMode !== "deny").map((bot) => (
