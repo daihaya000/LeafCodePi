@@ -1705,11 +1705,6 @@ export const TaskView = memo(function TaskView({
       }
     }
   }, [taskId]);
-  const loadOlderRef = useRef<() => void>(() => undefined);
-  loadOlderRef.current = () => {
-    void loadOlderMessages();
-  };
-
   const scrollToBottom = useCallback((el: HTMLElement) => {
     const top = clampScrollTop(el.scrollHeight, el.clientHeight, el.scrollHeight);
     el.scrollTo({ top, behavior: "auto" });
@@ -1729,9 +1724,6 @@ export const TaskView = memo(function TaskView({
     const prevTop = lastScrollTopRef.current;
     lastScrollTopRef.current = el.scrollTop;
     stickRef.current = nextStickState(stickRef.current, el.scrollTop, prevTop, atBottom);
-    if (el.scrollTop <= 80 && messageHistoryRef.current.hasMore) {
-      loadOlderRef.current();
-    }
   }, []);
 
   // 現在のスクロール上端から見た前後方向のジャンプ先を求める。
@@ -3357,7 +3349,7 @@ export const TaskView = memo(function TaskView({
                   type="button"
                   variant="ghost"
                   size="sm"
-                  onClick={() => loadOlderRef.current()}
+                  onClick={() => void loadOlderMessages()}
                   busy={historyLoading}
                   disabled={historyLoading}
                 >

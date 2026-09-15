@@ -233,6 +233,54 @@ it("stops following the bottom after the user scrolls up from a programmatic fol
   expect(viewport.scrollTop).toBe(400);
 });
 
+it("loads older history only when selected, not while scrolling", async () => {
+  class TestEventSource extends EventTarget {
+    static latest: TestEventSource | null = null;
+    constructor() {
+      super();
+      TestEventSource.latest = this;
+    }
+    close() {}
+  }
+  vi.stubGlobal("EventSource", TestEventSource);
+  const messagePath = `/api/tasks/${encodeURIComponent(task.id)}/messages`;
+  render(<TaskView taskId={task.id} mdUp />);
+  const viewport = document.querySelector<HTMLElement>(".overflow-y-auto");
+  if (!viewport || !TestEventSource.latest) throw new Error("Task timeline was not rendered");
+  Object.defineProperties(viewport, {
+    scrollHeight: { configurable: true, value: 1_000 },
+    clientHeight: { configurable: true, value: 200 },
+    scrollTop: { configurable: true, writable: true, value: 0 },
+  });
+  Object.defineProperty(viewport, "scrollTo", {
+    configurable: true,
+    value: ({ top }: { top: number }) => { viewport.scrollTop = top; },
+  });
+  await act(async () => {
+    TestEventSource.latest!.dispatchEvent(new MessageEvent("snapshot", {
+      data: JSON.stringify({
+        eventType: "ready",
+        task,
+        messages: [{ id: "latest", role: "user", createdAt: 1, parts: [{ id: "latest-text", type: "text", text: "latest" }] }],
+        messageHistory: { hasMore: true, nextCursor: "oldest" },
+        isStreaming: false,
+      }),
+    }));
+    await Promise.resolve();
+  });
+
+  fireEvent.scroll(viewport);
+  expect(mocks.getJson.mock.calls.some(([path]) => path === messagePath)).toBe(false);
+
+  mocks.getJson.mockImplementation((path: string) =>
+    path === messagePath
+      ? Promise.resolve({ messages: [], messageHistory: { hasMore: false, nextCursor: null } })
+      : Promise.resolve({ models: [], agents: [], skills: [], accounts: [] }),
+  );
+  fireEvent.click(screen.getByRole("button", { name: "過去の履歴を読み込む" }));
+  await waitFor(() => expect(mocks.getJson).toHaveBeenCalledWith(messagePath, { before: "oldest" }));
+});
+
 it("refreshes the newest page when an older-history cursor is stale", async () => {
   const latest: UiMessage = {
     id: "fresh-message",
