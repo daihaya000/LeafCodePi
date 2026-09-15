@@ -1698,8 +1698,10 @@ const SidebarView = memo(function SidebarView({
                   )}
                 >
                   <TaskActivityIcon task={task} bot={(task.botId ?? task.supervisorBotId) ? botsById.get(task.botId ?? task.supervisorBotId!) : undefined} />
-                  <span className="min-w-0 flex-1 truncate text-xs font-medium">{task.title}</span>
-                  <span className="shrink-0 text-[10px] text-muted">{timeAgo(task.updatedAt)}</span>
+                  <span className="flex min-w-0 flex-1 flex-col items-start">
+                    <span className="w-full truncate text-xs font-medium">{task.title}</span>
+                    <span className="text-[10px] text-muted">{timeAgo(task.updatedAt)}</span>
+                  </span>
                 </button>
                 <button
                   type="button"
@@ -2003,8 +2005,10 @@ const SidebarView = memo(function SidebarView({
                               className="flex min-w-0 flex-1 items-center gap-1.5 px-2 py-1.5 text-left"
                             >
                               <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-faint" />
-                              <span className="min-w-0 flex-1 truncate text-xs font-medium">{task.title}</span>
-                              <span className="shrink-0 text-[10px] text-muted">{timeAgo(task.updatedAt)}</span>
+                              <span className="flex min-w-0 flex-1 flex-col items-start">
+                                <span className="w-full truncate text-xs font-medium">{task.title}</span>
+                                <span className="text-[10px] text-muted">{timeAgo(task.updatedAt)}</span>
+                              </span>
                             </button>
                             <button
                               type="button"
@@ -2399,8 +2403,10 @@ const SidebarView = memo(function SidebarView({
                     )}
                   >
                     <TaskActivityIcon task={task} bot={(task.botId ?? task.supervisorBotId) ? botsById.get(task.botId ?? task.supervisorBotId!) : undefined} />
-                    <span className="min-w-0 flex-1 truncate font-medium">{task.title}</span>
-                    <span className="shrink-0 text-[10px] text-faint">{timeAgo(task.updatedAt)}</span>
+                    <span className="flex min-w-0 flex-1 flex-col items-start">
+                      <span className="w-full truncate font-medium">{task.title}</span>
+                      <span className="text-[10px] text-faint">{timeAgo(task.updatedAt)}</span>
+                    </span>
                   </button>
                   <TaskProgressBar task={task} className="mx-3 mb-1" />
                 </div>
