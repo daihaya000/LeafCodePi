@@ -28,8 +28,12 @@ export const INITIAL_RESTART_PROBE: RestartProbeState = {
   startedAt: null,
 };
 
+/**
+ * 接続断だけでは再起動と断定できない。明示的な再起動要求だけを覆い、
+ * 想定外の再起動は startedAt が変わったと確認できた時点で再読み込みする。
+ */
 export function isRestartOverlayVisible(state: RestartProbeState): boolean {
-  return state.requested || state.offline;
+  return state.requested;
 }
 
 /**

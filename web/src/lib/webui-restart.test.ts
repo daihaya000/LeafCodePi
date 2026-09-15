@@ -36,9 +36,10 @@ describe("nextRestartProbe", () => {
     assert.equal(reloads, 0);
   });
 
-  it("shows the overlay once the failure streak is reached", () => {
+  it("keeps the overlay hidden for an unrequested offline streak", () => {
     const { state } = run([100, ...Array(OFFLINE_STREAK).fill(null)]);
-    assert.equal(isRestartOverlayVisible(state), true);
+    assert.equal(state.offline, true);
+    assert.equal(isRestartOverlayVisible(state), false);
   });
 
   it("does not reload when the same process answers again", () => {
@@ -53,10 +54,10 @@ describe("nextRestartProbe", () => {
     assert.equal(reloads, 1);
   });
 
-  it("falls back to reloading after downtime when the server omits startedAt", () => {
+  it("reloads after unrequested downtime when the server omits startedAt", () => {
     let state = nextRestartProbe(INITIAL_RESTART_PROBE, { startedAt: null }).state;
     for (let i = 0; i < OFFLINE_STREAK; i += 1) state = nextRestartProbe(state, null).state;
-    assert.equal(isRestartOverlayVisible(state), true);
+    assert.equal(isRestartOverlayVisible(state), false);
     assert.equal(nextRestartProbe(state, { startedAt: null }).reload, true);
   });
 
