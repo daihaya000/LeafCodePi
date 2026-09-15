@@ -6,7 +6,7 @@ const testState = vi.hoisted(() => ({ root: "" }));
 vi.mock("./paths", async (importOriginal) => { const actual = await importOriginal<typeof import("./paths")>(); return { ...actual, dataDir: () => testState.root, storePath: () => join(testState.root, "store.json") }; });
 import { botTaskId, createBot, deleteBot, patchBot } from "./bots";
 import { appendRoomMessage, botsForRoomPrompt, consumeRoomRelayEnvelope, createRoom, deleteRoom, ensureRoomBotTask, getRoom, issueRoomRelayEnvelope, patchRoom, readRoomFile, readRoomImage, roomFileRejection, roomImageRejection, roomRequestFiles, roomRequestImages, saveRoomFiles, saveRoomImages, updateRoomMessage } from "./rooms";
-import { MAX_PROMPT_FILE_TOTAL_BYTES } from "./prompt-images";
+import { MAX_PROMPT_FILE_TOTAL_BYTES, MAX_PROMPT_IMAGE_TOTAL_BYTES } from "./prompt-images";
 import { getTask } from "./store";
 
 describe("room store and mention routing", () => {
@@ -61,6 +61,11 @@ describe("room store and mention routing", () => {
     expect(roomImageRejection([{ mimeType: "application/pdf", data: png.toString("base64") }])).toContain("application/pdf");
     expect(roomImageRejection([{ mimeType: "image/png", data: "" }])).toBeDefined();
     expect(roomImageRejection([{ mimeType: "image/png", data: png.toString("base64") }])).toBeUndefined();
+    const imageHalf = Math.floor(MAX_PROMPT_IMAGE_TOTAL_BYTES / 2) + 1;
+    expect(roomImageRejection([
+      { mimeType: "image/png", data: Buffer.alloc(imageHalf).toString("base64") },
+      { mimeType: "image/png", data: Buffer.alloc(imageHalf).toString("base64") },
+    ])).toContain("合計");
     updateRoomMessage(room.id, message.id, { images: saved });
 
     expect(readRoomImage(room.id, saved[0].file)?.bytes.equals(png)).toBe(true);

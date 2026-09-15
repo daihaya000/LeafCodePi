@@ -4,10 +4,24 @@ import {
   formatPromptWithFiles,
   isPromptFile,
   isPromptFileList,
+  isPromptImageList,
   isPromptFileText,
   MAX_PROMPT_FILE_TOTAL_BYTES,
+  MAX_PROMPT_IMAGE_TOTAL_BYTES,
   parsePromptFileMarkers,
 } from "./prompt-images";
+
+describe("prompt image attachments", () => {
+  it("bounds aggregate vision input", () => {
+    const half = Math.floor(MAX_PROMPT_IMAGE_TOTAL_BYTES / 2) + 1;
+    const images = [
+      { mimeType: "image/png", data: Buffer.alloc(half).toString("base64") },
+      { mimeType: "image/png", data: Buffer.alloc(half).toString("base64") },
+    ];
+
+    expect(isPromptImageList(images)).toBe(false);
+  });
+});
 
 describe("prompt file attachments", () => {
   const file = {

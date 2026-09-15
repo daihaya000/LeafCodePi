@@ -7,7 +7,7 @@ import { botTaskId, botWorkspace, getBot, listBots } from "./bots";
 import { deleteTask, getTask, insertBotTask, listTasks, patchTask } from "./store";
 import { ROOM_HANDOFF_STATES } from "./types";
 import type { BotDto, RoomDto, RoomFile, RoomHandoff, RoomImage, RoomMessage, RoomOutcome } from "./types";
-import { isPromptFileText, isPromptFilesWithinTotalSize, isPromptFileWithinSize, isPromptImageWithinSize, MAX_PROMPT_FILE_TOTAL_BYTES, type PromptFileInput, type PromptImageInput } from "./prompt-images";
+import { isPromptFileText, isPromptFilesWithinTotalSize, isPromptFileWithinSize, isPromptImagesWithinTotalSize, isPromptImageWithinSize, MAX_PROMPT_FILE_TOTAL_BYTES, MAX_PROMPT_IMAGE_TOTAL_BYTES, type PromptFileInput, type PromptImageInput } from "./prompt-images";
 const roomEvents = new EventEmitter();
 
 /** Per-room data directory: archived history and attachments live here. */
@@ -322,6 +322,7 @@ function roomImagePath(roomId: string, file: string): string {
 /** Reject at the boundary: a dropped attachment must not look like a delivered one. */
 export function roomImageRejection(images: PromptImageInput[]): string | undefined {
   if (images.length > MAX_ROOM_IMAGES) return `画像は${MAX_ROOM_IMAGES}件までです`;
+  if (!isPromptImagesWithinTotalSize(images)) return `画像は合計${MAX_PROMPT_IMAGE_TOTAL_BYTES / 1024 / 1024}MBまでです`;
   for (const image of images) {
     if (!ROOM_IMAGE_EXTENSIONS[image.mimeType.toLowerCase()]) return `対応していない画像形式です: ${image.mimeType}`;
     const bytes = Buffer.byteLength(image.data, "base64");

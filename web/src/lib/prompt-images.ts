@@ -15,6 +15,8 @@ export const MAX_PROMPT_ATTACHMENTS = 8;
 export const MAX_PROMPT_IMAGES = MAX_PROMPT_ATTACHMENTS;
 export const MAX_PROMPT_FILES = MAX_PROMPT_ATTACHMENTS;
 export const MAX_PROMPT_IMAGE_BYTES = 8 * 1024 * 1024;
+/** Vision inputs are charged per image; prevent an eight-image burst from dominating a turn. */
+export const MAX_PROMPT_IMAGE_TOTAL_BYTES = 12 * 1024 * 1024;
 export const MAX_PROMPT_FILE_BYTES = MAX_PROMPT_IMAGE_BYTES;
 /** Total text inserted into one model prompt; oversized files should be read with tools instead. */
 export const MAX_PROMPT_FILE_TOTAL_BYTES = 64 * 1024;
@@ -44,8 +46,19 @@ export function isPromptImage(value: unknown): value is PromptImageInput {
   );
 }
 
+export function promptImageTotalBytes(images: readonly Pick<PromptImageInput, "data">[]): number {
+  return images.reduce((total, image) => total + Buffer.byteLength(image.data, "base64"), 0);
+}
+
+export function isPromptImagesWithinTotalSize(images: readonly Pick<PromptImageInput, "data">[]): boolean {
+  return promptImageTotalBytes(images) <= MAX_PROMPT_IMAGE_TOTAL_BYTES;
+}
+
 export function isPromptImageList(value: unknown): value is PromptImageInput[] {
-  return Array.isArray(value) && value.length <= MAX_PROMPT_IMAGES && value.every(isPromptImage);
+  return Array.isArray(value)
+    && value.length <= MAX_PROMPT_IMAGES
+    && value.every(isPromptImage)
+    && isPromptImagesWithinTotalSize(value);
 }
 
 export function isPromptImageWithinSize(image: PromptImageInput): boolean {
