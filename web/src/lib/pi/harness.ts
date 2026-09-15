@@ -53,6 +53,7 @@ import {
 } from "@/lib/pi/auth-login";
 import { formatPromptWithFiles, parsePromptFileMarkers, type PromptFileInput } from "@/lib/prompt-images";
 import { toolResultText, titleFromPrompt, toolTimingFromSessionEntries } from "@/lib/pi/messages";
+import { installToolResultCap } from "@/lib/pi/tool-result-cap";
 import {
   applyMessageAccountIds,
   applyMessageAgentIds,
@@ -2955,6 +2956,9 @@ async function configureCreatedSession(
   // cleanup closes sockets with debug_close, which can surface as a scheduler
   // error; keep automation on the SSE path while normal chats retain WebSocket.
   if (setup.goalLoop) session.agent.transport = "sse";
+  // Must run after bindExtensions(): it chains the hook the SDK installs for
+  // extension `tool_result` handlers instead of replacing it.
+  installToolResultCap(session.agent);
   if (setup.botTools) applyBotTools(session, setup.botTools);
   // Apply after bindExtensions() so an explicit mode wins over persisted state.
   applyPermissionMode(session, setup.permissionMode, {

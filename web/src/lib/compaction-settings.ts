@@ -37,11 +37,22 @@ export function shouldSuggestAtThreshold(
   return action === "suggest" && isAtCompactionThreshold(percent, threshold);
 }
 
+/**
+ * Headroom kept even at the highest threshold. A single turn can add several
+ * large tool results at once, so a 5% reserve (threshold 95) was crossed inside
+ * one turn: sessions reached the context window before compaction ran.
+ */
+const MIN_RESERVE_FRACTION = 0.1;
+
 /** Convert a percentage threshold into Pi's reserved-token boundary. */
 export function reserveTokensForThreshold(
   contextWindow: number,
   threshold: number,
 ): number {
   if (!Number.isFinite(contextWindow) || contextWindow <= 0) return 0;
-  return Math.max(1, Math.ceil((contextWindow * (100 - threshold)) / 100));
+  return Math.max(
+    1,
+    Math.ceil((contextWindow * (100 - threshold)) / 100),
+    Math.ceil(contextWindow * MIN_RESERVE_FRACTION),
+  );
 }

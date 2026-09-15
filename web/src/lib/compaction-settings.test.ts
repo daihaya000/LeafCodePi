@@ -32,7 +32,11 @@ describe("compaction settings", () => {
 
   it("maps the threshold to Pi's reserve boundary", () => {
     expect(reserveTokensForThreshold(128_000, 80)).toBe(25_600);
-    expect(reserveTokensForThreshold(128_000, 95)).toBe(6_400);
     expect(reserveTokensForThreshold(0, 80)).toBe(0);
+  });
+
+  it("keeps 10% headroom so one turn of large tool results cannot overshoot", () => {
+    expect(reserveTokensForThreshold(128_000, 95)).toBe(12_800);
+    expect(reserveTokensForThreshold(272_000, 95)).toBe(27_200);
   });
 });
