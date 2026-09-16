@@ -457,6 +457,19 @@ describe("Sidebar project ordering", () => {
     expect((await screen.findByRole("alert")).textContent).toContain("アイコン更新に失敗しました");
   });
 
+  it("applies the saved icon color from the patch response", async () => {
+    mocks.sendJson.mockResolvedValue({
+      project: { ...projects[0], iconColor: "green" },
+    });
+    render(<Sidebar mobileOpen={false} onClose={vi.fn()} />);
+    await openProjectSettings();
+
+    const green = screen.getByRole("button", { name: "Project Aのアイコン色を緑に変更" });
+    fireEvent.click(green);
+
+    await waitFor(() => expect(green.getAttribute("aria-pressed")).toBe("true"));
+  });
+
   it("keeps project settings reachable from a touch collapsed rail without tasks", async () => {
     localStorage.setItem("webui.sidebar.collapsed", "1");
     render(<Sidebar mobileOpen={false} onClose={vi.fn()} />);

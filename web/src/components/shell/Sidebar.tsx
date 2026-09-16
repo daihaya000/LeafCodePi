@@ -1683,19 +1683,24 @@ const SidebarView = memo(function SidebarView({
     [keyboardDraggedProjectId, orderedProjects, reorderProjects],
   );
 
-  const runAction = useCallback(async (key: string, action: () => Promise<unknown>) => {
-    if (actionBusyKey) return;
+  const runAction = useCallback(async (
+    key: string,
+    action: () => Promise<unknown>,
+    options?: { refresh?: boolean; notify?: boolean },
+  ) => {
+    if (actionBusyKey) return undefined;
     setActionError(null);
     setActionBusyKey(key);
     try {
-      await action();
+      return await action();
     } catch (err) {
       console.error("[sidebar] action failed", err);
       setActionError(err instanceof Error ? err.message : "サイドバーの操作に失敗しました");
+      return undefined;
     } finally {
       setActionBusyKey(null);
-      void refresh();
-      notifyTasksChanged();
+      if (options?.refresh !== false) void refresh();
+      if (options?.notify !== false) notifyTasksChanged();
     }
   }, [actionBusyKey, refresh]);
 
@@ -1754,16 +1759,32 @@ const SidebarView = memo(function SidebarView({
     );
   }
 
+  const replaceProject = useCallback((updated: ProjectDto) => {
+    setProjects((current) => current.map((project) => project.id === updated.id ? updated : project));
+    setArchivedProjects((current) => current.map((project) => project.id === updated.id ? updated : project));
+    setProjectSettingsProject((current) => current?.id === updated.id ? updated : current);
+  }, []);
+
+  async function patchProjectFromSidebar(project: ProjectDto, key: string, patch: Record<string, unknown>) {
+    const result = await runAction(
+      key,
+      () => sendJson<{ project: ProjectDto }>("/api/projects", { id: project.id, ...patch }, "PATCH"),
+      { refresh: false, notify: false },
+    ) as { project?: ProjectDto } | undefined;
+    if (!result?.project) return;
+
+    // Ignore an older project poll that was already in flight when this update completed.
+    refreshGenRef.current += 1;
+    replaceProject(result.project);
+    notifyTasksChanged(project.id);
+  }
+
   async function clearProjectIcon(project: ProjectDto) {
-    await runAction(`icon:${project.id}`, () =>
-      sendJson("/api/projects", { id: project.id, icon: null }, "PATCH"),
-    );
+    await patchProjectFromSidebar(project, `icon:${project.id}`, { icon: null });
   }
 
   async function setProjectIconColor(project: ProjectDto, iconColor: ProjectDto["iconColor"]) {
-    await runAction(`icon-color:${project.id}`, () =>
-      sendJson("/api/projects", { id: project.id, iconColor }, "PATCH"),
-    );
+    await patchProjectFromSidebar(project, `icon-color:${project.id}`, { iconColor });
   }
 
   async function migrateProjectAction(project: ProjectDto, destinationPath: string) {
@@ -1804,9 +1825,7 @@ const SidebarView = memo(function SidebarView({
     };
     const reader = new FileReader();
     reader.onload = () => {
-      void runAction(`icon:${project.id}`, () =>
-        sendJson("/api/projects", { id: project.id, icon: String(reader.result) }, "PATCH"),
-      );
+      void patchProjectFromSidebar(project, `icon:${project.id}`, { icon: String(reader.result) });
     };
     reader.onerror = showReaderError;
     try {
