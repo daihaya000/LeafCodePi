@@ -198,6 +198,30 @@ describe("dedupeUiMessages", () => {
 
     expect(dedupeUiMessages([streamed, persisted])).toEqual([persisted]);
   });
+
+  it("collapses a reprojected user row when both ids change", () => {
+    const streamed: UiMessage = {
+      id: "msg-3",
+      role: "user",
+      createdAt: 1,
+      parts: [{ type: "text", id: "msg-3-text", text: "同じ指示" }],
+    };
+    const persisted: UiMessage = {
+      id: "entry-42",
+      role: "user",
+      createdAt: 1,
+      parts: [{ type: "text", id: "entry-42-text", text: "同じ指示" }],
+    };
+
+    expect(dedupeUiMessages([streamed, persisted])).toEqual([persisted]);
+  });
+
+  it("keeps identical content from different turns", () => {
+    const first = { ...textMessage("entry-1", "同じ回答"), createdAt: 1 };
+    const second = { ...textMessage("entry-2", "同じ回答"), createdAt: 2 };
+
+    expect(dedupeUiMessages([first, second])).toEqual([first, second]);
+  });
 });
 
 describe("upsertUiMessage", () => {
@@ -248,6 +272,23 @@ describe("upsertUiMessage", () => {
   it("replaces a streamed row when its persisted id changes", () => {
     const streamed = textMessage("msg-3", "hello");
     const persisted = { ...streamed, id: "entry-42" };
+
+    expect(upsertUiMessage([streamed], persisted)).toEqual([persisted]);
+  });
+
+  it("replaces a reprojected user delta when both ids change", () => {
+    const streamed: UiMessage = {
+      id: "msg-3",
+      role: "user",
+      createdAt: 1,
+      parts: [{ type: "text", id: "msg-3-text", text: "同じ指示" }],
+    };
+    const persisted: UiMessage = {
+      id: "entry-42",
+      role: "user",
+      createdAt: 1,
+      parts: [{ type: "text", id: "entry-42-text", text: "同じ指示" }],
+    };
 
     expect(upsertUiMessage([streamed], persisted)).toEqual([persisted]);
   });
