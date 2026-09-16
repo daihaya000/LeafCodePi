@@ -252,6 +252,69 @@ describe("promoteTask", () => {
     expect(existsSync(join(destination, "work.txt"))).toBe(true);
   });
 
+  it("keeps an idle live session when the migration destination is invalid", async () => {
+    const root = mkdtempSync(join(tmpdir(), "leafcode-pi-migrate-"));
+    roots.push(root);
+    const source = join(root, "source");
+    mkdirSync(source);
+    process.env.LEAFCODE_PI_DATA_DIR = join(root, "data");
+    const project = upsertProject({ name: "source", rootPath: source });
+    const task = insertTask({ project, title: "idle" });
+    const live = {
+      taskId: task.id,
+      session: { sessionId: "idle-session", isStreaming: false, isCompacting: false, dispose: vi.fn() },
+      promptActive: false,
+      unsubscribe: vi.fn(),
+    };
+    setHarness({});
+    const harness = (globalThis as Record<string, unknown>)[GLOBAL_KEY] as { live: Map<string, unknown> };
+    harness.live.set(task.id, live);
+
+    await expect(migrateProject(project.id, join(root, "missing", "destination"))).rejects.toThrow(
+      "移動先の親フォルダーが見つかりません",
+    );
+    expect(harness.live.get(task.id)).toBe(live);
+    expect(live.unsubscribe).not.toHaveBeenCalled();
+    expect(live.session.dispose).not.toHaveBeenCalled();
+  });
+
+  it("rejects concurrent project migrations to the same empty destination", async () => {
+    const root = mkdtempSync(join(tmpdir(), "leafcode-pi-migrate-"));
+    roots.push(root);
+    const sourceA = join(root, "source-a");
+    const sourceB = join(root, "source-b");
+    const destination = join(root, "destination");
+    mkdirSync(sourceA);
+    mkdirSync(sourceB);
+    mkdirSync(destination);
+    process.env.LEAFCODE_PI_DATA_DIR = join(root, "data");
+    const projectA = upsertProject({ name: "source-a", rootPath: sourceA });
+    const projectB = upsertProject({ name: "source-b", rootPath: sourceB });
+    setHarness({});
+
+    let release!: () => void;
+    const entered = new Promise<void>((resolve) => {
+      moveControl.entered = resolve;
+    });
+    moveControl.gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const first = migrateProject(projectA.id, destination);
+    await entered;
+    const second = migrateProject(projectB.id, destination);
+    release();
+
+    const outcomes = await Promise.allSettled([first, second]);
+    expect(outcomes.filter((outcome) => outcome.status === "fulfilled")).toHaveLength(1);
+    expect(outcomes.filter((outcome) => outcome.status === "rejected")).toHaveLength(1);
+    const rejected = outcomes.find((outcome) => outcome.status === "rejected");
+    expect(rejected?.reason).toMatchObject({
+      message: "移動先は既にプロジェクトとして登録されています",
+      status: 409,
+    });
+    expect(listProjects(true).filter((project) => project.rootPath === destination)).toHaveLength(1);
+  });
+
   it("rejects a project migration while one of its tasks is working", async () => {
     const root = mkdtempSync(join(tmpdir(), "leafcode-pi-migrate-"));
     roots.push(root);

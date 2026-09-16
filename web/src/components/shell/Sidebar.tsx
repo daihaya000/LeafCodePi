@@ -957,6 +957,7 @@ function ProjectSettingsDialog({
   onClearIcon,
   onSetIconColor,
   onMigrate,
+  externalError,
 }: {
   project: ProjectDto;
   onClose: () => void;
@@ -964,6 +965,7 @@ function ProjectSettingsDialog({
   onClearIcon: () => void;
   onSetIconColor: (color: ProjectDto["iconColor"]) => void;
   onMigrate: (destinationPath: string) => Promise<void>;
+  externalError: string | null;
 }) {
   const [destinationPath, setDestinationPath] = useState("");
   const [busy, setBusy] = useState(false);
@@ -1016,7 +1018,9 @@ function ProjectSettingsDialog({
                 onFileChange={onSetIcon}
               />
               <span className="flex-1 text-xs text-muted">画像を変更するか、色を選択してください。</span>
-              <Button variant="ghost" size="sm" disabled={busy} onClick={onClearIcon}>画像を削除</Button>
+              {project.icon && (
+                <Button variant="ghost" size="sm" disabled={busy} onClick={onClearIcon}>画像を削除</Button>
+              )}
             </div>
             <div className="mt-3 flex gap-2" role="group" aria-label="アイコンの色">
               {PROJECT_ICON_COLOR_OPTIONS.map((option) => (
@@ -1057,7 +1061,7 @@ function ProjectSettingsDialog({
               <AddProjectButton label="参照" onSelect={setDestinationPath} buttonVariant="secondary" buttonSize="sm" dialogZIndex={120} />
             </div>
           </section>
-          {error && <p role="alert" className="text-xs text-danger">{error}</p>}
+          {(error ?? externalError) && <p role="alert" className="text-xs text-danger">{error ?? externalError}</p>}
         </div>
         <div className="flex justify-end gap-2 border-t border-border px-4 py-3 sm:px-5">
           <Button variant="ghost" size="sm" onClick={onClose} disabled={busy}>キャンセル</Button>
@@ -2014,7 +2018,7 @@ const SidebarView = memo(function SidebarView({
             className="min-w-0 flex-1 bg-transparent outline-none placeholder:text-faint"
           />
         </label>
-        {sidebarError && (
+        {sidebarError && !projectSettingsProject && (
           <p role="alert" className="mb-2 rounded-lg border border-danger/30 bg-danger-bg px-2.5 py-2 text-xs text-danger">
             {sidebarError}
           </p>
@@ -2329,8 +2333,11 @@ const SidebarView = memo(function SidebarView({
     </div>
   );
 
+  const currentProjectSettingsProject = projectSettingsProject
+    ? projects.find((project) => project.id === projectSettingsProject.id) ?? projectSettingsProject
+    : null;
   const projectTaskMenuProject = projectTaskMenu
-    ? projects.find((project) => project.id === projectTaskMenu.projectId)
+    ? orderedProjects.find((project) => project.id === projectTaskMenu.projectId)
     : undefined;
   const projectTaskMenuTasks = projectTaskMenuProject
     ? (tasksByProject.get(projectTaskMenuProject.id) ?? []).slice(0, 20)
@@ -2376,7 +2383,7 @@ const SidebarView = memo(function SidebarView({
           <Menu className="h-5 w-5 text-muted" />
         </button>
       </div>
-      {sidebarError && (
+      {sidebarError && !projectSettingsProject && (
         <p role="alert" className="w-full break-words px-1 py-2 text-center text-[10px] text-danger">
           {sidebarError}
         </p>
@@ -2409,7 +2416,7 @@ const SidebarView = memo(function SidebarView({
             const projectTasks = tasksByProject.get(project.id) ?? [];
             const running = countRunningTasks(projectTasks);
             const active = activeTask?.projectId === project.id;
-            const tapOpensMenu = !hoverCapable && projectTasks.length > 0;
+            const tapOpensMenu = !hoverCapable;
             const menuOpen = projectTaskMenu?.projectId === project.id;
             const projectLabel = tapOpensMenu
               ? running > 0
@@ -2734,14 +2741,15 @@ const SidebarView = memo(function SidebarView({
           }}
         />
       )}
-      {projectSettingsProject && (
+      {currentProjectSettingsProject && (
         <ProjectSettingsDialog
-          project={projectSettingsProject}
+          project={currentProjectSettingsProject}
           onClose={() => setProjectSettingsProject(null)}
-          onSetIcon={(file) => void setProjectIcon(projectSettingsProject, file)}
-          onClearIcon={() => void clearProjectIcon(projectSettingsProject)}
-          onSetIconColor={(color) => void setProjectIconColor(projectSettingsProject, color)}
-          onMigrate={(destinationPath) => migrateProjectAction(projectSettingsProject, destinationPath)}
+          onSetIcon={(file) => void setProjectIcon(currentProjectSettingsProject, file)}
+          onClearIcon={() => void clearProjectIcon(currentProjectSettingsProject)}
+          onSetIconColor={(color) => void setProjectIconColor(currentProjectSettingsProject, color)}
+          onMigrate={(destinationPath) => migrateProjectAction(currentProjectSettingsProject, destinationPath)}
+          externalError={actionError}
         />
       )}
     </>

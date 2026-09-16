@@ -426,6 +426,46 @@ describe("Sidebar project ordering", () => {
     confirm.mockRestore();
   });
 
+  it("updates the open settings view after saving an icon color", async () => {
+    let currentProject = { ...projects[0], iconColor: undefined as string | undefined };
+    mocks.getJson.mockImplementation((path: string) => {
+      if (path === "/api/projects?archived=1") return Promise.resolve({ projects: [currentProject, ...projects.slice(1)] });
+      if (path === "/api/tasks?kind=all" || path === "/api/tasks?archived=1&kind=all") return Promise.resolve({ tasks: [] });
+      if (path === "/api/health") return Promise.resolve({ ok: true, engineOk: true, version: "1", modelCount: 0 });
+      return Promise.reject(new Error(`Unexpected request: ${path}`));
+    });
+    mocks.sendJson.mockImplementation(async (_path: string, body: { iconColor?: string }) => {
+      currentProject = { ...currentProject, iconColor: body.iconColor as "green" };
+      return { project: currentProject };
+    });
+    render(<Sidebar mobileOpen={false} onClose={vi.fn()} />);
+    await openProjectSettings();
+
+    const green = screen.getByRole("button", { name: "Project Aのアイコン色を緑に変更" });
+    fireEvent.click(green);
+
+    await waitFor(() => expect(green.getAttribute("aria-pressed")).toBe("true"));
+  });
+
+  it("shows icon action errors inside project settings", async () => {
+    mocks.sendJson.mockRejectedValueOnce(new Error("アイコン更新に失敗しました"));
+    render(<Sidebar mobileOpen={false} onClose={vi.fn()} />);
+    await openProjectSettings();
+
+    fireEvent.click(screen.getByRole("button", { name: "Project Aのアイコン色を緑に変更" }));
+
+    expect((await screen.findByRole("alert")).textContent).toContain("アイコン更新に失敗しました");
+  });
+
+  it("keeps project settings reachable from a touch collapsed rail without tasks", async () => {
+    localStorage.setItem("webui.sidebar.collapsed", "1");
+    render(<Sidebar mobileOpen={false} onClose={vi.fn()} />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Project Aのタスクを表示" }));
+
+    expect(await screen.findByRole("menuitem", { name: "Project Aの設定" })).toBeTruthy();
+  });
+
   it("reorders projects with native DnD and persists the order", async () => {
     render(<Sidebar mobileOpen={false} onClose={vi.fn()} />);
     const source = await screen.findByRole("button", { name: "Project Aを展開" });

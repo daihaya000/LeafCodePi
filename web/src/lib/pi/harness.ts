@@ -6053,20 +6053,38 @@ async function migrateProjectOnce(
   }
 
   return withPromotionDestinationLock(destination, async () => {
-    const tasks = listTasks(true).filter((task) => task.projectId === projectId);
-    if (tasks.some((task) => isTaskRuntimeBusyForDestructiveEdit(task.id))) {
+    if (listProjects(true).some((candidate) => candidate.id !== projectId && samePath(candidate.rootPath, destination))) {
+      throw Object.assign(new Error("移動先は既にプロジェクトとして登録されています"), { status: 409 });
+    }
+    const initialTasks = listTasks(true, "all").filter((task) => task.projectId === projectId);
+    if (initialTasks.some((task) => isTaskRuntimeBusyForDestructiveEdit(task.id))) {
       throw Object.assign(new Error("実行中のタスクは停止してからプロジェクトを移動してください"), { status: 409 });
     }
-    for (const task of tasks) disposeLive(task.id);
 
+    // Copy before disposing idle sessions so a rejected destination does not disconnect them.
     const prepared = await prepareWorkspaceMove(source, destination);
-    let committed = false;
+    if (listProjects(true).some((candidate) => candidate.id !== projectId && samePath(candidate.rootPath, destination))) {
+      await prepared.rollback().catch(() => undefined);
+      throw Object.assign(new Error("移動先は既にプロジェクトとして登録されています"), { status: 409 });
+    }
+    const tasks = listTasks(true, "all").filter((task) => task.projectId === projectId);
+    if (tasks.some((task) => isTaskRuntimeBusyForDestructiveEdit(task.id))) {
+      await prepared.rollback().catch(() => undefined);
+      throw Object.assign(new Error("実行中のタスクは停止してからプロジェクトを移動してください"), { status: 409 });
+    }
+    const hadSubscribers = new Set(
+      tasks
+        .filter((task) => state().events.listenerCount(task.id) > 0)
+        .map((task) => task.id),
+    );
     const before = tasks.map((task) => ({
       id: task.id,
       directory: task.directory,
       sessionFile: task.sessionFile,
     }));
+    let committed = false;
     try {
+      for (const task of tasks) disposeLive(task.id);
       const updatedProject = patchProject(projectId, { rootPath: destination });
       if (!updatedProject) throw Object.assign(new Error("プロジェクトが見つかりません"), { status: 404 });
       for (const task of tasks) {
@@ -6103,7 +6121,22 @@ async function migrateProjectOnce(
         for (const task of before) {
           patchTask(task.id, { directory: task.directory, sessionFile: task.sessionFile });
         }
-        await prepared.rollback().catch(() => undefined);
+        let rollbackSucceeded = true;
+        try {
+          await prepared.rollback();
+        } catch {
+          rollbackSucceeded = false;
+        }
+        if (rollbackSucceeded) {
+          for (const taskId of hadSubscribers) {
+            try {
+              const refreshed = await ensureLive(taskId);
+              emitTaskSnapshot(refreshed, "project_migration_rolled_back");
+            } catch {
+              // The original operation error is more useful to the caller.
+            }
+          }
+        }
       }
       throw error;
     }
