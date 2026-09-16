@@ -97,6 +97,11 @@ describe("composer references", () => {
       query: "",
       raw: "#",
     });
+    expect(findComposerReferenceToken("確認 ＃", 4)).toMatchObject({
+      kind: "prompt",
+      query: "",
+      raw: "＃",
+    });
     expect(findComposerReferenceToken("/prompt:rev", 11)).toMatchObject({
       kind: "skill",
       query: "prompt:rev",

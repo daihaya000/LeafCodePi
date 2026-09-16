@@ -17,9 +17,9 @@ export function renderHighlightedReferenceText(
 ): ReactNode {
   if (!value) return "\u200b";
   const parts: ReactNode[] = [];
-  // 空白境界の /・# や @ トークン。isKnownComposerReference で既知参照のみ色付けする
+  // 空白境界の /・#・＃ や @ トークン。isKnownComposerReference で既知参照のみ色付けする
   // ため、パス・URL・メール等への誤マッチは表示に影響しない。
-  const pattern = /(^|\s)(\/[^\s/]+|#[^\s#/@]+|@[^\s@]+)/g;
+  const pattern = /(^|\s)(\/[^\s/]+|[#＃][^\s#＃/@]+|@[^\s@]+)/g;
   let cursor = 0;
   let match: RegExpExecArray | null;
   while ((match = pattern.exec(value)) !== null) {
@@ -30,7 +30,7 @@ export function renderHighlightedReferenceText(
     const lowerRawName = rawName.toLocaleLowerCase();
     const kind: ComposerReferenceKind = token.startsWith("/")
       ? "skill"
-      : token.startsWith("#") ? "prompt" : "agent";
+      : token.startsWith("#") || token.startsWith("＃") ? "prompt" : "agent";
     const name = kind === "skill" && lowerRawName.startsWith("skill:")
       ? rawName.slice("skill:".length)
       : rawName;

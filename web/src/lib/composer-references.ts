@@ -30,18 +30,18 @@ export type ComposerReferenceToken = {
   end: number;
 };
 
-/** 後退ループ用: 空白・/・#・@ 以外は参照名の一部として扱う（日本語クエリ対応）。 */
-const NON_REFERENCE = /[\s/#\u0040]/;
+/** 後退ループ用: 空白・/・#・＃・@ 以外は参照名の一部として扱う（日本語クエリ対応）。 */
+const NON_REFERENCE = /[\s/#＃\u0040]/;
 
 /** Return the slash/at/hash token immediately before the caret, when it is a reference. */
 export function findComposerReferenceToken(value: string, caret: number): ComposerReferenceToken | null {
   const safeCaret = Math.max(0, Math.min(value.length, caret));
   let start = safeCaret - 1;
-  // 日本語等の非 ASCII クエリも後退できるよう、非参照文字（空白・/・#・@）まで
+  // 日本語等の非 ASCII クエリも後退できるよう、非参照文字（空白・/・#・＃・@）まで
   // 戻る。かな・漢字・絵文字も参照名の一部として扱う。
   while (start >= 0 && !NON_REFERENCE.test(value[start] ?? "")) start -= 1;
   const trigger = value[start];
-  if (trigger !== "/" && trigger !== "@" && trigger !== "#") return null;
+  if (trigger !== "/" && trigger !== "@" && trigger !== "#" && trigger !== "＃") return null;
   if (start > 0 && !/\s/.test(value[start - 1] ?? "")) {
     // 単語境界チェックは ASCII 前提（メールアドレス・パス等の誤検出防止）。
     // 日本語等の非 ASCII 直後は単語境界の概念がないため参照開始として許可する。
@@ -50,7 +50,7 @@ export function findComposerReferenceToken(value: string, caret: number): Compos
 
   const raw = value.slice(start, safeCaret);
   const typedQuery = raw.slice(1);
-  const kind: ComposerReferenceKind = trigger === "/" ? "skill" : trigger === "#" ? "prompt" : "agent";
+  const kind: ComposerReferenceKind = trigger === "/" ? "skill" : trigger === "#" || trigger === "＃" ? "prompt" : "agent";
   const query = trigger === "/" && typedQuery.toLocaleLowerCase().startsWith("skill:")
     ? typedQuery.slice("skill:".length)
     : typedQuery;

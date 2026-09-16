@@ -287,7 +287,7 @@ export function ComposerPromptPresetsSettings() {
       <div className="flex items-start justify-between gap-3">
         <div>
           <h3 id="composer-prompt-presets-heading" className="text-sm font-semibold">送信プロンプト</h3>
-          <p className="mt-1 text-xs text-muted">よく使う指示を保存して、入力欄で <code className="rounded bg-surface-2 px-1">#</code> を入力すると候補から呼び出せます。</p>
+          <p className="mt-1 text-xs text-muted">よく使う指示を保存して、入力欄で <code className="rounded bg-surface-2 px-1">#</code> または <code className="rounded bg-surface-2 px-1">＃</code> を入力すると候補から呼び出せます。</p>
         </div>
         {!formOpen && (
           <button
