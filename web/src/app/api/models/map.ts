@@ -23,7 +23,10 @@ function integratedProviderPercent(
   const values = rows
     .filter(
       (provider) =>
-        hasLastGoodUsage(provider) && provider.usedPercent !== null,
+        // ％が表示専用の行（API キー口座の残高から導出した％）は平均に混ぜない
+        provider.usageDisplayOnly !== true &&
+        hasLastGoodUsage(provider) &&
+        provider.usedPercent !== null,
     )
     .map((provider) => provider.usedPercent!);
   if (values.length === 0) return null;

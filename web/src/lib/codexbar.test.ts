@@ -332,6 +332,49 @@ describe("groupCodexBarProviders", () => {
     });
   });
 
+  it("keeps a display-only percent out of the parent average", () => {
+    const usage = parseCodexBarSnapshot({
+      accounts: [
+        {
+          id: "acc-sub",
+          label: "サブスク",
+          providers: ["anthropic"],
+          configuredProviders: ["anthropic"],
+        },
+        {
+          id: "acc-api",
+          label: "API キー",
+          providers: ["anthropic"],
+          configuredProviders: ["anthropic"],
+        },
+      ],
+      providers: [
+        {
+          codexBarProviderId: "anthropic",
+          accountId: "acc-sub",
+          usedPercent: 40,
+        },
+        {
+          codexBarProviderId: "anthropic",
+          accountId: "acc-api",
+          usedPercent: 90,
+          usageDisplayOnly: true,
+          credits: { used: 90, limit: 100, balance: 10 },
+        },
+      ],
+    });
+
+    const [group] = groupCodexBarProviders(usage);
+    // 親行の平均・件数は実使用量（サブスク）だけで計算する
+    expect(group.provider.usedPercent).toBe(40);
+    expect(group.limitedCount).toBe(0);
+    // 子行では残高から導出した％をそのまま表示する
+    expect(
+      group.accountRows.find((row) => row.label === "API キー")?.provider
+        ?.usedPercent,
+    ).toBe(90);
+  });
+
   it("keeps API-key account providers in parsed account metadata", () => {
     const usage = parseCodexBarSnapshot({
       accounts: [

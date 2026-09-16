@@ -16,6 +16,7 @@ function snap(partial: Partial<UsageSnapshot> & Pick<UsageSnapshot, "windows">):
     creditsTitle: null,
     creditsUsed: null,
     creditsLimit: null,
+    usageDisplayOnly: false,
     sourceLabel: null,
     updatedAt: new Date("2026-08-21T00:00:00Z"),
     isStale: false,
@@ -31,6 +32,27 @@ describe("toOpencodeProviderId", () => {
     expect(toOpencodeProviderId("cursor")).toBe("cursor-acp");
     expect(toOpencodeProviderId("openrouter")).toBe("openrouter");
     expect(toOpencodeProviderId("mystery")).toBeNull();
+  });
+});
+
+describe("buildEntry usageDisplayOnly", () => {
+  it("passes the display-only flag through to the entry", () => {
+    const displayOnly = buildEntry(
+      "anthropic",
+      snap({
+        windows: [],
+        creditsEnabled: true,
+        creditsUsed: 38,
+        creditsLimit: 100,
+        creditsBalance: 62,
+        usageDisplayOnly: true,
+      }),
+      null,
+    );
+    expect(displayOnly?.usageDisplayOnly).toBe(true);
+
+    const regular = buildEntry("anthropic", snap({ windows: [] }), null);
+    expect(regular?.usageDisplayOnly).toBe(false);
   });
 });
 

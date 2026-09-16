@@ -366,6 +366,8 @@ export function parseAnthropicPrepaidCreditsJson(json: string): UsageSnapshot {
     creditsLimit: null,
     creditsBalance: amountCents / 100,
     creditsLabel: null,
+    // 残高から導出した％は表示専用（集計やルーティングには使わない）。
+    usageDisplayOnly: true,
     sourceLabel: "platform.claude.com",
     updatedAt: new Date(),
     isStale: false,

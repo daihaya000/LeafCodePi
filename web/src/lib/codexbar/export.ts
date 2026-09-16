@@ -48,6 +48,8 @@ export type ExportEntry = {
   error: string | null;
   windows: ExportWindow[];
   credits: ExportCredits | null;
+  /** 使用率が表示専用（集計・ルーティングに使わない）か。 */
+  usageDisplayOnly?: boolean;
   /** Banked Codex rate-limit resets available; null when N/A. */
   resetCreditsAvailable: number | null;
 };
@@ -173,6 +175,7 @@ export function buildEntry(
           balance: snapshot.creditsBalance,
         }
       : null,
+    usageDisplayOnly: snapshot?.usageDisplayOnly === true,
     resetCreditsAvailable: snapshot?.rateLimitResetCreditsAvailable ?? null,
   };
 }

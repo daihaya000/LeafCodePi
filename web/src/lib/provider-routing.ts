@@ -225,6 +225,7 @@ export type RoutingUsage = Pick<
   | "error"
   | "windows"
   | "credits"
+  | "usageDisplayOnly"
 >;
 
 export type RoutingCandidate<T = unknown> = {
@@ -281,11 +282,18 @@ function candidateTier(
   const reset = resetTime(usage);
   const maxedExpired = usage.maxed && reset !== null && reset <= nowMs;
   if (usage.maxed && !usage.stale && !maxedExpired) {
-    // 枠クレジットが残っているサブスクは使い続けられる（既知だが保守的に tier 1）。
-    return hasSubscriptionCreditsRemaining(usage) ? 1 : 3;
+    // 枠クレジット（extra usage）が残っているサブスクは使い続けられる（保守的に tier 1）。
+    if (hasSubscriptionCreditsRemaining(usage)) {
+      // ％が表示専用の行は順位付けに使わない（残高が残っている間は tier 2 のまま）。
+      return usage.usageDisplayOnly === true ? 2 : 1;
+    }
+    return 3;
   }
   if (usage.maxed && usage.stale) return 2;
   if (!usageIsKnown(usage)) return 2;
+  // ％が表示専用の行（API キー口座の残高手入力など）は使用率比較に使わない（常に tier2）。
+  // 残高切れ・実行時制限は maxed 側の分岐で除外される。
+  if (usage.usageDisplayOnly === true) return 2;
   return usage.stale ? 1 : 0;
 }
 

@@ -83,6 +83,11 @@ export type CodexBarProvider = {
    * Null/undefined when unknown or not applicable.
    */
   resetCreditsAvailable?: number | null;
+  /**
+   * True のとき使用率は表示専用（手入力の基準残高から導出した残高％など）。
+   * 集計（親行の平均・統合ピッカー）とルーティングの使用率比較に使わない。
+   */
+  usageDisplayOnly?: boolean;
 };
 
 export type CodexBarUsage = {
@@ -277,6 +282,7 @@ export function parseCodexBarSnapshot(raw: unknown): CodexBarUsage {
         error: asString(p.error),
         windows,
         credits,
+        ...(p.usageDisplayOnly === true ? { usageDisplayOnly: true } : {}),
         resetCreditsAvailable: asNumber(p.resetCreditsAvailable),
       };
     });
@@ -348,6 +354,7 @@ function emptyProvider(id: string): CodexBarProvider {
     error: null,
     windows: [],
     credits: null,
+    usageDisplayOnly: false,
     resetCreditsAvailable: null,
   };
 }
@@ -436,7 +443,11 @@ export function groupCodexBarProviders(
             entry.provider ? [entry.provider] : [],
           )
         : [base];
-    const validRows = rowProviders.filter(
+    // ％が表示専用の行（API キー口座の残高から導出した％など）は親行の集計に入れない。
+    const aggregateRows = rowProviders.filter(
+      (provider) => provider.usageDisplayOnly !== true,
+    );
+    const validRows = aggregateRows.filter(
       (provider) => hasLastGoodUsage(provider) && provider.usedPercent !== null,
     );
     const usedPercent =
@@ -448,10 +459,10 @@ export function groupCodexBarProviders(
             ) / validRows.length
           : null
         : base.usedPercent;
-    const limitedCount = rowProviders.filter(
+    const limitedCount = aggregateRows.filter(
       (provider) => provider.limited || provider.maxed,
     ).length;
-    const maxedCount = rowProviders.filter((provider) => provider.maxed).length;
+    const maxedCount = aggregateRows.filter((provider) => provider.maxed).length;
 
     result.push({
       id,
@@ -464,7 +475,7 @@ export function groupCodexBarProviders(
         // Account children expose individual limits; the parent summarizes usage only.
         limited: isAccountManaged && accountRows.length > 0 ? false : limitedCount > 0,
         maxed: isAccountManaged && accountRows.length > 0 ? false : maxedCount > 0,
-        stale: rowProviders.some((provider) => provider.stale === true),
+        stale: aggregateRows.some((provider) => provider.stale === true),
         windows: isAccountManaged && accountRows.length > 0 ? [] : base.windows,
         credits:
           isAccountManaged && accountRows.length > 0 ? null : base.credits,

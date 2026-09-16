@@ -21,7 +21,16 @@ import {
 function usage(
   usedPercent: number | null,
   options: Partial<
-    Pick<RoutingUsage, "id" | "stale" | "maxed" | "resetsAt" | "error" | "credits">
+    Pick<
+      RoutingUsage,
+      | "id"
+      | "stale"
+      | "maxed"
+      | "resetsAt"
+      | "error"
+      | "credits"
+      | "usageDisplayOnly"
+    >
   > = {},
 ): RoutingUsage {
   return {
@@ -33,6 +42,7 @@ function usage(
     error: options.error ?? null,
     windows: usedPercent === null ? [] : [{ id: "window", title: "window", usedPercent, resetsAt: null, windowMinutes: 300 }],
     credits: options.credits ?? null,
+    usageDisplayOnly: options.usageDisplayOnly ?? false,
   };
 }
 
@@ -179,6 +189,68 @@ describe("routing candidate ranking", () => {
       },
     ]);
     assert.equal(decision.candidate?.accountId, "fresh");
+  });
+
+  it("keeps a display-only percent out of the usage ranking", () => {
+    const decision = chooseRoutingCandidate([
+      {
+        accountId: "api",
+        accountIndex: 0,
+        value: "api",
+        usage: usage(62, {
+          usageDisplayOnly: true,
+          credits: { title: "API クレジット", used: 38, limit: 100, balance: 62 },
+        }),
+        workingTaskCount: 0,
+      },
+      {
+        accountId: "sub-stale",
+        accountIndex: 1,
+        value: "sub-stale",
+        usage: usage(80, { stale: true }),
+        workingTaskCount: 0,
+      },
+    ]);
+    // ％が表示専用の API 口座は tier2。stale でもサブスク（tier1）が優先される。
+    assert.equal(decision.candidate?.accountId, "sub-stale");
+    assert.equal(
+      decision.ranked.find((entry) => entry.accountId === "api")?.tier,
+      2,
+    );
+  });
+
+  it("still excludes a display-only account once its balance is exhausted", () => {
+    const ranked = rankRoutingCandidates([
+      {
+        accountId: "api",
+        accountIndex: 0,
+        value: "api",
+        usage: usage(100, {
+          maxed: true,
+          usageDisplayOnly: true,
+          credits: { title: "API クレジット", used: 100, limit: 100, balance: 0 },
+        }),
+        workingTaskCount: 0,
+      },
+    ]);
+    assert.equal(ranked[0]?.tier, 3);
+  });
+
+  it("keeps a maxed display-only row at tier2 while credits remain", () => {
+    const ranked = rankRoutingCandidates([
+      {
+        accountId: "api",
+        accountIndex: 0,
+        value: "api",
+        usage: usage(99.6, {
+          maxed: true,
+          usageDisplayOnly: true,
+          credits: { title: "API クレジット", used: 99.6, limit: 100, balance: 0.4 },
+        }),
+        workingTaskCount: 0,
+      },
+    ]);
+    assert.equal(ranked[0]?.tier, 2);
   });
 
   it("does not extend the credit rule to providers whose credits are separate balances", () => {

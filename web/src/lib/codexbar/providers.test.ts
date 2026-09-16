@@ -247,6 +247,8 @@ describe("parseAnthropicPrepaidCreditsJson", () => {
     expect(snap.creditsBalance).toBeCloseTo(12.34);
     expect(snap.creditsUsed).toBeNull();
     expect(snap.plan).toBe("API");
+    // 残高から導出した％は表示専用（集計・ルーティングに使わない）
+    expect(snap.usageDisplayOnly).toBe(true);
   });
 
   it("rejects a response without amount", () => {

@@ -55,6 +55,11 @@ export type UsageSnapshot = {
   updatedAt: Date;
   isStale: boolean;
   /**
+   * True のとき使用率は表示専用（例: 手入力した基準残高から導出した残高％）。
+   * 集計（CodexBar 親行・統合ピッカー）とルーティングの使用率比較に使わない。
+   */
+  usageDisplayOnly?: boolean;
+  /**
    * Banked Codex rate-limit resets still available to redeem.
    * Null when the provider does not expose this benefit.
    */
