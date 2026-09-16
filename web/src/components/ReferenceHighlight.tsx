@@ -29,13 +29,11 @@ export function renderHighlightedReferenceText(
     const rawName = token.slice(1);
     const lowerRawName = rawName.toLocaleLowerCase();
     const kind: ComposerReferenceKind = token.startsWith("/")
-      ? lowerRawName.startsWith("prompt:") ? "prompt" : "skill"
+      ? "skill"
       : token.startsWith("#") ? "prompt" : "agent";
     const name = kind === "skill" && lowerRawName.startsWith("skill:")
       ? rawName.slice("skill:".length)
-      : kind === "prompt" && lowerRawName.startsWith("prompt:")
-        ? rawName.slice("prompt:".length)
-        : rawName;
+      : rawName;
     if (isKnownComposerReference(kind, name, references)) {
       parts.push(
         <span

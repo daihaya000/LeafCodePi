@@ -16,7 +16,6 @@ import {
   MAX_COMPOSER_PROMPT_PRESETS_VALUE_CHARS,
   hasStoredComposerPromptPresets,
   MAX_COMPOSER_PROMPT_PRESETS,
-  MAX_COMPOSER_PROMPT_PRESET_NAME_CHARS,
   MAX_COMPOSER_PROMPT_PRESET_PROMPT_CHARS,
   readComposerPromptPresets,
   readComposerPromptPresetsFromServer,
@@ -190,12 +189,11 @@ export function ComposerDefaultsSettings({ refreshToken = 0 }: { refreshToken?: 
   );
 }
 
-type PromptPresetDraft = Pick<ComposerPromptPreset, "name" | "prompt">;
+type PromptPresetDraft = { prompt: string };
 
-const EMPTY_PROMPT_PRESET_DRAFT: PromptPresetDraft = { name: "", prompt: "" };
-const INVALID_PROMPT_PRESET_NAME = /[\s/@#]/;
+const EMPTY_PROMPT_PRESET_DRAFT: PromptPresetDraft = { prompt: "" };
 
-/** Manage the reusable `#prompt:name` snippets shown by every composer. */
+/** Manage the body-only prompt presets shown by every composer. */
 export function ComposerPromptPresetsSettings() {
   const [presets, setPresets] = useState<ComposerPromptPreset[]>(() => readComposerPromptPresets());
   const [draft, setDraft] = useState<PromptPresetDraft>(EMPTY_PROMPT_PRESET_DRAFT);
@@ -237,7 +235,7 @@ export function ComposerPromptPresetsSettings() {
     const preset = presets[index];
     if (!preset) return;
     setEditingIndex(index);
-    setDraft({ name: preset.name, prompt: preset.prompt });
+    setDraft({ prompt: preset });
     setError(null);
     setFormOpen(true);
   };
@@ -250,16 +248,7 @@ export function ComposerPromptPresetsSettings() {
   };
 
   const save = () => {
-    const name = draft.name.trim();
     const prompt = draft.prompt.trim();
-    if (!name) {
-      setError("プリセット名を入力してください");
-      return;
-    }
-    if (name.length > MAX_COMPOSER_PROMPT_PRESET_NAME_CHARS || INVALID_PROMPT_PRESET_NAME.test(name)) {
-      setError("プリセット名は空白・@・#・/を含めず、32文字以内で入力してください");
-      return;
-    }
     if (!prompt) {
       setError("送信プロンプトを入力してください");
       return;
@@ -268,21 +257,13 @@ export function ComposerPromptPresetsSettings() {
       setError(`送信プロンプトは${MAX_COMPOSER_PROMPT_PRESET_PROMPT_CHARS}文字以内で入力してください`);
       return;
     }
-    const duplicate = presets.some(
-      (preset, index) => index !== editingIndex && preset.name.toLocaleLowerCase() === name.toLocaleLowerCase(),
-    );
-    if (duplicate) {
-      setError("同じ名前のプリセットは登録できません");
-      return;
-    }
     if (editingIndex === null && presets.length >= MAX_COMPOSER_PROMPT_PRESETS) {
       setError(`プリセットは${MAX_COMPOSER_PROMPT_PRESETS}件まで登録できます`);
       return;
     }
     const next = [...presets];
-    const nextPreset = { name, prompt };
-    if (editingIndex === null) next.push(nextPreset);
-    else next[editingIndex] = nextPreset;
+    if (editingIndex === null) next.push(prompt);
+    else next[editingIndex] = prompt;
     if (JSON.stringify(next).length > MAX_COMPOSER_PROMPT_PRESETS_VALUE_CHARS) {
       setError("プリセット全体が大きすぎます。本文を短くしてください");
       return;
@@ -306,7 +287,7 @@ export function ComposerPromptPresetsSettings() {
       <div className="flex items-start justify-between gap-3">
         <div>
           <h3 id="composer-prompt-presets-heading" className="text-sm font-semibold">送信プロンプト</h3>
-          <p className="mt-1 text-xs text-muted">よく使う指示を保存して、入力欄で <code className="rounded bg-surface-2 px-1">#prompt:名前</code> と入力すると候補から呼び出せます。</p>
+          <p className="mt-1 text-xs text-muted">よく使う指示を保存して、入力欄で <code className="rounded bg-surface-2 px-1">#</code> を入力すると候補から呼び出せます。</p>
         </div>
         {!formOpen && (
           <button
@@ -322,14 +303,11 @@ export function ComposerPromptPresetsSettings() {
       {presets.length > 0 ? (
         <ul aria-label="送信プロンプトのプリセット" className="mt-3 divide-y divide-border rounded-xl border border-border">
           {presets.map((preset, index) => (
-            <li key={`${preset.name}-${index}`} className="flex items-start gap-3 px-3 py-3 first:rounded-t-xl last:rounded-b-xl">
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-medium">{preset.name}</p>
-                <p className="mt-1 line-clamp-2 whitespace-pre-wrap text-xs text-muted">{preset.prompt}</p>
-              </div>
+            <li key={index} className="flex items-start gap-3 px-3 py-3 first:rounded-t-xl last:rounded-b-xl">
+              <p className="min-w-0 flex-1 line-clamp-3 whitespace-pre-wrap text-sm">{preset}</p>
               <div className="flex shrink-0 items-center gap-1">
-                <button type="button" aria-label={`${preset.name}を編集`} onClick={() => openEdit(index)} className="rounded-lg px-2 py-1 text-xs text-accent hover:bg-surface-2">編集</button>
-                <button type="button" aria-label={`${preset.name}を削除`} onClick={() => remove(index)} className="rounded-lg px-2 py-1 text-xs text-danger hover:bg-danger/5">削除</button>
+                <button type="button" aria-label={`${index + 1}番目のプリセットを編集`} onClick={() => openEdit(index)} className="rounded-lg px-2 py-1 text-xs text-accent hover:bg-surface-2">編集</button>
+                <button type="button" aria-label={`${index + 1}番目のプリセットを削除`} onClick={() => remove(index)} className="rounded-lg px-2 py-1 text-xs text-danger hover:bg-danger/5">削除</button>
               </div>
             </li>
           ))}
@@ -347,27 +325,16 @@ export function ComposerPromptPresetsSettings() {
         >
           <p className="text-xs font-medium">{editingIndex === null ? "プリセットを追加" : "プリセットを編集"}</p>
           <label className="block text-sm">
-            <span className="font-medium">名前</span>
-            <input
-              aria-label="プリセット名"
-              value={draft.name}
-              maxLength={MAX_COMPOSER_PROMPT_PRESET_NAME_CHARS}
-              onChange={(event) => setDraft((current) => ({ ...current, name: event.target.value }))}
-              placeholder="例: レビュー"
-              className="mt-1 h-9 w-full rounded-lg border border-border bg-bg px-3 text-sm outline-none focus:border-accent"
-              autoFocus
-            />
-          </label>
-          <label className="block text-sm">
             <span className="font-medium">送信する本文</span>
             <textarea
               aria-label="送信プロンプト本文"
               value={draft.prompt}
               maxLength={MAX_COMPOSER_PROMPT_PRESET_PROMPT_CHARS}
-              onChange={(event) => setDraft((current) => ({ ...current, prompt: event.target.value }))}
+              onChange={(event) => setDraft({ prompt: event.target.value })}
               placeholder="例: 変更内容をレビューし、問題点と改善案を箇条書きで示してください。"
               rows={4}
               className="mt-1 w-full resize-y rounded-lg border border-border bg-bg px-3 py-2 text-sm leading-5 outline-none focus:border-accent"
+              autoFocus
             />
           </label>
           {error && <p role="alert" className="text-xs text-danger">{error}</p>}

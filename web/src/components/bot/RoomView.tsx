@@ -20,7 +20,6 @@ import { BotComposer } from "@/components/bot/BotComposer";
 import { BotMessageError, BotMessageFiles, BotMessageImages, BotMessageList, BotChatMessage, BotMessageSender, BotPermissionCard, BotRevertButton } from "@/components/bot/BotMessageList";
 import { composerPromptAttachments, readComposerFiles, useComposerPromptPresetReferences, type ComposerAttachment, type ComposerReference } from "@/components/Composer";
 import { canAttachComposerImages, pasteImage } from "@/lib/clipboard-image";
-import { expandComposerPromptPresets } from "@/lib/composer-prompt-presets-schema";
 import { stabilizeIdentifiedList } from "@/lib/stabilize-messages";
 import { cancelPendingSseReconnect, closeSseSource, sseReconnectDelayMs } from "@/lib/sse-reconnect";
 
@@ -447,7 +446,7 @@ export function RoomView({ id, active = true }: { id: string; active?: boolean }
   }, [busy, reverting]);
 
   const send = async () => {
-    const value = expandComposerPromptPresets(prompt, promptPresetReferences).trim();
+    const value = prompt.trim();
     if ((!value && attachments.length === 0) || busy || reverting) return;
     const requestContext = roomRequestContextRef.current;
     const submittedAttachments = attachments;

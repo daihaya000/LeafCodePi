@@ -94,23 +94,22 @@ describe("ComposerDefaultsSettings model mapping", () => {
     });
   });
 
-  it("adds, edits, and deletes a prompt preset from settings", () => {
+  it("adds, edits, and deletes a body-only prompt preset from settings", () => {
     render(<ComposerPromptPresetsSettings />);
 
     fireEvent.click(screen.getByRole("button", { name: "プリセットを追加" }));
-    fireEvent.change(screen.getByRole("textbox", { name: "プリセット名" }), { target: { value: "review" } });
+    expect(screen.queryByRole("textbox", { name: "プリセット名" })).toBeNull();
     fireEvent.change(screen.getByRole("textbox", { name: "送信プロンプト本文" }), { target: { value: "変更を確認してください" } });
     fireEvent.click(screen.getByRole("button", { name: "保存" }));
 
-    expect(screen.getByText("review")).toBeTruthy();
     expect(screen.getByText("変更を確認してください")).toBeTruthy();
 
-    fireEvent.click(screen.getByRole("button", { name: "reviewを編集" }));
+    fireEvent.click(screen.getByRole("button", { name: "1番目のプリセットを編集" }));
     fireEvent.change(screen.getByRole("textbox", { name: "送信プロンプト本文" }), { target: { value: "変更を詳しく確認してください" } });
     fireEvent.click(screen.getByRole("button", { name: "保存" }));
     expect(screen.getByText("変更を詳しく確認してください")).toBeTruthy();
 
-    fireEvent.click(screen.getByRole("button", { name: "reviewを削除" }));
-    expect(screen.queryByText("review")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "1番目のプリセットを削除" }));
+    expect(screen.queryByText("変更を詳しく確認してください")).toBeNull();
   });
 });

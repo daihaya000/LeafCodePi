@@ -35,7 +35,6 @@ import { BotAvatar } from "@/components/bot/BotAvatar";
 import { AutoOptimizeSelect } from "@/components/AutoOptimizeSelect";
 import { canAttachComposerImages, pasteImage } from "@/lib/clipboard-image";
 import { isImeComposingEvent } from "@/lib/composer-ime";
-import { expandComposerPromptPresets } from "@/lib/composer-prompt-presets-schema";
 import { GoalLoopPanel } from "@/components/GoalLoopPanel";
 import { DiffPane } from "@/components/task/DiffPane";
 import { useBotFor } from "@/components/shell/TaskPanesContext";
@@ -2221,7 +2220,7 @@ export const TaskView = memo(function TaskView({
 
   async function submit(queued?: QueuedFollowUp) {
     const rawSubmittedPrompt = queued ? queued.text : prompt;
-    const submittedPrompt = expandComposerPromptPresets(rawSubmittedPrompt, promptPresetReferences);
+    const submittedPrompt = rawSubmittedPrompt;
     const submittedAttachments = queued ? queued.attachments : attachments;
     if (
       (!submittedPrompt.trim() && submittedAttachments.length === 0) ||

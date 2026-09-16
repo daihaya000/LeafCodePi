@@ -51,16 +51,9 @@ export function findComposerReferenceToken(value: string, caret: number): Compos
   const raw = value.slice(start, safeCaret);
   const typedQuery = raw.slice(1);
   const kind: ComposerReferenceKind = trigger === "/" ? "skill" : trigger === "#" ? "prompt" : "agent";
-  let query = typedQuery;
-  if (trigger === "/") {
-    const lowered = typedQuery.toLocaleLowerCase();
-    if (lowered.startsWith("skill:")) {
-      query = typedQuery.slice("skill:".length);
-    }
-  } else if (trigger === "#") {
-    const lowered = typedQuery.toLocaleLowerCase();
-    if (lowered.startsWith("prompt:")) query = typedQuery.slice("prompt:".length);
-  }
+  const query = trigger === "/" && typedQuery.toLocaleLowerCase().startsWith("skill:")
+    ? typedQuery.slice("skill:".length)
+    : typedQuery;
   return {
     kind,
     query,
@@ -101,7 +94,7 @@ export function filterComposerReferences(
 
 export function composerReferenceValue(kind: ComposerReferenceKind, name: string): string {
   if (kind === "skill") return `/skill:${name}`;
-  if (kind === "prompt") return `#prompt:${name}`;
+  if (kind === "prompt") return "#";
   return `@${name}`;
 }
 
@@ -117,7 +110,7 @@ export function composerReferenceInsertion(
 ): string {
   if (token.kind === "agent") return `@${name} `;
   if (token.kind === "prompt") {
-    const replacement = insertText?.trim() || `#prompt:${name}`;
+    const replacement = insertText?.trim() || "#";
     return `${replacement}${/\s$/.test(replacement) ? "" : " "}`;
   }
   return token.raw.toLocaleLowerCase().startsWith("/skill:")

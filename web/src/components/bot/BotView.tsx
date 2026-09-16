@@ -23,7 +23,6 @@ import { useBotFor, useReportStatus } from "@/components/shell/TaskPanesContext"
 import { BotComposer } from "@/components/bot/BotComposer";
 import { composerPromptAttachments, readComposerFiles, useComposerPromptPresetReferences, type ComposerAttachment } from "@/components/Composer";
 import { canAttachComposerImages, pasteImage } from "@/lib/clipboard-image";
-import { expandComposerPromptPresets } from "@/lib/composer-prompt-presets-schema";
 import { BotMessageError, BotMessageFiles, BotMessageImages, BotMessageList, BotChatMessage, BotMessageSender, BotPermissionCard, BotResponseStatus, BotRevertButton } from "@/components/bot/BotMessageList";
 import { BotCodeSessionPanel } from "@/components/bot/BotCodeSessionPanel";
 import { BotCodeRequests } from "@/components/bot/BotCodeRequests";
@@ -691,7 +690,7 @@ export const BotView = memo(function BotView({ id, active = true }: { id: string
   };
 
   const send = async () => {
-    const value = expandComposerPromptPresets(prompt, promptPresetReferences).trim();
+    const value = prompt.trim();
     if ((!value && attachments.length === 0) || sending || reverting) return;
     const requestContext = botRequestContextRef.current;
     const submittedAttachments = attachments;

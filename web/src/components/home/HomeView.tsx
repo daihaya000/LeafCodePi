@@ -20,7 +20,6 @@ import { GoalLoopOptions, GoalLoopToggle } from "@/components/GoalLoopComposer";
 import { NextTaskSuggest } from "@/components/home/NextTaskSuggest";
 import { canAttachComposerImages, pasteImage } from "@/lib/clipboard-image";
 import { isImeComposingEvent } from "@/lib/composer-ime";
-import { expandComposerPromptPresets } from "@/lib/composer-prompt-presets-schema";
 import { ModelSelect, modelOptionForValue } from "@/components/ModelSelect";
 import { ThinkingSelect } from "@/components/ThinkingSelect";
 import { SubagentPermissionSelect } from "@/components/SubagentPermissionSelect";
@@ -405,7 +404,7 @@ export const HomeView = memo(function HomeView({
   }
 
   async function submit() {
-    const submittedPrompt = expandComposerPromptPresets(prompt, promptPresetReferences);
+    const submittedPrompt = prompt;
     if ((!submittedPrompt.trim() && attachments.length === 0) || projectId === undefined || submitting) return;
     setSubmitting(true);
     setError(null);

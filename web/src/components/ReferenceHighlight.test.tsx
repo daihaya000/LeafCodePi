@@ -25,13 +25,13 @@ describe("ReferenceHighlight", () => {
   it("highlights known prompt preset references", () => {
     const view = render(
       <ReferenceHighlight
-        text="#prompt:review"
-        references={{ agents: [], skills: [], prompts: [{ name: "review" }] }}
+        text="#レビュー"
+        references={{ agents: [], skills: [], prompts: [{ name: "レビュー" }] }}
       />,
     );
 
-    expect(view.container.querySelector(".text-accent")?.textContent).toBe("#prompt:review");
-    expect(view.container.textContent).toBe("#prompt:review");
+    expect(view.container.querySelector(".text-accent")?.textContent).toBe("#レビュー");
+    expect(view.container.textContent).toBe("#レビュー");
   });
 
   it("leaves unknown references unstyled", () => {

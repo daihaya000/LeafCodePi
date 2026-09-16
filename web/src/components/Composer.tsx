@@ -147,10 +147,9 @@ export function useComposerPromptPresetReferences(): ComposerReference[] {
   }, []);
 
   return useMemo(
-    () => presets.map((preset) => ({
-      name: preset.name,
-      description: preset.prompt.replace(/\s+/g, " ").trim().slice(0, 120),
-      insertText: preset.prompt,
+    () => presets.map((prompt) => ({
+      name: prompt.replace(/\s+/g, " ").trim(),
+      insertText: prompt,
     })),
     [presets],
   );
@@ -584,7 +583,7 @@ export function Composer({
               const selected = index === activeSuggestion;
               return (
                 <button
-                  key={`${kind}-${reference.name}`}
+                  key={`${kind}-${index}-${reference.name}`}
                   type="button"
                   role="option"
                   aria-selected={selected}

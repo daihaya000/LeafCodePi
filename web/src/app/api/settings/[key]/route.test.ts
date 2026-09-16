@@ -230,12 +230,10 @@ describe("/api/settings/[key]", () => {
     );
   });
 
-  it("accepts and canonicalizes prompt presets", async () => {
+  it("accepts and canonicalizes body-only prompt presets", async () => {
     const response = await PUT(
       request("composer-prompt-presets", {
-        value: JSON.stringify([
-          { name: "レビュー", prompt: "  変更を確認してください  " },
-        ]),
+        value: JSON.stringify(["  変更を確認してください  "]),
       }),
       { params: Promise.resolve({ key: "composer-prompt-presets" }) },
     );
@@ -243,14 +241,29 @@ describe("/api/settings/[key]", () => {
     expect(response.status).toBe(200);
     expect(settings.setSetting).toHaveBeenCalledWith(
       "composer-prompt-presets",
-      JSON.stringify([{ name: "レビュー", prompt: "変更を確認してください" }]),
+      JSON.stringify(["変更を確認してください"]),
     );
   });
 
-  it("rejects invalid prompt preset names", async () => {
+  it("migrates legacy named prompt presets to bodies", async () => {
     const response = await PUT(
       request("composer-prompt-presets", {
-        value: JSON.stringify([{ name: "bad/name", prompt: "本文" }]),
+        value: JSON.stringify([{ name: "レビュー", prompt: "本文" }]),
+      }),
+      { params: Promise.resolve({ key: "composer-prompt-presets" }) },
+    );
+
+    expect(response.status).toBe(200);
+    expect(settings.setSetting).toHaveBeenCalledWith(
+      "composer-prompt-presets",
+      JSON.stringify(["本文"]),
+    );
+  });
+
+  it("rejects invalid prompt preset bodies", async () => {
+    const response = await PUT(
+      request("composer-prompt-presets", {
+        value: JSON.stringify([""]),
       }),
       { params: Promise.resolve({ key: "composer-prompt-presets" }) },
     );

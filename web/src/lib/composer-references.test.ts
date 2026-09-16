@@ -91,20 +91,20 @@ describe("composer references", () => {
     expect(isKnownComposerReference("skill", "scout", catalog)).toBe(false);
   });
 
-  it("finds and inserts prompt preset tokens", () => {
-    expect(findComposerReferenceToken("確認 #prompt:rev", 16)).toMatchObject({
+  it("finds and inserts body-only prompt preset tokens", () => {
+    expect(findComposerReferenceToken("確認 #", 4)).toMatchObject({
       kind: "prompt",
-      query: "rev",
-      raw: "#prompt:rev",
+      query: "",
+      raw: "#",
     });
     expect(findComposerReferenceToken("/prompt:rev", 11)).toMatchObject({
       kind: "skill",
       query: "prompt:rev",
     });
-    expect(composerReferenceValue("prompt", "review")).toBe("#prompt:review");
+    expect(composerReferenceValue("prompt", "ignored")).toBe("#");
     expect(composerReferenceInsertion(
-      { kind: "prompt", raw: "#prompt:rev" },
-      "review",
+      { kind: "prompt", raw: "#" },
+      "ignored",
       "変更をレビューしてください",
     )).toBe("変更をレビューしてください ");
   });
