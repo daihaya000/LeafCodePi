@@ -21,10 +21,11 @@ import {
 function usage(
   usedPercent: number | null,
   options: Partial<
-    Pick<RoutingUsage, "stale" | "maxed" | "resetsAt" | "error" | "credits">
+    Pick<RoutingUsage, "id" | "stale" | "maxed" | "resetsAt" | "error" | "credits">
   > = {},
 ): RoutingUsage {
   return {
+    id: options.id ?? "anthropic",
     usedPercent,
     maxed: options.maxed ?? false,
     stale: options.stale ?? false,
@@ -178,6 +179,23 @@ describe("routing candidate ranking", () => {
       },
     ]);
     assert.equal(decision.candidate?.accountId, "fresh");
+  });
+
+  it("does not extend the credit rule to providers whose credits are separate balances", () => {
+    const ranked = rankRoutingCandidates([
+      {
+        accountId: "commandcode",
+        accountIndex: 0,
+        value: "commandcode",
+        usage: usage(100, {
+          id: "commandcode",
+          maxed: true,
+          credits: { title: "クレジット", used: 1, limit: 10, balance: 9 },
+        }),
+        workingTaskCount: 0,
+      },
+    ]);
+    assert.equal(ranked[0]?.tier, 3);
   });
 
   it("returns the earliest reset when every fresh candidate is maxed", () => {

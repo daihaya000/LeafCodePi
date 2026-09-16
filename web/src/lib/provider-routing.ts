@@ -217,6 +217,7 @@ export function clearProviderLimit(
 
 export type RoutingUsage = Pick<
   CodexBarProvider,
+  | "id"
   | "usedPercent"
   | "maxed"
   | "stale"
@@ -247,12 +248,14 @@ function resetTime(usage: RoutingUsage | null | undefined): number | null {
 /**
  * サブスク枠（5時間/週間）が100%でも、サブスク枠内クレジット（extra usage）に
  * 残りがある間は Anthropic 側がクレジットを消費して継続する。
- * 上限が未設定/0（意図的に停止）や使い切っている場合は残り無しとして扱う。
+ * 他プロバイダーの credits は枠とは独立の残高（セマンティクスが違う）なので対象外。
+ * 上限が未設定/0（意図的な停止）や使い切っている場合は残り無しとして扱う。
  */
 export function hasSubscriptionCreditsRemaining(
-  usage: Pick<RoutingUsage, "credits"> | null | undefined,
+  usage: Pick<RoutingUsage, "id" | "credits"> | null | undefined,
 ): boolean {
-  const credits = usage?.credits;
+  if (usage?.id !== "anthropic") return false;
+  const credits = usage.credits;
   if (!credits) return false;
   return (
     credits.limit !== null &&

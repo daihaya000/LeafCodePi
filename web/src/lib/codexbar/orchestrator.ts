@@ -46,6 +46,7 @@ import {
 } from "@/lib/codexbar/types";
 import { readPiApiKey, readPiOAuthTokens } from "@/lib/codexbar/pi-auth";
 import { isOllamaCookieConfigured } from "@/lib/codexbar/providers/ollama-cloud";
+import { hasAnthropicConsoleCookie } from "@/lib/codexbar/providers/anthropic";
 import { extractOpenCodeCookieHeader } from "@/lib/codexbar/browser-cookies";
 
 const MAX_CONCURRENT_FETCHES = 4;
@@ -109,7 +110,8 @@ function accountSummary(
       readPiApiKey(provider, { authPath }) !== null ||
       (provider === "ollama-cloud" && isOllamaCookieConfigured(account.id)) ||
       (provider === "opencode-go" &&
-        extractOpenCodeCookieHeader({ authPath }) !== null),
+        extractOpenCodeCookieHeader({ authPath }) !== null) ||
+      (provider === "anthropic" && hasAnthropicConsoleCookie(authPath)),
   );
   return {
     id: account.id,
