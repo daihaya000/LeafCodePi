@@ -1091,6 +1091,71 @@ describe("ProviderAuthPanel provider-scoped accounts", () => {
     });
   });
 
+  it("saves the API credit baseline so the balance yields a percentage", async () => {
+    fetchMock.mockImplementation(
+      (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        const pathname = new URL(url, "http://localhost").pathname;
+        const method = (init?.method ?? "GET").toUpperCase();
+        if (pathname === "/api/accounts" && method === "GET") {
+          return Promise.resolve(jsonResponse({ accounts: [anthropicAccount] }));
+        }
+        if (pathname === `/api/accounts/${anthropicAccount.id}/auth-status`) {
+          return Promise.resolve(
+            jsonResponse({
+              providers: ["anthropic"],
+              credentialKinds: { anthropic: "api_key" },
+              anthropicCookieConfigured: true,
+              anthropicCreditBaseline: 100,
+            }),
+          );
+        }
+        if (
+          pathname ===
+            `/api/accounts/${anthropicAccount.id}/anthropic-baseline` &&
+          method === "POST"
+        ) {
+          return Promise.resolve(jsonResponse({ ok: true, baselineUsd: 50 }));
+        }
+        return Promise.resolve(jsonResponse({}));
+      },
+    );
+    render(
+      <ProviderAuthPanel providers={[anthropicProvider]} onChanged={() => {}} />,
+    );
+
+    const anthropic = await accountRegion("Anthropic");
+    await waitFor(() => {
+      expect(
+        (within(anthropic).getByLabelText(/API 基準残高/) as HTMLInputElement)
+          .value,
+      ).toBe("100");
+    });
+    expect(within(anthropic).getByText("基準 $100.00")).toBeTruthy();
+
+    // state 更新でノードが差し替わるため、操作の直前に取り直す。
+    fireEvent.change(within(anthropic).getByLabelText(/API 基準残高/), {
+      target: { value: "50" },
+    });
+    // happy-dom は number 入力を持つ form の暗黙 submit を行わないため、form へ直接 submit する
+    // （クリックでの送信自体は cookie 登録フォームのテストでカバー済み）。
+    const form = (
+      within(anthropic).getByLabelText(/API 基準残高/) as HTMLInputElement
+    ).closest("form");
+    fireEvent.submit(form!);
+
+    await waitFor(() => {
+      const post = fetchMock.mock.calls.find(
+        ([input2, init]) =>
+          new URL(String(input2), "http://localhost").pathname ===
+            `/api/accounts/${anthropicAccount.id}/anthropic-baseline` &&
+          init?.method === "POST",
+      );
+      expect(post).toBeTruthy();
+      expect(JSON.parse(String(post?.[1]?.body))).toEqual({ baselineUsd: 50 });
+    });
+  });
+
   it("surfaces a closed login EventSource as a failed login", async () => {
     class TestEventSource extends EventTarget {
       static instances: TestEventSource[] = [];

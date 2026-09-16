@@ -17,6 +17,7 @@ import {
   openrouterProvider,
 } from "./providers/openrouter";
 import {
+  applyCreditBaseline,
   createAnthropicProvider,
   parseAnthropicPrepaidCreditsJson,
   parseClaudeUsageJson,
@@ -342,5 +343,50 @@ describe("anthropic api-key account (Console cookie)", () => {
     expect(provider.isConfigured()).toBe(true);
     const snap = await provider.fetch();
     expect(snap.creditsBalance).toBeCloseTo(1);
+  });
+
+  it("derives used/limit from the manually entered baseline", async () => {
+    const authPath = accountAuth("sk-ant-api03-test");
+    writeConsoleCookie(authPath);
+    writeFileSync(
+      join(authPath, "..", "anthropic.json"),
+      JSON.stringify({ creditBaselineUsd: 100 }),
+      "utf8",
+    );
+    undiciFetch.mockImplementation(async () =>
+      new Response(JSON.stringify({ amount: 3750 }), { status: 200 }),
+    );
+
+    const snap = await providerFor(authPath).fetch();
+
+    expect(snap.creditsBalance).toBeCloseTo(37.5);
+    expect(snap.creditsLimit).toBe(100);
+    expect(snap.creditsUsed).toBeCloseTo(62.5);
+  });
+});
+
+describe("applyCreditBaseline", () => {
+  function snapshot(balance: number | null) {
+    return {
+      ...parseAnthropicPrepaidCreditsJson(JSON.stringify({ amount: 0 })),
+      creditsBalance: balance,
+    };
+  }
+
+  it("keeps the snapshot when no baseline is set", () => {
+    const snap = applyCreditBaseline(snapshot(20), null);
+    expect(snap.creditsLimit).toBeNull();
+    expect(snap.creditsUsed).toBeNull();
+  });
+
+  it("clamps to zero when the balance exceeds the baseline", () => {
+    const snap = applyCreditBaseline(snapshot(150), 100);
+    expect(snap.creditsLimit).toBe(100);
+    expect(snap.creditsUsed).toBe(0);
+  });
+
+  it("leaves a balance-less snapshot untouched", () => {
+    const snap = applyCreditBaseline(snapshot(null), 100);
+    expect(snap.creditsLimit).toBeNull();
   });
 });

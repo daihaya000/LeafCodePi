@@ -373,6 +373,18 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
   const [credentialKinds, setCredentialKinds] = useState<
     Record<string, AccountCredentialKind>
   >({});
+  /** `${providerId}:${accountId}` → API キー口座の基準残高（USD、未設定は null）。 */
+  const [creditBaselines, setCreditBaselines] = useState<
+    Record<string, number | null>
+  >({});
+  /** 基準残高の入力中テキスト（未編集のキーは持たない）。 */
+  const [baselineInputs, setBaselineInputs] = useState<Record<string, string>>(
+    {},
+  );
+  const [baselineBusy, setBaselineBusy] = useState<string | null>(null);
+  const [baselineErrors, setBaselineErrors] = useState<Record<string, string>>(
+    {},
+  );
   const [cookieEditingKey, setCookieEditingKey] = useState<string | null>(null);
   const [cookieInput, setCookieInput] = useState("");
   const [cookieBusy, setCookieBusy] = useState<string | null>(null);
@@ -532,6 +544,7 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
               credentialKinds?: Partial<
                 Record<AccountProviderId, AccountCredentialKind>
               >;
+              anthropicCreditBaseline?: number | null;
               ollamaCookieConfigured?: boolean;
               opencodeGoCookieConfigured?: boolean;
               anthropicCookieConfigured?: boolean;
@@ -545,6 +558,7 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
                 credentialKinds: {} as Partial<
                   Record<AccountProviderId, AccountCredentialKind>
                 >,
+                anthropicCreditBaseline: null,
                 ollamaCookieConfigured: false,
                 opencodeGoCookieConfigured: false,
                 anthropicCookieConfigured: false,
@@ -584,6 +598,14 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
               ([providerId, kind]) => [cookieKey(providerId, id), kind],
             ),
           ),
+        ),
+      );
+      setCreditBaselines(
+        Object.fromEntries(
+          statuses.map(([id, status]) => [
+            cookieKey("anthropic", id),
+            status.anthropicCreditBaseline ?? null,
+          ]),
         ),
       );
     } catch (error) {
@@ -1153,6 +1175,78 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
     }
   }
 
+  /** API キー口座の基準残高（購入額）を保存し、残高から使用％を算出できるようにする。 */
+  async function saveBaseline(accountId: string, raw: string) {
+    const key = cookieKey("anthropic", accountId);
+    const value = Number(raw.trim());
+    if (!raw.trim() || !Number.isFinite(value) || value <= 0) {
+      setBaselineErrors((current) => ({
+        ...current,
+        [key]: "0 より大きい数値を入力してください",
+      }));
+      return;
+    }
+    if (baselineBusy) return;
+    setBaselineBusy(key);
+    setBaselineErrors((current) => {
+      const next = { ...current };
+      delete next[key];
+      return next;
+    });
+    try {
+      await sendJson(
+        `/api/accounts/${encodeURIComponent(accountId)}/anthropic-baseline`,
+        { baselineUsd: value },
+      );
+      setBaselineInputs((current) => {
+        const next = { ...current };
+        delete next[key];
+        return next;
+      });
+      await refreshAccounts();
+      onChanged();
+    } catch (error) {
+      setBaselineErrors((current) => ({
+        ...current,
+        [key]: error instanceof ApiError ? error.message : String(error),
+      }));
+    } finally {
+      setBaselineBusy(null);
+    }
+  }
+
+  async function clearBaseline(accountId: string) {
+    const key = cookieKey("anthropic", accountId);
+    if (baselineBusy) return;
+    setBaselineBusy(key);
+    setBaselineErrors((current) => {
+      const next = { ...current };
+      delete next[key];
+      return next;
+    });
+    try {
+      await sendJson(
+        `/api/accounts/${encodeURIComponent(accountId)}/anthropic-baseline`,
+        {},
+        "DELETE",
+      );
+      setBaselineInputs((current) => {
+        const next = { ...current };
+        delete next[key];
+        return next;
+      });
+      await refreshAccounts();
+      onChanged();
+    } catch (error) {
+      setBaselineErrors((current) => ({
+        ...current,
+        [key]: error instanceof ApiError ? error.message : String(error),
+      }));
+    } finally {
+      setBaselineBusy(null);
+    }
+  }
+
   function renderAccountControls(provider: ProviderAuthDto): ReactNode {
     if (!isAccountProviderId(provider.id)) return null;
     const providerId = provider.id;
@@ -1250,6 +1344,11 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
                   const currentCookieKey = cookieKey(providerId, account.id);
                   const cookieEditing = cookieEditingKey === currentCookieKey;
                   const cookieAccountBusy = cookieBusy === currentCookieKey;
+                  const baselineStored = creditBaselines[currentCookieKey] ?? null;
+                  const baselineInput =
+                    baselineInputs[currentCookieKey] ??
+                    (baselineStored === null ? "" : String(baselineStored));
+                  const baselineAccountBusy = baselineBusy === currentCookieKey;
                   // Anthropic の Console cookie は API キー口座専用。
                   // サブスク（OAuth）口座は subscription の枠/クレジットを返すので不要。
                   const showCookieUi =
@@ -1622,6 +1721,82 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
                                   キャンセル
                                 </Button>
                               </div>
+                            </form>
+                          )}
+                          {providerId === "anthropic" && (
+                            <form
+                              className="mt-2 flex flex-col gap-2 border-t border-border pt-2"
+                              onSubmit={(event) => {
+                                event.preventDefault();
+                                void saveBaseline(account.id, baselineInput);
+                              }}
+                            >
+                              <label
+                                htmlFor={`${providerId}-baseline-${account.id}`}
+                                className="text-xs text-muted"
+                              >
+                                API 基準残高（購入額 USD）― 残高から使用％を算出
+                              </label>
+                              <div className="flex flex-wrap items-center gap-2">
+                                <input
+                                  id={`${providerId}-baseline-${account.id}`}
+                                  type="number"
+                                  min="0"
+                                  step="0.01"
+                                  inputMode="decimal"
+                                  value={baselineInput}
+                                  onChange={(event) => {
+                                    // event を updater 内で読むと DOM 値が戻った後の値になりうるため、先に取り出す。
+                                    const next = event.target.value;
+                                    setBaselineInputs((current) => ({
+                                      ...current,
+                                      [currentCookieKey]: next,
+                                    }));
+                                  }}
+                                  placeholder="例: 100"
+                                  spellCheck={false}
+                                  autoComplete="off"
+                                  disabled={baselineAccountBusy}
+                                  className="w-28 rounded-xl border border-border bg-surface px-3 py-1.5 text-sm outline-none focus:border-accent"
+                                  aria-describedby={`${providerId}-baseline-help-${account.id}`}
+                                />
+                                <Button
+                                  type="submit"
+                                  size="sm"
+                                  busy={baselineAccountBusy}
+                                  disabled={
+                                    baselineAccountBusy || !baselineInput.trim()
+                                  }
+                                  aria-label={`${account.label} の基準残高を保存`}
+                                >
+                                  保存
+                                </Button>
+                                {baselineStored !== null && (
+                                  <Button
+                                    type="button"
+                                    size="sm"
+                                    variant="ghost"
+                                    disabled={baselineAccountBusy}
+                                    onClick={() => void clearBaseline(account.id)}
+                                    aria-label={`${account.label} の基準残高を解除`}
+                                  >
+                                    解除
+                                  </Button>
+                                )}
+                                <span
+                                  id={`${providerId}-baseline-help-${account.id}`}
+                                  className="text-xs text-muted"
+                                >
+                                  {baselineStored === null
+                                    ? "未設定（残高のみ表示）"
+                                    : `基準 ${formatCreditAmount(baselineStored)}`}
+                                </span>
+                              </div>
+                              {baselineErrors[currentCookieKey] && (
+                                <p className="text-xs text-danger" role="alert">
+                                  {baselineErrors[currentCookieKey]}
+                                </p>
+                              )}
                             </form>
                           )}
                         </div>

@@ -6,9 +6,9 @@
  * （platform.claude.com）でプリペイドのクレジット残高を表示する。
  */
 
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, unlinkSync } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import {
   ProviderError,
   type IUsageProvider,
@@ -485,6 +485,71 @@ export function hasAnthropicConsoleCookie(authPath: string): boolean {
   return extractAnthropicConsoleSession({ authPath }) !== null;
 }
 
+function accountAnthropicConfigPath(authPath: string): string {
+  return join(dirname(authPath), "anthropic.json");
+}
+
+/**
+ * API キー（従量課金）口座の基準残高（購入額 USD）。
+ * 残高だけでは使用率が出せないため、UI から手入力して used/limit を導出する。
+ * 未設定は null。
+ */
+export function readAnthropicCreditBaseline(authPath: string): number | null {
+  try {
+    const path = accountAnthropicConfigPath(authPath);
+    if (!existsSync(path)) return null;
+    const root = JSON.parse(readFileSync(path, "utf8")) as {
+      creditBaselineUsd?: unknown;
+    };
+    const value = flexibleNumber(root.creditBaselineUsd);
+    return value !== null && value > 0 ? value : null;
+  } catch {
+    return null;
+  }
+}
+
+/** 基準残高を保存する（null / 0 以下は削除）。 */
+export function writeAnthropicCreditBaseline(
+  authPath: string,
+  baselineUsd: number | null,
+): void {
+  const path = accountAnthropicConfigPath(authPath);
+  if (baselineUsd === null || !(baselineUsd > 0)) {
+    try {
+      unlinkSync(path);
+    } catch {
+      /* already absent */
+    }
+    return;
+  }
+  atomicWriteText(
+    path,
+    `${JSON.stringify({ creditBaselineUsd: baselineUsd }, null, 2)}\n`,
+  );
+}
+
+/**
+ * 基準残高があれば残高から used/limit を導出する（表示側が％を計算する）。
+ * 残高が基準を上回る（買い増し後）場合は使用量 0 扱い。
+ */
+export function applyCreditBaseline(
+  snapshot: UsageSnapshot,
+  baselineUsd: number | null,
+): UsageSnapshot {
+  if (
+    baselineUsd === null ||
+    !(baselineUsd > 0) ||
+    snapshot.creditsBalance === null
+  ) {
+    return snapshot;
+  }
+  return {
+    ...snapshot,
+    creditsUsed: clamp(baselineUsd - snapshot.creditsBalance, 0, baselineUsd),
+    creditsLimit: baselineUsd,
+  };
+}
+
 function missingCredentialsMessage(
   strictAccount: boolean,
   hasApiKey: boolean,
@@ -506,6 +571,7 @@ function consoleCreditsUrl(orgId: string): string {
 async function fetchCreditsFromConsole(
   session: BrowserCookieSession,
   signal?: AbortSignal,
+  baselineUsd: number | null = null,
 ): Promise<UsageSnapshot> {
   const orgId = readAnthropicConsoleOrgId(session);
   if (!orgId) {
@@ -532,7 +598,7 @@ async function fetchCreditsFromConsole(
   }
   if (!ok) throw new ProviderError(`Anthropic Console API エラー ${status}。`);
   try {
-    return parseAnthropicPrepaidCreditsJson(body);
+    return applyCreditBaseline(parseAnthropicPrepaidCreditsJson(body), baselineUsd);
   } catch (err) {
     if (err instanceof ProviderError) throw err;
     throw new ProviderError("Anthropic のクレジット応答を解析できませんでした。", {
@@ -562,6 +628,8 @@ export function createAnthropicProvider(scope: UsageScope): IUsageProvider {
     return consoleSession;
   };
   const hasApiKey = () => resolveAnthropicApiKey(scope) !== null;
+  const loadCreditBaseline = () =>
+    piPath ? readAnthropicCreditBaseline(piPath) : null;
 
   return {
     id: "anthropic",
@@ -588,7 +656,9 @@ export function createAnthropicProvider(scope: UsageScope): IUsageProvider {
       if (!creds) {
         // サブスク OAuth が無い（API キー）アカウントは Console cookie の残高を表示する。
         const session = loadConsoleSession();
-        if (session) return fetchCreditsFromConsole(session, signal);
+        if (session) {
+          return fetchCreditsFromConsole(session, signal, loadCreditBaseline());
+        }
         throw new ProviderError(missingCredentialsMessage(strictAccount, hasApiKey()));
       }
       if (
