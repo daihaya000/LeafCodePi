@@ -6,6 +6,7 @@ import {
   resolvePiAgentDir,
 } from "@/lib/accounts";
 import { extractOpenCodeCookieHeader } from "@/lib/codexbar/browser-cookies";
+import { hasAnthropicConsoleCookie } from "@/lib/codexbar/providers/anthropic";
 import { isOllamaCookieConfigured } from "@/lib/codexbar/providers/ollama-cloud";
 import { jsonError } from "@/lib/pi/harness";
 
@@ -35,6 +36,9 @@ export async function GET(_req: NextRequest, context: Context) {
         extractOpenCodeCookieHeader({
           authPath: accountAuthPath(id, agentDir),
         }) !== null,
+      anthropicCookieConfigured: hasAnthropicConsoleCookie(
+        accountAuthPath(id, agentDir),
+      ),
     });
   } catch (error) {
     const { error: message, status } = jsonError(error);

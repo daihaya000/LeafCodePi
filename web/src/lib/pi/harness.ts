@@ -216,6 +216,7 @@ import {
   accountRoutingMode,
   chooseRoutingCandidate,
   clearProviderLimit,
+  hasSubscriptionCreditsRemaining,
   isAccountRoutingProvider,
   isProviderLimitError,
   markProviderLimited,
@@ -3523,7 +3524,9 @@ function providerIsHardLimited(
   return Boolean(
     usage?.maxed &&
       !usage.stale &&
-      (!usage.resetsAt || futureReset(usage.resetsAt)),
+      (!usage.resetsAt || futureReset(usage.resetsAt)) &&
+      // 枠クレジットが残っているサブスクは、枠100%でも Anthropic 側が継続する。
+      !hasSubscriptionCreditsRemaining(usage),
   );
 }
 
@@ -3564,6 +3567,8 @@ function markedUsage(
     maxed: true,
     stale: false,
     resetsAt: mark.resetAt ?? usage?.resetsAt ?? null,
+    // 実行時の制限エラーは枠クレジットより優先する（クレジット残でも再選択させない）。
+    credits: null,
   };
 }
 

@@ -77,6 +77,27 @@ const ollamaAccount = {
   updatedAt: "",
 };
 
+/** Anthropic はサブスク（OAuth）と API キーの両方で登録できる。 */
+const anthropicProvider = {
+  id: "anthropic",
+  name: "Anthropic",
+  authenticated: true,
+  authSource: "stored",
+  methods: ["api_key", "oauth"] as ("api_key" | "oauth")[],
+  oauthAvailable: true,
+  highlighted: true,
+  accountRoutingMode: "separate" as const,
+};
+
+const anthropicAccount = {
+  id: "anthropic-acc-1",
+  label: "API 個人用",
+  providers: ["anthropic"],
+  enabled: true,
+  createdAt: "",
+  updatedAt: "",
+};
+
 const openrouterProvider = {
   id: "openrouter",
   name: "OpenRouter",
@@ -894,6 +915,94 @@ describe("ProviderAuthPanel provider-scoped accounts", () => {
       expect(login).toBeTruthy();
       expect(String(login?.[0])).toContain("accountId=ollama-acc-1");
       expect(JSON.parse(String(login?.[1]?.body))).toEqual({ type: "api_key" });
+    });
+  });
+
+  it("offers subscription and API-key logins for an Anthropic account", async () => {
+    fetchMock.mockImplementation(
+      (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        const method = (init?.method ?? "GET").toUpperCase();
+        if (url.endsWith("/api/accounts") && method === "GET") {
+          return Promise.resolve(jsonResponse({ accounts: [anthropicAccount] }));
+        }
+        if (url.endsWith(`/api/accounts/${anthropicAccount.id}/auth-status`)) {
+          return Promise.resolve(jsonResponse({ providers: ["anthropic"] }));
+        }
+        if (url.includes("/api/providers/anthropic/login") && method === "POST") {
+          return Promise.resolve(jsonResponse({}));
+        }
+        return Promise.resolve(jsonResponse({}));
+      },
+    );
+    render(
+      <ProviderAuthPanel providers={[anthropicProvider]} onChanged={() => {}} />,
+    );
+
+    const anthropic = await accountRegion("Anthropic");
+    expect(
+      within(anthropic).getByRole("button", { name: "サブスクでログイン" }),
+    ).toBeTruthy();
+    fireEvent.click(within(anthropic).getByRole("button", { name: "API キー" }));
+
+    await waitFor(() => {
+      const login = fetchMock.mock.calls.find(
+        ([input, init]) =>
+          String(input).includes(`/api/providers/anthropic/login`) &&
+          init?.method === "POST",
+      );
+      expect(login).toBeTruthy();
+      expect(String(login?.[0])).toContain(`accountId=${anthropicAccount.id}`);
+      expect(JSON.parse(String(login?.[1]?.body))).toEqual({ type: "api_key" });
+    });
+  });
+
+  it("registers an Anthropic Console cookie for the credit balance", async () => {
+    fetchMock.mockImplementation(
+      (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        const method = (init?.method ?? "GET").toUpperCase();
+        if (url.endsWith("/api/accounts") && method === "GET") {
+          return Promise.resolve(jsonResponse({ accounts: [anthropicAccount] }));
+        }
+        if (url.endsWith(`/api/accounts/${anthropicAccount.id}/auth-status`)) {
+          return Promise.resolve(
+            jsonResponse({ providers: ["anthropic"], anthropicCookieConfigured: false }),
+          );
+        }
+        if (
+          url.endsWith(`/api/accounts/${anthropicAccount.id}/anthropic-cookie`) &&
+          method === "POST"
+        ) {
+          return Promise.resolve(jsonResponse({ ok: true, configured: true }));
+        }
+        return Promise.resolve(jsonResponse({}));
+      },
+    );
+    render(
+      <ProviderAuthPanel providers={[anthropicProvider]} onChanged={() => {}} />,
+    );
+
+    const anthropic = await accountRegion("Anthropic");
+    expect(within(anthropic).getByText("Anthropic Console cookie")).toBeTruthy();
+    expect(within(anthropic).getByText("未登録")).toBeTruthy();
+    fireEvent.click(within(anthropic).getByRole("button", { name: "登録" }));
+    fireEvent.change(within(anthropic).getByLabelText("Netscape 形式の cookie"), {
+      target: { value: "# Netscape HTTP Cookie File\n" },
+    });
+    fireEvent.click(within(anthropic).getByRole("button", { name: "保存" }));
+
+    await waitFor(() => {
+      const save = fetchMock.mock.calls.find(
+        ([input, init]) =>
+          String(input).endsWith(
+            `/api/accounts/${anthropicAccount.id}/anthropic-cookie`,
+          ) && init?.method === "POST",
+      );
+      expect(save).toBeTruthy();
+      expect(JSON.parse(String(save?.[1]?.body))).toEqual({
+        cookies: "# Netscape HTTP Cookie File\n",
+      });
     });
   });
 

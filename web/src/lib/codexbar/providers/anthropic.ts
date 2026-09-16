@@ -1,6 +1,9 @@
 /**
  * Claude Code usage via Anthropic OAuth usage API + token refresh.
  * Auth: ~/.claude/.credentials.json (CLAUDE_CONFIG_DIR).
+ *
+ * API キー（従量課金）アカウントは枠/利用率を返さないため、Console の cookie
+ * （platform.claude.com）でプリペイドのクレジット残高を表示する。
  */
 
 import { existsSync, readFileSync } from "node:fs";
@@ -17,15 +20,24 @@ import {
   asRecord,
   atomicWriteText,
   clamp,
+  cleanApiKey,
   fetchText,
   flexibleNumber,
 } from "@/lib/codexbar/utils";
 import {
+  createCookieHeaderForUrl,
+  extractAnthropicConsoleSession,
+  readAnthropicConsoleOrgId,
+  type BrowserCookieSession,
+} from "@/lib/codexbar/browser-cookies";
+import {
+  readPiApiKey,
   readPiOAuthTokens,
   writeBackPiOAuthTokens,
 } from "@/lib/codexbar/pi-auth";
 
 const USAGE_URL = "https://api.anthropic.com/api/oauth/usage";
+const CONSOLE_ORIGIN = "https://platform.claude.com";
 const TOKEN_URL = "https://console.anthropic.com/v1/oauth/token";
 const CLIENT_ID = "9d1c250a-e61b-44d9-88ed-5944d1962f5e";
 const BETA_HEADER = "oauth-2025-04-20";
@@ -333,6 +345,35 @@ export function parseClaudeUsageJson(
 }
 
 /**
+ * Console の prepaid credits（`{ amount }`、セント単位）を残高スナップショットへ。
+ * API キー（従量課金）アカウントの表示用。
+ */
+export function parseAnthropicPrepaidCreditsJson(json: string): UsageSnapshot {
+  const root = asRecord(JSON.parse(json));
+  const amountCents = flexibleNumber(root?.amount);
+  if (!root || amountCents === null) {
+    throw new ProviderError("Anthropic のクレジット応答形式が不正です。");
+  }
+  return {
+    providerId: "anthropic",
+    providerName: "Claude",
+    plan: "API",
+    accountEmail: null,
+    windows: [],
+    creditsEnabled: true,
+    creditsTitle: "API クレジット",
+    creditsUsed: null,
+    creditsLimit: null,
+    creditsBalance: amountCents / 100,
+    creditsLabel: null,
+    sourceLabel: "platform.claude.com",
+    updatedAt: new Date(),
+    isStale: false,
+    rateLimitResetCreditsAvailable: null,
+  };
+}
+
+/**
  * Pi の auth.json（既定ストア）から認証を組む。Pi は subscriptionType を保存しないため
  * プラン表示は縮退（null）。email も ~/.claude.json 由来のため Pi 経由では出さない。
  */
@@ -422,10 +463,90 @@ async function fetchFromApi(
   return { ...snap, accountEmail: options?.piSource ? null : readAccountEmail() };
 }
 
+/**
+ * API キー（従量課金）の残高は公開 API に無く、Console のセッション cookie
+ * （sessionKey + lastActiveOrg）で platform.claude.com の内部 API を読む。
+ */
+export function resolveAnthropicApiKey(scope: UsageScope): string | null {
+  const stored = cleanApiKey(
+    readPiApiKey(
+      "anthropic",
+      scope.authPath ? { authPath: scope.authPath } : undefined,
+    ),
+  );
+  if (stored) return stored;
+  // アカウントスコープでは env へフォールバックしない（残高の取り違えを防ぐ）。
+  if (scope.kind === "account") return null;
+  return cleanApiKey(process.env.ANTHROPIC_API_KEY);
+}
+
+/** アカウント別 Console cookie の有無（軽量なファイル読み。Chromium は見ない）。 */
+export function hasAnthropicConsoleCookie(authPath: string): boolean {
+  return extractAnthropicConsoleSession({ authPath }) !== null;
+}
+
+function missingCredentialsMessage(
+  strictAccount: boolean,
+  hasApiKey: boolean,
+): string {
+  if (hasApiKey) {
+    return strictAccount
+      ? "このアカウントの API キー残高には Anthropic Console の cookie が必要です。設定画面で platform.claude.com の cookie（Netscape形式）を登録してください。"
+      : "Anthropic Console の cookie が見つかりません。platform.claude.com にログインしたブラウザの cookie を登録してください。";
+  }
+  return strictAccount
+    ? "このアカウントの Claude 認証情報がありません。サブスクでログインするか API キーを登録してください。"
+    : "Claude の認証情報が見つかりません。WebUI の「サブスクでログイン」・API キー、または `claude` CLI でサインインしてください。";
+}
+
+function consoleCreditsUrl(orgId: string): string {
+  return `${CONSOLE_ORIGIN}/api/organizations/${encodeURIComponent(orgId)}/prepaid/credits`;
+}
+
+async function fetchCreditsFromConsole(
+  session: BrowserCookieSession,
+  signal?: AbortSignal,
+): Promise<UsageSnapshot> {
+  const orgId = readAnthropicConsoleOrgId(session);
+  if (!orgId) {
+    throw new ProviderError(
+      "Anthropic Console の cookie に組織ID（lastActiveOrg）がありません。platform.claude.com の cookie をエクスポートし直してください。",
+    );
+  }
+  const url = consoleCreditsUrl(orgId);
+  const cookieHeader = createCookieHeaderForUrl(session, url);
+  if (!cookieHeader) {
+    throw new ProviderError(
+      "Anthropic Console（platform.claude.com）へ送れる cookie がありません。Console にログインしたブラウザの cookie を登録してください。",
+    );
+  }
+
+  const { status, body, ok } = await fetchText(url, {
+    headers: { Accept: "application/json", Cookie: cookieHeader },
+    signal,
+  });
+  if (status === 401 || status === 403) {
+    throw new ProviderError(
+      "Anthropic Console のセッションが期限切れです。cookie を再登録してください。",
+    );
+  }
+  if (!ok) throw new ProviderError(`Anthropic Console API エラー ${status}。`);
+  try {
+    return parseAnthropicPrepaidCreditsJson(body);
+  } catch (err) {
+    if (err instanceof ProviderError) throw err;
+    throw new ProviderError("Anthropic のクレジット応答を解析できませんでした。", {
+      cause: err,
+    });
+  }
+}
+
 export function createAnthropicProvider(scope: UsageScope): IUsageProvider {
   const strictAccount = scope.kind === "account";
   const piPath = scope.authPath ?? undefined;
   let accountCredentials: ClaudeCredentials | null | undefined;
+  // Console cookie の探索は（Chromium 読取を含むため）インスタンス内で 1 回だけ行う。
+  let consoleSession: BrowserCookieSession | null | undefined;
   const loadPiCredentials = () => {
     if (!strictAccount) return loadCredentialsFromPi();
     if (!piPath) return null;
@@ -434,13 +555,29 @@ export function createAnthropicProvider(scope: UsageScope): IUsageProvider {
     }
     return accountCredentials;
   };
+  const loadConsoleSession = () => {
+    if (consoleSession === undefined) {
+      consoleSession = extractAnthropicConsoleSession({ authPath: piPath ?? null });
+    }
+    return consoleSession;
+  };
+  const hasApiKey = () => resolveAnthropicApiKey(scope) !== null;
 
   return {
     id: "anthropic",
     name: "Claude",
     isConfigured() {
-      if (strictAccount) return loadPiCredentials() !== null;
-      return loadPiCredentials() !== null || loadCredentials() !== null;
+      if (strictAccount) {
+        return (
+          loadPiCredentials() !== null || hasApiKey() || loadConsoleSession() !== null
+        );
+      }
+      return (
+        loadPiCredentials() !== null ||
+        loadCredentials() !== null ||
+        hasApiKey() ||
+        loadConsoleSession() !== null
+      );
     },
     async fetch(signal) {
       // Account scope is deliberately Pi-only. Default scope preserves the
@@ -449,11 +586,10 @@ export function createAnthropicProvider(scope: UsageScope): IUsageProvider {
       const usingPi = piCreds !== null;
       let creds = strictAccount ? piCreds : piCreds ?? loadCredentials();
       if (!creds) {
-        throw new ProviderError(
-          strictAccount
-            ? "このアカウントの Claude 認証情報がありません。先に WebUI でログインしてください。"
-            : "Claude の認証情報が見つかりません。WebUI の「サブスクでログイン」または `claude` CLI でサインインしてください。",
-        );
+        // サブスク OAuth が無い（API キー）アカウントは Console cookie の残高を表示する。
+        const session = loadConsoleSession();
+        if (session) return fetchCreditsFromConsole(session, signal);
+        throw new ProviderError(missingCredentialsMessage(strictAccount, hasApiKey()));
       }
       if (
         creds.expiresAt &&

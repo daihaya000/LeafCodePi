@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -16,7 +16,11 @@ import {
   parseOpenRouterKeyJson,
   openrouterProvider,
 } from "./providers/openrouter";
-import { parseClaudeUsageJson } from "./providers/anthropic";
+import {
+  createAnthropicProvider,
+  parseAnthropicPrepaidCreditsJson,
+  parseClaudeUsageJson,
+} from "./providers/anthropic";
 import { parseCodexUsageJson } from "./providers/openai-codex";
 import { parseCursorUsageSummary } from "./providers/cursor";
 
@@ -228,5 +232,115 @@ describe("parseCursorUsageSummary", () => {
     expect(snap.windows.find((w) => w.id === "cursor-auto")?.countsTowardLimit).toBe(
       false,
     );
+  });
+});
+
+describe("parseAnthropicPrepaidCreditsJson", () => {
+  it("reads the prepaid balance in cents as USD", () => {
+    const snap = parseAnthropicPrepaidCreditsJson(
+      JSON.stringify({ amount: 1234, auto_reload_enabled: true }),
+    );
+    expect(snap.windows).toEqual([]);
+    expect(snap.creditsEnabled).toBe(true);
+    expect(snap.creditsTitle).toBe("API クレジット");
+    expect(snap.creditsBalance).toBeCloseTo(12.34);
+    expect(snap.creditsUsed).toBeNull();
+    expect(snap.plan).toBe("API");
+  });
+
+  it("rejects a response without amount", () => {
+    expect(() => parseAnthropicPrepaidCreditsJson("{}")).toThrow(
+      "クレジット応答形式",
+    );
+  });
+});
+
+describe("anthropic api-key account (Console cookie)", () => {
+  const tempDirs: string[] = [];
+
+  afterEach(() => {
+    undiciFetch.mockReset();
+    for (const dir of tempDirs.splice(0))
+      rmSync(dir, { recursive: true, force: true });
+  });
+
+  function accountAuth(apiKey: string | null): string {
+    const dir = mkdtempSync(join(tmpdir(), "leafcode-anthropic-api-"));
+    tempDirs.push(dir);
+    const authPath = join(dir, "auth.json");
+    writeFileSync(
+      authPath,
+      JSON.stringify(
+        apiKey ? { anthropic: { type: "api_key", key: apiKey } } : {},
+      ),
+      "utf8",
+    );
+    return authPath;
+  }
+
+  function writeConsoleCookie(authPath: string): void {
+    mkdirSync(join(authPath, ".."), { recursive: true });
+    writeFileSync(
+      join(authPath, "..", "anthropic-cookies.txt"),
+      "# Netscape HTTP Cookie File\n" +
+        ".claude.com\tTRUE\t/\tTRUE\t4102444800\tsessionKey\tsk-ant-sid01-test\n" +
+        ".claude.com\tTRUE\t/\tTRUE\t4102444800\tlastActiveOrg\torg-1234\n",
+      "utf8",
+    );
+  }
+
+  function providerFor(authPath: string) {
+    return createAnthropicProvider({
+      key: "account:acc-1",
+      kind: "account",
+      accountId: "acc-1",
+      accountLabel: "API 個人用",
+      authPath,
+    });
+  }
+
+  it("shows the Console prepaid balance for an api_key account", async () => {
+    const authPath = accountAuth("sk-ant-api03-test");
+    writeConsoleCookie(authPath);
+    undiciFetch.mockImplementation(async () =>
+      new Response(JSON.stringify({ amount: 500 }), { status: 200 }),
+    );
+
+    const provider = providerFor(authPath);
+    expect(provider.isConfigured()).toBe(true);
+    const snap = await provider.fetch();
+
+    expect(snap.creditsBalance).toBeCloseTo(5);
+    expect(snap.windows).toEqual([]);
+    const call = undiciFetch.mock.calls[0] as unknown as [string, RequestInit];
+    expect(call[0]).toBe(
+      "https://platform.claude.com/api/organizations/org-1234/prepaid/credits",
+    );
+    const headers = call[1].headers as Record<string, string>;
+    expect(headers.Cookie).toContain("sessionKey=sk-ant-sid01-test");
+  });
+
+  it("asks for the Console cookie when an api_key account has none", async () => {
+    const authPath = accountAuth("sk-ant-api03-test");
+    const provider = providerFor(authPath);
+    expect(provider.isConfigured()).toBe(true);
+
+    await expect(provider.fetch()).rejects.toThrow(
+      "API キー残高には Anthropic Console の cookie が必要です",
+    );
+    expect(undiciFetch).not.toHaveBeenCalled();
+  });
+
+  it("treats a Console session as a configured credential without an api key", async () => {
+    const authPath = accountAuth(null);
+    writeConsoleCookie(authPath);
+    undiciFetch.mockImplementation(async () =>
+      new Response(JSON.stringify({ amount: 100 }), { status: 200 }),
+    );
+
+    const provider = providerFor(authPath);
+    expect(provider.isConfigured()).toBe(true);
+    const snap = await provider.fetch();
+    expect(snap.creditsBalance).toBeCloseTo(1);
   });
 });

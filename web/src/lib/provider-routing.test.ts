@@ -20,7 +20,9 @@ import {
 
 function usage(
   usedPercent: number | null,
-  options: Partial<Pick<RoutingUsage, "stale" | "maxed" | "resetsAt" | "error">> = {},
+  options: Partial<
+    Pick<RoutingUsage, "stale" | "maxed" | "resetsAt" | "error" | "credits">
+  > = {},
 ): RoutingUsage {
   return {
     usedPercent,
@@ -29,7 +31,7 @@ function usage(
     resetsAt: options.resetsAt ?? null,
     error: options.error ?? null,
     windows: usedPercent === null ? [] : [{ id: "window", title: "window", usedPercent, resetsAt: null, windowMinutes: 300 }],
-    credits: null,
+    credits: options.credits ?? null,
   };
 }
 
@@ -88,6 +90,94 @@ describe("routing candidate ranking", () => {
       { accountId: "fresh", accountIndex: 2, value: "fresh", usage: usage(90), workingTaskCount: 0 },
     ]);
     assert.deepEqual(ranked.map((candidate) => candidate.accountId), ["fresh", "stale", "unknown"]);
+  });
+
+  it("keeps a maxed subscription usable while extra usage credits remain", () => {
+    const decision = chooseRoutingCandidate([
+      {
+        accountId: "sub",
+        accountIndex: 0,
+        value: "sub",
+        usage: usage(100, {
+          maxed: true,
+          credits: { title: "利用クレジット", used: 2, limit: 10, balance: null },
+        }),
+        workingTaskCount: 0,
+      },
+      {
+        accountId: "api",
+        accountIndex: 1,
+        value: "api",
+        usage: usage(null, {
+          credits: { title: "API クレジット", used: null, limit: null, balance: 12 },
+        }),
+        workingTaskCount: 0,
+      },
+    ]);
+    assert.equal(decision.candidate?.accountId, "sub");
+    assert.equal(decision.allMaxed, false);
+  });
+
+  it("treats a maxed subscription as exhausted when the credit cap is spent or zero", () => {
+    const decision = chooseRoutingCandidate([
+      {
+        accountId: "sub",
+        accountIndex: 0,
+        value: "sub",
+        usage: usage(100, {
+          maxed: true,
+          credits: { title: "利用クレジット", used: 37.88, limit: 0, balance: null },
+        }),
+        workingTaskCount: 0,
+      },
+      {
+        accountId: "api",
+        accountIndex: 1,
+        value: "api",
+        usage: usage(null, {
+          credits: { title: "API クレジット", used: null, limit: null, balance: 12 },
+        }),
+        workingTaskCount: 0,
+      },
+    ]);
+    assert.equal(decision.candidate?.accountId, "api");
+
+    const spent = rankRoutingCandidates([
+      {
+        accountId: "spent",
+        accountIndex: 0,
+        value: "spent",
+        usage: usage(100, {
+          maxed: true,
+          credits: { title: "利用クレジット", used: 10, limit: 10, balance: null },
+        }),
+        workingTaskCount: 0,
+      },
+    ]);
+    assert.equal(spent[0]?.tier, 3);
+  });
+
+  it("prefers a fresh account with headroom over a maxed subscription on credits", () => {
+    const decision = chooseRoutingCandidate([
+      {
+        accountId: "credits",
+        accountIndex: 0,
+        value: "credits",
+        usage: usage(100, {
+          maxed: true,
+          credits: { title: "利用クレジット", used: 1, limit: 10, balance: null },
+        }),
+        workingTaskCount: 0,
+      },
+      {
+        accountId: "fresh",
+        accountIndex: 1,
+        value: "fresh",
+        usage: usage(40),
+        workingTaskCount: 0,
+      },
+    ]);
+    assert.equal(decision.candidate?.accountId, "fresh");
   });
 
   it("returns the earliest reset when every fresh candidate is maxed", () => {

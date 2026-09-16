@@ -1,5 +1,6 @@
 /**
- * Browser / tray cookie extraction for OpenCode Go and Qwen Cloud.
+ * Browser / tray cookie extraction for OpenCode Go, Qwen Cloud and the
+ * Anthropic Console (credit balance for API-key accounts).
  *
  * Order (CodexBarWin parity):
  * 1. Netscape cookie files under CodexBar config dir (and legacy cokkie/)
@@ -38,6 +39,11 @@ import { asRecord } from "@/lib/codexbar/utils";
 const OPENCODE_DOMAIN = "opencode.ai";
 const QWEN_COOKIE_FILE = "home.qwencloud.com_cookies.txt";
 const OPENCODE_TRAY_ENTROPY = "OpenCodeTray.v1";
+
+/** Console session cookies live under these domains (claude.com = current Console). */
+const ANTHROPIC_CONSOLE_DOMAINS = ["claude.com", "claude.ai", "console.anthropic.com"];
+const ANTHROPIC_SESSION_COOKIE = "sessionKey";
+const ANTHROPIC_ORG_COOKIE = "lastActiveOrg";
 
 const QWEN_CLOUD_DOMAINS = [
   "qwencloud.com",
@@ -224,6 +230,158 @@ export function extractQwenCloudSession(): BrowserCookieSession | null {
     }
   }
   return extractQwenCloudSessionFromChromium();
+}
+
+export function isAnthropicConsoleDomain(host: string): boolean {
+  const normalized = host.trim().replace(/^\./, "").toLowerCase();
+  return ANTHROPIC_CONSOLE_DOMAINS.some(
+    (d) => normalized === d || normalized.endsWith(`.${d}`),
+  );
+}
+
+function hasAnthropicSessionCookie(cookies: readonly BrowserCookie[]): boolean {
+  return cookies.some(
+    (c) => c.name === ANTHROPIC_SESSION_COOKIE && c.value.length > 0,
+  );
+}
+
+/** Anthropic Console cookie（sessionKey 必須）。無効なら null。 */
+export function parseAnthropicConsoleNetscapeText(
+  text: string,
+  sourceLabel = "Netscape cookie file",
+): BrowserCookieSession | null {
+  const now = Math.floor(Date.now() / 1000);
+  const cookies = parseNetscapeCookieText(text)
+    .filter((c) => !(c.expiresUtc > 0 && c.expiresUtc < now))
+    .filter((c) => isAnthropicConsoleDomain(c.domain))
+    .filter((c) => c.name.length > 0 && c.value.length > 0)
+    .map(netscapeToBrowserCookie);
+  if (!hasAnthropicSessionCookie(cookies)) return null;
+  return { sourceLabel, cookies };
+}
+
+/** 組織 ID は Console が置く lastActiveOrg cookie（無ければ null）。 */
+export function readAnthropicConsoleOrgId(
+  session: BrowserCookieSession,
+): string | null {
+  const cookie = session.cookies.find(
+    (c) => c.name === ANTHROPIC_ORG_COOKIE && c.value.trim().length > 0,
+  );
+  return cookie ? cookie.value.trim() : null;
+}
+
+export function defaultAnthropicCookiePath(): string {
+  return join(codexBarConfigDir(), "anthropic_cookies.txt");
+}
+
+/** アカウント別 Console cookie（auth.json と同じディレクトリ）。 */
+export function accountAnthropicCookiePath(authPath: string): string {
+  return join(dirname(authPath), "anthropic-cookies.txt");
+}
+
+function anthropicNetscapePaths(): string[] {
+  const configDir = codexBarConfigDir();
+  return [
+    defaultAnthropicCookiePath(),
+    join(configDir, "cokkie", "platform.claude.com_cookies.txt"),
+    join(configDir, "cokkie", "claude.ai_cookies.txt"),
+    ...netscapeCookieCandidates("platform.claude.com_cookies.txt"),
+    ...netscapeCookieCandidates("claude.ai_cookies.txt"),
+  ];
+}
+
+function chromiumSessionFor(
+  matches: (host: string) => boolean,
+): BrowserCookieSession | null {
+  for (const browser of listChromiumBrowserRoots()) {
+    for (const profile of listChromiumProfiles(browser.userData)) {
+      const rows = readChromiumCookiesFromProfile(profile, matches, {
+        secretToolApp: browser.secretToolApp,
+      });
+      if (rows.length === 0) continue;
+      const cookies: BrowserCookie[] = rows.map((r) => ({
+        name: r.name,
+        value: r.value,
+        domain: r.hostKey.replace(/^\./, ""),
+        hostOnly: !r.hostKey.startsWith("."),
+        path: r.path || "/",
+        secure: r.isSecure,
+        expiresAt: chromeExpiryToDate(r.expiresUtcChrome),
+      }));
+      if (!hasAnthropicSessionCookie(cookies)) continue;
+      return {
+        sourceLabel: `${browser.name} (${profile.split(/[/\\]/).pop()})`,
+        cookies,
+      };
+    }
+  }
+  return null;
+}
+
+/**
+ * Anthropic Console cookie の解決順:
+ * アカウント別ファイル → CodexBar 設定ディレクトリ → Chrome/Edge profile。
+ * アカウント指定時に共有 cookie へフォールバックしない（別アカウントの残高を混ぜない）。
+ */
+export function extractAnthropicConsoleSession(options?: {
+  authPath?: string | null;
+}): BrowserCookieSession | null {
+  const authPath = options?.authPath;
+  const paths = authPath
+    ? [accountAnthropicCookiePath(authPath)]
+    : [...new Set(anthropicNetscapePaths())];
+  for (const path of paths) {
+    if (!existsSync(path)) continue;
+    try {
+      const session = parseAnthropicConsoleNetscapeText(
+        readFileSync(path, "utf8"),
+        "Netscape cookie file",
+      );
+      if (session) return session;
+    } catch {
+      /* try next */
+    }
+  }
+  if (authPath) return null;
+  return chromiumSessionFor(isAnthropicConsoleDomain);
+}
+
+export function saveAccountAnthropicCookieFile(
+  authPath: string,
+  text: string,
+): void {
+  if (!text.trim()) {
+    throw Object.assign(new Error("cookie を入力してください"), { status: 400 });
+  }
+  if (text.length > 1_000_000) {
+    throw Object.assign(new Error("cookie のサイズが大きすぎます"), {
+      status: 400,
+    });
+  }
+  if (!parseAnthropicConsoleNetscapeText(text)) {
+    throw Object.assign(
+      new Error(
+        "有効な Anthropic Console（platform.claude.com）の sessionKey cookie が見つかりません",
+      ),
+      { status: 400 },
+    );
+  }
+  const path = accountAnthropicCookiePath(authPath);
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(path, `${text.trim()}\n`, "utf8");
+  try {
+    chmodSync(path, 0o600);
+  } catch {
+    // Windows ACL が権限を管理するため、chmod 失敗は保存エラーにしない。
+  }
+}
+
+export function deleteAccountAnthropicCookieFile(authPath: string): void {
+  try {
+    unlinkSync(accountAnthropicCookiePath(authPath));
+  } catch {
+    /* already absent */
+  }
 }
 
 function extractOpenCodeCookieFromChromium(): string | null {

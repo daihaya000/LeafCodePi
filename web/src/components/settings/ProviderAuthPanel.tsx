@@ -59,6 +59,53 @@ type ModelProviderSummary = {
   enabled: boolean;
 };
 
+/** アカウント別 cookie を登録できるプロバイダーの UI 定義。 */
+type CookieUi = {
+  route: string;
+  title: string;
+  domain: string;
+  providerName: string;
+  /** 未登録時に何のために必要かを示す一文。 */
+  missingHint: string;
+};
+
+const COOKIE_UI: Partial<Record<AccountProviderId, CookieUi>> = {
+  "ollama-cloud": {
+    route: "ollama-cookie",
+    title: "Ollama cookie",
+    domain: "ollama.com",
+    providerName: "Ollama",
+    missingHint: "利用量表示には cookie が必要です",
+  },
+  "opencode-go": {
+    route: "opencode-go-cookie",
+    title: "OpenCode Go cookie",
+    domain: "opencode.ai",
+    providerName: "OpenCode Go",
+    missingHint: "利用量表示には cookie が必要です",
+  },
+  anthropic: {
+    route: "anthropic-cookie",
+    title: "Anthropic Console cookie",
+    domain: "platform.claude.com",
+    providerName: "Anthropic",
+    // サブスク（OAuth）口座は不要。API キー口座のクレジット残高だけが cookie を要する。
+    missingHint: "API キー口座のクレジット残高表示に必要です",
+  },
+};
+
+/** ログイン方式が 1 つだけのプロバイダーは従来どおりのラベルにする。 */
+function accountLoginLabel(
+  authType: "api_key" | "oauth",
+  methodCount: number,
+  authenticated: boolean,
+): string {
+  if (methodCount > 1) {
+    return authType === "oauth" ? "サブスクでログイン" : "API キー";
+  }
+  return authenticated ? "再ログイン" : "ログイン";
+}
+
 function authBadge(provider: ProviderAuthDto) {
   if (provider.subscription)
     return { tone: "success" as const, label: "サブスク認証済" };
@@ -293,12 +340,10 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
   const [authStatuses, setAuthStatuses] = useState<
     Record<string, AccountProviderId[]>
   >({});
-  const [ollamaCookieStatuses, setOllamaCookieStatuses] = useState<
-    Record<string, boolean>
-  >({});
-  const [opencodeGoCookieStatuses, setOpencodeGoCookieStatuses] = useState<
-    Record<string, boolean>
-  >({});
+  /** `${providerId}:${accountId}` → cookie 登録済み（Ollama / OpenCode Go / Anthropic Console）。 */
+  const [cookieStatuses, setCookieStatuses] = useState<Record<string, boolean>>(
+    {},
+  );
   const [cookieEditingKey, setCookieEditingKey] = useState<string | null>(null);
   const [cookieInput, setCookieInput] = useState("");
   const [cookieBusy, setCookieBusy] = useState<string | null>(null);
@@ -457,6 +502,7 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
               providers: AccountProviderId[];
               ollamaCookieConfigured?: boolean;
               opencodeGoCookieConfigured?: boolean;
+              anthropicCookieConfigured?: boolean;
             }>(`/api/accounts/${encodeURIComponent(account.id)}/auth-status`);
             return [account.id, status] as const;
           } catch {
@@ -466,6 +512,7 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
                 providers: [] as AccountProviderId[],
                 ollamaCookieConfigured: false,
                 opencodeGoCookieConfigured: false,
+                anthropicCookieConfigured: false,
               },
             ] as const;
           }
@@ -477,19 +524,21 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
           statuses.map(([id, status]) => [id, status.providers]),
         ),
       );
-      setOllamaCookieStatuses(
+      setCookieStatuses(
         Object.fromEntries(
-          statuses.map(([id, status]) => [
-            id,
-            status.ollamaCookieConfigured === true,
-          ]),
-        ),
-      );
-      setOpencodeGoCookieStatuses(
-        Object.fromEntries(
-          statuses.map(([id, status]) => [
-            id,
-            status.opencodeGoCookieConfigured === true,
+          statuses.flatMap(([id, status]) => [
+            [
+              cookieKey("ollama-cloud", id),
+              status.ollamaCookieConfigured === true,
+            ],
+            [
+              cookieKey("opencode-go", id),
+              status.opencodeGoCookieConfigured === true,
+            ],
+            [
+              cookieKey("anthropic", id),
+              status.anthropicCookieConfigured === true,
+            ],
           ]),
         ),
       );
@@ -990,6 +1039,8 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
 
   async function saveCookie(providerId: string, accountId: string) {
     if (!cookieInput.trim() || cookieBusy || login) return;
+    const route = COOKIE_UI[providerId as AccountProviderId]?.route;
+    if (!route) return;
     const key = cookieKey(providerId, accountId);
     setCookieBusy(key);
     setCookieErrors((current) => {
@@ -999,9 +1050,7 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
     });
     try {
       await sendJson(
-        `/api/accounts/${encodeURIComponent(accountId)}/${
-          providerId === "ollama-cloud" ? "ollama-cookie" : "opencode-go-cookie"
-        }`,
+        `/api/accounts/${encodeURIComponent(accountId)}/${route}`,
         {
           cookies: cookieInput,
         },
@@ -1025,7 +1074,9 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
     accountId: string,
     label: string,
   ) {
-    const name = providerId === "ollama-cloud" ? "Ollama" : "OpenCode Go";
+    const cookieUi = COOKIE_UI[providerId as AccountProviderId];
+    if (!cookieUi) return;
+    const name = cookieUi.providerName;
     if (
       cookieBusy ||
       !window.confirm(`「${label}」の ${name} cookie を削除しますか？`)
@@ -1040,9 +1091,7 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
     });
     try {
       await sendJson(
-        `/api/accounts/${encodeURIComponent(accountId)}/${
-          providerId === "ollama-cloud" ? "ollama-cookie" : "opencode-go-cookie"
-        }`,
+        `/api/accounts/${encodeURIComponent(accountId)}/${cookieUi.route}`,
         {},
         "DELETE",
       );
@@ -1073,13 +1122,13 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
       (account) => account.enabled !== false,
     ).length;
     const isCreating = creatingFor === providerId;
-    // OAuth 対応なら OAuth、API キー専用プロバイダーは API キー入力へ
-    const accountAuthType: "api_key" | "oauth" | null =
-      provider.oauthAvailable === true || provider.methods?.includes("oauth")
-        ? "oauth"
-        : provider.methods?.includes("api_key")
-          ? "api_key"
-          : null;
+    // 利用可能なログイン方式をすべて出す（Anthropic はサブスクと API キーの両方）。
+    const accountAuthTypes: ("api_key" | "oauth")[] = [];
+    if (provider.oauthAvailable === true || provider.methods?.includes("oauth")) {
+      accountAuthTypes.push("oauth");
+    }
+    if (provider.methods?.includes("api_key")) accountAuthTypes.push("api_key");
+    const cookieUi = COOKIE_UI[providerId];
     const mode = provider.accountRoutingMode ?? "separate";
     const savingMode = routingBusy === providerId;
     const modeDisabled = Boolean(login) || accountBusy || Boolean(routingBusy);
@@ -1148,11 +1197,7 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
               <ul className="mt-2 space-y-2 rounded-xl bg-surface-2 p-2">
                 {providerAccounts.map((account, accountIndex) => {
                   const cookieConfigured =
-                    providerId === "ollama-cloud"
-                      ? ollamaCookieStatuses[account.id] === true
-                      : providerId === "opencode-go"
-                        ? opencodeGoCookieStatuses[account.id] === true
-                        : false;
+                    cookieStatuses[cookieKey(providerId, account.id)] === true;
                   const piAuthenticated =
                     authStatuses[account.id]?.includes(providerId) === true;
                   const authenticated =
@@ -1286,21 +1331,26 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
                               />
                             </div>
                             <div className="flex flex-wrap gap-1">
-                              {accountAuthType && (
+                              {accountAuthTypes.map((authType) => (
                                 <Button
+                                  key={authType}
                                   size="sm"
                                   disabled={Boolean(login) || accountBusy}
                                   onClick={() =>
                                     void beginLogin(
                                       provider,
-                                      accountAuthType,
+                                      authType,
                                       account.id,
                                     )
                                   }
                                 >
-                                  {authenticated ? "再ログイン" : "ログイン"}
+                                  {accountLoginLabel(
+                                    authType,
+                                    accountAuthTypes.length,
+                                    authenticated,
+                                  )}
                                 </Button>
-                              )}
+                              ))}
                               {piAuthenticated && (
                                 <Button
                                   size="sm"
@@ -1391,15 +1441,12 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
                           onRedeem={redeemResetCredit}
                         />
                       )}
-                      {(providerId === "ollama-cloud" ||
-                        providerId === "opencode-go") && (
+                      {cookieUi && (
                         <div className="mt-2 border-t border-border pt-2">
                           <div className="flex flex-wrap items-center justify-between gap-2">
                             <div>
                               <p className="text-xs font-semibold text-muted">
-                                {providerId === "ollama-cloud"
-                                  ? "Ollama cookie"
-                                  : "OpenCode Go cookie"}
+                                {cookieUi.title}
                               </p>
                               <p
                                 className="mt-0.5 text-xs text-muted"
@@ -1407,7 +1454,7 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
                               >
                                 {cookieConfigured
                                   ? "このアカウントの cookie を登録済み"
-                                  : "利用量表示には cookie が必要です"}
+                                  : cookieUi.missingHint}
                               </p>
                             </div>
                             <div className="flex flex-wrap items-center gap-1">
@@ -1485,9 +1532,7 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
                                 id={`${providerId}-cookie-help-${account.id}`}
                                 className="text-xs text-muted"
                               >
-                                {providerId === "ollama-cloud"
-                                  ? "ollama.com"
-                                  : "opencode.ai"}{" "}
+                                {cookieUi.domain}{" "}
                                 の cookie
                                 を貼り付けてください。保存後、本文は画面に表示しません。
                               </p>
@@ -1611,8 +1656,11 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
             Cloud は <span className="font-mono">OLLAMA_API_KEY</span>{" "}
             でも設定できます。Ollama Cloud はアカウントごとに cookie
             も登録できます。OpenCode Go の利用量にもアカウント別 cookie
-            を登録できます。Ollama Cloud / LeafCodeCloud の API URL は各行で変更でき、
-            次回起動から反映されます。
+            を登録できます。Anthropic はアカウントごとにサブスク（OAuth）と API
+            キーのどちらでも登録でき、API キーアカウントのクレジット残高は
+            Anthropic Console（platform.claude.com）の cookie
+            を登録すると表示されます。Ollama Cloud / LeafCodeCloud の API URL
+            は各行で変更でき、次回起動から反映されます。
           </p>
           <p className="mt-2">
             {REMOTE_OAUTH_HINT}

@@ -244,6 +244,23 @@ function resetTime(usage: RoutingUsage | null | undefined): number | null {
   return Number.isFinite(value) ? value : null;
 }
 
+/**
+ * サブスク枠（5時間/週間）が100%でも、サブスク枠内クレジット（extra usage）に
+ * 残りがある間は Anthropic 側がクレジットを消費して継続する。
+ * 上限が未設定/0（意図的に停止）や使い切っている場合は残り無しとして扱う。
+ */
+export function hasSubscriptionCreditsRemaining(
+  usage: Pick<RoutingUsage, "credits"> | null | undefined,
+): boolean {
+  const credits = usage?.credits;
+  if (!credits) return false;
+  return (
+    credits.limit !== null &&
+    credits.limit > 0 &&
+    credits.limit > (credits.used ?? 0)
+  );
+}
+
 function usageIsKnown(
   usage: RoutingUsage | null | undefined,
 ): usage is RoutingUsage {
@@ -260,7 +277,10 @@ function candidateTier(
   if (!usage) return 2;
   const reset = resetTime(usage);
   const maxedExpired = usage.maxed && reset !== null && reset <= nowMs;
-  if (usage.maxed && !usage.stale && !maxedExpired) return 3;
+  if (usage.maxed && !usage.stale && !maxedExpired) {
+    // 枠クレジットが残っているサブスクは使い続けられる（既知だが保守的に tier 1）。
+    return hasSubscriptionCreditsRemaining(usage) ? 1 : 3;
+  }
   if (usage.maxed && usage.stale) return 2;
   if (!usageIsKnown(usage)) return 2;
   return usage.stale ? 1 : 0;
