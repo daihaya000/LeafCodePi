@@ -246,4 +246,30 @@ describe("DiffPane 全選択", () => {
     expect(diffArea?.textContent).not.toContain("const a = 1;");
     expect(diffArea?.textContent).toContain("const b = 3;");
   });
+
+  it("500行超の差分は省略され、「残りを表示」で全行描画される", async () => {
+    const lines = Array.from({ length: 600 }, (_, i) => ({ t: "+", text: `line${i}` }));
+    const base = mocks.getJson.getMockImplementation()!;
+    mocks.getJson.mockImplementation((url: string) =>
+      url === "/api/diff/files"
+        ? Promise.resolve({
+            git: true,
+            files: [{ ...files[0], hunks: [{ header: "@@ -1,600 +1,600 @@", lines }] }],
+            additions: 600,
+            deletions: 0,
+          })
+        : base(url),
+    );
+    render(<DiffPane directory="C:\\repo" />);
+    await screen.findByText("a.ts");
+    fireEvent.click(screen.getByRole("button", { name: "src/a.ts の差分を展開" }));
+
+    const diffArea = screen.getByRole("region", { name: "src/a.ts の差分" });
+    expect(diffArea.textContent).toContain("line499");
+    expect(diffArea.textContent).not.toContain("line599");
+
+    fireEvent.click(screen.getByRole("button", { name: "残り100行を表示" }));
+    expect(diffArea.textContent).toContain("line599");
+    expect(screen.queryByRole("button", { name: "残り100行を表示" })).toBeNull();
+  });
 });
