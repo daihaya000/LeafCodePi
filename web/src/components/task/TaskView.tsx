@@ -37,7 +37,7 @@ import { canAttachComposerImages, pasteImage } from "@/lib/clipboard-image";
 import { isImeComposingEvent } from "@/lib/composer-ime";
 import { GoalLoopPanel } from "@/components/GoalLoopPanel";
 import { DiffPane } from "@/components/task/DiffPane";
-import { useBotFor } from "@/components/shell/TaskPanesContext";
+import { useBotFor, useIconFor } from "@/components/shell/TaskPanesContext";
 import { NextAction } from "@/components/task/NextAction";
 import { GraphPanel } from "@/components/task/GraphPanel";
 import { ProjectExplorerButton } from "@/components/task/ProjectExplorerButton";
@@ -821,6 +821,7 @@ export const TaskView = memo(function TaskView({
     if (!enabled) stopSpeaking();
   }), [ttsKey]);
   const botFor = useBotFor();
+  const iconFor = useIconFor();
   const [supervisorBots, setSupervisorBots] = useState<BotDto[]>([]);
   const [supervisorBusy, setSupervisorBusy] = useState(false);
   const [worktreeStatus, setWorktreeStatus] = useState<WorktreeStatus | null>(null);
@@ -3084,6 +3085,7 @@ export const TaskView = memo(function TaskView({
       >
         <div className="col-span-2 flex min-w-0 items-center gap-2">
           <MobileMenuButton />
+          {iconFor(taskId, 32, task ?? undefined)}
           <div className="flex min-w-0 flex-1 items-center gap-1">
             {titleEditing ? (
               <form

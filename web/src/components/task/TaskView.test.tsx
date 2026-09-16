@@ -5,12 +5,12 @@ import { saveTaskSessionCache } from "@/lib/task-session-cache";
 import type { ModelOption, TaskSummary, UiMessage } from "@/lib/types";
 import { COMPACTION_ACTION_SETTING_KEY } from "@/lib/compaction-settings";
 
-const mocks = vi.hoisted(() => ({ getJson: vi.fn(), sendJson: vi.fn(), apiUrl: (path: string) => path, partView: vi.fn(), toolCard: vi.fn(), messageMetaHeader: vi.fn(), botFor: vi.fn() }));
+const mocks = vi.hoisted(() => ({ getJson: vi.fn(), sendJson: vi.fn(), apiUrl: (path: string) => path, partView: vi.fn(), toolCard: vi.fn(), messageMetaHeader: vi.fn(), botFor: vi.fn(), iconFor: vi.fn() }));
 vi.mock("@/lib/client", () => mocks);
 vi.mock("@/components/shell/MobileMenuHeader", () => ({ MobileMenuButton: () => null }));
 vi.mock("@/components/task/PartView", () => ({ PartView: mocks.partView, ToolCard: mocks.toolCard, MessageMetaHeader: mocks.messageMetaHeader, WorkingRow: () => null }));
 vi.mock("@/components/task/ProjectExplorerButton", () => ({ ProjectExplorerButton: () => null }));
-vi.mock("@/components/shell/TaskPanesContext", () => ({ useBotFor: () => mocks.botFor }));
+vi.mock("@/components/shell/TaskPanesContext", () => ({ useBotFor: () => mocks.botFor, useIconFor: () => mocks.iconFor }));
 
 import { TaskView } from "./TaskView";
 import { clearCachedModels, writeCachedModels } from "@/lib/models-cache";
@@ -30,6 +30,7 @@ beforeEach(() => {
   mocks.toolCard.mockReturnValue(null);
   mocks.messageMetaHeader.mockReturnValue(null);
   mocks.botFor.mockReset();
+  mocks.iconFor.mockReset().mockReturnValue(null);
   vi.stubGlobal("EventSource", class extends EventTarget { close() {} });
   mocks.getJson.mockImplementation((path: string) =>
     path === `/api/settings/${COMPACTION_ACTION_SETTING_KEY}`
@@ -45,6 +46,19 @@ afterEach(() => {
   vi.unstubAllGlobals();
   localStorage.clear();
   clearCachedModels();
+});
+
+it("displays the project icon to the left of the task title", async () => {
+  const projectTask = { ...task, projectId: "project-1" };
+  const icon = <span data-testid="project-icon" />;
+  mocks.iconFor.mockReturnValue(icon);
+  saveTaskSessionCache({ task: projectTask, messages: [], isStreaming: false, isCompacting: false });
+  render(<TaskView taskId={task.id} mdUp />);
+
+  const projectIcon = await screen.findByTestId("project-icon");
+  const title = screen.getByRole("heading", { name: projectTask.title });
+  expect(projectIcon.compareDocumentPosition(title) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  expect(mocks.iconFor).toHaveBeenCalledWith(task.id, 32, expect.objectContaining({ projectId: "project-1" }));
 });
 
 it.each([undefined, "bot-1"])("passes Bot identity only to Bot-sent prompts (botId: %s)", async (botId) => {

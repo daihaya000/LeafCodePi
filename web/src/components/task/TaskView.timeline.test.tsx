@@ -11,11 +11,12 @@ const mocks = vi.hoisted(() => ({
   sendJson: vi.fn(),
   apiUrl: (path: string) => path,
   botFor: vi.fn(),
+  iconFor: vi.fn(() => null),
 }));
 vi.mock("@/lib/client", () => mocks);
 vi.mock("@/components/shell/MobileMenuHeader", () => ({ MobileMenuButton: () => null }));
 vi.mock("@/components/task/ProjectExplorerButton", () => ({ ProjectExplorerButton: () => null }));
-vi.mock("@/components/shell/TaskPanesContext", () => ({ useBotFor: () => mocks.botFor }));
+vi.mock("@/components/shell/TaskPanesContext", () => ({ useBotFor: () => mocks.botFor, useIconFor: () => mocks.iconFor }));
 
 import { TaskView } from "./TaskView";
 

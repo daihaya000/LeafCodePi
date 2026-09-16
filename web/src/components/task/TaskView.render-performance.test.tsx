@@ -13,11 +13,12 @@ const mocks = vi.hoisted(() => ({
   partView: vi.fn(),
   workingRow: vi.fn(),
   botFor: vi.fn(),
+  iconFor: vi.fn(() => null),
 }));
 
 vi.mock("@/lib/client", () => mocks);
 vi.mock("@/components/shell/MobileMenuHeader", () => ({ MobileMenuButton: () => null }));
-vi.mock("@/components/shell/TaskPanesContext", () => ({ useBotFor: () => mocks.botFor }));
+vi.mock("@/components/shell/TaskPanesContext", () => ({ useBotFor: () => mocks.botFor, useIconFor: () => mocks.iconFor }));
 vi.mock("@/components/task/PartView", async () => {
   const { memo } = await import("react");
   const PartView = memo(function TestPartView({ message }: { message: UiMessage }) {
