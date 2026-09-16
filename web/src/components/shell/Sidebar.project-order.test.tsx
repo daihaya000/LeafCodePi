@@ -50,6 +50,10 @@ vi.mock("next/link", () => ({
   ),
 }));
 vi.mock("@/components/ui", () => ({
+  Button: ({ children, busy, ...props }: { children: ReactNode; busy?: boolean; [key: string]: unknown }) => {
+    void busy;
+    return <button {...props}>{children}</button>;
+  },
   cx: (...classes: unknown[]) => classes.filter(Boolean).join(" "),
   timeAgo: () => "",
   ThemeToggle: () => null,
@@ -82,6 +86,11 @@ function projectOrder() {
   return [...document.querySelectorAll<HTMLElement>("[data-project-row]")].map(
     (row) => row.dataset.projectRow,
   );
+}
+
+async function openProjectSettings() {
+  fireEvent.click(await screen.findByRole("button", { name: "Project Aの設定" }));
+  return screen.findByRole("dialog", { name: "プロジェクト設定" });
 }
 
 beforeEach(() => {
@@ -278,6 +287,7 @@ describe("Sidebar project ordering", () => {
   it("keeps project icon picker constraints aligned with validation", async () => {
     const alert = vi.spyOn(window, "alert").mockImplementation(() => {});
     render(<Sidebar mobileOpen={false} onClose={vi.fn()} />);
+    await openProjectSettings();
 
     const input = (await screen.findByLabelText("Project Aのアイコンを設定")) as HTMLInputElement;
     expect(input.accept.split(",")).toEqual(["image/png", "image/jpeg", "image/gif", "image/webp"]);
@@ -304,6 +314,7 @@ describe("Sidebar project ordering", () => {
     };
     vi.stubGlobal("FileReader", vi.fn(() => reader));
     render(<Sidebar mobileOpen={false} onClose={vi.fn()} />);
+    await openProjectSettings();
 
     const input = (await screen.findByLabelText("Project Aのアイコンを設定")) as HTMLInputElement;
     fireEvent.change(input, {
@@ -326,6 +337,7 @@ describe("Sidebar project ordering", () => {
     };
     vi.stubGlobal("FileReader", vi.fn(() => reader));
     render(<Sidebar mobileOpen={false} onClose={vi.fn()} />);
+    await openProjectSettings();
 
     const input = (await screen.findByLabelText("Project Aのアイコンを設定")) as HTMLInputElement;
     fireEvent.change(input, {
@@ -336,8 +348,9 @@ describe("Sidebar project ordering", () => {
     expect(alert.textContent).toContain("プロジェクトアイコンの読み込みに失敗しました");
   });
 
-  it("uses the displayed project icon as the file picker", async () => {
+  it("uses the project settings icon as the file picker", async () => {
     render(<Sidebar mobileOpen={false} onClose={vi.fn()} />);
+    await openProjectSettings();
 
     const input = (await screen.findByLabelText("Project Aのアイコンを設定")) as HTMLInputElement;
     const picker = input.parentElement;
@@ -361,6 +374,56 @@ describe("Sidebar project ordering", () => {
 
     fireEvent.change(input, { target: { files: [file] } });
     await waitFor(() => expect(mocks.sendJson).toHaveBeenCalledTimes(2));
+  });
+
+  it("removes a saved project image from its settings", async () => {
+    mocks.getJson.mockImplementation((path: string) => {
+      if (path === "/api/projects?archived=1") {
+        return Promise.resolve({ projects: [{ ...projects[0], icon: "data:image/png;base64,eA==" }, ...projects.slice(1)] });
+      }
+      if (path === "/api/tasks?kind=all" || path === "/api/tasks?archived=1&kind=all") return Promise.resolve({ tasks: [] });
+      if (path === "/api/health") return Promise.resolve({ ok: true, engineOk: true, version: "1", modelCount: 0 });
+      return Promise.reject(new Error(`Unexpected request: ${path}`));
+    });
+    render(<Sidebar mobileOpen={false} onClose={vi.fn()} />);
+    await openProjectSettings();
+
+    fireEvent.click(screen.getByRole("button", { name: "画像を削除" }));
+    await waitFor(() => {
+      expect(mocks.sendJson).toHaveBeenCalledWith(
+        "/api/projects",
+        { id: "project-a", icon: null },
+        "PATCH",
+      );
+    });
+  });
+
+  it("changes icon color and migrates a project from its settings", async () => {
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+    render(<Sidebar mobileOpen={false} onClose={vi.fn()} />);
+    await openProjectSettings();
+
+    fireEvent.click(screen.getByRole("button", { name: "Project Aのアイコン色を緑に変更" }));
+    await waitFor(() => {
+      expect(mocks.sendJson).toHaveBeenCalledWith(
+        "/api/projects",
+        { id: "project-a", iconColor: "green" },
+        "PATCH",
+      );
+    });
+
+    fireEvent.change(screen.getByRole("textbox", { name: "移動先フォルダーのパス" }), {
+      target: { value: "C:\\moved-project" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "移動" }));
+    await waitFor(() => {
+      expect(mocks.sendJson).toHaveBeenCalledWith(
+        "/api/projects",
+        { id: "project-a", destinationPath: "C:\\moved-project" },
+        "PATCH",
+      );
+    });
+    confirm.mockRestore();
   });
 
   it("reorders projects with native DnD and persists the order", async () => {

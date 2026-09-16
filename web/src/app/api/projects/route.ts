@@ -5,9 +5,11 @@ import {
   destroyProject,
   getProjects,
   jsonError,
+  migrateProject,
   patchProject,
   restoreProject,
 } from "@/lib/pi/harness";
+import type { ProjectIconColor } from "@/lib/types";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -33,7 +35,13 @@ export async function POST(req: NextRequest) {
 
 export async function PATCH(req: NextRequest) {
   try {
-    const body = (await req.json().catch(() => null)) as { id?: string; archived?: boolean; icon?: unknown } | null;
+    const body = (await req.json().catch(() => null)) as {
+      id?: string;
+      archived?: boolean;
+      icon?: unknown;
+      iconColor?: unknown;
+      destinationPath?: unknown;
+    } | null;
     if (!body?.id) {
       return NextResponse.json({ error: "id is required" }, { status: 400 });
     }
@@ -43,11 +51,22 @@ export async function PATCH(req: NextRequest) {
     if (body.archived === false) {
       return NextResponse.json({ project: restoreProject(body.id) });
     }
+    if (body.destinationPath !== undefined) {
+      if (typeof body.destinationPath !== "string" || !body.destinationPath.trim()) {
+        return NextResponse.json({ error: "destinationPath が必要です" }, { status: 400 });
+      }
+      return NextResponse.json(await migrateProject(body.id, body.destinationPath));
+    }
     if (typeof body.icon === "string" || body.icon === null) {
       if (typeof body.icon === "string" && (!/^data:image\/(png|jpeg|gif|webp);base64,[A-Za-z0-9+/=]+$/.test(body.icon) || body.icon.length > 3_000_000)) {
         return NextResponse.json({ error: "icon must be a valid image under 2 MB" }, { status: 400 });
       }
       const project = patchProject(body.id, { icon: body.icon });
+      if (!project) return NextResponse.json({ error: "プロジェクトが見つかりません" }, { status: 404 });
+      return NextResponse.json({ project });
+    }
+    if (body.iconColor === null || ["red", "green", "yellow", "blue"].includes(String(body.iconColor))) {
+      const project = patchProject(body.id, { iconColor: body.iconColor as ProjectIconColor | null });
       if (!project) return NextResponse.json({ error: "プロジェクトが見つかりません" }, { status: 404 });
       return NextResponse.json({ project });
     }

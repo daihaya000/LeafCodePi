@@ -53,6 +53,7 @@ type Props = {
   label?: string;
   buttonVariant?: ComponentProps<typeof Button>["variant"];
   buttonSize?: ComponentProps<typeof Button>["size"];
+  dialogZIndex?: number;
 };
 
 function isValidPathShape(value: string): boolean {
@@ -96,6 +97,7 @@ export function AddProjectButton({
   label = "プロジェクトを追加",
   buttonVariant = "secondary",
   buttonSize = "sm",
+  dialogZIndex = 80,
 }: Props) {
   const [open, setOpen] = useState(false);
   const [path, setPath] = useState("");
@@ -248,7 +250,10 @@ export function AddProjectButton({
     <>
       {trigger}
       {open && (
-        <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/40 p-2 backdrop-blur-[2px] sm:p-4">
+        <div
+          className="fixed inset-0 flex items-center justify-center bg-black/40 p-2 backdrop-blur-[2px] sm:p-4"
+          style={{ zIndex: dialogZIndex }}
+        >
           <div
             role="dialog"
             aria-modal="true"

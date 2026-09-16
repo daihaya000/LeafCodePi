@@ -17,6 +17,12 @@ describe("ProjectIcon", () => {
     expect(container.querySelector("img")?.getAttribute("src")).toBe("/new-icon.png");
   });
 
+  it("uses a saved color instead of the generated fallback", () => {
+    const { container } = render(<ProjectIcon project={{ id: "project-a", name: "Project A", icon: null, iconColor: "green" }} />);
+
+    expect(container.querySelector("span")?.className).toContain("text-success");
+  });
+
   it.each([
     ["", "?"],
     ["   ", "?"],

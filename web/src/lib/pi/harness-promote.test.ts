@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync 
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { deleteTask, getTask, insertTask, listProjects, patchTask } from "@/lib/store";
+import { deleteTask, getTask, insertTask, listProjects, patchTask, upsertProject } from "@/lib/store";
 
 const moveControl = vi.hoisted(() => ({
   gate: null as Promise<void> | null,
@@ -24,7 +24,7 @@ vi.mock("@/lib/workspace-move", async () => {
   };
 });
 
-import { getTaskDetail, promoteTask } from "./harness";
+import { getTaskDetail, migrateProject, promoteTask } from "./harness";
 
 const GLOBAL_KEY = "__leafcodePiHarness";
 const roots: string[] = [];
@@ -225,6 +225,46 @@ describe("promoteTask", () => {
 
     await expect(promoteTask(task.id, join(root, "project"))).rejects.toThrow(
       "実行中のタスクは停止してから昇格してください",
+    );
+    expect(existsSync(source)).toBe(true);
+  });
+
+  it("migrates a project workspace and its stored sessions", async () => {
+    const root = mkdtempSync(join(tmpdir(), "leafcode-pi-migrate-"));
+    roots.push(root);
+    const source = join(root, "source");
+    const destination = join(root, "destination");
+    mkdirSync(source);
+    writeFileSync(join(source, "work.txt"), "work\n", "utf8");
+    process.env.LEAFCODE_PI_DATA_DIR = join(root, "data");
+    const project = upsertProject({ name: "source", rootPath: source });
+    const task = insertTask({ project, title: "saved" });
+    const sessionFile = join(source, "session.json");
+    writeFileSync(sessionFile, "session\n", "utf8");
+    patchTask(task.id, { sessionFile, sessionId: "saved-session" });
+    setHarness({});
+
+    const result = await migrateProject(project.id, destination);
+
+    expect(result.project.rootPath).toBe(destination);
+    expect(getTask(task.id)).toMatchObject({ directory: destination, sessionFile: join(destination, "session.json") });
+    expect(existsSync(source)).toBe(false);
+    expect(existsSync(join(destination, "work.txt"))).toBe(true);
+  });
+
+  it("rejects a project migration while one of its tasks is working", async () => {
+    const root = mkdtempSync(join(tmpdir(), "leafcode-pi-migrate-"));
+    roots.push(root);
+    const source = join(root, "source");
+    mkdirSync(source);
+    process.env.LEAFCODE_PI_DATA_DIR = join(root, "data");
+    const project = upsertProject({ name: "source", rootPath: source });
+    const task = insertTask({ project, title: "working" });
+    patchTask(task.id, { status: "working" });
+    setHarness({});
+
+    await expect(migrateProject(project.id, join(root, "destination"))).rejects.toThrow(
+      "実行中のタスクは停止してからプロジェクトを移動してください",
     );
     expect(existsSync(source)).toBe(true);
   });

@@ -138,7 +138,7 @@ export function upsertProject(input: {
 
 export function patchProject(
   id: string,
-  patch: Partial<Pick<ProjectDto, "name" | "favorite" | "archived" | "lastOpenedAt" | "icon">>,
+  patch: Partial<Pick<ProjectDto, "name" | "rootPath" | "favorite" | "archived" | "lastOpenedAt" | "icon" | "iconColor">>,
 ): ProjectDto | undefined {
   const store = readStore();
   const project = store.projects.find((item) => item.id === id);

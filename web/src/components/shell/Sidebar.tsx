@@ -127,7 +127,8 @@ export function sameProjectList(a: ProjectDto[], b: ProjectDto[]): boolean {
       left.favorite !== right.favorite ||
       left.archived !== right.archived ||
       left.lastOpenedAt !== right.lastOpenedAt ||
-      left.icon !== right.icon
+      left.icon !== right.icon ||
+      left.iconColor !== right.iconColor
     ) {
       return false;
     }
@@ -497,7 +498,7 @@ function ProjectIconPicker({
   onFileChange,
   role,
 }: {
-  project: Pick<ProjectDto, "id" | "name" | "icon">;
+  project: Pick<ProjectDto, "id" | "name" | "icon" | "iconColor">;
   className?: string;
   iconClassName?: string;
   onFileChange: (file: File | null) => void;
@@ -848,6 +849,13 @@ function useIsMdUp(): boolean {
   );
 }
 
+const PROJECT_ICON_COLOR_OPTIONS = [
+  { value: "red", label: "赤", className: "bg-danger" },
+  { value: "green", label: "緑", className: "bg-success" },
+  { value: "yellow", label: "黄", className: "bg-warning" },
+  { value: "blue", label: "青", className: "bg-accent" },
+] as const;
+
 function PromoteTaskDialog({
   task,
   onClose,
@@ -926,6 +934,7 @@ function PromoteTaskDialog({
               onSelect={setPath}
               buttonVariant="secondary"
               buttonSize="sm"
+              dialogZIndex={120}
             />
           </div>
           {error && <p role="alert" className="text-xs text-danger">{error}</p>}
@@ -935,6 +944,124 @@ function PromoteTaskDialog({
           <Button variant="primary" size="sm" onClick={() => void submit()} busy={busy} disabled={!path.trim()}>
             移動して登録
           </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ProjectSettingsDialog({
+  project,
+  onClose,
+  onSetIcon,
+  onClearIcon,
+  onSetIconColor,
+  onMigrate,
+}: {
+  project: ProjectDto;
+  onClose: () => void;
+  onSetIcon: (file: File | null) => void;
+  onClearIcon: () => void;
+  onSetIconColor: (color: ProjectDto["iconColor"]) => void;
+  onMigrate: (destinationPath: string) => Promise<void>;
+}) {
+  const [destinationPath, setDestinationPath] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && !busy) onClose();
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [busy, onClose]);
+
+  async function migrate() {
+    const destination = destinationPath.trim();
+    if (!destination || busy) return;
+    if (!window.confirm(`「${project.name}」を指定先へ移動しますか？`)) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await onMigrate(destination);
+      onClose();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "プロジェクトの移動に失敗しました");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/40 p-3 backdrop-blur-[2px] sm:p-4">
+      <div role="dialog" aria-modal="true" aria-labelledby="project-settings-title" className="w-full max-w-lg rounded-2xl border border-border bg-surface shadow-2xl">
+        <div className="flex items-center justify-between border-b border-border px-4 py-3 sm:px-5">
+          <div className="min-w-0">
+            <h2 id="project-settings-title" className="text-sm font-semibold">プロジェクト設定</h2>
+            <p className="mt-1 truncate text-xs text-muted" title={project.name}>{project.name}</p>
+          </div>
+          <button type="button" aria-label="閉じる" onClick={onClose} disabled={busy} className="rounded-lg p-1.5 text-muted hover:bg-surface-2 hover:text-text disabled:opacity-40">
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+        <div className="space-y-5 p-4 sm:p-5">
+          <section>
+            <h3 className="text-xs font-semibold text-text">アイコン</h3>
+            <div className="mt-2 flex items-center gap-3">
+              <ProjectIconPicker
+                project={project}
+                className="h-11 w-11 hover:bg-surface-2"
+                iconClassName="flex h-8 w-8 items-center justify-center rounded-lg text-sm font-medium"
+                onFileChange={onSetIcon}
+              />
+              <span className="flex-1 text-xs text-muted">画像を変更するか、色を選択してください。</span>
+              <Button variant="ghost" size="sm" disabled={busy} onClick={onClearIcon}>画像を削除</Button>
+            </div>
+            <div className="mt-3 flex gap-2" role="group" aria-label="アイコンの色">
+              {PROJECT_ICON_COLOR_OPTIONS.map((option) => (
+                <button
+                  key={option.value}
+                  type="button"
+                  aria-label={`${project.name}のアイコン色を${option.label}に変更`}
+                  title={option.label}
+                  aria-pressed={project.iconColor === option.value}
+                  disabled={busy}
+                  onClick={() => onSetIconColor(option.value)}
+                  className={cx(
+                    "h-7 w-7 rounded-full border-2 border-surface shadow-sm ring-1 ring-border transition-transform hover:scale-110 disabled:cursor-not-allowed disabled:opacity-40",
+                    option.className,
+                    project.iconColor === option.value && "ring-2 ring-primary ring-offset-2 ring-offset-surface",
+                  )}
+                />
+              ))}
+            </div>
+          </section>
+          <section className="border-t border-border pt-4">
+            <h3 className="text-xs font-semibold text-text">プロジェクトを移動</h3>
+            <p className="mt-1 text-xs leading-5 text-muted">作業フォルダーと保存済みセッションを移動します。移動先は空のフォルダーにしてください。実行中のタスクがある場合は移動できません。</p>
+            <div className="mt-3 flex gap-2">
+              <input
+                value={destinationPath}
+                onChange={(event) => setDestinationPath(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    event.preventDefault();
+                    void migrate();
+                  }
+                }}
+                aria-label="移動先フォルダーのパス"
+                placeholder="C:\\path\\to\\project"
+                className="h-10 min-w-0 flex-1 rounded-lg border border-border bg-bg px-3 font-mono text-xs outline-none placeholder:text-faint focus:border-accent"
+              />
+              <AddProjectButton label="参照" onSelect={setDestinationPath} buttonVariant="secondary" buttonSize="sm" dialogZIndex={120} />
+            </div>
+          </section>
+          {error && <p role="alert" className="text-xs text-danger">{error}</p>}
+        </div>
+        <div className="flex justify-end gap-2 border-t border-border px-4 py-3 sm:px-5">
+          <Button variant="ghost" size="sm" onClick={onClose} disabled={busy}>キャンセル</Button>
+          <Button variant="primary" size="sm" onClick={() => void migrate()} busy={busy} disabled={!destinationPath.trim()}>移動</Button>
         </div>
       </div>
     </div>
@@ -1008,6 +1135,7 @@ const SidebarView = memo(function SidebarView({
   const [refreshError, setRefreshError] = useState<string | null>(null);
   const [projectTaskMenu, setProjectTaskMenu] = useState<ProjectTaskMenuState | null>(null);
   const [promotionTask, setPromotionTask] = useState<TaskSummary | null>(null);
+  const [projectSettingsProject, setProjectSettingsProject] = useState<ProjectDto | null>(null);
   const [railWidget, setRailWidget] = useState<RailWidget | null>(null);
   const [railWidgetPos, setRailWidgetPos] = useState({ bottom: 0, left: 0 });
   const taskDragActiveRef = useRef(false);
@@ -1622,6 +1750,40 @@ const SidebarView = memo(function SidebarView({
     );
   }
 
+  async function clearProjectIcon(project: ProjectDto) {
+    await runAction(`icon:${project.id}`, () =>
+      sendJson("/api/projects", { id: project.id, icon: null }, "PATCH"),
+    );
+  }
+
+  async function setProjectIconColor(project: ProjectDto, iconColor: ProjectDto["iconColor"]) {
+    await runAction(`icon-color:${project.id}`, () =>
+      sendJson("/api/projects", { id: project.id, iconColor }, "PATCH"),
+    );
+  }
+
+  async function migrateProjectAction(project: ProjectDto, destinationPath: string) {
+    if (actionBusyKey) throw new Error("別の操作が完了するまでお待ちください");
+    setActionError(null);
+    setActionBusyKey(`migrate-project:${project.id}`);
+    try {
+      const result = await sendJson<{ warning?: string }>(
+        "/api/projects",
+        { id: project.id, destinationPath },
+        "PATCH",
+      );
+      if (result.warning) window.alert(result.warning);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "プロジェクトの移動に失敗しました";
+      setActionError(message);
+      throw err;
+    } finally {
+      setActionBusyKey(null);
+      void refresh();
+      notifyTasksChanged();
+    }
+  }
+
   async function setProjectIcon(project: ProjectDto, file: File | null) {
     if (!file) return;
     if (!file.type.match(/^image\/(png|jpeg|gif|webp)$/)) {
@@ -1946,11 +2108,12 @@ const SidebarView = memo(function SidebarView({
                     >
                       <ChevronRight className={cx("h-3.5 w-3.5 transition", open && "rotate-90")} />
                     </button>
-                    <ProjectIconPicker
+                    <ProjectIcon
                       project={project}
-                      className="h-11 w-11 hover:bg-surface-2 hover:text-text md:h-8 md:w-8"
-                      iconClassName="flex h-5 w-5 items-center justify-center rounded-md text-[10px] font-medium"
-                      onFileChange={(file) => void setProjectIcon(project, file)}
+                      className={cx(
+                        "flex h-5 w-5 shrink-0 items-center justify-center rounded-md text-[10px] font-medium",
+                        !project.icon && "border",
+                      )}
                     />
                     <button
                       type="button"
@@ -1972,6 +2135,16 @@ const SidebarView = memo(function SidebarView({
                       className="inline-flex h-11 w-11 items-center justify-center rounded-md text-muted hover:text-text md:h-8 md:w-8"
                     >
                       <Plus className="h-3.5 w-3.5" />
+                    </button>
+                    <button
+                      type="button"
+                      aria-label={`${project.name}の設定`}
+                      title="プロジェクト設定"
+                      disabled={actionBusyKey !== null}
+                      onClick={() => setProjectSettingsProject(project)}
+                      className="inline-flex h-11 w-11 items-center justify-center rounded-md text-muted hover:bg-surface-2 hover:text-text disabled:cursor-not-allowed disabled:opacity-40 md:h-8 md:w-8"
+                    >
+                      <Settings className="h-3.5 w-3.5" />
                     </button>
                     <button
                       type="button"
@@ -2402,16 +2575,30 @@ const SidebarView = memo(function SidebarView({
           }}
         >
           <div className="flex items-center gap-1 px-2 py-1">
-            <ProjectIconPicker
+            <ProjectIcon
               project={projectTaskMenuProject}
-              role="menuitem"
-              className="h-8 w-8 hover:bg-surface-2 hover:text-text"
-              iconClassName="flex h-7 w-7 items-center justify-center text-xs font-medium"
-              onFileChange={(file) => void setProjectIcon(projectTaskMenuProject, file)}
+              className={cx(
+                "flex h-7 w-7 items-center justify-center rounded-md text-xs font-medium",
+                !projectTaskMenuProject.icon && "border",
+              )}
             />
             <p className="min-w-0 flex-1 truncate text-sm font-medium text-muted">
               {projectTaskMenuProject.name}
             </p>
+            <button
+              type="button"
+              role="menuitem"
+              aria-label={`${projectTaskMenuProject.name}の設定`}
+              title="プロジェクト設定"
+              onClick={() => {
+                cancelProjectTaskMenuHide();
+                setProjectTaskMenu(null);
+                setProjectSettingsProject(projectTaskMenuProject);
+              }}
+              className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-muted hover:bg-surface-2 hover:text-text"
+            >
+              <Settings className="h-4 w-4" />
+            </button>
             <button
               type="button"
               role="menuitem"
@@ -2545,6 +2732,16 @@ const SidebarView = memo(function SidebarView({
             void refresh();
             notifyTasksChanged();
           }}
+        />
+      )}
+      {projectSettingsProject && (
+        <ProjectSettingsDialog
+          project={projectSettingsProject}
+          onClose={() => setProjectSettingsProject(null)}
+          onSetIcon={(file) => void setProjectIcon(projectSettingsProject, file)}
+          onClearIcon={() => void clearProjectIcon(projectSettingsProject)}
+          onSetIconColor={(color) => void setProjectIconColor(projectSettingsProject, color)}
+          onMigrate={(destinationPath) => migrateProjectAction(projectSettingsProject, destinationPath)}
         />
       )}
     </>

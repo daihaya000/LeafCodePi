@@ -80,6 +80,10 @@ describe("sameTaskList", () => {
     expect(sameTaskList(a, b)).toBe(false);
   });
 
+  it("detects a project icon color change", () => {
+    expect(sameProjectList([project("p1", "プロジェクト")], [{ ...project("p1", "プロジェクト"), iconColor: "green" }])).toBe(false);
+  });
+
   it("detects a Bot attribution change", () => {
     expect(
       sameTaskList([task("t1", "working", "タスクA")], [{ ...task("t1", "working", "タスクA"), botId: "bot-1" }]),

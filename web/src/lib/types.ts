@@ -246,6 +246,8 @@ export type BotIntercomInboxDto = {
   peerPresence?: BotIntercomPeerPresenceDto | null;
 };
 
+export type ProjectIconColor = "red" | "green" | "yellow" | "blue";
+
 export type ProjectDto = {
   id: string;
   name: string;
@@ -255,6 +257,7 @@ export type ProjectDto = {
   createdAt: string;
   lastOpenedAt: string | null;
   icon?: string | null;
+  iconColor?: ProjectIconColor | null;
 };
 
 export type TodoProgressDto = {

@@ -2,7 +2,7 @@ import { EventEmitter } from "node:events";
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { rm } from "node:fs/promises";
 import { homedir } from "node:os";
-import { basename, dirname, join, resolve } from "node:path";
+import { basename, dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   dataDir,
@@ -460,10 +460,16 @@ const ensureLiveInflight = new Map<string, Promise<LiveRuntime>>();
 /** Bumped by disposeLive so inflight ensureLive abandons a disposed runtime. */
 const ensureLiveEpoch = new Map<string, number>();
 const promoteInflight = new Map<string, Promise<PromoteTaskResult>>();
+const projectMigrationInflight = new Map<string, Promise<ProjectMigrationResult>>();
 const promoteDestinationInflight = new Map<string, Promise<void>>();
 
 type PromoteTaskResult = {
   task: TaskSummary;
+  project: ProjectDto;
+  warning?: string;
+};
+
+type ProjectMigrationResult = {
   project: ProjectDto;
   warning?: string;
 };
@@ -6017,6 +6023,103 @@ export async function promoteTask(
     if (promoteInflight.get(taskId) === operation) promoteInflight.delete(taskId);
   });
   promoteInflight.set(taskId, operation);
+  return operation;
+}
+
+function movedProjectPath(value: string | null, source: string, destination: string): string | null {
+  if (!value || !sameOrDescendantPath(value, source)) return value;
+  return resolve(destination, relative(source, value));
+}
+
+async function migrateProjectOnce(
+  projectId: string,
+  destinationPath: string,
+): Promise<ProjectMigrationResult> {
+  const project = getProject(projectId);
+  if (!project) throw Object.assign(new Error("プロジェクトが見つかりません"), { status: 404 });
+  const sourceValidation = validateProjectPath(project.rootPath);
+  if (!sourceValidation.ok) throw Object.assign(new Error(`移動元${sourceValidation.error}`), { status: 400 });
+  const source = sourceValidation.path;
+  const rawDestination = destinationPath.trim();
+  if (!isAbsolutePath(rawDestination)) {
+    throw Object.assign(new Error("移動先には絶対パスを指定してください"), { status: 400 });
+  }
+  const destination = resolve(rawDestination);
+  if (sameOrDescendantPath(destination, source) || sameOrDescendantPath(source, destination)) {
+    throw Object.assign(new Error("移動元と移動先を入れ子にはできません"), { status: 400 });
+  }
+  if (listProjects(true).some((candidate) => candidate.id !== projectId && samePath(candidate.rootPath, destination))) {
+    throw Object.assign(new Error("移動先は既にプロジェクトとして登録されています"), { status: 409 });
+  }
+
+  return withPromotionDestinationLock(destination, async () => {
+    const tasks = listTasks(true).filter((task) => task.projectId === projectId);
+    if (tasks.some((task) => isTaskRuntimeBusyForDestructiveEdit(task.id))) {
+      throw Object.assign(new Error("実行中のタスクは停止してからプロジェクトを移動してください"), { status: 409 });
+    }
+    for (const task of tasks) disposeLive(task.id);
+
+    const prepared = await prepareWorkspaceMove(source, destination);
+    let committed = false;
+    const before = tasks.map((task) => ({
+      id: task.id,
+      directory: task.directory,
+      sessionFile: task.sessionFile,
+    }));
+    try {
+      const updatedProject = patchProject(projectId, { rootPath: destination });
+      if (!updatedProject) throw Object.assign(new Error("プロジェクトが見つかりません"), { status: 404 });
+      for (const task of tasks) {
+        const updated = patchTask(task.id, {
+          directory: destination,
+          sessionFile: movedProjectPath(task.sessionFile, source, destination),
+        });
+        if (!updated) throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });
+      }
+      committed = true;
+
+      const warnings: string[] = [];
+      try {
+        await prepared.finalize();
+      } catch {
+        warnings.push("元のプロジェクトフォルダーを削除できませんでした");
+      }
+      for (const task of tasks) {
+        if (state().events.listenerCount(task.id) === 0) continue;
+        try {
+          const refreshed = await ensureLive(task.id);
+          emitTaskSnapshot(refreshed, "project_migrated");
+        } catch {
+          warnings.push(`「${task.title}」のセッションは次回表示時に再接続します`);
+        }
+      }
+      return {
+        project: updatedProject,
+        ...(warnings.length > 0 ? { warning: warnings.join("。") } : {}),
+      };
+    } catch (error) {
+      if (!committed) {
+        patchProject(projectId, { rootPath: source });
+        for (const task of before) {
+          patchTask(task.id, { directory: task.directory, sessionFile: task.sessionFile });
+        }
+        await prepared.rollback().catch(() => undefined);
+      }
+      throw error;
+    }
+  });
+}
+
+export async function migrateProject(
+  projectId: string,
+  destinationPath: string,
+): Promise<ProjectMigrationResult> {
+  const existing = projectMigrationInflight.get(projectId);
+  if (existing) return existing;
+  const operation = migrateProjectOnce(projectId, destinationPath).finally(() => {
+    if (projectMigrationInflight.get(projectId) === operation) projectMigrationInflight.delete(projectId);
+  });
+  projectMigrationInflight.set(projectId, operation);
   return operation;
 }
 
