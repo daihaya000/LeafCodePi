@@ -498,6 +498,35 @@ describe("chooseAutoModel", () => {
     expect(decision).toMatchObject({ providerID: "low", candidateIndex: 1 });
   });
 
+  it("ignores stale usage when balancing manual candidates", () => {
+    const decision = chooseAutoModel({
+      models: [
+        model("claude-haiku-4-5", { providerID: "stale", value: "stale::haiku" }),
+        model("claude-haiku-4-5", { providerID: "fresh", value: "fresh::haiku" }),
+      ],
+      tier: "light",
+      hasImages: false,
+      usage: {
+        stale: { usedPercent: 1, limited: false, stale: true },
+        fresh: { usedPercent: 10, limited: false },
+      },
+      config: {
+        version: 2,
+        modes: {
+          cost: {
+            light: {
+              candidates: [
+                { kind: "model", providerID: "stale", modelID: "claude-haiku-4-5" },
+                { kind: "model", providerID: "fresh", modelID: "claude-haiku-4-5" },
+              ],
+            },
+          },
+        },
+      },
+    });
+    expect(decision).toMatchObject({ providerID: "fresh", candidateIndex: 1 });
+  });
+
   it("skips unavailable manual candidates", () => {
     const decision = chooseAutoModel({
       models: [model("claude-sonnet-5", { thinkingLevels: ["high"] })],

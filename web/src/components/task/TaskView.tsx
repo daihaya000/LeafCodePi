@@ -2467,7 +2467,7 @@ export const TaskView = memo(function TaskView({
     if (!writeAutoTaskRecord(taskId, nextRecord)) return;
     setAutoRecord(nextRecord);
     setAutoRetrying(true);
-    const retryNotice = "低コストモデルでエラーが発生したため上位候補で再試行しました";
+    const retryNotice = "Auto候補でエラーが発生したため別の候補で再試行しました";
     const retryThinkingLevel = autoVariantToThinkingLevel(escalation.variant);
     void sendJson(`/api/tasks/${taskId}/prompt`, {
       prompt: autoRecord.prompt,
