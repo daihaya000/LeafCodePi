@@ -321,6 +321,51 @@ describe("Composer", () => {
     expect(document.querySelector('[aria-hidden="true"] .text-primary')).toBeTruthy();
   });
 
+  it("does not consume Ctrl+Enter while a reference suggestion is open", () => {
+    const onKeyDown = vi.fn();
+    function ReferenceComposer() {
+      const [value, setValue] = useState("");
+      const textareaRef = useRef<HTMLTextAreaElement>(null);
+      const inputRef = useRef<HTMLInputElement>(null);
+      return (
+        <Composer
+          className=""
+          attachments={[]}
+          onRemoveAttachment={() => {}}
+          references={{ skills: [{ name: "review" }] }}
+          textarea={{
+            ref: textareaRef,
+            value,
+            rows: 1,
+            ariaLabel: "メッセージ",
+            placeholder: "入力",
+            className: "",
+            onChange: (event) => setValue(event.target.value),
+            onValueChange: setValue,
+            onKeyDown,
+          }}
+          attachmentControl={{
+            inputRef,
+            buttonTitle: "画像を添付",
+            onFilesSelected: () => {},
+            onTrigger: () => {},
+          }}
+          action={null}
+        />
+      );
+    }
+
+    render(<ReferenceComposer />);
+    const textarea = screen.getByRole("textbox") as HTMLTextAreaElement;
+    textarea.focus();
+    fireEvent.change(textarea, { target: { value: "/skill:r", selectionStart: 8 } });
+    expect(screen.getByRole("listbox", { name: "スキル候補" })).toBeTruthy();
+    fireEvent.keyDown(textarea, { key: "Enter", ctrlKey: true });
+    expect(onKeyDown).toHaveBeenCalledOnce();
+    expect(onKeyDown.mock.calls[0]?.[0]).toMatchObject({ key: "Enter", ctrlKey: true });
+    expect(textarea.value).toBe("/skill:r");
+  });
+
   it("does not confirm a suggestion while IME is composing", () => {
     function ReferenceComposer() {
       const [value, setValue] = useState("/skill:r");

@@ -556,7 +556,7 @@ export function Composer({
                 setActiveSuggestion((index) => (index - 1 + suggestions.length) % suggestions.length);
                 return;
               }
-              if (event.key === "Enter" || event.key === "Tab") {
+              if ((event.key === "Enter" && !event.ctrlKey && !event.metaKey) || event.key === "Tab") {
                 event.preventDefault();
                 const selected = suggestions[activeSuggestion];
                 if (selected) chooseSuggestion(selected);
