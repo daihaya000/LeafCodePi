@@ -1111,7 +1111,7 @@ export function CodexBarWidget({
           <ul
             className={cx(
               twoColumn
-                ? "grid min-w-0 grid-cols-[repeat(auto-fit,minmax(min(100%,13rem),1fr))] items-stretch gap-2"
+                ? "grid min-w-0 grid-cols-2 items-stretch gap-2"
                 : "min-w-0 space-y-2.5",
             )}
           >

@@ -177,7 +177,7 @@ describe("CodexBarWidget", () => {
     expect(screen.getAllByRole("list")).toHaveLength(1);
   });
 
-  it("keeps the saved expanded view compact with a responsive provider grid and inline update status", async () => {
+  it("keeps the saved expanded view compact with two columns and inline update status", async () => {
     localStorage.setItem("webui:codexbar:collapsed", "0");
 
     render(<CodexBarWidget />);
@@ -185,9 +185,7 @@ describe("CodexBarWidget", () => {
     await waitFor(() => expect(screen.getByText("CodexBar 利用状況")).toBeTruthy());
 
     const providerGrid = screen.getByRole("list");
-    expect(providerGrid.className).toContain(
-      "grid-cols-[repeat(auto-fit,minmax(min(100%,13rem),1fr))]",
-    );
+    expect(providerGrid.className).toContain("grid-cols-2");
     expect(providerGrid.className).toContain("min-w-0");
     expect(providerGrid.className).toContain("items-stretch");
     const update = screen.getByText(/^更新 /);
