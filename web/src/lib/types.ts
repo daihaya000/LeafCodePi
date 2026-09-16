@@ -246,7 +246,22 @@ export type BotIntercomInboxDto = {
   peerPresence?: BotIntercomPeerPresenceDto | null;
 };
 
-export type ProjectIconColor = "red" | "green" | "yellow" | "blue";
+export const PROJECT_ICON_COLORS = [
+  "red",
+  "orange",
+  "yellow",
+  "lime",
+  "green",
+  "emerald",
+  "teal",
+  "cyan",
+  "blue",
+  "indigo",
+  "purple",
+  "pink",
+] as const;
+
+export type ProjectIconColor = (typeof PROJECT_ICON_COLORS)[number];
 
 export type ProjectDto = {
   id: string;

@@ -23,6 +23,12 @@ describe("ProjectIcon", () => {
     expect(container.querySelector("span")?.className).toContain("text-success");
   });
 
+  it("supports an expanded saved color palette", () => {
+    const { container } = render(<ProjectIcon project={{ id: "project-a", name: "Project A", icon: null, iconColor: "purple" }} />);
+
+    expect(container.querySelector("span")?.className).toContain("text-purple-700");
+  });
+
   it.each([
     ["", "?"],
     ["   ", "?"],

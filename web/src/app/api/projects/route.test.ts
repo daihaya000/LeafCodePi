@@ -48,22 +48,22 @@ describe("PATCH /api/projects", () => {
     expect(mocks.migrateProject).not.toHaveBeenCalled();
   });
 
-  it("persists one of the supported project icon colors", async () => {
-    mocks.patchProject.mockReturnValue({ id: "project-1", iconColor: "green" });
+  it("persists one of the expanded project icon colors", async () => {
+    mocks.patchProject.mockReturnValue({ id: "project-1", iconColor: "purple" });
 
     const response = await PATCH(new NextRequest("http://localhost/api/projects", {
       method: "PATCH",
-      body: JSON.stringify({ id: "project-1", iconColor: "green" }),
+      body: JSON.stringify({ id: "project-1", iconColor: "purple" }),
     }));
 
     expect(response.status).toBe(200);
-    expect(mocks.patchProject).toHaveBeenCalledWith("project-1", { iconColor: "green" });
+    expect(mocks.patchProject).toHaveBeenCalledWith("project-1", { iconColor: "purple" });
   });
 
   it("rejects unsupported project icon colors", async () => {
     const response = await PATCH(new NextRequest("http://localhost/api/projects", {
       method: "PATCH",
-      body: JSON.stringify({ id: "project-1", iconColor: "purple" }),
+      body: JSON.stringify({ id: "project-1", iconColor: "magenta" }),
     }));
 
     expect(response.status).toBe(400);

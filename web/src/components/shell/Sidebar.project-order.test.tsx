@@ -403,6 +403,7 @@ describe("Sidebar project ordering", () => {
     render(<Sidebar mobileOpen={false} onClose={vi.fn()} />);
     await openProjectSettings();
 
+    expect(screen.getAllByRole("button", { name: /^Project Aのアイコン色を/ })).toHaveLength(12);
     fireEvent.click(screen.getByRole("button", { name: "Project Aのアイコン色を緑に変更" }));
     await waitFor(() => {
       expect(mocks.sendJson).toHaveBeenCalledWith(

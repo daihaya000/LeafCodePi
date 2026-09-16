@@ -42,7 +42,7 @@ import {
 import { getLastReadAt, hasUnread } from "@/lib/bot-unread";
 import { HOME_TAB_ID, paneTabIdsForWorkingTasks, SETTINGS_TAB_ID, type TaskPanesAction } from "@/lib/task-panes";
 import { PINNED_TASKS_API_PATH, parsePinnedTaskIds, serializePinnedTaskIds } from "@/lib/sidebar-settings";
-import { NO_PROJECT_NAME, type BotDto, type HealthDto, type RoomDto, type ProjectDto, type TaskSummary } from "@/lib/types";
+import { NO_PROJECT_NAME, type BotDto, type HealthDto, type RoomDto, type ProjectDto, type ProjectIconColor, type TaskSummary } from "@/lib/types";
 
 type ProjectTaskMenuState = {
   projectId: string;
@@ -851,10 +851,18 @@ function useIsMdUp(): boolean {
 
 const PROJECT_ICON_COLOR_OPTIONS = [
   { value: "red", label: "赤", className: "bg-danger" },
-  { value: "green", label: "緑", className: "bg-success" },
+  { value: "orange", label: "橙", className: "bg-orange-500" },
   { value: "yellow", label: "黄", className: "bg-warning" },
+  { value: "lime", label: "黄緑", className: "bg-lime-500" },
+  { value: "green", label: "緑", className: "bg-success" },
+  { value: "emerald", label: "翠", className: "bg-emerald-500" },
+  { value: "teal", label: "青緑", className: "bg-teal-500" },
+  { value: "cyan", label: "水色", className: "bg-cyan-500" },
   { value: "blue", label: "青", className: "bg-accent" },
-] as const;
+  { value: "indigo", label: "藍", className: "bg-indigo-500" },
+  { value: "purple", label: "紫", className: "bg-purple-500" },
+  { value: "pink", label: "桃", className: "bg-pink-500" },
+] as const satisfies readonly { value: ProjectIconColor; label: string; className: string }[];
 
 function PromoteTaskDialog({
   task,
@@ -1022,7 +1030,7 @@ function ProjectSettingsDialog({
                 <Button variant="ghost" size="sm" disabled={busy} onClick={onClearIcon}>画像を削除</Button>
               )}
             </div>
-            <div className="mt-3 flex gap-2" role="group" aria-label="アイコンの色">
+            <div className="mt-3 flex flex-wrap gap-2" role="group" aria-label="アイコンの色">
               {PROJECT_ICON_COLOR_OPTIONS.map((option) => (
                 <button
                   key={option.value}

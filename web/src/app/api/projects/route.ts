@@ -9,7 +9,7 @@ import {
   patchProject,
   restoreProject,
 } from "@/lib/pi/harness";
-import type { ProjectIconColor } from "@/lib/types";
+import { PROJECT_ICON_COLORS, type ProjectIconColor } from "@/lib/types";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -65,7 +65,10 @@ export async function PATCH(req: NextRequest) {
       if (!project) return NextResponse.json({ error: "プロジェクトが見つかりません" }, { status: 404 });
       return NextResponse.json({ project });
     }
-    if (body.iconColor === null || ["red", "green", "yellow", "blue"].includes(String(body.iconColor))) {
+    if (
+      body.iconColor === null ||
+      (typeof body.iconColor === "string" && PROJECT_ICON_COLORS.includes(body.iconColor as ProjectIconColor))
+    ) {
       const project = patchProject(body.id, { iconColor: body.iconColor as ProjectIconColor | null });
       if (!project) return NextResponse.json({ error: "プロジェクトが見つかりません" }, { status: 404 });
       return NextResponse.json({ project });
