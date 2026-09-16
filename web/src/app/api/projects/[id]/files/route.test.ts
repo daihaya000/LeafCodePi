@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
+import type { WorkspaceFileDto, WorkspaceListingDto } from "@/lib/types";
 
 const mocks = vi.hoisted(() => ({ getProject: vi.fn(), getTask: vi.fn() }));
 vi.mock("@/lib/store", () => mocks);
@@ -50,26 +51,21 @@ describe("GET /api/projects/[id]/files", () => {
     const listing = await GET(request("?path=src"), params("p1"));
     expect(listing.status).toBe(200);
     expect(listing.headers.get("cache-control")).toBe("no-store");
-    expect(await listing.json()).toEqual({
-      ok: true,
-      listing: {
-        path: "src",
-        parent: "",
-        truncated: false,
-        entries: [{ name: "a.ts", path: "src/a.ts", kind: "file", size: 13 }],
-      },
+    // クライアントは同じ形をそのまま読む（ラッパーを付けない）。
+    expect((await listing.json()) as WorkspaceListingDto).toEqual({
+      path: "src",
+      parent: "",
+      truncated: false,
+      entries: [{ name: "a.ts", path: "src/a.ts", kind: "file", size: 13 }],
     });
 
     const file = await GET(request("?path=src%2Fa.ts&read=1"), params("p1"));
     expect(file.status).toBe(200);
-    expect(await file.json()).toEqual({
-      ok: true,
-      file: {
-        name: "src/a.ts",
-        mimeType: "text/plain",
-        size: 13,
-        data: Buffer.from("const a = 1;\n", "utf8").toString("base64"),
-      },
+    expect((await file.json()) as WorkspaceFileDto).toEqual({
+      name: "src/a.ts",
+      mimeType: "text/plain",
+      size: 13,
+      data: Buffer.from("const a = 1;\n", "utf8").toString("base64"),
     });
   });
 

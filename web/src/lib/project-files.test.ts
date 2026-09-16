@@ -191,8 +191,7 @@ describe("readWorkspaceFile", () => {
     expect(result.file.size).toBe(Buffer.byteLength("日本語のメモ\n", "utf8"));
   });
 
-  it("rejects binary, empty, oversized, excluded, and unsafe paths", () => {
-    writeFileSync(join(root, "binary.txt"), Buffer.from([0xff, 0xfe]));
+  it("rejects binary, empty, oversized, excluded, and unsafe paths", () => {    writeFileSync(join(root, "binary.txt"), Buffer.from([0xff, 0xfe]));
     writeFileSync(join(root, "empty.txt"), "");
     writeFileSync(join(root, "big.txt"), "a".repeat(MAX_PROMPT_FILE_TOTAL_BYTES + 1));
     mkdirSync(join(root, "node_modules"));
@@ -208,6 +207,14 @@ describe("readWorkspaceFile", () => {
       status: 400,
     });
     expect(readWorkspaceFile(root, "missing.txt")).toMatchObject({ ok: false, status: 404 });
+  });
+
+  it("allows a regular file whose name matches an excluded folder", () => {
+    writeFileSync(join(root, "out"), "kept\n");
+
+    const result = readWorkspaceFile(root, "out");
+    expect(result.ok).toBe(true);
+    expect(result.ok && result.file.name).toBe("out");
   });
 });
 

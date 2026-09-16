@@ -2,6 +2,7 @@ import { lstatSync, readFileSync, readdirSync, realpathSync, statSync, type Stat
 import { isAbsolute, relative, resolve, sep } from "node:path";
 import { getProject, getTask } from "@/lib/store";
 import { MAX_PROMPT_FILE_NAME_CHARS, MAX_PROMPT_FILE_TOTAL_BYTES } from "@/lib/prompt-images";
+import type { WorkspaceEntryDto, WorkspaceFileDto, WorkspaceListingDto } from "@/lib/types";
 
 /**
  * 添付できるプロジェクト／作業フォルダー内ファイルの境界。
@@ -19,29 +20,6 @@ const EXCLUDED_DIR_NAMES = new Set([".git", "node_modules", ".next", "dist", "ou
 
 /** 1 フォルダーがこの件数を超えたら打ち切り、`truncated` で通知する。 */
 export const MAX_WORKSPACE_ENTRIES = 1000;
-
-export type WorkspaceEntry = {
-  name: string;
-  /** ルートからの `/` 区切り相対パス。 */
-  path: string;
-  kind: "dir" | "file";
-  size?: number;
-};
-
-export type WorkspaceListing = {
-  path: string;
-  parent: string | null;
-  entries: WorkspaceEntry[];
-  truncated: boolean;
-};
-
-/** 読み込み結果。`name` は添付名として使える相対パス（長すぎる場合は末尾のみ残す）。 */
-export type WorkspaceFile = {
-  name: string;
-  mimeType: string;
-  size: number;
-  data: string;
-};
 
 export type WorkspaceFailure = { ok: false; error: string; status: number };
 export type WorkspaceRoot = { ok: true; root: string } | WorkspaceFailure;
@@ -89,10 +67,14 @@ function isUnsafePathInput(value: string): boolean {
   return value.split(/[\\/]/).some((segment) => segment === "..");
 }
 
-function hasExcludedSegment(relPath: string): boolean {
-  return relPath
-    .split(/[\\/]/)
-    .some((segment) => EXCLUDED_DIR_NAMES.has(segment.toLowerCase()));
+/**
+ * 除外ディレクトリ名の判定。既定ではファイル名（末尾セグメント）を対象外にし、
+ * ディレクトリを指定する一覧では `includeLast: true` で末尾も判定する。
+ */
+function hasExcludedDirSegment(relPath: string, options: { includeLast?: boolean } = {}): boolean {
+  const segments = relPath.split(/[\\/]/).filter(Boolean);
+  const checked = options.includeLast ? segments : segments.slice(0, -1);
+  return checked.some((segment) => EXCLUDED_DIR_NAMES.has(segment.toLowerCase()));
 }
 
 /** ルートからの相対パスを `/` 区切りへ正規化する（先頭・末尾の区切りは落とす）。 */
@@ -129,7 +111,7 @@ function resolveInRoot(
   return { realPath, stats };
 }
 
-function compareEntries(left: WorkspaceEntry, right: WorkspaceEntry): number {
+function compareEntries(left: WorkspaceEntryDto, right: WorkspaceEntryDto): number {
   if (left.kind !== right.kind) return left.kind === "dir" ? -1 : 1;
   return left.name.localeCompare(right.name, "ja");
 }
@@ -151,12 +133,12 @@ export function workspaceAttachmentName(relPath: string): string {
 export function listWorkspaceEntries(
   root: string,
   relDir: string,
-): { ok: true; listing: WorkspaceListing } | WorkspaceFailure {
+): { ok: true; listing: WorkspaceListingDto } | WorkspaceFailure {
   if (isUnsafePathInput(relDir)) {
     return { ok: false, error: "パスが不正です", status: 400 };
   }
   const relativeDir = normalizeRelative(relDir);
-  if (relativeDir && hasExcludedSegment(relativeDir)) {
+  if (relativeDir && hasExcludedDirSegment(relativeDir, { includeLast: true })) {
     return { ok: false, error: "このフォルダーは対象外です", status: 403 };
   }
   const resolved = resolveInRoot(root, relativeDir);
@@ -169,7 +151,7 @@ export function listWorkspaceEntries(
   } catch {
     return { ok: false, error: "フォルダーを読み込めません", status: 500 };
   }
-  const entries: WorkspaceEntry[] = [];
+  const entries: WorkspaceEntryDto[] = [];
   for (const dirent of dirents) {
     // 一覧に出しても開けないシンボリックリンクは表示しない。
     if (dirent.isSymbolicLink()) continue;
@@ -204,12 +186,12 @@ export function listWorkspaceEntries(
 export function readWorkspaceFile(
   root: string,
   relPath: string,
-): { ok: true; file: WorkspaceFile } | WorkspaceFailure {
+): { ok: true; file: WorkspaceFileDto } | WorkspaceFailure {
   if (!relPath || isUnsafePathInput(relPath)) {
     return { ok: false, error: "パスが不正です", status: 400 };
   }
   const relativePath = normalizeRelative(relPath);
-  if (hasExcludedSegment(relativePath)) {
+  if (hasExcludedDirSegment(relativePath)) {
     return { ok: false, error: "このファイルは対象外です", status: 403 };
   }
   const resolved = resolveInRoot(root, relativePath);

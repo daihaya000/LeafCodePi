@@ -6,29 +6,37 @@ const mocks = vi.hoisted(() => ({ getJson: vi.fn() }));
 vi.mock("@/lib/client", () => mocks);
 
 import { ProjectFilePicker } from "./ProjectFilePicker";
+import type { WorkspaceFileDto, WorkspaceListingDto } from "@/lib/types";
 
-const rootListing = {
+const rootListing: WorkspaceListingDto = {
   path: "",
   parent: null,
   entries: [
-    { name: "src", path: "src", kind: "dir" as const },
-    { name: "a.ts", path: "a.ts", kind: "file" as const, size: 5 },
+    { name: "src", path: "src", kind: "dir" },
+    { name: "a.ts", path: "a.ts", kind: "file", size: 5 },
   ],
   truncated: false,
 };
 
-const srcListing = {
+const srcListing: WorkspaceListingDto = {
   path: "src",
   parent: "",
-  entries: [{ name: "b.ts", path: "src/b.ts", kind: "file" as const, size: 5 }],
+  entries: [{ name: "b.ts", path: "src/b.ts", kind: "file", size: 5 }],
   truncated: false,
+};
+
+const bTsFile: WorkspaceFileDto = {
+  name: "src/b.ts",
+  mimeType: "text/plain",
+  size: 5,
+  data: "aGVsbG8=",
 };
 
 beforeEach(() => {
   vi.clearAllMocks();
   mocks.getJson.mockImplementation((_path: string, params?: Record<string, string>) => {
     if (params?.read === "1") {
-      return Promise.resolve({ name: "src/b.ts", mimeType: "text/plain", size: 5, data: "aGVsbG8=" });
+      return Promise.resolve(bTsFile);
     }
     return Promise.resolve(params?.path === "src" ? srcListing : rootListing);
   });
@@ -114,6 +122,19 @@ describe("ProjectFilePicker", () => {
 
     fireEvent.keyDown(document, { key: "Escape" });
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  });
+
+  it("moves focus into the dialog and back to the trigger", async () => {
+    render(<ProjectFilePicker projectId="p1" attachments={[]} onPick={vi.fn()} />);
+    const trigger = screen.getByRole("button", { name: "プロジェクトのファイルを選択" });
+    fireEvent.click(trigger);
+    await screen.findByRole("dialog", { name: "プロジェクトのファイルを選択" });
+
+    const closeButton = screen.getAllByRole("button", { name: "閉じる" })[0];
+    await waitFor(() => expect(document.activeElement).toBe(closeButton));
+
+    fireEvent.keyDown(document, { key: "Escape" });
+    await waitFor(() => expect(document.activeElement).toBe(trigger));
   });
 
   it("uses the task workspace endpoint when no project is selected", async () => {

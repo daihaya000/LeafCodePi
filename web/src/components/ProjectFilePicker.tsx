@@ -14,15 +14,7 @@ import {
 import { COMPOSER_ACTION_BUTTON_CLASS, type ComposerAttachment } from "@/components/Composer";
 import { Button, Spinner, cx } from "@/components/ui";
 import { getJson } from "@/lib/client";
-
-type WorkspaceEntry = { name: string; path: string; kind: "dir" | "file"; size?: number };
-type WorkspaceListing = {
-  path: string;
-  parent: string | null;
-  entries: WorkspaceEntry[];
-  truncated: boolean;
-};
-type WorkspaceFile = { name: string; mimeType: string; size: number; data: string };
+import type { WorkspaceEntryDto, WorkspaceFileDto, WorkspaceListingDto } from "@/lib/types";
 
 /** 添付名は 255 コードポイント超で先頭が省略されるため、末尾一致でも選択済みと判定する。 */
 function attachmentMatchesPath(name: string | undefined, path: string): boolean {
@@ -51,12 +43,15 @@ export function ProjectFilePicker({
   disabled?: boolean;
 }) {
   const [open, setOpen] = useState(false);
-  const [listing, setListing] = useState<WorkspaceListing | null>(null);
+  const [listing, setListing] = useState<WorkspaceListingDto | null>(null);
   const [loading, setLoading] = useState(false);
   const [busyPath, setBusyPath] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const listRequestRef = useRef(0);
   const readRequestRef = useRef(0);
+  const triggerRef = useRef<HTMLButtonElement | null>(null);
+  const closeButtonRef = useRef<HTMLButtonElement | null>(null);
+  const wasOpenRef = useRef(false);
   const titleId = useId();
 
   const scopedToProject = Boolean(projectId);
@@ -76,7 +71,7 @@ export function ProjectFilePicker({
       setLoading(true);
       setError(null);
       try {
-        const data = await getJson<WorkspaceListing>(
+        const data = await getJson<WorkspaceListingDto>(
           endpoint,
           next ? { path: next } : undefined,
         );
@@ -111,15 +106,28 @@ export function ProjectFilePicker({
     return () => document.removeEventListener("keydown", onKeyDown);
   }, [open]);
 
+  // モーダル内へフォーカスを移し、閉じたら元のボタンへ戻す（キーボード操作の継続性）。
+  useEffect(() => {
+    if (open) {
+      wasOpenRef.current = true;
+      const timer = window.setTimeout(() => closeButtonRef.current?.focus(), 0);
+      return () => window.clearTimeout(timer);
+    }
+    if (wasOpenRef.current) {
+      wasOpenRef.current = false;
+      triggerRef.current?.focus();
+    }
+  }, [open]);
+
   if (!endpoint) return null;
 
-  async function pick(entry: WorkspaceEntry) {
+  async function pick(entry: WorkspaceEntryDto) {
     if (busyPath || alreadyPicked(entry.path)) return;
     const requestId = ++readRequestRef.current;
     setBusyPath(entry.path);
     setError(null);
     try {
-      const file = await getJson<WorkspaceFile>(endpoint!, { path: entry.path, read: "1" });
+      const file = await getJson<WorkspaceFileDto>(endpoint!, { path: entry.path, read: "1" });
       if (requestId !== readRequestRef.current) return;
       onPick({
         uri: `data:${file.mimeType};base64,${file.data}`,
@@ -139,6 +147,7 @@ export function ProjectFilePicker({
 
   const trigger = (
     <button
+      ref={triggerRef}
       type="button"
       disabled={disabled}
       title={title}
@@ -173,6 +182,7 @@ export function ProjectFilePicker({
                   <p className="mt-0.5 text-xs text-muted">UTF-8テキストのみ添付できます。</p>
                 </div>
                 <button
+                  ref={closeButtonRef}
                   type="button"
                   aria-label="閉じる"
                   onClick={() => setOpen(false)}
@@ -278,7 +288,7 @@ export function ProjectFilePicker({
 
                 {listing?.truncated && (
                   <p className="mt-2 text-xs text-muted">
-                    表示は先頭1000件までです。フォルダーを絞ってください。
+                    件数が多いため一部のみ表示しています。フォルダーを絞ってください。
                   </p>
                 )}
                 {error && <p role="alert" className="mt-2 text-xs text-danger">{error}</p>}

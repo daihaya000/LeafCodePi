@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
+import type { WorkspaceListingDto } from "@/lib/types";
 
 const mocks = vi.hoisted(() => ({ getProject: vi.fn(), getTask: vi.fn() }));
 vi.mock("@/lib/store", () => mocks);
@@ -50,8 +51,8 @@ describe("GET /api/tasks/[id]/files", () => {
 
     const response = await GET(request(""), params("t1"));
     expect(response.status).toBe(200);
-    const body = (await response.json()) as { listing: { entries: unknown[] } };
-    expect(body.listing.entries).toEqual([
+    const body = (await response.json()) as WorkspaceListingDto;
+    expect(body.entries).toEqual([
       { name: "notes.md", path: "notes.md", kind: "file", size: 6 },
     ]);
   });
@@ -64,7 +65,7 @@ describe("GET /api/tasks/[id]/files", () => {
 
     const response = await GET(request(""), params("t1"));
     expect(response.status).toBe(200);
-    const body = (await response.json()) as { listing: { entries: { path: string }[] } };
-    expect(body.listing.entries.map((entry) => entry.path)).toEqual(["app.ts"]);
+    const body = (await response.json()) as WorkspaceListingDto;
+    expect(body.entries.map((entry) => entry.path)).toEqual(["app.ts"]);
   });
 });

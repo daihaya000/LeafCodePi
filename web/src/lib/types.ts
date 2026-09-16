@@ -646,6 +646,33 @@ export type DiffFile = {
   modifiedAt?: string;
 };
 
+/** プロジェクト／タスク作業フォルダーの一覧 API（files route）が返す1エントリ。 */
+export type WorkspaceEntryDto = {
+  name: string;
+  /** ルートからの `/` 区切り相対パス。 */
+  path: string;
+  kind: "dir" | "file";
+  size?: number;
+};
+
+export type WorkspaceListingDto = {
+  /** 現在のフォルダーの相対パス（ルートは空文字）。 */
+  path: string;
+  /** 親フォルダーの相対パス。ルートは null。 */
+  parent: string | null;
+  entries: WorkspaceEntryDto[];
+  /** 件数上限で打ち切ったか。 */
+  truncated: boolean;
+};
+
+/** 添付に使う読み込み結果。`name` は添付名（相対パス）、`data` は base64。 */
+export type WorkspaceFileDto = {
+  name: string;
+  mimeType: string;
+  size: number;
+  data: string;
+};
+
 export type DiffFilesPayload = {
   git: boolean;
   branch: string | null;

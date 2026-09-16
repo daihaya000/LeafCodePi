@@ -30,5 +30,7 @@ export async function GET(
   if (!result.ok) {
     return NextResponse.json({ error: result.error }, { status: result.status });
   }
-  return NextResponse.json(result, { headers: { "cache-control": "no-store" } });
+  // クライアント（ProjectFilePicker）はラッパーなしの payload をそのまま読む。
+  const payload = "listing" in result ? result.listing : result.file;
+  return NextResponse.json(payload, { headers: { "cache-control": "no-store" } });
 }
