@@ -173,7 +173,8 @@ describe("Bot mode list", () => {
     mocks.getJson.mockImplementation((path: string) => {
       if (path === "/api/bots/sidebar") return Promise.resolve({ bots: [{ id: "bot-a", name: "Alpha" }], rooms: [] });
       if (path === "/api/projects?archived=1") return Promise.resolve({ projects: [] });
-      if (path === "/api/tasks?archived=1&kind=all") {
+      // アーカイブ済みタスクは展開時のみ取得するため、通常表示は kind=all が作業中タスクを運ぶ。
+      if (path === "/api/tasks?kind=all" || path === "/api/tasks?archived=1&kind=all") {
         return Promise.resolve({
           tasks: [
             { id: "bot:bot-a", kind: "bot", status: "working", updatedAt: "2026-01-01T00:02:00.000Z" },
@@ -186,7 +187,7 @@ describe("Bot mode list", () => {
     });
 
     render(<Sidebar mobileOpen={false} onClose={vi.fn()} />);
-    await waitFor(() => expect(mocks.getJson).toHaveBeenCalledWith("/api/tasks?archived=1&kind=all"));
+    await waitFor(() => expect(mocks.getJson).toHaveBeenCalledWith("/api/tasks?kind=all"));
     fireEvent.click(await screen.findByRole("button", { name: "進行中タスクを分割表示" }));
     await waitFor(() => expect(mocks.dispatch).toHaveBeenCalledWith({
       type: "showWorkingTasks",
@@ -198,7 +199,7 @@ describe("Bot mode list", () => {
     mocks.getJson.mockImplementation((path: string) => {
       if (path === "/api/bots/sidebar") return Promise.resolve({ bots: [{ id: "bot-a", name: "Alpha" }], rooms: [] });
       if (path === "/api/projects?archived=1") return Promise.resolve({ projects: [] });
-      if (path === "/api/tasks?archived=1&kind=all") {
+      if (path === "/api/tasks?kind=all" || path === "/api/tasks?archived=1&kind=all") {
         return Promise.resolve({
           tasks: [
             { id: "code-linked", kind: "code", botId: "bot-a", status: "working", updatedAt: "2026-01-01T00:03:00.000Z" },
@@ -211,7 +212,7 @@ describe("Bot mode list", () => {
     });
 
     render(<Sidebar mobileOpen={false} onClose={vi.fn()} />);
-    await waitFor(() => expect(mocks.getJson).toHaveBeenCalledWith("/api/tasks?archived=1&kind=all"));
+    await waitFor(() => expect(mocks.getJson).toHaveBeenCalledWith("/api/tasks?kind=all"));
     fireEvent.click(await screen.findByRole("button", { name: "進行中タスクを分割表示" }));
     await waitFor(() => expect(mocks.dispatch).toHaveBeenCalledWith({
       type: "showWorkingTasks",

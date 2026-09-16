@@ -5,6 +5,13 @@ import { ActivityLog, MessageBubble, MessageHeader } from "./ConversationLayout"
 import { BotChatMessage } from "./bot/BotMessageList";
 import { PartView } from "./task/PartView";
 
+/**
+ * 描画スキップ用の perf クラスは形状ではない。Bot は行そのもの（BotMessageRow）、
+ * Code は TaskView の外側行（.task-message-row）が持つため、形状の比較からは除外し、
+ * 行側では別途存在を確認する。
+ */
+const PERF_CLASSES = ["[content-visibility:auto]", "[contain-intrinsic-size:auto_8rem]"];
+
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
@@ -25,7 +32,8 @@ it.each([true, false])("keeps Bot and Code bubble/header geometry identical (use
   </>);
   const botRow = container.querySelector('[data-view="bot"] > div')!;
   const codeRow = container.querySelector('[data-view="code"] > article')!;
-  expect([...botRow.classList].sort()).toEqual([...codeRow.classList].sort());
+  expect([...botRow.classList].filter((name) => !PERF_CLASSES.includes(name)).sort()).toEqual([...codeRow.classList].sort());
+  expect(PERF_CLASSES.every((name) => botRow.classList.contains(name))).toBe(true);
   const bot = container.querySelector(".bot-message-bubble")!;
   const code = container.querySelector('[data-view="code"] .rounded-3xl')!;
   expect([...bot.classList].filter((name) => name !== "bot-message-bubble").sort()).toEqual([...code.classList].sort());
