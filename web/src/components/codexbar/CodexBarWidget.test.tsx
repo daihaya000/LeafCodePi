@@ -168,9 +168,9 @@ describe("CodexBarWidget", () => {
 
     const accountLabel = await screen.findByText("仕事用");
     const serviceLabel = screen.getByText("Codex");
-    expect(serviceLabel.className).toContain("flex-none");
-    expect(serviceLabel.className).toContain("max-w-[45%]");
-    expect(accountLabel.className).toContain("flex-1");
+    expect(serviceLabel.className).toContain("flex-1");
+    expect(accountLabel.className).toContain("flex-none");
+    expect(accountLabel.className).toContain("max-w-[40%]");
     expect(accountLabel.closest("button")?.className).toContain("min-w-0");
     expect(accountLabel.closest("button")?.textContent).toContain("Codex");
     expect(accountLabel.closest("li")?.querySelector("ul")).toBeNull();

@@ -542,16 +542,14 @@ function ProviderRow({
       >
         {!hideIcon && <ProviderIcon p={p} tone={showErrorOnly ? "danger" : tone} />}
         <span
-          className={cx(
-            "min-w-0 truncate font-semibold text-text",
-            accountLabel ? "max-w-[45%] flex-none" : "flex-1",
-          )}
+          className="min-w-0 flex-1 truncate font-semibold text-text"
+          title={label}
         >
           {label}
         </span>
         {accountLabel && (
           <span
-            className="min-w-0 max-w-28 flex-1 truncate text-[10px] text-muted"
+            className="min-w-0 max-w-[40%] flex-none truncate text-[10px] text-muted"
             title={`アカウント: ${accountLabel}`}
           >
             {accountLabel}
