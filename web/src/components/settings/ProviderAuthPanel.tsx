@@ -5,7 +5,11 @@ import { ChevronDown, ChevronUp, GripVertical } from "lucide-react";
 import { Badge, Button, Switch, cx } from "@/components/ui";
 import { ProviderIcon } from "@/components/ProviderIcon";
 import { ApiError, apiUrl, getJson, sendJson } from "@/lib/client";
-import type { AccountProviderId, AccountRecord } from "@/lib/accounts";
+import type {
+  AccountCredentialKind,
+  AccountProviderId,
+  AccountRecord,
+} from "@/lib/accounts";
 import type {
   LoginNotifyDto,
   LoginPromptDto,
@@ -365,6 +369,10 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
   const [cookieStatuses, setCookieStatuses] = useState<Record<string, boolean>>(
     {},
   );
+  /** `${providerId}:${accountId}` → 保存済み資格情報の種類（oauth = サブスク / api_key）。 */
+  const [credentialKinds, setCredentialKinds] = useState<
+    Record<string, AccountCredentialKind>
+  >({});
   const [cookieEditingKey, setCookieEditingKey] = useState<string | null>(null);
   const [cookieInput, setCookieInput] = useState("");
   const [cookieBusy, setCookieBusy] = useState<string | null>(null);
@@ -521,6 +529,9 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
           try {
             const status = await getJson<{
               providers: AccountProviderId[];
+              credentialKinds?: Partial<
+                Record<AccountProviderId, AccountCredentialKind>
+              >;
               ollamaCookieConfigured?: boolean;
               opencodeGoCookieConfigured?: boolean;
               anthropicCookieConfigured?: boolean;
@@ -531,6 +542,9 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
               account.id,
               {
                 providers: [] as AccountProviderId[],
+                credentialKinds: {} as Partial<
+                  Record<AccountProviderId, AccountCredentialKind>
+                >,
                 ollamaCookieConfigured: false,
                 opencodeGoCookieConfigured: false,
                 anthropicCookieConfigured: false,
@@ -561,6 +575,15 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
               status.anthropicCookieConfigured === true,
             ],
           ]),
+        ),
+      );
+      setCredentialKinds(
+        Object.fromEntries(
+          statuses.flatMap(([id, status]) =>
+            Object.entries(status.credentialKinds ?? {}).map(
+              ([providerId, kind]) => [cookieKey(providerId, id), kind],
+            ),
+          ),
         ),
       );
     } catch (error) {
@@ -1227,6 +1250,14 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
                   const currentCookieKey = cookieKey(providerId, account.id);
                   const cookieEditing = cookieEditingKey === currentCookieKey;
                   const cookieAccountBusy = cookieBusy === currentCookieKey;
+                  // Anthropic の Console cookie は API キー口座専用。
+                  // サブスク（OAuth）口座は subscription の枠/クレジットを返すので不要。
+                  const showCookieUi =
+                    cookieUi !== undefined &&
+                    !(
+                      providerId === "anthropic" &&
+                      credentialKinds[currentCookieKey] === "oauth"
+                    );
                   const usage = findProviderUsage(
                     codexBarUsage,
                     providerId,
@@ -1465,7 +1496,7 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
                           onRedeem={redeemResetCredit}
                         />
                       )}
-                      {cookieUi && (
+                      {showCookieUi && cookieUi && (
                         <div className="mt-2 border-t border-border pt-2">
                           <div className="flex flex-wrap items-center justify-between gap-2">
                             <div>

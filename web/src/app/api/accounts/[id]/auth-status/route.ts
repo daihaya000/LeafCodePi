@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
   accountAuthPath,
+  accountCredentialKinds,
   accountStoredProviders,
   getAccount,
   resolvePiAgentDir,
@@ -31,6 +32,7 @@ export async function GET(_req: NextRequest, context: Context) {
     const agentDir = await resolvePiAgentDir();
     return NextResponse.json({
       providers: accountStoredProviders(id, agentDir),
+      credentialKinds: accountCredentialKinds(id, agentDir),
       ollamaCookieConfigured: isOllamaCookieConfigured(id),
       opencodeGoCookieConfigured:
         extractOpenCodeCookieHeader({

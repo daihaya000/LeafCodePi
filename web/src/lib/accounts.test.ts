@@ -12,6 +12,7 @@ import { join } from "node:path";
 import { afterEach, describe, it } from "vitest";
 import {
   accountAuthPath,
+  accountCredentialKinds,
   accountHasProvider,
   accountDir,
   accountModelsStorePath,
@@ -130,6 +131,28 @@ describe("accountStoredProviders", () => {
     mkdirSync(broken, { recursive: true });
     writeFileSync(accountAuthPath("broken", agentDir), "{oops", "utf8");
     assert.deepEqual(accountStoredProviders("broken", agentDir), []);
+  });
+
+  it("reports the stored credential kind per provider", () => {
+    const agentDir = mkdtempSync(join(tmpdir(), "leafcode-pi-agentdir-"));
+    dirs.push(agentDir);
+    const dir = accountDir("acc-kinds", agentDir);
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(
+      accountAuthPath("acc-kinds", agentDir),
+      JSON.stringify({
+        anthropic: { type: "oauth", access: "a", refresh: "r", expires: 1 },
+        openrouter: { type: "api_key", key: "sk-test" },
+        cursor: { type: "api_key", key: 123 },
+      }),
+      "utf8",
+    );
+
+    assert.deepEqual(accountCredentialKinds("acc-kinds", agentDir), {
+      anthropic: "oauth",
+      openrouter: "api_key",
+    });
+    assert.deepEqual(accountCredentialKinds("missing", agentDir), {});
   });
 });
 

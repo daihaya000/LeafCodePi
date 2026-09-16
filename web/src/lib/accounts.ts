@@ -139,17 +139,56 @@ export function accountStoredProviders(
   id: string,
   agentDir: string,
 ): AccountProviderId[] {
+  const entries = readAccountAuthEntries(id, agentDir);
+  if (!entries) return [];
+  return ACCOUNT_PROVIDER_IDS.filter(
+    (provider) => storedCredentialKind(entries[provider]) !== null,
+  );
+}
+
+/** 保存済み資格情報の種類（サブスク OAuth / API キー）。 */
+export type AccountCredentialKind = "oauth" | "api_key";
+
+/** auth.json の中身（provider ごとに 1 エントリだけ持つ）。 */
+function readAccountAuthEntries(
+  id: string,
+  agentDir: string,
+): Record<string, unknown> | null {
   try {
     const parsed = JSON.parse(
       readFileSync(accountAuthPath(id, agentDir), "utf8"),
     ) as Record<string, unknown> | null;
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return [];
-    return ACCOUNT_PROVIDER_IDS.filter((provider) =>
-      isStoredCredential(parsed[provider]),
-    );
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return null;
+    }
+    return parsed;
   } catch {
-    return [];
+    return null;
   }
+}
+
+function storedCredentialKind(value: unknown): AccountCredentialKind | null {
+  if (!isStoredCredential(value)) return null;
+  return (value as { type?: unknown }).type === "api_key" ? "api_key" : "oauth";
+}
+
+/**
+ * 保存済み資格情報の種類をプロバイダー別に返す。
+ * UI はこれで「この口座はサブスクか API キーか」を判断する
+ * （例: Anthropic の Console cookie は API キー口座にだけ必要）。
+ */
+export function accountCredentialKinds(
+  id: string,
+  agentDir: string,
+): Partial<Record<AccountProviderId, AccountCredentialKind>> {
+  const entries = readAccountAuthEntries(id, agentDir);
+  const kinds: Partial<Record<AccountProviderId, AccountCredentialKind>> = {};
+  if (!entries) return kinds;
+  for (const provider of ACCOUNT_PROVIDER_IDS) {
+    const kind = storedCredentialKind(entries[provider]);
+    if (kind) kinds[provider] = kind;
+  }
+  return kinds;
 }
 
 function accountsPath(): string {

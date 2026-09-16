@@ -967,7 +967,11 @@ describe("ProviderAuthPanel provider-scoped accounts", () => {
         }
         if (url.endsWith(`/api/accounts/${anthropicAccount.id}/auth-status`)) {
           return Promise.resolve(
-            jsonResponse({ providers: ["anthropic"], anthropicCookieConfigured: false }),
+            jsonResponse({
+              providers: ["anthropic"],
+              credentialKinds: { anthropic: "api_key" },
+              anthropicCookieConfigured: false,
+            }),
           );
         }
         if (
@@ -1053,6 +1057,38 @@ describe("ProviderAuthPanel provider-scoped accounts", () => {
     expect(within(anthropic).getByText("残高 $12.34")).toBeTruthy();
     // 使用量%が無い口座では使用量バーを出さない
     expect(within(anthropic).queryByText("使用量")).toBeNull();
+  });
+
+  it("hides the Console cookie controls for a subscription account", async () => {
+    fetchMock.mockImplementation(
+      (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        const pathname = new URL(url, "http://localhost").pathname;
+        const method = (init?.method ?? "GET").toUpperCase();
+        if (pathname === "/api/accounts" && method === "GET") {
+          return Promise.resolve(jsonResponse({ accounts: [anthropicAccount] }));
+        }
+        if (pathname === `/api/accounts/${anthropicAccount.id}/auth-status`) {
+          return Promise.resolve(
+            jsonResponse({
+              providers: ["anthropic"],
+              credentialKinds: { anthropic: "oauth" },
+            }),
+          );
+        }
+        return Promise.resolve(jsonResponse({}));
+      },
+    );
+    render(
+      <ProviderAuthPanel providers={[anthropicProvider]} onChanged={() => {}} />,
+    );
+
+    const anthropic = await accountRegion("Anthropic");
+    await within(anthropic).findByText("API 個人用");
+    // サブスク（OAuth）口座は Console cookie が不要なので欄自体を出さない
+    await waitFor(() => {
+      expect(within(anthropic).queryByText("Anthropic Console cookie")).toBeNull();
+    });
   });
 
   it("surfaces a closed login EventSource as a failed login", async () => {
