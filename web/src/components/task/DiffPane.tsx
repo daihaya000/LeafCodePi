@@ -577,7 +577,7 @@ export function DiffPane({
             <option value="untracked">新規ファイル</option>
           </select>
         </div>
-        {/* 表示操作 / Git 操作 */}
+        {/* 表示操作 */}
         <div className="flex min-w-0 flex-wrap items-center gap-1.5 px-3 pb-2">
           <Button
             variant={sideBySide ? "secondary" : "ghost"}
@@ -628,7 +628,9 @@ export function DiffPane({
           >
             変更のみ
           </Button>
-          <span className="mx-1 h-5 w-px shrink-0 bg-border" aria-hidden="true" />
+        </div>
+        {/* Git 操作 */}
+        <div className="flex min-w-0 flex-wrap items-center gap-1.5 border-t border-border px-3 py-2">
           <Button
             variant={panel === "commit" ? "secondary" : "ghost"}
             size="sm"
