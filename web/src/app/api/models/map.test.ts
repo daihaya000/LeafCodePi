@@ -132,6 +132,19 @@ describe("attachCodexBarUsage", () => {
     expect(mapped).toMatchObject({ codexbarIntegratedUsedPercent: 40 });
   });
 
+  it("leaves a separate-mode option untouched for a display-only row", () => {
+    const option: ModelOption = {
+      ...model("anthropic", "acc-api"),
+      codexbarUsedPercent: null,
+    };
+    const [mapped] = attachCodexBarUsage(
+      [option],
+      [{ ...provider("anthropic", 90, false, "acc-api"), usageDisplayOnly: true }],
+    );
+    expect(mapped).toBe(option);
+    expect(mapped).not.toHaveProperty("codexbarUsedPercent", 90);
+  });
+
   it("returns options unchanged when usage is empty or unknown", () => {
     const options = [model("llama-server"), model("anthropic")];
     expect(attachCodexBarUsage(options, [])).toBe(options);

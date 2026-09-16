@@ -228,6 +228,17 @@ export type RoutingUsage = Pick<
   | "usageDisplayOnly"
 >;
 
+/**
+ * ルーティング候補の使用率をヒントとして使うときの値。
+ * ％が表示専用の候補（API キー口座の残高から導出した値など）は使わない。
+ */
+export function routingUsageHint(
+  usage: Pick<RoutingUsage, "usedPercent" | "usageDisplayOnly"> | null | undefined,
+): number | null {
+  if (!usage || usage.usageDisplayOnly === true) return null;
+  return usage.usedPercent;
+}
+
 export type RoutingCandidate<T = unknown> = {
   accountId: string;
   accountIndex: number;

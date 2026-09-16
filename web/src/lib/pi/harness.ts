@@ -222,6 +222,7 @@ import {
   markProviderLimited,
   providerLimitMark,
   readProviderRouting,
+  routingUsageHint,
   setAccountRoutingMode,
   type AccountRoutingMode,
   type RoutingCandidate,
@@ -4796,9 +4797,7 @@ function integratedOption(
       ? { defaultThinkingLevel }
       : {}),
     codexbarUsedPercent:
-      decision.allMaxed
-        ? 100
-        : selectedUsage?.usedPercent ?? null,
+      decision.allMaxed ? 100 : routingUsageHint(selectedUsage),
     codexbarMaxed: decision.allMaxed,
     routingMode: "integrated",
     routingCandidateCount: records.length,
