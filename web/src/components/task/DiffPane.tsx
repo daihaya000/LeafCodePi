@@ -87,6 +87,13 @@ const FileDiffBlock = memo(function FileDiffBlock({
   const base = file.path.slice(dir.length);
   const domId = file.path.replace(/[^a-zA-Z0-9_-]/g, "-");
   const hasDiffRegion = expanded && !file.binary && file.hunks.length > 0;
+  const [showAll, setShowAll] = useState(false);
+  const totalVisibleLines = file.hunks.reduce(
+    (sum, hunk) => sum + hunk.lines.filter((line) => !changesOnly || line.t !== " ").length,
+    0,
+  );
+  const lineLimit = showAll ? Infinity : MAX_LINES_PER_FILE;
+  const truncated = !showAll && totalVisibleLines > MAX_LINES_PER_FILE;
   let rendered = 0;
 
   return (
@@ -176,7 +183,7 @@ const FileDiffBlock = memo(function FileDiffBlock({
               </div>
               {hunk.lines.map((line, li) => {
                 if (changesOnly && line.t === " ") return null;
-                if (rendered >= MAX_LINES_PER_FILE) return null;
+                if (rendered >= lineLimit) return null;
                 rendered += 1;
                 if (sideBySide) {
                   if (line.t === "-") {
@@ -231,10 +238,19 @@ const FileDiffBlock = memo(function FileDiffBlock({
               })}
             </div>
           ))}
-          {rendered >= MAX_LINES_PER_FILE && (
-            <p className="px-3 py-1.5 text-faint">
-              …長いため省略（{MAX_LINES_PER_FILE}行まで表示）
-            </p>
+          {truncated && (
+            <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-1.5 text-faint">
+              <span>
+                …長いため省略（{MAX_LINES_PER_FILE} / {totalVisibleLines} 行を表示）
+              </span>
+              <button
+                type="button"
+                onClick={() => setShowAll(true)}
+                className="shrink-0 cursor-pointer underline underline-offset-2 hover:text-accent"
+              >
+                残り{totalVisibleLines - MAX_LINES_PER_FILE}行を表示
+              </button>
+            </div>
           )}
         </div>
       )}
