@@ -132,17 +132,24 @@ describe("attachCodexBarUsage", () => {
     expect(mapped).toMatchObject({ codexbarIntegratedUsedPercent: 40 });
   });
 
-  it("leaves a separate-mode option untouched for a display-only row", () => {
-    const option: ModelOption = {
-      ...model("anthropic", "acc-api"),
-      codexbarUsedPercent: null,
-    };
+  it("attaches a display-only percent for the picker but flags it", () => {
+    const option: ModelOption = model("anthropic", "acc-api");
     const [mapped] = attachCodexBarUsage(
       [option],
       [{ ...provider("anthropic", 90, false, "acc-api"), usageDisplayOnly: true }],
     );
-    expect(mapped).toBe(option);
-    expect(mapped).not.toHaveProperty("codexbarUsedPercent", 90);
+    expect(mapped).toMatchObject({
+      codexbarUsedPercent: 90,
+      codexbarDisplayOnly: true,
+    });
+
+    // 通常の行にはフラグを付けない
+    const [regular] = attachCodexBarUsage(
+      [model("anthropic", "acc-sub")],
+      [provider("anthropic", 40, false, "acc-sub")],
+    );
+    expect(regular.codexbarDisplayOnly).toBeUndefined();
+    expect(regular.codexbarUsedPercent).toBe(40);
   });
 
   it("returns options unchanged when usage is empty or unknown", () => {

@@ -252,7 +252,10 @@ export function autoProviderUsageFromModels(
       id: model.providerID,
       accountId: model.accountId,
       modelID: model.modelID,
-      usedPercent: model.codexbarUsedPercent,
+      // 表示専用の％（API キー口座の残高から導出した値など）は選択のヒントに使わない。
+      // maxed/limited は実際に使えないことを示すためそのまま渡す。
+      usedPercent:
+        model.codexbarDisplayOnly === true ? null : model.codexbarUsedPercent,
       maxed: model.codexbarMaxed,
       stale: model.codexbarStale,
     })),

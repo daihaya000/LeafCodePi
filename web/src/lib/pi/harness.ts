@@ -222,7 +222,6 @@ import {
   markProviderLimited,
   providerLimitMark,
   readProviderRouting,
-  routingUsageHint,
   setAccountRoutingMode,
   type AccountRoutingMode,
   type RoutingCandidate,
@@ -4797,8 +4796,12 @@ function integratedOption(
       ? { defaultThinkingLevel }
       : {}),
     codexbarUsedPercent:
-      decision.allMaxed ? 100 : routingUsageHint(selectedUsage),
+      decision.allMaxed ? 100 : selectedUsage?.usedPercent ?? null,
     codexbarMaxed: decision.allMaxed,
+    // 表示専用の％（残高から導出した値など）はピッカーの色にだけ使い、ヒントには渡さない。
+    ...(!decision.allMaxed && selectedUsage?.usageDisplayOnly === true
+      ? { codexbarDisplayOnly: true }
+      : {}),
     routingMode: "integrated",
     routingCandidateCount: records.length,
   };

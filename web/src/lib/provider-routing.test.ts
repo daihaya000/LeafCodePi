@@ -14,7 +14,6 @@ import {
   providerRoutingPath,
   rankRoutingCandidates,
   readProviderRouting,
-  routingUsageHint,
   setAccountRoutingMode,
   type RoutingUsage,
 } from "./provider-routing";
@@ -319,15 +318,6 @@ describe("routing candidate ranking", () => {
       now,
     );
     assert.equal(decision.candidate?.accountId, "idle");
-  });
-});
-
-describe("routingUsageHint", () => {
-  it("hides display-only percentages from picker/auto hints", () => {
-    assert.equal(routingUsageHint(usage(62)), 62);
-    assert.equal(routingUsageHint(usage(62, { usageDisplayOnly: true })), null);
-    assert.equal(routingUsageHint(null), null);
-    assert.equal(routingUsageHint(undefined), null);
   });
 });
 

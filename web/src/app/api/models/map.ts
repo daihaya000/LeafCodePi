@@ -63,14 +63,16 @@ export function attachCodexBarUsage<
     }
     const provider = byKey.get(usageKey(option.providerID, option.accountId));
     if (!provider) return option;
-    // ％が表示専用の行（API キー口座の残高から導出した値など）はピッカーの色や
-    // 自動選択のヒントに使わない（表示は設定画面と CodexBar 側で行う）。
-    if (provider.usageDisplayOnly === true) return option;
     return {
       ...option,
       codexbarUsedPercent: provider.usedPercent,
       codexbarLimited: provider.limited,
       codexbarMaxed: provider.maxed,
+      // ％が表示専用（API キー口座の残高から導出した値など）でもピッカーの色には使うが、
+      // 自動選択のヒントには使わせない。
+      ...(provider.usageDisplayOnly === true
+        ? { codexbarDisplayOnly: true }
+        : {}),
       ...(provider.stale ? { codexbarStale: true } : {}),
     };
   });

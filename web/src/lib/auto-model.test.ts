@@ -257,6 +257,31 @@ describe("chooseAutoModel", () => {
     expect(decision).toMatchObject({ accountId: "account-b" });
   });
 
+  it("ignores display-only percents but keeps maxed as a hint", () => {
+    const usage = autoProviderUsageFromModels([
+      model("claude-sonnet-5", {
+        providerID: "anthropic",
+        accountId: "account-api",
+        codexbarUsedPercent: 95,
+        codexbarDisplayOnly: true,
+      }),
+      model("claude-haiku-4-5", {
+        providerID: "anthropic",
+        accountId: "account-api",
+        codexbarUsedPercent: 95,
+        codexbarDisplayOnly: true,
+        codexbarMaxed: true,
+      }),
+    ]);
+    // ％はヒントにしない（残高切れの maxed だけ残す）
+    expect(usage).toEqual({
+      "account-api::anthropic::claude-haiku-4-5": {
+        usedPercent: null,
+        limited: true,
+      },
+    });
+  });
+
   it("skips a limited configured provider and preserves account usage keys", () => {
     const usage = autoProviderUsageFromModels([
       model("claude-haiku-4-5", {

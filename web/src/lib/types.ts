@@ -522,6 +522,8 @@ export type ModelOption = {
   codexbarUsedPercent?: number | null;
   /** Average CodexBar usage for an integrated provider, used for picker color only. */
   codexbarIntegratedUsedPercent?: number | null;
+  /** True when the usage percent is display-only (do not use as a routing hint). */
+  codexbarDisplayOnly?: boolean;
   /** True when the backing provider is near or at its rate limit. */
   codexbarLimited?: boolean;
   /** True when the provider hit its rate limit (usage >= 99.5%). */
