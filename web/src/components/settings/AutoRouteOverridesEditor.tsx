@@ -1,13 +1,14 @@
 "use client";
 
 import { useCallback, useMemo } from "react";
-import { ChevronDown, ChevronUp, Plus, RotateCcw, X } from "lucide-react";
+import { Plus, RotateCcw, X } from "lucide-react";
 import { IntelligenceSelect } from "@/components/IntelligenceSelect";
 import { ModelSelect } from "@/components/ModelSelect";
 import { Button } from "@/components/ui";
 import {
   AUTO_OPTIMIZE_MODES,
   autoOptimizeModeLabel,
+  autoProviderUsageFromModels,
   chooseAutoModel,
   isAutoRouteConfigEmpty,
   MAX_AUTO_ROUTE_CANDIDATES,
@@ -156,15 +157,6 @@ function effortOptionsFor(
     : [...ALL_INTELLIGENCE_VARIANTS];
 }
 
-function moveItem<T>(items: readonly T[], from: number, to: number): T[] {
-  if (from === to || from < 0 || to < 0 || to >= items.length) return [...items];
-  const next = [...items];
-  const [item] = next.splice(from, 1);
-  if (item === undefined) return next;
-  next.splice(to, 0, item);
-  return next;
-}
-
 function cellMatchesPreset(
   mode: AutoOptimizeMode,
   tier: AutoTier,
@@ -191,6 +183,7 @@ function ResolutionPreview({
         tier,
         mode,
         hasImages: false,
+        usage: autoProviderUsageFromModels(models),
         config,
       }),
     [config, mode, models, tier],
@@ -210,21 +203,17 @@ function ResolutionPreview({
 
 function CandidateRow({
   index,
-  isLast,
   candidate,
   source,
   modelOptions,
   onChange,
-  onMove,
   onRemove,
 }: {
   index: number;
-  isLast: boolean;
   candidate: AutoRouteCandidate;
   source: AutoRouteSource;
   modelOptions: ModelOption[];
   onChange: (candidate: AutoRouteCandidate) => void;
-  onMove: (direction: -1 | 1) => void;
   onRemove: () => void;
 }) {
   const effortOptions = effortOptionsFor(candidate, source);
@@ -283,24 +272,6 @@ function CandidateRow({
           />
         )}
         <div className="ml-auto flex shrink-0 items-center gap-0.5">
-          <button
-            type="button"
-            aria-label={`候補${index + 1}を上へ`}
-            disabled={index === 0}
-            onClick={() => onMove(-1)}
-            className="inline-flex h-11 w-11 items-center justify-center rounded text-faint hover:bg-surface-3 hover:text-muted disabled:opacity-30 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-primary sm:h-6 sm:w-6"
-          >
-            <ChevronUp aria-hidden="true" className="h-3 w-3" />
-          </button>
-          <button
-            type="button"
-            aria-label={`候補${index + 1}を下へ`}
-            disabled={isLast}
-            onClick={() => onMove(1)}
-            className="inline-flex h-11 w-11 items-center justify-center rounded text-faint hover:bg-surface-3 hover:text-muted disabled:opacity-30 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-primary sm:h-6 sm:w-6"
-          >
-            <ChevronDown aria-hidden="true" className="h-3 w-3" />
-          </button>
           <button
             type="button"
             aria-label={`候補${index + 1}を削除`}
@@ -405,7 +376,7 @@ function TierEditor({
           </Button>
         )}
       </div>
-      <p className="text-[10px] uppercase tracking-wide text-muted">候補（上が優先）</p>
+      <p className="text-[10px] uppercase tracking-wide text-muted">候補（サブスク使用率が低い方を優先）</p>
       {candidates.length === 0 ? (
         <p className="text-xs text-muted">プリセットを使用中</p>
       ) : (
@@ -414,14 +385,12 @@ function TierEditor({
             <CandidateRow
               key={`${index}-${candidate.kind}`}
               index={index}
-              isLast={index === candidates.length - 1}
               candidate={candidate}
               source={source}
               modelOptions={modelOptions}
               onChange={(next) =>
                 setCandidates(candidates.map((item, itemIndex) => itemIndex === index ? next : item))
               }
-              onMove={(direction) => setCandidates(moveItem(candidates, index, index + direction))}
               onRemove={() => setCandidates(candidates.filter((_, itemIndex) => itemIndex !== index))}
             />
           ))}

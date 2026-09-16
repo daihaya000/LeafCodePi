@@ -469,7 +469,36 @@ describe("chooseAutoModel", () => {
     expect(limitedDecision).toMatchObject({ providerID: "available", candidateIndex: 1 });
   });
 
-  it("resolves v2 candidates in order and skips unavailable models", () => {
+  it("balances manual candidates by the lowest subscription usage", () => {
+    const decision = chooseAutoModel({
+      models: [
+        model("claude-haiku-4-5", { providerID: "high", value: "high::haiku" }),
+        model("claude-haiku-4-5", { providerID: "low", value: "low::haiku" }),
+      ],
+      tier: "light",
+      hasImages: false,
+      usage: {
+        high: { usedPercent: 5, limited: false },
+        low: { usedPercent: 1, limited: false },
+      },
+      config: {
+        version: 2,
+        modes: {
+          cost: {
+            light: {
+              candidates: [
+                { kind: "model", providerID: "high", modelID: "claude-haiku-4-5" },
+                { kind: "model", providerID: "low", modelID: "claude-haiku-4-5" },
+              ],
+            },
+          },
+        },
+      },
+    });
+    expect(decision).toMatchObject({ providerID: "low", candidateIndex: 1 });
+  });
+
+  it("skips unavailable manual candidates", () => {
     const decision = chooseAutoModel({
       models: [model("claude-sonnet-5", { thinkingLevels: ["high"] })],
       tier: "light",
@@ -494,7 +523,7 @@ describe("chooseAutoModel", () => {
       variant: "high",
       candidateIndex: 1,
     });
-    expect(decision?.reason).toContain("候補1〜1は利用不可");
+    expect(decision?.reason).toContain("手動設定候補");
   });
 
   it("uses a manually configured balanced model and effort for each tier", () => {

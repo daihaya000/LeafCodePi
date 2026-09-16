@@ -42,7 +42,7 @@ describe("AutoRouteOverridesEditor", () => {
     });
   });
 
-  it("uses touch-sized controls and disables both reorder boundaries", () => {
+  it("does not expose manual candidate reordering", () => {
     const onChange = vi.fn();
     render(
       <AutoRouteOverridesEditor
@@ -70,27 +70,9 @@ describe("AutoRouteOverridesEditor", () => {
 
     const modelButton = screen.getByRole("button", { name: "候補1のモデル" });
     expect(modelButton.parentElement?.className).toContain("w-full");
-    const firstUp = screen.getByRole("button", { name: "候補1を上へ" }) as HTMLButtonElement;
-    const firstDown = screen.getByRole("button", { name: "候補1を下へ" }) as HTMLButtonElement;
-    const lastDown = screen.getByRole("button", { name: "候補2を下へ" }) as HTMLButtonElement;
-    expect(firstUp.disabled).toBe(true);
-    expect(lastDown.disabled).toBe(true);
-    expect(firstDown.className).toContain("h-11");
-
-    fireEvent.click(firstDown);
-    expect(onChange).toHaveBeenCalledWith({
-      version: 2,
-      modes: {
-        cost: {
-          light: {
-            candidates: [
-              { kind: "model", providerID: "provider", modelID: "model-b" },
-              { kind: "model", providerID: "provider", modelID: "model-a" },
-            ],
-          },
-        },
-      },
-    });
+    expect(screen.queryByRole("button", { name: "候補1を上へ" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "候補1を下へ" })).toBeNull();
+    expect(screen.getAllByText("候補（サブスク使用率が低い方を優先）")).toHaveLength(9);
   });
 
   it("shows all modes and tiers in a three-by-three layout", () => {

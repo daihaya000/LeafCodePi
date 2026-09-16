@@ -823,6 +823,33 @@ function firstResolvable(
   return undefined;
 }
 
+/** Manual routes balance their available candidates by fresh subscription usage. */
+function lowestUsageResolvable(
+  pool: Candidate[],
+  candidates: readonly AutoRouteCandidate[],
+  usage?: AutoProviderUsage,
+  excludedIndex?: number,
+): { chosen: Candidate; index: number } | undefined {
+  const resolvable = candidates.flatMap((candidate, index) => {
+    if (index === excludedIndex) return [];
+    const chosen = resolveCandidate(pool, candidate, usage);
+    return chosen ? [{ chosen, index }] : [];
+  });
+  if (resolvable.length === 0) return undefined;
+
+  const measured = resolvable.filter(({ chosen }) => {
+    const hint = usageForCandidate(chosen, usage);
+    return hint?.stale !== true && Number.isFinite(hint?.usedPercent);
+  });
+  if (measured.length === 0) return resolvable[0];
+  return measured.reduce((best, candidate) =>
+    (usageForCandidate(candidate.chosen, usage)?.usedPercent ?? Infinity) <
+    (usageForCandidate(best.chosen, usage)?.usedPercent ?? Infinity)
+      ? candidate
+      : best,
+  );
+}
+
 type ResolvedCandidate = {
   chosen: Candidate;
   index: number;
@@ -845,8 +872,7 @@ function buildDecision(
   const { chosen, index, variant } = resolution;
   let reason: string;
   if (fromConfig && index >= 0) {
-    reason = `${TIER_LABEL[tier]}のため候補${index + 1}（${chosen.modelID}${variant ? ` / ${variant}` : ""}）を採用しました`;
-    if (index > 0) reason += `（候補1〜${index}は利用不可）`;
+    reason = `${TIER_LABEL[tier]}のため手動設定候補（${chosen.modelID}${variant ? ` / ${variant}` : ""}）を採用しました`;
   } else {
     reason = `${TIER_LABEL[tier]}のため${autoOptimizeModeLabel(mode)}で選択しました`;
   }
@@ -867,15 +893,13 @@ function buildDecision(
   if (fromConfig && index >= 0) decision.candidateIndex = index;
   if (resolution.usedPreset) decision.usedPreset = true;
 
-  const escalationCandidates =
-    fromConfig && index >= 0 ? candidates.slice(index + 1) : [];
   let escalation: Candidate | undefined;
   let escalationVariant: AutoVariant | "" = "";
-  if (escalationCandidates.length > 0) {
-    const next = firstResolvable(pool, escalationCandidates, usage);
+  if (fromConfig && index >= 0) {
+    const next = lowestUsageResolvable(pool, candidates, usage, index);
     if (next) {
       escalation = next.chosen;
-      const candidate = escalationCandidates[next.index];
+      const candidate = candidates[next.index];
       escalationVariant = candidate
         ? resolveCandidateVariant(escalation.model, candidate, fallbackOrder)
         : "";
@@ -948,7 +972,9 @@ export function chooseAutoModel(input: {
     ? effective.candidates
     : preset.candidates;
   const fallbackOrder = effective.variantFallbackOrder ?? preset.variantFallbackOrder ?? [];
-  const first = firstResolvable(pool, candidates, input.usage);
+  const first = configuredCandidates
+    ? lowestUsageResolvable(pool, candidates, input.usage)
+    : firstResolvable(pool, candidates, input.usage);
 
   if (first) {
     const candidate = candidates[first.index]!;
