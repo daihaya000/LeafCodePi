@@ -749,7 +749,7 @@ export function buildGoalPrompt(loop: GoalLoop, turn: number): string {
   if (loop.forceFullRun) {
     return `${common}\n\nYou are running in LeafCode full-run mode. Never declare the goal complete. The host will ${max === 0 ? "continue until you pause or stop it" : `run exactly ${max} goal turns`}. A completion claim is treated as progress.${jsonInstructions("progress, blocked")}`;
   }
-  return `${common}\n\nNormal mode: the turn budget is a ceiling, not a target. Once the goal and all acceptance criteria are satisfied, stop immediately; do not add cleanup, refactoring, polish, or speculative work. A completion claim is independently verified by the host.${jsonInstructions("progress, completed, blocked")}`;
+  return `${common}\n\nNormal mode: the turn budget is a ceiling, not a target. Once the goal and all acceptance criteria are satisfied, stop immediately; do not add cleanup, refactoring, polish, or speculative work. Report completed only with concrete evidence; the host independently verifies it.${jsonInstructions("progress, completed, blocked")}`;
 }
 
 export function buildGoalContinuationPrompt(loop: GoalLoop, turn: number): string {

@@ -69,7 +69,7 @@ test("normal prompts stop at the first verified completion", () => {
 
   assert.match(prompt, /turn budget is a ceiling, not a target/);
   assert.match(prompt, /do not add cleanup, refactoring, polish, or speculative work/);
-  assert.match(prompt, /independently verified by the host/);
+  assert.match(prompt, /Report completed only with concrete evidence/);
   assert.match(continuation, /stop now and report completed/);
   assert.match(verification, /Do not make unrelated cleanup, refactoring, polish, or speculative changes/);
 
