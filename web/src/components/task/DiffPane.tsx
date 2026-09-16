@@ -375,6 +375,7 @@ export function DiffPane({
   }, [payload, filter]);
 
   const hasChanges = files.length > 0;
+  const hiddenByFilter = (payload?.files.length ?? 0) - files.length;
   const selectedFiles = useMemo(
     () => files.filter((f) => !deselected[f.path]),
     [files, deselected],
@@ -677,70 +678,77 @@ export function DiffPane({
 
       {/* Inline action panels */}
       {panel === "commit" && (
-        <div className="flex shrink-0 flex-col gap-2 border-b border-border bg-surface px-3 py-2 sm:flex-row sm:items-center">
-          <input
-            value={commitMsg}
-            onChange={(e) => setCommitMsg(e.target.value)}
-            disabled={generatingCommitMessage || busy}
-            aria-label="コミットメッセージ"
-            placeholder="コミットメッセージ"
-            className="h-9 min-w-0 flex-1 rounded-lg border border-border bg-bg px-3 text-sm outline-none focus:border-border-strong"
-            onKeyDown={(e) => {
-              if (e.nativeEvent.isComposing || e.keyCode === 229) return;
-              if (
-                e.key === "Enter" &&
-                commitMsg.trim() &&
-                selectedPaths.length > 0 &&
-                payload
-              ) {
-                void commit();
-              }
-            }}
-          />
-          <Button
-            variant="ghost"
-            size="md"
-            className="w-full shrink-0 sm:w-auto"
-            busy={generatingCommitMessage}
-            disabled={busy || selectedPaths.length === 0}
-            title="選択したファイルからメッセージ案を生成"
-            onClick={async () => {
-              if (generatingCommitMessage || busy) return;
-              const selectedFiles = files.filter((f) => !deselected[f.path]);
-              setGeneratingCommitMessage(true);
-              setError(null);
-              try {
-                const result = await sendJson<{ message: string; warning?: string; model?: unknown }>(
-                  "/api/git/commit-message",
-                  { directory, files: selectedFiles, ...(model ? { model } : {}) },
-                  "POST",
-                );
-                setCommitMsg(result.message);
-                setError(result.warning ?? null);
-              } catch (error) {
-                setCommitMsg(
-                  suggestCommitMessage(
-                    selectedFiles.map((f) => ({ path: f.path, untracked: f.untracked })),
-                  ),
-                );
-                setError(error instanceof Error ? error.message : "コミットメッセージの生成に失敗しました");
-              } finally {
-                if (mountedRef.current) setGeneratingCommitMessage(false);
-              }
-            }}
-          >
-            {generatingCommitMessage ? "生成中…" : "生成"}
-          </Button>
-          <Button
-            variant="primary"
-            size="md"
-            className="w-full shrink-0 sm:w-auto"
-            busy={busy}
-            disabled={generatingCommitMessage || !commitMsg.trim() || selectedPaths.length === 0}
-            onClick={() => void commit()}
-          >
-            コミット ({selectedPaths.length})
-          </Button>
+        <div className="flex shrink-0 flex-col gap-2 border-b border-border bg-surface px-3 py-2">
+          {hiddenByFilter > 0 && (
+            <p className="text-[11px] text-faint" role="note">
+              表示中の {files.length} 件のみが対象です。フィルターで隠れている {hiddenByFilter} 件はコミットに含まれません。
+            </p>
+          )}
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+            <input
+              value={commitMsg}
+              onChange={(e) => setCommitMsg(e.target.value)}
+              disabled={generatingCommitMessage || busy}
+              aria-label="コミットメッセージ"
+              placeholder="コミットメッセージ"
+              className="h-9 min-w-0 flex-1 rounded-lg border border-border bg-bg px-3 text-sm outline-none focus:border-border-strong"
+              onKeyDown={(e) => {
+                if (e.nativeEvent.isComposing || e.keyCode === 229) return;
+                if (
+                  e.key === "Enter" &&
+                  commitMsg.trim() &&
+                  selectedPaths.length > 0 &&
+                  payload
+                ) {
+                  void commit();
+                }
+              }}
+            />
+            <Button
+              variant="ghost"
+              size="md"
+              className="w-full shrink-0 sm:w-auto"
+              busy={generatingCommitMessage}
+              disabled={busy || selectedPaths.length === 0}
+              title="選択したファイルからメッセージ案を生成"
+              onClick={async () => {
+                if (generatingCommitMessage || busy) return;
+                const selectedFiles = files.filter((f) => !deselected[f.path]);
+                setGeneratingCommitMessage(true);
+                setError(null);
+                try {
+                  const result = await sendJson<{ message: string; warning?: string; model?: unknown }>(
+                    "/api/git/commit-message",
+                    { directory, files: selectedFiles, ...(model ? { model } : {}) },
+                    "POST",
+                  );
+                  setCommitMsg(result.message);
+                  setError(result.warning ?? null);
+                } catch (error) {
+                  setCommitMsg(
+                    suggestCommitMessage(
+                      selectedFiles.map((f) => ({ path: f.path, untracked: f.untracked })),
+                    ),
+                  );
+                  setError(error instanceof Error ? error.message : "コミットメッセージの生成に失敗しました");
+                } finally {
+                  if (mountedRef.current) setGeneratingCommitMessage(false);
+                }
+              }}
+            >
+              {generatingCommitMessage ? "生成中…" : "生成"}
+            </Button>
+            <Button
+              variant="primary"
+              size="md"
+              className="w-full shrink-0 sm:w-auto"
+              busy={busy}
+              disabled={generatingCommitMessage || !commitMsg.trim() || selectedPaths.length === 0}
+              onClick={() => void commit()}
+            >
+              コミット ({selectedPaths.length})
+            </Button>
+          </div>
         </div>
       )}
       {panel === "merge" && (
