@@ -45,8 +45,8 @@ beforeEach(() => {
 afterEach(cleanup);
 
 async function openPicker() {
-  fireEvent.click(screen.getByRole("button", { name: "プロジェクトのファイルを選択" }));
-  await screen.findByRole("dialog", { name: "プロジェクトのファイルを選択" });
+  fireEvent.click(screen.getByRole("button", { name: "プロジェクトのファイルを明示" }));
+  await screen.findByRole("dialog", { name: "プロジェクトのファイルを明示" });
 }
 
 describe("ProjectFilePicker", () => {
@@ -95,7 +95,7 @@ describe("ProjectFilePicker", () => {
     render(<ProjectFilePicker projectId="p1" attachments={[]} onPick={vi.fn()} disabled />);
 
     const trigger = screen.getByRole("button", {
-      name: "プロジェクトのファイルを選択",
+      name: "プロジェクトのファイルを明示",
     }) as HTMLButtonElement;
     expect(trigger.disabled).toBe(true);
   });
@@ -126,9 +126,9 @@ describe("ProjectFilePicker", () => {
 
   it("moves focus into the dialog and back to the trigger", async () => {
     render(<ProjectFilePicker projectId="p1" attachments={[]} onPick={vi.fn()} />);
-    const trigger = screen.getByRole("button", { name: "プロジェクトのファイルを選択" });
+    const trigger = screen.getByRole("button", { name: "プロジェクトのファイルを明示" });
     fireEvent.click(trigger);
-    await screen.findByRole("dialog", { name: "プロジェクトのファイルを選択" });
+    await screen.findByRole("dialog", { name: "プロジェクトのファイルを明示" });
 
     const closeButton = screen.getAllByRole("button", { name: "閉じる" })[0];
     await waitFor(() => expect(document.activeElement).toBe(closeButton));

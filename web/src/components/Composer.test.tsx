@@ -483,7 +483,7 @@ describe("Composer", () => {
             onFilesSelected: () => {},
             onTrigger: () => {},
             extra: (
-              <button type="button" aria-label="プロジェクトのファイルを選択">
+              <button type="button" aria-label="プロジェクトのファイルを明示">
                 P
               </button>
             ),
@@ -496,6 +496,6 @@ describe("Composer", () => {
 
     render(<ExtraComposer />);
     expect(screen.getByRole("button", { name: "画像を添付" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "プロジェクトのファイルを選択" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "プロジェクトのファイルを明示" })).toBeTruthy();
   });
 });

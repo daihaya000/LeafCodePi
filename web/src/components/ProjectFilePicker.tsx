@@ -55,7 +55,7 @@ export function ProjectFilePicker({
   const titleId = useId();
 
   const scopedToProject = Boolean(projectId);
-  const title = scopedToProject ? "プロジェクトのファイルを選択" : "作業フォルダーのファイルを選択";
+  const title = scopedToProject ? "プロジェクトのファイルを明示" : "作業フォルダーのファイルを選択";
   const endpoint = projectId
     ? `/api/projects/${encodeURIComponent(projectId)}/files`
     : taskId
