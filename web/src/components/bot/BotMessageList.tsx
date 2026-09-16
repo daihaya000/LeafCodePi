@@ -67,7 +67,8 @@ function InternalTaskLink({ href, ...props }: AnchorHTMLAttributes<HTMLAnchorEle
     taskProjectIdRef.current = null;
     setProject(null);
     const applyProjects = (projects: ProjectIconData[] | null) => {
-      const nextProject = projects?.find((item) => item.id === taskProjectIdRef.current);
+      if (!projects) return;
+      const nextProject = projects.find((item) => item.id === taskProjectIdRef.current);
       setProject(nextProject ?? null);
     };
     void Promise.all([fetchTaskSummary(taskId), fetchProjectList()]).then(([nextTask, projects]) => {

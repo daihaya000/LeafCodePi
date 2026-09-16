@@ -180,6 +180,25 @@ it("refreshes internal task links after project icon changes", async () => {
   await waitFor(() => expect(taskLink.querySelector("img")?.getAttribute("src")).toBe(project.icon));
 });
 
+it("keeps the current project icon when a refresh fails", async () => {
+  let refreshFails = false;
+  const fetchMock = vi.fn((url: string) => Promise.resolve({
+    ok: !(refreshFails && url.startsWith("/api/projects")),
+    json: async () => url.startsWith("/api/tasks/")
+      ? { task: { id: "task-123", title: "Fix login", projectId: "project" } }
+      : { projects: [{ id: "project", name: "App", icon: "/icon.png", iconColor: "red" }] },
+  }));
+  vi.stubGlobal("fetch", fetchMock);
+  const { findByRole } = render(<BotMessageMarkdown text="[/task/task-123](/task/task-123)" />);
+  const taskLink = await findByRole("link", { name: "Fix login" });
+  expect(taskLink.querySelector("img")?.getAttribute("src")).toBe("/icon.png");
+
+  refreshFails = true;
+  window.dispatchEvent(new Event("webui:tasks-changed"));
+  await waitFor(() => expect(fetchMock.mock.calls.filter(([url]) => url === "/api/projects").length).toBe(2));
+  await waitFor(() => expect(taskLink.querySelector("img")?.getAttribute("src")).toBe("/icon.png"));
+});
+
 it("places image attachments below the message text", () => {
   const { container } = render(<BotChatMessage
     user
