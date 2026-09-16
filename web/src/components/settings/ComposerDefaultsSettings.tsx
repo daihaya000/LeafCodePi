@@ -193,9 +193,9 @@ export function ComposerDefaultsSettings({ refreshToken = 0 }: { refreshToken?: 
 type PromptPresetDraft = Pick<ComposerPromptPreset, "name" | "prompt">;
 
 const EMPTY_PROMPT_PRESET_DRAFT: PromptPresetDraft = { name: "", prompt: "" };
-const INVALID_PROMPT_PRESET_NAME = /[\s/@]/;
+const INVALID_PROMPT_PRESET_NAME = /[\s/@#]/;
 
-/** Manage the reusable `/prompt:name` snippets shown by every composer. */
+/** Manage the reusable `#prompt:name` snippets shown by every composer. */
 export function ComposerPromptPresetsSettings() {
   const [presets, setPresets] = useState<ComposerPromptPreset[]>(() => readComposerPromptPresets());
   const [draft, setDraft] = useState<PromptPresetDraft>(EMPTY_PROMPT_PRESET_DRAFT);
@@ -257,7 +257,7 @@ export function ComposerPromptPresetsSettings() {
       return;
     }
     if (name.length > MAX_COMPOSER_PROMPT_PRESET_NAME_CHARS || INVALID_PROMPT_PRESET_NAME.test(name)) {
-      setError("プリセット名は空白・@・/を含めず、32文字以内で入力してください");
+      setError("プリセット名は空白・@・#・/を含めず、32文字以内で入力してください");
       return;
     }
     if (!prompt) {
@@ -306,7 +306,7 @@ export function ComposerPromptPresetsSettings() {
       <div className="flex items-start justify-between gap-3">
         <div>
           <h3 id="composer-prompt-presets-heading" className="text-sm font-semibold">送信プロンプト</h3>
-          <p className="mt-1 text-xs text-muted">よく使う指示を保存して、入力欄で <code className="rounded bg-surface-2 px-1">/prompt:名前</code> と入力すると候補から呼び出せます。</p>
+          <p className="mt-1 text-xs text-muted">よく使う指示を保存して、入力欄で <code className="rounded bg-surface-2 px-1">#prompt:名前</code> と入力すると候補から呼び出せます。</p>
         </div>
         {!formOpen && (
           <button

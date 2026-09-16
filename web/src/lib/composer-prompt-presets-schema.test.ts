@@ -12,6 +12,7 @@ describe("composer prompt presets schema", () => {
       { name: " review ", prompt: "  変更を確認  " },
       { name: "REVIEW", prompt: "別の本文" },
       { name: "bad/name", prompt: "本文" },
+      { name: "bad#name", prompt: "本文" },
       { name: "空", prompt: "   " },
     ])).toEqual([{ name: "review", prompt: "変更を確認" }]);
   });
@@ -28,7 +29,8 @@ describe("composer prompt presets schema", () => {
 
   it("expands known tokens while leaving paths and unknown names untouched", () => {
     const presets = [{ name: "review", prompt: "変更をレビューしてください" }];
-    expect(expandComposerPromptPresets("/prompt:review と /prompt:unknown /tmp/file", presets))
-      .toBe("変更をレビューしてください と /prompt:unknown /tmp/file");
+    expect(expandComposerPromptPresets("#prompt:review と #prompt:unknown /tmp/file", presets))
+      .toBe("変更をレビューしてください と #prompt:unknown /tmp/file");
+    expect(expandComposerPromptPresets("/prompt:review", presets)).toBe("/prompt:review");
   });
 });

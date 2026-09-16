@@ -30,18 +30,18 @@ export type ComposerReferenceToken = {
   end: number;
 };
 
-/** 後退ループ用: 空白・/・@ 以外は参照名の一部として扱う（日本語クエリ対応）。 */
-const NON_REFERENCE = /[\s/\u0040]/;
+/** 後退ループ用: 空白・/・#・@ 以外は参照名の一部として扱う（日本語クエリ対応）。 */
+const NON_REFERENCE = /[\s/#\u0040]/;
 
-/** Return the slash/at token immediately before the caret, when it is a reference. */
+/** Return the slash/at/hash token immediately before the caret, when it is a reference. */
 export function findComposerReferenceToken(value: string, caret: number): ComposerReferenceToken | null {
   const safeCaret = Math.max(0, Math.min(value.length, caret));
   let start = safeCaret - 1;
-  // 日本語等の非 ASCII クエリも後退できるよう、非参照文字（空白・/・@）まで
+  // 日本語等の非 ASCII クエリも後退できるよう、非参照文字（空白・/・#・@）まで
   // 戻る。かな・漢字・絵文字も参照名の一部として扱う。
   while (start >= 0 && !NON_REFERENCE.test(value[start] ?? "")) start -= 1;
   const trigger = value[start];
-  if (trigger !== "/" && trigger !== "@") return null;
+  if (trigger !== "/" && trigger !== "@" && trigger !== "#") return null;
   if (start > 0 && !/\s/.test(value[start - 1] ?? "")) {
     // 単語境界チェックは ASCII 前提（メールアドレス・パス等の誤検出防止）。
     // 日本語等の非 ASCII 直後は単語境界の概念がないため参照開始として許可する。
@@ -50,16 +50,16 @@ export function findComposerReferenceToken(value: string, caret: number): Compos
 
   const raw = value.slice(start, safeCaret);
   const typedQuery = raw.slice(1);
-  let kind: ComposerReferenceKind = trigger === "/" ? "skill" : "agent";
+  const kind: ComposerReferenceKind = trigger === "/" ? "skill" : trigger === "#" ? "prompt" : "agent";
   let query = typedQuery;
   if (trigger === "/") {
     const lowered = typedQuery.toLocaleLowerCase();
     if (lowered.startsWith("skill:")) {
       query = typedQuery.slice("skill:".length);
-    } else if (lowered.startsWith("prompt:")) {
-      kind = "prompt";
-      query = typedQuery.slice("prompt:".length);
     }
+  } else if (trigger === "#") {
+    const lowered = typedQuery.toLocaleLowerCase();
+    if (lowered.startsWith("prompt:")) query = typedQuery.slice("prompt:".length);
   }
   return {
     kind,
@@ -70,7 +70,7 @@ export function findComposerReferenceToken(value: string, caret: number): Compos
   };
 }
 
-/** Match references like LeafCode's fuzzy slash/at completion list. */
+/** Match references like LeafCode's fuzzy slash/at/hash completion list. */
 export function filterComposerReferences(
   references: readonly ComposerReference[],
   query: string,
@@ -101,7 +101,7 @@ export function filterComposerReferences(
 
 export function composerReferenceValue(kind: ComposerReferenceKind, name: string): string {
   if (kind === "skill") return `/skill:${name}`;
-  if (kind === "prompt") return `/prompt:${name}`;
+  if (kind === "prompt") return `#prompt:${name}`;
   return `@${name}`;
 }
 
@@ -117,7 +117,7 @@ export function composerReferenceInsertion(
 ): string {
   if (token.kind === "agent") return `@${name} `;
   if (token.kind === "prompt") {
-    const replacement = insertText?.trim() || `/prompt:${name}`;
+    const replacement = insertText?.trim() || `#prompt:${name}`;
     return `${replacement}${/\s$/.test(replacement) ? "" : " "}`;
   }
   return token.raw.toLocaleLowerCase().startsWith("/skill:")

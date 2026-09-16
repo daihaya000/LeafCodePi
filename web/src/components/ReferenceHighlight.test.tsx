@@ -22,6 +22,18 @@ describe("ReferenceHighlight", () => {
     expect(view.container.textContent).toBe("@debugger 呼び出しテスト /skill:bug-hunt");
   });
 
+  it("highlights known prompt preset references", () => {
+    const view = render(
+      <ReferenceHighlight
+        text="#prompt:review"
+        references={{ agents: [], skills: [], prompts: [{ name: "review" }] }}
+      />,
+    );
+
+    expect(view.container.querySelector(".text-accent")?.textContent).toBe("#prompt:review");
+    expect(view.container.textContent).toBe("#prompt:review");
+  });
+
   it("leaves unknown references unstyled", () => {
     const view = render(
       <ReferenceHighlight

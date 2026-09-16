@@ -1,5 +1,5 @@
 export type ComposerPromptPreset = {
-  /** Candidate label and the token part used after `/prompt:`. */
+  /** Candidate label and the token part used after `#prompt:`. */
   name: string;
   /** Text inserted into the composer when the preset is selected. */
   prompt: string;
@@ -12,7 +12,7 @@ export const MAX_COMPOSER_PROMPT_PRESET_PROMPT_CHARS = 1200;
 /** Keep the JSON below the shared settings endpoint's 4 KiB limit. */
 export const MAX_COMPOSER_PROMPT_PRESETS_VALUE_CHARS = 4096;
 
-const INVALID_PRESET_NAME = /[\s/@]/;
+const INVALID_PRESET_NAME = /[\s/@#]/;
 
 function asPreset(value: unknown): ComposerPromptPreset | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
@@ -66,7 +66,7 @@ export function parseComposerPromptPresets(raw: string): ComposerPromptPreset[] 
   }
 }
 
-/** Expand a manually typed `/prompt:name` token before sending as a normal prompt. */
+/** Expand a manually typed `#prompt:name` token before sending as a normal prompt. */
 export function expandComposerPromptPresets(
   value: string,
   presets: ReadonlyArray<Pick<ComposerPromptPreset, "name"> & { prompt?: string; insertText?: string }>,
@@ -78,7 +78,7 @@ export function expandComposerPromptPresets(
       return prompt === undefined ? [] : [[preset.name.toLocaleLowerCase(), prompt] as const];
     }),
   );
-  return value.replace(/(^|\s)\/prompt:([^\s/@]+)/gi, (match, boundary: string, name: string) => {
+  return value.replace(/(^|\s)#prompt:([^\s#/@]+)/gi, (match, boundary: string, name: string) => {
     const prompt = byName.get(name.toLocaleLowerCase());
     return prompt === undefined ? match : `${boundary}${prompt}`;
   });

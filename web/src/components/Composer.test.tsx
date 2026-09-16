@@ -537,7 +537,7 @@ describe("Composer", () => {
     render(<PresetComposer />);
     const textarea = screen.getByRole("textbox") as HTMLTextAreaElement;
     textarea.focus();
-    fireEvent.change(textarea, { target: { value: "/prompt:rev", selectionStart: 11 } });
+    fireEvent.change(textarea, { target: { value: "#prompt:rev", selectionStart: 11 } });
     expect(screen.getByRole("listbox", { name: "送信プロンプト候補" })).toBeTruthy();
     fireEvent.keyDown(textarea, { key: "Enter" });
     expect(textarea.value).toBe("変更をレビューしてください ");
