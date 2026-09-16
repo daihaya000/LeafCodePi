@@ -542,14 +542,15 @@ function ProviderRow({
       >
         {!hideIcon && <ProviderIcon p={p} tone={showErrorOnly ? "danger" : tone} />}
         <span
-          className="min-w-0 flex-1 truncate font-semibold text-text"
-          title={label}
+          className="min-w-0 flex-auto truncate font-semibold text-text"
+          title={accountLabel ? `${label}（${accountLabel}）` : label}
         >
           {label}
         </span>
-        {accountLabel && (
+        {/* 2列の狭いカードではサービス名を優先し、アカウント名は title に退避する。 */}
+        {accountLabel && !compact && (
           <span
-            className="min-w-0 max-w-[40%] flex-none truncate text-[10px] text-muted"
+            className="min-w-0 max-w-[40%] flex-initial truncate text-[10px] text-muted"
             title={`アカウント: ${accountLabel}`}
           >
             {accountLabel}

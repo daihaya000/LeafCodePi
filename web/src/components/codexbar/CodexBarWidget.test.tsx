@@ -152,6 +152,7 @@ describe("CodexBarWidget", () => {
 
   it("flattens a provider with one account into a single row", async () => {
     localStorage.setItem("webui:codexbar:collapsed", "0");
+    localStorage.setItem("webui:codexbar:layout", "1");
     useCodexUsage.mockReturnValue({
       usage: {
         ...accountUsage,
@@ -168,13 +169,34 @@ describe("CodexBarWidget", () => {
 
     const accountLabel = await screen.findByText("仕事用");
     const serviceLabel = screen.getByText("Codex");
-    expect(serviceLabel.className).toContain("flex-1");
-    expect(accountLabel.className).toContain("flex-none");
+    expect(serviceLabel.className).toContain("flex-auto");
+    expect(accountLabel.className).toContain("flex-initial");
     expect(accountLabel.className).toContain("max-w-[40%]");
     expect(accountLabel.closest("button")?.className).toContain("min-w-0");
     expect(accountLabel.closest("button")?.textContent).toContain("Codex");
     expect(accountLabel.closest("li")?.querySelector("ul")).toBeNull();
     expect(screen.getAllByRole("list")).toHaveLength(1);
+  });
+
+  it("hides the account name in the narrow two-column card and keeps it in the title", async () => {
+    localStorage.setItem("webui:codexbar:collapsed", "0");
+    useCodexUsage.mockReturnValue({
+      usage: {
+        ...accountUsage,
+        accounts: accountUsage.accounts?.slice(0, 1),
+        providers: accountUsage.providers.slice(0, 1),
+      },
+      loadError: null,
+      refreshing: false,
+      refresh: vi.fn().mockResolvedValue(undefined),
+      now: Date.now(),
+    });
+
+    render(<CodexBarWidget />);
+
+    const serviceLabel = await screen.findByText("Codex");
+    expect(serviceLabel.title).toBe("Codex（仕事用）");
+    expect(screen.queryByText("仕事用")).toBeNull();
   });
 
   it("keeps the saved expanded view compact with two columns and inline update status", async () => {
