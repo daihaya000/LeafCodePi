@@ -94,6 +94,19 @@ describe("/api/accounts/[id]/anthropic-baseline", () => {
       assert.equal(invalid.status, 400);
     }
 
+    // 文字列・真偽値・配列は数値として受理しない
+    for (const baselineUsd of ["100", true, [100], null]) {
+      const invalidType = await POST(
+        request(
+          `http://localhost/api/accounts/${anthropic.id}/anthropic-baseline`,
+          "POST",
+          { baselineUsd },
+        ),
+        context(anthropic.id),
+      );
+      assert.equal(invalidType.status, 400);
+    }
+
     const missingBody = await POST(
       request(
         `http://localhost/api/accounts/${anthropic.id}/anthropic-baseline`,

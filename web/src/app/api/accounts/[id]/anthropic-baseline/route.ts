@@ -34,8 +34,13 @@ export async function POST(req: NextRequest, context: Context) {
   try {
     requireAnthropicAccount(id);
     const body = (await req.json().catch(() => null)) as Record<string, unknown> | null;
-    const baselineUsd = Number(body?.baselineUsd);
-    if (!Number.isFinite(baselineUsd) || baselineUsd <= 0) {
+    // 文字列や真偽値を USD として受け付けない（`Number(true)` = 1 等の偶発的な受理を防ぐ）。
+    const baselineUsd = body?.baselineUsd;
+    if (
+      typeof baselineUsd !== "number" ||
+      !Number.isFinite(baselineUsd) ||
+      baselineUsd <= 0
+    ) {
       return NextResponse.json(
         { error: "baselineUsd は 0 より大きい数値で指定してください" },
         { status: 400 },

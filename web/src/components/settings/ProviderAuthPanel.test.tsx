@@ -1154,6 +1154,22 @@ describe("ProviderAuthPanel provider-scoped accounts", () => {
       expect(post).toBeTruthy();
       expect(JSON.parse(String(post?.[1]?.body))).toEqual({ baselineUsd: 50 });
     });
+
+    // 解除は DELETE を送る
+    fireEvent.click(
+      within(anthropic).getByRole("button", {
+        name: `${anthropicAccount.label} の基準残高を解除`,
+      }),
+    );
+    await waitFor(() => {
+      const del = fetchMock.mock.calls.find(
+        ([input2, init]) =>
+          new URL(String(input2), "http://localhost").pathname ===
+            `/api/accounts/${anthropicAccount.id}/anthropic-baseline` &&
+          init?.method === "DELETE",
+      );
+      expect(del).toBeTruthy();
+    });
   });
 
   it("surfaces a closed login EventSource as a failed login", async () => {
