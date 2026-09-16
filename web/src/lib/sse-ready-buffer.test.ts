@@ -50,6 +50,18 @@ describe("sse-ready-buffer", () => {
     ).toBe(true);
   });
 
+  it("ignores projected message and part ids when snapshot content is unchanged", () => {
+    const ready = rankMessageList([
+      { id: "entry-tip", createdAt: 5, role: "assistant", parts: [{ id: "entry-part", type: "text", text: "same" }] },
+    ]);
+    const projected = {
+      type: "snapshot",
+      messages: [{ id: "msg-2", createdAt: 5, role: "assistant", parts: [{ id: "msg-2-part", type: "text", text: "same" }] }],
+    };
+    expect(shouldFlushPendingAfterReady(projected, ready)).toBe(false);
+    expect(isFresherMessageList(rankMessageList(projected.messages), ready)).toBe(false);
+  });
+
   it("does not let a part-less message_start placeholder supersede a ready tip", () => {
     // 実稼働SSEの実測値: agent_settled の tip は永続id eba10dc7(part=msg-22-text-0)、
     // message_start の tip は part を持たない streaming id msg-22。createdAt は同一。

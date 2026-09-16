@@ -59,6 +59,25 @@ describe("/api/tasks/[id]/events", () => {
     mocks.subscribeTask.mockReset();
   });
 
+  it("unsubscribes when the request is already aborted before task subscription", async () => {
+    const bootstrap = task({ messages: [], isStreaming: false, status: "idle" });
+    const unsubscribe = vi.fn();
+    const request = new AbortController();
+    request.abort();
+    mocks.getTaskBootstrap.mockReturnValue(bootstrap);
+    mocks.subscribeTask.mockReturnValue(unsubscribe);
+
+    const response = await GET(
+      new NextRequest("http://127.0.0.1:3010/api/tasks/task-1/events", { signal: request.signal }),
+      { params: Promise.resolve({ id: "task-1" }) },
+    );
+    await response.body?.cancel();
+
+    expect(mocks.subscribeTask).toHaveBeenCalledOnce();
+    expect(unsubscribe).toHaveBeenCalledOnce();
+    expect(mocks.getTaskDetail).not.toHaveBeenCalled();
+  });
+
   it("buffers live deltas until the ready snapshot is sent", async () => {
     const bootstrap = task({ messages: [], isStreaming: true });
     const detail = task({

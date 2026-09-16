@@ -93,6 +93,12 @@ export async function GET(
           }
           sse?.send(safePayload.type === "delta" ? "delta" : "snapshot", safePayload);
         });
+        // createSseWriter closes immediately for an already-aborted request, so
+        // its earlier cleanup callback cannot see this newly-created subscription.
+        if (sse.closed) {
+          unsubscribe();
+          return;
+        }
         sse.send("snapshot", {
           type: "snapshot",
           task: bootstrap,

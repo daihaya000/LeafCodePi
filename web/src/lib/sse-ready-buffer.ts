@@ -17,6 +17,15 @@ function messageContentKey(message: unknown): string {
   const content = { ...(message as Record<string, unknown>) };
   delete content.id;
   delete content.createdAt;
+  if (Array.isArray(content.parts)) {
+    // Message/part ids are projection keys and can change between live and persisted SSE payloads.
+    content.parts = content.parts.map((part) => {
+      if (!part || typeof part !== "object" || Array.isArray(part)) return part;
+      const normalized = { ...(part as Record<string, unknown>) };
+      delete normalized.id;
+      return normalized;
+    });
+  }
   return JSON.stringify(content) ?? "";
 }
 
