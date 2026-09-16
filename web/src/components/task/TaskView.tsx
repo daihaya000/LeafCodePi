@@ -40,6 +40,7 @@ import { useBotFor } from "@/components/shell/TaskPanesContext";
 import { NextAction } from "@/components/task/NextAction";
 import { GraphPanel } from "@/components/task/GraphPanel";
 import { ProjectExplorerButton } from "@/components/task/ProjectExplorerButton";
+import { ProjectFilePicker } from "@/components/ProjectFilePicker";
 import { TodoProgressPanel } from "@/components/task/TodoProgressPanel";
 import { ModelSelect, modelOptionForValue } from "@/components/ModelSelect";
 import { ThinkingSelect } from "@/components/ThinkingSelect";
@@ -3957,6 +3958,15 @@ export const TaskView = memo(function TaskView({
             buttonTitle: "ファイルを添付",
             onFilesSelected: addFiles,
             onTrigger: () => fileInputRef.current?.click(),
+            extra: (
+              <ProjectFilePicker
+                projectId={task?.projectId}
+                taskId={task?.id}
+                disabled={!canAttachComposerImages({ goalLoopEnabled, compacting, archived })}
+                attachments={attachments}
+                onPick={(attachment) => setAttachments((current) => [...current, attachment])}
+              />
+            ),
           }}
           settingsGroups={[
             {

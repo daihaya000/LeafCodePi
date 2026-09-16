@@ -4,6 +4,7 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowUp, FolderGit2 } from "lucide-react";
 import { AddProjectButton } from "@/components/AddProjectButton";
+import { ProjectFilePicker } from "@/components/ProjectFilePicker";
 import { AgentSelect } from "@/components/AgentSelect";
 import { AutoOptimizeSelect } from "@/components/AutoOptimizeSelect";
 import {
@@ -582,6 +583,16 @@ export const HomeView = memo(function HomeView({
                 buttonTitle: "ファイルを添付",
                 onFilesSelected: addFiles,
                 onTrigger: () => fileInputRef.current?.click(),
+                extra: projectId ? (
+                  <ProjectFilePicker
+                    projectId={projectId}
+                    disabled={!canAttachComposerImages({ goalLoopEnabled, submitting })}
+                    attachments={attachments}
+                    onPick={(attachment) =>
+                      setAttachments((current) => [...current, attachment])
+                    }
+                  />
+                ) : null,
               }}
               settingsGroups={[
                 {

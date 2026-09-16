@@ -233,6 +233,8 @@ type ComposerProps = {
     buttonTitle: string;
     onFilesSelected: (files: FileList) => void;
     onTrigger: () => void;
+    /** 追加の添付手段（プロジェクトファイル選択など）。紙クリップの隣に表示する。 */
+    extra?: ReactNode;
   };
   toolbar?: ReactNode;
   settingsGroups?: readonly ComposerSettingsGroup[];
@@ -586,6 +588,7 @@ export function Composer({
             >
               <Paperclip className="h-4 w-4" />
             </button>
+            {attachmentControl.extra}
             {inlineToolbar}
           </div>
         </div>

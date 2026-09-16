@@ -457,4 +457,45 @@ describe("Composer", () => {
     fireEvent.keyDown(textarea, { key: "Enter" });
     expect(textarea.value).toBe("/skill:review ");
   });
+
+  it("renders an extra attachment control beside the paperclip", () => {
+    function ExtraComposer() {
+      const textareaRef = useRef<HTMLTextAreaElement>(null);
+      const inputRef = useRef<HTMLInputElement>(null);
+      return (
+        <Composer
+          className=""
+          attachments={[]}
+          onRemoveAttachment={() => {}}
+          textarea={{
+            ref: textareaRef,
+            value: "",
+            rows: 1,
+            ariaLabel: "メッセージ",
+            placeholder: "入力",
+            className: "",
+            onChange: () => {},
+            onKeyDown: () => {},
+          }}
+          attachmentControl={{
+            inputRef,
+            buttonTitle: "画像を添付",
+            onFilesSelected: () => {},
+            onTrigger: () => {},
+            extra: (
+              <button type="button" aria-label="プロジェクトのファイルを選択">
+                P
+              </button>
+            ),
+          }}
+          toolbar={null}
+          action={null}
+        />
+      );
+    }
+
+    render(<ExtraComposer />);
+    expect(screen.getByRole("button", { name: "画像を添付" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "プロジェクトのファイルを選択" })).toBeTruthy();
+  });
 });
