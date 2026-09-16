@@ -97,8 +97,13 @@ const FileDiffBlock = memo(function FileDiffBlock({
   let rendered = 0;
 
   return (
-    <div className="min-w-0 overflow-hidden rounded-xl border border-border bg-surface">
-      <div className="flex w-full min-w-0 items-start gap-2 px-2.5 py-2">
+    <div className="min-w-0 rounded-xl border border-border bg-surface">
+      <div
+        className={cx(
+          "sticky top-0 z-10 flex w-full min-w-0 items-start gap-2 rounded-t-xl bg-surface px-2.5 py-2",
+          !hasDiffRegion && "rounded-b-xl",
+        )}
+      >
         <input
           type="checkbox"
           checked={selected}
@@ -174,7 +179,7 @@ const FileDiffBlock = memo(function FileDiffBlock({
           role="region"
           aria-label={`${file.path} の差分`}
           tabIndex={0}
-          className="overflow-x-auto border-t border-border font-mono text-xs leading-5"
+          className="overflow-x-auto rounded-b-xl border-t border-border font-mono text-xs leading-5"
         >
           {file.hunks.map((hunk, hi) => (
             <div key={hi}>
