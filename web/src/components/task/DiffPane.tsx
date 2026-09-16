@@ -1,6 +1,6 @@
 "use client";
 
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import {
   ChevronRight,
   ChevronsDownUp,
@@ -85,7 +85,7 @@ const FileDiffBlock = memo(function FileDiffBlock({
     ? file.path.slice(0, file.path.lastIndexOf("/") + 1)
     : "";
   const base = file.path.slice(dir.length);
-  const domId = file.path.replace(/[^a-zA-Z0-9_-]/g, "-");
+  const uid = useId();
   const hasDiffRegion = expanded && !file.binary && file.hunks.length > 0;
   const [showAll, setShowAll] = useState(false);
   const totalVisibleLines = file.hunks.reduce(
@@ -115,10 +115,10 @@ const FileDiffBlock = memo(function FileDiffBlock({
         <div className="min-w-0 flex-1">
           <button
             type="button"
-            id={`diff-toggle-${domId}`}
+            id={`diff-toggle-${uid}`}
             onClick={() => onToggle(file.path)}
             aria-expanded={expanded}
-            aria-controls={hasDiffRegion ? `diff-region-${domId}` : undefined}
+            aria-controls={hasDiffRegion ? `diff-region-${uid}` : undefined}
             aria-label={`${file.path} の差分を${expanded ? "折りたたむ" : "展開"}`}
             className="flex w-full min-w-0 cursor-pointer items-center gap-1.5 text-left"
           >
@@ -175,7 +175,7 @@ const FileDiffBlock = memo(function FileDiffBlock({
       </div>
       {hasDiffRegion && (
         <div
-          id={`diff-region-${domId}`}
+          id={`diff-region-${uid}`}
           role="region"
           aria-label={`${file.path} の差分`}
           tabIndex={0}
