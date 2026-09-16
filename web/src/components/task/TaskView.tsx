@@ -2219,8 +2219,7 @@ export const TaskView = memo(function TaskView({
   }
 
   async function submit(queued?: QueuedFollowUp) {
-    const rawSubmittedPrompt = queued ? queued.text : prompt;
-    const submittedPrompt = rawSubmittedPrompt;
+    const submittedPrompt = queued ? queued.text : prompt;
     const submittedAttachments = queued ? queued.attachments : attachments;
     if (
       (!submittedPrompt.trim() && submittedAttachments.length === 0) ||
@@ -2284,7 +2283,7 @@ export const TaskView = memo(function TaskView({
           `/api/tasks/${taskId}/goal-loop`,
           {
             action: "start",
-            goal: submittedPrompt,
+            goal: prompt,
             acceptance: goalLoopAcceptance,
             maxTurns: goalLoopMaxTurns,
             cooldownSeconds: goalLoopCooldownSeconds,

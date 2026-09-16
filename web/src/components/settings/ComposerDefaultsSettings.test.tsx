@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ModelOption } from "@/lib/types";
 
@@ -94,6 +95,22 @@ describe("ComposerDefaultsSettings model mapping", () => {
     });
   });
 
+  it("does not read localStorage during server render", () => {
+    localStorage.setItem("leafcodepi.composerPromptPresets", JSON.stringify(["サーバー描画では表示しない"]));
+    const previousWindow = globalThis.window;
+    const previousLocalStorage = globalThis.localStorage;
+    Object.defineProperty(globalThis, "window", { configurable: true, value: undefined });
+    Object.defineProperty(globalThis, "localStorage", { configurable: true, value: undefined });
+    try {
+      const html = renderToStaticMarkup(<ComposerPromptPresetsSettings />);
+      expect(html).toContain("登録されたプリセットはありません");
+      expect(html).not.toContain("サーバー描画では表示しない");
+    } finally {
+      Object.defineProperty(globalThis, "window", { configurable: true, value: previousWindow });
+      Object.defineProperty(globalThis, "localStorage", { configurable: true, value: previousLocalStorage });
+    }
+  });
+
   it("adds, edits, and deletes a body-only prompt preset from settings", () => {
     render(<ComposerPromptPresetsSettings />);
 
@@ -103,6 +120,12 @@ describe("ComposerDefaultsSettings model mapping", () => {
     fireEvent.click(screen.getByRole("button", { name: "保存" }));
 
     expect(screen.getByText("変更を確認してください")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "プリセットを追加" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "送信プロンプト本文" }), { target: { value: "変更を確認してください" } });
+    fireEvent.click(screen.getByRole("button", { name: "保存" }));
+    expect(screen.getByRole("alert").textContent).toBe("同じ本文のプリセットは登録できません");
+    fireEvent.click(screen.getByRole("button", { name: "キャンセル" }));
 
     fireEvent.click(screen.getByRole("button", { name: "1番目のプリセットを編集" }));
     fireEvent.change(screen.getByRole("textbox", { name: "送信プロンプト本文" }), { target: { value: "変更を詳しく確認してください" } });

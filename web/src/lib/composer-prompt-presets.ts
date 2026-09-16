@@ -26,7 +26,8 @@ export function readComposerPromptPresets(): ComposerPromptPreset[] {
 }
 
 export function hasStoredComposerPromptPresets(): boolean {
-  return sync.read() !== null;
+  const raw = sync.read();
+  return raw !== null && parseComposerPromptPresets(raw) !== null;
 }
 
 /** Update local state synchronously and mirror the canonical JSON to the server. */
@@ -38,7 +39,7 @@ export function writeComposerPromptPresets(presets: readonly ComposerPromptPrese
 
 export async function readComposerPromptPresetsFromServer(): Promise<ComposerPromptPreset[] | null> {
   const raw = await sync.readFromServer();
-  return raw === null ? null : parse(raw);
+  return raw === null ? null : parseComposerPromptPresets(raw);
 }
 
 export function subscribeComposerPromptPresets(listener: () => void): () => void {

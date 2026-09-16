@@ -121,28 +121,28 @@ export type ComposerReferences = {
 
 /** Shared preset catalog for task, follow-up, Bot, and Room composers. */
 export function useComposerPromptPresetReferences(): ComposerReference[] {
-  const [presets, setPresets] = useState<ComposerPromptPreset[]>(() => readComposerPromptPresets());
+  // SSRとの一致を保つため、localStorageはhydration後に読み込む。
+  const [presets, setPresets] = useState<ComposerPromptPreset[]>([]);
   const touchedRef = useRef(false);
-
-  useEffect(
-    () =>
-      subscribeComposerPromptPresets(() => {
-        touchedRef.current = true;
-        setPresets(readComposerPromptPresets());
-      }),
-    [],
-  );
 
   useEffect(() => {
     let active = true;
-    if (hasStoredComposerPromptPresets()) return;
-    void readComposerPromptPresetsFromServer().then((snapshot) => {
-      if (!active || snapshot === null || touchedRef.current || hasStoredComposerPromptPresets()) return;
-      writeComposerPromptPresets(snapshot);
-      setPresets(snapshot);
+    const unsubscribe = subscribeComposerPromptPresets(() => {
+      touchedRef.current = true;
+      setPresets(readComposerPromptPresets());
     });
+    if (hasStoredComposerPromptPresets()) {
+      setPresets(readComposerPromptPresets());
+    } else {
+      void readComposerPromptPresetsFromServer().then((snapshot) => {
+        if (!active || snapshot === null || touchedRef.current || hasStoredComposerPromptPresets()) return;
+        writeComposerPromptPresets(snapshot);
+        setPresets(snapshot);
+      });
+    }
     return () => {
       active = false;
+      unsubscribe();
     };
   }, []);
 

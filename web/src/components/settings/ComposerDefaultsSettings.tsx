@@ -195,32 +195,32 @@ const EMPTY_PROMPT_PRESET_DRAFT: PromptPresetDraft = { prompt: "" };
 
 /** Manage the body-only prompt presets shown by every composer. */
 export function ComposerPromptPresetsSettings() {
-  const [presets, setPresets] = useState<ComposerPromptPreset[]>(() => readComposerPromptPresets());
+  // SSRとの一致を保つため、localStorageはhydration後に読み込む。
+  const [presets, setPresets] = useState<ComposerPromptPreset[]>([]);
   const [draft, setDraft] = useState<PromptPresetDraft>(EMPTY_PROMPT_PRESET_DRAFT);
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
   const [formOpen, setFormOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const touchedRef = useRef(false);
 
-  useEffect(
-    () =>
-      subscribeComposerPromptPresets(() => {
-        touchedRef.current = true;
-        setPresets(readComposerPromptPresets());
-      }),
-    [],
-  );
-
   useEffect(() => {
     let active = true;
-    if (hasStoredComposerPromptPresets()) return;
-    void readComposerPromptPresetsFromServer().then((snapshot) => {
-      if (!active || snapshot === null || touchedRef.current || hasStoredComposerPromptPresets()) return;
-      writeComposerPromptPresets(snapshot);
-      setPresets(snapshot);
+    const unsubscribe = subscribeComposerPromptPresets(() => {
+      touchedRef.current = true;
+      setPresets(readComposerPromptPresets());
     });
+    if (hasStoredComposerPromptPresets()) {
+      setPresets(readComposerPromptPresets());
+    } else {
+      void readComposerPromptPresetsFromServer().then((snapshot) => {
+        if (!active || snapshot === null || touchedRef.current || hasStoredComposerPromptPresets()) return;
+        writeComposerPromptPresets(snapshot);
+        setPresets(snapshot);
+      });
+    }
     return () => {
       active = false;
+      unsubscribe();
     };
   }, []);
 
@@ -255,6 +255,10 @@ export function ComposerPromptPresetsSettings() {
     }
     if (prompt.length > MAX_COMPOSER_PROMPT_PRESET_PROMPT_CHARS) {
       setError(`送信プロンプトは${MAX_COMPOSER_PROMPT_PRESET_PROMPT_CHARS}文字以内で入力してください`);
+      return;
+    }
+    if (presets.some((preset, index) => index !== editingIndex && preset === prompt)) {
+      setError("同じ本文のプリセットは登録できません");
       return;
     }
     if (editingIndex === null && presets.length >= MAX_COMPOSER_PROMPT_PRESETS) {

@@ -404,8 +404,7 @@ export const HomeView = memo(function HomeView({
   }
 
   async function submit() {
-    const submittedPrompt = prompt;
-    if ((!submittedPrompt.trim() && attachments.length === 0) || projectId === undefined || submitting) return;
+    if ((!prompt.trim() && attachments.length === 0) || projectId === undefined || submitting) return;
     setSubmitting(true);
     setError(null);
     try {
@@ -414,7 +413,7 @@ export const HomeView = memo(function HomeView({
       const autoRouteConfig = readAutoRouteConfig();
       const result = await sendJson<{ task: TaskSummary; autoDecision?: AutoDecision }>("/api/tasks", {
         projectId: projectId ?? null,
-        prompt: submittedPrompt,
+        prompt,
         // アカウントタグ付きモデルの value は「accountId::provider::model」。送信時は
         // Pi が解釈できる「provider::model」へ戻す（accountId は別フィールドで渡す）。
         ...(!isAuto
@@ -454,7 +453,7 @@ export const HomeView = memo(function HomeView({
       if (isAuto && result.autoDecision) {
         writeAutoTaskRecord(result.task.id, {
           decision: result.autoDecision,
-          ...(!images.length && !files.length && submittedPrompt.length <= AUTO_TASK_PROMPT_MAX ? { prompt: submittedPrompt } : {}),
+          ...(!images.length && !files.length && prompt.length <= AUTO_TASK_PROMPT_MAX ? { prompt } : {}),
           ...(result.task.agent?.trim() ? { agent: result.task.agent.trim() } : {}),
         });
       }
