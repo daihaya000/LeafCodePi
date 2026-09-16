@@ -704,7 +704,7 @@ export function DiffPane({
         <div className="flex shrink-0 flex-col gap-2 border-b border-border bg-surface px-3 py-2">
           {hiddenByFilter > 0 && (
             <p className="text-[11px] text-faint" role="note">
-              表示中の {files.length} 件のみが対象です。フィルターで隠れている {hiddenByFilter} 件はコミットに含まれません。
+              フィルターで隠れている {hiddenByFilter} 件はコミットに含まれません。
             </p>
           )}
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
