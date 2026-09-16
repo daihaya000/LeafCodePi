@@ -9,6 +9,7 @@ import {
   jsonObjectCandidates,
   applyResult,
   applyMissingResult,
+  buildGoalPrompt,
   buildGoalContinuationPrompt,
   buildVerificationPrompt,
   clampCooldownSeconds,
@@ -52,6 +53,29 @@ test("handles braces inside JSON strings", () => {
 
 test("normalizes acceptance criteria", () => {
   assert.deepEqual(normalizeAcceptance("run tests\ncheck the diff"), ["run tests", "check the diff"]);
+});
+
+test("normal prompts stop at the first verified completion", () => {
+  const loop = {
+    goal: "demo",
+    acceptance: ["tests pass"],
+    maxTurns: 10,
+    forceFullRun: false,
+    progress: [],
+  };
+  const prompt = buildGoalPrompt(loop, 1);
+  const continuation = buildGoalContinuationPrompt(loop, 2);
+  const verification = buildVerificationPrompt(loop);
+
+  assert.match(prompt, /turn budget is a ceiling, not a target/);
+  assert.match(prompt, /do not add cleanup, refactoring, polish, or speculative work/);
+  assert.match(prompt, /independently verified by the host/);
+  assert.match(continuation, /stop now and report completed/);
+  assert.match(verification, /Do not make unrelated cleanup, refactoring, polish, or speculative changes/);
+
+  const fullRunPrompt = buildGoalPrompt({ ...loop, forceFullRun: true }, 1);
+  assert.doesNotMatch(fullRunPrompt, /turn budget is a ceiling, not a target/);
+  assert.match(fullRunPrompt, /Never declare the goal complete/);
 });
 
 test("normal mode requires a verification turn", () => {
