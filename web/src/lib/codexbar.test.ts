@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
   clampPercent,
+  creditUsageParts,
   emptyUsage,
+  formatCreditAmount,
   formatMonthlyTotal,
   formatMonthlyUsd,
   formatPlanBadge,
@@ -550,6 +552,25 @@ describe("formatPlanBadge", () => {
     expect(formatPlanBadge(null, 20)).toBeNull();
     expect(formatMonthlyUsd(20)).toBe("$20");
     expect(formatMonthlyTotal(100)).toBe("$100/月");
+  });
+});
+
+describe("creditUsageParts", () => {
+  it("shows 利用額 / 上限 only when a real limit exists", () => {
+    expect(
+      creditUsageParts({ title: null, used: 4.26, limit: 10, balance: 5.74 }),
+    ).toEqual(["$4.26 / $10.00"]);
+    // 上限未設定（0）は上限として出さない（Anthropic の extra_usage など）
+    expect(
+      creditUsageParts({ title: null, used: 37.88, limit: 0, balance: null }),
+    ).toEqual(["$37.88"]);
+    expect(creditUsageParts({ title: null, used: null, limit: 0, balance: 12 })).toEqual(
+      [],
+    );
+    expect(
+      creditUsageParts({ title: null, used: null, limit: 20, balance: 12 }),
+    ).toEqual(["上限 $20.00"]);
+    expect(formatCreditAmount(12.3)).toBe("$12.30");
   });
 });
 

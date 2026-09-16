@@ -15,8 +15,11 @@ import type { ProviderAuthDto } from "@/lib/types";
 import type { AccountRoutingMode } from "@/lib/provider-routing";
 import {
   clampPercent,
+  creditUsageParts,
+  formatCreditAmount,
   formatResetsIn,
   percentTone,
+  type CodexBarCredits,
   type CodexBarProvider,
   type CodexBarUsage,
   type UsageTone,
@@ -180,6 +183,24 @@ function UsageBar({ percent }: { percent: number | null | undefined }) {
         />
       </div>
     </div>
+  );
+}
+
+/** 使用量%が無い口座（API キーの従量課金など）でも残高/利用額は行に出す。 */
+function CreditsLine({ credits }: { credits: CodexBarCredits }) {
+  const amounts = creditUsageParts(credits);
+  if (credits.balance !== null) {
+    amounts.push(`残高 ${formatCreditAmount(credits.balance)}`);
+  }
+  if (amounts.length === 0) return null;
+
+  return (
+    <p className="mt-1 flex items-center justify-between gap-2 text-xs">
+      <span className="truncate text-muted">
+        {credits.title ?? "利用クレジット"}
+      </span>
+      <span className="shrink-0 font-mono text-text">{amounts.join(" · ")}</span>
+    </p>
   );
 }
 
@@ -1430,7 +1451,10 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
                           </>
                         )}
                       </div>
-                      {usage && <UsageBar percent={usage.usedPercent} />}
+                      {usage && (usage.usedPercent !== null || !usage.credits) && (
+                        <UsageBar percent={usage.usedPercent} />
+                      )}
+                      {usage?.credits && <CreditsLine credits={usage.credits} />}
                       {usage && (
                         <ResetCreditsControl
                           provider={usage}

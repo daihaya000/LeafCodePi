@@ -1006,6 +1006,55 @@ describe("ProviderAuthPanel provider-scoped accounts", () => {
     });
   });
 
+  it("shows the API credit balance for an API-key account", async () => {
+    fetchMock.mockImplementation(
+      (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        const pathname = new URL(url, "http://localhost").pathname;
+        const method = (init?.method ?? "GET").toUpperCase();
+        if (pathname === "/api/accounts" && method === "GET") {
+          return Promise.resolve(jsonResponse({ accounts: [anthropicAccount] }));
+        }
+        if (pathname === `/api/accounts/${anthropicAccount.id}/auth-status`) {
+          return Promise.resolve(
+            jsonResponse({ providers: ["anthropic"], anthropicCookieConfigured: true }),
+          );
+        }
+        if (pathname === "/api/codexbar/usage") {
+          return Promise.resolve(
+            jsonResponse({
+              providers: [
+                {
+                  id: "anthropic",
+                  accountId: anthropicAccount.id,
+                  accountLabel: anthropicAccount.label,
+                  usedPercent: null,
+                  credits: {
+                    title: "API クレジット",
+                    used: null,
+                    limit: null,
+                    balance: 12.34,
+                  },
+                  windows: [],
+                },
+              ],
+            }),
+          );
+        }
+        return Promise.resolve(jsonResponse({}));
+      },
+    );
+    render(
+      <ProviderAuthPanel providers={[anthropicProvider]} onChanged={() => {}} />,
+    );
+
+    const anthropic = await accountRegion("Anthropic");
+    expect(await within(anthropic).findByText("API クレジット")).toBeTruthy();
+    expect(within(anthropic).getByText("残高 $12.34")).toBeTruthy();
+    // 使用量%が無い口座では使用量バーを出さない
+    expect(within(anthropic).queryByText("使用量")).toBeNull();
+  });
+
   it("surfaces a closed login EventSource as a failed login", async () => {
     class TestEventSource extends EventTarget {
       static instances: TestEventSource[] = [];

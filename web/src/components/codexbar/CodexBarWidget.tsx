@@ -22,6 +22,8 @@ import {
 import { ApiError, getJson, sendJson } from "@/lib/client";
 import {
   clampPercent,
+  creditUsageParts,
+  formatCreditAmount,
   formatPlanBadge,
   formatResetsIn,
   hasLastGoodUsage,
@@ -330,24 +332,14 @@ function WindowRow({
   );
 }
 
-function formatCreditAmount(value: number): string {
-  return `$${value.toFixed(2)}`;
-}
-
 function CreditsRow({ credits }: { credits: CodexBarCredits }) {
   const percent =
     credits.used !== null && credits.limit !== null && credits.limit > 0
       ? (credits.used / credits.limit) * 100
       : null;
   const tone = percentTone(percent);
-  const amount =
-    credits.used !== null && credits.limit !== null
-      ? `${formatCreditAmount(credits.used)} / ${formatCreditAmount(credits.limit)}`
-      : credits.used !== null
-        ? formatCreditAmount(credits.used)
-        : credits.limit !== null
-          ? `上限 ${formatCreditAmount(credits.limit)}`
-          : null;
+  const usageParts = creditUsageParts(credits);
+  const amount = usageParts.length > 0 ? usageParts.join(" / ") : null;
 
   return (
     <div className="flex flex-col gap-0.5 border-t border-border pt-1.5">

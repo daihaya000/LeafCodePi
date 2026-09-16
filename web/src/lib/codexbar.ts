@@ -527,6 +527,28 @@ export function formatMonthlyTotal(usd: number): string {
   return `${formatMonthlyUsd(usd)}/月`;
 }
 
+/** クレジット残高/利用額の表示（常に 2 桁固定、CodexBar ウィジェットと同じ形式）。 */
+export function formatCreditAmount(value: number): string {
+  return `$${value.toFixed(2)}`;
+}
+
+/**
+ * 利用額・上限の表記（`利用額` または `利用額 / 上限`）を組み立てる。
+ * `limit <= 0` は「上限未設定」（Anthropic の extra_usage が未設定を 0 で返す等）
+ * として扱い、`$37.88 / $0.00` のような誤解を招く表示にしない。
+ */
+export function creditUsageParts(credits: CodexBarCredits): string[] {
+  const limit = credits.limit !== null && credits.limit > 0 ? credits.limit : null;
+  if (credits.used !== null) {
+    return [
+      limit !== null
+        ? `${formatCreditAmount(credits.used)} / ${formatCreditAmount(limit)}`
+        : formatCreditAmount(credits.used),
+    ];
+  }
+  return limit !== null ? [`上限 ${formatCreditAmount(limit)}`] : [];
+}
+
 /** Plan badge text: `Pro · $20` when a price is known. */
 export function formatPlanBadge(
   plan: string | null,
