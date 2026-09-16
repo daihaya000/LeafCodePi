@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest";
 import {
   composerReferenceInsertion,
   composerReferenceValue,
+  filterComposerPromptPrefixes,
   filterComposerReferences,
+  findComposerPromptPrefixToken,
   findComposerReferenceToken,
   isKnownComposerReference,
 } from "./composer-references";
@@ -89,6 +91,22 @@ describe("composer references", () => {
     expect(isKnownComposerReference("agent", "scout", catalog)).toBe(true);
     expect(isKnownComposerReference("agent", "review", catalog)).toBe(false);
     expect(isKnownComposerReference("skill", "scout", catalog)).toBe(false);
+  });
+
+  it("finds prompt prefixes only while typing from the beginning", () => {
+    expect(findComposerPromptPrefixToken("つづ", 2)).toMatchObject({
+      kind: "prompt",
+      mode: "prefix",
+      query: "つづ",
+      raw: "つづ",
+      start: 0,
+      end: 2,
+    });
+    expect(findComposerPromptPrefixToken("つづ", 1)).toBeNull();
+    expect(filterComposerPromptPrefixes(
+      [{ name: "つづけてください" }, { name: "つづ" }],
+      "つづ",
+    ).map((reference) => reference.name)).toEqual(["つづけてください"]);
   });
 
   it("finds and inserts body-only prompt preset tokens", () => {

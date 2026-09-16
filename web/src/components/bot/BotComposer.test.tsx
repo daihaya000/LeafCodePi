@@ -267,3 +267,26 @@ it("suggests and expands a prompt preset", () => {
   fireEvent.keyDown(input, { key: "Enter" });
   expect(input.value).toBe("変更を確認してください ");
 });
+
+it("suggests a prompt preset from the beginning of the text", () => {
+  function ReferenceComposer() {
+    const [value, setValue] = useState("");
+    return <BotComposer
+      value={value}
+      onChange={(event) => setValue(event.target.value)}
+      onValueChange={setValue}
+      onKeyDown={vi.fn()}
+      onSend={vi.fn()}
+      placeholder="Message"
+      references={{ prompts: [{ name: "続けてください", insertText: "続けてください" }] }}
+    />;
+  }
+
+  render(<ReferenceComposer />);
+  const input = screen.getByRole("textbox") as HTMLTextAreaElement;
+  input.focus();
+  fireEvent.change(input, { target: { value: "続", selectionStart: 1 } });
+  expect(screen.getByRole("listbox", { name: "送信プロンプト候補" })).toBeTruthy();
+  fireEvent.keyDown(input, { key: "Enter" });
+  expect(input.value).toBe("続けてください ");
+});

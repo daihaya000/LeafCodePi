@@ -3,7 +3,7 @@
 import { type ChangeEventHandler, type ClipboardEventHandler, type CompositionEventHandler, type KeyboardEventHandler, type ReactNode, type RefObject, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { ArrowUp, Bookmark, ChevronRight, FileText, Paperclip, SlidersHorizontal, Square, UsersRound, Wrench } from "lucide-react";
 import { COMPOSER_ACTION_BUTTON_CLASS, composerAttachmentText, ImageLightbox, type ComposerAttachment, type ComposerReferences } from "@/components/Composer";
-import { composerReferenceInsertion, composerReferenceToolNames, filterComposerReferences, findComposerReferenceToken, type ComposerReference } from "@/lib/composer-references";
+import { composerReferenceInsertion, composerReferenceToolNames, filterComposerPromptPrefixes, filterComposerReferences, findComposerPromptPrefixToken, findComposerReferenceToken, type ComposerReference } from "@/lib/composer-references";
 import { pasteLargeText } from "@/lib/clipboard-image";
 import { isImeComposingEvent } from "@/lib/composer-ime";
 
@@ -70,12 +70,15 @@ export function BotComposer({
     }),
     [references?.agents, references?.prompts, references?.skills],
   );
-  const currentToken = useMemo(
-    () => findComposerReferenceToken(value, caret),
-    [caret, value],
-  );
+  const currentToken = useMemo(() => {
+    const triggerToken = findComposerReferenceToken(value, caret);
+    return triggerToken ?? findComposerPromptPrefixToken(value, caret);
+  }, [caret, value]);
   const suggestions = useMemo(() => {
     if (!currentToken) return [];
+    if (currentToken.kind === "prompt" && currentToken.mode === "prefix") {
+      return filterComposerPromptPrefixes(availableReferences.prompts, currentToken.query);
+    }
     const source = currentToken.kind === "skill"
       ? availableReferences.skills
       : currentToken.kind === "agent"

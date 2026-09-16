@@ -20,7 +20,9 @@ import { Bookmark, ChevronRight, FileText, Paperclip, UsersRound, Wrench, X } fr
 import {
   composerReferenceInsertion,
   composerReferenceToolNames,
+  filterComposerPromptPrefixes,
   filterComposerReferences,
+  findComposerPromptPrefixToken,
   findComposerReferenceToken,
   type ComposerReference,
 } from "@/lib/composer-references";
@@ -312,12 +314,15 @@ export function Composer({
     }),
     [references?.agents, references?.prompts, references?.skills],
   );
-  const currentToken = useMemo(
-    () => findComposerReferenceToken(textarea.value, caret),
-    [caret, textarea.value],
-  );
+  const currentToken = useMemo(() => {
+    const triggerToken = findComposerReferenceToken(textarea.value, caret);
+    return triggerToken ?? findComposerPromptPrefixToken(textarea.value, caret);
+  }, [caret, textarea.value]);
   const suggestions = useMemo(() => {
     if (!currentToken) return [];
+    if (currentToken.kind === "prompt" && currentToken.mode === "prefix") {
+      return filterComposerPromptPrefixes(availableReferences.prompts, currentToken.query);
+    }
     const source = currentToken.kind === "skill"
       ? availableReferences.skills
       : currentToken.kind === "agent"

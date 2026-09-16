@@ -499,6 +499,51 @@ describe("Composer", () => {
     expect(screen.getByRole("button", { name: "プロジェクトのファイルを明示" })).toBeTruthy();
   });
 
+  it("suggests a saved prompt preset from the beginning of the text", () => {
+    function PrefixComposer() {
+      const [value, setValue] = useState("");
+      const textareaRef = useRef<HTMLTextAreaElement>(null);
+      const inputRef = useRef<HTMLInputElement>(null);
+      return (
+        <Composer
+          className=""
+          attachments={[]}
+          onRemoveAttachment={() => {}}
+          references={{
+            prompts: [{ name: "続けてください", insertText: "続けてください" }],
+          }}
+          textarea={{
+            ref: textareaRef,
+            value,
+            rows: 1,
+            ariaLabel: "メッセージ",
+            placeholder: "入力",
+            className: "",
+            onChange: (event) => setValue(event.target.value),
+            onValueChange: setValue,
+            onKeyDown: () => {},
+          }}
+          attachmentControl={{
+            inputRef,
+            buttonTitle: "画像を添付",
+            onFilesSelected: () => {},
+            onTrigger: () => {},
+          }}
+          action={null}
+        />
+      );
+    }
+
+    render(<PrefixComposer />);
+    const textarea = screen.getByRole("textbox") as HTMLTextAreaElement;
+    textarea.focus();
+    fireEvent.change(textarea, { target: { value: "続", selectionStart: 1 } });
+    expect(screen.getByRole("listbox", { name: "送信プロンプト候補" })).toBeTruthy();
+    fireEvent.keyDown(textarea, { key: "Enter" });
+    expect(textarea.value).toBe("続けてください ");
+    expect(screen.queryByRole("listbox", { name: "送信プロンプト候補" })).toBeNull();
+  });
+
   it("suggests and expands a saved prompt preset", () => {
     function PresetComposer() {
       const [value, setValue] = useState("");

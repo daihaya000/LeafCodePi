@@ -28,6 +28,7 @@ export type ComposerReferenceToken = {
   raw: string;
   start: number;
   end: number;
+  mode?: "prefix";
 };
 
 /** 後退ループ用: 空白・/・#・＃・@ 以外は参照名の一部として扱う（日本語クエリ対応）。 */
@@ -63,6 +64,24 @@ export function findComposerReferenceToken(value: string, caret: number): Compos
   };
 }
 
+/** Find a prompt prefix typed from the beginning of the composer. */
+export function findComposerPromptPrefixToken(value: string, caret: number): ComposerReferenceToken | null {
+  const safeCaret = Math.max(0, Math.min(value.length, caret));
+  if (safeCaret === 0 || safeCaret !== value.length) return null;
+  const start = value.search(/\S/);
+  if (start < 0 || start >= safeCaret) return null;
+  const query = value.slice(start, safeCaret);
+  if (/^[\/@#＃]/.test(query)) return null;
+  return {
+    kind: "prompt",
+    query,
+    raw: query,
+    start,
+    end: safeCaret,
+    mode: "prefix",
+  };
+}
+
 /** Match references like LeafCode's fuzzy slash/at/hash completion list. */
 export function filterComposerReferences(
   references: readonly ComposerReference[],
@@ -90,6 +109,22 @@ export function filterComposerReferences(
     .sort((left, right) => left.score - right.score || left.index - right.index)
     .slice(0, Math.max(1, limit))
     .map((item) => item.reference);
+}
+
+/** Match only prompt bodies that strictly extend the typed beginning. */
+export function filterComposerPromptPrefixes(
+  references: readonly ComposerReference[],
+  query: string,
+  limit = 8,
+): ComposerReference[] {
+  const normalized = query.replace(/\s+/g, " ").trim().toLocaleLowerCase();
+  if (!normalized) return [];
+  return references
+    .filter((reference) => {
+      const name = reference.name.replace(/\s+/g, " ").trim().toLocaleLowerCase();
+      return name.startsWith(normalized) && name.length > normalized.length;
+    })
+    .slice(0, Math.max(1, limit));
 }
 
 export function composerReferenceValue(kind: ComposerReferenceKind, name: string): string {
