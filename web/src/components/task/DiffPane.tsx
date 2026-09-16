@@ -85,6 +85,8 @@ const FileDiffBlock = memo(function FileDiffBlock({
     ? file.path.slice(0, file.path.lastIndexOf("/") + 1)
     : "";
   const base = file.path.slice(dir.length);
+  const domId = file.path.replace(/[^a-zA-Z0-9_-]/g, "-");
+  const hasDiffRegion = expanded && !file.binary && file.hunks.length > 0;
   let rendered = 0;
 
   return (
@@ -101,8 +103,10 @@ const FileDiffBlock = memo(function FileDiffBlock({
         <div className="min-w-0 flex-1">
           <button
             type="button"
+            id={`diff-toggle-${domId}`}
             onClick={() => onToggle(file.path)}
             aria-expanded={expanded}
+            aria-controls={hasDiffRegion ? `diff-region-${domId}` : undefined}
             aria-label={`${file.path} の差分を${expanded ? "折りたたむ" : "展開"}`}
             className="flex w-full min-w-0 cursor-pointer items-center gap-1.5 text-left"
           >
@@ -157,8 +161,14 @@ const FileDiffBlock = memo(function FileDiffBlock({
           </Button>
         </div>
       </div>
-      {expanded && !file.binary && file.hunks.length > 0 && (
-        <div className="overflow-x-auto border-t border-border font-mono text-xs leading-5">
+      {hasDiffRegion && (
+        <div
+          id={`diff-region-${domId}`}
+          role="region"
+          aria-label={`${file.path} の差分`}
+          tabIndex={0}
+          className="overflow-x-auto border-t border-border font-mono text-xs leading-5"
+        >
           {file.hunks.map((hunk, hi) => (
             <div key={hi}>
               <div className="bg-diff-hunk-bg px-3 py-0.5 text-faint select-none">
