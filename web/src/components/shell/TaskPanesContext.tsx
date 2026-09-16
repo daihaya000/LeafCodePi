@@ -44,7 +44,7 @@ import { cx } from "@/components/ui";
 
 type TaskIdentity = Pick<TaskSummary, "projectId" | "botId" | "supervisorBotId"> & Partial<Pick<TaskSummary, "status">>;
 type BotIconData = Pick<BotDto, "id" | "name" | "avatarColor" | "avatarShape" | "avatarEyeColor" | "avatarGlasses" | "avatarMustache" | "avatarImage">;
-type ProjectIconData = Pick<ProjectDto, "id" | "name" | "icon">;
+type ProjectIconData = Pick<ProjectDto, "id" | "name" | "icon" | "iconColor">;
 
 function sameBotIconData(left: BotIconData, right: BotIconData): boolean {
   return left.id === right.id && left.name === right.name && left.avatarColor === right.avatarColor
@@ -54,7 +54,7 @@ function sameBotIconData(left: BotIconData, right: BotIconData): boolean {
 }
 
 function sameProjectIconData(left: ProjectIconData, right: ProjectIconData): boolean {
-  return left.id === right.id && left.name === right.name && left.icon === right.icon;
+  return left.id === right.id && left.name === right.name && left.icon === right.icon && left.iconColor === right.iconColor;
 }
 
 function changedIconIds<T extends { id: string }>(
@@ -81,7 +81,7 @@ function reuseBotIconData(previous: BotIconData[], bots: readonly BotDto[]): Bot
 
 function reuseProjectIconData(previous: ProjectIconData[], projects: readonly ProjectDto[]): ProjectIconData[] {
   if (previous.length === projects.length && previous.every((item, index) => sameProjectIconData(item, projects[index]))) return previous;
-  return projects.map(({ id, name, icon }) => ({ id, name, icon }));
+  return projects.map(({ id, name, icon, iconColor }) => ({ id, name, icon, iconColor }));
 }
 
 const SAVE_DEBOUNCE_MS = 500;

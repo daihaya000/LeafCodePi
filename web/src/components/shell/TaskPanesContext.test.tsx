@@ -285,13 +285,14 @@ describe("TaskPanesProvider", () => {
   it.each([false, true])("renders project and Bot icons and refreshes edits (desktop=%s)", async (desktop) => {
     matches = desktop;
     let projectIcon: string | null = "data:image/png;base64,project";
+    let projectIconColor: string | null = null;
     let botImage = "data:image/png;base64,bot";
     let botProgress = false;
     const sidebarFetchSpy = vi.fn();
     const paneRenderSpy = vi.fn();
     const iconRenderSpy = vi.fn();
     mocks.getJson.mockImplementation(async (url: string) => {
-      if (url.startsWith("/api/projects")) return { projects: [{ id: "project", name: "Project", icon: projectIcon }] };
+      if (url.startsWith("/api/projects")) return { projects: [{ id: "project", name: "Project", icon: projectIcon, iconColor: projectIconColor }] };
       if (url === "/api/bots/sidebar") {
         sidebarFetchSpy();
         return { bots: [{ id: "one", name: "One", avatarImage: botImage, codeInProgress: botProgress }], rooms: [] };
@@ -325,11 +326,13 @@ describe("TaskPanesProvider", () => {
     expect(screen.getByTestId("no-icon").innerHTML).toBe("");
     const paneRenderCountAfterInitialData = paneRenderSpy.mock.calls.length;
     projectIcon = null;
+    projectIconColor = "green";
     botImage = "data:image/png;base64,updated";
     window.dispatchEvent(new Event("webui:tasks-changed"));
     window.dispatchEvent(new Event("webui:bot-sidebar-changed"));
     await waitFor(() => {
       expect(screen.getByTestId("header-icon").textContent).toBe("P");
+      expect(screen.getByTestId("header-icon").querySelector("span > span")?.className).toContain("text-success");
       expect(image("bot-tab-icon")).toBe(botImage);
       expect(image("bot-header-icon")).toBe(botImage);
     });

@@ -29,7 +29,9 @@ function TaskLink({ href, children, ...props }: AnchorHTMLAttributes<HTMLAnchorE
 // 同時マウントしたリンクで /api/projects 等を重複取得しないよう、進行中の取得だけ共有する。
 // 結果はキャッシュしない（テストのスタブ差し替えや最新表示と競合させないため）。
 const inflightTaskSummaries = new Map<string, Promise<TaskSummary | null>>();
-let inflightProjects: Promise<Pick<ProjectDto, "id" | "name" | "icon">[] | null> | null = null;
+type ProjectIconData = Pick<ProjectDto, "id" | "name" | "icon" | "iconColor">;
+
+let inflightProjects: Promise<ProjectIconData[] | null> | null = null;
 
 function fetchTaskSummary(taskId: string): Promise<TaskSummary | null> {
   const inflight = inflightTaskSummaries.get(taskId);
@@ -43,11 +45,11 @@ function fetchTaskSummary(taskId: string): Promise<TaskSummary | null> {
   return request;
 }
 
-function fetchProjectList(): Promise<Pick<ProjectDto, "id" | "name" | "icon">[] | null> {
+function fetchProjectList(): Promise<ProjectIconData[] | null> {
   if (!inflightProjects) {
-    const request: Promise<Pick<ProjectDto, "id" | "name" | "icon">[] | null> = fetch("/api/projects", { cache: "no-store" })
+    const request: Promise<ProjectIconData[] | null> = fetch("/api/projects", { cache: "no-store" })
       .then((response) => (response.ok ? response.json() : null))
-      .then((result) => (result?.projects as ProjectDto[] | undefined) ?? null)
+      .then((result) => (result?.projects as ProjectIconData[] | undefined) ?? null)
       .catch(() => null)
       .finally(() => { if (inflightProjects === request) inflightProjects = null; });
     inflightProjects = request;
@@ -58,16 +60,32 @@ function fetchProjectList(): Promise<Pick<ProjectDto, "id" | "name" | "icon">[] 
 function InternalTaskLink({ href, ...props }: AnchorHTMLAttributes<HTMLAnchorElement> & { href: string }) {
   const taskId = decodeURIComponent(href.split("/task/")[1]!.split(/[?#]/)[0]!);
   const [task, setTask] = useState<TaskSummary | null>(null);
-  const [project, setProject] = useState<Pick<ProjectDto, "id" | "name" | "icon"> | null>(null);
+  const [project, setProject] = useState<ProjectIconData | null>(null);
+  const taskProjectIdRef = useRef<string | null>(null);
   useEffect(() => {
     let active = true;
+    taskProjectIdRef.current = null;
+    setProject(null);
+    const applyProjects = (projects: ProjectIconData[] | null) => {
+      const nextProject = projects?.find((item) => item.id === taskProjectIdRef.current);
+      setProject(nextProject ?? null);
+    };
     void Promise.all([fetchTaskSummary(taskId), fetchProjectList()]).then(([nextTask, projects]) => {
       if (!active) return;
       setTask(nextTask);
-      const nextProject = projects?.find((item) => item.id === nextTask?.projectId);
-      setProject(nextProject ? { id: nextProject.id, name: nextProject.name, icon: nextProject.icon } : null);
+      taskProjectIdRef.current = nextTask?.projectId ?? null;
+      applyProjects(projects);
     });
-    return () => { active = false; };
+    const onProjectsChanged = () => {
+      void fetchProjectList().then((projects) => {
+        if (active) applyProjects(projects);
+      });
+    };
+    window.addEventListener("webui:tasks-changed", onProjectsChanged);
+    return () => {
+      active = false;
+      window.removeEventListener("webui:tasks-changed", onProjectsChanged);
+    };
   }, [taskId]);
   const title = task?.title || taskId;
   return (

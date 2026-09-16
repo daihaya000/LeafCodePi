@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { cleanup, fireEvent, render } from "@testing-library/react";
+import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 import { BotChatMessage, BotMessageError, BotMessageImages, BotMessageList, BotMessageMarkdown, BotMessageRow, BotMessageSender, BotMessageTime, BotPermissionCard, BotResponseStatus, BotRevertButton } from "./BotMessageList";
 import type { UiMessage } from "@/lib/types";
@@ -151,6 +151,33 @@ it("renders internal task links with the task title and project icon", async () 
   expect(taskLink.textContent).toBe("Fix login");
   expect(taskLink.querySelector("img")?.getAttribute("src")).toBe("data:image/png;base64,icon");
   expect(getByRole("link", { name: "Docs" }).getAttribute("href")).toBe("https://example.com");
+});
+
+it("refreshes internal task links after project icon changes", async () => {
+  let project = {
+    id: "project",
+    name: "App",
+    icon: null as string | null,
+    iconColor: "red" as "red" | "purple",
+  };
+  vi.stubGlobal("fetch", vi.fn((url: string) => Promise.resolve({
+    ok: true,
+    json: async () => url.startsWith("/api/tasks/")
+      ? { task: { id: "task-123", title: "Fix login", projectId: "project" } }
+      : { projects: [project] },
+  })));
+  const { findByRole } = render(<BotMessageMarkdown text="[/task/task-123](/task/task-123)" />);
+  const taskLink = await findByRole("link", { name: "Fix login" });
+  const icon = () => taskLink.querySelector("span span");
+
+  expect(icon()?.className).toContain("text-danger");
+  project = { ...project, iconColor: "purple" };
+  window.dispatchEvent(new Event("webui:tasks-changed"));
+  await waitFor(() => expect(icon()?.className).toContain("text-purple-700"));
+
+  project = { ...project, icon: "data:image/png;base64,updated" };
+  window.dispatchEvent(new Event("webui:tasks-changed"));
+  await waitFor(() => expect(taskLink.querySelector("img")?.getAttribute("src")).toBe(project.icon));
 });
 
 it("places image attachments below the message text", () => {
