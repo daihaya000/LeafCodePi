@@ -325,15 +325,21 @@ function normalizeProgress(value: unknown): GoalLoopProgress[] {
 
 function normalizeInitialImages(value: unknown): GoalLoopInitialImage[] | undefined {
   if (!Array.isArray(value)) return undefined;
-  const images = value.filter((image): image is GoalLoopInitialImage => {
-    const item = asRecord(image);
-    return (
-      item?.type === "image" &&
-      typeof item.mimeType === "string" &&
-      typeof item.data === "string" &&
-      item.data.length > 0
-    );
-  });
+  const images = value
+    .map((image): GoalLoopInitialImage | null => {
+      const item = asRecord(image);
+      if (
+        !item ||
+        (item.type !== undefined && item.type !== "image") ||
+        typeof item.mimeType !== "string" ||
+        typeof item.data !== "string" ||
+        item.data.length === 0
+      ) {
+        return null;
+      }
+      return { type: "image", mimeType: item.mimeType, data: item.data };
+    })
+    .filter((image): image is GoalLoopInitialImage => image !== null);
   return images.length ? images : undefined;
 }
 
