@@ -557,6 +557,7 @@ export function DiffPane({
             size="sm"
             className="inline-flex"
             aria-label="左右に並べて差分を表示"
+            aria-pressed={sideBySide}
             title="左右に並べて差分表示"
             onClick={() => setSideBySide((v) => !v)}
           >
@@ -583,7 +584,7 @@ export function DiffPane({
             size="icon"
             title="更新"
             aria-label="差分を更新"
-            busy={loading}
+            aria-busy={loading}
             disabled={busy}
             onClick={() => void load()}
           >
@@ -594,6 +595,7 @@ export function DiffPane({
             size="sm"
             className="inline-flex"
             aria-label="コンテキスト行を隠して変更行のみ表示"
+            aria-pressed={changesOnly}
             title="コンテキスト行を隠して変更行のみ表示"
             onClick={() => setChangesOnly((v) => !v)}
           >
