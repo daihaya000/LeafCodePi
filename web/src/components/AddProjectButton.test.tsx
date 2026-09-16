@@ -38,6 +38,25 @@ describe("AddProjectButton", () => {
     expect(list?.className).toContain("overflow-y-auto");
   });
 
+  it("uses the in-app picker when selecting a directory for another flow", async () => {
+    getJson.mockResolvedValue({
+      path: "C:\\Users\\Daichi",
+      parent: null,
+      entries: [{ name: "Project", path: "C:\\Users\\Daichi\\Project" }],
+    });
+    const onSelect = vi.fn();
+
+    render(<AddProjectButton label="参照" onSelect={onSelect} />);
+    fireEvent.click(screen.getByRole("button", { name: "参照" }));
+
+    await screen.findByText("Project");
+    expect(getJson).toHaveBeenCalledWith("/api/browse/dirs", undefined);
+    expect(sendJson).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "選択" }));
+    expect(onSelect).toHaveBeenCalledWith("C:\\Users\\Daichi");
+  });
+
   it("ignores a directory response from a dialog opened before the current one", async () => {
     let resolveFirst!: (value: { path: string; parent: null; entries: never[] }) => void;
     let resolveSecond!: (value: { path: string; parent: null; entries: never[] }) => void;

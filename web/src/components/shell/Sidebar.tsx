@@ -744,8 +744,8 @@ export const SidebarTaskRow = memo(function SidebarTaskRow({
         {task.projectId === null && (
           <button
             type="button"
-            aria-label={cannotPromote ? `「${task.title}」は実行中のため昇進できません` : `「${task.title}」をプロジェクトへ昇進`}
-            title={cannotPromote ? "実行中のタスクは昇進できません" : "プロジェクトへ昇進"}
+            aria-label={cannotPromote ? `「${task.title}」は実行中のため昇格できません` : `「${task.title}」をプロジェクトへ昇格`}
+            title={cannotPromote ? "実行中のタスクは昇格できません" : "プロジェクトへ昇格"}
             disabled={actionBusy || cannotPromote}
             onClick={() => onPromoteTask(task)}
             className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-muted hover:bg-surface-2 hover:text-text disabled:cursor-not-allowed disabled:opacity-40 md:h-6 md:w-6"
@@ -871,24 +871,6 @@ function PromoteTaskDialog({
     return () => document.removeEventListener("keydown", onKeyDown);
   }, [busy, onClose]);
 
-  async function browse() {
-    setBusy(true);
-    setError(null);
-    try {
-      const result = await sendJson<{ path?: string }>(
-        "/api/browse/dirs",
-        {},
-        "POST",
-        { timeoutMs: 135_000 },
-      );
-      if (result.path) setPath(result.path);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "フォルダー選択に失敗しました");
-    } finally {
-      setBusy(false);
-    }
-  }
-
   async function submit() {
     const destinationPath = path.trim();
     if (!destinationPath || busy) return;
@@ -902,7 +884,7 @@ function PromoteTaskDialog({
       onDone(result.warning);
       onClose();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "プロジェクトへの昇進に失敗しました");
+      setError(err instanceof Error ? err.message : "プロジェクトへの昇格に失敗しました");
     } finally {
       setBusy(false);
     }
@@ -917,7 +899,7 @@ function PromoteTaskDialog({
         className="w-full max-w-lg rounded-2xl border border-border bg-surface shadow-2xl"
       >
         <div className="border-b border-border px-4 py-3 sm:px-5">
-          <h2 id="promote-task-title" className="text-sm font-semibold">プロジェクトへ昇進</h2>
+          <h2 id="promote-task-title" className="text-sm font-semibold">プロジェクトへ昇格</h2>
           <p className="mt-1 truncate text-xs text-muted" title={task.title}>{task.title}</p>
         </div>
         <div className="space-y-3 p-4 sm:p-5">
@@ -939,7 +921,12 @@ function PromoteTaskDialog({
               placeholder="C:\\path\\to\\project"
               className="h-10 min-w-0 flex-1 rounded-lg border border-border bg-bg px-3 font-mono text-xs outline-none placeholder:text-faint focus:border-accent"
             />
-            <Button size="sm" onClick={() => void browse()} busy={busy}>参照</Button>
+            <AddProjectButton
+              label="参照"
+              onSelect={setPath}
+              buttonVariant="secondary"
+              buttonSize="sm"
+            />
           </div>
           {error && <p role="alert" className="text-xs text-danger">{error}</p>}
         </div>

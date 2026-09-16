@@ -5893,12 +5893,12 @@ async function promoteTaskOnce(
   if (!task)
     throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });
   if (task.projectId !== null)
-    throw Object.assign(new Error("プロジェクトなしタスクのみ昇進できます"), {
+    throw Object.assign(new Error("プロジェクトなしタスクのみ昇格できます"), {
       status: 409,
     });
 
   if (isTaskRuntimeBusyForDestructiveEdit(taskId)) {
-    throw Object.assign(new Error("実行中のタスクは停止してから昇進してください"), {
+    throw Object.assign(new Error("実行中のタスクは停止してから昇格してください"), {
       status: 409,
     });
   }
@@ -5933,7 +5933,7 @@ async function promoteTaskOnce(
   }
   const sessionFile = task.sessionFile;
   if (!sessionFile || !existsSync(sessionFile)) {
-    throw Object.assign(new Error("保存済みセッションのあるタスクのみ昇進できます"), {
+    throw Object.assign(new Error("保存済みセッションのあるタスクのみ昇格できます"), {
       status: 409,
     });
   }

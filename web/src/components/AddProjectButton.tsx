@@ -46,6 +46,7 @@ function EntryIcon({ entry }: { entry: DirEntry }) {
 
 type Props = {
   onAdded?: (project: ProjectDto) => void;
+  onSelect?: (path: string) => void;
   variant?: "button" | "icon";
   icon?: "folder" | "plus";
   className?: string;
@@ -88,6 +89,7 @@ function isLoopbackClientUrl(): boolean {
 
 export function AddProjectButton({
   onAdded,
+  onSelect,
   variant = "button",
   icon = "folder",
   className,
@@ -103,6 +105,7 @@ export function AddProjectButton({
   const [error, setError] = useState<string | null>(null);
   const pathInputRef = useRef<HTMLInputElement>(null);
   const listingRequestRef = useRef(0);
+  const selectionMode = Boolean(onSelect);
 
   useEffect(() => {
     if (!open) return;
@@ -159,9 +162,9 @@ export function AddProjectButton({
     }
   }
 
-  /** 本家同様: ホスト PC ではクリック時にエクスプローラーを直接開き、選択したら即追加。 */
+  /** ローカル追加時だけホスト PC のエクスプローラーを使い、選択したら即追加する。 */
   async function openNativeOrDialog() {
-    if (isWindowsClient() && isLoopbackClientUrl()) {
+    if (!onSelect && isWindowsClient() && isLoopbackClientUrl()) {
       setBusy(true);
       setError(null);
       try {
@@ -187,27 +190,6 @@ export function AddProjectButton({
     }
     // リモート端末・ネイティブ起動失敗は従来通りアプリ内一覧へ
     setOpen(true);
-  }
-
-  async function nativePick() {
-    setBusy(true);
-    setError(null);
-    try {
-      const result = await sendJson<{ path?: string; cancelled?: boolean; error?: string }>(
-        "/api/browse/dirs",
-        {},
-        "POST",
-        { timeoutMs: 135_000 },
-      );
-      if (result.path) {
-        setPath(result.path);
-        await loadDir(result.path);
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "フォルダ選択に失敗しました");
-    } finally {
-      setBusy(false);
-    }
   }
 
   const quickAccess = listing?.quickAccess ?? [];
@@ -275,8 +257,12 @@ export function AddProjectButton({
           >
             <div className="flex items-center justify-between border-b border-border px-4 py-3 sm:px-5">
               <div className="min-w-0">
-                <h2 id="add-project-title" className="text-sm font-semibold">プロジェクトを追加</h2>
-                <p className="mt-0.5 text-xs text-muted">プロジェクトのルートフォルダーを選択</p>
+                <h2 id="add-project-title" className="text-sm font-semibold">
+                  {selectionMode ? "フォルダーを選択" : "プロジェクトを追加"}
+                </h2>
+                <p className="mt-0.5 text-xs text-muted">
+                  {selectionMode ? "移動先フォルダーを選択" : "プロジェクトのルートフォルダーを選択"}
+                </p>
               </div>
               <button
                 type="button"
@@ -306,8 +292,8 @@ export function AddProjectButton({
                     className="h-10 min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-faint"
                   />
                 </div>
-                <Button size="sm" onClick={() => void nativePick()} busy={busy}>
-                  参照
+                <Button size="sm" onClick={() => void loadDir(path.trim() || undefined)} busy={loading}>
+                  移動
                 </Button>
               </div>
             </div>
@@ -412,9 +398,16 @@ export function AddProjectButton({
                 size="sm"
                 busy={busy}
                 disabled={loading || !isValidPathShape(path)}
-                onClick={() => void add(path.trim())}
+                onClick={() => {
+                  if (selectionMode) {
+                    onSelect?.(path.trim());
+                    setOpen(false);
+                  } else {
+                    void add(path.trim());
+                  }
+                }}
               >
-                追加
+                {selectionMode ? "選択" : "追加"}
               </Button>
             </div>
           </div>

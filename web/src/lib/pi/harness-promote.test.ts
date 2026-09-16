@@ -224,7 +224,7 @@ describe("promoteTask", () => {
     patchTask(task.id, { status: "working" });
 
     await expect(promoteTask(task.id, join(root, "project"))).rejects.toThrow(
-      "実行中のタスクは停止してから昇進してください",
+      "実行中のタスクは停止してから昇格してください",
     );
     expect(existsSync(source)).toBe(true);
   });
@@ -260,7 +260,7 @@ describe("promoteTask", () => {
     });
 
     await expect(promoteTask(task.id, join(root, "project"))).rejects.toThrow(
-      "実行中のタスクは停止してから昇進してください",
+      "実行中のタスクは停止してから昇格してください",
     );
     expect(existsSync(source)).toBe(true);
   });
