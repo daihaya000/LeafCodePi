@@ -498,4 +498,48 @@ describe("Composer", () => {
     expect(screen.getByRole("button", { name: "画像を添付" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "プロジェクトのファイルを明示" })).toBeTruthy();
   });
+
+  it("suggests and expands a saved prompt preset", () => {
+    function PresetComposer() {
+      const [value, setValue] = useState("");
+      const textareaRef = useRef<HTMLTextAreaElement>(null);
+      const inputRef = useRef<HTMLInputElement>(null);
+      return (
+        <Composer
+          className=""
+          attachments={[]}
+          onRemoveAttachment={() => {}}
+          references={{
+            prompts: [{ name: "review", description: "変更をレビュー", insertText: "変更をレビューしてください" }],
+          }}
+          textarea={{
+            ref: textareaRef,
+            value,
+            rows: 1,
+            ariaLabel: "メッセージ",
+            placeholder: "入力",
+            className: "",
+            onChange: (event) => setValue(event.target.value),
+            onValueChange: setValue,
+            onKeyDown: () => {},
+          }}
+          attachmentControl={{
+            inputRef,
+            buttonTitle: "画像を添付",
+            onFilesSelected: () => {},
+            onTrigger: () => {},
+          }}
+          action={null}
+        />
+      );
+    }
+
+    render(<PresetComposer />);
+    const textarea = screen.getByRole("textbox") as HTMLTextAreaElement;
+    textarea.focus();
+    fireEvent.change(textarea, { target: { value: "/prompt:rev", selectionStart: 11 } });
+    expect(screen.getByRole("listbox", { name: "送信プロンプト候補" })).toBeTruthy();
+    fireEvent.keyDown(textarea, { key: "Enter" });
+    expect(textarea.value).toBe("変更をレビューしてください ");
+  });
 });

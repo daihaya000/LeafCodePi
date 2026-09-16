@@ -18,8 +18,9 @@ import { BotChatHeader } from "@/components/bot/BotChatHeader";
 import { ActivityLog, conversationContentClass, MessageHeader } from "@/components/ConversationLayout";
 import { BotComposer } from "@/components/bot/BotComposer";
 import { BotMessageError, BotMessageFiles, BotMessageImages, BotMessageList, BotChatMessage, BotMessageSender, BotPermissionCard, BotRevertButton } from "@/components/bot/BotMessageList";
-import { composerPromptAttachments, readComposerFiles, type ComposerAttachment, type ComposerReference } from "@/components/Composer";
+import { composerPromptAttachments, readComposerFiles, useComposerPromptPresetReferences, type ComposerAttachment, type ComposerReference } from "@/components/Composer";
 import { canAttachComposerImages, pasteImage } from "@/lib/clipboard-image";
+import { expandComposerPromptPresets } from "@/lib/composer-prompt-presets-schema";
 import { stabilizeIdentifiedList } from "@/lib/stabilize-messages";
 import { cancelPendingSseReconnect, closeSseSource, sseReconnectDelayMs } from "@/lib/sse-reconnect";
 
@@ -133,6 +134,7 @@ export function RoomView({ id, active = true }: { id: string; active?: boolean }
   const [reverting, setReverting] = useState(false);
   const [attachments, setAttachments] = useState<ComposerAttachment[]>([]);
   const [prompt, setPrompt] = useState("");
+  const promptPresetReferences = useComposerPromptPresetReferences();
   const [broadcast, setBroadcast] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -445,7 +447,7 @@ export function RoomView({ id, active = true }: { id: string; active?: boolean }
   }, [busy, reverting]);
 
   const send = async () => {
-    const value = prompt.trim();
+    const value = expandComposerPromptPresets(prompt, promptPresetReferences).trim();
     if ((!value && attachments.length === 0) || busy || reverting) return;
     const requestContext = roomRequestContextRef.current;
     const submittedAttachments = attachments;
@@ -666,7 +668,7 @@ export function RoomView({ id, active = true }: { id: string; active?: boolean }
         sendDisabled={!prompt.trim() && attachments.length === 0}
         busy={busy || reverting}
         onSend={() => void send()}
-        references={{ skills }}
+        references={{ skills, prompts: promptPresetReferences }}
         onValueChange={setPrompt}
         attachments={attachments}
         onRemoveAttachment={(index) => setAttachments((current) => current.filter((_, position) => position !== index))}

@@ -1,7 +1,7 @@
 "use client";
 
 import { type ChangeEventHandler, type ClipboardEventHandler, type CompositionEventHandler, type KeyboardEventHandler, type ReactNode, type RefObject, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { ArrowUp, ChevronRight, FileText, Paperclip, SlidersHorizontal, Square, UsersRound, Wrench } from "lucide-react";
+import { ArrowUp, Bookmark, ChevronRight, FileText, Paperclip, SlidersHorizontal, Square, UsersRound, Wrench } from "lucide-react";
 import { COMPOSER_ACTION_BUTTON_CLASS, composerAttachmentText, ImageLightbox, type ComposerAttachment, type ComposerReferences } from "@/components/Composer";
 import { composerReferenceInsertion, composerReferenceToolNames, filterComposerReferences, findComposerReferenceToken, type ComposerReference } from "@/lib/composer-references";
 import { pasteLargeText } from "@/lib/clipboard-image";
@@ -63,8 +63,12 @@ export function BotComposer({
   const attachmentInputRef = useRef<HTMLInputElement | null>(null);
   const composingRef = useRef(false);
   const availableReferences = useMemo(
-    () => ({ skills: references?.skills ?? [], agents: references?.agents ?? [] }),
-    [references?.agents, references?.skills],
+    () => ({
+      skills: references?.skills ?? [],
+      agents: references?.agents ?? [],
+      prompts: references?.prompts ?? [],
+    }),
+    [references?.agents, references?.prompts, references?.skills],
   );
   const currentToken = useMemo(
     () => findComposerReferenceToken(value, caret),
@@ -72,9 +76,13 @@ export function BotComposer({
   );
   const suggestions = useMemo(() => {
     if (!currentToken) return [];
-    const source = currentToken.kind === "skill" ? availableReferences.skills : availableReferences.agents;
+    const source = currentToken.kind === "skill"
+      ? availableReferences.skills
+      : currentToken.kind === "agent"
+        ? availableReferences.agents
+        : availableReferences.prompts;
     return filterComposerReferences(source, currentToken.query);
-  }, [availableReferences.agents, availableReferences.skills, currentToken]);
+  }, [availableReferences.agents, availableReferences.prompts, availableReferences.skills, currentToken]);
   const showSuggestions = focused && Boolean(onValueChange) && suggestions.length > 0;
 
   useEffect(() => {
@@ -97,7 +105,7 @@ export function BotComposer({
     const input = textareaRef.current;
     const token = currentToken;
     if (!input || !token || !onValueChange) return;
-    const inserted = composerReferenceInsertion(token, reference.name);
+    const inserted = composerReferenceInsertion(token, reference.name, reference.insertText);
     onValueChange(`${value.slice(0, token.start)}${inserted}${value.slice(token.end)}`);
     setFocused(true);
     setActiveSuggestion(0);
@@ -235,11 +243,11 @@ export function BotComposer({
               className="block min-h-11 max-h-40 w-full resize-none overflow-y-auto bg-transparent px-0 py-2.5 text-base leading-6 outline-none focus-visible:outline-none placeholder:text-faint"
             />
             {showSuggestions && currentToken && (
-              <div id={referenceOptionsId} role="listbox" aria-label={currentToken.kind === "skill" ? "スキル候補" : "エージェント候補"} className="absolute bottom-full left-0 z-30 mb-2 max-h-56 w-full min-w-64 overflow-y-auto rounded-2xl border border-border bg-surface p-1.5 shadow-[0_8px_30px_rgba(0,0,0,0.12)]">
+              <div id={referenceOptionsId} role="listbox" aria-label={currentToken.kind === "skill" ? "スキル候補" : currentToken.kind === "agent" ? "エージェント候補" : "送信プロンプト候補"} className="absolute bottom-full left-0 z-30 mb-2 max-h-56 w-full min-w-64 overflow-y-auto rounded-2xl border border-border bg-surface p-1.5 shadow-[0_8px_30px_rgba(0,0,0,0.12)]">
                 {suggestions.map((reference, index) => {
                   const selected = index === activeSuggestion;
                   return <button key={`${currentToken.kind}-${reference.name}`} type="button" role="option" aria-selected={selected} onMouseDown={(event) => event.preventDefault()} onClick={() => chooseSuggestion(reference)} className={`flex w-full items-start gap-2 rounded-xl px-3 py-2 text-left ${selected ? "bg-surface-2" : "hover:bg-surface-2"}`}>
-                    {currentToken.kind === "skill" ? <Wrench className="mt-0.5 h-4 w-4 shrink-0 text-accent" /> : <UsersRound className="mt-0.5 h-4 w-4 shrink-0 text-accent" />}
+                    {currentToken.kind === "skill" ? <Wrench className="mt-0.5 h-4 w-4 shrink-0 text-accent" /> : currentToken.kind === "agent" ? <UsersRound className="mt-0.5 h-4 w-4 shrink-0 text-accent" /> : <Bookmark className="mt-0.5 h-4 w-4 shrink-0 text-accent" />}
                     <span className="min-w-0 flex-1"><span className="block truncate text-sm font-medium text-accent">{reference.name}</span>{currentToken.kind === "agent" && <span className="mt-1 flex flex-wrap gap-1" aria-label="ツール権限">{composerReferenceToolNames(reference).map((tool) => <span key={tool} data-tool-permission={tool} className="rounded-full border border-border bg-surface-2 px-1.5 py-0.5 text-[10px] text-muted">{tool}</span>)}</span>}{reference.description && <span className="mt-0.5 block truncate text-[11px] text-muted">{reference.description}</span>}</span>
                   </button>;
                 })}

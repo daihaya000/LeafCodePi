@@ -90,4 +90,18 @@ describe("composer references", () => {
     expect(isKnownComposerReference("agent", "review", catalog)).toBe(false);
     expect(isKnownComposerReference("skill", "scout", catalog)).toBe(false);
   });
+
+  it("finds and inserts prompt preset tokens", () => {
+    expect(findComposerReferenceToken("確認 /prompt:rev", 16)).toMatchObject({
+      kind: "prompt",
+      query: "rev",
+      raw: "/prompt:rev",
+    });
+    expect(composerReferenceValue("prompt", "review")).toBe("/prompt:review");
+    expect(composerReferenceInsertion(
+      { kind: "prompt", raw: "/prompt:rev" },
+      "review",
+      "変更をレビューしてください",
+    )).toBe("変更をレビューしてください ");
+  });
 });

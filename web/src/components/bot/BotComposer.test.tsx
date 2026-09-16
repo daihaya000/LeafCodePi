@@ -244,3 +244,26 @@ it("inserts an at-agent reference and a Japanese skill name", () => {
   fireEvent.keyDown(input, { key: "Enter" });
   expect(input.value).toBe("経路/レビュー担当 ");
 });
+
+it("suggests and expands a prompt preset", () => {
+  function ReferenceComposer() {
+    const [value, setValue] = useState("");
+    return <BotComposer
+      value={value}
+      onChange={(event) => setValue(event.target.value)}
+      onValueChange={setValue}
+      onKeyDown={vi.fn()}
+      onSend={vi.fn()}
+      placeholder="Message"
+      references={{ prompts: [{ name: "review", description: "Review changes", insertText: "変更を確認してください" }] }}
+    />;
+  }
+
+  render(<ReferenceComposer />);
+  const input = screen.getByRole("textbox") as HTMLTextAreaElement;
+  input.focus();
+  fireEvent.change(input, { target: { value: "/prompt:r", selectionStart: 9 } });
+  expect(screen.getByRole("listbox", { name: "送信プロンプト候補" })).toBeTruthy();
+  fireEvent.keyDown(input, { key: "Enter" });
+  expect(input.value).toBe("変更を確認してください ");
+});

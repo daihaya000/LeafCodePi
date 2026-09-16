@@ -26,6 +26,7 @@ import {
   Composer,
   composerPromptAttachments,
   readComposerFiles,
+  useComposerPromptPresetReferences,
   type ComposerAttachment,
   type ComposerReference,
 } from "@/components/Composer";
@@ -34,6 +35,7 @@ import { BotAvatar } from "@/components/bot/BotAvatar";
 import { AutoOptimizeSelect } from "@/components/AutoOptimizeSelect";
 import { canAttachComposerImages, pasteImage } from "@/lib/clipboard-image";
 import { isImeComposingEvent } from "@/lib/composer-ime";
+import { expandComposerPromptPresets } from "@/lib/composer-prompt-presets-schema";
 import { GoalLoopPanel } from "@/components/GoalLoopPanel";
 import { DiffPane } from "@/components/task/DiffPane";
 import { useBotFor } from "@/components/shell/TaskPanesContext";
@@ -911,6 +913,7 @@ export const TaskView = memo(function TaskView({
   const autoResumeKeyRef = useRef<string | null>(null);
   const [agents, setAgents] = useState<ComposerReference[]>([]);
   const [skills, setSkills] = useState<ComposerReference[]>([]);
+  const promptPresetReferences = useComposerPromptPresetReferences();
   const messageReferences = useMemo(
     () => ({
       skills,
@@ -2217,7 +2220,8 @@ export const TaskView = memo(function TaskView({
   }
 
   async function submit(queued?: QueuedFollowUp) {
-    const submittedPrompt = queued ? queued.text : prompt;
+    const rawSubmittedPrompt = queued ? queued.text : prompt;
+    const submittedPrompt = expandComposerPromptPresets(rawSubmittedPrompt, promptPresetReferences);
     const submittedAttachments = queued ? queued.attachments : attachments;
     if (
       (!submittedPrompt.trim() && submittedAttachments.length === 0) ||
@@ -2281,7 +2285,7 @@ export const TaskView = memo(function TaskView({
           `/api/tasks/${taskId}/goal-loop`,
           {
             action: "start",
-            goal: prompt,
+            goal: submittedPrompt,
             acceptance: goalLoopAcceptance,
             maxTurns: goalLoopMaxTurns,
             cooldownSeconds: goalLoopCooldownSeconds,
@@ -3950,7 +3954,7 @@ export const TaskView = memo(function TaskView({
             className: "w-full min-h-11 resize-none bg-transparent py-2.5 text-base leading-6 outline-none placeholder:text-faint",
             disabled: compacting || archived,
           }}
-          references={{ skills, agents }}
+          references={{ skills, agents, prompts: promptPresetReferences }}
           attachmentControl={{
             inputRef: fileInputRef,
             inputDisabled: !canAttachComposerImages({ goalLoopEnabled, compacting, archived }),

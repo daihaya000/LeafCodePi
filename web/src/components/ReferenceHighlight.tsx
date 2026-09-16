@@ -8,6 +8,7 @@ import {
 export type ReferenceHighlightReferences = {
   skills: readonly ComposerReference[];
   agents: readonly ComposerReference[];
+  prompts?: readonly ComposerReference[];
 };
 
 export function renderHighlightedReferenceText(
@@ -25,16 +26,21 @@ export function renderHighlightedReferenceText(
     const tokenStart = match.index + match[1].length;
     const token = match[2];
     if (tokenStart > cursor) parts.push(value.slice(cursor, tokenStart));
-    const kind: ComposerReferenceKind = token.startsWith("/") ? "skill" : "agent";
     const rawName = token.slice(1);
-    const name = kind === "skill" && rawName.toLowerCase().startsWith("skill:")
+    const lowerRawName = rawName.toLocaleLowerCase();
+    const kind: ComposerReferenceKind = token.startsWith("/")
+      ? lowerRawName.startsWith("prompt:") ? "prompt" : "skill"
+      : "agent";
+    const name = kind === "skill" && lowerRawName.startsWith("skill:")
       ? rawName.slice("skill:".length)
-      : rawName;
+      : kind === "prompt" && lowerRawName.startsWith("prompt:")
+        ? rawName.slice("prompt:".length)
+        : rawName;
     if (isKnownComposerReference(kind, name, references)) {
       parts.push(
         <span
           key={`${tokenStart}-${token}`}
-          className={kind === "skill" ? "rounded bg-accent/15 text-accent" : "rounded bg-primary/15 text-primary"}
+          className={kind === "skill" || kind === "prompt" ? "rounded bg-accent/15 text-accent" : "rounded bg-primary/15 text-primary"}
         >
           {token}
         </span>,

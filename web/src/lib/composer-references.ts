@@ -1,9 +1,11 @@
-export type ComposerReferenceKind = "skill" | "agent";
+export type ComposerReferenceKind = "skill" | "agent" | "prompt";
 
 export type ComposerReference = {
   name: string;
   description?: string;
   tools?: readonly string[];
+  /** Optional replacement text used by prompt presets. */
+  insertText?: string;
 };
 
 export function composerReferenceToolNames(
@@ -48,11 +50,19 @@ export function findComposerReferenceToken(value: string, caret: number): Compos
 
   const raw = value.slice(start, safeCaret);
   const typedQuery = raw.slice(1);
-  const query = trigger === "/" && typedQuery.toLowerCase().startsWith("skill:")
-    ? typedQuery.slice("skill:".length)
-    : typedQuery;
+  let kind: ComposerReferenceKind = trigger === "/" ? "skill" : "agent";
+  let query = typedQuery;
+  if (trigger === "/") {
+    const lowered = typedQuery.toLocaleLowerCase();
+    if (lowered.startsWith("skill:")) {
+      query = typedQuery.slice("skill:".length);
+    } else if (lowered.startsWith("prompt:")) {
+      kind = "prompt";
+      query = typedQuery.slice("prompt:".length);
+    }
+  }
   return {
-    kind: trigger === "/" ? "skill" : "agent",
+    kind,
     query,
     raw,
     start,
@@ -90,7 +100,9 @@ export function filterComposerReferences(
 }
 
 export function composerReferenceValue(kind: ComposerReferenceKind, name: string): string {
-  return kind === "skill" ? `/skill:${name}` : `@${name}`;
+  if (kind === "skill") return `/skill:${name}`;
+  if (kind === "prompt") return `/prompt:${name}`;
+  return `@${name}`;
 }
 
 /**
@@ -101,9 +113,14 @@ export function composerReferenceValue(kind: ComposerReferenceKind, name: string
 export function composerReferenceInsertion(
   token: Pick<ComposerReferenceToken, "kind" | "raw">,
   name: string,
+  insertText?: string,
 ): string {
   if (token.kind === "agent") return `@${name} `;
-  return token.raw.toLowerCase().startsWith("/skill:")
+  if (token.kind === "prompt") {
+    const replacement = insertText?.trim() || `/prompt:${name}`;
+    return `${replacement}${/\s$/.test(replacement) ? "" : " "}`;
+  }
+  return token.raw.toLocaleLowerCase().startsWith("/skill:")
     ? `/skill:${name} `
     : `/${name} `;
 }
@@ -112,8 +129,16 @@ export function composerReferenceInsertion(
 export function isKnownComposerReference(
   kind: ComposerReferenceKind,
   name: string,
-  references: { skills: readonly ComposerReference[]; agents: readonly ComposerReference[] },
+  references: {
+    skills: readonly ComposerReference[];
+    agents: readonly ComposerReference[];
+    prompts?: readonly ComposerReference[];
+  },
 ): boolean {
-  const source = kind === "skill" ? references.skills : references.agents;
+  const source = kind === "skill"
+    ? references.skills
+    : kind === "agent"
+      ? references.agents
+      : references.prompts ?? [];
   return source.some((reference) => reference.name === name);
 }

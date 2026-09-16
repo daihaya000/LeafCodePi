@@ -1,14 +1,18 @@
 // @vitest-environment happy-dom
-import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ModelOption } from "@/lib/types";
 
 const mocks = vi.hoisted(() => ({
   getJson: vi.fn(),
+  sendJson: vi.fn(),
 }));
 vi.mock("@/lib/client", () => mocks);
 
-import { ComposerDefaultsSettings } from "./ComposerDefaultsSettings";
+import {
+  ComposerDefaultsSettings,
+  ComposerPromptPresetsSettings,
+} from "./ComposerDefaultsSettings";
 import { writeComposerDefaults } from "@/lib/composer-defaults";
 
 function deferred<T>() {
@@ -23,6 +27,7 @@ beforeEach(() => {
   localStorage.clear();
   vi.clearAllMocks();
   mocks.getJson.mockResolvedValue({ models: [], agents: [] });
+  mocks.sendJson.mockResolvedValue({ value: "[]" });
 });
 
 afterEach(() => {
@@ -87,5 +92,25 @@ describe("ComposerDefaultsSettings model mapping", () => {
     await waitFor(() => {
       expect(screen.getByText(/「ghost-agent」は無効です/)).toBeTruthy();
     });
+  });
+
+  it("adds, edits, and deletes a prompt preset from settings", () => {
+    render(<ComposerPromptPresetsSettings />);
+
+    fireEvent.click(screen.getByRole("button", { name: "プリセットを追加" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "プリセット名" }), { target: { value: "review" } });
+    fireEvent.change(screen.getByRole("textbox", { name: "送信プロンプト本文" }), { target: { value: "変更を確認してください" } });
+    fireEvent.click(screen.getByRole("button", { name: "保存" }));
+
+    expect(screen.getByText("review")).toBeTruthy();
+    expect(screen.getByText("変更を確認してください")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "reviewを編集" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "送信プロンプト本文" }), { target: { value: "変更を詳しく確認してください" } });
+    fireEvent.click(screen.getByRole("button", { name: "保存" }));
+    expect(screen.getByText("変更を詳しく確認してください")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "reviewを削除" }));
+    expect(screen.queryByText("review")).toBeNull();
   });
 });

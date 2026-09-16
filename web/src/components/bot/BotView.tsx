@@ -21,8 +21,9 @@ import { BotChatHeader } from "@/components/bot/BotChatHeader";
 import { BotIntercomInbox } from "@/components/bot/BotIntercomInbox";
 import { useBotFor, useReportStatus } from "@/components/shell/TaskPanesContext";
 import { BotComposer } from "@/components/bot/BotComposer";
-import { composerPromptAttachments, readComposerFiles, type ComposerAttachment } from "@/components/Composer";
+import { composerPromptAttachments, readComposerFiles, useComposerPromptPresetReferences, type ComposerAttachment } from "@/components/Composer";
 import { canAttachComposerImages, pasteImage } from "@/lib/clipboard-image";
+import { expandComposerPromptPresets } from "@/lib/composer-prompt-presets-schema";
 import { BotMessageError, BotMessageFiles, BotMessageImages, BotMessageList, BotChatMessage, BotMessageSender, BotPermissionCard, BotResponseStatus, BotRevertButton } from "@/components/bot/BotMessageList";
 import { BotCodeSessionPanel } from "@/components/bot/BotCodeSessionPanel";
 import { BotCodeRequests } from "@/components/bot/BotCodeRequests";
@@ -176,6 +177,7 @@ export const BotView = memo(function BotView({ id, active = true }: { id: string
   const [historyError, setHistoryError] = useState<string | null>(null);
   const viewportRef = useRef<HTMLElement | null>(null);
   const [prompt, setPrompt] = useState("");
+  const promptPresetReferences = useComposerPromptPresetReferences();
   const [attachments, setAttachments] = useState<ComposerAttachment[]>([]);
   const [soul, setSoul] = useState("");
   const [soulEditing, setSoulEditing] = useState(false);
@@ -689,7 +691,7 @@ export const BotView = memo(function BotView({ id, active = true }: { id: string
   };
 
   const send = async () => {
-    const value = prompt.trim();
+    const value = expandComposerPromptPresets(prompt, promptPresetReferences).trim();
     if ((!value && attachments.length === 0) || sending || reverting) return;
     const requestContext = botRequestContextRef.current;
     const submittedAttachments = attachments;
@@ -1227,6 +1229,7 @@ export const BotView = memo(function BotView({ id, active = true }: { id: string
         onPaste={(event) => { if (pasteImage(addFiles, event)) event.preventDefault(); }}
         onChange={(event) => setPrompt(event.target.value)}
         onValueChange={setPrompt}
+        references={{ prompts: promptPresetReferences }}
         onCompositionStart={() => { composingRef.current = true; }}
         onCompositionEnd={() => { composingRef.current = false; }}
         onKeyDown={(event) => { if (event.key === "Enter" && (event.metaKey || event.ctrlKey) && !composingRef.current) { event.preventDefault(); void send(); } }}

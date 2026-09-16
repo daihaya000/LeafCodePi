@@ -33,6 +33,10 @@ import {
 } from "@/lib/auto-model";
 import { BOT_DEFAULT_PERMISSION_KEY, BOT_DEFAULT_THINKING_KEY, BOT_DEFAULT_PERMISSION_VALUES, BOT_DEFAULT_THINKING_VALUES } from "@/lib/bot-settings";
 import { PINNED_TASKS_SETTING_KEY, parsePinnedTaskIds } from "@/lib/sidebar-settings";
+import {
+  COMPOSER_PROMPT_PRESETS_SETTING_KEY,
+  parseComposerPromptPresets,
+} from "@/lib/composer-prompt-presets-schema";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -56,6 +60,7 @@ const ALLOWED_KEYS = new Set<string>([
   TITLE_AUTO_UPDATE_FREQUENCY_SETTING_KEY,
   TITLE_AUTO_UPDATE_ENABLED_SETTING_KEY,
   PINNED_TASKS_SETTING_KEY,
+  COMPOSER_PROMPT_PRESETS_SETTING_KEY,
 ]);
 
 function normalizedGenerationModelValue(value: string): string | null {
@@ -87,6 +92,10 @@ function validateValue(key: string, value: string): string | null {
   }
   if (key === "auto-agent-prompt") {
     return value.trim() ? value : null;
+  }
+  if (key === COMPOSER_PROMPT_PRESETS_SETTING_KEY) {
+    const presets = parseComposerPromptPresets(value);
+    return presets === null ? null : JSON.stringify(presets);
   }
   if (key === PINNED_TASKS_SETTING_KEY) {
     const ids = parsePinnedTaskIds(value);

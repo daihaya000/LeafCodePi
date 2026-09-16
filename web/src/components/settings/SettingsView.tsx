@@ -27,7 +27,10 @@ import { TtsSettings } from "@/components/settings/TtsSettings";
 import { IntercomSettings } from "@/components/settings/IntercomSettings";
 import { SystemSafetySettings } from "@/components/settings/SystemSafetySettings";
 import { BotDefaultsSettings } from "@/components/settings/BotDefaultsSettings";
-import { ComposerDefaultsSettings } from "@/components/settings/ComposerDefaultsSettings";
+import {
+  ComposerDefaultsSettings,
+  ComposerPromptPresetsSettings,
+} from "@/components/settings/ComposerDefaultsSettings";
 import { BotsMdSettings } from "@/components/settings/BotsMdSettings";
 import { Badge, cx } from "@/components/ui";
 import { getJson } from "@/lib/client";
@@ -377,10 +380,11 @@ export function SettingsView() {
               <SettingsGroup
                 id="models-generation-heading"
                 title="自動選択と生成"
-                description="起動時の既定値、自動ルーティングと、タイトル・提案などに使う生成モデルを設定します。"
+                description="起動時の既定値、送信プロンプト、自動ルーティングと、タイトル・提案などに使う生成モデルを設定します。"
               >
                 <div className="space-y-4">
                   <ComposerDefaultsSettings refreshToken={modelsRevision} />
+                  <ComposerPromptPresetsSettings />
                   <div id="models-auto" className="scroll-mt-24">
                     <AutoModelSettings refreshToken={modelsRevision} />
                   </div>

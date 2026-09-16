@@ -12,6 +12,7 @@ import {
   Composer,
   composerPromptAttachments,
   readComposerFiles,
+  useComposerPromptPresetReferences,
   type ComposerAttachment,
   type ComposerReference,
 } from "@/components/Composer";
@@ -19,6 +20,7 @@ import { GoalLoopOptions, GoalLoopToggle } from "@/components/GoalLoopComposer";
 import { NextTaskSuggest } from "@/components/home/NextTaskSuggest";
 import { canAttachComposerImages, pasteImage } from "@/lib/clipboard-image";
 import { isImeComposingEvent } from "@/lib/composer-ime";
+import { expandComposerPromptPresets } from "@/lib/composer-prompt-presets-schema";
 import { ModelSelect, modelOptionForValue } from "@/components/ModelSelect";
 import { ThinkingSelect } from "@/components/ThinkingSelect";
 import { SubagentPermissionSelect } from "@/components/SubagentPermissionSelect";
@@ -211,6 +213,7 @@ export const HomeView = memo(function HomeView({
   const selectedProject = projectId
     ? projects.find((project) => project.id === projectId)
     : undefined;
+  const promptPresetReferences = useComposerPromptPresetReferences();
   const modelOptions = useMemo(() => [AUTO_MODEL_OPTION, ...models], [models]);
   // ModelSelect 表示と同じ照合にし、integrated / 旧アカウント接頭辞でも思考レベルを失わない。
   const selectedModel = modelOptionForValue(modelOptions, model);
@@ -402,7 +405,8 @@ export const HomeView = memo(function HomeView({
   }
 
   async function submit() {
-    if ((!prompt.trim() && attachments.length === 0) || projectId === undefined || submitting) return;
+    const submittedPrompt = expandComposerPromptPresets(prompt, promptPresetReferences);
+    if ((!submittedPrompt.trim() && attachments.length === 0) || projectId === undefined || submitting) return;
     setSubmitting(true);
     setError(null);
     try {
@@ -411,7 +415,7 @@ export const HomeView = memo(function HomeView({
       const autoRouteConfig = readAutoRouteConfig();
       const result = await sendJson<{ task: TaskSummary; autoDecision?: AutoDecision }>("/api/tasks", {
         projectId: projectId ?? null,
-        prompt,
+        prompt: submittedPrompt,
         // アカウントタグ付きモデルの value は「accountId::provider::model」。送信時は
         // Pi が解釈できる「provider::model」へ戻す（accountId は別フィールドで渡す）。
         ...(!isAuto
@@ -451,7 +455,7 @@ export const HomeView = memo(function HomeView({
       if (isAuto && result.autoDecision) {
         writeAutoTaskRecord(result.task.id, {
           decision: result.autoDecision,
-          ...(!images.length && !files.length && prompt.length <= AUTO_TASK_PROMPT_MAX ? { prompt } : {}),
+          ...(!images.length && !files.length && submittedPrompt.length <= AUTO_TASK_PROMPT_MAX ? { prompt: submittedPrompt } : {}),
           ...(result.task.agent?.trim() ? { agent: result.task.agent.trim() } : {}),
         });
       }
@@ -575,7 +579,7 @@ export const HomeView = memo(function HomeView({
                 placeholder: "タスクを説明してください…（Ctrl+Enter で開始）",
                 className: "w-full min-h-11 resize-none bg-transparent py-2.5 text-base leading-6 outline-none placeholder:text-faint",
               }}
-              references={{ skills, agents }}
+              references={{ skills, agents, prompts: promptPresetReferences }}
               attachmentControl={{
                 inputRef: fileInputRef,
                 inputDisabled: !canAttachComposerImages({ goalLoopEnabled, submitting }),

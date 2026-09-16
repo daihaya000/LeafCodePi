@@ -230,6 +230,35 @@ describe("/api/settings/[key]", () => {
     );
   });
 
+  it("accepts and canonicalizes prompt presets", async () => {
+    const response = await PUT(
+      request("composer-prompt-presets", {
+        value: JSON.stringify([
+          { name: "レビュー", prompt: "  変更を確認してください  " },
+        ]),
+      }),
+      { params: Promise.resolve({ key: "composer-prompt-presets" }) },
+    );
+
+    expect(response.status).toBe(200);
+    expect(settings.setSetting).toHaveBeenCalledWith(
+      "composer-prompt-presets",
+      JSON.stringify([{ name: "レビュー", prompt: "変更を確認してください" }]),
+    );
+  });
+
+  it("rejects invalid prompt preset names", async () => {
+    const response = await PUT(
+      request("composer-prompt-presets", {
+        value: JSON.stringify([{ name: "bad/name", prompt: "本文" }]),
+      }),
+      { params: Promise.resolve({ key: "composer-prompt-presets" }) },
+    );
+
+    expect(response.status).toBe(400);
+    expect(settings.setSetting).not.toHaveBeenCalled();
+  });
+
   it("rejects invalid Auto settings and clears the show-model setting", async () => {
     const invalidMode = await PUT(
       request("auto-optimize", { value: "turbo" }),

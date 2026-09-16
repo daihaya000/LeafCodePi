@@ -16,7 +16,7 @@ import type {
   UIEventHandler,
 } from "react";
 import { createPortal } from "react-dom";
-import { ChevronRight, FileText, Paperclip, UsersRound, Wrench, X } from "lucide-react";
+import { Bookmark, ChevronRight, FileText, Paperclip, UsersRound, Wrench, X } from "lucide-react";
 import {
   composerReferenceInsertion,
   composerReferenceToolNames,
@@ -27,6 +27,14 @@ import {
 import { isImeComposingEvent } from "@/lib/composer-ime";
 import { pasteLargeText } from "@/lib/clipboard-image";
 import { renderHighlightedReferenceText } from "@/components/ReferenceHighlight";
+import {
+  hasStoredComposerPromptPresets,
+  readComposerPromptPresets,
+  readComposerPromptPresetsFromServer,
+  subscribeComposerPromptPresets,
+  writeComposerPromptPresets,
+  type ComposerPromptPreset,
+} from "@/lib/composer-prompt-presets";
 
 export type { ComposerReference } from "@/lib/composer-references";
 
@@ -108,7 +116,45 @@ export function composerAttachmentText(attachment: ComposerAttachment): string |
 export type ComposerReferences = {
   skills?: readonly ComposerReference[];
   agents?: readonly ComposerReference[];
+  prompts?: readonly ComposerReference[];
 };
+
+/** Shared preset catalog for task, follow-up, Bot, and Room composers. */
+export function useComposerPromptPresetReferences(): ComposerReference[] {
+  const [presets, setPresets] = useState<ComposerPromptPreset[]>(() => readComposerPromptPresets());
+  const touchedRef = useRef(false);
+
+  useEffect(
+    () =>
+      subscribeComposerPromptPresets(() => {
+        touchedRef.current = true;
+        setPresets(readComposerPromptPresets());
+      }),
+    [],
+  );
+
+  useEffect(() => {
+    let active = true;
+    if (hasStoredComposerPromptPresets()) return;
+    void readComposerPromptPresetsFromServer().then((snapshot) => {
+      if (!active || snapshot === null || touchedRef.current || hasStoredComposerPromptPresets()) return;
+      writeComposerPromptPresets(snapshot);
+      setPresets(snapshot);
+    });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  return useMemo(
+    () => presets.map((preset) => ({
+      name: preset.name,
+      description: preset.prompt.replace(/\s+/g, " ").trim().slice(0, 120),
+      insertText: preset.prompt,
+    })),
+    [presets],
+  );
+}
 
 export type ComposerSettingsGroup = {
   id: string;
@@ -260,8 +306,12 @@ export function Composer({
   const [caret, setCaret] = useState(0);
   const [activeSuggestion, setActiveSuggestion] = useState(0);
   const availableReferences = useMemo(
-    () => ({ skills: references?.skills ?? [], agents: references?.agents ?? [] }),
-    [references?.agents, references?.skills],
+    () => ({
+      skills: references?.skills ?? [],
+      agents: references?.agents ?? [],
+      prompts: references?.prompts ?? [],
+    }),
+    [references?.agents, references?.prompts, references?.skills],
   );
   const currentToken = useMemo(
     () => findComposerReferenceToken(textarea.value, caret),
@@ -269,9 +319,13 @@ export function Composer({
   );
   const suggestions = useMemo(() => {
     if (!currentToken) return [];
-    const source = currentToken.kind === "skill" ? availableReferences.skills : availableReferences.agents;
+    const source = currentToken.kind === "skill"
+      ? availableReferences.skills
+      : currentToken.kind === "agent"
+        ? availableReferences.agents
+        : availableReferences.prompts;
     return filterComposerReferences(source, currentToken.query);
-  }, [availableReferences.agents, availableReferences.skills, currentToken]);
+  }, [availableReferences.agents, availableReferences.prompts, availableReferences.skills, currentToken]);
   const showSuggestions = focused && !textarea.readOnly && !textarea.disabled && suggestions.length > 0;
 
   useEffect(() => {
@@ -303,7 +357,7 @@ export function Composer({
     const element = textarea.ref.current;
     const token = currentToken;
     if (!element || !token || !textarea.onValueChange) return;
-    const inserted = composerReferenceInsertion(token, reference.name);
+    const inserted = composerReferenceInsertion(token, reference.name, reference.insertText);
     const next = `${textarea.value.slice(0, token.start)}${inserted}${textarea.value.slice(token.end)}`;
     textarea.onValueChange(next);
     setFocused(true);
@@ -516,7 +570,13 @@ export function Composer({
         {showSuggestions && currentToken && (
           <div
             role="listbox"
-            aria-label={currentToken.kind === "skill" ? "スキル候補" : "エージェント候補"}
+            aria-label={
+              currentToken.kind === "skill"
+                ? "スキル候補"
+                : currentToken.kind === "agent"
+                  ? "エージェント候補"
+                  : "送信プロンプト候補"
+            }
             className="absolute bottom-full left-0 z-30 mb-1 max-h-[28rem] w-full min-w-64 overflow-y-auto rounded-2xl border border-border bg-surface p-1.5 shadow-xl"
           >
             {suggestions.map((reference, index) => {
@@ -534,8 +594,10 @@ export function Composer({
                 >
                   {kind === "skill" ? (
                     <Wrench className="mt-0.5 h-5 w-5 shrink-0 text-accent" />
-                  ) : (
+                  ) : kind === "agent" ? (
                     <UsersRound className="mt-0.5 h-5 w-5 shrink-0 text-accent" />
+                  ) : (
+                    <Bookmark className="mt-0.5 h-5 w-5 shrink-0 text-accent" />
                   )}
                   <span className="min-w-0 flex-1">
                     <span className="block truncate text-base font-semibold leading-6 text-accent">

@@ -138,6 +138,7 @@ describe("SettingsView", () => {
     expect(Array.from(modelsPanel.querySelectorAll("h3")).map((heading) => heading.textContent)).toEqual([
       "モデル",
       "起動時の既定値",
+      "送信プロンプト",
       "Autoモデル",
       "生成モデル",
       "プロバイダー",
