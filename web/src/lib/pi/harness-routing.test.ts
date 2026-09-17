@@ -745,6 +745,64 @@ describe("integrated session routing", () => {
     });
   });
 
+  it("keeps the unavailable stored model after a soul reload recreate", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "leafcode-pi-unavailable-auto-soul-"));
+    tempDirs.push(dir);
+    process.env.LEAFCODE_PI_DATA_DIR = dir;
+    process.env.PI_CODING_AGENT_DIR = join(dir, "agent");
+    __resetPiAgentDirCacheForTests();
+
+    const account = createAccount({ label: "テスト", providers: ["anthropic"] });
+    storeProviderAuth(account.id, process.env.PI_CODING_AGENT_DIR!);
+    installHarness(new Map([[account.id, runtime(account.id)]]));
+    await setAccountRoutingMode("anthropic", "integrated");
+
+    const bot = createBot({ name: "Soul reload bot" });
+    patchBot(bot.id, { model: "leafcodecloud::LeafModel" });
+    patchTask(botTaskId(bot.id), {
+      providerID: "leafcodecloud",
+      modelID: "LeafModel",
+    });
+    await promptTask(botTaskId(bot.id), "初回", undefined, {
+      waitForCompletion: true,
+    });
+    requestBotSoulReload(bot.id);
+    await promptTask(botTaskId(bot.id), "再読込後", undefined, {
+      waitForCompletion: true,
+    });
+
+    expect(fakePi.sessions).toHaveLength(2);
+    expect(fakePi.sessions[1]?.prompts).toEqual(["再読込後"]);
+    expect(getTask(botTaskId(bot.id))).toMatchObject({
+      providerID: "leafcodecloud",
+      modelID: "LeafModel",
+      status: "idle",
+    });
+  });
+
+  it("fails closed when Auto cannot replace an unavailable Code model", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "leafcode-pi-unavailable-auto-empty-"));
+    tempDirs.push(dir);
+    process.env.LEAFCODE_PI_DATA_DIR = dir;
+    process.env.PI_CODING_AGENT_DIR = join(dir, "agent");
+    __resetPiAgentDirCacheForTests();
+    installHarness(new Map());
+
+    const task = insertTask({
+      project: null,
+      title: "no auto candidates",
+      providerID: "leafcodecloud",
+      modelID: "LeafModel",
+    });
+    await expect(
+      promptTask(task.id, "起動", undefined, { waitForCompletion: true }),
+    ).rejects.toThrow("モデルを利用できません: leafcodecloud::LeafModel");
+    expect(getTask(task.id)).toMatchObject({
+      providerID: "leafcodecloud",
+      modelID: "LeafModel",
+    });
+  });
+
   it("switches an explicitly pinned task to an unpinned model from another provider", async () => {
     const dir = mkdtempSync(join(tmpdir(), "leafcode-pi-cross-provider-switch-"));
     tempDirs.push(dir);

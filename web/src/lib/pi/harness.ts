@@ -2220,7 +2220,9 @@ async function attachSession(
     accountId: attachedAccountId,
     agentName: attachedAgentName,
     botId: attachedBotId,
-    preserveTaskModel: options?.preserveTaskModel === true,
+    // Keep Auto-fallback sessions from silently pinning when agent/soul recreate attach.
+    preserveTaskModel:
+      options?.preserveTaskModel ?? existing?.preserveTaskModel === true,
   });
 
   const unsubscribe = session.subscribe((event) => {
@@ -4135,8 +4137,7 @@ async function resolveLiveSessionSettings(task: TaskSummary): Promise<{
       sessionAccountIdExplicit = false;
     }
   }
-  const isBot = task.kind === "bot" && Boolean(task.botId);
-  if (isBot && task.providerID && task.modelID && !model) {
+  if (task.providerID && task.modelID && !model) {
     throw Object.assign(
       new Error(`モデルを利用できません: ${task.providerID}::${task.modelID}`),
       { status: 503 },
@@ -4214,7 +4215,9 @@ async function attachCreatedLiveSession(
           preserveTaskModel: true,
           sessionAccountId,
         }
-      : undefined,
+      : {
+          preserveTaskModel: false,
+        },
   );
   if ((ensureLiveEpoch.get(taskId) ?? 0) !== epoch) {
     if (state().live.get(taskId) === attached) {
@@ -7289,7 +7292,10 @@ async function replaceLiveForRoute(
   }
 
   try {
-    return await attachSession(task.id, setup.session, setup.skillPermissionRef);
+    // Intentional route change: stop preserving an unavailable stored model.
+    return await attachSession(task.id, setup.session, setup.skillPermissionRef, {
+      preserveTaskModel: false,
+    });
   } catch (error) {
     setup.session.dispose();
     // attachSession acquires the new runtime before replacing the old live
