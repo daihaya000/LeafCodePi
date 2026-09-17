@@ -16,9 +16,11 @@ afterEach(() => {
 });
 
 describe("Auto Jev routing", () => {
-  it("uses Jev's valid tier", async () => {
+  it("uses Jev's valid high-confidence tier", async () => {
     process.env.TYPESAFE_AUTO_ROUTING = "1";
-    mocks.evaluateTypeSafe.mockResolvedValue({ answers: { tier: { choice: "heavy" } } });
+    mocks.evaluateTypeSafe.mockResolvedValue({
+      answers: { tier: { choice: "heavy", confidence: 0.82 } },
+    });
 
     await expect(
       classifyAutoTierWithJev({
@@ -29,6 +31,33 @@ describe("Auto Jev routing", () => {
         recentFailure: false,
       }),
     ).resolves.toBe("heavy");
+  });
+
+  it("falls back when tier confidence is low or missing", async () => {
+    process.env.TYPESAFE_AUTO_ROUTING = "1";
+    mocks.evaluateTypeSafe.mockResolvedValue({
+      answers: { tier: { choice: "heavy", confidence: 0.59 } },
+    });
+    await expect(
+      classifyAutoTierWithJev({
+        prompt: "全体をリファクタして",
+        hasImages: false,
+        attachmentCount: 0,
+        historyMessageCount: 0,
+        recentFailure: false,
+      }),
+    ).resolves.toBeUndefined();
+
+    mocks.evaluateTypeSafe.mockResolvedValue({ answers: { tier: { choice: "heavy" } } });
+    await expect(
+      classifyAutoTierWithJev({
+        prompt: "全体をリファクタして",
+        hasImages: false,
+        attachmentCount: 0,
+        historyMessageCount: 0,
+        recentFailure: false,
+      }),
+    ).resolves.toBeUndefined();
   });
 
   it("returns undefined when Jev is unavailable", async () => {
@@ -48,14 +77,23 @@ describe("Auto Jev routing", () => {
 
   it("accepts only a configured agent name", async () => {
     process.env.TYPESAFE_AUTO_ROUTING = "1";
-    mocks.evaluateTypeSafe.mockResolvedValue({ answers: { agent: { choice: "builder" } } });
+    mocks.evaluateTypeSafe.mockResolvedValue({
+      answers: { agent: { choice: "builder", confidence: 0.81 } },
+    });
     const candidates = [
       { name: "builder", description: "implements", canModifyFiles: true },
       { name: "reviewer", description: "reviews", canModifyFiles: false },
     ];
 
     await expect(selectAutoAgentWithJev({ prompt: "実装して", candidates })).resolves.toBe("builder");
-    mocks.evaluateTypeSafe.mockResolvedValue({ answers: { agent: { choice: "unknown" } } });
+    mocks.evaluateTypeSafe.mockResolvedValue({
+      answers: { agent: { choice: "unknown", confidence: 0.9 } },
+    });
+    await expect(selectAutoAgentWithJev({ prompt: "実装して", candidates })).resolves.toBeUndefined();
+
+    mocks.evaluateTypeSafe.mockResolvedValue({
+      answers: { agent: { choice: "builder", confidence: 0.59 } },
+    });
     await expect(selectAutoAgentWithJev({ prompt: "実装して", candidates })).resolves.toBeUndefined();
   });
 });

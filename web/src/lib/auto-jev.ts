@@ -1,6 +1,15 @@
-import { evaluateTypeSafe } from "@/lib/pi/typesafe-system-one";
+import { evaluateTypeSafe, type TypeSafeAnswer } from "@/lib/pi/typesafe-system-one";
 
 export type JevAutoTier = "light" | "standard" | "heavy";
+
+/** Initial routing threshold; lower-confidence decisions use the existing fallback. */
+export const AUTO_JEV_MIN_CONFIDENCE = 0.6;
+
+function hasRoutingConfidence(answer: TypeSafeAnswer | undefined): boolean {
+  return typeof answer?.confidence === "number" &&
+    Number.isFinite(answer.confidence) &&
+    answer.confidence >= AUTO_JEV_MIN_CONFIDENCE;
+}
 
 type AutoTierInput = {
   prompt: string;
@@ -48,7 +57,9 @@ export async function classifyAutoTierWithJev(
         },
       },
     });
-    const choice = response.answers.tier?.choice;
+    const answer = response.answers.tier;
+    if (!answer || !hasRoutingConfidence(answer)) return undefined;
+    const choice = answer.choice;
     return choice === "light" || choice === "standard" || choice === "heavy"
       ? choice
       : undefined;
@@ -89,7 +100,9 @@ export async function selectAutoAgentWithJev(input: {
         },
       },
     });
-    const choice = response.answers.agent?.choice;
+    const answer = response.answers.agent;
+    if (!answer || !hasRoutingConfidence(answer)) return undefined;
+    const choice = answer.choice;
     return choice && names.has(choice) ? choice : undefined;
   } catch {
     return undefined;
