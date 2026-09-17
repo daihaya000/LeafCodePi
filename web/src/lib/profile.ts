@@ -16,8 +16,9 @@ const PROFILE_FORMAT = "leafcode-pi-profile";
 const PROFILE_VERSION = 1;
 const MAX_ARCHIVE_BYTES = 256 * 1024 * 1024;
 const MAX_CONTENT_BYTES = 240 * 1024 * 1024;
-const MAX_EXPANDED_BYTES = 330 * 1024 * 1024;
-const MAX_PROFILE_FILES = 10_000;
+const MAX_EXPANDED_BYTES = 384 * 1024 * 1024;
+// Installed npm/git extensions commonly contain tens of thousands of source and documentation files.
+const MAX_PROFILE_FILES = 50_000;
 
 const AGENT_FILES = [
   "AGENTS.md",
@@ -85,7 +86,7 @@ function isAllowedProfilePath(path: string): boolean {
   return (parts.length === 1 && DATA_FILES.includes(entry as never)) || DATA_DIRECTORIES.includes(entry as never);
 }
 
-type ProfileTotal = { bytes: number; agentDir: string; leafcodeDir: string };
+type ProfileTotal = { bytes: number; fileCount: number; agentDir: string; leafcodeDir: string };
 
 function addFile(files: Record<string, string>, key: string, path: string, total: ProfileTotal) {
   const stat = lstatSync(path);
@@ -94,10 +95,11 @@ function addFile(files: Record<string, string>, key: string, path: string, total
   if (total.bytes > MAX_CONTENT_BYTES) {
     throw new Error(`プロファイルが${MAX_CONTENT_BYTES / 1024 / 1024}MBを超えています`);
   }
-  if (Object.keys(files).length >= MAX_PROFILE_FILES) {
+  if (total.fileCount >= MAX_PROFILE_FILES) {
     throw new Error(`プロファイルのファイル数が${MAX_PROFILE_FILES}件を超えています`);
   }
   files[key] = readFileSync(path).toString("base64");
+  total.fileCount += 1;
 }
 
 function addDirectory(files: Record<string, string>, root: "agent" | "data", directory: string, total: ProfileTotal) {
@@ -120,7 +122,7 @@ function addDirectory(files: Record<string, string>, root: "agent" | "data", dir
 export function exportProfile(options: ProfileRoots = {}): { archive: Buffer; summary: ProfileSummary } {
   const { agentDir, leafcodeDir } = roots(options);
   const files: Record<string, string> = {};
-  const total: ProfileTotal = { bytes: 0, agentDir, leafcodeDir };
+  const total: ProfileTotal = { bytes: 0, fileCount: 0, agentDir, leafcodeDir };
 
   for (const name of AGENT_FILES) {
     const path = join(agentDir, name);
@@ -141,7 +143,7 @@ export function exportProfile(options: ProfileRoots = {}): { archive: Buffer; su
   };
   return {
     archive: gzipSync(Buffer.from(JSON.stringify(archive), "utf8")),
-    summary: { fileCount: Object.keys(files).length, bytes: total.bytes },
+    summary: { fileCount: total.fileCount, bytes: total.bytes },
   };
 }
 
