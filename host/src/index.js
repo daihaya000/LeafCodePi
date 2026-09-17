@@ -146,6 +146,7 @@ let systray = null;
 let quitting = false;
 let webRestarts = 0;
 let trayRestarts = 0;
+let trayCopyDir = true;
 let restarting = false;
 const expectedWebExitPids = new Set();
 
@@ -358,14 +359,17 @@ function runNodeScript(args, options) {
 function installWebIfNeeded() {
   if (!existsSync(join(WEB_DIR, "node_modules", "next"))) {
     log("Installing web dependencies...");
-    const result = spawnSync(npmCmd(), ["install"], {
-      cwd: WEB_DIR,
-      shell: true,
-      windowsHide: true,
-      // npm changes process.title on Windows. Pipe its output so it cannot
-      // replace the LeafCodePi launcher title on the shared console.
-      stdio: process.platform === "win32" ? ["ignore", "pipe", "pipe"] : "inherit",
-    });
+    const result = spawnSync(
+      process.platform === "win32" ? "cmd.exe" : npmCmd(),
+      process.platform === "win32" ? ["/d", "/s", "/c", "npm.cmd install"] : ["install"],
+      {
+        cwd: WEB_DIR,
+        windowsHide: true,
+        // npm changes process.title on Windows. Pipe its output so it cannot
+        // replace the LeafCodePi launcher title on the shared console.
+        stdio: process.platform === "win32" ? ["ignore", "pipe", "pipe"] : "inherit",
+      },
+    );
     if (process.platform === "win32") writeCapturedOutput(result);
     if (result.status !== 0) {
       throw new Error(`npm install (web) exited ${result.status}`);
@@ -697,12 +701,12 @@ function buildTrayMenu() {
   };
 }
 
-function wireTrayLifecycle() {
-  if (!systray) return;
-  systray.process?.on("exit", () => {
-    if (quitting) return;
-    error("Tray helper exited");
+function wireTrayLifecycle(tray, copyDir) {
+  tray.process?.on("exit", (code, signal) => {
+    if (quitting || systray !== tray) return;
+    error(`Tray helper exited (code=${code ?? "none"}, signal=${signal ?? "none"})`);
     systray = null;
+    trayCopyDir = !copyDir;
     scheduleTrayRestart();
   });
 }
@@ -734,19 +738,21 @@ async function startTray() {
   }
   return withLocalLeafcodeTempEnv(async () => {
     let lastErr;
-    for (const copyDir of [true, false]) {
+    for (const copyDir of trayCopyDir ? [true, false] : [false, true]) {
       try {
-        systray = new SysTray({
+        const tray = new SysTray({
           menu: buildTrayMenu(),
           debug: false,
           copyDir,
         });
-        systray.onClick((action) => {
+        systray = tray;
+        tray.onClick((action) => {
           if (action.item?.click) action.item.click();
         });
-        await systray.ready();
+        await tray.ready();
+        trayCopyDir = copyDir;
         log(`Tray host ready (copyDir=${copyDir})`);
-        wireTrayLifecycle();
+        wireTrayLifecycle(tray, copyDir);
         return;
       } catch (err) {
         lastErr = err;
