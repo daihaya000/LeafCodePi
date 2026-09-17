@@ -418,6 +418,11 @@ type LiveRuntime = {
   soulRevision: string | null;
   /** Reload AGENTS/skills/MCP into a Code (or busy-skipped) session at the next idle prompt. */
   contextReloadPending: boolean;
+  /**
+   * Session used Auto because the stored model is unavailable.
+   * Keep task.providerID/modelID as the unavailable selection (no silent pin).
+   */
+  preserveTaskModel: boolean;
 };
 
 function messageContext(live: LiveRuntime): MessageAccountContext {
@@ -2058,6 +2063,7 @@ function restoredTaskMetadata(
   | "manualAbortedAssistantId"
   | "hangRetryCount"
   | "pendingProviderFallback"
+  | "preserveTaskModel"
 > {
   return {
     revertLeafId: existing?.revertLeafId ?? task?.revertLeafId ?? null,
@@ -2065,6 +2071,7 @@ function restoredTaskMetadata(
       existing?.manualAbortedAssistantId ?? task?.manualAbortedAssistantId ?? null,
     hangRetryCount: existing?.hangRetryCount ?? task?.hangRetryCount ?? 0,
     pendingProviderFallback: existing?.pendingProviderFallback ?? null,
+    preserveTaskModel: existing?.preserveTaskModel === true,
   };
 }
 
@@ -2077,6 +2084,7 @@ function buildLiveRuntime(input: {
   accountId: string | null;
   agentName: string | null;
   botId: string | undefined;
+  preserveTaskModel?: boolean;
 }): LiveRuntime {
   const { taskId, session, skillPermissionRef, existing } = input;
   const loaded = existing ? null : loadThroughputFromSession(session);
@@ -2087,6 +2095,9 @@ function buildLiveRuntime(input: {
     accountId: input.accountId,
     ...restoredPromptState(existing),
     ...restoredTaskMetadata(existing, task),
+    ...(input.preserveTaskModel !== undefined
+      ? { preserveTaskModel: input.preserveTaskModel }
+      : {}),
     agentName: input.agentName,
     session,
     skillPermission: skillPermissionRef.current,
@@ -2173,6 +2184,11 @@ async function attachSession(
   taskId: string,
   session: AgentSession,
   skillPermissionRef: { current: SkillPermission },
+  options?: {
+    preserveTaskModel?: boolean;
+    /** Runtime account when the stored task account is intentionally left unchanged. */
+    sessionAccountId?: string | null;
+  },
 ): Promise<LiveRuntime> {
   const attachedTask = getTask(taskId);
   // Hard-delete can race createSession; never attach a live map entry for a gone task.
@@ -2183,7 +2199,10 @@ async function attachSession(
   const current = state();
   const existing = current.live.get(taskId);
   // タスクの利用アカウント。セッション生存中はマネージャ参照で蒸発対象外にする。
-  const attachedAccountId = attachedTask.accountId ?? null;
+  const attachedAccountId =
+    options?.sessionAccountId !== undefined
+      ? options.sessionAccountId ?? null
+      : attachedTask.accountId ?? null;
   const attachedAgentName = attachedTask.agent?.trim() || null;
   const attachedBotId = attachedTask.kind === "bot" ? attachedTask.botId : undefined;
   const keepsExistingAccountRef =
@@ -2201,6 +2220,7 @@ async function attachSession(
     accountId: attachedAccountId,
     agentName: attachedAgentName,
     botId: attachedBotId,
+    preserveTaskModel: options?.preserveTaskModel === true,
   });
 
   const unsubscribe = session.subscribe((event) => {
@@ -2250,12 +2270,20 @@ async function attachSession(
     }
     if (task) {
       const ids = modelId(session.model);
-      const identityPatch = sessionIdentityPatch(task, {
-        providerID: ids.providerID,
-        modelID: ids.modelID,
-        sessionId: session.sessionId,
-        sessionFile: session.sessionFile,
-      });
+      const identityPatch = sessionIdentityPatch(
+        task,
+        live.preserveTaskModel
+          ? {
+              sessionId: session.sessionId,
+              sessionFile: session.sessionFile,
+            }
+          : {
+              providerID: ids.providerID,
+              modelID: ids.modelID,
+              sessionId: session.sessionId,
+              sessionFile: session.sessionFile,
+            },
+      );
       if (Object.keys(identityPatch).length > 0) {
         patchTask(taskId, identityPatch);
       }
@@ -3989,8 +4017,12 @@ function toSummary(task: TaskSummary): TaskSummary {
     status: resolveSummaryStatus(task.status, live.session.isStreaming),
     sessionId: live.session.sessionId ?? task.sessionId,
     sessionFile: live.session.sessionFile ?? task.sessionFile,
-    providerID: ids.providerID ?? task.providerID,
-    modelID: ids.modelID ?? task.modelID,
+    providerID: live.preserveTaskModel
+      ? task.providerID
+      : ids.providerID ?? task.providerID,
+    modelID: live.preserveTaskModel
+      ? task.modelID
+      : ids.modelID ?? task.modelID,
     thinkingLevel: thinking,
     ...limitError,
     ...(todoProgress ? { todoProgress } : {}),
@@ -4051,14 +4083,37 @@ function resolveLiveSessionAccount(
   return modelRoute?.accountId ?? taskAccountForSession;
 }
 
+async function resolveUnavailableModelViaAuto(
+  task: TaskSummary,
+): Promise<ConcreteModelRoute | undefined> {
+  // Session-only: keep the unavailable task/bot model so the next cold start
+  // re-checks availability and re-runs Auto instead of silently pinning.
+  try {
+    const autoDecision = await resolveConfiguredAutoModel(
+      task.title || "",
+      false,
+      0,
+    );
+    return await resolveConcreteModel(
+      autoModelValue(autoDecision),
+      autoDecision.accountId ?? null,
+      { strictAccountId: false, accountIdExplicit: false },
+    );
+  } catch {
+    return undefined;
+  }
+}
+
 async function resolveLiveSessionSettings(task: TaskSummary): Promise<{
   model: Model | undefined;
   sessionAccountId: string | null | undefined;
   sessionThinkingLevel: ThinkingLevel | undefined;
   accountIdExplicit: boolean;
+  /** True when Auto replaced an unavailable stored model for this session only. */
+  preserveTaskModel: boolean;
 }> {
   const accountIdExplicit = task.accountIdExplicit === true;
-  const modelRoute = await resolveConcreteModel(
+  let modelRoute = await resolveConcreteModel(
     task.providerID && task.modelID
       ? modelValue(task.providerID, task.modelID)
       : undefined,
@@ -4068,7 +4123,18 @@ async function resolveLiveSessionSettings(task: TaskSummary): Promise<{
       accountIdExplicit,
     },
   );
-  const model = modelRoute?.model;
+  let model = modelRoute?.model;
+  let preserveTaskModel = false;
+  let sessionAccountIdExplicit = accountIdExplicit;
+  if (task.providerID && task.modelID && !model) {
+    const autoRoute = await resolveUnavailableModelViaAuto(task);
+    if (autoRoute?.model) {
+      modelRoute = autoRoute;
+      model = autoRoute.model;
+      preserveTaskModel = true;
+      sessionAccountIdExplicit = false;
+    }
+  }
   const isBot = task.kind === "bot" && Boolean(task.botId);
   if (isBot && task.providerID && task.modelID && !model) {
     throw Object.assign(
@@ -4079,7 +4145,7 @@ async function resolveLiveSessionSettings(task: TaskSummary): Promise<{
   const sessionAccountId = resolveLiveSessionAccount(
     task,
     modelRoute,
-    accountIdExplicit,
+    sessionAccountIdExplicit,
   );
   const sessionThinkingLevel = isThinkingLevel(task.thinkingLevel)
     ? task.thinkingLevel
@@ -4090,7 +4156,8 @@ async function resolveLiveSessionSettings(task: TaskSummary): Promise<{
     model,
     sessionAccountId,
     sessionThinkingLevel,
-    accountIdExplicit,
+    accountIdExplicit: sessionAccountIdExplicit,
+    preserveTaskModel,
   };
 }
 
@@ -4112,6 +4179,8 @@ async function attachCreatedLiveSession(
   options?: {
     allowDuringPromotion?: boolean;
     onTiming?: TaskDetailTimingReporter;
+    /** Keep the unavailable stored model; Auto is session-only. */
+    preserveTaskModel?: boolean;
   },
 ): Promise<LiveRuntime> {
   if ((ensureLiveEpoch.get(taskId) ?? 0) !== epoch) {
@@ -4122,19 +4191,30 @@ async function attachCreatedLiveSession(
     disposeSessionBestEffort(setup.session);
     throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });
   }
+  const preserveTaskModel = options?.preserveTaskModel === true;
   patchTask(taskId, {
     sessionId: setup.session.sessionId,
     sessionFile: setup.session.sessionFile,
-    ...modelId(setup.session.model),
-    ...(sessionThinkingLevel ? { thinkingLevel: sessionThinkingLevel } : {}),
-    accountId: sessionAccountId ?? undefined,
-    accountIdExplicit:
-      sessionAccountId && accountIdExplicit ? true : undefined,
+    ...(preserveTaskModel
+      ? {}
+      : {
+          ...modelId(setup.session.model),
+          ...(sessionThinkingLevel ? { thinkingLevel: sessionThinkingLevel } : {}),
+          accountId: sessionAccountId ?? undefined,
+          accountIdExplicit:
+            sessionAccountId && accountIdExplicit ? true : undefined,
+        }),
   });
   const attached = await attachSession(
     taskId,
     setup.session,
     setup.skillPermissionRef,
+    preserveTaskModel
+      ? {
+          preserveTaskModel: true,
+          sessionAccountId,
+        }
+      : undefined,
   );
   if ((ensureLiveEpoch.get(taskId) ?? 0) !== epoch) {
     if (state().live.get(taskId) === attached) {
@@ -4204,6 +4284,7 @@ async function ensureLive(
       sessionAccountId,
       sessionThinkingLevel,
       accountIdExplicit,
+      preserveTaskModel,
     } = await resolveLiveSessionSettings(task);
     reportTaskDetailPhase(
       options?.onTiming,
@@ -4239,7 +4320,7 @@ async function ensureLive(
       sessionThinkingLevel,
       sessionAccountId,
       accountIdExplicit,
-      options,
+      { ...options, preserveTaskModel },
     );
     reportTaskDetailPhase(
       options?.onTiming,

@@ -304,7 +304,7 @@ import {
 } from "@/lib/accounts";
 import { clearCachedUsage, setCachedUsage } from "@/lib/codexbar/cache";
 import { parseCodexBarSnapshot } from "@/lib/codexbar";
-import { botTaskId, createBot, patchBot } from "@/lib/bots";
+import { botTaskId, createBot, getBot, patchBot } from "@/lib/bots";
 import { createRoom, ensureRoomBotTask } from "@/lib/rooms";
 import { insertTask, patchTask, upsertProject, getTask } from "@/lib/store";
 import type { ThinkingLevel } from "@/lib/types";
@@ -697,6 +697,52 @@ describe("integrated session routing", () => {
     expect(updated.modelID).toBe("claude-sonnet");
     expect(getTask(task.id)).toMatchObject({ providerID: "anthropic", modelID: "claude-sonnet" });
     expect(fakePi.sessions).toHaveLength(0);
+  });
+
+  it("falls back to Auto for an unavailable Bot/Code model without persisting the choice", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "leafcode-pi-unavailable-auto-"));
+    tempDirs.push(dir);
+    process.env.LEAFCODE_PI_DATA_DIR = dir;
+    process.env.PI_CODING_AGENT_DIR = join(dir, "agent");
+    __resetPiAgentDirCacheForTests();
+
+    const account = createAccount({ label: "テスト", providers: ["anthropic"] });
+    storeProviderAuth(account.id, process.env.PI_CODING_AGENT_DIR!);
+    installHarness(new Map([[account.id, runtime(account.id)]]));
+    await setAccountRoutingMode("anthropic", "integrated");
+
+    const bot = createBot({ name: "Unavailable model bot" });
+    patchBot(bot.id, { model: "leafcodecloud::LeafModel" });
+    patchTask(botTaskId(bot.id), {
+      providerID: "leafcodecloud",
+      modelID: "LeafModel",
+    });
+    await promptTask(botTaskId(bot.id), "ルーティン確認", undefined, {
+      waitForCompletion: true,
+    });
+    expect(fakePi.sessions[0]?.prompts).toEqual(["ルーティン確認"]);
+    expect(getTask(botTaskId(bot.id))).toMatchObject({
+      providerID: "leafcodecloud",
+      modelID: "LeafModel",
+      status: "idle",
+    });
+    expect(getBot(bot.id)?.model).toBe("leafcodecloud::LeafModel");
+
+    const codeTask = insertTask({
+      project: null,
+      title: "unavailable code model",
+      providerID: "leafcodecloud",
+      modelID: "LeafModel",
+    });
+    await promptTask(codeTask.id, "コード確認", undefined, {
+      waitForCompletion: true,
+    });
+    expect(fakePi.sessions.at(-1)?.prompts).toEqual(["コード確認"]);
+    expect(getTask(codeTask.id)).toMatchObject({
+      providerID: "leafcodecloud",
+      modelID: "LeafModel",
+      status: "idle",
+    });
   });
 
   it("switches an explicitly pinned task to an unpinned model from another provider", async () => {
