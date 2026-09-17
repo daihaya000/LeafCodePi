@@ -33,7 +33,7 @@ describe("Auto Jev routing", () => {
     ).resolves.toBe("heavy");
   });
 
-  it("falls back when tier confidence is low or missing", async () => {
+  it("falls back when tier confidence is low, missing, or out of range", async () => {
     process.env.TYPESAFE_AUTO_ROUTING = "1";
     mocks.evaluateTypeSafe.mockResolvedValue({
       answers: { tier: { choice: "heavy", confidence: 0.59 } },
@@ -49,6 +49,19 @@ describe("Auto Jev routing", () => {
     ).resolves.toBeUndefined();
 
     mocks.evaluateTypeSafe.mockResolvedValue({ answers: { tier: { choice: "heavy" } } });
+    await expect(
+      classifyAutoTierWithJev({
+        prompt: "全体をリファクタして",
+        hasImages: false,
+        attachmentCount: 0,
+        historyMessageCount: 0,
+        recentFailure: false,
+      }),
+    ).resolves.toBeUndefined();
+
+    mocks.evaluateTypeSafe.mockResolvedValue({
+      answers: { tier: { choice: "heavy", confidence: 1.01 } },
+    });
     await expect(
       classifyAutoTierWithJev({
         prompt: "全体をリファクタして",

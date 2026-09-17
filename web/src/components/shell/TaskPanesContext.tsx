@@ -132,8 +132,10 @@ type TaskPanesTabMetaStoreValue = {
   getSnapshot: (taskId: string) => TaskPanesTabMetaSnapshot;
 };
 
+type TaskPaneIconSize = 16 | 24 | 32;
+
 type TaskPanesIconContextValue = {
-  iconFor: (taskId: string, size?: 16 | 32, task?: TaskIdentity) => React.ReactNode;
+  iconFor: (taskId: string, size?: TaskPaneIconSize, task?: TaskIdentity) => React.ReactNode;
 };
 type TaskPanesTaskIconContextValue = TaskPanesIconContextValue;
 
@@ -587,7 +589,7 @@ export function TaskPanesProvider({ children }: { children: React.ReactNode }) {
     [bots],
   );
 
-  const iconFor = useCallback((taskId: string, size: 16 | 32 = 16, task?: TaskIdentity) => {
+  const iconFor = useCallback((taskId: string, size: TaskPaneIconSize = 16, task?: TaskIdentity) => {
     void titlesVersion;
     const identity = task ?? taskIdentitiesRef.current.get(taskId);
     const botId = identity?.botId ?? identity?.supervisorBotId;
@@ -602,7 +604,9 @@ export function TaskPanesProvider({ children }: { children: React.ReactNode }) {
         <ProjectIcon project={project} className={cx(
           size === 32
             ? "flex h-8 w-8 items-center justify-center rounded-md text-sm font-semibold"
-            : "flex h-4 w-4 items-center justify-center rounded-md text-[10px] font-semibold",
+            : size === 24
+              ? "flex h-6 w-6 items-center justify-center rounded-md text-xs font-semibold"
+              : "flex h-4 w-4 items-center justify-center rounded-md text-[10px] font-semibold",
           !project.icon && "border",
         )} />
       </span>
@@ -610,7 +614,7 @@ export function TaskPanesProvider({ children }: { children: React.ReactNode }) {
   }, [iconBots, iconProjects, titlesVersion]);
   iconForRef.current = iconFor;
   const taskIconFor = useCallback(
-    (taskId: string, size?: 16 | 32, task?: TaskIdentity) => iconForRef.current(taskId, size, task),
+    (taskId: string, size?: TaskPaneIconSize, task?: TaskIdentity) => iconForRef.current(taskId, size, task),
     [],
   );
 

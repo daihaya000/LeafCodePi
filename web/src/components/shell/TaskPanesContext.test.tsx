@@ -309,7 +309,7 @@ describe("TaskPanesProvider", () => {
       iconRenderSpy();
       return <>
         <div data-testid="tab-icon">{iconFor("saved-task")}</div>
-        <div data-testid="header-icon">{iconFor("saved-task", 32, { projectId: "project" })}</div>
+        <div data-testid="header-icon">{iconFor("saved-task", 24, { projectId: "project" })}</div>
         <div data-testid="bot-tab-icon">{iconFor("/bots/one")}</div>
         <div data-testid="bot-header-icon">{iconFor("code", 32, { projectId: "project", botId: "one" })}</div>
         <div data-testid="no-icon">{iconFor("settings")}{iconFor("unassigned", 32, { projectId: null })}</div>

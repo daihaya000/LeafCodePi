@@ -8,7 +8,8 @@ export const AUTO_JEV_MIN_CONFIDENCE = 0.6;
 function hasRoutingConfidence(answer: TypeSafeAnswer | undefined): boolean {
   return typeof answer?.confidence === "number" &&
     Number.isFinite(answer.confidence) &&
-    answer.confidence >= AUTO_JEV_MIN_CONFIDENCE;
+    answer.confidence >= AUTO_JEV_MIN_CONFIDENCE &&
+    answer.confidence <= 1;
 }
 
 type AutoTierInput = {
