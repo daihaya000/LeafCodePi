@@ -4,6 +4,7 @@ import registerTodowrite, { normalizeTodos, todowriteTestSeams } from "./index.t
 
 type Handler = (event: any, ctx: ExtensionContext) => unknown;
 type TodoTool = {
+  executionMode?: "sequential" | "parallel";
   execute: (...args: any[]) => Promise<{ details?: { error?: string; todos?: unknown[] } }>;
 };
 
@@ -60,7 +61,7 @@ function fixture(options: FixtureOptions = {}) {
     ctx,
   );
 
-  return { callTool, ctx, emit, notify, sendMessage, writeTodos };
+  return { callTool, ctx, emit, notify, sendMessage, writeTodos, tool: registeredTool };
 }
 
 describe("normalizeTodos", () => {
@@ -98,6 +99,11 @@ describe("normalizeTodos", () => {
 });
 
 describe("todowrite omission gate", () => {
+  it("serializes todowrite to avoid same-batch gate preflight races", () => {
+    const run = fixture();
+    expect(run.tool.executionMode).toBe("sequential");
+  });
+
   it("allows policy files before blocking the first substantive read for an explicit Todo task", () => {
     const run = fixture();
     run.emit("input", { source: "interactive", text: "ToDo管理を追加", streamingBehavior: undefined });

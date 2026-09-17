@@ -221,6 +221,9 @@ export default function (pi: ExtensionAPI): void {
     promptGuidelines: [
       "Call todowrite with a non-empty list and mark the current item in_progress before edits, shell commands, delegation, or the third substantive read-only tool call. For explicit Todo requests, call it before the first substantive tool.",
     ],
+    // The gate opens from execute(); serialize this tool so a same-batch edit
+    // cannot be preflighted before todowrite has recorded its result.
+    executionMode: "sequential",
     parameters: TodoParams,
 
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
