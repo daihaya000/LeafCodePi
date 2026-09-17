@@ -47,6 +47,8 @@ type ProfileArchive = {
   version: typeof PROFILE_VERSION;
   createdAt: string;
   files: Record<string, string>;
+  /** POSIX executable bits for imported package scripts; absent in v1 profiles. */
+  modes?: Record<string, number>;
 };
 
 export type ProfileSummary = {
@@ -88,7 +90,7 @@ function isAllowedProfilePath(path: string): boolean {
 
 type ProfileTotal = { bytes: number; fileCount: number; agentDir: string; leafcodeDir: string };
 
-function addFile(files: Record<string, string>, key: string, path: string, total: ProfileTotal) {
+function addFile(files: Record<string, string>, modes: Record<string, number>, key: string, path: string, total: ProfileTotal) {
   const stat = lstatSync(path);
   if (!stat.isFile()) return;
   total.bytes += stat.size;
@@ -99,21 +101,22 @@ function addFile(files: Record<string, string>, key: string, path: string, total
     throw new Error(`プロファイルのファイル数が${MAX_PROFILE_FILES}件を超えています`);
   }
   files[key] = readFileSync(path).toString("base64");
+  modes[key] = stat.mode & 0o777;
   total.fileCount += 1;
 }
 
-function addDirectory(files: Record<string, string>, root: "agent" | "data", directory: string, total: ProfileTotal) {
+function addDirectory(files: Record<string, string>, modes: Record<string, number>, root: "agent" | "data", directory: string, total: ProfileTotal) {
   if (!existsSync(directory) || lstatSync(directory).isSymbolicLink()) return;
   for (const entry of readdirSync(directory, { withFileTypes: true })) {
     const path = join(directory, entry.name);
     if (entry.isSymbolicLink()) continue;
     if (entry.isDirectory()) {
-      addDirectory(files, root, path, total);
+      addDirectory(files, modes, root, path, total);
       continue;
     }
     if (entry.isFile()) {
       const key = profilePath(root, relative(root === "agent" ? total.agentDir : total.leafcodeDir, path));
-      addFile(files, key, path, total);
+      addFile(files, modes, key, path, total);
     }
   }
 }
@@ -122,24 +125,26 @@ function addDirectory(files: Record<string, string>, root: "agent" | "data", dir
 export function exportProfile(options: ProfileRoots = {}): { archive: Buffer; summary: ProfileSummary } {
   const { agentDir, leafcodeDir } = roots(options);
   const files: Record<string, string> = {};
+  const modes: Record<string, number> = {};
   const total: ProfileTotal = { bytes: 0, fileCount: 0, agentDir, leafcodeDir };
 
   for (const name of AGENT_FILES) {
     const path = join(agentDir, name);
-    if (existsSync(path)) addFile(files, profilePath("agent", name), path, total);
+    if (existsSync(path)) addFile(files, modes, profilePath("agent", name), path, total);
   }
-  for (const name of AGENT_DIRECTORIES) addDirectory(files, "agent", join(agentDir, name), total);
+  for (const name of AGENT_DIRECTORIES) addDirectory(files, modes, "agent", join(agentDir, name), total);
   for (const name of DATA_FILES) {
     const path = join(leafcodeDir, name);
-    if (existsSync(path)) addFile(files, profilePath("data", name), path, total);
+    if (existsSync(path)) addFile(files, modes, profilePath("data", name), path, total);
   }
-  for (const name of DATA_DIRECTORIES) addDirectory(files, "data", join(leafcodeDir, name), total);
+  for (const name of DATA_DIRECTORIES) addDirectory(files, modes, "data", join(leafcodeDir, name), total);
 
   const archive: ProfileArchive = {
     format: PROFILE_FORMAT,
     version: PROFILE_VERSION,
     createdAt: new Date().toISOString(),
     files,
+    modes,
   };
   return {
     archive: gzipSync(Buffer.from(JSON.stringify(archive), "utf8")),
@@ -162,6 +167,16 @@ function parseProfile(archive: Buffer): ProfileArchive {
   }
   const files = Object.entries(profile.files);
   if (files.length > MAX_PROFILE_FILES) throw new Error("プロファイルのファイル数が多すぎます");
+  if (profile.modes !== undefined && (typeof profile.modes !== "object" || profile.modes === null || Array.isArray(profile.modes))) {
+    throw new Error("プロファイルの権限情報が不正です");
+  }
+  const modes = profile.modes ?? {};
+  if (Object.keys(modes).length > files.length) throw new Error("プロファイルの権限情報が不正です");
+  for (const [path, mode] of Object.entries(modes)) {
+    if (!Object.hasOwn(profile.files, path) || !isAllowedProfilePath(path) || !Number.isInteger(mode) || mode < 0 || mode > 0o777) {
+      throw new Error("プロファイルの権限情報が不正です");
+    }
+  }
   let bytes = 0;
   for (const [path, content] of files) {
     if (!isAllowedProfilePath(path) || typeof content !== "string") throw new Error("プロファイルに許可されないパスがあります");
@@ -190,13 +205,22 @@ function destination(path: string, agentDir: string, leafcodeDir: string): strin
   return result;
 }
 
+function importedFileMode(mode: number | undefined): number {
+  // Profiles contain credentials; preserve only the owner-executable bit needed by package scripts.
+  return 0o600 | ((mode ?? 0) & 0o100);
+}
+
 function applyProfile(profile: ProfileArchive, agentDir: string, leafcodeDir: string): ProfileSummary {
-  const files = Object.entries(profile.files).map(([path, content]) => ({ path, content: Buffer.from(content, "base64") }));
+  const files = Object.entries(profile.files).map(([path, content]) => ({
+    path,
+    content: Buffer.from(content, "base64"),
+    mode: importedFileMode(profile.modes?.[path]),
+  }));
   removeConfiguredPaths(agentDir, leafcodeDir);
   for (const file of files) {
     const path = destination(file.path, agentDir, leafcodeDir);
     mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
-    writeFileSync(path, file.content, { mode: 0o600 });
+    writeFileSync(path, file.content, { mode: file.mode });
   }
   return { fileCount: files.length, bytes: files.reduce((total, file) => total + file.content.length, 0) };
 }

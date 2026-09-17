@@ -1,4 +1,4 @@
-import { gzipSync } from "node:zlib";
+import { gunzipSync, gzipSync } from "node:zlib";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -33,6 +33,8 @@ describe("profile", () => {
 
     const exported = exportProfile({ agentDir: sourceAgent, leafcodeDir: sourceData });
     expect(exported.summary.fileCount).toBe(5);
+    const archive = JSON.parse(gunzipSync(exported.archive).toString("utf8")) as { modes?: Record<string, unknown> };
+    expect(archive.modes?.["agent/AGENTS.md"]).toEqual(expect.any(Number));
 
     const target = directory();
     const targetAgent = join(target, "agent");
@@ -52,6 +54,20 @@ describe("profile", () => {
     expect(readFileSync(join(targetData, "settings", "llama-server.json"), "utf8")).toBe('{"value":"configured"}');
     expect(existsSync(join(targetData, "settings", "old.json"))).toBe(false);
     expect(readFileSync(join(targetData, "store.json"), "utf8")).toBe('{"projects":["keep"]}');
+  });
+
+  it("imports profiles created before executable modes were stored", () => {
+    const target = directory();
+    const targetAgent = join(target, "agent");
+    const archive = gzipSync(Buffer.from(JSON.stringify({
+      format: "leafcode-pi-profile",
+      version: 1,
+      createdAt: "2026-01-01T00:00:00.000Z",
+      files: { "agent/AGENTS.md": Buffer.from("legacy").toString("base64") },
+    })));
+
+    importProfile(archive, { agentDir: targetAgent, leafcodeDir: join(target, "data") });
+    expect(readFileSync(join(targetAgent, "AGENTS.md"), "utf8")).toBe("legacy");
   });
 
   it.each(["agent/../outside", "agent/AGENTS.md/nested"])("rejects unsafe path %s before changing settings", (path) => {
