@@ -13,6 +13,7 @@ const PROVIDER_ICON_FILES: Record<string, string> = {
   openrouter: "openrouter.svg",
   qwen: "qwen.png",
   synthetic: "synthetic.png",
+  typesafe: "typesafe.png",
   lmstudio: "lmstudio.png",
   "llama-server": "llama-server.png",
   commandcode: "commandcode.svg",
@@ -43,6 +44,7 @@ const PROVIDER_ID_TO_ICON: Record<string, string> = {
   "llama-server": "llama-server",
   commandcode: "commandcode",
   "command-code": "commandcode",
+  typesafe: "typesafe",
   auto: "leafcode",
   leafcodecloud: "leafcodegreen",
 };
