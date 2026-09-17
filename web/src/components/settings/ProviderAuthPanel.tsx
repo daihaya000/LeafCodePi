@@ -2260,14 +2260,27 @@ function TypeSafeCookieControl({
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [baseline, setBaseline] = useState<number | null>(null);
+  const [baselineInput, setBaselineInput] = useState("");
+  const [baselineBusy, setBaselineBusy] = useState(false);
+  const [baselineError, setBaselineError] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     try {
-      const result = await getJson<{ configured?: boolean }>(
-        "/api/typesafe-cookie",
-      );
-      setConfigured(result.configured === true);
+      const [cookieResult, baselineResult] = await Promise.all([
+        getJson<{ configured?: boolean }>("/api/typesafe-cookie"),
+        getJson<{ baselineUsd?: number | null }>("/api/typesafe-baseline"),
+      ]);
+      const baselineUsd =
+        typeof baselineResult.baselineUsd === "number" &&
+        baselineResult.baselineUsd > 0
+          ? baselineResult.baselineUsd
+          : null;
+      setConfigured(cookieResult.configured === true);
+      setBaseline(baselineUsd);
+      setBaselineInput(baselineUsd === null ? "" : String(baselineUsd));
       setError(null);
+      setBaselineError(null);
     } catch (cause) {
       setConfigured(null);
       setError(
@@ -2322,6 +2335,44 @@ function TypeSafeCookieControl({
       );
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function saveBaseline() {
+    const baselineUsd = Number(baselineInput.trim());
+    if (!Number.isFinite(baselineUsd) || baselineUsd <= 0) {
+      setBaselineError("0 より大きい数値を入力してください");
+      return;
+    }
+    setBaselineBusy(true);
+    setBaselineError(null);
+    try {
+      await sendJson("/api/typesafe-baseline", { baselineUsd });
+      setBaseline(baselineUsd);
+      onChanged();
+    } catch (cause) {
+      setBaselineError(
+        cause instanceof ApiError ? cause.message : "基準残高を保存できません",
+      );
+    } finally {
+      setBaselineBusy(false);
+    }
+  }
+
+  async function clearBaseline() {
+    setBaselineBusy(true);
+    setBaselineError(null);
+    try {
+      await sendJson("/api/typesafe-baseline", {}, "DELETE");
+      setBaseline(null);
+      setBaselineInput("");
+      onChanged();
+    } catch (cause) {
+      setBaselineError(
+        cause instanceof ApiError ? cause.message : "基準残高を解除できません",
+      );
+    } finally {
+      setBaselineBusy(false);
     }
   }
 
@@ -2423,6 +2474,62 @@ function TypeSafeCookieControl({
           {error}
         </p>
       )}
+      <form
+        className="mt-2 flex flex-col gap-2 border-t border-border pt-2"
+        onSubmit={(event) => {
+          event.preventDefault();
+          void saveBaseline();
+        }}
+      >
+        <label htmlFor="typesafe-credit-baseline" className="text-xs text-muted">
+          基準残高（USD）― 残高から使用％を算出
+        </label>
+        <div className="flex flex-wrap items-center gap-2">
+          <input
+            id="typesafe-credit-baseline"
+            type="number"
+            min="0"
+            step="0.01"
+            inputMode="decimal"
+            value={baselineInput}
+            onChange={(event) => setBaselineInput(event.target.value)}
+            placeholder="例: 5"
+            spellCheck={false}
+            autoComplete="off"
+            disabled={disabled || baselineBusy}
+            className="w-28 rounded-xl border border-border bg-surface px-3 py-1.5 text-sm outline-none focus:border-accent"
+          />
+          <Button
+            type="submit"
+            size="sm"
+            busy={baselineBusy}
+            disabled={disabled || baselineBusy || !baselineInput.trim()}
+          >
+            保存
+          </Button>
+          {baseline !== null && (
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              disabled={disabled || baselineBusy}
+              onClick={() => void clearBaseline()}
+            >
+              解除
+            </Button>
+          )}
+        </div>
+        <p className="text-xs text-muted">
+          {baseline === null
+            ? "実残高を取得できると使用％を表示します"
+            : `基準残高 ${formatCreditAmount(baseline)}。使用率は表示専用です`}
+        </p>
+        {baselineError && (
+          <p className="text-xs text-danger" role="alert">
+            {baselineError}
+          </p>
+        )}
+      </form>
     </div>
   );
 }

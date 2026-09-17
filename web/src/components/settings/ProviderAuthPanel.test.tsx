@@ -254,6 +254,15 @@ describe("ProviderAuthPanel provider-scoped accounts", () => {
         if (url.endsWith("/api/typesafe-cookie") && method === "DELETE") {
           return Promise.resolve(jsonResponse({ ok: true, configured: false }));
         }
+        if (url.endsWith("/api/typesafe-baseline") && method === "GET") {
+          return Promise.resolve(jsonResponse({ baselineUsd: null }));
+        }
+        if (url.endsWith("/api/typesafe-baseline") && method === "POST") {
+          return Promise.resolve(jsonResponse({ ok: true, baselineUsd: 5 }));
+        }
+        if (url.endsWith("/api/typesafe-baseline") && method === "DELETE") {
+          return Promise.resolve(jsonResponse({ ok: true, baselineUsd: null }));
+        }
         return Promise.resolve(jsonResponse({}));
       },
     );
@@ -270,7 +279,11 @@ describe("ProviderAuthPanel provider-scoped accounts", () => {
           "console.typesafe.ai\tFALSE\t/\tTRUE\t4102444800\torganization_id\torg_1\n",
       },
     });
-    fireEvent.click(within(card).getByRole("button", { name: "保存" }));
+    fireEvent.click(
+      within(
+        within(card).getByLabelText("Netscape 形式の cookie").closest("form")!,
+      ).getByRole("button", { name: "保存" }),
+    );
 
     await waitFor(() => {
       const save = fetchMock.mock.calls.find(
@@ -285,6 +298,30 @@ describe("ProviderAuthPanel provider-scoped accounts", () => {
           "console.typesafe.ai\tFALSE\t/\tTRUE\t4102444800\torganization_id\torg_1\n",
       });
       expect(within(card).getByText("実残高を表示できます")).toBeTruthy();
+    });
+
+    const baselineInput = within(card).getByLabelText(/基準残高/);
+    fireEvent.change(baselineInput, { target: { value: "5" } });
+    fireEvent.submit(baselineInput.closest("form")!);
+    await waitFor(() => {
+      const save = fetchMock.mock.calls.find(
+        ([input, init]) =>
+          String(input).endsWith("/api/typesafe-baseline") &&
+          init?.method === "POST",
+      );
+      expect(JSON.parse(String(save?.[1]?.body))).toEqual({ baselineUsd: 5 });
+      expect(within(card).getByRole("button", { name: "解除" })).toBeTruthy();
+    });
+
+    fireEvent.click(within(card).getByRole("button", { name: "解除" }));
+    await waitFor(() => {
+      expect(
+        fetchMock.mock.calls.some(
+          ([input, init]) =>
+            String(input).endsWith("/api/typesafe-baseline") &&
+            init?.method === "DELETE",
+        ),
+      ).toBe(true);
     });
 
     fireEvent.click(within(card).getByRole("button", { name: "削除" }));

@@ -12,7 +12,7 @@
  * cookie 未登録時は、自アプリが実行した /v1/systemone 呼び出しの usage（input_tokens）を
  * 公開価格（$42 / 10億入力トークン、出力トークンは無料）で積算した「推定利用額」を表示する。
  */
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 import { dataDir } from "@/lib/paths";
 import {
@@ -23,10 +23,12 @@ import {
 import {
   asRecord,
   atomicWriteText,
+  clamp,
   fetchText,
   flexibleNumber,
 } from "@/lib/codexbar/utils";
 import { readPiApiKey } from "@/lib/codexbar/pi-auth";
+import { codexBarConfigDir } from "@/lib/codexbar/netscape-cookies";
 import {
   createCookieHeaderForUrl,
   extractTypesafeConsoleSession,
@@ -102,6 +104,61 @@ export function estimatedTypesafeUsd(totals: TypesafeUsageTotals): number {
 
 export function resolveTypesafeApiKey(): string | null {
   return readPiApiKey("typesafe");
+}
+
+function typesafeSettingsPath(): string {
+  return join(codexBarConfigDir(), "typesafe.json");
+}
+
+/** 実残高から使用率を出すための手入力基準残高（USD）。 */
+export function readTypesafeCreditBaseline(): number | null {
+  try {
+    const path = typesafeSettingsPath();
+    if (!existsSync(path)) return null;
+    const root = JSON.parse(readFileSync(path, "utf8")) as {
+      creditBaselineUsd?: unknown;
+    };
+    const value = flexibleNumber(root.creditBaselineUsd);
+    return value !== null && value > 0 ? value : null;
+  } catch {
+    return null;
+  }
+}
+
+export function writeTypesafeCreditBaseline(baselineUsd: number | null): void {
+  const path = typesafeSettingsPath();
+  if (baselineUsd === null || !(baselineUsd > 0)) {
+    try {
+      unlinkSync(path);
+    } catch {
+      /* already absent */
+    }
+    return;
+  }
+  atomicWriteText(
+    path,
+    `${JSON.stringify({ creditBaselineUsd: baselineUsd }, null, 2)}\n`,
+  );
+}
+
+/** 手入力基準残高とConsole残高から、表示専用の使用率を導出する。 */
+export function applyTypesafeCreditBaseline(
+  snapshot: UsageSnapshot,
+  baselineUsd: number | null,
+): UsageSnapshot {
+  if (
+    baselineUsd === null ||
+    !(baselineUsd > 0) ||
+    snapshot.creditsBalance === null
+  ) {
+    return snapshot;
+  }
+  return {
+    ...snapshot,
+    creditsUsed: clamp(baselineUsd - snapshot.creditsBalance, 0, baselineUsd),
+    creditsLimit: baselineUsd,
+    usageDisplayOnly: true,
+  };
 }
 
 function localEstimateSnapshot(): UsageSnapshot {
@@ -238,7 +295,7 @@ export const typesafeProvider: IUsageProvider = {
     if (session) {
       try {
         const billing = await fetchTypesafeConsoleBilling(session, signal);
-        return {
+        return applyTypesafeCreditBaseline({
           providerId: "typesafe",
           providerName: "TypeSafe",
           plan: prettyTypesafePlan(billing.plan),
@@ -254,7 +311,7 @@ export const typesafeProvider: IUsageProvider = {
           updatedAt: new Date(),
           isStale: false,
           rateLimitResetCreditsAvailable: null,
-        };
+        }, readTypesafeCreditBaseline());
       } catch {
         // cookie 失効 or Next-Action ID がデプロイで変わった等。ローカル見積りへフォールバック。
       }

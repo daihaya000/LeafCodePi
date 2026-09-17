@@ -18,6 +18,7 @@ import {
   recordTypesafeUsage,
   resolveTypesafeApiKey,
   typesafeProvider,
+  writeTypesafeCreditBaseline,
 } from "./typesafe";
 
 const previousAppData = process.env.APPDATA;
@@ -213,6 +214,28 @@ describe("resolveTypesafeApiKey / typesafeProvider", () => {
         }),
       }),
     );
+  });
+
+  it("fetch() derives a display-only percentage from the saved baseline", async () => {
+    tempDataDir();
+    isolateCookieConfigDir();
+    saveTypesafeCookieFile(
+      "console.typesafe.ai\tFALSE\t/\tTRUE\t4102444800\tsession_id\ttok\n" +
+        "console.typesafe.ai\tFALSE\t/\tTRUE\t4102444800\torganization_id\torg_1\n",
+    );
+    writeTypesafeCreditBaseline(5);
+    undiciFetch.mockResolvedValueOnce(
+      new Response(
+        '1:{"ok":true,"data":{"billing":{"plan":"free_plan","spent":0.01,"freeCreditsRemaining":4.98,"balance":4.98,"purchased":0,"resetsInDays":14,"cycleLabel":"September 2026"}}}\n',
+        { status: 200 },
+      ),
+    );
+
+    const snapshot = await typesafeProvider.fetch();
+    expect(snapshot.creditsUsed).toBeCloseTo(0.02);
+    expect(snapshot.creditsLimit).toBe(5);
+    expect(snapshot.creditsBalance).toBe(4.98);
+    expect(snapshot.usageDisplayOnly).toBe(true);
   });
 
   it("fetch() falls back to the local estimate when the cookie session is stale", async () => {
