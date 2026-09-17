@@ -1,5 +1,6 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
+import { selectRelevantToolsWithJev } from "@/lib/auto-jev";
 
 export const TOOL_SEARCH_NAME = "tool_search";
 
@@ -35,16 +36,23 @@ export function registerDeferredTools(
       const matches = DEFERRED_TOOLS
         .filter(({ name, keywords }) => registered.has(name) && allowed?.has(name) !== false && keywords.some((keyword) => normalized.includes(keyword)))
         .map(({ name }) => name);
+      const selected = await selectRelevantToolsWithJev({
+        prompt: query,
+        candidates: DEFERRED_TOOLS
+          .filter((tool) => matches.includes(tool.name))
+          .map((tool) => ({ name: tool.name, description: tool.keywords.join(", ") })),
+      });
+      const resolved = selected ? matches.filter((name) => selected.has(name)) : matches;
       const active = pi.getActiveTools();
-      const added = matches.filter((name) => !active.includes(name));
+      const added = resolved.filter((name) => !active.includes(name));
       if (added.length > 0) pi.setActiveTools([...new Set([...active, ...added])]);
 
-      const text = matches.length === 0
+      const text = resolved.length === 0
         ? `No optional tools matched: ${query}`
         : added.length > 0
           ? `Loaded tools: ${added.join(", ")}`
-          : `Matching tools already active: ${matches.join(", ")}`;
-      return { content: [{ type: "text" as const, text }], details: { matches, added } };
+          : `Matching tools already active: ${resolved.join(", ")}`;
+      return { content: [{ type: "text" as const, text }], details: { matches: resolved, added } };
     },
   });
 

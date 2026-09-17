@@ -51,7 +51,7 @@ import {
   type AuthTypeDto,
   type LoginSessionEvent,
 } from "@/lib/pi/auth-login";
-import { formatPromptWithFiles, parsePromptFileMarkers, type PromptFileInput } from "@/lib/prompt-images";
+import { decodePromptFile, formatPromptWithFiles, parsePromptFileMarkers, type PromptFileInput } from "@/lib/prompt-images";
 import {
   isBotPromptText,
   markBotPrompt,
@@ -212,7 +212,7 @@ import {
   type AutoOptimizeMode,
   type AutoRouteConfig,
 } from "@/lib/auto-model";
-import { classifyAutoTierWithJev } from "@/lib/auto-jev";
+import { classifyAutoTierWithJev, selectRelevantFilesWithJev, selectRelevantSkillsWithJev } from "@/lib/auto-jev";
 import { clearProviderCache } from "@/lib/codexbar/provider-cache";
 import {
   accountRoutingMode,
@@ -433,6 +433,11 @@ type SessionSetup = {
   session: AgentSession;
   skillPermissionRef: { current: SkillPermission };
 };
+
+const SESSION_JEV_SKILLS = new WeakMap<object, {
+  resourceLoader: ResourceLoader;
+  selected: { current: Set<string> | null };
+}>();
 
 type HarnessState = {
   pi: PiModule | null;
@@ -2973,6 +2978,7 @@ function sessionExtensionsOverride(
 function sessionSkillsOverride(input: {
   noSkills: boolean | undefined;
   skillPermissionRef: { current: SkillPermission };
+  skillSelectionRef: { current: Set<string> | null };
   bundledSkills: ReturnType<typeof bundledSkillPaths>;
   pi: PiModule;
   skillScope?: SkillScope;
@@ -2986,12 +2992,14 @@ function sessionSkillsOverride(input: {
       input.pi.loadSkillsFromDir({ dir, source: "bundled" }).skills,
     );
     const skills = mergeBundledSkills(base.skills, packagedSkills);
+    const enabled = filterSkillsForBot(
+      filterSkillsByState(skills, undefined, input.skillScope ?? "code"),
+      input.botSkills ?? { mode: "inherit", include: [], exclude: [] },
+    );
+    const selected = input.skillSelectionRef.current;
     return {
       skills: compactSkillsForPrompt(
-        filterSkillsForBot(
-          filterSkillsByState(skills, undefined, input.skillScope ?? "code"),
-          input.botSkills ?? { mode: "inherit", include: [], exclude: [] },
-        ),
+        selected ? enabled.filter((skill) => selected.has(skill.name)) : enabled,
       ),
       diagnostics: base.diagnostics,
     };
@@ -3248,6 +3256,7 @@ async function createSession(options: {
   const skillPermissionRef = {
     current: options.skillPermission ?? ("allow" as SkillPermission),
   };
+  const skillSelectionRef = { current: null as Set<string> | null };
   // Filter disabled skills via state file (skills-state.json), not folder moves.
   // skillsOverride re-reads state on every resourceLoader.reload() / session.reload().
   // Also drop any ~/.agents skills Pi loads internally: this harness must not
@@ -3298,6 +3307,7 @@ async function createSession(options: {
     skillsOverride: sessionSkillsOverride({
       noSkills: agentOptions?.noSkills,
       skillPermissionRef,
+      skillSelectionRef,
       bundledSkills,
       pi,
       skillScope: options.skillScope,
@@ -3379,6 +3389,7 @@ async function createSession(options: {
       persistStartedAt,
     );
   }
+  SESSION_JEV_SKILLS.set(result.session, { resourceLoader, selected: skillSelectionRef });
   return { session: result.session, skillPermissionRef };
 }
 
@@ -8004,7 +8015,37 @@ function queuePrompt(
       if (!stillQueued()) return;
       persistManualAbortedAssistantId(live.taskId, previousManualAbort);
     };
-    const promptToSend = meta?.files?.length ? formatPromptWithFiles(prompt, meta.files) : prompt;
+    const jevSkills = SESSION_JEV_SKILLS.get(activeLive.session);
+    if (jevSkills?.selected.current === null) {
+      const skills = jevSkills.resourceLoader.getSkills().skills;
+      const selected = await selectRelevantSkillsWithJev({
+        prompt,
+        candidates: skills.map((skill) => ({
+          name: skill.name,
+          description: skill.description || skill.name,
+        })),
+      });
+      if (selected) {
+        jevSkills.selected.current = selected;
+        try {
+          await activeLive.session.reload();
+        } catch {
+          jevSkills.selected.current = null;
+        }
+      }
+    }
+    let files = meta?.files;
+    if (files && files.length > 1 && new Set(files.map((file) => file.name)).size === files.length) {
+      const selected = await selectRelevantFilesWithJev({
+        prompt,
+        candidates: files.map((file) => ({
+          name: file.name,
+          description: `${file.mimeType}: ${(decodePromptFile(file) ?? "").slice(0, 2_000)}`,
+        })),
+      });
+      if (selected) files = files.filter((file) => selected.has(file.name));
+    }
+    const promptToSend = files?.length ? formatPromptWithFiles(prompt, files) : prompt;
     const sendCustomTurn = (
       message: Parameters<AgentSession["sendCustomMessage"]>[0],
     ) => {

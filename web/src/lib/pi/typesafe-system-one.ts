@@ -24,6 +24,7 @@ export type TypeSafeAnswer = {
   noul?: number;
   choice?: string;
   confidence?: number;
+  score?: number;
 };
 
 export type TypeSafeResponse = {
