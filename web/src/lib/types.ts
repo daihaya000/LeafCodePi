@@ -531,6 +531,8 @@ export type ModelOption = {
    *   Home のドロップダウンでアカウントをプロバイダ枠として分けるために使う。 */
   accountId?: string;
   accountLabel?: string;
+  /** True when the backing credential is a subscription OAuth login. */
+  subscription?: boolean;
   input?: string[];
   reasoning?: boolean;
   thinkingLevels?: ThinkingLevel[];

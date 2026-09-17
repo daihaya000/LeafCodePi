@@ -4570,6 +4570,7 @@ async function buildModelOptions(
       input: [...model.input],
       reasoning: Boolean(model.reasoning),
       thinkingLevels: thinkingLevelsForModel(model),
+      subscription: runtime.isUsingSubscription?.(providerID) === true,
       ...(catalogByValue.get(value)?.defaultThinkingLevel
         ? { defaultThinkingLevel: catalogByValue.get(value)!.defaultThinkingLevel }
         : {}),
@@ -4763,7 +4764,9 @@ function integratedOption(
   const first = records[0]!;
   const providerID = first.option.providerID;
   const modelID = first.option.modelID;
-  const candidates: RoutingCandidate<AccountModelRecord>[] = records.map(
+  const subscriptionRecords = records.filter((record) => record.option.subscription === true);
+  const routingRecords = subscriptionRecords.length > 0 ? subscriptionRecords : records;
+  const candidates: RoutingCandidate<AccountModelRecord>[] = routingRecords.map(
     (record) => ({
       accountId: record.accountId,
       accountIndex: record.accountIndex,
@@ -4804,6 +4807,7 @@ function integratedOption(
     ...(defaultThinkingLevel
       ? { defaultThinkingLevel }
       : {}),
+    subscription: subscriptionRecords.length > 0,
     codexbarUsedPercent:
       decision.allMaxed ? 100 : selectedUsage?.usedPercent ?? null,
     codexbarMaxed: decision.allMaxed,

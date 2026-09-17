@@ -109,6 +109,39 @@ describe("chooseAutoModel", () => {
     });
   });
 
+  it("prefers the lowest fresh subscription usage before model score", () => {
+    const decision = chooseAutoModel({
+      models: [
+        model("claude-haiku-4-5", { providerID: "sub-low", subscription: true }),
+        model("gpt-mini", { providerID: "sub-high", subscription: true }),
+      ],
+      tier: "light",
+      hasImages: false,
+      usage: {
+        "sub-low": { usedPercent: 10, limited: false },
+        "sub-high": { usedPercent: 80, limited: false },
+      },
+    });
+    expect(decision).toMatchObject({ providerID: "sub-low", modelID: "claude-haiku-4-5" });
+  });
+
+  it("uses subscriptions before API models and falls back to API when subscriptions are limited", () => {
+    const models = [
+      model("gpt-mini", { providerID: "api", subscription: false }),
+      model("claude-sonnet-5", { providerID: "subscription", subscription: true }),
+    ];
+    expect(chooseAutoModel({ models, tier: "light", hasImages: false })).toMatchObject({
+      providerID: "subscription",
+      modelID: "claude-sonnet-5",
+    });
+    expect(chooseAutoModel({
+      models,
+      tier: "light",
+      hasImages: false,
+      usage: { subscription: { usedPercent: 100, limited: true } },
+    })).toMatchObject({ providerID: "api", modelID: "gpt-mini" });
+  });
+
   it("filters disabled and image-incompatible candidates", () => {
     const decision = chooseAutoModel({
       models: [

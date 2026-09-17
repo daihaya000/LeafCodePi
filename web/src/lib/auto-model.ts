@@ -178,7 +178,6 @@ export type AutoProviderUsage = Record<
   { usedPercent: number | null; limited: boolean; stale?: boolean }
 >;
 
-export const AUTO_USAGE_REROUTE_GAP = 20;
 const AUTO_USAGE_LIMIT_PERCENT = 90;
 
 export type AutoProviderUsageSource = {
@@ -599,6 +598,7 @@ type Candidate = {
   score: number;
   variants: AutoVariant[];
   image: boolean;
+  subscription: boolean;
   model: AutoCandidateProvider["models"][string];
 };
 
@@ -657,41 +657,20 @@ function pickBest(
   );
   if (!normalBest || !usage) return normalBest;
 
-  const normalHint = usageForCandidate(normalBest, usage);
-  const normalUsage =
-    normalHint?.stale === true ? null : normalHint?.usedPercent ?? null;
   const knownUsage = eligible.filter((candidate) => {
     const hint = usageForCandidate(candidate, usage);
     return hint?.stale !== true && Number.isFinite(hint?.usedPercent);
   });
-  const lowestUsage = knownUsage.reduce<number | null>((lowest, candidate) => {
-    const value = usageForCandidate(candidate, usage)?.usedPercent ?? null;
-    return value === null || (lowest !== null && value >= lowest)
-      ? lowest
-      : value;
-  }, null);
-  // Account routing must balance accounts even when their usage difference is
-  // small. The gap is still useful for Auto's cross-provider model choice.
-  const sameModelAccountRoute =
-    eligible.length > 1 &&
-    eligible.every(
-      (candidate) =>
-        candidate.accountId !== undefined &&
-        candidate.providerID === eligible[0]!.providerID &&
-        candidate.modelID === eligible[0]!.modelID,
+  if (knownUsage.length === 0) return normalBest;
+  const lowestUsage = knownUsage.reduce<number>((lowest, candidate) =>
+    Math.min(lowest, usageForCandidate(candidate, usage)?.usedPercent ?? Infinity),
+  Infinity);
+  return knownUsage
+    .filter((candidate) => usageForCandidate(candidate, usage)?.usedPercent === lowestUsage)
+    .reduce<Candidate | undefined>(
+      (best, candidate) => (!best || better(candidate, best) ? candidate : best),
+      undefined,
     );
-  const usagePreferred =
-    lowestUsage !== null &&
-    (sameModelAccountRoute ||
-      (normalUsage !== null && normalUsage - lowestUsage >= AUTO_USAGE_REROUTE_GAP))
-      ? knownUsage.filter(
-          (candidate) => usageForCandidate(candidate, usage)?.usedPercent === lowestUsage,
-        )
-      : eligible;
-  return usagePreferred.reduce<Candidate | undefined>(
-    (best, candidate) => (!best || better(candidate, best) ? candidate : best),
-    undefined,
-  );
 }
 
 function pickVariant(
@@ -727,6 +706,7 @@ function candidatesFromInput(input: {
     model: AutoCandidateProvider["models"][string],
     accountId?: string,
     variants = variantsFromProvider(model),
+    subscription = false,
   ) => {
     if (!providerID || !modelID || providerID === AUTO_MODEL_VALUE) return;
     if (connected && !connected.has(providerID)) return;
@@ -747,6 +727,7 @@ function candidatesFromInput(input: {
       score: modelIntelligenceScore(modelID),
       variants,
       image: supportsImages(model),
+      subscription,
       model,
     });
   };
@@ -769,6 +750,7 @@ function candidatesFromInput(input: {
         model,
         option.accountId,
         variantsFromOption(option),
+        option.subscription === true,
       );
     }
   } else {
@@ -958,6 +940,10 @@ export function chooseAutoModel(input: {
     hasImages: input.hasImages,
   });
   if (pool.length === 0) return null;
+  // Use subscription OAuth capacity before metered API credentials. API models
+  // remain available as the existing fallback when every subscription route is limited.
+  const subscriptionPool = pool.filter((candidate) => candidate.subscription);
+  const preferredPool = subscriptionPool.length > 0 ? subscriptionPool : pool;
 
   const config = input.config ?? EMPTY_AUTO_ROUTE_CONFIG;
   const legacyOverride = input.overrides?.[input.tier];
@@ -976,13 +962,13 @@ export function chooseAutoModel(input: {
     : preset.candidates;
   const fallbackOrder = effective.variantFallbackOrder ?? preset.variantFallbackOrder ?? [];
   const first = configuredCandidates
-    ? lowestUsageResolvable(pool, candidates, input.usage)
-    : firstResolvable(pool, candidates, input.usage);
+    ? lowestUsageResolvable(preferredPool, candidates, input.usage)
+    : firstResolvable(preferredPool, candidates, input.usage);
 
   if (first) {
     const candidate = candidates[first.index]!;
     return buildDecision(
-      pool,
+      preferredPool,
       {
         chosen: first.chosen,
         index: first.index,
