@@ -14,7 +14,9 @@ import { dataDir } from "@/lib/paths";
 
 const PROFILE_FORMAT = "leafcode-pi-profile";
 const PROFILE_VERSION = 1;
-const MAX_PROFILE_BYTES = 256 * 1024 * 1024;
+const MAX_ARCHIVE_BYTES = 256 * 1024 * 1024;
+const MAX_CONTENT_BYTES = 240 * 1024 * 1024;
+const MAX_EXPANDED_BYTES = 330 * 1024 * 1024;
 const MAX_PROFILE_FILES = 10_000;
 
 const AGENT_FILES = [
@@ -77,8 +79,10 @@ function isAllowedProfilePath(path: string): boolean {
     return false;
   }
   const [entry] = parts;
-  if (root === "agent") return AGENT_FILES.includes(entry as never) || AGENT_DIRECTORIES.includes(entry as never);
-  return DATA_FILES.includes(entry as never) || DATA_DIRECTORIES.includes(entry as never);
+  if (root === "agent") {
+    return (parts.length === 1 && AGENT_FILES.includes(entry as never)) || AGENT_DIRECTORIES.includes(entry as never);
+  }
+  return (parts.length === 1 && DATA_FILES.includes(entry as never)) || DATA_DIRECTORIES.includes(entry as never);
 }
 
 type ProfileTotal = { bytes: number; agentDir: string; leafcodeDir: string };
@@ -87,8 +91,8 @@ function addFile(files: Record<string, string>, key: string, path: string, total
   const stat = lstatSync(path);
   if (!stat.isFile()) return;
   total.bytes += stat.size;
-  if (total.bytes > MAX_PROFILE_BYTES) {
-    throw new Error(`プロファイルが${MAX_PROFILE_BYTES / 1024 / 1024}MBを超えています`);
+  if (total.bytes > MAX_CONTENT_BYTES) {
+    throw new Error(`プロファイルが${MAX_CONTENT_BYTES / 1024 / 1024}MBを超えています`);
   }
   if (Object.keys(files).length >= MAX_PROFILE_FILES) {
     throw new Error(`プロファイルのファイル数が${MAX_PROFILE_FILES}件を超えています`);
@@ -142,10 +146,10 @@ export function exportProfile(options: ProfileRoots = {}): { archive: Buffer; su
 }
 
 function parseProfile(archive: Buffer): ProfileArchive {
-  if (archive.length > MAX_PROFILE_BYTES) throw new Error("プロファイルファイルが大きすぎます");
+  if (archive.length > MAX_ARCHIVE_BYTES) throw new Error("プロファイルファイルが大きすぎます");
   let parsed: unknown;
   try {
-    parsed = JSON.parse(gunzipSync(archive, { maxOutputLength: MAX_PROFILE_BYTES }).toString("utf8"));
+    parsed = JSON.parse(gunzipSync(archive, { maxOutputLength: MAX_EXPANDED_BYTES }).toString("utf8"));
   } catch {
     throw new Error("有効なLeafCodePiプロファイルではありません");
   }
@@ -162,7 +166,7 @@ function parseProfile(archive: Buffer): ProfileArchive {
     const decoded = Buffer.from(content, "base64");
     if (decoded.toString("base64") !== content) throw new Error("プロファイルの内容が壊れています");
     bytes += decoded.length;
-    if (bytes > MAX_PROFILE_BYTES) throw new Error("プロファイルの展開サイズが大きすぎます");
+    if (bytes > MAX_CONTENT_BYTES) throw new Error("プロファイルの展開サイズが大きすぎます");
   }
   return profile as ProfileArchive;
 }

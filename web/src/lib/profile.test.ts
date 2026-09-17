@@ -54,7 +54,7 @@ describe("profile", () => {
     expect(readFileSync(join(targetData, "store.json"), "utf8")).toBe('{"projects":["keep"]}');
   });
 
-  it("rejects files outside the profile-managed roots before changing settings", () => {
+  it.each(["agent/../outside", "agent/AGENTS.md/nested"])("rejects unsafe path %s before changing settings", (path) => {
     const target = directory();
     const targetAgent = join(target, "agent");
     mkdirSync(targetAgent, { recursive: true });
@@ -63,7 +63,7 @@ describe("profile", () => {
       format: "leafcode-pi-profile",
       version: 1,
       createdAt: "2026-01-01T00:00:00.000Z",
-      files: { "agent/../outside": Buffer.from("bad").toString("base64") },
+      files: { [path]: Buffer.from("bad").toString("base64") },
     })));
 
     expect(() => importProfile(archive, { agentDir: targetAgent, leafcodeDir: join(target, "data") })).toThrow("許可されないパス");
