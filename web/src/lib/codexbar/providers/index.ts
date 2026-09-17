@@ -38,6 +38,7 @@ import {
 } from "@/lib/codexbar/providers/openrouter";
 import { qwenCloudProvider } from "@/lib/codexbar/providers/qwen-cloud";
 import { syntheticProvider } from "@/lib/codexbar/providers/synthetic";
+import { typesafeProvider } from "@/lib/codexbar/providers/typesafe";
 
 export const NATIVE_PROVIDERS: IUsageProvider[] = [
   openaiCodexProvider,
@@ -49,6 +50,7 @@ export const NATIVE_PROVIDERS: IUsageProvider[] = [
   opencodeGoProvider,
   ollamaCloudProvider,
   qwenCloudProvider,
+  typesafeProvider,
 ];
 
 /** アカウントごとに 1 インスタンス作る（= scope 展開する）プロバイダー。 */

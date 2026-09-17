@@ -1,4 +1,5 @@
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
+import { recordTypesafeUsage } from "@/lib/codexbar/providers/typesafe";
 import {
   registerTypeSafeProvider,
   TYPESAFE_API_BASE_URL,
@@ -66,5 +67,7 @@ export async function evaluateTypeSafe(
     },
   );
   if (!response.ok) throw new Error(`TypeSafe API error: ${response.status}`);
-  return await response.json() as TypeSafeResponse;
+  const result = (await response.json()) as TypeSafeResponse;
+  recordTypesafeUsage(result.usage);
+  return result;
 }

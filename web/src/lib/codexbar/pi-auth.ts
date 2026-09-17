@@ -23,7 +23,8 @@ export type PiAuthProviderId =
   | "cursor"
   | "opencode"
   | "opencode-go"
-  | "leafcodecloud";
+  | "leafcodecloud"
+  | "typesafe";
 
 export type PiOAuthTokens = {
   access: string;

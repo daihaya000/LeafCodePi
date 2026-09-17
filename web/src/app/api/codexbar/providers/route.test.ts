@@ -160,6 +160,7 @@ describe("CodexBar provider settings API", () => {
       "commandcode",
       "anthropic",
       "openai-codex",
+      "typesafe",
     ];
 
     const response = await PUT(
@@ -194,6 +195,7 @@ describe("CodexBar provider settings API", () => {
       "commandcode",
       "synthetic",
       "openrouter",
+      "typesafe",
     ];
     await fs.writeFile(
       path.join(appData, "CodexBar", "config.json"),
@@ -222,6 +224,7 @@ describe("CodexBar provider settings API", () => {
       "ollama-cloud",
       "anthropic",
       "openai-codex",
+      "typesafe",
     ];
     const response = await PUT(
       request({ providerOrder, version: initial.version }),

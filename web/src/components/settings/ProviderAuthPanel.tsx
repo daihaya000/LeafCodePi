@@ -1880,6 +1880,8 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
             Codex）、Cursor、OpenCode、Command Code（Go プラン可）、および Ollama
             Cloud / OpenRouter に対応しています。TypeSafe は System One API の
             API キーを登録できます（チャットモデルとしてはモデル一覧に出ません）。
+            TypeSafe は残高APIを公開していないため、利用状況にはこのアプリが実行した
+            Jev 呼び出しから積算した推定利用額を表示します（実際の口座残高ではありません）。
             マルチアカウント対応プロバイダーはアカウントごとに管理します。共有プロバイダーでは環境変数または
             ~/.pi/agent/auth.json を引き続き使えます。Command Code は{" "}
             <span className="font-mono">COMMANDCODE_API_KEY</span> /{" "}

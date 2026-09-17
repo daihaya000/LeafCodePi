@@ -503,6 +503,7 @@ const PROVIDER_LABELS: Record<string, string> = {
   "qwen-cloud": "Qwen Cloud",
   qwen: "Qwen Cloud",
   openrouter: "OpenRouter",
+  typesafe: "TypeSafe",
   lmstudio: "LM Studio",
   "llama-server": "llama-server",
 };

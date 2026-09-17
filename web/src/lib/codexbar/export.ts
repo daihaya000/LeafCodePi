@@ -96,6 +96,8 @@ export function toOpencodeProviderId(codexBarProviderId: string): string | null 
       return "qwen-cloud";
     case "openrouter":
       return "openrouter";
+    case "typesafe":
+      return "typesafe";
     default:
       return null;
   }
