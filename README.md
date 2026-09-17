@@ -7,7 +7,7 @@
 - サイドバー: プロジェクト / タスク一覧、折りたたみ、テーマ切替
 - ホーム: プロジェクト選択 + composer + モデル / 思考レベル
 - タスク: タイムライン（テキスト・思考・ツールカード）+ SSE ストリーミング + 停止 + **コンテキスト使用量**
-- 設定: Pi のヘルス、**llama-server 起動**、再起動。**エージェントタブでグローバル AGENTS.md / SOUL.md / USER.md**。モデルタブで **Claude / ChatGPT / Cursor サブスク**、**Ollama Cloud**、有効・無効・並び替え、有効モデル一覧
+- 設定: Pi のヘルス、**llama-server 起動**、再起動。**エージェントタブでグローバル AGENTS.md / SOUL.md / USER.md**。モデルタブで **Claude / ChatGPT / Cursor サブスク**、**Ollama Cloud / OrcaRouter**、有効・無効・並び替え、有効モデル一覧
 - プロジェクト追加: ホスト PC ではクリック時にエクスプローラー（ネイティブフォルダ選択）を直接開き、選択で即追加。リモートはパス入力 / アプリ内フォルダ一覧
 
 ## カスタム指示（AGENTS.md / SOUL.md / USER.md）
@@ -31,6 +31,16 @@
 - エンドポイント: `https://ollama.com/v1`（OpenAI 互換）
 - プロバイダー ID: `ollama-cloud`
 - モデル一覧はログイン後に `/v1/models` から取得
+
+## OrcaRouter
+
+設定 → モデル → OrcaRouter で API キーを登録するか、環境変数 `ORCAROUTER_API_KEY` を設定します（[キー発行](https://orcarouter.ai)）。
+
+- エンドポイント: `https://api.orcarouter.ai/v1`（OpenAI 互換）
+- プロバイダー ID: `orcarouter`
+- モデル一覧はログイン後に `/v1/models` から取得
+- CodexBar は `/v1/dashboard/billing/subscription` と `/v1/dashboard/billing/usage` から利用額・残高を取得
+- モデル ID は `openai/gpt-4o-mini` のようなプロバイダー付き形式です
 
 ## サブスクリプション認証
 

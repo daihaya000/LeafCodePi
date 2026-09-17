@@ -161,6 +161,7 @@ describe("CodexBar provider settings API", () => {
       "anthropic",
       "openai-codex",
       "typesafe",
+      "orcarouter",
     ];
 
     const response = await PUT(
@@ -196,6 +197,7 @@ describe("CodexBar provider settings API", () => {
       "synthetic",
       "openrouter",
       "typesafe",
+      "orcarouter",
     ];
     await fs.writeFile(
       path.join(appData, "CodexBar", "config.json"),
@@ -225,6 +227,7 @@ describe("CodexBar provider settings API", () => {
       "anthropic",
       "openai-codex",
       "typesafe",
+      "orcarouter",
     ];
     const response = await PUT(
       request({ providerOrder, version: initial.version }),

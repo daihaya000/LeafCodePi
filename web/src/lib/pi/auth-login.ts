@@ -243,6 +243,7 @@ export const HIGHLIGHTED_API_PROVIDER_IDS = new Set([
   "opencode",
   "opencode-go",
   "typesafe",
+  "orcarouter",
 ]);
 
 export function isHighlightedProvider(providerId: string): boolean {

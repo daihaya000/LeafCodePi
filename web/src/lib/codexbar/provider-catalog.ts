@@ -22,6 +22,7 @@ export const PROVIDER_CATALOG = [
   { id: "qwen-cloud", name: "Qwen Cloud" },
   { id: "synthetic", name: "Synthetic" },
   { id: "openrouter", name: "OpenRouter" },
+  { id: "orcarouter", name: "OrcaRouter" },
   { id: "typesafe", name: "TypeSafe" },
 ] as const;
 

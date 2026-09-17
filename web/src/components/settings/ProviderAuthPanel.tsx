@@ -132,7 +132,8 @@ function isAccountProviderId(
     providerId === "commandcode" ||
     providerId === "cursor" ||
     providerId === "opencode" ||
-    providerId === "opencode-go"
+    providerId === "opencode-go" ||
+    providerId === "orcarouter"
   );
 }
 
@@ -1878,7 +1879,7 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
           <p className="mt-2">
             Claude Pro/Max（Anthropic）、ChatGPT Plus/Pro（OpenAI
             Codex）、Cursor、OpenCode、Command Code（Go プラン可）、および Ollama
-            Cloud / OpenRouter に対応しています。TypeSafe は System One API の
+            Cloud / OpenRouter / OrcaRouter に対応しています。TypeSafe は System One API の
             API キーを登録できます（チャットモデルとしてはモデル一覧に出ません）。
             TypeSafe の実残高は TypeSafe Console（console.typesafe.ai）の cookie を
             登録すると表示できます。cookie未登録・失効時は Jev 呼び出しから積算した
@@ -1887,6 +1888,7 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
             <span className="font-mono">COMMANDCODE_API_KEY</span> /{" "}
             <span className="font-mono">~/.commandcode/auth.json</span>、Ollama
             Cloud は <span className="font-mono">OLLAMA_API_KEY</span>{" "}
+            でも設定できます。OrcaRouter は <span className="font-mono">ORCAROUTER_API_KEY</span>{" "}
             でも設定できます。Ollama Cloud はアカウントごとに cookie
             も登録できます。OpenCode Go の利用量にもアカウント別 cookie
             を登録できます。Anthropic はアカウントごとにサブスク（OAuth）と API

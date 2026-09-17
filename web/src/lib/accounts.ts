@@ -25,7 +25,8 @@ export type AccountProviderId =
   | "commandcode"
   | "cursor"
   | "opencode"
-  | "opencode-go";
+  | "opencode-go"
+  | "orcarouter";
 
 export const ACCOUNT_PROVIDER_IDS: readonly AccountProviderId[] = [
   "openai-codex",
@@ -36,6 +37,7 @@ export const ACCOUNT_PROVIDER_IDS: readonly AccountProviderId[] = [
   "cursor",
   "opencode",
   "opencode-go",
+  "orcarouter",
 ];
 
 /**

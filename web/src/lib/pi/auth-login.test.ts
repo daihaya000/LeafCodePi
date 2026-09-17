@@ -89,6 +89,7 @@ describe("subscription provider ids", () => {
     assert.ok(isHighlightedProvider("ollama-cloud"));
     assert.ok(isHighlightedProvider("commandcode"));
     assert.ok(isHighlightedProvider("typesafe"));
+    assert.ok(isHighlightedProvider("orcarouter"));
     assert.ok(isHighlightedProvider("anthropic"));
     assert.equal(isHighlightedProvider("openai"), false);
   });

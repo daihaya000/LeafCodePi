@@ -35,7 +35,8 @@ export type CodexBarAccountProviderId =
   | "commandcode"
   | "cursor"
   | "opencode"
-  | "opencode-go";
+  | "opencode-go"
+  | "orcarouter";
 
 export type CodexBarAccountSummary = {
   id: string;
@@ -178,7 +179,8 @@ export function parseCodexBarSnapshot(raw: unknown): CodexBarUsage {
                 provider === "commandcode" ||
                 provider === "cursor" ||
                 provider === "opencode" ||
-                provider === "opencode-go",
+                provider === "opencode-go" ||
+                provider === "orcarouter",
             )
           : [];
         const configuredProviders = Array.isArray(account.configuredProviders)
@@ -191,7 +193,8 @@ export function parseCodexBarSnapshot(raw: unknown): CodexBarUsage {
                 provider === "commandcode" ||
                 provider === "cursor" ||
                 provider === "opencode" ||
-                provider === "opencode-go",
+                provider === "opencode-go" ||
+                provider === "orcarouter",
             )
           : [];
         return [{ id, label, providers, configuredProviders }];
@@ -319,6 +322,7 @@ const ACCOUNT_MANAGED_PROVIDER_IDS = new Set([
   "cursor",
   "opencode",
   "opencode-go",
+  "orcarouter",
 ]);
 
 export type CodexBarProviderGroupAccount = {
@@ -503,6 +507,7 @@ const PROVIDER_LABELS: Record<string, string> = {
   "qwen-cloud": "Qwen Cloud",
   qwen: "Qwen Cloud",
   openrouter: "OpenRouter",
+  orcarouter: "OrcaRouter",
   typesafe: "TypeSafe",
   lmstudio: "LM Studio",
   "llama-server": "llama-server",

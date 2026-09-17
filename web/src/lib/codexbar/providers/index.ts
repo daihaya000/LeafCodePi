@@ -39,6 +39,10 @@ import {
 import { qwenCloudProvider } from "@/lib/codexbar/providers/qwen-cloud";
 import { syntheticProvider } from "@/lib/codexbar/providers/synthetic";
 import { typesafeProvider } from "@/lib/codexbar/providers/typesafe";
+import {
+  createOrcaRouterProvider,
+  orcarouterProvider,
+} from "@/lib/codexbar/providers/orcarouter";
 
 export const NATIVE_PROVIDERS: IUsageProvider[] = [
   openaiCodexProvider,
@@ -51,6 +55,7 @@ export const NATIVE_PROVIDERS: IUsageProvider[] = [
   ollamaCloudProvider,
   qwenCloudProvider,
   typesafeProvider,
+  orcarouterProvider,
 ];
 
 /** アカウントごとに 1 インスタンス作る（= scope 展開する）プロバイダー。 */
@@ -63,6 +68,7 @@ const SCOPED_FACTORIES: Record<string, (scope: UsageScope) => IUsageProvider> =
     commandcode: createCommandCodeProvider,
     cursor: createCursorProvider,
     "opencode-go": createOpenCodeGoProvider,
+    orcarouter: createOrcaRouterProvider,
   };
 
 /** Provider definitions used to create one isolated instance per usage scope. */

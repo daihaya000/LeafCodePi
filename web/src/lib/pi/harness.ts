@@ -115,6 +115,10 @@ import {
 } from "@/lib/pi/ollama-cloud-provider";
 import { registerTypeSafeProvider } from "@/lib/pi/typesafe-provider";
 import {
+  registerOrcaRouterProvider,
+  syncOrcaRouterProvider,
+} from "@/lib/pi/orcarouter-provider";
+import {
   effectiveBaseUrl,
   isEditableBaseUrlProvider,
   setProviderBaseUrl as setProviderBaseUrlFromEndpoints,
@@ -806,6 +810,7 @@ async function ensureOptionalProviders(
     registerOllamaCloudProvider(runtime),
     registerRemoteProvider(runtime),
     registerTypeSafeProvider(runtime),
+    registerOrcaRouterProvider(runtime, scope),
   ]).then(() => undefined);
   promises.set(runtime, promise);
   try {
@@ -4417,6 +4422,11 @@ async function syncProvidersBestEffort(
         const message = error instanceof Error ? error.message : String(error);
         console.warn("[leafcode-pi] leafcodecloud provider sync failed:", message);
         return `leafcodecloud: ${message}`;
+      }),
+      syncOrcaRouterProvider(runtime).then(() => null).catch((error) => {
+        const message = error instanceof Error ? error.message : String(error);
+        console.warn("[leafcode-pi] orcarouter provider sync failed:", message);
+        return `orcarouter: ${message}`;
       }),
     ])
   ).filter((warning): warning is string => warning !== null);
