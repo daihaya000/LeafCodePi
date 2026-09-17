@@ -1,19 +1,38 @@
 /**
- * TypeSafe（Jev）の利用額をローカル集計で見積もって表示する。
+ * TypeSafe（Jev）の利用額/残高表示。
  *
- * TypeSafe は残高/クレジットの公開APIを持たない（docs.typesafe.ai/api・/models
+ * TypeSafe は公開APIに残高/クレジットエンドポイントを持たない（docs.typesafe.ai/api・/models
  * で確認済み。公開エンドポイントは POST /v1/systemone と GET /v1/models のみ）。
- * このプロバイダーは非公開のコンソールAPIを推測実装せず、自アプリが実行した
- * /v1/systemone 呼び出しの usage（input_tokens）を公開価格
- * （$42 / 10億入力トークン、出力トークンは無料）で積算した「推定利用額」を表示する。
- * 実際の口座残高ではない（TypeSafe が残高APIを公開すれば置き換える）。
+ * 実残高は Anthropic の Console cookie 方式と同様、console.typesafe.ai の
+ * セッション cookie（session_id + organization_id）で /settings/billing の Next.js
+ * Server Action（getBillingOverviewResult）を直接呼ぶ。非公開の内部APIのため、
+ * TypeSafe がコンソールを再デプロイすると Next-Action ID が変わり失敗し得る
+ * （その場合は例外を投げず、下記のローカル見積りへ自動フォールバックする）。
+ *
+ * cookie 未登録時は、自アプリが実行した /v1/systemone 呼び出しの usage（input_tokens）を
+ * 公開価格（$42 / 10億入力トークン、出力トークンは無料）で積算した「推定利用額」を表示する。
  */
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { dataDir } from "@/lib/paths";
-import type { IUsageProvider, UsageSnapshot } from "@/lib/codexbar/types";
-import { atomicWriteText, flexibleNumber } from "@/lib/codexbar/utils";
+import {
+  ProviderError,
+  type IUsageProvider,
+  type UsageSnapshot,
+} from "@/lib/codexbar/types";
+import {
+  asRecord,
+  atomicWriteText,
+  fetchText,
+  flexibleNumber,
+} from "@/lib/codexbar/utils";
 import { readPiApiKey } from "@/lib/codexbar/pi-auth";
+import {
+  createCookieHeaderForUrl,
+  extractTypesafeConsoleSession,
+  readTypesafeOrgId,
+  type BrowserCookieSession,
+} from "@/lib/codexbar/browser-cookies";
 
 /** $42 per billion input tokens (docs.typesafe.ai/models)。出力トークンは無料。 */
 export const TYPESAFE_INPUT_USD_PER_TOKEN = 42 / 1_000_000_000;
@@ -85,32 +104,161 @@ export function resolveTypesafeApiKey(): string | null {
   return readPiApiKey("typesafe");
 }
 
+function localEstimateSnapshot(): UsageSnapshot {
+  const totals = readTypesafeUsageTotals();
+  return {
+    providerId: "typesafe",
+    providerName: "TypeSafe",
+    plan: null,
+    accountEmail: null,
+    windows: [],
+    creditsEnabled: true,
+    creditsTitle: "推定利用額（Jev、cookie未登録）",
+    creditsUsed: estimatedTypesafeUsd(totals),
+    creditsLimit: null,
+    creditsBalance: null,
+    creditsLabel: null,
+    // 実残高ではなくローカル見積り。集計・ルーティングの判断材料に使わない。
+    usageDisplayOnly: true,
+    sourceLabel: "ローカル集計（$42/10億入力トークン、出力無料）",
+    updatedAt: totals.updatedAt ? new Date(totals.updatedAt) : new Date(),
+    isStale: false,
+    rateLimitResetCreditsAvailable: null,
+  };
+}
+
+/** console.typesafe.ai の billing Server Action（`/settings/billing` 上でのみ有効）。 */
+const TYPESAFE_BILLING_URL = "https://console.typesafe.ai/settings/billing";
+/**
+ * `getBillingOverviewResult` Server Action の ID（2026-09 時点でリバースエンジニアリング確認済み）。
+ * TypeSafe がコンソールを再デプロイすると変わり得る。更新方法: ログイン後の
+ * `/settings/billing` が読み込む JS チャンクから `createServerReference("<id>",...,
+ * "getBillingOverviewResult")` を検索する。
+ */
+const TYPESAFE_BILLING_ACTION_ID =
+  "008b22f86b1523c973e393085e8f63846fdaf23799";
+
+export type TypesafeConsoleBilling = {
+  plan: string;
+  spent: number;
+  freeCreditsRemaining: number | null;
+  purchased: number | null;
+  balance: number | null;
+  resetsInDays: number | null;
+  cycleLabel: string | null;
+};
+
+function prettyTypesafePlan(plan: string): string {
+  if (plan === "free_plan") return "Free";
+  if (plan === "invoice_based") return "Invoice";
+  return plan;
+}
+
+/**
+ * Server Action の応答は RSC の "Flight" 行形式（`<index>:<json>` の改行区切り）。
+ * インデックスはデプロイで変わり得るため固定せず、`data.billing` を含む行を探す。
+ */
+export function parseTypesafeBillingActionResponse(
+  text: string,
+): TypesafeConsoleBilling {
+  for (const line of text.split("\n")) {
+    const match = /^\d+:(\{.*\})\s*$/.exec(line);
+    if (!match) continue;
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(match[1]);
+    } catch {
+      continue;
+    }
+    const billing = asRecord(asRecord(asRecord(parsed)?.data)?.billing);
+    if (!billing) continue;
+    const plan = typeof billing.plan === "string" ? billing.plan : null;
+    const spent = flexibleNumber(billing.spent);
+    if (!plan || spent === null) continue;
+    return {
+      plan,
+      spent,
+      freeCreditsRemaining: flexibleNumber(billing.freeCreditsRemaining),
+      purchased: flexibleNumber(billing.purchased),
+      balance: flexibleNumber(billing.balance),
+      resetsInDays: flexibleNumber(billing.resetsInDays),
+      cycleLabel:
+        typeof billing.cycleLabel === "string" ? billing.cycleLabel : null,
+    };
+  }
+  throw new ProviderError("TypeSafe の残高データを取得できませんでした。");
+}
+
+async function fetchTypesafeConsoleBilling(
+  session: BrowserCookieSession,
+  signal?: AbortSignal,
+): Promise<TypesafeConsoleBilling> {
+  const orgId = readTypesafeOrgId(session);
+  if (!orgId) {
+    throw new ProviderError(
+      "TypeSafe Console の cookie に組織ID（organization_id）がありません。",
+    );
+  }
+  const cookieHeader = createCookieHeaderForUrl(session, TYPESAFE_BILLING_URL);
+  if (!cookieHeader) {
+    throw new ProviderError("TypeSafe Console へ送れる cookie がありません。");
+  }
+  const { status, body, ok } = await fetchText(TYPESAFE_BILLING_URL, {
+    method: "POST",
+    headers: {
+      "Content-Type": "text/plain;charset=UTF-8",
+      Accept: "text/x-component",
+      "Next-Action": TYPESAFE_BILLING_ACTION_ID,
+      Origin: "https://console.typesafe.ai",
+      Referer: TYPESAFE_BILLING_URL,
+      Cookie: cookieHeader,
+    },
+    body: "[]",
+    signal,
+  });
+  if (status === 401 || status === 403) {
+    throw new ProviderError(
+      "TypeSafe Console のセッションが期限切れです。cookie を再登録してください。",
+    );
+  }
+  if (!ok) throw new ProviderError(`TypeSafe Console API エラー ${status}。`);
+  return parseTypesafeBillingActionResponse(body);
+}
+
 export const typesafeProvider: IUsageProvider = {
   id: "typesafe",
   name: "TypeSafe",
   isConfigured() {
-    return resolveTypesafeApiKey() !== null;
+    return (
+      resolveTypesafeApiKey() !== null || extractTypesafeConsoleSession() !== null
+    );
   },
-  async fetch(): Promise<UsageSnapshot> {
-    const totals = readTypesafeUsageTotals();
-    return {
-      providerId: "typesafe",
-      providerName: "TypeSafe",
-      plan: null,
-      accountEmail: null,
-      windows: [],
-      creditsEnabled: true,
-      creditsTitle: "推定利用額（Jev、残高APIなし）",
-      creditsUsed: estimatedTypesafeUsd(totals),
-      creditsLimit: null,
-      creditsBalance: null,
-      creditsLabel: null,
-      // 実残高ではなくローカル見積り。集計・ルーティングの判断材料に使わない。
-      usageDisplayOnly: true,
-      sourceLabel: "ローカル集計（$42/10億入力トークン、出力無料）",
-      updatedAt: totals.updatedAt ? new Date(totals.updatedAt) : new Date(),
-      isStale: false,
-      rateLimitResetCreditsAvailable: null,
-    };
+  async fetch(signal): Promise<UsageSnapshot> {
+    const session = extractTypesafeConsoleSession();
+    if (session) {
+      try {
+        const billing = await fetchTypesafeConsoleBilling(session, signal);
+        return {
+          providerId: "typesafe",
+          providerName: "TypeSafe",
+          plan: prettyTypesafePlan(billing.plan),
+          accountEmail: null,
+          windows: [],
+          creditsEnabled: true,
+          creditsTitle: billing.cycleLabel ? `残高（${billing.cycleLabel}）` : "残高",
+          creditsUsed: billing.spent,
+          creditsLimit: null,
+          creditsBalance: billing.balance,
+          creditsLabel: null,
+          sourceLabel: "console.typesafe.ai",
+          updatedAt: new Date(),
+          isStale: false,
+          rateLimitResetCreditsAvailable: null,
+        };
+      } catch {
+        // cookie 失効 or Next-Action ID がデプロイで変わった等。ローカル見積りへフォールバック。
+      }
+    }
+    return localEstimateSnapshot();
   },
 };

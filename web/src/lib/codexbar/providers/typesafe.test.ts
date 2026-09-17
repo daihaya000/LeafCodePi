@@ -1,16 +1,26 @@
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { defaultPiAuthPath } from "@/lib/codexbar/pi-auth";
+import { saveTypesafeCookieFile } from "@/lib/codexbar/browser-cookies";
+
+const undiciFetch = vi.hoisted(() => vi.fn());
+vi.mock("undici", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("undici")>()),
+  fetch: undiciFetch,
+}));
+
 import {
   estimatedTypesafeUsd,
+  parseTypesafeBillingActionResponse,
   readTypesafeUsageTotals,
   recordTypesafeUsage,
   resolveTypesafeApiKey,
   typesafeProvider,
 } from "./typesafe";
 
+const previousAppData = process.env.APPDATA;
 const dirs: string[] = [];
 
 afterEach(() => {
@@ -19,6 +29,9 @@ afterEach(() => {
   }
   delete process.env.LEAFCODE_PI_DATA_DIR;
   delete process.env.PI_CODING_AGENT_DIR;
+  if (previousAppData === undefined) delete process.env.APPDATA;
+  else process.env.APPDATA = previousAppData;
+  undiciFetch.mockReset();
 });
 
 function tempDataDir(): string {
@@ -33,6 +46,13 @@ function tempAgentDir(): string {
   dirs.push(dir);
   process.env.PI_CODING_AGENT_DIR = dir;
   return dir;
+}
+
+/** cookie ファイルの探索先（APPDATA\CodexBar）を隔離する。既定では未設定にする。 */
+function isolateCookieConfigDir(): void {
+  const dir = mkdtempSync(join(tmpdir(), "leafcode-typesafe-cookiecfg-"));
+  dirs.push(dir);
+  process.env.APPDATA = dir;
 }
 
 describe("typesafe usage totals", () => {
@@ -56,8 +76,22 @@ describe("typesafe usage totals", () => {
   });
 
   it("estimates USD from the published $42/Btok input price (output free)", () => {
-    expect(estimatedTypesafeUsd({ inputTokens: 1_000_000_000, outputTokens: 0, calls: 1, updatedAt: null })).toBe(42);
-    expect(estimatedTypesafeUsd({ inputTokens: 0, outputTokens: 999, calls: 1, updatedAt: null })).toBe(0);
+    expect(
+      estimatedTypesafeUsd({
+        inputTokens: 1_000_000_000,
+        outputTokens: 0,
+        calls: 1,
+        updatedAt: null,
+      }),
+    ).toBe(42);
+    expect(
+      estimatedTypesafeUsd({
+        inputTokens: 0,
+        outputTokens: 999,
+        calls: 1,
+        updatedAt: null,
+      }),
+    ).toBe(0);
   });
 
   it("never throws when the counter file is corrupt", () => {
@@ -73,15 +107,44 @@ describe("typesafe usage totals", () => {
   });
 });
 
+describe("parseTypesafeBillingActionResponse", () => {
+  // 実際の console.typesafe.ai レスポンス（RSC flight 行形式）の抜粋。
+  const realisticBody =
+    '2:"$Sreact.fragment"\n' +
+    ':HL["/_next/static/chunks/2lh-xl026qalb.css?dpl=x","style",{}]\n' +
+    '9:X\n' +
+    '0:{"a":"$@1","f":[["","..."]]}\n' +
+    '1:{"ok":true,"data":{"billing":{"plan":"free_plan","spent":0.01,"freeCreditsRemaining":4.98,"balance":4.98,"purchased":0,"resetsInDays":14,"cycleLabel":"September 2026","paymentMethod":null,"autoPay":null,"credits":[{"id":"c1","amount":5,"remaining":4.98,"createdAt":"2026-09-16T00:00:00Z","expiresAt":"2026-10-16T00:00:00Z","reason":"free_tier_credit"}]},"payments":[],"hasMore":false,"credits":"$1:data:billing:credits"}}\n';
+
+  it("finds the data line among RSC flight noise and extracts billing fields", () => {
+    const billing = parseTypesafeBillingActionResponse(realisticBody);
+    expect(billing).toEqual({
+      plan: "free_plan",
+      spent: 0.01,
+      freeCreditsRemaining: 4.98,
+      purchased: 0,
+      balance: 4.98,
+      resetsInDays: 14,
+      cycleLabel: "September 2026",
+    });
+  });
+
+  it("throws when no line contains billing data", () => {
+    expect(() => parseTypesafeBillingActionResponse('0:{"a":1}\n')).toThrow();
+  });
+});
+
 describe("resolveTypesafeApiKey / typesafeProvider", () => {
-  it("is unconfigured without a stored api_key entry", () => {
+  it("is unconfigured without a stored api_key entry or console cookie", () => {
     tempAgentDir();
+    isolateCookieConfigDir();
     expect(resolveTypesafeApiKey()).toBeNull();
     expect(typesafeProvider.isConfigured()).toBe(false);
   });
 
   it("is configured once auth.json has a typesafe api_key entry", () => {
     tempAgentDir();
+    isolateCookieConfigDir();
     writeFileSync(
       defaultPiAuthPath(),
       JSON.stringify({ typesafe: { type: "api_key", key: "sk-test" } }),
@@ -91,8 +154,19 @@ describe("resolveTypesafeApiKey / typesafeProvider", () => {
     expect(typesafeProvider.isConfigured()).toBe(true);
   });
 
-  it("fetch() reports a display-only estimated-usage snapshot, not a real balance", async () => {
+  it("is configured from a console cookie file alone (no api key needed)", () => {
+    tempAgentDir();
+    isolateCookieConfigDir();
+    saveTypesafeCookieFile(
+      "console.typesafe.ai\tFALSE\t/\tTRUE\t4102444800\tsession_id\ttok\n" +
+        "console.typesafe.ai\tFALSE\t/\tTRUE\t4102444800\torganization_id\torg_1\n",
+    );
+    expect(typesafeProvider.isConfigured()).toBe(true);
+  });
+
+  it("fetch() falls back to the local estimate snapshot without a cookie", async () => {
     tempDataDir();
+    isolateCookieConfigDir();
     recordTypesafeUsage({ input_tokens: 1_000_000_000, output_tokens: 1 });
 
     const snapshot = await typesafeProvider.fetch();
@@ -103,5 +177,50 @@ describe("resolveTypesafeApiKey / typesafeProvider", () => {
     expect(snapshot.creditsBalance).toBeNull();
     expect(snapshot.usageDisplayOnly).toBe(true);
     expect(snapshot.windows).toEqual([]);
+  });
+
+  it("fetch() reports the real balance when a console cookie authenticates", async () => {
+    tempDataDir();
+    isolateCookieConfigDir();
+    saveTypesafeCookieFile(
+      "console.typesafe.ai\tFALSE\t/\tTRUE\t4102444800\tsession_id\ttok\n" +
+        "console.typesafe.ai\tFALSE\t/\tTRUE\t4102444800\torganization_id\torg_1\n",
+    );
+    undiciFetch.mockResolvedValueOnce(
+      new Response(
+        '1:{"ok":true,"data":{"billing":{"plan":"free_plan","spent":0.01,"freeCreditsRemaining":4.98,"balance":4.98,"purchased":0,"resetsInDays":14,"cycleLabel":"September 2026"}}}\n',
+        { status: 200 },
+      ),
+    );
+
+    const snapshot = await typesafeProvider.fetch();
+    expect(snapshot.plan).toBe("Free");
+    expect(snapshot.creditsUsed).toBe(0.01);
+    expect(snapshot.creditsBalance).toBe(4.98);
+    expect(snapshot.usageDisplayOnly).toBeUndefined();
+    expect(undiciFetch).toHaveBeenCalledWith(
+      "https://console.typesafe.ai/settings/billing",
+      expect.objectContaining({
+        method: "POST",
+        headers: expect.objectContaining({
+          "Next-Action": "008b22f86b1523c973e393085e8f63846fdaf23799",
+          Cookie: expect.stringContaining("session_id=tok"),
+        }),
+      }),
+    );
+  });
+
+  it("fetch() falls back to the local estimate when the cookie session is stale", async () => {
+    tempDataDir();
+    isolateCookieConfigDir();
+    saveTypesafeCookieFile(
+      "console.typesafe.ai\tFALSE\t/\tTRUE\t4102444800\tsession_id\ttok\n" +
+        "console.typesafe.ai\tFALSE\t/\tTRUE\t4102444800\torganization_id\torg_1\n",
+    );
+    undiciFetch.mockResolvedValueOnce(new Response(null, { status: 401 }));
+
+    const snapshot = await typesafeProvider.fetch();
+    expect(snapshot.usageDisplayOnly).toBe(true);
+    expect(snapshot.creditsBalance).toBeNull();
   });
 });

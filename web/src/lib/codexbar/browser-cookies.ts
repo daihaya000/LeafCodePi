@@ -292,6 +292,7 @@ function anthropicNetscapePaths(): string[] {
 
 function chromiumSessionFor(
   matches: (host: string) => boolean,
+  hasSessionCookie: (cookies: readonly BrowserCookie[]) => boolean,
 ): BrowserCookieSession | null {
   for (const browser of listChromiumBrowserRoots()) {
     for (const profile of listChromiumProfiles(browser.userData)) {
@@ -308,7 +309,7 @@ function chromiumSessionFor(
         secure: r.isSecure,
         expiresAt: chromeExpiryToDate(r.expiresUtcChrome),
       }));
-      if (!hasAnthropicSessionCookie(cookies)) continue;
+      if (!hasSessionCookie(cookies)) continue;
       return {
         sourceLabel: `${browser.name} (${profile.split(/[/\\]/).pop()})`,
         cookies,
@@ -343,7 +344,114 @@ export function extractAnthropicConsoleSession(options?: {
     }
   }
   if (authPath) return null;
-  return chromiumSessionFor(isAnthropicConsoleDomain);
+  return chromiumSessionFor(isAnthropicConsoleDomain, hasAnthropicSessionCookie);
+}
+
+/** TypeSafe Console（console.typesafe.ai）のセッション cookie。組織を跨がないため host-only。 */
+const TYPESAFE_CONSOLE_DOMAIN = "console.typesafe.ai";
+const TYPESAFE_SESSION_COOKIE = "session_id";
+const TYPESAFE_ORG_COOKIE = "organization_id";
+
+export function isTypesafeConsoleDomain(host: string): boolean {
+  return host.trim().replace(/^\./, "").toLowerCase() === TYPESAFE_CONSOLE_DOMAIN;
+}
+
+function hasTypesafeSessionCookie(cookies: readonly BrowserCookie[]): boolean {
+  return cookies.some(
+    (c) => c.name === TYPESAFE_SESSION_COOKIE && c.value.length > 0,
+  );
+}
+
+/** TypeSafe Console cookie（session_id 必須）。無効なら null。 */
+export function parseTypesafeConsoleNetscapeText(
+  text: string,
+  sourceLabel = "Netscape cookie file",
+): BrowserCookieSession | null {
+  const now = Math.floor(Date.now() / 1000);
+  const cookies = parseNetscapeCookieText(text)
+    .filter((c) => !(c.expiresUtc > 0 && c.expiresUtc < now))
+    .filter((c) => isTypesafeConsoleDomain(c.domain))
+    .filter((c) => c.name.length > 0 && c.value.length > 0)
+    .map(netscapeToBrowserCookie);
+  if (!hasTypesafeSessionCookie(cookies)) return null;
+  return { sourceLabel, cookies };
+}
+
+/** 組織 ID は Console が置く organization_id cookie（無ければ null）。 */
+export function readTypesafeOrgId(
+  session: BrowserCookieSession,
+): string | null {
+  const cookie = session.cookies.find(
+    (c) => c.name === TYPESAFE_ORG_COOKIE && c.value.trim().length > 0,
+  );
+  return cookie ? cookie.value.trim() : null;
+}
+
+export function defaultTypesafeCookiePath(): string {
+  return join(codexBarConfigDir(), "typesafe_cookies.txt");
+}
+
+function typesafeNetscapePaths(): string[] {
+  return [
+    defaultTypesafeCookiePath(),
+    join(codexBarConfigDir(), "cokkie", "console.typesafe.ai_cookies.txt"),
+    ...netscapeCookieCandidates("console.typesafe.ai_cookies.txt"),
+  ];
+}
+
+/**
+ * TypeSafe は LeafCode アカウントに属さない共有プロバイダーのため、cookie も
+ * アカウント別ではなく単一のデフォルトファイルのみ（Anthropic の account 分岐は無い）。
+ * Netscape ファイル → Chrome/Edge profile の順に探す。
+ */
+export function extractTypesafeConsoleSession(): BrowserCookieSession | null {
+  for (const path of [...new Set(typesafeNetscapePaths())]) {
+    if (!existsSync(path)) continue;
+    try {
+      const session = parseTypesafeConsoleNetscapeText(
+        readFileSync(path, "utf8"),
+      );
+      if (session) return session;
+    } catch {
+      /* try next */
+    }
+  }
+  return chromiumSessionFor(isTypesafeConsoleDomain, hasTypesafeSessionCookie);
+}
+
+export function saveTypesafeCookieFile(text: string): void {
+  if (!text.trim()) {
+    throw Object.assign(new Error("cookie を入力してください"), { status: 400 });
+  }
+  if (text.length > 1_000_000) {
+    throw Object.assign(new Error("cookie のサイズが大きすぎます"), {
+      status: 400,
+    });
+  }
+  if (!parseTypesafeConsoleNetscapeText(text)) {
+    throw Object.assign(
+      new Error(
+        "有効な TypeSafe Console（console.typesafe.ai）の session_id cookie が見つかりません",
+      ),
+      { status: 400 },
+    );
+  }
+  const path = defaultTypesafeCookiePath();
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(path, `${text.trim()}\n`, "utf8");
+  try {
+    chmodSync(path, 0o600);
+  } catch {
+    // Windows ACL が権限を管理するため、chmod 失敗は保存エラーにしない。
+  }
+}
+
+export function deleteTypesafeCookieFile(): void {
+  try {
+    unlinkSync(defaultTypesafeCookiePath());
+  } catch {
+    /* already absent */
+  }
 }
 
 export function saveAccountAnthropicCookieFile(

@@ -28,9 +28,15 @@ import {
   accountOpenCodeCookiePath,
   createCookieHeaderForUrl,
   deleteAccountOpenCodeCookieFile,
+  deleteTypesafeCookieFile,
   extractOpenCodeCookieHeader,
+  extractTypesafeConsoleSession,
+  isTypesafeConsoleDomain,
   parseQwenCloudNetscapeText,
+  parseTypesafeConsoleNetscapeText,
+  readTypesafeOrgId,
   saveAccountOpenCodeCookieFile,
+  saveTypesafeCookieFile,
 } from "./browser-cookies";
 import {
   createOpenCodeGoProvider,
@@ -235,6 +241,62 @@ describe("OpenCode Go account cookie scope", () => {
     expect(readAccountOpenCodeGoWorkspace(authPath)).toBe("workspace-1");
     deleteAccountOpenCodeCookieFile(authPath);
     expect(extractOpenCodeCookieHeader({ authPath })).toBeNull();
+  });
+});
+
+describe("typesafe console cookies", () => {
+  const previousAppData = process.env.APPDATA;
+  const tempDirs: string[] = [];
+
+  afterEach(() => {
+    if (previousAppData === undefined) delete process.env.APPDATA;
+    else process.env.APPDATA = previousAppData;
+    for (const dir of tempDirs.splice(0))
+      rmSync(dir, { recursive: true, force: true });
+  });
+
+  function isolateConfigDir(): void {
+    const dir = mkdtempSync(join(tmpdir(), "leafcode-typesafe-cookie-"));
+    tempDirs.push(dir);
+    process.env.APPDATA = dir;
+  }
+
+  const fixture = `# Netscape HTTP Cookie File
+console.typesafe.ai	FALSE	/	TRUE	4102444800	session_id	tok-123
+console.typesafe.ai	FALSE	/	TRUE	4102444800	organization_id	org_abc
+.other.com	TRUE	/	TRUE	4102444800	unrelated	value
+`;
+
+  it("recognizes only the console host and requires session_id", () => {
+    expect(isTypesafeConsoleDomain("console.typesafe.ai")).toBe(true);
+    expect(isTypesafeConsoleDomain("typesafe.ai")).toBe(false);
+    expect(isTypesafeConsoleDomain("login.typesafe.ai")).toBe(false);
+
+    const session = parseTypesafeConsoleNetscapeText(fixture);
+    expect(session).not.toBeNull();
+    expect(session!.cookies.map((c) => c.name).sort()).toEqual([
+      "organization_id",
+      "session_id",
+    ]);
+    expect(readTypesafeOrgId(session!)).toBe("org_abc");
+
+    expect(
+      parseTypesafeConsoleNetscapeText(
+        "console.typesafe.ai\tFALSE\t/\tTRUE\t4102444800\torganization_id\torg_abc\n",
+      ),
+    ).toBeNull();
+  });
+
+  it("saves/deletes the default cookie file and validates content", () => {
+    isolateConfigDir();
+    expect(extractTypesafeConsoleSession()).toBeNull();
+    expect(() => saveTypesafeCookieFile("not a cookie file")).toThrow();
+    saveTypesafeCookieFile(fixture);
+    const session = extractTypesafeConsoleSession();
+    expect(session).not.toBeNull();
+    expect(readTypesafeOrgId(session!)).toBe("org_abc");
+    deleteTypesafeCookieFile();
+    expect(extractTypesafeConsoleSession()).toBeNull();
   });
 });
 
