@@ -183,6 +183,94 @@ describe("getRuntimeFor", () => {
     assert.equal(modelReads, 1);
   });
 
+  it("refreshes an OrcaRouter account before building its provider catalog", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "leafcode-pi-orcarouter-catalog-"));
+    tempDirs.push(dir);
+    process.env.LEAFCODE_PI_DATA_DIR = dir;
+    const agentDir = useTestAgentDir(dir);
+    const account = createAccount({
+      label: "OrcaRouter",
+      providers: ["orcarouter"],
+    });
+    storeAccountProviderAuth(account, agentDir, "orcarouter");
+
+    let refreshes = 0;
+    let models: readonly {
+      id: string;
+      name: string;
+      contextWindow?: number;
+    }[] = [];
+    const accountRuntime = {
+      getProvider: (id: string) =>
+        id === "orcarouter" ? { id } : undefined,
+      getProviders: () => [{ id: "orcarouter", name: "OrcaRouter" }],
+      getModels: (providerId?: string) =>
+        providerId === "orcarouter" ? models : [],
+      getModel: (providerId: string, modelId: string) =>
+        providerId === "orcarouter"
+          ? models.find((model) => model.id === modelId)
+          : undefined,
+      hasConfiguredAuth: () => true,
+      refresh: async (options?: { providers?: readonly string[] }) => {
+        if (options?.providers?.includes("orcarouter")) {
+          refreshes += 1;
+          models = [{
+            id: "orcarouter/auto",
+            name: "OrcaRouter Auto",
+            contextWindow: 128_000,
+          }];
+        }
+        return { aborted: false, errors: new Map() };
+      },
+    };
+    const registered = new Set([
+      "cursor",
+      "commandcode",
+      "ollama-cloud",
+      "leafcodecloud",
+      "typesafe",
+    ]);
+    const defaultRuntime = {
+      getProvider: (id: string) =>
+        registered.has(id) ? { id } : undefined,
+      getProviders: () => [],
+      registerProvider: () => undefined,
+    };
+    (globalThis as Record<string, unknown>)[GLOBAL_KEY] = {
+      modelRuntime: defaultRuntime,
+      initPromise: null,
+      initError: null,
+      live: new Map(),
+      watchdogRegistered: true,
+      lastProviderSyncWarnings: [],
+      accountRuntimes: new AccountRuntimeManager(
+        async () => accountRuntime as never,
+      ),
+    };
+
+    const rows = await listProviderModelsCatalog();
+
+    assert.equal(refreshes, 1);
+    assert.deepEqual(rows, [
+      {
+        id: "orcarouter",
+        name: "OrcaRouter",
+        enabled: true,
+        models: [
+          {
+            id: "orcarouter/auto",
+            name: "OrcaRouter Auto",
+            enabled: true,
+            contextWindow: 128_000,
+            thinkingLevels: [],
+          },
+        ],
+        accountId: account.id,
+        accountLabel: account.label,
+      },
+    ]);
+  });
+
   it("rejects unknown account ids before creating a runtime", async () => {
     const dir = mkdtempSync(
       join(tmpdir(), "leafcode-pi-harness-missing-account-"),
