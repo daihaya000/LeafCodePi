@@ -431,6 +431,36 @@ export function hasTypesafeCookieFile(): boolean {
   }
 }
 
+/** 貼り付け本文の他サイトcookieを保存しない。残高取得に必要な2項目だけを直列化する。 */
+function typesafeCookieFileText(session: BrowserCookieSession): string | null {
+  const sessionId = session.cookies.find(
+    (cookie) =>
+      cookie.name === TYPESAFE_SESSION_COOKIE && cookie.value.length > 0,
+  );
+  const organizationId = session.cookies.find(
+    (cookie) => cookie.name === TYPESAFE_ORG_COOKIE && cookie.value.length > 0,
+  );
+  if (!sessionId || !organizationId) return null;
+  return [
+    "# Netscape HTTP Cookie File",
+    ...[sessionId, organizationId].map((cookie) => {
+      const expiresUtc = cookie.expiresAt
+        ? Math.floor(cookie.expiresAt.getTime() / 1000)
+        : 0;
+      return [
+        cookie.hostOnly ? cookie.domain : `.${cookie.domain}`,
+        cookie.hostOnly ? "FALSE" : "TRUE",
+        cookie.path,
+        cookie.secure ? "TRUE" : "FALSE",
+        expiresUtc,
+        cookie.name,
+        cookie.value,
+      ].join("\t");
+    }),
+    "",
+  ].join("\n");
+}
+
 export function saveTypesafeCookieFile(text: string): void {
   if (!text.trim()) {
     throw Object.assign(new Error("cookie を入力してください"), { status: 400 });
@@ -441,7 +471,8 @@ export function saveTypesafeCookieFile(text: string): void {
     });
   }
   const session = parseTypesafeConsoleNetscapeText(text);
-  if (!session || !readTypesafeOrgId(session)) {
+  const cookieText = session ? typesafeCookieFileText(session) : null;
+  if (!cookieText) {
     throw Object.assign(
       new Error(
         "TypeSafe Console（console.typesafe.ai）の session_id と organization_id cookie が必要です",
@@ -451,7 +482,7 @@ export function saveTypesafeCookieFile(text: string): void {
   }
   const path = defaultTypesafeCookiePath();
   mkdirSync(dirname(path), { recursive: true });
-  writeFileSync(path, `${text.trim()}\n`, "utf8");
+  writeFileSync(path, cookieText, "utf8");
   try {
     chmodSync(path, 0o600);
   } catch {

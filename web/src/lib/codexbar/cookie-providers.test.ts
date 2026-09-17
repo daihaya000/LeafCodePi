@@ -247,11 +247,14 @@ describe("OpenCode Go account cookie scope", () => {
 
 describe("typesafe console cookies", () => {
   const previousAppData = process.env.APPDATA;
+  const previousLocalAppData = process.env.LOCALAPPDATA;
   const tempDirs: string[] = [];
 
   afterEach(() => {
     if (previousAppData === undefined) delete process.env.APPDATA;
     else process.env.APPDATA = previousAppData;
+    if (previousLocalAppData === undefined) delete process.env.LOCALAPPDATA;
+    else process.env.LOCALAPPDATA = previousLocalAppData;
     for (const dir of tempDirs.splice(0))
       rmSync(dir, { recursive: true, force: true });
   });
@@ -260,6 +263,8 @@ describe("typesafe console cookies", () => {
     const dir = mkdtempSync(join(tmpdir(), "leafcode-typesafe-cookie-"));
     tempDirs.push(dir);
     process.env.APPDATA = dir;
+    // Chromium fallback が実ブラウザのDPAPI cookie DBを走査しないよう隔離する。
+    process.env.LOCALAPPDATA = dir;
   }
 
   const fixture = `# Netscape HTTP Cookie File

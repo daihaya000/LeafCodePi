@@ -21,6 +21,7 @@ import {
 } from "./typesafe";
 
 const previousAppData = process.env.APPDATA;
+const previousLocalAppData = process.env.LOCALAPPDATA;
 const dirs: string[] = [];
 
 afterEach(() => {
@@ -31,6 +32,8 @@ afterEach(() => {
   delete process.env.PI_CODING_AGENT_DIR;
   if (previousAppData === undefined) delete process.env.APPDATA;
   else process.env.APPDATA = previousAppData;
+  if (previousLocalAppData === undefined) delete process.env.LOCALAPPDATA;
+  else process.env.LOCALAPPDATA = previousLocalAppData;
   undiciFetch.mockReset();
 });
 
@@ -53,6 +56,8 @@ function isolateCookieConfigDir(): void {
   const dir = mkdtempSync(join(tmpdir(), "leafcode-typesafe-cookiecfg-"));
   dirs.push(dir);
   process.env.APPDATA = dir;
+  // Chromium fallback が実ブラウザのDPAPI cookie DBを走査しないよう隔離する。
+  process.env.LOCALAPPDATA = dir;
 }
 
 describe("typesafe usage totals", () => {

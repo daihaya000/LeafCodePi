@@ -31,6 +31,7 @@ function request(body: unknown): NextRequest {
 const validCookies = `# Netscape HTTP Cookie File
 console.typesafe.ai\tFALSE\t/\tTRUE\t4102444800\tsession_id\ttok-123
 console.typesafe.ai\tFALSE\t/\tTRUE\t4102444800\torganization_id\torg_abc
+.other.example\tTRUE\t/\tTRUE\t4102444800\tthird_party_auth\tunrelated-secret
 `;
 
 describe("/api/typesafe-cookie", () => {
@@ -41,7 +42,11 @@ describe("/api/typesafe-cookie", () => {
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ ok: true, configured: true });
     expect(existsSync(defaultTypesafeCookiePath())).toBe(true);
-    expect(readFileSync(defaultTypesafeCookiePath(), "utf8")).toContain("session_id\ttok-123");
+    const stored = readFileSync(defaultTypesafeCookiePath(), "utf8");
+    expect(stored).toContain("session_id\ttok-123");
+    expect(stored).toContain("organization_id\torg_abc");
+    expect(stored).not.toContain("other.example");
+    expect(stored).not.toContain("unrelated-secret");
     expect(JSON.stringify(await GET().json())).not.toContain("tok-123");
     expect(await GET().json()).toEqual({ configured: true });
   });
