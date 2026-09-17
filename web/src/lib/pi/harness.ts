@@ -113,6 +113,7 @@ import {
   registerOllamaCloudProvider,
   syncOllamaCloudProvider,
 } from "@/lib/pi/ollama-cloud-provider";
+import { registerTypeSafeProvider } from "@/lib/pi/typesafe-provider";
 import {
   effectiveBaseUrl,
   isEditableBaseUrlProvider,
@@ -797,6 +798,7 @@ async function ensureOptionalProviders(
     registerCommandCodeProvider(runtime, scope),
     registerOllamaCloudProvider(runtime),
     registerRemoteProvider(runtime),
+    registerTypeSafeProvider(runtime),
   ]).then(() => undefined);
   promises.set(runtime, promise);
   try {

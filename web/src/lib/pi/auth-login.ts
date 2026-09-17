@@ -242,6 +242,7 @@ export const HIGHLIGHTED_API_PROVIDER_IDS = new Set([
   "commandcode",
   "opencode",
   "opencode-go",
+  "typesafe",
 ]);
 
 export function isHighlightedProvider(providerId: string): boolean {

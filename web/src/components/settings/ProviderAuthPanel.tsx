@@ -1878,8 +1878,9 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
           <p className="mt-2">
             Claude Pro/Max（Anthropic）、ChatGPT Plus/Pro（OpenAI
             Codex）、Cursor、OpenCode、Command Code（Go プラン可）、および Ollama
-            Cloud / OpenRouter に対応しています。マルチアカウント対応プロバイダーは
-            アカウントごとに管理します。共有プロバイダーでは環境変数または
+            Cloud / OpenRouter に対応しています。TypeSafe は System One API の
+            API キーを登録できます（チャットモデルとしてはモデル一覧に出ません）。
+            マルチアカウント対応プロバイダーはアカウントごとに管理します。共有プロバイダーでは環境変数または
             ~/.pi/agent/auth.json を引き続き使えます。Command Code は{" "}
             <span className="font-mono">COMMANDCODE_API_KEY</span> /{" "}
             <span className="font-mono">~/.commandcode/auth.json</span>、Ollama
