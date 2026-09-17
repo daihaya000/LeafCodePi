@@ -8,6 +8,7 @@ import { AutoModelSettings } from "@/components/settings/AutoModelSettings";
 import { GenerationModelSettings } from "@/components/settings/GenerationModelSettings";
 import { LlamaServerSettings } from "@/components/settings/LlamaServerSettings";
 import { HostRestartPanel } from "@/components/settings/HostRestartPanel";
+import { ProfileSettings } from "@/components/settings/ProfileSettings";
 import { AgentsMdSettings } from "@/components/settings/AgentsMdSettings";
 import { SoulMdSettings } from "@/components/settings/SoulMdSettings";
 import { UserMdSettings } from "@/components/settings/UserMdSettings";
@@ -297,6 +298,7 @@ export function SettingsView() {
                     {error && <p role="alert" className="mt-3 text-sm text-danger">{error}</p>}
                   </div>
                   <HostRestartPanel onRestarted={reload} />
+                  <ProfileSettings />
                 </div>
               </SettingsGroup>
 

@@ -1,0 +1,72 @@
+import { gzipSync } from "node:zlib";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, describe, expect, it } from "vitest";
+import { exportProfile, importProfile } from "@/lib/profile";
+
+const roots: string[] = [];
+
+function directory(): string {
+  const root = mkdtempSync(join(tmpdir(), "leafcode-profile-"));
+  roots.push(root);
+  return root;
+}
+
+afterEach(() => {
+  while (roots.length) rmSync(roots.pop()!, { recursive: true, force: true });
+});
+
+describe("profile", () => {
+  it("exports and replaces only managed configuration files", () => {
+    const source = directory();
+    const sourceAgent = join(source, "agent");
+    const sourceData = join(source, "data");
+    mkdirSync(join(sourceAgent, "agents"), { recursive: true });
+    mkdirSync(join(sourceData, "settings"), { recursive: true });
+    writeFileSync(join(sourceAgent, "AGENTS.md"), "source instructions", "utf8");
+    writeFileSync(join(sourceAgent, "agents", "reviewer.md"), "reviewer", "utf8");
+    writeFileSync(join(sourceAgent, "auth.json"), '{"token":"secret"}', "utf8");
+    writeFileSync(join(sourceData, "web-settings.json"), '{"version":1}', "utf8");
+    writeFileSync(join(sourceData, "settings", "llama-server.json"), '{"value":"configured"}', "utf8");
+    writeFileSync(join(sourceData, "store.json"), '{"projects":[]}', "utf8");
+
+    const exported = exportProfile({ agentDir: sourceAgent, leafcodeDir: sourceData });
+    expect(exported.summary.fileCount).toBe(5);
+
+    const target = directory();
+    const targetAgent = join(target, "agent");
+    const targetData = join(target, "data");
+    mkdirSync(join(targetAgent, "skills"), { recursive: true });
+    mkdirSync(join(targetData, "settings"), { recursive: true });
+    writeFileSync(join(targetAgent, "AGENTS.md"), "old", "utf8");
+    writeFileSync(join(targetAgent, "skills", "old.md"), "old skill", "utf8");
+    writeFileSync(join(targetData, "settings", "old.json"), "old", "utf8");
+    writeFileSync(join(targetData, "store.json"), '{"projects":["keep"]}', "utf8");
+
+    const restored = importProfile(exported.archive, { agentDir: targetAgent, leafcodeDir: targetData });
+    expect(restored).toEqual(exported.summary);
+    expect(readFileSync(join(targetAgent, "AGENTS.md"), "utf8")).toBe("source instructions");
+    expect(readFileSync(join(targetAgent, "agents", "reviewer.md"), "utf8")).toBe("reviewer");
+    expect(existsSync(join(targetAgent, "skills", "old.md"))).toBe(false);
+    expect(readFileSync(join(targetData, "settings", "llama-server.json"), "utf8")).toBe('{"value":"configured"}');
+    expect(existsSync(join(targetData, "settings", "old.json"))).toBe(false);
+    expect(readFileSync(join(targetData, "store.json"), "utf8")).toBe('{"projects":["keep"]}');
+  });
+
+  it("rejects files outside the profile-managed roots before changing settings", () => {
+    const target = directory();
+    const targetAgent = join(target, "agent");
+    mkdirSync(targetAgent, { recursive: true });
+    writeFileSync(join(targetAgent, "AGENTS.md"), "unchanged", "utf8");
+    const archive = gzipSync(Buffer.from(JSON.stringify({
+      format: "leafcode-pi-profile",
+      version: 1,
+      createdAt: "2026-01-01T00:00:00.000Z",
+      files: { "agent/../outside": Buffer.from("bad").toString("base64") },
+    })));
+
+    expect(() => importProfile(archive, { agentDir: targetAgent, leafcodeDir: join(target, "data") })).toThrow("許可されないパス");
+    expect(readFileSync(join(targetAgent, "AGENTS.md"), "utf8")).toBe("unchanged");
+  });
+});
