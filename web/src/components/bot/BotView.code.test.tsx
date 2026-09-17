@@ -13,8 +13,9 @@ vi.mock("next/image", () => ({ default: () => null }));
 import { BotView } from "./BotView";
 import { BOT_AVATAR_SHAPES } from "@/lib/bot-avatar";
 import { toolNameLabel } from "@/lib/tool-labels";
-import { BOT_CODE_SESSION_CHANGED_EVENT, BOT_DEFAULT_DISABLED_TOOL_NAMES, BOT_TOOL_NAMES } from "@/lib/types";
+import { BOT_CODE_SESSION_CHANGED_EVENT, BOT_DEFAULT_DISABLED_TOOL_NAMES, BOT_TOOL_NAMES, type TaskSummary } from "@/lib/types";
 import { ShellProvider } from "@/components/shell/ShellContext";
+import { saveTaskSessionCache } from "@/lib/task-session-cache";
 import { writeTaskTtsEnabled } from "@/lib/tts-playback";
 let listener: (event: { data: string }) => void;
 let deltaListener: (event: { data: string }) => void;
@@ -54,6 +55,43 @@ beforeEach(() => {
   });
 });
 afterEach(() => { cleanup(); localStorage.clear(); vi.unstubAllGlobals(); vi.clearAllMocks(); vi.useRealTimers(); });
+
+it("restores the cached Bot transcript and sends its revision to SSE", async () => {
+  const task: TaskSummary = {
+    id: "bot:one",
+    kind: "bot",
+    botId: "one",
+    projectId: null,
+    projectName: "Bots",
+    title: "Bot",
+    directory: "C:/bots/one/workspace",
+    isolation: "current_folder",
+    status: "idle",
+    sessionId: "session-1",
+    sessionFile: null,
+    createdAt: "2026-09-17T00:00:00.000Z",
+    updatedAt: "revision-1",
+  };
+  saveTaskSessionCache({
+    task,
+    messages: [{ id: "cached", role: "assistant", createdAt: 1, parts: [{ id: "cached-text", type: "text", text: "キャッシュ済み" }] }],
+    messageHistory: { hasMore: false, nextCursor: null },
+    isStreaming: false,
+    isCompacting: false,
+  });
+  let sourceUrl = "";
+  vi.stubGlobal("EventSource", class {
+    constructor(url: string) { sourceUrl = url; }
+    addEventListener() {}
+    close() {}
+  });
+
+  render(<ShellProvider><BotView id="one" /></ShellProvider>);
+
+  expect(await screen.findByText("キャッシュ済み")).toBeTruthy();
+  expect(sourceUrl).toContain("cachedTaskUpdatedAt=revision-1");
+  expect(sourceUrl).toContain("cachedSessionId=session-1");
+});
 
 it("notifies a hidden tab once per finished reply, and stays silent when the Bot's toggle is off", async () => {
   const sent: string[] = [];

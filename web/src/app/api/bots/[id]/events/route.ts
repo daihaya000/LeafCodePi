@@ -25,8 +25,14 @@ export const dynamic = "force-dynamic";
 /** Bound ready-path session opens so a hung ensureLive cannot block Bot SSE forever. */
 const BOT_SSE_DETAIL_TIMEOUT_MS = 30_000;
 
-function getTaskDetailForBotReady(taskId: string): Promise<Awaited<ReturnType<typeof getTaskDetail>>> {
-  return getTaskDetailBounded(taskId, { timeoutMs: BOT_SSE_DETAIL_TIMEOUT_MS });
+function getTaskDetailForBotReady(
+  taskId: string,
+  options?: Parameters<typeof getTaskDetail>[1],
+): Promise<Awaited<ReturnType<typeof getTaskDetail>>> {
+  return getTaskDetailBounded(taskId, {
+    ...options,
+    timeoutMs: BOT_SSE_DETAIL_TIMEOUT_MS,
+  });
 }
 
 export async function GET(
@@ -34,6 +40,8 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> },
 ) {
   const taskId = botTaskId((await params).id);
+  const cachedTaskUpdatedAt = req.nextUrl.searchParams.get("cachedTaskUpdatedAt");
+  const cachedSessionId = req.nextUrl.searchParams.get("cachedSessionId");
   let sse: ReturnType<typeof createSseWriter> | undefined;
   const stream = new ReadableStream({
     start(controller) {
@@ -68,49 +76,96 @@ export async function GET(
           intercomInbox: getBotIntercomInbox(botId),
           eventType: "bootstrap",
         });
+        const hasCacheCandidate = Boolean(cachedTaskUpdatedAt && cachedSessionId);
+        const matchesCachedRevision = (candidate: Awaited<ReturnType<typeof getTaskDetail>>) => Boolean(
+          cachedTaskUpdatedAt &&
+            cachedSessionId &&
+            cachedTaskUpdatedAt === candidate.updatedAt &&
+            cachedSessionId === candidate.sessionId &&
+            candidate.status !== "working" &&
+            !candidate.isStreaming &&
+            !candidate.isCompacting,
+        );
+        // An unchanged idle cache already contains the transcript. Release the
+        // client before cold Pi setup finishes; the ready snapshot still verifies
+        // the revision and supplies the latest controls.
+        const canSendCachedReady = Boolean(
+          hasCacheCandidate &&
+            pendingPayloads.length === 0 &&
+            matchesCachedRevision(bootstrap),
+        );
+        if (canSendCachedReady) {
+          sse.send("snapshot", {
+            type: "snapshot",
+            task: bootstrap,
+            messagesReused: true,
+            isStreaming: bootstrap.isStreaming,
+            isCompacting: false,
+            permissionRequest: pendingPermissionForTask(taskId),
+            questionRequest: pendingQuestionForTask(taskId),
+            intercomInbox: getBotIntercomInbox(botId),
+            eventType: "cache_ready",
+          });
+        }
         const flushReady = (
           detail: Awaited<ReturnType<typeof getTaskDetail>>,
           extra?: { error?: string },
+          reuseMessages = false,
         ) => {
           const writer = sse;
           if (!writer || writer.closed) return;
-          const page = pageTaskMessages(detail.messages);
+          const page = reuseMessages ? null : pageTaskMessages(detail.messages);
           writer.send("snapshot", {
             type: "snapshot",
             task: { ...detail, messages: undefined },
-            messages: page.messages,
-            messageHistory: page.messageHistory,
+            ...(reuseMessages
+              ? { messagesReused: true }
+              : { messages: page!.messages, messageHistory: page!.messageHistory }),
             isStreaming: detail.isStreaming,
+            isCompacting: detail.isCompacting,
             permissionRequest: pendingPermissionForTask(taskId),
             questionRequest: pendingQuestionForTask(taskId),
             intercomInbox: getBotIntercomInbox(botId),
             eventType: "ready",
+            ...(hasCacheCandidate && !reuseMessages ? { historyReset: true } : {}),
             ...(extra?.error ? { error: extra.error } : {}),
           });
           ready = true;
-          const readyRank = rankMessageList(page.messages);
-          for (const payload of pendingPayloads) {
-            if (writer.closed) break;
-            const prepared = preparePendingPayloadForReadyFlush(payload, readyRank);
-            if (!prepared) continue;
-            writer.send(prepared.type === "delta" ? "delta" : "snapshot", prepared);
+          if (pendingPayloads.length > 0) {
+            const readyRank = rankMessageList(page?.messages ?? detail.messages);
+            for (const payload of pendingPayloads) {
+              if (writer.closed) break;
+              const prepared = preparePendingPayloadForReadyFlush(payload, readyRank);
+              if (!prepared) continue;
+              writer.send(prepared.type === "delta" ? "delta" : "snapshot", prepared);
+            }
           }
           pendingPayloads.length = 0;
         };
         // Live ensureLive can fail (unavailable model, etc.). Keep the transcript
         // visible via offline ready instead of closing the stream empty.
-        void getTaskDetailForBotReady(taskId)
-          .then((detail) => flushReady(detail))
-          .catch(async (error) => {
-            const message = error instanceof Error ? error.message : String(error);
-            try {
-              const offline = await getTaskDetail(taskId, { offline: true });
-              flushReady(offline, { error: message });
-            } catch {
-              sse?.send("error", { error: message });
-              sse?.close();
-            }
-          });
+        const loadReadyDetail = async () => {
+          let detail = await getTaskDetailForBotReady(
+            taskId,
+            hasCacheCandidate ? { includeMessages: false } : undefined,
+          );
+          const reuseMessages = hasCacheCandidate && pendingPayloads.length === 0 && matchesCachedRevision(detail);
+          if (hasCacheCandidate && !reuseMessages) {
+            // A stale cache or buffered event needs the full transcript for correctness.
+            detail = await getTaskDetailForBotReady(taskId);
+          }
+          flushReady(detail, undefined, reuseMessages);
+        };
+        void loadReadyDetail().catch(async (error) => {
+          const message = error instanceof Error ? error.message : String(error);
+          try {
+            const offline = await getTaskDetail(taskId, { offline: true });
+            flushReady(offline, { error: message });
+          } catch {
+            sse?.send("error", { error: message });
+            sse?.close();
+          }
+        });
       } catch (error) {
         sse.send("error", { error: error instanceof Error ? error.message : String(error) });
         sse.close();

@@ -33,6 +33,7 @@ import { markRead } from "@/lib/bot-unread";
 import { decideNotification } from "@/lib/notify";
 import { cancelPendingSseReconnect, closeSseSource, sseReconnectDelayMs } from "@/lib/sse-reconnect";
 import { messageRenderKey, stabilizeUiMessages, upsertUiMessage } from "@/lib/stabilize-messages";
+import { loadTaskSessionCache, saveTaskSessionCache, type TaskSessionCacheSnapshot } from "@/lib/task-session-cache";
 import {
   EMPTY_TASK_MESSAGE_HISTORY,
   isInvalidTaskMessageCursorError,
@@ -43,7 +44,7 @@ import {
 import { readTaskTtsEnabled, speakText, stopSpeaking, subscribeTaskTtsEnabled, writeTaskTtsEnabled } from "@/lib/tts-playback";
 import { detectTtsBackend, getTtsBackend, type TtsVoiceOption, type TtsVoicesDto } from "@/lib/tts-backends";
 import type { TtsConfigDto } from "@/lib/tts-config";
-import { BOT_CODE_SESSION_CHANGED_EVENT, BOT_DEFAULT_TOOL_NAMES, BOT_TOOL_NAMES, type BotDto, type BotIntercomInboxDto, type BotToolName, type ModelOption, type PermissionRequestDto, type QuestionRequestDto, type RoutineDto, type TaskMessageHistory, type TaskMessagePage, type ThinkingLevel, type UiMessage, type UiPart } from "@/lib/types";
+import { BOT_CODE_SESSION_CHANGED_EVENT, BOT_DEFAULT_TOOL_NAMES, BOT_TOOL_NAMES, type BotDto, type BotIntercomInboxDto, type BotToolName, type ModelOption, type PermissionRequestDto, type QuestionRequestDto, type RoutineDto, type TaskMessageHistory, type TaskMessagePage, type TaskSummary, type ThinkingLevel, type UiMessage, type UiPart } from "@/lib/types";
 
 type BotMessageDisplayData = {
   text: string;
@@ -110,6 +111,7 @@ function BotToolActivityGroup({ messages, bot, botId, active }: { messages: UiMe
 
 const EMPTY_INTERCOM_INBOX: BotIntercomInboxDto = { messages: [], unreadCount: 0, preview: null, pendingAsks: [] };
 const BOT_AUTO_SAVE_DELAY_MS = 600;
+const BOT_SESSION_CACHE_THROTTLE_MS = 1_000;
 const BOT_SETTINGS_OPEN_KEY_PREFIX = "webui:bot-settings-open:";
 const BOT_SETTINGS_WIDTH_KEY = "webui:bot-settings-width";
 const BOT_SETTINGS_MIN_WIDTH = 280;
@@ -156,6 +158,8 @@ function saveBotSettingsOpen(id: string, open: boolean): void {
 }
 
 export const BotView = memo(function BotView({ id, active = true }: { id: string; active?: boolean }) {
+  const taskId = `bot:${id}`;
+  const cachedSession = useMemo(() => loadTaskSessionCache(taskId), [taskId]);
   const [bot, setBot] = useState<BotDto | null>(null);
   const [models, setModels] = useState<ModelOption[]>([]);
   const [modelsLoading, setModelsLoading] = useState(true);
@@ -164,8 +168,10 @@ export const BotView = memo(function BotView({ id, active = true }: { id: string
   const [attentionBusy, setAttentionBusy] = useState<string | null>(null);
   const clearedPermissionIdsRef = useRef(new Set<string>());
   const clearedQuestionIdsRef = useRef(new Set<string>());
-  const [messages, setMessages] = useState<UiMessage[]>([]);
-  const [messageHistory, setMessageHistory] = useState<TaskMessageHistory>(EMPTY_TASK_MESSAGE_HISTORY);
+  const [messages, setMessages] = useState<UiMessage[]>(() => cachedSession?.messages ?? []);
+  const [messageHistory, setMessageHistory] = useState<TaskMessageHistory>(
+    () => cachedSession?.messageHistory ?? EMPTY_TASK_MESSAGE_HISTORY,
+  );
   const messageHistoryRef = useRef(messageHistory);
   const messagesRef = useRef(messages);
   messagesRef.current = messages;
@@ -198,7 +204,10 @@ export const BotView = memo(function BotView({ id, active = true }: { id: string
   const [settingsWidth, setSettingsWidth] = useState(() => readBotSettingsWidth());
   const [codePanelOpen, setCodePanelOpen] = useState(false);
   const settingsOpenRef = useRef(false);
-  const [sending, setSending] = useState(false);
+  const [sending, setSending] = useState(() => cachedSession?.isStreaming ?? false);
+  const cacheTaskRef = useRef<TaskSummary | null>(cachedSession);
+  const cacheSnapshotsRef = useRef(new Map<string, TaskSessionCacheSnapshot>());
+  const cacheTimersRef = useRef(new Map<string, ReturnType<typeof setTimeout>>());
   const botFor = useBotFor();
   const codeSessionActive = (botFor(id)?.codeSessionCount ?? 0) > 0;
   const reportStatus = useReportStatus();
@@ -239,6 +248,54 @@ export const BotView = memo(function BotView({ id, active = true }: { id: string
     setBot(next);
     notifyBotSidebarChanged();
   };
+
+  const cacheSnapshot = cacheTaskRef.current?.id === taskId
+    ? {
+        task: cacheTaskRef.current,
+        messages,
+        messageHistory,
+        isStreaming: sending,
+        isCompacting: false,
+      } satisfies TaskSessionCacheSnapshot
+    : null;
+  if (cacheSnapshot) cacheSnapshotsRef.current.set(taskId, cacheSnapshot);
+
+  useEffect(() => {
+    if (!cacheSnapshot || cacheTimersRef.current.has(taskId)) return;
+    const timer = setTimeout(() => {
+      cacheTimersRef.current.delete(taskId);
+      const latest = cacheSnapshotsRef.current.get(taskId);
+      if (latest) saveTaskSessionCache(latest);
+    }, BOT_SESSION_CACHE_THROTTLE_MS);
+    cacheTimersRef.current.set(taskId, timer);
+  }, [cacheSnapshot, messageHistory, messages, sending, taskId]);
+
+  useEffect(() => {
+    const snapshots = cacheSnapshotsRef.current;
+    const timers = cacheTimersRef.current;
+    const flush = () => {
+      const timer = timers.get(taskId);
+      if (timer !== undefined) {
+        clearTimeout(timer);
+        timers.delete(taskId);
+      }
+      const latest = snapshots.get(taskId);
+      if (latest) saveTaskSessionCache(latest);
+    };
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "hidden") flush();
+    };
+    window.addEventListener("pagehide", flush);
+    window.addEventListener("beforeunload", flush);
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => {
+      window.removeEventListener("pagehide", flush);
+      window.removeEventListener("beforeunload", flush);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+      flush();
+      snapshots.delete(taskId);
+    };
+  }, [taskId]);
 
   const loadOlderMessages = useCallback(async () => {
     if (historyLoadingRef.current) return;
@@ -373,20 +430,23 @@ export const BotView = memo(function BotView({ id, active = true }: { id: string
   }), [id]);
   // Drop the previous bot's transcript/overlays immediately; SSE will refill for the new id.
   useEffect(() => {
-    setMessages([]);
-    messageHistoryRef.current = EMPTY_TASK_MESSAGE_HISTORY;
-    setMessageHistory(EMPTY_TASK_MESSAGE_HISTORY);
+    const cached = cachedSession;
+    cacheTaskRef.current = cached;
+    const cachedHistory = cached?.messageHistory ?? EMPTY_TASK_MESSAGE_HISTORY;
+    setMessages(cached?.messages ?? []);
+    messageHistoryRef.current = cachedHistory;
+    setMessageHistory(cachedHistory);
     historyLoadedRef.current = false;
     historyLoadingRef.current = false;
     historyRequestEpochRef.current += 1;
     setHistoryLoading(false);
     setHistoryError(null);
+    setSending(cached?.isStreaming ?? false);
     setPermission(null);
     setQuestion(null);
     setAttentionBusy(null);
     clearedPermissionIdsRef.current.clear();
     clearedQuestionIdsRef.current.clear();
-    setSending(false);
     setError(null);
     setPrompt("");
     setAttachments([]);
@@ -395,7 +455,7 @@ export const BotView = memo(function BotView({ id, active = true }: { id: string
     setIntercomEnabled(false);
     setIntercomScopeId("");
     setIntercomFanoutEnabled(false);
-  }, [id]);
+  }, [cachedSession, id]);
   const updateSettingsOpen = (open: boolean) => {
     settingsOpenRef.current = open;
     setSettingsOpen(open);
@@ -516,7 +576,12 @@ export const BotView = memo(function BotView({ id, active = true }: { id: string
       if (closed) return;
       retry = cancelPendingSseReconnect(retry);
       source = closeSseSource(source);
-      const nextSource = new EventSource(`/api/bots/${encodeURIComponent(id)}/events?epoch=${Date.now()}`);
+      const eventParams = new URLSearchParams({ epoch: String(Date.now()) });
+      if (cachedSession?.updatedAt && cachedSession.sessionId && cachedSession.status !== "working" && !cachedSession.isStreaming && !cachedSession.isCompacting) {
+        eventParams.set("cachedTaskUpdatedAt", cachedSession.updatedAt);
+        eventParams.set("cachedSessionId", cachedSession.sessionId);
+      }
+      const nextSource = new EventSource(`/api/bots/${encodeURIComponent(id)}/events?${eventParams.toString()}`);
       source = nextSource;
       const isCurrentSource = () => !closed && source === nextSource;
       nextSource.addEventListener("snapshot", (event) => {
@@ -524,11 +589,13 @@ export const BotView = memo(function BotView({ id, active = true }: { id: string
         retryCount = 0;
         try {
           const payload = JSON.parse((event as MessageEvent).data) as {
-            task?: { status?: string };
+            task?: TaskSummary;
             messages?: UiMessage[];
             messageHistory?: TaskMessageHistory;
+            messagesReused?: boolean;
             historyReset?: boolean;
             isStreaming?: boolean;
+            isCompacting?: boolean;
             error?: string;
             permissionRequest?: PermissionRequestDto | null;
             questionRequest?: QuestionRequestDto | null;
@@ -537,6 +604,10 @@ export const BotView = memo(function BotView({ id, active = true }: { id: string
             codeRequestId?: string;
           };
           if (payload.eventType === BOT_CODE_SESSION_CHANGED_EVENT) notifyBotSidebarChanged(payload.codeRequestId);
+          if (payload.task) cacheTaskRef.current = payload.task;
+          if (payload.eventType === "cache_ready" && payload.messagesReused && cachedSession?.messages.length) {
+            historyLoadedRef.current = Boolean(cachedSession.messageHistory?.hasMore);
+          }
           const resetHistory =
             payload.historyReset === true ||
             payload.eventType === "revert" ||
@@ -552,18 +623,22 @@ export const BotView = memo(function BotView({ id, active = true }: { id: string
             setHistoryError(null);
             setMessages(() => stabilizeUiMessages([], payload.messages ?? []));
           } else if (payload.messages) {
-            if (!payload.messageHistory || historyLoadedRef.current) {
-              const remapped = remapTaskMessageCursor(
-                messageHistoryRef.current,
-                messagesRef.current,
-                payload.messages,
-              );
-              if (remapped !== messageHistoryRef.current) {
-                messageHistoryRef.current = remapped;
-                setMessageHistory(remapped);
+            if (payload.eventType === "ready" && !payload.messagesReused && !historyLoadedRef.current) {
+              setMessages(() => stabilizeUiMessages([], payload.messages!));
+            } else {
+              if (!payload.messageHistory || historyLoadedRef.current) {
+                const remapped = remapTaskMessageCursor(
+                  messageHistoryRef.current,
+                  messagesRef.current,
+                  payload.messages,
+                );
+                if (remapped !== messageHistoryRef.current) {
+                  messageHistoryRef.current = remapped;
+                  setMessageHistory(remapped);
+                }
               }
+              setMessages((current) => mergeNewerTaskMessages(current, payload.messages!));
             }
-            setMessages((current) => mergeNewerTaskMessages(current, payload.messages!));
           }
           if (payload.messageHistory && (!historyLoadedRef.current || resetHistory)) {
             messageHistoryRef.current = payload.messageHistory;
@@ -658,7 +733,7 @@ export const BotView = memo(function BotView({ id, active = true }: { id: string
       retry = cancelPendingSseReconnect(retry);
       source = closeSseSource(source);
     };
-  }, [id, sseEpoch]);
+  }, [cachedSession, id, sseEpoch]);
 
   const selectedModel = useMemo(
     () => modelOptionForValue(models, bot?.model) ?? models[0],

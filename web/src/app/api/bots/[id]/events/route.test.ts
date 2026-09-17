@@ -101,6 +101,63 @@ describe("GET /api/bots/[id]/events", () => {
     expect(mocks.lastTaskId).toBe("bot:one");
   });
 
+  it("reuses a matching idle cache before the full detail projection finishes", async () => {
+    const bootstrap = {
+      id: "bot:one",
+      status: "idle",
+      updatedAt: "revision-1",
+      sessionId: "session-1",
+      messages: [],
+      isStreaming: false,
+      isCompacting: false,
+    };
+    mocks.getTaskBootstrap.mockReturnValue(bootstrap);
+    mocks.getTaskDetail.mockResolvedValue({
+      ...bootstrap,
+      messages: [message("cached", "キャッシュ済み")],
+    });
+
+    const response = await GET(
+      new NextRequest("http://localhost/api/bots/one/events?cachedTaskUpdatedAt=revision-1&cachedSessionId=session-1"),
+      params,
+    );
+    const events = await readEvents(response, 3);
+
+    expect(events.map((event) => event.data.eventType)).toEqual(["bootstrap", "cache_ready", "ready"]);
+    expect(events[1]?.data.messagesReused).toBe(true);
+    expect(events[2]?.data.messagesReused).toBe(true);
+    expect(events[2]?.data.messages).toBeUndefined();
+    expect(mocks.getTaskDetail).toHaveBeenCalledWith("bot:one", { includeMessages: false });
+  });
+
+  it("refreshes a stale cache with a full ready page", async () => {
+    const bootstrap = {
+      id: "bot:one",
+      status: "idle",
+      updatedAt: "revision-2",
+      sessionId: "session-2",
+      messages: [],
+      isStreaming: false,
+      isCompacting: false,
+    };
+    mocks.getTaskBootstrap.mockReturnValue(bootstrap);
+    mocks.getTaskDetail
+      .mockResolvedValueOnce({ ...bootstrap, messages: [] })
+      .mockResolvedValueOnce({ ...bootstrap, messages: [message("latest", "最新履歴")] });
+
+    const response = await GET(
+      new NextRequest("http://localhost/api/bots/one/events?cachedTaskUpdatedAt=revision-1&cachedSessionId=session-1"),
+      params,
+    );
+    const events = await readEvents(response);
+
+    expect(events.map((event) => event.data.eventType)).toEqual(["bootstrap", "ready"]);
+    expect(events[1]?.data.historyReset).toBe(true);
+    expect((events[1]?.data.messages as UiMessage[]).map((item) => item.id)).toEqual(["latest"]);
+    expect(mocks.getTaskDetail).toHaveBeenNthCalledWith(1, "bot:one", { includeMessages: false });
+    expect(mocks.getTaskDetail).toHaveBeenNthCalledWith(2, "bot:one");
+  });
+
   it("buffers a rewind event until the ready page is sent", async () => {
     mocks.getTaskBootstrap.mockReturnValue({ id: "bot:one", status: "idle", messages: [], isStreaming: false });
     let resolveDetail!: (value: unknown) => void;
