@@ -3,6 +3,7 @@ import {
   ORCAROUTER_API_KEY_ENV,
   ORCAROUTER_BASE_URL,
   ORCAROUTER_PROVIDER_ID,
+  fetchOrcaRouterModelRows,
   isOrcaRouterReasoningModel,
   parseOrcaRouterModelRows,
   registerOrcaRouterProvider,
@@ -60,11 +61,41 @@ describe("orcarouter-provider", () => {
     expect(isOrcaRouterReasoningModel("openai/gpt-4o-mini")).toBe(false);
   });
 
+  it("falls back for non-integral model limits below one", () => {
+    const [model] = parseOrcaRouterModelRows({
+      data: [
+        {
+          id: "orcarouter/auto",
+          supported_endpoint_types: ["openai"],
+          context_length: 0.5,
+          max_completion_tokens: 0.5,
+          top_provider: {
+            context_length: 64_000,
+            max_completion_tokens: 4_096,
+          },
+        },
+      ],
+    });
+
+    expect(model).toMatchObject({
+      contextWindow: 64_000,
+      maxTokens: 4_096,
+    });
+  });
+
   it("registers API-key auth and uses stored account keys for discovery", async () => {
     const fetch = vi.fn(async () =>
-      new Response(JSON.stringify({ data: [{ id: "openai/gpt-4o-mini" }] }), {
-        status: 200,
-      }),
+      new Response(
+        JSON.stringify({
+          data: [
+            {
+              id: "openai/gpt-4o-mini",
+              supported_endpoint_types: ["openai"],
+            },
+          ],
+        }),
+        { status: 200 },
+      ),
     );
     vi.stubGlobal("fetch", fetch);
     const registerProvider = vi.fn();
@@ -87,11 +118,20 @@ describe("orcarouter-provider", () => {
     const config = registerProvider.mock.calls[0][1] as {
       refreshModels: (context: unknown) => Promise<unknown>;
     };
+    const publish = vi.fn(async () => true);
     await config.refreshModels({
       allowNetwork: true,
       signal: new AbortController().signal,
       credential: { type: "api_key", key: "stored-key" },
+      publish,
     });
+    expect(publish).toHaveBeenCalledWith(
+      expect.objectContaining({
+        persist: {
+          models: [expect.objectContaining({ provider: ORCAROUTER_PROVIDER_ID })],
+        },
+      }),
+    );
     expect(fetch).toHaveBeenCalledWith(
       `${ORCAROUTER_BASE_URL}/models`,
       expect.objectContaining({
@@ -100,6 +140,17 @@ describe("orcarouter-provider", () => {
           Accept: "application/json",
         },
       }),
+    );
+  });
+
+  it("rejects an empty live catalog so the previous catalog is retained", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(JSON.stringify({ data: [] }), { status: 200 })),
+    );
+
+    await expect(fetchOrcaRouterModelRows("stored-key")).rejects.toThrow(
+      "利用可能なモデルがありません",
     );
   });
 

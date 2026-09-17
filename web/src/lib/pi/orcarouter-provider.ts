@@ -49,11 +49,16 @@ type ModelRow = {
   };
 };
 
+type StoredModelRow = ModelRow & { provider: typeof ORCAROUTER_PROVIDER_ID };
+
 type RefreshModelsContext = {
   allowNetwork: boolean;
   signal: AbortSignal;
   credential?: { type?: string; key?: string };
-  stored?: { models?: unknown[] };
+  stored?: { models?: readonly unknown[] };
+  publish?: (publication: {
+    persist?: { models: readonly StoredModelRow[] };
+  }) => Promise<boolean>;
 };
 
 type RuntimeLike = {
@@ -79,7 +84,8 @@ function positiveNumber(value: unknown, fallback: number): number {
 }
 
 function positiveInteger(value: unknown, fallback: number): number {
-  return Math.floor(positiveNumber(value, fallback));
+  const number = positiveNumber(value, fallback);
+  return number >= 1 ? Math.floor(number) : fallback;
 }
 
 function modelObject(value: unknown): RawModel | null {
@@ -203,12 +209,12 @@ function modelRow(model: RawModel, baseUrl: string): ModelRow | null {
   const id = model.id.trim();
   const topProvider = isRecord(model.top_provider) ? model.top_provider : null;
   const contextWindow = positiveInteger(
-    model.context_length ?? topProvider?.context_length,
-    DEFAULT_CONTEXT_WINDOW,
+    model.context_length,
+    positiveInteger(topProvider?.context_length, DEFAULT_CONTEXT_WINDOW),
   );
   const maxTokens = positiveInteger(
-    model.max_completion_tokens ?? topProvider?.max_completion_tokens,
-    DEFAULT_MAX_TOKENS,
+    model.max_completion_tokens,
+    positiveInteger(topProvider?.max_completion_tokens, DEFAULT_MAX_TOKENS),
   );
   const reasoning = isOrcaRouterReasoningModel(id);
 
@@ -279,13 +285,18 @@ export async function fetchOrcaRouterModelRows(
       `OrcaRouter のモデル一覧取得に失敗しました (${response.status}): ${snippet}`,
     );
   }
+  let models: ModelRow[];
   try {
-    return parseOrcaRouterModelRows(body ? JSON.parse(body) : null, baseUrl);
+    models = parseOrcaRouterModelRows(body ? JSON.parse(body) : null, baseUrl);
   } catch (error) {
     throw new Error("OrcaRouter のモデル一覧を解析できませんでした", {
       cause: error,
     });
   }
+  if (models.length === 0) {
+    throw new Error("OrcaRouter の利用可能なモデルがありません。");
+  }
+  return models;
 }
 
 function ambientApiKey(scope?: UsageScope): string | undefined {
@@ -314,7 +325,7 @@ export async function registerOrcaRouterProvider(
     refreshModels: async (context: RefreshModelsContext) => {
       if (!context.allowNetwork || context.signal.aborted) {
         return (context.stored?.models ?? []).filter(
-          (model): model is ModelRow =>
+          (model): model is StoredModelRow =>
             isRecord(model) && model.provider === ORCAROUTER_PROVIDER_ID,
         );
       }
@@ -324,7 +335,18 @@ export async function registerOrcaRouterProvider(
           : undefined;
       const apiKey = storedKey || ambientApiKey(scope);
       if (!apiKey) return [];
-      return fetchOrcaRouterModelRows(apiKey, { signal: context.signal });
+      const models = await fetchOrcaRouterModelRows(apiKey, {
+        signal: context.signal,
+      });
+      await context.publish?.({
+        persist: {
+          models: models.map((model) => ({
+            ...model,
+            provider: ORCAROUTER_PROVIDER_ID,
+          })),
+        },
+      });
+      return models;
     },
   });
 
