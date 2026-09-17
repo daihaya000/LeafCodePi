@@ -1880,9 +1880,9 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
             Codex）、Cursor、OpenCode、Command Code（Go プラン可）、および Ollama
             Cloud / OpenRouter に対応しています。TypeSafe は System One API の
             API キーを登録できます（チャットモデルとしてはモデル一覧に出ません）。
-            TypeSafe は残高APIを公開していないため、利用状況にはこのアプリが実行した
-            Jev 呼び出しから積算した推定利用額を表示します（実際の口座残高ではありません）。
-            マルチアカウント対応プロバイダーはアカウントごとに管理します。共有プロバイダーでは環境変数または
+            TypeSafe の実残高は TypeSafe Console（console.typesafe.ai）の cookie を
+            登録すると表示できます。cookie未登録・失効時は Jev 呼び出しから積算した
+            推定利用額を表示します。マルチアカウント対応プロバイダーはアカウントごとに管理します。共有プロバイダーでは環境変数または
             ~/.pi/agent/auth.json を引き続き使えます。Command Code は{" "}
             <span className="font-mono">COMMANDCODE_API_KEY</span> /{" "}
             <span className="font-mono">~/.commandcode/auth.json</span>、Ollama
@@ -1928,6 +1928,19 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
                 }
                 onLogout={() => void logout(provider)}
                 accountControls={renderAccountControls(provider)}
+                cookieControls={
+                  provider.id === "typesafe" ? (
+                    <TypeSafeCookieControl
+                      disabled={Boolean(login)}
+                      onChanged={() => {
+                        onChanged();
+                        void loadCodexBarUsage(true)
+                          .then(setCodexBarUsage)
+                          .catch(() => undefined);
+                      }}
+                    />
+                  ) : undefined
+                }
               />
             );
           })}
@@ -2145,6 +2158,7 @@ function ProviderRow({
   onOAuth,
   onApiKey,
   onLogout,
+  cookieControls,
   accountControls,
   usage,
   resetBusy = false,
@@ -2158,6 +2172,7 @@ function ProviderRow({
   onApiKey?: () => void;
   onLogout?: () => void;
   accountControls?: ReactNode;
+  cookieControls?: ReactNode;
   usage?: CodexBarProvider | null;
   resetBusy?: boolean;
   resetStatus?: string | null;
@@ -2217,6 +2232,7 @@ function ProviderRow({
         />
       )}
       {accountControls}
+      {cookieControls}
       {provider.baseUrl != null && (
         <BaseUrlEditor
           providerId={provider.id}
@@ -2226,5 +2242,185 @@ function ProviderRow({
         />
       )}
     </li>
+  );
+}
+
+/** 共有 TypeSafe プロバイダーの実残高用 Console cookie。本文は一切再表示しない。 */
+function TypeSafeCookieControl({
+  disabled,
+  onChanged,
+}: {
+  disabled: boolean;
+  onChanged: () => void;
+}) {
+  const [configured, setConfigured] = useState<boolean | null>(null);
+  const [editing, setEditing] = useState(false);
+  const [input, setInput] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const refresh = useCallback(async () => {
+    try {
+      const result = await getJson<{ configured?: boolean }>(
+        "/api/typesafe-cookie",
+      );
+      setConfigured(result.configured === true);
+      setError(null);
+    } catch (cause) {
+      setConfigured(null);
+      setError(
+        cause instanceof ApiError
+          ? cause.message
+          : "TypeSafe cookie の状態を確認できません",
+      );
+    }
+  }, []);
+
+  useEffect(() => {
+    void refresh();
+  }, [refresh]);
+
+  async function save() {
+    if (!input.trim() || busy || disabled) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await sendJson("/api/typesafe-cookie", { cookies: input });
+      setInput("");
+      setEditing(false);
+      setConfigured(true);
+      onChanged();
+    } catch (cause) {
+      setError(
+        cause instanceof ApiError ? cause.message : "cookie を保存できません",
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function remove() {
+    if (
+      busy ||
+      disabled ||
+      !window.confirm("TypeSafe Console cookie を削除しますか？")
+    )
+      return;
+    setBusy(true);
+    setError(null);
+    try {
+      await sendJson("/api/typesafe-cookie", {}, "DELETE");
+      setEditing(false);
+      setInput("");
+      setConfigured(false);
+      onChanged();
+    } catch (cause) {
+      setError(
+        cause instanceof ApiError ? cause.message : "cookie を削除できません",
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="mt-2 border-t border-border pt-2">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <p className="text-xs font-semibold text-muted">TypeSafe Console cookie</p>
+          <p className="mt-0.5 text-xs text-muted" role="status">
+            {configured === null
+              ? "cookie の状態を確認中…"
+              : configured
+                ? "実残高を表示できます"
+                : "実残高表示には cookie が必要です"}
+          </p>
+        </div>
+        <div className="flex flex-wrap items-center gap-1">
+          <Badge tone={configured ? "success" : "neutral"}>
+            {configured ? "登録済み" : "未登録"}
+          </Badge>
+          <Button
+            size="sm"
+            variant="ghost"
+            disabled={disabled || busy}
+            onClick={() => {
+              setEditing(true);
+              setInput("");
+              setError(null);
+            }}
+          >
+            {configured ? "更新" : "登録"}
+          </Button>
+          {configured && (
+            <Button
+              size="sm"
+              variant="ghost"
+              disabled={disabled || busy}
+              onClick={() => void remove()}
+            >
+              削除
+            </Button>
+          )}
+        </div>
+      </div>
+      {editing && (
+        <form
+          className="mt-2 flex flex-col gap-2"
+          onSubmit={(event) => {
+            event.preventDefault();
+            void save();
+          }}
+        >
+          <label htmlFor="typesafe-console-cookie" className="text-xs text-muted">
+            Netscape 形式の cookie
+          </label>
+          <textarea
+            id="typesafe-console-cookie"
+            rows={5}
+            value={input}
+            onChange={(event) => setInput(event.target.value)}
+            placeholder="# Netscape HTTP Cookie File"
+            spellCheck={false}
+            autoComplete="off"
+            className="w-full resize-y rounded-xl border border-border bg-surface px-3 py-2 font-mono text-xs outline-none focus:border-accent"
+            aria-describedby="typesafe-console-cookie-help"
+            disabled={busy || disabled}
+            autoFocus
+          />
+          <p id="typesafe-console-cookie-help" className="text-xs text-muted">
+            console.typesafe.ai の session_id と organization_id を含む cookie を貼り付けてください。保存後、本文は画面に表示しません。
+          </p>
+          {error && (
+            <p className="text-xs text-danger" role="alert">
+              {error}
+            </p>
+          )}
+          <div className="flex gap-2">
+            <Button type="submit" size="sm" busy={busy} disabled={disabled || busy || !input.trim()}>
+              保存
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              disabled={busy}
+              onClick={() => {
+                setEditing(false);
+                setInput("");
+                setError(null);
+              }}
+            >
+              キャンセル
+            </Button>
+          </div>
+        </form>
+      )}
+      {!editing && error && (
+        <p className="mt-2 text-xs text-danger" role="alert">
+          {error}
+        </p>
+      )}
+    </div>
   );
 }

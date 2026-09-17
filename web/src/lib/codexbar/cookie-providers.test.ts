@@ -31,6 +31,7 @@ import {
   deleteTypesafeCookieFile,
   extractOpenCodeCookieHeader,
   extractTypesafeConsoleSession,
+  hasTypesafeCookieFile,
   isTypesafeConsoleDomain,
   parseQwenCloudNetscapeText,
   parseTypesafeConsoleNetscapeText,
@@ -290,12 +291,20 @@ console.typesafe.ai	FALSE	/	TRUE	4102444800	organization_id	org_abc
   it("saves/deletes the default cookie file and validates content", () => {
     isolateConfigDir();
     expect(extractTypesafeConsoleSession()).toBeNull();
+    expect(hasTypesafeCookieFile()).toBe(false);
     expect(() => saveTypesafeCookieFile("not a cookie file")).toThrow();
+    expect(() =>
+      saveTypesafeCookieFile(
+        "console.typesafe.ai\tFALSE\t/\tTRUE\t4102444800\tsession_id\ttok-123\n",
+      ),
+    ).toThrow();
     saveTypesafeCookieFile(fixture);
+    expect(hasTypesafeCookieFile()).toBe(true);
     const session = extractTypesafeConsoleSession();
     expect(session).not.toBeNull();
     expect(readTypesafeOrgId(session!)).toBe("org_abc");
     deleteTypesafeCookieFile();
+    expect(hasTypesafeCookieFile()).toBe(false);
     expect(extractTypesafeConsoleSession()).toBeNull();
   });
 });

@@ -419,6 +419,18 @@ export function extractTypesafeConsoleSession(): BrowserCookieSession | null {
   return chromiumSessionFor(isTypesafeConsoleDomain, hasTypesafeSessionCookie);
 }
 
+/** UI で保存した cookie が実残高取得に必要な2項目を満たすか。 */
+export function hasTypesafeCookieFile(): boolean {
+  try {
+    const session = parseTypesafeConsoleNetscapeText(
+      readFileSync(defaultTypesafeCookiePath(), "utf8"),
+    );
+    return session !== null && readTypesafeOrgId(session) !== null;
+  } catch {
+    return false;
+  }
+}
+
 export function saveTypesafeCookieFile(text: string): void {
   if (!text.trim()) {
     throw Object.assign(new Error("cookie を入力してください"), { status: 400 });
@@ -428,10 +440,11 @@ export function saveTypesafeCookieFile(text: string): void {
       status: 400,
     });
   }
-  if (!parseTypesafeConsoleNetscapeText(text)) {
+  const session = parseTypesafeConsoleNetscapeText(text);
+  if (!session || !readTypesafeOrgId(session)) {
     throw Object.assign(
       new Error(
-        "有効な TypeSafe Console（console.typesafe.ai）の session_id cookie が見つかりません",
+        "TypeSafe Console（console.typesafe.ai）の session_id と organization_id cookie が必要です",
       ),
       { status: 400 },
     );

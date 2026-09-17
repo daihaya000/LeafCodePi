@@ -58,6 +58,15 @@ const accounts = [
   },
 ];
 
+const typesafeProvider = {
+  id: "typesafe",
+  name: "TypeSafe",
+  authenticated: false,
+  methods: ["api_key"] as ("api_key" | "oauth")[],
+  oauthAvailable: false,
+  highlighted: true,
+};
+
 const ollamaProvider = {
   id: "ollama-cloud",
   name: "Ollama Cloud",
@@ -228,6 +237,67 @@ describe("ProviderAuthPanel provider-scoped accounts", () => {
     expect(
       fetchMock.mock.calls.some(([input]) => String(input).includes("/api/accounts")),
     ).toBe(false);
+  });
+
+  it("registers and removes the shared TypeSafe Console cookie", async () => {
+    const onChanged = vi.fn();
+    fetchMock.mockImplementation(
+      (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        const method = (init?.method ?? "GET").toUpperCase();
+        if (url.endsWith("/api/typesafe-cookie") && method === "GET") {
+          return Promise.resolve(jsonResponse({ configured: false }));
+        }
+        if (url.endsWith("/api/typesafe-cookie") && method === "POST") {
+          return Promise.resolve(jsonResponse({ ok: true, configured: true }));
+        }
+        if (url.endsWith("/api/typesafe-cookie") && method === "DELETE") {
+          return Promise.resolve(jsonResponse({ ok: true, configured: false }));
+        }
+        return Promise.resolve(jsonResponse({}));
+      },
+    );
+    confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+    render(<ProviderAuthPanel providers={[typesafeProvider]} onChanged={onChanged} />);
+
+    const card = screen.getByText("TypeSafe Console cookie").closest("li")!;
+    expect(await within(card).findByText("実残高表示には cookie が必要です")).toBeTruthy();
+    fireEvent.click(within(card).getByRole("button", { name: "登録" }));
+    fireEvent.change(within(card).getByLabelText("Netscape 形式の cookie"), {
+      target: {
+        value:
+          "console.typesafe.ai\tFALSE\t/\tTRUE\t4102444800\tsession_id\ttok\n" +
+          "console.typesafe.ai\tFALSE\t/\tTRUE\t4102444800\torganization_id\torg_1\n",
+      },
+    });
+    fireEvent.click(within(card).getByRole("button", { name: "保存" }));
+
+    await waitFor(() => {
+      const save = fetchMock.mock.calls.find(
+        ([input, init]) =>
+          String(input).endsWith("/api/typesafe-cookie") &&
+          init?.method === "POST",
+      );
+      expect(save).toBeTruthy();
+      expect(JSON.parse(String(save?.[1]?.body))).toEqual({
+        cookies:
+          "console.typesafe.ai\tFALSE\t/\tTRUE\t4102444800\tsession_id\ttok\n" +
+          "console.typesafe.ai\tFALSE\t/\tTRUE\t4102444800\torganization_id\torg_1\n",
+      });
+      expect(within(card).getByText("実残高を表示できます")).toBeTruthy();
+    });
+
+    fireEvent.click(within(card).getByRole("button", { name: "削除" }));
+    await waitFor(() => {
+      expect(
+        fetchMock.mock.calls.some(
+          ([input, init]) =>
+            String(input).endsWith("/api/typesafe-cookie") &&
+            init?.method === "DELETE",
+        ),
+      ).toBe(true);
+      expect(within(card).getByText("実残高表示には cookie が必要です")).toBeTruthy();
+    });
   });
 
   it("shows each account only inside its matching provider", async () => {
