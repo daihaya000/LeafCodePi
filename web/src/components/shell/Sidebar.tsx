@@ -29,7 +29,7 @@ import { ProjectIcon } from "@/components/ProjectIcon";
 import { CodexBarWidget } from "@/components/codexbar/CodexBarWidget";
 import { SystemMonitorWidget } from "@/components/sysmon/SystemMonitorWidget";
 import { useBotStatusFor, useTaskPanesNavigation } from "@/components/shell/TaskPanesContext";
-import { Button, cx, timeAgo, ThemeToggle } from "@/components/ui";
+import { Button, cx, timeAgo } from "@/components/ui";
 import { BotAvatar, type BotFace } from "@/components/bot/BotAvatar";
 import { isTaskDrag, setTaskDragData } from "@/lib/task-drag";
 import { notifyBotSidebarChanged, notifyTasksChanged } from "@/lib/events";
@@ -222,7 +222,6 @@ function SidebarFooter({ health, onSettings }: { health: HealthDto | null; onSet
           {health?.engineOk ? `Pi ${health.version ?? ""} · モデル ${health.modelCount}` : "Pi 未接続"}
         </p>
         <div className="flex shrink-0 items-center">
-          <ThemeToggle />
           <Button
             variant="ghost"
             size="icon"

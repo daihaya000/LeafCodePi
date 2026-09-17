@@ -46,6 +46,10 @@ vi.mock("next/link", () => ({
   ),
 }));
 vi.mock("@/components/ui", () => ({
+  Button: ({ children, busy, ...props }: { children: ReactNode; busy?: boolean; [key: string]: unknown }) => {
+    void busy;
+    return <button {...props}>{children}</button>;
+  },
   cx: (...classes: unknown[]) => classes.filter(Boolean).join(" "),
   timeAgo: () => "",
   ThemeToggle: () => null,

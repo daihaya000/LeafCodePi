@@ -33,7 +33,7 @@ import {
   ComposerPromptPresetsSettings,
 } from "@/components/settings/ComposerDefaultsSettings";
 import { BotsMdSettings } from "@/components/settings/BotsMdSettings";
-import { Badge, cx } from "@/components/ui";
+import { Badge, cx, ThemeToggle } from "@/components/ui";
 import { getJson } from "@/lib/client";
 import type { HealthDto, ProviderAuthDto } from "@/lib/types";
 
@@ -331,6 +331,15 @@ export function SettingsView() {
                 description="表示、通知音、メッセージ移動ボタン、セッション開始時のペイン動作を設定します。"
               >
                 <div className="grid gap-4 xl:grid-cols-2">
+                  <div className="rounded-2xl border border-border bg-surface p-4">
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <h3 className="text-sm font-semibold">テーマ</h3>
+                        <p className="mt-1 text-xs text-muted">WebUIの表示テーマを切り替えます。</p>
+                      </div>
+                      <ThemeToggle />
+                    </div>
+                  </div>
                   <BrowserSettings />
                   <NavigatorSettings />
                   <NotificationSoundSettings />
