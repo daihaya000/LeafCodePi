@@ -16,6 +16,7 @@ import {
   Menu,
   Plus,
   Pin,
+  RefreshCw,
   Search,
   Settings,
   Trash2,
@@ -192,6 +193,22 @@ function ModeSegment({ mode, onChange, workingCounts }: { mode: AppMode; onChang
 }
 
 function SidebarFooter({ health, onSettings }: { health: HealthDto | null; onSettings: () => void }) {
+  const [restartBusy, setRestartBusy] = useState(false);
+  const [restartError, setRestartError] = useState<string | null>(null);
+
+  const restartWebUi = async () => {
+    if (restartBusy || !window.confirm("WebUIを再起動しますか？")) return;
+    setRestartBusy(true);
+    setRestartError(null);
+    try {
+      await sendJson("/api/host/restart", { target: "webui" });
+      window.dispatchEvent(new Event("leafcode:webui-restart"));
+    } catch (error) {
+      setRestartBusy(false);
+      setRestartError(error instanceof Error ? error.message : "WebUIの再起動に失敗しました");
+    }
+  };
+
   return (
     <div className="shrink-0 border-t border-border p-2 pb-[env(safe-area-inset-bottom)]">
       <div className="mt-2">
@@ -201,11 +218,21 @@ function SidebarFooter({ health, onSettings }: { health: HealthDto | null; onSet
         <SystemMonitorWidget />
       </div>
       <div className="mt-2 flex items-center justify-between gap-1">
-        <p className="px-2 text-[11px] text-muted">
+        <p className="min-w-0 truncate px-2 text-[11px] text-muted">
           {health?.engineOk ? `Pi ${health.version ?? ""} · モデル ${health.modelCount}` : "Pi 未接続"}
         </p>
-        <div className="flex items-center">
+        <div className="flex shrink-0 items-center">
           <ThemeToggle />
+          <Button
+            variant="ghost"
+            size="icon"
+            aria-label="WebUIを再起動"
+            title="WebUIを再起動"
+            busy={restartBusy}
+            onClick={() => void restartWebUi()}
+          >
+            {!restartBusy && <RefreshCw className="h-4 w-4" aria-hidden="true" />}
+          </Button>
           <Link
             href="/settings"
             aria-label="設定"
@@ -219,6 +246,11 @@ function SidebarFooter({ health, onSettings }: { health: HealthDto | null; onSet
           </Link>
         </div>
       </div>
+      {restartError && (
+        <p role="alert" className="mt-1 truncate px-2 text-[10px] text-danger" title={restartError}>
+          {restartError}
+        </p>
+      )}
     </div>
   );
 }
