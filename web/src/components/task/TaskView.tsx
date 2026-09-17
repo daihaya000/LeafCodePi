@@ -2996,7 +2996,7 @@ export const TaskView = memo(function TaskView({
       >
         <div className="col-span-2 flex min-w-0 items-center gap-2">
           <MobileMenuButton />
-          {iconFor(taskId, 32, task ?? undefined)}
+          {iconFor(taskId, 24, task ?? undefined)}
           <div className="flex min-w-0 flex-1 items-center gap-1">
             {titleEditing ? (
               <form

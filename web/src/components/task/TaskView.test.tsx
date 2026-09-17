@@ -58,7 +58,7 @@ it("displays the project icon to the left of the task title", async () => {
   const projectIcon = await screen.findByTestId("project-icon");
   const title = screen.getByRole("heading", { name: projectTask.title });
   expect(projectIcon.compareDocumentPosition(title) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-  expect(mocks.iconFor).toHaveBeenCalledWith(task.id, 32, expect.objectContaining({ projectId: "project-1" }));
+  expect(mocks.iconFor).toHaveBeenCalledWith(task.id, 24, expect.objectContaining({ projectId: "project-1" }));
 });
 
 it.each([undefined, "bot-1"])("passes Bot identity only to Bot-sent prompts (botId: %s)", async (botId) => {
