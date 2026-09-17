@@ -78,18 +78,6 @@ export function shouldAutoSendQueuedFollowUp(input: {
   );
 }
 
-/**
- * Steer injects into the live turn and does not append a user history row.
- * Use `working` (status working || isStreaming), not isStreaming alone —
- * prompt_accepted makes working true before the SDK stream opens.
- */
-export function shouldShowOptimisticPendingUser(input: {
-  working: boolean;
-  deliveryMode: "queue" | "steer";
-}): boolean {
-  return !(input.working && input.deliveryMode === "steer");
-}
-
 /** Send streamingBehavior:steer while the turn is already accepted/working. */
 export function shouldSendSteerBehavior(input: {
   working: boolean;
@@ -119,14 +107,4 @@ export function shouldClearQueuedFollowUpOnAbortState(
   manualAbortedAssistantId: string | null | undefined,
 ): boolean {
   return manualAbortedAssistantId != null;
-}
-
-/** Steer optimistic rows never landed in history if abort cleared the SDK queue. */
-export function shouldClearPendingUserMessageOnEvent(eventType: string | undefined): boolean {
-  return (
-    eventType === "abort" ||
-    eventType === "hang_abort" ||
-    eventType === "hang_idle" ||
-    eventType === "hang_retry"
-  );
 }

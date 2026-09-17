@@ -1,13 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
   shouldAutoSendQueuedFollowUp,
-  shouldClearPendingUserMessageOnEvent,
   shouldClearQueuedFollowUpOnAbortState,
   shouldClearQueuedFollowUpOnEvent,
   shouldDrainQueuedFollowUp,
   shouldQueueFollowUp,
   shouldSendSteerBehavior,
-  shouldShowOptimisticPendingUser,
 } from "./queued-follow-up";
 
 const idle = {
@@ -186,26 +184,6 @@ describe("queued follow-up hang events", () => {
     expect(shouldClearQueuedFollowUpOnAbortState("a1")).toBe(true);
     expect(shouldClearQueuedFollowUpOnAbortState(null)).toBe(false);
     expect(shouldClearQueuedFollowUpOnAbortState(undefined)).toBe(false);
-  });
-
-  it("clears steer optimistic rows when abort drops the server queue", () => {
-    expect(shouldClearPendingUserMessageOnEvent("abort")).toBe(true);
-    expect(shouldClearPendingUserMessageOnEvent("hang_abort")).toBe(true);
-    expect(shouldClearPendingUserMessageOnEvent("hang_retry")).toBe(true);
-    expect(shouldClearPendingUserMessageOnEvent("prompt_accepted")).toBe(false);
-    expect(shouldClearPendingUserMessageOnEvent(undefined)).toBe(false);
-  });
-
-  it("does not show an optimistic user row for steer sends", () => {
-    expect(
-      shouldShowOptimisticPendingUser({ working: true, deliveryMode: "steer" }),
-    ).toBe(false);
-    expect(
-      shouldShowOptimisticPendingUser({ working: true, deliveryMode: "queue" }),
-    ).toBe(true);
-    expect(
-      shouldShowOptimisticPendingUser({ working: false, deliveryMode: "steer" }),
-    ).toBe(true);
   });
 
   it("sends steer while working even before the stream opens", () => {

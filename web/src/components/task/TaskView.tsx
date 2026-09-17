@@ -164,13 +164,11 @@ import {
 } from "@/lib/aborted-resume";
 import {
   shouldAutoSendQueuedFollowUp,
-  shouldClearPendingUserMessageOnEvent,
   shouldClearQueuedFollowUpOnAbortState,
   shouldClearQueuedFollowUpOnEvent,
   shouldDrainQueuedFollowUp,
   shouldQueueFollowUp,
   shouldSendSteerBehavior,
-  shouldShowOptimisticPendingUser,
 } from "@/lib/queued-follow-up";
 import { isHangRetryUserMessage } from "@/lib/hang-retry";
 import { mergeTaskDelta, type TaskDeltaState } from "@/lib/task-delta";
@@ -837,10 +835,6 @@ export const TaskView = memo(function TaskView({
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyError, setHistoryError] = useState<string | null>(null);
   const historyLoadedRef = useRef(false);
-  const [pendingUserMessage, setPendingUserMessage] = useState<{
-    message: UiMessage;
-    baselineUserCount: number;
-  } | null>(null);
   const [models, setModels] = useState<ModelOption[]>(() => readCachedModels() ?? []);
   // キャッシュ hit なら loading を立てず、裏で /api/models を再検証する。
   const [modelsLoading, setModelsLoading] = useState(() => models.length === 0);
@@ -895,7 +889,6 @@ export const TaskView = memo(function TaskView({
   const [queuedFollowUps, setQueuedFollowUps] = useState<QueuedFollowUp[]>([]);
   const [queuedAutoSend, setQueuedAutoSend] = useState(false);
   const nextQueueIdRef = useRef(1);
-  const nextOptimisticMessageIdRef = useRef(1);
   const queuedSendRef = useRef<QueuedFollowUp | null>(null);
   const submitRef = useRef<(queued?: QueuedFollowUp) => Promise<void>>(async () => undefined);
   const [submitting, setSubmitting] = useState(false);
@@ -1492,9 +1485,6 @@ export const TaskView = memo(function TaskView({
             queuedSendRef.current = null;
             setQueuedAutoSend(false);
           }
-          if (shouldClearPendingUserMessageOnEvent(payload.eventType)) {
-            setPendingUserMessage(null);
-          }
           if (typeof payload.hangRetryCount === "number") {
             setHangRetryCount(payload.hangRetryCount);
           }
@@ -1830,7 +1820,6 @@ export const TaskView = memo(function TaskView({
     setQueuedFollowUps([]);
     queuedSendRef.current = null;
     setQueuedAutoSend(false);
-    setPendingUserMessage(null);
     setSubmitting(false);
     setResumingTurn(false);
     setResumeTurnError(null);
@@ -2307,55 +2296,6 @@ export const TaskView = memo(function TaskView({
         // working covers prompt_accepted→stream gap; isStreaming alone misses it
         // and would POST a normal chained prompt instead of steer.
         const isSteer = shouldSendSteerBehavior({ working, deliveryMode });
-        const optimisticId = `optimistic:${taskId}:${nextOptimisticMessageIdRef.current++}`;
-        const optimisticMessage: UiMessage = {
-          id: optimisticId,
-          role: "user",
-          createdAt: Date.now(),
-          parts: [],
-        };
-        if (submittedPrompt.trim()) {
-          optimisticMessage.parts.push({
-            id: `${optimisticId}:text`,
-            type: "text",
-            text: submittedPrompt,
-          });
-        }
-        submittedAttachments.forEach((attachment, index) => {
-          if (attachment.mime.toLowerCase().startsWith("image/")) {
-            optimisticMessage.parts.push({
-              id: `${optimisticId}:image:${index}`,
-              type: "image",
-              url: attachment.uri,
-              mime: attachment.mime,
-              filename: attachment.name,
-            });
-            return;
-          }
-          const comma = attachment.uri.indexOf(",");
-          if (comma >= 0) {
-            optimisticMessage.parts.push({
-              id: `${optimisticId}:file:${index}`,
-              type: "file",
-              name: attachment.name ?? "添付ファイル",
-              mime: attachment.mime,
-              data: attachment.uri.slice(comma + 1),
-            });
-          }
-        });
-        // Steer does not append a user message to history, so an optimistic
-        // row would never clear via baselineUserCount and would ghost forever.
-        if (
-          shouldShowOptimisticPendingUser({
-            working,
-            deliveryMode,
-          })
-        ) {
-          setPendingUserMessage({
-            message: optimisticMessage,
-            baselineUserCount: messages.filter((message) => message.role === "user").length,
-          });
-        }
         if (!queued) {
           setPrompt("");
           setAttachments([]);
@@ -2409,11 +2349,9 @@ export const TaskView = memo(function TaskView({
         setStopRequested(true);
       }
       if (queued && !stopRequestedRef.current) {
-        setPendingUserMessage(null);
         setQueuedFollowUps((current) => [queued, ...current]);
       }
       if (draftCleared) {
-        setPendingUserMessage(null);
         setPrompt((current) => current || submittedPrompt);
         setAttachments((current) =>
           current.length > 0 ? current : submittedAttachments,
@@ -2662,7 +2600,6 @@ export const TaskView = memo(function TaskView({
       setQueuedFollowUps([]);
       queuedSendRef.current = null;
       setQueuedAutoSend(false);
-      setPendingUserMessage(null);
       // TaskSummary does not include the live-session flag. Clear it here so
       // one successful stop cannot leave the local `working` state stale.
       setTask((current) =>
@@ -2688,17 +2625,6 @@ export const TaskView = memo(function TaskView({
     stickRef.current = true;
     const resumeMode = readAutoResumeMode();
     const resumedPrompt = autoResumePrompt(resumeMode, target.text);
-    const optimisticId = `optimistic:${taskId}:${nextOptimisticMessageIdRef.current++}`;
-    const optimisticMessage: UiMessage = {
-      id: optimisticId,
-      role: "user",
-      createdAt: Date.now(),
-      parts: [{ id: `${optimisticId}:text`, type: "text", text: resumedPrompt }],
-    };
-    setPendingUserMessage({
-      message: optimisticMessage,
-      baselineUserCount: messages.filter((message) => message.role === "user").length,
-    });
     try {
       const resumedAttachments = shouldAttachResumeImages(resumeMode, target.text, target.files.length)
         ? composerPromptAttachments(target.files)
@@ -2722,9 +2648,6 @@ export const TaskView = memo(function TaskView({
       notifyTasksChanged();
       return true;
     } catch (err) {
-      setPendingUserMessage((current) =>
-        current?.message.id === optimisticId ? null : current,
-      );
       if (manual && wasStopped) {
         stopRequestedRef.current = true;
         setStopRequested(true);
@@ -2734,7 +2657,7 @@ export const TaskView = memo(function TaskView({
     } finally {
       setResumingTurn(false);
     }
-  }, [archived, messages, resumingTurn, subagentPermission, taskId, working]);
+  }, [archived, resumingTurn, subagentPermission, taskId, working]);
 
   // タスクのアカウントを切替えるモデルも選べる（setTaskModel が再作成を担う）ため
   // 他アカウントのモデルも含めて全候補を出す。並び順は /api/models の providerOrder 準拠。
@@ -2937,19 +2860,7 @@ export const TaskView = memo(function TaskView({
       },
     };
   }, [messages]);
-  const pendingUserDelivered = Boolean(
-    pendingUserMessage && userMessageIds.length > pendingUserMessage.baselineUserCount,
-  );
-  const renderedMessages = useMemo(
-    () =>
-      pendingUserMessage && !pendingUserDelivered
-        ? [...visibleMessages, pendingUserMessage.message]
-        : visibleMessages,
-    [pendingUserDelivered, pendingUserMessage, visibleMessages],
-  );
-  useEffect(() => {
-    if (pendingUserDelivered) setPendingUserMessage(null);
-  }, [pendingUserDelivered]);
+  const renderedMessages = visibleMessages;
   const resumeTarget = useMemo(
     () =>
       working

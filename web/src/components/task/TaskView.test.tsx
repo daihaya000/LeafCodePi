@@ -186,6 +186,51 @@ it("does not reconnect SSE when the status callback identity changes", async () 
   expect(connections).toBe(1);
 });
 
+it("renders a submitted user prompt only after the authoritative SSE message", async () => {
+  class TestEventSource extends EventTarget {
+    static latest: TestEventSource | null = null;
+    constructor() {
+      super();
+      TestEventSource.latest = this;
+    }
+    close() {}
+  }
+  vi.stubGlobal("EventSource", TestEventSource);
+  mocks.sendJson.mockResolvedValue({ task });
+  mocks.partView.mockImplementation(({ message }: { message: UiMessage }) => (
+    <div data-task-message={message.id}>{message.parts[0]?.type === "text" ? message.parts[0].text : ""}</div>
+  ));
+  render(<TaskView taskId={task.id} mdUp />);
+  const input = screen.getByRole("textbox", { name: "フォローアップ" });
+  fireEvent.change(input, { target: { value: "同じ指示" } });
+  fireEvent.submit(screen.getByRole("form", { name: "フォローアップ" }));
+  await waitFor(() => expect(mocks.sendJson).toHaveBeenCalledWith(
+    `/api/tasks/${task.id}/prompt`,
+    expect.objectContaining({ prompt: "同じ指示" }),
+  ));
+  expect(document.querySelectorAll("[data-task-message]")).toHaveLength(0);
+
+  await act(async () => {
+    TestEventSource.latest!.dispatchEvent(new MessageEvent("snapshot", {
+      data: JSON.stringify({
+        eventType: "message_start",
+        task: { ...task, status: "working", isStreaming: true },
+        messages: [{
+          id: "entry-42",
+          role: "user",
+          createdAt: 1,
+          parts: [{ type: "text", id: "entry-42-text", text: "同じ指示" }],
+        }],
+        isStreaming: true,
+      }),
+    }));
+    await Promise.resolve();
+  });
+
+  await waitFor(() => expect(document.querySelectorAll("[data-task-message]")).toHaveLength(1));
+  expect(document.querySelector("[data-task-message]")?.textContent).toBe("同じ指示");
+});
+
 it("does not render a user message twice when SSE reprojects its ids", async () => {
   class TestEventSource extends EventTarget {
     static latest: TestEventSource | null = null;
