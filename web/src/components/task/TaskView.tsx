@@ -737,7 +737,7 @@ function ContextUsageMeter({ usage }: { usage: ContextUsageDto }) {
   const barWidth = pct === null ? 0 : pct;
   return (
     <span
-      className="flex min-w-0 shrink-0 items-center gap-1.5 text-[11px] text-muted"
+      className="ml-1 flex min-w-0 shrink-0 items-center gap-1.5 text-[11px] text-muted"
       title={`コンテキスト使用量: ${usedLabel} / ${limitLabel} トークン（${pctLabel}）`}
     >
       <span className="h-1.5 w-8 shrink-0 overflow-hidden rounded-full bg-surface-2 @min-[48rem]/task:w-10">
