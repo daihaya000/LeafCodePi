@@ -745,6 +745,56 @@ describe("integrated session routing", () => {
     });
   });
 
+  it("classifies Auto fallback from the real prompt, not the task title", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "leafcode-pi-unavailable-auto-prompt-"));
+    tempDirs.push(dir);
+    process.env.LEAFCODE_PI_DATA_DIR = dir;
+    process.env.PI_CODING_AGENT_DIR = join(dir, "agent");
+    __resetPiAgentDirCacheForTests();
+
+    const account = createAccount({ label: "テスト", providers: ["anthropic"] });
+    storeProviderAuth(account.id, process.env.PI_CODING_AGENT_DIR!);
+    installHarness(new Map([[account.id, runtime(account.id)]]));
+    await setAccountRoutingMode("anthropic", "integrated");
+    setSetting("auto-optimize", "balanced");
+    // Title "Unavailable model bot" is standard; light prompt must win.
+    setSetting("auto-route-overrides", JSON.stringify({
+      version: 2,
+      modes: {
+        balanced: {
+          light: {
+            candidates: [{ kind: "model", providerID: "anthropic", modelID: "claude-sonnet" }],
+            fallback: "error",
+          },
+          standard: {
+            candidates: [{ kind: "model", providerID: "missing", modelID: "gone" }],
+            fallback: "error",
+          },
+          heavy: {
+            candidates: [{ kind: "model", providerID: "missing", modelID: "gone" }],
+            fallback: "error",
+          },
+        },
+      },
+    }));
+
+    const bot = createBot({ name: "Unavailable model bot" });
+    patchBot(bot.id, { model: "leafcodecloud::LeafModel" });
+    patchTask(botTaskId(bot.id), {
+      providerID: "leafcodecloud",
+      modelID: "LeafModel",
+    });
+    await promptTask(botTaskId(bot.id), "なぜこうなるの", undefined, {
+      waitForCompletion: true,
+    });
+    expect(fakePi.sessions[0]?.prompts).toEqual(["なぜこうなるの"]);
+    expect(getTask(botTaskId(bot.id))).toMatchObject({
+      providerID: "leafcodecloud",
+      modelID: "LeafModel",
+      status: "idle",
+    });
+  });
+
   it("keeps the unavailable stored model after a soul reload recreate", async () => {
     const dir = mkdtempSync(join(tmpdir(), "leafcode-pi-unavailable-auto-soul-"));
     tempDirs.push(dir);

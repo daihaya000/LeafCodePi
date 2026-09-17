@@ -528,6 +528,37 @@ it("ignores stale routine data after switching ids", async () => {
   expect(screen.queryByRole("status")).toBeNull();
 });
 
+it("retries a failed routine from the failure banner, including auto-disabled ones", async () => {
+  const failed = {
+    id: "routine-1", botId: "one", name: "朝の確認", prompt: "Check status", schedule: "0 * * * *",
+    enabled: false, createdAt: "", updatedAt: "", failureCount: 3, lastRunAt: "2026-09-10T00:00:00.000Z",
+  };
+  const recovered = { ...failed, enabled: true, failureCount: 0, lastRunAt: "2026-09-17T00:00:00.000Z" };
+  mocks.getJson.mockImplementation(async (url: string) => {
+    if (url === "/api/models") return { models: [] };
+    if (url.endsWith("/routines")) return { routines: [failed] };
+    return { bot: testBot };
+  });
+  mocks.sendJson.mockImplementation(async (url: string) => {
+    if (url.endsWith("/run")) return { routine: recovered };
+    if (url.includes("/routines/routine-1") && !url.endsWith("/run")) return { routine: { ...failed, enabled: true } };
+    return { bot: testBot };
+  });
+  render(<ShellProvider><BotView id="one" active /></ShellProvider>);
+  expect(await screen.findByText("ルーティンの実行に失敗しています")).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "朝の確認を再実行" }));
+  await waitFor(() => expect(mocks.sendJson).toHaveBeenCalledWith(
+    "/api/bots/one/routines/routine-1",
+    { enabled: true },
+    "PATCH",
+  ));
+  await waitFor(() => expect(mocks.sendJson).toHaveBeenCalledWith(
+    "/api/bots/one/routines/routine-1/run",
+    {},
+    "POST",
+  ));
+});
+
 it("clears loaded Bot history when the conversation is reset", async () => {
   render(<ShellProvider><BotView id="one" /></ShellProvider>);
   await screen.findByRole("button", { name: "設定" });

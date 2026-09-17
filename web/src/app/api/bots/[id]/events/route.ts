@@ -68,35 +68,48 @@ export async function GET(
           intercomInbox: getBotIntercomInbox(botId),
           eventType: "bootstrap",
         });
+        const flushReady = (
+          detail: Awaited<ReturnType<typeof getTaskDetail>>,
+          extra?: { error?: string },
+        ) => {
+          const writer = sse;
+          if (!writer || writer.closed) return;
+          const page = pageTaskMessages(detail.messages);
+          writer.send("snapshot", {
+            type: "snapshot",
+            task: { ...detail, messages: undefined },
+            messages: page.messages,
+            messageHistory: page.messageHistory,
+            isStreaming: detail.isStreaming,
+            permissionRequest: pendingPermissionForTask(taskId),
+            questionRequest: pendingQuestionForTask(taskId),
+            intercomInbox: getBotIntercomInbox(botId),
+            eventType: "ready",
+            ...(extra?.error ? { error: extra.error } : {}),
+          });
+          ready = true;
+          const readyRank = rankMessageList(page.messages);
+          for (const payload of pendingPayloads) {
+            if (writer.closed) break;
+            const prepared = preparePendingPayloadForReadyFlush(payload, readyRank);
+            if (!prepared) continue;
+            writer.send(prepared.type === "delta" ? "delta" : "snapshot", prepared);
+          }
+          pendingPayloads.length = 0;
+        };
+        // Live ensureLive can fail (unavailable model, etc.). Keep the transcript
+        // visible via offline ready instead of closing the stream empty.
         void getTaskDetailForBotReady(taskId)
-          .then((detail) => {
-            const writer = sse;
-            if (!writer || writer.closed) return;
-            const page = pageTaskMessages(detail.messages);
-            writer.send("snapshot", {
-              type: "snapshot",
-              task: { ...detail, messages: undefined },
-              messages: page.messages,
-              messageHistory: page.messageHistory,
-              isStreaming: detail.isStreaming,
-              permissionRequest: pendingPermissionForTask(taskId),
-              questionRequest: pendingQuestionForTask(taskId),
-              intercomInbox: getBotIntercomInbox(botId),
-              eventType: "ready",
-            });
-            ready = true;
-            const readyRank = rankMessageList(page.messages);
-            for (const payload of pendingPayloads) {
-              if (writer.closed) break;
-              const prepared = preparePendingPayloadForReadyFlush(payload, readyRank);
-              if (!prepared) continue;
-              writer.send(prepared.type === "delta" ? "delta" : "snapshot", prepared);
+          .then((detail) => flushReady(detail))
+          .catch(async (error) => {
+            const message = error instanceof Error ? error.message : String(error);
+            try {
+              const offline = await getTaskDetail(taskId, { offline: true });
+              flushReady(offline, { error: message });
+            } catch {
+              sse?.send("error", { error: message });
+              sse?.close();
             }
-            pendingPayloads.length = 0;
-          })
-          .catch((error) => {
-            sse?.send("error", { error: error instanceof Error ? error.message : String(error) });
-            sse?.close();
           });
       } catch (error) {
         sse.send("error", { error: error instanceof Error ? error.message : String(error) });

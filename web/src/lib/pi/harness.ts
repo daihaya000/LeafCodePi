@@ -4085,16 +4085,24 @@ function resolveLiveSessionAccount(
   return modelRoute?.accountId ?? taskAccountForSession;
 }
 
+type AutoFallbackHints = {
+  /** Real user/routine prompt for Auto classification. Title is not a substitute. */
+  autoPrompt?: string;
+  hasImages?: boolean;
+  attachmentCount?: number;
+};
+
 async function resolveUnavailableModelViaAuto(
   task: TaskSummary,
+  hints?: AutoFallbackHints,
 ): Promise<ConcreteModelRoute | undefined> {
   // Session-only: keep the unavailable task/bot model so the next cold start
   // re-checks availability and re-runs Auto instead of silently pinning.
   try {
     const autoDecision = await resolveConfiguredAutoModel(
-      task.title || "",
-      false,
-      0,
+      (hints?.autoPrompt ?? task.title) || "",
+      hints?.hasImages === true,
+      hints?.attachmentCount ?? 0,
     );
     return await resolveConcreteModel(
       autoModelValue(autoDecision),
@@ -4106,7 +4114,10 @@ async function resolveUnavailableModelViaAuto(
   }
 }
 
-async function resolveLiveSessionSettings(task: TaskSummary): Promise<{
+async function resolveLiveSessionSettings(
+  task: TaskSummary,
+  hints?: AutoFallbackHints,
+): Promise<{
   model: Model | undefined;
   sessionAccountId: string | null | undefined;
   sessionThinkingLevel: ThinkingLevel | undefined;
@@ -4129,7 +4140,7 @@ async function resolveLiveSessionSettings(task: TaskSummary): Promise<{
   let preserveTaskModel = false;
   let sessionAccountIdExplicit = accountIdExplicit;
   if (task.providerID && task.modelID && !model) {
-    const autoRoute = await resolveUnavailableModelViaAuto(task);
+    const autoRoute = await resolveUnavailableModelViaAuto(task, hints);
     if (autoRoute?.model) {
       modelRoute = autoRoute;
       model = autoRoute.model;
@@ -4182,7 +4193,7 @@ async function attachCreatedLiveSession(
     onTiming?: TaskDetailTimingReporter;
     /** Keep the unavailable stored model; Auto is session-only. */
     preserveTaskModel?: boolean;
-  },
+  } & AutoFallbackHints,
 ): Promise<LiveRuntime> {
   if ((ensureLiveEpoch.get(taskId) ?? 0) !== epoch) {
     disposeSessionBestEffort(setup.session);
@@ -4233,7 +4244,7 @@ async function ensureLive(
   options?: {
     allowDuringPromotion?: boolean;
     onTiming?: TaskDetailTimingReporter;
-  },
+  } & AutoFallbackHints,
 ): Promise<LiveRuntime> {
   throwIfTaskArchived(taskId);
   if (!options?.allowDuringPromotion) {
@@ -4288,7 +4299,11 @@ async function ensureLive(
       sessionThinkingLevel,
       accountIdExplicit,
       preserveTaskModel,
-    } = await resolveLiveSessionSettings(task);
+    } = await resolveLiveSessionSettings(task, {
+      autoPrompt: options?.autoPrompt,
+      hasImages: options?.hasImages,
+      attachmentCount: options?.attachmentCount,
+    });
     reportTaskDetailPhase(
       options?.onTiming,
       "ensureLive.resolveSettings",
@@ -8393,7 +8408,11 @@ export async function promptTask(
     throw Object.assign(new Error(TASK_LEASE_BUSY_ERROR), { status: 409 });
   }
   const task = await applyPromptSelections(id, options);
-  const live = await ensureLive(id);
+  const live = await ensureLive(id, {
+    autoPrompt: promptText,
+    hasImages: Boolean(images?.length),
+    attachmentCount: (images?.length ?? 0) + (options?.files?.length ?? 0),
+  });
   if (
     options?.subagentPermission !== undefined ||
     task.kind !== "bot"

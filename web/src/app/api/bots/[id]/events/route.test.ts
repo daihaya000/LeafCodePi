@@ -133,6 +133,34 @@ describe("GET /api/bots/[id]/events", () => {
     expect(() => mocks.listener?.({ type: "delta", message: message("m3", "途中") })).not.toThrow();
   });
 
+  it("falls back to offline ready when live getTaskDetail fails", async () => {
+    mocks.getTaskBootstrap.mockReturnValue({ id: "bot:one", status: "idle", messages: [], isStreaming: false });
+    mocks.getTaskDetail
+      .mockRejectedValueOnce(Object.assign(new Error("モデルを利用できません: leafcodecloud::LeafModel"), { status: 503 }))
+      .mockResolvedValueOnce({
+        id: "bot:one",
+        status: "idle",
+        messages: [message("kept", "残る履歴")],
+        isStreaming: false,
+        isCompacting: false,
+      });
+
+    const response = await GET(request(), params);
+    const events = await readEvents(response);
+
+    expect(events).toHaveLength(2);
+    expect(events[0]?.data.eventType).toBe("bootstrap");
+    expect(events[1]).toMatchObject({
+      event: "snapshot",
+      data: {
+        eventType: "ready",
+        error: "モデルを利用できません: leafcodecloud::LeafModel",
+      },
+    });
+    expect((events[1]?.data.messages as UiMessage[]).map((item) => item.id)).toEqual(["kept"]);
+    expect(mocks.getTaskDetail).toHaveBeenLastCalledWith("bot:one", { offline: true });
+  });
+
   it("falls back to offline ready when getTaskDetail hangs past the timeout", async () => {
     vi.useFakeTimers();
     mocks.getTaskBootstrap.mockReturnValue({ id: "bot:one", status: "idle", messages: [], isStreaming: false });

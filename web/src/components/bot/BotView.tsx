@@ -223,6 +223,7 @@ export const BotView = memo(function BotView({ id, active = true }: { id: string
   const [routinePrompt, setRoutinePrompt] = useState("");
   const [routineSchedule, setRoutineSchedule] = useState(DEFAULT_ROUTINE_SCHEDULE);
   const [creatingRoutine, setCreatingRoutine] = useState(false);
+  const [retryingRoutineId, setRetryingRoutineId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const composingRef = useRef(false);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
@@ -1007,6 +1008,22 @@ export const BotView = memo(function BotView({ id, active = true }: { id: string
     try { await sendJson(`/api/bots/${encodeURIComponent(id)}/routines`, { name: routineName, prompt: routinePrompt, schedule: routineSchedule }, "POST"); setRoutineName(""); setRoutinePrompt(""); setRoutineSchedule(DEFAULT_ROUTINE_SCHEDULE); setRoutineCardOpen(false); await loadRoutines(); }
     catch (reason) { setError(reason instanceof Error ? reason.message : "\u30eb\u30fc\u30c6\u30a3\u30f3\u306e\u4f5c\u6210\u306b\u5931\u6557\u3057\u307e\u3057\u305f"); } finally { setCreatingRoutine(false); }
   };
+  const retryRoutine = async (routine: RoutineDto) => {
+    setRetryingRoutineId(routine.id);
+    setError(null);
+    try {
+      if (!routine.enabled) {
+        await sendJson(`/api/bots/${encodeURIComponent(id)}/routines/${encodeURIComponent(routine.id)}`, { enabled: true }, "PATCH");
+      }
+      await sendJson(`/api/bots/${encodeURIComponent(id)}/routines/${encodeURIComponent(routine.id)}/run`, {}, "POST");
+      await loadRoutines();
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "ルーティンの再実行に失敗しました");
+      await loadRoutines().catch(() => undefined);
+    } finally {
+      setRetryingRoutineId(null);
+    }
+  };
   const updateSkills = async (skills: BotDto["skills"]) => {
     setUpdatingSkills(true); setError(null);
     try {
@@ -1208,7 +1225,33 @@ export const BotView = memo(function BotView({ id, active = true }: { id: string
             </div>
           )}
           {messages.length === 0 && !sending && <BotEmptyState avatar={bot} title={bot.name + " \u3068\u8a71\u3059"} description={"\u4e0b\u306e\u5165\u529b\u6b04\u304b\u3089\u30e1\u30c3\u30bb\u30fc\u30b8\u3092\u9001\u3063\u3066\u4f1a\u8a71\u3092\u59cb\u3081\u307e\u3057\u3087\u3046\u3002"} />}
-          {routines.some((routine) => routine.failureCount > 0) && <div role="status" className="rounded-2xl border border-danger/40 bg-danger/5 p-4 text-sm"><p className="font-medium text-danger">{"\u30eb\u30fc\u30c6\u30a3\u30f3\u306e\u5b9f\u884c\u306b\u5931\u6557\u3057\u3066\u3044\u307e\u3059"}</p><div className="mt-2 space-y-1 text-xs text-muted">{routines.filter((routine) => routine.failureCount > 0).map((routine) => <p key={routine.id}><span className="font-medium text-text">{routine.name}</span>{"\uFF1A"}{"\u9023\u7d9a\u5931\u6557"} {routine.failureCount}{"\u56de"}{routine.enabled ? "" : "\u3002\u5b89\u5168\u306e\u305f\u3081\u81ea\u52d5\u7684\u306b\u7121\u52b9\u5316\u3057\u307e\u3057\u305f"}</p>)}</div></div>}
+          {routines.some((routine) => routine.failureCount > 0) && (
+            <div role="status" className="rounded-2xl border border-danger/40 bg-danger/5 p-4 text-sm">
+              <p className="font-medium text-danger">ルーティンの実行に失敗しています</p>
+              <div className="mt-2 space-y-2 text-xs text-muted">
+                {routines.filter((routine) => routine.failureCount > 0).map((routine) => (
+                  <div key={routine.id} className="flex items-start justify-between gap-2">
+                    <p>
+                      <span className="font-medium text-text">{routine.name}</span>
+                      ：連続失敗 {routine.failureCount}回
+                      {routine.enabled ? "" : "。安全のため自動的に無効化しました"}
+                    </p>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="shrink-0"
+                      aria-label={`${routine.name}を再実行`}
+                      busy={retryingRoutineId === routine.id}
+                      disabled={sending || retryingRoutineId !== null}
+                      onClick={() => void retryRoutine(routine)}
+                    >
+                      再実行
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
           {routineCardOpen && <div className="rounded-2xl border border-accent/40 bg-surface p-4 shadow-sm" role="dialog" aria-label="ルーティン作成の確認"><p className="font-medium text-accent">ルーティンを作成</p><p className="mt-1 text-xs text-muted">内容を確認してから保存します。</p><div className="mt-3 space-y-2"><input value={routineName} onChange={(event) => setRoutineName(event.target.value)} placeholder="名前（例: 朝の確認）" className="w-full rounded-lg border border-border bg-bg px-3 py-2 text-sm outline-none focus:border-accent" /><textarea value={routinePrompt} onChange={(event) => setRoutinePrompt(event.target.value)} placeholder="Bot に実行させる指示" rows={3} className="w-full resize-y rounded-lg border border-border bg-bg px-3 py-2 text-sm outline-none focus:border-accent" /><RoutineSchedulePicker initialSchedule={routineSchedule} onChange={setRoutineSchedule} disabled={creatingRoutine} /></div><div className="mt-3 flex justify-end gap-2"><Button size="sm" variant="ghost" disabled={creatingRoutine} onClick={() => setRoutineCardOpen(false)}>キャンセル</Button><Button size="sm" onClick={() => void createRoutine()} busy={creatingRoutine} disabled={!routineName.trim() || !routinePrompt.trim() || !routineSchedule.trim()}>この内容で作成</Button></div></div>}
           {rendered}
           {permission && <BotPermissionCard label="権限の確認" title="権限の確認が必要です" message={permission.message} command={permission.command} disabled={Boolean(attentionBusy)} onAllow={() => void respond(true)} onDeny={() => void respond(false)} />}
