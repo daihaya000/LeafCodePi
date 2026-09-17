@@ -2262,6 +2262,7 @@ function TypeSafeCookieControl({
   const [error, setError] = useState<string | null>(null);
   const [baseline, setBaseline] = useState<number | null>(null);
   const [baselineInput, setBaselineInput] = useState("");
+  const baselineInputDirtyRef = useRef(false);
   const [baselineBusy, setBaselineBusy] = useState(false);
   const [baselineError, setBaselineError] = useState<string | null>(null);
 
@@ -2278,7 +2279,10 @@ function TypeSafeCookieControl({
           : null;
       setConfigured(cookieResult.configured === true);
       setBaseline(baselineUsd);
-      setBaselineInput(baselineUsd === null ? "" : String(baselineUsd));
+      // 非同期の初期読込が、ユーザーが既に入力した値を上書きしてはいけない。
+      if (!baselineInputDirtyRef.current) {
+        setBaselineInput(baselineUsd === null ? "" : String(baselineUsd));
+      }
       setError(null);
       setBaselineError(null);
     } catch (cause) {
@@ -2348,6 +2352,7 @@ function TypeSafeCookieControl({
     setBaselineError(null);
     try {
       await sendJson("/api/typesafe-baseline", { baselineUsd });
+      baselineInputDirtyRef.current = false;
       setBaseline(baselineUsd);
       onChanged();
     } catch (cause) {
@@ -2364,6 +2369,7 @@ function TypeSafeCookieControl({
     setBaselineError(null);
     try {
       await sendJson("/api/typesafe-baseline", {}, "DELETE");
+      baselineInputDirtyRef.current = false;
       setBaseline(null);
       setBaselineInput("");
       onChanged();
@@ -2492,7 +2498,10 @@ function TypeSafeCookieControl({
             step="0.01"
             inputMode="decimal"
             value={baselineInput}
-            onChange={(event) => setBaselineInput(event.target.value)}
+            onChange={(event) => {
+              baselineInputDirtyRef.current = true;
+              setBaselineInput(event.target.value);
+            }}
             placeholder="例: 5"
             spellCheck={false}
             autoComplete="off"

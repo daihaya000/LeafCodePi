@@ -337,6 +337,35 @@ describe("ProviderAuthPanel provider-scoped accounts", () => {
     });
   });
 
+  it("does not overwrite a baseline being typed while its initial value loads", async () => {
+    let resolveBaseline!: (response: Response) => void;
+    const baselineResponse = new Promise<Response>((resolve) => {
+      resolveBaseline = resolve;
+    });
+    fetchMock.mockImplementation(
+      (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        const method = (init?.method ?? "GET").toUpperCase();
+        if (url.endsWith("/api/typesafe-cookie") && method === "GET") {
+          return Promise.resolve(jsonResponse({ configured: false }));
+        }
+        if (url.endsWith("/api/typesafe-baseline") && method === "GET") {
+          return baselineResponse;
+        }
+        return Promise.resolve(jsonResponse({}));
+      },
+    );
+    render(<ProviderAuthPanel providers={[typesafeProvider]} onChanged={() => {}} />);
+
+    const input = screen.getByLabelText(/基準残高/) as HTMLInputElement;
+    fireEvent.change(input, { target: { value: "10" } });
+    await act(async () => {
+      resolveBaseline(jsonResponse({ baselineUsd: 5 }));
+    });
+
+    await waitFor(() => expect(input.value).toBe("10"));
+  });
+
   it("shows each account only inside its matching provider", async () => {
     mockAccountsApi();
     render(<ProviderAuthPanel providers={providers} onChanged={() => {}} />);
