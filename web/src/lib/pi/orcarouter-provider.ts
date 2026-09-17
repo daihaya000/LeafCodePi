@@ -212,9 +212,12 @@ function modelRow(model: RawModel, baseUrl: string): ModelRow | null {
     model.context_length,
     positiveInteger(topProvider?.context_length, DEFAULT_CONTEXT_WINDOW),
   );
-  const maxTokens = positiveInteger(
-    model.max_completion_tokens,
-    positiveInteger(topProvider?.max_completion_tokens, DEFAULT_MAX_TOKENS),
+  const maxTokens = Math.min(
+    contextWindow,
+    positiveInteger(
+      model.max_completion_tokens,
+      positiveInteger(topProvider?.max_completion_tokens, DEFAULT_MAX_TOKENS),
+    ),
   );
   const reasoning = isOrcaRouterReasoningModel(id);
 

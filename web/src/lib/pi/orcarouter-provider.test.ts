@@ -83,6 +83,24 @@ describe("orcarouter-provider", () => {
     });
   });
 
+  it("caps output tokens at the model context window", () => {
+    const [model] = parseOrcaRouterModelRows({
+      data: [
+        {
+          id: "small/context",
+          supported_endpoint_types: ["openai"],
+          context_length: 4_096,
+          max_completion_tokens: 16_384,
+        },
+      ],
+    });
+
+    expect(model).toMatchObject({
+      contextWindow: 4_096,
+      maxTokens: 4_096,
+    });
+  });
+
   it("registers API-key auth and uses stored account keys for discovery", async () => {
     const fetch = vi.fn(async () =>
       new Response(

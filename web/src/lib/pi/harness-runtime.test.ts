@@ -310,7 +310,14 @@ describe("getRuntimeFor", () => {
     mkdirSync(dirname(authPath), { recursive: true });
     writeFileSync(
       authPath,
-      JSON.stringify({ "openai-codex": { type: "oauth" } }),
+      JSON.stringify({
+        "openai-codex": {
+          type: "oauth",
+          access: "test-access",
+          refresh: "test-refresh",
+          expires: Date.now() + 60_000,
+        },
+      }),
       "utf8",
     );
     let creations = 0;
@@ -348,6 +355,7 @@ describe("getRuntimeFor", () => {
     (globalThis as Record<string, unknown>)[GLOBAL_KEY] = {
       pi: null,
       modelRuntime: {
+        getProvider: (id: string) => ({ id }),
         getAvailable: async () => {
           availableReads += 1;
           return [];
@@ -495,6 +503,7 @@ describe("getRuntimeFor", () => {
     };
     (globalThis as Record<string, unknown>)[GLOBAL_KEY] = {
       modelRuntime: {
+        getProvider: (id: string) => ({ id }),
         // 既定ランタイムのプロバイダ順: openai-codex を先頭に置き、アカウント別
         // モデルが他プロバイダと同じ位置へ挟まることを検証する。
         getProviders: () => [{ id: "openai-codex" }, { id: "llama-server" }],
@@ -589,6 +598,7 @@ describe("getRuntimeFor", () => {
     };
     (globalThis as Record<string, unknown>)[GLOBAL_KEY] = {
       modelRuntime: {
+        getProvider: (id: string) => ({ id }),
         getProviders: () => [{ id: "openai-codex" }, { id: "ollama-cloud" }],
       },
       modelCache: {
@@ -660,6 +670,7 @@ describe("getRuntimeFor", () => {
     };
     (globalThis as Record<string, unknown>)[GLOBAL_KEY] = {
       modelRuntime: {
+        getProvider: (id: string) => ({ id }),
         getProviders: () => [{ id: "ollama-cloud" }, { id: "llama-server" }],
       },
       modelCache: {
@@ -864,6 +875,7 @@ describe("getRuntimeFor", () => {
     });
     (globalThis as Record<string, unknown>)[GLOBAL_KEY] = {
       modelRuntime: {
+        getProvider: (id: string) => ({ id }),
         getProviders: () => [{ id: "openai-codex" }],
         modelCache: null,
       },
@@ -951,6 +963,8 @@ describe("getRuntimeFor", () => {
     ]);
     (globalThis as Record<string, unknown>)[GLOBAL_KEY] = {
       modelRuntime: {
+        getProvider: (id: string) => ({ id }),
+        registerProvider: () => undefined,
         getProviders: () => [{ id: "openai-codex" }, { id: "anthropic" }],
         modelCache: null,
       },
@@ -1024,6 +1038,7 @@ describe("getRuntimeFor", () => {
     };
     const harness: Record<string, unknown> = {
       modelRuntime: {
+        getProvider: (id: string) => ({ id }),
         getProviders: () => [{ id: "openai-codex" }, { id: "llama-server" }],
       },
       modelCache: null,
