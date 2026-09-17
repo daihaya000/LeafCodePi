@@ -940,8 +940,8 @@ export function chooseAutoModel(input: {
     hasImages: input.hasImages,
   });
   if (pool.length === 0) return null;
-  // Use subscription OAuth capacity before metered API credentials. API models
-  // remain available as the existing fallback when every subscription route is limited.
+  // Use subscription allowances before metered API credit. API models remain
+  // available as the existing fallback when every subscription route is limited.
   const subscriptionPool = pool.filter((candidate) => candidate.subscription);
   const preferredPool = subscriptionPool.length > 0 ? subscriptionPool : pool;
 

@@ -808,6 +808,7 @@ describe("getRuntimeFor", () => {
       input: ["text"],
       reasoning: false,
       thinkingLevels: [],
+      subscription: true,
       codexbarUsedPercent: null,
       codexbarMaxed: false,
       routingMode: "integrated",

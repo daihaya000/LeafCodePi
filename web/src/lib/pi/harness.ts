@@ -4532,6 +4532,19 @@ function providerModelSnapshot(
   return { refs, models };
 }
 
+// These providers spend their subscription allowance even when their runtime
+// credential is not represented as subscription OAuth (for example OpenCode Go).
+const SUBSCRIPTION_ALLOWANCE_PROVIDERS = new Set([
+  "openai-codex",
+  "cursor",
+  "opencode-go",
+]);
+
+function usesSubscriptionAllowance(runtime: ModelRuntime, providerID: string): boolean {
+  return runtime.isUsingSubscription?.(providerID) === true ||
+    SUBSCRIPTION_ALLOWANCE_PROVIDERS.has(providerID);
+}
+
 async function buildModelOptions(
   runtime: ModelRuntime,
   accountId?: string,
@@ -4570,7 +4583,7 @@ async function buildModelOptions(
       input: [...model.input],
       reasoning: Boolean(model.reasoning),
       thinkingLevels: thinkingLevelsForModel(model),
-      subscription: runtime.isUsingSubscription?.(providerID) === true,
+      subscription: usesSubscriptionAllowance(runtime, providerID),
       ...(catalogByValue.get(value)?.defaultThinkingLevel
         ? { defaultThinkingLevel: catalogByValue.get(value)!.defaultThinkingLevel }
         : {}),
