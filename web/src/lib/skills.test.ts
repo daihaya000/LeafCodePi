@@ -30,6 +30,21 @@ describe("bundledSkillsDir", () => {
 });
 
 describe("bundledSkillPaths", () => {
+  it("discovers the bundled TypeSafe skill without a global skill", () => {
+    const bundled = bundledSkillsDir();
+    if (!bundled) throw new Error("bundled skills directory is unavailable");
+    const agentDir = mkdtempSync(join(tmpdir(), "leafcode-empty-skills-"));
+    try {
+      const typesafe = listSkills(agentDir, {
+        skillsDir: join(agentDir, "skills"),
+        bundledDir: bundled,
+      }).skills.find((skill) => skill.name === "typesafe-ai");
+      expect(typesafe).toMatchObject({ source: "bundled" });
+    } finally {
+      rmSync(agentDir, { recursive: true, force: true });
+    }
+  });
+
   it("includes skills shipped inside bundled extensions without global installation", () => {
     const root = mkdtempSync(join(tmpdir(), "leafcode-packaged-skills-"));
     const previous = process.env.LEAFCODE_PI_EXTENSIONS_DIR;
