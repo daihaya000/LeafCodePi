@@ -14,6 +14,7 @@ import {
 import { getSetting } from "@/lib/pi/web-settings";
 import { buildTranscript, type ConversationMessage } from "@/lib/direct-generation-text";
 import { AUTO_AGENT_VALUE, DEFAULT_AGENT } from "@/lib/default-agent";
+import { selectAutoAgentWithJev } from "@/lib/auto-jev";
 
 // The router returns one agent name; its current request plus history need not rival task context.
 const MAX_TRANSCRIPT_CHARS = 8_000;
@@ -271,6 +272,21 @@ export async function resolveAutoAgent(options: AutoAgentOptions): Promise<strin
   }
   // One candidate is the only possible answer; the router call cannot change it.
   if (candidates.length === 1) return fallback;
+
+  try {
+    const jevSelection = await selectAutoAgentWithJev({
+      prompt: buildSelectionPrompt(
+        options.conversation,
+        options.prompt,
+        candidates,
+        options.hasImages === true,
+      ),
+      candidates,
+    });
+    if (jevSelection) return jevSelection;
+  } catch {
+    // Preserve the existing rule and LLM fallbacks when Jev setup fails.
+  }
 
   try {
     const ruled = matchAutoAgentByRule(options.prompt, candidates);

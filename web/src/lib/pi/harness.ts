@@ -212,6 +212,7 @@ import {
   type AutoOptimizeMode,
   type AutoRouteConfig,
 } from "@/lib/auto-model";
+import { classifyAutoTierWithJev } from "@/lib/auto-jev";
 import { clearProviderCache } from "@/lib/codexbar/provider-cache";
 import {
   accountRoutingMode,
@@ -5004,14 +5005,19 @@ export async function resolveAutoModel(input: {
     providers: account.providers,
   }));
   const models = await buildModelsForAccounts(accounts, 5 * 60 * 1000);
+  const signals = {
+    hasImages: input.hasImages,
+    attachmentCount: input.attachmentCount ?? 0,
+    historyMessageCount: input.historyMessageCount ?? 0,
+    recentFailure: input.recentFailure === true,
+  };
+  const tier = await classifyAutoTierWithJev({
+    prompt: input.prompt,
+    ...signals,
+  }) ?? classifyPrompt(input.prompt, signals);
   return chooseAutoModel({
     models,
-    tier: classifyPrompt(input.prompt, {
-      hasImages: input.hasImages,
-      attachmentCount: input.attachmentCount ?? 0,
-      historyMessageCount: input.historyMessageCount ?? 0,
-      recentFailure: input.recentFailure === true,
-    }),
+    tier,
     hasImages: input.hasImages,
     mode: input.mode,
     usage: autoProviderUsageFromModels(models),
