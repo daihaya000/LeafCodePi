@@ -8017,21 +8017,26 @@ function queuePrompt(
     };
     const jevSkills = SESSION_JEV_SKILLS.get(activeLive.session);
     if (jevSkills?.selected.current === null) {
-      const skills = jevSkills.resourceLoader.getSkills().skills;
-      const selected = await selectRelevantSkillsWithJev({
-        prompt,
-        candidates: skills.map((skill) => ({
-          name: skill.name,
-          description: skill.description || skill.name,
-        })),
-      });
-      if (selected) {
-        jevSkills.selected.current = selected;
-        try {
-          await activeLive.session.reload();
-        } catch {
-          jevSkills.selected.current = null;
+      try {
+        const skills = jevSkills.resourceLoader.getSkills().skills;
+        const selected = await selectRelevantSkillsWithJev({
+          prompt,
+          candidates: skills.map((skill) => ({
+            name: skill.name,
+            description: skill.description || skill.name,
+          })),
+        });
+        if (selected) {
+          jevSkills.selected.current = selected;
+          try {
+            await activeLive.session.reload();
+          } catch {
+            jevSkills.selected.current = null;
+          }
         }
+      } catch {
+        // A selector/resource-loader failure must preserve the existing full skill set.
+        jevSkills.selected.current = null;
       }
     }
     let files = meta?.files;
