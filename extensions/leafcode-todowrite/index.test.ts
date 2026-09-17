@@ -137,6 +137,7 @@ describe("todowrite omission gate", () => {
       "watchdog_warn",
       "contact_supervisor",
       "subagent_wait",
+      "intercom",
     ]) {
       expect(run.callTool(name)).toBeUndefined();
     }

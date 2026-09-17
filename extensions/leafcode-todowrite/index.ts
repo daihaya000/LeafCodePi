@@ -42,6 +42,7 @@ const EXEMPT_TOOLS = new Set([
   "watchdog_warn",
   "contact_supervisor",
   "subagent_wait",
+  "intercom",
 ]);
 const SUBSTANTIVE_READ_TOOLS = new Set([
   "read",
