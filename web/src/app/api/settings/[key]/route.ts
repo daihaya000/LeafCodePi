@@ -32,6 +32,11 @@ import {
   normalizeAutoRouteConfig,
 } from "@/lib/auto-model";
 import {
+  JEV_COMPACTION_ENABLED_SETTING_KEY,
+  JEV_COMPACTION_THRESHOLD_SETTING_KEY,
+  parseJevCompactionThreshold,
+} from "@/lib/jev-compaction-settings";
+import {
   AUTO_JEV_ENABLED_SETTING_KEY,
   AUTO_JEV_MIN_CONFIDENCE_SETTING_KEY,
   isAutoJevMinConfidence,
@@ -53,6 +58,8 @@ const ALLOWED_KEYS = new Set<string>([
   "auto-route-overrides",
   AUTO_JEV_ENABLED_SETTING_KEY,
   AUTO_JEV_MIN_CONFIDENCE_SETTING_KEY,
+  JEV_COMPACTION_ENABLED_SETTING_KEY,
+  JEV_COMPACTION_THRESHOLD_SETTING_KEY,
   "auto-agent-prompt",
   BOT_DEFAULT_PERMISSION_KEY,
   BOT_DEFAULT_THINKING_KEY,
@@ -103,6 +110,13 @@ function validateValue(key: string, value: string): string | null {
   if (key === AUTO_JEV_MIN_CONFIDENCE_SETTING_KEY) {
     const minConfidence = Number(value);
     return isAutoJevMinConfidence(minConfidence) ? String(minConfidence) : null;
+  }
+  if (key === JEV_COMPACTION_ENABLED_SETTING_KEY) {
+    return value === "1" ? value : null;
+  }
+  if (key === JEV_COMPACTION_THRESHOLD_SETTING_KEY) {
+    const threshold = parseJevCompactionThreshold(value);
+    return String(threshold) === value ? value : null;
   }
   if (key === "auto-agent-prompt") {
     return value.trim() ? value : null;

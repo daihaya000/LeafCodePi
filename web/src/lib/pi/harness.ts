@@ -217,6 +217,13 @@ import {
   type AutoRouteConfig,
 } from "@/lib/auto-model";
 import { classifyAutoTierWithJev } from "@/lib/auto-jev";
+import { compactWithJev } from "@/lib/pi/jev-compaction";
+import {
+  isJevCompactionEnabled,
+  JEV_COMPACTION_ENABLED_SETTING_KEY,
+  JEV_COMPACTION_THRESHOLD_SETTING_KEY,
+  parseJevCompactionThreshold,
+} from "@/lib/jev-compaction-settings";
 import {
   AUTO_JEV_ENABLED_SETTING_KEY,
   AUTO_JEV_MIN_CONFIDENCE_SETTING_KEY,
@@ -3073,6 +3080,15 @@ function sessionExtensionFactories(input: {
       api.on("before_agent_start", (event) => ({
         systemPrompt: `${event.systemPrompt}\n\n${runtimeClockContext()}`,
       }));
+      api.on("session_before_compact", async (event) => {
+        if (!isJevCompactionEnabled(getSetting(JEV_COMPACTION_ENABLED_SETTING_KEY))) return;
+        const compaction = await compactWithJev(
+          event.preparation as unknown as Parameters<typeof compactWithJev>[0],
+          parseJevCompactionThreshold(getSetting(JEV_COMPACTION_THRESHOLD_SETTING_KEY)),
+          event.signal,
+        );
+        return compaction ? { compaction } : undefined;
+      });
     },
     ...(botSoulBotId
       ? [botSoulTool(botSoulBotId, () => requestBotSoulReload(botSoulBotId))]

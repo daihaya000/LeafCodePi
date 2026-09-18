@@ -11,23 +11,36 @@ import {
   type CompactionAction,
 } from "@/lib/compaction-settings";
 import type { CompactionSettingsDto } from "@/lib/types";
+import {
+  DEFAULT_JEV_COMPACTION_THRESHOLD,
+  isJevCompactionEnabled,
+  JEV_COMPACTION_ENABLED_SETTING_KEY,
+  JEV_COMPACTION_THRESHOLD_SETTING_KEY,
+  parseJevCompactionThreshold,
+} from "@/lib/jev-compaction-settings";
 
 export function CompactionSettings() {
   const [settings, setSettings] = useState<CompactionSettingsDto | null>(null);
   const [action, setAction] = useState<CompactionAction>("auto");
   const [threshold, setThreshold] = useState(80);
+  const [jevEnabled, setJevEnabled] = useState(false);
+  const [jevThreshold, setJevThreshold] = useState(DEFAULT_JEV_COMPACTION_THRESHOLD);
   const [error, setError] = useState<string | null>(null);
 
   const reload = useCallback(async () => {
     try {
-      const [compaction, actionResult, thresholdResult] = await Promise.all([
+      const [compaction, actionResult, thresholdResult, jevEnabledResult, jevThresholdResult] = await Promise.all([
         getJson<{ settings: CompactionSettingsDto }>("/api/compaction-settings"),
         getJson<{ value: string | null }>(`/api/settings/${COMPACTION_ACTION_SETTING_KEY}`),
         getJson<{ value: string | null }>(`/api/settings/${COMPACTION_THRESHOLD_SETTING_KEY}`),
+        getJson<{ value: string | null }>(`/api/settings/${JEV_COMPACTION_ENABLED_SETTING_KEY}`),
+        getJson<{ value: string | null }>(`/api/settings/${JEV_COMPACTION_THRESHOLD_SETTING_KEY}`),
       ]);
       setSettings(compaction.settings);
       setAction(parseCompactionAction(actionResult.value));
       setThreshold(parseCompactionThreshold(thresholdResult.value));
+      setJevEnabled(isJevCompactionEnabled(jevEnabledResult.value));
+      setJevThreshold(parseJevCompactionThreshold(jevThresholdResult.value));
     } catch (err) {
       setError(err instanceof Error ? err.message : "圧縮設定の読み込みに失敗しました");
     }
@@ -96,6 +109,33 @@ export function CompactionSettings() {
         </div>
       </div>
       <p className="mt-3 text-xs text-muted">使用率が{threshold}%に達したら設定した動作を実行します（70〜95%）。</p>
+      <div className="mt-4 border-t border-border pt-4">
+        <label className="flex items-center gap-2 text-sm text-text">
+          <input
+            type="checkbox"
+            checked={jevEnabled}
+            onChange={(event) => {
+              const enabled = event.target.checked;
+              setJevEnabled(enabled);
+              void save(JEV_COMPACTION_ENABLED_SETTING_KEY, enabled ? "1" : "");
+            }}
+          />
+          Jevでツール結果を選別して圧縮（既定: 無効）
+        </label>
+        {jevEnabled && <label className="mt-3 flex items-center gap-2 text-sm text-muted">
+          残す確率
+          <input
+            type="number"
+            min={0.5}
+            max={0.95}
+            step={0.05}
+            value={jevThreshold}
+            onChange={(event) => setJevThreshold(Number(event.target.value))}
+            onBlur={() => void save(JEV_COMPACTION_THRESHOLD_SETTING_KEY, String(jevThreshold))}
+            className="h-9 w-24 rounded-lg border border-border bg-bg px-3 font-mono text-sm text-text outline-none focus:border-border-strong"
+          />
+        </label>}
+      </div>
       {settings && <p className="mt-2 text-[11px] text-muted">予約トークン {formatTokens(settings.reserveTokens)} / 直近保持 {formatTokens(settings.keepRecentTokens)}</p>}
       {error && <p role="alert" className="mt-2 text-sm text-danger">{error}</p>}
     </div>
