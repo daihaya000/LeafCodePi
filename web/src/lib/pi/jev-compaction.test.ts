@@ -61,12 +61,26 @@ describe("compactWithJev", () => {
     expect(result?.summary).toContain(large);
   });
 
-  it("falls back to Pi for split turns", async () => {
+  it("keeps a result without a tool-call id when Jev retains it", async () => {
+    evaluateTypeSafe.mockResolvedValue({ answers: { "result-0": { noul: 0.9 }, drop: { noul: 0.1 } } });
     const result = await compactWithJev({
       ...preparation,
-      turnPrefixMessages: [{ role: "assistant", content: [{ type: "text", text: "retained suffix" }] }],
+      messagesToSummarize: [
+        { role: "toolResult", toolName: "read", content: [{ type: "text", text: "needed" }] },
+        { role: "toolResult", toolCallId: "drop", toolName: "read", content: [{ type: "text", text: "stale" }] },
+      ],
     } as never, 0.6, new AbortController().signal);
-    expect(result).toBeUndefined();
+    expect(result?.summary).toContain("[TOOLRESULT]\nneeded");
+  });
+
+  it("falls back to Pi for split turns and unsupported message roles", async () => {
+    for (const input of [
+      { ...preparation, turnPrefixMessages: [{ role: "assistant", content: [{ type: "text", text: "retained suffix" }] }] },
+      { ...preparation, messagesToSummarize: [{ role: "bashExecution", output: "output" }] },
+    ]) {
+      const result = await compactWithJev(input as never, 0.6, new AbortController().signal);
+      expect(result).toBeUndefined();
+    }
     expect(evaluateTypeSafe).not.toHaveBeenCalled();
   });
 });

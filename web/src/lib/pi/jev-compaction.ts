@@ -29,6 +29,15 @@ function messageData(message: Message): Record<string, unknown> {
   return message as unknown as Record<string, unknown>;
 }
 
+function isSupportedMessage(message: Message): boolean {
+  return message.role === "user" || message.role === "assistant" || message.role === "toolResult";
+}
+
+function toolResultId(message: Message, index: number): string {
+  const id = messageData(message).toolCallId;
+  return typeof id === "string" ? id : `result-${index}`;
+}
+
 function messageText(message: Message): string {
   const content = messageData(message).content;
   if (!Array.isArray(content)) return text(content);
@@ -52,7 +61,7 @@ function resultMessages(messages: readonly Message[]): ToolResult[] {
   return messages.flatMap((message, index) => {
     if (message.role !== "toolResult") return [];
     const data = messageData(message);
-    const id = typeof data.toolCallId === "string" ? data.toolCallId : `result-${index}`;
+    const id = toolResultId(message, index);
     const value = text(data.content);
     return value ? [{
       id,
@@ -120,11 +129,11 @@ function questions(results: readonly ToolResult[]): Record<string, {
 }
 
 function transcript(messages: readonly Message[], keep: ReadonlySet<string>): string {
-  return messages.map((message) => {
+  return messages.map((message, index) => {
     const role = String(message.role ?? "message").toUpperCase();
     if (message.role === "toolResult") {
       const data = messageData(message);
-      const id = typeof data.toolCallId === "string" ? data.toolCallId : "";
+      const id = toolResultId(message, index);
       const body = text(data.content);
       if (!keep.has(id)) return `[${role}] ${typeof data.toolName === "string" ? data.toolName : "tool"}: omitted; re-run if needed`;
       return `[${role}]\n${body}`;
@@ -141,8 +150,11 @@ export async function compactWithJev(
   signal: AbortSignal,
 ): Promise<CompactionResult | undefined> {
   // Pi creates a second summary for the retained suffix of a split turn. This
-  // transcript format cannot represent it without losing context.
-  if (preparation.turnPrefixMessages.length > 0) return undefined;
+  // transcript format cannot represent that or custom message roles safely.
+  if (
+    preparation.turnPrefixMessages.length > 0 ||
+    preparation.messagesToSummarize.some((message) => !isSupportedMessage(message))
+  ) return undefined;
   const results = resultMessages(preparation.messagesToSummarize);
   if (results.length === 0 || signal.aborted) return undefined;
   try {
