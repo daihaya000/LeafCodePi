@@ -62,6 +62,14 @@ const MCP_SERVER_DESCRIPTIONS: Readonly<Record<string, string>> = {
   "comfy-mcp": "ComfyUI で画像・動画・音声・3D生成、ワークフロー編集、ジョブ監視を行います。",
   n8n: "n8n公式 Instance-level MCP。ワークフローの検索・作成・検証・実行を OAuth または Bearer で操作します。",
   slack: "Slack公式 MCP サーバー。メッセージ・ファイル・ユーザーの検索、メッセージ送信、Canvas 操作を行います。",
+  "gws-gmail": "Google Workspace 公式 MCP（Gmail）。メール検索・下書き作成。",
+  "gws-drive": "Google Workspace 公式 MCP（Drive）。ファイル検索・読み書き。",
+  "gws-docs": "Google Workspace 公式 MCP（Docs）。ドキュメントの読み取り・更新。",
+  "gws-sheets": "Google Workspace 公式 MCP（Sheets）。セル値の読み取り・更新。",
+  "gws-slides": "Google Workspace 公式 MCP（Slides）。プレゼンの読み取り・更新。",
+  "gws-calendar": "Google Workspace 公式 MCP（Calendar）。予定の検索・作成。",
+  "gws-chat": "Google Workspace 公式 MCP（Chat）。メッセージ検索・送信。",
+  "gws-people": "Google Workspace 公式 MCP（People）。プロフィール・連絡先検索。",
 };
 
 function authTypeLabel(type: McpAuthType): string {
@@ -119,6 +127,9 @@ export function McpSettings() {
   const [addBusy, setAddBusy] = useState(false);
   const [slackClientId, setSlackClientId] = useState("");
   const [slackBusy, setSlackBusy] = useState(false);
+  const [gwsClientId, setGwsClientId] = useState("");
+  const [gwsClientSecret, setGwsClientSecret] = useState("");
+  const [gwsBusy, setGwsBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -230,6 +241,32 @@ export function McpSettings() {
       setError(err instanceof Error ? err.message : "Slack の追加に失敗しました");
     } finally {
       setSlackBusy(false);
+    }
+  }
+
+  async function addGoogleWorkspace() {
+    const clientId = gwsClientId.trim();
+    const clientSecret = gwsClientSecret.trim();
+    if (!clientId || !clientSecret) {
+      setError("Google OAuth の Client ID と Client Secret を入力してください");
+      return;
+    }
+    setGwsBusy(true);
+    setError(null);
+    try {
+      const result = await sendJson<{ servers: McpDto[] }>(
+        "/api/mcp",
+        { preset: "google-workspace", clientId, clientSecret },
+        "POST",
+      );
+      setServers(result.servers);
+      setAuthById({});
+      setGwsClientId("");
+      setGwsClientSecret("");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Google Workspace の追加に失敗しました");
+    } finally {
+      setGwsBusy(false);
     }
   }
 
@@ -520,7 +557,7 @@ export function McpSettings() {
     );
   }
 
-  const anyBusy = Boolean(busyId || authBusyId || addBusy || slackBusy);
+  const anyBusy = Boolean(busyId || authBusyId || addBusy || slackBusy || gwsBusy);
 
   return (
     <div className="rounded-2xl border border-border bg-surface p-4">
@@ -666,6 +703,51 @@ export function McpSettings() {
                   disabled={loading || !slackClientId.trim() || anyBusy}
                 >
                   Slack を追加
+                </Button>
+              </div>
+            </div>
+          )}
+          {!servers.some((server) => server.id.startsWith("gws-")) && (
+            <div className="rounded-xl border border-dashed border-border bg-surface-2 px-3 py-3">
+              <p className="text-xs font-medium text-text">Google Workspace を追加（OAuth）</p>
+              <p className="mt-1 text-[11px] leading-4 text-muted">
+                Google Cloud の OAuth クライアント（Web application）の Client ID / Secret を入力します。
+                Authorized redirect URI に <span className="font-mono">http://localhost:19876/callback</span>（既定）を登録してください。
+                8プロダクト（Gmail / Drive / Docs / Sheets / Slides / Calendar / Chat / People）を一括追加します。
+              </p>
+              <div className="mt-2 flex flex-wrap items-center gap-2">
+                <label className="min-w-0 flex-1">
+                  <span className="sr-only">Google Workspace のClient ID</span>
+                  <input
+                    type="text"
+                    autoComplete="off"
+                    value={gwsClientId}
+                    onChange={(event) => setGwsClientId(event.target.value)}
+                    placeholder="Client ID"
+                    className="h-9 w-full rounded-lg border border-border bg-bg px-3 font-mono text-xs text-text outline-none focus:border-border-strong"
+                    disabled={anyBusy}
+                  />
+                </label>
+                <label className="min-w-0 flex-1">
+                  <span className="sr-only">Google Workspace のClient Secret</span>
+                  <input
+                    type="password"
+                    autoComplete="new-password"
+                    value={gwsClientSecret}
+                    onChange={(event) => setGwsClientSecret(event.target.value)}
+                    placeholder="Client Secret"
+                    className="h-9 w-full rounded-lg border border-border bg-bg px-3 font-mono text-xs text-text outline-none focus:border-border-strong"
+                    disabled={anyBusy}
+                  />
+                </label>
+                <Button
+                  size="sm"
+                  variant="primary"
+                  onClick={() => void addGoogleWorkspace()}
+                  busy={gwsBusy}
+                  disabled={loading || !gwsClientId.trim() || !gwsClientSecret.trim() || anyBusy}
+                >
+                  Google Workspace を追加
                 </Button>
               </div>
             </div>

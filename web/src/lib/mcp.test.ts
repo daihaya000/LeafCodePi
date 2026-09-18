@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, it } from "vitest";
 import {
+  addGoogleWorkspaceServers,
   addN8nServer,
   addSlackServer,
   disableMcpHeadersStore,
@@ -215,6 +216,62 @@ describe("listMcpServers / setMcpServerEnabled", () => {
     assert.throws(() => addSlackServer("https://mcp.slack.com/mcp", agentDir), /Client IDが不正/);
     assert.throws(() => addSlackServer("client id with spaces", agentDir), /Client IDが不正/);
     assert.equal("slack" in JSON.parse(readFileSync(join(agentDir, "mcp.json"), "utf8")).mcpServers, false);
+  });
+
+  it("adds the eight Google Workspace OAuth servers with product scopes", () => {
+    fixture();
+    addGoogleWorkspaceServers("123456789012.apps.googleusercontent.com", "GOCSPX-secret_value-1", agentDir);
+    const raw = JSON.parse(readFileSync(join(agentDir, "mcp.json"), "utf8"));
+    const names = Object.keys(raw.mcpServers)
+      .filter((name) => name.startsWith("gws-"))
+      .sort();
+    assert.deepEqual(names, [
+      "gws-calendar",
+      "gws-chat",
+      "gws-docs",
+      "gws-drive",
+      "gws-gmail",
+      "gws-people",
+      "gws-sheets",
+      "gws-slides",
+    ]);
+    assert.deepEqual(raw.mcpServers["gws-gmail"], {
+      url: "https://gmailmcp.googleapis.com/mcp/v1",
+      auth: "oauth",
+      httpTransport: "streamable-http",
+      protocolVersion: "auto",
+      oauth: {
+        clientId: "123456789012.apps.googleusercontent.com",
+        clientSecret: "GOCSPX-secret_value-1",
+        scope: "https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/gmail.compose",
+      },
+    });
+    assert.ok(raw.mcpServers.chrome_devtools);
+    const listed = listMcpServers(agentDir).servers;
+    assert.equal(listed.filter((s) => s.name.startsWith("gws-") && s.authType === "oauth").length, 8);
+  });
+
+  it("rejects a duplicate Google Workspace group and invalid credentials", () => {
+    fixture();
+    assert.throws(
+      () => addGoogleWorkspaceServers("", "GOCSPX-secret", agentDir),
+      /Client ID/,
+    );
+    assert.throws(
+      () => addGoogleWorkspaceServers("abc.apps.googleusercontent.com", "", agentDir),
+      /Client Secret/,
+    );
+    assert.throws(
+      () => addGoogleWorkspaceServers("bad id with spaces", "GOCSPX-secret", agentDir),
+      /Client IDが不正/,
+    );
+    addGoogleWorkspaceServers("abc.apps.googleusercontent.com", "GOCSPX-secret", agentDir);
+    assert.throws(
+      () => addGoogleWorkspaceServers("other.apps.googleusercontent.com", "GOCSPX-secret", agentDir),
+      /既に登録/,
+    );
+    const raw = JSON.parse(readFileSync(join(agentDir, "mcp.json"), "utf8"));
+    assert.equal(raw.mcpServers["gws-gmail"].oauth.clientId, "abc.apps.googleusercontent.com");
   });
 });
 

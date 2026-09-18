@@ -70,6 +70,22 @@ describe("/api/mcp POST", () => {
     expect(raw.mcpServers.slack.oauth.clientId).toBe("1601185624273.8899143856786");
   });
 
+  it("adds the Google Workspace server group", async () => {
+    const response = await POST(request({
+      preset: "google-workspace",
+      clientId: "abc.apps.googleusercontent.com",
+      clientSecret: "GOCSPX-secret",
+    }));
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as { ok?: boolean; servers?: unknown[] };
+    expect(body.ok).toBe(true);
+    expect(body.servers).toHaveLength(8);
+
+    const raw = JSON.parse(readFileSync(join(agentDir, "mcp.json"), "utf8"));
+    expect(raw.mcpServers["gws-calendar"].url).toBe("https://calendarmcp.googleapis.com/mcp/v1");
+    expect(raw.mcpServers["gws-calendar"].oauth.scope).toContain("calendar.events.readonly");
+  });
+
   it("rejects unsupported presets and duplicate registrations", async () => {
     const unsupported = await POST(request({ preset: "other", url: "https://example.com" }));
     expect(unsupported.status).toBe(400);
@@ -88,5 +104,7 @@ describe("/api/mcp POST", () => {
     expect((await POST(notJson)).status).toBe(400);
     expect((await POST(request({ preset: "n8n" }))).status).toBe(400);
     expect((await POST(request({ preset: "slack" }))).status).toBe(400);
+    expect((await POST(request({ preset: "google-workspace" }))).status).toBe(400);
+    expect((await POST(request({ preset: "google-workspace", clientId: "x" }))).status).toBe(400);
   });
 });

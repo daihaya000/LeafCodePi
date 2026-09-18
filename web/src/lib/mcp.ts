@@ -499,3 +499,90 @@ export function addSlackServer(clientId: string, agentDir = resolvePiAgentDir())
   atomicWrite(path, `${JSON.stringify(config, null, 2)}\n`);
   return listMcpServers(agentDir);
 }
+
+/** Google Workspace remote MCP servers (Developer Preview). */
+const GOOGLE_APIS_AUTH = "https://www.googleapis.com/auth/";
+const GOOGLE_WORKSPACE_MCP_SERVERS: readonly { name: string; url: string; scopes: readonly string[] }[] = [
+  { name: "gws-gmail", url: "https://gmailmcp.googleapis.com/mcp/v1", scopes: ["gmail.readonly", "gmail.compose"] },
+  { name: "gws-drive", url: "https://drivemcp.googleapis.com/mcp/v1", scopes: ["drive.readonly", "drive.file"] },
+  {
+    name: "gws-docs",
+    url: "https://docsmcp.googleapis.com/mcp/v1",
+    scopes: ["drive.readonly", "drive.file", "documents.readonly", "documents"],
+  },
+  {
+    name: "gws-sheets",
+    url: "https://sheetsmcp.googleapis.com/mcp/v1",
+    scopes: ["drive.readonly", "drive.file", "spreadsheets.readonly", "spreadsheets"],
+  },
+  {
+    name: "gws-slides",
+    url: "https://slidesmcp.googleapis.com/mcp/v1",
+    scopes: ["drive.readonly", "drive.file", "presentations.readonly", "presentations"],
+  },
+  {
+    name: "gws-calendar",
+    url: "https://calendarmcp.googleapis.com/mcp/v1",
+    scopes: ["calendar.calendarlist.readonly", "calendar.events.freebusy", "calendar.events.readonly"],
+  },
+  {
+    name: "gws-chat",
+    url: "https://chatmcp.googleapis.com/mcp/v1",
+    scopes: [
+      "chat.spaces.readonly",
+      "chat.memberships.readonly",
+      "chat.messages.readonly",
+      "chat.messages.create",
+      "chat.users.readstate",
+    ],
+  },
+  {
+    name: "gws-people",
+    url: "https://people.googleapis.com/mcp/v1",
+    scopes: ["directory.readonly", "userinfo.profile", "contacts.readonly"],
+  },
+];
+
+/**
+ * Add the Google Workspace remote MCP servers as OAuth entries. Google does
+ * not support dynamic client registration, so every product entry shares the
+ * pre-registered OAuth client pair and carries its own product scopes.
+ */
+export function addGoogleWorkspaceServers(
+  clientId: string,
+  clientSecret: string,
+  agentDir = resolvePiAgentDir(),
+): McpListResult {
+  const id = clientId.trim();
+  const secret = clientSecret.trim();
+  if (!id) throw new McpError("invalid-auth", "Google OAuth Client IDを入力してください");
+  if (!secret) throw new McpError("invalid-auth", "Google OAuth Client Secretを入力してください");
+  if (id.length > 256 || !/^[A-Za-z0-9._-]+$/.test(id)) {
+    throw new McpError("invalid-auth", "Google OAuth Client IDが不正です");
+  }
+  if (secret.length > 256 || !/^[A-Za-z0-9._-]+$/.test(secret)) {
+    throw new McpError("invalid-auth", "Google OAuth Client Secretが不正です");
+  }
+  const path = piMcpConfigPath(agentDir);
+  const config = readConfig(path);
+  for (const server of GOOGLE_WORKSPACE_MCP_SERVERS) {
+    if (isMcpServer(config.mcpServers[server.name])) {
+      throw new McpError("conflict", `${server.name} は既に登録されています`);
+    }
+  }
+  for (const server of GOOGLE_WORKSPACE_MCP_SERVERS) {
+    config.mcpServers[server.name] = {
+      url: server.url,
+      auth: "oauth",
+      httpTransport: "streamable-http",
+      protocolVersion: "auto",
+      oauth: {
+        clientId: id,
+        clientSecret: secret,
+        scope: server.scopes.map((scope) => `${GOOGLE_APIS_AUTH}${scope}`).join(" "),
+      },
+    };
+  }
+  atomicWrite(path, `${JSON.stringify(config, null, 2)}\n`);
+  return listMcpServers(agentDir);
+}

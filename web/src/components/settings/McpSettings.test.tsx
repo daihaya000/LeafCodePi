@@ -138,4 +138,42 @@ describe("McpSettings", () => {
     ));
     expect(await screen.findByRole("button", { name: "OAuth認証を開始" })).toBeTruthy();
   });
+
+  it("adds the Google Workspace group through the API", async () => {
+    const gwsServer = {
+      ...server,
+      id: "gws-gmail",
+      name: "gws-gmail",
+      url: "https://gmailmcp.googleapis.com/mcp/v1",
+      authType: "oauth" as const,
+      credentialConfigured: false,
+      credentialSource: "oauth" as const,
+      credentialStatus: "missing" as const,
+    };
+    client.getJson.mockImplementation((path: string) =>
+      path.endsWith("/auth")
+        ? Promise.resolve({
+            ...auth,
+            name: "gws-gmail",
+            authType: "oauth" as const,
+            credentialSource: "oauth" as const,
+            credentialStatus: "missing" as const,
+          })
+        : Promise.resolve({ servers: [server], configPath: auth.configPath }),
+    );
+    client.sendJson.mockResolvedValue({ ok: true, servers: [server, gwsServer] });
+
+    render(<McpSettings />);
+    const idInput = await screen.findByLabelText("Google Workspace のClient ID");
+    const secretInput = screen.getByLabelText("Google Workspace のClient Secret");
+    fireEvent.change(idInput, { target: { value: "abc.apps.googleusercontent.com" } });
+    fireEvent.change(secretInput, { target: { value: "GOCSPX-secret" } });
+    fireEvent.click(screen.getByRole("button", { name: "Google Workspace を追加" }));
+
+    await waitFor(() => expect(client.sendJson).toHaveBeenCalledWith(
+      "/api/mcp",
+      { preset: "google-workspace", clientId: "abc.apps.googleusercontent.com", clientSecret: "GOCSPX-secret" },
+      "POST",
+    ));
+  });
 });

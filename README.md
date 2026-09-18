@@ -193,6 +193,23 @@ Slack公式の MCP サーバー（`https://mcp.slack.com/mcp`）と、Slack公�
 
 **トラブルシューティング**: `Incompatible auth server: does not support dynamic client registration` は `oauth.clientId` の未設定が原因です（SlackはDCR非対応。このフォームで設定済みなら発生しません）。issuer 検証エラーが出る場合は、エントリの `oauth` に `"skipIssuerMetadataValidation": true` を追加してください（Slackの metadata issuer（`https://slack.com`）と MCP URL（`https://mcp.slack.com`）の差異による既知の回避策）。アプリに IP allowlist を設定している場合は、MCP クライアントの接続元 IP を許可リストに含めてください。
 
+### Google Workspace（公式MCP）
+
+Google公式の Google Workspace リモート MCP サーバー（Developer Preview）を組み込みで対応しています。Gmail / Drive / Docs / Sheets / Slides / Calendar / Chat / People の8プロダクトを一括追加します（Streamable HTTP、OAuth 2.0）。GoogleはDCR（動的クライアント登録）非対応のため、事前に作成した OAuth クライアント（Web application）を使います。
+
+**Google Cloud側**:
+
+1. Google Cloud プロジェクトで対象の API と MCP API を有効化します（例: `gmail.googleapis.com` + `gmailmcp.googleapis.com`。手順は [Configure the Google Workspace MCP servers](https://developers.google.com/workspace/guides/configure-mcp-servers) 参照）
+2. **Google Auth Platform → Branding / Audience / Data Access** で OAuth consent screen を設定し、使うプロダクトのスコープを追加します
+3. **Clients → Create client → Web application** で OAuth クライアントを作成し、**Authorized redirect URIs** に `http://localhost:19876/callback`（既定。`MCP_OAUTH_CALLBACK_PORT` で変更可）を追加します
+4. **Client ID** と **Client Secret** を控えます
+
+**LeafCodePi側**: WebUI の **設定 → 拡張 → MCP サーバー** の「Google Workspace を追加（OAuth）」に Client ID / Secret を入れると、`~/.pi/agent/mcp.json` に8エントリ（`gws-*`）が追加されます。プロダクトごとに **認証設定 → OAuth認証を開始** でブラウザ認証してください（使うプロダクトのみで構いません）。
+
+**注意**: OAuth クライアントの Client Secret は Slack の Bearer と異なり `~/.pi/agent/mcp.json` に保存されます（アダプターのOAuth仕様）。ファイルの取り扱いに注意してください。
+
+**トラブルシューティング**: 同意画面でスコープエラーが出る場合は、consent screen の **Data Access** に該当スコープを追加してください（Googleはconsent screenに登録したスコープのみ同意画面に出せます）。プロダクトごとに認証が必要です（例: Gmail のみ使うなら `gws-gmail` のOAuthだけで構いません）。
+
 ### Intercom
 
 `extensions/leafcode-intercom` に `pi-intercom` の LeafCodePi 組み込みフォークを同梱しています。`intercom` ツール、`/intercom`、Alt+M で別セッションへ1対1メッセージを送れます。

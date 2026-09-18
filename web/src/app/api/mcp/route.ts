@@ -1,10 +1,10 @@
 /**
  * GET /api/mcp — list global MCP servers (~/.pi/agent/mcp.json) with ON/OFF state.
- * POST /api/mcp — add a known preset server (n8n / slack) to the same file.
+ * POST /api/mcp — add a known preset server group (n8n / slack / google-workspace).
  */
 import { NextRequest, NextResponse } from "next/server";
 import { reloadLiveSessionsContext } from "@/lib/pi/harness";
-import { addN8nServer, addSlackServer, listMcpServers, mcpErrorStatus } from "@/lib/mcp";
+import { addGoogleWorkspaceServers, addN8nServer, addSlackServer, listMcpServers, mcpErrorStatus } from "@/lib/mcp";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -30,7 +30,12 @@ export async function POST(req: NextRequest) {
   if (!body || typeof body !== "object" || Array.isArray(body)) {
     return NextResponse.json({ error: "preset（n8n / slack）が必要です" }, { status: 400 });
   }
-  const { preset, url, clientId } = body as { preset?: unknown; url?: unknown; clientId?: unknown };
+  const { preset, url, clientId, clientSecret } = body as {
+    preset?: unknown;
+    url?: unknown;
+    clientId?: unknown;
+    clientSecret?: unknown;
+  };
 
   try {
     let name: string;
@@ -46,8 +51,17 @@ export async function POST(req: NextRequest) {
       }
       addSlackServer(clientId);
       name = "slack";
+    } else if (preset === "google-workspace") {
+      if (typeof clientId !== "string" || typeof clientSecret !== "string") {
+        return NextResponse.json(
+          { error: "preset（google-workspace）には clientId と clientSecret（string）が必要です" },
+          { status: 400 },
+        );
+      }
+      addGoogleWorkspaceServers(clientId, clientSecret);
+      name = "google-workspace";
     } else {
-      return NextResponse.json({ error: "preset（n8n / slack）が必要です" }, { status: 400 });
+      return NextResponse.json({ error: "preset（n8n / slack / google-workspace）が必要です" }, { status: 400 });
     }
 
     const reload = await reloadLiveSessionsContext();
