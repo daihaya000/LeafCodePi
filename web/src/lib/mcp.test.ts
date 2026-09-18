@@ -4,12 +4,14 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, it } from "vitest";
 import {
+  addN8nServer,
   disableMcpHeadersStore,
   enableMcpBearerStore,
   enableMcpHeadersStore,
   getMcpServerAuth,
   listMcpServers,
   mcpErrorStatus,
+  normalizeN8nServerUrl,
   piMcpConfigPath,
   resolveMcpServerUrl,
   setMcpServerEnabled,
@@ -136,12 +138,64 @@ describe("listMcpServers / setMcpServerEnabled", () => {
     fixture();
     assert.throws(() => setMcpServerEnabled("a/b", false, agentDir), /名前が不正/);
   });
+
+  it("adds an n8n OAuth entry while keeping existing servers", () => {
+    fixture();
+    addN8nServer("example.app.n8n.cloud", agentDir);
+    const raw = JSON.parse(readFileSync(join(agentDir, "mcp.json"), "utf8"));
+    assert.deepEqual(raw.mcpServers.n8n, {
+      url: "https://example.app.n8n.cloud/mcp-server/http",
+      auth: "oauth",
+      httpTransport: "streamable-http",
+      protocolVersion: "auto",
+    });
+    assert.ok(raw.mcpServers.chrome_devtools);
+    const listed = listMcpServers(agentDir).servers.find((s) => s.name === "n8n");
+    assert.equal(listed?.source, "http");
+    assert.equal(listed?.authType, "oauth");
+    assert.equal(listed?.enabled, true);
+  });
+
+  it("rejects a second n8n registration without touching the file", () => {
+    fixture();
+    addN8nServer("https://example.app.n8n.cloud/mcp-server/http", agentDir);
+    assert.throws(() => addN8nServer("https://other.example.com", agentDir), /既に登録/);
+    const raw = JSON.parse(readFileSync(join(agentDir, "mcp.json"), "utf8"));
+    assert.equal(raw.mcpServers.n8n.url, "https://example.app.n8n.cloud/mcp-server/http");
+  });
+});
+
+describe("normalizeN8nServerUrl", () => {
+  it("assumes https and appends the instance MCP endpoint path", () => {
+    assert.equal(
+      normalizeN8nServerUrl("example.app.n8n.cloud"),
+      "https://example.app.n8n.cloud/mcp-server/http",
+    );
+    assert.equal(
+      normalizeN8nServerUrl("https://example.app.n8n.cloud/"),
+      "https://example.app.n8n.cloud/mcp-server/http",
+    );
+    assert.equal(
+      normalizeN8nServerUrl("http://localhost:5678"),
+      "http://localhost:5678/mcp-server/http",
+    );
+  });
+
+  it("keeps explicit paths and rejects invalid input", () => {
+    assert.equal(
+      normalizeN8nServerUrl("https://example.com/n8n/mcp-server/http"),
+      "https://example.com/n8n/mcp-server/http",
+    );
+    assert.throws(() => normalizeN8nServerUrl("ftp://example.com"), /http\(s\)/);
+    assert.throws(() => normalizeN8nServerUrl("   "), McpError);
+  });
 });
 
 describe("mcpErrorStatus", () => {
   it("maps invalid-name to 400 and not-found to 404", () => {
     assert.equal(mcpErrorStatus(new McpError("invalid-name", "x")), 400);
     assert.equal(mcpErrorStatus(new McpError("not-found", "x")), 404);
+    assert.equal(mcpErrorStatus(new McpError("conflict", "x")), 409);
     assert.equal(mcpErrorStatus(new Error("boom")), 500);
   });
 });

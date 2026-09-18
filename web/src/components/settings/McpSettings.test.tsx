@@ -67,4 +67,38 @@ describe("McpSettings", () => {
     await waitFor(() => expect(screen.queryByDisplayValue(token)).toBeNull());
     expect(screen.queryByText(token)).toBeNull();
   });
+
+  it("adds n8n through the API and opens its OAuth panel", async () => {
+    const oauthServer = {
+      ...server,
+      authType: "oauth" as const,
+      credentialConfigured: false,
+      credentialSource: "oauth" as const,
+      credentialStatus: "missing" as const,
+    };
+    const oauthAuth = {
+      ...auth,
+      authType: "oauth" as const,
+      credentialSource: "oauth" as const,
+      credentialStatus: "missing" as const,
+    };
+    client.getJson.mockImplementation((path: string) =>
+      path.endsWith("/auth")
+        ? Promise.resolve(oauthAuth)
+        : Promise.resolve({ servers: [], configPath: auth.configPath }),
+    );
+    client.sendJson.mockResolvedValue({ ok: true, servers: [oauthServer] });
+
+    render(<McpSettings />);
+    const input = await screen.findByLabelText("n8n のURL");
+    fireEvent.change(input, { target: { value: "https://example.app.n8n.cloud" } });
+    fireEvent.click(screen.getByRole("button", { name: "追加" }));
+
+    await waitFor(() => expect(client.sendJson).toHaveBeenCalledWith(
+      "/api/mcp",
+      { preset: "n8n", url: "https://example.app.n8n.cloud" },
+      "POST",
+    ));
+    expect(await screen.findByRole("button", { name: "OAuth認証を開始" })).toBeTruthy();
+  });
 });

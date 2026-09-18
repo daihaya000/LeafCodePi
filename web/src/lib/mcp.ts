@@ -82,7 +82,7 @@ export type McpListResult = {
 
 export class McpError extends Error {
   constructor(
-    readonly code: "invalid-name" | "not-found" | "invalid-auth" | "auth-unavailable",
+    readonly code: "invalid-name" | "not-found" | "invalid-auth" | "auth-unavailable" | "conflict",
     message: string,
   ) {
     super(message);
@@ -93,6 +93,7 @@ export function mcpErrorStatus(error: unknown): number {
   if (error instanceof McpError) {
     if (error.code === "invalid-name" || error.code === "invalid-auth") return 400;
     if (error.code === "not-found") return 404;
+    if (error.code === "conflict") return 409;
     if (error.code === "auth-unavailable") return 503;
   }
   return 500;
@@ -419,5 +420,49 @@ export function setMcpServerEnabled(
   else server.entry.disabled = true;
 
   atomicWrite(server.path, `${JSON.stringify(server.config, null, 2)}\n`);
+  return listMcpServers(agentDir);
+}
+
+/**
+ * Normalize an n8n instance URL to its instance-level MCP endpoint. A bare
+ * hostname is assumed to be https, and `/mcp-server/http` is appended when
+ * the URL has no path, matching n8n's "Connect a client" Server URL.
+ */
+export function normalizeN8nServerUrl(input: string): string {
+  const trimmed = input.trim();
+  if (!trimmed) throw new McpError("invalid-auth", "n8n のURLを入力してください");
+  const withScheme = /^[a-z][a-z0-9+.-]*:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
+  let parsed: URL;
+  try {
+    parsed = new URL(withScheme);
+  } catch {
+    throw new McpError("invalid-auth", "n8n のURLが不正です");
+  }
+  if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
+    throw new McpError("invalid-auth", "n8n のURLは http(s) を指定してください");
+  }
+  if (!parsed.hostname) throw new McpError("invalid-auth", "n8n のURLが不正です");
+  const pathname = parsed.pathname.replace(/\/+$/, "");
+  parsed.pathname = pathname === "" ? "/mcp-server/http" : pathname;
+  parsed.search = "";
+  parsed.hash = "";
+  return parsed.toString();
+}
+
+/** Add the n8n instance-level MCP server as an OAuth HTTP entry. */
+export function addN8nServer(input: string, agentDir = resolvePiAgentDir()): McpListResult {
+  const path = piMcpConfigPath(agentDir);
+  const config = readConfig(path);
+  if (isMcpServer(config.mcpServers["n8n"])) {
+    throw new McpError("conflict", "n8n は既に登録されています");
+  }
+  const url = normalizeN8nServerUrl(input);
+  config.mcpServers["n8n"] = {
+    url,
+    auth: "oauth",
+    httpTransport: "streamable-http",
+    protocolVersion: "auto",
+  };
+  atomicWrite(path, `${JSON.stringify(config, null, 2)}\n`);
   return listMcpServers(agentDir);
 }

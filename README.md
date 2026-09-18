@@ -137,9 +137,11 @@ pi install ./extensions/leafcode-mcp-adapter
 
 n8n公式の Instance-level MCP サーバーと、n8n公式Skills（[n8n-io/skills](https://github.com/n8n-io/skills)）を組み込みで同梱しています。
 
-**n8n側**: **Settings → Instance-level MCP** で MCP access を有効化し、**Connect a client** の Server URL（`https://<domain>/mcp-server/http`）と、**API key** タブのアクセストークンを用意します（この2つは n8n 2.33.0 以降のUI。Instance-level MCP 自体は n8n 2.2.0 以降）。
+**n8n側**: **Settings → Instance-level MCP** で MCP access を有効化します（n8n 2.2.0 以降）。OAuth で接続する場合は追加の準備はありません。APIキーを使う場合は **Connect a client → API key** タブでアクセストークンを生成し、Server URL（`https://<domain>/mcp-server/http`）を控えます（Connect a client は n8n 2.33.0 以降のUI）。
 
-**LeafCodePi側**: `.mcp.json` または `~/.pi/agent/mcp.json` に次のエントリを追加します。`url` へ Server URL を直接書いても、`${N8N_MCP_URL}` / `N8N_MCP_ACCESS_TOKEN` の環境変数を使っても構いません。TUI では `/mcp setup` の n8n preset からも追加できます。
+**LeafCodePi側（OAuth・推奨）**: WebUI の **設定 → 拡張 → MCP サーバー** の「n8n を追加（OAuth）」にインスタンスURL（例 `https://example.app.n8n.cloud`）を入れると、`~/.pi/agent/mcp.json` に `auth: "oauth"` のエントリが追加されます（`/mcp-server/http` は自動補完）。続いて **認証設定 → OAuth認証を開始** でブラウザ認証し、コールバックURLまたは認証コードを貼り付けて完了します（n8n側は DCR（RFC 7591）でクライアント登録されます。実機の認証フローはn8nのバージョンで確認してください）。
+
+**LeafCodePi側（APIキー / 手動）**: `.mcp.json` または `~/.pi/agent/mcp.json` に次のエントリを追加します。`url` へ Server URL を直接書いても、`${N8N_MCP_URL}` / `N8N_MCP_ACCESS_TOKEN` の環境変数を使っても構いません。TUI では `/mcp setup` の n8n preset からも追加できます。
 
 ```json
 {

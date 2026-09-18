@@ -1,0 +1,77 @@
+import { NextRequest } from "next/server";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+const harness = vi.hoisted(() => ({
+  reloadLiveSessionsContext: vi.fn(async () => ({ reloaded: 1 })),
+}));
+
+vi.mock("@/lib/pi/harness", () => harness);
+
+import { POST } from "./route";
+
+function request(body?: unknown): NextRequest {
+  return new NextRequest("http://127.0.0.1:3010/api/mcp", {
+    method: "POST",
+    headers: body === undefined ? undefined : { "content-type": "application/json" },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+}
+
+describe("/api/mcp POST", () => {
+  let agentDir = "";
+  let previousAgentDir: string | undefined;
+
+  beforeEach(() => {
+    agentDir = mkdtempSync(join(tmpdir(), "leafcode-pi-mcp-route-"));
+    previousAgentDir = process.env.PI_CODING_AGENT_DIR;
+    process.env.PI_CODING_AGENT_DIR = agentDir;
+    harness.reloadLiveSessionsContext.mockClear();
+  });
+
+  afterEach(() => {
+    if (previousAgentDir === undefined) delete process.env.PI_CODING_AGENT_DIR;
+    else process.env.PI_CODING_AGENT_DIR = previousAgentDir;
+    rmSync(agentDir, { recursive: true, force: true });
+  });
+
+  it("adds n8n as an OAuth server and returns the refreshed list", async () => {
+    const response = await POST(request({ preset: "n8n", url: "example.app.n8n.cloud" }));
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as { ok?: boolean; servers?: unknown[] };
+    expect(body.ok).toBe(true);
+    expect(body.servers).toEqual([
+      expect.objectContaining({ id: "n8n", source: "http", authType: "oauth", enabled: true }),
+    ]);
+    expect(harness.reloadLiveSessionsContext).toHaveBeenCalledTimes(1);
+
+    const raw = JSON.parse(readFileSync(join(agentDir, "mcp.json"), "utf8"));
+    expect(raw.mcpServers.n8n).toEqual({
+      url: "https://example.app.n8n.cloud/mcp-server/http",
+      auth: "oauth",
+      httpTransport: "streamable-http",
+      protocolVersion: "auto",
+    });
+  });
+
+  it("rejects unsupported presets and duplicate registrations", async () => {
+    const unsupported = await POST(request({ preset: "other", url: "https://example.com" }));
+    expect(unsupported.status).toBe(400);
+
+    await POST(request({ preset: "n8n", url: "example.app.n8n.cloud" }));
+    const duplicate = await POST(request({ preset: "n8n", url: "example.app.n8n.cloud" }));
+    expect(duplicate.status).toBe(409);
+  });
+
+  it("rejects invalid request bodies", async () => {
+    const notJson = new NextRequest("http://127.0.0.1:3010/api/mcp", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: "{not json",
+    });
+    expect((await POST(notJson)).status).toBe(400);
+    expect((await POST(request({ preset: "n8n" }))).status).toBe(400);
+  });
+});

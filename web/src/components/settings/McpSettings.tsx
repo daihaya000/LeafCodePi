@@ -60,6 +60,7 @@ const MCP_SERVER_DESCRIPTIONS: Readonly<Record<string, string>> = {
   metatrader: "MetaTrader 5 の口座・相場・注文・ポジションを確認・管理します。",
   "mt5-build": "MQL4/MQL5 のコンパイル、静的検査、デプロイ、Strategy Tester、レポート解析を行います。",
   "comfy-mcp": "ComfyUI で画像・動画・音声・3D生成、ワークフロー編集、ジョブ監視を行います。",
+  n8n: "n8n公式 Instance-level MCP。ワークフローの検索・作成・検証・実行を OAuth または Bearer で操作します。",
 };
 
 function authTypeLabel(type: McpAuthType): string {
@@ -113,6 +114,8 @@ export function McpSettings() {
   const [headerValueById, setHeaderValueById] = useState<Record<string, string>>({});
   const [oauthInputById, setOauthInputById] = useState<Record<string, string>>({});
   const [oauthUrlById, setOauthUrlById] = useState<Record<string, string>>({});
+  const [n8nUrl, setN8nUrl] = useState("");
+  const [addBusy, setAddBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -172,6 +175,32 @@ export function McpSettings() {
       setError(err instanceof Error ? err.message : "MCP認証状態の取得に失敗しました");
     } finally {
       setAuthBusyId(null);
+    }
+  }
+
+  async function addN8n() {
+    const url = n8nUrl.trim();
+    if (!url) {
+      setError("n8n のURLを入力してください");
+      return;
+    }
+    setAddBusy(true);
+    setError(null);
+    try {
+      const result = await sendJson<{ servers: McpDto[] }>(
+        "/api/mcp",
+        { preset: "n8n", url },
+        "POST",
+      );
+      setServers(result.servers);
+      setAuthById({});
+      setN8nUrl("");
+      const added = result.servers.find((server) => server.id === "n8n");
+      if (added) await openAuth(added);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "n8n の追加に失敗しました");
+    } finally {
+      setAddBusy(false);
     }
   }
 
@@ -462,7 +491,7 @@ export function McpSettings() {
     );
   }
 
-  const anyBusy = Boolean(busyId || authBusyId);
+  const anyBusy = Boolean(busyId || authBusyId || addBusy);
 
   return (
     <div className="rounded-2xl border border-border bg-surface p-4">
@@ -544,6 +573,38 @@ export function McpSettings() {
             </li>
           ))}
         </ul>
+      )}
+      {!servers.some((server) => server.id === "n8n") && (
+        <div className="mt-3 rounded-xl border border-dashed border-border bg-surface-2 px-3 py-3">
+          <p className="text-xs font-medium text-text">n8n を追加（OAuth）</p>
+          <p className="mt-1 text-[11px] leading-4 text-muted">
+            n8n インスタンスのURLを入力します（例: https://example.app.n8n.cloud）。
+            パスを省略した場合は末尾の <span className="font-mono">/mcp-server/http</span> を自動で補完します。
+          </p>
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            <label className="min-w-0 flex-1">
+              <span className="sr-only">n8n のURL</span>
+              <input
+                type="url"
+                autoComplete="off"
+                value={n8nUrl}
+                onChange={(event) => setN8nUrl(event.target.value)}
+                placeholder="https://example.app.n8n.cloud"
+                className="h-9 w-full rounded-lg border border-border bg-bg px-3 text-xs text-text outline-none focus:border-border-strong"
+                disabled={addBusy || anyBusy}
+              />
+            </label>
+            <Button
+              size="sm"
+              variant="primary"
+              onClick={() => void addN8n()}
+              busy={addBusy}
+              disabled={loading || !n8nUrl.trim() || anyBusy}
+            >
+              追加
+            </Button>
+          </div>
+        </div>
       )}
       {error && <p className="mt-2 text-sm text-danger" role="alert">{error}</p>}
     </div>
