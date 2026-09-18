@@ -7,6 +7,7 @@ type Preparation = {
   messagesToSummarize: Message[];
   turnPrefixMessages: Message[];
   tokensBefore: number;
+  previousSummary?: string;
 };
 
 type ToolResult = { id: string; toolName: string; text: string };
@@ -148,11 +149,14 @@ export async function compactWithJev(
   preparation: Preparation,
   threshold: number,
   signal: AbortSignal,
+  customInstructions?: string,
 ): Promise<CompactionResult | undefined> {
-  // Pi creates a second summary for the retained suffix of a split turn. This
-  // transcript format cannot represent that or custom message roles safely.
+  // Pi's default compaction handles summary updates, split turns, custom focus,
+  // and nonstandard messages; this transcript format cannot preserve them.
   if (
+    preparation.previousSummary ||
     preparation.turnPrefixMessages.length > 0 ||
+    customInstructions?.trim() ||
     preparation.messagesToSummarize.some((message) => !isSupportedMessage(message))
   ) return undefined;
   const results = resultMessages(preparation.messagesToSummarize);

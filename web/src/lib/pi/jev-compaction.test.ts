@@ -73,14 +73,17 @@ describe("compactWithJev", () => {
     expect(result?.summary).toContain("[TOOLRESULT]\nneeded");
   });
 
-  it("falls back to Pi for split turns and unsupported message roles", async () => {
+  it("falls back to Pi when its full compaction features are needed", async () => {
     for (const input of [
+      { ...preparation, previousSummary: "prior work" },
       { ...preparation, turnPrefixMessages: [{ role: "assistant", content: [{ type: "text", text: "retained suffix" }] }] },
       { ...preparation, messagesToSummarize: [{ role: "bashExecution", output: "output" }] },
     ]) {
       const result = await compactWithJev(input as never, 0.6, new AbortController().signal);
       expect(result).toBeUndefined();
     }
+    const focused = await compactWithJev(preparation as never, 0.6, new AbortController().signal, "retain errors");
+    expect(focused).toBeUndefined();
     expect(evaluateTypeSafe).not.toHaveBeenCalled();
   });
 });

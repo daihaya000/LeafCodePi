@@ -3094,6 +3094,7 @@ function sessionExtensionFactories(input: {
           event.preparation,
           parseJevCompactionThreshold(getSetting(JEV_COMPACTION_THRESHOLD_SETTING_KEY)),
           event.signal,
+          event.customInstructions,
         );
         return compaction ? { compaction } : undefined;
       });
