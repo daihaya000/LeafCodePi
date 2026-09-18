@@ -189,6 +189,8 @@ Slack公式の MCP サーバー（`https://mcp.slack.com/mcp`）と、Slack公�
 
 **Slack公式Skills**: `skills/` に8スキル（slack-messaging / slack-search / slack-api / slack-cli / slack-docs / block-kit / create-slack-app / test-slack-app）と references を同梱しています。組み込みスキルとして自動検出され、設定画面から有効／無効を切り替えられます。取り込み元・更新手順は [`skills/slack-skills-SOURCE.md`](skills/slack-skills-SOURCE.md) を参照してください。
 
+**トラブルシューティング**: `Incompatible auth server: does not support dynamic client registration` は `oauth.clientId` の未設定が原因です（SlackはDCR非対応。このフォームで設定済みなら発生しません）。issuer 検証エラーが出る場合は、エントリの `oauth` に `"skipIssuerMetadataValidation": true` を追加してください（Slackの metadata issuer（`https://slack.com`）と MCP URL（`https://mcp.slack.com`）の差異による既知の回避策）。
+
 ### Intercom
 
 `extensions/leafcode-intercom` に `pi-intercom` の LeafCodePi 組み込みフォークを同梱しています。`intercom` ツール、`/intercom`、Alt+M で別セッションへ1対1メッセージを送れます。
