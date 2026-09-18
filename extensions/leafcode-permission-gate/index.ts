@@ -63,15 +63,24 @@ const BROAD_KILL_TARGET_PATTERN = /\b(?:kill|pkill)\b[^\r\n]*(?:^|\s)--\s*-1(?:\
 /**
  * `git commit -m "…"` bodies are data, not commands. Mask them so a commit
  * message quoting a stop command or the host name cannot trip the self-stop
- * guard. Bodies with command substitution still execute, so they stay scanned;
- * quoted text elsewhere (`sh -c "…"`) runs and is never masked.
+ * guard. Masking runs per line, so a quoted `;` inside the message cannot break
+ * the match, and every message flag on that line is masked. Bodies with command
+ * substitution still execute, so those stay scanned; quoted text elsewhere
+ * (`sh -c "…"`) runs and is never masked.
  */
 function maskGitMessageBodies(command: string): string {
-  return command.replace(
-    /((?:^|[;&|\r\n]\s*)git\b[^\r\n;&|]*?\bcommit\b[^\r\n;&|]*?\s(?:-m|--message)=?\s*)(["'])([\s\S]*?)\2/gi,
-    (full, prefix: string, _quote: string, body: string) =>
-      /\$\(|`/.test(body) ? full : `${prefix}""`,
-  );
+  return command
+    .split(/(\r?\n)/)
+    .map((line) =>
+      /\bgit\b[^\r\n;&|]*?\bcommit\b/i.test(line)
+        ? line.replace(
+            /(\s(?:-[a-zA-Z]*m|--message)=?\s*)(["'])([\s\S]*?)\2/gi,
+            (full, prefix: string, _quote: string, body: string) =>
+              /\$\(|`/.test(body) ? full : `${prefix}""`,
+          )
+        : line,
+    )
+    .join("");
 }
 
 /**
@@ -630,7 +639,8 @@ function maskHeredocBodies(command: string): string {
 function matchSystemSafetyCommandInner(command: string, depth: number): SystemSafetyMatch[] {
   // Decode obfuscation the same way protected-path scanning does, so
   // `& ('Stop-' + 'Computer')` still hits the shutdown rule at low/standard.
-  const masked = maskHeredocBodies(command);
+  // Commit message bodies are data too: `git commit -m "shutdown …"` runs nothing.
+  const masked = maskGitMessageBodies(maskHeredocBodies(command));
   const docsOnly = isDocumentationOnlyCommand(masked);
   // Plain `echo 'shutdown; rm -rf /'` is documentation — do not classify the quoted body.
   if (docsOnly) {

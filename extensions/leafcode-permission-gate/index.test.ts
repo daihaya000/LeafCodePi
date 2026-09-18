@@ -557,6 +557,15 @@ describe("system safety classifier", () => {
     );
   });
 
+  it("treats git commit message bodies as data for every system safety rule", () => {
+    assert.deepEqual(matchSystemSafetyCommand('git commit -m "docs: shutdown /s handling"'), []);
+    assert.ok(
+      matchSystemSafetyCommand('git commit -m "docs" ; shutdown /s').some(
+        (match) => match.label === "OS shutdown/restart",
+      ),
+    );
+  });
+
   it("recognizes LeafCodePi self-termination targets", () => {
     assert.equal(isLeafCodePiStopCommand("taskkill /F /IM LeafCodePi.exe"), true);
     assert.equal(isLeafCodePiStopCommand("Stop-Process -Name node -Force"), true);
@@ -604,6 +613,18 @@ describe("system safety classifier", () => {
       false,
     );
     assert.equal(isLeafCodePiStopCommand('git commit -m "chore: $(Stop-Process -Name node)"'), true);
+    // Every message flag in the same commit segment is masked, not just the first.
+    assert.equal(
+      isLeafCodePiStopCommand('git commit -m "a" -m "keep the host alive; no Stop-Process node"'),
+      false,
+    );
+    assert.equal(
+      isLeafCodePiStopCommand('git commit --message="keep the host alive; no Stop-Process node"'),
+      false,
+    );
+    // Combined short flags still carry the message (`-am`, `-sm`).
+    assert.equal(isLeafCodePiStopCommand('git commit -am "keep alive; no Stop-Process node"'), false);
+    assert.equal(isLeafCodePiStopCommand('git commit -sm "keep alive; no Stop-Process node"'), false);
   });
 });
 
