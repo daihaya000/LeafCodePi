@@ -63,6 +63,16 @@ describe("jev_judge tool", () => {
     expect(mockEvaluate).not.toHaveBeenCalled();
   });
 
+  it("rejects malformed answers before presenting them to the agent", async () => {
+    mockEvaluate.mockResolvedValueOnce(okResponse({
+      ready: { type: "score", score: 1, confidence: 0.9 },
+    }));
+    await expect(tool().execute("call", {
+      state: "The build passed.",
+      questions: [{ id: "ready", type: "noul", instructions: "Is the build ready?" }],
+    })).rejects.toThrow("mismatched");
+  });
+
   it("rejects a choice answer outside the requested options", async () => {
     mockEvaluate.mockResolvedValueOnce(okResponse({
       dept: { type: "choice", choice: "unknown-team", confidence: 0.9 },

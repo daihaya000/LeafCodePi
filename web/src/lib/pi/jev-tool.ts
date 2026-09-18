@@ -63,21 +63,40 @@ function validateQuestions(questions: readonly JevQuestionInput[]): void {
   }
 }
 
-/** Choice answers outside the requested options are a contract violation, never a selection. */
+/** Reject malformed API results rather than presenting them as a usable judgment. */
 function validateAnswers(
   questions: readonly JevQuestionInput[],
   response: TypeSafeResponse,
 ): void {
   for (const question of questions) {
     const answer = response.answers[question.id];
-    if (!answer) throw new Error(`Jev: missing answer for question "${question.id}"`);
-    if (question.type === "choice" && typeof answer.choice === "string") {
+    if (!answer || answer.type !== question.type) {
+      throw new Error(`Jev: missing or mismatched answer for question "${question.id}"`);
+    }
+    if (question.type === "noul") {
+      if (!isProbability(answer.noul)) throw new Error(`Jev: invalid noul answer for question "${question.id}"`);
+      continue;
+    }
+    if (!isProbability(answer.confidence)) {
+      throw new Error(`Jev: invalid confidence for question "${question.id}"`);
+    }
+    if (question.type === "choice") {
+      if (typeof answer.choice !== "string") throw new Error(`Jev: missing choice for question "${question.id}"`);
       const options = Object.keys(question.criteria as Record<string, unknown>);
       if (!options.includes(answer.choice)) {
         throw new Error(`Jev: choice "${answer.choice}" is not one of [${options.join(", ")}]; ignore this answer`);
       }
+      continue;
+    }
+    const levels = question.criteria as readonly string[];
+    if (!Number.isFinite(answer.score) || answer.score! < 0 || answer.score! > levels.length - 1) {
+      throw new Error(`Jev: invalid score for question "${question.id}"`);
     }
   }
+}
+
+function isProbability(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= 1;
 }
 
 const JEV_TOOL_DESCRIPTION = [
