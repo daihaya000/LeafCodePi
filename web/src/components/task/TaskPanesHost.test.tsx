@@ -244,9 +244,7 @@ describe("TaskPanesHost lazy tab mounting", () => {
     expect(switches[0]?.getAttribute("aria-checked")).toBe("false");
     expect(switches[0]?.querySelector("svg")).not.toBeNull();
     expect(switches[0]?.className).toContain("text-muted");
-    expect(switches[0]?.getAttribute("title")).toBe(
-      "新規セッション・Botを新しいペインと既存タブのどちらで開くか切り替え",
-    );
+    expect(switches[0]?.getAttribute("title")).toBe("新しいペインを優先");
 
     fireEvent.click(switches[0]!);
 
@@ -255,9 +253,7 @@ describe("TaskPanesHost lazy tab mounting", () => {
       expect(switches[0]?.getAttribute("aria-checked")).toBe("true");
       expect(switches[0]?.className).toContain("text-accent");
       // ツールチップは状態に依存せず固定
-      expect(switches[0]?.getAttribute("title")).toBe(
-        "新規セッション・Botを新しいペインと既存タブのどちらで開くか切り替え",
-      );
+      expect(switches[0]?.getAttribute("title")).toBe("新しいペインを優先");
     });
   });
 
