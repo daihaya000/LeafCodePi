@@ -283,7 +283,6 @@ describe("listMcpServers / setMcpServerEnabled", () => {
     assert.deepEqual(raw.mcpServers.notion, {
       url: "https://mcp.notion.com/mcp",
       auth: "oauth",
-      httpTransport: "streamable-http",
       protocolVersion: "auto",
     });
     assert.equal(listMcpServers(agentDir).servers.find((s) => s.name === "notion")?.authType, "oauth");

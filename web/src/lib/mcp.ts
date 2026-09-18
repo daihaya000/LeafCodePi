@@ -593,7 +593,11 @@ export function addGoogleWorkspaceServers(
 /** Notion's hosted MCP endpoint (OAuth with dynamic client registration). */
 const NOTION_MCP_URL = "https://mcp.notion.com/mcp";
 
-/** Add Notion's hosted MCP server as an OAuth entry (DCR; no client ID needed). */
+/**
+ * Add Notion's hosted MCP server as an OAuth entry (DCR; no client ID needed).
+ * Notion serves both Streamable HTTP and SSE, so no transport is forced and
+ * the adapter keeps its streamable-first negotiation with SSE fallback.
+ */
 export function addNotionServer(agentDir = resolvePiAgentDir()): McpListResult {
   const path = piMcpConfigPath(agentDir);
   const config = readConfig(path);
@@ -603,7 +607,6 @@ export function addNotionServer(agentDir = resolvePiAgentDir()): McpListResult {
   config.mcpServers["notion"] = {
     url: NOTION_MCP_URL,
     auth: "oauth",
-    httpTransport: "streamable-http",
     protocolVersion: "auto",
   };
   atomicWrite(path, `${JSON.stringify(config, null, 2)}\n`);

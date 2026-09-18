@@ -775,7 +775,7 @@ export function McpSettings() {
               <p className="text-xs font-medium text-text">Notion を追加（OAuth）</p>
               <p className="mt-1 text-[11px] leading-4 text-muted">
                 Notion公式のホスト型MCPサーバー（mcp.notion.com）を追加します。OAuthはDCR（動的クライアント登録）で自動設定されます。
-                追加後に「認証設定 → OAuth認証を開始」でNotionワークスペースを認可してください。
+                追加すると認証パネルが開くので、OAuth認証を開始 でNotionワークスペースを認可してください。
               </p>
               <div className="mt-2">
                 <Button

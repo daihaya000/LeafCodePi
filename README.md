@@ -230,7 +230,6 @@ Notion公式のホスト型MCPサーバー（`https://mcp.notion.com/mcp`）を�
     "notion": {
       "url": "https://mcp.notion.com/mcp",
       "auth": "oauth",
-      "httpTransport": "streamable-http",
       "protocolVersion": "auto"
     }
   }
