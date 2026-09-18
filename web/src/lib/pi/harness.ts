@@ -19,6 +19,7 @@ import { BOT_CODE_RESULT, BOT_CODE_TOOL, botCodeReportText, createBotCodeRelay, 
 import { catalogFromRoomUserRequest, catalogFromSessionEntries } from "@/lib/pi/bot-code-images";
 import { roomRequestImages } from "@/lib/rooms";
 import { BOT_SOUL_TOOL, botSoulTool } from "@/lib/pi/bot-soul-tool";
+import { JEV_TOOL_NAME, registerJevTool } from "@/lib/pi/jev-tool";
 import { ROOM_HANDOFF_TOOL, roomHandoffTool } from "@/lib/room-handoff-tool";
 import { botIntercomTool } from "@/lib/bot-intercom-tool";
 import {
@@ -2971,6 +2972,7 @@ export function sessionToolNames(input: {
         ...(input.subagentPermission === "allow" ? ["subagent"] : []),
         "todowrite",
         TOOL_SEARCH_NAME,
+        JEV_TOOL_NAME,
       ];
   const registeredTools = input.botTools
     ? BOT_TOOL_NAMES.filter((tool) => tool !== "powershell" || platform === "win32")
@@ -3097,6 +3099,7 @@ function sessionExtensionFactories(input: {
       ? (api: ExtensionAPI) =>
           registerDeferredTools(api, input.botToolAllowlist)
       : registerDeferredTools,
+    registerJevTool,
     ...(input.taskId ? [registerGoalLoopTurnRouting(input.taskId)] : []),
     ...(input.hasBotSkills
       ? [
