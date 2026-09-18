@@ -743,8 +743,9 @@ export const SidebarTaskRow = memo(function SidebarTaskRow({
   const cannotPromote = promotionBlocked(task);
   // 展開したプロジェクトは数百行を一度に描画するため、画面外の行は layout/paint をスキップさせる。
   // content-visibility の paint containment でフォーカスリングが欠けるので、行内のボタンは内側へ寄せる。
+  // contain-intrinsic-size のフォールバックは実測の行高（約53px）に合わせ、未描画行の高さズレを防ぐ。
   return (
-    <li className="group rounded-lg [content-visibility:auto] [contain-intrinsic-size:auto_2.5rem] [&_button:focus-visible]:outline-offset-[-2px]">
+    <li className="group rounded-lg [content-visibility:auto] [contain-intrinsic-size:auto_3.25rem] [&_button:focus-visible]:outline-offset-[-2px]">
       <div className="flex items-center">
         <button
           type="button"

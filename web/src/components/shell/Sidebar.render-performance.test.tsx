@@ -63,7 +63,8 @@ describe("SidebarTaskRow render stability", () => {
     const view = render(<SidebarTaskRow task={task} active={false} pinned={false} mdUp actionBusy={false} {...callbacks} />);
     const row = view.container.querySelector("li");
     expect(row?.className).toContain("[content-visibility:auto]");
-    expect(row?.className).toContain("[contain-intrinsic-size:auto_2.5rem]");
+    // 未描画行のプレースホルダ高さは実測の行高（約53px）に合わせる。
+    expect(row?.className).toContain("[contain-intrinsic-size:auto_3.25rem]");
     // paint containment で行内ボタンのフォーカスリングが欠けないようにする。
     expect(row?.className).toContain("[&_button:focus-visible]:outline-offset-[-2px]");
   });
