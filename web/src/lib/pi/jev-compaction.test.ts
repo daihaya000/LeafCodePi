@@ -16,6 +16,20 @@ const preparation = {
 };
 
 describe("compactWithJev", () => {
+  it("batches tool-result questions to stay under Jev request limits", async () => {
+    const messages = Array.from({ length: 33 }, (_, index) => ({
+      role: "toolResult",
+      toolCallId: `call-${index}`,
+      toolName: "read",
+      content: [{ type: "text", text: "file body" }],
+    }));
+    evaluateTypeSafe.mockResolvedValue({
+      answers: Object.fromEntries(messages.map((message) => [message.toolCallId, { noul: 0.1 }])),
+    });
+    await compactWithJev({ ...preparation, messagesToSummarize: messages }, 0.6, new AbortController().signal);
+    expect(evaluateTypeSafe).toHaveBeenCalledTimes(2);
+  });
+
   it("preserves the tool call while removing a result Jev marks unnecessary", async () => {
     evaluateTypeSafe.mockResolvedValue({ answers: { "call-1": { noul: 0.2 } } });
     const result = await compactWithJev(preparation, 0.6, new AbortController().signal);
