@@ -23,12 +23,12 @@ export type TodoDetails = {
 const MAX_TODOS = 100;
 const TODO_GATE_READ_LIMIT = 3;
 const TODO_GATE_REASON =
-  "ToDo required: call todowrite with a non-empty list and mark the current item in_progress before retrying this tool.";
+  "ToDoが未起票です。作業前に todowrite で項目を1件以上登録し、着手項目を in_progress にしてください。";
 // Delivered once per task at settlement. Wording stays task-agnostic so a
 // follow-up that lands on the next prompt cannot misdescribe the new task.
 const TODO_GATE_MESSAGE = [
-  "ToDo gate: work was attempted without a Todo list this task.",
-  "Create a non-empty todowrite list, keep one item in_progress, and mark each step completed as it finishes.",
+  "ToDo未起票のまま作業しようとしていました。",
+  "todowrite で項目を登録し、1件を in_progress に保ち、完了した手順から completed にしてください。",
 ].join("\n");
 
 const EXEMPT_TOOLS = new Set([
@@ -167,6 +167,10 @@ export default function (pi: ExtensionAPI): void {
   const restore = (ctx: ExtensionContext) => {
     todos = reconstructState(ctx);
     resetGate();
+    // A resumed or reloaded session can already hold an active list. Requiring
+    // an identical todowrite again would only add friction, so the gate stays
+    // open while an in_progress item exists.
+    if (todos.some((todo) => todo.status === "in_progress")) gate.openedThisTask = true;
     updateTui(ctx, todos);
   };
 

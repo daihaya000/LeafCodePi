@@ -132,7 +132,6 @@ describe("todowrite omission gate", () => {
   it("records one settled reminder per task without auto-starting a turn", () => {
     const run = fixture({ hasUI: true });
     expect(run.callTool("edit")?.reason).toContain("todowrite");
-
     run.settle();
     run.settle();
 
@@ -253,6 +252,29 @@ describe("todowrite omission gate", () => {
 
     await run.writeTodos([{ content: "完了済み", status: "completed", priority: "high" }]);
     expect(run.callTool("edit")?.block).toBe(true);
+  });
+
+  it("keeps an already active restored list unlocked on session reload", async () => {
+    const run = fixture({
+      branch: [{
+        type: "message",
+        message: {
+          role: "toolResult",
+          toolName: "todowrite",
+          details: {
+            todos: [
+              { id: "t1", content: "完了済み", status: "completed", priority: "high" },
+              { id: "t2", content: "進行中", status: "in_progress", priority: "high" },
+            ],
+          },
+        },
+      }],
+    });
+    await run.emit("session_start");
+    expect(run.callTool("edit")).toBeUndefined();
+
+    await run.emit("session_tree");
+    expect(run.callTool("edit")).toBeUndefined();
   });
 
   it("does not unlock for empty, invalid, or restored Todo snapshots", async () => {
