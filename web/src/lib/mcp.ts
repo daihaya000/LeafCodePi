@@ -105,6 +105,8 @@ export function piMcpConfigPath(agentDir = resolvePiAgentDir()): string {
 
 type McpConfig = {
   mcpServers: Record<string, McpServer>;
+  /** Other top-level keys (settings, imports, …) are preserved on rewrite. */
+  [key: string]: unknown;
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -117,12 +119,13 @@ function isMcpServer(value: unknown): value is McpServer {
 
 function readConfig(path: string): McpConfig {
   try {
-    const raw = JSON.parse(readFileSync(path, "utf8")) as { mcpServers?: unknown };
-    const mcpServers = raw?.mcpServers;
-    if (isRecord(mcpServers)) {
-      return { mcpServers: mcpServers as Record<string, McpServer> };
-    }
-    return { mcpServers: {} };
+    const raw = JSON.parse(readFileSync(path, "utf8")) as unknown;
+    if (!isRecord(raw)) return { mcpServers: {} };
+    const mcpServers = isRecord(raw.mcpServers)
+      ? (raw.mcpServers as Record<string, McpServer>)
+      : {};
+    // Keep non-mcpServers top-level keys so writes never drop adapter settings.
+    return { ...raw, mcpServers };
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
       console.warn("[mcp] failed to read config", error);

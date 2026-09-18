@@ -134,6 +134,26 @@ describe("listMcpServers / setMcpServerEnabled", () => {
     assert.equal(listMcpServers(agentDir).servers.length, 4);
   });
 
+  it("preserves other top-level config keys on write", () => {
+    fixture();
+    const file = join(agentDir, "mcp.json");
+    const raw = JSON.parse(readFileSync(file, "utf8"));
+    raw.settings = { directTools: true };
+    raw.imports = ["cursor"];
+    writeFileSync(file, JSON.stringify(raw), "utf8");
+
+    setMcpServerEnabled("remote", true, agentDir);
+    const afterToggle = JSON.parse(readFileSync(file, "utf8"));
+    assert.deepEqual(afterToggle.settings, { directTools: true });
+    assert.deepEqual(afterToggle.imports, ["cursor"]);
+
+    addN8nServer("example.app.n8n.cloud", agentDir);
+    const afterAdd = JSON.parse(readFileSync(file, "utf8"));
+    assert.deepEqual(afterAdd.settings, { directTools: true });
+    assert.deepEqual(afterAdd.imports, ["cursor"]);
+    assert.equal(afterAdd.mcpServers.n8n.url, "https://example.app.n8n.cloud/mcp-server/http");
+  });
+
   it("rejects invalid names", () => {
     fixture();
     assert.throws(() => setMcpServerEnabled("a/b", false, agentDir), /名前が不正/);
