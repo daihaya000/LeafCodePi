@@ -91,6 +91,8 @@ describe("compactWithJev", () => {
       { ...preparation, previousSummary: "prior work" },
       { ...preparation, turnPrefixMessages: [{ role: "assistant", content: [{ type: "text", text: "retained suffix" }] }] },
       { ...preparation, messagesToSummarize: [{ role: "bashExecution", output: "output" }] },
+      { ...preparation, messagesToSummarize: [{ role: "user", content: [{ type: "image", data: "encoded", mimeType: "image/png" }] }] },
+      { ...preparation, messagesToSummarize: [{ role: "assistant", content: [{ type: "thinking", thinking: "reasoning" }] }] },
     ]) {
       const result = await compactWithJev(input as never, 0.6, new AbortController().signal);
       expect(result).toBeUndefined();

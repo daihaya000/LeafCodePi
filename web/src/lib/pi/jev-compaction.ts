@@ -32,8 +32,19 @@ function messageData(message: Message): Record<string, unknown> {
   return message as unknown as Record<string, unknown>;
 }
 
+function hasOnlyContentTypes(content: unknown, types: readonly string[]): boolean {
+  if (typeof content === "string") return types.includes("text");
+  return Array.isArray(content) && content.every((part) =>
+    Boolean(part && typeof part === "object" && types.includes((part as { type?: unknown }).type as string)),
+  );
+}
+
 function isSupportedMessage(message: Message): boolean {
-  return message.role === "user" || message.role === "assistant" || message.role === "toolResult";
+  const content = messageData(message).content;
+  if (message.role === "user" || message.role === "toolResult") {
+    return hasOnlyContentTypes(content, ["text"]);
+  }
+  return message.role === "assistant" && hasOnlyContentTypes(content, ["text", "toolCall"]);
 }
 
 function toolResultId(message: Message, index: number): string {
