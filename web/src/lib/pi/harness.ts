@@ -436,6 +436,8 @@ type LiveRuntime = {
   soulRevision: string | null;
   /** Reload AGENTS/skills/MCP into a Code (or busy-skipped) session at the next idle prompt. */
   contextReloadPending: boolean;
+  /** Recreate a selected-agent session so updated fixed resource options (notably tools) take effect. */
+  agentDefinitionReloadPending: boolean;
   /**
    * Session used Auto because the stored model is unavailable.
    * Keep task.providerID/modelID as the unavailable selection (no silent pin).
@@ -2139,6 +2141,7 @@ function buildLiveRuntime(input: {
     soulReloadPending: false,
     soulRevision: input.botId ? botSoulRevision(input.botId) : null,
     contextReloadPending: existing?.contextReloadPending ?? false,
+    agentDefinitionReloadPending: false,
   };
 }
 
@@ -7516,6 +7519,16 @@ async function reloadLiveContextIfNeeded(live: LiveRuntime): Promise<LiveRuntime
   return current;
 }
 
+/** Agent frontmatter is only read while creating a session; reload cannot replace its tool registry. */
+async function reloadLiveAgentDefinitionIfNeeded(live: LiveRuntime): Promise<LiveRuntime> {
+  const current = state().live.get(live.taskId) ?? live;
+  if (!current.agentDefinitionReloadPending) return current;
+  if (current.session.isStreaming || current.session.isCompacting) return current;
+  current.agentDefinitionReloadPending = false;
+  disposeLive(current.taskId);
+  return ensureLive(current.taskId);
+}
+
 async function prepareAutoAgentForGoalLoop(
   live: LiveRuntime,
   task: TaskSummary,
@@ -7710,6 +7723,7 @@ async function prepareLiveForPrompt(
     currentLive = await applyPendingLiveSettings(currentLive, pendingSettings);
   }
   currentLive = await reloadLiveForSoulIfNeeded(currentLive);
+  currentLive = await reloadLiveAgentDefinitionIfNeeded(currentLive);
   currentLive = await reloadLiveContextIfNeeded(currentLive);
   const task = getTask(currentLive.taskId);
   const taskAccount = task?.accountId ? getAccount(task.accountId) : undefined;
@@ -9736,6 +9750,28 @@ export async function destroyProject(id: string): Promise<{ ok: true }> {
  * Goal Loop / compaction. Bot conversations get soulReloadPending; Code gets
  * contextReloadPending and reloads on the next idle prepareLiveForPrompt.
  */
+/**
+ * Recreate sessions using an edited agent definition. `session.reload()` cannot
+ * update the tool registry assembled from that definition at creation time.
+ */
+export function refreshLiveSessionsForAgentDefinition(agentName: string): { refreshed: number; deferred: number } {
+  const normalized = agentName.trim();
+  let refreshed = 0;
+  let deferred = 0;
+  for (const live of [...state().live.values()]) {
+    const task = getTask(live.taskId);
+    if (!task || task.agent?.trim() !== normalized) continue;
+    if (shouldDeferLiveSetting(live, task)) {
+      live.agentDefinitionReloadPending = true;
+      deferred += 1;
+      continue;
+    }
+    disposeLive(live.taskId);
+    refreshed += 1;
+  }
+  return { refreshed, deferred };
+}
+
 export async function reloadLiveSessionsContext(): Promise<{
   reloaded: number;
   deferred: number;

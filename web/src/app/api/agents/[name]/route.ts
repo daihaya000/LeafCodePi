@@ -4,7 +4,7 @@
  * DELETE /api/agents/:name — delete a user agent.
  */
 import { NextRequest, NextResponse } from "next/server";
-import { reloadLiveSessionsContext } from "@/lib/pi/harness";
+import { refreshLiveSessionsForAgentDefinition, reloadLiveSessionsContext } from "@/lib/pi/harness";
 import {
   agentsErrorStatus,
   deleteAgent,
@@ -25,12 +25,16 @@ function isThinkingInput(value: unknown): value is AgentThinking | null {
   return value === null || value === false || isThinkingLevel(value);
 }
 
-function scheduleLiveSessionsContextReload() {
+function scheduleLiveSessionsContextReload(agentName?: string) {
   // Persisted settings can be returned immediately; a live session reload may wait for an active turn.
   setImmediate(() => {
-    void reloadLiveSessionsContext().catch((error) => {
-      console.warn("[agents] live session context reload failed", error);
-    });
+    void reloadLiveSessionsContext()
+      .then(() => {
+        if (agentName) refreshLiveSessionsForAgentDefinition(agentName);
+      })
+      .catch((error) => {
+        console.warn("[agents] live session context reload failed", error);
+      });
   });
 }
 
@@ -105,7 +109,7 @@ export async function PATCH(req: NextRequest, context: RouteContext) {
       }
       updateAgent({ ...(record as AgentDraft), name });
     }
-    scheduleLiveSessionsContextReload();
+    scheduleLiveSessionsContextReload(name);
     const listed = listAgents();
     return NextResponse.json({ ok: true, name, agents: listed.agents });
   } catch (error) {
@@ -126,7 +130,7 @@ export async function DELETE(_req: NextRequest, context: RouteContext) {
   }
   try {
     const listed = deleteAgent(name);
-    scheduleLiveSessionsContextReload();
+    scheduleLiveSessionsContextReload(name);
     return NextResponse.json({ ok: true, agents: listed.agents });
   } catch (error) {
     return NextResponse.json(

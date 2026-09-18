@@ -10,7 +10,7 @@ import {
   getTaskHangWatch,
   stopHangWatchdogForTests,
 } from "./hang-watchdog";
-import { abortLiveForHangWatchdog, abortTask, archiveTask, destroyProject, destroyTask, getTaskDetail, isLiveBusyForReplace, isTaskRuntimeOwnedElsewhere, markTaskWorkingIfIdle, reloadLiveSessionsContext, restoreTask, setBotPermissionMode, setBotTools, setTaskAgent, throwIfBusyForModelChange, throwIfBusyForPermissionChange, throwIfBusyForSkillPermissionChange, throwIfBusyForThinkingChange } from "./harness";
+import { abortLiveForHangWatchdog, abortTask, archiveTask, destroyProject, destroyTask, getTaskDetail, isLiveBusyForReplace, isTaskRuntimeOwnedElsewhere, markTaskWorkingIfIdle, refreshLiveSessionsForAgentDefinition, reloadLiveSessionsContext, restoreTask, setBotPermissionMode, setBotTools, setTaskAgent, throwIfBusyForModelChange, throwIfBusyForPermissionChange, throwIfBusyForSkillPermissionChange, throwIfBusyForThinkingChange } from "./harness";
 import { taskRuntimeLeasePath } from "@/lib/task-runtime-lease";
 import { botTaskId, createBot, getBot, patchBot } from "@/lib/bots";
 import { roomBotTaskId } from "@/lib/rooms";
@@ -107,6 +107,27 @@ function fixture(options: {
     get unsubscribed() { return unsubscribed; },
   };
 }
+
+describe("refreshLiveSessionsForAgentDefinition", () => {
+  it("recreates an idle selected-agent session on its next prompt", () => {
+    const state = fixture();
+
+    assert.deepEqual(refreshLiveSessionsForAgentDefinition("builder"), { refreshed: 1, deferred: 0 });
+    assert.equal(state.live.has(state.task.id), false);
+    assert.equal(state.disposed, true);
+  });
+
+  it("defers an active selected-agent session", () => {
+    const state = fixture({ promptActive: true });
+
+    assert.deepEqual(refreshLiveSessionsForAgentDefinition("builder"), { refreshed: 0, deferred: 1 });
+    assert.equal(state.live.has(state.task.id), true);
+    assert.equal(
+      (state.live.get(state.task.id) as { agentDefinitionReloadPending?: boolean } | undefined)?.agentDefinitionReloadPending,
+      true,
+    );
+  });
+});
 
 describe("setTaskAgent", () => {
   it("persists the selected persona and disposes the idle session for restart", async () => {

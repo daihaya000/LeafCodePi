@@ -12,10 +12,14 @@ const mocks = vi.hoisted(() => ({
   setAgentTools: vi.fn(),
   updateAgent: vi.fn(),
   reloadLiveSessionsContext: vi.fn(async () => ({ reloaded: true })),
+  refreshLiveSessionsForAgentDefinition: vi.fn(),
 }));
 
 vi.mock("@/lib/agents", () => mocks);
-vi.mock("@/lib/pi/harness", () => ({ reloadLiveSessionsContext: mocks.reloadLiveSessionsContext }));
+vi.mock("@/lib/pi/harness", () => ({
+  reloadLiveSessionsContext: mocks.reloadLiveSessionsContext,
+  refreshLiveSessionsForAgentDefinition: mocks.refreshLiveSessionsForAgentDefinition,
+}));
 
 import { DELETE, PATCH } from "./route";
 
@@ -56,6 +60,7 @@ describe("PATCH /api/agents/:name tool permissions", () => {
     expect(response.status).toBe(200);
     expect(mocks.setAgentTools).toHaveBeenCalledWith("custom", []);
     expect(mocks.reloadLiveSessionsContext).toHaveBeenCalledOnce();
+    expect(mocks.refreshLiveSessionsForAgentDefinition).toHaveBeenCalledWith("custom");
   });
 
   it("returns without waiting for a live session reload", async () => {
