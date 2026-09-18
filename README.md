@@ -133,6 +133,32 @@ pi install ./extensions/leafcode-mcp-adapter
 
 設定は `.mcp.json` または `~/.pi/agent/mcp.json` の `mcpServers` に記述します。
 
+### n8n（Instance-level MCP + 公式Skills）
+
+n8n公式の Instance-level MCP サーバーと、n8n公式Skills（[n8n-io/skills](https://github.com/n8n-io/skills)）を組み込みで同梱しています。
+
+**n8n側**: **Settings → Instance-level MCP** で MCP access を有効化し、**Connect a client** の Server URL（`https://<domain>/mcp-server/http`）と、**API key** タブのアクセストークンを用意します（この2つは n8n 2.33.0 以降のUI。Instance-level MCP 自体は n8n 2.2.0 以降）。
+
+**LeafCodePi側**: `.mcp.json` または `~/.pi/agent/mcp.json` に次のエントリを追加します。`url` へ Server URL を直接書いても、`${N8N_MCP_URL}` / `N8N_MCP_ACCESS_TOKEN` の環境変数を使っても構いません。TUI では `/mcp setup` の n8n preset からも追加できます。
+
+```json
+{
+  "mcpServers": {
+    "n8n": {
+      "url": "${N8N_MCP_URL}",
+      "auth": "bearer",
+      "bearerTokenEnv": "N8N_MCP_ACCESS_TOKEN",
+      "httpTransport": "streamable-http",
+      "protocolVersion": "auto"
+    }
+  }
+}
+```
+
+トークンは設定ファイルに直接書かず、WebUI の **設定 → 拡張 → MCP サーバー** の「認証設定」で保存してください（OS の資格情報ストアに保存されます）。
+
+**n8n公式Skills**: `skills/` に14スキル（capability 13 + メタ1）と references を同梱しています。組み込みスキルとして自動検出され、設定画面から有効／無効を切り替えられます。n8n作業時はエージェントが `using-n8n-skills-official` を入口に該当スキルを読みます。取り込み元・更新手順は [`skills/n8n-skills-SOURCE.md`](skills/n8n-skills-SOURCE.md) を参照してください。
+
 ### Intercom
 
 `extensions/leafcode-intercom` に `pi-intercom` の LeafCodePi 組み込みフォークを同梱しています。`intercom` ツール、`/intercom`、Alt+M で別セッションへ1対1メッセージを送れます。

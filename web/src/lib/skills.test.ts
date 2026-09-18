@@ -60,6 +60,41 @@ describe("bundledSkillPaths", () => {
       rmSync(root, { recursive: true, force: true });
     }
   });
+
+  it("discovers the vendored n8n skills from the bundled root", () => {
+    const bundled = bundledSkillsDir();
+    if (!bundled) throw new Error("bundled skills directory is unavailable");
+    const agentDir = mkdtempSync(join(tmpdir(), "leafcode-empty-skills-"));
+    try {
+      const skills = listSkills(agentDir, {
+        skillsDir: join(agentDir, "skills"),
+        bundledDir: bundled,
+      }).skills;
+      expect(skills.map((skill) => skill.name)).toEqual(
+        expect.arrayContaining([
+          "using-n8n-skills-official",
+          "n8n-workflow-lifecycle-official",
+          "n8n-subworkflows-official",
+          "n8n-extending-mcp-official",
+          "n8n-expressions-official",
+          "n8n-node-configuration-official",
+          "n8n-code-nodes-official",
+          "n8n-loops-official",
+          "n8n-agents-official",
+          "n8n-error-handling-official",
+          "n8n-credentials-and-security-official",
+          "n8n-binary-and-data-official",
+          "n8n-data-tables-official",
+          "n8n-debugging-official",
+        ]),
+      );
+      const meta = skills.find((skill) => skill.name === "using-n8n-skills-official");
+      expect(meta?.source).toBe("bundled");
+      expect(meta?.description).toBeTruthy();
+    } finally {
+      rmSync(agentDir, { recursive: true, force: true });
+    }
+  });
 });
 
 describe("filterSkillsByState", () => {
