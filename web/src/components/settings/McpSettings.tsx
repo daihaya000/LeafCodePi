@@ -576,6 +576,14 @@ export function McpSettings() {
   }
 
   const anyBusy = Boolean(busyId || authBusyId || addBusy || slackBusy || gwsBusy || notionBusy);
+  // Keep the preset-form wrapper visible whenever any form still has work to
+  // do, so later forms (Google Workspace / Notion) stay reachable after n8n
+  // and Slack are already configured.
+  const showAddForms =
+    !servers.some((server) => server.id === "n8n") ||
+    !servers.some((server) => server.id === "slack") ||
+    !servers.some((server) => server.id.startsWith("gws-")) ||
+    !servers.some((server) => server.id === "notion");
 
   return (
     <div className="rounded-2xl border border-border bg-surface p-4">
@@ -658,7 +666,7 @@ export function McpSettings() {
           ))}
         </ul>
       )}
-      {(!servers.some((server) => server.id === "n8n") || !servers.some((server) => server.id === "slack")) && (
+      {showAddForms && (
         <div className="mt-3 grid gap-2 lg:grid-cols-2">
           {!servers.some((server) => server.id === "n8n") && (
             <div className="rounded-xl border border-dashed border-border bg-surface-2 px-3 py-3">

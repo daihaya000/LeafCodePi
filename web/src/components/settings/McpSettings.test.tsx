@@ -209,4 +209,15 @@ describe("McpSettings", () => {
     await waitFor(() => expect(client.sendJson).toHaveBeenCalledWith("/api/mcp", { preset: "notion" }, "POST"));
     expect(await screen.findByRole("button", { name: "OAuth認証を開始" })).toBeTruthy();
   });
+
+  it("keeps the Google Workspace and Notion forms visible when n8n and slack are already configured", async () => {
+    const slackConfigured = { ...server, id: "slack", name: "slack" };
+    client.getJson.mockResolvedValue({ servers: [server, slackConfigured], configPath: auth.configPath });
+
+    render(<McpSettings />);
+    expect(await screen.findByRole("button", { name: "Google Workspace を追加" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Notion を追加" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "n8n を追加" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Slack を追加" })).toBeNull();
+  });
 });
