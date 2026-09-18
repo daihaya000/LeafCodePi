@@ -2,7 +2,7 @@
 
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowUp, FolderGit2, Gauge } from "lucide-react";
+import { ArrowUp, FolderGit2 } from "lucide-react";
 import { AddProjectButton } from "@/components/AddProjectButton";
 import { ProjectFilePicker } from "@/components/ProjectFilePicker";
 import { AgentSelect } from "@/components/AgentSelect";
@@ -26,31 +26,24 @@ import { SubagentPermissionSelect } from "@/components/SubagentPermissionSelect"
 import { SkillPermissionSelect } from "@/components/SkillPermissionSelect";
 import { PermissionSelect } from "@/components/PermissionSelect";
 import { MobileMenuHeader } from "@/components/shell/MobileMenuHeader";
-import { Button, GhostSelect, Switch } from "@/components/ui";
+import { Button, GhostSelect } from "@/components/ui";
 import {
   AUTO_MODEL_OPTION,
   AUTO_MODEL_VALUE,
   type AutoDecision,
 } from "@/lib/auto-model";
 import {
-  AUTO_JEV_ENABLED_SETTING_KEY,
-  AUTO_JEV_MIN_CONFIDENCE_SETTING_KEY,
   AUTO_OPTIMIZE_SETTING_KEY,
   AUTO_ROUTE_OVERRIDES_SETTING_KEY,
   hasStoredAutoSetting,
-  readAutoJevEnabled,
-  readAutoJevMinConfidence,
   readAutoOptimizeMode,
   readAutoRouteConfig,
   readAutoSettingsFromServer,
   subscribeAutoSetting,
-  writeAutoJevEnabled,
-  writeAutoJevMinConfidence,
   writeAutoOptimizeMode,
   writeAutoRouteConfig,
   writeAutoSettingToServer,
 } from "@/lib/auto-settings";
-import { AUTO_JEV_MIN_CONFIDENCE_VALUES } from "@/lib/auto-jev-settings";
 import { AUTO_TASK_PROMPT_MAX, writeAutoTaskRecord } from "@/lib/auto-task-record";
 import { notifyTasksChanged } from "@/lib/events";
 import { getJson, sendJson } from "@/lib/client";
@@ -182,10 +175,6 @@ export const HomeView = memo(function HomeView({
   });
   const [autoOptimizeMode, setAutoOptimizeMode] = useState<AutoOptimizeMode>(
     () => readAutoOptimizeMode(),
-  );
-  const [autoJevEnabled, setAutoJevEnabled] = useState(() => readAutoJevEnabled());
-  const [autoJevMinConfidence, setAutoJevMinConfidence] = useState(
-    () => readAutoJevMinConfidence(),
   );
   const [thinkingLevel, setThinkingLevel] = useState<ThinkingLevel>(
     () => readStoredThinkingLevel() ?? "off",
@@ -349,22 +338,6 @@ export const HomeView = memo(function HomeView({
     [],
   );
 
-  useEffect(
-    () =>
-      subscribeAutoSetting(AUTO_JEV_ENABLED_SETTING_KEY, () =>
-        setAutoJevEnabled(readAutoJevEnabled()),
-      ),
-    [],
-  );
-
-  useEffect(
-    () =>
-      subscribeAutoSetting(AUTO_JEV_MIN_CONFIDENCE_SETTING_KEY, () =>
-        setAutoJevMinConfidence(readAutoJevMinConfidence()),
-      ),
-    [],
-  );
-
   useEffect(() => {
     let active = true;
     void readAutoSettingsFromServer().then((snapshot) => {
@@ -381,20 +354,6 @@ export const HomeView = memo(function HomeView({
         !hasStoredAutoSetting(AUTO_ROUTE_OVERRIDES_SETTING_KEY)
       ) {
         writeAutoRouteConfig(snapshot.routeConfig);
-      }
-      if (
-        snapshot.jevEnabled !== undefined &&
-        !hasStoredAutoSetting(AUTO_JEV_ENABLED_SETTING_KEY)
-      ) {
-        writeAutoJevEnabled(snapshot.jevEnabled);
-        setAutoJevEnabled(snapshot.jevEnabled);
-      }
-      if (
-        snapshot.jevMinConfidence !== undefined &&
-        !hasStoredAutoSetting(AUTO_JEV_MIN_CONFIDENCE_SETTING_KEY)
-      ) {
-        writeAutoJevMinConfidence(snapshot.jevMinConfidence);
-        setAutoJevMinConfidence(snapshot.jevMinConfidence);
       }
     });
     return () => {
@@ -656,58 +615,16 @@ export const HomeView = memo(function HomeView({
                     className="min-w-0 max-w-[9rem] shrink sm:max-w-48"
                   />
                   {model === AUTO_MODEL_VALUE ? (
-                    <>
-                      <AutoOptimizeSelect
-                        value={autoOptimizeMode}
-                        disabled={submitting}
-                        className="h-8 shrink-0"
-                        onChange={(value) => {
-                          setAutoOptimizeMode(value);
-                          writeAutoOptimizeMode(value);
-                          void writeAutoSettingToServer(AUTO_OPTIMIZE_SETTING_KEY, value);
-                        }}
-                      />
-                      <Switch
-                        checked={autoJevEnabled}
-                        disabled={submitting}
-                        label="JevによるAuto選択を有効化"
-                        title="JevによるAuto選択"
-                        onChange={() => {
-                          const enabled = !autoJevEnabled;
-                          setAutoJevEnabled(enabled);
-                          writeAutoJevEnabled(enabled);
-                          void writeAutoSettingToServer(
-                            AUTO_JEV_ENABLED_SETTING_KEY,
-                            enabled ? "1" : null,
-                          );
-                        }}
-                      />
-                      {autoJevEnabled && (
-                        <GhostSelect
-                          value={String(autoJevMinConfidence)}
-                          disabled={submitting}
-                          aria-label="Jev Auto選択の最低信頼度"
-                          icon={<Gauge className="h-3.5 w-3.5" />}
-                          valueLabel={`Jev ${Math.round(autoJevMinConfidence * 100)}%`}
-                          onChange={(value) => {
-                            const minConfidence = Number(value);
-                            setAutoJevMinConfidence(minConfidence);
-                            writeAutoJevMinConfidence(minConfidence);
-                            void writeAutoSettingToServer(
-                              AUTO_JEV_MIN_CONFIDENCE_SETTING_KEY,
-                              String(minConfidence),
-                            );
-                          }}
-                          className="h-8 shrink-0"
-                        >
-                          {AUTO_JEV_MIN_CONFIDENCE_VALUES.map((value) => (
-                            <option key={value} value={value}>
-                              最低信頼度 {Math.round(value * 100)}%
-                            </option>
-                          ))}
-                        </GhostSelect>
-                      )}
-                    </>
+                    <AutoOptimizeSelect
+                      value={autoOptimizeMode}
+                      disabled={submitting}
+                      className="h-8 shrink-0"
+                      onChange={(value) => {
+                        setAutoOptimizeMode(value);
+                        writeAutoOptimizeMode(value);
+                        void writeAutoSettingToServer(AUTO_OPTIMIZE_SETTING_KEY, value);
+                      }}
+                    />
                   ) : (
                     <ThinkingSelect
                       levels={thinkingLevels}

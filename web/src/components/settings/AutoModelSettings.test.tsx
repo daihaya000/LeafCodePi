@@ -57,6 +57,33 @@ describe("AutoModelSettings", () => {
     expect(within(modeGroup).getByRole("button", { name: "知能優先" }).getAttribute("aria-pressed")).toBe("true");
   });
 
+  it("toggles Jev routing and stores the confidence for the server", async () => {
+    client.getJson.mockImplementation((path: string) =>
+      path === "/api/models" ? Promise.resolve({ models: [] }) : Promise.resolve({ value: null }),
+    );
+    render(<AutoModelSettings />);
+    await waitFor(() => expect(screen.queryByText("モデルを読み込み中…")).toBeNull());
+
+    // Disabled by default: the confidence control stays hidden until opted in.
+    expect(screen.queryByLabelText("Jevルーティングの最低信頼度")).toBeNull();
+    fireEvent.click(screen.getByRole("switch", { name: "Jevルーティングを有効化" }));
+    expect(screen.getByRole("switch", { name: "Jevルーティングを無効化" })).toBeTruthy();
+    fireEvent.change(screen.getByLabelText("Jevルーティングの最低信頼度"), {
+      target: { value: "0.75" },
+    });
+
+    await waitFor(() => expect(client.sendJson).toHaveBeenCalledWith(
+      "/api/settings/auto-jev-enabled",
+      { value: "1" },
+      "PUT",
+    ));
+    expect(client.sendJson).toHaveBeenCalledWith(
+      "/api/settings/auto-jev-min-confidence",
+      { value: "0.75" },
+      "PUT",
+    );
+  });
+
   it("reports a fetch failure without crashing", async () => {
     client.getJson.mockImplementation((path: string) =>
       path === "/api/models"
