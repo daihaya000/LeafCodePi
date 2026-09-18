@@ -1,14 +1,22 @@
 import { evaluateTypeSafe, type TypeSafeAnswer } from "@/lib/pi/typesafe-system-one";
+import { DEFAULT_AUTO_JEV_MIN_CONFIDENCE } from "@/lib/auto-jev-settings";
 
 export type JevAutoTier = "light" | "standard" | "heavy";
 
-/** Initial routing threshold; lower-confidence decisions use the existing fallback. */
-export const AUTO_JEV_MIN_CONFIDENCE = 0.6;
+/** Default routing threshold; settings may override it at each server-side call site. */
+export const AUTO_JEV_MIN_CONFIDENCE = DEFAULT_AUTO_JEV_MIN_CONFIDENCE;
 
-function hasRoutingConfidence(answer: TypeSafeAnswer | undefined): boolean {
+type JevRoutingOptions = {
+  minConfidence?: number;
+};
+
+function hasRoutingConfidence(
+  answer: TypeSafeAnswer | undefined,
+  minConfidence = AUTO_JEV_MIN_CONFIDENCE,
+): boolean {
   return typeof answer?.confidence === "number" &&
     Number.isFinite(answer.confidence) &&
-    answer.confidence >= AUTO_JEV_MIN_CONFIDENCE &&
+    answer.confidence >= minConfidence &&
     answer.confidence <= 1;
 }
 
@@ -33,6 +41,7 @@ function shouldUseJev(): boolean {
 /** Returns undefined on every failure so callers can retain their existing router. */
 export async function classifyAutoTierWithJev(
   input: AutoTierInput,
+  options: JevRoutingOptions = {},
 ): Promise<JevAutoTier | undefined> {
   if (!shouldUseJev()) return undefined;
   try {
@@ -59,7 +68,7 @@ export async function classifyAutoTierWithJev(
       },
     });
     const answer = response.answers.tier;
-    if (!answer || !hasRoutingConfidence(answer)) return undefined;
+    if (!answer || !hasRoutingConfidence(answer, options.minConfidence)) return undefined;
     const choice = answer.choice;
     return choice === "light" || choice === "standard" || choice === "heavy"
       ? choice
@@ -69,10 +78,13 @@ export async function classifyAutoTierWithJev(
   }
 }
 
-export async function selectAutoAgentWithJev(input: {
-  prompt: string;
-  candidates: readonly AutoAgentCandidate[];
-}): Promise<string | undefined> {
+export async function selectAutoAgentWithJev(
+  input: {
+    prompt: string;
+    candidates: readonly AutoAgentCandidate[];
+  },
+  options: JevRoutingOptions = {},
+): Promise<string | undefined> {
   if (!shouldUseJev()) return undefined;
   const names = new Set(input.candidates.map((candidate) => candidate.name));
   if (names.size !== input.candidates.length) return undefined;
@@ -102,7 +114,7 @@ export async function selectAutoAgentWithJev(input: {
       },
     });
     const answer = response.answers.agent;
-    if (!answer || !hasRoutingConfidence(answer)) return undefined;
+    if (!answer || !hasRoutingConfidence(answer, options.minConfidence)) return undefined;
     const choice = answer.choice;
     return choice && names.has(choice) ? choice : undefined;
   } catch {

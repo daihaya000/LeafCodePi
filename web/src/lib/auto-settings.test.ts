@@ -8,15 +8,21 @@ const client = vi.hoisted(() => ({
 vi.mock("@/lib/client", () => client);
 
 import {
+  AUTO_JEV_ENABLED_SETTING_KEY,
+  AUTO_JEV_MIN_CONFIDENCE_SETTING_KEY,
   AUTO_OPTIMIZE_EVENT,
   AUTO_OPTIMIZE_SETTING_KEY,
   AUTO_ROUTE_OVERRIDES_SETTING_KEY,
   hasStoredAutoSetting,
+  readAutoJevEnabled,
+  readAutoJevMinConfidence,
   readAutoOptimizeMode,
   readAutoRouteConfig,
   readAutoSettingsFromServer,
   readAutoShowModel,
   subscribeAutoSetting,
+  writeAutoJevEnabled,
+  writeAutoJevMinConfidence,
   writeAutoOptimizeMode,
   writeAutoRouteConfig,
   writeAutoSettingToServer,
@@ -78,14 +84,20 @@ describe("auto-settings", () => {
   it("uses safe defaults, writes synchronously, and notifies the same document", () => {
     expect(readAutoOptimizeMode()).toBe("cost");
     expect(readAutoShowModel()).toBe(false);
+    expect(readAutoJevEnabled()).toBe(false);
+    expect(readAutoJevMinConfidence()).toBe(0.6);
 
     const listener = vi.fn();
     const unsubscribe = subscribeAutoSetting(AUTO_OPTIMIZE_SETTING_KEY, listener);
     writeAutoOptimizeMode("intelligence");
     writeAutoShowModel(true);
+    writeAutoJevEnabled(true);
+    writeAutoJevMinConfidence(0.75);
 
     expect(readAutoOptimizeMode()).toBe("intelligence");
     expect(readAutoShowModel()).toBe(true);
+    expect(readAutoJevEnabled()).toBe(true);
+    expect(readAutoJevMinConfidence()).toBe(0.75);
     expect(listener).toHaveBeenCalledTimes(1);
     expect(listener.mock.contexts[0]).toBe(windowTarget);
     unsubscribe();
@@ -98,10 +110,14 @@ describe("auto-settings", () => {
     client.getJson
       .mockResolvedValueOnce({ value: "balanced" })
       .mockResolvedValueOnce({ value: "1" })
-      .mockResolvedValueOnce({ value: null });
+      .mockResolvedValueOnce({ value: null })
+      .mockResolvedValueOnce({ value: "1" })
+      .mockResolvedValueOnce({ value: "0.75" });
     await expect(readAutoSettingsFromServer()).resolves.toEqual({
       mode: "balanced",
       showModel: true,
+      jevEnabled: true,
+      jevMinConfidence: 0.75,
     });
 
     await writeAutoSettingToServer(AUTO_OPTIMIZE_SETTING_KEY, "balanced");
@@ -128,6 +144,13 @@ describe("auto-settings", () => {
     expect(readAutoOptimizeMode()).toBe("cost");
     expect(hasStoredAutoSetting(AUTO_OPTIMIZE_SETTING_KEY)).toBe(false);
 
+    globalThis.localStorage.setItem(
+      storageKeyFor(AUTO_JEV_MIN_CONFIDENCE_SETTING_KEY),
+      "0.61",
+    );
+    expect(readAutoJevMinConfidence()).toBe(0.6);
+    expect(hasStoredAutoSetting(AUTO_JEV_MIN_CONFIDENCE_SETTING_KEY)).toBe(false);
+
     // Corrupt JSON for the route config yields the empty config, not a throw.
     globalThis.localStorage.setItem(
       storageKeyFor(AUTO_ROUTE_OVERRIDES_SETTING_KEY),
@@ -149,6 +172,8 @@ describe("auto-settings", () => {
     globalThis.localStorage.clear();
     for (const key of [
       AUTO_OPTIMIZE_SETTING_KEY,
+      AUTO_JEV_ENABLED_SETTING_KEY,
+      AUTO_JEV_MIN_CONFIDENCE_SETTING_KEY,
       AUTO_ROUTE_OVERRIDES_SETTING_KEY,
     ] as const) {
       expect(hasStoredAutoSetting(key)).toBe(false);

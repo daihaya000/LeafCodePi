@@ -33,6 +33,23 @@ describe("Auto Jev routing", () => {
     ).resolves.toBe("heavy");
   });
 
+  it("uses the configured minimum confidence", async () => {
+    process.env.TYPESAFE_AUTO_ROUTING = "1";
+    mocks.evaluateTypeSafe.mockResolvedValue({
+      answers: { tier: { choice: "heavy", confidence: 0.7 } },
+    });
+    const input = {
+      prompt: "全体をリファクタして",
+      hasImages: false,
+      attachmentCount: 0,
+      historyMessageCount: 0,
+      recentFailure: false,
+    };
+
+    await expect(classifyAutoTierWithJev(input, { minConfidence: 0.75 })).resolves.toBeUndefined();
+    await expect(classifyAutoTierWithJev(input, { minConfidence: 0.7 })).resolves.toBe("heavy");
+  });
+
   it("falls back when tier confidence is low, missing, or out of range", async () => {
     process.env.TYPESAFE_AUTO_ROUTING = "1";
     mocks.evaluateTypeSafe.mockResolvedValue({

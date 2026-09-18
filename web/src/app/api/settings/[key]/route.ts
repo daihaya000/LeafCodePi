@@ -31,6 +31,11 @@ import {
   isAutoOptimizeMode,
   normalizeAutoRouteConfig,
 } from "@/lib/auto-model";
+import {
+  AUTO_JEV_ENABLED_SETTING_KEY,
+  AUTO_JEV_MIN_CONFIDENCE_SETTING_KEY,
+  isAutoJevMinConfidence,
+} from "@/lib/auto-jev-settings";
 import { BOT_DEFAULT_PERMISSION_KEY, BOT_DEFAULT_THINKING_KEY, BOT_DEFAULT_PERMISSION_VALUES, BOT_DEFAULT_THINKING_VALUES } from "@/lib/bot-settings";
 import { PINNED_TASKS_SETTING_KEY, parsePinnedTaskIds } from "@/lib/sidebar-settings";
 import {
@@ -46,6 +51,8 @@ const ALLOWED_KEYS = new Set<string>([
   "auto-optimize",
   "auto-show-model",
   "auto-route-overrides",
+  AUTO_JEV_ENABLED_SETTING_KEY,
+  AUTO_JEV_MIN_CONFIDENCE_SETTING_KEY,
   "auto-agent-prompt",
   BOT_DEFAULT_PERMISSION_KEY,
   BOT_DEFAULT_THINKING_KEY,
@@ -89,6 +96,13 @@ function validateValue(key: string, value: string): string | null {
     } catch {
       return null;
     }
+  }
+  if (key === AUTO_JEV_ENABLED_SETTING_KEY) {
+    return value === "1" ? value : null;
+  }
+  if (key === AUTO_JEV_MIN_CONFIDENCE_SETTING_KEY) {
+    const minConfidence = Number(value);
+    return isAutoJevMinConfidence(minConfidence) ? String(minConfidence) : null;
   }
   if (key === "auto-agent-prompt") {
     return value.trim() ? value : null;

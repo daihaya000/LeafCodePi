@@ -51,6 +51,28 @@ describe("/api/settings/[key]", () => {
     );
   });
 
+  it("accepts only valid Jev Auto routing settings", async () => {
+    const enabled = await PUT(request("auto-jev-enabled", { value: "1" }), {
+      params: Promise.resolve({ key: "auto-jev-enabled" }),
+    });
+    const confidence = await PUT(request("auto-jev-min-confidence", { value: "0.75" }), {
+      params: Promise.resolve({ key: "auto-jev-min-confidence" }),
+    });
+    const invalidEnabled = await PUT(request("auto-jev-enabled", { value: "0" }), {
+      params: Promise.resolve({ key: "auto-jev-enabled" }),
+    });
+    const invalidConfidence = await PUT(request("auto-jev-min-confidence", { value: "0.61" }), {
+      params: Promise.resolve({ key: "auto-jev-min-confidence" }),
+    });
+
+    expect(enabled.status).toBe(200);
+    expect(confidence.status).toBe(200);
+    expect(invalidEnabled.status).toBe(400);
+    expect(invalidConfidence.status).toBe(400);
+    expect(settings.setSetting).toHaveBeenCalledWith("auto-jev-enabled", "1");
+    expect(settings.setSetting).toHaveBeenCalledWith("auto-jev-min-confidence", "0.75");
+  });
+
   it("does not notify for rejected or unrelated settings", async () => {
     await PUT(request("compactionAction", { value: "invalid" }), {
       params: Promise.resolve({ key: "compactionAction" }),

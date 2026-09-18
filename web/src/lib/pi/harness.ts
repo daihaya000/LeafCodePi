@@ -217,6 +217,12 @@ import {
   type AutoRouteConfig,
 } from "@/lib/auto-model";
 import { classifyAutoTierWithJev } from "@/lib/auto-jev";
+import {
+  AUTO_JEV_ENABLED_SETTING_KEY,
+  AUTO_JEV_MIN_CONFIDENCE_SETTING_KEY,
+  isAutoJevEnabled,
+  parseAutoJevMinConfidence,
+} from "@/lib/auto-jev-settings";
 import { clearProviderCache } from "@/lib/codexbar/provider-cache";
 import {
   accountRoutingMode,
@@ -5137,10 +5143,17 @@ export async function resolveAutoModel(input: {
     historyMessageCount: input.historyMessageCount ?? 0,
     recentFailure: input.recentFailure === true,
   };
-  const tier = await classifyAutoTierWithJev({
-    prompt: input.prompt,
-    ...signals,
-  }) ?? classifyPrompt(input.prompt, signals);
+  const jevTier = isAutoJevEnabled(getSetting(AUTO_JEV_ENABLED_SETTING_KEY))
+    ? await classifyAutoTierWithJev(
+      { prompt: input.prompt, ...signals },
+      {
+        minConfidence: parseAutoJevMinConfidence(
+          getSetting(AUTO_JEV_MIN_CONFIDENCE_SETTING_KEY),
+        ),
+      },
+    )
+    : undefined;
+  const tier = jevTier ?? classifyPrompt(input.prompt, signals);
   return chooseAutoModel({
     models,
     tier,

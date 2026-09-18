@@ -15,6 +15,12 @@ import { getSetting } from "@/lib/pi/web-settings";
 import { buildTranscript, type ConversationMessage } from "@/lib/direct-generation-text";
 import { AUTO_AGENT_VALUE, DEFAULT_AGENT } from "@/lib/default-agent";
 import { selectAutoAgentWithJev } from "@/lib/auto-jev";
+import {
+  AUTO_JEV_ENABLED_SETTING_KEY,
+  AUTO_JEV_MIN_CONFIDENCE_SETTING_KEY,
+  isAutoJevEnabled,
+  parseAutoJevMinConfidence,
+} from "@/lib/auto-jev-settings";
 
 // The router returns one agent name; its current request plus history need not rival task context.
 const MAX_TRANSCRIPT_CHARS = 8_000;
@@ -273,19 +279,28 @@ export async function resolveAutoAgent(options: AutoAgentOptions): Promise<strin
   // One candidate is the only possible answer; the router call cannot change it.
   if (candidates.length === 1) return fallback;
 
-  try {
-    const jevSelection = await selectAutoAgentWithJev({
-      prompt: buildSelectionPrompt(
-        options.conversation,
-        options.prompt,
-        candidates,
-        options.hasImages === true,
-      ),
-      candidates,
-    });
-    if (jevSelection) return jevSelection;
-  } catch {
-    // Preserve the existing rule and LLM fallbacks when Jev setup fails.
+  if (isAutoJevEnabled(getSetting(AUTO_JEV_ENABLED_SETTING_KEY))) {
+    try {
+      const jevSelection = await selectAutoAgentWithJev(
+        {
+          prompt: buildSelectionPrompt(
+            options.conversation,
+            options.prompt,
+            candidates,
+            options.hasImages === true,
+          ),
+          candidates,
+        },
+        {
+          minConfidence: parseAutoJevMinConfidence(
+            getSetting(AUTO_JEV_MIN_CONFIDENCE_SETTING_KEY),
+          ),
+        },
+      );
+      if (jevSelection) return jevSelection;
+    } catch {
+      // Preserve the existing rule and LLM fallbacks when Jev setup fails.
+    }
   }
 
   try {
