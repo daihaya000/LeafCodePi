@@ -384,7 +384,9 @@ function buildWeb(reason = "missing") {
     const reasonText =
       reason === "stale"
         ? "Production LeafCodePi build is stale (sources newer than BUILD_ID); rebuilding…"
-        : "Production LeafCodePi build is missing; rebuilding…";
+        : reason === "manual"
+          ? "Rebuilding the production LeafCodePi build on request…"
+          : "Production LeafCodePi build is missing; rebuilding…";
     log(reasonText);
     // Syncs sources and builds in the local workspace; see scripts/build-web.mjs.
     // --skip-guard: the host builds before it starts `next start`, so the only
@@ -562,7 +564,7 @@ async function webUiRestartBlockReason() {
   }
 }
 
-async function restartWeb() {
+async function restartWeb({ rebuild = false } = {}) {
   if (restarting) {
     log("Service restart is already in progress");
     return;
@@ -573,9 +575,21 @@ async function restartWeb() {
     return;
   }
   restarting = true;
-  log("Restarting LeafCodePi WebUI...");
+  log(
+    rebuild
+      ? "Rebuilding LeafCodePi WebUI (forced production build)…"
+      : "Restarting LeafCodePi WebUI...",
+  );
   try {
     await stopWeb();
+    if (rebuild) {
+      // The served .next is stashed while next build runs, so the WebUI has to
+      // stay stopped here; a failed rebuild falls through to spawnWeb, which
+      // serves the build restored by build-web.mjs.
+      await buildWeb("manual").catch((err) => {
+        error(`Rebuild failed: ${err instanceof Error ? err.message : String(err)}`);
+      });
+    }
     await sleep(400);
     await spawnWeb();
   } finally {
@@ -802,6 +816,7 @@ async function startControlServer() {
     onLlamaServerStart: (config) => llamaServerService.start(config),
     onLlamaServerStop: () => llamaServerService.stop(),
     onRestartWebui: () => restartWeb(),
+    onBuildWebui: () => restartWeb({ rebuild: true }),
     onRestartWebuiBlocked: () => webUiRestartBlockReason(),
     onRestartHost: () => restartHost(),
     onBrowserConfigRead: () => readBrowserConfig(),

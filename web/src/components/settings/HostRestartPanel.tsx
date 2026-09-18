@@ -6,10 +6,12 @@ import { HOST_LAUNCH_REQUIRED_HINT_ANY, HOST_RESTART_READY_HINT_ANY } from "@/li
 import type { HealthDto } from "@/lib/types";
 
 type RestartTarget = "webui" | "host";
+type PanelAction = RestartTarget | "rebuild";
 
-const LABELS: Record<RestartTarget, string> = {
+const LABELS: Record<PanelAction, string> = {
   webui: "WebUI",
   host: "トレイホスト",
+  rebuild: "WebUI（再ビルド）",
 };
 
 const HEALTH_BUDGET_MS = 90_000;
@@ -26,8 +28,8 @@ async function timedFetch(input: string, init?: RequestInit & { timeoutMs?: numb
 
 export function HostRestartPanel({ onRestarted }: { onRestarted?: () => void }) {
   const [hostOk, setHostOk] = useState<boolean | null>(null);
-  const [pending, setPending] = useState<RestartTarget | null>(null);
-  const [restarting, setRestarting] = useState<RestartTarget | null>(null);
+  const [pending, setPending] = useState<PanelAction | null>(null);
+  const [restarting, setRestarting] = useState<PanelAction | null>(null);
   const [remaining, setRemaining] = useState(HEALTH_BUDGET_MS / 1000);
   const [error, setError] = useState<string | null>(null);
   const restartingRef = useRef(false);
@@ -56,20 +58,23 @@ export function HostRestartPanel({ onRestarted }: { onRestarted?: () => void }) 
     };
   }, []);
 
-  const restartService = async (target: RestartTarget) => {
+  const restartService = async (action: PanelAction) => {
     if (restartingRef.current) return;
     restartingRef.current = true;
     setPending(null);
-    setRestarting(target);
+    setRestarting(action);
     setRemaining(HEALTH_BUDGET_MS / 1000);
     setError(null);
     try {
-      const res = await timedFetch("/api/host/restart", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ target }),
-        timeoutMs: 10_000,
-      });
+      const res =
+        action === "rebuild"
+          ? await timedFetch("/api/host/build", { method: "POST", timeoutMs: 10_000 })
+          : await timedFetch("/api/host/restart", {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({ target: action }),
+              timeoutMs: 10_000,
+            });
       const data = (await res.json().catch(() => ({}))) as {
         error?: string;
         hint?: string;
@@ -79,7 +84,7 @@ export function HostRestartPanel({ onRestarted }: { onRestarted?: () => void }) 
           [data.error, data.hint].filter(Boolean).join(" — ") || "再起動に失敗しました",
         );
       }
-      if (target === "webui") window.dispatchEvent(new Event("leafcode:webui-restart"));
+      if (action !== "host") window.dispatchEvent(new Event("leafcode:webui-restart"));
       const deadline = Date.now() + HEALTH_BUDGET_MS;
       let success = false;
       while (Date.now() < deadline) {
@@ -102,7 +107,7 @@ export function HostRestartPanel({ onRestarted }: { onRestarted?: () => void }) 
       }
       if (!success) {
         throw new Error(
-          `${LABELS[target]}の再起動後、ヘルスチェックがタイムアウトしました。ページを再読み込みしてください。`,
+          `${LABELS[action]}の再起動後、ヘルスチェックがタイムアウトしました。ページを再読み込みしてください。`,
         );
       }
       onRestarted?.();
@@ -141,6 +146,16 @@ export function HostRestartPanel({ onRestarted }: { onRestarted?: () => void }) 
           type="button"
           size="sm"
           variant="secondary"
+          busy={restarting === "rebuild"}
+          disabled={hostOk !== true || restarting !== null}
+          onClick={() => setPending("rebuild")}
+        >
+          WebUI を再ビルド
+        </Button>
+        <Button
+          type="button"
+          size="sm"
+          variant="secondary"
           busy={restarting === "host"}
           disabled={hostOk !== true || restarting !== null}
           onClick={() => setPending("host")}
@@ -164,7 +179,11 @@ export function HostRestartPanel({ onRestarted }: { onRestarted?: () => void }) 
           aria-label="再起動の確認"
           className="mt-3 rounded-lg border border-warning/30 bg-warning-bg px-3 py-2 text-sm text-warning"
         >
-          <p className="font-medium">{LABELS[pending]}を再起動しますか？</p>
+          <p className="font-medium">
+            {pending === "rebuild"
+              ? "WebUI を再ビルドして再起動しますか？（ビルドの所要時間ぶん停止します）"
+              : `${LABELS[pending]}を再起動しますか？`}
+          </p>
           <div className="mt-2 flex flex-wrap gap-2">
             <Button type="button" size="sm" variant="primary" onClick={() => void restartService(pending)}>
               再起動する
@@ -178,7 +197,9 @@ export function HostRestartPanel({ onRestarted }: { onRestarted?: () => void }) 
       <p className="mt-2 min-h-4 text-xs text-muted" role="status" aria-live="polite">
         {restarting ? (
           <>
-            {`${LABELS[restarting]}を再起動しています…`}
+            {restarting === "rebuild"
+              ? "WebUIを再ビルドして再起動しています…"
+              : `${LABELS[restarting]}を再起動しています…`}
             <span aria-hidden="true">{`（残り ${remaining} 秒）`}</span>
           </>
         ) : null}

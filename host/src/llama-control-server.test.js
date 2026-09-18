@@ -250,6 +250,49 @@ test("POST /restart/host without handler returns 501", async () => {
   await closeControlServer(server);
 });
 
+test("POST /build/webui returns 202 then invokes handler", async () => {
+  let called = false;
+  const port = await freePort();
+  const server = createLlamaControlServer({
+    controlPort: port,
+    onLlamaServerStatus: () => ({ ok: true }),
+    onLlamaServerStart: async () => ({ ok: true }),
+    onLlamaServerStop: () => {},
+    onBuildWebui: () => {
+      called = true;
+    },
+  });
+  await listenControlServer(server, port);
+  const res = await fetch(`http://127.0.0.1:${port}/build/webui`, {
+    method: "POST",
+    headers: { host: `127.0.0.1:${port}` },
+  });
+  assert.equal(res.status, 202);
+  const body = await res.json();
+  assert.equal(body.ok, true);
+  assert.equal(body.target, "webui-rebuild");
+  await new Promise((r) => setTimeout(r, 180));
+  assert.equal(called, true);
+  await closeControlServer(server);
+});
+
+test("POST /build/webui without handler returns 501", async () => {
+  const port = await freePort();
+  const server = createLlamaControlServer({
+    controlPort: port,
+    onLlamaServerStatus: () => ({ ok: true }),
+    onLlamaServerStart: async () => ({ ok: true }),
+    onLlamaServerStop: () => {},
+  });
+  await listenControlServer(server, port);
+  const res = await fetch(`http://127.0.0.1:${port}/build/webui`, {
+    method: "POST",
+    headers: { host: `127.0.0.1:${port}` },
+  });
+  assert.equal(res.status, 501);
+  await closeControlServer(server);
+});
+
 test("GET and POST /webui/auth expose safe status and validate updates", async () => {
   let patch = null;
   const port = await freePort();

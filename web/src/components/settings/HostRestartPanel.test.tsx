@@ -89,4 +89,31 @@ describe("HostRestartPanel", () => {
       window.removeEventListener("leafcode:webui-restart", restartEvent);
     }
   });
+
+  it("再ビルドは /api/host/build を叩いてから health 復帰を待つ", async () => {
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse({ running: true }))
+      .mockResolvedValueOnce(jsonResponse({ ok: true, target: "webui-rebuild", accepted: true }, 202))
+      .mockResolvedValueOnce(jsonResponse({ engineOk: true, startedAt: 1 }));
+    const restartEvent = vi.fn();
+    window.addEventListener("leafcode:webui-restart", restartEvent);
+    try {
+      const onRestarted = vi.fn();
+      render(<HostRestartPanel onRestarted={onRestarted} />);
+      await waitFor(() => {
+        expect(
+          (screen.getByRole("button", { name: "WebUI を再ビルド" }) as HTMLButtonElement).disabled,
+        ).toBe(false);
+      });
+
+      fireEvent.click(screen.getByRole("button", { name: "WebUI を再ビルド" }));
+      fireEvent.click(screen.getByRole("button", { name: "再起動する" }));
+
+      await waitFor(() => expect(onRestarted).toHaveBeenCalled(), { timeout: 3_000 });
+      expect(fetchMock.mock.calls[1]?.[0]).toBe("/api/host/build");
+      expect(restartEvent).toHaveBeenCalled();
+    } finally {
+      window.removeEventListener("leafcode:webui-restart", restartEvent);
+    }
+  });
 });

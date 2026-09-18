@@ -83,6 +83,7 @@ async function readJsonBody(req, maxBytes = 16_384) {
  *   onRestartWebui?: () => Promise<unknown> | unknown,
  *   onRestartWebuiBlocked?: () => Promise<string | null> | string | null,
  *   onRestartHost?: () => Promise<unknown> | unknown,
+ *   onBuildWebui?: () => Promise<unknown> | unknown,
  *   onBrowserConfigRead?: () => { autoOpenBrowser: boolean },
  *   onBrowserConfigWrite?: (patch: { autoOpenBrowser: boolean }) => { autoOpenBrowser: boolean },
  *   onWebUiAuthRead?: () => object,
@@ -295,6 +296,18 @@ export function createLlamaControlServer(handlers) {
         res.writeHead(202, JSON_HEADERS);
         res.end(JSON.stringify({ ok: true, target: "host", accepted: true }));
         deferRestartUntilResponseSent(res, () => handlers.onRestartHost());
+        return;
+      }
+
+      if (method === "POST" && pathname === "/build/webui") {
+        if (typeof handlers.onBuildWebui !== "function") {
+          res.writeHead(501, JSON_HEADERS);
+          res.end(JSON.stringify({ ok: false, error: "webui rebuild is not supported by this host" }));
+          return;
+        }
+        res.writeHead(202, JSON_HEADERS);
+        res.end(JSON.stringify({ ok: true, target: "webui-rebuild", accepted: true }));
+        deferRestartUntilResponseSent(res, () => handlers.onBuildWebui());
         return;
       }
 
