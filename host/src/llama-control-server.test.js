@@ -276,6 +276,34 @@ test("POST /build/webui returns 202 then invokes handler", async () => {
   await closeControlServer(server);
 });
 
+test("POST /build/webui is refused with 409 while a Goal Loop is live", async () => {
+  let called = false;
+  const port = await freePort();
+  const server = createLlamaControlServer({
+    controlPort: port,
+    onLlamaServerStatus: () => ({ ok: true }),
+    onLlamaServerStart: async () => ({ ok: true }),
+    onLlamaServerStop: () => {},
+    onBuildWebui: () => {
+      called = true;
+    },
+    onRestartWebuiBlocked: () => "Goal Loop が 1 件実行中",
+  });
+  await listenControlServer(server, port);
+  const res = await fetch(`http://127.0.0.1:${port}/build/webui`, {
+    method: "POST",
+    headers: { host: `127.0.0.1:${port}` },
+  });
+  assert.equal(res.status, 409);
+  const body = await res.json();
+  assert.equal(body.ok, false);
+  assert.equal(body.blocked, true);
+  assert.match(body.error, /Goal Loop/);
+  await new Promise((r) => setTimeout(r, 180));
+  assert.equal(called, false);
+  await closeControlServer(server);
+});
+
 test("POST /build/webui without handler returns 501", async () => {
   const port = await freePort();
   const server = createLlamaControlServer({

@@ -305,6 +305,14 @@ export function createLlamaControlServer(handlers) {
           res.end(JSON.stringify({ ok: false, error: "webui rebuild is not supported by this host" }));
           return;
         }
+        // A rebuild stops the WebUI exactly like a restart, so the same Goal
+        // Loop refusal has to happen before the 202 is sent.
+        const blocked = await Promise.resolve(handlers.onRestartWebuiBlocked?.()).catch(() => null);
+        if (blocked) {
+          res.writeHead(409, JSON_HEADERS);
+          res.end(JSON.stringify({ ok: false, target: "webui-rebuild", blocked: true, error: blocked }));
+          return;
+        }
         res.writeHead(202, JSON_HEADERS);
         res.end(JSON.stringify({ ok: true, target: "webui-rebuild", accepted: true }));
         deferRestartUntilResponseSent(res, () => handlers.onBuildWebui());
