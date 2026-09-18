@@ -70,6 +70,7 @@ const MCP_SERVER_DESCRIPTIONS: Readonly<Record<string, string>> = {
   "gws-calendar": "Google Workspace 公式 MCP（Calendar）。予定の検索・作成。",
   "gws-chat": "Google Workspace 公式 MCP（Chat）。メッセージ検索・送信。",
   "gws-people": "Google Workspace 公式 MCP（People）。プロフィール・連絡先検索。",
+  notion: "Notion公式 MCP。ワークスペースのページ・データベースの検索と更新を行います。",
 };
 
 function authTypeLabel(type: McpAuthType): string {
@@ -130,6 +131,7 @@ export function McpSettings() {
   const [gwsClientId, setGwsClientId] = useState("");
   const [gwsClientSecret, setGwsClientSecret] = useState("");
   const [gwsBusy, setGwsBusy] = useState(false);
+  const [notionBusy, setNotionBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -267,6 +269,22 @@ export function McpSettings() {
       setError(err instanceof Error ? err.message : "Google Workspace の追加に失敗しました");
     } finally {
       setGwsBusy(false);
+    }
+  }
+
+  async function addNotion() {
+    setNotionBusy(true);
+    setError(null);
+    try {
+      const result = await sendJson<{ servers: McpDto[] }>("/api/mcp", { preset: "notion" }, "POST");
+      setServers(result.servers);
+      setAuthById({});
+      const added = result.servers.find((server) => server.id === "notion");
+      if (added) await openAuth(added);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Notion の追加に失敗しました");
+    } finally {
+      setNotionBusy(false);
     }
   }
 
@@ -557,7 +575,7 @@ export function McpSettings() {
     );
   }
 
-  const anyBusy = Boolean(busyId || authBusyId || addBusy || slackBusy || gwsBusy);
+  const anyBusy = Boolean(busyId || authBusyId || addBusy || slackBusy || gwsBusy || notionBusy);
 
   return (
     <div className="rounded-2xl border border-border bg-surface p-4">
@@ -748,6 +766,26 @@ export function McpSettings() {
                   disabled={loading || !gwsClientId.trim() || !gwsClientSecret.trim() || anyBusy}
                 >
                   Google Workspace を追加
+                </Button>
+              </div>
+            </div>
+          )}
+          {!servers.some((server) => server.id === "notion") && (
+            <div className="rounded-xl border border-dashed border-border bg-surface-2 px-3 py-3">
+              <p className="text-xs font-medium text-text">Notion を追加（OAuth）</p>
+              <p className="mt-1 text-[11px] leading-4 text-muted">
+                Notion公式のホスト型MCPサーバー（mcp.notion.com）を追加します。OAuthはDCR（動的クライアント登録）で自動設定されます。
+                追加後に「認証設定 → OAuth認証を開始」でNotionワークスペースを認可してください。
+              </p>
+              <div className="mt-2">
+                <Button
+                  size="sm"
+                  variant="primary"
+                  onClick={() => void addNotion()}
+                  busy={notionBusy}
+                  disabled={loading || anyBusy}
+                >
+                  Notion を追加
                 </Button>
               </div>
             </div>

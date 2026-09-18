@@ -214,6 +214,31 @@ Google公式の Google Workspace リモート MCP サーバー（Developer Previ
 
 **トラブルシューティング**: 同意画面でスコープエラーが出る場合は、consent screen の **Data Access** に該当スコープを追加してください。プロダクトごとに認証が必要です（例: Gmail のみ使うなら `gws-gmail` のOAuthだけで構いません）。
 
+### Notion（公式MCP）
+
+Notion公式のホスト型MCPサーバー（`https://mcp.notion.com/mcp`）を組み込みで対応しています。NotionはDCR（RFC 7591）対応のため、URLのみでOAuth接続できます（client IDなどの事前準備は不要。認証はPKCE）。
+
+**Notion側**: ワークスペース所有者が **Settings → Connections** でMCPクライアントのアクセスを管理します（初回認証時に認可）。
+
+**LeafCodePi側**: WebUI の **設定 → 拡張 → MCP サーバー** の「Notion を追加（OAuth）」を押すと、`~/.pi/agent/mcp.json` にエントリが追加され、認証パネルが開きます。**OAuth認証を開始** でブラウザ認証し、コールバックURLまたは認証コードを貼り付けて完了します。TUI では `/mcp setup` の Notion preset からも追加できます。
+
+手動で設定する場合は次のエントリを追加します。
+
+```json
+{
+  "mcpServers": {
+    "notion": {
+      "url": "https://mcp.notion.com/mcp",
+      "auth": "oauth",
+      "httpTransport": "streamable-http",
+      "protocolVersion": "auto"
+    }
+  }
+}
+```
+
+**トラブルシューティング**: 認可が切れた場合（DCRクライアントの失効など）は、認証設定の **OAuth認証を解除** から再認証してください。NotionはAPIキー方式に対応していません（OAuthのみ）。
+
 ### Intercom
 
 `extensions/leafcode-intercom` に `pi-intercom` の LeafCodePi 組み込みフォークを同梱しています。`intercom` ツール、`/intercom`、Alt+M で別セッションへ1対1メッセージを送れます。

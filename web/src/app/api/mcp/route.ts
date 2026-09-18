@@ -1,10 +1,17 @@
 /**
  * GET /api/mcp — list global MCP servers (~/.pi/agent/mcp.json) with ON/OFF state.
- * POST /api/mcp — add a known preset server group (n8n / slack / google-workspace).
+ * POST /api/mcp — add a known preset server group (n8n / slack / google-workspace / notion).
  */
 import { NextRequest, NextResponse } from "next/server";
 import { reloadLiveSessionsContext } from "@/lib/pi/harness";
-import { addGoogleWorkspaceServers, addN8nServer, addSlackServer, listMcpServers, mcpErrorStatus } from "@/lib/mcp";
+import {
+  addGoogleWorkspaceServers,
+  addN8nServer,
+  addNotionServer,
+  addSlackServer,
+  listMcpServers,
+  mcpErrorStatus,
+} from "@/lib/mcp";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -60,8 +67,11 @@ export async function POST(req: NextRequest) {
       }
       addGoogleWorkspaceServers(clientId, clientSecret);
       name = "google-workspace";
+    } else if (preset === "notion") {
+      addNotionServer();
+      name = "notion";
     } else {
-      return NextResponse.json({ error: "preset（n8n / slack / google-workspace）が必要です" }, { status: 400 });
+      return NextResponse.json({ error: "preset（n8n / slack / google-workspace / notion）が必要です" }, { status: 400 });
     }
 
     const reload = await reloadLiveSessionsContext();

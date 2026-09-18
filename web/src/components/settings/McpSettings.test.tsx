@@ -176,4 +176,37 @@ describe("McpSettings", () => {
       "POST",
     ));
   });
+
+  it("adds notion through the API and opens its OAuth panel", async () => {
+    const notionServer = {
+      ...server,
+      id: "notion",
+      name: "notion",
+      url: "https://mcp.notion.com/mcp",
+      authType: "oauth" as const,
+      credentialConfigured: false,
+      credentialSource: "oauth" as const,
+      credentialStatus: "missing" as const,
+    };
+    const notionAuth = {
+      ...auth,
+      name: "notion",
+      url: notionServer.url,
+      authType: "oauth" as const,
+      credentialSource: "oauth" as const,
+      credentialStatus: "missing" as const,
+    };
+    client.getJson.mockImplementation((path: string) =>
+      path.endsWith("/auth")
+        ? Promise.resolve(notionAuth)
+        : Promise.resolve({ servers: [server], configPath: auth.configPath }),
+    );
+    client.sendJson.mockResolvedValue({ ok: true, servers: [server, notionServer] });
+
+    render(<McpSettings />);
+    fireEvent.click(await screen.findByRole("button", { name: "Notion を追加" }));
+
+    await waitFor(() => expect(client.sendJson).toHaveBeenCalledWith("/api/mcp", { preset: "notion" }, "POST"));
+    expect(await screen.findByRole("button", { name: "OAuth認証を開始" })).toBeTruthy();
+  });
 });

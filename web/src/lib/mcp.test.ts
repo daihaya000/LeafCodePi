@@ -6,6 +6,7 @@ import { afterEach, describe, it } from "vitest";
 import {
   addGoogleWorkspaceServers,
   addN8nServer,
+  addNotionServer,
   addSlackServer,
   disableMcpHeadersStore,
   enableMcpBearerStore,
@@ -273,6 +274,20 @@ describe("listMcpServers / setMcpServerEnabled", () => {
     );
     const raw = JSON.parse(readFileSync(join(agentDir, "mcp.json"), "utf8"));
     assert.equal(raw.mcpServers["gws-gmail"].oauth.clientId, "abc.apps.googleusercontent.com");
+  });
+
+  it("adds the Notion OAuth server", () => {
+    fixture();
+    addNotionServer(agentDir);
+    const raw = JSON.parse(readFileSync(join(agentDir, "mcp.json"), "utf8"));
+    assert.deepEqual(raw.mcpServers.notion, {
+      url: "https://mcp.notion.com/mcp",
+      auth: "oauth",
+      httpTransport: "streamable-http",
+      protocolVersion: "auto",
+    });
+    assert.equal(listMcpServers(agentDir).servers.find((s) => s.name === "notion")?.authType, "oauth");
+    assert.throws(() => addNotionServer(agentDir), /既に登録/);
   });
 });
 

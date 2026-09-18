@@ -589,3 +589,23 @@ export function addGoogleWorkspaceServers(
   atomicWrite(path, `${JSON.stringify(config, null, 2)}\n`);
   return listMcpServers(agentDir);
 }
+
+/** Notion's hosted MCP endpoint (OAuth with dynamic client registration). */
+const NOTION_MCP_URL = "https://mcp.notion.com/mcp";
+
+/** Add Notion's hosted MCP server as an OAuth entry (DCR; no client ID needed). */
+export function addNotionServer(agentDir = resolvePiAgentDir()): McpListResult {
+  const path = piMcpConfigPath(agentDir);
+  const config = readConfig(path);
+  if (isMcpServer(config.mcpServers["notion"])) {
+    throw new McpError("conflict", "notion は既に登録されています");
+  }
+  config.mcpServers["notion"] = {
+    url: NOTION_MCP_URL,
+    auth: "oauth",
+    httpTransport: "streamable-http",
+    protocolVersion: "auto",
+  };
+  atomicWrite(path, `${JSON.stringify(config, null, 2)}\n`);
+  return listMcpServers(agentDir);
+}

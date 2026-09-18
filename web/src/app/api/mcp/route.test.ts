@@ -86,6 +86,18 @@ describe("/api/mcp POST", () => {
     expect(raw.mcpServers["gws-calendar"].oauth.scope).toContain("calendar.events.readonly");
   });
 
+  it("adds notion", async () => {
+    const response = await POST(request({ preset: "notion" }));
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as { ok?: boolean; servers?: unknown[] };
+    expect(body.servers).toEqual([
+      expect.objectContaining({ id: "notion", authType: "oauth", enabled: true }),
+    ]);
+
+    const raw = JSON.parse(readFileSync(join(agentDir, "mcp.json"), "utf8"));
+    expect(raw.mcpServers.notion.url).toBe("https://mcp.notion.com/mcp");
+  });
+
   it("rejects unsupported presets and duplicate registrations", async () => {
     const unsupported = await POST(request({ preset: "other", url: "https://example.com" }));
     expect(unsupported.status).toBe(400);
