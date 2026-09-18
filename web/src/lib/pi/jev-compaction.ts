@@ -8,7 +8,7 @@ type Preparation = {
   tokensBefore: number;
 };
 
-type ToolResult = { id: string; toolName: string; text: string; isError: boolean };
+type ToolResult = { id: string; toolName: string; text: string };
 
 function text(content: unknown): string {
   if (!Array.isArray(content)) return typeof content === "string" ? content : "";
@@ -17,6 +17,25 @@ function text(content: unknown): string {
     .filter((part) => part.type === "text" && typeof part.text === "string")
     .map((part) => part.text as string)
     .join("\n");
+}
+
+function messageText(message: Message): string {
+  const content = message.content;
+  if (!Array.isArray(content)) return text(content);
+  return content.map((part) => {
+    if (!part || typeof part !== "object") return "";
+    const value = part as Record<string, unknown>;
+    if (value.type === "text" && typeof value.text === "string") return value.text;
+    if (value.type === "toolCall") {
+      const name = typeof value.name === "string" ? value.name : "tool";
+      try {
+        return `Tool call ${name}: ${JSON.stringify(value.arguments ?? {})}`;
+      } catch {
+        return `Tool call ${name}`;
+      }
+    }
+    return "";
+  }).filter(Boolean).join("\n");
 }
 
 function resultMessages(messages: readonly Message[]): ToolResult[] {
@@ -28,7 +47,6 @@ function resultMessages(messages: readonly Message[]): ToolResult[] {
       id,
       toolName: typeof message.toolName === "string" ? message.toolName : "tool",
       text: value,
-      isError: message.isError === true,
     }] : [];
   });
 }
@@ -41,7 +59,7 @@ function state(messages: readonly Message[], results: readonly ToolResult[]): ob
       role: message.role,
       text: message.role === "toolResult"
         ? notes.get(typeof message.toolCallId === "string" ? message.toolCallId : "") ?? "tool result omitted"
-        : text(message.content).slice(0, 700),
+        : messageText(message).slice(0, 700),
     })),
   };
 }
@@ -55,7 +73,7 @@ function transcript(messages: readonly Message[], keep: ReadonlySet<string>): st
       if (!keep.has(id)) return `[${role}] ${typeof message.toolName === "string" ? message.toolName : "tool"}: omitted; re-run if needed`;
       return `[${role}]\n${body}`;
     }
-    const body = text(message.content);
+    const body = messageText(message);
     return body ? `[${role}]\n${body}` : `[${role}]`;
   }).join("\n\n");
 }
