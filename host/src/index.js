@@ -77,6 +77,12 @@ const LLAMA_SERVER_PORT = readPort(process.env.LEAFCODE_PI_LLAMA_PORT, DEFAULT_L
 const CONTROL_FILE = join(DATA_DIR, "host-control.json");
 const MAX_WEB_RESTARTS = 3;
 const MAX_TRAY_RESTARTS = 3;
+// The killed WebUI disappears within a few ms (process.kill(pid, 0) poll), so
+// keep the settle time short; the try budget is only a backstop for a kill
+// that never lands.
+const KILL_POLL_MS = 25;
+const KILL_POLL_TRIES = 80;
+const STOP_SETTLE_MS = 150;
 
 function webUiAuthSettings() {
   const config = readWebUiAuthConfig(DATA_DIR);
@@ -532,9 +538,9 @@ async function stopWeb() {
   expectedWebExitPids.add(child.pid);
   killTree(child.pid);
   webProc = null;
-  for (let i = 0; i < 20; i += 1) {
+  for (let i = 0; i < KILL_POLL_TRIES; i += 1) {
     if (!pidAlive(child.pid)) break;
-    await sleep(100);
+    await sleep(KILL_POLL_MS);
   }
 }
 
@@ -590,7 +596,7 @@ async function restartWeb({ rebuild = false } = {}) {
         error(`Rebuild failed: ${err instanceof Error ? err.message : String(err)}`);
       });
     }
-    await sleep(400);
+    await sleep(STOP_SETTLE_MS);
     await spawnWeb();
   } finally {
     restarting = false;
