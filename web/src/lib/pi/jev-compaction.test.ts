@@ -34,6 +34,23 @@ describe("compactWithJev", () => {
     expect(evaluateTypeSafe).toHaveBeenCalledTimes(2);
   });
 
+  it("batches complete results within the state budget", async () => {
+    const messages = Array.from({ length: 9 }, (_, index) => ({
+      role: "toolResult",
+      toolCallId: `call-${index}`,
+      toolName: "read",
+      content: [{ type: "text", text: "x".repeat(2_000) }],
+    }));
+    evaluateTypeSafe.mockResolvedValue({
+      answers: Object.fromEntries(messages.map((message) => [message.toolCallId, { noul: 0.1 }])),
+    });
+    await compactWithJev({ ...preparation, messagesToSummarize: messages } as never, 0.6, new AbortController().signal);
+    const states = evaluateTypeSafe.mock.calls.map(([request]) => request.state);
+    expect(states.map((state) => state.toolResults.length)).toEqual([8, 1]);
+    expect(states.every((state) => state.toolResults.every((result: { text: string }) => result.text.length === 2_000))).toBe(true);
+    expect(states.every((state) => JSON.stringify(state).length <= 24_000)).toBe(true);
+  });
+
   it("gives Jev the exact result it is asked to judge", async () => {
     evaluateTypeSafe.mockResolvedValue({ answers: { "call-1": { noul: 0.2 } } });
     const result = await compactWithJev(preparation as never, 0.6, new AbortController().signal);
