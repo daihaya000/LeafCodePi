@@ -14,6 +14,7 @@ describe("sessionToolNames", () => {
     const windows = sessionToolNames({ platform: "win32" });
     assert.ok(windows.includes("powershell"));
     assert.ok(windows.includes("bash"));
+    assert.ok(windows.includes("jev_judge"));
 
     assert.ok(
       sessionToolNames({ platform: "linux", subagentPermission: "allow" }).includes("subagent"),

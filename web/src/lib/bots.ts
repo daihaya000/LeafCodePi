@@ -211,6 +211,7 @@ export function botRuntimeContext(extensions: readonly { path: string }[]): stri
     "LeafCode-required extensions are application dependencies; do not disable or remove them.",
     "The available_skills section is the session's filtered skill inventory. Skills may be bundled under extensions/*/skills, not only ~/.pi/agent/skills. Read the listed SKILL.md before using a skill.",
     "Some extension tools are deferred: use tool_search before claiming a capability is unavailable. Loaded does not mean authorized; honor tool permissions and Bot skill restrictions. Do not reinstall bundled features merely because their tools are not currently visible.",
+    "Use jev_judge when a task needs semantic selection, ranking, or verification. Ask narrow typed questions (noul/choice/score), include a no-match choice when appropriate, and treat low confidence as uncertainty. Jev does not generate text or code, and its answer alone never authorizes irreversible actions.",
     "</leafcode_runtime>",
   ].join("\n");
 }
