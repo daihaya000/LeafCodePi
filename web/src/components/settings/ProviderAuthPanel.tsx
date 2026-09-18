@@ -2267,30 +2267,38 @@ function TypeSafeCookieControl({
   const [baselineError, setBaselineError] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
-    try {
-      const [cookieResult, baselineResult] = await Promise.all([
-        getJson<{ configured?: boolean }>("/api/typesafe-cookie"),
-        getJson<{ baselineUsd?: number | null }>("/api/typesafe-baseline"),
-      ]);
+    const [cookieResult, baselineResult] = await Promise.allSettled([
+      getJson<{ configured?: boolean }>("/api/typesafe-cookie"),
+      getJson<{ baselineUsd?: number | null }>("/api/typesafe-baseline"),
+    ]);
+    if (cookieResult.status === "fulfilled") {
+      setConfigured(cookieResult.value.configured === true);
+      setError(null);
+    } else {
+      setConfigured(null);
+      setError(
+        cookieResult.reason instanceof ApiError
+          ? cookieResult.reason.message
+          : "TypeSafe cookie の状態を確認できません",
+      );
+    }
+    if (baselineResult.status === "fulfilled") {
       const baselineUsd =
-        typeof baselineResult.baselineUsd === "number" &&
-        baselineResult.baselineUsd > 0
-          ? baselineResult.baselineUsd
+        typeof baselineResult.value.baselineUsd === "number" &&
+        baselineResult.value.baselineUsd > 0
+          ? baselineResult.value.baselineUsd
           : null;
-      setConfigured(cookieResult.configured === true);
       setBaseline(baselineUsd);
       // 非同期の初期読込が、ユーザーが既に入力した値を上書きしてはいけない。
       if (!baselineInputDirtyRef.current) {
         setBaselineInput(baselineUsd === null ? "" : String(baselineUsd));
       }
-      setError(null);
       setBaselineError(null);
-    } catch (cause) {
-      setConfigured(null);
-      setError(
-        cause instanceof ApiError
-          ? cause.message
-          : "TypeSafe cookie の状態を確認できません",
+    } else {
+      setBaselineError(
+        baselineResult.reason instanceof ApiError
+          ? baselineResult.reason.message
+          : "TypeSafe 基準残高の状態を確認できません",
       );
     }
   }, []);
@@ -2448,7 +2456,7 @@ function TypeSafeCookieControl({
             autoFocus
           />
           <p id="typesafe-console-cookie-help" className="text-xs text-muted">
-            console.typesafe.ai の session_id と organization_id を含む cookie を貼り付けてください。保存後、本文は画面に表示しません。
+            console.typesafe.ai の Netscape cookie または Cookie ヘッダー（session_id と organization_id を含む）を貼り付けてください。保存後、本文は画面に表示しません。
           </p>
           {error && (
             <p className="text-xs text-danger" role="alert">

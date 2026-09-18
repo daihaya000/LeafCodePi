@@ -34,6 +34,7 @@ import {
   hasTypesafeCookieFile,
   isTypesafeConsoleDomain,
   parseQwenCloudNetscapeText,
+  parseTypesafeConsoleCookieInput,
   parseTypesafeConsoleNetscapeText,
   readTypesafeOrgId,
   saveAccountOpenCodeCookieFile,
@@ -291,6 +292,13 @@ console.typesafe.ai	FALSE	/	TRUE	4102444800	organization_id	org_abc
         "console.typesafe.ai\tFALSE\t/\tTRUE\t4102444800\torganization_id\torg_abc\n",
       ),
     ).toBeNull();
+    const header = parseTypesafeConsoleCookieInput(
+      "session_id=header-session; organization_id=header-org; other=ignored",
+    );
+    expect(header?.cookies.map((cookie) => cookie.name)).toEqual([
+      "session_id",
+      "organization_id",
+    ]);
   });
 
   it("saves/deletes the default cookie file and validates content", () => {
@@ -303,6 +311,13 @@ console.typesafe.ai	FALSE	/	TRUE	4102444800	organization_id	org_abc
         "console.typesafe.ai\tFALSE\t/\tTRUE\t4102444800\tsession_id\ttok-123\n",
       ),
     ).toThrow();
+    saveTypesafeCookieFile(
+      "session_id=header-session; organization_id=header-org; ignored=secret",
+    );
+    expect(extractTypesafeConsoleSession()?.cookies.map((cookie) => cookie.name)).toEqual([
+      "session_id",
+      "organization_id",
+    ]);
     saveTypesafeCookieFile(fixture);
     expect(hasTypesafeCookieFile()).toBe(true);
     const session = extractTypesafeConsoleSession();

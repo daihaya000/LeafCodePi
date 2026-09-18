@@ -377,6 +377,38 @@ export function parseTypesafeConsoleNetscapeText(
   return { sourceLabel, cookies };
 }
 
+/** Cookieヘッダー貼り付け（`name=value; name=value`）も受け付ける。 */
+export function parseTypesafeConsoleCookieInput(
+  text: string,
+): BrowserCookieSession | null {
+  const netscape = parseTypesafeConsoleNetscapeText(text);
+  if (netscape) return netscape;
+
+  const cookies = new Map<string, string>();
+  for (const part of text.trim().split(";")) {
+    const separator = part.indexOf("=");
+    if (separator <= 0) continue;
+    const name = part.slice(0, separator).trim();
+    const value = part.slice(separator + 1).trim();
+    if (name && value) cookies.set(name, value);
+  }
+  const sessionId = cookies.get(TYPESAFE_SESSION_COOKIE);
+  const organizationId = cookies.get(TYPESAFE_ORG_COOKIE);
+  if (!sessionId || !organizationId) return null;
+  return {
+    sourceLabel: "Cookie header",
+    cookies: [TYPESAFE_SESSION_COOKIE, TYPESAFE_ORG_COOKIE].map((name) => ({
+      name,
+      value: cookies.get(name)!,
+      domain: TYPESAFE_CONSOLE_DOMAIN,
+      hostOnly: true,
+      path: "/",
+      secure: true,
+      expiresAt: null,
+    })),
+  };
+}
+
 /** 組織 ID は Console が置く organization_id cookie（無ければ null）。 */
 export function readTypesafeOrgId(
   session: BrowserCookieSession,
@@ -470,7 +502,7 @@ export function saveTypesafeCookieFile(text: string): void {
       status: 400,
     });
   }
-  const session = parseTypesafeConsoleNetscapeText(text);
+  const session = parseTypesafeConsoleCookieInput(text);
   const cookieText = session ? typesafeCookieFileText(session) : null;
   if (!cookieText) {
     throw Object.assign(
