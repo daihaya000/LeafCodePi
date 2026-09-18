@@ -186,6 +186,7 @@ export const BotView = memo(function BotView({ id, active = true }: { id: string
   const historyRequestEpochRef = useRef(0);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyError, setHistoryError] = useState<string | null>(null);
+  const [timelineLoading, setTimelineLoading] = useState(() => !cachedSession);
   const viewportRef = useRef<HTMLElement | null>(null);
   const [prompt, setPrompt] = useState("");
   const promptPresetReferences = useComposerPromptPresetReferences();
@@ -447,6 +448,7 @@ export const BotView = memo(function BotView({ id, active = true }: { id: string
     historyRequestEpochRef.current += 1;
     setHistoryLoading(false);
     setHistoryError(null);
+    setTimelineLoading(!cached);
     setSending(cached?.isStreaming ?? false);
     setPermission(null);
     setQuestion(null);
@@ -610,6 +612,7 @@ export const BotView = memo(function BotView({ id, active = true }: { id: string
             codeRequestId?: string;
           };
           if (payload.eventType === BOT_CODE_SESSION_CHANGED_EVENT) notifyBotSidebarChanged(payload.codeRequestId);
+          if (payload.eventType === "ready") setTimelineLoading(false);
           if (payload.task) cacheTaskRef.current = payload.task;
           if (payload.eventType === "cache_ready" && payload.messagesReused && cachedSession?.messages.length) {
             historyLoadedRef.current = Boolean(cachedSession.messageHistory?.hasMore);
@@ -717,11 +720,13 @@ export const BotView = memo(function BotView({ id, active = true }: { id: string
           prevAttentionRef.current = false;
           prevWorkingRef.current = false;
           setSending(false);
+          setTimelineLoading(false);
           setError(payload.error ?? "イベント接続に失敗しました");
         } catch {
           prevAttentionRef.current = false;
           prevWorkingRef.current = false;
           setSending(false);
+          setTimelineLoading(false);
           setError("イベント接続に失敗しました");
         }
       });
@@ -1258,7 +1263,7 @@ export const BotView = memo(function BotView({ id, active = true }: { id: string
     routineFailures: routineFailuresKey,
   }), [messages, permission?.id, question?.id, sending, routineCardOpen, codePanelOpen, routineFailuresKey]);
 
-  if (!bot) return <div className="p-5 text-sm text-muted">{error ?? "読み込み中…"}</div>;
+  if (!bot) return <div role="status" className="p-5 text-sm text-muted">{error ?? "読み込み中…"}</div>;
 
   return (
     <div className="flex h-full min-h-0 bg-bot-chat">
@@ -1312,7 +1317,9 @@ export const BotView = memo(function BotView({ id, active = true }: { id: string
               {historyError && <span className="text-xs text-danger">{historyError}</span>}
             </div>
           )}
-          {messages.length === 0 && !sending && <BotEmptyState avatar={bot} title={bot.name + " \u3068\u8a71\u3059"} description={"\u4e0b\u306e\u5165\u529b\u6b04\u304b\u3089\u30e1\u30c3\u30bb\u30fc\u30b8\u3092\u9001\u3063\u3066\u4f1a\u8a71\u3092\u59cb\u3081\u307e\u3057\u3087\u3046\u3002"} />}
+          {messages.length === 0 && !sending && (timelineLoading
+            ? <div aria-live="polite" className="p-5 text-sm text-muted">会話を読み込み中…</div>
+            : <BotEmptyState avatar={bot} title={bot.name + " \u3068\u8a71\u3059"} description={"\u4e0b\u306e\u5165\u529b\u6b04\u304b\u3089\u30e1\u30c3\u30bb\u30fc\u30b8\u3092\u9001\u3063\u3066\u4f1a\u8a71\u3092\u59cb\u3081\u307e\u3057\u3087\u3046\u3002"} />)}
           {routines.some((routine) => routine.failureCount > 0) && (
             <div role="status" className="rounded-2xl border border-danger/40 bg-danger/5 p-4 text-sm">
               <p className="font-medium text-danger">ルーティンの実行に失敗しています</p>

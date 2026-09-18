@@ -887,9 +887,15 @@ it("stops speaking when the shared TTS toggle is turned off mid-playback", async
   expect(pause).toHaveBeenCalledTimes(1);
 });
 
-it("renders bot empty-state copy instead of literal Unicode escapes", async () => {
+it("shows a loading state until the initial Bot timeline is ready", async () => {
   render(<ShellProvider><BotView id="one" /></ShellProvider>);
-  expect(await screen.findByText("Label")).toBeTruthy();
+  expect(await screen.findByText("会話を読み込み中…")).toBeTruthy();
+  expect(screen.queryByText("下の入力欄からメッセージを送って会話を始めましょう。")).toBeNull();
+
+  snapshot({ eventType: "ready", messages: [], messageHistory: { hasMore: false, nextCursor: null }, isStreaming: false });
+
+  expect(screen.queryByText("会話を読み込み中…")).toBeNull();
+  expect(screen.getByText("Label")).toBeTruthy();
   expect(screen.getByText("下の入力欄からメッセージを送って会話を始めましょう。")).toBeTruthy();
 });
 
