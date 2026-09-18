@@ -113,6 +113,63 @@ describe("readSessionWorkSummary", () => {
   });
 });
 
+describe("large session files", () => {
+  const entry = (value: Record<string, unknown>) => JSON.stringify(value);
+  // 4MBガードを超えるための詰め物（巨大なツール出力1行を模す）
+  const padding = "x".repeat(4_300_000);
+  const toolResult = (id: string, parentId: string, toolName: string, extra: Record<string, unknown>, timestamp: number) =>
+    entry({ type: "message", id, parentId, message: { role: "toolResult", toolName, content: [], timestamp, ...extra } });
+  const userMessage = (id: string, parentId: string, text: string, timestamp: number) =>
+    entry({ type: "message", id, parentId, message: { role: "user", content: [{ type: "text", text }], timestamp } });
+  const assistantMessage = (id: string, parentId: string, text: string, timestamp: number) =>
+    entry({ type: "message", id, parentId, message: { role: "assistant", content: [{ type: "text", text }], timestamp } });
+
+  it("reads conversation from the tail of a file over 4MB", () => {
+    const file = tempFile(
+      "large-conversation.session",
+      [
+        entry({ type: "session", id: "s9", version: 3 }),
+        toolResult("pad", "s9", "bash", { content: [{ type: "text", text: padding }] }, 1),
+        userMessage("m1", "pad", "末尾の質問", 2),
+        assistantMessage("m2", "m1", "末尾の回答", 3),
+      ].join("\n"),
+    );
+
+    const conversation = readSessionConversation(file);
+    expect(conversation.length).toBeGreaterThan(0);
+    expect(conversation[conversation.length - 1]).toEqual({ role: "assistant", text: "末尾の回答" });
+  });
+
+  it("finds head ToDo snapshot and tail activity in a file over 4MB", () => {
+    const file = tempFile(
+      "large-work-summary.session",
+      [
+        entry({ type: "session", id: "s9", version: 3 }),
+        toolResult("todo", "s9", "todowrite", { details: { todos: [{ id: "t1", content: "先頭のToDo", status: "in_progress", priority: "high" }] } }, 1),
+        toolResult("pad", "todo", "bash", { content: [{ type: "text", text: padding }] }, 2),
+        entry({ type: "message", id: "m1", parentId: "pad", message: { role: "assistant", content: [{ type: "toolCall", id: "c1", name: "edit", arguments: { path: "a.ts" } }], timestamp: 3 } }),
+      ].join("\n"),
+    );
+
+    const summary = readSessionWorkSummary(file);
+    expect(summary.todos).toEqual([{ content: "先頭のToDo", status: "in_progress" }]);
+    expect(summary.activity).toEqual(["編集: a.ts"]);
+  });
+
+  it("reads the last message from the tail of a file over 4MB", () => {
+    const file = tempFile(
+      "large-last-message.session",
+      [
+        entry({ type: "session", id: "s9", version: 3 }),
+        toolResult("pad", "s9", "bash", { content: [{ type: "text", text: padding }] }, 1),
+        userMessage("m1", "pad", "末尾の発言", 2),
+      ].join("\n"),
+    );
+
+    expect(readSessionLastMessage(file)).toEqual({ role: "user", text: "末尾の発言", timestamp: 2 });
+  });
+});
+
 describe("readSessionConversation", () => {
   it("returns an empty conversation for missing or empty session files", () => {
     expect(readSessionConversation(null)).toEqual([]);
