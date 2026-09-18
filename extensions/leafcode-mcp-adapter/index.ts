@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import type { McpExtensionState } from "./state.ts";
 import type { DirectToolSpec, McpAdapterOptions, McpConfig, PromptMetadata, ServerEntry } from "./types.ts";
 import {
+  completeAuth,
   completeAuthFromInput,
   createOAuthRuntime,
   removeAuth,
@@ -12,6 +13,7 @@ import {
   supportsOAuth,
   type McpOAuthRuntime,
 } from "./mcp-auth-flow.ts";
+import { waitForCallback } from "./mcp-callback-server.ts";
 import { Type } from "typebox";
 import type { TSchema } from "typebox";
 import { showStatus, showTools, showPrompts, reconnectServer, reconnectServers, authenticateServer, logoutServer, manageBearerToken, openMcpAuthPanel, openMcpPanel, openMcpSetup } from "./commands.ts";
@@ -507,6 +509,27 @@ function installMcpAdapter(pi: ExtensionAPI, options: McpAdapterOptions) {
         definition,
         { authStorageOptions: authOptions, runtime: currentState.oauthRuntime, signal },
       );
+      if (result.authorizationUrl && result.authState) {
+        // WebUI flows have no interactive callback waiter, so finish the
+        // browser round-trip in the background: waitForCallback resolves when
+        // the browser lands on the local /callback URL, then exchange the
+        // code. Failures stay quiet so the manual paste path still works.
+        const authState = result.authState;
+        void (async () => {
+          try {
+            const callback = await waitForCallback(authState);
+            await completeAuth(request.serverName, callback, {
+              authStorageOptions: authOptions,
+              runtime: currentState.oauthRuntime,
+              signal,
+            });
+            updateStatusBar(currentState);
+          } catch {
+            // Timeout, cancel, session shutdown, or a manual "complete" that
+            // already consumed this flow.
+          }
+        })();
+      }
       return {
         ok: true,
         operation: request.operation,
@@ -516,12 +539,26 @@ function installMcpAdapter(pi: ExtensionAPI, options: McpAdapterOptions) {
     }
 
     if (request.operation === "oauth-complete") {
-      const status = await completeAuthFromInput(request.serverName, request.input, {
-        authStorageOptions: authOptions,
-        runtime: currentState.oauthRuntime,
-        signal,
-      });
-      return { ok: true, operation: request.operation, status };
+      try {
+        const status = await completeAuthFromInput(request.serverName, request.input, {
+          authStorageOptions: authOptions,
+          runtime: currentState.oauthRuntime,
+          signal,
+        });
+        return { ok: true, operation: request.operation, status };
+      } catch (error) {
+        // A background auto-completion (or an earlier manual attempt) may have
+        // finished this flow already; report success when tokens exist.
+        try {
+          const inspected = inspectAuthForUrl(request.serverName, webUiServerUrl(definition), authOptions);
+          if (inspected.status === "present" && inspected.entry.tokens) {
+            return { ok: true, operation: request.operation, status: "authenticated" };
+          }
+        } catch {
+          // Fall through to the original error.
+        }
+        throw error;
+      }
     }
 
     if (request.operation === "oauth-remove") {

@@ -332,7 +332,7 @@ export async function startAuth(
   serverUrl: string,
   definition?: ServerEntry,
   options: AuthenticateOptions = {},
-): Promise<{ authorizationUrl: string }> {
+): Promise<{ authorizationUrl: string; authState?: string }> {
   if (isServerDisabled(definition)) throw new Error(`MCP server "${serverName}" is disabled`)
   const runtime = getRuntime(options)
   const runtimeState = getRuntimeState(runtime)
@@ -437,7 +437,7 @@ export async function startAuth(
       throw new UnauthorizedError("OAuth authorization URL was not provided")
     }
     await setPendingAuth(runtime, serverName, { serverName, authProvider, serverUrl, authorizationUrl: capturedUrl.toString(), discovery, authStorageOptions }, oauthState, signal, generation)
-    return { authorizationUrl: capturedUrl.toString() }
+    return { authorizationUrl: capturedUrl.toString(), authState: oauthState }
   } catch (error) {
     authProvider.deactivate()
     try {
