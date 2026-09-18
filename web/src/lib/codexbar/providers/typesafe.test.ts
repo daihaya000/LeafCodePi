@@ -209,7 +209,7 @@ describe("resolveTypesafeApiKey / typesafeProvider", () => {
       expect.objectContaining({
         method: "POST",
         headers: expect.objectContaining({
-          "Next-Action": "008b22f86b1523c973e393085e8f63846fdaf23799",
+          "Next-Action": "00216a0f6524a89c66b80e4babe337d5f2d86e071b",
           Cookie: expect.stringContaining("session_id=tok"),
         }),
       }),

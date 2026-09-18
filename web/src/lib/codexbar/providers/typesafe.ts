@@ -193,7 +193,7 @@ const TYPESAFE_BILLING_URL = "https://console.typesafe.ai/settings/billing";
  * "getBillingOverviewResult")` を検索する。
  */
 const TYPESAFE_BILLING_ACTION_ID =
-  "008b22f86b1523c973e393085e8f63846fdaf23799";
+  "00216a0f6524a89c66b80e4babe337d5f2d86e071b";
 
 export type TypesafeConsoleBilling = {
   plan: string;
