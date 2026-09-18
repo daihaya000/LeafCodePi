@@ -12,7 +12,7 @@ description: すべてのタスクで todowrite（ToDo管理）を強制する�
 ## 規則
 
 0. **会話冒頭の掃除（前会話 ToDo の残置禁止）**: 会話開始・再開時に前の会話由来の ToDo（`pending` / `in_progress`）が残っていたら、**新タスクの ToDo を作る前に**全項目を実態に合わせて `completed` または `cancelled` にリセットする。前会話の項目を新しいタスクに混ぜて引き継がない。本当に継続が必要な項目のみ、内容を明示して新規 ToDo として定義し直す。
-1. **タスク開始時（最初の実作業）**: 変更・shell・委譲・memory変更・未分類toolを使う場合は、ステップ数に関係なく、最初の非制御toolより先に `todowrite` を実行し、non-empty list の現在項目を `in_progress` にする。`git status` / `git diff` も shell なので ToDo登録より前に実行しない。ToDo要求は最初の実質tool前、通常のread-only作業はポリシー確認と制御toolを除く3回目の実質読み取り前に登録する。単一ステップの情報提供・質問回答のみ免除。
+1. **タスク開始時（最初の実作業）**: 変更・shell・委譲・memory変更・未分類toolを使う場合は、ステップ数に関係なく、最初の非制御toolより先に `todowrite` を実行し、non-empty list の現在項目を `in_progress` にする。`git status` / `git diff` も shell なので ToDo登録より前に実行しない。ToDo要求は最初の実質tool前、通常のread-only作業はポリシー確認と制御toolを除く3回目の実質読み取り前に登録する。単一ステップの情報提供・質問回答のみ免除。既存の `jev_judge` を明示的に使う単発判定もこの免除に含む。
 2. **着手直前**: 対象ステップを `in_progress` にする。`in_progress` は常に 1 つだけ。
 3. **完了直後**: その場で `completed` にする。まとめて後回しにしない。
 4. **完了宣言より先に ToDo 更新**: 実装・検証・報告のいずれかを「完了」と宣言する前に、対応する ToDo を必ず `completed` にする（順序を逆にしない）。

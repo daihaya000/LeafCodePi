@@ -43,6 +43,7 @@ const EXEMPT_TOOLS = new Set([
   "contact_supervisor",
   "subagent_wait",
   "intercom",
+  "jev_judge",
 ]);
 const SUBSTANTIVE_READ_TOOLS = new Set([
   "read",

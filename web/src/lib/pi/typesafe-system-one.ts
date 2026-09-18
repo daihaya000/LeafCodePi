@@ -1,8 +1,8 @@
+import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { recordTypesafeUsage } from "@/lib/codexbar/providers/typesafe";
-import { readPiApiKey } from "@/lib/codexbar/pi-auth";
 import {
+  registerTypeSafeProvider,
   TYPESAFE_API_BASE_URL,
-  TYPESAFE_API_KEY_ENV,
   TYPESAFE_PROVIDER_ID,
 } from "./typesafe-provider";
 
@@ -34,8 +34,10 @@ export type TypeSafeResponse = {
   usage: { input_tokens: number; output_tokens: number };
 };
 
-function storedTypeSafeApiKey(): string {
-  const apiKey = readPiApiKey(TYPESAFE_PROVIDER_ID) || process.env[TYPESAFE_API_KEY_ENV]?.trim();
+async function storedTypeSafeApiKey(): Promise<string> {
+  const runtime = await ModelRuntime.create({ refreshOnCreate: false });
+  registerTypeSafeProvider(runtime);
+  const apiKey = (await runtime.getAuth(TYPESAFE_PROVIDER_ID))?.auth.apiKey?.trim();
   if (!apiKey) throw new Error("TypeSafe APIキーが設定されていません");
   return apiKey;
 }
