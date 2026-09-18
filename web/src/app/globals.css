@@ -175,9 +175,20 @@ select {
 }
 
 @layer utilities {
-  :where(button, a, input, textarea, select, [tabindex]):focus-visible {
+  :where(button, a, [tabindex]):focus-visible {
     outline: 2px solid var(--accent);
     outline-offset: 2px;
+  }
+
+  /* Global policy: inputs never render an accent focus frame. */
+  :where(input, textarea, select):focus {
+    border-color: var(--border-strong) !important;
+    outline: none !important;
+    box-shadow: none !important;
+  }
+
+  :where([class~="focus-within:border-accent"]):focus-within {
+    border-color: var(--border-strong) !important;
   }
 }
 
