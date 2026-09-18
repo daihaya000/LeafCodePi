@@ -8,6 +8,7 @@ type Preparation = {
   turnPrefixMessages: Message[];
   tokensBefore: number;
   previousSummary?: string;
+  settings: { reserveTokens: number };
 };
 
 type ToolResult = { id: string; toolName: string; text: string };
@@ -16,6 +17,7 @@ const MAX_STATE_CHARS = 24_000;
 const MAX_RESULT_CHARS = 2_000;
 const MAX_BATCH_RESULT_CHARS = 16_000;
 const QUESTION_BATCH_SIZE = 32;
+const MAX_SUMMARY_RESERVE_RATIO = 0.8;
 
 function text(content: unknown): string {
   if (!Array.isArray(content)) return typeof content === "string" ? content : "";
@@ -177,7 +179,12 @@ export async function compactWithJev(
     const summary = transcript(preparation.messagesToSummarize, preserved);
     const before = results.reduce((total, result) => total + result.text.length, 0);
     const after = results.filter((result) => preserved.has(result.id)).reduce((total, result) => total + result.text.length, 0);
-    if (after >= before || summary.length === 0) return undefined;
+    const maxSummaryTokens = Math.floor(preparation.settings.reserveTokens * MAX_SUMMARY_RESERVE_RATIO);
+    if (
+      after >= before ||
+      summary.length === 0 ||
+      Math.ceil(summary.length / 4) > maxSummaryTokens
+    ) return undefined;
     return {
       summary: `Jev compacted history; retained ${preserved.size}/${results.length} tool results verbatim.\n\n${summary}`,
       firstKeptEntryId: preparation.firstKeptEntryId,

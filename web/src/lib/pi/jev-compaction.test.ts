@@ -8,6 +8,7 @@ import { compactWithJev } from "./jev-compaction";
 const preparation = {
   firstKeptEntryId: "keep",
   tokensBefore: 100,
+  settings: { reserveTokens: 16_384 },
   turnPrefixMessages: [],
   messagesToSummarize: [
     { role: "user", content: [{ type: "text", text: "Fix it" }] },
@@ -59,6 +60,18 @@ describe("compactWithJev", () => {
       state: expect.objectContaining({ toolResults: [{ id: "small", toolName: "read", text: "stale" }] }),
     }), expect.anything());
     expect(result?.summary).toContain(large);
+  });
+
+  it("falls back to Pi when the transcript exceeds its summary budget", async () => {
+    evaluateTypeSafe.mockResolvedValue({ answers: { stale: { noul: 0.1 } } });
+    const result = await compactWithJev({
+      ...preparation,
+      messagesToSummarize: [
+        { role: "user", content: [{ type: "text", text: "x".repeat(53_000) }] },
+        { role: "toolResult", toolCallId: "stale", toolName: "read", content: [{ type: "text", text: "stale" }] },
+      ],
+    } as never, 0.6, new AbortController().signal);
+    expect(result).toBeUndefined();
   });
 
   it("keeps a result without a tool-call id when Jev retains it", async () => {
