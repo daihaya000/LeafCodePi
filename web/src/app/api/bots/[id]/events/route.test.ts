@@ -98,6 +98,7 @@ describe("GET /api/bots/[id]/events", () => {
     expect(events[1]).toMatchObject({ event: "snapshot" });
     expect(events[1].data).toMatchObject({ eventType: "ready", isStreaming: false, permissionRequest: permission });
     expect((events[1].data.messages as UiMessage[]).map((item) => item.id)).toEqual(["m1", "m2"]);
+    expect(mocks.getTaskDetail).toHaveBeenCalledWith("bot:one", { offline: true });
     expect(mocks.lastTaskId).toBe("bot:one");
   });
 

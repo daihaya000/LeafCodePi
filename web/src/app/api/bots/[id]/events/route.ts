@@ -77,6 +77,10 @@ export async function GET(
           eventType: "bootstrap",
         });
         const hasCacheCandidate = Boolean(cachedTaskUpdatedAt && cachedSessionId);
+        // Opening a fresh Bot only needs its persisted (empty) transcript. Starting
+        // a Pi session here races the first prompt and can leave it waiting behind
+        // a stalled cold initialization.
+        const coldBootstrap = bootstrap.status !== "working" && !bootstrap.isStreaming && !bootstrap.sessionId;
         const matchesCachedRevision = (candidate: Awaited<ReturnType<typeof getTaskDetail>>) => Boolean(
           cachedTaskUpdatedAt &&
             cachedSessionId &&
@@ -147,7 +151,11 @@ export async function GET(
         const loadReadyDetail = async () => {
           let detail = await getTaskDetailForBotReady(
             taskId,
-            hasCacheCandidate ? { includeMessages: false } : undefined,
+            hasCacheCandidate
+              ? { includeMessages: false }
+              : coldBootstrap
+                ? { offline: true }
+                : undefined,
           );
           const reuseMessages = hasCacheCandidate && pendingPayloads.length === 0 && matchesCachedRevision(detail);
           if (hasCacheCandidate && !reuseMessages) {
