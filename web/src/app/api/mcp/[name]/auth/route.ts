@@ -49,7 +49,7 @@ function authAdapterError(operation: McpWebUiAuthRequest["operation"], error: un
   // Do not reflect request values in an API error. In particular, a keyring or
   // OAuth implementation must not accidentally include the submitted secret.
   const message = operation === "oauth-complete"
-    ? "OAuth認証の完了に失敗しました"
+    ? "OAuth認証の完了に失敗しました。認証の有効期限（開始から5分）が切れている場合は「OAuth認証を開始」からやり直してください"
     : operation === "oauth-start"
       ? "OAuth認証を開始できませんでした"
       : operation.startsWith("bearer")

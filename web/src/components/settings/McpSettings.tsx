@@ -526,7 +526,8 @@ export function McpSettings() {
             <div className="rounded-lg border border-border bg-surface px-3 py-3">
               <p className="text-xs font-medium text-text">OAuth</p>
               <p className="mt-1 text-[11px] leading-4 text-muted">
-                ブラウザで認証し、コールバックURLまたは認証コードをここへ貼り付けます。
+                ブラウザで認証すると「Authorization Received」ページが開きます。
+                アドレスバーのURL全体をここへ貼り付け、「認証を完了」を押してください（開始から5分以内）。
               </p>
               <Button size="sm" className="mt-2" onClick={() => void startOAuth(server)} busy={authBusy}>
                 OAuth認証を開始
