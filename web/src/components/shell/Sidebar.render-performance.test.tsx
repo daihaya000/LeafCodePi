@@ -58,4 +58,13 @@ describe("SidebarTaskRow render stability", () => {
     view.rerender(<SidebarTaskRow {...props} active />);
     expect(mocks.timeAgo).toHaveBeenCalledTimes(1);
   });
+
+  it("uses content visibility so offscreen session rows skip layout", () => {
+    const view = render(<SidebarTaskRow task={task} active={false} pinned={false} mdUp actionBusy={false} {...callbacks} />);
+    const row = view.container.querySelector("li");
+    expect(row?.className).toContain("[content-visibility:auto]");
+    expect(row?.className).toContain("[contain-intrinsic-size:auto_2.5rem]");
+    // paint containment で行内ボタンのフォーカスリングが欠けないようにする。
+    expect(row?.className).toContain("[&_button:focus-visible]:outline-offset-[-2px]");
+  });
 });
