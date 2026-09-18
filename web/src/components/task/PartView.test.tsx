@@ -356,6 +356,7 @@ describe("PartView structured result", () => {
       id: "assistant-result",
       role: "assistant",
       createdAt: 1,
+      goalLoopTurn: { goalId: "goal-1", turn: 1, kind: "goal" },
       parts: [
         {
           id: "result-text",
@@ -378,6 +379,29 @@ ${JSON.stringify({
     expect(screen.getByText("テストを実行しました")).toBeTruthy();
     expect(screen.getByText("次のステップ")).toBeTruthy();
     expect(screen.queryByText(/"status"/)).toBeNull();
+  });
+
+  it("keeps the same JSON in normal turns instead of showing loop progress", () => {
+    const message: UiMessage = {
+      id: "assistant-normal-result",
+      role: "assistant",
+      createdAt: 1,
+      parts: [
+        {
+          id: "normal-result-text",
+          type: "text",
+          text: `通常の回答です。\n\n\`\`\`json
+${JSON.stringify({ status: "progress", summary: "通常ターンの結果" })}
+\`\`\``,
+        },
+      ],
+    };
+
+    render(<PartView message={message} />);
+
+    expect(screen.queryByRole("region", { name: "実行結果" })).toBeNull();
+    expect(screen.getByText(/通常の回答です/)).toBeTruthy();
+    expect(screen.getByText(/"status"/)).toBeTruthy();
   });
 });
 

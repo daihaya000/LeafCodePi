@@ -17,7 +17,19 @@ import {
   normalizeAcceptance,
   parseCooldownSeconds,
 } from "./index.ts";
-import goalLoopExtension, { goalLoopTestSeams } from "./index.ts";
+import goalLoopExtensionImplementation, { goalLoopTestSeams } from "./index.ts";
+
+// Existing tests count sendMessage calls as agent-turn deliveries. The end
+// notice is a hidden follow-up, not a new turn, so keep that distinction in
+// the fake ExtensionAPI while the dedicated end-notice tests capture it.
+function goalLoopExtension(pi) {
+  const sendMessage = pi.sendMessage;
+  pi.sendMessage = function (message, options) {
+    if (message?.customType === "leafcode-goal-loop-ended" && !pi.captureGoalLoopEndNotice) return;
+    return sendMessage.call(this, message, options);
+  };
+  goalLoopExtensionImplementation(pi);
+}
 
 test("matches LeafCode turn-budget and cooldown normalization", () => {
   assert.equal(clampMaxTurns(0), 0);
@@ -4188,6 +4200,147 @@ test("does not requeue a provider-limit retry after the loop was paused meanwhil
     assert.equal(loop.status, "paused");
     assert.equal(loop.pauseReason, "user");
     assert.equal(sendCount, 1);
+  } finally {
+    await handlers.get("session_shutdown")?.({}, ctx);
+    delete process.env.LEAFCODE_PI_DATA_DIR;
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+function loopEndNoticeHarness(sessionId) {
+  const sent = [];
+  let busy = false;
+  const handlers = new Map();
+  const commands = new Map();
+  const stateFile = () => join(process.env.LEAFCODE_PI_DATA_DIR, "goals-loop", `${sessionId}.json`);
+  const readState = () => JSON.parse(readFileSync(stateFile(), "utf8"));
+  const notices = () => sent.filter((item) => item.message.customType === "leafcode-goal-loop-ended");
+  const ctx = {
+    cwd: process.env.LEAFCODE_PI_DATA_DIR,
+    mode: "rpc",
+    hasUI: false,
+    isIdle: () => !busy,
+    hasPendingMessages: () => false,
+    abort: () => { busy = false; },
+    sessionManager: {
+      getSessionId: () => sessionId,
+      getBranch: () => [],
+    },
+    ui: { setStatus: () => {}, setWidget: () => {}, notify: () => {} },
+  };
+  const pi = {
+    captureGoalLoopEndNotice: true,
+    on(name, handler) { handlers.set(name, handler); },
+    registerCommand(name, options) { commands.set(name, options.handler); },
+    appendEntry() {},
+    sendMessage(message, options) {
+      sent.push({ message, options });
+      busy = true;
+    },
+  };
+  return { sent, notices, readState, handlers, commands, ctx, pi, setBusy: (value) => { busy = value; } };
+}
+
+test("queues a single hidden loop-end notice after the loop stops", async () => {
+  const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-end-notice-"));
+  process.env.LEAFCODE_PI_DATA_DIR = cwd;
+  const harness = loopEndNoticeHarness("end-notice-session");
+  const { notices, readState, handlers, commands, ctx, pi, setBusy } = harness;
+
+  try {
+    goalLoopExtension(pi);
+    await handlers.get("session_start")?.({}, ctx);
+    const payload = Buffer.from(JSON.stringify({ goal: "demo", maxTurns: 3 })).toString("base64url");
+    await commands.get("goal-start")?.(payload, ctx);
+    await waitFor(() => readState().status === "running");
+    setBusy(false);
+    assert.equal(notices().length, 0);
+
+    await commands.get("goal-pause")?.("", ctx);
+    await waitFor(() => readState().status === "paused");
+    assert.equal(notices().length, 1);
+    const notice = notices()[0];
+    assert.equal(notice.message.customType, "leafcode-goal-loop-ended");
+    assert.equal(notice.message.display, false);
+    assert.deepEqual(notice.options, { triggerTurn: false, deliverAs: "followUp" });
+    assert.match(String(notice.message.content), /no longer running \(paused\)/);
+    assert.match(String(notice.message.content), /do NOT append the goal-loop JSON result block/);
+    assert.equal(readState().endNoticeSent, true);
+
+    // 2回目の停止で再送しない（通知は1回だけ）。
+    await commands.get("goal-pause")?.("", ctx);
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    assert.equal(notices().length, 1);
+  } finally {
+    await handlers.get("session_shutdown")?.({}, ctx);
+    delete process.env.LEAFCODE_PI_DATA_DIR;
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test("re-arms the loop-end notice after resume", async () => {
+  const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-end-resume-"));
+  process.env.LEAFCODE_PI_DATA_DIR = cwd;
+  const harness = loopEndNoticeHarness("end-notice-resume-session");
+  const { notices, readState, handlers, commands, ctx, pi, setBusy } = harness;
+
+  try {
+    goalLoopExtension(pi);
+    await handlers.get("session_start")?.({}, ctx);
+    const payload = Buffer.from(JSON.stringify({ goal: "demo", maxTurns: 3 })).toString("base64url");
+    await commands.get("goal-start")?.(payload, ctx);
+    await waitFor(() => readState().status === "running");
+    setBusy(false);
+
+    await commands.get("goal-pause")?.("", ctx);
+    await waitFor(() => readState().status === "paused");
+    assert.equal(notices().length, 1);
+
+    await commands.get("goal-resume")?.("", ctx);
+    await waitFor(() => readState().status === "running");
+    assert.equal(readState().endNoticeSent, false);
+    setBusy(false);
+
+    await commands.get("goal-pause")?.("", ctx);
+    await waitFor(() => readState().status === "paused");
+    assert.equal(notices().length, 2);
+  } finally {
+    await handlers.get("session_shutdown")?.({}, ctx);
+    delete process.env.LEAFCODE_PI_DATA_DIR;
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test("queues the loop-end notice after a verified completion", async () => {
+  const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-end-verified-"));
+  process.env.LEAFCODE_PI_DATA_DIR = cwd;
+  const harness = loopEndNoticeHarness("end-notice-verified-session");
+  const { notices, readState, handlers, commands, ctx, pi, setBusy } = harness;
+  const turnEnd = (payload) => ({
+    type: "agent_end",
+    messages: [{ role: "assistant", content: [{ type: "text", text: JSON.stringify(payload) }] }],
+  });
+
+  try {
+    goalLoopExtension(pi);
+    await handlers.get("session_start")?.({}, ctx);
+    const payload = Buffer.from(JSON.stringify({ goal: "demo", maxTurns: 3 })).toString("base64url");
+    await commands.get("goal-start")?.(payload, ctx);
+    await waitFor(() => readState().status === "running");
+
+    setBusy(false);
+    await handlers.get("agent_end")?.(turnEnd({ status: "completed", summary: "done" }), ctx);
+    await handlers.get("agent_settled")?.({ type: "agent_settled" }, ctx);
+    await waitFor(() => readState().status === "verifying_completed");
+    assert.equal(notices().length, 0);
+
+    await waitFor(() => readState().status === "running");
+    setBusy(false);
+    await handlers.get("agent_end")?.(turnEnd({ status: "verified_completed", summary: "ok" }), ctx);
+    await handlers.get("agent_settled")?.({ type: "agent_settled" }, ctx);
+    await waitFor(() => readState().status === "completed");
+    assert.equal(notices().length, 1);
+    assert.match(String(notices()[0].message.content), /no longer running \(completed\)/);
   } finally {
     await handlers.get("session_shutdown")?.({}, ctx);
     delete process.env.LEAFCODE_PI_DATA_DIR;

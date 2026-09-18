@@ -79,6 +79,8 @@ export type GoalLoop = {
   unreadableStreak: number;
   /** Durable: mid-turn was interrupted by session lifecycle and needs transcript recovery. */
   pendingTurnRecovery: boolean;
+  /** The loop-end notice was queued for the next user prompt (sent at most once per run). */
+  endNoticeSent?: boolean;
   createdAt: string;
   updatedAt: string;
 };
@@ -382,6 +384,7 @@ function hydrateLoop(value: unknown, cwd: string, id: string): GoalLoop | null {
     rejectedClaims: Math.max(0, Math.trunc(Number(raw.rejectedClaims) || 0)),
     unreadableStreak: Math.max(0, Math.trunc(Number(raw.unreadableStreak) || 0)),
     pendingTurnRecovery: raw.pendingTurnRecovery === true,
+    endNoticeSent: raw.endNoticeSent === true,
     createdAt: typeof raw.createdAt === "string" ? raw.createdAt : now,
     updatedAt: typeof raw.updatedAt === "string" ? raw.updatedAt : now,
   };
@@ -944,6 +947,8 @@ function applyLatePausedResult(runtime: Runtime, result: GoalLoopProgress): bool
   }
   if (updated.status === "queued" || updated.status === "verifying_completed") {
     schedule(runtime);
+  } else {
+    notifyLoopEnded(runtime);
   }
   return true;
 }
@@ -1071,6 +1076,46 @@ async function settleAwaitingTurn(runtime: Runtime): Promise<void> {
   appendSnapshot(runtime, updated);
   // Keep queued work armed even when agent_settled is emitted after this handler.
   if (updated.status === "queued" || updated.status === "verifying_completed") schedule(runtime);
+  else notifyLoopEnded(runtime);
+}
+
+/**
+ * Queue a hidden notice for the next user prompt once the loop has stopped.
+ * The loop-turn prompts stay in the conversation history after the loop ends,
+ * so without this notice the model can keep imitating the "end the turn with a
+ * JSON result block" contract during later normal turns. Idempotent per run;
+ * resuming the loop re-arms it.
+ */
+function notifyLoopEnded(runtime: Runtime): void {
+  const loop = currentLoop(runtime);
+  if (!loop || loop.endNoticeSent) return;
+  if (!TERMINAL.has(loop.status) && loop.status !== "blocked" && loop.status !== "paused") return;
+  try {
+    runtime.pi.sendMessage(
+      {
+        customType: "leafcode-goal-loop-ended",
+        content: buildLoopEndedNotice(loop.status),
+        display: false,
+      },
+      // Never start a turn from settlement; the notice must ride along with the
+      // next real user prompt, exactly like the ToDo gate reminder.
+      { triggerTurn: false, deliverAs: "followUp" },
+    );
+  } catch (error) {
+    // A failed notice must never break settlement; loop state is unaffected.
+    console.error("Failed to queue the goal-loop end notice:", error);
+    return;
+  }
+  loop.endNoticeSent = true;
+  writeLoop(loop);
+}
+
+export function buildLoopEndedNotice(status: GoalLoopStatus): string {
+  return [
+    `The persistent goal loop is no longer running (${status}).`,
+    "The earlier goal-loop instructions ended with that loop: do NOT append the goal-loop JSON result block to later replies unless a new goal loop starts.",
+    "Answer the user's next message as a normal conversation.",
+  ].join("\n");
 }
 
 function pauseLoop(runtime: Runtime, reason: GoalLoopPauseReason = "user", error = "ユーザーが一時停止しました。"): boolean {
@@ -1097,6 +1142,7 @@ function pauseLoop(runtime: Runtime, reason: GoalLoopPauseReason = "user", error
   runtime.awaitingTurnIndex = undefined;
   updateUI(runtime, loop);
   appendSnapshot(runtime, loop);
+  notifyLoopEnded(runtime);
   return true;
 }
 
@@ -1114,6 +1160,7 @@ function requeueAfterManualCompaction(runtime: Runtime): void {
     pauseReason: "" as const,
     error: "",
     pendingTurnRecovery: false,
+    endNoticeSent: false,
     nextTurnAt: null,
   };
   if (!writeLoop(resumed)) {
@@ -1163,6 +1210,7 @@ function stopLoop(runtime: Runtime): boolean {
   }
   updateUI(runtime, loop);
   appendSnapshot(runtime, loop);
+  notifyLoopEnded(runtime);
   return true;
 }
 
@@ -1185,6 +1233,7 @@ function completeLoop(runtime: Runtime): boolean {
   clearPendingAgentRun(runtime);
   updateUI(runtime, loop);
   appendSnapshot(runtime, loop);
+  notifyLoopEnded(runtime);
   return true;
 }
 
@@ -1642,6 +1691,7 @@ function resumeLoop(runtime: Runtime, maxTurns?: unknown): boolean {
       runtime.pausedTurnIndex = undefined;
       loop.pendingTurnRecovery = false;
       loop.status = "running";
+      loop.endNoticeSent = false;
       if (!applyResult(loop, recovered)) {
         runtime.pausedTurnPending = true;
         runtime.ctx.ui.notify("結果の保存に失敗したため再開を中止しました。再試行してください。", "error");
@@ -1660,6 +1710,8 @@ function resumeLoop(runtime: Runtime, maxTurns?: unknown): boolean {
       // here or the loop stays queued forever.
       if (updated.status === "queued" || updated.status === "verifying_completed") {
         schedule(runtime);
+      } else {
+        notifyLoopEnded(runtime);
       }
       return true;
     }
@@ -1689,6 +1741,7 @@ function resumeLoop(runtime: Runtime, maxTurns?: unknown): boolean {
     Date.parse(loop.nextTurnAt) > Date.now();
   loop.status = (!loop.forceFullRun && loop.turnKind === "verification") ? "verifying_completed" : "queued";
   if (loop.forceFullRun) loop.turnKind = "goal";
+  loop.endNoticeSent = false;
   loop.pauseReason = "";
   loop.error = "";
   loop.blockedReason = "";

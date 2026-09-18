@@ -151,11 +151,13 @@ function DiagnosticDetails({ diagnostics }: { diagnostics: UiDiagnostic[] }) {
 const MarkdownBody = memo(function MarkdownBody({
   text,
   className,
+  allowStructuredResult,
 }: {
   text: string;
   className?: string;
+  allowStructuredResult: boolean;
 }) {
-  const structuredResult = parseStructuredResult(text);
+  const structuredResult = allowStructuredResult ? parseStructuredResult(text) : null;
   if (structuredResult) return <StructuredResultCard result={structuredResult} />;
   return (
     <div className={cx("md", className ?? "text-sm")}>
@@ -164,10 +166,20 @@ const MarkdownBody = memo(function MarkdownBody({
   );
 });
 
-function AssistantTextPart({ text }: { text: string }) {
+function AssistantTextPart({
+  text,
+  goalLoopTurn,
+}: {
+  text: string;
+  goalLoopTurn?: UiMessage["goalLoopTurn"];
+}) {
   return (
     <MessageBubble>
-      <MarkdownBody text={text} className="text-base" />
+      <MarkdownBody
+        text={text}
+        className="text-base"
+        allowStructuredResult={Boolean(goalLoopTurn)}
+      />
     </MessageBubble>
   );
 }
@@ -638,7 +650,7 @@ export const ToolCard = memo(function ToolCard({
                   {output}
                 </pre>
               ) : (
-                <MarkdownBody text={output} />
+                <MarkdownBody text={output} allowStructuredResult={false} />
               )}
             </div>
           )}
@@ -661,7 +673,7 @@ function CompactionNotice({ message }: { message: UiMessage }) {
       </summary>
       {summary && summary.type === "text" && (
         <div className="mt-2 border-t border-border pt-2">
-          <MarkdownBody text={summary.text} />
+          <MarkdownBody text={summary.text} allowStructuredResult={false} />
         </div>
       )}
     </details>
@@ -1060,7 +1072,15 @@ export const PartView = memo(
           </MessageBubble>
         ) : (
           message.parts.map((part) => {
-            if (part.type === "text") return <AssistantTextPart key={part.id} text={part.text} />;
+            if (part.type === "text") {
+              return (
+                <AssistantTextPart
+                  key={part.id}
+                  text={part.text}
+                  goalLoopTurn={message.goalLoopTurn}
+                />
+              );
+            }
             if (part.type === "thinking") return <ReasoningView key={part.id} text={part.text} />;
             if (part.type === "file") return <FilePartView key={part.id} part={part} />;
             if (part.type === "image") {
