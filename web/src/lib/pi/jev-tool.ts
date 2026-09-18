@@ -116,6 +116,7 @@ export function registerJevTool(pi: ExtensionAPI): void {
     promptSnippet: "jev_judge: typed yes/no, pick-one, or graded judgments over text",
     promptGuidelines: [
       "Use jev_judge for semantic judgments with probabilities, not for generating text or code.",
+      "When the user explicitly requests jev_judge, call it immediately without web research or a preamble.",
       "For choice questions always include a no-match option when nothing may fit.",
       "Treat low-confidence answers as doubt and fall back instead of acting on them.",
     ],

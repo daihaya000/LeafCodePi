@@ -23,11 +23,18 @@ typed answers and probabilities rather
 than generating text or reasoning explanations. Code owns the workflow; the model
 supplies programmable common sense where ordinary code needs semantic understanding.
 
+## Fast path for the existing tool
+
+When `jev_judge` is already available and the user explicitly asks to use it, call it
+immediately. Do not fetch documentation, browse the web, or add a preamble; read the
+live docs only when implementing or changing a TypeSafe integration.
+
 ## Read the live docs
 
-**The live TypeSafe docs are the source of truth. Read them as part of the task.**
-This skill gives direction; the docs carry current concepts, prompting guidance,
-API contracts, SDK usage, models, limits, and worked examples.
+**The live TypeSafe docs are the source of truth for implementation tasks.**
+Read them when changing an integration. This skill gives direction while the docs
+carry current concepts, prompting guidance, API contracts, SDK usage, models, limits,
+and worked examples.
 
 - Start with the [documentation index](https://docs.typesafe.ai/llms.txt) to discover
   relevant pages and cookbooks. Use targeted reads rather than loading the entire site.
