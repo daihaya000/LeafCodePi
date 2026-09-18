@@ -56,6 +56,20 @@ describe("/api/mcp POST", () => {
     });
   });
 
+  it("adds slack with a pre-registered client ID", async () => {
+    const response = await POST(request({ preset: "slack", clientId: "1601185624273.8899143856786" }));
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as { ok?: boolean; servers?: unknown[] };
+    expect(body.ok).toBe(true);
+    expect(body.servers).toEqual([
+      expect.objectContaining({ id: "slack", authType: "oauth", enabled: true }),
+    ]);
+
+    const raw = JSON.parse(readFileSync(join(agentDir, "mcp.json"), "utf8"));
+    expect(raw.mcpServers.slack.url).toBe("https://mcp.slack.com/mcp");
+    expect(raw.mcpServers.slack.oauth.clientId).toBe("1601185624273.8899143856786");
+  });
+
   it("rejects unsupported presets and duplicate registrations", async () => {
     const unsupported = await POST(request({ preset: "other", url: "https://example.com" }));
     expect(unsupported.status).toBe(400);
@@ -73,5 +87,6 @@ describe("/api/mcp POST", () => {
     });
     expect((await POST(notJson)).status).toBe(400);
     expect((await POST(request({ preset: "n8n" }))).status).toBe(400);
+    expect((await POST(request({ preset: "slack" }))).status).toBe(400);
   });
 });

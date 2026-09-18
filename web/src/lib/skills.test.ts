@@ -95,6 +95,35 @@ describe("bundledSkillPaths", () => {
       rmSync(agentDir, { recursive: true, force: true });
     }
   });
+
+  it("discovers the vendored Slack skills from the bundled root", () => {
+    const bundled = bundledSkillsDir();
+    if (!bundled) throw new Error("bundled skills directory is unavailable");
+    const agentDir = mkdtempSync(join(tmpdir(), "leafcode-empty-skills-"));
+    try {
+      const skills = listSkills(agentDir, {
+        skillsDir: join(agentDir, "skills"),
+        bundledDir: bundled,
+      }).skills;
+      expect(skills.map((skill) => skill.name)).toEqual(
+        expect.arrayContaining([
+          "block-kit",
+          "create-slack-app",
+          "slack-api",
+          "slack-cli",
+          "slack-docs",
+          "slack-messaging",
+          "slack-search",
+          "test-slack-app",
+        ]),
+      );
+      const messaging = skills.find((skill) => skill.name === "slack-messaging");
+      expect(messaging?.source).toBe("bundled");
+      expect(messaging?.description).toBeTruthy();
+    } finally {
+      rmSync(agentDir, { recursive: true, force: true });
+    }
+  });
 });
 
 describe("filterSkillsByState", () => {

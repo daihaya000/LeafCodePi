@@ -469,3 +469,33 @@ export function addN8nServer(input: string, agentDir = resolvePiAgentDir()): Mcp
   atomicWrite(path, `${JSON.stringify(config, null, 2)}\n`);
   return listMcpServers(agentDir);
 }
+
+/** Slack's hosted MCP endpoint (Streamable HTTP only). */
+const SLACK_MCP_URL = "https://mcp.slack.com/mcp";
+
+/**
+ * Add the Slack hosted MCP server as an OAuth entry. Slack does not support
+ * dynamic client registration, so the entry carries a pre-registered Slack
+ * app client ID (PKCE; no client secret needed, matching Slack's own plugin).
+ */
+export function addSlackServer(clientId: string, agentDir = resolvePiAgentDir()): McpListResult {
+  const id = clientId.trim();
+  if (!id) throw new McpError("invalid-auth", "Slack のClient IDを入力してください");
+  if (/[\r\n]/.test(id) || id.length > 256) {
+    throw new McpError("invalid-auth", "Slack のClient IDが不正です");
+  }
+  const path = piMcpConfigPath(agentDir);
+  const config = readConfig(path);
+  if (isMcpServer(config.mcpServers["slack"])) {
+    throw new McpError("conflict", "slack は既に登録されています");
+  }
+  config.mcpServers["slack"] = {
+    url: SLACK_MCP_URL,
+    auth: "oauth",
+    httpTransport: "streamable-http",
+    protocolVersion: "auto",
+    oauth: { clientId: id },
+  };
+  atomicWrite(path, `${JSON.stringify(config, null, 2)}\n`);
+  return listMcpServers(agentDir);
+}

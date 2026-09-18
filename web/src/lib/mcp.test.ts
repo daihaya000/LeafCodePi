@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { afterEach, describe, it } from "vitest";
 import {
   addN8nServer,
+  addSlackServer,
   disableMcpHeadersStore,
   enableMcpBearerStore,
   enableMcpHeadersStore,
@@ -182,6 +183,31 @@ describe("listMcpServers / setMcpServerEnabled", () => {
     assert.throws(() => addN8nServer("https://other.example.com", agentDir), /既に登録/);
     const raw = JSON.parse(readFileSync(join(agentDir, "mcp.json"), "utf8"));
     assert.equal(raw.mcpServers.n8n.url, "https://example.app.n8n.cloud/mcp-server/http");
+  });
+
+  it("adds a Slack OAuth entry with the pre-registered client ID", () => {
+    fixture();
+    addSlackServer("1601185624273.8899143856786", agentDir);
+    const raw = JSON.parse(readFileSync(join(agentDir, "mcp.json"), "utf8"));
+    assert.deepEqual(raw.mcpServers.slack, {
+      url: "https://mcp.slack.com/mcp",
+      auth: "oauth",
+      httpTransport: "streamable-http",
+      protocolVersion: "auto",
+      oauth: { clientId: "1601185624273.8899143856786" },
+    });
+    const listed = listMcpServers(agentDir).servers.find((s) => s.name === "slack");
+    assert.equal(listed?.authType, "oauth");
+    assert.equal(listed?.enabled, true);
+  });
+
+  it("rejects empty or duplicate Slack registration", () => {
+    fixture();
+    assert.throws(() => addSlackServer("   ", agentDir), McpError);
+    addSlackServer("1601185624273.8899143856786", agentDir);
+    assert.throws(() => addSlackServer("1601185624273.8899143856786", agentDir), /既に登録/);
+    const raw = JSON.parse(readFileSync(join(agentDir, "mcp.json"), "utf8"));
+    assert.equal(raw.mcpServers.slack.oauth.clientId, "1601185624273.8899143856786");
   });
 });
 

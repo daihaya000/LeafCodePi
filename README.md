@@ -161,6 +161,34 @@ n8n公式の Instance-level MCP サーバーと、n8n公式Skills（[n8n-io/skil
 
 **n8n公式Skills**: `skills/` に14スキル（capability 13 + メタ1）と references を同梱しています。組み込みスキルとして自動検出され、設定画面から有効／無効を切り替えられます。n8n作業時はエージェントが `using-n8n-skills-official` を入口に該当スキルを読みます。取り込み元・更新手順は [`skills/n8n-skills-SOURCE.md`](skills/n8n-skills-SOURCE.md) を参照してください。
 
+### Slack（公式MCP + 公式Skills）
+
+Slack公式の MCP サーバー（`https://mcp.slack.com/mcp`）と、Slack公式Skills（[slackapi/slack-skills-plugin](https://github.com/slackapi/slack-skills-plugin)）を組み込みで同梱しています。SlackはDCR（動的クライアント登録）非対応のため、事前登録したSlackアプリの Client ID を使います（PKCE。client secret は不要）。
+
+**Slack側**: ワークスペース管理者による MCP の承認が必要です。
+
+1. [api.slack.com/apps](https://api.slack.com/apps) でアプリを作成し、**OAuth & Permissions → Redirect URLs** に `http://localhost:19876/callback`（既定。`MCP_OAUTH_CALLBACK_PORT` で変更可）を追加します
+2. User Token Scopes を付与し、MCP を有効化します（必要 scopes は [Slack MCP server docs](https://docs.slack.dev/ai/slack-mcp-server/) 参照）
+3. **App Credentials** の **Client ID** を控えます
+
+**LeafCodePi側**: WebUI の **設定 → 拡張 → MCP サーバー** の「Slack を追加（OAuth）」に Client ID を入れると、`~/.pi/agent/mcp.json` に `oauth.clientId` 付きのエントリが追加されます。続いて **認証設定 → OAuth認証を開始** でブラウザ認証し、コールバックURLまたは認証コードを貼り付けて完了します。手動で設定する場合は次のエントリを追加します。
+
+```json
+{
+  "mcpServers": {
+    "slack": {
+      "url": "https://mcp.slack.com/mcp",
+      "auth": "oauth",
+      "httpTransport": "streamable-http",
+      "protocolVersion": "auto",
+      "oauth": { "clientId": "<your-slack-app-client-id>" }
+    }
+  }
+}
+```
+
+**Slack公式Skills**: `skills/` に8スキル（slack-messaging / slack-search / slack-api / slack-cli / slack-docs / block-kit / create-slack-app / test-slack-app）と references を同梱しています。組み込みスキルとして自動検出され、設定画面から有効／無効を切り替えられます。取り込み元・更新手順は [`skills/slack-skills-SOURCE.md`](skills/slack-skills-SOURCE.md) を参照してください。
+
 ### Intercom
 
 `extensions/leafcode-intercom` に `pi-intercom` の LeafCodePi 組み込みフォークを同梱しています。`intercom` ツール、`/intercom`、Alt+M で別セッションへ1対1メッセージを送れます。

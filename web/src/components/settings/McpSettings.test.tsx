@@ -92,11 +92,48 @@ describe("McpSettings", () => {
     render(<McpSettings />);
     const input = await screen.findByLabelText("n8n のURL");
     fireEvent.change(input, { target: { value: "https://example.app.n8n.cloud" } });
-    fireEvent.click(screen.getByRole("button", { name: "追加" }));
+    fireEvent.click(screen.getByRole("button", { name: "n8n を追加" }));
 
     await waitFor(() => expect(client.sendJson).toHaveBeenCalledWith(
       "/api/mcp",
       { preset: "n8n", url: "https://example.app.n8n.cloud" },
+      "POST",
+    ));
+    expect(await screen.findByRole("button", { name: "OAuth認証を開始" })).toBeTruthy();
+  });
+
+  it("adds slack through the API and opens its OAuth panel", async () => {
+    const slackServer = {
+      ...server,
+      id: "slack",
+      name: "slack",
+      authType: "oauth" as const,
+      credentialConfigured: false,
+      credentialSource: "oauth" as const,
+      credentialStatus: "missing" as const,
+    };
+    const slackAuth = {
+      ...auth,
+      name: "slack",
+      authType: "oauth" as const,
+      credentialSource: "oauth" as const,
+      credentialStatus: "missing" as const,
+    };
+    client.getJson.mockImplementation((path: string) =>
+      path.endsWith("/auth")
+        ? Promise.resolve(slackAuth)
+        : Promise.resolve({ servers: [server], configPath: auth.configPath }),
+    );
+    client.sendJson.mockResolvedValue({ ok: true, servers: [server, slackServer] });
+
+    render(<McpSettings />);
+    const input = await screen.findByLabelText("Slack のClient ID");
+    fireEvent.change(input, { target: { value: "1601185624273.8899143856786" } });
+    fireEvent.click(screen.getByRole("button", { name: "Slack を追加" }));
+
+    await waitFor(() => expect(client.sendJson).toHaveBeenCalledWith(
+      "/api/mcp",
+      { preset: "slack", clientId: "1601185624273.8899143856786" },
       "POST",
     ));
     expect(await screen.findByRole("button", { name: "OAuth認証を開始" })).toBeTruthy();

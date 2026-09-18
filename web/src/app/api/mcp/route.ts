@@ -1,10 +1,10 @@
 /**
  * GET /api/mcp — list global MCP servers (~/.pi/agent/mcp.json) with ON/OFF state.
- * POST /api/mcp — add a known preset server (currently n8n) to the same file.
+ * POST /api/mcp — add a known preset server (n8n / slack) to the same file.
  */
 import { NextRequest, NextResponse } from "next/server";
 import { reloadLiveSessionsContext } from "@/lib/pi/harness";
-import { addN8nServer, listMcpServers, mcpErrorStatus } from "@/lib/mcp";
+import { addN8nServer, addSlackServer, listMcpServers, mcpErrorStatus } from "@/lib/mcp";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -28,18 +28,31 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "リクエスト本文が不正です" }, { status: 400 });
   }
   if (!body || typeof body !== "object" || Array.isArray(body)) {
-    return NextResponse.json({ error: "preset（n8n）と url（string）が必要です" }, { status: 400 });
+    return NextResponse.json({ error: "preset（n8n / slack）が必要です" }, { status: 400 });
   }
-  const { preset, url } = body as { preset?: unknown; url?: unknown };
-  if (preset !== "n8n" || typeof url !== "string") {
-    return NextResponse.json({ error: "preset（n8n）と url（string）が必要です" }, { status: 400 });
-  }
+  const { preset, url, clientId } = body as { preset?: unknown; url?: unknown; clientId?: unknown };
 
   try {
-    addN8nServer(url);
+    let name: string;
+    if (preset === "n8n") {
+      if (typeof url !== "string") {
+        return NextResponse.json({ error: "preset（n8n）には url（string）が必要です" }, { status: 400 });
+      }
+      addN8nServer(url);
+      name = "n8n";
+    } else if (preset === "slack") {
+      if (typeof clientId !== "string") {
+        return NextResponse.json({ error: "preset（slack）には clientId（string）が必要です" }, { status: 400 });
+      }
+      addSlackServer(clientId);
+      name = "slack";
+    } else {
+      return NextResponse.json({ error: "preset（n8n / slack）が必要です" }, { status: 400 });
+    }
+
     const reload = await reloadLiveSessionsContext();
     const listed = listMcpServers();
-    return NextResponse.json({ ok: true, name: "n8n", servers: listed.servers, reload });
+    return NextResponse.json({ ok: true, name, servers: listed.servers, reload });
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "MCP サーバーの追加に失敗しました" },

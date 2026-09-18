@@ -61,6 +61,7 @@ const MCP_SERVER_DESCRIPTIONS: Readonly<Record<string, string>> = {
   "mt5-build": "MQL4/MQL5 のコンパイル、静的検査、デプロイ、Strategy Tester、レポート解析を行います。",
   "comfy-mcp": "ComfyUI で画像・動画・音声・3D生成、ワークフロー編集、ジョブ監視を行います。",
   n8n: "n8n公式 Instance-level MCP。ワークフローの検索・作成・検証・実行を OAuth または Bearer で操作します。",
+  slack: "Slack公式 MCP サーバー。メッセージ・ファイル・ユーザーの検索、メッセージ送信、Canvas 操作を行います。",
 };
 
 function authTypeLabel(type: McpAuthType): string {
@@ -116,6 +117,8 @@ export function McpSettings() {
   const [oauthUrlById, setOauthUrlById] = useState<Record<string, string>>({});
   const [n8nUrl, setN8nUrl] = useState("");
   const [addBusy, setAddBusy] = useState(false);
+  const [slackClientId, setSlackClientId] = useState("");
+  const [slackBusy, setSlackBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -201,6 +204,32 @@ export function McpSettings() {
       setError(err instanceof Error ? err.message : "n8n の追加に失敗しました");
     } finally {
       setAddBusy(false);
+    }
+  }
+
+  async function addSlack() {
+    const clientId = slackClientId.trim();
+    if (!clientId) {
+      setError("Slack のClient IDを入力してください");
+      return;
+    }
+    setSlackBusy(true);
+    setError(null);
+    try {
+      const result = await sendJson<{ servers: McpDto[] }>(
+        "/api/mcp",
+        { preset: "slack", clientId },
+        "POST",
+      );
+      setServers(result.servers);
+      setAuthById({});
+      setSlackClientId("");
+      const added = result.servers.find((server) => server.id === "slack");
+      if (added) await openAuth(added);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Slack の追加に失敗しました");
+    } finally {
+      setSlackBusy(false);
     }
   }
 
@@ -491,7 +520,7 @@ export function McpSettings() {
     );
   }
 
-  const anyBusy = Boolean(busyId || authBusyId || addBusy);
+  const anyBusy = Boolean(busyId || authBusyId || addBusy || slackBusy);
 
   return (
     <div className="rounded-2xl border border-border bg-surface p-4">
@@ -574,36 +603,72 @@ export function McpSettings() {
           ))}
         </ul>
       )}
-      {!servers.some((server) => server.id === "n8n") && (
-        <div className="mt-3 rounded-xl border border-dashed border-border bg-surface-2 px-3 py-3">
-          <p className="text-xs font-medium text-text">n8n を追加（OAuth）</p>
-          <p className="mt-1 text-[11px] leading-4 text-muted">
-            n8n インスタンスのURLを入力します（例: https://example.app.n8n.cloud）。
-            パスを省略した場合は末尾の <span className="font-mono">/mcp-server/http</span> を自動で補完します。
-          </p>
-          <div className="mt-2 flex flex-wrap items-center gap-2">
-            <label className="min-w-0 flex-1">
-              <span className="sr-only">n8n のURL</span>
-              <input
-                type="url"
-                autoComplete="off"
-                value={n8nUrl}
-                onChange={(event) => setN8nUrl(event.target.value)}
-                placeholder="https://example.app.n8n.cloud"
-                className="h-9 w-full rounded-lg border border-border bg-bg px-3 text-xs text-text outline-none focus:border-border-strong"
-                disabled={addBusy || anyBusy}
-              />
-            </label>
-            <Button
-              size="sm"
-              variant="primary"
-              onClick={() => void addN8n()}
-              busy={addBusy}
-              disabled={loading || !n8nUrl.trim() || anyBusy}
-            >
-              追加
-            </Button>
-          </div>
+      {(!servers.some((server) => server.id === "n8n") || !servers.some((server) => server.id === "slack")) && (
+        <div className="mt-3 grid gap-2 lg:grid-cols-2">
+          {!servers.some((server) => server.id === "n8n") && (
+            <div className="rounded-xl border border-dashed border-border bg-surface-2 px-3 py-3">
+              <p className="text-xs font-medium text-text">n8n を追加（OAuth）</p>
+              <p className="mt-1 text-[11px] leading-4 text-muted">
+                n8n インスタンスのURLを入力します（例: https://example.app.n8n.cloud）。
+                パスを省略した場合は末尾の <span className="font-mono">/mcp-server/http</span> を自動で補完します。
+              </p>
+              <div className="mt-2 flex flex-wrap items-center gap-2">
+                <label className="min-w-0 flex-1">
+                  <span className="sr-only">n8n のURL</span>
+                  <input
+                    type="url"
+                    autoComplete="off"
+                    value={n8nUrl}
+                    onChange={(event) => setN8nUrl(event.target.value)}
+                    placeholder="https://example.app.n8n.cloud"
+                    className="h-9 w-full rounded-lg border border-border bg-bg px-3 text-xs text-text outline-none focus:border-border-strong"
+                    disabled={anyBusy}
+                  />
+                </label>
+                <Button
+                  size="sm"
+                  variant="primary"
+                  onClick={() => void addN8n()}
+                  busy={addBusy}
+                  disabled={loading || !n8nUrl.trim() || anyBusy}
+                >
+                  n8n を追加
+                </Button>
+              </div>
+            </div>
+          )}
+          {!servers.some((server) => server.id === "slack") && (
+            <div className="rounded-xl border border-dashed border-border bg-surface-2 px-3 py-3">
+              <p className="text-xs font-medium text-text">Slack を追加（OAuth）</p>
+              <p className="mt-1 text-[11px] leading-4 text-muted">
+                Slackアプリの Client ID を入力します（api.slack.com/apps → App Credentials）。
+                Redirect URL に <span className="font-mono">http://localhost:19876/callback</span>（既定）を登録し、MCP を有効化してください。
+              </p>
+              <div className="mt-2 flex flex-wrap items-center gap-2">
+                <label className="min-w-0 flex-1">
+                  <span className="sr-only">Slack のClient ID</span>
+                  <input
+                    type="text"
+                    autoComplete="off"
+                    value={slackClientId}
+                    onChange={(event) => setSlackClientId(event.target.value)}
+                    placeholder="例: 1601185624273.8899143856786"
+                    className="h-9 w-full rounded-lg border border-border bg-bg px-3 font-mono text-xs text-text outline-none focus:border-border-strong"
+                    disabled={anyBusy}
+                  />
+                </label>
+                <Button
+                  size="sm"
+                  variant="primary"
+                  onClick={() => void addSlack()}
+                  busy={slackBusy}
+                  disabled={loading || !slackClientId.trim() || anyBusy}
+                >
+                  Slack を追加
+                </Button>
+              </div>
+            </div>
+          )}
         </div>
       )}
       {error && <p className="mt-2 text-sm text-danger" role="alert">{error}</p>}
