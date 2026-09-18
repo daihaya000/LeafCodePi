@@ -170,7 +170,11 @@ export function progressFingerprint(messages: UiMessage[]): string {
         .map((part) => {
           if (part.type === "text") return `t:${part.text.length}`;
           if (part.type === "thinking") return `k:${part.text.length}`;
-          if (part.type === "tool") return `o:${part.state.status}`;
+          if (part.type === "tool") {
+            // Include the partial result length: a tool that keeps printing is
+            // making progress, only silence means a hang.
+            return `o:${part.state.status}:${part.state.output?.length ?? 0}`;
+          }
           if (part.type === "image") return "i:1";
           if (part.type === "file") return `f:${part.name}`;
           return "?";
@@ -488,7 +492,11 @@ async function evaluateWatch(row: TaskHangWatchRow, timeoutMs: number): Promise<
     row.progressFingerprint !== "" && row.progressFingerprint !== fingerprint;
 
   if (fingerprintChanged || activityAt > row.lastProgressAt) {
-    recordProgress(row.taskId, Math.max(activityAt, fingerprintChanged ? now : 0), fingerprint);
+    // Anchor the clock to the real event time whenever there is one (tool
+    // start/end, new message). Sampling only runs once the row already looks
+    // stale, so trusting this tick's clock would push the abort up to one
+    // extra timeout past the moment progress actually stopped.
+    recordProgress(row.taskId, activityAt > row.lastProgressAt ? activityAt : now, fingerprint);
     return;
   }
 

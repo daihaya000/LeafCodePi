@@ -24,6 +24,11 @@ type ResumeCapture = {
   isProviderFallback?: boolean;
 };
 
+const TIMEOUT_MS = 300_000;
+const TICK_MS = 15_000;
+/** Turn runs for 22 minutes, then the newest tool never finishes. */
+const STALL_AT_MS = 1_320_000;
+
 afterEach(() => {
   stopHangWatchdogForTests();
   vi.useRealTimers();
@@ -88,6 +93,61 @@ function completedToolTurn(): UiMessage[] {
   ];
 }
 
+function busyToolTurn(t: number, stallAt: number): UiMessage[] {
+  const observed = Math.min(t, stallAt);
+  const parts = [];
+  for (let startedAt = 0; startedAt <= observed; startedAt += 20_000) {
+    const running = startedAt + 20_000 > observed;
+    parts.push({
+      id: `tool-${startedAt}`,
+      type: "tool" as const,
+      tool: "powershell",
+      callID: `call-${startedAt}`,
+      state: running
+        ? { status: "running" as const, startedAtMs: startedAt }
+        : {
+            status: "completed" as const,
+            startedAtMs: startedAt,
+            endedAtMs: startedAt + 10_000,
+          },
+    });
+  }
+  return [
+    {
+      id: "prompt",
+      role: "user",
+      createdAt: 0,
+      parts: [{ id: "prompt-text", type: "text", text: "作業" }],
+    },
+    { id: "assistant", role: "assistant", createdAt: observed, parts },
+  ];
+}
+
+function streamingToolTurn(startedAt: number, output: string): UiMessage[] {
+  return [
+    {
+      id: "prompt",
+      role: "user",
+      createdAt: 0,
+      parts: [{ id: "prompt-text", type: "text", text: "作業" }],
+    },
+    {
+      id: "assistant",
+      role: "assistant",
+      createdAt: startedAt,
+      parts: [
+        {
+          id: "tool-part",
+          type: "tool",
+          tool: "powershell",
+          callID: "tool-call",
+          state: { status: "running", startedAtMs: startedAt, output },
+        },
+      ],
+    },
+  ];
+}
+
 describe("hang-watchdog helpers", () => {
   it("estimates prompt and image payload size", () => {
     expect(
@@ -108,6 +168,25 @@ describe("hang-watchdog helpers", () => {
       },
     ];
     expect(progressFingerprint(messages)).toContain("assistant:a1:t:2");
+
+    const running = (output: string): UiMessage[] => [
+      {
+        id: "a2",
+        role: "assistant",
+        createdAt: 1,
+        parts: [
+          {
+            id: "tool-part",
+            type: "tool",
+            tool: "powershell",
+            callID: "tool-call",
+            state: { status: "running", output },
+          },
+        ],
+      },
+    ];
+    expect(progressFingerprint(running("abc"))).toContain("o:running:3");
+    expect(progressFingerprint(running("abcd"))).not.toBe(progressFingerprint(running("abc")));
   });
 
   it("recognizes a turn running only a subagent", () => {
@@ -553,6 +632,84 @@ describe("hang-watchdog helpers", () => {
       expect(aborted).toBe(1);
       expect(resumed).toBe(0);
       expect(getTaskHangWatch("goal-skip")).toBeNull();
+    } finally {
+      stopHangWatchdogForTests();
+      if (previousDataDir === undefined) delete process.env.LEAFCODE_PI_DATA_DIR;
+      else process.env.LEAFCODE_PI_DATA_DIR = previousDataDir;
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("aborts a stalled tool one timeout after the last progress", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(0);
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "leafcode-pi-hang-watchdog-stall-"));
+    const previousDataDir = process.env.LEAFCODE_PI_DATA_DIR;
+    process.env.LEAFCODE_PI_DATA_DIR = root;
+    fs.writeFileSync(
+      path.join(root, "web-settings.json"),
+      JSON.stringify({ version: 1, "hang-timeout": TIMEOUT_MS }),
+      "utf8",
+    );
+    let messages: UiMessage[] = busyToolTurn(0, STALL_AT_MS);
+    const abortTimes: number[] = [];
+    registerHangWatchdogHooks({
+      getLive: () => ({ isStreaming: false, isCompacting: false, messages }),
+      abortTask: async () => {
+        abortTimes.push(Date.now());
+      },
+      resumePrompt: () => undefined,
+      notifyHangRetry: () => undefined,
+    });
+    try {
+      armTaskHangWatch({ taskId: "stalled-tool", prompt: "作業", startedAt: 0 });
+      for (let t = 0; t <= STALL_AT_MS + 2 * TIMEOUT_MS; t += TICK_MS) {
+        vi.setSystemTime(t);
+        messages = busyToolTurn(t, STALL_AT_MS);
+        await runHangWatchdogTick();
+        if (abortTimes.length > 0) break;
+      }
+
+      expect(abortTimes).toEqual([STALL_AT_MS + TIMEOUT_MS]);
+    } finally {
+      stopHangWatchdogForTests();
+      if (previousDataDir === undefined) delete process.env.LEAFCODE_PI_DATA_DIR;
+      else process.env.LEAFCODE_PI_DATA_DIR = previousDataDir;
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps a running tool alive while it keeps printing", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(0);
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "leafcode-pi-hang-watchdog-streaming-"));
+    const previousDataDir = process.env.LEAFCODE_PI_DATA_DIR;
+    process.env.LEAFCODE_PI_DATA_DIR = root;
+    fs.writeFileSync(
+      path.join(root, "web-settings.json"),
+      JSON.stringify({ version: 1, "hang-timeout": TIMEOUT_MS }),
+      "utf8",
+    );
+    let messages: UiMessage[] = streamingToolTurn(0, "");
+    let abortCount = 0;
+    registerHangWatchdogHooks({
+      getLive: () => ({ isStreaming: false, isCompacting: false, messages }),
+      abortTask: async () => {
+        abortCount += 1;
+      },
+      resumePrompt: () => undefined,
+      notifyHangRetry: () => undefined,
+    });
+    try {
+      armTaskHangWatch({ taskId: "streaming-tool", prompt: "作業", startedAt: 0 });
+      for (let t = 0; t <= 3 * TIMEOUT_MS; t += TICK_MS) {
+        vi.setSystemTime(t);
+        messages = streamingToolTurn(0, "x".repeat(t / 1_000));
+        await runHangWatchdogTick();
+      }
+
+      expect(abortCount).toBe(0);
+      expect(getTaskHangWatch("streaming-tool")?.state).toBe("armed");
     } finally {
       stopHangWatchdogForTests();
       if (previousDataDir === undefined) delete process.env.LEAFCODE_PI_DATA_DIR;
