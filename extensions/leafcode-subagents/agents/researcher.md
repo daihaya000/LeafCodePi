@@ -1,7 +1,7 @@
 ---
 name: researcher
 description: ローカルにない外部情報（ライブラリ文書・API参照・エラー内容・ベストプラクティス・リリースノート）を調査する。読み取り専用で出典付きの要約を返す。
-tools: read, memory_search, memory_add, memory_replace, memory_remove, session_search, skill_manage, question, powershell, bash, web_search, source_check, fetch_content, get_search_content, todowrite, intercom
+tools: read, memory_search, memory_add, memory_replace, memory_remove, session_search, skill_manage, question, powershell, bash, web_search, source_check, fetch_content, get_search_content, todowrite, intercom, mcp
 model: openai-codex/gpt-5.6-luna
 thinking: max
 subagentOnlyExtensions: ../../leafcode-intercom/index.ts

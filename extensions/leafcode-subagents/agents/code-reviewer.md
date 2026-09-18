@@ -1,7 +1,7 @@
 ---
 name: code-reviewer
 description: 編集せずにコードの品質・セキュリティ・保守性をレビューする。
-tools: read, memory_search, memory_add, memory_replace, memory_remove, session_search, skill_manage, question, grep, find, ls, web_search, source_check, fetch_content, get_search_content, todowrite, intercom
+tools: read, memory_search, memory_add, memory_replace, memory_remove, session_search, skill_manage, question, grep, find, ls, web_search, source_check, fetch_content, get_search_content, todowrite, intercom, mcp
 model: openai-codex/gpt-5.6-luna
 thinking: max
 subagentOnlyExtensions: ../../leafcode-intercom/index.ts

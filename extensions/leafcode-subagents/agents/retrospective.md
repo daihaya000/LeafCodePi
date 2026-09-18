@@ -1,7 +1,7 @@
 ---
 name: retrospective
 description: "セッションの振り返り分析。失敗・成功をLESSONS.mdと照合して集計し、pain_count 3以上を `prompts/builder.md` の恒久ルールへ昇格する。/retrospective から呼ぶ。"
-tools: read, memory_search, memory_add, memory_replace, memory_remove, session_search, skill_manage, question, grep, find, ls, edit, write, todowrite, intercom
+tools: read, memory_search, memory_add, memory_replace, memory_remove, session_search, skill_manage, question, grep, find, ls, edit, write, todowrite, intercom, mcp
 model: openai-codex/gpt-5.6-luna
 thinking: max
 subagentOnlyExtensions: ../../leafcode-intercom/index.ts

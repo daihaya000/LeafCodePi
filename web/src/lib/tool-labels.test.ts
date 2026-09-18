@@ -32,6 +32,8 @@ describe("toolLabel", () => {
     expect(toolLabel("subagent_wait")).toBe("サブエージェント待機");
     expect(toolLabel("structured_output")).toBe("構造化出力");
     expect(toolLabel("watchdog_warn")).toBe("監視警告");
+    expect(toolLabel("mcp")).toBe("MCP");
+    expect(toolNameLabel("mcp")).toBe("MCP");
   });
 
   it("uses distinct Japanese names for the settings tool list", () => {
@@ -48,7 +50,7 @@ describe("toolLabel", () => {
   });
 
   it("marks mutating tools as write-capable and inspection tools as read-only", () => {
-    expect(["write", "edit", "bash", "powershell", "memory_add", "memory_replace", "memory_remove", "skill_manage", "subagent", "todowrite", "update_soul"].every(isWriteTool)).toBe(true);
+    expect(["write", "edit", "bash", "powershell", "memory_add", "memory_replace", "memory_remove", "skill_manage", "subagent", "todowrite", "update_soul", "mcp"].every(isWriteTool)).toBe(true);
     expect(["read", "grep", "find", "ls", "memory_search", "web_search", "intercom"].some(isWriteTool)).toBe(false);
   });
 

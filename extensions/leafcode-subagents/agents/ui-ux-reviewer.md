@@ -1,7 +1,7 @@
 ---
 name: ui-ux-reviewer
 description: 大幅なUI変更後やリリース前に実装済みUIを検証する。DESIGN.md準拠・使いやすさ・レスポンシブ・アクセシビリティ・UI状態網羅を確認する。
-tools: read, memory_search, memory_add, memory_replace, memory_remove, session_search, skill_manage, question, grep, find, ls, todowrite, intercom
+tools: read, memory_search, memory_add, memory_replace, memory_remove, session_search, skill_manage, question, grep, find, ls, todowrite, intercom, mcp
 model: openai-codex/gpt-5.6-luna
 thinking: max
 subagentOnlyExtensions: ../../leafcode-intercom/index.ts

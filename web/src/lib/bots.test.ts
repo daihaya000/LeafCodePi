@@ -102,7 +102,7 @@ describe("bot store", () => {
     const configPath = join(root, "bots", bot.id, "config.json");
     const config = JSON.parse(readFileSync(configPath, "utf8"));
     const oldDisabled = new Set(["write", "edit", "bash", "powershell", "subagent", "todowrite"]);
-    const addedTools = new Set(["web_search", "source_check", "fetch_content", "get_search_content", "contact_supervisor", "subagent_wait", "structured_output", "task_mutation_decision", "watchdog_permission_decision", "watchdog_warn"]);
+    const addedTools = new Set(["web_search", "source_check", "fetch_content", "get_search_content", "contact_supervisor", "subagent_wait", "structured_output", "task_mutation_decision", "watchdog_permission_decision", "watchdog_warn", "mcp"]);
     config.tools = BOT_TOOL_NAMES.filter((tool) => !oldDisabled.has(tool) && !addedTools.has(tool));
     fs.writeFileSync(configPath, JSON.stringify(config));
 

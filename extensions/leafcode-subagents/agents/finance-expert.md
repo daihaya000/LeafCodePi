@@ -1,7 +1,7 @@
 ---
 name: finance-expert
 description: 日本の金融専門サブエージェント。為替・FX・NISA・投資信託・株式・債券・税制・資産運用の質問に出典付きで回答する。ファイルは変更しない。
-tools: read, memory_search, memory_add, memory_replace, memory_remove, session_search, skill_manage, question, powershell, bash, web_search, source_check, fetch_content, get_search_content, todowrite, intercom
+tools: read, memory_search, memory_add, memory_replace, memory_remove, session_search, skill_manage, question, powershell, bash, web_search, source_check, fetch_content, get_search_content, todowrite, intercom, mcp
 model: openai-codex/gpt-5.6-luna
 thinking: max
 subagentOnlyExtensions: ../../leafcode-intercom/index.ts

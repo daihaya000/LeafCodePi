@@ -72,6 +72,7 @@ export function toolLabel(tool: string, input?: Record<string, unknown>): string
   if (t === "task_mutation_decision") return "タスク判断";
   if (t === "watchdog_permission_decision") return "権限確認";
   if (t === "watchdog_warn") return "監視警告";
+  if (t === "mcp" || t === "mcpScript") return "MCP";
   if (t.includes("subagent") || t === "task") return "サブエージェント";
   if (t === "question") return "確認";
   if (t.includes("bash") || t.includes("shell")) return "コマンド";
@@ -100,7 +101,7 @@ export function toolNameLabel(tool: string): string {
 /** Tools that can mutate workspace, memory, skills, task state, or delegated work. */
 const WRITE_TOOL_NAMES = new Set([
   "write", "edit", "bash", "powershell", "memory_add", "memory_replace", "memory_remove",
-  "skill_manage", "subagent", "todowrite", "update_soul",
+  "skill_manage", "subagent", "todowrite", "update_soul", "mcp",
 ]);
 
 export function isWriteTool(tool: string): boolean {

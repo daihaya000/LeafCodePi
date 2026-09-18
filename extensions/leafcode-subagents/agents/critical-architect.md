@@ -1,7 +1,7 @@
 ---
 name: critical-architect
 description: 最高難度の設計・品質判断だけに使うエスカレーション用アーキテクト。通常タスクには呼ばない。
-tools: read, memory_search, memory_add, memory_replace, memory_remove, session_search, skill_manage, question, grep, find, ls, powershell, bash, todowrite, web_search, source_check, fetch_content, get_search_content, intercom
+tools: read, memory_search, memory_add, memory_replace, memory_remove, session_search, skill_manage, question, grep, find, ls, powershell, bash, todowrite, web_search, source_check, fetch_content, get_search_content, intercom, mcp
 model: openai-codex/gpt-5.6-luna
 thinking: max
 subagentOnlyExtensions: ../../leafcode-intercom/index.ts

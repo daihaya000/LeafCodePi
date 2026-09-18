@@ -33,6 +33,7 @@ export { BOT_DEFAULT_TOOL_NAMES, BOT_TOOL_NAMES };
 const LEGACY_ADDED_TOOL_NAMES = new Set<BotToolName>([
   "web_search", "source_check", "fetch_content", "get_search_content", "contact_supervisor",
   "subagent_wait", "structured_output", "task_mutation_decision", "watchdog_permission_decision", "watchdog_warn",
+  "mcp",
 ]);
 const LEGACY_DISABLED_TOOL_NAMES = new Set<BotToolName>(["write", "edit", "bash", "powershell", "subagent"]);
 const LEGACY_DISABLED_WITH_TODO = new Set<BotToolName>([...LEGACY_DISABLED_TOOL_NAMES, "todowrite"]);
@@ -42,6 +43,8 @@ const PREVIOUS_INTERNAL_TOOL_NAMES = new Set<BotToolName>([
 const PREVIOUS_DEFAULT_TOOL_NAMES = new Set<BotToolName>([
   ...LEGACY_DISABLED_WITH_TODO,
   ...PREVIOUS_INTERNAL_TOOL_NAMES,
+  // MCP gateway arrived after this default; legacy lists without it still migrate.
+  "mcp",
 ]);
 const LEGACY_DEFAULT_TOOL_SETS: readonly (readonly BotToolName[])[] = [
   BOT_TOOL_NAMES.filter((tool) => !PREVIOUS_DEFAULT_TOOL_NAMES.has(tool)),

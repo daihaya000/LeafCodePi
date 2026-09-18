@@ -1,7 +1,7 @@
 ---
 name: lead-programmer
 description: "複数ファイル（約3件以上）にまたがる実装・リファクタ・移行を統括する。再委譲できる唯一のサブエージェント。1〜2ファイルの小規模作業は programmer を使う。"
-tools: read, memory_search, memory_add, memory_replace, memory_remove, session_search, skill_manage, question, grep, find, ls, powershell, bash, edit, write, subagent, todowrite, web_search, source_check, fetch_content, get_search_content, intercom
+tools: read, memory_search, memory_add, memory_replace, memory_remove, session_search, skill_manage, question, grep, find, ls, powershell, bash, edit, write, subagent, todowrite, web_search, source_check, fetch_content, get_search_content, intercom, mcp
 model: openai-codex/gpt-5.6-luna
 thinking: max
 subagentOnlyExtensions: ../../leafcode-intercom/index.ts

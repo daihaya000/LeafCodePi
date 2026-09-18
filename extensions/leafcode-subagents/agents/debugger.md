@@ -1,7 +1,7 @@
 ---
 name: debugger
 description: バグ・テスト失敗・想定外の動作の根本原因を調査する。修正前に原因不明の壊れを診断し、証拠付きで報告する。
-tools: read, memory_search, memory_add, memory_replace, memory_remove, session_search, skill_manage, question, grep, find, ls, powershell, bash, edit, write, web_search, source_check, fetch_content, get_search_content, todowrite, intercom
+tools: read, memory_search, memory_add, memory_replace, memory_remove, session_search, skill_manage, question, grep, find, ls, powershell, bash, edit, write, web_search, source_check, fetch_content, get_search_content, todowrite, intercom, mcp
 model: openai-codex/gpt-5.6-luna
 thinking: max
 subagentOnlyExtensions: ../../leafcode-intercom/index.ts
