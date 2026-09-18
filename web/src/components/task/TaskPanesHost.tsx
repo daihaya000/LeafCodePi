@@ -332,7 +332,11 @@ function PaneSection({
           role="switch"
           aria-checked={preferNewPane}
           aria-label="新規セッション・Botを新しいペインで開く"
-          title={preferNewPane ? "新しいペインを優先（オン）" : "既存タブを優先（オフ）"}
+          title={
+            preferNewPane
+              ? "新規セッション・Botを新しいペインで開く設定です。クリックすると既存タブで開くようになります。"
+              : "新規セッション・Botを既存タブで開く設定です。クリックすると新しいペインで開くようになります。"
+          }
           onClick={onTogglePreferNewPane}
           className={cx(
             "m-1 inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md transition-colors",

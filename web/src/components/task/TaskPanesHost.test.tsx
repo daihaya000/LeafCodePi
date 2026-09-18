@@ -244,6 +244,7 @@ describe("TaskPanesHost lazy tab mounting", () => {
     expect(switches[0]?.getAttribute("aria-checked")).toBe("false");
     expect(switches[0]?.querySelector("svg")).not.toBeNull();
     expect(switches[0]?.className).toContain("text-muted");
+    expect(switches[0]?.getAttribute("title")).toContain("既存タブで開く設定");
 
     fireEvent.click(switches[0]!);
 
@@ -251,6 +252,7 @@ describe("TaskPanesHost lazy tab mounting", () => {
       expect(localStorage.getItem("webui:task-pane-prefer-new")).toBe("1");
       expect(switches[0]?.getAttribute("aria-checked")).toBe("true");
       expect(switches[0]?.className).toContain("text-accent");
+      expect(switches[0]?.getAttribute("title")).toContain("新しいペインで開く設定");
     });
   });
 
