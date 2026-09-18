@@ -1,3 +1,4 @@
+import { rmSync } from "node:fs";
 import { describe, expect, it, vi, afterEach } from "vitest";
 import {
   appendLlamaServerSystemPrompt,
@@ -6,9 +7,16 @@ import {
   isLlamaQwenReasoningModel,
   registerLlamaProviders,
   rewriteLlamaServerEffortPayload,
+  syncLlamaServerProvider,
   LLAMA_ORNITH_THINKING_LEVEL_MAP,
   LLAMA_QWEN_THINKING_LEVEL_MAP,
 } from "@/lib/pi/llama-provider";
+import { settingsPath, writeSettingValue } from "@/lib/host-control";
+import {
+  DEFAULT_LLAMA_SERVER_SETTINGS,
+  LLAMA_SERVER_SETTINGS_KEY,
+  serializeLlamaServerSettings,
+} from "@/lib/llama-server-settings";
 import { thinkingLevelsForModel } from "@/lib/thinking-levels";
 import type { Api, Model } from "@earendil-works/pi-ai";
 
@@ -73,9 +81,35 @@ describe("registerLlamaProviders", () => {
     expect(registerNativeProvider).not.toHaveBeenCalled();
     expect(registerProvider).toHaveBeenCalledWith(
       "llama-server",
-      expect.objectContaining({ name: "llama-server" }),
+      expect.objectContaining({
+        name: "llama-server",
+        models: [expect.objectContaining({ id: "local-model" })],
+      }),
     );
     expect(process.env.LLAMA_BASE_URL).toBe("http://example.invalid");
+  });
+
+  it("registers no models while the server is stopped, even with a configured model file", async () => {
+    writeSettingValue(
+      LLAMA_SERVER_SETTINGS_KEY,
+      serializeLlamaServerSettings({
+        ...DEFAULT_LLAMA_SERVER_SETTINGS,
+        modelFile: "Qwen3.8-27B-Uncensored-GGUF.gguf",
+      }),
+    );
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        throw new Error("ECONNREFUSED");
+      }),
+    );
+    const registerProvider = vi.fn();
+    try {
+      await syncLlamaServerProvider({ registerProvider });
+      expect(registerProvider).toHaveBeenCalledWith("llama-server", expect.objectContaining({ models: [] }));
+    } finally {
+      rmSync(settingsPath(LLAMA_SERVER_SETTINGS_KEY), { force: true });
+    }
   });
 });
 

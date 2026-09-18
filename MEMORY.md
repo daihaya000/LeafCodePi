@@ -2789,3 +2789,9 @@ turn 2 の合成ベンチマークでは、履歴100/1,000/5,000件を各200回 
 ## 2026-09-05: safety-gate ループ停止
 
 ユーザー「終了」により AGENT_LOOP_TICK_safetygate（2分間隔）を停止。端末 status=aborted、PID 29240 は既に不在。ギャップ調査・修正は継続しない。
+
+## 2026-09-18: 停止中の llama-server をモデル一覧から除外
+
+llama-server が停止（`/models` 無応答）のとき、`web/src/lib/pi/llama-provider.ts` の `resolveModelRows` はモデルを 1 件も登録しないようにした。設定 `modelFile` から推測した id を残していたため、停止中でも生成モデル・起動時の既定値・Autoモデル・エージェント・Composer の各ドロップダウンに、選択しても動かない llama-server 項目が並んでいた。起動中は従来どおり `/models` の live id を列挙する。停止→起動の切り替えは `/api/llama-server/(start|stop)` の `invalidateHealthCache()` で即反映される。
+
+検証: `web/src/lib/pi/llama-provider.test.ts` 16 tests 成功、web typecheck / eslint 成功。全体テストの失敗 4 件（bot-code-relay 2、harness-limit-fallback 1、TaskView.resume 1）は変更前の stash 比較でも同一で無関係。

@@ -68,11 +68,6 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function modelIdFromFile(modelFile: string): string {
-  const base = basename(modelFile.replace(/\\/g, "/"));
-  return base.toLowerCase().endsWith(".gguf") ? base.slice(0, -5) : base;
-}
-
 function displayName(id: string): string {
   const short = basename(id.replace(/\\/g, "/"));
   return short.toLowerCase().endsWith(".gguf") ? short.slice(0, -5) : short || id;
@@ -271,11 +266,8 @@ async function resolveModelRows(settings: LlamaServerSettings): Promise<OpenAiMo
   const contextWindow = settings.contextLength;
   const live = await fetchLlamaServerModelIds(DEFAULT_LLAMA_SERVER_BASE);
   if (live.length > 0) return buildModelRows(live, contextWindow);
-  // Fallback guesses rarely match the server id (often a full path). Prefer empty
-  // until /v1/models responds so the UI does not offer a 400-causing stub like "local".
-  if (settings.modelFile.trim()) {
-    return buildModelRows([modelIdFromFile(settings.modelFile)], contextWindow);
-  }
+  // 停止中（または /models 無応答）はモデルを1つも登録しない。modelFile からの推測 id を
+  // 残すと、停止した llama-server がドロップダウンに選択できない項目として残る。
   return [];
 }
 
