@@ -420,7 +420,7 @@ function TierEditor({
               fallback: event.target.value as AutoTierFallback,
             })
           }
-          className="h-7 rounded border border-border bg-surface px-1.5 text-xs text-muted focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-primary"
+          className="h-7 min-w-0 w-full rounded border border-border bg-surface px-1.5 text-xs text-muted focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-primary"
         >
           {FALLBACKS.map((fallback) => (
             <option key={fallback} value={fallback}>{FALLBACK_LABEL[fallback]}</option>

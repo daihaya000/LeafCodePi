@@ -90,6 +90,7 @@ describe("AutoRouteOverridesEditor", () => {
     expect(modeGrid.className).toContain("lg:grid-cols-3");
     expect(Array.from(modeGrid.children).every((column) => column.className.includes("border"))).toBe(true);
     expect(within(modeGrid).getAllByRole("button", { name: "候補を追加" })).toHaveLength(9);
+    expect(within(modeGrid).getAllByRole("combobox").every((select) => select.className.includes("w-full"))).toBe(true);
     const modeLabels = () =>
       Array.from(modeGrid.children).map((column) => column.querySelector("p")?.textContent ?? "");
     expect(modeLabels()).toEqual(["コスト優先*", "バランス", "知能優先"]);
