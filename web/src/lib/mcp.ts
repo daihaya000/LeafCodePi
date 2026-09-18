@@ -481,8 +481,8 @@ const SLACK_MCP_URL = "https://mcp.slack.com/mcp";
 export function addSlackServer(clientId: string, agentDir = resolvePiAgentDir()): McpListResult {
   const id = clientId.trim();
   if (!id) throw new McpError("invalid-auth", "Slack のClient IDを入力してください");
-  if (/[\r\n]/.test(id) || id.length > 256) {
-    throw new McpError("invalid-auth", "Slack のClient IDが不正です");
+  if (id.length > 256 || !/^[A-Za-z0-9._-]+$/.test(id)) {
+    throw new McpError("invalid-auth", "Slack のClient IDが不正です（例: 1601185624273.8899143856786）");
   }
   const path = piMcpConfigPath(agentDir);
   const config = readConfig(path);

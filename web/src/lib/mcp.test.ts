@@ -209,6 +209,13 @@ describe("listMcpServers / setMcpServerEnabled", () => {
     const raw = JSON.parse(readFileSync(join(agentDir, "mcp.json"), "utf8"));
     assert.equal(raw.mcpServers.slack.oauth.clientId, "1601185624273.8899143856786");
   });
+
+  it("rejects a Slack client ID that is not an app ID", () => {
+    fixture();
+    assert.throws(() => addSlackServer("https://mcp.slack.com/mcp", agentDir), /Client IDが不正/);
+    assert.throws(() => addSlackServer("client id with spaces", agentDir), /Client IDが不正/);
+    assert.equal("slack" in JSON.parse(readFileSync(join(agentDir, "mcp.json"), "utf8")).mcpServers, false);
+  });
 });
 
 describe("normalizeN8nServerUrl", () => {
