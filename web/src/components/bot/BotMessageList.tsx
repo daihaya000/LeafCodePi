@@ -8,6 +8,7 @@ import { FileText, RotateCcw } from "lucide-react";
 import { conversationViewportClass, MessageBubble, MessageHeader, messageRowClassFor } from "@/components/ConversationLayout";
 import { BotAvatar, type BotFace } from "@/components/bot/BotAvatar";
 import { ProjectIcon } from "@/components/ProjectIcon";
+import { ProviderIcon } from "@/components/ProviderIcon";
 import { renderMentions, withMentions } from "@/components/bot/BotMention";
 import { ImageLightbox } from "@/components/Composer";
 import { toolLabel } from "@/lib/tool-labels";
@@ -185,11 +186,18 @@ export function BotResponseStatus({
 }
 
 /** Sender line above the bubble, mirroring Code mode's meta header. */
-export function BotMessageSender({ name, createdAt, active = false, ...face }: BotFace & { name: string; createdAt?: number; active?: boolean }) {
+export function BotMessageSender({ name, createdAt, active = false, providerID, modelLabel, ...face }: BotFace & { name: string; createdAt?: number; active?: boolean; providerID?: string; modelLabel?: string }) {
+  const model = modelLabel?.trim();
   return (
     <div className="flex w-full min-w-0 max-w-full items-center gap-1.5 overflow-hidden text-[11px] font-medium text-muted">
       <span aria-hidden="true" className="shrink-0"><BotAvatar size={16} {...face} name={name} active={active} /></span>
       <span className="min-w-0 truncate">{name}</span>
+      {model && (
+        <span data-bot-model className="flex min-w-0 shrink items-center gap-1 text-faint">
+          <ProviderIcon providerID={providerID} size={12} />
+          <span className="min-w-0 truncate" title={model}>{model}</span>
+        </span>
+      )}
       {createdAt !== undefined && <BotMessageTime createdAt={createdAt} className="ml-1 mt-0 shrink-0" />}
     </div>
   );
@@ -214,12 +222,15 @@ export function BotMessageRow({ user, createdAt, children, footer, header, after
 }
 
 /** Shared conversation presentation; callers supply only conversation-specific content/actions. */
-export function BotChatMessage({ user, createdAt, sender, text, mentions = [], children, images, files, footer, after, bubble = true }: {
+export function BotChatMessage({ user, createdAt, sender, text, mentions = [], providerID, modelLabel, children, images, files, footer, after, bubble = true }: {
   user: boolean;
   createdAt: number;
   sender: BotFace & { name: string; active?: boolean };
   text: string;
   mentions?: BotDto[];
+  /** 実際に応答したプロバイダ・モデル。Bot 名の隣に表示する。 */
+  providerID?: string;
+  modelLabel?: string;
   children?: ReactNode;
   images?: ReactNode;
   files?: ReactNode;
@@ -228,7 +239,7 @@ export function BotChatMessage({ user, createdAt, sender, text, mentions = [], c
   bubble?: boolean;
 }) {
   return <BotMessageRow user={user} createdAt={createdAt} timeInHeader={!user}
-    header={user ? undefined : <BotMessageSender {...sender} createdAt={createdAt} />} footer={footer} after={after} bubble={bubble}>
+    header={user ? undefined : <BotMessageSender {...sender} createdAt={createdAt} providerID={providerID} modelLabel={modelLabel} />} footer={footer} after={after} bubble={bubble}>
     {text && (user
       ? <div className="whitespace-pre-wrap break-words">{renderMentions(text, mentions, "user", "user")}</div>
       : <BotMessageMarkdown text={text} mentions={mentions} />)}

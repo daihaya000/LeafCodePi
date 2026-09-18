@@ -83,13 +83,19 @@ function botMessageDisplayData(message: UiMessage): BotMessageDisplayData {
   return data;
 }
 
-function BotToolActivityGroup({ messages, bot, botId, active }: { messages: UiMessage[]; bot: BotDto | null; botId: string; active: boolean }) {
+/** Code タイムラインと同じ規則で、応答に使われた実モデルを表示ラベルへ解決する。 */
+function botMessageModelLabel(message: UiMessage, modelLabels: Record<string, string>): string | undefined {
+  if (!message.provider || !message.model) return undefined;
+  return modelLabels[`${message.provider}::${message.model}`] ?? message.model;
+}
+
+function BotToolActivityGroup({ messages, bot, botId, active, modelLabels }: { messages: UiMessage[]; bot: BotDto | null; botId: string; active: boolean; modelLabels: Record<string, string> }) {
   const parts = messages.flatMap((message) => botMessageDisplayData(message).tools);
   const firstMessage = messages[0];
   return (
     <ActivityLog
       kind="bot"
-      header={firstMessage ? <MessageHeader><BotMessageSender {...bot} name={bot?.name ?? "ボット"} createdAt={firstMessage.createdAt} /></MessageHeader> : undefined}
+      header={firstMessage ? <MessageHeader><BotMessageSender {...bot} name={bot?.name ?? "ボット"} createdAt={firstMessage.createdAt} providerID={firstMessage.provider} modelLabel={botMessageModelLabel(firstMessage, modelLabels)} /></MessageHeader> : undefined}
       count={parts.length}
       parts={parts}
       active={active}
@@ -97,7 +103,7 @@ function BotToolActivityGroup({ messages, bot, botId, active }: { messages: UiMe
       {messages.map((message, messageIndex) => {
         const { text, tools, images, files, requestIds } = botMessageDisplayData(message);
         return <div key={messageRenderKey(message)} className="min-w-0 space-y-2">
-          {messageIndex > 0 && !text && !images.length && !files.length && !message.error && !requestIds.length && <MessageHeader><BotMessageSender {...bot} name={bot?.name ?? "ボット"} createdAt={message.createdAt} /></MessageHeader>}
+          {messageIndex > 0 && !text && !images.length && !files.length && !message.error && !requestIds.length && <MessageHeader><BotMessageSender {...bot} name={bot?.name ?? "ボット"} createdAt={message.createdAt} providerID={message.provider} modelLabel={botMessageModelLabel(message, modelLabels)} /></MessageHeader>}
           {tools.map((part) => {
             const partKey = part.id || part.callID;
             const cardKey = part.state.status === "error" || part.state.status === "cancelled" ? `${partKey}:expanded` : partKey;
@@ -739,6 +745,11 @@ export const BotView = memo(function BotView({ id, active = true }: { id: string
     () => modelOptionForValue(models, bot?.model) ?? models[0],
     [bot?.model, models],
   );
+  /** TaskView と同じキー（provider::model）で、実行モデルの表示ラベルを引く。 */
+  const modelLabels = useMemo(
+    () => Object.fromEntries(models.map((option) => [option.value, option.label])),
+    [models],
+  );
   const modelValue = selectedModel?.value ?? bot?.model ?? "";
   const thinkingLevels = selectedModel?.thinkingLevels ?? [];
   const thinkingValue: ThinkingLevel = bot?.thinkingLevel && thinkingLevels.includes(bot.thinkingLevel)
@@ -1179,6 +1190,7 @@ export const BotView = memo(function BotView({ id, active = true }: { id: string
           bot={bot}
           botId={`bot:${id}`}
           active={active}
+          modelLabels={modelLabels}
         />,
       );
       groupKey = null;
@@ -1217,6 +1229,7 @@ export const BotView = memo(function BotView({ id, active = true }: { id: string
       rows.push(
         <BotChatMessage key={messageRenderKey(message)} user={user} createdAt={message.createdAt}
           sender={{ ...(bot ?? {}), name: senderName }} text={text} mentions={botMentions}
+          providerID={message.provider} modelLabel={botMessageModelLabel(message, modelLabels)}
           images={<BotMessageImages images={images.flatMap((part) => part.type === "image" ? [{ key: part.id, src: part.url, alt: part.filename ?? undefined }] : [])} />}
           files={<BotMessageFiles files={files.map((part) => ({ key: part.id, name: part.name, mime: part.mime, size: part.size }))} />}
           bubble={hasBubble}
@@ -1228,7 +1241,7 @@ export const BotView = memo(function BotView({ id, active = true }: { id: string
     }
     flushTools();
     return rows;
-  }, [active, bot, botMentions, id, messages, reverting, sending]);
+  }, [active, bot, botMentions, id, messages, modelLabels, reverting, sending]);
 
   // Overlay cards live outside `messages`; include them so follow-scroll still reaches permission/question UI.
   const routineFailuresKey = routines

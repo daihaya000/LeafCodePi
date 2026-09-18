@@ -226,6 +226,14 @@ it("shares sender/time placement and Room mention chips across conversation mess
   expect(userBubble.nextElementSibling?.tagName).not.toBe("TIME");
 });
 
+it("shows the model next to the bot name only when the message has one", () => {
+  const { container, rerender } = render(<BotChatMessage user={false} createdAt={1} sender={{ name: "MiMo" }} text="hi" providerID="anthropic" modelLabel="Claude Sonnet 4.5" />);
+  expect(container.textContent).toContain("MiMo");
+  expect(container.querySelector("[data-bot-model]")?.textContent).toBe("Claude Sonnet 4.5");
+  rerender(<BotChatMessage user={false} createdAt={1} sender={{ name: "MiMo" }} text="hi" />);
+  expect(container.querySelector("[data-bot-model]")).toBeNull();
+});
+
 it("shows the animated bot and the current tool action while responding", () => {
   const messages: UiMessage[] = [{
     id: "assistant-1",
