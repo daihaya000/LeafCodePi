@@ -12,12 +12,11 @@ type FixtureOptions = {
   active?: boolean;
   branch?: unknown[];
   hasUI?: boolean;
-  sendMessage?: ReturnType<typeof vi.fn>;
 };
 
 function fixture(options: FixtureOptions = {}) {
   const handlers = new Map<string, Handler>();
-  const sendMessage = options.sendMessage ?? vi.fn();
+  const sendMessage = vi.fn();
   const notify = vi.fn();
   let todoTool: TodoTool | undefined;
   const pi = {
@@ -61,7 +60,8 @@ function fixture(options: FixtureOptions = {}) {
     ctx,
   );
 
-  return { callTool, ctx, emit, notify, sendMessage, writeTodos, tool: registeredTool };
+  const settle = () => handlers.get("agent_settled")?.({ type: "agent_settled" }, ctx);
+  return { callTool, ctx, emit, settle, notify, sendMessage, writeTodos, tool: registeredTool };
 }
 
 describe("normalizeTodos", () => {
@@ -104,14 +104,41 @@ describe("todowrite omission gate", () => {
     expect(run.tool.executionMode).toBe("sequential");
   });
 
-  it("allows policy files before blocking the first substantive read for an explicit Todo task", () => {
+  it("excludes policy reads from the read budget", () => {
     const run = fixture();
     run.emit("input", { source: "interactive", text: "ToDo管理を追加", streamingBehavior: undefined });
 
     expect(run.callTool("read", { path: "C:\\agent\\AGENTS.md" })).toBeUndefined();
     expect(run.callTool("read", { path: "/agent/skills/BUG/SKILL.md" })).toBeUndefined();
-    expect(run.callTool("read", { path: "src/index.ts" })?.block).toBe(true);
+    expect(run.callTool("read", { path: "src/index.ts" })).toBeUndefined();
+    expect(run.callTool("read", { path: "src/state.ts" })).toBeUndefined();
+    expect(run.callTool("read", { path: "src/third.ts" })?.block).toBe(true);
     expect(todowriteTestSeams.isPolicyPreflightRead("read", { path: "C:\\X\\skill.MD" })).toBe(true);
+  });
+
+  it.each([
+    "todowriteとは何？",
+    "READMEのTODOを見せて",
+    "進捗管理ツールの説明を読んで",
+    "ToDo管理を追加",
+  ])("uses operations rather than prompt keywords to gate reads: %s", (text) => {
+    const run = fixture();
+    run.emit("input", { source: "rpc", text, streamingBehavior: undefined });
+    expect(run.callTool("read", { path: "README.md" })).toBeUndefined();
+    expect(run.callTool("grep", { pattern: "TODO" })).toBeUndefined();
+    expect(run.callTool("find", { pattern: "*.md" })?.block).toBe(true);
+  });
+
+  it("does not carry a blocked operation reminder into the next task", () => {
+    const run = fixture({ hasUI: true });
+    expect(run.callTool("edit")?.reason).toContain("todowrite");
+    run.settle();
+    run.settle();
+    expect(run.sendMessage).not.toHaveBeenCalled();
+    expect(run.notify).not.toHaveBeenCalled();
+    run.emit("input", { source: "rpc", text: "別の質問", streamingBehavior: undefined });
+    expect(run.callTool("jev_judge")).toBeUndefined();
+    expect(run.callTool("edit")?.block).toBe(true);
   });
 
   it("blocks the third substantive read for a normal task", () => {
@@ -121,6 +148,19 @@ describe("todowrite omission gate", () => {
     expect(run.callTool("read", { path: "one.ts" })).toBeUndefined();
     expect(run.callTool("grep", { pattern: "x" })).toBeUndefined();
     expect(run.callTool("find", { pattern: "*.ts" })?.block).toBe(true);
+  });
+
+  it.each([
+    "read", "grep", "find", "ls", "web_search", "source_check", "fetch_content", "get_search_content",
+  ])("gates the third %s call while keeping control tools available", (name) => {
+    const run = fixture();
+    expect(run.callTool(name)).toBeUndefined();
+    expect(run.callTool(name)).toBeUndefined();
+    expect(run.callTool(name)?.block).toBe(true);
+    expect(run.callTool("jev_judge")).toBeUndefined();
+    expect(run.callTool("tool_search")).toBeUndefined();
+    expect(run.callTool(name)?.block).toBe(true);
+    expect(run.callTool("edit")?.block).toBe(true);
   });
 
   it("does not count control tools and distinguishes skill_manage view from mutations", () => {
@@ -145,7 +185,9 @@ describe("todowrite omission gate", () => {
     expect(run.callTool("skill_manage", { action: "view" })).toBeUndefined();
     expect(run.callTool("read", { path: "one.ts" })).toBeUndefined();
     expect(run.callTool("read", { path: "two.ts" })).toBeUndefined();
-    expect(run.callTool("skill_manage", { action: "patch" })?.block).toBe(true);
+    for (const action of ["create", "patch", "update", "edit", "delete", "unknown", undefined]) {
+      expect(run.callTool("skill_manage", { action })?.block).toBe(true);
+    }
   });
 
   it("immediately blocks side effects and unknown custom tools", () => {
@@ -226,51 +268,17 @@ describe("todowrite omission gate", () => {
     expect(run.callTool("write")?.block).toBe(true);
   });
 
-  it("records one settled reminder without auto-starting another turn", () => {
-    const run = fixture({ hasUI: true });
-    expect(run.callTool("edit")?.block).toBe(true);
-
-    run.emit("agent_settled");
-    run.emit("agent_settled");
-
-    expect(run.sendMessage).toHaveBeenCalledTimes(1);
-    expect(run.sendMessage).toHaveBeenCalledWith(
-      expect.objectContaining({ customType: "leafcode-todowrite-gate", display: false }),
-      { triggerTurn: false, deliverAs: "followUp" },
-    );
-    expect(run.notify).toHaveBeenCalledOnce();
-  });
-
-  it("retries after sendMessage throws without latching reminderSent", () => {
-    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
-    const sendMessage = vi.fn(() => {
-      throw new Error("unknown delivery");
-    });
-    try {
-      const run = fixture({ sendMessage });
-      expect(run.callTool("edit")?.block).toBe(true);
-
-      run.emit("agent_settled");
-      run.emit("agent_settled");
-
-      expect(sendMessage).toHaveBeenCalledTimes(2);
-      expect(consoleError).toHaveBeenCalledTimes(2);
-    } finally {
-      consoleError.mockRestore();
-    }
-  });
-
   it("skips the reminder after recovery and disables the gate when todowrite is inactive", async () => {
     const recovered = fixture();
     expect(recovered.callTool("edit")?.block).toBe(true);
     await recovered.writeTodos([{ content: "復旧", status: "in_progress", priority: "high" }]);
-    recovered.emit("agent_settled");
+    recovered.settle();
     expect(recovered.sendMessage).not.toHaveBeenCalled();
 
     const inactive = fixture({ active: false });
     expect(inactive.callTool("edit")).toBeUndefined();
     expect(inactive.callTool("unknown_mcp_tool")).toBeUndefined();
-    inactive.emit("agent_settled");
+    inactive.settle();
     expect(inactive.sendMessage).not.toHaveBeenCalled();
   });
 });

@@ -22,13 +22,8 @@ export type TodoDetails = {
 
 const MAX_TODOS = 100;
 const TODO_GATE_READ_LIMIT = 3;
-const IMMEDIATE_TODO_PATTERN = /\b(?:todo|todowrite)\b|ToDo管理|タスク管理|進捗管理|todo実態/iu;
 const TODO_GATE_REASON =
   "ToDo required: call todowrite with a non-empty list and mark the current item in_progress before retrying this tool.";
-const TODO_GATE_MESSAGE = [
-  "ToDo gate: this task attempted work that requires a Todo list, but no non-empty todowrite call was recorded.",
-  "Call todowrite now, mark the current item in_progress, then resume the blocked operation.",
-].join("\n");
 
 const EXEMPT_TOOLS = new Set([
   "todowrite",
@@ -58,9 +53,6 @@ const SUBSTANTIVE_READ_TOOLS = new Set([
 type TodoGateState = {
   openedThisTask: boolean;
   substantiveCalls: number;
-  requiresImmediateTodo: boolean;
-  violationObserved: boolean;
-  reminderSent: boolean;
 };
 
 type TodoGateAction = "allow" | "count" | "block";
@@ -85,14 +77,8 @@ function asRecord(value: unknown): RecordLike | null {
     : null;
 }
 
-function createTodoGateState(prompt = ""): TodoGateState {
-  return {
-    openedThisTask: false,
-    substantiveCalls: 0,
-    requiresImmediateTodo: IMMEDIATE_TODO_PATTERN.test(prompt),
-    violationObserved: false,
-    reminderSent: false,
-  };
+function createTodoGateState(): TodoGateState {
+  return { openedThisTask: false, substantiveCalls: 0 };
 }
 
 function isPolicyPreflightRead(toolName: string, input: unknown): boolean {
@@ -161,8 +147,8 @@ export default function (pi: ExtensionAPI): void {
   let todos: TodoItem[] = [];
   let gate = createTodoGateState();
 
-  const resetGate = (prompt = "") => {
-    gate = createTodoGateState(prompt);
+  const resetGate = () => {
+    gate = createTodoGateState();
   };
   const gateEnabled = () => pi.getActiveTools().includes("todowrite");
   const restore = (ctx: ExtensionContext) => {
@@ -174,44 +160,19 @@ export default function (pi: ExtensionAPI): void {
   pi.on("session_start", async (_event, ctx) => restore(ctx));
   pi.on("session_tree", async (_event, ctx) => restore(ctx));
   pi.on("input", (event) => {
-    if (event.source !== "extension" && event.streamingBehavior === undefined) resetGate(event.text);
+    if (event.source !== "extension" && event.streamingBehavior === undefined) resetGate();
   });
   pi.on("tool_call", (event) => {
-    if (gate.openedThisTask || !gateEnabled()) return;
+    if (gate.openedThisTask) return;
     const action = classifyToolForTodoGate(event.toolName, event.input);
-    if (action === "allow") return;
+    if (action === "allow" || !gateEnabled()) return;
     if (action === "count") {
       gate.substantiveCalls += 1;
-      if (!gate.requiresImmediateTodo && gate.substantiveCalls < TODO_GATE_READ_LIMIT) return;
+      if (gate.substantiveCalls < TODO_GATE_READ_LIMIT) return;
     }
-    gate.violationObserved = true;
+    // Gate operations, not words in the prompt. The tool result is the reminder;
+    // a settled follow-up would carry a stale requirement into the next task.
     return { block: true, reason: TODO_GATE_REASON };
-  });
-  pi.on("agent_settled", (_event, ctx) => {
-    if (
-      gate.openedThisTask ||
-      !gate.violationObserved ||
-      gate.reminderSent ||
-      !gateEnabled()
-    ) return;
-
-    try {
-      pi.sendMessage(
-        {
-          customType: "leafcode-todowrite-gate",
-          content: TODO_GATE_MESSAGE,
-          display: false,
-        },
-        // The gate must not start another turn from agent_settled.  Keep the
-        // reminder in the session so the next explicit prompt has the context,
-        // but require the user to resume the task manually.
-        { triggerTurn: false, deliverAs: "followUp" },
-      );
-      gate.reminderSent = true;
-      if (ctx.hasUI) ctx.ui.notify("ToDoを起票してから作業を再開してください。", "warning");
-    } catch (error) {
-      console.error("Failed to enqueue the ToDo gate reminder:", error);
-    }
   });
 
   pi.registerTool({
@@ -221,7 +182,8 @@ export default function (pi: ExtensionAPI): void {
       "Replace the current Todo list. Use statuses pending, in_progress, completed, cancelled and priorities high, medium, low. Keep at most one item in_progress.",
     promptSnippet: "Maintain the task Todo list with statuses and priorities",
     promptGuidelines: [
-      "Call todowrite with a non-empty list and mark the current item in_progress before edits, shell commands, delegation, or the third substantive read-only tool call. For explicit Todo requests, call it before the first substantive tool.",
+      "Call todowrite with a non-empty list and mark the current item in_progress before edits, shell commands, delegation, unclassified tools, or the third substantive read-only tool call. For explicit Todo requests, call it before the first substantive tool.",
+      "Do not create a Todo solely for a standalone jev_judge call, control-tool use, or a short read-only answer. Mentioning Todo in the topic alone is not a Todo-management request.",
     ],
     // The gate opens from execute(); serialize this tool so a same-batch edit
     // cannot be preflighted before todowrite has recorded its result.
