@@ -1,4 +1,4 @@
-import { execFileSync, spawnSync } from "node:child_process";
+import { execFileSync, spawn, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
@@ -334,6 +334,39 @@ function run(command, args, options) {
   return result.status ?? 1;
 }
 
+/** Async twin of `run`, for commands that must overlap. */
+function spawnPiped(command, args, options) {
+  return new Promise((resolve) => {
+    const child = spawn(command, args, { stdio: "inherit", windowsHide: true, ...options });
+    child.on("error", (err) => {
+      console.error(`[build-web] ${err.message}`);
+      resolve(1);
+    });
+    child.on("close", (code) => resolve(code ?? 1));
+  });
+}
+
+/**
+ * The shared `tsc --noEmit` gate that runs beside `next build`. The bundler
+ * itself skips typechecking (`typescript.ignoreBuildErrors`), so a failing
+ * typecheck has to discard the build here. Null when the build workspace has
+ * no TypeScript.
+ *
+ * @param {string} mirrorRoot
+ * @param {{ existsSync?: (path: string) => boolean, execPath?: string }} [deps]
+ * @returns {{ command: string, args: string[], options: { cwd: string } } | null}
+ */
+export function typecheckInvocation(mirrorRoot, deps = {}) {
+  const exists = deps.existsSync ?? existsSync;
+  const tsc = join(mirrorRoot, "node_modules", "typescript", "bin", "tsc");
+  if (!exists(tsc)) return null;
+  return {
+    command: deps.execPath ?? process.execPath,
+    args: [tsc, "--noEmit"],
+    options: { cwd: mirrorRoot },
+  };
+}
+
 export async function main(argv = process.argv.slice(2)) {
   const port = webUiPort();
   if (!argv.includes("--skip-guard") && !productionWebUiIsIdle({ port })) {
@@ -375,11 +408,27 @@ export async function main(argv = process.argv.slice(2)) {
   // The persistent Turbopack cache alone moves back so the rebuild starts
   // warm; outputs stay stashed for the failure rollback below.
   replantBuildCache(mirror.distDir);
-  let status = run(process.execPath, nextArgs, buildOptions);
+  // The bundler no longer typechecks (typescript.ignoreBuildErrors), so its
+  // tsc gate runs beside it: same verdict, no serial 15s.
+  const typecheck = typecheckInvocation(mirror.mirrorRoot);
+  if (!typecheck) {
+    console.error("[build-web] typescript is missing in the build workspace; skipping the typecheck gate");
+  }
+  const typecheckPromise = typecheck
+    ? spawnPiped(typecheck.command, typecheck.args, typecheck.options)
+    : null;
+  let status = await spawnPiped(process.execPath, nextArgs, buildOptions);
   if (status !== 0 && !useWebpack) {
     console.error("[build-web] Turbopack failed; clearing generated output and retrying once...");
     rmSync(mirror.distDir, { recursive: true, force: true });
-    status = run(process.execPath, nextArgs, buildOptions);
+    status = await spawnPiped(process.execPath, nextArgs, buildOptions);
+  }
+  if (typecheckPromise) {
+    const typecheckStatus = await typecheckPromise;
+    if (status === 0 && typecheckStatus !== 0) {
+      console.error("[build-web] typecheck failed; discarding the build");
+      status = typecheckStatus;
+    }
   }
   if (status !== 0) {
     if (restorePreviousBuild(mirror.distDir)) {

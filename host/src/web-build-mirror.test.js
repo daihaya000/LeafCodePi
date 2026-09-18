@@ -32,6 +32,7 @@ import {
   restorePreviousBuild,
   replantBuildCache,
   stashPreviousBuild,
+  typecheckInvocation,
   waitForWebUiHealth,
   webUiPort,
 } from "../../scripts/build-web.mjs";
@@ -522,6 +523,18 @@ test("webUiPort falls back to 3010 for absent or invalid values", () => {
   assert.equal(webUiPort({}), 3010);
   assert.equal(webUiPort({ LEAFCODE_PI_PORT: "nope" }), 3010);
   assert.equal(webUiPort({ LEAFCODE_PI_PORT: "70000" }), 3010);
+});
+
+test("typecheckInvocation gates the build with the mirror's own tsc", () => {
+  assert.equal(typecheckInvocation("C:/mirror", { existsSync: () => false }), null);
+  const invocation = typecheckInvocation("C:/mirror", {
+    existsSync: () => true,
+    execPath: "node-exe",
+  });
+  assert.equal(invocation.command, "node-exe");
+  assert.equal(invocation.args[1], "--noEmit");
+  assert.match(invocation.args[0], /typescript[\\/]bin[\\/]tsc$/);
+  assert.equal(invocation.options.cwd, "C:/mirror");
 });
 
 test("the host builds through build-web.mjs and serves the mirror", () => {

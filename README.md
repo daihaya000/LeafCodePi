@@ -339,6 +339,8 @@ LEAFCODE_PI_HEADLESS=1 ./start.sh
 
 Goal Loop は WebUI プロセス内で動くため、再起動するとセッション終了で必ず一時停止します。実行中の Goal Loop があるときは WebUI 再起動を拒否します（`POST /restart/webui` は 409、トレイの Restart WebUI と設定画面も同じ理由で拒否）。ループを停止・完了してから再起動してください。
 
+設定画面の「WebUI を再ビルド」は、停止 → production build → 再起動を 1 操作で行います（ホスト制御の `POST /build/webui`）。ビルドの所要時間ぶん WebUI は停止し、完了後に新しいビルドを配信します。
+
 production build は既存のミラー先を常設ビルド領域として直接使用します。Windows は **`%LOCALAPPDATA%\leafcode-pi\build\<checkout>-<hash>\`**、Linux/macOS は **`$XDG_CACHE_HOME/leafcode-pi/build/<checkout>-<hash>/`**（未設定時は `~/.cache/leafcode-pi/build/...`）で、`next start` も同じ場所から配信します。場所は従来どおり `LEAFCODE_PI_BUILD_DIR` で変更できます。
 
 - `npm run build` と `npm --prefix web run build` は同じ入口を使います。稼働中の production WebUI を保護するため、手動ビルド前にトレイから終了してください。
@@ -346,6 +348,7 @@ production build は既存のミラー先を常設ビルド領域として直接
 - 依存関係は初回または `package.json` / `package-lock.json` / Node.js環境の変更時に、ビルド領域で `npm ci --include=dev` します。旧ミラーも次回ビルドで移行するため、初回は依存インストールの時間・空き容量・ネットワーク接続が必要です。インストール失敗時は以前の依存関係を復元します。
 - npm 12用に `web/package.json` の `allowScripts` で `better-sqlite3@12.9.0` のみを許可しています。依存インストール後はSQLiteの起動も検証します。SQLiteのバージョン更新時はこの許可も見直してください。
 - `.next`・依存関係・ビルドキャッシュをOneDriveへ書き戻しません。`next dev` と開発用依存のインストール、起動時のPi自動更新は従来どおりリポジトリ側です。
+- 型チェックは `next build` の中ではなく、ビルド領域の `tsc --noEmit` を `next build` と並列に実行して担保します（`web/next.config.ts` の `typescript.ignoreBuildErrors`）。型エラー時は新しいビルドを破棄し、前回の production build を復元します。
 
 トレイメニュー:
 
@@ -401,7 +404,7 @@ npm run check
 - `web/` — Next.js UI と BFF
 - `host/` — Next.js の起動・監視・再起動。グラフィカルデスクトップではトレイ常駐（SSH / `LEAFCODE_PI_HEADLESS=1` ではトレイなし）
 - `start.bat` / `start.sh` — 導入とホスト起動
-- `scripts/build-web.mjs` — production build の唯一の入口（ソース差分同期 → ローカル依存準備 → `next build` → BUILD_ID 検証）
+- `scripts/build-web.mjs` — production build の唯一の入口（ソース差分同期 → ローカル依存準備 → `next build` と並列の `tsc --noEmit` → BUILD_ID 検証）
 - `scripts/web-build-mirror.mjs` — 既存のOneDrive外ビルド領域へのソース差分同期
 - `extensions/` — Pi 拡張（Goal Loop、memory、subagents など）
 - `docs/` — 実装計画と仕様

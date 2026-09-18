@@ -4,6 +4,10 @@ import { join } from "node:path";
 const nextConfig: NextConfig = {
   distDir: ".next",
   outputFileTracingRoot: join(__dirname),
+  // 型チェックは scripts/build-web.mjs が `tsc --noEmit` を並列実行して
+  // 代替する（ビルド内の直列 15 秒を削る）。型エラーはそのゲートで
+  // ビルドを失敗させる。
+  typescript: { ignoreBuildErrors: true },
   experimental: {
     optimizePackageImports: ["lucide-react"],
   },
