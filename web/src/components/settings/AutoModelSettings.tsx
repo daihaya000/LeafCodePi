@@ -2,7 +2,8 @@
 
 import { useEffect, useRef, useState } from "react";
 import { AutoRouteOverridesEditor } from "@/components/settings/AutoRouteOverridesEditor";
-import { cx, Switch } from "@/components/ui";
+import { JevSettingCard } from "@/components/settings/JevSettingCard";
+import { cx } from "@/components/ui";
 import { getJson } from "@/lib/client";
 import {
   AUTO_JEV_ENABLED_SETTING_KEY,
@@ -22,7 +23,6 @@ import {
   writeAutoRouteConfig,
   writeAutoSettingToServer,
 } from "@/lib/auto-settings";
-import { AUTO_JEV_MIN_CONFIDENCE_VALUES } from "@/lib/auto-jev-settings";
 import {
   AUTO_OPTIMIZE_MODES,
   autoOptimizeModeLabel,
@@ -194,39 +194,18 @@ export function AutoModelSettings({ refreshToken = 0 }: { refreshToken?: number 
           </div>
         </div>
         <AutoRouteOverridesEditor mode={mode} models={models} config={routeConfig} onChange={changeRouteConfig} />
-        <div className="rounded-lg bg-surface-2 px-3 py-2">
-          <div className="flex items-start justify-between gap-3">
-            <div className="min-w-0">
-              <p className="text-xs font-medium text-text">Jevルーティング</p>
-              <p className="mt-0.5 text-xs text-muted">
-                モデル難易度とエージェント選択をJevに判断させます。無効時は従来のルールベースのままです。
-              </p>
-            </div>
-            <Switch
-              checked={jevEnabled}
-              onChange={() => changeJevEnabled(!jevEnabled)}
-              label={`Jevルーティングを${jevEnabled ? "無効化" : "有効化"}`}
-            />
-          </div>
-          {jevEnabled && (
-            <label className="mt-2 flex items-center gap-2 text-xs text-muted">
-              最低信頼度
-              <select
-                aria-label="Jevルーティングの最低信頼度"
-                className="h-8 rounded-lg border border-border bg-bg px-2 text-xs text-text outline-none focus:border-border-strong"
-                value={String(jevMinConfidence)}
-                onChange={(event) => changeJevMinConfidence(Number(event.target.value))}
-              >
-                {AUTO_JEV_MIN_CONFIDENCE_VALUES.map((value) => (
-                  <option key={value} value={value}>
-                    {Math.round(value * 100)}%
-                  </option>
-                ))}
-              </select>
-              <span>未満は従来のルールへフォールバック</span>
-            </label>
-          )}
-        </div>
+        <JevSettingCard
+          title="Jevルーティング"
+          description="モデル難易度とエージェント選択をJevに判断させます。無効時は従来のルールベースのままです。"
+          enabled={jevEnabled}
+          onEnabledChange={changeJevEnabled}
+          enabledLabel={`Jevルーティングを${jevEnabled ? "無効化" : "有効化"}`}
+          threshold={jevMinConfidence}
+          thresholdLabel="最低信頼度"
+          thresholdAriaLabel="Jevルーティングの最低信頼度"
+          onThresholdChange={changeJevMinConfidence}
+          thresholdHelp="未満は従来のルールへフォールバック"
+        />
       </div>
       {loading && <p className="mt-2 text-xs text-muted">モデルを読み込み中…</p>}
       {models.length === 0 && !loading && <p className="mt-2 text-xs text-muted">利用可能なモデルがありません。</p>}

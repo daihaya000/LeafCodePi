@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { JevSettingCard } from "@/components/settings/JevSettingCard";
 import { getJson, sendJson } from "@/lib/client";
 import { formatTokens } from "@/lib/context-usage";
 import {
@@ -110,31 +111,24 @@ export function CompactionSettings() {
       </div>
       <p className="mt-3 text-xs text-muted">使用率が{threshold}%に達したら設定した動作を実行します（70〜95%）。</p>
       <div className="mt-4 border-t border-border pt-4">
-        <label className="flex items-center gap-2 text-sm text-text">
-          <input
-            type="checkbox"
-            checked={jevEnabled}
-            onChange={(event) => {
-              const enabled = event.target.checked;
-              setJevEnabled(enabled);
-              void save(JEV_COMPACTION_ENABLED_SETTING_KEY, enabled ? "1" : "");
-            }}
-          />
-          Jevでツール結果を選別して圧縮（既定: 無効）
-        </label>
-        {jevEnabled && <label className="mt-3 flex items-center gap-2 text-sm text-muted">
-          残す確率
-          <input
-            type="number"
-            min={0.5}
-            max={0.95}
-            step={0.05}
-            value={jevThreshold}
-            onChange={(event) => setJevThreshold(Number(event.target.value))}
-            onBlur={() => void save(JEV_COMPACTION_THRESHOLD_SETTING_KEY, String(jevThreshold))}
-            className="h-9 w-24 rounded-lg border border-border bg-bg px-3 font-mono text-sm text-text outline-none focus:border-border-strong"
-          />
-        </label>}
+        <JevSettingCard
+          title="Jevコンパクション"
+          description="ツール結果をJevで選別し、不要な結果を要約せずに圧縮します。無効時は従来の要約を使います。"
+          enabled={jevEnabled}
+          onEnabledChange={(enabled) => {
+            setJevEnabled(enabled);
+            void save(JEV_COMPACTION_ENABLED_SETTING_KEY, enabled ? "1" : "");
+          }}
+          enabledLabel={`Jevコンパクションを${jevEnabled ? "無効化" : "有効化"}`}
+          threshold={jevThreshold}
+          thresholdLabel="残す確率"
+          thresholdAriaLabel="Jevコンパクションの残す確率"
+          onThresholdChange={(threshold) => {
+            setJevThreshold(threshold);
+            void save(JEV_COMPACTION_THRESHOLD_SETTING_KEY, String(threshold));
+          }}
+          thresholdHelp="未満のツール結果を省略"
+        />
       </div>
       {settings && <p className="mt-2 text-[11px] text-muted">予約トークン {formatTokens(settings.reserveTokens)} / 直近保持 {formatTokens(settings.keepRecentTokens)}</p>}
       {error && <p role="alert" className="mt-2 text-sm text-danger">{error}</p>}

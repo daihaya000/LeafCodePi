@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CompactionSettings } from "./CompactionSettings";
 
@@ -30,6 +30,30 @@ describe("CompactionSettings", () => {
     cleanup();
     getJson.mockReset();
     sendJson.mockReset();
+  });
+
+  it("Jev設定も共通カードのSwitchと割合表示を使う", async () => {
+    render(<CompactionSettings />);
+
+    const toggle = await screen.findByRole("switch", { name: "Jevコンパクションを有効化" });
+    expect(screen.queryByLabelText("Jevコンパクションの残す確率")).toBeNull();
+    fireEvent.click(toggle);
+
+    const threshold = screen.getByLabelText("Jevコンパクションの残す確率");
+    expect((threshold as HTMLSelectElement).value).toBe("0.6");
+    expect(screen.getByText("未満のツール結果を省略")).toBeTruthy();
+    fireEvent.change(threshold, { target: { value: "0.75" } });
+
+    await waitFor(() => expect(sendJson).toHaveBeenCalledWith(
+      "/api/settings/jev-compaction-enabled",
+      { value: "1" },
+      "PUT",
+    ));
+    expect(sendJson).toHaveBeenCalledWith(
+      "/api/settings/jev-compaction-threshold",
+      { value: "0.75" },
+      "PUT",
+    );
   });
 
   it("入力を共通のグリッドに並べ、コンテナ内で伸縮させる", async () => {
