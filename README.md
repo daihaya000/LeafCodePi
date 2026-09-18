@@ -208,7 +208,11 @@ Google公式の Google Workspace リモート MCP サーバー（Developer Previ
 
 **注意**: OAuth クライアントの Client Secret は Slack の Bearer と異なり `~/.pi/agent/mcp.json` に保存されます（アダプターのOAuth仕様）。ファイルの取り扱いに注意してください。
 
-**トラブルシューティング**: 同意画面でスコープエラーが出る場合は、consent screen の **Data Access** に該当スコープを追加してください（Googleはconsent screenに登録したスコープのみ同意画面に出せます）。プロダクトごとに認証が必要です（例: Gmail のみ使うなら `gws-gmail` のOAuthだけで構いません）。
+**スコープ**: 既定は各プロダクトの読み取り中心のスコープです（Googleの設定ガイドの推奨セット。`access_type=offline` を付与し refresh token を取得します）。書き込み系ツールを使う場合は、consent screen の **Data Access** と該当エントリの `oauth.scope` に追加スコープ（例: Calendar の `create_event` なら `https://www.googleapis.com/auth/calendar.events`）を追加してください。
+
+**Chat を使う場合**: Google Chat MCP は追加で Chat app の設定が必要です（Google Cloud の Chat API → Configuration。[設定ガイド](https://developers.google.com/workspace/guides/configure-mcp-servers) 参照）。
+
+**トラブルシューティング**: 同意画面でスコープエラーが出る場合は、consent screen の **Data Access** に該当スコープを追加してください。プロダクトごとに認証が必要です（例: Gmail のみ使うなら `gws-gmail` のOAuthだけで構いません）。
 
 ### Intercom
 

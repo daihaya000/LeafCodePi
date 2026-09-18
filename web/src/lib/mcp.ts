@@ -580,6 +580,9 @@ export function addGoogleWorkspaceServers(
         clientId: id,
         clientSecret: secret,
         scope: server.scopes.map((scope) => `${GOOGLE_APIS_AUTH}${scope}`).join(" "),
+        // Google issues a refresh token for the web-server flow only when
+        // access_type=offline is requested.
+        authorizationParams: { access_type: "offline" },
       },
     };
   }

@@ -244,6 +244,7 @@ describe("listMcpServers / setMcpServerEnabled", () => {
         clientId: "123456789012.apps.googleusercontent.com",
         clientSecret: "GOCSPX-secret_value-1",
         scope: "https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/gmail.compose",
+        authorizationParams: { access_type: "offline" },
       },
     });
     assert.ok(raw.mcpServers.chrome_devtools);
