@@ -8,7 +8,7 @@ import { deleteTask, insertBotTask, listTasks, patchTask } from "./store";
 import { BOT_DEFAULT_TOOL_NAMES, BOT_TOOL_NAMES, type BotDto, type BotSkillsConfig, type BotToolName, type ThinkingLevel } from "./types";
 import { avatarColorForId, isAvatarColor, isAvatarEyeColor, isAvatarImage, isAvatarShape, randomAvatarColor } from "./bot-avatar";
 
-export type BotConfig = Omit<BotDto, "soul"> & { label: string };
+export type BotConfig = Omit<BotDto, "soul" | "tools"> & { label: string; tools: string[] };
 /** Repeated in Room roster/identity JSON every turn (see room-conversation.ts); keep it short. */
 export const MAX_BOT_NAME_CHARS = 100;
 export const MAX_BOT_LABEL_CHARS = 100;
@@ -56,17 +56,35 @@ const LEGACY_DEFAULT_TOOL_SETS: readonly (readonly BotToolName[])[] = [
   BOT_TOOL_NAMES.filter((tool) => tool !== "intercom" && !LEGACY_ADDED_TOOL_NAMES.has(tool) && !LEGACY_DISABLED_TOOL_NAMES.has(tool)),
 ];
 
-function sameToolSet(left: readonly BotToolName[], right: readonly BotToolName[]): boolean {
+function sameToolSet(left: readonly string[], right: readonly string[]): boolean {
   return left.length === right.length && left.every((tool) => right.includes(tool));
 }
 
-function shouldMigrateBotTools(value: unknown, normalized: readonly BotToolName[]): boolean {
-  return !Array.isArray(value) || LEGACY_DEFAULT_TOOL_SETS.some((legacy) => sameToolSet(normalized, legacy));
+function shouldMigrateBotTools(value: unknown, raw: readonly string[]): boolean {
+  // Compare the RAW list: a list carrying names this build does not know (newer tools,
+  // typos, renames) must never be mistaken for a historical default allowlist.
+  return !Array.isArray(value) || LEGACY_DEFAULT_TOOL_SETS.some((legacy) => sameToolSet(raw, legacy));
 }
 
-function normalizeBotTools(value: unknown): BotToolName[] {
+/**
+ * Normalize a stored allowlist. Known names are validated against `BOT_TOOL_NAMES`;
+ * unknown names are kept verbatim so a newer build, or a manual edit, cannot be
+ * silently erased by an older one. Never drop entries here.
+ */
+function normalizeBotTools(value: unknown): string[] {
   if (!Array.isArray(value)) return [...BOT_DEFAULT_TOOL_NAMES];
-  return [...new Set(value.filter((item): item is BotToolName => (BOT_TOOL_NAMES as readonly string[]).includes(item)))];
+  return [
+    ...new Set(
+      value
+        .filter((item): item is string => typeof item === "string")
+        .map((item) => item.trim())
+        .filter(Boolean),
+    ),
+  ];
+}
+
+function isBotToolName(name: string): name is BotToolName {
+  return (BOT_TOOL_NAMES as readonly string[]).includes(name);
 }
 
 function normalizeNames(value: unknown): string[] {
@@ -135,7 +153,9 @@ function parseConfig(id: string): BotConfig | null {
 function toDto(config: BotConfig): BotDto {
   let soul = SOUL_TEMPLATE;
   try { soul = readFileSync(soulPath(config.id), "utf8"); } catch { /* legacy bot */ }
-  return { ...config, soul };
+  // The API/UI surface exposes known tool names only; names this build does not know
+  // stay on disk so a newer build can use them again.
+  return { ...config, tools: config.tools.filter(isBotToolName), soul };
 }
 
 export function listBots(): BotDto[] {

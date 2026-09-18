@@ -110,8 +110,36 @@ describe("bot store", () => {
     expect(JSON.parse(readFileSync(configPath, "utf8")).tools).toEqual(BOT_DEFAULT_TOOL_NAMES);
   });
 
-  it("disables orchestration-only tools when migrating the previous Bot defaults", () => {
-    const bot = createBot({ name: "Read tools bot" });
+  it("keeps tool names this build does not know instead of erasing them", () => {
+    const bot = createBot({ name: "Future tools bot" });
+    const configPath = join(root, "bots", bot.id, "config.json");
+    const config = JSON.parse(readFileSync(configPath, "utf8"));
+    config.tools = [...BOT_DEFAULT_TOOL_NAMES, "future_tool"];
+    fs.writeFileSync(configPath, JSON.stringify(config));
+
+    // The API surface stays typed: only known names are exposed.
+    expect(getBot(bot.id)?.tools).toEqual(BOT_DEFAULT_TOOL_NAMES);
+    // The stored allowlist is not rewritten lossily.
+    const stored = JSON.parse(readFileSync(configPath, "utf8")).tools as string[];
+    expect(stored).toContain("future_tool");
+    expect(stored).toEqual([...BOT_DEFAULT_TOOL_NAMES, "future_tool"]);
+  });
+
+  it("does not reset a curated allowlist that only matches a legacy default after dropping unknown names", () => {
+    const bot = createBot({ name: "Curated unknown bot" });
+    const configPath = join(root, "bots", bot.id, "config.json");
+    const config = JSON.parse(readFileSync(configPath, "utf8"));
+    // Previous default allowlist (the newest legacy set) plus one name this build does not know.
+    const previousDefault = BOT_DEFAULT_TOOL_NAMES.filter((tool) => tool !== "mcp");
+    config.tools = [...previousDefault, "future_tool"];
+    fs.writeFileSync(configPath, JSON.stringify(config));
+
+    const stored = JSON.parse(readFileSync(configPath, "utf8")).tools as string[];
+    expect(stored).toEqual([...previousDefault, "future_tool"]);
+    expect(stored).not.toEqual(BOT_DEFAULT_TOOL_NAMES);
+  });
+
+  it("disables orchestration-only tools when migrating the previous Bot defaults", () => {    const bot = createBot({ name: "Read tools bot" });
     const configPath = join(root, "bots", bot.id, "config.json");
     const config = JSON.parse(readFileSync(configPath, "utf8"));
     const previousDisabled = new Set(["write", "edit", "bash", "powershell", "subagent", "todowrite"]);
