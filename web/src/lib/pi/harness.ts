@@ -438,6 +438,8 @@ type LiveRuntime = {
   contextReloadPending: boolean;
   /** Recreate a selected-agent session so updated fixed resource options (notably tools) take effect. */
   agentDefinitionReloadPending: boolean;
+  /** True only after this session was created with the Jev tool factory. */
+  jevToolRegistered: boolean;
   /**
    * Session used Auto because the stored model is unavailable.
    * Keep task.providerID/modelID as the unavailable selection (no silent pin).
@@ -2142,6 +2144,7 @@ function buildLiveRuntime(input: {
     soulRevision: input.botId ? botSoulRevision(input.botId) : null,
     contextReloadPending: existing?.contextReloadPending ?? false,
     agentDefinitionReloadPending: false,
+    jevToolRegistered: true,
   };
 }
 
@@ -7522,7 +7525,7 @@ async function reloadLiveContextIfNeeded(live: LiveRuntime): Promise<LiveRuntime
 /** Agent frontmatter is only read while creating a session; reload cannot replace its tool registry. */
 async function reloadLiveAgentDefinitionIfNeeded(live: LiveRuntime): Promise<LiveRuntime> {
   const current = state().live.get(live.taskId) ?? live;
-  if (!current.agentDefinitionReloadPending) return current;
+  if (!current.agentDefinitionReloadPending && current.jevToolRegistered) return current;
   if (current.session.isStreaming || current.session.isCompacting) return current;
   current.agentDefinitionReloadPending = false;
   disposeLive(current.taskId);
