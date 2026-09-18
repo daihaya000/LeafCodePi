@@ -34,7 +34,7 @@ export async function POST(req: NextRequest) {
     }
     writeTypesafeCreditBaseline(baselineUsd);
     invalidateCachedUsage();
-    clearProviderCache("typesafe");
+    clearProviderCache("default:typesafe");
     return NextResponse.json({ ok: true, baselineUsd });
   } catch (error) {
     const { error: message, status } = jsonError(error);
@@ -46,6 +46,6 @@ export async function POST(req: NextRequest) {
 export function DELETE() {
   writeTypesafeCreditBaseline(null);
   invalidateCachedUsage();
-  clearProviderCache("typesafe");
+  clearProviderCache("default:typesafe");
   return NextResponse.json({ ok: true, baselineUsd: null });
 }

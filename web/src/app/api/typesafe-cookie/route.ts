@@ -25,7 +25,7 @@ export async function POST(req: NextRequest) {
     }
     saveTypesafeCookieFile(body.cookies);
     invalidateCachedUsage();
-    clearProviderCache("typesafe");
+    clearProviderCache("default:typesafe");
     return NextResponse.json({ ok: true, configured: true });
   } catch (error) {
     const { error: message, status } = jsonError(error);
@@ -37,6 +37,6 @@ export async function POST(req: NextRequest) {
 export function DELETE() {
   deleteTypesafeCookieFile();
   invalidateCachedUsage();
-  clearProviderCache("typesafe");
+  clearProviderCache("default:typesafe");
   return NextResponse.json({ ok: true, configured: false });
 }
