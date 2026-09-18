@@ -3091,7 +3091,7 @@ function sessionExtensionFactories(input: {
       api.on("session_before_compact", async (event) => {
         if (!isJevCompactionEnabled(getSetting(JEV_COMPACTION_ENABLED_SETTING_KEY))) return;
         const compaction = await compactWithJev(
-          event.preparation as unknown as Parameters<typeof compactWithJev>[0],
+          event.preparation,
           parseJevCompactionThreshold(getSetting(JEV_COMPACTION_THRESHOLD_SETTING_KEY)),
           event.signal,
         );
