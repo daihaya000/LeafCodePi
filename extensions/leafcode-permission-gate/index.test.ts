@@ -572,6 +572,38 @@ describe("system safety classifier", () => {
     assert.equal(isLeafCodePiStopCommand("kill -- -1"), true);
     assert.equal(isLeafCodePiStopCommand("taskkill /F /PID 2468", 1357), false);
     assert.equal(isLeafCodePiStopCommand("Get-Process node"), false);
+    // Regression: `node --check …` next to an unrelated process restart is not
+    // a self-stop; this combo used to block and abandon the session.
+    assert.equal(
+      isLeafCodePiStopCommand(
+        "node --check src/app.js;Get-Process UiPreview -ErrorAction SilentlyContinue|Stop-Process -Force;Start-Sleep -Seconds 1",
+      ),
+      false,
+    );
+    assert.equal(isLeafCodePiStopCommand("node -v; Stop-Process -Name UiPreview -Force"), false);
+    assert.equal(isLeafCodePiStopCommand("Get-Process node | Stop-Process -Force"), true);
+    assert.equal(isLeafCodePiStopCommand("taskkill /IM node.exe /F"), true);
+    assert.equal(isLeafCodePiStopCommand("Stop-Process -Name nodeCheck -Force"), false);
+    // The exact command from the reported session-abandon incident.
+    assert.equal(
+      isLeafCodePiStopCommand(
+        "node --check 'src/LeafHotKey/wwwroot/app.js';Write-Output ($js=+$LASTEXITCODE);dotnet build src/LeafHotKey/LeafHotKey.csproj -c Debug --nologo -v quiet|Out-Null;Get-Process UiPreview -ErrorAction SilentlyContinue|Stop-Process -Force;Start-Sleep -Seconds 1;$out=Join-Path $env:TEMP 'hk-ui-preview\\url.txt';Remove-Item $out -Force -ErrorAction SilentlyContinue;$p=Start-Process -FilePath (Join-Path $env:TEMP 'hk-ui-preview\\bin\\Debug\\net8.0-windows\\UiPreview.exe') -PassThru -WindowStyle Hidden -RedirectStandardOutput $out;Start-Sleep -Seconds 3;Get-Content $out -Encoding UTF8",
+      ),
+      false,
+    );
+    // Commit messages are data: quoting stop commands or the host name is not
+    // a self-stop, while command substitution inside still executes.
+    assert.equal(
+      isLeafCodePiStopCommand(
+        'git commit -m "fix(permission-gate): do not Stop-Process node; LeafCodePi stays up"',
+      ),
+      false,
+    );
+    assert.equal(
+      isLeafCodePiStopCommand("git commit -m 'restart: node --check then Stop-Process UiPreview'"),
+      false,
+    );
+    assert.equal(isLeafCodePiStopCommand('git commit -m "chore: $(Stop-Process -Name node)"'), true);
   });
 });
 
@@ -672,6 +704,66 @@ describe("LeafCode permission gate", () => {
         freshContext(cwd, sessionManager),
       );
       assert.equal((denied as { block?: boolean } | undefined)?.block, true);
+    } finally {
+      if (previousDataDir === undefined) delete process.env.LEAFCODE_PI_DATA_DIR;
+      else process.env.LEAFCODE_PI_DATA_DIR = previousDataDir;
+      rmSync(cwd, { recursive: true, force: true });
+      rmSync(appDir, { recursive: true, force: true });
+    }
+  });
+
+  it("terminates the session only for direct self-stops, not for node heuristic matches", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "leafcode-permission-gate-stop-"));
+    const appDir = mkdtempSync(join(tmpdir(), "leafcode-permission-gate-stop-data-"));
+    const previousDataDir = process.env.LEAFCODE_PI_DATA_DIR;
+    process.env.LEAFCODE_PI_DATA_DIR = appDir;
+    const handlers = new Map<string, Handler>();
+    const pi = {
+      on: (name: string, handler: Handler) => handlers.set(name, handler),
+      registerCommand: () => undefined,
+    } as unknown as ExtensionAPI;
+    permissionGate(pi);
+    const sessionManager = {
+      getSessionId: () => "stop-guard-session",
+      getSessionName: () => "Stop guard",
+    };
+
+    try {
+      writeFileSync(join(appDir, "permission-gate.json"), JSON.stringify({ mode: "allow" }), "utf8");
+      await handlers.get("session_start")?.({}, freshContext(cwd, sessionManager));
+
+      const nodeTarget = await handlers.get("tool_call")?.(
+        { toolName: "powershell", input: { command: "Get-Process node | Stop-Process -Force" } },
+        freshContext(cwd, sessionManager),
+      );
+      assert.equal((nodeTarget as { block?: boolean } | undefined)?.block, true);
+      assert.equal((nodeTarget as { terminate?: boolean } | undefined)?.terminate, false);
+
+      const direct = await handlers.get("tool_call")?.(
+        { toolName: "powershell", input: { command: "taskkill /F /IM LeafCodePi.exe" } },
+        freshContext(cwd, sessionManager),
+      );
+      assert.equal((direct as { terminate?: boolean } | undefined)?.terminate, true);
+
+      const buildScript = await handlers.get("tool_call")?.(
+        {
+          toolName: "powershell",
+          input: { command: "node --check src/app.js;Get-Process UiPreview|Stop-Process -Force" },
+        },
+        freshContext(cwd, sessionManager),
+      );
+      assert.equal(buildScript, undefined);
+
+      const commit = await handlers.get("tool_call")?.(
+        {
+          toolName: "powershell",
+          input: {
+            command: 'git commit -m "fix: keep the host alive; no Stop-Process node"',
+          },
+        },
+        freshContext(cwd, sessionManager),
+      );
+      assert.equal(commit, undefined);
     } finally {
       if (previousDataDir === undefined) delete process.env.LEAFCODE_PI_DATA_DIR;
       else process.env.LEAFCODE_PI_DATA_DIR = previousDataDir;

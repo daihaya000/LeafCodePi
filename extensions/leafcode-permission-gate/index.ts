@@ -61,18 +61,57 @@ const INLINE_SELF_TERMINATION_PATTERN = /\b(?:node|node\.exe|bun|deno)\b[^\r\n]*
 const BROAD_KILL_TARGET_PATTERN = /\b(?:kill|pkill)\b[^\r\n]*(?:^|\s)--\s*-1(?:\s|$)|(?:^|[;&|\r\n]\s*)(?:kill|pkill)\s+-1\s*$/im;
 
 /**
- * Return true when a command can terminate LeafCodePi itself. This is kept
- * separate from the normal approval flow: self-termination is never allowed.
+ * `git commit -m "…"` bodies are data, not commands. Mask them so a commit
+ * message quoting a stop command or the host name cannot trip the self-stop
+ * guard. Bodies with command substitution still execute, so they stay scanned;
+ * quoted text elsewhere (`sh -c "…"`) runs and is never masked.
  */
-export function isLeafCodePiStopCommand(command: string, pid = process.pid): boolean {
-  const normalized = command.replace(/\u0000/g, " ");
+function maskGitMessageBodies(command: string): string {
+  return command.replace(
+    /((?:^|[;&|\r\n]\s*)git\b[^\r\n;&|]*?\bcommit\b[^\r\n;&|]*?\s(?:-m|--message)=?\s*)(["'])([\s\S]*?)\2/gi,
+    (full, prefix: string, _quote: string, body: string) =>
+      /\$\(|`/.test(body) ? full : `${prefix}""`,
+  );
+}
+
+/**
+ * True when a command names LeafCodePi itself: its process name, own pid or
+ * $PPID/$$, a broadcast kill, or a Node self-kill call. These are never
+ * allowed and end the session when attempted.
+ */
+function isLeafCodePiSelfStopCommand(command: string, pid = process.pid): boolean {
+  const normalized = maskGitMessageBodies(command).replace(/\u0000/g, " ");
   if (INLINE_SELF_TERMINATION_PATTERN.test(normalized)) return true;
   if (!PROCESS_TERMINATION_COMMAND_PATTERN.test(normalized)) return false;
   if (LEAFCODE_PI_PROCESS_TARGET_PATTERN.test(normalized)) return true;
   if (SELF_PID_REFERENCE_PATTERN.test(normalized) || BROAD_KILL_TARGET_PATTERN.test(normalized)) return true;
-  if (Number.isSafeInteger(pid) && pid > 0 && new RegExp(`\\b${pid}\\b`).test(normalized)) return true;
-  // LeafCodePi runs on Node; stopping every Node process would include it.
-  return /\b(?:node|node\.exe|nodejs)\b/i.test(normalized);
+  return Number.isSafeInteger(pid) && pid > 0 && new RegExp(`\\b${pid}\\b`).test(normalized);
+}
+
+const NODE_PROCESS_TARGET_PATTERN = /\b(?:node|node\.exe|nodejs)(?:\.exe)?\b/i;
+
+/**
+ * True when a termination command targets Node inside its own pipeline
+ * segment (`Get-Process node | Stop-Process`). LeafCodePi runs on Node, so that
+ * is a self-stop. Scanning the whole command string instead false-positived
+ * every script that ran `node --check …` next to `Stop-Process <other>` and
+ * abandoned the session on `terminate`.
+ */
+function terminatesNodeProcess(command: string): boolean {
+  return maskGitMessageBodies(command)
+    .replace(/\u0000/g, " ")
+    .split(/\r?\n|;|&&|\|\|/)
+    .some((segment) =>
+      PROCESS_TERMINATION_COMMAND_PATTERN.test(segment) && NODE_PROCESS_TARGET_PATTERN.test(segment),
+    );
+}
+
+/**
+ * Return true when a command can terminate LeafCodePi itself. This is kept
+ * separate from the normal approval flow: self-termination is never allowed.
+ */
+export function isLeafCodePiStopCommand(command: string, pid = process.pid): boolean {
+  return isLeafCodePiSelfStopCommand(command, pid) || terminatesNodeProcess(command);
 }
 
 /**
@@ -750,6 +789,17 @@ function collectStringFields(value: unknown, keys: ReadonlySet<string>, output: 
   }
 }
 
+/** Command strings of a tool call, shared by safety matching and self-stop checks. */
+function toolCommandStrings(toolName: string, input: unknown): string[] {
+  if (toolName === "bash" || toolName === "powershell") {
+    const command = asRecord(input)?.command;
+    return typeof command === "string" ? [command] : [];
+  }
+  const commands: string[] = typeof input === "string" ? [input] : [];
+  collectStringFields(input, COMMAND_INPUT_KEYS, commands);
+  return [...new Set(commands)];
+}
+
 export function matchSystemSafetyForTool(
   toolName: string,
   input: unknown,
@@ -772,9 +822,8 @@ export function matchSystemSafetyForTool(
   for (const rule of CUSTOM_SYSTEM_TOOL_RULES) {
     if (rule.pattern.test(toolName)) pushSafetyMatch(matches, rule);
   }
-  const commands: string[] = typeof input === "string" ? [input] : [];
-  collectStringFields(input, COMMAND_INPUT_KEYS, commands);
-  for (const command of [...new Set(commands)]) {
+  const commands = toolCommandStrings(toolName, input);
+  for (const command of commands) {
     if (!command) continue;
     for (const match of matchSystemSafetyCommand(command)) pushSafetyMatch(matches, match);
   }
@@ -1325,7 +1374,11 @@ export default function (pi: ExtensionAPI): void {
     );
     if (safetyMatches.some((match) => match.label === LEAFCODE_PI_STOP_LABEL)) {
       resetSafetyFlow();
-      return { block: true, terminate: true, reason: LEAFCODE_PI_STOP_REASON };
+      // Only a direct self-stop ends the session. The node-target heuristic
+      // blocks the command, so a false positive cannot abandon the session.
+      const direct = toolCommandStrings(event.toolName, event.input)
+        .some((command) => isLeafCodePiSelfStopCommand(command));
+      return { block: true, terminate: direct, reason: LEAFCODE_PI_STOP_REASON };
     }
     if (level === "strict" && mode !== "deny" && pendingSafetyKey && isReadOnlyInvestigation(
       event.toolName,
