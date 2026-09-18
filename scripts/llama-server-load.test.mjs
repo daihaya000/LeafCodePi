@@ -67,7 +67,7 @@ test('Qwen3.8 sampler is scoped and explicit overrides win', { skip: process.pla
   const run = (overrides) => {
     const env = { ...process.env };
     for (const key of Object.keys(env)) {
-      if (/^(MODEL_|SAMPLING_|TOP_|MIN_P$)/i.test(key)) delete env[key];
+      if (/^(MODEL_|SAMPLING_|TOP_|MIN_P$|GPU_)/i.test(key)) delete env[key];
     }
     const result = spawnSync('cmd.exe', ['/d', '/s', '/c', `""${bat}" /dry-run"`], {
       env: { ...env, ...overrides }, encoding: 'utf8', timeout: 5000, windowsVerbatimArguments: true,
@@ -80,7 +80,12 @@ test('Qwen3.8 sampler is scoped and explicit overrides win', { skip: process.pla
     const output = run({ MODEL_FILE: model });
     assert.match(output, /sampling=temp 1\.0 top-p 0\.95 top-k 20 min-p 0\.0 repeat 1\.0 dry 0\.0/);
     assert.match(output, /--min-p 0\.0/);
+    // Every layer must stay on the pinned GPU, never on the CPU or iGPU.
+    assert.match(output, /device=--device Vulkan0/);
+    assert.match(output, /--fit off/);
+    assert.match(output, /--gpu-layers all --n-cpu-moe 0 --n-cpu-ffn 0/);
   }
+  assert.match(run({ MODEL_FILE: 'Qwen3.8.gguf', GPU_DEVICE: 'CUDA0' }), /device=--device CUDA0/);
   for (const model of ['', 'Ornith-1.5.gguf', 'Qwen3.5.gguf']) {
     assert.match(run({ MODEL_FILE: model }), /sampling=temp 0\.6 top-p 0\.95 top-k 20 min-p 0\.05 repeat 1\.03 dry 0\.35/);
   }

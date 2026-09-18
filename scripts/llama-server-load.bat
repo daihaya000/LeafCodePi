@@ -61,7 +61,13 @@ if not defined SAMPLING_DRY_ALLOWED_LENGTH set "SAMPLING_DRY_ALLOWED_LENGTH=4"
 if not defined SAMPLING_DRY_PENALTY_LAST_N set "SAMPLING_DRY_PENALTY_LAST_N=2048"
 if not defined REASONING_BUDGET set "REASONING_BUDGET=1536"
 if not defined REASONING_BUDGET_MESSAGE set "REASONING_BUDGET_MESSAGE=Reasoning limit reached. Stop analysis and provide the best concise final answer now."
-if not defined GPU_DEVICE set "GPU_DEVICE="
+rem GPU pinning. Inference must never fall back to the CPU or to the iGPU
+rem (whose VRAM is shared system RAM): --device pins the single GPU, --gpu-layers
+rem all plus --n-cpu-moe 0 / --n-cpu-ffn 0 keep every layer and FFN on it, and
+rem --fit off stops llama.cpp from silently shrinking layers or context to fit.
+rem Too little VRAM must fail the launch instead of degrading to CPU speed.
+rem Override with GPU_DEVICE (for example CUDA0) when the GPU index differs.
+if not defined GPU_DEVICE set "GPU_DEVICE=Vulkan0"
 if not defined LLAMA_SERVER_BIN set "LLAMA_SERVER_BIN=C:\tools\llama.cpp\llama-server.exe"
 rem KV cache types (f16 default). q8_0 reduces attention KV memory, not all VRAM.
 rem Long-context quality still needs workload-specific validation.
@@ -85,11 +91,11 @@ if not defined MMPROJ_FILE set "MMPROJ_FILE="
 set "MMPROJ_PATH="
 if defined MODEL_FILE if not "%MODEL_FILE%"=="" if not "%MMPROJ_FILE%"=="" set "MMPROJ_PATH=%MODEL_DIR%\%MMPROJ_FILE%"
 rem Shared perf + sampling flags: match the Linux Vulkan profile while keeping
-rem GPU_DEVICE optional for Windows CUDA/Vulkan builds.
+rem GPU_DEVICE overridable for Windows CUDA/Vulkan builds; see the pinning block above.
 set "DEVICE_ARGS="
 if not "%GPU_DEVICE%"=="" set "DEVICE_ARGS=--device %GPU_DEVICE%"
 set "REASONING_ARGS=--reasoning-budget %REASONING_BUDGET% --reasoning-budget-message "%REASONING_BUDGET_MESSAGE%""
-set "PERF_ARGS=--split-mode none --fit off --no-host --threads %THREADS% --threads-batch %THREADS_BATCH% --gpu-layers all --n-cpu-moe 0 --flash-attn on --ctx-size %CONTEXT_LENGTH% --batch-size %BATCH_SIZE% --ubatch-size %UBATCH% --temp %SAMPLING_TEMP% --top-p %TOP_P% --top-k %TOP_K% --min-p %MIN_P% --seed %SAMPLING_SEED% --repeat-last-n %SAMPLING_REPEAT_LAST_N% --repeat-penalty %SAMPLING_REPEAT_PENALTY% --dry-multiplier %SAMPLING_DRY_MULTIPLIER% --dry-base %SAMPLING_DRY_BASE% --dry-allowed-length %SAMPLING_DRY_ALLOWED_LENGTH% --dry-penalty-last-n %SAMPLING_DRY_PENALTY_LAST_N% %REASONING_ARGS% --metrics"
+set "PERF_ARGS=--split-mode none --fit off --no-host --threads %THREADS% --threads-batch %THREADS_BATCH% --gpu-layers all --n-cpu-moe 0 --n-cpu-ffn 0 --flash-attn on --ctx-size %CONTEXT_LENGTH% --batch-size %BATCH_SIZE% --ubatch-size %UBATCH% --temp %SAMPLING_TEMP% --top-p %TOP_P% --top-k %TOP_K% --min-p %MIN_P% --seed %SAMPLING_SEED% --repeat-last-n %SAMPLING_REPEAT_LAST_N% --repeat-penalty %SAMPLING_REPEAT_PENALTY% --dry-multiplier %SAMPLING_DRY_MULTIPLIER% --dry-base %SAMPLING_DRY_BASE% --dry-allowed-length %SAMPLING_DRY_ALLOWED_LENGTH% --dry-penalty-last-n %SAMPLING_DRY_PENALTY_LAST_N% %REASONING_ARGS% --metrics"
 set "MODEL_ALIAS="
 
 if /i "%~1"=="/dry-run" (
@@ -101,6 +107,7 @@ if /i "%~1"=="/dry-run" (
   echo [DRY-RUN] effort=%REASONING_EFFORT%
   echo [DRY-RUN] sampling=temp %SAMPLING_TEMP% top-p %TOP_P% top-k %TOP_K% min-p %MIN_P% repeat %SAMPLING_REPEAT_PENALTY% dry %SAMPLING_DRY_MULTIPLIER%
   echo [DRY-RUN] perf=%PERF_ARGS%
+  echo [DRY-RUN] device=%DEVICE_ARGS%
   echo [DRY-RUN] spec=%SPEC_TYPE% draft-max=%DRAFT_MAX%
   echo [DRY-RUN] endpoint=http://127.0.0.1:%SERVER_PORT%/v1
   exit /b 0
