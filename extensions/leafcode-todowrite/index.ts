@@ -24,6 +24,12 @@ const MAX_TODOS = 100;
 const TODO_GATE_READ_LIMIT = 3;
 const TODO_GATE_REASON =
   "ToDo required: call todowrite with a non-empty list and mark the current item in_progress before retrying this tool.";
+// Delivered once per task at settlement. Wording stays task-agnostic so a
+// follow-up that lands on the next prompt cannot misdescribe the new task.
+const TODO_GATE_MESSAGE = [
+  "ToDo gate: work was attempted without a Todo list this task.",
+  "Create a non-empty todowrite list, keep one item in_progress, and mark each step completed as it finishes.",
+].join("\n");
 
 const EXEMPT_TOOLS = new Set([
   "todowrite",
@@ -53,6 +59,8 @@ const SUBSTANTIVE_READ_TOOLS = new Set([
 type TodoGateState = {
   openedThisTask: boolean;
   substantiveCalls: number;
+  violationObserved: boolean;
+  reminderSent: boolean;
 };
 
 type TodoGateAction = "allow" | "count" | "block";
@@ -78,7 +86,12 @@ function asRecord(value: unknown): RecordLike | null {
 }
 
 function createTodoGateState(): TodoGateState {
-  return { openedThisTask: false, substantiveCalls: 0 };
+  return {
+    openedThisTask: false,
+    substantiveCalls: 0,
+    violationObserved: false,
+    reminderSent: false,
+  };
 }
 
 function isPolicyPreflightRead(toolName: string, input: unknown): boolean {
@@ -170,9 +183,34 @@ export default function (pi: ExtensionAPI): void {
       gate.substantiveCalls += 1;
       if (gate.substantiveCalls < TODO_GATE_READ_LIMIT) return;
     }
-    // Gate operations, not words in the prompt. The tool result is the reminder;
-    // a settled follow-up would carry a stale requirement into the next task.
+    // Gate operations, not words in the prompt.
+    gate.violationObserved = true;
     return { block: true, reason: TODO_GATE_REASON };
+  });
+  pi.on("agent_settled", (_event, ctx) => {
+    if (
+      gate.openedThisTask ||
+      !gate.violationObserved ||
+      gate.reminderSent ||
+      !gateEnabled()
+    ) return;
+
+    try {
+      pi.sendMessage(
+        {
+          customType: "leafcode-todowrite-gate",
+          content: TODO_GATE_MESSAGE,
+          display: false,
+        },
+        // Never start a turn from agent_settled: the reminder must not act as
+        // the resumed work. One reminder per task keeps it from nagging.
+        { triggerTurn: false, deliverAs: "followUp" },
+      );
+      gate.reminderSent = true;
+      if (ctx.hasUI) ctx.ui.notify("ToDoを起票してから作業を再開してください。", "warning");
+    } catch (error) {
+      console.error("Failed to enqueue the ToDo gate reminder:", error);
+    }
   });
 
   pi.registerTool({
@@ -183,7 +221,8 @@ export default function (pi: ExtensionAPI): void {
     promptSnippet: "Maintain the task Todo list with statuses and priorities",
     promptGuidelines: [
       "Call todowrite with a non-empty list and mark the current item in_progress before edits, shell commands, delegation, unclassified tools, or the third substantive read-only tool call. For explicit Todo requests, call it before the first substantive tool.",
-      "Do not create a Todo solely for a standalone jev_judge call, control-tool use, or a short read-only answer. Mentioning Todo in the topic alone is not a Todo-management request.",
+      "Update the list at every step: mark the finished item completed and set the next item in_progress when you start it. Never batch status changes to the end of the task.",
+      "Skip the list only for a standalone judgment call, control-tool use, or a one-shot read-only answer.",
     ],
     // The gate opens from execute(); serialize this tool so a same-batch edit
     // cannot be preflighted before todowrite has recorded its result.

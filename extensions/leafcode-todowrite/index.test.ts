@@ -129,16 +129,44 @@ describe("todowrite omission gate", () => {
     expect(run.callTool("find", { pattern: "*.md" })?.block).toBe(true);
   });
 
-  it("does not carry a blocked operation reminder into the next task", () => {
+  it("records one settled reminder per task without auto-starting a turn", () => {
     const run = fixture({ hasUI: true });
     expect(run.callTool("edit")?.reason).toContain("todowrite");
+
     run.settle();
     run.settle();
-    expect(run.sendMessage).not.toHaveBeenCalled();
-    expect(run.notify).not.toHaveBeenCalled();
-    run.emit("input", { source: "rpc", text: "別の質問", streamingBehavior: undefined });
-    expect(run.callTool("jev_judge")).toBeUndefined();
+
+    expect(run.sendMessage).toHaveBeenCalledTimes(1);
+    expect(run.sendMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ customType: "leafcode-todowrite-gate", display: false }),
+      { triggerTurn: false, deliverAs: "followUp" },
+    );
+    expect(run.notify).toHaveBeenCalledOnce();
+
+    // A new idle request re-arms the reminder for the new task.
+    run.emit("input", { source: "rpc", text: "新しい依頼", streamingBehavior: undefined });
     expect(run.callTool("edit")?.block).toBe(true);
+    run.settle();
+    expect(run.sendMessage).toHaveBeenCalledTimes(2);
+  });
+
+  it("re-reminds after a delivery failure instead of latching reminderSent", () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    try {
+      const run = fixture();
+      run.sendMessage.mockImplementation(() => {
+        throw new Error("unknown delivery");
+      });
+      expect(run.callTool("edit")?.block).toBe(true);
+
+      run.settle();
+      run.settle();
+
+      expect(run.sendMessage).toHaveBeenCalledTimes(2);
+      expect(consoleError).toHaveBeenCalledTimes(2);
+    } finally {
+      consoleError.mockRestore();
+    }
   });
 
   it("blocks the third substantive read for a normal task", () => {
