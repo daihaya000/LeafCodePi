@@ -54,6 +54,7 @@ describe("applyLlamaVisionToProviderModels", () => {
     const runtime = {
       getProviders: () => [provider],
       getModels: (providerId: string) => (providerId === provider.id ? provider.getModels() : []),
+      getAvailable: async () => provider.getModels(),
     };
     return {
       provider,
@@ -67,14 +68,17 @@ describe("applyLlamaVisionToProviderModels", () => {
     };
   }
 
-  it("adds image on both read paths and survives a model refresh", () => {
+  it("adds image on every read path and survives a model refresh", async () => {
     const harness = makeRuntime();
     const id = "Qwen3.8-27B-Uncensored-Q4_K_S";
     harness.setModels([{ id, input: ["text"] }]);
 
-    expect(applyLlamaVisionToProviderModels(harness.runtime, new Set([id]))).toBeGreaterThan(0);
+    expect(await applyLlamaVisionToProviderModels(harness.runtime, new Set([id]))).toBeGreaterThan(0);
     expect(harness.provider.getModels()[0]).toMatchObject({ input: ["text", "image"] });
     expect(harness.runtime.getModels("llama-server")[0]).toMatchObject({
+      input: ["text", "image"],
+    });
+    expect((await harness.runtime.getAvailable())[0]).toMatchObject({
       input: ["text", "image"],
     });
 
@@ -82,35 +86,38 @@ describe("applyLlamaVisionToProviderModels", () => {
     harness.setModels([{ id, input: ["text"] }]);
     expect(harness.provider.getModels()[0]).toMatchObject({ input: ["text", "image"] });
     // 再適用でも重複しない
-    applyLlamaVisionToProviderModels(harness.runtime, new Set([id]));
+    await applyLlamaVisionToProviderModels(harness.runtime, new Set([id]));
     expect(harness.models()[0]!.input).toEqual(["text", "image"]);
   });
 
-  it("never touches other providers' models", () => {
-    const otherModels = [{ id: "m", input: ["text"] }];
+  it("never touches other providers' models", async () => {
+    const otherModels = [{ id: "m", input: ["text"], provider: "anthropic" }];
     const other = { id: "anthropic", getModels: () => otherModels };
     const runtime = {
       getProviders: () => [other],
       getModels: (providerId: string) => (providerId === other.id ? other.getModels() : []),
+      getAvailable: async () => other.getModels(),
     };
 
-    applyLlamaVisionToProviderModels(runtime, new Set(["m"]));
+    await applyLlamaVisionToProviderModels(runtime, new Set(["m"]));
     expect(other.getModels()[0]!.input).toEqual(["text"]);
     expect(runtime.getModels("anthropic")[0]!.input).toEqual(["text"]);
+    // getAvailable は全プロバイダをまとめて返す経路なので特に検証する。
+    expect((await runtime.getAvailable())[0]!.input).toEqual(["text"]);
   });
 
-  it("removes only the image entry it added when the projector is gone", () => {
+  it("removes only the image entry it added when the projector is gone", async () => {
     const harness = makeRuntime();
     harness.setModels([
       { id: "vision", input: ["text"] },
       { id: "native", input: ["text", "image"] },
     ]);
 
-    applyLlamaVisionToProviderModels(harness.runtime, new Set(["vision"]));
+    await applyLlamaVisionToProviderModels(harness.runtime, new Set(["vision"]));
     expect(harness.models()[0]!.input).toEqual(["text", "image"]);
 
     // mmproj を外した起動に戻った: 我々が足した分だけ取り消し、プロバイダ設定の image は残す。
-    applyLlamaVisionToProviderModels(harness.runtime, new Set());
+    await applyLlamaVisionToProviderModels(harness.runtime, new Set());
     expect(harness.models()[0]!.input).toEqual(["text"]);
     expect(harness.models()[1]!.input).toEqual(["text", "image"]);
   });

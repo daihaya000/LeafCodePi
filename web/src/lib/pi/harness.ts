@@ -4707,7 +4707,7 @@ async function buildModelOptions(
     : new Set<string>();
   // mmproj ロード中は Pi 側のモデル定義にも画像入力を反映する。これをしないと
   // 送信時に pi-ai が画像をプレースホルダへ置換する（"model does not support images"）。
-  applyLlamaVisionToProviderModels(runtime, llamaImageModelIds);
+  await applyLlamaVisionToProviderModels(runtime, llamaImageModelIds);
   const catalog = buildProviderModelsCatalog(
     runtime,
     state,

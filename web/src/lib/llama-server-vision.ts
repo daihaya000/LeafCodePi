@@ -39,9 +39,12 @@ export async function llamaServerImageModelIds(options?: {
   }
 }
 
-type LlamaPatchableModel = { id?: unknown; input?: unknown };
+type LlamaPatchableModel = { id?: unknown; input?: unknown; provider?: unknown };
 type LlamaPatchableProvider = { id?: unknown; getModels?: () => readonly unknown[] };
-type LlamaPatchableRuntime = { getModels?: (providerId: string) => readonly unknown[] };
+type LlamaPatchableRuntime = {
+  getModels?: (providerId: string) => readonly unknown[];
+  getAvailable?: (...args: unknown[]) => Promise<readonly unknown[]>;
+};
 
 /** Pi 内蔵の llama.cpp プロバイダ id。LeafCodePi は表示上 "llama-server" を使う。 */
 const LLAMA_PROVIDER_IDS = new Set(["llama.cpp", "llama-server"]);
@@ -52,11 +55,18 @@ let multimodalModelIds = new Set<string>();
 const visionAddedModels = new WeakSet<object>();
 /** ラップ済みの読み取り経路（runtime / provider オブジェクト）。 */
 const patchedReaders = new WeakSet<object>();
+/** ラップ済みの runtime.getAvailable。 */
+const patchedAvailable = new WeakSet<object>();
 
 function patchModelInputs(models: readonly unknown[]): void {
   for (const entry of models) {
     const model = entry as LlamaPatchableModel;
     if (typeof model?.id !== "string") continue;
+    // getAvailable は全プロバイダのモデルを返すため、provider が明示されている
+    // モデルは llama 系のときだけ対象にする。
+    if (typeof model.provider === "string" && !LLAMA_PROVIDER_IDS.has(model.provider)) {
+      continue;
+    }
     const input = Array.isArray(model.input)
       ? model.input.filter((value): value is string => typeof value === "string")
       : [];
@@ -92,19 +102,36 @@ function patchModelInputs(models: readonly unknown[]): void {
  *
  * @returns ラップまたは更新した読み取り経路（llama 系プロバイダ）数
  */
-export function applyLlamaVisionToProviderModels(
+export async function applyLlamaVisionToProviderModels(
   runtime: {
     getProviders(): readonly { id: string }[];
     getModels(providerId: string): readonly unknown[];
+    getAvailable?(): Promise<readonly unknown[]>;
   },
   imageModelIds: Set<string>,
-): number {
+): Promise<number> {
   multimodalModelIds = imageModelIds;
   const providers = runtime.getProviders();
   let touched = 0;
 
-  // Pi が runtime.getModels() 経由で読む場合の補正（LeafCodePi もこの経路を使う）。
+  // Pi / harness は getAvailable() 経由でモデルを取ることが多い（セッション作成の
+  // モデル解決もここを通る）。戻り値をその場で補正する。
   const runtimeLike = runtime as unknown as LlamaPatchableRuntime;
+  if (
+    typeof runtimeLike.getAvailable === "function" &&
+    !patchedAvailable.has(runtimeLike as object)
+  ) {
+    const originalAvailable = runtimeLike.getAvailable.bind(runtimeLike);
+    runtimeLike.getAvailable = async (...args: unknown[]) => {
+      const models = await originalAvailable(...args);
+      patchModelInputs(models);
+      return models;
+    };
+    patchedAvailable.add(runtimeLike as object);
+    touched += 1;
+  }
+
+  // Pi が runtime.getModels() 経由で読む場合の補正（LeafCodePi もこの経路を使う）。
   if (typeof runtimeLike.getModels === "function" && !patchedReaders.has(runtimeLike as object)) {
     const original = runtimeLike.getModels.bind(runtimeLike);
     runtimeLike.getModels = (providerId: string) => {
@@ -133,6 +160,8 @@ export function applyLlamaVisionToProviderModels(
   }
 
   // 即時反映: ラップ前に読まれたモデル参照（セッションが保持済みの場合など）にも効かせる。
+  // getAvailable は引数なしだと全プロバイダ分を取得して高コストなのでここでは呼ばず、
+  // 次の取得時にラップ経由で補正する。
   for (const provider of providers) {
     const id = (provider as { id?: unknown }).id;
     if (typeof id !== "string" || !LLAMA_PROVIDER_IDS.has(id)) continue;
