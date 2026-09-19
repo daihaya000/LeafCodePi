@@ -125,7 +125,7 @@ describe("registerLlamaProviders", () => {
     expect(process.env.LLAMA_BASE_URL).toBe("http://example.invalid");
   });
 
-  it("registers image input for a multimodal (mmproj-loaded) model", async () => {
+  it.each([true, false])("serializes image input through the real SDK (multimodal=%s)", async (image) => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async () =>
@@ -135,9 +135,12 @@ describe("registerLlamaProviders", () => {
               {
                 id: "Qwen3.8-27B-Uncensored",
                 status: { value: "loaded" },
-                capabilities: ["completion", "multimodal"],
               },
             ],
+            models: [{
+              name: "Qwen3.8-27B-Uncensored",
+              capabilities: image ? ["completion", "multimodal"] : ["completion"],
+            }],
           }),
           { status: 200 },
         ),
@@ -147,12 +150,45 @@ describe("registerLlamaProviders", () => {
 
     await registerLlamaProviders({ registerProvider });
 
-    expect(registerProvider).toHaveBeenCalledWith(
-      "llama-server",
-      expect.objectContaining({
-        models: [expect.objectContaining({ id: "Qwen3.8-27B-Uncensored", input: ["text", "image"] })],
-      }),
-    );
+    const [provider, config] = registerProvider.mock.calls[0] as [string, {
+      baseUrl: string;
+      api: Api;
+      models: Model<Api>[];
+      streamSimple: typeof import("@earendil-works/pi-ai/compat").streamSimple;
+    }];
+    const model = { ...config.models[0], provider, baseUrl: config.baseUrl, api: config.api };
+    expect(model.input).toEqual(image ? ["text", "image"] : ["text"]);
+
+    const onPayload = vi.fn<(payload: unknown) => never>(() => {
+      throw new Error("payload captured; no network request");
+    });
+    const result = await config.streamSimple(model, {
+      messages: [
+        // A historical denial must not control the current model's image support.
+        { role: "user", content: "Earlier reply: (image omitted: model does not support images)", timestamp: 1 },
+        { role: "user", content: [
+          { type: "text", text: "Transcribe the attached image." },
+          { type: "image", mimeType: "image/png", data: "aW1hZ2U=" },
+        ], timestamp: 2 },
+      ],
+    }, { apiKey: "local", onPayload }).result();
+    expect(result.stopReason).toBe("error");
+    expect(result.errorMessage).toContain("payload captured; no network request");
+    expect(onPayload).toHaveBeenCalledOnce();
+    expect(fetch).toHaveBeenCalledOnce();
+    const payload = onPayload.mock.calls[0][0] as {
+      messages: { role: string; content: unknown }[];
+    };
+    const latest = payload.messages.filter((message) => message.role === "user").at(-1)!;
+    if (image) {
+      expect(latest.content).toEqual(expect.arrayContaining([
+        { type: "image_url", image_url: { url: "data:image/png;base64,aW1hZ2U=" } },
+      ]));
+      expect(JSON.stringify(latest.content)).not.toContain("image omitted");
+    } else {
+      expect(JSON.stringify(latest.content)).toContain("image omitted: model does not support images");
+      expect(JSON.stringify(latest.content)).not.toContain("image_url");
+    }
   });
 
   it("registers no models while the server is stopped, even with a configured model file", async () => {
