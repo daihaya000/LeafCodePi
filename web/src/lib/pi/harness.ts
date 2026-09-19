@@ -4698,7 +4698,11 @@ async function buildModelOptions(
   const state = await ensureProviderModelsKnown(snapshot.refs, accountId);
   // llama-server のモデルは Pi 側に capability metadata を持たないため、
   // mmproj ロード中は /v1/models を見て画像入力を補う（未起動時は空）。
-  const llamaImageModelIds = snapshot.models.has("llama-server")
+  // アカウント別一覧は llama-server を含まないので問い合わせない。
+  const needsLlamaImages =
+    snapshot.models.has("llama-server") &&
+    (providerIds === undefined || providerIds.includes("llama-server"));
+  const llamaImageModelIds = needsLlamaImages
     ? await llamaServerImageModelIds().catch(() => new Set<string>())
     : new Set<string>();
   const catalog = buildProviderModelsCatalog(
