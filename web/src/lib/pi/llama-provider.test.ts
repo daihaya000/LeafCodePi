@@ -2,6 +2,7 @@ import { rmSync } from "node:fs";
 import { describe, expect, it, vi, afterEach } from "vitest";
 import {
   appendLlamaServerSystemPrompt,
+  displayName,
   fetchLlamaServerModelIds,
   isLlamaOrnithModel,
   isLlamaQwenReasoningModel,
@@ -55,6 +56,14 @@ describe("fetchLlamaServerModelIds", () => {
       }),
     );
     await expect(fetchLlamaServerModelIds()).resolves.toEqual([]);
+  });
+});
+
+describe("displayName", () => {
+  it("removes the GGUF extension and quantization suffix", () => {
+    expect(
+      displayName("C:\\models\\Qwen3.8-27B-Uncensored-Q4_K_S.gguf"),
+    ).toBe("Qwen3.8-27B-Uncensored");
   });
 });
 

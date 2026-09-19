@@ -68,9 +68,15 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function displayName(id: string): string {
+export function displayName(id: string): string {
   const short = basename(id.replace(/\\/g, "/"));
-  return short.toLowerCase().endsWith(".gguf") ? short.slice(0, -5) : short || id;
+  const name = short.toLowerCase().endsWith(".gguf")
+    ? short.slice(0, -5)
+    : short || id;
+  return name.replace(
+    /(?:-(?:Q\d+_[A-Z](?:_[A-Z])?|IQ\d+_[A-Z]\d*|F\d+|BF16|FP\d+))+$/i,
+    "",
+  ) || name;
 }
 
 /**
