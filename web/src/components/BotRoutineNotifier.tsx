@@ -4,7 +4,11 @@ import { useEffect } from "react";
 import { getBotSidebarSnapshot } from "@/lib/bot-sidebar-store";
 import { isRoutineRunHandledInline, routineRunNotificationText } from "@/lib/notify";
 import { playSessionCompleteSound } from "@/lib/session-complete-sound";
+import { sseReconnectDelayMs } from "@/lib/sse-reconnect";
 import { BOT_ROUTINE_RUN_EVENT, type RoutineRunEventDto } from "@/lib/types";
+
+/** 許可ダイアログは1ページに1回だけ出す（連続で出すとブラウザに無視される）。 */
+let permissionRequested = false;
 
 /**
  * ルーティンの完了を、開いている画面に関係なく知らせる。
@@ -23,8 +27,9 @@ export function notifyRoutineRun(run: RoutineRunEventDto): void {
   playSessionCompleteSound("bot");
 
   if (typeof Notification === "undefined") return;
-  if (Notification.permission === "default" && !document.hidden) {
+  if (Notification.permission === "default" && !document.hidden && !permissionRequested) {
     // 初回だけ許可を尋ねる。この実行の通知は次回以降に任せる。
+    permissionRequested = true;
     try {
       void Promise.resolve(Notification.requestPermission()).catch(() => undefined);
     } catch {
@@ -45,7 +50,11 @@ export function notifyRoutineRun(run: RoutineRunEventDto): void {
 
 function subscribeRoutineRuns(listener: (run: RoutineRunEventDto) => void): () => void {
   if (typeof EventSource === "undefined") return () => {};
-  const source = new EventSource(`/api/bots/events?epoch=${Date.now()}`);
+  let source: EventSource | null = null;
+  let retryTimer: ReturnType<typeof setTimeout> | null = null;
+  let attempt = 0;
+  let stopped = false;
+
   const onRoutine: EventListener = (event) => {
     let run: RoutineRunEventDto;
     try {
@@ -56,10 +65,34 @@ function subscribeRoutineRuns(listener: (run: RoutineRunEventDto) => void): () =
     if (typeof run?.botId !== "string") return;
     listener(run);
   };
-  source.addEventListener(BOT_ROUTINE_RUN_EVENT, onRoutine);
+
+  const open = () => {
+    if (stopped) return;
+    const next = new EventSource(`/api/bots/events?epoch=${Date.now()}`);
+    source = next;
+    next.addEventListener("open", () => { attempt = 0; });
+    next.addEventListener(BOT_ROUTINE_RUN_EVENT, onRoutine);
+    // 接続が恒久的に失敗した場合（サーバー再起動中など）は EventSource が
+    // 再接続しないので、自前で張り直す。黙って通知が止まるのを避ける。
+    next.addEventListener("error", () => {
+      if (stopped || source !== next) return;
+      next.close();
+      source = null;
+      attempt += 1;
+      retryTimer = setTimeout(() => {
+        retryTimer = null;
+        open();
+      }, sseReconnectDelayMs(attempt));
+    });
+  };
+  open();
+
   return () => {
-    source.removeEventListener(BOT_ROUTINE_RUN_EVENT, onRoutine);
-    source.close();
+    stopped = true;
+    if (retryTimer) clearTimeout(retryTimer);
+    retryTimer = null;
+    source?.close();
+    source = null;
   };
 }
 

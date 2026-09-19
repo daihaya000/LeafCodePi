@@ -37,6 +37,14 @@ export function notificationText(
     : { title: "タスクが完了しました", body: name };
 }
 
+/** 失敗理由はプロバイダの生エラーを含みうるので、通知本文に収まる長さへ切る。 */
+export const MAX_ROUTINE_ERROR_CHARS = 200;
+
+function clip(text: string, max: number): string {
+  const chars = Array.from(text);
+  return chars.length > max ? `${chars.slice(0, max - 1).join("")}\u2026` : text;
+}
+
 /** ルーティン実行結果の通知文言。失敗は理由、成功は返信の頭を見せる。 */
 export function routineRunNotificationText(run: {
   botName: string;
@@ -55,7 +63,7 @@ export function routineRunNotificationText(run: {
   }
   return {
     title: run.autoDisabled ? "ルーティン失敗（自動無効化）" : "ルーティン失敗",
-    body: `${label}\n${run.error || "実行に失敗しました"}`,
+    body: `${label}\n${clip(run.error || "実行に失敗しました", MAX_ROUTINE_ERROR_CHARS)}`,
   };
 }
 

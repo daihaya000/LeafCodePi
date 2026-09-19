@@ -23,7 +23,13 @@ export const ROUTINE_MAX_PREVIEW_CHARS = 120;
 const ROUTINE_RUN_EVENT = "__bot_routine_run__";
 function routineRunBus(): EventEmitter {
   const holder = globalThis as typeof globalThis & { __leafcodeRoutineRunBus?: EventEmitter };
-  return (holder.__leafcodeRoutineRunBus ??= new EventEmitter());
+  if (!holder.__leafcodeRoutineRunBus) {
+    const bus = new EventEmitter();
+    // 購読は接続中のタブ数だけ増える（既定の10件だと警告が出る）。
+    bus.setMaxListeners(0);
+    holder.__leafcodeRoutineRunBus = bus;
+  }
+  return holder.__leafcodeRoutineRunBus;
 }
 export function subscribeRoutineRuns(listener: (event: RoutineRunEventDto) => void): () => void {
   const bus = routineRunBus();

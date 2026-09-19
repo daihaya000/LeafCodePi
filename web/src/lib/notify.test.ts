@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   decideNotification,
   isRoutineRunHandledInline,
+  MAX_ROUTINE_ERROR_CHARS,
   notificationText,
   routineRunNotificationText,
 } from "./notify";
@@ -112,6 +113,13 @@ describe("routineRunNotificationText", () => {
   it("falls back to placeholders when names are missing", () => {
     expect(routineRunNotificationText({ botName: "", routineName: "", ok: true }).body).toBe(
       "Bot・ルーティン",
+    );
+  });
+
+  it("clips a long failure reason to the notification length", () => {
+    const long = "あ".repeat(MAX_ROUTINE_ERROR_CHARS + 50);
+    expect(routineRunNotificationText({ ...base, ok: false, error: long }).body).toBe(
+      `リサーチャー・朝の確認\n${"あ".repeat(MAX_ROUTINE_ERROR_CHARS - 1)}…`,
     );
   });
 });

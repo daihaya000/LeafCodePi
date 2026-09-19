@@ -19,6 +19,7 @@ import { refreshBotSidebar } from "@/lib/bot-sidebar-store";
 class FakeNotification {
   static permission: NotificationPermission = "granted";
   static instances: { title: string; body?: string }[] = [];
+  static requestPermission = vi.fn(async (): Promise<NotificationPermission> => "default");
   constructor(title: string, options?: NotificationOptions) {
     FakeNotification.instances.push({ title, body: options?.body });
   }
@@ -62,7 +63,7 @@ const RUN = {
 };
 
 function fireRoutine(run: Record<string, unknown>) {
-  const source = sources[0];
+  const source = sources[sources.length - 1];
   if (!source) throw new Error("Routine EventSource was not created");
   act(() => {
     source.listeners.get("routine")?.({ data: JSON.stringify(run) } as MessageEvent);
@@ -74,6 +75,7 @@ beforeEach(() => {
   mocks.playSessionCompleteSound.mockReset();
   FakeNotification.permission = "granted";
   FakeNotification.instances = [];
+  FakeNotification.requestPermission.mockClear();
   sources.length = 0;
   vi.stubGlobal("Notification", FakeNotification);
   vi.stubGlobal("EventSource", TestSource);
@@ -149,5 +151,47 @@ describe("BotRoutineNotifier", () => {
 
     expect(mocks.playSessionCompleteSound).not.toHaveBeenCalled();
     expect(FakeNotification.instances).toEqual([]);
+  });
+
+  it("asks for the notification permission once, then notifies on the next run", async () => {
+    FakeNotification.permission = "default";
+    mocks.getJson.mockResolvedValue({ bots: [{ id: "bot-1", notificationsEnabled: true }], rooms: [] });
+    await refreshBotSidebar();
+
+    render(<BotRoutineNotifier />);
+    fireRoutine(RUN);
+    fireRoutine(RUN);
+
+    expect(FakeNotification.requestPermission).toHaveBeenCalledTimes(1);
+    expect(FakeNotification.instances).toEqual([]);
+
+    FakeNotification.permission = "granted";
+    Object.defineProperty(document, "hidden", { configurable: true, value: true });
+    fireRoutine(RUN);
+
+    expect(FakeNotification.instances).toHaveLength(1);
+  });
+
+  it("reopens the stream after a connection error", () => {
+    vi.useFakeTimers();
+    try {
+      render(<BotRoutineNotifier />);
+      expect(sources).toHaveLength(1);
+      act(() => {
+        sources[0]?.listeners.get("error")?.({} as MessageEvent);
+      });
+      expect(sources[0]?.closed).toBe(true);
+
+      act(() => {
+        vi.advanceTimersByTime(1_000);
+      });
+      expect(sources).toHaveLength(2);
+
+      // 張り直したストリームでも通知は届く。
+      fireRoutine(RUN);
+      expect(mocks.playSessionCompleteSound).toHaveBeenCalledWith("bot");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
