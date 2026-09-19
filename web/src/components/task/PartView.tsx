@@ -29,7 +29,7 @@ import { MessageBubble, MessageHeader, messageRowClassFor } from "@/components/C
 import { ImageLightbox } from "@/components/Composer";
 import { ProviderIcon } from "@/components/ProviderIcon";
 import { ReferenceHighlight, type ReferenceHighlightReferences } from "@/components/ReferenceHighlight";
-import { Button, cx, formatMessageTime } from "@/components/ui";
+import { Button, cx, formatElapsed, formatMessageTime } from "@/components/ui";
 import { formatTokens } from "@/lib/context-usage";
 import { formatTokensPerSecond } from "@/lib/token-throughput";
 import { clampScrollTop, isNearBottom, nextStickState } from "@/lib/scroll-stick";
@@ -46,6 +46,8 @@ import {
   useReasoningTranslation,
 } from "@/lib/reasoning-translation";
 import type { SubagentRunDto, UiDiagnostic, UiMessage, UiPart } from "@/lib/types";
+
+export { formatElapsed } from "@/components/ui";
 
 const structuredResultLabels: Record<StructuredResultStatus, string> = {
   progress: "進行中",
@@ -253,15 +255,6 @@ export function toolIcon(tool: string, input?: Record<string, unknown>) {
   if (t.includes("web") || t.includes("fetch")) return Globe;
   if (t.includes("subagent") || t.includes("agent") || t === "task") return Bot;
   return Wrench;
-}
-
-export function formatElapsed(ms: number): string {
-  if (ms < 1_000) return `${Math.max(0, Math.round(ms))}ms`;
-  const totalSeconds = Math.round(ms / 1_000);
-  const minutes = Math.floor(totalSeconds / 60);
-  const seconds = totalSeconds % 60;
-  if (minutes > 0) return `${minutes}m ${seconds}s`;
-  return `${seconds}s`;
 }
 
 /** 実行中は 100ms ごとに更新し、終了後は固定値で経過時間を返す。 */

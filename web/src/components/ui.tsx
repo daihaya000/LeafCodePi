@@ -602,6 +602,16 @@ export function formatMessageTime(iso: string | number | null | undefined): stri
   return `${date.getMonth() + 1}/${date.getDate()}${weekdays[date.getDay()]} ${hours}:${minutes}`;
 }
 
+/** 短い経過時間の表示（Code/Bot のメッセージやツールカードで共有）。 */
+export function formatElapsed(ms: number): string {
+  if (ms < 1_000) return `${Math.max(0, Math.round(ms))}ms`;
+  const totalSeconds = Math.round(ms / 1_000);
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  if (minutes > 0) return `${minutes}m ${seconds}s`;
+  return `${seconds}s`;
+}
+
 /** 所要時間の表示（Code/Bot のツール実行グループやタスク統計で共有）。 */
 export function formatDuration(ms: number): string {
   if (!Number.isFinite(ms) || ms <= 0) return "—";

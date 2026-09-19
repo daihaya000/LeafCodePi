@@ -226,12 +226,15 @@ it("shares sender/time placement and Room mention chips across conversation mess
   expect(userBubble.nextElementSibling?.tagName).not.toBe("TIME");
 });
 
-it("shows the model next to the bot name only when the message has one", () => {
-  const { container, rerender } = render(<BotChatMessage user={false} createdAt={1} sender={{ name: "MiMo" }} text="hi" providerID="anthropic" modelLabel="Claude Sonnet 4.5" />);
+it("shows the model and thinking time next to the bot name when the message has them", () => {
+  const { container, rerender } = render(<BotChatMessage user={false} createdAt={1} sender={{ name: "MiMo" }} text="hi" providerID="anthropic" modelLabel="Claude Sonnet 4.5" responseDurationMs={3_000} />);
   expect(container.textContent).toContain("MiMo");
   expect(container.querySelector("[data-bot-model]")?.textContent).toBe("Claude Sonnet 4.5");
+  expect(container.querySelector("[data-bot-thinking]")?.textContent).toBe("3s");
+  expect(container.querySelector("[data-bot-thinking]")?.getAttribute("title")).toBe("応答時間（思考＋生成を含む目安）");
   rerender(<BotChatMessage user={false} createdAt={1} sender={{ name: "MiMo" }} text="hi" />);
   expect(container.querySelector("[data-bot-model]")).toBeNull();
+  expect(container.querySelector("[data-bot-thinking]")).toBeNull();
 });
 
 it("shows the animated bot and the current tool action while responding", () => {

@@ -12,7 +12,7 @@ import { ProviderIcon } from "@/components/ProviderIcon";
 import { renderMentions, withMentions } from "@/components/bot/BotMention";
 import { ImageLightbox } from "@/components/Composer";
 import { toolLabel } from "@/lib/tool-labels";
-import { Button, cx, formatMessageTime } from "@/components/ui";
+import { Button, cx, formatElapsed, formatMessageTime } from "@/components/ui";
 import type { BotDto, ProjectDto, TaskSummary, UiMessage } from "@/lib/types";
 
 /** Elements that carry prose; each rewrites only its own bare text into mention chips. */
@@ -186,8 +186,11 @@ export function BotResponseStatus({
 }
 
 /** Sender line above the bubble, mirroring Code mode's meta header. */
-export function BotMessageSender({ name, createdAt, active = false, providerID, modelLabel, ...face }: BotFace & { name: string; createdAt?: number; active?: boolean; providerID?: string; modelLabel?: string }) {
+export function BotMessageSender({ name, createdAt, active = false, providerID, modelLabel, responseDurationMs, ...face }: BotFace & { name: string; createdAt?: number; active?: boolean; providerID?: string; modelLabel?: string; responseDurationMs?: number }) {
   const model = modelLabel?.trim();
+  const thinking = typeof responseDurationMs === "number" && responseDurationMs > 0
+    ? formatElapsed(responseDurationMs)
+    : "";
   return (
     <div className="flex w-full min-w-0 max-w-full items-center gap-1.5 overflow-hidden text-[11px] font-medium text-muted">
       <span aria-hidden="true" className="shrink-0"><BotAvatar size={16} {...face} name={name} active={active} /></span>
@@ -199,6 +202,7 @@ export function BotMessageSender({ name, createdAt, active = false, providerID, 
         </span>
       )}
       {createdAt !== undefined && <BotMessageTime createdAt={createdAt} className="ml-1 mt-0 shrink-0" />}
+      {thinking && <span data-bot-thinking className="ml-1 shrink-0" title="応答時間（思考＋生成を含む目安）">{thinking}</span>}
     </div>
   );
 }
@@ -222,7 +226,7 @@ export function BotMessageRow({ user, createdAt, children, footer, header, after
 }
 
 /** Shared conversation presentation; callers supply only conversation-specific content/actions. */
-export function BotChatMessage({ user, createdAt, sender, text, mentions = [], providerID, modelLabel, children, images, files, footer, after, bubble = true }: {
+export function BotChatMessage({ user, createdAt, sender, text, mentions = [], providerID, modelLabel, responseDurationMs, children, images, files, footer, after, bubble = true }: {
   user: boolean;
   createdAt: number;
   sender: BotFace & { name: string; active?: boolean };
@@ -231,6 +235,8 @@ export function BotChatMessage({ user, createdAt, sender, text, mentions = [], p
   /** 実際に応答したプロバイダ・モデル。Bot 名の隣に表示する。 */
   providerID?: string;
   modelLabel?: string;
+  /** 応答全体の所要時間。Botヘッダーの思考時間表示に使う。 */
+  responseDurationMs?: number;
   children?: ReactNode;
   images?: ReactNode;
   files?: ReactNode;
@@ -239,7 +245,7 @@ export function BotChatMessage({ user, createdAt, sender, text, mentions = [], p
   bubble?: boolean;
 }) {
   return <BotMessageRow user={user} createdAt={createdAt} timeInHeader={!user}
-    header={user ? undefined : <BotMessageSender {...sender} createdAt={createdAt} providerID={providerID} modelLabel={modelLabel} />} footer={footer} after={after} bubble={bubble}>
+    header={user ? undefined : <BotMessageSender {...sender} createdAt={createdAt} providerID={providerID} modelLabel={modelLabel} responseDurationMs={responseDurationMs} />} footer={footer} after={after} bubble={bubble}>
     {text && (user
       ? <div className="whitespace-pre-wrap break-words">{renderMentions(text, mentions, "user", "user")}</div>
       : <BotMessageMarkdown text={text} mentions={mentions} />)}
