@@ -58,7 +58,7 @@ export async function PATCH(req: NextRequest) {
       return NextResponse.json(await migrateProject(body.id, body.destinationPath));
     }
     if (typeof body.icon === "string" || body.icon === null) {
-      if (typeof body.icon === "string" && (!/^data:image\/(png|jpeg|gif|webp);base64,[A-Za-z0-9+/=]+$/.test(body.icon) || body.icon.length > 3_000_000)) {
+      if (typeof body.icon === "string" && (!/^data:image\/(png|jpeg|gif|webp|x-icon|vnd\.microsoft\.icon);base64,[A-Za-z0-9+/=]+$/.test(body.icon) || body.icon.length > 3_000_000)) {
         return NextResponse.json({ error: "icon must be a valid image under 2 MB" }, { status: 400 });
       }
       const project = patchProject(body.id, { icon: body.icon });

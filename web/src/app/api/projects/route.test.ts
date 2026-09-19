@@ -60,6 +60,29 @@ describe("PATCH /api/projects", () => {
     expect(mocks.patchProject).toHaveBeenCalledWith("project-1", { iconColor: "purple" });
   });
 
+  it.each(["image/x-icon", "image/vnd.microsoft.icon"])("persists an ICO project icon (%s)", async (mime) => {
+    const icon = `data:${mime};base64,AAABAAEAEBA=`;
+    mocks.patchProject.mockReturnValue({ id: "project-1", icon });
+
+    const response = await PATCH(new NextRequest("http://localhost/api/projects", {
+      method: "PATCH",
+      body: JSON.stringify({ id: "project-1", icon }),
+    }));
+
+    expect(response.status).toBe(200);
+    expect(mocks.patchProject).toHaveBeenCalledWith("project-1", { icon });
+  });
+
+  it("rejects project icons that are not raster images", async () => {
+    const response = await PATCH(new NextRequest("http://localhost/api/projects", {
+      method: "PATCH",
+      body: JSON.stringify({ id: "project-1", icon: "data:image/svg+xml;base64,PHN2Zy8=" }),
+    }));
+
+    expect(response.status).toBe(400);
+    expect(mocks.patchProject).not.toHaveBeenCalled();
+  });
+
   it("rejects unsupported project icon colors", async () => {
     const response = await PATCH(new NextRequest("http://localhost/api/projects", {
       method: "PATCH",

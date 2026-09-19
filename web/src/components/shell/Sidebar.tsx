@@ -167,7 +167,7 @@ export function sameHealth(a: HealthDto | null, b: HealthDto): boolean {
   );
 }
 
-const PROJECT_ICON_ACCEPT = "image/png,image/jpeg,image/gif,image/webp";
+const PROJECT_ICON_ACCEPT = "image/png,image/jpeg,image/gif,image/webp,image/x-icon,image/vnd.microsoft.icon,.ico";
 const MODE_KEY = "leafcodepi.mode";
 type AppMode = "code" | "bot";
 type BotListFilter = "all" | "bots" | "rooms";
@@ -1853,8 +1853,8 @@ const SidebarView = memo(function SidebarView({
 
   async function setProjectIcon(project: ProjectDto, file: File | null) {
     if (!file) return;
-    if (!file.type.match(/^image\/(png|jpeg|gif|webp)$/)) {
-      window.alert("PNG・JPEG・GIF・WebP の画像を選択してください。");
+    if (!file.type.match(/^image\/(png|jpeg|gif|webp|x-icon|vnd\.microsoft\.icon)$/)) {
+      window.alert("PNG・JPEG・GIF・WebP・ICO の画像を選択してください。");
       return;
     }
     if (file.size > 2 * 1024 * 1024) {

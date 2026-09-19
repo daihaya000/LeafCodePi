@@ -290,18 +290,45 @@ describe("Sidebar project ordering", () => {
     await openProjectSettings();
 
     const input = (await screen.findByLabelText("Project Aのアイコンを設定")) as HTMLInputElement;
-    expect(input.accept.split(",")).toEqual(["image/png", "image/jpeg", "image/gif", "image/webp"]);
+    expect(input.accept.split(",")).toEqual([
+      "image/png",
+      "image/jpeg",
+      "image/gif",
+      "image/webp",
+      "image/x-icon",
+      "image/vnd.microsoft.icon",
+      ".ico",
+    ]);
 
     fireEvent.change(input, {
       target: { files: [new File(["svg"], "icon.svg", { type: "image/svg+xml" })] },
     });
-    expect(alert).toHaveBeenCalledWith("PNG・JPEG・GIF・WebP の画像を選択してください。");
+    expect(alert).toHaveBeenCalledWith("PNG・JPEG・GIF・WebP・ICO の画像を選択してください。");
 
     fireEvent.change(input, {
       target: { files: [new File([new Uint8Array(2 * 1024 * 1024 + 1)], "large.png", { type: "image/png" })] },
     });
     expect(alert).toHaveBeenCalledWith("2 MB以下の画像を選択してください。");
     expect(mocks.sendJson).not.toHaveBeenCalled();
+    alert.mockRestore();
+  });
+
+  it.each(["image/x-icon", "image/vnd.microsoft.icon"])("accepts a %s project icon", async (type) => {
+    const alert = vi.spyOn(window, "alert").mockImplementation(() => {});
+    render(<Sidebar mobileOpen={false} onClose={vi.fn()} />);
+    await openProjectSettings();
+
+    const input = (await screen.findByLabelText("Project Aのアイコンを設定")) as HTMLInputElement;
+    fireEvent.change(input, { target: { files: [new File(["icon"], "icon.ico", { type })] } });
+
+    await waitFor(() => {
+      expect(mocks.sendJson).toHaveBeenCalledWith(
+        "/api/projects",
+        { id: "project-a", icon: expect.stringContaining(`data:${type};base64,`) },
+        "PATCH",
+      );
+    });
+    expect(alert).not.toHaveBeenCalled();
     alert.mockRestore();
   });
 

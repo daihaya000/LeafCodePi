@@ -63,7 +63,7 @@ export function randomAvatarColor(exclude?: string): BotAvatarColor {
   return choices[Math.floor(Math.random() * choices.length)]!;
 }
 
-// プロジェクトアイコン（/api/projects）と同じ制約で統一：2 MB相当のbase64長、png/jpeg/gif/webpのみ。
+// プロジェクトアイコン（/api/projects）と共通の制約：2 MB相当のbase64長、png/jpeg/gif/webpのみ（icoはプロジェクトアイコンのみ対応）。
 export const AVATAR_IMAGE_ACCEPT = "image/png,image/jpeg,image/gif,image/webp";
 export const MAX_AVATAR_IMAGE_BYTES = 2 * 1024 * 1024;
 const MAX_AVATAR_IMAGE_LENGTH = 3_000_000;
