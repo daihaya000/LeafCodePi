@@ -123,6 +123,11 @@ export function bindHost(env = process.env, deps = {}) {
   return raw;
 }
 
+/** True when the current WebUI listener no longer matches the configured bind. */
+export function shouldRebindWebUi(currentHost, env = process.env, deps = {}) {
+  return bindHost(env, deps) !== currentHost;
+}
+
 /**
  * URL host for browser / health checks. Never returns 0.0.0.0.
  * @param {string} bind

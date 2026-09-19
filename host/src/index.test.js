@@ -11,6 +11,7 @@ import {
   publicHost,
   readPort,
   shouldOpenBrowser,
+  shouldRebindWebUi,
   shouldUseTray,
   webUiUrl,
 } from "./config.js";
@@ -75,6 +76,17 @@ test("bindHost resolves tailscale or falls back to loopback", () => {
   assert.equal(bindHost({ LEAFCODE_PI_HOST: "tailscale" }, { findTailscale: () => "100.64.1.2" }), "100.64.1.2");
   assert.equal(bindHost({ LEAFCODE_PI_HOST: "0.0.0.0" }), "0.0.0.0");
   assert.equal(bindHost({ LEAFCODE_PI_HOST: "192.168.1.10" }), "192.168.1.10");
+});
+
+test("shouldRebindWebUi detects a Tailscale address returning after fallback", () => {
+  let tailscale = null;
+  const env = { LEAFCODE_PI_HOST: "tailscale" };
+  const deps = { findTailscale: () => tailscale };
+
+  assert.equal(shouldRebindWebUi("127.0.0.1", env, deps), false);
+  tailscale = "100.98.131.68";
+  assert.equal(shouldRebindWebUi("127.0.0.1", env, deps), true);
+  assert.equal(shouldRebindWebUi(tailscale, env, deps), false);
 });
 
 test("bindHost does not reuse a stale Tailscale address", () => {

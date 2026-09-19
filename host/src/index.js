@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import SysTrayImport from "systray2";
-import { bindHost, dataDir, DEFAULT_HOST_CONTROL_PORT, DEFAULT_LLAMA_SERVER_PORT, DEFAULT_WEBUI_PORT, readPort, shouldOpenBrowser as envAllowsBrowser, shouldUseTray, webUiUrl } from "./config.js";
+import { bindHost, dataDir, DEFAULT_HOST_CONTROL_PORT, DEFAULT_LLAMA_SERVER_PORT, DEFAULT_WEBUI_PORT, readPort, shouldOpenBrowser as envAllowsBrowser, shouldRebindWebUi, shouldUseTray, webUiUrl } from "./config.js";
 import { readBrowserConfig, writeBrowserConfig } from "./browser-config.js";
 import { isThisModuleEntrypoint } from "./entry.js";
 import { createLlamaControlServer, closeControlServer, listenControlServer } from "./llama-control-server.js";
@@ -154,6 +154,7 @@ let webRestarts = 0;
 let trayRestarts = 0;
 let trayCopyDir = true;
 let restarting = false;
+let bindingReconcileInProgress = false;
 const expectedWebExitPids = new Set();
 
 const statusWebItem = {
@@ -171,6 +172,21 @@ function refreshWebUiBinding() {
   WEBUI_AUTH = ensureWebUiAuth(process.env, WEBUI_HOST, DATA_DIR);
   statusWebItem.tooltip = WEBUI_URL;
   log(`WebUI bind address changed from ${previousHost} to ${WEBUI_HOST}`);
+}
+
+async function reconcileWebUiBinding() {
+  if (quitting || restarting || bindingReconcileInProgress || !webProc) return;
+  if (!shouldRebindWebUi(WEBUI_HOST)) return;
+
+  bindingReconcileInProgress = true;
+  try {
+    log("Tailscale bind address changed; restarting WebUI to expose the new address...");
+    await restartWeb();
+  } catch (err) {
+    error(`WebUI bind address recovery failed: ${err instanceof Error ? err.message : String(err)}`);
+  } finally {
+    bindingReconcileInProgress = false;
+  }
 }
 
 function log(text) {
@@ -973,7 +989,7 @@ async function main() {
   log(`LeafCodePi host ${HOST_VERSION} pid=${process.pid}`);
   log(`Binding WebUI on ${WEBUI_HOST}:${WEBUI_PORT} (open ${WEBUI_URL})`);
   if (WEBUI_HOST === "127.0.0.1" && (!process.env.LEAFCODE_PI_HOST || process.env.LEAFCODE_PI_HOST.trim().toLowerCase() === "tailscale")) {
-    log("Tailscale IPv4 was not found; bound to 127.0.0.1. Connect Tailscale or set LEAFCODE_PI_HOST=0.0.0.0");
+    log("Tailscale IPv4 was not found; bound to 127.0.0.1 and will retry automatically. Connect Tailscale or set LEAFCODE_PI_HOST=0.0.0.0");
   }
   if (WEBUI_AUTH.authRequired && WEBUI_AUTH.token) {
     log(`WebUI remote access requires a token (${webUiAuthPath(DATA_DIR)}). Use /login in the browser.`);
@@ -1029,6 +1045,7 @@ async function main() {
   }
 
   setInterval(() => {
+    void reconcileWebUiBinding();
     refreshStatusMenu().catch(() => {});
   }, 5000).unref?.();
   await refreshStatusMenu();
