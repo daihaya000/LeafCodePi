@@ -50,19 +50,19 @@ describe("fetchLlamaServerModels", () => {
     ]);
   });
 
-  it("marks multimodal models so Pi accepts image input", async () => {
+  it("merges data[] status with models[] multimodal capabilities", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async () =>
         new Response(
           JSON.stringify({
             data: [
-              {
-                id: "vision-model",
-                status: { value: "loaded" },
-                capabilities: ["completion", "multimodal"],
-              },
-              { id: "text-model", status: { value: "loaded" }, capabilities: ["completion"] },
+              { id: "vision-model", status: { value: "loaded" }, owned_by: "llamacpp" },
+              { id: "text-model", status: { value: "loaded" }, owned_by: "llamacpp" },
+            ],
+            models: [
+              { name: "vision-model", capabilities: ["completion", "multimodal"] },
+              { name: "text-model", capabilities: ["completion"] },
             ],
           }),
           { status: 200 },

@@ -203,9 +203,35 @@ export function rewriteLlamaServerEffortPayload(
  * Ask the running llama-server what model id(s) it accepts.
  * Prefers loaded router models; falls back to the full catalog.
  * `image` comes from the OpenAI-compatible capabilities list, which contains
- * "multimodal" only while a vision projector (mmproj) is loaded.
+ * "multimodal" only while a vision projector (mmproj) is loaded. llama-server
+ * は `data[]`（id/status 用、capabilities なし）と `models[]`（capabilities あり）
+ * の両方を返すので、 id でマージして読む。
  */
 export type LlamaServerModelEntry = { id: string; status: string; image: boolean };
+
+function readLlamaServerRow(row: unknown): LlamaServerModelEntry | null {
+  if (!row || typeof row !== "object") return null;
+  const record = row as {
+    id?: unknown;
+    name?: unknown;
+    model?: unknown;
+    status?: { value?: unknown };
+    capabilities?: unknown;
+  };
+  const idValue = [record.id, record.name, record.model].find(
+    (value): value is string => typeof value === "string" && Boolean(value.trim()),
+  );
+  if (!idValue) return null;
+  const status =
+    record.status && typeof record.status === "object"
+      ? String(record.status.value ?? "")
+      : "";
+  const rawCapabilities = record.capabilities;
+  const capabilities = Array.isArray(rawCapabilities)
+    ? rawCapabilities.filter((value): value is string => typeof value === "string")
+    : [];
+  return { id: idValue.trim(), status, image: capabilities.includes("multimodal") };
+}
 
 export async function fetchLlamaServerModels(
   baseUrl = DEFAULT_LLAMA_SERVER_BASE,
@@ -218,29 +244,26 @@ export async function fetchLlamaServerModels(
         signal: AbortSignal.timeout(3000),
       });
       if (!res.ok) continue;
-      const body = (await res.json()) as { data?: unknown };
-      if (!Array.isArray(body.data)) continue;
-      const rows = body.data
-        .map((row) => {
-          if (!row || typeof row !== "object") return null;
-          const id = (row as { id?: unknown }).id;
-          if (typeof id !== "string" || !id.trim()) return null;
-          const status =
-            (row as { status?: { value?: unknown } }).status &&
-            typeof (row as { status?: unknown }).status === "object"
-              ? String((row as { status: { value?: unknown } }).status.value ?? "")
-              : "";
-          const rawCapabilities = (row as { capabilities?: unknown }).capabilities;
-          const capabilities = Array.isArray(rawCapabilities)
-            ? rawCapabilities.filter((value): value is string => typeof value === "string")
-            : [];
-          return {
-            id: id.trim(),
-            status,
-            image: capabilities.includes("multimodal"),
-          };
-        })
-        .filter((row): row is LlamaServerModelEntry => Boolean(row));
+      const body = (await res.json()) as { models?: unknown; data?: unknown };
+      const dataRows = Array.isArray(body.data) ? body.data : [];
+      const catalogRows = Array.isArray(body.models) ? body.models : [];
+      if (dataRows.length === 0 && catalogRows.length === 0) continue;
+      const byId = new Map<string, LlamaServerModelEntry>();
+      for (const row of dataRows) {
+        const entry = readLlamaServerRow(row);
+        if (entry) byId.set(entry.id, entry);
+      }
+      for (const row of catalogRows) {
+        const entry = readLlamaServerRow(row);
+        if (!entry) continue;
+        const previous = byId.get(entry.id);
+        byId.set(entry.id, {
+          id: entry.id,
+          status: previous?.status || entry.status,
+          image: (previous?.image ?? false) || entry.image,
+        });
+      }
+      const rows = [...byId.values()];
       if (rows.length === 0) continue;
       const loaded = rows.filter((r) => r.status === "loaded");
       if (loaded.length > 0) return loaded;
