@@ -34,6 +34,7 @@ import { BotAvatar, type BotFace } from "@/components/bot/BotAvatar";
 import { isTaskDrag, setTaskDragData } from "@/lib/task-drag";
 import { notifyBotSidebarChanged, notifyTasksChanged } from "@/lib/events";
 import { getJson, sendJson } from "@/lib/client";
+import { isLoopbackClientUrl } from "@/lib/client-platform";
 import {
   getBotSidebarServerSnapshot,
   getBotSidebarSnapshot,
@@ -522,32 +523,49 @@ const BotSidebarBody = memo(function BotSidebarBody({
     </div>
   );
 });
+const ICON_PICKER_CLASS = "inline-flex shrink-0 cursor-pointer items-center justify-center rounded-md text-muted has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-inset has-[:focus-visible]:ring-primary";
+
 function ProjectIconPicker({
   project,
   className,
   iconClassName,
   onFileChange,
   role,
+  onOpenHost,
+  hostBusy = false,
 }: {
   project: Pick<ProjectDto, "id" | "name" | "icon" | "iconColor">;
   className?: string;
   iconClassName?: string;
   onFileChange: (file: File | null) => void;
   role?: "menuitem";
+  /** 指定時はブラウザの file input ではなくホストPCのネイティブダイアログで選ぶ。 */
+  onOpenHost?: (() => void) | undefined;
+  hostBusy?: boolean;
 }) {
+  const label = `${project.name}のアイコンを設定`;
+  const icon = <ProjectIcon project={project} className={cx(iconClassName, !project.icon && "border")} />;
+  if (onOpenHost) {
+    return (
+      <button
+        type="button"
+        role={role}
+        title={label}
+        aria-label={label}
+        disabled={hostBusy}
+        onClick={onOpenHost}
+        className={cx(ICON_PICKER_CLASS, "disabled:cursor-default disabled:opacity-50", className)}
+      >
+        {icon}
+      </button>
+    );
+  }
   return (
-    <label
-      role={role}
-      title={`${project.name}のアイコンを設定`}
-      className={cx(
-        "inline-flex shrink-0 cursor-pointer items-center justify-center rounded-md text-muted has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-inset has-[:focus-visible]:ring-primary",
-        className,
-      )}
-    >
-      <ProjectIcon project={project} className={cx(iconClassName, !project.icon && "border")} />
+    <label role={role} title={label} className={cx(ICON_PICKER_CLASS, className)}>
+      {icon}
       <input
         type="file"
-        aria-label={`${project.name}のアイコンを設定`}
+        aria-label={label}
         accept={PROJECT_ICON_ACCEPT}
         className="sr-only"
         onChange={(event) => {
@@ -995,7 +1013,9 @@ function PromoteTaskDialog({
 function ProjectSettingsDialog({
   project,
   onClose,
+  hostPlatform,
   onSetIcon,
+  onSetIconData,
   onClearIcon,
   onSetIconColor,
   onMigrate,
@@ -1003,7 +1023,10 @@ function ProjectSettingsDialog({
 }: {
   project: ProjectDto;
   onClose: () => void;
+  /** ホストPCのプラットフォーム（ネイティブダイアログの可否）。 */
+  hostPlatform: string | undefined;
   onSetIcon: (file: File | null) => void;
+  onSetIconData: (icon: string) => void;
   onClearIcon: () => void;
   onSetIconColor: (color: ProjectDto["iconColor"]) => void;
   onMigrate: (destinationPath: string) => Promise<void>;
@@ -1012,6 +1035,11 @@ function ProjectSettingsDialog({
   const [destinationPath, setDestinationPath] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /** ネイティブダイアログが失敗したらブラウザの file input へ戻す。 */
+  const [iconHostFailed, setIconHostFailed] = useState(false);
+  const [iconBusy, setIconBusy] = useState(false);
+  /** ホストPCのブラウザで開いているときだけネイティブダイアログを使う。 */
+  const hostIconPick = !iconHostFailed && hostPlatform === "win32" && isLoopbackClientUrl();
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -1037,6 +1065,28 @@ function ProjectSettingsDialog({
     }
   }
 
+  /** ホストPCのネイティブダイアログをリポジトリ（rootPath）起点で開く。 */
+  async function pickIconFromHost() {
+    if (busy || iconBusy) return;
+    setIconBusy(true);
+    setError(null);
+    try {
+      const result = await sendJson<{ icon?: string; cancelled?: boolean }>(
+        "/api/browse/icon",
+        { path: project.rootPath },
+        "POST",
+        { timeoutMs: 135_000 },
+      );
+      if (result.icon) onSetIconData(result.icon);
+    } catch (err) {
+      // 対話デスクトップが無いホストでも使えるよう、従来の file input へ戻す。
+      setIconHostFailed(true);
+      setError(err instanceof Error ? err.message : "アイコン選択に失敗しました");
+    } finally {
+      setIconBusy(false);
+    }
+  }
+
   return (
     <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/40 p-3 backdrop-blur-[2px] sm:p-4">
       <div role="dialog" aria-modal="true" aria-labelledby="project-settings-title" className="w-full max-w-lg rounded-2xl border border-border bg-surface shadow-2xl">
@@ -1058,6 +1108,8 @@ function ProjectSettingsDialog({
                 className="h-11 w-11 hover:bg-surface-2"
                 iconClassName="flex h-8 w-8 items-center justify-center rounded-lg text-sm font-medium"
                 onFileChange={onSetIcon}
+                onOpenHost={hostIconPick ? () => void pickIconFromHost() : undefined}
+                hostBusy={iconBusy}
               />
               <span className="flex-1 text-xs text-muted">画像を変更するか、色を選択してください。</span>
               {project.icon && (
@@ -1875,6 +1927,11 @@ const SidebarView = memo(function SidebarView({
     } catch {
       showReaderError();
     }
+  }
+
+  /** ホストPCのネイティブダイアログで選ばれた画像を保存する。 */
+  async function setProjectIconData(project: ProjectDto, icon: string) {
+    await patchProjectFromSidebar(project, `icon:${project.id}`, { icon });
   }
 
   const cancelProjectTaskMenuHide = useCallback(() => {
@@ -2806,7 +2863,9 @@ const SidebarView = memo(function SidebarView({
         <ProjectSettingsDialog
           project={currentProjectSettingsProject}
           onClose={() => setProjectSettingsProject(null)}
+          hostPlatform={health?.platform}
           onSetIcon={(file) => void setProjectIcon(currentProjectSettingsProject, file)}
+          onSetIconData={(icon) => void setProjectIconData(currentProjectSettingsProject, icon)}
           onClearIcon={() => void clearProjectIcon(currentProjectSettingsProject)}
           onSetIconColor={(color) => void setProjectIconColor(currentProjectSettingsProject, color)}
           onMigrate={(destinationPath) => migrateProjectAction(currentProjectSettingsProject, destinationPath)}

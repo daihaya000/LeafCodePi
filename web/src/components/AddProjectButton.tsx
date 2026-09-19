@@ -19,6 +19,7 @@ import {
   X,
 } from "lucide-react";
 import { Button, Spinner, cx } from "@/components/ui";
+import { isLoopbackClientUrl, isWindowsClient } from "@/lib/client-platform";
 import { notifyTasksChanged } from "@/lib/events";
 import { getJson, sendJson } from "@/lib/client";
 import type { ProjectDto } from "@/lib/types";
@@ -71,21 +72,6 @@ function samePath(left: string | null, right: string): boolean {
   return isWindowsPath
     ? leftPath.toLowerCase() === rightPath.toLowerCase()
     : leftPath === rightPath;
-}
-
-/** ネイティブダイアログはホスト PC の画面に開く。リモートからは要求しない。 */
-function isWindowsClient(): boolean {
-  if (typeof navigator === "undefined") return false;
-  const nav = navigator as Navigator & { userAgentData?: { platform?: string } };
-  return [nav.userAgentData?.platform, navigator.platform, navigator.userAgent]
-    .filter((v): v is string => typeof v === "string")
-    .some((v) => /win/i.test(v));
-}
-
-function isLoopbackClientUrl(): boolean {
-  if (typeof location === "undefined") return false;
-  const hostname = location.hostname.toLowerCase();
-  return hostname === "127.0.0.1" || hostname === "localhost" || hostname === "::1" || hostname === "[::1]";
 }
 
 export function AddProjectButton({

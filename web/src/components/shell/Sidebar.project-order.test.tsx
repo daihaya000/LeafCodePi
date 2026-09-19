@@ -93,6 +93,25 @@ async function openProjectSettings() {
   return screen.findByRole("dialog", { name: "プロジェクト設定" });
 }
 
+/** ネイティブダイアログ対応（Windows ホスト）として health を返す。 */
+function useWindowsHost() {
+  const base = mocks.getJson.getMockImplementation()!;
+  mocks.getJson.mockImplementation((path: string) =>
+    path === "/api/health"
+      ? Promise.resolve({
+          ok: true,
+          engine: "pi",
+          engineOk: true,
+          version: "1.0.0",
+          modelCount: 0,
+          dataDir: "C:\\data",
+          error: null,
+          platform: "win32",
+        })
+      : base(path),
+  );
+}
+
 beforeEach(() => {
   localStorage.clear();
   // These tests exercise the Code sidebar; opt into it explicitly now that Bot is the default.
@@ -330,6 +349,43 @@ describe("Sidebar project ordering", () => {
     });
     expect(alert).not.toHaveBeenCalled();
     alert.mockRestore();
+  });
+
+  it("opens the host file dialog at the repository when the host can show it", async () => {
+    useWindowsHost();
+    const icon = "data:image/x-icon;base64,AAABAA==";
+    mocks.sendJson.mockImplementation((path: string) =>
+      Promise.resolve(path === "/api/browse/icon" ? { icon } : { project: { ...projects[0], icon } }),
+    );
+    render(<Sidebar mobileOpen={false} onClose={vi.fn()} />);
+    await openProjectSettings();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Project Aのアイコンを設定" }));
+
+    await waitFor(() => {
+      expect(mocks.sendJson).toHaveBeenCalledWith(
+        "/api/browse/icon",
+        { path: "C:\\repo-a" },
+        "POST",
+        { timeoutMs: 135_000 },
+      );
+    });
+    await waitFor(() => {
+      expect(mocks.sendJson).toHaveBeenCalledWith("/api/projects", { id: "project-a", icon }, "PATCH");
+    });
+  });
+
+  it("falls back to the browser file input when the host dialog fails", async () => {
+    useWindowsHost();
+    mocks.sendJson.mockRejectedValueOnce(new Error("ネイティブ選択は Windows のみです"));
+    render(<Sidebar mobileOpen={false} onClose={vi.fn()} />);
+    await openProjectSettings();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Project Aのアイコンを設定" }));
+
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain("ネイティブ選択は Windows のみです");
+    expect((await screen.findByLabelText("Project Aのアイコンを設定")).tagName).toBe("INPUT");
   });
 
   it("shows a user-facing error when a project icon cannot be read", async () => {

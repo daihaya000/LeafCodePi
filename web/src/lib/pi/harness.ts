@@ -4645,6 +4645,7 @@ async function rebuildHealth(): Promise<HealthDto> {
     dataDir: dataDir(),
     error: current.initError,
     startedAt: PROCESS_STARTED_AT,
+    platform: process.platform,
     ...(current.lastProviderSyncWarnings.length > 0
       ? { warnings: [...current.lastProviderSyncWarnings] }
       : {}),

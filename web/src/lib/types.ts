@@ -590,6 +590,8 @@ export type HealthDto = {
   warnings?: string[];
   /** Epoch ms this server process booted; changes only across a real restart. */
   startedAt?: number;
+  /** ホストPC（このサーバー）のプラットフォーム。ネイティブダイアログの可否判定に使う。 */
+  platform?: string;
 };
 
 export type ProviderAuthDto = {
