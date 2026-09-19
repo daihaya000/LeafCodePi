@@ -2659,7 +2659,12 @@ test("additional send during a live loop keeps the loop running", async () => {
     await handlers.get("agent_settled")?.({ type: "agent_settled" }, ctx);
     await waitFor(() => sendCount === 2);
     const nextPrompt = sentMessages.at(-1)?.content;
-    assert.match(typeof nextPrompt === "string" ? nextPrompt : nextPrompt.map((part) => part.text).join(""), /Operator notes[\s\S]*- 追加の指示/);
+    const nextPromptText = typeof nextPrompt === "string"
+      ? nextPrompt
+      : nextPrompt.map((part) => part.text).join("");
+    assert.match(nextPromptText, /Operator notes[\s\S]*- 追加の指示/);
+    // 追加指示の後にも結果JSON契約が来る（最後の指示が契約になるよう順序を固定する）。
+    assert.ok(nextPromptText.indexOf("Operator notes") < nextPromptText.indexOf("very last thing you output"));
   } finally {
     await handlers.get("session_shutdown")?.({}, ctx);
     rmSync(cwd, { recursive: true, force: true });
