@@ -262,8 +262,8 @@ export const LLAMA_MODEL_PRESETS: readonly LlamaModelPreset[] = [
     match: /(?:orca.?bonsai|bonsai.*uncensored|uncensored.*bonsai)/i,
     label: "OrcaBonsai 27B Uncensored（Vision・最適化）",
     description:
-      "Ternary Bonsai 2 + refusal-direction LoRA。mmproj を自動適用、medium 思考、131K コンテキスト、KV キャッシュ K/V q8_0。WindowsはC:\\tools\\llama-prism-*-vulkanを自動選択。",
-    settings: { effort: "medium", specType: "", contextLength: 131_072, cacheTypeK: "q8_0", cacheTypeV: "q8_0" },
+      "Ternary Bonsai 2 + refusal-direction LoRA。mmproj を自動適用、low 思考、131K コンテキスト、KV キャッシュ K/V q8_0。WindowsはC:\\tools\\llama-prism-*-vulkanを自動選択。",
+    settings: { effort: "low", specType: "", contextLength: 131_072, cacheTypeK: "q8_0", cacheTypeV: "q8_0" },
   },
   {
     key: "qwen38-uncensored",

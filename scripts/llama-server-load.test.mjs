@@ -18,6 +18,7 @@ test('Bonsai launches prefer an installed PrismML Vulkan runtime', () => {
   assert.match(text, /LLAMA_SERVER_BIN_EXPLICIT/);
   assert.match(text, /llama-prism-\*-vulkan/);
   assert.match(text, /findstr \/i \/c:\"bonsai\"/);
+  assert.match(text, /--cache-reuse %CACHE_REUSE%/);
   // Date order: build numbers outgrow lexicographic order (b10709 vs b9596),
   // so the loop must keep the most recently installed directory.
   assert.match(text, /\/o:d /);
@@ -80,7 +81,7 @@ test('Qwen3.8 sampler is scoped and explicit overrides win', { skip: process.pla
   const run = (overrides) => {
     const env = { ...process.env };
     for (const key of Object.keys(env)) {
-      if (/^(MODEL_|SAMPLING_|TOP_|MIN_P$|GPU_|IMAGE_|LORA_FILE$|LLAMA_SERVER_BIN$)/i.test(key)) delete env[key];
+      if (/^(MODEL_|SAMPLING_|TOP_|MIN_P$|GPU_|IMAGE_|LORA_FILE$|LLAMA_SERVER_BIN$|CACHE_REUSE$)/i.test(key)) delete env[key];
     }
     const result = spawnSync('cmd.exe', ['/d', '/s', '/c', `""${bat}" /dry-run"`], {
       env: { ...env, ...overrides }, encoding: 'utf8', timeout: 5000, windowsVerbatimArguments: true,
@@ -116,6 +117,7 @@ test('Qwen3.8 sampler is scoped and explicit overrides win', { skip: process.pla
     LORA_FILE: 'OrcaBonsai-27B-Uncensored\\gguf\\bonsai-abliterate-lora.gguf',
   });
   assert.match(bonsai, /--image-max-tokens 1024/);
+  assert.match(bonsai, /--cache-reuse 256/);
   assert.match(bonsai, /--lora/);
   assert.match(bonsai, /bonsai-abliterate-lora\.gguf/);
   assert.doesNotMatch(bonsai, /--image-min-tokens/);

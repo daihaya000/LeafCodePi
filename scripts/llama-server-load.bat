@@ -9,6 +9,7 @@ rem   THREADS, THREADS_BATCH, BATCH_SIZE, UBATCH, SAMPLING_TEMP, TOP_P, TOP_K, M
 rem   SAMPLING_SEED, SAMPLING_REPEAT_LAST_N, SAMPLING_REPEAT_PENALTY,
 rem   SAMPLING_DRY_MULTIPLIER, SAMPLING_DRY_BASE, SAMPLING_DRY_ALLOWED_LENGTH,
 rem   SAMPLING_DRY_PENALTY_LAST_N, REASONING_BUDGET, REASONING_BUDGET_MESSAGE,
+rem   CACHE_REUSE (0 = disabled; default 256),
 rem   GPU_DEVICE, IMAGE_MIN_TOKENS, IMAGE_MAX_TOKENS (empty = omit image flags),
 rem   LORA_FILE (modelDir-relative LoRA adapter GGUF, empty = no adapter)
 rem
@@ -107,9 +108,12 @@ rem Long-context quality still needs workload-specific validation.
 rem Explicit f16 matches the Linux Vulkan profile; q8_0 is useful when VRAM is tight.
 if not defined CT_K set "CT_K=f16"
 if not defined CT_V set "CT_V=f16"
+rem Reuse stable prompt-cache chunks when a turn appends history; 0 disables.
+if not defined CACHE_REUSE set "CACHE_REUSE=256"
 set "CACHE_ARGS="
 if not "%CT_K%"=="" set "CACHE_ARGS=%CACHE_ARGS% --cache-type-k %CT_K%"
 if not "%CT_V%"=="" set "CACHE_ARGS=%CACHE_ARGS% --cache-type-v %CT_V%"
+if not "%CACHE_REUSE%"=="" set "CACHE_ARGS=%CACHE_ARGS% --cache-reuse %CACHE_REUSE%"
 rem Speculative decoding type (e.g. draft-mtp). Leave empty for GGUFs without
 rem MTP tensors (e.g. Ornith-1.5 AtomicChat builds) - they fail to load with
 rem --spec-type draft-mtp. Gains depend on model, backend and acceptance rate;
@@ -153,6 +157,7 @@ if /i "%~1"=="/dry-run" (
   echo [DRY-RUN] effort=%REASONING_EFFORT%
   echo [DRY-RUN] sampling=temp %SAMPLING_TEMP% top-p %TOP_P% top-k %TOP_K% min-p %MIN_P% repeat %SAMPLING_REPEAT_PENALTY% dry %SAMPLING_DRY_MULTIPLIER%
   echo [DRY-RUN] perf=%PERF_ARGS%
+  echo [DRY-RUN] cache=%CACHE_ARGS%
   echo [DRY-RUN] device=%DEVICE_ARGS%
   echo [DRY-RUN] spec=%SPEC_TYPE% draft-max=%DRAFT_MAX%
   echo [DRY-RUN] image=%IMAGE_TOKENS_ARGS%

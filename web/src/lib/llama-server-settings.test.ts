@@ -155,7 +155,7 @@ describe("llama-server-settings", () => {
     );
     expect(orcaBonsai?.key).toBe("orca-bonsai27");
     expect(orcaBonsai?.settings).toEqual({
-      effort: "medium",
+      effort: "low",
       specType: "",
       contextLength: 131_072,
       cacheTypeK: "q8_0",
