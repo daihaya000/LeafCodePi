@@ -96,7 +96,7 @@ function BotToolActivityGroup({ messages, bot, botId, active, modelLabels }: { m
   return (
     <ActivityLog
       kind="bot"
-      header={firstMessage ? <MessageHeader><BotMessageSender {...bot} name={bot?.name ?? "ボット"} createdAt={firstMessage.createdAt} providerID={firstMessage.provider} modelLabel={botMessageModelLabel(firstMessage, modelLabels)} /></MessageHeader> : undefined}
+      header={firstMessage ? <MessageHeader><BotMessageSender {...bot} name={bot?.name ?? "ボット"} createdAt={firstMessage.createdAt} providerID={firstMessage.provider} modelLabel={botMessageModelLabel(firstMessage, modelLabels)} responseDurationMs={firstMessage.responseDurationMs} /></MessageHeader> : undefined}
       count={parts.length}
       parts={parts}
       active={active}
@@ -104,7 +104,7 @@ function BotToolActivityGroup({ messages, bot, botId, active, modelLabels }: { m
       {messages.map((message, messageIndex) => {
         const { text, tools, images, files, requestIds } = botMessageDisplayData(message);
         return <div key={messageRenderKey(message)} className="min-w-0 space-y-2">
-          {messageIndex > 0 && !text && !images.length && !files.length && !message.error && !requestIds.length && <MessageHeader><BotMessageSender {...bot} name={bot?.name ?? "ボット"} createdAt={message.createdAt} providerID={message.provider} modelLabel={botMessageModelLabel(message, modelLabels)} /></MessageHeader>}
+          {messageIndex > 0 && !text && !images.length && !files.length && !message.error && !requestIds.length && <MessageHeader><BotMessageSender {...bot} name={bot?.name ?? "ボット"} createdAt={message.createdAt} providerID={message.provider} modelLabel={botMessageModelLabel(message, modelLabels)} responseDurationMs={message.responseDurationMs} /></MessageHeader>}
           {tools.map((part) => {
             const partKey = part.id || part.callID;
             const cardKey = part.state.status === "error" || part.state.status === "cancelled" ? `${partKey}:expanded` : partKey;
