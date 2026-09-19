@@ -71,6 +71,23 @@ describe("resolvePiLaunchToolPlan", () => {
 		assert.deepEqual(plan.configuredExtensions, []);
 		assert.deepEqual(plan.extensionArgs, plan.runtimeExtensions);
 	});
+	it("keeps an unresolved server/tool selector as a strict child requirement", () => {
+		const dir = mkdtempSync(join(tmpdir(), "leafcode-pi-mcp-direct-"));
+		tempDirs.push(dir);
+		// No mcp-cache.json in this agent dir: nothing can be resolved.
+		process.env.PI_CODING_AGENT_DIR = dir;
+
+		const plan = resolvePiLaunchToolPlan({
+			tools: ["read", "mcp"],
+			mcpDirectTools: ["browser-use", "browser-use/browser_navigate"],
+			cwd: dir,
+		});
+
+		assert.ok(plan.requiredChildTools.includes("browser-use/browser_navigate"));
+		// A bare server name expands to every cached tool, so it must never be required by name.
+		assert.ok(!plan.requiredChildTools.includes("browser-use"));
+		assert.deepEqual(plan.effectiveMcpTools, []);
+	});
 });
 
 describe("buildPiArgs skill inheritance", () => {

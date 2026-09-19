@@ -11,6 +11,7 @@ import {
 } from "./nested-path.ts";
 import {
 	resolveMcpDirectToolSelections,
+	unresolvedMcpDirectToolSelectors,
 	type ResolvedMcpDirectToolSelection,
 } from "./mcp-direct-tool-allowlist.ts";
 import { resolvePiPackageRoot } from "./pi-spawn.ts";
@@ -537,11 +538,16 @@ export function resolvePiLaunchToolPlan(
 	// legacy plumbing, not a user demand for an external intercom provider;
 	// a lone intercom entry stays strictly required (#1207).
 	const legacySupervisorPairing = declaredBuiltinTools.includes("contact_supervisor");
+	// A declared `server/tool` selector that produced no selection (stale or missing metadata
+	// cache) stays a strict child requirement so the run fails with the MCP guidance instead
+	// of silently launching a child without the requested tool.
+	const unresolvedMcpSelectors = unresolvedMcpDirectToolSelectors(input.mcpDirectTools, resolvedMcpSelections);
 	const requiredChildTools = explicitToolAllowlist
 		? [
 				...new Set([
 					...(input.tools !== undefined ? declaredBuiltinTools : []),
 					...(input.mcpDirectTools?.length ? effectiveMcpTools : []),
+					...unresolvedMcpSelectors,
 					...internalTools,
 				].filter((tool) => tool !== "contact_supervisor" && (!legacySupervisorPairing || tool !== "intercom"))),
 			]

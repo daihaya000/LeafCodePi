@@ -80,6 +80,25 @@ interface MetadataCache {
 
 export interface ResolvedMcpDirectToolSelection { name: string; selector: string }
 
+/**
+ * Explicit `server/tool` requests that produced no selection. A stale or missing
+ * metadata cache (or a renamed/removed server) must not make a declared MCP direct
+ * tool disappear silently — callers turn these into strict child requirements.
+ * Bare server names are skipped: they expand to "every cached tool of that server",
+ * which has no single tool name to require.
+ */
+export function unresolvedMcpDirectToolSelectors(
+	requested: readonly string[] | undefined,
+	resolved: readonly ResolvedMcpDirectToolSelection[],
+): string[] {
+	if (!requested?.length) return [];
+	const resolvedSelectors = new Set(resolved.map((selection) => selection.selector));
+	const unresolved = requested
+		.map((item) => item.trim().replace(/\/+$/, ""))
+		.filter((item) => item.includes("/") && !resolvedSelectors.has(item));
+	return [...new Set(unresolved)];
+}
+
 export function resolveMcpDirectToolSelections(mcpDirectTools: string[] | undefined, cwd = process.cwd()): ResolvedMcpDirectToolSelection[] {
 	if (!mcpDirectTools?.length) return [];
 
