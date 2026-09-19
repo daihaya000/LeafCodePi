@@ -1,6 +1,6 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { JEV_TOOL_NAME, registerJevTool } from "./jev-tool";
+import { JEV_MAX_INSTRUCTIONS_CHARS, JEV_TOOL_NAME, registerJevTool } from "./jev-tool";
 import type { TypeSafeResponse } from "./typesafe-system-one";
 
 const { mockEvaluate } = vi.hoisted(() => ({ mockEvaluate: vi.fn() }));
@@ -94,5 +94,12 @@ describe("jev_judge tool", () => {
       state: "data",
       questions: [{ id: "q", type: "noul", instructions: "Ready?" }],
     })).rejects.toThrow("Jev request failed");
+  });
+
+  it("keeps the schema string bound below the llama.cpp GBNF repetition limit", () => {
+    // union (anyOf) 内の string に maxLength >= 2000 があると llama.cpp は
+    // char{0,N} を生成し、grammar パーサの repetition 上限で 400
+    // "failed to parse grammar" になる (ggml-org/llama.cpp#25746, #27859)。
+    expect(JEV_MAX_INSTRUCTIONS_CHARS).toBeLessThan(2_000);
   });
 });

@@ -5,7 +5,11 @@ import { evaluateTypeSafe, type TypeSafeResponse } from "@/lib/pi/typesafe-syste
 export const JEV_TOOL_NAME = "jev_judge";
 export const JEV_MAX_STATE_CHARS = 12_000;
 export const JEV_MAX_QUESTIONS = 8;
-export const JEV_MAX_INSTRUCTIONS_CHARS = 2_000;
+/** llama.cpp は union (anyOf) 内の string に maxLength >= 2000 があると
+ *  char{0,N} を生成し、grammar パーサの repetition 上限（~2000）を超えて
+ *  400 "failed to parse grammar" で失敗する（ggml-org/llama.cpp#25746, #27859）。
+ *  この上限はそれ未満に保つ。 */
+export const JEV_MAX_INSTRUCTIONS_CHARS = 1_500;
 
 const NOUL_SCHEMA = Type.Object({
   id: Type.String({ description: "Question id; answers come back under this key.", maxLength: 64 }),
