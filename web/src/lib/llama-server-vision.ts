@@ -38,3 +38,41 @@ export async function llamaServerImageModelIds(options?: {
     return new Set();
   }
 }
+
+/**
+ * Pi 内蔵の llama.cpp プロバイダは `architecture.input_modalities` を見て
+ * モデルの input を決める（provider.js の toPiModel）が、llama.cpp の
+ * /v1/models はこのフィールドを返さない。そのため mmproj をロードしても Pi は
+ * 「画像非対応」と判定し、送信時に画像がプレースホルダへ置換される
+ * （pi-ai transform-messages の downgradeUnsupportedImages）。
+ *
+ * provider が保持するモデル配列は runtime.getModels() の参照なので、
+ * multimodal なモデルへ input "image" を直接足せば以降の判定が通る。
+ *
+ * @returns 補正したモデル数
+ */
+export function applyLlamaVisionToProviderModels(
+  runtime: {
+    getProviders(): readonly { id: string }[];
+    getModels(providerId: string): readonly unknown[];
+  },
+  imageModelIds: Set<string>,
+): number {
+  if (imageModelIds.size === 0) return 0;
+  let patched = 0;
+  for (const provider of runtime.getProviders()) {
+    const providerModels = runtime.getModels(provider.id);
+    if (!Array.isArray(providerModels)) continue;
+    for (const entry of providerModels) {
+      const model = entry as { id?: unknown; input?: unknown };
+      if (typeof model?.id !== "string" || !imageModelIds.has(model.id)) continue;
+      const input = Array.isArray(model.input)
+        ? model.input.filter((value): value is string => typeof value === "string")
+        : [];
+      if (input.includes("image")) continue;
+      model.input = [...input, "image"];
+      patched += 1;
+    }
+  }
+  return patched;
+}

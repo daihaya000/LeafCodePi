@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { llamaServerImageModelIds } from "./llama-server-vision";
+import { applyLlamaVisionToProviderModels, llamaServerImageModelIds } from "./llama-server-vision";
 
 function jsonResponse(body: unknown, ok = true): Response {
   return { ok, json: async () => body } as unknown as Response;
@@ -41,5 +41,38 @@ describe("llama-server-vision", () => {
 
     const malformed = vi.fn(async () => jsonResponse({ models: "nope" })) as unknown as typeof fetch;
     expect([...(await llamaServerImageModelIds({ baseUrl: "http://127.0.0.1:9", fetchFn: malformed }))]).toEqual([]);
+  });
+});
+
+describe("applyLlamaVisionToProviderModels", () => {
+  it("adds image input to the matching provider model exactly once", () => {
+    const vision = { id: "Qwen3.8-27B-Uncensored-Q4_K_S", input: ["text"] };
+    const textOnly = { id: "other-model", input: ["text"] };
+    const runtime = {
+      getProviders: () => [{ id: "llama-server" }],
+      getModels: () => [vision, textOnly],
+    };
+
+    const ids = new Set(["Qwen3.8-27B-Uncensored-Q4_K_S"]);
+    expect(applyLlamaVisionToProviderModels(runtime, ids)).toBe(1);
+    expect(vision.input).toEqual(["text", "image"]);
+    expect(textOnly.input).toEqual(["text"]);
+    // 以降の呼び出しは no-op（重複追加しない）
+    expect(applyLlamaVisionToProviderModels(runtime, ids)).toBe(0);
+    expect(vision.input).toEqual(["text", "image"]);
+  });
+
+  it("leaves models alone when nothing is multimodal or input is missing", () => {
+    const noInput = { id: "vision-model" } as { id: string; input?: string[] };
+    const runtime = {
+      getProviders: () => [{ id: "llama-server" }],
+      getModels: () => [noInput],
+    };
+
+    expect(applyLlamaVisionToProviderModels(runtime, new Set())).toBe(0);
+    expect(noInput.input).toBeUndefined();
+
+    expect(applyLlamaVisionToProviderModels(runtime, new Set(["vision-model"]))).toBe(1);
+    expect(noInput.input).toEqual(["image"]);
   });
 });

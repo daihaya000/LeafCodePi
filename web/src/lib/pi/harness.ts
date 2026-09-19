@@ -13,7 +13,7 @@ import {
   samePath,
 } from "@/lib/paths";
 import { prepareWorkspaceMove, type PreparedWorkspaceMove } from "@/lib/workspace-move";
-import { llamaServerImageModelIds } from "@/lib/llama-server-vision";
+import { applyLlamaVisionToProviderModels, llamaServerImageModelIds } from "@/lib/llama-server-vision";
 import { BOT_DEFAULT_TOOL_NAMES, BOT_TOOL_NAMES, botPromptSources, botRuntimeContext, botSoulRevision, botTaskId, getBot, listBots, patchBot } from "@/lib/bots";
 import { codePromptSources } from "@/lib/agents-md";
 import { BOT_CODE_RESULT, BOT_CODE_TOOL, botCodeReportText, createBotCodeRelay, hasBotCodeReport, isBotCodeOriginTask, queueBotCodePrompt, roomForCodeOrigin, runUserBotCodeRequest, stopBotCodeRequestForTask, truncateCodeReportRequest, type CodePromptOptions, type CodeRequest } from "@/lib/pi/bot-code-relay";
@@ -4705,6 +4705,9 @@ async function buildModelOptions(
   const llamaImageModelIds = needsLlamaImages
     ? await llamaServerImageModelIds().catch(() => new Set<string>())
     : new Set<string>();
+  // mmproj ロード中は Pi 側のモデル定義にも画像入力を反映する。これをしないと
+  // 送信時に pi-ai が画像をプレースホルダへ置換する（"model does not support images"）。
+  applyLlamaVisionToProviderModels(runtime, llamaImageModelIds);
   const catalog = buildProviderModelsCatalog(
     runtime,
     state,
