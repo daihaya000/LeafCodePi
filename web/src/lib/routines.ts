@@ -1,10 +1,11 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { EventEmitter } from "node:events";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { dataDir } from "@/lib/paths";
 import { botTaskId, getBot, listBots } from "@/lib/bots";
 import { getTaskDetail, promptTask } from "@/lib/pi/harness";
-import type { RoutineDto } from "@/lib/types";
+import type { RoutineDto, RoutineRunEventDto, UiMessage } from "@/lib/types";
 export const ROUTINE_MIN_INTERVAL_MS = 5 * 60 * 1000;
 export const ROUTINE_MAX_ENABLED = 10;
 export const ROUTINE_MAX_FAILURES = 3;
@@ -12,6 +13,39 @@ export const ROUTINE_MAX_FAILURES = 3;
 export const ROUTINE_MAX_PROMPT_CHARS = 8_000;
 /** Embedded in the prompt every scheduled run ("[ルーティン: name]"); a short label, not a document. */
 export const ROUTINE_MAX_NAME_CHARS = 100;
+/** Desktop通知の本文に載せる返信プレビューの上限（コードポイント）。 */
+export const ROUTINE_MAX_PREVIEW_CHARS = 120;
+
+/**
+ * 完了したルーティン実行を、BotView を開いていない画面にも届けるための in-process バス。
+ * 購読側は `/api/bots/events`（SSE）で WebUI へ転送する。
+ */
+const ROUTINE_RUN_EVENT = "__bot_routine_run__";
+function routineRunBus(): EventEmitter {
+  const holder = globalThis as typeof globalThis & { __leafcodeRoutineRunBus?: EventEmitter };
+  return (holder.__leafcodeRoutineRunBus ??= new EventEmitter());
+}
+export function subscribeRoutineRuns(listener: (event: RoutineRunEventDto) => void): () => void {
+  const bus = routineRunBus();
+  bus.on(ROUTINE_RUN_EVENT, listener);
+  return () => { bus.off(ROUTINE_RUN_EVENT, listener); };
+}
+function publishRoutineRun(event: RoutineRunEventDto): void {
+  routineRunBus().emit(ROUTINE_RUN_EVENT, event);
+}
+/** 通知本文用の1行プレビュー。改行・連続空白は詰め、長文は切る。 */
+function previewOf(message: UiMessage | undefined): string | null {
+  const text = (message?.parts ?? [])
+    .filter((part) => part.type === "text")
+    .map((part) => part.text)
+    .join("");
+  const compact = text.replace(/\s+/g, " ").trim();
+  if (!compact) return null;
+  const chars = Array.from(compact);
+  return chars.length > ROUTINE_MAX_PREVIEW_CHARS
+    ? `${chars.slice(0, ROUTINE_MAX_PREVIEW_CHARS - 1).join("")}\u2026`
+    : compact;
+}
 const routineRuns = new Map<string, Promise<unknown>>();
 const ROUTINE_LOCK_STALE_MS = 30_000;
 /** Cross-worker run claim; long enough for a Bot prompt to finish. */
@@ -205,6 +239,11 @@ export async function runRoutine(botId: string, routineId: string): Promise<Rout
           updatedAt: new Date().toISOString(),
         }));
         if (!updated) throw new Error("Routine was deleted");
+        publishRoutineRun({
+          botId, botName: bot.name, routineId, routineName: routine.name,
+          ok: true, at: updated.lastRunAt ?? new Date().toISOString(),
+          preview: previewOf(latest), error: null, failureCount: 0, autoDisabled: false,
+        });
         return updated;
       } catch (error) {
         if (isTransientRoutineStartError(error)) throw error;
@@ -218,8 +257,14 @@ export async function runRoutine(botId: string, routineId: string): Promise<Rout
           };
         });
         if (!updated) throw error;
+        const message = error instanceof Error ? error.message : String(error);
+        publishRoutineRun({
+          botId, botName: bot.name, routineId, routineName: routine.name,
+          ok: false, at: new Date().toISOString(), preview: null, error: message,
+          failureCount: updated.failureCount, autoDisabled: !updated.enabled,
+        });
         const suffix = updated.failureCount >= ROUTINE_MAX_FAILURES ? "（連続失敗のため自動的に無効化しました）" : "";
-        throw new Error(`${error instanceof Error ? error.message : String(error)}${suffix}`);
+        throw new Error(`${message}${suffix}`);
       }
     } finally {
       rmSync(claim, { recursive: true, force: true });

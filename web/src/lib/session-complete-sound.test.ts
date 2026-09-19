@@ -112,6 +112,27 @@ describe("session-complete-sound", () => {
     ).toHaveBeenCalledWith(0.54, 0.02);
   });
 
+  it("keeps the Code and Bot completion sounds independent", () => {
+    // Bot の既定は clear（triangle, 1046Hz）。Code は standard のまま。
+    playSessionCompleteSound("code");
+    playSessionCompleteSound("bot");
+
+    const code = MockAudioContext.instances[0]!;
+    expect(code.oscillators[0]?.type).toBe("sine");
+    expect(code.oscillators[0]?.frequency.setValueAtTime).toHaveBeenCalledWith(880, 0);
+
+    const bot = MockAudioContext.instances[1]!;
+    expect(bot.oscillators[0]?.type).toBe("triangle");
+    expect(bot.oscillators[0]?.frequency.setValueAtTime).toHaveBeenCalledWith(1046, 0);
+
+    // Bot の種類を変えても Code 側は変わらない。
+    writeNotificationSoundType("soft", "bot");
+    playSessionCompleteSound("bot");
+    expect(
+      MockAudioContext.instances[2]?.oscillators[0]?.frequency.setValueAtTime,
+    ).toHaveBeenCalledWith(660, 0);
+  });
+
   it("scales both notification sounds by the configured volume", () => {
     writeNotificationSoundVolume(50);
     playSessionCompleteSound();

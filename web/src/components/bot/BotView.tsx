@@ -31,6 +31,7 @@ import { QuestionCard } from "@/components/task/QuestionCard";
 import { ToolCard } from "@/components/task/PartView";
 import { markRead } from "@/lib/bot-unread";
 import { decideNotification } from "@/lib/notify";
+import { playAttentionRequiredSound, playSessionCompleteSound } from "@/lib/session-complete-sound";
 import { cancelPendingSseReconnect, closeSseSource, sseReconnectDelayMs } from "@/lib/sse-reconnect";
 import { messageRenderKey, stabilizeUiMessages, upsertUiMessage } from "@/lib/stabilize-messages";
 import { loadTaskSessionCache, saveTaskSessionCache, type TaskSessionCacheSnapshot } from "@/lib/task-session-cache";
@@ -476,6 +477,7 @@ export const BotView = memo(function BotView({ id, active = true }: { id: string
   }, [active, id, messages]);
   // A Bot that finishes answering while you are on another tab should still reach you. The per-Bot
   // notification toggle decides whether this Bot may interrupt you at all.
+  const attentionNow = Boolean(permission || question);
   const prevAttentionRef = useRef(false);
   const prevWorkingRef = useRef(false);
   const notificationBotIdRef = useRef(id);
@@ -487,7 +489,6 @@ export const BotView = memo(function BotView({ id, active = true }: { id: string
       return;
     }
     if (typeof Notification === "undefined" || !bot) return;
-    const attentionNow = Boolean(permission || question);
     const kind = decideNotification({
       prevAttention: prevAttentionRef.current, attention: attentionNow,
       prevWorking: prevWorkingRef.current, working: sending,
@@ -498,7 +499,24 @@ export const BotView = memo(function BotView({ id, active = true }: { id: string
     prevWorkingRef.current = sending;
     // One notification per Bot replaces the previous one instead of stacking.
     if (kind && notificationsEnabled) new Notification(kind === "attention" ? "承認が必要です" : "新しい返信があります", { body: bot.name, tag: `bot-${id}` });
-  }, [bot, id, notificationsEnabled, permission, question, sending]);
+  }, [attentionNow, bot, id, notificationsEnabled, sending]);
+  // 通知音：Bot側は専用の種類を使う（設定でCodeと分けられる）。
+  // 入力待ちを含む1ターンで二重に鳴らさないため、各エッジを独立に見る。
+  const prevWorkingSoundRef = useRef(sending);
+  const prevAttentionSoundRef = useRef(attentionNow);
+  const soundBotIdRef = useRef(id);
+  useEffect(() => {
+    if (soundBotIdRef.current !== id) {
+      soundBotIdRef.current = id;
+      prevWorkingSoundRef.current = sending;
+      prevAttentionSoundRef.current = attentionNow;
+      return;
+    }
+    if (prevWorkingSoundRef.current && !sending) playSessionCompleteSound("bot");
+    prevWorkingSoundRef.current = sending;
+    if (!prevAttentionSoundRef.current && attentionNow) playAttentionRequiredSound();
+    prevAttentionSoundRef.current = attentionNow;
+  }, [attentionNow, id, sending]);
   const prevIntercomUnreadRef = useRef<number | null>(null);
   const intercomNotifyBotIdRef = useRef(id);
   useEffect(() => {

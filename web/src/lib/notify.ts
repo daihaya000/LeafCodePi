@@ -36,3 +36,33 @@ export function notificationText(
     ? { title: "承認が必要です", body: name }
     : { title: "タスクが完了しました", body: name };
 }
+
+/** ルーティン実行結果の通知文言。失敗は理由、成功は返信の頭を見せる。 */
+export function routineRunNotificationText(run: {
+  botName: string;
+  routineName: string;
+  ok: boolean;
+  preview?: string | null;
+  error?: string | null;
+  autoDisabled?: boolean;
+}): { title: string; body: string } {
+  const label = `${run.botName || "Bot"}・${run.routineName || "ルーティン"}`;
+  if (run.ok) {
+    return {
+      title: "ルーティン完了",
+      body: run.preview ? `${label}\n${run.preview}` : label,
+    };
+  }
+  return {
+    title: run.autoDisabled ? "ルーティン失敗（自動無効化）" : "ルーティン失敗",
+    body: `${label}\n${run.error || "実行に失敗しました"}`,
+  };
+}
+
+/** Bot タブを開いている画面では BotView が音と通知を担うので、全体通知は出さない。 */
+export function isRoutineRunHandledInline(
+  pathname: string | null | undefined,
+  botId: string,
+): boolean {
+  return Boolean(botId) && pathname === `/bots/${botId}`;
+}

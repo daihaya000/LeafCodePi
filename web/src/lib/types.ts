@@ -12,6 +12,8 @@ export type ThinkingLevel =
 export const NO_PROJECT_NAME = "プロジェクトなし";
 /** SSE marker emitted on the Bot conversation when an owned Code request settles. */
 export const BOT_CODE_SESSION_CHANGED_EVENT = "code_session_changed";
+/** SSE event name carrying a finished Bot routine run (`/api/bots/events`). */
+export const BOT_ROUTINE_RUN_EVENT = "routine";
 
 export type BotSkillsConfig = {
   mode: "inherit" | "include" | "exclude";
@@ -126,6 +128,26 @@ export type RoutineDto = {
   updatedAt: string;
   failureCount: number;
   lastRunAt: string | null;
+};
+
+/**
+ * ルーティン1回の実行結果。BotView を開いていない画面にも通知するため、
+ * サーバーから `/api/bots/events` で配る。
+ */
+export type RoutineRunEventDto = {
+  botId: string;
+  botName: string;
+  routineId: string;
+  routineName: string;
+  ok: boolean;
+  at: string;
+  /** 成功時の返信プレビュー（1行・長さ制限あり）。 */
+  preview: string | null;
+  /** 失敗時の理由。 */
+  error: string | null;
+  failureCount: number;
+  /** 連続失敗で自動無効化されたか。 */
+  autoDisabled: boolean;
 };
 
 export type BotDto = {

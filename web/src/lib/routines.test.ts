@@ -6,7 +6,8 @@ const state = vi.hoisted(() => ({ root: "", promptTask: vi.fn(), getTaskDetail: 
 vi.mock("./paths", async (importOriginal) => { const actual = await importOriginal<typeof import("./paths")>(); return { ...actual, dataDir: () => state.root, storePath: () => join(state.root, "store.json") }; });
 vi.mock("./pi/harness", () => ({ promptTask: state.promptTask, getTaskDetail: state.getTaskDetail }));
 import { createBot } from "./bots";
-import { createRoutine, cronMatches, deleteRoutine, getRoutine, listRoutines, parseCron, patchRoutine, ROUTINE_MAX_ENABLED, ROUTINE_MAX_NAME_CHARS, ROUTINE_MAX_PROMPT_CHARS, runRoutine, tickRoutines, validateRoutineSchedule } from "./routines";
+import { createRoutine, cronMatches, deleteRoutine, getRoutine, listRoutines, parseCron, patchRoutine, ROUTINE_MAX_ENABLED, ROUTINE_MAX_NAME_CHARS, ROUTINE_MAX_PROMPT_CHARS, runRoutine, subscribeRoutineRuns, tickRoutines, validateRoutineSchedule } from "./routines";
+import type { RoutineRunEventDto } from "./types";
 
 describe("routine cron and persistence", () => {
   let root = "";
@@ -249,6 +250,51 @@ describe("routine cron and persistence", () => {
       failureCount: 0,
       lastRunAt: null,
     });
+  });
+
+  it("publishes a run event for the global routine notification", async () => {
+    const bot = createBot({ name: "Routine bot" });
+    const routine = createRoutine(bot.id, { name: "Hourly", prompt: "Check status", schedule: "0 * * * *" });
+    const events: RoutineRunEventDto[] = [];
+    const unsubscribe = subscribeRoutineRuns((event) => events.push(event));
+    try {
+      state.promptTask.mockResolvedValueOnce(undefined);
+      state.getTaskDetail.mockResolvedValueOnce({
+        status: "idle",
+        messages: [{ id: "m1", role: "assistant", createdAt: 1, parts: [{ id: "p1", type: "text", text: "  Checking\nstatus  " }] }],
+      });
+
+      await runRoutine(bot.id, routine.id);
+
+      expect(events).toHaveLength(1);
+      expect(events[0]).toMatchObject({
+        botId: bot.id,
+        botName: "Routine bot",
+        routineId: routine.id,
+        routineName: "Hourly",
+        ok: true,
+        preview: "Checking status",
+        error: null,
+        failureCount: 0,
+        autoDisabled: false,
+      });
+      expect(events[0]?.at).toBeTruthy();
+
+      // 失敗も通知する（BotViewを開いていないと何も届かなかった）。
+      state.promptTask.mockRejectedValueOnce(new Error("プロバイダが応答しません"));
+      await expect(runRoutine(bot.id, routine.id)).rejects.toThrow("プロバイダが応答しません");
+
+      expect(events).toHaveLength(2);
+      expect(events[1]).toMatchObject({
+        ok: false,
+        error: "プロバイダが応答しません",
+        preview: null,
+        failureCount: 1,
+        autoDisabled: false,
+      });
+    } finally {
+      unsubscribe();
+    }
   });
 
   it("persists routine fields under the bot home", () => {

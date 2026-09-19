@@ -2,23 +2,49 @@ import { createSettingSync } from "./setting-sync";
 
 export type NotificationSoundType = "standard" | "soft" | "clear";
 
+/**
+ * 完了音の系統。Code（タスク）と Bot（1:1・ルーティン）で別の音を選べる。
+ * 注意音（承認・質問）は共有で、code 側の種類を使う。
+ */
+export type NotificationSoundChannel = "code" | "bot";
+
 export const NOTIFICATION_SOUND_TYPE_SETTING_KEY = "notification-sound-type";
+export const NOTIFICATION_SOUND_BOT_TYPE_SETTING_KEY = "notification-sound-type-bot";
 export const NOTIFICATION_SOUND_VOLUME_SETTING_KEY = "notification-sound-volume";
 export const NOTIFICATION_SOUND_EVENT = "webui:notification-sound";
 
 export const DEFAULT_NOTIFICATION_SOUND_TYPE: NotificationSoundType = "standard";
+/** Bot 側の既定は Code と耳で区別できる音にする。 */
+export const DEFAULT_BOT_NOTIFICATION_SOUND_TYPE: NotificationSoundType = "clear";
 export const DEFAULT_NOTIFICATION_SOUND_VOLUME = 100;
 export const MIN_NOTIFICATION_SOUND_VOLUME = 0;
 export const MAX_NOTIFICATION_SOUND_VOLUME = 200;
 
-const TYPE_STORAGE_KEY = "webui:notification-sound-type";
+/** 種類と音量のまとまり。サーバー同期・localStorage はこの単位で扱う。 */
+export type NotificationSoundSettings = {
+  code: NotificationSoundType;
+  bot: NotificationSoundType;
+  volume: number;
+};
+
+const TYPE_STORAGE_KEYS: Record<NotificationSoundChannel, string> = {
+  code: "webui:notification-sound-type",
+  bot: "webui:notification-sound-type-bot",
+};
 const VOLUME_STORAGE_KEY = "webui:notification-sound-volume";
 
-const typeSync = createSettingSync({
-  storageKey: TYPE_STORAGE_KEY,
-  serverPath: `/api/settings/${NOTIFICATION_SOUND_TYPE_SETTING_KEY}`,
-  eventName: NOTIFICATION_SOUND_EVENT,
-});
+const typeSyncs: Record<NotificationSoundChannel, ReturnType<typeof createSettingSync>> = {
+  code: createSettingSync({
+    storageKey: TYPE_STORAGE_KEYS.code,
+    serverPath: `/api/settings/${NOTIFICATION_SOUND_TYPE_SETTING_KEY}`,
+    eventName: NOTIFICATION_SOUND_EVENT,
+  }),
+  bot: createSettingSync({
+    storageKey: TYPE_STORAGE_KEYS.bot,
+    serverPath: `/api/settings/${NOTIFICATION_SOUND_BOT_TYPE_SETTING_KEY}`,
+    eventName: NOTIFICATION_SOUND_EVENT,
+  }),
+};
 
 const volumeSync = createSettingSync({
   storageKey: VOLUME_STORAGE_KEY,
@@ -41,6 +67,14 @@ export function isNotificationSoundType(
   );
 }
 
+export function defaultNotificationSoundType(
+  channel: NotificationSoundChannel = "code",
+): NotificationSoundType {
+  return channel === "bot"
+    ? DEFAULT_BOT_NOTIFICATION_SOUND_TYPE
+    : DEFAULT_NOTIFICATION_SOUND_TYPE;
+}
+
 export function clampNotificationSoundVolume(value: number): number {
   if (!Number.isFinite(value)) return DEFAULT_NOTIFICATION_SOUND_VOLUME;
   return Math.min(
@@ -49,11 +83,13 @@ export function clampNotificationSoundVolume(value: number): number {
   );
 }
 
-export function readNotificationSoundType(): NotificationSoundType {
-  const raw = typeSync.read();
+export function readNotificationSoundType(
+  channel: NotificationSoundChannel = "code",
+): NotificationSoundType {
+  const raw = typeSyncs[channel].read();
   return isNotificationSoundType(raw)
     ? raw
-    : DEFAULT_NOTIFICATION_SOUND_TYPE;
+    : defaultNotificationSoundType(channel);
 }
 
 export function readNotificationSoundVolume(): number {
@@ -65,8 +101,21 @@ export function readNotificationSoundVolume(): number {
     : DEFAULT_NOTIFICATION_SOUND_VOLUME;
 }
 
-export function writeNotificationSoundType(type: NotificationSoundType): void {
-  typeSync.write(isNotificationSoundType(type) ? type : DEFAULT_NOTIFICATION_SOUND_TYPE);
+export function readNotificationSoundSettings(): NotificationSoundSettings {
+  return {
+    code: readNotificationSoundType("code"),
+    bot: readNotificationSoundType("bot"),
+    volume: readNotificationSoundVolume(),
+  };
+}
+
+export function writeNotificationSoundType(
+  type: NotificationSoundType,
+  channel: NotificationSoundChannel = "code",
+): void {
+  typeSyncs[channel].write(
+    isNotificationSoundType(type) ? type : defaultNotificationSoundType(channel),
+  );
 }
 
 export function writeNotificationSoundVolume(value: number): void {
@@ -78,7 +127,8 @@ export function subscribeNotificationSound(listener: () => void): () => void {
 
   const onStorage = (event: StorageEvent) => {
     if (
-      event.key === TYPE_STORAGE_KEY ||
+      event.key === TYPE_STORAGE_KEYS.code ||
+      event.key === TYPE_STORAGE_KEYS.bot ||
       event.key === VOLUME_STORAGE_KEY ||
       event.key === null
     ) {
@@ -95,25 +145,38 @@ export function subscribeNotificationSound(listener: () => void): () => void {
 }
 
 export async function syncNotificationSoundToServer(
-  type: NotificationSoundType,
-  volume: number,
+  settings: NotificationSoundSettings,
 ): Promise<void> {
-  await typeSync.writeToServer(
-    isNotificationSoundType(type) ? type : DEFAULT_NOTIFICATION_SOUND_TYPE,
+  await typeSyncs.code.writeToServer(
+    isNotificationSoundType(settings.code)
+      ? settings.code
+      : DEFAULT_NOTIFICATION_SOUND_TYPE,
   );
-  await volumeSync.writeToServer(String(clampNotificationSoundVolume(volume)));
+  await typeSyncs.bot.writeToServer(
+    isNotificationSoundType(settings.bot)
+      ? settings.bot
+      : DEFAULT_BOT_NOTIFICATION_SOUND_TYPE,
+  );
+  await volumeSync.writeToServer(String(clampNotificationSoundVolume(settings.volume)));
 }
 
 export async function readNotificationSoundFromServer(): Promise<{
-  type?: NotificationSoundType;
+  code?: NotificationSoundType;
+  bot?: NotificationSoundType;
   volume?: number;
 }> {
-  const [typeRaw, volumeRaw] = await Promise.all([
-    typeSync.readFromServer(),
+  const [codeRaw, botRaw, volumeRaw] = await Promise.all([
+    typeSyncs.code.readFromServer(),
+    typeSyncs.bot.readFromServer(),
     volumeSync.readFromServer(),
   ]);
-  const result: { type?: NotificationSoundType; volume?: number } = {};
-  if (isNotificationSoundType(typeRaw)) result.type = typeRaw;
+  const result: {
+    code?: NotificationSoundType;
+    bot?: NotificationSoundType;
+    volume?: number;
+  } = {};
+  if (isNotificationSoundType(codeRaw)) result.code = codeRaw;
+  if (isNotificationSoundType(botRaw)) result.bot = botRaw;
 
   const volume = Number(volumeRaw);
   if (volumeRaw !== null && Number.isFinite(volume)) {
@@ -125,27 +188,30 @@ export async function readNotificationSoundFromServer(): Promise<{
 /** Reconcile the browser copy with the durable settings-table backup. */
 export async function reconcileNotificationSound(): Promise<void> {
   const server = await readNotificationSoundFromServer();
-  if (server.type !== undefined || server.volume !== undefined) {
-    if (server.type !== undefined && server.type !== readNotificationSoundType()) {
-      writeNotificationSoundType(server.type);
-    }
-    if (
-      server.volume !== undefined &&
-      server.volume !== readNotificationSoundVolume()
-    ) {
-      writeNotificationSoundVolume(server.volume);
-    }
+  const local = readNotificationSoundSettings();
+  const next: NotificationSoundSettings = { ...local };
+  if (server.code !== undefined && server.code !== local.code) next.code = server.code;
+  if (server.bot !== undefined && server.bot !== local.bot) next.bot = server.bot;
+  if (server.volume !== undefined && server.volume !== local.volume) {
+    next.volume = server.volume;
+  }
+
+  if (
+    next.code !== local.code ||
+    next.bot !== local.bot ||
+    next.volume !== local.volume
+  ) {
+    if (next.code !== local.code) writeNotificationSoundType(next.code, "code");
+    if (next.bot !== local.bot) writeNotificationSoundType(next.bot, "bot");
+    if (next.volume !== local.volume) writeNotificationSoundVolume(next.volume);
     return;
   }
 
-  const type = readNotificationSoundType();
-  const volume = readNotificationSoundVolume();
-  if (
-    type !== DEFAULT_NOTIFICATION_SOUND_TYPE ||
-    volume !== DEFAULT_NOTIFICATION_SOUND_VOLUME
-  ) {
-    await syncNotificationSoundToServer(type, volume);
-  }
+  const customized =
+    local.code !== DEFAULT_NOTIFICATION_SOUND_TYPE ||
+    local.bot !== DEFAULT_BOT_NOTIFICATION_SOUND_TYPE ||
+    local.volume !== DEFAULT_NOTIFICATION_SOUND_VOLUME;
+  if (customized) await syncNotificationSoundToServer(local);
 }
 
 export function notificationSoundTypeLabel(type: NotificationSoundType): string {

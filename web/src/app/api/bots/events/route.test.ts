@@ -3,13 +3,20 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   listener: undefined as ((payload: Record<string, unknown>) => void) | undefined,
+  routineListener: undefined as ((payload: Record<string, unknown>) => void) | undefined,
   unsubscribe: vi.fn(),
+  routineUnsubscribe: vi.fn(),
   subscribe: vi.fn((listener: (payload: Record<string, unknown>) => void) => {
     mocks.listener = listener;
     return mocks.unsubscribe;
   }),
+  subscribeRoutineRuns: vi.fn((listener: (payload: Record<string, unknown>) => void) => {
+    mocks.routineListener = listener;
+    return mocks.routineUnsubscribe;
+  }),
 }));
 vi.mock("@/lib/pi/harness", () => ({ subscribeBotCodeSession: mocks.subscribe }));
+vi.mock("@/lib/routines", () => ({ subscribeRoutineRuns: mocks.subscribeRoutineRuns }));
 
 import { GET } from "./route";
 
@@ -37,6 +44,7 @@ async function readEvent(response: Response): Promise<{ event: string; data: Rec
 beforeEach(() => {
   vi.clearAllMocks();
   mocks.listener = undefined;
+  mocks.routineListener = undefined;
 });
 
 describe("GET /api/bots/events", () => {
@@ -50,5 +58,22 @@ describe("GET /api/bots/events", () => {
     });
     expect(mocks.subscribe).toHaveBeenCalledTimes(1);
     expect(mocks.unsubscribe).toHaveBeenCalledTimes(1);
+  });
+
+  it("forwards finished routine runs as their own event", async () => {
+    const response = await GET(new NextRequest("http://localhost/api/bots/events"));
+    mocks.routineListener?.({
+      botId: "bot-1",
+      routineName: "朝の確認",
+      ok: false,
+      error: "プロバイダが応答しません",
+    });
+
+    await expect(readEvent(response)).resolves.toMatchObject({
+      event: "routine",
+      data: { botId: "bot-1", routineName: "朝の確認", ok: false },
+    });
+    expect(mocks.subscribeRoutineRuns).toHaveBeenCalledTimes(1);
+    expect(mocks.routineUnsubscribe).toHaveBeenCalledTimes(1);
   });
 });

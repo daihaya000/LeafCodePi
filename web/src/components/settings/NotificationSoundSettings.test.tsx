@@ -41,12 +41,15 @@ describe("NotificationSoundSettings", () => {
     // SSR相当（useEffect非実行）は既定値のまま。
     const html = renderToStaticMarkup(<NotificationSoundSettings />);
     expect(html).toContain('value="standard" selected=""');
+    expect(html).toContain('value="clear" selected=""');
     expect(html).toContain('aria-valuetext="100%"');
 
     // hydrate相当（mount後）はlocalStorageの保存値へ切り替わる。
     render(<NotificationSoundSettings />);
     await waitFor(() => {
-      expect((screen.getByLabelText("通知音の種類") as HTMLSelectElement).value).toBe("soft");
+      expect(
+        (screen.getByLabelText("Codeの通知音の種類") as HTMLSelectElement).value,
+      ).toBe("soft");
       expect(screen.getByText("35%")).toBeTruthy();
     });
   });
@@ -56,8 +59,12 @@ describe("NotificationSoundSettings", () => {
 
     expect(screen.getByRole("heading", { name: "通知音" })).toBeTruthy();
     expect(
-      (screen.getByLabelText("通知音の種類") as HTMLSelectElement).value,
+      (screen.getByLabelText("Codeの通知音の種類") as HTMLSelectElement).value,
     ).toBe("standard");
+    // Botは既定でCodeと別の音にして、耳で区別できるようにする。
+    expect(
+      (screen.getByLabelText("Botの通知音の種類") as HTMLSelectElement).value,
+    ).toBe("clear");
     expect(
       (screen.getByLabelText("通知音の音量") as HTMLInputElement).value,
     ).toBe("100");
@@ -70,14 +77,18 @@ describe("NotificationSoundSettings", () => {
   it("persists sound type and volume changes immediately", () => {
     render(<NotificationSoundSettings />);
 
-    fireEvent.change(screen.getByLabelText("通知音の種類"), {
+    fireEvent.change(screen.getByLabelText("Codeの通知音の種類"), {
       target: { value: "soft" },
+    });
+    fireEvent.change(screen.getByLabelText("Botの通知音の種類"), {
+      target: { value: "standard" },
     });
     fireEvent.change(screen.getByLabelText("通知音の音量"), {
       target: { value: "35" },
     });
 
     expect(localStorage.getItem("webui:notification-sound-type")).toBe("soft");
+    expect(localStorage.getItem("webui:notification-sound-type-bot")).toBe("standard");
     expect(localStorage.getItem("webui:notification-sound-volume")).toBe("35");
     expect(screen.getByText("35%")).toBeTruthy();
   });
@@ -88,24 +99,23 @@ describe("NotificationSoundSettings", () => {
       target: { value: "0" },
     });
 
-    expect(
-      (screen.getByRole("button", { name: "完了音を再生" }) as HTMLButtonElement)
-        .disabled,
-    ).toBe(true);
-    expect(
-      (screen.getByRole("button", { name: "注意音を再生" }) as HTMLButtonElement)
-        .disabled,
-    ).toBe(true);
+    for (const label of ["Code完了音", "Bot完了音", "注意音"]) {
+      expect(
+        (screen.getByRole("button", { name: label }) as HTMLButtonElement).disabled,
+      ).toBe(true);
+    }
     expect(screen.getByText(/音量が0%/)).toBeTruthy();
   });
 
   it("plays each preview from an explicit user action", () => {
     render(<NotificationSoundSettings />);
 
-    fireEvent.click(screen.getByRole("button", { name: "完了音を再生" }));
-    fireEvent.click(screen.getByRole("button", { name: "注意音を再生" }));
+    fireEvent.click(screen.getByRole("button", { name: "Code完了音" }));
+    fireEvent.click(screen.getByRole("button", { name: "Bot完了音" }));
+    fireEvent.click(screen.getByRole("button", { name: "注意音" }));
 
-    expect(playSessionCompleteSound).toHaveBeenCalledOnce();
+    expect(playSessionCompleteSound).toHaveBeenCalledWith("code");
+    expect(playSessionCompleteSound).toHaveBeenCalledWith("bot");
     expect(playAttentionRequiredSound).toHaveBeenCalledOnce();
   });
 });

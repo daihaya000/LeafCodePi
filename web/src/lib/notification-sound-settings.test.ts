@@ -10,9 +10,11 @@ vi.mock("./client", () => ({ getJson, sendJson }));
 
 import {
   clampNotificationSoundVolume,
+  DEFAULT_BOT_NOTIFICATION_SOUND_TYPE,
   DEFAULT_NOTIFICATION_SOUND_TYPE,
   DEFAULT_NOTIFICATION_SOUND_VOLUME,
   isNotificationSoundType,
+  readNotificationSoundSettings,
   readNotificationSoundType,
   readNotificationSoundVolume,
   reconcileNotificationSound,
@@ -33,8 +35,10 @@ describe("notification-sound-settings", () => {
     localStorage.clear();
   });
 
-  it("uses standard sound at full volume by default", () => {
+  it("uses standard sound for Code and clear for Bot at full volume by default", () => {
     expect(readNotificationSoundType()).toBe(DEFAULT_NOTIFICATION_SOUND_TYPE);
+    expect(readNotificationSoundType("bot")).toBe(DEFAULT_BOT_NOTIFICATION_SOUND_TYPE);
+    expect(DEFAULT_BOT_NOTIFICATION_SOUND_TYPE).not.toBe(DEFAULT_NOTIFICATION_SOUND_TYPE);
     expect(readNotificationSoundVolume()).toBe(DEFAULT_NOTIFICATION_SOUND_VOLUME);
   });
 
@@ -52,12 +56,26 @@ describe("notification-sound-settings", () => {
     expect(clampNotificationSoundVolume(42.6)).toBe(43);
   });
 
-  it("writes and reads the browser settings", () => {
+  it("writes and reads the browser settings per channel", () => {
     writeNotificationSoundType("soft");
+    writeNotificationSoundType("standard", "bot");
     writeNotificationSoundVolume(35);
 
     expect(readNotificationSoundType()).toBe("soft");
-    expect(readNotificationSoundVolume()).toBe(35);
+    expect(readNotificationSoundType("bot")).toBe("standard");
+    expect(readNotificationSoundSettings()).toEqual({
+      code: "soft",
+      bot: "standard",
+      volume: 35,
+    });
+  });
+
+  it("falls back to each channel default when the stored value is invalid", () => {
+    writeNotificationSoundType("loud" as never);
+    writeNotificationSoundType("loud" as never, "bot");
+
+    expect(readNotificationSoundType()).toBe(DEFAULT_NOTIFICATION_SOUND_TYPE);
+    expect(readNotificationSoundType("bot")).toBe(DEFAULT_BOT_NOTIFICATION_SOUND_TYPE);
   });
 
   it("notifies same-tab subscribers and supports unsubscribe", () => {
@@ -67,9 +85,12 @@ describe("notification-sound-settings", () => {
     writeNotificationSoundType("clear");
     expect(listener).toHaveBeenCalledOnce();
 
+    writeNotificationSoundType("standard", "bot");
+    expect(listener).toHaveBeenCalledTimes(2);
+
     unsubscribe();
     writeNotificationSoundVolume(20);
-    expect(listener).toHaveBeenCalledOnce();
+    expect(listener).toHaveBeenCalledTimes(2);
   });
 
   it("reconciles server values into the browser copy", async () => {
@@ -77,11 +98,13 @@ describe("notification-sound-settings", () => {
     writeNotificationSoundVolume(35);
     getJson
       .mockResolvedValueOnce({ value: "clear" })
+      .mockResolvedValueOnce({ value: "soft" })
       .mockResolvedValueOnce({ value: "70" });
 
     await reconcileNotificationSound();
 
     expect(readNotificationSoundType()).toBe("clear");
+    expect(readNotificationSoundType("bot")).toBe("soft");
     expect(readNotificationSoundVolume()).toBe(70);
     expect(sendJson).not.toHaveBeenCalled();
   });
@@ -99,14 +122,27 @@ describe("notification-sound-settings", () => {
       "PUT",
     );
     expect(sendJson).toHaveBeenCalledWith(
+      "/api/settings/notification-sound-type-bot",
+      { value: DEFAULT_BOT_NOTIFICATION_SOUND_TYPE },
+      "PUT",
+    );
+    expect(sendJson).toHaveBeenCalledWith(
       "/api/settings/notification-sound-volume",
       { value: "35" },
       "PUT",
     );
   });
 
-  it("sends both values when syncing to the server", async () => {
-    await syncNotificationSoundToServer("clear", 80);
+  it("does not write anything when the browser and server are both default", async () => {
+    getJson.mockResolvedValue({ value: null });
+
+    await reconcileNotificationSound();
+
+    expect(sendJson).not.toHaveBeenCalled();
+  });
+
+  it("syncs both channels and the shared volume to the server", async () => {
+    await syncNotificationSoundToServer({ code: "clear", bot: "standard", volume: 80 });
 
     expect(sendJson).toHaveBeenNthCalledWith(
       1,
@@ -116,6 +152,12 @@ describe("notification-sound-settings", () => {
     );
     expect(sendJson).toHaveBeenNthCalledWith(
       2,
+      "/api/settings/notification-sound-type-bot",
+      { value: "standard" },
+      "PUT",
+    );
+    expect(sendJson).toHaveBeenNthCalledWith(
+      3,
       "/api/settings/notification-sound-volume",
       { value: "80" },
       "PUT",

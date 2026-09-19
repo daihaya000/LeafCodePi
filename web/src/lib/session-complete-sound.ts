@@ -1,6 +1,7 @@
 import {
   readNotificationSoundType,
   readNotificationSoundVolume,
+  type NotificationSoundChannel,
   type NotificationSoundType,
 } from "@/lib/notification-sound-settings";
 
@@ -152,11 +153,13 @@ function createTone(
  * Play a short, non-blocking completion chime for a session busy/retry → idle
  * transition. Browsers may reject audio before a user gesture; this is best
  * effort and intentionally never surfaces errors to the UI.
+ *
+ * `channel` は音の系統（既定 code）。Bot 側は別の音を設定できる。
  */
-export function playSessionCompleteSound() {
+export function playSessionCompleteSound(channel: NotificationSoundChannel = "code") {
   const volumeMultiplier = readNotificationSoundVolume() / 100;
   if (volumeMultiplier <= 0) return;
-  const tone = SOUND_PROFILES[readNotificationSoundType()].completion;
+  const tone = SOUND_PROFILES[readNotificationSoundType(channel)].completion;
   withAudioContext((ctx, start) => [
     createTone(ctx, start, tone, volumeMultiplier),
   ]);

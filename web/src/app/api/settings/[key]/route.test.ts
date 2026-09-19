@@ -73,6 +73,19 @@ describe("/api/settings/[key]", () => {
     expect(settings.setSetting).toHaveBeenCalledWith("auto-jev-min-confidence", "0.75");
   });
 
+  it("accepts the Bot notification sound type and rejects unknown values", async () => {
+    const accepted = await PUT(request("notification-sound-type-bot", { value: "soft" }), {
+      params: Promise.resolve({ key: "notification-sound-type-bot" }),
+    });
+    const rejected = await PUT(request("notification-sound-type-bot", { value: "loud" }), {
+      params: Promise.resolve({ key: "notification-sound-type-bot" }),
+    });
+
+    expect(accepted.status).toBe(200);
+    expect(rejected.status).toBe(400);
+    expect(settings.setSetting).toHaveBeenCalledWith("notification-sound-type-bot", "soft");
+  });
+
   it("does not notify for rejected or unrelated settings", async () => {
     await PUT(request("compactionAction", { value: "invalid" }), {
       params: Promise.resolve({ key: "compactionAction" }),
