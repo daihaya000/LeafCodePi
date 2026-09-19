@@ -202,10 +202,14 @@ export function rewriteLlamaServerEffortPayload(
 /**
  * Ask the running llama-server what model id(s) it accepts.
  * Prefers loaded router models; falls back to the full catalog.
+ * `image` comes from the OpenAI-compatible capabilities list, which contains
+ * "multimodal" only while a vision projector (mmproj) is loaded.
  */
-export async function fetchLlamaServerModelIds(
+export type LlamaServerModelEntry = { id: string; status: string; image: boolean };
+
+export async function fetchLlamaServerModels(
   baseUrl = DEFAULT_LLAMA_SERVER_BASE,
-): Promise<string[]> {
+): Promise<LlamaServerModelEntry[]> {
   const root = baseUrl.replace(/\/$/, "").replace(/\/v1$/i, "");
   for (const path of ["/models", "/v1/models"]) {
     try {
@@ -226,14 +230,22 @@ export async function fetchLlamaServerModelIds(
             typeof (row as { status?: unknown }).status === "object"
               ? String((row as { status: { value?: unknown } }).status.value ?? "")
               : "";
-          return { id: id.trim(), status };
+          const rawCapabilities = (row as { capabilities?: unknown }).capabilities;
+          const capabilities = Array.isArray(rawCapabilities)
+            ? rawCapabilities.filter((value): value is string => typeof value === "string")
+            : [];
+          return {
+            id: id.trim(),
+            status,
+            image: capabilities.includes("multimodal"),
+          };
         })
-        .filter((row): row is { id: string; status: string } => Boolean(row));
+        .filter((row): row is LlamaServerModelEntry => Boolean(row));
       if (rows.length === 0) continue;
-      const loaded = rows.filter((r) => r.status === "loaded").map((r) => r.id);
+      const loaded = rows.filter((r) => r.status === "loaded");
       if (loaded.length > 0) return loaded;
       // Unloaded-only catalog: still return ids so sync can run after ensure-loaded.
-      return rows.map((r) => r.id);
+      return rows;
     } catch {
       /* try next path / fall through */
     }
@@ -241,8 +253,9 @@ export async function fetchLlamaServerModelIds(
   return [];
 }
 
-function buildModelRows(ids: string[], contextWindow: number): OpenAiModelRow[] {
-  return ids.map((id) => {
+function buildModelRows(entries: LlamaServerModelEntry[], contextWindow: number): OpenAiModelRow[] {
+  return entries.map((entry) => {
+    const id = entry.id;
     const ornith = isLlamaOrnithModel(id);
     const reasoning = ornith || isLlamaQwenReasoningModel(id);
     return {
@@ -255,7 +268,9 @@ function buildModelRows(ids: string[], contextWindow: number): OpenAiModelRow[] 
               ornith ? { ...LLAMA_ORNITH_THINKING_LEVEL_MAP } : { ...LLAMA_QWEN_THINKING_LEVEL_MAP },
           }
         : {}),
-      input: ["text"] as ("text" | "image")[],
+      // mmproj ロード中のみ llmama-server は "multimodal" を報告する。
+      // ここを落とすと Pi が送信時に画像をプレースホルダへ置換する。
+      input: entry.image ? ["text", "image"] : (["text"] as ("text" | "image")[]),
       contextWindow,
       maxTokens: Math.min(contextWindow, 32_768),
       cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
@@ -270,7 +285,7 @@ function buildModelRows(ids: string[], contextWindow: number): OpenAiModelRow[] 
 
 async function resolveModelRows(settings: LlamaServerSettings): Promise<OpenAiModelRow[]> {
   const contextWindow = settings.contextLength;
-  const live = await fetchLlamaServerModelIds(DEFAULT_LLAMA_SERVER_BASE);
+  const live = await fetchLlamaServerModels(DEFAULT_LLAMA_SERVER_BASE);
   if (live.length > 0) return buildModelRows(live, contextWindow);
   // 停止中（または /models 無応答）はモデルを1つも登録しない。modelFile からの推測 id を
   // 残すと、停止した llama-server がドロップダウンに選択できない項目として残る。

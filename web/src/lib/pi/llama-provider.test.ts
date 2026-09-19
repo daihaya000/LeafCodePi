@@ -3,7 +3,7 @@ import { describe, expect, it, vi, afterEach } from "vitest";
 import {
   appendLlamaServerSystemPrompt,
   displayName,
-  fetchLlamaServerModelIds,
+  fetchLlamaServerModels,
   isLlamaOrnithModel,
   isLlamaQwenReasoningModel,
   registerLlamaProviders,
@@ -26,7 +26,7 @@ afterEach(() => {
   vi.unstubAllEnvs();
 });
 
-describe("fetchLlamaServerModelIds", () => {
+describe("fetchLlamaServerModels", () => {
   it("reads ids from /models and prefers loaded", async () => {
     vi.stubGlobal(
       "fetch",
@@ -45,7 +45,34 @@ describe("fetchLlamaServerModelIds", () => {
         );
       }),
     );
-    await expect(fetchLlamaServerModelIds("http://127.0.0.1:8081")).resolves.toEqual(["ready-one"]);
+    await expect(fetchLlamaServerModels("http://127.0.0.1:8081")).resolves.toEqual([
+      { id: "ready-one", status: "loaded", image: false },
+    ]);
+  });
+
+  it("marks multimodal models so Pi accepts image input", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        new Response(
+          JSON.stringify({
+            data: [
+              {
+                id: "vision-model",
+                status: { value: "loaded" },
+                capabilities: ["completion", "multimodal"],
+              },
+              { id: "text-model", status: { value: "loaded" }, capabilities: ["completion"] },
+            ],
+          }),
+          { status: 200 },
+        ),
+      ),
+    );
+    await expect(fetchLlamaServerModels("http://127.0.0.1:8081")).resolves.toEqual([
+      { id: "vision-model", status: "loaded", image: true },
+      { id: "text-model", status: "loaded", image: false },
+    ]);
   });
 
   it("returns empty when the server is down", async () => {
@@ -55,7 +82,7 @@ describe("fetchLlamaServerModelIds", () => {
         throw new Error("ECONNREFUSED");
       }),
     );
-    await expect(fetchLlamaServerModelIds()).resolves.toEqual([]);
+    await expect(fetchLlamaServerModels()).resolves.toEqual([]);
   });
 });
 
@@ -92,10 +119,40 @@ describe("registerLlamaProviders", () => {
       "llama-server",
       expect.objectContaining({
         name: "llama-server",
-        models: [expect.objectContaining({ id: "local-model" })],
+        models: [expect.objectContaining({ id: "local-model", input: ["text"] })],
       }),
     );
     expect(process.env.LLAMA_BASE_URL).toBe("http://example.invalid");
+  });
+
+  it("registers image input for a multimodal (mmproj-loaded) model", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        new Response(
+          JSON.stringify({
+            data: [
+              {
+                id: "Qwen3.8-27B-Uncensored",
+                status: { value: "loaded" },
+                capabilities: ["completion", "multimodal"],
+              },
+            ],
+          }),
+          { status: 200 },
+        ),
+      ),
+    );
+    const registerProvider = vi.fn();
+
+    await registerLlamaProviders({ registerProvider });
+
+    expect(registerProvider).toHaveBeenCalledWith(
+      "llama-server",
+      expect.objectContaining({
+        models: [expect.objectContaining({ id: "Qwen3.8-27B-Uncensored", input: ["text", "image"] })],
+      }),
+    );
   });
 
   it("registers no models while the server is stopped, even with a configured model file", async () => {
