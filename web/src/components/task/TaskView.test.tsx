@@ -257,7 +257,8 @@ it("injects an extra prompt into a live Goal loop instead of refusing it", async
 
   const input = screen.getByRole("textbox", { name: "フォローアップ" });
   fireEvent.change(input, { target: { value: "追加の指示" } });
-  fireEvent.submit(screen.getByRole("form", { name: "フォローアップ" }));
+  // 送信ボタン自体が無効のままだと送れないため、押して送れることも固定する。
+  fireEvent.click(screen.getByRole("button", { name: "差し込みを送信" }));
 
   // ループは止めない: クライアント側キューではなく実行中ターンへの差し込みとして送る。
   await waitFor(() => expect(mocks.sendJson).toHaveBeenCalledWith(
