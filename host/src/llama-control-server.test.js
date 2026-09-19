@@ -136,6 +136,7 @@ test("POST /llama-server/start forwards empty effort and POSIX launch settings",
         specType: "draft-mtp",
         cacheTypeK: "q8_0",
         cacheTypeV: "f16",
+        loraPath: "repoA\\gguf\\bonsai-abliterate-lora.gguf",
       }),
     });
     assert.equal(res.status, 200);
@@ -151,6 +152,7 @@ test("POST /llama-server/start forwards empty effort and POSIX launch settings",
       cacheTypeK: "q8_0",
       cacheTypeV: "f16",
       mmprojPath: undefined,
+      loraPath: "repoA\\gguf\\bonsai-abliterate-lora.gguf",
     });
   } finally {
     await closeControlServer(server);

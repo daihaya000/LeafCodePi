@@ -91,6 +91,7 @@ describe("llama-server-settings", () => {
       cacheTypeK: "q8_0" as const,
       cacheTypeV: "q8_0" as const,
       mmprojPath: "repoA\\mmproj-model-BF16.gguf",
+      loraPath: "",
     };
     const raw = serializeLlamaServerSettings(settings);
     expect(parseLlamaServerSettings(raw)).toEqual(settings);
@@ -112,6 +113,7 @@ describe("llama-server-settings", () => {
       cacheTypeK: "",
       cacheTypeV: "",
       mmprojPath: "",
+      loraPath: "",
     });
   });
 
@@ -142,6 +144,18 @@ describe("llama-server-settings", () => {
     expect(ornithThinking?.label).toContain("思考つき");
     expect(ornithThinking?.settings).toEqual({
       effort: "",
+      specType: "",
+      contextLength: 131_072,
+      cacheTypeK: "q8_0",
+      cacheTypeV: "q8_0",
+    });
+
+    const orcaBonsai = findLlamaModelPreset(
+      "OrcaBonsai-27B-Uncensored\\Ternary-Bonsai-2-27B-PQ2_0.gguf",
+    );
+    expect(orcaBonsai?.key).toBe("orca-bonsai27");
+    expect(orcaBonsai?.settings).toEqual({
+      effort: "medium",
       specType: "",
       contextLength: 131_072,
       cacheTypeK: "q8_0",
@@ -220,14 +234,16 @@ describe("llama-server-settings", () => {
     expect(isSafeLlamaModelFile("repoA\\model.bin")).toBe(false);
   });
 
-  it("gates the vision projector path like a model file", () => {
+  it("gates the vision projector and LoRA paths like model files", () => {
     const base = { effort: "low", contextLength: 4096, parallel: 1 };
     expect(isLlamaServerSettings({ ...base, mmprojPath: "repoA\\mmproj-x.gguf" })).toBe(true);
     expect(isLlamaServerSettings({ ...base, mmprojPath: "" })).toBe(true);
     expect(isLlamaServerSettings({ ...base, mmprojPath: "repoA\\mmproj-x.gguf" }, "linux")).toBe(true);
+    expect(isLlamaServerSettings({ ...base, loraPath: "repoA\\bonsai-abliterate-lora.gguf" })).toBe(true);
     expect(isLlamaServerSettings({ ...base, mmprojPath: "..\\evil.gguf" })).toBe(false);
     expect(isLlamaServerSettings({ ...base, mmprojPath: "C:\\abs\\mmproj.gguf" })).toBe(false);
     expect(isLlamaServerSettings({ ...base, mmprojPath: "mmproj.bin" })).toBe(false);
+    expect(isLlamaServerSettings({ ...base, loraPath: "repoA\\adapter.bin" })).toBe(false);
     expect(isLlamaServerSettings({ ...base, mmprojPath: 'mmproj" & calc.gguf' }, "win32")).toBe(false);
   });
 

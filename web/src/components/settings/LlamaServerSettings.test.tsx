@@ -191,6 +191,44 @@ describe("LlamaServerSettings", () => {
     await waitFor(() => expect(select.value).toBe(mmproj));
   });
 
+  it("OrcaBonsai Visionプリセットが mmproj と LoRA を同時に設定する", async () => {
+    const model = "OrcaBonsai-27B-Uncensored\\Ternary-Bonsai-2-27B-PQ2_0.gguf";
+    const mmproj = "OrcaBonsai-27B-Uncensored\\Ternary-Bonsai-2-27B-mmproj-Q8_0.gguf";
+    const lora = "OrcaBonsai-27B-Uncensored\\gguf\\bonsai-abliterate-lora.gguf";
+    getJson.mockImplementation((path: string) => {
+      if (path === "/api/settings/llama-server-config") {
+        return Promise.resolve({ parsed: { ...DEFAULT_LLAMA_SERVER_SETTINGS } });
+      }
+      if (path === "/api/llama-server/models") {
+        return Promise.resolve({ models: [model], mmprojs: [mmproj], loras: [lora], defaultModel: null, dir: "D:\\models\\llm" });
+      }
+      if (path === "/api/llama-server/status") {
+        return Promise.resolve({ running: true, pid: 123, listeningPids: [123], health: "ok" });
+      }
+      return Promise.reject(new Error(`unexpected path: ${path}`));
+    });
+
+    render(<LlamaServerSettings />);
+    fireEvent.change(await screen.findByLabelText("使用するモデル"), { target: { value: "orca-bonsai27" } });
+    fireEvent.click(await screen.findByRole("button", { name: /詳細設定/ }));
+
+    const mmprojSelect = (await screen.findByLabelText("Vision projector (mmproj)")) as HTMLSelectElement;
+    const loraSelect = (await screen.findByLabelText("LoRA adapter（OrcaBonsai）")) as HTMLSelectElement;
+    await waitFor(() => {
+      expect(mmprojSelect.value).toBe(mmproj);
+      expect(loraSelect.value).toBe(lora);
+    });
+
+    await waitFor(() => {
+      const save = sendJson.mock.calls
+        .map((call) => call[1] as { value?: string })
+        .find((body) => body.value?.includes("bonsai-abliterate-lora.gguf"));
+      const parsed = JSON.parse(save?.value ?? "{}");
+      expect(parsed.mmprojPath).toBe(mmproj);
+      expect(parsed.loraPath).toBe(lora);
+    });
+  });
+
   it("非表示から再表示した直後は確認中に戻り、古い状態で起動・停止できない", async () => {
     const view = render(<LlamaServerSettings active />);
     await waitFor(() => {

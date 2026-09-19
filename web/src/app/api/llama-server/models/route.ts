@@ -65,8 +65,12 @@ function isNonFirstShard(name: string): boolean {
 /** Vision projectors are not launchable models; they are listed separately so
  *  the launch-model dropdown cannot resolve a family preset to e.g.
  *  "...GGUF\mmproj.gguf". */
-function isMmProj(name: string): boolean {
-  return /^mmproj/i.test(name);
+export function isMmProj(name: string): boolean {
+  return /mmproj/i.test(name);
+}
+
+export function isLora(name: string): boolean {
+  return /lora/i.test(name);
 }
 
 function collect(
@@ -75,6 +79,7 @@ function collect(
   depth: number,
   models: string[],
   mmprojs: string[],
+  loras: string[],
 ): void {
   let entries: fs.Dirent[];
   try {
@@ -85,7 +90,7 @@ function collect(
   for (const entry of entries) {
     const next = rel ? path.join(rel, entry.name) : entry.name;
     if (entry.isDirectory()) {
-      if (depth < MAX_DEPTH) collect(root, next, depth + 1, models, mmprojs);
+      if (depth < MAX_DEPTH) collect(root, next, depth + 1, models, mmprojs, loras);
     } else if (
       entry.isFile() &&
       entry.name.toLowerCase().endsWith(".gguf") &&
@@ -93,6 +98,8 @@ function collect(
     ) {
       if (isMmProj(entry.name)) {
         if (mmprojs.length < MAX_MODELS) mmprojs.push(next);
+      } else if (isLora(entry.name)) {
+        if (loras.length < MAX_MODELS) loras.push(next);
       } else if (models.length < MAX_MODELS) {
         models.push(next);
       }
@@ -107,7 +114,7 @@ export async function GET(req: NextRequest) {
   const requested = (req.nextUrl.searchParams.get("dir") ?? "").trim();
   const dir = requested || defaultModelDir(process.platform, process.env) || "";
   if (!dir) {
-    return NextResponse.json({ dir: null, models: [], mmprojs: [], defaultModel });
+    return NextResponse.json({ dir: null, models: [], mmprojs: [], loras: [], defaultModel });
   }
   if (!isSafeLlamaPathValue(dir, process.platform)) {
     return NextResponse.json(
@@ -135,10 +142,12 @@ export async function GET(req: NextRequest) {
 
   const models: string[] = [];
   const mmprojs: string[] = [];
-  collect(resolved, "", 0, models, mmprojs);
+  const loras: string[] = [];
+  collect(resolved, "", 0, models, mmprojs, loras);
   const byName = (a: string, b: string) =>
     a.localeCompare(b, undefined, { sensitivity: "base" });
   models.sort(byName);
   mmprojs.sort(byName);
-  return NextResponse.json({ dir: resolved, models, mmprojs, defaultModel });
+  loras.sort(byName);
+  return NextResponse.json({ dir: resolved, models, mmprojs, loras, defaultModel });
 }

@@ -9,7 +9,8 @@ rem   THREADS, THREADS_BATCH, BATCH_SIZE, UBATCH, SAMPLING_TEMP, TOP_P, TOP_K, M
 rem   SAMPLING_SEED, SAMPLING_REPEAT_LAST_N, SAMPLING_REPEAT_PENALTY,
 rem   SAMPLING_DRY_MULTIPLIER, SAMPLING_DRY_BASE, SAMPLING_DRY_ALLOWED_LENGTH,
 rem   SAMPLING_DRY_PENALTY_LAST_N, REASONING_BUDGET, REASONING_BUDGET_MESSAGE,
-rem   GPU_DEVICE, IMAGE_MIN_TOKENS (empty = omit --image-min-tokens)
+rem   GPU_DEVICE, IMAGE_MIN_TOKENS, IMAGE_MAX_TOKENS (empty = omit image flags),
+rem   LORA_FILE (modelDir-relative LoRA adapter GGUF, empty = no adapter)
 rem
 rem If MODEL_FILE is empty: router mode (--models-dir), then load a model.
 rem If MODEL_FILE is set: single-model mode (-m).
@@ -99,9 +100,19 @@ rem GPU_DEVICE overridable for Windows CUDA/Vulkan builds; see the pinning block
 set "DEVICE_ARGS="
 if not "%GPU_DEVICE%"=="" set "DEVICE_ARGS=--device %GPU_DEVICE%"
 set "REASONING_ARGS=--reasoning-budget %REASONING_BUDGET% --reasoning-budget-message "%REASONING_BUDGET_MESSAGE%""
-rem Image token floor. Set by the qwen3.8 block above; env IMAGE_MIN_TOKENS overrides.
+rem Image token controls. Qwen3.8 uses a minimum grounding floor; Bonsai
+rem uses a 1024-token maximum on Vulkan/CPU by default. Both are overridable.
 set "IMAGE_TOKENS_ARGS="
-if defined IMAGE_MIN_TOKENS if not "%IMAGE_MIN_TOKENS%"=="" set "IMAGE_TOKENS_ARGS=--image-min-tokens %IMAGE_MIN_TOKENS%"
+if defined IMAGE_MIN_TOKENS if not "%IMAGE_MIN_TOKENS%"=="" set "IMAGE_TOKENS_ARGS=%IMAGE_TOKENS_ARGS% --image-min-tokens %IMAGE_MIN_TOKENS%"
+echo(%MODEL_FILE%| findstr /i /c:"bonsai" /c:"orcabonsai" >nul
+if not errorlevel 1 if not defined IMAGE_MAX_TOKENS set "IMAGE_MAX_TOKENS=1024"
+if defined IMAGE_MAX_TOKENS if not "%IMAGE_MAX_TOKENS%"=="" if not "%IMAGE_MAX_TOKENS%"=="0" set "IMAGE_TOKENS_ARGS=%IMAGE_TOKENS_ARGS% --image-max-tokens %IMAGE_MAX_TOKENS%"
+rem LoRA adapter. The path is relative to MODEL_DIR, like MMPROJ_FILE.
+if not defined LORA_FILE set "LORA_FILE="
+set "LORA_PATH="
+if defined MODEL_FILE if not "%MODEL_FILE%"=="" if not "%LORA_FILE%"=="" set "LORA_PATH=%MODEL_DIR%\%LORA_FILE%"
+set "LORA_ARGS="
+if defined LORA_PATH set LORA_ARGS=--lora "%LORA_PATH%"
 set "PERF_ARGS=--split-mode none --fit off --no-host --threads %THREADS% --threads-batch %THREADS_BATCH% --gpu-layers all --n-cpu-moe 0 --flash-attn on --ctx-size %CONTEXT_LENGTH% --batch-size %BATCH_SIZE% --ubatch-size %UBATCH% --temp %SAMPLING_TEMP% --top-p %TOP_P% --top-k %TOP_K% --min-p %MIN_P% --seed %SAMPLING_SEED% --repeat-last-n %SAMPLING_REPEAT_LAST_N% --repeat-penalty %SAMPLING_REPEAT_PENALTY% --dry-multiplier %SAMPLING_DRY_MULTIPLIER% --dry-base %SAMPLING_DRY_BASE% --dry-allowed-length %SAMPLING_DRY_ALLOWED_LENGTH% --dry-penalty-last-n %SAMPLING_DRY_PENALTY_LAST_N% %REASONING_ARGS% %IMAGE_TOKENS_ARGS% --metrics"
 set "MODEL_ALIAS="
 
@@ -116,6 +127,8 @@ if /i "%~1"=="/dry-run" (
   echo [DRY-RUN] perf=%PERF_ARGS%
   echo [DRY-RUN] device=%DEVICE_ARGS%
   echo [DRY-RUN] spec=%SPEC_TYPE% draft-max=%DRAFT_MAX%
+  echo [DRY-RUN] image=%IMAGE_TOKENS_ARGS%
+  echo [DRY-RUN] lora=%LORA_ARGS%
   echo [DRY-RUN] endpoint=http://127.0.0.1:%SERVER_PORT%/v1
   exit /b 0
 )
@@ -172,15 +185,15 @@ goto :launch
 
 :launch
 if defined MMPROJ_PATH goto :launch_with_mmproj
-if "%LAUNCH_MODE%"=="single_kwargs" start "llama-server" /min cmd.exe /s /c ""%LLAMA_SERVER_BIN%" -m "%MODEL_PATH%" --alias "%MODEL_ALIAS%" --host %LLAMA_SERVER_HOST% --port %SERVER_PORT% -np %PARALLEL% %DEVICE_ARGS% %PERF_ARGS% %CACHE_ARGS% %SPEC_ARGS% --jinja --reasoning-effort %REASONING_EFFORT% >> "%LLAMA_SERVER_LOG%" 2>&1"
-if "%LAUNCH_MODE%"=="single_plain" start "llama-server" /min cmd.exe /s /c ""%LLAMA_SERVER_BIN%" -m "%MODEL_PATH%" --alias "%MODEL_ALIAS%" --host %LLAMA_SERVER_HOST% --port %SERVER_PORT% -np %PARALLEL% %DEVICE_ARGS% %PERF_ARGS% %CACHE_ARGS% %SPEC_ARGS% --jinja >> "%LLAMA_SERVER_LOG%" 2>&1"
-if "%LAUNCH_MODE%"=="router" start "llama-server" /min cmd.exe /s /c ""%LLAMA_SERVER_BIN%" --models-dir "%MODEL_DIR%" --host %LLAMA_SERVER_HOST% --port %SERVER_PORT% -np %PARALLEL% %DEVICE_ARGS% %PERF_ARGS% %CACHE_ARGS% %SPEC_ARGS% --jinja >> "%LLAMA_SERVER_LOG%" 2>&1"
+if "%LAUNCH_MODE%"=="single_kwargs" start "llama-server" /min cmd.exe /s /c ""%LLAMA_SERVER_BIN%" -m "%MODEL_PATH%" --alias "%MODEL_ALIAS%" --host %LLAMA_SERVER_HOST% --port %SERVER_PORT% -np %PARALLEL% %DEVICE_ARGS% %PERF_ARGS% %CACHE_ARGS% %SPEC_ARGS% %LORA_ARGS% --jinja --reasoning-effort %REASONING_EFFORT% >> "%LLAMA_SERVER_LOG%" 2>&1"
+if "%LAUNCH_MODE%"=="single_plain" start "llama-server" /min cmd.exe /s /c ""%LLAMA_SERVER_BIN%" -m "%MODEL_PATH%" --alias "%MODEL_ALIAS%" --host %LLAMA_SERVER_HOST% --port %SERVER_PORT% -np %PARALLEL% %DEVICE_ARGS% %PERF_ARGS% %CACHE_ARGS% %SPEC_ARGS% %LORA_ARGS% --jinja >> "%LLAMA_SERVER_LOG%" 2>&1"
+if "%LAUNCH_MODE%"=="router" start "llama-server" /min cmd.exe /s /c ""%LLAMA_SERVER_BIN%" --models-dir "%MODEL_DIR%" --host %LLAMA_SERVER_HOST% --port %SERVER_PORT% -np %PARALLEL% %DEVICE_ARGS% %PERF_ARGS% %CACHE_ARGS% %SPEC_ARGS% %LORA_ARGS% --jinja >> "%LLAMA_SERVER_LOG%" 2>&1"
 goto :wait_health
 
 :launch_with_mmproj
-if "%LAUNCH_MODE%"=="single_kwargs" start "llama-server" /min cmd.exe /s /c ""%LLAMA_SERVER_BIN%" -m "%MODEL_PATH%" --alias "%MODEL_ALIAS%" --host %LLAMA_SERVER_HOST% --port %SERVER_PORT% -np %PARALLEL% %DEVICE_ARGS% %PERF_ARGS% %CACHE_ARGS% %SPEC_ARGS% --mmproj "%MMPROJ_PATH%" --jinja --reasoning-effort %REASONING_EFFORT% >> "%LLAMA_SERVER_LOG%" 2>&1"
-if "%LAUNCH_MODE%"=="single_plain" start "llama-server" /min cmd.exe /s /c ""%LLAMA_SERVER_BIN%" -m "%MODEL_PATH%" --alias "%MODEL_ALIAS%" --host %LLAMA_SERVER_HOST% --port %SERVER_PORT% -np %PARALLEL% %DEVICE_ARGS% %PERF_ARGS% %CACHE_ARGS% %SPEC_ARGS% --mmproj "%MMPROJ_PATH%" --jinja >> "%LLAMA_SERVER_LOG%" 2>&1"
-if "%LAUNCH_MODE%"=="router" start "llama-server" /min cmd.exe /s /c ""%LLAMA_SERVER_BIN%" --models-dir "%MODEL_DIR%" --host %LLAMA_SERVER_HOST% --port %SERVER_PORT% -np %PARALLEL% %DEVICE_ARGS% %PERF_ARGS% %CACHE_ARGS% %SPEC_ARGS% --mmproj "%MMPROJ_PATH%" --jinja >> "%LLAMA_SERVER_LOG%" 2>&1"
+if "%LAUNCH_MODE%"=="single_kwargs" start "llama-server" /min cmd.exe /s /c ""%LLAMA_SERVER_BIN%" -m "%MODEL_PATH%" --alias "%MODEL_ALIAS%" --host %LLAMA_SERVER_HOST% --port %SERVER_PORT% -np %PARALLEL% %DEVICE_ARGS% %PERF_ARGS% %CACHE_ARGS% %SPEC_ARGS% %LORA_ARGS% --mmproj "%MMPROJ_PATH%" --jinja --reasoning-effort %REASONING_EFFORT% >> "%LLAMA_SERVER_LOG%" 2>&1"
+if "%LAUNCH_MODE%"=="single_plain" start "llama-server" /min cmd.exe /s /c ""%LLAMA_SERVER_BIN%" -m "%MODEL_PATH%" --alias "%MODEL_ALIAS%" --host %LLAMA_SERVER_HOST% --port %SERVER_PORT% -np %PARALLEL% %DEVICE_ARGS% %PERF_ARGS% %CACHE_ARGS% %SPEC_ARGS% %LORA_ARGS% --mmproj "%MMPROJ_PATH%" --jinja >> "%LLAMA_SERVER_LOG%" 2>&1"
+if "%LAUNCH_MODE%"=="router" start "llama-server" /min cmd.exe /s /c ""%LLAMA_SERVER_BIN%" --models-dir "%MODEL_DIR%" --host %LLAMA_SERVER_HOST% --port %SERVER_PORT% -np %PARALLEL% %DEVICE_ARGS% %PERF_ARGS% %CACHE_ARGS% %SPEC_ARGS% %LORA_ARGS% --mmproj "%MMPROJ_PATH%" --jinja >> "%LLAMA_SERVER_LOG%" 2>&1"
 
 :wait_health
 echo [llama-server] Waiting for the server to become healthy...

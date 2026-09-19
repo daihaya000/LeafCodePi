@@ -72,6 +72,8 @@ export type LlamaServerSettings = {
   cacheTypeV?: LlamaCacheType;
   /** Vision projector (mmproj) の GGUF。modelDir からの相対パス。"" = 画像入力なし。 */
   mmprojPath?: string;
+  /** LoRA adapter の GGUF。modelDir からの相対パス。"" = adapterなし。 */
+  loraPath?: string;
 };
 
 export const DEFAULT_LLAMA_SERVER_SETTINGS: LlamaServerSettings = {
@@ -87,6 +89,7 @@ export const DEFAULT_LLAMA_SERVER_SETTINGS: LlamaServerSettings = {
   cacheTypeK: "",
   cacheTypeV: "",
   mmprojPath: "",
+  loraPath: "",
 };
 
 export const LLAMA_SERVER_PATH_MAX_CHARS = 400;
@@ -176,7 +179,8 @@ export function isLlamaServerSettings(value: unknown, platform = runtimePlatform
       LLAMA_CACHE_TYPES.includes(candidate.cacheTypeK as LlamaCacheType)) &&
     (candidate.cacheTypeV === undefined ||
       LLAMA_CACHE_TYPES.includes(candidate.cacheTypeV as LlamaCacheType)) &&
-    (candidate.mmprojPath === undefined || isSafeLlamaModelFile(candidate.mmprojPath, platform))
+    (candidate.mmprojPath === undefined || isSafeLlamaModelFile(candidate.mmprojPath, platform)) &&
+    (candidate.loraPath === undefined || isSafeLlamaModelFile(candidate.loraPath, platform))
   );
 }
 
@@ -204,7 +208,13 @@ export function serializeLlamaServerSettings(value: LlamaServerSettings): string
 /** Recommended launch settings for a known local model family. */
 export type LlamaModelPreset = {
   /** Stable select value. */
-  key: "ornith" | "ornith-thinking" | "huihui-qwen38" | "qwen38-uncensored" | "qwen38";
+  key:
+    | "ornith"
+    | "ornith-thinking"
+    | "huihui-qwen38"
+    | "qwen38-uncensored"
+    | "qwen38"
+    | "orca-bonsai27";
   /** Matches the model file path (case-insensitive). */
   match: RegExp;
   label: string;
@@ -242,6 +252,17 @@ export const LLAMA_MODEL_PRESETS: readonly LlamaModelPreset[] = [
     label: "Huihui-Qwen3.8 27B（abliterated・最適化）",
     description: "MTP維持版。draft-mtp 推測デコード、effort low、KV キャッシュ K/V q8_0。131K コンテキスト。",
     settings: { effort: "low", specType: "draft-mtp", contextLength: 131_072, cacheTypeK: "q8_0", cacheTypeV: "q8_0" },
+  },
+  {
+    key: "orca-bonsai27",
+    // OrcaBonsai is the refusal-direction LoRA published for Ternary Bonsai 2.
+    // It needs the PrismML llama.cpp fork; the base model and mmproj remain
+    // separate GGUFs and the UI resolves the adapter from the model directory.
+    match: /(?:orca.?bonsai|bonsai.*uncensored|uncensored.*bonsai)/i,
+    label: "OrcaBonsai 27B Uncensored（Vision・最適化）",
+    description:
+      "Ternary Bonsai 2 + refusal-direction LoRA。mmproj を自動適用、medium 思考、131K コンテキスト、KV キャッシュ K/V q8_0。PrismML版 llama.cpp が必要。",
+    settings: { effort: "medium", specType: "", contextLength: 131_072, cacheTypeK: "q8_0", cacheTypeV: "q8_0" },
   },
   {
     key: "qwen38-uncensored",

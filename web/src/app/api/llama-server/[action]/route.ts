@@ -37,6 +37,7 @@ type StartBody = {
   cacheTypeK?: LlamaCacheType;
   cacheTypeV?: LlamaCacheType;
   mmprojPath?: string;
+  loraPath?: string;
 };
 
 function parseAction(raw: string): HostLlamaServerAction | null {
@@ -123,6 +124,11 @@ function parseStartBody(value: unknown): StartBody | null {
     if (!isSafeLlamaModelFile(raw.mmprojPath, process.platform)) return null;
     const mmprojPath = raw.mmprojPath.trim();
     if (mmprojPath) config.mmprojPath = mmprojPath;
+  }
+  if (raw.loraPath !== undefined) {
+    if (!isSafeLlamaModelFile(raw.loraPath, process.platform)) return null;
+    const loraPath = raw.loraPath.trim();
+    if (loraPath) config.loraPath = loraPath;
   }
   if (config.modelFile !== undefined && config.modelDir === undefined) return null;
   return config;

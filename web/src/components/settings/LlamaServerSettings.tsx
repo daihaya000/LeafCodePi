@@ -63,6 +63,28 @@ function withResolvedMmproj(
   return pick === (config.mmprojPath ?? "") ? config : { ...config, mmprojPath: pick };
 }
 
+/** The linked OrcaBonsai repository keeps its adapter under a gguf folder;
+ * prefer an adapter below the model directory, then the exact Bonsai name. */
+function pickLoraFor(modelFile: string, loras: string[]): string {
+  if (loras.length === 0) return "";
+  const normalizedModel = modelFile.replace(/\\/g, "/");
+  const modelDir = normalizedModel.split("/").slice(0, -1).join("/");
+  const underModelDir = modelDir
+    ? loras.filter((lora) => lora.replace(/\\/g, "/").startsWith(`${modelDir}/`))
+    : [];
+  if (underModelDir.length === 1) return underModelDir[0]!;
+  const bonsai = loras.filter((lora) => /bonsai-abliterate-lora/i.test(lora));
+  return bonsai.length === 1 ? bonsai[0]! : "";
+}
+
+function withResolvedLora(
+  config: LlamaServerSettings,
+  loras: string[],
+): LlamaServerSettings {
+  const pick = pickLoraFor(config.modelFile, loras);
+  return pick === (config.loraPath ?? "") ? config : { ...config, loraPath: pick };
+}
+
 export function LlamaServerSettings(
   { active = true }: { active?: boolean } = {},
 ) {
@@ -73,6 +95,7 @@ export function LlamaServerSettings(
   const [error, setError] = useState<string | null>(null);
   const [models, setModels] = useState<string[]>([]);
   const [mmprojs, setMmprojs] = useState<string[]>([]);
+  const [loras, setLoras] = useState<string[]>([]);
   const [defaultModel, setDefaultModel] = useState<string | null>(null);
   const [modelsBusy, setModelsBusy] = useState(false);
   const [modelsNote, setModelsNote] = useState<string | null>(null);
@@ -142,6 +165,7 @@ export function LlamaServerSettings(
       const res = await getJson<{
         models?: string[];
         mmprojs?: string[];
+        loras?: string[];
         defaultModel?: string | null;
         dir?: string | null;
       }>("/api/llama-server/models", { dir: trimmed || undefined });
@@ -149,6 +173,7 @@ export function LlamaServerSettings(
       const found = res.models ?? [];
       setModels(found);
       setMmprojs(res.mmprojs ?? []);
+      setLoras(res.loras ?? []);
       setDefaultModel(res.defaultModel ?? null);
       // The API resolved an empty dir against the platform default; save it so
       // presets keep working across reloads.
@@ -162,6 +187,7 @@ export function LlamaServerSettings(
       if (!mountedRef.current) return;
       setModels([]);
       setMmprojs([]);
+      setLoras([]);
       setModelsNote(err instanceof Error ? err.message : "モデル一覧を取得できません");
     } finally {
       if (mountedRef.current) setModelsBusy(false);
@@ -369,9 +395,10 @@ export function LlamaServerSettings(
         c.modelFile && preset.match.test(c.modelFile)
           ? c.modelFile
           : models.find((m) => preset.match.test(m));
-      return modelFile
+      const next = modelFile
         ? { ...c, ...preset.settings, modelFile }
         : { ...c, ...preset.settings };
+      return preset.key === "orca-bonsai27" ? next : { ...next, loraPath: "" };
     });
   };
 
@@ -390,18 +417,26 @@ export function LlamaServerSettings(
           : models.find((m) => preset.match.test(m));
       const withModel =
         candidate && candidate !== c.modelFile ? { ...c, modelFile: candidate } : c;
-      return withResolvedMmproj(withModel, mmprojs);
+      const resolved = withResolvedMmproj(withModel, mmprojs);
+      return selectedFamily === "orca-bonsai27"
+        ? withResolvedLora(resolved, loras)
+        : { ...resolved, loraPath: "" };
     });
-  }, [selectedFamily, models, mmprojs]);
+  }, [selectedFamily, models, mmprojs, loras]);
 
   /** Vision stays off unless a projector is chosen; pick the one next to the
    *  saved model once, so a bundled mmproj launches without extra clicks. */
   const mmprojAutoRef = useRef(false);
   useEffect(() => {
-    if (mmprojAutoRef.current || !configLoaded || mmprojs.length === 0) return;
+    if (mmprojAutoRef.current || !configLoaded || (mmprojs.length === 0 && loras.length === 0)) return;
     mmprojAutoRef.current = true;
-    setConfig((c) => (c.mmprojPath ? c : withResolvedMmproj(c, mmprojs)));
-  }, [configLoaded, mmprojs]);
+    setConfig((c) => {
+      const resolved = c.mmprojPath ? c : withResolvedMmproj(c, mmprojs);
+      const presetKey = LLAMA_MODEL_PRESETS.find((preset) => preset.match.test(c.modelFile))?.key;
+      return presetKey === "orca-bonsai27" ? withResolvedLora(resolved, loras)
+        : resolved;
+    });
+  }, [configLoaded, loras, mmprojs]);
 
   return (
     <div className="rounded-2xl border border-border bg-surface p-4">
@@ -598,9 +633,12 @@ export function LlamaServerSettings(
               value={config.modelFile}
               disabled={formDisabled}
               onChange={(e) =>
-                setConfig((c) =>
-                  withResolvedMmproj({ ...c, modelFile: e.target.value }, mmprojs),
-                )
+                setConfig((c) => {
+                  const resolved = withResolvedMmproj({ ...c, modelFile: e.target.value }, mmprojs);
+                  return selectedFamily === "orca-bonsai27"
+                    ? withResolvedLora(resolved, loras)
+                    : resolved;
+                })
               }
               className="h-9 w-full rounded-lg border border-border bg-bg px-3 text-sm outline-none focus:border-border-strong disabled:opacity-40"
             >
@@ -649,6 +687,32 @@ export function LlamaServerSettings(
             </select>
             <span className="mt-1 block text-[11px] text-muted">
               画像入力用の vision projector（例: mmproj-*.gguf）。モデルと同じフォルダにあるものを自動で選択します。
+            </span>
+          </div>
+
+          <div>
+            <label htmlFor="llama-lora" className="mb-1 block text-sm text-muted">
+              LoRA adapter（OrcaBonsai）
+            </label>
+            <select
+              id="llama-lora"
+              value={config.loraPath ?? ""}
+              disabled={formDisabled}
+              onChange={(e) => setConfig((c) => ({ ...c, loraPath: e.target.value }))}
+              className="h-9 w-full rounded-lg border border-border bg-bg px-3 text-sm outline-none focus:border-border-strong disabled:opacity-40"
+            >
+              <option value="">なし（ベースモデルのみ）</option>
+              {(config.loraPath && !loras.includes(config.loraPath)
+                ? [config.loraPath, ...loras]
+                : loras
+              ).map((lora) => (
+                <option key={lora} value={lora}>
+                  {lora}
+                </option>
+              ))}
+            </select>
+            <span className="mt-1 block text-[11px] text-muted">
+              OrcaBonsai の `bonsai-abliterate-lora.gguf`。リンク先のGGUF LoRAを選択するとuncensored動作になります。
             </span>
           </div>
 

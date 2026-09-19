@@ -67,7 +67,7 @@ test('Qwen3.8 sampler is scoped and explicit overrides win', { skip: process.pla
   const run = (overrides) => {
     const env = { ...process.env };
     for (const key of Object.keys(env)) {
-      if (/^(MODEL_|SAMPLING_|TOP_|MIN_P$|GPU_|IMAGE_)/i.test(key)) delete env[key];
+      if (/^(MODEL_|SAMPLING_|TOP_|MIN_P$|GPU_|IMAGE_|LORA_FILE$)/i.test(key)) delete env[key];
     }
     const result = spawnSync('cmd.exe', ['/d', '/s', '/c', `""${bat}" /dry-run"`], {
       env: { ...env, ...overrides }, encoding: 'utf8', timeout: 5000, windowsVerbatimArguments: true,
@@ -98,4 +98,12 @@ test('Qwen3.8 sampler is scoped and explicit overrides win', { skip: process.pla
   }
   assert.match(run({ MODEL_FILE: 'Qwen3.8.gguf', SAMPLING_TEMP: '0.7', MIN_P: '0.1', SAMPLING_REPEAT_PENALTY: '1.02', SAMPLING_DRY_MULTIPLIER: '0.2' }),
     /sampling=temp 0\.7 top-p 0\.95 top-k 20 min-p 0\.1 repeat 1\.02 dry 0\.2/);
+  const bonsai = run({
+    MODEL_FILE: 'OrcaBonsai-27B-Uncensored\\Ternary-Bonsai-2-27B-PQ2_0.gguf',
+    LORA_FILE: 'OrcaBonsai-27B-Uncensored\\gguf\\bonsai-abliterate-lora.gguf',
+  });
+  assert.match(bonsai, /--image-max-tokens 1024/);
+  assert.match(bonsai, /--lora/);
+  assert.match(bonsai, /bonsai-abliterate-lora\.gguf/);
+  assert.doesNotMatch(bonsai, /--image-min-tokens/);
 });

@@ -31,6 +31,8 @@ import { dirname, isAbsolute, join, posix, sep } from 'path';
  * @property {string} [draftModelPath] Linux speculative-decoding draft GGUF.
  * @property {string} [mmprojPath] Vision projector GGUF, relative to modelDir.
  *   Linux: --mmproj. Windows: MMPROJ_FILE for the launcher bat.
+ * @property {string} [loraPath] LoRA adapter GGUF, relative to modelDir.
+ *   Linux: --lora. Windows: LORA_FILE for the launcher bat.
  * @property {'127.0.0.1' | '0.0.0.0'} [llamaServerHost] LLAMA_SERVER_HOST
  *   (bind address; 0.0.0.0 opens the server to LAN/Tailscale clients).
  * @property {string} [specType] SPEC_TYPE (--spec-type; "" = off). Only
@@ -432,6 +434,7 @@ export function createLlamaServerService(deps) {
     if (config.modelDir) lines.push(`set "MODEL_DIR=${config.modelDir}"`);
     if (config.modelFile) lines.push(`set "MODEL_FILE=${config.modelFile}"`);
     if (config.mmprojPath) lines.push(`set "MMPROJ_FILE=${config.mmprojPath}"`);
+    if (config.loraPath !== undefined) lines.push(`set "LORA_FILE=${config.loraPath}"`);
     if (config.llamaServerHost)
       lines.push(`set "LLAMA_SERVER_HOST=${config.llamaServerHost}"`);
     const gpuDevice = config.gpuDevice !== undefined
@@ -647,6 +650,16 @@ export function createLlamaServerService(deps) {
       ['LEAFCODE_PI_LLAMA_MMPROJ_PATH', 'MMPROJ_PATH'],
       '',
     );
+    const loraPath = value(
+      config.loraPath,
+      ['LEAFCODE_PI_LLAMA_LORA_PATH', 'LORA_PATH'],
+      '',
+    );
+    const imageMaxTokens = value(
+      undefined,
+      ['LEAFCODE_PI_LLAMA_IMAGE_MAX_TOKENS', 'IMAGE_MAX_TOKENS'],
+      /(?:orca.?bonsai|bonsai)/i.test(modelName) ? '1024' : '',
+    );
     const resolveAssetPath = (assetPath) => {
       if (!assetPath) return '';
       const normalized = String(assetPath).replaceAll('\\', '/');
@@ -657,6 +670,8 @@ export function createLlamaServerService(deps) {
     if (modelPath) args.push('-m', modelPath, '--alias', alias);
     else args.push('--models-dir', modelDir);
     if (mmprojPath) args.push('--mmproj', resolveAssetPath(mmprojPath));
+    if (loraPath) args.push('--lora', resolveAssetPath(loraPath));
+    if (imageMaxTokens && imageMaxTokens !== '0') args.push('--image-max-tokens', imageMaxTokens);
     if (draftModelPath) {
       const draftArgs = [
         '--model-draft', resolveAssetPath(draftModelPath),
@@ -788,7 +803,7 @@ export function createLlamaServerService(deps) {
     if (existingListeners.listening) {
       return { ok: false, pid: null, error: 'llama-server port is already in use' };
     }
-    for (const key of ['llamaServerBin', 'modelDir', 'draftModelPath', 'mmprojPath']) {
+    for (const key of ['llamaServerBin', 'modelDir', 'draftModelPath', 'mmprojPath', 'loraPath']) {
       if (config[key] !== undefined && isUnsafePathValue(config[key], platform)) {
         return { ok: false, pid: null, error: `unsafe llama-server path value: ${key}` };
       }

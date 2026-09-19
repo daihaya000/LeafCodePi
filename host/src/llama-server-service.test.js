@@ -132,6 +132,7 @@ test('start maps llama.cpp path, model dir and model file into the launcher bat'
     modelDir: 'D:\\models\\llm',
     modelFile: 'repoA\\model-Q4_K_S.gguf',
     mmprojPath: 'repoA\\mmproj-model-BF16.gguf',
+    loraPath: 'repoA\\gguf\\bonsai-abliterate-lora.gguf',
     llamaServerHost: '0.0.0.0',
     gpuDevice: 'Vulkan0',
   });
@@ -140,6 +141,7 @@ test('start maps llama.cpp path, model dir and model file into the launcher bat'
   assert.match(written, /set "MODEL_DIR=D:\\models\\llm"/);
   assert.match(written, /set "MODEL_FILE=repoA\\model-Q4_K_S.gguf"/);
   assert.match(written, /set "MMPROJ_FILE=repoA\\mmproj-model-BF16\.gguf"/);
+  assert.match(written, /set "LORA_FILE=repoA\\gguf\\bonsai-abliterate-lora\.gguf"/);
   assert.match(written, /set "LLAMA_SERVER_HOST=0.0.0.0"/);
   assert.match(written, /set "GPU_DEVICE=Vulkan0"/);
 });
@@ -550,6 +552,7 @@ test('Linux maps Vulkan, draft and sampling settings without inheriting offload 
     gpuDevice: 'Vulkan1',
     draftModelPath: 'mtp-Qwen3.8-27B-Q4_0.gguf',
     mmprojPath: 'mmproj-Qwen3.8-F16.gguf',
+    loraPath: 'gguf/bonsai-abliterate-lora.gguf',
     specType: 'draft-mtp',
     cacheTypeK: 'q8_0',
     cacheTypeV: 'q8_0',
@@ -583,6 +586,8 @@ test('Linux maps Vulkan, draft and sampling settings without inheriting offload 
   }
   assert.ok(spawned.args.includes('/srv/models/mtp-Qwen3.8-27B-Q4_0.gguf'));
   assert.ok(spawned.args.includes('/srv/models/mmproj-Qwen3.8-F16.gguf'));
+  assert.ok(spawned.args.includes('--lora'));
+  assert.ok(spawned.args.includes('/srv/models/gguf/bonsai-abliterate-lora.gguf'));
   assert.equal(spawned.options.env.LLAMA_ARG_FIT, undefined);
   assert.equal(spawned.options.env.LD_LIBRARY_PATH, '/opt/llama-b10679');
 });
