@@ -62,13 +62,20 @@ function isNonFirstShard(name: string): boolean {
   return match !== null && match[1] !== "00001";
 }
 
-/** Vision projectors are not launchable models; listing them makes the
- *  family preset resolve to e.g. "...GGUF\mmproj.gguf". */
+/** Vision projectors are not launchable models; they are listed separately so
+ *  the launch-model dropdown cannot resolve a family preset to e.g.
+ *  "...GGUF\mmproj.gguf". */
 function isMmProj(name: string): boolean {
   return /^mmproj/i.test(name);
 }
 
-function collect(root: string, rel: string, depth: number, out: string[]): void {
+function collect(
+  root: string,
+  rel: string,
+  depth: number,
+  models: string[],
+  mmprojs: string[],
+): void {
   let entries: fs.Dirent[];
   try {
     entries = fs.readdirSync(path.join(root, rel), { withFileTypes: true });
@@ -76,17 +83,19 @@ function collect(root: string, rel: string, depth: number, out: string[]): void 
     return;
   }
   for (const entry of entries) {
-    if (out.length >= MAX_MODELS) return;
     const next = rel ? path.join(rel, entry.name) : entry.name;
     if (entry.isDirectory()) {
-      if (depth < MAX_DEPTH) collect(root, next, depth + 1, out);
+      if (depth < MAX_DEPTH) collect(root, next, depth + 1, models, mmprojs);
     } else if (
       entry.isFile() &&
       entry.name.toLowerCase().endsWith(".gguf") &&
-      !isNonFirstShard(entry.name) &&
-      !isMmProj(entry.name)
+      !isNonFirstShard(entry.name)
     ) {
-      out.push(next);
+      if (isMmProj(entry.name)) {
+        if (mmprojs.length < MAX_MODELS) mmprojs.push(next);
+      } else if (models.length < MAX_MODELS) {
+        models.push(next);
+      }
     }
   }
 }
@@ -98,7 +107,7 @@ export async function GET(req: NextRequest) {
   const requested = (req.nextUrl.searchParams.get("dir") ?? "").trim();
   const dir = requested || defaultModelDir(process.platform, process.env) || "";
   if (!dir) {
-    return NextResponse.json({ dir: null, models: [], defaultModel });
+    return NextResponse.json({ dir: null, models: [], mmprojs: [], defaultModel });
   }
   if (!isSafeLlamaPathValue(dir, process.platform)) {
     return NextResponse.json(
@@ -125,7 +134,11 @@ export async function GET(req: NextRequest) {
   }
 
   const models: string[] = [];
-  collect(resolved, "", 0, models);
-  models.sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base" }));
-  return NextResponse.json({ dir: resolved, models, defaultModel });
+  const mmprojs: string[] = [];
+  collect(resolved, "", 0, models, mmprojs);
+  const byName = (a: string, b: string) =>
+    a.localeCompare(b, undefined, { sensitivity: "base" });
+  models.sort(byName);
+  mmprojs.sort(byName);
+  return NextResponse.json({ dir: resolved, models, mmprojs, defaultModel });
 }

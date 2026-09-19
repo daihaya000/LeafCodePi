@@ -150,6 +150,7 @@ test("POST /llama-server/start forwards empty effort and POSIX launch settings",
       specType: "draft-mtp",
       cacheTypeK: "q8_0",
       cacheTypeV: "f16",
+      mmprojPath: undefined,
     });
   } finally {
     await closeControlServer(server);

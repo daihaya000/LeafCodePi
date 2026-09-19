@@ -131,6 +131,7 @@ test('start maps llama.cpp path, model dir and model file into the launcher bat'
     llamaServerBin: 'D:\\tools\\llama.cpp\\llama-server.exe',
     modelDir: 'D:\\models\\llm',
     modelFile: 'repoA\\model-Q4_K_S.gguf',
+    mmprojPath: 'repoA\\mmproj-model-BF16.gguf',
     llamaServerHost: '0.0.0.0',
     gpuDevice: 'Vulkan0',
   });
@@ -138,6 +139,7 @@ test('start maps llama.cpp path, model dir and model file into the launcher bat'
   assert.match(written, /set "LLAMA_SERVER_BIN=D:\\tools\\llama.cpp\\llama-server.exe"/);
   assert.match(written, /set "MODEL_DIR=D:\\models\\llm"/);
   assert.match(written, /set "MODEL_FILE=repoA\\model-Q4_K_S.gguf"/);
+  assert.match(written, /set "MMPROJ_FILE=repoA\\mmproj-model-BF16\.gguf"/);
   assert.match(written, /set "LLAMA_SERVER_HOST=0.0.0.0"/);
   assert.match(written, /set "GPU_DEVICE=Vulkan0"/);
 });

@@ -52,6 +52,7 @@ export function LlamaServerSettings(
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [models, setModels] = useState<string[]>([]);
+  const [mmprojs, setMmprojs] = useState<string[]>([]);
   const [defaultModel, setDefaultModel] = useState<string | null>(null);
   const [modelsBusy, setModelsBusy] = useState(false);
   const [modelsNote, setModelsNote] = useState<string | null>(null);
@@ -120,12 +121,14 @@ export function LlamaServerSettings(
     try {
       const res = await getJson<{
         models?: string[];
+        mmprojs?: string[];
         defaultModel?: string | null;
         dir?: string | null;
       }>("/api/llama-server/models", { dir: trimmed || undefined });
       if (!mountedRef.current) return;
       const found = res.models ?? [];
       setModels(found);
+      setMmprojs(res.mmprojs ?? []);
       setDefaultModel(res.defaultModel ?? null);
       // The API resolved an empty dir against the platform default; save it so
       // presets keep working across reloads.
@@ -138,6 +141,7 @@ export function LlamaServerSettings(
     } catch (err) {
       if (!mountedRef.current) return;
       setModels([]);
+      setMmprojs([]);
       setModelsNote(err instanceof Error ? err.message : "モデル一覧を取得できません");
     } finally {
       if (mountedRef.current) setModelsBusy(false);
@@ -363,6 +367,20 @@ export function LlamaServerSettings(
     });
   }, [selectedFamily, models]);
 
+  /** Vision stays off unless a projector is chosen; pick the one next to the
+   *  selected model once, so a bundled mmproj launches without extra clicks. */
+  const mmprojAutoRef = useRef(false);
+  useEffect(() => {
+    if (mmprojAutoRef.current || !configLoaded || mmprojs.length === 0) return;
+    mmprojAutoRef.current = true;
+    if (config.mmprojPath) return;
+    const dirOf = (p: string) =>
+      p.replace(/\\/g, "/").split("/").slice(0, -1).join("/");
+    const sameDir = mmprojs.filter((m) => dirOf(m) === dirOf(config.modelFile));
+    const pick = sameDir.length === 1 ? sameDir[0] : mmprojs.length === 1 ? mmprojs[0] : "";
+    if (pick) setConfig((c) => (c.mmprojPath ? c : { ...c, mmprojPath: pick }));
+  }, [configLoaded, mmprojs, config.modelFile, config.mmprojPath]);
+
   return (
     <div className="rounded-2xl border border-border bg-surface p-4">
       <div className="mb-2 flex flex-wrap items-start justify-between gap-3">
@@ -579,6 +597,33 @@ export function LlamaServerSettings(
                 {modelsNote}
               </span>
             )}
+          </div>
+
+          <div>
+            <label htmlFor="llama-mmproj" className="mb-1 block text-sm text-muted">
+              Vision projector (mmproj)
+            </label>
+            <select
+              id="llama-mmproj"
+              value={config.mmprojPath ?? ""}
+              disabled={formDisabled}
+              onChange={(e) => setConfig((c) => ({ ...c, mmprojPath: e.target.value }))}
+              className="h-9 w-full rounded-lg border border-border bg-bg px-3 text-sm outline-none focus:border-border-strong disabled:opacity-40"
+            >
+              <option value="">なし（テキストのみ）</option>
+              {/* A saved projector stays selectable when the listing is empty. */}
+              {(config.mmprojPath && !mmprojs.includes(config.mmprojPath)
+                ? [config.mmprojPath, ...mmprojs]
+                : mmprojs
+              ).map((m) => (
+                <option key={m} value={m}>
+                  {m}
+                </option>
+              ))}
+            </select>
+            <span className="mt-1 block text-[11px] text-muted">
+              画像入力用の vision projector（例: mmproj-*.gguf）。モデルと同じフォルダにあるものを自動で選択します。
+            </span>
           </div>
 
           <div>

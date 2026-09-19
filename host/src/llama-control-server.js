@@ -225,6 +225,10 @@ export function createLlamaControlServer(handlers) {
                 typeof body.modelFile === "string" && body.modelFile !== ""
                   ? body.modelFile
                   : undefined,
+              mmprojPath:
+                typeof body.mmprojPath === "string" && body.mmprojPath !== ""
+                  ? body.mmprojPath
+                  : undefined,
               llamaServerHost:
                 body.llamaServerHost === "127.0.0.1" || body.llamaServerHost === "0.0.0.0"
                   ? body.llamaServerHost

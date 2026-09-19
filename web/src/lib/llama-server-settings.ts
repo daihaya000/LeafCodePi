@@ -70,6 +70,8 @@ export type LlamaServerSettings = {
   /** KV キャッシュ型。"" = f16（既定）。q8_0 は VRAM 半減。 */
   cacheTypeK?: LlamaCacheType;
   cacheTypeV?: LlamaCacheType;
+  /** Vision projector (mmproj) の GGUF。modelDir からの相対パス。"" = 画像入力なし。 */
+  mmprojPath?: string;
 };
 
 export const DEFAULT_LLAMA_SERVER_SETTINGS: LlamaServerSettings = {
@@ -84,6 +86,7 @@ export const DEFAULT_LLAMA_SERVER_SETTINGS: LlamaServerSettings = {
   specType: "",
   cacheTypeK: "",
   cacheTypeV: "",
+  mmprojPath: "",
 };
 
 export const LLAMA_SERVER_PATH_MAX_CHARS = 400;
@@ -172,7 +175,8 @@ export function isLlamaServerSettings(value: unknown, platform = runtimePlatform
     (candidate.cacheTypeK === undefined ||
       LLAMA_CACHE_TYPES.includes(candidate.cacheTypeK as LlamaCacheType)) &&
     (candidate.cacheTypeV === undefined ||
-      LLAMA_CACHE_TYPES.includes(candidate.cacheTypeV as LlamaCacheType))
+      LLAMA_CACHE_TYPES.includes(candidate.cacheTypeV as LlamaCacheType)) &&
+    (candidate.mmprojPath === undefined || isSafeLlamaModelFile(candidate.mmprojPath, platform))
   );
 }
 

@@ -36,6 +36,7 @@ type StartBody = {
   specType?: LlamaServerSpecType;
   cacheTypeK?: LlamaCacheType;
   cacheTypeV?: LlamaCacheType;
+  mmprojPath?: string;
 };
 
 function parseAction(raw: string): HostLlamaServerAction | null {
@@ -117,6 +118,11 @@ function parseStartBody(value: unknown): StartBody | null {
       return null;
     }
     config[key] = rawValue as LlamaCacheType;
+  }
+  if (raw.mmprojPath !== undefined) {
+    if (!isSafeLlamaModelFile(raw.mmprojPath, process.platform)) return null;
+    const mmprojPath = raw.mmprojPath.trim();
+    if (mmprojPath) config.mmprojPath = mmprojPath;
   }
   if (config.modelFile !== undefined && config.modelDir === undefined) return null;
   return config;

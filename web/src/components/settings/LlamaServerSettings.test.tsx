@@ -21,7 +21,7 @@ describe("LlamaServerSettings", () => {
         return Promise.resolve({ parsed: { ...DEFAULT_LLAMA_SERVER_SETTINGS } });
       }
       if (path === "/api/llama-server/models") {
-        return Promise.resolve({ models: [], defaultModel: null, dir: null });
+        return Promise.resolve({ models: [], mmprojs: [], defaultModel: null, dir: null });
       }
       if (path === "/api/llama-server/status") {
         return Promise.resolve({
@@ -185,6 +185,43 @@ describe("LlamaServerSettings", () => {
     resolveStatus({ running: true, pid: 123, listeningPids: [123], health: "ok" });
     await waitFor(() => {
       expect(screen.getByText("実行中")).toBeTruthy();
+    });
+  });
+
+  it("モデルと同じフォルダの mmproj を自動選択し、起動時に送信する", async () => {
+    const mmproj = "repoA\\mmproj-model-BF16.gguf";
+    getJson.mockImplementation((path: string) => {
+      if (path === "/api/settings/llama-server-config") {
+        return Promise.resolve({
+          parsed: { ...DEFAULT_LLAMA_SERVER_SETTINGS, modelFile: "repoA\\model-Q4_K_S.gguf" },
+        });
+      }
+      if (path === "/api/llama-server/models") {
+        return Promise.resolve({
+          models: ["repoA\\model-Q4_K_S.gguf"],
+          mmprojs: [mmproj],
+          defaultModel: null,
+          dir: "D:\\models\\llm",
+        });
+      }
+      if (path === "/api/llama-server/status") {
+        return Promise.resolve({ running: false, pid: null, listeningPids: [], health: null });
+      }
+      return Promise.reject(new Error(`unexpected path: ${path}`));
+    });
+
+    render(<LlamaServerSettings />);
+    fireEvent.click(await screen.findByRole("button", { name: /詳細設定/ }));
+
+    const select = (await screen.findByLabelText("Vision projector (mmproj)")) as HTMLSelectElement;
+    await waitFor(() => expect(select.value).toBe(mmproj));
+
+    fireEvent.click(screen.getByRole("button", { name: "起動" }));
+    await waitFor(() => {
+      expect(sendJson).toHaveBeenCalledWith(
+        "/api/llama-server/start",
+        expect.objectContaining({ mmprojPath: mmproj }),
+      );
     });
   });
 });

@@ -90,6 +90,7 @@ describe("llama-server-settings", () => {
       specType: "draft-mtp" as const,
       cacheTypeK: "q8_0" as const,
       cacheTypeV: "q8_0" as const,
+      mmprojPath: "repoA\\mmproj-model-BF16.gguf",
     };
     const raw = serializeLlamaServerSettings(settings);
     expect(parseLlamaServerSettings(raw)).toEqual(settings);
@@ -110,6 +111,7 @@ describe("llama-server-settings", () => {
       specType: "",
       cacheTypeK: "",
       cacheTypeV: "",
+      mmprojPath: "",
     });
   });
 
@@ -210,6 +212,17 @@ describe("llama-server-settings", () => {
     expect(isSafeLlamaModelFile("\\model.gguf")).toBe(false);
     expect(isSafeLlamaModelFile("..\\..\\model.gguf")).toBe(false);
     expect(isSafeLlamaModelFile("repoA\\model.bin")).toBe(false);
+  });
+
+  it("gates the vision projector path like a model file", () => {
+    const base = { effort: "low", contextLength: 4096, parallel: 1 };
+    expect(isLlamaServerSettings({ ...base, mmprojPath: "repoA\\mmproj-x.gguf" })).toBe(true);
+    expect(isLlamaServerSettings({ ...base, mmprojPath: "" })).toBe(true);
+    expect(isLlamaServerSettings({ ...base, mmprojPath: "repoA\\mmproj-x.gguf" }, "linux")).toBe(true);
+    expect(isLlamaServerSettings({ ...base, mmprojPath: "..\\evil.gguf" })).toBe(false);
+    expect(isLlamaServerSettings({ ...base, mmprojPath: "C:\\abs\\mmproj.gguf" })).toBe(false);
+    expect(isLlamaServerSettings({ ...base, mmprojPath: "mmproj.bin" })).toBe(false);
+    expect(isLlamaServerSettings({ ...base, mmprojPath: 'mmproj" & calc.gguf' }, "win32")).toBe(false);
   });
 
   it("rejects a settings object carrying an unsafe path", () => {

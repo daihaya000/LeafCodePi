@@ -29,7 +29,8 @@ import { dirname, isAbsolute, join, posix, sep } from 'path';
  * @property {string} [modelFile] MODEL_FILE (model path relative to MODEL_DIR).
  * @property {string} [gpuDevice] Linux Vulkan device (for example Vulkan0).
  * @property {string} [draftModelPath] Linux speculative-decoding draft GGUF.
- * @property {string} [mmprojPath] Linux vision projector GGUF.
+ * @property {string} [mmprojPath] Vision projector GGUF, relative to modelDir.
+ *   Linux: --mmproj. Windows: MMPROJ_FILE for the launcher bat.
  * @property {'127.0.0.1' | '0.0.0.0'} [llamaServerHost] LLAMA_SERVER_HOST
  *   (bind address; 0.0.0.0 opens the server to LAN/Tailscale clients).
  * @property {string} [specType] SPEC_TYPE (--spec-type; "" = off). Only
@@ -430,6 +431,7 @@ export function createLlamaServerService(deps) {
     if (config.llamaServerBin) lines.push(`set "LLAMA_SERVER_BIN=${config.llamaServerBin}"`);
     if (config.modelDir) lines.push(`set "MODEL_DIR=${config.modelDir}"`);
     if (config.modelFile) lines.push(`set "MODEL_FILE=${config.modelFile}"`);
+    if (config.mmprojPath) lines.push(`set "MMPROJ_FILE=${config.mmprojPath}"`);
     if (config.llamaServerHost)
       lines.push(`set "LLAMA_SERVER_HOST=${config.llamaServerHost}"`);
     const gpuDevice = config.gpuDevice !== undefined
