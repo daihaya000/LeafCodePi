@@ -1444,8 +1444,8 @@ it("keeps the Bot settings panel visibility after remounting", async () => {
 
 it("shows the 1:1 intercom preview and unread dot from SSE", async () => {
   render(<ShellProvider><BotView id="one" active /></ShellProvider>);
-  expect(await screen.findByRole("region", { name: "内線受信箱" })).toBeTruthy();
-  expect(screen.getByText("内線メッセージはありません")).toBeTruthy();
+  await screen.findByRole("button", { name: "設定" });
+  expect(screen.queryByRole("region", { name: "内線受信箱" })).toBeNull();
   snapshot({
     intercomInbox: {
       messages: [],
@@ -1461,7 +1461,7 @@ it("shows the 1:1 intercom preview and unread dot from SSE", async () => {
 
 it("shows the intercom thread and ask-waiting line from SSE", async () => {
   render(<ShellProvider><BotView id="one" active /></ShellProvider>);
-  await screen.findByRole("region", { name: "内線受信箱" });
+  await screen.findByRole("button", { name: "設定" });
   snapshot({
     intercomInbox: {
       messages: [{
@@ -1495,7 +1495,7 @@ it("shows the intercom thread and ask-waiting line from SSE", async () => {
 
 it("shows counterpart presence from the intercom SSE snapshot", async () => {
   render(<ShellProvider><BotView id="one" active /></ShellProvider>);
-  await screen.findByRole("region", { name: "内線受信箱" });
+  await screen.findByRole("button", { name: "設定" });
   snapshot({
     intercomInbox: {
       messages: [{
@@ -1529,7 +1529,7 @@ it("notifies a hidden tab when intercom unread rises, and stays silent when noti
   Object.defineProperty(document, "hidden", { configurable: true, value: true });
   try {
     render(<ShellProvider><BotView id="one" active /></ShellProvider>);
-    await screen.findByRole("region", { name: "内線受信箱" });
+    await screen.findByRole("button", { name: "設定" });
     snapshot({
       intercomInbox: {
         messages: [],
@@ -1544,7 +1544,7 @@ it("notifies a hidden tab when intercom unread rises, and stays silent when noti
     cleanup();
     sent.length = 0;
     render(<ShellProvider><BotView id="one" active /></ShellProvider>);
-    await screen.findByRole("region", { name: "内線受信箱" });
+    await screen.findByRole("button", { name: "設定" });
     snapshot({
       intercomInbox: {
         messages: [],

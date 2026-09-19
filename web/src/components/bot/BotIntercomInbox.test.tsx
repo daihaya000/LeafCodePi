@@ -19,10 +19,9 @@ it("shows a one-line who/what preview and an unread dot", () => {
   expect(screen.getByLabelText("未読")).toBeTruthy();
 });
 
-it("hides the unread dot when the inbox is empty", () => {
+it("renders nothing until a message arrives", () => {
   render(<BotIntercomInbox inbox={empty} />);
-  expect(screen.queryByLabelText("未読")).toBeNull();
-  expect(screen.getByText("内線メッセージはありません")).toBeTruthy();
+  expect(screen.queryByRole("region", { name: "内線受信箱" })).toBeNull();
 });
 
 it("marks the inbox read from the 1:1 strip only", () => {

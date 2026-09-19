@@ -2,11 +2,6 @@
 
 import type { BotIntercomInboxDto, BotIntercomInboxItemDto, BotIntercomPresence } from "@/lib/types";
 
-function oneLine(inbox: BotIntercomInboxDto): string {
-  if (!inbox.preview) return "内線メッセージはありません";
-  return `${inbox.preview.fromName}: ${inbox.preview.text}`;
-}
-
 function kindLabel(message: BotIntercomInboxItemDto): string | null {
   if (message.cancelled) return "取消";
   if (message.supersededBy) return "差替";
@@ -46,6 +41,8 @@ export function BotIntercomInbox({
   const pending = inbox.pendingAsks ?? [];
   const thread = inbox.messages.slice(-8);
   const presence = inbox.peerPresence;
+  const preview = inbox.preview;
+  if (!preview && thread.length === 0 && pending.length === 0) return null;
   return (
     <div
       className="flex shrink-0 flex-col gap-1 border-b border-bot-outline bg-bot-chat px-4 py-1.5"
@@ -70,7 +67,7 @@ export function BotIntercomInbox({
               aria-label={`在席 ${presenceLabel(presence.status)}`}
             />
           )}
-          {oneLine(inbox)}
+          {preview ? `${preview.fromName}: ${preview.text}` : null}
         </p>
         {unread && onRead && (
           <button
