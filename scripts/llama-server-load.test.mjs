@@ -13,6 +13,13 @@ test('launcher stays ASCII, CRLF and BOM-free', () => {
   assert.doesNotMatch(bytes.toString(), /(?<!\r)\n/);
 });
 
+test('Bonsai launches prefer an installed PrismML Vulkan runtime', () => {
+  const text = readFileSync(bat, 'utf8');
+  assert.match(text, /LLAMA_SERVER_BIN_EXPLICIT/);
+  assert.match(text, /llama-prism-\*-vulkan/);
+  assert.match(text, /findstr \/i \/c:\"bonsai\"/);
+});
+
 /**
  * `cmd.exe /c ""prog" args >> log"` lets cmd drop the closing quote of the log
  * path, so `>>` reaches the server as an argv entry and it exits immediately with
@@ -67,7 +74,7 @@ test('Qwen3.8 sampler is scoped and explicit overrides win', { skip: process.pla
   const run = (overrides) => {
     const env = { ...process.env };
     for (const key of Object.keys(env)) {
-      if (/^(MODEL_|SAMPLING_|TOP_|MIN_P$|GPU_|IMAGE_|LORA_FILE$)/i.test(key)) delete env[key];
+      if (/^(MODEL_|SAMPLING_|TOP_|MIN_P$|GPU_|IMAGE_|LORA_FILE$|LLAMA_SERVER_BIN$)/i.test(key)) delete env[key];
     }
     const result = spawnSync('cmd.exe', ['/d', '/s', '/c', `""${bat}" /dry-run"`], {
       env: { ...env, ...overrides }, encoding: 'utf8', timeout: 5000, windowsVerbatimArguments: true,
@@ -106,4 +113,9 @@ test('Qwen3.8 sampler is scoped and explicit overrides win', { skip: process.pla
   assert.match(bonsai, /--lora/);
   assert.match(bonsai, /bonsai-abliterate-lora\.gguf/);
   assert.doesNotMatch(bonsai, /--image-min-tokens/);
+  const explicitBinary = run({
+    MODEL_FILE: 'OrcaBonsai-27B-Uncensored\\Ternary-Bonsai-2-27B-PTQ1_0.gguf',
+    LLAMA_SERVER_BIN: 'D:\\custom\\llama-server.exe',
+  });
+  assert.match(explicitBinary, /binary=D:\\custom\\llama-server\.exe/);
 });

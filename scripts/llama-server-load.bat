@@ -73,7 +73,26 @@ rem llama-server b10488 rejects it ("invalid argument"), which aborts the launch
 rem Too little VRAM must fail the launch instead of degrading to CPU speed.
 rem Override with GPU_DEVICE (for example CUDA0) when the GPU index differs.
 if not defined GPU_DEVICE set "GPU_DEVICE=Vulkan0"
+set "LLAMA_SERVER_BIN_EXPLICIT="
+if defined LLAMA_SERVER_BIN set "LLAMA_SERVER_BIN_EXPLICIT=1"
 if not defined LLAMA_SERVER_BIN set "LLAMA_SERVER_BIN=C:\tools\llama.cpp\llama-server.exe"
+rem Ternary Bonsai uses PrismML-only GGML type 143. Keep an explicit binary
+rem override untouched; otherwise prefer the newest installed PrismML Vulkan
+rem runtime under C:\tools so selecting the Bonsai preset works out of the box.
+set "PRISMML_BONSAI_BIN="
+if not defined LLAMA_SERVER_BIN_EXPLICIT (
+  echo(%MODEL_FILE%| findstr /i /c:"bonsai" >nul
+  if not errorlevel 1 (
+    for /f "delims=" %%D in ('dir /b /ad /o:n "C:\tools\llama-prism-*-vulkan" 2^>nul') do (
+      if exist "C:\tools\%%D\llama-server.exe" set "PRISMML_BONSAI_BIN=C:\tools\%%D\llama-server.exe"
+    )
+  )
+)
+if defined PRISMML_BONSAI_BIN (
+  set "LLAMA_SERVER_BIN=!PRISMML_BONSAI_BIN!"
+  echo [llama-server] Bonsai model detected; selecting PrismML Vulkan runtime.
+  echo [llama-server]   !LLAMA_SERVER_BIN!
+)
 rem KV cache types (f16 default). q8_0 reduces attention KV memory, not all VRAM.
 rem Long-context quality still needs workload-specific validation.
 rem Explicit f16 matches the Linux Vulkan profile; q8_0 is useful when VRAM is tight.
