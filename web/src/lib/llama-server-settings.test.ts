@@ -148,7 +148,13 @@ describe("llama-server-settings", () => {
       cacheTypeV: "q8_0",
     });
 
-    const qwen = findLlamaModelPreset("Qwen3.8-27B-Uncensored-GGUF\\model.gguf");
+    const qwenUncensored = findLlamaModelPreset("Qwen3.8-27B-Uncensored-GGUF\\model.gguf");
+    expect(qwenUncensored?.key).toBe("qwen38-uncensored");
+    expect(qwenUncensored?.label).toContain("vision");
+    expect(qwenUncensored?.settings.specType).toBe("draft-mtp");
+    expect(qwenUncensored?.settings.cacheTypeK).toBe("q8_0");
+
+    const qwen = findLlamaModelPreset("Qwen3.8-27B-GGUF\\Qwen3.8-27B-Q4_K_M.gguf");
     expect(qwen?.key).toBe("qwen38");
     expect(qwen?.settings.specType).toBe("draft-mtp");
     expect(qwen?.settings.cacheTypeK).toBe("q8_0");

@@ -161,6 +161,36 @@ describe("LlamaServerSettings", () => {
     });
   });
 
+  it("vision プリセットを選ぶと同フォルダの mmproj を設定する", async () => {
+    const model = "Qwen3.8-27B-Uncensored-GGUF\\Qwen3.8-27B-Uncensored-Q4_K_S.gguf";
+    const mmproj = "Qwen3.8-27B-Uncensored-GGUF\\mmproj-Qwen3.8-27B-BF16.gguf";
+    getJson.mockImplementation((path: string) => {
+      if (path === "/api/settings/llama-server-config") {
+        return Promise.resolve({ parsed: { ...DEFAULT_LLAMA_SERVER_SETTINGS } });
+      }
+      if (path === "/api/llama-server/models") {
+        return Promise.resolve({
+          models: [model, "Ornith-1.5-35B-A3B-GGUF\\ornith.gguf"],
+          mmprojs: [mmproj, "Ornith-1.5-35B-A3B-GGUF\\mmproj.gguf"],
+          defaultModel: null,
+          dir: "D:\\models\\llm",
+        });
+      }
+      if (path === "/api/llama-server/status") {
+        return Promise.resolve({ running: false, pid: null, listeningPids: [], health: null });
+      }
+      return Promise.reject(new Error(`unexpected path: ${path}`));
+    });
+
+    render(<LlamaServerSettings />);
+    const family = await screen.findByLabelText("使用するモデル");
+    fireEvent.change(family, { target: { value: "qwen38-uncensored" } });
+
+    fireEvent.click(await screen.findByRole("button", { name: /詳細設定/ }));
+    const select = (await screen.findByLabelText("Vision projector (mmproj)")) as HTMLSelectElement;
+    await waitFor(() => expect(select.value).toBe(mmproj));
+  });
+
   it("非表示から再表示した直後は確認中に戻り、古い状態で起動・停止できない", async () => {
     const view = render(<LlamaServerSettings active />);
     await waitFor(() => {

@@ -204,7 +204,7 @@ export function serializeLlamaServerSettings(value: LlamaServerSettings): string
 /** Recommended launch settings for a known local model family. */
 export type LlamaModelPreset = {
   /** Stable select value. */
-  key: "ornith" | "ornith-thinking" | "huihui-qwen38" | "qwen38";
+  key: "ornith" | "ornith-thinking" | "huihui-qwen38" | "qwen38-uncensored" | "qwen38";
   /** Matches the model file path (case-insensitive). */
   match: RegExp;
   label: string;
@@ -241,6 +241,16 @@ export const LLAMA_MODEL_PRESETS: readonly LlamaModelPreset[] = [
     match: /(?=.*huihui)(?=.*qwen3[._]?8)(?=.*abliterat)/i,
     label: "Huihui-Qwen3.8 27B（abliterated・最適化）",
     description: "MTP維持版。draft-mtp 推測デコード、effort low、KV キャッシュ K/V q8_0。131K コンテキスト。",
+    settings: { effort: "low", specType: "draft-mtp", contextLength: 131_072, cacheTypeK: "q8_0", cacheTypeV: "q8_0" },
+  },
+  {
+    key: "qwen38-uncensored",
+    // Uncensored Qwen3.8 builds ship the vision projector next to the quant,
+    // so choosing this preset also resolves the mmproj in the same folder.
+    match: /(?=.*qwen3[._]?8)(?=.*uncensored)/i,
+    label: "Qwen3.8 27B Uncensored（vision・高速）",
+    description:
+      "画像入力を有効化（同じフォルダの mmproj を自動適用）。draft-mtp 推測デコード、effort low、KV q8_0、131K コンテキスト。",
     settings: { effort: "low", specType: "draft-mtp", contextLength: 131_072, cacheTypeK: "q8_0", cacheTypeV: "q8_0" },
   },
   {

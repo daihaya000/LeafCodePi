@@ -43,6 +43,26 @@ async function fetchStatus(): Promise<LlamaServerStatus | null> {
   }
 }
 
+/** Projector that belongs to a model: the one in the same folder wins; a lone
+ *  listing entry is still unambiguous. "" when nothing can be picked. */
+function pickMmprojFor(modelFile: string, mmprojs: string[]): string {
+  if (mmprojs.length === 0) return "";
+  const dirOf = (p: string) => p.replace(/\\/g, "/").split("/").slice(0, -1).join("/");
+  const sameDir = mmprojs.filter((m) => dirOf(m) === dirOf(modelFile));
+  if (sameDir.length === 1) return sameDir[0]!;
+  return mmprojs.length === 1 ? mmprojs[0]! : "";
+}
+
+/** Keep the projector aligned with the model so a stale mmproj from another
+ *  folder is never launched against the newly selected model. */
+function withResolvedMmproj(
+  config: LlamaServerSettings,
+  mmprojs: string[],
+): LlamaServerSettings {
+  const pick = pickMmprojFor(config.modelFile, mmprojs);
+  return pick === (config.mmprojPath ?? "") ? config : { ...config, mmprojPath: pick };
+}
+
 export function LlamaServerSettings(
   { active = true }: { active?: boolean } = {},
 ) {
@@ -356,30 +376,32 @@ export function LlamaServerSettings(
   };
 
   // Late resolution: the family was picked before the GGUF listing arrived.
+  // The projector resolves here too, so switching presets cannot keep a
+  // mmproj that belongs to another model folder.
   useEffect(() => {
-    if (!selectedFamily || selectedFamily === "custom" || models.length === 0) return;
+    if (!selectedFamily || selectedFamily === "custom") return;
     const preset = LLAMA_MODEL_PRESETS.find((p) => p.key === selectedFamily);
     if (!preset) return;
+    if (models.length === 0 && mmprojs.length === 0) return;
     setConfig((c) => {
-      if (c.modelFile && preset.match.test(c.modelFile)) return c;
-      const candidate = models.find((m) => preset.match.test(m));
-      return candidate ? { ...c, modelFile: candidate } : c;
+      const candidate =
+        c.modelFile && preset.match.test(c.modelFile)
+          ? c.modelFile
+          : models.find((m) => preset.match.test(m));
+      const withModel =
+        candidate && candidate !== c.modelFile ? { ...c, modelFile: candidate } : c;
+      return withResolvedMmproj(withModel, mmprojs);
     });
-  }, [selectedFamily, models]);
+  }, [selectedFamily, models, mmprojs]);
 
   /** Vision stays off unless a projector is chosen; pick the one next to the
-   *  selected model once, so a bundled mmproj launches without extra clicks. */
+   *  saved model once, so a bundled mmproj launches without extra clicks. */
   const mmprojAutoRef = useRef(false);
   useEffect(() => {
     if (mmprojAutoRef.current || !configLoaded || mmprojs.length === 0) return;
     mmprojAutoRef.current = true;
-    if (config.mmprojPath) return;
-    const dirOf = (p: string) =>
-      p.replace(/\\/g, "/").split("/").slice(0, -1).join("/");
-    const sameDir = mmprojs.filter((m) => dirOf(m) === dirOf(config.modelFile));
-    const pick = sameDir.length === 1 ? sameDir[0] : mmprojs.length === 1 ? mmprojs[0] : "";
-    if (pick) setConfig((c) => (c.mmprojPath ? c : { ...c, mmprojPath: pick }));
-  }, [configLoaded, mmprojs, config.modelFile, config.mmprojPath]);
+    setConfig((c) => (c.mmprojPath ? c : withResolvedMmproj(c, mmprojs)));
+  }, [configLoaded, mmprojs]);
 
   return (
     <div className="rounded-2xl border border-border bg-surface p-4">
@@ -575,7 +597,11 @@ export function LlamaServerSettings(
               id="llama-model-file"
               value={config.modelFile}
               disabled={formDisabled}
-              onChange={(e) => setConfig((c) => ({ ...c, modelFile: e.target.value }))}
+              onChange={(e) =>
+                setConfig((c) =>
+                  withResolvedMmproj({ ...c, modelFile: e.target.value }, mmprojs),
+                )
+              }
               className="h-9 w-full rounded-lg border border-border bg-bg px-3 text-sm outline-none focus:border-border-strong disabled:opacity-40"
             >
               <option value="">
