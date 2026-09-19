@@ -87,6 +87,16 @@ function isBotToolName(name: string): name is BotToolName {
   return (BOT_TOOL_NAMES as readonly string[]).includes(name);
 }
 
+/**
+ * Unknown permission modes (written by a newer build, or a typo in a hand-edited file) fail
+ * closed to "ask" instead of silently granting every tool. Legacy or absent values keep the
+ * documented "allow" default so existing Bots are unaffected.
+ */
+function normalizeBotPermissionMode(value: unknown): BotConfig["permissionMode"] {
+  if (value === "allow" || value === "ask" || value === "deny") return value;
+  return typeof value === "string" && value.trim() ? "ask" : "allow";
+}
+
 function normalizeNames(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
   return [...new Set(value.filter((item): item is string => typeof item === "string").map((item) => item.trim()).filter(Boolean))];
@@ -134,7 +144,7 @@ function parseConfig(id: string): BotConfig | null {
       avatarGlasses: value.avatarGlasses === true, avatarMustache: value.avatarMustache === true,
       model: typeof value.model === "string" ? value.model : null,
       ttsVoice: typeof value.ttsVoice === "string" && value.ttsVoice.trim() ? value.ttsVoice.trim() : null,
-      thinkingLevel: value.thinkingLevel ?? null, permissionMode: value.permissionMode === "ask" || value.permissionMode === "deny" ? value.permissionMode : "allow",
+      thinkingLevel: value.thinkingLevel ?? null, permissionMode: normalizeBotPermissionMode(value.permissionMode),
       skills: normalizeBotSkills(value.skills),
       tools,
       extraRoots: Array.isArray(value.extraRoots) ? value.extraRoots.filter((item): item is string => typeof item === "string") : [],

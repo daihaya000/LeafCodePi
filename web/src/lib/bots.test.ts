@@ -139,6 +139,25 @@ describe("bot store", () => {
     expect(stored).not.toEqual(BOT_DEFAULT_TOOL_NAMES);
   });
 
+  it("fails closed for an unknown permission mode while keeping the legacy default", () => {
+    const bot = createBot({ name: "Permission mode bot" });
+    const configPath = join(root, "bots", bot.id, "config.json");
+    const config = JSON.parse(readFileSync(configPath, "utf8"));
+
+    // A mode this build does not know (newer build, or a hand-edit typo) must not silently
+    // become the most permissive setting.
+    config.permissionMode = "deny-write";
+    fs.writeFileSync(configPath, JSON.stringify(config));
+    expect(getBot(bot.id)?.permissionMode).toBe("ask");
+    // The unknown value stays on disk untouched.
+    expect(JSON.parse(readFileSync(configPath, "utf8")).permissionMode).toBe("deny-write");
+
+    // Legacy files without the key keep the documented default.
+    delete config.permissionMode;
+    fs.writeFileSync(configPath, JSON.stringify(config));
+    expect(getBot(bot.id)?.permissionMode).toBe("allow");
+  });
+
   it("disables orchestration-only tools when migrating the previous Bot defaults", () => {    const bot = createBot({ name: "Read tools bot" });
     const configPath = join(root, "bots", bot.id, "config.json");
     const config = JSON.parse(readFileSync(configPath, "utf8"));
