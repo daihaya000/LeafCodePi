@@ -9,7 +9,7 @@ rem   THREADS, THREADS_BATCH, BATCH_SIZE, UBATCH, SAMPLING_TEMP, TOP_P, TOP_K, M
 rem   SAMPLING_SEED, SAMPLING_REPEAT_LAST_N, SAMPLING_REPEAT_PENALTY,
 rem   SAMPLING_DRY_MULTIPLIER, SAMPLING_DRY_BASE, SAMPLING_DRY_ALLOWED_LENGTH,
 rem   SAMPLING_DRY_PENALTY_LAST_N, REASONING_BUDGET, REASONING_BUDGET_MESSAGE,
-rem   GPU_DEVICE
+rem   GPU_DEVICE, IMAGE_MIN_TOKENS (empty = omit --image-min-tokens)
 rem
 rem If MODEL_FILE is empty: router mode (--models-dir), then load a model.
 rem If MODEL_FILE is set: single-model mode (-m).
@@ -41,12 +41,15 @@ rem https://huggingface.co/Qwen/Qwen3.8-27B (thinking mode).
 rem Apply only to selected Qwen3.8 models, not router mode or other families.
 rem Explicit environment overrides still win; non-thinking requests should
 rem provide their own sampler (temp 0.7, top-p 0.8, presence penalty 1.5).
+rem Qwen3.8 vision via mmproj needs a 1024-token image floor for grounding;
+rem below that, image content is dropped or misread (issue 16842).
 echo(%MODEL_FILE%| findstr /i /c:"qwen3.8" /c:"qwen3_8" >nul
 if not errorlevel 1 (
   if not defined SAMPLING_TEMP set "SAMPLING_TEMP=1.0"
   if not defined MIN_P set "MIN_P=0.0"
   if not defined SAMPLING_REPEAT_PENALTY set "SAMPLING_REPEAT_PENALTY=1.0"
   if not defined SAMPLING_DRY_MULTIPLIER set "SAMPLING_DRY_MULTIPLIER=0.0"
+  if not defined IMAGE_MIN_TOKENS set "IMAGE_MIN_TOKENS=1024"
 )
 if not defined SAMPLING_TEMP set "SAMPLING_TEMP=0.6"
 if not defined MIN_P set "MIN_P=0.05"
@@ -63,8 +66,9 @@ if not defined REASONING_BUDGET set "REASONING_BUDGET=1536"
 if not defined REASONING_BUDGET_MESSAGE set "REASONING_BUDGET_MESSAGE=Reasoning limit reached. Stop analysis and provide the best concise final answer now."
 rem GPU pinning. Inference must never fall back to the CPU or to the iGPU
 rem (whose VRAM is shared system RAM): --device pins the single GPU, --gpu-layers
-rem all plus --n-cpu-moe 0 / --n-cpu-ffn 0 keep every layer and FFN on it, and
-rem --fit off stops llama.cpp from silently shrinking layers or context to fit.
+rem all plus --n-cpu-moe 0 keep every layer on it, and --fit off stops llama.cpp
+rem from silently shrinking layers or context to fit. Do not re-add --n-cpu-ffn:
+rem llama-server b10488 rejects it ("invalid argument"), which aborts the launch.
 rem Too little VRAM must fail the launch instead of degrading to CPU speed.
 rem Override with GPU_DEVICE (for example CUDA0) when the GPU index differs.
 if not defined GPU_DEVICE set "GPU_DEVICE=Vulkan0"
@@ -95,7 +99,10 @@ rem GPU_DEVICE overridable for Windows CUDA/Vulkan builds; see the pinning block
 set "DEVICE_ARGS="
 if not "%GPU_DEVICE%"=="" set "DEVICE_ARGS=--device %GPU_DEVICE%"
 set "REASONING_ARGS=--reasoning-budget %REASONING_BUDGET% --reasoning-budget-message "%REASONING_BUDGET_MESSAGE%""
-set "PERF_ARGS=--split-mode none --fit off --no-host --threads %THREADS% --threads-batch %THREADS_BATCH% --gpu-layers all --n-cpu-moe 0 --n-cpu-ffn 0 --flash-attn on --ctx-size %CONTEXT_LENGTH% --batch-size %BATCH_SIZE% --ubatch-size %UBATCH% --temp %SAMPLING_TEMP% --top-p %TOP_P% --top-k %TOP_K% --min-p %MIN_P% --seed %SAMPLING_SEED% --repeat-last-n %SAMPLING_REPEAT_LAST_N% --repeat-penalty %SAMPLING_REPEAT_PENALTY% --dry-multiplier %SAMPLING_DRY_MULTIPLIER% --dry-base %SAMPLING_DRY_BASE% --dry-allowed-length %SAMPLING_DRY_ALLOWED_LENGTH% --dry-penalty-last-n %SAMPLING_DRY_PENALTY_LAST_N% %REASONING_ARGS% --metrics"
+rem Image token floor. Set by the qwen3.8 block above; env IMAGE_MIN_TOKENS overrides.
+set "IMAGE_TOKENS_ARGS="
+if defined IMAGE_MIN_TOKENS if not "%IMAGE_MIN_TOKENS%"=="" set "IMAGE_TOKENS_ARGS=--image-min-tokens %IMAGE_MIN_TOKENS%"
+set "PERF_ARGS=--split-mode none --fit off --no-host --threads %THREADS% --threads-batch %THREADS_BATCH% --gpu-layers all --n-cpu-moe 0 --flash-attn on --ctx-size %CONTEXT_LENGTH% --batch-size %BATCH_SIZE% --ubatch-size %UBATCH% --temp %SAMPLING_TEMP% --top-p %TOP_P% --top-k %TOP_K% --min-p %MIN_P% --seed %SAMPLING_SEED% --repeat-last-n %SAMPLING_REPEAT_LAST_N% --repeat-penalty %SAMPLING_REPEAT_PENALTY% --dry-multiplier %SAMPLING_DRY_MULTIPLIER% --dry-base %SAMPLING_DRY_BASE% --dry-allowed-length %SAMPLING_DRY_ALLOWED_LENGTH% --dry-penalty-last-n %SAMPLING_DRY_PENALTY_LAST_N% %REASONING_ARGS% %IMAGE_TOKENS_ARGS% --metrics"
 set "MODEL_ALIAS="
 
 if /i "%~1"=="/dry-run" (
