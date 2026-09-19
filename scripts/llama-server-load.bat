@@ -77,14 +77,23 @@ set "LLAMA_SERVER_BIN_EXPLICIT="
 if defined LLAMA_SERVER_BIN set "LLAMA_SERVER_BIN_EXPLICIT=1"
 if not defined LLAMA_SERVER_BIN set "LLAMA_SERVER_BIN=C:\tools\llama.cpp\llama-server.exe"
 rem Ternary Bonsai uses PrismML-only GGML type 143. Keep an explicit binary
-rem override untouched; otherwise prefer the newest installed PrismML Vulkan
-rem runtime under C:\tools so selecting the Bonsai preset works out of the box.
+rem override untouched; otherwise prefer the most recently installed PrismML
+rem Vulkan runtime under C:\tools so selecting the Bonsai preset works out
+rem of the box (/o:d lists oldest first, so the loop keeps the newest).
 set "PRISMML_BONSAI_BIN="
 if not defined LLAMA_SERVER_BIN_EXPLICIT (
   echo(%MODEL_FILE%| findstr /i /c:"bonsai" >nul
   if not errorlevel 1 (
-    for /f "delims=" %%D in ('dir /b /ad /o:n "C:\tools\llama-prism-*-vulkan" 2^>nul') do (
+    for /f "delims=" %%D in ('dir /b /ad /o:d "C:\tools\llama-prism-*-vulkan" 2^>nul') do (
       if exist "C:\tools\%%D\llama-server.exe" set "PRISMML_BONSAI_BIN=C:\tools\%%D\llama-server.exe"
+    )
+    rem Without a PrismML runtime the stock binary fails late with
+    rem "invalid ggml type 143". Fail fast instead; dry-run only warns so
+    rem config checks stay portable across machines.
+    if not defined PRISMML_BONSAI_BIN (
+      echo [FAIL] Bonsai model needs a PrismML llama.cpp Vulkan runtime.
+      echo [FAIL] Install one under C:\tools ^(for example llama-prism-*-vulkan^) or set LLAMA_SERVER_BIN.
+      if /i not "%~1"=="/dry-run" exit /b 1
     )
   )
 )

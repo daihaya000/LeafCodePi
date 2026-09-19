@@ -256,8 +256,9 @@ export const LLAMA_MODEL_PRESETS: readonly LlamaModelPreset[] = [
   {
     key: "orca-bonsai27",
     // OrcaBonsai is the refusal-direction LoRA published for Ternary Bonsai 2.
-    // It needs the PrismML llama.cpp fork; the base model and mmproj remain
-    // separate GGUFs and the UI resolves the adapter from the model directory.
+    // It needs the PrismML llama.cpp fork (auto-selected on Windows); the base
+    // model and mmproj remain separate GGUFs and the UI resolves the adapter
+    // from the model directory.
     match: /(?:orca.?bonsai|bonsai.*uncensored|uncensored.*bonsai)/i,
     label: "OrcaBonsai 27B Uncensored（Vision・最適化）",
     description:

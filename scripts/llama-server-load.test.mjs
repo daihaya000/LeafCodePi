@@ -18,6 +18,12 @@ test('Bonsai launches prefer an installed PrismML Vulkan runtime', () => {
   assert.match(text, /LLAMA_SERVER_BIN_EXPLICIT/);
   assert.match(text, /llama-prism-\*-vulkan/);
   assert.match(text, /findstr \/i \/c:\"bonsai\"/);
+  // Date order: build numbers outgrow lexicographic order (b10709 vs b9596),
+  // so the loop must keep the most recently installed directory.
+  assert.match(text, /\/o:d /);
+  // Missing runtime must fail fast with a clear message, not late with
+  // "invalid ggml type 143" after the 120s health wait.
+  assert.match(text, /Bonsai model needs a PrismML/);
 });
 
 /**
