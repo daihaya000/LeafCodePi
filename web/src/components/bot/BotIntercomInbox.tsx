@@ -42,7 +42,8 @@ export function BotIntercomInbox({
   const thread = inbox.messages.slice(-8);
   const presence = inbox.peerPresence;
   const preview = inbox.preview;
-  if (!preview && thread.length === 0 && pending.length === 0) return null;
+  // 未読か質問待ちがある間だけ表示する（既読後の履歴だけでは出さない）。
+  if (!unread && pending.length === 0) return null;
   return (
     <div
       className="flex shrink-0 flex-col gap-1 border-b border-bot-outline bg-bot-chat px-4 py-1.5"

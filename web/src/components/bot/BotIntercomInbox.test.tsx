@@ -24,6 +24,45 @@ it("renders nothing until a message arrives", () => {
   expect(screen.queryByRole("region", { name: "内線受信箱" })).toBeNull();
 });
 
+it("hides the strip once every message is read", () => {
+  const read: BotIntercomInboxDto = {
+    messages: [{
+      v: 1,
+      id: "msg-1",
+      fromBotId: "alice",
+      fromName: "Alice",
+      toBotId: "bob",
+      text: "確認お願いします",
+      createdAt: 1,
+      depth: 0,
+      kind: "send",
+    }],
+    unreadCount: 0,
+    preview: { fromBotId: "alice", fromName: "Alice", text: "確認お願いします", createdAt: 1 },
+    pendingAsks: [],
+    peerPresence: { botId: "alice", name: "Alice", status: "online" },
+  };
+  render(<BotIntercomInbox inbox={read} />);
+  expect(screen.queryByRole("region", { name: "内線受信箱" })).toBeNull();
+});
+
+it("keeps the strip while an inbound ask is unanswered", () => {
+  const waiting: BotIntercomInboxDto = {
+    ...empty,
+    pendingAsks: [{
+      id: "ask-1",
+      conversationId: "thread-1",
+      fromBotId: "alice",
+      fromName: "Alice",
+      text: "可否は？",
+      createdAt: 1,
+      expiresAt: 2,
+    }],
+  };
+  render(<BotIntercomInbox inbox={waiting} />);
+  expect(screen.getByLabelText("質問待ち").textContent).toContain("Alice");
+});
+
 it("marks the inbox read from the 1:1 strip only", () => {
   const onRead = vi.fn();
   const inbox: BotIntercomInboxDto = {
