@@ -15,6 +15,7 @@ import {
   clampCooldownSeconds,
   clampMaxTurns,
   normalizeAcceptance,
+  normalizeNotes,
   parseCooldownSeconds,
 } from "./index.ts";
 import goalLoopExtensionImplementation, { goalLoopTestSeams } from "./index.ts";
@@ -1334,6 +1335,16 @@ test("keeps the loop alive once when the result JSON is missing", () => {
   }
 });
 
+test("operator notes are deduped, trimmed, and bounded", () => {
+  assert.equal(normalizeNotes(undefined), undefined);
+  assert.equal(normalizeNotes([]), undefined);
+  assert.equal(normalizeNotes("note"), undefined);
+  assert.deepEqual(normalizeNotes([" a ", "", 1, "a", "b"]), ["a", "b"]);
+  const many = Array.from({ length: 12 }, (_, index) => `note-${index}`);
+  assert.deepEqual(normalizeNotes(many), many.slice(-10));
+  assert.equal(normalizeNotes(["x".repeat(600)])[0].length, 500);
+});
+
 test("keeps a missing verification result in the verification phase", () => {
   const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-missing-verification-"));
   process.env.LEAFCODE_PI_DATA_DIR = cwd;
@@ -2590,6 +2601,7 @@ test("additional send during a live loop keeps the loop running", async () => {
   let busy = false;
   let sendCount = 0;
   let abortCount = 0;
+  const sentMessages = [];
   const stateFile = () => join(cwd, "goals-loop", "extra-send-session.json");
 
   const ctx = {
@@ -2611,7 +2623,7 @@ test("additional send during a live loop keeps the loop running", async () => {
       on(name, handler) { handlers.set(name, handler); },
       registerCommand(name, options) { commands.set(name, options.handler); },
       appendEntry() {},
-      sendMessage() { sendCount += 1; busy = true; },
+      sendMessage(message) { sendCount += 1; busy = true; sentMessages.push(message); },
     });
     await handlers.get("session_start")?.({}, ctx);
     const payload = Buffer.from(JSON.stringify({ goal: "demo", maxTurns: 3 })).toString("base64url");
@@ -2626,6 +2638,28 @@ test("additional send during a live loop keeps the loop running", async () => {
     assert.equal(loop.pauseReason, "");
     assert.equal(abortCount, 0);
     assert.equal(sendCount, 1);
+    // 指示はループ状態にも残り、次ターンのプロンプトへ載る（圧縮対策）。
+    assert.deepEqual(loop.notes, ["追加の指示"]);
+    // 同じ指示の再送（steer→followUp など）でnoteを重ねない。
+    await handlers.get("input")?.({ text: "追加の指示", source: "interactive" }, ctx);
+    assert.deepEqual(JSON.parse(readFileSync(stateFile(), "utf8")).notes, ["追加の指示"]);
+    // 拡張コマンドは追加指示にしない。
+    await handlers.get("input")?.({ text: "/goal-status", source: "interactive" }, ctx);
+    assert.deepEqual(JSON.parse(readFileSync(stateFile(), "utf8")).notes, ["追加の指示"]);
+
+    // 次のターンのプロンプトに前の追加指示を再掲する。
+    busy = false;
+    await handlers.get("agent_end")?.({
+      type: "agent_end",
+      messages: [{
+        role: "assistant",
+        content: [{ type: "text", text: JSON.stringify({ status: "progress", summary: "turn 1" }) }],
+      }],
+    }, ctx);
+    await handlers.get("agent_settled")?.({ type: "agent_settled" }, ctx);
+    await waitFor(() => sendCount === 2);
+    const nextPrompt = sentMessages.at(-1)?.content;
+    assert.match(typeof nextPrompt === "string" ? nextPrompt : nextPrompt.map((part) => part.text).join(""), /Operator notes[\s\S]*- 追加の指示/);
   } finally {
     await handlers.get("session_shutdown")?.({}, ctx);
     rmSync(cwd, { recursive: true, force: true });

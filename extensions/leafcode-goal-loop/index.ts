@@ -81,6 +81,12 @@ export type GoalLoop = {
   pendingTurnRecovery: boolean;
   /** The loop-end notice was queued for the next user prompt (sent at most once per run). */
   endNoticeSent?: boolean;
+  /**
+   * Operator instructions sent while this run was live. They are replayed in
+   * every later turn prompt, so a long loop keeps them even after the transcript
+   * they arrived in is compacted.
+   */
+  notes?: string[];
   createdAt: string;
   updatedAt: string;
 };
@@ -98,6 +104,9 @@ const MAX_ACCEPTANCE_CHARS = 2_000;
 const MAX_PROGRESS = 50;
 const MAX_REJECTED_CLAIMS = 2;
 const MAX_UNREADABLE_STREAK = 2;
+/** Keep the replay prompt bounded; older notes fall off first. */
+const MAX_NOTES = 10;
+const MAX_NOTE_CHARS = 500;
 const TURN_TIMEOUT_MS = 15 * 60 * 1000;
 const TERMINAL = new Set<GoalLoopStatus>(["completed", "stopped"]);
 const UNSCHEDULABLE = new Set<GoalLoopStatus>(["paused", "blocked"]);
@@ -345,6 +354,18 @@ function normalizeInitialImages(value: unknown): GoalLoopInitialImage[] | undefi
   return images.length ? images : undefined;
 }
 
+export function normalizeNotes(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const notes: string[] = [];
+  for (const item of value) {
+    if (typeof item !== "string") continue;
+    const note = item.trim().slice(0, MAX_NOTE_CHARS);
+    if (!note || notes.at(-1) === note) continue;
+    notes.push(note);
+  }
+  return notes.length ? notes.slice(-MAX_NOTES) : undefined;
+}
+
 function normalizeNextTurnAt(value: unknown): string | null {
   if (typeof value !== "string") return null;
   const text = value.trim();
@@ -385,6 +406,7 @@ function hydrateLoop(value: unknown, cwd: string, id: string): GoalLoop | null {
     unreadableStreak: Math.max(0, Math.trunc(Number(raw.unreadableStreak) || 0)),
     pendingTurnRecovery: raw.pendingTurnRecovery === true,
     endNoticeSent: raw.endNoticeSent === true,
+    notes: normalizeNotes(raw.notes),
     createdAt: typeof raw.createdAt === "string" ? raw.createdAt : now,
     updatedAt: typeof raw.updatedAt === "string" ? raw.updatedAt : now,
   };
@@ -745,6 +767,17 @@ function recentProgress(loop: GoalLoop, count: number): string {
     : "";
 }
 
+/**
+ * Operator instructions sent while the loop was live. They ride along with every
+ * later turn prompt, so compacting the transcript does not lose them.
+ */
+function operatorNotes(loop: GoalLoop): string {
+  const notes = loop.notes?.filter((note) => note.trim()) ?? [];
+  return notes.length
+    ? `\n\nOperator notes added while this loop was running (they stay in force and they do not replace the acceptance criteria; the host keeps scheduling turns, so keep ending every turn with the JSON result block):\n${notes.map((note) => `- ${note}`).join("\n")}`
+    : "";
+}
+
 function jsonInstructions(statuses: string): string {
   return `\n\nThe very last thing you output this turn must be a single fenced JSON block:\n\n\`\`\`json\n{"status":"progress","summary":"what changed this turn","next":"the next step","evidence":"commands run, files touched, results"}\n\`\`\`\n\n- status must be exactly one of: ${statuses}.\n- summary is required. Put a blocked reason in blockedReason when status is blocked.\n- Write nothing after the closing fence.`;
 }
@@ -754,7 +787,7 @@ export function buildGoalPrompt(loop: GoalLoop, turn: number): string {
   const turnBudget = max === 0
     ? `This is loop turn ${turn}. There is no automatic turn limit.`
     : `This is turn ${turn} of ${loop.forceFullRun ? "exactly" : "at most"} ${max}. ${turn - 1} loop turn(s) completed before this one.`;
-  const common = `${PROMPT_MARKER}\n\n${turnBudget} The next prompt is sent automatically after this turn ends.\n\nRules:\n- One turn = one iteration. Do the smallest useful increment, then end this turn. Do not simulate future work.\n- Report only work actually performed in this turn.\n- Keep changes incremental and reviewable.\n- Do not ask questions unless truly blocked.\n\nGoal:\n${loop.goal}${acceptanceText(loop)}${recentProgress(loop, 5)}`;
+  const common = `${PROMPT_MARKER}\n\n${turnBudget} The next prompt is sent automatically after this turn ends.\n\nRules:\n- One turn = one iteration. Do the smallest useful increment, then end this turn. Do not simulate future work.\n- Report only work actually performed in this turn.\n- Keep changes incremental and reviewable.\n- Do not ask questions unless truly blocked.\n\nGoal:\n${loop.goal}${acceptanceText(loop)}${recentProgress(loop, 5)}${operatorNotes(loop)}`;
   if (loop.forceFullRun) {
     return `${common}\n\nYou are running in LeafCode full-run mode. Never declare the goal complete. The host will ${max === 0 ? "continue until you pause or stop it" : `run exactly ${max} goal turns`}. A completion claim is treated as progress.${jsonInstructions("progress, blocked")}`;
   }
@@ -768,7 +801,7 @@ export function buildGoalContinuationPrompt(loop: GoalLoop, turn: number): strin
   const missingResultReminder = loop.unreadableStreak > 0
     ? "\n\nYour previous reply did not include the required JSON result block, so the loop could not read a result. This turn MUST end with the fenced JSON block described below, and nothing may come after it."
     : "";
-  const common = `${PROMPT_MARKER}\n\nContinue the persistent goal loop. Work on exactly one smallest useful step, then end this turn. ${turnBudget}${missingResultReminder}\n\nGoal:\n${loop.goal}${acceptanceText(loop)}${recentProgress(loop, 2)}`;
+  const common = `${PROMPT_MARKER}\n\nContinue the persistent goal loop. Work on exactly one smallest useful step, then end this turn. ${turnBudget}${missingResultReminder}\n\nGoal:\n${loop.goal}${acceptanceText(loop)}${recentProgress(loop, 2)}${operatorNotes(loop)}`;
   if (loop.forceFullRun) {
     return `${common}\n\nFull-run mode: never declare completion. The loop will ${loop.maxTurns === 0 ? "continue until you pause or stop it" : "run until the turn limit"}. Do not simulate future work.${jsonInstructions("progress, blocked")}`;
   }
@@ -1116,6 +1149,31 @@ export function buildLoopEndedNotice(status: GoalLoopStatus): string {
     "The earlier goal-loop instructions ended with that loop: do NOT append the goal-loop JSON result block to later replies unless a new goal loop starts.",
     "Answer the user's next message as a normal conversation.",
   ].join("\n");
+}
+
+/**
+ * Keep an operator instruction in the loop state. The message itself still goes
+ * into the running turn (steer/followUp); this record is replayed in every later
+ * turn prompt so a long loop keeps the instruction after compaction. A failed
+ * write must not block the send, so it is best-effort and reverts the in-memory
+ * copy to keep memory aligned with disk.
+ */
+function recordOperatorNote(runtime: Runtime, loop: GoalLoop, text: string): void {
+  const trimmed = text.trim();
+  if (!trimmed) return;
+  // 切り詰めは見える形で残す（全文は会話履歴にある）。
+  const note = trimmed.length > MAX_NOTE_CHARS
+    ? `${trimmed.slice(0, MAX_NOTE_CHARS)}…`
+    : trimmed;
+  const previous = loop.notes;
+  if (previous?.at(-1) === note) return;
+  loop.notes = [...(previous ?? []), note].slice(-MAX_NOTES);
+  if (writeLoop(loop)) {
+    updateUI(runtime, loop);
+    return;
+  }
+  if (previous === undefined) delete loop.notes;
+  else loop.notes = previous;
 }
 
 function pauseLoop(runtime: Runtime, reason: GoalLoopPauseReason = "user", error = "ユーザーが一時停止しました。"): boolean {
@@ -1967,11 +2025,20 @@ export default function (pi: ExtensionAPI): void {
 
   const getRuntime = (): Runtime | null => runtime && !runtime.disposed ? runtime : null;
 
-  // 追加送信はループを止めない。以前は input を検知して pause + abort しており、
-  // WebUI では送信そのものを塞いでいた。今は実行中ターンへ steer/followUp として
-  // 注入され、ターン間なら通常ターンとして走り、ループは idle を待って自動継続する
-  // （schedule と prepareGoalLoopTurn が busy 中は送信しないため、追加送信と
-  // ループの次ターンは混ざらない）。止めたいときは /goal-pause か Stop を使う。
+  // 追加送信はループを止めない: input では pause も abort もしない。実行中ターンには
+  // steer/followUp として注入され、ターン間なら通常ターンとして走り、ループは idle を
+  // 待って自動継続する（schedule と prepareGoalLoopTurn が busy 中は送信しないため、
+  // 追加送信とループの次ターンは混ざらない）。止めたいときは /goal-pause か Stop を使う。
+  // ここでは同時に、その指示を以降のターンのプロンプトへ載せるために記録する。
+  pi.on("input", async (event) => {
+    const current = getRuntime();
+    if (!current || event.source === "extension") return;
+    // 拡張コマンドは input の前に処理されるが、/goal-* を追加指示として記録しない。
+    if (/^\/(?:goal|goal-status|goal-pause|goal-resume|goal-stop|goal-complete|goal-compose)(?:\s|$)/i.test(event.text)) return;
+    const loop = currentLoop(current);
+    if (!loop || TERMINAL.has(loop.status) || UNSCHEDULABLE.has(loop.status)) return;
+    recordOperatorNote(current, loop, event.text);
+  });
 
   pi.on("turn_start", async (event, _ctx) => {
     const current = getRuntime();
