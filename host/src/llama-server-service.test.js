@@ -270,6 +270,7 @@ test('start refuses a path value cmd.exe could reinterpret', async () => {
   for (const config of [
     { modelDir: 'D:\\m" & calc & "' },
     { modelFile: 'x%PATH%.gguf' },
+    { loraPath: 'gguf\\x%PATH%.gguf' },
     { llamaServerBin: 'D:\\a!b!\\llama-server.exe' },
     { modelDir: `D:\\${'a'.repeat(400)}` },
   ]) {
@@ -590,6 +591,34 @@ test('Linux maps Vulkan, draft and sampling settings without inheriting offload 
   assert.ok(spawned.args.includes('/srv/models/gguf/bonsai-abliterate-lora.gguf'));
   assert.equal(spawned.options.env.LLAMA_ARG_FIT, undefined);
   assert.equal(spawned.options.env.LD_LIBRARY_PATH, '/opt/llama-b10679');
+});
+
+test('macOS passes Vision projector and LoRA assets to direct llama-server launch', async () => {
+  let spawned = null;
+  const svc = createLlamaServerService(
+    makeDeps({
+      platform: 'darwin',
+      defaultBin: '/opt/llama/llama-server',
+      defaultModelDir: '/srv/models',
+      spawn: (command, args, options) => {
+        spawned = { command, args, options };
+        return { pid: 2468, once() {}, unref() {} };
+      },
+    }),
+  );
+  const result = await svc.start({
+    modelFile: 'OrcaBonsai-27B-Uncensored/Ternary-Bonsai-2-27B-Q4_K_M.gguf',
+    mmprojPath: 'OrcaBonsai-27B-Uncensored/Ternary-Bonsai-2-27B-mmproj-Q8_0.gguf',
+    loraPath: 'OrcaBonsai-27B-Uncensored/gguf/bonsai-abliterate-lora.gguf',
+  });
+  assert.equal(result.ok, true);
+  assert.equal(spawned.command, '/opt/llama/llama-server');
+  assert.ok(spawned.args.includes('--mmproj'));
+  assert.ok(spawned.args.includes('/srv/models/OrcaBonsai-27B-Uncensored/Ternary-Bonsai-2-27B-mmproj-Q8_0.gguf'));
+  assert.ok(spawned.args.includes('--lora'));
+  assert.ok(spawned.args.includes('/srv/models/OrcaBonsai-27B-Uncensored/gguf/bonsai-abliterate-lora.gguf'));
+  assert.ok(spawned.args.includes('--image-max-tokens'));
+  assert.ok(spawned.args.includes('1024'));
 });
 
 test('Linux accepts POSIX path characters that do not reach a shell', async () => {

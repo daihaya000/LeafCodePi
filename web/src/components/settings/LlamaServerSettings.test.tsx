@@ -193,14 +193,16 @@ describe("LlamaServerSettings", () => {
 
   it("OrcaBonsai Visionプリセットが mmproj と LoRA を同時に設定する", async () => {
     const model = "OrcaBonsai-27B-Uncensored\\Ternary-Bonsai-2-27B-PQ2_0.gguf";
+    const otherModel = "Qwen3.8-27B-GGUF\\Qwen3.8-27B-Q4_K_M.gguf";
     const mmproj = "OrcaBonsai-27B-Uncensored\\Ternary-Bonsai-2-27B-mmproj-Q8_0.gguf";
+    const otherMmproj = "Qwen3.8-27B-GGUF\\mmproj-Qwen3.8-BF16.gguf";
     const lora = "OrcaBonsai-27B-Uncensored\\gguf\\bonsai-abliterate-lora.gguf";
     getJson.mockImplementation((path: string) => {
       if (path === "/api/settings/llama-server-config") {
         return Promise.resolve({ parsed: { ...DEFAULT_LLAMA_SERVER_SETTINGS } });
       }
       if (path === "/api/llama-server/models") {
-        return Promise.resolve({ models: [model], mmprojs: [mmproj], loras: [lora], defaultModel: null, dir: "D:\\models\\llm" });
+        return Promise.resolve({ models: [model, otherModel], mmprojs: [mmproj, otherMmproj], loras: [lora], defaultModel: null, dir: "D:\\models\\llm" });
       }
       if (path === "/api/llama-server/status") {
         return Promise.resolve({ running: true, pid: 123, listeningPids: [123], health: "ok" });
@@ -227,6 +229,9 @@ describe("LlamaServerSettings", () => {
       expect(parsed.mmprojPath).toBe(mmproj);
       expect(parsed.loraPath).toBe(lora);
     });
+
+    fireEvent.change(screen.getByLabelText("起動するモデル"), { target: { value: otherModel } });
+    await waitFor(() => expect(loraSelect.value).toBe(""));
   });
 
   it("非表示から再表示した直後は確認中に戻り、古い状態で起動・停止できない", async () => {

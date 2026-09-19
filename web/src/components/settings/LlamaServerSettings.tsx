@@ -634,10 +634,12 @@ export function LlamaServerSettings(
               disabled={formDisabled}
               onChange={(e) =>
                 setConfig((c) => {
-                  const resolved = withResolvedMmproj({ ...c, modelFile: e.target.value }, mmprojs);
-                  return selectedFamily === "orca-bonsai27"
+                  const modelFile = e.target.value;
+                  const resolved = withResolvedMmproj({ ...c, modelFile }, mmprojs);
+                  const presetKey = LLAMA_MODEL_PRESETS.find((preset) => preset.match.test(modelFile))?.key;
+                  return presetKey === "orca-bonsai27"
                     ? withResolvedLora(resolved, loras)
-                    : resolved;
+                    : { ...resolved, loraPath: "" };
                 })
               }
               className="h-9 w-full rounded-lg border border-border bg-bg px-3 text-sm outline-none focus:border-border-strong disabled:opacity-40"

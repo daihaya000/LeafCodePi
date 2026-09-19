@@ -30,9 +30,9 @@ import { dirname, isAbsolute, join, posix, sep } from 'path';
  * @property {string} [gpuDevice] Linux Vulkan device (for example Vulkan0).
  * @property {string} [draftModelPath] Linux speculative-decoding draft GGUF.
  * @property {string} [mmprojPath] Vision projector GGUF, relative to modelDir.
- *   Linux: --mmproj. Windows: MMPROJ_FILE for the launcher bat.
+ *   POSIX: --mmproj. Windows: MMPROJ_FILE for the launcher bat.
  * @property {string} [loraPath] LoRA adapter GGUF, relative to modelDir.
- *   Linux: --lora. Windows: LORA_FILE for the launcher bat.
+ *   POSIX: --lora. Windows: LORA_FILE for the launcher bat.
  * @property {'127.0.0.1' | '0.0.0.0'} [llamaServerHost] LLAMA_SERVER_HOST
  *   (bind address; 0.0.0.0 opens the server to LAN/Tailscale clients).
  * @property {string} [specType] SPEC_TYPE (--spec-type; "" = off). Only
@@ -538,6 +538,15 @@ export function createLlamaServerService(deps) {
       : '';
     const modelPath = modelFile ? pathJoin(modelDir, modelFile) : null;
     const alias = modelFile?.split(pathSeparator).pop()?.replace(/\.gguf$/i, '') || 'model';
+    const imageMaxTokens = firstEnvironmentValue(
+      ['LEAFCODE_PI_LLAMA_IMAGE_MAX_TOKENS', 'IMAGE_MAX_TOKENS'],
+      /(?:orca.?bonsai|bonsai)/i.test(modelFile) ? '1024' : '',
+    );
+    const resolveAssetPath = (assetPath) => {
+      if (!assetPath) return '';
+      const normalized = String(assetPath).replaceAll('\\', '/');
+      return posix.isAbsolute(normalized) ? normalized : posix.join(modelDir, normalized);
+    };
 
     if (!isLinux) {
       const args = [
@@ -560,6 +569,9 @@ export function createLlamaServerService(deps) {
       }
       if (modelPath) args.push('-m', modelPath, '--alias', alias);
       else args.push('--models-dir', modelDir);
+      if (config.mmprojPath) args.push('--mmproj', resolveAssetPath(config.mmprojPath));
+      if (config.loraPath) args.push('--lora', resolveAssetPath(config.loraPath));
+      if (imageMaxTokens && imageMaxTokens !== '0') args.push('--image-max-tokens', imageMaxTokens);
       return { binary, args };
     }
 
@@ -655,17 +667,6 @@ export function createLlamaServerService(deps) {
       ['LEAFCODE_PI_LLAMA_LORA_PATH', 'LORA_PATH'],
       '',
     );
-    const imageMaxTokens = value(
-      undefined,
-      ['LEAFCODE_PI_LLAMA_IMAGE_MAX_TOKENS', 'IMAGE_MAX_TOKENS'],
-      /(?:orca.?bonsai|bonsai)/i.test(modelName) ? '1024' : '',
-    );
-    const resolveAssetPath = (assetPath) => {
-      if (!assetPath) return '';
-      const normalized = String(assetPath).replaceAll('\\', '/');
-      return posix.isAbsolute(normalized) ? normalized : posix.join(modelDir, normalized);
-    };
-
     const args = [];
     if (modelPath) args.push('-m', modelPath, '--alias', alias);
     else args.push('--models-dir', modelDir);
