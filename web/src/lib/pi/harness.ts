@@ -13,6 +13,7 @@ import {
   samePath,
 } from "@/lib/paths";
 import { prepareWorkspaceMove, type PreparedWorkspaceMove } from "@/lib/workspace-move";
+import { llamaServerImageModelIds } from "@/lib/llama-server-vision";
 import { BOT_DEFAULT_TOOL_NAMES, BOT_TOOL_NAMES, botPromptSources, botRuntimeContext, botSoulRevision, botTaskId, getBot, listBots, patchBot } from "@/lib/bots";
 import { codePromptSources } from "@/lib/agents-md";
 import { BOT_CODE_RESULT, BOT_CODE_TOOL, botCodeReportText, createBotCodeRelay, hasBotCodeReport, isBotCodeOriginTask, queueBotCodePrompt, roomForCodeOrigin, runUserBotCodeRequest, stopBotCodeRequestForTask, truncateCodeReportRequest, type CodePromptOptions, type CodeRequest } from "@/lib/pi/bot-code-relay";
@@ -4695,6 +4696,11 @@ async function buildModelOptions(
   if (!accountId) await syncProvidersBestEffort(runtime);
   const snapshot = providerModelSnapshot(runtime, providerIds);
   const state = await ensureProviderModelsKnown(snapshot.refs, accountId);
+  // llama-server のモデルは Pi 側に capability metadata を持たないため、
+  // mmproj ロード中は /v1/models を見て画像入力を補う（未起動時は空）。
+  const llamaImageModelIds = snapshot.models.has("llama-server")
+    ? await llamaServerImageModelIds().catch(() => new Set<string>())
+    : new Set<string>();
   const catalog = buildProviderModelsCatalog(
     runtime,
     state,
@@ -4717,12 +4723,16 @@ async function buildModelOptions(
     const modelID = model.id;
     const value = modelValue(providerID, modelID);
     if (!enabled.has(value)) continue;
+    const input = new Set(model.input);
+    if (providerID === "llama-server" && llamaImageModelIds.has(modelID)) {
+      input.add("image");
+    }
     options.push({
       value,
       label: model.name || modelID,
       providerID,
       modelID,
-      input: [...model.input],
+      input: [...input],
       reasoning: Boolean(model.reasoning),
       thinkingLevels: thinkingLevelsForModel(model),
       subscription: usesSubscriptionAllowance(runtime, providerID),

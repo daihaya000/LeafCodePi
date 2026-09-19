@@ -270,4 +270,37 @@ describe("ModelSelect grouping by account", () => {
     fireEvent.click(screen.getByRole("option", { name: /GPT-5/ }));
     expect(onChange).toHaveBeenCalledWith("acc-1::openai-codex::gpt-5");
   });
+
+  it("marks image-capable models and omits the mark for text-only models", () => {
+    const vision = option({
+      value: "llama-server::vision",
+      label: "Qwen3.8-27B-Uncensored",
+      providerID: "llama-server",
+      modelID: "vision",
+      input: ["text", "image"],
+    });
+    const textOnly = option({
+      value: "llama-server::text",
+      label: "Text",
+      providerID: "llama-server",
+      modelID: "text",
+      input: ["text"],
+    });
+
+    const view = render(
+      <ModelSelect value="llama-server::vision" options={[vision, textOnly]} onChange={() => {}} />,
+    );
+    expect(screen.queryAllByLabelText("画像入力対応").length).toBe(1);
+
+    // 開いたメニューでも同じ判定: 画像対応の行だけにマークが付く。
+    fireEvent.click(screen.getByRole("button", { name: "モデル" }));
+    expect(screen.queryAllByLabelText("画像入力対応").length).toBe(2);
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(screen.queryByRole("listbox")).toBeNull();
+
+    view.rerender(
+      <ModelSelect value="llama-server::text" options={[vision, textOnly]} onChange={() => {}} />,
+    );
+    expect(screen.queryAllByLabelText("画像入力対応").length).toBe(0);
+  });
 });
