@@ -163,12 +163,12 @@ import {
   type ResumableTurn,
 } from "@/lib/aborted-resume";
 import {
+  composerStreamingBehavior,
   shouldAutoSendQueuedFollowUp,
   shouldClearQueuedFollowUpOnAbortState,
   shouldClearQueuedFollowUpOnEvent,
   shouldDrainQueuedFollowUp,
   shouldQueueFollowUp,
-  shouldSendSteerBehavior,
 } from "@/lib/queued-follow-up";
 import { isHangRetryUserMessage } from "@/lib/hang-retry";
 import { mergeTaskDelta, type TaskDeltaState } from "@/lib/task-delta";
@@ -2246,8 +2246,8 @@ export const TaskView = memo(function TaskView({
       setError(null);
       return;
     }
-    if (working && (goalLoopEnabled || goalLoopLive)) {
-      setError("Goal loop の実行中は追加の送信はできません");
+    if (working && goalLoopEnabled) {
+      setError("実行中は Goal loop を開始できません");
       return;
     }
     const wasStopped = stopRequestedRef.current;
@@ -2295,7 +2295,12 @@ export const TaskView = memo(function TaskView({
       } else {
         // working covers prompt_accepted→stream gap; isStreaming alone misses it
         // and would POST a normal chained prompt instead of steer.
-        const isSteer = shouldSendSteerBehavior({ working, deliveryMode });
+        // Goal loop 実行中の追加送信も同じ経路で注入し、ループは止めない。
+        const streamingBehavior = composerStreamingBehavior({
+          working,
+          deliveryMode,
+          goalLoopLive,
+        });
         if (!queued) {
           setPrompt("");
           setAttachments([]);
@@ -2317,7 +2322,7 @@ export const TaskView = memo(function TaskView({
             : {}),
           ...(agentSelection ? { agent: agentSelection } : {}),
           subagentPermission,
-          ...(isSteer ? { streamingBehavior: "steer" } : {}),
+          ...(streamingBehavior ? { streamingBehavior } : {}),
         });
         resolvedAgent = result.task.agent ?? null;
         resolvedAutoDecision = result.autoDecision;
@@ -4165,7 +4170,7 @@ export const TaskView = memo(function TaskView({
                 title={working ? (deliveryMode === "queue" ? "現在の処理後に送信" : "実行中の処理へ差し込む") : "送信"}
                 className={`${COMPOSER_ACTION_BUTTON_CLASS} !bg-accent !text-white hover:!bg-accent/90`}
                 busy={submitting}
-                disabled={archived || compacting || agentChanging || revertBusy || revertConfirmOpen || ((goalLoopEnabled || goalLoopLive) && working) || (!prompt.trim() && attachments.length === 0)}
+                disabled={archived || compacting || agentChanging || revertBusy || revertConfirmOpen || (goalLoopEnabled && working) || (!prompt.trim() && attachments.length === 0)}
               >
                 {!submitting && <ArrowUp className="h-4 w-4" />}
               </Button>

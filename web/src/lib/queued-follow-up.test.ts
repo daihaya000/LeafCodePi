@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
+  composerStreamingBehavior,
   shouldAutoSendQueuedFollowUp,
   shouldClearQueuedFollowUpOnAbortState,
   shouldClearQueuedFollowUpOnEvent,
   shouldDrainQueuedFollowUp,
   shouldQueueFollowUp,
-  shouldSendSteerBehavior,
 } from "./queued-follow-up";
 
 const idle = {
@@ -187,8 +187,15 @@ describe("queued follow-up hang events", () => {
   });
 
   it("sends steer while working even before the stream opens", () => {
-    expect(shouldSendSteerBehavior({ working: true, deliveryMode: "steer" })).toBe(true);
-    expect(shouldSendSteerBehavior({ working: false, deliveryMode: "steer" })).toBe(false);
-    expect(shouldSendSteerBehavior({ working: true, deliveryMode: "queue" })).toBe(false);
+    expect(composerStreamingBehavior({ working: true, deliveryMode: "steer", goalLoopLive: false })).toBe("steer");
+    expect(composerStreamingBehavior({ working: false, deliveryMode: "steer", goalLoopLive: false })).toBeUndefined();
+    expect(composerStreamingBehavior({ working: false, deliveryMode: "queue", goalLoopLive: true })).toBeUndefined();
+    // 通常のキュー送信はクライアント側キューが持ち、streamingBehavior は付けない。
+    expect(composerStreamingBehavior({ working: true, deliveryMode: "queue", goalLoopLive: false })).toBeUndefined();
+  });
+
+  it("uses the engine queue for a live Goal loop instead of the stalled client queue", () => {
+    expect(composerStreamingBehavior({ working: true, deliveryMode: "queue", goalLoopLive: true })).toBe("followUp");
+    expect(composerStreamingBehavior({ working: true, deliveryMode: "steer", goalLoopLive: true })).toBe("steer");
   });
 });

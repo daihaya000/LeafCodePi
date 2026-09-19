@@ -881,10 +881,11 @@ test("pause/stop/input do not claim success when writeLoop fails", async () => {
 
     notifies.length = 0;
     abortCount = 0;
+    // 追加送信はループを止めない: input では pause も abort もしない。
     await handlers.get("input")?.({ text: "割り込み", source: "user" }, ctx);
     assert.equal(JSON.parse(readFileSync(stateFile(), "utf8")).status, "running");
     assert.equal(abortCount, 0);
-    assert.ok(notifies.some((item) => item.level === "error" && /手動入力を検知しましたが状態の保存に失敗/.test(item.message)));
+    assert.equal(notifies.length, 0);
 
     notifies.length = 0;
     await commands.get("goal-stop")?.("", ctx);
@@ -2509,7 +2510,7 @@ async function waitFor(predicate, timeoutMs = 2000) {
   throw new Error("waitFor: 条件が成立しませんでした");
 }
 
-test("manual_send keeps a late result without auto-continuing", async () => {
+test("mid-turn pause keeps a late result without auto-continuing", async () => {
   const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-manual-send-"));
   process.env.LEAFCODE_PI_DATA_DIR = cwd;
   const handlers = new Map();
@@ -2550,10 +2551,11 @@ test("manual_send keeps a late result without auto-continuing", async () => {
     await waitFor(() => sendCount === 1);
 
     await handlers.get("turn_start")?.({ type: "turn_start", turnIndex: 0 }, ctx);
-    await handlers.get("input")?.({ text: "手動で割り込む", source: "user" }, ctx);
+    // 追加送信はループを止めないので、mid-turn pause は /goal-pause で起こす。
+    await commands.get("goal-pause")?.("", ctx);
     const paused = JSON.parse(readFileSync(stateFile(), "utf8"));
     assert.equal(paused.status, "paused");
-    assert.equal(paused.pauseReason, "manual_send");
+    assert.equal(paused.pauseReason, "user");
 
     // Abort settlement can finish before turn_end; the late JSON must be kept
     // without scheduling the next Goal turn past the user's interrupt.
@@ -2572,7 +2574,7 @@ test("manual_send keeps a late result without auto-continuing", async () => {
     const loop = JSON.parse(readFileSync(stateFile(), "utf8"));
     assert.equal(loop.progress.at(-1)?.summary, "late after manual send");
     assert.equal(loop.status, "paused");
-    assert.equal(loop.pauseReason, "manual_send");
+    assert.equal(loop.pauseReason, "user");
     assert.equal(sendCount, 1);
   } finally {
     await handlers.get("session_shutdown")?.({}, ctx);
@@ -2580,7 +2582,57 @@ test("manual_send keeps a late result without auto-continuing", async () => {
   }
 });
 
-test("manual_send recovers JSON from agent_settled after pause clears awaitingTurn", async () => {
+test("additional send during a live loop keeps the loop running", async () => {
+  const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-extra-send-"));
+  process.env.LEAFCODE_PI_DATA_DIR = cwd;
+  const handlers = new Map();
+  const commands = new Map();
+  let busy = false;
+  let sendCount = 0;
+  let abortCount = 0;
+  const stateFile = () => join(cwd, "goals-loop", "extra-send-session.json");
+
+  const ctx = {
+    cwd,
+    mode: "rpc",
+    hasUI: false,
+    isIdle: () => !busy,
+    hasPendingMessages: () => false,
+    abort: () => { abortCount += 1; busy = false; },
+    sessionManager: {
+      getSessionId: () => "extra-send-session",
+      getBranch: () => [],
+    },
+    ui: { setStatus: () => {}, setWidget: () => {}, notify: () => {} },
+  };
+
+  try {
+    goalLoopExtension({
+      on(name, handler) { handlers.set(name, handler); },
+      registerCommand(name, options) { commands.set(name, options.handler); },
+      appendEntry() {},
+      sendMessage() { sendCount += 1; busy = true; },
+    });
+    await handlers.get("session_start")?.({}, ctx);
+    const payload = Buffer.from(JSON.stringify({ goal: "demo", maxTurns: 3 })).toString("base64url");
+    await commands.get("goal-start")?.(payload, ctx);
+    await waitFor(() => sendCount === 1 && JSON.parse(readFileSync(stateFile(), "utf8")).status === "running");
+
+    // The WebUI delivers the extra message as steer/followUp into this turn; the
+    // extension must neither pause the loop nor abort the run for it.
+    await handlers.get("input")?.({ text: "追加の指示", source: "interactive", streamingBehavior: "steer" }, ctx);
+    const loop = JSON.parse(readFileSync(stateFile(), "utf8"));
+    assert.equal(loop.status, "running");
+    assert.equal(loop.pauseReason, "");
+    assert.equal(abortCount, 0);
+    assert.equal(sendCount, 1);
+  } finally {
+    await handlers.get("session_shutdown")?.({}, ctx);
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test("mid-turn pause recovers JSON from agent_settled after pause clears awaitingTurn", async () => {
   const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-manual-settled-"));
   process.env.LEAFCODE_PI_DATA_DIR = cwd;
   const handlers = new Map();
@@ -2617,8 +2669,8 @@ test("manual_send recovers JSON from agent_settled after pause clears awaitingTu
 
     await handlers.get("turn_start")?.({ type: "turn_start", turnIndex: 0 }, ctx);
     // Pause before agent_end: awaitingTurn flips false, but pending evidence must survive.
-    await handlers.get("input")?.({ text: "割り込み", source: "user" }, ctx);
-    assert.equal(JSON.parse(readFileSync(stateFile(), "utf8")).pauseReason, "manual_send");
+    await commands.get("goal-pause")?.("", ctx);
+    assert.equal(JSON.parse(readFileSync(stateFile(), "utf8")).pauseReason, "user");
 
     busy = false;
     await handlers.get("agent_end")?.({
@@ -2633,7 +2685,7 @@ test("manual_send recovers JSON from agent_settled after pause clears awaitingTu
     const loop = JSON.parse(readFileSync(stateFile(), "utf8"));
     assert.equal(loop.progress.at(-1)?.summary, "from agent_settled");
     assert.equal(loop.status, "paused");
-    assert.equal(loop.pauseReason, "manual_send");
+    assert.equal(loop.pauseReason, "user");
     assert.equal(sendCount, 1);
   } finally {
     await handlers.get("session_shutdown")?.({}, ctx);
@@ -2641,7 +2693,7 @@ test("manual_send recovers JSON from agent_settled after pause clears awaitingTu
   }
 });
 
-test("manual_send late result keeps progress when re-pause write fails", async () => {
+test("mid-turn pause late result keeps progress when re-pause write fails", async () => {
   const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-repause-write-fail-"));
   process.env.LEAFCODE_PI_DATA_DIR = cwd;
   const handlers = new Map();
@@ -2682,8 +2734,8 @@ test("manual_send late result keeps progress when re-pause write fails", async (
     await waitFor(() => sendCount === 1);
 
     await handlers.get("turn_start")?.({ type: "turn_start", turnIndex: 0 }, ctx);
-    await handlers.get("input")?.({ text: "割り込み", source: "user" }, ctx);
-    assert.equal(JSON.parse(readFileSync(stateFile(), "utf8")).pauseReason, "manual_send");
+    await commands.get("goal-pause")?.("", ctx);
+    assert.equal(JSON.parse(readFileSync(stateFile(), "utf8")).pauseReason, "user");
 
     // applyResult may persist once; the follow-up pauseLoop write must fail.
     goalLoopTestSeams.setWriteLoopAllowCount(1);
@@ -2852,7 +2904,7 @@ test("late turn_end with a later turnIndex still recovers after mid-turn pause",
 
     // Tool call on turn 0, pause, JSON arrives on turn 1 of the same aborted run.
     await handlers.get("turn_start")?.({ type: "turn_start", turnIndex: 0 }, ctx);
-    await handlers.get("input")?.({ text: "割り込み", source: "user" }, ctx);
+    await commands.get("goal-pause")?.("", ctx);
     busy = false;
     await handlers.get("turn_end")?.({
       type: "turn_end",
@@ -2866,7 +2918,7 @@ test("late turn_end with a later turnIndex still recovers after mid-turn pause",
     const loop = JSON.parse(readFileSync(stateFile(), "utf8"));
     assert.equal(loop.progress.at(-1)?.summary, "later turnIndex");
     assert.equal(loop.status, "paused");
-    assert.equal(loop.pauseReason, "manual_send");
+    assert.equal(loop.pauseReason, "user");
     assert.equal(sendCount, 1);
   } finally {
     await handlers.get("session_shutdown")?.({}, ctx);

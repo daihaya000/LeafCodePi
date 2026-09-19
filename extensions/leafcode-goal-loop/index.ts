@@ -1967,25 +1967,11 @@ export default function (pi: ExtensionAPI): void {
 
   const getRuntime = (): Runtime | null => runtime && !runtime.disposed ? runtime : null;
 
-  pi.on("input", async (event, ctx) => {
-    const current = getRuntime();
-    if (!current || event.source === "extension") return;
-    if (/^\/(?:goal|goal-status|goal-pause|goal-resume|goal-stop|goal-complete|goal-compose)(?:\s|$)/i.test(event.text)) return;
-    const loop = currentLoop(current);
-    if (loop && (loop.status === "queued" || loop.status === "running" || loop.status === "verifying_completed")) {
-      // Only abort after a durable pause. Aborting on a failed write leaves disk
-      // active while the engine is torn down mid-turn.
-      if (!pauseLoop(current, "manual_send", "手動入力が行われたため一時停止しました。/goal-resume で再開できます。")) {
-        current.ctx.ui.notify("手動入力を検知しましたが状態の保存に失敗しました。", "error");
-        return;
-      }
-      try {
-        if (!ctx.isIdle()) ctx.abort();
-      } catch {
-        // Already settled.
-      }
-    }
-  });
+  // 追加送信はループを止めない。以前は input を検知して pause + abort しており、
+  // WebUI では送信そのものを塞いでいた。今は実行中ターンへ steer/followUp として
+  // 注入され、ターン間なら通常ターンとして走り、ループは idle を待って自動継続する
+  // （schedule と prepareGoalLoopTurn が busy 中は送信しないため、追加送信と
+  // ループの次ターンは混ざらない）。止めたいときは /goal-pause か Stop を使う。
 
   pi.on("turn_start", async (event, _ctx) => {
     const current = getRuntime();

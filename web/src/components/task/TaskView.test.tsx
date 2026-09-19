@@ -231,6 +231,42 @@ it("renders a submitted user prompt only after the authoritative SSE message", a
   expect(document.querySelector("[data-task-message]")?.textContent).toBe("同じ指示");
 });
 
+it("injects an extra prompt into a live Goal loop instead of refusing it", async () => {
+  class TestEventSource extends EventTarget {
+    static latest: TestEventSource | null = null;
+    constructor() {
+      super();
+      TestEventSource.latest = this;
+    }
+    close() {}
+  }
+  vi.stubGlobal("EventSource", TestEventSource);
+  mocks.sendJson.mockResolvedValue({ task });
+  render(<TaskView taskId={task.id} mdUp />);
+  await act(async () => {
+    TestEventSource.latest!.dispatchEvent(new MessageEvent("snapshot", {
+      data: JSON.stringify({
+        eventType: "message_start",
+        task: { ...task, status: "working", isStreaming: true, goalLoop: { id: "loop-1", status: "running", goal: "目標", acceptance: ["ok"], maxTurns: 5, turnCount: 1 } },
+        messages: [],
+        isStreaming: true,
+      }),
+    }));
+    await Promise.resolve();
+  });
+
+  const input = screen.getByRole("textbox", { name: "フォローアップ" });
+  fireEvent.change(input, { target: { value: "追加の指示" } });
+  fireEvent.submit(screen.getByRole("form", { name: "フォローアップ" }));
+
+  // ループは止めない: クライアント側キューではなく実行中ターンへの差し込みとして送る。
+  await waitFor(() => expect(mocks.sendJson).toHaveBeenCalledWith(
+    `/api/tasks/${task.id}/prompt`,
+    expect.objectContaining({ prompt: "追加の指示", streamingBehavior: "steer" }),
+  ));
+  expect(screen.queryByText("Goal loop の実行中は追加の送信はできません")).toBeNull();
+});
+
 it("does not render a user message twice when SSE reprojects its ids", async () => {
   class TestEventSource extends EventTarget {
     static latest: TestEventSource | null = null;
