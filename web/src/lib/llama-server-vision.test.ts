@@ -51,9 +51,13 @@ describe("applyLlamaVisionToProviderModels", () => {
       id: "llama-server",
       getModels: () => models,
     };
+    const runtime = {
+      getProviders: () => [provider],
+      getModels: (providerId: string) => (providerId === provider.id ? provider.getModels() : []),
+    };
     return {
       provider,
-      runtime: { getProviders: () => [provider], getModels: () => models },
+      runtime,
       setModels(next: { id?: unknown; input?: unknown }[]) {
         models = next;
       },
@@ -63,28 +67,36 @@ describe("applyLlamaVisionToProviderModels", () => {
     };
   }
 
-  it("adds image to multimodal models and survives a model refresh", () => {
+  it("adds image on both read paths and survives a model refresh", () => {
     const harness = makeRuntime();
     const id = "Qwen3.8-27B-Uncensored-Q4_K_S";
     harness.setModels([{ id, input: ["text"] }]);
 
-    expect(applyLlamaVisionToProviderModels(harness.runtime, new Set([id]))).toBe(1);
+    expect(applyLlamaVisionToProviderModels(harness.runtime, new Set([id]))).toBeGreaterThan(0);
     expect(harness.provider.getModels()[0]).toMatchObject({ input: ["text", "image"] });
+    expect(harness.runtime.getModels("llama-server")[0]).toMatchObject({
+      input: ["text", "image"],
+    });
 
-    // refreshModels 相当で配列ごと差し替わっても、ラップした getModels 経由で再付与される。
+    // refreshModels 相当で配列ごと差し替わっても、ラップした読み取り経路で再付与される。
     harness.setModels([{ id, input: ["text"] }]);
     expect(harness.provider.getModels()[0]).toMatchObject({ input: ["text", "image"] });
-    // 2回目の適用でも重複しない
-    expect(applyLlamaVisionToProviderModels(harness.runtime, new Set([id]))).toBe(1);
+    // 再適用でも重複しない
+    applyLlamaVisionToProviderModels(harness.runtime, new Set([id]));
     expect(harness.models()[0]!.input).toEqual(["text", "image"]);
   });
 
-  it("ignores providers that are not llama.cpp/llama-server", () => {
-    const other = { id: "anthropic", getModels: () => [{ id: "m", input: ["text"] }] };
-    const runtime = { getProviders: () => [other], getModels: () => other.getModels() };
+  it("never touches other providers' models", () => {
+    const otherModels = [{ id: "m", input: ["text"] }];
+    const other = { id: "anthropic", getModels: () => otherModels };
+    const runtime = {
+      getProviders: () => [other],
+      getModels: (providerId: string) => (providerId === other.id ? other.getModels() : []),
+    };
 
-    expect(applyLlamaVisionToProviderModels(runtime, new Set(["m"]))).toBe(0);
+    applyLlamaVisionToProviderModels(runtime, new Set(["m"]));
     expect(other.getModels()[0]!.input).toEqual(["text"]);
+    expect(runtime.getModels("anthropic")[0]!.input).toEqual(["text"]);
   });
 
   it("removes only the image entry it added when the projector is gone", () => {
