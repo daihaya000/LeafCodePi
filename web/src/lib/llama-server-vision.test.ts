@@ -45,34 +45,61 @@ describe("llama-server-vision", () => {
 });
 
 describe("applyLlamaVisionToProviderModels", () => {
-  it("adds image input to the matching provider model exactly once", () => {
-    const vision = { id: "Qwen3.8-27B-Uncensored-Q4_K_S", input: ["text"] };
-    const textOnly = { id: "other-model", input: ["text"] };
-    const runtime = {
-      getProviders: () => [{ id: "llama-server" }],
-      getModels: () => [vision, textOnly],
+  function makeRuntime() {
+    let models: { id?: unknown; input?: unknown }[] = [];
+    const provider: { id: string; getModels: () => readonly unknown[] } = {
+      id: "llama-server",
+      getModels: () => models,
     };
+    return {
+      provider,
+      runtime: { getProviders: () => [provider], getModels: () => models },
+      setModels(next: { id?: unknown; input?: unknown }[]) {
+        models = next;
+      },
+      models(): { id?: unknown; input?: unknown }[] {
+        return models;
+      },
+    };
+  }
 
-    const ids = new Set(["Qwen3.8-27B-Uncensored-Q4_K_S"]);
-    expect(applyLlamaVisionToProviderModels(runtime, ids)).toBe(1);
-    expect(vision.input).toEqual(["text", "image"]);
-    expect(textOnly.input).toEqual(["text"]);
-    // 以降の呼び出しは no-op（重複追加しない）
-    expect(applyLlamaVisionToProviderModels(runtime, ids)).toBe(0);
-    expect(vision.input).toEqual(["text", "image"]);
+  it("adds image to multimodal models and survives a model refresh", () => {
+    const harness = makeRuntime();
+    const id = "Qwen3.8-27B-Uncensored-Q4_K_S";
+    harness.setModels([{ id, input: ["text"] }]);
+
+    expect(applyLlamaVisionToProviderModels(harness.runtime, new Set([id]))).toBe(1);
+    expect(harness.provider.getModels()[0]).toMatchObject({ input: ["text", "image"] });
+
+    // refreshModels 相当で配列ごと差し替わっても、ラップした getModels 経由で再付与される。
+    harness.setModels([{ id, input: ["text"] }]);
+    expect(harness.provider.getModels()[0]).toMatchObject({ input: ["text", "image"] });
+    // 2回目の適用でも重複しない
+    expect(applyLlamaVisionToProviderModels(harness.runtime, new Set([id]))).toBe(1);
+    expect(harness.models()[0]!.input).toEqual(["text", "image"]);
   });
 
-  it("leaves models alone when nothing is multimodal or input is missing", () => {
-    const noInput = { id: "vision-model" } as { id: string; input?: string[] };
-    const runtime = {
-      getProviders: () => [{ id: "llama-server" }],
-      getModels: () => [noInput],
-    };
+  it("ignores providers that are not llama.cpp/llama-server", () => {
+    const other = { id: "anthropic", getModels: () => [{ id: "m", input: ["text"] }] };
+    const runtime = { getProviders: () => [other], getModels: () => other.getModels() };
 
-    expect(applyLlamaVisionToProviderModels(runtime, new Set())).toBe(0);
-    expect(noInput.input).toBeUndefined();
+    expect(applyLlamaVisionToProviderModels(runtime, new Set(["m"]))).toBe(0);
+    expect(other.getModels()[0]!.input).toEqual(["text"]);
+  });
 
-    expect(applyLlamaVisionToProviderModels(runtime, new Set(["vision-model"]))).toBe(1);
-    expect(noInput.input).toEqual(["image"]);
+  it("removes only the image entry it added when the projector is gone", () => {
+    const harness = makeRuntime();
+    harness.setModels([
+      { id: "vision", input: ["text"] },
+      { id: "native", input: ["text", "image"] },
+    ]);
+
+    applyLlamaVisionToProviderModels(harness.runtime, new Set(["vision"]));
+    expect(harness.models()[0]!.input).toEqual(["text", "image"]);
+
+    // mmproj を外した起動に戻った: 我々が足した分だけ取り消し、プロバイダ設定の image は残す。
+    applyLlamaVisionToProviderModels(harness.runtime, new Set());
+    expect(harness.models()[0]!.input).toEqual(["text"]);
+    expect(harness.models()[1]!.input).toEqual(["text", "image"]);
   });
 });

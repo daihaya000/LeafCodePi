@@ -39,6 +39,49 @@ export async function llamaServerImageModelIds(options?: {
   }
 }
 
+type LlamaPatchableModel = { id?: unknown; input?: unknown };
+type LlamaPatchableProvider = {
+  id?: unknown;
+  getModels?: () => readonly unknown[];
+};
+type LlamaPatchState = {
+  ids: Set<string>;
+  /** このセッションで我々が image を足したモデル。ネイティブの画像対応は消さない。 */
+  added: WeakSet<object>;
+  original: () => readonly unknown[];
+};
+
+/** Pi 内蔵の llama.cpp プロバイダ id。LeafCodePi は表示上 "llama-server" を使う。 */
+const LLAMA_PROVIDER_IDS = new Set(["llama.cpp", "llama-server"]);
+
+/** 登録済みの getModels ラップ。refreshModels がモデル配列を差し替えても補正を維持する。 */
+const patchedProviders = new WeakMap<object, LlamaPatchState>();
+
+function patchModelInputs(models: readonly unknown[], state: LlamaPatchState): void {
+  for (const entry of models) {
+    const model = entry as LlamaPatchableModel;
+    if (typeof model?.id !== "string") continue;
+    const input = Array.isArray(model.input)
+      ? model.input.filter((value): value is string => typeof value === "string")
+      : [];
+    const has = input.includes("image");
+    if (state.ids.has(model.id)) {
+      if (!has) {
+        model.input = [...input, "image"];
+        state.added.add(model as object);
+      }
+      continue;
+    }
+    // mmproj を外した起動に戻ったら、我々が足した image は取り消す。
+    // プロバイダ自身が設定した画像対応（将来 llama.cpp が architecture を
+    // 返すようになった場合）は消さない。
+    if (has && state.added.has(model as object)) {
+      model.input = input.filter((value) => value !== "image");
+      state.added.delete(model as object);
+    }
+  }
+}
+
 /**
  * Pi 内蔵の llama.cpp プロバイダは `architecture.input_modalities` を見て
  * モデルの input を決める（provider.js の toPiModel）が、llama.cpp の
@@ -46,10 +89,11 @@ export async function llamaServerImageModelIds(options?: {
  * 「画像非対応」と判定し、送信時に画像がプレースホルダへ置換される
  * （pi-ai transform-messages の downgradeUnsupportedImages）。
  *
- * provider が保持するモデル配列は runtime.getModels() の参照なので、
- * multimodal なモデルへ input "image" を直接足せば以降の判定が通る。
+ * provider の getModels をラップし、multimodal なモデルへ input "image" を
+ * 付与する（refreshModels で配列が差し替わっても維持され、mmproj が外れたら
+ * 元に戻る）。
  *
- * @returns 補正したモデル数
+ * @returns ラップまたは更新した llama 系プロバイダ数
  */
 export function applyLlamaVisionToProviderModels(
   runtime: {
@@ -58,21 +102,26 @@ export function applyLlamaVisionToProviderModels(
   },
   imageModelIds: Set<string>,
 ): number {
-  if (imageModelIds.size === 0) return 0;
-  let patched = 0;
+  let touched = 0;
   for (const provider of runtime.getProviders()) {
-    const providerModels = runtime.getModels(provider.id);
-    if (!Array.isArray(providerModels)) continue;
-    for (const entry of providerModels) {
-      const model = entry as { id?: unknown; input?: unknown };
-      if (typeof model?.id !== "string" || !imageModelIds.has(model.id)) continue;
-      const input = Array.isArray(model.input)
-        ? model.input.filter((value): value is string => typeof value === "string")
-        : [];
-      if (input.includes("image")) continue;
-      model.input = [...input, "image"];
-      patched += 1;
+    const candidate = provider as unknown as LlamaPatchableProvider;
+    if (typeof candidate.id !== "string" || !LLAMA_PROVIDER_IDS.has(candidate.id)) continue;
+    if (typeof candidate.getModels !== "function") continue;
+    let state = patchedProviders.get(candidate as object);
+    if (!state) {
+      const original = candidate.getModels.bind(candidate);
+      state = { ids: imageModelIds, added: new WeakSet(), original };
+      patchedProviders.set(candidate as object, state);
+      candidate.getModels = () => {
+        const models = state!.original();
+        patchModelInputs(models, state!);
+        return models;
+      };
+    } else {
+      state.ids = imageModelIds;
     }
+    patchModelInputs(state.original(), state);
+    touched += 1;
   }
-  return patched;
+  return touched;
 }
