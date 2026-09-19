@@ -40,7 +40,7 @@ function existingDirectory(path: unknown): string {
  */
 export async function POST(req: NextRequest) {
   if (process.platform !== "win32") {
-    return NextResponse.json({ error: "ネイティブ選択は Windows のみです" }, { status: 400 });
+    return NextResponse.json({ error: "ネイティブ選択は Windows のみです" }, { status: 501 });
   }
   const body = (await req.json().catch(() => null)) as { path?: unknown } | null;
   const initialDir = existingDirectory(body?.path);

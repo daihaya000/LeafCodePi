@@ -26,6 +26,7 @@ import {
 import { AddProjectButton } from "@/components/AddProjectButton";
 import { WorkingTasksButton } from "@/components/WorkingTasksButton";
 import { ProjectIcon } from "@/components/ProjectIcon";
+import { discoverExplorerTarget, type ExplorerTarget } from "@/components/task/ProjectExplorerButton";
 import { CodexBarWidget } from "@/components/codexbar/CodexBarWidget";
 import { SystemMonitorWidget } from "@/components/sysmon/SystemMonitorWidget";
 import { useBotStatusFor, useTaskPanesNavigation } from "@/components/shell/TaskPanesContext";
@@ -34,7 +35,6 @@ import { BotAvatar, type BotFace } from "@/components/bot/BotAvatar";
 import { isTaskDrag, setTaskDragData } from "@/lib/task-drag";
 import { notifyBotSidebarChanged, notifyTasksChanged } from "@/lib/events";
 import { getJson, sendJson } from "@/lib/client";
-import { isLoopbackClientUrl } from "@/lib/client-platform";
 import {
   getBotSidebarServerSnapshot,
   getBotSidebarSnapshot,
@@ -1010,6 +1010,12 @@ function PromoteTaskDialog({
   );
 }
 
+/** ApiError の status（モックのスタブやネットワーク例外では undefined）。 */
+function errorStatus(error: unknown): number | undefined {
+  const status = (error as { status?: unknown } | null | undefined)?.status;
+  return typeof status === "number" ? status : undefined;
+}
+
 function ProjectSettingsDialog({
   project,
   onClose,
@@ -1035,11 +1041,28 @@ function ProjectSettingsDialog({
   const [destinationPath, setDestinationPath] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /** ホスト制御面（loopback）に到達できるクライアントか。判定は explorer と同じ探索を使う。 */
+  const [hostTarget, setHostTarget] = useState<ExplorerTarget | null>(null);
   /** ネイティブダイアログが失敗したらブラウザの file input へ戻す。 */
   const [iconHostFailed, setIconHostFailed] = useState(false);
   const [iconBusy, setIconBusy] = useState(false);
-  /** ホストPCのブラウザで開いているときだけネイティブダイアログを使う。 */
-  const hostIconPick = !iconHostFailed && hostPlatform === "win32" && isLoopbackClientUrl();
+  const hostIconPick = !iconHostFailed && hostTarget !== null;
+
+  useEffect(() => {
+    if (hostPlatform !== "win32") return;
+    setHostTarget(null);
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => controller.abort(), 1_500);
+    void discoverExplorerTarget(project.id, controller.signal)
+      .then((next) => {
+        if (!controller.signal.aborted) setHostTarget(next);
+      })
+      .finally(() => window.clearTimeout(timer));
+    return () => {
+      window.clearTimeout(timer);
+      controller.abort();
+    };
+  }, [hostPlatform, project.id]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -1079,8 +1102,8 @@ function ProjectSettingsDialog({
       );
       if (result.icon) onSetIconData(result.icon);
     } catch (err) {
-      // 対話デスクトップが無いホストでも使えるよう、従来の file input へ戻す。
-      setIconHostFailed(true);
+      // 画像として使えない選択（400）はネイティブのまま、ホスト側の失敗だけ従来の file input へ戻す。
+      if (errorStatus(err) !== 400) setIconHostFailed(true);
       setError(err instanceof Error ? err.message : "アイコン選択に失敗しました");
     } finally {
       setIconBusy(false);

@@ -8,7 +8,7 @@ import { isLoopbackHost } from "@/lib/loopback";
 const LOCAL_CLIENT_HEADER = "x-leafcode-pi-local-client";
 const DISCOVERY_TIMEOUT_MS = 1_500;
 
-type ExplorerTarget = {
+export type ExplorerTarget = {
   controlUrl: string;
   path: string;
 };

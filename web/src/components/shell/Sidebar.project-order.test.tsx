@@ -112,6 +112,18 @@ function useWindowsHost() {
   );
 }
 
+/** ホストPCのブラウザ（loopback 制御面に到達できる）を模す。 */
+function useLocalHost() {
+  const json = (body: unknown) =>
+    new Response(JSON.stringify(body), { headers: { "content-type": "application/json" } });
+  vi.stubGlobal(
+    "fetch",
+    vi.fn()
+      .mockResolvedValueOnce(json({ controlUrl: "http://127.0.0.1:18775", path: "C:\\repo-a" }))
+      .mockResolvedValueOnce(json({ ok: true, explorer: true })),
+  );
+}
+
 beforeEach(() => {
   localStorage.clear();
   // These tests exercise the Code sidebar; opt into it explicitly now that Bot is the default.
@@ -353,6 +365,7 @@ describe("Sidebar project ordering", () => {
 
   it("opens the host file dialog at the repository when the host can show it", async () => {
     useWindowsHost();
+    useLocalHost();
     const icon = "data:image/x-icon;base64,AAABAA==";
     mocks.sendJson.mockImplementation((path: string) =>
       Promise.resolve(path === "/api/browse/icon" ? { icon } : { project: { ...projects[0], icon } }),
@@ -377,6 +390,7 @@ describe("Sidebar project ordering", () => {
 
   it("falls back to the browser file input when the host dialog fails", async () => {
     useWindowsHost();
+    useLocalHost();
     mocks.sendJson.mockRejectedValueOnce(new Error("ネイティブ選択は Windows のみです"));
     render(<Sidebar mobileOpen={false} onClose={vi.fn()} />);
     await openProjectSettings();
@@ -385,6 +399,38 @@ describe("Sidebar project ordering", () => {
 
     const alert = await screen.findByRole("alert");
     expect(alert.textContent).toContain("ネイティブ選択は Windows のみです");
+    expect((await screen.findByLabelText("Project Aのアイコンを設定")).tagName).toBe("INPUT");
+  });
+
+  it("keeps the host dialog after a rejected image choice", async () => {
+    useWindowsHost();
+    useLocalHost();
+    mocks.sendJson.mockRejectedValueOnce(
+      Object.assign(new Error("PNG・JPEG・GIF・WebP・ICO の画像を選択してください。"), { status: 400 }),
+    );
+    render(<Sidebar mobileOpen={false} onClose={vi.fn()} />);
+    await openProjectSettings();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Project Aのアイコンを設定" }));
+
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain("PNG・JPEG・GIF・WebP・ICO の画像を選択してください。");
+    expect(screen.queryByRole("button", { name: "Project Aのアイコンを設定" })).not.toBeNull();
+  });
+
+  it("keeps the browser file input for a remote client", async () => {
+    useWindowsHost();
+    const json = (body: unknown) =>
+      new Response(JSON.stringify(body), { headers: { "content-type": "application/json" } });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn()
+        .mockResolvedValueOnce(json({ controlUrl: "http://127.0.0.1:18775", path: "C:\\repo-a" }))
+        .mockRejectedValueOnce(new TypeError("Failed to fetch")),
+    );
+    render(<Sidebar mobileOpen={false} onClose={vi.fn()} />);
+    await openProjectSettings();
+
     expect((await screen.findByLabelText("Project Aのアイコンを設定")).tagName).toBe("INPUT");
   });
 
