@@ -825,7 +825,7 @@ export const BotView = memo(function BotView({ id, active = true }: { id: string
     }
   };
 
-  const revertMessage = async (message: UiMessage) => {
+  const revertMessage = useCallback(async (message: UiMessage) => {
     if (reverting || sending || message.role !== "user") return;
     const requestContext = botRequestContextRef.current;
     setReverting(true);
@@ -849,7 +849,7 @@ export const BotView = memo(function BotView({ id, active = true }: { id: string
     } finally {
       if (botRequestContextRef.current === requestContext) setReverting(false);
     }
-  };
+  }, [id, reverting, sending]);
 
   const respond = async (approved: boolean) => {
     if (!permission || attentionBusy) return;
@@ -1265,7 +1265,7 @@ export const BotView = memo(function BotView({ id, active = true }: { id: string
     }
     flushTools();
     return rows;
-  }, [active, bot, botMentions, id, messages, modelLabels, reverting, sending]);
+  }, [active, bot, botMentions, id, messages, modelLabels, revertMessage, reverting, sending]);
 
   // Overlay cards live outside `messages`; include them so follow-scroll still reaches permission/question UI.
   const routineFailuresKey = routines
