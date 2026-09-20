@@ -18,6 +18,7 @@ vi.mock("@/lib/direct-generation", () => ({
 
 import {
   AUTO_AGENT_RULES,
+  AUTO_AGENT_SYSTEM_INSTRUCTION,
   autoAgentHasOwnModel,
   formatAutoAgentPrompt,
   matchAutoAgentByRule,
@@ -149,13 +150,27 @@ describe("auto-agent", () => {
     ).resolves.toBe("reviewer");
 
     const generated = mocks.generateDirectTextWithFallbackResult.mock.calls[0]?.[0];
-    expect(generated.system).toContain("レビューは reviewer を優先");
-    expect(generated.system).toContain("現在の依頼を最優先");
-    expect(generated.system).toContain("canModifyFiles=false");
+    expect(generated.system).toBe("レビューは reviewer を優先");
     expect(generated.prompt).toContain("差分を確認して");
     expect(generated.prompt).toContain("reviewer");
     expect(generated.prompt).toContain('"canModifyFiles":false');
     expect(generated.prompt).not.toContain("disabled");
+  });
+
+  it("uses the default system instruction when no prompt is configured", async () => {
+    const model = { providerID: "p", modelID: "m" };
+    mocks.buildDirectGenerationCandidates.mockReturnValue([{ model }]);
+    mocks.generateDirectTextWithFallbackResult.mockResolvedValue({
+      text: '{"agent":"builder"}',
+      model,
+    });
+
+    await expect(
+      resolveAutoAgent({ conversation: [], prompt: "この方針で進めて" }),
+    ).resolves.toBe("builder");
+
+    const generated = mocks.generateDirectTextWithFallbackResult.mock.calls[0]?.[0];
+    expect(generated.system).toBe(AUTO_AGENT_SYSTEM_INSTRUCTION);
   });
 
   it("prioritizes a current implementation request over prior review context", async () => {

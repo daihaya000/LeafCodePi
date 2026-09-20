@@ -323,7 +323,6 @@ function AgentToolsSettings({
 }
 
 function AutoAgentPromptSettings() {
-  const [defaultPrompt, setDefaultPrompt] = useState("");
   const [prompt, setPrompt] = useState("");
   const [savedPrompt, setSavedPrompt] = useState("");
   const [loading, setLoading] = useState(true);
@@ -335,8 +334,7 @@ function AutoAgentPromptSettings() {
     setLoading(true);
     void getJson<{ value: string | null; defaultPrompt?: string }>(`/api/settings/${AUTO_AGENT_PROMPT_SETTING_KEY}`)
       .then((result) => {
-        const value = result.value ?? "";
-        setDefaultPrompt(result.defaultPrompt ?? "");
+        const value = result.value ?? result.defaultPrompt ?? "";
         setPrompt(value);
         setSavedPrompt(value);
         setError(null);
@@ -361,12 +359,12 @@ function AutoAgentPromptSettings() {
     setError(null);
     setNotice(null);
     try {
-      const result = await sendJson<{ value: string | null }>(
+      const result = await sendJson<{ value: string | null; defaultPrompt?: string }>(
         `/api/settings/${AUTO_AGENT_PROMPT_SETTING_KEY}`,
         { value: prompt.trim() ? prompt : "" },
         "PUT",
       );
-      const value = result.value ?? "";
+      const value = result.value ?? result.defaultPrompt ?? "";
       setPrompt(value);
       setSavedPrompt(value);
       setNotice("保存しました。次回のAutoエージェント選定から有効です。");
@@ -381,36 +379,23 @@ function AutoAgentPromptSettings() {
     <section aria-labelledby="auto-agent-prompt-heading" className="mt-4 rounded-xl border border-border bg-surface-2 p-3">
       <h3 id="auto-agent-prompt-heading" className="text-sm font-medium">Autoエージェント</h3>
       <p className="mt-1 text-xs text-muted">
-        会話内容から担当エージェントを選ぶモデルへの追加指示です。空欄なら既定の選定指示だけを使います。
+        会話内容から担当エージェントを選ぶモデルに渡すプロンプトです。空欄で保存すると既定の選定指示に戻ります。
       </p>
-      {defaultPrompt && (
-        <label className="mt-3 block text-sm">
-          <span className={LABEL_CLASS}>規定プロンプト（編集不可）</span>
-          <textarea
-            aria-label="Autoエージェントの規定プロンプト"
-            value={defaultPrompt}
-            rows={8}
-            readOnly
-            spellCheck={false}
-            className="mt-1 min-h-32 w-full resize-y rounded-lg border border-border bg-bg px-3 py-2 font-mono text-xs leading-5 text-muted outline-none"
-          />
-        </label>
-      )}
       <label className="mt-3 block text-sm">
         <span className={LABEL_CLASS}>モデル選定者向けプロンプト</span>
         <textarea
           aria-label="モデル選定者向けプロンプト"
           value={prompt}
           maxLength={AUTO_AGENT_PROMPT_MAX_LENGTH}
-          rows={6}
+          rows={14}
           spellCheck={false}
           disabled={disabled}
           onChange={(event) => {
             setPrompt(event.target.value);
             setNotice(null);
           }}
-          className="mt-1 w-full resize-y rounded-lg border border-border bg-surface px-3 py-2 font-mono text-xs leading-5 text-text outline-none focus:border-accent disabled:opacity-50"
-          placeholder="Autoエージェントの選定方針を追加で指定"
+          className="mt-1 w-full resize-none overflow-hidden rounded-lg border border-border bg-surface-2 px-3 py-2 font-mono text-xs leading-5 text-text outline-none [field-sizing:content] focus:border-accent disabled:opacity-50"
+          placeholder="Autoエージェントの規定プロンプト"
         />
       </label>
       <div className="mt-2 flex flex-wrap items-center justify-end gap-2">

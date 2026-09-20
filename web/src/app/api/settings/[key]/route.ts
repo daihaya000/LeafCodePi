@@ -243,5 +243,8 @@ export async function PUT(
     const { refreshCompactionSuggestions } = await import("@/lib/pi/harness");
     refreshCompactionSuggestions();
   }
-  return NextResponse.json({ value: getSetting(key) });
+  const stored = getSetting(key);
+  return key === "auto-agent-prompt"
+    ? NextResponse.json({ value: stored, defaultPrompt: AUTO_AGENT_SYSTEM_INSTRUCTION })
+    : NextResponse.json({ value: stored });
 }

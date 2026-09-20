@@ -41,10 +41,7 @@ export const AUTO_AGENT_SYSTEM_INSTRUCTION = [
 ].join("\n");
 
 function autoAgentSystemInstruction(): string {
-  const extra = getSetting(AUTO_AGENT_PROMPT_SETTING_KEY);
-  return extra?.trim()
-    ? `${AUTO_AGENT_SYSTEM_INSTRUCTION}\n\nユーザー指定の追加指示:\n${extra}`
-    : AUTO_AGENT_SYSTEM_INSTRUCTION;
+  return getSetting(AUTO_AGENT_PROMPT_SETTING_KEY)?.trim() || AUTO_AGENT_SYSTEM_INSTRUCTION;
 }
 
 export type AutoAgentOptions = {
