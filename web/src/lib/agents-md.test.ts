@@ -133,14 +133,23 @@ describe("agents-md (global)", () => {
     }
   });
 
-  it("advertises optional files without loading their contents", () => {
-    const prompt = codeOnDemandPrompt("C:\\pi\\agent");
-    expect(prompt).toContain("TOOLS.md");
-    expect(prompt).toContain("DESIGN.md");
-    expect(prompt).toContain("C:/pi/agent/TOOLS.md");
-    expect(prompt).toContain("C:/pi/agent/WORKFLOW.md");
-    expect(prompt).toContain("read before changes, verification, or Git operations");
-    expect(prompt).toContain("not loaded automatically");
+  it("advertises existing optional files without loading their contents", () => {
+    const dir = join(tmpdir(), `leafcode-pi-agents-${Date.now()}-catalog`);
+    mkdirSync(dir, { recursive: true });
+    try {
+      for (const name of ["TOOLS.md", "DESIGN.md", "WORKFLOW.md"]) {
+        writeFileSync(join(dir, name), "reference body must not be injected");
+      }
+      const prompt = codeOnDemandPrompt(dir);
+      expect(prompt).toContain("TOOLS.md");
+      expect(prompt).toContain("DESIGN.md");
+      expect(prompt).toContain(join(dir, "WORKFLOW.md").replaceAll("\\", "/"));
+      expect(prompt).toContain("read before changes, verification, or Git operations");
+      expect(prompt).toContain("not loaded automatically");
+      expect(prompt).not.toContain("reference body must not be injected");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   it("names the offending file in size errors", () => {

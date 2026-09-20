@@ -14,7 +14,7 @@ import {
 } from "@/lib/paths";
 import { prepareWorkspaceMove, type PreparedWorkspaceMove } from "@/lib/workspace-move";
 import { BOT_DEFAULT_TOOL_NAMES, BOT_TOOL_NAMES, botPromptSources, botRuntimeContext, botSoulRevision, botTaskId, getBot, listBots, patchBot } from "@/lib/bots";
-import { codeOnDemandPrompt, codePromptSources } from "@/lib/agents-md";
+import { AGENTS_MD_FILENAME, codeOnDemandPrompt, codePromptSources, readAgentsMdFile } from "@/lib/agents-md";
 import { BOT_CODE_RESULT, BOT_CODE_TOOL, botCodeReportText, createBotCodeRelay, hasBotCodeReport, isBotCodeOriginTask, queueBotCodePrompt, roomForCodeOrigin, runUserBotCodeRequest, stopBotCodeRequestForTask, truncateCodeReportRequest, type CodePromptOptions, type CodeRequest } from "@/lib/pi/bot-code-relay";
 import { catalogFromRoomUserRequest, catalogFromSessionEntries } from "@/lib/pi/bot-code-images";
 import { roomRequestImages } from "@/lib/rooms";
@@ -2991,7 +2991,7 @@ export function sessionToolNames(input: {
   ])];
 }
 
-function sessionResourceOptions(input: {
+export function sessionResourceOptions(input: {
   systemPrompt?: string;
   agentAppendSystemPrompt: readonly string[] | undefined;
   botToolAllowlist: readonly string[] | undefined;
@@ -3000,17 +3000,29 @@ function sessionResourceOptions(input: {
   noContextFiles: boolean;
 }): Pick<
   ResourceLoaderOptions,
-  "systemPrompt" | "appendSystemPrompt" | "noContextFiles"
+  "systemPrompt" | "appendSystemPrompt" | "appendSystemPromptOverride" | "noContextFiles" | "agentsFilesOverride"
 > {
+  const appended = [...(input.agentAppendSystemPrompt ?? []), ...(input.appendSystemPrompt ?? [])];
   return {
     ...(input.systemPrompt ? { systemPrompt: input.systemPrompt } : {}),
-    ...sessionAppendSystemPrompt(
-      input.agentAppendSystemPrompt,
-      input.botToolAllowlist,
-      input.agentDir,
-      input.appendSystemPrompt,
-    ),
+    ...(appended.length ? { appendSystemPrompt: appended } : {}),
+    // Add global Code sources after SDK discovery, not as explicit sources
+    // (those suppress APPEND_SYSTEM.md). Re-discover on every reload.
+    ...(!input.botToolAllowlist ? {
+      appendSystemPromptOverride: (base: string[]) => [
+        ...base,
+        ...codePromptSources(input.agentDir).map((path) => readAgentsMdFile(path).content),
+      ],
+    } : {}),
     ...(input.noContextFiles ? { noContextFiles: true } : {}),
+    // Project-context opt-out must not remove global Code rules. Bots still
+    // use BOTS.md and never inherit the global AGENTS.md.
+    ...(input.noContextFiles && !input.botToolAllowlist ? {
+      agentsFilesOverride: () => {
+        const file = readAgentsMdFile(join(input.agentDir, AGENTS_MD_FILENAME));
+        return { agentsFiles: file.exists ? [{ path: file.path, content: file.content }] : [] };
+      },
+    } : {}),
   };
 }
 
@@ -3054,29 +3066,10 @@ function sessionSkillsOverride(input: {
   };
 }
 
-function sessionAppendSystemPrompt(
-  agentAppendSystemPrompt: readonly string[] | undefined,
-  botToolAllowlist: readonly string[] | undefined,
-  agentDir: string,
-  appendSystemPrompt: readonly string[] | undefined,
-): { appendSystemPrompt?: string[] } {
-  // Bot sessions carry their own prompt sources; Code appends global
-  // SOUL.md/USER.md after AGENTS.md (re-read on reload). Optional TOOLS.md /
-  // DESIGN.md are advertised as paths only and read by the model on demand.
-  const extra = botToolAllowlist
-    ? []
-    : [...codePromptSources(agentDir), codeOnDemandPrompt(agentDir)];
-  const merged = [
-    ...(agentAppendSystemPrompt ?? []),
-    ...(appendSystemPrompt ?? []),
-    ...extra,
-  ];
-  return merged.length ? { appendSystemPrompt: merged } : {};
-}
-
 type SessionExtensionFactory = (api: ExtensionAPI) => void;
 
-function sessionExtensionFactories(input: {
+export function sessionExtensionFactories(input: {
+  agentDir: string;
   botSoulBotId?: string;
   botToolAllowlist?: readonly string[];
   taskId?: string;
@@ -3088,9 +3081,14 @@ function sessionExtensionFactories(input: {
   const botSoulBotId = input.botSoulBotId;
   return [
     (api) => {
-      api.on("before_agent_start", (event) => ({
-        systemPrompt: `${event.systemPrompt}\n\n${runtimeClockContext()}`,
-      }));
+      api.on("before_agent_start", (event) => {
+        // Discover at the next turn, so creating/deleting a reference does not
+        // require a costly session reload. Never grant read permission here.
+        const references = !input.botToolAllowlist && api.getActiveTools().includes("read")
+          ? codeOnDemandPrompt(input.agentDir)
+          : "";
+        return { systemPrompt: [event.systemPrompt, references, runtimeClockContext()].filter(Boolean).join("\n\n") };
+      });
       api.on("session_before_compact", async (event) => {
         if (!isJevCompactionEnabled(getSetting(JEV_COMPACTION_ENABLED_SETTING_KEY))) return;
         const compaction = await compactWithJev(
@@ -3357,6 +3355,7 @@ async function createSession(options: {
     additionalExtensionPaths: bundled.map((entry) => entry.filePath),
     additionalSkillPaths: bundledSkills,
     extensionFactories: sessionExtensionFactories({
+      agentDir,
       botSoulBotId,
       botToolAllowlist,
       taskId: options.taskId,

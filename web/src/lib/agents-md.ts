@@ -192,13 +192,27 @@ export function codePromptSources(agentDir: string): string[] {
  * the base prompt; the model reads one only when the task needs it.
  */
 export function codeOnDemandPrompt(agentDir: string): string {
-  const pathForPrompt = (fileName: string) => JSON.stringify(join(agentDir, fileName).replaceAll("\\", "/"));
+  const entries = [
+    [TOOLS_MD_FILENAME, "read relevant sections before tool-specific work"],
+    [DESIGN_MD_FILENAME, "read before UI work"],
+    [WORKFLOW_MD_FILENAME, "read before changes, verification, or Git operations"],
+  ].flatMap(([fileName, when]) => {
+    const filePath = join(agentDir, fileName);
+    // Optional references may be absent, directories, or uneditable symlinks.
+    // Inspect metadata only: their bodies must never enter the base prompt.
+    try {
+      const stat = lstatSync(filePath);
+      if (!stat.isFile() || stat.size === 0) return [];
+    } catch {
+      return [];
+    }
+    return [`- ${fileName} (${when}): ${JSON.stringify(filePath.replaceAll("\\", "/"))}`];
+  });
+  if (!entries.length) return "";
   return [
     "<leafcode_on_demand_context>",
     "Optional reference files are not loaded automatically. Read one with the read tool only when the task needs it:",
-    `- TOOLS.md (tool usage): ${pathForPrompt(TOOLS_MD_FILENAME)}`,
-    `- DESIGN.md (UI design): ${pathForPrompt(DESIGN_MD_FILENAME)}`,
-    `- WORKFLOW.md (read before changes, verification, or Git operations): ${pathForPrompt(WORKFLOW_MD_FILENAME)}`,
+    ...entries,
     "Follow the relevant file after reading it; do not spend context loading unrelated files.",
     "</leafcode_on_demand_context>",
   ].join("\n");
