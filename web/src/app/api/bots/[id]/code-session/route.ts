@@ -59,10 +59,10 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> },
 ) {
   const id = await botId(params);
-  reconcileOrphanedWorkingTasks();
   const bot = getBot(id);
   if (!bot) return NextResponse.json({ error: "Bot not found" }, { status: 404 });
   // Active Code sessions only — archived rows are not polled by the panel.
+  // getTaskSummariesWithTodoProgress → getTaskSummaries already reconciles orphans.
   const tasks = (await getTaskSummariesWithTodoProgress(false)).filter(
     (task) =>
       (task.botId === id || task.supervisorBotId === id) &&

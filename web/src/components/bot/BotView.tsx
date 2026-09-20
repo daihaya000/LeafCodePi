@@ -1371,7 +1371,9 @@ export const BotView = memo(function BotView({ id, active = true }: { id: string
           {permission && <BotPermissionCard label="権限の確認" title="権限の確認が必要です" message={permission.message} command={permission.command} disabled={Boolean(attentionBusy)} onAllow={() => void respond(true)} onDeny={() => void respond(false)} />}
           {question && <QuestionCard request={question} onReply={answerQuestion} onReject={(request) => answerQuestion(request)} />}
           {sending && <BotResponseStatus messages={messages} avatar={bot} />}
-          {codePanelOpen && <BotCodeSessionPanel botId={id} onClose={() => setCodePanelOpen(false)} />}
+          {codePanelOpen && (
+            <BotCodeSessionPanel botId={id} active={active} onClose={() => setCodePanelOpen(false)} />
+          )}
         </div>
       </BotMessageList>
 

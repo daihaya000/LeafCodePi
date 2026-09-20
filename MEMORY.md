@@ -30,8 +30,17 @@
 ### 検証（Tick3）
 `harness-routing` / `harness-complete` / `harness-limit-fallback` — **54 passed**
 
+### Tick4（ループ継続）
+1. `BotCodeSessionPanel` — `active` で非表示タブの 2s ポーリング停止（`BotCodeRequests` と同型）+ `document.visibilityState`
+2. poll effect — `tasks` 配列ではなく `needsPoll` 真偽で interval を張り直し（応答ごとのタイマーリセット防止）
+3. `GET code-session` — 二重 `reconcileOrphanedWorkingTasks` を削除（summaries 側に一本化）
+
+### 検証（Tick4）
+`BotCodeSessionPanel` / `code-session/route` — **34 passed**
+
 ### 次 Tick 候補
-- （新規調査）
+- HTTP `/api/tasks` が soft accountId を常に hard pin にする矛盾（HomeView と同時修正）
+- code-session GET の全タスク走査を bot 絞り込み先行に
 
 ---
 

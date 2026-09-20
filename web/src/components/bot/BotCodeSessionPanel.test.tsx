@@ -132,3 +132,42 @@ it("clears the previous bot's tasks while the next session is loading", async ()
   });
   expect(screen.getByText("New task")).toBeTruthy();
 });
+
+it("pauses Code session polling while the Bot tab is hidden", async () => {
+  vi.useFakeTimers();
+  const workingTask = { ...oldTask, id: "live-task", title: "Live task", status: "working" as const };
+  mocks.getJson.mockImplementation((url: string) => {
+    if (url === "/api/projects") return Promise.resolve({ projects: [project] });
+    return Promise.resolve({ tasks: [workingTask] });
+  });
+
+  const view = render(<BotCodeSessionPanel botId="one" active />);
+  await act(async () => {
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+  expect(screen.getByText("実行中")).toBeTruthy();
+  const callsBeforeHide = mocks.getJson.mock.calls.filter((call) =>
+    String(call[0]).includes("/code-session"),
+  ).length;
+
+  view.rerender(<BotCodeSessionPanel botId="one" active={false} />);
+  await act(async () => {
+    vi.advanceTimersByTime(6_000);
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+  const callsWhileHidden = mocks.getJson.mock.calls.filter((call) =>
+    String(call[0]).includes("/code-session"),
+  ).length;
+  expect(callsWhileHidden).toBe(callsBeforeHide);
+
+  view.rerender(<BotCodeSessionPanel botId="one" active />);
+  await act(async () => {
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+  expect(
+    mocks.getJson.mock.calls.filter((call) => String(call[0]).includes("/code-session")).length,
+  ).toBeGreaterThan(callsWhileHidden);
+});

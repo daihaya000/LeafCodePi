@@ -22,7 +22,16 @@ function goalLoopPayload(acceptance: string, maxTurns: number, cooldownSeconds: 
   return { acceptance: acceptance.split(/\r?\n/).map((item) => item.trim()).filter(Boolean), maxTurns, cooldownSeconds, forceFullRun };
 }
 
-export function BotCodeSessionPanel({ botId, onClose }: { botId: string; onClose?: () => void }) {
+export function BotCodeSessionPanel({
+  botId,
+  onClose,
+  active = true,
+}: {
+  botId: string;
+  onClose?: () => void;
+  /** When false (hidden Bot tab), pause session polling like BotCodeRequests. */
+  active?: boolean;
+}) {
   const [projects, setProjects] = useState<ProjectDto[]>([]);
   const [projectId, setProjectId] = useState<string | null | undefined>();
   const [tasks, setTasks] = useState<TaskSummary[]>([]);
@@ -43,6 +52,7 @@ export function BotCodeSessionPanel({ botId, onClose }: { botId: string; onClose
 
   // Projects only change when the user adds/archives them elsewhere; load once per panel open.
   useEffect(() => {
+    if (!active) return;
     let cancelled = false;
     void (async () => {
       try {
@@ -64,7 +74,7 @@ export function BotCodeSessionPanel({ botId, onClose }: { botId: string; onClose
     return () => {
       cancelled = true;
     };
-  }, [botId]);
+  }, [botId, active]);
 
   const load = useCallback(async () => {
     const generation = ++loadGenerationRef.current;
@@ -88,21 +98,25 @@ export function BotCodeSessionPanel({ botId, onClose }: { botId: string; onClose
     setTasks([]);
     setLoops({});
     setError(null);
-    void load();
-  }, [load]);
+  }, [botId]);
   useEffect(() => {
-    if (
-      !tasks.some(
-        (task) =>
-          task.status === "working" ||
-          (task.goalLoopSummary && LIVE_GOAL_LOOP_STATUSES.has(task.goalLoopSummary.status)),
-      )
-    ) {
-      return;
-    }
-    const timer = window.setInterval(() => void load(), 2_000);
+    if (!active) return;
+    void load();
+  }, [load, active]);
+  const needsPoll = tasks.some(
+    (task) =>
+      task.status === "working" ||
+      (task.goalLoopSummary && LIVE_GOAL_LOOP_STATUSES.has(task.goalLoopSummary.status)),
+  );
+  useEffect(() => {
+    if (!active || !needsPoll) return;
+    const tick = () => {
+      if (document.visibilityState === "hidden") return;
+      void load();
+    };
+    const timer = window.setInterval(tick, 2_000);
     return () => window.clearInterval(timer);
-  }, [load, tasks]);
+  }, [active, load, needsPoll]);
 
   const launch = async () => {
     if (projectId === undefined || !prompt.trim() || busy) return;
