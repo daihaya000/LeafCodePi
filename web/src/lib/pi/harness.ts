@@ -2365,6 +2365,17 @@ async function attachSession(
     unsubscribe();
   };
   current.live.set(taskId, live);
+  // Offline→resident: 1:1 Bot live attach promotes queued mailbox rows.
+  // Room attach must NOT flush here — Room may still be idle before prompt,
+  // and wake would steal into 1:1; Room settle/abort flushes instead.
+  const oneToOneBot = /^bot:([^:]+)$/.exec(taskId);
+  if (oneToOneBot?.[1]) {
+    try {
+      flushQueuedBotIntercom(oneToOneBot[1]);
+    } catch (error) {
+      console.warn("[bot-intercom] flush after Bot live attach failed", error);
+    }
+  }
   return live;
 }
 
@@ -9057,6 +9068,17 @@ export async function abortTask(id: string): Promise<TaskSummary> {
     permissionRequest: null,
     questionRequest: null,
   });
+  // Room abort clears promptActive before the prompt finally runs; flush here so
+  // mailbox rows queued during the Room turn are not left stranded if finally
+  // is skipped or delayed.
+  const roomBotMatch = /^bot:([^:]+):room:/.exec(id);
+  if (roomBotMatch?.[1]) {
+    try {
+      flushQueuedBotIntercom(roomBotMatch[1]);
+    } catch (error) {
+      console.warn("[bot-intercom] flush after Room abort failed", error);
+    }
+  }
   return toSummary(task);
 }
 

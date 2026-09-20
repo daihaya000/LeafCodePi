@@ -168,9 +168,16 @@
 ### 検証（Tick22）
 `bot-intercom` — **30 passed**
 
+### Tick23（ループ継続・通知 40–41）
+1. 1:1 Bot `attachSession` 後に `flushQueuedBotIntercom` — offline→resident 復帰で queued を昇格（Room attach では呼ばない＝Room 開始直前の誤 wake 防止）
+2. `abortTask` の Room タスク終了時にも flush — `cancelHarnessPrompt` 後 finally 遅延/欠落でも queued が残らない
+
+### 検証（Tick23）
+`bot-intercom` — **31 passed**
+
 ### 次 Tick 候補
-- resident 復帰（offline→online）時の queued flush
-- Room abort 経路でも flush が確実に走るかの回帰
+- Room abort 以外の disposeLive 経路での flush 要否
+- resident lookup と flush の結合回帰（harness 統合テスト）
 
 
 

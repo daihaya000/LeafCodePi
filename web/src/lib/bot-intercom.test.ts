@@ -184,6 +184,35 @@ describe("bot intercom Phase B contract", () => {
     expect(getBotIntercomInbox(bob.id).messages.some((message) => message.text === "offline mailbox")).toBe(true);
   });
 
+  it("flushes queued mail when an offline Bot becomes resident", async () => {
+    const alice = enableIntercom(createBot({ name: "Alice" }).id)!;
+    const bob = enableIntercom(createBot({ name: "Bob" }).id)!;
+    const woken: Array<{ to: string; kind: string; delivery: string }> = [];
+    setBotIntercomSteerHandler(async (message) => {
+      woken.push({ to: message.toBotId, kind: message.kind, delivery: message.delivery });
+    });
+
+    const sent = sendBotIntercom({ fromBotId: alice.id, to: bob.id, text: "offline then online" });
+    expect(sent.delivery).toBe("queued");
+
+    residents.add(bob.id);
+    expect(flushQueuedBotIntercom(bob.id)).toBe(1);
+    expect(getBotIntercomInbox(bob.id).messages.find((m) => m.id === sent.id)?.delivery).toBe("delivered");
+    await Promise.resolve();
+    expect(woken).toEqual([]);
+
+    residents.delete(bob.id);
+    const waiting = askBotIntercom({ fromBotId: alice.id, to: bob.id, text: "今いる？" });
+    expect(getBotIntercomInbox(bob.id).messages.at(-1)?.delivery).toBe("queued");
+    residents.add(bob.id);
+    expect(flushQueuedBotIntercom(bob.id)).toBe(1);
+    await vi.waitFor(() =>
+      expect(woken).toEqual([{ to: bob.id, kind: "ask", delivery: "delivered" }]),
+    );
+    replyBotIntercom({ fromBotId: bob.id, text: "いるよ" });
+    await expect(waiting).resolves.toMatchObject({ text: "いるよ" });
+  });
+
   it("keeps server-side unread after a process restart and clears it only via mark-read", () => {
     const alice = enableIntercom(createBot({ name: "Alice" }).id)!;
     const bob = enableIntercom(createBot({ name: "Bob" }).id)!;
