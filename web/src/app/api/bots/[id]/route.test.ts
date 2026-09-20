@@ -26,6 +26,7 @@ const mocks = vi.hoisted(() => ({
   stopAllCodeSessionsForBot: vi.fn(async () => 0),
   stopOneToOneCodeSessionsForBot: vi.fn(async () => 0),
   isWebUiRequestAuthorized: vi.fn(() => false),
+  withBotCodeSessionLock: vi.fn(async (_key: string, operation: () => Promise<unknown>) => await operation()),
 }));
 vi.mock("@/lib/bots", () => ({
   getBot: mocks.getBot,
@@ -54,6 +55,7 @@ vi.mock("@/lib/pi/harness", () => ({
 vi.mock("@/lib/store", () => ({ listTasks: mocks.listTasks, getTask: mocks.getTask }));
 vi.mock("@/lib/rooms", () => ({ listRooms: mocks.listRooms, patchRoom: mocks.patchRoom, removeRoomMember: mocks.removeRoomMember }));
 vi.mock("@/lib/room-runtime", () => ({ detachBotFromRoomRuntime: mocks.detachBotFromRoomRuntime }));
+vi.mock("@/lib/bot-code-session-lock", () => ({ withBotCodeSessionLock: mocks.withBotCodeSessionLock }));
 vi.mock("@/lib/pi/bot-code-relay", () => ({
   stopAllCodeSessionsForBot: mocks.stopAllCodeSessionsForBot,
   stopOneToOneCodeSessionsForBot: mocks.stopOneToOneCodeSessionsForBot,
@@ -385,6 +387,7 @@ describe("DELETE /api/bots/[id]", () => {
     expect(response.status).toBe(200);
     expect(mocks.detachBotFromRoomRuntime).toHaveBeenCalledWith("room-a", "one");
     expect(mocks.detachBotFromRoomRuntime).not.toHaveBeenCalledWith("room-b", "one");
+    expect(mocks.withBotCodeSessionLock).toHaveBeenCalledWith("room-turn-room-a-one", expect.any(Function));
     expect(mocks.removeRoomMember).toHaveBeenCalledTimes(1);
     expect(mocks.removeRoomMember).toHaveBeenCalledWith("room-a", "one");
   });

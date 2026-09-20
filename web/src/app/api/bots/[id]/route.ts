@@ -9,6 +9,7 @@ import { getTask, listTasks } from "@/lib/store";
 import { listRooms, removeRoomMember } from "@/lib/rooms";
 import { stopAllCodeSessionsForBot, stopOneToOneCodeSessionsForBot } from "@/lib/pi/bot-code-relay";
 import { detachBotFromRoomRuntime } from "@/lib/room-runtime";
+import { withBotCodeSessionLock } from "@/lib/bot-code-session-lock";
 import { isWebUiRequestAuthorized } from "@/lib/webui-auth";
 import type { BotSkillsConfig } from "@/lib/types";
 
@@ -197,7 +198,12 @@ export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ 
   const bot = getBot(id);
   if (!bot) return NextResponse.json({ error: "\u30dc\u30c3\u30c8\u304c\u898b\u3064\u304b\u308a\u307e\u305b\u3093" }, { status: 404 });
   const rooms = listRooms().filter((room) => room.members.includes(id));
-  for (const room of rooms) await detachBotFromRoomRuntime(room.id, id);
+  for (const room of rooms) {
+    await withBotCodeSessionLock(`room-turn-${room.id}-${id}`, async () => {
+      await detachBotFromRoomRuntime(room.id, id);
+      removeRoomMember(room.id, id);
+    });
+  }
   await stopAllCodeSessionsForBot(id);
   // Panel / Goal Loop Code is not kind=bot — destroy every task owned by this Bot.
   await stopLinkedBotCodeSession(id, bot.codeSessionTaskId, "delete");
@@ -209,9 +215,6 @@ export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ 
       if (status !== 404) throw error;
     }
   }
-  // Remove membership before deleting the Bot so a Room write failure leaves a retryable Bot.
-  // A dangling id keeps a member slot and shows up in every room snapshot until cleanup succeeds.
-  for (const room of rooms) removeRoomMember(room.id, id);
   const deleted = deleteBot(id);
   if (!deleted) return NextResponse.json({ error: "\u30dc\u30c3\u30c8\u304c\u898b\u3064\u304b\u308a\u307e\u305b\u3093" }, { status: 404 });
   return NextResponse.json({ ok: true });
