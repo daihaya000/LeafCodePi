@@ -1249,8 +1249,9 @@ describe("TaskView draft submission", () => {
 
     const selector = await screen.findByRole("combobox", { name: "Codeタスクを監督するBot" });
     const botControl = selector.closest("label");
-    const compact = screen.getByRole("button", { name: "コンテキスト圧縮" });
-    const tts = screen.getByRole("switch", { name: "読み上げ" });
+    // The compaction and TTS controls appear only after the settings fetch settles.
+    const compact = await screen.findByRole("button", { name: "コンテキスト圧縮" });
+    const tts = await screen.findByRole("switch", { name: "読み上げ" });
     expect(botControl?.previousElementSibling).toBe(compact);
     expect(tts.previousElementSibling).toBe(botControl);
   });
