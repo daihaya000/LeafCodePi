@@ -601,9 +601,24 @@ test("a WebUI that stayed up returns its crash-restart budget", () => {
   );
   // The budget stops a rapid crash loop, so an unrelated crash hours later
   // must still be restartable: a process that stays up resets the counter.
-  assert.match(spawnSource, /WEB_RESTART_BUDGET_RESET_MS/);
+  assert.match(spawnSource, /RESTART_BUDGET_RESET_MS/);
   assert.match(spawnSource, /webRestarts = 0/);
   assert.match(spawnSource, /clearTimeout\(stableTimer\)/);
+});
+
+test("a tray that stayed up returns its crash-restart budget", () => {
+  const source = readFileSync(join(REPO_ROOT, "host", "src", "index.js"), "utf8");
+  const traySource = source.slice(
+    source.indexOf("function wireTrayLifecycle("),
+    source.indexOf("async function startTray()"),
+  );
+  assert.match(traySource, /clearTimeout\(stableTimer\)/);
+  const startSource = source.slice(
+    source.indexOf("async function startTray()"),
+    source.indexOf("function acquireLock()"),
+  );
+  assert.match(startSource, /trayRestarts = 0/);
+  assert.match(startSource, /RESTART_BUDGET_RESET_MS/);
 });
 
 test("hostControlUrl prefers the running host's file, then the default port", () => {

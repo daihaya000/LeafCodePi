@@ -76,10 +76,10 @@ const CONTROL_PORT = readPort(process.env.LEAFCODE_PI_HOST_CONTROL_PORT, DEFAULT
 const LLAMA_SERVER_PORT = readPort(process.env.LEAFCODE_PI_LLAMA_PORT, DEFAULT_LLAMA_SERVER_PORT);
 const CONTROL_FILE = join(DATA_DIR, "host-control.json");
 const MAX_WEB_RESTARTS = 3;
-// The budget stops a rapid crash loop, not unrelated crashes spread over a long
-// session. A WebUI that stays up this long gets its restart allowance back.
-const WEB_RESTART_BUDGET_RESET_MS = 60_000;
 const MAX_TRAY_RESTARTS = 3;
+// The budgets stop rapid crash loops, not unrelated failures spread over a long
+// session. A process that stays up this long gets its restart allowance back.
+const RESTART_BUDGET_RESET_MS = 60_000;
 // The killed WebUI disappears within a few ms (process.kill(pid, 0) poll), so
 // keep the settle time short; the try budget is only a backstop for a kill
 // that never lands.
@@ -528,7 +528,7 @@ async function spawnWeb() {
   pipeChild("webui", child);
   const stableTimer = setTimeout(() => {
     if (!quitting && webProc === child) webRestarts = 0;
-  }, WEB_RESTART_BUDGET_RESET_MS);
+  }, RESTART_BUDGET_RESET_MS);
   stableTimer.unref?.();
   child.on("error", (err) => error(`WebUI spawn error: ${err.message}`));
   child.on("close", (code, signal) => {
@@ -745,8 +745,9 @@ function buildTrayMenu() {
   };
 }
 
-function wireTrayLifecycle(tray, copyDir) {
+function wireTrayLifecycle(tray, copyDir, stableTimer) {
   tray.process?.on("exit", (code, signal) => {
+    clearTimeout(stableTimer);
     if (quitting || systray !== tray) return;
     error(`Tray helper exited (code=${code ?? "none"}, signal=${signal ?? "none"})`);
     systray = null;
@@ -796,7 +797,11 @@ async function startTray() {
         await tray.ready();
         trayCopyDir = copyDir;
         log(`Tray host ready (copyDir=${copyDir})`);
-        wireTrayLifecycle(tray, copyDir);
+        const stableTimer = setTimeout(() => {
+          if (!quitting && systray === tray) trayRestarts = 0;
+        }, RESTART_BUDGET_RESET_MS);
+        stableTimer.unref?.();
+        wireTrayLifecycle(tray, copyDir, stableTimer);
         return;
       } catch (err) {
         lastErr = err;
