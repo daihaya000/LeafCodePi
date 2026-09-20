@@ -1244,6 +1244,28 @@ describe("Room ⇄ Code delegation", () => {
     expect(deps.deliver).not.toHaveBeenCalled();
     expect(deps.afterDelivery).not.toHaveBeenCalled();
   });
+
+  it("keeps Room Code running after /stop so the report can still deliver", async () => {
+    roomSetup();
+    await roomLaunch();
+    expect(record().state).toBe("running");
+    const room = store.rooms.get("room-1")!;
+    room.messages.push({ id: "stop-1", role: "user", text: "/stop", createdAt: 3 });
+    const turn = room.messages.find((message) => message.id === "turn-1")!;
+    turn.status = "error";
+    turn.text = "Stopped by user.";
+
+    await relay.tick();
+    expect(record().state).toBe("running");
+    expect(deps.abort).not.toHaveBeenCalled();
+
+    store.tasks.get("code")!.status = "idle";
+    messages = [answer("done", "停止後も届く結果")];
+    await relay.tick();
+    expect(record().state).toBe("delivered");
+    expect(deps.deliver).toHaveBeenCalledTimes(1);
+    expect(deps.afterDelivery).toHaveBeenCalled();
+  });
 });
 
 describe("durable Bot report acknowledgement", () => {

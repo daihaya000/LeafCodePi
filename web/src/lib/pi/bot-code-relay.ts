@@ -24,6 +24,7 @@ import {
   type ConversationUserImage,
 } from "@/lib/pi/bot-code-images";
 import { isGoalLoopOperatorHold } from "@/lib/pi/goal-loop-state";
+import { isRoomStopRequest } from "@/lib/room-conversation";
 
 export const BOT_CODE_TOOL = "code_session";
 export const BOT_CODE_RESULT = "bot-code-result";
@@ -322,10 +323,25 @@ function roomRequestIsCurrent(request: CodeRequest): boolean {
   if (!request.room) return false;
   const room = getRoom(request.room.id);
   const response = room?.messages.find((message) => message.id === request.room!.responseId);
-  const latestUser = room?.messages.findLast((message) => message.role === "user");
+  if (!room || !response) return false;
+  const requestId = request.room.conversation.requestId;
+  const requestIndex = room.messages.findIndex((item) => item.id === requestId);
+  // /stop appends a user line and may error-close the turn, but Code must keep running
+  // so its report can still deliver (resume stays blocked via latestRoomRequest).
+  const stopAfterRequest =
+    requestIndex >= 0 &&
+    room.messages
+      .slice(requestIndex + 1)
+      .some((message) => message.role === "user" && isRoomStopRequest(message.text ?? ""));
+  const responseAlive = response.status !== "error" || stopAfterRequest;
+  const latestWorkUser = room.messages.findLast(
+    (message) => message.role === "user" && !isRoomStopRequest(message.text ?? ""),
+  );
   return Boolean(
-    room && response?.status !== "error" && response?.conversation?.requestId === request.room.conversation.requestId
-      && response.conversation.participantIds.includes(request.botId) && latestUser?.id === request.room.conversation.requestId
+    responseAlive
+      && response.conversation?.requestId === requestId
+      && response.conversation.participantIds.includes(request.botId)
+      && latestWorkUser?.id === requestId
       && room.members.includes(request.botId),
   );
 }

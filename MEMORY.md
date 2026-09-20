@@ -146,8 +146,16 @@
 ### 検証（Tick19）
 `goal-loop-state` / `bot-code-relay` — **80 passed**
 
+### Tick20（ループ継続・通知 32–33）
+1. `roomRequestIsCurrent` — `/stop` 投稿と stop による error 閉じを差し替えとみなさない（実行中 Code は継続・結果配信可）
+2. 本物の新規依頼での cancel/abort は維持
+
+### 検証（Tick20）
+`bot-code-relay` Room /stop — 関連ケース通過
+
 ### 次 Tick 候補
 - cold（非 live）Code の activity は現状なし（許容）
+
 
 
 
