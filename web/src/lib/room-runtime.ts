@@ -56,6 +56,9 @@ function trackRoomCodeProgress(roomId: string, request: CodeRequest): void {
     lastWriteAt = now;
     // Merge under the room lock so parallel peeks cannot clobber sibling card progress.
     void peekCodeRequestProgress(taskId).then((progress) => {
+      // Settle may have run while peek was in flight — do not revive progress.
+      if (!trackedCodeRequests.has(key)) return;
+      if (!roomCodeRequestForRoom(roomId, request.id)) return;
       updateRoomMessage(roomId, messageId, (message) => {
         if (!message.codeRequests?.length) return { codeActivity: label };
         return {

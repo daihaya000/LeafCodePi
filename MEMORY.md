@@ -196,9 +196,14 @@
 ### 検証（Tick26）
 `harness-agent` — **30 passed**
 
+### Tick27（ループ継続・通知 44）
+1. `trackRoomCodeProgress` — settle 後に解決した in-flight `peekCodeRequestProgress` が codeActivity / card progress を復活させないよう `trackedCodeRequests` / `roomCodeRequestForRoom` を再チェック
+
+### 検証（Tick27）
+`room-runtime` peek 関連 — **3 passed**（対象ケース）
+
 ### 次 Tick 候補
-- room-runtime peek settle 後の progress 復活 race（探索 secondary）
-- intercom 以外の矛盾
+- intercom / Room 以外の領域へ広げる
 
 
 

@@ -315,6 +315,66 @@ describe("room conversation with delegated work", () => {
     });
   });
 
+  it("ignores in-flight peek progress after the Code request settles", async () => {
+    const { room, bots, user } = setup();
+    const request = codeRequest(room, bots[0], { state: "running", codeTaskId: "code-task" });
+    const turn = appendRoomMessage(room.id, {
+      role: "assistant",
+      botId: bots[0].id,
+      text: "依頼しました",
+      status: "done",
+      codeRequestId: request.id,
+      codeTaskId: "code-task",
+      codeState: "running",
+      codeRequests: [{ id: request.id, taskId: "code-task", state: "running", prompt: "作業" }],
+    })!;
+    request.room!.responseId = turn.id;
+    state.pendingRoom.mockReturnValue(request);
+    state.pendingRooms.mockReturnValue([request]);
+    state.activeCodeRequests.set(request.id, request);
+    state.promptTask.mockImplementation(async (id: string) => {
+      state.details.get(id)!.messages = [assistant("reply", "Codeに依頼しました。\nROOM_ACTION: DONE")];
+    });
+
+    let releasePeek!: () => void;
+    const peekGate = new Promise<void>((resolve) => { releasePeek = resolve; });
+    state.peekProgress.mockImplementation(async () => {
+      await peekGate;
+      return { todoProgress: { completed: 9, total: 9 }, activity: "stale-after-settle" };
+    });
+
+    await runRoomConversation(room, bots, "残作業も進めて", user.id);
+
+    const emit = (payload: Record<string, unknown>) => {
+      for (const listener of state.listeners.get("code-task") ?? []) listener(payload);
+    };
+    emit({
+      type: "delta",
+      message: {
+        id: "m1",
+        role: "assistant",
+        createdAt: 1,
+        parts: [{ id: "t1", type: "tool", tool: "read", callID: "c1", state: { status: "running", input: { path: "a.md" } } }],
+      },
+    });
+
+    state.activeCodeRequests.delete(request.id);
+    state.pendingRoom.mockReturnValue(undefined);
+    state.pendingRooms.mockReturnValue([]);
+    emit({ type: "delta", message: null });
+    await Promise.resolve();
+    expect(getRoom(room.id)!.messages.find((message) => message.id === turn.id)?.codeActivity).toBe("");
+
+    releasePeek();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    const message = getRoom(room.id)!.messages.find((row) => row.id === turn.id)!;
+    expect(message.codeActivity).toBe("");
+    expect(message.codeRequests?.find((card) => card.id === request.id)?.todoProgress).toBeUndefined();
+    expect(message.codeRequests?.find((card) => card.id === request.id)?.activity).not.toBe("stale-after-settle");
+  });
+
   it("records why the exchange stopped so a paused room is not read as a finished one", async () => {
     const { room, bots, user } = setup();
     await runRoomConversation(room, bots, "残作業も進めて", user.id);
