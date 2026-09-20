@@ -133,6 +133,15 @@ describe("PATCH /api/bots/[id]", () => {
     }
   });
 
+  it("rejects non-object JSON bodies", async () => {
+    mocks.getBot.mockReturnValue(bot());
+
+    const response = await PATCH(jsonRequest([]), params("one"));
+
+    expect(response.status).toBe(400);
+    expect(mocks.patchBot).not.toHaveBeenCalled();
+  });
+
   it("patches simple fields and returns the updated bot", async () => {
     mocks.getBot.mockReturnValue(bot());
     mocks.patchBot.mockReturnValue({ ...bot(), name: "Renamed", avatarColor: "#EF4444" });

@@ -50,7 +50,10 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
 
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const id = await idOf(params);
-  const body = (await req.json().catch(() => null)) as Record<string, unknown> | null;
+  const parsed: unknown = await req.json().catch(() => null);
+  const body = parsed && typeof parsed === "object" && !Array.isArray(parsed)
+    ? parsed as Record<string, unknown>
+    : null;
   const hasModel = body?.model !== undefined;
   const hasTtsVoice = body?.ttsVoice !== undefined;
   const hasThinkingLevel = body?.thinkingLevel !== undefined;
