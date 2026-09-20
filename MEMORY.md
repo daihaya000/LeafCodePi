@@ -283,8 +283,14 @@
 ### 検証（Tick42）
 `code-session` / `bot-code-relay` — **108 passed**
 
+### Tick43（ループ継続・通知 59・[Tick43 bug hunt](5ba5c685-796d-476f-a8c7-784895a5ce04)）
+1. Room steer — `steerRoomTurns` が成功時に placeholder の `conversation.requestId` を新リクエストへ再バインド。`isActiveRoomTurnRequest` で settle 時に実応答を保持（「Conversation superseded…」で潰さない）
+
+### 検証（Tick43）
+`room-runtime` / rooms prompt — **108 passed**
+
 ### 次 Tick 候補
-- TaskView / harness の残差競合
+- TaskView / hang / permission 周辺
 
 
 

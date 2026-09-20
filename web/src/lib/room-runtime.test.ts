@@ -1087,4 +1087,43 @@ describe("room stop and fan-out", () => {
       text: "Conversation superseded by a newer user message.",
     });
   });
+
+  it("keeps the steered reply when the placeholder was rebound to the newer request", async () => {
+    const { room, bots, user } = setup(["A"]);
+    let release!: () => void;
+    const hold = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    state.promptTask.mockImplementation(async (id: string) => {
+      await hold;
+      const detail = state.details.get(id)!;
+      detail.messages = [...detail.messages, assistant("steered", "Redirected reply\nROOM_ACTION: DONE")];
+    });
+    const response = appendRoomMessage(room.id, {
+      role: "assistant",
+      botId: bots[0].id,
+      text: "",
+      status: "working",
+      conversation: {
+        requestId: user.id,
+        participantIds: [bots[0].id],
+        turn: 1,
+        maxTurns: 1,
+      },
+    })!;
+    const run = runRoomBot(getRoom(room.id)!, bots[0], "old", response.id, user.id);
+    await vi.waitFor(() => expect(state.promptTask).toHaveBeenCalled());
+    const next = appendRoomMessage(room.id, { role: "user", text: "新しい指示" })!;
+    updateRoomMessage(room.id, response.id, (message) => ({
+      conversation: message.conversation
+        ? { ...message.conversation, requestId: next.id }
+        : undefined,
+    }));
+    release();
+    await run;
+    expect(getRoom(room.id)!.messages.find((message) => message.id === response.id)).toMatchObject({
+      status: "done",
+      text: expect.stringContaining("Redirected reply"),
+    });
+  });
 });

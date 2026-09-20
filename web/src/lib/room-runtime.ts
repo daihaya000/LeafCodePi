@@ -16,6 +16,24 @@ const globalRef = globalThis as typeof globalThis & { __leafcodeRoomBotRuns?: Ma
 const roomBotRuns = globalRef.__leafcodeRoomBotRuns ??= new Map<string, Promise<void>>();
 function textOf(message: UiMessage): string { return message.parts.filter((part) => part.type === "text").map((part) => part.text).join(""); }
 
+/**
+ * True when this working placeholder still belongs to the latest user request —
+ * either it started on that request, or steer rebound it onto a newer one.
+ */
+export function isActiveRoomTurnRequest(
+  room: RoomDto,
+  responseId: string,
+  startedRequestId: string,
+): boolean {
+  const latest = latestRoomRequest(room)?.id;
+  if (!latest) return false;
+  if (latest === startedRequestId) return true;
+  const message = room.messages.find((item) => item.id === responseId);
+  return Boolean(
+    message?.status === "working" && message.conversation?.requestId === latest,
+  );
+}
+
 const STREAM_INTERVAL_MS = 400;
 const CODE_TRACK_TIMEOUT_MS = 60 * 60_000;
 const trackedCodeRequests = new Set<string>();
@@ -121,7 +139,8 @@ export async function runRoomBot(room: RoomDto, bot: BotDto, prompt: string, res
     const liveRoom = getRoom(room.id);
     if (!liveRoom) return;
     // fan-out も conversation と同様、Stop / 新リクエスト後は起こさない。
-    if (latestRoomRequest(liveRoom)?.id !== requestId) {
+    // Steer may rebind conversation.requestId onto the interrupting message.
+    if (!isActiveRoomTurnRequest(liveRoom, responseId, requestId)) {
       updateRoomMessage(room.id, responseId, (message) =>
         message.status === "working"
           ? { text: "Conversation superseded by a newer user message.", status: "done" }
@@ -143,7 +162,7 @@ export async function runRoomBot(room: RoomDto, bot: BotDto, prompt: string, res
     const before = new Set((await getTaskDetail(taskId)).messages.map((message) => message.id));
     const currentRoom = getRoom(room.id);
     if (!currentRoom) return;
-    if (latestRoomRequest(currentRoom)?.id !== requestId) {
+    if (!isActiveRoomTurnRequest(currentRoom, responseId, requestId)) {
       updateRoomMessage(room.id, responseId, (message) =>
         message.status === "working"
           ? { text: "Conversation superseded by a newer user message.", status: "done" }
@@ -182,7 +201,7 @@ export async function runRoomBot(room: RoomDto, bot: BotDto, prompt: string, res
     const error = detail.error || assistant?.error;
     const raw = assistant ? textOf(assistant) : "";
     const settledRoom = getRoom(room.id);
-    if (!settledRoom || latestRoomRequest(settledRoom)?.id !== requestId) {
+    if (!settledRoom || !isActiveRoomTurnRequest(settledRoom, responseId, requestId)) {
       updateRoomMessage(room.id, responseId, (message) =>
         message.status === "working"
           ? { text: "Conversation superseded by a newer user message.", status: "done" }
@@ -190,9 +209,12 @@ export async function runRoomBot(room: RoomDto, bot: BotDto, prompt: string, res
       );
       return;
     }
+    const activeRequestId =
+      settledRoom.messages.find((message) => message.id === responseId)?.conversation?.requestId ??
+      requestId;
     const parsed = turn ? parseRoomReply(raw, bot.id, participants) : { text: raw };
     const reply = bindImplicitMentionHandoff({
-      roomId: room.id, requestId, fromMessageId: responseId, fromBotId: bot.id, reply: parsed,
+      roomId: room.id, requestId: activeRequestId, fromMessageId: responseId, fromBotId: bot.id, reply: parsed,
     });
     const { text } = reply;
     // Atomic: do not overwrite a placeholder already closed by Stop / handoff / supersede.
@@ -206,7 +228,7 @@ export async function runRoomBot(room: RoomDto, bot: BotDto, prompt: string, res
     if (!updated || updated.status !== "done") return undefined;
     // The turn may have handed work to Code; show what that run is doing while the Room waits.
     // Parallel requests share one message, so every outstanding job mirrors its activity.
-    for (const delegated of pendingRoomCodeRequestsForTurn(room.id, requestId)) trackRoomCodeProgress(room.id, delegated);
+    for (const delegated of pendingRoomCodeRequestsForTurn(room.id, activeRequestId)) trackRoomCodeProgress(room.id, delegated);
     return reply;
     }, { timeoutMs: ROOM_TURN_LOCK_TIMEOUT_MS });
   } catch (error) {
@@ -284,7 +306,30 @@ export async function steerRoomTurns(roomId: string, prompt: string, requestId?:
       }),
     ),
   );
-  return turns.flatMap((entry, index) => results[index].status === "fulfilled" ? [entry.botId] : []);
+  const steered: string[] = [];
+  for (let index = 0; index < turns.length; index++) {
+    if (results[index]?.status !== "fulfilled") continue;
+    const entry = turns[index]!;
+    steered.push(entry.botId);
+    // Bind the in-flight placeholder to the interrupting request so settle keeps the reply.
+    if (requestId) {
+      updateRoomMessage(roomId, entry.messageId, (message) => {
+        if (message.status !== "working") return {};
+        if (!message.conversation) {
+          return {
+            conversation: {
+              requestId,
+              participantIds: [entry.botId],
+              turn: 1,
+              maxTurns: 1,
+            },
+          };
+        }
+        return { conversation: { ...message.conversation, requestId } };
+      });
+    }
+  }
+  return steered;
 }
 
 const FAN_OUT_LIMIT = 4;

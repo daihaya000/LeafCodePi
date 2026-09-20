@@ -372,6 +372,9 @@ describe("room mention responses", () => {
     await vi.waitFor(() => expect(getRoom(room.id)?.messages.filter((message) => message.status === "done")).toHaveLength(1));
     await new Promise((resolve) => setImmediate(resolve));
     expect(state.promptTask).toHaveBeenCalledTimes(2);
+    expect(getRoom(room.id)?.messages.find((message) => message.status === "done")?.text).toContain(
+      "Redirected reply",
+    );
   });
 
   it("forwards interrupt attachments when steering a live Room turn", async () => {
