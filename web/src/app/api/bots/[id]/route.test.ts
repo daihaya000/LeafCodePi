@@ -123,6 +123,7 @@ describe("PATCH /api/bots/[id]", () => {
       { ttsVoice: 42 },
       { permissionMode: "turbo" },
       { tools: ["unknown-tool"] },
+      { tools: ["read", 123] },
       { extraRoots: ["relative/path"] },
       { avatarColor: "#12345" },
       { resetMessages: false },

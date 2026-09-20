@@ -60,7 +60,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   const hasSkills = body?.skills !== undefined;
   const hasTools = body?.tools !== undefined;
   const tools = hasTools && Array.isArray(body?.tools) ? [...new Set((body.tools as unknown[]).filter((item): item is string => typeof item === "string"))] : undefined;
-  const validTools = !hasTools || (Array.isArray(body?.tools) && tools?.every((tool) => (BOT_TOOL_NAMES as readonly string[]).includes(tool)));
+  const validTools = !hasTools || (Array.isArray(body?.tools) && body.tools.every((tool) => typeof tool === "string" && (BOT_TOOL_NAMES as readonly string[]).includes(tool)));
   const hasExtraRoots = body?.extraRoots !== undefined;
   const hasNotificationsEnabled = body?.notificationsEnabled !== undefined;
   const hasIntercomEnabled = body?.intercomEnabled !== undefined;
