@@ -1691,6 +1691,39 @@ describe("integrated session routing", () => {
     assert.equal(getTask(task.id)?.accountId, other.id);
   });
 
+  it("does not treat soft accountId alone as an explicit pin on create", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "leafcode-pi-soft-account-"));
+    tempDirs.push(dir);
+    process.env.LEAFCODE_PI_DATA_DIR = dir;
+    const agentDir = join(dir, "agent");
+    process.env.PI_CODING_AGENT_DIR = agentDir;
+    __resetPiAgentDirCacheForTests();
+
+    const preferred = createAccount({ label: "希望", providers: ["anthropic"] });
+    const other = createAccount({ label: "別", providers: ["anthropic"] });
+    storeProviderAuth(preferred.id, agentDir);
+    storeProviderAuth(other.id, agentDir);
+    installHarness(
+      new Map([
+        [preferred.id, runtime(preferred.id)],
+        [other.id, runtime(other.id)],
+      ]),
+    );
+    await setAccountRoutingMode("anthropic", "integrated");
+
+    const project = upsertProject({ name: "demo", rootPath: dir });
+    const task = await createTask({
+      projectId: project.id,
+      prompt: "ソフト関連付けで開始",
+      model: "anthropic::claude-sonnet",
+      accountId: preferred.id,
+      // accountIdExplicit omitted on purpose
+    });
+    await waitFor(() => getTask(task.id)?.status === "idle");
+    assert.equal(getTask(task.id)?.accountId, preferred.id);
+    assert.equal(getTask(task.id)?.accountIdExplicit, undefined);
+  });
+
   it("crosses to another provider at the next turn after a limit response", async () => {
     const dir = mkdtempSync(join(tmpdir(), "leafcode-pi-provider-fallback-"));
     tempDirs.push(dir);

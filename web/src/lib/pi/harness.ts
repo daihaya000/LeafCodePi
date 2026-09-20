@@ -6889,8 +6889,10 @@ export async function validateTaskModelSelection(
   }
   const requested = requestedAccountId?.trim() || parsed.accountId;
   validateModelAccountSelection(parsed, requested, requestedAccountId);
+  // Soft accountId (option only) is a preference, not a pin. Only a model-string
+  // account prefix — or an explicit options flag — sticks the route.
   const accountIdExplicit =
-    options?.accountIdExplicit ?? Boolean(requested);
+    options?.accountIdExplicit ?? Boolean(parsed.accountId);
   const route = await withRouteLock(
     `${parsed.providerID}::${parsed.modelID}`,
     () =>
@@ -7164,8 +7166,10 @@ function resolveCreateTaskModelSelection(input: {
   const parsed = parseModelValue(input.modelValue);
   const requestedAccountId =
     input.accountIdInput?.trim() || parsed?.accountId;
+  // Soft createTask({ accountId }) alone must not become a hard pin — match
+  // generateDirectText / setTaskModel (model-string prefix or explicit flag).
   const requestedAccountExplicit =
-    input.accountIdExplicitInput ?? Boolean(requestedAccountId);
+    input.accountIdExplicitInput ?? Boolean(parsed?.accountId);
   validateModelAccountSelection(
     parsed,
     requestedAccountId,

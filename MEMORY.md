@@ -24,8 +24,14 @@
 ### 検証（Tick2）
 `code-session/route.test` — **27 passed**
 
+### Tick3（ループ継続）
+1. `resolveCreateTaskModelSelection` / `validateTaskModelSelection` — ソフト `accountId` だけでは pin しない（モデル文字列のアカウント接頭辞 or 明示フラグのみ）。`generateDirectText` / `setTaskModel` と契約を統一
+
+### 検証（Tick3）
+`harness-routing` / `harness-complete` / `harness-limit-fallback` — **54 passed**
+
 ### 次 Tick 候補
-- create/validate のソフト accountId → implicit explicit 矛盾（generateDirectText と揃える）
+- （新規調査）
 
 ---
 
