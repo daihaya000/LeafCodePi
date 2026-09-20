@@ -81,7 +81,6 @@ function withFileLock<T>(lock: string, parent: string, action: () => T): T {
 function withRoutineLock<T>(botId: string, routineId: string, action: () => T): T { return withFileLock(routineLockPath(botId, routineId), routineDir(botId), action); }
 function withBotRoutineLock<T>(botId: string, action: () => T): T { const botsDir = join(dataDir(), "bots"); return withFileLock(join(botsDir, `${botId}.routines.lock`), botsDir, action); }
 function validId(value: string): boolean { return /^[0-9a-f]{8}-[0-9a-f-]{27,}$/i.test(value); }
-function assertRoutineId(value: string): void { if (!validId(value)) throw new Error("invalid routine id"); }
 function assertRoutinePromptLength(prompt: string): void {
   if (Array.from(prompt).length > ROUTINE_MAX_PROMPT_CHARS) {
     throw new Error(`ルーチンのプロンプトは${ROUTINE_MAX_PROMPT_CHARS}文字以内にしてください`);
@@ -209,6 +208,9 @@ function tryClaimRoutineRun(botId: string, routineId: string): string | undefine
 
 export async function runRoutine(botId: string, routineId: string): Promise<RoutineDto> {
   const key = `${botId}:${routineId}`;
+  // The run-lock path is derived from these ids; reject unknown ids before
+  // claiming the lock so invalid ids cannot create directories.
+  if (!getRoutine(botId, routineId)) throw new Error("Routine not found");
   const running = routineRuns.get(key);
   if (running) {
     await running;

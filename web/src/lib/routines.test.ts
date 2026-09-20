@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -168,6 +168,13 @@ describe("routine cron and persistence", () => {
 
     await expect(run).rejects.toThrow("Routine was deleted");
     expect(getRoutine(bot.id, routine.id)).toBeUndefined();
+  });
+  it("rejects an invalid routine id before claiming the run lock", async () => {
+    const bot = createBot({ name: "Routine bot" });
+    await expect(runRoutine(bot.id, "../evil")).rejects.toThrow("Routine not found");
+    // A missing parent makes the unguarded claim fail with 409 instead of 404.
+    await expect(runRoutine(bot.id, "../nope/evil")).rejects.toThrow("Routine not found");
+    expect(existsSync(join(root, "bots", bot.id, "evil.run.lock"))).toBe(false);
   });
   it("keeps an enabled routine active until three consecutive failures", async () => {
     const bot = createBot({ name: "Routine bot" });
