@@ -1,5 +1,5 @@
 /**
- * OpenCode Go usage from the workspace Go page (cookies + workspace id).
+ * OpenCode Go usage from the Console status API (cookie + workspace id).
  *
  * Credential order: OpenCodeTray DPAPI → Netscape cookies + config workspace id.
  */
@@ -13,7 +13,13 @@ import {
   type UsageSnapshot,
 } from "@/lib/codexbar/types";
 import type { UsageScope } from "@/lib/codexbar/types";
-import { atomicWriteText, clamp, fetchText } from "@/lib/codexbar/utils";
+import {
+  asRecord,
+  atomicWriteText,
+  clamp,
+  fetchText,
+  flexibleNumber,
+} from "@/lib/codexbar/utils";
 import {
   defaultOpenCodeCookiePath,
   extractOpenCodeCookieHeader,
@@ -207,6 +213,79 @@ export function parseOpenCodeGoHtml(
   return { windows, accountEmail };
 }
 
+function readOpenCodeGoDate(value: unknown): Date | null {
+  if (value instanceof Date) {
+    return Number.isFinite(value.getTime()) ? value : null;
+  }
+  if (typeof value !== "string" && typeof value !== "number") return null;
+  const date = new Date(value);
+  return Number.isFinite(date.getTime()) ? date : null;
+}
+
+function parseOpenCodeGoMeter(
+  value: unknown,
+  id: string,
+  title: string,
+  fallbackResetAt: Date | null,
+  fallbackStartsAt: Date | null = null,
+): RateWindow | null {
+  const meter = asRecord(value);
+  if (!meter) return null;
+  const limit = flexibleNumber(meter.limitMicroCents);
+  const used = flexibleNumber(meter.usedMicroCents);
+  if (limit === null || limit <= 0 || used === null) return null;
+
+  const startsAt = readOpenCodeGoDate(meter.startsAt) ?? fallbackStartsAt;
+  const resetsAt = readOpenCodeGoDate(meter.resetsAt) ?? fallbackResetAt;
+  return {
+    id,
+    title,
+    usedPercent: clamp((used / limit) * 100, 0, 100),
+    resetsAt,
+    windowDurationMs:
+      startsAt && resetsAt
+        ? Math.max(0, resetsAt.getTime() - startsAt.getTime())
+        : null,
+    countsTowardLimit: true,
+  };
+}
+
+/** Exported for unit tests. Parses the current Console `/api/go/status` response. */
+export function parseOpenCodeGoStatus(
+  payload: string,
+): { windows: RateWindow[] } {
+  let root: Record<string, unknown> | null;
+  try {
+    root = asRecord(JSON.parse(payload));
+  } catch {
+    return { windows: [] };
+  }
+  if (!root) return { windows: [] };
+
+  const access = asRecord(root.access);
+  const meters = asRecord(access?.meters);
+  if (!meters) return { windows: [] };
+  const monthlyStartsAt = readOpenCodeGoDate(access?.startsAt);
+  const monthlyResetAt = readOpenCodeGoDate(access?.endsAt);
+  const windows = [
+    parseOpenCodeGoMeter(
+      meters.fiveHour,
+      "opencode-go-rolling",
+      "ローリング",
+      null,
+    ),
+    parseOpenCodeGoMeter(meters.week, "opencode-go-weekly", "週間", null),
+    parseOpenCodeGoMeter(
+      meters.month,
+      "opencode-go-monthly",
+      "月間",
+      monthlyResetAt,
+      monthlyStartsAt,
+    ),
+  ].filter((window): window is RateWindow => window !== null);
+  return { windows };
+}
+
 async function autoDetectWorkspaceId(
   cookieHeader: string,
   signal?: AbortSignal,
@@ -228,7 +307,9 @@ async function autoDetectWorkspaceId(
         redirect: "follow",
       });
       // Node fetch doesn't expose final URL easily; parse HTML/body redirects.
-      const fromBody = /\/workspace\/([a-zA-Z0-9_-]+)/.exec(body);
+      const fromBody =
+        /\/workspace\/([a-zA-Z0-9_-]+)/.exec(body) ??
+        /\/console\/((?:wrk|org)_[a-zA-Z0-9_-]+)\/go/.exec(body);
       if (fromBody) return fromBody[1];
       if (!ok && status !== 302 && status !== 301) continue;
     } catch {
@@ -284,23 +365,27 @@ export function createOpenCodeGoProvider(scope: UsageScope): IUsageProvider {
         persistWorkspaceId(wsId, authPath);
       }
 
-      const url = `https://opencode.ai/workspace/${encodeURIComponent(workspaceId)}/go`;
+      const pageUrl = `https://opencode.ai/console/${encodeURIComponent(workspaceId)}/go`;
       let status: number;
-      let html: string;
+      let body: string;
       try {
-        const res = await fetchText(url, {
-          headers: {
-            Accept: "text/html",
-            "Accept-Language": "en-US,en;q=0.9",
-            "User-Agent": "CodexBar/1.0",
-            Referer: "https://opencode.ai/go",
-            Cookie: credentials.cookieHeader,
+        const res = await fetchText(
+          "https://opencode.ai/console/api/go/status",
+          {
+            headers: {
+              Accept: "application/json",
+              "Accept-Language": "en-US,en;q=0.9",
+              "User-Agent": "CodexBar/1.0",
+              Referer: pageUrl,
+              Cookie: credentials.cookieHeader,
+              "x-org-id": workspaceId,
+            },
+            timeoutMs: FETCH_TIMEOUT_MS,
+            signal,
           },
-          timeoutMs: FETCH_TIMEOUT_MS,
-          signal,
-        });
+        );
         status = res.status;
-        html = res.body;
+        body = res.body;
       } catch (err) {
         if (
           err instanceof Error &&
@@ -312,7 +397,7 @@ export function createOpenCodeGoProvider(scope: UsageScope): IUsageProvider {
         throw err;
       }
 
-      if (status === 401 || status === 403 || isLoginPage(html)) {
+      if (status === 401 || status === 403 || isLoginPage(body)) {
         throw new ProviderError(
           "OpenCode Go のセッションが期限切れです。opencode.ai にブラウザで再ログインしてから再試行してください。",
         );
@@ -321,7 +406,7 @@ export function createOpenCodeGoProvider(scope: UsageScope): IUsageProvider {
         throw new ProviderError(`OpenCode Go が HTTP ${status} を返しました。`);
       }
 
-      const { windows, accountEmail } = parseOpenCodeGoHtml(html);
+      const { windows } = parseOpenCodeGoStatus(body);
       if (windows.length === 0) {
         throw new ProviderError(
           "OpenCode Go の使用状況を読み取れませんでした。ページ構造が変わった可能性があります。",
@@ -332,7 +417,7 @@ export function createOpenCodeGoProvider(scope: UsageScope): IUsageProvider {
         providerId: "opencode-go",
         providerName: "OpenCode",
         plan: "Go",
-        accountEmail,
+        accountEmail: null,
         windows,
         creditsBalance: null,
         creditsLabel: null,
@@ -340,7 +425,7 @@ export function createOpenCodeGoProvider(scope: UsageScope): IUsageProvider {
         creditsTitle: null,
         creditsUsed: null,
         creditsLimit: null,
-        sourceLabel: "OpenCode Go page",
+        sourceLabel: "OpenCode Console API",
         updatedAt: new Date(),
         isStale: false,
         rateLimitResetCreditsAvailable: null,
