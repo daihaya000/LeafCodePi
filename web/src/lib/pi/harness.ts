@@ -15,7 +15,7 @@ import {
 import { prepareWorkspaceMove, type PreparedWorkspaceMove } from "@/lib/workspace-move";
 import { BOT_DEFAULT_TOOL_NAMES, BOT_TOOL_NAMES, botPromptSources, botRuntimeContext, botSoulRevision, botTaskId, getBot, listBots, patchBot } from "@/lib/bots";
 import { AGENTS_MD_FILENAME, codeOnDemandPrompt, codePromptSources, compactSdkDocumentation, readAgentsMdFile } from "@/lib/agents-md";
-import { BOT_CODE_RESULT, BOT_CODE_TOOL, botCodeReportText, createBotCodeRelay, hasBotCodeReport, isBotCodeOriginTask, queueBotCodePrompt, roomForCodeOrigin, runUserBotCodeRequest, stopBotCodeRequestForTask, truncateCodeReportRequest, type CodePromptOptions, type CodeRequest } from "@/lib/pi/bot-code-relay";
+import { BOT_CODE_RESULT, BOT_CODE_TOOL, botCodeReportText, createBotCodeRelay, hasBotCodeReport, isBotCodeOriginTask, isRoomDelegatedCodeTask, queueBotCodePrompt, roomForCodeOrigin, runUserBotCodeRequest, stopBotCodeRequestForTask, truncateCodeReportRequest, type CodePromptOptions, type CodeRequest } from "@/lib/pi/bot-code-relay";
 import { catalogFromRoomUserRequest, catalogFromSessionEntries } from "@/lib/pi/bot-code-images";
 import { roomRequestImages } from "@/lib/rooms";
 import { BOT_SOUL_TOOL, botSoulTool } from "@/lib/pi/bot-soul-tool";
@@ -6580,6 +6580,78 @@ async function buildTaskSummariesWithTodoProgress(
         }
       : task;
   });
+}
+
+/**
+ * Bot Code panel poll payload: filter by bot before enriching cold sessions,
+ * and reuse each Goal Loop DTO for both summary and the `loops` map.
+ */
+export async function getBotCodeSessionPanelState(botId: string): Promise<{
+  tasks: TaskSummary[];
+  loops: Record<string, GoalLoopDto | null>;
+}> {
+  reconcileOrphanedWorkingTasks();
+  const candidates = listTasks(false, "code").filter(
+    (task) =>
+      (task.botId === botId || task.supervisorBotId === botId) &&
+      !isRoomDelegatedCodeTask(task.id),
+  );
+  if (candidates.length === 0) return { tasks: [], loops: {} };
+
+  const summaries = candidates.map(toSummary);
+  const live = state().live;
+  const loops: Record<string, GoalLoopDto | null> = {};
+  const goalLoopByTaskId = new Map<string, NonNullable<ReturnType<typeof toGoalLoopSummary>>>();
+
+  for (const task of summaries) {
+    if (!task.sessionId) continue;
+    // Live tasks already carry goalLoopSummary via toSummary; still expose full DTO.
+    if (task.goalLoopSummary || (!live.has(task.id) && task.status !== "archived")) {
+      const loop = readGoalLoopState(task.directory, task.sessionId);
+      if (loop) {
+        loops[task.id] = loop;
+        const summary = toGoalLoopSummary(loop);
+        if (summary && !task.goalLoopSummary) goalLoopByTaskId.set(task.id, summary);
+      } else if (task.goalLoopSummary) {
+        loops[task.id] = null;
+      }
+    }
+  }
+
+  const coldNeedingTodo = summaries.filter(
+    (task) =>
+      task.status !== "archived" &&
+      !live.has(task.id) &&
+      task.sessionFile &&
+      !task.todoProgress,
+  );
+  let progressByTaskId = new Map<string, TodoProgressDto>();
+  if (coldNeedingTodo.length > 0) {
+    try {
+      const pi = await loadPi();
+      progressByTaskId = new Map(
+        coldNeedingTodo.flatMap((task) => {
+          const progress = readTodoProgress(pi, task);
+          return progress ? [[task.id, progress] as const] : [];
+        }),
+      );
+    } catch {
+      /* Goal Loop DTOs above are enough for the panel when Pi is unavailable. */
+    }
+  }
+
+  const tasks = summaries.map((task) => {
+    const todoProgress = progressByTaskId.get(task.id);
+    const goalLoopSummary = task.goalLoopSummary ?? goalLoopByTaskId.get(task.id);
+    return todoProgress || goalLoopSummary
+      ? {
+          ...task,
+          ...(todoProgress ? { todoProgress } : {}),
+          ...(goalLoopSummary ? { goalLoopSummary } : {}),
+        }
+      : task;
+  });
+  return { tasks, loops };
 }
 
 /** Build the cheap first packet sent before a cold Pi session is hydrated. */

@@ -13,6 +13,7 @@ const mocks = vi.hoisted(() => ({
   abortTask: vi.fn(),
   abortTaskIncludingColdGoalLoop: vi.fn(),
   getTaskSummariesWithTodoProgress: vi.fn(),
+  getBotCodeSessionPanelState: vi.fn(),
   goalLoopCommand: vi.fn(),
   promptTask: vi.fn(),
   reconcileOrphanedWorkingTasks: vi.fn(),
@@ -44,6 +45,7 @@ vi.mock("@/lib/pi/harness", () => ({
   abortTask: mocks.abortTask,
   abortTaskIncludingColdGoalLoop: mocks.abortTaskIncludingColdGoalLoop,
   getTaskSummariesWithTodoProgress: mocks.getTaskSummariesWithTodoProgress,
+  getBotCodeSessionPanelState: mocks.getBotCodeSessionPanelState,
   goalLoopCommand: mocks.goalLoopCommand,
   promptTask: mocks.promptTask,
   jsonError: mocks.jsonError,
@@ -77,6 +79,7 @@ beforeEach(() => {
   mocks.getTask.mockReturnValue(undefined);
   mocks.listTasks.mockReturnValue([]);
   mocks.getTaskSummariesWithTodoProgress.mockResolvedValue([]);
+  mocks.getBotCodeSessionPanelState.mockResolvedValue({ tasks: [], loops: {} });
   mocks.goalLoopCommand.mockResolvedValue({ id: "loop-1", status: "paused", maxTurns: 3, turnCount: 1 });
   mocks.createBotCodeTask.mockResolvedValue({ id: "code-1", status: "working" });
   mocks.stopBotCodeTask.mockResolvedValue({ id: "code-1", status: "idle" });
@@ -482,11 +485,10 @@ describe("Bot Code session control", () => {
   });
 
   it("reports the Bot's Code tasks without hydrating the session", async () => {
-    mocks.getTaskSummariesWithTodoProgress.mockResolvedValue([
-      { id: "code-1", status: "idle", kind: "code", botId: "bot-1" },
-      { id: "bot-1", status: "idle", kind: "bot", botId: "bot-1" },
-      { id: "code-2", status: "idle", kind: "code", botId: "bot-2" },
-    ]);
+    mocks.getBotCodeSessionPanelState.mockResolvedValue({
+      tasks: [{ id: "code-1", status: "idle", kind: "code", botId: "bot-1" }],
+      loops: {},
+    });
 
     const response = await GET(request("GET"), { params: Promise.resolve({ id: "bot-1" }) });
 
@@ -495,26 +497,30 @@ describe("Bot Code session control", () => {
       tasks: [{ id: "code-1", status: "idle", kind: "code", botId: "bot-1" }],
       loops: {},
     });
-    expect(mocks.getTaskSummariesWithTodoProgress).toHaveBeenCalledWith(false);
+    expect(mocks.getBotCodeSessionPanelState).toHaveBeenCalledWith("bot-1");
   });
 
   it("bundles Goal Loop DTOs for tasks that already have a summary", async () => {
-    mocks.getTaskSummariesWithTodoProgress.mockResolvedValue([
-      {
-        id: "code-loop",
-        status: "working",
-        kind: "code",
-        botId: "bot-1",
-        directory: "C:\\task",
-        sessionId: "sess-1",
-        goalLoopSummary: { status: "running", maxTurns: 3, turnCount: 1 },
+    mocks.getBotCodeSessionPanelState.mockResolvedValue({
+      tasks: [
+        {
+          id: "code-loop",
+          status: "working",
+          kind: "code",
+          botId: "bot-1",
+          directory: "C:\\task",
+          sessionId: "sess-1",
+          goalLoopSummary: { status: "running", maxTurns: 3, turnCount: 1 },
+        },
+      ],
+      loops: {
+        "code-loop": {
+          status: "running",
+          maxTurns: 3,
+          turnCount: 1,
+          goal: "ship it",
+        },
       },
-    ]);
-    mocks.readGoalLoopState.mockReturnValue({
-      status: "running",
-      maxTurns: 3,
-      turnCount: 1,
-      goal: "ship it",
     });
 
     const response = await GET(request("GET"), { params: Promise.resolve({ id: "bot-1" }) });
@@ -541,6 +547,6 @@ describe("Bot Code session control", () => {
         },
       },
     });
-    expect(mocks.readGoalLoopState).toHaveBeenCalledWith("C:\\task", "sess-1");
+    expect(mocks.getBotCodeSessionPanelState).toHaveBeenCalledWith("bot-1");
   });
 });

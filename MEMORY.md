@@ -45,8 +45,15 @@
 ### 検証（Tick5）
 `tasks/route.test` — **23 passed**
 
+### Tick6（ループ継続）
+1. `getBotCodeSessionPanelState` — bot 絞り込み後にだけ cold progress / Goal Loop を読む（全 Code 走査を回避）
+2. `GET code-session` — 上記ヘルパーに委譲（loops は同一読込を再利用）
+
+### 検証（Tick6）
+`code-session/route.test` — **27 passed**
+
 ### 次 Tick 候補
-- code-session GET の全タスク走査を bot 絞り込み先行に
+- （新規調査）
 
 ---
 

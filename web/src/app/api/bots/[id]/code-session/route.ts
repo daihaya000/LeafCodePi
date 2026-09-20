@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getBot, patchBot } from "@/lib/bots";
 import { isPromptTextWithinSize } from "@/lib/prompt-images";
 import { getProject, getTask, patchTask } from "@/lib/store";
-import { continueBotCodeTask, createBotCodeTask, getTaskSummariesWithTodoProgress, goalLoopCommand, jsonError, stopBotCodeTask, abortTaskIncludingColdGoalLoop } from "@/lib/pi/harness";
+import { continueBotCodeTask, createBotCodeTask, getBotCodeSessionPanelState, goalLoopCommand, jsonError, stopBotCodeTask, abortTaskIncludingColdGoalLoop } from "@/lib/pi/harness";
 import { isThinkingLevel } from "@/lib/thinking-levels";
 import { reconcileOrphanedWorkingTasks } from "@/lib/task-runtime-lease";
 import { isRoomDelegatedCodeTask } from "@/lib/pi/bot-code-relay";
@@ -61,21 +61,8 @@ export async function GET(
   const id = await botId(params);
   const bot = getBot(id);
   if (!bot) return NextResponse.json({ error: "Bot not found" }, { status: 404 });
-  // Active Code sessions only — archived rows are not polled by the panel.
-  // getTaskSummariesWithTodoProgress → getTaskSummaries already reconciles orphans.
-  const tasks = (await getTaskSummariesWithTodoProgress(false)).filter(
-    (task) =>
-      (task.botId === id || task.supervisorBotId === id) &&
-      task.kind !== "bot" &&
-      !isRoomDelegatedCodeTask(task.id),
-  );
-  // Bundle full Goal Loop DTOs so the client does not N+1 /goal-loop.
-  const loops: Record<string, ReturnType<typeof readGoalLoopState>> = {};
-  for (const task of tasks) {
-    if (!task.goalLoopSummary || !task.sessionId) continue;
-    loops[task.id] = readGoalLoopState(task.directory, task.sessionId);
-  }
-  return NextResponse.json({ tasks, loops });
+  // Bot-scoped enrich: avoid scanning every Code task on each 2s poll.
+  return NextResponse.json(await getBotCodeSessionPanelState(id));
 }
 
 export async function POST(
