@@ -59,6 +59,19 @@ export function isGoalLoopOperatorHold(
   return loop?.status === "paused" && GOAL_LOOP_OPERATOR_HOLD_REASONS.has(loop.pauseReason ?? "");
 }
 
+/**
+ * Goal Loop still owns the session (Resume/Stop available). Includes pause/block —
+ * not only live turn statuses — so ensureLive keeps Goal Loop transport/compaction.
+ */
+export function isGoalLoopSessionOwned(
+  loop: { status?: string | null } | null | undefined,
+): boolean {
+  const status = loop?.status;
+  if (!status) return false;
+  if (isGoalLoopLiveStatus(status)) return true;
+  return status === "paused" || status === "blocked";
+}
+
 /** cwd引数は呼び出し元互換のため残す。状態配置はグローバルでcwd非依存。 */
 export function goalLoopStateFile(_cwd: string, sessionId: string): string {
   const safeId = sessionId.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 120) || "session";

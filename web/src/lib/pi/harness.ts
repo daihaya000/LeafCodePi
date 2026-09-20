@@ -125,7 +125,7 @@ import {
   isEditableBaseUrlProvider,
   setProviderBaseUrl as setProviderBaseUrlFromEndpoints,
 } from "@/lib/provider-endpoints";
-import { isGoalLoopLiveStatus, isGoalLoopOperatorHold, readGoalLoopState } from "@/lib/pi/goal-loop-state";
+import { isGoalLoopLiveStatus, isGoalLoopOperatorHold, isGoalLoopSessionOwned, readGoalLoopState } from "@/lib/pi/goal-loop-state";
 import { activeToolLabel } from "@/lib/tool-labels";
 import { acquireTaskLease, hasActiveTaskLease, ownsTaskLease, releaseTaskLease, reconcileOrphanedWorkingTasks } from "@/lib/task-runtime-lease";
 import {
@@ -1354,9 +1354,7 @@ function sessionSnapshotFields(
   const todos = todosFromPiMessages(session.messages);
   reportTaskDetailPhase(reporter, "todos", todosStartedAt);
 
-  const goalLoopActive = Boolean(
-    goalLoop && ["queued", "running", "verifying_completed"].includes(goalLoop.status),
-  );
+  const goalLoopActive = isGoalLoopSessionOwned(goalLoop);
   const compactionSuggested = !goalLoopActive && shouldSuggestAtThreshold(
     parseCompactionAction(getSetting(COMPACTION_ACTION_SETTING_KEY)),
     contextUsage?.percent,
@@ -1588,10 +1586,7 @@ function isActiveGoalLoopSession(session: AgentSession): boolean {
       session.sessionManager.getCwd(),
       session.sessionId,
     );
-    return Boolean(
-      loop &&
-        ["queued", "running", "verifying_completed"].includes(loop.status),
-    );
+    return isGoalLoopSessionOwned(loop);
   } catch {
     return false;
   }
@@ -4477,7 +4472,7 @@ async function ensureLive(
       permissionMode: isBot ? (bot?.permissionMode ?? task.permissionMode) : task.permissionMode,
       agentName: task.agent ?? null,
       taskId,
-      goalLoop: isGoalLoopLiveStatus(persistedGoalLoop?.status),
+      goalLoop: isGoalLoopSessionOwned(persistedGoalLoop),
       onTiming: options?.onTiming,
     });
     reportTaskDetailPhase(

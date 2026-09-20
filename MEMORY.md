@@ -229,8 +229,15 @@
 ### 検証（Tick31）
 関連コードパス確認 + `code-session` / `accounts` operator-hold 回帰
 
+### Tick32（ループ継続・通知 49）
+1. `isGoalLoopSessionOwned` — paused/blocked もセッション所有（Resume 可能）とみなし、`isActiveGoalLoopSession` / `ensureLive` の goalLoop フラグ / compaction 提案に反映
+2. 一時停止中の cold ensureLive が Goal Loop 用 transport/compaction を外す矛盾を解消
+
+### 検証（Tick32）
+`goal-loop-state` — **4 passed**
+
 ### 次 Tick 候補
-- TaskView / SSE 周辺
+- TaskView / SSE / GlobalAttention
 
 
 
