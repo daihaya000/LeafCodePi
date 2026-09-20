@@ -470,6 +470,7 @@ type HarnessState = {
   initError: string | null;
   initPromise: Promise<void> | null;
   live: Map<string, LiveRuntime>;
+  botToolAllowlists?: WeakMap<AgentSession, readonly string[]>;
   events: EventEmitter;
   loginSession: ProviderLoginSession | null;
   healthCache: HealthCacheEntry | null;
@@ -2975,6 +2976,11 @@ export function sessionToolNames(input: {
         "memory_remove",
         "session_search",
         "skill_manage",
+        "web_search",
+        "source_check",
+        "fetch_content",
+        "get_search_content",
+        "intercom",
         ...(input.subagentPermission === "allow" ? ["subagent"] : []),
         "todowrite",
         TOOL_SEARCH_NAME,
@@ -3072,6 +3078,7 @@ export function sessionExtensionFactories(input: {
   agentDir: string;
   botSoulBotId?: string;
   botToolAllowlist?: readonly string[];
+  getBotToolAllowlist?: () => readonly string[];
   taskId?: string;
   hasBotSkills: boolean;
   botCodeTaskId?: string;
@@ -3105,7 +3112,7 @@ export function sessionExtensionFactories(input: {
       : []),
     input.botToolAllowlist
       ? (api: ExtensionAPI) =>
-          registerDeferredTools(api, input.botToolAllowlist)
+          registerDeferredTools(api, input.getBotToolAllowlist ?? input.botToolAllowlist)
       : registerDeferredTools,
     registerJevTool,
     ...(input.taskId ? [registerGoalLoopTurnRouting(input.taskId)] : []),
@@ -3348,6 +3355,7 @@ async function createSession(options: {
     ? buildAgentResourceOptions(agentDefinition)
     : undefined;
   const botToolAllowlist = options.botTools;
+  let createdSession: AgentSession | undefined = undefined;
   const resourceLoader: ResourceLoader = new pi.DefaultResourceLoader({
     cwd: options.cwd,
     agentDir,
@@ -3358,6 +3366,7 @@ async function createSession(options: {
       agentDir,
       botSoulBotId,
       botToolAllowlist,
+      getBotToolAllowlist: () => (createdSession && state().botToolAllowlists?.get(createdSession)) ?? botToolAllowlist ?? [],
       taskId: options.taskId,
       hasBotSkills: Boolean(options.botSkills),
       botCodeTaskId,
@@ -3426,6 +3435,7 @@ async function createSession(options: {
     "createSession.agentSession",
     agentSessionStartedAt,
   );
+  createdSession = result.session;
   const configureStartedAt = options.onTiming ? performance.now() : 0;
   await configureCreatedSession(result.session, {
     botTools: options.botTools,
@@ -8555,6 +8565,9 @@ export function applyBotTools(
   session: AgentSession,
   tools: readonly string[],
 ): void {
+  // The loader must use the last applied permissions, not a stale creation
+  // snapshot or settings that are still pending while the Bot is busy.
+  (state().botToolAllowlists ??= new WeakMap()).set(session, [...tools]);
   if (
     typeof session.setActiveToolsByName !== "function" ||
     typeof session.getActiveToolNames !== "function"
@@ -8565,7 +8578,7 @@ export function applyBotTools(
   const requested = [...new Set(
     tools.filter(
       (tool) => knownBotTools.has(tool) &&
-        !needsToolSearch([tool]) &&
+        (!tools.includes(TOOL_SEARCH_NAME) || !needsToolSearch([tool])) &&
         (tool !== "powershell" || process.platform === "win32"),
     ),
   )];

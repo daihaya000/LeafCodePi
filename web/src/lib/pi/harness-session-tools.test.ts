@@ -15,6 +15,10 @@ describe("sessionToolNames", () => {
     assert.ok(windows.includes("powershell"));
     assert.ok(windows.includes("bash"));
     assert.ok(windows.includes("jev_judge"));
+    for (const tool of ["web_search", "source_check", "fetch_content", "get_search_content", "intercom"]) {
+      assert.ok(windows.includes(tool));
+      assert.deepEqual(sessionToolNames({ agentTools: ["read", tool] }), ["read", tool, "tool_search"]);
+    }
 
     assert.ok(
       sessionToolNames({ platform: "linux", subagentPermission: "allow" }).includes("subagent"),

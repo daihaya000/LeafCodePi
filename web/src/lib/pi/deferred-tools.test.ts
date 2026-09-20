@@ -9,7 +9,9 @@ type SearchTool = {
   }>;
 };
 
-function setup(initial: string[], allowedTools?: readonly string[]) {
+const optionalTools = ["bash", "memory_add", "memory_replace", "memory_remove", "skill_manage", "web_search", "source_check", "fetch_content", "get_search_content", "intercom"];
+
+function setup(initial: string[], allowedTools?: readonly string[] | (() => readonly string[])) {
   let active = [...initial];
   const tools: SearchTool[] = [];
   const handlers: Record<string, Array<() => void>> = {};
@@ -38,25 +40,27 @@ function setup(initial: string[], allowedTools?: readonly string[]) {
 describe("deferred tools", () => {
   it("does not widen an agent allowlist without an optional tool", () => {
     expect(needsToolSearch(["read", "grep"])).toBe(false);
-    expect(needsToolSearch(["read", "memory_add"])).toBe(true);
+    for (const name of optionalTools) expect(needsToolSearch(["read", name])).toBe(true);
   });
 
   it("starts with the loader but removes low-frequency schemas", () => {
-    const state = setup(["read", "bash", "memory_add", "memory_replace", "memory_remove", "skill_manage"]);
+    const core = ["read", "write", "edit", "grep", "find", "ls", "powershell", "todowrite", "question", "memory_search", "session_search", "jev_judge", "mcp"];
+    const state = setup([...core, ...optionalTools]);
     state.start();
-    expect(state.active).toEqual(["read", TOOL_SEARCH_NAME]);
+    expect(state.active).toEqual([...core, TOOL_SEARCH_NAME]);
   });
 
-  it.each(["bash", "memory_add", "memory_replace", "memory_remove", "skill_manage"])(
+  it.each(optionalTools)(
     "activates only the requested registered tool: %s",
     async (name) => {
-      const state = setup(["read", "bash", "memory_add", "memory_replace", "memory_remove", "skill_manage"]);
+      const state = setup(["read", ...optionalTools]);
       state.start();
 
       const result = await state.search.execute("tc-1", { query: name });
 
       expect(result.details).toEqual({ matches: [name], added: [name] });
       expect(state.active).toEqual(["read", TOOL_SEARCH_NAME, name]);
+      expect((await state.search.execute("tc-2", { query: name.toUpperCase() })).details).toEqual({ matches: [name], added: [] });
     },
   );
 
@@ -97,9 +101,42 @@ describe("deferred tools", () => {
     expect(state.active).toEqual(["read"]);
   });
 
-  it("does not re-enable tool_search just because a deferred tool is allowed", () => {
-    const state = setup(["read", "memory_add"], ["read", "memory_add"]);
+  it("keeps permitted optional tools usable when tool_search itself is disabled", async () => {
+    const state = setup(["read", TOOL_SEARCH_NAME, "memory_add", "web_search", "intercom"], ["read", "memory_add", "web_search"]);
     state.start();
-    expect(state.active).toEqual(["read"]);
+    expect(state.active).toEqual(["read", "memory_add", "web_search"]);
+    expect((await state.search.execute("tc", { query: "intercom" })).details.matches).toEqual([]);
+  });
+
+  it.each([
+    ["ウェブ検索", "web_search"],
+    ["出典の裏取り", "source_check"],
+    ["YouTube動画", "fetch_content"],
+    ["追加本文", "get_search_content"],
+    ["他セッションと連携", "intercom"],
+  ])("discovers a capability: %s", async (query, name) => {
+    const state = setup(["read", ...optionalTools]);
+    state.start();
+    expect((await state.search.execute("tc", { query })).details.matches).toEqual([name]);
+  });
+
+  it("rechecks applied permissions for every search, including newly enabled tools", async () => {
+    let allowed = ["read", TOOL_SEARCH_NAME, "web_search"];
+    const state = setup(["read", ...optionalTools], () => allowed);
+    state.start();
+    allowed = ["read", TOOL_SEARCH_NAME, "fetch_content"];
+    expect((await state.search.execute("tc", { query: "web_search" })).details.matches).toEqual([]);
+    expect((await state.search.execute("tc", { query: "fetch_content" })).details.added).toEqual(["fetch_content"]);
+    allowed = ["read", "web_search"];
+    expect((await state.search.execute("tc", { query: "web_search" })).details.matches).toEqual([]);
+  });
+
+  it("does not activate absent or disallowed optional tools", async () => {
+    const state = setup(["read", "web_search"], ["read", TOOL_SEARCH_NAME]);
+    state.start();
+    for (const query of ["web_search", "fetch_content", "", "unknown capability"]) {
+      expect((await state.search.execute("tc", { query })).details).toEqual({ matches: [], added: [] });
+    }
+    expect(state.active).toEqual(["read", TOOL_SEARCH_NAME]);
   });
 });

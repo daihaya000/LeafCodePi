@@ -1,10 +1,11 @@
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { DefaultResourceLoader, SettingsManager, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { createAgentSession, DefaultResourceLoader, SessionManager, SettingsManager, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { Type } from "typebox";
 import { afterEach, beforeEach, expect, it } from "vitest";
 import { codeOnDemandPrompt } from "@/lib/agents-md";
-import { sessionExtensionFactories, sessionResourceOptions } from "./harness";
+import { applyBotTools, sessionExtensionFactories, sessionResourceOptions, sessionToolNames } from "./harness";
 
 let root: string;
 let agentDir: string;
@@ -25,6 +26,51 @@ async function loader(noContextFiles: boolean, botToolAllowlist?: string[]) {
   await result.reload();
   return result;
 }
+
+it("loads optional schemas on demand through the real SDK and keeps an agent allowlist", async () => {
+  const settingsManager = SettingsManager.inMemory();
+  const extensionFactories = sessionExtensionFactories({ agentDir, hasBotSkills: false, getExtensions: () => [] });
+  const resourceLoader = new DefaultResourceLoader({
+    cwd: root, agentDir, settingsManager,
+    noExtensions: true, noSkills: true, noPromptTemplates: true, noThemes: true,
+    extensionFactories: [
+      (api) => {
+        // Stub external execution only; registry, lifecycle and activation are real.
+        for (const name of ["web_search", "fetch_content", "get_search_content", "intercom"]) {
+          api.registerTool({ name, label: name, description: name, parameters: Type.Object({}),
+            execute: async () => ({ content: [{ type: "text", text: "not called" }], details: {} }),
+          });
+        }
+      },
+      ...extensionFactories.slice(0, 2),
+    ],
+  });
+  await resourceLoader.reload();
+  const { session } = await createAgentSession({
+    cwd: root, agentDir, resourceLoader, settingsManager, sessionManager: SessionManager.inMemory(root),
+    tools: sessionToolNames({ agentTools: ["read", "web_search", "get_search_content"] }),
+  });
+  try {
+    await session.bindExtensions({ onError: (error) => { throw new Error(error.error); } });
+    expect(session.getActiveToolNames()).toEqual(["read", "tool_search"]);
+    const search = session.agent.state.tools.find(tool => tool.name === "tool_search")!;
+    await search.execute("tc", { query: "get_search_content" });
+    expect(session.getActiveToolNames()).toEqual(["read", "tool_search", "get_search_content"]);
+    await search.execute("tc", { query: "fetch_content" });
+    expect(session.getActiveToolNames()).not.toContain("fetch_content");
+    expect(session.getAllTools().some(tool => tool.name === "fetch_content")).toBe(false);
+    await session.reload();
+    expect(session.getActiveToolNames()).toEqual(["read", "tool_search"]);
+    // Bot application also hides permitted optional schemas when a loader exists,
+    // but leaves them callable when the loader is explicitly disabled.
+    applyBotTools(session, ["read", "tool_search", "web_search"]);
+    expect(session.getActiveToolNames()).toEqual(["read", "tool_search"]);
+    applyBotTools(session, ["read", "web_search"]);
+    expect(session.getActiveToolNames()).toEqual(["read", "web_search"]);
+  } finally {
+    session.dispose();
+  }
+});
 
 it("keeps SDK APPEND_SYSTEM.md discovery alongside Code global sources", async () => {
   writeFileSync(join(agentDir, "APPEND_SYSTEM.md"), "extra system rules");
