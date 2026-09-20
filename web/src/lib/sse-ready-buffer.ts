@@ -238,5 +238,8 @@ export function preparePendingPayloadForReadyFlush(
   // Ready already delivered the authoritative Goal Loop DTO; a buffered
   // permission/hang snapshot must not rewind the panel to a prior status.
   delete next.goalLoop;
+  // Same for compactionSuggested: contextUsage is stripped above, so a stale
+  // true/false here would desync the banner from the ready meter.
+  delete next.compactionSuggested;
   return next;
 }

@@ -242,6 +242,12 @@
 ### 検証（Tick33）
 `sse-ready-buffer` strips stale — **1 passed**
 
+### Tick34（ループ継続・[Tick34 bug hunt](6fc7a633-a492-4719-ba44-fc2a5fa5d6dd)）
+1. `preparePendingPayloadForReadyFlush` — ready 後の control flush から stale `compactionSuggested` も除去（`contextUsage`/`goalLoop` と同列）。圧縮バナーの誤表示・消失を防止
+
+### 検証（Tick34）
+`sse-ready-buffer` strips stale — **1 passed**
+
 ### 次 Tick 候補
 - TaskView / GlobalAttention 周辺
 
