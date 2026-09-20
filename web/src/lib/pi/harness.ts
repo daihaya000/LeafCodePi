@@ -8574,7 +8574,10 @@ export async function setTaskSkillPermission(
     return deferLiveSetting(live, id, { skillPermission: permission }, { skillPermission: permission });
   }
   await applyLiveSkillPermission(live, permission);
-  return patchTask(id, { skillPermission: permission }) ?? task;
+  const updated = patchTask(id, { skillPermission: permission });
+  if (!updated)
+    throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });
+  return updated;
 }
 
 export async function setTaskPermissionMode(
@@ -8589,7 +8592,10 @@ export async function setTaskPermissionMode(
     return deferLiveSetting(live, id, { permissionMode: mode }, { permissionMode: mode });
   }
   applyPermissionMode(live.session, mode);
-  return patchTask(id, { permissionMode: mode }) ?? task;
+  const updated = patchTask(id, { permissionMode: mode });
+  if (!updated)
+    throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });
+  return updated;
 }
 
 /** Apply the Bot's persisted tool allowlist to an already-created session. */
