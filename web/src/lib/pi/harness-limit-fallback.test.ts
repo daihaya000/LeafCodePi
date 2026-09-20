@@ -177,7 +177,11 @@ import {
 } from "@/lib/provider-routing";
 import { getTaskHangWatch } from "./hang-watchdog";
 import { AccountRuntimeManager } from "./account-runtime-manager";
-import { createTask, promptTask } from "./harness";
+import {
+  createTask,
+  promptTask,
+  __waitForProviderFallbackIdleForTests,
+} from "./harness";
 
 const GLOBAL_KEY = "__leafcodePiHarness";
 const PROVIDER = "openai-codex";
@@ -252,7 +256,10 @@ async function waitFor(check: () => boolean): Promise<void> {
   }
 }
 
-afterEach(() => {
+afterEach(async () => {
+  // A usage-limit fallback can still be replacing the session; drain it while
+  // this test's data dir and fake runtime are still installed.
+  await __waitForProviderFallbackIdleForTests();
   delete (globalThis as Record<string, unknown>)[GLOBAL_KEY];
   clearCachedUsage();
   __resetProviderRoutingQueueForTests();

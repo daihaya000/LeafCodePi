@@ -1679,6 +1679,19 @@ function openSettingsManager() {
 }
 
 const providerFallbackInflight = new Map<string, Promise<void>>();
+
+/**
+ * Test-only: wait out provider-limit fallbacks started in the current test so
+ * a late session replacement cannot leak into the next test's runtime.
+ */
+export async function __waitForProviderFallbackIdleForTests(): Promise<void> {
+  for (let attempt = 0; attempt < 50 && providerFallbackInflight.size > 0; attempt += 1) {
+    await Promise.allSettled([...providerFallbackInflight.values()]);
+    // The fallback queues its hidden resume prompt after the inflight promise.
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+  }
+}
+
 const soulReloadInflight = new Map<string, Promise<LiveRuntime>>();
 /** Session entry customType for the hidden provider-limit resume prompt. */
 const PROVIDER_FALLBACK_CUSTOM_TYPE = "leafcode-pi.provider-fallback";
@@ -8253,9 +8266,12 @@ function queuePrompt(
     }
     setTaskStatus(live.taskId, "error", message);
     releaseTaskLease(live.taskId);
+    // The task can be deleted while a prompt is failing; there is no snapshot to emit then.
+    const task = getTask(live.taskId);
+    if (!task) return;
     emit(live.taskId, {
       type: "snapshot",
-      task: toSummary(getTask(live.taskId)!),
+      task: toSummary(task),
       ...sessionSnapshotFields(
         currentLive.session,
         currentLive.throughputByStartedAt,
