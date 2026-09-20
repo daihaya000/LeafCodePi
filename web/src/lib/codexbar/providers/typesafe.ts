@@ -190,6 +190,8 @@ const TYPESAFE_BILLING_ACTION_NAME = "getBillingOverviewResult";
 /** 既知のデプロイで使われたID。失敗時は現在のページから再解決する。 */
 const TYPESAFE_BILLING_ACTION_ID =
   "00216a0f6524a89c66b80e4babe337d5f2d86e071b";
+const TYPESAFE_DISCOVERY_PAGE_TIMEOUT_MS = 10_000;
+const TYPESAFE_DISCOVERY_SCRIPT_TIMEOUT_MS = 5_000;
 let typesafeBillingActionId = TYPESAFE_BILLING_ACTION_ID;
 
 export type TypesafeConsoleBilling = {
@@ -249,15 +251,18 @@ export function extractTypesafeBillingActionId(text: string): string | null {
   if (marker < 0) return null;
   const start = Math.max(0, marker - 2_000);
   const context = text.slice(start, Math.min(text.length, marker + 2_000));
-  const patterns = [
-    /createServerReference\s*\(\s*["']([0-9a-f]{40,64})["'][\s\S]{0,2000}?getBillingOverviewResult/i,
-    /getBillingOverviewResult[\s\S]{0,2000}?createServerReference\s*\(\s*["']([0-9a-f]{40,64})["']/i,
-  ];
-  for (const pattern of patterns) {
-    const match = pattern.exec(context);
-    if (match?.[1]) return match[1];
+  const markerOffset = marker - start;
+  let closest: { id: string; distance: number } | null = null;
+  for (const match of context.matchAll(
+    /createServerReference\s*\(\s*["']([0-9a-f]{40,64})["']/gi,
+  )) {
+    if (match.index === undefined || !match[1]) continue;
+    const distance = Math.abs(match.index - markerOffset);
+    if (!closest || distance < closest.distance) {
+      closest = { id: match[1], distance };
+    }
   }
-  return null;
+  return closest?.id ?? null;
 }
 
 async function discoverTypesafeBillingActionId(
@@ -271,6 +276,7 @@ async function discoverTypesafeBillingActionId(
       Referer: TYPESAFE_BILLING_URL,
     },
     signal,
+    timeoutMs: TYPESAFE_DISCOVERY_PAGE_TIMEOUT_MS,
   });
   if (page.status === 401 || page.status === 403) {
     throw new ProviderError(
@@ -292,19 +298,30 @@ async function discoverTypesafeBillingActionId(
     .map((match) => match[1].replace(/&amp;/g, "&"))
     .filter((src) => src.length > 0);
   const origin = new URL(TYPESAFE_BILLING_URL).origin;
+  const scriptUrls: URL[] = [];
   for (const source of new Set(scriptSources)) {
-    let url: URL;
     try {
-      url = new URL(source, TYPESAFE_BILLING_URL);
+      const url = new URL(source, TYPESAFE_BILLING_URL);
+      if (url.origin === origin) scriptUrls.push(url);
     } catch {
-      continue;
+      // Ignore malformed or cross-origin asset references.
     }
-    if (url.origin !== origin) continue;
-    const script = await fetchText(url.href, {
-      headers: { Accept: "*/*", Cookie: cookieHeader },
-      signal,
-    });
-    if (!script.ok) continue;
+  }
+  const scripts = await Promise.all(
+    scriptUrls.map(async (url) => {
+      try {
+        return await fetchText(url.href, {
+          headers: { Accept: "*/*" },
+          signal,
+          timeoutMs: TYPESAFE_DISCOVERY_SCRIPT_TIMEOUT_MS,
+        });
+      } catch {
+        return null;
+      }
+    }),
+  );
+  for (const script of scripts) {
+    if (!script?.ok) continue;
     const actionId = extractTypesafeBillingActionId(script.body);
     if (actionId) return actionId;
   }

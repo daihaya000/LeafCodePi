@@ -140,11 +140,12 @@ describe("parseTypesafeBillingActionResponse", () => {
     expect(() => parseTypesafeBillingActionResponse('0:{"a":1}\n')).toThrow();
   });
 
-  it("extracts the current action ID from a server reference", () => {
+  it("extracts the nearest action ID from a server reference", () => {
+    const otherActionId = "c".repeat(42);
     const actionId = "a".repeat(42);
     expect(
       extractTypesafeBillingActionId(
-        `createServerReference("${actionId}",callServer,void 0,findSourceMapURL,"getBillingOverviewResult")`,
+        `createServerReference("${otherActionId}",callServer,void 0,findSourceMapURL,"otherAction") createServerReference("${actionId}",callServer,void 0,findSourceMapURL,"getBillingOverviewResult")`,
       ),
     ).toBe(actionId);
   });
@@ -298,6 +299,9 @@ describe("resolveTypesafeApiKey / typesafeProvider", () => {
     const snapshot = await typesafeProvider.fetch();
     expect(snapshot.plan).toBe("Free");
     expect(snapshot.creditsUsed).toBe(0.02);
+    expect(undiciFetch.mock.calls[2]?.[1]).toEqual(
+      expect.objectContaining({ headers: { Accept: "*/*" } }),
+    );
     expect(undiciFetch.mock.calls[3]?.[1]).toEqual(
       expect.objectContaining({
         headers: expect.objectContaining({ "Next-Action": actionId }),
