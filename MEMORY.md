@@ -262,8 +262,16 @@
 ### 検証（Tick36）
 `task-panes` / GlobalAttention / AppShell / layout — **120 passed**
 
+### Tick37–39（ループ継続・通知 53–55・[Tick37-39 bug hunt](b6de174a-127d-4f86-88ee-488f5548b0aa)）
+1. SSE ready バッファ — `goal_command_stale` / `transport_retry` / `project_migrated` / `project_migration_rolled_back` を control 扱いにし、ready 待ち中の破棄を防止
+2. Goal Loop `paused`/`blocked` 中もキュー drain・auto-send・無言 resume を止める（`goalLoopVisible` でゲート）
+3. アカウント削除/停止ガード — `isGoalLoopSessionOwned`（turn_limit / blocked 含む）に統一
+
+### 検証（Tick37–39）
+`sse-ready-buffer` / `queued-follow-up` / `accounts` — **57 passed**
+
 ### 次 Tick 候補
-- TaskView その他の競合 / 最適化
+- TaskView その他の競合 / harness busy ガードの sessionOwned 統一
 
 
 

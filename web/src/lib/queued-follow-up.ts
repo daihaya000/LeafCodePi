@@ -79,10 +79,9 @@ export function shouldAutoSendQueuedFollowUp(input: {
 }
 
 /**
- * Composer send behavior. Steer mode injects into the running turn. A live Goal
- * Loop never uses the client-side queue (its drain stays disabled while the loop
- * owns the session), so queue mode becomes the engine's followUp: the message is
- * delivered inside the loop turn and the loop keeps running.
+ * Composer send behavior. Steer mode injects into the running turn. While a Goal
+ * Loop owns the session (live or paused/blocked), client drain stays disabled so
+ * queue mode becomes the engine's followUp during live turns.
  */
 export function composerStreamingBehavior(input: {
   working: boolean;

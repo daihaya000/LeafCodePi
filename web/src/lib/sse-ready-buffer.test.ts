@@ -89,11 +89,34 @@ describe("sse-ready-buffer", () => {
 
   it("treats archived, restored, and conversation reset snapshots as control events", () => {
     const ready = rankMessageList([{ id: "latest", createdAt: 5 }]);
-    for (const eventType of ["archived", "restored", "conversation_reset", "code_session_changed"]) {
+    for (const eventType of [
+      "archived",
+      "restored",
+      "conversation_reset",
+      "code_session_changed",
+      "goal_command_stale",
+      "transport_retry",
+      "project_migrated",
+      "project_migration_rolled_back",
+    ]) {
       expect(
         shouldFlushPendingAfterReady({ type: "snapshot", eventType, messages: [{ id: "old", createdAt: 1 }] }, ready),
       ).toBe(true);
     }
+    const pending: Record<string, unknown>[] = [];
+    bufferPendingSsePayload(pending, {
+      type: "snapshot",
+      eventType: "goal_command_stale",
+      messages: [{ id: "old", createdAt: 1 }],
+    });
+    bufferPendingSsePayload(pending, {
+      type: "snapshot",
+      messages: [{ id: "history", createdAt: 2 }],
+    });
+    expect(pending.map((item) => item.eventType)).toEqual([
+      "goal_command_stale",
+      undefined,
+    ]);
     const code = preparePendingPayloadForReadyFlush(
       { type: "snapshot", eventType: "code_session_changed", codeRequestId: "request-1" },
       ready,

@@ -556,6 +556,86 @@ describe("accounts store CRUD", () => {
     );
   });
 
+  it("refuses to delete while a Goal Loop is turn_limit paused", () => {
+    tempDataDir();
+    const project = upsertProject({
+      name: "goal-turn-limit-delete",
+      rootPath: join(tmpdir(), "goal-turn-limit-delete-root"),
+    });
+    const task = insertTask({ project, title: "goal turn limit delete task" });
+    const account = createAccount({
+      label: "goal-turn-limit-delete",
+      providers: ["openai-codex"],
+    });
+    patchLoose(task.id, {
+      status: "idle",
+      accountId: account.id,
+      sessionId: "goal-turn-limit-delete-session",
+    });
+    const loopFile = goalLoopStateFile(task.directory, "goal-turn-limit-delete-session");
+    mkdirSync(join(process.env.LEAFCODE_PI_DATA_DIR!, "goals-loop"), {
+      recursive: true,
+    });
+    writeFileSync(
+      loopFile,
+      JSON.stringify({
+        id: "loop-turn-limit",
+        goal: "ship",
+        status: "paused",
+        pauseReason: "turn_limit",
+        maxTurns: 3,
+        cooldownSeconds: 0,
+      }),
+      "utf8",
+    );
+    assert.throws(
+      () => deleteAccount(account.id),
+      (error) =>
+        httpStatus(error) === 409 &&
+        String((error as Error).message).includes("Goal Loop"),
+    );
+  });
+
+  it("refuses to pause while a Goal Loop is blocked", () => {
+    tempDataDir();
+    const project = upsertProject({
+      name: "goal-blocked-pause",
+      rootPath: join(tmpdir(), "goal-blocked-pause-root"),
+    });
+    const task = insertTask({ project, title: "goal blocked pause task" });
+    const account = createAccount({
+      label: "goal-blocked-pause",
+      providers: ["openai-codex"],
+    });
+    patchLoose(task.id, {
+      status: "idle",
+      accountId: account.id,
+      sessionId: "goal-blocked-pause-session",
+    });
+    const loopFile = goalLoopStateFile(task.directory, "goal-blocked-pause-session");
+    mkdirSync(join(process.env.LEAFCODE_PI_DATA_DIR!, "goals-loop"), {
+      recursive: true,
+    });
+    writeFileSync(
+      loopFile,
+      JSON.stringify({
+        id: "loop-blocked",
+        goal: "ship",
+        status: "blocked",
+        maxTurns: 3,
+        cooldownSeconds: 0,
+      }),
+      "utf8",
+    );
+    assert.throws(
+      () => patchAccount(account.id, { enabled: false }),
+      (error) =>
+        httpStatus(error) === 409 &&
+        String((error as Error).message).includes("Goal Loop"),
+    );
+    assert.equal(getAccount(account.id)?.enabled, true);
+  });
+
   it("refuses to pause while a runtime lease is held for an idle/error task", async () => {
     tempDataDir();
     const { acquireTaskLease, releaseTaskLease } = await import("@/lib/task-runtime-lease");

@@ -100,6 +100,10 @@ export const SSE_CONTROL_SNAPSHOT_EVENT_TYPES = new Set([
   "restored",
   "conversation_reset",
   "code_session_changed",
+  "goal_command_stale",
+  "transport_retry",
+  "project_migrated",
+  "project_migration_rolled_back",
 ]);
 
 export function isControlSnapshot(payload: Record<string, unknown>): boolean {

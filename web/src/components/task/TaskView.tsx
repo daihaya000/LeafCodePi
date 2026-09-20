@@ -2458,7 +2458,8 @@ export const TaskView = memo(function TaskView({
         submitting,
         queuedAutoSend,
         goalLoopEnabled,
-        goalLoopLive,
+        // paused/blocked still own the session — same as goalLoopVisible.
+        goalLoopLive: goalLoopVisible,
         stopRequested,
         hasQueuedItem: queuedFollowUps.length > 0,
         resumingTurn,
@@ -2480,7 +2481,7 @@ export const TaskView = memo(function TaskView({
     archived,
     compacting,
     goalLoopEnabled,
-    goalLoopLive,
+    goalLoopVisible,
     queuedAutoSend,
     queuedFollowUps,
     resumingTurn,
@@ -2498,7 +2499,7 @@ export const TaskView = memo(function TaskView({
         working,
         submitting,
         goalLoopEnabled,
-        goalLoopLive,
+        goalLoopLive: goalLoopVisible,
         stopRequested,
         hasContent: Boolean(queuedSendRef.current),
         resumingTurn,
@@ -2523,7 +2524,7 @@ export const TaskView = memo(function TaskView({
     attachments.length,
     compacting,
     goalLoopEnabled,
-    goalLoopLive,
+    goalLoopVisible,
     prompt,
     queuedAutoSend,
     resumingTurn,
@@ -2889,7 +2890,7 @@ export const TaskView = memo(function TaskView({
     !sseReconnecting &&
     !working &&
     !archived &&
-    !goalLoopLive;
+    !goalLoopVisible;
   useEffect(() => {
     if (
       !settledSilentMessageId ||

@@ -109,6 +109,16 @@ describe("queued follow-up drain", () => {
       }),
     ).toBe(false);
   });
+
+  it("does not drain while a Goal Loop still owns the session (paused/blocked)", () => {
+    expect(
+      shouldDrainQueuedFollowUp({
+        ...idle,
+        goalLoopLive: true,
+        hasQueuedItem: true,
+      }),
+    ).toBe(false);
+  });
 });
 
 describe("queued follow-up auto-send", () => {
