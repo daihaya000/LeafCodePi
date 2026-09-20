@@ -59,7 +59,18 @@ export type RoomMessage = {
   codeTaskId?: string | null;
   codeState?: CodeRequestState;
   /** Per-request cards; the singular fields above remain readable for older Room history. */
-  codeRequests?: { id: string; taskId: string | null; state: CodeRequestState; prompt?: string; outcome?: string; goalLoop?: CodeRequestGoalLoopReport }[];
+  codeRequests?: {
+    id: string;
+    taskId: string | null;
+    state: CodeRequestState;
+    prompt?: string;
+    outcome?: string;
+    goalLoop?: CodeRequestGoalLoopReport;
+    goalLoopSummary?: GoalLoopSummaryDto;
+    todoProgress?: TodoProgressDto;
+    /** Live tool label for this request (folded cards no longer poll task detail). */
+    activity?: string;
+  }[];
   /** What the delegated Code run is doing right now (tool label only, never its output). */
   codeActivity?: string;
   /** Display mirror of the handoffs registered from this message; the room file owns the records. */

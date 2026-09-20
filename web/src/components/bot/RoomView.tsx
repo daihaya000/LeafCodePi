@@ -88,7 +88,23 @@ const HANDOFF_STATE_TEXT: Record<RoomHandoffState, string> = {
 };
 
 function codeRequests(message: RoomMessage) {
-  return message.codeRequests ?? (message.codeState ? [{ id: message.codeRequestId, taskId: message.codeTaskId, state: message.codeState, activity: message.codeActivity }] : []);
+  if (message.codeRequests?.length) {
+    return message.codeRequests.map((request) => ({
+      ...request,
+      // Single-card messages still fall back to the message-level label.
+      activity:
+        request.activity ??
+        (message.codeRequests!.length === 1 ? message.codeActivity : undefined),
+    }));
+  }
+  return message.codeState
+    ? [{
+        id: message.codeRequestId,
+        taskId: message.codeTaskId,
+        state: message.codeState,
+        activity: message.codeActivity,
+      }]
+    : [];
 }
 function isMessageBusy(message: RoomMessage): boolean {
   return message.status === "working" || codeRequests(message).some((request) => request.state !== "delivered" && request.state !== "cancelled");

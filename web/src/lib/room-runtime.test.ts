@@ -8,6 +8,7 @@ import type { BotDto, RoomDto, RoomHandoff, TaskDetail, UiMessage } from "./type
 const state = vi.hoisted(() => ({
   root: "", details: new Map<string, TaskDetail>(), promptTask: vi.fn(),
   abortTask: vi.fn(async () => undefined),
+  peekProgress: vi.fn(async (_taskId: string) => ({})),
   pendingRoom: vi.fn<(roomId: string, requestId: string, excludeRequestId?: string) => CodeRequest | undefined>(() => undefined),
   pendingRooms: vi.fn<(roomId: string, requestId: string, excludeRequestId?: string) => CodeRequest[]>(() => []),
   turnRequests: vi.fn<(roomId: string, requestId: string) => CodeRequest[]>(() => []),
@@ -24,6 +25,7 @@ vi.mock("@/lib/pi/harness", () => ({
   getTaskDetail: async (id: string) => state.details.get(id),
   promptTask: state.promptTask,
   abortTask: state.abortTask,
+  peekCodeRequestProgress: (id: string) => state.peekProgress(id),
   subscribeTask: (id: string, listener: (payload: Record<string, unknown>) => void) => {
     const listeners = state.listeners.get(id) ?? new Set<(payload: Record<string, unknown>) => void>();
     state.listeners.set(id, listeners);
@@ -104,6 +106,8 @@ afterEach(() => {
   state.promptTask.mockReset();
   state.abortTask.mockReset();
   state.abortTask.mockImplementation(async () => undefined);
+  state.peekProgress.mockReset();
+  state.peekProgress.mockImplementation(async () => ({}));
   state.pendingRoom.mockReset();
   state.pendingRooms.mockReset();
   state.turnRequests.mockReset();
@@ -165,6 +169,7 @@ describe("room conversation with delegated work", () => {
 
     const emit = (payload: Record<string, unknown>) => { for (const listener of state.listeners.get("code-task") ?? []) listener(payload); };
     emit({ type: "delta", message: { id: "m1", role: "assistant", createdAt: 1, parts: [{ id: "t1", type: "tool", tool: "read", callID: "c1", state: { status: "running", input: { path: "README.md" } } }] } });
+    await Promise.resolve();
     expect(getRoom(room.id)!.messages.find((message) => message.id === turn.id)?.codeActivity).toContain("読取");
 
     // Once the request is no longer outstanding the activity line goes away and the listener is released.
@@ -172,6 +177,7 @@ describe("room conversation with delegated work", () => {
     state.pendingRoom.mockReturnValue(undefined);
     state.pendingRooms.mockReturnValue([]);
     emit({ type: "delta", message: null });
+    await Promise.resolve();
     expect(getRoom(room.id)!.messages.find((message) => message.id === turn.id)?.codeActivity).toBe("");
     expect(state.listeners.get("code-task")?.size ?? 0).toBe(0);
   });
@@ -205,6 +211,7 @@ describe("room conversation with delegated work", () => {
         parts: [{ id: "t1", type: "tool", tool: "read", callID: "c1", state: { status: "running", input: { path: "a.md" } } }],
       },
     });
+    await Promise.resolve();
     expect(getRoom(room.id)!.messages.find((message) => message.id === turn.id)?.codeActivity).toContain("読取");
 
     // First request settles while the second is still outstanding: release only that listener
@@ -212,6 +219,7 @@ describe("room conversation with delegated work", () => {
     state.activeCodeRequests.delete(first.id);
     state.pendingRooms.mockReturnValue([second]);
     emit("code-1", { type: "delta", message: null });
+    await Promise.resolve();
     expect(state.listeners.get("code-1")?.size ?? 0).toBe(0);
     expect(state.listeners.get("code-2")?.size ?? 0).toBe(1);
     expect(getRoom(room.id)!.messages.find((message) => message.id === turn.id)?.codeActivity).toContain("読取");
@@ -225,7 +233,86 @@ describe("room conversation with delegated work", () => {
         parts: [{ id: "t2", type: "tool", tool: "bash", callID: "c2", state: { status: "running", input: { command: "ls" } } }],
       },
     });
+    await Promise.resolve();
     expect(getRoom(room.id)!.messages.find((message) => message.id === turn.id)?.codeActivity).toBe("コマンド");
+  });
+
+  it("keeps sibling Code card progress when parallel peeks resolve out of order", async () => {
+    const { room, bots, user } = setup();
+    const first = codeRequest(room, bots[0], { id: "request-one", state: "running", codeTaskId: "code-1" });
+    const second = codeRequest(room, bots[0], { id: "request-two", state: "running", codeTaskId: "code-2" });
+    const turn = appendRoomMessage(room.id, {
+      role: "assistant",
+      botId: bots[0].id,
+      text: "二件依頼しました",
+      status: "done",
+      codeRequests: [
+        { id: first.id, taskId: "code-1", state: "running", prompt: "First" },
+        { id: second.id, taskId: "code-2", state: "running", prompt: "Second" },
+      ],
+    })!;
+    first.room!.responseId = turn.id;
+    second.room!.responseId = turn.id;
+    state.pendingRooms.mockReturnValue([first, second]);
+    state.activeCodeRequests.set(first.id, first);
+    state.activeCodeRequests.set(second.id, second);
+    state.promptTask.mockImplementation(async (id: string) => {
+      state.details.get(id)!.messages = [assistant("reply", "二件依頼しました。\nROOM_ACTION: DONE")];
+    });
+
+    let releaseFirst!: () => void;
+    let releaseSecond!: () => void;
+    const firstGate = new Promise<void>((resolve) => { releaseFirst = resolve; });
+    const secondGate = new Promise<void>((resolve) => { releaseSecond = resolve; });
+    state.peekProgress.mockImplementation(async (taskId: string) => {
+      if (taskId === "code-1") await firstGate;
+      else await secondGate;
+      return taskId === "code-1"
+        ? { todoProgress: { completed: 1, total: 2 } }
+        : { todoProgress: { completed: 2, total: 3 } };
+    });
+
+    await runRoomConversation(room, bots, "残作業も進めて", user.id);
+
+    const emit = (taskId: string, payload: Record<string, unknown>) => {
+      for (const listener of state.listeners.get(taskId) ?? []) listener(payload);
+    };
+    emit("code-1", {
+      type: "delta",
+      message: {
+        id: "m1",
+        role: "assistant",
+        createdAt: 1,
+        parts: [{ id: "t1", type: "tool", tool: "read", callID: "c1", state: { status: "running", input: { path: "a.md" } } }],
+      },
+    });
+    emit("code-2", {
+      type: "delta",
+      message: {
+        id: "m2",
+        role: "assistant",
+        createdAt: 2,
+        parts: [{ id: "t2", type: "tool", tool: "bash", callID: "c2", state: { status: "running", input: { command: "ls" } } }],
+      },
+    });
+
+    // Resolve the slower sibling first so a lock-unsafe snapshot write would clobber it.
+    releaseSecond();
+    await Promise.resolve();
+    await Promise.resolve();
+    releaseFirst();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    const cards = getRoom(room.id)!.messages.find((message) => message.id === turn.id)?.codeRequests ?? [];
+    expect(cards.find((card) => card.id === first.id)).toMatchObject({
+      activity: expect.stringContaining("読取"),
+      todoProgress: { completed: 1, total: 2 },
+    });
+    expect(cards.find((card) => card.id === second.id)).toMatchObject({
+      activity: expect.stringContaining("コマンド"),
+      todoProgress: { completed: 2, total: 3 },
+    });
   });
 
   it("records why the exchange stopped so a paused room is not read as a finished one", async () => {

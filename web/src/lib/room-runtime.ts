@@ -3,7 +3,7 @@ import { appendRoomMessage, appendRoomMessageIf, consumeRoomRelayEnvelope, ensur
 import { getBot } from "./bots";
 import { getTask } from "./store";
 import { hasActiveTaskLease } from "./task-runtime-lease";
-import { getTaskDetail, promptTask, subscribeTask, abortTask } from "./pi/harness";
+import { getTaskDetail, peekCodeRequestProgress, promptTask, subscribeTask, abortTask } from "./pi/harness";
 import { withBotCodeSessionLock } from "./bot-code-session-lock";
 import { pendingRoomCodeRequestForTurn, pendingRoomCodeRequestsForTurn, roomCodeRequestsForTurn, roomCodeRequestForRoom, settledRoomCodeRequest, type CodeRequest } from "./pi/bot-code-relay";
 import { activeToolLabel } from "./tool-labels";
@@ -21,9 +21,8 @@ const CODE_TRACK_TIMEOUT_MS = 60 * 60_000;
 const trackedCodeRequests = new Set<string>();
 
 /**
- * Mirror what the delegated Code run is doing into the waiting Room message.
- * Per-request cards poll their own Code task, so this message-level label only feeds the legacy
- * shape (codeState without codeRequests); only the tool label travels, Code output stays untrusted.
+ * Mirror live Code progress into the Room message so folded CodeRequestCards
+ * receive goalLoopSummary/todoProgress/activity without per-card detail polls.
  */
 function trackRoomCodeProgress(roomId: string, request: CodeRequest): void {
   const taskId = request.codeTaskId;
@@ -32,7 +31,6 @@ function trackRoomCodeProgress(roomId: string, request: CodeRequest): void {
   const key = `${roomId}:${request.id}`;
   if (!taskId || !messageId || !requestId || trackedCodeRequests.has(key)) return;
   trackedCodeRequests.add(key);
-  let lastLabel = "";
   let lastWriteAt = 0;
   let stop: () => void = () => undefined;
   const settle = () => {
@@ -54,10 +52,26 @@ function trackRoomCodeProgress(roomId: string, request: CodeRequest): void {
       : (payload.messages as UiMessage[] | undefined)?.at(-1) ?? null;
     const label = activeToolLabel(message)?.slice(0, 80) ?? "";
     const now = Date.now();
-    if (label === lastLabel || now - lastWriteAt < STREAM_INTERVAL_MS) return;
-    lastLabel = label;
+    if (now - lastWriteAt < STREAM_INTERVAL_MS) return;
     lastWriteAt = now;
-    updateRoomMessage(roomId, messageId, { codeActivity: label });
+    // Merge under the room lock so parallel peeks cannot clobber sibling card progress.
+    void peekCodeRequestProgress(taskId).then((progress) => {
+      updateRoomMessage(roomId, messageId, (message) => {
+        if (!message.codeRequests?.length) return { codeActivity: label };
+        return {
+          codeActivity: label,
+          codeRequests: message.codeRequests.map((card) =>
+            card.id === request.id
+              ? {
+                  ...card,
+                  ...(label ? { activity: label } : {}),
+                  ...progress,
+                }
+              : card,
+          ),
+        };
+      });
+    });
   });
 }
 

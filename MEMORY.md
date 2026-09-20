@@ -75,8 +75,25 @@
 ### 検証（Tick9）
 `BotView.code`（terminal poll 回帰含む）— 関連テスト通過
 
+### Tick10（ループ継続・通知 12–14 をまとめて消化）
+1. `types.RoomMessage.codeRequests` — `goalLoopSummary` / `todoProgress` / `activity` を追加
+2. `trackRoomCodeProgress` — `peekCodeRequestProgress` でカード単位の進捗を Room メッセージへミラー（折りたたみ詳細 poll 不要）
+3. `RoomView` — `codeRequests()` が per-card `activity` などを渡す
+4. テスト — concurrent は props の activity を前提に変更；harness mock に peek を追加
+
+### 検証（Tick10）
+`RoomView` / `RoomView.concurrent` / `room-runtime` — **79 passed**
+
+### Tick11（同バッチ・レース修正）
+1. `trackRoomCodeProgress` — peek 後の `codeRequests` 更新を関数パッチでロック内マージ（並列 sibling の lost-update 防止）
+2. 回帰: 遅延 peek が逆順に解決しても両カードの activity / todoProgress が残る
+
+### 検証（Tick11）
+`room-runtime` レースケース含む — **79 passed**
+
 ### 次 Tick 候補
-- Room の CodeRequestCard に tick8 相当の進捗 props を配線
+- Bot 側 `BotCodeRequests` にも Room と同様の per-card `activity` 配線を揃える
+
 
 ---
 

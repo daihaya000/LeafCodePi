@@ -40,8 +40,8 @@ it("shows each parallel Code request its own live tool label instead of one shar
       {
         id: "response", role: "assistant", botId: bot.id, text: "二件依頼しました", status: "done", createdAt: 2,
         codeRequests: [
-          { id: "first", taskId: "code-1", state: "running", prompt: "First job" },
-          { id: "second", taskId: "code-2", state: "running", prompt: "Second job" },
+          { id: "first", taskId: "code-1", state: "running", prompt: "First job", activity: "検索" },
+          { id: "second", taskId: "code-2", state: "running", prompt: "Second job", activity: "編集" },
         ],
       },
     ],
@@ -52,14 +52,12 @@ it("shows each parallel Code request its own live tool label instead of one shar
   });
   mocks.getJson.mockImplementation(async (path: string) => {
     if (path === "/api/bots") return { bots: [bot] };
-    if (path === "/api/tasks/code-1") return { task: { id: "code-1", status: "working", messages: [toolMessage("m1", "grep", { pattern: "needle" })] } };
-    if (path === "/api/tasks/code-2") return { task: { id: "code-2", status: "working", messages: [toolMessage("m2", "write", { path: "src/a.ts" })] } };
     return { room };
   });
 
   render(<RoomView id="room" />);
 
-  // 各カードは自分のCodeタスクをポーリングして進行中のツールを表示する（共有codeActivityに依存しない）。
+  // Activity is mirrored onto each codeRequests entry (no per-card detail poll while folded).
   expect(await screen.findByText("· 検索")).toBeTruthy();
   expect(await screen.findByText("· 編集")).toBeTruthy();
 });
