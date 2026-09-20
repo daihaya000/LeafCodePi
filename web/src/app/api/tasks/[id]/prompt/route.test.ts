@@ -293,6 +293,16 @@ describe("POST /api/tasks/[id]/prompt", () => {
     expect(mocks.promptTask).not.toHaveBeenCalled();
   });
 
+  it("rejects a non-string prompt without throwing", async () => {
+    const response = await POST(
+      request({ prompt: { trim: "作業" } }),
+      { params: Promise.resolve({ id: "task-1" }) },
+    );
+
+    expect(response.status).toBe(400);
+    expect(mocks.promptTask).not.toHaveBeenCalled();
+  });
+
   it("rejects oversized text before prompting", async () => {
     const response = await POST(
       request({ prompt: "x".repeat(MAX_PROMPT_TEXT_CHARS + 1) }),

@@ -57,6 +57,9 @@ export async function POST(
       streamingBehavior?: "steer" | "followUp";
       resume?: boolean;
     } | null;
+    if (body?.prompt !== undefined && typeof body.prompt !== "string") {
+      return NextResponse.json({ error: "invalid prompt" }, { status: 400 });
+    }
     if (!body?.prompt?.trim() && !body?.images?.length && !body?.files?.length) {
       return NextResponse.json({ error: "prompt が必要です" }, { status: 400 });
     }
