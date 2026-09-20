@@ -75,7 +75,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   const skills = hasSkills ? normalizeBotSkills(rawSkills) : undefined;
   const validSkills = !hasSkills || (rawSkills !== null && typeof rawSkills === "object" && !Array.isArray(rawSkills) &&
     ["inherit", "include", "exclude"].includes((rawSkills as Record<string, unknown>).mode as string) &&
-    ["include", "exclude"].every((key) => { const value = (rawSkills as Record<string, unknown>)[key]; return Array.isArray(value) && value.every((item) => typeof item === "string"); }));
+    ["include", "exclude"].every((key) => { const value = (rawSkills as Record<string, unknown>)[key]; return Array.isArray(value) && value.every((item) => typeof item === "string" && item.trim().length > 0); }));
   const extraRoots = hasExtraRoots && Array.isArray(body?.extraRoots)
     ? [...new Set((body.extraRoots as unknown[]).filter((item): item is string => typeof item === "string").map((item) => item.trim()).filter(Boolean))]
     : undefined;

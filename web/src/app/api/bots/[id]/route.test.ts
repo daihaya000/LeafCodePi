@@ -124,6 +124,7 @@ describe("PATCH /api/bots/[id]", () => {
       { permissionMode: "turbo" },
       { tools: ["unknown-tool"] },
       { tools: ["read", 123] },
+      { skills: { mode: "include", include: [""], exclude: [] } },
       { extraRoots: ["relative/path"] },
       { avatarColor: "#12345" },
       { resetMessages: false },
