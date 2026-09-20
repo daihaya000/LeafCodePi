@@ -538,13 +538,17 @@ export function applyToolTiming(
       if (part.type !== "tool") return part;
       const startedAtMs = toolStartedAt.get(part.callID);
       if (startedAtMs === undefined) return part;
+      const endedAtMs = toolEndedAt.get(part.callID) ?? part.state.endedAtMs;
+      // Timing is fixed once known; rebuilding the part on every 100ms snapshot
+      // would recreate the whole tool history for no visible change.
+      if (part.state.startedAtMs === startedAtMs && part.state.endedAtMs === endedAtMs) return part;
       changed = true;
       return {
         ...part,
         state: {
           ...part.state,
           startedAtMs,
-          endedAtMs: toolEndedAt.get(part.callID) ?? part.state.endedAtMs,
+          endedAtMs,
         },
       };
     });

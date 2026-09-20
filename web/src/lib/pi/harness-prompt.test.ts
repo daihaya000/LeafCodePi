@@ -407,6 +407,18 @@ describe("applyToolTiming", () => {
     assert.equal(part.state.startedAtMs, 0);
     assert.equal(part.state.endedAtMs, 1000);
   });
+
+  it("reuses parts and messages when the timing is already applied", () => {
+    const started = new Map([["call-1", 1000]]);
+    const ended = new Map([["call-1", 5000]]);
+    const first = applyToolTiming([toolMessage("call-1")], started, ended);
+    const again = applyToolTiming(first, started, ended);
+    assert.equal(again[0], first[0]);
+    assert.equal(again[0]!.parts[0], first[0]!.parts[0]);
+
+    const moved = applyToolTiming(first, new Map([["call-1", 2000]]), ended);
+    assert.notEqual(moved[0], first[0]);
+  });
 });
 
 describe("applyToolOutput", () => {
