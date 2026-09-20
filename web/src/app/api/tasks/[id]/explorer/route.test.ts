@@ -25,6 +25,17 @@ describe("GET /api/tasks/[id]/explorer", () => {
     expect(response.headers.get("cache-control")).toBe("no-store");
   });
 
+  it("rejects Bot workspaces", async () => {
+    mocks.getTask.mockReturnValue({ kind: "bot", directory: "C:\\work\\bot" });
+
+    const response = await GET(new Request("http://localhost"), {
+      params: Promise.resolve({ id: "bot-task" }),
+    });
+
+    expect(response.status).toBe(403);
+    expect(await response.json()).toEqual({ error: "Botの作業フォルダーは対象外です" });
+  });
+
   it("returns 404 when the task does not exist", async () => {
     mocks.getTask.mockReturnValue(undefined);
 

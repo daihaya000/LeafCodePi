@@ -9,6 +9,9 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
   const { id } = await params;
   const task = getTask(id);
   if (!task) return NextResponse.json({ error: "タスクが見つかりません" }, { status: 404 });
+  if (task.kind === "bot") {
+    return NextResponse.json({ error: "Botの作業フォルダーは対象外です" }, { status: 403 });
+  }
   if (!task.directory.trim()) {
     return NextResponse.json({ error: "タスクの作業フォルダーが見つかりません" }, { status: 404 });
   }
