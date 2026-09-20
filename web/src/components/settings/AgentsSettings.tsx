@@ -32,7 +32,6 @@ type AgentDto = {
 
 type AgentsResponse = {
   agents: AgentDto[];
-  agentsDir: string;
   autoEnabled?: boolean;
 };
 
@@ -589,7 +588,6 @@ function AgentEditor({
 export function AgentsSettings() {
   const [agents, setAgents] = useState<AgentDto[]>([]);
   const [models, setModels] = useState<ModelOption[]>([]);
-  const [agentsPath, setAgentsPath] = useState<string>("");
   const [autoEnabled, setAutoEnabled] = useState(true);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -611,7 +609,6 @@ export function AgentsSettings() {
         const errors: string[] = [];
         if (agentsResult.status === "fulfilled") {
           setAgents(sortAgentRows(agentsResult.value.agents));
-          setAgentsPath(agentsResult.value.agentsDir);
           setAutoEnabled(agentsResult.value.autoEnabled !== false);
         } else {
           errors.push(
@@ -850,11 +847,6 @@ export function AgentsSettings() {
         busy={busyId === AUTO_AGENT_ENABLED_SETTING_KEY}
         onToggle={() => void toggleAuto()}
       />
-      {agentsPath && (
-        <div className="mt-1 space-y-0.5 font-mono text-[11px] text-muted">
-          <p className="break-all">{agentsPath}</p>
-        </div>
-      )}
       {loading && agents.length === 0 ? (
         <p className="mt-3 text-sm text-muted">読み込み中…</p>
       ) : agents.length === 0 ? (
