@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Brain, ChevronRight } from "lucide-react";
 import { AgentRoleIcon } from "@/components/AgentSelect";
+import { AUTO_AGENT_ENABLED_SETTING_KEY, AUTO_AGENT_VALUE } from "@/lib/default-agent";
 import { ToolPermissionList } from "@/components/ToolPermissionList";
 import { ModelSelect } from "@/components/ModelSelect";
 import { Badge, Button, GhostSelect, Switch } from "@/components/ui";
@@ -32,6 +33,7 @@ type AgentDto = {
 type AgentsResponse = {
   agents: AgentDto[];
   agentsDir: string;
+  autoEnabled?: boolean;
 };
 
 type AgentDraft = {
@@ -564,6 +566,7 @@ export function AgentsSettings() {
   const [agents, setAgents] = useState<AgentDto[]>([]);
   const [models, setModels] = useState<ModelOption[]>([]);
   const [agentsPath, setAgentsPath] = useState<string>("");
+  const [autoEnabled, setAutoEnabled] = useState(true);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -585,6 +588,7 @@ export function AgentsSettings() {
         if (agentsResult.status === "fulfilled") {
           setAgents(sortAgentRows(agentsResult.value.agents));
           setAgentsPath(agentsResult.value.agentsDir);
+          setAutoEnabled(agentsResult.value.autoEnabled !== false);
         } else {
           errors.push(
             agentsResult.reason instanceof Error
@@ -608,6 +612,26 @@ export function AgentsSettings() {
   useEffect(() => {
     reload();
   }, [reload]);
+
+  async function toggleAuto() {
+    if (busyId) return;
+    const next = !autoEnabled;
+    setBusyId(AUTO_AGENT_ENABLED_SETTING_KEY);
+    setError(null);
+    try {
+      await sendJson(
+        `/api/settings/${AUTO_AGENT_ENABLED_SETTING_KEY}`,
+        { value: next ? "1" : "0" },
+        "PUT",
+      );
+      setAutoEnabled(next);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Autoエージェントの切替に失敗しました");
+      reload();
+    } finally {
+      setBusyId(null);
+    }
+  }
 
   async function toggle(agent: AgentDto) {
     if (busyId) return;
@@ -797,6 +821,26 @@ export function AgentsSettings() {
           onCancel={closeEditor}
         />
       )}
+      <section
+        aria-labelledby="auto-agent-toggle-heading"
+        aria-busy={busyId === AUTO_AGENT_ENABLED_SETTING_KEY || undefined}
+        className="mt-3 flex items-start gap-3 rounded-xl border border-border bg-surface-2 px-3 py-2.5"
+      >
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <AgentRoleIcon name={AUTO_AGENT_VALUE} />
+            <p id="auto-agent-toggle-heading" className="text-sm font-medium text-text">Auto</p>
+            <Badge tone={autoEnabled ? "success" : "neutral"}>{autoEnabled ? "有効" : "無効"}</Badge>
+          </div>
+          <p className="mt-0.5 text-xs text-muted">会話内容から担当エージェントを自動選択します。</p>
+        </div>
+        <Switch
+          checked={autoEnabled}
+          onChange={() => void toggleAuto()}
+          label={`Autoエージェントを${autoEnabled ? "無効化" : "有効化"}`}
+          busy={busyId === AUTO_AGENT_ENABLED_SETTING_KEY}
+        />
+      </section>
       {agentsPath && (
         <div className="mt-1 space-y-0.5 font-mono text-[11px] text-muted">
           <p className="break-all">{agentsPath}</p>

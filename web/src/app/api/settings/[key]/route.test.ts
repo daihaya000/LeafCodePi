@@ -267,6 +267,27 @@ describe("/api/settings/[key]", () => {
     });
   });
 
+  it("accepts and persists the Auto agent enabled setting", async () => {
+    const enabled = await PUT(
+      request("auto-agent-enabled", { value: "1" }),
+      { params: Promise.resolve({ key: "auto-agent-enabled" }) },
+    );
+    const disabled = await PUT(
+      request("auto-agent-enabled", { value: "0" }),
+      { params: Promise.resolve({ key: "auto-agent-enabled" }) },
+    );
+    const invalid = await PUT(
+      request("auto-agent-enabled", { value: "yes" }),
+      { params: Promise.resolve({ key: "auto-agent-enabled" }) },
+    );
+
+    expect(enabled.status).toBe(200);
+    expect(disabled.status).toBe(200);
+    expect(invalid.status).toBe(400);
+    expect(settings.setSetting).toHaveBeenNthCalledWith(1, "auto-agent-enabled", "1");
+    expect(settings.setSetting).toHaveBeenNthCalledWith(2, "auto-agent-enabled", "0");
+  });
+
   it("accepts and persists the Auto agent selector prompt", async () => {
     const response = await PUT(
       request("auto-agent-prompt", { value: "レビューは reviewer を優先" }),

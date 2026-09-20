@@ -17,4 +17,8 @@ describe("resolveAgentSelection", () => {
   it("keeps the Auto sentinel separate from real agents", () => {
     assert.equal(resolveAgentSelection(AUTO_AGENT_VALUE, ["builder", "reviewer"]), AUTO_AGENT_VALUE);
   });
+
+  it("falls back from Auto when Auto is disabled", () => {
+    assert.equal(resolveAgentSelection(AUTO_AGENT_VALUE, ["builder", "reviewer"], false), "builder");
+  });
 });

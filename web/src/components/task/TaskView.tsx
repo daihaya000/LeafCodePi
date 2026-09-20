@@ -905,6 +905,7 @@ export const TaskView = memo(function TaskView({
   const [settledSilentMessageId, setSettledSilentMessageId] = useState<string | null>(null);
   const autoResumeKeyRef = useRef<string | null>(null);
   const [agents, setAgents] = useState<ComposerReference[]>([]);
+  const [autoAgentEnabled, setAutoAgentEnabled] = useState(true);
   const [skills, setSkills] = useState<ComposerReference[]>([]);
   const promptPresetReferences = useComposerPromptPresetReferences();
   const messageReferences = useMemo(
@@ -1630,15 +1631,20 @@ export const TaskView = memo(function TaskView({
       }
       /* models are optional for the timeline */
     });
-    void getJson<{ agents: { name: string; description?: string; enabled: boolean; model?: string; tools?: string[] }[] }>("/api/agents").then((result) => {
+    void getJson<{
+      agents: { name: string; description?: string; enabled: boolean; model?: string; tools?: string[] }[];
+      autoEnabled?: boolean;
+    }>("/api/agents").then((result) => {
       if (!closed) {
+        const nextAutoAgentEnabled = result.autoEnabled !== false;
+        setAutoAgentEnabled(nextAutoAgentEnabled);
         const enabledAgents = result.agents
           .filter((a) => a.enabled)
           .map(({ name, description, tools }) => ({ name, description, tools }));
         const enabledAgentNames = enabledAgents.map(({ name }) => name);
         setAgents(enabledAgents);
-        setAgent((current) => resolveAgentSelection(current, enabledAgentNames));
-        setAgentSelection((current) => resolveAgentSelection(current, enabledAgentNames));
+        setAgent((current) => resolveAgentSelection(current, enabledAgentNames, nextAutoAgentEnabled));
+        setAgentSelection((current) => resolveAgentSelection(current, enabledAgentNames, nextAutoAgentEnabled));
       }
     }).catch(() => {
       /* agents are optional for the composer */
@@ -3976,6 +3982,7 @@ export const TaskView = memo(function TaskView({
                 <AgentSelect
                   value={agentSelection}
                   agents={agents}
+                  autoEnabled={autoAgentEnabled}
                   disabled={compacting || agentChanging || archived}
                   onChange={(value) => {
                     if (value === AUTO_AGENT_VALUE) {

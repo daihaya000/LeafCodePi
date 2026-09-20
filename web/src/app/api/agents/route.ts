@@ -6,6 +6,8 @@ import { NextResponse } from "next/server";
 import { agentsErrorStatus, createAgent, listAgents, type AgentDraft } from "@/lib/agents";
 import { reloadLiveSessionsContext } from "@/lib/pi/harness";
 import { isThinkingLevel } from "@/lib/thinking-levels";
+import { getSetting } from "@/lib/pi/web-settings";
+import { AUTO_AGENT_ENABLED_SETTING_KEY, isAutoAgentEnabled } from "@/lib/default-agent";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -21,7 +23,10 @@ function scheduleLiveSessionsContextReload() {
 
 export async function GET() {
   try {
-    return NextResponse.json(listAgents());
+    return NextResponse.json({
+      ...listAgents(),
+      autoEnabled: isAutoAgentEnabled(getSetting(AUTO_AGENT_ENABLED_SETTING_KEY)),
+    });
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "エージェント一覧の取得に失敗しました" },

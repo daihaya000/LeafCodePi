@@ -49,6 +49,7 @@ import {
   parseComposerPromptPresets,
 } from "@/lib/composer-prompt-presets-schema";
 import { AUTO_AGENT_SYSTEM_INSTRUCTION } from "@/lib/auto-agent";
+import { AUTO_AGENT_ENABLED_SETTING_KEY } from "@/lib/default-agent";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -60,6 +61,7 @@ const ALLOWED_KEYS = new Set<string>([
   "auto-route-overrides",
   AUTO_JEV_ENABLED_SETTING_KEY,
   AUTO_JEV_MIN_CONFIDENCE_SETTING_KEY,
+  AUTO_AGENT_ENABLED_SETTING_KEY,
   JEV_COMPACTION_ENABLED_SETTING_KEY,
   JEV_COMPACTION_THRESHOLD_SETTING_KEY,
   "auto-agent-prompt",
@@ -106,6 +108,9 @@ function validateValue(key: string, value: string): string | null {
     } catch {
       return null;
     }
+  }
+  if (key === AUTO_AGENT_ENABLED_SETTING_KEY) {
+    return value === "0" || value === "1" ? value : null;
   }
   if (key === AUTO_JEV_ENABLED_SETTING_KEY) {
     return value === "1" ? value : null;

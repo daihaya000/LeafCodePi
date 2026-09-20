@@ -63,12 +63,14 @@ export function AgentRoleIcon({ name }: { name: string }) {
 export function AgentSelect({
   value,
   agents,
+  autoEnabled = true,
   disabled,
   onChange,
   className,
 }: {
   value: string;
   agents: readonly (ComposerReference | string)[];
+  autoEnabled?: boolean;
   disabled?: boolean;
   onChange: (agent: string) => void;
   className?: string;
@@ -82,6 +84,7 @@ export function AgentSelect({
   const selectedValue = resolveAgentSelection(
     value,
     selectableAgents.map(({ name }) => name),
+    autoEnabled,
   ) || DEFAULT_AGENT;
   const isAuto = selectedValue === AUTO_AGENT_VALUE;
   const selectedLabel = isAuto ? "Auto" : selectedValue;
@@ -97,12 +100,14 @@ export function AgentSelect({
       onChange={onChange}
       className={className}
     >
-      <option value={AUTO_AGENT_VALUE}>
-        <span className="flex min-w-0 items-center gap-2">
-          <AgentRoleIcon name={AUTO_AGENT_VALUE} />
-          <span className="truncate">Auto</span>
-        </span>
-      </option>
+      {autoEnabled && (
+        <option value={AUTO_AGENT_VALUE}>
+          <span className="flex min-w-0 items-center gap-2">
+            <AgentRoleIcon name={AUTO_AGENT_VALUE} />
+            <span className="truncate">Auto</span>
+          </span>
+        </option>
+      )}
       {selectableAgents.map((agent) => (
         <option
           key={agent.name}

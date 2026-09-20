@@ -34,6 +34,7 @@ export function ComposerDefaultsSettings({ refreshToken = 0 }: { refreshToken?: 
   const [defaults, setDefaults] = useState<ComposerDefaults>(() => readComposerDefaults());
   const [models, setModels] = useState<ModelOption[]>([]);
   const [agents, setAgents] = useState<string[]>([]);
+  const [autoAgentEnabled, setAutoAgentEnabled] = useState(true);
   const [thinkingLevel, setThinkingLevel] = useState<ThinkingLevel>(
     () => readStoredThinkingLevel() ?? "off",
   );
@@ -46,11 +47,12 @@ export function ComposerDefaultsSettings({ refreshToken = 0 }: { refreshToken?: 
     let active = true;
     void Promise.all([
       getJson<{ models: ModelOption[] }>("/api/models"),
-      getJson<{ agents: { name: string; enabled: boolean }[] }>("/api/agents"),
+      getJson<{ agents: { name: string; enabled: boolean }[]; autoEnabled?: boolean }>("/api/agents"),
     ])
       .then(([modelResult, agentResult]) => {
         if (!active) return;
         setModels(modelResult.models ?? []);
+        setAutoAgentEnabled(agentResult.autoEnabled !== false);
         setAgents((agentResult.agents ?? []).filter((a) => a.enabled).map((a) => a.name));
       })
       .catch((err) => {
@@ -98,7 +100,7 @@ export function ComposerDefaultsSettings({ refreshToken = 0 }: { refreshToken?: 
   const selectModelValue = selectedModel?.value ?? defaults.model;
   // AgentSelect は Composer と同じく不明値を正規化して表示するため、
   // 無効な既定値の情報はモデル側の未接続表示と同型の警告行で残す。
-  const agentKnown = defaults.agent === AUTO_AGENT_VALUE || agents.includes(defaults.agent);
+  const agentKnown = (autoAgentEnabled && defaults.agent === AUTO_AGENT_VALUE) || agents.includes(defaults.agent);
 
   useEffect(() => {
     if (!selectedModel || selectedModel.value === defaults.model) return;
@@ -175,6 +177,7 @@ export function ComposerDefaultsSettings({ refreshToken = 0 }: { refreshToken?: 
             <AgentSelect
               value={defaults.agent}
               agents={agents}
+              autoEnabled={autoAgentEnabled}
               onChange={(value) => change({ agent: value })}
               className="h-9 w-full"
             />

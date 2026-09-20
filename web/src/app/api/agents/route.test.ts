@@ -6,12 +6,14 @@ const mocks = vi.hoisted(() => ({
   createAgent: vi.fn(),
   listAgents: vi.fn(),
   reloadLiveSessionsContext: vi.fn(async () => ({ reloaded: true })),
+  getSetting: vi.fn(),
 }));
 
 vi.mock("@/lib/agents", () => mocks);
 vi.mock("@/lib/pi/harness", () => ({ reloadLiveSessionsContext: mocks.reloadLiveSessionsContext }));
+vi.mock("@/lib/pi/web-settings", () => ({ getSetting: mocks.getSetting }));
 
-import { POST } from "./route";
+import { GET, POST } from "./route";
 
 function request(body: unknown): NextRequest {
   return new NextRequest("http://localhost/api/agents", {
@@ -26,6 +28,19 @@ describe("POST /api/agents", () => {
     mocks.createAgent.mockReset();
     mocks.createAgent.mockReturnValue({ name: "builder" });
     mocks.reloadLiveSessionsContext.mockClear();
+    mocks.getSetting.mockReset();
+    mocks.getSetting.mockReturnValue(null);
+  });
+
+  it("reports whether Auto is enabled alongside the agent list", async () => {
+    const listed = { agents: [], agentsDir: "C:/pi/agent/agents" };
+    mocks.listAgents.mockReturnValue(listed);
+    mocks.getSetting.mockReturnValue("0");
+
+    const response = await GET();
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ ...listed, autoEnabled: false });
   });
 
   it("rejects a non-object request body before creating an agent", async () => {

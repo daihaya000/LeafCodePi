@@ -100,6 +100,21 @@ describe("AgentsSettings", () => {
     sendJson.mockReset();
   });
 
+  it("切り替えでAutoエージェントを無効化できる", async () => {
+    render(<AgentsSettings />);
+
+    const toggle = await screen.findByRole("switch", { name: "Autoエージェントを無効化" });
+    fireEvent.click(toggle);
+
+    await waitFor(() => {
+      expect(sendJson).toHaveBeenCalledWith(
+        "/api/settings/auto-agent-enabled",
+        { value: "0" },
+        "PUT",
+      );
+    });
+  });
+
   it("prioritizes enabled agents and saves a selected model", async () => {
     render(<AgentsSettings />);
 

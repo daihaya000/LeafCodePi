@@ -44,6 +44,21 @@ describe("AgentSelect", () => {
     expect(onChange).toHaveBeenCalledWith(AUTO_AGENT_VALUE);
   });
 
+  it("hides Auto and normalizes a stored Auto value when disabled", () => {
+    render(
+      <AgentSelect
+        value={AUTO_AGENT_VALUE}
+        agents={["builder", "programmer"]}
+        autoEnabled={false}
+        onChange={() => {}}
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: "エージェント" }).textContent).toContain("builder");
+    fireEvent.click(screen.getByRole("button", { name: "エージェント" }));
+    expect(screen.queryByRole("option", { name: "Auto" })).toBeNull();
+  });
+
   it("uses role icons and falls back to Bot for custom agents", () => {
     const view = render(<AgentSelect value="planner" agents={["planner", "custom-agent"]} onChange={() => {}} />);
 

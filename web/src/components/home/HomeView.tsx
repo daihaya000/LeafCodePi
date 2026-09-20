@@ -191,6 +191,7 @@ export const HomeView = memo(function HomeView({
   const [error, setError] = useState<string | null>(null);
   const [loaded, setLoaded] = useState(false);
   const [agents, setAgents] = useState<ComposerReference[]>([]);
+  const [autoAgentEnabled, setAutoAgentEnabled] = useState(true);
   const [skills, setSkills] = useState<ComposerReference[]>([]);
   const [agent, setAgent] = useState(() => readStoredAgent() || DEFAULT_AGENT);
   const [subagentPermission, setSubagentPermission] = useState<SubagentPermission>(
@@ -255,7 +256,10 @@ export const HomeView = memo(function HomeView({
     const [projectRes, healthRes, agentRes, skillRes] = await Promise.allSettled([
       getJson<{ projects: ProjectDto[] }>("/api/projects"),
       getJson<HealthDto>("/api/health"),
-      getJson<{ agents: { name: string; description?: string; enabled: boolean; tools?: string[] }[] }>("/api/agents"),
+      getJson<{
+        agents: { name: string; description?: string; enabled: boolean; tools?: string[] }[];
+        autoEnabled?: boolean;
+      }>("/api/agents"),
       getJson<{ skills: { name: string; description?: string; enabled: boolean }[] }>("/api/skills"),
     ]);
     if (projectRes.status === "fulfilled" && projectRefreshRef.current === projectRefreshId) {
@@ -281,6 +285,8 @@ export const HomeView = memo(function HomeView({
       setHealth((current) => current?.engineOk === healthRes.value.engineOk ? current : healthRes.value);
     }
     if (agentRes.status === "fulfilled") {
+      const nextAutoAgentEnabled = agentRes.value.autoEnabled !== false;
+      setAutoAgentEnabled(nextAutoAgentEnabled);
       const enabledAgents = agentRes.value.agents
         .filter((a) => a.enabled)
         .map(({ name, description, tools }) => ({ name, description, tools }));
@@ -288,7 +294,11 @@ export const HomeView = memo(function HomeView({
       setAgents((current) =>
         sameComposerReferences(current, enabledAgents) ? current : enabledAgents,
       );
-      setAgent((current) => resolveAgentSelection(current || readStoredAgent(), enabledAgentNames));
+      setAgent((current) => resolveAgentSelection(
+        current || readStoredAgent(),
+        enabledAgentNames,
+        nextAutoAgentEnabled,
+      ));
     }
     if (skillRes.status === "fulfilled") {
       const enabledSkills = skillRes.value.skills
@@ -642,6 +652,7 @@ export const HomeView = memo(function HomeView({
                     <AgentSelect
                       value={agent}
                       agents={agents}
+                      autoEnabled={autoAgentEnabled}
                       disabled={submitting}
                       onChange={(value) => {
                         setAgent(value);
