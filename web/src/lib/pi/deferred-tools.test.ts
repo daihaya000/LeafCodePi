@@ -9,7 +9,7 @@ type SearchTool = {
   }>;
 };
 
-const optionalTools = ["bash", "memory_add", "memory_replace", "memory_remove", "skill_manage", "web_search", "source_check", "fetch_content", "get_search_content", "intercom"];
+const optionalTools = ["jev_judge", "session_search", "bash", "memory_add", "memory_replace", "memory_remove", "skill_manage", "web_search", "source_check", "fetch_content", "get_search_content", "intercom"];
 
 function setup(initial: string[], allowedTools?: readonly string[] | (() => readonly string[])) {
   let active = [...initial];
@@ -44,7 +44,7 @@ describe("deferred tools", () => {
   });
 
   it("starts with the loader but removes low-frequency schemas", () => {
-    const core = ["read", "write", "edit", "grep", "find", "ls", "powershell", "todowrite", "question", "memory_search", "session_search", "jev_judge", "mcp"];
+    const core = ["read", "write", "edit", "grep", "find", "ls", "powershell", "todowrite", "question", "memory_search", "mcp"];
     const state = setup([...core, ...optionalTools]);
     state.start();
     expect(state.active).toEqual([...core, TOOL_SEARCH_NAME]);
@@ -109,6 +109,8 @@ describe("deferred tools", () => {
   });
 
   it.each([
+    ["意味判定", "jev_judge"],
+    ["過去の会話", "session_search"],
     ["ウェブ検索", "web_search"],
     ["出典の裏取り", "source_check"],
     ["YouTube動画", "fetch_content"],

@@ -1251,10 +1251,13 @@ function installMcpAdapter(pi: ExtensionAPI, options: McpAdapterOptions) {
       cache,
       envRaw === undefined || envRaw === "__none__" ? undefined : envDirectToolOverride,
     );
-    const shouldRegisterProxyTool =
+    // With no configured/runtime servers the gateway has nothing to expose.
+    // Keep slash commands available so users can still configure MCP.
+    const shouldRegisterProxyTool = Object.keys(config.mcpServers).length > 0 && (
       config.settings?.disableProxyTool !== true
       || directSpecs.length === 0
-      || missingConfiguredDirectToolServers.length > 0;
+      || missingConfiguredDirectToolServers.length > 0
+    );
 
     if (shouldRegisterProxyTool) {
       const description = buildProxyDescription(config, cache, directSpecs);

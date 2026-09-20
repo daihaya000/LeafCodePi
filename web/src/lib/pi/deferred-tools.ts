@@ -4,6 +4,8 @@ import { Type } from "typebox";
 export const TOOL_SEARCH_NAME = "tool_search";
 
 const DEFERRED_TOOLS = [
+  { name: "jev_judge", keywords: ["jev", "typesafe", "typed judgment", "semantic", "意味判定", "意味的", "順位付け"] },
+  { name: "session_search", keywords: ["session_search", "past session", "session history", "過去セッション", "会話履歴", "過去の会話"] },
   { name: "bash", keywords: ["bash", "posix", "unix shell", "shell script", "シェル"] },
   { name: "web_search", keywords: ["web", "internet", "search", "research", "ウェブ", "検索", "調査"] },
   { name: "source_check", keywords: ["source_check", "fact check", "verify claim", "出典", "裏取り", "ファクトチェック"] },
@@ -33,7 +35,7 @@ export function registerDeferredTools(
   pi.registerTool({
     name: TOOL_SEARCH_NAME,
     label: "Tool Search",
-    description: "Find and activate optional tools: web_search (web research), source_check (fact checking), fetch_content (URL/PDF/GitHub/YouTube/video), get_search_content (stored search results), intercom (other sessions), bash (POSIX), memory_add/replace/remove, skill_manage. Call with the capability or exact tool name. Only permitted tools can be loaded.",
+    description: "Find and activate optional tools: web_search (web research), source_check (fact checking), fetch_content (URL/PDF/GitHub/YouTube/video), get_search_content (stored search results), intercom (other sessions), session_search (past conversations), jev_judge (typed semantic judgments), bash (POSIX), memory_add/replace/remove, skill_manage. Call with the capability or exact tool name. Only permitted tools can be loaded.",
     parameters: Type.Object({
       query: Type.String({ description: "Capability or optional tool to activate.", maxLength: 200 }),
     }),
