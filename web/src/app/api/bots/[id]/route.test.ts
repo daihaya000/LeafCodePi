@@ -367,10 +367,13 @@ describe("DELETE /api/bots/[id]", () => {
     expect(mocks.patchRoom).toHaveBeenCalledWith("room-a", { members: ["two"] });
   });
 
-  it("returns 404 when the bot does not exist", async () => {
-    mocks.deleteBot.mockReturnValue(false);
+  it("returns 404 without tearing down resources when the bot does not exist", async () => {
+    mocks.getBot.mockReturnValue(undefined);
     const response = await DELETE(emptyRequest(), params("one"));
     expect(response.status).toBe(404);
+    expect(mocks.stopAllCodeSessionsForBot).not.toHaveBeenCalled();
+    expect(mocks.destroyTask).not.toHaveBeenCalled();
+    expect(mocks.deleteBot).not.toHaveBeenCalled();
     expect(mocks.patchRoom).not.toHaveBeenCalled();
   });
 });

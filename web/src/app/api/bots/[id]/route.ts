@@ -195,6 +195,7 @@ export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ 
   const id = await idOf(params);
   // Read before teardown: deleteBot clears codeSessionTaskId with the Bot record.
   const bot = getBot(id);
+  if (!bot) return NextResponse.json({ error: "\u30dc\u30c3\u30c8\u304c\u898b\u3064\u304b\u308a\u307e\u305b\u3093" }, { status: 404 });
   const rooms = listRooms().filter((room) => room.members.includes(id));
   for (const room of rooms) await detachBotFromRoomRuntime(room.id, id);
   await stopAllCodeSessionsForBot(id);
