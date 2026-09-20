@@ -55,6 +55,36 @@ const LOAD_SKILLS_CACHE_TTL_MS = 5000;
 
 const SUBAGENT_ORCHESTRATION_SKILL = "leafcode-subagents";
 
+// Mirror of web/src/lib/paths.ts dataDir() + skills-state.json semantics:
+// Settings stores `true` under code/bot scopes for disabled skills.
+function skillsStatePath(): string {
+	const override = process.env.LEAFCODE_PI_DATA_DIR?.trim();
+	if (override) return path.join(override, "skills-state.json");
+	if (process.platform === "win32") {
+		const roaming = process.env.APPDATA?.trim();
+		if (roaming) return path.join(roaming, "leafcode-pi", "skills-state.json");
+	}
+	return path.join(os.homedir(), ".leafcode-pi", "skills-state.json");
+}
+
+function disabledScopeNames(value: unknown): string[] {
+	if (!value || typeof value !== "object" || Array.isArray(value)) return [];
+	return Object.entries(value as Record<string, unknown>)
+		.filter(([name, enabled]) => enabled === true && name.trim().length > 0)
+		.map(([name]) => name);
+}
+
+/** Skills disabled in Settings (code scope + legacy shared key). Read fresh on every call so a toggle applies without waiting for the filesystem cache. */
+export function readDisabledSkillNames(): Set<string> {
+	try {
+		const parsed = JSON.parse(fs.readFileSync(skillsStatePath(), "utf-8")) as { disabled?: unknown; code?: unknown } | null;
+		if (!parsed || typeof parsed !== "object") return new Set();
+		return new Set([...disabledScopeNames(parsed.disabled), ...disabledScopeNames(parsed.code)]);
+	} catch {
+		return new Set();
+	}
+}
+
 const SOURCE_PRIORITY: Record<SkillSource, number> = {
 	project: 700,
 	"project-settings": 650,
@@ -641,10 +671,11 @@ export function resolveSkills(
 		}
 	}
 
+	const disabled = readDisabledSkillNames();
 	for (const name of skillNames) {
 		const trimmed = name.trim();
 		if (!trimmed) continue;
-		if (trimmed === SUBAGENT_ORCHESTRATION_SKILL) {
+		if (trimmed === SUBAGENT_ORCHESTRATION_SKILL || disabled.has(trimmed)) {
 			missing.push(trimmed);
 			continue;
 		}
@@ -741,8 +772,9 @@ export function discoverAvailableSkills(cwd: string): Array<{
 	description?: string;
 }> {
 	const skills = getCachedSkills(cwd);
+	const disabled = readDisabledSkillNames();
 	return skills
-		.filter((s) => s.name !== SUBAGENT_ORCHESTRATION_SKILL)
+		.filter((s) => s.name !== SUBAGENT_ORCHESTRATION_SKILL && !disabled.has(s.name))
 		.map((s) => ({
 			name: s.name,
 			source: s.source,

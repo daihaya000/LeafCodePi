@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, it, vi } from "vitest";
-import { clearSkillCache, resolveSkills } from "./skills.ts";
+import { clearSkillCache, discoverAvailableSkills, readDisabledSkillNames, resolveSkills } from "./skills.ts";
 
 let root = "";
 afterEach(() => {
@@ -33,4 +33,29 @@ it("resolves repository and extension skills from an unrelated child cwd without
 	const result = resolveSkills(["bundled-test-root", "bundled-test-extension"], cwd);
 	expect(result.missing).toEqual([]);
 	expect(result.resolved.map((skill) => skill.path)).toEqual(paths);
+});
+
+it("treats settings-disabled skills as missing and hides them from discovery", () => {
+	root = mkdtempSync(join(tmpdir(), "leafcode-disabled-skills-"));
+	const cwd = join(root, "project");
+	mkdirSync(cwd);
+	vi.stubEnv("PI_CODING_AGENT_DIR", join(root, "agent"));
+	vi.stubEnv("LEAFCODE_PI_DATA_DIR", join(root, "data"));
+	vi.stubEnv("LEAFCODE_PI_SKILLS_DIR", join(root, "repo", "skills"));
+	vi.stubEnv("LEAFCODE_PI_EXTENSIONS_DIR", join(root, "repo", "extensions"));
+	mkdirSync(join(root, "repo", "skills", "alpha"), { recursive: true });
+	writeFileSync(join(root, "repo", "skills", "alpha", "SKILL.md"), "---\nname: alpha\ndescription: Alpha procedure\n---\nDo alpha.\n", "utf8");
+	mkdirSync(join(root, "data"), { recursive: true });
+	writeFileSync(join(root, "data", "skills-state.json"), JSON.stringify({ code: { alpha: true }, bot: {} }), "utf8");
+	expect(readDisabledSkillNames()).toEqual(new Set(["alpha"]));
+	const result = resolveSkills(["alpha"], cwd);
+	expect(result.resolved).toEqual([]);
+	expect(result.missing).toEqual(["alpha"]);
+	expect(discoverAvailableSkills(cwd).map((skill) => skill.name)).not.toContain("alpha");
+});
+
+it("ignores a missing or malformed skills state", () => {
+	root = mkdtempSync(join(tmpdir(), "leafcode-no-state-"));
+	vi.stubEnv("LEAFCODE_PI_DATA_DIR", join(root, "absent"));
+	expect(readDisabledSkillNames()).toEqual(new Set());
 });
