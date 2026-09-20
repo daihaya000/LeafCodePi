@@ -119,8 +119,15 @@
 ### 検証（Tick15）
 `room-events` / concurrent — **5 passed**
 
+### Tick16（ループ継続・通知 23–24）
+1. outbox `save()` — Room カード差し替え時に live 進捗をマージ保持；`codeActivity` はメッセージ上に live カードが無いときだけクリア
+
+### 検証（Tick16）
+`bot-code-relay` Room 進捗保持 — **76 passed**
+
 ### 次 Tick 候補
 - cold（非 live）Code の activity は現状なし（許容）
+
 
 
 

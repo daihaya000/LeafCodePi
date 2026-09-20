@@ -1092,6 +1092,60 @@ describe("Room ⇄ Code delegation", () => {
     expect(room.messages.find((message) => message.id === "turn-1")?.codeActivity).toBe("読取 README.md");
   });
 
+  it("preserves mirrored Code card progress across mid-run outbox saves", async () => {
+    roomSetup();
+    await roomLaunch();
+    const room = store.rooms.get("room-1")!;
+    const requestId = record().id;
+    const turn = room.messages.find((message) => message.id === "turn-1")!;
+    turn.codeActivity = "検索";
+    turn.codeRequests = [{
+      id: requestId,
+      taskId: "code",
+      state: "running",
+      prompt: "Fix the parser",
+      activity: "検索",
+      todoProgress: { completed: 1, total: 4 },
+      goalLoopSummary: { status: "running", maxTurns: 10, turnCount: 2 },
+    }];
+
+    await stopBotCodeRequest("one", requestId);
+
+    expect(room.messages.find((message) => message.id === "turn-1")).toMatchObject({
+      codeActivity: "検索",
+      codeRequests: [expect.objectContaining({
+        id: requestId,
+        state: "running",
+        activity: "検索",
+        todoProgress: { completed: 1, total: 4 },
+        goalLoopSummary: { status: "running", maxTurns: 10, turnCount: 2 },
+      })],
+    });
+  });
+
+  it("does not clear shared codeActivity when one of several Code cards settles", async () => {
+    roomSetup();
+    let nextCode = 0;
+    vi.mocked(deps.create).mockImplementation(async (input) => {
+      const code = task(`code-${++nextCode}`, { status: "working" });
+      store.tasks.set(code.id, code);
+      input.beforePrompt(code);
+      return code;
+    });
+    await roomLaunch();
+    await relay.run("bot:one:room:room-1", "sibling-start", { action: "start", projectId: "project", prompt: "Also fix tests" }, "session");
+    const room = store.rooms.get("room-1")!;
+    room.messages.find((message) => message.id === "turn-1")!.codeActivity = "編集";
+    const second = records().find((item) => item.prompt === "Also fix tests")!;
+    store.tasks.get(second.codeTaskId!)!.status = "idle";
+    messages = [answer("sibling", "sibling done")];
+    await relay.tick();
+
+    expect(records().find((item) => item.id === second.id)?.state).toBe("delivered");
+    expect(room.messages.find((message) => message.id === "turn-1")?.codeActivity).toBe("編集");
+    expect(room.messages.find((message) => message.id === "turn-1")?.codeRequests?.some((card) => card.state === "running")).toBe(true);
+  });
+
   it("runs multiple Room Code jobs in parallel", async () => {
     roomSetup();
     const room = store.rooms.get("room-1")!;

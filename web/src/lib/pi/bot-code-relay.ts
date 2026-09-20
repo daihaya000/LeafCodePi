@@ -199,14 +199,32 @@ function save(request: CodeRequest): void {
     const cards = message.codeRequests ?? (message.codeRequestId && message.codeState
       ? [{ id: message.codeRequestId, taskId: message.codeTaskId ?? null, state: message.codeState }]
       : []);
-    const card = { id: request.id, taskId: request.codeTaskId, state: request.state, prompt: request.prompt, ...requestPayload(request) };
+    const live = request.state === "starting" || request.state === "running";
+    const existing = cards.find((item) => item.id === request.id);
+    // Keep mirrored live progress across outbox writes; drop it only when leaving the run.
+    const card = {
+      id: request.id,
+      taskId: request.codeTaskId,
+      state: request.state,
+      prompt: request.prompt ?? existing?.prompt,
+      ...(live
+        ? {
+            ...(existing?.activity ? { activity: existing.activity } : {}),
+            ...(existing?.todoProgress ? { todoProgress: existing.todoProgress } : {}),
+            ...(existing?.goalLoopSummary ? { goalLoopSummary: existing.goalLoopSummary } : {}),
+          }
+        : {}),
+      ...requestPayload(request),
+    };
+    const nextCards = cards.some((item) => item.id === request.id)
+      ? cards.map((item) => (item.id === request.id ? card : item))
+      : [...cards, card];
+    const anyLive = nextCards.some((item) => item.state === "starting" || item.state === "running");
     return {
       codeRequestId: request.id, codeTaskId: request.codeTaskId, codeState: request.state,
-      codeRequests: cards.some((item) => item.id === request.id) ? cards.map((item) => item.id === request.id ? card : item) : [...cards, card],
-      // Clear legacy progress only when this request owns it and leaves the active run.
-      ...(message.codeRequestId === request.id && request.state !== "starting" && request.state !== "running"
-        ? { codeActivity: "" }
-        : {}),
+      codeRequests: nextCards,
+      // Shared activity line: clear only when no card on this message is still live.
+      ...(!anyLive ? { codeActivity: "" } : {}),
     };
   });
 }
