@@ -301,8 +301,7 @@ describe("SettingsView", () => {
     expect(localGrid?.className).toContain("xl:grid-cols-2");
     expect(localGrid?.children).toHaveLength(2);
     expect(screen.getByRole("heading", { name: "メモリ", level: 2 })).toBeTruthy();
-    const userProfile = screen.getByRole("heading", { name: "USER.md" });
-    expect(userProfile.closest('[role="tabpanel"]')?.id).toBe("settings-panel-engine");
+    expect(screen.queryByRole("heading", { name: "USER.md" })).toBeNull();
     expect(screen.getByRole("heading", { name: "ブラウザ設定" })).toBeTruthy();
     expect(enginePanel?.querySelector("#composer-defaults-heading")).toBeNull();
     const displaySection = screen.getByRole("heading", { name: "表示と通知" }).closest("section");
@@ -331,7 +330,7 @@ describe("SettingsView", () => {
     expect(window.location.hash).toBe("#engine");
   });
 
-  it("エージェントタブを運用と共通指示のグループに分ける", () => {
+  it("エージェントタブを運用とスキルに分ける", () => {
     render(<SettingsView />);
     fireEvent.click(screen.getByRole("tab", { name: /^エージェントタブ$/ }));
 
@@ -340,22 +339,39 @@ describe("SettingsView", () => {
       Array.from(agentsPanel.querySelectorAll("section[aria-labelledby] > header > h2")).map(
         (heading) => heading.textContent,
       ),
-    ).toEqual(["エージェント運用", "エージェント用スキル", "共通指示"]);
+    ).toEqual(["エージェント運用", "エージェント用スキル"]);
     expect(Array.from(agentsPanel.querySelectorAll("h3")).map((heading) => heading.textContent)).toEqual([
       "エージェント",
       "スキル",
-      "AGENTS.md",
-      "SOUL.md",
-      "TOOLS.md",
-      "DESIGN.md",
-      "WORKFLOW.md",
     ]);
     expect(screen.queryByRole("heading", { name: "USER.md" })).toBeNull();
+    expect(screen.queryByRole("heading", { name: "AGENTS.md" })).toBeNull();
     expect(screen.queryByRole("heading", { name: "メモリ" })).toBeNull();
-    expect(screen.getByRole("heading", { name: "エージェント用スキル", level: 2 })).toBeTruthy();
   });
 
-  it("ボットタブを初期設定、スキル、共通指示のグループに分ける", () => {
+  it("プロンプトタブに共通・Code・Botの設定を集約する", () => {
+    render(<SettingsView />);
+    fireEvent.click(screen.getByRole("tab", { name: /^プロンプトタブ$/ }));
+
+    const promptsPanel = screen.getByRole("tabpanel");
+    expect(
+      Array.from(promptsPanel.querySelectorAll("section[aria-labelledby] > header > h2")).map(
+        (heading) => heading.textContent,
+      ),
+    ).toEqual(["共通", "Code", "Bot"]);
+    expect(Array.from(promptsPanel.querySelectorAll("h3")).map((heading) => heading.textContent)).toEqual([
+      "USER.md",
+      "SOUL.md",
+      "AGENTS.md",
+      "WORKFLOW.md",
+      "TOOLS.md",
+      "DESIGN.md",
+      "BOTS.md",
+    ]);
+    expect(promptsPanel.id).toBe("settings-panel-prompts");
+  });
+
+  it("ボットタブを初期設定とスキルのグループに分ける", () => {
     render(<SettingsView />);
     fireEvent.click(screen.getByRole("tab", { name: /^ボットタブ$/ }));
 
@@ -364,12 +380,12 @@ describe("SettingsView", () => {
       Array.from(botsPanel.querySelectorAll("section[aria-labelledby] > header > h2")).map(
         (heading) => heading.textContent,
       ),
-    ).toEqual(["ボットの初期設定", "ボット用スキル", "共通指示"]);
+    ).toEqual(["ボットの初期設定", "ボット用スキル"]);
     expect(Array.from(botsPanel.querySelectorAll("h3")).map((heading) => heading.textContent)).toEqual([
       "ボットの既定値",
       "スキル",
-      "BOTS.md",
     ]);
+    expect(screen.queryByRole("heading", { name: "BOTS.md" })).toBeNull();
     expect(document.getElementById("bots-skills")).not.toBeNull();
   });
 
@@ -411,13 +427,13 @@ describe("SettingsView", () => {
     expect(window.location.hash).toBe("#engine");
   });
 
-  it("旧 #general-agents ハッシュからエージェントタブにリダイレクトする", () => {
+  it("旧 #general-agents ハッシュからプロンプトタブにリダイレクトする", () => {
     window.history.replaceState(null, "", "/settings#general-agents");
     render(<SettingsView />);
 
-    expect(within(screen.getByRole("tablist", { name: "設定" })).getByRole("tab", { name: "エージェントタブ" }).getAttribute("aria-selected")).toBe("true");
+    expect(within(screen.getByRole("tablist", { name: "設定" })).getByRole("tab", { name: "プロンプトタブ" }).getAttribute("aria-selected")).toBe("true");
     expect(screen.getByRole("heading", { name: "AGENTS.md" })).toBeTruthy();
-    expect(window.location.hash).toBe("#agents");
+    expect(window.location.hash).toBe("#prompts");
   });
 
   it("旧 #general-integrations ハッシュから拡張タブにリダイレクトする", () => {
@@ -427,6 +443,14 @@ describe("SettingsView", () => {
     expect(within(screen.getByRole("tablist", { name: "設定" })).getByRole("tab", { name: "拡張タブ" }).getAttribute("aria-selected")).toBe("true");
     expect(screen.getByRole("heading", { name: "拡張機能" })).toBeTruthy();
     expect(window.location.hash).toBe("#extensions");
+  });
+
+  it("プロンプトCodeのハッシュからプロンプトタブを開く", () => {
+    window.history.replaceState(null, "", "/settings#prompts-code");
+    render(<SettingsView />);
+
+    expect(screen.getByRole("tab", { name: "プロンプトタブ" }).getAttribute("aria-selected")).toBe("true");
+    expect(document.getElementById("prompts-code")).not.toBeNull();
   });
 
   it("エージェント用スキルのハッシュからエージェントタブを開く", () => {
@@ -477,7 +501,7 @@ describe("SettingsView", () => {
     window.dispatchEvent(new HashChangeEvent("hashchange"));
 
     expect(within(screen.getByRole("tablist", { name: "設定" })).getByRole("tab", { name: "エージェントタブ" }).getAttribute("aria-selected")).toBe("true");
-    expect(screen.getByRole("heading", { name: "AGENTS.md" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "エージェント" })).toBeTruthy();
   });
 
   it("矢印キーでタブを移動し、正規ハッシュとパネルの関連を更新する", () => {

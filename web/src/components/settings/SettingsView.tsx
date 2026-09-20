@@ -39,12 +39,13 @@ import { Badge, cx, ThemeToggle } from "@/components/ui";
 import { getJson } from "@/lib/client";
 import type { HealthDto, ProviderAuthDto } from "@/lib/types";
 
-type Tab = "engine" | "models" | "agents" | "extensions" | "bots";
+type Tab = "engine" | "models" | "agents" | "prompts" | "extensions" | "bots";
 
 const SETTINGS_TABS: ReadonlyArray<{ id: Tab; label: string }> = [
   { id: "engine", label: "エンジン" },
   { id: "models", label: "モデル" },
   { id: "agents", label: "エージェント" },
+  { id: "prompts", label: "プロンプト" },
   { id: "extensions", label: "拡張" },
   { id: "bots", label: "ボット" },
 ];
@@ -53,6 +54,7 @@ const TAB_HASH: Readonly<Record<Tab, string>> = {
   engine: "engine",
   models: "models",
   agents: "agents",
+  prompts: "prompts",
   bots: "bots",
   extensions: "extensions",
 };
@@ -67,6 +69,10 @@ const CURRENT_HASH_TAB: Readonly<Record<string, Tab>> = {
   "models-providers": "models",
   agents: "agents",
   "agents-skills": "agents",
+  prompts: "prompts",
+  "prompts-common": "prompts",
+  "prompts-code": "prompts",
+  "prompts-bot": "prompts",
   bots: "bots",
   "bots-skills": "bots",
   extensions: "extensions",
@@ -77,15 +83,17 @@ const CURRENT_HASH_TAB: Readonly<Record<string, Tab>> = {
   "extensions-memory": "engine",
 };
 
-// 廃止した「一般」カテゴリとエンジンサブタブの旧ハッシュを移行先へ届ける。
+// 廃止したカテゴリ・サブタブの旧ハッシュを移行先へ届ける。
 const MIGRATED_HASH_TAB: Readonly<Record<string, Tab>> = {
   "general-basic": "engine",
   "general-response": "engine",
-  "general-agents": "agents",
+  "general-agents": "prompts",
   "general-integrations": "extensions",
   "engine-overview": "engine",
   "engine-basic": "engine",
   "engine-response": "engine",
+  "agents-instructions-heading": "prompts",
+  "bots-instructions-heading": "prompts",
 };
 
 function tabFromHash(hash: string): Tab | null {
@@ -363,11 +371,10 @@ export function SettingsView() {
               <SettingsGroup
                 id="extensions-memory-heading"
                 title="メモリ"
-                description="永続メモリとユーザープロフィールを管理し、容量、保存タイミング、保存済みデータを確認します。"
+                description="永続メモリを管理し、容量、保存タイミング、保存済みデータを確認します。"
               >
-                <div id="extensions-memory" className="scroll-mt-24 space-y-4">
+                <div id="extensions-memory" className="scroll-mt-24">
                   <MemorySettings />
-                  <UserMdSettings />
                 </div>
               </SettingsGroup>
             </section>
@@ -444,17 +451,46 @@ export function SettingsView() {
                   <SkillsSettings scope="code" />
                 </div>
               </SettingsGroup>
+            </section>
+          )}
+
+          {visitedTabs.has("prompts") && (
+            <section
+              id="settings-panel-prompts"
+              role="tabpanel"
+              aria-labelledby="settings-tab-prompts"
+              hidden={tab !== "prompts"}
+              className="space-y-8"
+            >
               <SettingsGroup
-                id="agents-instructions-heading"
-                title="共通指示"
-                description="AGENTS.md は常時読み込み、TOOLS.md・DESIGN.md・WORKFLOW.md は必要時だけ読み込む共通指示を編集します。"
+                id="prompts-common-heading"
+                title="共通"
+                description="CodeとBotの両方で使う共通プロンプトを管理します。"
               >
-                <div className="space-y-4">
-                  <AgentsMdSettings />
+                <div id="prompts-common" className="scroll-mt-24">
+                  <UserMdSettings />
+                </div>
+              </SettingsGroup>
+              <SettingsGroup
+                id="prompts-code-heading"
+                title="Code"
+                description="Codeで使うプロンプトと共通指示を管理します。"
+              >
+                <div id="prompts-code" className="scroll-mt-24 space-y-4">
                   <SoulMdSettings />
+                  <AgentsMdSettings />
+                  <WorkflowMdSettings />
                   <ToolsMdSettings />
                   <DesignMdSettings />
-                  <WorkflowMdSettings />
+                </div>
+              </SettingsGroup>
+              <SettingsGroup
+                id="prompts-bot-heading"
+                title="Bot"
+                description="Botで使う共通プロンプトを管理します。"
+              >
+                <div id="prompts-bot" className="scroll-mt-24">
+                  <BotsMdSettings />
                 </div>
               </SettingsGroup>
             </section>
@@ -473,13 +509,6 @@ export function SettingsView() {
                 <div id="bots-skills" className="scroll-mt-24">
                   <SkillsSettings scope="bot" />
                 </div>
-              </SettingsGroup>
-              <SettingsGroup
-                id="bots-instructions-heading"
-                title="共通指示"
-                description="すべてのボットに適用する BOTS.md を編集します。"
-              >
-                <BotsMdSettings />
               </SettingsGroup>
             </section>
           )}
