@@ -76,10 +76,13 @@ export function displayName(id: string): string {
   if (name.toLowerCase() === "ternary-bonsai-2-27b-ptq1_0") {
     return "OrcaBonsai 27B Uncensored";
   }
-  return name.replace(
+  const shortened = name.replace(
     /(?:-(?:Q\d+_[A-Z](?:_[A-Z])?|IQ\d+_[A-Z]\d*|F\d+|BF16|FP\d+))+$/i,
     "",
   ) || name;
+  return shortened.toLowerCase() === "qwen3.8-27b-uncensored"
+    ? "Qwen3.8 27B Uncensored"
+    : shortened;
 }
 
 /**
