@@ -23,6 +23,7 @@ const fakePi = vi.hoisted(() => {
   type FakeInlineExtension = (pi: FakeExtensionApi) => void | Promise<void>;
   const histories = new Map<string, unknown[]>();
   const sessionIds = new Map<string, string>();
+  const promptGate: { current: Promise<unknown> | null } = { current: null };
   const sessions: {
     accountId: string | null;
     file: string;
@@ -67,10 +68,12 @@ const fakePi = vi.hoisted(() => {
 
   return {
     sessions,
+    promptGate,
     reset: () => {
       sessions.length = 0;
       histories.clear();
       sessionIds.clear();
+      promptGate.current = null;
     },
     getAgentDir: () => process.env.PI_CODING_AGENT_DIR ?? "",
     DefaultResourceLoader: class {
@@ -206,6 +209,12 @@ const fakePi = vi.hoisted(() => {
           session.thinkingLevel = level;
         },
         prompt: async (text: string) => {
+          // テストがプロンプト実行中の削除を再現するためのゲート。
+          const gate = promptGate.current;
+          if (gate) {
+            entry.events.push("prompt-gated");
+            await gate;
+          }
           // 実システムでは `/goal-start <payload>` は leafcode-goal-loop 拡張の registerCommand が
           // モデルに届く前に隣取りし、goal-loop-state を同期的に書く（harness.ts の createTask は
           // その直後に live 状態を検証する）。フェイクも同じ不変条件を再現する。
@@ -306,7 +315,7 @@ import { clearCachedUsage, setCachedUsage } from "@/lib/codexbar/cache";
 import { parseCodexBarSnapshot } from "@/lib/codexbar";
 import { botTaskId, createBot, getBot, patchBot } from "@/lib/bots";
 import { createRoom, ensureRoomBotTask } from "@/lib/rooms";
-import { insertTask, patchTask, upsertProject, getTask } from "@/lib/store";
+import { insertTask, patchTask, upsertProject, getTask, deleteTask } from "@/lib/store";
 import type { ThinkingLevel } from "@/lib/types";
 import { AUTO_MODEL_VALUE } from "@/lib/auto-model";
 import { setAccountRoutingMode, __resetProviderRoutingQueueForTests, markProviderLimited } from "@/lib/provider-routing";
@@ -851,6 +860,28 @@ describe("integrated session routing", () => {
       providerID: "leafcodecloud",
       modelID: "LeafModel",
     });
+  });
+
+  it("reports 404 when the task is deleted while a prompt runs", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "leafcode-pi-prompt-deleted-"));
+    tempDirs.push(dir);
+    process.env.LEAFCODE_PI_DATA_DIR = dir;
+    process.env.PI_CODING_AGENT_DIR = join(dir, "agent");
+    __resetPiAgentDirCacheForTests();
+    installHarness(new Map());
+
+    const task = await createTask({ projectId: null, prompt: "削除される作業" });
+    // プロンプトがフェイクセッションへ到達してから削除し、promptTask 末尾の存在確認を通す。
+    let release!: () => void;
+    fakePi.promptGate.current = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const pending = promptTask(task.id, "続けて", undefined, { waitForCompletion: true });
+    await waitFor(() => fakePi.sessions[0]?.events.includes("prompt-gated") === true);
+    deleteTask(task.id);
+    fakePi.promptGate.current = null;
+    release();
+    await expect(pending).rejects.toMatchObject({ status: 404, message: "タスクが見つかりません" });
   });
 
   it("switches an explicitly pinned task to an unpinned model from another provider", async () => {

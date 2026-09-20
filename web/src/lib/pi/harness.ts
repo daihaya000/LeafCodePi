@@ -8534,7 +8534,8 @@ export async function promptTask(
     codeRequestId: options?.codeRequestId,
   });
   if (options?.waitForCompletion) await completion;
-  return toSummary(getTask(id)!);
+  // The task can be deleted while the prompt runs; report 404 instead of crashing on a missing task.
+  return toSummary(requireTask(id));
 }
 
 async function applyLiveSkillPermission(
