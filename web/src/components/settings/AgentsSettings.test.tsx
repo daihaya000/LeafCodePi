@@ -84,7 +84,10 @@ describe("AgentsSettings", () => {
       path === "/api/agents"
         ? Promise.resolve({ agents, agentsDir: "C:/pi/agent/agents" })
         : path === "/api/settings/auto-agent-prompt"
-          ? Promise.resolve({ value: "レビューでは reviewer を優先" })
+          ? Promise.resolve({
+              value: "レビューでは reviewer を優先",
+              defaultPrompt: "あなたはコーディング作業に適したエージェントを1つ選ぶルーターです。",
+            })
           : Promise.resolve({ models }),
     );
     sendJson.mockResolvedValue({ agents });
@@ -400,7 +403,11 @@ describe("AgentsSettings", () => {
   it("loads and saves the Auto agent selector prompt", async () => {
     render(<AgentsSettings />);
 
-    const prompt = await screen.findByRole("textbox", { name: "モデル選定者向けプロンプト" }) as HTMLTextAreaElement;
+    const defaultPrompt = await screen.findByRole("textbox", { name: "Autoエージェントの規定プロンプト" }) as HTMLTextAreaElement;
+    expect(defaultPrompt.value).toContain("あなたはコーディング作業に適したエージェントを1つ選ぶルーターです。");
+    expect(defaultPrompt.readOnly).toBe(true);
+
+    const prompt = screen.getByRole("textbox", { name: "モデル選定者向けプロンプト" }) as HTMLTextAreaElement;
     expect(prompt.value).toBe("レビューでは reviewer を優先");
 
     fireEvent.change(prompt, { target: { value: "レビューは reviewer を優先" } });

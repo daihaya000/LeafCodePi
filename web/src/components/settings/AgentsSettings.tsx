@@ -323,6 +323,7 @@ function AgentToolsSettings({
 }
 
 function AutoAgentPromptSettings() {
+  const [defaultPrompt, setDefaultPrompt] = useState("");
   const [prompt, setPrompt] = useState("");
   const [savedPrompt, setSavedPrompt] = useState("");
   const [loading, setLoading] = useState(true);
@@ -332,9 +333,10 @@ function AutoAgentPromptSettings() {
 
   const reload = useCallback(() => {
     setLoading(true);
-    void getJson<{ value: string | null }>(`/api/settings/${AUTO_AGENT_PROMPT_SETTING_KEY}`)
+    void getJson<{ value: string | null; defaultPrompt?: string }>(`/api/settings/${AUTO_AGENT_PROMPT_SETTING_KEY}`)
       .then((result) => {
         const value = result.value ?? "";
+        setDefaultPrompt(result.defaultPrompt ?? "");
         setPrompt(value);
         setSavedPrompt(value);
         setError(null);
@@ -381,6 +383,19 @@ function AutoAgentPromptSettings() {
       <p className="mt-1 text-xs text-muted">
         会話内容から担当エージェントを選ぶモデルへの追加指示です。空欄なら既定の選定指示だけを使います。
       </p>
+      {defaultPrompt && (
+        <label className="mt-3 block text-sm">
+          <span className={LABEL_CLASS}>規定プロンプト（編集不可）</span>
+          <textarea
+            aria-label="Autoエージェントの規定プロンプト"
+            value={defaultPrompt}
+            rows={8}
+            readOnly
+            spellCheck={false}
+            className="mt-1 min-h-32 w-full resize-y rounded-lg border border-border bg-bg px-3 py-2 font-mono text-xs leading-5 text-muted outline-none"
+          />
+        </label>
+      )}
       <label className="mt-3 block text-sm">
         <span className={LABEL_CLASS}>モデル選定者向けプロンプト</span>
         <textarea

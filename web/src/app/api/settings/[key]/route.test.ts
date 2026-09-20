@@ -252,6 +252,21 @@ describe("/api/settings/[key]", () => {
     );
   });
 
+  it("exposes the default Auto agent selector prompt", async () => {
+    const response = await GET(
+      new NextRequest("http://127.0.0.1:3010/api/settings/auto-agent-prompt"),
+      { params: Promise.resolve({ key: "auto-agent-prompt" }) },
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      value: "llama-server::local-model",
+      defaultPrompt: expect.stringContaining(
+        "あなたはコーディング作業に適したエージェントを1つ選ぶルーターです。",
+      ),
+    });
+  });
+
   it("accepts and persists the Auto agent selector prompt", async () => {
     const response = await PUT(
       request("auto-agent-prompt", { value: "レビューは reviewer を優先" }),

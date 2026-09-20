@@ -48,6 +48,7 @@ import {
   COMPOSER_PROMPT_PRESETS_SETTING_KEY,
   parseComposerPromptPresets,
 } from "@/lib/composer-prompt-presets-schema";
+import { AUTO_AGENT_SYSTEM_INSTRUCTION } from "@/lib/auto-agent";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -182,7 +183,10 @@ export async function GET(
   if (!ALLOWED_KEYS.has(key)) {
     return NextResponse.json({ error: "unknown setting key" }, { status: 400 });
   }
-  return NextResponse.json({ value: getSetting(key) });
+  const value = getSetting(key);
+  return key === "auto-agent-prompt"
+    ? NextResponse.json({ value, defaultPrompt: AUTO_AGENT_SYSTEM_INSTRUCTION })
+    : NextResponse.json({ value });
 }
 
 export async function PUT(
