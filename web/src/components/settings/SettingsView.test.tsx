@@ -340,9 +340,10 @@ describe("SettingsView", () => {
       Array.from(agentsPanel.querySelectorAll("section[aria-labelledby] > header > h2")).map(
         (heading) => heading.textContent,
       ),
-    ).toEqual(["エージェント運用", "共通指示"]);
+    ).toEqual(["エージェント運用", "エージェント用スキル", "共通指示"]);
     expect(Array.from(agentsPanel.querySelectorAll("h3")).map((heading) => heading.textContent)).toEqual([
       "エージェント",
+      "スキル",
       "AGENTS.md",
       "SOUL.md",
       "TOOLS.md",
@@ -351,7 +352,7 @@ describe("SettingsView", () => {
     ]);
     expect(screen.queryByRole("heading", { name: "USER.md" })).toBeNull();
     expect(screen.queryByRole("heading", { name: "メモリ" })).toBeNull();
-    expect(screen.queryByRole("heading", { name: "スキル" })).toBeNull();
+    expect(screen.getByRole("heading", { name: "エージェント用スキル", level: 2 })).toBeTruthy();
   });
 
   it("ボットタブを初期設定、スキル、共通指示のグループに分ける", () => {
@@ -389,12 +390,11 @@ describe("SettingsView", () => {
       Array.from(extensionsPanel.querySelectorAll("section[aria-labelledby] > header > h2")).map(
         (heading) => heading.textContent,
       ),
-    ).toEqual(["拡張機能の管理", "MCP", "スキル"]);
+    ).toEqual(["拡張機能の管理", "MCP"]);
     expect(Array.from(extensionsPanel.querySelectorAll("h3")).map((heading) => heading.textContent)).toEqual([
       "拡張機能",
       "Intercom受信",
       "MCPサーバー",
-      "スキル",
     ]);
     expect(document.getElementById("extensions-intercom")?.closest('section[aria-labelledby="extensions-management-heading"]')).not.toBeNull();
     expect(screen.queryByRole("heading", { name: "メモリ" })).toBeNull();
@@ -429,12 +429,20 @@ describe("SettingsView", () => {
     expect(window.location.hash).toBe("#extensions");
   });
 
-  it("セクションのハッシュから対応するタブを開く", () => {
+  it("エージェント用スキルのハッシュからエージェントタブを開く", () => {
+    window.history.replaceState(null, "", "/settings#agents-skills");
+    render(<SettingsView />);
+
+    expect(screen.getByRole("tab", { name: "エージェントタブ" }).getAttribute("aria-selected")).toBe("true");
+    expect(document.getElementById("agents-skills")).not.toBeNull();
+  });
+
+  it("旧スキルのハッシュからエージェントタブを開く", () => {
     window.history.replaceState(null, "", "/settings#extensions-skills");
     render(<SettingsView />);
 
-    expect(screen.getByRole("tab", { name: "拡張タブ" }).getAttribute("aria-selected")).toBe("true");
-    expect(document.getElementById("extensions-skills")).not.toBeNull();
+    expect(screen.getByRole("tab", { name: "エージェントタブ" }).getAttribute("aria-selected")).toBe("true");
+    expect(document.getElementById("agents-skills")).not.toBeNull();
   });
 
   it("Intercomセクションのハッシュから拡張タブを開く", () => {

@@ -66,12 +66,13 @@ const CURRENT_HASH_TAB: Readonly<Record<string, Tab>> = {
   "models-generation": "models",
   "models-providers": "models",
   agents: "agents",
+  "agents-skills": "agents",
   bots: "bots",
   "bots-skills": "bots",
   extensions: "extensions",
   "extensions-list": "extensions",
   "extensions-intercom": "extensions",
-  "extensions-skills": "extensions",
+  "extensions-skills": "agents",
   "extensions-mcp": "extensions",
   "extensions-memory": "engine",
 };
@@ -435,6 +436,15 @@ export function SettingsView() {
                 <AgentsSettings />
               </SettingsGroup>
               <SettingsGroup
+                id="agents-skills-heading"
+                title="エージェント用スキル"
+                description="エージェントの通常タスクに適用するスキルを管理します。"
+              >
+                <div id="agents-skills" className="scroll-mt-24">
+                  <SkillsSettings scope="code" />
+                </div>
+              </SettingsGroup>
+              <SettingsGroup
                 id="agents-instructions-heading"
                 title="共通指示"
                 description="AGENTS.md は常時読み込み、TOOLS.md・DESIGN.md・WORKFLOW.md は必要時だけ読み込む共通指示を編集します。"
@@ -499,16 +509,6 @@ export function SettingsView() {
               >
                 <div id="extensions-mcp" className="scroll-mt-24">
                   <McpSettings />
-                </div>
-              </SettingsGroup>
-
-              <SettingsGroup
-                id="extensions-skills-heading"
-                title="スキル"
-                description="Code用スキルの有効状態を管理します。"
-              >
-                <div id="extensions-skills" className="scroll-mt-24">
-                  <SkillsSettings scope="code" />
                 </div>
               </SettingsGroup>
             </section>
