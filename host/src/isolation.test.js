@@ -45,6 +45,9 @@ test("both launchers enforce the engines Node.js minimum", () => {
   assert.match(bat, /major < 22/);
   assert.match(bat, /major === 22 && minor < 19/);
   assert.doesNotMatch(bat, /NODE_MAJOR/);
+  // An already-installed older LTS makes `winget install` exit 0 without
+  // upgrading, so the launcher must fall back to an explicit upgrade.
+  assert.match(bat, /winget upgrade --id OpenJS\.NodeJS\.LTS --exact/);
   const sh = readFileSync(join(repoRoot, "start.sh"), "utf8");
   assert.match(sh, /major < 22 \|\| \(major === 22 && minor < 19\)/);
 });

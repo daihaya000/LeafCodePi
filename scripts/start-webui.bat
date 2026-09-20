@@ -61,13 +61,20 @@ if errorlevel 1 (
 )
 echo [LeafCodePi] Installing Node.js LTS...
 call winget install --id OpenJS.NodeJS.LTS --exact --source winget --silent --accept-package-agreements --accept-source-agreements --disable-interactivity
-if errorlevel 1 (
-  call :fail 2 "Node.js could not be installed." error-2
-  exit /b 2
-)
+set "NODE_INSTALL_ERR=%ERRORLEVEL%"
 if exist "%ProgramFiles%\nodejs\node.exe" set "PATH=%ProgramFiles%\nodejs;%PATH%"
 call :node_version_ok
 if not errorlevel 1 exit /b 0
+rem winget install reports success when an older LTS is already installed, so an
+rem explicit upgrade is the only way to satisfy the version requirement.
+call winget upgrade --id OpenJS.NodeJS.LTS --exact --source winget --silent --accept-package-agreements --accept-source-agreements --disable-interactivity
+if exist "%ProgramFiles%\nodejs\node.exe" set "PATH=%ProgramFiles%\nodejs;%PATH%"
+call :node_version_ok
+if not errorlevel 1 exit /b 0
+if not "%NODE_INSTALL_ERR%"=="0" (
+  call :fail 2 "Node.js could not be installed." error-2
+  exit /b 2
+)
 call :fail 3 "Node.js 22.19 or newer is not available in this command prompt." error-3
 exit /b 3
 
