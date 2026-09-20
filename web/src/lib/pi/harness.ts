@@ -5970,18 +5970,26 @@ export async function startProviderLogin(
   current.loginSession = session;
   // Let the SSE client attach before the OAuth flow emits prompts.
   queueMicrotask(() => {
-    void session.run(runtime).finally(() => {
-      // A login can change both models and account-scoped usage.
-      invalidateHealthCache();
-      invalidateCachedUsage();
-      clearProviderCache(
-        `${session.accountId ? `account:${session.accountId}` : "default"}:${session.providerId}`,
-      );
-      // Keep the finished session briefly so a late EventSource can replay history.
-      setTimeout(() => {
-        if (current.loginSession === session) current.loginSession = null;
-      }, 15_000);
-    });
+    void session.run(runtime)
+      .finally(() => {
+        // A login can change both models and account-scoped usage.
+        invalidateHealthCache();
+        invalidateCachedUsage();
+        clearProviderCache(
+          `${session.accountId ? `account:${session.accountId}` : "default"}:${session.providerId}`,
+        );
+        // Keep the finished session briefly so a late EventSource can replay history.
+        setTimeout(() => {
+          if (current.loginSession === session) current.loginSession = null;
+        }, 15_000);
+      })
+      .catch((error) => {
+        // A broken SSE subscriber can reject run(); the session already records
+        // the failure, so just keep it from becoming an unhandled rejection.
+        console.warn(
+          `[leafcode-pi] provider login failed: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      });
   });
   return { sessionId: session.id };
 }

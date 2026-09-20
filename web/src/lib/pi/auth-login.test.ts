@@ -30,6 +30,19 @@ describe("ProviderLoginSession", () => {
     assert.equal(session.accountId, null);
   });
 
+  it("rejects run when an event subscriber throws", async () => {
+    // A broken SSE subscriber propagates through emit; callers must not let
+    // that rejection go unobserved (see startProviderLogin in harness.ts).
+    const session = new ProviderLoginSession("anthropic", "oauth");
+    session.subscribe(() => {
+      throw new Error("SSE write failed");
+    });
+    const stubRuntime = {
+      login: () => Promise.resolve(),
+    } as unknown as Parameters<typeof session.run>[0];
+    await assert.rejects(session.run(stubRuntime), /SSE write failed/);
+  });
+
   it("cleans up the prompt abort listener after an answer", async () => {
     const session = new ProviderLoginSession("anthropic", "oauth");
     const promptAbort = new AbortController();
