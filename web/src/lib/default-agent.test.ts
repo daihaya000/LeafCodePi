@@ -3,9 +3,9 @@ import { describe, it } from "vitest";
 import { AUTO_AGENT_VALUE, DEFAULT_AGENT, resolveAgentSelection } from "./default-agent";
 
 describe("resolveAgentSelection", () => {
-  it("prefers builder and rejects the display placeholder", () => {
-    assert.equal(resolveAgentSelection("エージェント", ["builder", "programmer"]), DEFAULT_AGENT);
-    assert.equal(resolveAgentSelection("", ["programmer", "builder"]), DEFAULT_AGENT);
+  it("prefers default and rejects the display placeholder", () => {
+    assert.equal(resolveAgentSelection("エージェント", ["default", "builder", "programmer"]), DEFAULT_AGENT);
+    assert.equal(resolveAgentSelection("", ["programmer", "builder", "default"]), DEFAULT_AGENT);
     assert.equal(resolveAgentSelection("", ["programmer"]), "programmer");
     assert.equal(resolveAgentSelection("", []), DEFAULT_AGENT);
   });
