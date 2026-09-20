@@ -125,6 +125,7 @@ describe("POST /api/tasks", () => {
           prompt: "差分をレビューして",
           agent: AUTO_AGENT_VALUE,
           accountId: "acc-pinned",
+          accountIdExplicit: true,
           model: "anthropic::claude-sonnet",
         }),
       }),
@@ -143,6 +144,28 @@ describe("POST /api/tasks", () => {
         accountIdExplicit: true,
       }),
     );
+  });
+
+  it("does not pin soft accountId alone on create", async () => {
+    const response = await POST(
+      new NextRequest("http://localhost/api/tasks", {
+        method: "POST",
+        body: JSON.stringify({
+          projectId: null,
+          prompt: "ソフト関連付け",
+          accountId: "acc-soft",
+          model: "anthropic::claude-sonnet",
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(mocks.createTask).toHaveBeenCalledWith(
+      expect.objectContaining({
+        accountId: "acc-soft",
+      }),
+    );
+    expect(mocks.createTask.mock.calls[0]?.[0].accountIdExplicit).not.toBe(true);
   });
 
   it("marks a task Goal Loop for per-turn Auto agent routing", async () => {

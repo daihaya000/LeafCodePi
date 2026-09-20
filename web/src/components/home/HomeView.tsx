@@ -444,7 +444,9 @@ export const HomeView = memo(function HomeView({
         images,
         files,
         ...(agent ? { agent } : {}),
-        ...(selectedModel?.accountId ? { accountId: selectedModel.accountId } : {}),
+        ...(selectedModel?.accountId
+          ? { accountId: selectedModel.accountId, accountIdExplicit: true }
+          : {}),
         subagentPermission,
         permissionMode,
         skillPermission,

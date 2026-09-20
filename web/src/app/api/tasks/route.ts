@@ -88,6 +88,7 @@ export async function POST(req: NextRequest) {
       files?: PromptFileInput[];
       agent?: string;
       accountId?: unknown;
+      accountIdExplicit?: unknown;
       subagentPermission?: unknown;
       permissionMode?: unknown;
       skillPermission?: unknown;
@@ -236,9 +237,13 @@ export async function POST(req: NextRequest) {
         { status: 400 },
       );
     }
+    // Soft body.accountId alone is a preference. Pin only when the client asks
+    // (accountIdExplicit) or the model string still carries an account prefix.
+    const requestedAccountExplicit =
+      body.accountIdExplicit === true || Boolean(requestedModel?.accountId);
     if (body.model && body.auto !== true) {
       await validateTaskModelSelection(body.model, accountId ?? null, {
-        accountIdExplicit: Boolean(accountId || requestedModel?.accountId),
+        accountIdExplicit: requestedAccountExplicit,
       });
     }
     let agent = body.agent?.trim() || undefined;
@@ -302,7 +307,9 @@ export async function POST(req: NextRequest) {
           ...(selectionModel ? { requestedModel: selectionModel } : {}),
           ...(accountId ? { accountId } : {}),
           // Pinned create (non-auto) must not silently pick another account for agent selection.
-          ...(body.auto !== true && accountId ? { accountIdExplicit: true } : {}),
+          ...(body.auto !== true && requestedAccountExplicit && accountId
+            ? { accountIdExplicit: true }
+            : {}),
         }));
     }
     const task = await createTask({
@@ -316,7 +323,7 @@ export async function POST(req: NextRequest) {
       accountId,
       ...(body.auto === true
         ? { accountIdExplicit: false }
-        : accountId
+        : requestedAccountExplicit
           ? { accountIdExplicit: true }
           : {}),
       subagentPermission,

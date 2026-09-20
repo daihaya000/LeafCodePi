@@ -38,8 +38,14 @@
 ### 検証（Tick4）
 `BotCodeSessionPanel` / `code-session/route` — **34 passed**
 
+### Tick5（ループ継続・通知 4–6 をまとめて消化）
+1. `POST /api/tasks` — soft `accountId` だけでは pin しない（`accountIdExplicit: true` またはモデル文字列の account 接頭辞のみ）
+2. `HomeView` — アカウント選択行から送るとき `accountIdExplicit: true` を明示
+
+### 検証（Tick5）
+`tasks/route.test` — **23 passed**
+
 ### 次 Tick 候補
-- HTTP `/api/tasks` が soft accountId を常に hard pin にする矛盾（HomeView と同時修正）
 - code-session GET の全タスク走査を bot 絞り込み先行に
 
 ---
