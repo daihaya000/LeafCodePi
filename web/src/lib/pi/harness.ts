@@ -7830,8 +7830,7 @@ function shouldDeferLiveSetting(
     isLiveBusyForReplace(live) ||
     task?.status === "working" ||
     isActiveGoalLoopSession(live.session) ||
-    isGoalLoopLiveStatus(loop?.status) ||
-    isGoalLoopOperatorHold(loop)
+    isGoalLoopSessionOwned(loop)
   );
 }
 
@@ -9120,8 +9119,9 @@ export async function abortTaskIncludingColdGoalLoop(id: string): Promise<TaskSu
   const live = state().live.get(id);
   if (!live) {
     const loop = readGoalLoopState(task.directory, task.sessionId);
-    // Operator-held pause keeps Code outbox open; cold abort must still /goal-stop.
-    if (isGoalLoopLiveStatus(loop?.status) || isGoalLoopOperatorHold(loop)) {
+    // Session-owned Goal Loop (live, paused including turn_limit, or blocked)
+    // must still receive /goal-stop — operator hold is not the only cold case.
+    if (isGoalLoopSessionOwned(loop)) {
       try {
         // ensureLive inside goalLoopCommand so /goal-stop can update goals-loop/*.json.
         await goalLoopCommand(id, { action: "stop" });
@@ -9261,7 +9261,7 @@ export function isTaskRuntimeBusyForDestructiveEdit(taskId: string): boolean {
     ? readGoalLoopState(task.directory, live?.session.sessionId ?? task.sessionId)
     : null;
   if (task?.status === "working") return true;
-  if (isGoalLoopLiveStatus(goalLoop?.status) || isGoalLoopOperatorHold(goalLoop)) return true;
+  if (isGoalLoopSessionOwned(goalLoop)) return true;
   if (getTaskHangWatch(taskId)?.state === "resolving") return true;
   // Own lease during provider-limit fallback, or a foreign worker's lease.
   if (hasActiveTaskLease(taskId)) return true;
@@ -9324,7 +9324,7 @@ function throwIfGoalLoopBlocksSessionReplace(
   sessionId?: string | null,
 ): void {
   const goalLoop = readGoalLoopState(task.directory, sessionId ?? task.sessionId);
-  if (isGoalLoopLiveStatus(goalLoop?.status) || isGoalLoopOperatorHold(goalLoop)) {
+  if (isGoalLoopSessionOwned(goalLoop)) {
     throw Object.assign(
       new Error("Goal loop の実行中はセッションを切り替えできません"),
       { status: 409 },

@@ -1,10 +1,18 @@
 import { EventEmitter } from "node:events";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { getTask, insertTask, patchTask, upsertProject } from "@/lib/store";
-import { abortLiveForHangWatchdog, abortTask, abortTaskIncludingColdGoalLoop, isStaleHarnessPrompt, waitForSessionStreaming } from "./harness";
+import { goalLoopStateFile } from "./goal-loop-state";
+import {
+  abortLiveForHangWatchdog,
+  abortTask,
+  abortTaskIncludingColdGoalLoop,
+  isStaleHarnessPrompt,
+  isTaskRuntimeBusyForDestructiveEdit,
+  waitForSessionStreaming,
+} from "./harness";
 import { armTaskHangWatch, getTaskHangWatch, stopHangWatchdogForTests } from "./hang-watchdog";
 
 const globalKey = "__leafcodePiHarness";
@@ -120,4 +128,33 @@ describe("harness lifecycle characterization", () => {
     expect(summary?.status).toBe("idle");
     expect(getTask(task.id)?.status).toBe("idle");
   });
+
+  it.each([
+    { status: "paused", pauseReason: "turn_limit" },
+    { status: "blocked" },
+  ] as const)(
+    "isTaskRuntimeBusyForDestructiveEdit when Goal Loop is $status",
+    (loopFields) => {
+      const root = mkdtempSync(join(tmpdir(), "leafcode-harness-busy-gl-"));
+      roots.push(root);
+      vi.stubEnv("LEAFCODE_PI_DATA_DIR", join(root, "data"));
+      vi.stubEnv("PI_CODING_AGENT_DIR", join(root, "agent"));
+      const project = upsertProject({ name: "busy-gl", rootPath: root });
+      const task = insertTask({ project, title: "Busy GL" });
+      patchTask(task.id, { status: "idle", sessionId: "busy-gl-session" });
+      mkdirSync(join(root, "data", "goals-loop"), { recursive: true });
+      writeFileSync(
+        goalLoopStateFile(task.directory, "busy-gl-session"),
+        JSON.stringify({
+          id: "loop-busy",
+          goal: "ship",
+          maxTurns: 3,
+          cooldownSeconds: 0,
+          ...loopFields,
+        }),
+        "utf8",
+      );
+      expect(isTaskRuntimeBusyForDestructiveEdit(task.id)).toBe(true);
+    },
+  );
 });

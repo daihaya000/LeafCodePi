@@ -270,8 +270,15 @@
 ### 検証（Tick37–39）
 `sse-ready-buffer` / `queued-follow-up` / `accounts` — **57 passed**
 
+### Tick40–41（ループ継続・通知 56–57・[Tick40-41 bug hunt](c81f35a4-91dd-4f00-b3a9-77430386ed59)）
+1. `isTaskRuntimeBusyForDestructiveEdit` / `abortTaskIncludingColdGoalLoop` / `throwIfGoalLoopBlocksSessionReplace` / defer busy — `isGoalLoopSessionOwned` に統一（turn_limit / blocked 取りこぼし解消）。outbox `isBusy` は意図どおり live+operatorHold のまま
+2. turn_limit / blocked の busy 回帰テストを追加
+
+### 検証（Tick40–41）
+`harness-lifecycle` — **7 passed**
+
 ### 次 Tick 候補
-- TaskView その他の競合 / harness busy ガードの sessionOwned 統一
+- code-session clear/unlink / `stopMatchedCodeSessions` の sessionOwned 整合
 
 
 
