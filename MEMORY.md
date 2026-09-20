@@ -91,8 +91,17 @@
 ### 検証（Tick11）
 `room-runtime` レースケース含む — **79 passed**
 
+### Tick12（ループ継続・通知 15–17）
+1. `peekCodeRequestProgress` — live セッションの latest-only 投影から `activity`（ツールラベル）を返す
+2. `BotCodeRequests` — `activity` を `CodeRequestCard` へ渡し、折りたたみ時もツール名を表示
+3. Room マージ — subscribe の label を peek の activity より優先
+
+### 検証（Tick12）
+`CodeRequestCard` / `BotView.code` / `room-runtime` — **120 passed**
+
 ### 次 Tick 候補
-- Bot 側 `BotCodeRequests` にも Room と同様の per-card `activity` 配線を揃える
+- cold（非 live）Code の activity は現状なし（許容）。必要なら transcript 末尾の軽量読取を検討
+
 
 
 ---

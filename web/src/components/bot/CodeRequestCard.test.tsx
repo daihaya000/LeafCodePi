@@ -43,6 +43,19 @@ describe("CodeRequestCard", () => {
     )).toBeTruthy();
   });
 
+  it("shows a list-provided activity label while collapsed without opening preview", () => {
+    const view = render(
+      <CodeRequestCard
+        taskId="task-1"
+        state="running"
+        activity="検索"
+        goalLoopSummary={{ status: "running", maxTurns: 10, turnCount: 2 }}
+      />,
+    );
+    expect(view.getByText("· 検索")).toBeTruthy();
+    expect(getJson).not.toHaveBeenCalled();
+  });
+
   it("does not overlap preview requests while the current poll is pending", async () => {
     vi.useFakeTimers();
     let resolveRequest!: (value: { task: null }) => void;

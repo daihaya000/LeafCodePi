@@ -1218,6 +1218,7 @@ it("renders delegated Code requests as ID-linked previews in the Bot conversatio
     prompt: "実装を確認",
     queuedAt: 1,
     goalLoopSummary: { status: "running", maxTurns: 10, turnCount: 4 },
+    activity: "検索",
   };
   mocks.getJson.mockImplementation(async (url: string) => {
     if (url === "/api/models") return { models: [] };
@@ -1239,6 +1240,7 @@ it("renders delegated Code requests as ID-linked previews in the Bot conversatio
   expect(mocks.getJson).not.toHaveBeenCalledWith("/api/tasks/old-task");
   expect(screen.getByRole("link", { name: "実行内容を見る" }).getAttribute("href")).toBe("/task/task-1");
   expect(screen.getByRole("status").textContent).toBe("Code実行中");
+  expect(screen.getByText("· 検索")).toBeTruthy();
   const progress = await screen.findByRole("progressbar", { name: "Codeのループ進捗" });
   expect(progress.getAttribute("aria-valuenow")).toBe("40");
   expect(progress.getAttribute("aria-valuemax")).toBe("100");

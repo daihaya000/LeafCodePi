@@ -15,6 +15,7 @@ type RequestSummary = {
   goalLoop?: CodeRequestGoalLoopReport;
   goalLoopSummary?: { status: string; maxTurns: number; turnCount: number };
   todoProgress?: { completed: number; total: number };
+  activity?: string;
   queuedAt?: number;
 };
 
@@ -107,5 +108,5 @@ export function BotCodeRequests({ botId, requestIds, active = true }: { botId: s
   if (!active) return null;
   const matching = requests.filter((request) => requestIds.includes(request.id));
   if (matching.length === 0) return null;
-  return <section aria-label="Code依頼" className="mt-3 space-y-2"><h3 className="text-sm font-medium">Code依頼</h3>{matching.map((request) => <CodeRequestCard key={request.id} taskId={request.codeTaskId} state={request.state} prompt={request.prompt} outcome={request.outcome} goalLoop={request.goalLoop} goalLoopSummary={request.goalLoopSummary} todoProgress={request.todoProgress} stopping={stopping === request.id} onStop={() => void stop(request.id)} />)}{error && <p role="alert" className="text-xs text-danger">{error}</p>}</section>;
+  return <section aria-label="Code依頼" className="mt-3 space-y-2"><h3 className="text-sm font-medium">Code依頼</h3>{matching.map((request) => <CodeRequestCard key={request.id} taskId={request.codeTaskId} state={request.state} prompt={request.prompt} outcome={request.outcome} goalLoop={request.goalLoop} goalLoopSummary={request.goalLoopSummary} todoProgress={request.todoProgress} activity={request.activity} stopping={stopping === request.id} onStop={() => void stop(request.id)} />)}{error && <p role="alert" className="text-xs text-danger">{error}</p>}</section>;
 }

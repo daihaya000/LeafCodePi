@@ -125,6 +125,7 @@ import {
   setProviderBaseUrl as setProviderBaseUrlFromEndpoints,
 } from "@/lib/provider-endpoints";
 import { isGoalLoopLiveStatus, readGoalLoopState } from "@/lib/pi/goal-loop-state";
+import { activeToolLabel } from "@/lib/tool-labels";
 import { acquireTaskLease, hasActiveTaskLease, ownsTaskLease, releaseTaskLease, reconcileOrphanedWorkingTasks } from "@/lib/task-runtime-lease";
 import {
   todoProgressFromTodos,
@@ -4042,6 +4043,7 @@ function toGoalLoopSummary(
 export async function peekCodeRequestProgress(taskId: string): Promise<{
   todoProgress?: TodoProgressDto;
   goalLoopSummary?: GoalLoopSummaryDto;
+  activity?: string;
 }> {
   const task = getTask(taskId);
   if (!task) return {};
@@ -4061,9 +4063,26 @@ export async function peekCodeRequestProgress(taskId: string): Promise<{
       /* Goal loop summary above is enough when Pi cannot open. */
     }
   }
+  // Latest-only projection keeps Bot list polls off the full transcript path.
+  let activity: string | undefined;
+  const live = state().live.get(taskId);
+  if (live) {
+    const message =
+      snapshotMessages(
+        live.session,
+        live.throughputByStartedAt,
+        live.toolStartedAt,
+        live.toolEndedAt,
+        live.toolPartialOutputByCallId,
+        true,
+        messageContext(live),
+      ).at(-1) ?? null;
+    activity = activeToolLabel(message)?.slice(0, 80);
+  }
   return {
     ...(todoProgress ? { todoProgress } : {}),
     ...(goalLoopSummary ? { goalLoopSummary } : {}),
+    ...(activity ? { activity } : {}),
   };
 }
 

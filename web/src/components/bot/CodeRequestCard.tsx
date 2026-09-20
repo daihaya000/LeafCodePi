@@ -136,7 +136,7 @@ export function CodeRequestCard({
   const progressTotal = loopActive ? (loopPercent === null ? undefined : 100) : todoTotal;
   const progressValue = loopActive ? loopPercent ?? undefined : todoCompleted;
   const succeeded = state === "delivered" && (outcome === undefined || SUCCESS_OUTCOMES.has(outcome));
-  // Rooms push the live tool label with the message; the Bot screen derives it from the polled task.
+  // Live tool label comes from list props (Bot peek / Room mirror); open preview can refine it.
   const runningLabel = activity || (live && open ? activeToolLabel(task?.messages?.at(-1)) : undefined);
   const changedFiles = changedFilePaths(task?.messages);
 

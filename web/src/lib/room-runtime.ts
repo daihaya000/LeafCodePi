@@ -64,8 +64,9 @@ function trackRoomCodeProgress(roomId: string, request: CodeRequest): void {
             card.id === request.id
               ? {
                   ...card,
-                  ...(label ? { activity: label } : {}),
                   ...progress,
+                  // Subscribe label wins over peek activity (fresher on Room SSE).
+                  ...(label ? { activity: label } : {}),
                 }
               : card,
           ),
