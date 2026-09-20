@@ -325,6 +325,7 @@ function AgentToolsSettings({
 function AutoAgentPromptSettings() {
   const [prompt, setPrompt] = useState("");
   const [savedPrompt, setSavedPrompt] = useState("");
+  const [editing, setEditing] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -337,6 +338,7 @@ function AutoAgentPromptSettings() {
         const value = result.value ?? result.defaultPrompt ?? "";
         setPrompt(value);
         setSavedPrompt(value);
+        setEditing(false);
         setError(null);
         setNotice(null);
       })
@@ -367,6 +369,7 @@ function AutoAgentPromptSettings() {
       const value = result.value ?? result.defaultPrompt ?? "";
       setPrompt(value);
       setSavedPrompt(value);
+      setEditing(false);
       setNotice("保存しました。次回のAutoエージェント選定から有効です。");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Autoエージェント設定の保存に失敗しました");
@@ -377,35 +380,71 @@ function AutoAgentPromptSettings() {
 
   return (
     <section aria-labelledby="auto-agent-prompt-heading" className="mt-4 rounded-xl border border-border bg-surface-2 p-3">
-      <h3 id="auto-agent-prompt-heading" className="text-sm font-medium">Autoエージェント</h3>
-      <p className="mt-1 text-xs text-muted">
-        会話内容から担当エージェントを選ぶモデルに渡すプロンプトです。空欄で保存すると既定の選定指示に戻ります。
-      </p>
-      <label className="mt-3 block text-sm">
-        <span className={LABEL_CLASS}>モデル選定者向けプロンプト</span>
-        <textarea
-          aria-label="モデル選定者向けプロンプト"
-          value={prompt}
-          maxLength={AUTO_AGENT_PROMPT_MAX_LENGTH}
-          rows={14}
-          spellCheck={false}
-          disabled={disabled}
-          onChange={(event) => {
-            setPrompt(event.target.value);
-            setNotice(null);
-          }}
-          className="mt-1 w-full resize-none overflow-hidden rounded-lg border border-border bg-surface-2 px-3 py-2 font-mono text-xs leading-5 text-text outline-none [field-sizing:content] focus:border-accent disabled:opacity-50"
-          placeholder="Autoエージェントの規定プロンプト"
-        />
-      </label>
-      <div className="mt-2 flex flex-wrap items-center justify-end gap-2">
-        <Button type="button" variant="secondary" size="sm" disabled={disabled} onClick={() => reload()}>
-          再読込
-        </Button>
-        <Button type="button" variant="primary" size="sm" busy={saving} disabled={disabled || !dirty} onClick={() => void save()}>
-          保存
-        </Button>
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div className="min-w-0">
+          <h3 id="auto-agent-prompt-heading" className="text-sm font-medium">Autoエージェント</h3>
+          <p className="mt-1 text-xs text-muted">
+            会話内容から担当エージェントを選ぶモデルに渡すプロンプトです。空欄で保存すると既定の選定指示に戻ります。
+          </p>
+        </div>
+        {!loading && !editing && (
+          <Button type="button" variant="secondary" size="sm" onClick={() => { setEditing(true); setNotice(null); }}>
+            編集
+          </Button>
+        )}
       </div>
+      {loading ? (
+        <p className="mt-3 text-sm text-muted">読み込み中…</p>
+      ) : !editing ? (
+        prompt.trim() ? (
+          <pre
+            aria-label="モデル選定者向けプロンプト"
+            className="mt-3 whitespace-pre-wrap break-words rounded-lg border border-border bg-surface-2 px-3 py-2 font-mono text-xs leading-5 text-text"
+          >
+            {prompt}
+          </pre>
+        ) : (
+          <p className="mt-3 text-sm text-muted">規定プロンプトは空です。</p>
+        )
+      ) : (
+        <>
+          <textarea
+            aria-label="モデル選定者向けプロンプト"
+            value={prompt}
+            maxLength={AUTO_AGENT_PROMPT_MAX_LENGTH}
+            rows={14}
+            spellCheck={false}
+            disabled={disabled}
+            onChange={(event) => {
+              setPrompt(event.target.value);
+              setNotice(null);
+            }}
+            className="mt-3 w-full resize-none overflow-hidden rounded-lg border border-border bg-surface-2 px-3 py-2 font-mono text-xs leading-5 text-text outline-none [field-sizing:content] focus:border-accent disabled:opacity-50"
+            placeholder="Autoエージェントの規定プロンプト"
+          />
+          <div className="mt-2 flex flex-wrap items-center justify-end gap-2">
+            <Button type="button" variant="secondary" size="sm" disabled={disabled} onClick={() => reload()}>
+              再読み込み
+            </Button>
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              disabled={disabled}
+              onClick={() => {
+                setPrompt(savedPrompt);
+                setEditing(false);
+                setNotice(null);
+              }}
+            >
+              キャンセル
+            </Button>
+            <Button type="button" variant="primary" size="sm" busy={saving} disabled={disabled || !dirty} onClick={() => void save()}>
+              保存
+            </Button>
+          </div>
+        </>
+      )}
       {error && <p className="mt-2 text-xs text-danger" role="alert">{error}</p>}
       {notice && <p className="mt-2 text-xs text-success" role="status">{notice}</p>}
     </section>

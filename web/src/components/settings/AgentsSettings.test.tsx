@@ -400,15 +400,21 @@ describe("AgentsSettings", () => {
     expect(document.activeElement).toBe(createButton);
   });
 
-  it("loads the default Auto agent selector prompt into one editable field and saves it", async () => {
+  it("shows the Auto prompt and enters edit mode from the 編集 button", async () => {
     render(<AgentsSettings />);
 
-    const prompt = await screen.findByRole("textbox", { name: "モデル選定者向けプロンプト" }) as HTMLTextAreaElement;
+    expect(screen.queryByRole("textbox", { name: "モデル選定者向けプロンプト" })).toBeNull();
+    fireEvent.click(await screen.findByRole("button", { name: "編集" }));
+
+    const prompt = screen.getByRole("textbox", { name: "モデル選定者向けプロンプト" }) as HTMLTextAreaElement;
     expect(prompt.value).toBe("既定の選定プロンプト\n{\"agent\":\"候補名\"}");
     expect(prompt.readOnly).toBe(false);
-    expect(screen.queryByRole("textbox", { name: "Autoエージェントの規定プロンプト" })).toBeNull();
 
     fireEvent.change(prompt, { target: { value: "現在の依頼に最適な候補を選ぶ" } });
+    sendJson.mockResolvedValueOnce({
+      value: "現在の依頼に最適な候補を選ぶ",
+      defaultPrompt: "既定の選定プロンプト\n{\"agent\":\"候補名\"}",
+    });
     fireEvent.click(screen.getByRole("button", { name: "保存" }));
 
     await waitFor(() => {
@@ -417,6 +423,7 @@ describe("AgentsSettings", () => {
         { value: "現在の依頼に最適な候補を選ぶ" },
         "PUT",
       );
+      expect(screen.queryByRole("textbox", { name: "モデル選定者向けプロンプト" })).toBeNull();
     });
   });
 });
