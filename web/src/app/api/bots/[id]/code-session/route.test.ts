@@ -241,6 +241,13 @@ describe("Bot Code session control", () => {
   it("still allows pause/stop on a linked Code Goal Loop after disable", async () => {
     mocks.getBot.mockReturnValue({ ...bot, enabled: false, codeSessionTaskId: "code-1" });
     mocks.getTask.mockReturnValue({ id: "code-1", status: "working", botId: "bot-1" });
+    mocks.stopBotCodeTask.mockResolvedValue({
+      id: "code-1",
+      status: "idle",
+      directory: "/tmp/code",
+      sessionId: "sess-1",
+    });
+    mocks.readGoalLoopState.mockReturnValue({ id: "loop-1", status: "stopped", maxTurns: 3, turnCount: 1 });
 
     const response = await PATCH(
       request("PATCH", { action: "goal-loop", goalLoopAction: "stop" }),
@@ -248,7 +255,12 @@ describe("Bot Code session control", () => {
     );
 
     expect(response.status).toBe(200);
-    expect(mocks.goalLoopCommand).toHaveBeenCalledWith("code-1", { action: "stop", maxTurns: undefined });
+    expect(mocks.stopBotCodeTask).toHaveBeenCalledWith("bot-1", "code-1");
+    expect(mocks.goalLoopCommand).not.toHaveBeenCalled();
+    expect(mocks.readGoalLoopState).toHaveBeenCalledWith("/tmp/code", "sess-1");
+    await expect(response.json()).resolves.toEqual({
+      loop: { id: "loop-1", status: "stopped", maxTurns: 3, turnCount: 1 },
+    });
   });
 
   it("clears an archived linked task", async () => {

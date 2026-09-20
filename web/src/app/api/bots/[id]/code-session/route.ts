@@ -244,6 +244,13 @@ export async function PATCH(
         if (body.goalLoopAction === "resume" && bot.enabled === false) {
           return NextResponse.json({ error: "無効なボットではGoal Loopを再開できません" }, { status: 403 });
         }
+        // Goal Loop "停止" must mark the Bot Code outbox stoppedByUser (same as action:abort),
+        // otherwise the report turn can start another Code follow-up.
+        if (body.goalLoopAction === "stop") {
+          const task = await stopBotCodeTask(id, taskId);
+          const loop = readGoalLoopState(task.directory, task.sessionId);
+          return NextResponse.json({ loop });
+        }
         const loop = await goalLoopCommand(taskId, {
           action: body.goalLoopAction,
           maxTurns:

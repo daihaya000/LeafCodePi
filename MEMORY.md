@@ -125,8 +125,15 @@
 ### 検証（Tick16）
 `bot-code-relay` Room 進捗保持 — **76 passed**
 
+### Tick17（ループ継続・通知 25–27）
+1. `code-session` Goal Loop `stop` — `goalLoopCommand` ではなく `stopBotCodeTask` 経由にし、outbox に `stoppedByUser` を付けて追従 Code を拒否する
+
+### 検証（Tick17）
+`code-session/route` — **27 passed**
+
 ### 次 Tick 候補
 - cold（非 live）Code の activity は現状なし（許容）
+
 
 
 

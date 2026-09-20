@@ -219,6 +219,8 @@ export function BotCodeSessionPanel({
             : task,
         ),
       );
+      // Stop goes through stopBotCodeTask — refresh summaries so idle/outbox state matches.
+      if (action === "stop") await load();
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Goal Loopの操作に失敗しました");
     } finally {
