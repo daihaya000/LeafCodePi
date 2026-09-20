@@ -3,7 +3,13 @@
 import { useEffect, useState } from "react";
 import { getJson } from "@/lib/client";
 import { activeToolLabel, changedFilePaths } from "@/lib/tool-labels";
-import type { CodeRequestGoalLoopReport, CodeRequestState, TaskDetail } from "@/lib/types";
+import type {
+  CodeRequestGoalLoopReport,
+  CodeRequestState,
+  GoalLoopSummaryDto,
+  TaskDetail,
+  TodoProgressDto,
+} from "@/lib/types";
 import { BotMessageMarkdown } from "@/components/bot/BotMessageList";
 
 const CODE_STATE_TEXT: Record<CodeRequestState, string> = {
@@ -43,6 +49,8 @@ export function CodeRequestCard({
   state,
   outcome,
   goalLoop,
+  goalLoopSummary,
+  todoProgress: todoProgressProp,
   activity,
   stopping,
   onStop,
@@ -54,6 +62,10 @@ export function CodeRequestCard({
   outcome?: string;
   /** Loop verdict of a finished run, so the promise and the blocker are readable without opening Code. */
   goalLoop?: CodeRequestGoalLoopReport;
+  /** Live loop progress from code-requests list (no full task detail). */
+  goalLoopSummary?: GoalLoopSummaryDto;
+  /** Live ToDo progress from code-requests list (no full task detail). */
+  todoProgress?: TodoProgressDto;
   activity?: string;
   stopping?: boolean;
   onStop?: () => void;
@@ -64,8 +76,9 @@ export function CodeRequestCard({
   const [error, setError] = useState<string | null>(null);
   const live = state === "queued" || state === "starting" || state === "running";
 
+  // Full detail (messages) only while the preview is open — live progress comes from list props.
   useEffect(() => {
-    if (!taskId || (!live && !open)) {
+    if (!taskId || !open) {
       setTask(null);
       setError(null);
       setLoading(false);
@@ -102,13 +115,15 @@ export function CodeRequestCard({
 
   const output = task ? latestCodeOutput(task) : "";
   const preview = output.length > 4_000 ? `${output.slice(0, 4_000)}\n…（以降省略）` : output;
-  const loop = task?.goalLoopSummary;
+  const loop = task?.goalLoopSummary ?? goalLoopSummary ?? (goalLoop
+    ? { status: goalLoop.status, maxTurns: goalLoop.maxTurns, turnCount: goalLoop.turnCount }
+    : undefined);
   const loopActive = Boolean(loop && LIVE_GOAL_LOOP_STATUSES.has(loop.status));
   const loopTurn = loop ? Math.max(0, Math.trunc(loop.turnCount)) + (loop.status === "queued" ? 1 : 0) : 0;
   const loopTotal = loop && Number.isFinite(loop.maxTurns) ? Math.max(0, Math.trunc(loop.maxTurns)) : 0;
   const loopShownTurn = loopTotal > 0 ? Math.min(loopTurn, loopTotal) : loopTurn;
   const loopPercent = loopTotal > 0 ? Math.round((loopShownTurn / loopTotal) * 100) : null;
-  const todoProgress = task?.todoProgress;
+  const todoProgress = task?.todoProgress ?? todoProgressProp;
   const todoTotal = todoProgress && Number.isFinite(todoProgress.total) ? Math.trunc(todoProgress.total) : 0;
   const todoCompleted = todoTotal > 0 && todoProgress && Number.isFinite(todoProgress.completed)
     ? Math.min(todoTotal, Math.max(0, Math.trunc(todoProgress.completed)))
@@ -122,7 +137,7 @@ export function CodeRequestCard({
   const progressValue = loopActive ? loopPercent ?? undefined : todoCompleted;
   const succeeded = state === "delivered" && (outcome === undefined || SUCCESS_OUTCOMES.has(outcome));
   // Rooms push the live tool label with the message; the Bot screen derives it from the polled task.
-  const runningLabel = activity || (live ? activeToolLabel(task?.messages?.at(-1)) : undefined);
+  const runningLabel = activity || (live && open ? activeToolLabel(task?.messages?.at(-1)) : undefined);
   const changedFiles = changedFilePaths(task?.messages);
 
   return (

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getBot } from "@/lib/bots";
 import { listBotCodeRequests, stopBotCodeRequest } from "@/lib/pi/bot-code-relay";
-import { abortTaskIncludingColdGoalLoop, completeBotCodeRequest, jsonError } from "@/lib/pi/harness";
+import { abortTaskIncludingColdGoalLoop, completeBotCodeRequest, jsonError, peekCodeRequestProgress } from "@/lib/pi/harness";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -9,7 +9,11 @@ export const dynamic = "force-dynamic";
 export async function GET(_request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const id = (await params).id;
   if (!getBot(id)) return NextResponse.json({ error: "ボットが見つかりません" }, { status: 404 });
-  return NextResponse.json({ requests: listBotCodeRequests(id) });
+  const requests = listBotCodeRequests(id).map((request) => {
+    if (!request.codeTaskId) return request;
+    return { ...request, ...peekCodeRequestProgress(request.codeTaskId) };
+  });
+  return NextResponse.json({ requests });
 }
 
 /** Stop one Code request from the Bot conversation. Finished work is not undone; the outbox still reports it. */

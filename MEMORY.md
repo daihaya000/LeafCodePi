@@ -60,8 +60,16 @@
 ### 検証（Tick7）
 `BotCodeSessionPanel.test` — **7 passed**
 
+### Tick8（ループ継続・通知 9–10 をまとめて消化）
+1. `peekCodeRequestProgress` + `GET code-requests` — 一覧に軽量 progress を同梱
+2. `CodeRequestCard` — 折りたたみ中は full detail を取らない（プレビュー開時のみ `/api/tasks/:id`）
+3. `BotCodeRequests` — hidden タブでは一覧 poll をスキップ
+
+### 検証（Tick8）
+`CodeRequestCard` / `BotView.code` — **68 passed**
+
 ### 次 Tick 候補
-- CodeRequestCard の live 中フル detail ポーリングを一覧 API に寄せる
+- （新規調査）
 
 ---
 

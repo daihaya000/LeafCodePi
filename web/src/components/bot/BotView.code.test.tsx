@@ -1173,7 +1173,14 @@ it("refreshes Code requests when stopping during an in-flight poll", async () =>
 });
 
 it("renders delegated Code requests as ID-linked previews in the Bot conversation", async () => {
-  const request = { id: "request-1", codeTaskId: "task-1", state: "running", prompt: "実装を確認", queuedAt: 1 };
+  const request = {
+    id: "request-1",
+    codeTaskId: "task-1",
+    state: "running",
+    prompt: "実装を確認",
+    queuedAt: 1,
+    goalLoopSummary: { status: "running", maxTurns: 10, turnCount: 4 },
+  };
   mocks.getJson.mockImplementation(async (url: string) => {
     if (url === "/api/models") return { models: [] };
     if (url.endsWith("/routines")) return { routines: [] };
@@ -1198,7 +1205,7 @@ it("renders delegated Code requests as ID-linked previews in the Bot conversatio
   expect(progress.getAttribute("aria-valuenow")).toBe("40");
   expect(progress.getAttribute("aria-valuemax")).toBe("100");
   expect(progress.getAttribute("aria-valuetext")).toBe("ループ 4/10ターン（40%）");
-  expect(mocks.getJson).toHaveBeenCalledWith("/api/tasks/task-1");
+  expect(mocks.getJson).not.toHaveBeenCalledWith("/api/tasks/task-1");
   fireEvent.click(screen.getByRole("button", { name: "プレビュー" }));
   expect(await screen.findByText("変更案")).toBeTruthy();
   expect(mocks.getJson).toHaveBeenCalledWith("/api/tasks/task-1");

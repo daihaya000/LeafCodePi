@@ -5,7 +5,18 @@ import { getJson, sendJson } from "@/lib/client";
 import type { CodeRequestGoalLoopReport, CodeRequestState } from "@/lib/types";
 import { CodeRequestCard } from "@/components/bot/CodeRequestCard";
 
-type RequestSummary = { id: string; codeTaskId: string | null; state: CodeRequestState; prompt: string; result?: string; outcome?: string; goalLoop?: CodeRequestGoalLoopReport; queuedAt?: number };
+type RequestSummary = {
+  id: string;
+  codeTaskId: string | null;
+  state: CodeRequestState;
+  prompt: string;
+  result?: string;
+  outcome?: string;
+  goalLoop?: CodeRequestGoalLoopReport;
+  goalLoopSummary?: { status: string; maxTurns: number; turnCount: number };
+  todoProgress?: { completed: number; total: number };
+  queuedAt?: number;
+};
 
 type RequestCacheEntry = { requests: RequestSummary[]; fetchedAt: number; subscribers: number; generation: number; pending?: Promise<RequestSummary[]> };
 const REQUEST_CACHE_TTL_MS = 500;
@@ -64,6 +75,10 @@ export function BotCodeRequests({ botId, requestIds, active = true }: { botId: s
     let timer: number | undefined;
     const poll = async () => {
       if (closed) return;
+      if (document.visibilityState === "hidden") {
+        timer = window.setTimeout(() => void poll(), 2_000);
+        return;
+      }
       const next = await load();
       if (closed) return;
       const matching = next?.filter((request) => pollingRequestIds.has(request.id)) ?? [];
@@ -86,5 +101,5 @@ export function BotCodeRequests({ botId, requestIds, active = true }: { botId: s
   if (!active) return null;
   const matching = requests.filter((request) => requestIds.includes(request.id));
   if (matching.length === 0) return null;
-  return <section aria-label="Code依頼" className="mt-3 space-y-2"><h3 className="text-sm font-medium">Code依頼</h3>{matching.map((request) => <CodeRequestCard key={request.id} taskId={request.codeTaskId} state={request.state} prompt={request.prompt} outcome={request.outcome} goalLoop={request.goalLoop} stopping={stopping === request.id} onStop={() => void stop(request.id)} />)}{error && <p role="alert" className="text-xs text-danger">{error}</p>}</section>;
+  return <section aria-label="Code依頼" className="mt-3 space-y-2"><h3 className="text-sm font-medium">Code依頼</h3>{matching.map((request) => <CodeRequestCard key={request.id} taskId={request.codeTaskId} state={request.state} prompt={request.prompt} outcome={request.outcome} goalLoop={request.goalLoop} goalLoopSummary={request.goalLoopSummary} todoProgress={request.todoProgress} stopping={stopping === request.id} onStop={() => void stop(request.id)} />)}{error && <p role="alert" className="text-xs text-danger">{error}</p>}</section>;
 }

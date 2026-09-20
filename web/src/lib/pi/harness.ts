@@ -4035,6 +4035,34 @@ function toGoalLoopSummary(
   };
 }
 
+/**
+ * Cheap progress for Code request cards while collapsed. Avoids full
+ * getTaskDetail / message hydration on every Bot code-requests poll.
+ */
+export function peekCodeRequestProgress(taskId: string): {
+  todoProgress?: TodoProgressDto;
+  goalLoopSummary?: GoalLoopSummaryDto;
+} {
+  const task = getTask(taskId);
+  if (!task) return {};
+  const summary = toSummary(task);
+  let goalLoopSummary = summary.goalLoopSummary;
+  if (!goalLoopSummary && task.sessionId) {
+    goalLoopSummary = toGoalLoopSummary(
+      readGoalLoopState(task.directory, task.sessionId),
+    );
+  }
+  let todoProgress = summary.todoProgress;
+  const pi = state().pi;
+  if (!todoProgress && pi && task.sessionFile && !state().live.has(taskId)) {
+    todoProgress = readTodoProgress(pi, summary);
+  }
+  return {
+    ...(todoProgress ? { todoProgress } : {}),
+    ...(goalLoopSummary ? { goalLoopSummary } : {}),
+  };
+}
+
 function pendingSummaryOverlay(live: LiveRuntime): Partial<TaskSummary> {
   const pending = live.pendingSettings;
   const pendingModel = pending?.model?.route;

@@ -29,6 +29,20 @@ describe("CodeRequestCard", () => {
     await waitFor(() => expect(getJson).toHaveBeenCalledTimes(1));
   });
 
+  it("does not fetch full detail while live and collapsed", async () => {
+    render(
+      <CodeRequestCard
+        taskId="task-1"
+        state="running"
+        goalLoopSummary={{ status: "running", maxTurns: 10, turnCount: 4 }}
+      />,
+    );
+    expect(getJson).not.toHaveBeenCalled();
+    expect(await waitFor(() =>
+      document.querySelector('[aria-label="Codeのループ進捗"]'),
+    )).toBeTruthy();
+  });
+
   it("does not overlap preview requests while the current poll is pending", async () => {
     vi.useFakeTimers();
     let resolveRequest!: (value: { task: null }) => void;
@@ -37,7 +51,8 @@ describe("CodeRequestCard", () => {
     });
     getJson.mockReturnValue(pendingRequest);
 
-    render(<CodeRequestCard taskId="task-1" state="running" />);
+    const view = render(<CodeRequestCard taskId="task-1" state="running" />);
+    fireEvent.click(view.getByRole("button", { name: "プレビュー" }));
     expect(getJson).toHaveBeenCalledTimes(1);
 
     await act(async () => {
