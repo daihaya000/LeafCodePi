@@ -21,6 +21,7 @@ const mocks = vi.hoisted(() => ({
   getTask: vi.fn(),
   listRooms: vi.fn(() => [] as { id: string; members: string[] }[]),
   patchRoom: vi.fn(),
+  removeRoomMember: vi.fn(),
   detachBotFromRoomRuntime: vi.fn(async () => undefined),
   stopAllCodeSessionsForBot: vi.fn(async () => 0),
   stopOneToOneCodeSessionsForBot: vi.fn(async () => 0),
@@ -51,7 +52,7 @@ vi.mock("@/lib/pi/harness", () => ({
   abortTaskIncludingColdGoalLoop: mocks.abortTaskIncludingColdGoalLoop,
 }));
 vi.mock("@/lib/store", () => ({ listTasks: mocks.listTasks, getTask: mocks.getTask }));
-vi.mock("@/lib/rooms", () => ({ listRooms: mocks.listRooms, patchRoom: mocks.patchRoom }));
+vi.mock("@/lib/rooms", () => ({ listRooms: mocks.listRooms, patchRoom: mocks.patchRoom, removeRoomMember: mocks.removeRoomMember }));
 vi.mock("@/lib/room-runtime", () => ({ detachBotFromRoomRuntime: mocks.detachBotFromRoomRuntime }));
 vi.mock("@/lib/pi/bot-code-relay", () => ({
   stopAllCodeSessionsForBot: mocks.stopAllCodeSessionsForBot,
@@ -366,7 +367,7 @@ describe("DELETE /api/bots/[id]", () => {
   it("keeps the Bot when Room membership cleanup fails", async () => {
     mocks.getBot.mockReturnValue(bot());
     mocks.listRooms.mockReturnValue([{ id: "room-a", members: ["one"] }]);
-    mocks.patchRoom.mockImplementationOnce(() => { throw new Error("room write failed"); });
+    mocks.removeRoomMember.mockImplementationOnce(() => { throw new Error("room write failed"); });
 
     await expect(DELETE(emptyRequest(), params("one"))).rejects.toThrow("room write failed");
     expect(mocks.deleteBot).not.toHaveBeenCalled();
@@ -384,8 +385,8 @@ describe("DELETE /api/bots/[id]", () => {
     expect(response.status).toBe(200);
     expect(mocks.detachBotFromRoomRuntime).toHaveBeenCalledWith("room-a", "one");
     expect(mocks.detachBotFromRoomRuntime).not.toHaveBeenCalledWith("room-b", "one");
-    expect(mocks.patchRoom).toHaveBeenCalledTimes(1);
-    expect(mocks.patchRoom).toHaveBeenCalledWith("room-a", { members: ["two"] });
+    expect(mocks.removeRoomMember).toHaveBeenCalledTimes(1);
+    expect(mocks.removeRoomMember).toHaveBeenCalledWith("room-a", "one");
   });
 
   it("returns 404 without tearing down resources when the bot does not exist", async () => {
@@ -395,6 +396,6 @@ describe("DELETE /api/bots/[id]", () => {
     expect(mocks.stopAllCodeSessionsForBot).not.toHaveBeenCalled();
     expect(mocks.destroyTask).not.toHaveBeenCalled();
     expect(mocks.deleteBot).not.toHaveBeenCalled();
-    expect(mocks.patchRoom).not.toHaveBeenCalled();
+    expect(mocks.removeRoomMember).not.toHaveBeenCalled();
   });
 });

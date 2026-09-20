@@ -6,7 +6,7 @@ import { isThinkingLevel } from "@/lib/thinking-levels";
 import { isAvatarColor, isAvatarEyeColor, isAvatarImage, isAvatarShape } from "@/lib/bot-avatar";
 import { isAbsolutePath } from "@/lib/paths";
 import { getTask, listTasks } from "@/lib/store";
-import { listRooms, patchRoom } from "@/lib/rooms";
+import { listRooms, removeRoomMember } from "@/lib/rooms";
 import { stopAllCodeSessionsForBot, stopOneToOneCodeSessionsForBot } from "@/lib/pi/bot-code-relay";
 import { detachBotFromRoomRuntime } from "@/lib/room-runtime";
 import { isWebUiRequestAuthorized } from "@/lib/webui-auth";
@@ -211,9 +211,7 @@ export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ 
   }
   // Remove membership before deleting the Bot so a Room write failure leaves a retryable Bot.
   // A dangling id keeps a member slot and shows up in every room snapshot until cleanup succeeds.
-  for (const room of rooms) {
-    patchRoom(room.id, { members: room.members.filter((member) => member !== id) });
-  }
+  for (const room of rooms) removeRoomMember(room.id, id);
   const deleted = deleteBot(id);
   if (!deleted) return NextResponse.json({ error: "\u30dc\u30c3\u30c8\u304c\u898b\u3064\u304b\u308a\u307e\u305b\u3093" }, { status: 404 });
   return NextResponse.json({ ok: true });

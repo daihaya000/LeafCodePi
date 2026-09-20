@@ -224,6 +224,19 @@ export function patchRoom(id: string, patch: { name?: string; members?: string[]
     return room;
   });
 }
+/** Remove one member under the room lock so concurrent membership edits are preserved. */
+export function removeRoomMember(id: string, memberId: string): RoomDto | undefined {
+  return withRoomLock(id, () => {
+    const room = readRoom(id);
+    if (!room) return undefined;
+    const members = room.members.filter((member) => member !== memberId);
+    if (members.length === room.members.length) return room;
+    room.members = members;
+    room.updatedAt = new Date().toISOString();
+    writeRoom(room);
+    return room;
+  });
+}
 export function deleteRoom(id: string): boolean {
   return withRoomLock(id, () => {
     if (!readRoom(id)) return false;

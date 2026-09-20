@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const testState = vi.hoisted(() => ({ root: "" }));
 vi.mock("./paths", async (importOriginal) => { const actual = await importOriginal<typeof import("./paths")>(); return { ...actual, dataDir: () => testState.root, storePath: () => join(testState.root, "store.json") }; });
 import { botTaskId, createBot, deleteBot, patchBot } from "./bots";
-import { appendRoomMessage, botsForRoomPrompt, consumeRoomRelayEnvelope, createRoom, deleteRoom, ensureRoomBotTask, getRoom, issueRoomRelayEnvelope, patchRoom, readRoomFile, readRoomImage, roomFileRejection, roomImageRejection, roomRequestFiles, roomRequestImages, saveRoomFiles, saveRoomImages, updateRoomMessage } from "./rooms";
+import { appendRoomMessage, botsForRoomPrompt, consumeRoomRelayEnvelope, createRoom, deleteRoom, ensureRoomBotTask, getRoom, issueRoomRelayEnvelope, patchRoom, readRoomFile, readRoomImage, removeRoomMember, roomFileRejection, roomImageRejection, roomRequestFiles, roomRequestImages, saveRoomFiles, saveRoomImages, updateRoomMessage } from "./rooms";
 import { MAX_PROMPT_FILE_TOTAL_BYTES, MAX_PROMPT_IMAGE_TOTAL_BYTES } from "./prompt-images";
 import { getTask } from "./store";
 import { isRoomNameWithinSize, MAX_ROOM_NAME_CHARS } from "./rooms";
@@ -32,6 +32,14 @@ describe("room store and mention routing", () => {
     expect(getRoom(room.id)?.members).toEqual([first.id, second.id]);
     expect(readFileSync(join(root, "bots", "rooms", `${room.id}.json`), "utf8")).toContain('"members"');
     expect(patchRoom(room.id, { members: [second.id] })?.members).toEqual([second.id]);
+  });
+
+  it("removes a member under the room lock without overwriting other members", () => {
+    const first = createBot({ name: "Alpha" });
+    const second = createBot({ name: "Beta" });
+    const room = createRoom({ members: [first.id, second.id] });
+    expect(removeRoomMember(room.id, first.id)?.members).toEqual([second.id]);
+    expect(getRoom(room.id)?.members).toEqual([second.id]);
   });
 
   it("rejects unknown bot ids when patching room members", () => {
