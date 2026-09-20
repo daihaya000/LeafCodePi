@@ -62,13 +62,20 @@ export async function GET(
   reconcileOrphanedWorkingTasks();
   const bot = getBot(id);
   if (!bot) return NextResponse.json({ error: "Bot not found" }, { status: 404 });
-  const tasks = (await getTaskSummariesWithTodoProgress(true)).filter(
+  // Active Code sessions only — archived rows are not polled by the panel.
+  const tasks = (await getTaskSummariesWithTodoProgress(false)).filter(
     (task) =>
       (task.botId === id || task.supervisorBotId === id) &&
       task.kind !== "bot" &&
       !isRoomDelegatedCodeTask(task.id),
   );
-  return NextResponse.json({ tasks });
+  // Bundle full Goal Loop DTOs so the client does not N+1 /goal-loop.
+  const loops: Record<string, ReturnType<typeof readGoalLoopState>> = {};
+  for (const task of tasks) {
+    if (!task.goalLoopSummary || !task.sessionId) continue;
+    loops[task.id] = readGoalLoopState(task.directory, task.sessionId);
+  }
+  return NextResponse.json({ tasks, loops });
 }
 
 export async function POST(

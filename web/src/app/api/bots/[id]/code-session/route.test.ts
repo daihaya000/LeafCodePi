@@ -491,6 +491,56 @@ describe("Bot Code session control", () => {
     const response = await GET(request("GET"), { params: Promise.resolve({ id: "bot-1" }) });
 
     expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toEqual({ tasks: [{ id: "code-1", status: "idle", kind: "code", botId: "bot-1" }] });
+    await expect(response.json()).resolves.toEqual({
+      tasks: [{ id: "code-1", status: "idle", kind: "code", botId: "bot-1" }],
+      loops: {},
+    });
+    expect(mocks.getTaskSummariesWithTodoProgress).toHaveBeenCalledWith(false);
+  });
+
+  it("bundles Goal Loop DTOs for tasks that already have a summary", async () => {
+    mocks.getTaskSummariesWithTodoProgress.mockResolvedValue([
+      {
+        id: "code-loop",
+        status: "working",
+        kind: "code",
+        botId: "bot-1",
+        directory: "C:\\task",
+        sessionId: "sess-1",
+        goalLoopSummary: { status: "running", maxTurns: 3, turnCount: 1 },
+      },
+    ]);
+    mocks.readGoalLoopState.mockReturnValue({
+      status: "running",
+      maxTurns: 3,
+      turnCount: 1,
+      goal: "ship it",
+    });
+
+    const response = await GET(request("GET"), { params: Promise.resolve({ id: "bot-1" }) });
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      tasks: [
+        {
+          id: "code-loop",
+          status: "working",
+          kind: "code",
+          botId: "bot-1",
+          directory: "C:\\task",
+          sessionId: "sess-1",
+          goalLoopSummary: { status: "running", maxTurns: 3, turnCount: 1 },
+        },
+      ],
+      loops: {
+        "code-loop": {
+          status: "running",
+          maxTurns: 3,
+          turnCount: 1,
+          goal: "ship it",
+        },
+      },
+    });
+    expect(mocks.readGoalLoopState).toHaveBeenCalledWith("C:\\task", "sess-1");
   });
 });

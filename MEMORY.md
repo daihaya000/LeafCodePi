@@ -16,10 +16,16 @@
 ### 検証（Tick1）
 `harness-limit-fallback` / `store` — **15 passed**
 
+### Tick2（ループ継続）
+1. `GET /api/bots/[id]/code-session` — active のみ取得 + Goal Loop DTO を `loops` 同梱（クライアント N+1 廃止）
+2. `BotCodeSessionPanel` — `/api/projects` は初回のみ、ポーリングは code-session のみ
+3. `PartView.useElapsedMs` — ツールごとの 100ms timer を 250ms 共有クロックに集約
+
+### 検証（Tick2）
+`code-session/route.test` — **27 passed**
+
 ### 次 Tick 候補
-- Bot Code パネル 2s ポーリングの N+1（code-session に Goal Loop DTO 同梱）
 - create/validate のソフト accountId → implicit explicit 矛盾（generateDirectText と揃える）
-- PartView `useElapsedMs` 100ms × ツール数の再レンダー
 
 ---
 

@@ -41,25 +41,43 @@ export function BotCodeSessionPanel({ botId, onClose }: { botId: string; onClose
 
   useEffect(() => () => { loadGenerationRef.current += 1; }, []);
 
+  // Projects only change when the user adds/archives them elsewhere; load once per panel open.
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const projectResult = await getJson<{ projects: ProjectDto[] }>("/api/projects");
+        if (cancelled) return;
+        const activeProjects = projectResult.projects.filter((project) => !project.archived);
+        setProjects(activeProjects);
+        setProjectId((current) =>
+          current === null
+            ? null
+            : current && activeProjects.some((p) => p.id === current)
+              ? current
+              : activeProjects[0]?.id ?? null,
+        );
+      } catch {
+        if (!cancelled) setError("プロジェクト一覧を読み込めませんでした");
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [botId]);
+
   const load = useCallback(async () => {
     const generation = ++loadGenerationRef.current;
     try {
-      const [session, projectResult] = await Promise.all([
-        getJson<{ tasks?: TaskSummary[]; task?: TaskSummary | null }>(`/api/bots/${encodeURIComponent(botId)}/code-session`),
-        getJson<{ projects: ProjectDto[] }>("/api/projects"),
-      ]);
-      const nextTasks = session.tasks ?? ((session as { task?: TaskSummary | null }).task ? [(session as { task: TaskSummary }).task] : []);
+      const session = await getJson<{
+        tasks?: TaskSummary[];
+        task?: TaskSummary | null;
+        loops?: Record<string, GoalLoopDto | null>;
+      }>(`/api/bots/${encodeURIComponent(botId)}/code-session`);
+      const nextTasks = session.tasks ?? (session.task ? [session.task] : []);
       if (generation !== loadGenerationRef.current) return;
       setTasks(nextTasks);
-      const activeProjects = projectResult.projects.filter((project) => !project.archived);
-      setProjects(activeProjects);
-      setProjectId((current) => current === null ? null : current && activeProjects.some((p) => p.id === current) ? current : activeProjects[0]?.id ?? null);
-      const loopEntries = await Promise.all(nextTasks.filter((task) => task.goalLoopSummary).map(async (task) => {
-        try { return [task.id, (await getJson<{ loop: GoalLoopDto | null }>(`/api/tasks/${encodeURIComponent(task.id)}/goal-loop`)).loop] as const; }
-        catch { return [task.id, null] as const; }
-      }));
-      if (generation !== loadGenerationRef.current) return;
-      setLoops(Object.fromEntries(loopEntries));
+      setLoops(session.loops ?? {});
       setError(null);
     } catch (reason) {
       if (generation !== loadGenerationRef.current) return;
@@ -72,43 +90,280 @@ export function BotCodeSessionPanel({ botId, onClose }: { botId: string; onClose
     setError(null);
     void load();
   }, [load]);
-  useEffect(() => { if (!tasks.some((task) => task.status === "working" || (task.goalLoopSummary && LIVE_GOAL_LOOP_STATUSES.has(task.goalLoopSummary.status)))) return; const timer = window.setInterval(() => void load(), 2_000); return () => window.clearInterval(timer); }, [load, tasks]);
+  useEffect(() => {
+    if (
+      !tasks.some(
+        (task) =>
+          task.status === "working" ||
+          (task.goalLoopSummary && LIVE_GOAL_LOOP_STATUSES.has(task.goalLoopSummary.status)),
+      )
+    ) {
+      return;
+    }
+    const timer = window.setInterval(() => void load(), 2_000);
+    return () => window.clearInterval(timer);
+  }, [load, tasks]);
 
   const launch = async () => {
     if (projectId === undefined || !prompt.trim() || busy) return;
     setBusy(true); setError(null);
-    try { const result = await sendJson<{ task: TaskSummary }>(`/api/bots/${encodeURIComponent(botId)}/code-session`, { projectId: projectId ?? null, prompt: prompt.trim(), ...(goalLoopEnabled ? { goalLoop: goalLoopPayload(goalLoopAcceptance, goalLoopMaxTurns, goalLoopCooldownSeconds, goalLoopForceFullRun) } : {}) }, "POST"); notifyBotSidebarChanged(); setTasks((current) => [result.task, ...current.filter((task) => task.id !== result.task.id)]); setPrompt(""); setGoalLoopEnabled(false); await load(); }
-    catch (reason) { setError(reason instanceof Error ? reason.message : "Codeセッションの起動に失敗しました"); }
-    finally { setBusy(false); }
+    try {
+      const result = await sendJson<{ task: TaskSummary }>(
+        `/api/bots/${encodeURIComponent(botId)}/code-session`,
+        {
+          projectId: projectId ?? null,
+          prompt: prompt.trim(),
+          ...(goalLoopEnabled
+            ? {
+                goalLoop: goalLoopPayload(
+                  goalLoopAcceptance,
+                  goalLoopMaxTurns,
+                  goalLoopCooldownSeconds,
+                  goalLoopForceFullRun,
+                ),
+              }
+            : {}),
+        },
+        "POST",
+      );
+      notifyBotSidebarChanged();
+      setTasks((current) => [result.task, ...current.filter((task) => task.id !== result.task.id)]);
+      setPrompt("");
+      setGoalLoopEnabled(false);
+      await load();
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Codeセッションの起動に失敗しました");
+    } finally {
+      setBusy(false);
+    }
   };
   const control = async (task: TaskSummary, action: "abort" | "prompt") => {
-    const value = followUps[task.id]; if (controlBusy || (action === "prompt" && !value?.trim())) return;
-    setControlBusy(task.id); setError(null);
-    try { const result = await sendJson<{ task: TaskSummary }>(`/api/bots/${encodeURIComponent(botId)}/code-session`, action === "prompt" ? { action, prompt: value.trim(), taskId: task.id } : { action, taskId: task.id }, "PATCH"); if (action === "prompt") notifyBotSidebarChanged(); setTasks((current) => current.map((item) => item.id === task.id ? result.task : item)); if (action === "prompt") setFollowUps((current) => ({ ...current, [task.id]: "" })); }
-    catch (reason) { setError(reason instanceof Error ? reason.message : "Codeセッションの操作に失敗しました"); }
-    finally { setControlBusy(null); }
-  };
-  const controlGoalLoop = async (taskId: string, action: "pause" | "resume" | "stop" | "complete", maxTurns?: number) => {
-    if (controlBusy) return;
-    setControlBusy(taskId); setError(null);
+    const value = followUps[task.id];
+    if (controlBusy || (action === "prompt" && !value?.trim())) return;
+    setControlBusy(task.id);
+    setError(null);
     try {
-      const result = await sendJson<{ loop: GoalLoopDto | null }>(`/api/bots/${encodeURIComponent(botId)}/code-session`, { action: "goal-loop", goalLoopAction: action, taskId, ...(maxTurns === undefined ? {} : { maxTurns }) }, "PATCH");
+      const result = await sendJson<{ task: TaskSummary }>(
+        `/api/bots/${encodeURIComponent(botId)}/code-session`,
+        action === "prompt"
+          ? { action, prompt: value.trim(), taskId: task.id }
+          : { action, taskId: task.id },
+        "PATCH",
+      );
+      if (action === "prompt") notifyBotSidebarChanged();
+      setTasks((current) =>
+        current.map((item) => (item.id === task.id ? result.task : item)),
+      );
+      if (action === "prompt") {
+        setFollowUps((current) => ({ ...current, [task.id]: "" }));
+      }
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Codeセッションの操作に失敗しました");
+    } finally {
+      setControlBusy(null);
+    }
+  };
+  const controlGoalLoop = async (
+    taskId: string,
+    action: "pause" | "resume" | "stop" | "complete",
+    maxTurns?: number,
+  ) => {
+    if (controlBusy) return;
+    setControlBusy(taskId);
+    setError(null);
+    try {
+      const result = await sendJson<{ loop: GoalLoopDto | null }>(
+        `/api/bots/${encodeURIComponent(botId)}/code-session`,
+        {
+          action: "goal-loop",
+          goalLoopAction: action,
+          taskId,
+          ...(maxTurns === undefined ? {} : { maxTurns }),
+        },
+        "PATCH",
+      );
       if (action === "resume") notifyBotSidebarChanged();
       setLoops((current) => ({ ...current, [taskId]: result.loop }));
-      setTasks((current) => current.map((task) => task.id === taskId ? { ...task, goalLoopSummary: result.loop ? { status: result.loop.status, maxTurns: result.loop.maxTurns, turnCount: result.loop.turnCount } : undefined } : task));
-    } catch (reason) { setError(reason instanceof Error ? reason.message : "Goal Loopの操作に失敗しました"); }
-    finally { setControlBusy(null); }
+      setTasks((current) =>
+        current.map((task) =>
+          task.id === taskId
+            ? {
+                ...task,
+                goalLoopSummary: result.loop
+                  ? {
+                      status: result.loop.status,
+                      maxTurns: result.loop.maxTurns,
+                      turnCount: result.loop.turnCount,
+                    }
+                  : undefined,
+              }
+            : task,
+        ),
+      );
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Goal Loopの操作に失敗しました");
+    } finally {
+      setControlBusy(null);
+    }
   };
 
-  return <section id="bot-code-session-panel" className="space-y-3 rounded-2xl border border-border bg-bg p-4" aria-label="Codeセッション">
-    <div className="flex items-start justify-between gap-3"><div><h3 className="text-sm font-medium">Codeセッション</h3><p className="mt-1 text-xs text-muted">このBotが起動したCodeと、監督を引き継いだCodeを監視・操作できます。</p></div>{onClose && <Button size="sm" variant="ghost" onClick={onClose}>閉じる</Button>}</div>
-    {tasks.length === 0 && <p className="text-xs text-muted">Codeセッションはまだありません。</p>}
-    {tasks.map((task) => {
-      const loop = loops[task.id]; const loopStatus = loop?.status ?? task.goalLoopSummary?.status;
-      const showFollowUp = task.status !== "archived" && !(loopStatus && LIVE_GOAL_LOOP_STATUSES.has(loopStatus));
-      return <div key={task.id} className="rounded-xl border border-border bg-surface p-3 text-xs"><div className="flex items-center justify-between gap-2"><span className="font-medium">{statusLabel(task.status)}{task.supervisorBotId === botId && <span className="ml-1.5 rounded-full bg-accent/10 px-1.5 py-0.5 text-[10px] text-accent">監督中</span>}</span><Link className="text-accent hover:underline" href={`/task/${encodeURIComponent(task.id)}`}>Codeを開く</Link></div><p className="mt-1 truncate text-muted" title={task.title}>{task.title}</p>{loop && <GoalLoopPanel loop={loop} busy={controlBusy === task.id} onAction={(action) => void controlGoalLoop(task.id, action)} onResume={(maxTurns) => void controlGoalLoop(task.id, "resume", maxTurns)} />}{task.goalLoopSummary && !loop && <p className="mt-2 text-muted">Goal Loopの状態を読み込み中です…</p>}{showFollowUp && <div className="mt-3 space-y-2"><textarea value={followUps[task.id] ?? ""} onChange={(e) => setFollowUps((current) => ({ ...current, [task.id]: e.target.value }))} rows={2} aria-label={`${task.title}への続きの指示`} placeholder="続きの指示（任意）" className="w-full resize-y rounded-lg border border-border bg-bg px-2 py-1.5 text-xs" /><div className="flex justify-end gap-2"><Button size="sm" variant="ghost" disabled={controlBusy !== null || !followUps[task.id]?.trim()} onClick={() => void control(task, "prompt")}>指示を送る</Button><Button size="sm" variant="danger" disabled={controlBusy !== null || task.status !== "working"} onClick={() => void control(task, "abort")}>停止</Button></div></div>}</div>;
-    })}
-    <div className="space-y-2 border-t border-border pt-3"><select value={projectId ?? ""} onChange={(e) => setProjectId(e.target.value || null)} className="h-9 w-full rounded-lg border border-border bg-surface px-2 text-sm" aria-label="Codeプロジェクト"><option value="">{NO_PROJECT_NAME}</option>{projects.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}</select><textarea value={prompt} onChange={(e) => setPrompt(e.target.value)} rows={3} aria-label="Codeへの指示" placeholder="Codeに実行させる指示" className="w-full resize-y rounded-lg border border-border bg-surface px-2 py-1.5 text-xs" /><GoalLoopToggle enabled={goalLoopEnabled} disabled={busy} onToggle={() => setGoalLoopEnabled((enabled) => !enabled)} />{goalLoopEnabled && <GoalLoopOptions acceptance={goalLoopAcceptance} maxTurns={goalLoopMaxTurns} cooldownSeconds={goalLoopCooldownSeconds} forceFullRun={goalLoopForceFullRun} disabled={busy} onAcceptanceChange={setGoalLoopAcceptance} onMaxTurnsChange={setGoalLoopMaxTurns} onCooldownSecondsChange={setGoalLoopCooldownSeconds} onForceFullRunChange={setGoalLoopForceFullRun} />}<div className="flex justify-end"><Button size="sm" onClick={() => void launch()} busy={busy} disabled={projectId === undefined || !prompt.trim()}>{goalLoopEnabled ? "ループを開始" : "Codeを起動"}</Button></div></div>
-    {error && <p role="alert" className="text-xs text-danger">{error}</p>}
-  </section>;
+  return (
+    <section
+      id="bot-code-session-panel"
+      className="space-y-3 rounded-2xl border border-border bg-bg p-4"
+      aria-label="Codeセッション"
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h3 className="text-sm font-medium">Codeセッション</h3>
+          <p className="mt-1 text-xs text-muted">
+            このBotが起動したCodeと、監督を引き継いだCodeを監視・操作できます。
+          </p>
+        </div>
+        {onClose && (
+          <Button size="sm" variant="ghost" onClick={onClose}>
+            閉じる
+          </Button>
+        )}
+      </div>
+      {tasks.length === 0 && (
+        <p className="text-xs text-muted">Codeセッションはまだありません。</p>
+      )}
+      {tasks.map((task) => {
+        const loop = loops[task.id];
+        const loopStatus = loop?.status ?? task.goalLoopSummary?.status;
+        const showFollowUp =
+          task.status !== "archived" &&
+          !(loopStatus && LIVE_GOAL_LOOP_STATUSES.has(loopStatus));
+        return (
+          <div
+            key={task.id}
+            className="rounded-xl border border-border bg-surface p-3 text-xs"
+          >
+            <div className="flex items-center justify-between gap-2">
+              <span className="font-medium">
+                {statusLabel(task.status)}
+                {task.supervisorBotId === botId && (
+                  <span className="ml-1.5 rounded-full bg-accent/10 px-1.5 py-0.5 text-[10px] text-accent">
+                    監督中
+                  </span>
+                )}
+              </span>
+              <Link
+                className="text-accent hover:underline"
+                href={`/task/${encodeURIComponent(task.id)}`}
+              >
+                Codeを開く
+              </Link>
+            </div>
+            <p className="mt-1 truncate text-muted" title={task.title}>
+              {task.title}
+            </p>
+            {loop && (
+              <GoalLoopPanel
+                loop={loop}
+                busy={controlBusy === task.id}
+                onAction={(action) => void controlGoalLoop(task.id, action)}
+                onResume={(maxTurns) => void controlGoalLoop(task.id, "resume", maxTurns)}
+              />
+            )}
+            {task.goalLoopSummary && !loop && (
+              <p className="mt-2 text-muted">Goal Loopの状態を読み込み中です…</p>
+            )}
+            {showFollowUp && (
+              <div className="mt-3 space-y-2">
+                <textarea
+                  value={followUps[task.id] ?? ""}
+                  onChange={(e) =>
+                    setFollowUps((current) => ({
+                      ...current,
+                      [task.id]: e.target.value,
+                    }))
+                  }
+                  rows={2}
+                  aria-label={`${task.title}への続きの指示`}
+                  placeholder="続きの指示（任意）"
+                  className="w-full resize-y rounded-lg border border-border bg-bg px-2 py-1.5 text-xs"
+                />
+                <div className="flex justify-end gap-2">
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    disabled={controlBusy !== null || !followUps[task.id]?.trim()}
+                    onClick={() => void control(task, "prompt")}
+                  >
+                    指示を送る
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="danger"
+                    disabled={controlBusy !== null || task.status !== "working"}
+                    onClick={() => void control(task, "abort")}
+                  >
+                    停止
+                  </Button>
+                </div>
+              </div>
+            )}
+          </div>
+        );
+      })}
+      <div className="space-y-2 border-t border-border pt-3">
+        <select
+          value={projectId ?? ""}
+          onChange={(e) => setProjectId(e.target.value || null)}
+          className="h-9 w-full rounded-lg border border-border bg-surface px-2 text-sm"
+          aria-label="Codeプロジェクト"
+        >
+          <option value="">{NO_PROJECT_NAME}</option>
+          {projects.map((project) => (
+            <option key={project.id} value={project.id}>
+              {project.name}
+            </option>
+          ))}
+        </select>
+        <textarea
+          value={prompt}
+          onChange={(e) => setPrompt(e.target.value)}
+          rows={3}
+          aria-label="Codeへの指示"
+          placeholder="Codeに実行させる指示"
+          className="w-full resize-y rounded-lg border border-border bg-surface px-2 py-1.5 text-xs"
+        />
+        <GoalLoopToggle
+          enabled={goalLoopEnabled}
+          disabled={busy}
+          onToggle={() => setGoalLoopEnabled((enabled) => !enabled)}
+        />
+        {goalLoopEnabled && (
+          <GoalLoopOptions
+            acceptance={goalLoopAcceptance}
+            maxTurns={goalLoopMaxTurns}
+            cooldownSeconds={goalLoopCooldownSeconds}
+            forceFullRun={goalLoopForceFullRun}
+            disabled={busy}
+            onAcceptanceChange={setGoalLoopAcceptance}
+            onMaxTurnsChange={setGoalLoopMaxTurns}
+            onCooldownSecondsChange={setGoalLoopCooldownSeconds}
+            onForceFullRunChange={setGoalLoopForceFullRun}
+          />
+        )}
+        <div className="flex justify-end">
+          <Button
+            size="sm"
+            onClick={() => void launch()}
+            busy={busy}
+            disabled={projectId === undefined || !prompt.trim()}
+          >
+            {goalLoopEnabled ? "ループを開始" : "Codeを起動"}
+          </Button>
+        </div>
+      </div>
+      {error && (
+        <p role="alert" className="text-xs text-danger">
+          {error}
+        </p>
+      )}
+    </section>
+  );
 }
