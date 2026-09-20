@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Brain } from "lucide-react";
+import { Brain, ChevronRight } from "lucide-react";
 import { AgentRoleIcon } from "@/components/AgentSelect";
 import { ToolPermissionList } from "@/components/ToolPermissionList";
 import { ModelSelect } from "@/components/ModelSelect";
@@ -294,25 +294,31 @@ function AgentToolsSettings({
   const toolNames = [...new Set([...AGENT_TOOL_NAMES, ...selectedTools])];
 
   return (
-    <section
-      className="mt-3 space-y-2 rounded-xl border border-border bg-bg p-3"
+    <details
+      className="group/agent-tools mt-3 rounded-xl border border-border bg-bg"
       aria-label={`${name}のツール設定`}
     >
-      <div className="flex items-center justify-between gap-2">
-        <span className="text-xs font-medium">使用するツール</span>
-      </div>
-      <ToolPermissionList
-        name={name}
-        tools={toolNames}
-        selectedTools={selectedTools}
-        disabled={busy}
-        onChange={onChange}
-      />
-      <p className="text-[11px] text-muted">
-        チェックを外したツールは、このエージェントから利用できません。
-        {tools === undefined && "未指定のエージェントは既定のツールを表示しています。"}
-      </p>
-    </section>
+      <summary className="flex min-h-10 cursor-pointer list-none items-center gap-2 px-3 py-2 text-xs font-medium [&::-webkit-details-marker]:hidden">
+        <ChevronRight
+          className="h-3.5 w-3.5 shrink-0 text-muted transition-transform group-open/agent-tools:rotate-90"
+          aria-hidden="true"
+        />
+        <span>使用するツール</span>
+      </summary>
+      <section className="space-y-2 border-t border-border p-3" aria-label={`${name}のツール一覧`}>
+        <ToolPermissionList
+          name={name}
+          tools={toolNames}
+          selectedTools={selectedTools}
+          disabled={busy}
+          onChange={onChange}
+        />
+        <p className="text-[11px] text-muted">
+          チェックを外したツールは、このエージェントから利用できません。
+          {tools === undefined && "未指定のエージェントは既定のツールを表示しています。"}
+        </p>
+      </section>
+    </details>
   );
 }
 

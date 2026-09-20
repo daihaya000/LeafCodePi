@@ -121,6 +121,21 @@ describe("AgentsSettings", () => {
     });
   });
 
+  it("折り畳んだツール設定を必要時に展開できる", async () => {
+    render(<AgentsSettings />);
+
+    const row = (await screen.findByRole("switch", { name: "enabled を無効化" })).closest("li");
+    expect(row).not.toBeNull();
+    const details = row!.querySelector<HTMLDetailsElement>("details[aria-label='enabledのツール設定']");
+    expect(details).not.toBeNull();
+    expect(details!.open).toBe(false);
+
+    fireEvent.click(within(details!).getByText("使用するツール"));
+
+    expect(details!.open).toBe(true);
+    expect(within(details!).getByRole("checkbox", { name: `enabled の${toolNameLabel("read")}` })).toBeTruthy();
+  });
+
   it("edits a user agent's tool permissions with checkboxes", async () => {
     const userAgent = {
       ...agents[1],
