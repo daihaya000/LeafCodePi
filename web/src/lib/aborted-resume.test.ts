@@ -5,6 +5,7 @@ import {
   MESSAGE_ABORTED_ERROR,
   blocksAutoCompactionAfterManualAbort,
   shouldAttachResumeImages,
+  shouldBlockSubmitWhileStopRequested,
   shouldClearStopRequestedOnWorkingTransition,
 } from "./aborted-resume";
 import type { UiMessage } from "./types";
@@ -79,6 +80,13 @@ describe("findResumableTurn", () => {
     expect(shouldClearStopRequestedOnWorkingTransition(false, true, false)).toBe(false);
     // Stale isStreaming while status stays idle must not clear the latch.
     expect(shouldClearStopRequestedOnWorkingTransition(false, false, true)).toBe(false);
+  });
+
+  it("blocks submit while stopRequested and still working", () => {
+    expect(shouldBlockSubmitWhileStopRequested(true, true)).toBe(true);
+    expect(shouldBlockSubmitWhileStopRequested(true, false)).toBe(false);
+    expect(shouldBlockSubmitWhileStopRequested(false, true)).toBe(false);
+    expect(shouldBlockSubmitWhileStopRequested(false, false)).toBe(false);
   });
 
   it("blocks auto-compaction for early abort sentinel and assistant ids", () => {

@@ -159,6 +159,7 @@ import {
 import {
   findResumableTurn,
   shouldAttachResumeImages,
+  shouldBlockSubmitWhileStopRequested,
   shouldClearStopRequestedOnWorkingTransition,
   type ResumableTurn,
 } from "@/lib/aborted-resume";
@@ -2225,7 +2226,8 @@ export const TaskView = memo(function TaskView({
       agentChanging ||
       archived ||
       revertBusy ||
-      revertConfirmOpen
+      revertConfirmOpen ||
+      shouldBlockSubmitWhileStopRequested(stopRequestedRef.current, working)
     ) {
       return;
     }
@@ -2256,7 +2258,8 @@ export const TaskView = memo(function TaskView({
       setError("実行中は Goal loop を開始できません");
       return;
     }
-    const wasStopped = stopRequestedRef.current;
+    // Idle submit after Stop may clear the latch (intentional new run). Do not
+    // clear while working — that path is blocked above.
     stopRequestedRef.current = false;
     setStopRequested(false);
     setSubmitting(true);
@@ -2355,10 +2358,6 @@ export const TaskView = memo(function TaskView({
       // The composer is editable during the request; do not clear its next draft.
       notifyTasksChanged();
     } catch (err) {
-      if (wasStopped) {
-        stopRequestedRef.current = true;
-        setStopRequested(true);
-      }
       if (queued && !stopRequestedRef.current) {
         setQueuedFollowUps((current) => [queued, ...current]);
       }
@@ -4155,7 +4154,7 @@ export const TaskView = memo(function TaskView({
               : []),
           ]}
           action={
-            working && !prompt.trim() && attachments.length === 0 ? (
+            working && (stopRequested || (!prompt.trim() && attachments.length === 0)) ? (
               <Button
                 variant="danger"
                 size="icon"
@@ -4177,7 +4176,7 @@ export const TaskView = memo(function TaskView({
                 title={working ? (deliveryMode === "queue" ? "現在の処理後に送信" : "実行中の処理へ差し込む") : "送信"}
                 className={`${COMPOSER_ACTION_BUTTON_CLASS} !bg-accent !text-white hover:!bg-accent/90`}
                 busy={submitting}
-                disabled={archived || compacting || agentChanging || revertBusy || revertConfirmOpen || (goalLoopEnabled && working) || (!prompt.trim() && attachments.length === 0)}
+                disabled={archived || compacting || agentChanging || revertBusy || revertConfirmOpen || stopRequested || (goalLoopEnabled && working) || (!prompt.trim() && attachments.length === 0)}
               >
                 {!submitting && <ArrowUp className="h-4 w-4" />}
               </Button>

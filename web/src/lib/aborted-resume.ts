@@ -58,6 +58,18 @@ export function shouldClearStopRequestedOnWorkingTransition(
   return !wasStatusWorking && statusWorking && stopRequested;
 }
 
+/**
+ * While Stop is in flight (or the run is still live after Stop), reject submit so
+ * it cannot clear the latch and POST into a concurrent abort. Idle submit after
+ * abort may clear the latch — that is an intentional new run.
+ */
+export function shouldBlockSubmitWhileStopRequested(
+  stopRequested: boolean,
+  working: boolean,
+): boolean {
+  return stopRequested && working;
+}
+
 const ABORT_ERROR_PATTERN =
   /abort|cancelled|canceled|messageabortederror/i;
 

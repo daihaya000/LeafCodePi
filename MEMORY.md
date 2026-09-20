@@ -248,6 +248,13 @@
 ### 検証（Tick34）
 `sse-ready-buffer` strips stale — **1 passed**
 
+### Tick35（ループ継続・[Tick32 bug hunt](a6a81c7e-8e09-4734-8b47-f22e39b62c2a)）
+1. `shouldBlockSubmitWhileStopRequested` — 実行中の Stop ラッチ中は `submit()` がラッチを落とさず POST しない（abort 競合防止）。idle 後の意図的な再送信は従来どおりクリア可
+2. 停止要求中は composer を停止ボタンのまま維持し、送信ボタンにも `stopRequested` を反映
+
+### 検証（Tick35）
+`aborted-resume` stopRequested / blocks submit — **2 passed**
+
 ### 次 Tick 候補
 - TaskView / GlobalAttention 周辺
 
