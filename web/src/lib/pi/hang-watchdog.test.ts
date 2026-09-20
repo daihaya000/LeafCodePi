@@ -14,6 +14,7 @@ import {
   resolveHangNow,
   runHangWatchdogTick,
   stopHangWatchdogForTests,
+  SUBAGENT_ACTIVE_GRACE_MS,
   turnHasOnlyActiveSubagentTool,
 } from "./hang-watchdog";
 import type { UiMessage } from "../types";
@@ -461,13 +462,55 @@ describe("hang-watchdog helpers", () => {
       notifyHangRetry: () => undefined,
     });
     try {
-      armTaskHangWatch({ taskId: "task-1", prompt: "作業", startedAt: 1 });
+      armTaskHangWatch({ taskId: "task-1", prompt: "作業", startedAt: 1_000_000 });
       await runHangWatchdogTick();
       vi.setSystemTime(1_100_000);
       await runHangWatchdogTick();
 
       expect(abortCount).toBe(0);
       expect(getTaskHangWatch("task-1")?.progressFingerprint).toBe("");
+    } finally {
+      stopHangWatchdogForTests();
+      if (previousDataDir === undefined) delete process.env.LEAFCODE_PI_DATA_DIR;
+      else process.env.LEAFCODE_PI_DATA_DIR = previousDataDir;
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("aborts a parent turn when a subagent-only tool stays stuck past grace", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(1_000_000);
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "leafcode-pi-hang-watchdog-subagent-grace-"));
+    const previousDataDir = process.env.LEAFCODE_PI_DATA_DIR;
+    process.env.LEAFCODE_PI_DATA_DIR = root;
+    fs.writeFileSync(
+      path.join(root, "web-settings.json"),
+      JSON.stringify({ version: 1, "hang-timeout": 60_000 }),
+      "utf8",
+    );
+    const messages = turnWithTools("subagent");
+    let abortCount = 0;
+    registerHangWatchdogHooks({
+      getLive: () => ({
+        isStreaming: abortCount === 0,
+        isCompacting: false,
+        messages,
+      }),
+      abortTask: async () => {
+        abortCount += 1;
+      },
+      resumePrompt: () => undefined,
+      notifyHangRetry: () => undefined,
+    });
+    try {
+      armTaskHangWatch({ taskId: "task-subagent-stuck", prompt: "作業", startedAt: 1_000_000 });
+      await runHangWatchdogTick();
+      expect(abortCount).toBe(0);
+      vi.setSystemTime(1_000_000 + SUBAGENT_ACTIVE_GRACE_MS + 1);
+      const hanging = runHangWatchdogTick();
+      await vi.advanceTimersByTimeAsync(5_000);
+      await hanging;
+      expect(abortCount).toBe(1);
     } finally {
       stopHangWatchdogForTests();
       if (previousDataDir === undefined) delete process.env.LEAFCODE_PI_DATA_DIR;

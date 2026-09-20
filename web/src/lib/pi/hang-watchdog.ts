@@ -27,6 +27,8 @@ export const MAX_WATCH_BODY_BYTES = 2_000_000;
 export const HANG_CONFIRM_GRACE_MS = 30_000;
 export const SILENT_RESPONSE_GRACE_MS = 30_000;
 export const MISSING_LIVE_GRACE_MS = 30_000;
+/** Parent hang skip while only a subagent/task tool is active — unbounded skip left stuck children forever. */
+export const SUBAGENT_ACTIVE_GRACE_MS = 10 * 60_000;
 /** Auto-resume after hang abort stops once this many retries have been used. */
 export const MAX_HANG_RETRIES = 3;
 
@@ -302,9 +304,9 @@ function isCurrentWatch(row: TaskHangWatchRow): boolean {
   return memoryWatches.get(row.taskId) === row;
 }
 
-function markResolving(taskId: string): boolean {
-  const row = memoryWatches.get(taskId);
-  if (!row || row.state === "resolving") return false;
+function markResolving(row: TaskHangWatchRow): boolean {
+  if (memoryWatches.get(row.taskId) !== row) return false;
+  if (row.state === "resolving") return false;
   row.state = "resolving";
   row.updatedAt = Date.now();
   writeStore();
@@ -340,7 +342,7 @@ async function waitForIdle(taskId: string): Promise<boolean> {
 
 async function resolveHang(row: TaskHangWatchRow): Promise<void> {
   if (!hooks) return;
-  if (!markResolving(row.taskId)) return;
+  if (!markResolving(row)) return;
   logWatchdog("hang detected — stopping the turn", row);
 
   try {
@@ -465,7 +467,16 @@ async function evaluateWatch(row: TaskHangWatchRow, timeoutMs: number): Promise<
   // turn is being rewritten. Never abort or resume against that intermediate
   // transcript; the next tick will evaluate the compacted branch.
   if (isCompacting) return;
-  if (turnHasOnlyActiveSubagentTool(messages, row.startedAt)) return;
+  if (turnHasOnlyActiveSubagentTool(messages, row.startedAt)) {
+    // Child sessions have no hang watch. Skip parent abort while the subagent
+    // is active, but bound the skip so a stuck child cannot hang forever.
+    const now = Date.now();
+    const graceMs = Math.max(timeoutMs * 3, SUBAGENT_ACTIVE_GRACE_MS);
+    const activityAt = Math.max(latestActivityAt(messages, row.startedAt), row.lastProgressAt);
+    if (now - activityAt < graceMs) return;
+    await resolveHang(row);
+    return;
+  }
   // Permission/question UI waits on the user — that is not a hung model turn.
   // Keep the hang clock fresh so answering does not immediately trip abort.
   if (hasPendingAttention) {

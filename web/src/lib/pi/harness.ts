@@ -9154,6 +9154,9 @@ export function clearSessionQueue(session: { clearQueue?: () => unknown }): void
  * hang retry cannot also drain leftover steer/follow-up prompts.
  */
 export async function abortLiveForHangWatchdog(taskId: string): Promise<void> {
+  // Capture before any await — a newer prompt may replace the hang watch while
+  // session.abort settles; idle/lease must not tear down that replacement turn.
+  const hangWatchStartedAt = getTaskHangWatch(taskId)?.startedAt;
   const live = state().live.get(taskId);
   clearPendingAttentionForTask(taskId);
   if (live) {
@@ -9194,6 +9197,15 @@ export async function abortLiveForHangWatchdog(taskId: string): Promise<void> {
     emitTaskSnapshot(live, "hang_abort", { isStreaming: false });
     await stopSubagentRunsForTask(live, msgs);
     await abortPromise;
+  }
+  const hangWatchAfter = getTaskHangWatch(taskId);
+  if (
+    hangWatchStartedAt != null &&
+    hangWatchAfter != null &&
+    hangWatchAfter.startedAt !== hangWatchStartedAt
+  ) {
+    // Newer prompt re-armed the watch; leave working/lease for that turn.
+    return;
   }
   setTaskStatus(taskId, "idle");
   releaseTaskLease(taskId);

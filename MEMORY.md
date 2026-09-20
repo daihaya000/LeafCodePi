@@ -296,8 +296,16 @@
 ### 検証（Tick44–45）
 `sse-ready-buffer` / `harness-bot-code` — **24 passed**
 
-### 次 Tick 候補
-- TaskView / hang / permission 周辺
+### Tick46–47（ループ継続・通知 62–63・[Tick46-47 bug hunt](ae49d30f-19f6-43d0-93e4-bfe6ea7ae67d)）
+1. `abortLiveForHangWatchdog` — abort 中に hang watch が差し替わったら idle / lease 解放をスキップ（新ターンを壊さない）
+2. subagent/task のみ active の親ターン — `SUBAGENT_ACTIVE_GRACE_MS`（または timeout×3）超過後に abort（永久スキップ解消）
+3. `markResolving` — row 同一性で固定
+
+### 検証（Tick46–47）
+`hang-watchdog` / `harness-lifecycle` — **26 passed**
+
+### ループ停止（ユーザー指示）
+`AGENT_LOOP_TICK_bugfix`（2分間隔・PID 31808 / terminal 555559）を kill。再武装なし。
 
 
 
