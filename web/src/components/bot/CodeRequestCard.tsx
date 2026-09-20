@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { getJson } from "@/lib/client";
+import { isGoalLoopLiveStatus } from "@/lib/goal-loop-settings";
 import { activeToolLabel, changedFilePaths } from "@/lib/tool-labels";
 import type {
   CodeRequestGoalLoopReport,
@@ -21,7 +22,6 @@ const CODE_STATE_TEXT: Record<CodeRequestState, string> = {
   cancelled: "Code中断",
 };
 
-const LIVE_GOAL_LOOP_STATUSES = new Set(["queued", "running", "verifying_completed"]);
 /** Outcomes that finished as asked. Anything else (stop, block, turn limit) must not read as success. */
 const SUCCESS_OUTCOMES = new Set(["実行終了", "目標達成"]);
 
@@ -120,7 +120,7 @@ export function CodeRequestCard({
   const loop = task?.goalLoopSummary ?? goalLoopSummary ?? (goalLoop
     ? { status: goalLoop.status, maxTurns: goalLoop.maxTurns, turnCount: goalLoop.turnCount }
     : undefined);
-  const loopActive = Boolean(loop && LIVE_GOAL_LOOP_STATUSES.has(loop.status));
+  const loopActive = isGoalLoopLiveStatus(loop?.status);
   const loopTurn = loop ? Math.max(0, Math.trunc(loop.turnCount)) + (loop.status === "queued" ? 1 : 0) : 0;
   const loopTotal = loop && Number.isFinite(loop.maxTurns) ? Math.max(0, Math.trunc(loop.maxTurns)) : 0;
   const loopShownTurn = loopTotal > 0 ? Math.min(loopTurn, loopTotal) : loopTurn;

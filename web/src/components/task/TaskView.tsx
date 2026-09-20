@@ -36,6 +36,7 @@ import { AutoOptimizeSelect } from "@/components/AutoOptimizeSelect";
 import { canAttachComposerImages, pasteImage } from "@/lib/clipboard-image";
 import { isImeComposingEvent } from "@/lib/composer-ime";
 import { GoalLoopPanel } from "@/components/GoalLoopPanel";
+import { isGoalLoopLiveStatus, isGoalLoopSessionOwnedStatus } from "@/lib/goal-loop-settings";
 import { DiffPane } from "@/components/task/DiffPane";
 import { useBotFor, useIconFor } from "@/components/shell/TaskPanesContext";
 import { NextAction } from "@/components/task/NextAction";
@@ -1981,15 +1982,10 @@ export const TaskView = memo(function TaskView({
     revertEntryRef.current = { messageId: target.id, message: target };
     setRevertConfirmOpen(true);
   }, []);
-  const goalLoopLive = Boolean(
-    task?.goalLoop && ["queued", "running", "verifying_completed"].includes(task.goalLoop.status),
-  );
+  const goalLoopLive = isGoalLoopLiveStatus(task?.goalLoop?.status);
   // 実行中・一時停止中・要対応中は、パネルから操作できるよう表示する。
   // completed / stopped はチャット側に結果が残るため閉じる（Sidebar の LIVE 判定と整合）。
-  const goalLoopVisible = Boolean(
-    task?.goalLoop &&
-      ["queued", "running", "verifying_completed", "paused", "blocked"].includes(task.goalLoop.status),
-  );
+  const goalLoopVisible = isGoalLoopSessionOwnedStatus(task?.goalLoop?.status);
 
   useEffect(() => {
     if (!active || !task?.directory) return;

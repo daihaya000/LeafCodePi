@@ -14,6 +14,19 @@ export const MAX_GOAL_LOOP_COOLDOWN_SECONDS = 24 * 60 * 60;
 export const MAX_GOAL_LOOP_ACCEPTANCE_ITEMS = 10;
 export const MAX_GOAL_LOOP_ACCEPTANCE_ITEM_CHARS = 2_000;
 
+/** Statuses where a live turn or verification is still owned by the loop. */
+export const GOAL_LOOP_LIVE_STATUSES = ["queued", "running", "verifying_completed"] as const;
+/** Live plus the operator holds (paused / blocked) that Resume/Stop can still act on. */
+const GOAL_LOOP_OWNED_STATUSES = [...GOAL_LOOP_LIVE_STATUSES, "paused", "blocked"] as const;
+
+export function isGoalLoopLiveStatus(status: string | null | undefined): boolean {
+  return Boolean(status && (GOAL_LOOP_LIVE_STATUSES as readonly string[]).includes(status));
+}
+
+export function isGoalLoopSessionOwnedStatus(status: string | null | undefined): boolean {
+  return Boolean(status && (GOAL_LOOP_OWNED_STATUSES as readonly string[]).includes(status));
+}
+
 /** Zero is the explicit no-limit sentinel. */
 export function normalizeGoalLoopMaxTurns(value: unknown): number | null {
   if (value === null || value === undefined) return null;

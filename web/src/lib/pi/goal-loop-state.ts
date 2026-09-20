@@ -5,7 +5,10 @@ import { dataDir } from "@/lib/paths";
 import {
   clampGoalLoopCooldownSeconds,
   clampGoalLoopMaxTurns,
+  isGoalLoopSessionOwnedStatus,
 } from "@/lib/goal-loop-settings";
+
+export { GOAL_LOOP_LIVE_STATUSES, isGoalLoopLiveStatus } from "@/lib/goal-loop-settings";
 
 /**
  * 状態はプロジェクト配下に置かない（LeafCodePiはプロジェクト内 .pi を許可しない）。
@@ -37,20 +40,8 @@ function cacheGoalLoopState(file: string, entry: GoalLoopCacheEntry): void {
   goalLoopCache.set(file, entry);
 }
 
-export const GOAL_LOOP_LIVE_STATUSES = [
-  "queued",
-  "running",
-  "verifying_completed",
-] as const;
-
 /** Operator-held pauses that expect Resume — must not settle Bot Code outbox yet. */
 const GOAL_LOOP_OPERATOR_HOLD_REASONS = new Set(["user", "manual_send"]);
-
-export function isGoalLoopLiveStatus(
-  status: string | null | undefined,
-): boolean {
-  return Boolean(status && (GOAL_LOOP_LIVE_STATUSES as readonly string[]).includes(status));
-}
 
 /** True when the loop is paused for a user/operator hold (not turn_limit / blocked). */
 export function isGoalLoopOperatorHold(
@@ -66,10 +57,7 @@ export function isGoalLoopOperatorHold(
 export function isGoalLoopSessionOwned(
   loop: { status?: string | null } | null | undefined,
 ): boolean {
-  const status = loop?.status;
-  if (!status) return false;
-  if (isGoalLoopLiveStatus(status)) return true;
-  return status === "paused" || status === "blocked";
+  return isGoalLoopSessionOwnedStatus(loop?.status);
 }
 
 /** cwd引数は呼び出し元互換のため残す。状態配置はグローバルでcwd非依存。 */

@@ -4,7 +4,7 @@ import { useEffect, useId, useState } from "react";
 import { Check, ChevronDown, CircleAlert, Pause, Play, Square } from "lucide-react";
 import { Button, cx } from "@/components/ui";
 import type { GoalLoopDto } from "@/lib/types";
-import { formatGoalLoopCooldownSeconds } from "@/lib/goal-loop-settings";
+import { formatGoalLoopCooldownSeconds, isGoalLoopLiveStatus } from "@/lib/goal-loop-settings";
 
 const labels: Record<GoalLoopDto["status"], string> = {
   queued: "送信待ち",
@@ -55,8 +55,8 @@ export function GoalLoopPanel({
   useEffect(() => setMaxTurns(String(loop?.maxTurns ?? 10)), [loop?.maxTurns]);
 
   if (!loop) return null;
-  const live = loop.status === "queued" || loop.status === "running" || loop.status === "verifying_completed";
-  const canPause = loop.status === "queued" || loop.status === "running" || loop.status === "verifying_completed";
+  const live = isGoalLoopLiveStatus(loop.status);
+  const canPause = live;
   const canResume = loop.status === "paused" || loop.status === "blocked";
   const turn = loop.status === "queued" ? loop.turnCount + 1 : loop.turnCount;
   const progress = loop.progress.at(-1);

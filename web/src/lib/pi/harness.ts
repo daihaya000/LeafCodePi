@@ -8975,7 +8975,7 @@ async function stopGoalLoopForTask(live: LiveRuntime): Promise<void> {
     live.session.sessionManager.getCwd(),
     live.session.sessionId,
   );
-  if (!loop || !["queued", "running", "verifying_completed"].includes(loop.status)) return;
+  if (!loop || !isGoalLoopLiveStatus(loop.status)) return;
 
   const command = live.session.extensionRunner.getCommand("goal-stop");
   if (!command) return;

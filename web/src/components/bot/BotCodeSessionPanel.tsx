@@ -7,10 +7,8 @@ import { GoalLoopPanel } from "@/components/GoalLoopPanel";
 import { Button } from "@/components/ui";
 import { getJson, sendJson } from "@/lib/client";
 import { notifyBotSidebarChanged } from "@/lib/events";
-import { DEFAULT_GOAL_LOOP_COOLDOWN_SECONDS, DEFAULT_GOAL_LOOP_MAX_TURNS } from "@/lib/goal-loop-settings";
+import { DEFAULT_GOAL_LOOP_COOLDOWN_SECONDS, DEFAULT_GOAL_LOOP_MAX_TURNS, isGoalLoopLiveStatus } from "@/lib/goal-loop-settings";
 import { NO_PROJECT_NAME, type GoalLoopDto, type ProjectDto, type TaskSummary } from "@/lib/types";
-
-const LIVE_GOAL_LOOP_STATUSES = new Set<GoalLoopDto["status"]>(["queued", "running", "verifying_completed"]);
 
 function statusLabel(status: TaskSummary["status"]): string {
   if (status === "working") return "実行中";
@@ -107,10 +105,10 @@ export function BotCodeSessionPanel({
     tasks.some(
       (task) =>
         task.status === "working" ||
-        (task.goalLoopSummary && LIVE_GOAL_LOOP_STATUSES.has(task.goalLoopSummary.status)),
+        (task.goalLoopSummary && isGoalLoopLiveStatus(task.goalLoopSummary.status)),
     ) ||
     Object.values(loops).some(
-      (loop) => loop && LIVE_GOAL_LOOP_STATUSES.has(loop.status),
+      (loop) => loop && isGoalLoopLiveStatus(loop.status),
     );
   useEffect(() => {
     if (!active || !needsPoll) return;
@@ -255,7 +253,7 @@ export function BotCodeSessionPanel({
         const loopStatus = loop?.status ?? task.goalLoopSummary?.status;
         const showFollowUp =
           task.status !== "archived" &&
-          !(loopStatus && LIVE_GOAL_LOOP_STATUSES.has(loopStatus));
+          !isGoalLoopLiveStatus(loopStatus);
         return (
           <div
             key={task.id}

@@ -44,6 +44,7 @@ import {
 import { getLastReadAt, hasUnread } from "@/lib/bot-unread";
 import { HOME_TAB_ID, paneTabIdsForWorkingTasks, SETTINGS_TAB_ID, type TaskPanesAction } from "@/lib/task-panes";
 import { PINNED_TASKS_API_PATH, parsePinnedTaskIds, serializePinnedTaskIds } from "@/lib/sidebar-settings";
+import { isGoalLoopLiveStatus } from "@/lib/goal-loop-settings";
 import { NO_PROJECT_NAME, type BotDto, type HealthDto, type RoomDto, type ProjectDto, type ProjectIconColor, type TaskSummary } from "@/lib/types";
 
 type ProjectTaskMenuState = {
@@ -605,10 +606,8 @@ export function latestWorkingTask(tasks: TaskSummary[], projectId: string): Task
   )[0] ?? null;
 }
 
-const LIVE_GOAL_LOOP_STATUSES = new Set(["queued", "running", "verifying_completed"]);
-
 function promotionBlocked(task: TaskSummary): boolean {
-  return task.status === "working" || LIVE_GOAL_LOOP_STATUSES.has(task.goalLoopSummary?.status ?? "");
+  return task.status === "working" || isGoalLoopLiveStatus(task.goalLoopSummary?.status);
 }
 
 function TodoProgressBar({
@@ -658,7 +657,7 @@ function GoalLoopProgressBar({
   className?: string;
 }) {
   const loop = task.goalLoopSummary;
-  if (!loop || !LIVE_GOAL_LOOP_STATUSES.has(loop.status)) return null;
+  if (!loop || !isGoalLoopLiveStatus(loop.status)) return null;
 
   const turnCount = Number.isFinite(loop.turnCount) ? Math.max(0, Math.trunc(loop.turnCount)) : 0;
   const total = Number.isFinite(loop.maxTurns) ? Math.max(0, Math.trunc(loop.maxTurns)) : 0;
@@ -701,7 +700,7 @@ export const TaskProgressBar = memo(function TaskProgressBar({
   task: Pick<TaskSummary, "title" | "todoProgress" | "goalLoopSummary">;
   className?: string;
 }) {
-  return task.goalLoopSummary && LIVE_GOAL_LOOP_STATUSES.has(task.goalLoopSummary.status) ? (
+  return task.goalLoopSummary && isGoalLoopLiveStatus(task.goalLoopSummary.status) ? (
     <GoalLoopProgressBar task={task} className={className} />
   ) : (
     <TodoProgressBar task={task} className={className} />
