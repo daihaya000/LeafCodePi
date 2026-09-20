@@ -91,6 +91,9 @@ describe("displayName", () => {
     expect(
       displayName("C:\\models\\Qwen3.8-27B-Uncensored-Q4_K_S.gguf"),
     ).toBe("Qwen3.8-27B-Uncensored");
+    expect(displayName("Ternary-Bonsai-2-27B-PTQ1_0")).toBe(
+      "OrcaBonsai 27B Uncensored",
+    );
   });
 });
 
