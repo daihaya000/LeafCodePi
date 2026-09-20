@@ -84,7 +84,7 @@ export function InstructionsMdSettings({
       } else if (reload && reload.reloaded > 0) {
         setMessage(`保存し、開いている ${reload.reloaded} 件のセッションへ即時反映しました。`);
       } else {
-        setMessage("保存しました。次に開くセッションから有効です。");
+        setMessage("保存しました。");
       }
     } catch (err) {
       if (mountedRef.current) {

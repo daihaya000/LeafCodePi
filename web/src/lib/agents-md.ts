@@ -22,6 +22,8 @@ export const BOTS_MD_FILENAME = "BOTS.md";
 export const TOOLS_MD_FILENAME = "TOOLS.md";
 /** Optional Code reference for UI design. Loaded on demand, never into the base prompt. */
 export const DESIGN_MD_FILENAME = "DESIGN.md";
+/** Optional Code reference for changes, verification, and Git workflow. */
+export const WORKFLOW_MD_FILENAME = "WORKFLOW.md";
 
 export type AgentsMdDto = {
   path: string;
@@ -68,6 +70,10 @@ export function globalToolsMdPath(env: AgentsMdEnv = process.env): string {
 
 export function globalDesignMdPath(env: AgentsMdEnv = process.env): string {
   return join(resolvePiAgentDir(env), DESIGN_MD_FILENAME);
+}
+
+export function globalWorkflowMdPath(env: AgentsMdEnv = process.env): string {
+  return join(resolvePiAgentDir(env), WORKFLOW_MD_FILENAME);
 }
 
 function assertUtf8Size(filePath: string, content: string): void {
@@ -160,6 +166,14 @@ export function writeGlobalDesignMd(content: string, env: AgentsMdEnv = process.
   return writeAgentsMdFile(globalDesignMdPath(env), content);
 }
 
+export function readGlobalWorkflowMd(env: AgentsMdEnv = process.env): AgentsMdDto {
+  return readAgentsMdFile(globalWorkflowMdPath(env));
+}
+
+export function writeGlobalWorkflowMd(content: string, env: AgentsMdEnv = process.env): AgentsMdDto {
+  return writeAgentsMdFile(globalWorkflowMdPath(env), content);
+}
+
 /**
  * Code session prompt sources (paths, re-read on reload).
  * Pi loads AGENTS.md natively; SOUL.md/USER.md are appended when present.
@@ -184,6 +198,7 @@ export function codeOnDemandPrompt(agentDir: string): string {
     "Optional reference files are not loaded automatically. Read one with the read tool only when the task needs it:",
     `- TOOLS.md (tool usage): ${pathForPrompt(TOOLS_MD_FILENAME)}`,
     `- DESIGN.md (UI design): ${pathForPrompt(DESIGN_MD_FILENAME)}`,
+    `- WORKFLOW.md (read before changes, verification, or Git operations): ${pathForPrompt(WORKFLOW_MD_FILENAME)}`,
     "Follow the relevant file after reading it; do not spend context loading unrelated files.",
     "</leafcode_on_demand_context>",
   ].join("\n");

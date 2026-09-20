@@ -12,6 +12,7 @@ import { ProfileSettings } from "@/components/settings/ProfileSettings";
 import { AgentsMdSettings } from "@/components/settings/AgentsMdSettings";
 import { SoulMdSettings } from "@/components/settings/SoulMdSettings";
 import { ToolsMdSettings } from "@/components/settings/ToolsMdSettings";
+import { WorkflowMdSettings } from "@/components/settings/WorkflowMdSettings";
 import { DesignMdSettings } from "@/components/settings/DesignMdSettings";
 import { UserMdSettings } from "@/components/settings/UserMdSettings";
 import { MemorySettings } from "@/components/settings/MemorySettings";
@@ -436,13 +437,14 @@ export function SettingsView() {
               <SettingsGroup
                 id="agents-instructions-heading"
                 title="共通指示"
-                description="AGENTS.md は常時読み込み、TOOLS.md・DESIGN.md は必要時だけ読み込む共通指示を編集します。"
+                description="AGENTS.md は常時読み込み、TOOLS.md・DESIGN.md・WORKFLOW.md は必要時だけ読み込む共通指示を編集します。"
               >
                 <div className="space-y-4">
                   <AgentsMdSettings />
                   <SoulMdSettings />
                   <ToolsMdSettings />
                   <DesignMdSettings />
+                  <WorkflowMdSettings />
                 </div>
               </SettingsGroup>
             </section>

@@ -11,6 +11,9 @@ import {
   globalSoulMdPath,
   globalToolsMdPath,
   globalUserMdPath,
+  globalWorkflowMdPath,
+  readGlobalWorkflowMd,
+  writeGlobalWorkflowMd,
   MAX_AGENTS_MD_BYTES,
   readAgentsMdFile,
   readGlobalAgentsMd,
@@ -114,11 +117,29 @@ describe("agents-md (global)", () => {
     rmSync(dir, { recursive: true, force: true });
   });
 
+  it("keeps WORKFLOW.md editable but out of always-loaded prompt sources", () => {
+    const dir = join(tmpdir(), `leafcode-pi-agents-${Date.now()}-workflow`);
+    mkdirSync(dir, { recursive: true });
+    try {
+      const env = { PI_CODING_AGENT_DIR: dir };
+      expect(readGlobalWorkflowMd(env).exists).toBe(false);
+      writeGlobalWorkflowMd("# Unique workflow content\n", env);
+      expect(readGlobalWorkflowMd(env)).toMatchObject({ exists: true, content: "# Unique workflow content\n" });
+      expect(globalWorkflowMdPath(env)).toBe(join(dir, "WORKFLOW.md"));
+      expect(codePromptSources(dir)).toEqual([]);
+      expect(codeOnDemandPrompt(dir)).not.toContain("Unique workflow content");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it("advertises optional files without loading their contents", () => {
     const prompt = codeOnDemandPrompt("C:\\pi\\agent");
     expect(prompt).toContain("TOOLS.md");
     expect(prompt).toContain("DESIGN.md");
     expect(prompt).toContain("C:/pi/agent/TOOLS.md");
+    expect(prompt).toContain("C:/pi/agent/WORKFLOW.md");
+    expect(prompt).toContain("read before changes, verification, or Git operations");
     expect(prompt).toContain("not loaded automatically");
   });
 

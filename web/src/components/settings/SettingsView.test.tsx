@@ -79,6 +79,9 @@ vi.mock("@/components/settings/ToolsMdSettings", () => ({
 vi.mock("@/components/settings/DesignMdSettings", () => ({
   DesignMdSettings: () => <h3>DESIGN.md</h3>,
 }));
+vi.mock("@/components/settings/WorkflowMdSettings", () => ({
+  WorkflowMdSettings: () => <h3>WORKFLOW.md</h3>,
+}));
 vi.mock("@/components/settings/UserMdSettings", () => ({
   UserMdSettings: () => <h3>USER.md</h3>,
 }));
@@ -344,6 +347,7 @@ describe("SettingsView", () => {
       "SOUL.md",
       "TOOLS.md",
       "DESIGN.md",
+      "WORKFLOW.md",
     ]);
     expect(screen.queryByRole("heading", { name: "USER.md" })).toBeNull();
     expect(screen.queryByRole("heading", { name: "メモリ" })).toBeNull();
