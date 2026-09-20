@@ -3111,8 +3111,15 @@ export function sessionExtensionFactories(input: {
       ? [botSoulTool(botSoulBotId, () => requestBotSoulReload(botSoulBotId))]
       : []),
     input.botToolAllowlist
-      ? (api: ExtensionAPI) =>
-          registerDeferredTools(api, input.getBotToolAllowlist ?? input.botToolAllowlist)
+      ? (api: ExtensionAPI) => {
+          const allowedTools = input.getBotToolAllowlist ?? (() => input.botToolAllowlist!);
+          registerDeferredTools(api, allowedTools);
+          // SDK reload rebuilds the registry from all registered Bot tools.
+          // Reapply permissions, not just deferred-tool visibility.
+          api.on("session_start", () => {
+            api.setActiveTools(botActiveToolNames(api.getActiveTools(), allowedTools()));
+          });
+        }
       : registerDeferredTools,
     registerJevTool,
     ...(input.taskId ? [registerGoalLoopTurnRouting(input.taskId)] : []),
@@ -8574,6 +8581,10 @@ export function applyBotTools(
   ) {
     return;
   }
+  session.setActiveToolsByName(botActiveToolNames(session.getActiveToolNames(), tools));
+}
+
+function botActiveToolNames(active: readonly string[], tools: readonly string[]): string[] {
   const knownBotTools = new Set<string>(BOT_TOOL_NAMES);
   const requested = [...new Set(
     tools.filter(
@@ -8582,9 +8593,8 @@ export function applyBotTools(
         (tool !== "powershell" || process.platform === "win32"),
     ),
   )];
-  const active = session.getActiveToolNames();
   const preserved = active.filter((tool) => !knownBotTools.has(tool));
-  session.setActiveToolsByName([...new Set([...preserved, ...requested])]);
+  return [...new Set([...preserved, ...requested])];
 }
 
 /**

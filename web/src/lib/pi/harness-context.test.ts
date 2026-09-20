@@ -72,6 +72,58 @@ it("loads optional schemas on demand through the real SDK and keeps an agent all
   }
 });
 
+it.each([
+  { tools: ["read", "tool_search", "web_search"] },
+  { tools: ["read", "web_search"] },
+  { tools: [] },
+])("keeps Bot permissions after SDK reload: $tools", async ({ tools: initial }) => {
+  let allowed: readonly string[] = initial;
+  const settingsManager = SettingsManager.inMemory();
+  const resourceLoader = new DefaultResourceLoader({
+    cwd: root, agentDir, settingsManager,
+    noExtensions: true, noSkills: true, noPromptTemplates: true, noThemes: true,
+    extensionFactories: [
+      (api) => {
+        for (const name of ["web_search", "fetch_content", "mcp", "room_handoff"]) {
+          api.registerTool({ name, label: name, description: name, parameters: Type.Object({}),
+            execute: async () => ({ content: [{ type: "text", text: "not called" }], details: {} }),
+          });
+        }
+      },
+      ...sessionExtensionFactories({
+        agentDir, hasBotSkills: false, getExtensions: () => [],
+        botToolAllowlist: initial, getBotToolAllowlist: () => allowed,
+      }).slice(0, 2),
+    ],
+  });
+  await resourceLoader.reload();
+  const { session } = await createAgentSession({
+    cwd: root, agentDir, resourceLoader, settingsManager, sessionManager: SessionManager.inMemory(root),
+    tools: sessionToolNames({ botTools: initial, roomHandoffTool: true }),
+  });
+  try {
+    await session.bindExtensions({ onError: (error) => { throw new Error(error.error); } });
+    applyBotTools(session, allowed);
+    const expected = session.getActiveToolNames();
+    expect(expected).toContain("room_handoff");
+    expect(expected).not.toContain("write");
+    await session.reload();
+    expect(session.getActiveToolNames()).toEqual(expected);
+
+    // Permissions applied while this session is alive must survive reload too.
+    allowed = ["read", "tool_search", "fetch_content"];
+    applyBotTools(session, allowed);
+    await session.reload();
+    const search = session.agent.state.tools.find(tool => tool.name === "tool_search")!;
+    await search.execute("tc", { query: "web_search" });
+    expect(session.getActiveToolNames()).not.toContain("web_search");
+    await search.execute("tc", { query: "fetch_content" });
+    expect(session.getActiveToolNames()).toEqual(["room_handoff", "read", "tool_search", "fetch_content"]);
+  } finally {
+    session.dispose();
+  }
+});
+
 it("keeps SDK APPEND_SYSTEM.md discovery alongside Code global sources", async () => {
   writeFileSync(join(agentDir, "APPEND_SYSTEM.md"), "extra system rules");
   const code = await loader(false);

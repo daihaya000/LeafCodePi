@@ -40,17 +40,17 @@ function toolMessage(callID: string): UiMessage {
 }
 
 describe("applyBotTools", () => {
-  it("applies the Bot allowlist without dropping unrelated extension tools", () => {
+  it("keeps permitted optional tools usable without tool_search and preserves unrelated extension tools", () => {
     let active = ["read", "write", "extension_tool"];
     const session = {
       getActiveToolNames: () => active,
       setActiveToolsByName: (next: string[]) => { active = next; },
     };
     applyBotTools(session as never, ["read", "memory_add"]);
-    assert.deepEqual(active, ["extension_tool", "read"]);
+    assert.deepEqual(active, ["extension_tool", "read", "memory_add"]);
   });
 
-  it("keeps intercom available as a regular Bot tool", () => {
+  it("keeps intercom directly available when tool_search is disabled", () => {
     let active = ["read"];
     const session = {
       getActiveToolNames: () => active,
