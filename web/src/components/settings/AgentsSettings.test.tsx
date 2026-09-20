@@ -425,7 +425,7 @@ describe("AgentsSettings", () => {
     expect(within(editor!).getByRole("button", { name: "新規エージェント のEffort" })).toBeTruthy();
 
     const autoHeading = screen.getByRole("heading", { name: "Autoエージェント" });
-    expect(list!.compareDocumentPosition(autoHeading) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0);
+    expect(autoHeading.compareDocumentPosition(list!) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0);
 
     fireEvent.click(screen.getByRole("button", { name: "キャンセル" }));
     expect(document.activeElement).toBe(createButton);

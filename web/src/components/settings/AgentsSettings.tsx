@@ -841,6 +841,7 @@ export function AgentsSettings() {
           busy={busyId === AUTO_AGENT_ENABLED_SETTING_KEY}
         />
       </section>
+      <AutoAgentPromptSettings />
       {agentsPath && (
         <div className="mt-1 space-y-0.5 font-mono text-[11px] text-muted">
           <p className="break-all">{agentsPath}</p>
@@ -927,7 +928,6 @@ export function AgentsSettings() {
           ))}
         </ul>
       )}
-      <AutoAgentPromptSettings />
       {error && <p role="alert" className="mt-2 text-sm text-danger">{error}</p>}
     </div>
   );
