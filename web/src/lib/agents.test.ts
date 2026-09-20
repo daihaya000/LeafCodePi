@@ -74,6 +74,7 @@ describe("listAgents / setAgentEnabled", () => {
     assert.equal(byName.has("scout"), true);
     assert.equal(byName.has("worker"), true);
     assert.equal(byName.get("scout")?.enabled, true);
+    assert.equal(byName.get("scout")?.systemPrompt, "Review the diff.");
     assert.equal(result.agentsDir, join(agentDir, "agents"));
   });
 

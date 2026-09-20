@@ -36,6 +36,8 @@ export type AgentDto = {
   filePath: string;
   source: "user" | "builtin" | "package";
   tools?: string[];
+  /** Markdown body — shown read-only in agent settings. */
+  systemPrompt: string;
 };
 
 /** Editable fields for user agent definitions. */
@@ -200,6 +202,7 @@ type DiscoveredAgent = {
   model?: string;
   thinking?: AgentThinking;
   tools?: string[];
+  systemPrompt: string;
   filePath: string;
 };
 
@@ -224,7 +227,16 @@ function discoverInDir(dir: string, source: AgentDto["source"]): DiscoveredAgent
     const description = typeof fm.description === "string" ? boundedDescription(fm.description) : undefined;
     const model = typeof fm.model === "string" && fm.model.trim() ? fm.model.trim() : undefined;
     const thinking = toThinking(fm.thinking);
-    entries.push({ name: fm.name.trim(), description, model, thinking, tools: toTools(fm.tools), filePath: full });
+    const body = /^---\s*\n[\s\S]*?\n---\n?([\s\S]*)$/.exec(content)?.[1] ?? "";
+    entries.push({
+      name: fm.name.trim(),
+      description,
+      model,
+      thinking,
+      tools: toTools(fm.tools),
+      systemPrompt: boundedSystemPrompt(body),
+      filePath: full,
+    });
   }
   return entries;
 }
@@ -294,6 +306,7 @@ export function listAgents(agentDir = resolvePiAgentDir()): AgentListResult {
           filePath: entry.filePath,
           source,
           tools,
+          systemPrompt: entry.systemPrompt,
         });
       }
     }

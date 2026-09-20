@@ -26,6 +26,7 @@ type AgentDto = {
   filePath: string;
   source: "user" | "builtin" | "package";
   tools?: string[];
+  systemPrompt: string;
 };
 
 type AgentsResponse = {
@@ -318,6 +319,24 @@ function AgentToolsSettings({
           {tools === undefined && "未指定のエージェントは既定のツールを表示しています。"}
         </p>
       </section>
+    </details>
+  );
+}
+
+function AgentPromptSettings({ name, prompt }: { name: string; prompt: string }) {
+  return (
+    <details className="group/agent-prompt mt-3 rounded-xl border border-border bg-bg" aria-label={`${name}のシステムプロンプト`}>
+      <summary className="flex min-h-10 cursor-pointer list-none items-center gap-2 px-3 py-2 text-xs font-medium [&::-webkit-details-marker]:hidden">
+        <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted transition-transform group-open/agent-prompt:rotate-90" aria-hidden="true" />
+        <span>システムプロンプト</span>
+      </summary>
+      <div className="border-t border-border p-3">
+        {prompt ? (
+          <pre className="whitespace-pre-wrap break-words font-mono text-xs leading-5 text-text">{prompt}</pre>
+        ) : (
+          <p className="text-xs text-muted">独自プロンプトはありません。</p>
+        )}
+      </div>
     </details>
   );
 }
@@ -814,6 +833,7 @@ export function AgentsSettings() {
                 {agent.description && (
                   <p className="mt-0.5 text-xs break-words text-muted">{agent.description}</p>
                 )}
+                <AgentPromptSettings name={agent.name} prompt={agent.systemPrompt} />
                 <AgentToolsSettings
                   name={agent.name}
                   tools={agent.tools}

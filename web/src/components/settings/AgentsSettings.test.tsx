@@ -56,6 +56,7 @@ const agents = [
     name: "enabled",
     enabled: true,
     model: "openai-codex/gpt-5.6-luna",
+    systemPrompt: "実装を確認する。",
     source: "package" as const,
     filePath: "C:/enabled.md",
   },
@@ -122,6 +123,21 @@ describe("AgentsSettings", () => {
         "PATCH",
       );
     });
+  });
+
+  it("各エージェントのシステムプロンプトを展開して確認できる", async () => {
+    render(<AgentsSettings />);
+
+    const row = (await screen.findByRole("switch", { name: "enabled を無効化" })).closest("li");
+    expect(row).not.toBeNull();
+    const details = row!.querySelector<HTMLDetailsElement>("details[aria-label='enabledのシステムプロンプト']");
+    expect(details).not.toBeNull();
+    expect(details!.open).toBe(false);
+
+    fireEvent.click(within(details!).getByText("システムプロンプト"));
+
+    expect(details!.open).toBe(true);
+    expect(within(details!).getByText("実装を確認する。")).toBeTruthy();
   });
 
   it("折り畳んだツール設定を必要時に展開できる", async () => {
