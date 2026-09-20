@@ -57,6 +57,18 @@ describe("store", () => {
     rmSync(dir, { recursive: true, force: true });
   });
 
+  it("listProjects(true) returns a copy, not the cached store array", async () => {
+    const dir = join(tmpdir(), `leafcode-pi-test-${Date.now()}-projects-copy`);
+    mkdirSync(dir, { recursive: true });
+    process.env.LEAFCODE_PI_DATA_DIR = dir;
+    const store = await import("./store");
+    store.upsertProject({ name: "demo", rootPath: "C:\\tmp\\demo-copy" });
+    const listed = store.listProjects(true);
+    listed.splice(0, listed.length);
+    expect(store.listProjects(true)).toHaveLength(1);
+    rmSync(dir, { recursive: true, force: true });
+  });
+
   it("archives, restores, deletes and destroys tasks and projects", async () => {
     const dir = join(tmpdir(), `leafcode-pi-test-${Date.now()}`);
     mkdirSync(dir, { recursive: true });

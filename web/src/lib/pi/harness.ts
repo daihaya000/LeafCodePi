@@ -1867,7 +1867,11 @@ async function fallbackProviderAfterLimit(
           ) {
             return;
           }
-          const nextLive = await replaceLiveForRoute(currentLive, latestTask, route);
+          // Limit recovery moves the route; drop the explicit pin so integrated
+          // rebalancing can resume on the next prepareLiveForPrompt.
+          const nextLive = await replaceLiveForRoute(currentLive, latestTask, route, {
+            accountIdExplicit: false,
+          });
           setTaskStatus(nextLive.taskId, "idle");
           emitTaskSnapshot(nextLive, "provider_fallback", {
             fallbackFrom: `${pending.providerID}::${pending.modelID}`,
@@ -7360,6 +7364,7 @@ async function replaceLiveForRoute(
   live: LiveRuntime,
   task: TaskSummary,
   route: ConcreteModelRoute,
+  options?: { accountIdExplicit?: boolean },
 ): Promise<LiveRuntime> {
   const project = task.projectId ? getProject(task.projectId) : undefined;
   const sessionFile = live.session.sessionFile ?? task.sessionFile;
@@ -7389,11 +7394,20 @@ async function replaceLiveForRoute(
   });
 
   const routeIds = modelId(route.model);
+  const nextAccountIdExplicit =
+    options?.accountIdExplicit === undefined
+      ? undefined
+      : options.accountIdExplicit && route.accountId
+        ? true
+        : undefined;
   const updatedTask = patchTask(task.id, {
     accountId: route.accountId ?? undefined,
     providerID: routeIds.providerID ?? task.providerID,
     modelID: routeIds.modelID ?? task.modelID,
     thinkingLevel,
+    ...(options?.accountIdExplicit !== undefined
+      ? { accountIdExplicit: nextAccountIdExplicit }
+      : {}),
   });
   if (!updatedTask) {
     setup.session.dispose();
@@ -7414,6 +7428,9 @@ async function replaceLiveForRoute(
       providerID: task.providerID,
       modelID: task.modelID,
       thinkingLevel: task.thinkingLevel,
+      ...(options?.accountIdExplicit !== undefined
+        ? { accountIdExplicit: task.accountIdExplicit }
+        : {}),
     });
     throw error;
   }
@@ -7692,7 +7709,9 @@ async function applyPendingLiveSettings(
         requested.agentName !== undefined
           ? { ...task, agent: requested.agentPreviousName ?? null }
           : task;
-      current = await replaceLiveForRoute(current, routeTask, requested.model.route);
+      current = await replaceLiveForRoute(current, routeTask, requested.model.route, {
+        accountIdExplicit: requested.model.accountIdExplicit,
+      });
     } else {
       await current.session.setModel(requested.model.route.model);
       applySessionCompactionSettings(current.session);

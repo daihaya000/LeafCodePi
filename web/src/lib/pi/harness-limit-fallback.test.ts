@@ -450,6 +450,8 @@ describe("provider limit fallback", () => {
     expect(fakePi.sessions[1]).toMatchObject({ accountId: claudeOther.id });
     assert.equal(getTask(task.id)?.accountId, claudeOther.id);
     assert.notEqual(getTask(task.id)?.providerID, PROVIDER);
+    // Limit recovery must drop the pin so later integrated rebalancing can run.
+    assert.equal(getTask(task.id)?.accountIdExplicit, undefined);
     await waitFor(() => fakePi.sessions[1]?.prompts.length === 1);
 
     fakePi.sessions[1]?.emit?.({
@@ -460,5 +462,6 @@ describe("provider limit fallback", () => {
     fakePi.sessions[1]?.emit?.({ type: "agent_settled" });
     await waitFor(() => fakePi.sessions[2]?.prompts.length === 1);
     assert.equal(getTask(task.id)?.accountId, codex.id);
+    assert.equal(getTask(task.id)?.accountIdExplicit, undefined);
   });
 });

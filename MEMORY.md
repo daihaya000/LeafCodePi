@@ -1,5 +1,28 @@
 ﻿# MEMORY
 
+## 2026-09-21: /loop 2m バグ・最適化・矛盾修正
+
+### ループ
+- `/loop 2m` 継続中（ユーザー明示停止まで）
+- センチネル: `AGENT_LOOP_TICK_bugfix`
+- プロンプト ASCII: `find and fix bugs, insufficient optimizations, and contradictions`
+- PID: 31808（文字化けした旧ループは停止済み）
+
+### Tick1
+1. `replaceLiveForRoute` — `accountIdExplicit` オプション追加。limit fallback 時は pin を外し、pending model 適用時は要求フラグを反映
+2. `listProjects(true)` — キャッシュ配列そのものではなく `slice()` コピーを返す（破壊的変更のストア汚染防止）
+3. 回帰: `harness-limit-fallback`（明示 pin → fallback 後 `accountIdExplicit` 未定義）/ `store`（listProjects コピー）
+
+### 検証（Tick1）
+`harness-limit-fallback` / `store` — **15 passed**
+
+### 次 Tick 候補
+- Bot Code パネル 2s ポーリングの N+1（code-session に Goal Loop DTO 同梱）
+- create/validate のソフト accountId → implicit explicit 矛盾（generateDirectText と揃える）
+- PartView `useElapsedMs` 100ms × ツール数の再レンダー
+
+---
+
 ## 2026-09-14: 徹底バグハント（アカウント一時停止）
 
 ### ループ

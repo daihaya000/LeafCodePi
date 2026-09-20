@@ -100,7 +100,8 @@ function writeStore(store: StoreFile): void {
 
 export function listProjects(includeArchived = false): ProjectDto[] {
   const projects = readStore().projects;
-  return includeArchived ? projects : projects.filter((project) => !project.archived);
+  // Always return a fresh array so callers cannot mutate the cached store.
+  return includeArchived ? projects.slice() : projects.filter((project) => !project.archived);
 }
 
 export function getProject(id: string): ProjectDto | undefined {
