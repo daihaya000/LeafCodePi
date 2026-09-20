@@ -431,6 +431,26 @@ describe("AgentsSettings", () => {
     expect(document.activeElement).toBe(createButton);
   });
 
+  it("exposes Jev routing options for Auto agent selection", async () => {
+    render(<AgentsSettings />);
+
+    fireEvent.click(await screen.findByRole("switch", { name: "Jevルーティングを有効化" }));
+    fireEvent.change(screen.getByLabelText("Jevルーティングの最低信頼度"), {
+      target: { value: "0.75" },
+    });
+
+    await waitFor(() => expect(sendJson).toHaveBeenCalledWith(
+      "/api/settings/auto-jev-enabled",
+      { value: "1" },
+      "PUT",
+    ));
+    expect(sendJson).toHaveBeenCalledWith(
+      "/api/settings/auto-jev-min-confidence",
+      { value: "0.75" },
+      "PUT",
+    );
+  });
+
   it("shows the Auto prompt and enters edit mode from the 編集 button", async () => {
     render(<AgentsSettings />);
 

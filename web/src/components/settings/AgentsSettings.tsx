@@ -3,6 +3,19 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Brain, ChevronRight } from "lucide-react";
 import { AgentRoleIcon } from "@/components/AgentSelect";
+import { JevSettingCard } from "@/components/settings/JevSettingCard";
+import {
+  AUTO_JEV_ENABLED_SETTING_KEY,
+  AUTO_JEV_MIN_CONFIDENCE_SETTING_KEY,
+  hasStoredAutoSetting,
+  readAutoJevEnabled,
+  readAutoJevMinConfidence,
+  readAutoSettingsFromServer,
+  subscribeAutoSetting,
+  writeAutoJevEnabled,
+  writeAutoJevMinConfidence,
+  writeAutoSettingToServer,
+} from "@/lib/auto-settings";
 import { AUTO_AGENT_ENABLED_SETTING_KEY, AUTO_AGENT_VALUE } from "@/lib/default-agent";
 import { ToolPermissionList } from "@/components/ToolPermissionList";
 import { ModelSelect } from "@/components/ModelSelect";
@@ -346,10 +359,18 @@ function AutoAgentPromptSettings({
   autoEnabled,
   busy,
   onToggle,
+  jevEnabled,
+  jevMinConfidence,
+  onJevEnabledChange,
+  onJevMinConfidenceChange,
 }: {
   autoEnabled: boolean;
   busy: boolean;
   onToggle: () => void;
+  jevEnabled: boolean;
+  jevMinConfidence: number;
+  onJevEnabledChange: (enabled: boolean) => void;
+  onJevMinConfidenceChange: (threshold: number) => void;
 }) {
   const [prompt, setPrompt] = useState("");
   const [savedPrompt, setSavedPrompt] = useState("");
@@ -489,6 +510,18 @@ function AutoAgentPromptSettings({
           </div>
         </>
       )}
+      <JevSettingCard
+        title="Jevルーティング"
+        description="Autoエージェントの候補選択にJevを使います。Autoモデルと共通設定です。"
+        enabled={jevEnabled}
+        onEnabledChange={onJevEnabledChange}
+        enabledLabel={`Jevルーティングを${jevEnabled ? "無効化" : "有効化"}`}
+        threshold={jevMinConfidence}
+        thresholdLabel="最低信頼度"
+        thresholdAriaLabel="Jevルーティングの最低信頼度"
+        onThresholdChange={onJevMinConfidenceChange}
+        thresholdHelp="未満は従来のルールへフォールバック"
+      />
       {error && <p className="mt-2 text-xs text-danger" role="alert">{error}</p>}
       {notice && <p className="mt-2 text-xs text-success" role="status">{notice}</p>}
     </section>
@@ -589,6 +622,9 @@ export function AgentsSettings() {
   const [agents, setAgents] = useState<AgentDto[]>([]);
   const [models, setModels] = useState<ModelOption[]>([]);
   const [autoEnabled, setAutoEnabled] = useState(true);
+  const [jevEnabled, setJevEnabled] = useState(() => readAutoJevEnabled());
+  const [jevMinConfidence, setJevMinConfidence] = useState(() => readAutoJevMinConfidence());
+  const jevTouchedRef = useRef(false);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -633,6 +669,60 @@ export function AgentsSettings() {
   useEffect(() => {
     reload();
   }, [reload]);
+
+  useEffect(() => {
+    const onJev = () => {
+      jevTouchedRef.current = true;
+      setJevEnabled(readAutoJevEnabled());
+      setJevMinConfidence(readAutoJevMinConfidence());
+    };
+    const unsubscribeEnabled = subscribeAutoSetting(AUTO_JEV_ENABLED_SETTING_KEY, onJev);
+    const unsubscribeConfidence = subscribeAutoSetting(AUTO_JEV_MIN_CONFIDENCE_SETTING_KEY, onJev);
+    return () => {
+      unsubscribeEnabled();
+      unsubscribeConfidence();
+    };
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    void readAutoSettingsFromServer().then((snapshot) => {
+      if (!active) return;
+      if (
+        snapshot.jevEnabled !== undefined &&
+        !jevTouchedRef.current &&
+        !hasStoredAutoSetting(AUTO_JEV_ENABLED_SETTING_KEY)
+      ) {
+        writeAutoJevEnabled(snapshot.jevEnabled);
+        setJevEnabled(snapshot.jevEnabled);
+      }
+      if (
+        snapshot.jevMinConfidence !== undefined &&
+        !jevTouchedRef.current &&
+        !hasStoredAutoSetting(AUTO_JEV_MIN_CONFIDENCE_SETTING_KEY)
+      ) {
+        writeAutoJevMinConfidence(snapshot.jevMinConfidence);
+        setJevMinConfidence(snapshot.jevMinConfidence);
+      }
+    });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const changeJevEnabled = (next: boolean) => {
+    jevTouchedRef.current = true;
+    setJevEnabled(next);
+    writeAutoJevEnabled(next);
+    void writeAutoSettingToServer(AUTO_JEV_ENABLED_SETTING_KEY, next ? "1" : null);
+  };
+
+  const changeJevMinConfidence = (next: number) => {
+    jevTouchedRef.current = true;
+    setJevMinConfidence(next);
+    writeAutoJevMinConfidence(next);
+    void writeAutoSettingToServer(AUTO_JEV_MIN_CONFIDENCE_SETTING_KEY, String(next));
+  };
 
   async function toggleAuto() {
     if (busyId) return;
@@ -846,6 +936,10 @@ export function AgentsSettings() {
         autoEnabled={autoEnabled}
         busy={busyId === AUTO_AGENT_ENABLED_SETTING_KEY}
         onToggle={() => void toggleAuto()}
+        jevEnabled={jevEnabled}
+        jevMinConfidence={jevMinConfidence}
+        onJevEnabledChange={changeJevEnabled}
+        onJevMinConfidenceChange={changeJevMinConfidence}
       />
       {loading && agents.length === 0 ? (
         <p className="mt-3 text-sm text-muted">読み込み中…</p>
