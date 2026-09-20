@@ -207,11 +207,7 @@ function shouldWakeIdleDelivery(message: BotIntercomMessageV1): boolean {
   return message.kind === "ask";
 }
 
-function deliverToMailboxes(message: BotIntercomMessageV1): void {
-  appendMailbox(message.toBotId, message);
-  if (message.fromBotId !== message.toBotId) appendMailbox(message.fromBotId, message);
-  emitInbox(message.toBotId);
-  if (message.fromBotId !== message.toBotId) emitInbox(message.fromBotId);
+function wakeSteerIfNeeded(message: BotIntercomMessageV1): void {
   if (!steerHandler) return;
   const wake =
     message.delivery === "steered" ||
@@ -223,6 +219,71 @@ function deliverToMailboxes(message: BotIntercomMessageV1): void {
       error instanceof Error ? error.message : String(error),
     );
   });
+}
+
+function deliverToMailboxes(message: BotIntercomMessageV1): void {
+  appendMailbox(message.toBotId, message);
+  if (message.fromBotId !== message.toBotId) appendMailbox(message.fromBotId, message);
+  emitInbox(message.toBotId);
+  if (message.fromBotId !== message.toBotId) emitInbox(message.fromBotId);
+  wakeSteerIfNeeded(message);
+}
+
+/**
+ * Promote inbound `delivery: "queued"` rows after Room busy / offline clears.
+ * Room-busy DMs (including ask) otherwise stay queued forever once the Room
+ * turn ends — deliverToMailboxes only sets delivery at send time.
+ */
+export function flushQueuedBotIntercom(botId: string): number {
+  if (!isBotId(botId)) return 0;
+  if (!isBotIntercomResident(botId)) return 0;
+  if (roomBusyLookup(botId)) return 0;
+
+  const nextDelivery = deliveryFor(botId);
+  if (nextDelivery === "queued") return 0;
+
+  const recipient = inboxState(botId);
+  const pending = recipient.messages.filter(
+    (message) =>
+      message.toBotId === botId &&
+      message.delivery === "queued" &&
+      isActiveInboxMessage(message),
+  );
+  if (pending.length === 0) return 0;
+
+  let flushed = 0;
+  for (const message of pending) {
+    const { queued: _queued, ...rest } = message;
+    const updated: BotIntercomMessageV1 = {
+      ...rest,
+      delivery: nextDelivery,
+      ...(nextDelivery === "queued" ? { queued: true as const } : {}),
+    };
+    const recipientIndex = recipient.messages.findIndex((row) => row.id === message.id);
+    if (recipientIndex >= 0) recipient.messages[recipientIndex] = updated;
+
+    if (message.fromBotId !== botId) {
+      const sender = inboxState(message.fromBotId);
+      const senderIndex = sender.messages.findIndex((row) => row.id === message.id);
+      if (senderIndex >= 0) {
+        const { queued: _senderQueued, ...senderRest } = sender.messages[senderIndex];
+        sender.messages[senderIndex] = {
+          ...senderRest,
+          delivery: nextDelivery,
+          ...(nextDelivery === "queued" ? { queued: true as const } : {}),
+        };
+        persistMailbox(message.fromBotId, sender);
+        emitInbox(message.fromBotId);
+      }
+    }
+
+    wakeSteerIfNeeded(updated);
+    flushed += 1;
+  }
+
+  persistMailbox(botId, recipient);
+  emitInbox(botId);
+  return flushed;
 }
 
 export function isBotIntercomResident(botId: string): boolean {

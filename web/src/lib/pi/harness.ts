@@ -23,6 +23,7 @@ import { JEV_TOOL_NAME, registerJevTool } from "@/lib/pi/jev-tool";
 import { ROOM_HANDOFF_TOOL, roomHandoffTool } from "@/lib/room-handoff-tool";
 import { botIntercomTool } from "@/lib/bot-intercom-tool";
 import {
+  flushQueuedBotIntercom,
   promptAttachmentsFromIntercomMessage,
   setBotIntercomBusyLookup,
   setBotIntercomResidentLookup,
@@ -8464,6 +8465,15 @@ function queuePrompt(
       }
       if (activeLive !== live && activeLive.promptChain === promptChain) {
         activeLive.promptActive = false;
+      }
+      // Room turn ended → promote mailbox rows that were queued while Room-busy.
+      const roomBotMatch = /^bot:([^:]+):room:/.exec(live.taskId);
+      if (roomBotMatch?.[1]) {
+        try {
+          flushQueuedBotIntercom(roomBotMatch[1]);
+        } catch (error) {
+          console.warn("[bot-intercom] flush after Room turn failed", error);
+        }
       }
     });
   live.promptChain = promptChain;

@@ -160,8 +160,17 @@
 ### 検証（Tick21）
 `bot-intercom` — 関連ケース通過
 
+### Tick22（ループ継続・通知 36–39）
+1. `flushQueuedBotIntercom(botId)` — Room busy / offline 解除後に inbound `delivery: "queued"` を `delivered`/`steered` へ昇格し、必要なら wake
+2. harness Room prompt `finally` — `promptActive` クリア後に `flushQueuedBotIntercom` を呼び、Room ターン終了で放置されていた DM（特に ask）を起床
+3. `wakeSteerIfNeeded` — send 時と flush 時で同一 wake 判定を共有
+
+### 検証（Tick22）
+`bot-intercom` — **30 passed**
+
 ### 次 Tick 候補
-- Room busy 解除後の queued intercom flush
+- resident 復帰（offline→online）時の queued flush
+- Room abort 経路でも flush が確実に走るかの回帰
 
 
 

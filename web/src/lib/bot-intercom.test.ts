@@ -34,6 +34,7 @@ import {
   setBotIntercomRoomBusyLookup,
   setBotIntercomSteerHandler,
   fanoutBotIntercom,
+  flushQueuedBotIntercom,
   listBotIntercomCwdPeers,
   DEFAULT_BOT_INTERCOM_SCOPE_ID,
   MAX_BOT_INTERCOM_FANOUT,
@@ -413,7 +414,7 @@ describe("bot intercom Phase C contract", () => {
     expect(woken).toEqual([]);
   });
 
-  it("queues while a Room turn is busy instead of steering the 1:1 DM", () => {
+  it("queues while a Room turn is busy instead of steering the 1:1 DM", async () => {
     const alice = enableIntercom(createBot({ name: "Alice" }).id)!;
     const bob = enableIntercom(createBot({ name: "Bob" }).id)!;
     const roomBusy = new Set<string>();
@@ -429,6 +430,21 @@ describe("bot intercom Phase C contract", () => {
     const sent = sendBotIntercom({ fromBotId: alice.id, to: bob.id, text: "wait for room" });
     expect(sent.delivery).toBe("queued");
     expect(steered).toEqual([]);
+
+    roomBusy.delete(bob.id);
+    expect(flushQueuedBotIntercom(bob.id)).toBe(1);
+    expect(getBotIntercomInbox(bob.id).messages.find((m) => m.id === sent.id)?.delivery).toBe("delivered");
+    await Promise.resolve();
+    expect(steered).toEqual([]);
+
+    roomBusy.add(bob.id);
+    const waiting = askBotIntercom({ fromBotId: alice.id, to: bob.id, text: "room後に答えて" });
+    expect(getBotIntercomInbox(bob.id).messages.at(-1)?.delivery).toBe("queued");
+    roomBusy.delete(bob.id);
+    expect(flushQueuedBotIntercom(bob.id)).toBe(1);
+    await vi.waitFor(() => expect(steered).toEqual([bob.id]));
+    replyBotIntercom({ fromBotId: bob.id, text: "了解" });
+    await expect(waiting).resolves.toMatchObject({ text: "了解" });
   });
 
   it("reloads steered attachments for the live interrupt payload", async () => {
