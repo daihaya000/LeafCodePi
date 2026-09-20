@@ -1,7 +1,7 @@
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { DEFAULT_MAX_OUTPUT, type ForegroundRunControl, type SubagentState } from "../../shared/types.ts";
 import type { SubagentParamsLike } from "./subagent-executor.ts";
 
@@ -20,16 +20,19 @@ let ctx: Parameters<typeof executor.execute>[4];
 let discover: ReturnType<typeof vi.fn>;
 const childResult = { agent: "worker", task: "Summarize", exitCode: 0, messages: [], finalOutput: "done", usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0, turns: 1 } };
 
-beforeEach(async () => {
-	// resetModules + dynamic import of the whole executor graph can exceed the
-	// default 10s hook budget when the full suite transforms files in parallel.
-	vi.resetModules();
-	vi.clearAllMocks();
+beforeAll(async () => {
+	// One temp root for the whole file. `shared/types.ts` captures
+	// PI_SUBAGENTS_TEMP_ROOT at module scope, so the executor graph is imported
+	// once here — resetModules + re-import per test used to exceed the hook
+	// budget under full-suite CPU contention.
 	root = mkdtempSync(join(tmpdir(), "leafcode-executor-contract-"));
 	vi.stubEnv("PI_SUBAGENTS_TEMP_ROOT", root);
 	vi.stubEnv("PI_CODING_AGENT_DIR", join(root, "agent"));
 	vi.stubEnv("PI_SUBAGENT_DEPTH", "0");
 	executorApi = await import("./subagent-executor.ts");
+}, 60_000);
+beforeEach(() => {
+	vi.clearAllMocks();
 	state = {
 		baseCwd: root, currentSessionId: "parent", asyncJobs: new Map(),
 		foregroundControls: new Map(), foregroundRuns: new Map(), lastForegroundControlId: null,
@@ -51,9 +54,11 @@ beforeEach(async () => {
 	});
 	launch.sync.mockResolvedValue(childResult);
 	launch.async.mockImplementation((id: string) => ({ content: [], details: { mode: "single", asyncId: id, results: [] } }));
-}, 30_000);
+});
 afterEach(() => {
 	for (const timer of state?.cleanupTimers.values() ?? []) clearTimeout(timer);
+});
+afterAll(() => {
 	vi.unstubAllEnvs();
 	rmSync(root, { recursive: true, force: true });
 });
