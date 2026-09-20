@@ -747,6 +747,25 @@ describe("registered room handoffs", () => {
     expect(getRoom(room.id)!.handoffs?.[0]).toMatchObject({ state: "failed" });
   });
 
+  it("fails a handoff waiting on a cancelled Code request without waiting for the next user turn", () => {
+    const { room, bots, user } = setup(["A", "B"]);
+    const turn = completedTurn(room.id, bots[0].id, user.id, room.members);
+    const request = codeRequest(room, bots[0], { state: "running" });
+    state.activeCodeRequests.set(request.id, request);
+    registerRoomHandoff({
+      roomId: room.id, requestId: user.id, fromMessageId: turn.id, fromBotId: bots[0].id,
+      toBotId: bots[1].id, task: "完了後に検証して", waitForCodeRequestId: request.id,
+    });
+    state.activeCodeRequests.delete(request.id);
+    const cancelled = { ...request, state: "cancelled" as const, result: undefined };
+
+    expect(settleRoomHandoffsForCode(cancelled)).toEqual([]);
+    expect(getRoom(room.id)!.handoffs?.[0]).toMatchObject({
+      state: "failed",
+      reason: expect.stringContaining("Code依頼が成功しなかった"),
+    });
+  });
+
   it("returns the same receipt for replayed and equivalent registrations", () => {
     const { room, bots, user } = setup(["A", "B"]);
     const turn = completedTurn(room.id, bots[0].id, user.id, room.members);

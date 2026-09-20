@@ -202,8 +202,15 @@
 ### 検証（Tick27）
 `room-runtime` peek 関連 — **3 passed**（対象ケース）
 
+### Tick28（ループ継続・通知 45）
+1. Room Code が supersede / revert で `cancelled` になったとき `settleRoomHandoffsForCode` を即呼び出し — waiting handoff が次のユーザー発話まで残る矛盾を解消
+2. `notifySettled` も併用（UI 同期）
+
+### 検証（Tick28）
+`room-runtime` cancelled handoff / `bot-code-relay` Room cancel — 対象通過
+
 ### 次 Tick 候補
-- intercom / Room 以外の領域へ広げる
+- Goal Loop / TaskView 側の矛盾
 
 
 

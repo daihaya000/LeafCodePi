@@ -134,6 +134,20 @@ function notifyCodeSessionSettled(
     console.warn("[bot-code-relay] Code session notification failed:", error instanceof Error ? error.message : String(error));
   }
 }
+
+/** Cancelled Room jobs must fail waiting handoffs immediately — do not wait for the next user turn. */
+async function settleHandoffsAfterRoomCancel(request: CodeRequest): Promise<void> {
+  if (!request.room) return;
+  try {
+    const { settleRoomHandoffsForCode } = await import("@/lib/room-runtime");
+    settleRoomHandoffsForCode(request);
+  } catch (error) {
+    console.warn(
+      "[bot-code-relay] handoff settle after Room cancel failed:",
+      error instanceof Error ? error.message : String(error),
+    );
+  }
+}
 function root(): string { return join(dataDir(), "bot-code-requests"); }
 
 /** What the Bot needs to judge a loop run: the promise, the verdict, and the loop's own evidence. */
@@ -497,20 +511,22 @@ export function pendingRoomCodeRequestForTurn(roomId: string, requestId: string,
 /** Cancel and stop every outstanding job of the given records (reverted context has nowhere to report). */
 async function cancelRequests(stale: CodeRequest[]): Promise<number> {
   for (const initial of stale) {
-    const taskToStop = await withBotCodeSessionLock(`request-${initial.id}`, async () => {
+    const cancelled = await withBotCodeSessionLock(`request-${initial.id}`, async () => {
       const request = read(initial.id);
       if (!request || !active(request)) return null;
       // A legacy queued prompt points at its predecessor, not its own job.
       const taskId = request.state === "queued" ? null : request.codeTaskId;
       request.state = "cancelled";
       save(request);
-      return taskId;
+      return { request, taskId };
     });
-    if (!taskToStop) continue;
+    if (!cancelled) continue;
+    await settleHandoffsAfterRoomCancel(cancelled.request);
+    if (!cancelled.taskId) continue;
     try {
       // Keep this import lazy: harness owns the relay singleton and statically importing it here would cycle.
       const { abortTaskIncludingColdGoalLoop } = await import("@/lib/pi/harness");
-      await abortTaskIncludingColdGoalLoop(taskToStop);
+      await abortTaskIncludingColdGoalLoop(cancelled.taskId);
     } catch (error) {
       console.warn("[bot-code-relay] reverted Code task could not be stopped:", error instanceof Error ? error.message : String(error));
     }
@@ -1070,6 +1086,8 @@ export function createBotCodeRelay(deps: RelayDependencies) {
         const taskToStop = request.state === "queued" ? null : request.codeTaskId;
         request.state = "cancelled";
         save(request);
+        await settleHandoffsAfterRoomCancel(request);
+        notifySettled(request);
         if (taskToStop) {
           try { await deps.abort(taskToStop); }
           catch (error) {
@@ -1126,6 +1144,8 @@ export function createBotCodeRelay(deps: RelayDependencies) {
       if (request.room && !roomRequestIsCurrent(request)) {
         request.state = "cancelled";
         save(request);
+        await settleHandoffsAfterRoomCancel(request);
+        notifySettled(request);
         return;
       }
       if (deps.isBusy(request.originTaskId) || (request.nextAttemptAt ?? 0) > Date.now()) return;
