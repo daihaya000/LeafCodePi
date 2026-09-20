@@ -5,6 +5,7 @@ import { parseDirectModelKey } from "@/lib/direct-generation";
 import { resolveAutoAgent } from "@/lib/auto-agent";
 import { AUTO_AGENT_VALUE } from "@/lib/default-agent";
 import { isGoalLoopLiveStatus } from "@/lib/pi/goal-loop-state";
+import { botIdForCodeTask } from "@/lib/pi/bot-code-relay";
 import {
   goalLoopCommand,
   goalLoopState,
@@ -14,6 +15,7 @@ import {
   setTaskAgent,
   setTaskModel,
   setTaskThinkingLevel,
+  stopBotCodeTask,
   validateTaskModelSelection,
 } from "@/lib/pi/harness";
 import {
@@ -276,6 +278,14 @@ export async function PATCH(req: NextRequest, { params }: Params) {
     const action = body?.action;
     if (action !== "pause" && action !== "resume" && action !== "stop" && action !== "complete") {
       return NextResponse.json({ error: "action は pause/resume/stop/complete のいずれかです" }, { status: 400 });
+    }
+    // Bot-owned Code: Goal Loop stop must mark the outbox like Bot panel / tasks abort.
+    if (action === "stop") {
+      const botId = botIdForCodeTask(id);
+      if (botId) {
+        await stopBotCodeTask(botId, id);
+        return NextResponse.json({ loop: await goalLoopState(id, { offline: true }) });
+      }
     }
     const loop = await goalLoopCommand(id, {
       action,

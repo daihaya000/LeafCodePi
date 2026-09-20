@@ -377,6 +377,16 @@ export async function stopBotCodeRequestForTask(
     .sort((a, b) => (b.queuedAt ?? 0) - (a.queuedAt ?? 0) || b.id.localeCompare(a.id))[0];
   return request ? stopBotCodeRequest(botId, request.id) : undefined;
 }
+
+/** Owner Bot for a Code task opened from TaskView — task fields first, then active outbox. */
+export function botIdForCodeTask(codeTaskId: string): string | undefined {
+  const task = getTask(codeTaskId);
+  if (typeof task?.botId === "string" && task.botId) return task.botId;
+  if (typeof task?.supervisorBotId === "string" && task.supervisorBotId) return task.supervisorBotId;
+  return requests()
+    .filter((item) => item.codeTaskId === codeTaskId && !item.userIntervention && active(item))
+    .sort((a, b) => (b.queuedAt ?? 0) - (a.queuedAt ?? 0) || b.id.localeCompare(a.id))[0]?.botId;
+}
 /** Persist a Code-side prompt for the worker that owns the Bot's Code session. */
 export function queueBotCodePrompt(
   botId: string,

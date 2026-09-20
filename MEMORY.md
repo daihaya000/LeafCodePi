@@ -131,8 +131,16 @@
 ### 検証（Tick17）
 `code-session/route` — **27 passed**
 
+### Tick18（ループ継続・通知 28–29）
+1. `botIdForCodeTask` — TaskView 用に所有者 Bot を解決
+2. `/api/tasks/[id]/abort` と goal-loop `stop` — Bot 所有 Code は `stopBotCodeTask` 経由（パネル停止と契約を揃える）
+
+### 検証（Tick18）
+`tasks abort` / `goal-loop` — **15 passed**
+
 ### 次 Tick 候補
 - cold（非 live）Code の activity は現状なし（許容）
+
 
 
 

@@ -13,6 +13,8 @@ const mocks = vi.hoisted(() => ({
   setTaskModel: vi.fn(),
   setTaskThinkingLevel: vi.fn(),
   validateTaskModelSelection: vi.fn(),
+  stopBotCodeTask: vi.fn(),
+  botIdForCodeTask: vi.fn(),
   jsonError: vi.fn((error: unknown) => ({
     error: error instanceof Error ? error.message : String(error),
     status:
@@ -27,6 +29,7 @@ vi.mock("@/lib/direct-session", () => ({
   readSessionConversation: mocks.readSessionConversation,
 }));
 vi.mock("@/lib/auto-agent", () => ({ resolveAutoAgent: mocks.resolveAutoAgent }));
+vi.mock("@/lib/pi/bot-code-relay", () => ({ botIdForCodeTask: mocks.botIdForCodeTask }));
 vi.mock("@/lib/pi/harness", () => ({
   goalLoopCommand: mocks.goalLoopCommand,
   goalLoopState: mocks.goalLoopState,
@@ -37,6 +40,7 @@ vi.mock("@/lib/pi/harness", () => ({
   setTaskModel: mocks.setTaskModel,
   setTaskThinkingLevel: mocks.setTaskThinkingLevel,
   validateTaskModelSelection: mocks.validateTaskModelSelection,
+  stopBotCodeTask: mocks.stopBotCodeTask,
 }));
 
 import { AUTO_AGENT_VALUE } from "@/lib/default-agent";
@@ -329,6 +333,10 @@ describe("POST /api/tasks/[id]/goal-loop", () => {
 describe("PATCH /api/tasks/[id]/goal-loop", () => {
   beforeEach(() => {
     mocks.goalLoopCommand.mockReset();
+    mocks.goalLoopState.mockReset();
+    mocks.stopBotCodeTask.mockReset();
+    mocks.botIdForCodeTask.mockReset();
+    mocks.botIdForCodeTask.mockReturnValue(undefined);
     mocks.jsonError.mockClear();
   });
 
@@ -354,6 +362,23 @@ describe("PATCH /api/tasks/[id]/goal-loop", () => {
     expect(mocks.goalLoopCommand).toHaveBeenCalledWith("task-1", {
       action: "resume",
       maxTurns: 5,
+    });
+  });
+
+  it("routes Bot-owned Goal Loop stop through stopBotCodeTask", async () => {
+    mocks.botIdForCodeTask.mockReturnValue("bot-1");
+    mocks.stopBotCodeTask.mockResolvedValue({ id: "task-1", status: "idle", botId: "bot-1" });
+    mocks.goalLoopState.mockResolvedValue({ id: "loop-1", status: "stopped", maxTurns: 3, turnCount: 1 });
+
+    const response = await PATCH(patchRequest({ action: "stop" }), {
+      params: Promise.resolve({ id: "task-1" }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(mocks.stopBotCodeTask).toHaveBeenCalledWith("bot-1", "task-1");
+    expect(mocks.goalLoopCommand).not.toHaveBeenCalled();
+    await expect(response.json()).resolves.toEqual({
+      loop: { id: "loop-1", status: "stopped", maxTurns: 3, turnCount: 1 },
     });
   });
 });
