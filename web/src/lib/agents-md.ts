@@ -18,6 +18,10 @@ export const SOUL_MD_FILENAME = "SOUL.md";
 export const USER_MD_FILENAME = "USER.md";
 /** Common instructions for bot mode. Bots never read AGENTS.md. */
 export const BOTS_MD_FILENAME = "BOTS.md";
+/** Optional Code reference for tool usage. Loaded on demand, never into the base prompt. */
+export const TOOLS_MD_FILENAME = "TOOLS.md";
+/** Optional Code reference for UI design. Loaded on demand, never into the base prompt. */
+export const DESIGN_MD_FILENAME = "DESIGN.md";
 
 export type AgentsMdDto = {
   path: string;
@@ -56,6 +60,14 @@ export function globalSoulMdPath(env: AgentsMdEnv = process.env): string {
 
 export function globalUserMdPath(env: AgentsMdEnv = process.env): string {
   return join(resolvePiAgentDir(env), USER_MD_FILENAME);
+}
+
+export function globalToolsMdPath(env: AgentsMdEnv = process.env): string {
+  return join(resolvePiAgentDir(env), TOOLS_MD_FILENAME);
+}
+
+export function globalDesignMdPath(env: AgentsMdEnv = process.env): string {
+  return join(resolvePiAgentDir(env), DESIGN_MD_FILENAME);
 }
 
 function assertUtf8Size(filePath: string, content: string): void {
@@ -132,6 +144,22 @@ export function writeGlobalUserMd(content: string, env: AgentsMdEnv = process.en
   return writeAgentsMdFile(globalUserMdPath(env), content);
 }
 
+export function readGlobalToolsMd(env: AgentsMdEnv = process.env): AgentsMdDto {
+  return readAgentsMdFile(globalToolsMdPath(env));
+}
+
+export function writeGlobalToolsMd(content: string, env: AgentsMdEnv = process.env): AgentsMdDto {
+  return writeAgentsMdFile(globalToolsMdPath(env), content);
+}
+
+export function readGlobalDesignMd(env: AgentsMdEnv = process.env): AgentsMdDto {
+  return readAgentsMdFile(globalDesignMdPath(env));
+}
+
+export function writeGlobalDesignMd(content: string, env: AgentsMdEnv = process.env): AgentsMdDto {
+  return writeAgentsMdFile(globalDesignMdPath(env), content);
+}
+
 /**
  * Code session prompt sources (paths, re-read on reload).
  * Pi loads AGENTS.md natively; SOUL.md/USER.md are appended when present.
@@ -143,6 +171,22 @@ export function codePromptSources(agentDir: string): string[] {
   if (existsSync(soul)) sources.push(soul);
   if (existsSync(user)) sources.push(user);
   return sources;
+}
+
+/**
+ * Small catalog for optional Code references. The files themselves stay out of
+ * the base prompt; the model reads one only when the task needs it.
+ */
+export function codeOnDemandPrompt(agentDir: string): string {
+  const pathForPrompt = (fileName: string) => JSON.stringify(join(agentDir, fileName).replaceAll("\\", "/"));
+  return [
+    "<leafcode_on_demand_context>",
+    "Optional reference files are not loaded automatically. Read one with the read tool only when the task needs it:",
+    `- TOOLS.md (tool usage): ${pathForPrompt(TOOLS_MD_FILENAME)}`,
+    `- DESIGN.md (UI design): ${pathForPrompt(DESIGN_MD_FILENAME)}`,
+    "Follow the relevant file after reading it; do not spend context loading unrelated files.",
+    "</leafcode_on_demand_context>",
+  ].join("\n");
 }
 
 export function errorStatus(error: unknown, fallback = 500): number {

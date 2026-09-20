@@ -3,22 +3,29 @@ import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  codeOnDemandPrompt,
   codePromptSources,
   globalAgentsMdPath,
   globalBotsMdPath,
+  globalDesignMdPath,
   globalSoulMdPath,
+  globalToolsMdPath,
   globalUserMdPath,
   MAX_AGENTS_MD_BYTES,
   readAgentsMdFile,
   readGlobalAgentsMd,
   readGlobalBotsMd,
+  readGlobalDesignMd,
   readGlobalSoulMd,
+  readGlobalToolsMd,
   readGlobalUserMd,
   resolvePiAgentDir,
   writeAgentsMdFile,
   writeGlobalAgentsMd,
   writeGlobalBotsMd,
+  writeGlobalDesignMd,
   writeGlobalSoulMd,
+  writeGlobalToolsMd,
   writeGlobalUserMd,
 } from "./agents-md";
 
@@ -90,6 +97,29 @@ describe("agents-md (global)", () => {
     expect(readGlobalAgentsMd(env).content).toBe("# Agents\n");
     expect(readFileSync(join(dir, "BOTS.md"), "utf8")).toBe("# Bots\n");
     rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("stores TOOLS.md and DESIGN.md as separate optional references", () => {
+    const dir = join(tmpdir(), `leafcode-pi-agents-${Date.now()}-optional`);
+    mkdirSync(dir, { recursive: true });
+    const env = { PI_CODING_AGENT_DIR: dir };
+    expect(globalToolsMdPath(env)).toMatch(/TOOLS\.md$/);
+    expect(globalDesignMdPath(env)).toMatch(/DESIGN\.md$/);
+    writeGlobalToolsMd("# Tools\n", env);
+    writeGlobalDesignMd("# Design\n", env);
+    expect(readGlobalToolsMd(env)).toMatchObject({ exists: true, content: "# Tools\n" });
+    expect(readGlobalDesignMd(env)).toMatchObject({ exists: true, content: "# Design\n" });
+    expect(readFileSync(join(dir, "TOOLS.md"), "utf8")).toBe("# Tools\n");
+    expect(readFileSync(join(dir, "DESIGN.md"), "utf8")).toBe("# Design\n");
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("advertises optional files without loading their contents", () => {
+    const prompt = codeOnDemandPrompt("C:\\pi\\agent");
+    expect(prompt).toContain("TOOLS.md");
+    expect(prompt).toContain("DESIGN.md");
+    expect(prompt).toContain("C:/pi/agent/TOOLS.md");
+    expect(prompt).toContain("not loaded automatically");
   });
 
   it("names the offending file in size errors", () => {
