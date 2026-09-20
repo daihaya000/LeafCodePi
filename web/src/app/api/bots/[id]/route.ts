@@ -209,12 +209,12 @@ export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ 
       if (status !== 404) throw error;
     }
   }
-  const deleted = deleteBot(id);
-  if (!deleted) return NextResponse.json({ error: "\u30dc\u30c3\u30c8\u304c\u898b\u3064\u304b\u308a\u307e\u305b\u3093" }, { status: 404 });
-  // A deleted Bot must not linger as a Room member: a dangling id keeps a member slot and shows up
-  // in every room snapshot until someone happens to re-save the membership.
+  // Remove membership before deleting the Bot so a Room write failure leaves a retryable Bot.
+  // A dangling id keeps a member slot and shows up in every room snapshot until cleanup succeeds.
   for (const room of rooms) {
     patchRoom(room.id, { members: room.members.filter((member) => member !== id) });
   }
+  const deleted = deleteBot(id);
+  if (!deleted) return NextResponse.json({ error: "\u30dc\u30c3\u30c8\u304c\u898b\u3064\u304b\u308a\u307e\u305b\u3093" }, { status: 404 });
   return NextResponse.json({ ok: true });
 }

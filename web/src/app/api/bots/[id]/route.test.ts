@@ -363,6 +363,15 @@ describe("DELETE /api/bots/[id]", () => {
     expect(mocks.deleteBot).toHaveBeenCalledWith("one");
   });
 
+  it("keeps the Bot when Room membership cleanup fails", async () => {
+    mocks.getBot.mockReturnValue(bot());
+    mocks.listRooms.mockReturnValue([{ id: "room-a", members: ["one"] }]);
+    mocks.patchRoom.mockImplementationOnce(() => { throw new Error("room write failed"); });
+
+    await expect(DELETE(emptyRequest(), params("one"))).rejects.toThrow("room write failed");
+    expect(mocks.deleteBot).not.toHaveBeenCalled();
+  });
+
   it("removes the deleted Bot from every Room it was a member of", async () => {
     mocks.deleteBot.mockReturnValue(true);
     mocks.listRooms.mockReturnValue([
