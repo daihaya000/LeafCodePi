@@ -233,13 +233,22 @@ function deliverToMailboxes(message: BotIntercomMessageV1): void {
  * Promote inbound `delivery: "queued"` rows after Room busy / offline clears.
  * Room-busy DMs (including ask) otherwise stay queued forever once the Room
  * turn ends — deliverToMailboxes only sets delivery at send time.
+ *
+ * `ignoreRoomBusy`: Room live teardown — this session is being disposed, so do
+ * not treat its own Room busy flag as a reason to keep mail queued. Callers must
+ * ensure no *other* Room turn for the bot is still busy.
  */
-export function flushQueuedBotIntercom(botId: string): number {
+export function flushQueuedBotIntercom(
+  botId: string,
+  options?: { ignoreRoomBusy?: boolean },
+): number {
   if (!isBotId(botId)) return 0;
   if (!isBotIntercomResident(botId)) return 0;
-  if (roomBusyLookup(botId)) return 0;
+  if (!options?.ignoreRoomBusy && roomBusyLookup(botId)) return 0;
 
-  const nextDelivery = deliveryFor(botId);
+  const nextDelivery = options?.ignoreRoomBusy
+    ? deliveryForIgnoringRoomBusy(botId)
+    : deliveryFor(botId);
   if (nextDelivery === "queued") return 0;
 
   const recipient = inboxState(botId);
@@ -725,6 +734,13 @@ function deliveryFor(toBotId: string): BotIntercomDelivery {
   // 1:1 busy / pending ask → steer. Room-only busy → mailbox (do not steal DM).
   if (busyLookup(toBotId) || waitingBots.has(toBotId)) return "steered";
   if (roomBusyLookup(toBotId)) return "queued";
+  return "delivered";
+}
+
+/** Same as deliveryFor but Room busy is ignored (Room live is being torn down). */
+function deliveryForIgnoringRoomBusy(toBotId: string): BotIntercomDelivery {
+  if (!isBotIntercomResident(toBotId)) return "queued";
+  if (busyLookup(toBotId) || waitingBots.has(toBotId)) return "steered";
   return "delivered";
 }
 

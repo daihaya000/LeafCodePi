@@ -175,9 +175,16 @@
 ### 検証（Tick23）
 `bot-intercom` — **31 passed**
 
+### Tick24（ループ継続・通知 42）
+1. `disposeLive` — Room live を map 削除**前**に flush（削除後は resident=false で queued が永久放置される矛盾）
+2. `flushQueuedBotIntercom({ ignoreRoomBusy })` — 他 Room が忙しくない tear-down では自セッションの busy を無視して昇格
+
+### 検証（Tick24）
+`bot-intercom` — **32 passed**
+
 ### 次 Tick 候補
-- Room abort 以外の disposeLive 経路での flush 要否
-- resident lookup と flush の結合回帰（harness 統合テスト）
+- intercom 以外（Code progress / Goal Loop）の矛盾へ戻る
+- harness 統合での disposeLive flush 回帰
 
 
 

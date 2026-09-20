@@ -476,6 +476,27 @@ describe("bot intercom Phase C contract", () => {
     await expect(waiting).resolves.toMatchObject({ text: "了解" });
   });
 
+  it("flushes queued mail with ignoreRoomBusy when tearing down the only Room turn", async () => {
+    const alice = enableIntercom(createBot({ name: "Alice" }).id)!;
+    const bob = enableIntercom(createBot({ name: "Bob" }).id)!;
+    const roomBusy = new Set<string>();
+    residents.add(bob.id);
+    setBotIntercomRoomBusyLookup((id) => roomBusy.has(id));
+    roomBusy.add(bob.id);
+    const woken: string[] = [];
+    setBotIntercomSteerHandler(async (message) => {
+      woken.push(message.toBotId);
+    });
+
+    const waiting = askBotIntercom({ fromBotId: alice.id, to: bob.id, text: "dispose前" });
+    expect(getBotIntercomInbox(bob.id).messages.at(-1)?.delivery).toBe("queued");
+    // Teardown of the only Room turn: ignore this session's busy flag.
+    expect(flushQueuedBotIntercom(bob.id, { ignoreRoomBusy: true })).toBe(1);
+    await vi.waitFor(() => expect(woken).toEqual([bob.id]));
+    replyBotIntercom({ fromBotId: bob.id, text: "ok" });
+    await expect(waiting).resolves.toMatchObject({ text: "ok" });
+  });
+
   it("reloads steered attachments for the live interrupt payload", async () => {
     const alice = enableIntercom(createBot({ name: "Alice" }).id)!;
     const bob = enableIntercom(createBot({ name: "Bob" }).id)!;

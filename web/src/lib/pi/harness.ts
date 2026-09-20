@@ -2386,6 +2386,25 @@ function disposeLive(taskId: string): void {
   clearPendingAttentionForTask(taskId);
   const live = state().live.get(taskId);
   if (!live) return;
+  // Room live を map から消す前に flush（消すと resident=false になり queued が永久放置される）。
+  const roomBotId = /^bot:([^:]+):room:/.exec(taskId)?.[1];
+  if (roomBotId) {
+    live.promptActive = false;
+    const prefix = `bot:${roomBotId}:room:`;
+    let otherRoomBusy = false;
+    for (const [id, other] of state().live) {
+      if (id === taskId || !id.startsWith(prefix)) continue;
+      if (other.promptActive || other.session.isStreaming || other.session.isCompacting) {
+        otherRoomBusy = true;
+        break;
+      }
+    }
+    try {
+      flushQueuedBotIntercom(roomBotId, { ignoreRoomBusy: !otherRoomBusy });
+    } catch (error) {
+      console.warn("[bot-intercom] flush before Room live dispose failed", error);
+    }
+  }
   live.unsubscribe();
   live.session.dispose();
   state().live.delete(taskId);
