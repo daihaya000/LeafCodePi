@@ -99,8 +99,15 @@
 ### 検証（Tick12）
 `CodeRequestCard` / `BotView.code` / `room-runtime` — **120 passed**
 
+### Tick13（ループ継続・通知 18）
+1. `CodeRequestCard` — `ready`（結果報告中）でも停止可能に（`canStop` と `live` を分離）。サーバ `stopBotCodeRequest` と契約を揃える
+
+### 検証（Tick13）
+`CodeRequestCard` — **5 passed**
+
 ### 次 Tick 候補
-- cold（非 live）Code の activity は現状なし（許容）。必要なら transcript 末尾の軽量読取を検討
+- cold（非 live）Code の activity は現状なし（許容）
+
 
 
 

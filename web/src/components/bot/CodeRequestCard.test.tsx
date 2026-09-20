@@ -56,6 +56,16 @@ describe("CodeRequestCard", () => {
     expect(getJson).not.toHaveBeenCalled();
   });
 
+  it("offers stop while the Code result is still being reported", () => {
+    const onStop = vi.fn();
+    const view = render(
+      <CodeRequestCard taskId="task-1" state="ready" prompt="報告待ち" onStop={onStop} />,
+    );
+    fireEvent.click(view.getByRole("button", { name: "停止" }));
+    expect(onStop).toHaveBeenCalledTimes(1);
+    expect(getJson).not.toHaveBeenCalled();
+  });
+
   it("does not overlap preview requests while the current poll is pending", async () => {
     vi.useFakeTimers();
     let resolveRequest!: (value: { task: null }) => void;

@@ -75,6 +75,8 @@ export function CodeRequestCard({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const live = state === "queued" || state === "starting" || state === "running";
+  // Server `stopBotCodeRequest` treats ready (reporting) as stoppable; keep detail poll on live only.
+  const canStop = live || state === "ready";
 
   // Full detail (messages) only while the preview is open — live progress comes from list props.
   useEffect(() => {
@@ -148,7 +150,7 @@ export function CodeRequestCard({
         {runningLabel && <span className="min-w-0 flex-1 truncate text-faint">· {runningLabel}</span>}
         {taskId && <button type="button" aria-expanded={open} onClick={() => setOpen((value) => !value)} className="min-h-11 rounded-lg px-3 text-accent hover:bg-surface-2 focus-visible:outline-2 focus-visible:outline-accent">{open ? "閉じる" : "プレビュー"}</button>}
         {taskId && <a className="inline-flex min-h-11 items-center rounded-lg px-3 text-muted hover:bg-surface-2 hover:text-accent focus-visible:outline-2 focus-visible:outline-accent" href={`/task/${encodeURIComponent(taskId)}`}>実行内容を見る</a>}
-        {live && onStop && <button type="button" onClick={onStop} disabled={stopping} className="min-h-11 rounded-lg px-3 text-danger hover:bg-surface-2 focus-visible:outline-2 focus-visible:outline-accent disabled:opacity-40">{state === "queued" ? "取消" : "停止"}</button>}
+        {canStop && onStop && <button type="button" onClick={onStop} disabled={stopping} className="min-h-11 rounded-lg px-3 text-danger hover:bg-surface-2 focus-visible:outline-2 focus-visible:outline-accent disabled:opacity-40">{state === "queued" ? "取消" : "停止"}</button>}
       </div>
       {((loopActive && loopTurn > 0) || (!loopActive && todoTotal > 0)) && (
         <div className="mt-2" title={progressText}>
