@@ -50,9 +50,10 @@ call :pause_if_interactive
 exit /b %FAIL_EXIT%
 
 :check_node
-set "NODE_MAJOR=0"
-for /f %%V in ('node -p "process.versions.node.split('.')[0]" 2^>nul') do set "NODE_MAJOR=%%V"
-if %NODE_MAJOR% GEQ 20 exit /b 0
+rem package.json engines requires Node.js 22.19+. A major-only test accepted
+rem 20/21 (and 22.0-22.18) and failed later inside the build with an unclear error.
+call :node_version_ok
+if not errorlevel 1 exit /b 0
 call where winget >nul 2>&1
 if errorlevel 1 (
   call :fail 1 "winget was not found." error-1
@@ -65,11 +66,15 @@ if errorlevel 1 (
   exit /b 2
 )
 if exist "%ProgramFiles%\nodejs\node.exe" set "PATH=%ProgramFiles%\nodejs;%PATH%"
-set "NODE_MAJOR=0"
-for /f %%V in ('node -p "process.versions.node.split('.')[0]" 2^>nul') do set "NODE_MAJOR=%%V"
-if %NODE_MAJOR% GEQ 20 exit /b 0
-call :fail 3 "Node.js is not available in this command prompt." error-3
+call :node_version_ok
+if not errorlevel 1 exit /b 0
+call :fail 3 "Node.js 22.19 or newer is not available in this command prompt." error-3
 exit /b 3
+
+:node_version_ok
+node -e "const [major, minor] = process.versions.node.split('.').map(Number); process.exit(major < 22 || (major === 22 && minor < 19) ? 1 : 0)" 2>nul
+if errorlevel 1 exit /b 1
+exit /b 0
 
 :install_gh
 where gh >nul 2>&1

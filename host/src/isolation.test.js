@@ -38,6 +38,17 @@ test("launcher bats use LEAFCODE_PI_* and port 3010", () => {
   assert.doesNotMatch(bat, /LEAFCODE_HEADLESS=/);
 });
 
+test("both launchers enforce the engines Node.js minimum", () => {
+  // package.json engines says >=22.19. The bat once accepted any major >=20,
+  // which let unsupported runtimes fail later inside the build instead.
+  const bat = readFileSync(join(repoRoot, "scripts", "start-webui.bat"), "utf8");
+  assert.match(bat, /major < 22/);
+  assert.match(bat, /major === 22 && minor < 19/);
+  assert.doesNotMatch(bat, /NODE_MAJOR/);
+  const sh = readFileSync(join(repoRoot, "start.sh"), "utf8");
+  assert.match(sh, /major < 22 \|\| \(major === 22 && minor < 19\)/);
+});
+
 test("desktop shortcut name is LeafCodePi.lnk", () => {
   const ps1 = readFileSync(join(repoRoot, "scripts", "create-shortcut.ps1"), "utf8");
   assert.match(ps1, /LeafCodePi\.lnk/);
