@@ -9197,6 +9197,16 @@ export async function abortLiveForHangWatchdog(taskId: string): Promise<void> {
       questionRequest: null,
     });
   }
+  // Same as abortTask: promptChain.finally may have flushed while isStreaming
+  // was still true (roomBusy → no-op). Re-flush after abort settles.
+  const roomBotMatch = /^bot:([^:]+):room:/.exec(taskId);
+  if (roomBotMatch?.[1]) {
+    try {
+      flushQueuedBotIntercom(roomBotMatch[1]);
+    } catch (error) {
+      console.warn("[bot-intercom] flush after Room hang abort failed", error);
+    }
+  }
 }
 
 /** Session entry customType for the hidden agent-switch boundary notice. */

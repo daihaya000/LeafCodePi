@@ -182,9 +182,15 @@
 ### 検証（Tick24）
 `bot-intercom` — **32 passed**
 
+### Tick25（ループ継続・通知 43 + Tick23探索フォロー）
+1. `abortLiveForHangWatchdog` — `await abortPromise` 後に Room intercom flush（finally が isStreaming 残存で no-op になる穴。`abortTask` と同型）
+2. 指摘元: [Tick23 bug hunt](107cddf6-940f-4379-8092-6dc701db5dcf)
+
+### 検証（Tick25）
+関連差分レビュー + 既存 `bot-intercom` 回帰
+
 ### 次 Tick 候補
 - intercom 以外（Code progress / Goal Loop）の矛盾へ戻る
-- harness 統合での disposeLive flush 回帰
 
 
 
