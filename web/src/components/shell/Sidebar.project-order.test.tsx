@@ -172,8 +172,8 @@ describe("Sidebar project ordering", () => {
 
     const modeSegment = screen.getByRole("button", { name: "Code" }).parentElement!;
     const modeButtons = [...modeSegment.querySelectorAll("button")];
-    expect(modeButtons.map((button) => button.textContent)).toEqual(["Bot", "Code"]);
-    expect(modeButtons[0]?.getAttribute("aria-pressed")).toBe("true");
+    expect(modeButtons.map((button) => button.textContent)).toEqual(["Code", "Bot"]);
+    expect(modeButtons[1]?.getAttribute("aria-pressed")).toBe("true");
   });
 
   it("switches from Code to Bot without opening the Bot home", async () => {

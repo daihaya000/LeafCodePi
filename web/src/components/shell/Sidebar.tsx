@@ -176,7 +176,7 @@ type WorkingCounts = Record<AppMode, number>;
 
 function ModeSegment({ mode, onChange, workingCounts }: { mode: AppMode; onChange: (mode: AppMode) => void; workingCounts: WorkingCounts }) {
   return <div className="mb-2 grid grid-cols-2 rounded-lg border border-border bg-surface-2 p-0.5">
-    {(["bot", "code"] as const).map((item) => {
+    {(["code", "bot"] as const).map((item) => {
       const label = item === "code" ? "Code" : "Bot";
       const count = workingCounts[item];
       return <button key={item} type="button" aria-label={`${label}${count > 0 ? `（進行中${count}件）` : ""}`} aria-pressed={mode === item} onClick={() => onChange(item)} className={cx("flex items-center justify-center gap-2 rounded-md px-2 py-1.5 text-xs font-medium", mode === item ? "bg-surface text-text shadow-sm" : "text-muted hover:text-text")}>
