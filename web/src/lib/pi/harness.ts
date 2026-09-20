@@ -9717,7 +9717,9 @@ export function restoreTask(id: string): TaskSummary {
       );
     }
   }
-  const restored = patchTask(id, { status: "idle" }) ?? task;
+  const restored = patchTask(id, { status: "idle" });
+  if (!restored)
+    throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });
   // 開いたままの履歴タブが archived のまま残ると Composer が読み取り専用のまま。
   emit(id, {
     type: "snapshot",
