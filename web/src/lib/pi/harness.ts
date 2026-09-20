@@ -14,7 +14,7 @@ import {
 } from "@/lib/paths";
 import { prepareWorkspaceMove, type PreparedWorkspaceMove } from "@/lib/workspace-move";
 import { BOT_DEFAULT_TOOL_NAMES, BOT_TOOL_NAMES, botPromptSources, botRuntimeContext, botSoulRevision, botTaskId, getBot, listBots, patchBot } from "@/lib/bots";
-import { AGENTS_MD_FILENAME, codeOnDemandPrompt, codePromptSources, readAgentsMdFile } from "@/lib/agents-md";
+import { AGENTS_MD_FILENAME, codeOnDemandPrompt, codePromptSources, compactSdkDocumentation, readAgentsMdFile } from "@/lib/agents-md";
 import { BOT_CODE_RESULT, BOT_CODE_TOOL, botCodeReportText, createBotCodeRelay, hasBotCodeReport, isBotCodeOriginTask, queueBotCodePrompt, roomForCodeOrigin, runUserBotCodeRequest, stopBotCodeRequestForTask, truncateCodeReportRequest, type CodePromptOptions, type CodeRequest } from "@/lib/pi/bot-code-relay";
 import { catalogFromRoomUserRequest, catalogFromSessionEntries } from "@/lib/pi/bot-code-images";
 import { roomRequestImages } from "@/lib/rooms";
@@ -3094,7 +3094,7 @@ export function sessionExtensionFactories(input: {
         const references = !input.botToolAllowlist && api.getActiveTools().includes("read")
           ? codeOnDemandPrompt(input.agentDir)
           : "";
-        return { systemPrompt: [event.systemPrompt, references, runtimeClockContext()].filter(Boolean).join("\n\n") };
+        return { systemPrompt: [compactSdkDocumentation(event.systemPrompt), references, runtimeClockContext()].filter(Boolean).join("\n\n") };
       });
       api.on("session_before_compact", async (event) => {
         if (!isJevCompactionEnabled(getSetting(JEV_COMPACTION_ENABLED_SETTING_KEY))) return;

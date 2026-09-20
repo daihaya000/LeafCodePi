@@ -162,9 +162,18 @@ describe("compactSkillsForPrompt", () => {
 
     const [compacted] = compactSkillsForPrompt(source);
 
-    expect([...compacted.description].length).toBeLessThanOrEqual(200);
+    expect([...compacted.description].length).toBeLessThanOrEqual(120);
     expect(compacted.description.endsWith("…")).toBe(true);
     expect(source[0].description).toContain("  ");
+  });
+
+  it("caps multilingual descriptions without changing names, paths or source text", () => {
+    const skill = { name: "example", filePath: "/skills/example/SKILL.md", description: "検証😀".repeat(60) };
+    const [compacted] = compactSkillsForPrompt([skill]);
+    expect([...compacted.description]).toHaveLength(120);
+    expect(compacted).toMatchObject({ name: skill.name, filePath: skill.filePath });
+    expect(compacted.description).not.toMatch(/\uFFFD/);
+    expect(skill.description).toBe("検証😀".repeat(60));
   });
 
   it("keeps short descriptions intact", () => {

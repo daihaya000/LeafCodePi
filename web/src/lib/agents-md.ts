@@ -174,6 +174,15 @@ export function writeGlobalWorkflowMd(content: string, env: AgentsMdEnv = proces
   return writeAgentsMdFile(globalWorkflowMdPath(env), content);
 }
 
+/** Shorten only the SDK's stock guide, never a custom persona or user file. */
+export function compactSdkDocumentation(prompt: string): string {
+  if (!prompt.startsWith("You are an expert coding assistant operating inside pi, a coding agent harness.")) return prompt;
+  return prompt.replace(
+    /Pi documentation \(read only when[^\n]*\n(- Main documentation:[^\n]*\n- Additional docs:[^\n]*\n- Examples:[^\n]*)\n- When reading pi docs[^\n]*\n- When asked about:[^\n]*\n- When working on pi topics[^\n]*\n- Always read pi \.md files completely and follow links to related docs[^\n]*/,
+    "For Pi questions only, read the relevant local .md files completely and follow their links. Resolve docs/examples under these directories:\n$1",
+  );
+}
+
 /**
  * Code session prompt sources (paths, re-read on reload).
  * Pi loads AGENTS.md natively; SOUL.md/USER.md are appended when present.

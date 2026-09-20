@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { createAgentSession, DefaultResourceLoader, SessionManager, SettingsManager, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { afterEach, beforeEach, expect, it } from "vitest";
-import { codeOnDemandPrompt } from "@/lib/agents-md";
+import { codeOnDemandPrompt, compactSdkDocumentation } from "@/lib/agents-md";
 import { applyBotTools, sessionExtensionFactories, sessionResourceOptions, sessionToolNames } from "./harness";
 
 let root: string;
@@ -53,6 +53,15 @@ it("loads optional schemas on demand through the real SDK and keeps an agent all
   try {
     await session.bindExtensions({ onError: (error) => { throw new Error(error.error); } });
     expect(session.getActiveToolNames()).toEqual(["read", "tool_search"]);
+    const original = session.agent.state.systemPrompt;
+    const compacted = compactSdkDocumentation(original);
+    expect(compacted.length).toBeLessThan(original.length);
+    expect(compacted).toContain("read the relevant local .md files completely");
+    for (const line of original.split("\n").filter(line => /^- (Main documentation|Additional docs|Examples):/.test(line))) {
+      expect(compacted).toContain(line);
+    }
+    expect(compactSdkDocumentation(`Custom persona\n${original}`)).toBe(`Custom persona\n${original}`);
+    expect(compactSdkDocumentation(`${original}\n\nUser rules remain intact`).endsWith("User rules remain intact")).toBe(true);
     const search = session.agent.state.tools.find(tool => tool.name === "tool_search")!;
     await search.execute("tc", { query: "get_search_content" });
     expect(session.getActiveToolNames()).toEqual(["read", "tool_search", "get_search_content"]);

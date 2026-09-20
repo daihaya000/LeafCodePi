@@ -200,7 +200,7 @@ export function filterSkillsForBot<T extends { name: string }>(
   return [...skills];
 }
 
-const MAX_PROMPT_DESCRIPTION_CHARS = 200;
+const MAX_PROMPT_DESCRIPTION_CHARS = 120;
 
 /** Keep skill discovery useful without injecting long trigger inventories. */
 export function compactSkillsForPrompt<T extends { description: string }>(skills: readonly T[]): T[] {
@@ -212,7 +212,7 @@ export function compactSkillsForPrompt<T extends { description: string }>(skills
     }
     const head = characters.slice(0, MAX_PROMPT_DESCRIPTION_CHARS - 1).join("");
     const wordBreak = head.lastIndexOf(" ");
-    const description = `${(wordBreak >= 150 ? head.slice(0, wordBreak) : head).trimEnd()}…`;
+    const description = `${(wordBreak >= MAX_PROMPT_DESCRIPTION_CHARS * 0.75 ? head.slice(0, wordBreak) : head).trimEnd()}…`;
     return { ...skill, description };
   });
 }
