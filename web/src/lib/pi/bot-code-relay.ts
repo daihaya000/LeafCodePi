@@ -23,6 +23,7 @@ import {
   type AvailableImageInfo,
   type ConversationUserImage,
 } from "@/lib/pi/bot-code-images";
+import { isGoalLoopOperatorHold } from "@/lib/pi/goal-loop-state";
 
 export const BOT_CODE_TOOL = "code_session";
 export const BOT_CODE_RESULT = "bot-code-result";
@@ -887,6 +888,8 @@ export function createBotCodeRelay(deps: RelayDependencies) {
     // Only a run that asked for a loop is judged by the loop file; a later plain follow-up on the same
     // session must not inherit the old loop's verdict.
     const loop = task && request.goalLoop ? deps.goalLoop(task) : null;
+    // Defense in depth: complete()/races must not settle an operator-held pause.
+    if (loop && isGoalLoopOperatorHold(loop) && !request.stoppedByUser) return;
     const outcome = !task ? "セッションが削除されました" : request.stoppedByUser ? "ユーザーが停止" : task.manualAbortedAssistantId != null || task.status === "archived" ? "停止・中断" : task.error || latest?.error ? "失敗" : loop ? goalLoopOutcome(loop) : text ? "実行終了" : "結果を取得できませんでした";
     request.result = JSON.stringify({
       outcome,
@@ -1091,6 +1094,9 @@ export function createBotCodeRelay(deps: RelayDependencies) {
           request.state = "ready";
           settledFromRunning = true;
         } else {
+          // User/manual_send pause expects Resume — do not settle the outbox yet.
+          const loop = task && request.goalLoop ? deps.goalLoop(task) : null;
+          if (isGoalLoopOperatorHold(loop)) return;
           await captureResult(request);
         }
       }

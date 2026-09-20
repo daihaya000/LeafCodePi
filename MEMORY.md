@@ -138,8 +138,17 @@
 ### 検証（Tick18）
 `tasks abort` / `goal-loop` — **15 passed**
 
+### Tick19（ループ継続・通知 30–31）
+1. `isGoalLoopOperatorHold` — user / manual_send の pause は Resume 前提
+2. Bot Code outbox — operator hold 中は settle/deliver しない；`isBusy` も hold を busy 扱い
+3. turn_limit pause の配信は従来どおり
+
+### 検証（Tick19）
+`goal-loop-state` / `bot-code-relay` — **80 passed**
+
 ### 次 Tick 候補
 - cold（非 live）Code の activity は現状なし（許容）
+
 
 
 

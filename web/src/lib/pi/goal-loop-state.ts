@@ -43,10 +43,20 @@ export const GOAL_LOOP_LIVE_STATUSES = [
   "verifying_completed",
 ] as const;
 
+/** Operator-held pauses that expect Resume — must not settle Bot Code outbox yet. */
+const GOAL_LOOP_OPERATOR_HOLD_REASONS = new Set(["user", "manual_send"]);
+
 export function isGoalLoopLiveStatus(
   status: string | null | undefined,
 ): boolean {
   return Boolean(status && (GOAL_LOOP_LIVE_STATUSES as readonly string[]).includes(status));
+}
+
+/** True when the loop is paused for a user/operator hold (not turn_limit / blocked). */
+export function isGoalLoopOperatorHold(
+  loop: { status?: string | null; pauseReason?: string | null } | null | undefined,
+): boolean {
+  return loop?.status === "paused" && GOAL_LOOP_OPERATOR_HOLD_REASONS.has(loop.pauseReason ?? "");
 }
 
 /** cwd引数は呼び出し元互換のため残す。状態配置はグローバルでcwd非依存。 */

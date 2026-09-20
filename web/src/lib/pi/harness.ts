@@ -124,7 +124,7 @@ import {
   isEditableBaseUrlProvider,
   setProviderBaseUrl as setProviderBaseUrlFromEndpoints,
 } from "@/lib/provider-endpoints";
-import { isGoalLoopLiveStatus, readGoalLoopState } from "@/lib/pi/goal-loop-state";
+import { isGoalLoopLiveStatus, isGoalLoopOperatorHold, readGoalLoopState } from "@/lib/pi/goal-loop-state";
 import { activeToolLabel } from "@/lib/tool-labels";
 import { acquireTaskLease, hasActiveTaskLease, ownsTaskLease, releaseTaskLease, reconcileOrphanedWorkingTasks } from "@/lib/task-runtime-lease";
 import {
@@ -2426,13 +2426,10 @@ function botCodeRelay(): ReturnType<typeof createBotCodeRelay> {
         return true;
       }
       // After worker restart live may be gone while goals-loop/*.json is still live — do not deliver.
-      if (
-        task &&
-        isGoalLoopLiveStatus(
-          readGoalLoopState(task.directory, live?.session.sessionId ?? task.sessionId)?.status,
-        )
-      ) {
-        return true;
+      // Operator pause (user / manual_send) also stays held until Resume or Stop.
+      if (task) {
+        const loop = readGoalLoopState(task.directory, live?.session.sessionId ?? task.sessionId);
+        if (isGoalLoopLiveStatus(loop?.status) || isGoalLoopOperatorHold(loop)) return true;
       }
       return false;
     },

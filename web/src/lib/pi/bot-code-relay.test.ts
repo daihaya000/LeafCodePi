@@ -450,6 +450,19 @@ describe("Bot ⇄ Code relay", () => {
     expect(record().result).not.toContain("実行終了");
   });
 
+  it("does not settle the outbox while the Goal Loop is user-paused", async () => {
+    const goalLoop = { acceptance: [], maxTurns: 5, cooldownSeconds: 0, forceFullRun: false };
+    await relay.run("bot:one", "loop-pause", { action: "start", projectId: "project", prompt: "長い作業", goalLoop }, "session");
+    store.tasks.get("code")!.status = "idle";
+    messages = [answer("mid", "途中まで")];
+    vi.mocked(deps.goalLoop).mockReturnValue({ status: "paused", pauseReason: "user", turnCount: 2, maxTurns: 5 } as never);
+    await relay.tick();
+
+    expect(record().state).toBe("running");
+    expect(record().result).toBeUndefined();
+    expect(deps.deliver).not.toHaveBeenCalled();
+  });
+
   it("keeps an ordinary follow-up out of an earlier loop verdict", async () => {
     await launch();
     store.tasks.get("code")!.status = "idle";

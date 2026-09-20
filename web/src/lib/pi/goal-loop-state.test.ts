@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { isGoalLoopLiveStatus, readGoalLoopState } from "./goal-loop-state";
+import { isGoalLoopLiveStatus, isGoalLoopOperatorHold, readGoalLoopState } from "./goal-loop-state";
 
 const previousDataDir = process.env.LEAFCODE_PI_DATA_DIR;
 const tempDirs: string[] = [];
@@ -46,5 +46,15 @@ describe("isGoalLoopLiveStatus", () => {
     expect(isGoalLoopLiveStatus("verifying_completed")).toBe(true);
     expect(isGoalLoopLiveStatus("paused")).toBe(false);
     expect(isGoalLoopLiveStatus("idle")).toBe(false);
+  });
+});
+
+describe("isGoalLoopOperatorHold", () => {
+  it("holds only user and manual_send pauses", () => {
+    expect(isGoalLoopOperatorHold({ status: "paused", pauseReason: "user" })).toBe(true);
+    expect(isGoalLoopOperatorHold({ status: "paused", pauseReason: "manual_send" })).toBe(true);
+    expect(isGoalLoopOperatorHold({ status: "paused", pauseReason: "turn_limit" })).toBe(false);
+    expect(isGoalLoopOperatorHold({ status: "running", pauseReason: "user" })).toBe(false);
+    expect(isGoalLoopOperatorHold(null)).toBe(false);
   });
 });
