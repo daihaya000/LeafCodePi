@@ -31,6 +31,7 @@ import {
   productionWebUiIsIdle,
   restorePreviousBuild,
   replantBuildCache,
+  settleFailedBuild,
   stashPreviousBuild,
   typecheckInvocation,
   waitForWebUiHealth,
@@ -388,6 +389,41 @@ test("a successful rebuild discards the stashed build", () => {
     assert.equal(discardPreviousBuild(distDir), true);
     assert.equal(readFileSync(join(distDir, "BUILD_ID"), "utf8"), "new\n");
     assert.equal(restorePreviousBuild(distDir), false);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("a failed build with no previous output is discarded", () => {
+  const { root } = sandbox();
+  try {
+    const distDir = join(root, ".next");
+    // next build wrote a BUILD_ID, then the parallel typecheck gate failed.
+    // Nothing was stashed, so the gate-failed output must not survive to the
+    // next host start (which would serve it as production).
+    mkdirSync(distDir, { recursive: true });
+    writeFileSync(join(distDir, "BUILD_ID"), "failed-gate\n");
+
+    assert.equal(settleFailedBuild(distDir), "discarded");
+    assert.equal(existsSync(distDir), false);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("a failed rebuild restores the stashed build instead of discarding it", () => {
+  const { root } = sandbox();
+  try {
+    const distDir = join(root, ".next");
+    mkdirSync(distDir, { recursive: true });
+    writeFileSync(join(distDir, "BUILD_ID"), "good\n");
+    stashPreviousBuild(distDir);
+    mkdirSync(distDir, { recursive: true });
+    writeFileSync(join(distDir, "partial"), "junk\n");
+
+    assert.equal(settleFailedBuild(distDir), "restored");
+    assert.equal(readFileSync(join(distDir, "BUILD_ID"), "utf8"), "good\n");
+    assert.throws(() => readFileSync(join(distDir, "partial")), /ENOENT/);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

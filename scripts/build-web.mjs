@@ -88,6 +88,21 @@ export function discardPreviousBuild(distDir, fsApi = {}) {
 }
 
 /**
+ * Settle the output after a failed rebuild: put the last good build back when
+ * one was stashed, otherwise remove the failed output. A build that failed the
+ * typecheck gate must not survive on disk, or the next host start would serve
+ * it as production.
+ *
+ * @returns {"restored" | "discarded"}
+ */
+export function settleFailedBuild(distDir, fsApi = {}) {
+  if (restorePreviousBuild(distDir, fsApi)) return "restored";
+  const remove = fsApi.rmSync ?? rmSync;
+  remove(distDir, { recursive: true, force: true });
+  return "discarded";
+}
+
+/**
  * Move only the Turbopack persistent cache out of the stashed build so the
  * rebuild starts warm. Build outputs stay stashed, so a failed rebuild still
  * restores the last good `.next` exactly as before (minus the optional cache).
@@ -431,8 +446,10 @@ export async function main(argv = process.argv.slice(2)) {
     }
   }
   if (status !== 0) {
-    if (restorePreviousBuild(mirror.distDir)) {
+    if (settleFailedBuild(mirror.distDir) === "restored") {
       console.error(`[build-web] rebuild failed; restored previous production build at ${mirror.distDir}`);
+    } else {
+      console.error(`[build-web] rebuild failed; discarded the failed build at ${mirror.distDir}`);
     }
     return status;
   }
