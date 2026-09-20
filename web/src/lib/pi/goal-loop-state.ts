@@ -91,6 +91,11 @@ export function readGoalLoopState(cwd: string, sessionId: string | null | undefi
       cooldownSeconds: clampGoalLoopCooldownSeconds(value.cooldownSeconds),
       nextTurnAt: typeof value.nextTurnAt === "string" ? value.nextTurnAt : null,
       unreadableStreak: Math.max(0, Math.trunc(Number(value.unreadableStreak) || 0)),
+      // GoalLoopPanel reads progress.at(-1) and turnCount unconditionally, so a
+      // partial/hand-edited state file must not crash the panel or render NaN.
+      // Mirror the extension's hydrate defaults instead of trusting the cast.
+      progress: Array.isArray(value.progress) ? value.progress : [],
+      turnCount: Math.max(0, Math.trunc(Number(value.turnCount) || 0)),
     } as GoalLoopDto;
     cacheGoalLoopState(file, {
       mtimeMs: stat.mtimeMs,

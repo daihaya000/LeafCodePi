@@ -37,6 +37,19 @@ describe("readGoalLoopState", () => {
     writeFileSync(file, JSON.stringify({ ...base, goal: "更新後の目標" }), "utf8");
     expect(readGoalLoopState(cwd, "session")?.goal).toBe("更新後の目標");
   });
+
+  it("fills progress and turnCount that the panel reads when the state file omits them", () => {
+    const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-"));
+    tempDirs.push(cwd);
+    process.env.LEAFCODE_PI_DATA_DIR = cwd;
+    const stateDir = join(cwd, "goals-loop");
+    mkdirSync(stateDir, { recursive: true });
+    writeFileSync(join(stateDir, "session.json"), JSON.stringify({ goal: "部分的な状態", status: "paused" }), "utf8");
+
+    const loop = readGoalLoopState(cwd, "session");
+    expect(loop?.progress).toEqual([]);
+    expect(loop?.turnCount).toBe(0);
+  });
 });
 
 describe("isGoalLoopLiveStatus", () => {
