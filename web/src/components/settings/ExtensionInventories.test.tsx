@@ -79,6 +79,25 @@ describe("拡張設定の一覧", () => {
     ));
   });
 
+  it("reflects a skill toggle before the API response", async () => {
+    let resolveRequest!: (value: unknown) => void;
+    const request = new Promise((resolve) => {
+      resolveRequest = resolve;
+    });
+    sendJson.mockReturnValueOnce(request);
+
+    render(<SkillsSettings />);
+    fireEvent.click(await screen.findByRole("switch", { name: "review（Code）を無効化" }));
+
+    const toggle = screen.getByRole("switch", { name: "review（Code）を有効化" });
+    expect(toggle.getAttribute("aria-checked")).toBe("false");
+
+    resolveRequest({
+      skills: [{ id: "review", name: "review", enabled: false, codeEnabled: false, botEnabled: false, source: "pi" }],
+    });
+    await waitFor(() => expect(screen.getByRole("switch", { name: "review（Code）を有効化" })).toBeTruthy());
+  });
+
   it("n8nとSlackの公式スキルをそれぞれ一つのトグルにまとめる", async () => {
     getJson.mockImplementation((path: string) => {
       if (path === "/api/skills") {

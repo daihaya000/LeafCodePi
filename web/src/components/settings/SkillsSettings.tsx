@@ -57,16 +57,24 @@ export function SkillsSettings({ scope = "code" }: { scope?: SkillScope } = {}) 
 
   async function toggle(skill: SkillDto) {
     if (busyId) return;
+    const enabled = !isEnabled(skill, scope);
     setBusyId(skill.id);
     setError(null);
+    setSkills((current) => current.map((item) => {
+      if (item.id !== skill.id) return item;
+      return scope === "code"
+        ? { ...item, enabled, codeEnabled: enabled }
+        : { ...item, botEnabled: enabled };
+    }));
     try {
       const result = await sendJson<{ skills: SkillDto[] }>(
         `/api/skills/${encodeURIComponent(skill.id)}`,
-        { enabled: !isEnabled(skill, scope), scope },
+        { enabled, scope },
         "PATCH",
       );
       setSkills(result.skills);
     } catch (err) {
+      setSkills((current) => current.map((item) => item.id === skill.id ? skill : item));
       setError(err instanceof Error ? err.message : "スキルの切替に失敗しました");
       reload();
     } finally {
@@ -77,8 +85,15 @@ export function SkillsSettings({ scope = "code" }: { scope?: SkillScope } = {}) 
   async function toggleGroup(group: SkillGroupDefinition, members: SkillDto[]) {
     if (busyId) return;
     const enabled = !members.every((skill) => isEnabled(skill, scope));
+    const memberIds = new Set(members.map((skill) => skill.id));
     setBusyId(group.id);
     setError(null);
+    setSkills((current) => current.map((skill) => {
+      if (!memberIds.has(skill.id)) return skill;
+      return scope === "code"
+        ? { ...skill, enabled, codeEnabled: enabled }
+        : { ...skill, botEnabled: enabled };
+    }));
     try {
       const result = await sendJson<{ skills: SkillDto[] }>(
         "/api/skills",
@@ -87,6 +102,9 @@ export function SkillsSettings({ scope = "code" }: { scope?: SkillScope } = {}) 
       );
       setSkills(result.skills);
     } catch (err) {
+      setSkills((current) => current.map((skill) => memberIds.has(skill.id)
+        ? members.find((member) => member.id === skill.id) ?? skill
+        : skill));
       setError(err instanceof Error ? err.message : "スキルの切替に失敗しました");
       reload();
     } finally {

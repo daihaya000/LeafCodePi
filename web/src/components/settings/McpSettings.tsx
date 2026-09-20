@@ -156,16 +156,23 @@ export function McpSettings() {
 
   async function toggle(server: McpDto) {
     if (busyId || authBusyId) return;
+    const enabled = !server.enabled;
     setBusyId(server.id);
     setError(null);
+    setServers((current) => current.map((item) =>
+      item.id === server.id ? { ...item, enabled } : item,
+    ));
     try {
       const result = await sendJson<{ servers: McpDto[] }>(
         `/api/mcp/${encodeURIComponent(server.id)}`,
-        { enabled: !server.enabled },
+        { enabled },
         "PATCH",
       );
       setServers(result.servers);
     } catch (err) {
+      setServers((current) => current.map((item) =>
+        item.id === server.id ? server : item,
+      ));
       setError(err instanceof Error ? err.message : "MCP サーバーの切替に失敗しました");
       reload();
     } finally {

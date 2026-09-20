@@ -68,6 +68,23 @@ describe("McpSettings", () => {
     expect(screen.queryByText(token)).toBeNull();
   });
 
+  it("reflects a server toggle before the API response", async () => {
+    let resolveRequest!: (value: unknown) => void;
+    const request = new Promise((resolve) => {
+      resolveRequest = resolve;
+    });
+    client.sendJson.mockReturnValueOnce(request);
+
+    render(<McpSettings />);
+    fireEvent.click(await screen.findByRole("switch", { name: "n8n を無効化" }));
+
+    const toggle = screen.getByRole("switch", { name: "n8n を有効化" });
+    expect(toggle.getAttribute("aria-checked")).toBe("false");
+
+    resolveRequest({ servers: [{ ...server, enabled: false }] });
+    await waitFor(() => expect(screen.getByRole("switch", { name: "n8n を有効化" })).toBeTruthy());
+  });
+
   it("adds n8n through the API and opens its OAuth panel", async () => {
     const oauthServer = {
       ...server,

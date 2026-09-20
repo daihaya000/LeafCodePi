@@ -35,14 +35,18 @@ export async function PATCH(req: NextRequest, context: RouteContext) {
 
   try {
     setMcpServerEnabled(name, enabled);
-    const reload = await reloadLiveSessionsContext();
+    // Rebuilding every live session is expensive; persist and respond first.
+    setImmediate(() => {
+      void reloadLiveSessionsContext().catch((error) => {
+        console.warn("[mcp] live session context reload failed", error);
+      });
+    });
     const listed = listMcpServers();
     return NextResponse.json({
       ok: true,
       name,
       enabled,
       servers: listed.servers,
-      reload,
     });
   } catch (error) {
     return NextResponse.json(
