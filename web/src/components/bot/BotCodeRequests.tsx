@@ -81,8 +81,14 @@ export function BotCodeRequests({ botId, requestIds, active = true }: { botId: s
       }
       const next = await load();
       if (closed) return;
-      const matching = next?.filter((request) => pollingRequestIds.has(request.id)) ?? [];
-      const terminal = matching.length > 0 && matching.every((request) => request.state === "delivered" || request.state === "cancelled");
+      const byId = new Map((next ?? []).map((request) => [request.id, request]));
+      // Every requested id must be terminal — missing siblings stay non-terminal.
+      const terminal =
+        pollingRequestIds.size > 0 &&
+        [...pollingRequestIds].every((id) => {
+          const request = byId.get(id);
+          return request?.state === "delivered" || request?.state === "cancelled";
+        });
       if (!terminal) timer = window.setTimeout(() => void poll(), 2_000);
     };
     void poll();

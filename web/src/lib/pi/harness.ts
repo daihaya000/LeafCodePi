@@ -4039,10 +4039,10 @@ function toGoalLoopSummary(
  * Cheap progress for Code request cards while collapsed. Avoids full
  * getTaskDetail / message hydration on every Bot code-requests poll.
  */
-export function peekCodeRequestProgress(taskId: string): {
+export async function peekCodeRequestProgress(taskId: string): Promise<{
   todoProgress?: TodoProgressDto;
   goalLoopSummary?: GoalLoopSummaryDto;
-} {
+}> {
   const task = getTask(taskId);
   if (!task) return {};
   const summary = toSummary(task);
@@ -4053,9 +4053,13 @@ export function peekCodeRequestProgress(taskId: string): {
     );
   }
   let todoProgress = summary.todoProgress;
-  const pi = state().pi;
-  if (!todoProgress && pi && task.sessionFile && !state().live.has(taskId)) {
-    todoProgress = readTodoProgress(pi, summary);
+  if (!todoProgress && task.sessionFile && !state().live.has(taskId)) {
+    try {
+      const pi = state().pi ?? (await loadPi());
+      todoProgress = readTodoProgress(pi, summary);
+    } catch {
+      /* Goal loop summary above is enough when Pi cannot open. */
+    }
   }
   return {
     ...(todoProgress ? { todoProgress } : {}),

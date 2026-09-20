@@ -9,10 +9,15 @@ export const dynamic = "force-dynamic";
 export async function GET(_request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const id = (await params).id;
   if (!getBot(id)) return NextResponse.json({ error: "ボットが見つかりません" }, { status: 404 });
-  const requests = listBotCodeRequests(id).map((request) => {
-    if (!request.codeTaskId) return request;
-    return { ...request, ...peekCodeRequestProgress(request.codeTaskId) };
-  });
+  const listed = listBotCodeRequests(id);
+  const requests = await Promise.all(
+    listed.map(async (request) => {
+      if (!request.codeTaskId) return request;
+      // Skip disk/Pi peek for settled requests — outcome/goalLoop report is enough.
+      if (request.state === "delivered" || request.state === "cancelled") return request;
+      return { ...request, ...(await peekCodeRequestProgress(request.codeTaskId)) };
+    }),
+  );
   return NextResponse.json({ requests });
 }
 

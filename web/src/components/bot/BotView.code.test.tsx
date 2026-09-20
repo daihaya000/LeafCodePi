@@ -1136,6 +1136,44 @@ it("shares Code request polling across multiple cards for one Bot", async () => 
   });
 });
 
+it("keeps Code request polling until every linked request id is terminal", async () => {
+  vi.useFakeTimers();
+  let codeRequestCalls = 0;
+  mocks.getJson.mockImplementation(async (url: string) => {
+    if (url.endsWith("/code-requests")) {
+      codeRequestCalls += 1;
+      // First response only has one of two linked ids — must not stop polling.
+      if (codeRequestCalls === 1) {
+        return {
+          requests: [{ id: "request-1", codeTaskId: null, state: "delivered", prompt: "first" }],
+        };
+      }
+      return {
+        requests: [
+          { id: "request-1", codeTaskId: null, state: "delivered", prompt: "first" },
+          { id: "request-2", codeTaskId: null, state: "running", prompt: "second" },
+        ],
+      };
+    }
+    if (url === "/api/models") return { models: [] };
+    if (url.endsWith("/routines")) return { routines: [] };
+    return { bot: testBot };
+  });
+  render(<ShellProvider><BotView id="one" active /></ShellProvider>);
+  await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+  snapshot({ messages: [
+    { id: "bot-1", role: "assistant", createdAt: 1, parts: [
+      { type: "tool", tool: "code_session", callID: "call-1", state: { status: "completed", output: JSON.stringify({ requestId: "request-1" }) } },
+      { type: "tool", tool: "code_session", callID: "call-2", state: { status: "completed", output: JSON.stringify({ requestId: "request-2" }) } },
+    ] },
+  ] });
+  await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+  expect(codeRequestCalls).toBeGreaterThanOrEqual(1);
+  await act(async () => { await vi.advanceTimersByTimeAsync(2_000); });
+  expect(codeRequestCalls).toBeGreaterThanOrEqual(2);
+  expect(screen.getByText("second")).toBeTruthy();
+});
+
 it("refreshes Code requests when stopping during an in-flight poll", async () => {
   vi.useFakeTimers();
   const request = { id: "request-1", codeTaskId: null, state: "running" as const, prompt: "first" };

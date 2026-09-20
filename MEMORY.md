@@ -68,8 +68,15 @@
 ### 検証（Tick8）
 `CodeRequestCard` / `BotView.code` — **68 passed**
 
+### Tick9（ループ継続）
+1. `BotCodeRequests` — 全 `requestIds` が terminal になるまで poll 継続（一部だけ delivered で止まらない）
+2. `peekCodeRequestProgress` — cold ToDo は `loadPi()` してから読む；settled request は route 側で peek スキップ
+
+### 検証（Tick9）
+`BotView.code`（terminal poll 回帰含む）— 関連テスト通過
+
 ### 次 Tick 候補
-- （新規調査）
+- Room の CodeRequestCard に tick8 相当の進捗 props を配線
 
 ---
 
