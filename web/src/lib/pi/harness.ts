@@ -7739,14 +7739,27 @@ async function reloadLiveContextIfNeeded(live: LiveRuntime): Promise<LiveRuntime
   return current;
 }
 
-/** Agent frontmatter is only read while creating a session; reload cannot replace its tool registry. */
+/**
+ * Agent frontmatter / tool registry is only read while creating a session;
+ * `session.reload()` cannot replace it. Recreate via attachSession (same as
+ * SOUL reload) so promptActive/promptChain survive — disposeLive+ensureLive
+ * would reset them and briefly clear roomBusyLookup mid-turn.
+ */
 async function reloadLiveAgentDefinitionIfNeeded(live: LiveRuntime): Promise<LiveRuntime> {
   const current = state().live.get(live.taskId) ?? live;
   if (!current.agentDefinitionReloadPending && current.jevToolRegistered) return current;
   if (current.session.isStreaming || current.session.isCompacting) return current;
-  current.agentDefinitionReloadPending = false;
-  disposeLive(current.taskId);
-  return ensureLive(current.taskId);
+  try {
+    const next = await replaceLiveForSoul(current);
+    next.agentDefinitionReloadPending = false;
+    return next;
+  } catch (error) {
+    console.warn(
+      `[reload] deferred agent-definition recreate failed for ${current.taskId}:`,
+      error instanceof Error ? error.message : String(error),
+    );
+    return current;
+  }
 }
 
 async function prepareAutoAgentForGoalLoop(

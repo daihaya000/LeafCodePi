@@ -189,8 +189,16 @@
 ### 検証（Tick25）
 関連差分レビュー + 既存 `bot-intercom` 回帰
 
+### Tick26（ループ継続・[Tick24 bug hunt](79cfb260-c658-4fa9-b21d-22b53a889c3a) フォロー）
+1. `reloadLiveAgentDefinitionIfNeeded` — `disposeLive`+`ensureLive` をやめ `replaceLiveForSoul`（attachSession）へ。promptActive/promptChain を維持し、Room ターン中の roomBusyLookup 抜けと誤 flush を防ぐ
+2. 探索案の `isLiveBusyForReplace` guard は不採用（prepare 中は常に promptActive のため deferred reload が永久に走らない）
+
+### 検証（Tick26）
+`harness-agent` — **30 passed**
+
 ### 次 Tick 候補
-- intercom 以外（Code progress / Goal Loop）の矛盾へ戻る
+- room-runtime peek settle 後の progress 復活 race（探索 secondary）
+- intercom 以外の矛盾
 
 
 
