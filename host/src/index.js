@@ -829,6 +829,12 @@ function acquireLock() {
   if (existing) {
     log(`Removing stale lock for PID ${existing.pid}`);
     removeLock(LOCK_FILE);
+  } else if (existsSync(LOCK_FILE)) {
+    // A lock killed mid-write (or written on a full disk) parses as no lock but
+    // still makes the exclusive create below fail. Drop it so one start is
+    // enough instead of erroring out and self-healing only on the retry.
+    log("Removing an unreadable host.lock");
+    removeLock(LOCK_FILE);
   }
   try {
     writeLock(LOCK_FILE);

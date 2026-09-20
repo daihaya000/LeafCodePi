@@ -621,6 +621,18 @@ test("a tray that stayed up returns its crash-restart budget", () => {
   assert.match(startSource, /RESTART_BUDGET_RESET_MS/);
 });
 
+test("acquireLock recovers from an unreadable host.lock", () => {
+  const source = readFileSync(join(REPO_ROOT, "host", "src", "index.js"), "utf8");
+  const lockSource = source.slice(
+    source.indexOf("function acquireLock()"),
+    source.indexOf("async function startControlServer()"),
+  );
+  // A partial lock parses as null but still fails the exclusive create; the
+  // host must drop it in the same start instead of erroring out once.
+  assert.match(lockSource, /existsSync\(LOCK_FILE\)/);
+  assert.match(lockSource, /Removing an unreadable host\.lock/);
+});
+
 test("hostControlUrl prefers the running host's file, then the default port", () => {
   const file = () => JSON.stringify({ url: "http://127.0.0.1:18999/" });
   assert.equal(hostControlUrl({ APPDATA: "C:\\data" }, file), "http://127.0.0.1:18999");

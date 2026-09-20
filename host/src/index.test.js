@@ -296,6 +296,26 @@ test("lock file round-trip and stale pid", () => {
   );
 });
 
+test("an unreadable lock parses as no lock but blocks the exclusive create", () => {
+  const files = new Map([["lock", '{"pid":']]);
+  const deps = {
+    existsSync: (path) => files.has(path),
+    readFileSync: (path) => files.get(path),
+    writeFileSync: (path, contents) => {
+      if (files.has(path)) {
+        const err = new Error("EEXIST");
+        err.code = "EEXIST";
+        throw err;
+      }
+      files.set(path, contents);
+    },
+  };
+  // The root cause acquireLock() guards against: a partial write parses as
+  // null, yet the exclusive create still fails until the file is removed.
+  assert.equal(readLock("lock", deps), null);
+  assert.throws(() => writeLock("lock", 42, deps), /EEXIST/);
+});
+
 test("log line is a single tab-separated row", () => {
   const line = formatLogLine({
     ts: Date.parse("2026-08-20T12:00:00.000Z"),
