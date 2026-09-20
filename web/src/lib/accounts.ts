@@ -4,7 +4,7 @@ import { dirname, join } from "node:path";
 import { dataDir } from "./paths";
 import { invalidateCachedUsage } from "./codexbar/cache";
 import { clearProviderCache } from "./codexbar/provider-cache";
-import { isGoalLoopLiveStatus, readGoalLoopState } from "./pi/goal-loop-state";
+import { isGoalLoopLiveStatus, isGoalLoopOperatorHold, readGoalLoopState } from "./pi/goal-loop-state";
 import { getTaskHangWatch } from "./pi/hang-watchdog";
 import { listTasks } from "./store";
 import { hasActiveTaskLease } from "./task-runtime-lease";
@@ -386,7 +386,7 @@ function assertAccountIdleForDisable(id: string, action: "delete" | "pause"): vo
       );
     }
     const loop = readGoalLoopState(task.directory, task.sessionId);
-    if (loop && isGoalLoopLiveStatus(loop.status)) {
+    if (loop && (isGoalLoopLiveStatus(loop.status) || isGoalLoopOperatorHold(loop))) {
       throw Object.assign(
         new Error(`このアカウントで Goal Loop が動作中のため${verb}できません`),
         { status: 409 },

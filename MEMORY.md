@@ -209,8 +209,14 @@
 ### 検証（Tick28）
 `room-runtime` cancelled handoff / `bot-code-relay` Room cancel — 対象通過
 
+### Tick29（ループ継続・通知 46 + [Tick28 bug hunt](8f910d76-613f-43aa-94d0-1bd645851ba5)）
+1. `assertAccountIdleForDisable` — `isGoalLoopOperatorHold`（user / manual_send 一時停止）も 409。harness `isBusy` / bot-code-relay outbox と契約を揃える
+
+### 検証（Tick29）
+`accounts` Goal Loop 関連 — **4 passed**
+
 ### 次 Tick 候補
-- Goal Loop / TaskView 側の矛盾
+- Goal Loop / TaskView 側のその他矛盾
 
 
 

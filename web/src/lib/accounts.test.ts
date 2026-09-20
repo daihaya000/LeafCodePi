@@ -475,6 +475,87 @@ describe("accounts store CRUD", () => {
     assert.equal(getAccount(account.id)?.enabled, true);
   });
 
+  it("refuses to pause while a Goal Loop is operator-held (user pause)", () => {
+    tempDataDir();
+    const project = upsertProject({
+      name: "goal-hold-pause",
+      rootPath: join(tmpdir(), "goal-hold-pause-root"),
+    });
+    const task = insertTask({ project, title: "goal hold pause task" });
+    const account = createAccount({
+      label: "goal-hold-pause",
+      providers: ["openai-codex"],
+    });
+    patchLoose(task.id, {
+      status: "idle",
+      accountId: account.id,
+      sessionId: "goal-hold-pause-session",
+    });
+    const loopFile = goalLoopStateFile(task.directory, "goal-hold-pause-session");
+    mkdirSync(join(process.env.LEAFCODE_PI_DATA_DIR!, "goals-loop"), {
+      recursive: true,
+    });
+    writeFileSync(
+      loopFile,
+      JSON.stringify({
+        id: "loop-hold-pause",
+        goal: "ship",
+        status: "paused",
+        pauseReason: "user",
+        maxTurns: 3,
+        cooldownSeconds: 0,
+      }),
+      "utf8",
+    );
+    assert.throws(
+      () => patchAccount(account.id, { enabled: false }),
+      (error) =>
+        httpStatus(error) === 409 &&
+        String((error as Error).message).includes("Goal Loop"),
+    );
+    assert.equal(getAccount(account.id)?.enabled, true);
+  });
+
+  it("refuses to delete while a Goal Loop is operator-held (manual_send)", () => {
+    tempDataDir();
+    const project = upsertProject({
+      name: "goal-hold-delete",
+      rootPath: join(tmpdir(), "goal-hold-delete-root"),
+    });
+    const task = insertTask({ project, title: "goal hold delete task" });
+    const account = createAccount({
+      label: "goal-hold-delete",
+      providers: ["openai-codex"],
+    });
+    patchLoose(task.id, {
+      status: "idle",
+      accountId: account.id,
+      sessionId: "goal-hold-delete-session",
+    });
+    const loopFile = goalLoopStateFile(task.directory, "goal-hold-delete-session");
+    mkdirSync(join(process.env.LEAFCODE_PI_DATA_DIR!, "goals-loop"), {
+      recursive: true,
+    });
+    writeFileSync(
+      loopFile,
+      JSON.stringify({
+        id: "loop-hold-delete",
+        goal: "ship",
+        status: "paused",
+        pauseReason: "manual_send",
+        maxTurns: 3,
+        cooldownSeconds: 0,
+      }),
+      "utf8",
+    );
+    assert.throws(
+      () => deleteAccount(account.id),
+      (error) =>
+        httpStatus(error) === 409 &&
+        String((error as Error).message).includes("Goal Loop"),
+    );
+  });
+
   it("refuses to pause while a runtime lease is held for an idle/error task", async () => {
     tempDataDir();
     const { acquireTaskLease, releaseTaskLease } = await import("@/lib/task-runtime-lease");
