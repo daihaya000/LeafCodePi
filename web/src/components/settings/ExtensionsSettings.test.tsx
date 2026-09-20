@@ -9,12 +9,22 @@ const { getJson, sendJson } = vi.hoisted(() => ({
 }));
 
 vi.mock("@/lib/client", () => ({ getJson, sendJson }));
+vi.mock("@/components/settings/IntercomSettings", () => ({
+  IntercomSettings: () => <h3>Intercom受信</h3>,
+}));
 
 const staleExtension = {
   id: "leafcode-goal-loop",
   name: "leafcode-goal-loop",
   enabled: false,
   filePath: "C:/LeafCodePi/extensions/leafcode-goal-loop/index.ts",
+  required: true,
+};
+const intercomExtension = {
+  id: "leafcode-intercom",
+  name: "leafcode-intercom",
+  enabled: true,
+  filePath: "C:/LeafCodePi/extensions/leafcode-intercom/index.ts",
   required: true,
 };
 
@@ -53,5 +63,14 @@ describe("ExtensionsSettings", () => {
       );
     });
     expect(await screen.findByRole("switch", { name: "leafcode-goal-loop を無効化" })).toBeTruthy();
+  });
+
+  it("renders Intercom settings inside the leafcode-intercom extension", async () => {
+    getJson.mockResolvedValue({ extensions: [intercomExtension], extensionsDir: "C:/pi/agent/extensions" });
+
+    render(<ExtensionsSettings />);
+
+    const settings = await screen.findByRole("heading", { name: "Intercom受信" });
+    expect(settings.closest("li")?.querySelector("#extensions-intercom")).toBe(settings.parentElement);
   });
 });

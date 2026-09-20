@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { IntercomSettings } from "@/components/settings/IntercomSettings";
 import { Badge, Button, Switch } from "@/components/ui";
 import { getJson, sendJson } from "@/lib/client";
 
@@ -94,37 +95,44 @@ export function ExtensionsSettings() {
             <li
               key={extension.id}
               aria-busy={busyId === extension.id || undefined}
-              className="flex items-start gap-3 rounded-xl border border-border bg-surface-2 px-3 py-2.5"
+              className="rounded-xl border border-border bg-surface-2 px-3 py-2.5"
             >
-              <div className="min-w-0 flex-1">
-                <div className="flex flex-wrap items-center gap-2">
-                  <p className="min-w-0 truncate text-sm font-medium text-text" title={extension.id}>
-                    {extension.name}
-                  </p>
-                  <Badge tone={extension.enabled ? "success" : "neutral"}>
-                    {extension.enabled ? "有効" : "無効"}
-                  </Badge>
+              <div className="flex items-start gap-3">
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <p className="min-w-0 truncate text-sm font-medium text-text" title={extension.id}>
+                      {extension.name}
+                    </p>
+                    <Badge tone={extension.enabled ? "success" : "neutral"}>
+                      {extension.enabled ? "有効" : "無効"}
+                    </Badge>
+                  </div>
+                  {extension.description && (
+                    <p className="mt-0.5 text-xs break-words text-muted">{extension.description}</p>
+                  )}
+                  <p className="mt-0.5 break-all font-mono text-[11px] text-muted">{extension.filePath}</p>
+                  {extension.required && (
+                    <p className="mt-0.5 text-[11px] text-muted">
+                      {extension.enabled
+                        ? "WebUI が依存するため無効化できません"
+                        : "WebUI が依存するため有効化が必要です"}
+                    </p>
+                  )}
                 </div>
-                {extension.description && (
-                  <p className="mt-0.5 text-xs break-words text-muted">{extension.description}</p>
-                )}
-                <p className="mt-0.5 break-all font-mono text-[11px] text-muted">{extension.filePath}</p>
-                {extension.required && (
-                  <p className="mt-0.5 text-[11px] text-muted">
-                    {extension.enabled
-                      ? "WebUI が依存するため無効化できません"
-                      : "WebUI が依存するため有効化が必要です"}
-                  </p>
-                )}
+                <Switch
+                  checked={extension.enabled}
+                  onChange={() => void toggle(extension)}
+                  label={`${extension.name} を${extension.enabled ? "無効化" : "有効化"}`}
+                  busy={busyId === extension.id}
+                  disabled={extension.required && extension.enabled}
+                  title={extension.required && extension.enabled ? "WebUI が依存する拡張機能のため無効化できません" : undefined}
+                />
               </div>
-              <Switch
-                checked={extension.enabled}
-                onChange={() => void toggle(extension)}
-                label={`${extension.name} を${extension.enabled ? "無効化" : "有効化"}`}
-                busy={busyId === extension.id}
-                disabled={extension.required && extension.enabled}
-                title={extension.required && extension.enabled ? "WebUI が依存する拡張機能のため無効化できません" : undefined}
-              />
+              {extension.id === "leafcode-intercom" && (
+                <div id="extensions-intercom" className="mt-3 scroll-mt-24 border-t border-border pt-3">
+                  <IntercomSettings />
+                </div>
+              )}
             </li>
           ))}
         </ul>

@@ -52,9 +52,6 @@ vi.mock("@/components/settings/NotificationSoundSettings", () => ({
 vi.mock("@/components/settings/TtsSettings", () => ({
   TtsSettings: () => <h3>読み上げ (TTS)</h3>,
 }));
-vi.mock("@/components/settings/IntercomSettings", () => ({
-  IntercomSettings: () => <h3>Intercom受信</h3>,
-}));
 vi.mock("@/components/settings/NavigatorSettings", () => ({
   NavigatorSettings: () => <h3>ナビゲーター</h3>,
 }));
@@ -105,7 +102,12 @@ vi.mock("@/components/settings/AgentsSettings", () => ({
   AgentsSettings: () => <h3>エージェント</h3>,
 }));
 vi.mock("@/components/settings/ExtensionsSettings", () => ({
-  ExtensionsSettings: () => <h3>拡張機能</h3>,
+  ExtensionsSettings: () => (
+    <>
+      <h3>拡張機能</h3>
+      <div id="extensions-intercom"><h3>Intercom受信</h3></div>
+    </>
+  ),
 }));
 vi.mock("@/components/settings/McpSettings", () => ({
   McpSettings: () => <h3>MCPサーバー</h3>,
@@ -366,7 +368,7 @@ describe("SettingsView", () => {
     expect(document.getElementById("bots-skills")).not.toBeNull();
   });
 
-  it("拡張タブを拡張、Intercom、MCP、スキルの順に分ける", () => {
+  it("拡張タブでIntercomをleafcode-intercom内に表示する", () => {
     render(<SettingsView />);
     fireEvent.click(screen.getByRole("tab", { name: /^拡張タブ$/ }));
 
@@ -375,13 +377,14 @@ describe("SettingsView", () => {
       Array.from(extensionsPanel.querySelectorAll("section[aria-labelledby] > header > h2")).map(
         (heading) => heading.textContent,
       ),
-    ).toEqual(["拡張機能の管理", "Intercom", "MCP", "スキル"]);
+    ).toEqual(["拡張機能の管理", "MCP", "スキル"]);
     expect(Array.from(extensionsPanel.querySelectorAll("h3")).map((heading) => heading.textContent)).toEqual([
       "拡張機能",
       "Intercom受信",
       "MCPサーバー",
       "スキル",
     ]);
+    expect(document.getElementById("extensions-intercom")?.closest('section[aria-labelledby="extensions-management-heading"]')).not.toBeNull();
     expect(screen.queryByRole("heading", { name: "メモリ" })).toBeNull();
     expect(screen.queryByRole("navigation", { name: "拡張設定内" })).toBeNull();
   });
