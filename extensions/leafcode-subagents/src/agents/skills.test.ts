@@ -40,6 +40,8 @@ it("treats settings-disabled skills as missing and hides them from discovery", (
 	const cwd = join(root, "project");
 	mkdirSync(cwd);
 	vi.stubEnv("PI_CODING_AGENT_DIR", join(root, "agent"));
+	vi.stubEnv(process.platform === "win32" ? "USERPROFILE" : "HOME", root);
+	vi.stubEnv("PI_OFFLINE", "1");
 	vi.stubEnv("LEAFCODE_PI_DATA_DIR", join(root, "data"));
 	vi.stubEnv("LEAFCODE_PI_SKILLS_DIR", join(root, "repo", "skills"));
 	vi.stubEnv("LEAFCODE_PI_EXTENSIONS_DIR", join(root, "repo", "extensions"));
