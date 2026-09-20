@@ -7835,7 +7835,8 @@ function shouldDeferLiveSetting(
     isLiveBusyForReplace(live) ||
     task?.status === "working" ||
     isActiveGoalLoopSession(live.session) ||
-    isGoalLoopLiveStatus(loop?.status)
+    isGoalLoopLiveStatus(loop?.status) ||
+    isGoalLoopOperatorHold(loop)
   );
 }
 
@@ -9124,7 +9125,8 @@ export async function abortTaskIncludingColdGoalLoop(id: string): Promise<TaskSu
   const live = state().live.get(id);
   if (!live) {
     const loop = readGoalLoopState(task.directory, task.sessionId);
-    if (isGoalLoopLiveStatus(loop?.status)) {
+    // Operator-held pause keeps Code outbox open; cold abort must still /goal-stop.
+    if (isGoalLoopLiveStatus(loop?.status) || isGoalLoopOperatorHold(loop)) {
       try {
         // ensureLive inside goalLoopCommand so /goal-stop can update goals-loop/*.json.
         await goalLoopCommand(id, { action: "stop" });

@@ -222,6 +222,13 @@
 ### 検証（Tick30）
 `code-session` unlink Goal Loop — **2 passed**；accounts operator-hold 回帰
 
+### Tick31（ループ継続・通知 48）
+1. `abortTaskIncludingColdGoalLoop` — live 無しでも operator-hold Goal Loop に `/goal-stop`（以前は idle 扱いで早期 return）
+2. `shouldDeferLiveSetting` — operator-hold 中は設定差し替えを defer
+
+### 検証（Tick31）
+関連コードパス確認 + `code-session` / `accounts` operator-hold 回帰
+
 ### 次 Tick 候補
 - TaskView / SSE 周辺
 
