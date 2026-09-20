@@ -19,7 +19,7 @@ const mocks = vi.hoisted(() => ({
   reconcileOrphanedWorkingTasks: vi.fn(),
   withBotCodeSessionLock: vi.fn(async (_id: string, operation: () => Promise<unknown>) => operation()),
   isRoomDelegatedCodeTask: vi.fn(() => false),
-  readGoalLoopState: vi.fn((): { status: string } | null => null),
+  readGoalLoopState: vi.fn((): Partial<GoalLoopDto> | null => null),
   isGoalLoopLiveStatus: vi.fn((status: string | undefined) =>
     status === "queued" || status === "running" || status === "verifying_completed",
   ),
@@ -61,6 +61,7 @@ vi.mock("@/lib/pi/harness", () => ({
 }));
 
 import { MAX_PROMPT_TEXT_CHARS } from "@/lib/prompt-images";
+import type { GoalLoopDto } from "@/lib/types";
 import { GET, PATCH, POST } from "./route";
 
 const bot = {

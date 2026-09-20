@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { getJson, sendJson } from "@/lib/client";
-import type { CodeRequestGoalLoopReport, CodeRequestState } from "@/lib/types";
+import type { CodeRequestGoalLoopReport, CodeRequestState, GoalLoopSummaryDto } from "@/lib/types";
 import { CodeRequestCard } from "@/components/bot/CodeRequestCard";
 
 type RequestSummary = {
@@ -13,7 +13,7 @@ type RequestSummary = {
   result?: string;
   outcome?: string;
   goalLoop?: CodeRequestGoalLoopReport;
-  goalLoopSummary?: { status: string; maxTurns: number; turnCount: number };
+  goalLoopSummary?: GoalLoopSummaryDto;
   todoProgress?: { completed: number; total: number };
   activity?: string;
   queuedAt?: number;

@@ -189,7 +189,7 @@ describe("bot intercom Phase B contract", () => {
     const bob = enableIntercom(createBot({ name: "Bob" }).id)!;
     const woken: Array<{ to: string; kind: string; delivery: string }> = [];
     setBotIntercomSteerHandler(async (message) => {
-      woken.push({ to: message.toBotId, kind: message.kind, delivery: message.delivery });
+      woken.push({ to: message.toBotId, kind: message.kind ?? "send", delivery: message.delivery ?? "queued" });
     });
 
     const sent = sendBotIntercom({ fromBotId: alice.id, to: bob.id, text: "offline then online" });
@@ -417,7 +417,7 @@ describe("bot intercom Phase C contract", () => {
     residents.add(bob.id);
     const woken: Array<{ to: string; delivery: string; kind: string }> = [];
     setBotIntercomSteerHandler(async (message) => {
-      woken.push({ to: message.toBotId, delivery: message.delivery, kind: message.kind });
+      woken.push({ to: message.toBotId, delivery: message.delivery ?? "queued", kind: message.kind ?? "send" });
     });
 
     const waiting = askBotIntercom({ fromBotId: alice.id, to: bob.id, text: "可否は？" });

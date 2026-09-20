@@ -262,12 +262,8 @@ export function flushQueuedBotIntercom(
 
   let flushed = 0;
   for (const message of pending) {
-    const { queued: _queued, ...rest } = message;
-    const updated: BotIntercomMessageV1 = {
-      ...rest,
-      delivery: nextDelivery,
-      ...(nextDelivery === "queued" ? { queued: true as const } : {}),
-    };
+    const updated: BotIntercomMessageV1 = { ...message, delivery: nextDelivery };
+    delete updated.queued;
     const recipientIndex = recipient.messages.findIndex((row) => row.id === message.id);
     if (recipientIndex >= 0) recipient.messages[recipientIndex] = updated;
 
@@ -275,12 +271,10 @@ export function flushQueuedBotIntercom(
       const sender = inboxState(message.fromBotId);
       const senderIndex = sender.messages.findIndex((row) => row.id === message.id);
       if (senderIndex >= 0) {
-        const { queued: _senderQueued, ...senderRest } = sender.messages[senderIndex];
-        sender.messages[senderIndex] = {
-          ...senderRest,
-          delivery: nextDelivery,
-          ...(nextDelivery === "queued" ? { queued: true as const } : {}),
-        };
+        const senderMessage = sender.messages[senderIndex];
+        const senderUpdated: BotIntercomMessageV1 = { ...senderMessage, delivery: nextDelivery };
+        delete senderUpdated.queued;
+        sender.messages[senderIndex] = senderUpdated;
         persistMailbox(message.fromBotId, sender);
         emitInbox(message.fromBotId);
       }
