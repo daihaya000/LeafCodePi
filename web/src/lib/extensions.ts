@@ -107,15 +107,9 @@ const BUNDLED_REPLACEMENTS = new Map([
 
 const TEST_FILE_PATTERN = /\.(?:test|spec)\.(?:ts|js|mjs|cjs)$/i;
 
-/**
- * WebUI 本体が動かなくても切ってよい leafcode 拡張。
- * leafcode-* は原則 WebUI 依存（無効化禁止）。例外だけここに列挙する。
- */
-const OPTIONAL_LEAFCODE_EXTENSIONS = new Set<string>(["leafcode-tts"]);
-
 /** LeafCodePi の WebUI が依存する拡張。無効化禁止。 */
 export function isWebUiRequiredExtension(name: string): boolean {
-  return name.startsWith("leafcode-") && !OPTIONAL_LEAFCODE_EXTENSIONS.has(name);
+  return name.startsWith("leafcode-");
 }
 
 /** Readers (incl. the agent-side extensions) must never see a partial file. */

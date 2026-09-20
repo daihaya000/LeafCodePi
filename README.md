@@ -92,7 +92,7 @@ LeafCodePi には次の Pi 拡張を同梱しています。WebUI と連携す�
 | `leafcode-question` | WebUI からの質問応答 |
 | `leafcode-subagents` | サブエージェント委譲、エージェント定義、スキル、プロンプト |
 | `leafcode-todowrite` | OpenCode 互換の ToDo 管理 |
-| `leafcode-tts` | Bot / エージェントの発言の読み上げ（`/tts`・既定 OFF・唯一無効化できる leafcode 拡張） |
+| `leafcode-tts` | Bot / エージェントの発言の読み上げ（`/tts`・既定 OFF・WebUI 依存のため無効化不可） |
 | `leafcode-web-access` | Web 検索、URL/PDF/GitHub/動画の取得・解析 |
 
 ルートの `skills/` と `extensions/*/skills/` 配下にある `SKILL.md` は LeafCodePi の組み込みスキルとして自動検出され、通常の Pi スキルと同じく設定画面から有効／無効を切り替えられます。グローバルディレクトリへのコピーやインストールは不要です。エージェントは `available_skills` の `location` に提示された実パスを読み、相対参照はその `SKILL.md` のディレクトリを基準に解決します。存在しないグローバルパスを指定した場合だけ、有効な一覧から一意に対応するスキルへの `read` を補正し、実パスを結果に明示します。既存ファイルや書き込み先は変更しません。
@@ -256,7 +256,7 @@ pi install ./extensions/leafcode-intercom
 
 ### 読み上げ (`leafcode-tts`)
 
-`extensions/leafcode-tts` は Bot / エージェントの発言を読み上げます。既定は OFF で、`/tts`（`/tts on`・`/tts off`・`/tts test`）で切り替えます。`on` / `off` / トグルは `%APPDATA%\leafcode-pi\tts.json`（Linux/macOS は `~/.leafcode-pi/tts.json`）の `enabled` に保存され、再起動後も維持されます。入力や次のエージェント開始で未再生分を捨て、発話中なら再生プロセスを止めて即断します。設定画面から無効化できる唯一の `leafcode-*` 拡張です。
+`extensions/leafcode-tts` は Bot / エージェントの発言を読み上げます。既定は OFF で、`/tts`（`/tts on`・`/tts off`・`/tts test`）で切り替えます。`on` / `off` / トグルは `%APPDATA%\leafcode-pi\tts.json`（Linux/macOS は `~/.leafcode-pi/tts.json`）の `enabled` に保存され、再起動後も維持されます。入力や次のエージェント開始で未再生分を捨て、発話中なら再生プロセスを止めて即断します。WebUI が依存するため、拡張機能自体は無効化できません。
 
 文章全体をまとめて渡さず、streaming の `text_delta` を「、」「。」「！」「？」と改行で短く区切り、合成と再生を並行させる Producer/Consumer 方式です。コードブロック・URL・Markdown 記法は読み上げません。サブエージェントの子プロセスでは無効です。
 
