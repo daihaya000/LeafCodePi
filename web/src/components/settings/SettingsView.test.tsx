@@ -275,6 +275,14 @@ describe("SettingsView", () => {
     render(<SettingsView />);
 
     const tablist = screen.getByRole("tablist", { name: "設定" });
+    expect(within(tablist).getAllByRole("tab").map((tab) => tab.textContent)).toEqual([
+      "エンジン",
+      "モデル",
+      "プロンプト",
+      "エージェント",
+      "ボット",
+      "拡張",
+    ]);
     expect(tablist.className).toContain("overflow-x-auto");
     expect(tablist.className).not.toContain("grid-cols-2");
     for (const tab of within(tablist).getAllByRole("tab")) {

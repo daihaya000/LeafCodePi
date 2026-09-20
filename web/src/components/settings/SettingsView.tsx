@@ -44,10 +44,10 @@ type Tab = "engine" | "models" | "agents" | "prompts" | "extensions" | "bots";
 const SETTINGS_TABS: ReadonlyArray<{ id: Tab; label: string }> = [
   { id: "engine", label: "エンジン" },
   { id: "models", label: "モデル" },
-  { id: "agents", label: "エージェント" },
   { id: "prompts", label: "プロンプト" },
-  { id: "extensions", label: "拡張" },
+  { id: "agents", label: "エージェント" },
   { id: "bots", label: "ボット" },
+  { id: "extensions", label: "拡張" },
 ];
 
 const TAB_HASH: Readonly<Record<Tab, string>> = {
