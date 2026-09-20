@@ -351,6 +351,18 @@ describe("DELETE /api/bots/[id]", () => {
     expect(mocks.destroyTask).toHaveBeenCalledWith("code-task");
   });
 
+  it("continues deletion when an owned task disappeared concurrently", async () => {
+    mocks.getBot.mockReturnValue(bot());
+    mocks.listTasks.mockReturnValue([{ id: "stale-task", botId: "one" }] as never);
+    mocks.destroyTask.mockRejectedValueOnce(Object.assign(new Error("missing"), { status: 404 }));
+    mocks.deleteBot.mockReturnValue(true);
+
+    const response = await DELETE(emptyRequest(), params("one"));
+
+    expect(response.status).toBe(200);
+    expect(mocks.deleteBot).toHaveBeenCalledWith("one");
+  });
+
   it("removes the deleted Bot from every Room it was a member of", async () => {
     mocks.deleteBot.mockReturnValue(true);
     mocks.listRooms.mockReturnValue([

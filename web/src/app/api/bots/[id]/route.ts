@@ -200,8 +200,15 @@ export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ 
   for (const room of rooms) await detachBotFromRoomRuntime(room.id, id);
   await stopAllCodeSessionsForBot(id);
   // Panel / Goal Loop Code is not kind=bot — destroy every task owned by this Bot.
-  await stopLinkedBotCodeSession(id, bot?.codeSessionTaskId, "delete");
-  for (const task of listTasks(true, "all").filter((item) => item.botId === id)) await destroyTask(task.id);
+  await stopLinkedBotCodeSession(id, bot.codeSessionTaskId, "delete");
+  for (const task of listTasks(true, "all").filter((item) => item.botId === id)) {
+    try {
+      await destroyTask(task.id);
+    } catch (error) {
+      const status = typeof error === "object" && error !== null && "status" in error && typeof error.status === "number" ? error.status : null;
+      if (status !== 404) throw error;
+    }
+  }
   const deleted = deleteBot(id);
   if (!deleted) return NextResponse.json({ error: "\u30dc\u30c3\u30c8\u304c\u898b\u3064\u304b\u308a\u307e\u305b\u3093" }, { status: 404 });
   // A deleted Bot must not linger as a Room member: a dangling id keeps a member slot and shows up
