@@ -306,6 +306,20 @@ type LastMessageCacheEntry = {
 };
 
 const lastMessageCache = new Map<string, LastMessageCacheEntry>();
+/** 最終発言キャッシュの上限。会話キャッシュと同じく超過時は最も古いエントリから追い出す。
+ *  サイドバーはBot数ぶん読むため、会話(128)より余裕を持たせる。 */
+const LAST_MESSAGE_CACHE_MAX_ENTRIES = 256;
+
+function cacheLastMessage(sessionFile: string, entry: LastMessageCacheEntry): void {
+  if (
+    lastMessageCache.size >= LAST_MESSAGE_CACHE_MAX_ENTRIES &&
+    !lastMessageCache.has(sessionFile)
+  ) {
+    const oldest = lastMessageCache.keys().next().value;
+    if (oldest !== undefined) lastMessageCache.delete(oldest);
+  }
+  lastMessageCache.set(sessionFile, entry);
+}
 /** 最後の user/assistant/bashExecution を返す（bashExecution はテキスト空で時刻だけ意味を持つ）。 */
 const LAST_MESSAGE_ROLES = new Set(["user", "assistant", "bashExecution"]);
 
@@ -385,7 +399,7 @@ export function readSessionLastMessage(sessionFile: string | null | undefined): 
         ? readFileSync(sessionFile, "utf8")
         : readTailText(sessionFile, LAST_MESSAGE_TAIL_BYTES);
     if (content === null || !content.trim()) {
-      lastMessageCache.set(sessionFile, {
+      cacheLastMessage(sessionFile, {
         mtimeMs: stats.mtimeMs,
         size: stats.size,
         value: null,
@@ -395,7 +409,7 @@ export function readSessionLastMessage(sessionFile: string | null | undefined): 
     const entries = parseAndMigrateEntries(content);
     const sessionEntries = entries.filter((entry) => entry.type !== "session");
     const last = lastMessageFromEntries(buildSessionContext(sessionEntries).messages) ?? lastMessageFromRawEntries(sessionEntries);
-    lastMessageCache.set(sessionFile, {
+    cacheLastMessage(sessionFile, {
       mtimeMs: stats.mtimeMs,
       size: stats.size,
       value: last,
