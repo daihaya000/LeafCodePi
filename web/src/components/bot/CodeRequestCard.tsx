@@ -93,7 +93,10 @@ export function CodeRequestCard({
     setError(null);
     void load();
     if (!live) return () => { closed = true; };
-    const timer = window.setInterval(() => { void load(); }, 2_000);
+    const timer = window.setInterval(() => {
+      if (document.visibilityState === "hidden") return;
+      void load();
+    }, 2_000);
     return () => { closed = true; window.clearInterval(timer); };
   }, [live, open, taskId, state]);
 

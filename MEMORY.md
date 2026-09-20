@@ -52,8 +52,16 @@
 ### 検証（Tick6）
 `code-session/route.test` — **27 passed**
 
+### Tick7（ループ継続）
+1. `subscribeSharedElapsedClock` を `ui.tsx` に集約 — `useToolElapsedMs` と `PartView` が同一 250ms クロックを購読
+2. `BotCodeSessionPanel.needsPoll` — `loops` の live 状態も見て poll 継続；`control()` 後に `load()` で loops 同期
+3. `CodeRequestCard` — hidden タブでは detail ポーリングをスキップ
+
+### 検証（Tick7）
+`BotCodeSessionPanel.test` — **7 passed**
+
 ### 次 Tick 候補
-- （新規調査）
+- CodeRequestCard の live 中フル detail ポーリングを一覧 API に寄せる
 
 ---
 

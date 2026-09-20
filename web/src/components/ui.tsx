@@ -624,7 +624,35 @@ export function formatDuration(ms: number): string {
   return `${seconds}s`;
 }
 
-/** 実行中のツールがある間だけ100msごとに再計算し、完了後は固定する。 */
+/** 実行中ツールの経過表示用。インスタンス横断で 1 本の interval に寄せる。 */
+const SHARED_ELAPSED_CLOCK_MS = 250;
+let sharedElapsedNowMs = Date.now();
+const sharedElapsedListeners = new Set<() => void>();
+let sharedElapsedTimer: number | undefined;
+
+export function subscribeSharedElapsedClock(listener: () => void): () => void {
+  sharedElapsedListeners.add(listener);
+  if (sharedElapsedTimer === undefined) {
+    sharedElapsedNowMs = Date.now();
+    sharedElapsedTimer = window.setInterval(() => {
+      sharedElapsedNowMs = Date.now();
+      for (const notify of sharedElapsedListeners) notify();
+    }, SHARED_ELAPSED_CLOCK_MS);
+  }
+  return () => {
+    sharedElapsedListeners.delete(listener);
+    if (sharedElapsedListeners.size === 0 && sharedElapsedTimer !== undefined) {
+      window.clearInterval(sharedElapsedTimer);
+      sharedElapsedTimer = undefined;
+    }
+  };
+}
+
+export function readSharedElapsedNowMs(): number {
+  return sharedElapsedNowMs;
+}
+
+/** 実行中のツールがある間だけ共有クロックで再計算し、完了後は固定する。 */
 export function useToolElapsedMs(parts: readonly UiPart[], enabled = true): number {
   const [nowMs, setNowMs] = useState(() => Date.now());
   const hasRunningTool = parts.some(
@@ -638,8 +666,7 @@ export function useToolElapsedMs(parts: readonly UiPart[], enabled = true): numb
   useEffect(() => {
     if (!enabled || !hasRunningTool) return;
     setNowMs(Date.now());
-    const timer = window.setInterval(() => setNowMs(Date.now()), 100);
-    return () => window.clearInterval(timer);
+    return subscribeSharedElapsedClock(() => setNowMs(readSharedElapsedNowMs()));
   }, [enabled, hasRunningTool]);
 
   return toolElapsedMs(parts, nowMs);

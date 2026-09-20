@@ -103,11 +103,15 @@ export function BotCodeSessionPanel({
     if (!active) return;
     void load();
   }, [load, active]);
-  const needsPoll = tasks.some(
-    (task) =>
-      task.status === "working" ||
-      (task.goalLoopSummary && LIVE_GOAL_LOOP_STATUSES.has(task.goalLoopSummary.status)),
-  );
+  const needsPoll =
+    tasks.some(
+      (task) =>
+        task.status === "working" ||
+        (task.goalLoopSummary && LIVE_GOAL_LOOP_STATUSES.has(task.goalLoopSummary.status)),
+    ) ||
+    Object.values(loops).some(
+      (loop) => loop && LIVE_GOAL_LOOP_STATUSES.has(loop.status),
+    );
   useEffect(() => {
     if (!active || !needsPoll) return;
     const tick = () => {
@@ -171,6 +175,7 @@ export function BotCodeSessionPanel({
       if (action === "prompt") {
         setFollowUps((current) => ({ ...current, [task.id]: "" }));
       }
+      await load();
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Codeセッションの操作に失敗しました");
     } finally {

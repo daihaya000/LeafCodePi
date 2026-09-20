@@ -22,6 +22,7 @@ import {
   UserRound,
   Wrench,
 } from "lucide-react";
+import { Button, cx, formatElapsed, formatMessageTime, readSharedElapsedNowMs, subscribeSharedElapsedClock } from "@/components/ui";
 import { AgentRoleIcon } from "@/components/AgentSelect";
 import type { BotFace } from "@/components/bot/BotAvatar";
 import { BotMessageSender, BotMessageTime, BotRevertButton } from "@/components/bot/BotMessageList";
@@ -29,7 +30,6 @@ import { MessageBubble, MessageHeader, messageRowClassFor } from "@/components/C
 import { ImageLightbox } from "@/components/Composer";
 import { ProviderIcon } from "@/components/ProviderIcon";
 import { ReferenceHighlight, type ReferenceHighlightReferences } from "@/components/ReferenceHighlight";
-import { Button, cx, formatElapsed, formatMessageTime } from "@/components/ui";
 import { formatTokens } from "@/lib/context-usage";
 import { formatTokensPerSecond } from "@/lib/token-throughput";
 import { clampScrollTop, isNearBottom, nextStickState } from "@/lib/scroll-stick";
@@ -257,30 +257,6 @@ export function toolIcon(tool: string, input?: Record<string, unknown>) {
   return Wrench;
 }
 
-/** 実行中ツールの経過表示用。インスタンス横断で 1 本の interval に寄せる。 */
-const ELAPSED_CLOCK_MS = 250;
-let sharedElapsedNowMs = Date.now();
-const sharedElapsedListeners = new Set<() => void>();
-let sharedElapsedTimer: number | undefined;
-
-function subscribeSharedElapsedClock(listener: () => void): () => void {
-  sharedElapsedListeners.add(listener);
-  if (sharedElapsedTimer === undefined) {
-    sharedElapsedNowMs = Date.now();
-    sharedElapsedTimer = window.setInterval(() => {
-      sharedElapsedNowMs = Date.now();
-      for (const notify of sharedElapsedListeners) notify();
-    }, ELAPSED_CLOCK_MS);
-  }
-  return () => {
-    sharedElapsedListeners.delete(listener);
-    if (sharedElapsedListeners.size === 0 && sharedElapsedTimer !== undefined) {
-      window.clearInterval(sharedElapsedTimer);
-      sharedElapsedTimer = undefined;
-    }
-  };
-}
-
 /** 実行中は共有クロックで更新し、終了後は固定値で経過時間を返す。 */
 function useElapsedMs(
   startedAtMs: number | undefined,
@@ -295,7 +271,7 @@ function useElapsedMs(
     }
     if (!enabled) return;
     setNow(Date.now());
-    return subscribeSharedElapsedClock(() => setNow(sharedElapsedNowMs));
+    return subscribeSharedElapsedClock(() => setNow(readSharedElapsedNowMs()));
   }, [enabled, endedAtMs]);
   if (startedAtMs === undefined) return 0;
   return Math.max(0, now - startedAtMs);
