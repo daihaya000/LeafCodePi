@@ -11,6 +11,7 @@ import {
   listSkills,
   readSkillsState,
   setSkillEnabled,
+  setSkillsEnabled,
   SkillsError,
   skillsDir,
   writeSkillsState,
@@ -218,6 +219,13 @@ describe("listSkills / setSkillEnabled", () => {
     expect(listed.skills.every((s) => s.enabled)).toBe(true);
     expect(listed.skills.every((s) => s.source === "pi")).toBe(true);
     expect(listed.skillsDir).toBe(skillsDir(agent));
+  });
+
+  it("toggles multiple skills in one scope update", () => {
+    const { agentDir: agent } = fixture();
+    const listed = setSkillsEnabled(["alpha", "beta"], false, agent, { bundledDir: null, scope: "bot" });
+    expect(listed.skills.filter((skill) => !skill.botEnabled).map((skill) => skill.name)).toEqual(["alpha", "beta"]);
+    expect(readSkillsState()).toEqual({ code: {}, bot: { alpha: true, beta: true } });
   });
 
   it("toggles Code and Bot independently via skills-state.json", () => {

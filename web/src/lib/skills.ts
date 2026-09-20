@@ -275,24 +275,36 @@ export function listSkills(
   return { skills, skillsDir: piDir, bundledSkillsDir: bundledDir };
 }
 
+export function setSkillsEnabled(
+  names: readonly string[],
+  enabled: boolean,
+  agentDir = resolvePiAgentDir(),
+  options?: ListSkillsOptions,
+): SkillListResult {
+  const trimmedNames = [...new Set(names.map((name) => name.trim()))];
+  if (trimmedNames.length === 0 || trimmedNames.some((name) => !name || name.includes("/") || name.includes("\\") || name.includes(".."))) {
+    throw new SkillsError("invalid-name", "名前が不正です");
+  }
+  const listed = listSkills(agentDir, options);
+  const listedNames = new Set(listed.skills.map((skill) => skill.name));
+  if (trimmedNames.some((name) => !listedNames.has(name))) {
+    throw new SkillsError("not-found", "スキルが見つかりません");
+  }
+  const state = readSkillsState();
+  const scope = options?.scope ?? "code";
+  for (const name of trimmedNames) {
+    if (enabled) delete state[scope][name];
+    else state[scope][name] = true;
+  }
+  writeSkillsState(state);
+  return listSkills(agentDir, options);
+}
+
 export function setSkillEnabled(
   name: string,
   enabled: boolean,
   agentDir = resolvePiAgentDir(),
   options?: ListSkillsOptions,
 ): SkillListResult {
-  const trimmed = name.trim();
-  if (!trimmed || trimmed.includes("/") || trimmed.includes("\\") || trimmed.includes("..")) {
-    throw new SkillsError("invalid-name", "名前が不正です");
-  }
-  const listed = listSkills(agentDir, options);
-  if (!listed.skills.some((skill) => skill.name === trimmed)) {
-    throw new SkillsError("not-found", "スキルが見つかりません");
-  }
-  const state = readSkillsState();
-  const scope = options?.scope ?? "code";
-  if (enabled) delete state[scope][trimmed];
-  else state[scope][trimmed] = true;
-  writeSkillsState(state);
-  return listSkills(agentDir, options);
+  return setSkillsEnabled([name], enabled, agentDir, options);
 }

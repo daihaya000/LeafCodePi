@@ -79,6 +79,44 @@ describe("拡張設定の一覧", () => {
     ));
   });
 
+  it("n8nとSlackの公式スキルをそれぞれ一つのトグルにまとめる", async () => {
+    getJson.mockImplementation((path: string) => {
+      if (path === "/api/skills") {
+        return Promise.resolve({
+          skills: [
+            { id: "n8n-agents-official", name: "n8n-agents-official", enabled: true, codeEnabled: true, botEnabled: true, source: "bundled" },
+            { id: "using-n8n-skills-official", name: "using-n8n-skills-official", enabled: true, codeEnabled: true, botEnabled: true, source: "bundled" },
+            { id: "slack-api", name: "slack-api", enabled: true, codeEnabled: true, botEnabled: true, source: "bundled" },
+            { id: "slack-cli", name: "slack-cli", enabled: true, codeEnabled: true, botEnabled: true, source: "bundled" },
+          ],
+          skillsDir: "C:/pi/skills",
+        });
+      }
+      return Promise.reject(new Error(`unexpected path: ${path}`));
+    });
+    sendJson.mockResolvedValue({
+      skills: [
+        { id: "n8n-agents-official", name: "n8n-agents-official", enabled: true, codeEnabled: true, botEnabled: true, source: "bundled" },
+        { id: "using-n8n-skills-official", name: "using-n8n-skills-official", enabled: true, codeEnabled: true, botEnabled: true, source: "bundled" },
+        { id: "slack-api", name: "slack-api", enabled: false, codeEnabled: true, botEnabled: false, source: "bundled" },
+        { id: "slack-cli", name: "slack-cli", enabled: false, codeEnabled: true, botEnabled: false, source: "bundled" },
+      ],
+    });
+
+    render(<SkillsSettings scope="bot" />);
+
+    await screen.findByRole("switch", { name: "n8n（Bot）を無効化" });
+    expect(screen.getByRole("switch", { name: "Slack（Bot）を無効化" })).toBeTruthy();
+    expect(screen.queryByRole("switch", { name: "slack-api（Bot）を無効化" })).toBeNull();
+
+    fireEvent.click(screen.getByRole("switch", { name: "Slack（Bot）を無効化" }));
+    await waitFor(() => expect(sendJson).toHaveBeenCalledWith(
+      "/api/skills",
+      { names: ["slack-api", "slack-cli"], enabled: false, scope: "bot" },
+      "POST",
+    ));
+  });
+
   it("各MCPサーバーの説明文を表示する", async () => {
     render(<McpSettings />);
 

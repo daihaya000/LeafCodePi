@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Badge, Button, Switch } from "@/components/ui";
 import { getJson, sendJson } from "@/lib/client";
+import { SKILL_GROUPS, type SkillGroupDefinition } from "@/lib/skill-groups";
 import type { SkillScope } from "@/lib/skills";
 
 type SkillDto = {
@@ -73,6 +74,26 @@ export function SkillsSettings({ scope = "code" }: { scope?: SkillScope } = {}) 
     }
   }
 
+  async function toggleGroup(group: SkillGroupDefinition, members: SkillDto[]) {
+    if (busyId) return;
+    const enabled = !members.every((skill) => isEnabled(skill, scope));
+    setBusyId(group.id);
+    setError(null);
+    try {
+      const result = await sendJson<{ skills: SkillDto[] }>(
+        "/api/skills",
+        { names: members.map((skill) => skill.name), enabled, scope },
+        "POST",
+      );
+      setSkills(result.skills);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "スキルの切替に失敗しました");
+      reload();
+    } finally {
+      setBusyId(null);
+    }
+  }
+
   return (
     <div className="rounded-2xl border border-border bg-surface p-4">
       <div className="mb-2 flex items-center justify-between gap-3">
@@ -100,35 +121,71 @@ export function SkillsSettings({ scope = "code" }: { scope?: SkillScope } = {}) 
         </p>
       ) : (
         <ul className="mt-3 grid gap-2 sm:grid-cols-2">
-          {skills.map((skill) => {
-            const enabled = isEnabled(skill, scope);
+          {SKILL_GROUPS.map((group) => {
+            const members = skills.filter((skill) => group.skillNames.includes(skill.name));
+            if (members.length === 0) return null;
+            const enabledCount = members.filter((skill) => isEnabled(skill, scope)).length;
+            const enabled = enabledCount === members.length;
+            const mixed = enabledCount > 0 && !enabled;
             return (
               <li
-                key={skill.id}
-                aria-busy={busyId === skill.id || undefined}
+                key={group.id}
+                data-testid={`skill-group-${group.id}`}
+                aria-busy={busyId === group.id || undefined}
                 className="flex items-start gap-3 rounded-xl border border-border bg-surface-2 px-3 py-2.5"
               >
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2">
-                    <p className="min-w-0 truncate text-sm font-medium text-text" title={skill.id}>
-                      {skill.name}
+                    <p className="min-w-0 truncate text-sm font-medium text-text" title={group.label}>
+                      {group.label}
                     </p>
-                    <Badge tone={enabled ? "success" : "neutral"}>{enabled ? "有効" : "無効"}</Badge>
-                    <Badge tone="neutral">{skill.source === "bundled" ? "LeafCodePi" : ".pi/agent"}</Badge>
+                    <Badge tone={mixed ? "warning" : enabled ? "success" : "neutral"}>
+                      {mixed ? "一部有効" : enabled ? "有効" : "無効"}
+                    </Badge>
+                    <Badge tone="neutral">公式Skills {members.length}件</Badge>
                   </div>
-                  {skill.description && (
-                    <p className="mt-0.5 break-words text-xs text-muted">{skill.description}</p>
-                  )}
+                  <p className="mt-0.5 break-words text-xs text-muted">{group.description}</p>
                 </div>
                 <Switch
                   checked={enabled}
-                  onChange={() => void toggle(skill)}
-                  label={`${skill.name}（${scope === "code" ? "Code" : "Bot"}）を${enabled ? "無効化" : "有効化"}`}
-                  busy={busyId === skill.id}
+                  onChange={() => void toggleGroup(group, members)}
+                  label={`${group.label}（${scope === "code" ? "Code" : "Bot"}）を${enabled ? "無効化" : "有効化"}`}
+                  busy={busyId === group.id}
                 />
               </li>
             );
           })}
+          {skills
+            .filter((skill) => !SKILL_GROUPS.some((group) => group.skillNames.includes(skill.name)))
+            .map((skill) => {
+              const enabled = isEnabled(skill, scope);
+              return (
+                <li
+                  key={skill.id}
+                  aria-busy={busyId === skill.id || undefined}
+                  className="flex items-start gap-3 rounded-xl border border-border bg-surface-2 px-3 py-2.5"
+                >
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p className="min-w-0 truncate text-sm font-medium text-text" title={skill.id}>
+                        {skill.name}
+                      </p>
+                      <Badge tone={enabled ? "success" : "neutral"}>{enabled ? "有効" : "無効"}</Badge>
+                      <Badge tone="neutral">{skill.source === "bundled" ? "LeafCodePi" : ".pi/agent"}</Badge>
+                    </div>
+                    {skill.description && (
+                      <p className="mt-0.5 break-words text-xs text-muted">{skill.description}</p>
+                    )}
+                  </div>
+                  <Switch
+                    checked={enabled}
+                    onChange={() => void toggle(skill)}
+                    label={`${skill.name}（${scope === "code" ? "Code" : "Bot"}）を${enabled ? "無効化" : "有効化"}`}
+                    busy={busyId === skill.id}
+                  />
+                </li>
+              );
+            })}
         </ul>
       )}
       {error && <p className="mt-2 text-sm text-danger" role="alert">{error}</p>}
