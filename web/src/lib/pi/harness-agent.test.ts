@@ -1090,7 +1090,7 @@ describe("reloadLiveSessionsContext", () => {
         isStreaming: false,
         isCompacting: false,
         messages: [],
-        sendCustomMessage: async (_message: FixtureCustomMessage) => undefined,
+        sendCustomMessage: async () => undefined,
         reload: async () => {
           idleReloads += 1;
         },

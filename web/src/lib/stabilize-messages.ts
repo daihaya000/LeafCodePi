@@ -26,7 +26,10 @@ function messageContentFingerprint(message: UiMessage): string {
     intercom: message.intercom,
     hangRetry: message.hangRetry,
     fromBot: message.fromBot,
-    parts: message.parts.map(({ id: _id, ...part }) => part),
+    parts: message.parts.map(
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars -- projection-layer ids are intentionally stripped from the fingerprint
+      ({ id: _id, ...part }) => part,
+    ),
   });
   messageContentFingerprintCache.set(message, fingerprint);
   return fingerprint;
