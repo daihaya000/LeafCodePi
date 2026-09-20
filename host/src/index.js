@@ -76,6 +76,9 @@ const CONTROL_PORT = readPort(process.env.LEAFCODE_PI_HOST_CONTROL_PORT, DEFAULT
 const LLAMA_SERVER_PORT = readPort(process.env.LEAFCODE_PI_LLAMA_PORT, DEFAULT_LLAMA_SERVER_PORT);
 const CONTROL_FILE = join(DATA_DIR, "host-control.json");
 const MAX_WEB_RESTARTS = 3;
+// The budget stops a rapid crash loop, not unrelated crashes spread over a long
+// session. A WebUI that stays up this long gets its restart allowance back.
+const WEB_RESTART_BUDGET_RESET_MS = 60_000;
 const MAX_TRAY_RESTARTS = 3;
 // The killed WebUI disappears within a few ms (process.kill(pid, 0) poll), so
 // keep the settle time short; the try budget is only a backstop for a kill
@@ -523,8 +526,13 @@ async function spawnWeb() {
   });
   webProc = child;
   pipeChild("webui", child);
+  const stableTimer = setTimeout(() => {
+    if (!quitting && webProc === child) webRestarts = 0;
+  }, WEB_RESTART_BUDGET_RESET_MS);
+  stableTimer.unref?.();
   child.on("error", (err) => error(`WebUI spawn error: ${err.message}`));
   child.on("close", (code, signal) => {
+    clearTimeout(stableTimer);
     const expected = child.pid ? expectedWebExitPids.delete(child.pid) : false;
     const wasCurrent = webProc === child;
     if (!quitting) log(`WebUI exited (code=${code}, signal=${signal ?? "none"})`);

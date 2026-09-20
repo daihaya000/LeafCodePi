@@ -593,6 +593,19 @@ test("quit stops the WebUI without building", () => {
   assert.doesNotMatch(quitSource, /activeBuild|quitPlan|buildWeb\(/);
 });
 
+test("a WebUI that stayed up returns its crash-restart budget", () => {
+  const source = readFileSync(join(REPO_ROOT, "host", "src", "index.js"), "utf8");
+  const spawnSource = source.slice(
+    source.indexOf("async function spawnWeb()"),
+    source.indexOf("function scheduleWebRestart()"),
+  );
+  // The budget stops a rapid crash loop, so an unrelated crash hours later
+  // must still be restartable: a process that stays up resets the counter.
+  assert.match(spawnSource, /WEB_RESTART_BUDGET_RESET_MS/);
+  assert.match(spawnSource, /webRestarts = 0/);
+  assert.match(spawnSource, /clearTimeout\(stableTimer\)/);
+});
+
 test("hostControlUrl prefers the running host's file, then the default port", () => {
   const file = () => JSON.stringify({ url: "http://127.0.0.1:18999/" });
   assert.equal(hostControlUrl({ APPDATA: "C:\\data" }, file), "http://127.0.0.1:18999");
