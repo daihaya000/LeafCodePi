@@ -2456,7 +2456,7 @@ function TypeSafeCookieControl({
             autoFocus
           />
           <p id="typesafe-console-cookie-help" className="text-xs text-muted">
-            console.typesafe.ai の Netscape cookie または Cookie ヘッダー（session_id と organization_id を含む）を貼り付けてください。保存後、本文は画面に表示しません。
+            console.typesafe.ai の Netscape cookie または Cookie ヘッダー（session_id、organization_id、session を含む）を貼り付けてください。保存後、本文は画面に表示しません。
           </p>
           {error && (
             <p className="text-xs text-danger" role="alert">

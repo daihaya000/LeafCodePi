@@ -13,6 +13,7 @@ vi.mock("undici", async (importOriginal) => ({
 
 import {
   estimatedTypesafeUsd,
+  extractTypesafeBillingActionId,
   parseTypesafeBillingActionResponse,
   readTypesafeUsageTotals,
   recordTypesafeUsage,
@@ -138,6 +139,15 @@ describe("parseTypesafeBillingActionResponse", () => {
   it("throws when no line contains billing data", () => {
     expect(() => parseTypesafeBillingActionResponse('0:{"a":1}\n')).toThrow();
   });
+
+  it("extracts the current action ID from a server reference", () => {
+    const actionId = "a".repeat(42);
+    expect(
+      extractTypesafeBillingActionId(
+        `createServerReference("${actionId}",callServer,void 0,findSourceMapURL,"getBillingOverviewResult")`,
+      ),
+    ).toBe(actionId);
+  });
 });
 
 describe("resolveTypesafeApiKey / typesafeProvider", () => {
@@ -190,7 +200,8 @@ describe("resolveTypesafeApiKey / typesafeProvider", () => {
     isolateCookieConfigDir();
     saveTypesafeCookieFile(
       "console.typesafe.ai\tFALSE\t/\tTRUE\t4102444800\tsession_id\ttok\n" +
-        "console.typesafe.ai\tFALSE\t/\tTRUE\t4102444800\torganization_id\torg_1\n",
+        "console.typesafe.ai\tFALSE\t/\tTRUE\t4102444800\torganization_id\torg_1\n" +
+        "console.typesafe.ai\tFALSE\t/\tTRUE\t4102444800\tsession\tjwt-token\n",
     );
     undiciFetch.mockResolvedValueOnce(
       new Response(
@@ -214,6 +225,9 @@ describe("resolveTypesafeApiKey / typesafeProvider", () => {
         }),
       }),
     );
+    expect(
+      (undiciFetch.mock.calls[0]?.[1] as RequestInit).headers,
+    ).toEqual(expect.objectContaining({ Cookie: expect.stringContaining("session=jwt-token") }));
   });
 
   it("fetch() derives a display-only percentage from the saved baseline", async () => {
@@ -250,5 +264,44 @@ describe("resolveTypesafeApiKey / typesafeProvider", () => {
     const snapshot = await typesafeProvider.fetch();
     expect(snapshot.usageDisplayOnly).toBe(true);
     expect(snapshot.creditsBalance).toBeNull();
+  });
+
+  it("rediscovers the billing action after a deployment changes its ID", async () => {
+    tempDataDir();
+    isolateCookieConfigDir();
+    saveTypesafeCookieFile(
+      "console.typesafe.ai\tFALSE\t/\tTRUE\t4102444800\tsession_id\ttok\n" +
+        "console.typesafe.ai\tFALSE\t/\tTRUE\t4102444800\torganization_id\torg_1\n",
+    );
+    const actionId = "b".repeat(42);
+    undiciFetch
+      .mockResolvedValueOnce(new Response(null, { status: 404 }))
+      .mockResolvedValueOnce(
+        new Response(
+          '<html><script src="/_next/static/chunks/billing.js"></script></html>',
+          { status: 200 },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          `createServerReference("${actionId}",callServer,void 0,findSourceMapURL,"getBillingOverviewResult")`,
+          { status: 200 },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          '1:{"ok":true,"data":{"billing":{"plan":"free_plan","spent":0.02,"balance":4.97}}}\n',
+          { status: 200 },
+        ),
+      );
+
+    const snapshot = await typesafeProvider.fetch();
+    expect(snapshot.plan).toBe("Free");
+    expect(snapshot.creditsUsed).toBe(0.02);
+    expect(undiciFetch.mock.calls[3]?.[1]).toEqual(
+      expect.objectContaining({
+        headers: expect.objectContaining({ "Next-Action": actionId }),
+      }),
+    );
   });
 });

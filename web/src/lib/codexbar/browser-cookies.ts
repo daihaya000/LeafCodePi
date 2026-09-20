@@ -351,6 +351,12 @@ export function extractAnthropicConsoleSession(options?: {
 const TYPESAFE_CONSOLE_DOMAIN = "console.typesafe.ai";
 const TYPESAFE_SESSION_COOKIE = "session_id";
 const TYPESAFE_ORG_COOKIE = "organization_id";
+const TYPESAFE_AUTH_COOKIE_NAMES = new Set([
+  TYPESAFE_SESSION_COOKIE,
+  TYPESAFE_ORG_COOKIE,
+  "first_user_of_org_id",
+  "session",
+]);
 
 export function isTypesafeConsoleDomain(host: string): boolean {
   return host.trim().replace(/^\./, "").toLowerCase() === TYPESAFE_CONSOLE_DOMAIN;
@@ -397,15 +403,17 @@ export function parseTypesafeConsoleCookieInput(
   if (!sessionId || !organizationId) return null;
   return {
     sourceLabel: "Cookie header",
-    cookies: [TYPESAFE_SESSION_COOKIE, TYPESAFE_ORG_COOKIE].map((name) => ({
-      name,
-      value: cookies.get(name)!,
-      domain: TYPESAFE_CONSOLE_DOMAIN,
-      hostOnly: true,
-      path: "/",
-      secure: true,
-      expiresAt: null,
-    })),
+    cookies: [...TYPESAFE_AUTH_COOKIE_NAMES]
+      .filter((name) => cookies.has(name))
+      .map((name) => ({
+        name,
+        value: cookies.get(name)!,
+        domain: TYPESAFE_CONSOLE_DOMAIN,
+        hostOnly: true,
+        path: "/",
+        secure: true,
+        expiresAt: null,
+      })),
   };
 }
 
@@ -463,19 +471,21 @@ export function hasTypesafeCookieFile(): boolean {
   }
 }
 
-/** 貼り付け本文の他サイトcookieを保存しない。残高取得に必要な2項目だけを直列化する。 */
+/** 貼り付け本文の他サイトcookieを保存せず、TypeSafeの認証cookieだけを直列化する。 */
 function typesafeCookieFileText(session: BrowserCookieSession): string | null {
-  const sessionId = session.cookies.find(
+  const cookies = session.cookies.filter(
     (cookie) =>
-      cookie.name === TYPESAFE_SESSION_COOKIE && cookie.value.length > 0,
+      TYPESAFE_AUTH_COOKIE_NAMES.has(cookie.name) && cookie.value.length > 0,
   );
-  const organizationId = session.cookies.find(
-    (cookie) => cookie.name === TYPESAFE_ORG_COOKIE && cookie.value.length > 0,
-  );
-  if (!sessionId || !organizationId) return null;
+  if (
+    !cookies.some((cookie) => cookie.name === TYPESAFE_SESSION_COOKIE) ||
+    !cookies.some((cookie) => cookie.name === TYPESAFE_ORG_COOKIE)
+  ) {
+    return null;
+  }
   return [
     "# Netscape HTTP Cookie File",
-    ...[sessionId, organizationId].map((cookie) => {
+    ...cookies.map((cookie) => {
       const expiresUtc = cookie.expiresAt
         ? Math.floor(cookie.expiresAt.getTime() / 1000)
         : 0;

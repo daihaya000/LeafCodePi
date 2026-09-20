@@ -186,14 +186,11 @@ function localEstimateSnapshot(): UsageSnapshot {
 
 /** console.typesafe.ai の billing Server Action（`/settings/billing` 上でのみ有効）。 */
 const TYPESAFE_BILLING_URL = "https://console.typesafe.ai/settings/billing";
-/**
- * `getBillingOverviewResult` Server Action の ID（2026-09 時点でリバースエンジニアリング確認済み）。
- * TypeSafe がコンソールを再デプロイすると変わり得る。更新方法: ログイン後の
- * `/settings/billing` が読み込む JS チャンクから `createServerReference("<id>",...,
- * "getBillingOverviewResult")` を検索する。
- */
+const TYPESAFE_BILLING_ACTION_NAME = "getBillingOverviewResult";
+/** 既知のデプロイで使われたID。失敗時は現在のページから再解決する。 */
 const TYPESAFE_BILLING_ACTION_ID =
   "00216a0f6524a89c66b80e4babe337d5f2d86e071b";
+let typesafeBillingActionId = TYPESAFE_BILLING_ACTION_ID;
 
 export type TypesafeConsoleBilling = {
   plan: string;
@@ -246,6 +243,76 @@ export function parseTypesafeBillingActionResponse(
   throw new ProviderError("TypeSafe の残高データを取得できませんでした。");
 }
 
+/** 認証済みBillingページのJSから、現在のServer Action IDを拾う。 */
+export function extractTypesafeBillingActionId(text: string): string | null {
+  const marker = text.indexOf(TYPESAFE_BILLING_ACTION_NAME);
+  if (marker < 0) return null;
+  const start = Math.max(0, marker - 2_000);
+  const context = text.slice(start, Math.min(text.length, marker + 2_000));
+  const patterns = [
+    /createServerReference\s*\(\s*["']([0-9a-f]{40,64})["'][\s\S]{0,2000}?getBillingOverviewResult/i,
+    /getBillingOverviewResult[\s\S]{0,2000}?createServerReference\s*\(\s*["']([0-9a-f]{40,64})["']/i,
+  ];
+  for (const pattern of patterns) {
+    const match = pattern.exec(context);
+    if (match?.[1]) return match[1];
+  }
+  return null;
+}
+
+async function discoverTypesafeBillingActionId(
+  cookieHeader: string,
+  signal?: AbortSignal,
+): Promise<string> {
+  const page = await fetchText(TYPESAFE_BILLING_URL, {
+    headers: {
+      Accept: "text/html",
+      Cookie: cookieHeader,
+      Referer: TYPESAFE_BILLING_URL,
+    },
+    signal,
+  });
+  if (page.status === 401 || page.status === 403) {
+    throw new ProviderError(
+      "TypeSafe Console のセッションが期限切れです。cookie を再登録してください。",
+    );
+  }
+  if (!page.ok) {
+    throw new ProviderError(`TypeSafe Console API エラー ${page.status}。`);
+  }
+
+  const pageActionId = extractTypesafeBillingActionId(page.body);
+  if (pageActionId) return pageActionId;
+
+  const scriptSources = [
+    ...page.body.matchAll(
+      /<script\b[^>]*\bsrc\s*=\s*["']([^"']+)["'][^>]*>/gi,
+    ),
+  ]
+    .map((match) => match[1].replace(/&amp;/g, "&"))
+    .filter((src) => src.length > 0);
+  const origin = new URL(TYPESAFE_BILLING_URL).origin;
+  for (const source of new Set(scriptSources)) {
+    let url: URL;
+    try {
+      url = new URL(source, TYPESAFE_BILLING_URL);
+    } catch {
+      continue;
+    }
+    if (url.origin !== origin) continue;
+    const script = await fetchText(url.href, {
+      headers: { Accept: "*/*", Cookie: cookieHeader },
+      signal,
+    });
+    if (!script.ok) continue;
+    const actionId = extractTypesafeBillingActionId(script.body);
+    if (actionId) return actionId;
+  }
+  throw new ProviderError(
+    "TypeSafe Console のBilling用Server Actionを特定できませんでした。",
+  );
+}
+
 async function fetchTypesafeConsoleBilling(
   session: BrowserCookieSession,
   signal?: AbortSignal,
@@ -260,26 +327,54 @@ async function fetchTypesafeConsoleBilling(
   if (!cookieHeader) {
     throw new ProviderError("TypeSafe Console へ送れる cookie がありません。");
   }
-  const { status, body, ok } = await fetchText(TYPESAFE_BILLING_URL, {
-    method: "POST",
-    headers: {
-      "Content-Type": "text/plain;charset=UTF-8",
-      Accept: "text/x-component",
-      "Next-Action": TYPESAFE_BILLING_ACTION_ID,
-      Origin: "https://console.typesafe.ai",
-      Referer: TYPESAFE_BILLING_URL,
-      Cookie: cookieHeader,
-    },
-    body: "[]",
-    signal,
-  });
-  if (status === 401 || status === 403) {
+  const authenticatedCookieHeader = cookieHeader;
+  async function request(actionId: string) {
+    return fetchText(TYPESAFE_BILLING_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "text/plain;charset=UTF-8",
+        Accept: "text/x-component",
+        "Next-Action": actionId,
+        Origin: "https://console.typesafe.ai",
+        Referer: TYPESAFE_BILLING_URL,
+        Cookie: authenticatedCookieHeader,
+      },
+      body: "[]",
+      signal,
+    });
+  }
+
+  const first = await request(typesafeBillingActionId);
+  if (first.status === 401 || first.status === 403) {
     throw new ProviderError(
       "TypeSafe Console のセッションが期限切れです。cookie を再登録してください。",
     );
   }
-  if (!ok) throw new ProviderError(`TypeSafe Console API エラー ${status}。`);
-  return parseTypesafeBillingActionResponse(body);
+  if (first.ok) {
+    try {
+      return parseTypesafeBillingActionResponse(first.body);
+    } catch {
+      // 形式変更も現在のAction ID再解決で回復を試みる。
+    }
+  } else if (first.status !== 404) {
+    throw new ProviderError(`TypeSafe Console API エラー ${first.status}。`);
+  }
+
+  const actionId = await discoverTypesafeBillingActionId(
+    authenticatedCookieHeader,
+    signal,
+  );
+  typesafeBillingActionId = actionId;
+  const retry = await request(actionId);
+  if (retry.status === 401 || retry.status === 403) {
+    throw new ProviderError(
+      "TypeSafe Console のセッションが期限切れです。cookie を再登録してください。",
+    );
+  }
+  if (!retry.ok) {
+    throw new ProviderError(`TypeSafe Console API エラー ${retry.status}。`);
+  }
+  return parseTypesafeBillingActionResponse(retry.body);
 }
 
 export const typesafeProvider: IUsageProvider = {

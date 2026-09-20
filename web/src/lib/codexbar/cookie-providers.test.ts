@@ -273,6 +273,12 @@ console.typesafe.ai	FALSE	/	TRUE	4102444800	session_id	tok-123
 console.typesafe.ai	FALSE	/	TRUE	4102444800	organization_id	org_abc
 .other.com	TRUE	/	TRUE	4102444800	unrelated	value
 `;
+  const authenticatedFixture = `# Netscape HTTP Cookie File
+console.typesafe.ai	FALSE	/	TRUE	4102444800	session_id	tok-123
+console.typesafe.ai	FALSE	/	TRUE	4102444800	organization_id	org_abc
+console.typesafe.ai	FALSE	/	TRUE	4102444800	first_user_of_org_id	org_abc
+console.typesafe.ai	FALSE	/	TRUE	4102444800	session	jwt-token
+`;
 
   it("recognizes only the console host and requires session_id", () => {
     expect(isTypesafeConsoleDomain("console.typesafe.ai")).toBe(true);
@@ -293,11 +299,13 @@ console.typesafe.ai	FALSE	/	TRUE	4102444800	organization_id	org_abc
       ),
     ).toBeNull();
     const header = parseTypesafeConsoleCookieInput(
-      "session_id=header-session; organization_id=header-org; other=ignored",
+      "session_id=header-session; organization_id=header-org; first_user_of_org_id=header-org; session=jwt-token; other=ignored",
     );
     expect(header?.cookies.map((cookie) => cookie.name)).toEqual([
       "session_id",
       "organization_id",
+      "first_user_of_org_id",
+      "session",
     ]);
   });
 
@@ -312,11 +320,19 @@ console.typesafe.ai	FALSE	/	TRUE	4102444800	organization_id	org_abc
       ),
     ).toThrow();
     saveTypesafeCookieFile(
-      "session_id=header-session; organization_id=header-org; ignored=secret",
+      "session_id=header-session; organization_id=header-org; session=jwt-token; ignored=secret",
     );
     expect(extractTypesafeConsoleSession()?.cookies.map((cookie) => cookie.name)).toEqual([
       "session_id",
       "organization_id",
+      "session",
+    ]);
+    saveTypesafeCookieFile(authenticatedFixture);
+    expect(extractTypesafeConsoleSession()?.cookies.map((cookie) => cookie.name)).toEqual([
+      "session_id",
+      "organization_id",
+      "first_user_of_org_id",
+      "session",
     ]);
     saveTypesafeCookieFile(fixture);
     expect(hasTypesafeCookieFile()).toBe(true);
