@@ -343,7 +343,15 @@ function AgentPromptSettings({ name, prompt }: { name: string; prompt: string })
   );
 }
 
-function AutoAgentPromptSettings() {
+function AutoAgentPromptSettings({
+  autoEnabled,
+  busy,
+  onToggle,
+}: {
+  autoEnabled: boolean;
+  busy: boolean;
+  onToggle: () => void;
+}) {
   const [prompt, setPrompt] = useState("");
   const [savedPrompt, setSavedPrompt] = useState("");
   const [editing, setEditing] = useState(false);
@@ -400,19 +408,35 @@ function AutoAgentPromptSettings() {
   }
 
   return (
-    <section aria-labelledby="auto-agent-prompt-heading" className="mt-4 rounded-xl border border-border bg-surface-2 p-3">
+    <section
+      aria-labelledby="auto-agent-prompt-heading"
+      aria-busy={busy || undefined}
+      className="mt-3 rounded-xl border border-border bg-surface-2 p-3"
+    >
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div className="min-w-0">
-          <h3 id="auto-agent-prompt-heading" className="text-sm font-medium">Autoエージェント</h3>
+          <div className="flex flex-wrap items-center gap-2">
+            <AgentRoleIcon name={AUTO_AGENT_VALUE} />
+            <h3 id="auto-agent-prompt-heading" className="text-sm font-medium">Autoエージェント</h3>
+            <Badge tone={autoEnabled ? "success" : "neutral"}>{autoEnabled ? "有効" : "無効"}</Badge>
+          </div>
           <p className="mt-1 text-xs text-muted">
-            会話内容から担当エージェントを選ぶモデルに渡すプロンプトです。空欄で保存すると既定の選定指示に戻ります。
+            会話内容から担当エージェントを自動選択します。選定モデルに渡すプロンプトです。空欄で保存すると既定の選定指示に戻ります。
           </p>
         </div>
-        {!loading && !editing && (
-          <Button type="button" variant="secondary" size="sm" onClick={() => { setEditing(true); setNotice(null); }}>
-            編集
-          </Button>
-        )}
+        <div className="flex items-center gap-2">
+          <Switch
+            checked={autoEnabled}
+            onChange={onToggle}
+            label={`Autoエージェントを${autoEnabled ? "無効化" : "有効化"}`}
+            busy={busy}
+          />
+          {!loading && !editing && (
+            <Button type="button" variant="secondary" size="sm" onClick={() => { setEditing(true); setNotice(null); }}>
+              編集
+            </Button>
+          )}
+        </div>
       </div>
       {loading ? (
         <p className="mt-3 text-sm text-muted">読み込み中…</p>
@@ -821,27 +845,11 @@ export function AgentsSettings() {
           onCancel={closeEditor}
         />
       )}
-      <section
-        aria-labelledby="auto-agent-toggle-heading"
-        aria-busy={busyId === AUTO_AGENT_ENABLED_SETTING_KEY || undefined}
-        className="mt-3 flex items-start gap-3 rounded-xl border border-border bg-surface-2 px-3 py-2.5"
-      >
-        <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-center gap-2">
-            <AgentRoleIcon name={AUTO_AGENT_VALUE} />
-            <p id="auto-agent-toggle-heading" className="text-sm font-medium text-text">Auto</p>
-            <Badge tone={autoEnabled ? "success" : "neutral"}>{autoEnabled ? "有効" : "無効"}</Badge>
-          </div>
-          <p className="mt-0.5 text-xs text-muted">会話内容から担当エージェントを自動選択します。</p>
-        </div>
-        <Switch
-          checked={autoEnabled}
-          onChange={() => void toggleAuto()}
-          label={`Autoエージェントを${autoEnabled ? "無効化" : "有効化"}`}
-          busy={busyId === AUTO_AGENT_ENABLED_SETTING_KEY}
-        />
-      </section>
-      <AutoAgentPromptSettings />
+      <AutoAgentPromptSettings
+        autoEnabled={autoEnabled}
+        busy={busyId === AUTO_AGENT_ENABLED_SETTING_KEY}
+        onToggle={() => void toggleAuto()}
+      />
       {agentsPath && (
         <div className="mt-1 space-y-0.5 font-mono text-[11px] text-muted">
           <p className="break-all">{agentsPath}</p>

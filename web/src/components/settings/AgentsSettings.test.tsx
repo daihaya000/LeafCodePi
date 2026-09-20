@@ -435,6 +435,9 @@ describe("AgentsSettings", () => {
     render(<AgentsSettings />);
 
     expect(screen.queryByRole("textbox", { name: "モデル選定者向けプロンプト" })).toBeNull();
+    const autoSection = screen.getByRole("heading", { name: "Autoエージェント" }).closest("section");
+    expect(autoSection).not.toBeNull();
+    expect(screen.getByRole("switch", { name: "Autoエージェントを無効化" }).closest("section")).toBe(autoSection);
     fireEvent.click(await screen.findByRole("button", { name: "編集" }));
 
     const prompt = screen.getByRole("textbox", { name: "モデル選定者向けプロンプト" }) as HTMLTextAreaElement;
