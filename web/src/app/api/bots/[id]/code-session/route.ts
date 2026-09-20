@@ -6,7 +6,7 @@ import { continueBotCodeTask, createBotCodeTask, getBotCodeSessionPanelState, go
 import { isThinkingLevel } from "@/lib/thinking-levels";
 import { reconcileOrphanedWorkingTasks } from "@/lib/task-runtime-lease";
 import { isRoomDelegatedCodeTask } from "@/lib/pi/bot-code-relay";
-import { isGoalLoopLiveStatus, readGoalLoopState } from "@/lib/pi/goal-loop-state";
+import { isGoalLoopLiveStatus, isGoalLoopOperatorHold, readGoalLoopState } from "@/lib/pi/goal-loop-state";
 import {
   clampGoalLoopCooldownSeconds,
   clampGoalLoopMaxTurns,
@@ -191,7 +191,8 @@ export async function PATCH(
         }
         const loop = readGoalLoopState(linked.directory, linked.sessionId);
         // Goal Loop idles between turns; still stop so unlink does not leave the loop running.
-        if (linked.status === "working" || isGoalLoopLiveStatus(loop?.status)) {
+        // Operator-held pause (user / manual_send) also keeps Code outbox open until Resume/Stop.
+        if (linked.status === "working" || isGoalLoopLiveStatus(loop?.status) || isGoalLoopOperatorHold(loop)) {
           try {
             await stopBotCodeTask(id, taskId);
           } catch (error) {
@@ -211,7 +212,9 @@ export async function PATCH(
             : null;
           if (
             after &&
-            (after.status === "working" || isGoalLoopLiveStatus(afterLoop?.status))
+            (after.status === "working" ||
+              isGoalLoopLiveStatus(afterLoop?.status) ||
+              isGoalLoopOperatorHold(afterLoop))
           ) {
             return NextResponse.json(
               { error: "Code セッションを停止できませんでした" },

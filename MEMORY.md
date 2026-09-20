@@ -215,8 +215,15 @@
 ### 検証（Tick29）
 `accounts` Goal Loop 関連 — **4 passed**
 
+### Tick30（ループ継続・通知 47）
+1. `isTaskRuntimeBusyForDestructiveEdit` / `throwIfGoalLoopBlocksSessionReplace` — operator-hold も busy
+2. Code session clear/unlink と bot-code-relay 一括 stop — ユーザー一時停止中の Goal Loop を停止対象に含める（outbox 未決済のまま unlink しない）
+
+### 検証（Tick30）
+`code-session` unlink Goal Loop — **2 passed**；accounts operator-hold 回帰
+
 ### 次 Tick 候補
-- Goal Loop / TaskView 側のその他矛盾
+- TaskView / SSE 周辺
 
 
 

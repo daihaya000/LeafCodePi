@@ -23,6 +23,10 @@ const mocks = vi.hoisted(() => ({
   isGoalLoopLiveStatus: vi.fn((status: string | undefined) =>
     status === "queued" || status === "running" || status === "verifying_completed",
   ),
+  isGoalLoopOperatorHold: vi.fn(
+    (loop: { status?: string; pauseReason?: string } | null | undefined) =>
+      loop?.status === "paused" && (loop.pauseReason === "user" || loop.pauseReason === "manual_send"),
+  ),
   jsonError: vi.fn((error: unknown) => ({
     error: error instanceof Error ? error.message : String(error),
     status: typeof error === "object" && error !== null && "status" in error ? Number(error.status) : 500,
@@ -37,6 +41,7 @@ vi.mock("@/lib/pi/bot-code-relay", () => ({ isRoomDelegatedCodeTask: mocks.isRoo
 vi.mock("@/lib/pi/goal-loop-state", () => ({
   readGoalLoopState: mocks.readGoalLoopState,
   isGoalLoopLiveStatus: mocks.isGoalLoopLiveStatus,
+  isGoalLoopOperatorHold: mocks.isGoalLoopOperatorHold,
 }));
 vi.mock("@/lib/pi/harness", () => ({
   createBotCodeTask: mocks.createBotCodeTask,
@@ -88,6 +93,10 @@ beforeEach(() => {
   mocks.readGoalLoopState.mockReturnValue(null);
   mocks.isGoalLoopLiveStatus.mockImplementation((status: string | undefined) =>
     status === "queued" || status === "running" || status === "verifying_completed",
+  );
+  mocks.isGoalLoopOperatorHold.mockImplementation(
+    (loop: { status?: string; pauseReason?: string } | null | undefined) =>
+      loop?.status === "paused" && (loop.pauseReason === "user" || loop.pauseReason === "manual_send"),
   );
 });
 
@@ -469,6 +478,31 @@ describe("Bot Code session control", () => {
       sessionId: "sess",
     });
     mocks.readGoalLoopState.mockReturnValue({ status: "running" });
+    mocks.stopBotCodeTask.mockImplementation(async () => {
+      mocks.readGoalLoopState.mockReturnValue({ status: "stopped" });
+      return { id: "code-1", status: "idle" };
+    });
+
+    const response = await PATCH(request("PATCH", { action: "unlink" }), {
+      params: Promise.resolve({ id: "bot-1" }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(mocks.stopBotCodeTask).toHaveBeenCalledWith("bot-1", "code-1");
+    expect(mocks.patchBot).toHaveBeenCalledWith("bot-1", { codeSessionTaskId: null });
+  });
+
+  it("stops an idle Code task with an operator-held Goal Loop on unlink", async () => {
+    mocks.getBot.mockReturnValue({ ...bot, codeSessionTaskId: "code-1" });
+    mocks.getTask.mockReturnValue({
+      id: "code-1",
+      status: "idle",
+      botId: "bot-1",
+      kind: "code",
+      directory: "/tmp",
+      sessionId: "sess",
+    });
+    mocks.readGoalLoopState.mockReturnValue({ status: "paused", pauseReason: "user" });
     mocks.stopBotCodeTask.mockImplementation(async () => {
       mocks.readGoalLoopState.mockReturnValue({ status: "stopped" });
       return { id: "code-1", status: "idle" };

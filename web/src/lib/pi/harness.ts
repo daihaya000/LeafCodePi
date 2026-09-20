@@ -9264,7 +9264,7 @@ export function isTaskRuntimeBusyForDestructiveEdit(taskId: string): boolean {
     ? readGoalLoopState(task.directory, live?.session.sessionId ?? task.sessionId)
     : null;
   if (task?.status === "working") return true;
-  if (isGoalLoopLiveStatus(goalLoop?.status)) return true;
+  if (isGoalLoopLiveStatus(goalLoop?.status) || isGoalLoopOperatorHold(goalLoop)) return true;
   if (getTaskHangWatch(taskId)?.state === "resolving") return true;
   // Own lease during provider-limit fallback, or a foreign worker's lease.
   if (hasActiveTaskLease(taskId)) return true;
@@ -9327,7 +9327,7 @@ function throwIfGoalLoopBlocksSessionReplace(
   sessionId?: string | null,
 ): void {
   const goalLoop = readGoalLoopState(task.directory, sessionId ?? task.sessionId);
-  if (isGoalLoopLiveStatus(goalLoop?.status)) {
+  if (isGoalLoopLiveStatus(goalLoop?.status) || isGoalLoopOperatorHold(goalLoop)) {
     throw Object.assign(
       new Error("Goal loop の実行中はセッションを切り替えできません"),
       { status: 409 },
