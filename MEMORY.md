@@ -113,8 +113,15 @@
 ### 検証（Tick14）
 `bot-code-relay` — 関連ケース通過
 
+### Tick15（ループ継続・通知 21–22）
+1. `roomSnapshotSignature` — `codeRequests` の `activity` / `todoProgress` / `goalLoopSummary` と全メッセージの `codeActivity` を署名に含め、同 ms 進捗更新でも SSE が飛ぶようにする
+
+### 検証（Tick15）
+`room-events` / concurrent — **5 passed**
+
 ### 次 Tick 候補
 - cold（非 live）Code の activity は現状なし（許容）
+
 
 
 

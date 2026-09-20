@@ -38,6 +38,15 @@ describe("room snapshot signature", () => {
     expect(roomSnapshotSignature(reported, [])).not.toBe(base);
     expect(roomSnapshotSignature(codeRequests, [])).not.toBe(base);
     expect(roomSnapshotSignature({ ...room, lastOutcome: { kind: "done", requestId: "m1" } }, [])).not.toBe(base);
+
+    const withActivity = {
+      ...codeRequests,
+      messages: [{
+        ...codeRequests.messages[0],
+        codeRequests: [{ id: "req-1", state: "running" as const, taskId: "task-1", prompt: "do it", activity: "検索" }],
+      }],
+    };
+    expect(roomSnapshotSignature(withActivity, [])).not.toBe(roomSnapshotSignature(codeRequests, []));
   });
 
   it("stays equal when a task event changed nothing in the room", () => {
