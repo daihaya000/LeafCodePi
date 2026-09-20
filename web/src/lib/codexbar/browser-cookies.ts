@@ -349,17 +349,18 @@ export function extractAnthropicConsoleSession(options?: {
 
 /** TypeSafe Console（console.typesafe.ai）のセッション cookie。組織を跨がないため host-only。 */
 const TYPESAFE_CONSOLE_DOMAIN = "console.typesafe.ai";
+const TYPESAFE_COOKIE_DOMAINS = new Set([TYPESAFE_CONSOLE_DOMAIN, "typesafe.ai"]);
 const TYPESAFE_SESSION_COOKIE = "session_id";
 const TYPESAFE_ORG_COOKIE = "organization_id";
-const TYPESAFE_AUTH_COOKIE_NAMES = new Set([
-  TYPESAFE_SESSION_COOKIE,
-  TYPESAFE_ORG_COOKIE,
-  "first_user_of_org_id",
-  "session",
-]);
 
 export function isTypesafeConsoleDomain(host: string): boolean {
   return host.trim().replace(/^\./, "").toLowerCase() === TYPESAFE_CONSOLE_DOMAIN;
+}
+
+function isTypesafeCookieDomain(host: string): boolean {
+  return TYPESAFE_COOKIE_DOMAINS.has(
+    host.trim().replace(/^\./, "").toLowerCase(),
+  );
 }
 
 function hasTypesafeSessionCookie(cookies: readonly BrowserCookie[]): boolean {
@@ -376,7 +377,7 @@ export function parseTypesafeConsoleNetscapeText(
   const now = Math.floor(Date.now() / 1000);
   const cookies = parseNetscapeCookieText(text)
     .filter((c) => !(c.expiresUtc > 0 && c.expiresUtc < now))
-    .filter((c) => isTypesafeConsoleDomain(c.domain))
+    .filter((c) => isTypesafeCookieDomain(c.domain))
     .filter((c) => c.name.length > 0 && c.value.length > 0)
     .map(netscapeToBrowserCookie);
   if (!hasTypesafeSessionCookie(cookies)) return null;
@@ -403,17 +404,15 @@ export function parseTypesafeConsoleCookieInput(
   if (!sessionId || !organizationId) return null;
   return {
     sourceLabel: "Cookie header",
-    cookies: [...TYPESAFE_AUTH_COOKIE_NAMES]
-      .filter((name) => cookies.has(name))
-      .map((name) => ({
-        name,
-        value: cookies.get(name)!,
-        domain: TYPESAFE_CONSOLE_DOMAIN,
-        hostOnly: true,
-        path: "/",
-        secure: true,
-        expiresAt: null,
-      })),
+    cookies: [...cookies].map(([name, value]) => ({
+      name,
+      value,
+      domain: TYPESAFE_CONSOLE_DOMAIN,
+      hostOnly: true,
+      path: "/",
+      secure: true,
+      expiresAt: null,
+    })),
   };
 }
 
@@ -456,7 +455,7 @@ export function extractTypesafeConsoleSession(): BrowserCookieSession | null {
       /* try next */
     }
   }
-  return chromiumSessionFor(isTypesafeConsoleDomain, hasTypesafeSessionCookie);
+  return chromiumSessionFor(isTypesafeCookieDomain, hasTypesafeSessionCookie);
 }
 
 /** UI で保存した cookie が実残高取得に必要な2項目を満たすか。 */
@@ -471,12 +470,9 @@ export function hasTypesafeCookieFile(): boolean {
   }
 }
 
-/** 貼り付け本文の他サイトcookieを保存せず、TypeSafeの認証cookieだけを直列化する。 */
+/** 貼り付け本文のTypeSafe cookieを完全に保存する（追加の認証cookieを落とさない）。 */
 function typesafeCookieFileText(session: BrowserCookieSession): string | null {
-  const cookies = session.cookies.filter(
-    (cookie) =>
-      TYPESAFE_AUTH_COOKIE_NAMES.has(cookie.name) && cookie.value.length > 0,
-  );
+  const cookies = session.cookies.filter((cookie) => cookie.value.length > 0);
   if (
     !cookies.some((cookie) => cookie.name === TYPESAFE_SESSION_COOKIE) ||
     !cookies.some((cookie) => cookie.name === TYPESAFE_ORG_COOKIE)

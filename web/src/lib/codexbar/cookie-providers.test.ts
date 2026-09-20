@@ -271,6 +271,7 @@ describe("typesafe console cookies", () => {
   const fixture = `# Netscape HTTP Cookie File
 console.typesafe.ai	FALSE	/	TRUE	4102444800	session_id	tok-123
 console.typesafe.ai	FALSE	/	TRUE	4102444800	organization_id	org_abc
+.typesafe.ai	TRUE	/	TRUE	4102444800	shared	value
 .other.com	TRUE	/	TRUE	4102444800	unrelated	value
 `;
   const authenticatedFixture = `# Netscape HTTP Cookie File
@@ -280,7 +281,7 @@ console.typesafe.ai	FALSE	/	TRUE	4102444800	first_user_of_org_id	org_abc
 console.typesafe.ai	FALSE	/	TRUE	4102444800	session	jwt-token
 `;
 
-  it("recognizes only the console host and requires session_id", () => {
+  it("recognizes console URLs and retains all TypeSafe cookies", () => {
     expect(isTypesafeConsoleDomain("console.typesafe.ai")).toBe(true);
     expect(isTypesafeConsoleDomain("typesafe.ai")).toBe(false);
     expect(isTypesafeConsoleDomain("login.typesafe.ai")).toBe(false);
@@ -290,6 +291,7 @@ console.typesafe.ai	FALSE	/	TRUE	4102444800	session	jwt-token
     expect(session!.cookies.map((c) => c.name).sort()).toEqual([
       "organization_id",
       "session_id",
+      "shared",
     ]);
     expect(readTypesafeOrgId(session!)).toBe("org_abc");
 
@@ -306,6 +308,7 @@ console.typesafe.ai	FALSE	/	TRUE	4102444800	session	jwt-token
       "organization_id",
       "first_user_of_org_id",
       "session",
+      "other",
     ]);
   });
 
@@ -326,6 +329,7 @@ console.typesafe.ai	FALSE	/	TRUE	4102444800	session	jwt-token
       "session_id",
       "organization_id",
       "session",
+      "ignored",
     ]);
     saveTypesafeCookieFile(authenticatedFixture);
     expect(extractTypesafeConsoleSession()?.cookies.map((cookie) => cookie.name)).toEqual([
