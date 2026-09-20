@@ -21,6 +21,8 @@ let discover: ReturnType<typeof vi.fn>;
 const childResult = { agent: "worker", task: "Summarize", exitCode: 0, messages: [], finalOutput: "done", usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0, turns: 1 } };
 
 beforeEach(async () => {
+	// resetModules + dynamic import of the whole executor graph can exceed the
+	// default 10s hook budget when the full suite transforms files in parallel.
 	vi.resetModules();
 	vi.clearAllMocks();
 	root = mkdtempSync(join(tmpdir(), "leafcode-executor-contract-"));
@@ -49,7 +51,7 @@ beforeEach(async () => {
 	});
 	launch.sync.mockResolvedValue(childResult);
 	launch.async.mockImplementation((id: string) => ({ content: [], details: { mode: "single", asyncId: id, results: [] } }));
-});
+}, 30_000);
 afterEach(() => {
 	for (const timer of state?.cleanupTimers.values() ?? []) clearTimeout(timer);
 	vi.unstubAllEnvs();
