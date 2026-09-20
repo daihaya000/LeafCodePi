@@ -886,6 +886,10 @@ export function createBotCodeRelay(deps: RelayDependencies) {
         request.state = "ready";
         save(request);
         notifySettled(request);
+      } else if (request?.state === "ready" && request.stoppedByUser) {
+        // Abort during report: keep stop outcome durable before an in-flight deliver saves.
+        markUserStoppedResult(request);
+        save(request);
       }
     });
   }
@@ -1075,11 +1079,24 @@ export function createBotCodeRelay(deps: RelayDependencies) {
         return;
       }
       if (deps.isBusy(request.originTaskId) || (request.nextAttemptAt ?? 0) > Date.now()) return;
+      // A stop may have landed while we waited for this bot lock — deliver the stop outcome.
+      if (request.stoppedByUser) markUserStoppedResult(request);
       request.nextAttemptAt = Date.now() + 30_000;
       save(request);
       reporting.set(request.originTaskId, { room: Boolean(request.room), followUpStarted: false, userStopped: request.stoppedByUser === true, autoChain: request.autoChain ?? 0 });
       try {
-        if (await deps.deliver(request)) { request.state = "delivered"; save(request); delivered = request; }
+        if (await deps.deliver(request)) {
+          // Re-read under the per-request lock: an in-flight stop must not be overwritten
+          // by this stale success snapshot when we flip to delivered.
+          await withBotCodeSessionLock(`request-${id}`, async () => {
+            const latest = read(id);
+            if (!latest || latest.state === "delivered" || latest.state === "cancelled") return;
+            if (latest.stoppedByUser) markUserStoppedResult(latest);
+            latest.state = "delivered";
+            save(latest);
+            delivered = latest;
+          });
+        }
       } finally { reporting.delete(request.originTaskId); }
     });
     if (delivered) void Promise.resolve().then(() => deps.afterDelivery?.(delivered!)).catch(() => console.warn("[bot-code-relay] automatic continuation stopped"));

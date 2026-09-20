@@ -643,6 +643,36 @@ describe("Bot ⇄ Code relay", () => {
     expect(JSON.parse(record().result!).outcome).toBe("ユーザーが停止");
   });
 
+  it("keeps a user stop when delivery finishes after the stop", async () => {
+    await launch();
+    store.tasks.get("code")!.status = "idle";
+    messages = [answer("done", "完了しました")];
+
+    let releaseDeliver!: (value: boolean) => void;
+    const deliverGate = new Promise<boolean>((resolve) => { releaseDeliver = resolve; });
+    vi.mocked(deps.deliver).mockImplementationOnce(async () => deliverGate);
+
+    const tickPromise = relay.tick();
+    await vi.waitFor(() => expect(deps.deliver).toHaveBeenCalledTimes(1));
+    expect(JSON.parse(String(vi.mocked(deps.deliver).mock.calls[0][0].result)).outcome).toBe("実行終了");
+
+    await stopBotCodeRequest("one", record().id);
+    expect(JSON.parse(record().result!).outcome).toBe("ユーザーが停止");
+    expect(record().stoppedByUser).toBe(true);
+
+    releaseDeliver(true);
+    await tickPromise;
+
+    expect(record()).toMatchObject({ state: "delivered", stoppedByUser: true });
+    expect(JSON.parse(record().result!).outcome).toBe("ユーザーが停止");
+    await vi.waitFor(() => expect(deps.afterDelivery).toHaveBeenCalledTimes(1));
+    expect(vi.mocked(deps.afterDelivery!).mock.calls[0][0]).toMatchObject({
+      state: "delivered",
+      stoppedByUser: true,
+      result: expect.stringContaining("ユーザーが停止"),
+    });
+  });
+
   it("preserves a user stop when restart finds the request in its starting state", async () => {
     await launch();
     const request = record();

@@ -105,8 +105,17 @@
 ### 検証（Tick13）
 `CodeRequestCard` — **5 passed**
 
+### Tick14（ループ継続・通知 19–20）
+1. `processRequest` 配信後の `delivered` 保存を `request-*` ロック下で再読込 — 配信中のユーザー停止を成功結果で上書きしない
+2. `complete()` — `ready` + `stoppedByUser` でも停止 outcome を永続化
+3. 回帰: deliver 完了より先に stop しても最終 outcome は「ユーザーが停止」
+
+### 検証（Tick14）
+`bot-code-relay` — 関連ケース通過
+
 ### 次 Tick 候補
 - cold（非 live）Code の activity は現状なし（許容）
+
 
 
 
