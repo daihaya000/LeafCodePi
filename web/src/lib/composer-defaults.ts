@@ -12,7 +12,7 @@ import {
   isAutoOptimizeMode,
   type AutoOptimizeMode,
 } from "@/lib/auto-model";
-import { AUTO_AGENT_VALUE } from "@/lib/default-agent";
+import { DEFAULT_AGENT } from "@/lib/default-agent";
 
 export type ComposerDefaults = {
   /** モデル value（`auto` または `[accountId::]provider::model`）。 */
@@ -30,7 +30,7 @@ export const COMPOSER_DEFAULTS_EVENT = "webui:composer-defaults";
 export const BUILTIN_COMPOSER_DEFAULTS: ComposerDefaults = Object.freeze({
   model: AUTO_MODEL_VALUE,
   autoOptimize: "balanced",
-  agent: AUTO_AGENT_VALUE,
+  agent: DEFAULT_AGENT,
 });
 
 const sync = createSettingSync({

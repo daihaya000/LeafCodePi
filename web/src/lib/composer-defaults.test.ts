@@ -6,6 +6,7 @@ vi.mock("@/lib/client", () => ({
   sendJson: vi.fn().mockResolvedValue(undefined),
 }));
 
+import { DEFAULT_AGENT } from "./default-agent";
 import {
   BUILTIN_COMPOSER_DEFAULTS,
   normalizeComposerDefaults,
@@ -18,7 +19,8 @@ describe("composer defaults", () => {
     localStorage.clear();
   });
 
-  it("falls back to builtin values for missing or invalid input", () => {
+  it("falls back to default for missing or invalid input", () => {
+    expect(BUILTIN_COMPOSER_DEFAULTS.agent).toBe(DEFAULT_AGENT);
     expect(normalizeComposerDefaults(null)).toEqual(BUILTIN_COMPOSER_DEFAULTS);
     expect(normalizeComposerDefaults({ model: "  ", autoOptimize: "nope", agent: "" })).toEqual(
       BUILTIN_COMPOSER_DEFAULTS,
