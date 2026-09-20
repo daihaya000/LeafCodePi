@@ -3639,6 +3639,167 @@ test("continues pending verification after a session replacement without a user 
   }
 });
 
+test("re-arms a lost scheduler timer so a completion claim is still verified", async () => {
+  const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-lost-timer-"));
+  process.env.LEAFCODE_PI_DATA_DIR = cwd;
+  const stateFile = () => join(cwd, "goals-loop", "lost-timer-session.json");
+  const readState = () => JSON.parse(readFileSync(stateFile(), "utf8"));
+  const sent = [];
+  let busy = false;
+  const handlers = new Map();
+  const ctx = {
+    cwd,
+    mode: "rpc",
+    hasUI: false,
+    isIdle: () => !busy,
+    hasPendingMessages: () => false,
+    abort: () => { busy = false; },
+    sessionManager: {
+      getSessionId: () => "lost-timer-session",
+      getBranch: () => [],
+    },
+    ui: { setStatus() {}, setWidget() {}, notify() {} },
+  };
+  const pi = {
+    on(name, handler) { handlers.set(name, handler); },
+    registerCommand() {},
+    appendEntry() {},
+    sendMessage(message) { sent.push(message); busy = true; },
+  };
+
+  try {
+    goalLoopTestSeams.setScheduleWatchdogMs(40);
+    goalLoopExtension(pi);
+    await handlers.get("session_start")?.({}, ctx);
+    assert.equal(sent.length, 0);
+
+    // A replaced runtime (or a lost settlement) left a schedulable state on disk
+    // after this runtime's session_start already checked it: no timer is armed.
+    // Without the watchdog the completion claim would never be verified.
+    mkdirSync(join(cwd, "goals-loop"), { recursive: true });
+    const now = new Date().toISOString();
+    writeFileSync(stateFile(), JSON.stringify({
+      id: "lost-timer-session",
+      sessionId: "lost-timer-session",
+      cwd,
+      status: "verifying_completed",
+      goal: "demo",
+      acceptance: [],
+      maxTurns: 3,
+      cooldownSeconds: 0,
+      nextTurnAt: null,
+      forceFullRun: false,
+      autoAgent: false,
+      turnCount: 1,
+      turnKind: "verification",
+      pauseReason: "",
+      error: "",
+      progress: [{ time: now, status: "completed", summary: "claimed done" }],
+      summary: "claimed done",
+      evidence: "",
+      blockedReason: "",
+      rejectedClaims: 0,
+      unreadableStreak: 0,
+      pendingTurnRecovery: false,
+      createdAt: now,
+      updatedAt: now,
+    }, null, 2), "utf8");
+
+    await waitFor(() => sent.length === 1);
+    assert.equal(sent[0].customType, "leafcode-goal-verification");
+    assert.equal(sent[0].details.kind, "verification");
+    assert.match(sent[0].content, /Independently verify/);
+    assert.equal(readState().status, "running");
+    assert.equal(readState().turnKind, "verification");
+
+    // The verification turn is in flight now: the watchdog must not double-send.
+    busy = false;
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    assert.equal(sent.length, 1);
+    assert.equal(readState().status, "running");
+  } finally {
+    goalLoopTestSeams.setScheduleWatchdogMs(undefined);
+    await handlers.get("session_shutdown")?.({}, ctx);
+    delete process.env.LEAFCODE_PI_DATA_DIR;
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test("re-arms a running loop whose settlement was lost", async () => {
+  const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-lost-settle-"));
+  process.env.LEAFCODE_PI_DATA_DIR = cwd;
+  const stateFile = () => join(cwd, "goals-loop", "lost-settle-session.json");
+  const readState = () => JSON.parse(readFileSync(stateFile(), "utf8"));
+  const sent = [];
+  let busy = false;
+  const handlers = new Map();
+  const ctx = {
+    cwd,
+    mode: "rpc",
+    hasUI: false,
+    isIdle: () => !busy,
+    hasPendingMessages: () => false,
+    abort: () => { busy = false; },
+    sessionManager: {
+      getSessionId: () => "lost-settle-session",
+      getBranch: () => [],
+    },
+    ui: { setStatus() {}, setWidget() {}, notify() {} },
+  };
+  const pi = {
+    on(name, handler) { handlers.set(name, handler); },
+    registerCommand() {},
+    appendEntry() {},
+    sendMessage(message) { sent.push(message); busy = true; },
+  };
+
+  try {
+    goalLoopTestSeams.setScheduleWatchdogMs(40);
+    goalLoopExtension(pi);
+    await handlers.get("session_start")?.({}, ctx);
+
+    mkdirSync(join(cwd, "goals-loop"), { recursive: true });
+    const now = new Date().toISOString();
+    writeFileSync(stateFile(), JSON.stringify({
+      id: "lost-settle-session",
+      sessionId: "lost-settle-session",
+      cwd,
+      status: "running",
+      goal: "demo",
+      acceptance: [],
+      maxTurns: 3,
+      cooldownSeconds: 0,
+      nextTurnAt: null,
+      forceFullRun: false,
+      autoAgent: false,
+      turnCount: 1,
+      turnKind: "goal",
+      pauseReason: "",
+      error: "",
+      progress: [],
+      summary: "",
+      evidence: "",
+      blockedReason: "",
+      rejectedClaims: 0,
+      unreadableStreak: 0,
+      pendingTurnRecovery: false,
+      createdAt: now,
+      updatedAt: now,
+    }, null, 2), "utf8");
+
+    await waitFor(() => sent.length === 1);
+    assert.equal(sent[0].customType, "leafcode-goal-turn");
+    assert.equal(readState().status, "running");
+    assert.equal(readState().turnKind, "goal");
+    assert.equal(readState().turnCount, 2);
+  } finally {
+    goalLoopTestSeams.setScheduleWatchdogMs(undefined);
+    await handlers.get("session_shutdown")?.({}, ctx);
+    delete process.env.LEAFCODE_PI_DATA_DIR;
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
 test("session_shutdown mid-turn recovers via durable pendingTurnRecovery after reload", async () => {
   const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-shutdown-recover-"));
   process.env.LEAFCODE_PI_DATA_DIR = cwd;

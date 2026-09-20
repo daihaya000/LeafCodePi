@@ -108,6 +108,12 @@ const MAX_UNREADABLE_STREAK = 2;
 const MAX_NOTES = 10;
 const MAX_NOTE_CHARS = 500;
 const TURN_TIMEOUT_MS = 15 * 60 * 1000;
+/**
+ * A live loop must always have an armed timer. Settle/replace races could drop
+ * it (the successor runtime already ran session_start), so a slow watchdog
+ * re-arms one and the completion-verification turn still runs.
+ */
+const SCHEDULE_WATCHDOG_MS = 5_000;
 const TERMINAL = new Set<GoalLoopStatus>(["completed", "stopped"]);
 const UNSCHEDULABLE = new Set<GoalLoopStatus>(["paused", "blocked"]);
 const ABORTED_TURN_PAUSE_ERROR = "実行が中断されたため一時停止しました。";
@@ -115,6 +121,8 @@ const ABORTED_TURN_PAUSE_ERROR = "実行が中断されたため一時停止し�
 const runtimes = new Map<string, Runtime>();
 /** Test-only override for the in-flight turn watchdog. */
 let turnTimeoutMsForTests: number | undefined;
+/** Test-only override for the lost-timer watchdog interval. */
+let scheduleWatchdogMsForTests: number | undefined;
 /** Test-only override for atomic state rename. */
 let renameSyncForTests: ((temp: string, file: string) => void) | undefined;
 /** Test-only: force writeLoop to fail without touching disk. */
@@ -128,6 +136,10 @@ function isActiveRuntime(runtime: Runtime): boolean {
 
 function turnTimeoutMs(): number {
   return turnTimeoutMsForTests ?? TURN_TIMEOUT_MS;
+}
+
+function scheduleWatchdogMs(): number {
+  return scheduleWatchdogMsForTests ?? SCHEDULE_WATCHDOG_MS;
 }
 
 function renameGoalState(temp: string, file: string): void {
@@ -165,6 +177,8 @@ type Runtime = {
   pausedTurnIndex?: number;
   timer?: ReturnType<typeof setTimeout>;
   timeoutTimer?: ReturnType<typeof setTimeout>;
+  /** Re-arms a live loop whose scheduler timer was lost to a settle/replace race. */
+  watchdogTimer?: ReturnType<typeof setInterval>;
   /** An abort-paused turn may be re-armed when it was caused by manual compaction. */
   abortedTurnPausePending: boolean;
   disposed: boolean;
@@ -1344,6 +1358,49 @@ function schedule(runtime: Runtime, delay = 250): void {
   runtime.timer.unref?.();
 }
 
+/**
+ * Safety net for the scheduler's invariant: a live loop that is not mid-turn
+ * must have an armed timer. A settle race (a replaced runtime applied the turn
+ * result after the successor's session_start) or a lost settlement can leave
+ * queued/verifying_completed on disk with no timer, which silently skips the
+ * completion-verification turn until the user pauses and resumes. Re-arm here.
+ */
+function ensureScheduled(runtime: Runtime): void {
+  if (!isActiveRuntime(runtime)) {
+    // A replaced runtime never owns the session again; stop watching it.
+    if (runtime.watchdogTimer) clearInterval(runtime.watchdogTimer);
+    runtime.watchdogTimer = undefined;
+    return;
+  }
+  if (
+    runtime.timer ||
+    runtime.awaitingTurn ||
+    runtime.sendTurnInFlight ||
+    !runtime.ctx.isIdle() ||
+    runtime.ctx.hasPendingMessages()
+  ) {
+    return;
+  }
+  const loop = currentLoop(runtime);
+  if (!loop || TERMINAL.has(loop.status) || UNSCHEDULABLE.has(loop.status)) return;
+  if (loop.status === "running") {
+    // The run is gone but its settlement never landed: fall back to the status
+    // the settle would have produced so the next turn is still sent.
+    loop.status = loop.turnKind === "verification" ? "verifying_completed" : "queued";
+    loop.nextTurnAt = null;
+    if (!writeLoop(loop)) return;
+    updateUI(runtime, loop);
+    appendSnapshot(runtime, loop);
+  }
+  if (loop.status === "queued" || loop.status === "verifying_completed") schedule(runtime);
+}
+
+function startScheduleWatchdog(runtime: Runtime): void {
+  if (runtime.watchdogTimer) return;
+  runtime.watchdogTimer = setInterval(() => ensureScheduled(runtime), scheduleWatchdogMs());
+  runtime.watchdogTimer.unref?.();
+}
+
 async function sendTurn(runtime: Runtime): Promise<void> {
   if (!isActiveRuntime(runtime) || runtime.awaitingTurn) return;
   const turnGeneration = runtime.turnGeneration;
@@ -1997,6 +2054,7 @@ export default function (pi: ExtensionAPI): void {
       pendingAgentAborted: false,
     };
     runtimes.set(key, runtime);
+    startScheduleWatchdog(runtime);
 
     const loop = currentLoop(runtime);
     if (loop?.status === "running" || isAbortPausedLoop(loop)) {
@@ -2171,6 +2229,8 @@ export default function (pi: ExtensionAPI): void {
     }
     current.abortedTurnPausePending = false;
     current.disposed = true;
+    if (current.watchdogTimer) clearInterval(current.watchdogTimer);
+    current.watchdogTimer = undefined;
     clearPendingAgentRun(current);
     clearTimer(current);
     if (active) runtimes.delete(current.key);
@@ -2232,6 +2292,9 @@ export const goalLoopTestSeams = {
   parseCooldownSeconds,
   setTurnTimeoutMs(ms?: number) {
     turnTimeoutMsForTests = typeof ms === "number" && Number.isFinite(ms) && ms >= 0 ? ms : undefined;
+  },
+  setScheduleWatchdogMs(ms?: number) {
+    scheduleWatchdogMsForTests = typeof ms === "number" && Number.isFinite(ms) && ms > 0 ? ms : undefined;
   },
   setRenameSync(fn?: (temp: string, file: string) => void) {
     renameSyncForTests = fn;
