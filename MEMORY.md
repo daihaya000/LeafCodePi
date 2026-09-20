@@ -277,8 +277,14 @@
 ### 検証（Tick40–41）
 `harness-lifecycle` — **7 passed**
 
+### Tick42（ループ継続・通知 58・[Tick42 bug hunt](7c00097d-0b93-4824-9d0f-3393fe7222d6)）
+1. code-session clear/unlink と `stopMatchedCodeSessions` — `isGoalLoopSessionOwned` に揃え、idle の turn_limit / blocked も停止してからリンク解除
+
+### 検証（Tick42）
+`code-session` / `bot-code-relay` — **108 passed**
+
 ### 次 Tick 候補
-- code-session clear/unlink / `stopMatchedCodeSessions` の sessionOwned 整合
+- TaskView / harness の残差競合
 
 
 

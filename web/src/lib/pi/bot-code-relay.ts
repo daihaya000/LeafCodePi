@@ -610,9 +610,9 @@ async function stopMatchedCodeSessions(
   for (const taskId of taskIds) {
     const task = getTask(taskId);
     if (!task || task.status === "archived") continue;
-    const { isGoalLoopLiveStatus, isGoalLoopOperatorHold, readGoalLoopState } = await import("@/lib/pi/goal-loop-state");
+    const { isGoalLoopSessionOwned, readGoalLoopState } = await import("@/lib/pi/goal-loop-state");
     const loop = readGoalLoopState(task.directory, task.sessionId);
-    if (task.status !== "working" && !isGoalLoopLiveStatus(loop?.status) && !isGoalLoopOperatorHold(loop)) continue;
+    if (task.status !== "working" && !isGoalLoopSessionOwned(loop)) continue;
     try {
       const { abortTaskIncludingColdGoalLoop } = await import("@/lib/pi/harness");
       await abortTaskIncludingColdGoalLoop(taskId);
