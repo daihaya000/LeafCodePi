@@ -236,8 +236,14 @@
 ### 検証（Tick32）
 `goal-loop-state` — **4 passed**
 
+### Tick33（ループ継続・[Tick30 bug hunt](2d0562ec-4ca9-4a62-af0d-d3f236ff79fb)）
+1. `preparePendingPayloadForReadyFlush` — ready 後の control flush から stale `goalLoop` を除去（messages/todos と同列）。Goal Loop UI の巻き戻り防止
+
+### 検証（Tick33）
+`sse-ready-buffer` strips stale — **1 passed**
+
 ### 次 Tick 候補
-- TaskView / SSE / GlobalAttention
+- TaskView / GlobalAttention 周辺
 
 
 

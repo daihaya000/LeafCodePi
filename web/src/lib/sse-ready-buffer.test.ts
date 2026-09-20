@@ -282,6 +282,7 @@ describe("sse-ready-buffer", () => {
         messageHistory: { hasMore: true, nextCursor: "history" },
         todos: [],
         contextUsage: { used: 1, limit: 2 },
+        goalLoop: { id: "loop-1", status: "running" },
         permissionRequest: { id: "req-1" },
       },
       ready,
@@ -294,6 +295,7 @@ describe("sse-ready-buffer", () => {
     expect(prepared).not.toHaveProperty("messageHistory");
     expect(prepared).not.toHaveProperty("todos");
     expect(prepared).not.toHaveProperty("contextUsage");
+    expect(prepared).not.toHaveProperty("goalLoop");
 
     const hangIdle = preparePendingPayloadForReadyFlush(
       {
