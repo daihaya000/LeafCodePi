@@ -113,12 +113,25 @@ describe("delegated Code attention in the Bot conversation", () => {
     await expect(approval).resolves.toBe(true);
   });
 
-  it("clears delegated Code attention when clearing the originating Bot task", async () => {
+  it("does not clear delegated Code attention when clearing the originating Bot task", async () => {
+    pendingPermissionForTask("code");
+    const approval = requestWebUiPermission({ sessionId: "code-session", command: "edit", labels: [], message: "Approve Code edit" });
+    expect(pendingPermissionForTask("code")).not.toBeNull();
+
+    clearPendingAttentionForTask("bot:one");
+
+    // Bot/Room Stop must not auto-deny living Code prompts.
+    expect(pendingPermissionForTask("code")).not.toBeNull();
+    expect(respondToPermissionPrompt("bot:one", pendingPermissionForTask("bot:one")!.id, true)).toBe(true);
+    await expect(approval).resolves.toBe(true);
+  });
+
+  it("clears delegated Code attention only when includeDelegatedCode is set", async () => {
     pendingPermissionForTask("code");
     const approval = requestWebUiPermission({ sessionId: "code-session", command: "edit", labels: [], message: "Approve Code edit" });
     expect(pendingPermissionForTask("bot:one")).not.toBeNull();
 
-    clearPendingAttentionForTask("bot:one");
+    clearPendingAttentionForTask("bot:one", { includeDelegatedCode: true });
 
     expect(pendingPermissionForTask("bot:one")).toBeNull();
     expect(pendingPermissionForTask("code")).toBeNull();

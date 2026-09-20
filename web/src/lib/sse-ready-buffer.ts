@@ -65,7 +65,12 @@ export function isFresherMessageList(
   // (`msg-N`) は永続 entry id に置き換わるため、ready の後に適用すると part 付きの行を
   // 空に戻したり、render key が一致せず別行として残る（二重表示・未送信に見える）。
   if (candidate.lastParts === 0 && (baseline.lastParts ?? 0) > 0) return false;
-  return (candidate.contentKey ?? "") !== (baseline.contentKey ?? "");
+  const candidateParts = candidate.lastParts ?? 0;
+  const baselineParts = baseline.lastParts ?? 0;
+  if (candidateParts !== baselineParts) return candidateParts > baselineParts;
+  // Same tip shape: an alternate contentKey is not directional — ready already won.
+  // Flushing would rewind tool-partial vs settled projections mid-reconnect.
+  return false;
 }
 
 /**

@@ -29,10 +29,11 @@ describe("sse-ready-buffer", () => {
     ).toBe(true);
   });
 
-  it("keeps same-length, same-timestamp snapshots when content changes", () => {
+  it("keeps same-length, same-timestamp snapshots only when tip parts grow", () => {
     const ready = rankMessageList([
       { id: "tip", createdAt: 5, role: "assistant", parts: [{ id: "part", type: "text", text: "before" }] },
     ]);
+    // Same part count + different text is not directional — do not rewind ready.
     expect(
       shouldFlushPendingAfterReady(
         {
@@ -41,10 +42,27 @@ describe("sse-ready-buffer", () => {
         },
         ready,
       ),
-    ).toBe(true);
+    ).toBe(false);
     expect(
       isFresherMessageList(
         rankMessageList([{ id: "tip", createdAt: 5, role: "assistant", parts: [{ id: "part", type: "text", text: "after" }] }]),
+        ready,
+      ),
+    ).toBe(false);
+    // More tip parts (tool/text growth) is a real fresher signal.
+    expect(
+      isFresherMessageList(
+        rankMessageList([
+          {
+            id: "tip",
+            createdAt: 5,
+            role: "assistant",
+            parts: [
+              { id: "part", type: "text", text: "before" },
+              { id: "tool", type: "tool", name: "bash", arguments: "{}", state: { status: "running" } },
+            ],
+          },
+        ]),
         ready,
       ),
     ).toBe(true);
@@ -75,12 +93,32 @@ describe("sse-ready-buffer", () => {
     };
     expect(shouldFlushPendingAfterReady(placeholder, ready)).toBe(false);
     expect(preparePendingPayloadForReadyFlush(placeholder, ready)).toBeNull();
-    // 本文が伸びた同型のスナップショットは従来どおり flush する。
+    // Same tip parts + longer text is not directional after ready — deltas cover streaming growth.
     expect(
       shouldFlushPendingAfterReady(
         {
           type: "snapshot",
           messages: [{ id: "msg-22", createdAt: 200, role: "assistant", parts: [{ id: "msg-22-text-0", type: "text", text: "45" }] }],
+        },
+        ready,
+      ),
+    ).toBe(false);
+    // Tip gaining parts (tool/text) is still fresher.
+    expect(
+      shouldFlushPendingAfterReady(
+        {
+          type: "snapshot",
+          messages: [
+            {
+              id: "msg-22",
+              createdAt: 200,
+              role: "assistant",
+              parts: [
+                { id: "msg-22-text-0", type: "text", text: "4" },
+                { id: "tool", type: "tool", name: "bash", arguments: "{}", state: { status: "running" } },
+              ],
+            },
+          ],
         },
         ready,
       ),

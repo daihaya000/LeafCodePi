@@ -289,6 +289,13 @@
 ### 検証（Tick43）
 `room-runtime` / rooms prompt — **108 passed**
 
+### Tick44–45（ループ継続・通知 60–61・[Tick44-45 bug hunt](b32a3549-44f2-490d-89e0-ad2f0a14fea4)）
+1. `clearPendingAttentionForTask` — 既定では委譲 Code の承認待ちを消さない（Bot/Room Stop 契約）。`includeDelegatedCode` 時のみ一掃
+2. `isFresherMessageList` — 同長・同時刻では tip parts 増加のみ fresher。contentKey 差分だけでは rewind しない
+
+### 検証（Tick44–45）
+`sse-ready-buffer` / `harness-bot-code` — **24 passed**
+
 ### 次 Tick 候補
 - TaskView / hang / permission 周辺
 

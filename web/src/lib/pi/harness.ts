@@ -10105,11 +10105,15 @@ export function pendingPermissionForTask(
   return ensurePermissionPromptService().pendingForTask(source);
 }
 
-export function clearPendingAttentionForTask(taskId: string): void {
+export function clearPendingAttentionForTask(
+  taskId: string,
+  options?: { includeDelegatedCode?: boolean },
+): void {
   ensurePermissionPromptService().clearPendingForTask(taskId);
   ensureQuestionPromptService().clearPendingForTask(taskId);
-  // Bot UIs surface delegated Code prompts via botAttentionSource; clear those too.
-  if (!taskId.startsWith("bot:")) return;
+  // Bot/Room Stop keeps delegated Code running; do not auto-deny its prompts unless
+  // the caller is also tearing down those Code sessions (includeDelegatedCode).
+  if (!options?.includeDelegatedCode || !taskId.startsWith("bot:")) return;
   for (const linked of botCodeRelay().codeTasksForOrigin(taskId)) {
     ensurePermissionPromptService().clearPendingForTask(linked);
     ensureQuestionPromptService().clearPendingForTask(linked);
