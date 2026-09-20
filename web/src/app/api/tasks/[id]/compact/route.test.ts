@@ -28,6 +28,19 @@ describe("POST /api/tasks/[id]/compact", () => {
     mocks.compactTask.mockResolvedValue({ id: "task-1" });
   });
 
+  it("rejects a malformed request body before compacting", async () => {
+    const response = await POST(
+      new NextRequest("http://localhost/api/tasks/task-1/compact", {
+        method: "POST",
+        body: "[]",
+      }),
+      { params: Promise.resolve({ id: "task-1" }) },
+    );
+
+    expect(response.status).toBe(400);
+    expect(mocks.compactTask).not.toHaveBeenCalled();
+  });
+
   it("rejects non-string custom instructions before compacting", async () => {
     const response = await POST(
       request({ customInstructions: 123 }),

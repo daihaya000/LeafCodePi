@@ -13,10 +13,14 @@ export async function POST(
 ) {
   try {
     const { id } = await params;
-    const body = (await req.json().catch(() => null)) as
-      | { customInstructions?: unknown }
-      | null;
-    if (body?.customInstructions !== undefined && typeof body.customInstructions !== "string") {
+    const parsed: unknown = await req.json().catch(() => null);
+    const body = parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? parsed as { customInstructions?: unknown }
+      : null;
+    if (!body) {
+      return NextResponse.json({ error: "リクエストボディが不正です" }, { status: 400 });
+    }
+    if (body.customInstructions !== undefined && typeof body.customInstructions !== "string") {
       return NextResponse.json({ error: "customInstructions must be a string" }, { status: 400 });
     }
     // This text is embedded directly into the compaction summarization prompt (see
