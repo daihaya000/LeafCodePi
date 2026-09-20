@@ -27,6 +27,8 @@ import {
   type AutoAgentCandidate,
 } from "./auto-agent";
 
+import { DEFAULT_AGENT } from "@/lib/default-agent";
+
 const candidates: AutoAgentCandidate[] = [
   { name: "builder", description: "実装を進める", canModifyFiles: true },
   { name: "reviewer", description: "差分をレビューする", canModifyFiles: false },
@@ -58,6 +60,7 @@ beforeEach(() => {
         enabled: true,
         tools: ["read", "edit", "write"],
       },
+      { name: DEFAULT_AGENT, description: "既定のエージェント", enabled: true },
     ],
     agentsDir: "",
   });
@@ -202,7 +205,7 @@ describe("auto-agent", () => {
     expect(generated.prompt).toContain('"canModifyFiles":true');
   });
 
-  it("falls back to builder when generation fails or returns an unknown name", async () => {
+  it("falls back to the default agent when generation fails or returns an unknown name", async () => {
     mocks.buildDirectGenerationCandidates.mockReturnValue([{ model: { providerID: "p", modelID: "m" } }]);
     mocks.generateDirectTextWithFallbackResult.mockResolvedValue({
       text: '{"agent":"missing"}',
@@ -211,18 +214,18 @@ describe("auto-agent", () => {
 
     await expect(
       resolveAutoAgent({ conversation: [], prompt: "この方針で進めて" }),
-    ).resolves.toBe("builder");
+    ).resolves.toBe(DEFAULT_AGENT);
 
     mocks.generateDirectTextWithFallbackResult.mockRejectedValue(new Error("offline"));
     await expect(
       resolveAutoAgent({ conversation: [], prompt: "この方針で進めて" }),
-    ).resolves.toBe("builder");
+    ).resolves.toBe(DEFAULT_AGENT);
   });
 
   it("uses the deterministic fallback when no generation model is available", async () => {
     await expect(
       resolveAutoAgent({ conversation: [], prompt: "この方針で進めて" }),
-    ).resolves.toBe("builder");
+    ).resolves.toBe(DEFAULT_AGENT);
     expect(mocks.generateDirectTextWithFallbackResult).not.toHaveBeenCalled();
   });
 
@@ -263,7 +266,7 @@ describe("auto-agent", () => {
     expect(mocks.generateDirectTextWithFallbackResult).not.toHaveBeenCalled();
   });
 
-  it("bounds candidates and keeps builder available as the fallback", async () => {
+  it("bounds candidates and keeps the default agent available as the fallback", async () => {
     const model = { providerID: "p", modelID: "m" };
     mocks.listAgents.mockReturnValue({
       agents: [
@@ -272,26 +275,26 @@ describe("auto-agent", () => {
           description: "x".repeat(600),
           enabled: true,
         })),
-        { name: "builder", description: "実装", enabled: true },
+        { name: DEFAULT_AGENT, description: "既定のエージェント", enabled: true },
       ],
       agentsDir: "",
     });
     mocks.buildDirectGenerationCandidates.mockReturnValue([{ model }]);
     mocks.generateDirectTextWithFallbackResult.mockResolvedValue({
-      text: '{"agent":"builder"}',
+      text: JSON.stringify({ agent: DEFAULT_AGENT }),
       model,
     });
 
     await expect(
       resolveAutoAgent({ conversation: [], prompt: "この方針で進めて" }),
-    ).resolves.toBe("builder");
+    ).resolves.toBe(DEFAULT_AGENT);
 
     const generated = mocks.generateDirectTextWithFallbackResult.mock.calls[0]?.[0];
     const agentData = JSON.parse(
       generated.prompt.match(/<agents>\n([\s\S]*?)\n<\/agents>/)?.[1] ?? "[]",
     );
     expect(agentData).toHaveLength(24);
-    expect(agentData.some((agent: { name?: string }) => agent.name === "builder")).toBe(true);
+    expect(agentData.some((agent: { name?: string }) => agent.name === DEFAULT_AGENT)).toBe(true);
     expect(agentData[0]?.name).toBe("agent-0");
     expect(agentData[0]?.description).toHaveLength(300);
   });
@@ -312,7 +315,7 @@ describe("auto-agent", () => {
 
       const result = resolveAutoAgent({ conversation: [], prompt: "この方針で進めて" });
       await vi.advanceTimersByTimeAsync(30_000);
-      await expect(result).resolves.toBe("builder");
+      await expect(result).resolves.toBe(DEFAULT_AGENT);
     } finally {
       vi.useRealTimers();
     }
@@ -499,7 +502,7 @@ describe("auto-agent rule-first", () => {
 
     await expect(
       resolveAutoAgent({ conversation: [], prompt: "この方針で進めて" }),
-    ).resolves.toBe("builder");
+    ).resolves.toBe(DEFAULT_AGENT);
   });
 
   it("falls back to DEFAULT when rule matching throws", async () => {
@@ -517,6 +520,7 @@ describe("auto-agent rule-first", () => {
           enabled: true,
           tools: ["read", "edit", "write"],
         },
+        { name: DEFAULT_AGENT, description: "既定のエージェント", enabled: true },
       ],
       agentsDir: "",
     });
@@ -532,7 +536,7 @@ describe("auto-agent rule-first", () => {
 
     await expect(
       resolveAutoAgent({ conversation: [], prompt }),
-    ).resolves.toBe("builder");
+    ).resolves.toBe(DEFAULT_AGENT);
     expect(mocks.generateDirectTextWithFallbackResult).not.toHaveBeenCalled();
   });
 });

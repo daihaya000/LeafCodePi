@@ -859,18 +859,20 @@ describe("Bot ⇄ Code image attachments", () => {
     expect(records().at(-1)?.promptOptions).toBeUndefined();
   });
 
-  it("does not attach default images to a goal-loop start, and keeps text-only launches image-free when there are none", async () => {
+  it("carries latest-user images into a goal-loop start, and keeps text-only launches image-free when there are none", async () => {
     const goalLoop = { acceptance: ["done"], maxTurns: 2, cooldownSeconds: 0, forceFullRun: false };
     await relay.run("bot:one", "loop-no-img", { action: "start", projectId: "project", prompt: "目標を達成して", goalLoop }, "session");
-    expect(deps.create).toHaveBeenCalledWith(expect.objectContaining({ goalLoop }));
-    expect(deps.create).toHaveBeenCalledWith(expect.not.objectContaining({ images: expect.anything() }));
+    expect(deps.create).toHaveBeenCalledWith(expect.objectContaining({
+      goalLoop,
+      images: [{ mimeType: "image/jpeg", data: "latest-shot" }],
+    }));
 
     deps.conversationImages = vi.fn(async () => []);
     await relay.run("bot:one", "plain", { action: "start", projectId: "project", prompt: "Fix the parser; run its test" }, "session");
     expect(deps.create).toHaveBeenLastCalledWith(expect.not.objectContaining({ images: expect.anything() }));
   });
 
-  it("rejects an unknown index and an explicit attach on a goal loop", async () => {
+  it("rejects an unknown index and allows an explicit attach on a goal loop", async () => {
     await expect(relay.run("bot:one", "bad-idx", { action: "start", projectId: "project", prompt: "see this", images: [9] }, "session")).rejects.toThrow("Unknown image index 9");
     await expect(relay.run("bot:one", "loop-img", {
       action: "start",
@@ -878,8 +880,10 @@ describe("Bot ⇄ Code image attachments", () => {
       prompt: "目標を達成して",
       goalLoop: { acceptance: ["done"], maxTurns: 1, cooldownSeconds: 0, forceFullRun: false },
       images: [2],
-    }, "session")).rejects.toThrow("Goal loop");
-    expect(deps.create).not.toHaveBeenCalled();
+    }, "session")).resolves.toMatchObject({ attachedImages: [2] });
+    expect(deps.create).toHaveBeenCalledWith(expect.objectContaining({
+      images: [{ mimeType: "image/jpeg", data: "latest-shot" }],
+    }));
   });
 
   it("lists availableImages on projects/status without launching Code", async () => {

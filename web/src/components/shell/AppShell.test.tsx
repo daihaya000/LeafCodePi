@@ -47,7 +47,7 @@ describe("AppShell", () => {
 
     expect(localStorage.getItem("leafcodepi.defaultModel")).toBe("auto");
     expect(localStorage.getItem("webui:auto-optimize")).toBe("balanced");
-    expect(localStorage.getItem("leafcodepi.defaultAgent")).toBe("__auto__");
+    expect(localStorage.getItem("leafcodepi.defaultAgent")).toBe("default");
     expect(localStorage.getItem("webui:permission-mode")).toBe("allow");
     expect(localStorage.getItem("webui:skill-permission")).toBe("allow");
     expect(localStorage.getItem("webui:subagent-permission")).toBe("deny");
