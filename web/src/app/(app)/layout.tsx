@@ -5,7 +5,6 @@ import { Loader2 } from "lucide-react";
 import { AppShell } from "@/components/shell/AppShell";
 import { BotRoutineNotifier } from "@/components/BotRoutineNotifier";
 import { NotificationSoundSync } from "@/components/NotificationSoundSync";
-import { GlobalAttentionProvider } from "@/components/shell/GlobalAttentionProvider";
 import { maybeRedirectToLocalhost } from "@/lib/localhost-redirect";
 import {
   INITIAL_RESTART_PROBE,
@@ -87,7 +86,6 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
       <AppShell>{children}</AppShell>
       <NotificationSoundSync />
       <BotRoutineNotifier />
-      <GlobalAttentionProvider />
       <WebUiRestartOverlay />
     </>
   );

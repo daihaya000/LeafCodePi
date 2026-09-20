@@ -939,6 +939,46 @@ export function isAttentionHandledOnPath(
   return false;
 }
 
+/**
+ * 分割ペインで同時に可視な activeTabId 上のインライン UI が担当しているか。
+ * URL は activePane の1タスクにしか同期しないため、pathname 判定だけでは足りない。
+ */
+export function isAttentionHandledInVisibleTabs(
+  activeTabIds: readonly (string | null | undefined)[],
+  taskId: string,
+  originTaskId?: string | null,
+): boolean {
+  if (!taskId) return false;
+  for (const tabId of activeTabIds) {
+    if (!tabId || tabId === HOME_TAB_ID || tabId === SETTINGS_TAB_ID || tabId === BOTS_TAB_ID) {
+      continue;
+    }
+    if (attentionMatchesTab(tabId, taskId)) return true;
+    if (originTaskId && originTaskId !== taskId && attentionMatchesTab(tabId, originTaskId)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/** pathname またはいずれかの可視 active タブでインライン担当か。 */
+export function isAttentionHandledInline(
+  pathname: string | null | undefined,
+  activeTabIds: readonly (string | null | undefined)[],
+  taskId: string,
+  originTaskId?: string | null,
+): boolean {
+  return (
+    isAttentionHandledOnPath(pathname, taskId, originTaskId) ||
+    isAttentionHandledInVisibleTabs(activeTabIds, taskId, originTaskId)
+  );
+}
+
+function attentionMatchesTab(tabId: string, taskId: string): boolean {
+  if (isBotTabId(tabId)) return attentionMatchesPath(tabId, taskId);
+  return tabId === taskId;
+}
+
 function attentionMatchesPath(pathname: string, taskId: string): boolean {
   const taskPath = taskIdFromPathname(pathname);
   if (taskPath && taskPath === taskId) return true;

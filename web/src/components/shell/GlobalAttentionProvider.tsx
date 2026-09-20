@@ -7,8 +7,9 @@ import { Button, cx } from "@/components/ui";
 import { PermissionAdvice } from "@/components/task/PermissionAdvice";
 import { QuestionCard } from "@/components/task/QuestionCard";
 import { getJson, sendJson } from "@/lib/client";
-import { isAttentionHandledOnPath, isBotTabId, paneTabIdForTask, taskIdFromPathname } from "@/lib/task-panes";
 import { playAttentionRequiredSound } from "@/lib/session-complete-sound";
+import { BOTS_TAB_ID, HOME_TAB_ID, SETTINGS_TAB_ID, isAttentionHandledInline, isBotTabId, paneTabIdForTask, taskIdFromPathname } from "@/lib/task-panes";
+import { useTaskPanesNavigation } from "@/components/shell/TaskPanesContext";
 import type {
   AttentionItemDto,
   PermissionRequestDto,
@@ -94,8 +95,18 @@ function hasEditingFocus(): boolean {
 export function GlobalAttentionProvider() {
   const router = useRouter();
   const pathname = usePathname();
+  const { state: panesState } = useTaskPanesNavigation();
+  const visibleActiveTabIds = panesState.panes
+    .map((pane) => pane.activeTabId)
+    .filter((id): id is string => Boolean(id));
+  const visibleActiveTabIdsRef = useRef(visibleActiveTabIds);
+  visibleActiveTabIdsRef.current = visibleActiveTabIds;
   const onInlineSurface = Boolean(
-    taskIdFromPathname(pathname) || (pathname != null && isBotTabId(pathname)),
+    taskIdFromPathname(pathname) ||
+      (pathname != null && isBotTabId(pathname)) ||
+      visibleActiveTabIds.some(
+        (id) => id !== HOME_TAB_ID && id !== SETTINGS_TAB_ID && id !== BOTS_TAB_ID,
+      ),
   );
   const [items, setItems] = useState<AttentionItemDto[]>([]);
   const [details, setDetails] = useState<Record<string, TaskDetail>>({});
@@ -153,7 +164,12 @@ export function GlobalAttentionProvider() {
         if (fresh.length > 0) {
           const currentPath = window.location.pathname;
           const onlyActive = fresh.every((item) =>
-            isAttentionHandledOnPath(currentPath, item.taskId, item.originTaskId),
+            isAttentionHandledInline(
+              currentPath,
+              visibleActiveTabIdsRef.current,
+              item.taskId,
+              item.originTaskId,
+            ),
           );
           // 表示中タスク自身の要求は TaskView / BotView / RoomView インライン UI が担当する。
           // 音もモーダルも二重化しない（両方「許可」できてしまう）。
@@ -332,7 +348,8 @@ export function GlobalAttentionProvider() {
     attentionItemStillOpen(item, details[item.taskId]),
   );
   const reopenableCount = visibleItems.filter(
-    (item) => !isAttentionHandledOnPath(pathname, item.taskId, item.originTaskId),
+    (item) =>
+      !isAttentionHandledInline(pathname, visibleActiveTabIds, item.taskId, item.originTaskId),
   ).length;
   if (visibleItems.length === 0) return null;
   if (!open) {
@@ -381,7 +398,12 @@ export function GlobalAttentionProvider() {
             const detail = details[item.taskId];
             const question = detail?.questionRequest;
             const permission = detail?.permissionRequest;
-            const handledInline = isAttentionHandledOnPath(pathname, item.taskId, item.originTaskId);
+            const handledInline = isAttentionHandledInline(
+              pathname,
+              visibleActiveTabIds,
+              item.taskId,
+              item.originTaskId,
+            );
             return (
               <li key={item.taskId} className="rounded-xl border border-border bg-surface-2 p-3">
                 <div className="mb-2 flex items-center gap-2">

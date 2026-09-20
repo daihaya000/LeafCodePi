@@ -255,8 +255,15 @@
 ### 検証（Tick35）
 `aborted-resume` stopRequested / blocks submit — **2 passed**
 
+### Tick36（ループ継続・[Tick36 bug hunt](9ec3f6d4-af3f-4b7f-836a-16169ca77575)）
+1. `isAttentionHandledInVisibleTabs` / `isAttentionHandledInline` — 分割ペインの可視 `activeTabId` もインライン担当とみなす（pathname のみだと他ペインで二重承認）
+2. `GlobalAttentionProvider` を `TaskPanesProvider` 配下へ移し、可視タブ集合を購読
+
+### 検証（Tick36）
+`task-panes` / GlobalAttention / AppShell / layout — **120 passed**
+
 ### 次 Tick 候補
-- TaskView / GlobalAttention 周辺
+- TaskView その他の競合 / 最適化
 
 
 

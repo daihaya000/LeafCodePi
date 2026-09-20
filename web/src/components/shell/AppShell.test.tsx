@@ -18,6 +18,9 @@ vi.mock("./TaskPanesContext", () => ({
   TaskPanesProvider: ({ children }: { children: ReactNode }) => <>{children}</>,
   useTaskPanesNavigation: mocks.useTaskPanes,
 }));
+vi.mock("./GlobalAttentionProvider", () => ({
+  GlobalAttentionProvider: () => <div data-testid="global-attention" />,
+}));
 vi.mock("@/components/task/TaskPanesHost", () => ({
   TaskPanesHost: () => <div data-testid="task-panes" />,
 }));

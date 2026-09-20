@@ -11,6 +11,7 @@ import { writeSubagentPermission } from "@/lib/subagent-permission";
 import { Sidebar } from "./Sidebar";
 import { ShellProvider, useShellMobileNav } from "./ShellContext";
 import { TaskPanesProvider, useTaskPanesNavigation } from "./TaskPanesContext";
+import { GlobalAttentionProvider } from "./GlobalAttentionProvider";
 import { TaskPanesHost } from "@/components/task/TaskPanesHost";
 import { cx } from "@/components/ui";
 import { isBotTabId, isSplitHostPath } from "@/lib/task-panes";
@@ -85,6 +86,7 @@ function AppShellInner({ children }: { children: React.ReactNode }) {
         >
           {children}
         </AppShellContent>
+        <GlobalAttentionProvider />
       </TaskPanesProvider>
     </div>
   );

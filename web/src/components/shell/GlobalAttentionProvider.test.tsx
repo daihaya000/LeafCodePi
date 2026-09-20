@@ -16,6 +16,16 @@ vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn() }),
   usePathname: () => window.location.pathname,
 }));
+vi.mock("@/components/shell/TaskPanesContext", () => ({
+  useTaskPanesNavigation: () => ({
+    state: { panes: [], activePaneId: null },
+    dispatch: () => undefined,
+    retargetToUrl: () => undefined,
+    activeTaskId: null,
+    splitHostEnabled: false,
+    mdUp: true,
+  }),
+}));
 
 import type { AttentionItemDto } from "@/lib/types";
 import {

@@ -19,6 +19,8 @@ import {
   tabIdFromPathname,
   taskIdFromPathname,
   isAttentionHandledOnPath,
+  isAttentionHandledInVisibleTabs,
+  isAttentionHandledInline,
   taskIdsToAutoClose,
   taskPanesReducer as reducer,
   type PaneLayout,
@@ -727,6 +729,15 @@ describe("tabIdFromPathname / taskIdFromPathname / isSplitHostPath", () => {
     expect(isAttentionHandledOnPath("/bots/one", "code-1", "bot:two")).toBe(false);
     expect(isAttentionHandledOnPath("/bots/rooms/room-1", "code-1", "bot:one:room:room-1")).toBe(true);
     expect(isAttentionHandledOnPath("/task/code-1", "code-1", "bot:one")).toBe(true);
+  });
+
+  it("treats other panes' active tabs as inline attention surfaces", () => {
+    expect(isAttentionHandledInVisibleTabs(["task-a", "task-b"], "task-b")).toBe(true);
+    expect(isAttentionHandledInVisibleTabs(["task-a"], "task-b")).toBe(false);
+    expect(isAttentionHandledInVisibleTabs(["/bots/one", "task-a"], "code-1", "bot:one")).toBe(true);
+    expect(isAttentionHandledInline("/task/task-a", ["task-a", "task-b"], "task-b")).toBe(true);
+    expect(isAttentionHandledInline("/task/task-a", ["task-a"], "task-b")).toBe(false);
+    expect(isAttentionHandledInline("/task/task-a", ["home", "settings"], "task-a")).toBe(true);
   });
 
   it("設定もタブIDへ変換し、分割ホストで扱う", () => {
