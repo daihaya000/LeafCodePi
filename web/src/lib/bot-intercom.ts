@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "
 import { dirname, join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { botWorkspace, getBot, listBots } from "@/lib/bots";
+import { readIntercomTriggerPolicy } from "@/lib/intercom-config";
 import { dataDir, samePath } from "@/lib/paths";
 import {
   isPromptFileText,
@@ -186,11 +187,42 @@ export function setBotIntercomRoomBusyLookup(lookup: (botId: string) => boolean)
   roomBusyLookup = lookup;
 }
 
-/** Harness steers a live busy session when delivery is labeled "steered". */
+/** Harness steers a busy 1:1 session, and wakes an idle resident on delivered mail. */
 export function setBotIntercomSteerHandler(
   handler: ((message: BotIntercomMessageV1) => void | Promise<void>) | null,
 ): void {
   steerHandler = handler;
+}
+
+/** Idle online delivery: wake the model per inboundTrigger (ask always needs a reply). */
+function shouldWakeIdleDelivery(message: BotIntercomMessageV1): boolean {
+  let policy: ReturnType<typeof readIntercomTriggerPolicy> = "replies";
+  try {
+    policy = readIntercomTriggerPolicy();
+  } catch {
+    /* malformed config — keep ask wakeable */
+  }
+  if (policy === "never") return false;
+  if (policy === "always") return true;
+  return message.kind === "ask";
+}
+
+function deliverToMailboxes(message: BotIntercomMessageV1): void {
+  appendMailbox(message.toBotId, message);
+  if (message.fromBotId !== message.toBotId) appendMailbox(message.fromBotId, message);
+  emitInbox(message.toBotId);
+  if (message.fromBotId !== message.toBotId) emitInbox(message.fromBotId);
+  if (!steerHandler) return;
+  const wake =
+    message.delivery === "steered" ||
+    (message.delivery === "delivered" && shouldWakeIdleDelivery(message));
+  if (!wake) return;
+  void Promise.resolve(steerHandler(message)).catch((error) => {
+    console.warn(
+      "[bot-intercom] wake failed:",
+      error instanceof Error ? error.message : String(error),
+    );
+  });
 }
 
 export function isBotIntercomResident(botId: string): boolean {
@@ -449,20 +481,6 @@ function appendMailbox(botId: string, message: BotIntercomMessageV1): void {
   state.messages.push(message);
   while (state.messages.length > BOT_INTERCOM_MAILBOX_MAX) state.messages.shift();
   persistMailbox(botId, state);
-}
-
-function deliverToMailboxes(message: BotIntercomMessageV1): void {
-  appendMailbox(message.toBotId, message);
-  if (message.fromBotId !== message.toBotId) appendMailbox(message.fromBotId, message);
-  emitInbox(message.toBotId);
-  if (message.fromBotId !== message.toBotId) emitInbox(message.fromBotId);
-  if (message.delivery !== "steered" || !steerHandler) return;
-  void Promise.resolve(steerHandler(message)).catch((error) => {
-    console.warn(
-      "[bot-intercom] steer failed:",
-      error instanceof Error ? error.message : String(error),
-    );
-  });
 }
 
 function isActiveInboxMessage(message: BotIntercomMessageV1): boolean {

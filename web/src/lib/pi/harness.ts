@@ -686,10 +686,13 @@ function state(): HarnessState {
     });
     setBotIntercomSteerHandler(async (message) => {
       const taskId = `bot:${message.toBotId}`;
-      const content = `[Bot間メッセージ] 実行中ターンへの割り込み（from ${message.fromBotId}）:\n${message.text}`;
+      const steered = message.delivery === "steered";
+      const content = steered
+        ? `[Bot間メッセージ] 実行中ターンへの割り込み（from ${message.fromBotId}）:\n${message.text}`
+        : `[Bot間メッセージ] from ${message.fromBotId}:\n${message.text}`;
       const { images, files } = promptAttachmentsFromIntercomMessage(message);
       await promptTask(taskId, content, images.length > 0 ? images : undefined, {
-        streamingBehavior: "steer",
+        ...(steered ? { streamingBehavior: "steer" as const } : {}),
         ...(files.length > 0 ? { files } : {}),
       });
     });

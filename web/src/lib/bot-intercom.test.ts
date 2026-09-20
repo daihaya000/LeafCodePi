@@ -381,6 +381,38 @@ describe("bot intercom Phase C contract", () => {
     await vi.waitFor(() => expect(steered).toEqual([bob.id]));
   });
 
+  it("wakes an idle resident Bot for ask (default replies policy)", async () => {
+    const alice = enableIntercom(createBot({ name: "Alice" }).id)!;
+    const bob = enableIntercom(createBot({ name: "Bob" }).id)!;
+    residents.add(bob.id);
+    const woken: Array<{ to: string; delivery: string; kind: string }> = [];
+    setBotIntercomSteerHandler(async (message) => {
+      woken.push({ to: message.toBotId, delivery: message.delivery, kind: message.kind });
+    });
+
+    const waiting = askBotIntercom({ fromBotId: alice.id, to: bob.id, text: "可否は？" });
+    expect(getBotIntercomInbox(bob.id).messages.at(-1)?.delivery).toBe("delivered");
+    await vi.waitFor(() => expect(woken).toEqual([{ to: bob.id, delivery: "delivered", kind: "ask" }]));
+
+    replyBotIntercom({ fromBotId: bob.id, text: "進めて" });
+    await expect(waiting).resolves.toMatchObject({ text: "進めて" });
+  });
+
+  it("does not wake an idle Bot for fire-and-forget send under replies policy", async () => {
+    const alice = enableIntercom(createBot({ name: "Alice" }).id)!;
+    const bob = enableIntercom(createBot({ name: "Bob" }).id)!;
+    residents.add(bob.id);
+    const woken: string[] = [];
+    setBotIntercomSteerHandler(async (message) => {
+      woken.push(message.toBotId);
+    });
+
+    const sent = sendBotIntercom({ fromBotId: alice.id, to: bob.id, text: "FYI only" });
+    expect(sent.delivery).toBe("delivered");
+    await Promise.resolve();
+    expect(woken).toEqual([]);
+  });
+
   it("queues while a Room turn is busy instead of steering the 1:1 DM", () => {
     const alice = enableIntercom(createBot({ name: "Alice" }).id)!;
     const bob = enableIntercom(createBot({ name: "Bob" }).id)!;

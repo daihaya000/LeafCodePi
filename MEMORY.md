@@ -153,8 +153,16 @@
 ### 検証（Tick20）
 `bot-code-relay` Room /stop — 関連ケース通過
 
+### Tick21（ループ継続・通知 34–35）
+1. Bot 間インターコム — idle resident への `delivered` でモデルを起床（`ask` は replies ポリシーで必須、`send` は always のみ）
+2. harness — steered 時のみ `streamingBehavior: "steer"`、idle wake は通常 prompt
+
+### 検証（Tick21）
+`bot-intercom` — 関連ケース通過
+
 ### 次 Tick 候補
-- cold（非 live）Code の activity は現状なし（許容）
+- Room busy 解除後の queued intercom flush
+
 
 
 
