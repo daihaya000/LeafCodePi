@@ -81,6 +81,8 @@ export type McpListResult = {
   servers: McpDto[];
   /** Pi global override path. */
   configPath: string;
+  /** LeafCodePi bundled MCP config path, when available. */
+  bundledConfigPath: string | null;
 };
 
 export class McpError extends Error {
@@ -161,11 +163,13 @@ function validServerName(name: string): string {
   return trimmed;
 }
 
-function readBundledConfig(): McpConfig {
+function bundledMcpConfigPath(): string | null {
   const extensionsRoot = bundledExtensionsDir();
-  return extensionsRoot
-    ? readConfig(join(extensionsRoot, "leafcode-mcp-adapter", "mcp.json"))
-    : { mcpServers: {} };
+  return extensionsRoot ? join(extensionsRoot, "leafcode-mcp-adapter", "mcp.json") : null;
+}
+
+function readBundledConfig(path = bundledMcpConfigPath()): McpConfig {
+  return path ? readConfig(path) : { mcpServers: {} };
 }
 
 function mergeConfigs(base: McpConfig, override: McpConfig): McpConfig {
@@ -319,7 +323,8 @@ function dtoFor(name: string, entry: McpServer, bundled: boolean, userConfigured
 
 export function listMcpServers(agentDir = resolvePiAgentDir()): McpListResult {
   const configPath = piMcpConfigPath(agentDir);
-  const bundledConfig = readBundledConfig();
+  const bundledConfigPath = bundledMcpConfigPath();
+  const bundledConfig = readBundledConfig(bundledConfigPath);
   const userConfig = readConfig(configPath);
   const config = mergeConfigs(bundledConfig, userConfig);
   const servers = Object.entries(config.mcpServers)
@@ -331,7 +336,7 @@ export function listMcpServers(agentDir = resolvePiAgentDir()): McpListResult {
       Object.hasOwn(userConfig.mcpServers, name),
     ))
     .sort((a, b) => a.name.localeCompare(b.name, "en"));
-  return { servers, configPath };
+  return { servers, configPath, bundledConfigPath };
 }
 
 /** Read non-secret authentication metadata for one server. */

@@ -194,6 +194,8 @@ export function SkillsSettings({ scope = "code" }: { scope?: SkillScope } = {}) 
     description: string,
     items: SkillDto[],
     grouped: boolean,
+    pathLabel: string,
+    path: string | null,
   ) {
     return (
       <section data-testid={id} className="rounded-xl border border-border bg-surface-2 p-3">
@@ -202,6 +204,9 @@ export function SkillsSettings({ scope = "code" }: { scope?: SkillScope } = {}) 
           <Badge tone="neutral">{items.length}件</Badge>
         </div>
         <p className="mt-1 text-xs text-muted">{description}</p>
+        {path && (
+          <p className="mt-1 break-all text-[11px] text-muted"><span className="font-semibold">{pathLabel}:</span> <span className="font-mono">{path}</span></p>
+        )}
         {items.length === 0 ? (
           <p className="mt-3 text-sm text-muted">該当するスキルはありません。</p>
         ) : (
@@ -222,12 +227,6 @@ export function SkillsSettings({ scope = "code" }: { scope?: SkillScope } = {}) 
       <p className="text-xs text-muted">
         Pi のグローバルスキルと LeafCodePi の同梱スキルを、{scope === "code" ? "Codeの通常タスク" : "Botの会話とルーム"}で別々に有効／無効にします。開いているセッションへバックグラウンドで反映します。
       </p>
-      {(skillsPath || bundledSkillsPath) && (
-        <div className="mt-1 space-y-0.5 text-[11px] text-muted">
-          {skillsPath && <p className="break-all"><span className="font-semibold">ユーザー:</span> <span className="font-mono">{skillsPath}</span></p>}
-          {bundledSkillsPath && <p className="break-all"><span className="font-semibold">リポジトリ:</span> <span className="font-mono">{bundledSkillsPath}</span></p>}
-        </div>
-      )}
       {loading && skills.length === 0 ? (
         <p className="mt-3 text-sm text-muted">読み込み中…</p>
       ) : skills.length === 0 ? (
@@ -244,6 +243,8 @@ export function SkillsSettings({ scope = "code" }: { scope?: SkillScope } = {}) 
             "LeafCodePi リポジトリに同梱されたスキルです。",
             bundledSkills,
             true,
+            "リポジトリ",
+            bundledSkillsPath,
           )}
           {renderSkillSection(
             "skills-user",
@@ -251,6 +252,8 @@ export function SkillsSettings({ scope = "code" }: { scope?: SkillScope } = {}) 
             "ユーザーの Pi スキルディレクトリに追加されたスキルです。",
             userSkills,
             false,
+            "ユーザー",
+            skillsPath,
           )}
         </div>
       )}

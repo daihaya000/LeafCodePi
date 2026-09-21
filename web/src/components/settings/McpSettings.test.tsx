@@ -35,7 +35,8 @@ const auth = {
   credentialStatus: "present" as const,
 };
 
-const listResponse = { servers: [server], configPath: auth.configPath };
+const bundledConfigPath = "C:\\repo\\extensions\\leafcode-mcp-adapter\\mcp.json";
+const listResponse = { servers: [server], configPath: auth.configPath, bundledConfigPath };
 
 describe("McpSettings", () => {
   beforeEach(() => {
@@ -85,6 +86,14 @@ describe("McpSettings", () => {
 
     resolveRequest({ servers: [{ ...server, enabled: false }] });
     await waitFor(() => expect(screen.getByRole("switch", { name: "n8n を有効化" })).toBeTruthy());
+  });
+
+  it("places config paths inside their source sections", async () => {
+    render(<McpSettings />);
+    await screen.findByText("n8n");
+
+    expect(within(screen.getByTestId("mcp-bundled")).getByText(bundledConfigPath)).toBeTruthy();
+    expect(within(screen.getByTestId("mcp-user")).getByText(auth.configPath)).toBeTruthy();
   });
 
   it("does not render the retired user-add menu", async () => {

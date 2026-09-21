@@ -21,6 +21,7 @@ describe("拡張設定の一覧", () => {
             { id: "typesafe-ai", name: "typesafe-ai", enabled: true, codeEnabled: true, botEnabled: true, source: "bundled" },
           ],
           skillsDir: "C:/pi/skills",
+          bundledSkillsDir: "C:/repo/skills",
         });
       }
       if (path === "/api/mcp") {
@@ -39,6 +40,7 @@ describe("拡張設定の一覧", () => {
             { id: "custom", name: "custom", enabled: true, bundled: false, userConfigured: true, source: "stdio" },
           ],
           configPath: "C:/pi/mcp.json",
+          bundledConfigPath: "C:/repo/extensions/leafcode-mcp-adapter/mcp.json",
         });
       }
       return Promise.reject(new Error(`unexpected path: ${path}`));
@@ -64,11 +66,15 @@ describe("拡張設定の一覧", () => {
     await screen.findByRole("switch", { name: "fxhoudini を無効化" });
 
     expect(within(screen.getByTestId("skills-bundled")).getByText("typesafe-ai")).toBeTruthy();
+    expect(within(screen.getByTestId("skills-bundled")).getByText("C:/repo/skills")).toBeTruthy();
     expect(within(screen.getByTestId("skills-user")).getByText("review")).toBeTruthy();
+    expect(within(screen.getByTestId("skills-user")).getByText("C:/pi/skills")).toBeTruthy();
+    expect(within(screen.getByTestId("mcp-bundled")).getByText("C:/repo/extensions/leafcode-mcp-adapter/mcp.json")).toBeTruthy();
     expect(within(screen.getByTestId("mcp-bundled")).getByText("browser-use")).toBeTruthy();
     expect(within(screen.getByTestId("mcp-bundled")).getByText("n8n")).toBeTruthy();
     expect(within(screen.getByTestId("mcp-bundled")).getByText("slack")).toBeTruthy();
     expect(within(screen.getByTestId("mcp-bundled")).getByText("notion")).toBeTruthy();
+    expect(within(screen.getByTestId("mcp-user")).getByText("C:/pi/mcp.json")).toBeTruthy();
     expect(within(screen.getByTestId("mcp-user")).getByText("fxhoudini")).toBeTruthy();
     expect(within(screen.getByTestId("mcp-user")).getByText("custom")).toBeTruthy();
     expect(within(screen.getByTestId("mcp-bundled")).queryByText("fxhoudini")).toBeNull();

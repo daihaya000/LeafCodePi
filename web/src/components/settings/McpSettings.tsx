@@ -31,6 +31,7 @@ type McpDto = {
 type McpResponse = {
   servers: McpDto[];
   configPath: string;
+  bundledConfigPath?: string | null;
 };
 
 type McpAuthSnapshot = {
@@ -118,6 +119,7 @@ function authStatusTone(status: McpCredentialStatus): "neutral" | "success" | "w
 export function McpSettings() {
   const [servers, setServers] = useState<McpDto[]>([]);
   const [configPath, setConfigPath] = useState<string>("");
+  const [bundledConfigPath, setBundledConfigPath] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [authBusyId, setAuthBusyId] = useState<string | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -136,6 +138,7 @@ export function McpSettings() {
       .then((result) => {
         setServers(result.servers);
         setConfigPath(result.configPath);
+        setBundledConfigPath(result.bundledConfigPath ?? null);
         setAuthById({});
         setError(null);
       })
@@ -563,11 +566,6 @@ export function McpSettings() {
         <span className="font-mono">~/.pi/agent/mcp.json</span>
         ）の有効／無効と認証情報を管理します。組み込み定義はユーザー設定で上書きでき、秘密情報は表示せずOS資格情報ストアへ保存します。
       </p>
-      {configPath && (
-        <div className="mt-1 space-y-0.5 text-[11px] text-muted">
-          <p className="break-all"><span className="font-semibold">ユーザー設定:</span> <span className="font-mono">{configPath}</span></p>
-        </div>
-      )}
       {loading && servers.length === 0 ? (
         <p className="mt-3 text-sm text-muted">読み込み中…</p>
       ) : (
@@ -578,6 +576,9 @@ export function McpSettings() {
               <Badge tone="neutral">{bundledServers.length}件</Badge>
             </div>
             <p className="mt-1 text-xs text-muted">LeafCodePi リポジトリで対応しているMCPサーバーです。</p>
+            {bundledConfigPath && (
+              <p className="mt-1 break-all text-[11px] text-muted"><span className="font-semibold">リポジトリ:</span> <span className="font-mono">{bundledConfigPath}</span></p>
+            )}
             {renderServerList(bundledServers)}
           </section>
           <section data-testid="mcp-user" className="rounded-xl border border-border bg-surface-2 p-3">
@@ -586,6 +587,9 @@ export function McpSettings() {
               <Badge tone="neutral">{userServers.length}件</Badge>
             </div>
             <p className="mt-1 text-xs text-muted">設定ファイルにユーザーが追加したMCPサーバーです。</p>
+            {configPath && (
+              <p className="mt-1 break-all text-[11px] text-muted"><span className="font-semibold">ユーザー:</span> <span className="font-mono">{configPath}</span></p>
+            )}
             {renderServerList(userServers)}
           </section>
         </div>
