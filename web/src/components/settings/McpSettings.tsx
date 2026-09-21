@@ -73,6 +73,9 @@ const MCP_SERVER_DESCRIPTIONS: Readonly<Record<string, string>> = {
   notion: "Notion公式 MCP。ワークスペースのページ・データベースの検索と更新を行います。",
 };
 
+/** MCP integrations documented and shipped as part of this repository. */
+const BUNDLED_MCP_SERVER_IDS = new Set(Object.keys(MCP_SERVER_DESCRIPTIONS));
+
 function authTypeLabel(type: McpAuthType): string {
   switch (type) {
     case "bearer": return "Bearer";
@@ -592,6 +595,70 @@ export function McpSettings() {
     !servers.some((server) => server.id === "slack") ||
     !servers.some((server) => server.id.startsWith("gws-")) ||
     !servers.some((server) => server.id === "notion");
+  const bundledServers = servers.filter((server) => BUNDLED_MCP_SERVER_IDS.has(server.id));
+  const userServers = servers.filter((server) => !BUNDLED_MCP_SERVER_IDS.has(server.id));
+
+  function renderServerList(items: McpDto[]) {
+    if (items.length === 0) {
+      return <p className="mt-3 text-sm text-muted">該当するMCPサーバーはありません。</p>;
+    }
+    return (
+      <ul className="mt-3 grid gap-2 sm:grid-cols-2">
+        {items.map((server) => (
+          <li
+            key={server.id}
+            aria-busy={busyId === server.id || authBusyId === server.id || undefined}
+            className="rounded-xl border border-border bg-surface-2 px-3 py-2.5"
+          >
+            <div className="flex items-start gap-3">
+              <div className="min-w-0 flex-1">
+                <div className="flex flex-wrap items-center gap-2">
+                  <p className="min-w-0 truncate text-sm font-medium text-text" title={server.id}>
+                    {server.name}
+                  </p>
+                  <Badge tone={server.source === "http" ? "warning" : "neutral"}>
+                    {server.source}
+                  </Badge>
+                  <Badge tone={server.enabled ? "success" : "neutral"}>
+                    {server.enabled ? "有効" : "無効"}
+                  </Badge>
+                  {server.source === "http" && (
+                    <Badge tone={authStatusTone(server.credentialStatus)}>
+                      {authTypeLabel(server.authType)}: {authStatusLabel(server.credentialStatus)}
+                    </Badge>
+                  )}
+                </div>
+                {server.url && <p className="mt-1 break-all font-mono text-[10px] text-muted">{server.url}</p>}
+                {MCP_SERVER_DESCRIPTIONS[server.id] && (
+                  <p className="mt-0.5 break-words text-xs text-muted">{MCP_SERVER_DESCRIPTIONS[server.id]}</p>
+                )}
+              </div>
+              <div className="flex shrink-0 items-center gap-1">
+                {server.source === "http" && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => void openAuth(server)}
+                    busy={authBusyId === server.id && !authById[server.id]}
+                    aria-expanded={expandedId === server.id}
+                  >
+                    {expandedId === server.id ? "閉じる" : "認証設定"}
+                  </Button>
+                )}
+                <Switch
+                  checked={server.enabled}
+                  onChange={() => void toggle(server)}
+                  label={`${server.name} を${server.enabled ? "無効化" : "有効化"}`}
+                  busy={busyId === server.id || Boolean(authBusyId)}
+                />
+              </div>
+            </div>
+            {expandedId === server.id && server.source === "http" && renderAuthPanel(server)}
+          </li>
+        ))}
+      </ul>
+    );
+  }
 
   return (
     <div className="rounded-2xl border border-border bg-surface p-4">
@@ -604,78 +671,40 @@ export function McpSettings() {
       <p className="text-xs text-muted">
         leafcode-mcp-adapter が読む MCP サーバー設定（
         <span className="font-mono">~/.pi/agent/mcp.json</span>
-        ）の有効／無効と認証情報を管理します。秘密情報は表示せず、OS資格情報ストアへ保存します。
+        ）の有効／無効と認証情報を管理します。リポジトリ組み込みとユーザー追加を別の枠で表示し、秘密情報は表示せずOS資格情報ストアへ保存します。
       </p>
       {configPath && (
-        <div className="mt-1 space-y-0.5 font-mono text-[11px] text-muted">
-          <p className="break-all">{configPath}</p>
+        <div className="mt-1 space-y-0.5 text-[11px] text-muted">
+          <p className="break-all"><span className="font-semibold">ユーザー設定:</span> <span className="font-mono">{configPath}</span></p>
         </div>
       )}
       {loading && servers.length === 0 ? (
         <p className="mt-3 text-sm text-muted">読み込み中…</p>
-      ) : servers.length === 0 ? (
-        <p className="mt-3 text-sm text-muted">
-          MCP サーバーがありません。{" "}
-          <span className="font-mono">.mcp.json</span> に mcpServers を追加してください。
-        </p>
       ) : (
-        <ul className="mt-3 grid gap-2 sm:grid-cols-2">
-          {servers.map((server) => (
-            <li
-              key={server.id}
-              aria-busy={busyId === server.id || authBusyId === server.id || undefined}
-              className="rounded-xl border border-border bg-surface-2 px-3 py-2.5"
-            >
-              <div className="flex items-start gap-3">
-                <div className="min-w-0 flex-1">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <p className="min-w-0 truncate text-sm font-medium text-text" title={server.id}>
-                      {server.name}
-                    </p>
-                    <Badge tone={server.source === "http" ? "warning" : "neutral"}>
-                      {server.source}
-                    </Badge>
-                    <Badge tone={server.enabled ? "success" : "neutral"}>
-                      {server.enabled ? "有効" : "無効"}
-                    </Badge>
-                    {server.source === "http" && (
-                      <Badge tone={authStatusTone(server.credentialStatus)}>
-                        {authTypeLabel(server.authType)}: {authStatusLabel(server.credentialStatus)}
-                      </Badge>
-                    )}
-                  </div>
-                  {server.url && <p className="mt-1 break-all font-mono text-[10px] text-muted">{server.url}</p>}
-                  {MCP_SERVER_DESCRIPTIONS[server.id] && (
-                    <p className="mt-0.5 break-words text-xs text-muted">{MCP_SERVER_DESCRIPTIONS[server.id]}</p>
-                  )}
-                </div>
-                <div className="flex shrink-0 items-center gap-1">
-                  {server.source === "http" && (
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => void openAuth(server)}
-                      busy={authBusyId === server.id && !authById[server.id]}
-                      aria-expanded={expandedId === server.id}
-                    >
-                      {expandedId === server.id ? "閉じる" : "認証設定"}
-                    </Button>
-                  )}
-                  <Switch
-                    checked={server.enabled}
-                    onChange={() => void toggle(server)}
-                    label={`${server.name} を${server.enabled ? "無効化" : "有効化"}`}
-                    busy={busyId === server.id || Boolean(authBusyId)}
-                  />
-                </div>
-              </div>
-              {expandedId === server.id && server.source === "http" && renderAuthPanel(server)}
-            </li>
-          ))}
-        </ul>
+        <div className="mt-3 space-y-3">
+          <section data-testid="mcp-bundled" className="rounded-xl border border-border bg-surface-2 p-3">
+            <div className="flex items-center justify-between gap-3">
+              <h4 className="text-sm font-semibold">リポジトリ組み込み</h4>
+              <Badge tone="neutral">{bundledServers.length}件</Badge>
+            </div>
+            <p className="mt-1 text-xs text-muted">LeafCodePi リポジトリで対応しているMCPサーバーです。</p>
+            {renderServerList(bundledServers)}
+          </section>
+          <section data-testid="mcp-user" className="rounded-xl border border-border bg-surface-2 p-3">
+            <div className="flex items-center justify-between gap-3">
+              <h4 className="text-sm font-semibold">ユーザー追加済み</h4>
+              <Badge tone="neutral">{userServers.length}件</Badge>
+            </div>
+            <p className="mt-1 text-xs text-muted">設定ファイルにユーザーが追加したMCPサーバーです。</p>
+            {renderServerList(userServers)}
+          </section>
+        </div>
       )}
       {showAddForms && (
-        <div className="mt-3 grid gap-2 lg:grid-cols-2">
+        <section data-testid="mcp-add" className="mt-3 rounded-xl border border-border bg-surface-2 p-3">
+          <h4 className="text-sm font-semibold">ユーザー追加</h4>
+          <p className="mt-1 text-xs text-muted">対応済みのMCPサービスをユーザー設定へ追加します。</p>
+          <div className="mt-3 grid gap-2 lg:grid-cols-2">
           {!servers.some((server) => server.id === "n8n") && (
             <div className="rounded-xl border border-dashed border-border bg-surface-2 px-3 py-3">
               <p className="text-xs font-medium text-text">n8n を追加（OAuth）</p>
@@ -806,7 +835,8 @@ export function McpSettings() {
               </div>
             </div>
           )}
-        </div>
+          </div>
+        </section>
       )}
       {error && <p className="mt-2 text-sm text-danger" role="alert">{error}</p>}
     </div>

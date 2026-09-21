@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { McpSettings } from "./McpSettings";
 import { SkillsSettings } from "./SkillsSettings";
@@ -16,7 +16,10 @@ describe("拡張設定の一覧", () => {
     getJson.mockImplementation((path: string) => {
       if (path === "/api/skills") {
         return Promise.resolve({
-          skills: [{ id: "review", name: "review", enabled: true, codeEnabled: true, botEnabled: false, source: "pi" }],
+          skills: [
+            { id: "review", name: "review", enabled: true, codeEnabled: true, botEnabled: false, source: "pi" },
+            { id: "typesafe-ai", name: "typesafe-ai", enabled: true, codeEnabled: true, botEnabled: true, source: "bundled" },
+          ],
           skillsDir: "C:/pi/skills",
         });
       }
@@ -29,6 +32,7 @@ describe("拡張設定の一覧", () => {
             { id: "metatrader", name: "metatrader", enabled: true, source: "stdio" },
             { id: "mt5-build", name: "mt5-build", enabled: false, source: "stdio" },
             { id: "comfy-mcp", name: "comfy-mcp", enabled: true, source: "stdio" },
+            { id: "custom", name: "custom", enabled: true, source: "stdio" },
           ],
           configPath: "C:/pi/mcp.json",
         });
@@ -54,6 +58,11 @@ describe("拡張設定の一覧", () => {
 
     await screen.findByRole("switch", { name: "review（Code）を無効化" });
     await screen.findByRole("switch", { name: "fxhoudini を無効化" });
+
+    expect(within(screen.getByTestId("skills-bundled")).getByText("typesafe-ai")).toBeTruthy();
+    expect(within(screen.getByTestId("skills-user")).getByText("review")).toBeTruthy();
+    expect(within(screen.getByTestId("mcp-bundled")).getByText("fxhoudini")).toBeTruthy();
+    expect(within(screen.getByTestId("mcp-user")).getByText("custom")).toBeTruthy();
 
     for (const heading of ["スキル", "MCP サーバー"]) {
       const list = screen.getByRole("heading", { name: heading }).parentElement?.parentElement?.querySelector("ul");
