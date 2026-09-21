@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
@@ -71,6 +73,41 @@ test("host restart relaunches through LeafCodePi.exe when available", () => {
   );
   assert.doesNotMatch(script, /cmd\.exe/);
   assert.match(script, /LEAFCODE_PI_SKIP_STALE_REBUILD=1/);
+  // A stale lock (old host killed before removing it) must not wait forever.
+  assert.match(script, /set \/a WAIT\+=1/);
+  assert.match(script, /if %WAIT% GEQ 120 goto :launch/);
+});
+
+test("host restart launcher gives up waiting for a stale lock", { skip: process.platform !== "win32" }, () => {
+  const dir = mkdtempSync(join(tmpdir(), "leafcode-restart-"));
+  try {
+    const lock = join(dir, "host.lock");
+    writeFileSync(lock, '{"pid":1}\n', "utf8"); // never removed
+    const lines = buildHostRestartScript({
+      lockFile: lock,
+      launcherExe: join(dir, "fake-launcher.exe"),
+      startBat: join(dir, "start-webui.bat"),
+      maxWaitAttempts: 1,
+    });
+    // Replace the windowed launch with a marker: the bound of the wait loop is
+    // what this test exercises, not spawning another process.
+    const scriptPath = join(dir, "restart.bat");
+    const script = lines
+      .map((line) => (line.startsWith("start ") ? "echo LAUNCHED" : line))
+      .join("\r\n");
+    writeFileSync(scriptPath, `${script}\r\n`, "ascii");
+    const result = spawnSync("cmd.exe", ["/c", scriptPath], {
+      timeout: 10_000,
+      encoding: "utf8",
+      windowsHide: true,
+    });
+    // The launcher deletes itself, so its own exit code is not the contract;
+    // reaching the launch line before the timeout is.
+    assert.equal(result.error, undefined);
+    assert.match(result.stdout, /LAUNCHED/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test("host restart falls back to start-webui.bat without the native launcher", () => {
