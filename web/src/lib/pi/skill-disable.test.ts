@@ -96,14 +96,14 @@ it("hides a settings-disabled skill from the catalog and /skill expansion after 
   });
   try {
     await session.bindExtensions({});
-    expect(session.agent.state.systemPrompt).toContain("alpha");
+    expect(session.systemPrompt).toContain("alpha");
     await session.prompt("/skill:alpha hi");
     expect(seen.at(-1)).toContain("ALPHA-BODY-MARKER");
 
     writeSkillsState({ code: { alpha: true }, bot: {} });
     await session.reload();
     expect(loader.getSkills().skills.map((skill) => skill.name)).not.toContain("alpha");
-    expect(session.agent.state.systemPrompt).not.toContain("alpha");
+    expect(session.systemPrompt).not.toContain("alpha");
     await session.prompt("/skill:alpha hi");
     expect(seen.at(-1)).toBe("/skill:alpha hi");
   } finally {

@@ -53,7 +53,7 @@ it("loads optional schemas on demand through the real SDK and keeps an agent all
   try {
     await session.bindExtensions({ onError: (error) => { throw new Error(error.error); } });
     expect(session.getActiveToolNames()).toEqual(["read", "tool_search"]);
-    const original = session.agent.state.systemPrompt;
+    const original = session.systemPrompt;
     const compacted = compactSdkDocumentation(original);
     expect(compacted.length).toBeLessThan(original.length);
     expect(compacted).toContain("read the relevant local .md files completely");
