@@ -45,6 +45,9 @@ test("launcher restarts the host after an unclean exit, not after a clean quit",
   assert.match(bat, /^:run_host$/m);
   assert.match(bat, /if "%ERR%"=="0" goto :host_done/);
   assert.match(bat, /if %RESTARTS% GEQ %LEAFCODE_PI_RESTART_MAX% goto :host_failed/);
+  // Same rule as the WebUI crash budget: a host that stayed up gets its budget back.
+  assert.match(bat, /Date\.now\(\)-%STARTED_AT%>=60000/);
+  assert.match(bat, /if "%SHORT_RUN%"=="0" set \/a RESTARTS=0/);
   assert.match(bat, /^goto :run_host$/m);
 });
 

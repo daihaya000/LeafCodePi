@@ -36,14 +36,17 @@ cd /d "%~dp0..\host"
 
 rem An unclean host exit (crash or taskkill of node) auto-restarts here; a
 rem clean quit (tray Quit, host self-restart) exits 0 and stops the loop.
-rem ponytail: consecutive-attempt cap, no uptime-based reset; add one if a
-rem long-running host ever hits the cap. Killing this cmd/launcher too kills
-rem the watchdog with it.
+rem A host that stayed up returns its restart budget (same 60s rule as the
+rem WebUI crash budget in host\src\index.js), so a kill hours later still
+rem restarts. Killing this cmd/launcher too kills the watchdog with it.
 :run_host
+for /f %%T in ('node -p "Date.now()"') do set "STARTED_AT=%%T"
 call node src\index.js
 set ERR=%ERRORLEVEL%
 if "%ERR%"=="0" goto :host_done
 if "%LEAFCODE_PI_NO_RESTART%"=="1" goto :host_failed
+for /f %%T in ('node -p "Date.now()-%STARTED_AT%>=60000?0:1"') do set "SHORT_RUN=%%T"
+if "%SHORT_RUN%"=="0" set /a RESTARTS=0
 if %RESTARTS% GEQ %LEAFCODE_PI_RESTART_MAX% goto :host_failed
 set /a RESTARTS+=1
 call :say_restart
