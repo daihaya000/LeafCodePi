@@ -61,9 +61,9 @@ export function SessionLabelSettings() {
       </p>
       <ul className="mt-3 space-y-2">
         {labels.map((label, index) => (
-          <li key={label.id} className="flex flex-wrap items-center gap-2">
+          <li key={label.id} className="grid min-w-0 grid-cols-1 items-center gap-2 sm:grid-cols-[4rem_10rem_minmax(0,1fr)_9rem_auto]">
             <span
-              className={`shrink-0 rounded border px-1 text-[10px] leading-4 ${PROJECT_ICON_TONES[label.color]}`}
+              className={`w-16 truncate rounded border px-1 text-center text-[10px] leading-4 ${PROJECT_ICON_TONES[label.color]}`}
             >
               {label.name || "—"}
             </span>
@@ -73,7 +73,7 @@ export function SessionLabelSettings() {
               aria-label={`ラベル${index + 1}の名前`}
               placeholder="名前"
               onChange={(event) => update(index, { name: event.target.value })}
-              className="h-9 w-28 rounded-lg border border-border bg-bg px-3 text-sm text-text outline-none focus:border-border-strong"
+              className="h-9 w-full min-w-0 rounded-lg border border-border bg-bg px-3 text-sm text-text outline-none focus:border-border-strong"
             />
             <input
               value={label.hint}
@@ -81,13 +81,13 @@ export function SessionLabelSettings() {
               aria-label={`ラベル${index + 1}の判定ヒント`}
               placeholder="判定ヒント（どんな会話か）"
               onChange={(event) => update(index, { hint: event.target.value })}
-              className="h-9 min-w-0 flex-1 rounded-lg border border-border bg-bg px-3 text-sm text-text outline-none focus:border-border-strong"
+              className="h-9 w-full min-w-0 rounded-lg border border-border bg-bg px-3 text-sm text-text outline-none focus:border-border-strong"
             />
             <select
               value={label.color}
               aria-label={`ラベル${index + 1}の色`}
               onChange={(event) => update(index, { color: event.target.value as ProjectIconColor })}
-              className="h-9 rounded-lg border border-border bg-bg px-2 text-sm text-text outline-none focus:border-border-strong"
+              className="h-9 w-full rounded-lg border border-border bg-bg px-2 text-sm text-text outline-none focus:border-border-strong"
             >
               {PROJECT_ICON_COLORS.map((color) => (
                 <option key={color} value={color}>{color}</option>
