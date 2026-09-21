@@ -141,6 +141,7 @@ import {
   reserveTokensForThreshold,
   shouldCompactAtThreshold,
   shouldSuggestAtThreshold,
+  type CacheWarmingMode,
 } from "@/lib/compaction-settings";
 import {
   bundledSkillPaths,
@@ -9898,6 +9899,24 @@ export async function setCompactionEnabled(
     applySessionCompactionSettings(live.session, enabled);
   }
   return settings.getCompactionSettings();
+}
+
+export async function getCacheWarmingMode(): Promise<CacheWarmingMode> {
+  await ensureRuntime();
+  return openSettingsManager().getCacheWarmingMode();
+}
+
+export async function setCacheWarmingMode(
+  mode: CacheWarmingMode,
+): Promise<CacheWarmingMode> {
+  await ensureRuntime();
+  const settings = openSettingsManager();
+  settings.setCacheWarmingMode(mode);
+  await settings.flush();
+  for (const live of state().live.values()) {
+    live.session.setCacheWarmingMode(mode);
+  }
+  return settings.getCacheWarmingMode();
 }
 
 async function abortThenDispose(id: string, logLabel: string): Promise<void> {

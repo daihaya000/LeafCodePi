@@ -21,7 +21,9 @@ describe("CompactionSettings", () => {
               keepRecentTokens: 20_000,
             },
           })
-        : Promise.resolve({ value: null }),
+        : path === "/api/cache-warming"
+          ? Promise.resolve({ mode: "streaming" })
+          : Promise.resolve({ value: null }),
     );
     sendJson.mockResolvedValue({});
   });
@@ -54,6 +56,20 @@ describe("CompactionSettings", () => {
       { value: "0.75" },
       "PUT",
     );
+  });
+
+  it("プロンプトキャッシュの維持モードを保存する", async () => {
+    render(<CompactionSettings />);
+
+    const mode = await screen.findByLabelText("維持モード");
+    expect((mode as HTMLSelectElement).value).toBe("streaming");
+    fireEvent.change(mode, { target: { value: "off" } });
+
+    await waitFor(() => expect(sendJson).toHaveBeenCalledWith(
+      "/api/cache-warming",
+      { mode: "off" },
+      "PATCH",
+    ));
   });
 
   it("入力を共通のグリッドに並べ、コンテナ内で伸縮させる", async () => {

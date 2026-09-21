@@ -1,6 +1,6 @@
 import { basename } from "node:path";
+import { collapseSystemMessages, type Api, type Model, type SimpleStreamOptions, type TranscriptContext } from "@earendil-works/pi-ai";
 import { streamSimple } from "@earendil-works/pi-ai/compat";
-import type { Api, Context, Model, SimpleStreamOptions } from "@earendil-works/pi-ai";
 import { readSettingValue } from "@/lib/host-control";
 import {
   LLAMA_SERVER_SETTINGS_KEY,
@@ -139,16 +139,20 @@ function applyNoThinkPrefix(messages: unknown): unknown {
  * a system message on every call without replacing Pi's own instructions.
  */
 export function appendLlamaServerSystemPrompt(
-  context: Context,
+  context: TranscriptContext,
   systemPrompt: string,
-): Context {
+): TranscriptContext {
   const addition = systemPrompt.trim();
   if (!addition) return context;
-  const base = context.systemPrompt?.trim();
-  return {
+  // Pi 0.86 passes a normalized transcript to custom providers. Append through
+  // the transcript replay path so prompt/tool updates are not lost.
+  return collapseSystemMessages({
     ...context,
-    systemPrompt: base ? `${base}\n\n${addition}` : addition,
-  };
+    messages: [
+      ...context.messages,
+      { role: "system", content: addition, timestamp: 0 },
+    ],
+  });
 }
 
 /**
@@ -323,7 +327,7 @@ async function resolveModelRows(settings: LlamaServerSettings): Promise<OpenAiMo
 
 function llamaStreamSimple(
   model: Model<Api>,
-  context: Context,
+  context: TranscriptContext,
   options?: SimpleStreamOptions,
 ) {
   const previous = options?.onPayload;

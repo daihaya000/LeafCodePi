@@ -1,6 +1,15 @@
 export const COMPACTION_ACTION_SETTING_KEY = "compactionAction";
 export const COMPACTION_THRESHOLD_SETTING_KEY = "compactionThreshold";
 
+export const CACHE_WARMING_MODES = ["off", "streaming", "idle"] as const;
+export type CacheWarmingMode = (typeof CACHE_WARMING_MODES)[number];
+
+export function parseCacheWarmingMode(value: unknown): CacheWarmingMode | null {
+  return typeof value === "string" && CACHE_WARMING_MODES.includes(value as CacheWarmingMode)
+    ? value as CacheWarmingMode
+    : null;
+}
+
 export type CompactionAction = "suggest" | "auto" | "off";
 
 export function parseCompactionAction(value: string | null): CompactionAction {

@@ -234,6 +234,7 @@ export const SUBSCRIPTION_PROVIDER_IDS = new Set([
   "anthropic",
   "openai-codex",
   "cursor",
+  "meta",
 ]);
 
 /** Cloud API providers surfaced near subscription logins in settings. */

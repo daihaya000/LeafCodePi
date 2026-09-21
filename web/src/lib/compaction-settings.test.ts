@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  parseCacheWarmingMode,
   parseCompactionAction,
   reserveTokensForThreshold,
   shouldCompactAtThreshold,
@@ -7,6 +8,13 @@ import {
 } from "./compaction-settings";
 
 describe("compaction settings", () => {
+  it("accepts only Pi's cache-warming modes", () => {
+    expect(parseCacheWarmingMode("off")).toBe("off");
+    expect(parseCacheWarmingMode("streaming")).toBe("streaming");
+    expect(parseCacheWarmingMode("idle")).toBe("idle");
+    expect(parseCacheWarmingMode("unknown")).toBeNull();
+  });
+
   it("defaults to auto-compaction when no action is stored", () => {
     expect(parseCompactionAction(null)).toBe("auto");
     expect(parseCompactionAction("unknown")).toBe("auto");

@@ -95,6 +95,7 @@ describe("subscription provider ids", () => {
     assert.ok(SUBSCRIPTION_PROVIDER_IDS.has("anthropic"));
     assert.ok(SUBSCRIPTION_PROVIDER_IDS.has("openai-codex"));
     assert.ok(SUBSCRIPTION_PROVIDER_IDS.has("cursor"));
+    assert.ok(SUBSCRIPTION_PROVIDER_IDS.has("meta"));
     assert.equal(SUBSCRIPTION_PROVIDER_IDS.has("openai"), false);
   });
 
@@ -104,6 +105,7 @@ describe("subscription provider ids", () => {
     assert.ok(isHighlightedProvider("typesafe"));
     assert.ok(isHighlightedProvider("orcarouter"));
     assert.ok(isHighlightedProvider("anthropic"));
+    assert.ok(isHighlightedProvider("meta"));
     assert.equal(isHighlightedProvider("openai"), false);
   });
 });

@@ -7,8 +7,10 @@ import { formatTokens } from "@/lib/context-usage";
 import {
   COMPACTION_ACTION_SETTING_KEY,
   COMPACTION_THRESHOLD_SETTING_KEY,
+  parseCacheWarmingMode,
   parseCompactionAction,
   parseCompactionThreshold,
+  type CacheWarmingMode,
   type CompactionAction,
 } from "@/lib/compaction-settings";
 import type { CompactionSettingsDto } from "@/lib/types";
@@ -24,22 +26,25 @@ export function CompactionSettings() {
   const [settings, setSettings] = useState<CompactionSettingsDto | null>(null);
   const [action, setAction] = useState<CompactionAction>("auto");
   const [threshold, setThreshold] = useState(80);
+  const [cacheWarmingMode, setCacheWarmingMode] = useState<CacheWarmingMode>("streaming");
   const [jevEnabled, setJevEnabled] = useState(false);
   const [jevThreshold, setJevThreshold] = useState(DEFAULT_JEV_COMPACTION_THRESHOLD);
   const [error, setError] = useState<string | null>(null);
 
   const reload = useCallback(async () => {
     try {
-      const [compaction, actionResult, thresholdResult, jevEnabledResult, jevThresholdResult] = await Promise.all([
+      const [compaction, actionResult, thresholdResult, cacheWarmingResult, jevEnabledResult, jevThresholdResult] = await Promise.all([
         getJson<{ settings: CompactionSettingsDto }>("/api/compaction-settings"),
         getJson<{ value: string | null }>(`/api/settings/${COMPACTION_ACTION_SETTING_KEY}`),
         getJson<{ value: string | null }>(`/api/settings/${COMPACTION_THRESHOLD_SETTING_KEY}`),
+        getJson<{ mode?: unknown }>("/api/cache-warming"),
         getJson<{ value: string | null }>(`/api/settings/${JEV_COMPACTION_ENABLED_SETTING_KEY}`),
         getJson<{ value: string | null }>(`/api/settings/${JEV_COMPACTION_THRESHOLD_SETTING_KEY}`),
       ]);
       setSettings(compaction.settings);
       setAction(parseCompactionAction(actionResult.value));
       setThreshold(parseCompactionThreshold(thresholdResult.value));
+      setCacheWarmingMode(parseCacheWarmingMode(cacheWarmingResult.mode) ?? "streaming");
       setJevEnabled(isJevCompactionEnabled(jevEnabledResult.value));
       setJevThreshold(parseJevCompactionThreshold(jevThresholdResult.value));
     } catch (err) {
@@ -66,6 +71,19 @@ export function CompactionSettings() {
         "/api/compaction-settings", { enabled: value === "auto" }, "PATCH",
       );
       setSettings(result.settings);
+    }
+  }
+
+  async function changeCacheWarmingMode(value: CacheWarmingMode) {
+    setCacheWarmingMode(value);
+    try {
+      const result = await sendJson<{ mode?: unknown }>(
+        "/api/cache-warming", { mode: value }, "PATCH",
+      );
+      setCacheWarmingMode(parseCacheWarmingMode(result.mode) ?? value);
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "プロンプトキャッシュ設定の保存に失敗しました");
     }
   }
 
@@ -110,6 +128,25 @@ export function CompactionSettings() {
         </div>
       </div>
       <p className="mt-3 text-xs text-muted">使用率が{threshold}%に達したら設定した動作を実行します（70〜95%）。</p>
+      <div className="mt-4 border-t border-border pt-4">
+        <h4 className="text-sm font-semibold">プロンプトキャッシュ維持</h4>
+        <p className="mt-1 text-xs text-muted">
+          対応モデルのキャッシュを維持します。待機中の維持はAPI利用料が発生する場合があります。
+        </p>
+        <label htmlFor="cache-warming-mode" className="mt-3 block">
+          <span className="mb-1.5 block text-sm text-muted">維持モード</span>
+          <select
+            id="cache-warming-mode"
+            className="h-9 w-full rounded-lg border border-border bg-bg px-3 text-sm text-text outline-none focus:border-border-strong"
+            value={cacheWarmingMode}
+            onChange={(e) => void changeCacheWarmingMode(e.target.value as CacheWarmingMode)}
+          >
+            <option value="off">無効</option>
+            <option value="streaming">実行中のみ</option>
+            <option value="idle">待機中も維持</option>
+          </select>
+        </label>
+      </div>
       <div className="mt-4 border-t border-border pt-4">
         <JevSettingCard
           title="Jevコンパクション"

@@ -295,7 +295,7 @@ OpenCode 版 LeafCode にあった worktree 分離、差分ペイン、Caddy は
 | --- | --- |
 | OS | Windows 10/11 x64、または Linux/macOS |
 | Node.js | 22.19 以上 |
-| Pi 認証 | 設定画面のサブスクログイン（Claude Pro/Max / ChatGPT Plus/Pro）、環境変数、または `~/.pi/agent/auth.json` |
+| Pi 認証 | 設定画面のサブスクログイン（Claude Pro/Max / ChatGPT Plus/Pro / Meta Muse）、環境変数、または `~/.pi/agent/auth.json` |
 | Linux/macOS のプロセス検出 | `ss` または `lsof`、`ps`（WebUI の build guard / 停止に使用） |
 | PowerShell（Windows のみ） | Pi 0.86.1 の標準ツール。`pwsh.exe` を優先し、なければ Windows PowerShell を使います |
 | Bash（Linux/macOS） | Pi の標準シェルツール。Windows では必要時のみ明示的に有効化します |

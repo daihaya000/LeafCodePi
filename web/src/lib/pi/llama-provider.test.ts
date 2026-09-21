@@ -19,6 +19,7 @@ import {
   serializeLlamaServerSettings,
 } from "@/lib/llama-server-settings";
 import { thinkingLevelsForModel } from "@/lib/thinking-levels";
+import { getCurrentSystemPrompt, normalizeContext } from "@earendil-works/pi-ai";
 import type { Api, Model } from "@earendil-works/pi-ai";
 
 afterEach(() => {
@@ -233,21 +234,20 @@ describe("isLlamaQwenReasoningModel", () => {
 });
 
 describe("appendLlamaServerSystemPrompt", () => {
-  it("appends the configured prompt without mutating the Pi context", () => {
-    const context = {
+  it("appends the configured prompt to a normalized transcript without mutating it", () => {
+    const context = normalizeContext({
       systemPrompt: "Pi's instructions",
       messages: [],
-    };
-    const result = appendLlamaServerSystemPrompt(context, "  Local model instructions  ");
-    expect(result).toEqual({
-      systemPrompt: "Pi's instructions\n\nLocal model instructions",
-      messages: [],
     });
-    expect(context.systemPrompt).toBe("Pi's instructions");
+    const result = appendLlamaServerSystemPrompt(context, "  Local model instructions  ");
+    expect(getCurrentSystemPrompt(result.messages)).toBe(
+      "Pi's instructions\n\nLocal model instructions",
+    );
+    expect(getCurrentSystemPrompt(context.messages)).toBe("Pi's instructions");
   });
 
   it("returns the original context when the setting is empty", () => {
-    const context = { systemPrompt: "Pi's instructions", messages: [] };
+    const context = normalizeContext({ systemPrompt: "Pi's instructions", messages: [] });
     expect(appendLlamaServerSystemPrompt(context, "  ")).toBe(context);
   });
 });
