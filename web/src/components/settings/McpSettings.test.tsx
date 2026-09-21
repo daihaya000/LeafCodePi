@@ -15,6 +15,8 @@ const server = {
   id: "n8n",
   name: "n8n",
   enabled: true,
+  bundled: true,
+  userConfigured: true,
   source: "http" as const,
   url: "https://n8n.example.com/mcp",
   authType: "bearer" as const,
@@ -225,6 +227,22 @@ describe("McpSettings", () => {
 
     await waitFor(() => expect(client.sendJson).toHaveBeenCalledWith("/api/mcp", { preset: "notion" }, "POST"));
     expect(await screen.findByRole("button", { name: "OAuth認証を開始" })).toBeTruthy();
+  });
+
+  it("shows preset forms for bundled servers without user overrides", async () => {
+    client.getJson.mockResolvedValue({
+      servers: [
+        { ...server, userConfigured: false },
+        { ...server, id: "slack", name: "slack", userConfigured: false },
+        { ...server, id: "notion", name: "notion", userConfigured: false },
+      ],
+      configPath: auth.configPath,
+    });
+
+    render(<McpSettings />);
+    expect(await screen.findByRole("button", { name: "n8n を追加" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Slack を追加" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Notion を追加" })).toBeTruthy();
   });
 
   it("keeps the Google Workspace and Notion forms visible when n8n and slack are already configured", async () => {

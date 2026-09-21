@@ -26,17 +26,17 @@ describe("拡張設定の一覧", () => {
       if (path === "/api/mcp") {
         return Promise.resolve({
           servers: [
-            { id: "browser-use", name: "browser-use", enabled: true, source: "stdio" },
-            { id: "n8n", name: "n8n", enabled: true, source: "http" },
-            { id: "slack", name: "slack", enabled: true, source: "http" },
-            { id: "notion", name: "notion", enabled: true, source: "http" },
-            { id: "fxhoudini", name: "fxhoudini", enabled: true, source: "stdio" },
-            { id: "blendermcp", name: "blendermcp", enabled: true, source: "stdio" },
-            { id: "mayamcp", name: "mayamcp", enabled: true, source: "stdio" },
-            { id: "metatrader", name: "metatrader", enabled: true, source: "stdio" },
-            { id: "mt5-build", name: "mt5-build", enabled: false, source: "stdio" },
-            { id: "comfy-mcp", name: "comfy-mcp", enabled: true, source: "stdio" },
-            { id: "custom", name: "custom", enabled: true, source: "stdio" },
+            { id: "browser-use", name: "browser-use", enabled: true, bundled: true, userConfigured: false, source: "stdio" },
+            { id: "n8n", name: "n8n", enabled: true, bundled: true, userConfigured: false, source: "http" },
+            { id: "slack", name: "slack", enabled: true, bundled: true, userConfigured: false, source: "http" },
+            { id: "notion", name: "notion", enabled: true, bundled: true, userConfigured: false, source: "http" },
+            { id: "fxhoudini", name: "fxhoudini", enabled: true, bundled: false, userConfigured: true, source: "stdio" },
+            { id: "blendermcp", name: "blendermcp", enabled: true, bundled: false, userConfigured: true, source: "stdio" },
+            { id: "mayamcp", name: "mayamcp", enabled: true, bundled: false, userConfigured: true, source: "stdio" },
+            { id: "metatrader", name: "metatrader", enabled: true, bundled: false, userConfigured: true, source: "stdio" },
+            { id: "mt5-build", name: "mt5-build", enabled: false, bundled: false, userConfigured: true, source: "stdio" },
+            { id: "comfy-mcp", name: "comfy-mcp", enabled: true, bundled: false, userConfigured: true, source: "stdio" },
+            { id: "custom", name: "custom", enabled: true, bundled: false, userConfigured: true, source: "stdio" },
           ],
           configPath: "C:/pi/mcp.json",
         });

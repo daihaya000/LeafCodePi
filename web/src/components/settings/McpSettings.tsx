@@ -18,6 +18,8 @@ type McpDto = {
   id: string;
   name: string;
   enabled: boolean;
+  bundled: boolean;
+  userConfigured: boolean;
   source: "stdio" | "http";
   url?: string;
   authType: McpAuthType;
@@ -73,9 +75,6 @@ const MCP_SERVER_DESCRIPTIONS: Readonly<Record<string, string>> = {
   "gws-people": "Google Workspace 公式 MCP（People）。プロフィール・連絡先検索。",
   notion: "Notion公式 MCP。ワークスペースのページ・データベースの検索と更新を行います。",
 };
-
-/** MCP servers provided through the repository's browser-use integration. */
-const BUNDLED_MCP_SERVER_IDS = new Set(["browser-use", "notion", "n8n", "slack"]);
 
 function authTypeLabel(type: McpAuthType): string {
   switch (type) {
@@ -591,13 +590,14 @@ export function McpSettings() {
   // Keep the preset-form wrapper visible whenever any form still has work to
   // do, so later forms (Google Workspace / Notion) stay reachable after n8n
   // and Slack are already configured.
+  const hasUserConfigured = (id: string) => servers.some((server) => server.id === id && server.userConfigured);
   const showAddForms =
-    !servers.some((server) => server.id === "n8n") ||
-    !servers.some((server) => server.id === "slack") ||
+    !hasUserConfigured("n8n") ||
+    !hasUserConfigured("slack") ||
     !servers.some((server) => server.id.startsWith("gws-")) ||
-    !servers.some((server) => server.id === "notion");
-  const bundledServers = servers.filter((server) => BUNDLED_MCP_SERVER_IDS.has(server.id));
-  const userServers = servers.filter((server) => !BUNDLED_MCP_SERVER_IDS.has(server.id));
+    !hasUserConfigured("notion");
+  const bundledServers = servers.filter((server) => server.bundled);
+  const userServers = servers.filter((server) => !server.bundled);
 
   function renderServerList(items: McpDto[]) {
     if (items.length === 0) {
@@ -706,7 +706,7 @@ export function McpSettings() {
           <h4 className="text-sm font-semibold">ユーザー追加</h4>
           <p className="mt-1 text-xs text-muted">対応済みのMCPサービスをユーザー設定へ追加します。</p>
           <div className="mt-3 grid gap-2 lg:grid-cols-2">
-          {!servers.some((server) => server.id === "n8n") && (
+          {!hasUserConfigured("n8n") && (
             <div className="rounded-xl border border-dashed border-border bg-surface-2 px-3 py-3">
               <p className="text-xs font-medium text-text">n8n を追加（OAuth）</p>
               <p className="mt-1 text-[11px] leading-4 text-muted">
@@ -738,7 +738,7 @@ export function McpSettings() {
               </div>
             </div>
           )}
-          {!servers.some((server) => server.id === "slack") && (
+          {!hasUserConfigured("slack") && (
             <div className="rounded-xl border border-dashed border-border bg-surface-2 px-3 py-3">
               <p className="text-xs font-medium text-text">Slack を追加（OAuth）</p>
               <p className="mt-1 text-[11px] leading-4 text-muted">
@@ -816,7 +816,7 @@ export function McpSettings() {
               </div>
             </div>
           )}
-          {!servers.some((server) => server.id === "notion") && (
+          {!hasUserConfigured("notion") && (
             <div className="rounded-xl border border-dashed border-border bg-surface-2 px-3 py-3">
               <p className="text-xs font-medium text-text">Notion を追加（OAuth）</p>
               <p className="mt-1 text-[11px] leading-4 text-muted">

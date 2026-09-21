@@ -55,6 +55,8 @@ export type McpDto = {
   id: string;
   name: string;
   enabled: boolean;
+  bundled: boolean;
+  userConfigured: boolean;
   source: "stdio" | "http";
   /** A redacted endpoint suitable for display. */
   url?: string;
@@ -301,12 +303,14 @@ function redactUrl(value: string): string {
   }
 }
 
-function dtoFor(name: string, entry: McpServer): McpDto {
+function dtoFor(name: string, entry: McpServer, bundled: boolean, userConfigured: boolean): McpDto {
   const metadata = authMetadata(entry);
   return {
     id: name,
     name,
     enabled: entry.disabled !== true,
+    bundled,
+    userConfigured,
     source: typeof entry.url === "string" ? "http" : "stdio",
     ...(typeof entry.url === "string" ? { url: redactUrl(entry.url) } : {}),
     ...metadata,
@@ -314,12 +318,20 @@ function dtoFor(name: string, entry: McpServer): McpDto {
 }
 
 export function listMcpServers(agentDir = resolvePiAgentDir()): McpListResult {
-  const config = readEffectiveConfig(piMcpConfigPath(agentDir));
+  const configPath = piMcpConfigPath(agentDir);
+  const bundledConfig = readBundledConfig();
+  const userConfig = readConfig(configPath);
+  const config = mergeConfigs(bundledConfig, userConfig);
   const servers = Object.entries(config.mcpServers)
     .filter(([, entry]) => isMcpServer(entry))
-    .map(([name, entry]) => dtoFor(name, entry))
+    .map(([name, entry]) => dtoFor(
+      name,
+      entry,
+      Object.hasOwn(bundledConfig.mcpServers, name),
+      Object.hasOwn(userConfig.mcpServers, name),
+    ))
     .sort((a, b) => a.name.localeCompare(b.name, "en"));
-  return { servers, configPath: piMcpConfigPath(agentDir) };
+  return { servers, configPath };
 }
 
 /** Read non-secret authentication metadata for one server. */

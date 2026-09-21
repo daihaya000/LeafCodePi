@@ -64,6 +64,10 @@ describe("listMcpServers / setMcpServerEnabled", () => {
     const byName = new Map(result.servers.map((s) => [s.name, s]));
     assert.equal(byName.get("chrome_devtools")?.enabled, true);
     assert.equal(byName.get("chrome_devtools")?.source, "stdio");
+    assert.equal(byName.get("chrome_devtools")?.bundled, false);
+    assert.equal(byName.get("chrome_devtools")?.userConfigured, true);
+    assert.equal(byName.get("browser-use")?.bundled, true);
+    assert.equal(byName.get("browser-use")?.userConfigured, false);
     assert.equal(byName.get("remote")?.enabled, false);
     assert.equal(byName.get("remote")?.source, "http");
     assert.equal(result.configPath, join(agentDir, "mcp.json"));

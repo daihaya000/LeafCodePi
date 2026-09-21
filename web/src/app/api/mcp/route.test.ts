@@ -42,9 +42,10 @@ describe("/api/mcp POST", () => {
     expect(response.status).toBe(200);
     const body = (await response.json()) as { ok?: boolean; servers?: unknown[] };
     expect(body.ok).toBe(true);
-    expect(body.servers).toEqual([
-      expect.objectContaining({ id: "n8n", source: "http", authType: "oauth", enabled: true }),
-    ]);
+    expect(body.servers).toHaveLength(4);
+    expect(body.servers).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: "n8n", source: "http", authType: "oauth", enabled: true, bundled: true, userConfigured: true }),
+    ]));
     expect(harness.reloadLiveSessionsContext).toHaveBeenCalledTimes(1);
 
     const raw = JSON.parse(readFileSync(join(agentDir, "mcp.json"), "utf8"));
@@ -61,9 +62,10 @@ describe("/api/mcp POST", () => {
     expect(response.status).toBe(200);
     const body = (await response.json()) as { ok?: boolean; servers?: unknown[] };
     expect(body.ok).toBe(true);
-    expect(body.servers).toEqual([
-      expect.objectContaining({ id: "slack", authType: "oauth", enabled: true }),
-    ]);
+    expect(body.servers).toHaveLength(4);
+    expect(body.servers).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: "slack", authType: "oauth", enabled: true, bundled: true, userConfigured: true }),
+    ]));
 
     const raw = JSON.parse(readFileSync(join(agentDir, "mcp.json"), "utf8"));
     expect(raw.mcpServers.slack.url).toBe("https://mcp.slack.com/mcp");
@@ -79,7 +81,7 @@ describe("/api/mcp POST", () => {
     expect(response.status).toBe(200);
     const body = (await response.json()) as { ok?: boolean; servers?: unknown[] };
     expect(body.ok).toBe(true);
-    expect(body.servers).toHaveLength(8);
+    expect(body.servers).toHaveLength(12);
 
     const raw = JSON.parse(readFileSync(join(agentDir, "mcp.json"), "utf8"));
     expect(raw.mcpServers["gws-calendar"].url).toBe("https://calendarmcp.googleapis.com/mcp/v1");
@@ -90,9 +92,10 @@ describe("/api/mcp POST", () => {
     const response = await POST(request({ preset: "notion" }));
     expect(response.status).toBe(200);
     const body = (await response.json()) as { ok?: boolean; servers?: unknown[] };
-    expect(body.servers).toEqual([
-      expect.objectContaining({ id: "notion", authType: "oauth", enabled: true }),
-    ]);
+    expect(body.servers).toHaveLength(4);
+    expect(body.servers).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: "notion", authType: "oauth", enabled: true, bundled: true, userConfigured: true }),
+    ]));
 
     const raw = JSON.parse(readFileSync(join(agentDir, "mcp.json"), "utf8"));
     expect(raw.mcpServers.notion.url).toBe("https://mcp.notion.com/mcp");
