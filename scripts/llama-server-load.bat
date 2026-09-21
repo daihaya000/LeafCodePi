@@ -38,7 +38,9 @@ if not defined PARALLEL set "PARALLEL=1"
 if not defined THREADS set "THREADS=8"
 if not defined THREADS_BATCH set "THREADS_BATCH=16"
 if not defined BATCH_SIZE set "BATCH_SIZE=2048"
-if not defined UBATCH set "UBATCH=2048"
+rem ubatch 512 measured the same prefill as 2048 on the R9700 and keeps
+rem several GB of VRAM free, which stops WDDM from spilling to system RAM.
+if not defined UBATCH set "UBATCH=512"
 rem https://huggingface.co/Qwen/Qwen3.8-27B (thinking mode).
 rem Apply only to selected Qwen3.8 models, not router mode or other families.
 rem Explicit environment overrides still win; non-thinking requests should
@@ -119,6 +121,9 @@ rem MTP tensors (e.g. Ornith-1.5 AtomicChat builds) - they fail to load with
 rem --spec-type draft-mtp. Gains depend on model, backend and acceptance rate;
 rem do not infer MTP tensor availability or a fixed speedup from a filename.
 if not defined SPEC_TYPE set "SPEC_TYPE="
+rem draft-mtp depth. Measured 2026-09-21 on this box (R9700 / Vulkan b11069 /
+rem Qwen3.8-27B Q4_K_S, 30k prompt): n-max 2 = 49.5 t/s, 3 = 53.9 t/s,
+rem 4 = 34.7 t/s. Keep 3; re-measure after a build or model change.
 if not defined DRAFT_MAX set "DRAFT_MAX=3"
 set "SPEC_ARGS="
 if not "%SPEC_TYPE%"=="" set "SPEC_ARGS=--spec-type %SPEC_TYPE% --spec-draft-n-max %DRAFT_MAX%"
