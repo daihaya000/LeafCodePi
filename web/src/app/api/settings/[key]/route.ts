@@ -49,6 +49,10 @@ import {
   COMPOSER_PROMPT_PRESETS_SETTING_KEY,
   parseComposerPromptPresets,
 } from "@/lib/composer-prompt-presets-schema";
+import {
+  parseSessionLabels,
+  SESSION_LABELS_SETTING_KEY,
+} from "@/lib/session-label-settings";
 import { AUTO_AGENT_SYSTEM_INSTRUCTION } from "@/lib/auto-agent";
 import { AUTO_AGENT_ENABLED_SETTING_KEY } from "@/lib/default-agent";
 
@@ -82,6 +86,7 @@ const ALLOWED_KEYS = new Set<string>([
   TITLE_AUTO_UPDATE_ENABLED_SETTING_KEY,
   PINNED_TASKS_SETTING_KEY,
   COMPOSER_PROMPT_PRESETS_SETTING_KEY,
+  SESSION_LABELS_SETTING_KEY,
 ]);
 
 function normalizedGenerationModelValue(value: string): string | null {
@@ -141,6 +146,10 @@ function validateValue(key: string, value: string): string | null {
   if (key === PINNED_TASKS_SETTING_KEY) {
     const ids = parsePinnedTaskIds(value);
     return ids === null ? null : JSON.stringify(ids);
+  }
+  if (key === SESSION_LABELS_SETTING_KEY) {
+    const labels = parseSessionLabels(value);
+    return labels === null ? null : JSON.stringify(labels);
   }
   if (key === COMPACTION_ACTION_SETTING_KEY) {
     return value === "suggest" || value === "auto" || value === "off" ? value : null;

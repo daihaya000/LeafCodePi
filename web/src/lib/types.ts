@@ -325,6 +325,8 @@ export type TaskSummary = {
   title: string;
   /** タイトルの自動更新。未設定は設定のデフォルトに従う。 */
   titleAutoUpdate?: boolean;
+  /** 自動付与されたセッションラベルの id。定義が消えた id は表示しない。 */
+  label?: string;
   directory: string;
   isolation: "current_folder";
   status: TaskStatus;

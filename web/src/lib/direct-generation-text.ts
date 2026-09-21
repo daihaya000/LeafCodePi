@@ -192,6 +192,24 @@ export function sanitizeTitle(raw: string): string {
   return truncateCodePoints(stripWrapping(firstLine), TITLE_MAX_CHARS).trim();
 }
 
+const LABEL_LINE = /^(?:ラベル|label)[:：]\s*(.+)$/i;
+
+/**
+ * Split the title response into its title and the optional "ラベル: X" line.
+ * The label line is removed wherever it appears, so the title never becomes it.
+ */
+export function splitTitleAndLabel(raw: string): { title: string; labelName: string | null } {
+  const lines = raw.split(/\r?\n/);
+  const index = lines.findIndex((line) => LABEL_LINE.test(line.trim()));
+  if (index < 0) return { title: sanitizeTitle(raw), labelName: null };
+  const matched = lines[index]!.trim().match(LABEL_LINE)![1]!.trim();
+  const labelName = stripWrapping(matched).trim();
+  return {
+    title: sanitizeTitle(lines.filter((_, i) => i !== index).join("\n")),
+    labelName: labelName || null,
+  };
+}
+
 export const NEXT_ACTION_SYSTEM_INSTRUCTION = [
   "あなたはユーザーの次の一手を提案するアシスタントです。",
   "以下の会話履歴に基づいて、ユーザーが次に送るべき指示を1件だけ出力してください。",

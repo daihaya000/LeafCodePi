@@ -237,6 +237,7 @@ export function patchTask(
       TaskSummary,
       | "title"
       | "titleAutoUpdate"
+      | "label"
       | "projectId"
       | "projectName"
       | "directory"

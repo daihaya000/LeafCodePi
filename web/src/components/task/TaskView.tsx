@@ -43,6 +43,7 @@ import { NextAction } from "@/components/task/NextAction";
 import { GraphPanel } from "@/components/task/GraphPanel";
 import { ProjectExplorerButton } from "@/components/task/ProjectExplorerButton";
 import { ProjectFilePicker } from "@/components/ProjectFilePicker";
+import { SessionLabelBadge } from "@/components/SessionLabelBadge";
 import { TodoProgressPanel } from "@/components/task/TodoProgressPanel";
 import { ModelSelect, modelOptionForValue } from "@/components/ModelSelect";
 import { ThinkingSelect } from "@/components/ThinkingSelect";
@@ -2085,11 +2086,11 @@ export const TaskView = memo(function TaskView({
     titleUpdatedTurnRef.current = lastUserMessageId;
     const mutation = ++titleMutationRef.current;
     setTitleBusy(true);
-    void sendJson<{ title: string; task: TaskSummary }>(`/api/tasks/${taskId}/title`, {}).then((result) => {
+    void sendJson<{ title: string; label?: string; task: TaskSummary }>(`/api/tasks/${taskId}/title`, {}).then((result) => {
       if (mutation !== titleMutationRef.current) return;
       setTask((current) =>
         current && resolveTitleAutoUpdateEnabled(current.titleAutoUpdate, titleAutoUpdateDefault)
-          ? { ...current, title: result.title }
+          ? { ...current, title: result.title, ...(result.label ? { label: result.label } : {}) }
           : current,
       );
       notifyTasksChanged();
@@ -2147,12 +2148,16 @@ export const TaskView = memo(function TaskView({
     setTitleBusy(true);
     setError(null);
     try {
-      const result = await sendJson<{ title: string; task: TaskSummary }>(
+      const result = await sendJson<{ title: string; label?: string; task: TaskSummary }>(
         `/api/tasks/${taskId}/title`,
         {},
       );
       if (mutation !== titleMutationRef.current) return;
-      setTask((current) => (current ? { ...current, title: result.title } : current));
+      setTask((current) =>
+        current
+          ? { ...current, title: result.title, ...(result.label ? { label: result.label } : {}) }
+          : current,
+      );
       notifyTasksChanged();
     } catch (err) {
       if (mutation === titleMutationRef.current) {
@@ -3085,6 +3090,7 @@ export const TaskView = memo(function TaskView({
                   }
                 }}
               >
+                <SessionLabelBadge labelId={task?.label} className="mr-1.5" />
                 <span className="block truncate">{task?.title ?? "読み込み中…"}</span>
               </h1>
             )}

@@ -2,7 +2,7 @@ import { memo, useState } from "react";
 import { cx } from "@/components/ui";
 import { PROJECT_ICON_COLORS, type ProjectDto, type ProjectIconColor } from "@/lib/types";
 
-const PROJECT_ICON_TONES = {
+export const PROJECT_ICON_TONES = {
   red: "border-danger/30 bg-danger-bg text-danger",
   orange: "border-orange-500/30 bg-orange-50 text-orange-700 dark:border-orange-400/30 dark:bg-orange-950/50 dark:text-orange-300",
   yellow: "border-warning/30 bg-warning-bg text-warning",

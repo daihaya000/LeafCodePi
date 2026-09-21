@@ -17,6 +17,7 @@ import { DesignMdSettings } from "@/components/settings/DesignMdSettings";
 import { UserMdSettings } from "@/components/settings/UserMdSettings";
 import { MemorySettings } from "@/components/settings/MemorySettings";
 import { CompactionSettings } from "@/components/settings/CompactionSettings";
+import { SessionLabelSettings } from "@/components/settings/SessionLabelSettings";
 import { NavigatorSettings } from "@/components/settings/NavigatorSettings";
 import { SkillsSettings } from "@/components/settings/SkillsSettings";
 import { ExtensionsSettings } from "@/components/settings/ExtensionsSettings";
@@ -411,6 +412,9 @@ export function SettingsView() {
                   </div>
                   <div id="models-generation" className="scroll-mt-24">
                     <GenerationModelSettings refreshToken={modelsRevision} />
+                  </div>
+                  <div id="models-session-labels" className="scroll-mt-24">
+                    <SessionLabelSettings />
                   </div>
                 </div>
               </SettingsGroup>

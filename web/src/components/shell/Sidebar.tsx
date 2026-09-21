@@ -31,6 +31,7 @@ import { CodexBarWidget } from "@/components/codexbar/CodexBarWidget";
 import { SystemMonitorWidget } from "@/components/sysmon/SystemMonitorWidget";
 import { useBotStatusFor, useTaskPanesNavigation } from "@/components/shell/TaskPanesContext";
 import { Button, cx, timeAgo } from "@/components/ui";
+import { SessionLabelBadge } from "@/components/SessionLabelBadge";
 import { BotAvatar, type BotFace } from "@/components/bot/BotAvatar";
 import { isTaskDrag, setTaskDragData } from "@/lib/task-drag";
 import { notifyBotSidebarChanged, notifyTasksChanged } from "@/lib/events";
@@ -777,7 +778,10 @@ export const SidebarTaskRow = memo(function SidebarTaskRow({
           <TaskActivityIcon task={task} bot={bot} />
           <span className="flex min-w-0 flex-1 flex-col items-start">
             <span className="w-full truncate text-xs font-medium">{task.title}</span>
-            <span className="text-[10px] text-muted">{timeAgo(task.updatedAt)}</span>
+            <span className="flex w-full min-w-0 items-center gap-1">
+              <span className="text-[10px] text-muted">{timeAgo(task.updatedAt)}</span>
+              <SessionLabelBadge labelId={task.label} />
+            </span>
           </span>
         </button>
         <button
@@ -2370,7 +2374,10 @@ const SidebarView = memo(function SidebarView({
                               <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-faint" />
                               <span className="flex min-w-0 flex-1 flex-col items-start">
                                 <span className="w-full truncate text-xs font-medium">{task.title}</span>
-                                <span className="text-[10px] text-muted">{timeAgo(task.updatedAt)}</span>
+                                <span className="flex w-full min-w-0 items-center gap-1">
+                                  <span className="text-[10px] text-muted">{timeAgo(task.updatedAt)}</span>
+                                  <SessionLabelBadge labelId={task.label} />
+                                </span>
                               </span>
                             </button>
                             <button
@@ -2785,7 +2792,10 @@ const SidebarView = memo(function SidebarView({
                     <TaskActivityIcon task={task} bot={(task.botId ?? task.supervisorBotId) ? botsById.get(task.botId ?? task.supervisorBotId!) : undefined} />
                     <span className="flex min-w-0 flex-1 flex-col items-start">
                       <span className="w-full truncate font-medium">{task.title}</span>
-                      <span className="text-[10px] text-faint">{timeAgo(task.updatedAt)}</span>
+                      <span className="flex w-full min-w-0 items-center gap-1">
+                        <span className="text-[10px] text-faint">{timeAgo(task.updatedAt)}</span>
+                        <SessionLabelBadge labelId={task.label} />
+                      </span>
                     </span>
                   </button>
                   <TaskProgressBar task={task} className="mx-3 mb-1" />
