@@ -77,7 +77,10 @@ describe("拡張設定の一覧", () => {
     expect(within(screen.getByTestId("mcp-bundled")).getByText("n8n")).toBeTruthy();
     expect(within(screen.getByTestId("mcp-bundled")).getByText("slack")).toBeTruthy();
     expect(within(screen.getByTestId("mcp-bundled")).getByText("notion")).toBeTruthy();
+    expect(within(screen.getByTestId("mcp-user")).getByRole("heading", { name: "ユーザー追加" })).toBeTruthy();
     expect(within(screen.getByTestId("mcp-user")).getByText("C:/pi/mcp.json")).toBeTruthy();
+    expect(within(screen.getByTestId("mcp-user")).queryByText("ユーザー:")).toBeNull();
+    expect(screen.queryByText("設定ファイルにユーザーが追加したMCPサーバーです。")).toBeNull();
     expect(within(screen.getByTestId("mcp-user")).getByText("fxhoudini")).toBeTruthy();
 
     for (const sectionId of ["skills-bundled", "skills-user", "mcp-bundled", "mcp-user"]) {

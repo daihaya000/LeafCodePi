@@ -101,6 +101,5 @@ describe("McpSettings", () => {
     await screen.findByText("n8n");
 
     expect(screen.queryByTestId("mcp-add")).toBeNull();
-    expect(screen.queryByText("ユーザー追加")).toBeNull();
   });
 });

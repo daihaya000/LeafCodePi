@@ -582,12 +582,11 @@ export function McpSettings() {
           </section>
           <section data-testid="mcp-user" className="rounded-xl border border-border bg-surface p-3">
             <div className="flex items-center justify-between gap-3">
-              <h4 className="text-sm font-semibold">ユーザー追加済み</h4>
+              <h4 className="text-sm font-semibold">ユーザー追加</h4>
               <Badge tone="neutral">{userServers.length}件</Badge>
             </div>
-            <p className="mt-1 text-xs text-muted">設定ファイルにユーザーが追加したMCPサーバーです。</p>
             {configPath && (
-              <p className="mt-1 break-all text-[11px] text-muted"><span className="font-semibold">ユーザー:</span> <span className="font-mono">{configPath}</span></p>
+              <p className="mt-1 break-all text-[11px] text-muted"><span className="font-mono">{configPath}</span></p>
             )}
             {renderServerList(userServers)}
           </section>
