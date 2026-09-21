@@ -33,13 +33,16 @@ import {
   type AutoDecision,
 } from "@/lib/auto-model";
 import {
+  AUTO_MODEL_ENABLED_SETTING_KEY,
   AUTO_OPTIMIZE_SETTING_KEY,
   AUTO_ROUTE_OVERRIDES_SETTING_KEY,
   hasStoredAutoSetting,
+  readAutoModelEnabled,
   readAutoOptimizeMode,
   readAutoRouteConfig,
   readAutoSettingsFromServer,
   subscribeAutoSetting,
+  writeAutoModelEnabled,
   writeAutoOptimizeMode,
   writeAutoRouteConfig,
   writeAutoSettingToServer,
@@ -167,10 +170,11 @@ export const HomeView = memo(function HomeView({
   );
   const [models, setModels] = useState<ModelOption[]>(() => readCachedModels() ?? []);
   const [modelsLoading, setModelsLoading] = useState(() => models.length === 0);
+  const [autoModelEnabled, setAutoModelEnabled] = useState(() => readAutoModelEnabled());
   // キャッシュ hit でも選択値を即復元しないと ModelSelect が「モデルなし」になる。
   const [model, setModel] = useState(() => {
     if (models.length === 0) return "";
-    const nextOptions = [AUTO_MODEL_OPTION, ...models];
+    const nextOptions = autoModelEnabled ? [AUTO_MODEL_OPTION, ...models] : models;
     return modelOptionForValue(nextOptions, readStoredModel())?.value ?? models[0]?.value ?? "";
   });
   const [autoOptimizeMode, setAutoOptimizeMode] = useState<AutoOptimizeMode>(
@@ -214,7 +218,10 @@ export const HomeView = memo(function HomeView({
     ? projects.find((project) => project.id === projectId)
     : undefined;
   const promptPresetReferences = useComposerPromptPresetReferences();
-  const modelOptions = useMemo(() => [AUTO_MODEL_OPTION, ...models], [models]);
+  const modelOptions = useMemo(
+    () => (autoModelEnabled ? [AUTO_MODEL_OPTION, ...models] : models),
+    [autoModelEnabled, models],
+  );
   // ModelSelect 表示と同じ照合にし、integrated / 旧アカウント接頭辞でも思考レベルを失わない。
   const selectedModel = modelOptionForValue(modelOptions, model);
   const thinkingLevels = useMemo(
@@ -237,7 +244,9 @@ export const HomeView = memo(function HomeView({
           setModels(nextModels);
           writeCachedModels(nextModels);
         }
-        const nextOptions = [AUTO_MODEL_OPTION, ...nextModels];
+        const nextOptions = readAutoModelEnabled()
+          ? [AUTO_MODEL_OPTION, ...nextModels]
+          : nextModels;
         setModel((current) => {
           const preserved = modelOptionForValue(nextOptions, current);
           if (preserved) return preserved.value;
@@ -340,18 +349,47 @@ export const HomeView = memo(function HomeView({
     }
   }, [initialNoProject, initialProjectId]);
 
-  useEffect(
-    () =>
-      subscribeAutoSetting(AUTO_OPTIMIZE_SETTING_KEY, () =>
-        setAutoOptimizeMode(readAutoOptimizeMode()),
-      ),
-    [],
-  );
+  useEffect(() => {
+    const unsubscribeMode = subscribeAutoSetting(AUTO_OPTIMIZE_SETTING_KEY, () =>
+      setAutoOptimizeMode(readAutoOptimizeMode()),
+    );
+    const unsubscribeModelEnabled = subscribeAutoSetting(AUTO_MODEL_ENABLED_SETTING_KEY, () => {
+      const enabled = readAutoModelEnabled();
+      setAutoModelEnabled(enabled);
+      if (!enabled) {
+        setModel((current) => {
+          if (current !== AUTO_MODEL_VALUE) return current;
+          const fallback = modelsRef.current[0]?.value ?? "";
+          if (fallback) writeStoredModel(fallback);
+          return fallback;
+        });
+      }
+    });
+    return () => {
+      unsubscribeMode();
+      unsubscribeModelEnabled();
+    };
+  }, []);
 
   useEffect(() => {
     let active = true;
     void readAutoSettingsFromServer().then((snapshot) => {
       if (!active) return;
+      if (
+        snapshot.modelEnabled !== undefined &&
+        !hasStoredAutoSetting(AUTO_MODEL_ENABLED_SETTING_KEY)
+      ) {
+        writeAutoModelEnabled(snapshot.modelEnabled);
+        setAutoModelEnabled(snapshot.modelEnabled);
+        if (!snapshot.modelEnabled) {
+          setModel((current) => {
+            if (current !== AUTO_MODEL_VALUE) return current;
+            const fallback = modelsRef.current[0]?.value ?? "";
+            if (fallback) writeStoredModel(fallback);
+            return fallback;
+          });
+        }
+      }
       if (
         snapshot.mode &&
         !hasStoredAutoSetting(AUTO_OPTIMIZE_SETTING_KEY)

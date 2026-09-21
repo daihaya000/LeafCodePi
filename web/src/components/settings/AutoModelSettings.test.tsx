@@ -57,6 +57,25 @@ describe("AutoModelSettings", () => {
     expect(within(modeGroup).getByRole("button", { name: "知能優先" }).getAttribute("aria-pressed")).toBe("true");
   });
 
+  it("toggles Auto model availability and stores it for the server", async () => {
+    client.getJson.mockImplementation((path: string) =>
+      path === "/api/models" ? Promise.resolve({ models: [] }) : Promise.resolve({ value: null }),
+    );
+    render(<AutoModelSettings />);
+    await waitFor(() => expect(screen.queryByText("モデルを読み込み中…")).toBeNull());
+
+    const toggle = screen.getByRole("switch", { name: "Autoモデルを無効化" });
+    expect(toggle.getAttribute("aria-checked")).toBe("true");
+    fireEvent.click(toggle);
+
+    expect(screen.getByRole("switch", { name: "Autoモデルを有効化" })).toBeTruthy();
+    await waitFor(() => expect(client.sendJson).toHaveBeenCalledWith(
+      "/api/settings/auto-model-enabled",
+      { value: "0" },
+      "PUT",
+    ));
+  });
+
   it("toggles Jev routing and stores the confidence for the server", async () => {
     client.getJson.mockImplementation((path: string) =>
       path === "/api/models" ? Promise.resolve({ models: [] }) : Promise.resolve({ value: null }),

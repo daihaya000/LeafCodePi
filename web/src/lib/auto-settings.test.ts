@@ -10,12 +10,14 @@ vi.mock("@/lib/client", () => client);
 import {
   AUTO_JEV_ENABLED_SETTING_KEY,
   AUTO_JEV_MIN_CONFIDENCE_SETTING_KEY,
+  AUTO_MODEL_ENABLED_SETTING_KEY,
   AUTO_OPTIMIZE_EVENT,
   AUTO_OPTIMIZE_SETTING_KEY,
   AUTO_ROUTE_OVERRIDES_SETTING_KEY,
   hasStoredAutoSetting,
   readAutoJevEnabled,
   readAutoJevMinConfidence,
+  readAutoModelEnabled,
   readAutoOptimizeMode,
   readAutoRouteConfig,
   readAutoSettingsFromServer,
@@ -23,6 +25,7 @@ import {
   subscribeAutoSetting,
   writeAutoJevEnabled,
   writeAutoJevMinConfidence,
+  writeAutoModelEnabled,
   writeAutoOptimizeMode,
   writeAutoRouteConfig,
   writeAutoSettingToServer,
@@ -83,6 +86,7 @@ describe("auto-settings", () => {
 
   it("uses safe defaults, writes synchronously, and notifies the same document", () => {
     expect(readAutoOptimizeMode()).toBe("cost");
+    expect(readAutoModelEnabled()).toBe(true);
     expect(readAutoShowModel()).toBe(false);
     expect(readAutoJevEnabled()).toBe(false);
     expect(readAutoJevMinConfidence()).toBe(0.6);
@@ -90,11 +94,13 @@ describe("auto-settings", () => {
     const listener = vi.fn();
     const unsubscribe = subscribeAutoSetting(AUTO_OPTIMIZE_SETTING_KEY, listener);
     writeAutoOptimizeMode("intelligence");
+    writeAutoModelEnabled(false);
     writeAutoShowModel(true);
     writeAutoJevEnabled(true);
     writeAutoJevMinConfidence(0.75);
 
     expect(readAutoOptimizeMode()).toBe("intelligence");
+    expect(readAutoModelEnabled()).toBe(false);
     expect(readAutoShowModel()).toBe(true);
     expect(readAutoJevEnabled()).toBe(true);
     expect(readAutoJevMinConfidence()).toBe(0.75);
@@ -112,9 +118,11 @@ describe("auto-settings", () => {
       .mockResolvedValueOnce({ value: "1" })
       .mockResolvedValueOnce({ value: null })
       .mockResolvedValueOnce({ value: "1" })
-      .mockResolvedValueOnce({ value: "0.75" });
+      .mockResolvedValueOnce({ value: "0.75" })
+      .mockResolvedValueOnce({ value: "0" });
     await expect(readAutoSettingsFromServer()).resolves.toEqual({
       mode: "balanced",
+      modelEnabled: false,
       showModel: true,
       jevEnabled: true,
       jevMinConfidence: 0.75,
@@ -172,6 +180,7 @@ describe("auto-settings", () => {
     globalThis.localStorage.clear();
     for (const key of [
       AUTO_OPTIMIZE_SETTING_KEY,
+      AUTO_MODEL_ENABLED_SETTING_KEY,
       AUTO_JEV_ENABLED_SETTING_KEY,
       AUTO_JEV_MIN_CONFIDENCE_SETTING_KEY,
       AUTO_ROUTE_OVERRIDES_SETTING_KEY,

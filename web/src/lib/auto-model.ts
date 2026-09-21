@@ -14,6 +14,7 @@ import {
 } from "@/lib/model-variants";
 
 export const AUTO_MODEL_VALUE = "auto";
+export const AUTO_MODEL_ENABLED_SETTING_KEY = "auto-model-enabled";
 
 export const AUTO_MODEL_OPTION: ModelOption = {
   value: AUTO_MODEL_VALUE,

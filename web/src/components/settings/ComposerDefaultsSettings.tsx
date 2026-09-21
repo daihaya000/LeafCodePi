@@ -4,6 +4,14 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { getJson } from "@/lib/client";
 import { AUTO_MODEL_OPTION } from "@/lib/auto-model";
 import {
+  AUTO_MODEL_ENABLED_SETTING_KEY,
+  hasStoredAutoSetting,
+  readAutoModelEnabled,
+  readAutoSettingsFromServer,
+  subscribeAutoSetting,
+  writeAutoModelEnabled,
+} from "@/lib/auto-settings";
+import {
   hasStoredComposerDefaults,
   readComposerDefaults,
   readComposerDefaultsFromServer,
@@ -35,11 +43,13 @@ export function ComposerDefaultsSettings({ refreshToken = 0 }: { refreshToken?: 
   const [models, setModels] = useState<ModelOption[]>([]);
   const [agents, setAgents] = useState<string[]>([]);
   const [autoAgentEnabled, setAutoAgentEnabled] = useState(true);
+  const [autoModelEnabled, setAutoModelEnabled] = useState(() => readAutoModelEnabled());
   const [thinkingLevel, setThinkingLevel] = useState<ThinkingLevel>(
     () => readStoredThinkingLevel() ?? "off",
   );
   const [error, setError] = useState<string | null>(null);
   const touchedRef = useRef(false);
+  const autoModelTouchedRef = useRef(false);
   const thinkingLevelTouchedRef = useRef(false);
   const thinkingModelRef = useRef<string | undefined>(undefined);
 
@@ -74,6 +84,28 @@ export function ComposerDefaultsSettings({ refreshToken = 0 }: { refreshToken?: 
 
   useEffect(() => {
     let active = true;
+    const unsubscribe = subscribeAutoSetting(AUTO_MODEL_ENABLED_SETTING_KEY, () => {
+      autoModelTouchedRef.current = true;
+      setAutoModelEnabled(readAutoModelEnabled());
+    });
+    void readAutoSettingsFromServer().then((snapshot) => {
+      if (
+        !active ||
+        snapshot.modelEnabled === undefined ||
+        autoModelTouchedRef.current ||
+        hasStoredAutoSetting(AUTO_MODEL_ENABLED_SETTING_KEY)
+      ) return;
+      writeAutoModelEnabled(snapshot.modelEnabled);
+      setAutoModelEnabled(snapshot.modelEnabled);
+    });
+    return () => {
+      active = false;
+      unsubscribe();
+    };
+  }, []);
+
+  useEffect(() => {
+    let active = true;
     if (hasStoredComposerDefaults()) return;
     void readComposerDefaultsFromServer().then((snapshot) => {
       if (!active || !snapshot || touchedRef.current || hasStoredComposerDefaults()) return;
@@ -92,7 +124,7 @@ export function ComposerDefaultsSettings({ refreshToken = 0 }: { refreshToken?: 
     writeComposerDefaults(next);
   }, [defaults]);
 
-  const modelOptions = [AUTO_MODEL_OPTION, ...models];
+  const modelOptions = autoModelEnabled ? [AUTO_MODEL_OPTION, ...models] : models;
   // ModelSelect/HomeView と同じ照合にし、integrated / 旧アカウント接頭辞でも effort を失わない。
   const selectedModel = modelOptionForValue(modelOptions, defaults.model);
   const thinkingLevels = useMemo(() => selectedModel?.thinkingLevels ?? [], [selectedModel]);
@@ -101,6 +133,11 @@ export function ComposerDefaultsSettings({ refreshToken = 0 }: { refreshToken?: 
   // AgentSelect は Composer と同じく不明値を正規化して表示するため、
   // 無効な既定値の情報はモデル側の未接続表示と同型の警告行で残す。
   const agentKnown = (autoAgentEnabled && defaults.agent === AUTO_AGENT_VALUE) || agents.includes(defaults.agent);
+
+  useEffect(() => {
+    if (autoModelEnabled || defaults.model !== AUTO_MODEL_OPTION.value || !models[0]) return;
+    change({ model: models[0].value });
+  }, [autoModelEnabled, change, defaults.model, models]);
 
   useEffect(() => {
     if (!selectedModel || selectedModel.value === defaults.model) return;

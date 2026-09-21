@@ -3,22 +3,25 @@
 import { useEffect, useRef, useState } from "react";
 import { AutoRouteOverridesEditor } from "@/components/settings/AutoRouteOverridesEditor";
 import { JevSettingCard } from "@/components/settings/JevSettingCard";
-import { cx } from "@/components/ui";
+import { Switch, cx } from "@/components/ui";
 import { getJson } from "@/lib/client";
 import {
   AUTO_JEV_ENABLED_SETTING_KEY,
   AUTO_JEV_MIN_CONFIDENCE_SETTING_KEY,
+  AUTO_MODEL_ENABLED_SETTING_KEY,
   AUTO_OPTIMIZE_SETTING_KEY,
   AUTO_ROUTE_OVERRIDES_SETTING_KEY,
   hasStoredAutoSetting,
   readAutoJevEnabled,
   readAutoJevMinConfidence,
+  readAutoModelEnabled,
   readAutoOptimizeMode,
   readAutoRouteConfig,
   readAutoSettingsFromServer,
   subscribeAutoSetting,
   writeAutoJevEnabled,
   writeAutoJevMinConfidence,
+  writeAutoModelEnabled,
   writeAutoOptimizeMode,
   writeAutoRouteConfig,
   writeAutoSettingToServer,
@@ -36,11 +39,12 @@ export function AutoModelSettings({ refreshToken = 0 }: { refreshToken?: number 
   const [models, setModels] = useState<ModelOption[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [modelEnabled, setModelEnabled] = useState(() => readAutoModelEnabled());
   const [mode, setMode] = useState<AutoOptimizeMode>(() => readAutoOptimizeMode());
   const [routeConfig, setRouteConfig] = useState<AutoRouteConfig>(() => readAutoRouteConfig());
   const [jevEnabled, setJevEnabled] = useState(() => readAutoJevEnabled());
   const [jevMinConfidence, setJevMinConfidence] = useState(() => readAutoJevMinConfidence());
-  const touchedRef = useRef({ mode: false, routeConfig: false, jev: false });
+  const touchedRef = useRef({ modelEnabled: false, mode: false, routeConfig: false, jev: false });
 
   useEffect(() => {
     let active = true;
@@ -62,6 +66,10 @@ export function AutoModelSettings({ refreshToken = 0 }: { refreshToken?: number 
   }, [refreshToken]);
 
   useEffect(() => {
+    const onModelEnabled = () => {
+      touchedRef.current.modelEnabled = true;
+      setModelEnabled(readAutoModelEnabled());
+    };
     const onMode = () => {
       touchedRef.current.mode = true;
       setMode(readAutoOptimizeMode());
@@ -75,11 +83,13 @@ export function AutoModelSettings({ refreshToken = 0 }: { refreshToken?: number 
       setJevEnabled(readAutoJevEnabled());
       setJevMinConfidence(readAutoJevMinConfidence());
     };
+    const unsubscribeModelEnabled = subscribeAutoSetting(AUTO_MODEL_ENABLED_SETTING_KEY, onModelEnabled);
     const unsubscribeMode = subscribeAutoSetting(AUTO_OPTIMIZE_SETTING_KEY, onMode);
     const unsubscribeRouteConfig = subscribeAutoSetting(AUTO_ROUTE_OVERRIDES_SETTING_KEY, onRouteConfig);
     const unsubscribeJevEnabled = subscribeAutoSetting(AUTO_JEV_ENABLED_SETTING_KEY, onJev);
     const unsubscribeJevConfidence = subscribeAutoSetting(AUTO_JEV_MIN_CONFIDENCE_SETTING_KEY, onJev);
     return () => {
+      unsubscribeModelEnabled();
       unsubscribeMode();
       unsubscribeRouteConfig();
       unsubscribeJevEnabled();
@@ -91,6 +101,14 @@ export function AutoModelSettings({ refreshToken = 0 }: { refreshToken?: number 
     let active = true;
     void readAutoSettingsFromServer().then((snapshot) => {
       if (!active) return;
+      if (
+        snapshot.modelEnabled !== undefined &&
+        !touchedRef.current.modelEnabled &&
+        !hasStoredAutoSetting(AUTO_MODEL_ENABLED_SETTING_KEY)
+      ) {
+        writeAutoModelEnabled(snapshot.modelEnabled);
+        setModelEnabled(snapshot.modelEnabled);
+      }
       if (
         snapshot.mode &&
         !touchedRef.current.mode &&
@@ -129,6 +147,13 @@ export function AutoModelSettings({ refreshToken = 0 }: { refreshToken?: number 
     };
   }, []);
 
+  const changeModelEnabled = (next: boolean) => {
+    touchedRef.current.modelEnabled = true;
+    setModelEnabled(next);
+    writeAutoModelEnabled(next);
+    void writeAutoSettingToServer(AUTO_MODEL_ENABLED_SETTING_KEY, next ? "1" : "0");
+  };
+
   const changeMode = (next: AutoOptimizeMode) => {
     touchedRef.current.mode = true;
     setMode(next);
@@ -162,10 +187,20 @@ export function AutoModelSettings({ refreshToken = 0 }: { refreshToken?: number 
 
   return (
     <section aria-labelledby="auto-mode-heading" className="rounded-2xl border border-border bg-surface p-4">
-      <h3 id="auto-mode-heading" className="text-sm font-semibold">Autoモデル</h3>
-      <p className="mt-1 text-xs text-muted">
-        Autoはタスクごとにモデルを選びます。最適化方針はcomposerのeffort欄からも変更できます。
-      </p>
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h3 id="auto-mode-heading" className="text-sm font-semibold">Autoモデル</h3>
+          <p className="mt-1 text-xs text-muted">
+            Autoはタスクごとにモデルを選びます。無効にするとモデル選択からAutoを外します。
+          </p>
+        </div>
+        <Switch
+          checked={modelEnabled}
+          onChange={() => changeModelEnabled(!modelEnabled)}
+          label={`Autoモデルを${modelEnabled ? "無効化" : "有効化"}`}
+          title="Autoモデルの使用を切り替え"
+        />
+      </div>
       <div className="mt-3 space-y-3">
         <div className="rounded-lg bg-surface-2 px-3 py-2">
           <p className="text-xs font-medium text-text">最適化方針</p>

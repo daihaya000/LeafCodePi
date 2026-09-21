@@ -29,6 +29,7 @@ import {
   NOTIFICATION_SOUND_VOLUME_SETTING_KEY,
 } from "@/lib/notification-sound-settings";
 import {
+  AUTO_MODEL_ENABLED_SETTING_KEY,
   isAutoOptimizeMode,
   normalizeAutoRouteConfig,
 } from "@/lib/auto-model";
@@ -57,6 +58,7 @@ export const dynamic = "force-dynamic";
 /** 本家 LeafCode の /api/settings/[key] 相当。許容キーを絞って任意上書きを防ぐ。 */
 const ALLOWED_KEYS = new Set<string>([
   "auto-optimize",
+  AUTO_MODEL_ENABLED_SETTING_KEY,
   "auto-show-model",
   "auto-route-overrides",
   AUTO_JEV_ENABLED_SETTING_KEY,
@@ -98,6 +100,9 @@ function validateValue(key: string, value: string): string | null {
   }
   if (key === "auto-optimize") {
     return isAutoOptimizeMode(value) ? value : null;
+  }
+  if (key === AUTO_MODEL_ENABLED_SETTING_KEY) {
+    return value === "0" || value === "1" ? value : null;
   }
   if (key === "auto-show-model") {
     return value === "1" ? value : null;

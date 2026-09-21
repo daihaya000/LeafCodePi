@@ -6,6 +6,7 @@ import {
   parseAutoJevMinConfidence,
 } from "@/lib/auto-jev-settings";
 import {
+  AUTO_MODEL_ENABLED_SETTING_KEY,
   DEFAULT_AUTO_OPTIMIZE_MODE,
   EMPTY_AUTO_ROUTE_CONFIG,
   isAutoOptimizeMode,
@@ -16,24 +17,28 @@ import {
 } from "@/lib/auto-model";
 
 const OPTIMIZE_STORAGE_KEY = "webui:auto-optimize";
+const MODEL_ENABLED_STORAGE_KEY = "webui:auto-model-enabled";
 const SHOW_MODEL_STORAGE_KEY = "webui:auto-show-model";
 const ROUTE_CONFIG_STORAGE_KEY = "webui:auto-route-overrides";
 const JEV_ENABLED_STORAGE_KEY = "webui:auto-jev-enabled";
 const JEV_MIN_CONFIDENCE_STORAGE_KEY = "webui:auto-jev-min-confidence";
 
 export const AUTO_OPTIMIZE_EVENT = "webui:auto-optimize";
+export const AUTO_MODEL_ENABLED_EVENT = "webui:auto-model-enabled";
 export const AUTO_SHOW_MODEL_EVENT = "webui:auto-show-model";
 export const AUTO_ROUTE_OVERRIDES_EVENT = "webui:auto-route-overrides";
 export const AUTO_JEV_ENABLED_EVENT = "webui:auto-jev-enabled";
 export const AUTO_JEV_MIN_CONFIDENCE_EVENT = "webui:auto-jev-min-confidence";
 
 export const AUTO_OPTIMIZE_SETTING_KEY = "auto-optimize";
+export { AUTO_MODEL_ENABLED_SETTING_KEY };
 export const AUTO_SHOW_MODEL_SETTING_KEY = "auto-show-model";
 export const AUTO_ROUTE_OVERRIDES_SETTING_KEY = "auto-route-overrides";
 export { AUTO_JEV_ENABLED_SETTING_KEY, AUTO_JEV_MIN_CONFIDENCE_SETTING_KEY };
 
 export type AutoSettingKey =
   | typeof AUTO_OPTIMIZE_SETTING_KEY
+  | typeof AUTO_MODEL_ENABLED_SETTING_KEY
   | typeof AUTO_SHOW_MODEL_SETTING_KEY
   | typeof AUTO_ROUTE_OVERRIDES_SETTING_KEY
   | typeof AUTO_JEV_ENABLED_SETTING_KEY
@@ -44,6 +49,11 @@ const syncByKey: Record<AutoSettingKey, SettingSync> = {
     storageKey: OPTIMIZE_STORAGE_KEY,
     serverPath: `/api/settings/${AUTO_OPTIMIZE_SETTING_KEY}`,
     eventName: AUTO_OPTIMIZE_EVENT,
+  }),
+  [AUTO_MODEL_ENABLED_SETTING_KEY]: createSettingSync({
+    storageKey: MODEL_ENABLED_STORAGE_KEY,
+    serverPath: `/api/settings/${AUTO_MODEL_ENABLED_SETTING_KEY}`,
+    eventName: AUTO_MODEL_ENABLED_EVENT,
   }),
   [AUTO_SHOW_MODEL_SETTING_KEY]: createSettingSync({
     storageKey: SHOW_MODEL_STORAGE_KEY,
@@ -69,6 +79,7 @@ const syncByKey: Record<AutoSettingKey, SettingSync> = {
 
 const storageKeyBySetting: Record<AutoSettingKey, string> = {
   [AUTO_OPTIMIZE_SETTING_KEY]: OPTIMIZE_STORAGE_KEY,
+  [AUTO_MODEL_ENABLED_SETTING_KEY]: MODEL_ENABLED_STORAGE_KEY,
   [AUTO_SHOW_MODEL_SETTING_KEY]: SHOW_MODEL_STORAGE_KEY,
   [AUTO_ROUTE_OVERRIDES_SETTING_KEY]: ROUTE_CONFIG_STORAGE_KEY,
   [AUTO_JEV_ENABLED_SETTING_KEY]: JEV_ENABLED_STORAGE_KEY,
@@ -77,6 +88,7 @@ const storageKeyBySetting: Record<AutoSettingKey, string> = {
 
 const eventBySetting: Record<AutoSettingKey, string> = {
   [AUTO_OPTIMIZE_SETTING_KEY]: AUTO_OPTIMIZE_EVENT,
+  [AUTO_MODEL_ENABLED_SETTING_KEY]: AUTO_MODEL_ENABLED_EVENT,
   [AUTO_SHOW_MODEL_SETTING_KEY]: AUTO_SHOW_MODEL_EVENT,
   [AUTO_ROUTE_OVERRIDES_SETTING_KEY]: AUTO_ROUTE_OVERRIDES_EVENT,
   [AUTO_JEV_ENABLED_SETTING_KEY]: AUTO_JEV_ENABLED_EVENT,
@@ -90,6 +102,14 @@ export function readAutoOptimizeMode(): AutoOptimizeMode {
 
 export function writeAutoOptimizeMode(mode: AutoOptimizeMode): void {
   syncByKey[AUTO_OPTIMIZE_SETTING_KEY].write(mode);
+}
+
+export function readAutoModelEnabled(): boolean {
+  return syncByKey[AUTO_MODEL_ENABLED_SETTING_KEY].read() !== "0";
+}
+
+export function writeAutoModelEnabled(enabled: boolean): void {
+  syncByKey[AUTO_MODEL_ENABLED_SETTING_KEY].write(enabled ? "1" : "0");
 }
 
 export function readAutoShowModel(): boolean {
@@ -141,6 +161,8 @@ export function hasStoredAutoSetting(key: AutoSettingKey): boolean {
   switch (key) {
     case AUTO_OPTIMIZE_SETTING_KEY:
       return isAutoOptimizeMode(raw);
+    case AUTO_MODEL_ENABLED_SETTING_KEY:
+      return raw === "0" || raw === "1";
     case AUTO_SHOW_MODEL_SETTING_KEY:
       return raw === "1";
     case AUTO_ROUTE_OVERRIDES_SETTING_KEY:
@@ -174,6 +196,7 @@ export function subscribeAutoSetting(
 
 export type AutoSettingsSnapshot = {
   mode?: AutoOptimizeMode;
+  modelEnabled?: boolean;
   showModel?: boolean;
   routeConfig?: AutoRouteConfig;
   jevEnabled?: boolean;
@@ -182,15 +205,17 @@ export type AutoSettingsSnapshot = {
 
 export async function readAutoSettingsFromServer(): Promise<AutoSettingsSnapshot> {
   if (typeof window === "undefined") return {};
-  const [mode, showModel, routeConfig, jevEnabled, jevMinConfidence] = await Promise.all([
+  const [mode, showModel, routeConfig, jevEnabled, jevMinConfidence, modelEnabled] = await Promise.all([
     syncByKey[AUTO_OPTIMIZE_SETTING_KEY].readFromServer(),
     syncByKey[AUTO_SHOW_MODEL_SETTING_KEY].readFromServer(),
     syncByKey[AUTO_ROUTE_OVERRIDES_SETTING_KEY].readFromServer(),
     syncByKey[AUTO_JEV_ENABLED_SETTING_KEY].readFromServer(),
     syncByKey[AUTO_JEV_MIN_CONFIDENCE_SETTING_KEY].readFromServer(),
+    syncByKey[AUTO_MODEL_ENABLED_SETTING_KEY].readFromServer(),
   ]);
   const snapshot: AutoSettingsSnapshot = {};
   if (isAutoOptimizeMode(mode)) snapshot.mode = mode;
+  if (modelEnabled === "0" || modelEnabled === "1") snapshot.modelEnabled = modelEnabled === "1";
   if (showModel !== null) snapshot.showModel = showModel === "1";
   if (jevEnabled !== null) snapshot.jevEnabled = isAutoJevEnabled(jevEnabled);
   if (jevMinConfidence !== null) {

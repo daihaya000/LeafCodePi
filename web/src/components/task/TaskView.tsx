@@ -70,13 +70,16 @@ import {
   type AutoOptimizeMode,
 } from "@/lib/auto-model";
 import {
+  AUTO_MODEL_ENABLED_SETTING_KEY,
   AUTO_OPTIMIZE_SETTING_KEY,
   AUTO_ROUTE_OVERRIDES_SETTING_KEY,
   hasStoredAutoSetting,
+  readAutoModelEnabled,
   readAutoOptimizeMode,
   readAutoRouteConfig,
   readAutoSettingsFromServer,
   subscribeAutoSetting,
+  writeAutoModelEnabled,
   writeAutoOptimizeMode,
   writeAutoRouteConfig,
   writeAutoSettingToServer,
@@ -842,6 +845,7 @@ export const TaskView = memo(function TaskView({
   const [modelsLoading, setModelsLoading] = useState(() => models.length === 0);
   const [modelSelection, setModelSelection] = useState("");
   const modelChangeRef = useRef(0);
+  const [autoModelEnabled, setAutoModelEnabled] = useState(() => readAutoModelEnabled());
   const [autoOptimizeMode, setAutoOptimizeMode] = useState<AutoOptimizeMode>(
     () => readAutoOptimizeMode(),
   );
@@ -978,6 +982,9 @@ export const TaskView = memo(function TaskView({
   const clearedPermissionIdsRef = useRef(new Set<string>());
   const clearedQuestionIdsRef = useRef(new Set<string>());
   useEffect(() => {
+    const unsubscribeModelEnabled = subscribeAutoSetting(AUTO_MODEL_ENABLED_SETTING_KEY, () =>
+      setAutoModelEnabled(readAutoModelEnabled()),
+    );
     const unsubscribeMode = subscribeAutoSetting(AUTO_OPTIMIZE_SETTING_KEY, () =>
       setAutoOptimizeMode(readAutoOptimizeMode()),
     );
@@ -985,6 +992,7 @@ export const TaskView = memo(function TaskView({
       setAutoRouteConfig(readAutoRouteConfig()),
     );
     return () => {
+      unsubscribeModelEnabled();
       unsubscribeMode();
       unsubscribeRouteConfig();
     };
@@ -993,6 +1001,13 @@ export const TaskView = memo(function TaskView({
     let active = true;
     void readAutoSettingsFromServer().then((snapshot) => {
       if (!active) return;
+      if (
+        snapshot.modelEnabled !== undefined &&
+        !hasStoredAutoSetting(AUTO_MODEL_ENABLED_SETTING_KEY)
+      ) {
+        writeAutoModelEnabled(snapshot.modelEnabled);
+        setAutoModelEnabled(snapshot.modelEnabled);
+      }
       if (snapshot.mode && !hasStoredAutoSetting(AUTO_OPTIMIZE_SETTING_KEY)) {
         writeAutoOptimizeMode(snapshot.mode);
         setAutoOptimizeMode(snapshot.mode);
@@ -2678,7 +2693,6 @@ export const TaskView = memo(function TaskView({
            option.modelID === task.modelID,
        )
      : undefined;
-  const modelOptions = useMemo(() => [AUTO_MODEL_OPTION, ...models], [models]);
   const modelValue = resolveModelValue({
     modelSelection,
     hasAutoRecord: Boolean(autoRecord),
@@ -2686,10 +2700,11 @@ export const TaskView = memo(function TaskView({
     plainTaskModelValue,
     firstModelValue: models[0]?.value,
   });
-  const selectedModel =
-    modelValue === AUTO_MODEL_VALUE
-      ? AUTO_MODEL_OPTION
-      : modelOptionForValue(models, modelValue);
+  const modelOptions = useMemo(
+    () => (autoModelEnabled || modelValue === AUTO_MODEL_VALUE ? [AUTO_MODEL_OPTION, ...models] : models),
+    [autoModelEnabled, modelValue, models],
+  );
+  const selectedModel = modelOptionForValue(modelOptions, modelValue);
   const thinkingLevels = useMemo(
     () => selectedModel?.thinkingLevels ?? [],
     [selectedModel],
@@ -3904,6 +3919,7 @@ export const TaskView = memo(function TaskView({
                 onChange={(value) => {
                   const changeId = ++modelChangeRef.current;
                   if (value === AUTO_MODEL_VALUE) {
+                    if (!autoModelEnabled) return;
                     setModelSelection(AUTO_MODEL_VALUE);
                     writeStoredModel(AUTO_MODEL_VALUE);
                     return;
