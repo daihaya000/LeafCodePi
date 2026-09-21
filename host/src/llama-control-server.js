@@ -111,6 +111,18 @@ export function createLlamaControlServer(handlers) {
         return;
       }
 
+      // Mutating routes below rely on the loopback Host check only, and a
+      // browser sends a cross-origin POST (as a simple request) even when it
+      // cannot read the response — a malicious page could restart the host or
+      // rewrite the WebUI auth token (CSRF). Server-side callers (the Next BFF)
+      // send no Origin at all, so only browser origins need the allowlist.
+      const origin = typeof req.headers.origin === "string" ? req.headers.origin : "";
+      if (origin && !handlers.isLocalClientOrigin?.(origin)) {
+        res.writeHead(403, JSON_HEADERS);
+        res.end(JSON.stringify({ ok: false, error: "origin is not allowed" }));
+        return;
+      }
+
       const method = req.method ?? "GET";
       let pathname = "/";
       try {

@@ -395,3 +395,42 @@ test("POST /llama-server/start returns a controlled error when launch fails", as
     await closeControlServer(server);
   }
 });
+
+test("mutating routes reject cross-origin browser callers", async () => {
+  let stopped = 0;
+  const port = await freePort();
+  const server = createLlamaControlServer({
+    controlPort: port,
+    isLocalClientOrigin: (origin) => origin === "http://127.0.0.1:3010",
+    onLlamaServerStatus: () => ({ ok: true }),
+    onLlamaServerStart: async () => ({ ok: true }),
+    onLlamaServerStop: () => {
+      stopped += 1;
+    },
+  });
+  await listenControlServer(server, port);
+  try {
+    // A malicious page can send this simple cross-origin POST without reading
+    // the response; the side effect must not happen.
+    const denied = await fetch(`http://127.0.0.1:${port}/llama-server/stop`, {
+      method: "POST",
+      headers: { host: `127.0.0.1:${port}`, origin: "http://evil.example" },
+    });
+    assert.equal(denied.status, 403);
+    assert.equal(stopped, 0);
+
+    // The Next BFF sends no Origin header, and the WebUI origin is allowed.
+    const serverSide = await fetch(`http://127.0.0.1:${port}/llama-server/stop`, {
+      method: "POST",
+      headers: { host: `127.0.0.1:${port}` },
+    });
+    assert.equal(serverSide.status, 202);
+    const webUi = await fetch(`http://127.0.0.1:${port}/llama-server/stop`, {
+      method: "POST",
+      headers: { host: `127.0.0.1:${port}`, origin: "http://127.0.0.1:3010" },
+    });
+    assert.equal(webUi.status, 202);
+  } finally {
+    await closeControlServer(server);
+  }
+});
