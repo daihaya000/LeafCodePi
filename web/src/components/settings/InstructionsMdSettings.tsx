@@ -98,6 +98,11 @@ export function InstructionsMdSettings({
       <div className="mb-2 flex flex-wrap items-start justify-between gap-2">
         <div className="min-w-0">
           <h3 className="text-sm font-semibold">{title}</h3>
+          {meta?.path && (
+            <p className="mt-1 truncate font-mono text-[11px] text-muted" title={meta.path}>
+              {meta.path}
+            </p>
+          )}
         </div>
         <div className="flex items-center gap-2">
           {loadState === "ready" && !editing && (
@@ -107,12 +112,6 @@ export function InstructionsMdSettings({
           )}
         </div>
       </div>
-
-      {meta?.path && (
-        <p className="mb-2 truncate font-mono text-[11px] text-muted" title={meta.path}>
-          {meta.path}
-        </p>
-      )}
 
       {loadState === "loading" && <p className="text-xs text-muted">読み込み中…</p>}
 
