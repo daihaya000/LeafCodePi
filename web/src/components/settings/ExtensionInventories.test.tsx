@@ -26,6 +26,7 @@ describe("拡張設定の一覧", () => {
       if (path === "/api/mcp") {
         return Promise.resolve({
           servers: [
+            { id: "browser-use", name: "browser-use", enabled: true, source: "stdio" },
             { id: "n8n", name: "n8n", enabled: true, source: "http" },
             { id: "slack", name: "slack", enabled: true, source: "http" },
             { id: "notion", name: "notion", enabled: true, source: "http" },
@@ -64,6 +65,7 @@ describe("拡張設定の一覧", () => {
 
     expect(within(screen.getByTestId("skills-bundled")).getByText("typesafe-ai")).toBeTruthy();
     expect(within(screen.getByTestId("skills-user")).getByText("review")).toBeTruthy();
+    expect(within(screen.getByTestId("mcp-bundled")).getByText("browser-use")).toBeTruthy();
     expect(within(screen.getByTestId("mcp-bundled")).getByText("n8n")).toBeTruthy();
     expect(within(screen.getByTestId("mcp-bundled")).getByText("slack")).toBeTruthy();
     expect(within(screen.getByTestId("mcp-bundled")).getByText("notion")).toBeTruthy();

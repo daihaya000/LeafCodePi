@@ -74,7 +74,7 @@ const MCP_SERVER_DESCRIPTIONS: Readonly<Record<string, string>> = {
 };
 
 /** MCP servers provided through the repository's browser-use integration. */
-const BUNDLED_MCP_SERVER_IDS = new Set(["notion", "n8n", "slack"]);
+const BUNDLED_MCP_SERVER_IDS = new Set(["browser-use", "notion", "n8n", "slack"]);
 
 function authTypeLabel(type: McpAuthType): string {
   switch (type) {
