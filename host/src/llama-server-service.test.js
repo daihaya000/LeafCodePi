@@ -134,7 +134,7 @@ test('start maps llama.cpp path, model dir and model file into the launcher bat'
     mmprojPath: 'repoA\\mmproj-model-BF16.gguf',
     loraPath: 'repoA\\gguf\\bonsai-abliterate-lora.gguf',
     llamaServerHost: '0.0.0.0',
-    gpuDevice: 'Vulkan2',
+    gpuDevice: 'Vulkan0',
   });
   assert.equal(result.ok, true);
   assert.match(written, /set "LLAMA_SERVER_BIN=D:\\tools\\llama.cpp\\llama-server.exe"/);
@@ -143,7 +143,7 @@ test('start maps llama.cpp path, model dir and model file into the launcher bat'
   assert.match(written, /set "MMPROJ_FILE=repoA\\mmproj-model-BF16\.gguf"/);
   assert.match(written, /set "LORA_FILE=repoA\\gguf\\bonsai-abliterate-lora\.gguf"/);
   assert.match(written, /set "LLAMA_SERVER_HOST=0.0.0.0"/);
-  assert.match(written, /set "GPU_DEVICE=Vulkan2"/);
+  assert.match(written, /set "GPU_DEVICE=Vulkan0"/);
 });
 
 test('start falls back to an in-process cmd.exe spawn when WMI fails', async () => {
@@ -498,7 +498,7 @@ test('Linux starts llama-server directly without PowerShell or a tray', async ()
   assert.equal(spawned.command, '/usr/local/bin/llama-server');
   assert.deepEqual(spawned.args, [
     '-m', '/home/test/models/repo/model-Q4_K_S.gguf', '--alias', 'model-Q4_K_S',
-    '--host', '127.0.0.1', '--port', '8080', '--device', 'Vulkan2',
+    '--host', '127.0.0.1', '--port', '8080', '--device', 'Vulkan0',
     '--split-mode', 'none', '--fit', 'off', '--no-host',
     '--threads', '8', '--threads-batch', '16', '--gpu-layers', 'all',
     '--n-cpu-moe', '0', '--n-cpu-ffn', '0', '--flash-attn', 'on',
