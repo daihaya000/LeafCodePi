@@ -26,8 +26,10 @@ export function ProfileSettings() {
       const link = document.createElement("a");
       link.href = url;
       link.download = "leafcode-pi-profile.lcp.gz";
+      document.body.append(link);
       link.click();
-      URL.revokeObjectURL(url);
+      link.remove();
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000);
       setMessage("プロファイルを保存しました");
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "プロファイルのエクスポートに失敗しました");

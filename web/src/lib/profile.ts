@@ -23,8 +23,11 @@ const MAX_PROFILE_FILES = 50_000;
 const AGENT_FILES = [
   "AGENTS.md",
   "BOTS.md",
+  "DESIGN.md",
   "SOUL.md",
+  "TOOLS.md",
   "USER.md",
+  "WORKFLOW.md",
   "auth.json",
   "leafcode-memory-config.json",
   "mcp.json",
@@ -36,6 +39,11 @@ const DATA_FILES = [
   "accounts.json",
   "browser-config.json",
   "extensions-state.json",
+  "permission-gate.json",
+  "provider-endpoints.json",
+  "provider-model-state.json",
+  "provider-routing.json",
+  "skills-state.json",
   "tts.json",
   "web-settings.json",
   "webui-auth.json",
@@ -73,7 +81,8 @@ function profilePath(root: "agent" | "data", path: string): string {
 }
 
 function isSafeRelativePath(path: string): boolean {
-  return path.split("/").every((part) => part.length > 0 && part !== "." && part !== "..");
+  return !path.includes("\\") && !path.includes("\0") &&
+    path.split("/").every((part) => part.length > 0 && part !== "." && part !== "..");
 }
 
 function isAllowedProfilePath(path: string): boolean {
@@ -83,9 +92,9 @@ function isAllowedProfilePath(path: string): boolean {
   }
   const [entry] = parts;
   if (root === "agent") {
-    return (parts.length === 1 && AGENT_FILES.includes(entry as never)) || AGENT_DIRECTORIES.includes(entry as never);
+    return (parts.length === 1 && AGENT_FILES.includes(entry as never)) || (parts.length > 1 && AGENT_DIRECTORIES.includes(entry as never));
   }
-  return (parts.length === 1 && DATA_FILES.includes(entry as never)) || DATA_DIRECTORIES.includes(entry as never);
+  return (parts.length === 1 && DATA_FILES.includes(entry as never)) || (parts.length > 1 && DATA_DIRECTORIES.includes(entry as never));
 }
 
 type ProfileTotal = { bytes: number; fileCount: number; agentDir: string; leafcodeDir: string };
@@ -211,16 +220,15 @@ function importedFileMode(mode: number | undefined): number {
 }
 
 function applyProfile(profile: ProfileArchive, agentDir: string, leafcodeDir: string): ProfileSummary {
-  const files = Object.entries(profile.files).map(([path, content]) => ({
-    path,
+  const files = Object.entries(profile.files).map(([profilePath, content]) => ({
+    path: destination(profilePath, agentDir, leafcodeDir),
     content: Buffer.from(content, "base64"),
-    mode: importedFileMode(profile.modes?.[path]),
+    mode: importedFileMode(profile.modes?.[profilePath]),
   }));
   removeConfiguredPaths(agentDir, leafcodeDir);
   for (const file of files) {
-    const path = destination(file.path, agentDir, leafcodeDir);
-    mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
-    writeFileSync(path, file.content, { mode: file.mode });
+    mkdirSync(dirname(file.path), { recursive: true, mode: 0o700 });
+    writeFileSync(file.path, file.content, { mode: file.mode });
   }
   return { fileCount: files.length, bytes: files.reduce((total, file) => total + file.content.length, 0) };
 }
