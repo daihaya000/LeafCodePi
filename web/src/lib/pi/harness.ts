@@ -220,7 +220,11 @@ import {
   type AutoOptimizeMode,
   type AutoRouteConfig,
 } from "@/lib/auto-model";
-import { classifyAutoTierWithJev } from "@/lib/auto-jev";
+import { classifyAutoTierWithJev, classifySessionLabelWithJev, matchSessionLabelByRule } from "@/lib/auto-jev";
+import {
+  resolveSessionLabels,
+  SESSION_LABELS_SETTING_KEY,
+} from "@/lib/session-label-settings";
 import { compactWithJev } from "@/lib/pi/jev-compaction";
 import {
   isJevCompactionEnabled,
@@ -7070,10 +7074,13 @@ function insertTaskForCreateTask(input: {
   skillPermission?: SkillPermission;
   permissionMode?: "allow" | "ask" | "deny";
 }): TaskSummary {
+  const labels = resolveSessionLabels(getSetting(SESSION_LABELS_SETTING_KEY));
+  const initialLabel = matchSessionLabelByRule(input.prompt, labels);
   const selectedIds = modelId(input.model);
   return insertTask({
     project: input.project,
     title: titleFromPrompt(input.prompt),
+    ...(initialLabel ? { label: initialLabel } : {}),
     thinkingLevel: input.thinkingLevel,
     providerID: selectedIds.providerID ?? input.parsed?.providerID,
     modelID: selectedIds.modelID ?? input.parsed?.modelID,
@@ -7090,6 +7097,20 @@ function insertTaskForCreateTask(input: {
       ? { permissionMode: input.permissionMode }
       : {}),
   });
+}
+
+/** Apply the Jev refinement after initial task creation without delaying the first turn. */
+function startInitialSessionLabelClassification(taskId: string, prompt: string): void {
+  const labels = resolveSessionLabels(getSetting(SESSION_LABELS_SETTING_KEY));
+  if (!prompt.trim() || labels.length === 0 || !isAutoJevEnabled(getSetting(AUTO_JEV_ENABLED_SETTING_KEY))) {
+    return;
+  }
+  void classifySessionLabelWithJev(
+    { prompt, labels },
+    { minConfidence: parseAutoJevMinConfidence(getSetting(AUTO_JEV_MIN_CONFIDENCE_SETTING_KEY)) },
+  ).then((label) => {
+    if (label) patchTask(taskId, { label });
+  }).catch(() => undefined);
 }
 
 function markProjectOpened(project: ProjectDto | null): void {
@@ -7453,6 +7474,7 @@ export async function createTask(input: {
       requestedAccountExplicit,
     );
   }
+  startInitialSessionLabelClassification(task.id, input.prompt);
   const model = modelRoute?.model;
   const requestedThinking = isThinkingLevel(thinkingLevelInput)
     ? thinkingLevelInput

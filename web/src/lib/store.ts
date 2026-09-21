@@ -188,6 +188,7 @@ export function getTask(id: string): TaskSummary | undefined {
 export function insertTask(input: {
   project: ProjectDto | null;
   title: string;
+  label?: string;
   thinkingLevel?: ThinkingLevel;
   providerID?: string;
   modelID?: string;
@@ -205,6 +206,7 @@ export function insertTask(input: {
     projectId: input.project?.id ?? null,
     projectName: input.project?.name ?? NO_PROJECT_NAME,
     title: input.title,
+    ...(input.label ? { label: input.label } : {}),
     directory: input.project?.rootPath ?? noProjectSessionDir(),
     isolation: "current_folder",
     status: "idle",
