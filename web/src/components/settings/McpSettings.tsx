@@ -127,14 +127,6 @@ export function McpSettings() {
   const [headerValueById, setHeaderValueById] = useState<Record<string, string>>({});
   const [oauthInputById, setOauthInputById] = useState<Record<string, string>>({});
   const [oauthUrlById, setOauthUrlById] = useState<Record<string, string>>({});
-  const [n8nUrl, setN8nUrl] = useState("");
-  const [addBusy, setAddBusy] = useState(false);
-  const [slackClientId, setSlackClientId] = useState("");
-  const [slackBusy, setSlackBusy] = useState(false);
-  const [gwsClientId, setGwsClientId] = useState("");
-  const [gwsClientSecret, setGwsClientSecret] = useState("");
-  const [gwsBusy, setGwsBusy] = useState(false);
-  const [notionBusy, setNotionBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -201,100 +193,6 @@ export function McpSettings() {
       setError(err instanceof Error ? err.message : "MCP認証状態の取得に失敗しました");
     } finally {
       setAuthBusyId(null);
-    }
-  }
-
-  async function addN8n() {
-    const url = n8nUrl.trim();
-    if (!url) {
-      setError("n8n のURLを入力してください");
-      return;
-    }
-    setAddBusy(true);
-    setError(null);
-    try {
-      const result = await sendJson<{ servers: McpDto[] }>(
-        "/api/mcp",
-        { preset: "n8n", url },
-        "POST",
-      );
-      setServers(result.servers);
-      setAuthById({});
-      setN8nUrl("");
-      const added = result.servers.find((server) => server.id === "n8n");
-      if (added) await openAuth(added);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "n8n の追加に失敗しました");
-    } finally {
-      setAddBusy(false);
-    }
-  }
-
-  async function addSlack() {
-    const clientId = slackClientId.trim();
-    if (!clientId) {
-      setError("Slack のClient IDを入力してください");
-      return;
-    }
-    setSlackBusy(true);
-    setError(null);
-    try {
-      const result = await sendJson<{ servers: McpDto[] }>(
-        "/api/mcp",
-        { preset: "slack", clientId },
-        "POST",
-      );
-      setServers(result.servers);
-      setAuthById({});
-      setSlackClientId("");
-      const added = result.servers.find((server) => server.id === "slack");
-      if (added) await openAuth(added);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Slack の追加に失敗しました");
-    } finally {
-      setSlackBusy(false);
-    }
-  }
-
-  async function addGoogleWorkspace() {
-    const clientId = gwsClientId.trim();
-    const clientSecret = gwsClientSecret.trim();
-    if (!clientId || !clientSecret) {
-      setError("Google OAuth の Client ID と Client Secret を入力してください");
-      return;
-    }
-    setGwsBusy(true);
-    setError(null);
-    try {
-      const result = await sendJson<{ servers: McpDto[] }>(
-        "/api/mcp",
-        { preset: "google-workspace", clientId, clientSecret },
-        "POST",
-      );
-      setServers(result.servers);
-      setAuthById({});
-      setGwsClientId("");
-      setGwsClientSecret("");
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Google Workspace の追加に失敗しました");
-    } finally {
-      setGwsBusy(false);
-    }
-  }
-
-  async function addNotion() {
-    setNotionBusy(true);
-    setError(null);
-    try {
-      const result = await sendJson<{ servers: McpDto[] }>("/api/mcp", { preset: "notion" }, "POST");
-      setServers(result.servers);
-      setAuthById({});
-      const added = result.servers.find((server) => server.id === "notion");
-      if (added) await openAuth(added);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Notion の追加に失敗しました");
-    } finally {
-      setNotionBusy(false);
     }
   }
 
@@ -586,16 +484,7 @@ export function McpSettings() {
     );
   }
 
-  const anyBusy = Boolean(busyId || authBusyId || addBusy || slackBusy || gwsBusy || notionBusy);
-  // Keep the preset-form wrapper visible whenever any form still has work to
-  // do, so later forms (Google Workspace / Notion) stay reachable after n8n
-  // and Slack are already configured.
-  const hasUserConfigured = (id: string) => servers.some((server) => server.id === id && server.userConfigured);
-  const showAddForms =
-    !hasUserConfigured("n8n") ||
-    !hasUserConfigured("slack") ||
-    !servers.some((server) => server.id.startsWith("gws-")) ||
-    !hasUserConfigured("notion");
+  const anyBusy = Boolean(busyId || authBusyId);
   const bundledServers = servers.filter((server) => server.bundled);
   const userServers = servers.filter((server) => !server.bundled);
 
@@ -700,144 +589,6 @@ export function McpSettings() {
             {renderServerList(userServers)}
           </section>
         </div>
-      )}
-      {showAddForms && (
-        <section data-testid="mcp-add" className="mt-3 rounded-xl border border-border bg-surface-2 p-3">
-          <h4 className="text-sm font-semibold">ユーザー追加</h4>
-          <p className="mt-1 text-xs text-muted">対応済みのMCPサービスをユーザー設定へ追加します。</p>
-          <div className="mt-3 grid gap-2 lg:grid-cols-2">
-          {!hasUserConfigured("n8n") && (
-            <div className="rounded-xl border border-dashed border-border bg-surface-2 px-3 py-3">
-              <p className="text-xs font-medium text-text">n8n を追加（OAuth）</p>
-              <p className="mt-1 text-[11px] leading-4 text-muted">
-                n8n インスタンスのURLを入力します（例: https://example.app.n8n.cloud）。
-                パスを省略した場合は末尾の <span className="font-mono">/mcp-server/http</span> を自動で補完します。
-              </p>
-              <div className="mt-2 flex flex-wrap items-center gap-2">
-                <label className="min-w-0 flex-1">
-                  <span className="sr-only">n8n のURL</span>
-                  <input
-                    type="url"
-                    autoComplete="off"
-                    value={n8nUrl}
-                    onChange={(event) => setN8nUrl(event.target.value)}
-                    placeholder="https://example.app.n8n.cloud"
-                    className="h-9 w-full rounded-lg border border-border bg-bg px-3 text-xs text-text outline-none focus:border-border-strong"
-                    disabled={anyBusy}
-                  />
-                </label>
-                <Button
-                  size="sm"
-                  variant="primary"
-                  onClick={() => void addN8n()}
-                  busy={addBusy}
-                  disabled={loading || !n8nUrl.trim() || anyBusy}
-                >
-                  n8n を追加
-                </Button>
-              </div>
-            </div>
-          )}
-          {!hasUserConfigured("slack") && (
-            <div className="rounded-xl border border-dashed border-border bg-surface-2 px-3 py-3">
-              <p className="text-xs font-medium text-text">Slack を追加（OAuth）</p>
-              <p className="mt-1 text-[11px] leading-4 text-muted">
-                Slackアプリの Client ID を入力します（api.slack.com/apps → App Credentials）。
-                OAuth & Permissions で PKCE を有効化すると Redirect URL に
-                <span className="font-mono">http://localhost:19876/callback</span>（既定）を登録できます。
-              </p>
-              <div className="mt-2 flex flex-wrap items-center gap-2">
-                <label className="min-w-0 flex-1">
-                  <span className="sr-only">Slack のClient ID</span>
-                  <input
-                    type="text"
-                    autoComplete="off"
-                    value={slackClientId}
-                    onChange={(event) => setSlackClientId(event.target.value)}
-                    placeholder="例: 1601185624273.8899143856786"
-                    className="h-9 w-full rounded-lg border border-border bg-bg px-3 font-mono text-xs text-text outline-none focus:border-border-strong"
-                    disabled={anyBusy}
-                  />
-                </label>
-                <Button
-                  size="sm"
-                  variant="primary"
-                  onClick={() => void addSlack()}
-                  busy={slackBusy}
-                  disabled={loading || !slackClientId.trim() || anyBusy}
-                >
-                  Slack を追加
-                </Button>
-              </div>
-            </div>
-          )}
-          {!servers.some((server) => server.id.startsWith("gws-")) && (
-            <div className="rounded-xl border border-dashed border-border bg-surface-2 px-3 py-3">
-              <p className="text-xs font-medium text-text">Google Workspace を追加（OAuth）</p>
-              <p className="mt-1 text-[11px] leading-4 text-muted">
-                Google Cloud の OAuth クライアント（Web application）の Client ID / Secret を入力します。
-                Authorized redirect URI に <span className="font-mono">http://localhost:19876/callback</span>（既定）を登録してください。
-                8プロダクト（Gmail / Drive / Docs / Sheets / Slides / Calendar / Chat / People）を一括追加します。
-              </p>
-              <div className="mt-2 flex flex-wrap items-center gap-2">
-                <label className="min-w-0 flex-1">
-                  <span className="sr-only">Google Workspace のClient ID</span>
-                  <input
-                    type="text"
-                    autoComplete="off"
-                    value={gwsClientId}
-                    onChange={(event) => setGwsClientId(event.target.value)}
-                    placeholder="Client ID"
-                    className="h-9 w-full rounded-lg border border-border bg-bg px-3 font-mono text-xs text-text outline-none focus:border-border-strong"
-                    disabled={anyBusy}
-                  />
-                </label>
-                <label className="min-w-0 flex-1">
-                  <span className="sr-only">Google Workspace のClient Secret</span>
-                  <input
-                    type="password"
-                    autoComplete="new-password"
-                    value={gwsClientSecret}
-                    onChange={(event) => setGwsClientSecret(event.target.value)}
-                    placeholder="Client Secret"
-                    className="h-9 w-full rounded-lg border border-border bg-bg px-3 font-mono text-xs text-text outline-none focus:border-border-strong"
-                    disabled={anyBusy}
-                  />
-                </label>
-                <Button
-                  size="sm"
-                  variant="primary"
-                  onClick={() => void addGoogleWorkspace()}
-                  busy={gwsBusy}
-                  disabled={loading || !gwsClientId.trim() || !gwsClientSecret.trim() || anyBusy}
-                >
-                  Google Workspace を追加
-                </Button>
-              </div>
-            </div>
-          )}
-          {!hasUserConfigured("notion") && (
-            <div className="rounded-xl border border-dashed border-border bg-surface-2 px-3 py-3">
-              <p className="text-xs font-medium text-text">Notion を追加（OAuth）</p>
-              <p className="mt-1 text-[11px] leading-4 text-muted">
-                Notion公式のホスト型MCPサーバー（mcp.notion.com）を追加します。OAuthはDCR（動的クライアント登録）で自動設定されます。
-                追加すると認証パネルが開くので、OAuth認証を開始 でNotionワークスペースを認可してください。
-              </p>
-              <div className="mt-2">
-                <Button
-                  size="sm"
-                  variant="primary"
-                  onClick={() => void addNotion()}
-                  busy={notionBusy}
-                  disabled={loading || anyBusy}
-                >
-                  Notion を追加
-                </Button>
-              </div>
-            </div>
-          )}
-          </div>
-        </section>
       )}
       {error && <p className="mt-2 text-sm text-danger" role="alert">{error}</p>}
     </div>
