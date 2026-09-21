@@ -226,6 +226,10 @@ export type LlamaModelPreset = {
   match: RegExp;
   label: string;
   description: string;
+  /** Apply the model's mmproj (image input). False keeps the launch text-only,
+   *  which also re-enables llama-server's prompt cache reuse (multimodal
+   *  launches disable it), so text-only presets restore long prompts faster. */
+  vision: boolean;
   settings: Pick<
     LlamaServerSettings,
     "effort" | "specType" | "contextLength" | "cacheTypeK" | "cacheTypeV"
@@ -240,6 +244,7 @@ export const LLAMA_MODEL_PRESETS: readonly LlamaModelPreset[] = [
     match: /ornith/i,
     label: "Ornith-1.5 35B（バランス）",
     description: "思考なしで 111 tok/s。128K コンテキスト。通常のコーディング向け。",
+    vision: true,
     settings: { effort: "", specType: "", contextLength: 131_072, cacheTypeK: "", cacheTypeV: "q8_0" },
   },
   {
@@ -249,6 +254,7 @@ export const LLAMA_MODEL_PRESETS: readonly LlamaModelPreset[] = [
     match: /ornith/i,
     label: "Ornith-1.5 35B（思考つき・最適化）",
     description: "モデル既定の思考つき。128K コンテキスト。KV キャッシュを K/V とも q8_0 にして省メモリ化。",
+    vision: true,
     settings: { effort: "", specType: "", contextLength: 131_072, cacheTypeK: "q8_0", cacheTypeV: "q8_0" },
   },
   {
@@ -258,6 +264,7 @@ export const LLAMA_MODEL_PRESETS: readonly LlamaModelPreset[] = [
     match: /(?=.*huihui)(?=.*qwen3[._]?8)(?=.*abliterat)/i,
     label: "Huihui-Qwen3.8 27B（abliterated・最適化）",
     description: "MTP維持版。draft-mtp 推測デコード、effort low、KV キャッシュ K/V q8_0。131K コンテキスト。",
+    vision: true,
     settings: { effort: "low", specType: "draft-mtp", contextLength: 131_072, cacheTypeK: "q8_0", cacheTypeV: "q8_0" },
   },
   {
@@ -270,6 +277,7 @@ export const LLAMA_MODEL_PRESETS: readonly LlamaModelPreset[] = [
     label: "OrcaBonsai 27B Uncensored（Vision・最適化）",
     description:
       "Ternary Bonsai 2 + refusal-direction LoRA。mmproj を自動適用、low 思考、131K コンテキスト、KV キャッシュ K/V q8_0。WindowsはC:\\tools\\llama-prism-*-vulkanを自動選択。",
+    vision: true,
     settings: { effort: "low", specType: "", contextLength: 131_072, cacheTypeK: "q8_0", cacheTypeV: "q8_0" },
   },
   {
@@ -279,16 +287,21 @@ export const LLAMA_MODEL_PRESETS: readonly LlamaModelPreset[] = [
     match: /(?=.*qwen3[._]?8)(?=.*uncensored)/i,
     label: "Qwen3.8 27B Uncensored（vision・高速）",
     description:
-      "画像入力を有効化（同じフォルダの mmproj を自動適用）。draft-mtp 推測デコード、effort low、KV q8_0、131K コンテキスト。",
-    settings: { effort: "low", specType: "draft-mtp", contextLength: 131_072, cacheTypeK: "q8_0", cacheTypeV: "q8_0" },
+      "画像入力を有効化（同じフォルダの mmproj を自動適用）。draft-mtp 推測デコード、effort low、KV q8_0、64K コンテキスト。R9700 実測 約52 tok/s。",
+    vision: true,
+    // 131K + mmproj + MTP draft context overflows 32GB of VRAM on the R9700:
+    // WDDM then spills 3-4GB to system RAM and decode drops to 12-17 tok/s.
+    settings: { effort: "low", specType: "draft-mtp", contextLength: 65_536, cacheTypeK: "q8_0", cacheTypeV: "q8_0" },
   },
   {
     key: "qwen38",
     // Qwen3.5-class dense builds ship an MTP head; draft-mtp is ~15x faster.
     match: /qwen3[._]?8|qwen3\.5|qwen35/i,
-    label: "Qwen3.8 27B（思考つき・高速）",
-    description: "draft-mtp 推測デコードで 68 tok/s。effort low の思考つき。",
-    settings: { effort: "low", specType: "draft-mtp", contextLength: 131_072, cacheTypeK: "q8_0", cacheTypeV: "q8_0" },
+    label: "Qwen3.8 27B Uncensored（思考つき・高速）",
+    description:
+      "テキスト専用（mmproj なし）でプロンプトキャッシュ再利用が有効。draft-mtp 推測デコード、effort low の思考つき、KV q8_0、64K コンテキスト。R9700 実測 約52 tok/s。",
+    vision: false,
+    settings: { effort: "low", specType: "draft-mtp", contextLength: 65_536, cacheTypeK: "q8_0", cacheTypeV: "q8_0" },
   },
 ];
 

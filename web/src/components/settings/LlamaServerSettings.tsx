@@ -364,7 +364,9 @@ export function LlamaServerSettings(
             (config.specType ?? "") === p.settings.specType &&
             config.contextLength === p.settings.contextLength &&
             (config.cacheTypeK ?? "") === p.settings.cacheTypeK &&
-            (config.cacheTypeV ?? "") === p.settings.cacheTypeV,
+            (config.cacheTypeV ?? "") === p.settings.cacheTypeV &&
+            // Vision presets differ from their text-only twin only by mmproj.
+            Boolean(config.mmprojPath) === p.vision,
         ) ?? LLAMA_MODEL_PRESETS.find((p) => p.match.test(config.modelFile)) ?? null);
   /** The explicit choice wins so the dropdown does not snap back to カスタム
    *  while the GGUF listing is still empty. */
@@ -395,9 +397,12 @@ export function LlamaServerSettings(
         c.modelFile && preset.match.test(c.modelFile)
           ? c.modelFile
           : models.find((m) => preset.match.test(m));
-      const next = modelFile
+      const withModel = modelFile
         ? { ...c, ...preset.settings, modelFile }
         : { ...c, ...preset.settings };
+      const next = preset.vision
+        ? withResolvedMmproj(withModel, mmprojs)
+        : { ...withModel, mmprojPath: "" };
       return preset.key === "orca-bonsai27" ? next : { ...next, loraPath: "" };
     });
   };
@@ -417,7 +422,9 @@ export function LlamaServerSettings(
           : models.find((m) => preset.match.test(m));
       const withModel =
         candidate && candidate !== c.modelFile ? { ...c, modelFile: candidate } : c;
-      const resolved = withResolvedMmproj(withModel, mmprojs);
+      const resolved = preset.vision
+        ? withResolvedMmproj(withModel, mmprojs)
+        : { ...withModel, mmprojPath: "" };
       return selectedFamily === "orca-bonsai27"
         ? withResolvedLora(resolved, loras)
         : { ...resolved, loraPath: "" };
@@ -431,8 +438,14 @@ export function LlamaServerSettings(
     if (mmprojAutoRef.current || !configLoaded || (mmprojs.length === 0 && loras.length === 0)) return;
     mmprojAutoRef.current = true;
     setConfig((c) => {
-      const resolved = c.mmprojPath ? c : withResolvedMmproj(c, mmprojs);
-      const presetKey = LLAMA_MODEL_PRESETS.find((preset) => preset.match.test(c.modelFile))?.key;
+      const matched = LLAMA_MODEL_PRESETS.find((preset) => preset.match.test(c.modelFile));
+      const resolved =
+        matched?.vision === false
+          ? { ...c, mmprojPath: "" }
+          : c.mmprojPath
+            ? c
+            : withResolvedMmproj(c, mmprojs);
+      const presetKey = matched?.key;
       return presetKey === "orca-bonsai27" ? withResolvedLora(resolved, loras)
         : resolved;
     });
@@ -635,8 +648,12 @@ export function LlamaServerSettings(
               onChange={(e) =>
                 setConfig((c) => {
                   const modelFile = e.target.value;
-                  const resolved = withResolvedMmproj({ ...c, modelFile }, mmprojs);
-                  const presetKey = LLAMA_MODEL_PRESETS.find((preset) => preset.match.test(modelFile))?.key;
+                  const matched = LLAMA_MODEL_PRESETS.find((preset) => preset.match.test(modelFile));
+                  const resolved =
+                    matched?.vision === false
+                      ? { ...c, modelFile, mmprojPath: "" }
+                      : withResolvedMmproj({ ...c, modelFile }, mmprojs);
+                  const presetKey = matched?.key;
                   return presetKey === "orca-bonsai27"
                     ? withResolvedLora(resolved, loras)
                     : { ...resolved, loraPath: "" };

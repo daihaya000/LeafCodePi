@@ -128,6 +128,18 @@ describe("llama-server-settings", () => {
     expect(isLlamaServerSettings({ ...base, specType: 'evil" & calc' })).toBe(false);
   });
 
+  it("pairs the Qwen3.8 presets as vision / text-only twins", () => {
+    const vision = LLAMA_MODEL_PRESETS.find((p) => p.key === "qwen38-uncensored");
+    const text = LLAMA_MODEL_PRESETS.find((p) => p.key === "qwen38");
+    expect(vision?.label).toContain("Uncensored");
+    expect(text?.label).toContain("Uncensored");
+    expect(vision?.vision).toBe(true);
+    expect(text?.vision).toBe(false);
+    // Same measured launch tuning; only the projector differs.
+    expect(vision?.settings).toEqual(text?.settings);
+    expect(text?.settings.contextLength).toBe(65_536);
+  });
+
   it("matches model presets by file path", () => {
     const ornith = findLlamaModelPreset(
       "Ornith-1.5-35B-A3B-GGUF\\Ornith-1.5-35B-A3B-AD-Q5_K-Q4_K.gguf",
