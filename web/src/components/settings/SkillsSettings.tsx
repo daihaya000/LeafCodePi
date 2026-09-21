@@ -248,11 +248,11 @@ export function SkillsSettings({ scope = "code" }: { scope?: SkillScope } = {}) 
           )}
           {renderSkillSection(
             "skills-user",
-            "ユーザー追加",
-            "ユーザーの Pi スキルディレクトリに追加されたスキルです。",
+            "追加",
+            null,
             userSkills,
             false,
-            "ユーザー",
+            null,
             skillsPath,
           )}
         </div>
