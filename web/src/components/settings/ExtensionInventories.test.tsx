@@ -26,6 +26,9 @@ describe("拡張設定の一覧", () => {
       if (path === "/api/mcp") {
         return Promise.resolve({
           servers: [
+            { id: "n8n", name: "n8n", enabled: true, source: "http" },
+            { id: "slack", name: "slack", enabled: true, source: "http" },
+            { id: "notion", name: "notion", enabled: true, source: "http" },
             { id: "fxhoudini", name: "fxhoudini", enabled: true, source: "stdio" },
             { id: "blendermcp", name: "blendermcp", enabled: true, source: "stdio" },
             { id: "mayamcp", name: "mayamcp", enabled: true, source: "stdio" },
@@ -61,8 +64,12 @@ describe("拡張設定の一覧", () => {
 
     expect(within(screen.getByTestId("skills-bundled")).getByText("typesafe-ai")).toBeTruthy();
     expect(within(screen.getByTestId("skills-user")).getByText("review")).toBeTruthy();
-    expect(within(screen.getByTestId("mcp-bundled")).getByText("fxhoudini")).toBeTruthy();
+    expect(within(screen.getByTestId("mcp-bundled")).getByText("n8n")).toBeTruthy();
+    expect(within(screen.getByTestId("mcp-bundled")).getByText("slack")).toBeTruthy();
+    expect(within(screen.getByTestId("mcp-bundled")).getByText("notion")).toBeTruthy();
+    expect(within(screen.getByTestId("mcp-user")).getByText("fxhoudini")).toBeTruthy();
     expect(within(screen.getByTestId("mcp-user")).getByText("custom")).toBeTruthy();
+    expect(within(screen.getByTestId("mcp-bundled")).queryByText("fxhoudini")).toBeNull();
 
     for (const heading of ["スキル", "MCP サーバー"]) {
       const list = screen.getByRole("heading", { name: heading }).parentElement?.parentElement?.querySelector("ul");

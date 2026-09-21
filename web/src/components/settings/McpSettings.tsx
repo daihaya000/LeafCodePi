@@ -73,8 +73,8 @@ const MCP_SERVER_DESCRIPTIONS: Readonly<Record<string, string>> = {
   notion: "Notion公式 MCP。ワークスペースのページ・データベースの検索と更新を行います。",
 };
 
-/** MCP integrations documented and shipped as part of this repository. */
-const BUNDLED_MCP_SERVER_IDS = new Set(Object.keys(MCP_SERVER_DESCRIPTIONS));
+/** MCP servers provided through the repository's browser-use integration. */
+const BUNDLED_MCP_SERVER_IDS = new Set(["notion", "n8n", "slack"]);
 
 function authTypeLabel(type: McpAuthType): string {
   switch (type) {
