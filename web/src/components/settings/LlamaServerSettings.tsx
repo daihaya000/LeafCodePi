@@ -734,7 +734,7 @@ export function LlamaServerSettings(
               className="min-h-28 w-full resize-y rounded-lg border border-border bg-bg px-3 py-2 text-sm outline-none focus:border-border-strong disabled:opacity-40"
             />
             <span id="llama-system-prompt-hint" className="mt-1 block text-[11px] text-muted">
-              LeafCode の既定プロンプトに追加して、llama-server への各チャットリクエストに送信します。空欄なら追加しません。
+              LeafCode の既定プロンプトに追加して、llama-server への各チャットリクエストに送信します。既定値は中国語を使わず日本語で回答します。空欄なら追加しません。
             </span>
           </div>
 

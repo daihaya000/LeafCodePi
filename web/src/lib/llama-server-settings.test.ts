@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   DEFAULT_LLAMA_SERVER_SETTINGS,
+  DEFAULT_LLAMA_SERVER_SYSTEM_PROMPT,
   findLlamaModelPreset,
   llamaServerBaseUrl,
   llamaServerPort,
@@ -104,7 +105,7 @@ describe("llama-server-settings", () => {
       effort: "medium",
       contextLength: 131072,
       parallel: 2,
-      systemPrompt: "",
+      systemPrompt: DEFAULT_LLAMA_SERVER_SYSTEM_PROMPT,
       llamaCppPath: "",
       modelDir: "",
       modelFile: "",

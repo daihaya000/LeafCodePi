@@ -76,11 +76,18 @@ export type LlamaServerSettings = {
   loraPath?: string;
 };
 
+export const DEFAULT_LLAMA_SERVER_SYSTEM_PROMPT = [
+  "回答は必ず日本語で行う。",
+  "中国語（簡体字・繁体字）で回答しない。",
+  "ユーザーが中国語で入力しても、日本語で回答する。",
+  "引用・固有名詞・コードなど不可避な場合を除き、中国語を出力しない。",
+].join(" ");
+
 export const DEFAULT_LLAMA_SERVER_SETTINGS: LlamaServerSettings = {
   effort: "low",
   contextLength: 32_768,
   parallel: 1,
-  systemPrompt: "",
+  systemPrompt: DEFAULT_LLAMA_SERVER_SYSTEM_PROMPT,
   llamaCppPath: "",
   modelDir: "",
   modelFile: "",
