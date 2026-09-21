@@ -1878,7 +1878,7 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
           <summary className="cursor-pointer select-none">対応・設定方法</summary>
           <p className="mt-2">
             Claude Pro/Max（Anthropic）、ChatGPT Plus/Pro（OpenAI
-            Codex）、Cursor、OpenCode、Command Code（Go プラン可）、および Ollama
+            Codex）、Cursor、Meta Muse、OpenCode、Command Code（Go プラン可）、および Ollama
             Cloud / OpenRouter / OrcaRouter に対応しています。TypeSafe は System One API の
             API キーを登録できます（チャットモデルとしてはモデル一覧に出ません）。
             TypeSafe の実残高は TypeSafe Console（console.typesafe.ai）の cookie を

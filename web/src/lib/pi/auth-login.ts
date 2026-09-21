@@ -229,7 +229,7 @@ function serializePrompt(prompt: {
   };
 }
 
-/** Providers that expose Claude / ChatGPT / Cursor subscription OAuth. */
+/** Providers that expose Claude / ChatGPT / Cursor / Meta Muse subscription OAuth. */
 export const SUBSCRIPTION_PROVIDER_IDS = new Set([
   "anthropic",
   "openai-codex",
