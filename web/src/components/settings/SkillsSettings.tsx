@@ -191,10 +191,10 @@ export function SkillsSettings({ scope = "code" }: { scope?: SkillScope } = {}) 
   function renderSkillSection(
     id: string,
     title: string,
-    description: string,
+    description: string | null,
     items: SkillDto[],
     grouped: boolean,
-    pathLabel: string,
+    pathLabel: string | null,
     path: string | null,
   ) {
     return (
@@ -203,9 +203,9 @@ export function SkillsSettings({ scope = "code" }: { scope?: SkillScope } = {}) 
           <h4 className="text-sm font-semibold">{title}</h4>
           <Badge tone="neutral">{items.length}件</Badge>
         </div>
-        <p className="mt-1 text-xs text-muted">{description}</p>
+        {description && <p className="mt-1 text-xs text-muted">{description}</p>}
         {path && (
-          <p className="mt-1 break-all text-[11px] text-muted"><span className="font-semibold">{pathLabel}:</span> <span className="font-mono">{path}</span></p>
+          <p className="mt-1 break-all text-[11px] text-muted">{pathLabel && <span className="font-semibold">{pathLabel}: </span>}<span className="font-mono">{path}</span></p>
         )}
         {items.length === 0 ? (
           <p className="mt-3 text-sm text-muted">該当するスキルはありません。</p>
@@ -239,11 +239,11 @@ export function SkillsSettings({ scope = "code" }: { scope?: SkillScope } = {}) 
         <div className="mt-3 space-y-3">
           {renderSkillSection(
             "skills-bundled",
-            "リポジトリ組み込み",
-            "LeafCodePi リポジトリに同梱されたスキルです。",
+            "組み込み",
+            null,
             bundledSkills,
             true,
-            "リポジトリ",
+            null,
             bundledSkillsPath,
           )}
           {renderSkillSection(

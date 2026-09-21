@@ -572,12 +572,11 @@ export function McpSettings() {
         <div className="mt-3 space-y-3">
           <section data-testid="mcp-bundled" className="rounded-xl border border-border bg-surface p-3">
             <div className="flex items-center justify-between gap-3">
-              <h4 className="text-sm font-semibold">リポジトリ組み込み</h4>
+              <h4 className="text-sm font-semibold">組み込み</h4>
               <Badge tone="neutral">{bundledServers.length}件</Badge>
             </div>
-            <p className="mt-1 text-xs text-muted">LeafCodePi リポジトリで対応しているMCPサーバーです。</p>
             {bundledConfigPath && (
-              <p className="mt-1 break-all text-[11px] text-muted"><span className="font-semibold">リポジトリ:</span> <span className="font-mono">{bundledConfigPath}</span></p>
+              <p className="mt-1 break-all text-[11px] text-muted"><span className="font-mono">{bundledConfigPath}</span></p>
             )}
             {renderServerList(bundledServers)}
           </section>

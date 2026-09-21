@@ -70,6 +70,9 @@ describe("拡張設定の一覧", () => {
     expect(within(screen.getByTestId("skills-user")).getByText("review")).toBeTruthy();
     expect(within(screen.getByTestId("skills-user")).getByText("C:/pi/skills")).toBeTruthy();
     expect(within(screen.getByTestId("mcp-bundled")).getByText("C:/repo/extensions/leafcode-mcp-adapter/mcp.json")).toBeTruthy();
+    expect(screen.queryByText("LeafCodePi リポジトリで対応しているMCPサーバーです。")).toBeNull();
+    expect(screen.queryByText("LeafCodePi リポジトリに同梱されたスキルです。")).toBeNull();
+    expect(screen.queryByText("リポジトリ:")).toBeNull();
     expect(within(screen.getByTestId("mcp-bundled")).getByText("browser-use")).toBeTruthy();
     expect(within(screen.getByTestId("mcp-bundled")).getByText("n8n")).toBeTruthy();
     expect(within(screen.getByTestId("mcp-bundled")).getByText("slack")).toBeTruthy();
