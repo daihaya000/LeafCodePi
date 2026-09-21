@@ -87,7 +87,7 @@ export async function classifySessionLabelWithJev(
   input: { prompt: string; labels: readonly SessionLabel[] },
   options: JevRoutingOptions = {},
 ): Promise<string | undefined> {
-  if (!shouldUseJev() || input.labels.length < 2 || !input.prompt.trim()) return undefined;
+  if (!shouldUseJev() || input.labels.length === 0 || !input.prompt.trim()) return undefined;
   const byName = new Map(input.labels.map((label) => [label.name, label.id]));
   if (byName.size !== input.labels.length) return undefined;
   try {

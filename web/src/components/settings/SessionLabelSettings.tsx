@@ -6,6 +6,7 @@ import { PROJECT_ICON_TONES } from "@/components/ProjectIcon";
 import { PROJECT_ICON_COLORS, type ProjectIconColor } from "@/lib/types";
 import {
   DEFAULT_SESSION_LABELS,
+  hydrateSessionLabelsFromServer,
   MAX_SESSION_LABEL_HINT_CHARS,
   MAX_SESSION_LABEL_NAME_CHARS,
   MAX_SESSION_LABELS,
@@ -24,8 +25,16 @@ export function SessionLabelSettings() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    let active = true;
     setLabels(readSessionLabels());
-    return subscribeSessionLabels(() => setLabels(readSessionLabels()));
+    void hydrateSessionLabelsFromServer().then(() => {
+      if (active) setLabels(readSessionLabels());
+    });
+    const unsubscribe = subscribeSessionLabels(() => setLabels(readSessionLabels()));
+    return () => {
+      active = false;
+      unsubscribe();
+    };
   }, []);
 
   function commit(next: SessionLabel[]) {

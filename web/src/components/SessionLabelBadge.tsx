@@ -5,6 +5,7 @@ import { cx } from "@/components/ui";
 import { PROJECT_ICON_TONES } from "@/components/ProjectIcon";
 import {
   findSessionLabel,
+  hydrateSessionLabelsFromServer,
   readSessionLabels,
   subscribeSessionLabels,
   type SessionLabel,
@@ -16,6 +17,7 @@ function useSessionLabels(): SessionLabel[] {
   useEffect(() => {
     const update = () => setLabels(readSessionLabels());
     update();
+    void hydrateSessionLabelsFromServer().then(update);
     return subscribeSessionLabels(update);
   }, []);
   return labels;

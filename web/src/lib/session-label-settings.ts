@@ -98,6 +98,10 @@ export function readSessionLabels(): SessionLabel[] {
   return resolveSessionLabels(sync.read());
 }
 
+export function hasStoredSessionLabels(): boolean {
+  return sync.read() !== null;
+}
+
 export function writeSessionLabels(labels: readonly SessionLabel[]): void {
   sync.write(JSON.stringify(normalizeSessionLabels(labels)));
 }
@@ -117,6 +121,17 @@ export function subscribeSessionLabels(listener: () => void): () => void {
 
 export async function readSessionLabelsFromServer(): Promise<string | null> {
   return sync.readFromServer();
+}
+
+/** Restore the server backup only when this browser has no local preference. */
+let hydrationPromise: Promise<void> | null = null;
+
+export function hydrateSessionLabelsFromServer(): Promise<void> {
+  if (hasStoredSessionLabels()) return Promise.resolve();
+  hydrationPromise ??= sync.readFromServer().then((value) => {
+    if (value !== null && parseSessionLabels(value) !== null) sync.write(value);
+  });
+  return hydrationPromise;
 }
 
 export async function writeSessionLabelsToServer(labels: readonly SessionLabel[]): Promise<void> {

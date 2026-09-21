@@ -33,7 +33,7 @@ describe("classifySessionLabelWithJev", () => {
     ).resolves.toBe("debug");
   });
 
-  it("falls back on low confidence, unknown names, or too few labels", async () => {
+  it("falls back on low confidence or unknown names, and accepts one label", async () => {
     process.env.TYPESAFE_AUTO_ROUTING = "1";
     mocks.evaluateTypeSafe.mockResolvedValue({
       answers: { label: { choice: "デバッグ", confidence: 0.3 } },
@@ -49,11 +49,12 @@ describe("classifySessionLabelWithJev", () => {
       classifySessionLabelWithJev({ prompt: "エラー", labels }),
     ).resolves.toBeUndefined();
 
-    mocks.evaluateTypeSafe.mockClear();
+    mocks.evaluateTypeSafe.mockResolvedValue({
+      answers: { label: { choice: "デバッグ", confidence: 0.9 } },
+    });
     await expect(
       classifySessionLabelWithJev({ prompt: "エラー", labels: labels.slice(0, 1) }),
-    ).resolves.toBeUndefined();
-    expect(mocks.evaluateTypeSafe).not.toHaveBeenCalled();
+    ).resolves.toBe("debug");
   });
 
   it("returns undefined when Jev is unavailable", async () => {
