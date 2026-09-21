@@ -64,14 +64,17 @@ Pi also reads Pi-owned override files for settings and host-specific compatibili
 
 Host-specific configs are detected and shown by `/mcp setup` and `leafcode-mcp-adapter init`, but they are not loaded automatically. The normal `/mcp` panel does not scan host-specific files when `settings.hostConfigDiscovery` is `"off"`. To explicitly opt in to host-config fallback discovery, set `settings.hostConfigDiscovery` to `"on"` or run `leafcode-mcp-adapter init --discover-host-configs`. The default is `"off"`; `"prompt"` is available for integrations that want detection without activation. Host configs are lower precedence than every shared and Pi-owned source, and `/mcp setup` continues to offer explicit import adoption. Discovery reports source paths, provenance, and same-name conflicts; it never writes to external host files or silently launches commands from them.
 
+LeafCodePi also ships `mcp.json` next to this adapter with `browser-use`, Notion, n8n, and Slack definitions. It is the lowest-precedence base; user and project MCP files can override or disable those entries without modifying the bundled file. The `browser-use` executable must be available on `PATH`; n8n and Slack use the `N8N_MCP_URL` and `SLACK_CLIENT_ID` environment variables.
+
 Precedence is:
 
-1. `~/.config/mcp/mcp.json`
-2. `~/.agents/mcp.json`
-3. `~/.agents/mcp/mcp.json`
-4. `<Pi agent dir>/mcp.json`
-5. `.mcp.json`
-6. `.pi/mcp.json`
+1. bundled adapter `mcp.json`
+2. `~/.config/mcp/mcp.json`
+3. `~/.agents/mcp.json`
+4. `~/.agents/mcp/mcp.json`
+5. `<Pi agent dir>/mcp.json`
+6. `.mcp.json`
+7. `.pi/mcp.json`
 
 `/mcp disable <server>` and `/mcp enable <server>` persist only the `disabled` field in the project-local `.pi/mcp.json`, which is the highest-precedence Pi layer. Enabling removes the project flag when lower layers are enabled, or writes `false` when needed to override a disabled lower source. This applies even when the effective server came from a shared global/project file, an imported host config, or `configPath`; the source file is never rewritten and credentials are never copied. Run `/reload` after changing the flag so registered tool surfaces are refreshed. The manual equivalent is to add `{ "disabled": true }` to a server in any normal MCP config. Supplied in-memory `createMcpAdapter({ config })` configurations are isolated and do not read or write this project override; the commands are unavailable in that mode.
 

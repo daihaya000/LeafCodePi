@@ -134,6 +134,7 @@
     "skills",
     "README.md",
     "CHANGELOG.md",
+    "mcp.json",
     "LICENSE"
   ],
   "dependencies": {

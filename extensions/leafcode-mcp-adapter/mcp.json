@@ -1,0 +1,28 @@
+{
+  "mcpServers": {
+    "browser-use": {
+      "command": "browser-use",
+      "args": ["--mcp"]
+    },
+    "notion": {
+      "url": "https://mcp.notion.com/mcp",
+      "auth": "oauth",
+      "protocolVersion": "auto"
+    },
+    "n8n": {
+      "url": "${N8N_MCP_URL}",
+      "auth": "oauth",
+      "httpTransport": "streamable-http",
+      "protocolVersion": "auto"
+    },
+    "slack": {
+      "url": "https://mcp.slack.com/mcp",
+      "auth": "oauth",
+      "oauth": {
+        "clientId": "${SLACK_CLIENT_ID}"
+      },
+      "httpTransport": "streamable-http",
+      "protocolVersion": "auto"
+    }
+  }
+}

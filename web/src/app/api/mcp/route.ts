@@ -1,5 +1,5 @@
 /**
- * GET /api/mcp — list global MCP servers (~/.pi/agent/mcp.json) with ON/OFF state.
+ * GET /api/mcp — list bundled and global MCP servers with ON/OFF state.
  * POST /api/mcp — add a known preset server group (n8n / slack / google-workspace / notion).
  */
 import { NextRequest, NextResponse } from "next/server";

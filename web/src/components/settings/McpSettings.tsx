@@ -54,6 +54,7 @@ type AuthMutationResponse = {
 };
 
 const MCP_SERVER_DESCRIPTIONS: Readonly<Record<string, string>> = {
+  "browser-use": "browser-use MCPでブラウザ操作を行います。",
   fxhoudini: "リモート Houdini のシーン構築、シミュレーション、レンダリングを操作します。",
   blendermcp: "Blender Lab 公式 MCP で、リモート Blender のシーン・オブジェクト・ドキュメント・レンダリングを操作します。",
   mayamcp: "PatrickPalmer/MayaMCP で、リモート Maya のシーン構築・モデリング・マテリアルを操作します。",
@@ -669,9 +670,9 @@ export function McpSettings() {
         </Button>
       </div>
       <p className="text-xs text-muted">
-        leafcode-mcp-adapter が読む MCP サーバー設定（
+        リポジトリ同梱のMCP定義と、leafcode-mcp-adapter が読むユーザー設定（
         <span className="font-mono">~/.pi/agent/mcp.json</span>
-        ）の有効／無効と認証情報を管理します。リポジトリ組み込みとユーザー追加を別の枠で表示し、秘密情報は表示せずOS資格情報ストアへ保存します。
+        ）の有効／無効と認証情報を管理します。組み込み定義はユーザー設定で上書きでき、秘密情報は表示せずOS資格情報ストアへ保存します。
       </p>
       {configPath && (
         <div className="mt-1 space-y-0.5 text-[11px] text-muted">

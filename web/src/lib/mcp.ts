@@ -1,7 +1,7 @@
 /**
- * Global MCP servers with ON/OFF and credential metadata, managed through
- * Pi's global override file `~/.pi/agent/mcp.json`. The adapter also reads
- * shared project/global MCP sources; this module writes only the Pi override.
+ * Bundled and global MCP servers with ON/OFF and credential metadata. User
+ * overrides live in Pi's global file `~/.pi/agent/mcp.json`; this module writes
+ * only that override while preserving bundled definitions as the base.
  *
  * Secret values are never returned by this module. Bearer credentials and
  * custom headers entered in the WebUI are stored by the MCP adapter in the OS
@@ -17,6 +17,7 @@ import {
 } from "node:fs";
 import { dirname, join } from "node:path";
 import { resolvePiAgentDir } from "@/lib/agents-md";
+import { bundledExtensionsDir } from "@/lib/extensions";
 
 type McpServer = {
   command?: string;
@@ -158,6 +159,25 @@ function validServerName(name: string): string {
   return trimmed;
 }
 
+function readBundledConfig(): McpConfig {
+  const extensionsRoot = bundledExtensionsDir();
+  return extensionsRoot
+    ? readConfig(join(extensionsRoot, "leafcode-mcp-adapter", "mcp.json"))
+    : { mcpServers: {} };
+}
+
+function mergeConfigs(base: McpConfig, override: McpConfig): McpConfig {
+  const mcpServers = { ...base.mcpServers };
+  for (const [name, entry] of Object.entries(override.mcpServers)) {
+    mcpServers[name] = { ...(mcpServers[name] ?? {}), ...entry };
+  }
+  return { ...base, ...override, mcpServers };
+}
+
+function readEffectiveConfig(path: string): McpConfig {
+  return mergeConfigs(readBundledConfig(), readConfig(path));
+}
+
 function readServer(name: string, agentDir: string): {
   name: string;
   path: string;
@@ -167,9 +187,22 @@ function readServer(name: string, agentDir: string): {
   const trimmed = validServerName(name);
   const path = piMcpConfigPath(agentDir);
   const config = readConfig(path);
-  const candidate = config.mcpServers[trimmed];
+  const candidate = readEffectiveConfig(path).mcpServers[trimmed];
   if (!isMcpServer(candidate)) throw new McpError("not-found", "MCP サーバーが見つかりません");
   return { name: trimmed, path, config, entry: candidate };
+}
+
+function ensureUserServer(server: { name: string; config: McpConfig }): McpServer {
+  const existing = server.config.mcpServers[server.name];
+  if (isMcpServer(existing)) return existing;
+  const entry: McpServer = {};
+  server.config.mcpServers[server.name] = entry;
+  return entry;
+}
+
+function removeEmptyUserServer(server: { name: string; config: McpConfig }): void {
+  const entry = server.config.mcpServers[server.name];
+  if (isMcpServer(entry) && Object.keys(entry).length === 0) delete server.config.mcpServers[server.name];
 }
 
 function nonEmptyString(value: unknown): string | undefined {
@@ -281,7 +314,7 @@ function dtoFor(name: string, entry: McpServer): McpDto {
 }
 
 export function listMcpServers(agentDir = resolvePiAgentDir()): McpListResult {
-  const config = readConfig(piMcpConfigPath(agentDir));
+  const config = readEffectiveConfig(piMcpConfigPath(agentDir));
   const servers = Object.entries(config.mcpServers)
     .filter(([, entry]) => isMcpServer(entry))
     .map(([name, entry]) => dtoFor(name, entry))
@@ -350,15 +383,16 @@ export function enableMcpBearerStore(
     throw new McpError("invalid-auth", "Bearer認証はHTTP MCPサーバーでのみ利用できます");
   }
 
-  server.entry.auth = "bearer";
-  server.entry.bearerTokenStore = true;
-  delete server.entry.headersStore;
-  delete server.entry.oauth;
+  const entry = ensureUserServer(server);
+  entry.auth = "bearer";
+  entry.bearerTokenStore = true;
+  delete entry.headersStore;
+  delete entry.oauth;
   // Remove local literal and environment references when the user explicitly
   // saves to the adapter-owned store. The store flag takes precedence over
   // inherited lower-precedence bearer fields in the adapter.
-  delete server.entry.bearerToken;
-  delete server.entry.bearerTokenEnv;
+  delete entry.bearerToken;
+  delete entry.bearerTokenEnv;
   atomicWrite(server.path, `${JSON.stringify(server.config, null, 2)}\n`);
   return listMcpServers(agentDir);
 }
@@ -369,8 +403,10 @@ export function disableMcpBearerStore(
   agentDir = resolvePiAgentDir(),
 ): McpListResult {
   const server = readServer(name, agentDir);
-  if (server.entry.bearerTokenStore === true) {
-    delete server.entry.bearerTokenStore;
+  const entry = server.config.mcpServers[server.name];
+  if (isMcpServer(entry) && entry.bearerTokenStore === true) {
+    delete entry.bearerTokenStore;
+    removeEmptyUserServer(server);
     atomicWrite(server.path, `${JSON.stringify(server.config, null, 2)}\n`);
   }
   return listMcpServers(agentDir);
@@ -386,15 +422,16 @@ export function enableMcpHeadersStore(
     throw new McpError("invalid-auth", "HTTPヘッダー認証はHTTP MCPサーバーでのみ利用できます");
   }
 
-  server.entry.headersStore = true;
+  const entry = ensureUserServer(server);
+  entry.headersStore = true;
   // A user-selected header store is an explicit alternative to OAuth/Bearer.
   // Keep auth: false as an explicit mode marker so an inherited lower layer
   // cannot re-enable bearer authentication while this store is selected.
-  server.entry.auth = false;
-  delete server.entry.oauth;
-  delete server.entry.bearerToken;
-  delete server.entry.bearerTokenEnv;
-  delete server.entry.bearerTokenStore;
+  entry.auth = false;
+  delete entry.oauth;
+  delete entry.bearerToken;
+  delete entry.bearerTokenEnv;
+  delete entry.bearerTokenStore;
   atomicWrite(server.path, `${JSON.stringify(server.config, null, 2)}\n`);
   return listMcpServers(agentDir);
 }
@@ -405,9 +442,11 @@ export function disableMcpHeadersStore(
   agentDir = resolvePiAgentDir(),
 ): McpListResult {
   const server = readServer(name, agentDir);
-  if (server.entry.headersStore === true) {
-    delete server.entry.headersStore;
-    if (server.entry.auth === false) delete server.entry.auth;
+  const entry = server.config.mcpServers[server.name];
+  if (isMcpServer(entry) && entry.headersStore === true) {
+    delete entry.headersStore;
+    if (entry.auth === false) delete entry.auth;
+    removeEmptyUserServer(server);
     atomicWrite(server.path, `${JSON.stringify(server.config, null, 2)}\n`);
   }
   return listMcpServers(agentDir);
@@ -419,8 +458,19 @@ export function setMcpServerEnabled(
   agentDir = resolvePiAgentDir(),
 ): McpListResult {
   const server = readServer(name, agentDir);
-  if (enabled) delete server.entry.disabled;
-  else server.entry.disabled = true;
+  const existing = server.config.mcpServers[server.name];
+  if (enabled) {
+    if (isMcpServer(existing)) {
+      delete existing.disabled;
+      removeEmptyUserServer(server);
+    } else if (server.entry.disabled === true) {
+      ensureUserServer(server).disabled = false;
+    } else {
+      return listMcpServers(agentDir);
+    }
+  } else {
+    ensureUserServer(server).disabled = true;
+  }
 
   atomicWrite(server.path, `${JSON.stringify(server.config, null, 2)}\n`);
   return listMcpServers(agentDir);

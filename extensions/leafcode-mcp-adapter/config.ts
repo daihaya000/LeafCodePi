@@ -2,6 +2,7 @@
 import { existsSync, readFileSync, writeFileSync, mkdirSync, renameSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { parse as parseToml } from "smol-toml";
 import stripJsonComments from "strip-json-comments";
 import { getAgentPath, getConfigDirName } from "./agent-dir.ts";
@@ -17,6 +18,7 @@ const AGENTS_GLOBAL_CONFIG_PATHS = [
 ] as const;
 const PROJECT_CONFIG_NAME = ".mcp.json";
 const PROJECT_PI_CONFIG_NAME = "mcp.json";
+const BUNDLED_CONFIG_PATH = join(dirname(fileURLToPath(import.meta.url)), "mcp.json");
 const REPOPROMPT_BINARY_CANDIDATES = [
   join(homedir(), "RepoPrompt", "repoprompt_cli"),
   "/Applications/Repo Prompt.app/Contents/MacOS/repoprompt-mcp",
@@ -324,7 +326,11 @@ export function loadMcpConfig(overridePath?: string, cwd = process.cwd()): McpCo
   const packageServers = Object.fromEntries(
     Object.entries(packageConfig.mcpServers).filter(([name]) => !Object.hasOwn(pluginConfig.mcpServers, name)),
   );
-  return mergeConfigs({ mcpServers: packageServers }, mergeConfigs(pluginConfig, config));
+  const bundledConfig = readValidatedConfig(BUNDLED_CONFIG_PATH, "bundled MCP config") ?? { mcpServers: {} };
+  return mergeConfigs(
+    bundledConfig,
+    mergeConfigs({ mcpServers: packageServers }, mergeConfigs(pluginConfig, config)),
+  );
 }
 
 function getMergedSettings(overridePath?: string, cwd = process.cwd()): McpSettings | undefined {

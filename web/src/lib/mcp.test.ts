@@ -130,11 +130,29 @@ describe("listMcpServers / setMcpServerEnabled", () => {
     assert.equal("disabled" in raw2.mcpServers.chrome_devtools, false);
   });
 
+  it("toggles a bundled server through a user override", () => {
+    fixture();
+    setMcpServerEnabled("notion", false, agentDir);
+    assert.equal(listMcpServers(agentDir).servers.find((s) => s.name === "notion")?.enabled, false);
+    const disabled = JSON.parse(readFileSync(join(agentDir, "mcp.json"), "utf8"));
+    assert.deepEqual(disabled.mcpServers.notion, { disabled: true });
+
+    setMcpServerEnabled("notion", true, agentDir);
+    assert.equal(listMcpServers(agentDir).servers.find((s) => s.name === "notion")?.enabled, true);
+    const enabled = JSON.parse(readFileSync(join(agentDir, "mcp.json"), "utf8"));
+    assert.equal("notion" in enabled.mcpServers, false);
+  });
+
   it("rejects unknown names and leaves existing config intact", () => {
     fixture();
     assert.throws(() => setMcpServerEnabled("missing", false, agentDir), McpError);
     assert.throws(() => setMcpServerEnabled("missing", false, agentDir), /見つかりません/);
-    assert.equal(listMcpServers(agentDir).servers.length, 4);
+    const listed = listMcpServers(agentDir).servers;
+    assert.equal(listed.length, 8);
+    assert.deepEqual(
+      listed.filter((server) => ["browser-use", "notion", "n8n", "slack"].includes(server.name)).map((server) => server.name),
+      ["browser-use", "n8n", "notion", "slack"],
+    );
   });
 
   it("preserves other top-level config keys on write", () => {
