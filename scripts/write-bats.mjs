@@ -59,14 +59,36 @@ title LeafCodePi
 if not defined LEAFCODE_PI_HOST set "LEAFCODE_PI_HOST=tailscale"
 if not defined LEAFCODE_PI_PORT set "LEAFCODE_PI_PORT=3010"
 if not defined LEAFCODE_PI_MODE set "LEAFCODE_PI_MODE=prod"
+if not defined LEAFCODE_PI_RESTART_MAX set "LEAFCODE_PI_RESTART_MAX=5"
+set /a RESTARTS=0
 cd /d "%~dp0..\\host"
+
+rem An unclean host exit (crash or taskkill of node) auto-restarts here; a
+rem clean quit (tray Quit, host self-restart) exits 0 and stops the loop.
+rem ponytail: consecutive-attempt cap, no uptime-based reset; add one if a
+rem long-running host ever hits the cap. Killing this cmd/launcher too kills
+rem the watchdog with it.
+:run_host
 call node src\\index.js
 set ERR=%ERRORLEVEL%
-if not "%ERR%"=="0" (
-  echo [LeafCodePi] Host exited with code %ERR%
-  call :pause_if_interactive
-  exit /b %ERR%
-)
+if "%ERR%"=="0" goto :host_done
+if "%LEAFCODE_PI_NO_RESTART%"=="1" goto :host_failed
+if %RESTARTS% GEQ %LEAFCODE_PI_RESTART_MAX% goto :host_failed
+set /a RESTARTS+=1
+call :say_restart
+%SystemRoot%\\System32\\ping.exe -n 4 127.0.0.1 >nul
+goto :run_host
+
+:say_restart
+echo [LeafCodePi] Host exited with code %ERR%; restarting (%RESTARTS%/%LEAFCODE_PI_RESTART_MAX%)...
+exit /b 0
+
+:host_failed
+echo [LeafCodePi] Host exited with code %ERR%
+call :pause_if_interactive
+exit /b %ERR%
+
+:host_done
 %SystemRoot%\\System32\\ping.exe -n 4 127.0.0.1 >nul
 exit /b 0
 
@@ -79,9 +101,10 @@ call :pause_if_interactive
 exit /b %FAIL_EXIT%
 
 :check_node
-set "NODE_MAJOR=0"
-for /f %%V in ('node -p "process.versions.node.split('.')[0]" 2^>nul') do set "NODE_MAJOR=%%V"
-if %NODE_MAJOR% GEQ 20 exit /b 0
+rem package.json engines requires Node.js 22.19+. A major-only test accepted
+rem 20/21 (and 22.0-22.18) and failed later inside the build with an unclear error.
+call :node_version_ok
+if not errorlevel 1 exit /b 0
 call where winget >nul 2>&1
 if errorlevel 1 (
   call :fail 1 "winget was not found." error-1
@@ -89,16 +112,27 @@ if errorlevel 1 (
 )
 echo [LeafCodePi] Installing Node.js LTS...
 call winget install --id OpenJS.NodeJS.LTS --exact --source winget --silent --accept-package-agreements --accept-source-agreements --disable-interactivity
-if errorlevel 1 (
+set "NODE_INSTALL_ERR=%ERRORLEVEL%"
+if exist "%ProgramFiles%\\nodejs\\node.exe" set "PATH=%ProgramFiles%\\nodejs;%PATH%"
+call :node_version_ok
+if not errorlevel 1 exit /b 0
+rem winget install reports success when an older LTS is already installed, so an
+rem explicit upgrade is the only way to satisfy the version requirement.
+call winget upgrade --id OpenJS.NodeJS.LTS --exact --source winget --silent --accept-package-agreements --accept-source-agreements --disable-interactivity
+if exist "%ProgramFiles%\\nodejs\\node.exe" set "PATH=%ProgramFiles%\\nodejs;%PATH%"
+call :node_version_ok
+if not errorlevel 1 exit /b 0
+if not "%NODE_INSTALL_ERR%"=="0" (
   call :fail 2 "Node.js could not be installed." error-2
   exit /b 2
 )
-if exist "%ProgramFiles%\\nodejs\\node.exe" set "PATH=%ProgramFiles%\\nodejs;%PATH%"
-set "NODE_MAJOR=0"
-for /f %%V in ('node -p "process.versions.node.split('.')[0]" 2^>nul') do set "NODE_MAJOR=%%V"
-if %NODE_MAJOR% GEQ 20 exit /b 0
-call :fail 3 "Node.js is not available in this command prompt." error-3
+call :fail 3 "Node.js 22.19 or newer is not available in this command prompt." error-3
 exit /b 3
+
+:node_version_ok
+node -e "const [major, minor] = process.versions.node.split('.').map(Number); process.exit(major < 22 || (major === 22 && minor < 19) ? 1 : 0)" 2>nul
+if errorlevel 1 exit /b 1
+exit /b 0
 
 :install_gh
 where gh >nul 2>&1

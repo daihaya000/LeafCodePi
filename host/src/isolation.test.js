@@ -40,6 +40,14 @@ test("launcher bats use LEAFCODE_PI_* and port 3010", () => {
   assert.doesNotMatch(bat, /LEAFCODE_HEADLESS=/);
 });
 
+test("launcher restarts the host after an unclean exit, not after a clean quit", () => {
+  const bat = readFileSync(join(repoRoot, "scripts", "start-webui.bat"), "utf8");
+  assert.match(bat, /^:run_host$/m);
+  assert.match(bat, /if "%ERR%"=="0" goto :host_done/);
+  assert.match(bat, /if %RESTARTS% GEQ %LEAFCODE_PI_RESTART_MAX% goto :host_failed/);
+  assert.match(bat, /^goto :run_host$/m);
+});
+
 test("both launchers enforce the engines Node.js minimum", () => {
   // package.json engines says >=22.19. The bat once accepted any major >=20,
   // which let unsupported runtimes fail later inside the build instead.

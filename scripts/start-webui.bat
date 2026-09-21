@@ -30,14 +30,36 @@ title LeafCodePi
 if not defined LEAFCODE_PI_HOST set "LEAFCODE_PI_HOST=tailscale"
 if not defined LEAFCODE_PI_PORT set "LEAFCODE_PI_PORT=3010"
 if not defined LEAFCODE_PI_MODE set "LEAFCODE_PI_MODE=prod"
+if not defined LEAFCODE_PI_RESTART_MAX set "LEAFCODE_PI_RESTART_MAX=5"
+set /a RESTARTS=0
 cd /d "%~dp0..\host"
+
+rem An unclean host exit (crash or taskkill of node) auto-restarts here; a
+rem clean quit (tray Quit, host self-restart) exits 0 and stops the loop.
+rem ponytail: consecutive-attempt cap, no uptime-based reset; add one if a
+rem long-running host ever hits the cap. Killing this cmd/launcher too kills
+rem the watchdog with it.
+:run_host
 call node src\index.js
 set ERR=%ERRORLEVEL%
-if not "%ERR%"=="0" (
-  echo [LeafCodePi] Host exited with code %ERR%
-  call :pause_if_interactive
-  exit /b %ERR%
-)
+if "%ERR%"=="0" goto :host_done
+if "%LEAFCODE_PI_NO_RESTART%"=="1" goto :host_failed
+if %RESTARTS% GEQ %LEAFCODE_PI_RESTART_MAX% goto :host_failed
+set /a RESTARTS+=1
+call :say_restart
+%SystemRoot%\System32\ping.exe -n 4 127.0.0.1 >nul
+goto :run_host
+
+:say_restart
+echo [LeafCodePi] Host exited with code %ERR%; restarting (%RESTARTS%/%LEAFCODE_PI_RESTART_MAX%)...
+exit /b 0
+
+:host_failed
+echo [LeafCodePi] Host exited with code %ERR%
+call :pause_if_interactive
+exit /b %ERR%
+
+:host_done
 %SystemRoot%\System32\ping.exe -n 4 127.0.0.1 >nul
 exit /b 0
 
