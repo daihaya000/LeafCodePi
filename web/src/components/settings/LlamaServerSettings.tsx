@@ -438,7 +438,11 @@ export function LlamaServerSettings(
     if (mmprojAutoRef.current || !configLoaded || (mmprojs.length === 0 && loras.length === 0)) return;
     mmprojAutoRef.current = true;
     setConfig((c) => {
-      const matched = LLAMA_MODEL_PRESETS.find((preset) => preset.match.test(c.modelFile));
+      const selectedPreset =
+        selectedFamily && selectedFamily !== "custom"
+          ? LLAMA_MODEL_PRESETS.find((preset) => preset.key === selectedFamily)
+          : undefined;
+      const matched = selectedPreset ?? LLAMA_MODEL_PRESETS.find((preset) => preset.match.test(c.modelFile));
       const resolved =
         matched?.vision === false
           ? { ...c, mmprojPath: "" }
@@ -449,7 +453,7 @@ export function LlamaServerSettings(
       return presetKey === "orca-bonsai27" ? withResolvedLora(resolved, loras)
         : resolved;
     });
-  }, [configLoaded, loras, mmprojs]);
+  }, [configLoaded, loras, mmprojs, selectedFamily]);
 
   return (
     <div className="rounded-2xl border border-border bg-surface p-4">
