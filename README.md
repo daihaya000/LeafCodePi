@@ -297,7 +297,7 @@ OpenCode 版 LeafCode にあった worktree 分離、差分ペイン、Caddy は
 | Node.js | 22.19 以上 |
 | Pi 認証 | 設定画面のサブスクログイン（Claude Pro/Max / ChatGPT Plus/Pro）、環境変数、または `~/.pi/agent/auth.json` |
 | Linux/macOS のプロセス検出 | `ss` または `lsof`、`ps`（WebUI の build guard / 停止に使用） |
-| PowerShell（Windows のみ） | Pi 0.84.4 の標準ツール。`pwsh.exe` を優先し、なければ Windows PowerShell を使います |
+| PowerShell（Windows のみ） | Pi 0.86.1 の標準ツール。`pwsh.exe` を優先し、なければ Windows PowerShell を使います |
 | Bash（Linux/macOS） | Pi の標準シェルツール。Windows では必要時のみ明示的に有効化します |
 | Linux/macOS のトレイ | グラフィカルセッションでは既定で有効。systray / AppIndicator 対応環境を推奨 |
 
@@ -349,7 +349,7 @@ production build は既存のミラー先を常設ビルド領域として直接
 - Next 16 はプロジェクト外の `distDir` を許可しないため、ソースの差分コピーだけを残します。OneDrive側の `node_modules` はビルド時に走査・同期・ハードリンクしません。
 - 依存関係は初回または `package.json` / `package-lock.json` / Node.js環境の変更時に、ビルド領域で `npm ci --include=dev` します。旧ミラーも次回ビルドで移行するため、初回は依存インストールの時間・空き容量・ネットワーク接続が必要です。インストール失敗時は以前の依存関係を復元します。
 - npm 12用に `web/package.json` の `allowScripts` で `better-sqlite3@12.9.0` のみを許可しています。依存インストール後はSQLiteの起動も検証します。SQLiteのバージョン更新時はこの許可も見直してください。
-- `.next`・依存関係・ビルドキャッシュをOneDriveへ書き戻しません。`next dev` と開発用依存のインストール、起動時のPi自動更新は従来どおりリポジトリ側です。
+- `.next`・依存関係・ビルドキャッシュをOneDriveへ書き戻しません。`next dev` と開発用依存のインストール、起動後のPi 0.x自動更新は従来どおりリポジトリ側です。
 - 型チェックは `next build` の中ではなく、ビルド領域の `tsc --noEmit` を `next build` と並列に実行して担保します（`web/next.config.ts` の `typescript.ignoreBuildErrors`）。型エラー時は新しいビルドを破棄し、前回の production build を復元します。
 
 トレイメニュー:
