@@ -166,7 +166,10 @@ function saveBotSettingsOpen(id: string, open: boolean): void {
 
 export const BotView = memo(function BotView({ id, active = true }: { id: string; active?: boolean }) {
   const taskId = `bot:${id}`;
-  const cachedSession = useMemo(() => loadTaskSessionCache(taskId), [taskId]);
+  const cachedSession = useMemo(() => {
+    const cached = loadTaskSessionCache(taskId);
+    return cached?.messages.length ? cached : null;
+  }, [taskId]);
   const [bot, setBot] = useState<BotDto | null>(null);
   const [models, setModels] = useState<ModelOption[]>([]);
   const [modelsLoading, setModelsLoading] = useState(true);
@@ -257,7 +260,7 @@ export const BotView = memo(function BotView({ id, active = true }: { id: string
     notifyBotSidebarChanged();
   };
 
-  const cacheSnapshot = cacheTaskRef.current?.id === taskId
+  const cacheSnapshot = !timelineLoading && cacheTaskRef.current?.id === taskId
     ? {
         task: cacheTaskRef.current,
         messages,

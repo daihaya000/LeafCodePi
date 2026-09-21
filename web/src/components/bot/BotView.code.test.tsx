@@ -15,7 +15,7 @@ import { BOT_AVATAR_SHAPES } from "@/lib/bot-avatar";
 import { toolNameLabel } from "@/lib/tool-labels";
 import { BOT_CODE_SESSION_CHANGED_EVENT, BOT_DEFAULT_DISABLED_TOOL_NAMES, BOT_TOOL_NAMES, type TaskSummary } from "@/lib/types";
 import { ShellProvider } from "@/components/shell/ShellContext";
-import { saveTaskSessionCache } from "@/lib/task-session-cache";
+import { saveTaskSessionCache, TASK_SESSION_CACHE_STORAGE_KEY } from "@/lib/task-session-cache";
 import { writeTaskTtsEnabled } from "@/lib/tts-playback";
 let listener: (event: { data: string }) => void;
 let deltaListener: (event: { data: string }) => void;
@@ -91,6 +91,83 @@ it("restores the cached Bot transcript and sends its revision to SSE", async () 
   expect(await screen.findByText("キャッシュ済み")).toBeTruthy();
   expect(sourceUrl).toContain("cachedTaskUpdatedAt=revision-1");
   expect(sourceUrl).toContain("cachedSessionId=session-1");
+});
+
+it("does not persist a bootstrap-only Bot cache before the timeline is ready", async () => {
+  vi.useFakeTimers();
+  try {
+    const task: TaskSummary = {
+      id: "bot:one",
+      kind: "bot",
+      botId: "one",
+      projectId: null,
+      projectName: "Bots",
+      title: "Bot",
+      directory: "C:/bots/one/workspace",
+      isolation: "current_folder",
+      status: "idle",
+      sessionId: "session-1",
+      sessionFile: null,
+      createdAt: "2026-09-17T00:00:00.000Z",
+      updatedAt: "revision-1",
+    };
+    render(<ShellProvider><BotView id="one" /></ShellProvider>);
+    snapshot({ eventType: "bootstrap", task, messages: [], isStreaming: false });
+    await act(async () => { await vi.advanceTimersByTimeAsync(1_001); });
+
+    const stored = JSON.parse(localStorage.getItem(TASK_SESSION_CACHE_STORAGE_KEY) ?? "{}") as { entries?: Record<string, unknown> };
+    expect(stored.entries?.[task.id]).toBeUndefined();
+
+    snapshot({
+      eventType: "ready",
+      messages: [{ id: "history", role: "assistant", createdAt: 1, parts: [{ id: "history-text", type: "text", text: "保存済み履歴" }] }],
+      messageHistory: { hasMore: false, nextCursor: null },
+      isStreaming: false,
+    });
+    expect(screen.getByText("保存済み履歴")).toBeTruthy();
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+it("ignores an empty Bot cache so persisted history can be loaded", async () => {
+  const task: TaskSummary = {
+    id: "bot:one",
+    kind: "bot",
+    botId: "one",
+    projectId: null,
+    projectName: "Bots",
+    title: "Bot",
+    directory: "C:/bots/one/workspace",
+    isolation: "current_folder",
+    status: "idle",
+    sessionId: "session-1",
+    sessionFile: null,
+    createdAt: "2026-09-17T00:00:00.000Z",
+    updatedAt: "revision-1",
+  };
+  saveTaskSessionCache({ task, messages: [], messageHistory: { hasMore: false, nextCursor: null }, isStreaming: false, isCompacting: false });
+  let sourceUrl = "";
+  vi.stubGlobal("EventSource", class {
+    constructor(url: string) { sourceUrl = url; }
+    addEventListener(name: string, callback: typeof listener) {
+      if (name === "delta") deltaListener = callback;
+      else if (name === "error") errorListener = callback;
+      else listener = callback;
+    }
+    close() {}
+  });
+
+  render(<ShellProvider><BotView id="one" /></ShellProvider>);
+  await screen.findByRole("button", { name: "設定" });
+  expect(sourceUrl).not.toContain("cachedTaskUpdatedAt");
+  snapshot({
+    eventType: "ready",
+    messages: [{ id: "history", role: "assistant", createdAt: 1, parts: [{ id: "history-text", type: "text", text: "保存済み履歴" }] }],
+    messageHistory: { hasMore: false, nextCursor: null },
+    isStreaming: false,
+  });
+  expect(screen.getByText("保存済み履歴")).toBeTruthy();
 });
 
 it("notifies a hidden tab once per finished reply, and stays silent when the Bot's toggle is off", async () => {
