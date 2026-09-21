@@ -72,8 +72,9 @@ rem all plus --n-cpu-moe 0 keep every layer on it, and --fit off stops llama.cpp
 rem from silently shrinking layers or context to fit. Do not re-add --n-cpu-ffn:
 rem llama-server b10488 rejects it ("invalid argument"), which aborts the launch.
 rem Too little VRAM must fail the launch instead of degrading to CPU speed.
-rem Override with GPU_DEVICE (for example CUDA0) when the GPU index differs.
-if not defined GPU_DEVICE set "GPU_DEVICE=Vulkan0"
+rem This host reports AMD Radeon AI PRO R9700 as Vulkan2.
+rem Override with GPU_DEVICE only when targeting a different GPU.
+if not defined GPU_DEVICE set "GPU_DEVICE=Vulkan2"
 set "LLAMA_SERVER_BIN_EXPLICIT="
 if defined LLAMA_SERVER_BIN set "LLAMA_SERVER_BIN_EXPLICIT=1"
 if not defined LLAMA_SERVER_BIN set "LLAMA_SERVER_BIN=C:\tools\llama.cpp\llama-server.exe"

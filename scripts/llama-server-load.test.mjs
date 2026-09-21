@@ -95,7 +95,7 @@ test('Qwen3.8 sampler is scoped and explicit overrides win', { skip: process.pla
     assert.match(output, /sampling=temp 1\.0 top-p 0\.95 top-k 20 min-p 0\.0 repeat 1\.0 dry 0\.0/);
     assert.match(output, /--min-p 0\.0/);
     // Every layer must stay on the pinned GPU, never on the CPU or iGPU.
-    assert.match(output, /device=--device Vulkan0/);
+    assert.match(output, /device=--device Vulkan2/);
     assert.match(output, /--fit off/);
     assert.match(output, /--gpu-layers all --n-cpu-moe 0 /);
     // llama-server b10488 rejects --n-cpu-ffn, which aborts the launch.
