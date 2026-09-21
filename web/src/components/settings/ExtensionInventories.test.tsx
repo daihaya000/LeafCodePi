@@ -76,6 +76,10 @@ describe("拡張設定の一覧", () => {
     expect(within(screen.getByTestId("mcp-bundled")).getByText("notion")).toBeTruthy();
     expect(within(screen.getByTestId("mcp-user")).getByText("C:/pi/mcp.json")).toBeTruthy();
     expect(within(screen.getByTestId("mcp-user")).getByText("fxhoudini")).toBeTruthy();
+
+    for (const sectionId of ["skills-bundled", "skills-user", "mcp-bundled", "mcp-user"]) {
+      expect(screen.getByTestId(sectionId).className.split(/\s+/)).toContain("bg-surface");
+    }
     expect(within(screen.getByTestId("mcp-user")).getByText("custom")).toBeTruthy();
     expect(within(screen.getByTestId("mcp-bundled")).queryByText("fxhoudini")).toBeNull();
 

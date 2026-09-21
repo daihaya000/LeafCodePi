@@ -570,7 +570,7 @@ export function McpSettings() {
         <p className="mt-3 text-sm text-muted">読み込み中…</p>
       ) : (
         <div className="mt-3 space-y-3">
-          <section data-testid="mcp-bundled" className="rounded-xl border border-border bg-surface-2 p-3">
+          <section data-testid="mcp-bundled" className="rounded-xl border border-border bg-surface p-3">
             <div className="flex items-center justify-between gap-3">
               <h4 className="text-sm font-semibold">リポジトリ組み込み</h4>
               <Badge tone="neutral">{bundledServers.length}件</Badge>
@@ -581,7 +581,7 @@ export function McpSettings() {
             )}
             {renderServerList(bundledServers)}
           </section>
-          <section data-testid="mcp-user" className="rounded-xl border border-border bg-surface-2 p-3">
+          <section data-testid="mcp-user" className="rounded-xl border border-border bg-surface p-3">
             <div className="flex items-center justify-between gap-3">
               <h4 className="text-sm font-semibold">ユーザー追加済み</h4>
               <Badge tone="neutral">{userServers.length}件</Badge>

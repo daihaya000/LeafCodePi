@@ -198,7 +198,7 @@ export function SkillsSettings({ scope = "code" }: { scope?: SkillScope } = {}) 
     path: string | null,
   ) {
     return (
-      <section data-testid={id} className="rounded-xl border border-border bg-surface-2 p-3">
+      <section data-testid={id} className="rounded-xl border border-border bg-surface p-3">
         <div className="flex items-center justify-between gap-3">
           <h4 className="text-sm font-semibold">{title}</h4>
           <Badge tone="neutral">{items.length}件</Badge>
