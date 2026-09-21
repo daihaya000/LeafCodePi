@@ -1,9 +1,9 @@
 "use client";
 
-import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { Badge, Button } from "@/components/ui";
+import { Button } from "@/components/ui";
 import { getJson, sendJson } from "@/lib/client";
 
 type InstructionsMd = { path: string; exists: boolean; content: string };
@@ -17,7 +17,6 @@ export type InstructionsMdSettingsProps = {
   /** File name shown in labels and messages, e.g. `AGENTS.md`. */
   fileName: string;
   title: string;
-  description: ReactNode;
   /** API route serving GET / PATCH for this file. */
   endpoint: string;
   placeholder: string;
@@ -27,7 +26,6 @@ export type InstructionsMdSettingsProps = {
 export function InstructionsMdSettings({
   fileName,
   title,
-  description,
   endpoint,
   placeholder,
 }: InstructionsMdSettingsProps) {
@@ -100,14 +98,8 @@ export function InstructionsMdSettings({
       <div className="mb-2 flex flex-wrap items-start justify-between gap-2">
         <div className="min-w-0">
           <h3 className="text-sm font-semibold">{title}</h3>
-          <p className="mt-1 text-xs text-muted">{description}</p>
         </div>
         <div className="flex items-center gap-2">
-          {meta && (
-            <Badge tone={meta.exists ? "success" : "neutral"}>
-              {meta.exists ? "存在" : "新規作成"}
-            </Badge>
-          )}
           {loadState === "ready" && !editing && (
             <Button type="button" size="sm" variant="secondary" onClick={() => setEditing(true)}>
               編集

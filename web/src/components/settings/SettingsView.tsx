@@ -106,7 +106,7 @@ function tabFromHash(hash: string): Tab | null {
 type SettingsGroupProps = {
   id: string;
   title: string;
-  description: string;
+  description?: string;
   children: ReactNode;
 };
 
@@ -115,7 +115,7 @@ function SettingsGroup({ id, title, description, children }: SettingsGroupProps)
     <section aria-labelledby={id} className="space-y-3">
       <header className="px-1">
         <h2 id={id} className="text-base font-semibold">{title}</h2>
-        <p className="mt-1 text-xs text-muted">{description}</p>
+        {description && <p className="mt-1 text-xs text-muted">{description}</p>}
       </header>
       {children}
     </section>
@@ -469,7 +469,6 @@ export function SettingsView() {
               <SettingsGroup
                 id="prompts-common-heading"
                 title="共通"
-                description="CodeとBotの両方で使う共通プロンプトを管理します。"
               >
                 <div id="prompts-common" className="scroll-mt-24">
                   <UserMdSettings />
@@ -478,7 +477,6 @@ export function SettingsView() {
               <SettingsGroup
                 id="prompts-code-heading"
                 title="Code"
-                description="Codeで使うプロンプトと共通指示を管理します。"
               >
                 <div id="prompts-code" className="scroll-mt-24 space-y-4">
                   <SoulMdSettings />
@@ -491,7 +489,6 @@ export function SettingsView() {
               <SettingsGroup
                 id="prompts-bot-heading"
                 title="Bot"
-                description="Botで使う共通プロンプトを管理します。"
               >
                 <div id="prompts-bot" className="scroll-mt-24">
                   <BotsMdSettings />

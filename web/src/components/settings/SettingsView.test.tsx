@@ -376,6 +376,7 @@ describe("SettingsView", () => {
       "DESIGN.md",
       "BOTS.md",
     ]);
+    expect(promptsPanel.querySelectorAll("section[aria-labelledby] > header > p")).toHaveLength(0);
     expect(promptsPanel.id).toBe("settings-panel-prompts");
   });
 
