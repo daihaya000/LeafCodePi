@@ -3963,6 +3963,116 @@ test("superseded session_shutdown does not pause queued work re-armed by replace
   }
 });
 
+test("superseded extension instances cannot mutate the current loop", async (t) => {
+  for (const sharedManager of [false, true]) {
+    await t.test(sharedManager ? "reload with the same manager" : "reopen with a new manager", async () => {
+      const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-retired-events-"));
+      process.env.LEAFCODE_PI_DATA_DIR = cwd;
+      const manager = { getSessionId: () => "retired-events", getBranch: () => [] };
+      const stateFile = join(cwd, "goals-loop", "retired-events.json");
+      const readState = () => JSON.parse(readFileSync(stateFile, "utf8"));
+      const make = (sessionManager) => {
+        const ctx = {
+          cwd, mode: "rpc", hasUI: false,
+          isIdle: () => true, hasPendingMessages: () => false, abort() {},
+          sessionManager,
+          ui: { setStatus() {}, setWidget() {}, notify() {} },
+        };
+        const pi = {
+          handlers: new Map(), commands: new Map(),
+          on(name, handler) { this.handlers.set(name, handler); },
+          registerCommand(name, options) { this.commands.set(name, options.handler); },
+          appendEntry() {}, sendMessage() {},
+        };
+        goalLoopExtension(pi);
+        return { pi, ctx };
+      };
+      const old = make(manager);
+      const current = make(sharedManager ? manager : { ...manager });
+      const start = Buffer.from(JSON.stringify({ goal: "current goal", maxTurns: 3 })).toString("base64url");
+      try {
+        await old.pi.handlers.get("session_start")({}, old.ctx);
+        await old.pi.commands.get("goal-start")(start, old.ctx);
+        await waitFor(() => readState().status === "running");
+        await current.pi.handlers.get("session_start")({}, current.ctx);
+        await current.pi.commands.get("goal-start")(start, current.ctx);
+        await waitFor(() => readState().status === "running");
+        const before = readState();
+        await old.pi.handlers.get("input")({ text: "stale instruction", source: "rpc" }, old.ctx);
+        assert.deepEqual(readState(), before, "stale input must not add notes");
+        const messages = [{ role: "assistant", content: [{ type: "text", text: '{"status":"completed","summary":"stale result"}' }] }];
+        await old.pi.handlers.get("agent_end")({ messages }, old.ctx);
+        await old.pi.handlers.get("agent_settled")({}, old.ctx);
+        assert.deepEqual(readState(), before, "stale settlement must not finish the current turn");
+        for (const [name, args] of [
+          ["goal-start", start], ["goal-set", "stale goal"], ["goal", "stop"],
+          ["goal-pause", ""], ["goal-resume", ""], ["goal-stop", ""], ["goal-complete", ""],
+        ]) {
+          await old.pi.commands.get(name)(args, old.ctx);
+          assert.deepEqual(readState(), before, `${name} on the old instance must be ignored`);
+        }
+        old.ctx = { ...old.ctx, sessionManager: { ...manager, getSessionId: () => "other-session" } };
+        await old.pi.handlers.get("session_start")({}, old.ctx);
+        assert.deepEqual(readState(), before, "switching the old instance must not pause the current loop");
+        await old.pi.handlers.get("session_shutdown")({}, old.ctx);
+        await current.pi.commands.get("goal-stop")("", current.ctx);
+        assert.equal(readState().status, "stopped", "current commands remain usable");
+      } finally {
+        await old.pi.handlers.get("session_shutdown")({}, old.ctx);
+        await current.pi.handlers.get("session_shutdown")({}, current.ctx);
+        rmSync(cwd, { recursive: true, force: true });
+      }
+    });
+  }
+});
+
+for (const replaceSession of [false, true]) {
+  test(`a pending composer cannot overwrite a newer loop (${replaceSession ? "replacement session" : "same session"})`, async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-retired-compose-"));
+    process.env.LEAFCODE_PI_DATA_DIR = cwd;
+    const handlers = new Map();
+    const commands = new Map();
+    let finishConfirm;
+    const confirmation = new Promise((resolve) => { finishConfirm = resolve; });
+    let confirmOpened = false;
+    const ctx = {
+      cwd, mode: "rpc", hasUI: true,
+      isIdle: () => false, hasPendingMessages: () => false, abort() {},
+      sessionManager: { getSessionId: () => "retired-compose", getBranch: () => [] },
+      ui: {
+        setStatus() {}, setWidget() {}, notify() {},
+        async input() { return "old composer"; },
+        confirm() { confirmOpened = true; return confirmation; },
+      },
+    };
+    const replacementCtx = replaceSession ? { ...ctx, sessionManager: { ...ctx.sessionManager } } : ctx;
+    const stateFile = join(cwd, "goals-loop", "retired-compose.json");
+    let pending;
+    try {
+      goalLoopExtension({
+        on(name, handler) { handlers.set(name, handler); },
+        registerCommand(name, options) { commands.set(name, options.handler); },
+        appendEntry() {}, sendMessage() {},
+      });
+      await handlers.get("session_start")({}, ctx);
+      pending = commands.get("goal-compose")("", ctx);
+      await waitFor(() => confirmOpened);
+      if (replaceSession) await handlers.get("session_start")({}, replacementCtx);
+      const start = Buffer.from(JSON.stringify({ goal: "replacement goal", maxTurns: 3 })).toString("base64url");
+      await commands.get("goal-start")(start, replacementCtx);
+      const before = readFileSync(stateFile, "utf8");
+      finishConfirm(false);
+      await pending;
+      assert.equal(readFileSync(stateFile, "utf8"), before);
+    } finally {
+      finishConfirm(false);
+      await pending;
+      await handlers.get("session_shutdown")({}, replacementCtx);
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+}
+
 test("prepare false still re-arms when the runtime remains active", async () => {
   const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-prepare-false-"));
   process.env.LEAFCODE_PI_DATA_DIR = cwd;

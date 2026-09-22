@@ -1866,6 +1866,7 @@ function parseStartArgs(args: string): {
 }
 
 async function compose(runtime: Runtime): Promise<void> {
+  const turnGeneration = runtime.turnGeneration;
   if (!runtime.ctx.hasUI) {
     runtime.ctx.ui.notify("Composer は TUI/RPC モードで利用できます。/goal --full-run --turns 10 <goal> を使用してください。", "warning");
     return;
@@ -1881,6 +1882,8 @@ async function compose(runtime: Runtime): Promise<void> {
     "完走モード",
     "完了宣言を使わず、指定した最大ターン数まで必ず実行します。",
   );
+  // The dialog may outlive this session or a newer start on the same runtime.
+  if (!isActiveRuntime(runtime) || runtime.turnGeneration !== turnGeneration) return;
   const maxTurns = clampMaxTurns(maxTurnsText || DEFAULT_MAX_TURNS);
   const loop = startLoop(runtime, {
     goal,
@@ -2194,7 +2197,7 @@ export default function (pi: ExtensionAPI): void {
       // Switching to a different session does not necessarily emit the old
       // session_shutdown. Persist the same lifecycle pause here so its queued
       // or running loop cannot silently resume while this extension is away.
-      if (runtime.key !== key) {
+      if (isActiveRuntime(runtime) && runtime.key !== key) {
         const previousLoop = currentLoop(runtime);
         if (
           previousLoop &&
@@ -2271,7 +2274,7 @@ export default function (pi: ExtensionAPI): void {
     }
   });
 
-  const getRuntime = (): Runtime | null => runtime && !runtime.disposed ? runtime : null;
+  const getRuntime = (): Runtime | null => runtime && isActiveRuntime(runtime) ? runtime : null;
 
   // 追加送信はループを止めない: input では pause も abort もしない。実行中ターンには
   // steer/followUp として注入され、ターン間なら通常ターンとして走り、ループは idle を
@@ -2407,10 +2410,11 @@ export default function (pi: ExtensionAPI): void {
   });
 
   pi.on("session_shutdown", async (_event, ctx) => {
-    const current = getRuntime();
+    // Superseded runtimes must still release their timers, without changing disk.
+    const current = runtime;
     // Ignore teardown from the preceding session when its session_start has
     // already installed a different runtime in this extension instance.
-    if (!current || !matchesRuntimeContext(current, ctx)) return;
+    if (!current || current.disposed || !matchesRuntimeContext(current, ctx)) return;
     // A replacement can reuse the same cwd/session ID. In that case a delayed
     // shutdown carries the old manager and must not dispose the new runtime.
     // dispose()/replace can leave this extension instance alive long enough to
