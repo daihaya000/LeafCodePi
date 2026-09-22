@@ -17,6 +17,7 @@ import {
   normalizeAcceptance,
   normalizeNotes,
   parseCooldownSeconds,
+  safeIdPart,
 } from "./index.ts";
 import goalLoopExtensionImplementation, { goalLoopTestSeams } from "./index.ts";
 
@@ -41,6 +42,35 @@ test("matches LeafCode turn-budget and cooldown normalization", () => {
     goal: "demo", maxTurns: 0, cooldownSeconds: 0, forceFullRun: false, acceptance: [],
   });
   assert.equal(clampCooldownSeconds(-1), 0);
+  assert.equal(safeIdPart("safe_id"), "safe_id");
+  assert.notEqual(safeIdPart("a/b"), safeIdPart("a?b"));
+});
+
+test("reads legacy sanitized state filenames", () => {
+  const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-legacy-path-"));
+  process.env.LEAFCODE_PI_DATA_DIR = cwd;
+  try {
+    const dir = join(cwd, "goals-loop");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "a_b.json"), JSON.stringify({
+      sessionId: "a/b",
+      goal: "legacy state",
+      acceptance: [],
+      status: "paused",
+      progress: [],
+    }), "utf8");
+    assert.equal(goalLoopTestSeams.readLoop(cwd, "a/b")?.goal, "legacy state");
+    writeFileSync(join(dir, "a_b.json.foreign.tmp"), JSON.stringify({
+      sessionId: "a/b",
+      goal: "foreign temp",
+      acceptance: [],
+      status: "paused",
+      progress: [],
+    }), "utf8");
+    assert.equal(goalLoopTestSeams.readLoop(cwd, "a?b"), null);
+  } finally {
+    rmSync(cwd, { recursive: true, force: true });
+  }
 });
 
 test("extracts the last valid structured result", () => {
@@ -59,6 +89,11 @@ test("extracts the final result after tool-call assistant messages", () => {
     ])?.summary,
     "after tool",
   );
+});
+
+test("extracts fenced JSON after an unmatched prose brace", () => {
+  const result = extractGoalResult('unfinished { prose\n```json\n{"status":"progress","summary":"recovered"}\n```');
+  assert.equal(result?.summary, "recovered");
 });
 
 test("handles braces inside JSON strings", () => {
@@ -3205,6 +3240,49 @@ test("late turn_end with a later turnIndex still recovers after mid-turn pause",
   }
 });
 
+test("clears an obsolete awaiting turn when durable state is replaced", async () => {
+  const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-obsolete-awaiting-"));
+  process.env.LEAFCODE_PI_DATA_DIR = cwd;
+  const handlers = new Map();
+  const commands = new Map();
+  let sendCount = 0;
+  const stateFile = () => join(cwd, "goals-loop", "obsolete-awaiting-session.json");
+  const ctx = {
+    cwd,
+    mode: "rpc",
+    hasUI: false,
+    isIdle: () => true,
+    hasPendingMessages: () => false,
+    abort: () => {},
+    sessionManager: { getSessionId: () => "obsolete-awaiting-session", getBranch: () => [] },
+    ui: { setStatus: () => {}, setWidget: () => {}, notify: () => {} },
+  };
+
+  try {
+    goalLoopExtension({
+      on(name, handler) { handlers.set(name, handler); },
+      registerCommand(name, options) { commands.set(name, options.handler); },
+      appendEntry() {},
+      sendMessage() { sendCount += 1; },
+    });
+    await handlers.get("session_start")?.({}, ctx);
+    const payload = Buffer.from(JSON.stringify({ goal: "demo", maxTurns: 2 })).toString("base64url");
+    await commands.get("goal-start")?.(payload, ctx);
+    await waitFor(() => JSON.parse(readFileSync(stateFile(), "utf8")).status === "running");
+
+    const replaced = JSON.parse(readFileSync(stateFile(), "utf8"));
+    replaced.status = "paused";
+    replaced.pauseReason = "user";
+    writeFileSync(stateFile(), JSON.stringify(replaced), "utf8");
+    await handlers.get("agent_settled")?.({}, ctx);
+    await commands.get("goal-resume")?.("", ctx);
+    await waitFor(() => sendCount === 2);
+  } finally {
+    await handlers.get("session_shutdown")?.({}, ctx);
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
 test("applies a result that lands after a turn_timeout pause instead of losing it", async () => {
   const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-turn-timeout-"));
   process.env.LEAFCODE_PI_DATA_DIR = cwd;
@@ -3650,6 +3728,9 @@ test("old session events do not mutate a newer session in the same extension", a
     await waitFor(() => JSON.parse(readFileSync(stateFile("cross-session-a"), "utf8")).status === "queued");
 
     await handlers.get("session_start")?.({}, ctxB);
+    const switched = JSON.parse(readFileSync(stateFile("cross-session-a"), "utf8"));
+    assert.equal(switched.status, "paused");
+    assert.equal(switched.pauseReason, "");
     await commands.get("goal-start")?.(payload, ctxB);
     await waitFor(() => JSON.parse(readFileSync(stateFile("cross-session-b"), "utf8")).status === "queued");
     busy = false;
@@ -3758,6 +3839,8 @@ test("same-ID stale agent events do not settle the replacement turn", async () =
     await handlers.get("session_start")?.({}, replacementCtx);
     await commands.get("goal-start")?.(payload, replacementCtx);
     await waitFor(() => JSON.parse(readFileSync(stateFile, "utf8")).status === "running");
+    await commands.get("goal-pause")?.("", oldCtx);
+    assert.equal(JSON.parse(readFileSync(stateFile, "utf8")).status, "running");
     await handlers.get("agent_end")?.({
       messages: [{ role: "assistant", content: [{ type: "text", text: '{"status":"progress","summary":"old result"}' }] }],
     }, oldCtx);

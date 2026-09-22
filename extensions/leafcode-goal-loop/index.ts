@@ -9,6 +9,7 @@
  * - `/goal-compose` は Goal / acceptance / maxTurns / 完走モードを設定する Composer
  */
 
+import { createHash } from "node:crypto";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -206,9 +207,18 @@ function runtimeKey(cwd: string, id: string): string {
   return `${cwd}\0${id}`;
 }
 
+function legacySafeIdPart(value: string): string {
+  return value.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 120) || "session";
+}
+
 export function safeIdPart(value: string): string {
-  const safe = value.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 120);
-  return safe || "session";
+  const sanitized = value.replace(/[^a-zA-Z0-9_-]/g, "_");
+  if (sanitized === value && sanitized.length <= 120) return sanitized || "session";
+  // Replacing path separators used to make distinct legacy session IDs share a
+  // state file (for example, "a/b" and "a?b"). Keep a readable prefix while
+  // adding a stable digest so every raw ID has an isolated state file.
+  const digest = createHash("sha256").update(value).digest("hex").slice(0, 16);
+  return `${sanitized.slice(0, 100) || "session"}-${digest}`;
 }
 
 /**
@@ -229,6 +239,11 @@ function goalsDir(): string {
 export function goalStateFile(cwd: string, id: string): string {
   void cwd;
   return path.join(goalsDir(), `${safeIdPart(id)}.json`);
+}
+
+function legacyGoalStateFile(cwd: string, id: string): string {
+  void cwd;
+  return path.join(goalsDir(), `${legacySafeIdPart(id)}.json`);
 }
 
 function isoNow(): string {
@@ -459,7 +474,13 @@ function hydrateLoop(value: unknown, cwd: string, id: string): GoalLoop | null {
   };
 }
 
-function recoverLoopFromTemp(file: string, cwd: string, id: string, newerThan = Number.NEGATIVE_INFINITY): GoalLoop | null {
+function recoverLoopFromTemp(
+  file: string,
+  cwd: string,
+  id: string,
+  newerThan = Number.NEGATIVE_INFINITY,
+  requireSessionIdMatch = false,
+): GoalLoop | null {
   try {
     const dir = path.dirname(file);
     const base = path.basename(file);
@@ -478,7 +499,10 @@ function recoverLoopFromTemp(file: string, cwd: string, id: string, newerThan = 
     for (const temp of temps) {
       if (temp.mtime <= newerThan) continue;
       try {
-        const loop = hydrateLoop(JSON.parse(fs.readFileSync(temp.full, "utf8")), cwd, id);
+        const raw = JSON.parse(fs.readFileSync(temp.full, "utf8"));
+        const record = asRecord(raw);
+        if (requireSessionIdMatch && typeof record?.sessionId === "string" && record.sessionId !== id) continue;
+        const loop = hydrateLoop(raw, cwd, id);
         if (!loop) continue;
         // Promote the newest valid temp so later reads stay consistent after a
         // crash between temp write and rename, or a torn non-atomic overwrite.
@@ -513,7 +537,26 @@ function readLoop(cwd: string, id: string): GoalLoop | null {
   } catch {
     // Missing/torn main file — fall through to temp recovery.
   }
-  return recoverLoopFromTemp(file, cwd, id);
+  const recovered = recoverLoopFromTemp(file, cwd, id);
+  if (recovered) return recovered;
+
+  // Keep sessions created before collision-resistant filenames readable. Their
+  // next successful state write migrates them to the new isolated filename.
+  const legacyFile = legacyGoalStateFile(cwd, id);
+  if (legacyFile === file) return null;
+  try {
+    const legacyRaw = JSON.parse(fs.readFileSync(legacyFile, "utf8"));
+    const legacyRecord = asRecord(legacyRaw);
+    // A collided legacy filename must not resurrect another session's state.
+    // Pre-sessionId snapshots remain readable because their ownership is unknown.
+    if (!(typeof legacyRecord?.sessionId === "string" && legacyRecord.sessionId !== id)) {
+      const legacy = hydrateLoop(legacyRaw, cwd, id);
+      if (legacy) return legacy;
+    }
+  } catch {
+    // Missing/torn legacy state may still have a recoverable temp snapshot.
+  }
+  return recoverLoopFromTemp(legacyFile, cwd, id, Number.NEGATIVE_INFINITY, true);
 }
 
 function cleanupOrphanGoalTemps(file: string): void {
@@ -788,6 +831,20 @@ export function normalizeStructured(value: unknown): GoalLoopProgress | null {
 }
 
 export function extractGoalResult(text: string): GoalLoopProgress | null {
+  // Parse fenced blocks independently: an unmatched brace in preceding prose
+  // must not hide the required final JSON result.
+  const fenced = [...text.matchAll(/```(?:json)?\s*([\s\S]*?)```/gi)];
+  for (let index = fenced.length - 1; index >= 0; index -= 1) {
+    const candidates = jsonObjectCandidates(fenced[index][1]);
+    for (let candidateIndex = candidates.length - 1; candidateIndex >= 0; candidateIndex -= 1) {
+      try {
+        const result = normalizeStructured(JSON.parse(candidates[candidateIndex]));
+        if (result) return result;
+      } catch {
+        // Try the previous candidate in this fenced block.
+      }
+    }
+  }
   const candidates = jsonObjectCandidates(text);
   for (let index = candidates.length - 1; index >= 0; index -= 1) {
     try {
@@ -1068,6 +1125,14 @@ async function settleAwaitingTurn(runtime: Runtime): Promise<void> {
   }
   const loop = currentLoop(runtime);
   if (!loop || loop.status !== "running") {
+    // A state replacement can make the durable loop non-running before this
+    // delayed settlement arrives. Do not leave the runtime awaiting forever:
+    // /goal-resume and the watchdog must be able to arm the next turn.
+    runtime.awaitingTurn = false;
+    runtime.awaitingTurnIndex = undefined;
+    runtime.pausedTurnIndex = undefined;
+    if (runtime.timeoutTimer) clearTimeout(runtime.timeoutTimer);
+    runtime.timeoutTimer = undefined;
     clearPendingAgentRun(runtime);
     return;
   }
@@ -2013,10 +2078,14 @@ function decodeStartConfig(args: string): {
 }
 
 function registerCommandAliases(pi: ExtensionAPI, getRuntime: () => Runtime | null): void {
+  const runtimeForContext = (ctx: ExtensionContext): Runtime | null => {
+    const runtime = getRuntime();
+    return runtime?.ctx === ctx ? runtime : null;
+  };
   pi.registerCommand("goal-start", {
     description: "JSON/base64 形式で Goal loop を開始（Web Composer 用）",
     handler: async (args, ctx) => {
-      const runtime = getRuntime();
+      const runtime = runtimeForContext(ctx);
       const config = decodeStartConfig(args);
       if (!runtime || !config) {
         ctx.ui.notify("Goal loop の開始パラメータが不正です。", "error");
@@ -2033,7 +2102,7 @@ function registerCommandAliases(pi: ExtensionAPI, getRuntime: () => Runtime | nu
   pi.registerCommand("goal-set", {
     description: "Goal loop を引数で開始",
     handler: async (args, ctx) => {
-      const runtime = getRuntime();
+      const runtime = runtimeForContext(ctx);
       if (!runtime) return;
       const config = parseStartArgs(args);
       const loop = startLoop(runtime, config);
@@ -2043,42 +2112,42 @@ function registerCommandAliases(pi: ExtensionAPI, getRuntime: () => Runtime | nu
   pi.registerCommand("goal-status", {
     description: "Goal loop の状態を表示",
     handler: async (_args, ctx) => {
-      const runtime = getRuntime();
+      const runtime = runtimeForContext(ctx);
       if (runtime) ctx.ui.notify(statusMessage(currentLoop(runtime)), "info");
     },
   });
   pi.registerCommand("goal-pause", {
     description: "Goal loop を一時停止",
-    handler: async (args) => {
-      const runtime = getRuntime();
+    handler: async (args, ctx) => {
+      const runtime = runtimeForContext(ctx);
       if (runtime) handleAction(runtime, "pause", args);
     },
   });
   pi.registerCommand("goal-resume", {
     description: "Goal loop を再開",
-    handler: async (args) => {
-      const runtime = getRuntime();
+    handler: async (args, ctx) => {
+      const runtime = runtimeForContext(ctx);
       if (runtime) handleAction(runtime, "resume", args);
     },
   });
   pi.registerCommand("goal-stop", {
     description: "Goal loop を停止",
-    handler: async () => {
-      const runtime = getRuntime();
+    handler: async (_args, ctx) => {
+      const runtime = runtimeForContext(ctx);
       if (runtime) handleAction(runtime, "stop");
     },
   });
   pi.registerCommand("goal-complete", {
     description: "最大ターン数に到達した Goal loop を完了",
-    handler: async () => {
-      const runtime = getRuntime();
+    handler: async (_args, ctx) => {
+      const runtime = runtimeForContext(ctx);
       if (runtime) handleAction(runtime, "complete");
     },
   });
   pi.registerCommand("goal-compose", {
     description: "Goal / 承認条件 / 最大ターン / 完走モードを設定する Composer",
-    handler: async () => {
-      const runtime = getRuntime();
+    handler: async (_args, ctx) => {
+      const runtime = runtimeForContext(ctx);
       if (runtime) await compose(runtime);
     },
   });
@@ -2095,6 +2164,29 @@ export default function (pi: ExtensionAPI): void {
     // old session_shutdown. Retire the prior runtime so its timers cannot act
     // on the old context after this closure begins targeting the new session.
     if (runtime && !runtime.disposed) {
+      // Switching to a different session does not necessarily emit the old
+      // session_shutdown. Persist the same lifecycle pause here so its queued
+      // or running loop cannot silently resume while this extension is away.
+      if (runtime.key !== key) {
+        const previousLoop = currentLoop(runtime);
+        if (
+          previousLoop &&
+          (
+            previousLoop.status === "running" ||
+            previousLoop.status === "queued" ||
+            previousLoop.status === "verifying_completed" ||
+            isAbortPausedLoop(previousLoop)
+          )
+        ) {
+          if (previousLoop.status === "running") previousLoop.pendingTurnRecovery = true;
+          previousLoop.status = "paused";
+          previousLoop.pauseReason = "";
+          previousLoop.error = "セッション切替時に一時停止しました。";
+          if (!writeLoop(previousLoop)) {
+            console.error("[goal-loop] session switch failed to persist lifecycle pause");
+          }
+        }
+      }
       runtime.disposed = true;
       clearPendingAgentRun(runtime);
       clearTimer(runtime);
@@ -2268,7 +2360,9 @@ export default function (pi: ExtensionAPI): void {
       if (loop.status === "queued" || loop.status === "verifying_completed") schedule(current);
       return;
     }
-    if (current.awaitingTurn && loop.status === "running") {
+    if (current.awaitingTurn) {
+      // settleAwaitingTurn also clears a stale await when durable state was
+      // replaced before this delayed event arrived.
       await settleAwaitingTurn(current);
       return;
     }
@@ -2335,7 +2429,7 @@ export default function (pi: ExtensionAPI): void {
     description: "Goal loop を開始。/goal-compose で Composer を開く",
     handler: async (args, ctx) => {
       const current = getRuntime();
-      if (!current) return;
+      if (!current || current.ctx !== ctx) return;
       const text = args.trim();
       if (!text) {
         ctx.ui.notify(statusMessage(currentLoop(current)), "info");
