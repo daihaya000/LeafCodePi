@@ -1743,7 +1743,7 @@ function parseStartArgs(args: string): {
     forceFullRun = true;
     text = text.replace(/(?:^|\s)--(?:full-run|完走)(?=\s|$)/gi, " ");
   }
-  const turns = text.match(/(?:^|\s)--(?:turns|max-turns)\s+(\d+)/i);
+  const turns = text.match(/(?:^|\s)--(?:turns|max-turns)\s+([+-]?\d+)/i);
   if (turns) {
     maxTurns = clampMaxTurns(turns[1]);
     text = text.replace(turns[0], " ");
@@ -1965,7 +1965,7 @@ function handleAction(runtime: Runtime, action: "pause" | "resume" | "stop" | "c
     );
     return;
   }
-  const turns = args.match(/--(?:turns|max-turns)\s+(\d+)/i)?.[1];
+  const turns = args.match(/--(?:turns|max-turns)\s+([+-]?\d+)/i)?.[1];
   if (resumeLoop(runtime, turns)) runtime.ctx.ui.notify("Goal loop を再開しました。", "info");
 }
 
