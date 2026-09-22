@@ -401,21 +401,31 @@ function hydrateLoop(value: unknown, cwd: string, id: string): GoalLoop | null {
   const acceptance = normalizeAcceptance(raw.acceptance);
   if (!acceptance) return null;
   const progress = normalizeProgress(raw.progress);
+  const maxTurns = clampMaxTurns(raw.maxTurns);
+  const turnCount = nonNegativeInteger(raw.turnCount);
+  const forceFullRun = raw.forceFullRun === true;
+  const storedStatus = normalizeStatus(raw.status);
+  // A full-run loop from an older build may retain an early completed result.
+  // Resume it while budget remains; an explicit completion at the limit stays terminal.
+  const resumeFullRun =
+    forceFullRun &&
+    storedStatus === "completed" &&
+    (maxTurns === 0 || turnCount < maxTurns);
   const now = isoNow();
   return {
     id,
     sessionId: typeof raw.sessionId === "string" ? raw.sessionId : id,
     cwd,
-    status: normalizeStatus(raw.status),
+    status: resumeFullRun ? "queued" : storedStatus,
     goal,
     acceptance,
-    maxTurns: clampMaxTurns(raw.maxTurns),
+    maxTurns,
     cooldownSeconds: clampCooldownSeconds(raw.cooldownSeconds),
     nextTurnAt: normalizeNextTurnAt(raw.nextTurnAt),
-    forceFullRun: raw.forceFullRun === true,
+    forceFullRun,
     autoAgent: raw.autoAgent === true,
     initialImages: normalizeInitialImages(raw.initialImages),
-    turnCount: nonNegativeInteger(raw.turnCount),
+    turnCount,
     turnKind: normalizeTurnKind(raw.turnKind),
     pauseReason: normalizePauseReason(raw.pauseReason),
     error: typeof raw.error === "string" ? raw.error.slice(0, 4_000) : "",
@@ -426,7 +436,7 @@ function hydrateLoop(value: unknown, cwd: string, id: string): GoalLoop | null {
     rejectedClaims: nonNegativeInteger(raw.rejectedClaims),
     unreadableStreak: nonNegativeInteger(raw.unreadableStreak),
     pendingTurnRecovery: raw.pendingTurnRecovery === true,
-    endNoticeSent: raw.endNoticeSent === true,
+    endNoticeSent: !resumeFullRun && raw.endNoticeSent === true,
     notes: normalizeNotes(raw.notes),
     createdAt: typeof raw.createdAt === "string" ? raw.createdAt : now,
     updatedAt: typeof raw.updatedAt === "string" ? raw.updatedAt : now,

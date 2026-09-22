@@ -1349,6 +1349,48 @@ test("recovers when the main state hydrates to null but a temp snapshot is valid
   }
 });
 
+test("resumes an early completed full-run with budget remaining", async () => {
+  const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-resume-full-run-"));
+  process.env.LEAFCODE_PI_DATA_DIR = cwd;
+  const handlers = new Map();
+  let busy = false;
+  let sendCount = 0;
+  const stateFile = join(cwd, "goals-loop", "resume-full-run-session.json");
+  const ctx = {
+    cwd,
+    mode: "rpc",
+    hasUI: false,
+    isIdle: () => !busy,
+    hasPendingMessages: () => false,
+    abort: () => { busy = false; },
+    sessionManager: { getSessionId: () => "resume-full-run-session", getBranch: () => [] },
+    ui: { setStatus: () => {}, setWidget: () => {}, notify: () => {} },
+  };
+
+  try {
+    mkdirSync(join(cwd, "goals-loop"), { recursive: true });
+    writeFileSync(stateFile, JSON.stringify({
+      goal: "finish every turn", status: "completed", acceptance: [], maxTurns: 3,
+      forceFullRun: true, turnKind: "goal", turnCount: 1, progress: [], endNoticeSent: true,
+    }), "utf8");
+    goalLoopExtension({
+      on(name, handler) { handlers.set(name, handler); },
+      registerCommand() {},
+      appendEntry() {},
+      sendMessage() { sendCount += 1; busy = true; },
+    });
+    await handlers.get("session_start")?.({}, ctx);
+    await waitFor(() => sendCount === 1);
+    const resumed = JSON.parse(readFileSync(stateFile, "utf8"));
+    assert.equal(resumed.status, "running");
+    assert.equal(resumed.turnCount, 2);
+    assert.equal(resumed.endNoticeSent, false);
+  } finally {
+    await handlers.get("session_shutdown")?.({}, ctx);
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
 test("does not send a restored loop with an empty goal", async () => {
   const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-empty-goal-"));
   process.env.LEAFCODE_PI_DATA_DIR = cwd;
