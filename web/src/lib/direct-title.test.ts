@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const state = vi.hoisted(() => ({
   root: "",
   generateDirectTextWithFallbackResult: vi.fn(),
-  getSetting: vi.fn(() => ""),
+  getSetting: vi.fn<(key: string) => string>(() => ""),
   readSessionConversation: vi.fn(() => [{ role: "user", text: "hello" }]),
   readSessionWorkSummary: vi.fn(
     (): { todos: { content: string; status: string }[]; activity: string[] } => ({
