@@ -211,7 +211,7 @@ describe("shared room context", () => {
     expect(prompt).toContain("Only if no deliverable is clear, ask one short question and finish with ROOM_ACTION: DONE.");
     expect(prompt).toContain("Address teammates using @ExactName in prose; one formal @mention of a current member triggers at most one implicit room_handoff/NEXT. Bare names never hand off.");
     expect(prompt).toContain("Use at most 3 short prose sentences; no headings, numbered plans, status reports, or repeated roster/prior points. Address the latest question/disagreement first; add one new point.");
-    expect(prompt).toContain("End with one standalone line outside quotes/fences: ROOM_ACTION: NEXT <exact roster id or name> after a concrete question, or ROOM_ACTION: DONE when discussion is complete or needs user input. Emit no control without a real contribution. The server, not a tool call, routes /discuss and hands off.");
+    expect(prompt).toContain("End with a standalone line outside quotes/fences: ROOM_ACTION: NEXT <exact roster id/name> after a concrete question, or ROOM_ACTION: DONE when complete or user input is needed. No control without a real contribution. The server, not a tool call, routes /discuss and hands off.");
     expect(roomBotPrompt(room(), bots[0], bots, "@デバッガー 確認して", user.id)).toContain("Use tools rather than ask when possible; emit no ROOM_ACTION lines.");
   });
   it("falls back to the recent tail when the request id is unknown", () => {
