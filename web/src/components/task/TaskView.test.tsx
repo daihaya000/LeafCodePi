@@ -5,8 +5,9 @@ import { saveTaskSessionCache } from "@/lib/task-session-cache";
 import type { ModelOption, TaskSummary, UiMessage } from "@/lib/types";
 import { COMPACTION_ACTION_SETTING_KEY } from "@/lib/compaction-settings";
 
-const mocks = vi.hoisted(() => ({ getJson: vi.fn(), sendJson: vi.fn(), apiUrl: (path: string) => path, partView: vi.fn(), toolCard: vi.fn(), messageMetaHeader: vi.fn(), botFor: vi.fn(), iconFor: vi.fn() }));
+const mocks = vi.hoisted(() => ({ getJson: vi.fn(), sendJson: vi.fn(), apiUrl: (path: string) => path, partView: vi.fn(), toolCard: vi.fn(), messageMetaHeader: vi.fn(), markRead: vi.fn(), botFor: vi.fn(), iconFor: vi.fn() }));
 vi.mock("@/lib/client", () => mocks);
+vi.mock("@/lib/bot-unread", () => ({ markRead: mocks.markRead }));
 vi.mock("@/components/shell/MobileMenuHeader", () => ({ MobileMenuButton: () => null }));
 vi.mock("@/components/task/PartView", () => ({ PartView: mocks.partView, ToolCard: mocks.toolCard, MessageMetaHeader: mocks.messageMetaHeader, WorkingRow: () => null }));
 vi.mock("@/components/task/ProjectExplorerButton", () => ({ ProjectExplorerButton: () => null }));
@@ -46,6 +47,23 @@ afterEach(() => {
   vi.unstubAllGlobals();
   localStorage.clear();
   clearCachedModels();
+});
+
+it("keeps a document-hidden active task unread until the document is visible", async () => {
+  const updatedAt = "2026-01-01T00:00:00.000Z";
+  saveTaskSessionCache({ task: { ...task, updatedAt }, messages: [], isStreaming: false, isCompacting: false });
+  Object.defineProperty(document, "hidden", { configurable: true, value: true });
+  try {
+    render(<TaskView taskId={task.id} mdUp />);
+    await screen.findByRole("heading", { name: task.title });
+    expect(mocks.markRead).not.toHaveBeenCalled();
+
+    Object.defineProperty(document, "hidden", { configurable: true, value: false });
+    act(() => document.dispatchEvent(new Event("visibilitychange")));
+    expect(mocks.markRead).toHaveBeenCalledWith("task", task.id, Date.parse(updatedAt));
+  } finally {
+    Reflect.deleteProperty(document, "hidden");
+  }
 });
 
 it("displays the project icon to the left of the task title", async () => {
