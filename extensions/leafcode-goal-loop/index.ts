@@ -2211,6 +2211,7 @@ export default function (pi: ExtensionAPI): void {
     const current = getRuntime();
     if (
       current &&
+      current.ctx === ctx &&
       current.key === runtimeKey(ctx.cwd, sessionId(ctx)) &&
       event.reason === "manual"
     ) requeueAfterManualCompaction(current);
@@ -2220,6 +2221,7 @@ export default function (pi: ExtensionAPI): void {
     const current = getRuntime();
     if (
       current &&
+      current.ctx === ctx &&
       current.key === runtimeKey(ctx.cwd, sessionId(ctx)) &&
       event.reason === "manual"
     ) requeueAfterManualCompaction(current);
@@ -2227,7 +2229,13 @@ export default function (pi: ExtensionAPI): void {
 
   pi.on("agent_settled", async (_event, ctx) => {
     const current = getRuntime();
-    if (!current || current.ctx !== ctx || current.key !== runtimeKey(ctx.cwd, sessionId(ctx))) return;
+    if (!current || current.key !== runtimeKey(ctx.cwd, sessionId(ctx))) return;
+    if (current.ctx !== ctx) {
+      // startLoop can arm one discard slot for the predecessor's final settle.
+      // Consume that stale wave without allowing it to settle the replacement.
+      if (current.discardAgentSettlements > 0) current.discardAgentSettlements -= 1;
+      return;
+    }
     const loop = currentLoop(current);
     if (!loop) {
       clearPendingAgentRun(current);
