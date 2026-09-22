@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
-import { MAX_ICON_FILE_BYTES, readIconFileAsDataUrl } from "@/lib/icon-file";
+import { ICON_FILE_ERROR, MAX_ICON_FILE_BYTES, readIconFileAsDataUrl } from "@/lib/icon-file";
 
 const dir = mkdtempSync(join(tmpdir(), "leafcode-icon-file-"));
 
@@ -34,7 +34,7 @@ describe("readIconFileAsDataUrl", () => {
     mkdirSync(join(dir, "folder.png"));
     expect(readIconFileAsDataUrl(file("icon.svg", "<svg/>"))).toEqual({
       ok: false,
-      error: "PNG・JPEG・GIF・WebP・ICO の画像を選択してください。",
+      error: ICON_FILE_ERROR,
     });
     expect(readIconFileAsDataUrl(join(dir, "folder.png"))).toEqual({
       ok: false,

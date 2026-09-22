@@ -1172,7 +1172,7 @@ function ProjectSettingsDialog({
                 onOpenHost={hostIconPick ? () => void pickIconFromHost() : undefined}
                 hostBusy={iconBusy}
               />
-              <span className="flex-1 text-xs text-muted">画像を変更するか、色を選択してください。</span>
+              <span className="flex-1 text-xs text-muted">画像またはEXEを指定するか、色を選択してください。</span>
               {project.icon && (
                 <Button variant="ghost" size="sm" disabled={busy} onClick={onClearIcon}>画像を削除</Button>
               )}
