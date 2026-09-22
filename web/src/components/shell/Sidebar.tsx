@@ -606,11 +606,20 @@ function compareIsoUpdatedAtDescending(a: string, b: string): number {
   return a === b ? 0 : a > b ? -1 : 1;
 }
 
-function sidebarTaskComparator(pinnedTaskIds?: ReadonlySet<string>) {
-  return (a: TaskSummary, b: TaskSummary) =>
-    Number(pinnedTaskIds?.has(b.id)) - Number(pinnedTaskIds?.has(a.id)) ||
-    Number(b.status === "working") - Number(a.status === "working") ||
-    compareIsoUpdatedAtDescending(a.updatedAt, b.updatedAt);
+function sortTasksForSidebarInPlace(tasks: TaskSummary[], pinnedTaskIds?: ReadonlySet<string>): void {
+  const sorted = tasks.map((task, index) => ({
+    task,
+    index,
+    rank: (pinnedTaskIds?.has(task.id) ? 2 : 0) + (task.status === "working" ? 1 : 0),
+  }));
+  sorted.sort((a, b) =>
+    b.rank - a.rank ||
+    compareIsoUpdatedAtDescending(a.task.updatedAt, b.task.updatedAt) ||
+    a.index - b.index,
+  );
+  for (let index = 0; index < tasks.length; index += 1) {
+    tasks[index] = sorted[index]!.task;
+  }
 }
 
 /** ピン留めを優先し、その中でも従来どおり進行中・更新日時順に表示する。 */
@@ -618,7 +627,9 @@ export function tasksForSidebar(
   tasks: TaskSummary[],
   pinnedTaskIds?: ReadonlySet<string>,
 ): TaskSummary[] {
-  return [...tasks].sort(sidebarTaskComparator(pinnedTaskIds));
+  const sorted = [...tasks];
+  sortTasksForSidebarInPlace(sorted, pinnedTaskIds);
+  return sorted;
 }
 
 /** プロジェクト内で更新日時が最新の進行中タスクを返す。 */
@@ -1654,9 +1665,8 @@ const SidebarView = memo(function SidebarView({
       list.push(task);
       map.set(task.projectId, list);
     }
-    const compareTasks = sidebarTaskComparator(pinnedTaskIds);
     for (const list of map.values()) {
-      list.sort(compareTasks);
+      sortTasksForSidebarInPlace(list, pinnedTaskIds);
     }
     return map;
   }, [pinnedTaskIds, tasks]);

@@ -137,6 +137,12 @@ describe("tasksForSidebar", () => {
     ]);
   });
 
+  it("keeps source order when priority and timestamps tie", () => {
+    const tasks = [task("first", "idle", "先のタスク"), task("second", "idle", "後のタスク")];
+
+    expect(tasksForSidebar(tasks).map((item) => item.id)).toEqual(["first", "second"]);
+  });
+
   it("returns empty list unchanged", () => {
     expect(tasksForSidebar([])).toEqual([]);
   });
