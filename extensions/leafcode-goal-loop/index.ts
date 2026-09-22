@@ -2059,7 +2059,12 @@ function handleAction(runtime: Runtime, action: "pause" | "resume" | "stop" | "c
     );
     return;
   }
+  const turnFlag = /(?:^|\s)--(?:turns|max-turns)(?=\s|$)/i.test(args);
   const turns = args.match(/--(?:turns|max-turns)\s+([+-]?\d+)/i)?.[1];
+  if (turnFlag && turns === undefined) {
+    runtime.ctx.ui.notify("再開ターン数が不正です。例: /goal-resume --turns 20", "warning");
+    return;
+  }
   if (resumeLoop(runtime, turns)) runtime.ctx.ui.notify("Goal loop を再開しました。", "info");
 }
 

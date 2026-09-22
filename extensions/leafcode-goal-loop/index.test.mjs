@@ -3616,6 +3616,13 @@ test("plain resume at the turn budget is rejected and a raised limit resumes it"
     assert.equal(loop.status, "paused");
     assert.equal(sendCount, 1);
 
+    // 不正な上限指定も暗黙に再開せず、状態を維持する。
+    await commands.get("goal-resume")?.("--turns nope", ctx);
+    assert.match(notices.at(-1).message, /再開ターン数が不正/);
+    loop = JSON.parse(readFileSync(stateFile(), "utf8"));
+    assert.equal(loop.status, "paused");
+    assert.equal(sendCount, 1);
+
     // 上限を増やすと再開し、次のターンが送信される。
     await commands.get("goal-resume")?.("--turns 2", ctx);
     await waitFor(() => sendCount === 2);
