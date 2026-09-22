@@ -57,7 +57,7 @@ describe("/api/tasks/[id]/title", () => {
     const response = await POST(request({}), { params: Promise.resolve({ id: "task-1" }) });
 
     expect(response.status).toBe(200);
-    expect(patchTask).toHaveBeenCalledWith("task-1", { title: "ログイン修正" });
+    expect(patchTask).toHaveBeenCalledWith("task-1", { title: "ログイン修正", label: "code" });
     expect(await response.json()).toMatchObject({
       title: "ログイン修正",
       model: { providerID: "llama-server", modelID: "local-model" },
@@ -106,7 +106,7 @@ describe("/api/tasks/[id]/title", () => {
     const response = await POST(request({}), { params: Promise.resolve({ id: "task-1" }) });
 
     expect(response.status).toBe(200);
-    expect(patchTask).toHaveBeenCalledWith("task-1", { title: "フォールバックタイトル" });
+    expect(patchTask).toHaveBeenCalledWith("task-1", { title: "フォールバックタイトル", label: "code" });
     expect(await response.json()).toMatchObject({
       model: { providerID: "llama-server", modelID: "Qwen3.8-27B-Uncensored-GGUF" },
     });

@@ -36,6 +36,7 @@ test("matches LeafCode turn-budget and cooldown normalization", () => {
   assert.equal(clampMaxTurns(0), 0);
   assert.equal(clampMaxTurns(101), 100);
   assert.equal(parseCooldownSeconds("15m 30s"), 930);
+  assert.equal(goalLoopTestSeams.parseStartArgs('demo --cooldown "15m 30s"').cooldownSeconds, 930);
   assert.equal(clampCooldownSeconds(-1), 0);
 });
 
@@ -1379,6 +1380,126 @@ test("promotes a newer temp snapshot when the valid main state is stale", () => 
   }
 });
 
+test("resumes an early completed full-run with budget remaining", async () => {
+  const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-resume-full-run-"));
+  process.env.LEAFCODE_PI_DATA_DIR = cwd;
+  const handlers = new Map();
+  let busy = false;
+  let sendCount = 0;
+  const stateFile = join(cwd, "goals-loop", "resume-full-run-session.json");
+  const ctx = {
+    cwd,
+    mode: "rpc",
+    hasUI: false,
+    isIdle: () => !busy,
+    hasPendingMessages: () => false,
+    abort: () => { busy = false; },
+    sessionManager: { getSessionId: () => "resume-full-run-session", getBranch: () => [] },
+    ui: { setStatus: () => {}, setWidget: () => {}, notify: () => {} },
+  };
+
+  try {
+    mkdirSync(join(cwd, "goals-loop"), { recursive: true });
+    writeFileSync(stateFile, JSON.stringify({
+      goal: "finish every turn", status: "completed", acceptance: [], maxTurns: 3,
+      forceFullRun: true, turnKind: "goal", turnCount: 1, progress: [], endNoticeSent: true,
+    }), "utf8");
+    goalLoopExtension({
+      on(name, handler) { handlers.set(name, handler); },
+      registerCommand() {},
+      appendEntry() {},
+      sendMessage() { sendCount += 1; busy = true; },
+    });
+    await handlers.get("session_start")?.({}, ctx);
+    await waitFor(() => sendCount === 1);
+    const resumed = JSON.parse(readFileSync(stateFile, "utf8"));
+    assert.equal(resumed.status, "running");
+    assert.equal(resumed.turnCount, 2);
+    assert.equal(resumed.endNoticeSent, false);
+  } finally {
+    await handlers.get("session_shutdown")?.({}, ctx);
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test("does not send a restored loop with an empty goal", async () => {
+  const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-empty-goal-"));
+  process.env.LEAFCODE_PI_DATA_DIR = cwd;
+  const handlers = new Map();
+  let sendCount = 0;
+  const ctx = {
+    cwd,
+    mode: "rpc",
+    hasUI: false,
+    isIdle: () => true,
+    hasPendingMessages: () => false,
+    abort: () => {},
+    sessionManager: { getSessionId: () => "empty-goal-session", getBranch: () => [] },
+    ui: { setStatus: () => {}, setWidget: () => {}, notify: () => {} },
+  };
+
+  try {
+    mkdirSync(join(cwd, "goals-loop"), { recursive: true });
+    writeFileSync(join(cwd, "goals-loop", "empty-goal-session.json"), JSON.stringify({
+      goal: " \n\t ",
+      status: "queued",
+      acceptance: [],
+      maxTurns: 2,
+      turnKind: "goal",
+      turnCount: 0,
+      progress: [],
+    }), "utf8");
+    goalLoopExtension({
+      on(name, handler) { handlers.set(name, handler); },
+      registerCommand() {},
+      appendEntry() {},
+      sendMessage() { sendCount += 1; },
+    });
+    await handlers.get("session_start")?.({}, ctx);
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    assert.equal(sendCount, 0);
+  } finally {
+    await handlers.get("session_shutdown")?.({}, ctx);
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test("restores a non-finite turn count as zero", async () => {
+  const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-infinite-turn-count-"));
+  process.env.LEAFCODE_PI_DATA_DIR = cwd;
+  const handlers = new Map();
+  let busy = false;
+  let sendCount = 0;
+  const stateFile = join(cwd, "goals-loop", "infinite-turn-count-session.json");
+  const ctx = {
+    cwd,
+    mode: "rpc",
+    hasUI: false,
+    isIdle: () => !busy,
+    hasPendingMessages: () => false,
+    abort: () => { busy = false; },
+    sessionManager: { getSessionId: () => "infinite-turn-count-session", getBranch: () => [] },
+    ui: { setStatus: () => {}, setWidget: () => {}, notify: () => {} },
+  };
+
+  try {
+    mkdirSync(join(cwd, "goals-loop"), { recursive: true });
+    writeFileSync(stateFile, '{"goal":"resume","status":"queued","acceptance":[],"maxTurns":2,"forceFullRun":true,"turnKind":"goal","turnCount":1e999,"progress":[]}', "utf8");
+    goalLoopExtension({
+      on(name, handler) { handlers.set(name, handler); },
+      registerCommand() {},
+      appendEntry() {},
+      sendMessage() { sendCount += 1; busy = true; },
+    });
+    await handlers.get("session_start")?.({}, ctx);
+    await waitFor(() => sendCount === 1);
+    assert.equal(JSON.parse(readFileSync(stateFile, "utf8")).turnCount, 1);
+  } finally {
+    await handlers.get("session_shutdown")?.({}, ctx);
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
 test("keeps the loop alive once when the result JSON is missing", () => {
   const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-missing-"));
   process.env.LEAFCODE_PI_DATA_DIR = cwd;
@@ -2435,6 +2556,10 @@ test("manual compaction does not leave an active loop paused after aborting its 
     },
     ui: { setStatus: () => {}, setWidget: () => {}, notify: () => {} },
   };
+  const oldCtx = {
+    ...ctx,
+    sessionManager: { getSessionId: () => "manual-compact-old-session", getBranch: () => [] },
+  };
 
   try {
     goalLoopExtension({
@@ -2443,6 +2568,7 @@ test("manual compaction does not leave an active loop paused after aborting its 
       appendEntry() {},
       sendMessage() { sendCount += 1; busy = true; },
     });
+    await handlers.get("session_start")?.({}, oldCtx);
     await handlers.get("session_start")?.({}, ctx);
     const payload = Buffer.from(JSON.stringify({ goal: "demo", maxTurns: 3 })).toString("base64url");
     await commands.get("goal-start")?.(payload, ctx);
@@ -2459,6 +2585,10 @@ test("manual compaction does not leave an active loop paused after aborting its 
     const paused = JSON.parse(readFileSync(stateFile(), "utf8"));
     assert.equal(paused.status, "paused");
     assert.equal(paused.pauseReason, "user");
+
+    await handlers.get("session_compact")?.({ type: "session_compact", reason: "manual" }, oldCtx);
+    const unchanged = JSON.parse(readFileSync(stateFile(), "utf8"));
+    assert.equal(unchanged.status, "paused");
 
     await handlers.get("session_compact")?.({ type: "session_compact", reason: "manual" }, ctx);
     const resumed = JSON.parse(readFileSync(stateFile(), "utf8"));
@@ -3498,13 +3628,28 @@ test("old session events do not mutate a newer session in the same extension", a
     await handlers.get("session_start")?.({}, ctxB);
     await commands.get("goal-start")?.(payload, ctxB);
     await waitFor(() => JSON.parse(readFileSync(stateFile("cross-session-b"), "utf8")).status === "queued");
+    busy = false;
+    await waitFor(() => JSON.parse(readFileSync(stateFile("cross-session-b"), "utf8")).status === "running");
 
+    await handlers.get("agent_end")?.({
+      messages: [{ role: "assistant", content: [{ type: "text", text: '{"status":"progress","summary":"古い結果"}' }] }],
+    }, ctxA);
+    await handlers.get("agent_settled")?.({ type: "agent_settled" }, ctxA);
     await handlers.get("input")?.({ text: "古い指示", source: "user" }, ctxA);
     await handlers.get("session_shutdown")?.({}, ctxA);
+    const beforePause = JSON.parse(readFileSync(stateFile("cross-session-b"), "utf8"));
+    assert.equal(beforePause.status, "running");
+    assert.equal(beforePause.notes, undefined);
+
+    await commands.get("goal-pause")?.("", ctxB);
+    await handlers.get("turn_end")?.({
+      turnIndex: 1,
+      message: { role: "assistant", content: [{ type: "text", text: '{"status":"progress","summary":"古いturn結果"}' }] },
+    }, ctxA);
     const newer = JSON.parse(readFileSync(stateFile("cross-session-b"), "utf8"));
-    assert.equal(newer.status, "queued");
-    assert.equal(newer.pauseReason, "");
-    assert.equal(newer.notes, undefined);
+    assert.equal(newer.status, "paused");
+    assert.equal(newer.pauseReason, "user");
+    assert.equal(newer.summary, "");
   } finally {
     await handlers.get("session_shutdown")?.({}, ctxB);
     rmSync(cwd, { recursive: true, force: true });

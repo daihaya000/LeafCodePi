@@ -243,6 +243,11 @@ export function clampCooldownSeconds(value: unknown): number {
     : DEFAULT_COOLDOWN_SECONDS;
 }
 
+function nonNegativeInteger(value: unknown): number {
+  const number = Number(value);
+  return Number.isFinite(number) ? Math.max(0, Math.trunc(number)) : 0;
+}
+
 export function parseCooldownSeconds(value: unknown): number {
   if (typeof value === "number") return clampCooldownSeconds(value);
   if (typeof value !== "string") return DEFAULT_COOLDOWN_SECONDS;
@@ -391,24 +396,36 @@ function normalizeNextTurnAt(value: unknown): string | null {
 function hydrateLoop(value: unknown, cwd: string, id: string): GoalLoop | null {
   const raw = asRecord(value);
   if (!raw || typeof raw.goal !== "string") return null;
+  const goal = raw.goal.trim().slice(0, MAX_GOAL_CHARS);
+  if (!goal) return null;
   const acceptance = normalizeAcceptance(raw.acceptance);
   if (!acceptance) return null;
   const progress = normalizeProgress(raw.progress);
+  const maxTurns = clampMaxTurns(raw.maxTurns);
+  const turnCount = nonNegativeInteger(raw.turnCount);
+  const forceFullRun = raw.forceFullRun === true;
+  const storedStatus = normalizeStatus(raw.status);
+  // A full-run loop from an older build may retain an early completed result.
+  // Resume it while budget remains; an explicit completion at the limit stays terminal.
+  const resumeFullRun =
+    forceFullRun &&
+    storedStatus === "completed" &&
+    (maxTurns === 0 || turnCount < maxTurns);
   const now = isoNow();
   return {
     id,
     sessionId: typeof raw.sessionId === "string" ? raw.sessionId : id,
     cwd,
-    status: normalizeStatus(raw.status),
-    goal: raw.goal.slice(0, MAX_GOAL_CHARS),
+    status: resumeFullRun ? "queued" : storedStatus,
+    goal,
     acceptance,
-    maxTurns: clampMaxTurns(raw.maxTurns),
+    maxTurns,
     cooldownSeconds: clampCooldownSeconds(raw.cooldownSeconds),
     nextTurnAt: normalizeNextTurnAt(raw.nextTurnAt),
-    forceFullRun: raw.forceFullRun === true,
+    forceFullRun,
     autoAgent: raw.autoAgent === true,
     initialImages: normalizeInitialImages(raw.initialImages),
-    turnCount: Math.max(0, Math.trunc(Number(raw.turnCount) || 0)),
+    turnCount,
     turnKind: normalizeTurnKind(raw.turnKind),
     pauseReason: normalizePauseReason(raw.pauseReason),
     error: typeof raw.error === "string" ? raw.error.slice(0, 4_000) : "",
@@ -416,10 +433,10 @@ function hydrateLoop(value: unknown, cwd: string, id: string): GoalLoop | null {
     summary: typeof raw.summary === "string" ? raw.summary.slice(0, 4_000) : progress.at(-1)?.summary ?? "",
     evidence: typeof raw.evidence === "string" ? raw.evidence.slice(0, 4_000) : progress.at(-1)?.evidence ?? "",
     blockedReason: typeof raw.blockedReason === "string" ? raw.blockedReason.slice(0, 4_000) : "",
-    rejectedClaims: Math.max(0, Math.trunc(Number(raw.rejectedClaims) || 0)),
-    unreadableStreak: Math.max(0, Math.trunc(Number(raw.unreadableStreak) || 0)),
+    rejectedClaims: nonNegativeInteger(raw.rejectedClaims),
+    unreadableStreak: nonNegativeInteger(raw.unreadableStreak),
     pendingTurnRecovery: raw.pendingTurnRecovery === true,
-    endNoticeSent: raw.endNoticeSent === true,
+    endNoticeSent: !resumeFullRun && raw.endNoticeSent === true,
     notes: normalizeNotes(raw.notes),
     createdAt: typeof raw.createdAt === "string" ? raw.createdAt : now,
     updatedAt: typeof raw.updatedAt === "string" ? raw.updatedAt : now,
@@ -1725,7 +1742,7 @@ function parseStartArgs(args: string): {
   }
   const cooldownFlag = text.match(/(?:^|\s)--cooldown\s+("[^"]*"|'[^']*'|\S+)/i);
   if (cooldownFlag) {
-    const value = cooldownFlag[1].replace(/^("|')|(\1)$/g, "");
+    const value = cooldownFlag[1].replace(/^["']|["']$/g, "");
     cooldownSeconds = parseCooldownSeconds(value);
     text = text.replace(cooldownFlag[0], " ");
   }
@@ -2128,14 +2145,15 @@ export default function (pi: ExtensionAPI): void {
     recordOperatorNote(current, loop, event.text);
   });
 
-  pi.on("turn_start", async (event, _ctx) => {
+  pi.on("turn_start", async (event, ctx) => {
     const current = getRuntime();
-    if (current?.awaitingTurn) current.awaitingTurnIndex = event.turnIndex;
+    if (!current || current.key !== runtimeKey(ctx.cwd, sessionId(ctx))) return;
+    if (current.awaitingTurn) current.awaitingTurnIndex = event.turnIndex;
   });
 
-  pi.on("turn_end", async (event, _ctx) => {
+  pi.on("turn_end", async (event, ctx) => {
     const current = getRuntime();
-    if (!current) return;
+    if (!current || current.key !== runtimeKey(ctx.cwd, sessionId(ctx))) return;
     const loop = currentLoop(current);
     if (!loop) return;
 
@@ -2160,7 +2178,9 @@ export default function (pi: ExtensionAPI): void {
 
   pi.on("agent_end", async (event, ctx) => {
     const current = getRuntime();
-    if (!current) return;
+    // Agent events can arrive after session_start installed another runtime.
+    // Never let the preceding session's result settle the new loop.
+    if (!current || current.key !== runtimeKey(ctx.cwd, sessionId(ctx))) return;
     // Trailing end from an aborted/replaced run — do not poison a newer await.
     if (current.discardAgentSettlements > 0) return;
     // After a mid-turn pause, awaitingTurn is false but we still need the final
@@ -2170,19 +2190,27 @@ export default function (pi: ExtensionAPI): void {
     current.pendingAgentAborted = event.messages.some(isAbortedAssistant) || Boolean(ctx.signal?.aborted);
   });
 
-  pi.on("session_compact", async (event, _ctx) => {
+  pi.on("session_compact", async (event, ctx) => {
     const current = getRuntime();
-    if (current && event.reason === "manual") requeueAfterManualCompaction(current);
+    if (
+      current &&
+      current.key === runtimeKey(ctx.cwd, sessionId(ctx)) &&
+      event.reason === "manual"
+    ) requeueAfterManualCompaction(current);
   });
 
-  pi.on("session_compact_failed", async (event, _ctx) => {
+  pi.on("session_compact_failed", async (event, ctx) => {
     const current = getRuntime();
-    if (current && event.reason === "manual") requeueAfterManualCompaction(current);
+    if (
+      current &&
+      current.key === runtimeKey(ctx.cwd, sessionId(ctx)) &&
+      event.reason === "manual"
+    ) requeueAfterManualCompaction(current);
   });
 
-  pi.on("agent_settled", async (_event, _ctx) => {
+  pi.on("agent_settled", async (_event, ctx) => {
     const current = getRuntime();
-    if (!current) return;
+    if (!current || current.key !== runtimeKey(ctx.cwd, sessionId(ctx))) return;
     const loop = currentLoop(current);
     if (!loop) {
       clearPendingAgentRun(current);
@@ -2323,6 +2351,7 @@ export const goalLoopTestSeams = {
   clampMaxTurns,
   clampCooldownSeconds,
   parseCooldownSeconds,
+  parseStartArgs,
   setTurnTimeoutMs(ms?: number) {
     turnTimeoutMsForTests = typeof ms === "number" && Number.isFinite(ms) && ms >= 0 ? ms : undefined;
   },
