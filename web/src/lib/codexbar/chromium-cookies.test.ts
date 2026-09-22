@@ -82,6 +82,7 @@ describe("listChromiumBrowserRoots", () => {
       join(home, ".config/google-chrome"),
       join(home, ".config/BraveSoftware/Brave-Browser"),
       join(home, ".config/microsoft-edge"),
+      join(home, "snap/chromium/common/chromium"),
     ]);
     expect(roots.every((r) => !r.userData.includes("AppData"))).toBe(true);
     expect(roots.find((r) => r.name === "Chrome")?.secretToolApp).toBe("chrome");
