@@ -3750,9 +3750,16 @@ test("same-ID stale agent events do not settle the replacement turn", async () =
     }, oldCtx);
     await handlers.get("agent_settled")?.({}, oldCtx);
     await handlers.get("input")?.({ text: "old instruction", source: "user" }, oldCtx);
+    await handlers.get("turn_start")?.({ turnIndex: 99 }, oldCtx);
+    await commands.get("goal-pause")?.("", replacementCtx);
+    await handlers.get("turn_end")?.({
+      turnIndex: 99,
+      message: { role: "assistant", content: [{ type: "text", text: '{"status":"progress","summary":"old turn result"}' }] },
+    }, oldCtx);
 
     const loop = JSON.parse(readFileSync(stateFile, "utf8"));
-    assert.equal(loop.status, "running");
+    assert.equal(loop.status, "paused");
+    assert.equal(loop.pauseReason, "user");
     assert.equal(loop.progress.length, 0);
     assert.equal(loop.notes, undefined);
   } finally {
