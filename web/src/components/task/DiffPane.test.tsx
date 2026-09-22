@@ -176,6 +176,24 @@ describe("DiffPane 全選択", () => {
     ));
   });
 
+  it("pulls the current branch from its upstream", async () => {
+    mocks.getJson.mockImplementation((url: string) => Promise.resolve(
+      url === "/api/git/branches"
+        ? { current: "main", branches: ["main"], hasRemote: true, upstream: "origin/main", ahead: 0 }
+        : url === "/api/diff/files"
+          ? { git: true, files: [], additions: 0, deletions: 0 }
+          : { available: false },
+    ));
+    mocks.sendJson.mockResolvedValue({ summary: "Already up to date." });
+    render(<DiffPane directory={"C:\\repo"} />);
+    const pull = screen.getByRole("button", { name: "現在のブランチをプル" }) as HTMLButtonElement;
+    await waitFor(() => expect(pull.disabled).toBe(false));
+    fireEvent.click(pull);
+    await waitFor(() => expect(mocks.sendJson).toHaveBeenCalledWith(
+      "/api/git/pull", { directory: "C:\\repo" }, "POST",
+    ));
+  });
+
   it("does not commit on an IME confirmation Enter", async () => {
     mocks.sendJson.mockResolvedValue({ summary: "ok" });
     render(<DiffPane directory="C:\\repo" />);

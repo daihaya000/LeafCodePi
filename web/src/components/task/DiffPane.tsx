@@ -5,6 +5,7 @@ import {
   ChevronRight,
   ChevronsDownUp,
   ChevronsUpDown,
+  CloudDownload,
   CloudUpload,
   Columns2,
   ExternalLink,
@@ -509,6 +510,16 @@ export function DiffPane({
       return `プッシュしました: ${res.summary ?? ""}`;
     });
 
+  const pull = () =>
+    run(async () => {
+      const res = await sendJson<{ summary?: string }>(
+        "/api/git/pull",
+        { directory },
+        "POST",
+      );
+      return `プルしました: ${res.summary ?? ""}`;
+    });
+
   // Stable per-path callbacks so memoized FileDiffBlock rows do not re-render
   // when unrelated state (busy, panel, filter…) changes.
   const toggleFile = useCallback((path: string) => {
@@ -667,6 +678,24 @@ export function DiffPane({
           >
             <GitPullRequest className="h-3.5 w-3.5" />
             PR
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="inline-flex"
+            aria-label="現在のブランチをプル"
+            disabled={!branches?.upstream || busy || hasChanges}
+            title={
+              !branches?.upstream
+                ? "upstream が設定されていません"
+                : hasChanges
+                  ? "先にコミットしてください"
+                  : "リモートの変更を取り込む"
+            }
+            onClick={() => void pull()}
+          >
+            <CloudDownload className="h-3.5 w-3.5" />
+            Pull
           </Button>
           <Button
             variant="ghost"
