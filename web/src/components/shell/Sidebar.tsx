@@ -727,21 +727,24 @@ export const TaskActivityIcon = memo(function TaskActivityIcon({
   bot?: BotFace & { name: string };
   unread?: boolean;
 }) {
-  if (task.status === "working") {
-    return bot ? (
-      <BotAvatar size={16} {...bot} active />
-    ) : (
-      <Loader2 className="h-3 w-3 shrink-0 animate-spin text-working" />
-    );
-  }
   return (
-    <span
-      aria-hidden="true"
-      className={cx(
-        "h-1.5 w-1.5 shrink-0 rounded-full",
-        task.status === "error" ? "bg-danger" : unread ? "bg-accent" : "bg-faint",
+    <span className="flex h-4 w-4 shrink-0 items-center justify-center">
+      {task.status === "working" ? (
+        bot ? (
+          <BotAvatar size={16} {...bot} active />
+        ) : (
+          <Loader2 className="h-3 w-3 shrink-0 animate-spin text-working" />
+        )
+      ) : (
+        <span
+          aria-hidden="true"
+          className={cx(
+            "h-1.5 w-1.5 shrink-0 rounded-full",
+            task.status === "error" ? "bg-danger" : unread ? "bg-accent" : "bg-faint",
+          )}
+        />
       )}
-    />
+    </span>
   );
 });
 

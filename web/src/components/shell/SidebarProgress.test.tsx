@@ -34,9 +34,17 @@ describe("TaskProgressBar", () => {
     expect(container.querySelector("svg")?.getAttribute("aria-label")).toBe("Builderのアバター");
   });
 
+  it("keeps activity indicators in a fixed-width slot", () => {
+    const { container, rerender } = render(<TaskActivityIcon task={{ status: "idle" }} />);
+    expect(container.firstElementChild?.className).toContain("w-4");
+
+    rerender(<TaskActivityIcon task={{ status: "working" }} />);
+    expect(container.firstElementChild?.className).toContain("w-4");
+  });
+
   it("shows an unread Code task with an accent dot", () => {
     const { container } = render(<TaskActivityIcon task={{ status: "idle" }} unread />);
 
-    expect(container.firstElementChild?.className).toContain("bg-accent");
+    expect(container.querySelector(".bg-accent")).toBeTruthy();
   });
 });
