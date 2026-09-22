@@ -249,6 +249,23 @@ describe("Sidebar project ordering", () => {
     });
   });
 
+  it("shows an unread dot on the matching project", async () => {
+    const projectTasks = [{
+      id: "unread-a", projectId: "project-a", projectName: "Project A", title: "Unread", directory: "C:\\repo-a", isolation: "current_folder" as const, status: "ready" as const, sessionId: "unread-a", sessionFile: null, createdAt: "", updatedAt: "2026-09-22T00:00:00.000Z",
+    }];
+    mocks.getJson.mockImplementation((path: string) => {
+      if (path === "/api/projects?archived=1") return Promise.resolve({ projects });
+      if (path === "/api/tasks?kind=all" || path === "/api/tasks?archived=1&kind=all") return Promise.resolve({ tasks: projectTasks });
+      if (path === "/api/health") return Promise.resolve({ ok: true, engineOk: true, version: "1", modelCount: 0 });
+      return Promise.reject(new Error(`Unexpected request: ${path}`));
+    });
+
+    render(<Sidebar mobileOpen={false} onClose={vi.fn()} />);
+
+    expect((await screen.findByText("Project A")).closest("button")?.querySelector('[aria-label="未読"]')).toBeTruthy();
+    expect(screen.getByText("Project B")).toBeTruthy();
+  });
+
   it("filters Code projects and sessions from the search field", async () => {
     const projectTasks = [
       {

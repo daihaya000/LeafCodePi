@@ -592,6 +592,11 @@ function countRunningTasks(tasks: TaskSummary[]): number {
   return tasks.filter((task) => task.status === "working").length;
 }
 
+function hasUnreadTask(task: TaskSummary, activeTaskId: string | null): boolean {
+  return task.status !== "working" && task.id !== activeTaskId
+    && hasUnread(task.updatedAt, getLastReadAt("task", task.id));
+}
+
 /** ピン留めを優先し、その中でも従来どおり進行中・更新日時順に表示する。 */
 export function tasksForSidebar(
   tasks: TaskSummary[],
@@ -1521,7 +1526,7 @@ const SidebarView = memo(function SidebarView({
   const pathnameTaskId = pathname.startsWith("/task/") ? pathname.slice("/task/".length) : null;
   const activeTaskId = paneMdUp ? paneActiveTaskId : pathnameTaskId;
   const unreadModes: UnreadModes = {
-    code: tasks.some((task) => task.status !== "archived" && task.status !== "working" && task.kind !== "bot" && task.id !== activeTaskId && hasUnread(task.updatedAt, getLastReadAt("task", task.id))),
+    code: tasks.some((task) => task.status !== "archived" && task.kind !== "bot" && hasUnreadTask(task, activeTaskId)),
     bot: botSidebar.bots.some((bot) => activeTaskId !== `/bots/${encodeURIComponent(bot.id)}` && hasUnread(bot.lastMessageAt, getLastReadAt("bot", bot.id)))
       || botSidebar.rooms.some((room) => activeTaskId !== `/bots/rooms/${encodeURIComponent(room.id)}` && hasUnread(room.lastMessageAt, getLastReadAt("room", room.id))),
   };
@@ -2141,7 +2146,7 @@ const SidebarView = memo(function SidebarView({
           active={task.id === activeTaskId}
           bot={(task.botId ?? task.supervisorBotId) ? botsById.get(task.botId ?? task.supervisorBotId!) : undefined}
           pinned={pinnedTaskIds.has(task.id)}
-          unread={task.status !== "working" && task.id !== activeTaskId && hasUnread(task.updatedAt, getLastReadAt("task", task.id))}
+          unread={hasUnreadTask(task, activeTaskId)}
           mdUp={mdUp}
           actionBusy={actionBusyKey !== null}
           onOpenTask={openTask}
@@ -2243,6 +2248,7 @@ const SidebarView = memo(function SidebarView({
                     <Folder className="h-3 w-3" />
                   </span>
                   <span className="min-w-0 flex-1 truncate text-sm">{NO_PROJECT_NAME}</span>
+                  {noProjectTasks.some((task) => hasUnreadTask(task, activeTaskId)) && <span aria-label="未読" className="h-1.5 w-1.5 shrink-0 rounded-full bg-accent" />}
                   {countRunningTasks(visibleNoProjectTasks) > 0 && (
                     <span className="inline-flex min-h-5 min-w-5 items-center justify-center rounded-full bg-working px-1 text-[10px] font-semibold text-primary-fg">
                       {countRunningTasks(visibleNoProjectTasks)}
@@ -2269,6 +2275,7 @@ const SidebarView = memo(function SidebarView({
                 : allChildren.filter((task) => matchesCodeSearch(task.title));
               const open = expanded.has(project.id);
               const running = countRunningTasks(children);
+              const unread = allChildren.some((task) => hasUnreadTask(task, activeTaskId));
               return (
                 <li key={project.id}>
                   <div
@@ -2317,6 +2324,7 @@ const SidebarView = memo(function SidebarView({
                       className="flex min-w-0 flex-1 items-center gap-2 py-1.5 pr-1 text-left"
                     >
                       <span className="min-w-0 flex-1 truncate text-sm">{project.name}</span>
+                      {unread && <span aria-label="未読" className="h-1.5 w-1.5 shrink-0 rounded-full bg-accent" />}
                       {running > 0 && (
                         <span className="inline-flex min-h-5 min-w-5 items-center justify-center rounded-full bg-working px-1 text-[10px] font-semibold text-primary-fg">
                           {running}
@@ -2601,6 +2609,7 @@ const SidebarView = memo(function SidebarView({
               <span className="flex h-full w-full items-center justify-center rounded-lg border border-border bg-surface-2 text-muted transition-transform group-hover:scale-105">
                 <Folder className="h-5 w-5" />
               </span>
+              {noProjectTasks.some((task) => hasUnreadTask(task, activeTaskId)) && <span aria-label="未読" className="absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full border-2 border-surface bg-accent" />}
               {countRunningTasks(noProjectTasks) > 0 && (
                 <span className="absolute -right-1 -top-1 inline-flex min-h-5 min-w-5 items-center justify-center rounded-full border-2 border-surface bg-working px-1 text-[10px] font-semibold text-primary-fg">
                   {countRunningTasks(noProjectTasks)}
@@ -2611,6 +2620,7 @@ const SidebarView = memo(function SidebarView({
           {orderedProjects.map((project) => {
             const projectTasks = tasksByProject.get(project.id) ?? [];
             const running = countRunningTasks(projectTasks);
+            const unread = projectTasks.some((task) => hasUnreadTask(task, activeTaskId));
             const active = activeTask?.projectId === project.id;
             const tapOpensMenu = !hoverCapable;
             const menuOpen = projectTaskMenu?.projectId === project.id;
@@ -2660,6 +2670,7 @@ const SidebarView = memo(function SidebarView({
                       !project.icon && "border",
                     )}
                   />
+                  {unread && <span aria-label="未読" className="absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full border-2 border-surface bg-accent" />}
                   {running > 0 && (
                     <span className="absolute -right-1 -top-1 inline-flex min-h-5 min-w-5 items-center justify-center rounded-full border-2 border-surface bg-working px-1 text-[10px] font-semibold text-primary-fg">
                       {running}
