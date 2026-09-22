@@ -369,8 +369,11 @@ function normalizeInitialImages(value: unknown): GoalLoopInitialImage[] | undefi
         return null;
       }
       const mimeType = item.mimeType.toLowerCase();
-      if (!INITIAL_IMAGE_MIME_TYPES.has(mimeType)) return null;
-      return { type: "image", mimeType, data: item.data };
+      const data = item.data.trim();
+      if (!INITIAL_IMAGE_MIME_TYPES.has(mimeType) || !data) return null;
+      const decoded = Buffer.from(data, "base64");
+      if (decoded.length === 0 || decoded.toString("base64") !== data) return null;
+      return { type: "image", mimeType, data };
     })
     .filter((image): image is GoalLoopInitialImage => image !== null);
   return images.length ? images : undefined;

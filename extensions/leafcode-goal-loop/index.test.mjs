@@ -474,6 +474,7 @@ test("goal-start normalizes browser image payloads before sending the first turn
       images: [
         { mimeType: "image/png", data: "aW1hZ2U=" },
         { mimeType: "text/plain", data: "bm90LWFuLWltYWdl" },
+        { mimeType: "image/png", data: "not base64" },
       ],
     })).toString("base64url");
 
