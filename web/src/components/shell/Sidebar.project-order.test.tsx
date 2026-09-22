@@ -540,6 +540,7 @@ describe("Sidebar project ordering", () => {
       if (path === "/api/health") return Promise.resolve({ ok: true, engineOk: true, version: "1", modelCount: 0 });
       return Promise.reject(new Error(`Unexpected request: ${path}`));
     });
+    localStorage.setItem("webui.bot.last_read.task.other", String(Date.parse(projectTasks[3]!.updatedAt)));
     render(<Sidebar mobileOpen={false} onClose={vi.fn()} />);
     await openProjectSettings();
 
@@ -550,7 +551,8 @@ describe("Sidebar project ordering", () => {
       expect(localStorage.getItem("webui.bot.last_read.task.archived")).toBe(String(Date.parse(projectTasks[2]!.updatedAt)));
     });
     expect(localStorage.getItem("webui.bot.last_read.task.working")).toBeNull();
-    expect(localStorage.getItem("webui.bot.last_read.task.other")).toBeNull();
+    expect(localStorage.getItem("webui.bot.last_read.task.other")).toBe(String(Date.parse(projectTasks[3]!.updatedAt)));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Code（進行中1件）" })).toBeTruthy());
   });
 
   it("changes icon color and migrates a project from its settings", async () => {

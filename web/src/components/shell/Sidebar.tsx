@@ -1521,7 +1521,7 @@ const SidebarView = memo(function SidebarView({
   const pathnameTaskId = pathname.startsWith("/task/") ? pathname.slice("/task/".length) : null;
   const activeTaskId = paneMdUp ? paneActiveTaskId : pathnameTaskId;
   const unreadModes: UnreadModes = {
-    code: tasks.some((task) => task.status !== "archived" && task.kind !== "bot" && task.id !== activeTaskId && hasUnread(task.updatedAt, getLastReadAt("task", task.id))),
+    code: tasks.some((task) => task.status !== "archived" && task.status !== "working" && task.kind !== "bot" && task.id !== activeTaskId && hasUnread(task.updatedAt, getLastReadAt("task", task.id))),
     bot: botSidebar.bots.some((bot) => activeTaskId !== `/bots/${encodeURIComponent(bot.id)}` && hasUnread(bot.lastMessageAt, getLastReadAt("bot", bot.id)))
       || botSidebar.rooms.some((room) => activeTaskId !== `/bots/rooms/${encodeURIComponent(room.id)}` && hasUnread(room.lastMessageAt, getLastReadAt("room", room.id))),
   };
@@ -2141,7 +2141,7 @@ const SidebarView = memo(function SidebarView({
           active={task.id === activeTaskId}
           bot={(task.botId ?? task.supervisorBotId) ? botsById.get(task.botId ?? task.supervisorBotId!) : undefined}
           pinned={pinnedTaskIds.has(task.id)}
-          unread={task.id !== activeTaskId && hasUnread(task.updatedAt, getLastReadAt("task", task.id))}
+          unread={task.status !== "working" && task.id !== activeTaskId && hasUnread(task.updatedAt, getLastReadAt("task", task.id))}
           mdUp={mdUp}
           actionBusy={actionBusyKey !== null}
           onOpenTask={openTask}
