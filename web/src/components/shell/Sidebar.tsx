@@ -1720,11 +1720,19 @@ const SidebarView = memo(function SidebarView({
       ? groupTasks
       : groupTasks.filter((task) => matchesCodeSearch(task.title));
   const visibleNoProjectTasks = filteredTasks(NO_PROJECT_NAME, noProjectTasks);
-  const visibleProjects = orderedProjects.filter(
-    (project) =>
-      matchesCodeSearch(project.name) ||
-      (tasksByProject.get(project.id) ?? []).some((task) => matchesCodeSearch(task.title)),
-  );
+  const matchingTasksByProject = normalizedQuery ? new Map<string, TaskSummary[]>() : null;
+  const visibleProjects = orderedProjects.filter((project) => {
+    if (matchesCodeSearch(project.name)) return true;
+
+    let matches: TaskSummary[] | null = null;
+    for (const task of tasksByProject.get(project.id) ?? []) {
+      if (!matchesCodeSearch(task.title)) continue;
+      (matches ??= []).push(task);
+    }
+    if (!matches) return false;
+    matchingTasksByProject?.set(project.id, matches);
+    return true;
+  });
   const visibleArchivedGroups = archivedGroups
     .map((group) => ({ ...group, tasks: filteredTasks(group.name, group.tasks) }))
     .filter((group) => matchesCodeSearch(group.name) || group.tasks.length > 0);
@@ -2289,9 +2297,7 @@ const SidebarView = memo(function SidebarView({
           )}
           {visibleProjects.map((project) => {
               const allChildren = tasksByProject.get(project.id) ?? [];
-              const children = matchesCodeSearch(project.name)
-                ? allChildren
-                : allChildren.filter((task) => matchesCodeSearch(task.title));
+              const children = matchingTasksByProject?.get(project.id) ?? allChildren;
               const open = expanded.has(project.id);
               const running = countRunningTasks(children);
               const unread = allChildren.some((task) => hasUnreadTask(task, activeTaskId));
