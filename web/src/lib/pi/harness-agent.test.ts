@@ -13,6 +13,7 @@ import {
 import { abortLiveForHangWatchdog, abortTask, archiveTask, destroyProject, destroyTask, getTaskDetail, isLiveBusyForReplace, isTaskRuntimeOwnedElsewhere, markTaskWorkingIfIdle, refreshLiveSessionsForAgentDefinition, reloadLiveSessionsContext, restoreTask, setBotPermissionMode, setBotTools, setTaskAgent, throwIfBusyForModelChange, throwIfBusyForPermissionChange, throwIfBusyForSkillPermissionChange, throwIfBusyForThinkingChange } from "./harness";
 import { taskRuntimeLeasePath } from "@/lib/task-runtime-lease";
 import { botTaskId, createBot, getBot, patchBot } from "@/lib/bots";
+import { setAgentEnabled } from "@/lib/agents";
 import { roomBotTaskId } from "@/lib/rooms";
 
 const GLOBAL_KEY = "__leafcodePiHarness";
@@ -33,6 +34,21 @@ afterEach(() => {
 });
 
 type FixtureCustomMessage = { customType: string; content: unknown; display: boolean };
+
+/**
+ * Write the `reviewer` persona into `agentDir` and opt it in. listAgents leaves
+ * every non-default agent disabled, and setTaskAgent rejects disabled personas,
+ * so writing the .md alone is not enough to make it selectable.
+ */
+function writeEnabledReviewerAgent(agentDir: string): void {
+  mkdirSync(join(agentDir, "agents"), { recursive: true });
+  writeFileSync(
+    join(agentDir, "agents", "reviewer.md"),
+    "---\nname: reviewer\n---\n\nReview the work.\n",
+    "utf8",
+  );
+  setAgentEnabled("reviewer", true, agentDir);
+}
 
 /**
  * live エントリの最低要件。本体の LiveRuntime と同じく `taskId` を必須にしておく。
@@ -64,14 +80,9 @@ function fixture(options: {
   const root = mkdtempSync(join(tmpdir(), "leafcode-pi-harness-agent-"));
   tempDirs.push(root);
   const agentDir = join(root, "agent");
-  mkdirSync(join(agentDir, "agents"), { recursive: true });
-  writeFileSync(
-    join(agentDir, "agents", "reviewer.md"),
-    "---\nname: reviewer\n---\n\nReview the work.\n",
-    "utf8",
-  );
   process.env.PI_CODING_AGENT_DIR = agentDir;
   process.env.LEAFCODE_PI_DATA_DIR = join(root, "data");
+  writeEnabledReviewerAgent(agentDir);
 
   const project = upsertProject({ name: "demo", rootPath: root });
   const task = insertTask({ project, title: "switch agent", agent: "builder" });
@@ -695,14 +706,8 @@ describe("archiveTask", () => {
     tempDirs.push(root);
     process.env.LEAFCODE_PI_DATA_DIR = join(root, "data");
     const agentDir = join(root, "agent");
-    mkdirSync(join(agentDir, "agents"), { recursive: true });
-    writeFileSync(
-      join(agentDir, "agents", "reviewer.md"),
-      "---\nname: reviewer\n---\n\nReview the work.\n",
-      "utf8",
-    );
     process.env.PI_CODING_AGENT_DIR = agentDir;
-    process.env.LEAFCODE_PI_DATA_DIR = join(root, "data");
+    writeEnabledReviewerAgent(agentDir);
     const project = upsertProject({ name: "demo", rootPath: root });
     const task = insertTask({ project, title: "archive goal loop", agent: "builder" });
     const sessionId = "archive-goal-session";

@@ -90,16 +90,18 @@ describe("listChromiumBrowserRoots", () => {
   });
 
   it("uses XDG_CONFIG_HOME for Linux Chromium roots", () => {
+    // join() so the expectation matches the host separator, like the test above.
+    const config = "/run/user/1000/config";
     const roots = listChromiumBrowserRoots("linux", "/home/linux-user", {
-      XDG_CONFIG_HOME: "/run/user/1000/config",
+      XDG_CONFIG_HOME: config,
     });
     expect(roots.slice(0, 1).map((r) => r.userData)).toEqual([
-      "/run/user/1000/config/chromium",
+      join(config, "chromium"),
     ]);
     expect(roots.slice(2, 5).map((r) => r.userData)).toEqual([
-      "/run/user/1000/config/google-chrome",
-      "/run/user/1000/config/BraveSoftware/Brave-Browser",
-      "/run/user/1000/config/microsoft-edge",
+      join(config, "google-chrome"),
+      join(config, "BraveSoftware/Brave-Browser"),
+      join(config, "microsoft-edge"),
     ]);
   });
 
