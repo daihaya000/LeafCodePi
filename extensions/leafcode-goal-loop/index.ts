@@ -1360,6 +1360,7 @@ function requeueAfterManualCompaction(runtime: Runtime): void {
   }
   runtime.awaitingTurn = false;
   runtime.pausedTurnPending = false;
+  runtime.endNoticeQueued = false;
   runtime.awaitingTurnIndex = undefined;
   runtime.pausedTurnIndex = undefined;
   clearPendingAgentRun(runtime);
