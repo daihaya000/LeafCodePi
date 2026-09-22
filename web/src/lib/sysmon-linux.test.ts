@@ -6,13 +6,21 @@ import {
   isCpuHwmonName,
   isCpuThermalType,
   parseAmdGpuBusyPercent,
+  parseLspciGpuName,
   parseMilliCelsius,
+  parsePciSlotName,
   parseVramBytes,
   pickHottestTemperature,
   type LinuxSysFs,
 } from "./sysmon-linux";
 
-function memoryFs(files: Record<string, string>, dirs: Record<string, string[]>): LinuxSysFs {
+type RunCommand = (command: string, args: readonly string[]) => Promise<string>;
+
+function memoryFs(
+  files: Record<string, string>,
+  dirs: Record<string, string[]>,
+  runCommand?: RunCommand,
+): LinuxSysFs {
   return {
     async readdir(path) {
       if (!(path in dirs)) throw new Error(`ENOENT: ${path}`);
@@ -22,6 +30,7 @@ function memoryFs(files: Record<string, string>, dirs: Record<string, string[]>)
       if (!(path in files)) throw new Error(`ENOENT: ${path}`);
       return files[path];
     },
+    ...(runCommand ? { runCommand } : {}),
   };
 }
 
@@ -85,6 +94,39 @@ describe("collectLinuxCpuTemperature", () => {
 });
 
 describe("collectLinuxAmdGpus", () => {
+  it("uses lspci when amdgpu product_name is unavailable", async () => {
+    expect(parsePciSlotName("DRIVER=amdgpu\nPCI_SLOT_NAME=0000:03:00.0\n")).toBe("0000:03:00.0");
+    expect(
+      parseLspciGpuName(
+        "0000:03:00.0 VGA compatible controller [0300]: Advanced Micro Devices, Inc. [AMD/ATI] Radeon RX [1002:7551] (rev c0)\n",
+      ),
+    ).toBe("Advanced Micro Devices, Inc. [AMD/ATI] Radeon RX [1002:7551]");
+
+    const commands: string[][] = [];
+    const fs = memoryFs(
+      {
+        "/sys/class/drm/card1/device/vendor": "0x1002",
+        "/sys/class/drm/card1/device/uevent": "DRIVER=amdgpu\nPCI_SLOT_NAME=0000:03:00.0\n",
+        "/sys/class/drm/card1/device/gpu_busy_percent": "40",
+        "/sys/class/drm/card1/device/mem_info_vram_used": "1073741824",
+        "/sys/class/drm/card1/device/mem_info_vram_total": "8589934592",
+      },
+      {
+        "/sys/class/drm": ["card1"],
+        "/sys/class/drm/card1/device/hwmon": [],
+      },
+      async (command, args) => {
+        commands.push([command, ...args]);
+        return "0000:03:00.0 VGA compatible controller [0300]: Advanced Micro Devices, Inc. [AMD/ATI] Radeon RX [1002:7551] (rev c0)\n";
+      },
+    );
+
+    await expect(collectLinuxAmdGpus(fs)).resolves.toMatchObject([
+      { name: "Advanced Micro Devices, Inc. [AMD/ATI] Radeon RX [1002:7551]" },
+    ]);
+    expect(commands).toEqual([["lspci", "-nn", "-s", "0000:03:00.0"]]);
+  });
+
   it("reads amdgpu sysfs cards and sorts larger VRAM first", async () => {
     expect(isAmdPciVendor("0x1002")).toBe(true);
     expect(parseAmdGpuBusyPercent("37\n")).toBe(37);

@@ -1,3 +1,4 @@
+import { execFile as nodeExecFile } from "node:child_process";
 import { readdir, readFile } from "node:fs/promises";
 import { posix } from "node:path";
 import { clampPercent, type GpuMetric } from "@/lib/sysmon";
@@ -5,6 +6,7 @@ import { clampPercent, type GpuMetric } from "@/lib/sysmon";
 export type LinuxSysFs = {
   readdir(path: string): Promise<string[]>;
   readFile(path: string): Promise<string>;
+  runCommand?: (command: string, args: readonly string[]) => Promise<string>;
 };
 
 export function createNodeSysFs(): LinuxSysFs {
@@ -14,6 +16,19 @@ export function createNodeSysFs(): LinuxSysFs {
     },
     async readFile(path: string) {
       return readFile(path, "utf8");
+    },
+    runCommand(command, args) {
+      return new Promise((resolve, reject) => {
+        nodeExecFile(
+          command,
+          [...args],
+          { encoding: "utf8", maxBuffer: 64 * 1024, timeout: 1000, windowsHide: true },
+          (error, stdout) => {
+            if (error) reject(error);
+            else resolve(stdout);
+          },
+        );
+      });
     },
   };
 }
@@ -129,6 +144,36 @@ export function parseVramBytes(raw: string): number | null {
   return n;
 }
 
+export function parsePciSlotName(raw: string): string | null {
+  return String(raw).match(/(?:^|\n)PCI_SLOT_NAME=([0-9a-f:.]+)/i)?.[1] ?? null;
+}
+
+export function parseLspciGpuName(raw: string): string | null {
+  const line = String(raw)
+    .split(/\r?\n/)
+    .map((value) => value.trim())
+    .find(Boolean);
+  const match = line?.match(/^\S+\s+[^:]+:\s*(.+)$/);
+  if (!match) return null;
+  return match[1].replace(/\s+\(rev [^)]+\)\s*$/, "").trim() || null;
+}
+
+async function readLinuxGpuName(fs: LinuxSysFs, deviceDir: string, entry: string): Promise<string> {
+  const product = ((await readOptional(fs, join(deviceDir, "product_name"))) ?? "").trim();
+  if (product) return product;
+
+  const slot = parsePciSlotName((await readOptional(fs, join(deviceDir, "uevent"))) ?? "");
+  if (slot && fs.runCommand) {
+    try {
+      const name = parseLspciGpuName(await fs.runCommand("lspci", ["-nn", "-s", slot]));
+      if (name) return name;
+    } catch {
+      // pciutils is optional; keep the sysfs fallback when lspci is unavailable.
+    }
+  }
+  return `AMD GPU (${entry})`;
+}
+
 async function readAmdGpuTemp(fs: LinuxSysFs, deviceDir: string): Promise<number | null> {
   const hwmonRoot = join(deviceDir, "hwmon");
   const temps: number[] = [];
@@ -162,14 +207,13 @@ export async function collectLinuxAmdGpus(
     if (usedPercent === null && vramUsedBytes === null && vramTotalBytes === null && tempC === null) {
       continue;
     }
-    const product = ((await readOptional(fs, join(deviceDir, "product_name"))) ?? "").trim();
     const vramUsedPercent =
       vramUsedBytes !== null && vramTotalBytes !== null && vramTotalBytes > 0
         ? (vramUsedBytes / vramTotalBytes) * 100
         : null;
     cards.push({
       available: true,
-      name: product || `AMD GPU (${entry})`,
+      name: await readLinuxGpuName(fs, deviceDir, entry),
       usedPercent,
       vramUsedPercent,
       vramUsedBytes,
