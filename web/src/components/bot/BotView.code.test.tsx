@@ -925,6 +925,16 @@ it("keeps the composer sending between prompt_accepted and the first stream even
   expect(screen.getByRole("button", { name: "送信" })).toBeTruthy();
 });
 
+it("clears the composer after a successful stop even without an SSE update", async () => {
+  render(<ShellProvider><BotView id="one" active /></ShellProvider>);
+  await screen.findByRole("heading", { name: "Bot" });
+  snapshot({ isStreaming: true });
+  fireEvent.click(screen.getByRole("button", { name: "応答を停止" }));
+
+  await waitFor(() => expect(mocks.sendJson).toHaveBeenCalledWith("/api/bots/one/abort", {}));
+  expect(await screen.findByRole("button", { name: "送信" })).toBeTruthy();
+});
+
 it("reads the new reply when idle arrives before the final message snapshot", async () => {
   const ttsFetch = vi.fn(async () => new Response(Buffer.from([1, 2, 3]), { status: 200 }));
   const play = vi.fn(async () => undefined);

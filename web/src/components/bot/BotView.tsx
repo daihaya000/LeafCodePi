@@ -887,8 +887,17 @@ export const BotView = memo(function BotView({ id, active = true }: { id: string
   };
 
   const abort = async () => {
-    try { await sendJson(`/api/bots/${encodeURIComponent(id)}/abort`, {}); }
-    catch (reason) { setError(reason instanceof Error ? reason.message : "リクエストに失敗しました"); }
+    const requestContext = botRequestContextRef.current;
+    try {
+      await sendJson(`/api/bots/${encodeURIComponent(id)}/abort`, {});
+      if (botRequestContextRef.current !== requestContext) return;
+      setSending(false);
+      notifyBotSidebarChanged();
+    } catch (reason) {
+      if (botRequestContextRef.current === requestContext) {
+        setError(reason instanceof Error ? reason.message : "リクエストに失敗しました");
+      }
+    }
   };
 
   const updateTtsVoice = async (value: string) => {
