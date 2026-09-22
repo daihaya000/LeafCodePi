@@ -217,7 +217,7 @@ export function roomBotPrompt(room: RoomDto, bot: BotDto, participants: BotDto[]
         `Registered handoff: ${JSON.stringify({ from: turn.handoff.fromBotName, task: turn.handoff.task })}.`,
         "Do the handed-off task now with tools; report verified results briefly, then ROOM_ACTION: DONE.",
       ] : []),
-      ...(turn.turn === turn.maxTurns ? ["Final turn: summarize the conclusion and unresolved points for the user; end with ROOM_ACTION: DONE and request no further turns."] : []),
+      ...(turn.turn === turn.maxTurns ? ["Final turn: summarize conclusions and unresolved points; end with ROOM_ACTION: DONE, never NEXT."] : []),
     ] : ["Answer briefly like chat, not a report. Use tools rather than ask when possible; emit no ROOM_ACTION lines."]),
   ].join("\n");
 }
