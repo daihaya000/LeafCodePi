@@ -208,7 +208,7 @@ describe("shared room context", () => {
     expect(prompt).toContain("Speak only as yourself; reply to actual messages, never simulate teammates or use subagents for turn-taking.");
     expect(prompt).toContain("Act on concrete requests: investigate with tools, state one brief assumption if needed, and proceed.");
     expect(prompt).toContain("Don't ask or delegate questions the repository, transcript, or tools can answer.");
-    expect(prompt).toContain("Only if no deliverable is clear, ask one short question and finish with ROOM_ACTION: DONE.");
+    expect(prompt).toContain("If no deliverable is clear, ask one short question.");
     expect(prompt).toContain("Address teammates using @ExactName in prose; one formal @mention of a current member triggers at most one implicit room_handoff/NEXT. Bare names never hand off.");
     expect(prompt).toContain("Use at most 3 short prose sentences; no headings, numbered plans, status reports, or repeated roster/prior points. Address the latest question/disagreement first; add one new point.");
     expect(prompt).toContain("End with a standalone line outside quotes/fences: ROOM_ACTION: NEXT <exact roster id/name> after a concrete question, or ROOM_ACTION: DONE when complete or user input is needed. No control without a real contribution. The server, not a tool call, routes /discuss and hands off.");

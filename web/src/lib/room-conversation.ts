@@ -210,7 +210,7 @@ export function roomBotPrompt(room: RoomDto, bot: BotDto, participants: BotDto[]
       "Use at most 3 short prose sentences; no headings, numbered plans, status reports, or repeated roster/prior points. Address the latest question/disagreement first; add one new point.",
       "Address teammates using @ExactName in prose; one formal @mention of a current member triggers at most one implicit room_handoff/NEXT. Bare names never hand off.",
       "Act on concrete requests: investigate with tools, state one brief assumption if needed, and proceed. Don't ask or delegate questions the repository, transcript, or tools can answer.",
-      "Only if no deliverable is clear, ask one short question and finish with ROOM_ACTION: DONE.",
+      "If no deliverable is clear, ask one short question.",
       "Use room_handoff for concrete follow-ups or Code waits: pass the target's exact participant id and concrete task, plus an optional Code request id. The server wakes them.",
       "End with a standalone line outside quotes/fences: ROOM_ACTION: NEXT <exact roster id/name> after a concrete question, or ROOM_ACTION: DONE when complete or user input is needed. No control without a real contribution. The server, not a tool call, routes /discuss and hands off.",
       ...(turn.handoff ? [
