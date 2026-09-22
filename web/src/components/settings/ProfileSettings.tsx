@@ -150,7 +150,8 @@ export function ProfileSettings() {
       <p className="mt-1 text-xs leading-5 text-muted">
         Pi認証・モデル・MCP設定、エージェント、拡張、スキル、LeafCodePi設定を1ファイルへ保存・復元します。会話、プロジェクト、OS資格情報ストアは含みません。
       </p>
-      <div className="mt-3 flex flex-wrap gap-2">
+      <div className="mt-3 space-y-2">
+        <div className="flex flex-wrap gap-2">
         <Button variant="secondary" busy={busy === "export"} disabled={disabled} onClick={() => void exportProfile()}>
           <Download className="h-4 w-4" />エクスポート
         </Button>
@@ -188,9 +189,12 @@ export function ProfileSettings() {
         <Button variant="secondary" busy={busy === "restore"} disabled={disabled || !selectedBackup} onClick={() => void restoreProfile()}>
           <History className="h-4 w-4" />復元
         </Button>
-        <Button variant="danger" busy={busy === "reset"} disabled={disabled} onClick={() => void resetProfile()}>
-          <RotateCcw className="h-4 w-4" />初期化
-        </Button>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <Button variant="danger" busy={busy === "reset"} disabled={disabled} onClick={() => void resetProfile()}>
+            <RotateCcw className="h-4 w-4" />初期化
+          </Button>
+        </div>
       </div>
       {message && <p role="status" className="mt-2 text-xs text-success">{message}</p>}
       {error && <p role="alert" className="mt-2 text-xs text-danger">{error}</p>}
