@@ -155,7 +155,12 @@ export function parseLspciGpuName(raw: string): string | null {
     .find(Boolean);
   const match = line?.match(/^\S+\s+[^:]+:\s*(.+)$/);
   if (!match) return null;
-  return match[1].replace(/\s+\(rev [^)]+\)\s*$/, "").trim() || null;
+  return (
+    match[1]
+      .replace(/\s+\(rev [^)]+\)\s*$/, "")
+      .replace(/^Advanced Micro Devices, Inc\. \[AMD\/ATI\]\s*/i, "")
+      .trim() || null
+  );
 }
 
 async function readLinuxGpuName(fs: LinuxSysFs, deviceDir: string, entry: string): Promise<string> {

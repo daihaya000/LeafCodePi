@@ -100,7 +100,7 @@ describe("collectLinuxAmdGpus", () => {
       parseLspciGpuName(
         "0000:03:00.0 VGA compatible controller [0300]: Advanced Micro Devices, Inc. [AMD/ATI] Radeon RX [1002:7551] (rev c0)\n",
       ),
-    ).toBe("Advanced Micro Devices, Inc. [AMD/ATI] Radeon RX [1002:7551]");
+    ).toBe("Radeon RX [1002:7551]");
 
     const commands: string[][] = [];
     const fs = memoryFs(
@@ -122,7 +122,7 @@ describe("collectLinuxAmdGpus", () => {
     );
 
     await expect(collectLinuxAmdGpus(fs)).resolves.toMatchObject([
-      { name: "Advanced Micro Devices, Inc. [AMD/ATI] Radeon RX [1002:7551]" },
+      { name: "Radeon RX [1002:7551]" },
     ]);
     expect(commands).toEqual([["lspci", "-nn", "-s", "0000:03:00.0"]]);
   });
