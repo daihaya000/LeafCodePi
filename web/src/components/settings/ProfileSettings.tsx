@@ -152,31 +152,29 @@ export function ProfileSettings() {
       </p>
       <div className="mt-3 space-y-2">
         <div className="flex flex-wrap gap-2">
-        <Button variant="secondary" busy={busy === "export"} disabled={disabled} onClick={() => void exportProfile()}>
-          <Download className="h-4 w-4" />エクスポート
-        </Button>
-        <label className={cx("inline-flex h-10 cursor-pointer items-center justify-center gap-2 rounded-lg border border-border bg-surface-2 px-3.5 text-sm text-text transition-colors hover:bg-surface-3 has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-accent", disabled && "pointer-events-none opacity-40")}>
-          <Upload className="h-4 w-4" />インポート
-          <input
-            type="file"
-            accept=".lcp.gz,application/gzip"
-            className="sr-only"
-            aria-label="設定プロファイルを選択"
-            disabled={disabled}
-            onChange={(event) => {
-              const file = event.target.files?.[0];
-              event.currentTarget.value = "";
-              if (file) void importProfile(file);
-            }}
-          />
-        </label>
-        <Button variant="secondary" busy={busy === "backup"} disabled={disabled} onClick={() => void backupProfile()}>
-          <Archive className="h-4 w-4" />バックアップ
-        </Button>
+          <Button className="w-44" variant="secondary" busy={busy === "export"} disabled={disabled} onClick={() => void exportProfile()}>
+            <Download className="h-4 w-4" />エクスポート
+          </Button>
+          <label className={cx("inline-flex h-10 w-44 cursor-pointer items-center justify-center gap-2 rounded-lg border border-border bg-surface-2 px-3.5 text-sm text-text transition-colors hover:bg-surface-3 has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-accent", disabled && "pointer-events-none opacity-40")}>
+            <Upload className="h-4 w-4" />インポート
+            <input
+              type="file"
+              accept=".lcp.gz,application/gzip"
+              className="sr-only"
+              aria-label="設定プロファイルを選択"
+              disabled={disabled}
+              onChange={(event) => {
+                const file = event.target.files?.[0];
+                event.currentTarget.value = "";
+                if (file) void importProfile(file);
+              }}
+            />
+          </label>
+        </div>
         {backups.length > 0 && (
           <select
             aria-label="復元するバックアップ"
-            className="h-10 rounded-lg border border-border bg-surface-2 px-3 text-sm text-text"
+            className="h-10 w-full rounded-lg border border-border bg-surface-2 px-3 text-sm text-text"
             value={selectedBackup}
             disabled={disabled}
             onChange={(event) => setSelectedBackup(event.target.value)}
@@ -186,13 +184,15 @@ export function ProfileSettings() {
             ))}
           </select>
         )}
-        <Button variant="secondary" busy={busy === "restore"} disabled={disabled || !selectedBackup} onClick={() => void restoreProfile()}>
-          <History className="h-4 w-4" />復元
-        </Button>
-        </div>
         <div className="flex flex-wrap gap-2">
-          <Button variant="danger" busy={busy === "reset"} disabled={disabled} onClick={() => void resetProfile()}>
+          <Button className="w-44" variant="danger" busy={busy === "reset"} disabled={disabled} onClick={() => void resetProfile()}>
             <RotateCcw className="h-4 w-4" />初期化
+          </Button>
+          <Button className="w-44" variant="secondary" busy={busy === "backup"} disabled={disabled} onClick={() => void backupProfile()}>
+            <Archive className="h-4 w-4" />バックアップ
+          </Button>
+          <Button className="w-44" variant="secondary" busy={busy === "restore"} disabled={disabled || !selectedBackup} onClick={() => void restoreProfile()}>
+            <History className="h-4 w-4" />復元
           </Button>
         </div>
       </div>
