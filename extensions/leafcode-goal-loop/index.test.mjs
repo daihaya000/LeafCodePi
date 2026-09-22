@@ -3476,10 +3476,19 @@ test("old session events do not mutate a newer session in the same extension", a
     await handlers.get("agent_settled")?.({ type: "agent_settled" }, ctxA);
     await handlers.get("input")?.({ text: "古い指示", source: "user" }, ctxA);
     await handlers.get("session_shutdown")?.({}, ctxA);
+    const beforePause = JSON.parse(readFileSync(stateFile("cross-session-b"), "utf8"));
+    assert.equal(beforePause.status, "running");
+    assert.equal(beforePause.notes, undefined);
+
+    await commands.get("goal-pause")?.("", ctxB);
+    await handlers.get("turn_end")?.({
+      turnIndex: 1,
+      message: { role: "assistant", content: [{ type: "text", text: '{"status":"progress","summary":"古いturn結果"}' }] },
+    }, ctxA);
     const newer = JSON.parse(readFileSync(stateFile("cross-session-b"), "utf8"));
-    assert.equal(newer.status, "running");
-    assert.equal(newer.pauseReason, "");
-    assert.equal(newer.notes, undefined);
+    assert.equal(newer.status, "paused");
+    assert.equal(newer.pauseReason, "user");
+    assert.equal(newer.summary, "");
   } finally {
     await handlers.get("session_shutdown")?.({}, ctxB);
     rmSync(cwd, { recursive: true, force: true });

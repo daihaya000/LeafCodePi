@@ -2123,14 +2123,15 @@ export default function (pi: ExtensionAPI): void {
     recordOperatorNote(current, loop, event.text);
   });
 
-  pi.on("turn_start", async (event, _ctx) => {
+  pi.on("turn_start", async (event, ctx) => {
     const current = getRuntime();
-    if (current?.awaitingTurn) current.awaitingTurnIndex = event.turnIndex;
+    if (!current || current.key !== runtimeKey(ctx.cwd, sessionId(ctx))) return;
+    if (current.awaitingTurn) current.awaitingTurnIndex = event.turnIndex;
   });
 
-  pi.on("turn_end", async (event, _ctx) => {
+  pi.on("turn_end", async (event, ctx) => {
     const current = getRuntime();
-    if (!current) return;
+    if (!current || current.key !== runtimeKey(ctx.cwd, sessionId(ctx))) return;
     const loop = currentLoop(current);
     if (!loop) return;
 
