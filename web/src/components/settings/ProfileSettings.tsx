@@ -151,11 +151,11 @@ export function ProfileSettings() {
         Pi認証・モデル・MCP設定、エージェント、拡張、スキル、LeafCodePi設定を1ファイルへ保存・復元します。会話、プロジェクト、OS資格情報ストアは含みません。
       </p>
       <div className="mt-3 space-y-2">
-        <div className="flex flex-wrap gap-2">
-          <Button className="w-44" variant="secondary" busy={busy === "export"} disabled={disabled} onClick={() => void exportProfile()}>
+        <div className="grid grid-cols-3 gap-2">
+          <Button className="w-full" variant="secondary" busy={busy === "export"} disabled={disabled} onClick={() => void exportProfile()}>
             <Download className="h-4 w-4" />エクスポート
           </Button>
-          <label className={cx("inline-flex h-10 w-44 cursor-pointer items-center justify-center gap-2 rounded-lg border border-border bg-surface-2 px-3.5 text-sm text-text transition-colors hover:bg-surface-3 has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-accent", disabled && "pointer-events-none opacity-40")}>
+          <label className={cx("inline-flex h-10 w-full cursor-pointer items-center justify-center gap-2 rounded-lg border border-border bg-surface-2 px-3.5 text-sm text-text transition-colors hover:bg-surface-3 has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-accent", disabled && "pointer-events-none opacity-40")}>
             <Upload className="h-4 w-4" />インポート
             <input
               type="file"
@@ -184,14 +184,14 @@ export function ProfileSettings() {
             ))}
           </select>
         )}
-        <div className="flex flex-wrap gap-2">
-          <Button className="w-44" variant="danger" busy={busy === "reset"} disabled={disabled} onClick={() => void resetProfile()}>
+        <div className="grid grid-cols-3 gap-2">
+          <Button className="w-full" variant="danger" busy={busy === "reset"} disabled={disabled} onClick={() => void resetProfile()}>
             <RotateCcw className="h-4 w-4" />初期化
           </Button>
-          <Button className="w-44" variant="secondary" busy={busy === "backup"} disabled={disabled} onClick={() => void backupProfile()}>
+          <Button className="w-full" variant="secondary" busy={busy === "backup"} disabled={disabled} onClick={() => void backupProfile()}>
             <Archive className="h-4 w-4" />バックアップ
           </Button>
-          <Button className="w-44" variant="secondary" busy={busy === "restore"} disabled={disabled || !selectedBackup} onClick={() => void restoreProfile()}>
+          <Button className="w-full" variant="secondary" busy={busy === "restore"} disabled={disabled || !selectedBackup} onClick={() => void restoreProfile()}>
             <History className="h-4 w-4" />復元
           </Button>
         </div>
