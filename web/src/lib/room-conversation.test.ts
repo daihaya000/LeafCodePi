@@ -250,9 +250,11 @@ describe("shared room context", () => {
     expect(transcriptOf(prompt).at(-1)).toMatchObject({ code: { requestId: "request", taskId: "code", state: "running" } });
     expect(prompt).toContain("code_session");
     expect(prompt).toContain("Use room_handoff for concrete follow-ups or Code waits: pass the target's exact participant id and concrete task, plus an optional Code request id. The server wakes them.");
-    expect(prompt).toContain("availableImages");
+    expect(prompt).toContain("Pass request screenshots by 1-based availableImages index");
+    expect(prompt).toContain("start one independent investigate-then-change session per task");
+    expect(prompt).toContain("Code requests run in parallel, not queued by Room");
     expect(prompt).toContain("Promises aren't execution");
-    expect(prompt).toContain("Starting/running/ready means wait—don't duplicate or report done.");
+    expect(prompt).toContain("Starting/running/ready means wait; don't duplicate or claim done.");
   });
   it("instructs handoff recipients to act and report verified results", () => {
     const prompt = roomBotPrompt(room(), bots[0], bots, "Check the delegated result", user.id, {
