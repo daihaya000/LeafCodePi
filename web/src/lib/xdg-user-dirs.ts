@@ -20,7 +20,10 @@ type XdgKey = keyof typeof XDG_KEY_TO_KIND;
 
 function expandXdgValue(raw: string, home: string): string {
   const unquoted = raw.trim().replace(/^"(.*)"$/, "$1").replace(/^'(.*)'$/, "$1");
-  return unquoted.replaceAll("$HOME", home).replace(/^~(?=$|[\\/])/, home);
+  const unescaped = unquoted.replace(/\\([0-7]{1,3})/g, (_, octal: string) =>
+    String.fromCharCode(Number.parseInt(octal, 8)),
+  );
+  return unescaped.replaceAll("$HOME", home).replace(/^~(?=$|[\\/])/, home);
 }
 
 /** Parse freedesktop user-dirs.dirs (`XDG_DESKTOP_DIR="$HOME/Desktop"`). */

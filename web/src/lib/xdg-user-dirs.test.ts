@@ -31,6 +31,12 @@ describe("parseXdgUserDirsFile", () => {
       ),
     ).toEqual({ desktop: "/home/me/Desktop" });
   });
+
+  it("decodes xdg-user-dirs shell-escaped spaces", () => {
+    expect(
+      parseXdgUserDirsFile('XDG_DOCUMENTS_DIR="$HOME/My\\040Documents"\n', "/home/me"),
+    ).toEqual({ documents: "/home/me/My Documents" });
+  });
 });
 
 describe("readXdgUserDirs", () => {
