@@ -443,7 +443,7 @@ function hydrateLoop(value: unknown, cwd: string, id: string): GoalLoop | null {
   };
 }
 
-function recoverLoopFromTemp(file: string, cwd: string, id: string): GoalLoop | null {
+function recoverLoopFromTemp(file: string, cwd: string, id: string, newerThan = Number.NEGATIVE_INFINITY): GoalLoop | null {
   try {
     const dir = path.dirname(file);
     const base = path.basename(file);
@@ -460,6 +460,7 @@ function recoverLoopFromTemp(file: string, cwd: string, id: string): GoalLoop | 
       .filter((entry): entry is { full: string; mtime: number } => entry !== null)
       .sort((a, b) => b.mtime - a.mtime);
     for (const temp of temps) {
+      if (temp.mtime <= newerThan) continue;
       try {
         const loop = hydrateLoop(JSON.parse(fs.readFileSync(temp.full, "utf8")), cwd, id);
         if (!loop) continue;
@@ -486,9 +487,13 @@ function readLoop(cwd: string, id: string): GoalLoop | null {
   const file = goalStateFile(cwd, id);
   try {
     const loop = hydrateLoop(JSON.parse(fs.readFileSync(file, "utf8")), cwd, id);
-    // Valid JSON can still fail hydration (missing goal/bad acceptance). Do not
-    // treat that as authoritative when a newer temp snapshot can be promoted.
-    if (loop) return loop;
+    if (loop) {
+      // A crash after writing the temp but before rename leaves a valid, older
+      // main file. Promote only a newer temp so stale leftovers cannot regress
+      // an already committed state.
+      const mainMtime = fs.statSync(file).mtimeMs;
+      return recoverLoopFromTemp(file, cwd, id, mainMtime) ?? loop;
+    }
   } catch {
     // Missing/torn main file — fall through to temp recovery.
   }
@@ -2256,7 +2261,9 @@ export default function (pi: ExtensionAPI): void {
     const current = getRuntime();
     // Ignore teardown from the preceding session when its session_start has
     // already installed a different runtime in this extension instance.
-    if (!current || current.key !== runtimeKey(ctx.cwd, sessionId(ctx))) return;
+    if (!current || current.ctx !== ctx || current.key !== runtimeKey(ctx.cwd, sessionId(ctx))) return;
+    // A replacement can reuse the same cwd/session ID. In that case a delayed
+    // shutdown carries the old context and must not dispose the new runtime.
     // dispose()/replace can leave this extension instance alive long enough to
     // see shutdown after a newer runtime already claimed the same key. Never
     // pause the shared loop or delete the replacement's map entry in that case.
@@ -2350,6 +2357,7 @@ export const goalLoopTestSeams = {
   applyResult,
   applyMissingResult,
   goalStateFile,
+  readLoop,
   clampMaxTurns,
   clampCooldownSeconds,
   parseCooldownSeconds,

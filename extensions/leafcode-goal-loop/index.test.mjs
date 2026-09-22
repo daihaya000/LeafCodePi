@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -1353,6 +1353,37 @@ test("recovers when the main state hydrates to null but a temp snapshot is valid
     assert.equal(readdirSync(join(cwd, "goals-loop")).some((name) => name.endsWith(".tmp")), false);
   } finally {
     await handlers.get("session_shutdown")?.({}, ctx);
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test("promotes a newer temp snapshot when the valid main state is stale", () => {
+  const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-stale-main-"));
+  process.env.LEAFCODE_PI_DATA_DIR = cwd;
+  const id = "stale-main-session";
+  const stateFile = join(cwd, "goals-loop", `${id}.json`);
+  const tempFile = `${stateFile}.newer.tmp`;
+  try {
+    mkdirSync(join(cwd, "goals-loop"), { recursive: true });
+    writeFileSync(stateFile, JSON.stringify({
+      goal: "stale main",
+      acceptance: [],
+      status: "paused",
+      progress: [],
+    }), "utf8");
+    utimesSync(stateFile, new Date(Date.now() - 10_000), new Date(Date.now() - 10_000));
+    writeFileSync(tempFile, JSON.stringify({
+      goal: "newer temp",
+      acceptance: ["ok"],
+      status: "queued",
+      progress: [],
+    }), "utf8");
+
+    const recovered = goalLoopTestSeams.readLoop(cwd, id);
+    assert.equal(recovered?.goal, "newer temp");
+    assert.equal(JSON.parse(readFileSync(stateFile, "utf8")).goal, "newer temp");
+    assert.equal(existsSync(tempFile), false);
+  } finally {
     rmSync(cwd, { recursive: true, force: true });
   }
 });
@@ -3629,6 +3660,49 @@ test("old session events do not mutate a newer session in the same extension", a
     assert.equal(newer.summary, "");
   } finally {
     await handlers.get("session_shutdown")?.({}, ctxB);
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test("same-ID stale shutdown does not dispose the replacement runtime", async () => {
+  const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-same-id-shutdown-"));
+  process.env.LEAFCODE_PI_DATA_DIR = cwd;
+  const handlers = new Map();
+  const commands = new Map();
+  const id = "same-id-shutdown-session";
+  const stateFile = join(cwd, "goals-loop", `${id}.json`);
+  const makeCtx = () => ({
+    cwd,
+    mode: "rpc",
+    hasUI: false,
+    isIdle: () => false,
+    hasPendingMessages: () => false,
+    abort: () => {},
+    sessionManager: { getSessionId: () => id, getBranch: () => [] },
+    ui: { setStatus: () => {}, setWidget: () => {}, notify: () => {} },
+  });
+  const oldCtx = makeCtx();
+  const replacementCtx = makeCtx();
+
+  try {
+    goalLoopExtension({
+      on(name, handler) { handlers.set(name, handler); },
+      registerCommand(name, options) { commands.set(name, options.handler); },
+      appendEntry() {},
+      sendMessage() {},
+    });
+    const payload = Buffer.from(JSON.stringify({ goal: "demo", maxTurns: 2 })).toString("base64url");
+    await handlers.get("session_start")?.({}, oldCtx);
+    await commands.get("goal-start")?.(payload, oldCtx);
+    assert.equal(JSON.parse(readFileSync(stateFile, "utf8")).status, "queued");
+
+    await handlers.get("session_start")?.({}, replacementCtx);
+    await handlers.get("session_shutdown")?.({}, oldCtx);
+    const loop = JSON.parse(readFileSync(stateFile, "utf8"));
+    assert.equal(loop.status, "queued");
+    assert.equal(loop.pauseReason, "");
+  } finally {
+    await handlers.get("session_shutdown")?.({}, replacementCtx);
     rmSync(cwd, { recursive: true, force: true });
   }
 });
