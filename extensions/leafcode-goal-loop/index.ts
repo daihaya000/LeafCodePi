@@ -1666,21 +1666,8 @@ function startLoop(
   const acceptance = normalizeAcceptance(config.acceptance);
   if (!goal || !acceptance) return null;
 
-  // A pending routing hook may resume after this replacement. Invalidate it
-  // before stopping the old loop so it cannot send the old prompt into the new one.
-  runtime.turnGeneration += 1;
   const previous = currentLoop(runtime);
-  if (previous && !TERMINAL.has(previous.status)) stopLoop(runtime);
-  clearTimer(runtime);
-  // Terminal previous loops skip stopLoop; still drop any stuck awaiting flag so
-  // a fresh start cannot hang on sendTurn's awaitingTurn gate.
-  runtime.awaitingTurn = false;
-  runtime.awaitingTurnIndex = undefined;
-  runtime.pausedTurnPending = false;
-  runtime.pausedTurnIndex = undefined;
-  runtime.sendTurnInFlight = false;
-  clearPendingAgentRun(runtime);
-
+  const replacingLiveLoop = !!previous && !TERMINAL.has(previous.status);
   const now = isoNow();
   const loop: GoalLoop = {
     id: runtime.sessionId,
@@ -1709,9 +1696,30 @@ function startLoop(
     createdAt: now,
     updatedAt: now,
   };
-  // Do not schedule/notify as started when the durable write failed — disk still
-  // holds the previous loop (or none), so sendTurn would race on stale state.
+  // Keep the prior runtime untouched until this replacement is durable. A
+  // failed new write must not stop a working loop or invalidate its routing.
   if (!writeLoop(loop)) return null;
+
+  // The new state is durable. Now invalidate/abort any old in-flight turn so a
+  // trailing settlement cannot apply to this loop.
+  runtime.turnGeneration += 1;
+  const expectTrailingSettlement = replacingLiveLoop &&
+    (runtime.pausedTurnPending || !runtime.ctx.isIdle());
+  clearTimer(runtime);
+  runtime.awaitingTurn = false;
+  runtime.awaitingTurnIndex = undefined;
+  runtime.pausedTurnPending = false;
+  runtime.pausedTurnIndex = undefined;
+  runtime.sendTurnInFlight = false;
+  clearPendingAgentRun(runtime);
+  if (replacingLiveLoop) {
+    try {
+      if (!runtime.ctx.isIdle()) runtime.ctx.abort();
+    } catch {
+      // The previous run may already have settled.
+    }
+    if (expectTrailingSettlement) runtime.discardAgentSettlements = 1;
+  }
   updateUI(runtime, loop);
   appendSnapshot(runtime, loop);
   schedule(runtime, 0);
