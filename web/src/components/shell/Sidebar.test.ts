@@ -3,6 +3,7 @@ import {
   sameHealth,
   sameProjectList,
   sameTaskList,
+  countRunningTasks,
   stabilizeTaskList,
   reorderProjectIds,
   tasksForSidebar,
@@ -95,6 +96,12 @@ describe("sameTaskList", () => {
     const a = [{ ...task("t1", "working", "タスクA"), goalLoopSummary: loop }];
     const b = [{ ...a[0], goalLoopSummary: { ...loop, turnCount: 2 } }];
     expect(sameTaskList(a, b)).toBe(false);
+  });
+});
+
+describe("countRunningTasks", () => {
+  it("counts only tasks with working status", () => {
+    expect(countRunningTasks([task("idle", "idle", "待機中"), task("working", "working", "進行中")])).toBe(1);
   });
 });
 

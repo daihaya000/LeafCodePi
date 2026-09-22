@@ -588,8 +588,12 @@ function isCodeTask(task: TaskSummary): boolean {
   return task.kind !== "bot";
 }
 
-function countRunningTasks(tasks: TaskSummary[]): number {
-  return tasks.filter((task) => task.status === "working").length;
+export function countRunningTasks(tasks: TaskSummary[]): number {
+  let count = 0;
+  for (const task of tasks) {
+    if (task.status === "working") count += 1;
+  }
+  return count;
 }
 
 function hasUnreadTask(task: TaskSummary, activeTaskId: string | null): boolean {
@@ -1722,6 +1726,7 @@ const SidebarView = memo(function SidebarView({
   const visibleArchivedProjects = archivedProjects.filter((project) => matchesCodeSearch(project.name));
   const showNoProject =
     !normalizedQuery || matchesCodeSearch(NO_PROJECT_NAME) || visibleNoProjectTasks.length > 0;
+  const visibleNoProjectRunning = showNoProject ? countRunningTasks(visibleNoProjectTasks) : 0;
 
   function toggleExpanded(id: string) {
     setExpanded((current) => {
@@ -2258,9 +2263,9 @@ const SidebarView = memo(function SidebarView({
                   </span>
                   <span className="min-w-0 flex-1 truncate text-sm">{NO_PROJECT_NAME}</span>
                   {noProjectTasks.some((task) => hasUnreadTask(task, activeTaskId)) && <span aria-label="未読" className="h-1.5 w-1.5 shrink-0 rounded-full bg-accent" />}
-                  {countRunningTasks(visibleNoProjectTasks) > 0 && (
+                  {visibleNoProjectRunning > 0 && (
                     <span className="inline-flex min-h-5 min-w-5 items-center justify-center rounded-full bg-working px-1 text-[10px] font-semibold text-primary-fg">
-                      {countRunningTasks(visibleNoProjectTasks)}
+                      {visibleNoProjectRunning}
                     </span>
                   )}
                 </button>
