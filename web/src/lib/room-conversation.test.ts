@@ -10,7 +10,7 @@ const user: RoomMessage = { id: "request", role: "user", text: "二人で会話�
 function room(messages: RoomMessage[] = [user]): RoomDto {
   return { id: "room", name: "Room", members: ["a", "b"], botRelayEnabled: false, messages, createdAt: "", updatedAt: "" };
 }
-function transcriptOf(prompt: string): Array<{ speaker: string; botId?: string; text: string; truncated?: boolean }> {
+function transcriptOf(prompt: string): Array<{ speaker: string; botId?: string; name?: string; text: string; truncated?: boolean }> {
   return JSON.parse(prompt.split("Recent transcript (older/oversized messages may be omitted or truncated):\n")[1].split(/\n(?:User request|Current bot relay message)/)[0]);
 }
 
@@ -218,6 +218,16 @@ describe("shared room context", () => {
     const current = room([user, { id: "reply", role: "assistant", botId: "b", text: "Bの発言", status: "done", createdAt: 2 }]);
     const history = transcriptOf(roomBotPrompt(current, bots[0], bots, user.text, "missing-request"));
     expect(history.map((entry) => entry.text)).toEqual([user.text, "Bの発言"]);
+  });
+  it("omits rostered bot names from history but keeps names of former members", () => {
+    const current = room([
+      user,
+      { id: "active-reply", role: "assistant", botId: "a", botName: "デバッガー", text: "参加中", status: "done", createdAt: 2 },
+      { id: "former-reply", role: "assistant", botId: "former", botName: "以前のBot", text: "退出済み", status: "done", createdAt: 3 },
+    ]);
+    const history = transcriptOf(roomBotPrompt(current, bots[0], bots, user.text, "missing-request"));
+    expect(history[1]).not.toHaveProperty("name");
+    expect(history[2]).toMatchObject({ botId: "former", name: "以前のBot" });
   });
   it("carries only the newest failure as a system note", () => {
     const current = room([
