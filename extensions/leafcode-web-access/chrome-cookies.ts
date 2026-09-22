@@ -20,6 +20,16 @@ export type CookieMap = Record<string, string>;
 
 type BrowserConfig = ChromiumBrowserConfig;
 
+const LINUX_BROWSER_COOKIE_CONFIGS: BrowserConfig[] = [
+	...LINUX_BROWSER_CONFIGS,
+	{
+		id: "chromium",
+		name: "Chromium (Snap)",
+		baseDir: "snap/chromium/common/chromium",
+		secretToolApp: "chromium",
+	},
+];
+
 type SqliteRow = Record<string, unknown>;
 type SqliteFailure = "unavailable" | "query";
 
@@ -104,7 +114,7 @@ export async function getBrowserCookiesForHosts(
 	}
 
 	const currentPlatform = process.platform;
-	const platformConfigs = currentPlatform === "darwin" ? MACOS_BROWSER_CONFIGS : currentPlatform === "linux" ? LINUX_BROWSER_CONFIGS : currentPlatform === "win32" ? WINDOWS_BROWSER_CONFIGS : [];
+	const platformConfigs = currentPlatform === "darwin" ? MACOS_BROWSER_CONFIGS : currentPlatform === "linux" ? LINUX_BROWSER_COOKIE_CONFIGS : currentPlatform === "win32" ? WINDOWS_BROWSER_CONFIGS : [];
 	const configs = options.browser ? platformConfigs.filter((config) => config.id === options.browser) : platformConfigs;
 	if (options.browser && configs.length === 0) {
 		setCookieDiagnostic(`Browser preset '${options.browser}' is not supported on this platform.`);
