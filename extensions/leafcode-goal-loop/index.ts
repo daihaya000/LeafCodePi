@@ -2155,7 +2155,9 @@ export default function (pi: ExtensionAPI): void {
 
   pi.on("agent_end", async (event, ctx) => {
     const current = getRuntime();
-    if (!current) return;
+    // Agent events can arrive after session_start installed another runtime.
+    // Never let the preceding session's result settle the new loop.
+    if (!current || current.key !== runtimeKey(ctx.cwd, sessionId(ctx))) return;
     // Trailing end from an aborted/replaced run — do not poison a newer await.
     if (current.discardAgentSettlements > 0) return;
     // After a mid-turn pause, awaitingTurn is false but we still need the final
@@ -2175,9 +2177,9 @@ export default function (pi: ExtensionAPI): void {
     if (current && event.reason === "manual") requeueAfterManualCompaction(current);
   });
 
-  pi.on("agent_settled", async (_event, _ctx) => {
+  pi.on("agent_settled", async (_event, ctx) => {
     const current = getRuntime();
-    if (!current) return;
+    if (!current || current.key !== runtimeKey(ctx.cwd, sessionId(ctx))) return;
     const loop = currentLoop(current);
     if (!loop) {
       clearPendingAgentRun(current);
