@@ -385,15 +385,22 @@ describe("Sidebar project ordering", () => {
       return Promise.reject(new Error(`Unexpected request: ${path}`));
     });
 
+    const initialStart = window.performance.now();
     render(<Sidebar mobileOpen={false} onClose={vi.fn()} />);
 
     const search = await screen.findByRole("textbox", { name: "プロジェクトやセッションを検索" });
     await screen.findByRole("button", { name: "Bench Project 0を展開" });
-    fireEvent.change(search, { target: { value: "needle" } });
+    const initialMs = window.performance.now() - initialStart;
 
+    const searchStart = window.performance.now();
+    fireEvent.change(search, { target: { value: "needle" } });
     await waitFor(() => {
       expect(document.querySelectorAll("[data-project-row]")).toHaveLength(10);
     });
+    const searchMs = window.performance.now() - searchStart;
+    if (process.env.RUN_SIDEBAR_PERF === "1") {
+      console.info(`Sidebar 5k synthetic tasks: initial=${initialMs.toFixed(1)}ms search=${searchMs.toFixed(1)}ms`);
+    }
   });
 
   it("keeps project icon picker constraints aligned with validation", async () => {
