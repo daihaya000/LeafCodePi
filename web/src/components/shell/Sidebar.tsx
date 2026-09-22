@@ -606,7 +606,22 @@ function compareIsoUpdatedAtDescending(a: string, b: string): number {
   return a === b ? 0 : a > b ? -1 : 1;
 }
 
-function sortTasksForSidebarInPlace(tasks: TaskSummary[], pinnedTaskIds?: ReadonlySet<string>): void {
+function sidebarTaskComparator(pinnedTaskIds?: ReadonlySet<string>) {
+  return (a: TaskSummary, b: TaskSummary) =>
+    Number(pinnedTaskIds?.has(b.id)) - Number(pinnedTaskIds?.has(a.id)) ||
+    Number(b.status === "working") - Number(a.status === "working") ||
+    compareIsoUpdatedAtDescending(a.updatedAt, b.updatedAt);
+}
+
+function sortTasksForSidebarInPlace(
+  tasks: TaskSummary[],
+  pinnedTaskIds?: ReadonlySet<string>,
+  compare = sidebarTaskComparator(pinnedTaskIds),
+): void {
+  if (tasks.length < 3) {
+    tasks.sort(compare);
+    return;
+  }
   const sorted = tasks.map((task, index) => ({
     task,
     index,
@@ -1665,8 +1680,9 @@ const SidebarView = memo(function SidebarView({
       list.push(task);
       map.set(task.projectId, list);
     }
+    const compareTasks = sidebarTaskComparator(pinnedTaskIds);
     for (const list of map.values()) {
-      sortTasksForSidebarInPlace(list, pinnedTaskIds);
+      sortTasksForSidebarInPlace(list, pinnedTaskIds, compareTasks);
     }
     return map;
   }, [pinnedTaskIds, tasks]);
