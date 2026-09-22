@@ -205,7 +205,7 @@ export function roomBotPrompt(room: RoomDto, bot: BotDto, participants: BotDto[]
     transcript(room, requestId, Boolean(turn)),
     `User request: ${JSON.stringify(truncateRoomRequest(prompt))}`,
     ...(turn ? [
-      `Room moderator: your turn ${turn.turn}/${turn.maxTurns}. Only this request's participants may receive the floor.`,
+      `Room turn ${turn.turn}/${turn.maxTurns}; only this request's participants may speak.`,
       "Use at most three short sentences in plain prose. No headings, numbered plans, status reports, or restating the roster/prior points. Answer the latest question or disagreement first, then add one new point.",
       "Address teammates using @ExactName in prose; one formal @mention of a current member triggers at most one implicit room_handoff/NEXT. Bare names never hand off.",
       "Act on concrete requests: investigate with tools, state one brief assumption if needed, and proceed. Don't ask or delegate questions the repository, transcript, or tools can answer.",
