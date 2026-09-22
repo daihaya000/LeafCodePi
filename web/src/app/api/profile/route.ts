@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { exportProfile, importProfile } from "@/lib/profile";
+import { exportProfile, importProfile, resetProfile } from "@/lib/profile";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -39,6 +39,17 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "プロファイルのインポートに失敗しました" },
       { status: 400 },
+    );
+  }
+}
+
+export async function DELETE() {
+  try {
+    return NextResponse.json({ ok: true, ...resetProfile() });
+  } catch (error) {
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : "プロファイルの初期化に失敗しました" },
+      { status: 500 },
     );
   }
 }

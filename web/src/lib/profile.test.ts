@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { exportProfile, importProfile } from "@/lib/profile";
+import { exportProfile, importProfile, resetProfile } from "@/lib/profile";
 
 const roots: string[] = [];
 
@@ -70,6 +70,36 @@ describe("profile", () => {
     expect(readFileSync(join(targetData, "settings", "llama-server.json"), "utf8")).toBe('{"value":"configured"}');
     expect(existsSync(join(targetData, "settings", "old.json"))).toBe(false);
     expect(readFileSync(join(targetData, "store.json"), "utf8")).toBe('{"projects":["keep"]}');
+  });
+
+  it("backs up and removes managed configuration", () => {
+    const target = directory();
+    const targetAgent = join(target, "agent");
+    const targetData = join(target, "data");
+    mkdirSync(join(targetAgent, "skills"), { recursive: true });
+    mkdirSync(join(targetData, "settings"), { recursive: true });
+    writeFileSync(join(targetAgent, "AGENTS.md"), "old instructions", "utf8");
+    writeFileSync(join(targetAgent, "skills", "old.md"), "old skill", "utf8");
+    writeFileSync(join(targetData, "web-settings.json"), '{"version":1}', "utf8");
+    writeFileSync(join(targetData, "settings", "llama-server.json"), '{"value":"configured"}', "utf8");
+    writeFileSync(join(targetData, "store.json"), '{"projects":["keep"]}', "utf8");
+
+    const expected = exportProfile({ agentDir: targetAgent, leafcodeDir: targetData }).summary;
+    const reset = resetProfile({ agentDir: targetAgent, leafcodeDir: targetData });
+
+    expect(reset).toMatchObject(expected);
+    expect(reset.backupPath).toMatch(/\.bak\.lcp\.gz$/);
+    expect(existsSync(reset.backupPath)).toBe(true);
+    expect(existsSync(join(targetAgent, "AGENTS.md"))).toBe(false);
+    expect(existsSync(join(targetAgent, "skills", "old.md"))).toBe(false);
+    expect(existsSync(join(targetData, "web-settings.json"))).toBe(false);
+    expect(existsSync(join(targetData, "settings", "llama-server.json"))).toBe(false);
+    expect(readFileSync(join(targetData, "store.json"), "utf8")).toBe('{"projects":["keep"]}');
+
+    const restored = directory();
+    importProfile(readFileSync(reset.backupPath), { agentDir: join(restored, "agent"), leafcodeDir: join(restored, "data") });
+    expect(readFileSync(join(restored, "agent", "AGENTS.md"), "utf8")).toBe("old instructions");
+    expect(readFileSync(join(restored, "data", "web-settings.json"), "utf8")).toBe('{"version":1}');
   });
 
   it("imports profiles created before executable modes were stored", () => {

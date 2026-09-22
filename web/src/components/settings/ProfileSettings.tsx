@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Download, Upload } from "lucide-react";
+import { Download, RotateCcw, Upload } from "lucide-react";
 import { Button, cx } from "@/components/ui";
 
 async function responseError(response: Response): Promise<string> {
@@ -10,7 +10,7 @@ async function responseError(response: Response): Promise<string> {
 }
 
 export function ProfileSettings() {
-  const [busy, setBusy] = useState<"export" | "import" | null>(null);
+  const [busy, setBusy] = useState<"export" | "import" | "reset" | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -57,6 +57,23 @@ export function ProfileSettings() {
     }
   };
 
+  const resetProfile = async () => {
+    if (!window.confirm("設定プロファイルを初期化します。旧設定はバックアップへ退避し、認証情報・追加エージェント・拡張などを削除します。完了後にLeafCodePiを再起動してください。")) return;
+    setBusy("reset");
+    setError(null);
+    setMessage(null);
+    try {
+      const response = await fetch("/api/profile", { method: "DELETE" });
+      if (!response.ok) throw new Error(await responseError(response));
+      const result = await response.json() as { backupPath?: string };
+      setMessage(`旧設定を${result.backupPath ?? "バックアップ"}へ退避し、初期化しました。LeafCodePiを再起動してください`);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "プロファイルの初期化に失敗しました");
+    } finally {
+      setBusy(null);
+    }
+  };
+
   const disabled = busy !== null;
 
   return (
@@ -84,6 +101,9 @@ export function ProfileSettings() {
             }}
           />
         </label>
+        <Button variant="danger" busy={busy === "reset"} disabled={disabled} onClick={() => void resetProfile()}>
+          <RotateCcw className="h-4 w-4" />初期化
+        </Button>
       </div>
       {message && <p role="status" className="mt-2 text-xs text-success">{message}</p>}
       {error && <p role="alert" className="mt-2 text-xs text-danger">{error}</p>}

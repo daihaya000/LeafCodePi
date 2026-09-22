@@ -64,6 +64,10 @@ export type ProfileSummary = {
   bytes: number;
 };
 
+export type ResetProfileSummary = ProfileSummary & {
+  backupPath: string;
+};
+
 type ProfileRoots = {
   agentDir?: string;
   leafcodeDir?: string;
@@ -204,6 +208,21 @@ function removeConfiguredPaths(agentDir: string, leafcodeDir: string): void {
   for (const name of DATA_DIRECTORIES) rmSync(join(leafcodeDir, name), { recursive: true, force: true });
 }
 
+function writeProfileBackup(archive: Buffer, leafcodeDir: string): string {
+  const directory = join(leafcodeDir, "profile-backups");
+  mkdirSync(directory, { recursive: true, mode: 0o700 });
+  const base = `leafcode-pi-profile-${new Date().toISOString().replaceAll(/[:.]/g, "-")}-${process.pid}`;
+  for (let index = 0; ; index += 1) {
+    const path = join(directory, `${base}${index ? `-${index}` : ""}.bak.lcp.gz`);
+    try {
+      writeFileSync(path, archive, { mode: 0o600, flag: "wx" });
+      return path;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+    }
+  }
+}
+
 function destination(path: string, agentDir: string, leafcodeDir: string): string {
   const [root, ...parts] = path.split("/");
   const base = root === "agent" ? agentDir : leafcodeDir;
@@ -231,6 +250,24 @@ function applyProfile(profile: ProfileArchive, agentDir: string, leafcodeDir: st
     writeFileSync(file.path, file.content, { mode: file.mode });
   }
   return { fileCount: files.length, bytes: files.reduce((total, file) => total + file.content.length, 0) };
+}
+
+/** Back up all profile-managed settings, then remove them for a clean start. */
+export function resetProfile(options: ProfileRoots = {}): ResetProfileSummary {
+  const { agentDir, leafcodeDir } = roots(options);
+  const { archive, summary } = exportProfile({ agentDir, leafcodeDir });
+  const backupPath = writeProfileBackup(archive, leafcodeDir);
+  try {
+    removeConfiguredPaths(agentDir, leafcodeDir);
+    return { ...summary, backupPath };
+  } catch (error) {
+    try {
+      applyProfile(parseProfile(archive), agentDir, leafcodeDir);
+    } catch {
+      // The original failure is more actionable; the backup remains available for manual recovery.
+    }
+    throw error;
+  }
 }
 
 /** Replace all profile-managed settings after validating the entire archive. */
