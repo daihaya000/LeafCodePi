@@ -275,6 +275,19 @@ function applyProfile(profile: ProfileArchive, agentDir: string, leafcodeDir: st
   return { fileCount: files.length, bytes: files.reduce((total, file) => total + file.content.length, 0) };
 }
 
+function replaceProfile(profile: ProfileArchive, agentDir: string, leafcodeDir: string, previous: Buffer): ProfileSummary {
+  try {
+    return applyProfile(profile, agentDir, leafcodeDir);
+  } catch (error) {
+    try {
+      applyProfile(parseProfile(previous), agentDir, leafcodeDir);
+    } catch {
+      // The original failure is more actionable; a failed rollback is reported by the caller's recovery instructions.
+    }
+    throw error;
+  }
+}
+
 /** Save all profile-managed settings to a dated, non-overwriting local backup. */
 export function createProfileBackup(options: ProfileRoots = {}): ProfileBackupSummary {
   const { agentDir, leafcodeDir } = roots(options);
@@ -310,7 +323,7 @@ export function restoreProfile(backupName: string, options: ProfileRoots = {}): 
   const { agentDir, leafcodeDir } = roots(options);
   const backup = profileBackups(leafcodeDir).find(({ name }) => name === backupName);
   if (!backup) throw new Error("指定されたバックアップがありません");
-  return { ...importProfile(readFileSync(backup.path), { agentDir, leafcodeDir }), backupPath: backup.path };
+  return importProfileWithBackup(readFileSync(backup.path), { agentDir, leafcodeDir });
 }
 
 /** Replace all profile-managed settings after validating the entire archive. */
@@ -319,14 +332,14 @@ export function importProfile(archive: Buffer, options: ProfileRoots = {}): Prof
   const { agentDir, leafcodeDir } = roots(options);
   // Keep a validated in-memory rollback point so a full disk or permission failure cannot leave a half-imported profile.
   const previous = exportProfile({ agentDir, leafcodeDir }).archive;
-  try {
-    return applyProfile(profile, agentDir, leafcodeDir);
-  } catch (error) {
-    try {
-      applyProfile(parseProfile(previous), agentDir, leafcodeDir);
-    } catch {
-      // The original failure is more actionable; a failed rollback is reported by the caller's recovery instructions.
-    }
-    throw error;
-  }
+  return replaceProfile(profile, agentDir, leafcodeDir, previous);
+}
+
+/** Retain the current settings before replacing them with a validated profile archive. */
+export function importProfileWithBackup(archive: Buffer, options: ProfileRoots = {}): ProfileBackupSummary {
+  const profile = parseProfile(archive);
+  const { agentDir, leafcodeDir } = roots(options);
+  const previous = exportProfile({ agentDir, leafcodeDir });
+  const backupPath = writeProfileBackup(previous.archive, leafcodeDir);
+  return { ...replaceProfile(profile, agentDir, leafcodeDir, previous.archive), backupPath };
 }

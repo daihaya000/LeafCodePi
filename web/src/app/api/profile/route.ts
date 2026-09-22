@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createProfileBackup, exportProfile, importProfile, listProfileBackups, resetProfile, restoreProfile } from "@/lib/profile";
+import { createProfileBackup, exportProfile, importProfileWithBackup, listProfileBackups, resetProfile, restoreProfile } from "@/lib/profile";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -36,7 +36,7 @@ export async function POST(request: NextRequest) {
     if (!(file instanceof File)) {
       return NextResponse.json({ error: "プロファイルファイルを指定してください" }, { status: 400 });
     }
-    const summary = importProfile(Buffer.from(await file.arrayBuffer()));
+    const summary = importProfileWithBackup(Buffer.from(await file.arrayBuffer()));
     return NextResponse.json({ ok: true, ...summary });
   } catch (error) {
     return NextResponse.json(

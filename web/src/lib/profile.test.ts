@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { createProfileBackup, exportProfile, listProfileBackups, importProfile, resetProfile, restoreProfile } from "@/lib/profile";
+import { createProfileBackup, exportProfile, listProfileBackups, importProfile, importProfileWithBackup, resetProfile, restoreProfile } from "@/lib/profile";
 
 const roots: string[] = [];
 
@@ -70,6 +70,29 @@ describe("profile", () => {
     expect(readFileSync(join(targetData, "settings", "llama-server.json"), "utf8")).toBe('{"value":"configured"}');
     expect(existsSync(join(targetData, "settings", "old.json"))).toBe(false);
     expect(readFileSync(join(targetData, "store.json"), "utf8")).toBe('{"projects":["keep"]}');
+  });
+
+  it("backs up current configuration before replacing it", () => {
+    const source = directory();
+    const sourceAgent = join(source, "agent");
+    const sourceData = join(source, "data");
+    mkdirSync(sourceAgent, { recursive: true });
+    writeFileSync(join(sourceAgent, "AGENTS.md"), "replacement", "utf8");
+
+    const target = directory();
+    const targetAgent = join(target, "agent");
+    const targetData = join(target, "data");
+    mkdirSync(targetAgent, { recursive: true });
+    writeFileSync(join(targetAgent, "AGENTS.md"), "previous", "utf8");
+    const options = { agentDir: targetAgent, leafcodeDir: targetData };
+
+    const result = importProfileWithBackup(exportProfile({ agentDir: sourceAgent, leafcodeDir: sourceData }).archive, options);
+
+    expect(readFileSync(join(targetAgent, "AGENTS.md"), "utf8")).toBe("replacement");
+    expect(result.backupPath).toMatch(/\.bak\.lcp\.gz$/);
+    expect(listProfileBackups(options)).toHaveLength(1);
+    importProfile(readFileSync(result.backupPath), options);
+    expect(readFileSync(join(targetAgent, "AGENTS.md"), "utf8")).toBe("previous");
   });
 
   it("backs up and removes managed configuration", () => {

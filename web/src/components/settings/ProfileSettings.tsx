@@ -68,7 +68,7 @@ export function ProfileSettings() {
   };
 
   const importProfile = async (file: File) => {
-    if (!window.confirm("現在の設定・認証情報・追加エージェント/拡張を置き換えます。完了後にLeafCodePiを再起動してください。")) return;
+    if (!window.confirm("現在の設定・認証情報・追加エージェント/拡張をバックアップへ退避してから置き換えます。完了後にLeafCodePiを再起動してください。")) return;
     setBusy("import");
     setError(null);
     setMessage(null);
@@ -77,8 +77,9 @@ export function ProfileSettings() {
       form.set("profile", file);
       const response = await fetch("/api/profile", { method: "POST", body: form });
       if (!response.ok) throw new Error(await responseError(response));
-      const result = await response.json() as { fileCount?: number };
-      setMessage(`${result.fileCount ?? 0}件を復元しました。LeafCodePiを再起動してください`);
+      const result = await response.json() as { fileCount?: number; backupPath?: string };
+      rememberBackup(result.backupPath);
+      setMessage(`${result.fileCount ?? 0}件を復元しました。以前の設定はバックアップへ退避済みです。LeafCodePiを再起動してください`);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "プロファイルのインポートに失敗しました");
     } finally {
@@ -104,7 +105,7 @@ export function ProfileSettings() {
   };
 
   const restoreProfile = async () => {
-    if (!selectedBackup || !window.confirm("選択した設定バックアップを復元します。現在の設定を置き換えます。完了後にLeafCodePiを再起動してください。")) return;
+    if (!selectedBackup || !window.confirm("選択した設定バックアップを復元します。現在の設定はバックアップへ退避してから置き換えます。完了後にLeafCodePiを再起動してください。")) return;
     setBusy("restore");
     setError(null);
     setMessage(null);
@@ -115,8 +116,9 @@ export function ProfileSettings() {
         body: JSON.stringify({ backup: selectedBackup }),
       });
       if (!response.ok) throw new Error(await responseError(response));
-      const result = await response.json() as { fileCount?: number };
-      setMessage(`${result.fileCount ?? 0}件をバックアップから復元しました。LeafCodePiを再起動してください`);
+      const result = await response.json() as { fileCount?: number; backupPath?: string };
+      rememberBackup(result.backupPath);
+      setMessage(`${result.fileCount ?? 0}件をバックアップから復元しました。以前の設定はバックアップへ退避済みです。LeafCodePiを再起動してください`);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "プロファイルの復元に失敗しました");
     } finally {
