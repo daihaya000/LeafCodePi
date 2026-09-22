@@ -2143,6 +2143,7 @@ export default function (pi: ExtensionAPI): void {
     // on the runtime installed by the newer session_start.
     if (
       !current ||
+      current.ctx !== ctx ||
       current.key !== runtimeKey(ctx.cwd, sessionId(ctx)) ||
       event.source === "extension"
     ) return;

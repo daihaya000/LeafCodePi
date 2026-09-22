@@ -3746,10 +3746,12 @@ test("same-ID stale agent events do not settle the replacement turn", async () =
       messages: [{ role: "assistant", content: [{ type: "text", text: '{"status":"progress","summary":"old result"}' }] }],
     }, oldCtx);
     await handlers.get("agent_settled")?.({}, oldCtx);
+    await handlers.get("input")?.({ text: "old instruction", source: "user" }, oldCtx);
 
     const loop = JSON.parse(readFileSync(stateFile, "utf8"));
     assert.equal(loop.status, "running");
     assert.equal(loop.progress.length, 0);
+    assert.equal(loop.notes, undefined);
   } finally {
     await handlers.get("session_shutdown")?.({}, replacementCtx);
     rmSync(cwd, { recursive: true, force: true });
