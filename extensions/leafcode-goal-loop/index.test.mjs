@@ -107,6 +107,15 @@ test("normalizes acceptance criteria", () => {
   assert.deepEqual(normalizeAcceptance("run tests\ncheck the diff"), ["run tests", "check the diff"]);
 });
 
+test("bounds direct initial image payloads", () => {
+  const image = { mimeType: "image/png", data: "aW1hZ2U=" };
+  assert.equal(goalLoopTestSeams.normalizeInitialImages(Array.from({ length: 9 }, () => image))?.length, 8);
+  assert.equal(
+    goalLoopTestSeams.normalizeInitialImages([{ mimeType: "image/png", data: Buffer.alloc(8 * 1024 * 1024 + 1).toString("base64") }]),
+    undefined,
+  );
+});
+
 test("normal prompts stop at the first verified completion", () => {
   const loop = {
     goal: "demo",

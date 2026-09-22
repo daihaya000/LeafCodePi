@@ -104,6 +104,9 @@ const MAX_ACCEPTANCE_ITEMS = 10;
 const MAX_ACCEPTANCE_CHARS = 2_000;
 const MAX_PROGRESS = 50;
 const INITIAL_IMAGE_MIME_TYPES = new Set(["image/png", "image/jpeg", "image/webp", "image/gif"]);
+const MAX_INITIAL_IMAGES = 8;
+const MAX_INITIAL_IMAGE_BYTES = 8 * 1024 * 1024;
+const MAX_INITIAL_IMAGE_TOTAL_BYTES = 12 * 1024 * 1024;
 const MAX_REJECTED_CLAIMS = 2;
 const MAX_UNREADABLE_STREAK = 2;
 /** Keep the replay prompt bounded; older notes fall off first. */
@@ -375,26 +378,31 @@ function normalizeProgress(value: unknown): GoalLoopProgress[] {
 
 function normalizeInitialImages(value: unknown): GoalLoopInitialImage[] | undefined {
   if (!Array.isArray(value)) return undefined;
-  const images = value
-    .map((image): GoalLoopInitialImage | null => {
-      const item = asRecord(image);
-      if (
-        !item ||
-        (item.type !== undefined && item.type !== "image") ||
-        typeof item.mimeType !== "string" ||
-        typeof item.data !== "string" ||
-        item.data.length === 0
-      ) {
-        return null;
-      }
-      const mimeType = item.mimeType.toLowerCase();
-      const data = item.data.trim();
-      if (!INITIAL_IMAGE_MIME_TYPES.has(mimeType) || !data) return null;
-      const decoded = Buffer.from(data, "base64");
-      if (decoded.length === 0 || decoded.toString("base64") !== data) return null;
-      return { type: "image", mimeType, data };
-    })
-    .filter((image): image is GoalLoopInitialImage => image !== null);
+  const images: GoalLoopInitialImage[] = [];
+  let totalBytes = 0;
+  for (const image of value) {
+    if (images.length >= MAX_INITIAL_IMAGES) break;
+    const item = asRecord(image);
+    if (
+      !item ||
+      (item.type !== undefined && item.type !== "image") ||
+      typeof item.mimeType !== "string" ||
+      typeof item.data !== "string" ||
+      item.data.length === 0
+    ) continue;
+    const mimeType = item.mimeType.toLowerCase();
+    const data = item.data.trim();
+    if (!INITIAL_IMAGE_MIME_TYPES.has(mimeType) || !data) continue;
+    const decoded = Buffer.from(data, "base64");
+    if (
+      decoded.length === 0 ||
+      decoded.length > MAX_INITIAL_IMAGE_BYTES ||
+      totalBytes + decoded.length > MAX_INITIAL_IMAGE_TOTAL_BYTES ||
+      decoded.toString("base64") !== data
+    ) continue;
+    totalBytes += decoded.length;
+    images.push({ type: "image", mimeType, data });
+  }
   return images.length ? images : undefined;
 }
 
@@ -2465,6 +2473,7 @@ export default function (pi: ExtensionAPI): void {
 // Exposed for small, dependency-free checks.
 export const goalLoopTestSeams = {
   normalizeAcceptance,
+  normalizeInitialImages,
   jsonObjectCandidates,
   normalizeStructured,
   extractGoalResult,
