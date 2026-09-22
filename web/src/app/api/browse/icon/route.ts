@@ -28,17 +28,23 @@ if ($d.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
       Add-Type -AssemblyName System.Drawing
       $icon = [System.Drawing.Icon]::ExtractAssociatedIcon($selected)
       if ($null -eq $icon) { throw 'icon unavailable' }
-      $stream = New-Object System.IO.MemoryStream
+      $bitmap = $icon.ToBitmap()
       try {
-        $icon.Save($stream)
-        $payload = [ordered]@{
-          kind = 'icon'
-          name = [System.IO.Path]::GetFileName($selected)
-          base64 = [Convert]::ToBase64String($stream.ToArray())
-        } | ConvertTo-Json -Compress
-        [Console]::Out.Write($payload)
+        $stream = New-Object System.IO.MemoryStream
+        try {
+          $bitmap.Save($stream, [System.Drawing.Imaging.ImageFormat]::Png)
+          $payload = [ordered]@{
+            kind = 'icon'
+            mime = 'image/png'
+            name = [System.IO.Path]::GetFileName($selected)
+            base64 = [Convert]::ToBase64String($stream.ToArray())
+          } | ConvertTo-Json -Compress
+          [Console]::Out.Write($payload)
+        } finally {
+          $stream.Dispose()
+        }
       } finally {
-        $stream.Dispose()
+        $bitmap.Dispose()
         $icon.Dispose()
       }
     } catch {
@@ -86,13 +92,14 @@ export async function POST(req: NextRequest) {
     if (!filePath) return NextResponse.json({ cancelled: true });
     if (filePath.startsWith("{")) {
       try {
-        const payload = JSON.parse(filePath) as { kind?: unknown; name?: unknown; base64?: unknown };
+        const payload = JSON.parse(filePath) as { kind?: unknown; mime?: unknown; name?: unknown; base64?: unknown };
         if (payload.kind === "error") {
           return NextResponse.json({ error: "EXEからアイコンを取得できませんでした。" }, { status: 400 });
         }
-        if (payload.kind === "icon" && typeof payload.base64 === "string" && /^[A-Za-z0-9+/=]+$/.test(payload.base64) && payload.base64.length <= 3_000_000) {
+        const mime = payload.mime === "image/png" || payload.mime === "image/x-icon" ? payload.mime : null;
+        if (payload.kind === "icon" && mime && typeof payload.base64 === "string" && /^[A-Za-z0-9+/=]+$/.test(payload.base64) && payload.base64.length <= 3_000_000) {
           return NextResponse.json({
-            icon: `data:image/x-icon;base64,${payload.base64}`,
+            icon: `data:${mime};base64,${payload.base64}`,
             name: typeof payload.name === "string" && payload.name ? payload.name : "icon.exe",
           });
         }

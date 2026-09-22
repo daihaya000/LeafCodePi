@@ -62,6 +62,8 @@ describe("POST /api/browse/icon", () => {
     const script = Buffer.from(encoded, "base64").toString("utf16le");
     expect(script).toContain("*.exe");
     expect(script).toContain("ExtractAssociatedIcon");
+    expect(script).toContain("ToBitmap");
+    expect(script).toContain("ImageFormat]::Png");
   });
 
   it.skipIf(windowsOnly)("reports a dismissed dialog without an icon", async () => {
@@ -73,14 +75,14 @@ describe("POST /api/browse/icon", () => {
     expect(await response.json()).toEqual({ cancelled: true });
   });
 
-  it.skipIf(windowsOnly)("returns an icon extracted from a picked executable", async () => {
-    dialogResult(JSON.stringify({ kind: "icon", name: "app.exe", base64: "AAABAA==" }));
+  it.skipIf(windowsOnly)("returns a PNG icon extracted from a picked executable", async () => {
+    dialogResult(JSON.stringify({ kind: "icon", mime: "image/png", name: "app.exe", base64: "iVBORw==" }));
 
     const response = await POST(request({ path: dir }));
 
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({
-      icon: "data:image/x-icon;base64,AAABAA==",
+      icon: "data:image/png;base64,iVBORw==",
       name: "app.exe",
     });
   });
