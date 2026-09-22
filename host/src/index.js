@@ -16,6 +16,7 @@ import { getListeningPids, getPortListenerStatus } from "./port-scanner.js";
 import { hardKillTree, stopProcessTreeGracefully } from "./process-stop.js";
 import { buildHostRestartScript } from "./host-restart.js";
 import { autoUpdatePiInBackground } from "./pi-update.js";
+import { pullLatestSources } from "./git-pull.js";
 import { createTranslationService } from "./translation-service.js";
 import { openProjectInExplorer } from "./open-explorer.js";
 import { withLocalLeafcodeTempEnv } from "./tray-temp.js";
@@ -402,7 +403,7 @@ function installWebIfNeeded() {
   }
 }
 
-function buildWeb(reason = "missing") {
+function buildWeb(reason = "missing", { pull = true } = {}) {
   if (webBuildPromise) return webBuildPromise;
 
   const promise = new Promise((resolve, reject) => {
@@ -413,6 +414,7 @@ function buildWeb(reason = "missing") {
           ? "Rebuilding the production LeafCodePi build on request…"
           : "Production LeafCodePi build is missing; rebuilding…";
     log(reasonText);
+    if (pull) pullLatestSources({ repoRoot: REPO_ROOT, log, error });
     // Syncs sources and builds in the local workspace; see scripts/build-web.mjs.
     // --skip-guard: the host builds before it starts `next start`, so the only
     // listener the guard could find would be a WebUI this host is replacing.
@@ -611,12 +613,13 @@ async function restartWeb({ rebuild = false } = {}) {
       : "Restarting LeafCodePi WebUI...",
   );
   try {
+    pullLatestSources({ repoRoot: REPO_ROOT, log, error });
     await stopWeb();
     if (rebuild) {
       // The served .next is stashed while next build runs, so the WebUI has to
       // stay stopped here; a failed rebuild falls through to spawnWeb, which
       // serves the build restored by build-web.mjs.
-      await buildWeb("manual").catch((err) => {
+      await buildWeb("manual", { pull: false }).catch((err) => {
         error(`Rebuild failed: ${err instanceof Error ? err.message : String(err)}`);
       });
     }
@@ -634,6 +637,7 @@ async function restartWeb({ rebuild = false } = {}) {
  */
 async function restartHost() {
   log("Host restart requested; spawning replacement…");
+  pullLatestSources({ repoRoot: REPO_ROOT, log, error });
   if (process.platform !== "win32") {
     const waitScript = [
       "const fs = require('node:fs');",
