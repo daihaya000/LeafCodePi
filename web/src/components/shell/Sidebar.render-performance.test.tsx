@@ -10,6 +10,7 @@ vi.mock("@/components/ui", () => ({
   timeAgo: mocks.timeAgo,
   ThemeToggle: () => null,
 }));
+vi.mock("@/components/SessionLabelBadge", () => ({ SessionLabelBadge: () => null }));
 
 import { SidebarTaskRow } from "./Sidebar";
 
