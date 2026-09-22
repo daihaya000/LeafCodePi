@@ -3762,6 +3762,21 @@ test("same-ID stale agent events do not settle the replacement turn", async () =
     assert.equal(loop.pauseReason, "user");
     assert.equal(loop.progress.length, 0);
     assert.equal(loop.notes, undefined);
+
+    await commands.get("goal-resume")?.("", replacementCtx);
+    await waitFor(() => JSON.parse(readFileSync(stateFile, "utf8")).status === "running");
+    await handlers.get("agent_end")?.({
+      messages: [{ role: "assistant", stopReason: "aborted", content: [] }],
+    }, replacementCtx);
+    await handlers.get("agent_settled")?.({}, replacementCtx);
+    const aborted = JSON.parse(readFileSync(stateFile, "utf8"));
+    assert.equal(aborted.status, "paused");
+    assert.match(aborted.error, /中断/);
+
+    await handlers.get("session_compact")?.({ reason: "manual" }, oldCtx);
+    const afterOldCompact = JSON.parse(readFileSync(stateFile, "utf8"));
+    assert.equal(afterOldCompact.status, "paused");
+    assert.match(afterOldCompact.error, /中断/);
   } finally {
     await handlers.get("session_shutdown")?.({}, replacementCtx);
     rmSync(cwd, { recursive: true, force: true });
