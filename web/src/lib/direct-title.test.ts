@@ -40,7 +40,7 @@ vi.mock("@/lib/direct-session", () => ({
 }));
 
 import { insertTask } from "./store";
-import { refreshTaskTitleDirect } from "./direct-title";
+import { refreshTaskLabelDirect, refreshTaskTitleDirect } from "./direct-title";
 import {
   GENERATION_MODEL_SETTING_KEY,
 } from "./generation-model-key";
@@ -62,6 +62,22 @@ describe("refreshTaskTitleDirect account pin", () => {
 
   afterEach(() => {
     rmSync(state.root, { recursive: true, force: true });
+  });
+
+  it("assigns a fallback label without generating a title", async () => {
+    const task = insertTask({
+      project: null,
+      title: "t",
+      providerID: "anthropic",
+      modelID: "claude-sonnet",
+    });
+    state.readSessionConversation.mockReturnValue([{ role: "user", text: "不具合とエラーと失敗を修正したい" }]);
+
+    const result = await refreshTaskLabelDirect(task.id);
+
+    expect(result.label).toBe("debug");
+    expect(result.task?.label).toBe("debug");
+    expect(state.generateDirectTextWithFallbackResult).not.toHaveBeenCalled();
   });
 
   it("forwards task accountIdExplicit so paused accounts do not silently switch", async () => {

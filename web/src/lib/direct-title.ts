@@ -16,6 +16,7 @@ import {
 } from "@/lib/direct-generation";
 import { readSessionConversation, readSessionWorkSummary } from "@/lib/direct-session";
 import {
+  buildTranscript,
   formatTranscriptForTitle,
   formatWorkSummaryForTitle,
   splitTitleAndLabel,
@@ -53,6 +54,32 @@ function labelIdByName(
 ): string | undefined {
   if (!name) return undefined;
   return labels.find((label) => label.name === name)?.id;
+}
+
+export async function refreshTaskLabelDirect(
+  taskId: string,
+): Promise<{ label?: string; task: ReturnType<typeof patchTask> }> {
+  const task = getTask(taskId);
+  if (!task) throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });
+  const conversation = readSessionConversation(task.sessionFile);
+  const prompt =
+    formatTranscriptForTitle(conversation) ||
+    formatWorkSummaryForTitle(readSessionWorkSummary(task.sessionFile));
+  if (!prompt) {
+    throw new DirectGenerationError("ラベルを判定できる会話・ToDo・作業ログがありません", 422);
+  }
+
+  const labels = resolveSessionLabels(getSetting(SESSION_LABELS_SETTING_KEY));
+  const labelPrompt = conversation.length > 0 ? buildTranscript(conversation) : prompt;
+  const jevLabel = isAutoJevEnabled(getSetting(AUTO_JEV_ENABLED_SETTING_KEY))
+    ? await classifySessionLabelWithJev(
+      { prompt: labelPrompt, labels },
+      { minConfidence: parseAutoJevMinConfidence(getSetting(AUTO_JEV_MIN_CONFIDENCE_SETTING_KEY)) },
+    )
+    : undefined;
+  const label = jevLabel ?? matchSessionLabelByRule(labelPrompt, labels);
+  const updated = label ? patchTask(taskId, { label }) : task;
+  return { ...(label ? { label } : {}), task: updated };
 }
 
 export async function refreshTaskTitleDirect(
@@ -95,12 +122,13 @@ export async function refreshTaskTitleDirect(
 
   // ponytail: サーバは設定のミラーを読む。CRUD 直後の書き込みが未達なら1回だけ古い定義で分類する。
   const labels = resolveSessionLabels(getSetting(SESSION_LABELS_SETTING_KEY));
-  // Jev はタイトル生成と同じ入力しか使わないので直列にせず同時に走らせる。
+  const labelPrompt = conversation.length > 0 ? buildTranscript(conversation) : prompt;
+  // Jev はタイトル生成と同じ会話を使うので直列にせず同時に走らせる。
   let jevSettled = false;
   let jevLabel: string | undefined;
   const jevLabelPromise = (isAutoJevEnabled(getSetting(AUTO_JEV_ENABLED_SETTING_KEY))
     ? classifySessionLabelWithJev(
-      { prompt, labels },
+      { prompt: labelPrompt, labels },
       { minConfidence: parseAutoJevMinConfidence(getSetting(AUTO_JEV_MIN_CONFIDENCE_SETTING_KEY)) },
     )
     : Promise.resolve(undefined)
@@ -128,7 +156,7 @@ export async function refreshTaskTitleDirect(
   if (!title) throw new DirectGenerationError("タイトルの応答が空です");
 
   // タイトルはJevを待たず即時保存。LLM行→ルールを暫定値として先に反映する。
-  const fallbackLabel = labelIdByName(labels, labelName) ?? matchSessionLabelByRule(prompt, labels);
+  const fallbackLabel = labelIdByName(labels, labelName) ?? matchSessionLabelByRule(labelPrompt, labels);
   // If Jev already settled, preserve its answer; otherwise this is a temporary value.
   const immediateLabel = jevSettled ? jevLabel ?? fallbackLabel : fallbackLabel;
   const updated = patchTask(taskId, { title, ...(immediateLabel ? { label: immediateLabel } : {}) });

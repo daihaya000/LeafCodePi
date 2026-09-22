@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { parseDirectModel } from "@/lib/direct-generation";
-import { refreshTaskTitleDirect } from "@/lib/direct-title";
+import { refreshTaskLabelDirect, refreshTaskTitleDirect } from "@/lib/direct-title";
 import { patchTask } from "@/lib/store";
 import { sanitizeTitle } from "@/lib/direct-generation-text";
 
@@ -31,9 +31,15 @@ export async function POST(
     return NextResponse.json({ error: "リクエストボディが不正です" }, { status: 400 });
   }
 
+  if (body.labelOnly !== undefined && typeof body.labelOnly !== "boolean") {
+    return NextResponse.json({ error: "invalid labelOnly" }, { status: 400 });
+  }
+
   try {
     const { id } = await params;
-    const result = await refreshTaskTitleDirect(id, parseDirectModel(body.model));
+    const result = body.labelOnly
+      ? await refreshTaskLabelDirect(id)
+      : await refreshTaskTitleDirect(id, parseDirectModel(body.model));
     return NextResponse.json(result);
   } catch (error) {
     const status =
