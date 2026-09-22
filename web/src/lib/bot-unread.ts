@@ -3,6 +3,7 @@ import { getJson, sendJson } from "@/lib/client";
 export type BotUnreadKind = "bot" | "room" | "task";
 type UnreadMarker = { kind: BotUnreadKind; id: string; readAt: number };
 
+const LEGACY_LAST_READ_PREFIX = "webui.bot.last_read.";
 const lastRead = new Map<string, number>();
 const listeners = new Set<() => void>();
 let snapshot = 0;
@@ -19,13 +20,43 @@ function notify(): void {
   for (const listener of listeners) listener();
 }
 
+function asMarker(value: unknown): UnreadMarker | null {
+  if (!value || typeof value !== "object") return null;
+  const marker = value as Partial<UnreadMarker>;
+  if ((marker.kind !== "bot" && marker.kind !== "room" && marker.kind !== "task") || typeof marker.id !== "string" || marker.id.length === 0 || marker.id.length > 256 || !Number.isFinite(marker.readAt) || (marker.readAt ?? 0) <= 0) return null;
+  return marker as UnreadMarker;
+}
+
 function merge(marker: UnreadMarker): boolean {
-  if (!Number.isFinite(marker.readAt) || marker.readAt <= 0) return false;
   const key = markerKey(marker.kind, marker.id);
   const previous = lastRead.get(key) ?? 0;
   if (previous >= marker.readAt) return false;
   lastRead.set(key, marker.readAt);
   return true;
+}
+
+function persist(marker: UnreadMarker): void {
+  void sendJson<{ readAt?: unknown }>("/api/unread", marker, "PUT")
+    .then((response) => {
+      if (typeof response?.readAt === "number" && merge({ ...marker, readAt: response.readAt })) notify();
+    })
+    .catch(() => undefined);
+}
+
+function legacyMarkers(): UnreadMarker[] {
+  try {
+    const markers: UnreadMarker[] = [];
+    for (let index = 0; index < window.localStorage.length; index += 1) {
+      const key = window.localStorage.key(index);
+      if (!key?.startsWith(LEGACY_LAST_READ_PREFIX)) continue;
+      const [kind, ...idParts] = key.slice(LEGACY_LAST_READ_PREFIX.length).split(".");
+      const marker = asMarker({ kind, id: idParts.join("."), readAt: Number(window.localStorage.getItem(key)) });
+      if (marker) markers.push(marker);
+    }
+    return markers;
+  } catch {
+    return [];
+  }
 }
 
 export function getUnreadSnapshot(): number {
@@ -45,13 +76,16 @@ export function hydrateLastReadState(): Promise<void> {
   hydratePromise = getJson<{ markers?: unknown }>("/api/unread")
     .then((data) => {
       if (version !== stateVersion) return;
-      if (!Array.isArray(data.markers)) return;
-      const changed = data.markers.reduce((result, marker) => {
-        if (!marker || typeof marker !== "object") return result;
-        const value = marker as Partial<UnreadMarker>;
-        if ((value.kind !== "bot" && value.kind !== "room" && value.kind !== "task") || typeof value.id !== "string") return result;
-        return merge({ kind: value.kind, id: value.id, readAt: value.readAt as number }) || result;
-      }, false);
+      let changed = false;
+      for (const value of Array.isArray(data.markers) ? data.markers : []) {
+        const marker = asMarker(value);
+        changed = Boolean(marker && merge(marker)) || changed;
+      }
+      for (const marker of legacyMarkers()) {
+        if (!merge(marker)) continue;
+        changed = true;
+        persist(marker);
+      }
       hydrated = true;
       if (changed) notify();
     })
@@ -68,13 +102,10 @@ export function getLastReadAt(kind: BotUnreadKind, id: string): number | null {
 
 export function markRead(kind: BotUnreadKind, id: string, messageAt: number): void {
   if (typeof window === "undefined" || !Number.isFinite(messageAt) || messageAt <= 0) return;
-  if (!merge({ kind, id, readAt: messageAt })) return;
+  const marker = asMarker({ kind, id, readAt: messageAt });
+  if (!marker || !merge(marker)) return;
   notify();
-  void sendJson<{ readAt?: unknown }>("/api/unread", { kind, id, readAt: messageAt }, "PUT")
-    .then((response) => {
-      if (typeof response?.readAt === "number" && merge({ kind, id, readAt: response.readAt })) notify();
-    })
-    .catch(() => undefined);
+  persist(marker);
 }
 
 export function hasUnread(lastMessageAt: string | null, lastReadAt: number | null): boolean {

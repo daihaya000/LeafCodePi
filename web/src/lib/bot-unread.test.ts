@@ -43,6 +43,23 @@ describe("bot unread timestamps", () => {
     expect(getUnreadSnapshot()).toBe(1);
   });
 
+  it("migrates legacy localStorage markers to the server", async () => {
+    vi.stubGlobal("window", {
+      localStorage: {
+        length: 1,
+        key: () => "webui.bot.last_read.room.two",
+        getItem: () => "456",
+      },
+    });
+    api.getJson.mockResolvedValue({ markers: [] });
+    api.sendJson.mockResolvedValue({ readAt: 456 });
+
+    await hydrateLastReadState();
+
+    expect(getLastReadAt("room", "two")).toBe(456);
+    expect(api.sendJson).toHaveBeenCalledWith("/api/unread", { kind: "room", id: "two", readAt: 456 }, "PUT");
+  });
+
   it("updates locally before persisting the newest marker", async () => {
     api.sendJson.mockResolvedValue({ readAt: 456 });
 
