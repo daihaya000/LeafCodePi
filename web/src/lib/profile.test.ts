@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { exportProfile, hasProfileBackup, importProfile, resetProfile, restoreLatestProfile } from "@/lib/profile";
+import { createProfileBackup, exportProfile, listProfileBackups, importProfile, resetProfile, restoreProfile } from "@/lib/profile";
 
 const roots: string[] = [];
 
@@ -86,20 +86,27 @@ describe("profile", () => {
 
     const options = { agentDir: targetAgent, leafcodeDir: targetData };
     const expected = exportProfile(options).summary;
-    expect(hasProfileBackup(options)).toBe(false);
-    const reset = resetProfile(options);
+    expect(listProfileBackups(options)).toEqual([]);
+    const manualBackup = createProfileBackup(options);
 
-    expect(reset).toMatchObject(expected);
+    expect(manualBackup).toMatchObject(expected);
+    expect(manualBackup.backupPath).toMatch(/\.bak\.lcp\.gz$/);
+    expect(existsSync(manualBackup.backupPath)).toBe(true);
+    writeFileSync(join(targetAgent, "AGENTS.md"), "changed instructions", "utf8");
+    const reset = resetProfile(options);
+    const backups = listProfileBackups(options);
+
     expect(reset.backupPath).toMatch(/\.bak\.lcp\.gz$/);
-    expect(existsSync(reset.backupPath)).toBe(true);
-    expect(hasProfileBackup(options)).toBe(true);
+    expect(backups).toHaveLength(2);
+    expect(new Set(backups.map(({ name }) => name)).size).toBe(2);
+    expect(backups.every(({ name }) => /\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}/.test(name))).toBe(true);
     expect(existsSync(join(targetAgent, "AGENTS.md"))).toBe(false);
     expect(existsSync(join(targetAgent, "skills", "old.md"))).toBe(false);
     expect(existsSync(join(targetData, "web-settings.json"))).toBe(false);
     expect(existsSync(join(targetData, "settings", "llama-server.json"))).toBe(false);
     expect(readFileSync(join(targetData, "store.json"), "utf8")).toBe('{"projects":["keep"]}');
 
-    expect(restoreLatestProfile(options)).toMatchObject(expected);
+    expect(restoreProfile(backups.find(({ name }) => name === manualBackup.backupPath.split(/[\\/]/).at(-1))!.name, options)).toMatchObject(expected);
     expect(readFileSync(join(targetAgent, "AGENTS.md"), "utf8")).toBe("old instructions");
     expect(readFileSync(join(targetData, "web-settings.json"), "utf8")).toBe('{"version":1}');
   });

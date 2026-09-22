@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { exportProfile, hasProfileBackup, importProfile, resetProfile, restoreLatestProfile } from "@/lib/profile";
+import { createProfileBackup, exportProfile, importProfile, listProfileBackups, resetProfile, restoreProfile } from "@/lib/profile";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -8,8 +8,11 @@ function profileFilename(): string {
   return `leafcode-pi-profile-${new Date().toISOString().replaceAll(/[:.]/g, "-")}.lcp.gz`;
 }
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
+    if (request.nextUrl.searchParams.has("backups")) {
+      return NextResponse.json({ backups: listProfileBackups() }, { headers: { "cache-control": "no-store" } });
+    }
     const { archive } = exportProfile();
     return new NextResponse(new Uint8Array(archive).slice().buffer, {
       headers: {
@@ -23,17 +26,6 @@ export async function GET() {
       { error: error instanceof Error ? error.message : "プロファイルのエクスポートに失敗しました" },
       { status: 500 },
     );
-  }
-}
-
-export async function HEAD() {
-  try {
-    return new NextResponse(null, {
-      status: hasProfileBackup() ? 204 : 404,
-      headers: { "cache-control": "no-store" },
-    });
-  } catch {
-    return new NextResponse(null, { status: 500 });
   }
 }
 
@@ -54,9 +46,24 @@ export async function POST(request: NextRequest) {
   }
 }
 
-export async function PUT() {
+export async function PATCH() {
   try {
-    return NextResponse.json({ ok: true, ...restoreLatestProfile() });
+    return NextResponse.json({ ok: true, ...createProfileBackup() });
+  } catch (error) {
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : "プロファイルのバックアップに失敗しました" },
+      { status: 500 },
+    );
+  }
+}
+
+export async function PUT(request: NextRequest) {
+  try {
+    const body = await request.json() as { backup?: unknown };
+    if (typeof body.backup !== "string") {
+      return NextResponse.json({ error: "復元するバックアップを指定してください" }, { status: 400 });
+    }
+    return NextResponse.json({ ok: true, ...restoreProfile(body.backup) });
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "プロファイルの復元に失敗しました" },

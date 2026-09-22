@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Download, History, RotateCcw, Upload } from "lucide-react";
+import { Archive, Download, History, RotateCcw, Upload } from "lucide-react";
 import { Button, cx } from "@/components/ui";
 
 async function responseError(response: Response): Promise<string> {
@@ -9,19 +9,39 @@ async function responseError(response: Response): Promise<string> {
   return typeof body?.error === "string" ? body.error : "プロファイルの処理に失敗しました";
 }
 
+type ProfileBackup = { name: string; createdAt: string };
+
 export function ProfileSettings() {
-  const [busy, setBusy] = useState<"export" | "import" | "restore" | "reset" | null>(null);
-  const [hasBackup, setHasBackup] = useState(false);
+  const [busy, setBusy] = useState<"backup" | "export" | "import" | "restore" | "reset" | null>(null);
+  const [backups, setBackups] = useState<ProfileBackup[]>([]);
+  const [selectedBackup, setSelectedBackup] = useState("");
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     let active = true;
-    void fetch("/api/profile", { method: "HEAD", cache: "no-store" })
-      .then((response) => { if (active) setHasBackup(response.ok); })
-      .catch(() => { if (active) setHasBackup(false); });
+    void fetch("/api/profile?backups=1", { cache: "no-store" })
+      .then(async (response) => {
+        if (!response.ok) throw new Error();
+        const result = await response.json() as { backups?: ProfileBackup[] };
+        const values = Array.isArray(result.backups) ? result.backups : [];
+        if (!active) return;
+        setBackups(values);
+        setSelectedBackup(values[0]?.name ?? "");
+      })
+      .catch(() => { if (active) setBackups([]); });
     return () => { active = false; };
   }, []);
+
+  const rememberBackup = (backupPath?: string) => {
+    const name = backupPath?.split(/[\\/]/).at(-1);
+    if (!name) return;
+    setBackups((current) => current.some((backup) => backup.name === name) ? current : [
+      { name, createdAt: new Date().toISOString() },
+      ...current,
+    ]);
+    setSelectedBackup(name);
+  };
 
   const exportProfile = async () => {
     if (!window.confirm("認証情報とWebUIトークンを含む設定プロファイルを保存します。安全な場所に保管してください。")) return;
@@ -66,13 +86,34 @@ export function ProfileSettings() {
     }
   };
 
+  const backupProfile = async () => {
+    setBusy("backup");
+    setError(null);
+    setMessage(null);
+    try {
+      const response = await fetch("/api/profile", { method: "PATCH" });
+      if (!response.ok) throw new Error(await responseError(response));
+      const result = await response.json() as { backupPath?: string };
+      rememberBackup(result.backupPath);
+      setMessage("バックアップを保存しました");
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "プロファイルのバックアップに失敗しました");
+    } finally {
+      setBusy(null);
+    }
+  };
+
   const restoreProfile = async () => {
-    if (!window.confirm("最新の設定バックアップを復元します。現在の設定を置き換えます。完了後にLeafCodePiを再起動してください。")) return;
+    if (!selectedBackup || !window.confirm("選択した設定バックアップを復元します。現在の設定を置き換えます。完了後にLeafCodePiを再起動してください。")) return;
     setBusy("restore");
     setError(null);
     setMessage(null);
     try {
-      const response = await fetch("/api/profile", { method: "PUT" });
+      const response = await fetch("/api/profile", {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ backup: selectedBackup }),
+      });
       if (!response.ok) throw new Error(await responseError(response));
       const result = await response.json() as { fileCount?: number };
       setMessage(`${result.fileCount ?? 0}件をバックアップから復元しました。LeafCodePiを再起動してください`);
@@ -92,7 +133,7 @@ export function ProfileSettings() {
       const response = await fetch("/api/profile", { method: "DELETE" });
       if (!response.ok) throw new Error(await responseError(response));
       const result = await response.json() as { backupPath?: string };
-      setHasBackup(true);
+      rememberBackup(result.backupPath);
       setMessage(`旧設定を${result.backupPath ?? "バックアップ"}へ退避し、初期化しました。LeafCodePiを再起動してください`);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "プロファイルの初期化に失敗しました");
@@ -128,7 +169,23 @@ export function ProfileSettings() {
             }}
           />
         </label>
-        <Button variant="secondary" busy={busy === "restore"} disabled={disabled || !hasBackup} onClick={() => void restoreProfile()}>
+        <Button variant="secondary" busy={busy === "backup"} disabled={disabled} onClick={() => void backupProfile()}>
+          <Archive className="h-4 w-4" />バックアップ
+        </Button>
+        {backups.length > 0 && (
+          <select
+            aria-label="復元するバックアップ"
+            className="h-10 rounded-lg border border-border bg-surface-2 px-3 text-sm text-text"
+            value={selectedBackup}
+            disabled={disabled}
+            onChange={(event) => setSelectedBackup(event.target.value)}
+          >
+            {backups.map((backup) => (
+              <option key={backup.name} value={backup.name}>{new Date(backup.createdAt).toLocaleString("ja-JP")}</option>
+            ))}
+          </select>
+        )}
+        <Button variant="secondary" busy={busy === "restore"} disabled={disabled || !selectedBackup} onClick={() => void restoreProfile()}>
           <History className="h-4 w-4" />復元
         </Button>
         <Button variant="danger" busy={busy === "reset"} disabled={disabled} onClick={() => void resetProfile()}>

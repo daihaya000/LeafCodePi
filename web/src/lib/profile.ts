@@ -64,7 +64,12 @@ export type ProfileSummary = {
   bytes: number;
 };
 
-export type ResetProfileSummary = ProfileSummary & {
+export type ProfileBackup = {
+  name: string;
+  createdAt: string;
+};
+
+export type ProfileBackupSummary = ProfileSummary & {
   backupPath: string;
 };
 
@@ -211,15 +216,19 @@ function removeConfiguredPaths(agentDir: string, leafcodeDir: string): void {
 const BACKUP_DIRECTORY = "profile-backups";
 const BACKUP_SUFFIX = ".bak.lcp.gz";
 
-function latestProfileBackup(leafcodeDir: string): string | null {
+type StoredProfileBackup = ProfileBackup & { path: string; modifiedAt: number };
+
+function profileBackups(leafcodeDir: string): StoredProfileBackup[] {
   const directory = join(leafcodeDir, BACKUP_DIRECTORY);
-  if (!existsSync(directory)) return null;
-  const name = readdirSync(directory, { withFileTypes: true })
-    .filter((entry) => entry.isFile() && entry.name.startsWith("leafcode-pi-profile-") && entry.name.endsWith(BACKUP_SUFFIX))
-    .map((entry) => entry.name)
-    .sort()
-    .at(-1);
-  return name ? join(directory, name) : null;
+  if (!existsSync(directory)) return [];
+  return readdirSync(directory, { withFileTypes: true })
+    .flatMap((entry) => {
+      if (!entry.isFile() || !entry.name.startsWith("leafcode-pi-profile-") || !entry.name.endsWith(BACKUP_SUFFIX)) return [];
+      const path = join(directory, entry.name);
+      const stat = lstatSync(path);
+      return [{ name: entry.name, createdAt: stat.mtime.toISOString(), modifiedAt: stat.mtimeMs, path }];
+    })
+    .sort((left, right) => right.modifiedAt - left.modifiedAt || right.name.localeCompare(left.name));
 }
 
 function writeProfileBackup(archive: Buffer, leafcodeDir: string): string {
@@ -266,8 +275,15 @@ function applyProfile(profile: ProfileArchive, agentDir: string, leafcodeDir: st
   return { fileCount: files.length, bytes: files.reduce((total, file) => total + file.content.length, 0) };
 }
 
+/** Save all profile-managed settings to a dated, non-overwriting local backup. */
+export function createProfileBackup(options: ProfileRoots = {}): ProfileBackupSummary {
+  const { agentDir, leafcodeDir } = roots(options);
+  const { archive, summary } = exportProfile({ agentDir, leafcodeDir });
+  return { ...summary, backupPath: writeProfileBackup(archive, leafcodeDir) };
+}
+
 /** Back up all profile-managed settings, then remove them for a clean start. */
-export function resetProfile(options: ProfileRoots = {}): ResetProfileSummary {
+export function resetProfile(options: ProfileRoots = {}): ProfileBackupSummary {
   const { agentDir, leafcodeDir } = roots(options);
   const { archive, summary } = exportProfile({ agentDir, leafcodeDir });
   const backupPath = writeProfileBackup(archive, leafcodeDir);
@@ -284,17 +300,17 @@ export function resetProfile(options: ProfileRoots = {}): ResetProfileSummary {
   }
 }
 
-/** Whether at least one locally retained profile backup can be restored. */
-export function hasProfileBackup(options: ProfileRoots = {}): boolean {
-  return latestProfileBackup(roots(options).leafcodeDir) !== null;
+/** List local profile backups, newest first. */
+export function listProfileBackups(options: ProfileRoots = {}): ProfileBackup[] {
+  return profileBackups(roots(options).leafcodeDir).map(({ name, createdAt }) => ({ name, createdAt }));
 }
 
-/** Restore the newest locally retained profile backup. */
-export function restoreLatestProfile(options: ProfileRoots = {}): ResetProfileSummary {
+/** Restore a selected locally retained profile backup. */
+export function restoreProfile(backupName: string, options: ProfileRoots = {}): ProfileBackupSummary {
   const { agentDir, leafcodeDir } = roots(options);
-  const backupPath = latestProfileBackup(leafcodeDir);
-  if (!backupPath) throw new Error("復元できるバックアップがありません");
-  return { ...importProfile(readFileSync(backupPath), { agentDir, leafcodeDir }), backupPath };
+  const backup = profileBackups(leafcodeDir).find(({ name }) => name === backupName);
+  if (!backup) throw new Error("指定されたバックアップがありません");
+  return { ...importProfile(readFileSync(backup.path), { agentDir, leafcodeDir }), backupPath: backup.path };
 }
 
 /** Replace all profile-managed settings after validating the entire archive. */
