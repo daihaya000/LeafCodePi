@@ -50,6 +50,7 @@ it("shows each parallel Code request its own live tool label instead of one shar
     if (path === "/api/bots") return { bots: [bot] };
     return { room };
   });
+  mocks.sendJson.mockResolvedValue({});
 
   render(<RoomView id="room" />);
 
