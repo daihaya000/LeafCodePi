@@ -56,6 +56,7 @@ const task: TaskSummary = {
 beforeEach(() => {
   vi.clearAllMocks();
   mocks.getJson.mockResolvedValue({ models: [], agents: [], skills: [], accounts: [] });
+  mocks.sendJson.mockResolvedValue({});
   mocks.botFor.mockReturnValue(undefined);
   saveTaskSessionCache({
     task,
