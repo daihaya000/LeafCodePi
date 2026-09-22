@@ -109,6 +109,8 @@ const MAX_UNREADABLE_STREAK = 2;
 const MAX_NOTES = 10;
 const MAX_NOTE_CHARS = 500;
 const TURN_TIMEOUT_MS = 15 * 60 * 1000;
+/** Node clamps longer delays to 1ms, which would spin on a corrupt far-future timestamp. */
+const MAX_TIMER_DELAY_MS = 2 ** 31 - 1;
 /**
  * A live loop must always have an armed timer. Settle/replace races could drop
  * it (the successor runtime already ran session_start), so a slow watchdog
@@ -1358,7 +1360,7 @@ function schedule(runtime: Runtime, delay = 250): void {
     if ((loop.status === "queued" || loop.status === "verifying_completed") && loop.nextTurnAt) {
       const nextTurnAt = Date.parse(loop.nextTurnAt);
       if (Number.isFinite(nextTurnAt) && Date.now() < nextTurnAt) {
-        schedule(runtime, Math.max(250, nextTurnAt - Date.now()));
+        schedule(runtime, Math.min(MAX_TIMER_DELAY_MS, Math.max(250, nextTurnAt - Date.now())));
         return;
       }
     }
