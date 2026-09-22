@@ -18,7 +18,7 @@ test("explorerOpenCommand keeps Windows Explorer and uses open/xdg-open elsewher
   });
 });
 
-test("openProjectInExplorer spawns the platform command and resolves on spawn", async () => {
+test("openProjectInExplorer resolves when the platform command succeeds", async () => {
   const spawned = [];
   const child = new EventEmitter();
   child.unref = () => {};
@@ -35,4 +35,20 @@ test("openProjectInExplorer spawns the platform command and resolves on spawn", 
   assert.deepEqual(spawned, [
     { command: "xdg-open", args: ["/home/me/project"], options: { detached: true, stdio: "ignore" } },
   ]);
+});
+
+test("openProjectInExplorer reports an xdg-open failure", async () => {
+  const child = new EventEmitter();
+  child.unref = () => {};
+  const result = openProjectInExplorer("/home/me/project", {
+    platform: "linux",
+    spawn: () => {
+      queueMicrotask(() => {
+        child.emit("spawn");
+        child.emit("exit", 3, null);
+      });
+      return child;
+    },
+  });
+  await assert.rejects(result, /xdg-open exited with code 3/);
 });

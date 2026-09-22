@@ -32,6 +32,10 @@ function sleep(milliseconds: number): Promise<void> {
 
 async function acquireConfigLock(): Promise<() => Promise<void>> {
   const lockFile = configLockPath();
+  // The first provider update may create CodexBar/config.json from scratch.
+  // Create the parent directory before opening the adjacent lock file so
+  // fs.open does not fail with ENOENT and get reported as a lock conflict.
+  await fs.mkdir(dirname(lockFile), { recursive: true });
   for (let attempt = 0; attempt < LOCK_RETRY_COUNT; attempt++) {
     try {
       const handle = await fs.open(lockFile, "wx", 0o600);

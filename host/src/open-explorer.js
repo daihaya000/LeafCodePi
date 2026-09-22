@@ -13,10 +13,31 @@ export function openProjectInExplorer(targetPath, options = {}) {
   const { command, args } = explorerOpenCommand(platform, targetPath);
   return new Promise((resolve, reject) => {
     const child = spawnFn(command, args, { detached: true, stdio: "ignore" });
-    child.once("error", reject);
+    let settled = false;
+    let settleTimer;
+    const finish = (callback, value) => {
+      if (settled) return;
+      settled = true;
+      if (settleTimer) clearTimeout(settleTimer);
+      callback(value);
+    };
+    child.once("error", (error) => finish(reject, error));
     child.once("spawn", () => {
       child.unref?.();
-      resolve({ ok: true });
+      // xdg-open may hand the path to the desktop and exit immediately. Give
+      // it a short window to report a real failure without blocking on the
+      // file manager/browser it launches.
+      settleTimer = setTimeout(() => finish(resolve, { ok: true }), 100);
+    });
+    child.once("exit", (code, signal) => {
+      if (code === 0) {
+        finish(resolve, { ok: true });
+      } else {
+        finish(
+          reject,
+          new Error(`${command} exited with ${signal ? `signal ${signal}` : `code ${code ?? "unknown"}`}`),
+        );
+      }
     });
   });
 }

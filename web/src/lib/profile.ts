@@ -89,6 +89,31 @@ const PACKAGE_RESTORE_TIMEOUT_MS = 120_000;
 
 type PackageUpdateRunner = (agentDir: string) => Promise<void>;
 
+type PiUpdateCommand = {
+  command: string;
+  args: string[];
+};
+
+/**
+ * The desktop launcher does not inherit the shell's node_modules/.bin PATH.
+ * Prefer the Pi CLI shipped with this checkout so package restore does not
+ * depend on a separately installed global `pi` command.
+ */
+function piUpdateCommand(): PiUpdateCommand {
+  const cliCandidates = [
+    join(process.cwd(), "web", "node_modules", "@earendil-works", "pi-coding-agent", "dist", "bundle", "cli.js"),
+    join(process.cwd(), "node_modules", "@earendil-works", "pi-coding-agent", "dist", "bundle", "cli.js"),
+  ];
+  const cliPath = cliCandidates.find((candidate) => existsSync(candidate));
+  if (cliPath) {
+    return { command: process.execPath, args: [cliPath, "update", "--extensions"] };
+  }
+  if (process.platform === "win32") {
+    return { command: "cmd.exe", args: ["/d", "/s", "/c", "pi.cmd update --extensions"] };
+  }
+  return { command: "pi", args: ["update", "--extensions"] };
+}
+
 function roots(options: ProfileRoots = {}) {
   return {
     agentDir: resolve(options.agentDir ?? resolvePiAgentDir()),
@@ -317,17 +342,13 @@ function configuredPackageCount(agentDir: string): number {
 
 function updateProfilePackages(agentDir: string): Promise<void> {
   return new Promise((resolveUpdate, rejectUpdate) => {
-    const windows = process.platform === "win32";
-    const child = spawn(
-      windows ? "cmd.exe" : "pi",
-      windows ? ["/d", "/s", "/c", "pi.cmd update --extensions"] : ["update", "--extensions"],
-      {
-        cwd: agentDir,
-        shell: false,
-        windowsHide: true,
-        env: { ...process.env, PI_CODING_AGENT_DIR: agentDir, GIT_TERMINAL_PROMPT: "0" },
-      },
-    );
+    const update = piUpdateCommand();
+    const child = spawn(update.command, update.args, {
+      cwd: agentDir,
+      shell: false,
+      windowsHide: true,
+      env: { ...process.env, PI_CODING_AGENT_DIR: agentDir, GIT_TERMINAL_PROMPT: "0" },
+    });
     let output = "";
     let settled = false;
     const timer = setTimeout(() => {

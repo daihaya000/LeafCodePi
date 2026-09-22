@@ -330,6 +330,24 @@ describe("CodexBar provider settings API", () => {
     ]);
   });
 
+  it("creates the CodexBar directory when the first PUT has no config directory", async () => {
+    await fs.rm(path.join(appData, "CodexBar"), { recursive: true, force: true });
+    const initial = { version: versionOf("{}") };
+
+    const response = await PUT(
+      request({
+        providerId: "openrouter",
+        enabled: true,
+        version: initial.version,
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(
+      await fs.stat(path.join(appData, "CodexBar", "config.json")),
+    ).toBeTruthy();
+  });
+
   it("re-reads the version after a config-adjacent cross-process lock", async () => {
     const file = path.join(appData, "CodexBar", "config.json");
     const initial = await responseJson(await GET());

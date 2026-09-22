@@ -1,6 +1,6 @@
 import { describe, expect, it, afterEach, vi } from "vitest";
 import { existsSync, rmSync } from "node:fs";
-import { join } from "node:path";
+import { join, win32 } from "node:path";
 import { tmpdir } from "node:os";
 import {
   dataDir,
@@ -97,6 +97,17 @@ describe("no-project workspace paths", () => {
     ).toBe("/home/me/Documents/LeafCodePi");
   });
 
+  it("uses the XDG documents directory for localized Linux homes", () => {
+    expect(
+      resolveNoProjectRoot({
+        home: "/home/me",
+        env: { XDG_DOCUMENTS_DIR: "$HOME/ドキュメント" },
+        platform: "linux",
+        exists: (path) => path === "/home/me/ドキュメント",
+      }),
+    ).toBe("/home/me/ドキュメント/LeafCodePi");
+  });
+
   it("falls back to XDG data home when Documents is missing", () => {
     expect(
       resolveNoProjectRoot({
@@ -125,9 +136,9 @@ describe("no-project workspace paths", () => {
         home: "C:\\Users\\sam",
         env: {},
         platform: "win32",
-        exists: (path) => path === join("C:\\Users\\sam", "Documents"),
+        exists: (path) => path === win32.join("C:\\Users\\sam", "Documents"),
       }),
-    ).toBe(join("C:\\Users\\sam", "Documents", "LeafCodePi"));
+    ).toBe(win32.join("C:\\Users\\sam", "Documents", "LeafCodePi"));
     expect(
       resolveNoProjectRoot({
         home: "C:\\Users\\sam",
@@ -135,6 +146,6 @@ describe("no-project workspace paths", () => {
         platform: "win32",
         exists: () => false,
       }),
-    ).toBe(join("C:\\Users\\sam", "LeafCodePi"));
+    ).toBe(win32.join("C:\\Users\\sam", "LeafCodePi"));
   });
 });

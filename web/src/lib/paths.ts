@@ -1,6 +1,7 @@
 import { mkdirSync, existsSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join, posix, resolve, win32 } from "node:path";
+import { readXdgUserDirs } from "./xdg-user-dirs";
 
 /**
  * Tests once resolved the live %APPDATA% directory and a read-modify-write cycle
@@ -87,8 +88,13 @@ export function resolveNoProjectRoot(options?: {
   const override = env.LEAFCODE_PI_DEFAULT_DIR?.trim();
   if (override) return resolve(override);
   const pathJoin = platform === "win32" ? win32.join : posix.join;
-  const documents = pathJoin(home, "Documents");
-  if (exists(documents)) return pathJoin(documents, "LeafCodePi");
+  const documentCandidates = platform === "win32"
+    ? [pathJoin(home, "Documents")]
+    : [readXdgUserDirs({ home, env }).documents, pathJoin(home, "Documents")].filter(
+        (path): path is string => Boolean(path),
+      );
+  const documents = documentCandidates.find((path) => exists(path));
+  if (documents) return pathJoin(documents, "LeafCodePi");
   if (platform === "win32") return pathJoin(home, "LeafCodePi");
   const xdg = env.XDG_DATA_HOME?.trim();
   if (xdg) return pathJoin(xdg, "LeafCodePi");

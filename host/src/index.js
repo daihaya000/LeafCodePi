@@ -328,6 +328,13 @@ function openBrowser(url) {
     windowsHide: true,
   });
   child.once("error", (err) => error(`Could not open browser: ${err.message}`));
+  child.once("exit", (code, signal) => {
+    if (code !== 0) {
+      error(
+        `Could not open browser: ${command} exited with ${signal ? `signal ${signal}` : `code ${code ?? "unknown"}`}`,
+      );
+    }
+  });
   child.unref();
 }
 

@@ -224,7 +224,15 @@ export function listChromiumBrowserRoots(
   env: NodeJS.Dict<string> = process.env,
 ): ChromiumBrowserRoot[] {
   if (platform === "linux") {
-    return browserRootsFromConfigs(LINUX_BROWSER_CONFIGS, home, env);
+    // Ubuntu's Chromium Snap keeps its profile outside ~/.config.
+    return [
+      ...browserRootsFromConfigs(LINUX_BROWSER_CONFIGS, home, env),
+      {
+        name: "Chromium (Snap)",
+        userData: join(home, "snap/chromium/common/chromium"),
+        secretToolApp: "chromium",
+      },
+    ];
   }
   if (platform === "win32") {
     return browserRootsFromConfigs(WINDOWS_BROWSER_CONFIGS, home, env);
