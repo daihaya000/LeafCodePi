@@ -89,6 +89,7 @@ beforeEach(() => {
   localStorage.clear();
   vi.stubGlobal("EventSource", class extends EventTarget { close() {} });
   mocks.getJson.mockResolvedValue({ models: [], agents: [], skills: [], accounts: [] });
+  mocks.sendJson.mockResolvedValue({});
   saveTaskSessionCache({ task, messages, isStreaming: false, isCompacting: false });
 });
 afterEach(() => {
