@@ -391,6 +391,8 @@ function normalizeNextTurnAt(value: unknown): string | null {
 function hydrateLoop(value: unknown, cwd: string, id: string): GoalLoop | null {
   const raw = asRecord(value);
   if (!raw || typeof raw.goal !== "string") return null;
+  const goal = raw.goal.trim().slice(0, MAX_GOAL_CHARS);
+  if (!goal) return null;
   const acceptance = normalizeAcceptance(raw.acceptance);
   if (!acceptance) return null;
   const progress = normalizeProgress(raw.progress);
@@ -400,7 +402,7 @@ function hydrateLoop(value: unknown, cwd: string, id: string): GoalLoop | null {
     sessionId: typeof raw.sessionId === "string" ? raw.sessionId : id,
     cwd,
     status: normalizeStatus(raw.status),
-    goal: raw.goal.slice(0, MAX_GOAL_CHARS),
+    goal,
     acceptance,
     maxTurns: clampMaxTurns(raw.maxTurns),
     cooldownSeconds: clampCooldownSeconds(raw.cooldownSeconds),

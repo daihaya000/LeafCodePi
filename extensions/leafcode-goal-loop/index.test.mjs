@@ -1348,6 +1348,48 @@ test("recovers when the main state hydrates to null but a temp snapshot is valid
   }
 });
 
+test("does not send a restored loop with an empty goal", async () => {
+  const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-empty-goal-"));
+  process.env.LEAFCODE_PI_DATA_DIR = cwd;
+  const handlers = new Map();
+  let sendCount = 0;
+  const ctx = {
+    cwd,
+    mode: "rpc",
+    hasUI: false,
+    isIdle: () => true,
+    hasPendingMessages: () => false,
+    abort: () => {},
+    sessionManager: { getSessionId: () => "empty-goal-session", getBranch: () => [] },
+    ui: { setStatus: () => {}, setWidget: () => {}, notify: () => {} },
+  };
+
+  try {
+    mkdirSync(join(cwd, "goals-loop"), { recursive: true });
+    writeFileSync(join(cwd, "goals-loop", "empty-goal-session.json"), JSON.stringify({
+      goal: " \n\t ",
+      status: "queued",
+      acceptance: [],
+      maxTurns: 2,
+      turnKind: "goal",
+      turnCount: 0,
+      progress: [],
+    }), "utf8");
+    goalLoopExtension({
+      on(name, handler) { handlers.set(name, handler); },
+      registerCommand() {},
+      appendEntry() {},
+      sendMessage() { sendCount += 1; },
+    });
+    await handlers.get("session_start")?.({}, ctx);
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    assert.equal(sendCount, 0);
+  } finally {
+    await handlers.get("session_shutdown")?.({}, ctx);
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
 test("keeps the loop alive once when the result JSON is missing", () => {
   const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-missing-"));
   process.env.LEAFCODE_PI_DATA_DIR = cwd;
