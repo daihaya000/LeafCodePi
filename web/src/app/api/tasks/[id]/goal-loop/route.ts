@@ -9,7 +9,7 @@ import { botIdForCodeTask } from "@/lib/pi/bot-code-relay";
 import {
   goalLoopCommand,
   goalLoopState,
-  isTaskRuntimeBusyForDestructiveEdit,
+  isTaskRuntimeBusyForGoalLoopStart,
   jsonError,
   resolveAutoModel,
   setTaskAgent,
@@ -190,7 +190,7 @@ export async function POST(req: NextRequest, { params }: Params) {
     }
     const nextAgent =
       agent && agent !== (currentTask.agent?.trim() || undefined) ? agent : undefined;
-    if (isTaskRuntimeBusyForDestructiveEdit(id)) {
+    if (isTaskRuntimeBusyForGoalLoopStart(id)) {
       return NextResponse.json(
         { error: "タスクが実行中のため Goal Loop を開始できません" },
         { status: 409 },

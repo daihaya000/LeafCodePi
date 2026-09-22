@@ -226,7 +226,13 @@ export function RoomView({ id, active = true }: { id: string; active?: boolean }
 
   useEffect(() => {
     const latest = room?.messages.reduce((value, message) => Math.max(value, message.createdAt), 0) ?? 0;
-    if (active && latest > 0) markRead("room", id, latest);
+    if (!active || latest <= 0) return;
+    const markCurrentRead = () => {
+      if (!document.hidden) markRead("room", id, latest);
+    };
+    markCurrentRead();
+    document.addEventListener("visibilitychange", markCurrentRead);
+    return () => document.removeEventListener("visibilitychange", markCurrentRead);
   }, [active, id, room?.messages]);
 
   // A room that finishes answering while you are on another tab should still reach you.

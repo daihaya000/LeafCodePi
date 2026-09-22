@@ -279,7 +279,22 @@ it("notifies a hidden tab when the Bot is waiting for approval", async () => {
   }
 });
 
-it("does not mark hidden tab messages read until activation", async () => {
+it("keeps a document-hidden active Bot unread until the document is visible", async () => {
+  Object.defineProperty(document, "hidden", { configurable: true, value: true });
+  try {
+    render(<ShellProvider><BotView id="one" active /></ShellProvider>);
+    snapshot({ messages: [{ id: "message", role: "assistant", createdAt: 123, parts: [{ type: "text", text: "hello" }] }] });
+    expect(mocks.markRead).not.toHaveBeenCalled();
+
+    Object.defineProperty(document, "hidden", { configurable: true, value: false });
+    act(() => document.dispatchEvent(new Event("visibilitychange")));
+    expect(mocks.markRead).toHaveBeenCalledWith("bot", "one", 123);
+  } finally {
+    Reflect.deleteProperty(document, "hidden");
+  }
+});
+
+it("does not mark inactive Bot tab messages read until activation", async () => {
   const view = render(<ShellProvider><BotView id="one" active={false} /></ShellProvider>);
   snapshot({ messages: [{ id: "message", role: "assistant", createdAt: 123, parts: [{ type: "text", text: "hello" }] }] });
   expect(mocks.markRead).not.toHaveBeenCalled();

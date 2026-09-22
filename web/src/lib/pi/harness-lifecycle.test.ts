@@ -11,6 +11,7 @@ import {
   abortTaskIncludingColdGoalLoop,
   activeGoalLoopTaskIds,
   isStaleHarnessPrompt,
+  isTaskRuntimeBusyForGoalLoopStart,
   isTaskRuntimeBusyForDestructiveEdit,
   waitForSessionStreaming,
 } from "./harness";
@@ -191,6 +192,22 @@ describe("harness lifecycle characterization", () => {
         "utf8",
       );
       expect(isTaskRuntimeBusyForDestructiveEdit(task.id)).toBe(true);
+      expect(isTaskRuntimeBusyForGoalLoopStart(task.id)).toBe(false);
+
+      globals[globalKey] = {
+        live: new Map([[task.id, {
+          taskId: task.id,
+          promptActive: true,
+          session: {
+            sessionId: "busy-gl-session",
+            isStreaming: true,
+            isCompacting: false,
+            sessionManager: { getCwd: () => root },
+          },
+        }]]),
+        events: new EventEmitter(),
+      };
+      expect(isTaskRuntimeBusyForGoalLoopStart(task.id)).toBe(true);
     },
   );
 });

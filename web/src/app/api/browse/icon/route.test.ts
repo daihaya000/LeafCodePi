@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({ execFile: vi.fn() }));
 
 vi.mock("node:child_process", () => ({ execFile: mocks.execFile }));
 
+import { ICON_FILE_ERROR } from "@/lib/icon-file";
 import { POST } from "./route";
 
 const dir = mkdtempSync(join(tmpdir(), "leafcode-icon-route-"));
@@ -57,6 +58,10 @@ describe("POST /api/browse/icon", () => {
       expect.objectContaining({ env: expect.objectContaining({ LEAFCODE_PI_ICON_DIR: dir }) }),
       expect.any(Function),
     );
+    const encoded = mocks.execFile.mock.calls[0]?.[1]?.[3] as string;
+    const script = Buffer.from(encoded, "base64").toString("utf16le");
+    expect(script).toContain("*.exe");
+    expect(script).toContain("ExtractAssociatedIcon");
   });
 
   it.skipIf(windowsOnly)("reports a dismissed dialog without an icon", async () => {
@@ -68,13 +73,34 @@ describe("POST /api/browse/icon", () => {
     expect(await response.json()).toEqual({ cancelled: true });
   });
 
+  it.skipIf(windowsOnly)("returns an icon extracted from a picked executable", async () => {
+    dialogResult(JSON.stringify({ kind: "icon", name: "app.exe", base64: "AAABAA==" }));
+
+    const response = await POST(request({ path: dir }));
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      icon: "data:image/x-icon;base64,AAABAA==",
+      name: "app.exe",
+    });
+  });
+
+  it.skipIf(windowsOnly)("reports an executable without an extractable icon", async () => {
+    dialogResult(JSON.stringify({ kind: "error" }));
+
+    const response = await POST(request({ path: dir }));
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ error: "EXEからアイコンを取得できませんでした。" });
+  });
+
   it.skipIf(windowsOnly)("rejects a picked file that is not an icon image", async () => {
     dialogResult(join(dir, "notes.txt"));
 
     const response = await POST(request({ path: dir }));
 
     expect(response.status).toBe(400);
-    expect(await response.json()).toEqual({ error: "PNG・JPEG・GIF・WebP・ICO の画像を選択してください。" });
+    expect(await response.json()).toEqual({ error: ICON_FILE_ERROR });
   });
 
   it.skipIf(windowsOnly)("reports a dialog failure as a server error", async () => {
