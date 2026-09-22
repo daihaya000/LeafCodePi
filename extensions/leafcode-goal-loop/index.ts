@@ -2243,6 +2243,10 @@ export default function (pi: ExtensionAPI): void {
     if (fresh?.status === "queued" || fresh?.status === "verifying_completed") {
       // The persisted absolute cooldown must survive extension/session reloads.
       schedule(runtime, 0);
+    } else {
+      // Lifecycle pause is persisted directly during shutdown, so it has not
+      // passed through pauseLoop() to queue the prompt-contract end notice.
+      notifyLoopEnded(runtime);
     }
   });
 

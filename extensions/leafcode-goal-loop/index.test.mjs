@@ -5028,6 +5028,34 @@ test("queues a single hidden loop-end notice after the loop stops", async () => 
   }
 });
 
+test("queues the loop-end notice after a lifecycle pause reload", async () => {
+  const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-end-lifecycle-"));
+  process.env.LEAFCODE_PI_DATA_DIR = cwd;
+  const harness = loopEndNoticeHarness("end-notice-lifecycle-session");
+  const { notices, readState, handlers, commands, ctx, pi } = harness;
+
+  try {
+    goalLoopExtension(pi);
+    await handlers.get("session_start")?.({}, ctx);
+    const payload = Buffer.from(JSON.stringify({ goal: "demo", maxTurns: 3 })).toString("base64url");
+    await commands.get("goal-start")?.(payload, ctx);
+    await waitFor(() => readState().status === "running");
+
+    await handlers.get("session_shutdown")?.({}, ctx);
+    assert.equal(readState().status, "paused");
+    assert.equal(notices().length, 0);
+
+    await handlers.get("session_start")?.({}, ctx);
+    assert.equal(notices().length, 1);
+    assert.match(String(notices()[0].message.content), /no longer running \(paused\)/);
+    assert.equal(readState().endNoticeSent, true);
+  } finally {
+    await handlers.get("session_shutdown")?.({}, ctx);
+    delete process.env.LEAFCODE_PI_DATA_DIR;
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
 test("re-arms the loop-end notice after resume", async () => {
   const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-end-resume-"));
   process.env.LEAFCODE_PI_DATA_DIR = cwd;
