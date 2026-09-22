@@ -527,6 +527,32 @@ describe("Sidebar project ordering", () => {
     });
   });
 
+  it("marks every non-working project session as read from settings", async () => {
+    const projectTasks = [
+      { id: "ready", projectId: "project-a", projectName: "Project A", title: "Ready", directory: "C:\\repo-a", isolation: "current_folder" as const, status: "ready" as const, sessionId: "ready", sessionFile: null, createdAt: "", updatedAt: "2026-09-22T00:00:00.000Z" },
+      { id: "working", projectId: "project-a", projectName: "Project A", title: "Working", directory: "C:\\repo-a", isolation: "current_folder" as const, status: "working" as const, sessionId: "working", sessionFile: null, createdAt: "", updatedAt: "2026-09-22T00:01:00.000Z" },
+      { id: "archived", projectId: "project-a", projectName: "Project A", title: "Archived", directory: "C:\\repo-a", isolation: "current_folder" as const, status: "archived" as const, sessionId: "archived", sessionFile: null, createdAt: "", updatedAt: "2026-09-22T00:02:00.000Z" },
+      { id: "other", projectId: "project-b", projectName: "Project B", title: "Other", directory: "C:\\repo-b", isolation: "current_folder" as const, status: "ready" as const, sessionId: "other", sessionFile: null, createdAt: "", updatedAt: "2026-09-22T00:03:00.000Z" },
+    ];
+    mocks.getJson.mockImplementation((path: string) => {
+      if (path === "/api/projects?archived=1") return Promise.resolve({ projects });
+      if (path === "/api/tasks?kind=all" || path === "/api/tasks?archived=1&kind=all") return Promise.resolve({ tasks: projectTasks });
+      if (path === "/api/health") return Promise.resolve({ ok: true, engineOk: true, version: "1", modelCount: 0 });
+      return Promise.reject(new Error(`Unexpected request: ${path}`));
+    });
+    render(<Sidebar mobileOpen={false} onClose={vi.fn()} />);
+    await openProjectSettings();
+
+    fireEvent.click(screen.getByRole("button", { name: "Project Aのセッションをすべて既読にする" }));
+
+    await waitFor(() => {
+      expect(localStorage.getItem("webui.bot.last_read.task.ready")).toBe(String(Date.parse(projectTasks[0]!.updatedAt)));
+      expect(localStorage.getItem("webui.bot.last_read.task.archived")).toBe(String(Date.parse(projectTasks[2]!.updatedAt)));
+    });
+    expect(localStorage.getItem("webui.bot.last_read.task.working")).toBeNull();
+    expect(localStorage.getItem("webui.bot.last_read.task.other")).toBeNull();
+  });
+
   it("changes icon color and migrates a project from its settings", async () => {
     const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
     render(<Sidebar mobileOpen={false} onClose={vi.fn()} />);

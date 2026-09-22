@@ -42,7 +42,7 @@ import {
   refreshBotSidebar,
   subscribeBotSidebar,
 } from "@/lib/bot-sidebar-store";
-import { getLastReadAt, hasUnread } from "@/lib/bot-unread";
+import { getLastReadAt, hasUnread, markRead } from "@/lib/bot-unread";
 import { HOME_TAB_ID, paneTabIdsForWorkingTasks, SETTINGS_TAB_ID, type TaskPanesAction } from "@/lib/task-panes";
 import { PINNED_TASKS_API_PATH, parsePinnedTaskIds, serializePinnedTaskIds } from "@/lib/sidebar-settings";
 import { isGoalLoopLiveStatus } from "@/lib/goal-loop-settings";
@@ -745,6 +745,7 @@ export const SidebarTaskRow = memo(function SidebarTaskRow({
   active,
   bot,
   pinned,
+  unread = false,
   mdUp,
   actionBusy,
   onOpenTask,
@@ -757,6 +758,7 @@ export const SidebarTaskRow = memo(function SidebarTaskRow({
   active: boolean;
   bot?: BotFace & { name: string };
   pinned: boolean;
+  unread?: boolean;
   mdUp: boolean;
   actionBusy: boolean;
   onOpenTask: (taskId: string) => void;
@@ -766,7 +768,6 @@ export const SidebarTaskRow = memo(function SidebarTaskRow({
   onDragStart: (event: React.DragEvent<HTMLButtonElement>, taskId: string) => void;
 }) {
   const cannotPromote = promotionBlocked(task);
-  const unread = !active && hasUnread(task.updatedAt, getLastReadAt("task", task.id));
   // 展開したプロジェクトは数百行を一度に描画するため、画面外の行は layout/paint をスキップさせる。
   // content-visibility の paint containment でフォーカスリングが欠けるので、行内のボタンは内側へ寄せる。
   // contain-intrinsic-size のフォールバックは実測の行高（約53px）に合わせ、未描画行の高さズレを防ぐ。
@@ -1036,6 +1037,7 @@ function ProjectSettingsDialog({
   onClearIcon,
   onSetIconColor,
   onMigrate,
+  onMarkAllRead,
   externalError,
 }: {
   project: ProjectDto;
@@ -1047,10 +1049,12 @@ function ProjectSettingsDialog({
   onClearIcon: () => void;
   onSetIconColor: (color: ProjectDto["iconColor"]) => void;
   onMigrate: (destinationPath: string) => Promise<void>;
+  onMarkAllRead: () => Promise<void>;
   externalError: string | null;
 }) {
   const [destinationPath, setDestinationPath] = useState("");
   const [busy, setBusy] = useState(false);
+  const [markReadBusy, setMarkReadBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   /** ホスト制御面（loopback）に到達できるクライアントか。判定は explorer と同じ探索を使う。 */
   const [hostTarget, setHostTarget] = useState<ExplorerTarget | null>(null);
@@ -1082,6 +1086,19 @@ function ProjectSettingsDialog({
     document.addEventListener("keydown", onKeyDown);
     return () => document.removeEventListener("keydown", onKeyDown);
   }, [busy, onClose]);
+
+  async function markAllRead() {
+    if (busy || markReadBusy) return;
+    setMarkReadBusy(true);
+    setError(null);
+    try {
+      await onMarkAllRead();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "既読化に失敗しました");
+    } finally {
+      setMarkReadBusy(false);
+    }
+  }
 
   async function migrate() {
     const destination = destinationPath.trim();
@@ -1168,6 +1185,13 @@ function ProjectSettingsDialog({
                 />
               ))}
             </div>
+          </section>
+          <section className="border-t border-border pt-4">
+            <h3 className="text-xs font-semibold text-text">未読</h3>
+            <p className="mt-1 text-xs leading-5 text-muted">進行中以外のセッションをすべて既読にします。</p>
+            <Button variant="ghost" size="sm" busy={markReadBusy} disabled={busy || markReadBusy} onClick={() => void markAllRead()} aria-label={`${project.name}のセッションをすべて既読にする`} className="mt-3">
+              すべて既読にする
+            </Button>
           </section>
           <section className="border-t border-border pt-4">
             <h3 className="text-xs font-semibold text-text">プロジェクトを移動</h3>
@@ -1265,6 +1289,7 @@ const SidebarView = memo(function SidebarView({
   const [actionBusyKey, setActionBusyKey] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [refreshError, setRefreshError] = useState<string | null>(null);
+  const [unreadVersion, setUnreadVersion] = useState(0);
   const [projectTaskMenu, setProjectTaskMenu] = useState<ProjectTaskMenuState | null>(null);
   const [promotionTask, setPromotionTask] = useState<TaskSummary | null>(null);
   const [projectSettingsProject, setProjectSettingsProject] = useState<ProjectDto | null>(null);
@@ -1499,7 +1524,7 @@ const SidebarView = memo(function SidebarView({
     code: tasks.some((task) => task.status !== "archived" && task.kind !== "bot" && task.id !== activeTaskId && hasUnread(task.updatedAt, getLastReadAt("task", task.id))),
     bot: botSidebar.bots.some((bot) => activeTaskId !== `/bots/${encodeURIComponent(bot.id)}` && hasUnread(bot.lastMessageAt, getLastReadAt("bot", bot.id)))
       || botSidebar.rooms.some((room) => activeTaskId !== `/bots/rooms/${encodeURIComponent(room.id)}` && hasUnread(room.lastMessageAt, getLastReadAt("room", room.id))),
-  }), [activeTaskId, botSidebar.bots, botSidebar.rooms, tasks]);
+  }), [activeTaskId, botSidebar.bots, botSidebar.rooms, tasks, unreadVersion]);
 
   const openTask = useCallback(
     (taskId: string) => {
@@ -1919,6 +1944,16 @@ const SidebarView = memo(function SidebarView({
     await patchProjectFromSidebar(project, `icon-color:${project.id}`, { iconColor });
   }
 
+  async function markProjectTasksRead(projectId: string) {
+    const { tasks: allTasks } = await getJson<{ tasks: TaskSummary[] }>("/api/tasks?archived=1&kind=all");
+    for (const task of allTasks) {
+      if (task.projectId === projectId && task.status !== "working") {
+        markRead("task", task.id, Date.parse(task.updatedAt));
+      }
+    }
+    setUnreadVersion((version) => version + 1);
+  }
+
   async function migrateProjectAction(project: ProjectDto, destinationPath: string) {
     if (actionBusyKey) throw new Error("別の操作が完了するまでお待ちください");
     setActionError(null);
@@ -2106,6 +2141,7 @@ const SidebarView = memo(function SidebarView({
           active={task.id === activeTaskId}
           bot={(task.botId ?? task.supervisorBotId) ? botsById.get(task.botId ?? task.supervisorBotId!) : undefined}
           pinned={pinnedTaskIds.has(task.id)}
+          unread={task.id !== activeTaskId && hasUnread(task.updatedAt, getLastReadAt("task", task.id))}
           mdUp={mdUp}
           actionBusy={actionBusyKey !== null}
           onOpenTask={openTask}
@@ -2116,7 +2152,7 @@ const SidebarView = memo(function SidebarView({
         />
       ))}
     </ul>
-  ), [actionBusyKey, activeTaskId, archiveTask, botsById, handleTaskDragStart, mdUp, openTask, pinnedTaskIds, togglePinned]);
+  ), [actionBusyKey, activeTaskId, archiveTask, botsById, handleTaskDragStart, mdUp, openTask, pinnedTaskIds, togglePinned, unreadVersion]);
 
   // `collapsed` はデスクトップ専用のレール表示（collapsedRail）用。body は
   // デスクトップでは !collapsed のときだけ描画され、モバイルドロワーは常に全幅なので、
@@ -2914,6 +2950,7 @@ const SidebarView = memo(function SidebarView({
           onClearIcon={() => void clearProjectIcon(currentProjectSettingsProject)}
           onSetIconColor={(color) => void setProjectIconColor(currentProjectSettingsProject, color)}
           onMigrate={(destinationPath) => migrateProjectAction(currentProjectSettingsProject, destinationPath)}
+          onMarkAllRead={() => markProjectTasksRead(currentProjectSettingsProject.id)}
           externalError={actionError}
         />
       )}
