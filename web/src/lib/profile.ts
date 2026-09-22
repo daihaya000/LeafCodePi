@@ -208,12 +208,26 @@ function removeConfiguredPaths(agentDir: string, leafcodeDir: string): void {
   for (const name of DATA_DIRECTORIES) rmSync(join(leafcodeDir, name), { recursive: true, force: true });
 }
 
+const BACKUP_DIRECTORY = "profile-backups";
+const BACKUP_SUFFIX = ".bak.lcp.gz";
+
+function latestProfileBackup(leafcodeDir: string): string | null {
+  const directory = join(leafcodeDir, BACKUP_DIRECTORY);
+  if (!existsSync(directory)) return null;
+  const name = readdirSync(directory, { withFileTypes: true })
+    .filter((entry) => entry.isFile() && entry.name.startsWith("leafcode-pi-profile-") && entry.name.endsWith(BACKUP_SUFFIX))
+    .map((entry) => entry.name)
+    .sort()
+    .at(-1);
+  return name ? join(directory, name) : null;
+}
+
 function writeProfileBackup(archive: Buffer, leafcodeDir: string): string {
-  const directory = join(leafcodeDir, "profile-backups");
+  const directory = join(leafcodeDir, BACKUP_DIRECTORY);
   mkdirSync(directory, { recursive: true, mode: 0o700 });
   const base = `leafcode-pi-profile-${new Date().toISOString().replaceAll(/[:.]/g, "-")}-${process.pid}`;
   for (let index = 0; ; index += 1) {
-    const path = join(directory, `${base}${index ? `-${index}` : ""}.bak.lcp.gz`);
+    const path = join(directory, `${base}${index ? `-${index}` : ""}${BACKUP_SUFFIX}`);
     try {
       writeFileSync(path, archive, { mode: 0o600, flag: "wx" });
       return path;
@@ -268,6 +282,19 @@ export function resetProfile(options: ProfileRoots = {}): ResetProfileSummary {
     }
     throw error;
   }
+}
+
+/** Whether at least one locally retained profile backup can be restored. */
+export function hasProfileBackup(options: ProfileRoots = {}): boolean {
+  return latestProfileBackup(roots(options).leafcodeDir) !== null;
+}
+
+/** Restore the newest locally retained profile backup. */
+export function restoreLatestProfile(options: ProfileRoots = {}): ResetProfileSummary {
+  const { agentDir, leafcodeDir } = roots(options);
+  const backupPath = latestProfileBackup(leafcodeDir);
+  if (!backupPath) throw new Error("復元できるバックアップがありません");
+  return { ...importProfile(readFileSync(backupPath), { agentDir, leafcodeDir }), backupPath };
 }
 
 /** Replace all profile-managed settings after validating the entire archive. */

@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import { Download, RotateCcw, Upload } from "lucide-react";
+import { useEffect, useState } from "react";
+import { Download, History, RotateCcw, Upload } from "lucide-react";
 import { Button, cx } from "@/components/ui";
 
 async function responseError(response: Response): Promise<string> {
@@ -10,9 +10,18 @@ async function responseError(response: Response): Promise<string> {
 }
 
 export function ProfileSettings() {
-  const [busy, setBusy] = useState<"export" | "import" | "reset" | null>(null);
+  const [busy, setBusy] = useState<"export" | "import" | "restore" | "reset" | null>(null);
+  const [hasBackup, setHasBackup] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    void fetch("/api/profile", { method: "HEAD", cache: "no-store" })
+      .then((response) => { if (active) setHasBackup(response.ok); })
+      .catch(() => { if (active) setHasBackup(false); });
+    return () => { active = false; };
+  }, []);
 
   const exportProfile = async () => {
     if (!window.confirm("認証情報とWebUIトークンを含む設定プロファイルを保存します。安全な場所に保管してください。")) return;
@@ -57,6 +66,23 @@ export function ProfileSettings() {
     }
   };
 
+  const restoreProfile = async () => {
+    if (!window.confirm("最新の設定バックアップを復元します。現在の設定を置き換えます。完了後にLeafCodePiを再起動してください。")) return;
+    setBusy("restore");
+    setError(null);
+    setMessage(null);
+    try {
+      const response = await fetch("/api/profile", { method: "PUT" });
+      if (!response.ok) throw new Error(await responseError(response));
+      const result = await response.json() as { fileCount?: number };
+      setMessage(`${result.fileCount ?? 0}件をバックアップから復元しました。LeafCodePiを再起動してください`);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "プロファイルの復元に失敗しました");
+    } finally {
+      setBusy(null);
+    }
+  };
+
   const resetProfile = async () => {
     if (!window.confirm("設定プロファイルを初期化します。旧設定はバックアップへ退避し、認証情報・追加エージェント・拡張などを削除します。完了後にLeafCodePiを再起動してください。")) return;
     setBusy("reset");
@@ -66,6 +92,7 @@ export function ProfileSettings() {
       const response = await fetch("/api/profile", { method: "DELETE" });
       if (!response.ok) throw new Error(await responseError(response));
       const result = await response.json() as { backupPath?: string };
+      setHasBackup(true);
       setMessage(`旧設定を${result.backupPath ?? "バックアップ"}へ退避し、初期化しました。LeafCodePiを再起動してください`);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "プロファイルの初期化に失敗しました");
@@ -101,6 +128,9 @@ export function ProfileSettings() {
             }}
           />
         </label>
+        <Button variant="secondary" busy={busy === "restore"} disabled={disabled || !hasBackup} onClick={() => void restoreProfile()}>
+          <History className="h-4 w-4" />復元
+        </Button>
         <Button variant="danger" busy={busy === "reset"} disabled={disabled} onClick={() => void resetProfile()}>
           <RotateCcw className="h-4 w-4" />初期化
         </Button>

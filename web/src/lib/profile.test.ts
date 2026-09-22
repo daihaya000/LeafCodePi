@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { exportProfile, importProfile, resetProfile } from "@/lib/profile";
+import { exportProfile, hasProfileBackup, importProfile, resetProfile, restoreLatestProfile } from "@/lib/profile";
 
 const roots: string[] = [];
 
@@ -84,22 +84,24 @@ describe("profile", () => {
     writeFileSync(join(targetData, "settings", "llama-server.json"), '{"value":"configured"}', "utf8");
     writeFileSync(join(targetData, "store.json"), '{"projects":["keep"]}', "utf8");
 
-    const expected = exportProfile({ agentDir: targetAgent, leafcodeDir: targetData }).summary;
-    const reset = resetProfile({ agentDir: targetAgent, leafcodeDir: targetData });
+    const options = { agentDir: targetAgent, leafcodeDir: targetData };
+    const expected = exportProfile(options).summary;
+    expect(hasProfileBackup(options)).toBe(false);
+    const reset = resetProfile(options);
 
     expect(reset).toMatchObject(expected);
     expect(reset.backupPath).toMatch(/\.bak\.lcp\.gz$/);
     expect(existsSync(reset.backupPath)).toBe(true);
+    expect(hasProfileBackup(options)).toBe(true);
     expect(existsSync(join(targetAgent, "AGENTS.md"))).toBe(false);
     expect(existsSync(join(targetAgent, "skills", "old.md"))).toBe(false);
     expect(existsSync(join(targetData, "web-settings.json"))).toBe(false);
     expect(existsSync(join(targetData, "settings", "llama-server.json"))).toBe(false);
     expect(readFileSync(join(targetData, "store.json"), "utf8")).toBe('{"projects":["keep"]}');
 
-    const restored = directory();
-    importProfile(readFileSync(reset.backupPath), { agentDir: join(restored, "agent"), leafcodeDir: join(restored, "data") });
-    expect(readFileSync(join(restored, "agent", "AGENTS.md"), "utf8")).toBe("old instructions");
-    expect(readFileSync(join(restored, "data", "web-settings.json"), "utf8")).toBe('{"version":1}');
+    expect(restoreLatestProfile(options)).toMatchObject(expected);
+    expect(readFileSync(join(targetAgent, "AGENTS.md"), "utf8")).toBe("old instructions");
+    expect(readFileSync(join(targetData, "web-settings.json"), "utf8")).toBe('{"version":1}');
   });
 
   it("imports profiles created before executable modes were stored", () => {

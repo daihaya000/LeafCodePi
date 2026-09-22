@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { exportProfile, importProfile, resetProfile } from "@/lib/profile";
+import { exportProfile, hasProfileBackup, importProfile, resetProfile, restoreLatestProfile } from "@/lib/profile";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -26,6 +26,17 @@ export async function GET() {
   }
 }
 
+export async function HEAD() {
+  try {
+    return new NextResponse(null, {
+      status: hasProfileBackup() ? 204 : 404,
+      headers: { "cache-control": "no-store" },
+    });
+  } catch {
+    return new NextResponse(null, { status: 500 });
+  }
+}
+
 export async function POST(request: NextRequest) {
   try {
     const form = await request.formData();
@@ -38,6 +49,17 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "プロファイルのインポートに失敗しました" },
+      { status: 400 },
+    );
+  }
+}
+
+export async function PUT() {
+  try {
+    return NextResponse.json({ ok: true, ...restoreLatestProfile() });
+  } catch (error) {
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : "プロファイルの復元に失敗しました" },
       { status: 400 },
     );
   }
