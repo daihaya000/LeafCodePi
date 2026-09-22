@@ -53,12 +53,14 @@ test("reads legacy sanitized state filenames", () => {
     const dir = join(cwd, "goals-loop");
     mkdirSync(dir, { recursive: true });
     writeFileSync(join(dir, "a_b.json"), JSON.stringify({
+      sessionId: "a/b",
       goal: "legacy state",
       acceptance: [],
       status: "paused",
       progress: [],
     }), "utf8");
     assert.equal(goalLoopTestSeams.readLoop(cwd, "a/b")?.goal, "legacy state");
+    assert.equal(goalLoopTestSeams.readLoop(cwd, "a?b"), null);
   } finally {
     rmSync(cwd, { recursive: true, force: true });
   }

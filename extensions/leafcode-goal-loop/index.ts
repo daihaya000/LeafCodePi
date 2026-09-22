@@ -528,7 +528,12 @@ function readLoop(cwd: string, id: string): GoalLoop | null {
   const legacyFile = legacyGoalStateFile(cwd, id);
   if (legacyFile === file) return null;
   try {
-    const legacy = hydrateLoop(JSON.parse(fs.readFileSync(legacyFile, "utf8")), cwd, id);
+    const legacyRaw = JSON.parse(fs.readFileSync(legacyFile, "utf8"));
+    const legacyRecord = asRecord(legacyRaw);
+    // A collided legacy filename must not resurrect another session's state.
+    // Pre-sessionId snapshots remain readable because their ownership is unknown.
+    if (typeof legacyRecord?.sessionId === "string" && legacyRecord.sessionId !== id) return null;
+    const legacy = hydrateLoop(legacyRaw, cwd, id);
     if (legacy) return legacy;
   } catch {
     // Missing/torn legacy state may still have a recoverable temp snapshot.
