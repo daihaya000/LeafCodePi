@@ -211,10 +211,7 @@ export function roomBotPrompt(room: RoomDto, bot: BotDto, participants: BotDto[]
       "Act on concrete requests: investigate with tools, state one brief assumption if needed, and proceed. Don't ask or delegate questions the repository, transcript, or tools can answer.",
       "Only if no deliverable is clear, ask one short question and finish with ROOM_ACTION: DONE.",
       "Use room_handoff for concrete follow-ups or Code waits: pass the target's exact participant id and concrete task, plus an optional Code request id. The server wakes them.",
-      "End your own contribution with exactly one standalone line, outside quotes and code fences:",
-      "ROOM_ACTION: NEXT <participant-id>  (ask that participant a concrete question in your prose; their id or exact name, nobody else)",
-      "ROOM_ACTION: DONE  (the discussion is complete or needs human input; this ends the conversation immediately)",
-      "Copy the id or name exactly as listed above. Do not emit a control line without a real contribution. The server, not a tool call, handles /discuss and hands over the floor.",
+      "End with one standalone line outside quotes/fences: ROOM_ACTION: NEXT <exact roster id or name> after a concrete question, or ROOM_ACTION: DONE when discussion is complete or needs user input. Copy the exact roster id/name; emit no control without a real contribution. The server, not a tool call, routes /discuss and hands off.",
       ...(turn.handoff ? [
         `Registered handoff: ${JSON.stringify({ from: turn.handoff.fromBotName, task: turn.handoff.task })}.`,
         "This is a work turn, not a chat turn: do the handed-off task now with your tools (code_session with its usual approval for repository work), then briefly report the actual outcome and end with ROOM_ACTION: DONE. Never claim success you did not verify.",
