@@ -2404,6 +2404,10 @@ test("manual compaction does not leave an active loop paused after aborting its 
     },
     ui: { setStatus: () => {}, setWidget: () => {}, notify: () => {} },
   };
+  const oldCtx = {
+    ...ctx,
+    sessionManager: { getSessionId: () => "manual-compact-old-session", getBranch: () => [] },
+  };
 
   try {
     goalLoopExtension({
@@ -2412,6 +2416,7 @@ test("manual compaction does not leave an active loop paused after aborting its 
       appendEntry() {},
       sendMessage() { sendCount += 1; busy = true; },
     });
+    await handlers.get("session_start")?.({}, oldCtx);
     await handlers.get("session_start")?.({}, ctx);
     const payload = Buffer.from(JSON.stringify({ goal: "demo", maxTurns: 3 })).toString("base64url");
     await commands.get("goal-start")?.(payload, ctx);
@@ -2428,6 +2433,10 @@ test("manual compaction does not leave an active loop paused after aborting its 
     const paused = JSON.parse(readFileSync(stateFile(), "utf8"));
     assert.equal(paused.status, "paused");
     assert.equal(paused.pauseReason, "user");
+
+    await handlers.get("session_compact")?.({ type: "session_compact", reason: "manual" }, oldCtx);
+    const unchanged = JSON.parse(readFileSync(stateFile(), "utf8"));
+    assert.equal(unchanged.status, "paused");
 
     await handlers.get("session_compact")?.({ type: "session_compact", reason: "manual" }, ctx);
     const resumed = JSON.parse(readFileSync(stateFile(), "utf8"));

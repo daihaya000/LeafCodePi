@@ -2168,14 +2168,22 @@ export default function (pi: ExtensionAPI): void {
     current.pendingAgentAborted = event.messages.some(isAbortedAssistant) || Boolean(ctx.signal?.aborted);
   });
 
-  pi.on("session_compact", async (event, _ctx) => {
+  pi.on("session_compact", async (event, ctx) => {
     const current = getRuntime();
-    if (current && event.reason === "manual") requeueAfterManualCompaction(current);
+    if (
+      current &&
+      current.key === runtimeKey(ctx.cwd, sessionId(ctx)) &&
+      event.reason === "manual"
+    ) requeueAfterManualCompaction(current);
   });
 
-  pi.on("session_compact_failed", async (event, _ctx) => {
+  pi.on("session_compact_failed", async (event, ctx) => {
     const current = getRuntime();
-    if (current && event.reason === "manual") requeueAfterManualCompaction(current);
+    if (
+      current &&
+      current.key === runtimeKey(ctx.cwd, sessionId(ctx)) &&
+      event.reason === "manual"
+    ) requeueAfterManualCompaction(current);
   });
 
   pi.on("agent_settled", async (_event, ctx) => {
