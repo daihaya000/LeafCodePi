@@ -2107,9 +2107,15 @@ export default function (pi: ExtensionAPI): void {
   // 待って自動継続する（schedule と prepareGoalLoopTurn が busy 中は送信しないため、
   // 追加送信とループの次ターンは混ざらない）。止めたいときは /goal-pause か Stop を使う。
   // ここでは同時に、その指示を以降のターンのプロンプトへ載せるために記録する。
-  pi.on("input", async (event) => {
+  pi.on("input", async (event, ctx) => {
     const current = getRuntime();
-    if (!current || event.source === "extension") return;
+    // Delayed input from a replaced session must not become an operator note
+    // on the runtime installed by the newer session_start.
+    if (
+      !current ||
+      current.key !== runtimeKey(ctx.cwd, sessionId(ctx)) ||
+      event.source === "extension"
+    ) return;
     // 拡張コマンドは input の前に処理されるが、/goal-* を追加指示として記録しない。
     if (/^\/(?:goal|goal-status|goal-pause|goal-resume|goal-stop|goal-complete|goal-compose)(?:\s|$)/i.test(event.text)) return;
     const loop = currentLoop(current);

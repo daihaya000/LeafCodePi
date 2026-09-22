@@ -3432,7 +3432,7 @@ test("stops a replaced runtime from double-sending queued work", async () => {
   }
 });
 
-test("old session shutdown does not pause a newer session in the same extension", async () => {
+test("old session events do not mutate a newer session in the same extension", async () => {
   const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-cross-session-shutdown-"));
   process.env.LEAFCODE_PI_DATA_DIR = cwd;
   const handlers = new Map();
@@ -3468,10 +3468,12 @@ test("old session shutdown does not pause a newer session in the same extension"
     await commands.get("goal-start")?.(payload, ctxB);
     await waitFor(() => JSON.parse(readFileSync(stateFile("cross-session-b"), "utf8")).status === "queued");
 
+    await handlers.get("input")?.({ text: "古い指示", source: "user" }, ctxA);
     await handlers.get("session_shutdown")?.({}, ctxA);
     const newer = JSON.parse(readFileSync(stateFile("cross-session-b"), "utf8"));
     assert.equal(newer.status, "queued");
     assert.equal(newer.pauseReason, "");
+    assert.equal(newer.notes, undefined);
   } finally {
     await handlers.get("session_shutdown")?.({}, ctxB);
     rmSync(cwd, { recursive: true, force: true });
