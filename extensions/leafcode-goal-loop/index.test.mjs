@@ -3219,6 +3219,49 @@ test("late turn_end with a later turnIndex still recovers after mid-turn pause",
   }
 });
 
+test("clears an obsolete awaiting turn when durable state is replaced", async () => {
+  const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-obsolete-awaiting-"));
+  process.env.LEAFCODE_PI_DATA_DIR = cwd;
+  const handlers = new Map();
+  const commands = new Map();
+  let sendCount = 0;
+  const stateFile = () => join(cwd, "goals-loop", "obsolete-awaiting-session.json");
+  const ctx = {
+    cwd,
+    mode: "rpc",
+    hasUI: false,
+    isIdle: () => true,
+    hasPendingMessages: () => false,
+    abort: () => {},
+    sessionManager: { getSessionId: () => "obsolete-awaiting-session", getBranch: () => [] },
+    ui: { setStatus: () => {}, setWidget: () => {}, notify: () => {} },
+  };
+
+  try {
+    goalLoopExtension({
+      on(name, handler) { handlers.set(name, handler); },
+      registerCommand(name, options) { commands.set(name, options.handler); },
+      appendEntry() {},
+      sendMessage() { sendCount += 1; },
+    });
+    await handlers.get("session_start")?.({}, ctx);
+    const payload = Buffer.from(JSON.stringify({ goal: "demo", maxTurns: 2 })).toString("base64url");
+    await commands.get("goal-start")?.(payload, ctx);
+    await waitFor(() => JSON.parse(readFileSync(stateFile(), "utf8")).status === "running");
+
+    const replaced = JSON.parse(readFileSync(stateFile(), "utf8"));
+    replaced.status = "paused";
+    replaced.pauseReason = "user";
+    writeFileSync(stateFile(), JSON.stringify(replaced), "utf8");
+    await handlers.get("agent_settled")?.({}, ctx);
+    await commands.get("goal-resume")?.("", ctx);
+    await waitFor(() => sendCount === 2);
+  } finally {
+    await handlers.get("session_shutdown")?.({}, ctx);
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
 test("applies a result that lands after a turn_timeout pause instead of losing it", async () => {
   const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-turn-timeout-"));
   process.env.LEAFCODE_PI_DATA_DIR = cwd;

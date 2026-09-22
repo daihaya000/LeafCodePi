@@ -1093,6 +1093,14 @@ async function settleAwaitingTurn(runtime: Runtime): Promise<void> {
   }
   const loop = currentLoop(runtime);
   if (!loop || loop.status !== "running") {
+    // A state replacement can make the durable loop non-running before this
+    // delayed settlement arrives. Do not leave the runtime awaiting forever:
+    // /goal-resume and the watchdog must be able to arm the next turn.
+    runtime.awaitingTurn = false;
+    runtime.awaitingTurnIndex = undefined;
+    runtime.pausedTurnIndex = undefined;
+    if (runtime.timeoutTimer) clearTimeout(runtime.timeoutTimer);
+    runtime.timeoutTimer = undefined;
     clearPendingAgentRun(runtime);
     return;
   }
@@ -2293,7 +2301,9 @@ export default function (pi: ExtensionAPI): void {
       if (loop.status === "queued" || loop.status === "verifying_completed") schedule(current);
       return;
     }
-    if (current.awaitingTurn && loop.status === "running") {
+    if (current.awaitingTurn) {
+      // settleAwaitingTurn also clears a stale await when durable state was
+      // replaced before this delayed event arrived.
       await settleAwaitingTurn(current);
       return;
     }
