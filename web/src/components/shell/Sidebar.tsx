@@ -102,16 +102,6 @@ function sameTaskSummary(left: TaskSummary, right: TaskSummary): boolean {
     left.goalLoopSummary?.turnCount === right.goalLoopSummary?.turnCount;
 }
 
-const normalizedTaskTitleCache = new WeakMap<TaskSummary, { title: string; normalized: string }>();
-
-function normalizedTaskTitle(task: TaskSummary): string {
-  const cached = normalizedTaskTitleCache.get(task);
-  if (cached?.title === task.title) return cached.normalized;
-  const normalized = task.title.toLocaleLowerCase();
-  normalizedTaskTitleCache.set(task, { title: task.title, normalized });
-  return normalized;
-}
-
 export function sameTaskList(a: TaskSummary[], b: TaskSummary[]): boolean {
   if (a.length !== b.length) return false;
   for (let index = 0; index < a.length; index += 1) {
@@ -1725,12 +1715,10 @@ const SidebarView = memo(function SidebarView({
   const normalizedQuery = query.trim().toLocaleLowerCase();
   const matchesCodeSearch = (value: string) =>
     !normalizedQuery || value.toLocaleLowerCase().includes(normalizedQuery);
-  const matchesTaskSearch = (task: TaskSummary) =>
-    !normalizedQuery || normalizedTaskTitle(task).includes(normalizedQuery);
   const filteredTasks = (groupName: string, groupTasks: TaskSummary[]) =>
     matchesCodeSearch(groupName)
       ? groupTasks
-      : groupTasks.filter(matchesTaskSearch);
+      : groupTasks.filter((task) => matchesCodeSearch(task.title));
   const visibleNoProjectTasks = filteredTasks(NO_PROJECT_NAME, noProjectTasks);
   const matchingTasksByProject = normalizedQuery ? new Map<string, TaskSummary[]>() : null;
   const visibleProjects = orderedProjects.filter((project) => {
@@ -1738,7 +1726,7 @@ const SidebarView = memo(function SidebarView({
 
     let matches: TaskSummary[] | null = null;
     for (const task of tasksByProject.get(project.id) ?? []) {
-      if (!matchesTaskSearch(task)) continue;
+      if (!matchesCodeSearch(task.title)) continue;
       (matches ??= []).push(task);
     }
     if (!matches) return false;
@@ -1751,7 +1739,7 @@ const SidebarView = memo(function SidebarView({
       visibleArchivedGroups.push(group);
       continue;
     }
-    const matchingTasks = group.tasks.filter(matchesTaskSearch);
+    const matchingTasks = group.tasks.filter((task) => matchesCodeSearch(task.title));
     if (matchingTasks.length > 0) visibleArchivedGroups.push({ ...group, tasks: matchingTasks });
   }
   const visibleArchivedProjects = archivedProjects.filter((project) => matchesCodeSearch(project.name));
