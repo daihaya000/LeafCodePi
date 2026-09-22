@@ -17,6 +17,7 @@ import {
   normalizeAcceptance,
   normalizeNotes,
   parseCooldownSeconds,
+  safeIdPart,
 } from "./index.ts";
 import goalLoopExtensionImplementation, { goalLoopTestSeams } from "./index.ts";
 
@@ -41,6 +42,26 @@ test("matches LeafCode turn-budget and cooldown normalization", () => {
     goal: "demo", maxTurns: 0, cooldownSeconds: 0, forceFullRun: false, acceptance: [],
   });
   assert.equal(clampCooldownSeconds(-1), 0);
+  assert.equal(safeIdPart("safe_id"), "safe_id");
+  assert.notEqual(safeIdPart("a/b"), safeIdPart("a?b"));
+});
+
+test("reads legacy sanitized state filenames", () => {
+  const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-legacy-path-"));
+  process.env.LEAFCODE_PI_DATA_DIR = cwd;
+  try {
+    const dir = join(cwd, "goals-loop");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "a_b.json"), JSON.stringify({
+      goal: "legacy state",
+      acceptance: [],
+      status: "paused",
+      progress: [],
+    }), "utf8");
+    assert.equal(goalLoopTestSeams.readLoop(cwd, "a/b")?.goal, "legacy state");
+  } finally {
+    rmSync(cwd, { recursive: true, force: true });
+  }
 });
 
 test("extracts the last valid structured result", () => {

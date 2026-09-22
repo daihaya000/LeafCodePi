@@ -9,6 +9,7 @@
  * - `/goal-compose` は Goal / acceptance / maxTurns / 完走モードを設定する Composer
  */
 
+import { createHash } from "node:crypto";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -201,9 +202,18 @@ function runtimeKey(cwd: string, id: string): string {
   return `${cwd}\0${id}`;
 }
 
+function legacySafeIdPart(value: string): string {
+  return value.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 120) || "session";
+}
+
 export function safeIdPart(value: string): string {
-  const safe = value.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 120);
-  return safe || "session";
+  const sanitized = value.replace(/[^a-zA-Z0-9_-]/g, "_");
+  if (sanitized === value && sanitized.length <= 120) return sanitized || "session";
+  // Replacing path separators used to make distinct legacy session IDs share a
+  // state file (for example, "a/b" and "a?b"). Keep a readable prefix while
+  // adding a stable digest so every raw ID has an isolated state file.
+  const digest = createHash("sha256").update(value).digest("hex").slice(0, 16);
+  return `${sanitized.slice(0, 100) || "session"}-${digest}`;
 }
 
 /**
@@ -224,6 +234,11 @@ function goalsDir(): string {
 export function goalStateFile(cwd: string, id: string): string {
   void cwd;
   return path.join(goalsDir(), `${safeIdPart(id)}.json`);
+}
+
+function legacyGoalStateFile(cwd: string, id: string): string {
+  void cwd;
+  return path.join(goalsDir(), `${legacySafeIdPart(id)}.json`);
 }
 
 function isoNow(): string {
@@ -503,7 +518,20 @@ function readLoop(cwd: string, id: string): GoalLoop | null {
   } catch {
     // Missing/torn main file — fall through to temp recovery.
   }
-  return recoverLoopFromTemp(file, cwd, id);
+  const recovered = recoverLoopFromTemp(file, cwd, id);
+  if (recovered) return recovered;
+
+  // Keep sessions created before collision-resistant filenames readable. Their
+  // next successful state write migrates them to the new isolated filename.
+  const legacyFile = legacyGoalStateFile(cwd, id);
+  if (legacyFile === file) return null;
+  try {
+    const legacy = hydrateLoop(JSON.parse(fs.readFileSync(legacyFile, "utf8")), cwd, id);
+    if (legacy) return legacy;
+  } catch {
+    // Missing/torn legacy state may still have a recoverable temp snapshot.
+  }
+  return recoverLoopFromTemp(legacyFile, cwd, id);
 }
 
 function cleanupOrphanGoalTemps(file: string): void {
