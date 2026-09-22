@@ -35,6 +35,7 @@ export const MACOS_BROWSER_CONFIGS: ChromiumBrowserConfig[] = [
 
 export const LINUX_BROWSER_CONFIGS: ChromiumBrowserConfig[] = [
 	{ id: "chromium", name: "Chromium", baseDir: ".config/chromium", secretToolApp: "chromium" },
+	{ id: "chromium", name: "Chromium (Flatpak)", baseDir: ".var/app/org.chromium.Chromium/config/chromium", secretToolApp: "chromium" },
 	{ id: "chrome", name: "Chrome", baseDir: ".config/google-chrome", secretToolApp: "chrome" },
 	{ id: "brave", name: "Brave", baseDir: ".config/BraveSoftware/Brave-Browser", secretToolApp: "brave" },
 	{ id: "edge", name: "Edge", baseDir: ".config/microsoft-edge", secretToolApp: "microsoft-edge" },

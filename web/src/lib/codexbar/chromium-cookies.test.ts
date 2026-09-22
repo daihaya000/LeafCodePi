@@ -79,6 +79,7 @@ describe("listChromiumBrowserRoots", () => {
     const roots = listChromiumBrowserRoots("linux", home, {});
     expect(roots.map((r) => r.userData)).toEqual([
       join(home, ".config/chromium"),
+      join(home, ".var/app/org.chromium.Chromium/config/chromium"),
       join(home, ".config/google-chrome"),
       join(home, ".config/BraveSoftware/Brave-Browser"),
       join(home, ".config/microsoft-edge"),
