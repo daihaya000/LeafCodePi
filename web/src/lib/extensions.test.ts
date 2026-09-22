@@ -145,7 +145,9 @@ describe("listExtensions / setExtensionEnabled", () => {
     const listed = listExtensions(agent);
     expectNames(listed.extensions, ["one", "ponytail"]);
     assert.equal(listed.extensions.every((e) => e.enabled), true);
+    assert.equal(listed.extensions.every((e) => e.source === "user"), true);
     assert.equal(listed.extensionsDir, join(agent, "extensions"));
+    assert.equal(listed.bundledExtensionsDir, null);
   });
 
   it("hides a retired extension from the extension list", () => {
@@ -225,7 +227,9 @@ describe("listExtensions / setExtensionEnabled", () => {
 
     const listed = listExtensions(agent, { bundledDir: bundledRoot });
     assert.equal(listed.extensions.find((e) => e.name === "leafcode-goal-loop")?.filePath, join(bundledRoot, "leafcode-goal-loop", "index.js"));
+    assert.equal(listed.extensions.find((e) => e.name === "leafcode-goal-loop")?.source, "bundled");
     assert.notEqual(listed.extensions.find((e) => e.name === "leafcode-goal-loop")?.filePath, staleCopy);
+    assert.equal(listed.bundledExtensionsDir, bundledRoot);
     expectNames(listed.extensions, ["leafcode-goal-loop", "one", "other"]);
   });
 
@@ -269,6 +273,7 @@ describe("listExtensions / setExtensionEnabled", () => {
 
     const listed = listExtensions(agent);
     assert.equal(listed.extensions.find((e) => e.name === "ponytail")?.filePath, join(pkgDir, "pi-extension", "index.js"));
+    assert.equal(listed.extensions.find((e) => e.name === "ponytail")?.source, "user");
     expectNames(listed.extensions, ["one", "ponytail"]);
   });
 

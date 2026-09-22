@@ -25,9 +25,11 @@ import {
   statSync,
   writeFileSync,
 } from "node:fs";
-import { basename, dirname, isAbsolute, join, resolve } from "node:path";
+import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { resolvePiAgentDir } from "@/lib/agents-md";
 import { dataDir } from "@/lib/paths";
+
+export type ExtensionSource = "user" | "bundled";
 
 export type ExtensionDto = {
   id: string;
@@ -35,6 +37,7 @@ export type ExtensionDto = {
   description?: string;
   enabled: boolean;
   filePath: string;
+  source: ExtensionSource;
   /** WebUI が機能依存している拡張は無効化できない。 */
   required: boolean;
 };
@@ -42,6 +45,8 @@ export type ExtensionDto = {
 export type ExtensionListResult = {
   extensions: ExtensionDto[];
   extensionsDir: string;
+  /** Repository extensions dir, when available. */
+  bundledExtensionsDir: string | null;
 };
 
 type ExtensionsState = {
@@ -354,6 +359,11 @@ function isDirectory(path: string): boolean {
   }
 }
 
+function isWithinDirectory(filePath: string, directory: string): boolean {
+  const relativePath = relative(resolve(directory), resolve(filePath));
+  return relativePath === "" || (!relativePath.startsWith("..") && !isAbsolute(relativePath));
+}
+
 export type ListExtensionsOptions = {
   /** Override the extensions dir (tests). */
   extensionsDir?: string;
@@ -370,12 +380,14 @@ export function listExtensions(
   options?: ListExtensionsOptions,
 ): ExtensionListResult {
   const dir = options?.extensionsDir ?? extensionsDir(agentDir);
+  const bundledDir = options?.bundledDir === null
+    ? null
+    : options?.bundledDir ?? bundledExtensionsDir();
   const state = readExtensionsState();
   const byName = new Map<string, DiscoveredEntry>();
   // Bundled repo extensions first: they own their names and must not be
   // shadowed by stale copies in ~/.pi or by settings.json packages.
-  const bundled =
-    options?.bundledDir === null ? [] : options?.bundledDir ? discoverExtensionsInDir(options.bundledDir) : bundledExtensionEntries();
+  const bundled = bundledDir ? discoverExtensionsInDir(bundledDir) : [];
   for (const entry of bundled) {
     if (!byName.has(entry.name)) byName.set(entry.name, entry);
   }
@@ -399,11 +411,12 @@ export function listExtensions(
         description: entry.description,
         enabled: isWebUiRequiredExtension(entry.name) || !isExtensionDisabled(entry.name, state),
         filePath: entry.filePath,
+        source: bundledDir && isWithinDirectory(entry.filePath, bundledDir) ? "bundled" : "user",
         required: isWebUiRequiredExtension(entry.name),
       }),
     )
     .sort((a, b) => a.name.localeCompare(b.name, "en"));
-  return { extensions, extensionsDir: dir };
+  return { extensions, extensionsDir: dir, bundledExtensionsDir: bundledDir };
 }
 
 export function setExtensionEnabled(
