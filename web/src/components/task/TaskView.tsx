@@ -2063,11 +2063,16 @@ export const TaskView = memo(function TaskView({
       labelMutationRef.current += 1;
     }
     if (working || !task?.sessionId || task.label || !hasCompletedTitleTurn(messages)) return;
-    const lastUserMessage = [...messages].reverse().find(
+    const userMessages = messages.filter(
       (message) => message.role === "user" && !isHangRetryUserMessage(message),
     );
-    if (!lastUserMessage || labelUpdatedTurnRef.current === lastUserMessage.id) return;
-    labelUpdatedTurnRef.current = lastUserMessage.id;
+    const firstUserMessage = userMessages[0];
+    if (
+      userMessages.length !== 1 ||
+      !firstUserMessage ||
+      labelUpdatedTurnRef.current === firstUserMessage.id
+    ) return;
+    labelUpdatedTurnRef.current = firstUserMessage.id;
     const mutation = ++labelMutationRef.current;
     void sendJson<{ label?: string }>(`/api/tasks/${taskId}/title`, { labelOnly: true })
       .then((result) => {
