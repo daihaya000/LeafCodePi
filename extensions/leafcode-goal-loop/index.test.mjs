@@ -417,6 +417,14 @@ test("startLoop writeLoop failure does not schedule or claim a started loop", as
     await commands.get("goal-start")?.(payload, ctx);
     await waitFor(() => sendCount === 1 && existsSync(stateFile()));
     assert.equal(JSON.parse(readFileSync(stateFile(), "utf8")).status, "running");
+
+    goalLoopTestSeams.setWriteLoopFail(true);
+    const replacement = Buffer.from(JSON.stringify({ goal: "new goal", maxTurns: 2 })).toString("base64url");
+    await commands.get("goal-start")?.(replacement, ctx);
+    const preserved = JSON.parse(readFileSync(stateFile(), "utf8"));
+    assert.equal(preserved.goal, "demo");
+    assert.equal(preserved.status, "running");
+    assert.equal(sendCount, 1);
   } finally {
     goalLoopTestSeams.setWriteLoopFail(false);
     await handlers.get("session_shutdown")?.({}, ctx);
