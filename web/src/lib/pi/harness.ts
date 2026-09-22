@@ -6946,7 +6946,7 @@ export async function goalLoopCommand(
   if (
     (input.action === "start" || input.action === "resume") &&
     isLiveBusyForReplace(live) &&
-    !isActiveGoalLoopSession(live.session)
+    !isLiveGoalLoopSession(live.session)
   ) {
     throw Object.assign(new Error("タスクが実行中のため Goal Loop を開始できません"), {
       status: 409,
@@ -7029,7 +7029,7 @@ export async function goalLoopCommand(
   if (
     (input.action === "start" || input.action === "resume") &&
     isLiveBusyForReplace(latest) &&
-    !isActiveGoalLoopSession(latest.session)
+    !isLiveGoalLoopSession(latest.session)
   ) {
     rollbackStaleGoalPrepare(latest);
     throw Object.assign(new Error("タスクが実行中のため Goal Loop を開始できません"), {
@@ -9295,6 +9295,17 @@ export function isLiveBusyForReplace(live: {
   session: { isStreaming?: boolean; isCompacting?: boolean };
 }): boolean {
   return Boolean(live.promptActive || live.session.isStreaming || live.session.isCompacting);
+}
+
+/** A Goal Loop can replace its own live or paused run; other busy work still blocks it. */
+export function isTaskRuntimeBusyForGoalLoopStart(taskId: string): boolean {
+  const task = getTask(taskId);
+  const live = state().live.get(taskId);
+  const loop = task
+    ? readGoalLoopState(task.directory, live?.session.sessionId ?? task.sessionId)
+    : null;
+  if (!isGoalLoopSessionOwned(loop)) return isTaskRuntimeBusyForDestructiveEdit(taskId);
+  return Boolean(live && isLiveBusyForReplace(live) && !isLiveGoalLoopSession(live.session));
 }
 
 /**

@@ -7,12 +7,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const state = vi.hoisted(() => ({
   promptTask: vi.fn(),
   goalLoopCommand: vi.fn(),
-  isTaskRuntimeBusyForDestructiveEdit: vi.fn(() => false),
+  isTaskRuntimeBusyForGoalLoopStart: vi.fn(() => false),
 }));
 vi.mock("../../../../../lib/pi/harness", () => ({
   promptTask: state.promptTask,
   goalLoopCommand: state.goalLoopCommand,
-  isTaskRuntimeBusyForDestructiveEdit: state.isTaskRuntimeBusyForDestructiveEdit,
+  isTaskRuntimeBusyForGoalLoopStart: state.isTaskRuntimeBusyForGoalLoopStart,
   jsonError: (error: Error) => ({ error: error.message, status: 500 }),
 }));
 
@@ -40,8 +40,8 @@ describe("POST /api/bots/[id]/prompt", () => {
   afterEach(() => {
     state.promptTask.mockReset();
     state.goalLoopCommand.mockReset();
-    state.isTaskRuntimeBusyForDestructiveEdit.mockReset();
-    state.isTaskRuntimeBusyForDestructiveEdit.mockReturnValue(false);
+    state.isTaskRuntimeBusyForGoalLoopStart.mockReset();
+    state.isTaskRuntimeBusyForGoalLoopStart.mockReturnValue(false);
     vi.unstubAllEnvs();
     rmSync(root, { recursive: true, force: true });
   });

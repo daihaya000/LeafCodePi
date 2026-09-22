@@ -8,7 +8,7 @@ const mocks = vi.hoisted(() => ({
   resolveAutoModel: vi.fn(),
   goalLoopCommand: vi.fn(),
   goalLoopState: vi.fn(),
-  isTaskRuntimeBusyForDestructiveEdit: vi.fn(() => false),
+  isTaskRuntimeBusyForGoalLoopStart: vi.fn(() => false),
   setTaskAgent: vi.fn(),
   setTaskModel: vi.fn(),
   setTaskThinkingLevel: vi.fn(),
@@ -33,7 +33,7 @@ vi.mock("@/lib/pi/bot-code-relay", () => ({ botIdForCodeTask: mocks.botIdForCode
 vi.mock("@/lib/pi/harness", () => ({
   goalLoopCommand: mocks.goalLoopCommand,
   goalLoopState: mocks.goalLoopState,
-  isTaskRuntimeBusyForDestructiveEdit: mocks.isTaskRuntimeBusyForDestructiveEdit,
+  isTaskRuntimeBusyForGoalLoopStart: mocks.isTaskRuntimeBusyForGoalLoopStart,
   jsonError: mocks.jsonError,
   resolveAutoModel: mocks.resolveAutoModel,
   setTaskAgent: mocks.setTaskAgent,
@@ -93,12 +93,12 @@ describe("POST /api/tasks/[id]/goal-loop", () => {
     mocks.resolveAutoModel.mockReset();
     mocks.goalLoopCommand.mockReset();
     mocks.goalLoopState.mockReset();
-    mocks.isTaskRuntimeBusyForDestructiveEdit.mockReset();
+    mocks.isTaskRuntimeBusyForGoalLoopStart.mockReset();
     mocks.setTaskAgent.mockReset();
     mocks.setTaskModel.mockReset();
     mocks.setTaskThinkingLevel.mockReset();
     mocks.validateTaskModelSelection.mockReset();
-    mocks.isTaskRuntimeBusyForDestructiveEdit.mockReturnValue(false);
+    mocks.isTaskRuntimeBusyForGoalLoopStart.mockReturnValue(false);
     mocks.getTask.mockImplementation(() => task);
     mocks.readSessionConversation.mockReturnValue([
       { role: "user", text: "調査する" },
@@ -262,7 +262,7 @@ describe("POST /api/tasks/[id]/goal-loop", () => {
   });
 
   it("refuses to mutate route when the task is already busy", async () => {
-    mocks.isTaskRuntimeBusyForDestructiveEdit.mockReturnValue(true);
+    mocks.isTaskRuntimeBusyForGoalLoopStart.mockReturnValue(true);
 
     const response = await POST(
       request({
