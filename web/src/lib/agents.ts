@@ -16,7 +16,7 @@ import YAML from "yaml";
 import { resolvePiAgentDir } from "@/lib/agents-md";
 import { readPiSettings } from "@/lib/extensions";
 import { bundledExtensionsDir, resolvePackageDir } from "@/lib/extensions";
-import { AUTO_AGENT_VALUE } from "@/lib/default-agent";
+import { AUTO_AGENT_VALUE, DEFAULT_AGENT } from "@/lib/default-agent";
 import { isThinkingLevel } from "@/lib/thinking-levels";
 import type { ThinkingLevel } from "@/lib/types";
 
@@ -276,16 +276,17 @@ export function listAgents(agentDir = resolvePiAgentDir()): AgentListResult {
     for (const entry of discoverInDir(dir, source)) {
       if (entry.name === AUTO_AGENT_VALUE) continue;
       if (!byName.has(entry.name)) {
-        const rawOverrideModel = overrides[entry.name]?.model;
+        const override = overrides[entry.name];
+        const rawOverrideModel = override?.model;
         const overrideModel = typeof rawOverrideModel === "string" ? rawOverrideModel.trim() || undefined : undefined;
         const model = source === "user"
           ? entry.model ?? overrideModel
           : overrideModel ?? entry.model;
-        const overrideThinking = overrides[entry.name]?.thinking;
+        const overrideThinking = override?.thinking;
         const thinking = source === "user"
           ? entry.thinking ?? overrideThinking
           : overrideThinking ?? entry.thinking;
-        const rawOverrideTools = overrides[entry.name]?.tools;
+        const rawOverrideTools = override?.tools;
         const overrideTools = Array.isArray(rawOverrideTools)
           ? rawOverrideTools.filter((tool): tool is string => typeof tool === "string")
           : rawOverrideTools === false
@@ -300,7 +301,8 @@ export function listAgents(agentDir = resolvePiAgentDir()): AgentListResult {
           id: entry.name,
           name: entry.name,
           description: entry.description,
-          enabled: overrides[entry.name]?.disabled !== true,
+          // Auto is represented separately; only the default agent starts enabled.
+          enabled: override?.disabled === false || (override?.disabled !== true && entry.name === DEFAULT_AGENT),
           ...(model ? { model } : {}),
           ...(thinking !== undefined ? { thinking } : {}),
           filePath: entry.filePath,
@@ -379,8 +381,12 @@ export function setAgentEnabled(name: string, enabled: boolean, agentDir = resol
   return updateAgentOverride(
     name,
     (override) => {
-      if (enabled) delete override.disabled;
-      else override.disabled = true;
+      if (enabled) {
+        if (name.trim() === DEFAULT_AGENT) delete override.disabled;
+        else override.disabled = false;
+      } else {
+        override.disabled = true;
+      }
     },
     agentDir,
   );

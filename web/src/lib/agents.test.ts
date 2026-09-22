@@ -73,9 +73,20 @@ describe("listAgents / setAgentEnabled", () => {
     const byName = new Map(result.agents.map((a) => [a.name, a]));
     assert.equal(byName.has("scout"), true);
     assert.equal(byName.has("worker"), true);
-    assert.equal(byName.get("scout")?.enabled, true);
+    assert.equal(byName.get("scout")?.enabled, false);
+    assert.equal(byName.get("worker")?.enabled, false);
     assert.equal(byName.get("scout")?.systemPrompt, "Review the diff.");
     assert.equal(result.agentsDir, join(agentDir, "agents"));
+  });
+
+  it("keeps only default enabled by default", () => {
+    fixture();
+    writeFileSync(join(agentDir, "agents", "default.md"), agentNamed("default"), "utf8");
+
+    const byName = new Map(listAgents(agentDir).agents.map((agent) => [agent.name, agent]));
+    assert.equal(byName.get("default")?.enabled, true);
+    assert.equal(byName.get("scout")?.enabled, false);
+    assert.equal(byName.get("worker")?.enabled, false);
   });
 
   it("user agents override package same-name", () => {
@@ -98,7 +109,7 @@ describe("listAgents / setAgentEnabled", () => {
     setAgentEnabled("scout", true, agentDir);
     assert.equal(listAgents(agentDir).agents.find((a) => a.name === "scout")?.enabled, true);
     const raw2 = JSON.parse(readFileSync(join(agentDir, "settings.json"), "utf8"));
-    assert.equal(raw2.subagents?.agentOverrides?.scout, undefined);
+    assert.deepEqual(raw2.subagents?.agentOverrides?.scout, { disabled: false });
   });
 
   it("prioritizes enabled agents and persists a package model override", () => {
@@ -108,9 +119,11 @@ describe("listAgents / setAgentEnabled", () => {
 
     const listed = listAgents(agentDir);
     const names = listed.agents.map((agent) => agent.name);
-    assert.equal(names.at(-1), "researcher");
-    assert.equal(listed.agents.slice(0, -1).every((agent) => agent.enabled), true);
-    assert.equal(listed.agents.at(-1)?.enabled, false);
+    assert.equal(names.at(-1), "worker");
+    assert.equal(
+      listed.agents.filter((agent) => agent.name !== "default").every((agent) => !agent.enabled),
+      true,
+    );
     assert.equal(listed.agents.find((agent) => agent.name === "worker")?.model, "anthropic/claude");
 
     const raw = JSON.parse(readFileSync(join(agentDir, "settings.json"), "utf8"));
@@ -157,6 +170,7 @@ describe("listAgents / setAgentEnabled", () => {
       (parseAgentFile(readFileSync(join(agentDir, "agents", "scout.md"), "utf8")) as Record<string, unknown>).tools,
       "read, write",
     );
+    setAgentEnabled("worker", true, agentDir);
     setAgentTools("worker", ["read", " write ", "read"], agentDir);
     assert.deepEqual(listAgents(agentDir).agents.find((agent) => agent.name === "worker")?.tools, ["read", "write"]);
     assert.deepEqual(loadAgentDefinition("worker", agentDir)?.tools, ["read", "write"]);
@@ -334,6 +348,7 @@ describe("loadAgentDefinition / buildAgentResourceOptions", () => {
       agentNamed("scout"),
       "utf8",
     );
+    setAgentEnabled("scout", true, agentDir);
     const def = loadAgentDefinition("scout", agentDir);
     assert.ok(def);
     assert.equal(def.name, "scout");
@@ -367,6 +382,7 @@ describe("loadAgentDefinition / buildAgentResourceOptions", () => {
       ].join("\n"),
       "utf8",
     );
+    setAgentEnabled("helper", true, agentDir);
     const def = loadAgentDefinition("helper", agentDir);
     assert.ok(def);
     assert.equal(def.systemPromptMode, "append");
@@ -383,16 +399,19 @@ describe("loadAgentDefinition / buildAgentResourceOptions", () => {
   it("applies a frontmatter tool allowlist, including an empty one", () => {
     fixture();
     createAgent({ name: "reader", tools: ["read", "grep"], systemPrompt: "Read only." }, agentDir);
+    setAgentEnabled("reader", true, agentDir);
     const options = buildAgentResourceOptions(loadAgentDefinition("reader", agentDir)!);
     assert.deepEqual(options.tools, ["read", "grep"]);
 
     createAgent({ name: "blocked", tools: [], systemPrompt: "No tools." }, agentDir);
+    setAgentEnabled("blocked", true, agentDir);
     assert.deepEqual(buildAgentResourceOptions(loadAgentDefinition("blocked", agentDir)!).tools, []);
   });
 
   it("omits prompt overrides when the body is empty", () => {
     fixture();
     createAgent({ name: "silent", systemPrompt: "" }, agentDir);
+    setAgentEnabled("silent", true, agentDir);
     const def = loadAgentDefinition("silent", agentDir);
     assert.ok(def);
     assert.equal(def.systemPrompt, "");
@@ -409,6 +428,7 @@ describe("loadAgentDefinition / buildAgentResourceOptions", () => {
       (error: unknown) => error instanceof AgentsError && error.code === "invalid-prompt",
     );
     writeFileSync(join(agentDir, "agents", "legacy.md"), `---\nname: legacy\n---\n${oversized}\n`, "utf8");
+    setAgentEnabled("legacy", true, agentDir);
     const legacy = loadAgentDefinition("legacy", agentDir);
     assert.ok(legacy);
     assert.equal(Array.from(legacy.systemPrompt).length, MAX_AGENT_SYSTEM_PROMPT_CHARS);
@@ -426,6 +446,7 @@ describe("loadAgentDefinition / buildAgentResourceOptions", () => {
       `---\nname: legacy-desc\ndescription: ${oversizedDescription}\n---\nbody\n`,
       "utf8",
     );
+    setAgentEnabled("legacy-desc", true, agentDir);
     const legacy = loadAgentDefinition("legacy-desc", agentDir);
     assert.ok(legacy);
     assert.equal(Array.from(legacy.description ?? "").length, MAX_AGENT_DESCRIPTION_CHARS);
@@ -446,6 +467,7 @@ describe("loadAgentDefinition / buildAgentResourceOptions", () => {
       agentNamed("delegate"),
       "utf8",
     );
+    setAgentEnabled("delegate", true, agentDir);
     const delegate = buildAgentResourceOptions(loadAgentDefinition("delegate", agentDir)!);
     assert.ok(delegate.appendSystemPrompt?.[0]?.includes("Review the diff."));
     assert.equal(delegate.noContextFiles, undefined);
