@@ -241,6 +241,13 @@ describe("shared room context", () => {
     expect(prompt).toContain("Promises aren't execution");
     expect(prompt).toContain("Starting/running/ready means wait—don't duplicate or report done.");
   });
+  it("instructs handoff recipients to act and report verified results", () => {
+    const prompt = roomBotPrompt(room(), bots[0], bots, "Check the delegated result", user.id, {
+      participants: bots, turn: 2, maxTurns: 6, handoff: { fromBotName: bots[1].name, task: "Check the result" },
+    });
+    expect(prompt).toContain("Registered handoff:");
+    expect(prompt).toContain("Do the handed-off task now with tools; use code_session with approval for repo work. Report verified results briefly, then ROOM_ACTION: DONE; never claim unverified success.");
+  });
   it("includes every parallel Code receipt for precise follow-ups and handoffs", () => {
     const current = room([user, {
       id: "work", role: "assistant", botId: "a", text: "二件依頼しました", status: "done", createdAt: 2,
