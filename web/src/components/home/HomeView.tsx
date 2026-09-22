@@ -568,7 +568,7 @@ export const HomeView = memo(function HomeView({
                   </option>
                 ))}
               </GhostSelect>
-              <div role="group" aria-label="プロジェクト操作" className="flex shrink-0 items-center gap-1">
+              <div role="group" aria-label="プロジェクト操作" className="ml-auto flex shrink-0 items-center gap-1">
                 {selectedProject && (
                   <ProjectExplorerButton
                     projectId={selectedProject.id}
