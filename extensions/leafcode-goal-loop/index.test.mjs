@@ -471,7 +471,10 @@ test("goal-start normalizes browser image payloads before sending the first turn
     const payload = Buffer.from(JSON.stringify({
       goal: "画像を確認する",
       maxTurns: 1,
-      images: [{ mimeType: "image/png", data: "aW1hZ2U=" }],
+      images: [
+        { mimeType: "image/png", data: "aW1hZ2U=" },
+        { mimeType: "text/plain", data: "bm90LWFuLWltYWdl" },
+      ],
     })).toString("base64url");
 
     await commands.get("goal-start")?.(payload, ctx);
