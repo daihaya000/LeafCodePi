@@ -1401,7 +1401,7 @@ describe("TaskView draft submission", () => {
     expect(mocks.sendJson).not.toHaveBeenCalled();
   });
 
-  it("does not regenerate a title automatically", async () => {
+  it("assigns a label without regenerating the title", async () => {
     class TestEventSource extends EventTarget {
       static latest: TestEventSource | null = null;
       constructor() {
@@ -1445,12 +1445,16 @@ describe("TaskView draft submission", () => {
       await sendSnapshot("working", turns);
       await sendSnapshot("idle", turns);
     }
-    expect(mocks.sendJson).not.toHaveBeenCalled();
+    expect(mocks.sendJson).toHaveBeenCalledTimes(4);
+    expect(mocks.sendJson).toHaveBeenCalledWith(
+      `/api/tasks/${task.id}/title`,
+      { labelOnly: true },
+    );
 
     await sendSnapshot("working", 5);
     await sendSnapshot("idle", 5);
 
-    expect(mocks.sendJson).not.toHaveBeenCalled();
+    expect(mocks.sendJson).toHaveBeenCalledTimes(5);
   });
 
   it("sends queued content without replacing the next draft", async () => {

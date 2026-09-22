@@ -1098,8 +1098,11 @@ export const TaskView = memo(function TaskView({
   const titleTaskRef = useRef(taskId);
   const titleCompletionPendingRef = useRef(false);
   const titleUpdatedTurnRef = useRef<string | null>(null);
+  const labelTaskRef = useRef(taskId);
+  const labelUpdatedTurnRef = useRef<string | null>(null);
   const titleInputRef = useRef<HTMLInputElement>(null);
   const titleMutationRef = useRef(0);
+  const labelMutationRef = useRef(0);
   // メッセージ間をジャンプするナビゲーター（本家 LeafCode と同じ）。
   // 描画済みメッセージ要素と「今どのナビゲーション対象を見ているか」を保持する。
   const messageElsRef = useRef<Map<string, HTMLDivElement>>(new Map());
@@ -2052,6 +2055,28 @@ export const TaskView = memo(function TaskView({
       window.clearInterval(timer);
     };
   }, [active, task?.directory, task?.status, taskId, working]);
+
+  useEffect(() => {
+    if (labelTaskRef.current !== taskId) {
+      labelTaskRef.current = taskId;
+      labelUpdatedTurnRef.current = null;
+      labelMutationRef.current += 1;
+    }
+    if (working || !task?.sessionId || task.label || !hasCompletedTitleTurn(messages)) return;
+    const lastUserMessage = [...messages].reverse().find(
+      (message) => message.role === "user" && !isHangRetryUserMessage(message),
+    );
+    if (!lastUserMessage || labelUpdatedTurnRef.current === lastUserMessage.id) return;
+    labelUpdatedTurnRef.current = lastUserMessage.id;
+    const mutation = ++labelMutationRef.current;
+    void sendJson<{ label?: string }>(`/api/tasks/${taskId}/title`, { labelOnly: true })
+      .then((result) => {
+        if (mutation !== labelMutationRef.current || !result.label) return;
+        setTask((current) => current && !current.label ? { ...current, label: result.label } : current);
+        notifyTasksChanged();
+      })
+      .catch(() => undefined);
+  }, [messages, task?.label, task?.sessionId, taskId, working]);
 
   useEffect(() => {
     if (!TITLE_AUTO_UPDATE_ENABLED) return;

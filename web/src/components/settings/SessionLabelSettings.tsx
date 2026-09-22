@@ -57,7 +57,7 @@ export function SessionLabelSettings() {
     <div className="rounded-2xl border border-border bg-surface p-4">
       <h3 className="text-sm font-semibold">セッションラベル</h3>
       <p className="mt-1 text-xs text-muted">
-        タイトル生成時に Jev が会話を分類して付けるラベルです。判定ヒントは分類の判断基準に使われます。空にするとラベルを付けません。
+        応答完了後に Jev が会話を分類して付けるラベルです。判定ヒントは分類の判断基準に使われます。空にするとラベルを付けません。
       </p>
       <ul className="mt-3 space-y-2">
         {labels.map((label, index) => (
