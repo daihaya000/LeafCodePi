@@ -466,7 +466,13 @@ function hydrateLoop(value: unknown, cwd: string, id: string): GoalLoop | null {
   };
 }
 
-function recoverLoopFromTemp(file: string, cwd: string, id: string, newerThan = Number.NEGATIVE_INFINITY): GoalLoop | null {
+function recoverLoopFromTemp(
+  file: string,
+  cwd: string,
+  id: string,
+  newerThan = Number.NEGATIVE_INFINITY,
+  requireSessionIdMatch = false,
+): GoalLoop | null {
   try {
     const dir = path.dirname(file);
     const base = path.basename(file);
@@ -485,7 +491,10 @@ function recoverLoopFromTemp(file: string, cwd: string, id: string, newerThan = 
     for (const temp of temps) {
       if (temp.mtime <= newerThan) continue;
       try {
-        const loop = hydrateLoop(JSON.parse(fs.readFileSync(temp.full, "utf8")), cwd, id);
+        const raw = JSON.parse(fs.readFileSync(temp.full, "utf8"));
+        const record = asRecord(raw);
+        if (requireSessionIdMatch && typeof record?.sessionId === "string" && record.sessionId !== id) continue;
+        const loop = hydrateLoop(raw, cwd, id);
         if (!loop) continue;
         // Promote the newest valid temp so later reads stay consistent after a
         // crash between temp write and rename, or a torn non-atomic overwrite.
@@ -532,13 +541,14 @@ function readLoop(cwd: string, id: string): GoalLoop | null {
     const legacyRecord = asRecord(legacyRaw);
     // A collided legacy filename must not resurrect another session's state.
     // Pre-sessionId snapshots remain readable because their ownership is unknown.
-    if (typeof legacyRecord?.sessionId === "string" && legacyRecord.sessionId !== id) return null;
-    const legacy = hydrateLoop(legacyRaw, cwd, id);
-    if (legacy) return legacy;
+    if (!(typeof legacyRecord?.sessionId === "string" && legacyRecord.sessionId !== id)) {
+      const legacy = hydrateLoop(legacyRaw, cwd, id);
+      if (legacy) return legacy;
+    }
   } catch {
     // Missing/torn legacy state may still have a recoverable temp snapshot.
   }
-  return recoverLoopFromTemp(legacyFile, cwd, id);
+  return recoverLoopFromTemp(legacyFile, cwd, id, Number.NEGATIVE_INFINITY, true);
 }
 
 function cleanupOrphanGoalTemps(file: string): void {

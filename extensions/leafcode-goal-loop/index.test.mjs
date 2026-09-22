@@ -60,6 +60,13 @@ test("reads legacy sanitized state filenames", () => {
       progress: [],
     }), "utf8");
     assert.equal(goalLoopTestSeams.readLoop(cwd, "a/b")?.goal, "legacy state");
+    writeFileSync(join(dir, "a_b.json.foreign.tmp"), JSON.stringify({
+      sessionId: "a/b",
+      goal: "foreign temp",
+      acceptance: [],
+      status: "paused",
+      progress: [],
+    }), "utf8");
     assert.equal(goalLoopTestSeams.readLoop(cwd, "a?b"), null);
   } finally {
     rmSync(cwd, { recursive: true, force: true });
