@@ -3432,6 +3432,54 @@ test("stops a replaced runtime from double-sending queued work", async () => {
   }
 });
 
+test("old session events do not mutate a newer session in the same extension", async () => {
+  const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-cross-session-shutdown-"));
+  process.env.LEAFCODE_PI_DATA_DIR = cwd;
+  const handlers = new Map();
+  const commands = new Map();
+  let busy = true;
+  const makeCtx = (id) => ({
+    cwd,
+    mode: "rpc",
+    hasUI: false,
+    isIdle: () => !busy,
+    hasPendingMessages: () => false,
+    abort: () => { busy = false; },
+    sessionManager: { getSessionId: () => id, getBranch: () => [] },
+    ui: { setStatus: () => {}, setWidget: () => {}, notify: () => {} },
+  });
+  const ctxA = makeCtx("cross-session-a");
+  const ctxB = makeCtx("cross-session-b");
+  const stateFile = (id) => join(cwd, "goals-loop", `${id}.json`);
+
+  try {
+    goalLoopExtension({
+      on(name, handler) { handlers.set(name, handler); },
+      registerCommand(name, options) { commands.set(name, options.handler); },
+      appendEntry() {},
+      sendMessage() { busy = true; },
+    });
+    const payload = Buffer.from(JSON.stringify({ goal: "demo", maxTurns: 2 })).toString("base64url");
+    await handlers.get("session_start")?.({}, ctxA);
+    await commands.get("goal-start")?.(payload, ctxA);
+    await waitFor(() => JSON.parse(readFileSync(stateFile("cross-session-a"), "utf8")).status === "queued");
+
+    await handlers.get("session_start")?.({}, ctxB);
+    await commands.get("goal-start")?.(payload, ctxB);
+    await waitFor(() => JSON.parse(readFileSync(stateFile("cross-session-b"), "utf8")).status === "queued");
+
+    await handlers.get("input")?.({ text: "古い指示", source: "user" }, ctxA);
+    await handlers.get("session_shutdown")?.({}, ctxA);
+    const newer = JSON.parse(readFileSync(stateFile("cross-session-b"), "utf8"));
+    assert.equal(newer.status, "queued");
+    assert.equal(newer.pauseReason, "");
+    assert.equal(newer.notes, undefined);
+  } finally {
+    await handlers.get("session_shutdown")?.({}, ctxB);
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
 test("superseded session_shutdown does not pause queued work re-armed by replacement", async () => {
   const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-shutdown-superseded-"));
   process.env.LEAFCODE_PI_DATA_DIR = cwd;

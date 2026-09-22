@@ -2045,6 +2045,17 @@ export default function (pi: ExtensionAPI): void {
   pi.on("session_start", async (_event, ctx) => {
     const id = sessionId(ctx);
     const key = runtimeKey(ctx.cwd, id);
+    // A single extension instance can receive a new session_start before the
+    // old session_shutdown. Retire the prior runtime so its timers cannot act
+    // on the old context after this closure begins targeting the new session.
+    if (runtime && !runtime.disposed) {
+      runtime.disposed = true;
+      clearPendingAgentRun(runtime);
+      clearTimer(runtime);
+      if (runtime.watchdogTimer) clearInterval(runtime.watchdogTimer);
+      runtime.watchdogTimer = undefined;
+      if (runtimes.get(runtime.key) === runtime) runtimes.delete(runtime.key);
+    }
     runtime = {
       key,
       cwd: ctx.cwd,
@@ -2096,9 +2107,15 @@ export default function (pi: ExtensionAPI): void {
   // 待って自動継続する（schedule と prepareGoalLoopTurn が busy 中は送信しないため、
   // 追加送信とループの次ターンは混ざらない）。止めたいときは /goal-pause か Stop を使う。
   // ここでは同時に、その指示を以降のターンのプロンプトへ載せるために記録する。
-  pi.on("input", async (event) => {
+  pi.on("input", async (event, ctx) => {
     const current = getRuntime();
-    if (!current || event.source === "extension") return;
+    // Delayed input from a replaced session must not become an operator note
+    // on the runtime installed by the newer session_start.
+    if (
+      !current ||
+      current.key !== runtimeKey(ctx.cwd, sessionId(ctx)) ||
+      event.source === "extension"
+    ) return;
     // 拡張コマンドは input の前に処理されるが、/goal-* を追加指示として記録しない。
     if (/^\/(?:goal|goal-status|goal-pause|goal-resume|goal-stop|goal-complete|goal-compose)(?:\s|$)/i.test(event.text)) return;
     const loop = currentLoop(current);
@@ -2199,9 +2216,11 @@ export default function (pi: ExtensionAPI): void {
     if (loop.status === "queued" || loop.status === "verifying_completed") schedule(current);
   });
 
-  pi.on("session_shutdown", async (_event, _ctx) => {
+  pi.on("session_shutdown", async (_event, ctx) => {
     const current = getRuntime();
-    if (!current) return;
+    // Ignore teardown from the preceding session when its session_start has
+    // already installed a different runtime in this extension instance.
+    if (!current || current.key !== runtimeKey(ctx.cwd, sessionId(ctx))) return;
     // dispose()/replace can leave this extension instance alive long enough to
     // see shutdown after a newer runtime already claimed the same key. Never
     // pause the shared loop or delete the replacement's map entry in that case.
