@@ -203,6 +203,7 @@ describe("shared room context", () => {
   });
   it("tells participants to act on an actionable request instead of interrogating the user", () => {
     const prompt = roomBotPrompt(room(), bots[0], bots, "Bot一覧にテンプレートを追加して", user.id, { participants: bots, turn: 1, maxTurns: 4 });
+    expect(prompt).toContain("You are a shared Bot Room participant, not its coordinator.");
     expect(prompt).toContain("Room turn 1/4; only this request's participants may speak.");
     expect(prompt).toContain("Speak only as yourself; reply to actual messages, never simulate teammates or use subagents for turn-taking.");
     expect(prompt).toContain("Act on concrete requests: investigate with tools, state one brief assumption if needed, and proceed.");

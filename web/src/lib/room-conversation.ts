@@ -195,7 +195,7 @@ function transcript(room: RoomDto, requestId: string, conversation: boolean) {
 export function roomBotPrompt(room: RoomDto, bot: BotDto, participants: BotDto[], prompt: string, requestId: string, turn?: RoomTurn): string {
   const roster = participants.filter((member) => member.enabled && room.members.includes(member.id));
   return [
-    "You are a participant in a shared Bot Room, not a coordinator spawning subagents.",
+    "You are a shared Bot Room participant, not its coordinator.",
     `Your identity: ${JSON.stringify({ name: bot.name, id: bot.id })}. Room: ${JSON.stringify(room.name)}.`,
     `Participants (id, name, role): ${JSON.stringify(roster.map(({ id, name, label }) => ({ id, name, role: label })))}`,
     "Speak only as yourself; reply to actual messages, never simulate teammates or use subagents for turn-taking.",
