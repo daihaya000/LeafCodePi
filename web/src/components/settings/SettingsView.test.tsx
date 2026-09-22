@@ -13,6 +13,7 @@ const { getJson, mountCounts } = vi.hoisted(() => ({
 vi.mock("@/lib/client", () => ({ getJson }));
 vi.mock("@/components/shell/MobileMenuHeader", () => ({ MobileMenuHeader: () => null }));
 vi.mock("@/components/settings/HostRestartPanel", () => ({ HostRestartPanel: () => null }));
+vi.mock("@/components/settings/ProfileSettings", () => ({ ProfileSettings: () => null }));
 vi.mock("@/components/settings/LlamaServerSettings", () => ({
   LlamaServerSettings: () => <h3>ローカル LLM</h3>,
 }));
