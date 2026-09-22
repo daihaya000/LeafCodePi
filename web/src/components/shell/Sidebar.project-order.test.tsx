@@ -351,6 +351,51 @@ describe("Sidebar project ordering", () => {
     });
   });
 
+  it("filters a large synthetic task set in the Sidebar", async () => {
+    const benchProjects = Array.from({ length: 100 }, (_, index) => ({
+      id: `bench-project-${index}`,
+      name: `Bench Project ${index}`,
+      rootPath: `C:\\bench-${index}`,
+      favorite: false,
+      archived: false,
+      createdAt: "",
+      lastOpenedAt: null,
+    }));
+    const benchTasks = benchProjects.flatMap((project, projectIndex) =>
+      Array.from({ length: 50 }, (_, taskIndex) => ({
+        id: `bench-session-${projectIndex}-${taskIndex}`,
+        projectId: project.id,
+        projectName: project.name,
+        title: projectIndex % 10 === 0 && taskIndex === 49
+          ? `Needle session ${projectIndex}`
+          : `Session ${projectIndex}-${taskIndex}`,
+        directory: project.rootPath,
+        isolation: "current_folder" as const,
+        status: "ready" as const,
+        sessionId: `bench-session-${projectIndex}-${taskIndex}`,
+        sessionFile: null,
+        createdAt: "",
+        updatedAt: "2026-09-22T00:00:00.000Z",
+      })),
+    );
+    mocks.getJson.mockImplementation((path: string) => {
+      if (path === "/api/projects?archived=1") return Promise.resolve({ projects: benchProjects });
+      if (path === "/api/tasks?kind=all" || path === "/api/tasks?archived=1&kind=all") return Promise.resolve({ tasks: benchTasks });
+      if (path === "/api/health") return Promise.resolve({ ok: true, engineOk: true, version: "1", modelCount: 0 });
+      return Promise.reject(new Error(`Unexpected request: ${path}`));
+    });
+
+    render(<Sidebar mobileOpen={false} onClose={vi.fn()} />);
+
+    const search = await screen.findByRole("textbox", { name: "プロジェクトやセッションを検索" });
+    await screen.findByRole("button", { name: "Bench Project 0を展開" });
+    fireEvent.change(search, { target: { value: "needle" } });
+
+    await waitFor(() => {
+      expect(document.querySelectorAll("[data-project-row]")).toHaveLength(10);
+    });
+  });
+
   it("keeps project icon picker constraints aligned with validation", async () => {
     const alert = vi.spyOn(window, "alert").mockImplementation(() => {});
     render(<Sidebar mobileOpen={false} onClose={vi.fn()} />);
