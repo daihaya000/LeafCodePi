@@ -37,6 +37,8 @@ describe("bot unread timestamps", () => {
     // 既読位置が新しい場合は書き換えない
     markRead("room", "two", 100);
     expect(setItem).toHaveBeenCalledWith("webui.bot.last_read.room.two", "100");
+    markRead("task", "three", 789);
+    expect(setItem).toHaveBeenCalledWith("webui.bot.last_read.task.three", "789");
   });
 
   it("avoids rereading an unchanged marker during streaming updates", () => {

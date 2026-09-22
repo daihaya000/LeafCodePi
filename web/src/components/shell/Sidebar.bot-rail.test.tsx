@@ -118,6 +118,23 @@ describe("Bot mode list", () => {
     expect(localStorage.getItem("leafcodepi.mode")).toBe("code");
   });
 
+  it("keeps the Code label and shows an unread dot", async () => {
+    localStorage.setItem("webui.sidebar.collapsed", "0");
+    mocks.getJson.mockImplementation((path: string) => {
+      if (path === "/api/bots/sidebar") return Promise.resolve({ bots: [], rooms: [] });
+      if (path === "/api/projects?archived=1") return Promise.resolve({ projects: [] });
+      if (path === "/api/tasks?kind=all") return Promise.resolve({ tasks: [{ id: "code-a", kind: "code", status: "idle", updatedAt: "2026-09-22T00:00:00.000Z" }] });
+      if (path === "/api/health") return Promise.resolve({ ok: true, engineOk: true, version: "1", modelCount: 0 });
+      return Promise.reject(new Error(`Unexpected request: ${path}`));
+    });
+
+    render(<Sidebar mobileOpen={false} onClose={vi.fn()} />);
+
+    const code = await screen.findByRole("button", { name: "Code（未読）" });
+    expect(code.textContent).toContain("Code");
+    expect(code.querySelector(".bg-accent")).toBeTruthy();
+  });
+
   it("navigates to the Bot home when panes are unavailable", async () => {
     localStorage.setItem("leafcodepi.mode", "code");
     localStorage.setItem("webui.sidebar.collapsed", "0");

@@ -122,6 +122,7 @@ import {
 import { formatTokensPerSecond } from "@/lib/token-throughput";
 import { notifyBotSidebarChanged, notifyTasksChanged } from "@/lib/events";
 import { taskSidebarNotifyKey } from "@/lib/task-sidebar-notify";
+import { markRead } from "@/lib/bot-unread";
 import { getJson, sendJson } from "@/lib/client";
 import { readCachedModels, writeCachedModels } from "@/lib/models-cache";
 import {
@@ -789,6 +790,9 @@ export const TaskView = memo(function TaskView({
   // snapshot instead of parsing/validating the whole cache a second time.
   const cachedSession = useMemo(() => loadTaskSessionCache(taskId), [taskId]);
   const [task, setTask] = useState<TaskDetail | null>(cachedSession);
+  useEffect(() => {
+    if (active && task?.updatedAt) markRead("task", taskId, Date.parse(task.updatedAt));
+  }, [active, task?.updatedAt, taskId]);
   // Bot起点のタスクはBot画面と同一キーにし、どちらでOFFにしても全体が黙る。
   // ponytail: キー共有だけで連携は済む。別管理に戻すときはこの1行を taskId に戻す。
   const ttsKey = task?.botId ?? taskId;

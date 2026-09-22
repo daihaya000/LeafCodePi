@@ -1,4 +1,4 @@
-export type BotUnreadKind = "bot" | "room";
+export type BotUnreadKind = "bot" | "room" | "task";
 
 const LAST_READ_PREFIX = "webui.bot.last_read";
 const lastMarkedAtCache = new WeakMap<object, Map<string, number>>();

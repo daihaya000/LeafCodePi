@@ -33,4 +33,10 @@ describe("TaskProgressBar", () => {
     expect(container.querySelector(".bot-avatar-working")).toBeTruthy();
     expect(container.querySelector("svg")?.getAttribute("aria-label")).toBe("Builderのアバター");
   });
+
+  it("shows an unread Code task with an accent dot", () => {
+    const { container } = render(<TaskActivityIcon task={{ status: "idle" }} unread />);
+
+    expect(container.firstElementChild?.className).toContain("bg-accent");
+  });
 });

@@ -175,13 +175,15 @@ const MODE_KEY = "leafcodepi.mode";
 type AppMode = "code" | "bot";
 type BotListFilter = "all" | "bots" | "rooms";
 type WorkingCounts = Record<AppMode, number>;
+type UnreadModes = Record<AppMode, boolean>;
 
-function ModeSegment({ mode, onChange, workingCounts }: { mode: AppMode; onChange: (mode: AppMode) => void; workingCounts: WorkingCounts }) {
+function ModeSegment({ mode, onChange, workingCounts, unreadModes }: { mode: AppMode; onChange: (mode: AppMode) => void; workingCounts: WorkingCounts; unreadModes: UnreadModes }) {
   return <div className="mb-2 grid grid-cols-2 rounded-lg border border-border bg-surface-2 p-0.5">
     {(["code", "bot"] as const).map((item) => {
       const label = item === "code" ? "Code" : "Bot";
       const count = workingCounts[item];
-      return <button key={item} type="button" aria-label={`${label}${count > 0 ? `（進行中${count}件）` : ""}`} aria-pressed={mode === item} onClick={() => onChange(item)} className={cx("flex items-center justify-center gap-2 rounded-md px-2 py-1.5 text-xs font-medium", mode === item ? "bg-surface text-text shadow-sm" : "text-muted hover:text-text")}>
+      const unread = unreadModes[item];
+      return <button key={item} type="button" aria-label={`${label}${count > 0 ? `（進行中${count}件）` : ""}${unread ? "（未読）" : ""}`} aria-pressed={mode === item} onClick={() => onChange(item)} className={cx("flex items-center justify-center gap-2 rounded-md px-2 py-1.5 text-xs font-medium", mode === item ? "bg-surface text-text shadow-sm" : "text-muted hover:text-text")}>
         {item === "bot" ? (
           <svg aria-hidden="true" viewBox="0 0 24 24" className="h-4 w-4 shrink-0 text-[var(--brand)]">
             <circle cx="12" cy="12" r="12" fill="currentColor" />
@@ -189,6 +191,7 @@ function ModeSegment({ mode, onChange, workingCounts }: { mode: AppMode; onChang
           </svg>
         ) : <CodeXml aria-hidden="true" className="h-4 w-4 shrink-0" />}
         <span>{label}</span>
+        {unread && <span aria-hidden="true" className="h-1.5 w-1.5 shrink-0 rounded-full bg-accent" />}
         {count > 0 && <span aria-hidden="true" className="inline-flex min-h-4 min-w-4 items-center justify-center rounded-full bg-accent px-1 text-[10px] font-semibold leading-4 text-white">{count}</span>}
       </button>;
     })}
@@ -262,6 +265,7 @@ const BotSidebarBody = memo(function BotSidebarBody({
   onChangeMode,
   onSettings,
   workingCounts,
+  unreadModes,
   mdUp,
   collapsed,
   onCollapse,
@@ -274,6 +278,7 @@ const BotSidebarBody = memo(function BotSidebarBody({
   onChangeMode: (mode: AppMode) => void;
   onSettings: () => void;
   workingCounts: WorkingCounts;
+  unreadModes: UnreadModes;
   health: HealthDto | null;
   onShowWorkingTasks: () => void;
   hasWorking: boolean;
@@ -512,7 +517,7 @@ const BotSidebarBody = memo(function BotSidebarBody({
         </button>
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
-        <ModeSegment mode="bot" onChange={onChangeMode} workingCounts={workingCounts} />
+        <ModeSegment mode="bot" onChange={onChangeMode} workingCounts={workingCounts} unreadModes={unreadModes} />
         <label className="mb-2 flex h-9 items-center gap-2 rounded-lg border border-border bg-bg px-2.5 text-xs text-muted focus-within:border-accent"><Search className="h-3.5 w-3.5 shrink-0" /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={"\u30dc\u30c3\u30c8\u3084\u30eb\u30fc\u30e0\u3092\u691c\u7d22"} aria-label={"\u30dc\u30c3\u30c8\u3084\u30eb\u30fc\u30e0\u3092\u691c\u7d22"} className="min-w-0 flex-1 bg-transparent outline-none placeholder:text-faint" /></label>
         {sidebarError && <p role="alert" className="mb-2 rounded-lg border border-danger/30 bg-danger-bg px-2.5 py-2 text-xs text-danger">{sidebarError}</p>}
         <div className="mb-2 flex gap-1 px-0.5" role="group" aria-label={"\u8868\u793a\u5bfe\u8c61"}>{([['all', '\u3059\u3079\u3066'], ['bots', 'Bot'], ['rooms', '\u30eb\u30fc\u30e0']] as const).map(([value, label]) => <button key={value} type="button" aria-label={value === "bots" ? "Bot filter" : value === "rooms" ? "Room filter" : "All filter"} aria-pressed={listFilter === value} onClick={() => setListFilter(value)} className={`rounded-full px-2.5 py-1 text-[11px] ${listFilter === value ? "bg-accent/10 font-medium text-accent" : "text-muted hover:bg-surface-2"}`}>{label}</button>)}</div>
@@ -711,9 +716,11 @@ export const TaskProgressBar = memo(function TaskProgressBar({
 export const TaskActivityIcon = memo(function TaskActivityIcon({
   task,
   bot,
+  unread = false,
 }: {
   task: Pick<TaskSummary, "status" | "botId" | "supervisorBotId">;
   bot?: BotFace & { name: string };
+  unread?: boolean;
 }) {
   if (task.status === "working") {
     return bot ? (
@@ -727,7 +734,7 @@ export const TaskActivityIcon = memo(function TaskActivityIcon({
       aria-hidden="true"
       className={cx(
         "h-1.5 w-1.5 shrink-0 rounded-full",
-        task.status === "error" ? "bg-danger" : "bg-faint",
+        task.status === "error" ? "bg-danger" : unread ? "bg-accent" : "bg-faint",
       )}
     />
   );
@@ -759,6 +766,7 @@ export const SidebarTaskRow = memo(function SidebarTaskRow({
   onDragStart: (event: React.DragEvent<HTMLButtonElement>, taskId: string) => void;
 }) {
   const cannotPromote = promotionBlocked(task);
+  const unread = !active && hasUnread(task.updatedAt, getLastReadAt("task", task.id));
   // 展開したプロジェクトは数百行を一度に描画するため、画面外の行は layout/paint をスキップさせる。
   // content-visibility の paint containment でフォーカスリングが欠けるので、行内のボタンは内側へ寄せる。
   // contain-intrinsic-size のフォールバックは実測の行高（約53px）に合わせ、未描画行の高さズレを防ぐ。
@@ -775,7 +783,7 @@ export const SidebarTaskRow = memo(function SidebarTaskRow({
             active ? "bg-surface-3 text-text" : "text-muted hover:bg-surface-2 hover:text-text",
           )}
         >
-          <TaskActivityIcon task={task} bot={bot} />
+          <TaskActivityIcon task={task} bot={bot} unread={unread} />
           <span className="flex min-w-0 flex-1 flex-col items-start">
             <span className="w-full truncate text-xs font-medium">{task.title}</span>
             <span className="flex w-full min-w-0 items-center gap-1">
@@ -1374,7 +1382,6 @@ const SidebarView = memo(function SidebarView({
       code: tasks.filter((task) => task.status === "working" && task.kind !== "bot").length,
     };
   }, [botSidebar.bots, botStatusFor, tasks]);
-
   useEffect(() => {
     try {
       const storedMode = localStorage.getItem(MODE_KEY);
@@ -1488,6 +1495,11 @@ const SidebarView = memo(function SidebarView({
   // ハイライト・自動展開の源とする。モバイルは panes を触らないため pathname 由来のまま。
   const pathnameTaskId = pathname.startsWith("/task/") ? pathname.slice("/task/".length) : null;
   const activeTaskId = paneMdUp ? paneActiveTaskId : pathnameTaskId;
+  const unreadModes = useMemo<UnreadModes>(() => ({
+    code: tasks.some((task) => task.status !== "archived" && task.kind !== "bot" && task.id !== activeTaskId && hasUnread(task.updatedAt, getLastReadAt("task", task.id))),
+    bot: botSidebar.bots.some((bot) => activeTaskId !== `/bots/${encodeURIComponent(bot.id)}` && hasUnread(bot.lastMessageAt, getLastReadAt("bot", bot.id)))
+      || botSidebar.rooms.some((room) => activeTaskId !== `/bots/rooms/${encodeURIComponent(room.id)}` && hasUnread(room.lastMessageAt, getLastReadAt("room", room.id))),
+  }), [activeTaskId, botSidebar.bots, botSidebar.rooms, tasks]);
 
   const openTask = useCallback(
     (taskId: string) => {
@@ -2151,7 +2163,7 @@ const SidebarView = memo(function SidebarView({
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
-        <ModeSegment mode={mode} onChange={changeMode} workingCounts={workingCounts} />
+        <ModeSegment mode={mode} onChange={changeMode} workingCounts={workingCounts} unreadModes={unreadModes} />
         <label className="mb-2 flex h-9 items-center gap-2 rounded-lg border border-border bg-bg px-2.5 text-xs text-muted focus-within:border-accent">
           <Search className="h-3.5 w-3.5 shrink-0" />
           <input
@@ -2504,6 +2516,7 @@ const SidebarView = memo(function SidebarView({
       onChangeMode={changeMode}
       onSettings={openSettings}
       workingCounts={workingCounts}
+      unreadModes={unreadModes}
       health={health}
       mdUp={mdUp}
       collapsed={collapsed && mdUp}
