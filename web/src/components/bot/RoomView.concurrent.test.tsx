@@ -8,10 +8,6 @@ vi.mock("@/lib/client", () => mocks);
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn() }) }));
 import { applyRoomSnapshot, RoomView } from "./RoomView";
 
-function toolMessage(id: string, tool: string, input: Record<string, unknown>) {
-  return { id, role: "assistant" as const, createdAt: 1, parts: [{ id: `${id}-tool`, type: "tool" as const, tool, callID: id, state: { status: "running" as const, input } }] };
-}
-
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.clearAllMocks(); });
 
 it("keeps room state identity for an SSE snapshot without visible changes", () => {
