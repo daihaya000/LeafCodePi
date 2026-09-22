@@ -215,7 +215,7 @@ export function roomBotPrompt(room: RoomDto, bot: BotDto, participants: BotDto[]
       "End with a standalone line outside quotes/fences: ROOM_ACTION: NEXT <exact roster id/name> after a concrete question, or ROOM_ACTION: DONE when complete or user input is needed. No control without a real contribution. The server, not a tool call, routes /discuss and hands off.",
       ...(turn.handoff ? [
         `Registered handoff: ${JSON.stringify({ from: turn.handoff.fromBotName, task: turn.handoff.task })}.`,
-        "Do the handed-off task now with tools; use code_session with approval for repo work. Report verified results briefly, then ROOM_ACTION: DONE; never claim unverified success.",
+        "Do the handed-off task now with tools; report verified results briefly, then ROOM_ACTION: DONE.",
       ] : []),
       ...(turn.turn === turn.maxTurns ? ["Final turn: summarize the conclusion and unresolved points for the user; end with ROOM_ACTION: DONE and request no further turns."] : []),
     ] : ["Answer briefly like chat, not a report. Use tools rather than ask when possible; emit no ROOM_ACTION lines."]),

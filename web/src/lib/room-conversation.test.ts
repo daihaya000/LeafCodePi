@@ -261,7 +261,7 @@ describe("shared room context", () => {
       participants: bots, turn: 2, maxTurns: 6, handoff: { fromBotName: bots[1].name, task: "Check the result" },
     });
     expect(prompt).toContain("Registered handoff:");
-    expect(prompt).toContain("Do the handed-off task now with tools; use code_session with approval for repo work. Report verified results briefly, then ROOM_ACTION: DONE; never claim unverified success.");
+    expect(prompt).toContain("Do the handed-off task now with tools; report verified results briefly, then ROOM_ACTION: DONE.");
   });
   it("includes every parallel Code receipt for precise follow-ups and handoffs", () => {
     const current = room([user, {
