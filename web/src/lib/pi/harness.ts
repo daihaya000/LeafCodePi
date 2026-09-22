@@ -1597,6 +1597,18 @@ function isActiveGoalLoopSession(session: AgentSession): boolean {
   }
 }
 
+function isLiveGoalLoopSession(session: AgentSession): boolean {
+  try {
+    const loop = readGoalLoopState(
+      session.sessionManager.getCwd(),
+      session.sessionId,
+    );
+    return isGoalLoopLiveStatus(loop?.status);
+  } catch {
+    return false;
+  }
+}
+
 function applySessionCompactionSettings(
   session: AgentSession,
   enabledOverride?: boolean,
@@ -6880,15 +6892,15 @@ export async function getTaskDetail(
 }
 
 /**
- * Live Goal Loop sessions owned by this WebUI process. A WebUI restart ends
- * every Pi session, and the loop pauses on session_shutdown, so the host
- * control plane refuses to restart while this list is non-empty. Process
- * scoped on purpose: a persisted "running" file left by a killed worker must
- * not block restart forever.
+ * Goal Loop sessions with a live turn owned by this WebUI process. A WebUI
+ * restart ends every Pi session, and the loop pauses on session_shutdown, so
+ * the host control plane refuses to restart while this list is non-empty.
+ * Process scoped on purpose: a persisted "running" file left by a killed
+ * worker must not block restart forever.
  */
 export function activeGoalLoopTaskIds(): string[] {
   return [...state().live.values()]
-    .filter((live) => isActiveGoalLoopSession(live.session))
+    .filter((live) => isLiveGoalLoopSession(live.session))
     .map((live) => live.taskId);
 }
 

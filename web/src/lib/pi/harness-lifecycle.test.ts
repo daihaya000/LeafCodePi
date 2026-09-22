@@ -9,6 +9,7 @@ import {
   abortLiveForHangWatchdog,
   abortTask,
   abortTaskIncludingColdGoalLoop,
+  activeGoalLoopTaskIds,
   isStaleHarnessPrompt,
   isTaskRuntimeBusyForDestructiveEdit,
   waitForSessionStreaming,
@@ -127,6 +128,41 @@ describe("harness lifecycle characterization", () => {
     expect(summary?.id).toBe(task.id);
     expect(summary?.status).toBe("idle");
     expect(getTask(task.id)?.status).toBe("idle");
+  });
+
+  it("restart guard counts only live Goal Loop statuses", () => {
+    const root = mkdtempSync(join(tmpdir(), "leafcode-harness-active-goal-loop-"));
+    roots.push(root);
+    vi.stubEnv("LEAFCODE_PI_DATA_DIR", join(root, "data"));
+    const states = [
+      ["queued", "queued"],
+      ["running", "running"],
+      ["verifying", "verifying_completed"],
+      ["paused", "paused"],
+      ["blocked", "blocked"],
+      ["completed", "completed"],
+    ] as const;
+    mkdirSync(join(root, "data", "goals-loop"), { recursive: true });
+    for (const [sessionId, status] of states) {
+      writeFileSync(
+        goalLoopStateFile(root, sessionId),
+        JSON.stringify({ goal: "ship", status }),
+        "utf8",
+      );
+    }
+    const session = (sessionId: string) => ({
+      sessionId,
+      sessionManager: { getCwd: () => root },
+    });
+    globals[globalKey] = {
+      live: new Map(states.map(([sessionId]) => [
+        sessionId,
+        { taskId: sessionId, session: session(sessionId) },
+      ])),
+      events: new EventEmitter(),
+    };
+
+    expect(activeGoalLoopTaskIds()).toEqual(["queued", "running", "verifying"]);
   });
 
   it.each([
