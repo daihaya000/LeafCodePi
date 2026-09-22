@@ -1727,7 +1727,7 @@ function parseStartArgs(args: string): {
   }
   const cooldownFlag = text.match(/(?:^|\s)--cooldown\s+("[^"]*"|'[^']*'|\S+)/i);
   if (cooldownFlag) {
-    const value = cooldownFlag[1].replace(/^("|')|(\1)$/g, "");
+    const value = cooldownFlag[1].replace(/^["']|["']$/g, "");
     cooldownSeconds = parseCooldownSeconds(value);
     text = text.replace(cooldownFlag[0], " ");
   }
@@ -2335,6 +2335,7 @@ export const goalLoopTestSeams = {
   clampMaxTurns,
   clampCooldownSeconds,
   parseCooldownSeconds,
+  parseStartArgs,
   setTurnTimeoutMs(ms?: number) {
     turnTimeoutMsForTests = typeof ms === "number" && Number.isFinite(ms) && ms >= 0 ? ms : undefined;
   },

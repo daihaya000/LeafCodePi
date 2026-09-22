@@ -36,6 +36,7 @@ test("matches LeafCode turn-budget and cooldown normalization", () => {
   assert.equal(clampMaxTurns(0), 0);
   assert.equal(clampMaxTurns(101), 100);
   assert.equal(parseCooldownSeconds("15m 30s"), 930);
+  assert.equal(goalLoopTestSeams.parseStartArgs('demo --cooldown "15m 30s"').cooldownSeconds, 930);
   assert.equal(clampCooldownSeconds(-1), 0);
 });
 
