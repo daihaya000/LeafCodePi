@@ -193,10 +193,10 @@ export function ProfileSettings() {
               }}
             />
           </label>
+          <Button className="w-full" variant="secondary" busy={busy === "packages"} disabled={disabled} onClick={() => void restorePackages()}>
+            <Archive className="h-4 w-4" />パッケージを再取得
+          </Button>
         </div>
-        <Button className="w-full" variant="secondary" busy={busy === "packages"} disabled={disabled} onClick={() => void restorePackages()}>
-          <Archive className="h-4 w-4" />パッケージを再取得
-        </Button>
         {backups.length > 0 && (
           <select
             aria-label="復元するバックアップ"
