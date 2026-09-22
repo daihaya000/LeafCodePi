@@ -144,6 +144,17 @@ export function parseVramBytes(raw: string): number | null {
   return n;
 }
 
+const KNOWN_AMD_GPU_NAMES: Record<string, string> = {
+  "1002:7551/1eae:9801": "AMD Radeon AI PRO 9700",
+};
+
+export function parseKnownAmdGpuName(raw: string): string | null {
+  const pciId = String(raw).match(/(?:^|\n)PCI_ID=([0-9a-f]{4}:[0-9a-f]{4})/i)?.[1].toLowerCase();
+  if (!pciId) return null;
+  const subsystemId = String(raw).match(/(?:^|\n)PCI_SUBSYS_ID=([0-9a-f]{4}:[0-9a-f]{4})/i)?.[1].toLowerCase();
+  return (subsystemId ? KNOWN_AMD_GPU_NAMES[`${pciId}/${subsystemId}`] : null) ?? null;
+}
+
 export function parsePciSlotName(raw: string): string | null {
   return String(raw).match(/(?:^|\n)PCI_SLOT_NAME=([0-9a-f:.]+)/i)?.[1] ?? null;
 }
@@ -164,10 +175,14 @@ export function parseLspciGpuName(raw: string): string | null {
 }
 
 async function readLinuxGpuName(fs: LinuxSysFs, deviceDir: string, entry: string): Promise<string> {
+  const uevent = (await readOptional(fs, join(deviceDir, "uevent"))) ?? "";
+  const knownName = parseKnownAmdGpuName(uevent);
+  if (knownName) return knownName;
+
   const product = ((await readOptional(fs, join(deviceDir, "product_name"))) ?? "").trim();
   if (product) return product;
 
-  const slot = parsePciSlotName((await readOptional(fs, join(deviceDir, "uevent"))) ?? "");
+  const slot = parsePciSlotName(uevent);
   if (slot && fs.runCommand) {
     try {
       const name = parseLspciGpuName(await fs.runCommand("lspci", ["-nn", "-s", slot]));
