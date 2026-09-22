@@ -1733,9 +1733,15 @@ const SidebarView = memo(function SidebarView({
     matchingTasksByProject?.set(project.id, matches);
     return true;
   });
-  const visibleArchivedGroups = archivedGroups
-    .map((group) => ({ ...group, tasks: filteredTasks(group.name, group.tasks) }))
-    .filter((group) => matchesCodeSearch(group.name) || group.tasks.length > 0);
+  const visibleArchivedGroups: typeof archivedGroups = [];
+  for (const group of archivedGroups) {
+    if (matchesCodeSearch(group.name)) {
+      visibleArchivedGroups.push(group);
+      continue;
+    }
+    const matchingTasks = group.tasks.filter((task) => matchesCodeSearch(task.title));
+    if (matchingTasks.length > 0) visibleArchivedGroups.push({ ...group, tasks: matchingTasks });
+  }
   const visibleArchivedProjects = archivedProjects.filter((project) => matchesCodeSearch(project.name));
   const showNoProject =
     !normalizedQuery || matchesCodeSearch(NO_PROJECT_NAME) || visibleNoProjectTasks.length > 0;
