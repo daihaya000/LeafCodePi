@@ -86,7 +86,14 @@ describe("ExtensionsSettings", () => {
     render(<ExtensionsSettings />);
 
     await screen.findByRole("switch", { name: "leafcode-goal-loop を有効化" });
-    expect(within(screen.getByTestId("extensions-bundled")).getByText("leafcode-intercom")).toBeTruthy();
-    expect(within(screen.getByTestId("extensions-user")).getByText("leafcode-goal-loop")).toBeTruthy();
+    const bundled = within(screen.getByTestId("extensions-bundled"));
+    const user = within(screen.getByTestId("extensions-user"));
+    expect(bundled.getByRole("heading", { name: "組み込み" })).toBeTruthy();
+    expect(bundled.getByText("C:/LeafCodePi/extensions")).toBeTruthy();
+    expect(bundled.getByText("leafcode-intercom")).toBeTruthy();
+    expect(user.getByText("C:/pi/agent/extensions")).toBeTruthy();
+    expect(user.getByText("leafcode-goal-loop")).toBeTruthy();
+    expect(screen.queryByText("LeafCodePi リポジトリに同梱された拡張機能です。")).toBeNull();
+    expect(screen.queryByText("ユーザーの Pi 設定から読み込んだ拡張機能です。")).toBeNull();
   });
 });

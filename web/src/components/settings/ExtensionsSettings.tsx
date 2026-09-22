@@ -127,8 +127,9 @@ export function ExtensionsSettings() {
   function renderExtensionSection(
     id: string,
     title: string,
-    description: string,
+    description: string | undefined,
     items: ExtensionDto[],
+    path: string | null,
   ) {
     return (
       <section data-testid={id} className="rounded-xl border border-border bg-surface-2 p-3">
@@ -136,7 +137,8 @@ export function ExtensionsSettings() {
           <h4 className="text-sm font-semibold">{title}</h4>
           <Badge tone="neutral">{items.length}件</Badge>
         </div>
-        <p className="mt-1 text-xs text-muted">{description}</p>
+        {description && <p className="mt-1 text-xs text-muted">{description}</p>}
+        {path && <p className="mt-1 break-all font-mono text-[11px] text-muted">{path}</p>}
         {renderExtensionItems(items)}
       </section>
     );
@@ -151,29 +153,25 @@ export function ExtensionsSettings() {
         </Button>
       </div>
       <p className="text-xs text-muted">
-        リポジトリ組み込みとユーザー追加の拡張機能を別枠で表示し、有効／無効を切り替えます。無効化は状態ファイルに記録し、開いているセッションへ即時反映します。
+        組み込みとユーザー追加の拡張機能を別枠で表示し、有効／無効を切り替えます。無効化は状態ファイルに記録し、開いているセッションへ即時反映します。
       </p>
-      {(extensionsPath || bundledExtensionsPath) && (
-        <div className="mt-1 space-y-0.5 text-[11px] text-muted">
-          {extensionsPath && <p className="break-all"><span className="font-semibold">ユーザー:</span> <span className="font-mono">{extensionsPath}</span></p>}
-          {bundledExtensionsPath && <p className="break-all"><span className="font-semibold">リポジトリ:</span> <span className="font-mono">{bundledExtensionsPath}</span></p>}
-        </div>
-      )}
       {loading && extensions.length === 0 ? (
         <p className="mt-3 text-sm text-muted">読み込み中…</p>
       ) : (
         <div className="mt-3 space-y-3">
           {renderExtensionSection(
             "extensions-bundled",
-            "リポジトリ組み込み",
-            "LeafCodePi リポジトリに同梱された拡張機能です。",
+            "組み込み",
+            undefined,
             bundledExtensions,
+            bundledExtensionsPath,
           )}
           {renderExtensionSection(
             "extensions-user",
             "ユーザー追加",
-            "ユーザーの Pi 設定から読み込んだ拡張機能です。",
+            undefined,
             userExtensions,
+            extensionsPath,
           )}
         </div>
       )}
