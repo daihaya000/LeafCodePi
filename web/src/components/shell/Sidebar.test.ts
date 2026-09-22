@@ -140,6 +140,14 @@ describe("tasksForSidebar", () => {
   it("returns empty list unchanged", () => {
     expect(tasksForSidebar([])).toEqual([]);
   });
+
+  it("keeps the source array unchanged when sorting", () => {
+    const tasks = [task("idle", "idle", "待機中"), task("working", "working", "進行中")];
+    const originalOrder = [...tasks];
+
+    expect(tasksForSidebar(tasks)).not.toBe(tasks);
+    expect(tasks).toEqual(originalOrder);
+  });
 });
 
 describe("latestWorkingTask", () => {

@@ -601,17 +601,19 @@ function hasUnreadTask(task: TaskSummary, activeTaskId: string | null): boolean 
     && hasUnread(task.updatedAt, getLastReadAt("task", task.id));
 }
 
+function sidebarTaskComparator(pinnedTaskIds?: ReadonlySet<string>) {
+  return (a: TaskSummary, b: TaskSummary) =>
+    Number(pinnedTaskIds?.has(b.id)) - Number(pinnedTaskIds?.has(a.id)) ||
+    Number(b.status === "working") - Number(a.status === "working") ||
+    b.updatedAt.localeCompare(a.updatedAt);
+}
+
 /** ピン留めを優先し、その中でも従来どおり進行中・更新日時順に表示する。 */
 export function tasksForSidebar(
   tasks: TaskSummary[],
   pinnedTaskIds?: ReadonlySet<string>,
 ): TaskSummary[] {
-  return [...tasks].sort(
-    (a, b) =>
-      Number(pinnedTaskIds?.has(b.id)) - Number(pinnedTaskIds?.has(a.id)) ||
-      Number(b.status === "working") - Number(a.status === "working") ||
-      b.updatedAt.localeCompare(a.updatedAt),
-  );
+  return [...tasks].sort(sidebarTaskComparator(pinnedTaskIds));
 }
 
 /** プロジェクト内で更新日時が最新の進行中タスクを返す。 */
@@ -1647,8 +1649,9 @@ const SidebarView = memo(function SidebarView({
       list.push(task);
       map.set(task.projectId, list);
     }
-    for (const [projectId, list] of map) {
-      map.set(projectId, tasksForSidebar(list, pinnedTaskIds));
+    const compareTasks = sidebarTaskComparator(pinnedTaskIds);
+    for (const list of map.values()) {
+      list.sort(compareTasks);
     }
     return map;
   }, [pinnedTaskIds, tasks]);
