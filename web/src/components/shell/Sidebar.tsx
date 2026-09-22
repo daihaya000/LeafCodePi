@@ -1289,7 +1289,7 @@ const SidebarView = memo(function SidebarView({
   const [actionBusyKey, setActionBusyKey] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [refreshError, setRefreshError] = useState<string | null>(null);
-  const [unreadVersion, setUnreadVersion] = useState(0);
+  const [, refreshUnread] = useState(0);
   const [projectTaskMenu, setProjectTaskMenu] = useState<ProjectTaskMenuState | null>(null);
   const [promotionTask, setPromotionTask] = useState<TaskSummary | null>(null);
   const [projectSettingsProject, setProjectSettingsProject] = useState<ProjectDto | null>(null);
@@ -1520,11 +1520,11 @@ const SidebarView = memo(function SidebarView({
   // ハイライト・自動展開の源とする。モバイルは panes を触らないため pathname 由来のまま。
   const pathnameTaskId = pathname.startsWith("/task/") ? pathname.slice("/task/".length) : null;
   const activeTaskId = paneMdUp ? paneActiveTaskId : pathnameTaskId;
-  const unreadModes = useMemo<UnreadModes>(() => ({
+  const unreadModes: UnreadModes = {
     code: tasks.some((task) => task.status !== "archived" && task.kind !== "bot" && task.id !== activeTaskId && hasUnread(task.updatedAt, getLastReadAt("task", task.id))),
     bot: botSidebar.bots.some((bot) => activeTaskId !== `/bots/${encodeURIComponent(bot.id)}` && hasUnread(bot.lastMessageAt, getLastReadAt("bot", bot.id)))
       || botSidebar.rooms.some((room) => activeTaskId !== `/bots/rooms/${encodeURIComponent(room.id)}` && hasUnread(room.lastMessageAt, getLastReadAt("room", room.id))),
-  }), [activeTaskId, botSidebar.bots, botSidebar.rooms, tasks, unreadVersion]);
+  };
 
   const openTask = useCallback(
     (taskId: string) => {
@@ -1951,7 +1951,7 @@ const SidebarView = memo(function SidebarView({
         markRead("task", task.id, Date.parse(task.updatedAt));
       }
     }
-    setUnreadVersion((version) => version + 1);
+    refreshUnread((version) => version + 1);
   }
 
   async function migrateProjectAction(project: ProjectDto, destinationPath: string) {
@@ -2125,7 +2125,7 @@ const SidebarView = memo(function SidebarView({
     [cancelProjectTaskMenuHide, cancelRailWidgetHide],
   );
 
-  const renderTaskList = useCallback((children: TaskSummary[]) => (
+  const renderTaskList = (children: TaskSummary[]) => (
     <ul
       className={cx(
         "mb-1 ml-5 space-y-0.5 border-l border-border pl-1.5",
@@ -2152,7 +2152,7 @@ const SidebarView = memo(function SidebarView({
         />
       ))}
     </ul>
-  ), [actionBusyKey, activeTaskId, archiveTask, botsById, handleTaskDragStart, mdUp, openTask, pinnedTaskIds, togglePinned, unreadVersion]);
+  );
 
   // `collapsed` はデスクトップ専用のレール表示（collapsedRail）用。body は
   // デスクトップでは !collapsed のときだけ描画され、モバイルドロワーは常に全幅なので、
