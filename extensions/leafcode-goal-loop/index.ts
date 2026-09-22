@@ -102,6 +102,7 @@ const MAX_GOAL_CHARS = 4_000;
 const MAX_ACCEPTANCE_ITEMS = 10;
 const MAX_ACCEPTANCE_CHARS = 2_000;
 const MAX_PROGRESS = 50;
+const INITIAL_IMAGE_MIME_TYPES = new Set(["image/png", "image/jpeg", "image/webp", "image/gif"]);
 const MAX_REJECTED_CLAIMS = 2;
 const MAX_UNREADABLE_STREAK = 2;
 /** Keep the replay prompt bounded; older notes fall off first. */
@@ -367,7 +368,12 @@ function normalizeInitialImages(value: unknown): GoalLoopInitialImage[] | undefi
       ) {
         return null;
       }
-      return { type: "image", mimeType: item.mimeType, data: item.data };
+      const mimeType = item.mimeType.toLowerCase();
+      const data = item.data.trim();
+      if (!INITIAL_IMAGE_MIME_TYPES.has(mimeType) || !data) return null;
+      const decoded = Buffer.from(data, "base64");
+      if (decoded.length === 0 || decoded.toString("base64") !== data) return null;
+      return { type: "image", mimeType, data };
     })
     .filter((image): image is GoalLoopInitialImage => image !== null);
   return images.length ? images : undefined;
