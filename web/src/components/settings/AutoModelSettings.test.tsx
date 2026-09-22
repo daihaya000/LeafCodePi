@@ -64,14 +64,14 @@ describe("AutoModelSettings", () => {
     render(<AutoModelSettings />);
     await waitFor(() => expect(screen.queryByText("モデルを読み込み中…")).toBeNull());
 
-    const toggle = screen.getByRole("switch", { name: "Autoモデルを無効化" });
-    expect(toggle.getAttribute("aria-checked")).toBe("true");
+    const toggle = screen.getByRole("switch", { name: "Autoモデルを有効化" });
+    expect(toggle.getAttribute("aria-checked")).toBe("false");
     fireEvent.click(toggle);
 
-    expect(screen.getByRole("switch", { name: "Autoモデルを有効化" })).toBeTruthy();
+    expect(screen.getByRole("switch", { name: "Autoモデルを無効化" })).toBeTruthy();
     await waitFor(() => expect(client.sendJson).toHaveBeenCalledWith(
       "/api/settings/auto-model-enabled",
-      { value: "0" },
+      { value: "1" },
       "PUT",
     ));
   });

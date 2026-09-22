@@ -916,7 +916,7 @@ export const TaskView = memo(function TaskView({
   const [settledSilentMessageId, setSettledSilentMessageId] = useState<string | null>(null);
   const autoResumeKeyRef = useRef<string | null>(null);
   const [agents, setAgents] = useState<ComposerReference[]>([]);
-  const [autoAgentEnabled, setAutoAgentEnabled] = useState(true);
+  const [autoAgentEnabled, setAutoAgentEnabled] = useState(false);
   const [skills, setSkills] = useState<ComposerReference[]>([]);
   const promptPresetReferences = useComposerPromptPresetReferences();
   const messageReferences = useMemo(
@@ -1658,7 +1658,7 @@ export const TaskView = memo(function TaskView({
       autoEnabled?: boolean;
     }>("/api/agents").then((result) => {
       if (!closed) {
-        const nextAutoAgentEnabled = result.autoEnabled !== false;
+        const nextAutoAgentEnabled = result.autoEnabled === true;
         setAutoAgentEnabled(nextAutoAgentEnabled);
         const enabledAgents = result.agents
           .filter((a) => a.enabled)

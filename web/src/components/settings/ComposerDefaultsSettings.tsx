@@ -42,7 +42,7 @@ export function ComposerDefaultsSettings({ refreshToken = 0 }: { refreshToken?: 
   const [defaults, setDefaults] = useState<ComposerDefaults>(() => readComposerDefaults());
   const [models, setModels] = useState<ModelOption[]>([]);
   const [agents, setAgents] = useState<string[]>([]);
-  const [autoAgentEnabled, setAutoAgentEnabled] = useState(true);
+  const [autoAgentEnabled, setAutoAgentEnabled] = useState(false);
   const [autoModelEnabled, setAutoModelEnabled] = useState(() => readAutoModelEnabled());
   const [thinkingLevel, setThinkingLevel] = useState<ThinkingLevel>(
     () => readStoredThinkingLevel() ?? "off",
@@ -62,7 +62,7 @@ export function ComposerDefaultsSettings({ refreshToken = 0 }: { refreshToken?: 
       .then(([modelResult, agentResult]) => {
         if (!active) return;
         setModels(modelResult.models ?? []);
-        setAutoAgentEnabled(agentResult.autoEnabled !== false);
+        setAutoAgentEnabled(agentResult.autoEnabled === true);
         setAgents((agentResult.agents ?? []).filter((a) => a.enabled).map((a) => a.name));
       })
       .catch((err) => {

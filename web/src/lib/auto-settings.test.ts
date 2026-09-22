@@ -86,7 +86,7 @@ describe("auto-settings", () => {
 
   it("uses safe defaults, writes synchronously, and notifies the same document", () => {
     expect(readAutoOptimizeMode()).toBe("cost");
-    expect(readAutoModelEnabled()).toBe(true);
+    expect(readAutoModelEnabled()).toBe(false);
     expect(readAutoShowModel()).toBe(false);
     expect(readAutoJevEnabled()).toBe(false);
     expect(readAutoJevMinConfidence()).toBe(0.6);

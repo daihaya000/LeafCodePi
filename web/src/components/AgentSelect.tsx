@@ -63,7 +63,7 @@ export function AgentRoleIcon({ name }: { name: string }) {
 export function AgentSelect({
   value,
   agents,
-  autoEnabled = true,
+  autoEnabled = false,
   disabled,
   onChange,
   className,

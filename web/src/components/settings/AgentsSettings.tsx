@@ -621,7 +621,7 @@ function AgentEditor({
 export function AgentsSettings() {
   const [agents, setAgents] = useState<AgentDto[]>([]);
   const [models, setModels] = useState<ModelOption[]>([]);
-  const [autoEnabled, setAutoEnabled] = useState(true);
+  const [autoEnabled, setAutoEnabled] = useState(false);
   const [jevEnabled, setJevEnabled] = useState(() => readAutoJevEnabled());
   const [jevMinConfidence, setJevMinConfidence] = useState(() => readAutoJevMinConfidence());
   const jevTouchedRef = useRef(false);
@@ -645,7 +645,7 @@ export function AgentsSettings() {
         const errors: string[] = [];
         if (agentsResult.status === "fulfilled") {
           setAgents(sortAgentRows(agentsResult.value.agents));
-          setAutoEnabled(agentsResult.value.autoEnabled !== false);
+          setAutoEnabled(agentsResult.value.autoEnabled === true);
         } else {
           errors.push(
             agentsResult.reason instanceof Error

@@ -83,7 +83,7 @@ describe("AgentsSettings", () => {
   beforeEach(() => {
     getJson.mockImplementation((path: string) =>
       path === "/api/agents"
-        ? Promise.resolve({ agents, agentsDir: "C:/pi/agent/agents" })
+        ? Promise.resolve({ agents, agentsDir: "C:/pi/agent/agents", autoEnabled: false })
         : path === "/api/settings/auto-agent-prompt"
           ? Promise.resolve({
               value: null,
@@ -100,16 +100,16 @@ describe("AgentsSettings", () => {
     sendJson.mockReset();
   });
 
-  it("切り替えでAutoエージェントを無効化できる", async () => {
+  it("デフォルト無効のAutoエージェントを有効化できる", async () => {
     render(<AgentsSettings />);
 
-    const toggle = await screen.findByRole("switch", { name: "Autoエージェントを無効化" });
+    const toggle = await screen.findByRole("switch", { name: "Autoエージェントを有効化" });
     fireEvent.click(toggle);
 
     await waitFor(() => {
       expect(sendJson).toHaveBeenCalledWith(
         "/api/settings/auto-agent-enabled",
-        { value: "0" },
+        { value: "1" },
         "PUT",
       );
     });
@@ -457,7 +457,7 @@ describe("AgentsSettings", () => {
     expect(screen.queryByRole("textbox", { name: "モデル選定者向けプロンプト" })).toBeNull();
     const autoSection = screen.getByRole("heading", { name: "Autoエージェント" }).closest("section");
     expect(autoSection).not.toBeNull();
-    expect(screen.getByRole("switch", { name: "Autoエージェントを無効化" }).closest("section")).toBe(autoSection);
+    expect(screen.getByRole("switch", { name: "Autoエージェントを有効化" }).closest("section")).toBe(autoSection);
     fireEvent.click(await screen.findByRole("button", { name: "編集" }));
 
     const prompt = screen.getByRole("textbox", { name: "モデル選定者向けプロンプト" }) as HTMLTextAreaElement;

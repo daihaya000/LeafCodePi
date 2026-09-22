@@ -105,7 +105,9 @@ export function writeAutoOptimizeMode(mode: AutoOptimizeMode): void {
 }
 
 export function readAutoModelEnabled(): boolean {
-  return syncByKey[AUTO_MODEL_ENABLED_SETTING_KEY].read() !== "0";
+  // Auto model is opt-in. Keep an explicit "1" enabled, but treat an
+  // unset setting as disabled for new installations.
+  return syncByKey[AUTO_MODEL_ENABLED_SETTING_KEY].read() === "1";
 }
 
 export function writeAutoModelEnabled(enabled: boolean): void {

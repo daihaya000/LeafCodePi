@@ -1,6 +1,11 @@
 import assert from "node:assert/strict";
 import { describe, it } from "vitest";
-import { AUTO_AGENT_VALUE, DEFAULT_AGENT, resolveAgentSelection } from "./default-agent";
+import {
+  AUTO_AGENT_VALUE,
+  DEFAULT_AGENT,
+  isAutoAgentEnabled,
+  resolveAgentSelection,
+} from "./default-agent";
 
 describe("resolveAgentSelection", () => {
   it("prefers default and rejects the display placeholder", () => {
@@ -15,7 +20,14 @@ describe("resolveAgentSelection", () => {
   });
 
   it("keeps the Auto sentinel separate from real agents", () => {
-    assert.equal(resolveAgentSelection(AUTO_AGENT_VALUE, ["builder", "reviewer"]), AUTO_AGENT_VALUE);
+    assert.equal(resolveAgentSelection(AUTO_AGENT_VALUE, ["builder", "reviewer"], true), AUTO_AGENT_VALUE);
+  });
+
+  it("disables Auto by default", () => {
+    assert.equal(resolveAgentSelection(AUTO_AGENT_VALUE, ["builder", "reviewer"]), "builder");
+    assert.equal(isAutoAgentEnabled(null), false);
+    assert.equal(isAutoAgentEnabled("0"), false);
+    assert.equal(isAutoAgentEnabled("1"), true);
   });
 
   it("falls back from Auto when Auto is disabled", () => {

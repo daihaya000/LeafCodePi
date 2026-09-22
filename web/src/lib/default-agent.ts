@@ -9,16 +9,16 @@ export const AUTO_AGENT_ENABLED_SETTING_KEY = "auto-agent-enabled";
 
 const AGENT_KEY = "leafcodepi.defaultAgent";
 
-/** Auto is enabled unless explicitly disabled. */
+/** Auto agent is opt-in; an explicit "1" enables it. */
 export function isAutoAgentEnabled(value: string | null | undefined): boolean {
-  return value !== "0";
+  return value === "1";
 }
 
 /** Keep Composer's controlled value on Auto, build, or an available agent. */
 export function resolveAgentSelection(
   preferred: string | null | undefined,
   available: readonly string[],
-  autoEnabled = true,
+  autoEnabled = false,
 ): string {
   const normalized = preferred?.trim() ?? "";
   if (normalized === AUTO_AGENT_VALUE && autoEnabled) return AUTO_AGENT_VALUE;

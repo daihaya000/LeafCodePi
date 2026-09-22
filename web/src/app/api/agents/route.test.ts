@@ -32,15 +32,18 @@ describe("POST /api/agents", () => {
     mocks.getSetting.mockReturnValue(null);
   });
 
-  it("reports whether Auto is enabled alongside the agent list", async () => {
+  it("defaults Auto to disabled and reports explicit enablement", async () => {
     const listed = { agents: [], agentsDir: "C:/pi/agent/agents" };
     mocks.listAgents.mockReturnValue(listed);
-    mocks.getSetting.mockReturnValue("0");
 
-    const response = await GET();
+    const disabledResponse = await GET();
 
-    expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({ ...listed, autoEnabled: false });
+    expect(disabledResponse.status).toBe(200);
+    expect(await disabledResponse.json()).toEqual({ ...listed, autoEnabled: false });
+
+    mocks.getSetting.mockReturnValue("1");
+    const enabledResponse = await GET();
+    expect(await enabledResponse.json()).toEqual({ ...listed, autoEnabled: true });
   });
 
   it("rejects a non-object request body before creating an agent", async () => {

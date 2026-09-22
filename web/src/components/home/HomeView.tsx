@@ -195,7 +195,7 @@ export const HomeView = memo(function HomeView({
   const [error, setError] = useState<string | null>(null);
   const [loaded, setLoaded] = useState(false);
   const [agents, setAgents] = useState<ComposerReference[]>([]);
-  const [autoAgentEnabled, setAutoAgentEnabled] = useState(true);
+  const [autoAgentEnabled, setAutoAgentEnabled] = useState(false);
   const [skills, setSkills] = useState<ComposerReference[]>([]);
   const [agent, setAgent] = useState(() => readStoredAgent() || DEFAULT_AGENT);
   const [subagentPermission, setSubagentPermission] = useState<SubagentPermission>(
@@ -294,7 +294,7 @@ export const HomeView = memo(function HomeView({
       setHealth((current) => current?.engineOk === healthRes.value.engineOk ? current : healthRes.value);
     }
     if (agentRes.status === "fulfilled") {
-      const nextAutoAgentEnabled = agentRes.value.autoEnabled !== false;
+      const nextAutoAgentEnabled = agentRes.value.autoEnabled === true;
       setAutoAgentEnabled(nextAutoAgentEnabled);
       const enabledAgents = agentRes.value.agents
         .filter((a) => a.enabled)

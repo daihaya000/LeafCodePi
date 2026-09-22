@@ -8,7 +8,7 @@ describe("AgentSelect", () => {
   afterEach(cleanup);
 
   it("does not show the placeholder as a selectable agent", () => {
-    render(<AgentSelect value="builder" agents={["builder", "programmer"]} onChange={() => {}} />);
+    render(<AgentSelect value="builder" agents={["builder", "programmer"]} autoEnabled onChange={() => {}} />);
 
     fireEvent.click(screen.getByRole("button", { name: "エージェント" }));
 
@@ -34,7 +34,7 @@ describe("AgentSelect", () => {
 
   it("reports Auto and uses role icons for real agents", () => {
     const onChange = vi.fn();
-    render(<AgentSelect value={AUTO_AGENT_VALUE} agents={["builder", "programmer"]} onChange={onChange} />);
+    render(<AgentSelect value={AUTO_AGENT_VALUE} agents={["builder", "programmer"]} autoEnabled onChange={onChange} />);
 
     const button = screen.getByRole("button", { name: "エージェント" });
     expect(button.textContent).toContain("Auto");
