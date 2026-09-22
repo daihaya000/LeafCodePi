@@ -8,7 +8,7 @@ import type { BotDto, RoomDto, RoomHandoff, TaskDetail, UiMessage } from "./type
 const state = vi.hoisted(() => ({
   root: "", details: new Map<string, TaskDetail>(), promptTask: vi.fn(),
   abortTask: vi.fn(async () => undefined),
-  peekProgress: vi.fn(async (_taskId: string) => ({})),
+  peekProgress: vi.fn(async () => ({})),
   pendingRoom: vi.fn<(roomId: string, requestId: string, excludeRequestId?: string) => CodeRequest | undefined>(() => undefined),
   pendingRooms: vi.fn<(roomId: string, requestId: string, excludeRequestId?: string) => CodeRequest[]>(() => []),
   turnRequests: vi.fn<(roomId: string, requestId: string) => CodeRequest[]>(() => []),
