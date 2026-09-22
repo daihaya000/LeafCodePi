@@ -185,6 +185,8 @@ type Runtime = {
   watchdogTimer?: ReturnType<typeof setInterval>;
   /** An abort-paused turn may be re-armed when it was caused by manual compaction. */
   abortedTurnPausePending: boolean;
+  /** Prevent duplicate hidden end notices if persisting their flag fails. */
+  endNoticeQueued: boolean;
   disposed: boolean;
 };
 
@@ -1238,7 +1240,7 @@ async function settleAwaitingTurn(runtime: Runtime): Promise<void> {
  */
 function notifyLoopEnded(runtime: Runtime): void {
   const loop = currentLoop(runtime);
-  if (!loop || loop.endNoticeSent) return;
+  if (!loop || loop.endNoticeSent || runtime.endNoticeQueued) return;
   if (!TERMINAL.has(loop.status) && loop.status !== "blocked" && loop.status !== "paused") return;
   try {
     runtime.pi.sendMessage(
@@ -1257,6 +1259,7 @@ function notifyLoopEnded(runtime: Runtime): void {
     return;
   }
   loop.endNoticeSent = true;
+  runtime.endNoticeQueued = true;
   writeLoop(loop);
 }
 
@@ -1371,6 +1374,7 @@ function stopLoop(runtime: Runtime): boolean {
   runtime.awaitingTurn = false;
   runtime.pausedTurnPending = false;
   runtime.abortedTurnPausePending = false;
+  runtime.endNoticeQueued = false;
   runtime.awaitingTurnIndex = undefined;
   runtime.pausedTurnIndex = undefined;
   clearPendingAgentRun(runtime);
@@ -1775,6 +1779,7 @@ function startLoop(
 
   // The new state is durable. Now invalidate/abort any old in-flight turn so a
   // trailing settlement cannot apply to this loop.
+  runtime.endNoticeQueued = false;
   runtime.turnGeneration += 1;
   const expectTrailingSettlement = replacingLiveLoop &&
     (runtime.pausedTurnPending || !runtime.ctx.isIdle());
@@ -1977,6 +1982,7 @@ function resumeLoop(runtime: Runtime, maxTurns?: unknown): boolean {
     runtime.ctx.ui.notify("状態の保存に失敗したため再開できませんでした。", "error");
     return false;
   }
+  runtime.endNoticeQueued = false;
   updateUI(runtime, loop);
   appendSnapshot(runtime, loop);
   schedule(runtime, 0);
@@ -2199,6 +2205,7 @@ export default function (pi: ExtensionAPI): void {
       discardAgentSettlements: 0,
       sendTurnInFlight: false,
       abortedTurnPausePending: false,
+      endNoticeQueued: false,
       disposed: false,
       pendingAgentAborted: false,
     };
