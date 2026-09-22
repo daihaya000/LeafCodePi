@@ -3712,6 +3712,9 @@ test("old session events do not mutate a newer session in the same extension", a
     await waitFor(() => JSON.parse(readFileSync(stateFile("cross-session-a"), "utf8")).status === "queued");
 
     await handlers.get("session_start")?.({}, ctxB);
+    const switched = JSON.parse(readFileSync(stateFile("cross-session-a"), "utf8"));
+    assert.equal(switched.status, "paused");
+    assert.equal(switched.pauseReason, "");
     await commands.get("goal-start")?.(payload, ctxB);
     await waitFor(() => JSON.parse(readFileSync(stateFile("cross-session-b"), "utf8")).status === "queued");
     busy = false;

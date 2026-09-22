@@ -2146,6 +2146,29 @@ export default function (pi: ExtensionAPI): void {
     // old session_shutdown. Retire the prior runtime so its timers cannot act
     // on the old context after this closure begins targeting the new session.
     if (runtime && !runtime.disposed) {
+      // Switching to a different session does not necessarily emit the old
+      // session_shutdown. Persist the same lifecycle pause here so its queued
+      // or running loop cannot silently resume while this extension is away.
+      if (runtime.key !== key) {
+        const previousLoop = currentLoop(runtime);
+        if (
+          previousLoop &&
+          (
+            previousLoop.status === "running" ||
+            previousLoop.status === "queued" ||
+            previousLoop.status === "verifying_completed" ||
+            isAbortPausedLoop(previousLoop)
+          )
+        ) {
+          if (previousLoop.status === "running") previousLoop.pendingTurnRecovery = true;
+          previousLoop.status = "paused";
+          previousLoop.pauseReason = "";
+          previousLoop.error = "セッション切替時に一時停止しました。";
+          if (!writeLoop(previousLoop)) {
+            console.error("[goal-loop] session switch failed to persist lifecycle pause");
+          }
+        }
+      }
       runtime.disposed = true;
       clearPendingAgentRun(runtime);
       clearTimer(runtime);
