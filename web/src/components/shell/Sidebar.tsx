@@ -42,7 +42,7 @@ import {
   refreshBotSidebar,
   subscribeBotSidebar,
 } from "@/lib/bot-sidebar-store";
-import { getLastReadAt, hasUnread, markRead } from "@/lib/bot-unread";
+import { getLastReadAt, getUnreadSnapshot, hasUnread, hydrateLastReadState, markRead, subscribeUnreadState } from "@/lib/bot-unread";
 import { HOME_TAB_ID, paneTabIdsForWorkingTasks, SETTINGS_TAB_ID, type TaskPanesAction } from "@/lib/task-panes";
 import { PINNED_TASKS_API_PATH, parsePinnedTaskIds, serializePinnedTaskIds } from "@/lib/sidebar-settings";
 import { isGoalLoopLiveStatus } from "@/lib/goal-loop-settings";
@@ -1273,6 +1273,7 @@ const SidebarView = memo(function SidebarView({
     getBotSidebarServerSnapshot,
   );
   const botStatusFor = useBotStatusFor();
+  useSyncExternalStore(subscribeUnreadState, getUnreadSnapshot, getUnreadSnapshot);
   const [collapsed, setCollapsed] = useState(false);
   const [width, setWidth] = useState(DEFAULT_WIDTH);
   /** ドラッグ中のみ端をカーソルへ追従させる幅（離したら null へ戻して吸着させる）。 */
@@ -1299,7 +1300,6 @@ const SidebarView = memo(function SidebarView({
   const [actionBusyKey, setActionBusyKey] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [refreshError, setRefreshError] = useState<string | null>(null);
-  const [, refreshUnread] = useState(0);
   const [projectTaskMenu, setProjectTaskMenu] = useState<ProjectTaskMenuState | null>(null);
   const [promotionTask, setPromotionTask] = useState<TaskSummary | null>(null);
   const [projectSettingsProject, setProjectSettingsProject] = useState<ProjectDto | null>(null);
@@ -1314,6 +1314,7 @@ const SidebarView = memo(function SidebarView({
   const railWidgetRef = useRef<HTMLDivElement | null>(null);
 
   const refresh = useCallback(async () => {
+    void hydrateLastReadState();
     // Avoid piling up four JSON requests per poll while a slow host is still responding.
     if (refreshInFlightRef.current) return;
     refreshInFlightRef.current = true;
@@ -1962,7 +1963,6 @@ const SidebarView = memo(function SidebarView({
         markRead("task", task.id, Date.parse(task.updatedAt));
       }
     }
-    refreshUnread((version) => version + 1);
   }
 
   async function migrateProjectAction(project: ProjectDto, destinationPath: string) {

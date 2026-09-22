@@ -60,6 +60,7 @@ vi.mock("@/components/ui", () => ({
 }));
 
 import { Sidebar } from "./Sidebar";
+import { resetUnreadStateForTests } from "@/lib/bot-unread";
 
 const projects = [
   { id: "project-a", name: "Project A", rootPath: "C:\\repo-a", favorite: false, archived: false, createdAt: "", lastOpenedAt: null },
@@ -160,6 +161,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  resetUnreadStateForTests();
   cleanup();
   vi.unstubAllGlobals();
   localStorage.clear();
@@ -571,21 +573,21 @@ describe("Sidebar project ordering", () => {
     mocks.getJson.mockImplementation((path: string) => {
       if (path === "/api/projects?archived=1") return Promise.resolve({ projects });
       if (path === "/api/tasks?kind=all" || path === "/api/tasks?archived=1&kind=all") return Promise.resolve({ tasks: projectTasks });
+      if (path === "/api/unread") return Promise.resolve({ markers: [{ kind: "task", id: "other", readAt: Date.parse(projectTasks[3]!.updatedAt) }] });
       if (path === "/api/health") return Promise.resolve({ ok: true, engineOk: true, version: "1", modelCount: 0 });
       return Promise.reject(new Error(`Unexpected request: ${path}`));
     });
-    localStorage.setItem("webui.bot.last_read.task.other", String(Date.parse(projectTasks[3]!.updatedAt)));
     render(<Sidebar mobileOpen={false} onClose={vi.fn()} />);
     await openProjectSettings();
 
     fireEvent.click(screen.getByRole("button", { name: "Project Aのセッションをすべて既読にする" }));
 
     await waitFor(() => {
-      expect(localStorage.getItem("webui.bot.last_read.task.ready")).toBe(String(Date.parse(projectTasks[0]!.updatedAt)));
-      expect(localStorage.getItem("webui.bot.last_read.task.archived")).toBe(String(Date.parse(projectTasks[2]!.updatedAt)));
+      expect(mocks.sendJson.mock.calls).toEqual(expect.arrayContaining([
+        ["/api/unread", { kind: "task", id: "ready", readAt: Date.parse(projectTasks[0]!.updatedAt) }, "PUT"],
+        ["/api/unread", { kind: "task", id: "archived", readAt: Date.parse(projectTasks[2]!.updatedAt) }, "PUT"],
+      ]));
     });
-    expect(localStorage.getItem("webui.bot.last_read.task.working")).toBeNull();
-    expect(localStorage.getItem("webui.bot.last_read.task.other")).toBe(String(Date.parse(projectTasks[3]!.updatedAt)));
     await waitFor(() => expect(screen.getByRole("button", { name: "Code（進行中1件）" })).toBeTruthy());
   });
 

@@ -1,16 +1,25 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
-import { getLastReadAt, hasUnread, markRead } from "./bot-unread";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-function stubStorage(getItem: ReturnType<typeof vi.fn>, setItem?: ReturnType<typeof vi.fn>): void {
-  vi.stubGlobal("window", {
-    localStorage: {
-      getItem,
-      setItem: setItem ?? vi.fn(),
-    },
-  });
-}
+const api = vi.hoisted(() => ({ getJson: vi.fn(), sendJson: vi.fn() }));
+vi.mock("@/lib/client", () => api);
+
+import {
+  getLastReadAt,
+  getUnreadSnapshot,
+  hasUnread,
+  hydrateLastReadState,
+  markRead,
+  resetUnreadStateForTests,
+} from "./bot-unread";
+
+beforeEach(() => {
+  vi.stubGlobal("window", {});
+  api.getJson.mockReset();
+  api.sendJson.mockReset();
+});
 
 afterEach(() => {
+  resetUnreadStateForTests();
   vi.unstubAllGlobals();
 });
 
@@ -25,56 +34,43 @@ describe("bot unread timestamps", () => {
     expect(hasUnread("not-a-date", null)).toBe(false);
   });
 
-  it("reads and writes the last-read marker", () => {
-    const getItem = vi.fn((key: string) =>
-      key === "webui.bot.last_read.bot.one" ? "123" : null,
-    );
-    const setItem = vi.fn(() => undefined);
-    stubStorage(getItem, setItem);
+  it("hydrates server-persisted markers", async () => {
+    api.getJson.mockResolvedValue({ markers: [{ kind: "bot", id: "one", readAt: 123 }] });
+
+    await hydrateLastReadState();
+
     expect(getLastReadAt("bot", "one")).toBe(123);
-    markRead("bot", "one", 456);
-    expect(setItem).toHaveBeenCalledWith("webui.bot.last_read.bot.one", "456");
-    // 既読位置が新しい場合は書き換えない
-    markRead("room", "two", 100);
-    expect(setItem).toHaveBeenCalledWith("webui.bot.last_read.room.two", "100");
+    expect(getUnreadSnapshot()).toBe(1);
+  });
+
+  it("updates locally before persisting the newest marker", async () => {
+    api.sendJson.mockResolvedValue({ readAt: 456 });
+
+    markRead("room", "two", 456);
+    markRead("room", "two", 123);
+    await vi.waitFor(() => expect(api.sendJson).toHaveBeenCalledTimes(1));
+
+    expect(getLastReadAt("room", "two")).toBe(456);
+    expect(api.sendJson).toHaveBeenCalledWith(
+      "/api/unread",
+      { kind: "room", id: "two", readAt: 456 },
+      "PUT",
+    );
+  });
+
+  it("adopts a newer marker returned by the server", async () => {
+    api.sendJson.mockResolvedValue({ readAt: 789 });
+
+    markRead("task", "three", 456);
+    await vi.waitFor(() => expect(getLastReadAt("task", "three")).toBe(789));
+  });
+
+  it("keeps working when the server is unavailable", async () => {
+    api.sendJson.mockRejectedValue(new Error("offline"));
+
     markRead("task", "three", 789);
-    expect(setItem).toHaveBeenCalledWith("webui.bot.last_read.task.three", "789");
-  });
+    await Promise.resolve();
 
-  it("avoids rereading an unchanged marker during streaming updates", () => {
-    const getItem = vi.fn(() => null);
-    const setItem = vi.fn(() => undefined);
-    stubStorage(getItem, setItem);
-    markRead("bot", "one", 123);
-    markRead("bot", "one", 123);
-    expect(getItem).toHaveBeenCalledTimes(1);
-    expect(setItem).toHaveBeenCalledTimes(1);
-    markRead("bot", "one", 124);
-    expect(getItem).toHaveBeenCalledTimes(2);
-    expect(setItem).toHaveBeenLastCalledWith("webui.bot.last_read.bot.one", "124");
-  });
-
-  it("returns null when localStorage reads throw", () => {
-    stubStorage(
-      vi.fn(() => {
-        throw new Error("storage blocked");
-      }),
-    );
-    expect(getLastReadAt("bot", "one")).toBeNull();
-  });
-
-  it("does not throw when localStorage writes are blocked", () => {
-    stubStorage(
-      vi.fn(() => null),
-      vi.fn(() => {
-        throw new Error("quota exceeded");
-      }),
-    );
-    expect(() => markRead("bot", "one", 123)).not.toThrow();
-  });
-
-  it("ignores invalid stored markers", () => {
-    stubStorage(vi.fn(() => "not-a-number"));
-    expect(getLastReadAt("room", "two")).toBeNull();
+    expect(getLastReadAt("task", "three")).toBe(789);
   });
 });
