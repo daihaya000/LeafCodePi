@@ -208,7 +208,7 @@ describe("shared room context", () => {
     expect(prompt).toContain("Only if no deliverable is clear, ask one short question and finish with ROOM_ACTION: DONE.");
     expect(prompt).toContain("registers at most one implicit handoff");
     expect(prompt).toContain("A bare name without @ does not wake anyone");
-    expect(roomBotPrompt(room(), bots[0], bots, "@デバッガー 確認して", user.id)).toContain("Act on it with your tools");
+    expect(roomBotPrompt(room(), bots[0], bots, "@デバッガー 確認して", user.id)).toContain("Use tools rather than ask when possible; emit no ROOM_ACTION lines.");
   });
   it("falls back to the recent tail when the request id is unknown", () => {
     const current = room([user, { id: "reply", role: "assistant", botId: "b", text: "Bの発言", status: "done", createdAt: 2 }]);

@@ -221,6 +221,6 @@ export function roomBotPrompt(room: RoomDto, bot: BotDto, participants: BotDto[]
         "This is a work turn, not a chat turn: do the handed-off task now with your tools (code_session with its usual approval for repository work), then briefly report the actual outcome and end with ROOM_ACTION: DONE. Never claim success you did not verify.",
       ] : []),
       ...(turn.turn === turn.maxTurns ? ["This is the final available turn. Summarize the conclusion and any unresolved point for the user, then finish with ROOM_ACTION: DONE. Do not request another bot turn."] : []),
-    ] : ["Answer the request directly and briefly, like chat rather than a report. Act on it with your tools where you can instead of asking what the requester meant. Do not emit ROOM_ACTION control lines for this ordinary reply."]),
+    ] : ["Answer briefly like chat, not a report. Use tools rather than ask when possible; emit no ROOM_ACTION lines."]),
   ].join("\n");
 }
