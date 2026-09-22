@@ -243,6 +243,11 @@ export function clampCooldownSeconds(value: unknown): number {
     : DEFAULT_COOLDOWN_SECONDS;
 }
 
+function nonNegativeInteger(value: unknown): number {
+  const number = Number(value);
+  return Number.isFinite(number) ? Math.max(0, Math.trunc(number)) : 0;
+}
+
 export function parseCooldownSeconds(value: unknown): number {
   if (typeof value === "number") return clampCooldownSeconds(value);
   if (typeof value !== "string") return DEFAULT_COOLDOWN_SECONDS;
@@ -410,7 +415,7 @@ function hydrateLoop(value: unknown, cwd: string, id: string): GoalLoop | null {
     forceFullRun: raw.forceFullRun === true,
     autoAgent: raw.autoAgent === true,
     initialImages: normalizeInitialImages(raw.initialImages),
-    turnCount: Math.max(0, Math.trunc(Number(raw.turnCount) || 0)),
+    turnCount: nonNegativeInteger(raw.turnCount),
     turnKind: normalizeTurnKind(raw.turnKind),
     pauseReason: normalizePauseReason(raw.pauseReason),
     error: typeof raw.error === "string" ? raw.error.slice(0, 4_000) : "",
@@ -418,8 +423,8 @@ function hydrateLoop(value: unknown, cwd: string, id: string): GoalLoop | null {
     summary: typeof raw.summary === "string" ? raw.summary.slice(0, 4_000) : progress.at(-1)?.summary ?? "",
     evidence: typeof raw.evidence === "string" ? raw.evidence.slice(0, 4_000) : progress.at(-1)?.evidence ?? "",
     blockedReason: typeof raw.blockedReason === "string" ? raw.blockedReason.slice(0, 4_000) : "",
-    rejectedClaims: Math.max(0, Math.trunc(Number(raw.rejectedClaims) || 0)),
-    unreadableStreak: Math.max(0, Math.trunc(Number(raw.unreadableStreak) || 0)),
+    rejectedClaims: nonNegativeInteger(raw.rejectedClaims),
+    unreadableStreak: nonNegativeInteger(raw.unreadableStreak),
     pendingTurnRecovery: raw.pendingTurnRecovery === true,
     endNoticeSent: raw.endNoticeSent === true,
     notes: normalizeNotes(raw.notes),

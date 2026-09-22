@@ -1390,6 +1390,42 @@ test("does not send a restored loop with an empty goal", async () => {
   }
 });
 
+test("restores a non-finite turn count as zero", async () => {
+  const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-infinite-turn-count-"));
+  process.env.LEAFCODE_PI_DATA_DIR = cwd;
+  const handlers = new Map();
+  let busy = false;
+  let sendCount = 0;
+  const stateFile = join(cwd, "goals-loop", "infinite-turn-count-session.json");
+  const ctx = {
+    cwd,
+    mode: "rpc",
+    hasUI: false,
+    isIdle: () => !busy,
+    hasPendingMessages: () => false,
+    abort: () => { busy = false; },
+    sessionManager: { getSessionId: () => "infinite-turn-count-session", getBranch: () => [] },
+    ui: { setStatus: () => {}, setWidget: () => {}, notify: () => {} },
+  };
+
+  try {
+    mkdirSync(join(cwd, "goals-loop"), { recursive: true });
+    writeFileSync(stateFile, '{"goal":"resume","status":"queued","acceptance":[],"maxTurns":2,"forceFullRun":true,"turnKind":"goal","turnCount":1e999,"progress":[]}', "utf8");
+    goalLoopExtension({
+      on(name, handler) { handlers.set(name, handler); },
+      registerCommand() {},
+      appendEntry() {},
+      sendMessage() { sendCount += 1; busy = true; },
+    });
+    await handlers.get("session_start")?.({}, ctx);
+    await waitFor(() => sendCount === 1);
+    assert.equal(JSON.parse(readFileSync(stateFile, "utf8")).turnCount, 1);
+  } finally {
+    await handlers.get("session_shutdown")?.({}, ctx);
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
 test("keeps the loop alive once when the result JSON is missing", () => {
   const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-missing-"));
   process.env.LEAFCODE_PI_DATA_DIR = cwd;
