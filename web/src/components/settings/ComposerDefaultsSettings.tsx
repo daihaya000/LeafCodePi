@@ -331,7 +331,7 @@ export function ComposerPromptPresetsSettings() {
       <div className="flex items-start justify-between gap-3">
         <div>
           <h3 id="composer-prompt-presets-heading" className="text-sm font-semibold">送信プロンプト</h3>
-          <p className="mt-1 text-xs text-muted">よく使う指示を保存して、入力欄で <code className="rounded bg-surface-2 px-1">#</code>／<code className="rounded bg-surface-2 px-1">＃</code> または本文の冒頭を入力すると候補から呼び出せます。</p>
+          <p className="mt-1 text-xs text-muted">よく使う指示を <code className="rounded bg-surface-2 px-1">#</code> で呼び出せます。</p>
         </div>
         {!formOpen && (
           <button
@@ -344,7 +344,7 @@ export function ComposerPromptPresetsSettings() {
           </button>
         )}
       </div>
-      {presets.length > 0 ? (
+      {presets.length > 0 && (
         <ul aria-label="送信プロンプトのプリセット" className="mt-3 divide-y divide-border rounded-xl border border-border">
           {presets.map((preset, index) => (
             <li key={index} className="flex items-start gap-3 px-3 py-3 first:rounded-t-xl last:rounded-b-xl">
@@ -356,8 +356,6 @@ export function ComposerPromptPresetsSettings() {
             </li>
           ))}
         </ul>
-      ) : (
-        <p className="mt-3 rounded-xl border border-dashed border-border px-3 py-4 text-center text-xs text-muted">登録されたプリセットはありません</p>
       )}
       {formOpen && (
         <form

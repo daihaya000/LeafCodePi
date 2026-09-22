@@ -103,7 +103,7 @@ describe("ComposerDefaultsSettings model mapping", () => {
     Object.defineProperty(globalThis, "localStorage", { configurable: true, value: undefined });
     try {
       const html = renderToStaticMarkup(<ComposerPromptPresetsSettings />);
-      expect(html).toContain("登録されたプリセットはありません");
+      expect(html).not.toContain("送信プロンプトのプリセット");
       expect(html).not.toContain("サーバー描画では表示しない");
     } finally {
       Object.defineProperty(globalThis, "window", { configurable: true, value: previousWindow });
@@ -134,5 +134,7 @@ describe("ComposerDefaultsSettings model mapping", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "1番目のプリセットを削除" }));
     expect(screen.queryByText("変更を詳しく確認してください")).toBeNull();
+    expect(screen.queryByRole("list", { name: "送信プロンプトのプリセット" })).toBeNull();
+    expect(screen.getByRole("heading", { name: "送信プロンプト" }).closest("section")?.querySelector(".mt-3")).toBeNull();
   });
 });
