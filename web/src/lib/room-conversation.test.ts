@@ -192,7 +192,7 @@ describe("shared room context", () => {
     expect(history.at(-1)?.text).toContain("failed output");
     expect(prompt).not.toContain("unfinished");
     expect(prompt).toContain(`User request: ${JSON.stringify(user.text)}`);
-    expect(prompt).toContain("This is the final available turn");
+    expect(prompt).toContain("Final turn: summarize the conclusion and unresolved points for the user; end with ROOM_ACTION: DONE and request no further turns.");
   });
   it("truncates an oversized latest reply instead of dropping the whole history", () => {
     const current = room([user, { id: "huge", role: "assistant", botId: "b", text: "新しい意見🌿".repeat(20_000), status: "done", createdAt: 2 }]);
