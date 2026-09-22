@@ -601,11 +601,16 @@ function hasUnreadTask(task: TaskSummary, activeTaskId: string | null): boolean 
     && hasUnread(task.updatedAt, getLastReadAt("task", task.id));
 }
 
+function compareIsoUpdatedAtDescending(a: string, b: string): number {
+  // Store timestamps use toISOString(), so codepoint order matches chronological order.
+  return a === b ? 0 : a > b ? -1 : 1;
+}
+
 function sidebarTaskComparator(pinnedTaskIds?: ReadonlySet<string>) {
   return (a: TaskSummary, b: TaskSummary) =>
     Number(pinnedTaskIds?.has(b.id)) - Number(pinnedTaskIds?.has(a.id)) ||
     Number(b.status === "working") - Number(a.status === "working") ||
-    b.updatedAt.localeCompare(a.updatedAt);
+    compareIsoUpdatedAtDescending(a.updatedAt, b.updatedAt);
 }
 
 /** ピン留めを優先し、その中でも従来どおり進行中・更新日時順に表示する。 */
