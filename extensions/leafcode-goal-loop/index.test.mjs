@@ -114,6 +114,10 @@ test("bounds direct initial image payloads", () => {
     goalLoopTestSeams.normalizeInitialImages([{ mimeType: "image/png", data: Buffer.alloc(8 * 1024 * 1024 + 1).toString("base64") }]),
     undefined,
   );
+  assert.equal(
+    goalLoopTestSeams.normalizeInitialImages([{ mimeType: "image/png", data: "A".repeat(12 * 1024 * 1024) }]),
+    undefined,
+  );
 });
 
 test("normal prompts stop at the first verified completion", () => {

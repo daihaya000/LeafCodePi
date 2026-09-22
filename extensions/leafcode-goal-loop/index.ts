@@ -393,6 +393,11 @@ function normalizeInitialImages(value: unknown): GoalLoopInitialImage[] | undefi
     const mimeType = item.mimeType.toLowerCase();
     const data = item.data.trim();
     if (!INITIAL_IMAGE_MIME_TYPES.has(mimeType) || !data) continue;
+    // Reject oversized base64 before Buffer allocates a potentially unbounded
+    // decoded payload from a restored or direct browser request.
+    const remainingBytes = Math.min(MAX_INITIAL_IMAGE_BYTES, MAX_INITIAL_IMAGE_TOTAL_BYTES - totalBytes);
+    const maxEncodedLength = Math.ceil(remainingBytes / 3) * 4;
+    if (data.length > maxEncodedLength) continue;
     const decoded = Buffer.from(data, "base64");
     if (
       decoded.length === 0 ||
@@ -1355,6 +1360,7 @@ function requeueAfterManualCompaction(runtime: Runtime): void {
   }
   runtime.awaitingTurn = false;
   runtime.pausedTurnPending = false;
+  runtime.endNoticeQueued = false;
   runtime.awaitingTurnIndex = undefined;
   runtime.pausedTurnIndex = undefined;
   clearPendingAgentRun(runtime);
