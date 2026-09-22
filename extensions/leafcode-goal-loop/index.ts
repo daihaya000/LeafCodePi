@@ -813,6 +813,20 @@ export function normalizeStructured(value: unknown): GoalLoopProgress | null {
 }
 
 export function extractGoalResult(text: string): GoalLoopProgress | null {
+  // Parse fenced blocks independently: an unmatched brace in preceding prose
+  // must not hide the required final JSON result.
+  const fenced = [...text.matchAll(/```(?:json)?\s*([\s\S]*?)```/gi)];
+  for (let index = fenced.length - 1; index >= 0; index -= 1) {
+    const candidates = jsonObjectCandidates(fenced[index][1]);
+    for (let candidateIndex = candidates.length - 1; candidateIndex >= 0; candidateIndex -= 1) {
+      try {
+        const result = normalizeStructured(JSON.parse(candidates[candidateIndex]));
+        if (result) return result;
+      } catch {
+        // Try the previous candidate in this fenced block.
+      }
+    }
+  }
   const candidates = jsonObjectCandidates(text);
   for (let index = candidates.length - 1; index >= 0; index -= 1) {
     try {

@@ -84,6 +84,11 @@ test("extracts the final result after tool-call assistant messages", () => {
   );
 });
 
+test("extracts fenced JSON after an unmatched prose brace", () => {
+  const result = extractGoalResult('unfinished { prose\n```json\n{"status":"progress","summary":"recovered"}\n```');
+  assert.equal(result?.summary, "recovered");
+});
+
 test("handles braces inside JSON strings", () => {
   assert.equal(
     jsonObjectCandidates('{"text":"}"}{"status":"blocked","summary":"stop"}').length,
