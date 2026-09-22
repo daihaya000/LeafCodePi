@@ -89,6 +89,35 @@ describe("HomeView project panels", () => {
     expect(screen.queryByTestId("graph-panel")).toBeNull();
     expect((await screen.findByTestId("diff-panel")).textContent).toContain("C:\\repo");
   });
+
+  it("resizes project panels and saves their width", async () => {
+    projectResponses.push(Promise.resolve({
+      projects: [{
+        id: "project-1",
+        name: "Project",
+        rootPath: "C:\\repo",
+        favorite: false,
+        archived: false,
+        createdAt: "2026-09-13T00:00:00.000Z",
+        lastOpenedAt: null,
+      }],
+    }));
+
+    render(<HomeView />);
+    await screen.findByRole("button", { name: "プロジェクト" });
+    fireEvent.click(screen.getByRole("button", { name: "コミットグラフ" }));
+
+    const handle = screen.getByRole("separator", { name: "パネルの幅を調整" });
+    const panel = handle.parentElement as HTMLElement;
+    expect(panel.style.getPropertyValue("--panel-width")).toBe("320px");
+
+    fireEvent.pointerDown(handle, { clientX: 400 });
+    fireEvent.pointerMove(window, { clientX: 360 });
+    fireEvent.pointerUp(window);
+
+    expect(panel.style.getPropertyValue("--panel-width")).toBe("360px");
+    expect(localStorage.getItem("webui.graphpanel.width")).toBe("360");
+  });
 });
 
 describe("HomeView model refresh", () => {

@@ -38,6 +38,7 @@ import { isImeComposingEvent } from "@/lib/composer-ime";
 import { GoalLoopPanel } from "@/components/GoalLoopPanel";
 import { isGoalLoopLiveStatus, isGoalLoopSessionOwnedStatus } from "@/lib/goal-loop-settings";
 import { DiffPane } from "@/components/task/DiffPane";
+import { readSidePanelWidth, SidePanel } from "@/components/task/SidePanel";
 import { useBotFor, useIconFor } from "@/components/shell/TaskPanesContext";
 import { NextAction } from "@/components/task/NextAction";
 import { GraphPanel } from "@/components/task/GraphPanel";
@@ -395,82 +396,8 @@ function sameQuestionRequest(
   return a.id === b.id && a.sessionId === b.sessionId && JSON.stringify(a.questions) === JSON.stringify(b.questions);
 }
 
-const SIDE_PANEL_MIN_WIDTH = 240;
-const SIDE_PANEL_DEFAULT_WIDTH = 320;
-const SIDE_PANEL_MAX_WIDTH = 640;
 /** Both panels must leave a readable minimum width for the timeline. */
 const TIMELINE_MIN_WIDTH = 480;
-
-function readSidePanelWidth(storageKey: string): number {
-  if (typeof window === "undefined") return SIDE_PANEL_DEFAULT_WIDTH;
-  try {
-    const saved = Number(localStorage.getItem(storageKey));
-    return Number.isFinite(saved) && saved >= SIDE_PANEL_MIN_WIDTH
-      ? Math.min(saved, SIDE_PANEL_MAX_WIDTH)
-      : SIDE_PANEL_DEFAULT_WIDTH;
-  } catch {
-    return SIDE_PANEL_DEFAULT_WIDTH;
-  }
-}
-
-/** 右側パネル（Graph / Diff）の幅を左端ドラッグで調整できるラッパー。 */
-function SidePanel({
-  storageKey,
-  children,
-  onWidthChange,
-}: {
-  storageKey: string;
-  children: React.ReactNode;
-  onWidthChange?: (width: number) => void;
-}) {
-  const [width, setWidth] = useState(() => readSidePanelWidth(storageKey));
-  useEffect(() => {
-    setWidth(readSidePanelWidth(storageKey));
-  }, [storageKey]);
-  return (
-    <div
-      className="relative flex h-full min-h-0 shrink-0 flex-col border-b border-border md:h-72 lg:h-auto lg:w-(--panel-width) lg:border-b-0 lg:border-l"
-      style={{ "--panel-width": `${width}px` } as React.CSSProperties}
-    >
-      {children}
-      <div
-        role="separator"
-        aria-orientation="vertical"
-        aria-label="パネルの幅を調整"
-        className="absolute top-0 left-0 hidden h-full w-1 cursor-col-resize lg:block"
-        onPointerDown={(event) => {
-          event.preventDefault();
-          const startX = event.clientX;
-          const startWidth = width;
-          let nextWidth = width;
-          // ドラッグ中にパネル外のテキストが選択（テキストドラッグ判定）されないようにする。
-          const previousUserSelect = document.body.style.userSelect;
-          document.body.style.userSelect = "none";
-          const onMove = (move: PointerEvent) => {
-            nextWidth = Math.min(
-              SIDE_PANEL_MAX_WIDTH,
-              Math.max(SIDE_PANEL_MIN_WIDTH, startWidth - (move.clientX - startX)),
-            );
-            setWidth(nextWidth);
-          };
-          const onUp = () => {
-            document.body.style.userSelect = previousUserSelect;
-            window.removeEventListener("pointermove", onMove);
-            window.removeEventListener("pointerup", onUp);
-            window.removeEventListener("pointercancel", onUp);
-            window.removeEventListener("blur", onUp);
-            localStorage.setItem(storageKey, String(nextWidth));
-            onWidthChange?.(nextWidth);
-          };
-          window.addEventListener("pointermove", onMove);
-          window.addEventListener("pointerup", onUp);
-          window.addEventListener("pointercancel", onUp);
-          window.addEventListener("blur", onUp);
-        }}
-      />
-    </div>
-  );
-}
 
 function sameGoalLoopTurn(a: GoalLoopTurn, b: GoalLoopTurn): boolean {
   return a.goalId === b.goalId && a.turn === b.turn && a.kind === b.kind;

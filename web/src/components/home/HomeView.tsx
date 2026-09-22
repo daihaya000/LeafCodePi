@@ -7,6 +7,7 @@ import { AddProjectButton } from "@/components/AddProjectButton";
 import { ProjectFilePicker } from "@/components/ProjectFilePicker";
 import { DiffPane } from "@/components/task/DiffPane";
 import { GraphPanel } from "@/components/task/GraphPanel";
+import { SidePanel } from "@/components/task/SidePanel";
 import { ProjectExplorerButton } from "@/components/task/ProjectExplorerButton";
 import { AgentSelect } from "@/components/AgentSelect";
 import { AutoOptimizeSelect } from "@/components/AutoOptimizeSelect";
@@ -833,17 +834,23 @@ export const HomeView = memo(function HomeView({
           </main>
           </div>
           {projectPanel === "graph" && projectDirectory && (
-            <div className="flex h-72 min-h-0 shrink-0 flex-col border-t border-border bg-surface lg:h-auto lg:w-80 lg:border-t-0 lg:border-l">
+            <SidePanel
+              storageKey="webui.graphpanel.width"
+              className="border-t border-b-0 bg-surface lg:border-t-0"
+            >
               <GraphPanel directory={projectDirectory} active />
-            </div>
+            </SidePanel>
           )}
           {projectPanel === "diff" && projectDirectory && (
-            <div className="flex h-72 min-h-0 shrink-0 flex-col border-t border-border bg-surface lg:h-auto lg:w-80 lg:border-t-0 lg:border-l">
+            <SidePanel
+              storageKey="webui.diffpane.width"
+              className="border-t border-b-0 bg-surface lg:border-t-0"
+            >
               <DiffPane
                 directory={projectDirectory}
                 onMutated={() => notifyTasksChanged(selectedProject?.id)}
               />
-            </div>
+            </SidePanel>
           )}
         </div>
       </div>
