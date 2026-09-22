@@ -3,9 +3,12 @@ Version=1.0
 Type=Application
 Name=LeafCodePi
 Comment=LeafCodePi Pi Coding Agent
-# %k resolves to this desktop file, so the repository checkout can move.
-Exec=/bin/sh -c "dirname --zero -- \"%k\" | xargs --null --no-run-if-empty -I{} sh \"{}/scripts/launch-linux.sh\""
-Icon=leafcode-pi
+# Use the launcher directly so GNOME can start this checkout without shell
+# field-code or xargs parsing.
+Exec="/home/daichi/デスクトップ/LeafCodePi/scripts/launch-linux.sh"
+# Use the non-green LeafCodePi icon from this checkout.
+Icon=/home/daichi/デスクトップ/LeafCodePi/web/public/icon-512.png
+Path=/home/daichi/デスクトップ/LeafCodePi
 Terminal=false
 StartupNotify=false
 Categories=Development;

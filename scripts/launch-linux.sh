@@ -12,4 +12,11 @@ export PATH="$HOME/.local/bin:$PATH"
 unset LEAFCODE_PI_HEADLESS
 export LEAFCODE_PI_TRAY=1
 
-exec "$ROOT_DIR/start.sh" "$@"
+LOG_ROOT=${XDG_STATE_HOME:-"$HOME/.local/state"}
+LOG_DIR="$LOG_ROOT/leafcode-pi"
+mkdir -p "$LOG_DIR"
+
+# A .desktop launcher must survive the short-lived launcher process. Detach
+# stdout/stderr as well so GNOME/Nautilus cannot close the host on exit.
+nohup setsid "$ROOT_DIR/start.sh" "$@" \
+  >> "$LOG_DIR/launcher.log" 2>&1 </dev/null &

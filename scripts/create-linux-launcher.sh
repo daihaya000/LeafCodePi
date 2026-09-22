@@ -34,7 +34,8 @@ WORKING_DIR=$(printf '%s' "$ROOT_DIR" | sed 's/[\\"]/\\&/g')
   printf '%s\n' 'Name=LeafCodePi'
   printf '%s\n' 'Comment=LeafCodePi Pi Coding Agent'
   printf 'Exec="%s"\n' "$EXEC_PATH"
-  printf '%s\n' 'Icon=leafcode-pi'
+  # Use the source image directly to avoid GNOME theme/icon-cache color changes.
+  printf 'Icon=%s\n' "$ICON_SOURCE"
   printf 'Path=%s\n' "$WORKING_DIR"
   printf '%s\n' 'Terminal=false'
   printf '%s\n' 'StartupNotify=false'
