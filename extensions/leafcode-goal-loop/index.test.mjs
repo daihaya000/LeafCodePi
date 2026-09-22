@@ -476,6 +476,61 @@ test("goal-start normalizes browser image payloads before sending the first turn
   }
 });
 
+test("does not retain initial images when post-send cleanup persistence fails", async () => {
+  const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-initial-image-cleanup-"));
+  process.env.LEAFCODE_PI_DATA_DIR = cwd;
+  const handlers = new Map();
+  const commands = new Map();
+  const sent = [];
+  let busy = false;
+  const stateFile = () => join(cwd, "goals-loop", "initial-image-cleanup-session.json");
+  const ctx = {
+    cwd,
+    mode: "rpc",
+    hasUI: false,
+    isIdle: () => !busy,
+    hasPendingMessages: () => false,
+    abort: () => { busy = false; },
+    sessionManager: {
+      getSessionId: () => "initial-image-cleanup-session",
+      getBranch: () => [],
+    },
+    ui: { setStatus: () => {}, setWidget: () => {}, notify: () => {} },
+  };
+
+  try {
+    goalLoopExtension({
+      on(name, handler) { handlers.set(name, handler); },
+      registerCommand(name, options) { commands.set(name, options.handler); },
+      appendEntry() {},
+      sendMessage(message) {
+        sent.push(message);
+        busy = true;
+      },
+    });
+    await handlers.get("session_start")?.({}, ctx);
+    // startLoop and the pre-send running snapshot succeed; the best-effort
+    // cleanup write after sendMessage fails.
+    goalLoopTestSeams.setWriteLoopAllowCount(2);
+    const payload = Buffer.from(JSON.stringify({
+      goal: "画像を確認する",
+      maxTurns: 1,
+      images: [{ mimeType: "image/png", data: "aW1hZ2U=" }],
+    })).toString("base64url");
+
+    await commands.get("goal-start")?.(payload, ctx);
+    await waitFor(() => sent.length === 1 && existsSync(stateFile()));
+
+    const persisted = JSON.parse(readFileSync(stateFile(), "utf8"));
+    assert.equal(persisted.turnCount, 1);
+    assert.equal("initialImages" in persisted, false);
+  } finally {
+    goalLoopTestSeams.setWriteLoopAllowCount();
+    await handlers.get("session_shutdown")?.({}, ctx);
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
 test("sendTurn writeLoop failure does not send or bump turnCount", async () => {
   const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-send-write-fail-"));
   process.env.LEAFCODE_PI_DATA_DIR = cwd;

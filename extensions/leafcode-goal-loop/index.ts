@@ -504,7 +504,15 @@ function writeLoop(loop: GoalLoop): boolean {
   try {
     loop.updatedAt = isoNow();
     const file = goalStateFile(loop.cwd, loop.id);
-    const content = JSON.stringify(loop, null, 2);
+    // Initial images are needed only for the first prompt. Once its turn index
+    // is durable, retaining base64 payloads can bloat every later snapshot if
+    // the best-effort post-send cleanup write fails.
+    const { initialImages: _initialImages, ...withoutInitialImages } = loop;
+    const content = JSON.stringify(
+      loop.turnCount > 0 ? withoutInitialImages : loop,
+      null,
+      2,
+    );
     fs.mkdirSync(path.dirname(file), { recursive: true });
     const temp = `${file}.${process.pid}.${Date.now()}.tmp`;
     fs.writeFileSync(temp, content, "utf8");
