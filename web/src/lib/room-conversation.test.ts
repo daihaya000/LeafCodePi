@@ -207,6 +207,7 @@ describe("shared room context", () => {
     expect(prompt).toContain("Don't ask or delegate questions the repository, transcript, or tools can answer.");
     expect(prompt).toContain("Only if no deliverable is clear, ask one short question and finish with ROOM_ACTION: DONE.");
     expect(prompt).toContain("registers at most one implicit handoff");
+    expect(prompt).toContain("Use at most three short sentences in plain prose. No headings, numbered plans, status reports, or restating the roster/prior points. Answer the latest question or disagreement first, then add one new point.");
     expect(prompt).toContain("A bare name without @ does not wake anyone");
     expect(roomBotPrompt(room(), bots[0], bots, "@デバッガー 確認して", user.id)).toContain("Use tools rather than ask when possible; emit no ROOM_ACTION lines.");
   });
