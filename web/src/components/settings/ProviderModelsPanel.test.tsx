@@ -90,6 +90,39 @@ describe("ProviderModelsPanel account model settings", () => {
     expect(screen.queryByText("アカウント: 個人用")).toBeNull();
   });
 
+  it("filters model rows by name without regard to case", async () => {
+    render(<ProviderModelsPanel />);
+    const search = await screen.findByRole("searchbox", {
+      name: "プロバイダー・モデルを検索",
+    });
+    fireEvent.change(search, { target: { value: "gPt-4" } });
+
+    expect(
+      await screen.findByRole("switch", {
+        name: "OpenAI Codex · 仕事用 の GPT-4 を無効化",
+      }),
+    ).toBeTruthy();
+    expect(
+      screen.queryByRole("switch", {
+        name: "OpenAI Codex · 仕事用 の GPT-5 を無効化",
+      }),
+    ).toBeNull();
+
+    fireEvent.change(search, { target: { value: "openai" } });
+    expect(
+      await screen.findByRole("button", {
+        name: "OpenAI Codex · 個人用 のモデルを展開",
+      }),
+    ).toBeTruthy();
+    expect(
+      screen.queryByRole("button", { name: "Ollama Cloud のモデルを展開" }),
+    ).toBeNull();
+
+    fireEvent.change(search, { target: { value: "no-such-model" } });
+    expect(await screen.findByText("検索条件に一致する項目はありません。"))
+      .toBeTruthy();
+  });
+
   it("hides context token controls from model rows", async () => {
     render(<ProviderModelsPanel />);
     await screen.findByRole("heading", { name: "モデル" });

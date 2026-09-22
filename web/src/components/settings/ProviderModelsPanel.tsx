@@ -167,6 +167,8 @@ function ProviderRow({
   provider,
   providerIndex,
   providerCount,
+  visibleModels,
+  searchExpanded,
   busyId,
   onToggleProvider,
   onToggleModel,
@@ -181,6 +183,8 @@ function ProviderRow({
   provider: ProviderModelsRow;
   providerIndex: number;
   providerCount: number;
+  visibleModels: ProviderModelRow[];
+  searchExpanded: boolean;
   busyId: string | null;
   onToggleProvider: (enabled: boolean) => void;
   onToggleModel: (modelId: string, enabled: boolean) => void;
@@ -194,6 +198,9 @@ function ProviderRow({
 }) {
   // 既定は折りたたみ。プロバイダーが増えると全展開では一覧が長くなるため。
   const [expanded, setExpanded] = useState(false);
+  useEffect(() => {
+    if (searchExpanded) setExpanded(true);
+  }, [searchExpanded]);
   const panelId = useId();
   const rowKey = providerRowKey(provider);
   const displayName = providerDisplayName(provider);
@@ -281,7 +288,8 @@ function ProviderRow({
       </div>
       {hasModels && expanded && (
         <ul id={panelId} className="space-y-2">
-          {provider.models.map((model, modelIndex) => {
+          {visibleModels.map((model) => {
+            const modelIndex = provider.models.findIndex((item) => item.id === model.id);
             const modelKey = `${rowKey}::${model.id}`;
             const modelBusy = busyId === modelKey;
             const parentDisabled = !provider.enabled;
@@ -386,6 +394,7 @@ export function ProviderModelsPanel({
   const [dragging, setDragging] = useState<DragState | null>(null);
   const [orderSaving, setOrderSaving] = useState(false);
   const [reorderAnnouncement, setReorderAnnouncement] = useState("");
+  const [query, setQuery] = useState("");
   const mountedRef = useRef(true);
   const orderQueueRef = useRef(Promise.resolve());
   const orderPendingRef = useRef(0);
@@ -634,7 +643,32 @@ export function ProviderModelsPanel({
     (n, p) => n + p.models.filter((m) => m.enabled).length,
     0,
   );
-  const renderProvider = (provider: ProviderModelsRow, providerIndex: number) => {
+  const searchTerm = query.trim().toLowerCase();
+  const visibleProviders = providers.flatMap((provider, providerIndex) => {
+    const providerMatches = [
+      provider.name,
+      provider.id,
+      provider.accountId,
+      provider.accountLabel,
+      ...(provider.accountIds ?? []),
+    ].some((value) => value?.toLowerCase().includes(searchTerm));
+    const matchingModels = provider.models.filter((model) =>
+      [model.name, model.id].some((value) => value.toLowerCase().includes(searchTerm)),
+    );
+    if (searchTerm && !providerMatches && matchingModels.length === 0) return [];
+    return [{
+      provider,
+      providerIndex,
+      models: searchTerm && !providerMatches ? matchingModels : provider.models,
+      searchExpanded: Boolean(searchTerm && !providerMatches),
+    }];
+  });
+  const renderProvider = ({
+    provider,
+    providerIndex,
+    models,
+    searchExpanded,
+  }: (typeof visibleProviders)[number]) => {
     const rowKey = providerRowKey(provider);
     return (
       <ProviderRow
@@ -642,6 +676,8 @@ export function ProviderModelsPanel({
         provider={provider}
         providerIndex={providerIndex}
         providerCount={providers.length}
+        visibleModels={models}
+        searchExpanded={searchExpanded}
         busyId={busyId}
         onDragStartProvider={() => setDragging({ kind: "provider", rowKey })}
         onDropProvider={() => moveProvider(rowKey)}
@@ -675,12 +711,28 @@ export function ProviderModelsPanel({
       {status === "loading" && <p className="text-sm text-muted">読み込み中…</p>}
       {error && <p role="alert" className="text-sm text-danger">{error}</p>}
       {actionError && <p role="alert" className="text-sm text-danger">{actionError}</p>}
+      {providers.length > 0 && (
+        <label className="block sm:max-w-sm">
+          <span className="sr-only">プロバイダー・モデルを検索</span>
+          <input
+            type="search"
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="プロバイダー・モデルを検索"
+            aria-label="プロバイダー・モデルを検索"
+            className="h-10 w-full rounded-lg border border-border bg-surface px-3 text-sm outline-none focus:border-accent"
+          />
+        </label>
+      )}
       {status === "ready" && providers.length === 0 && (
         <p className="text-sm text-muted">
           選択可能なプロバイダーまたはログインアカウントがありません。認証設定を確認してください。
         </p>
       )}
-      {providers.length > 0 && <ul className="space-y-3">{providers.map(renderProvider)}</ul>}
+      {status === "ready" && searchTerm && providers.length > 0 && visibleProviders.length === 0 && (
+        <p className="text-sm text-muted">検索条件に一致する項目はありません。</p>
+      )}
+      {providers.length > 0 && <ul className="space-y-3">{visibleProviders.map(renderProvider)}</ul>}
     </div>
   );
 }
