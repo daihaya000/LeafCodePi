@@ -6,6 +6,7 @@ import {
   isCpuHwmonName,
   isCpuThermalType,
   parseAmdGpuBusyPercent,
+  parseKnownAmdGpuName,
   parseLspciGpuName,
   parseMilliCelsius,
   parsePciSlotName,
@@ -94,13 +95,35 @@ describe("collectLinuxCpuTemperature", () => {
 });
 
 describe("collectLinuxAmdGpus", () => {
+  it("uses the known PCI identity for Radeon AI PRO 9700", async () => {
+    const uevent =
+      "DRIVER=amdgpu\nPCI_ID=1002:7551\nPCI_SUBSYS_ID=1EAE:9801\nPCI_SLOT_NAME=0000:03:00.0\n";
+    expect(parseKnownAmdGpuName(uevent)).toBe("AMD Radeon AI PRO 9700");
+
+    const fs = memoryFs(
+      {
+        "/sys/class/drm/card1/device/vendor": "0x1002",
+        "/sys/class/drm/card1/device/uevent": uevent,
+        "/sys/class/drm/card1/device/gpu_busy_percent": "40",
+      },
+      {
+        "/sys/class/drm": ["card1"],
+        "/sys/class/drm/card1/device/hwmon": [],
+      },
+    );
+
+    await expect(collectLinuxAmdGpus(fs)).resolves.toMatchObject([
+      { name: "AMD Radeon AI PRO 9700" },
+    ]);
+  });
+
   it("uses lspci when amdgpu product_name is unavailable", async () => {
     expect(parsePciSlotName("DRIVER=amdgpu\nPCI_SLOT_NAME=0000:03:00.0\n")).toBe("0000:03:00.0");
     expect(
       parseLspciGpuName(
         "0000:03:00.0 VGA compatible controller [0300]: Advanced Micro Devices, Inc. [AMD/ATI] Radeon RX [1002:7551] (rev c0)\n",
       ),
-    ).toBe("Advanced Micro Devices, Inc. [AMD/ATI] Radeon RX [1002:7551]");
+    ).toBe("Radeon RX [1002:7551]");
 
     const commands: string[][] = [];
     const fs = memoryFs(
@@ -122,7 +145,7 @@ describe("collectLinuxAmdGpus", () => {
     );
 
     await expect(collectLinuxAmdGpus(fs)).resolves.toMatchObject([
-      { name: "Advanced Micro Devices, Inc. [AMD/ATI] Radeon RX [1002:7551]" },
+      { name: "Radeon RX [1002:7551]" },
     ]);
     expect(commands).toEqual([["lspci", "-nn", "-s", "0000:03:00.0"]]);
   });
