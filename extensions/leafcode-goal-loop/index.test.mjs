@@ -30,6 +30,20 @@ function goalLoopExtension(pi) {
     if (message?.customType === "leafcode-goal-loop-ended" && !pi.captureGoalLoopEndNotice) return;
     return sendMessage.call(this, message, options);
   };
+  // Pi creates a fresh context for every event and command, while keeping the
+  // sessionManager stable. Reusing ctx here hides broken reference-equality guards.
+  const freshContext = (ctx) => Object.defineProperties({}, Object.getOwnPropertyDescriptors(ctx));
+  const on = pi.on;
+  pi.on = function (name, handler) {
+    return on.call(this, name, (event, ctx) => handler(event, freshContext(ctx)));
+  };
+  const registerCommand = pi.registerCommand;
+  pi.registerCommand = function (name, options) {
+    return registerCommand.call(this, name, {
+      ...options,
+      handler: (args, ctx) => options.handler(args, freshContext(ctx)),
+    });
+  };
   goalLoopExtensionImplementation(pi);
 }
 

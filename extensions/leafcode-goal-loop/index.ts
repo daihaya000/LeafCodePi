@@ -165,6 +165,7 @@ type Runtime = {
   cwd: string;
   sessionId: string;
   ctx: GoalLoopTurnRoutingContext;
+  sessionManager: ExtensionContext["sessionManager"];
   pi: ExtensionAPI;
   awaitingTurn: boolean;
   /** Invalidates an in-flight async turn when a new loop replaces it. */
@@ -207,6 +208,13 @@ function sessionId(ctx: ExtensionContext): string {
 
 function runtimeKey(cwd: string, id: string): string {
   return `${cwd}\0${id}`;
+}
+
+function matchesRuntimeContext(runtime: Runtime, ctx: ExtensionContext): boolean {
+  // Pi creates a new context per dispatch. The manager identifies the session
+  // instance, even when a replacement reopens the same persisted session ID.
+  return runtime.sessionManager === ctx.sessionManager &&
+    runtime.key === runtimeKey(ctx.cwd, sessionId(ctx));
 }
 
 function legacySafeIdPart(value: string): string {
@@ -1013,7 +1021,7 @@ export function applyResult(loop: GoalLoop, result: GoalLoopProgress | null): bo
 export function applyMissingResult(loop: GoalLoop, assistantText: string): boolean {
   const verification = loop.status === "running" && loop.turnKind === "verification";
   const summary = short(assistantText, 500) || "(結果JSONなし)";
-  loop.progress = [...loop.progress, { time: isoNow(), status: "progress", summary }].slice(-MAX_PROGRESS);
+  loop.progress = [...loop.progress, { time: isoNow(), status: "progress" as const, summary }].slice(-MAX_PROGRESS);
   loop.summary = summary;
   loop.evidence = "";
   loop.blockedReason = "";
@@ -2099,7 +2107,7 @@ function decodeStartConfig(args: string): {
 function registerCommandAliases(pi: ExtensionAPI, getRuntime: () => Runtime | null): void {
   const runtimeForContext = (ctx: ExtensionContext): Runtime | null => {
     const runtime = getRuntime();
-    return runtime?.ctx === ctx ? runtime : null;
+    return runtime && matchesRuntimeContext(runtime, ctx) ? runtime : null;
   };
   pi.registerCommand("goal-start", {
     description: "JSON/base64 形式で Goal loop を開始（Web Composer 用）",
@@ -2218,6 +2226,7 @@ export default function (pi: ExtensionAPI): void {
       cwd: ctx.cwd,
       sessionId: id,
       ctx,
+      sessionManager: ctx.sessionManager,
       pi,
       awaitingTurn: false,
       turnGeneration: 0,
@@ -2275,8 +2284,7 @@ export default function (pi: ExtensionAPI): void {
     // on the runtime installed by the newer session_start.
     if (
       !current ||
-      current.ctx !== ctx ||
-      current.key !== runtimeKey(ctx.cwd, sessionId(ctx)) ||
+      !matchesRuntimeContext(current, ctx) ||
       event.source === "extension"
     ) return;
     // 拡張コマンドは input の前に処理されるが、/goal-* を追加指示として記録しない。
@@ -2288,13 +2296,13 @@ export default function (pi: ExtensionAPI): void {
 
   pi.on("turn_start", async (event, ctx) => {
     const current = getRuntime();
-    if (!current || current.ctx !== ctx || current.key !== runtimeKey(ctx.cwd, sessionId(ctx))) return;
+    if (!current || !matchesRuntimeContext(current, ctx)) return;
     if (current.awaitingTurn) current.awaitingTurnIndex = event.turnIndex;
   });
 
   pi.on("turn_end", async (event, ctx) => {
     const current = getRuntime();
-    if (!current || current.ctx !== ctx || current.key !== runtimeKey(ctx.cwd, sessionId(ctx))) return;
+    if (!current || !matchesRuntimeContext(current, ctx)) return;
     const loop = currentLoop(current);
     if (!loop) return;
 
@@ -2321,7 +2329,7 @@ export default function (pi: ExtensionAPI): void {
     const current = getRuntime();
     // Agent events can arrive after session_start installed another runtime.
     // Never let the preceding session's result settle the new loop.
-    if (!current || current.ctx !== ctx || current.key !== runtimeKey(ctx.cwd, sessionId(ctx))) return;
+    if (!current || !matchesRuntimeContext(current, ctx)) return;
     // Trailing end from an aborted/replaced run — do not poison a newer await.
     if (current.discardAgentSettlements > 0) return;
     // After a mid-turn pause, awaitingTurn is false but we still need the final
@@ -2335,8 +2343,7 @@ export default function (pi: ExtensionAPI): void {
     const current = getRuntime();
     if (
       current &&
-      current.ctx === ctx &&
-      current.key === runtimeKey(ctx.cwd, sessionId(ctx)) &&
+      matchesRuntimeContext(current, ctx) &&
       event.reason === "manual"
     ) requeueAfterManualCompaction(current);
   });
@@ -2345,8 +2352,7 @@ export default function (pi: ExtensionAPI): void {
     const current = getRuntime();
     if (
       current &&
-      current.ctx === ctx &&
-      current.key === runtimeKey(ctx.cwd, sessionId(ctx)) &&
+      matchesRuntimeContext(current, ctx) &&
       event.reason === "manual"
     ) requeueAfterManualCompaction(current);
   });
@@ -2354,7 +2360,7 @@ export default function (pi: ExtensionAPI): void {
   pi.on("agent_settled", async (_event, ctx) => {
     const current = getRuntime();
     if (!current || current.key !== runtimeKey(ctx.cwd, sessionId(ctx))) return;
-    if (current.ctx !== ctx) {
+    if (!matchesRuntimeContext(current, ctx)) {
       // startLoop can arm one discard slot for the predecessor's final settle.
       // Consume that stale wave without allowing it to settle the replacement.
       if (current.discardAgentSettlements > 0) current.discardAgentSettlements -= 1;
@@ -2404,9 +2410,9 @@ export default function (pi: ExtensionAPI): void {
     const current = getRuntime();
     // Ignore teardown from the preceding session when its session_start has
     // already installed a different runtime in this extension instance.
-    if (!current || current.ctx !== ctx || current.key !== runtimeKey(ctx.cwd, sessionId(ctx))) return;
+    if (!current || !matchesRuntimeContext(current, ctx)) return;
     // A replacement can reuse the same cwd/session ID. In that case a delayed
-    // shutdown carries the old context and must not dispose the new runtime.
+    // shutdown carries the old manager and must not dispose the new runtime.
     // dispose()/replace can leave this extension instance alive long enough to
     // see shutdown after a newer runtime already claimed the same key. Never
     // pause the shared loop or delete the replacement's map entry in that case.
@@ -2453,7 +2459,7 @@ export default function (pi: ExtensionAPI): void {
     description: "Goal loop を開始。/goal-compose で Composer を開く",
     handler: async (args, ctx) => {
       const current = getRuntime();
-      if (!current || current.ctx !== ctx) return;
+      if (!current || !matchesRuntimeContext(current, ctx)) return;
       const text = args.trim();
       if (!text) {
         ctx.ui.notify(statusMessage(currentLoop(current)), "info");
