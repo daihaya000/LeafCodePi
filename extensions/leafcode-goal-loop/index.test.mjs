@@ -3820,6 +3820,8 @@ test("same-ID stale agent events do not settle the replacement turn", async () =
     await handlers.get("session_start")?.({}, replacementCtx);
     await commands.get("goal-start")?.(payload, replacementCtx);
     await waitFor(() => JSON.parse(readFileSync(stateFile, "utf8")).status === "running");
+    await commands.get("goal-pause")?.("", oldCtx);
+    assert.equal(JSON.parse(readFileSync(stateFile, "utf8")).status, "running");
     await handlers.get("agent_end")?.({
       messages: [{ role: "assistant", content: [{ type: "text", text: '{"status":"progress","summary":"old result"}' }] }],
     }, oldCtx);

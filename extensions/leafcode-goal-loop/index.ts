@@ -2060,10 +2060,14 @@ function decodeStartConfig(args: string): {
 }
 
 function registerCommandAliases(pi: ExtensionAPI, getRuntime: () => Runtime | null): void {
+  const runtimeForContext = (ctx: ExtensionContext): Runtime | null => {
+    const runtime = getRuntime();
+    return runtime?.ctx === ctx ? runtime : null;
+  };
   pi.registerCommand("goal-start", {
     description: "JSON/base64 形式で Goal loop を開始（Web Composer 用）",
     handler: async (args, ctx) => {
-      const runtime = getRuntime();
+      const runtime = runtimeForContext(ctx);
       const config = decodeStartConfig(args);
       if (!runtime || !config) {
         ctx.ui.notify("Goal loop の開始パラメータが不正です。", "error");
@@ -2080,7 +2084,7 @@ function registerCommandAliases(pi: ExtensionAPI, getRuntime: () => Runtime | nu
   pi.registerCommand("goal-set", {
     description: "Goal loop を引数で開始",
     handler: async (args, ctx) => {
-      const runtime = getRuntime();
+      const runtime = runtimeForContext(ctx);
       if (!runtime) return;
       const config = parseStartArgs(args);
       const loop = startLoop(runtime, config);
@@ -2090,42 +2094,42 @@ function registerCommandAliases(pi: ExtensionAPI, getRuntime: () => Runtime | nu
   pi.registerCommand("goal-status", {
     description: "Goal loop の状態を表示",
     handler: async (_args, ctx) => {
-      const runtime = getRuntime();
+      const runtime = runtimeForContext(ctx);
       if (runtime) ctx.ui.notify(statusMessage(currentLoop(runtime)), "info");
     },
   });
   pi.registerCommand("goal-pause", {
     description: "Goal loop を一時停止",
-    handler: async (args) => {
-      const runtime = getRuntime();
+    handler: async (args, ctx) => {
+      const runtime = runtimeForContext(ctx);
       if (runtime) handleAction(runtime, "pause", args);
     },
   });
   pi.registerCommand("goal-resume", {
     description: "Goal loop を再開",
-    handler: async (args) => {
-      const runtime = getRuntime();
+    handler: async (args, ctx) => {
+      const runtime = runtimeForContext(ctx);
       if (runtime) handleAction(runtime, "resume", args);
     },
   });
   pi.registerCommand("goal-stop", {
     description: "Goal loop を停止",
-    handler: async () => {
-      const runtime = getRuntime();
+    handler: async (_args, ctx) => {
+      const runtime = runtimeForContext(ctx);
       if (runtime) handleAction(runtime, "stop");
     },
   });
   pi.registerCommand("goal-complete", {
     description: "最大ターン数に到達した Goal loop を完了",
-    handler: async () => {
-      const runtime = getRuntime();
+    handler: async (_args, ctx) => {
+      const runtime = runtimeForContext(ctx);
       if (runtime) handleAction(runtime, "complete");
     },
   });
   pi.registerCommand("goal-compose", {
     description: "Goal / 承認条件 / 最大ターン / 完走モードを設定する Composer",
-    handler: async () => {
-      const runtime = getRuntime();
+    handler: async (_args, ctx) => {
+      const runtime = runtimeForContext(ctx);
       if (runtime) await compose(runtime);
     },
   });
@@ -2384,7 +2388,7 @@ export default function (pi: ExtensionAPI): void {
     description: "Goal loop を開始。/goal-compose で Composer を開く",
     handler: async (args, ctx) => {
       const current = getRuntime();
-      if (!current) return;
+      if (!current || current.ctx !== ctx) return;
       const text = args.trim();
       if (!text) {
         ctx.ui.notify(statusMessage(currentLoop(current)), "info");
