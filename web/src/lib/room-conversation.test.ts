@@ -236,7 +236,8 @@ describe("shared room context", () => {
     expect(transcriptOf(prompt).at(-1)).toMatchObject({ code: { requestId: "request", taskId: "code", state: "running" } });
     expect(prompt).toContain("code_session");
     expect(prompt).toContain("availableImages");
-    expect(prompt).toContain("A promise to work is not execution");
+    expect(prompt).toContain("Promises aren't execution");
+    expect(prompt).toContain("Starting/running/ready means wait—don't duplicate or report done.");
   });
   it("includes every parallel Code receipt for precise follow-ups and handoffs", () => {
     const current = room([user, {
@@ -251,7 +252,7 @@ describe("shared room context", () => {
       { requestId: "first", taskId: "code-1", state: "running" },
       { requestId: "second", taskId: "code-2", state: "delivered" },
     ] });
-    expect(prompt).toContain("parallel without a Room queue");
+    expect(prompt).toContain("run in parallel, not queued by Room");
   });
 
   it("includes roles and escapes untrusted roster names instead of creating moderator lines", () => {
