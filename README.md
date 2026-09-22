@@ -318,6 +318,14 @@ chmod +x start.sh
 
 手動で起動する場合は `npm --prefix web install`、`npm --prefix host install` の後に `npm run host` でも構いません。
 
+Ubuntu / GNOME でアプリ一覧や Dock に固定できるランチャーを作成する場合は、リポジトリ直下で次を実行します。
+
+```bash
+./scripts/create-linux-launcher.sh
+```
+
+リポジトリ直下の `LeafCodePi.desktop` はチェックアウトから直接起動できるランチャー本体です。上記スクリプトはこれをアプリ一覧へ登録し、アイコンを配置します。アプリ一覧の `LeafCodePi` を右クリックして「お気に入りに追加」すると、Windows のタスクバー固定に相当する Dock 固定になります。ランチャーは現在のチェックアウトを起動し、GUI セッションではトレイも有効にします。
+
 グラフィカルなデスクトップ（Ubuntu の通常セッション、macOS のローカル端末など）では、Windows と同様にトレイアイコンが既定で出ます。`LEAFCODE_PI_TRAY=1` は不要です。Linux で `DISPLAY` / `WAYLAND_DISPLAY` がどちらも無い SSH やサーバ起動では、トレイを自動的にスキップします（失敗ログを連発しません）。macOS は Aqua が `DISPLAY` を付けないため、`SSH_CONNECTION` / `SSH_TTY` が無いローカル起動をグラフィカルとみなします。
 
 トレイを出さない場合は `LEAFCODE_PI_HEADLESS=1`（または `--headless`）を付けます。デスクトップでアイコンだけ消したいときは `LEAFCODE_PI_TRAY=0` です。ディスプレイ無しでも強制したいときだけ `LEAFCODE_PI_TRAY=1` を使います（`HEADLESS=1` のときは出ません）。AppIndicator 等が無くトレイ起動に失敗しても、ホストはトレイ無しで動き続けます。
