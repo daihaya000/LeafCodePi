@@ -1525,8 +1525,9 @@ const SidebarView = memo(function SidebarView({
   // ハイライト・自動展開の源とする。モバイルは panes を触らないため pathname 由来のまま。
   const pathnameTaskId = pathname.startsWith("/task/") ? pathname.slice("/task/".length) : null;
   const activeTaskId = paneMdUp ? paneActiveTaskId : pathnameTaskId;
+  const archivedProjectIds = new Set(archivedProjects.map((project) => project.id));
   const unreadModes: UnreadModes = {
-    code: tasks.some((task) => task.status !== "archived" && task.kind !== "bot" && hasUnreadTask(task, activeTaskId)),
+    code: tasks.some((task) => task.status !== "archived" && task.kind !== "bot" && !archivedProjectIds.has(task.projectId ?? "") && hasUnreadTask(task, activeTaskId)),
     bot: botSidebar.bots.some((bot) => activeTaskId !== `/bots/${encodeURIComponent(bot.id)}` && hasUnread(bot.lastMessageAt, getLastReadAt("bot", bot.id)))
       || botSidebar.rooms.some((room) => activeTaskId !== `/bots/rooms/${encodeURIComponent(room.id)}` && hasUnread(room.lastMessageAt, getLastReadAt("room", room.id))),
   };

@@ -266,6 +266,23 @@ describe("Sidebar project ordering", () => {
     expect(screen.getByText("Project B")).toBeTruthy();
   });
 
+  it("does not show an unread tab marker for a session in an archived project", async () => {
+    const archivedProject = { ...projects[1]!, archived: true };
+    const projectTasks = [{
+      id: "archived-project-task", projectId: archivedProject.id, projectName: archivedProject.name, title: "Hidden", directory: archivedProject.rootPath, isolation: "current_folder" as const, status: "ready" as const, sessionId: "archived-project-task", sessionFile: null, createdAt: "", updatedAt: "2026-09-22T00:00:00.000Z",
+    }];
+    mocks.getJson.mockImplementation((path: string) => {
+      if (path === "/api/projects?archived=1") return Promise.resolve({ projects: [projects[0]!, archivedProject] });
+      if (path === "/api/tasks?kind=all" || path === "/api/tasks?archived=1&kind=all") return Promise.resolve({ tasks: projectTasks });
+      if (path === "/api/health") return Promise.resolve({ ok: true, engineOk: true, version: "1", modelCount: 0 });
+      return Promise.reject(new Error(`Unexpected request: ${path}`));
+    });
+
+    render(<Sidebar mobileOpen={false} onClose={vi.fn()} />);
+
+    expect((await screen.findByRole("button", { name: "Code" })).querySelector('[class*="bg-accent"]')).toBeNull();
+  });
+
   it("filters Code projects and sessions from the search field", async () => {
     const projectTasks = [
       {
