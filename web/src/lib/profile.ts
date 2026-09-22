@@ -165,7 +165,7 @@ export function exportProfile(options: ProfileRoots = {}): { archive: Buffer; su
     modes,
   };
   return {
-    archive: gzipSync(Buffer.from(JSON.stringify(archive), "utf8")),
+    archive: gzipSync(Buffer.from(JSON.stringify(archive), "utf8"), { level: 1 }),
     summary: { fileCount: total.fileCount, bytes: total.bytes },
   };
 }
