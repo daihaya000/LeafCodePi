@@ -46,6 +46,13 @@ test("POSIX tray helpers also isolate TMPDIR and restore it", async () => {
   assert.deepEqual(env, { TMPDIR: "/tmp/original", TEMP: "/tmp/temp", TMP: "/tmp/tmp" });
 });
 
+test("Linux desktop launcher resolves its checkout from %k", () => {
+  const desktop = readFileSync(join(repoRoot, "LeafCodePi.desktop"), "utf8");
+  assert.match(desktop, /Exec=\/bin\/sh -c .* sh %k$/m);
+  assert.ok(desktop.includes('dirname -- \\\"$1\\\"'));
+  assert.doesNotMatch(desktop, /\/home\/daichi\//);
+});
+
 test("launcher bats use LEAFCODE_PI_* and port 3010", () => {
   const bat = readFileSync(join(repoRoot, "scripts", "start-webui.bat"), "utf8");
   assert.match(bat, /LEAFCODE_PI_PORT=3010/);
