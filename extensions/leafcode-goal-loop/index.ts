@@ -2253,7 +2253,9 @@ export default function (pi: ExtensionAPI): void {
     const current = getRuntime();
     // Ignore teardown from the preceding session when its session_start has
     // already installed a different runtime in this extension instance.
-    if (!current || current.key !== runtimeKey(ctx.cwd, sessionId(ctx))) return;
+    if (!current || current.ctx !== ctx || current.key !== runtimeKey(ctx.cwd, sessionId(ctx))) return;
+    // A replacement can reuse the same cwd/session ID. In that case a delayed
+    // shutdown carries the old context and must not dispose the new runtime.
     // dispose()/replace can leave this extension instance alive long enough to
     // see shutdown after a newer runtime already claimed the same key. Never
     // pause the shared loop or delete the replacement's map entry in that case.
