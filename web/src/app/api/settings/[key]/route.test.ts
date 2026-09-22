@@ -262,7 +262,7 @@ describe("/api/settings/[key]", () => {
     expect(await response.json()).toMatchObject({
       value: "llama-server::local-model",
       defaultPrompt: expect.stringContaining(
-        "コーディング作業に適したエージェントを1つ選ぶルーター。",
+        "コーディング作業に適したエージェントを1つ選ぶルーター",
       ),
     });
   });
