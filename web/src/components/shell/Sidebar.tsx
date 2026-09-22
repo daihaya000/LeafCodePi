@@ -793,8 +793,10 @@ export const SidebarTaskRow = memo(function SidebarTaskRow({
           <span className="flex min-w-0 flex-1 flex-col items-start">
             <span className="w-full truncate text-xs font-medium">{task.title}</span>
             <span className="flex w-full min-w-0 items-center gap-1">
-              <SessionLabelBadge labelId={task.label} />
-              <span className="text-[10px] text-muted">{timeAgo(task.updatedAt)}</span>
+              <span className="flex w-16 shrink-0 items-center">
+                <SessionLabelBadge labelId={task.label} className="w-full truncate text-center" />
+              </span>
+              <span className="w-16 shrink-0 truncate text-[10px] text-muted">{timeAgo(task.updatedAt)}</span>
             </span>
           </span>
         </button>
@@ -2432,8 +2434,10 @@ const SidebarView = memo(function SidebarView({
                               <span className="flex min-w-0 flex-1 flex-col items-start">
                                 <span className="w-full truncate text-xs font-medium">{task.title}</span>
                                 <span className="flex w-full min-w-0 items-center gap-1">
-                                  <SessionLabelBadge labelId={task.label} />
-                                  <span className="text-[10px] text-muted">{timeAgo(task.updatedAt)}</span>
+                                  <span className="flex w-16 shrink-0 items-center">
+                                    <SessionLabelBadge labelId={task.label} className="w-full truncate text-center" />
+                                  </span>
+                                  <span className="w-16 shrink-0 truncate text-[10px] text-muted">{timeAgo(task.updatedAt)}</span>
                                 </span>
                               </span>
                             </button>
@@ -2854,8 +2858,10 @@ const SidebarView = memo(function SidebarView({
                     <span className="flex min-w-0 flex-1 flex-col items-start">
                       <span className="w-full truncate font-medium">{task.title}</span>
                       <span className="flex w-full min-w-0 items-center gap-1">
-                        <SessionLabelBadge labelId={task.label} />
-                        <span className="text-[10px] text-faint">{timeAgo(task.updatedAt)}</span>
+                        <span className="flex w-16 shrink-0 items-center">
+                          <SessionLabelBadge labelId={task.label} className="w-full truncate text-center" />
+                        </span>
+                        <span className="w-16 shrink-0 truncate text-[10px] text-faint">{timeAgo(task.updatedAt)}</span>
                       </span>
                     </span>
                   </button>
