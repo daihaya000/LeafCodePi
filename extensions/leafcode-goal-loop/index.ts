@@ -1416,6 +1416,7 @@ function completeLoop(runtime: Runtime): boolean {
   loop.status = "completed";
   loop.pauseReason = "";
   loop.error = "";
+  loop.blockedReason = "";
   loop.pendingTurnRecovery = false;
   loop.nextTurnAt = null;
   if (!writeLoop(loop)) return false;

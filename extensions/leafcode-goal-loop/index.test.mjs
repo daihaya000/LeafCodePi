@@ -338,12 +338,16 @@ test("completes a turn-limited loop and allows a new loop", async () => {
     applyResult(loop, { time: new Date().toISOString(), status: "completed", summary: "turn limit reached" });
     assert.equal(loop.status, "paused");
     assert.equal(loop.pauseReason, "turn_limit");
+    const pending = JSON.parse(readFileSync(join(cwd, "goals-loop", "complete-session.json"), "utf8"));
+    pending.blockedReason = "stale blocker";
+    writeFileSync(join(cwd, "goals-loop", "complete-session.json"), JSON.stringify(pending), "utf8");
 
     await commands.get("goal-complete")?.("", ctx);
     const completed = JSON.parse(
       readFileSync(join(cwd, "goals-loop", "complete-session.json"), "utf8"),
     );
     assert.equal(completed.status, "completed");
+    assert.equal(completed.blockedReason, "");
     assert.match(notices.at(-1).message, /新しい Goal loop/);
 
     const payload = Buffer.from(JSON.stringify({ goal: "new goal", maxTurns: 1, autoAgent: true })).toString("base64url");
