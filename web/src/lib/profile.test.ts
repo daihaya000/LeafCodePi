@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { createProfileBackup, exportProfile, listProfileBackups, importProfile, importProfileWithBackup, resetProfile, restoreProfile } from "@/lib/profile";
+import { createProfileBackup, exportProfile, listProfileBackups, importProfile, importProfileWithBackup, resetProfile, restoreProfile, restoreProfilePackages } from "@/lib/profile";
 
 const roots: string[] = [];
 
@@ -23,12 +23,16 @@ describe("profile", () => {
     const sourceAgent = join(source, "agent");
     const sourceData = join(source, "data");
     mkdirSync(join(sourceAgent, "agents"), { recursive: true });
+    mkdirSync(join(sourceAgent, "npm", "node_modules"), { recursive: true });
+    mkdirSync(join(sourceAgent, "git", "example.test", "package"), { recursive: true });
     mkdirSync(join(sourceData, "settings"), { recursive: true });
     writeFileSync(join(sourceAgent, "AGENTS.md"), "source instructions", "utf8");
     writeFileSync(join(sourceAgent, "DESIGN.md"), "source design", "utf8");
     writeFileSync(join(sourceAgent, "TOOLS.md"), "source tools", "utf8");
     writeFileSync(join(sourceAgent, "WORKFLOW.md"), "source workflow", "utf8");
     writeFileSync(join(sourceAgent, "agents", "reviewer.md"), "reviewer", "utf8");
+    writeFileSync(join(sourceAgent, "npm", "node_modules", "package.js"), "generated", "utf8");
+    writeFileSync(join(sourceAgent, "git", "example.test", "package", "package.js"), "retrievable", "utf8");
     writeFileSync(join(sourceAgent, "auth.json"), '{"token":"secret"}', "utf8");
     writeFileSync(join(sourceData, "permission-gate.json"), '{"mode":"ask"}', "utf8");
     writeFileSync(join(sourceData, "provider-endpoints.json"), '{"leafcodecloud":"https://example.test/v1"}', "utf8");
@@ -41,17 +45,21 @@ describe("profile", () => {
 
     const exported = exportProfile({ agentDir: sourceAgent, leafcodeDir: sourceData });
     expect(exported.summary.fileCount).toBe(13);
-    const archive = JSON.parse(gunzipSync(exported.archive).toString("utf8")) as { modes?: Record<string, unknown> };
+    const archive = JSON.parse(gunzipSync(exported.archive).toString("utf8")) as { files?: Record<string, unknown>; modes?: Record<string, unknown> };
     expect(archive.modes?.["agent/AGENTS.md"]).toEqual(expect.any(Number));
+    expect(archive.files?.["agent/npm/node_modules/package.js"]).toBeUndefined();
+    expect(archive.files?.["agent/git/example.test/package/package.js"]).toBeUndefined();
 
     const target = directory();
     const targetAgent = join(target, "agent");
     const targetData = join(target, "data");
     mkdirSync(join(targetAgent, "skills"), { recursive: true });
+    mkdirSync(join(targetAgent, "npm", "node_modules"), { recursive: true });
     mkdirSync(join(targetData, "settings"), { recursive: true });
     writeFileSync(join(targetAgent, "AGENTS.md"), "old", "utf8");
     writeFileSync(join(targetAgent, "DESIGN.md"), "old design", "utf8");
     writeFileSync(join(targetAgent, "skills", "old.md"), "old skill", "utf8");
+    writeFileSync(join(targetAgent, "npm", "node_modules", "stale.js"), "stale", "utf8");
     writeFileSync(join(targetData, "permission-gate.json"), '{"mode":"allow"}', "utf8");
     writeFileSync(join(targetData, "skills-state.json"), '{"code":{"old":true}}', "utf8");
     writeFileSync(join(targetData, "settings", "old.json"), "old", "utf8");
@@ -65,11 +73,24 @@ describe("profile", () => {
     expect(readFileSync(join(targetAgent, "WORKFLOW.md"), "utf8")).toBe("source workflow");
     expect(readFileSync(join(targetAgent, "agents", "reviewer.md"), "utf8")).toBe("reviewer");
     expect(existsSync(join(targetAgent, "skills", "old.md"))).toBe(false);
+    expect(existsSync(join(targetAgent, "npm", "node_modules", "stale.js"))).toBe(true);
     expect(readFileSync(join(targetData, "permission-gate.json"), "utf8")).toBe('{"mode":"ask"}');
     expect(readFileSync(join(targetData, "skills-state.json"), "utf8")).toBe('{"code":{},"bot":{}}');
     expect(readFileSync(join(targetData, "settings", "llama-server.json"), "utf8")).toBe('{"value":"configured"}');
     expect(existsSync(join(targetData, "settings", "old.json"))).toBe(false);
     expect(readFileSync(join(targetData, "store.json"), "utf8")).toBe('{"projects":["keep"]}');
+  });
+
+  it("reinstalls declared packages only when requested", async () => {
+    const target = directory();
+    const agentDir = join(target, "agent");
+    const options = { agentDir, leafcodeDir: join(target, "data") };
+    mkdirSync(agentDir, { recursive: true });
+    writeFileSync(join(agentDir, "settings.json"), JSON.stringify({ packages: ["npm:example", { source: "git:example.test/package" }] }), "utf8");
+    const calls: string[] = [];
+
+    await expect(restoreProfilePackages(options, async (path) => { calls.push(path); })).resolves.toEqual({ packageCount: 2 });
+    expect(calls).toEqual([agentDir]);
   });
 
   it("backs up current configuration before replacing it", () => {

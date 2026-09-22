@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createProfileBackup, exportProfile, importProfileWithBackup, listProfileBackups, resetProfile, restoreProfile } from "@/lib/profile";
+import { createProfileBackup, exportProfile, importProfileWithBackup, listProfileBackups, resetProfile, restoreProfile, restoreProfilePackages } from "@/lib/profile";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -46,12 +46,16 @@ export async function POST(request: NextRequest) {
   }
 }
 
-export async function PATCH() {
+export async function PATCH(request: NextRequest) {
   try {
+    const body = await request.json().catch(() => null) as { action?: unknown } | null;
+    if (body?.action === "restore-packages") {
+      return NextResponse.json({ ok: true, ...await restoreProfilePackages() });
+    }
     return NextResponse.json({ ok: true, ...createProfileBackup() });
   } catch (error) {
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : "プロファイルのバックアップに失敗しました" },
+      { error: error instanceof Error ? error.message : "プロファイルの処理に失敗しました" },
       { status: 500 },
     );
   }

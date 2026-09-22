@@ -1,3 +1,4 @@
+import { spawn } from "node:child_process";
 import { gzipSync, gunzipSync } from "node:zlib";
 import {
   existsSync,
@@ -17,7 +18,7 @@ const PROFILE_VERSION = 1;
 const MAX_ARCHIVE_BYTES = 256 * 1024 * 1024;
 const MAX_CONTENT_BYTES = 240 * 1024 * 1024;
 const MAX_EXPANDED_BYTES = 384 * 1024 * 1024;
-// Installed npm/git extensions commonly contain tens of thousands of source and documentation files.
+// User-managed agent resources can contain many files.
 const MAX_PROFILE_FILES = 50_000;
 
 const AGENT_FILES = [
@@ -34,7 +35,9 @@ const AGENT_FILES = [
   "models.json",
   "settings.json",
 ] as const;
-const AGENT_DIRECTORIES = ["accounts", "agents", "extensions", "git", "intercom", "npm", "skills"] as const;
+// npm and git packages are restored explicitly after import via `pi update --extensions`.
+const EXPORTED_AGENT_DIRECTORIES = ["accounts", "agents", "extensions", "intercom", "skills"] as const;
+const MANAGED_AGENT_DIRECTORIES = [...EXPORTED_AGENT_DIRECTORIES, "git", "npm"] as const;
 const DATA_FILES = [
   "accounts.json",
   "browser-config.json",
@@ -73,10 +76,18 @@ export type ProfileBackupSummary = ProfileSummary & {
   backupPath: string;
 };
 
+export type ProfilePackageRestoreSummary = {
+  packageCount: number;
+};
+
 type ProfileRoots = {
   agentDir?: string;
   leafcodeDir?: string;
 };
+
+const PACKAGE_RESTORE_TIMEOUT_MS = 120_000;
+
+type PackageUpdateRunner = (agentDir: string) => Promise<void>;
 
 function roots(options: ProfileRoots = {}) {
   return {
@@ -101,7 +112,7 @@ function isAllowedProfilePath(path: string): boolean {
   }
   const [entry] = parts;
   if (root === "agent") {
-    return (parts.length === 1 && AGENT_FILES.includes(entry as never)) || (parts.length > 1 && AGENT_DIRECTORIES.includes(entry as never));
+    return (parts.length === 1 && AGENT_FILES.includes(entry as never)) || (parts.length > 1 && MANAGED_AGENT_DIRECTORIES.includes(entry as never));
   }
   return (parts.length === 1 && DATA_FILES.includes(entry as never)) || (parts.length > 1 && DATA_DIRECTORIES.includes(entry as never));
 }
@@ -150,7 +161,7 @@ export function exportProfile(options: ProfileRoots = {}): { archive: Buffer; su
     const path = join(agentDir, name);
     if (existsSync(path)) addFile(files, modes, profilePath("agent", name), path, total);
   }
-  for (const name of AGENT_DIRECTORIES) addDirectory(files, modes, "agent", join(agentDir, name), total);
+  for (const name of EXPORTED_AGENT_DIRECTORIES) addDirectory(files, modes, "agent", join(agentDir, name), total);
   for (const name of DATA_FILES) {
     const path = join(leafcodeDir, name);
     if (existsSync(path)) addFile(files, modes, profilePath("data", name), path, total);
@@ -206,9 +217,12 @@ function parseProfile(archive: Buffer): ProfileArchive {
   return profile as ProfileArchive;
 }
 
-function removeConfiguredPaths(agentDir: string, leafcodeDir: string): void {
+function removeConfiguredPaths(agentDir: string, leafcodeDir: string, includePackages = true): void {
   for (const name of AGENT_FILES) rmSync(join(agentDir, name), { force: true });
-  for (const name of AGENT_DIRECTORIES) rmSync(join(agentDir, name), { recursive: true, force: true });
+  for (const name of EXPORTED_AGENT_DIRECTORIES) rmSync(join(agentDir, name), { recursive: true, force: true });
+  if (includePackages) {
+    for (const name of ["git", "npm"]) rmSync(join(agentDir, name), { recursive: true, force: true });
+  }
   for (const name of DATA_FILES) rmSync(join(leafcodeDir, name), { force: true });
   for (const name of DATA_DIRECTORIES) rmSync(join(leafcodeDir, name), { recursive: true, force: true });
 }
@@ -267,7 +281,9 @@ function applyProfile(profile: ProfileArchive, agentDir: string, leafcodeDir: st
     content: Buffer.from(content, "base64"),
     mode: importedFileMode(profile.modes?.[profilePath]),
   }));
-  removeConfiguredPaths(agentDir, leafcodeDir);
+  // New profiles omit package artifacts; keep the current copies until explicit reinstallation succeeds.
+  const includesPackageArtifacts = Object.keys(profile.files).some((path) => path.startsWith("agent/git/") || path.startsWith("agent/npm/"));
+  removeConfiguredPaths(agentDir, leafcodeDir, includesPackageArtifacts);
   for (const file of files) {
     mkdirSync(dirname(file.path), { recursive: true, mode: 0o700 });
     writeFileSync(file.path, file.content, { mode: file.mode });
@@ -286,6 +302,68 @@ function replaceProfile(profile: ProfileArchive, agentDir: string, leafcodeDir: 
     }
     throw error;
   }
+}
+
+function configuredPackageCount(agentDir: string): number {
+  const settingsPath = join(agentDir, "settings.json");
+  if (!existsSync(settingsPath)) return 0;
+  try {
+    const settings = JSON.parse(readFileSync(settingsPath, "utf8")) as { packages?: unknown };
+    return Array.isArray(settings.packages) ? settings.packages.length : 0;
+  } catch {
+    throw new Error("パッケージ設定を読み込めません");
+  }
+}
+
+function updateProfilePackages(agentDir: string): Promise<void> {
+  return new Promise((resolveUpdate, rejectUpdate) => {
+    const windows = process.platform === "win32";
+    const child = spawn(
+      windows ? "cmd.exe" : "pi",
+      windows ? ["/d", "/s", "/c", "pi.cmd update --extensions"] : ["update", "--extensions"],
+      {
+        cwd: agentDir,
+        shell: false,
+        windowsHide: true,
+        env: { ...process.env, PI_CODING_AGENT_DIR: agentDir, GIT_TERMINAL_PROMPT: "0" },
+      },
+    );
+    let output = "";
+    let settled = false;
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      child.kill();
+      rejectUpdate(new Error("パッケージの再取得がタイムアウトしました"));
+    }, PACKAGE_RESTORE_TIMEOUT_MS);
+    if (typeof timer.unref === "function") timer.unref();
+    child.stdout.on("data", (chunk) => { output += String(chunk); });
+    child.stderr.on("data", (chunk) => { output += String(chunk); });
+    child.on("error", (error) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      rejectUpdate(error);
+    });
+    child.on("close", (code) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      if (code === 0) resolveUpdate();
+      else rejectUpdate(new Error(output.trim() || "パッケージの再取得に失敗しました"));
+    });
+  });
+}
+
+/** Reinstall package resources declared in the imported profile's settings. */
+export async function restoreProfilePackages(
+  options: ProfileRoots = {},
+  update: PackageUpdateRunner = updateProfilePackages,
+): Promise<ProfilePackageRestoreSummary> {
+  const { agentDir } = roots(options);
+  const packageCount = configuredPackageCount(agentDir);
+  if (packageCount) await update(agentDir);
+  return { packageCount };
 }
 
 /** Save all profile-managed settings to a dated, non-overwriting local backup. */

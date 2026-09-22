@@ -12,7 +12,7 @@ async function responseError(response: Response): Promise<string> {
 type ProfileBackup = { name: string; createdAt: string };
 
 export function ProfileSettings() {
-  const [busy, setBusy] = useState<"backup" | "export" | "import" | "restore" | "reset" | null>(null);
+  const [busy, setBusy] = useState<"backup" | "export" | "import" | "packages" | "restore" | "reset" | null>(null);
   const [backups, setBackups] = useState<ProfileBackup[]>([]);
   const [selectedBackup, setSelectedBackup] = useState("");
   const [message, setMessage] = useState<string | null>(null);
@@ -79,9 +79,30 @@ export function ProfileSettings() {
       if (!response.ok) throw new Error(await responseError(response));
       const result = await response.json() as { fileCount?: number; backupPath?: string };
       rememberBackup(result.backupPath);
-      setMessage(`${result.fileCount ?? 0}件を復元しました。以前の設定はバックアップへ退避済みです。LeafCodePiを再起動してください`);
+      setMessage(`${result.fileCount ?? 0}件を復元しました。以前の設定はバックアップへ退避済みです。必要ならパッケージを再取得してください`);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "プロファイルのインポートに失敗しました");
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const restorePackages = async () => {
+    if (!window.confirm("設定プロファイル内のパッケージをネットワークから再取得します。パッケージの配布元を信頼できる場合のみ続行してください。")) return;
+    setBusy("packages");
+    setError(null);
+    setMessage(null);
+    try {
+      const response = await fetch("/api/profile", {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ action: "restore-packages" }),
+      });
+      if (!response.ok) throw new Error(await responseError(response));
+      const result = await response.json() as { packageCount?: number };
+      setMessage(`${result.packageCount ?? 0}件のパッケージを再取得しました。LeafCodePiを再起動してください`);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "パッケージの再取得に失敗しました");
     } finally {
       setBusy(null);
     }
@@ -118,7 +139,7 @@ export function ProfileSettings() {
       if (!response.ok) throw new Error(await responseError(response));
       const result = await response.json() as { fileCount?: number; backupPath?: string };
       rememberBackup(result.backupPath);
-      setMessage(`${result.fileCount ?? 0}件をバックアップから復元しました。以前の設定はバックアップへ退避済みです。LeafCodePiを再起動してください`);
+      setMessage(`${result.fileCount ?? 0}件をバックアップから復元しました。以前の設定はバックアップへ退避済みです。必要ならパッケージを再取得してください`);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "プロファイルの復元に失敗しました");
     } finally {
@@ -150,7 +171,7 @@ export function ProfileSettings() {
     <div className="rounded-2xl border border-border bg-surface p-4">
       <h3 className="text-sm font-semibold">設定プロファイル</h3>
       <p className="mt-1 text-xs leading-5 text-muted">
-        Pi認証・モデル・MCP設定、エージェント、拡張、スキル、LeafCodePi設定を1ファイルへ保存・復元します。会話、プロジェクト、OS資格情報ストアは含みません。
+        Pi認証・モデル・MCP設定、エージェント、拡張、スキル、LeafCodePi設定を1ファイルへ保存・復元します。会話、プロジェクト、OS資格情報ストア、再取得できるパッケージ本体は含みません。
       </p>
       <div className="mt-3 space-y-2">
         <div className="grid grid-cols-3 gap-2">
@@ -173,6 +194,9 @@ export function ProfileSettings() {
             />
           </label>
         </div>
+        <Button className="w-full" variant="secondary" busy={busy === "packages"} disabled={disabled} onClick={() => void restorePackages()}>
+          <Archive className="h-4 w-4" />パッケージを再取得
+        </Button>
         {backups.length > 0 && (
           <select
             aria-label="復元するバックアップ"
