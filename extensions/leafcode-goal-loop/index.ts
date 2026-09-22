@@ -2146,6 +2146,7 @@ export default function (pi: ExtensionAPI): void {
     // on the runtime installed by the newer session_start.
     if (
       !current ||
+      current.ctx !== ctx ||
       current.key !== runtimeKey(ctx.cwd, sessionId(ctx)) ||
       event.source === "extension"
     ) return;
@@ -2158,13 +2159,13 @@ export default function (pi: ExtensionAPI): void {
 
   pi.on("turn_start", async (event, ctx) => {
     const current = getRuntime();
-    if (!current || current.key !== runtimeKey(ctx.cwd, sessionId(ctx))) return;
+    if (!current || current.ctx !== ctx || current.key !== runtimeKey(ctx.cwd, sessionId(ctx))) return;
     if (current.awaitingTurn) current.awaitingTurnIndex = event.turnIndex;
   });
 
   pi.on("turn_end", async (event, ctx) => {
     const current = getRuntime();
-    if (!current || current.key !== runtimeKey(ctx.cwd, sessionId(ctx))) return;
+    if (!current || current.ctx !== ctx || current.key !== runtimeKey(ctx.cwd, sessionId(ctx))) return;
     const loop = currentLoop(current);
     if (!loop) return;
 
