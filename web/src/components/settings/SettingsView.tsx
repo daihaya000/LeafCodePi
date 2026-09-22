@@ -110,13 +110,9 @@ type SettingsGroupProps = {
   children: ReactNode;
 };
 
-function SettingsGroup({ id, title, description, children }: SettingsGroupProps) {
+function SettingsGroup({ title, children }: SettingsGroupProps) {
   return (
-    <section aria-labelledby={id} className="space-y-3">
-      <header className="px-1">
-        <h2 id={id} className="text-base font-semibold">{title}</h2>
-        {description && <p className="mt-1 text-xs text-muted">{description}</p>}
-      </header>
+    <section aria-label={title} className="space-y-3">
       {children}
     </section>
   );

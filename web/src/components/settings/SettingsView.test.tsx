@@ -136,22 +136,24 @@ describe("SettingsView", () => {
     getJson.mockReset();
   });
 
-  it("モデルタブを役割ごとのグループに分けて表示する", () => {
+  it("モデルタブの大分類見出しを表示せず、設定を役割ごとに整理する", () => {
     render(<SettingsView />);
     fireEvent.click(screen.getByRole("tab", { name: /^モデルタブ$/ }));
 
     const modelsPanel = screen.getByRole("tabpanel");
-    expect(
-      Array.from(modelsPanel.querySelectorAll("section[aria-labelledby] > header > h2")).map(
-        (heading) => heading.textContent,
-      ),
-    ).toEqual(["モデルカタログ", "自動選択と生成", "プロバイダー接続"]);
+    expect(Array.from(modelsPanel.querySelectorAll(":scope > section")).map((section) => section.getAttribute("aria-label"))).toEqual([
+      "モデルカタログ",
+      "自動選択と生成",
+      "プロバイダー接続",
+    ]);
+    expect(modelsPanel.querySelectorAll(":scope > section > header")).toHaveLength(0);
     expect(Array.from(modelsPanel.querySelectorAll("h3")).map((heading) => heading.textContent)).toEqual([
       "モデル",
       "起動時の既定値",
       "送信プロンプト",
       "Autoモデル",
       "生成モデル",
+      "セッションラベル",
       "プロバイダー",
     ]);
     expect(screen.getByRole("heading", { name: "起動時の既定値" }).closest('[role="tabpanel"]')?.id).toBe("settings-panel-models");
@@ -291,34 +293,38 @@ describe("SettingsView", () => {
     }
   });
 
-  it("エンジンタブを役割ごとのグループに分け、関連設定をまとめて表示する", () => {
+  it("エンジンタブの大分類見出しを表示せず、関連設定をまとめて表示する", () => {
     render(<SettingsView />);
 
     const enginePanel = screen.getByRole("tabpanel");
-    expect(
-      Array.from(enginePanel.querySelectorAll("section[aria-labelledby] > header > h2")).map(
-        (heading) => heading.textContent,
-      ),
-    ).toEqual(["ランタイム", "アクセスと安全", "応答", "表示と通知", "ローカル推論", "メモリ"]);
+    expect(Array.from(enginePanel.querySelectorAll(":scope > section")).map((section) => section.getAttribute("aria-label"))).toEqual([
+      "ランタイム",
+      "アクセスと安全",
+      "応答",
+      "表示と通知",
+      "ローカル推論",
+      "メモリ",
+    ]);
+    expect(enginePanel.querySelectorAll(":scope > section > header")).toHaveLength(0);
     expect(screen.getByRole("heading", { name: "システム安全ガード" })).toBeTruthy();
-    const accessSection = screen.getByRole("heading", { name: "アクセスと安全" }).closest("section");
+    const accessSection = enginePanel.querySelector('section[aria-label="アクセスと安全"]');
     expect(accessSection?.querySelector(":scope > div.grid")?.className).toContain("xl:grid-cols-2");
     expect(screen.getByRole("heading", { name: "ローカル LLM" })).toBeTruthy();
-    const localSection = screen.getByRole("heading", { name: "ローカル推論" }).closest("section");
+    const localSection = enginePanel.querySelector('section[aria-label="ローカル推論"]');
     const localGrid = localSection?.querySelector(":scope > div#models-local");
     expect(localGrid?.className).toContain("xl:grid-cols-2");
     expect(localGrid?.children).toHaveLength(2);
-    expect(screen.getByRole("heading", { name: "メモリ", level: 2 })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "メモリ" }).tagName).toBe("H3");
     expect(screen.queryByRole("heading", { name: "USER.md" })).toBeNull();
     expect(screen.getByRole("heading", { name: "ブラウザ設定" })).toBeTruthy();
     expect(enginePanel?.querySelector("#composer-defaults-heading")).toBeNull();
-    const displaySection = screen.getByRole("heading", { name: "表示と通知" }).closest("section");
+    const displaySection = enginePanel.querySelector('section[aria-label="表示と通知"]');
     const displayGrid = displaySection?.querySelector(":scope > div.grid");
     expect(displayGrid?.className).toContain("xl:grid-cols-2");
     expect(Array.from(displayGrid?.children ?? []).every((item) => !item.className.includes("xl:col-span-2"))).toBe(true);
     expect(screen.getByRole("heading", { name: "読み上げ (TTS)" })).toBeTruthy();
     expect(screen.getByRole("heading", { name: "思考要約の翻訳" })).toBeTruthy();
-    const responseSection = screen.getByRole("heading", { name: "応答" }).closest("section");
+    const responseSection = enginePanel.querySelector('section[aria-label="応答"]');
     const responseGrid = responseSection?.querySelector(":scope > div.grid");
     expect(responseGrid?.className).toContain("xl:grid-cols-2");
     expect(responseGrid?.children).toHaveLength(3);
@@ -338,16 +344,16 @@ describe("SettingsView", () => {
     expect(window.location.hash).toBe("#engine");
   });
 
-  it("エージェントタブを運用とスキルに分ける", () => {
+  it("エージェントタブの大分類見出しを表示せず、設定を整理する", () => {
     render(<SettingsView />);
     fireEvent.click(screen.getByRole("tab", { name: /^エージェントタブ$/ }));
 
     const agentsPanel = screen.getByRole("tabpanel");
-    expect(
-      Array.from(agentsPanel.querySelectorAll("section[aria-labelledby] > header > h2")).map(
-        (heading) => heading.textContent,
-      ),
-    ).toEqual(["エージェント運用", "エージェント用スキル"]);
+    expect(Array.from(agentsPanel.querySelectorAll(":scope > section")).map((section) => section.getAttribute("aria-label"))).toEqual([
+      "エージェント運用",
+      "エージェント用スキル",
+    ]);
+    expect(agentsPanel.querySelectorAll(":scope > section > header")).toHaveLength(0);
     expect(Array.from(agentsPanel.querySelectorAll("h3")).map((heading) => heading.textContent)).toEqual([
       "エージェント",
       "スキル",
@@ -357,16 +363,17 @@ describe("SettingsView", () => {
     expect(screen.queryByRole("heading", { name: "メモリ" })).toBeNull();
   });
 
-  it("プロンプトタブに共通・Code・Botの設定を集約する", () => {
+  it("プロンプトタブの大分類見出しを表示せず、設定を集約する", () => {
     render(<SettingsView />);
     fireEvent.click(screen.getByRole("tab", { name: /^プロンプトタブ$/ }));
 
     const promptsPanel = screen.getByRole("tabpanel");
-    expect(
-      Array.from(promptsPanel.querySelectorAll("section[aria-labelledby] > header > h2")).map(
-        (heading) => heading.textContent,
-      ),
-    ).toEqual(["共通", "Code", "Bot"]);
+    expect(Array.from(promptsPanel.querySelectorAll(":scope > section")).map((section) => section.getAttribute("aria-label"))).toEqual([
+      "共通",
+      "Code",
+      "Bot",
+    ]);
+    expect(promptsPanel.querySelectorAll(":scope > section > header")).toHaveLength(0);
     expect(Array.from(promptsPanel.querySelectorAll("h3")).map((heading) => heading.textContent)).toEqual([
       "USER.md",
       "SOUL.md",
@@ -380,16 +387,16 @@ describe("SettingsView", () => {
     expect(promptsPanel.id).toBe("settings-panel-prompts");
   });
 
-  it("ボットタブを初期設定とスキルのグループに分ける", () => {
+  it("ボットタブの大分類見出しを表示せず、設定を整理する", () => {
     render(<SettingsView />);
     fireEvent.click(screen.getByRole("tab", { name: /^ボットタブ$/ }));
 
     const botsPanel = screen.getByRole("tabpanel");
-    expect(
-      Array.from(botsPanel.querySelectorAll("section[aria-labelledby] > header > h2")).map(
-        (heading) => heading.textContent,
-      ),
-    ).toEqual(["ボットの初期設定", "ボット用スキル"]);
+    expect(Array.from(botsPanel.querySelectorAll(":scope > section")).map((section) => section.getAttribute("aria-label"))).toEqual([
+      "ボットの初期設定",
+      "ボット用スキル",
+    ]);
+    expect(botsPanel.querySelectorAll(":scope > section > header")).toHaveLength(0);
     expect(Array.from(botsPanel.querySelectorAll("h3")).map((heading) => heading.textContent)).toEqual([
       "ボットの既定値",
       "スキル",
@@ -406,22 +413,22 @@ describe("SettingsView", () => {
     expect(document.getElementById("bots-skills")).not.toBeNull();
   });
 
-  it("拡張タブでIntercomをleafcode-intercom内に表示する", () => {
+  it("拡張タブの大分類見出しを表示せず、Intercomをleafcode-intercom内に表示する", () => {
     render(<SettingsView />);
     fireEvent.click(screen.getByRole("tab", { name: /^拡張タブ$/ }));
 
     const extensionsPanel = screen.getByRole("tabpanel");
-    expect(
-      Array.from(extensionsPanel.querySelectorAll("section[aria-labelledby] > header > h2")).map(
-        (heading) => heading.textContent,
-      ),
-    ).toEqual(["拡張機能の管理", "MCP"]);
+    expect(Array.from(extensionsPanel.querySelectorAll(":scope > section")).map((section) => section.getAttribute("aria-label"))).toEqual([
+      "拡張機能の管理",
+      "MCP",
+    ]);
+    expect(extensionsPanel.querySelectorAll(":scope > section > header")).toHaveLength(0);
     expect(Array.from(extensionsPanel.querySelectorAll("h3")).map((heading) => heading.textContent)).toEqual([
       "拡張機能",
       "Intercom受信",
       "MCPサーバー",
     ]);
-    expect(document.getElementById("extensions-intercom")?.closest('section[aria-labelledby="extensions-management-heading"]')).not.toBeNull();
+    expect(document.getElementById("extensions-intercom")?.closest('section[aria-label="拡張機能の管理"]')).not.toBeNull();
     expect(screen.queryByRole("heading", { name: "メモリ" })).toBeNull();
     expect(screen.queryByRole("navigation", { name: "拡張設定内" })).toBeNull();
   });
