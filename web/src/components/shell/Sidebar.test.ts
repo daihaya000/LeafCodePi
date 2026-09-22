@@ -154,6 +154,13 @@ describe("latestWorkingTask", () => {
     expect(latestWorkingTask([older, newer], "p1")).toEqual(newer);
   });
 
+  it("keeps input order when working tasks have equal timestamps", () => {
+    const first = task("t1", "working", "先のタスク");
+    const second = task("t2", "working", "後のタスク");
+
+    expect(latestWorkingTask([first, second], "p1")).toBe(first);
+  });
+
   it("returns null when the project has no working task", () => {
     expect(latestWorkingTask([task("t1", "idle", "完了済み")], "p1")).toBeNull();
   });

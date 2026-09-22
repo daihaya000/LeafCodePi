@@ -612,9 +612,12 @@ export function tasksForSidebar(
 
 /** プロジェクト内で更新日時が最新の進行中タスクを返す。 */
 export function latestWorkingTask(tasks: TaskSummary[], projectId: string): TaskSummary | null {
-  return tasksForSidebar(
-    tasks.filter((task) => task.projectId === projectId && task.status === "working"),
-  )[0] ?? null;
+  let latest: TaskSummary | null = null;
+  for (const task of tasks) {
+    if (task.projectId !== projectId || task.status !== "working") continue;
+    if (!latest || task.updatedAt.localeCompare(latest.updatedAt) > 0) latest = task;
+  }
+  return latest;
 }
 
 function promotionBlocked(task: TaskSummary): boolean {
