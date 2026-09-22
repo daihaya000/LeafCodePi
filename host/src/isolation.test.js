@@ -7,7 +7,7 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 import { buildHostRestartScript } from "./host-restart.js";
 import { dataDir, DEFAULT_WEBUI_PORT } from "./config.js";
-import { localLeafcodePiTempDir } from "./tray-temp.js";
+import { localLeafcodePiTempDir, withLocalLeafcodeTempEnv } from "./tray-temp.js";
 
 const repoRoot = dirname(dirname(dirname(fileURLToPath(import.meta.url))));
 
@@ -26,6 +26,24 @@ test("tray TEMP is leafcode-pi\\tmp, not leafcode\\tmp", () => {
   const dir = localLeafcodePiTempDir({ LOCALAPPDATA: "C:\\Local" });
   assert.match(dir.replace(/\//g, "\\"), /leafcode-pi\\tmp$/);
   assert.ok(!dir.includes("\\leafcode\\tmp"));
+});
+
+test("POSIX tray helpers also isolate TMPDIR and restore it", async () => {
+  const env = { TMPDIR: "/tmp/original", TEMP: "/tmp/temp", TMP: "/tmp/tmp" };
+  let during;
+  await withLocalLeafcodeTempEnv(
+    async (dir) => {
+      during = { dir, tmpdir: env.TMPDIR, temp: env.TEMP, tmp: env.TMP };
+    },
+    { env, dir: "/tmp/leafcode-pi/tmp", platform: "linux", mkdirSync: () => {} },
+  );
+  assert.deepEqual(during, {
+    dir: "/tmp/leafcode-pi/tmp",
+    tmpdir: "/tmp/leafcode-pi/tmp",
+    temp: "/tmp/leafcode-pi/tmp",
+    tmp: "/tmp/leafcode-pi/tmp",
+  });
+  assert.deepEqual(env, { TMPDIR: "/tmp/original", TEMP: "/tmp/temp", TMP: "/tmp/tmp" });
 });
 
 test("launcher bats use LEAFCODE_PI_* and port 3010", () => {
