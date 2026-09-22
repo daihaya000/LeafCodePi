@@ -476,7 +476,13 @@ export const BotView = memo(function BotView({ id, active = true }: { id: string
   const toggleSettings = () => updateSettingsOpen(!settingsOpenRef.current);
   useEffect(() => {
     const latest = messages.reduce((value, message) => Math.max(value, message.createdAt), 0);
-    if (active && latest > 0) markRead("bot", id, latest);
+    if (!active || latest <= 0) return;
+    const markCurrentRead = () => {
+      if (!document.hidden) markRead("bot", id, latest);
+    };
+    markCurrentRead();
+    document.addEventListener("visibilitychange", markCurrentRead);
+    return () => document.removeEventListener("visibilitychange", markCurrentRead);
   }, [active, id, messages]);
   // A Bot that finishes answering while you are on another tab should still reach you. The per-Bot
   // notification toggle decides whether this Bot may interrupt you at all.

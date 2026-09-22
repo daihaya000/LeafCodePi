@@ -791,7 +791,13 @@ export const TaskView = memo(function TaskView({
   const cachedSession = useMemo(() => loadTaskSessionCache(taskId), [taskId]);
   const [task, setTask] = useState<TaskDetail | null>(cachedSession);
   useEffect(() => {
-    if (active && task?.updatedAt) markRead("task", taskId, Date.parse(task.updatedAt));
+    if (!active || !task?.updatedAt) return;
+    const markCurrentRead = () => {
+      if (!document.hidden) markRead("task", taskId, Date.parse(task.updatedAt));
+    };
+    markCurrentRead();
+    document.addEventListener("visibilitychange", markCurrentRead);
+    return () => document.removeEventListener("visibilitychange", markCurrentRead);
   }, [active, task?.updatedAt, taskId]);
   // Bot起点のタスクはBot画面と同一キーにし、どちらでOFFにしても全体が黙る。
   // ponytail: キー共有だけで連携は済む。別管理に戻すときはこの1行を taskId に戻す。

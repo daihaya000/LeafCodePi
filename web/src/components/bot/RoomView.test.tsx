@@ -652,6 +652,21 @@ describe("RoomView mentions", () => {
     expect(input.value).toBe("draft");
     expect(mocks.markRead).toHaveBeenCalledWith("room", room.id, 1);
   });
+  it("keeps a hidden active room unread until the document is visible", async () => {
+    Object.defineProperty(document, "hidden", { configurable: true, value: true });
+    try {
+      render(<RoomView id={room.id} active />);
+      await screen.findByRole("textbox");
+      expect(mocks.markRead).not.toHaveBeenCalled();
+
+      Object.defineProperty(document, "hidden", { configurable: true, value: false });
+      act(() => document.dispatchEvent(new Event("visibilitychange")));
+      expect(mocks.markRead).toHaveBeenCalledWith("room", room.id, 1);
+    } finally {
+      Reflect.deleteProperty(document, "hidden");
+    }
+  });
+
   it("shows mention candidates, inserts a selection, and highlights mentions", async () => {
     render(<RoomView id={room.id} />);
 
