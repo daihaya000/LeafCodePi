@@ -203,6 +203,7 @@ describe("shared room context", () => {
   });
   it("tells participants to act on an actionable request instead of interrogating the user", () => {
     const prompt = roomBotPrompt(room(), bots[0], bots, "Bot一覧にテンプレートを追加して", user.id, { participants: bots, turn: 1, maxTurns: 4 });
+    expect(prompt).toContain("Speak only as yourself; reply to actual messages, never simulate teammates or use subagents for turn-taking.");
     expect(prompt).toContain("Act on concrete requests: investigate with tools, state one brief assumption if needed, and proceed.");
     expect(prompt).toContain("Don't ask or delegate questions the repository, transcript, or tools can answer.");
     expect(prompt).toContain("Only if no deliverable is clear, ask one short question and finish with ROOM_ACTION: DONE.");
