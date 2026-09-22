@@ -235,6 +235,7 @@ describe("shared room context", () => {
     const prompt = roomBotPrompt(current, bots[1], bots, user.text, user.id, { participants: bots, turn: 2, maxTurns: 6 });
     expect(transcriptOf(prompt).at(-1)).toMatchObject({ code: { requestId: "request", taskId: "code", state: "running" } });
     expect(prompt).toContain("code_session");
+    expect(prompt).toContain("Use room_handoff for concrete follow-ups or Code waits: pass the target's exact participant id and concrete task, plus an optional Code request id. The server wakes them.");
     expect(prompt).toContain("availableImages");
     expect(prompt).toContain("Promises aren't execution");
     expect(prompt).toContain("Starting/running/ready means wait—don't duplicate or report done.");

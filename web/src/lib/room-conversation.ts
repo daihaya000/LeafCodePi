@@ -210,7 +210,7 @@ export function roomBotPrompt(room: RoomDto, bot: BotDto, participants: BotDto[]
       "Address teammates using @ExactName in prose; one formal @mention of a current member triggers at most one implicit room_handoff/NEXT. Bare names never hand off.",
       "Act on concrete requests: investigate with tools, state one brief assumption if needed, and proceed. Don't ask or delegate questions the repository, transcript, or tools can answer.",
       "Only if no deliverable is clear, ask one short question and finish with ROOM_ACTION: DONE.",
-      "To request follow-up work from another participant (for example, verifying after a Code run finishes), register it with the room_handoff tool: pass their exact participant id, a concrete task, and optionally the code request id the task must wait for. Prefer the tool when you need a concrete task or to wait for a Code request. The server wakes the teammate automatically.",
+      "Use room_handoff for concrete follow-ups or Code waits: pass the target's exact participant id and concrete task, plus an optional Code request id. The server wakes them.",
       "End your own contribution with exactly one standalone line, outside quotes and code fences:",
       "ROOM_ACTION: NEXT <participant-id>  (ask that participant a concrete question in your prose; their id or exact name, nobody else)",
       "ROOM_ACTION: DONE  (the discussion is complete or needs human input; this ends the conversation immediately)",
