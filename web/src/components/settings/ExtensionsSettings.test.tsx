@@ -86,8 +86,14 @@ describe("ExtensionsSettings", () => {
     render(<ExtensionsSettings />);
 
     await screen.findByRole("switch", { name: "leafcode-goal-loop を有効化" });
-    const bundled = within(screen.getByTestId("extensions-bundled"));
-    const user = within(screen.getByTestId("extensions-user"));
+    const bundledPanel = screen.getByTestId("extensions-bundled");
+    const userPanel = screen.getByTestId("extensions-user");
+    const bundled = within(bundledPanel);
+    const user = within(userPanel);
+    expect(bundledPanel.className).toMatch(/\bbg-surface\b/);
+    expect(userPanel.className).toMatch(/\bbg-surface\b/);
+    expect(bundledPanel.className).not.toMatch(/\bbg-surface-2\b/);
+    expect(userPanel.className).not.toMatch(/\bbg-surface-2\b/);
     expect(bundled.getByRole("heading", { name: "組み込み" })).toBeTruthy();
     expect(bundled.getByText("C:/LeafCodePi/extensions")).toBeTruthy();
     expect(bundled.getByText("leafcode-intercom")).toBeTruthy();
