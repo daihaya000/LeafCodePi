@@ -2,9 +2,12 @@
 
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowUp, FolderGit2 } from "lucide-react";
+import { ArrowUp, FolderGit2, GitGraph, PanelRight } from "lucide-react";
 import { AddProjectButton } from "@/components/AddProjectButton";
 import { ProjectFilePicker } from "@/components/ProjectFilePicker";
+import { DiffPane } from "@/components/task/DiffPane";
+import { GraphPanel } from "@/components/task/GraphPanel";
+import { ProjectExplorerButton } from "@/components/task/ProjectExplorerButton";
 import { AgentSelect } from "@/components/AgentSelect";
 import { AutoOptimizeSelect } from "@/components/AutoOptimizeSelect";
 import {
@@ -26,7 +29,7 @@ import { SubagentPermissionSelect } from "@/components/SubagentPermissionSelect"
 import { SkillPermissionSelect } from "@/components/SkillPermissionSelect";
 import { PermissionSelect } from "@/components/PermissionSelect";
 import { MobileMenuHeader } from "@/components/shell/MobileMenuHeader";
-import { Button, GhostSelect } from "@/components/ui";
+import { Button, cx, GhostSelect } from "@/components/ui";
 import {
   AUTO_MODEL_OPTION,
   AUTO_MODEL_VALUE,
@@ -213,10 +216,16 @@ export const HomeView = memo(function HomeView({
   const modelsRef = useRef<ModelOption[]>(models);
   const modelRefreshRef = useRef(0);
   const projectRefreshRef = useRef(0);
+  const [projectPanel, setProjectPanel] = useState<"graph" | "diff" | null>(null);
 
   const selectedProject = projectId
     ? projects.find((project) => project.id === projectId)
     : undefined;
+  const projectDirectory = selectedProject?.rootPath;
+
+  useEffect(() => {
+    if (!selectedProject) setProjectPanel(null);
+  }, [selectedProject]);
   const promptPresetReferences = useComposerPromptPresetReferences();
   const modelOptions = useMemo(
     () => (autoModelEnabled ? [AUTO_MODEL_OPTION, ...models] : models),
@@ -520,8 +529,10 @@ export const HomeView = memo(function HomeView({
   return (
     <div className="flex h-full flex-col bg-bot-chat">
       <MobileMenuHeader />
-      <div className="min-h-0 flex-1 overflow-y-auto overflow-x-clip">
-        <main className="mx-auto flex min-h-full max-w-5xl flex-col justify-center px-[max(1rem,env(safe-area-inset-left),env(safe-area-inset-right))] py-12 pb-[max(6rem,env(safe-area-inset-bottom))]">
+      <div className="min-h-0 flex-1 overflow-hidden">
+        <div className="flex h-full min-h-0 flex-col lg:flex-row">
+          <div className="min-h-0 min-w-0 flex-1 overflow-y-auto overflow-x-clip">
+            <main className="mx-auto flex min-h-full max-w-5xl flex-col justify-center px-[max(1rem,env(safe-area-inset-left),env(safe-area-inset-right))] py-12 pb-[max(6rem,env(safe-area-inset-bottom))]">
           <section>
             <h1 className="mb-6 flex items-center justify-center gap-2 text-center text-2xl font-semibold tracking-tight sm:text-3xl">
               {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -557,6 +568,38 @@ export const HomeView = memo(function HomeView({
                   </option>
                 ))}
               </GhostSelect>
+              <div role="group" aria-label="プロジェクト操作" className="flex shrink-0 items-center gap-1">
+                {selectedProject && (
+                  <ProjectExplorerButton
+                    projectId={selectedProject.id}
+                    onError={setError}
+                  />
+                )}
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  title="コミットグラフ"
+                  aria-label="コミットグラフ"
+                  aria-pressed={projectPanel === "graph"}
+                  disabled={!projectDirectory || submitting}
+                  className={cx(projectPanel === "graph" && "bg-surface-2 text-text")}
+                  onClick={() => setProjectPanel((current) => current === "graph" ? null : "graph")}
+                >
+                  <GitGraph className="h-4 w-4" />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  title="Diff パネル"
+                  aria-label="Diff パネル"
+                  aria-pressed={projectPanel === "diff"}
+                  disabled={!projectDirectory || submitting}
+                  className={cx(projectPanel === "diff" && "bg-surface-2 text-text")}
+                  onClick={() => setProjectPanel((current) => current === "diff" ? null : "diff")}
+                >
+                  <PanelRight className="h-4 w-4" />
+                </Button>
+              </div>
             </div>
             {goalLoopEnabled && (
               <div className="mx-auto max-w-5xl">
@@ -786,8 +829,23 @@ export const HomeView = memo(function HomeView({
                 {error}
               </p>
             )}
-          </section>
-        </main>
+            </section>
+          </main>
+          </div>
+          {projectPanel === "graph" && projectDirectory && (
+            <div className="flex h-72 min-h-0 shrink-0 flex-col border-t border-border bg-surface lg:h-auto lg:w-80 lg:border-t-0 lg:border-l">
+              <GraphPanel directory={projectDirectory} active />
+            </div>
+          )}
+          {projectPanel === "diff" && projectDirectory && (
+            <div className="flex h-72 min-h-0 shrink-0 flex-col border-t border-border bg-surface lg:h-auto lg:w-80 lg:border-t-0 lg:border-l">
+              <DiffPane
+                directory={projectDirectory}
+                onMutated={() => notifyTasksChanged(selectedProject?.id)}
+              />
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );

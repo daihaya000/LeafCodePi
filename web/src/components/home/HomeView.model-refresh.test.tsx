@@ -13,6 +13,13 @@ vi.mock("next/navigation", () => ({ useRouter: () => ({ push: mocks.push }) }));
 vi.mock("@/components/AddProjectButton", () => ({ AddProjectButton: () => null }));
 vi.mock("@/components/home/NextTaskSuggest", () => ({ NextTaskSuggest: () => null }));
 vi.mock("@/components/shell/MobileMenuHeader", () => ({ MobileMenuHeader: () => null }));
+vi.mock("@/components/task/GraphPanel", () => ({
+  GraphPanel: ({ directory }: { directory: string }) => <div data-testid="graph-panel">{directory}</div>,
+}));
+vi.mock("@/components/task/DiffPane", () => ({
+  DiffPane: ({ directory }: { directory: string }) => <div data-testid="diff-panel">{directory}</div>,
+}));
+vi.mock("@/components/task/ProjectExplorerButton", () => ({ ProjectExplorerButton: () => null }));
 
 import { HomeView } from "./HomeView";
 import { clearCachedModels, writeCachedModels } from "@/lib/models-cache";
@@ -54,6 +61,34 @@ afterEach(() => {
   cleanup();
   localStorage.clear();
   clearCachedModels();
+});
+
+describe("HomeView project panels", () => {
+  it("opens the selected project's graph and diff panels", async () => {
+    projectResponses.push(Promise.resolve({
+      projects: [{
+        id: "project-1",
+        name: "Project",
+        rootPath: "C:\\repo",
+        favorite: false,
+        archived: false,
+        createdAt: "2026-09-13T00:00:00.000Z",
+        lastOpenedAt: null,
+      }],
+    }));
+
+    render(<HomeView />);
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "プロジェクト" }).textContent).toContain("Project");
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "コミットグラフ" }));
+    expect((await screen.findByTestId("graph-panel")).textContent).toContain("C:\\repo");
+
+    fireEvent.click(screen.getByRole("button", { name: "Diff パネル" }));
+    expect(screen.queryByTestId("graph-panel")).toBeNull();
+    expect((await screen.findByTestId("diff-panel")).textContent).toContain("C:\\repo");
+  });
 });
 
 describe("HomeView model refresh", () => {
