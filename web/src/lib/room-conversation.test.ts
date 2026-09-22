@@ -203,9 +203,9 @@ describe("shared room context", () => {
   });
   it("tells participants to act on an actionable request instead of interrogating the user", () => {
     const prompt = roomBotPrompt(room(), bots[0], bots, "Bot一覧にテンプレートを追加して", user.id, { participants: bots, turn: 1, maxTurns: 4 });
-    expect(prompt).toContain("Default to acting, not to confirming");
-    expect(prompt).toContain("Never ask the user something the repository");
-    expect(prompt).toContain("no discernible deliverable at all");
+    expect(prompt).toContain("Act on concrete requests: investigate with tools, state one brief assumption if needed, and proceed.");
+    expect(prompt).toContain("Don't ask or delegate questions the repository, transcript, or tools can answer.");
+    expect(prompt).toContain("Only if no deliverable is clear, ask one short question and finish with ROOM_ACTION: DONE.");
     expect(prompt).toContain("registers at most one implicit handoff");
     expect(prompt).toContain("A bare name without @ does not wake anyone");
     expect(roomBotPrompt(room(), bots[0], bots, "@デバッガー 確認して", user.id)).toContain("Act on it with your tools");
