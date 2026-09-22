@@ -1933,14 +1933,10 @@ test("waits for agent_end so tool turns do not stop the loop before the result J
     assert.equal(loop.status, "blocked");
     assert.equal(loop.progress[0].summary, "after tool");
 
-    await commands.get("goal-resume")?.("--turns 4", ctx);
-    await waitFor(() => sendCount === 3);
-    await waitFor(() => {
-      loop = JSON.parse(readFileSync(join(cwd, "goals-loop", "live-session.json"), "utf8"));
-      return loop.status === "queued";
-    });
-    assert.equal(loop.turnCount, 3);
-    assert.equal(loop.progress.at(-1).summary, "resumed");
+    await commands.get("goal-stop")?.("", ctx);
+    loop = JSON.parse(readFileSync(join(cwd, "goals-loop", "live-session.json"), "utf8"));
+    assert.equal(loop.status, "stopped");
+    assert.equal(loop.blockedReason, "");
   } finally {
     await handlers.get("session_shutdown")?.({}, ctx);
     rmSync(cwd, { recursive: true, force: true });

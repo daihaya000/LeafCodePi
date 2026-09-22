@@ -1372,6 +1372,7 @@ function stopLoop(runtime: Runtime): boolean {
   loop.status = "stopped";
   loop.pauseReason = "";
   loop.error = "";
+  loop.blockedReason = "";
   loop.pendingTurnRecovery = false;
   loop.nextTurnAt = null;
   if (!writeLoop(loop)) return false;
