@@ -12,7 +12,7 @@ import { execFile, execFileSync } from "node:child_process";
 import { pbkdf2Sync, createDecipheriv } from "node:crypto";
 import { existsSync, readdirSync } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { isAbsolute, join } from "node:path";
 
 export const DEFAULT_LINUX_SAFE_STORAGE_PASSWORD = "peanuts";
 
@@ -65,9 +65,14 @@ export function chromiumUserDataDir(
 	home = homedir(),
 	env: NodeJS.Dict<string> = process.env,
 ): string {
-	return config.usesLocalAppData
-		? join(env.LOCALAPPDATA || join(home, "AppData", "Local"), config.baseDir)
-		: join(home, config.baseDir);
+	if (config.usesLocalAppData) {
+		return join(env.LOCALAPPDATA || join(home, "AppData", "Local"), config.baseDir);
+	}
+	const xdgConfigHome = env.XDG_CONFIG_HOME?.trim();
+	if (xdgConfigHome && isAbsolute(xdgConfigHome) && config.baseDir.startsWith(".config/")) {
+		return join(xdgConfigHome, config.baseDir.slice(".config/".length));
+	}
+	return join(home, config.baseDir);
 }
 
 /** Prefer Chrome 96+ Network/Cookies, then the legacy Cookies file. */

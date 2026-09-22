@@ -89,6 +89,20 @@ describe("listChromiumBrowserRoots", () => {
     expect(roots.find((r) => r.name === "Chrome")?.secretToolApp).toBe("chrome");
   });
 
+  it("uses XDG_CONFIG_HOME for Linux Chromium roots", () => {
+    const roots = listChromiumBrowserRoots("linux", "/home/linux-user", {
+      XDG_CONFIG_HOME: "/run/user/1000/config",
+    });
+    expect(roots.slice(0, 1).map((r) => r.userData)).toEqual([
+      "/run/user/1000/config/chromium",
+    ]);
+    expect(roots.slice(2, 5).map((r) => r.userData)).toEqual([
+      "/run/user/1000/config/google-chrome",
+      "/run/user/1000/config/BraveSoftware/Brave-Browser",
+      "/run/user/1000/config/microsoft-edge",
+    ]);
+  });
+
   it("keeps Windows Local AppData Chrome/Edge roots", () => {
     const roots = listChromiumBrowserRoots("win32", "C:\\Users\\sam", {
       LOCALAPPDATA: "C:\\Users\\sam\\AppData\\Local",
