@@ -130,10 +130,6 @@ export function ComposerDefaultsSettings({ refreshToken = 0 }: { refreshToken?: 
   const thinkingLevels = useMemo(() => selectedModel?.thinkingLevels ?? [], [selectedModel]);
   const modelKnown = Boolean(selectedModel);
   const selectModelValue = selectedModel?.value ?? defaults.model;
-  // AgentSelect は Composer と同じく不明値を正規化して表示するため、
-  // 無効な既定値の情報はモデル側の未接続表示と同型の警告行で残す。
-  const agentKnown = (autoAgentEnabled && defaults.agent === AUTO_AGENT_VALUE) || agents.includes(defaults.agent);
-
   useEffect(() => {
     if (autoModelEnabled || defaults.model !== AUTO_MODEL_OPTION.value || !models[0]) return;
     change({ model: models[0].value });
@@ -218,9 +214,6 @@ export function ComposerDefaultsSettings({ refreshToken = 0 }: { refreshToken?: 
               onChange={(value) => change({ agent: value })}
               className="h-9 w-full"
             />
-            {agents.length > 0 && !agentKnown && (
-              <p className="mt-1 text-xs text-warning">「{defaults.agent}」は無効です。存在するエージェントを選び直してください。</p>
-            )}
           </div>
         </div>
       </div>

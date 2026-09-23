@@ -75,24 +75,26 @@ describe("ComposerDefaultsSettings model mapping", () => {
     expect(screen.queryByText(/未接続/)).toBeNull();
   });
 
-  it("warns when the stored default agent is disabled", async () => {
+  it("does not warn when the stored default agent no longer exists", async () => {
     mocks.getJson.mockImplementation((path: string) => {
       if (path === "/api/models") return Promise.resolve({ models: [] });
       if (path === "/api/agents")
-        return Promise.resolve({ agents: [{ name: "builder", enabled: true }] });
+        return Promise.resolve({ agents: [{ name: "default", enabled: true }] });
       return Promise.resolve({});
     });
     writeComposerDefaults({
       model: "auto",
       autoOptimize: "balanced",
-      agent: "ghost-agent",
+      agent: "builder",
     });
 
     render(<ComposerDefaultsSettings />);
+    fireEvent.click(screen.getByRole("button", { name: "エージェント" }));
 
     await waitFor(() => {
-      expect(screen.getByText(/「ghost-agent」は無効です/)).toBeTruthy();
+      expect(screen.getByRole("option", { name: "default" })).toBeTruthy();
     });
+    expect(screen.queryByText(/「builder」は無効です/)).toBeNull();
   });
 
   it("does not read localStorage during server render", () => {
