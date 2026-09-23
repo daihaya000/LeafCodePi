@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { chmodSync, mkdtempSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { NextRequest } from "next/server";
 import { afterEach, describe, it, vi } from "vitest";
-import { __resetPiAgentDirCacheForTests, accountAuthPath, createAccount } from "@/lib/accounts";
+import { __resetPiAgentDirCacheForTests, accountAuthPath, createAccount, getAccount } from "@/lib/accounts";
 import {
   createOpenRouterProvider,
   readOpenRouterCreditBaseline,
@@ -12,6 +12,7 @@ import {
 } from "@/lib/codexbar/providers/openrouter";
 import { DELETE as deleteBaseline, POST as saveBaseline } from "../openrouter-baseline/route";
 import { GET as getAuthStatus } from "../auth-status/route";
+import { DELETE as deleteAccountRoute } from "../route";
 import { DELETE as deleteKey, POST as saveKey } from "./route";
 
 const undiciFetch = vi.hoisted(() => vi.fn());
@@ -64,6 +65,14 @@ describe("account-scoped OpenRouter credits", () => {
     const keyResponse = await saveKey(request(account.id, "openrouter-credits", "POST", { managementKey: "sk-management" }), context(account.id));
     assert.deepEqual(await keyResponse.json(), { ok: true, configured: true });
     assert.equal(readOpenRouterManagementKey(authPath), "sk-management");
+    if (process.platform !== "win32") {
+      const file = join(dirname(authPath), "openrouter.json");
+      assert.equal(statSync(file).mode & 0o777, 0o600);
+      assert.equal(statSync(dirname(authPath)).mode & 0o777, 0o700);
+      chmodSync(file, 0o644); // 旧版の権限を読み取り時に移行する
+      assert.equal(readOpenRouterManagementKey(authPath), "sk-management");
+      assert.equal(statSync(file).mode & 0o777, 0o600);
+    }
     const baselineResponse = await saveBaseline(request(account.id, "openrouter-baseline", "POST", { baselineUsd: 50 }), context(account.id));
     assert.equal(baselineResponse.status, 200);
     assert.equal(readOpenRouterCreditBaseline(authPath), 50);
@@ -100,6 +109,25 @@ describe("account-scoped OpenRouter credits", () => {
     await deleteKey(request(account.id, "openrouter-credits", "DELETE"), context(account.id));
     assert.equal(readOpenRouterManagementKey(authPath), null);
     assert.equal(provider.isConfigured(), false);
+  });
+
+  it("blocks account deletion until its management key is removed", async () => {
+    const account = setup();
+    await saveKey(request(account.id, "openrouter-credits", "POST", { managementKey: "sk-management" }), context(account.id));
+    const blocked = await deleteAccountRoute(request(account.id, "", "DELETE"), context(account.id));
+    assert.equal(blocked.status, 409);
+    assert.match((await blocked.json()).error, /管理キーを先に削除/);
+    assert.ok(getAccount(account.id));
+
+    writeFileSync(join(dirname(accountAuthPath(account.id, process.env.PI_CODING_AGENT_DIR!)), "openrouter.json"), "{", "utf8");
+    const unreadable = await deleteAccountRoute(request(account.id, "", "DELETE"), context(account.id));
+    assert.equal(unreadable.status, 500);
+    assert.ok(getAccount(account.id));
+    await saveKey(request(account.id, "openrouter-credits", "POST", { managementKey: "sk-management" }), context(account.id));
+    await deleteKey(request(account.id, "openrouter-credits", "DELETE"), context(account.id));
+    const removed = await deleteAccountRoute(request(account.id, "", "DELETE"), context(account.id));
+    assert.equal(removed.status, 200);
+    assert.equal(getAccount(account.id), undefined);
   });
 
   it("rejects invalid values and accounts without OpenRouter", async () => {

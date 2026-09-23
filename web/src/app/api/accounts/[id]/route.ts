@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { deleteAccount, patchAccount } from "@/lib/accounts";
+import { accountAuthPath, deleteAccount, getAccount, patchAccount, resolvePiAgentDir } from "@/lib/accounts";
+import { readOpenRouterManagementKey } from "@/lib/codexbar/providers/openrouter";
 import { invalidateHealthCache, jsonError } from "@/lib/pi/harness";
 
 export const runtime = "nodejs";
@@ -44,6 +45,16 @@ export async function PATCH(req: NextRequest, context: Context) {
 export async function DELETE(_req: NextRequest, context: Context) {
   const { id } = await context.params;
   try {
+    const account = getAccount(id);
+    if (account?.providers.includes("openrouter")) {
+      const agentDir = await resolvePiAgentDir();
+      if (readOpenRouterManagementKey(accountAuthPath(id, agentDir), true)) {
+        return NextResponse.json(
+          { error: "OpenRouter の管理キーを先に削除してください。アカウント削除後は設定画面から削除できません" },
+          { status: 409 },
+        );
+      }
+    }
     deleteAccount(id);
     invalidateHealthCache();
     return NextResponse.json({ ok: true });

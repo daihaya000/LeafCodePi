@@ -1,4 +1,5 @@
-import { copyFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, copyFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
+import { randomUUID } from "node:crypto";
 import { dirname } from "node:path";
 import { mkdirSync } from "node:fs";
 import { lookup as osLookup, promises as dnsPromises } from "node:dns";
@@ -165,10 +166,12 @@ export function decodeJwtPayload(jwt: string): Record<string, unknown> | null {
  * Atomically write text (tmp + replace). Best-effort on Windows when rename
  * cannot overwrite an existing file.
  */
-export function atomicWriteText(filePath: string, content: string): void {
-  mkdirSync(dirname(filePath), { recursive: true });
-  const tmp = `${filePath}.leafcode-tmp`;
-  writeFileSync(tmp, content, "utf8");
+export function atomicWriteText(filePath: string, content: string, mode?: number): void {
+  mkdirSync(dirname(filePath), { recursive: true, ...(mode === undefined ? {} : { mode: 0o700 }) });
+  const tmp = mode === undefined
+    ? `${filePath}.leafcode-tmp`
+    : `${filePath}.${randomUUID()}.leafcode-tmp`;
+  writeFileSync(tmp, content, mode === undefined ? "utf8" : { encoding: "utf8", mode });
   try {
     renameSync(tmp, filePath);
   } catch {
@@ -182,6 +185,7 @@ export function atomicWriteText(filePath: string, content: string): void {
       }
     }
   }
+  if (mode !== undefined && process.platform !== "win32") chmodSync(filePath, mode);
 }
 
 export function cleanApiKey(raw: string | null | undefined): string | null {

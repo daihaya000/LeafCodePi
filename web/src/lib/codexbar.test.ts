@@ -462,6 +462,17 @@ describe("overallUsedPercent", () => {
     });
     expect(overallUsedPercent(u)).toBe(50);
   });
+
+  it("excludes display-only credit baselines from the overall summary", () => {
+    const u = parseCodexBarSnapshot({
+      providers: [
+        { codexBarProviderId: "a", usedPercent: 20 },
+        { codexBarProviderId: "openrouter", usedPercent: 100, maxed: true, usageDisplayOnly: true },
+      ],
+    });
+    expect(overallUsedPercent(u)).toBe(20);
+    expect(limitedCount(u)).toBe(0);
+  });
 });
 
 describe("hasLastGoodUsage", () => {

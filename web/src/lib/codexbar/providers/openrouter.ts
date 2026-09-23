@@ -4,7 +4,7 @@
  * Key spending limits via /key remain available without a management key.
  */
 
-import { existsSync, readFileSync, unlinkSync } from "node:fs";
+import { chmodSync, existsSync, lstatSync, readFileSync, unlinkSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { applyCreditBaseline } from "@/lib/codexbar/providers/anthropic";
 import {
@@ -29,16 +29,22 @@ function accountConfigPath(authPath: string): string {
   return join(dirname(authPath), "openrouter.json");
 }
 
-function readAccountConfig(authPath: string): Record<string, unknown> {
+function readAccountConfig(authPath: string, strict = false): Record<string, unknown> {
   try {
-    return asRecord(JSON.parse(readFileSync(accountConfigPath(authPath), "utf8"))) ?? {};
-  } catch {
+    const path = accountConfigPath(authPath);
+    const info = lstatSync(path);
+    if (!info.isFile()) throw new Error("OpenRouter 設定ファイルが通常のファイルではありません");
+    // 旧版で作った 0644 ファイルも読み取り時に Pi auth.json と同じ権限へ移行。
+    if (process.platform !== "win32" && (info.mode & 0o077) !== 0) chmodSync(path, 0o600);
+    return asRecord(JSON.parse(readFileSync(path, "utf8"))) ?? {};
+  } catch (error) {
+    if (strict && (error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
     return {};
   }
 }
 
-export function readOpenRouterManagementKey(authPath: string): string | null {
-  const value = readAccountConfig(authPath).managementKey;
+export function readOpenRouterManagementKey(authPath: string, strict = false): string | null {
+  const value = readAccountConfig(authPath, strict).managementKey;
   return typeof value === "string" ? cleanApiKey(value) : null;
 }
 
@@ -60,7 +66,8 @@ export function writeOpenRouterAccountConfig(
   if (Object.keys(config).length === 0) {
     if (existsSync(path)) unlinkSync(path);
   } else {
-    atomicWriteText(path, `${JSON.stringify(config)}\n`);
+    // Pi auth.json と同じ 0600。新規アカウントディレクトリも 0700 で作る。
+    atomicWriteText(path, `${JSON.stringify(config)}\n`, 0o600);
   }
 }
 

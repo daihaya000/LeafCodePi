@@ -628,14 +628,14 @@ export function percentTone(usedPercent: number | null): UsageTone {
 
 export function overallUsedPercent(usage: CodexBarUsage): number | null {
   const vals = usage.providers
-    .filter((p) => hasLastGoodUsage(p) && p.usedPercent !== null)
+    .filter((p) => p.usageDisplayOnly !== true && hasLastGoodUsage(p) && p.usedPercent !== null)
     .map((p) => p.usedPercent as number);
   if (vals.length === 0) return null;
   return vals.reduce((a, b) => a + b, 0) / vals.length;
 }
 
 export function limitedCount(usage: CodexBarUsage): number {
-  return usage.providers.filter((p) => p.limited || p.maxed).length;
+  return usage.providers.filter((p) => p.usageDisplayOnly !== true && (p.limited || p.maxed)).length;
 }
 
 export function clampPercent(v: number | null): number {
