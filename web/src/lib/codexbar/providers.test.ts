@@ -115,12 +115,10 @@ describe("openrouterProvider.fetch (mock)", () => {
 
   it("shows actual account credits with an explicit management key", async () => {
     process.env.PI_CODING_AGENT_DIR = tempDir();
-    process.env.OPENROUTER_API_KEY = "sk-inference";
+    process.env.OPENROUTER_API_KEY = "sk-stale-inference";
     process.env.OPENROUTER_MANAGEMENT_KEY = "sk-management";
-    undiciFetch.mockImplementation(async (url: string) => new Response(
-      url.endsWith("/credits")
-        ? JSON.stringify({ data: { total_credits: 100.5, total_usage: 25.75 } })
-        : JSON.stringify({ data: { usage: 2, limit: null } }),
+    undiciFetch.mockImplementation(async () => new Response(
+      JSON.stringify({ data: { total_credits: 100.5, total_usage: 25.75 } }),
       { status: 200 },
     ));
 
@@ -130,11 +128,9 @@ describe("openrouterProvider.fetch (mock)", () => {
     expect(snap.creditsUsed).toBe(25.75);
     expect(snap.creditsLimit).toBe(100.5);
     expect(undiciFetch.mock.calls.map((call) => call[0])).toEqual([
-      "https://openrouter.ai/api/v1/key",
       "https://openrouter.ai/api/v1/credits",
     ]);
-    expect(authorizationHeader(0)).toBe("Bearer sk-inference");
-    expect(authorizationHeader(1)).toBe("Bearer sk-management");
+    expect(authorizationHeader(0)).toBe("Bearer sk-management");
   });
 
   it("rejects an invalid management key without exposing its value", async () => {

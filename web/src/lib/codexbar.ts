@@ -441,6 +441,15 @@ export function groupCodexBarProviders(
       }
     }
 
+    if (id === "openrouter" && accountRows.length > 0 && group.representative) {
+      accountRows.push({
+        id: "default::openrouter",
+        label: "全体",
+        provider: { ...group.representative, usageDisplayOnly: true },
+        configured: true,
+      });
+    }
+
     const base = group.representative ?? group.rows[0] ?? emptyProvider(id);
     const rowProviders =
       isAccountManaged && accountRows.length > 0

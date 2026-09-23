@@ -183,6 +183,12 @@ async function buildFetchPlan(
       continue;
     }
 
+    // Account credits are global and cannot be attributed to an individual key.
+    // Include a separate default OpenRouter row for the explicit management key.
+    if (requestScope.kind === "all" && definition.id === "openrouter" && process.env.OPENROUTER_MANAGEMENT_KEY?.trim()) {
+      providers.push(createProviderInstance(definition, defaultScope));
+    }
+
     const matchingAccounts = accounts.filter((account) =>
       accountHasProvider(account, definition.id),
     );

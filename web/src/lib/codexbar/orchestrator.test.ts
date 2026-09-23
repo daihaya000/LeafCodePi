@@ -8,8 +8,9 @@ import { clearProviderCache } from "@/lib/codexbar/provider-cache";
 import { __resetPiAgentDirCacheForTests } from "@/lib/accounts";
 import { fetchNativeUsage } from "./orchestrator";
 
+const enabledProviderIds = vi.hoisted(() => ["openai-codex"]);
 vi.mock("@/lib/codexbar/provider-catalog", () => ({
-  resolveEnabledProviderIds: () => ["openai-codex"],
+  resolveEnabledProviderIds: () => enabledProviderIds,
 }));
 
 const undiciFetch = vi.hoisted(() => vi.fn());
@@ -21,6 +22,7 @@ vi.mock("undici", async (importOriginal) => ({
 
 const tempDirs: string[] = [];
 const originalCodexHome = process.env.CODEX_HOME;
+const originalManagementKey = process.env.OPENROUTER_MANAGEMENT_KEY;
 
 function writeJson(path: string, value: unknown): void {
   mkdirSync(join(path, ".."), { recursive: true });
@@ -84,6 +86,9 @@ function setupEmptyAccounts(): { accountDir: string; dataDir: string } {
 
 afterEach(() => {
   undiciFetch.mockReset();
+  enabledProviderIds.splice(0, enabledProviderIds.length, "openai-codex");
+  if (originalManagementKey === undefined) delete process.env.OPENROUTER_MANAGEMENT_KEY;
+  else process.env.OPENROUTER_MANAGEMENT_KEY = originalManagementKey;
   clearCachedUsage();
   clearProviderCache();
   __resetPiAgentDirCacheForTests();
@@ -95,6 +100,51 @@ afterEach(() => {
 });
 
 describe("fetchNativeUsage", () => {
+  it("shows management-only OpenRouter credits in the normal all-scope widget", async () => {
+    setupEmptyAccounts();
+    enabledProviderIds.splice(0, enabledProviderIds.length, "openrouter");
+    process.env.OPENROUTER_MANAGEMENT_KEY = "sk-management";
+    undiciFetch.mockImplementation(async () => new Response(
+      JSON.stringify({ data: { total_credits: 20, total_usage: 3 } }),
+      { status: 200 },
+    ));
+
+    const usage = await fetchNativeUsage({ forceRefresh: true, scope: { kind: "all" } });
+    expect(undiciFetch.mock.calls.map(([url]) => url)).toEqual([
+      "https://openrouter.ai/api/v1/credits",
+    ]);
+    expect(groupCodexBarProviders(usage)[0].provider.credits?.balance).toBe(17);
+  });
+
+  it("shows global credits separately from account-specific key usage", async () => {
+    const { accountDir, dataDir } = setupAccounts();
+    enabledProviderIds.splice(0, enabledProviderIds.length, "openrouter");
+    process.env.OPENROUTER_MANAGEMENT_KEY = "sk-management";
+    const accountData = JSON.parse(readFileSync(join(dataDir, "accounts.json"), "utf8")) as {
+      accounts: Array<Record<string, unknown>>;
+    };
+    for (const account of accountData.accounts) {
+      account.providers = ["openrouter"];
+      writeJson(join(accountDir, "accounts", account.id as string, "auth.json"), {
+        openrouter: { type: "api_key", key: `sk-${account.id}` },
+      });
+    }
+    writeJson(join(dataDir, "accounts.json"), accountData);
+    undiciFetch.mockImplementation(async (url: string) => new Response(
+      JSON.stringify(url.endsWith("/credits")
+        ? { data: { total_credits: 20, total_usage: 3 } }
+        : { data: { usage: 1, limit: 5 } }),
+      { status: 200 },
+    ));
+
+    const usage = await fetchNativeUsage({ forceRefresh: true, scope: { kind: "all" } });
+    const group = groupCodexBarProviders(usage)[0];
+    expect(group.accountRows.map((row) => row.label)).toEqual(["仕事用", "個人用", "全体"]);
+    expect(group.accountRows.map((row) => row.provider?.credits?.balance)).toEqual([null, null, 17]);
+    expect(group.provider.usedPercent).toBe(20); // global spend is display-only
+    expect(undiciFetch.mock.calls).toHaveLength(3);
+  });
+
   it("fetches Codex usage independently for each registered account", async () => {
     setupAccounts();
     undiciFetch.mockImplementation(async (_url: string, init?: RequestInit) => {

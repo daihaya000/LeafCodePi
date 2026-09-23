@@ -64,6 +64,10 @@ export function parseOpenRouterKeyJson(json: string): UsageSnapshot {
   const limit = flexibleNumber(data.limit);
   const isFreeTier = data.is_free_tier === true;
 
+  return openRouterSnapshot(usage, limit, isFreeTier);
+}
+
+function openRouterSnapshot(usage: number, limit: number | null, isFreeTier: boolean): UsageSnapshot {
   return {
     providerId: "openrouter",
     providerName: "OpenRouter",
@@ -88,43 +92,37 @@ export function createOpenRouterProvider(scope: UsageScope): IUsageProvider {
     id: "openrouter",
     name: "OpenRouter",
     isConfigured() {
-      return resolveOpenRouterApiKey(scope) !== null;
+      return resolveOpenRouterApiKey(scope) !== null ||
+        (scope.kind === "default" && cleanApiKey(process.env.OPENROUTER_MANAGEMENT_KEY) !== null);
     },
     async fetch(signal) {
       const apiKey = resolveOpenRouterApiKey(scope);
-      if (!apiKey) throw new ProviderError("API キーが未設定です");
-
-      const { status, body, ok } = await fetchText(KEY_API_URL, {
-        headers: {
-          Authorization: `Bearer ${apiKey}`,
-          Accept: "application/json",
-        },
-        signal,
-      });
-      if (status === 401 || status === 403) {
-        throw new ProviderError("API キーが無効です");
-      }
-      if (!ok) {
-        const snippet = body.length > 200 ? body.slice(0, 200) : body;
-        throw new ProviderError(
-          `OpenRouter API エラー HTTP ${status}: ${snippet}`,
-        );
-      }
-      let snapshot: UsageSnapshot;
-      try {
-        snapshot = parseOpenRouterKeyJson(body);
-      } catch (err) {
-        if (err instanceof ProviderError) throw err;
-        throw new ProviderError("OpenRouter の応答を解析できませんでした。", {
-          cause: err,
-        });
-      }
-
-      // /key reports a per-key spending cap, not the account's credit balance.
-      // Do not reuse a global management key for account-scoped snapshots.
+      // A global management key is never reused for individual account rows.
       const managementKey = scope.kind === "default"
         ? cleanApiKey(process.env.OPENROUTER_MANAGEMENT_KEY)
         : null;
+      if (!apiKey && !managementKey) throw new ProviderError("API キーが未設定です");
+
+      let snapshot = openRouterSnapshot(0, null, false);
+      if (apiKey && !managementKey) {
+        const { status, body, ok } = await fetchText(KEY_API_URL, {
+          headers: { Authorization: `Bearer ${apiKey}`, Accept: "application/json" },
+          signal,
+        });
+        if (status === 401 || status === 403) {
+          throw new ProviderError("API キーが無効です");
+        }
+        if (!ok) {
+          const snippet = body.length > 200 ? body.slice(0, 200) : body;
+          throw new ProviderError(`OpenRouter API エラー HTTP ${status}: ${snippet}`);
+        }
+        try {
+          snapshot = parseOpenRouterKeyJson(body);
+        } catch (err) {
+          if (err instanceof ProviderError) throw err;
+          throw new ProviderError("OpenRouter の応答を解析できませんでした。", { cause: err });
+        }
+      }
       if (!managementKey) return snapshot;
 
       const credits = await fetchText(CREDITS_API_URL, {

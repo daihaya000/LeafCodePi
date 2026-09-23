@@ -150,6 +150,51 @@ describe("CodexBarWidget", () => {
     expect(screen.getByText("仕事用").closest("ul")?.className).not.toContain("pl-6");
   });
 
+  it("shows OpenRouter's global balance alongside one account, and exposes management errors", async () => {
+    localStorage.setItem("webui:codexbar:collapsed", "0");
+    localStorage.setItem("webui:codexbar:providers", "{}");
+    const global = {
+      ...usage.providers[0],
+      id: "openrouter",
+      accountId: null,
+      instanceId: "default:openrouter",
+      credits: { title: "アカウント残高", used: 3, limit: 20, balance: 17 },
+    };
+    const account = {
+      ...global,
+      accountId: "acc-a",
+      instanceId: "account:acc-a:openrouter",
+      credits: { title: "キー利用枠", used: 1, limit: 5, balance: null },
+    };
+    const openrouterUsage = {
+      ...usage,
+      accounts: [{ id: "acc-a", label: "個人用", providers: ["openrouter"], configuredProviders: ["openrouter"] }],
+      providers: [global, account],
+    } as CodexBarUsage;
+    useCodexUsage.mockReturnValue({
+      usage: openrouterUsage,
+      loadError: null,
+      refreshing: false,
+      refresh: vi.fn().mockResolvedValue(undefined),
+      now: Date.now(),
+    });
+
+    const { rerender } = render(<CodexBarWidget />);
+    expect(await screen.findByText("全体")).toBeTruthy();
+    expect(screen.getByText("個人用")).toBeTruthy();
+    expect(screen.getByText("残高 $17.00")).toBeTruthy();
+
+    useCodexUsage.mockReturnValue({
+      usage: { ...openrouterUsage, providers: [{ ...global, credits: null, usedPercent: null, error: "管理キーが無効です" }, account] },
+      loadError: null,
+      refreshing: false,
+      refresh: vi.fn().mockResolvedValue(undefined),
+      now: Date.now(),
+    });
+    rerender(<CodexBarWidget />);
+    expect(screen.getByText("管理キーが無効です")).toBeTruthy();
+  });
+
   it("flattens a provider with one account into a single row", async () => {
     localStorage.setItem("webui:codexbar:collapsed", "0");
     localStorage.setItem("webui:codexbar:layout", "1");
