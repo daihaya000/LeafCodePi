@@ -5,7 +5,7 @@ import { beforeEach, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({ spawn: vi.fn() }));
 vi.mock("node:child_process", () => ({ spawn: mocks.spawn }));
 
-import { gitDiff, runGit } from "./git";
+import { gitDiff, gitLogGraph, runGit } from "./git";
 
 beforeEach(() => mocks.spawn.mockReset());
 
@@ -45,4 +45,20 @@ it.each(["staged", "unstaged"])("rejects a partial diff when %s git diff fails",
   const gitCalls = mocks.spawn.mock.calls.filter(([command]) => command === "git");
   expect(gitCalls).toHaveLength(2);
   expect(gitCalls[0][1]).toContain("--cached");
+});
+
+it("uses integer pagination arguments for fractional graph requests", async () => {
+  mocks.spawn.mockImplementation(() => {
+    const child = Object.assign(new EventEmitter(), {
+      stdout: new PassThrough(),
+      stderr: new PassThrough(),
+    });
+    queueMicrotask(() => child.emit("close", 0));
+    return child;
+  });
+  await gitLogGraph(".", 1.5, 2.5);
+  const gitCalls = mocks.spawn.mock.calls.filter(([command]) => command === "git");
+  expect(gitCalls).toHaveLength(1);
+  expect(gitCalls[0][1]).toContain("-n2");
+  expect(gitCalls[0][1]).toContain("--skip=2");
 });

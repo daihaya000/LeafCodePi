@@ -156,8 +156,8 @@ export async function gitLogGraph(
   limit = 80,
   skip = 0,
 ): Promise<{ commits: GraphCommit[]; hasMore: boolean }> {
-  const n = Math.min(Math.max(limit, 1), 200);
-  const s = Math.max(skip, 0);
+  const n = Math.trunc(Math.min(Math.max(limit, 1), 200));
+  const s = Math.trunc(Math.max(skip, 0));
   const fmt = ["%H", "%P", "%s", "%an", "%ae", "%cI"].join(LOG_SEP);
   const result = await runGit(cwd, [
     "log",
