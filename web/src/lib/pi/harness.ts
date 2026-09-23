@@ -3049,7 +3049,7 @@ export function sessionToolNames(input: {
         "fetch_content",
         "get_search_content",
         "intercom",
-        ...(platform === "win32" ? COMPUTER_USE_TOOL_NAMES : []),
+        ...(platform === "win32" || platform === "linux" ? COMPUTER_USE_TOOL_NAMES : []),
         ...(input.subagentPermission === "allow" ? ["subagent"] : []),
         "todowrite",
         TOOL_SEARCH_NAME,

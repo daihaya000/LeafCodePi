@@ -2,18 +2,15 @@ import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { constants as fsConstants } from "node:fs";
 import { access } from "node:fs/promises";
-import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const PACKAGE_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
-const SETUP_HELPER_SCRIPT = path.join(PACKAGE_ROOT, "scripts", "setup-helper.mjs");
-const HELPER_SETUP_TIMEOUT_MS = 60_000;
 const COMMAND_TIMEOUT_MS = 15_000;
 
 export const LINUX_HELPER_PROTOCOL_VERSION = 4;
-export const LINUX_HELPER_PATH = process.env.PI_COMPUTER_USE_LINUX_HELPER_PATH
-	|| path.join(os.homedir(), ".pi", "agent", "helpers", "pi-computer-use", "linux-bridge");
+export const LINUX_HELPER_PATH = process.env.LEAFCODE_COMPUTER_USE_LINUX_HELPER_PATH
+	|| path.join(PACKAGE_ROOT, "prebuilt", "linux", process.arch === "arm64" ? "arm64" : "x64", "linux-bridge");
 
 interface Pending<T> {
 	resolve(value: T): void;
@@ -23,37 +20,6 @@ interface Pending<T> {
 
 async function isExecutable(filePath: string): Promise<boolean> {
 	try { await access(filePath, fsConstants.X_OK); return true; } catch { return false; }
-}
-
-async function runProcess(command: string, args: string[], timeoutMs: number, signal?: AbortSignal, env?: NodeJS.ProcessEnv): Promise<void> {
-	if (signal?.aborted) throw new Error("Operation aborted.");
-	await new Promise<void>((resolve, reject) => {
-		const child = spawn(command, args, { stdio: ["ignore", "pipe", "pipe"], env });
-		let stdout = "";
-		let stderr = "";
-		let settled = false;
-		const finish = (error?: Error) => {
-			if (settled) return;
-			settled = true;
-			clearTimeout(timer);
-			signal?.removeEventListener("abort", onAbort);
-			if (error) reject(error); else resolve();
-		};
-		const timer = setTimeout(() => {
-			child.kill("SIGTERM");
-			finish(new Error(`Command timed out after ${timeoutMs}ms: ${command} ${args.join(" ")}`));
-		}, timeoutMs);
-		const onAbort = () => { child.kill("SIGTERM"); finish(new Error("Operation aborted.")); };
-		child.stdout.on("data", (chunk) => { stdout += String(chunk); });
-		child.stderr.on("data", (chunk) => { stderr += String(chunk); });
-		child.on("error", (error) => finish(error));
-		child.on("close", (code) => {
-			if (code === 0) return finish();
-			const output = [stderr.trim(), stdout.trim()].filter(Boolean).join("\n");
-			finish(new Error(`Command failed (${code}): ${command} ${args.join(" ")}\n${output}`.trim()));
-		});
-		signal?.addEventListener("abort", onAbort, { once: true });
-	});
 }
 
 async function waitForShared<T>(promise: Promise<T>, signal?: AbortSignal): Promise<T> {
@@ -77,22 +43,17 @@ async function waitForShared<T>(promise: Promise<T>, signal?: AbortSignal): Prom
 
 export interface LinuxHelperClientOptions {
 	helperPath?: string;
-	setupHelperScript?: string;
 }
 
 export class LinuxHelperClient {
-	private installChecked = false;
-	private installPromise?: Promise<void>;
 	private child?: ChildProcessWithoutNullStreams;
 	private processPromise?: Promise<ChildProcessWithoutNullStreams>;
 	private buffer = "";
 	private pending = new Map<string, Pending<unknown>>();
 	private readonly helperPath: string;
-	private readonly setupHelperScript: string;
 
 	constructor(options: LinuxHelperClientOptions = {}) {
 		this.helperPath = options.helperPath ?? LINUX_HELPER_PATH;
-		this.setupHelperScript = options.setupHelperScript ?? SETUP_HELPER_SCRIPT;
 	}
 
 	dispose(): void {
@@ -117,25 +78,10 @@ export class LinuxHelperClient {
 	}
 
 	async ensureInstalled(signal?: AbortSignal): Promise<void> {
-		if ((await isExecutable(this.helperPath)) && this.installChecked) return;
-		if (!this.installPromise) {
-			const installPromise = (async () => {
-				await runProcess(process.execPath, [this.setupHelperScript, "--platform", "linux", "--runtime"], HELPER_SETUP_TIMEOUT_MS, undefined, {
-					...process.env,
-					ELECTRON_RUN_AS_NODE: "1",
-					BUN_BE_BUN: "1",
-					PI_COMPUTER_USE_LINUX_HELPER_PATH: this.helperPath,
-				});
-				if (!(await isExecutable(this.helperPath))) throw new Error(`Failed to install Linux helper at ${this.helperPath}.`);
-				this.installChecked = true;
-			})();
-			this.installPromise = installPromise;
-			installPromise.then(
-				() => { if (this.installPromise === installPromise) this.installPromise = undefined; },
-				() => { if (this.installPromise === installPromise) this.installPromise = undefined; },
-			);
+		if (signal?.aborted) throw new Error("Operation aborted.");
+		if (!(await isExecutable(this.helperPath))) {
+			throw new Error(`Linux helper unavailable or not executable at ${this.helperPath}; no automatic installation is performed.`);
 		}
-		await waitForShared(this.installPromise, signal);
 	}
 
 	private async process(signal?: AbortSignal): Promise<ChildProcessWithoutNullStreams> {

@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -11,6 +12,7 @@ vi.mock("@earendil-works/pi-coding-agent", () => ({
 
 import { loadComputerUseConfig } from "./src/config";
 import { WINDOWS_HELPER_PATH, windowsHelper } from "./src/platform/windows/helper";
+import { LINUX_HELPER_PATH } from "./src/platform/linux/helper";
 
 const previous = {
   agentDir: process.env.LEAFCODE_CU_TEST_AGENT_DIR,
@@ -57,4 +59,19 @@ it("reads the vendored Windows helper without installing it into the user profil
     await windowsHelper.ensureInstalled();
   }
   assert.ok(existsSync(fileURLToPath(new URL("./scripts/setup-helper.mjs", import.meta.url))));
+});
+
+it("uses the pinned vendored Linux helpers without installing them", () => {
+  const arch = process.arch === "arm64" ? "arm64" : "x64";
+  if (!process.env.LEAFCODE_COMPUTER_USE_LINUX_HELPER_PATH) {
+    assert.equal(LINUX_HELPER_PATH, fileURLToPath(new URL(`./prebuilt/linux/${arch}/linux-bridge`, import.meta.url)));
+  }
+  const pinned = {
+    x64: "671658D3DD237B5DC86BBA0786A3CF48A9173EC24B9AA6775CB597B61B335EB9",
+    arm64: "42E11B2E77FA3F9EC4B858C99CBC28703D086ACC84C2BD19DF2FB3DBCEEAB759",
+  };
+  for (const [name, hash] of Object.entries(pinned)) {
+    const file = fileURLToPath(new URL(`./prebuilt/linux/${name}/linux-bridge`, import.meta.url));
+    assert.equal(createHash("sha256").update(readFileSync(file)).digest("hex").toUpperCase(), hash);
+  }
 });
