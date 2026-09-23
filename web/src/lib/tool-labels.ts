@@ -73,6 +73,14 @@ export function toolLabel(tool: string, input?: Record<string, unknown>): string
   if (t === "watchdog_permission_decision") return "権限確認";
   if (t === "watchdog_warn") return "監視警告";
   if (t === "mcp" || t === "mcpScript") return "MCP";
+  if (t === "find_roots") return "ウィンドウ検索";
+  if (t === "observe_ui") return "画面観察";
+  if (t === "search_ui") return "UI検索";
+  if (t === "expand_ui") return "UI展開";
+  if (t === "inspect_ui") return "UI詳細";
+  if (t === "act_ui") return "画面操作";
+  if (t === "read_text") return "UIテキスト読取";
+  if (t === "wait_for") return "UI待機";
   if (t.includes("subagent") || t === "task") return "サブエージェント";
   if (t === "question") return "確認";
   if (t.includes("bash") || t.includes("shell")) return "コマンド";
@@ -101,7 +109,7 @@ export function toolNameLabel(tool: string): string {
 /** Tools that can mutate workspace, memory, skills, task state, or delegated work. */
 const WRITE_TOOL_NAMES = new Set([
   "write", "edit", "bash", "powershell", "memory_add", "memory_replace", "memory_remove",
-  "skill_manage", "subagent", "todowrite", "update_soul", "mcp",
+  "skill_manage", "subagent", "todowrite", "update_soul", "mcp", "act_ui",
 ]);
 
 export function isWriteTool(tool: string): boolean {

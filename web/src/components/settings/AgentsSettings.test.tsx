@@ -2,7 +2,7 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { toolNameLabel } from "@/lib/tool-labels";
-import { BOT_TOOL_NAMES, type ModelOption } from "@/lib/types";
+import { BOT_TOOL_NAMES, COMPUTER_USE_TOOL_NAMES, type ModelOption } from "@/lib/types";
 import { AgentsSettings } from "./AgentsSettings";
 
 const { getJson, sendJson } = vi.hoisted(() => ({
@@ -241,8 +241,9 @@ describe("AgentsSettings", () => {
 
     const row = write.closest("li");
     expect(row).not.toBeNull();
-    expect(within(row!).getAllByRole("checkbox")).toHaveLength(BOT_TOOL_NAMES.length);
-    for (const tool of BOT_TOOL_NAMES) {
+    const agentTools = [...BOT_TOOL_NAMES, ...COMPUTER_USE_TOOL_NAMES];
+    expect(within(row!).getAllByRole("checkbox")).toHaveLength(agentTools.length);
+    for (const tool of agentTools) {
       expect(within(row!).getByRole("checkbox", { name: `enabled の${toolNameLabel(tool)}` })).toBeTruthy();
     }
   });

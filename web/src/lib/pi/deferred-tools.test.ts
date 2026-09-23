@@ -9,7 +9,7 @@ type SearchTool = {
   }>;
 };
 
-const optionalTools = ["jev_judge", "session_search", "bash", "memory_add", "memory_replace", "memory_remove", "skill_manage", "web_search", "source_check", "fetch_content", "get_search_content", "intercom", ...COMPUTER_USE_TOOL_NAMES];
+const optionalTools = ["jev_judge", "session_search", "bash", "memory_add", "memory_replace", "memory_remove", "skill_manage", "web_search", "source_check", "fetch_content", "get_search_content", "intercom"];
 
 function setup(initial: string[], allowedTools?: readonly string[] | (() => readonly string[])) {
   let active = [...initial];
@@ -64,19 +64,12 @@ describe("deferred tools", () => {
     },
   );
 
-  it("loads only registered desktop tools on demand, never browser commands", async () => {
+  it("keeps desktop tools directly callable instead of deferring them", async () => {
     const state = setup(["read", ...COMPUTER_USE_TOOL_NAMES]);
     state.start();
-    expect(state.active).toEqual(["read", TOOL_SEARCH_NAME]);
-    expect((await state.search.execute("tc", { query: "desktop ui" })).details.added).toEqual([...COMPUTER_USE_TOOL_NAMES]);
+    expect(state.active).toEqual(["read", ...COMPUTER_USE_TOOL_NAMES, TOOL_SEARCH_NAME]);
+    expect(needsToolSearch([...COMPUTER_USE_TOOL_NAMES])).toBe(false);
     expect((await state.search.execute("tc", { query: "launch_browser" })).details.matches).toEqual([]);
-  });
-
-  it("keeps Bot desktop tools disabled without an explicit allowlist entry", async () => {
-    const state = setup(["read", ...COMPUTER_USE_TOOL_NAMES], ["read", TOOL_SEARCH_NAME]);
-    state.start();
-    expect(state.active).toEqual(["read", TOOL_SEARCH_NAME]);
-    expect((await state.search.execute("tc", { query: "desktop ui" })).details.matches).toEqual([]);
   });
 
   it("matches Japanese memory and skill requests", async () => {

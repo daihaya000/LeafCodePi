@@ -19,7 +19,7 @@ describe("sessionToolNames", () => {
     assert.ok(windows.includes("jev_judge"));
     for (const tool of COMPUTER_USE_TOOL_NAMES) {
       assert.ok(windows.includes(tool));
-      assert.deepEqual(sessionToolNames({ agentTools: ["read", tool] }), ["read", tool, "tool_search"]);
+      assert.deepEqual(sessionToolNames({ agentTools: ["read", tool] }), ["read", tool]);
     }
     for (const tool of ["web_search", "source_check", "fetch_content", "get_search_content", "intercom"]) {
       assert.ok(windows.includes(tool));

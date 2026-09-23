@@ -32,6 +32,8 @@ describe("toolLabel", () => {
     expect(toolLabel("subagent_wait")).toBe("サブエージェント待機");
     expect(toolLabel("structured_output")).toBe("構造化出力");
     expect(toolLabel("watchdog_warn")).toBe("監視警告");
+    expect(toolLabel("act_ui")).toBe("画面操作");
+    expect(toolLabel("read_text")).toBe("UIテキスト読取");
     expect(toolLabel("mcp")).toBe("MCP");
     expect(toolNameLabel("mcp")).toBe("MCP");
   });

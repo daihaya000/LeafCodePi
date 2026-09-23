@@ -22,7 +22,7 @@ import { ModelSelect } from "@/components/ModelSelect";
 import { Badge, Button, GhostSelect, Switch } from "@/components/ui";
 import { getJson, sendJson } from "@/lib/client";
 import { ALL_THINKING_LEVELS, THINKING_LEVEL_LABELS, isThinkingLevel } from "@/lib/thinking-levels";
-import { BOT_TOOL_NAMES, type ModelOption, type ThinkingLevel } from "@/lib/types";
+import { BOT_TOOL_NAMES, COMPUTER_USE_TOOL_NAMES, type ModelOption, type ThinkingLevel } from "@/lib/types";
 
 /** `false` = pi-subagents の明示的な thinking 無効。undefined = 既定に従う。 */
 type AgentThinking = ThinkingLevel | false;
@@ -68,7 +68,7 @@ type EditorState =
   | { mode: "edit"; name: string }
   | { mode: "closed" };
 
-const AGENT_TOOL_NAMES = BOT_TOOL_NAMES;
+const AGENT_TOOL_NAMES = [...BOT_TOOL_NAMES, ...COMPUTER_USE_TOOL_NAMES];
 const AGENT_DEFAULT_TOOL_NAMES = [
   "read",
   "write",
