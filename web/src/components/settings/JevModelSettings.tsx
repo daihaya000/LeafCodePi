@@ -136,7 +136,7 @@ export function JevModelSettings({ refreshToken = 0 }: { refreshToken?: number }
         <fieldset disabled={!saved || busy} className="space-y-4">
           <ul className="space-y-3">
             {visibleRows.map(({ row, models: matchingModels, open }, index) => <li key={row.key} className="space-y-2">
-              <div className="grid min-h-20 grid-cols-[auto_minmax(0,1fr)] items-center gap-3 rounded-xl border border-border bg-surface px-4 py-3">
+              <div className="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-3 rounded-xl border border-border bg-surface px-4 py-2">
                 <button type="button" aria-expanded={open} aria-controls={`jev-models-${index}`} aria-label={`${row.name} のモデルを${open ? "折りたたむ" : "展開"}`} disabled={Boolean(searchTerm)} onClick={() => setExpanded((current) => {
                   const next = new Set(current);
                   if (next.has(row.key)) next.delete(row.key); else next.add(row.key);
@@ -158,7 +158,7 @@ export function JevModelSettings({ refreshToken = 0 }: { refreshToken?: number }
                   const checked = settings.provider === "typesafe" ? model.providerId === "typesafe" && model.modelId === selectedKey : key === selectedKey;
                   const active = saved?.settings.provider === "typesafe" ? model.providerId === "typesafe" && model.modelId === savedKey : key === savedKey;
                   const modelEnabled = model.providerEnabled !== false;
-                  return <li key={key} className={`ml-4 rounded-xl border border-border border-l-2 border-l-border bg-surface px-4 py-3 ${modelEnabled ? "" : "opacity-50"}`}>
+                  return <li key={key} className={`ml-4 rounded-xl border border-border border-l-2 border-l-border bg-surface px-4 py-2 ${modelEnabled ? "" : "opacity-50"}`}>
                     <label className={`flex min-h-11 items-center gap-3 ${modelEnabled ? "cursor-pointer" : "cursor-not-allowed"}`}>
                       <span aria-hidden="true" className="w-4 shrink-0" />
                       <span className="min-w-0 flex-1">
