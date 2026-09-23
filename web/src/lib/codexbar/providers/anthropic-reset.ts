@@ -1,8 +1,8 @@
 /**
  * Claude のリセット権（claude.ai「Reset for free」, program=cedar_ember）。
  *
- * GET  https://claude.ai/api/organizations/{org}/usage?cedar_ember=1&skip_spend=1 → body.cedar_ember
- * POST https://claude.ai/api/organizations/{org}/reset_rate_limits
+ * GET  https://api.anthropic.com/api/organizations/{org}/usage?cedar_ember=1&skip_spend=1 → body.cedar_ember
+ * POST .../api/organizations/{org}/reset_rate_limits
  *      { program: "cedar_ember", grant_id, request_id }
  *
  * OAuth（Claude Code）経由の /api/oauth/usage は cedar_ember を
@@ -18,7 +18,13 @@ import {
 import { ProviderError } from "@/lib/codexbar/types";
 import { asRecord, fetchText, flexibleNumber } from "@/lib/codexbar/utils";
 
-const ORIGIN = "https://claude.ai";
+/**
+ * claude.ai は Node からのリクエストを Cloudflare チャレンジ（403）で弾く。
+ * 同じ API と cookie 認証が api.anthropic.com でも通るため、そちらへ送る。
+ * cookie の選択は claude.ai ドメイン基準（COOKIE_ORIGIN）。
+ */
+const API_ORIGIN = "https://api.anthropic.com";
+const COOKIE_ORIGIN = "https://claude.ai";
 const PROGRAM = "cedar_ember";
 const USER_AGENT =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0 Safari/537.36";
@@ -124,7 +130,7 @@ export function parseClaudeResetGrants(block: unknown): ClaudeResetGrantList {
 
 /** claude.ai 向け cookie が sessionKey を含むか。 */
 export function claudeWebCookieHeader(session: BrowserCookieSession): string | null {
-  const header = createCookieHeaderForUrl(session, `${ORIGIN}/api/organizations`);
+  const header = createCookieHeaderForUrl(session, `${COOKIE_ORIGIN}/api/organizations`);
   return header && /(?:^|; )sessionKey=/.test(header) ? header : null;
 }
 
@@ -158,8 +164,8 @@ function headers(cookie: string, json: boolean): Record<string, string> {
     Accept: "application/json",
     Cookie: cookie,
     "User-Agent": USER_AGENT,
-    Origin: ORIGIN,
-    Referer: `${ORIGIN}/settings/usage`,
+    Origin: COOKIE_ORIGIN,
+    Referer: `${COOKIE_ORIGIN}/settings/usage`,
     ...(json ? { "Content-Type": "application/json" } : {}),
   };
 }
@@ -185,7 +191,7 @@ export async function listClaudeResetGrants(
   signal?: AbortSignal,
 ): Promise<ClaudeResetGrantList> {
   const { cookie, orgId } = requireWebAuth(session);
-  const url = `${ORIGIN}/api/organizations/${encodeURIComponent(orgId)}/usage?cedar_ember=1&skip_spend=1`;
+  const url = `${API_ORIGIN}/api/organizations/${encodeURIComponent(orgId)}/usage?cedar_ember=1&skip_spend=1`;
   const { status, body, ok } = await fetchText(url, { headers: headers(cookie, false), signal });
   throwIfUnauthorized(status, body);
   if (!ok) throw new ProviderError(`Claude のリセット権の取得に失敗しました（${status}）。`);
@@ -215,7 +221,7 @@ export async function consumeClaudeResetGrant(
 ): Promise<ClaudeResetConsumeResult> {
   const { cookie, orgId } = requireWebAuth(session);
   const { status, body, ok } = await fetchText(
-    `${ORIGIN}/api/organizations/${encodeURIComponent(orgId)}/reset_rate_limits`,
+    `${API_ORIGIN}/api/organizations/${encodeURIComponent(orgId)}/reset_rate_limits`,
     {
       method: "POST",
       headers: headers(cookie, true),
