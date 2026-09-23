@@ -5,7 +5,7 @@ import { beforeEach, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({ spawn: vi.fn() }));
 vi.mock("node:child_process", () => ({ spawn: mocks.spawn }));
 
-import { gitBranchRefs, gitCommitFileDiff, gitDiff, gitLogGraph, runGit } from "./git";
+import { gitBranchRefs, gitCommitFileDiff, gitCommitFiles, gitDiff, gitLogGraph, runGit } from "./git";
 
 beforeEach(() => mocks.spawn.mockReset());
 
@@ -81,6 +81,27 @@ it("rejects branch refs when for-each-ref fails instead of returning an empty li
   const gitCalls = mocks.spawn.mock.calls.filter(([command]) => command === "git");
   expect(gitCalls).toHaveLength(2);
   expect(gitCalls[1][1]).toContain("for-each-ref");
+});
+
+it("parses NUL-delimited commit filenames without quoting or newline loss", async () => {
+  mocks.spawn.mockImplementation(() => {
+    const child = Object.assign(new EventEmitter(), {
+      stdout: new PassThrough(),
+      stderr: new PassThrough(),
+    });
+    queueMicrotask(() => {
+      child.stdout.end("M\0src/name\twith-tab.txt\0A\0src/name\nwith-newline.txt\0");
+      child.emit("close", 0);
+    });
+    return child;
+  });
+  expect(await gitCommitFiles(".", "abcdef0")).toEqual([
+    { status: "M", path: "src/name\twith-tab.txt" },
+    { status: "A", path: "src/name\nwith-newline.txt" },
+  ]);
+  const gitCalls = mocks.spawn.mock.calls.filter(([command]) => command === "git");
+  expect(gitCalls).toHaveLength(1);
+  expect(gitCalls[0][1]).toContain("-z");
 });
 
 it.each(["src/file[1].txt", "src/version..old.txt"])(

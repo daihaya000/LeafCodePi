@@ -225,6 +225,7 @@ export async function gitCommitFiles(
   const result = await runGit(cwd, [
     "show",
     "--name-status",
+    "-z",
     "--format=",
     "--no-renames",
     hash,
@@ -233,13 +234,13 @@ export async function gitCommitFiles(
     throw new Error(result.stderr.trim() || "git show failed");
   }
   const files: GraphFileChange[] = [];
-  for (const line of result.stdout.split(/\r?\n/)) {
-    if (!line.trim()) continue;
-    const m = /^([MADCRTUX])\t(.+)$/.exec(line);
-    if (!m) continue;
+  const entries = result.stdout.split("\0");
+  for (let i = 0; i + 1 < entries.length; i += 2) {
+    const status = entries[i].trim();
+    if (!/^[MADCRTUX]$/.test(status) || !entries[i + 1]) continue;
     files.push({
-      status: m[1] as GraphFileChange["status"],
-      path: m[2].replace(/\\/g, "/"),
+      status: status as GraphFileChange["status"],
+      path: entries[i + 1].replace(/\\/g, "/"),
     });
   }
   return files;
