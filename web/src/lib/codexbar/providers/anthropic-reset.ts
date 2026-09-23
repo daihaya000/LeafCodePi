@@ -164,7 +164,14 @@ function headers(cookie: string, json: boolean): Record<string, string> {
   };
 }
 
-function throwIfUnauthorized(status: number): void {
+function throwIfUnauthorized(status: number, body: string): void {
+  // Cloudflare のボット判定は HTML の 403 を返す。セッション切れと区別する。
+  if (status === 403 && /^\s*</.test(body)) {
+    throw Object.assign(
+      new ProviderError("claude.ai がボット対策でリクエストを拒否しました（403）。cf_clearance を含む cookie を再登録してください。"),
+      { status: 503 },
+    );
+  }
   if (status === 401 || status === 403) {
     throw Object.assign(
       new ProviderError("claude.ai のセッションが無効か期限切れです。cookie を再登録してください。"),
@@ -180,7 +187,7 @@ export async function listClaudeResetGrants(
   const { cookie, orgId } = requireWebAuth(session);
   const url = `${ORIGIN}/api/organizations/${encodeURIComponent(orgId)}/usage?cedar_ember=1&skip_spend=1`;
   const { status, body, ok } = await fetchText(url, { headers: headers(cookie, false), signal });
-  throwIfUnauthorized(status);
+  throwIfUnauthorized(status, body);
   if (!ok) throw new ProviderError(`Claude のリセット権の取得に失敗しました（${status}）。`);
   return parseClaudeResetGrants(asRecord(JSON.parse(body))?.cedar_ember);
 }
@@ -220,7 +227,7 @@ export async function consumeClaudeResetGrant(
       signal: options.signal,
     },
   );
-  throwIfUnauthorized(status);
+  throwIfUnauthorized(status, body);
   if (status === 429) return { ok: false, code: "rate_limited", grantId: null, resetsLeft: null };
   if (!ok) throw new ProviderError(`Claude のリセット権の使用に失敗しました（${status}）。`);
   return parseClaudeResetConsumeJson(body);

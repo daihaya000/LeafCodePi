@@ -678,7 +678,10 @@ export function createAnthropicProvider(scope: UsageScope): IUsageProvider {
             : await tryRefreshTokens(creds, signal)) ?? creds;
       }
       // claude.ai cookie があればリセット権の残数を付ける（失敗しても使用量表示は続行）。
+      // アカウント別 cookie ファイルのみ。既定スコープでは定期取得のたびに
+      // Chromium（同期 PowerShell/DPAPI）を読みに行かない。
       const withResetCredits = async (snap: UsageSnapshot): Promise<UsageSnapshot> => {
+        if (!strictAccount) return snap;
         const session = loadConsoleSession();
         if (!session || !claudeWebCookieHeader(session)) return snap;
         try {

@@ -182,7 +182,7 @@ export async function POST(req: NextRequest) {
       });
       if (result.ok) {
         invalidateCachedUsage();
-        clearProviderCache(accountId ? `account:${accountId}:anthropic` : "default:anthropic");
+        if (accountId) clearProviderCache(`account:${accountId}:anthropic`);
         clearProviderCache("default:anthropic");
       }
       return NextResponse.json({
