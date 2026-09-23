@@ -255,7 +255,7 @@ export async function gitCommitFileDiff(
   const normalized = filePath.replace(/\\/g, "/");
   if (
     normalized.startsWith("/") ||
-    normalized.includes("..") ||
+    normalized.split("/").includes("..") ||
     normalized.startsWith("-") ||
     normalized.startsWith(":") ||
     normalized.includes("*") ||

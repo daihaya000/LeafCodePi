@@ -83,17 +83,26 @@ it("rejects branch refs when for-each-ref fails instead of returning an empty li
   expect(gitCalls[1][1]).toContain("for-each-ref");
 });
 
-it("uses a literal pathspec for filenames containing glob characters", async () => {
-  mocks.spawn.mockImplementation(() => {
-    const child = Object.assign(new EventEmitter(), {
-      stdout: new PassThrough(),
-      stderr: new PassThrough(),
+it.each(["src/file[1].txt", "src/version..old.txt"])(
+  "uses a literal pathspec for %s",
+  async (filePath) => {
+    mocks.spawn.mockImplementation(() => {
+      const child = Object.assign(new EventEmitter(), {
+        stdout: new PassThrough(),
+        stderr: new PassThrough(),
+      });
+      queueMicrotask(() => child.emit("close", 0));
+      return child;
     });
-    queueMicrotask(() => child.emit("close", 0));
-    return child;
-  });
-  await gitCommitFileDiff(".", "abcdef0", "src/file[1].txt");
-  const gitCalls = mocks.spawn.mock.calls.filter(([command]) => command === "git");
-  expect(gitCalls).toHaveLength(1);
-  expect(gitCalls[0][1].slice(-2)).toEqual(["--", ":(literal)src/file[1].txt"]);
+    await gitCommitFileDiff(".", "abcdef0", filePath);
+    const gitCalls = mocks.spawn.mock.calls.filter(([command]) => command === "git");
+    expect(gitCalls).toHaveLength(1);
+    expect(gitCalls[0][1].slice(-2)).toEqual(["--", `:(literal)${filePath}`]);
+  },
+);
+
+it("rejects parent directory traversal in a commit file path", async () => {
+  await expect(gitCommitFileDiff(".", "abcdef0", "src/../secret.txt"))
+    .rejects.toThrow("invalid file path");
+  expect(mocks.spawn.mock.calls.filter(([command]) => command === "git")).toHaveLength(0);
 });
