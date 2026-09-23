@@ -52,9 +52,11 @@ export function nextRestartProbe(
     return { state: { ...prev, failures, offline }, reload: false };
   }
   // startedAt を返さないサーバ（旧版）は判別できないので従来どおりリロードする。
-  const restarted =
-    prev.startedAt === null || sample.startedAt === null || sample.startedAt !== prev.startedAt;
-  if (prev.offline && restarted) {
+  const changedProcess =
+    prev.startedAt !== null && sample.startedAt !== null && sample.startedAt !== prev.startedAt;
+  const restarted = prev.startedAt === null || sample.startedAt === null || changedProcess;
+  // 短い再起動はプローブ間に完了し、オフラインを検知できないことがある。
+  if (changedProcess || (prev.offline && restarted)) {
     return {
       state: { ...prev, connected: true, failures: 0, startedAt: sample.startedAt },
       reload: true,

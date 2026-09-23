@@ -49,7 +49,13 @@ describe("nextRestartProbe", () => {
     assert.equal(state.failures, 0);
   });
 
-  it("reloads when a different process answers", () => {
+  it("reloads when a restart completes between health probes", () => {
+    const { state, reloads } = run([100, 200]);
+    assert.equal(reloads, 1);
+    assert.equal(state.startedAt, 200);
+  });
+
+  it("reloads when a different process answers after an offline streak", () => {
     const { reloads } = run([100, ...Array(OFFLINE_STREAK).fill(null), 200]);
     assert.equal(reloads, 1);
   });
