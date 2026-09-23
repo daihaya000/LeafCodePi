@@ -131,9 +131,9 @@ export function commitPathError(p: string): string | null {
 export async function gitDiff(cwd: string): Promise<string> {
   const staged = await runGit(cwd, ["diff", "--cached", "--no-color", "--no-ext-diff", "-M"]);
   const unstaged = await runGit(cwd, ["diff", "--no-color", "--no-ext-diff", "-M"]);
-  if (staged.code !== 0 && unstaged.code !== 0) {
+  if (staged.code !== 0 || unstaged.code !== 0) {
     throw new Error(
-      staged.stderr.trim() || unstaged.stderr.trim() || "git diff failed",
+      (staged.code !== 0 ? staged.stderr : unstaged.stderr).trim() || "git diff failed",
     );
   }
   const parts = [staged.stdout.trim(), unstaged.stdout.trim()].filter(Boolean);

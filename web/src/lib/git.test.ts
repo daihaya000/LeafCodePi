@@ -1,11 +1,13 @@
 import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
-import { expect, it, vi } from "vitest";
+import { beforeEach, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({ spawn: vi.fn() }));
 vi.mock("node:child_process", () => ({ spawn: mocks.spawn }));
 
-import { runGit } from "./git";
+import { gitDiff, runGit } from "./git";
+
+beforeEach(() => mocks.spawn.mockReset());
 
 it("decodes UTF-8 across stdout and stderr chunk boundaries", async () => {
   const child = Object.assign(new EventEmitter(), {
@@ -22,4 +24,25 @@ it("decodes UTF-8 across stdout and stderr chunk boundaries", async () => {
   child.stderr.end();
   child.emit("close", 0);
   expect(await result).toEqual({ code: 0, stdout: "変更😀\n", stderr: "変更😀\n" });
+});
+
+it.each(["staged", "unstaged"])("rejects a partial diff when %s git diff fails", async (failed) => {
+  mocks.spawn.mockImplementation((_command: string, args: string[] = []) => {
+    const child = Object.assign(new EventEmitter(), {
+      stdout: new PassThrough(),
+      stderr: new PassThrough(),
+    });
+    const isStaged = args.includes("--cached");
+    const failure = (isStaged ? "staged" : "unstaged") === failed;
+    queueMicrotask(() => {
+      child.stdout.end("diff output");
+      child.stderr.end(failure ? `${failed} failed` : "");
+      child.emit("close", failure ? 1 : 0);
+    });
+    return child;
+  });
+  await expect(gitDiff(".")).rejects.toThrow(`${failed} failed`);
+  const gitCalls = mocks.spawn.mock.calls.filter(([command]) => command === "git");
+  expect(gitCalls).toHaveLength(2);
+  expect(gitCalls[0][1]).toContain("--cached");
 });
