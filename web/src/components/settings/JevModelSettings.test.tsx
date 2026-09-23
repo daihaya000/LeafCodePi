@@ -6,7 +6,8 @@ import { JevModelSettings } from "./JevModelSettings";
 
 const mocks = vi.hoisted(() => ({ get: vi.fn(), send: vi.fn() }));
 vi.mock("@/lib/client", () => ({ getJson: mocks.get, sendJson: mocks.send }));
-const dto = { settings: { ...DEFAULT_JEV_MODEL_SETTINGS }, hasApiKey: { typesafe: true, compatible: false } };
+const candidate = { providerId: "openrouter", providerName: "OpenRouter", accountId: "account-1", accountLabel: "Main", modelId: "typesafe/jev-1.13", name: "Jev 1.13", baseUrl: "https://openrouter.ai/api/v1", source: "catalog" };
+const dto = { settings: { ...DEFAULT_JEV_MODEL_SETTINGS }, hasApiKey: { typesafe: true, compatible: false }, models: [candidate] };
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -20,22 +21,38 @@ async function ready() {
   await waitFor(() => expect(screen.queryByText("読み込み中…")).toBeNull());
 }
 
+function expand(provider: string) {
+  fireEvent.click(screen.getByRole("button", { name: `${provider} のモデルを展開` }));
+}
+
 describe("JevModelSettings", () => {
-  it("shows a dedicated judgment model, not a Composer model", async () => {
+  it("matches the provider/model catalog layout and keeps Composer separate", async () => {
     await ready();
     expect(screen.getByRole("heading", { name: "Jevモデル" })).toBeTruthy();
     expect(screen.getByText(/Composerには表示しません/)).toBeTruthy();
-    expect((screen.getByLabelText("JevモデルID") as HTMLInputElement).value).toBe("jev-latest");
-    expect((screen.getByLabelText("Jev APIキー") as HTMLInputElement).value).toBe("");
-    expect(screen.queryByLabelText(/APIベースURL/)).toBeNull();
+    expect(screen.getByRole("searchbox", { name: "Jevプロバイダー・モデルを検索" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "TypeSafe のモデルを展開" }).getAttribute("aria-expanded")).toBe("false");
+    expect(screen.getByRole("button", { name: "OpenRouter のモデルを展開" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Jev互換API（手動） のモデルを展開" })).toBeTruthy();
+    expect(screen.getAllByText("使用中")).toHaveLength(1);
     expect(mocks.send).not.toHaveBeenCalled();
   });
 
-  it("saves a compatible endpoint and model only on explicit save and clears the key field", async () => {
+  it("searches provider and model names and expands matching rows", async () => {
     await ready();
-    fireEvent.change(screen.getByLabelText("Jevプロバイダー"), { target: { value: "compatible" } });
+    fireEvent.change(screen.getByRole("searchbox"), { target: { value: "jev-1.13" } });
+    expect(screen.getByRole("radio", { name: "OpenRouter · Main / Jev 1.13 を選択" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "TypeSafe のモデルを展開" })).toBeNull();
+    fireEvent.change(screen.getByRole("searchbox"), { target: { value: "not-found" } });
+    expect(screen.getByText("検索条件に一致する項目はありません。")).toBeTruthy();
+  });
+
+  it("saves the manual endpoint only on explicit save and clears the key field", async () => {
+    await ready();
+    expand("Jev互換API（手動）");
+    fireEvent.click(screen.getByRole("radio", { name: "Jev互換API（手動） / jev-latest を選択" }));
+    fireEvent.change(screen.getByLabelText("モデルID"), { target: { value: "my-judge" } });
     fireEvent.change(screen.getByLabelText(/APIベースURL/), { target: { value: "http://localhost:8080/v1" } });
-    fireEvent.change(screen.getByLabelText("JevモデルID"), { target: { value: "my-judge" } });
     fireEvent.change(screen.getByLabelText(/Jev APIキー/), { target: { value: "test-only-key" } });
     expect(mocks.send).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "Jevモデルを保存" }));
@@ -47,28 +64,26 @@ describe("JevModelSettings", () => {
     expect(screen.getByText(/次のJev判定から反映/)).toBeTruthy();
   });
 
-  it("retains custom connection fields when switching back and does not transfer the draft key", async () => {
+  it("keeps the manual draft but does not transfer its key when selecting TypeSafe", async () => {
     await ready();
-    fireEvent.change(screen.getByLabelText("Jevプロバイダー"), { target: { value: "compatible" } });
+    expand("Jev互換API（手動）");
+    fireEvent.click(screen.getByRole("radio", { name: /Jev互換API（手動）.*選択/ }));
     fireEvent.change(screen.getByLabelText(/APIベースURL/), { target: { value: "http://localhost:8080/v1" } });
     fireEvent.change(screen.getByLabelText(/Jev APIキー/), { target: { value: "test-only-key" } });
-    fireEvent.change(screen.getByLabelText("Jevプロバイダー"), { target: { value: "typesafe" } });
-    expect((screen.getByLabelText(/Jev APIキー/) as HTMLInputElement).value).toBe("");
+    expand("TypeSafe");
+    fireEvent.click(screen.getByRole("radio", { name: "TypeSafe / Jev を選択" }));
+    expect((screen.getAllByLabelText(/Jev APIキー/)[0] as HTMLInputElement).value).toBe("");
     fireEvent.click(screen.getByRole("button", { name: "Jevモデルを保存" }));
     await waitFor(() => expect(mocks.send).toHaveBeenCalledWith("/api/jev-model", {
       settings: { ...DEFAULT_JEV_MODEL_SETTINGS, compatibleBaseUrl: "http://localhost:8080/v1" },
     }, "PUT"));
   });
 
-  it("lists detected providers without switching automatically; selected account reuses its login", async () => {
-    const candidate = { providerId: "openrouter", providerName: "OpenRouter", accountId: "account-1", accountLabel: "Main", modelId: "typesafe/jev-1.13", name: "Jev 1.13", baseUrl: "https://openrouter.ai/api/v1", source: "catalog" };
-    mocks.get.mockResolvedValue({ ...dto, models: [candidate] });
+  it("selects an account model without asking for another key", async () => {
     await ready();
-    expect(screen.getByRole("option", { name: "OpenRouter · Main / Jev 1.13" })).toBeTruthy();
-    expect((screen.getByLabelText("Jevプロバイダー") as HTMLSelectElement).value).toBe("typesafe");
-    expect(mocks.send).not.toHaveBeenCalled();
-    fireEvent.change(screen.getByLabelText("Jevプロバイダー"), { target: { value: 'registered:["account-1","openrouter","typesafe/jev-1.13"]' } });
-    expect(screen.getByText("接続先: https://openrouter.ai/api/v1/systemone")).toBeTruthy();
+    expand("OpenRouter");
+    fireEvent.click(screen.getByRole("radio", { name: "OpenRouter · Main / Jev 1.13 を選択" }));
+    expect(screen.getByText(/既存アカウント認証を使用/)).toBeTruthy();
     expect(screen.queryByLabelText(/Jev APIキー/)).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Jevモデルを保存" }));
     await waitFor(() => expect(mocks.send).toHaveBeenCalledWith("/api/jev-model", {
@@ -76,20 +91,32 @@ describe("JevModelSettings", () => {
     }, "PUT"));
   });
 
-  it("refreshes discovered models without overwriting an unsaved selection", async () => {
-    const model = { providerId: "commandcode", providerName: "Command Code", modelId: "typesafe/jev", name: "Jev", baseUrl: "https://api.commandcode.ai/provider/v1", source: "documented" };
-    mocks.get.mockResolvedValueOnce(dto).mockResolvedValueOnce({ ...dto, models: [model] });
+  it("refreshes provider candidates without overwriting a draft selection", async () => {
+    const documented = { providerId: "commandcode", providerName: "Command Code", modelId: "typesafe/jev", name: "Jev", baseUrl: "https://api.commandcode.ai/provider/v1", source: "documented" };
+    mocks.get.mockResolvedValueOnce(dto).mockResolvedValueOnce({ ...dto, models: [candidate, documented] });
     await ready();
-    fireEvent.change(screen.getByLabelText("Jevプロバイダー"), { target: { value: "compatible" } });
+    expand("Jev互換API（手動）");
+    fireEvent.click(screen.getByRole("radio", { name: /Jev互換API（手動）.*選択/ }));
     fireEvent.click(screen.getByRole("button", { name: "再読み込み" }));
-    await waitFor(() => expect(screen.getByRole("option", { name: /Command Code \/ Jev/ })).toBeTruthy());
-    expect((screen.getByLabelText("Jevプロバイダー") as HTMLSelectElement).value).toBe("compatible");
+    await waitFor(() => expect(screen.getByRole("button", { name: "Command Code のモデルを展開" })).toBeTruthy());
+    expect((screen.getByRole("radio", { name: /Jev互換API（手動）.*選択/ }) as HTMLInputElement).checked).toBe(true);
     expect(mocks.get).toHaveBeenCalledWith("/api/jev-model", { refresh: "1" });
     expect(mocks.send).not.toHaveBeenCalled();
   });
 
-  it("sends null only when deleting a saved credential", async () => {
+  it("does not save an unavailable selected model until a valid one is chosen", async () => {
+    mocks.get.mockResolvedValue({ ...dto, models: [], settings: { ...DEFAULT_JEV_MODEL_SETTINGS, provider: "registered", registeredModel: { providerId: "openrouter", modelId: "typesafe/jev-1.13", accountId: "account-1" } } });
     await ready();
+    expect(screen.getByRole("alert").textContent).toContain("未検出");
+    expect((screen.getByRole("button", { name: "Jevモデルを保存" }) as HTMLButtonElement).disabled).toBe(true);
+    expand("TypeSafe");
+    fireEvent.click(screen.getByRole("radio", { name: "TypeSafe / Jev を選択" }));
+    expect((screen.getByRole("button", { name: "Jevモデルを保存" }) as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it("sends null only when deleting the selected credential", async () => {
+    await ready();
+    expand("TypeSafe");
     fireEvent.click(screen.getByLabelText("選択した接続先の保存済みAPIキーを削除"));
     fireEvent.click(screen.getByRole("button", { name: "Jevモデルを保存" }));
     await waitFor(() => expect(mocks.send).toHaveBeenCalledWith("/api/jev-model", { settings: DEFAULT_JEV_MODEL_SETTINGS, apiKey: null }, "PUT"));
