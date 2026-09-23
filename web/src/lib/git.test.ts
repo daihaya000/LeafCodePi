@@ -47,6 +47,22 @@ it.each(["staged", "unstaged"])("rejects a partial diff when %s git diff fails",
   expect(gitCalls[0][1]).toContain("--cached");
 });
 
+it("reports the second failure when the first failed diff has no stderr", async () => {
+  mocks.spawn.mockImplementation((_command: string, args: string[] = []) => {
+    const child = Object.assign(new EventEmitter(), {
+      stdout: new PassThrough(),
+      stderr: new PassThrough(),
+    });
+    queueMicrotask(() => {
+      child.stderr.end(args.includes("--cached") ? "" : "unstaged failure details");
+      child.emit("close", 1);
+    });
+    return child;
+  });
+  await expect(gitDiff(".")).rejects.toThrow("unstaged failure details");
+  expect(mocks.spawn.mock.calls.filter(([command]) => command === "git")).toHaveLength(2);
+});
+
 it("uses integer pagination arguments for fractional graph requests", async () => {
   mocks.spawn.mockImplementation(() => {
     const child = Object.assign(new EventEmitter(), {

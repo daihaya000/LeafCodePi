@@ -133,7 +133,9 @@ export async function gitDiff(cwd: string): Promise<string> {
   const unstaged = await runGit(cwd, ["diff", "--no-color", "--no-ext-diff", "-M"]);
   if (staged.code !== 0 || unstaged.code !== 0) {
     throw new Error(
-      (staged.code !== 0 ? staged.stderr : unstaged.stderr).trim() || "git diff failed",
+      (staged.code !== 0 ? staged.stderr.trim() : "") ||
+        (unstaged.code !== 0 ? unstaged.stderr.trim() : "") ||
+        "git diff failed",
     );
   }
   const parts = [staged.stdout.trim(), unstaged.stdout.trim()].filter(Boolean);
