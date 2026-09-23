@@ -599,6 +599,12 @@ describe("system safety classifier", () => {
       false,
     );
     assert.equal(isLeafCodePiStopCommand("Get-Process | ? {$_.Id -ne $PID}; Stop-Process -Id $PID"), true);
+    // Variables that merely start with PID are not the self pid.
+    assert.equal(isLeafCodePiStopCommand("Stop-Process -Id $PIDX"), false);
+    assert.equal(isLeafCodePiStopCommand("Stop-Process -Id $PID_list[0]"), false);
+    assert.equal(isLeafCodePiStopCommand("Stop-Process -Id $PID"), true);
+    assert.equal(isLeafCodePiStopCommand("kill -9 ${PPID}"), true);
+    assert.equal(isLeafCodePiStopCommand("taskkill /F /PID $env:LEAFCODE_PI_PID"), true);
     assert.equal(isLeafCodePiStopCommand("Get-Process node | Stop-Process -Force"), true);
     assert.equal(isLeafCodePiStopCommand("taskkill /IM node.exe /F"), true);
     assert.equal(isLeafCodePiStopCommand("Stop-Process -Name nodeCheck -Force"), false);

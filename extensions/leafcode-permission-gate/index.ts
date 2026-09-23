@@ -54,7 +54,7 @@ const LEAFCODE_PI_STOP_LABEL = "LeafCodePi process termination";
 const LEAFCODE_PI_STOP_REASON = "LeafCodePi process termination is prohibited.";
 const PROCESS_TERMINATION_COMMAND_PATTERN = /\b(?:taskkill(?:\.exe)?|Stop-Process|Stop-Service|pkill|killall|kill)\b|\bwmic(?:\.exe)?\b[^\r\n]*\b(?:call\s+terminate|delete)\b|\b(?:sc(?:\.exe)?|systemctl|service|launchctl|rc-service)\b[^\r\n]*(?:\b(?:stop|terminate|kill|bootout|unload|delete)\b)/i;
 const LEAFCODE_PI_PROCESS_TARGET_PATTERN = /\b(?:leafcodepi|leafcode[-_ ]?pi(?:[-_ ]?(?:host|server))?)(?:\.exe|\.service)?\b|\bhost[\\/]src[\\/]index\.js\b/i;
-const SELF_PID_REFERENCE_PATTERN = /(?:%(?:LEAFCODE_PI_(?:PID|PROCESS_ID)|PID|PPID)%|\$(?:\$|(?:\{)?(?:env:)?(?:LEAFCODE_PI_(?:PID|PROCESS_ID)|PID|PPID|BASHPID)\}?)|\bprocess\.(?:pid|ppid)\b|\b(?:os\.)?getpid\s*\(\s*\))/i;
+const SELF_PID_REFERENCE_PATTERN = /(?:%(?:LEAFCODE_PI_(?:PID|PROCESS_ID)|PID|PPID)%|\$(?:\$|(?:\{)?(?:env:)?(?:LEAFCODE_PI_(?:PID|PROCESS_ID)|PID|PPID|BASHPID)\}?(?![\w:]))|\bprocess\.(?:pid|ppid)\b|\b(?:os\.)?getpid\s*\(\s*\))/i;
 // Child `process.exit()` does not stop LeafCodePi; only kill/getpid self-targets do.
 // `$_.Id -ne $PID` / `$pid != $$` excludes self; it must not count as targeting self.
 const SELF_PID_EXCLUSION_PATTERN = /(?:-ne|!=)\s*(?:\$\$|\$(?:\{)?(?:env:)?(?:LEAFCODE_PI_(?:PID|PROCESS_ID)|PID|PPID|BASHPID)\}?)(?![\w}])|(?:\$\$|\$(?:\{)?(?:env:)?(?:LEAFCODE_PI_(?:PID|PROCESS_ID)|PID|PPID|BASHPID)\}?)\s*(?:-ne|!=)/gi;
