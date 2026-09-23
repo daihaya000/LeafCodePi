@@ -49,13 +49,16 @@ export async function GET(req: NextRequest) {
     aheadCount.code === 0 ? parseInt(aheadCount.stdout.trim(), 10) || 0 : -1;
 
   const remotesResult = await runGit(dir, ["remote"]);
-  const remotes =
-    remotesResult.code === 0
-      ? remotesResult.stdout
-          .split(/\r?\n/)
-          .map((r) => r.trim())
-          .filter(Boolean)
-      : [];
+  if (remotesResult.code !== 0) {
+    return NextResponse.json(
+      { error: remotesResult.stderr.trim() || "git remote failed" },
+      { status: 400 },
+    );
+  }
+  const remotes = remotesResult.stdout
+    .split(/\r?\n/)
+    .map((r) => r.trim())
+    .filter(Boolean);
 
   const preferred =
     (upstreamBranch && list.includes(upstreamBranch) ? upstreamBranch : null) ||
