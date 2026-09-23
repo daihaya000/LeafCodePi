@@ -50,6 +50,16 @@ describe("applyBotTools", () => {
     assert.deepEqual(active, ["extension_tool", "read", "memory_add"]);
   });
 
+  it("drops desktop tools from a Bot even if an extension activated them", () => {
+    let active = ["read", "observe_ui", "act_ui", "extension_tool"];
+    const session = {
+      getActiveToolNames: () => active,
+      setActiveToolsByName: (next: string[]) => { active = next; },
+    };
+    applyBotTools(session as never, ["read", "tool_search"]);
+    assert.deepEqual(active, ["extension_tool", "read", "tool_search"]);
+  });
+
   it("keeps intercom directly available when tool_search is disabled", () => {
     let active = ["read"];
     const session = {

@@ -2,6 +2,9 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 
 export const TOOL_SEARCH_NAME = "tool_search";
+export const COMPUTER_USE_TOOL_NAMES = [
+  "find_roots", "observe_ui", "search_ui", "expand_ui", "inspect_ui", "act_ui", "read_text", "wait_for",
+] as const;
 
 const DEFERRED_TOOLS = [
   { name: "jev_judge", keywords: ["jev", "typesafe", "typed judgment", "semantic", "意味判定", "意味的", "順位付け"] },
@@ -16,6 +19,7 @@ const DEFERRED_TOOLS = [
   { name: "memory_replace", keywords: ["memory_replace", "replace memory", "update memory", "correct memory", "メモリを更新", "記憶を訂正"] },
   { name: "memory_remove", keywords: ["memory_remove", "remove memory", "delete memory", "forget memory", "forget this", "メモリを削除", "記憶を削除", "忘れて"] },
   { name: "skill_manage", keywords: ["skill_manage", "create skill", "update skill", "delete skill", "procedural skill", "スキルを作成", "スキルを更新", "スキルを削除"] },
+  ...COMPUTER_USE_TOOL_NAMES.map((name) => ({ name, keywords: [name, "desktop ui", "computer use", "デスクトップ操作"] })),
 ] as const;
 
 const deferredNames = new Set<string>(DEFERRED_TOOLS.map(({ name }) => name));
@@ -35,7 +39,7 @@ export function registerDeferredTools(
   pi.registerTool({
     name: TOOL_SEARCH_NAME,
     label: "Tool Search",
-    description: "Find and activate optional tools: web_search (web research), source_check (fact checking), fetch_content (URL/PDF/GitHub/YouTube/video), get_search_content (stored search results), intercom (other sessions), session_search (past conversations), jev_judge (typed semantic judgments), bash (POSIX), memory_add/replace/remove, skill_manage. Call with the capability or exact tool name. Only permitted tools can be loaded.",
+    description: "Find and activate optional tools: web_search (web research), source_check (fact checking), fetch_content (URL/PDF/GitHub/YouTube/video), get_search_content (stored search results), intercom (other sessions), session_search (past conversations), jev_judge (typed semantic judgments), bash (POSIX), memory_add/replace/remove, skill_manage, desktop UI (find_roots/observe_ui/search_ui/expand_ui/inspect_ui/act_ui/read_text/wait_for). Call with the capability or exact tool name. Only permitted tools can be loaded.",
     parameters: Type.Object({
       query: Type.String({ description: "Capability or optional tool to activate.", maxLength: 200 }),
     }),

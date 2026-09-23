@@ -1,6 +1,6 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it } from "vitest";
-import { needsToolSearch, registerDeferredTools, TOOL_SEARCH_NAME } from "./deferred-tools";
+import { COMPUTER_USE_TOOL_NAMES, needsToolSearch, registerDeferredTools, TOOL_SEARCH_NAME } from "./deferred-tools";
 
 type SearchTool = {
   name: string;
@@ -9,7 +9,7 @@ type SearchTool = {
   }>;
 };
 
-const optionalTools = ["jev_judge", "session_search", "bash", "memory_add", "memory_replace", "memory_remove", "skill_manage", "web_search", "source_check", "fetch_content", "get_search_content", "intercom"];
+const optionalTools = ["jev_judge", "session_search", "bash", "memory_add", "memory_replace", "memory_remove", "skill_manage", "web_search", "source_check", "fetch_content", "get_search_content", "intercom", ...COMPUTER_USE_TOOL_NAMES];
 
 function setup(initial: string[], allowedTools?: readonly string[] | (() => readonly string[])) {
   let active = [...initial];
@@ -63,6 +63,21 @@ describe("deferred tools", () => {
       expect((await state.search.execute("tc-2", { query: name.toUpperCase() })).details).toEqual({ matches: [name], added: [] });
     },
   );
+
+  it("loads only registered desktop tools on demand, never browser commands", async () => {
+    const state = setup(["read", ...COMPUTER_USE_TOOL_NAMES]);
+    state.start();
+    expect(state.active).toEqual(["read", TOOL_SEARCH_NAME]);
+    expect((await state.search.execute("tc", { query: "desktop ui" })).details.added).toEqual([...COMPUTER_USE_TOOL_NAMES]);
+    expect((await state.search.execute("tc", { query: "launch_browser" })).details.matches).toEqual([]);
+  });
+
+  it("keeps Bot desktop tools disabled without an explicit allowlist entry", async () => {
+    const state = setup(["read", ...COMPUTER_USE_TOOL_NAMES], ["read", TOOL_SEARCH_NAME]);
+    state.start();
+    expect(state.active).toEqual(["read", TOOL_SEARCH_NAME]);
+    expect((await state.search.execute("tc", { query: "desktop ui" })).details.matches).toEqual([]);
+  });
 
   it("matches Japanese memory and skill requests", async () => {
     const state = setup(["read", "memory_add", "skill_manage"]);

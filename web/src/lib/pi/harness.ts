@@ -152,6 +152,7 @@ import {
 } from "@/lib/skills";
 import type { SkillPermission } from "@/lib/skill-permission";
 import {
+  COMPUTER_USE_TOOL_NAMES,
   needsToolSearch,
   registerDeferredTools,
   TOOL_SEARCH_NAME,
@@ -3046,6 +3047,7 @@ export function sessionToolNames(input: {
         "fetch_content",
         "get_search_content",
         "intercom",
+        ...(platform === "win32" ? COMPUTER_USE_TOOL_NAMES : []),
         ...(input.subagentPermission === "allow" ? ["subagent"] : []),
         "todowrite",
         TOOL_SEARCH_NAME,
@@ -8857,7 +8859,8 @@ function botActiveToolNames(active: readonly string[], tools: readonly string[])
         (tool !== "powershell" || process.platform === "win32"),
     ),
   )];
-  const preserved = active.filter((tool) => !knownBotTools.has(tool));
+  const preserved = active.filter((tool) => !knownBotTools.has(tool) &&
+    !(COMPUTER_USE_TOOL_NAMES as readonly string[]).includes(tool));
   return [...new Set([...preserved, ...requested])];
 }
 

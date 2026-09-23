@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { resolve } from "node:path";
 import { describe, it } from "vitest";
 import { isReplacedPackageSource, keepsLoadedExtension, replacedUpstreamPackages, sessionToolNames } from "./harness";
+import { COMPUTER_USE_TOOL_NAMES } from "./deferred-tools";
 
 describe("sessionToolNames", () => {
   it("registers the WebUI defaults with the platform shell and no subagent by default", () => {
@@ -9,12 +10,17 @@ describe("sessionToolNames", () => {
     assert.ok(linux.includes("bash"));
     assert.equal(linux.includes("powershell"), false);
     assert.equal(linux.includes("subagent"), false);
+    assert.equal(linux.includes("act_ui"), false);
     assert.ok(linux.includes("tool_search"));
 
     const windows = sessionToolNames({ platform: "win32" });
     assert.ok(windows.includes("powershell"));
     assert.ok(windows.includes("bash"));
     assert.ok(windows.includes("jev_judge"));
+    for (const tool of COMPUTER_USE_TOOL_NAMES) {
+      assert.ok(windows.includes(tool));
+      assert.deepEqual(sessionToolNames({ agentTools: ["read", tool] }), ["read", tool, "tool_search"]);
+    }
     for (const tool of ["web_search", "source_check", "fetch_content", "get_search_content", "intercom"]) {
       assert.ok(windows.includes(tool));
       assert.deepEqual(sessionToolNames({ agentTools: ["read", tool] }), ["read", tool, "tool_search"]);
@@ -46,6 +52,7 @@ describe("sessionToolNames", () => {
       roomHandoffTool: true,
     });
     assert.equal(botTools.includes("powershell"), false);
+    assert.equal(botTools.includes("act_ui"), false);
     assert.ok(botTools.includes("update_soul"));
     assert.ok(botTools.includes("code_session"));
     assert.ok(botTools.includes("room_handoff"));
