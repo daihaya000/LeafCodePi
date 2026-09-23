@@ -38,19 +38,19 @@ describe("JevModelSettings", () => {
     expect(screen.getByRole("button", { name: "OpenRouter のモデルを展開" })).toBeTruthy();
     expect(screen.queryByText("Jev互換API（手動）")).toBeNull();
     expand("TypeSafe");
-    const radio = screen.getByRole("radio", { name: "TypeSafe / Jev を選択" }) as HTMLInputElement;
-    expect(radio.checked).toBe(true);
-    expect(radio.nextElementSibling?.firstElementChild?.className).toContain("bg-success");
-    expect(radio.closest("li")?.className).toContain("px-4 py-3");
+    const modelSwitch = screen.getByRole("switch", { name: "TypeSafe / Jev を無効化" });
+    expect(modelSwitch.getAttribute("aria-checked")).toBe("true");
+    expect(modelSwitch.firstElementChild?.className).toContain("bg-success");
+    expect(modelSwitch.closest("li")?.className).toContain("px-4 py-3");
     expect(screen.queryByLabelText(/APIキー|APIベースURL|モデルID/)).toBeNull();
-    expect(screen.getAllByText("有効")).toHaveLength(2);
+    expect(screen.getAllByText("有効")).toHaveLength(3);
     expect(mocks.send).not.toHaveBeenCalled();
   });
 
   it("searches provider/model names and expands matches", async () => {
     await ready();
     fireEvent.change(screen.getByRole("searchbox"), { target: { value: "jev-1.13" } });
-    expect(screen.getByRole("radio", { name: "OpenRouter · Main / Jev 1.13 を選択" })).toBeTruthy();
+    expect(screen.getByRole("switch", { name: "OpenRouter · Main / Jev 1.13 を有効化" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: "TypeSafe のモデルを展開" })).toBeNull();
     fireEvent.change(screen.getByRole("searchbox"), { target: { value: "not-found" } });
     expect(screen.getByText("検索条件に一致する項目はありません。")).toBeTruthy();
@@ -59,12 +59,12 @@ describe("JevModelSettings", () => {
   it("saves only an existing provider reference after explicit selection", async () => {
     await ready();
     expand("OpenRouter");
-    fireEvent.click(screen.getByRole("radio", { name: "OpenRouter · Main / Jev 1.13 を選択" }));
-    expect(screen.getByRole("radio", { name: "OpenRouter · Main / Jev 1.13 を選択" }).nextElementSibling?.firstElementChild?.className).toContain("bg-success");
+    fireEvent.click(screen.getByRole("switch", { name: "OpenRouter · Main / Jev 1.13 を有効化" }));
+    expect(screen.getByRole("switch", { name: "OpenRouter · Main / Jev 1.13 を無効化" }).firstElementChild?.className).toContain("bg-success");
     expect(mocks.send).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "Jevモデルを保存" }));
     await waitFor(() => expect(mocks.send).toHaveBeenCalledWith("/api/jev-model", {
-      settings: { ...DEFAULT_JEV_MODEL_SETTINGS, provider: "registered", registeredModel: { providerId: "openrouter", modelId: "typesafe/jev-1.13", accountId: "account-1" } },
+      settings: { ...DEFAULT_JEV_MODEL_SETTINGS, provider: "registered", registeredModel: { providerId: "typesafe", modelId: "jev-latest" }, enabledModels: [{ providerId: "typesafe", modelId: "jev-latest" }, { providerId: "openrouter", modelId: "typesafe/jev-1.13", accountId: "account-1" }] },
     }, "PUT"));
     expect(screen.getByText(/次のJev判定から反映/)).toBeTruthy();
   });
@@ -73,8 +73,8 @@ describe("JevModelSettings", () => {
     mocks.get.mockResolvedValue({ ...dto, models: [typesafe, { ...candidate, providerEnabled: false }] });
     await ready();
     expand("OpenRouter");
-    expect(screen.getByText("無効")).toBeTruthy();
-    expect((screen.getByRole("radio", { name: "OpenRouter · Main / Jev 1.13 を選択" }) as HTMLInputElement).disabled).toBe(true);
+    expect(screen.getAllByText("無効")).toHaveLength(2);
+    expect((screen.getByRole("switch", { name: "OpenRouter · Main / Jev 1.13 を有効化" }) as HTMLButtonElement).disabled).toBe(true);
     expect(screen.getByRole("switch", { name: "OpenRouter · Main を有効化" }).getAttribute("aria-checked")).toBe("false");
   });
 
@@ -93,7 +93,7 @@ describe("JevModelSettings", () => {
     expect(mocks.send).toHaveBeenCalledWith("/api/provider-models/openrouter", { enabled: true, modelIds: ["chat-model"], accountId: "account-1" }, "PATCH");
     expect(mocks.send).not.toHaveBeenCalledWith("/api/jev-model", expect.anything(), "PUT");
     expand("OpenRouter");
-    expect((screen.getByRole("radio", { name: "OpenRouter · Main / Jev 1.13 を選択" }) as HTMLInputElement).disabled).toBe(false);
+    expect((screen.getByRole("switch", { name: "OpenRouter · Main / Jev 1.13 を有効化" }) as HTMLButtonElement).disabled).toBe(false);
   });
 
   it("persists provider and model ordering through the shared catalog", async () => {
@@ -150,11 +150,11 @@ describe("JevModelSettings", () => {
     expand("OpenRouter");
     expect(screen.getByText("アカウント: Main")).toBeTruthy();
     expect(screen.getByText("アカウント: Private")).toBeTruthy();
-    expect((screen.getByRole("radio", { name: "OpenRouter · Private / Jev 1.13 を選択" }) as HTMLInputElement).disabled).toBe(true);
-    fireEvent.click(screen.getByRole("radio", { name: "OpenRouter · Main / Jev 1.13 を選択" }));
+    expect((screen.getByRole("switch", { name: "OpenRouter · Private / Jev 1.13 を有効化" }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(screen.getByRole("switch", { name: "OpenRouter · Main / Jev 1.13 を有効化" }));
     fireEvent.click(screen.getByRole("button", { name: "Jevモデルを保存" }));
     await waitFor(() => expect(mocks.send).toHaveBeenCalledWith("/api/jev-model", {
-      settings: { ...DEFAULT_JEV_MODEL_SETTINGS, provider: "registered", registeredModel: { providerId: "openrouter", modelId: "typesafe/jev-1.13", accountId: "account-1" } },
+      settings: { ...DEFAULT_JEV_MODEL_SETTINGS, provider: "registered", registeredModel: { providerId: "typesafe", modelId: "jev-latest" }, enabledModels: [{ providerId: "typesafe", modelId: "jev-latest" }, { providerId: "openrouter", modelId: "typesafe/jev-1.13", accountId: "account-1" }] },
     }, "PUT"));
   });
 
@@ -163,10 +163,10 @@ describe("JevModelSettings", () => {
     mocks.get.mockResolvedValueOnce(dto).mockResolvedValueOnce({ ...dto, models: [typesafe, candidate, documented] });
     await ready();
     expand("OpenRouter");
-    fireEvent.click(screen.getByRole("radio", { name: "OpenRouter · Main / Jev 1.13 を選択" }));
+    fireEvent.click(screen.getByRole("switch", { name: "OpenRouter · Main / Jev 1.13 を有効化" }));
     fireEvent.click(screen.getByRole("button", { name: "再読み込み" }));
     await waitFor(() => expect(screen.getByRole("button", { name: "Command Code のモデルを展開" })).toBeTruthy());
-    expect((screen.getByRole("radio", { name: "OpenRouter · Main / Jev 1.13 を選択" }) as HTMLInputElement).checked).toBe(true);
+    expect(screen.getByRole("switch", { name: "OpenRouter · Main / Jev 1.13 を無効化" }).getAttribute("aria-checked")).toBe("true");
     expect(mocks.get).toHaveBeenCalledWith("/api/jev-model", { refresh: "1" });
     expect(mocks.send).not.toHaveBeenCalled();
   });
@@ -174,10 +174,12 @@ describe("JevModelSettings", () => {
   it("blocks saving a disabled or missing selected provider and allows recovery", async () => {
     mocks.get.mockResolvedValue({ ...dto, settings: { ...DEFAULT_JEV_MODEL_SETTINGS, provider: "registered", registeredModel: { providerId: "openrouter", modelId: "typesafe/jev-1.13", accountId: "account-1" } }, models: [typesafe, { ...candidate, providerEnabled: false }] });
     await ready();
-    expect(screen.getByRole("alert").textContent).toContain("無効");
+    expect(screen.getByRole("alert").textContent).toContain("有効");
     expect((screen.getByRole("button", { name: "Jevモデルを保存" }) as HTMLButtonElement).disabled).toBe(true);
+    expand("OpenRouter");
+    fireEvent.click(screen.getByRole("switch", { name: "OpenRouter · Main / Jev 1.13 を無効化" }));
     expand("TypeSafe");
-    fireEvent.click(screen.getByRole("radio", { name: "TypeSafe / Jev を選択" }));
+    fireEvent.click(screen.getByRole("switch", { name: "TypeSafe / Jev を有効化" }));
     expect((screen.getByRole("button", { name: "Jevモデルを保存" }) as HTMLButtonElement).disabled).toBe(false);
   });
 

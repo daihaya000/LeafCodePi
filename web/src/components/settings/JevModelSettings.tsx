@@ -46,11 +46,11 @@ function providerRows(models: JevCatalogModel[]): ProviderRow[] {
   return [...rows.values()];
 }
 
-function selectedModelKey(settings: Settings, models: JevCatalogModel[]): string | undefined {
-  if (settings.provider === "registered") return settings.registeredModel && jevModelKey(settings.registeredModel);
-  // Existing TypeSafe choices remain active; credentials are already owned by the provider panel.
-  if (settings.provider === "typesafe") return models.find((model) => model.providerId === "typesafe" && model.modelId === settings.typesafeModel)?.modelId;
-  return undefined;
+function enabledModelKeys(settings: Settings, models: JevCatalogModel[]): Set<string> {
+  if (settings.enabledModels) return new Set(settings.enabledModels.map(jevModelKey));
+  if (settings.provider === "registered") return new Set(settings.registeredModel ? [jevModelKey(settings.registeredModel)] : []);
+  const legacy = settings.provider === "typesafe" && models.find((model) => model.providerId === "typesafe" && model.modelId === settings.typesafeModel);
+  return new Set(legacy ? [jevModelKey(legacy)] : []);
 }
 
 export function JevModelSettings({ refreshToken = 0, onProviderCatalogChange }: { refreshToken?: number; onProviderCatalogChange?: () => void }) {
@@ -81,10 +81,10 @@ export function JevModelSettings({ refreshToken = 0, onProviderCatalogChange }: 
 
   const models = saved?.models ?? [];
   const rows = providerRows(models);
-  const selectedKey = selectedModelKey(settings, models);
-  const savedKey = saved && selectedModelKey(saved.settings, models);
-  const chosen = models.find((model) => (settings.provider === "typesafe" ? model.providerId === "typesafe" && model.modelId === selectedKey : jevModelKey(model) === selectedKey));
-  const selectionUnavailable = settings.provider === "registered" && (!chosen || chosen.providerEnabled === false);
+  const selectedKeys = enabledModelKeys(settings, models);
+  const savedKeys = saved ? enabledModelKeys(saved.settings, models) : new Set<string>();
+  const selectionUnavailable = settings.provider === "registered" && (selectedKeys.size === 0 ||
+    [...selectedKeys].some((key) => !models.some((model) => jevModelKey(model) === key && model.providerEnabled !== false)));
   const searchTerm = query.trim().toLowerCase();
   const visibleRows = rows.flatMap((row) => {
     const matchesProvider = [row.name, row.id, row.accountLabel].some((value) => value?.toLowerCase().includes(searchTerm));
@@ -108,6 +108,19 @@ export function JevModelSettings({ refreshToken = 0, onProviderCatalogChange }: 
     } finally {
       setBusy(false);
     }
+  }
+
+  function toggleModel(model: JevCatalogModel) {
+    const ref = { providerId: model.providerId, modelId: model.modelId, ...(model.accountId ? { accountId: model.accountId } : {}) };
+    setSettings((current) => {
+      const keys = enabledModelKeys(current, models);
+      const refs = current.enabledModels ?? models.filter((item) => keys.has(jevModelKey(item))).map((item) => ({
+        providerId: item.providerId, modelId: item.modelId, ...(item.accountId ? { accountId: item.accountId } : {}),
+      }));
+      const next = keys.has(jevModelKey(ref)) ? refs.filter((item) => jevModelKey(item) !== jevModelKey(ref)) : [...refs, ref];
+      return { ...current, provider: "registered", registeredModel: next[0], enabledModels: next };
+    });
+    setStatus("");
   }
 
   function toggleProvider(row: ProviderRow) {
@@ -190,7 +203,7 @@ export function JevModelSettings({ refreshToken = 0, onProviderCatalogChange }: 
         <div>
           <h3 className="mb-1 text-sm font-semibold">Jevモデル</h3>
           <p className="text-xs text-muted">
-            Jev判定の使用先を選びます。接続先・認証は<a href="#models-providers" className="text-accent hover:underline">プロバイダー接続</a>、有効状態・表示順はモデル一覧と共通です。Composerには表示しません。
+            有効なJevモデルを上から順に試します。接続先・認証は<a href="#models-providers" className="text-accent hover:underline">プロバイダー接続</a>、プロバイダー状態・表示順はモデル一覧と共通です。Composerには表示しません。
             {saved && `（${rows.length} モデル枠・${models.length} モデル）`}
           </p>
         </div>
@@ -246,8 +259,8 @@ export function JevModelSettings({ refreshToken = 0, onProviderCatalogChange }: 
               {open && <ul id={`jev-models-${index}`} className="space-y-2">
                 {matchingModels.map((model) => {
                   const key = jevModelKey(model);
-                  const checked = settings.provider === "typesafe" ? model.providerId === "typesafe" && model.modelId === selectedKey : key === selectedKey;
-                  const active = saved?.settings.provider === "typesafe" ? model.providerId === "typesafe" && model.modelId === savedKey : key === savedKey;
+                  const checked = selectedKeys.has(key);
+                  const active = savedKeys.has(key);
                   const modelEnabled = model.providerEnabled !== false;
                   const siblingModels = row.models.filter((item) => item.accountId === model.accountId);
                   const modelIndex = siblingModels.findIndex((item) => jevModelKey(item) === key);
@@ -270,36 +283,26 @@ export function JevModelSettings({ refreshToken = 0, onProviderCatalogChange }: 
                     !modelEnabled && "opacity-50",
                   )}>
                     <GripVertical aria-hidden="true" className="mt-1 h-4 w-4 shrink-0 cursor-grab text-muted sm:mt-0" />
-                    <label className={cx("col-span-2 flex min-w-0 flex-1 items-center gap-3 sm:col-auto", modelEnabled ? "cursor-pointer" : "cursor-not-allowed")}>
+                    <div className="col-span-2 flex min-w-0 flex-1 items-center gap-3 sm:col-auto">
                       <span className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
                         <span className="min-w-0 truncate text-sm font-medium">{model.name}</span>
                         {model.integrated && model.accountLabel && <span className="text-xs text-muted">アカウント: {model.accountLabel}</span>}
-                        <Badge tone={active ? "success" : "neutral"}>{active ? "使用中" : checked ? "選択中" : "候補"}</Badge>
+                        <Badge tone={checked ? "success" : "neutral"}>{checked ? active ? "有効" : "有効（未保存）" : active ? "無効（未保存）" : "無効"}</Badge>
                         {model.source === "documented" && <span className="text-xs text-muted">公式対応</span>}
                         <span className="break-all font-mono text-xs text-muted">{model.modelId}</span>
                       </span>
-                      <input type="radio" name="jev-model" checked={checked} disabled={!modelEnabled} onChange={() => {
-                        setSettings((current) => ({ ...current, provider: "registered", registeredModel: {
-                          providerId: model.providerId, modelId: model.modelId, ...(model.accountId ? { accountId: model.accountId } : {}),
-                        } }));
-                        setStatus("");
-                      }} aria-label={`${row.name}${row.accountLabel || model.integrated && model.accountLabel ? ` · ${row.accountLabel ?? model.accountLabel}` : ""} / ${model.name} を選択`} className="peer sr-only" />
-                      <span aria-hidden="true" className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full peer-focus-visible:outline-2 peer-focus-visible:outline-accent sm:h-6">
-                        <span className={cx("relative h-6 w-11 rounded-full transition-colors", checked ? "bg-success" : "bg-surface-3")}>
-                          <span className={cx("absolute top-0.5 left-0.5 h-5 w-5 rounded-full bg-surface shadow transition-transform", checked && "translate-x-5")} />
-                        </span>
-                      </span>
-                    </label>
+                      <Switch checked={checked} disabled={!modelEnabled && !checked} onChange={() => toggleModel(model)} label={`${row.name}${row.accountLabel || model.integrated && model.accountLabel ? ` · ${row.accountLabel ?? model.accountLabel}` : ""} / ${model.name} を${checked ? "無効化" : "有効化"}`} />
+                    </div>
                     <ReorderButtons label={`${row.name} の ${model.name}`} index={modelIndex} count={siblingModels.length} busy={busy || Boolean(searchTerm)} onMove={targetIndex} className="col-start-3 row-start-2 justify-self-end sm:col-auto sm:row-auto" />
                   </li>;
                 })}
               </ul>}
             </li>)}
           </ul>
-          {selectionUnavailable && <p role="alert" className="text-sm text-danger">選択中のモデルは未検出、またはモデル側で無効です。別のモデルを選ぶか、モデル側で有効にしてください。</p>}
+          {selectionUnavailable && <p role="alert" className="text-sm text-danger">有効なJevモデルを1件以上選び、対象プロバイダーを有効にしてください。</p>}
           {settings.provider === "compatible" && <p className="text-xs text-muted">従来の手動接続先を使用中です。この一覧では接続先を編集できません。切り替える場合は既存プロバイダーのモデルを選んでください。</p>}
-          {settings.provider === "typesafe" && !selectedKey && <p className="text-xs text-muted">従来のTypeSafeモデルを使用中です。認証はプロバイダー接続で管理してください。</p>}
-          <p className="text-xs text-muted">会話・ツール結果を選択したプロバイダーへ送信します。失敗時に別の接続先へ転送しません。</p>
+          {settings.provider === "typesafe" && selectedKeys.size === 0 && <p className="text-xs text-muted">従来のTypeSafeモデルを使用中です。認証はプロバイダー接続で管理してください。</p>}
+          <p className="text-xs text-muted">会話・ツール結果を有効なモデルへ上から順に送信します。失敗すると次の有効モデルへ転送します。</p>
           <div className="flex flex-wrap items-center gap-3">
             <Button type="submit" variant="secondary" size="sm" disabled={selectionUnavailable}>{busy ? "保存中…" : "Jevモデルを保存"}</Button>
             <details className="text-xs text-muted">

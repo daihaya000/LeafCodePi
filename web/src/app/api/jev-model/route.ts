@@ -48,8 +48,17 @@ export async function PUT(req: NextRequest) {
     if (settings.provider === "registered") {
       if (apiKey !== undefined) throw new Error("既存プロバイダーの認証をここで変更することはできません");
       const models = await listJevModels().catch(() => []);
-      if (!models.some((model) => model.providerEnabled !== false && jevModelKey(model) === jevModelKey(settings.registeredModel!))) {
-        throw new Error("選択したJevモデルは未検出、またはアカウントが無効です");
+      const selected = settings.enabledModels ?? [settings.registeredModel!];
+      if (selected.some((ref) => !models.some((model) => model.providerEnabled !== false && jevModelKey(model) === jevModelKey(ref)))) {
+        throw new Error("有効にしたJevモデルは未検出、またはアカウントが無効です");
+      }
+      if (settings.enabledModels) {
+        const keys = new Set(settings.enabledModels.map(jevModelKey));
+        settings.enabledModels = models.flatMap((model) => {
+          if (!keys.delete(jevModelKey(model))) return [];
+          return [{ providerId: model.providerId, modelId: model.modelId, ...(model.accountId ? { accountId: model.accountId } : {}) }];
+        });
+        settings.registeredModel = settings.enabledModels[0];
       }
     }
   } catch (error) {

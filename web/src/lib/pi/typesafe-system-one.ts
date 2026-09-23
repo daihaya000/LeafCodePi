@@ -1,4 +1,5 @@
 import { recordTypesafeUsage } from "@/lib/codexbar/providers/typesafe";
+import { readProviderModelState } from "@/lib/provider-model-state";
 import { readJevModelSettings, resolveJevModelConnection } from "./jev-model-config";
 
 type TypeSafeQuestion = {
@@ -61,7 +62,7 @@ function validateResponse(result: unknown, request: TypeSafeRequest): asserts re
   }
 }
 
-/** All LCP judgments share the selected System One endpoint; never fall back to another provider. */
+/** Only explicitly enabled models receive state; catalog order controls fallback priority. */
 export async function evaluateTypeSafe(
   request: TypeSafeRequest,
   options: {
@@ -71,27 +72,52 @@ export async function evaluateTypeSafe(
   } = {},
 ): Promise<TypeSafeResponse> {
   const settings = readJevModelSettings();
-  const { baseUrl, model, apiKey: storedKey, headers } = await resolveJevModelConnection(settings);
-  const apiKey = options.apiKey ?? storedKey;
-  const response = await (options.fetchImpl ?? fetch)(
-    `${baseUrl}/systemone`,
-    {
-      method: "POST",
-      headers: {
-        ...headers,
-        ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
-        "Content-Type": "application/json",
-      },
-      redirect: "error",
-      body: JSON.stringify({ ...request, model }),
-      signal: options.signal
-        ? AbortSignal.any([options.signal, AbortSignal.timeout(settings.timeoutMs)])
-        : AbortSignal.timeout(settings.timeoutMs),
-    },
-  );
-  if (!response.ok) throw new Error(`Jev API error: ${response.status}`);
-  const result: unknown = await response.json();
-  validateResponse(result, request);
-  if (settings.provider === "typesafe") recordTypesafeUsage(result.usage);
-  return result;
+  const state = settings.enabledModels ? readProviderModelState() : null;
+  const providerRank = (ref: { providerId: string; accountId?: string }) => {
+    const accountRank = ref.accountId ? state?.providerOrder.indexOf(`${ref.accountId}::${ref.providerId}`) ?? -1 : -1;
+    return accountRank >= 0 ? accountRank : state?.providerOrder.indexOf(ref.providerId) ?? -1;
+  };
+  const modelRank = (ref: { providerId: string; accountId?: string; modelId: string }) => {
+    const ids = (ref.accountId && state?.modelOrder[`${ref.accountId}::${ref.providerId}`]) || state?.modelOrder[ref.providerId] || [];
+    const index = ids.indexOf(ref.modelId);
+    return index < 0 ? Number.MAX_SAFE_INTEGER : index;
+  };
+  const refs = settings.enabledModels?.map((ref, index) => ({ ref, index })).sort((a, b) => {
+    const aRank = providerRank(a.ref);
+    const bRank = providerRank(b.ref);
+    if (aRank !== bRank) return (aRank < 0 ? Number.MAX_SAFE_INTEGER : aRank) - (bRank < 0 ? Number.MAX_SAFE_INTEGER : bRank);
+    if (a.ref.providerId !== b.ref.providerId || a.ref.accountId !== b.ref.accountId) return a.index - b.index;
+    return modelRank(a.ref) - modelRank(b.ref) || a.index - b.index;
+  });
+  const candidates = refs?.map(({ ref }) => ref) ?? [undefined];
+  for (const [index, ref] of candidates.entries()) {
+    if (index > 0 && options.signal?.aborted) throw options.signal.reason ?? new Error("Jev判定が中断されました");
+    try {
+      const { baseUrl, model, apiKey: storedKey, headers } = await resolveJevModelConnection(ref
+        ? { ...settings, provider: "registered", registeredModel: ref }
+        : settings);
+      const apiKey = ref ? storedKey : options.apiKey ?? storedKey;
+      const response = await (options.fetchImpl ?? fetch)(`${baseUrl}/systemone`, {
+        method: "POST",
+        headers: {
+          ...headers,
+          ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
+          "Content-Type": "application/json",
+        },
+        redirect: "error",
+        body: JSON.stringify({ ...request, model }),
+        signal: options.signal
+          ? AbortSignal.any([options.signal, AbortSignal.timeout(settings.timeoutMs)])
+          : AbortSignal.timeout(settings.timeoutMs),
+      });
+      if (!response.ok) throw new Error(`Jev API error: ${response.status}`);
+      const result: unknown = await response.json();
+      validateResponse(result, request);
+      if (ref?.providerId === "typesafe" || !ref && settings.provider === "typesafe") recordTypesafeUsage(result.usage);
+      return result;
+    } catch (error) {
+      if (options.signal?.aborted || index === candidates.length - 1) throw error;
+    }
+  }
+  throw new Error("有効なJevモデルがありません");
 }

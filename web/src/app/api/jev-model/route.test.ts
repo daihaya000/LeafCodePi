@@ -49,6 +49,19 @@ describe("Jev model settings API", () => {
     expect(mocks.save).not.toHaveBeenCalled();
   });
 
+  it("saves multiple enabled models only when every reference is detected and enabled", async () => {
+    const second = { ...candidate, accountId: "two", modelId: "typesafe/jev-1.14" };
+    const secondRef = { providerId: "openrouter", modelId: second.modelId, accountId: "two" };
+    const settings = { ...DEFAULT_JEV_MODEL_SETTINGS, provider: "registered", registeredModel: secondRef, enabledModels: [secondRef, ref] };
+    mocks.list.mockResolvedValue([candidate, second]);
+    expect((await PUT(request({ settings }))).status).toBe(200);
+    expect(mocks.save).toHaveBeenCalledWith({ ...settings, registeredModel: ref, enabledModels: [ref, secondRef] }, undefined);
+    mocks.save.mockClear();
+    mocks.list.mockResolvedValue([candidate, { ...second, providerEnabled: false }]);
+    expect((await PUT(request({ settings }))).status).toBe(400);
+    expect(mocks.save).not.toHaveBeenCalled();
+  });
+
   it("keeps manual settings available if catalog discovery fails", async () => {
     mocks.list.mockRejectedValue(new Error("offline"));
     expect(await (await GET()).json()).toEqual(dto);

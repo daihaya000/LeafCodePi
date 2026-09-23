@@ -71,6 +71,16 @@ describe("Jev model configuration", () => {
     await expect(saveJevModelSettings(selected, "test-only-key")).rejects.toThrow();
   });
 
+  it("validates multiple enabled references and preserves legacy single-model settings", () => {
+    const first = { providerId: "typesafe", modelId: "jev-latest" };
+    const second = { providerId: "openrouter", modelId: "typesafe/jev-1.13", accountId: "one" };
+    const settings = { ...DEFAULT_JEV_MODEL_SETTINGS, provider: "registered", enabledModels: [first, second] };
+    expect(normalizeJevModelSettings(settings)).toEqual(settings);
+    for (const enabledModels of [[], [first, first], [{ ...second, accountId: "" }], Array(65).fill(first)]) {
+      expect(() => normalizeJevModelSettings({ ...settings, enabledModels })).toThrow();
+    }
+  });
+
   it("persists credentials in Pi auth storage, not settings or DTOs", async () => {
     await saveJevModelSettings(compatible, "test-only-compatible-key");
     expect(readJevModelSettings()).toEqual(compatible);
