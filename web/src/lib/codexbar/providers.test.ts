@@ -13,6 +13,7 @@ vi.mock("undici", async (importOriginal) => ({
 
 import {
   createOpenRouterProvider,
+  parseOpenRouterCreditsJson,
   parseOpenRouterKeyJson,
   openrouterProvider,
 } from "./providers/openrouter";
@@ -39,10 +40,10 @@ describe("parseOpenRouterKeyJson", () => {
     );
     expect(snap.windows).toEqual([]);
     expect(snap.creditsEnabled).toBe(true);
-    expect(snap.creditsTitle).toBe("利用額");
+    expect(snap.creditsTitle).toBe("キー利用枠");
     expect(snap.creditsUsed).toBe(4.26);
     expect(snap.creditsLimit).toBe(10);
-    expect(snap.creditsBalance).toBeCloseTo(5.74);
+    expect(snap.creditsBalance).toBeNull();
     expect(snap.plan).toBe("Pay-as-you-go");
   });
 
@@ -56,6 +57,15 @@ describe("parseOpenRouterKeyJson", () => {
   });
 });
 
+describe("parseOpenRouterCreditsJson", () => {
+  it("calculates the account balance and rejects missing amounts", () => {
+    expect(parseOpenRouterCreditsJson('{"data":{"total_credits":100.5,"total_usage":25.75}}'))
+      .toEqual({ total: 100.5, used: 25.75, balance: 74.75 });
+    expect(() => parseOpenRouterCreditsJson('{"data":{"total_credits":100}}'))
+      .toThrow("残高応答形式が不正");
+  });
+});
+
 describe("openrouterProvider.fetch (mock)", () => {
   const previousAgentDir = process.env.PI_CODING_AGENT_DIR;
   const tempDirs: string[] = [];
@@ -63,6 +73,7 @@ describe("openrouterProvider.fetch (mock)", () => {
   afterEach(() => {
     undiciFetch.mockReset();
     delete process.env.OPENROUTER_API_KEY;
+    delete process.env.OPENROUTER_MANAGEMENT_KEY;
     if (previousAgentDir === undefined) delete process.env.PI_CODING_AGENT_DIR;
     else process.env.PI_CODING_AGENT_DIR = previousAgentDir;
     for (const dir of tempDirs.splice(0)) rmSync(dir, { recursive: true, force: true });
@@ -102,9 +113,45 @@ describe("openrouterProvider.fetch (mock)", () => {
     expect(authorizationHeader()).toBe("Bearer sk-test");
   });
 
+  it("shows actual account credits with an explicit management key", async () => {
+    process.env.PI_CODING_AGENT_DIR = tempDir();
+    process.env.OPENROUTER_API_KEY = "sk-inference";
+    process.env.OPENROUTER_MANAGEMENT_KEY = "sk-management";
+    undiciFetch.mockImplementation(async (url: string) => new Response(
+      url.endsWith("/credits")
+        ? JSON.stringify({ data: { total_credits: 100.5, total_usage: 25.75 } })
+        : JSON.stringify({ data: { usage: 2, limit: null } }),
+      { status: 200 },
+    ));
+
+    const snap = await openrouterProvider.fetch();
+    expect(snap.creditsTitle).toBe("アカウント残高");
+    expect(snap.creditsBalance).toBe(74.75);
+    expect(snap.creditsUsed).toBe(25.75);
+    expect(snap.creditsLimit).toBe(100.5);
+    expect(undiciFetch.mock.calls.map((call) => call[0])).toEqual([
+      "https://openrouter.ai/api/v1/key",
+      "https://openrouter.ai/api/v1/credits",
+    ]);
+    expect(authorizationHeader(0)).toBe("Bearer sk-inference");
+    expect(authorizationHeader(1)).toBe("Bearer sk-management");
+  });
+
+  it("rejects an invalid management key without exposing its value", async () => {
+    process.env.PI_CODING_AGENT_DIR = tempDir();
+    process.env.OPENROUTER_API_KEY = "sk-inference";
+    process.env.OPENROUTER_MANAGEMENT_KEY = "sk-management";
+    undiciFetch.mockImplementation(async (url: string) => url.endsWith("/credits")
+      ? new Response("denied", { status: 403 })
+      : new Response(JSON.stringify({ data: { usage: 2, limit: null } }), { status: 200 }));
+
+    await expect(openrouterProvider.fetch()).rejects.toThrow("管理キーが無効");
+  });
+
   it("uses the account api key and never falls back to env", async () => {
     process.env.PI_CODING_AGENT_DIR = tempDir();
     process.env.OPENROUTER_API_KEY = "sk-env";
+    process.env.OPENROUTER_MANAGEMENT_KEY = "sk-management";
     const dir = tempDir();
     const authPath = join(dir, "auth.json");
     writeFileSync(

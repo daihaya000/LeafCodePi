@@ -1,6 +1,7 @@
 /**
  * OpenRouter usage via GET https://openrouter.ai/api/v1/key.
- * Credits-only (pay-as-you-go); no rate windows.
+ * Account balance via GET /api/v1/credits (management key required).
+ * Key spending limits via /key remain available without a management key.
  */
 
 import {
@@ -18,6 +19,7 @@ import {
 import { readPiApiKey } from "@/lib/codexbar/pi-auth";
 
 const KEY_API_URL = "https://openrouter.ai/api/v1/key";
+const CREDITS_API_URL = "https://openrouter.ai/api/v1/credits";
 
 const DEFAULT_SCOPE: UsageScope = {
   key: "default",
@@ -42,6 +44,17 @@ export function resolveOpenRouterApiKey(scope: UsageScope = DEFAULT_SCOPE): stri
 }
 
 /** Exported for unit tests. */
+export function parseOpenRouterCreditsJson(json: string): { used: number; total: number; balance: number } {
+  const data = asRecord(asRecord(JSON.parse(json))?.data);
+  const total = flexibleNumber(data?.total_credits);
+  const used = flexibleNumber(data?.total_usage);
+  if (total === null || used === null || total < 0 || used < 0) {
+    throw new ProviderError("OpenRouter の残高応答形式が不正です。");
+  }
+  return { used, total, balance: Math.max(0, total - used) };
+}
+
+/** Exported for unit tests. */
 export function parseOpenRouterKeyJson(json: string): UsageSnapshot {
   const root = asRecord(JSON.parse(json));
   const data = asRecord(root?.data);
@@ -49,16 +62,7 @@ export function parseOpenRouterKeyJson(json: string): UsageSnapshot {
 
   const usage = flexibleNumber(data.usage) ?? 0;
   const limit = flexibleNumber(data.limit);
-  const limitRemaining = flexibleNumber(data.limit_remaining);
   const isFreeTier = data.is_free_tier === true;
-
-  let balance: number | null = null;
-  if (limit !== null) {
-    balance =
-      limitRemaining !== null
-        ? Math.min(Math.max(limitRemaining, 0), limit)
-        : Math.max(0, limit - usage);
-  }
 
   return {
     providerId: "openrouter",
@@ -67,10 +71,10 @@ export function parseOpenRouterKeyJson(json: string): UsageSnapshot {
     accountEmail: null,
     windows: [],
     creditsEnabled: true,
-    creditsTitle: "利用額",
+    creditsTitle: "キー利用枠",
     creditsUsed: usage,
     creditsLimit: limit !== null && limit > 0 ? limit : null,
-    creditsBalance: balance,
+    creditsBalance: null,
     creditsLabel: null,
     sourceLabel: "openrouter.ai/api/v1/key",
     updatedAt: new Date(),
@@ -106,14 +110,48 @@ export function createOpenRouterProvider(scope: UsageScope): IUsageProvider {
           `OpenRouter API エラー HTTP ${status}: ${snippet}`,
         );
       }
+      let snapshot: UsageSnapshot;
       try {
-        return parseOpenRouterKeyJson(body);
+        snapshot = parseOpenRouterKeyJson(body);
       } catch (err) {
         if (err instanceof ProviderError) throw err;
         throw new ProviderError("OpenRouter の応答を解析できませんでした。", {
           cause: err,
         });
       }
+
+      // /key reports a per-key spending cap, not the account's credit balance.
+      // Do not reuse a global management key for account-scoped snapshots.
+      const managementKey = scope.kind === "default"
+        ? cleanApiKey(process.env.OPENROUTER_MANAGEMENT_KEY)
+        : null;
+      if (!managementKey) return snapshot;
+
+      const credits = await fetchText(CREDITS_API_URL, {
+        headers: { Authorization: `Bearer ${managementKey}`, Accept: "application/json" },
+        signal,
+      });
+      if (credits.status === 401 || credits.status === 403) {
+        throw new ProviderError("OpenRouter の管理キーが無効です。");
+      }
+      if (!credits.ok) {
+        throw new ProviderError(`OpenRouter の残高取得に失敗しました (HTTP ${credits.status})。`);
+      }
+      let amounts: ReturnType<typeof parseOpenRouterCreditsJson>;
+      try {
+        amounts = parseOpenRouterCreditsJson(credits.body);
+      } catch (err) {
+        if (err instanceof ProviderError) throw err;
+        throw new ProviderError("OpenRouter の残高応答を解析できませんでした。", { cause: err });
+      }
+      return {
+        ...snapshot,
+        creditsTitle: "アカウント残高",
+        creditsUsed: amounts.used,
+        creditsLimit: amounts.total > 0 ? amounts.total : null,
+        creditsBalance: amounts.balance,
+        sourceLabel: "openrouter.ai/api/v1/credits",
+      };
     },
   };
 }
