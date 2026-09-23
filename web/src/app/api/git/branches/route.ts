@@ -31,6 +31,12 @@ export async function GET(req: NextRequest) {
       { status: 400 },
     );
   }
+  if (branches.code !== 0) {
+    return NextResponse.json(
+      { error: branches.stderr.trim() || "git branch failed" },
+      { status: 400 },
+    );
+  }
 
   const list = branches.stdout
     .split(/\r?\n/)

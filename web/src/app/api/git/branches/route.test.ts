@@ -108,6 +108,20 @@ describe("GET /api/git/branches", () => {
     });
   });
 
+  it("returns an error when branch listing fails instead of reporting no branches", async () => {
+    mocks.gitDirectoryError.mockReturnValue(null);
+    mocks.runGit.mockImplementation((_dir: string, args: string[]) => {
+      if (args[0] === "branch") return Promise.resolve(gitResult(1, "", "branch list failed"));
+      if (args[0] === "rev-parse" && !args.includes("@{u}")) {
+        return Promise.resolve(gitResult(0, "main\n"));
+      }
+      return Promise.resolve(gitResult(1));
+    });
+    const response = await GET(agentRequest());
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ error: "branch list failed" });
+  });
+
   it("returns 403 for disallowed directories and 400 for missing git repos", async () => {
     mocks.gitDirectoryError.mockReturnValue("directory is not allowed");
     expect((await GET(agentRequest("C:/outside"))).status).toBe(403);
