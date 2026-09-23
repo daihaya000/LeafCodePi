@@ -101,6 +101,37 @@ const COOKIE_UI: Partial<Record<AccountProviderId, CookieUi>> = {
   },
 };
 
+/** サブスク（OAuth）口座の Claude は claude.ai cookie でリセット権を扱う（保存先は同じ）。 */
+const CLAUDE_WEB_COOKIE_UI: CookieUi = {
+  route: "anthropic-cookie",
+  title: "claude.ai cookie",
+  domain: "claude.ai",
+  providerName: "claude.ai",
+  missingHint: "リセット権の表示・使用に必要です",
+};
+
+function cookieUiFor(
+  providerId: AccountProviderId,
+  credentialKind: AccountCredentialKind | undefined,
+): CookieUi | undefined {
+  return providerId === "anthropic" && credentialKind === "oauth"
+    ? CLAUDE_WEB_COOKIE_UI
+    : COOKIE_UI[providerId];
+}
+
+/** リセット権に対応するプロバイダ（表示名）。 */
+const RESET_CREDIT_PROVIDERS: Record<string, string> = {
+  "openai-codex": "Codex",
+  anthropic: "Claude",
+};
+
+function resetCreditsQuery(provider: CodexBarProvider): Record<string, string> {
+  return {
+    provider: provider.id,
+    ...(provider.accountId ? { accountId: provider.accountId } : {}),
+  };
+}
+
 /** ログイン方式が 1 つだけのプロバイダーは従来どおりのラベルにする。 */
 function accountLoginLabel(
   authType: "api_key" | "oauth",
@@ -253,14 +284,20 @@ function formatResetCreditRemainingDays(expiresAt: string | null): string | null
     : "最短期限が切れています";
 }
 
-function ResetCreditExpiry({ accountId }: { accountId?: string | null }) {
+function ResetCreditExpiry({
+  providerId,
+  accountId,
+}: {
+  providerId: string;
+  accountId?: string | null;
+}) {
   const [expiresAt, setExpiresAt] = useState<string | null>(null);
 
   useEffect(() => {
     let active = true;
     void getJson<ResetCreditsListResponse>(
       "/api/codexbar/reset-credits",
-      accountId ? { accountId } : undefined,
+      { provider: providerId, ...(accountId ? { accountId } : {}) },
     )
       .then((result) => {
         if (active) setExpiresAt(earliestResetExpiry(result.credits ?? []));
@@ -271,7 +308,7 @@ function ResetCreditExpiry({ accountId }: { accountId?: string | null }) {
     return () => {
       active = false;
     };
-  }, [accountId]);
+  }, [providerId, accountId]);
 
   const remainingDays = formatResetCreditRemainingDays(expiresAt);
   return remainingDays ? (
@@ -291,7 +328,8 @@ function ResetCreditsControl({
   onRedeem: (provider: CodexBarProvider) => void;
 }) {
   const available = provider.resetCreditsAvailable ?? 0;
-  if (provider.id !== "openai-codex" || available <= 0) return null;
+  const providerName = RESET_CREDIT_PROVIDERS[provider.id];
+  if (!providerName || available <= 0) return null;
   return (
     <div className="mt-1.5 flex flex-col gap-1 border-t border-border pt-1.5">
       <div className="flex items-center justify-between gap-2 text-xs">
@@ -304,12 +342,12 @@ function ResetCreditsControl({
           busy={busy}
           disabled={busy}
           onClick={() => onRedeem(provider)}
-          aria-label="Codex の使用量リセット権を使う"
+          aria-label={`${providerName} の使用量リセット権を使う`}
         >
           {busy ? "処理中…" : "使う"}
         </Button>
       </div>
-      <ResetCreditExpiry accountId={provider.accountId} />
+      <ResetCreditExpiry providerId={provider.id} accountId={provider.accountId} />
       {status && (
         <p role="status" className="text-xs text-muted">
           {status}
@@ -451,7 +489,7 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
 
   const redeemResetCredit = useCallback(
     async (provider: CodexBarProvider) => {
-      if (provider.id !== "openai-codex" || resetBusyKey) return;
+      if (!(provider.id in RESET_CREDIT_PROVIDERS) || resetBusyKey) return;
       const key = resetCreditKey(provider);
       setResetBusyKey(key);
       setResetStatusByKey((current) => {
@@ -463,9 +501,7 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
       try {
         const list = await getJson<ResetCreditsListResponse>(
           "/api/codexbar/reset-credits",
-          provider.accountId
-            ? { accountId: provider.accountId }
-            : undefined,
+          resetCreditsQuery(provider),
         );
         const credit = list.credits?.[0];
         if (!credit) {
@@ -497,6 +533,7 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
           {
             creditId: credit.id,
             accountId: provider.accountId ?? undefined,
+            provider: provider.id,
           },
         );
         setResetStatusByKey((current) => ({
@@ -1106,7 +1143,10 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
 
   async function saveCookie(providerId: string, accountId: string) {
     if (!cookieInput.trim() || cookieBusy || login) return;
-    const route = COOKIE_UI[providerId as AccountProviderId]?.route;
+    const route = cookieUiFor(
+      providerId as AccountProviderId,
+      credentialKinds[cookieKey(providerId, accountId)],
+    )?.route;
     if (!route) return;
     const key = cookieKey(providerId, accountId);
     setCookieBusy(key);
@@ -1141,7 +1181,10 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
     accountId: string,
     label: string,
   ) {
-    const cookieUi = COOKIE_UI[providerId as AccountProviderId];
+    const cookieUi = cookieUiFor(
+      providerId as AccountProviderId,
+      credentialKinds[cookieKey(providerId, accountId)],
+    );
     if (!cookieUi) return;
     const name = cookieUi.providerName;
     if (
@@ -1267,7 +1310,6 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
       accountAuthTypes.push("oauth");
     }
     if (provider.methods?.includes("api_key")) accountAuthTypes.push("api_key");
-    const cookieUi = COOKIE_UI[providerId];
     const mode = provider.accountRoutingMode ?? "separate";
     const savingMode = routingBusy === providerId;
     const modeDisabled = Boolean(login) || accountBusy || Boolean(routingBusy);
@@ -1350,14 +1392,13 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
                     baselineInputs[currentCookieKey] ??
                     (baselineStored === null ? "" : String(baselineStored));
                   const baselineAccountBusy = baselineBusy === currentCookieKey;
-                  // Anthropic の Console cookie は API キー口座専用。
-                  // サブスク（OAuth）口座は subscription の枠/クレジットを返すので不要。
-                  const showCookieUi =
-                    cookieUi !== undefined &&
-                    !(
-                      providerId === "anthropic" &&
-                      credentialKinds[currentCookieKey] === "oauth"
-                    );
+                  // Anthropic は API キー口座 = Console cookie（残高）、
+                  // サブスク口座 = claude.ai cookie（リセット権）。
+                  const cookieUi = cookieUiFor(
+                    providerId,
+                    credentialKinds[currentCookieKey],
+                  );
+                  const showCookieUi = cookieUi !== undefined;
                   const usage = findProviderUsage(
                     codexBarUsage,
                     providerId,

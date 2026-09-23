@@ -551,7 +551,7 @@ export function saveAccountAnthropicCookieFile(
   if (!parseAnthropicConsoleNetscapeText(text)) {
     throw Object.assign(
       new Error(
-        "有効な Anthropic Console（platform.claude.com）の sessionKey cookie が見つかりません",
+        "有効な Anthropic Console（platform.claude.com）または claude.ai の sessionKey cookie が見つかりません",
       ),
       { status: 400 },
     );

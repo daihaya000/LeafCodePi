@@ -710,6 +710,7 @@ describe("ProviderAuthPanel provider-scoped accounts", () => {
       expect(post).toBeTruthy();
       expect(JSON.parse(String(post?.[1]?.body))).toEqual({
         creditId: "credit-1",
+        provider: "openai-codex",
       });
     });
     expect(await screen.findByText("リセットしました。")).toBeTruthy();
@@ -1195,7 +1196,7 @@ describe("ProviderAuthPanel provider-scoped accounts", () => {
     expect(within(anthropic).queryByText("使用量")).toBeNull();
   });
 
-  it("hides the Console cookie controls for a subscription account", async () => {
+  it("shows claude.ai cookie controls instead of Console for a subscription account", async () => {
     fetchMock.mockImplementation(
       (input: RequestInfo | URL, init?: RequestInit) => {
         const url = String(input);
@@ -1222,9 +1223,11 @@ describe("ProviderAuthPanel provider-scoped accounts", () => {
     const anthropic = await accountRegion("Anthropic");
     await within(anthropic).findByText("API 個人用");
     // サブスク（OAuth）口座は Console cookie が不要なので欄自体を出さない
-    await waitFor(() => {
-      expect(within(anthropic).queryByText("Anthropic Console cookie")).toBeNull();
-    });
+    await within(anthropic).findByText("claude.ai cookie");
+    expect(
+      within(anthropic).getByText("リセット権の表示・使用に必要です"),
+    ).toBeTruthy();
+    expect(within(anthropic).queryByText("Anthropic Console cookie")).toBeNull();
   });
 
   it("saves the API credit baseline so the balance yields a percentage", async () => {
