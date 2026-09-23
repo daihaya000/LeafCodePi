@@ -3043,7 +3043,7 @@ export const TaskView = memo(function TaskView({
             ) : (
               <h1
                 className={cx(
-                  "flex min-h-11 min-w-0 max-w-full flex-1 items-center rounded-lg text-left text-sm font-semibold @min-[48rem]/task:min-h-8",
+                  "flex min-h-11 min-w-0 max-w-full flex-1 flex-col items-start justify-center rounded-lg text-left text-sm font-semibold @min-[48rem]/task:min-h-8",
                   task && !archived && !titleBusy && "cursor-text",
                 )}
                 aria-label={task?.title ?? "読み込み中…"}
@@ -3057,8 +3057,8 @@ export const TaskView = memo(function TaskView({
                   }
                 }}
               >
-                <SessionLabelBadge labelId={task?.label} className="mr-1.5" />
-                <span className="block truncate">{task?.title ?? "読み込み中…"}</span>
+                <span className="block max-w-full truncate leading-5">{task?.title ?? "読み込み中…"}</span>
+                <SessionLabelBadge labelId={task?.label} className="font-normal" />
               </h1>
             )}
             <Button
