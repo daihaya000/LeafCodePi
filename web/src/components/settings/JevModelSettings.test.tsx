@@ -32,11 +32,16 @@ describe("JevModelSettings", () => {
     expect(screen.getByRole("heading", { name: "Jevモデル" })).toBeTruthy();
     expect(screen.getByRole("link", { name: "プロバイダー接続" }).getAttribute("href")).toBe("#models-providers");
     expect(screen.getByRole("searchbox", { name: "Jevプロバイダー・モデルを検索" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "TypeSafe のモデルを展開" }).getAttribute("aria-expanded")).toBe("false");
+    const expandButton = screen.getByRole("button", { name: "TypeSafe のモデルを展開" });
+    expect(expandButton.getAttribute("aria-expanded")).toBe("false");
+    expect(expandButton.parentElement?.parentElement?.className).toContain("px-4 py-3");
     expect(screen.getByRole("button", { name: "OpenRouter のモデルを展開" })).toBeTruthy();
     expect(screen.queryByText("Jev互換API（手動）")).toBeNull();
     expand("TypeSafe");
-    expect(screen.getByRole("radio", { name: "TypeSafe / Jev を選択" })).toBeTruthy();
+    const radio = screen.getByRole("radio", { name: "TypeSafe / Jev を選択" }) as HTMLInputElement;
+    expect(radio.checked).toBe(true);
+    expect(radio.nextElementSibling?.firstElementChild?.className).toContain("bg-success");
+    expect(radio.closest("li")?.className).toContain("px-4 py-3");
     expect(screen.queryByLabelText(/APIキー|APIベースURL|モデルID/)).toBeNull();
     expect(screen.getAllByText("有効")).toHaveLength(2);
     expect(mocks.send).not.toHaveBeenCalled();
@@ -55,6 +60,7 @@ describe("JevModelSettings", () => {
     await ready();
     expand("OpenRouter");
     fireEvent.click(screen.getByRole("radio", { name: "OpenRouter · Main / Jev 1.13 を選択" }));
+    expect(screen.getByRole("radio", { name: "OpenRouter · Main / Jev 1.13 を選択" }).nextElementSibling?.firstElementChild?.className).toContain("bg-success");
     expect(mocks.send).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "Jevモデルを保存" }));
     await waitFor(() => expect(mocks.send).toHaveBeenCalledWith("/api/jev-model", {

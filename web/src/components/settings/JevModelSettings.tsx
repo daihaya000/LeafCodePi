@@ -1,8 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { ChevronRight } from "lucide-react";
-import { Badge, Button } from "@/components/ui";
+import { Badge, Button, cx } from "@/components/ui";
 import { ProviderIcon } from "@/components/ProviderIcon";
 import { getJson, sendJson } from "@/lib/client";
 import { jevModelKey, type JevCatalogModel } from "@/lib/jev-model-catalog";
@@ -136,21 +135,34 @@ export function JevModelSettings({ refreshToken = 0 }: { refreshToken?: number }
         <fieldset disabled={!saved || busy} className="space-y-4">
           <ul className="space-y-3">
             {visibleRows.map(({ row, models: matchingModels, open }, index) => <li key={row.key} className="space-y-2">
-              <div className="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-3 rounded-xl border border-border bg-surface px-4 py-2">
-                <button type="button" aria-expanded={open} aria-controls={`jev-models-${index}`} aria-label={`${row.name} のモデルを${open ? "折りたたむ" : "展開"}`} disabled={Boolean(searchTerm)} onClick={() => setExpanded((current) => {
-                  const next = new Set(current);
-                  if (next.has(row.key)) next.delete(row.key); else next.add(row.key);
-                  return next;
-                })} className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg text-muted hover:bg-surface-2 hover:text-text disabled:cursor-default disabled:opacity-50">
-                  <ChevronRight aria-hidden="true" className={`h-4 w-4 transition-transform ${open ? "rotate-90" : ""}`} />
-                </button>
-                <div className="min-w-0 flex flex-wrap items-center gap-2">
-                  <ProviderIcon providerID={row.id} size={16} />
-                  <span className="text-sm font-medium">{row.name}</span>
-                  <span className="font-mono text-xs text-muted">{row.id}</span>
-                  {row.accountLabel && <span className="text-xs text-muted">アカウント: {row.accountLabel}</span>}
-                  <Badge tone={row.enabled ? "success" : "neutral"}>{row.enabled ? "有効" : "無効"}</Badge>
+              <div className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 rounded-xl border border-border bg-surface px-4 py-3 sm:grid-cols-[auto_minmax(0,1fr)_auto_auto]">
+                <div className="flex items-center gap-1">
+                  <span aria-hidden="true" className="h-4 w-4 shrink-0" />
+                  <button type="button" aria-expanded={open} aria-controls={`jev-models-${index}`} aria-label={`${row.name} のモデルを${open ? "折りたたむ" : "展開"}`} disabled={Boolean(searchTerm)} onClick={() => setExpanded((current) => {
+                    const next = new Set(current);
+                    if (next.has(row.key)) next.delete(row.key); else next.add(row.key);
+                    return next;
+                  })} className="shrink-0 rounded-md p-1 text-muted transition-colors hover:bg-surface-2 hover:text-text disabled:cursor-default disabled:opacity-50">
+                    <svg aria-hidden="true" viewBox="0 0 20 20" fill="currentColor" className={cx("h-4 w-4 transition-transform", open ? "rotate-90" : "rotate-0")}>
+                      <path fillRule="evenodd" d="M7.21 14.77a.75.75 0 01.02-1.06L11.168 10 7.23 6.29a.75.75 0 111.04-1.08l4.5 4.25a.75.75 0 010 1.08l-4.5 4.25a.75.75 0 01-1.06-.02z" clipRule="evenodd" />
+                    </svg>
+                  </button>
                 </div>
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <ProviderIcon providerID={row.id} size={16} />
+                    <p className="min-w-0 truncate text-sm font-medium">{row.name}</p>
+                    <span className="font-mono text-xs text-muted">{row.id}</span>
+                    {row.accountLabel && <span className="text-xs text-muted">アカウント: {row.accountLabel}</span>}
+                    <Badge tone={row.enabled ? "success" : "neutral"}>{row.enabled ? "有効" : "無効"}</Badge>
+                  </div>
+                </div>
+                <span aria-hidden="true" title="有効状態はモデル側で管理" className="inline-flex h-11 w-11 items-center justify-center rounded-full sm:h-6">
+                  <span className={cx("relative h-6 w-11 rounded-full", row.enabled ? "bg-success" : "bg-surface-3")}>
+                    <span className={cx("absolute top-0.5 left-0.5 h-5 w-5 rounded-full bg-surface shadow", row.enabled && "translate-x-5")} />
+                  </span>
+                </span>
+                <span aria-hidden="true" className="hidden h-7 w-16 sm:block" />
               </div>
               {open && <ul id={`jev-models-${index}`} className="space-y-2">
                 {matchingModels.map((model) => {
@@ -158,25 +170,32 @@ export function JevModelSettings({ refreshToken = 0 }: { refreshToken?: number }
                   const checked = settings.provider === "typesafe" ? model.providerId === "typesafe" && model.modelId === selectedKey : key === selectedKey;
                   const active = saved?.settings.provider === "typesafe" ? model.providerId === "typesafe" && model.modelId === savedKey : key === savedKey;
                   const modelEnabled = model.providerEnabled !== false;
-                  return <li key={key} className={`ml-4 rounded-xl border border-border border-l-2 border-l-border bg-surface px-4 py-2 ${modelEnabled ? "" : "opacity-50"}`}>
-                    <label className={`flex min-h-11 items-center gap-3 ${modelEnabled ? "cursor-pointer" : "cursor-not-allowed"}`}>
-                      <span aria-hidden="true" className="w-4 shrink-0" />
-                      <span className="min-w-0 flex-1">
-                        <span className="flex flex-wrap items-center gap-2">
-                          <span className="text-sm font-medium">{model.name}</span>
-                          {model.integrated && model.accountLabel && <span className="text-xs text-muted">アカウント: {model.accountLabel}</span>}
-                          <Badge tone={active ? "success" : "neutral"}>{active ? "使用中" : checked ? "選択中" : "候補"}</Badge>
-                          {model.source === "documented" && <span className="text-xs text-muted">公式対応</span>}
-                        </span>
-                        <span className="block break-all font-mono text-xs text-muted">{model.modelId}</span>
+                  return <li key={key} className={cx(
+                    "ml-4 grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 rounded-xl border border-border border-l-2 border-l-border bg-surface px-4 py-3 sm:flex sm:items-center sm:gap-3",
+                    !modelEnabled && "opacity-50",
+                  )}>
+                    <span aria-hidden="true" className="h-4 w-4 shrink-0" />
+                    <label className={cx("col-span-2 flex min-w-0 flex-1 items-center gap-3 sm:col-auto", modelEnabled ? "cursor-pointer" : "cursor-not-allowed")}>
+                      <span className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+                        <span className="min-w-0 truncate text-sm font-medium">{model.name}</span>
+                        {model.integrated && model.accountLabel && <span className="text-xs text-muted">アカウント: {model.accountLabel}</span>}
+                        <Badge tone={active ? "success" : "neutral"}>{active ? "使用中" : checked ? "選択中" : "候補"}</Badge>
+                        {model.source === "documented" && <span className="text-xs text-muted">公式対応</span>}
+                        <span className="break-all font-mono text-xs text-muted">{model.modelId}</span>
                       </span>
                       <input type="radio" name="jev-model" checked={checked} disabled={!modelEnabled} onChange={() => {
                         setSettings((current) => ({ ...current, provider: "registered", registeredModel: {
                           providerId: model.providerId, modelId: model.modelId, ...(model.accountId ? { accountId: model.accountId } : {}),
                         } }));
                         setStatus("");
-                      }} aria-label={`${row.name}${row.accountLabel || model.integrated && model.accountLabel ? ` · ${row.accountLabel ?? model.accountLabel}` : ""} / ${model.name} を選択`} className="h-5 w-5 shrink-0 accent-accent" />
+                      }} aria-label={`${row.name}${row.accountLabel || model.integrated && model.accountLabel ? ` · ${row.accountLabel ?? model.accountLabel}` : ""} / ${model.name} を選択`} className="peer sr-only" />
+                      <span aria-hidden="true" className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full peer-focus-visible:outline-2 peer-focus-visible:outline-accent sm:h-6">
+                        <span className={cx("relative h-6 w-11 rounded-full transition-colors", checked ? "bg-success" : "bg-surface-3")}>
+                          <span className={cx("absolute top-0.5 left-0.5 h-5 w-5 rounded-full bg-surface shadow transition-transform", checked && "translate-x-5")} />
+                        </span>
+                      </span>
                     </label>
+                    <span aria-hidden="true" className="hidden h-7 w-16 sm:block" />
                   </li>;
                 })}
               </ul>}
