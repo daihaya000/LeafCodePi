@@ -69,13 +69,77 @@ describe("JevModelSettings", () => {
     expect(screen.getByText(/次のJev判定から反映/)).toBeTruthy();
   });
 
-  it("reflects model-side disabled providers without changing them here", async () => {
+  it("shows shared provider switches and keeps disabled models unselectable", async () => {
     mocks.get.mockResolvedValue({ ...dto, models: [typesafe, { ...candidate, providerEnabled: false }] });
     await ready();
     expand("OpenRouter");
     expect(screen.getByText("無効")).toBeTruthy();
     expect((screen.getByRole("radio", { name: "OpenRouter · Main / Jev 1.13 を選択" }) as HTMLInputElement).disabled).toBe(true);
-    expect(screen.queryByRole("switch")).toBeNull();
+    expect(screen.getByRole("switch", { name: "OpenRouter · Main を有効化" }).getAttribute("aria-checked")).toBe("false");
+  });
+
+  it("enables a provider through the shared catalog without changing the Jev selection", async () => {
+    let current = { ...dto, models: [typesafe, { ...candidate, providerEnabled: false }] };
+    mocks.get.mockImplementation(async (path: string) => path === "/api/provider-models"
+      ? { providers: [{ id: "typesafe", models: [{ id: "regular" }] }, { id: "openrouter", accountId: "account-1", models: [{ id: "chat-model" }] }] }
+      : current);
+    mocks.send.mockImplementation(async (path: string) => {
+      if (path.includes("provider-models")) current = { ...current, models: [typesafe, candidate] };
+      return current;
+    });
+    await ready();
+    fireEvent.click(screen.getByRole("switch", { name: "OpenRouter · Main を有効化" }));
+    await waitFor(() => expect(screen.getByRole("switch", { name: "OpenRouter · Main を無効化" }).getAttribute("aria-checked")).toBe("true"));
+    expect(mocks.send).toHaveBeenCalledWith("/api/provider-models/openrouter", { enabled: true, modelIds: ["chat-model"], accountId: "account-1" }, "PATCH");
+    expect(mocks.send).not.toHaveBeenCalledWith("/api/jev-model", expect.anything(), "PUT");
+    expand("OpenRouter");
+    expect((screen.getByRole("radio", { name: "OpenRouter · Main / Jev 1.13 を選択" }) as HTMLInputElement).disabled).toBe(false);
+  });
+
+  it("persists provider and model ordering through the shared catalog", async () => {
+    const second = { ...candidate, modelId: "typesafe/jev-1.14", name: "Jev 1.14" };
+    let current = { ...dto, models: [typesafe, candidate, second] };
+    mocks.get.mockImplementation(async (path: string) => path === "/api/provider-models"
+      ? { providers: [{ id: "typesafe", models: [{ id: "regular" }] }, { id: "openrouter", accountId: "account-1", models: [{ id: "chat-model" }] }] }
+      : current);
+    mocks.send.mockImplementation(async (path: string, body: { providerOrder?: string[]; accountModelOrder?: Record<string, Record<string, string[]>> }) => {
+      if (path === "/api/provider-models/order") {
+        current = { ...current, models: body.providerOrder
+          ? [candidate, second, typesafe]
+          : [typesafe, second, candidate] };
+      }
+      return current;
+    });
+    await ready();
+    fireEvent.click(screen.getByRole("button", { name: "OpenRouter を上へ" }));
+    await waitFor(() => expect(mocks.send).toHaveBeenCalledWith("/api/provider-models/order", { providerOrder: ["account-1::openrouter", "typesafe"] }, "PATCH"));
+    await waitFor(() => expect(screen.getAllByRole("switch")[0].getAttribute("aria-label")).toContain("OpenRouter"));
+    expand("OpenRouter");
+    fireEvent.click(screen.getByRole("button", { name: "OpenRouter の Jev 1.14 を上へ" }));
+    await waitFor(() => expect(mocks.send).toHaveBeenCalledWith("/api/provider-models/order", { accountModelOrder: { "account-1": { openrouter: ["chat-model", "typesafe/jev-1.14", "typesafe/jev-1.13"] } } }, "PATCH"));
+  });
+
+  it("supports drag-and-drop reordering as well as arrow buttons", async () => {
+    mocks.get.mockImplementation(async (path: string) => path === "/api/provider-models"
+      ? { providers: [{ id: "typesafe", models: [] }, { id: "openrouter", accountId: "account-1", models: [] }] }
+      : dto);
+    await ready();
+    const source = screen.getByRole("button", { name: "TypeSafe のモデルを展開" }).closest("li")!;
+    const target = screen.getByRole("button", { name: "OpenRouter のモデルを展開" }).closest("li")!;
+    fireEvent.dragStart(source, { dataTransfer: { effectAllowed: "move" } });
+    fireEvent.dragOver(target);
+    fireEvent.drop(target);
+    await waitFor(() => expect(mocks.send).toHaveBeenCalledWith("/api/provider-models/order", { providerOrder: ["account-1::openrouter", "typesafe"] }, "PATCH"));
+  });
+
+  it("reorders Jev-only providers absent from the ordinary chat catalog", async () => {
+    const documented = { providerId: "commandcode", providerName: "Command Code", modelId: "typesafe/jev", name: "Jev", baseUrl: "https://api.commandcode.ai/provider/v1", source: "documented" };
+    mocks.get.mockImplementation(async (path: string) => path === "/api/provider-models"
+      ? { providers: [{ id: "typesafe", models: [{ id: "regular" }] }, { id: "openrouter", accountId: "account-1", models: [{ id: "chat-model" }] }] }
+      : { ...dto, models: [documented, typesafe, candidate] });
+    await ready();
+    fireEvent.click(screen.getByRole("button", { name: "Command Code を下へ" }));
+    await waitFor(() => expect(mocks.send).toHaveBeenCalledWith("/api/provider-models/order", { providerOrder: ["typesafe", "commandcode", "account-1::openrouter"] }, "PATCH"));
   });
 
   it("groups integrated accounts under one provider while retaining account-specific selection", async () => {

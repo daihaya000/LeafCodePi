@@ -1,7 +1,10 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Badge, Button, cx } from "@/components/ui";
+import { GripVertical } from "lucide-react";
+import { Badge, Button, Switch, cx } from "@/components/ui";
+import { ReorderButtons } from "@/components/settings/ProviderModelsPanel";
+import type { ProviderModelsRow } from "@/lib/provider-models";
 import { ProviderIcon } from "@/components/ProviderIcon";
 import { getJson, sendJson } from "@/lib/client";
 import { jevModelKey, type JevCatalogModel } from "@/lib/jev-model-catalog";
@@ -13,15 +16,28 @@ import {
 
 const inputClass = "h-10 w-full rounded-lg border border-border bg-surface px-3 text-sm text-text outline-none focus:border-accent";
 
-type ProviderRow = { key: string; id: string; name: string; accountLabel?: string; enabled: boolean; models: JevCatalogModel[] };
+type ProviderRow = { key: string; id: string; name: string; accountId?: string; accountLabel?: string; enabled: boolean; models: JevCatalogModel[] };
+
+function moveItem<T>(items: T[], from: number, to: number): T[] {
+  if (from < 0 || to < 0 || from === to) return items;
+  const next = [...items];
+  const [item] = next.splice(from, 1);
+  if (item === undefined) return items;
+  next.splice(to, 0, item);
+  return next;
+}
+
+function providerKey(row: { id: string; accountId?: string }): string {
+  return row.accountId ? `${row.accountId}::${row.id}` : row.id;
+}
 
 function providerRows(models: JevCatalogModel[]): ProviderRow[] {
   const rows = new Map<string, ProviderRow>();
   for (const model of models) {
-    const key = model.integrated ? model.providerId : JSON.stringify([model.accountId ?? null, model.providerId]);
+    const key = model.integrated ? model.providerId : providerKey({ id: model.providerId, accountId: model.accountId });
     let row = rows.get(key);
     if (!row) {
-      row = { key, id: model.providerId, name: model.providerName, ...(model.integrated ? {} : { accountLabel: model.accountLabel }), enabled: model.providerEnabled !== false, models: [] };
+      row = { key, id: model.providerId, name: model.providerName, ...(model.integrated ? {} : { accountId: model.accountId, accountLabel: model.accountLabel }), enabled: model.providerEnabled !== false, models: [] };
       rows.set(key, row);
     }
     row.models.push(model);
@@ -37,7 +53,7 @@ function selectedModelKey(settings: Settings, models: JevCatalogModel[]): string
   return undefined;
 }
 
-export function JevModelSettings({ refreshToken = 0 }: { refreshToken?: number }) {
+export function JevModelSettings({ refreshToken = 0, onProviderCatalogChange }: { refreshToken?: number; onProviderCatalogChange?: () => void }) {
   const [settings, setSettings] = useState<Settings>({ ...DEFAULT_JEV_MODEL_SETTINGS });
   const [saved, setSaved] = useState<JevModelSettingsDto | null>(null);
   const [busy, setBusy] = useState(false);
@@ -45,6 +61,7 @@ export function JevModelSettings({ refreshToken = 0 }: { refreshToken?: number }
   const [status, setStatus] = useState("");
   const [query, setQuery] = useState("");
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
+  const [dragging, setDragging] = useState<{ rowKey: string; modelKey?: string } | null>(null);
   const loaded = useRef(false);
   const generation = useRef(0);
 
@@ -76,6 +93,61 @@ export function JevModelSettings({ refreshToken = 0 }: { refreshToken?: number }
       : row.models;
     return matches.length ? [{ row, models: matches, open: expanded.has(row.key) || Boolean(searchTerm) }] : [];
   });
+
+  async function changeCatalog(action: (providers: ProviderModelsRow[]) => Promise<void>) {
+    setBusy(true);
+    setError(null);
+    setStatus("");
+    try {
+      const { providers } = await getJson<{ providers: ProviderModelsRow[] }>("/api/provider-models");
+      await action(providers);
+      onProviderCatalogChange?.();
+      setSaved(await getJson<JevModelSettingsDto>("/api/jev-model"));
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "モデル設定を変更できません");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function toggleProvider(row: ProviderRow) {
+    void changeCatalog(async (providers) => {
+      const provider = providers.find((item) => providerKey(item) === row.key);
+      await sendJson(`/api/provider-models/${encodeURIComponent(row.id)}`, {
+        enabled: !row.enabled,
+        ...(!row.enabled ? { modelIds: provider?.models.map((model) => model.id) ?? [] } : {}),
+        ...(row.accountId ? { accountId: row.accountId } : {}),
+      }, "PATCH");
+    });
+  }
+
+  function moveRow(row: ProviderRow, target: ProviderRow) {
+    if (row.key === target.key) return;
+    void changeCatalog(async (providers) => {
+      const order = providers.map(providerKey);
+      for (const [index, item] of rows.entries()) {
+        if (order.includes(item.key)) continue;
+        const next = rows.slice(index + 1).find((candidate) => order.includes(candidate.key));
+        order.splice(next ? order.indexOf(next.key) : order.length, 0, item.key);
+      }
+      const next = moveItem(order, order.indexOf(row.key), order.indexOf(target.key));
+      await sendJson("/api/provider-models/order", { providerOrder: next }, "PATCH");
+    });
+  }
+
+  function moveModel(row: ProviderRow, model: JevCatalogModel, target: JevCatalogModel) {
+    if (model.accountId !== target.accountId || jevModelKey(model) === jevModelKey(target)) return;
+    void changeCatalog(async (providers) => {
+      const provider = providers.find((item) => providerKey(item) === (model.integrated ? row.id : row.key));
+      const modelIds = provider?.models.map((item) => item.id) ?? [];
+      const sameAccount = row.models.filter((item) => item.accountId === model.accountId);
+      const next = moveItem(sameAccount, sameAccount.findIndex((item) => jevModelKey(item) === jevModelKey(model)), sameAccount.findIndex((item) => jevModelKey(item) === jevModelKey(target)));
+      const order = [...modelIds, ...next.map((item) => item.modelId)];
+      await sendJson("/api/provider-models/order", model.accountId
+        ? { accountModelOrder: { [model.accountId]: { [row.id]: order } } }
+        : { modelOrder: { [row.id]: order } }, "PATCH");
+    });
+  }
 
   async function refreshModels() {
     const request = ++generation.current;
@@ -118,7 +190,7 @@ export function JevModelSettings({ refreshToken = 0 }: { refreshToken?: number }
         <div>
           <h3 className="mb-1 text-sm font-semibold">Jevモデル</h3>
           <p className="text-xs text-muted">
-            Jev判定の使用先を選びます。接続先・認証・有効状態は<a href="#models-providers" className="text-accent hover:underline">プロバイダー接続</a>と<a href="#models-catalog" className="text-accent hover:underline">モデル</a>で管理します。Composerには表示しません。
+            Jev判定の使用先を選びます。接続先・認証は<a href="#models-providers" className="text-accent hover:underline">プロバイダー接続</a>、有効状態・表示順はモデル一覧と共通です。Composerには表示しません。
             {saved && `（${rows.length} モデル枠・${models.length} モデル）`}
           </p>
         </div>
@@ -134,10 +206,18 @@ export function JevModelSettings({ refreshToken = 0 }: { refreshToken?: number }
       <form onSubmit={(event) => { event.preventDefault(); void save(); }}>
         <fieldset disabled={!saved || busy} className="space-y-4">
           <ul className="space-y-3">
-            {visibleRows.map(({ row, models: matchingModels, open }, index) => <li key={row.key} className="space-y-2">
+            {visibleRows.map(({ row, models: matchingModels, open }, index) => <li key={row.key} className="space-y-2" draggable={!busy && !searchTerm} onDragStart={(event) => {
+              event.dataTransfer.effectAllowed = "move";
+              setDragging({ rowKey: row.key });
+            }} onDragOver={(event) => event.preventDefault()} onDrop={(event) => {
+              event.preventDefault();
+              const source = rows.find((item) => item.key === dragging?.rowKey);
+              if (source && !dragging?.modelKey && !searchTerm) moveRow(source, row);
+              setDragging(null);
+            }}>
               <div className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 rounded-xl border border-border bg-surface px-4 py-3 sm:grid-cols-[auto_minmax(0,1fr)_auto_auto]">
                 <div className="flex items-center gap-1">
-                  <span aria-hidden="true" className="h-4 w-4 shrink-0" />
+                  <GripVertical aria-hidden="true" className="h-4 w-4 shrink-0 cursor-grab text-muted" />
                   <button type="button" aria-expanded={open} aria-controls={`jev-models-${index}`} aria-label={`${row.name} のモデルを${open ? "折りたたむ" : "展開"}`} disabled={Boolean(searchTerm)} onClick={() => setExpanded((current) => {
                     const next = new Set(current);
                     if (next.has(row.key)) next.delete(row.key); else next.add(row.key);
@@ -157,12 +237,11 @@ export function JevModelSettings({ refreshToken = 0 }: { refreshToken?: number }
                     <Badge tone={row.enabled ? "success" : "neutral"}>{row.enabled ? "有効" : "無効"}</Badge>
                   </div>
                 </div>
-                <span aria-hidden="true" title="有効状態はモデル側で管理" className="inline-flex h-11 w-11 items-center justify-center rounded-full sm:h-6">
-                  <span className={cx("relative h-6 w-11 rounded-full", row.enabled ? "bg-success" : "bg-surface-3")}>
-                    <span className={cx("absolute top-0.5 left-0.5 h-5 w-5 rounded-full bg-surface shadow", row.enabled && "translate-x-5")} />
-                  </span>
-                </span>
-                <span aria-hidden="true" className="hidden h-7 w-16 sm:block" />
+                <Switch checked={row.enabled} onChange={() => toggleProvider(row)} label={`${row.name}${row.accountLabel ? ` · ${row.accountLabel}` : ""} を${row.enabled ? "無効化" : "有効化"}`} busy={busy} />
+                <ReorderButtons label={row.name} index={rows.findIndex((item) => item.key === row.key)} count={rows.length} busy={busy || Boolean(searchTerm)} onMove={(direction) => {
+                  const target = rows[rows.findIndex((item) => item.key === row.key) + direction];
+                  if (target) moveRow(row, target);
+                }} className="col-start-2 col-span-2 row-start-2 justify-self-end sm:col-start-4 sm:col-span-1 sm:row-start-1" />
               </div>
               {open && <ul id={`jev-models-${index}`} className="space-y-2">
                 {matchingModels.map((model) => {
@@ -170,11 +249,27 @@ export function JevModelSettings({ refreshToken = 0 }: { refreshToken?: number }
                   const checked = settings.provider === "typesafe" ? model.providerId === "typesafe" && model.modelId === selectedKey : key === selectedKey;
                   const active = saved?.settings.provider === "typesafe" ? model.providerId === "typesafe" && model.modelId === savedKey : key === savedKey;
                   const modelEnabled = model.providerEnabled !== false;
-                  return <li key={key} className={cx(
-                    "ml-4 grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 rounded-xl border border-border border-l-2 border-l-border bg-surface px-4 py-3 sm:flex sm:items-center sm:gap-3",
+                  const siblingModels = row.models.filter((item) => item.accountId === model.accountId);
+                  const modelIndex = siblingModels.findIndex((item) => jevModelKey(item) === key);
+                  const targetIndex = (direction: -1 | 1) => {
+                    const target = siblingModels[modelIndex + direction];
+                    if (target) moveModel(row, model, target);
+                  };
+                  return <li key={key} draggable={!busy && !searchTerm && row.enabled} onDragStart={(event) => {
+                    event.stopPropagation();
+                    event.dataTransfer.effectAllowed = "move";
+                    setDragging({ rowKey: row.key, modelKey: key });
+                  }} onDragOver={(event) => event.preventDefault()} onDrop={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    const source = row.models.find((item) => jevModelKey(item) === dragging?.modelKey);
+                    if (source && dragging?.rowKey === row.key && !searchTerm) moveModel(row, source, model);
+                    setDragging(null);
+                  }} className={cx(
+                    "ml-4 grid grid-cols-[auto_minmax(0,1fr)_auto] items-start gap-x-3 gap-y-2 rounded-xl border border-border border-l-2 border-l-border bg-surface px-4 py-3 sm:flex sm:items-center sm:gap-3",
                     !modelEnabled && "opacity-50",
                   )}>
-                    <span aria-hidden="true" className="h-4 w-4 shrink-0" />
+                    <GripVertical aria-hidden="true" className="mt-1 h-4 w-4 shrink-0 cursor-grab text-muted sm:mt-0" />
                     <label className={cx("col-span-2 flex min-w-0 flex-1 items-center gap-3 sm:col-auto", modelEnabled ? "cursor-pointer" : "cursor-not-allowed")}>
                       <span className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
                         <span className="min-w-0 truncate text-sm font-medium">{model.name}</span>
@@ -195,7 +290,7 @@ export function JevModelSettings({ refreshToken = 0 }: { refreshToken?: number }
                         </span>
                       </span>
                     </label>
-                    <span aria-hidden="true" className="hidden h-7 w-16 sm:block" />
+                    <ReorderButtons label={`${row.name} の ${model.name}`} index={modelIndex} count={siblingModels.length} busy={busy || Boolean(searchTerm)} onMove={targetIndex} className="col-start-3 row-start-2 justify-self-end sm:col-auto sm:row-auto" />
                   </li>;
                 })}
               </ul>}

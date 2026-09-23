@@ -185,11 +185,13 @@ describe("getRuntimeFor", () => {
     };
     const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ data: [
       { id: "typesafe/jev-1.13", name: "Jev", architecture: { output_modalities: ["decisions"] } },
+      { id: "typesafe/jev-1.14", name: "Jev 1.14", architecture: { output_modalities: ["decisions"] } },
     ] })));
     vi.stubGlobal("fetch", fetchMock);
     const models = await listJevModels(true);
     assert.deepEqual(models.map(({ accountId, providerId, modelId }) => ({ accountId, providerId, modelId })), [
       { accountId: account.id, providerId: "openrouter", modelId: "typesafe/jev-1.13" },
+      { accountId: account.id, providerId: "openrouter", modelId: "typesafe/jev-1.14" },
     ]);
     assert.deepEqual(await resolveRegisteredJevModel(models[0]), {
       baseUrl: "https://openrouter.ai/api/v1", model: "typesafe/jev-1.13",
@@ -198,6 +200,8 @@ describe("getRuntimeFor", () => {
     assert.equal(fetchMock.mock.calls.length, 1);
     await setAccountRoutingMode("openrouter", "integrated");
     assert.equal((await listJevModels())[0]?.integrated, true);
+    await saveProviderModelsOrder({ accountModelOrder: { [account.id]: { openrouter: ["typesafe/jev-1.14", "typesafe/jev-1.13"] } } });
+    assert.deepEqual((await listJevModels()).map((model) => model.modelId), ["typesafe/jev-1.14", "typesafe/jev-1.13"]);
     await setProviderModelDisabled("openrouter", true, account.id);
     assert.equal((await listJevModels())[0]?.providerEnabled, false);
     await assert.rejects(resolveRegisteredJevModel(models[0]), /モデル設定で無効/);

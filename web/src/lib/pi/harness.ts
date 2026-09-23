@@ -4832,7 +4832,15 @@ export async function listJevModels(refresh = false): Promise<JevCatalogModel[]>
     }))
     .sort((a, b) => {
       const rank = (model: JevCatalogModel) => order.get(accountProviderModelKey(model.providerId, model.accountId)) ?? order.get(model.providerId) ?? Number.MAX_SAFE_INTEGER;
-      return rank(a.model) - rank(b.model) || a.index - b.index;
+      const providerRank = rank(a.model) - rank(b.model);
+      if (providerRank) return providerRank;
+      if (accountProviderModelKey(a.model.providerId, a.model.accountId) !== accountProviderModelKey(b.model.providerId, b.model.accountId)) return a.index - b.index;
+      const modelRank = (model: JevCatalogModel) => {
+        const ids = state.modelOrder[accountProviderModelKey(model.providerId, model.accountId)] ?? state.modelOrder[model.providerId] ?? [];
+        const index = ids.indexOf(model.modelId);
+        return index < 0 ? Number.MAX_SAFE_INTEGER : index;
+      };
+      return modelRank(a.model) - modelRank(b.model) || a.index - b.index;
     })
     .map(({ model }) => model);
 }

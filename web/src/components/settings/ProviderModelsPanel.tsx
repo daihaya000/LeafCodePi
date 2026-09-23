@@ -122,7 +122,7 @@ function moveItem<T>(items: T[], from: number, to: number): T[] {
   return next;
 }
 
-function ReorderButtons({
+export function ReorderButtons({
   label,
   index,
   count,
