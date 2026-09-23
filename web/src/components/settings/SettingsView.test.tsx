@@ -18,7 +18,7 @@ vi.mock("@/components/settings/LlamaServerSettings", () => ({
   LlamaServerSettings: () => <h3>ローカル LLM</h3>,
 }));
 vi.mock("@/components/settings/ProviderModelsPanel", () => ({
-  ProviderModelsPanel: () => <h3>モデル</h3>,
+  ProviderModelsPanel: ({ refreshToken }: { refreshToken: number }) => <><h3>モデル</h3><span data-testid="catalog-revision">{refreshToken}</span></>,
 }));
 vi.mock("@/components/settings/ProviderAuthPanel", () => ({
   ProviderAuthPanel: ({
@@ -36,7 +36,10 @@ vi.mock("@/components/settings/ProviderAuthPanel", () => ({
   ),
 }));
 vi.mock("@/components/settings/JevModelSettings", () => ({
-  JevModelSettings: () => <h3>Jevモデル</h3>,
+  JevModelSettings: ({ refreshToken, onProviderCatalogChange }: { refreshToken: number; onProviderCatalogChange: () => void }) => <>
+    <h3>Jevモデル</h3><span data-testid="jev-revision">{refreshToken}</span>
+    <button type="button" onClick={onProviderCatalogChange}>Jevカタログ変更</button>
+  </>,
 }));
 vi.mock("@/components/settings/GenerationModelSettings", () => ({
   GenerationModelSettings: () => <h3>生成モデル</h3>,
@@ -167,6 +170,19 @@ describe("SettingsView", () => {
     const modelSettings = document.getElementById("models-auto");
     expect(modelSettings?.parentElement?.className).toContain("space-y-4");
     expect(modelSettings?.parentElement?.className).not.toContain("xl:grid-cols-2");
+  });
+
+  it("Jev操作では共有カタログだけを更新し、Jevの再取得を重複させない", () => {
+    render(<SettingsView />);
+    fireEvent.click(screen.getByRole("tab", { name: /^モデルタブ$/ }));
+    expect(screen.getByTestId("catalog-revision").textContent).toBe("0");
+    expect(screen.getByTestId("jev-revision").textContent).toBe("0");
+    fireEvent.click(screen.getByRole("button", { name: "Jevカタログ変更" }));
+    expect(screen.getByTestId("catalog-revision").textContent).toBe("1");
+    expect(screen.getByTestId("jev-revision").textContent).toBe("0");
+    fireEvent.click(screen.getByRole("button", { name: "プロバイダー変更を反映" }));
+    expect(screen.getByTestId("catalog-revision").textContent).toBe("2");
+    expect(screen.getByTestId("jev-revision").textContent).toBe("1");
   });
 
   it("#models-jevからモデルタブのJev専用設定を開く", () => {

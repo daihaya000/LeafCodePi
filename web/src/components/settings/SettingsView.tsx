@@ -130,7 +130,9 @@ export function SettingsView() {
   const [health, setHealth] = useState<HealthDto | null>(null);
   const [providers, setProviders] = useState<ProviderAuthDto[]>([]);
   const [modelsRevision, setModelsRevision] = useState(0);
+  const [catalogRevision, setCatalogRevision] = useState(0);
   const [jevRevision, setJevRevision] = useState(0);
+  const sharedRevision = modelsRevision + catalogRevision;
   const [error, setError] = useState<string | null>(null);
   const reloadGenerationRef = useRef(0);
 
@@ -394,13 +396,13 @@ export function SettingsView() {
                 description="利用可能なモデルの有効状態と表示順を管理します。"
               >
                 <div id="models-catalog" className="scroll-mt-24 rounded-2xl border border-border bg-surface p-4">
-                  <ProviderModelsPanel refreshToken={modelsRevision} onProviderCatalogChange={() => setJevRevision((revision) => revision + 1)} />
+                  <ProviderModelsPanel refreshToken={sharedRevision} onProviderCatalogChange={() => setJevRevision((revision) => revision + 1)} />
                 </div>
               </SettingsGroup>
 
               <SettingsGroup id="models-jev-heading" title="Jevモデル">
                 <div id="models-jev" className="scroll-mt-24 rounded-2xl border border-border bg-surface p-4">
-                  <JevModelSettings refreshToken={modelsRevision + jevRevision} onProviderCatalogChange={() => setModelsRevision((revision) => revision + 1)} />
+                  <JevModelSettings refreshToken={modelsRevision + jevRevision} onProviderCatalogChange={() => setCatalogRevision((revision) => revision + 1)} />
                 </div>
               </SettingsGroup>
 
@@ -410,13 +412,13 @@ export function SettingsView() {
                 description="起動時の既定値、送信プロンプト、自動ルーティングと、タイトル・提案などに使う生成モデルを設定します。"
               >
                 <div className="space-y-4">
-                  <ComposerDefaultsSettings refreshToken={modelsRevision} />
+                  <ComposerDefaultsSettings refreshToken={sharedRevision} />
                   <ComposerPromptPresetsSettings />
                   <div id="models-auto" className="scroll-mt-24">
-                    <AutoModelSettings refreshToken={modelsRevision} />
+                    <AutoModelSettings refreshToken={sharedRevision} />
                   </div>
                   <div id="models-generation" className="scroll-mt-24">
-                    <GenerationModelSettings refreshToken={modelsRevision} />
+                    <GenerationModelSettings refreshToken={sharedRevision} />
                   </div>
                   <div id="models-session-labels" className="scroll-mt-24">
                     <SessionLabelSettings />
