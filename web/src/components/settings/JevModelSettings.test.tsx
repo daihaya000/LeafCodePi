@@ -72,6 +72,22 @@ describe("JevModelSettings", () => {
     expect(screen.queryByRole("switch")).toBeNull();
   });
 
+  it("groups integrated accounts under one provider while retaining account-specific selection", async () => {
+    const second = { ...candidate, accountId: "account-2", accountLabel: "Private", providerEnabled: false, integrated: true };
+    mocks.get.mockResolvedValue({ ...dto, models: [typesafe, { ...candidate, integrated: true }, second] });
+    await ready();
+    expect(screen.getAllByRole("button", { name: "OpenRouter のモデルを展開" })).toHaveLength(1);
+    expand("OpenRouter");
+    expect(screen.getByText("アカウント: Main")).toBeTruthy();
+    expect(screen.getByText("アカウント: Private")).toBeTruthy();
+    expect((screen.getByRole("radio", { name: "OpenRouter · Private / Jev 1.13 を選択" }) as HTMLInputElement).disabled).toBe(true);
+    fireEvent.click(screen.getByRole("radio", { name: "OpenRouter · Main / Jev 1.13 を選択" }));
+    fireEvent.click(screen.getByRole("button", { name: "Jevモデルを保存" }));
+    await waitFor(() => expect(mocks.send).toHaveBeenCalledWith("/api/jev-model", {
+      settings: { ...DEFAULT_JEV_MODEL_SETTINGS, provider: "registered", registeredModel: { providerId: "openrouter", modelId: "typesafe/jev-1.13", accountId: "account-1" } },
+    }, "PUT"));
+  });
+
   it("refreshes candidates without overwriting an unsaved choice", async () => {
     const documented = { providerId: "commandcode", providerName: "Command Code", modelId: "typesafe/jev", name: "Jev", baseUrl: "https://api.commandcode.ai/provider/v1", source: "documented" };
     mocks.get.mockResolvedValueOnce(dto).mockResolvedValueOnce({ ...dto, models: [typesafe, candidate, documented] });

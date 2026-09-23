@@ -336,10 +336,10 @@ describe("ProviderModelsPanel account model settings", () => {
   });
 
   it("refreshes Jev provider state only after a provider toggle is saved", async () => {
-    const onProviderEnabledChange = vi.fn();
-    render(<ProviderModelsPanel onProviderEnabledChange={onProviderEnabledChange} />);
+    const onProviderCatalogChange = vi.fn();
+    render(<ProviderModelsPanel onProviderCatalogChange={onProviderCatalogChange} />);
     fireEvent.click(await screen.findByRole("switch", { name: "Ollama Cloud を無効化" }));
-    await waitFor(() => expect(onProviderEnabledChange).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(onProviderCatalogChange).toHaveBeenCalledTimes(1));
   });
 
   it("sends all child models as disabled when enabling a provider", async () => {
@@ -390,7 +390,8 @@ describe("ProviderModelsPanel account model settings", () => {
   });
 
   it("moves account rows in the same list as shared providers with buttons", async () => {
-    render(<ProviderModelsPanel />);
+    const onProviderCatalogChange = vi.fn();
+    render(<ProviderModelsPanel onProviderCatalogChange={onProviderCatalogChange} />);
     await screen.findByRole("heading", { name: "モデル" });
 
     expect(
@@ -413,6 +414,7 @@ describe("ProviderModelsPanel account model settings", () => {
     expect(screen.getByRole("status").textContent).toContain(
       "OpenAI Codex · 仕事用を1番目へ移動しました",
     );
+    await waitFor(() => expect(onProviderCatalogChange).toHaveBeenCalledTimes(1));
   });
 
   it("saves model order under the selected account with buttons", async () => {

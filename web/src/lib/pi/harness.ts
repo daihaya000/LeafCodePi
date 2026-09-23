@@ -4818,10 +4818,16 @@ export async function listJevModels(refresh = false): Promise<JevCatalogModel[]>
     } catch { return []; }
   }));
   const state = readProviderModelState();
+  const routingState = readProviderRouting();
   const order = new Map(state.providerOrder.map((key, index) => [key, index]));
   return [...await shared, ...groups.flat()]
     .map((model, index) => ({
-      model: { ...model, providerEnabled: !isProviderDisabled(model.providerId, state, model.accountId) },
+      model: {
+        ...model,
+        providerEnabled: !isProviderDisabled(model.providerId, state, model.accountId),
+        ...(model.accountId && isAccountRoutingProvider(model.providerId) && accountRoutingMode(model.providerId, routingState) === "integrated"
+          ? { integrated: true } : {}),
+      },
       index,
     }))
     .sort((a, b) => {

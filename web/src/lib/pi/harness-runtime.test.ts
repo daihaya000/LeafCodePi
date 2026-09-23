@@ -196,6 +196,8 @@ describe("getRuntimeFor", () => {
       apiKey: "account-test-key", headers: {},
     });
     assert.equal(fetchMock.mock.calls.length, 1);
+    await setAccountRoutingMode("openrouter", "integrated");
+    assert.equal((await listJevModels())[0]?.integrated, true);
     await setProviderModelDisabled("openrouter", true, account.id);
     assert.equal((await listJevModels())[0]?.providerEnabled, false);
     await assert.rejects(resolveRegisteredJevModel(models[0]), /モデル設定で無効/);

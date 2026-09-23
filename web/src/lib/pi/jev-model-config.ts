@@ -56,6 +56,32 @@ export async function resolveJevModelConnection(settings: JevModelSettings): Pro
   return { ...jevModelEndpoint(settings), apiKey: await readJevApiKey(settings) };
 }
 
+const LEGACY_JEV_CREDENTIAL_ID = /^jev-compatible-[0-9a-f]{64}$/;
+
+/** Enumerate legacy-only credentials without exposing their keys or full endpoint paths. */
+export async function listLegacyJevCredentials(): Promise<Array<{ providerId: string; label: string; active: boolean }>> {
+  const runtime = await ModelRuntime.create({ refreshOnCreate: false });
+  const settings = readJevModelSettings();
+  const currentId = settings.compatibleBaseUrl
+    ? jevCredentialProviderId({ ...settings, provider: "compatible" }) : null;
+  return (await runtime.listCredentials())
+    .filter(({ providerId }) => LEGACY_JEV_CREDENTIAL_ID.test(providerId))
+    .map(({ providerId }) => ({
+      providerId,
+      label: providerId === currentId ? new URL(settings.compatibleBaseUrl).host : `旧接続先 ${providerId.slice(-8)}`,
+      active: settings.provider === "compatible" && providerId === currentId,
+    }));
+}
+
+export async function deleteLegacyJevCredential(providerId: string): Promise<void> {
+  if (!LEGACY_JEV_CREDENTIAL_ID.test(providerId)) throw new Error("旧Jev互換キーの指定が不正です");
+  const runtime = await ModelRuntime.create({ refreshOnCreate: false });
+  if (!(await runtime.listCredentials()).some((credential) => credential.providerId === providerId)) {
+    throw new Error("旧Jev互換キーが見つかりません");
+  }
+  await runtime.logout(providerId);
+}
+
 export async function getJevModelSettingsDto(): Promise<JevModelSettingsDto> {
   const settings = readJevModelSettings();
   const runtime = await credentialRuntime(settings);

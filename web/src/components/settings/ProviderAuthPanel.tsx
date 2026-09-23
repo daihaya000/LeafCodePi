@@ -1988,6 +1988,7 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
             );
           })}
         </ul>
+        <LegacyJevCredentialControl onChanged={onChanged} />
       </div>
 
       {login && (
@@ -2286,6 +2287,49 @@ function ProviderRow({
       )}
     </li>
   );
+}
+
+function LegacyJevCredentialControl({ onChanged }: { onChanged: () => void }) {
+  type LegacyCredential = { providerId: string; label: string; active: boolean };
+  const [credentials, setCredentials] = useState<LegacyCredential[]>([]);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    void getJson<{ credentials: LegacyCredential[] }>("/api/jev-model/legacy-credentials")
+      .then((result) => { if (active) setCredentials(result.credentials ?? []); })
+      .catch(() => { if (active) setError("旧Jev互換キーを取得できません"); });
+    return () => { active = false; };
+  }, []);
+
+  async function remove(credential: LegacyCredential) {
+    if (!window.confirm(`${credential.label} の旧Jev互換キーを削除しますか？${credential.active ? " 認証が必要なJev接続先では利用できなくなります。" : ""}`)) return;
+    setBusy(credential.providerId);
+    setError(null);
+    try {
+      const result = await sendJson<{ credentials: LegacyCredential[] }>(
+        "/api/jev-model/legacy-credentials", { providerId: credential.providerId }, "DELETE",
+      );
+      setCredentials(result.credentials);
+      onChanged();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "旧Jev互換キーを削除できません");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  if (credentials.length === 0 && !error) return null;
+  return <div className="mt-3 space-y-2 rounded-xl border border-border bg-surface p-3">
+    <h4 className="text-sm font-medium">旧Jev互換APIキー</h4>
+    <p className="text-xs text-muted">以前Jev専用画面に登録したキーです。接続先はプロバイダー側で管理してください。</p>
+    {credentials.map((credential) => <div key={credential.providerId} className="flex flex-wrap items-center justify-between gap-2 text-xs">
+      <span>{credential.label}{credential.active ? "（Jevで使用中）" : ""}</span>
+      <Button type="button" variant="ghost" size="sm" aria-label={`${credential.label} のキーを削除`} disabled={busy !== null} onClick={() => void remove(credential)}>キーを削除</Button>
+    </div>)}
+    {error && <p role="alert" className="text-xs text-danger">{error}</p>}
+  </div>;
 }
 
 /** 共有 TypeSafe プロバイダーの実残高用 Console cookie。本文は一切再表示しない。 */

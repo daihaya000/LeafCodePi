@@ -383,10 +383,10 @@ function ProviderRow({
 
 export function ProviderModelsPanel({
   refreshToken = 0,
-  onProviderEnabledChange,
+  onProviderCatalogChange,
 }: {
   refreshToken?: number;
-  onProviderEnabledChange?: () => void;
+  onProviderCatalogChange?: () => void;
 }) {
   const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
   const [providers, setProviders] = useState<ProviderModelsRow[]>([]);
@@ -510,7 +510,7 @@ export function ProviderModelsPanel({
           },
           "PATCH",
         );
-        if (modelId === undefined) onProviderEnabledChange?.();
+        if (modelId === undefined) onProviderCatalogChange?.();
       } catch (err) {
         if (mountedRef.current) {
           setActionError(err instanceof ApiError ? err.message : String(err));
@@ -520,7 +520,7 @@ export function ProviderModelsPanel({
         if (mountedRef.current) setBusyId(null);
       }
     },
-    [load, onProviderEnabledChange],
+    [load, onProviderCatalogChange],
   );
 
   const saveOrder = useCallback((nextProviders: ProviderModelsRow[]) => {
@@ -552,6 +552,7 @@ export function ProviderModelsPanel({
           },
           "PATCH",
         );
+        onProviderCatalogChange?.();
       } catch (err) {
         setActionError(err instanceof ApiError ? err.message : String(err));
         void load();
@@ -565,7 +566,7 @@ export function ProviderModelsPanel({
       orderPendingRef.current -= 1;
       if (mountedRef.current && orderPendingRef.current === 0) setOrderSaving(false);
     });
-  }, [load]);
+  }, [load, onProviderCatalogChange]);
 
   // 並び替えは現在の providers を直接参照して次の配列を計算し、setProviders は
   // 確定した値を一度だけ渡す。updater関数内で saveOrder/setReorderAnnouncement を呼ぶと、

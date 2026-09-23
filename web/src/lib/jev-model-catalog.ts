@@ -12,6 +12,8 @@ export type JevCatalogModel = JevModelRef & {
   source: "catalog" | "documented";
   /** Shared provider state from the ordinary model catalog. */
   providerEnabled?: boolean;
+  /** Account routing groups provider cards, but selected models keep their account ids. */
+  integrated?: boolean;
 };
 
 export function jevModelKey(model: JevModelRef): string {

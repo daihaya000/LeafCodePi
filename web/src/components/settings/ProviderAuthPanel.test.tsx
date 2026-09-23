@@ -199,6 +199,23 @@ async function accountRegion(name: string) {
 }
 
 describe("ProviderAuthPanel provider-scoped accounts", () => {
+  it("removes legacy Jev keys from provider connections, including inactive endpoints", async () => {
+    const providerId = `jev-compatible-${"a".repeat(64)}`;
+    const onChanged = vi.fn();
+    fetchMock.mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input).endsWith("/api/jev-model/legacy-credentials")) {
+        return Promise.resolve(jsonResponse({ credentials: (init?.method ?? "GET") === "DELETE" ? [] : [{ providerId, label: "旧接続先 aaaaaaaa", active: false }] }));
+      }
+      return Promise.resolve(jsonResponse({}));
+    });
+    confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+    render(<ProviderAuthPanel providers={[]} onChanged={onChanged} />);
+    fireEvent.click(await screen.findByRole("button", { name: "旧接続先 aaaaaaaa のキーを削除" }));
+    await waitFor(() => expect(onChanged).toHaveBeenCalledOnce());
+    expect(fetchMock.mock.calls.some(([input, init]) => String(input).endsWith("/api/jev-model/legacy-credentials") && init?.method === "DELETE" && JSON.parse(String(init.body)).providerId === providerId)).toBe(true);
+    expect(screen.queryByRole("button", { name: "旧接続先 aaaaaaaa のキーを削除" })).toBeNull();
+  });
+
   it("edits a provider API URL with PUT", async () => {
     const onChanged = vi.fn();
     fetchMock.mockImplementation(() =>

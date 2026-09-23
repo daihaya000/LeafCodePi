@@ -394,7 +394,7 @@ export function SettingsView() {
                 description="利用可能なモデルの有効状態と表示順を管理します。"
               >
                 <div id="models-catalog" className="scroll-mt-24 rounded-2xl border border-border bg-surface p-4">
-                  <ProviderModelsPanel refreshToken={modelsRevision} onProviderEnabledChange={() => setJevRevision((revision) => revision + 1)} />
+                  <ProviderModelsPanel refreshToken={modelsRevision} onProviderCatalogChange={() => setJevRevision((revision) => revision + 1)} />
                 </div>
               </SettingsGroup>
 

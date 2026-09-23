@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DEFAULT_JEV_MODEL_SETTINGS, JEV_MODEL_SETTING_KEY, normalizeJevModelSettings } from "@/lib/jev-model-settings";
-import { getJevModelSettingsDto, jevCredentialProviderId, readJevApiKey, readJevModelSettings, saveJevModelSettings } from "./jev-model-config";
+import { deleteLegacyJevCredential, getJevModelSettingsDto, jevCredentialProviderId, listLegacyJevCredentials, readJevApiKey, readJevModelSettings, saveJevModelSettings } from "./jev-model-config";
 
 const store = vi.hoisted(() => new Map<string, string>());
 vi.mock("./web-settings", () => ({
@@ -85,6 +85,25 @@ describe("Jev model configuration", () => {
     expect(await readJevApiKey(compatible)).toBe("test-only-compatible-key");
     await saveJevModelSettings(compatible, null);
     expect(await readJevApiKey(compatible)).toBeUndefined();
+  });
+
+  it("enumerates and deletes legacy keys even after their endpoint is no longer selected", async () => {
+    const first = compatible;
+    const second = { ...compatible, compatibleBaseUrl: "http://localhost:9090/v1" };
+    await saveJevModelSettings(first, "test-only-first-key");
+    await saveJevModelSettings(second, "test-only-second-key");
+    await saveJevModelSettings({ ...second, provider: "registered", registeredModel: { providerId: "openrouter", modelId: "typesafe/jev" } });
+    const credentials = await listLegacyJevCredentials();
+    expect(credentials).toHaveLength(2);
+    expect(credentials.find(({ providerId }) => providerId === jevCredentialProviderId(second))).toMatchObject({ label: "localhost:9090", active: false });
+    expect(JSON.stringify(credentials)).not.toContain("test-only");
+    await expect(deleteLegacyJevCredential("typesafe")).rejects.toThrow();
+    await deleteLegacyJevCredential(jevCredentialProviderId(first));
+    expect(await readJevApiKey(first)).toBeUndefined();
+    expect(await readJevApiKey(second)).toBe("test-only-second-key");
+    await deleteLegacyJevCredential(jevCredentialProviderId(second));
+    expect(await listLegacyJevCredentials()).toEqual([]);
+    expect(readJevModelSettings().provider).toBe("registered");
   });
 
   it("never reuses a TypeSafe or another endpoint's credential", async () => {

@@ -19,13 +19,14 @@ type ProviderRow = { key: string; id: string; name: string; accountLabel?: strin
 function providerRows(models: JevCatalogModel[]): ProviderRow[] {
   const rows = new Map<string, ProviderRow>();
   for (const model of models) {
-    const key = JSON.stringify([model.accountId ?? null, model.providerId]);
+    const key = model.integrated ? model.providerId : JSON.stringify([model.accountId ?? null, model.providerId]);
     let row = rows.get(key);
     if (!row) {
-      row = { key, id: model.providerId, name: model.providerName, accountLabel: model.accountLabel, enabled: model.providerEnabled !== false, models: [] };
+      row = { key, id: model.providerId, name: model.providerName, ...(model.integrated ? {} : { accountLabel: model.accountLabel }), enabled: model.providerEnabled !== false, models: [] };
       rows.set(key, row);
     }
     row.models.push(model);
+    if (model.providerEnabled !== false) row.enabled = true;
   }
   return [...rows.values()];
 }
@@ -72,7 +73,7 @@ export function JevModelSettings({ refreshToken = 0 }: { refreshToken?: number }
   const visibleRows = rows.flatMap((row) => {
     const matchesProvider = [row.name, row.id, row.accountLabel].some((value) => value?.toLowerCase().includes(searchTerm));
     const matches = searchTerm && !matchesProvider
-      ? row.models.filter((model) => [model.name, model.modelId].some((value) => value.toLowerCase().includes(searchTerm)))
+      ? row.models.filter((model) => [model.name, model.modelId, model.accountLabel].some((value) => value?.toLowerCase().includes(searchTerm)))
       : row.models;
     return matches.length ? [{ row, models: matches, open: expanded.has(row.key) || Boolean(searchTerm) }] : [];
   });
@@ -156,23 +157,25 @@ export function JevModelSettings({ refreshToken = 0 }: { refreshToken?: number }
                   const key = jevModelKey(model);
                   const checked = settings.provider === "typesafe" ? model.providerId === "typesafe" && model.modelId === selectedKey : key === selectedKey;
                   const active = saved?.settings.provider === "typesafe" ? model.providerId === "typesafe" && model.modelId === savedKey : key === savedKey;
-                  return <li key={key} className={`ml-4 rounded-xl border border-border border-l-2 border-l-border bg-surface px-4 py-3 ${row.enabled ? "" : "opacity-50"}`}>
-                    <label className={`flex min-h-11 items-center gap-3 ${row.enabled ? "cursor-pointer" : "cursor-not-allowed"}`}>
+                  const modelEnabled = model.providerEnabled !== false;
+                  return <li key={key} className={`ml-4 rounded-xl border border-border border-l-2 border-l-border bg-surface px-4 py-3 ${modelEnabled ? "" : "opacity-50"}`}>
+                    <label className={`flex min-h-11 items-center gap-3 ${modelEnabled ? "cursor-pointer" : "cursor-not-allowed"}`}>
                       <span aria-hidden="true" className="w-4 shrink-0" />
                       <span className="min-w-0 flex-1">
                         <span className="flex flex-wrap items-center gap-2">
                           <span className="text-sm font-medium">{model.name}</span>
+                          {model.integrated && model.accountLabel && <span className="text-xs text-muted">アカウント: {model.accountLabel}</span>}
                           <Badge tone={active ? "success" : "neutral"}>{active ? "使用中" : checked ? "選択中" : "候補"}</Badge>
                           {model.source === "documented" && <span className="text-xs text-muted">公式対応</span>}
                         </span>
                         <span className="block break-all font-mono text-xs text-muted">{model.modelId}</span>
                       </span>
-                      <input type="radio" name="jev-model" checked={checked} disabled={!row.enabled} onChange={() => {
+                      <input type="radio" name="jev-model" checked={checked} disabled={!modelEnabled} onChange={() => {
                         setSettings((current) => ({ ...current, provider: "registered", registeredModel: {
                           providerId: model.providerId, modelId: model.modelId, ...(model.accountId ? { accountId: model.accountId } : {}),
                         } }));
                         setStatus("");
-                      }} aria-label={`${row.name}${row.accountLabel ? ` · ${row.accountLabel}` : ""} / ${model.name} を選択`} className="h-5 w-5 shrink-0 accent-accent" />
+                      }} aria-label={`${row.name}${row.accountLabel || model.integrated && model.accountLabel ? ` · ${row.accountLabel ?? model.accountLabel}` : ""} / ${model.name} を選択`} className="h-5 w-5 shrink-0 accent-accent" />
                     </label>
                   </li>;
                 })}
