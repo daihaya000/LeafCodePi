@@ -1,4 +1,5 @@
 import { hasSystemOneEndpoint, isJevModel, jevModelKey, supportsJevModel, type JevCatalogModel, type JevModelRef } from "@/lib/jev-model-catalog";
+import { DEFAULT_JEV_MODEL_SETTINGS } from "@/lib/jev-model-settings";
 
 type Provider = { id: string; name: string; baseUrl?: string };
 export type JevDiscoveryRuntime = {
@@ -107,6 +108,15 @@ export async function discoverJevModels(
           providerId: provider.id, providerName: provider.name, modelId: "typesafe/jev", name: "Jev",
           baseUrl, source: "documented",
           ...(scope.accountId ? { accountId: scope.accountId, accountLabel: scope.accountLabel } : {}),
+        };
+        found.set(jevModelKey(row), row);
+      }
+      // TypeSafe has no chat catalog, but its credential is managed by the normal provider panel.
+      if (provider.id === "typesafe" && baseUrl) {
+        const row: JevCatalogModel = {
+          providerId: provider.id, providerName: provider.name,
+          modelId: DEFAULT_JEV_MODEL_SETTINGS.typesafeModel, name: "Jev",
+          baseUrl, source: "documented",
         };
         found.set(jevModelKey(row), row);
       }

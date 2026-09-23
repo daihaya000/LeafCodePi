@@ -47,6 +47,14 @@ describe("Jev discovery", () => {
     expect(fetchImpl.mock.calls[0][0]).toBe("https://api.commandcode.ai/provider/v1/models");
   });
 
+  it("finds TypeSafe through the shared provider credential without adding a chat model", async () => {
+    const rt = { ...runtime(), getProviders: () => [{ id: "typesafe", name: "TypeSafe", baseUrl: "https://api.typesafe.ai/v1" }] };
+    expect(await discoverJevModels(rt, {}, reply([]))).toEqual([{
+      providerId: "typesafe", providerName: "TypeSafe", modelId: "jev-latest", name: "Jev",
+      baseUrl: "https://api.typesafe.ai/v1", source: "documented",
+    }]);
+  });
+
   it("does not infer another provider's API format solely from a Jev name", async () => {
     const models = [jev, { id: "my-judge", supported_endpoints: ["/v1/systemone"] }];
     const rt = { ...runtime(models), getProviders: () => [{ id: "custom", name: "Custom", baseUrl: "http://localhost:8000/v1" }] };

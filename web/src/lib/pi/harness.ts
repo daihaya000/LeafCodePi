@@ -95,6 +95,7 @@ import {
   contextWindowForModel,
   defaultThinkingLevelForModel as storedDefaultThinkingLevelForModel,
   ensureProviderModelsKnown,
+  isProviderDisabled,
   readProviderModelState,
   setProviderModelDisabled,
   setProviderModelOrder,
@@ -4816,13 +4817,27 @@ export async function listJevModels(refresh = false): Promise<JevCatalogModel[]>
       }) : [];
     } catch { return []; }
   }));
-  return [...await shared, ...groups.flat()];
+  const state = readProviderModelState();
+  const order = new Map(state.providerOrder.map((key, index) => [key, index]));
+  return [...await shared, ...groups.flat()]
+    .map((model, index) => ({
+      model: { ...model, providerEnabled: !isProviderDisabled(model.providerId, state, model.accountId) },
+      index,
+    }))
+    .sort((a, b) => {
+      const rank = (model: JevCatalogModel) => order.get(accountProviderModelKey(model.providerId, model.accountId)) ?? order.get(model.providerId) ?? Number.MAX_SAFE_INTEGER;
+      return rank(a.model) - rank(b.model) || a.index - b.index;
+    })
+    .map(({ model }) => model);
 }
 
 /** Resolve current credentials, never copy account keys or silently pick another account. */
 export async function resolveRegisteredJevModel(ref: JevModelRef): Promise<{
   baseUrl: string; model: string; apiKey?: string; headers?: Record<string, string>;
 }> {
+  if (isProviderDisabled(ref.providerId, readProviderModelState(), ref.accountId)) {
+    throw new Error("選択したJevプロバイダーはモデル設定で無効です");
+  }
   if (ref.accountId) {
     const account = listAccounts().find((entry) => entry.id === ref.accountId && isAccountEnabled(entry));
     if (!account || !accountHasProvider(account, ref.providerId) ||

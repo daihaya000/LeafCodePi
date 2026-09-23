@@ -10,6 +10,8 @@ export type JevCatalogModel = JevModelRef & {
   baseUrl: string;
   accountLabel?: string;
   source: "catalog" | "documented";
+  /** Shared provider state from the ordinary model catalog. */
+  providerEnabled?: boolean;
 };
 
 export function jevModelKey(model: JevModelRef): string {

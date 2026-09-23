@@ -335,6 +335,13 @@ describe("ProviderModelsPanel account model settings", () => {
     expect(getCount).toBe(1);
   });
 
+  it("refreshes Jev provider state only after a provider toggle is saved", async () => {
+    const onProviderEnabledChange = vi.fn();
+    render(<ProviderModelsPanel onProviderEnabledChange={onProviderEnabledChange} />);
+    fireEvent.click(await screen.findByRole("switch", { name: "Ollama Cloud を無効化" }));
+    await waitFor(() => expect(onProviderEnabledChange).toHaveBeenCalledTimes(1));
+  });
+
   it("sends all child models as disabled when enabling a provider", async () => {
     let provider = {
       id: "ollama-cloud",

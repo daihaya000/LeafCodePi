@@ -130,6 +130,7 @@ export function SettingsView() {
   const [health, setHealth] = useState<HealthDto | null>(null);
   const [providers, setProviders] = useState<ProviderAuthDto[]>([]);
   const [modelsRevision, setModelsRevision] = useState(0);
+  const [jevRevision, setJevRevision] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const reloadGenerationRef = useRef(0);
 
@@ -393,13 +394,13 @@ export function SettingsView() {
                 description="利用可能なモデルの有効状態と表示順を管理します。"
               >
                 <div id="models-catalog" className="scroll-mt-24 rounded-2xl border border-border bg-surface p-4">
-                  <ProviderModelsPanel refreshToken={modelsRevision} />
+                  <ProviderModelsPanel refreshToken={modelsRevision} onProviderEnabledChange={() => setJevRevision((revision) => revision + 1)} />
                 </div>
               </SettingsGroup>
 
               <SettingsGroup id="models-jev-heading" title="Jevモデル">
                 <div id="models-jev" className="scroll-mt-24 rounded-2xl border border-border bg-surface p-4">
-                  <JevModelSettings refreshToken={modelsRevision} />
+                  <JevModelSettings refreshToken={modelsRevision + jevRevision} />
                 </div>
               </SettingsGroup>
 

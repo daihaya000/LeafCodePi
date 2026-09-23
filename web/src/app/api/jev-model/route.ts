@@ -48,7 +48,7 @@ export async function PUT(req: NextRequest) {
     if (settings.provider === "registered") {
       if (apiKey !== undefined) throw new Error("既存プロバイダーの認証をここで変更することはできません");
       const models = await listJevModels().catch(() => []);
-      if (!models.some((model) => jevModelKey(model) === jevModelKey(settings.registeredModel!))) {
+      if (!models.some((model) => model.providerEnabled !== false && jevModelKey(model) === jevModelKey(settings.registeredModel!))) {
         throw new Error("選択したJevモデルは未検出、またはアカウントが無効です");
       }
     }

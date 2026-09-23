@@ -383,8 +383,10 @@ function ProviderRow({
 
 export function ProviderModelsPanel({
   refreshToken = 0,
+  onProviderEnabledChange,
 }: {
   refreshToken?: number;
+  onProviderEnabledChange?: () => void;
 }) {
   const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
   const [providers, setProviders] = useState<ProviderModelsRow[]>([]);
@@ -508,6 +510,7 @@ export function ProviderModelsPanel({
           },
           "PATCH",
         );
+        if (modelId === undefined) onProviderEnabledChange?.();
       } catch (err) {
         if (mountedRef.current) {
           setActionError(err instanceof ApiError ? err.message : String(err));
@@ -517,7 +520,7 @@ export function ProviderModelsPanel({
         if (mountedRef.current) setBusyId(null);
       }
     },
-    [load],
+    [load, onProviderEnabledChange],
   );
 
   const saveOrder = useCallback((nextProviders: ProviderModelsRow[]) => {

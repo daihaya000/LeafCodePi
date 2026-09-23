@@ -13,6 +13,7 @@ import {
 import {
   providerModelStatePath,
   readProviderModelState,
+  setProviderModelDisabled,
 } from "@/lib/provider-model-state";
 import {
   __resetProviderRoutingQueueForTests,
@@ -195,6 +196,9 @@ describe("getRuntimeFor", () => {
       apiKey: "account-test-key", headers: {},
     });
     assert.equal(fetchMock.mock.calls.length, 1);
+    await setProviderModelDisabled("openrouter", true, account.id);
+    assert.equal((await listJevModels())[0]?.providerEnabled, false);
+    await assert.rejects(resolveRegisteredJevModel(models[0]), /モデル設定で無効/);
     await assert.rejects(
       resolveRegisteredJevModel({ providerId: "openrouter", modelId: "typesafe/jev-1.13" }),
       /アカウント指定が必要/,

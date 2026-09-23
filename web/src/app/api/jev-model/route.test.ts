@@ -42,6 +42,8 @@ describe("Jev model settings API", () => {
     expect(mocks.save).toHaveBeenCalledWith(settings, undefined);
     mocks.save.mockClear();
     expect((await PUT(request({ settings, apiKey: null }))).status).toBe(400);
+    mocks.list.mockResolvedValue([{ ...candidate, providerEnabled: false }]);
+    expect((await PUT(request({ settings }))).status).toBe(400);
     mocks.list.mockResolvedValue([]);
     expect((await PUT(request({ settings }))).status).toBe(400);
     expect(mocks.save).not.toHaveBeenCalled();
