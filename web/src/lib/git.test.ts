@@ -122,8 +122,11 @@ it.each(["src/file[1].txt", "src/version..old.txt"])(
   },
 );
 
-it("rejects parent directory traversal in a commit file path", async () => {
-  await expect(gitCommitFileDiff(".", "abcdef0", "src/../secret.txt"))
-    .rejects.toThrow("invalid file path");
-  expect(mocks.spawn.mock.calls.filter(([command]) => command === "git")).toHaveLength(0);
-});
+it.each(["", ".", "src/.", "src/", "src/../secret.txt"])(
+  "rejects an unsafe commit file path %j before invoking git",
+  async (filePath) => {
+    await expect(gitCommitFileDiff(".", "abcdef0", filePath))
+      .rejects.toThrow("invalid file path");
+    expect(mocks.spawn.mock.calls.filter(([command]) => command === "git")).toHaveLength(0);
+  },
+);

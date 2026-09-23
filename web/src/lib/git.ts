@@ -255,8 +255,10 @@ export async function gitCommitFileDiff(
   assertSafeCommitHash(hash);
   const normalized = filePath.replace(/\\/g, "/");
   if (
+    !normalized ||
     normalized.startsWith("/") ||
-    normalized.split("/").includes("..") ||
+    normalized.endsWith("/") ||
+    normalized.split("/").some((segment) => segment === "." || segment === "..") ||
     normalized.startsWith("-") ||
     normalized.startsWith(":") ||
     normalized.includes("*") ||
