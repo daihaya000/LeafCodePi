@@ -62,7 +62,8 @@ it("reads the vendored Windows helper without installing it into the user profil
 });
 
 it("uses the pinned vendored Linux helpers without installing them", () => {
-  const arch = process.arch === "arm64" ? "arm64" : "x64";
+  // Unsupported arches resolve to a missing path and fail with a clear error, not a wrong binary.
+  const arch = process.arch;
   if (!process.env.LEAFCODE_COMPUTER_USE_LINUX_HELPER_PATH) {
     assert.equal(LINUX_HELPER_PATH, fileURLToPath(new URL(`./prebuilt/linux/${arch}/linux-bridge`, import.meta.url)));
   }

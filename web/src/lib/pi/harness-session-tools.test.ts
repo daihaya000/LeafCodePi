@@ -10,7 +10,9 @@ describe("sessionToolNames", () => {
     assert.ok(linux.includes("bash"));
     assert.equal(linux.includes("powershell"), false);
     assert.equal(linux.includes("subagent"), false);
-    assert.ok(linux.includes("act_ui"));
+    assert.equal(sessionToolNames({ platform: "linux", env: {} }).includes("act_ui"), false);
+    assert.ok(sessionToolNames({ platform: "linux", env: { DISPLAY: ":0" } }).includes("act_ui"));
+    assert.ok(sessionToolNames({ platform: "linux", env: { WAYLAND_DISPLAY: "wayland-0" } }).includes("act_ui"));
     assert.equal(sessionToolNames({ platform: "darwin" }).includes("act_ui"), false);
     assert.ok(linux.includes("tool_search"));
 

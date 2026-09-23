@@ -3022,8 +3022,12 @@ export function sessionToolNames(input: {
   botCodeTool?: boolean;
   roomHandoffTool?: boolean;
   platform?: NodeJS.Platform;
+  env?: Partial<Record<"DISPLAY" | "WAYLAND_DISPLAY", string>>;
 }): string[] {
   const platform = input.platform ?? process.platform;
+  const env = input.env ?? process.env;
+  // Headless Linux (server/systemd) has no desktop to drive; don't advertise tools that always fail.
+  const hasDesktop = platform === "win32" || (platform === "linux" && Boolean(env.DISPLAY || env.WAYLAND_DISPLAY));
   const shellTools = platform === "win32" ? ["powershell", "bash"] : ["bash"];
   const configuredTools = input.agentTools
     ? needsToolSearch(input.agentTools)
@@ -3049,7 +3053,7 @@ export function sessionToolNames(input: {
         "fetch_content",
         "get_search_content",
         "intercom",
-        ...(platform === "win32" || platform === "linux" ? COMPUTER_USE_TOOL_NAMES : []),
+        ...(hasDesktop ? COMPUTER_USE_TOOL_NAMES : []),
         ...(input.subagentPermission === "allow" ? ["subagent"] : []),
         "todowrite",
         TOOL_SEARCH_NAME,

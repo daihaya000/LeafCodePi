@@ -10,7 +10,7 @@ const COMMAND_TIMEOUT_MS = 15_000;
 
 export const LINUX_HELPER_PROTOCOL_VERSION = 4;
 export const LINUX_HELPER_PATH = process.env.LEAFCODE_COMPUTER_USE_LINUX_HELPER_PATH
-	|| path.join(PACKAGE_ROOT, "prebuilt", "linux", process.arch === "arm64" ? "arm64" : "x64", "linux-bridge");
+	|| path.join(PACKAGE_ROOT, "prebuilt", "linux", process.arch, "linux-bridge");
 
 interface Pending<T> {
 	resolve(value: T): void;
