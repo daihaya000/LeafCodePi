@@ -125,8 +125,9 @@ describe("openrouterProvider.fetch (mock)", () => {
     const snap = await openrouterProvider.fetch();
     expect(snap.creditsTitle).toBe("アカウント残高");
     expect(snap.creditsBalance).toBe(74.75);
-    expect(snap.creditsUsed).toBe(25.75);
-    expect(snap.creditsLimit).toBe(100.5);
+    expect(snap.creditsUsed).toBeNull();
+    expect(snap.creditsLimit).toBeNull();
+    expect(snap.usageDisplayOnly).toBe(true);
     expect(undiciFetch.mock.calls.map((call) => call[0])).toEqual([
       "https://openrouter.ai/api/v1/credits",
     ]);

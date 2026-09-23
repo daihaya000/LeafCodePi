@@ -4,6 +4,9 @@
  * Key spending limits via /key remain available without a management key.
  */
 
+import { existsSync, readFileSync, unlinkSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { applyCreditBaseline } from "@/lib/codexbar/providers/anthropic";
 import {
   ProviderError,
   type IUsageProvider,
@@ -12,6 +15,7 @@ import {
 } from "@/lib/codexbar/types";
 import {
   asRecord,
+  atomicWriteText,
   cleanApiKey,
   fetchText,
   flexibleNumber,
@@ -20,6 +24,45 @@ import { readPiApiKey } from "@/lib/codexbar/pi-auth";
 
 const KEY_API_URL = "https://openrouter.ai/api/v1/key";
 const CREDITS_API_URL = "https://openrouter.ai/api/v1/credits";
+
+function accountConfigPath(authPath: string): string {
+  return join(dirname(authPath), "openrouter.json");
+}
+
+function readAccountConfig(authPath: string): Record<string, unknown> {
+  try {
+    return asRecord(JSON.parse(readFileSync(accountConfigPath(authPath), "utf8"))) ?? {};
+  } catch {
+    return {};
+  }
+}
+
+export function readOpenRouterManagementKey(authPath: string): string | null {
+  const value = readAccountConfig(authPath).managementKey;
+  return typeof value === "string" ? cleanApiKey(value) : null;
+}
+
+export function readOpenRouterCreditBaseline(authPath: string): number | null {
+  const value = flexibleNumber(readAccountConfig(authPath).creditBaselineUsd);
+  return value !== null && value > 0 ? value : null;
+}
+
+export function writeOpenRouterAccountConfig(
+  authPath: string,
+  update: { managementKey?: string | null; creditBaselineUsd?: number | null },
+): void {
+  const path = accountConfigPath(authPath);
+  const config = readAccountConfig(authPath);
+  for (const [key, value] of Object.entries(update)) {
+    if (value === null) delete config[key];
+    else if (value !== undefined) config[key] = value;
+  }
+  if (Object.keys(config).length === 0) {
+    if (existsSync(path)) unlinkSync(path);
+  } else {
+    atomicWriteText(path, `${JSON.stringify(config)}\n`);
+  }
+}
 
 const DEFAULT_SCOPE: UsageScope = {
   key: "default",
@@ -35,6 +78,7 @@ const DEFAULT_SCOPE: UsageScope = {
  * 表示してしまい、統合ルーティングの判断材料が壊れる）。
  */
 export function resolveOpenRouterApiKey(scope: UsageScope = DEFAULT_SCOPE): string | null {
+  if (scope.kind === "account" && !scope.authPath) return null;
   const stored = cleanApiKey(
     readPiApiKey("openrouter", scope.authPath ? { authPath: scope.authPath } : undefined),
   );
@@ -93,14 +137,15 @@ export function createOpenRouterProvider(scope: UsageScope): IUsageProvider {
     name: "OpenRouter",
     isConfigured() {
       return resolveOpenRouterApiKey(scope) !== null ||
+        (scope.kind === "account" && !!scope.authPath && readOpenRouterManagementKey(scope.authPath) !== null) ||
         (scope.kind === "default" && cleanApiKey(process.env.OPENROUTER_MANAGEMENT_KEY) !== null);
     },
     async fetch(signal) {
       const apiKey = resolveOpenRouterApiKey(scope);
-      // A global management key is never reused for individual account rows.
-      const managementKey = scope.kind === "default"
-        ? cleanApiKey(process.env.OPENROUTER_MANAGEMENT_KEY)
-        : null;
+      // Account scopes never fall back to a global management key.
+      const managementKey = scope.kind === "account"
+        ? scope.authPath ? readOpenRouterManagementKey(scope.authPath) : null
+        : cleanApiKey(process.env.OPENROUTER_MANAGEMENT_KEY);
       if (!apiKey && !managementKey) throw new ProviderError("API キーが未設定です");
 
       let snapshot = openRouterSnapshot(0, null, false);
@@ -142,14 +187,15 @@ export function createOpenRouterProvider(scope: UsageScope): IUsageProvider {
         if (err instanceof ProviderError) throw err;
         throw new ProviderError("OpenRouter の残高応答を解析できませんでした。", { cause: err });
       }
-      return {
+      return applyCreditBaseline({
         ...snapshot,
         creditsTitle: "アカウント残高",
-        creditsUsed: amounts.used,
-        creditsLimit: amounts.total > 0 ? amounts.total : null,
+        creditsUsed: null,
+        creditsLimit: null,
         creditsBalance: amounts.balance,
+        usageDisplayOnly: true,
         sourceLabel: "openrouter.ai/api/v1/credits",
-      };
+      }, scope.authPath ? readOpenRouterCreditBaseline(scope.authPath) : null);
     },
   };
 }

@@ -1247,6 +1247,40 @@ describe("ProviderAuthPanel provider-scoped accounts", () => {
     expect(within(anthropic).queryByText("Anthropic Console cookie")).toBeNull();
   });
 
+  it("registers an OpenRouter management key and account baseline without displaying the secret", async () => {
+    const account = { ...anthropicAccount, id: "openrouter-acc-1", label: "OpenRouter 個人用", providers: ["openrouter"] };
+    fetchMock.mockImplementation((input: RequestInfo | URL) => {
+      const pathname = new URL(String(input), "http://localhost").pathname;
+      if (pathname === "/api/accounts") return Promise.resolve(jsonResponse({ accounts: [account] }));
+      if (pathname.endsWith("/auth-status")) return Promise.resolve(jsonResponse({
+        providers: ["openrouter"], openrouterManagementKeyConfigured: false, openrouterCreditBaseline: null,
+      }));
+      return Promise.resolve(jsonResponse({ ok: true, configured: true, baselineUsd: 50 }));
+    });
+    render(<ProviderAuthPanel providers={[openrouterProvider]} onChanged={() => {}} />);
+    const region = await accountRegion("OpenRouter");
+    expect(within(region).getByText("アカウント残高の取得に管理キーが必要です")).toBeTruthy();
+    fireEvent.click(within(region).getByRole("button", { name: "登録" }));
+    const input = within(region).getByLabelText("管理キー") as HTMLInputElement;
+    expect(input.type).toBe("password");
+    fireEvent.change(input, { target: { value: "sk-secret" } });
+    fireEvent.submit(input.closest("form")!);
+    await waitFor(() => {
+      const call = fetchMock.mock.calls.find(([url, init]) =>
+        String(url).endsWith(`/api/accounts/${account.id}/openrouter-credits`) && init?.method === "POST");
+      expect(JSON.parse(String(call?.[1]?.body))).toEqual({ managementKey: "sk-secret" });
+    });
+    expect(within(region).queryByText("sk-secret")).toBeNull();
+    const baseline = within(region).getByLabelText(/API 基準残高/) as HTMLInputElement;
+    fireEvent.change(baseline, { target: { value: "50" } });
+    fireEvent.submit(baseline.closest("form")!);
+    await waitFor(() => {
+      const call = fetchMock.mock.calls.find(([url, init]) =>
+        String(url).endsWith(`/api/accounts/${account.id}/openrouter-baseline`) && init?.method === "POST");
+      expect(JSON.parse(String(call?.[1]?.body))).toEqual({ baselineUsd: 50 });
+    });
+  });
+
   it("saves the API credit baseline so the balance yields a percentage", async () => {
     fetchMock.mockImplementation(
       (input: RequestInfo | URL, init?: RequestInit) => {

@@ -46,6 +46,7 @@ import {
 } from "@/lib/codexbar/types";
 import { readPiApiKey, readPiOAuthTokens } from "@/lib/codexbar/pi-auth";
 import { isOllamaCookieConfigured } from "@/lib/codexbar/providers/ollama-cloud";
+import { readOpenRouterManagementKey } from "@/lib/codexbar/providers/openrouter";
 import { hasAnthropicConsoleCookie } from "@/lib/codexbar/providers/anthropic";
 import { extractOpenCodeCookieHeader } from "@/lib/codexbar/browser-cookies";
 
@@ -108,6 +109,7 @@ function accountSummary(
     (provider) =>
       readPiOAuthTokens(provider, { authPath }) !== null ||
       readPiApiKey(provider, { authPath }) !== null ||
+      (provider === "openrouter" && readOpenRouterManagementKey(authPath) !== null) ||
       (provider === "ollama-cloud" && isOllamaCookieConfigured(account.id)) ||
       (provider === "opencode-go" &&
         extractOpenCodeCookieHeader({ authPath }) !== null) ||

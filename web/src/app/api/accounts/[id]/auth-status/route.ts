@@ -9,6 +9,7 @@ import {
 import { extractOpenCodeCookieHeader } from "@/lib/codexbar/browser-cookies";
 import { hasAnthropicConsoleCookie, readAnthropicCreditBaseline } from "@/lib/codexbar/providers/anthropic";
 import { isOllamaCookieConfigured } from "@/lib/codexbar/providers/ollama-cloud";
+import { readOpenRouterCreditBaseline, readOpenRouterManagementKey } from "@/lib/codexbar/providers/openrouter";
 import { jsonError } from "@/lib/pi/harness";
 
 export const runtime = "nodejs";
@@ -42,6 +43,12 @@ export async function GET(_req: NextRequest, context: Context) {
         accountAuthPath(id, agentDir),
       ),
       anthropicCreditBaseline: readAnthropicCreditBaseline(
+        accountAuthPath(id, agentDir),
+      ),
+      openrouterManagementKeyConfigured: readOpenRouterManagementKey(
+        accountAuthPath(id, agentDir),
+      ) !== null,
+      openrouterCreditBaseline: readOpenRouterCreditBaseline(
         accountAuthPath(id, agentDir),
       ),
     });

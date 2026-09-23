@@ -66,7 +66,7 @@ type ModelProviderSummary = {
   enabled: boolean;
 };
 
-/** アカウント別 cookie を登録できるプロバイダーの UI 定義。 */
+/** アカウント別の残高取得に使う cookie / 管理キーの UI 定義。 */
 type CookieUi = {
   route: string;
   title: string;
@@ -90,6 +90,13 @@ const COOKIE_UI: Partial<Record<AccountProviderId, CookieUi>> = {
     domain: "opencode.ai",
     providerName: "OpenCode Go",
     missingHint: "利用量表示には cookie が必要です",
+  },
+  openrouter: {
+    route: "openrouter-credits",
+    title: "OpenRouter 管理キー",
+    domain: "openrouter.ai",
+    providerName: "OpenRouter",
+    missingHint: "アカウント残高の取得に管理キーが必要です",
   },
   anthropic: {
     route: "anthropic-cookie",
@@ -404,7 +411,7 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
   const [authStatuses, setAuthStatuses] = useState<
     Record<string, AccountProviderId[]>
   >({});
-  /** `${providerId}:${accountId}` → cookie 登録済み（Ollama / OpenCode Go / Anthropic Console）。 */
+  /** `${providerId}:${accountId}` → 残高取得用 cookie / 管理キーの登録状態。 */
   const [cookieStatuses, setCookieStatuses] = useState<Record<string, boolean>>(
     {},
   );
@@ -583,6 +590,8 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
                 Record<AccountProviderId, AccountCredentialKind>
               >;
               anthropicCreditBaseline?: number | null;
+              openrouterCreditBaseline?: number | null;
+              openrouterManagementKeyConfigured?: boolean;
               ollamaCookieConfigured?: boolean;
               opencodeGoCookieConfigured?: boolean;
               anthropicCookieConfigured?: boolean;
@@ -597,6 +606,8 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
                   Record<AccountProviderId, AccountCredentialKind>
                 >,
                 anthropicCreditBaseline: null,
+                openrouterCreditBaseline: null,
+                openrouterManagementKeyConfigured: false,
                 ollamaCookieConfigured: false,
                 opencodeGoCookieConfigured: false,
                 anthropicCookieConfigured: false,
@@ -626,6 +637,10 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
               cookieKey("anthropic", id),
               status.anthropicCookieConfigured === true,
             ],
+            [
+              cookieKey("openrouter", id),
+              status.openrouterManagementKeyConfigured === true,
+            ],
           ]),
         ),
       );
@@ -640,9 +655,9 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
       );
       setCreditBaselines(
         Object.fromEntries(
-          statuses.map(([id, status]) => [
-            cookieKey("anthropic", id),
-            status.anthropicCreditBaseline ?? null,
+          statuses.flatMap(([id, status]) => [
+            [cookieKey("anthropic", id), status.anthropicCreditBaseline ?? null],
+            [cookieKey("openrouter", id), status.openrouterCreditBaseline ?? null],
           ]),
         ),
       );
@@ -1158,9 +1173,9 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
     try {
       await sendJson(
         `/api/accounts/${encodeURIComponent(accountId)}/${route}`,
-        {
-          cookies: cookieInput,
-        },
+        providerId === "openrouter"
+          ? { managementKey: cookieInput }
+          : { cookies: cookieInput },
       );
       setCookieInput("");
       setCookieEditingKey(null);
@@ -1189,7 +1204,7 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
     const name = cookieUi.providerName;
     if (
       cookieBusy ||
-      !window.confirm(`「${label}」の ${name} cookie を削除しますか？`)
+      !window.confirm(`「${label}」の ${name} ${providerId === "openrouter" ? "管理キー" : "cookie"} を削除しますか？`)
     )
       return;
     const key = cookieKey(providerId, accountId);
@@ -1220,8 +1235,8 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
   }
 
   /** API キー口座の基準残高（購入額）を保存し、残高から使用％を算出できるようにする。 */
-  async function saveBaseline(accountId: string, raw: string) {
-    const key = cookieKey("anthropic", accountId);
+  async function saveBaseline(accountId: string, raw: string, providerId: "anthropic" | "openrouter" = "anthropic") {
+    const key = cookieKey(providerId, accountId);
     const value = Number(raw.trim());
     if (!raw.trim() || !Number.isFinite(value) || value <= 0) {
       setBaselineErrors((current) => ({
@@ -1239,7 +1254,7 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
     });
     try {
       await sendJson(
-        `/api/accounts/${encodeURIComponent(accountId)}/anthropic-baseline`,
+        `/api/accounts/${encodeURIComponent(accountId)}/${providerId}-baseline`,
         { baselineUsd: value },
       );
       setBaselineInputs((current) => {
@@ -1259,8 +1274,8 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
     }
   }
 
-  async function clearBaseline(accountId: string) {
-    const key = cookieKey("anthropic", accountId);
+  async function clearBaseline(accountId: string, providerId: "anthropic" | "openrouter" = "anthropic") {
+    const key = cookieKey(providerId, accountId);
     if (baselineBusy) return;
     setBaselineBusy(key);
     setBaselineErrors((current) => {
@@ -1270,7 +1285,7 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
     });
     try {
       await sendJson(
-        `/api/accounts/${encodeURIComponent(accountId)}/anthropic-baseline`,
+        `/api/accounts/${encodeURIComponent(accountId)}/${providerId}-baseline`,
         {},
         "DELETE",
       );
@@ -1649,7 +1664,7 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
                                 role="status"
                               >
                                 {cookieConfigured
-                                  ? "このアカウントの cookie を登録済み"
+                                  ? `このアカウントの ${providerId === "openrouter" ? "管理キー" : "cookie"} を登録済み`
                                   : cookieUi.missingHint}
                               </p>
                             </div>
@@ -1707,30 +1722,40 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
                                 htmlFor={`${providerId}-cookie-${account.id}`}
                                 className="text-xs text-muted"
                               >
-                                Netscape 形式の cookie
+                                {providerId === "openrouter" ? "管理キー" : "Netscape 形式の cookie"}
                               </label>
-                              <textarea
-                                id={`${providerId}-cookie-${account.id}`}
-                                rows={5}
-                                value={cookieInput}
-                                onChange={(event) =>
-                                  setCookieInput(event.target.value)
-                                }
-                                placeholder="# Netscape HTTP Cookie File"
-                                spellCheck={false}
-                                autoComplete="off"
-                                className="w-full resize-y rounded-xl border border-border bg-surface px-3 py-2 font-mono text-xs outline-none focus:border-accent"
-                                aria-describedby={`${providerId}-cookie-help-${account.id}`}
-                                disabled={cookieAccountBusy}
-                                autoFocus
-                              />
+                              {providerId === "openrouter" ? (
+                                <input
+                                  id={`${providerId}-cookie-${account.id}`}
+                                  type="password"
+                                  value={cookieInput}
+                                  onChange={(event) => setCookieInput(event.target.value)}
+                                  spellCheck={false}
+                                  autoComplete="new-password"
+                                  disabled={cookieAccountBusy}
+                                  autoFocus
+                                  className="w-full rounded-xl border border-border bg-surface px-3 py-2 font-mono text-xs outline-none focus:border-accent"
+                                />
+                              ) : (
+                                <textarea
+                                  id={`${providerId}-cookie-${account.id}`}
+                                  rows={5}
+                                  value={cookieInput}
+                                  onChange={(event) => setCookieInput(event.target.value)}
+                                  placeholder="# Netscape HTTP Cookie File"
+                                  spellCheck={false}
+                                  autoComplete="off"
+                                  className="w-full resize-y rounded-xl border border-border bg-surface px-3 py-2 font-mono text-xs outline-none focus:border-accent"
+                                  aria-describedby={`${providerId}-cookie-help-${account.id}`}
+                                  disabled={cookieAccountBusy}
+                                  autoFocus
+                                />
+                              )}
                               <p
                                 id={`${providerId}-cookie-help-${account.id}`}
                                 className="text-xs text-muted"
                               >
-                                {cookieUi.domain}{" "}
-                                の cookie
-                                を貼り付けてください。保存後、本文は画面に表示しません。
+                                {cookieUi.domain} の{providerId === "openrouter" ? "管理キー" : " cookie"}を貼り付けてください。保存後、本文は画面に表示しません。
                               </p>
                               {cookieErrors[currentCookieKey] && (
                                 <p className="text-xs text-danger" role="alert">
@@ -1765,12 +1790,12 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
                               </div>
                             </form>
                           )}
-                          {providerId === "anthropic" && (
+                          {(providerId === "anthropic" || providerId === "openrouter") && (
                             <form
                               className="mt-2 flex flex-col gap-2 border-t border-border pt-2"
                               onSubmit={(event) => {
                                 event.preventDefault();
-                                void saveBaseline(account.id, baselineInput);
+                                void saveBaseline(account.id, baselineInput, providerId);
                               }}
                             >
                               <label
@@ -1819,7 +1844,7 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
                                     size="sm"
                                     variant="ghost"
                                     disabled={baselineAccountBusy}
-                                    onClick={() => void clearBaseline(account.id)}
+                                    onClick={() => void clearBaseline(account.id, providerId)}
                                     aria-label={`${account.label} の基準残高を解除`}
                                   >
                                     解除

@@ -100,6 +100,38 @@ afterEach(() => {
 });
 
 describe("fetchNativeUsage", () => {
+  it("fetches independent account credits and keeps baseline percentage display-only", async () => {
+    const { accountDir, dataDir } = setupAccounts();
+    enabledProviderIds.splice(0, enabledProviderIds.length, "openrouter");
+    delete process.env.OPENROUTER_MANAGEMENT_KEY;
+    const accountData = JSON.parse(readFileSync(join(dataDir, "accounts.json"), "utf8")) as {
+      accounts: Array<Record<string, unknown>>;
+    };
+    for (const account of accountData.accounts) {
+      account.providers = ["openrouter"];
+      writeJson(join(accountDir, "accounts", account.id as string, "openrouter.json"), {
+        managementKey: `sk-${account.id}`,
+        ...(account.id === "acc-a" ? { creditBaselineUsd: 50 } : {}),
+      });
+    }
+    writeJson(join(dataDir, "accounts.json"), accountData);
+    undiciFetch.mockImplementation(async (_url: string, init: RequestInit) => new Response(
+      JSON.stringify({ data: { total_credits: 100, total_usage:
+        (init.headers as Record<string, string>).Authorization === "Bearer sk-acc-a" ? 80 : 20 } }),
+      { status: 200 },
+    ));
+
+    const usage = await fetchNativeUsage({ forceRefresh: true, scope: { kind: "all" } });
+    const group = groupCodexBarProviders(usage)[0];
+    expect(usage.accounts?.map((account) => account.configuredProviders)).toEqual([["openrouter"], ["openrouter"]]);
+    expect(group.accountRows.map((row) => row.provider?.credits?.balance)).toEqual([20, 80]);
+    expect(group.accountRows.map((row) => row.provider?.usedPercent)).toEqual([60, null]);
+    expect(group.provider.usedPercent).toBeNull();
+    expect(undiciFetch.mock.calls.map(([url]) => url)).toEqual([
+      "https://openrouter.ai/api/v1/credits", "https://openrouter.ai/api/v1/credits",
+    ]);
+  });
+
   it("shows management-only OpenRouter credits in the normal all-scope widget", async () => {
     setupEmptyAccounts();
     enabledProviderIds.splice(0, enabledProviderIds.length, "openrouter");
