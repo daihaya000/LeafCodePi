@@ -12,6 +12,7 @@ import permissionGate, {
   matchSystemSafetyForTool,
   matchSystemSafetyPath,
 } from "./index";
+import { registerWebUiPermissionHandler } from "./webui-bridge";
 
 type Handler = (event: unknown, ctx: ExtensionContext) => Promise<unknown>;
 
@@ -629,6 +630,52 @@ describe("system safety classifier", () => {
 });
 
 describe("LeafCode permission gate", () => {
+  it("requires explicit approval for act_ui, redacts typed text, and refuses browser tools", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "leafcode-computer-use-gate-"));
+    const appDir = mkdtempSync(join(tmpdir(), "leafcode-computer-use-gate-data-"));
+    const previousDataDir = process.env.LEAFCODE_PI_DATA_DIR;
+    process.env.LEAFCODE_PI_DATA_DIR = appDir;
+    const handlers = new Map<string, Handler>();
+    permissionGate({
+      on: (name: string, handler: Handler) => handlers.set(name, handler),
+      registerCommand: () => undefined,
+    } as unknown as ExtensionAPI);
+    const ctx = freshContext(cwd, { getSessionId: () => "computer-use-test" } as ExtensionContext["sessionManager"]);
+    const call = { toolName: "act_ui", input: { stateId: "S1", actions: [{ action: "setText", ref: "@e1", text: "secret-value" }] } };
+    try {
+      writeFileSync(join(appDir, "permission-gate.json"), JSON.stringify({ mode: "allow" }), "utf8");
+      const browser = await handlers.get("tool_call")?.({ toolName: "evaluate_browser", input: { expression: "document.title" } }, ctx);
+      assert.equal((browser as { block?: boolean })?.block, true);
+      const missingUi = await handlers.get("tool_call")?.(call, ctx);
+      assert.equal((missingUi as { block?: boolean })?.block, true);
+
+      const prompts: string[] = [];
+      registerWebUiPermissionHandler(async (request) => {
+        prompts.push(request.message, request.command);
+        return false;
+      });
+      const rejected = await handlers.get("tool_call")?.(call, ctx);
+      assert.equal((rejected as { block?: boolean })?.block, true);
+      registerWebUiPermissionHandler(async (request) => {
+        prompts.push(request.message, request.command);
+        return true;
+      });
+      const approved = await handlers.get("tool_call")?.(call, ctx);
+      assert.equal((approved as { block?: boolean } | undefined)?.block, undefined);
+      assert.ok(prompts.some((text) => text.includes("setText @e1")));
+      assert.ok(prompts.every((text) => !text.includes("secret-value")));
+
+      writeFileSync(join(appDir, "permission-gate.json"), JSON.stringify({ mode: "deny" }), "utf8");
+      const denied = await handlers.get("tool_call")?.(call, ctx);
+      assert.equal((denied as { block?: boolean })?.block, true);
+    } finally {
+      registerWebUiPermissionHandler(null);
+      if (previousDataDir === undefined) delete process.env.LEAFCODE_PI_DATA_DIR;
+      else process.env.LEAFCODE_PI_DATA_DIR = previousDataDir;
+      rmSync(cwd, { recursive: true, force: true });
+      rmSync(appDir, { recursive: true, force: true });
+    }
+  });
   it("applies deny across separate ExtensionContext instances (Pi createContext)", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "leafcode-permission-gate-project-"));
     const appDir = mkdtempSync(join(tmpdir(), "leafcode-permission-gate-data-"));

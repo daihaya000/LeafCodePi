@@ -940,6 +940,19 @@ function operationText(toolName: string, input: unknown): string {
   return `${toolName}: details redacted`;
 }
 
+function computerUseActionSummary(input: unknown): string | null {
+  const actions = asRecord(input)?.actions;
+  if (!Array.isArray(actions) || actions.length === 0) return null;
+  const steps = actions.map((item) => {
+    const action = asRecord(item);
+    if (typeof action?.action !== "string") return null;
+    const target = typeof action.ref === "string" ? ` ${action.ref}`
+      : typeof action.x === "number" && typeof action.y === "number" ? ` (${action.x}, ${action.y})` : "";
+    return `${action.action}${target}`;
+  });
+  return steps.every((step) => step !== null) ? steps.join(" → ") : null;
+}
+
 function safetyLabels(matches: readonly SystemSafetyMatch[]): string[] {
   return [...new Set(matches.map((match) => `${match.category}: ${match.label}`))];
 }
@@ -1397,6 +1410,37 @@ export default function (pi: ExtensionAPI): void {
       ctx.cwd,
     )) {
       pendingInvestigationCalls.add(event.toolCallId);
+    }
+
+    if (["launch_browser", "navigate_browser", "evaluate_browser"].includes(event.toolName)) {
+      return { block: true, reason: "Computer-use browser tools are disabled; use the existing browser integration" };
+    }
+    if (event.toolName === "act_ui") {
+      const summary = computerUseActionSummary(event.input);
+      if (!summary) return { block: true, reason: "Computer-use action details are missing" };
+      if (mode === "deny") return { block: true, reason: "Computer-use actions blocked (permission mode: deny)" };
+      if (safetyMatches.length > 0) {
+        const blocked = await requireSystemApproval(
+          ctx, mode, level, operationText(event.toolName, event.input),
+          operationIdentity(event.toolName, event.input), safetyMatches,
+        );
+        if (blocked) return blocked;
+      }
+      const message = `画面操作を今回1回だけ許可しますか?\n操作: ${summary}\n入力テキストは表示していません。`;
+      try {
+        const approved = ctx.hasUI
+          ? (await ctx.ui.select(message, ["Yes", "No"])) === "Yes"
+          : await requestWebUiPermission({
+              sessionId: extensionSessionId(ctx),
+              command: `act_ui: ${summary}`,
+              labels: ["computer-use"],
+              message,
+            });
+        if (approved === true) return undefined;
+        return { block: true, reason: approved === null ? "Computer-use action blocked (no approval UI)" : "Blocked by user" };
+      } catch {
+        return { block: true, reason: "Computer-use action blocked (approval failed)" };
+      }
     }
 
     if (event.toolName === "bash" || event.toolName === "powershell") {
