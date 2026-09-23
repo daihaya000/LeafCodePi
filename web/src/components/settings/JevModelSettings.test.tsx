@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DEFAULT_JEV_MODEL_SETTINGS } from "@/lib/jev-model-settings";
 import { JevModelSettings } from "./JevModelSettings";
@@ -30,6 +30,7 @@ describe("JevModelSettings", () => {
   it("uses the same provider cards without a second connection/credential form", async () => {
     await ready();
     expect(screen.getByRole("heading", { name: "Jevモデル" })).toBeTruthy();
+    expect(mocks.get).toHaveBeenCalledWith("/api/jev-model", undefined, undefined);
     expect(screen.getByRole("link", { name: "プロバイダー接続" }).getAttribute("href")).toBe("#models-providers");
     expect(screen.getByRole("searchbox", { name: "Jevプロバイダー・モデルを検索" })).toBeTruthy();
     const expandButton = screen.getByRole("button", { name: "TypeSafe のモデルを展開" });
@@ -94,6 +95,45 @@ describe("JevModelSettings", () => {
     expect(mocks.send).not.toHaveBeenCalledWith("/api/jev-model", expect.anything(), "PUT");
     expand("OpenRouter");
     expect((screen.getByRole("switch", { name: "OpenRouter · Main / Jev 1.13 を有効化" }) as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it("does not reuse an in-flight catalog read after a shared provider change", async () => {
+    let releaseStale!: (value: typeof dto) => void;
+    const stale = new Promise<typeof dto>((resolve) => { releaseStale = resolve; });
+    const updated = { ...dto, models: [typesafe, { ...candidate, providerEnabled: false }] };
+    let reads = 0;
+    mocks.get.mockImplementation((_path: string, _params?: unknown, options?: { coalesce?: boolean }) => {
+      if (++reads === 1) return Promise.resolve(dto);
+      if (reads === 2) return stale;
+      return options?.coalesce === false ? Promise.resolve(updated) : stale;
+    });
+    const { rerender } = render(<JevModelSettings refreshToken={0} />);
+    await waitFor(() => expect(screen.queryByText("読み込み中…")).toBeNull());
+    rerender(<JevModelSettings refreshToken={1} />);
+    rerender(<JevModelSettings refreshToken={2} />);
+    await waitFor(() => expect(screen.getByRole("switch", { name: "OpenRouter · Main を有効化" })).toBeTruthy());
+    await act(async () => { releaseStale(dto); });
+    expect(screen.getByRole("switch", { name: "OpenRouter · Main を有効化" })).toBeTruthy();
+  });
+
+  it("ignores an older catalog load after a provider change and fetches the current state", async () => {
+    let releaseStale!: (value: typeof dto) => void;
+    const stale = new Promise<typeof dto>((resolve) => { releaseStale = resolve; });
+    let reads = 0;
+    const updated = { ...dto, models: [typesafe, { ...candidate, providerEnabled: false }] };
+    mocks.get.mockImplementation((path: string, _params?: unknown, options?: { coalesce?: boolean }) => {
+      if (path === "/api/provider-models") return Promise.resolve({ providers: [] });
+      if (reads++ === 0) return Promise.resolve(dto);
+      return options?.coalesce === false ? Promise.resolve(updated) : stale;
+    });
+    const { rerender } = render(<JevModelSettings refreshToken={0} />);
+    await waitFor(() => expect(screen.queryByText("読み込み中…")).toBeNull());
+    rerender(<JevModelSettings refreshToken={1} />);
+    fireEvent.click(screen.getByRole("switch", { name: "OpenRouter · Main を無効化" }));
+    await waitFor(() => expect(screen.getByRole("switch", { name: "OpenRouter · Main を有効化" })).toBeTruthy());
+    expect(mocks.get).toHaveBeenCalledWith("/api/jev-model", undefined, { coalesce: false });
+    await act(async () => { releaseStale(dto); });
+    expect(screen.getByRole("switch", { name: "OpenRouter · Main を有効化" })).toBeTruthy();
   });
 
   it("persists provider and model ordering through the shared catalog", async () => {

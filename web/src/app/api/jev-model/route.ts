@@ -2,15 +2,15 @@ import { NextRequest, NextResponse } from "next/server";
 import { normalizeJevModelSettings } from "@/lib/jev-model-settings";
 import { getJevModelSettingsDto, saveJevModelSettings } from "@/lib/pi/jev-model-config";
 import { listJevModels } from "@/lib/pi/harness";
-import { jevModelKey } from "@/lib/jev-model-catalog";
+import { jevModelKey, type JevCatalogModel } from "@/lib/jev-model-catalog";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-async function settingsDto(refresh = false) {
+async function settingsDto(refresh = false, knownModels?: JevCatalogModel[]) {
   const [dto, models] = await Promise.all([
     getJevModelSettingsDto(),
-    listJevModels(refresh).catch(() => []),
+    knownModels ?? listJevModels(refresh).catch(() => []),
   ]);
   return { ...dto, models };
 }
@@ -35,6 +35,7 @@ export async function PUT(req: NextRequest) {
   if (raw.length > 16_384) return NextResponse.json({ error: "設定が長すぎます" }, { status: 400 });
   let settings: ReturnType<typeof normalizeJevModelSettings>;
   let apiKey: string | null | undefined;
+  let knownModels: JevCatalogModel[] | undefined;
   try {
     const body = JSON.parse(raw);
     settings = normalizeJevModelSettings(body?.settings);
@@ -47,7 +48,7 @@ export async function PUT(req: NextRequest) {
     }
     if (settings.provider === "registered") {
       if (apiKey !== undefined) throw new Error("既存プロバイダーの認証をここで変更することはできません");
-      const models = await listJevModels().catch(() => []);
+      const models = knownModels = await listJevModels().catch(() => []);
       const selected = settings.enabledModels ?? [settings.registeredModel!];
       if (selected.some((ref) => !models.some((model) => model.providerEnabled !== false && jevModelKey(model) === jevModelKey(ref)))) {
         throw new Error("有効にしたJevモデルは未検出、またはアカウントが無効です");
@@ -74,7 +75,7 @@ export async function PUT(req: NextRequest) {
   }
   try {
     await saveJevModelSettings(settings, apiKey);
-    return NextResponse.json(await settingsDto());
+    return NextResponse.json(await settingsDto(false, knownModels));
   } catch {
     return NextResponse.json({ error: "Jevモデル設定を保存できません" }, { status: 500 });
   }

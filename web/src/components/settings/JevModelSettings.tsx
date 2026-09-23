@@ -64,10 +64,13 @@ export function JevModelSettings({ refreshToken = 0, onProviderCatalogChange }: 
   const [dragging, setDragging] = useState<{ rowKey: string; modelKey?: string } | null>(null);
   const loaded = useRef(false);
   const generation = useRef(0);
+  const lastRefreshToken = useRef(refreshToken);
 
   useEffect(() => {
     const request = ++generation.current;
-    void getJson<JevModelSettingsDto>("/api/jev-model").then((dto) => {
+    const changed = lastRefreshToken.current !== refreshToken;
+    lastRefreshToken.current = refreshToken;
+    void getJson<JevModelSettingsDto>("/api/jev-model", undefined, changed ? { coalesce: false } : undefined).then((dto) => {
       if (request !== generation.current) return;
       if (!loaded.current) setSettings(dto.settings);
       loaded.current = true;
@@ -95,6 +98,7 @@ export function JevModelSettings({ refreshToken = 0, onProviderCatalogChange }: 
   });
 
   async function changeCatalog(action: (providers: ProviderModelsRow[]) => Promise<void>) {
+    const request = ++generation.current;
     setBusy(true);
     setError(null);
     setStatus("");
@@ -102,9 +106,10 @@ export function JevModelSettings({ refreshToken = 0, onProviderCatalogChange }: 
       const { providers } = await getJson<{ providers: ProviderModelsRow[] }>("/api/provider-models");
       await action(providers);
       onProviderCatalogChange?.();
-      setSaved(await getJson<JevModelSettingsDto>("/api/jev-model"));
+      const dto = await getJson<JevModelSettingsDto>("/api/jev-model", undefined, { coalesce: false });
+      if (request === generation.current) setSaved(dto);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "モデル設定を変更できません");
+      if (request === generation.current) setError(cause instanceof Error ? cause.message : "モデル設定を変更できません");
     } finally {
       setBusy(false);
     }
