@@ -34,6 +34,6 @@ describe("SessionLabelBadge", () => {
     });
 
     const { container } = render(<SessionLabelBadge labelId="long" />);
-    expect((container.querySelector("span > span") as HTMLElement).style.fontSize).toBe("5px");
+    expect((container.querySelector("span > span") as HTMLElement).style.fontSize).toBe("4.5px");
   });
 });

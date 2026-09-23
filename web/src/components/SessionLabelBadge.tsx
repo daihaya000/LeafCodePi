@@ -24,7 +24,7 @@ function useSessionLabels(): SessionLabel[] {
 }
 
 /** Renders nothing when the task has no label or its definition was deleted. */
-const BASE_FONT_SIZE = 10;
+const BASE_FONT_SIZE = 9;
 
 export function SessionLabelBadge({
   labelId,
@@ -69,7 +69,7 @@ export function SessionLabelBadge({
     <span
       ref={badgeRef}
       className={cx(
-        "inline-block shrink-0 rounded border px-1 text-[10px] leading-4",
+        "inline-block shrink-0 rounded border px-[3px] text-[9px] leading-[14px]",
         PROJECT_ICON_TONES[label.color],
         className,
       )}
