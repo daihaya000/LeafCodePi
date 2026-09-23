@@ -9,4 +9,10 @@
 
 The npm archive contains the Windows prebuilt executable; the Git tag does not. This snapshot contains the upstream TypeScript source, Windows Rust source and prebuilt helper, entry source, and setup script. Linux/macOS native binaries and documentation were not copied. Platform TypeScript modules remain present for imports.
 
-`index.ts` loads the fork only on Windows. The Windows helper runs directly from the vendored `prebuilt/windows/windows-bridge.exe`; startup never installs or launches it. `scripts/setup-helper.mjs` remains as an upstream reference and must not run automatically. Browser use stays disabled by policy. macOS/Linux native assets and namespace changes remain out of scope; tool visibility and real-desktop verification are separate steps.
+`index.ts` loads the fork only on Windows. The Windows helper runs directly from the vendored `prebuilt/windows/windows-bridge.exe`; startup never installs or launches it. `scripts/setup-helper.mjs` remains as an upstream reference and must not run automatically. Browser use stays disabled by policy. macOS/Linux native assets and namespace changes remain out of scope.
+
+## Windows verification
+
+- Verified locally: the pinned helper answered `diagnostics` (protocol 4), then `listRoots({ pid })` and `look({ rootRef, includeImage: false, readText: "never" })` found a disposable WinForms window and its UIA label without capturing an image. The probe window was closed afterward.
+- The actual LCP `act_ui` approval dialog and a post-approval action are **not yet verified**. The current testing session does not expose `act_ui` via `tool_search`; the permission-gate unit test covers denial, one-action approval, and text redaction only.
+- To finish, use a fresh interactive LCP session with the desktop tools exposed, target only a disposable non-browser window, reject one `act_ui` request and confirm no action, then explicitly approve one harmless action and verify its result. Never send `act` directly to the helper to bypass the gate. Close the test window afterward; avoid private UI text and screenshots.
