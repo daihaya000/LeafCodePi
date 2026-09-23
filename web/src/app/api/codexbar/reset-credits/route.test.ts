@@ -10,7 +10,11 @@ const {
   clearProviderCache,
   getAccount,
   isAccountEnabled,
+  extractAnthropicConsoleSession,
+  consumeClaudeResetGrant,
 } = vi.hoisted(() => ({
+  extractAnthropicConsoleSession: vi.fn(),
+  consumeClaudeResetGrant: vi.fn(),
   withOpenaiCodexWhamAuth: vi.fn(),
   listCodexResetCredits: vi.fn(),
   consumeCodexResetCredit: vi.fn(),
@@ -41,6 +45,18 @@ vi.mock("@/lib/codexbar/provider-cache", () => ({
 vi.mock("@/lib/accounts", () => ({
   getAccount,
   isAccountEnabled,
+  accountAuthPath: (id: string) => `/agent/accounts/${id}/auth.json`,
+  resolvePiAgentDir: async () => "/agent",
+}));
+
+vi.mock("@/lib/codexbar/browser-cookies", () => ({
+  extractAnthropicConsoleSession,
+}));
+
+vi.mock("@/lib/codexbar/providers/anthropic-reset", () => ({
+  listClaudeResetGrants: vi.fn(),
+  consumeClaudeResetGrant,
+  describeClaudeResetCode: (code: string) => `claude:${code}`,
 }));
 
 describe("/api/codexbar/reset-credits", () => {
@@ -52,6 +68,8 @@ describe("/api/codexbar/reset-credits", () => {
     clearProviderCache.mockReset();
     getAccount.mockReset();
     isAccountEnabled.mockReset();
+    extractAnthropicConsoleSession.mockReset();
+    consumeClaudeResetGrant.mockReset();
     getAccount.mockImplementation((id: string) =>
       id ? { id, enabled: true } : undefined,
     );
@@ -213,5 +231,45 @@ describe("/api/codexbar/reset-credits", () => {
       code: "nothing_to_reset",
     });
     expect(invalidateCachedUsage).not.toHaveBeenCalled();
+  });
+
+  it("POST provider=anthropic redeems with the account claude.ai cookie", async () => {
+    const session = { sourceLabel: "t", cookies: [] };
+    extractAnthropicConsoleSession.mockReturnValueOnce(session);
+    consumeClaudeResetGrant.mockResolvedValueOnce({
+      ok: true,
+      code: "reset",
+      grantId: "g1",
+      resetsLeft: 0,
+    });
+
+    const response = await POST(
+      new NextRequest("http://localhost/api/codexbar/reset-credits", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ creditId: "g1", accountId: "acc-1", provider: "anthropic" }),
+      }),
+    );
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({ ok: true, message: "claude:reset" });
+    expect(extractAnthropicConsoleSession).toHaveBeenCalledWith({
+      authPath: "/agent/accounts/acc-1/auth.json",
+    });
+    expect(consumeClaudeResetGrant).toHaveBeenCalledWith(session, { grantId: "g1", requestId: undefined });
+    expect(clearProviderCache).toHaveBeenCalledWith("account:acc-1:anthropic");
+    expect(withOpenaiCodexWhamAuth).not.toHaveBeenCalled();
+  });
+
+  it("POST provider=anthropic without cookie returns 401", async () => {
+    extractAnthropicConsoleSession.mockReturnValueOnce(null);
+    const response = await POST(
+      new NextRequest("http://localhost/api/codexbar/reset-credits", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ creditId: "g1", provider: "anthropic" }),
+      }),
+    );
+    expect(response.status).toBe(401);
+    expect(consumeClaudeResetGrant).not.toHaveBeenCalled();
   });
 });

@@ -406,7 +406,21 @@ function formatResetCreditRemainingDays(
     : "最短期限が切れています";
 }
 
+/** リセット権に対応するプロバイダ（表示名）。 */
+const RESET_CREDIT_PROVIDERS: Record<string, string> = {
+  "openai-codex": "Codex",
+  anthropic: "Claude",
+};
+
+function resetCreditsQuery(
+  providerId: string,
+  accountId?: string | null,
+): Record<string, string> {
+  return { provider: providerId, ...(accountId ? { accountId } : {}) };
+}
+
 function ResetCreditsRow({
+  provider,
   available,
   accountId,
   now,
@@ -414,6 +428,7 @@ function ResetCreditsRow({
   status,
   onRedeem,
 }: {
+  provider: string;
   available: number;
   accountId?: string | null;
   now: number;
@@ -432,7 +447,7 @@ function ResetCreditsRow({
     let active = true;
     void getJson<ResetCreditsListResponse>(
       "/api/codexbar/reset-credits",
-      accountId ? { accountId } : undefined,
+      resetCreditsQuery(provider, accountId),
     )
       .then((list) => {
         if (!active) return;
@@ -447,7 +462,7 @@ function ResetCreditsRow({
     return () => {
       active = false;
     };
-  }, [accountId, available]);
+  }, [provider, accountId, available]);
 
   const remainingDays = formatResetCreditRemainingDays(expiresAt, now);
   if (available <= 0) return null;
@@ -464,7 +479,7 @@ function ResetCreditsRow({
             onRedeem();
           }}
           disabled={busy}
-          aria-label="Codex の使用量リセット権を使う"
+          aria-label={`${RESET_CREDIT_PROVIDERS[provider] ?? provider} の使用量リセット権を使う`}
           className={cx(
             "shrink-0 rounded-md border border-border px-1.5 py-0.5 text-[10px] font-medium",
             busy
@@ -618,10 +633,11 @@ function ProviderRow({
             </div>
           )}
           {p.credits && <CreditsRow credits={p.credits} />}
-          {p.id === "openai-codex" &&
+          {p.id in RESET_CREDIT_PROVIDERS &&
             (p.resetCreditsAvailable ?? 0) > 0 &&
             onRedeemReset && (
               <ResetCreditsRow
+                provider={p.id}
                 available={p.resetCreditsAvailable ?? 0}
                 accountId={p.accountId}
                 now={now}
@@ -770,7 +786,7 @@ export function CodexBarWidget({
 
   const redeemResetCredit = useCallback(
     async (provider: CodexBarProvider) => {
-      if (provider.id !== "openai-codex") return;
+      if (!(provider.id in RESET_CREDIT_PROVIDERS)) return;
       const key = provider.instanceId ?? `default:${provider.id}`;
       if (resetBusyKey) return;
 
@@ -784,7 +800,7 @@ export function CodexBarWidget({
       try {
         const list = await getJson<ResetCreditsListResponse>(
           "/api/codexbar/reset-credits",
-          provider.accountId ? { accountId: provider.accountId } : undefined,
+          resetCreditsQuery(provider.id, provider.accountId),
         );
         const credit = earliestResetCredit(list.credits ?? []);
         if (!credit) {
@@ -817,6 +833,7 @@ export function CodexBarWidget({
           {
             creditId: credit.id,
             accountId: provider.accountId ?? undefined,
+            provider: provider.id,
           },
         );
         setResetStatusByKey((prev) => ({

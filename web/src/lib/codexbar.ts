@@ -80,7 +80,8 @@ export type CodexBarProvider = {
   /** Optional monetary credit allowance, separate from rate-limit windows. */
   credits: CodexBarCredits | null;
   /**
-   * Banked Codex rate-limit resets still available (openai-codex only).
+   * Banked rate-limit resets still available (openai-codex / anthropic).
+   * anthropic requires a claude.ai sessionKey cookie.
    * Null/undefined when unknown or not applicable.
    */
   resetCreditsAvailable?: number | null;

@@ -31,6 +31,10 @@ import {
   type BrowserCookieSession,
 } from "@/lib/codexbar/browser-cookies";
 import {
+  claudeWebCookieHeader,
+  listClaudeResetGrants,
+} from "@/lib/codexbar/providers/anthropic-reset";
+import {
   readPiApiKey,
   readPiOAuthTokens,
   writeBackPiOAuthTokens,
@@ -673,8 +677,21 @@ export function createAnthropicProvider(scope: UsageScope): IUsageProvider {
             ? await tryRefreshTokensInPi(creds, signal, piPath)
             : await tryRefreshTokens(creds, signal)) ?? creds;
       }
+      // claude.ai cookie があればリセット権の残数を付ける（失敗しても使用量表示は続行）。
+      const withResetCredits = async (snap: UsageSnapshot): Promise<UsageSnapshot> => {
+        const session = loadConsoleSession();
+        if (!session || !claudeWebCookieHeader(session)) return snap;
+        try {
+          const grants = await listClaudeResetGrants(session, signal);
+          return { ...snap, rateLimitResetCreditsAvailable: grants.availableCount };
+        } catch {
+          return snap;
+        }
+      };
       try {
-        return await fetchFromApi(creds, signal, { piSource: usingPi });
+        return await withResetCredits(
+          await fetchFromApi(creds, signal, { piSource: usingPi }),
+        );
       } catch (err) {
         if (err instanceof ProviderError && err.message === "__unauthorized__") {
           const refreshed = usingPi
@@ -682,7 +699,9 @@ export function createAnthropicProvider(scope: UsageScope): IUsageProvider {
             : await tryRefreshTokens(creds, signal);
           if (refreshed) {
             try {
-              return await fetchFromApi(refreshed, signal, { piSource: usingPi });
+              return await withResetCredits(
+                await fetchFromApi(refreshed, signal, { piSource: usingPi }),
+              );
             } catch (e2) {
               if (!(e2 instanceof ProviderError && e2.message === "__unauthorized__")) {
                 throw e2;
