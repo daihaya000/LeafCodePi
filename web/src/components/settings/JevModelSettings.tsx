@@ -11,7 +11,7 @@ import {
   type JevModelSettingsDto,
 } from "@/lib/jev-model-settings";
 
-const inputClass = "mt-1 h-11 w-full rounded-lg border border-border bg-bg px-3 text-sm text-text outline-none focus:border-border-strong disabled:opacity-50";
+const inputClass = "mt-1 h-10 w-full rounded-lg border border-border bg-surface px-3 text-sm text-text outline-none focus:border-accent disabled:opacity-50";
 
 export function JevModelSettings({ refreshToken = 0 }: { refreshToken?: number }) {
   const [settings, setSettings] = useState<Settings>({ ...DEFAULT_JEV_MODEL_SETTINGS });
@@ -106,17 +106,18 @@ export function JevModelSettings({ refreshToken = 0 }: { refreshToken?: number }
   }
 
   return (
-    <div className="rounded-2xl border border-border bg-surface p-4">
-      <div className="flex items-center justify-between gap-3">
-        <h3 className="text-sm font-semibold">Jevモデル</h3>
-        <Button type="button" variant="ghost" size="sm" disabled={!saved || busy} onClick={() => void refreshModels()}>モデルを再検出</Button>
+    <div className="space-y-4">
+      <div className="flex items-start justify-between gap-2">
+        <div>
+          <h3 className="mb-1 text-sm font-semibold">Jevモデル</h3>
+          <p className="text-xs text-muted">
+            Autoモデル・エージェント選択、ラベル分類、Jev履歴圧縮、jev_judgeの共通接続先です。Composerには表示しません。既存プロバイダーのJev互換モデルは自動登録され、選択・保存後に既存のアカウント認証を使います。
+          </p>
+        </div>
+        <Button type="button" variant="ghost" size="sm" disabled={!saved || busy} onClick={() => void refreshModels()}>再読み込み</Button>
       </div>
-      <p className="mt-1 text-xs text-muted">
-        Autoモデル・エージェント選択、ラベル分類、Jev履歴圧縮、jev_judgeの共通接続先です。各機能の有効設定は変えず、Composerには表示しません。
-      </p>
-      <p className="mt-1 text-xs text-muted">既存プロバイダーのJev互換モデルを自動登録します。追加だけでは使用先を変更せず、選択・保存後に既存のアカウント認証を使います。</p>
       <form onSubmit={(event) => { event.preventDefault(); void save(); }}>
-        <fieldset disabled={!saved || busy} className="mt-4 space-y-3">
+        <fieldset disabled={!saved || busy} className="space-y-3">
           <div className="grid gap-3 sm:grid-cols-2">
             <label className="text-xs text-muted">
               Jevプロバイダー
@@ -163,9 +164,9 @@ export function JevModelSettings({ refreshToken = 0 }: { refreshToken?: number }
           <Button type="submit" variant="secondary" size="sm">{busy ? "保存中…" : "Jevモデルを保存"}</Button>
         </fieldset>
       </form>
-      {!saved && !error && <p role="status" className="mt-2 text-xs text-muted">読み込み中…</p>}
-      {status && <p role="status" className="mt-2 text-xs text-muted">{status}</p>}
-      {error && <p role="alert" className="mt-2 text-sm text-danger">{error}</p>}
+      {!saved && !error && <p role="status" className="text-sm text-muted">読み込み中…</p>}
+      {status && <p role="status" className="text-xs text-muted">{status}</p>}
+      {error && <p role="alert" className="text-sm text-danger">{error}</p>}
     </div>
   );
 }

@@ -81,7 +81,7 @@ describe("JevModelSettings", () => {
     mocks.get.mockResolvedValueOnce(dto).mockResolvedValueOnce({ ...dto, models: [model] });
     await ready();
     fireEvent.change(screen.getByLabelText("Jevプロバイダー"), { target: { value: "compatible" } });
-    fireEvent.click(screen.getByRole("button", { name: "モデルを再検出" }));
+    fireEvent.click(screen.getByRole("button", { name: "再読み込み" }));
     await waitFor(() => expect(screen.getByRole("option", { name: /Command Code \/ Jev/ })).toBeTruthy());
     expect((screen.getByLabelText("Jevプロバイダー") as HTMLSelectElement).value).toBe("compatible");
     expect(mocks.get).toHaveBeenCalledWith("/api/jev-model", { refresh: "1" });

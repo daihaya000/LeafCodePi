@@ -398,7 +398,7 @@ export function SettingsView() {
               </SettingsGroup>
 
               <SettingsGroup id="models-jev-heading" title="Jevモデル">
-                <div id="models-jev" className="scroll-mt-24">
+                <div id="models-jev" className="scroll-mt-24 rounded-2xl border border-border bg-surface p-4">
                   <JevModelSettings refreshToken={modelsRevision} />
                 </div>
               </SettingsGroup>
