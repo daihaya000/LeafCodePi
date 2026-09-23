@@ -599,6 +599,10 @@ describe("system safety classifier", () => {
       false,
     );
     assert.equal(isLeafCodePiStopCommand("Get-Process | ? {$_.Id -ne $PID}; Stop-Process -Id $PID"), true);
+    assert.equal(isLeafCodePiStopCommand("Get-Process | ? {$_.Id -cne $PID}; Stop-Process -Name curl"), false);
+    // `-ne` must be a whole operator; `$PID -New…` still targets self.
+    assert.equal(isLeafCodePiStopCommand("Stop-Process -Id $PID -NewFlag"), true);
+    assert.equal(isLeafCodePiStopCommand("[ $child != $$ ] && kill $child"), false);
     // Variables that merely start with PID are not the self pid.
     assert.equal(isLeafCodePiStopCommand("Stop-Process -Id $PIDX"), false);
     assert.equal(isLeafCodePiStopCommand("Stop-Process -Id $PID_list[0]"), false);

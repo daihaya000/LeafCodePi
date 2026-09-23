@@ -54,10 +54,19 @@ const LEAFCODE_PI_STOP_LABEL = "LeafCodePi process termination";
 const LEAFCODE_PI_STOP_REASON = "LeafCodePi process termination is prohibited.";
 const PROCESS_TERMINATION_COMMAND_PATTERN = /\b(?:taskkill(?:\.exe)?|Stop-Process|Stop-Service|pkill|killall|kill)\b|\bwmic(?:\.exe)?\b[^\r\n]*\b(?:call\s+terminate|delete)\b|\b(?:sc(?:\.exe)?|systemctl|service|launchctl|rc-service)\b[^\r\n]*(?:\b(?:stop|terminate|kill|bootout|unload|delete)\b)/i;
 const LEAFCODE_PI_PROCESS_TARGET_PATTERN = /\b(?:leafcodepi|leafcode[-_ ]?pi(?:[-_ ]?(?:host|server))?)(?:\.exe|\.service)?\b|\bhost[\\/]src[\\/]index\.js\b/i;
-const SELF_PID_REFERENCE_PATTERN = /(?:%(?:LEAFCODE_PI_(?:PID|PROCESS_ID)|PID|PPID)%|\$(?:\$|(?:\{)?(?:env:)?(?:LEAFCODE_PI_(?:PID|PROCESS_ID)|PID|PPID|BASHPID)\}?(?![\w:]))|\bprocess\.(?:pid|ppid)\b|\b(?:os\.)?getpid\s*\(\s*\))/i;
-// Child `process.exit()` does not stop LeafCodePi; only kill/getpid self-targets do.
+// `$$`, `$PID`, `${PPID}`, `$env:LEAFCODE_PI_PID`; not `$PIDX` / `$PID_list`.
+const SELF_PID_VAR = String.raw`\$(?:\$|\{?(?:env:)?(?:LEAFCODE_PI_(?:PID|PROCESS_ID)|PID|PPID|BASHPID)\}?(?![\w:]))`;
+const SELF_PID_REFERENCE_PATTERN = new RegExp(
+  String.raw`%(?:LEAFCODE_PI_(?:PID|PROCESS_ID)|PID|PPID)%|${SELF_PID_VAR}|\bprocess\.(?:pid|ppid)\b|\b(?:os\.)?getpid\s*\(\s*\)`,
+  "i",
+);
 // `$_.Id -ne $PID` / `$pid != $$` excludes self; it must not count as targeting self.
-const SELF_PID_EXCLUSION_PATTERN = /(?:-ne|!=)\s*(?:\$\$|\$(?:\{)?(?:env:)?(?:LEAFCODE_PI_(?:PID|PROCESS_ID)|PID|PPID|BASHPID)\}?)(?![\w}])|(?:\$\$|\$(?:\{)?(?:env:)?(?:LEAFCODE_PI_(?:PID|PROCESS_ID)|PID|PPID|BASHPID)\}?)\s*(?:-ne|!=)/gi;
+const NOT_EQUAL = String.raw`(?:-[ci]?ne\b|!=)`;
+const SELF_PID_EXCLUSION_PATTERN = new RegExp(
+  String.raw`${NOT_EQUAL}\s*${SELF_PID_VAR}|${SELF_PID_VAR}\s*${NOT_EQUAL}`,
+  "gi",
+);
+// Child `process.exit()` does not stop LeafCodePi; only kill/getpid self-targets do.
 const INLINE_SELF_TERMINATION_PATTERN = /\b(?:node|node\.exe|bun|deno)\b[^\r\n]*(?:process\s*[.]\s*(?:kill|abort)\s*\(|process\s*\[[^\]]+\]\s*\(|os\s*[.]\s*kill\s*\(\s*(?:os\.)?getpid)/i;
 // Only `kill -- -1` / `kill -1` as the sole target (broadcast), not `kill -1 <pid>` (signal 1).
 const BROAD_KILL_TARGET_PATTERN = /\b(?:kill|pkill)\b[^\r\n]*(?:^|\s)--\s*-1(?:\s|$)|(?:^|[;&|\r\n]\s*)(?:kill|pkill)\s+-1\s*$/im;
