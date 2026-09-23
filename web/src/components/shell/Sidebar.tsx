@@ -833,7 +833,7 @@ export const SidebarTaskRow = memo(function SidebarTaskRow({
           )}
         >
           <TaskActivityIcon task={task} bot={bot} unread={unread} />
-          <span className="relative top-px flex min-w-0 flex-1 flex-col items-start">
+          <span className="relative top-0.5 flex min-w-0 flex-1 flex-col items-start">
             <span className="w-full truncate text-xs font-medium">{task.title}</span>
             <span className="flex w-full min-w-0 items-center gap-1">
               <span className="flex w-11 shrink-0 items-center">
@@ -2496,7 +2496,7 @@ const SidebarView = memo(function SidebarView({
                               className="flex min-w-0 flex-1 items-center gap-1.5 px-2 py-1.5 text-left"
                             >
                               <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-faint" />
-                              <span className="relative top-px flex min-w-0 flex-1 flex-col items-start">
+                              <span className="relative top-0.5 flex min-w-0 flex-1 flex-col items-start">
                                 <span className="w-full truncate text-xs font-medium">{task.title}</span>
                                 <span className="flex w-full min-w-0 items-center gap-1">
                                   <span className="flex w-11 shrink-0 items-center">
@@ -2920,7 +2920,7 @@ const SidebarView = memo(function SidebarView({
                     )}
                   >
                     <TaskActivityIcon task={task} bot={(task.botId ?? task.supervisorBotId) ? botsById.get(task.botId ?? task.supervisorBotId!) : undefined} />
-                    <span className="relative top-px flex min-w-0 flex-1 flex-col items-start">
+                    <span className="relative top-0.5 flex min-w-0 flex-1 flex-col items-start">
                       <span className="w-full truncate font-medium">{task.title}</span>
                       <span className="flex w-full min-w-0 items-center gap-1">
                         <span className="flex w-11 shrink-0 items-center">
