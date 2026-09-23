@@ -174,7 +174,7 @@ function throwIfUnauthorized(status: number, body: string): void {
   // Cloudflare のボット判定は HTML の 403 を返す。セッション切れと区別する。
   if (status === 403 && /^\s*</.test(body)) {
     throw Object.assign(
-      new ProviderError("claude.ai がボット対策でリクエストを拒否しました（403）。cf_clearance を含む cookie を再登録してください。"),
+      new ProviderError("Anthropic がボット対策でリクエストを拒否しました（403）。時間をおいて再試行してください。"),
       { status: 503 },
     );
   }
@@ -195,7 +195,13 @@ export async function listClaudeResetGrants(
   const { status, body, ok } = await fetchText(url, { headers: headers(cookie, false), signal });
   throwIfUnauthorized(status, body);
   if (!ok) throw new ProviderError(`Claude のリセット権の取得に失敗しました（${status}）。`);
-  return parseClaudeResetGrants(asRecord(JSON.parse(body))?.cedar_ember);
+  let root: Record<string, unknown> | null;
+  try {
+    root = asRecord(JSON.parse(body));
+  } catch (cause) {
+    throw new ProviderError("Claude のリセット権の応答を解析できませんでした。", { cause });
+  }
+  return parseClaudeResetGrants(root?.cedar_ember);
 }
 
 export function parseClaudeResetConsumeJson(json: string): ClaudeResetConsumeResult {

@@ -818,7 +818,7 @@ export function CodexBarWidget({
         const title = credit.title?.trim() || "使用量リセット";
         const expiry = formatResetExpiry(credit.expiresAt, Date.now());
         const confirmed = window.confirm(
-          `${title} を消費します。この操作は取り消せません。\n\n${usageLine}\n${expiry}\n\nリセット権を使いますか？`,
+          `${title} を消費します。この操作は取り消せません。\n\n${usageLine}\n${expiry}${provider.id === "anthropic" ? "\n5時間・週間の使用量が0に戻ります（週のリセット日時は変わりません）。" : ""}\n\nリセット権を使いますか？`,
         );
         if (!confirmed) {
           setResetStatusByKey((prev) => ({

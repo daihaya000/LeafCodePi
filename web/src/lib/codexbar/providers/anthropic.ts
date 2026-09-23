@@ -687,7 +687,12 @@ export function createAnthropicProvider(scope: UsageScope): IUsageProvider {
         try {
           const grants = await listClaudeResetGrants(session, signal);
           return { ...snap, rateLimitResetCreditsAvailable: grants.availableCount };
-        } catch {
+        } catch (err) {
+          // 使用量表示は続行するが、無言で 0 件扱いにせず原因をログに残す。
+          console.warn(
+            "[codexbar] Claude reset grants unavailable:",
+            err instanceof Error ? err.message : err,
+          );
           return snap;
         }
       };
