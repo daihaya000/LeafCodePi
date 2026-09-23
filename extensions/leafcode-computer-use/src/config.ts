@@ -23,9 +23,9 @@ export interface LoadedComputerUseConfig {
 }
 
 const DEFAULT_CONFIG: ComputerUseConfig = {
-	browser_use: true,
-	headless: false,
-	cursor_overlay: true,
+	browser_use: false,
+	headless: true,
+	cursor_overlay: false,
 	managed_browser: "chrome",
 };
 
@@ -69,28 +69,27 @@ function readConfigFile(filePath: string): ComputerUseConfigSource {
 
 function readEnv(): Partial<ComputerUseConfig> {
 	const out: Partial<ComputerUseConfig> = {};
-	const browserUse = parseBoolean(process.env.PI_COMPUTER_USE_BROWSER_USE);
-	const headless = parseBoolean(process.env.PI_COMPUTER_USE_HEADLESS);
-	const cursorOverlay = parseBoolean(process.env.PI_COMPUTER_USE_CURSOR_OVERLAY);
+	const browserUse = parseBoolean(process.env.LEAFCODE_COMPUTER_USE_BROWSER_USE);
+	const headless = parseBoolean(process.env.LEAFCODE_COMPUTER_USE_HEADLESS);
+	const cursorOverlay = parseBoolean(process.env.LEAFCODE_COMPUTER_USE_CURSOR_OVERLAY);
 	if (browserUse !== undefined) out.browser_use = browserUse;
 	if (headless !== undefined) out.headless = headless;
 	if (cursorOverlay !== undefined) out.cursor_overlay = cursorOverlay;
-	const managedBrowser = process.env.PI_COMPUTER_USE_MANAGED_BROWSER;
+	const managedBrowser = process.env.LEAFCODE_COMPUTER_USE_MANAGED_BROWSER;
 	if (managedBrowser === "helium" || managedBrowser === "chrome") out.managed_browser = managedBrowser;
 	return out;
 }
 
-export function loadComputerUseConfig(cwd: string): LoadedComputerUseConfig {
-	const sources = [
-		readConfigFile(path.join(getAgentDir(), "extensions", "pi-computer-use.json")),
-		readConfigFile(path.join(cwd, ".pi", "computer-use.json")),
-	];
+export function loadComputerUseConfig(_cwd: string): LoadedComputerUseConfig {
+	const sources = [readConfigFile(path.join(getAgentDir(), "extensions", "leafcode-computer-use.json"))];
 	const env = readEnv();
 	const config = { ...DEFAULT_CONFIG };
 	for (const source of sources) {
 		if (source.values) Object.assign(config, source.values);
 	}
 	Object.assign(config, env);
+	// Browser automation stays with LCP's existing integration, even if an old config enables it.
+	config.browser_use = false;
 	activeConfig = config;
 	activeLoadedConfig = { config, sources, env };
 	return activeLoadedConfig;

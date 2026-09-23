@@ -626,7 +626,7 @@ async function getFrontmost(signal?: AbortSignal): Promise<FrontmostResult> {
 function assertBrowserUseAllowed(target: { appName: string; bundleId?: string }): void {
 	if (!isBrowserUseEnabled() && currentPlatformBackend.isBrowserApp(target.appName, target.bundleId)) {
 		throw new Error(
-			`Browser use is disabled by pi-computer-use config, so '${target.appName}' cannot be controlled. Enable browser_use in ~/.pi/agent/extensions/pi-computer-use.json or .pi/computer-use.json to allow browser windows.`,
+			`Browser use is disabled by leafcode-computer-use policy, so '${target.appName}' cannot be controlled. Use LCP's browser integration instead.`,
 		);
 	}
 }

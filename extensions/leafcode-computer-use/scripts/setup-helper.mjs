@@ -18,7 +18,7 @@ const helperAppExecutablePath = path.join(helperAppPath, "Contents", "MacOS", "b
 const helperSourceHashPath = path.join(helperAppPath, "Contents", "Resources", "source.sha256");
 const helperBundleId = "com.injaneity.pi-computer-use";
 const windowsCrateDir = path.join(rootDir, "native", "windows", "bridge-rs");
-const windowsHelperDestPath = process.env.PI_COMPUTER_USE_WINDOWS_HELPER_PATH || path.join(os.homedir(), ".pi", "agent", "helpers", "pi-computer-use", "windows-bridge.exe");
+const windowsHelperDestPath = process.env.LEAFCODE_COMPUTER_USE_WINDOWS_HELPER_PATH || path.join(os.homedir(), ".pi", "agent", "helpers", "leafcode-computer-use", "windows-bridge.exe");
 const linuxCrateDir = path.join(rootDir, "native", "linux", "bridge-rs");
 const linuxHelperDestPath = process.env.PI_COMPUTER_USE_LINUX_HELPER_PATH || path.join(os.homedir(), ".pi", "agent", "helpers", "pi-computer-use", "linux-bridge");
 const helperSourcePaths = ["agent_cursor.swift", "agent_cursor_motion.swift", "bridge.swift"]
@@ -493,7 +493,7 @@ async function setupWindowsHelper() {
 
 	throw new Error(
 		`No Windows prebuilt helper found at ${prebuiltPath}. ` +
-			"Run 'node scripts/build-native.mjs --platform windows' to build, or set PI_COMPUTER_USE_ALLOW_BUILD=1 to build at install time.",
+			"Provide a verified prebuilt/windows/windows-bridge.exe or install Rust and set PI_COMPUTER_USE_ALLOW_BUILD=1.",
 	);
 }
 

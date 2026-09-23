@@ -9,4 +9,4 @@
 
 The npm archive contains the Windows prebuilt executable; the Git tag does not. This snapshot contains the upstream TypeScript source, Windows Rust source and prebuilt helper, entry source, and setup script. Linux/macOS native binaries and documentation were not copied. Platform TypeScript modules remain present for imports.
 
-This is **not yet an enabled extension**: no `index.ts` is registered. Before loading it, fork the entry/config/helper paths into the `leafcode-computer-use` namespace and verify the Windows helper without modifying global settings.
+This is **not yet an enabled extension**: no `index.ts` is registered. The Windows config and helper paths now use the `leafcode-computer-use` namespace; `scripts/setup-helper.mjs` was relocated to match the native client's expected path. macOS/Linux paths and remaining upstream environment variables have not yet been forked. Before registration, restrict the entry to Windows and verify the helper without modifying global settings.
