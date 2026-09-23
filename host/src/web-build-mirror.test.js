@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import {
   existsSync,
   linkSync,
@@ -583,6 +584,18 @@ test("the host builds through build-web.mjs and serves the mirror", () => {
   assert.match(source, /ensureBuildDependencies\(WEB_MIRROR_DIR\)/);
   const webPackage = JSON.parse(readFileSync(join(REPO_ROOT, "web", "package.json"), "utf8"));
   assert.equal(webPackage.scripts.build, "node ../scripts/build-web.mjs");
+});
+
+test("production uses the repo-owned computer-use helper, not the web build mirror", () => {
+  const host = readFileSync(join(REPO_ROOT, "host", "src", "index.js"), "utf8");
+  const helper = readFileSync(join(REPO_ROOT, "extensions", "leafcode-computer-use", "src", "platform", "windows", "helper.ts"), "utf8");
+  const executable = join(REPO_ROOT, "extensions", "leafcode-computer-use", "prebuilt", "windows", "windows-bridge.exe");
+  assert.match(host, /LEAFCODE_PI_EXTENSIONS_DIR: join\(REPO_ROOT, "extensions"\)/);
+  assert.match(helper, /path\.join\(PACKAGE_ROOT, "prebuilt", "windows", "windows-bridge\.exe"\)/);
+  assert.equal(
+    createHash("sha256").update(readFileSync(executable)).digest("hex").toUpperCase(),
+    "D3EF7E59BC03C421D6D29DE53750C343CC1BB2F126AA23224241FDFD5C3A7094",
+  );
 });
 
 test("quit stops the WebUI without building", () => {
