@@ -1,7 +1,6 @@
 import { defineTool, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import {
-	ensureComputerUseSetup,
 	executeAct,
 	executeEvaluateBrowser,
 	executeExpandUi,
@@ -167,7 +166,7 @@ const evaluateBrowserTool = defineTool({
 function formatConfigStatus(): string {
 	const loaded = getLoadedComputerUseConfig();
 	return [
-		"pi-computer-use configuration",
+		"leafcode-computer-use configuration",
 		`browser_use: ${loaded.config.browser_use ? "enabled" : "disabled"}`,
 		`managed_browser: ${loaded.config.managed_browser}`,
 		`headless: ${loaded.config.headless ? "enabled" : "disabled"}`,
@@ -182,19 +181,17 @@ function formatConfigStatus(): string {
 export default function computerUseExtension(pi: ExtensionAPI): void {
 	for (const tool of [findTool, observeTool, searchUiTool, expandUiTool, inspectUiTool, actTool, readTextTool, waitForTool, launchBrowserTool, navigateBrowserTool, evaluateBrowserTool]) pi.registerTool(tool);
 
-	pi.registerCommand("computer-use", {
-		description: "Show pi-computer-use configuration",
+	pi.registerCommand("leafcode-computer-use", {
+		description: "Show leafcode-computer-use configuration",
 		handler: async (_args, ctx) => {
 			loadComputerUseConfig(ctx.cwd);
 			ctx.ui.notify(formatConfigStatus(), "info");
 		},
 	});
 
-	pi.on("session_start", async (_event, ctx) => {
+	pi.on("session_start", (_event, ctx) => {
 		loadComputerUseConfig(ctx.cwd);
 		reconstructStateFromBranch(ctx);
-		if (!ctx.hasUI) return;
-		try { await ensureComputerUseSetup(ctx); } catch (error) { ctx.ui.notify(error instanceof Error ? error.message : String(error), "warning"); }
 	});
 
 	pi.on("session_shutdown", async () => {

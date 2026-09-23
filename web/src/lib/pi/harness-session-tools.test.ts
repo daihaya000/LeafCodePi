@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { resolve } from "node:path";
 import { describe, it } from "vitest";
-import { keepsLoadedExtension, replacedUpstreamPackages, sessionToolNames } from "./harness";
+import { isReplacedPackageSource, keepsLoadedExtension, replacedUpstreamPackages, sessionToolNames } from "./harness";
 
 describe("sessionToolNames", () => {
   it("registers the WebUI defaults with the platform shell and no subagent by default", () => {
@@ -66,7 +66,15 @@ describe("session extension replacement", () => {
     );
     // The subagents fork keeps its upstream discoverable; only loaded copies are dropped.
     assert.deepEqual([...replacedUpstreamPackages(new Set(["leafcode-subagents"]))], []);
+    assert.deepEqual(
+      [...replacedUpstreamPackages(new Set(["leafcode-computer-use"]))],
+      ["@injaneity/pi-computer-use"],
+    );
     assert.deepEqual([...replacedUpstreamPackages(new Set())], []);
+    const names = replacedUpstreamPackages(new Set(["leafcode-computer-use"]));
+    assert.equal(isReplacedPackageSource("npm:@injaneity/pi-computer-use@0.5.1", names), true);
+    assert.equal(isReplacedPackageSource({ source: "git:github.com/injaneity/pi-computer-use@v0.5.1" }, names), true);
+    assert.equal(isReplacedPackageSource("npm:@another/computer-use@0.5.1", names), false);
   });
 
   it("drops replaced upstreams and stale copies of a bundled extension", () => {
@@ -74,6 +82,10 @@ describe("session extension replacement", () => {
     assert.equal(keepsLoadedExtension("/npm/pi-subagents/index.js", index), false);
     assert.equal(keepsLoadedExtension("/npm/pi-intercom/index.js", index), false);
     assert.equal(keepsLoadedExtension("/npm/pi-mcp-adapter/index.js", index), true);
+    const computerUse = bundled("leafcode-computer-use");
+    assert.equal(keepsLoadedExtension("/npm/@injaneity/pi-computer-use/extensions/computer-use.ts", computerUse), false);
+    assert.equal(keepsLoadedExtension("/home/.pi/agent/extensions/pi-computer-use.ts", computerUse), false);
+    assert.equal(keepsLoadedExtension("/npm/unrelated/computer-use.ts", computerUse), true);
     assert.equal(keepsLoadedExtension("/other/leafcode-subagents/index.ts", index), false);
     assert.equal(
       keepsLoadedExtension(resolve("/repo/extensions/leafcode-subagents/index.ts"), index),

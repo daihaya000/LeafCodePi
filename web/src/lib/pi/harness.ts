@@ -2926,36 +2926,37 @@ function botSessionOptions(
   };
 }
 
-/**
- * 置換済みの同機能 npm パッケージをこのローダーの探索から除外する。
- * getGlobalSettings() の packages だけを絞り、ファイルは変更しない。
- * reload() 後も毎回の読み出し経由で除外が効き続ける。
- */
+/** Match pinned npm and git sources without changing the user's settings. */
+export function isReplacedPackageSource(entry: unknown, replacedPackageNames: ReadonlySet<string>): boolean {
+  const source =
+    typeof entry === "string"
+      ? entry
+      : entry && typeof entry === "object" && typeof (entry as { source?: unknown }).source === "string"
+        ? (entry as { source: string }).source
+        : "";
+  const name = source.startsWith("npm:") ? source.slice("npm:".length) : source;
+  const versionAt = name.lastIndexOf("@");
+  if (replacedPackageNames.has(versionAt > 0 ? name.slice(0, versionAt) : name)) return true;
+  return replacedPackageNames.has("@injaneity/pi-computer-use")
+    && /^(?:git:github\.com\/injaneity\/pi-computer-use|https:\/\/github\.com\/injaneity\/pi-computer-use)(?:@[^/]+)?$/.test(source);
+}
+
+/** Exclude replaced packages from loader discovery on each settings read. */
 function settingsManagerExcludingReplacedPackages(
   pi: PiModule,
   manager: ReturnType<PiModule["SettingsManager"]["create"]>,
   replacedPackageNames: Set<string>,
 ): ReturnType<PiModule["SettingsManager"]["create"]> {
-  const isReplacedPackage = (entry: unknown): boolean => {
-    const source =
-      typeof entry === "string"
-        ? entry
-        : entry && typeof entry === "object" && typeof (entry as { source?: unknown }).source === "string"
-          ? (entry as { source: string }).source
-          : "";
-    const name = source.startsWith("npm:") ? source.slice("npm:".length) : source;
-    return replacedPackageNames.has(name);
-  };
   return new Proxy(manager, {
     get(target, property) {
       if (property === "getGlobalSettings") {
         return () => {
           const settings = target.getGlobalSettings();
           const packages = Array.isArray(settings.packages) ? settings.packages : [];
-          if (!packages.some((entry: unknown) => isReplacedPackage(entry))) return settings;
+          if (!packages.some((entry: unknown) => isReplacedPackageSource(entry, replacedPackageNames))) return settings;
           return {
             ...settings,
-            packages: packages.filter((entry: unknown) => !isReplacedPackage(entry)),
+            packages: packages.filter((entry: unknown) => !isReplacedPackageSource(entry, replacedPackageNames)),
           };
         };
       }
@@ -2975,6 +2976,7 @@ const FORK_REPLACED_EXTENSIONS = [
   { fork: "leafcode-subagents", upstream: "pi-subagents", skipDiscovery: false },
   { fork: "leafcode-intercom", upstream: "pi-intercom", skipDiscovery: true },
   { fork: "leafcode-mcp-adapter", upstream: "pi-mcp-adapter", skipDiscovery: true },
+  { fork: "leafcode-computer-use", upstream: "@injaneity/pi-computer-use", skipDiscovery: true },
 ] as const;
 
 /** npm packages excluded from discovery because a bundled fork replaces them. */
@@ -2998,6 +3000,8 @@ export function keepsLoadedExtension(
     (entry) => bundled.names.has(entry.fork) && key === entry.upstream,
   );
   if (replacedByFork) return false;
+  if (bundled.names.has("leafcode-computer-use") &&
+      (key === "pi-computer-use" || /(?:^|[\\/])pi-computer-use(?:[\\/]|$)/i.test(extensionPath))) return false;
   return !bundled.names.has(key) || bundled.paths.has(resolve(extensionPath));
 }
 

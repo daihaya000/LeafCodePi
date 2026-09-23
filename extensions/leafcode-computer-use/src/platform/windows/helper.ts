@@ -2,17 +2,14 @@ import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { constants as fsConstants } from "node:fs";
 import { access } from "node:fs/promises";
-import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const PACKAGE_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
-const SETUP_HELPER_SCRIPT = path.join(PACKAGE_ROOT, "scripts", "setup-helper.mjs");
-const HELPER_SETUP_TIMEOUT_MS = 60_000;
 const COMMAND_TIMEOUT_MS = 15_000;
 
 export const WINDOWS_HELPER_PROTOCOL_VERSION = 4;
-export const WINDOWS_HELPER_PATH = process.env.LEAFCODE_COMPUTER_USE_WINDOWS_HELPER_PATH || path.join(os.homedir(), ".pi", "agent", "helpers", "leafcode-computer-use", "windows-bridge.exe");
+export const WINDOWS_HELPER_PATH = process.env.LEAFCODE_COMPUTER_USE_WINDOWS_HELPER_PATH || path.join(PACKAGE_ROOT, "prebuilt", "windows", "windows-bridge.exe");
 
 interface Pending<T> {
 	resolve(value: T): void;
@@ -24,30 +21,7 @@ async function isExecutable(filePath: string): Promise<boolean> {
 	try { await access(filePath, fsConstants.X_OK); return true; } catch { return false; }
 }
 
-async function runProcess(command: string, args: string[], timeoutMs: number, signal?: AbortSignal, env?: NodeJS.ProcessEnv): Promise<void> {
-	if (signal?.aborted) throw new Error("Operation aborted.");
-	await new Promise<void>((resolve, reject) => {
-		const child = spawn(command, args, { stdio: ["ignore", "pipe", "pipe"], env });
-		let stdout = "";
-		let stderr = "";
-		const cleanup = () => { clearTimeout(timer); signal?.removeEventListener("abort", onAbort); };
-		const timer = setTimeout(() => { child.kill("SIGTERM"); cleanup(); reject(new Error(`Command timed out after ${timeoutMs}ms: ${command} ${args.join(" ")}`)); }, timeoutMs);
-		const onAbort = () => { child.kill("SIGTERM"); cleanup(); reject(new Error("Operation aborted.")); };
-		child.stdout.on("data", (chunk) => { stdout += String(chunk); });
-		child.stderr.on("data", (chunk) => { stderr += String(chunk); });
-		child.on("error", (error) => { cleanup(); reject(error); });
-		child.on("close", (code) => {
-			cleanup();
-			if (code === 0) return resolve();
-			const output = [stderr.trim(), stdout.trim()].filter(Boolean).join("\n");
-			reject(new Error(`Command failed (${code}): ${command} ${args.join(" ")}\n${output}`.trim()));
-		});
-		signal?.addEventListener("abort", onAbort, { once: true });
-	});
-}
-
 export class WindowsHelperClient {
-	private installChecked = false;
 	private child?: ChildProcessWithoutNullStreams;
 	private buffer = "";
 	private pending = new Map<string, Pending<unknown>>();
@@ -72,11 +46,10 @@ export class WindowsHelperClient {
 	}
 
 	async ensureInstalled(signal?: AbortSignal): Promise<void> {
-		if ((await isExecutable(WINDOWS_HELPER_PATH)) && this.installChecked) return;
-		// Re-enter Electron and Bun standalone hosts as their JavaScript runtimes.
-		await runProcess(process.execPath, [SETUP_HELPER_SCRIPT, "--platform", "windows", "--runtime"], HELPER_SETUP_TIMEOUT_MS, signal, { ...process.env, ELECTRON_RUN_AS_NODE: "1", BUN_BE_BUN: "1" });
-		this.installChecked = true;
-		if (!(await isExecutable(WINDOWS_HELPER_PATH))) throw new Error(`Failed to install Windows helper at ${WINDOWS_HELPER_PATH}.`);
+		if (signal?.aborted) throw new Error("Operation aborted.");
+		if (!(await isExecutable(WINDOWS_HELPER_PATH))) {
+			throw new Error(`Windows helper unavailable at ${WINDOWS_HELPER_PATH}; no automatic installation is performed.`);
+		}
 	}
 
 	private async process(signal?: AbortSignal): Promise<ChildProcessWithoutNullStreams> {

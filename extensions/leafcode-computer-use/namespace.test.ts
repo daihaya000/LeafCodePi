@@ -10,7 +10,7 @@ vi.mock("@earendil-works/pi-coding-agent", () => ({
 }));
 
 import { loadComputerUseConfig } from "./src/config";
-import { WINDOWS_HELPER_PATH } from "./src/platform/windows/helper";
+import { WINDOWS_HELPER_PATH, windowsHelper } from "./src/platform/windows/helper";
 
 const previous = {
   agentDir: process.env.LEAFCODE_CU_TEST_AGENT_DIR,
@@ -51,9 +51,10 @@ it("uses isolated configuration and refuses browsers even when old settings enab
   }
 });
 
-it("keeps the Windows helper and installer in the fork namespace", () => {
+it("reads the vendored Windows helper without installing it into the user profile", async () => {
   if (!process.env.LEAFCODE_COMPUTER_USE_WINDOWS_HELPER_PATH) {
-    assert.ok(WINDOWS_HELPER_PATH.includes("leafcode-computer-use"));
+    assert.equal(WINDOWS_HELPER_PATH, fileURLToPath(new URL("./prebuilt/windows/windows-bridge.exe", import.meta.url)));
+    await windowsHelper.ensureInstalled();
   }
   assert.ok(existsSync(fileURLToPath(new URL("./scripts/setup-helper.mjs", import.meta.url))));
 });
