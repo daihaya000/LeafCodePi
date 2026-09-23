@@ -276,7 +276,7 @@ function CandidateRow({
             type="button"
             aria-label={`候補${index + 1}を削除`}
             onClick={onRemove}
-            className="inline-flex h-11 w-11 items-center justify-center rounded text-faint hover:bg-surface-3 hover:text-danger focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-primary sm:h-6 sm:w-6"
+            className="inline-flex h-11 w-11 items-center justify-center rounded text-faint hover:bg-surface-3 hover:text-danger focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-primary @xl:h-6 @xl:w-6"
           >
             <X aria-hidden="true" className="h-3 w-3" />
           </button>
@@ -483,7 +483,7 @@ export function AutoRouteOverridesEditor({
         <div
           role="group"
           aria-label="Auto ルーティング設定一覧"
-          className="grid grid-cols-1 gap-3 lg:grid-cols-3"
+          className="grid grid-cols-1 gap-3 @3xl:grid-cols-3"
         >
           {AUTO_OPTIMIZE_MODES.map((candidateMode) => {
             const hasModeOverride = TIERS.some(

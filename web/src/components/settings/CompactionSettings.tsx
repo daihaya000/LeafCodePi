@@ -93,7 +93,7 @@ export function CompactionSettings() {
       <p className="mt-1 text-xs text-muted">
         コンテキスト使用量が閾値に達したときの動作を選択します。手動送信時の動作、Goal Loopには適用されません。
       </p>
-      <div className="mt-4 grid gap-3 sm:grid-cols-2">
+      <div className="mt-4 grid gap-3 @xl:grid-cols-2">
         <label htmlFor="compaction-action" className="block">
           <span className="mb-1.5 block text-sm text-muted">動作</span>
           <select

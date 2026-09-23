@@ -111,7 +111,7 @@ export function TitleAutoUpdateSettings() {
           既定: {enabled ? "ON" : "OFF"}
         </span>
       </div>
-      <label className="mt-3 flex flex-col gap-1.5 sm:flex-row sm:items-center sm:gap-3">
+      <label className="mt-3 flex flex-col gap-1.5 @xl:flex-row @xl:items-center @xl:gap-3">
         <span className="shrink-0 text-sm text-muted">更新頻度</span>
         <input
           type="number"

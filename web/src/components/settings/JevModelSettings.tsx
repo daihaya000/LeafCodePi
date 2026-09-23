@@ -214,7 +214,7 @@ export function JevModelSettings({ refreshToken = 0, onProviderCatalogChange }: 
         </div>
         <Button type="button" variant="ghost" size="sm" disabled={!saved || busy} onClick={() => void refreshModels()}>再読み込み</Button>
       </div>
-      {saved && <label className="block sm:max-w-sm">
+      {saved && <label className="block @xl:max-w-sm">
         <span className="sr-only">Jevプロバイダー・モデルを検索</span>
         <input type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="プロバイダー・モデルを検索" aria-label="Jevプロバイダー・モデルを検索" className={inputClass} />
       </label>}
@@ -233,7 +233,7 @@ export function JevModelSettings({ refreshToken = 0, onProviderCatalogChange }: 
               if (source && !dragging?.modelKey && !searchTerm) moveRow(source, row);
               setDragging(null);
             }}>
-              <div className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 rounded-xl border border-border bg-surface px-4 py-3 sm:grid-cols-[auto_minmax(0,1fr)_auto_auto]">
+              <div className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 rounded-xl border border-border bg-surface px-4 py-3 @xl:grid-cols-[auto_minmax(0,1fr)_auto_auto]">
                 <div className="flex items-center gap-1">
                   <GripVertical aria-hidden="true" className="h-4 w-4 shrink-0 cursor-grab text-muted" />
                   <button type="button" aria-expanded={open} aria-controls={`jev-models-${index}`} aria-label={`${row.name} のモデルを${open ? "折りたたむ" : "展開"}`} disabled={Boolean(searchTerm)} onClick={() => setExpanded((current) => {
@@ -259,7 +259,7 @@ export function JevModelSettings({ refreshToken = 0, onProviderCatalogChange }: 
                 <ReorderButtons label={row.name} index={rows.findIndex((item) => item.key === row.key)} count={rows.length} busy={busy || Boolean(searchTerm)} onMove={(direction) => {
                   const target = rows[rows.findIndex((item) => item.key === row.key) + direction];
                   if (target) moveRow(row, target);
-                }} className="col-start-2 col-span-2 row-start-2 justify-self-end sm:col-start-4 sm:col-span-1 sm:row-start-1" />
+                }} className="col-start-2 col-span-2 row-start-2 justify-self-end @xl:col-start-4 @xl:col-span-1 @xl:row-start-1" />
               </div>
               {open && <ul id={`jev-models-${index}`} className="space-y-2">
                 {matchingModels.map((model) => {
@@ -284,11 +284,11 @@ export function JevModelSettings({ refreshToken = 0, onProviderCatalogChange }: 
                     if (source && dragging?.rowKey === row.key && !searchTerm) moveModel(row, source, model);
                     setDragging(null);
                   }} className={cx(
-                    "ml-4 grid grid-cols-[auto_minmax(0,1fr)_auto] items-start gap-x-3 gap-y-2 rounded-xl border border-border border-l-2 border-l-border bg-surface px-4 py-3 sm:flex sm:items-center sm:gap-3",
+                    "ml-4 grid grid-cols-[auto_minmax(0,1fr)_auto] items-start gap-x-3 gap-y-2 rounded-xl border border-border border-l-2 border-l-border bg-surface px-4 py-3 @xl:flex @xl:items-center @xl:gap-3",
                     !modelEnabled && "opacity-50",
                   )}>
-                    <GripVertical aria-hidden="true" className="mt-1 h-4 w-4 shrink-0 cursor-grab text-muted sm:mt-0" />
-                    <div className="col-span-2 flex min-w-0 flex-1 items-center gap-3 sm:col-auto">
+                    <GripVertical aria-hidden="true" className="mt-1 h-4 w-4 shrink-0 cursor-grab text-muted @xl:mt-0" />
+                    <div className="col-span-2 flex min-w-0 flex-1 items-center gap-3 @xl:col-auto">
                       <span className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
                         <span className="min-w-0 truncate text-sm font-medium">{model.name}</span>
                         {model.integrated && model.accountLabel && <span className="text-xs text-muted">アカウント: {model.accountLabel}</span>}
@@ -298,7 +298,7 @@ export function JevModelSettings({ refreshToken = 0, onProviderCatalogChange }: 
                       </span>
                       <Switch checked={checked} disabled={!modelEnabled && !checked} onChange={() => toggleModel(model)} label={`${row.name}${row.accountLabel || model.integrated && model.accountLabel ? ` · ${row.accountLabel ?? model.accountLabel}` : ""} / ${model.name} を${checked ? "無効化" : "有効化"}`} />
                     </div>
-                    <ReorderButtons label={`${row.name} の ${model.name}`} index={modelIndex} count={siblingModels.length} busy={busy || Boolean(searchTerm)} onMove={targetIndex} className="col-start-3 row-start-2 justify-self-end sm:col-auto sm:row-auto" />
+                    <ReorderButtons label={`${row.name} の ${model.name}`} index={modelIndex} count={siblingModels.length} busy={busy || Boolean(searchTerm)} onMove={targetIndex} className="col-start-3 row-start-2 justify-self-end @xl:col-auto @xl:row-auto" />
                   </li>;
                 })}
               </ul>}

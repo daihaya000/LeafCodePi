@@ -219,7 +219,7 @@ export function MemorySettings() {
         <h3 id="memory-search-heading" className="text-sm font-medium">保存済みメモリを検索</h3>
         <p className="mt-1 text-xs text-muted">エージェントを呼び出さず、SQLiteに保存されたメモリを直接検索します。</p>
         <form
-          className="mt-3 flex flex-col gap-2 sm:flex-row"
+          className="mt-3 flex flex-col gap-2 @xl:flex-row"
           onSubmit={(event) => {
             event.preventDefault();
             void searchMemory();
@@ -270,7 +270,7 @@ export function MemorySettings() {
       <fieldset disabled={disabled || snapshot?.writable === false} className="mt-4 space-y-4 disabled:opacity-60">
         <legend className="sr-only">メモリ設定</legend>
 
-        <div className="grid gap-3 sm:grid-cols-2">
+        <div className="grid gap-3 @xl:grid-cols-2">
           <SelectField label="プロンプト連携" value={draft.memoryMode} onChange={(value) => patch("memoryMode", value as LeafCodeMemorySettings["memoryMode"])}>
             <option value="policy-only">必要時に検索（推奨）</option>
             <option value="legacy-inject">毎回プロンプトへ注入</option>
@@ -294,7 +294,7 @@ export function MemorySettings() {
 
         <div>
           <h3 className="mb-2 text-sm font-medium">容量</h3>
-          <div className="grid gap-3 sm:grid-cols-3">
+          <div className="grid gap-3 @xl:grid-cols-3">
             <NumberField label="グローバル" value={draft.memoryCharLimit} {...MEMORY_SETTING_LIMITS.charLimit} unit="文字" onChange={(value) => patch("memoryCharLimit", value)} />
             <NumberField label="ユーザー" value={draft.userCharLimit} {...MEMORY_SETTING_LIMITS.charLimit} unit="文字" onChange={(value) => patch("userCharLimit", value)} />
             <NumberField label="プロジェクト" value={draft.projectCharLimit} {...MEMORY_SETTING_LIMITS.charLimit} unit="文字" onChange={(value) => patch("projectCharLimit", value)} />
@@ -303,7 +303,7 @@ export function MemorySettings() {
 
         <div>
           <h3 className="mb-2 text-sm font-medium">学習と常駐指示</h3>
-          <div className="grid gap-2 sm:grid-cols-2">
+          <div className="grid gap-2 @xl:grid-cols-2">
             <ToggleField label="バックグラウンド学習" checked={draft.reviewEnabled} onChange={(value) => patch("reviewEnabled", value)} />
             <ToggleField label="訂正を自動記録" checked={draft.correctionDetection} onChange={(value) => patch("correctionDetection", value)} />
             <ToggleField label="常駐指示を毎回注入" hint="STANDING.md のユーザー指定ルール" checked={draft.standingInstructionsEnabled} onChange={(value) => patch("standingInstructionsEnabled", value)} />
@@ -315,7 +315,7 @@ export function MemorySettings() {
         <details className="rounded-xl border border-border bg-surface-2 p-3">
           <summary className="min-h-11 cursor-pointer py-2 text-sm font-medium">詳細設定</summary>
           <div className="mt-3 space-y-4 border-t border-border pt-4">
-            <div className="grid gap-3 sm:grid-cols-2">
+            <div className="grid gap-3 @xl:grid-cols-2">
               <SelectField label="レビュー実行方式" value={draft.reviewTransport} onChange={(value) => patch("reviewTransport", value as LeafCodeMemorySettings["reviewTransport"])}>
                 <option value="direct">プロセス内（推奨）</option>
                 <option value="subprocess">サブプロセス</option>
@@ -324,13 +324,13 @@ export function MemorySettings() {
               <NumberField label="自動統合の猶予" value={seconds(draft.overflowGraceMs)} min={0} max={3_600} unit="秒" onChange={(value) => patch("overflowGraceMs", value * 1_000)} />
               <NumberField label="統合タイムアウト" value={seconds(draft.consolidationTimeoutMs)} min={10} max={3_600} unit="秒" onChange={(value) => patch("consolidationTimeoutMs", value * 1_000)} />
             </div>
-            <div className="grid gap-2 sm:grid-cols-2">
+            <div className="grid gap-2 @xl:grid-cols-2">
               <ToggleField label="統合失敗を通知" checked={draft.autoConsolidationWarnOnFailure} onChange={(value) => patch("autoConsolidationWarnOnFailure", value)} />
               <ToggleField label="圧縮前に保存" checked={draft.flushOnCompact} onChange={(value) => patch("flushOnCompact", value)} />
               <ToggleField label="終了時に保存" checked={draft.flushOnShutdown} onChange={(value) => patch("flushOnShutdown", value)} />
               <ToggleField label="失敗メモリをプロンプトへ注入" checked={draft.failureInjectionEnabled} onChange={(value) => patch("failureInjectionEnabled", value)} />
             </div>
-            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            <div className="grid gap-3 @xl:grid-cols-2 @3xl:grid-cols-4">
               <NumberField label="保存を始める最小ターン" value={draft.flushMinTurns} {...MEMORY_SETTING_LIMITS.flushMinTurns} unit="ターン" onChange={(value) => patch("flushMinTurns", value)} />
               <NumberField label="保存対象" value={draft.flushRecentMessages} {...MEMORY_SETTING_LIMITS.recentMessages} unit="件" hint="0 は全件" onChange={(value) => patch("flushRecentMessages", value)} />
               <NumberField label="失敗メモリ最大日数" value={draft.failureInjectionMaxAgeDays} {...MEMORY_SETTING_LIMITS.failureInjectionMaxAgeDays} unit="日" onChange={(value) => patch("failureInjectionMaxAgeDays", value)} />

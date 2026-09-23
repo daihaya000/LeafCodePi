@@ -470,7 +470,7 @@ export function LlamaServerSettings(
       </div>
 
       {status && (
-        <dl className="mb-3 grid grid-cols-[6rem_1fr] gap-y-2 text-sm sm:grid-cols-[8rem_1fr]">
+        <dl className="mb-3 grid grid-cols-[6rem_1fr] gap-y-2 text-sm @xl:grid-cols-[8rem_1fr]">
           <dt className="text-muted">health</dt>
           <dd className="font-mono text-xs">{status.health ?? "—"}</dd>
           <dt className="text-muted">PID</dt>
@@ -783,7 +783,7 @@ export function LlamaServerSettings(
               </span>
             </span>
           </label>
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="grid gap-3 @xl:grid-cols-2 @3xl:grid-cols-4">
           <label className="block">
             <span className="mb-1 block text-sm text-muted">思考の深さ</span>
             <select

@@ -210,7 +210,7 @@ export function SkillsSettings({ scope = "code" }: { scope?: SkillScope } = {}) 
         {items.length === 0 ? (
           <p className="mt-3 text-sm text-muted">該当するスキルはありません。</p>
         ) : (
-          <ul className="mt-3 grid gap-2 sm:grid-cols-2">{renderSkillItems(items, grouped)}</ul>
+          <ul className="mt-3 grid gap-2 @xl:grid-cols-2">{renderSkillItems(items, grouped)}</ul>
         )}
       </section>
     );

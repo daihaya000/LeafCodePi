@@ -145,7 +145,7 @@ export function ReorderButtons({
         title="上へ"
         disabled={busy || index === 0}
         onClick={() => onMove(-1)}
-        className="inline-flex h-11 w-11 items-center justify-center rounded-lg text-muted hover:bg-surface-2 hover:text-text disabled:opacity-30 sm:h-7 sm:w-7"
+        className="inline-flex h-11 w-11 items-center justify-center rounded-lg text-muted hover:bg-surface-2 hover:text-text disabled:opacity-30 @xl:h-7 @xl:w-7"
       >
         <ChevronUp aria-hidden="true" className="h-4 w-4" />
       </button>
@@ -155,7 +155,7 @@ export function ReorderButtons({
         title="下へ"
         disabled={busy || index >= count - 1}
         onClick={() => onMove(1)}
-        className="inline-flex h-11 w-11 items-center justify-center rounded-lg text-muted hover:bg-surface-2 hover:text-text disabled:opacity-30 sm:h-7 sm:w-7"
+        className="inline-flex h-11 w-11 items-center justify-center rounded-lg text-muted hover:bg-surface-2 hover:text-text disabled:opacity-30 @xl:h-7 @xl:w-7"
       >
         <ChevronDown aria-hidden="true" className="h-4 w-4" />
       </button>
@@ -222,7 +222,7 @@ function ProviderRow({
       }}
       className="space-y-2"
     >
-      <div className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 rounded-xl border border-border bg-surface px-4 py-3 sm:grid-cols-[auto_minmax(0,1fr)_auto_auto]">
+      <div className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 rounded-xl border border-border bg-surface px-4 py-3 @xl:grid-cols-[auto_minmax(0,1fr)_auto_auto]">
         <div className="flex items-center gap-1">
           <GripVertical
             aria-hidden="true"
@@ -283,7 +283,7 @@ function ProviderRow({
           count={providerCount}
           busy={isBusy}
           onMove={onMoveProvider}
-          className="col-start-2 col-span-2 row-start-2 justify-self-end sm:col-start-4 sm:col-span-1 sm:row-start-1"
+          className="col-start-2 col-span-2 row-start-2 justify-self-end @xl:col-start-4 @xl:col-span-1 @xl:row-start-1"
         />
       </div>
       {hasModels && expanded && (
@@ -314,15 +314,15 @@ function ProviderRow({
                 }}
                 aria-busy={modelBusy || undefined}
                 className={cx(
-                  "ml-4 grid grid-cols-[auto_minmax(0,1fr)_auto] items-start gap-x-3 gap-y-2 rounded-xl border border-border border-l-2 border-l-border bg-surface px-4 py-3 sm:flex sm:items-center sm:gap-3",
+                  "ml-4 grid grid-cols-[auto_minmax(0,1fr)_auto] items-start gap-x-3 gap-y-2 rounded-xl border border-border border-l-2 border-l-border bg-surface px-4 py-3 @xl:flex @xl:items-center @xl:gap-3",
                   parentDisabled && "opacity-50",
                 )}
               >
                 <GripVertical
                   aria-hidden="true"
-                  className="mt-1 h-4 w-4 shrink-0 cursor-grab text-muted sm:mt-0"
+                  className="mt-1 h-4 w-4 shrink-0 cursor-grab text-muted @xl:mt-0"
                 />
-                <div className="min-w-0 sm:flex-1">
+                <div className="min-w-0 @xl:flex-1">
                   <div className="flex flex-wrap items-center gap-2">
                     <p className="min-w-0 truncate text-sm font-medium">{model.name}</p>
                     <Badge tone={model.enabled ? "success" : "neutral"}>
@@ -331,7 +331,7 @@ function ProviderRow({
                   </div>
                 </div>
                 {showEffort && (
-                  <div className="col-start-2 row-start-2 flex min-w-0 flex-wrap items-center gap-2 text-xs text-muted sm:col-auto sm:row-auto sm:shrink-0">
+                  <div className="col-start-2 row-start-2 flex min-w-0 flex-wrap items-center gap-2 text-xs text-muted @xl:col-auto @xl:row-auto @xl:shrink-0">
                     <GhostSelect
                       value={model.defaultThinkingLevel ?? ""}
                       disabled={parentDisabled || modelBusy}
@@ -356,7 +356,7 @@ function ProviderRow({
                     </GhostSelect>
                   </div>
                 )}
-                <div className="col-start-3 row-start-1 sm:col-auto sm:row-auto">
+                <div className="col-start-3 row-start-1 @xl:col-auto @xl:row-auto">
                   <Switch
                     checked={model.enabled}
                     onChange={() => onToggleModel(model.id, !model.enabled)}
@@ -370,7 +370,7 @@ function ProviderRow({
                   count={provider.models.length}
                   busy={isBusy}
                   onMove={(direction) => onMoveModel(model.id, direction)}
-                  className="col-start-3 row-start-2 justify-self-end sm:col-auto sm:row-auto"
+                  className="col-start-3 row-start-2 justify-self-end @xl:col-auto @xl:row-auto"
                 />
               </li>
             );
@@ -716,7 +716,7 @@ export function ProviderModelsPanel({
       {error && <p role="alert" className="text-sm text-danger">{error}</p>}
       {actionError && <p role="alert" className="text-sm text-danger">{actionError}</p>}
       {providers.length > 0 && (
-        <label className="block sm:max-w-sm">
+        <label className="block @xl:max-w-sm">
           <span className="sr-only">プロバイダー・モデルを検索</span>
           <input
             type="search"

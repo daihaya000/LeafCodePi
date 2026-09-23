@@ -75,7 +75,7 @@ export function ExtensionsSettings() {
       return <p className="mt-3 text-sm text-muted">該当する拡張機能はありません。</p>;
     }
     return (
-      <ul className="mt-3 grid gap-2 sm:grid-cols-2">
+      <ul className="mt-3 grid gap-2 @xl:grid-cols-2">
         {items.map((extension) => (
           <li
             key={extension.id}

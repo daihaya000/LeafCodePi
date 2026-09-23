@@ -366,7 +366,7 @@ export function McpSettings() {
           <p className="mt-1 text-xs text-muted">{auth.credentialMessage}</p>
         )}
 
-        <div className={`mt-3 grid gap-3 ${supportsOAuth ? "xl:grid-cols-3" : "lg:grid-cols-2"}`}>
+        <div className={`mt-3 grid gap-3 ${supportsOAuth ? "@4xl:grid-cols-3" : "@3xl:grid-cols-2"}`}>
           <div className="rounded-lg border border-border bg-surface px-3 py-3" data-testid={`mcp-bearer-${server.id}`}>
             <p className="text-xs font-medium text-text">Bearerトークン</p>
             <p className="mt-1 text-[11px] leading-4 text-muted">
@@ -496,7 +496,7 @@ export function McpSettings() {
       return <p className="mt-3 text-sm text-muted">該当するMCPサーバーはありません。</p>;
     }
     return (
-      <ul className="mt-3 grid gap-2 sm:grid-cols-2">
+      <ul className="mt-3 grid gap-2 @xl:grid-cols-2">
         {items.map((server) => (
           <li
             key={server.id}

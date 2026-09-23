@@ -32,7 +32,7 @@ export function BotDefaultsSettings() {
     catch (reason) { setError(reason instanceof Error ? reason.message : "\u30dc\u30c3\u30c8\u8a2d\u5b9a\u306e\u4fdd\u5b58\u306b\u5931\u6557\u3057\u307e\u3057\u305f"); }
   }
   return (
-    <div className="grid gap-4 sm:grid-cols-2">
+    <div className="grid gap-4 @xl:grid-cols-2">
       <label className="rounded-2xl border border-border bg-surface p-4 text-sm">
         <span className="font-medium">権限の既定値</span>
         <select value={permission} onChange={(event) => { const value = event.target.value as BotDefaultPermission; setPermission(value); void save(BOT_DEFAULT_PERMISSION_KEY, value); }} className="mt-2 h-9 w-full rounded-lg border border-border bg-bg px-2 text-sm">
@@ -47,8 +47,8 @@ export function BotDefaultsSettings() {
         </select>
         <span className="mt-1 block text-xs text-muted">新規Bot作成時に実際のセッションへ接続されます。</span>
       </label>
-      {saved && <p className="sm:col-span-2 text-xs text-success" role="status">保存しました</p>}
-      {error && <p className="sm:col-span-2 text-xs text-danger" role="alert">{error}</p>}
+      {saved && <p className="@xl:col-span-2 text-xs text-success" role="status">保存しました</p>}
+      {error && <p className="@xl:col-span-2 text-xs text-danger" role="alert">{error}</p>}
     </div>
   );
 }

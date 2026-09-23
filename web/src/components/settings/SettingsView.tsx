@@ -233,13 +233,13 @@ export function SettingsView() {
     <div className="flex h-full min-w-0 flex-col">
       <MobileMenuHeader />
       <div className="min-h-0 flex-1 overflow-y-auto">
-        <div className="mx-auto flex max-w-5xl flex-col gap-6 px-4 py-6">
+        <div className="@container mx-auto flex max-w-5xl flex-col gap-6 px-4 py-6">
           <h1 className="text-xl font-semibold">設定</h1>
           <div className="sticky top-0 z-20 -mx-1 bg-bg/95 py-1 backdrop-blur">
             <nav
               role="tablist"
               aria-label="設定"
-              className="flex min-w-0 gap-1 overflow-x-auto rounded-xl border border-border bg-surface p-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden sm:overflow-x-visible"
+              className="flex min-w-0 gap-1 overflow-x-auto rounded-xl border border-border bg-surface p-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden @xl:overflow-x-visible"
             >
               {SETTINGS_TABS.map(({ id, label }) => (
                 <button
@@ -255,7 +255,7 @@ export function SettingsView() {
                   onClick={() => selectTab(id)}
                   onKeyDown={(event) => handleTabKeyDown(event, id)}
                   className={cx(
-                    "min-h-11 min-w-[7rem] shrink-0 whitespace-nowrap rounded-lg px-3 py-2 text-sm sm:min-w-0 sm:flex-1 sm:shrink",
+                    "min-h-11 min-w-[7rem] shrink-0 whitespace-nowrap rounded-lg px-3 py-2 text-sm @xl:min-w-0 @xl:flex-1 @xl:shrink",
                     tab === id
                       ? "bg-accent/10 font-medium text-accent"
                       : "text-muted hover:bg-surface-2 hover:text-text",
@@ -280,7 +280,7 @@ export function SettingsView() {
                 title="ランタイム"
                 description="Pi Coding Agent の状態を確認し、WebUI とホストを管理します。"
               >
-                <div className="grid gap-4 lg:grid-cols-2">
+                <div className="grid gap-4 @3xl:grid-cols-2">
                   <div className="rounded-2xl border border-border bg-surface p-4">
                     <div className="mb-3 flex items-center justify-between gap-3">
                       <h3 className="text-sm font-semibold">Pi Coding Agent</h3>
@@ -297,7 +297,7 @@ export function SettingsView() {
                         {health === null && !error ? "確認中" : health?.engineOk ? "利用可" : "未接続"}
                       </Badge>
                     </div>
-                    <dl className="grid grid-cols-[8rem_1fr] gap-y-2 text-sm">
+                    <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-2 text-sm">
                       <dt className="text-muted">エンジン</dt>
                       <dd>Pi SDK（プロセス内埋め込み）</dd>
                       <dt className="text-muted">バージョン</dt>
@@ -320,7 +320,7 @@ export function SettingsView() {
                 title="アクセスと安全"
                 description="WebUI への接続方法と、システム操作に対する安全ガードを設定します。"
               >
-                <div className="grid gap-4 xl:grid-cols-2">
+                <div className="grid gap-4 @4xl:grid-cols-2">
                   <WebUiAuthSettings />
                   <SystemSafetySettings />
                 </div>
@@ -331,7 +331,7 @@ export function SettingsView() {
                 title="応答"
                 description="翻訳、コンテキスト節約、自動再開など、応答時の動作を設定します。"
               >
-                <div className="grid gap-4 xl:grid-cols-2">
+                <div className="grid gap-4 @4xl:grid-cols-2">
                   <ReasoningTranslationSettings />
                   <CompactionSettings />
                   <HangTimeoutSettings />
@@ -343,7 +343,7 @@ export function SettingsView() {
                 title="表示と通知"
                 description="表示、通知音、メッセージ移動ボタン、セッション開始時のペイン動作を設定します。"
               >
-                <div className="grid gap-4 xl:grid-cols-2">
+                <div className="grid gap-4 @4xl:grid-cols-2">
                   <div className="rounded-2xl border border-border bg-surface p-4">
                     <div className="flex items-center justify-between gap-3">
                       <div>
@@ -364,7 +364,7 @@ export function SettingsView() {
                 title="ローカル推論"
                 description="llama-server のモデル、起動状態、推論パラメータ、読み上げを設定します。"
               >
-                <div id="models-local" className="scroll-mt-24 grid gap-4 xl:grid-cols-2">
+                <div id="models-local" className="scroll-mt-24 grid gap-4 @4xl:grid-cols-2">
                   <LlamaServerSettings active={tab === "engine"} />
                   <TtsSettings />
                 </div>

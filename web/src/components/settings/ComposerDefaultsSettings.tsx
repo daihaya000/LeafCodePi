@@ -164,7 +164,7 @@ export function ComposerDefaultsSettings({ refreshToken = 0 }: { refreshToken?: 
       <p className="mt-1 text-xs text-muted">
         WebUI を開いたときに Composer へ適用するモデル・effort・エージェントです。セッション中の変更は保持されます。
       </p>
-      <div className="mt-3 grid gap-4 sm:grid-cols-3">
+      <div className="mt-3 grid gap-4 @xl:grid-cols-3">
         <div className="text-sm">
           <span className="font-medium">モデル</span>
           <div className="mt-2">

@@ -39,7 +39,7 @@ export function NavigatorSettings() {
       <p className="mt-1 text-xs text-muted">
         タスク画面のメッセージ移動ボタンの見え方を設定します。
       </p>
-      <label className="mt-4 flex flex-col gap-1.5 sm:flex-row sm:items-center sm:gap-3">
+      <label className="mt-4 flex flex-col gap-1.5 @xl:flex-row @xl:items-center @xl:gap-3">
         <span className="shrink-0 text-sm text-muted">不透明度</span>
         <span className="flex min-w-0 flex-1 items-center gap-3">
           <input

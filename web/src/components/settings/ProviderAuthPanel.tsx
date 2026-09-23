@@ -1608,7 +1608,7 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
                                         accountIndex - 1,
                                       )
                                     }
-                                    className="inline-flex h-11 w-11 items-center justify-center rounded-lg text-muted hover:bg-surface-2 hover:text-text disabled:opacity-30 sm:h-7 sm:w-7"
+                                    className="inline-flex h-11 w-11 items-center justify-center rounded-lg text-muted hover:bg-surface-2 hover:text-text disabled:opacity-30 @xl:h-7 @xl:w-7"
                                   >
                                     <ChevronUp aria-hidden="true" className="h-4 w-4" />
                                   </button>
@@ -1628,7 +1628,7 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
                                         accountIndex + 1,
                                       )
                                     }
-                                    className="inline-flex h-11 w-11 items-center justify-center rounded-lg text-muted hover:bg-surface-2 hover:text-text disabled:opacity-30 sm:h-7 sm:w-7"
+                                    className="inline-flex h-11 w-11 items-center justify-center rounded-lg text-muted hover:bg-surface-2 hover:text-text disabled:opacity-30 @xl:h-7 @xl:w-7"
                                   >
                                     <ChevronDown aria-hidden="true" className="h-4 w-4" />
                                   </button>
@@ -1967,9 +1967,9 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
             {REMOTE_OAUTH_HINT}
           </p>
         </details>
-        <ul className="grid items-stretch gap-3 lg:grid-cols-2">
+        <ul className="grid items-stretch gap-3 @3xl:grid-cols-2">
           {orderedProviders.length === 0 && (
-            <li className="text-sm text-muted lg:col-span-2">プロバイダーが見つかりません</li>
+            <li className="text-sm text-muted @3xl:col-span-2">プロバイダーが見つかりません</li>
           )}
           {orderedProviders.map((provider) => {
             const usage = findProviderUsage(codexBarUsage, provider.id);
@@ -2253,7 +2253,7 @@ function ProviderRow({
   const hint = accountManaged ? null : sourceHint(provider);
   return (
     <li className="rounded-xl border border-border bg-surface px-2 py-2">
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+      <div className="flex flex-col gap-2 @xl:flex-row @xl:items-center @xl:justify-between">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
             <ProviderIcon providerID={provider.id} size={16} />

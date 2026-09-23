@@ -107,7 +107,7 @@ export function NotificationSoundSettings() {
         {SOUND_CHANNEL_ROWS.map((row) => (
           <label
             key={row.channel}
-            className="flex flex-col gap-1.5 sm:flex-row sm:items-center sm:gap-3"
+            className="flex flex-col gap-1.5 @xl:flex-row @xl:items-center @xl:gap-3"
           >
             <span className="shrink-0 text-sm text-muted">{row.label}</span>
             <select
@@ -126,7 +126,7 @@ export function NotificationSoundSettings() {
           </label>
         ))}
 
-        <label className="flex flex-col gap-1.5 sm:flex-row sm:items-center sm:gap-3">
+        <label className="flex flex-col gap-1.5 @xl:flex-row @xl:items-center @xl:gap-3">
           <span className="shrink-0 text-sm text-muted">音量（共通）</span>
           <span className="flex min-w-0 flex-1 items-center gap-3">
             <input

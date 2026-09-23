@@ -444,7 +444,7 @@ export const Button = forwardRef<
       disabled={disabled || busy}
       aria-busy={busy || undefined}
       className={cx(
-        "inline-flex shrink-0 cursor-pointer items-center justify-center transition-colors select-none disabled:cursor-not-allowed",
+        "inline-flex shrink-0 cursor-pointer items-center justify-center whitespace-nowrap transition-colors select-none disabled:cursor-not-allowed",
         variantClass[variant],
         sizeClass[size],
         className,

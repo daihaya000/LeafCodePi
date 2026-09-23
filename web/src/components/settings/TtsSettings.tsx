@@ -247,7 +247,7 @@ export function TtsSettings() {
           </label>
         )}
 
-        <label className="flex flex-col gap-1.5 sm:flex-row sm:items-center sm:gap-3">
+        <label className="flex flex-col gap-1.5 @xl:flex-row @xl:items-center @xl:gap-3">
           <span className="shrink-0 text-sm text-muted">
             {sapiAvailable ? "速度（SAPI -10..10）" : "速度（SAPI 用・HTTP では未使用）"}
           </span>
@@ -272,7 +272,7 @@ export function TtsSettings() {
           </span>
         </label>
 
-        <label className="flex flex-col gap-1.5 sm:flex-row sm:items-center sm:gap-3">
+        <label className="flex flex-col gap-1.5 @xl:flex-row @xl:items-center @xl:gap-3">
           <span className="shrink-0 text-sm text-muted">話速（ブラウザ再生）</span>
           <span className="flex min-w-0 flex-1 items-center gap-3">
             <input
@@ -291,7 +291,7 @@ export function TtsSettings() {
           </span>
         </label>
 
-        <label className="flex flex-col gap-1.5 sm:flex-row sm:items-center sm:gap-3">
+        <label className="flex flex-col gap-1.5 @xl:flex-row @xl:items-center @xl:gap-3">
           <span className="shrink-0 text-sm text-muted">音量（ブラウザ再生）</span>
           <span className="flex min-w-0 flex-1 items-center gap-3">
             <input

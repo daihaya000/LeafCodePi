@@ -400,7 +400,7 @@ describe("AgentsSettings", () => {
     expect(list?.className).not.toContain("max-h-");
     expect(list?.className).not.toContain("overflow-y-auto");
     expect(list?.classList.contains("grid-cols-1")).toBe(true);
-    expect(list?.className).toContain("sm:grid-cols-2");
+    expect(list?.className).toContain("@xl:grid-cols-2");
     expect(screen.getAllByRole("listitem")).toHaveLength(agents.length);
   });
 

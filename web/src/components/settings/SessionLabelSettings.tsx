@@ -61,7 +61,7 @@ export function SessionLabelSettings() {
       </p>
       <ul className="mt-3 space-y-2">
         {labels.map((label, index) => (
-          <li key={label.id} className="grid min-w-0 grid-cols-1 items-center gap-2 sm:grid-cols-[4rem_10rem_minmax(0,1fr)_9rem_auto]">
+          <li key={label.id} className="grid min-w-0 grid-cols-1 items-center gap-2 @xl:grid-cols-[4rem_10rem_minmax(0,1fr)_9rem_auto]">
             <span
               className={`w-16 truncate rounded border px-1 text-center text-[10px] leading-4 ${PROJECT_ICON_TONES[label.color]}`}
             >

@@ -208,7 +208,7 @@ function AgentModelPicker({
         disabled={loading || busy}
         onChange={(next) => onChange(modelFromSelection(next, options))}
         ariaLabel={`${name} のモデル`}
-        className="min-w-0 w-full sm:w-auto sm:flex-1 sm:min-w-48 sm:max-w-md"
+        className="min-w-0 w-full @xl:w-auto @xl:flex-1 @xl:min-w-48 @xl:max-w-md"
         title={model ?? "モデルを選択"}
       />
       {model && (
@@ -949,7 +949,7 @@ export function AgentsSettings() {
           <span className="font-mono">~/.pi/agent/agents/&lt;name&gt;.md</span> に追加してください。
         </p>
       ) : (
-        <ul className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
+        <ul className="mt-3 grid grid-cols-1 gap-2 @xl:grid-cols-2">
           {agents.map((agent) => (
             <li
               key={agent.id}

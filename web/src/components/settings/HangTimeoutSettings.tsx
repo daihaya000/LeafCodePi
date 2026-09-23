@@ -100,7 +100,7 @@ export function HangTimeoutSettings() {
       <p className="mt-1 text-xs text-muted">
         応答がない状態がこの時間続いた場合、自動停止して設定した方法で再開します（Goal Loop は対象外）。
       </p>
-      <label className="mt-3 flex flex-col gap-1.5 sm:flex-row sm:items-center sm:gap-3">
+      <label className="mt-3 flex flex-col gap-1.5 @xl:flex-row @xl:items-center @xl:gap-3">
         <span className="shrink-0 text-sm text-muted">ハング判定時間</span>
         <input
           type="number"
@@ -118,7 +118,7 @@ export function HangTimeoutSettings() {
         />
         <span className="text-xs text-muted">分</span>
       </label>
-      <label className="mt-3 flex flex-col gap-1.5 sm:flex-row sm:items-center sm:gap-3">
+      <label className="mt-3 flex flex-col gap-1.5 @xl:flex-row @xl:items-center @xl:gap-3">
         <span className="shrink-0 text-sm text-muted">自動再開方法</span>
         <select
           value={resumeMode}

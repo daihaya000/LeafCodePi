@@ -169,7 +169,7 @@ describe("SettingsView", () => {
     expect(screen.queryByRole("navigation", { name: "モデル設定内" })).toBeNull();
     const modelSettings = document.getElementById("models-auto");
     expect(modelSettings?.parentElement?.className).toContain("space-y-4");
-    expect(modelSettings?.parentElement?.className).not.toContain("xl:grid-cols-2");
+    expect(modelSettings?.parentElement?.className).not.toContain("@4xl:grid-cols-2");
   });
 
   it("Jev操作では共有カタログだけを更新し、Jevの再取得を重複させない", () => {
@@ -337,11 +337,11 @@ describe("SettingsView", () => {
     expect(enginePanel.querySelectorAll(":scope > section > header")).toHaveLength(0);
     expect(screen.getByRole("heading", { name: "システム安全ガード" })).toBeTruthy();
     const accessSection = enginePanel.querySelector('section[aria-label="アクセスと安全"]');
-    expect(accessSection?.querySelector(":scope > div.grid")?.className).toContain("xl:grid-cols-2");
+    expect(accessSection?.querySelector(":scope > div.grid")?.className).toContain("@4xl:grid-cols-2");
     expect(screen.getByRole("heading", { name: "ローカル LLM" })).toBeTruthy();
     const localSection = enginePanel.querySelector('section[aria-label="ローカル推論"]');
     const localGrid = localSection?.querySelector(":scope > div#models-local");
-    expect(localGrid?.className).toContain("xl:grid-cols-2");
+    expect(localGrid?.className).toContain("@4xl:grid-cols-2");
     expect(localGrid?.children).toHaveLength(2);
     expect(screen.getByRole("heading", { name: "メモリ" }).tagName).toBe("H3");
     expect(screen.queryByRole("heading", { name: "USER.md" })).toBeNull();
@@ -349,15 +349,15 @@ describe("SettingsView", () => {
     expect(enginePanel?.querySelector("#composer-defaults-heading")).toBeNull();
     const displaySection = enginePanel.querySelector('section[aria-label="表示と通知"]');
     const displayGrid = displaySection?.querySelector(":scope > div.grid");
-    expect(displayGrid?.className).toContain("xl:grid-cols-2");
-    expect(Array.from(displayGrid?.children ?? []).every((item) => !item.className.includes("xl:col-span-2"))).toBe(true);
+    expect(displayGrid?.className).toContain("@4xl:grid-cols-2");
+    expect(Array.from(displayGrid?.children ?? []).every((item) => !item.className.includes("@4xl:col-span-2"))).toBe(true);
     expect(screen.getByRole("heading", { name: "読み上げ (TTS)" })).toBeTruthy();
     expect(screen.getByRole("heading", { name: "思考要約の翻訳" })).toBeTruthy();
     const responseSection = enginePanel.querySelector('section[aria-label="応答"]');
     const responseGrid = responseSection?.querySelector(":scope > div.grid");
-    expect(responseGrid?.className).toContain("xl:grid-cols-2");
+    expect(responseGrid?.className).toContain("@4xl:grid-cols-2");
     expect(responseGrid?.children).toHaveLength(3);
-    expect(Array.from(responseGrid?.children ?? []).every((item) => !item.className.includes("xl:col-span-2"))).toBe(true);
+    expect(Array.from(responseGrid?.children ?? []).every((item) => !item.className.includes("@4xl:col-span-2"))).toBe(true);
     expect(screen.getByRole("heading", { name: "Pi Coding Agent" }).tagName).toBe("H3");
     expect(mountCounts.basic).toBe(1);
     expect(mountCounts.response).toBe(1);
