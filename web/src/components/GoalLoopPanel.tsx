@@ -35,7 +35,7 @@ const pauseHints: Record<string, string> = {
   boundary_lost: "基準メッセージが見つからないため誤読を防止して一時停止しました。",
   verification_rejected: "完了宣言が検証で繰り返し拒否されました。",
   scheduler_error: "スケジューラーでエラーが発生しました。",
-  blocked: "要対応のため停止しました。対応後に再開できます。",
+  blocked: "要対応のため停止しました。対応後に再開するか、ここで完了できます。",
 };
 
 export function GoalLoopPanel({
@@ -65,7 +65,7 @@ export function GoalLoopPanel({
   // 予算を使い切っていると /goal-resume が上限増やしを要求するため、入力欄が必要。
   const budgetExhausted = loop.maxTurns > 0 && loop.turnCount >= loop.maxTurns;
   const needsTurns = turnLimit || budgetExhausted;
-  const canComplete = loop.status === "paused" && turnLimit;
+  const canComplete = loop.status === "blocked" || (loop.status === "paused" && turnLimit);
   const maxTurnsLabel = loop.maxTurns === 0 ? "∞" : String(loop.maxTurns);
   const shownTurn = loop.maxTurns === 0 ? turn : Math.min(turn, loop.maxTurns);
   const progressPercent =

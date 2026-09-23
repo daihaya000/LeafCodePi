@@ -236,7 +236,7 @@ test("full-run ignores early completion and stops at the turn limit", () => {
   }
 });
 
-test("completeLoop rejects forged turn_limit before the budget is exhausted", async () => {
+test("goal-complete rejects forged turn_limit but accepts blocked loops", async () => {
   const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-complete-forged-"));
   process.env.LEAFCODE_PI_DATA_DIR = cwd;
   const handlers = new Map();
@@ -286,6 +286,18 @@ test("completeLoop rejects forged turn_limit before the budget is exhausted", as
     assert.equal(loop.status, "paused");
     assert.equal(loop.pauseReason, "turn_limit");
     assert.match(notices.at(-1).message, /最大ターン数に到達した一時停止中/);
+
+    writeFileSync(stateFile(), JSON.stringify({
+      ...loop,
+      status: "blocked",
+      pauseReason: "",
+      blockedReason: "確認が必要です",
+    }), "utf8");
+    await commands.get("goal-complete")?.("", ctx);
+    const completed = JSON.parse(readFileSync(stateFile(), "utf8"));
+    assert.equal(completed.status, "completed");
+    assert.equal(completed.blockedReason, "");
+    assert.match(notices.at(-1).message, /Goal loop を完了しました/);
   } finally {
     await handlers.get("session_shutdown")?.({}, ctx);
     rmSync(cwd, { recursive: true, force: true });

@@ -1418,9 +1418,14 @@ function stopLoop(runtime: Runtime): boolean {
 
 function completeLoop(runtime: Runtime): boolean {
   const loop = currentLoop(runtime);
-  if (!loop || loop.status !== "paused" || loop.pauseReason !== "turn_limit") return false;
-  // Refuse forged/stale turn_limit pauses that have not actually exhausted the budget.
-  if (loop.maxTurns <= 0 || loop.turnCount < loop.maxTurns) return false;
+  if (!loop) return false;
+  const turnLimitReached =
+    loop.status === "paused" &&
+    loop.pauseReason === "turn_limit" &&
+    loop.maxTurns > 0 &&
+    loop.turnCount >= loop.maxTurns;
+  // A blocked loop can be explicitly closed; verify turn-limit pauses against the budget.
+  if (loop.status !== "blocked" && !turnLimitReached) return false;
   loop.status = "completed";
   loop.pauseReason = "";
   loop.error = "";
@@ -2055,18 +2060,18 @@ function handleAction(runtime: Runtime, action: "pause" | "resume" | "stop" | "c
       return;
     }
     const loop = currentLoop(runtime);
-    // writeLoop fail leaves an eligible turn_limit pause on disk; do not claim
-    // "no such loop" the way a forged/missing pause would.
+    // A failed write leaves the eligible state on disk; don't report it as missing.
     const eligible =
       !!loop &&
-      loop.status === "paused" &&
-      loop.pauseReason === "turn_limit" &&
-      loop.maxTurns > 0 &&
-      loop.turnCount >= loop.maxTurns;
+      (loop.status === "blocked" ||
+        (loop.status === "paused" &&
+          loop.pauseReason === "turn_limit" &&
+          loop.maxTurns > 0 &&
+          loop.turnCount >= loop.maxTurns));
     runtime.ctx.ui.notify(
       eligible
         ? "完了状態の保存に失敗しました。再試行してください。"
-        : "最大ターン数に到達した一時停止中の Goal loop はありません。",
+        : "最大ターン数に到達した一時停止中の Goal loop、または要対応中の Goal loop はありません。",
       eligible ? "error" : "warning",
     );
     return;
@@ -2168,7 +2173,7 @@ function registerCommandAliases(pi: ExtensionAPI, getRuntime: () => Runtime | nu
     },
   });
   pi.registerCommand("goal-complete", {
-    description: "最大ターン数に到達した Goal loop を完了",
+    description: "要対応中または最大ターン数に到達した Goal loop を完了",
     handler: async (_args, ctx) => {
       const runtime = runtimeForContext(ctx);
       if (runtime) handleAction(runtime, "complete");
