@@ -2385,6 +2385,9 @@ const SidebarView = memo(function SidebarView({
                     />
                     <button
                       type="button"
+                      draggable={orderedProjects.length > 1}
+                      onDragStart={(event) => handleProjectDragStart(event, project.id)}
+                      onDragEnd={handleProjectDragEnd}
                       onClick={() => openProject(project.id)}
                       className="flex min-w-0 flex-1 items-center gap-2 py-1.5 pr-1 text-left"
                     >

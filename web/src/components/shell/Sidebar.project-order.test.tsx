@@ -755,6 +755,34 @@ describe("Sidebar project ordering", () => {
     });
   });
 
+  it("reorders projects when dragging from the project title", async () => {
+    render(<Sidebar mobileOpen={false} onClose={vi.fn()} />);
+    const target = await screen.findByRole("button", { name: "Project Aを展開" });
+    const source = (await screen.findByText("Project C")).closest("button") as HTMLElement;
+    const targetRow = target.parentElement as HTMLElement;
+    vi.spyOn(targetRow, "getBoundingClientRect").mockReturnValue({
+      top: 0,
+      bottom: 40,
+      height: 40,
+      left: 0,
+      right: 240,
+      width: 240,
+      x: 0,
+      y: 0,
+      toJSON: () => ({}),
+    });
+    const dataTransfer = createDataTransfer();
+
+    expect(source.getAttribute("draggable")).toBe("true");
+    fireEvent.dragStart(source, { dataTransfer });
+    fireEvent.dragOver(targetRow, { dataTransfer });
+    fireEvent.drop(targetRow, { dataTransfer, clientY: 10 });
+
+    await waitFor(() => {
+      expect(projectOrder()).toEqual(["project-c", "project-a", "project-b"]);
+    });
+  });
+
   it("supports keyboard reordering as the accessible DnD alternative", async () => {
     render(<Sidebar mobileOpen={false} onClose={vi.fn()} />);
     const source = await screen.findByRole("button", { name: "Project Bを展開" });
