@@ -56,16 +56,23 @@ const PROCESS_TERMINATION_COMMAND_PATTERN = /\b(?:taskkill(?:\.exe)?|Stop-Proces
 const LEAFCODE_PI_PROCESS_TARGET_PATTERN = /\b(?:leafcodepi|leafcode[-_ ]?pi(?:[-_ ]?(?:host|server))?)(?:\.exe|\.service)?\b|\bhost[\\/]src[\\/]index\.js\b/i;
 // `$$`, `$PID`, `${PPID}`, `$env:LEAFCODE_PI_PID`; not `$PIDX` / `$PID_list`.
 const SELF_PID_VAR = String.raw`\$(?:\$|\{?(?:env:)?(?:LEAFCODE_PI_(?:PID|PROCESS_ID)|PID|PPID|BASHPID)\}?(?![\w:]))`;
-const SELF_PID_REFERENCE_PATTERN = new RegExp(
-  String.raw`%(?:LEAFCODE_PI_(?:PID|PROCESS_ID)|PID|PPID)%|${SELF_PID_VAR}|\bprocess\.(?:pid|ppid)\b|\b(?:os\.)?getpid\s*\(\s*\)`,
-  "i",
-);
-// `$_.Id -ne $PID` / `$pid != $$` excludes self; it must not count as targeting self.
+const SELF_PID_REFERENCE_SOURCE = String.raw`%(?:LEAFCODE_PI_(?:PID|PROCESS_ID)|PID|PPID)%|${SELF_PID_VAR}|\bprocess\.(?:pid|ppid)\b|\b(?:os\.)?getpid\s*\(\s*\)`;
+// `$_.Id -ne $PID` / `$pid != "$$"` excludes self; it must not count as targeting self.
 const NOT_EQUAL = String.raw`(?:-[ci]?ne\b|!=)`;
-const SELF_PID_EXCLUSION_PATTERN = new RegExp(
-  String.raw`${NOT_EQUAL}\s*${SELF_PID_VAR}|${SELF_PID_VAR}\s*${NOT_EQUAL}`,
-  "gi",
-);
+const QUOTED_SELF_PID_VAR = String.raw`["']?${SELF_PID_VAR}["']?`;
+const SELF_PID_EXCLUSION_SOURCE = String.raw`${NOT_EQUAL}\s*${QUOTED_SELF_PID_VAR}|${QUOTED_SELF_PID_VAR}\s*${NOT_EQUAL}`;
+/** PowerShell/cmd variables are case-insensitive (`$pid` is `$PID`); bash ones are not. */
+export type ShellKind = "bash" | "powershell";
+const SELF_PID_PATTERNS = {
+  insensitive: {
+    reference: new RegExp(SELF_PID_REFERENCE_SOURCE, "i"),
+    exclusion: new RegExp(SELF_PID_EXCLUSION_SOURCE, "gi"),
+  },
+  bash: {
+    reference: new RegExp(SELF_PID_REFERENCE_SOURCE),
+    exclusion: new RegExp(SELF_PID_EXCLUSION_SOURCE, "g"),
+  },
+};
 // Child `process.exit()` does not stop LeafCodePi; only kill/getpid self-targets do.
 const INLINE_SELF_TERMINATION_PATTERN = /\b(?:node|node\.exe|bun|deno)\b[^\r\n]*(?:process\s*[.]\s*(?:kill|abort)\s*\(|process\s*\[[^\]]+\]\s*\(|os\s*[.]\s*kill\s*\(\s*(?:os\.)?getpid)/i;
 // Only `kill -- -1` / `kill -1` as the sole target (broadcast), not `kill -1 <pid>` (signal 1).
@@ -99,12 +106,14 @@ function maskGitMessageBodies(command: string): string {
  * $PPID/$$, a broadcast kill, or a Node self-kill call. These are never
  * allowed and end the session when attempted.
  */
-function isLeafCodePiSelfStopCommand(command: string, pid = process.pid): boolean {
+function isLeafCodePiSelfStopCommand(command: string, pid = process.pid, shell?: ShellKind): boolean {
   const normalized = maskGitMessageBodies(command).replace(/\u0000/g, " ");
   if (INLINE_SELF_TERMINATION_PATTERN.test(normalized)) return true;
   if (!PROCESS_TERMINATION_COMMAND_PATTERN.test(normalized)) return false;
   if (LEAFCODE_PI_PROCESS_TARGET_PATTERN.test(normalized)) return true;
-  if (SELF_PID_REFERENCE_PATTERN.test(normalized.replace(SELF_PID_EXCLUSION_PATTERN, " ")) || BROAD_KILL_TARGET_PATTERN.test(normalized)) return true;
+  // Unknown shell stays case-insensitive: blocking a bash `$pid` beats missing a PowerShell `$pid`.
+  const selfPid = shell === "bash" ? SELF_PID_PATTERNS.bash : SELF_PID_PATTERNS.insensitive;
+  if (selfPid.reference.test(normalized.replace(selfPid.exclusion, " ")) || BROAD_KILL_TARGET_PATTERN.test(normalized)) return true;
   return Number.isSafeInteger(pid) && pid > 0 && new RegExp(`\\b${pid}\\b`).test(normalized);
 }
 
@@ -130,8 +139,8 @@ function terminatesNodeProcess(command: string): boolean {
  * Return true when a command can terminate LeafCodePi itself. This is kept
  * separate from the normal approval flow: self-termination is never allowed.
  */
-export function isLeafCodePiStopCommand(command: string, pid = process.pid): boolean {
-  return isLeafCodePiSelfStopCommand(command, pid) || terminatesNodeProcess(command);
+export function isLeafCodePiStopCommand(command: string, pid = process.pid, shell?: ShellKind): boolean {
+  return isLeafCodePiSelfStopCommand(command, pid, shell) || terminatesNodeProcess(command);
 }
 
 /**
@@ -647,7 +656,8 @@ function maskHeredocBodies(command: string): string {
   );
 }
 
-function matchSystemSafetyCommandInner(command: string, depth: number): SystemSafetyMatch[] {
+// `shell` applies to the top level only; nested `powershell -c` / `bash -c` bodies are unknown.
+function matchSystemSafetyCommandInner(command: string, depth: number, shell?: ShellKind): SystemSafetyMatch[] {
   // Decode obfuscation the same way protected-path scanning does, so
   // `& ('Stop-' + 'Computer')` still hits the shutdown rule at low/standard.
   // Commit message bodies are data too: `git commit -m "shutdown …"` runs nothing.
@@ -665,7 +675,7 @@ function matchSystemSafetyCommandInner(command: string, depth: number): SystemSa
   // Strip incidental quotes around command tokens: `"shutdown" /s`
   const normalized = decoded.replace(/\u0000/g, " ").replace(/(["'])(shutdown|reboot|poweroff|halt|Stop-Computer|Restart-Computer)\1/gi, "$2");
   const matches: SystemSafetyMatch[] = [];
-  if (isLeafCodePiStopCommand(normalized)) {
+  if (isLeafCodePiStopCommand(normalized, process.pid, shell)) {
     pushSafetyMatch(matches, { category: "os", label: LEAFCODE_PI_STOP_LABEL });
   }
   for (const rule of SYSTEM_SAFETY_RULES) {
@@ -727,8 +737,8 @@ function matchSystemSafetyCommandInner(command: string, depth: number): SystemSa
   return matches;
 }
 
-export function matchSystemSafetyCommand(command: string): SystemSafetyMatch[] {
-  return matchSystemSafetyCommandInner(command, 0);
+export function matchSystemSafetyCommand(command: string, shell?: ShellKind): SystemSafetyMatch[] {
+  return matchSystemSafetyCommandInner(command, 0, shell);
 }
 
 function normalizePathCandidate(value: string): string {
@@ -828,7 +838,7 @@ export function matchSystemSafetyForTool(
 ): SystemSafetyMatch[] {
   if (toolName === "bash" || toolName === "powershell") {
     const command = asRecord(input)?.command;
-    return typeof command === "string" ? matchSystemSafetyCommand(command) : [];
+    return typeof command === "string" ? matchSystemSafetyCommand(command, toolName) : [];
   }
   if (toolName === "write" || toolName === "edit") {
     const filePath = asRecord(input)?.path;
@@ -1411,7 +1421,11 @@ export default function (pi: ExtensionAPI): void {
       // Only a direct self-stop ends the session. The node-target heuristic
       // blocks the command, so a false positive cannot abandon the session.
       const direct = toolCommandStrings(event.toolName, event.input)
-        .some((command) => isLeafCodePiSelfStopCommand(command));
+        .some((command) => isLeafCodePiSelfStopCommand(
+          command,
+          process.pid,
+          event.toolName === "bash" || event.toolName === "powershell" ? event.toolName : undefined,
+        ));
       return { block: true, terminate: direct, reason: LEAFCODE_PI_STOP_REASON };
     }
     if (level === "strict" && mode !== "deny" && pendingSafetyKey && isReadOnlyInvestigation(

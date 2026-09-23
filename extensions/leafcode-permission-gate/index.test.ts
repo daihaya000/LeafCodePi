@@ -603,6 +603,17 @@ describe("system safety classifier", () => {
     // `-ne` must be a whole operator; `$PID -New…` still targets self.
     assert.equal(isLeafCodePiStopCommand("Stop-Process -Id $PID -NewFlag"), true);
     assert.equal(isLeafCodePiStopCommand("[ $child != $$ ] && kill $child"), false);
+    // Quoted self-pid in an exclusion is still an exclusion.
+    assert.equal(isLeafCodePiStopCommand('[ "$child" != "$$" ] && kill "$child"'), false);
+    assert.equal(isLeafCodePiStopCommand('Get-Process | ? {"$PID" -ne $_.Id} | Stop-Process'), false);
+    // bash variables are case-sensitive: `$pid` is a user variable there, `$PID` in PowerShell.
+    assert.equal(isLeafCodePiStopCommand("kill -9 $pid", 1, "bash"), false);
+    assert.equal(isLeafCodePiStopCommand("kill -9 $PPID", 1, "bash"), true);
+    assert.equal(isLeafCodePiStopCommand("kill -9 $pid", 1, "powershell"), true);
+    assert.equal(isLeafCodePiStopCommand("kill -9 $pid"), true);
+    assert.equal(matchSystemSafetyCommand("kill -9 $pid", "bash").length, 0);
+    // Nested PowerShell inside bash is case-insensitive again.
+    assert.ok(matchSystemSafetyCommand("powershell -c 'Stop-Process -Id $pid'", "bash").length > 0);
     // Variables that merely start with PID are not the self pid.
     assert.equal(isLeafCodePiStopCommand("Stop-Process -Id $PIDX"), false);
     assert.equal(isLeafCodePiStopCommand("Stop-Process -Id $PID_list[0]"), false);
