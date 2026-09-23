@@ -60,6 +60,17 @@ describe("Jev model configuration", () => {
     expect(() => normalizeJevModelSettings({ ...compatible, ...patch })).toThrow();
   });
 
+  it("validates stored provider references without ever storing their credentials", async () => {
+    const selected = { ...DEFAULT_JEV_MODEL_SETTINGS, provider: "registered" as const, registeredModel: { providerId: "openrouter", modelId: "typesafe/jev-1.13", accountId: "account-1" } };
+    expect(normalizeJevModelSettings({ ...selected, registeredModel: { ...selected.registeredModel, ignored: "extra" } })).toEqual(selected);
+    expect(() => normalizeJevModelSettings({ ...selected, registeredModel: { ...selected.registeredModel, accountId: "" } })).toThrow();
+    expect(() => normalizeJevModelSettings({ ...selected, registeredModel: undefined })).toThrow();
+    await saveJevModelSettings(selected);
+    expect(readJevModelSettings()).toEqual(selected);
+    expect(store.get(JEV_MODEL_SETTING_KEY)).not.toContain("apiKey");
+    await expect(saveJevModelSettings(selected, "test-only-key")).rejects.toThrow();
+  });
+
   it("persists credentials in Pi auth storage, not settings or DTOs", async () => {
     await saveJevModelSettings(compatible, "test-only-compatible-key");
     expect(readJevModelSettings()).toEqual(compatible);

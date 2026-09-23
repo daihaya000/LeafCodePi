@@ -1,9 +1,11 @@
 import { TYPESAFE_API_BASE_URL } from "@/lib/pi/typesafe-provider";
+import type { JevCatalogModel, JevModelRef } from "@/lib/jev-model-catalog";
 
 export const JEV_MODEL_SETTING_KEY = "jev-model";
 
 export type JevModelSettings = {
-  provider: "typesafe" | "compatible";
+  provider: "typesafe" | "compatible" | "registered";
+  registeredModel?: JevModelRef;
   typesafeModel: string;
   compatibleBaseUrl: string;
   compatibleModel: string;
@@ -13,6 +15,7 @@ export type JevModelSettings = {
 export type JevModelSettingsDto = {
   settings: JevModelSettings;
   hasApiKey: { typesafe: boolean; compatible: boolean };
+  models?: JevCatalogModel[];
 };
 
 export const DEFAULT_JEV_MODEL_SETTINGS: JevModelSettings = {
@@ -29,9 +32,22 @@ export function normalizeJevModelSettings(value: unknown): JevModelSettings {
     throw new Error("Jevモデル設定が不正です");
   }
   const input = value as Record<string, unknown>;
-  if (input.provider !== "typesafe" && input.provider !== "compatible") {
+  if (input.provider !== "typesafe" && input.provider !== "compatible" && input.provider !== "registered") {
     throw new Error("Jevプロバイダーが不正です");
   }
+  let registeredModel: JevModelRef | undefined;
+  if (input.registeredModel !== undefined) {
+    const ref = input.registeredModel as Record<string, unknown> | null;
+    if (!ref || typeof ref !== "object" || Array.isArray(ref) ||
+      [ref.providerId, ref.modelId, ...(ref.accountId === undefined ? [] : [ref.accountId])].some(
+        (value) => typeof value !== "string" || !value || value.length > 256 || /[\s\u0000-\u001f\u007f]/u.test(value),
+      )) throw new Error("検出済みJevモデルの指定が不正です");
+    registeredModel = {
+      providerId: ref.providerId as string, modelId: ref.modelId as string,
+      ...(ref.accountId === undefined ? {} : { accountId: ref.accountId as string }),
+    };
+  }
+  if (input.provider === "registered" && !registeredModel) throw new Error("検出済みJevモデルを選択してください");
   for (const key of ["typesafeModel", "compatibleModel"] as const) {
     if (typeof input[key] !== "string" || !input[key].trim() || input[key].length > 256 || /[\s\u0000-\u001f\u007f]/u.test(input[key].trim())) {
       throw new Error("モデルIDは空白を含まない256文字以内で指定してください");
@@ -58,6 +74,7 @@ export function normalizeJevModelSettings(value: unknown): JevModelSettings {
   }
   return {
     provider: input.provider,
+    ...(registeredModel ? { registeredModel } : {}),
     typesafeModel: (input.typesafeModel as string).trim(),
     compatibleBaseUrl: baseUrl,
     compatibleModel: (input.compatibleModel as string).trim(),
@@ -66,6 +83,7 @@ export function normalizeJevModelSettings(value: unknown): JevModelSettings {
 }
 
 export function jevModelEndpoint(settings: JevModelSettings): { baseUrl: string; model: string } {
+  if (settings.provider === "registered") throw new Error("既存プロバイダーの接続先はサーバーで解決してください");
   return settings.provider === "typesafe"
     ? { baseUrl: TYPESAFE_API_BASE_URL, model: settings.typesafeModel }
     : { baseUrl: settings.compatibleBaseUrl, model: settings.compatibleModel };

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { afterEach, describe, it } from "vitest";
+import { afterEach, describe, it, vi } from "vitest";
 import {
   __resetPiAgentDirCacheForTests,
   accountAuthPath,
@@ -31,6 +31,8 @@ import {
   listProviderAuth,
   listProviderModelsCatalog,
   listModelsForAccounts,
+  listJevModels,
+  resolveRegisteredJevModel,
   saveProviderModelsOrder,
   setProviderOrModelEnabled,
 } from "./harness";
@@ -61,6 +63,7 @@ function storeAccountProviderAuth(
 }
 
 afterEach(() => {
+  vi.unstubAllGlobals();
   delete (globalThis as Record<string, unknown>)[GLOBAL_KEY];
   __resetProviderRoutingQueueForTests();
   for (const dir of tempDirs.splice(0))
@@ -149,6 +152,53 @@ describe("getRuntimeFor", () => {
     assert.notEqual(await getRuntimeFor(account.id), defaultStub);
     // accountId 未指定は既定のまま
     assert.equal(await getRuntimeFor(), defaultStub);
+  });
+
+  it("discovers decision models with account-scoped credentials without copying an ambient key", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "leafcode-pi-jev-account-"));
+    tempDirs.push(dir);
+    process.env.LEAFCODE_PI_DATA_DIR = dir;
+    const agentDir = useTestAgentDir(dir);
+    const account = createAccount({ label: "OpenRouter", providers: ["openrouter"] });
+    storeAccountProviderAuth(account, agentDir, "openrouter");
+    const accountRuntime = {
+      getProviders: () => [{ id: "openrouter", name: "OpenRouter", baseUrl: "https://openrouter.ai/api/v1" }],
+      getModels: () => [],
+      checkAuth: async () => ({ type: "api_key" }),
+      getAuth: async () => ({ auth: { apiKey: "account-test-key" } }),
+    };
+    const registered = new Set(["cursor", "commandcode", "ollama-cloud", "leafcodecloud", "typesafe", "orcarouter"]);
+    const defaultRuntime = {
+      getProvider: (id: string) => registered.has(id) ? { id } : undefined,
+      getProviders: () => [],
+      registerProvider: () => undefined,
+    };
+    (globalThis as Record<string, unknown>)[GLOBAL_KEY] = {
+      modelRuntime: defaultRuntime,
+      initPromise: null,
+      initError: null,
+      live: new Map(),
+      watchdogRegistered: true,
+      lastProviderSyncWarnings: [],
+      accountRuntimes: new AccountRuntimeManager(async () => accountRuntime as never),
+    };
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ data: [
+      { id: "typesafe/jev-1.13", name: "Jev", architecture: { output_modalities: ["decisions"] } },
+    ] })));
+    vi.stubGlobal("fetch", fetchMock);
+    const models = await listJevModels(true);
+    assert.deepEqual(models.map(({ accountId, providerId, modelId }) => ({ accountId, providerId, modelId })), [
+      { accountId: account.id, providerId: "openrouter", modelId: "typesafe/jev-1.13" },
+    ]);
+    assert.deepEqual(await resolveRegisteredJevModel(models[0]), {
+      baseUrl: "https://openrouter.ai/api/v1", model: "typesafe/jev-1.13",
+      apiKey: "account-test-key", headers: {},
+    });
+    assert.equal(fetchMock.mock.calls.length, 1);
+    await assert.rejects(
+      resolveRegisteredJevModel({ providerId: "openrouter", modelId: "typesafe/jev-1.13" }),
+      /アカウント指定が必要/,
+    );
   });
 
   it("coalesces concurrent provider catalog reads", async () => {

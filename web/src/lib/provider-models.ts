@@ -9,6 +9,7 @@ import {
   sortByPreferredOrder,
 } from "@/lib/provider-model-state";
 import { thinkingLevelsForModel } from "@/lib/thinking-levels";
+import { isJevModel } from "@/lib/jev-model-catalog";
 import type { Api, Model } from "@earendil-works/pi-ai";
 import type { ModelOption, ThinkingLevel } from "@/lib/types";
 
@@ -53,7 +54,7 @@ export function buildProviderModelsCatalog(
   const rows: ProviderModelsRow[] = [];
   for (const provider of runtime.getProviders()) {
     if (!runtime.hasConfiguredAuth(provider.id)) continue;
-    const models = (modelSnapshot?.get(provider.id) ?? runtime.getModels(provider.id)).map((model) => {
+    const models = (modelSnapshot?.get(provider.id) ?? runtime.getModels(provider.id)).filter((model) => !isJevModel(model)).map((model) => {
       const modelID = model.id;
       const modelKey = accountModelKey(provider.id, modelID, accountId);
       const runtimeModel = runtime.getModel?.(provider.id, modelID);

@@ -60,6 +60,34 @@ describe("JevModelSettings", () => {
     }, "PUT"));
   });
 
+  it("lists detected providers without switching automatically; selected account reuses its login", async () => {
+    const candidate = { providerId: "openrouter", providerName: "OpenRouter", accountId: "account-1", accountLabel: "Main", modelId: "typesafe/jev-1.13", name: "Jev 1.13", baseUrl: "https://openrouter.ai/api/v1", source: "catalog" };
+    mocks.get.mockResolvedValue({ ...dto, models: [candidate] });
+    await ready();
+    expect(screen.getByRole("option", { name: "OpenRouter · Main / Jev 1.13" })).toBeTruthy();
+    expect((screen.getByLabelText("Jevプロバイダー") as HTMLSelectElement).value).toBe("typesafe");
+    expect(mocks.send).not.toHaveBeenCalled();
+    fireEvent.change(screen.getByLabelText("Jevプロバイダー"), { target: { value: 'registered:["account-1","openrouter","typesafe/jev-1.13"]' } });
+    expect(screen.getByText("接続先: https://openrouter.ai/api/v1/systemone")).toBeTruthy();
+    expect(screen.queryByLabelText(/Jev APIキー/)).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Jevモデルを保存" }));
+    await waitFor(() => expect(mocks.send).toHaveBeenCalledWith("/api/jev-model", {
+      settings: { ...DEFAULT_JEV_MODEL_SETTINGS, provider: "registered", registeredModel: { providerId: "openrouter", modelId: "typesafe/jev-1.13", accountId: "account-1" } },
+    }, "PUT"));
+  });
+
+  it("refreshes discovered models without overwriting an unsaved selection", async () => {
+    const model = { providerId: "commandcode", providerName: "Command Code", modelId: "typesafe/jev", name: "Jev", baseUrl: "https://api.commandcode.ai/provider/v1", source: "documented" };
+    mocks.get.mockResolvedValueOnce(dto).mockResolvedValueOnce({ ...dto, models: [model] });
+    await ready();
+    fireEvent.change(screen.getByLabelText("Jevプロバイダー"), { target: { value: "compatible" } });
+    fireEvent.click(screen.getByRole("button", { name: "モデルを再検出" }));
+    await waitFor(() => expect(screen.getByRole("option", { name: /Command Code \/ Jev/ })).toBeTruthy());
+    expect((screen.getByLabelText("Jevプロバイダー") as HTMLSelectElement).value).toBe("compatible");
+    expect(mocks.get).toHaveBeenCalledWith("/api/jev-model", { refresh: "1" });
+    expect(mocks.send).not.toHaveBeenCalled();
+  });
+
   it("sends null only when deleting a saved credential", async () => {
     await ready();
     fireEvent.click(screen.getByLabelText("選択した接続先の保存済みAPIキーを削除"));

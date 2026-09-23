@@ -3,9 +3,12 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { DEFAULT_JEV_MODEL_SETTINGS } from "@/lib/jev-model-settings";
 import { GET, PUT } from "./route";
 
-const mocks = vi.hoisted(() => ({ get: vi.fn(), save: vi.fn() }));
+const mocks = vi.hoisted(() => ({ get: vi.fn(), save: vi.fn(), list: vi.fn() }));
 vi.mock("@/lib/pi/jev-model-config", () => ({ getJevModelSettingsDto: mocks.get, saveJevModelSettings: mocks.save }));
-const dto = { settings: DEFAULT_JEV_MODEL_SETTINGS, hasApiKey: { typesafe: true, compatible: false } };
+vi.mock("@/lib/pi/harness", () => ({ listJevModels: mocks.list }));
+const ref = { providerId: "openrouter", modelId: "typesafe/jev-1.13", accountId: "one" };
+const candidate = { ...ref, providerName: "OpenRouter", name: "Jev", baseUrl: "https://openrouter.ai/api/v1", source: "catalog" };
+const dto = { settings: DEFAULT_JEV_MODEL_SETTINGS, hasApiKey: { typesafe: true, compatible: false }, models: [] };
 const request = (body: unknown, headers: Record<string, string> = {}) => new NextRequest("http://localhost/api/jev-model", {
   method: "PUT",
   headers: { "content-type": "application/json", ...headers },
@@ -16,10 +19,36 @@ beforeEach(() => {
   vi.clearAllMocks();
   mocks.get.mockResolvedValue(dto);
   mocks.save.mockResolvedValue(undefined);
+  mocks.list.mockResolvedValue([]);
 });
 
 describe("Jev model settings API", () => {
   it("returns settings and key presence without credentials", async () => {
+    expect(await (await GET()).json()).toEqual(dto);
+  });
+
+  it("returns discovered models without changing the active selection and accepts explicit refresh", async () => {
+    mocks.list.mockResolvedValue([candidate]);
+    const response = await GET(new NextRequest("http://localhost/api/jev-model?refresh=1"));
+    expect(await response.json()).toEqual({ ...dto, models: [candidate] });
+    expect(mocks.list).toHaveBeenCalledWith(true);
+    expect(mocks.save).not.toHaveBeenCalled();
+  });
+
+  it("saves an existing provider reference but rejects unknown models or credential writes", async () => {
+    const settings = { ...DEFAULT_JEV_MODEL_SETTINGS, provider: "registered", registeredModel: ref };
+    mocks.list.mockResolvedValue([candidate]);
+    expect((await PUT(request({ settings }))).status).toBe(200);
+    expect(mocks.save).toHaveBeenCalledWith(settings, undefined);
+    mocks.save.mockClear();
+    expect((await PUT(request({ settings, apiKey: null }))).status).toBe(400);
+    mocks.list.mockResolvedValue([]);
+    expect((await PUT(request({ settings }))).status).toBe(400);
+    expect(mocks.save).not.toHaveBeenCalled();
+  });
+
+  it("keeps manual settings available if catalog discovery fails", async () => {
+    mocks.list.mockRejectedValue(new Error("offline"));
     expect(await (await GET()).json()).toEqual(dto);
   });
 

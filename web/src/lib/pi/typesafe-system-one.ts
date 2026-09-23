@@ -1,6 +1,5 @@
 import { recordTypesafeUsage } from "@/lib/codexbar/providers/typesafe";
-import { jevModelEndpoint } from "@/lib/jev-model-settings";
-import { readJevApiKey, readJevModelSettings } from "./jev-model-config";
+import { readJevModelSettings, resolveJevModelConnection } from "./jev-model-config";
 
 type TypeSafeQuestion = {
   type: "noul" | "choice" | "score";
@@ -72,13 +71,14 @@ export async function evaluateTypeSafe(
   } = {},
 ): Promise<TypeSafeResponse> {
   const settings = readJevModelSettings();
-  const { baseUrl, model } = jevModelEndpoint(settings);
-  const apiKey = options.apiKey ?? await readJevApiKey(settings);
+  const { baseUrl, model, apiKey: storedKey, headers } = await resolveJevModelConnection(settings);
+  const apiKey = options.apiKey ?? storedKey;
   const response = await (options.fetchImpl ?? fetch)(
     `${baseUrl}/systemone`,
     {
       method: "POST",
       headers: {
+        ...headers,
         ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
         "Content-Type": "application/json",
       },

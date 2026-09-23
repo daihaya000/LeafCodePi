@@ -116,6 +116,8 @@ import {
   syncOllamaCloudProvider,
 } from "@/lib/pi/ollama-cloud-provider";
 import { registerTypeSafeProvider } from "@/lib/pi/typesafe-provider";
+import { isJevModel, type JevCatalogModel, type JevModelRef } from "@/lib/jev-model-catalog";
+import { clearJevDiscoveryCache, discoverJevModels, registeredJevEndpoint } from "@/lib/pi/jev-model-discovery";
 import {
   registerOrcaRouterProvider,
   syncOrcaRouterProvider,
@@ -4790,6 +4792,54 @@ async function rebuildHealth(): Promise<HealthDto> {
   return value;
 }
 
+/** The same enabled accounts and stored credentials as the ordinary model catalog. */
+export async function listJevModels(refresh = false): Promise<JevCatalogModel[]> {
+  await ensureRuntime();
+  if (refresh) clearJevDiscoveryCache();
+  const runtime = await getRuntimeFor();
+  const shared = runtime ? discoverJevModels(runtime, {
+    providerIds: runtime.getProviders().filter((provider) => !runsThroughAccounts(provider.id)).map((provider) => provider.id),
+  }) : Promise.resolve([]);
+  const accounts = listAccounts().filter(isAccountEnabled);
+  const agentDir = accounts.length ? await resolvePiAgentDir() : null;
+  const groups = await Promise.all(accounts.map(async (account) => {
+    const providerIds = agentDir ? storedAccountProviderIds(account, agentDir) : [];
+    if (!providerIds.length) return [];
+    try {
+      const accountRuntime = await getRuntimeFor(account.id);
+      return accountRuntime ? await discoverJevModels(accountRuntime, {
+        accountId: account.id, accountLabel: account.label, providerIds,
+      }) : [];
+    } catch { return []; }
+  }));
+  return [...await shared, ...groups.flat()];
+}
+
+/** Resolve current credentials, never copy account keys or silently pick another account. */
+export async function resolveRegisteredJevModel(ref: JevModelRef): Promise<{
+  baseUrl: string; model: string; apiKey?: string; headers?: Record<string, string>;
+}> {
+  if (ref.accountId) {
+    const account = listAccounts().find((entry) => entry.id === ref.accountId && isAccountEnabled(entry));
+    if (!account || !accountHasProvider(account, ref.providerId) ||
+      !storedAccountProviderIds(account, await resolvePiAgentDir()).includes(ref.providerId as AccountProviderId)) {
+      throw new Error("選択したJevアカウントは利用できません");
+    }
+  } else if (runsThroughAccounts(ref.providerId)) {
+    throw new Error("Jevモデルにはアカウント指定が必要です");
+  }
+  await ensureRuntime({ skipDefaultRuntime: Boolean(ref.accountId) });
+  const runtime = await getRuntimeFor(ref.accountId);
+  const baseUrl = runtime && registeredJevEndpoint(runtime, ref);
+  if (!baseUrl) throw new Error("選択したJevモデルは未検出です");
+  const auth = (await runtime.getAuth(ref.providerId))?.auth;
+  if (!auth) throw new Error("Jevプロバイダーの認証が見つかりません");
+  const headers = Object.fromEntries(Object.entries(auth.headers ?? {}).filter(
+    (entry): entry is [string, string] => typeof entry[1] === "string",
+  ));
+  return { baseUrl, model: ref.modelId, apiKey: auth.apiKey, headers };
+}
+
 /** ランタイムごとの有効モデル一覧を構築する（既定・アカウント共通の処理）。 */
 function providerModelSnapshot(
   runtime: ModelRuntime,
@@ -4800,7 +4850,7 @@ function providerModelSnapshot(
   const models = new Map<string, readonly { id: string; name?: string; provider?: string }[]>();
   for (const provider of runtime.getProviders()) {
     if (!runtime.hasConfiguredAuth(provider.id)) continue;
-    const providerModels = runtime.getModels(provider.id);
+    const providerModels = runtime.getModels(provider.id).filter((model) => !isJevModel(model));
     models.set(provider.id, providerModels);
     if (allowed !== undefined && !allowed.has(provider.id)) continue;
     for (const model of providerModels) {

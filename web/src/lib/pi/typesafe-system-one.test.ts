@@ -1,9 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { DEFAULT_JEV_MODEL_SETTINGS } from "@/lib/jev-model-settings";
+import { DEFAULT_JEV_MODEL_SETTINGS, jevModelEndpoint } from "@/lib/jev-model-settings";
 import { evaluateTypeSafe } from "./typesafe-system-one";
 
-const mocks = vi.hoisted(() => ({ readSettings: vi.fn(), readKey: vi.fn(), recordUsage: vi.fn() }));
-vi.mock("./jev-model-config", () => ({ readJevModelSettings: mocks.readSettings, readJevApiKey: mocks.readKey }));
+const mocks = vi.hoisted(() => ({ readSettings: vi.fn(), readKey: vi.fn(), resolve: vi.fn(), recordUsage: vi.fn() }));
+vi.mock("./jev-model-config", () => ({ readJevModelSettings: mocks.readSettings, resolveJevModelConnection: mocks.resolve }));
 vi.mock("@/lib/codexbar/providers/typesafe", () => ({ recordTypesafeUsage: mocks.recordUsage }));
 
 const request = {
@@ -21,6 +21,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   mocks.readSettings.mockReturnValue({ ...DEFAULT_JEV_MODEL_SETTINGS });
   mocks.readKey.mockResolvedValue("test-only-key");
+  mocks.resolve.mockImplementation(async (settings) => ({ ...jevModelEndpoint(settings), apiKey: await mocks.readKey(settings) }));
 });
 
 describe("evaluateTypeSafe", () => {
@@ -48,6 +49,21 @@ describe("evaluateTypeSafe", () => {
       headers: expect.objectContaining({ Authorization: "Bearer custom-test-key" }),
     }));
     expect(mocks.recordUsage).not.toHaveBeenCalled();
+  });
+
+  it("routes a registered model through its current account credentials and preserves provider headers", async () => {
+    mocks.readSettings.mockReturnValue({ ...DEFAULT_JEV_MODEL_SETTINGS, provider: "registered", registeredModel: { providerId: "openrouter", modelId: "typesafe/jev-1.13", accountId: "one" } });
+    mocks.resolve.mockResolvedValueOnce({ baseUrl: "https://openrouter.ai/api/v1", model: "typesafe/jev-1.13", apiKey: "account-test-key", headers: { "X-Title": "LeafCodePi" } });
+    const fetchImpl = respond();
+    await evaluateTypeSafe(request, { fetchImpl });
+    expect(fetchImpl).toHaveBeenCalledWith("https://openrouter.ai/api/v1/systemone", expect.objectContaining({
+      headers: expect.objectContaining({ Authorization: "Bearer account-test-key", "X-Title": "LeafCodePi" }),
+      body: JSON.stringify({ ...request, model: "typesafe/jev-1.13" }),
+    }));
+    expect(mocks.recordUsage).not.toHaveBeenCalled();
+    mocks.resolve.mockRejectedValueOnce(new Error("account disabled"));
+    await expect(evaluateTypeSafe(request, { fetchImpl })).rejects.toThrow("account disabled");
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
   });
 
   it("supports keyless compatible servers and reads changes on the next call", async () => {
