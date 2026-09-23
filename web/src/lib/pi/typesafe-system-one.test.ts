@@ -2,10 +2,11 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { DEFAULT_JEV_MODEL_SETTINGS, jevModelEndpoint } from "@/lib/jev-model-settings";
 import { evaluateTypeSafe } from "./typesafe-system-one";
 
-const mocks = vi.hoisted(() => ({ readSettings: vi.fn(), readKey: vi.fn(), resolve: vi.fn(), readState: vi.fn(), recordUsage: vi.fn() }));
+const mocks = vi.hoisted(() => ({ readSettings: vi.fn(), readKey: vi.fn(), resolve: vi.fn(), readState: vi.fn(), readRouting: vi.fn(), recordUsage: vi.fn() }));
 vi.mock("./jev-model-config", () => ({ readJevModelSettings: mocks.readSettings, resolveJevModelConnection: mocks.resolve }));
 vi.mock("@/lib/codexbar/providers/typesafe", () => ({ recordTypesafeUsage: mocks.recordUsage }));
 vi.mock("@/lib/provider-model-state", () => ({ readProviderModelState: mocks.readState }));
+vi.mock("@/lib/provider-routing", () => ({ readProviderRouting: mocks.readRouting, accountRoutingMode: (id: string, state: { modes: Record<string, string> }) => state.modes[id] ?? "separate" }));
 
 const request = {
   state: "connectivity test",
@@ -23,6 +24,7 @@ beforeEach(() => {
   mocks.readSettings.mockReturnValue({ ...DEFAULT_JEV_MODEL_SETTINGS });
   mocks.readKey.mockResolvedValue("test-only-key");
   mocks.readState.mockReturnValue({ providerOrder: [], modelOrder: {} });
+  mocks.readRouting.mockReturnValue({ modes: {} });
   mocks.resolve.mockImplementation(async (settings) => ({ ...jevModelEndpoint(settings), apiKey: await mocks.readKey(settings) }));
 });
 
@@ -125,6 +127,25 @@ describe("evaluateTypeSafe", () => {
     await expect(evaluateTypeSafe(request, { fetchImpl })).rejects.toThrow("Jev API error: 401");
     expect(mocks.resolve).toHaveBeenCalledTimes(2);
     expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps integrated accounts together despite stale per-account provider order", async () => {
+    const refs = [
+      { providerId: "openrouter", modelId: "jev-a", accountId: "one" },
+      { providerId: "openrouter", modelId: "jev-b", accountId: "two" },
+      { providerId: "commandcode", modelId: "jev-a", accountId: "one" },
+      { providerId: "commandcode", modelId: "jev-b", accountId: "two" },
+    ];
+    mocks.readSettings.mockReturnValue({ ...DEFAULT_JEV_MODEL_SETTINGS, provider: "registered", registeredModel: refs[0], enabledModels: refs });
+    mocks.readRouting.mockReturnValue({ modes: { openrouter: "integrated", commandcode: "integrated" } });
+    mocks.readState.mockReturnValue({ providerOrder: ["one::openrouter", "one::commandcode", "two::openrouter", "two::commandcode"], modelOrder: {} });
+    mocks.resolve.mockImplementation(async (settings) => ({ baseUrl: `https://${settings.registeredModel.providerId}-${settings.registeredModel.accountId}.example/v1`, model: settings.registeredModel.modelId }));
+    const fetchImpl = vi.fn().mockResolvedValueOnce(new Response(null, { status: 503 })).mockResolvedValueOnce(new Response(null, { status: 503 })).mockResolvedValueOnce(new Response(null, { status: 503 })).mockResolvedValueOnce(new Response(JSON.stringify(result)));
+    await expect(evaluateTypeSafe(request, { fetchImpl })).resolves.toEqual(result);
+    expect(fetchImpl.mock.calls.map(([url]) => url)).toEqual([
+      "https://openrouter-one.example/v1/systemone", "https://openrouter-two.example/v1/systemone",
+      "https://commandcode-one.example/v1/systemone", "https://commandcode-two.example/v1/systemone",
+    ]);
   });
 
   it("does not fall back after caller cancellation", async () => {

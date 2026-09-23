@@ -4820,7 +4820,7 @@ export async function listJevModels(refresh = false): Promise<JevCatalogModel[]>
   const state = readProviderModelState();
   const routingState = readProviderRouting();
   const order = new Map(state.providerOrder.map((key, index) => [key, index]));
-  return [...await shared, ...groups.flat()]
+  const entries = [...await shared, ...groups.flat()]
     .map((model, index) => ({
       model: {
         ...model,
@@ -4829,9 +4829,18 @@ export async function listJevModels(refresh = false): Promise<JevCatalogModel[]>
           ? { integrated: true } : {}),
       },
       index,
-    }))
+    }));
+  const integratedRank = new Map<string, number>();
+  for (const { model } of entries) {
+    if (!model.integrated) continue;
+    const rank = order.get(accountProviderModelKey(model.providerId, model.accountId));
+    if (rank !== undefined) integratedRank.set(model.providerId, Math.min(integratedRank.get(model.providerId) ?? rank, rank));
+  }
+  const rank = (model: JevCatalogModel) => model.integrated
+    ? order.get(model.providerId) ?? integratedRank.get(model.providerId) ?? Number.MAX_SAFE_INTEGER
+    : order.get(accountProviderModelKey(model.providerId, model.accountId)) ?? order.get(model.providerId) ?? Number.MAX_SAFE_INTEGER;
+  return entries
     .sort((a, b) => {
-      const rank = (model: JevCatalogModel) => order.get(accountProviderModelKey(model.providerId, model.accountId)) ?? order.get(model.providerId) ?? Number.MAX_SAFE_INTEGER;
       const providerRank = rank(a.model) - rank(b.model);
       if (providerRank) return providerRank;
       if (accountProviderModelKey(a.model.providerId, a.model.accountId) !== accountProviderModelKey(b.model.providerId, b.model.accountId)) return a.index - b.index;

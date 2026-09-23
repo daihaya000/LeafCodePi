@@ -62,6 +62,18 @@ describe("Jev model settings API", () => {
     expect(mocks.save).not.toHaveBeenCalled();
   });
 
+  it("saves fallback order by visible integrated provider rows, not interleaved accounts", async () => {
+    const first = { ...candidate, integrated: true, accountId: "one" };
+    const second = { ...candidate, integrated: true, accountId: "two", modelId: "typesafe/jev-1.14" };
+    const command = { ...candidate, integrated: true, providerId: "commandcode", accountId: "one" };
+    const commandSecond = { ...command, accountId: "two", modelId: "typesafe/jev-1.14" };
+    const refOf = (model: typeof candidate) => ({ providerId: model.providerId, modelId: model.modelId, accountId: model.accountId });
+    const settings = { ...DEFAULT_JEV_MODEL_SETTINGS, provider: "registered", enabledModels: [commandSecond, second, command, first].map(refOf) };
+    mocks.list.mockResolvedValue([first, command, second, commandSecond]);
+    expect((await PUT(request({ settings }))).status).toBe(200);
+    expect(mocks.save).toHaveBeenCalledWith({ ...settings, registeredModel: refOf(first), enabledModels: [first, second, command, commandSecond].map(refOf) }, undefined);
+  });
+
   it("keeps manual settings available if catalog discovery fails", async () => {
     mocks.list.mockRejectedValue(new Error("offline"));
     expect(await (await GET()).json()).toEqual(dto);

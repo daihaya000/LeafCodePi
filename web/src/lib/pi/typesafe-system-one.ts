@@ -1,5 +1,6 @@
 import { recordTypesafeUsage } from "@/lib/codexbar/providers/typesafe";
 import { readProviderModelState } from "@/lib/provider-model-state";
+import { accountRoutingMode, readProviderRouting } from "@/lib/provider-routing";
 import { readJevModelSettings, resolveJevModelConnection } from "./jev-model-config";
 
 type TypeSafeQuestion = {
@@ -73,9 +74,19 @@ export async function evaluateTypeSafe(
 ): Promise<TypeSafeResponse> {
   const settings = readJevModelSettings();
   const state = settings.enabledModels ? readProviderModelState() : null;
+  const routing = settings.enabledModels ? readProviderRouting() : null;
+  const integrated = new Set(settings.enabledModels?.filter((ref) => ref.accountId && routing && accountRoutingMode(ref.providerId, routing) === "integrated").map((ref) => ref.providerId));
+  const integratedRank = new Map<string, number>();
+  for (const ref of settings.enabledModels ?? []) {
+    if (!ref.accountId || !integrated.has(ref.providerId)) continue;
+    const rank = state?.providerOrder.indexOf(`${ref.accountId}::${ref.providerId}`) ?? -1;
+    if (rank >= 0) integratedRank.set(ref.providerId, Math.min(integratedRank.get(ref.providerId) ?? rank, rank));
+  }
   const providerRank = (ref: { providerId: string; accountId?: string }) => {
+    const providerIndex = state?.providerOrder.indexOf(ref.providerId) ?? -1;
+    if (integrated.has(ref.providerId)) return providerIndex >= 0 ? providerIndex : integratedRank.get(ref.providerId) ?? -1;
     const accountRank = ref.accountId ? state?.providerOrder.indexOf(`${ref.accountId}::${ref.providerId}`) ?? -1 : -1;
-    return accountRank >= 0 ? accountRank : state?.providerOrder.indexOf(ref.providerId) ?? -1;
+    return accountRank >= 0 ? accountRank : providerIndex;
   };
   const modelRank = (ref: { providerId: string; accountId?: string; modelId: string }) => {
     const ids = (ref.accountId && state?.modelOrder[`${ref.accountId}::${ref.providerId}`]) || state?.modelOrder[ref.providerId] || [];

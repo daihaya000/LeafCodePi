@@ -211,6 +211,41 @@ describe("getRuntimeFor", () => {
     );
   });
 
+  it("keeps integrated Jev accounts together after switching from separate order", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "leafcode-pi-jev-integrated-order-"));
+    tempDirs.push(dir);
+    process.env.LEAFCODE_PI_DATA_DIR = dir;
+    const agentDir = useTestAgentDir(dir);
+    const first = createAccount({ label: "First", providers: ["openrouter"] });
+    const second = createAccount({ label: "Second", providers: ["openrouter"] });
+    storeAccountProviderAuth(first, agentDir, "openrouter");
+    storeAccountProviderAuth(second, agentDir, "openrouter");
+    const accountRuntime = {
+      getProviders: () => [{ id: "openrouter", name: "OpenRouter", baseUrl: "https://openrouter.ai/api/v1" }],
+      getModels: () => [],
+      checkAuth: async () => ({ type: "api_key" }),
+    };
+    const runtime = {
+      getProvider: (id: string) => ["cursor", "commandcode", "ollama-cloud", "leafcodecloud", "typesafe", "orcarouter"].includes(id) ? { id } : undefined,
+      getProviders: () => [{ id: "typesafe", name: "TypeSafe", baseUrl: "https://api.typesafe.ai/v1" }],
+      getModels: () => [],
+      checkAuth: async () => ({ type: "api_key" }),
+      registerProvider: () => undefined,
+    };
+    (globalThis as Record<string, unknown>)[GLOBAL_KEY] = {
+      modelRuntime: runtime, initPromise: null, initError: null, live: new Map(), watchdogRegistered: true,
+      lastProviderSyncWarnings: [], accountRuntimes: new AccountRuntimeManager(async () => accountRuntime as never),
+    };
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({ data: [
+      { id: "typesafe/jev-1.13", name: "Jev", architecture: { output_modalities: ["decisions"] } },
+    ] }))));
+    await saveProviderModelsOrder({ providerOrder: [`${first.id}::openrouter`, "typesafe", `${second.id}::openrouter`] });
+    await setAccountRoutingMode("openrouter", "integrated");
+    assert.deepEqual((await listJevModels(true)).map((model) => [model.providerId, model.accountId ?? null]), [
+      ["openrouter", first.id], ["openrouter", second.id], ["typesafe", null],
+    ]);
+  });
+
   it("coalesces concurrent provider catalog reads", async () => {
     const dir = mkdtempSync(join(tmpdir(), "leafcode-pi-provider-catalog-"));
     tempDirs.push(dir);

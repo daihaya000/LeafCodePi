@@ -54,7 +54,14 @@ export async function PUT(req: NextRequest) {
       }
       if (settings.enabledModels) {
         const keys = new Set(settings.enabledModels.map(jevModelKey));
-        settings.enabledModels = models.flatMap((model) => {
+        const rows = new Map<string, typeof models>();
+        for (const model of models) {
+          const rowKey = model.integrated ? model.providerId : model.accountId ? `${model.accountId}::${model.providerId}` : model.providerId;
+          const row = rows.get(rowKey) ?? [];
+          row.push(model);
+          rows.set(rowKey, row);
+        }
+        settings.enabledModels = [...rows.values()].flat().flatMap((model) => {
           if (!keys.delete(jevModelKey(model))) return [];
           return [{ providerId: model.providerId, modelId: model.modelId, ...(model.accountId ? { accountId: model.accountId } : {}) }];
         });
