@@ -56,6 +56,8 @@ const PROCESS_TERMINATION_COMMAND_PATTERN = /\b(?:taskkill(?:\.exe)?|Stop-Proces
 const LEAFCODE_PI_PROCESS_TARGET_PATTERN = /\b(?:leafcodepi|leafcode[-_ ]?pi(?:[-_ ]?(?:host|server))?)(?:\.exe|\.service)?\b|\bhost[\\/]src[\\/]index\.js\b/i;
 const SELF_PID_REFERENCE_PATTERN = /(?:%(?:LEAFCODE_PI_(?:PID|PROCESS_ID)|PID|PPID)%|\$(?:\$|(?:\{)?(?:env:)?(?:LEAFCODE_PI_(?:PID|PROCESS_ID)|PID|PPID|BASHPID)\}?)|\bprocess\.(?:pid|ppid)\b|\b(?:os\.)?getpid\s*\(\s*\))/i;
 // Child `process.exit()` does not stop LeafCodePi; only kill/getpid self-targets do.
+// `$_.Id -ne $PID` / `$pid != $$` excludes self; it must not count as targeting self.
+const SELF_PID_EXCLUSION_PATTERN = /(?:-ne|!=)\s*(?:\$\$|\$(?:\{)?(?:env:)?(?:LEAFCODE_PI_(?:PID|PROCESS_ID)|PID|PPID|BASHPID)\}?)(?![\w}])|(?:\$\$|\$(?:\{)?(?:env:)?(?:LEAFCODE_PI_(?:PID|PROCESS_ID)|PID|PPID|BASHPID)\}?)\s*(?:-ne|!=)/gi;
 const INLINE_SELF_TERMINATION_PATTERN = /\b(?:node|node\.exe|bun|deno)\b[^\r\n]*(?:process\s*[.]\s*(?:kill|abort)\s*\(|process\s*\[[^\]]+\]\s*\(|os\s*[.]\s*kill\s*\(\s*(?:os\.)?getpid)/i;
 // Only `kill -- -1` / `kill -1` as the sole target (broadcast), not `kill -1 <pid>` (signal 1).
 const BROAD_KILL_TARGET_PATTERN = /\b(?:kill|pkill)\b[^\r\n]*(?:^|\s)--\s*-1(?:\s|$)|(?:^|[;&|\r\n]\s*)(?:kill|pkill)\s+-1\s*$/im;
@@ -93,7 +95,7 @@ function isLeafCodePiSelfStopCommand(command: string, pid = process.pid): boolea
   if (INLINE_SELF_TERMINATION_PATTERN.test(normalized)) return true;
   if (!PROCESS_TERMINATION_COMMAND_PATTERN.test(normalized)) return false;
   if (LEAFCODE_PI_PROCESS_TARGET_PATTERN.test(normalized)) return true;
-  if (SELF_PID_REFERENCE_PATTERN.test(normalized) || BROAD_KILL_TARGET_PATTERN.test(normalized)) return true;
+  if (SELF_PID_REFERENCE_PATTERN.test(normalized.replace(SELF_PID_EXCLUSION_PATTERN, " ")) || BROAD_KILL_TARGET_PATTERN.test(normalized)) return true;
   return Number.isSafeInteger(pid) && pid > 0 && new RegExp(`\\b${pid}\\b`).test(normalized);
 }
 

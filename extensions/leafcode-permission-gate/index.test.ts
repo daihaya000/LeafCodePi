@@ -591,6 +591,14 @@ describe("system safety classifier", () => {
       false,
     );
     assert.equal(isLeafCodePiStopCommand("node -v; Stop-Process -Name UiPreview -Force"), false);
+    // `-ne $PID` excludes self; only a real self-pid target blocks.
+    assert.equal(
+      isLeafCodePiStopCommand(
+        "Get-Process curl,powershell | Where-Object {$_.Id -ne $PID} | Select-Object Id; Get-Process curl | Stop-Process -Force",
+      ),
+      false,
+    );
+    assert.equal(isLeafCodePiStopCommand("Get-Process | ? {$_.Id -ne $PID}; Stop-Process -Id $PID"), true);
     assert.equal(isLeafCodePiStopCommand("Get-Process node | Stop-Process -Force"), true);
     assert.equal(isLeafCodePiStopCommand("taskkill /IM node.exe /F"), true);
     assert.equal(isLeafCodePiStopCommand("Stop-Process -Name nodeCheck -Force"), false);
