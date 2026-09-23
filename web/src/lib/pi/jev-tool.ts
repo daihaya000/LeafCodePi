@@ -104,7 +104,7 @@ function isProbability(value: unknown): value is number {
 }
 
 const JEV_TOOL_DESCRIPTION = [
-  "Ask Jev (TypeSafe System One) for typed judgments over text state: yes/no (noul), pick-one (choice), or graded rating (score).",
+  "Ask the configured Jev-compatible System One provider for typed judgments over text state: yes/no (noul), pick-one (choice), or graded rating (score).",
   "Returns probabilities and confidence, not generated text.",
   "Use for routing, verification, or ranking decisions; keep execution, thresholds, and fallbacks in code.",
   "Never use for code/text generation, and never let a judgment alone authorize irreversible actions.",
@@ -144,7 +144,6 @@ export function registerJevTool(pi: ExtensionAPI): void {
       try {
         response = await evaluateTypeSafe({
           state: input.state,
-          model: "jev-latest",
           questions: Object.fromEntries(questions.map(({ id, ...rest }) => [id, rest])),
         });
       } catch (error) {

@@ -35,6 +35,9 @@ vi.mock("@/components/settings/ProviderAuthPanel", () => ({
     </>
   ),
 }));
+vi.mock("@/components/settings/JevModelSettings", () => ({
+  JevModelSettings: () => <h3>Jevモデル</h3>,
+}));
 vi.mock("@/components/settings/GenerationModelSettings", () => ({
   GenerationModelSettings: () => <h3>生成モデル</h3>,
 }));
@@ -144,12 +147,14 @@ describe("SettingsView", () => {
     const modelsPanel = screen.getByRole("tabpanel");
     expect(Array.from(modelsPanel.querySelectorAll(":scope > section")).map((section) => section.getAttribute("aria-label"))).toEqual([
       "モデルカタログ",
+      "Jevモデル",
       "自動選択と生成",
       "プロバイダー接続",
     ]);
     expect(modelsPanel.querySelectorAll(":scope > section > header")).toHaveLength(0);
     expect(Array.from(modelsPanel.querySelectorAll("h3")).map((heading) => heading.textContent)).toEqual([
       "モデル",
+      "Jevモデル",
       "起動時の既定値",
       "送信プロンプト",
       "Autoモデル",
@@ -162,6 +167,13 @@ describe("SettingsView", () => {
     const modelSettings = document.getElementById("models-auto");
     expect(modelSettings?.parentElement?.className).toContain("space-y-4");
     expect(modelSettings?.parentElement?.className).not.toContain("xl:grid-cols-2");
+  });
+
+  it("#models-jevからモデルタブのJev専用設定を開く", () => {
+    window.history.replaceState(null, "", "/settings#models-jev");
+    render(<SettingsView />);
+    expect(screen.getByRole("tab", { name: "モデルタブ" }).getAttribute("aria-selected")).toBe("true");
+    expect(screen.getByRole("heading", { name: "Jevモデル" }).closest("#models-jev")).not.toBeNull();
   });
 
   it("ヘルス取得が遅くてもプロバイダー一覧を先に反映する", async () => {

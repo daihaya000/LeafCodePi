@@ -6,6 +6,7 @@ import { ProviderAuthPanel } from "@/components/settings/ProviderAuthPanel";
 import { ProviderModelsPanel } from "@/components/settings/ProviderModelsPanel";
 import { AutoModelSettings } from "@/components/settings/AutoModelSettings";
 import { GenerationModelSettings } from "@/components/settings/GenerationModelSettings";
+import { JevModelSettings } from "@/components/settings/JevModelSettings";
 import { LlamaServerSettings } from "@/components/settings/LlamaServerSettings";
 import { HostRestartPanel } from "@/components/settings/HostRestartPanel";
 import { ProfileSettings } from "@/components/settings/ProfileSettings";
@@ -67,6 +68,7 @@ const CURRENT_HASH_TAB: Readonly<Record<string, Tab>> = {
   "models-local": "engine",
   "models-auto": "models",
   "models-generation": "models",
+  "models-jev": "models",
   "models-providers": "models",
   agents: "agents",
   "agents-skills": "agents",
@@ -392,6 +394,12 @@ export function SettingsView() {
               >
                 <div id="models-catalog" className="scroll-mt-24 rounded-2xl border border-border bg-surface p-4">
                   <ProviderModelsPanel refreshToken={modelsRevision} />
+                </div>
+              </SettingsGroup>
+
+              <SettingsGroup id="models-jev-heading" title="Jevモデル">
+                <div id="models-jev" className="scroll-mt-24">
+                  <JevModelSettings />
                 </div>
               </SettingsGroup>
 

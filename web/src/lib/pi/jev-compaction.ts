@@ -178,7 +178,6 @@ export async function compactWithJev(
     const preserved = new Set(results.filter((result) => result.text.length > MAX_RESULT_CHARS).map((result) => result.id));
     const responses = await Promise.all(batches(results).map((batch) => evaluateTypeSafe({
       state: state(preparation.messagesToSummarize, batch),
-      model: "jev-latest",
       questions: questions(batch),
     }, { signal })));
     if (signal.aborted) return undefined;

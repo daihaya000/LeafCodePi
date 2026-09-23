@@ -54,7 +54,6 @@ export async function classifyAutoTierWithJev(
         historyMessageCount: input.historyMessageCount,
         recentFailure: input.recentFailure,
       },
-      model: "jev-latest",
       questions: {
         tier: {
           type: "choice",
@@ -93,7 +92,6 @@ export async function classifySessionLabelWithJev(
   try {
     const response = await evaluateTypeSafe({
       state: { conversation: input.prompt },
-      model: "jev-latest",
       questions: {
         label: {
           type: "choice",
@@ -166,7 +164,6 @@ export async function selectAutoAgentWithJev(
           canModifyFiles: candidate.canModifyFiles,
         })),
       },
-      model: "jev-latest",
       questions: {
         agent: {
           type: "choice",

@@ -39,7 +39,6 @@ describe("jev_judge tool", () => {
     });
     expect(mockEvaluate).toHaveBeenCalledWith({
       state: "The build passed.",
-      model: "jev-latest",
       questions: { ready: { type: "noul", instructions: "Is the build ready?" } },
     });
     expect(JSON.parse(result.content[0].text)).toMatchObject({

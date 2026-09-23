@@ -1,12 +1,6 @@
-import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { recordTypesafeUsage } from "@/lib/codexbar/providers/typesafe";
-import {
-  registerTypeSafeProvider,
-  TYPESAFE_API_BASE_URL,
-  TYPESAFE_PROVIDER_ID,
-} from "./typesafe-provider";
-
-const TYPESAFE_TIMEOUT_MS = 2_000;
+import { jevModelEndpoint } from "@/lib/jev-model-settings";
+import { readJevApiKey, readJevModelSettings } from "./jev-model-config";
 
 type TypeSafeQuestion = {
   type: "noul" | "choice" | "score";
@@ -16,7 +10,6 @@ type TypeSafeQuestion = {
 
 type TypeSafeRequest = {
   state: string | object | readonly unknown[];
-  model: "jev-latest";
   questions: Record<string, TypeSafeQuestion>;
 };
 
@@ -34,15 +27,42 @@ export type TypeSafeResponse = {
   usage: { input_tokens: number; output_tokens: number };
 };
 
-async function storedTypeSafeApiKey(): Promise<string> {
-  const runtime = await ModelRuntime.create({ refreshOnCreate: false });
-  registerTypeSafeProvider(runtime);
-  const apiKey = (await runtime.getAuth(TYPESAFE_PROVIDER_ID))?.auth.apiKey?.trim();
-  if (!apiKey) throw new Error("TypeSafe APIキーが設定されていません");
-  return apiKey;
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
-/** Server-side System One request. Credentials stay in Pi's auth storage. */
+function inRange(value: unknown, max = 1): value is number {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= max;
+}
+
+/** Validate at the shared boundary: malformed judgments must also abort compaction. */
+function validateResponse(result: unknown, request: TypeSafeRequest): asserts result is TypeSafeResponse {
+  if (!isRecord(result) || typeof result.model !== "string" || !result.model || !isRecord(result.answers) || !isRecord(result.usage)) {
+    throw new Error("Jev API returned an invalid response");
+  }
+  for (const key of ["input_tokens", "output_tokens"]) {
+    const count = result.usage[key];
+    if (!Number.isSafeInteger(count) || (count as number) < 0) throw new Error("Jev API returned invalid usage");
+  }
+  for (const [id, question] of Object.entries(request.questions)) {
+    const answer = result.answers[id];
+    if (!isRecord(answer) || answer.type !== question.type) throw new Error("Jev API returned a missing or mismatched answer");
+    if (question.type === "noul") {
+      if (!inRange(answer.noul)) throw new Error("Jev API returned an invalid noul");
+    } else {
+      if (!inRange(answer.confidence)) throw new Error("Jev API returned invalid confidence");
+      if (question.type === "choice") {
+        if (typeof answer.choice !== "string" || !Object.hasOwn(question.criteria ?? {}, answer.choice)) {
+          throw new Error("Jev API returned an unknown choice");
+        }
+      } else if (!Array.isArray(question.criteria) || !inRange(answer.score, question.criteria.length - 1)) {
+        throw new Error("Jev API returned an invalid score");
+      }
+    }
+  }
+}
+
+/** All LCP judgments share the selected System One endpoint; never fall back to another provider. */
 export async function evaluateTypeSafe(
   request: TypeSafeRequest,
   options: {
@@ -51,23 +71,27 @@ export async function evaluateTypeSafe(
     signal?: AbortSignal;
   } = {},
 ): Promise<TypeSafeResponse> {
-  const apiKey = options.apiKey ?? await storedTypeSafeApiKey();
+  const settings = readJevModelSettings();
+  const { baseUrl, model } = jevModelEndpoint(settings);
+  const apiKey = options.apiKey ?? await readJevApiKey(settings);
   const response = await (options.fetchImpl ?? fetch)(
-    `${TYPESAFE_API_BASE_URL}/systemone`,
+    `${baseUrl}/systemone`,
     {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${apiKey}`,
+        ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
         "Content-Type": "application/json",
       },
-      body: JSON.stringify(request),
+      redirect: "error",
+      body: JSON.stringify({ ...request, model }),
       signal: options.signal
-        ? AbortSignal.any([options.signal, AbortSignal.timeout(TYPESAFE_TIMEOUT_MS)])
-        : AbortSignal.timeout(TYPESAFE_TIMEOUT_MS),
+        ? AbortSignal.any([options.signal, AbortSignal.timeout(settings.timeoutMs)])
+        : AbortSignal.timeout(settings.timeoutMs),
     },
   );
-  if (!response.ok) throw new Error(`TypeSafe API error: ${response.status}`);
-  const result = (await response.json()) as TypeSafeResponse;
-  recordTypesafeUsage(result.usage);
+  if (!response.ok) throw new Error(`Jev API error: ${response.status}`);
+  const result: unknown = await response.json();
+  validateResponse(result, request);
+  if (settings.provider === "typesafe") recordTypesafeUsage(result.usage);
   return result;
 }
