@@ -19,8 +19,7 @@ it("registers the desktop extension only on Windows, without starting the helper
     assert.deepEqual([tools, commands, events], [[], [], []]);
     platform.mockReturnValue("win32");
     leafcodeComputerUse(api);
-    assert.ok(tools.includes("observe_ui"));
-    assert.ok(tools.includes("act_ui"));
+    assert.deepEqual(tools, ["find_roots", "observe_ui", "search_ui", "expand_ui", "inspect_ui", "act_ui", "read_text", "wait_for"]);
     assert.ok(commands.includes("leafcode-computer-use"));
     assert.ok(events.includes("session_start"));
   } finally {
