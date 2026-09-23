@@ -375,9 +375,10 @@ export function typecheckInvocation(mirrorRoot, deps = {}) {
   const exists = deps.existsSync ?? existsSync;
   const tsc = join(mirrorRoot, "node_modules", "typescript", "bin", "tsc");
   if (!exists(tsc)) return null;
+  const config = join(mirrorRoot, "tsconfig.build.json");
   return {
     command: deps.execPath ?? process.execPath,
-    args: [tsc, "--noEmit"],
+    args: [tsc, "--noEmit", "--project", config],
     options: { cwd: mirrorRoot },
   };
 }
