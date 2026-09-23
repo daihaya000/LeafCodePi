@@ -5,7 +5,7 @@ import { beforeEach, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({ spawn: vi.fn() }));
 vi.mock("node:child_process", () => ({ spawn: mocks.spawn }));
 
-import { gitBranchRefs, gitDiff, gitLogGraph, runGit } from "./git";
+import { gitBranchRefs, gitCommitFileDiff, gitDiff, gitLogGraph, runGit } from "./git";
 
 beforeEach(() => mocks.spawn.mockReset());
 
@@ -81,4 +81,19 @@ it("rejects branch refs when for-each-ref fails instead of returning an empty li
   const gitCalls = mocks.spawn.mock.calls.filter(([command]) => command === "git");
   expect(gitCalls).toHaveLength(2);
   expect(gitCalls[1][1]).toContain("for-each-ref");
+});
+
+it("uses a literal pathspec for filenames containing glob characters", async () => {
+  mocks.spawn.mockImplementation(() => {
+    const child = Object.assign(new EventEmitter(), {
+      stdout: new PassThrough(),
+      stderr: new PassThrough(),
+    });
+    queueMicrotask(() => child.emit("close", 0));
+    return child;
+  });
+  await gitCommitFileDiff(".", "abcdef0", "src/file[1].txt");
+  const gitCalls = mocks.spawn.mock.calls.filter(([command]) => command === "git");
+  expect(gitCalls).toHaveLength(1);
+  expect(gitCalls[0][1].slice(-2)).toEqual(["--", ":(literal)src/file[1].txt"]);
 });

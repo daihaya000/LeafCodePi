@@ -270,7 +270,7 @@ export async function gitCommitFileDiff(
     "--no-ext-diff",
     hash,
     "--",
-    normalized,
+    `:(literal)${normalized}`,
   ]);
   if (result.code !== 0) {
     throw new Error(result.stderr.trim() || "git show file failed");
