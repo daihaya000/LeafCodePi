@@ -200,7 +200,7 @@ export async function gitBranchRefs(
     "refs/heads",
   ]);
   if (listed.code !== 0) {
-    return { refs: [], currentBranch };
+    throw new Error(listed.stderr.trim() || "git branch refs failed");
   }
   const refs: GraphRef[] = [];
   for (const line of listed.stdout.split(/\r?\n/)) {

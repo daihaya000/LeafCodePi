@@ -5,7 +5,7 @@ import { beforeEach, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({ spawn: vi.fn() }));
 vi.mock("node:child_process", () => ({ spawn: mocks.spawn }));
 
-import { gitDiff, gitLogGraph, runGit } from "./git";
+import { gitBranchRefs, gitDiff, gitLogGraph, runGit } from "./git";
 
 beforeEach(() => mocks.spawn.mockReset());
 
@@ -61,4 +61,24 @@ it("uses integer pagination arguments for fractional graph requests", async () =
   expect(gitCalls).toHaveLength(1);
   expect(gitCalls[0][1]).toContain("-n2");
   expect(gitCalls[0][1]).toContain("--skip=2");
+});
+
+it("rejects branch refs when for-each-ref fails instead of returning an empty list", async () => {
+  mocks.spawn.mockImplementation((_command: string, args: string[] = []) => {
+    const child = Object.assign(new EventEmitter(), {
+      stdout: new PassThrough(),
+      stderr: new PassThrough(),
+    });
+    const failed = args.includes("for-each-ref");
+    queueMicrotask(() => {
+      child.stdout.end(failed ? "" : "main\n");
+      child.stderr.end(failed ? "refs unavailable" : "");
+      child.emit("close", failed ? 1 : 0);
+    });
+    return child;
+  });
+  await expect(gitBranchRefs(".")).rejects.toThrow("refs unavailable");
+  const gitCalls = mocks.spawn.mock.calls.filter(([command]) => command === "git");
+  expect(gitCalls).toHaveLength(2);
+  expect(gitCalls[1][1]).toContain("for-each-ref");
 });
