@@ -61,7 +61,12 @@ describe("ProjectFilePicker", () => {
       expect(mocks.getJson).toHaveBeenCalledWith("/api/projects/p1/files", { path: "src" }),
     );
 
-    fireEvent.click(await screen.findByRole("button", { name: /b\.ts/ }));
+    const file = await screen.findByRole("button", { name: /b\.ts/ });
+    fireEvent.click(file, { detail: 1 });
+    expect(onPick).not.toHaveBeenCalled();
+    expect(mocks.getJson.mock.calls.some(([, params]) => params?.read === "1")).toBe(false);
+
+    fireEvent.doubleClick(file);
     await waitFor(() =>
       expect(onPick).toHaveBeenCalledWith({
         uri: "data:text/plain;base64,aGVsbG8=",
@@ -69,6 +74,15 @@ describe("ProjectFilePicker", () => {
         name: "src/b.ts",
       }),
     );
+  });
+
+  it("keeps keyboard activation available for files", async () => {
+    const onPick = vi.fn();
+    render(<ProjectFilePicker projectId="p1" attachments={[]} onPick={onPick} />);
+    await openPicker();
+
+    fireEvent.click(await screen.findByRole("button", { name: /a\.ts/ }), { detail: 0 });
+    await waitFor(() => expect(onPick).toHaveBeenCalled());
   });
 
   it("keeps an already attached file from being added twice", async () => {
@@ -85,7 +99,7 @@ describe("ProjectFilePicker", () => {
 
     const row = await screen.findByRole("button", { name: /b\.ts/ });
     await waitFor(() => expect(row.getAttribute("aria-pressed")).toBe("true"));
-    fireEvent.click(row);
+    fireEvent.doubleClick(row);
     await waitFor(() => expect(row.getAttribute("aria-pressed")).toBe("true"));
     expect(mocks.getJson.mock.calls.some(([, params]) => params?.read === "1")).toBe(false);
     expect(onPick).not.toHaveBeenCalled();
@@ -111,7 +125,7 @@ describe("ProjectFilePicker", () => {
     render(<ProjectFilePicker projectId="p1" attachments={[]} onPick={onPick} />);
     await openPicker();
 
-    fireEvent.click(await screen.findByRole("button", { name: /a\.ts/ }));
+    fireEvent.doubleClick(await screen.findByRole("button", { name: /a\.ts/ }));
     expect((await screen.findByRole("alert")).textContent).toBe("UTF-8テキストのみ添付できます");
     expect(onPick).not.toHaveBeenCalled();
   });

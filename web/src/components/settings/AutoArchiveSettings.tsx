@@ -5,14 +5,16 @@ import { getJson, sendJson } from "@/lib/client";
 import {
   AUTO_ARCHIVE_DAYS_SETTING_KEY,
   AUTO_ARCHIVE_DAY_OPTIONS,
+  DEFAULT_AUTO_ARCHIVE_DAYS,
   isAutoArchiveDaysOption,
   type AutoArchiveDaysOption,
 } from "@/lib/auto-archive-settings";
 
 const SETTINGS_PATH = `/api/settings/${AUTO_ARCHIVE_DAYS_SETTING_KEY}`;
+const DEFAULT_OPTION = String(DEFAULT_AUTO_ARCHIVE_DAYS) as AutoArchiveDaysOption;
 
 export function AutoArchiveSettings() {
-  const [option, setOption] = useState<AutoArchiveDaysOption>("30");
+  const [option, setOption] = useState<AutoArchiveDaysOption>(DEFAULT_OPTION);
   const [loaded, setLoaded] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -26,7 +28,7 @@ export function AutoArchiveSettings() {
           setError("保存済みの自動アーカイブ設定が不正です");
           return;
         }
-        setOption(value ?? "30");
+        setOption(value ?? DEFAULT_OPTION);
         setLoaded(true);
       })
       .catch((cause) => {
