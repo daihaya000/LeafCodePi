@@ -111,6 +111,8 @@ export function JevModelSettings({ refreshToken = 0, onProviderCatalogChange }: 
     const next = latestSettings.current;
     const snapshot = JSON.stringify(next);
     if (savingNow.current || !canSave.current || snapshot === persisted.current) return;
+    // Catalog reads started before or during this write must not overwrite its result.
+    generation.current += 1;
     savingNow.current = true;
     if (mounted.current) { setError(null); setStatus("保存中…"); }
     try {
@@ -118,20 +120,21 @@ export function JevModelSettings({ refreshToken = 0, onProviderCatalogChange }: 
       persisted.current = JSON.stringify(dto.settings);
       if (mounted.current) {
         setSaved(dto);
-        if (latestSettings.current === next) {
+        if (JSON.stringify(latestSettings.current) === snapshot) {
           latestSettings.current = dto.settings;
           setSettings(dto.settings);
           setStatus("自動保存しました。次のJev判定から反映されます。");
         }
       }
     } catch (cause) {
-      if (mounted.current && latestSettings.current === next) {
+      if (mounted.current && JSON.stringify(latestSettings.current) === snapshot) {
         setStatus("");
         setError(cause instanceof Error ? cause.message : "Jevモデル設定を保存できません");
       }
     } finally {
+      generation.current += 1;
       savingNow.current = false;
-      if (latestSettings.current !== next) void persist();
+      if (JSON.stringify(latestSettings.current) !== snapshot) void persist();
     }
   }, []);
   useEffect(() => {

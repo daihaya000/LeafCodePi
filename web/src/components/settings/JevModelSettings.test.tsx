@@ -99,6 +99,50 @@ describe("JevModelSettings", () => {
     await waitFor(() => expect(screen.getByRole("switch", { name: "TypeSafe / Jev を有効化" })).toBeTruthy());
   });
 
+  it("finishes saving when rapid edits return to the in-flight selection", async () => {
+    let releaseFirst!: (value: typeof dto) => void;
+    const first = new Promise<typeof dto>((resolve) => { releaseFirst = resolve; });
+    mocks.send.mockImplementationOnce(() => first);
+    await ready();
+    expand("OpenRouter");
+    fireEvent.click(screen.getByRole("switch", { name: "OpenRouter · Main / Jev 1.13 を有効化" }));
+    await waitFor(() => expect(mocks.send).toHaveBeenCalledTimes(1));
+    fireEvent.click(screen.getByRole("switch", { name: "OpenRouter · Main / Jev 1.13 を無効化" }));
+    fireEvent.click(screen.getByRole("switch", { name: "OpenRouter · Main / Jev 1.13 を有効化" }));
+    await act(async () => { releaseFirst({ ...dto, settings: mocks.send.mock.calls[0][1].settings }); });
+    await waitFor(() => expect(screen.getByText(/自動保存しました/)).toBeTruthy());
+    expect(mocks.send).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not let a stale catalog response undo an automatic save", async () => {
+    let releaseStale!: (value: typeof dto) => void;
+    const stale = new Promise<typeof dto>((resolve) => { releaseStale = resolve; });
+    mocks.get.mockResolvedValueOnce(dto).mockReturnValueOnce(stale);
+    const { rerender } = render(<JevModelSettings refreshToken={0} />);
+    await waitFor(() => expect(screen.queryByText("読み込み中…")).toBeNull());
+    rerender(<JevModelSettings refreshToken={1} />);
+    expand("OpenRouter");
+    fireEvent.click(screen.getByRole("switch", { name: "OpenRouter · Main / Jev 1.13 を有効化" }));
+    await waitFor(() => expect(screen.getByText(/自動保存しました/)).toBeTruthy());
+    await act(async () => { releaseStale(dto); });
+    expect(screen.getByRole("switch", { name: "OpenRouter · Main / Jev 1.13 を無効化" })).toBeTruthy();
+  });
+
+  it("preserves an auto-save error after an older catalog response", async () => {
+    let releaseStale!: (value: typeof dto) => void;
+    const stale = new Promise<typeof dto>((resolve) => { releaseStale = resolve; });
+    mocks.get.mockResolvedValueOnce(dto).mockReturnValueOnce(stale);
+    mocks.send.mockRejectedValueOnce(new Error("保存失敗"));
+    const { rerender } = render(<JevModelSettings refreshToken={0} />);
+    await waitFor(() => expect(screen.queryByText("読み込み中…")).toBeNull());
+    rerender(<JevModelSettings refreshToken={1} />);
+    expand("OpenRouter");
+    fireEvent.click(screen.getByRole("switch", { name: "OpenRouter · Main / Jev 1.13 を有効化" }));
+    await waitFor(() => expect(screen.getByRole("alert").textContent).toContain("保存失敗"));
+    await act(async () => { releaseStale(dto); });
+    expect(screen.getByRole("alert").textContent).toContain("保存失敗");
+  });
+
   it("flushes a pending automatic save when leaving the settings page", async () => {
     const { unmount } = render(<JevModelSettings />);
     await waitFor(() => expect(screen.queryByText("読み込み中…")).toBeNull());
