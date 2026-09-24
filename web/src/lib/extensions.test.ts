@@ -3,6 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve, sep } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { DefaultResourceLoader, SettingsManager } from "@earendil-works/pi-coding-agent";
 import {
   basenameKey,
   extensionsStatePath,
@@ -253,7 +254,7 @@ describe("listExtensions / setExtensionEnabled", () => {
     expectNames(listed.extensions, ["leafcode-intercom", "one"]);
   });
 
-  it("discovers extensions from installed packages (settings.json packages)", () => {
+  it("disables installed package extensions in the SDK loader", async () => {
     const { agentDir: agent } = fixture();
     // Simulate a `pi install`-style package clone with a pi.extensions manifest.
     const pkgDir = join(agent, "git", "github.com", "DietrichGebert", "ponytail");
@@ -276,12 +277,28 @@ describe("listExtensions / setExtensionEnabled", () => {
     assert.equal(listed.extensions.find((e) => e.name === "ponytail")?.source, "user");
     expectNames(listed.extensions, ["one", "ponytail"]);
 
-    const loaded = [{ path: join(pkgDir, "pi-extension", "index.js") }, { path: join(agent, "extensions", "one.js") }];
-    assert.deepEqual(filterExtensionsByState(loaded, undefined, agent), loaded);
+    const loader = new DefaultResourceLoader({
+      cwd: agent,
+      agentDir: agent,
+      settingsManager: SettingsManager.create(agent, agent),
+      extensionsOverride: (base) => ({
+        ...base,
+        extensions: filterExtensionsByState(base.extensions, undefined, agent),
+      }),
+      noSkills: true,
+      noPromptTemplates: true,
+      noThemes: true,
+    });
+    const loadedNames = () => loader.getExtensions().extensions.map((entry) => basenameKey(entry.path));
+    await loader.reload();
+    assert.ok(loadedNames().includes("pi-extension"));
     setExtensionEnabled("ponytail", false, agent);
-    assert.deepEqual(filterExtensionsByState(loaded, undefined, agent), [loaded[1]]);
+    await loader.reload();
+    assert.ok(!loadedNames().includes("pi-extension"));
+    assert.ok(loadedNames().includes("one"));
     setExtensionEnabled("ponytail", true, agent);
-    assert.deepEqual(filterExtensionsByState(loaded, undefined, agent), loaded);
+    await loader.reload();
+    assert.ok(loadedNames().includes("pi-extension"));
   });
 
   it("discovers extensions from npm packages (settings.json packages)", () => {
