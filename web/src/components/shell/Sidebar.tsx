@@ -309,14 +309,8 @@ const BotSidebarBody = memo(function BotSidebarBody({
       void refreshBotSidebar(refreshToken).catch(() => undefined);
     };
     window.addEventListener("webui:bot-sidebar-changed", onBotSidebarChanged);
-    const timer = window.setInterval(() => {
-      if (document.visibilityState === "visible") {
-        void refreshBotSidebar().catch(() => undefined);
-      }
-    }, POLL_IDLE_MS);
     return () => {
       window.removeEventListener("webui:bot-sidebar-changed", onBotSidebarChanged);
-      window.clearInterval(timer);
     };
   }, []);
   useEffect(() => {
@@ -1541,11 +1535,17 @@ const SidebarView = memo(function SidebarView({
 
   useEffect(() => {
     const intervalMs = hasWorking ? POLL_WORKING_MS : POLL_IDLE_MS;
-    const timer = setInterval(() => {
-      if (document.visibilityState === "visible") void refresh();
-    }, intervalMs);
+    const timer = setInterval(() => void refresh(), intervalMs);
     return () => clearInterval(timer);
   }, [refresh, hasWorking]);
+
+  useEffect(() => {
+    void refreshBotSidebar().catch(() => undefined);
+    const timer = window.setInterval(() => {
+      void refreshBotSidebar().catch(() => undefined);
+    }, POLL_IDLE_MS);
+    return () => window.clearInterval(timer);
+  }, []);
 
   useEffect(() => {
     const onDragEnd = (event: DragEvent) => {
@@ -1571,11 +1571,19 @@ const SidebarView = memo(function SidebarView({
   const pathnameTaskId = pathname.startsWith("/task/") ? pathname.slice("/task/".length) : null;
   const activeTaskId = paneMdUp ? paneActiveTaskId : pathnameTaskId;
   const archivedProjectIds = new Set(archivedProjects.map((project) => project.id));
+  const unreadCodeCount = tasks.filter((task) => task.status !== "archived" && task.kind !== "bot" && !archivedProjectIds.has(task.projectId ?? "") && hasUnreadTask(task, activeTaskId)).length;
+  const unreadBotCount = botSidebar.bots.filter((bot) => activeTaskId !== `/bots/${encodeURIComponent(bot.id)}` && hasUnread(bot.lastMessageAt, getLastReadAt("bot", bot.id))).length
+    + botSidebar.rooms.filter((room) => activeTaskId !== `/bots/rooms/${encodeURIComponent(room.id)}` && hasUnread(room.lastMessageAt, getLastReadAt("room", room.id))).length;
   const unreadModes: UnreadModes = {
-    code: tasks.some((task) => task.status !== "archived" && task.kind !== "bot" && !archivedProjectIds.has(task.projectId ?? "") && hasUnreadTask(task, activeTaskId)),
-    bot: botSidebar.bots.some((bot) => activeTaskId !== `/bots/${encodeURIComponent(bot.id)}` && hasUnread(bot.lastMessageAt, getLastReadAt("bot", bot.id)))
-      || botSidebar.rooms.some((room) => activeTaskId !== `/bots/rooms/${encodeURIComponent(room.id)}` && hasUnread(room.lastMessageAt, getLastReadAt("room", room.id))),
+    code: unreadCodeCount > 0,
+    bot: unreadBotCount > 0,
   };
+  const unreadCount = unreadCodeCount + unreadBotCount;
+  useEffect(() => {
+    const baseTitle = document.title.replace(/^\(\d+\) /, "");
+    document.title = unreadCount > 0 ? `(${unreadCount}) ${baseTitle}` : baseTitle;
+    return () => { document.title = baseTitle; };
+  }, [unreadCount, pathname]);
 
   const openTask = useCallback(
     (taskId: string) => {

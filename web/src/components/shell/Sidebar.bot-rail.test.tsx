@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import type { ReactNode } from "react";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -55,9 +55,11 @@ vi.mock("@/components/ui", () => ({
   ThemeToggle: () => null,
 }));
 
+import { markRead } from "@/lib/bot-unread";
 import { Sidebar } from "./Sidebar";
 
 beforeEach(() => {
+  document.title = "LCP X870";
   localStorage.clear();
   localStorage.setItem("leafcodepi.mode", "bot");
   localStorage.setItem("webui.sidebar.collapsed", "1");
@@ -73,6 +75,7 @@ beforeEach(() => {
     if (path === "/api/health") return Promise.resolve({ ok: true, engineOk: true, version: "1", modelCount: 0 });
     return Promise.reject(new Error(`Unexpected request: ${path}`));
   });
+  mocks.sendJson.mockReset().mockResolvedValue({});
   mocks.push.mockReset();
   mocks.dispatch.mockReset();
   mocks.botStatus = "idle";
@@ -135,6 +138,34 @@ describe("Bot mode list", () => {
     expect(code.querySelector(".bg-accent")).toBeTruthy();
   });
 
+  it("shows the total unread Code, Bot, and Room count in the browser tab", async () => {
+    const updatedAt = "2026-09-22T00:00:00.000Z";
+    mocks.getJson.mockImplementation((path: string) => {
+      if (path === "/api/bots/sidebar") return Promise.resolve({
+        bots: [{ id: "title-bot", name: "Bot", lastMessageAt: updatedAt }],
+        rooms: [{ id: "title-room", name: "Room", lastMessageAt: updatedAt }],
+      });
+      if (path === "/api/projects?archived=1") return Promise.resolve({ projects: [] });
+      if (path === "/api/tasks?kind=all") return Promise.resolve({ tasks: [
+        { id: "title-code", kind: "code", status: "idle", updatedAt },
+        { id: "title-working", kind: "code", status: "working", updatedAt },
+      ] });
+      if (path === "/api/health") return Promise.resolve({ ok: true, engineOk: true, version: "1", modelCount: 0 });
+      return Promise.reject(new Error(`Unexpected request: ${path}`));
+    });
+
+    render(<Sidebar mobileOpen={false} onClose={vi.fn()} />);
+
+    await waitFor(() => expect(document.title).toBe("(3) LCP X870"));
+    act(() => markRead("task", "title-code", Date.parse(updatedAt)));
+    await waitFor(() => expect(document.title).toBe("(2) LCP X870"));
+    act(() => {
+      markRead("bot", "title-bot", Date.parse(updatedAt));
+      markRead("room", "title-room", Date.parse(updatedAt));
+    });
+    await waitFor(() => expect(document.title).toBe("LCP X870"));
+  });
+
   it("navigates to the Bot home when panes are unavailable", async () => {
     localStorage.setItem("leafcodepi.mode", "code");
     localStorage.setItem("webui.sidebar.collapsed", "0");
@@ -150,7 +181,7 @@ describe("Bot mode list", () => {
     expect(mocks.push).toHaveBeenCalledWith("/bots");
   });
 
-  it("skips Bot polling while the document is hidden", async () => {
+  it("polls unread updates while the document is hidden", async () => {
     localStorage.setItem("webui.sidebar.collapsed", "0");
     const visibility = vi.spyOn(document, "visibilityState", "get").mockReturnValue("hidden");
     const setIntervalSpy = vi.spyOn(window, "setInterval");
@@ -163,7 +194,8 @@ describe("Bot mode list", () => {
         .map(([callback]) => callback as () => void);
       expect(pollCallbacks.length).toBeGreaterThan(0);
       pollCallbacks.forEach((callback) => callback());
-      expect(mocks.getJson.mock.calls.filter(([path]) => path === "/api/bots/sidebar")).toHaveLength(0);
+      expect(mocks.getJson.mock.calls.filter(([path]) => path === "/api/bots/sidebar")).toHaveLength(1);
+      expect(mocks.getJson.mock.calls.filter(([path]) => path === "/api/tasks?kind=all")).toHaveLength(1);
     } finally {
       setIntervalSpy.mockRestore();
       visibility.mockRestore();
