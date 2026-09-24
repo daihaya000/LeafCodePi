@@ -423,7 +423,7 @@ describe("/api/settings/[key]", () => {
     expect(invalid.status).toBe(400);
   });
 
-  it.each(["off", "7", "30", "90", "180", "365"])("accepts auto-archive option %s", async (value) => {
+  it.each(["off", "7", "14", "30", "90", "180", "365"])("accepts auto-archive option %s", async (value) => {
     const response = await PUT(request("auto-archive-days", { value }), {
       params: Promise.resolve({ key: "auto-archive-days" }),
     });

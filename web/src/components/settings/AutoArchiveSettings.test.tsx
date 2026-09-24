@@ -21,12 +21,12 @@ describe("AutoArchiveSettings", () => {
   });
 
   it("loads the saved period and allows turning auto-archive off", async () => {
-    getJson.mockResolvedValue({ value: "90" });
+    getJson.mockResolvedValue({ value: "14" });
     render(<AutoArchiveSettings />);
     const select = screen.getByRole("combobox", { name: "古いセッションの自動アーカイブ設定" }) as HTMLSelectElement;
     expect(select.disabled).toBe(true);
     await waitFor(() => expect(select.disabled).toBe(false));
-    expect(select.value).toBe("90");
+    expect(select.value).toBe("14");
 
     fireEvent.change(select, { target: { value: "off" } });
     await waitFor(() => expect(sendJson).toHaveBeenCalledWith(path, { value: "off" }, "PUT"));

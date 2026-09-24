@@ -568,7 +568,7 @@ describe("autoArchiveOldTasks", () => {
       assert.equal(getTask(working.id)?.status, "working");
       assert.equal(getTask(ready.id)?.status, "ready");
       assert.equal(getTask(recent.id)?.status, "idle");
-      setSetting(AUTO_ARCHIVE_DAYS_SETTING_KEY, "7");
+      setSetting(AUTO_ARCHIVE_DAYS_SETTING_KEY, "14");
       assert.equal(await autoArchiveOldTasks(), 1);
       assert.equal(getTask(recent.id)?.status, "archived");
     } finally {
