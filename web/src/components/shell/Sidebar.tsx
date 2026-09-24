@@ -1589,12 +1589,12 @@ const SidebarView = memo(function SidebarView({
     code: unreadCodeCount > 0,
     bot: unreadBotCount > 0,
   };
-  const unreadCount = unreadCodeCount + unreadBotCount;
+  const tabCount = unreadCodeCount + unreadBotCount + workingCounts.code + workingCounts.bot;
   useEffect(() => {
     const baseTitle = document.title.replace(/^\(\d+\) /, "");
-    document.title = unreadCount > 0 ? `(${unreadCount}) ${baseTitle}` : baseTitle;
+    document.title = tabCount > 0 ? `(${tabCount}) ${baseTitle}` : baseTitle;
     return () => { document.title = baseTitle; };
-  }, [unreadCount, pathname]);
+  }, [tabCount, pathname]);
 
   const openTask = useCallback(
     (taskId: string) => {

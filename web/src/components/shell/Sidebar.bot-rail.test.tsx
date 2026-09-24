@@ -148,7 +148,7 @@ describe("Bot mode list", () => {
     expect(code.querySelector(".bg-accent")).toBeTruthy();
   });
 
-  it("shows the total unread Code, Bot, and Room count in the browser tab", async () => {
+  it("shows unread and working Code, Bot, and Room counts in the browser tab", async () => {
     const updatedAt = "2026-09-22T00:00:00.000Z";
     mocks.getJson.mockImplementation((path: string) => {
       if (path === "/api/bots/sidebar") return Promise.resolve({
@@ -166,14 +166,14 @@ describe("Bot mode list", () => {
 
     render(<Sidebar mobileOpen={false} onClose={vi.fn()} />);
 
-    await waitFor(() => expect(document.title).toBe("(3) LCP X870"));
+    await waitFor(() => expect(document.title).toBe("(4) LCP X870"));
     act(() => markRead("task", "title-code", Date.parse(updatedAt)));
-    await waitFor(() => expect(document.title).toBe("(2) LCP X870"));
+    await waitFor(() => expect(document.title).toBe("(3) LCP X870"));
     act(() => {
       markRead("bot", "title-bot", Date.parse(updatedAt));
       markRead("room", "title-room", Date.parse(updatedAt));
     });
-    await waitFor(() => expect(document.title).toBe("LCP X870"));
+    await waitFor(() => expect(document.title).toBe("(1) LCP X870"));
   });
 
   it("counts the active Code task after the browser tab becomes hidden", async () => {
@@ -311,6 +311,7 @@ describe("Bot mode list", () => {
       type: "showWorkingTasks",
       taskIds: ["/bots/bot-a", "code-a"],
     }));
+    expect(document.title).toBe("(2) LCP X870");
   });
 
   it("maps a Bot-owned Code session onto the BotView tab when splitting", async () => {
@@ -354,6 +355,7 @@ describe("Bot mode list", () => {
       type: "showWorkingTasks",
       taskIds: ["/bots/bot-a"],
     }));
+    expect(document.title).toBe("(1) LCP X870");
   });
 
   it("filters bots and rooms by name and by the Bot/room filter", async () => {
