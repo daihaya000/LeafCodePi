@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Archive, Download, History, RotateCcw, Upload } from "lucide-react";
+import { Archive, ChevronRight, Download, History, RotateCcw, Upload } from "lucide-react";
 import { Button, cx } from "@/components/ui";
 
 async function responseError(response: Response): Promise<string> {
@@ -222,9 +222,15 @@ export function ProfileSettings() {
             </Button>
           </div>
         </div>
-        <Button className="w-full" variant="danger" busy={busy === "reset"} disabled={disabled} onClick={() => void resetProfile()}>
-          <RotateCcw className="h-4 w-4" />初期化
-        </Button>
+        <details className="group/reset rounded-lg border border-border bg-surface-2 px-3">
+          <summary className="flex min-h-10 cursor-pointer list-none items-center gap-2 py-2 text-sm font-medium [&::-webkit-details-marker]:hidden">
+            <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted transition-transform group-open/reset:rotate-90" aria-hidden="true" />
+            設定の初期化
+          </summary>
+          <Button className="mb-3 w-full" variant="danger" busy={busy === "reset"} disabled={disabled} onClick={() => void resetProfile()}>
+            <RotateCcw className="h-4 w-4" />初期化
+          </Button>
+        </details>
       </div>
       {message && <p role="status" className="mt-2 text-xs text-success">{message}</p>}
       {error && <p role="alert" className="mt-2 text-xs text-danger">{error}</p>}
