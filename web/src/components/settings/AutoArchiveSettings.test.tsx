@@ -33,15 +33,15 @@ describe("AutoArchiveSettings", () => {
     expect(select.value).toBe("off");
   });
 
-  it("uses 30 days when unset and restores the previous option on save failure", async () => {
+  it("uses 14 days when unset and restores the previous option on save failure", async () => {
     sendJson.mockRejectedValue(new Error("保存できません"));
     render(<AutoArchiveSettings />);
     const select = screen.getByRole("combobox", { name: "古いセッションの自動アーカイブ設定" }) as HTMLSelectElement;
     await waitFor(() => expect(select.disabled).toBe(false));
-    expect(select.value).toBe("30");
+    expect(select.value).toBe("14");
 
     fireEvent.change(select, { target: { value: "7" } });
-    await waitFor(() => expect(select.value).toBe("30"));
+    await waitFor(() => expect(select.value).toBe("14"));
     expect(screen.getByRole("alert").textContent).toContain("保存できません");
   });
 
