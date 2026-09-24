@@ -3115,3 +3115,9 @@ turn 2 の合成ベンチマークでは、履歴100/1,000/5,000件を各200回 
 llama-server が停止（`/models` 無応答）のとき、`web/src/lib/pi/llama-provider.ts` の `resolveModelRows` はモデルを 1 件も登録しないようにした。設定 `modelFile` から推測した id を残していたため、停止中でも生成モデル・起動時の既定値・Autoモデル・エージェント・Composer の各ドロップダウンに、選択しても動かない llama-server 項目が並んでいた。起動中は従来どおり `/models` の live id を列挙する。停止→起動の切り替えは `/api/llama-server/(start|stop)` の `invalidateHealthCache()` で即反映される。
 
 検証: `web/src/lib/pi/llama-provider.test.ts` 16 tests 成功、web typecheck / eslint 成功。全体テストの失敗 4 件（bot-code-relay 2、harness-limit-fallback 1、TaskView.resume 1）は変更前の stash 比較でも同一で無関係。
+
+## 2026-09-24: 作業フォルダへのクローン
+
+- 空の作業フォルダに https://github.com/daihaya000/LeafCodePi.git をクローン。
+- 取得時のブランチは master、ベースコミットは 523bec51（未使用の関数・定数・ファイルを削除）。
+- クローン直後の作業ツリーはクリーン。アプリの起動やテストは未実施。
