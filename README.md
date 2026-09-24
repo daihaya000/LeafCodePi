@@ -2,6 +2,18 @@
 
 [LeafCode](https://github.com/daihaya000/LeafCode) の UI/UX 構造を維持した、[Pi Coding Agent](https://github.com/earendil-works/pi) 向けの最低限フロントエンドです。OpenCode は使いません。Pi SDK（`@earendil-works/pi-coding-agent`）を Next.js の BFF に埋め込み、ブラウザからセッションを操作します。
 
+## クイックスタート
+
+1. [Node.js 22.19 以上](https://nodejs.org/) と Git を用意し、このリポジトリを取得します。Windows の `start.bat` は Node.js がない場合、`winget` で導入を試みます。
+   ```bash
+   git clone https://github.com/daihaya000/LeafCodePi.git
+   cd LeafCodePi
+   ```
+2. Windows は `start.bat` をダブルクリック、Linux / macOS は `./start.sh` を実行します。初回は依存関係の取得とビルドに時間がかかります。`start.sh` に実行権限がない場合は `sh start.sh` を使ってください。
+3. `http://127.0.0.1:3010` を開き、**設定 → モデル**で利用するプロバイダーにログインするか API キーを登録します。認証後、ホームでプロジェクトのフォルダーとモデルを選び、指示を送信します。
+
+起動しない場合は、[OS 別の起動手順](#起動)と[サブスクリプション認証](#サブスクリプション認証)を確認してください。ローカルモデルは任意です。
+
 ## できること（MVP）
 
 - サイドバー: プロジェクト / タスク一覧、折りたたみ、テーマ切替
