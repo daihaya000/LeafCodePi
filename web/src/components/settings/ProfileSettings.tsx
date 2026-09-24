@@ -51,10 +51,12 @@ export function ProfileSettings() {
     try {
       const response = await fetch("/api/profile", { cache: "no-store" });
       if (!response.ok) throw new Error(await responseError(response));
+      const filename = response.headers.get("content-disposition")?.match(/filename="([^"]+)"/)?.[1]
+        ?? `leafcode-pi-profile-${new Date().toISOString().replaceAll(/[:.]/g, "-")}.lcp.gz`;
       const url = URL.createObjectURL(await response.blob());
       const link = document.createElement("a");
       link.href = url;
-      link.download = "leafcode-pi-profile.lcp.gz";
+      link.download = filename;
       document.body.append(link);
       link.click();
       link.remove();
