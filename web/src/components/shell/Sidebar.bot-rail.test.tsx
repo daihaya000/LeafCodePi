@@ -98,6 +98,14 @@ afterEach(() => {
 });
 
 describe("Bot mode list", () => {
+  it("defaults to Code when no mode is saved", async () => {
+    localStorage.removeItem("leafcodepi.mode");
+    localStorage.setItem("webui.sidebar.collapsed", "0");
+    render(<Sidebar mobileOpen={false} onClose={vi.fn()} />);
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "Code" }).getAttribute("aria-pressed")).toBe("true"));
+  });
+
   it("switches to Code without navigating to the Code home", async () => {
     localStorage.setItem("webui.sidebar.collapsed", "0");
     mocks.usePathname.mockReturnValue("/");

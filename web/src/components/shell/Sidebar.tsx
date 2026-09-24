@@ -1292,7 +1292,7 @@ const SidebarView = memo(function SidebarView({
 }: SidebarProps & SidebarPaneProps) {
   const pathname = usePathname();
   const router = useRouter();
-  const [mode, setMode] = useState<AppMode>("bot");
+  const [mode, setMode] = useState<AppMode>("code");
   const [pageVisible, setPageVisible] = useState(() => typeof document === "undefined" || !document.hidden);
   const [query, setQuery] = useState("");
   const mdUp = useIsMdUp();
@@ -1348,7 +1348,7 @@ const SidebarView = memo(function SidebarView({
   const railWidgetHideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const railWidgetRef = useRef<HTMLDivElement | null>(null);
 
-  const refresh = useCallback(async (unreadOnly = false) => {
+  const refresh = useCallback(async (unreadOnly = false, modeOverride: AppMode = mode) => {
     void hydrateLastReadState();
     // Avoid piling up four JSON requests per poll while a slow host is still responding.
     if (refreshInFlightRef.current) return;
@@ -1364,7 +1364,7 @@ const SidebarView = memo(function SidebarView({
         includeArchivedTasks ? "/api/tasks?archived=1&kind=all" : "/api/tasks?kind=all",
       ),
       unreadOnly ? Promise.resolve(null) : getJson<HealthDto>("/api/health"),
-      mode === "code" && !unreadOnly
+      modeOverride === "code" && !unreadOnly
         ? getJson<{ bots: BotDto[] }>("/api/bots")
         : Promise.resolve(null),
     ]);
@@ -1455,10 +1455,12 @@ const SidebarView = memo(function SidebarView({
     };
   }, [botSidebar.bots, botStatusFor, tasks]);
   useEffect(() => {
+    let initialMode: AppMode = "code";
     try {
       const storedMode = localStorage.getItem(MODE_KEY);
-      if (storedMode === "bot" || storedMode === "code") setMode(storedMode);
-      if (pathname.startsWith("/bots") && !paneMdUp) setMode("bot");
+      if (storedMode === "bot" || storedMode === "code") initialMode = storedMode;
+      if (pathname.startsWith("/bots") && !paneMdUp) initialMode = "bot";
+      setMode(initialMode);
       const storedWidth = Number(localStorage.getItem(WIDTH_KEY));
       if (Number.isFinite(storedWidth) && storedWidth >= MIN_WIDTH) setWidth(storedWidth);
       setCollapsed(localStorage.getItem(COLLAPSED_KEY) === "1");
@@ -1468,7 +1470,7 @@ const SidebarView = memo(function SidebarView({
     } catch {
       /* ignore */
     }
-    void refresh();
+    void refresh(false, initialMode);
     const onChange = () => void refresh();
     window.addEventListener("webui:tasks-changed", onChange);
     return () => {
