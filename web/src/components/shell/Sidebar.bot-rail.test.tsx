@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
   push: vi.fn(),
   botStatus: "idle" as "idle" | "working",
   paneMdUp: true,
+  paneActiveTaskId: null as string | null,
   dispatch: vi.fn(),
   usePathname: vi.fn(() => "/bots"),
 }));
@@ -29,7 +30,7 @@ vi.mock("@/components/shell/TaskPanesContext", () => ({
   }),
   useBotStatusFor: () => () => mocks.botStatus === "working" ? "working" : null,
   useTaskPanesNavigation: () => ({
-    activeTaskId: null,
+    activeTaskId: mocks.paneActiveTaskId,
     dispatch: mocks.dispatch,
     mdUp: mocks.paneMdUp,
     splitHostEnabled: false,
@@ -80,6 +81,7 @@ beforeEach(() => {
   mocks.dispatch.mockReset();
   mocks.botStatus = "idle";
   mocks.paneMdUp = true;
+  mocks.paneActiveTaskId = null;
   vi.stubGlobal("matchMedia", (query: string) => ({
     matches: query.includes("min-width"),
     media: query,
@@ -166,6 +168,59 @@ describe("Bot mode list", () => {
     await waitFor(() => expect(document.title).toBe("LCP X870"));
   });
 
+  it("counts the active Code task after the browser tab becomes hidden", async () => {
+    const updatedAt = "2026-09-22T00:00:00.000Z";
+    mocks.paneActiveTaskId = "title-active-code";
+    mocks.getJson.mockImplementation((path: string) => {
+      if (path === "/api/bots/sidebar") return Promise.resolve({ bots: [], rooms: [] });
+      if (path === "/api/projects?archived=1") return Promise.resolve({ projects: [] });
+      if (path === "/api/tasks?kind=all") return Promise.resolve({ tasks: [
+        { id: "title-active-code", kind: "code", status: "idle", updatedAt },
+      ] });
+      if (path === "/api/health") return Promise.resolve({ ok: true, engineOk: true, version: "1", modelCount: 0 });
+      return Promise.reject(new Error(`Unexpected request: ${path}`));
+    });
+    const hidden = vi.spyOn(document, "hidden", "get").mockReturnValue(false);
+    try {
+      render(<Sidebar mobileOpen={false} onClose={vi.fn()} />);
+      await waitFor(() => expect(mocks.getJson.mock.calls.some(([path]) => path === "/api/tasks?kind=all")).toBe(true));
+      expect(document.title).toBe("LCP X870");
+      hidden.mockReturnValue(true);
+      act(() => document.dispatchEvent(new Event("visibilitychange")));
+      await waitFor(() => expect(document.title).toBe("(1) LCP X870"));
+      hidden.mockReturnValue(false);
+      act(() => document.dispatchEvent(new Event("visibilitychange")));
+      await waitFor(() => expect(document.title).toBe("LCP X870"));
+    } finally {
+      hidden.mockRestore();
+    }
+  });
+
+  it("counts the active Bot after the browser tab becomes hidden", async () => {
+    const updatedAt = "2026-09-22T00:00:00.000Z";
+    mocks.paneActiveTaskId = "/bots/title-active-bot";
+    mocks.getJson.mockImplementation((path: string) => {
+      if (path === "/api/bots/sidebar") return Promise.resolve({ bots: [
+        { id: "title-active-bot", name: "Bot", lastMessageAt: updatedAt },
+      ], rooms: [] });
+      if (path === "/api/projects?archived=1") return Promise.resolve({ projects: [] });
+      if (path === "/api/tasks?kind=all") return Promise.resolve({ tasks: [] });
+      if (path === "/api/health") return Promise.resolve({ ok: true, engineOk: true, version: "1", modelCount: 0 });
+      return Promise.reject(new Error(`Unexpected request: ${path}`));
+    });
+    const hidden = vi.spyOn(document, "hidden", "get").mockReturnValue(false);
+    try {
+      render(<Sidebar mobileOpen={false} onClose={vi.fn()} />);
+      await waitFor(() => expect(mocks.getJson.mock.calls.some(([path]) => path === "/api/bots/sidebar")).toBe(true));
+      expect(document.title).toBe("LCP X870");
+      hidden.mockReturnValue(true);
+      act(() => document.dispatchEvent(new Event("visibilitychange")));
+      await waitFor(() => expect(document.title).toBe("(1) LCP X870"));
+    } finally {
+      hidden.mockRestore();
+    }
+  });
+
   it("navigates to the Bot home when panes are unavailable", async () => {
     localStorage.setItem("leafcodepi.mode", "code");
     localStorage.setItem("webui.sidebar.collapsed", "0");
@@ -183,7 +238,7 @@ describe("Bot mode list", () => {
 
   it("polls unread updates while the document is hidden", async () => {
     localStorage.setItem("webui.sidebar.collapsed", "0");
-    const visibility = vi.spyOn(document, "visibilityState", "get").mockReturnValue("hidden");
+    const hidden = vi.spyOn(document, "hidden", "get").mockReturnValue(true);
     const setIntervalSpy = vi.spyOn(window, "setInterval");
     try {
       render(<Sidebar mobileOpen={false} onClose={vi.fn()} />);
@@ -196,9 +251,11 @@ describe("Bot mode list", () => {
       pollCallbacks.forEach((callback) => callback());
       expect(mocks.getJson.mock.calls.filter(([path]) => path === "/api/bots/sidebar")).toHaveLength(1);
       expect(mocks.getJson.mock.calls.filter(([path]) => path === "/api/tasks?kind=all")).toHaveLength(1);
+      expect(mocks.getJson.mock.calls.filter(([path]) => path === "/api/projects?archived=1")).toHaveLength(0);
+      expect(mocks.getJson.mock.calls.filter(([path]) => path === "/api/health")).toHaveLength(0);
     } finally {
       setIntervalSpy.mockRestore();
-      visibility.mockRestore();
+      hidden.mockRestore();
     }
   });
 

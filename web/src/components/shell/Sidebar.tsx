@@ -1293,6 +1293,7 @@ const SidebarView = memo(function SidebarView({
   const pathname = usePathname();
   const router = useRouter();
   const [mode, setMode] = useState<AppMode>("bot");
+  const [pageVisible, setPageVisible] = useState(() => typeof document === "undefined" || !document.hidden);
   const [query, setQuery] = useState("");
   const mdUp = useIsMdUp();
   const [projects, setProjects] = useState<ProjectDto[]>([]);
@@ -1347,7 +1348,7 @@ const SidebarView = memo(function SidebarView({
   const railWidgetHideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const railWidgetRef = useRef<HTMLDivElement | null>(null);
 
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async (unreadOnly = false) => {
     void hydrateLastReadState();
     // Avoid piling up four JSON requests per poll while a slow host is still responding.
     if (refreshInFlightRef.current) return;
@@ -1356,14 +1357,14 @@ const SidebarView = memo(function SidebarView({
     const gen = ++refreshGenRef.current;
     // アーカイブ済みセッションは展開時だけ取得する。通常表示の定期更新から
     // 履歴全件の転送・Todo進捗集計を外し、表示中のセッションを優先する。
-    const includeArchivedTasks = archivedExpanded;
+    const includeArchivedTasks = archivedExpanded && !unreadOnly;
     const [projectRes, taskRes, healthRes, botRes] = await Promise.allSettled([
-      getJson<{ projects: ProjectDto[] }>("/api/projects?archived=1"),
+      unreadOnly ? Promise.resolve(null) : getJson<{ projects: ProjectDto[] }>("/api/projects?archived=1"),
       getJson<{ tasks: TaskSummary[] }>(
         includeArchivedTasks ? "/api/tasks?archived=1&kind=all" : "/api/tasks?kind=all",
       ),
-      getJson<HealthDto>("/api/health"),
-      mode === "code"
+      unreadOnly ? Promise.resolve(null) : getJson<HealthDto>("/api/health"),
+      mode === "code" && !unreadOnly
         ? getJson<{ bots: BotDto[] }>("/api/bots")
         : Promise.resolve(null),
     ]);
@@ -1382,7 +1383,7 @@ const SidebarView = memo(function SidebarView({
           ? "サイドバーの読み込みに失敗しました"
           : null,
     );
-    if (projectRes.status === "fulfilled") {
+    if (projectRes.status === "fulfilled" && projectRes.value) {
       // 実質不変なら前回の参照を維持し、Sidebar の不要な再レンダーを避ける。
       const nextProjects = projectRes.value.projects.filter((project) => !project.archived);
       const nextArchived = projectRes.value.projects.filter((project) => project.archived);
@@ -1401,8 +1402,9 @@ const SidebarView = memo(function SidebarView({
         setArchivedTasks((current) => stabilizeTaskList(current, nextArchivedTasks));
       }
     }
-    if (healthRes.status === "fulfilled") {
-      setHealth((current) => (sameHealth(current, healthRes.value) ? current : healthRes.value));
+    if (healthRes.status === "fulfilled" && healthRes.value) {
+      const nextHealth = healthRes.value;
+      setHealth((current) => (sameHealth(current, nextHealth) ? current : nextHealth));
     }
     if (botRes.status === "fulfilled" && botRes.value) {
       const nextBots = botRes.value.bots;
@@ -1534,10 +1536,16 @@ const SidebarView = memo(function SidebarView({
   }, [paneMdUp, router]);
 
   useEffect(() => {
-    const intervalMs = hasWorking ? POLL_WORKING_MS : POLL_IDLE_MS;
-    const timer = setInterval(() => void refresh(), intervalMs);
+    const update = () => setPageVisible(!document.hidden);
+    document.addEventListener("visibilitychange", update);
+    return () => document.removeEventListener("visibilitychange", update);
+  }, []);
+
+  useEffect(() => {
+    const intervalMs = pageVisible && hasWorking ? POLL_WORKING_MS : POLL_IDLE_MS;
+    const timer = setInterval(() => void refresh(!pageVisible), intervalMs);
     return () => clearInterval(timer);
-  }, [refresh, hasWorking]);
+  }, [refresh, hasWorking, pageVisible]);
 
   useEffect(() => {
     void refreshBotSidebar().catch(() => undefined);
@@ -1570,10 +1578,11 @@ const SidebarView = memo(function SidebarView({
   // ハイライト・自動展開の源とする。モバイルは panes を触らないため pathname 由来のまま。
   const pathnameTaskId = pathname.startsWith("/task/") ? pathname.slice("/task/".length) : null;
   const activeTaskId = paneMdUp ? paneActiveTaskId : pathnameTaskId;
+  const unreadActiveTaskId = pageVisible ? activeTaskId : null;
   const archivedProjectIds = new Set(archivedProjects.map((project) => project.id));
-  const unreadCodeCount = tasks.filter((task) => task.status !== "archived" && task.kind !== "bot" && !archivedProjectIds.has(task.projectId ?? "") && hasUnreadTask(task, activeTaskId)).length;
-  const unreadBotCount = botSidebar.bots.filter((bot) => activeTaskId !== `/bots/${encodeURIComponent(bot.id)}` && hasUnread(bot.lastMessageAt, getLastReadAt("bot", bot.id))).length
-    + botSidebar.rooms.filter((room) => activeTaskId !== `/bots/rooms/${encodeURIComponent(room.id)}` && hasUnread(room.lastMessageAt, getLastReadAt("room", room.id))).length;
+  const unreadCodeCount = tasks.filter((task) => task.status !== "archived" && task.kind !== "bot" && !archivedProjectIds.has(task.projectId ?? "") && hasUnreadTask(task, unreadActiveTaskId)).length;
+  const unreadBotCount = botSidebar.bots.filter((bot) => unreadActiveTaskId !== `/bots/${encodeURIComponent(bot.id)}` && hasUnread(bot.lastMessageAt, getLastReadAt("bot", bot.id))).length
+    + botSidebar.rooms.filter((room) => unreadActiveTaskId !== `/bots/rooms/${encodeURIComponent(room.id)}` && hasUnread(room.lastMessageAt, getLastReadAt("room", room.id))).length;
   const unreadModes: UnreadModes = {
     code: unreadCodeCount > 0,
     bot: unreadBotCount > 0,
