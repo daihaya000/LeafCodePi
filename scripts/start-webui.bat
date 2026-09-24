@@ -16,6 +16,7 @@ echo [LeafCodePi] Starting...
 
 call :check_node
 if errorlevel 1 goto :failure
+call :install_gh
 call :install_web
 if errorlevel 1 goto :failure
 call :install_host
@@ -104,6 +105,24 @@ exit /b 3
 :node_version_ok
 node -e "const [major, minor] = process.versions.node.split('.').map(Number); process.exit(major < 22 || (major === 22 && minor < 19) ? 1 : 0)" 2>nul
 if errorlevel 1 exit /b 1
+exit /b 0
+
+:install_gh
+where gh >nul 2>&1
+if not errorlevel 1 exit /b 0
+where winget >nul 2>&1
+if errorlevel 1 goto :gh_warning
+echo [LeafCodePi] Installing GitHub CLI...
+call winget install --id GitHub.cli --exact --source winget --silent --accept-package-agreements --accept-source-agreements --disable-interactivity
+if errorlevel 1 goto :gh_warning
+if exist "%ProgramFiles%\GitHub CLI\gh.exe" set "PATH=%ProgramFiles%\GitHub CLI;%PATH%"
+if exist "%LOCALAPPDATA%\Programs\GitHub CLI\gh.exe" set "PATH=%LOCALAPPDATA%\Programs\GitHub CLI;%PATH%"
+where gh >nul 2>&1
+if errorlevel 1 goto :gh_warning
+exit /b 0
+
+:gh_warning
+echo [LeafCodePi] WARNING: GitHub CLI is unavailable. Install it to use GitHub PR features.
 exit /b 0
 
 :install_web
