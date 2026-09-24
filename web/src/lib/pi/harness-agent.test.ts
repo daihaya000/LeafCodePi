@@ -519,7 +519,7 @@ describe("abortTask", () => {
 });
 
 describe("autoArchiveOldTasks", () => {
-  it("archives only 30-day-old idle/error, unpinned sessions", async () => {
+  it("archives only old, inactive, unpinned Code sessions when pin settings are valid", async () => {
     const root = mkdtempSync(join(tmpdir(), "leafcode-pi-harness-auto-archive-"));
     tempDirs.push(root);
     process.env.LEAFCODE_PI_DATA_DIR = join(root, "data");
@@ -531,7 +531,9 @@ describe("autoArchiveOldTasks", () => {
       const failed = insertTask({ project, title: "old error" });
       setTaskStatus(failed.id, "error");
       const pinned = insertTask({ project, title: "old pinned" });
+      const open = insertTask({ project, title: "old open session" });
       const bot = insertBotTask({ id: "bot:old", botId: "old", name: "old bot", directory: root });
+      const room = insertBotTask({ id: "bot:old:room:one", botId: "old", name: "old room", directory: root });
       const working = insertTask({ project, title: "old working" });
       setTaskStatus(working.id, "working");
       const ready = insertTask({ project, title: "old ready" });
@@ -540,13 +542,19 @@ describe("autoArchiveOldTasks", () => {
 
       vi.setSystemTime(new Date("2025-02-01T00:00:00.000Z"));
       const recent = insertTask({ project, title: "recent" });
-      installFixtureHarness(new Map());
+      installFixtureHarness(new Map([[open.id, { taskId: open.id }]]));
       vi.setSystemTime(new Date("2025-02-15T00:00:00.000Z"));
 
-      assert.equal(await autoArchiveOldTasks(), 3);
+      setSetting(PINNED_TASKS_SETTING_KEY, "broken JSON");
+      assert.equal(await autoArchiveOldTasks(), 0);
+      assert.equal(getTask(idle.id)?.status, "idle");
+      setSetting(PINNED_TASKS_SETTING_KEY, JSON.stringify([pinned.id]));
+      assert.equal(await autoArchiveOldTasks(), 2);
       assert.equal(getTask(idle.id)?.status, "archived");
       assert.equal(getTask(failed.id)?.status, "archived");
-      assert.equal(getTask(bot.id)?.status, "archived");
+      assert.equal(getTask(bot.id)?.status, "idle");
+      assert.equal(getTask(room.id)?.status, "idle");
+      assert.equal(getTask(open.id)?.status, "idle");
       assert.equal(getTask(pinned.id)?.status, "idle");
       assert.equal(getTask(working.id)?.status, "working");
       assert.equal(getTask(ready.id)?.status, "ready");

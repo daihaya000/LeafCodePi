@@ -10148,17 +10148,21 @@ export function autoArchiveOldTasks(now = Date.now()): Promise<number> {
   if (autoArchiveInflight) return autoArchiveInflight;
   const promise = (async () => {
     const cutoff = now - AUTO_ARCHIVE_AFTER_MS;
-    const pinned = new Set(parsePinnedTaskIds(getSetting(PINNED_TASKS_SETTING_KEY)) ?? []);
+    const pinnedSetting = getSetting(PINNED_TASKS_SETTING_KEY);
+    const pinnedIds = pinnedSetting === null ? [] : parsePinnedTaskIds(pinnedSetting);
+    if (pinnedIds === null) return 0; // Unknown pin state must not hide protected sessions.
+    const pinned = new Set(pinnedIds);
     const eligible = (task: TaskSummary) => {
       const updatedAt = Date.parse(task.updatedAt);
       return (task.status === "idle" || task.status === "error") &&
         !pinned.has(task.id) && Number.isFinite(updatedAt) && updatedAt <= cutoff;
     };
     let archivedCount = 0;
-    for (const candidate of listTasks(false, "all")) {
+    // Bot and Room tasks are not restorable from the archived Code task list.
+    for (const candidate of listTasks(false)) {
       if (!eligible(candidate)) continue;
       const task = getTask(candidate.id);
-      if (!task || !eligible(task) || isTaskRuntimeBusyForDestructiveEdit(task.id)) continue;
+      if (!task || !eligible(task) || state().live.has(task.id) || isTaskRuntimeBusyForDestructiveEdit(task.id)) continue;
       try {
         await archiveTask(task.id);
         archivedCount += 1;
