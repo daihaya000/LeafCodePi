@@ -179,7 +179,7 @@ export function ProjectFilePicker({
               <div className="flex items-center justify-between border-b border-border px-4 py-3">
                 <div className="min-w-0">
                   <h2 id={titleId} className="text-sm font-semibold">{title}</h2>
-                  <p className="mt-0.5 text-xs text-muted">UTF-8テキストのみ添付できます。</p>
+                  <p className="mt-0.5 text-xs text-muted">ファイルはダブルクリックで添付します。UTF-8テキストのみ対応。</p>
                 </div>
                 <button
                   ref={closeButtonRef}
@@ -240,7 +240,13 @@ export function ProjectFilePicker({
                                 type="button"
                                 aria-pressed={isDir ? undefined : selected}
                                 disabled={!isDir && busyPath !== null}
-                                onClick={() => (isDir ? void load(entry.path) : void pick(entry))}
+                                onClick={(event) => {
+                                  if (isDir) void load(entry.path);
+                                  else if (event.detail === 0) void pick(entry);
+                                }}
+                                onDoubleClick={() => {
+                                  if (!isDir) void pick(entry);
+                                }}
                                 className={cx(
                                   "flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm transition-colors hover:bg-surface-2 disabled:cursor-not-allowed disabled:opacity-40",
                                   selected && "bg-accent/10 text-accent",
