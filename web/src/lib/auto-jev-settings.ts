@@ -1,7 +1,6 @@
 export const AUTO_JEV_ENABLED_SETTING_KEY = "auto-jev-enabled";
 export const AUTO_JEV_MIN_CONFIDENCE_SETTING_KEY = "auto-jev-min-confidence";
 
-export const DEFAULT_AUTO_JEV_ENABLED = false;
 export const DEFAULT_AUTO_JEV_MIN_CONFIDENCE = 0.6;
 export const AUTO_JEV_MIN_CONFIDENCE_VALUES = [
   0.5,

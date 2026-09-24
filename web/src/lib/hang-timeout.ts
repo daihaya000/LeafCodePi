@@ -85,16 +85,3 @@ export function subscribeAutoResumeMode(listener: () => void): () => void {
     window.removeEventListener("storage", onStorage);
   };
 }
-
-export function subscribeHangTimeout(listener: () => void): () => void {
-  if (typeof window === "undefined") return () => {};
-  const onStorage = (event: StorageEvent) => {
-    if (event.key === STORAGE_KEY || event.key === null) listener();
-  };
-  window.addEventListener(HANG_TIMEOUT_EVENT, listener);
-  window.addEventListener("storage", onStorage);
-  return () => {
-    window.removeEventListener(HANG_TIMEOUT_EVENT, listener);
-    window.removeEventListener("storage", onStorage);
-  };
-}

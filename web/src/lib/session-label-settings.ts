@@ -119,10 +119,6 @@ export function subscribeSessionLabels(listener: () => void): () => void {
   };
 }
 
-export async function readSessionLabelsFromServer(): Promise<string | null> {
-  return sync.readFromServer();
-}
-
 /** Restore the server backup only when this browser has no local preference. */
 let hydrationPromise: Promise<void> | null = null;
 

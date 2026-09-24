@@ -73,12 +73,6 @@ export function clampPercent(value: number | null | undefined): number {
   return Math.max(0, Math.min(100, value));
 }
 
-/** null-safe な整数化（表示用）。 */
-export function roundPercent(value: number | null | undefined): number | null {
-  if (value === null || value === undefined || Number.isNaN(value)) return null;
-  return Math.round(value);
-}
-
 /**
  * 使用率トーン: 70%未満 ok / 90%未満 warn / 以上 danger。
  * CodexBar の percentTone と同じ閾値を踏襲。

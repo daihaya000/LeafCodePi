@@ -88,7 +88,3 @@ export function invalidateCachedUsage(): void {
     store.set(key, { ...entry, storedAt: 0 });
   }
 }
-
-export function cacheTtlMs(): number {
-  return TTL_MS;
-}

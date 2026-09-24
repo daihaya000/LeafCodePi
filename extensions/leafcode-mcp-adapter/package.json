@@ -114,7 +114,6 @@
     "ui-server.ts",
     "glimpse-ui.ts",
     "npx-resolver.ts",
-    "oauth-handler.ts",
     "oauth.ts",
     "mcp-auth.ts",
     "mcp-bearer-store.ts",

@@ -112,8 +112,8 @@ const memoryWatches = new Map<string, TaskHangWatchRow>();
 let watchdogTimer: ReturnType<typeof setInterval> | null = null;
 let watchdogStarted = false;
 let watchdogTicking = false;
-let idleWaitAttempts = 6;
-let idleWaitIntervalMs = 1_000;
+const idleWaitAttempts = 6;
+const idleWaitIntervalMs = 1_000;
 
 function watchesPath(): string {
   return join(dataDir(), "hang-watches.json");
@@ -558,11 +558,6 @@ export function stopHangWatchdogForTests(): void {
   watchdogStarted = false;
   watchdogTicking = false;
   memoryWatches.clear();
-}
-
-export function setHangWatchdogIdleWaitForTests(attempts: number, intervalMs: number): void {
-  idleWaitAttempts = attempts;
-  idleWaitIntervalMs = intervalMs;
 }
 
 export async function resolveHangNow(taskId: string): Promise<boolean> {

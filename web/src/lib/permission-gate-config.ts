@@ -10,9 +10,6 @@ import {
 } from "@/lib/system-safety";
 
 const CONFIG_FILE = "permission-gate.json";
-/** Must match extensions/leafcode-permission-gate/index.ts SESSION_KEY. */
-export const PERMISSION_GATE_SESSION_KEY = "leafcode-permission-gate";
-
 type StoredConfig = {
   mode: PermissionMode;
   systemSafety?: SystemSafetyLevel;

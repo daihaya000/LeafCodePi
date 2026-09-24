@@ -34,17 +34,6 @@ function cacheStore(): Map<string, CachedProviderResult> {
   return globalRef[CACHE_KEY]!;
 }
 
-export function providerCacheTtlMs(kind: CachedProviderKind): number {
-  switch (kind) {
-    case "rate_limit":
-      return RATE_LIMIT_TTL_MS;
-    case "error":
-      return ERROR_TTL_MS;
-    default:
-      return SUCCESS_TTL_MS;
-  }
-}
-
 function isFresh(entry: CachedProviderResult, nowMs: number): boolean {
   return nowMs - entry.storedAt <= entry.ttlMs;
 }

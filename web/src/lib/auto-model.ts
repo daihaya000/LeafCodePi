@@ -61,8 +61,6 @@ export type TierRouteOverride = {
 
 export type RouteOverrides = Partial<Record<AutoTier, TierRouteOverride>>;
 
-export const EMPTY_ROUTE_OVERRIDES: RouteOverrides = Object.freeze({});
-
 export const AUTO_ROUTE_CONFIG_VERSION = 2 as const;
 
 export type AutoRouteCandidate =
@@ -142,21 +140,6 @@ function normalizeTierOverride(raw: unknown): TierRouteOverride | undefined {
     ...(costOrder !== undefined ? { costOrder } : {}),
     ...(variantOrder ? { variantOrder } : {}),
   };
-}
-
-export function normalizeRouteOverrides(raw: unknown): RouteOverrides {
-  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
-  const object = raw as Record<string, unknown>;
-  const result: RouteOverrides = {};
-  for (const tier of TIER_LADDER) {
-    const override = normalizeTierOverride(object[tier]);
-    if (override) result[tier] = override;
-  }
-  return result;
-}
-
-export function isRouteOverridesEmpty(overrides: RouteOverrides): boolean {
-  return Object.keys(overrides).length === 0;
 }
 
 /** Provider-shaped input kept compatible with the upstream LeafCode contract. */

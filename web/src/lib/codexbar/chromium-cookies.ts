@@ -11,7 +11,7 @@ import {
   readFileSync,
   unlinkSync,
 } from "node:fs";
-import { createDecipheriv, createHash } from "node:crypto";
+import { createDecipheriv } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import { homedir, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -329,11 +329,6 @@ export function readChromiumCookiesFromProfile(
   } finally {
     opened.cleanup();
   }
-}
-
-/** Stable fingerprint so we can unit-test without real browser DBs. */
-export function sha256Hex(input: string): string {
-  return createHash("sha256").update(input).digest("hex");
 }
 
 export { chromeExpiryToDate, decryptChromeCookie, loadChromiumMasterKey };
