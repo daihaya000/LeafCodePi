@@ -3,14 +3,16 @@ import { EventEmitter } from "node:events";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, it } from "vitest";
-import { getProject, getTask, insertBotTask, insertTask, patchProject, patchTask, upsertProject } from "@/lib/store";
+import { afterEach, describe, it, vi } from "vitest";
+import { getProject, getTask, insertBotTask, insertTask, patchProject, patchTask, setTaskStatus, upsertProject } from "@/lib/store";
+import { PINNED_TASKS_SETTING_KEY } from "@/lib/sidebar-settings";
+import { setSetting } from "@/lib/pi/web-settings";
 import {
   armTaskHangWatch,
   getTaskHangWatch,
   stopHangWatchdogForTests,
 } from "./hang-watchdog";
-import { abortLiveForHangWatchdog, abortTask, archiveTask, destroyProject, destroyTask, getTaskDetail, isLiveBusyForReplace, isTaskRuntimeOwnedElsewhere, markTaskWorkingIfIdle, refreshLiveSessionsForAgentDefinition, reloadLiveSessionsContext, restoreTask, setBotPermissionMode, setBotTools, setTaskAgent, throwIfBusyForModelChange, throwIfBusyForPermissionChange, throwIfBusyForSkillPermissionChange, throwIfBusyForThinkingChange } from "./harness";
+import { abortLiveForHangWatchdog, abortTask, archiveTask, autoArchiveOldTasks, destroyProject, destroyTask, getTaskDetail, isLiveBusyForReplace, isTaskRuntimeOwnedElsewhere, markTaskWorkingIfIdle, refreshLiveSessionsForAgentDefinition, reloadLiveSessionsContext, restoreTask, setBotPermissionMode, setBotTools, setTaskAgent, throwIfBusyForModelChange, throwIfBusyForPermissionChange, throwIfBusyForSkillPermissionChange, throwIfBusyForThinkingChange } from "./harness";
 import { taskRuntimeLeasePath } from "@/lib/task-runtime-lease";
 import { botTaskId, createBot, getBot, patchBot } from "@/lib/bots";
 import { setAgentEnabled } from "@/lib/agents";
@@ -513,6 +515,45 @@ describe("abortTask", () => {
 
     assert.deepEqual(events, ["abort", "goal-stop"]);
     assert.equal(getTask(task.id)?.status, "idle");
+  });
+});
+
+describe("autoArchiveOldTasks", () => {
+  it("archives only 30-day-old idle/error, unpinned sessions", async () => {
+    const root = mkdtempSync(join(tmpdir(), "leafcode-pi-harness-auto-archive-"));
+    tempDirs.push(root);
+    process.env.LEAFCODE_PI_DATA_DIR = join(root, "data");
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date("2025-01-01T00:00:00.000Z"));
+      const project = upsertProject({ name: "demo", rootPath: root });
+      const idle = insertTask({ project, title: "old idle" });
+      const failed = insertTask({ project, title: "old error" });
+      setTaskStatus(failed.id, "error");
+      const pinned = insertTask({ project, title: "old pinned" });
+      const bot = insertBotTask({ id: "bot:old", botId: "old", name: "old bot", directory: root });
+      const working = insertTask({ project, title: "old working" });
+      setTaskStatus(working.id, "working");
+      const ready = insertTask({ project, title: "old ready" });
+      setTaskStatus(ready.id, "ready");
+      setSetting(PINNED_TASKS_SETTING_KEY, JSON.stringify([pinned.id]));
+
+      vi.setSystemTime(new Date("2025-02-01T00:00:00.000Z"));
+      const recent = insertTask({ project, title: "recent" });
+      installFixtureHarness(new Map());
+      vi.setSystemTime(new Date("2025-02-15T00:00:00.000Z"));
+
+      assert.equal(await autoArchiveOldTasks(), 3);
+      assert.equal(getTask(idle.id)?.status, "archived");
+      assert.equal(getTask(failed.id)?.status, "archived");
+      assert.equal(getTask(bot.id)?.status, "archived");
+      assert.equal(getTask(pinned.id)?.status, "idle");
+      assert.equal(getTask(working.id)?.status, "working");
+      assert.equal(getTask(ready.id)?.status, "ready");
+      assert.equal(getTask(recent.id)?.status, "idle");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

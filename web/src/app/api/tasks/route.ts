@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { listTasks, type TaskKind } from "@/lib/store";
 import {
+  autoArchiveOldTasks,
   createTask,
   destroyArchivedTasksByProject,
   getTaskSummariesWithTodoProgress,
@@ -51,6 +52,7 @@ export async function GET(req: NextRequest) {
   if (req.nextUrl.searchParams.get("attention") === "1") {
     return NextResponse.json({ attention: listPendingAttention() });
   }
+  await autoArchiveOldTasks();
   // TaskPanesContext のタブ名・存在確認用（todoProgress 計算と toSummary の
   // ライブ走査を伴わない生レコードで返す）。
   if (req.nextUrl.searchParams.get("titles") === "1") {

@@ -130,6 +130,7 @@ import {
 } from "@/lib/provider-endpoints";
 import { isGoalLoopLiveStatus, isGoalLoopOperatorHold, isGoalLoopSessionOwned, readGoalLoopState } from "@/lib/pi/goal-loop-state";
 import { activeToolLabel } from "@/lib/tool-labels";
+import { PINNED_TASKS_SETTING_KEY, parsePinnedTaskIds } from "@/lib/sidebar-settings";
 import { acquireTaskLease, hasActiveTaskLease, ownsTaskLease, releaseTaskLease, reconcileOrphanedWorkingTasks } from "@/lib/task-runtime-lease";
 import {
   todoProgressFromTodos,
@@ -10138,6 +10139,40 @@ function clearBotCodeSessionLinks(taskId: string): void {
       patchBot(bot.id, { codeSessionTaskId: null });
     }
   }
+}
+
+const AUTO_ARCHIVE_AFTER_MS = 30 * 24 * 60 * 60 * 1000;
+let autoArchiveInflight: Promise<number> | null = null;
+
+export function autoArchiveOldTasks(now = Date.now()): Promise<number> {
+  if (autoArchiveInflight) return autoArchiveInflight;
+  const promise = (async () => {
+    const cutoff = now - AUTO_ARCHIVE_AFTER_MS;
+    const pinned = new Set(parsePinnedTaskIds(getSetting(PINNED_TASKS_SETTING_KEY)) ?? []);
+    const eligible = (task: TaskSummary) => {
+      const updatedAt = Date.parse(task.updatedAt);
+      return (task.status === "idle" || task.status === "error") &&
+        !pinned.has(task.id) && Number.isFinite(updatedAt) && updatedAt <= cutoff;
+    };
+    let archivedCount = 0;
+    for (const candidate of listTasks(false, "all")) {
+      if (!eligible(candidate)) continue;
+      const task = getTask(candidate.id);
+      if (!task || !eligible(task) || isTaskRuntimeBusyForDestructiveEdit(task.id)) continue;
+      try {
+        await archiveTask(task.id);
+        archivedCount += 1;
+      } catch (error) {
+        const reason = error instanceof Error ? error.message : String(error);
+        console.warn(`[auto-archive] task ${task.id} failed: ${reason}`);
+      }
+    }
+    return archivedCount;
+  })().finally(() => {
+    if (autoArchiveInflight === promise) autoArchiveInflight = null;
+  });
+  autoArchiveInflight = promise;
+  return promise;
 }
 
 export async function destroyTask(id: string): Promise<{ ok: true }> {

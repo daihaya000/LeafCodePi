@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
+  autoArchiveOldTasks: vi.fn(),
   createTask: vi.fn(),
   destroyArchivedTasksByProject: vi.fn(),
   getTaskSummariesWithTodoProgress: vi.fn(),
@@ -34,6 +35,11 @@ import { MAX_PROMPT_ATTACHMENTS, MAX_PROMPT_IMAGE_BYTES, MAX_PROMPT_IMAGE_TOTAL_
 import { GET, POST } from "./route";
 
 describe("GET /api/tasks", () => {
+  beforeEach(() => {
+    mocks.autoArchiveOldTasks.mockReset();
+    mocks.autoArchiveOldTasks.mockResolvedValue(0);
+  });
+
   it("lists every task kind when kind=all is requested", async () => {
     const tasks = [
       { id: "bot-task", kind: "bot", status: "working" },
@@ -47,6 +53,7 @@ describe("GET /api/tasks", () => {
 
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ tasks });
+    expect(mocks.autoArchiveOldTasks).toHaveBeenCalledOnce();
     expect(mocks.listTasks).toHaveBeenCalledWith(true, "all");
   });
 
@@ -60,6 +67,7 @@ describe("GET /api/tasks", () => {
 
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ tasks });
+    expect(mocks.autoArchiveOldTasks).toHaveBeenCalledOnce();
     expect(mocks.getTaskSummariesWithTodoProgress).toHaveBeenCalledWith(true, "all");
   });
 });
