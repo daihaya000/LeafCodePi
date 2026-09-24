@@ -538,13 +538,14 @@ describe("autoArchiveOldTasks", () => {
       setTaskStatus(working.id, "working");
       const ready = insertTask({ project, title: "old ready" });
       setTaskStatus(ready.id, "ready");
-      setSetting(PINNED_TASKS_SETTING_KEY, JSON.stringify([pinned.id]));
 
       vi.setSystemTime(new Date("2025-02-01T00:00:00.000Z"));
       const recent = insertTask({ project, title: "recent" });
       installFixtureHarness(new Map([[open.id, { taskId: open.id }]]));
       vi.setSystemTime(new Date("2025-02-15T00:00:00.000Z"));
 
+      assert.equal(await autoArchiveOldTasks(), 0); // Missing setting: localStorage migration has not finished.
+      assert.equal(getTask(idle.id)?.status, "idle");
       setSetting(PINNED_TASKS_SETTING_KEY, "broken JSON");
       assert.equal(await autoArchiveOldTasks(), 0);
       assert.equal(getTask(idle.id)?.status, "idle");

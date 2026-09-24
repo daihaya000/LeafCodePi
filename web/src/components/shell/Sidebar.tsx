@@ -1511,11 +1511,10 @@ const SidebarView = memo(function SidebarView({
         setPinnedTaskIds(next);
 
         if (typeof raw !== "string") {
-          if (legacyIds.size > 0 || pendingToggles.length > 0) {
-            void persistPinnedTaskIds(next)
-              .then(clearLegacyPinnedTaskIds)
-              .catch(() => undefined);
-          }
+          // Persist [] as well: auto-archive must wait until legacy pins are migrated.
+          void persistPinnedTaskIds(next)
+            .then(clearLegacyPinnedTaskIds)
+            .catch(() => undefined);
         } else {
           clearLegacyPinnedTaskIds();
           if (pendingToggles.length > 0) {

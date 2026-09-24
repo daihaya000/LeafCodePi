@@ -10148,9 +10148,8 @@ export function autoArchiveOldTasks(now = Date.now()): Promise<number> {
   if (autoArchiveInflight) return autoArchiveInflight;
   const promise = (async () => {
     const cutoff = now - AUTO_ARCHIVE_AFTER_MS;
-    const pinnedSetting = getSetting(PINNED_TASKS_SETTING_KEY);
-    const pinnedIds = pinnedSetting === null ? [] : parsePinnedTaskIds(pinnedSetting);
-    if (pinnedIds === null) return 0; // Unknown pin state must not hide protected sessions.
+    const pinnedIds = parsePinnedTaskIds(getSetting(PINNED_TASKS_SETTING_KEY));
+    if (pinnedIds === null) return 0; // Wait for legacy pins to migrate; never guess the protected IDs.
     const pinned = new Set(pinnedIds);
     const eligible = (task: TaskSummary) => {
       const updatedAt = Date.parse(task.updatedAt);

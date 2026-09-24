@@ -1144,6 +1144,42 @@ describe("Sidebar project ordering", () => {
     expect(screen.queryByText("Bot task")).toBeNull();
   });
 
+  it("migrates legacy pins before enabling auto-archive", async () => {
+    localStorage.setItem("webui.sidebar.pinned_tasks", JSON.stringify(["legacy-session"]));
+    const getJson = mocks.getJson.getMockImplementation()!;
+    mocks.getJson.mockImplementation((path: string) =>
+      path === "/api/settings/sidebar-pinned-tasks"
+        ? Promise.resolve({ value: null })
+        : getJson(path),
+    );
+
+    render(<Sidebar mobileOpen={false} onClose={vi.fn()} />);
+
+    await waitFor(() => expect(mocks.sendJson).toHaveBeenCalledWith(
+      "/api/settings/sidebar-pinned-tasks",
+      { value: JSON.stringify(["legacy-session"]) },
+      "PUT",
+    ));
+    await waitFor(() => expect(localStorage.getItem("webui.sidebar.pinned_tasks")).toBeNull());
+  });
+
+  it("initializes empty server pins before enabling auto-archive", async () => {
+    const getJson = mocks.getJson.getMockImplementation()!;
+    mocks.getJson.mockImplementation((path: string) =>
+      path === "/api/settings/sidebar-pinned-tasks"
+        ? Promise.resolve({ value: null })
+        : getJson(path),
+    );
+
+    render(<Sidebar mobileOpen={false} onClose={vi.fn()} />);
+
+    await waitFor(() => expect(mocks.sendJson).toHaveBeenCalledWith(
+      "/api/settings/sidebar-pinned-tasks",
+      { value: "[]" },
+      "PUT",
+    ));
+  });
+
   it("loads pinned sessions from the server and saves changes there", async () => {
     const tasks = [{
       id: "session-a",
