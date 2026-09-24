@@ -1,15 +1,18 @@
+import { hostname } from "node:os";
 import type { Metadata, Viewport } from "next";
 import { ThemeProvider } from "next-themes";
 import "./globals.css";
 
-export const metadata: Metadata = {
-  title: "LeafCodePi",
-  description: "Pi Coding Agent 用の LeafCode フロントエンド",
-  icons: {
-    icon: [{ url: "/favicon.ico" }, { url: "/icon.svg", type: "image/svg+xml" }],
-    apple: "/apple-touch-icon.png",
-  },
-};
+export function generateMetadata(): Metadata {
+  return {
+    title: `LCP ${hostname()}`,
+    description: "Pi Coding Agent 用の LeafCode フロントエンド",
+    icons: {
+      icon: [{ url: "/favicon.ico" }, { url: "/icon.svg", type: "image/svg+xml" }],
+      apple: "/apple-touch-icon.png",
+    },
+  };
+}
 
 export const viewport: Viewport = {
   width: "device-width",
