@@ -58,8 +58,7 @@ test("launcher bats use LEAFCODE_PI_* and port 3010", () => {
   assert.match(bat, /LEAFCODE_PI_PORT=3010/);
   assert.match(bat, /LEAFCODE_PI_HOST=tailscale/);
   assert.match(bat, /title LeafCodePi/);
-  assert.match(bat, /call :install_gh/);
-  assert.match(bat, /winget install --id GitHub\.cli --exact/);
+  assert.doesNotMatch(bat, /call :install_gh|winget install --id GitHub\.cli --exact/);
   assert.doesNotMatch(bat, /LEAFCODE_PORT=/);
   assert.doesNotMatch(bat, /LEAFCODE_DATA_DIR=/);
   assert.doesNotMatch(bat, /LEAFCODE_HEADLESS=/);
