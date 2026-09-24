@@ -564,6 +564,30 @@ describe("autoArchiveOldTasks", () => {
       vi.useRealTimers();
     }
   });
+
+  it("keeps a session pinned while an earlier session is being archived", async () => {
+    const root = mkdtempSync(join(tmpdir(), "leafcode-pi-harness-pin-during-archive-"));
+    tempDirs.push(root);
+    process.env.LEAFCODE_PI_DATA_DIR = join(root, "data");
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date("2025-01-01T00:00:00.000Z"));
+      const project = upsertProject({ rootPath: root });
+      const pinnedLater = insertTask({ project, title: "pin while archiving" });
+      const first = insertTask({ project, title: "archive first" });
+      setSetting(PINNED_TASKS_SETTING_KEY, "[]");
+      const events = new EventEmitter();
+      events.on(first.id, () => setSetting(PINNED_TASKS_SETTING_KEY, JSON.stringify([pinnedLater.id])));
+      installFixtureHarness(new Map(), { events });
+      vi.setSystemTime(new Date("2025-02-15T00:00:00.000Z"));
+
+      assert.equal(await autoArchiveOldTasks(), 1);
+      assert.equal(getTask(first.id)?.status, "archived");
+      assert.equal(getTask(pinnedLater.id)?.status, "idle");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
 
 describe("archiveTask", () => {
