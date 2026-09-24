@@ -230,7 +230,7 @@ export function SettingsView() {
   }, [showTab]);
 
   return (
-    <div className="flex h-full min-w-0 flex-col">
+    <div className="flex h-full min-w-0 w-full flex-col">
       <MobileMenuHeader />
       <div className="min-h-0 flex-1 overflow-y-auto">
         <div className="@container mx-auto flex max-w-5xl flex-col gap-6 px-4 py-6">

@@ -302,6 +302,11 @@ describe("SettingsView", () => {
     expect(html).toContain('id="settings-tab-models" type="button" role="tab" aria-label="モデルタブ" aria-selected="false"');
   });
 
+  it("ホストペインの全幅を設定画面に使う", () => {
+    const { container } = render(<SettingsView />);
+    expect(container.firstElementChild?.className).toContain("w-full");
+  });
+
   it("設定タブをモバイルで1列の横スクロールとして表示する", () => {
     render(<SettingsView />);
 
