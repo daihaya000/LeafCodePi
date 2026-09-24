@@ -826,6 +826,14 @@ function toolCommandStrings(toolName: string, input: unknown): string[] {
     const command = asRecord(input)?.command;
     return typeof command === "string" ? [command] : [];
   }
+  if (toolName === "act_ui") {
+    // Typed text can run commands in a terminal; scan it (joined too, for split typing).
+    const actions = asRecord(input)?.actions;
+    const texts = (Array.isArray(actions) ? actions : [])
+      .map((item) => asRecord(item)?.text)
+      .filter((text): text is string => typeof text === "string");
+    return [...new Set([...texts, texts.join("")])].filter(Boolean);
+  }
   const commands: string[] = typeof input === "string" ? [input] : [];
   collectStringFields(input, COMMAND_INPUT_KEYS, commands);
   return [...new Set(commands)];

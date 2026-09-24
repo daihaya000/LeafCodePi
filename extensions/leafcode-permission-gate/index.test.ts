@@ -58,6 +58,8 @@ describe("system safety classifier", () => {
     assert.ok(matchSystemSafetyForTool("mcp__server__exec", { payload: { command: "systemctl stop leafcode.service" } }).some((match) => match.category === "service"));
     assert.ok(matchSystemSafetyForTool("mcp__server__file_tool", { target: "C:\\Windows\\System32\\config" }).some((match) => match.category === "os"));
     assert.deepEqual(matchSystemSafetyForTool("read", { path: "/etc/os-release" }), []);
+    assert.ok(matchSystemSafetyForTool("act_ui", { actions: [{ action: "typeText", text: "systemctl stop " }, { action: "typeText", text: "leafcode.service" }] }).some((match) => match.category === "service"));
+    assert.deepEqual(matchSystemSafetyForTool("act_ui", { actions: [{ action: "setText", ref: "@e1", text: "hello" }] }), []);
     assert.deepEqual(matchSystemSafetyForTool("write", { path: "review-temp.ts" }, process.cwd()), []);
   });
 
