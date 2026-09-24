@@ -3,6 +3,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { CodexBarUsage } from "@/lib/codexbar";
 import { CodexBarWidget } from "./CodexBarWidget";
+import { resetWidgetSettingsCache } from "@/lib/use-widget-settings";
 
 const { useCodexUsage, useCodexProviders, getJson, sendJson } = vi.hoisted(() => ({
   useCodexUsage: vi.fn(),
@@ -100,6 +101,7 @@ function setServerSettings(value: object) {
 describe("CodexBarWidget", () => {
   beforeEach(() => {
     localStorage.clear();
+    resetWidgetSettingsCache();
     serverSettings = null;
     otherGetResponse = undefined;
     getJson.mockReset();
@@ -155,7 +157,7 @@ describe("CodexBarWidget", () => {
 
     await waitFor(() => expect(screen.getByText("60%")).toBeTruthy());
     expect(screen.queryByText(/表示中の合計/)).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "Codex を展開" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Codex を展開" }));
     expect(screen.getByText("仕事用")).toBeTruthy();
     expect(screen.getByText("個人用")).toBeTruthy();
     expect(screen.getByText("仕事用").closest("button")?.querySelector("img")).toBeNull();
@@ -376,5 +378,44 @@ describe("CodexBarWidget", () => {
       ),
     );
     expect(localStorage.getItem("webui:codexbar:collapsed")).toBeNull();
+  });
+  it("does not overwrite server settings or drop legacy values when loading fails", async () => {
+    localStorage.setItem("webui:codexbar:collapsed", "0");
+    getJson.mockImplementation(async (path: string) => {
+      if (path === SETTINGS_PATH) throw new Error("offline");
+      return otherGetResponse;
+    });
+
+    render(<CodexBarWidget />);
+
+    await waitFor(() => expect(getJson).toHaveBeenCalledWith(SETTINGS_PATH));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(sendJson.mock.calls.some(([path]) => path === SETTINGS_PATH)).toBe(false);
+    expect(localStorage.getItem("webui:codexbar:collapsed")).toBe("0");
+  });
+
+  it("merges changes made before loading with the server value", async () => {
+    let resolveSettings: (value: unknown) => void = () => undefined;
+    getJson.mockImplementation((path: string) =>
+      path === SETTINGS_PATH
+        ? new Promise((resolve) => {
+            resolveSettings = resolve;
+          })
+        : Promise.resolve(otherGetResponse),
+    );
+
+    render(<CodexBarWidget />);
+    fireEvent.click(screen.getByRole("button", { name: "CodexBar 利用状況を開く" }));
+    expect(sendJson).not.toHaveBeenCalled();
+
+    resolveSettings({ value: JSON.stringify({ twoColumn: false, providerCollapsed: {} }) });
+
+    await waitFor(() =>
+      expect(sendJson).toHaveBeenCalledWith(
+        SETTINGS_PATH,
+        { value: JSON.stringify({ twoColumn: false, providerCollapsed: {}, collapsed: false }) },
+        "PUT",
+      ),
+    );
   });
 });
