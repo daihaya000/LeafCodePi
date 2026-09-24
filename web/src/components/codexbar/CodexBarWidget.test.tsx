@@ -89,11 +89,23 @@ const accountUsage: CodexBarUsage = {
   ],
 };
 
+const SETTINGS_PATH = "/api/settings/codexbar-widget";
+let serverSettings: string | null = null;
+let otherGetResponse: unknown;
+
+function setServerSettings(value: object) {
+  serverSettings = JSON.stringify(value);
+}
+
 describe("CodexBarWidget", () => {
   beforeEach(() => {
     localStorage.clear();
+    serverSettings = null;
+    otherGetResponse = undefined;
     getJson.mockReset();
-    sendJson.mockReset();
+    getJson.mockImplementation(async (path: string) =>
+      path === SETTINGS_PATH ? { value: serverSettings } : otherGetResponse,
+    );    sendJson.mockReset();
     useCodexUsage.mockReturnValue({
       usage,
       loadError: null,
@@ -130,7 +142,7 @@ describe("CodexBarWidget", () => {
   });
 
   it("groups accounts under one provider and displays their percentage", async () => {
-    localStorage.setItem("webui:codexbar:collapsed", "0");
+    setServerSettings({ collapsed: false });
     useCodexUsage.mockReturnValue({
       usage: accountUsage,
       loadError: null,
@@ -151,8 +163,7 @@ describe("CodexBarWidget", () => {
   });
 
   it("shows OpenRouter's global balance alongside one account, and exposes management errors", async () => {
-    localStorage.setItem("webui:codexbar:collapsed", "0");
-    localStorage.setItem("webui:codexbar:providers", "{}");
+    setServerSettings({ collapsed: false, providerCollapsed: {} });
     const global = {
       ...usage.providers[0],
       id: "openrouter",
@@ -196,8 +207,7 @@ describe("CodexBarWidget", () => {
   });
 
   it("flattens a provider with one account into a single row", async () => {
-    localStorage.setItem("webui:codexbar:collapsed", "0");
-    localStorage.setItem("webui:codexbar:layout", "1");
+    setServerSettings({ collapsed: false, twoColumn: false });
     useCodexUsage.mockReturnValue({
       usage: {
         ...accountUsage,
@@ -224,7 +234,7 @@ describe("CodexBarWidget", () => {
   });
 
   it("hides the account name in the narrow two-column card and keeps it in the title", async () => {
-    localStorage.setItem("webui:codexbar:collapsed", "0");
+    setServerSettings({ collapsed: false });
     useCodexUsage.mockReturnValue({
       usage: {
         ...accountUsage,
@@ -245,7 +255,7 @@ describe("CodexBarWidget", () => {
   });
 
   it("keeps the saved expanded view compact with two columns and inline update status", async () => {
-    localStorage.setItem("webui:codexbar:collapsed", "0");
+    setServerSettings({ collapsed: false });
 
     render(<CodexBarWidget />);
 
@@ -261,7 +271,7 @@ describe("CodexBarWidget", () => {
   });
 
   it("forces a fresh usage fetch when the update button is clicked", async () => {
-    localStorage.setItem("webui:codexbar:collapsed", "0");
+    setServerSettings({ collapsed: false });
     const refresh = vi.fn().mockResolvedValue(undefined);
     useCodexUsage.mockReturnValue({
       usage,
@@ -280,8 +290,7 @@ describe("CodexBarWidget", () => {
   });
 
   it("shows reset credit controls and does not POST when confirm is cancelled", async () => {
-    localStorage.setItem("webui:codexbar:collapsed", "0");
-    localStorage.setItem("webui:codexbar:providers", JSON.stringify({}));
+    setServerSettings({ collapsed: false, providerCollapsed: {} });
     const refresh = vi.fn().mockResolvedValue(undefined);
     useCodexUsage.mockReturnValue({
       usage: usageWithReset,
@@ -290,7 +299,7 @@ describe("CodexBarWidget", () => {
       refresh,
       now: Date.parse("2026-09-14T00:00:00Z"),
     });
-    getJson.mockResolvedValue({
+    otherGetResponse = {
       availableCount: 2,
       credits: [
         {
@@ -307,7 +316,7 @@ describe("CodexBarWidget", () => {
         },
       ],
       accountId: null,
-    });
+    };
     const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
 
     render(<CodexBarWidget />);
@@ -319,10 +328,53 @@ describe("CodexBarWidget", () => {
       screen.getByRole("button", { name: "Codex の使用量リセット権を使う" }),
     );
 
-    await waitFor(() => expect(getJson).toHaveBeenCalled());
+    await waitFor(() =>
+      expect(getJson.mock.calls.some(([path]) => path === "/api/codexbar/reset-credits")).toBe(true),
+    );
     expect(confirmSpy).toHaveBeenCalled();
-    expect(sendJson).not.toHaveBeenCalled();
+    expect(sendJson.mock.calls.some(([path]) => path === "/api/codexbar/reset-credits")).toBe(false);
     expect(refresh).not.toHaveBeenCalled();
     confirmSpy.mockRestore();
+  });
+  it("migrates legacy localStorage settings to the server once", async () => {
+    localStorage.setItem("webui:codexbar:collapsed", "0");
+    localStorage.setItem("webui:codexbar:layout", "1");
+    localStorage.setItem("webui:codexbar:providers", JSON.stringify({ "openai-codex": true }));
+
+    render(<CodexBarWidget />);
+
+    await waitFor(() => expect(screen.getByText("CodexBar 利用状況")).toBeTruthy());
+    await waitFor(() =>
+      expect(sendJson).toHaveBeenCalledWith(
+        SETTINGS_PATH,
+        {
+          value: JSON.stringify({
+            collapsed: false,
+            twoColumn: false,
+            providerCollapsed: { "openai-codex": true },
+          }),
+        },
+        "PUT",
+      ),
+    );
+    expect(localStorage.getItem("webui:codexbar:collapsed")).toBeNull();
+    expect(localStorage.getItem("webui:codexbar:providers")).toBeNull();
+  });
+
+  it("saves the collapsed state to the server", async () => {
+    setServerSettings({ collapsed: false, providerCollapsed: {} });
+
+    render(<CodexBarWidget />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "折りたたむ" }));
+
+    await waitFor(() =>
+      expect(sendJson).toHaveBeenCalledWith(
+        SETTINGS_PATH,
+        { value: JSON.stringify({ collapsed: true, providerCollapsed: {} }) },
+        "PUT",
+      ),
+    );
+    expect(localStorage.getItem("webui:codexbar:collapsed")).toBeNull();
   });
 });

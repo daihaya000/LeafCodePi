@@ -54,6 +54,12 @@ import {
   parseSessionLabels,
   SESSION_LABELS_SETTING_KEY,
 } from "@/lib/session-label-settings";
+import {
+  CODEXBAR_WIDGET_SETTING_KEY,
+  isWidgetSettingKey,
+  SYSMON_WIDGET_SETTING_KEY,
+  validateWidgetSettingValue,
+} from "@/lib/widget-settings";
 import { AUTO_AGENT_SYSTEM_INSTRUCTION } from "@/lib/auto-agent";
 import { AUTO_AGENT_ENABLED_SETTING_KEY } from "@/lib/default-agent";
 
@@ -89,6 +95,8 @@ const ALLOWED_KEYS = new Set<string>([
   PINNED_TASKS_SETTING_KEY,
   COMPOSER_PROMPT_PRESETS_SETTING_KEY,
   SESSION_LABELS_SETTING_KEY,
+  CODEXBAR_WIDGET_SETTING_KEY,
+  SYSMON_WIDGET_SETTING_KEY,
 ]);
 
 function normalizedGenerationModelValue(value: string): string | null {
@@ -144,6 +152,9 @@ function validateValue(key: string, value: string): string | null {
   if (key === COMPOSER_PROMPT_PRESETS_SETTING_KEY) {
     const presets = parseComposerPromptPresets(value);
     return presets === null ? null : JSON.stringify(presets);
+  }
+  if (isWidgetSettingKey(key)) {
+    return validateWidgetSettingValue(key, value);
   }
   if (key === PINNED_TASKS_SETTING_KEY) {
     const ids = parsePinnedTaskIds(value);

@@ -1,6 +1,12 @@
 "use client";
 
 import { Fragment, useEffect, useState } from "react";
+import { useWidgetSettings } from "@/lib/use-widget-settings";
+import {
+  normalizeSysmonWidgetSettings,
+  SYSMON_WIDGET_SETTING_KEY,
+  type SysmonWidgetSettings,
+} from "@/lib/widget-settings";
 import {
   ChevronUp,
   Cpu,
@@ -27,6 +33,7 @@ import {
 const COLLAPSED_KEY = "webui:sysmon:collapsed";
 const LAYOUT_KEY = "webui:sysmon:layout";
 const HIDDEN_KEY = "webui:sysmon:hidden";
+const LEGACY_KEYS = [COLLAPSED_KEY, LAYOUT_KEY, HIDDEN_KEY] as const;
 
 const barClass: Record<Tone, string> = {
   ok: "bg-success",
@@ -39,55 +46,21 @@ const textClass: Record<Tone, string> = {
   danger: "text-danger",
 };
 
-function loadCollapsed(): boolean {
+/** 旧 localStorage 値。サーバー未保存時の一度きりの移行にだけ使う。 */
+function readLegacySettings(): SysmonWidgetSettings | null {
   try {
-    return localStorage.getItem(COLLAPSED_KEY) === "1";
-  } catch {
-    return false;
-  }
-}
-function saveCollapsed(v: boolean) {
-  try {
-    localStorage.setItem(COLLAPSED_KEY, v ? "1" : "0");
-  } catch {
-    /* ignore */
-  }
-}
-
-function loadTwoColumn(): boolean {
-  try {
-    const saved = localStorage.getItem(LAYOUT_KEY);
-    return saved === null ? true : saved === "2";
-  } catch {
-    return true;
-  }
-}
-function saveTwoColumn(v: boolean) {
-  try {
-    localStorage.setItem(LAYOUT_KEY, v ? "2" : "1");
-  } catch {
-    /* ignore */
-  }
-}
-
-function loadHiddenItems(): Set<string> {
-  try {
-    const raw = localStorage.getItem(HIDDEN_KEY);
-    if (!raw) return new Set();
-    const parsed: unknown = JSON.parse(raw);
-    if (Array.isArray(parsed)) {
-      return new Set(parsed.filter((s): s is string => typeof s === "string"));
+    const out: SysmonWidgetSettings = {};
+    const collapsed = localStorage.getItem(COLLAPSED_KEY);
+    if (collapsed !== null) out.collapsed = collapsed === "1";
+    const layout = localStorage.getItem(LAYOUT_KEY);
+    if (layout !== null) out.twoColumn = layout === "2";
+    const hidden = localStorage.getItem(HIDDEN_KEY);
+    if (hidden !== null) {
+      out.hidden = normalizeSysmonWidgetSettings({ hidden: JSON.parse(hidden) })?.hidden ?? [];
     }
+    return out;
   } catch {
-    /* ignore */
-  }
-  return new Set();
-}
-function saveHiddenItems(items: Set<string>) {
-  try {
-    localStorage.setItem(HIDDEN_KEY, JSON.stringify([...items]));
-  } catch {
-    /* ignore */
+    return null;
   }
 }
 
@@ -268,9 +241,19 @@ export function SystemMonitorWidget({
   initialCollapsed?: boolean;
   forceExpanded?: boolean;
 } = {}) {
-  const [collapsed, setCollapsed] = useState(forceExpanded ? false : initialCollapsed);
-  const [twoColumn, setTwoColumn] = useState(true);
-  const [hidden, setHidden] = useState<Set<string>>(new Set());
+  const { settings, update } = useWidgetSettings(
+    SYSMON_WIDGET_SETTING_KEY,
+    normalizeSysmonWidgetSettings,
+    readLegacySettings,
+    LEGACY_KEYS,
+  );
+  // forceExpanded / initialCollapsed 指定時は保存値よりローカル状態を優先する。
+  const [collapsedOverride, setCollapsedOverride] = useState<boolean | undefined>(
+    forceExpanded ? false : initialCollapsed ? true : undefined,
+  );
+  const collapsed = collapsedOverride ?? settings.collapsed ?? false;
+  const twoColumn = settings.twoColumn ?? true;
+  const hidden = new Set(settings.hidden ?? []);
   const [optionsOpen, setOptionsOpen] = useState(false);
   const { usage, loadError, refreshing, refresh } = useSystemMonitor({
     enabled: true,
@@ -278,38 +261,25 @@ export function SystemMonitorWidget({
   });
 
   useEffect(() => {
-    if (forceExpanded) return;
-    if (!initialCollapsed) setCollapsed(loadCollapsed());
+    setCollapsedOverride(forceExpanded ? false : initialCollapsed ? true : undefined);
   }, [initialCollapsed, forceExpanded]);
 
-  useEffect(() => {
-    setTwoColumn(loadTwoColumn());
-    setHidden(loadHiddenItems());
-  }, []);
-
   const toggleCollapsed = () => {
-    setCollapsed((c) => {
-      const next = !c;
-      saveCollapsed(next);
-      return next;
-    });
+    const next = !collapsed;
+    if (collapsedOverride !== undefined) setCollapsedOverride(next);
+    if (!forceExpanded) update({ collapsed: next });
   };
 
   const toggleTwoColumn = () => {
-    setTwoColumn((two) => {
-      const next = !two;
-      saveTwoColumn(next);
-      return next;
-    });
+    update({ twoColumn: !twoColumn });
   };
 
   const toggleHidden = (key: string) => {
-    setHidden((prev) => {
-      const next = new Set(prev);
+    update((prev) => {
+      const next = new Set(prev.hidden ?? []);
       if (next.has(key)) next.delete(key);
       else next.add(key);
-      saveHiddenItems(next);
-      return next;
+      return { hidden: [...next] };
     });
   };
 

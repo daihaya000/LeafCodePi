@@ -20,6 +20,12 @@ import {
   type ConfigProvider,
 } from "@/components/codexbar/use-codex-providers";
 import { ApiError, getJson, sendJson } from "@/lib/client";
+import { useWidgetSettings } from "@/lib/use-widget-settings";
+import {
+  CODEXBAR_WIDGET_SETTING_KEY,
+  normalizeCodexBarWidgetSettings,
+  type CodexBarWidgetSettings,
+} from "@/lib/widget-settings";
 import {
   clampPercent,
   creditUsageParts,
@@ -80,60 +86,27 @@ const textClass: Record<UsageTone, string> = {
   danger: "text-danger",
 };
 
-function loadCollapsed(): boolean {
-  try {
-    const saved = localStorage.getItem(COLLAPSED_KEY);
-    return saved === null ? true : saved === "1";
-  } catch {
-    return true;
-  }
-}
-function saveCollapsed(v: boolean) {
-  try {
-    localStorage.setItem(COLLAPSED_KEY, v ? "1" : "0");
-  } catch {
-    /* ignore */
-  }
-}
+const LEGACY_KEYS = [COLLAPSED_KEY, PROVIDERS_KEY, LAYOUT_KEY] as const;
 
-function loadTwoColumn(): boolean {
+/**
+ * 旧 localStorage 値。サーバー未保存時の一度きりの移行にだけ使う。
+ */
+function readLegacySettings(): CodexBarWidgetSettings | null {
   try {
-    const saved = localStorage.getItem(LAYOUT_KEY);
-    return saved === null ? true : saved === "2";
-  } catch {
-    return true;
-  }
-}
-function saveTwoColumn(v: boolean) {
-  try {
-    localStorage.setItem(LAYOUT_KEY, v ? "2" : "1");
-  } catch {
-    /* ignore */
-  }
-}
-
-function loadProviderCollapsed(): Record<string, boolean> {
-  try {
-    const raw = localStorage.getItem(PROVIDERS_KEY);
-    if (!raw) return {};
-    const parsed = JSON.parse(raw) as unknown;
-    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-      const out: Record<string, boolean> = {};
-      for (const [k, v] of Object.entries(parsed as Record<string, unknown>)) {
-        if (v === true) out[k] = true;
-      }
-      return out;
+    const out: CodexBarWidgetSettings = {};
+    const collapsed = localStorage.getItem(COLLAPSED_KEY);
+    if (collapsed !== null) out.collapsed = collapsed === "1";
+    const layout = localStorage.getItem(LAYOUT_KEY);
+    if (layout !== null) out.twoColumn = layout === "2";
+    const providers = localStorage.getItem(PROVIDERS_KEY);
+    if (providers !== null) {
+      out.providerCollapsed =
+        normalizeCodexBarWidgetSettings({ providerCollapsed: JSON.parse(providers) })
+          ?.providerCollapsed ?? {};
     }
+    return out;
   } catch {
-    /* ignore */
-  }
-  return {};
-}
-function saveProviderCollapsed(map: Record<string, boolean>) {
-  try {
-    localStorage.setItem(PROVIDERS_KEY, JSON.stringify(map));
-  } catch {
-    /* ignore */
+    return null;
   }
 }
 
@@ -756,13 +729,22 @@ export function CodexBarWidget({
 }: {
   initialCollapsed?: boolean;
 } = {}) {
-  const [collapsed, setCollapsed] = useState(initialCollapsed ?? true);
+  const { settings: widgetSettings, loaded: settingsLoaded, update: updateWidgetSettings } =
+    useWidgetSettings(
+      CODEXBAR_WIDGET_SETTING_KEY,
+      normalizeCodexBarWidgetSettings,
+      readLegacySettings,
+      LEGACY_KEYS,
+    );
+  const [collapsedOverride, setCollapsedOverride] = useState(initialCollapsed);
+  useEffect(() => setCollapsedOverride(initialCollapsed), [initialCollapsed]);
+  const collapsed = collapsedOverride ?? widgetSettings.collapsed ?? true;
+  const twoColumn = widgetSettings.twoColumn ?? true;
+  const providerCollapsed: Record<string, boolean> = widgetSettings.providerCollapsed ?? {};
   const { usage, loadError, refreshing, refresh, now } = useCodexUsage({
     // Collapsed chip keeps last snapshot; avoid provider API churn while chatting.
     enabled: !collapsed,
   });
-  const [twoColumn, setTwoColumn] = useState(true);
-  const [providerCollapsed, setProviderCollapsed] = useState<Record<string, boolean>>({});
   const [draggingProviderId, setDraggingProviderId] = useState<string | null>(null);
   const [resetBusyKey, setResetBusyKey] = useState<string | null>(null);
   const [resetStatusByKey, setResetStatusByKey] = useState<Record<string, string>>({});
@@ -859,54 +841,32 @@ export function CodexBarWidget({
   );
 
   useEffect(() => {
-    if (providerGroups.length === 0) return;
-    setProviderCollapsed((prev) => {
-      let saved: string | null = null;
-      try {
-        saved = localStorage.getItem(PROVIDERS_KEY);
-      } catch {
-        /* ignore */
-      }
-      if (saved !== null) return prev;
-
-      const next = { ...prev };
-      for (const group of providerGroups) next[group.id] = true;
-      saveProviderCollapsed(next);
-      return next;
-    });
-  }, [providerGroups]);
-
-  useEffect(() => {
-    setCollapsed(initialCollapsed ?? loadCollapsed());
-    setTwoColumn(loadTwoColumn());
-    setProviderCollapsed(loadProviderCollapsed());
-  }, [initialCollapsed]);
+    // 初回だけ全プロバイダーを折りたたむ（保存値があれば尊重）。
+    if (!settingsLoaded || providerGroups.length === 0) return;
+    if (widgetSettings.providerCollapsed !== undefined) return;
+    const next: Record<string, true> = {};
+    for (const group of providerGroups) next[group.id] = true;
+    updateWidgetSettings({ providerCollapsed: next });
+  }, [providerGroups, settingsLoaded, widgetSettings.providerCollapsed, updateWidgetSettings]);
 
   const toggleCollapsed = () => {
-    setCollapsed((c) => {
-      const next = !c;
-      saveCollapsed(next);
-      return next;
-    });
+    const next = !collapsed;
+    if (collapsedOverride !== undefined) setCollapsedOverride(next);
+    updateWidgetSettings({ collapsed: next });
   };
 
   const toggleTwoColumn = () => {
-    setTwoColumn((v) => {
-      const next = !v;
-      saveTwoColumn(next);
-      return next;
-    });
+    updateWidgetSettings({ twoColumn: !twoColumn });
   };
 
   const toggleProvider = useCallback((id: string) => {
-    setProviderCollapsed((prev) => {
-      const next = { ...prev };
+    updateWidgetSettings((prev) => {
+      const next = { ...prev.providerCollapsed };
       if (next[id]) delete next[id];
       else next[id] = true;
-      saveProviderCollapsed(next);
-      return next;
+      return { providerCollapsed: next };
     });
-  }, []);
+  }, [updateWidgetSettings]);
 
   const moveProviderTo = useCallback(
     (providerId: string, targetIndex: number) => {
