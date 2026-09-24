@@ -174,7 +174,7 @@ export function ProfileSettings() {
         Pi認証・モデル・MCP設定、エージェント、拡張、スキル、LeafCodePi設定を1ファイルへ保存・復元します。会話、プロジェクト、OS資格情報ストア、再取得できるパッケージ本体は含みません。
       </p>
       <div className="mt-3 space-y-2">
-        <div className="grid grid-cols-[repeat(auto-fit,minmax(11rem,1fr))] gap-2">
+        <div className="grid grid-cols-2 gap-2">
           <Button className="w-full" variant="secondary" busy={busy === "export"} disabled={disabled} onClick={() => void exportProfile()}>
             <Download className="h-4 w-4" />エクスポート
           </Button>
@@ -193,8 +193,13 @@ export function ProfileSettings() {
               }}
             />
           </label>
-          <Button className="w-full" variant="secondary" busy={busy === "packages"} disabled={disabled} onClick={() => void restorePackages()}>
-            <Archive className="h-4 w-4" />パッケージを再取得
+        </div>
+        <div className="grid grid-cols-2 gap-2">
+          <Button className="w-full" variant="secondary" busy={busy === "backup"} disabled={disabled} onClick={() => void backupProfile()}>
+            <Archive className="h-4 w-4" />バックアップ
+          </Button>
+          <Button className="w-full" variant="secondary" busy={busy === "restore"} disabled={disabled || !selectedBackup} onClick={() => void restoreProfile()}>
+            <History className="h-4 w-4" />復元
           </Button>
         </div>
         {backups.length > 0 && (
@@ -210,17 +215,12 @@ export function ProfileSettings() {
             ))}
           </select>
         )}
-        <div className="grid grid-cols-[repeat(auto-fit,minmax(11rem,1fr))] gap-2">
-          <Button className="w-full" variant="danger" busy={busy === "reset"} disabled={disabled} onClick={() => void resetProfile()}>
-            <RotateCcw className="h-4 w-4" />初期化
-          </Button>
-          <Button className="w-full" variant="secondary" busy={busy === "backup"} disabled={disabled} onClick={() => void backupProfile()}>
-            <Archive className="h-4 w-4" />バックアップ
-          </Button>
-          <Button className="w-full" variant="secondary" busy={busy === "restore"} disabled={disabled || !selectedBackup} onClick={() => void restoreProfile()}>
-            <History className="h-4 w-4" />復元
-          </Button>
-        </div>
+        <Button className="w-full" variant="danger" busy={busy === "reset"} disabled={disabled} onClick={() => void resetProfile()}>
+          <RotateCcw className="h-4 w-4" />初期化
+        </Button>
+        <Button className="w-full" variant="secondary" busy={busy === "packages"} disabled={disabled} onClick={() => void restorePackages()}>
+          <Archive className="h-4 w-4" />パッケージを再取得
+        </Button>
       </div>
       {message && <p role="status" className="mt-2 text-xs text-success">{message}</p>}
       {error && <p role="alert" className="mt-2 text-xs text-danger">{error}</p>}
