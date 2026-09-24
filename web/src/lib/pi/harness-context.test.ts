@@ -1,11 +1,13 @@
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import * as pi from "@earendil-works/pi-coding-agent";
 import { createAgentSession, DefaultResourceLoader, SessionManager, SettingsManager, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { afterEach, beforeEach, expect, it } from "vitest";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { codeOnDemandPrompt, compactSdkDocumentation } from "@/lib/agents-md";
-import { applyBotTools, sessionExtensionFactories, sessionResourceOptions, sessionToolNames } from "./harness";
+import { filterExtensionsByState, writeExtensionsState } from "@/lib/extensions";
+import { applyBotTools, sessionExtensionFactories, sessionResourceOptions, sessionToolNames, settingsManagerExcludingReplacedPackages } from "./harness";
 
 let root: string;
 let agentDir: string;
@@ -14,7 +16,10 @@ beforeEach(() => {
   agentDir = join(root, "agent");
   mkdirSync(agentDir);
 });
-afterEach(() => rmSync(root, { recursive: true, force: true }));
+afterEach(() => {
+  vi.unstubAllEnvs();
+  rmSync(root, { recursive: true, force: true });
+});
 
 async function loader(noContextFiles: boolean, botToolAllowlist?: string[]) {
   const result = new DefaultResourceLoader({
@@ -131,6 +136,34 @@ it.each([
   } finally {
     session.dispose();
   }
+});
+
+it("does not import a disabled package extension before filtering it", async () => {
+  vi.stubEnv("LEAFCODE_PI_DATA_DIR", join(root, "data"));
+  writeExtensionsState({ disabled: { ponytail: true } });
+  const packageDir = join(agentDir, "git", "github.com", "owner", "ponytail");
+  const entry = join(packageDir, "pi-extension", "index.js");
+  const marker = join(root, "imported.txt");
+  mkdirSync(join(packageDir, "pi-extension"), { recursive: true });
+  writeFileSync(join(packageDir, "package.json"), JSON.stringify({ pi: { extensions: ["./pi-extension/index.js"] } }));
+  writeFileSync(entry, `import { writeFileSync } from "node:fs"; writeFileSync(${JSON.stringify(marker)}, "loaded"); export default () => {};`);
+  writeFileSync(join(agentDir, "settings.json"), JSON.stringify({ packages: ["git:github.com/owner/ponytail"] }));
+  const resourceLoader = new DefaultResourceLoader({
+    cwd: root,
+    agentDir,
+    settingsManager: settingsManagerExcludingReplacedPackages(pi, SettingsManager.create(root, agentDir), new Set(), agentDir),
+    extensionsOverride: (base) => ({ ...base, extensions: filterExtensionsByState(base.extensions, undefined, agentDir) }),
+    noSkills: true,
+    noPromptTemplates: true,
+    noThemes: true,
+  });
+  await resourceLoader.reload();
+  expect(resourceLoader.getExtensions().extensions.some((extension) => extension.path === entry)).toBe(false);
+  expect(existsSync(marker)).toBe(false);
+  writeExtensionsState({ disabled: {} });
+  await resourceLoader.reload();
+  expect(resourceLoader.getExtensions().extensions.some((extension) => extension.path === entry)).toBe(true);
+  expect(existsSync(marker)).toBe(true);
 });
 
 it("keeps SDK APPEND_SYSTEM.md discovery alongside Code global sources", async () => {

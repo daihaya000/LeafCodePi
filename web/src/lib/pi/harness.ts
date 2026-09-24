@@ -166,6 +166,10 @@ import {
   basenameKey,
   bundledExtensionEntries,
   filterExtensionsByState,
+  isExtensionDisabled,
+  isWebUiRequiredExtension,
+  readExtensionsState,
+  resolvePackageDir,
 } from "@/lib/extensions";
 import {
   applyPermissionMode,
@@ -2946,22 +2950,33 @@ export function isReplacedPackageSource(entry: unknown, replacedPackageNames: Re
     && /^(?:git:github\.com\/injaneity\/pi-computer-use|https:\/\/github\.com\/injaneity\/pi-computer-use)(?:@[^/]+)?$/.test(source);
 }
 
-/** Exclude replaced packages from loader discovery on each settings read. */
-function settingsManagerExcludingReplacedPackages(
+/** Exclude replaced packages and disabled package extensions before SDK import. */
+export function settingsManagerExcludingReplacedPackages(
   pi: PiModule,
   manager: ReturnType<PiModule["SettingsManager"]["create"]>,
   replacedPackageNames: Set<string>,
+  agentDir = pi.getAgentDir(),
 ): ReturnType<PiModule["SettingsManager"]["create"]> {
   return new Proxy(manager, {
     get(target, property) {
-      if (property === "getGlobalSettings") {
+      if (property === "getGlobalSettings" || property === "getProjectSettings") {
         return () => {
-          const settings = target.getGlobalSettings();
+          const settings = property === "getGlobalSettings" ? target.getGlobalSettings() : target.getProjectSettings();
           const packages = Array.isArray(settings.packages) ? settings.packages : [];
-          if (!packages.some((entry: unknown) => isReplacedPackageSource(entry, replacedPackageNames))) return settings;
+          const state = readExtensionsState();
           return {
             ...settings,
-            packages: packages.filter((entry: unknown) => !isReplacedPackageSource(entry, replacedPackageNames)),
+            packages: packages
+              .filter((entry: unknown) => !isReplacedPackageSource(entry, replacedPackageNames))
+              .map((entry) => {
+                const source = typeof entry === "string" ? entry : entry.source;
+                const dir = resolvePackageDir(source, agentDir);
+                const name = dir && basename(dir);
+                if (!name || isWebUiRequiredExtension(name) || !isExtensionDisabled(name, state)) return entry;
+                return typeof entry === "string"
+                  ? { source: entry, extensions: [] }
+                  : { ...entry, extensions: [] };
+              }),
           };
         };
       }
@@ -3420,11 +3435,12 @@ async function createSession(options: {
   const replacedPackageNames = replacedUpstreamPackages(bundledIndex.names);
   // テスト環境のSDKモックはSettingsManagerを持たないことがあるため、存在時だけ適用する。
   const settingsManager =
-    replacedPackageNames.size > 0 && typeof pi.SettingsManager?.create === "function"
+    typeof pi.SettingsManager?.create === "function"
       ? settingsManagerExcludingReplacedPackages(
           pi,
           pi.SettingsManager.create(options.cwd, agentDir),
           replacedPackageNames,
+          agentDir,
         )
       : undefined;
   // Selected agent becomes the main persona: its system prompt replaces (or
