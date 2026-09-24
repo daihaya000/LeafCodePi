@@ -25,13 +25,14 @@ import { spawn, spawnSync } from 'node:child_process';
 import { hardKillTree } from './process-stop.js';
 import { getListeningPids } from './port-scanner.js';
 import { withLocalLeafcodeTempEnv } from './tray-temp.js';
+import { withSafeInitialMenu } from './tray-startup.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 const SysTray =
-  SysTrayImport?.default?.default ||
+  withSafeInitialMenu(SysTrayImport?.default?.default ||
   SysTrayImport?.default ||
-  SysTrayImport;
+  SysTrayImport);
 if (typeof SysTray !== 'function') {
   throw new Error(
     `systray2 import failed (got ${typeof SysTrayImport}). Reinstall host deps: cd host && npm install`,
@@ -257,6 +258,9 @@ async function main() {
           }
         });
         await systray.ready();
+        systray.process?.stderr?.on('data', (chunk) => {
+          console.error(`llama-server tray helper: ${String(chunk).trim()}`);
+        });
         // eslint-disable-next-line no-console
         console.log(`llama-server tray ready (port ${PORT}, copyDir=${copyDir})`);
         void pollLoop(); // periodic /health polling

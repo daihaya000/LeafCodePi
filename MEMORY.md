@@ -3121,3 +3121,10 @@ llama-server が停止（`/models` 無応答）のとき、`web/src/lib/pi/llama
 - 空の作業フォルダに https://github.com/daihaya000/LeafCodePi.git をクローン。
 - 取得時のブランチは master、ベースコミットは 523bec51（未使用の関数・定数・ファイルを削除）。
 - クローン直後の作業ツリーはクリーン。アプリの起動やテストは未実施。
+
+## 2026-09-24: systray2 Windows トレイ起動競合
+
+- Windows の tray_windows_release.exe が ready の約20ms後に code=2 で終了。stderr に getlantern/systray の setIcon nil pointer panic を確認。
+- 原因: systray2 の Go helper が WM_CREATE 時点で ready を送り、notify icon 状態の初期化完了前に Node 側が初回メニューを書き込む競合。
+- systray2 は維持。Windows に限り初回メニュー送信を100ms遅らせるラッパーを追加し、host と llama-server tray の両方に適用。helper の stderr もログへ出す。
+- 検証: 実バイナリで起動・状態更新を5回連続成功。host テスト 197 passed / 3 skipped、失敗なし。既存実行中ホストへの反映には再起動が必要。

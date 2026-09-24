@@ -20,6 +20,7 @@ import { pullLatestSources } from "./git-pull.js";
 import { createTranslationService } from "./translation-service.js";
 import { openProjectInExplorer } from "./open-explorer.js";
 import { withLocalLeafcodeTempEnv } from "./tray-temp.js";
+import { withSafeInitialMenu } from "./tray-startup.js";
 import {
   ensureWebUiAuth,
   isLoopbackBind,
@@ -44,7 +45,7 @@ import {
 import { ensureBuildDependencies } from "../../scripts/build-web.mjs";
 
 const SysTray =
-  SysTrayImport?.default?.default || SysTrayImport?.default || SysTrayImport;
+  withSafeInitialMenu(SysTrayImport?.default?.default || SysTrayImport?.default || SysTrayImport);
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const HOST_DIR = join(__dirname, "..");
@@ -806,6 +807,9 @@ async function startTray() {
           if (action.item?.click) action.item.click();
         });
         await tray.ready();
+        tray.process?.stderr?.on("data", (chunk) => {
+          error(`Tray helper: ${String(chunk).trim()}`);
+        });
         trayCopyDir = copyDir;
         log(`Tray host ready (copyDir=${copyDir})`);
         const stableTimer = setTimeout(() => {
