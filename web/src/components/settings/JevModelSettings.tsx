@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { GripVertical } from "lucide-react";
 import { Badge, Button, Switch, cx } from "@/components/ui";
 import { ReorderButtons } from "@/components/settings/ProviderModelsPanel";
@@ -65,6 +65,25 @@ export function JevModelSettings({ refreshToken = 0, onProviderCatalogChange }: 
   const loaded = useRef(false);
   const generation = useRef(0);
   const lastRefreshToken = useRef(refreshToken);
+  const latestSettings = useRef(settings);
+  latestSettings.current = settings;
+  const persisted = useRef<string | null>(null);
+  const savingNow = useRef(false);
+  const canSave = useRef(false);
+  const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const mounted = useRef(true);
+  const applyDto = useCallback((dto: JevModelSettingsDto) => {
+    if (!savingNow.current) {
+      const clean = JSON.stringify(latestSettings.current) === persisted.current;
+      persisted.current = JSON.stringify(dto.settings);
+      if (!loaded.current || clean) {
+        latestSettings.current = dto.settings;
+        setSettings(dto.settings);
+      }
+    }
+    loaded.current = true;
+    setSaved(dto);
+  }, []);
 
   useEffect(() => {
     const request = ++generation.current;
@@ -72,15 +91,13 @@ export function JevModelSettings({ refreshToken = 0, onProviderCatalogChange }: 
     lastRefreshToken.current = refreshToken;
     void getJson<JevModelSettingsDto>("/api/jev-model", undefined, changed ? { coalesce: false } : undefined).then((dto) => {
       if (request !== generation.current) return;
-      if (!loaded.current) setSettings(dto.settings);
-      loaded.current = true;
-      setSaved(dto);
+      applyDto(dto);
       setError(null);
     }).catch(() => {
       if (request === generation.current) setError("Jevモデル設定を取得できません。設定画面を開き直してください。");
     });
     return () => { generation.current += 1; };
-  }, [refreshToken]);
+  }, [refreshToken, applyDto]);
 
   const models = saved?.models ?? [];
   const rows = providerRows(models);
@@ -88,6 +105,55 @@ export function JevModelSettings({ refreshToken = 0, onProviderCatalogChange }: 
   const savedKeys = saved ? enabledModelKeys(saved.settings, models) : new Set<string>();
   const selectionUnavailable = settings.provider === "registered" && (selectedKeys.size === 0 ||
     [...selectedKeys].some((key) => !models.some((model) => jevModelKey(model) === key && model.providerEnabled !== false)));
+  const timeoutInvalid = !Number.isInteger(settings.timeoutMs) || settings.timeoutMs < 100 || settings.timeoutMs > 120_000;
+  canSave.current = Boolean(saved) && !selectionUnavailable && !timeoutInvalid;
+  const persist = useCallback(async function persist() {
+    const next = latestSettings.current;
+    const snapshot = JSON.stringify(next);
+    if (savingNow.current || !canSave.current || snapshot === persisted.current) return;
+    savingNow.current = true;
+    if (mounted.current) { setError(null); setStatus("保存中…"); }
+    try {
+      const dto = await sendJson<JevModelSettingsDto>("/api/jev-model", { settings: next }, "PUT");
+      persisted.current = JSON.stringify(dto.settings);
+      if (mounted.current) {
+        setSaved(dto);
+        if (latestSettings.current === next) {
+          latestSettings.current = dto.settings;
+          setSettings(dto.settings);
+          setStatus("自動保存しました。次のJev判定から反映されます。");
+        }
+      }
+    } catch (cause) {
+      if (mounted.current && latestSettings.current === next) {
+        setStatus("");
+        setError(cause instanceof Error ? cause.message : "Jevモデル設定を保存できません");
+      }
+    } finally {
+      savingNow.current = false;
+      if (latestSettings.current !== next) void persist();
+    }
+  }, []);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+      if (saveTimer.current) {
+        clearTimeout(saveTimer.current);
+        saveTimer.current = null;
+        void persist();
+      }
+    };
+  }, [persist]);
+  useEffect(() => {
+    if (!loaded.current || !saved || !canSave.current || JSON.stringify(settings) === persisted.current) return;
+    const timer = setTimeout(() => { saveTimer.current = null; void persist(); }, 350);
+    saveTimer.current = timer;
+    return () => {
+      clearTimeout(timer);
+      if (saveTimer.current === timer) saveTimer.current = null;
+    };
+  }, [settings, saved, persist]);
   const searchTerm = query.trim().toLowerCase();
   const visibleRows = rows.flatMap((row) => {
     const matchesProvider = [row.name, row.id, row.accountLabel].some((value) => value?.toLowerCase().includes(searchTerm));
@@ -107,7 +173,7 @@ export function JevModelSettings({ refreshToken = 0, onProviderCatalogChange }: 
       await action(providers);
       onProviderCatalogChange?.();
       const dto = await getJson<JevModelSettingsDto>("/api/jev-model", undefined, { coalesce: false });
-      if (request === generation.current) setSaved(dto);
+      if (request === generation.current) applyDto(dto);
     } catch (cause) {
       if (request === generation.current) setError(cause instanceof Error ? cause.message : "モデル設定を変更できません");
     } finally {
@@ -117,6 +183,15 @@ export function JevModelSettings({ refreshToken = 0, onProviderCatalogChange }: 
 
   function toggleModel(model: JevCatalogModel) {
     const ref = { providerId: model.providerId, modelId: model.modelId, ...(model.accountId ? { accountId: model.accountId } : {}) };
+    if (selectedKeys.has(jevModelKey(ref)) && selectedKeys.size === 1) {
+      setError("有効なJevモデルを1件以上残してください");
+      return;
+    }
+    if (!selectedKeys.has(jevModelKey(ref)) && selectedKeys.size >= 64) {
+      setError("有効なJevモデルは64件までです");
+      return;
+    }
+    setError(null);
     setSettings((current) => {
       const keys = enabledModelKeys(current, models);
       const refs = current.enabledModels ?? models.filter((item) => keys.has(jevModelKey(item))).map((item) => ({
@@ -175,28 +250,10 @@ export function JevModelSettings({ refreshToken = 0, onProviderCatalogChange }: 
     try {
       const dto = await getJson<JevModelSettingsDto>("/api/jev-model", { refresh: "1" });
       if (request !== generation.current) return;
-      setSaved(dto);
+      applyDto(dto);
       setStatus("モデル一覧を更新しました。使用先は変更していません。");
     } catch {
       if (request === generation.current) setError("Jevモデル一覧を更新できません");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function save() {
-    const request = ++generation.current;
-    setBusy(true);
-    setError(null);
-    setStatus("");
-    try {
-      const dto = await sendJson<JevModelSettingsDto>("/api/jev-model", { settings }, "PUT");
-      if (request !== generation.current) return;
-      setSettings(dto.settings);
-      setSaved(dto);
-      setStatus("保存しました。次のJev判定から反映されます。");
-    } catch (cause) {
-      if (request === generation.current) setError(cause instanceof Error ? cause.message : "Jevモデル設定を保存できません");
     } finally {
       setBusy(false);
     }
@@ -221,8 +278,7 @@ export function JevModelSettings({ refreshToken = 0, onProviderCatalogChange }: 
       {!saved && !error && <p role="status" className="text-sm text-muted">読み込み中…</p>}
       {saved && models.length === 0 && <p className="text-sm text-muted">利用できるJevモデルがありません。プロバイダー接続で認証を登録してください。</p>}
       {saved && searchTerm && visibleRows.length === 0 && <p className="text-sm text-muted">検索条件に一致する項目はありません。</p>}
-      <form onSubmit={(event) => { event.preventDefault(); void save(); }}>
-        <fieldset disabled={!saved || busy} className="space-y-4">
+      <fieldset disabled={!saved || busy} className="space-y-4">
           <ul className="space-y-3">
             {visibleRows.map(({ row, models: matchingModels, open }, index) => <li key={row.key} className="space-y-2" draggable={!busy && !searchTerm} onDragStart={(event) => {
               event.dataTransfer.effectAllowed = "move";
@@ -292,7 +348,7 @@ export function JevModelSettings({ refreshToken = 0, onProviderCatalogChange }: 
                       <span className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
                         <span className="min-w-0 truncate text-sm font-medium">{model.name}</span>
                         {model.integrated && model.accountLabel && <span className="text-xs text-muted">アカウント: {model.accountLabel}</span>}
-                        <Badge tone={checked ? "success" : "neutral"}>{checked ? active ? "有効" : "有効（未保存）" : active ? "無効（未保存）" : "無効"}</Badge>
+                        <Badge tone={checked ? "success" : "neutral"}>{checked ? active ? "有効" : "有効（未反映）" : active ? "無効（未反映）" : "無効"}</Badge>
                         {model.source === "documented" && <span className="text-xs text-muted">公式対応</span>}
                         <span className="break-all font-mono text-xs text-muted">{model.modelId}</span>
                       </span>
@@ -305,22 +361,21 @@ export function JevModelSettings({ refreshToken = 0, onProviderCatalogChange }: 
             </li>)}
           </ul>
           {selectionUnavailable && <p role="alert" className="text-sm text-danger">有効なJevモデルを1件以上選び、対象プロバイダーを有効にしてください。</p>}
+          {timeoutInvalid && <p role="alert" className="text-sm text-danger">タイムアウトは100〜120000ミリ秒で指定してください。</p>}
           {settings.provider === "compatible" && <p className="text-xs text-muted">従来の手動接続先を使用中です。この一覧では接続先を編集できません。切り替える場合は既存プロバイダーのモデルを選んでください。</p>}
           {settings.provider === "typesafe" && selectedKeys.size === 0 && <p className="text-xs text-muted">従来のTypeSafeモデルを使用中です。認証はプロバイダー接続で管理してください。</p>}
           <p className="text-xs text-muted">会話・ツール結果を有効なモデルへ上から順に送信します。失敗すると次の有効モデルへ転送します。</p>
           <div className="flex flex-wrap items-center gap-3">
-            <Button type="submit" variant="secondary" size="sm" disabled={selectionUnavailable}>{busy ? "保存中…" : "Jevモデルを保存"}</Button>
             <details className="text-xs text-muted">
               <summary className="cursor-pointer">Jev判定の詳細設定</summary>
               <label className="mt-2 block max-w-xs">タイムアウト（ミリ秒）
-                <input required type="number" min={100} max={120000} step={100} value={settings.timeoutMs} onChange={(event) => setSettings((current) => ({ ...current, timeoutMs: Number(event.target.value) }))} className={`mt-1 ${inputClass}`} />
+                <input type="number" min={100} max={120000} step={100} value={settings.timeoutMs} onChange={(event) => { setSettings((current) => ({ ...current, timeoutMs: Number(event.target.value) })); setError(null); setStatus(""); }} className={`mt-1 ${inputClass}`} />
               </label>
             </details>
           </div>
-        </fieldset>
-      </form>
+      </fieldset>
       {status && <p role="status" className="text-xs text-muted">{status}</p>}
-      {error && <p role="alert" className="text-sm text-danger">{error}</p>}
+      {error && <p role="alert" className="text-sm text-danger">{error}{canSave.current && JSON.stringify(settings) !== persisted.current && <> <button type="button" onClick={() => void persist()} className="text-accent underline">再試行</button></>}</p>}
     </div>
   );
 }

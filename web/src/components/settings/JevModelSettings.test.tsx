@@ -57,17 +57,55 @@ describe("JevModelSettings", () => {
     expect(screen.getByText("検索条件に一致する項目はありません。")).toBeTruthy();
   });
 
-  it("saves only an existing provider reference after explicit selection", async () => {
+  it("automatically saves an explicit model selection without a save button", async () => {
     await ready();
+    expect(screen.queryByRole("button", { name: "Jevモデルを保存" })).toBeNull();
+    expect(mocks.send).not.toHaveBeenCalled();
     expand("OpenRouter");
     fireEvent.click(screen.getByRole("switch", { name: "OpenRouter · Main / Jev 1.13 を有効化" }));
     expect(screen.getByRole("switch", { name: "OpenRouter · Main / Jev 1.13 を無効化" }).firstElementChild?.className).toContain("bg-success");
-    expect(mocks.send).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole("button", { name: "Jevモデルを保存" }));
     await waitFor(() => expect(mocks.send).toHaveBeenCalledWith("/api/jev-model", {
       settings: { ...DEFAULT_JEV_MODEL_SETTINGS, provider: "registered", registeredModel: { providerId: "typesafe", modelId: "jev-latest" }, enabledModels: [{ providerId: "typesafe", modelId: "jev-latest" }, { providerId: "openrouter", modelId: "typesafe/jev-1.13", accountId: "account-1" }] },
     }, "PUT"));
-    expect(screen.getByText(/次のJev判定から反映/)).toBeTruthy();
+    await waitFor(() => expect(screen.getByText(/次のJev判定から反映/)).toBeTruthy());
+  });
+
+  it("combines rapid model changes into one persisted selection", async () => {
+    await ready();
+    expand("OpenRouter");
+    expand("TypeSafe");
+    fireEvent.click(screen.getByRole("switch", { name: "OpenRouter · Main / Jev 1.13 を有効化" }));
+    fireEvent.click(screen.getByRole("switch", { name: "TypeSafe / Jev を無効化" }));
+    await waitFor(() => expect(mocks.send).toHaveBeenCalledWith("/api/jev-model", {
+      settings: { ...DEFAULT_JEV_MODEL_SETTINGS, provider: "registered", registeredModel: { providerId: "openrouter", modelId: "typesafe/jev-1.13", accountId: "account-1" }, enabledModels: [{ providerId: "openrouter", modelId: "typesafe/jev-1.13", accountId: "account-1" }] },
+    }, "PUT"));
+    expect(mocks.send).toHaveBeenCalledTimes(1);
+  });
+
+  it("serializes a second selection while the first save is in flight", async () => {
+    let releaseFirst!: (value: typeof dto) => void;
+    const first = new Promise<typeof dto>((resolve) => { releaseFirst = resolve; });
+    mocks.send.mockImplementationOnce(() => first);
+    await ready();
+    expand("OpenRouter");
+    expand("TypeSafe");
+    fireEvent.click(screen.getByRole("switch", { name: "OpenRouter · Main / Jev 1.13 を有効化" }));
+    await waitFor(() => expect(mocks.send).toHaveBeenCalledTimes(1));
+    fireEvent.click(screen.getByRole("switch", { name: "TypeSafe / Jev を無効化" }));
+    expect(mocks.send).toHaveBeenCalledTimes(1);
+    await act(async () => { releaseFirst({ ...dto, settings: mocks.send.mock.calls[0][1].settings }); });
+    await waitFor(() => expect(mocks.send).toHaveBeenCalledTimes(2));
+    expect(mocks.send.mock.calls[1][1].settings.enabledModels).toEqual([{ providerId: "openrouter", modelId: "typesafe/jev-1.13", accountId: "account-1" }]);
+    await waitFor(() => expect(screen.getByRole("switch", { name: "TypeSafe / Jev を有効化" })).toBeTruthy());
+  });
+
+  it("flushes a pending automatic save when leaving the settings page", async () => {
+    const { unmount } = render(<JevModelSettings />);
+    await waitFor(() => expect(screen.queryByText("読み込み中…")).toBeNull());
+    expand("OpenRouter");
+    fireEvent.click(screen.getByRole("switch", { name: "OpenRouter · Main / Jev 1.13 を有効化" }));
+    unmount();
+    await waitFor(() => expect(mocks.send).toHaveBeenCalledTimes(1));
   });
 
   it("shows shared provider switches and keeps disabled models unselectable", async () => {
@@ -192,35 +230,32 @@ describe("JevModelSettings", () => {
     expect(screen.getByText("アカウント: Private")).toBeTruthy();
     expect((screen.getByRole("switch", { name: "OpenRouter · Private / Jev 1.13 を有効化" }) as HTMLButtonElement).disabled).toBe(true);
     fireEvent.click(screen.getByRole("switch", { name: "OpenRouter · Main / Jev 1.13 を有効化" }));
-    fireEvent.click(screen.getByRole("button", { name: "Jevモデルを保存" }));
     await waitFor(() => expect(mocks.send).toHaveBeenCalledWith("/api/jev-model", {
       settings: { ...DEFAULT_JEV_MODEL_SETTINGS, provider: "registered", registeredModel: { providerId: "typesafe", modelId: "jev-latest" }, enabledModels: [{ providerId: "typesafe", modelId: "jev-latest" }, { providerId: "openrouter", modelId: "typesafe/jev-1.13", accountId: "account-1" }] },
     }, "PUT"));
   });
 
-  it("refreshes candidates without overwriting an unsaved choice", async () => {
+  it("refreshes candidates without changing the selection by discovery alone", async () => {
     const documented = { providerId: "commandcode", providerName: "Command Code", modelId: "typesafe/jev", name: "Jev", baseUrl: "https://api.commandcode.ai/provider/v1", source: "documented" };
     mocks.get.mockResolvedValueOnce(dto).mockResolvedValueOnce({ ...dto, models: [typesafe, candidate, documented] });
     await ready();
-    expand("OpenRouter");
-    fireEvent.click(screen.getByRole("switch", { name: "OpenRouter · Main / Jev 1.13 を有効化" }));
     fireEvent.click(screen.getByRole("button", { name: "再読み込み" }));
     await waitFor(() => expect(screen.getByRole("button", { name: "Command Code のモデルを展開" })).toBeTruthy());
-    expect(screen.getByRole("switch", { name: "OpenRouter · Main / Jev 1.13 を無効化" }).getAttribute("aria-checked")).toBe("true");
     expect(mocks.get).toHaveBeenCalledWith("/api/jev-model", { refresh: "1" });
     expect(mocks.send).not.toHaveBeenCalled();
   });
 
-  it("blocks saving a disabled or missing selected provider and allows recovery", async () => {
+  it("keeps the last selected model until a replacement is selected", async () => {
     mocks.get.mockResolvedValue({ ...dto, settings: { ...DEFAULT_JEV_MODEL_SETTINGS, provider: "registered", registeredModel: { providerId: "openrouter", modelId: "typesafe/jev-1.13", accountId: "account-1" } }, models: [typesafe, { ...candidate, providerEnabled: false }] });
     await ready();
     expect(screen.getByRole("alert").textContent).toContain("有効");
-    expect((screen.getByRole("button", { name: "Jevモデルを保存" }) as HTMLButtonElement).disabled).toBe(true);
     expand("OpenRouter");
     fireEvent.click(screen.getByRole("switch", { name: "OpenRouter · Main / Jev 1.13 を無効化" }));
+    expect(screen.getAllByRole("alert").some((alert) => alert.textContent?.includes("1件以上残してください"))).toBe(true);
     expand("TypeSafe");
     fireEvent.click(screen.getByRole("switch", { name: "TypeSafe / Jev を有効化" }));
-    expect((screen.getByRole("button", { name: "Jevモデルを保存" }) as HTMLButtonElement).disabled).toBe(false);
+    fireEvent.click(screen.getByRole("switch", { name: "OpenRouter · Main / Jev 1.13 を無効化" }));
+    await waitFor(() => expect(mocks.send).toHaveBeenCalledWith("/api/jev-model", expect.objectContaining({ settings: expect.objectContaining({ enabledModels: [{ providerId: "typesafe", modelId: "jev-latest" }] }) }), "PUT"));
   });
 
   it("preserves an old manual endpoint without offering a second provider form", async () => {
@@ -231,13 +266,26 @@ describe("JevModelSettings", () => {
     expect(mocks.send).not.toHaveBeenCalled();
   });
 
-  it("keeps timeout as Jev-only advanced setting and reports save failure", async () => {
-    mocks.send.mockRejectedValue(new Error("保存失敗"));
+  it("does not persist an invalid timeout and recovers when corrected", async () => {
+    await ready();
+    fireEvent.click(screen.getByText("Jev判定の詳細設定"));
+    fireEvent.change(screen.getByLabelText("タイムアウト（ミリ秒）"), { target: { value: "0" } });
+    expect(screen.getByRole("alert").textContent).toContain("100〜120000");
+    await new Promise((resolve) => setTimeout(resolve, 400));
+    expect(mocks.send).not.toHaveBeenCalled();
+    fireEvent.change(screen.getByLabelText("タイムアウト（ミリ秒）"), { target: { value: "4000" } });
+    await waitFor(() => expect(mocks.send).toHaveBeenCalledTimes(1));
+  });
+
+  it("auto-saves valid timeout changes and offers retry on failure", async () => {
+    mocks.send.mockRejectedValueOnce(new Error("保存失敗"));
     await ready();
     fireEvent.click(screen.getByText("Jev判定の詳細設定"));
     fireEvent.change(screen.getByLabelText("タイムアウト（ミリ秒）"), { target: { value: "4000" } });
-    fireEvent.click(screen.getByRole("button", { name: "Jevモデルを保存" }));
-    await waitFor(() => expect(screen.getByRole("alert").textContent).toBe("保存失敗"));
+    await waitFor(() => expect(screen.getByRole("alert").textContent).toContain("保存失敗"));
     expect(mocks.send).toHaveBeenCalledWith("/api/jev-model", { settings: { ...DEFAULT_JEV_MODEL_SETTINGS, timeoutMs: 4000 } }, "PUT");
+    fireEvent.click(screen.getByRole("button", { name: "再試行" }));
+    await waitFor(() => expect(screen.getByText(/自動保存しました/)).toBeTruthy());
+    expect(mocks.send).toHaveBeenCalledTimes(2);
   });
 });
