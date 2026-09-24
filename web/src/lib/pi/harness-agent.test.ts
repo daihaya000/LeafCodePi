@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { afterEach, describe, it, vi } from "vitest";
 import { getProject, getTask, insertBotTask, insertTask, patchProject, patchTask, setTaskStatus, upsertProject } from "@/lib/store";
 import { PINNED_TASKS_SETTING_KEY } from "@/lib/sidebar-settings";
+import { AUTO_ARCHIVE_DAYS_SETTING_KEY } from "@/lib/auto-archive-settings";
 import { setSetting } from "@/lib/pi/web-settings";
 import {
   armTaskHangWatch,
@@ -550,6 +551,13 @@ describe("autoArchiveOldTasks", () => {
       assert.equal(await autoArchiveOldTasks(), 0);
       assert.equal(getTask(idle.id)?.status, "idle");
       setSetting(PINNED_TASKS_SETTING_KEY, JSON.stringify([pinned.id]));
+      setSetting(AUTO_ARCHIVE_DAYS_SETTING_KEY, "invalid");
+      assert.equal(await autoArchiveOldTasks(), 0);
+      setSetting(AUTO_ARCHIVE_DAYS_SETTING_KEY, "off");
+      assert.equal(await autoArchiveOldTasks(), 0);
+      setSetting(AUTO_ARCHIVE_DAYS_SETTING_KEY, "90");
+      assert.equal(await autoArchiveOldTasks(), 0);
+      setSetting(AUTO_ARCHIVE_DAYS_SETTING_KEY, "30");
       assert.equal(await autoArchiveOldTasks(), 2);
       assert.equal(getTask(idle.id)?.status, "archived");
       assert.equal(getTask(failed.id)?.status, "archived");
@@ -560,6 +568,9 @@ describe("autoArchiveOldTasks", () => {
       assert.equal(getTask(working.id)?.status, "working");
       assert.equal(getTask(ready.id)?.status, "ready");
       assert.equal(getTask(recent.id)?.status, "idle");
+      setSetting(AUTO_ARCHIVE_DAYS_SETTING_KEY, "7");
+      assert.equal(await autoArchiveOldTasks(), 1);
+      assert.equal(getTask(recent.id)?.status, "archived");
     } finally {
       vi.useRealTimers();
     }

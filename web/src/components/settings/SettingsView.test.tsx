@@ -62,6 +62,9 @@ vi.mock("@/components/settings/TtsSettings", () => ({
 vi.mock("@/components/settings/NavigatorSettings", () => ({
   NavigatorSettings: () => <h3>ナビゲーター</h3>,
 }));
+vi.mock("@/components/settings/AutoArchiveSettings", () => ({
+  AutoArchiveSettings: () => <h3>古いセッションの自動アーカイブ</h3>,
+}));
 vi.mock("@/components/settings/ReasoningTranslationSettings", () => ({
   ReasoningTranslationSettings: () => {
     mountCounts.response += 1;
@@ -336,6 +339,7 @@ describe("SettingsView", () => {
       "アクセスと安全",
       "応答",
       "表示と通知",
+      "セッション管理",
       "ローカル推論",
       "メモリ",
     ]);
@@ -351,6 +355,7 @@ describe("SettingsView", () => {
     expect(screen.getByRole("heading", { name: "メモリ" }).tagName).toBe("H3");
     expect(screen.queryByRole("heading", { name: "USER.md" })).toBeNull();
     expect(screen.getByRole("heading", { name: "ブラウザ設定" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "古いセッションの自動アーカイブ" })).toBeTruthy();
     expect(enginePanel?.querySelector("#composer-defaults-heading")).toBeNull();
     const displaySection = enginePanel.querySelector('section[aria-label="表示と通知"]');
     const displayGrid = displaySection?.querySelector(":scope > div.grid");

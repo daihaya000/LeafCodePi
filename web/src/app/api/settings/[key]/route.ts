@@ -45,6 +45,7 @@ import {
 } from "@/lib/auto-jev-settings";
 import { BOT_DEFAULT_PERMISSION_KEY, BOT_DEFAULT_THINKING_KEY, BOT_DEFAULT_PERMISSION_VALUES, BOT_DEFAULT_THINKING_VALUES } from "@/lib/bot-settings";
 import { PINNED_TASKS_SETTING_KEY, parsePinnedTaskIds } from "@/lib/sidebar-settings";
+import { AUTO_ARCHIVE_DAYS_SETTING_KEY, isAutoArchiveDaysOption } from "@/lib/auto-archive-settings";
 import {
   COMPOSER_PROMPT_PRESETS_SETTING_KEY,
   parseComposerPromptPresets,
@@ -84,6 +85,7 @@ const ALLOWED_KEYS = new Set<string>([
   COMPACTION_THRESHOLD_SETTING_KEY,
   TITLE_AUTO_UPDATE_FREQUENCY_SETTING_KEY,
   TITLE_AUTO_UPDATE_ENABLED_SETTING_KEY,
+  AUTO_ARCHIVE_DAYS_SETTING_KEY,
   PINNED_TASKS_SETTING_KEY,
   COMPOSER_PROMPT_PRESETS_SETTING_KEY,
   SESSION_LABELS_SETTING_KEY,
@@ -146,6 +148,9 @@ function validateValue(key: string, value: string): string | null {
   if (key === PINNED_TASKS_SETTING_KEY) {
     const ids = parsePinnedTaskIds(value);
     return ids === null ? null : JSON.stringify(ids);
+  }
+  if (key === AUTO_ARCHIVE_DAYS_SETTING_KEY) {
+    return isAutoArchiveDaysOption(value) ? value : null;
   }
   if (key === SESSION_LABELS_SETTING_KEY) {
     const labels = parseSessionLabels(value);

@@ -423,6 +423,22 @@ describe("/api/settings/[key]", () => {
     expect(invalid.status).toBe(400);
   });
 
+  it.each(["off", "7", "30", "90", "180", "365"])("accepts auto-archive option %s", async (value) => {
+    const response = await PUT(request("auto-archive-days", { value }), {
+      params: Promise.resolve({ key: "auto-archive-days" }),
+    });
+    expect(response.status).toBe(200);
+    expect(settings.setSetting).toHaveBeenCalledWith("auto-archive-days", value);
+  });
+
+  it.each(["0", "1", "15", "366", "always", "NaN"])("rejects auto-archive option %s", async (value) => {
+    const response = await PUT(request("auto-archive-days", { value }), {
+      params: Promise.resolve({ key: "auto-archive-days" }),
+    });
+    expect(response.status).toBe(400);
+    expect(settings.setSetting).not.toHaveBeenCalled();
+  });
+
   it("normalizes and persists pinned task ids", async () => {
     const response = await PUT(
       request("sidebar-pinned-tasks", { value: JSON.stringify(["task-2", "task-1", "task-2"]) }),

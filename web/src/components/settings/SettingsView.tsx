@@ -19,6 +19,7 @@ import { UserMdSettings } from "@/components/settings/UserMdSettings";
 import { MemorySettings } from "@/components/settings/MemorySettings";
 import { CompactionSettings } from "@/components/settings/CompactionSettings";
 import { SessionLabelSettings } from "@/components/settings/SessionLabelSettings";
+import { AutoArchiveSettings } from "@/components/settings/AutoArchiveSettings";
 import { NavigatorSettings } from "@/components/settings/NavigatorSettings";
 import { SkillsSettings } from "@/components/settings/SkillsSettings";
 import { ExtensionsSettings } from "@/components/settings/ExtensionsSettings";
@@ -356,6 +357,15 @@ export function SettingsView() {
                   <BrowserSettings />
                   <NavigatorSettings />
                   <NotificationSoundSettings />
+                </div>
+              </SettingsGroup>
+
+              <SettingsGroup
+                id="engine-sessions-heading"
+                title="セッション管理"
+              >
+                <div className="grid gap-4 @4xl:grid-cols-2">
+                  <AutoArchiveSettings />
                 </div>
               </SettingsGroup>
 

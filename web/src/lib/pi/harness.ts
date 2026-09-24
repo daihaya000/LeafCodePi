@@ -130,6 +130,7 @@ import {
 } from "@/lib/provider-endpoints";
 import { isGoalLoopLiveStatus, isGoalLoopOperatorHold, isGoalLoopSessionOwned, readGoalLoopState } from "@/lib/pi/goal-loop-state";
 import { activeToolLabel } from "@/lib/tool-labels";
+import { AUTO_ARCHIVE_DAYS_SETTING_KEY, parseAutoArchiveDays } from "@/lib/auto-archive-settings";
 import { PINNED_TASKS_SETTING_KEY, parsePinnedTaskIds } from "@/lib/sidebar-settings";
 import { acquireTaskLease, hasActiveTaskLease, ownsTaskLease, releaseTaskLease, reconcileOrphanedWorkingTasks } from "@/lib/task-runtime-lease";
 import {
@@ -10157,14 +10158,15 @@ function clearBotCodeSessionLinks(taskId: string): void {
   }
 }
 
-const AUTO_ARCHIVE_AFTER_MS = 30 * 24 * 60 * 60 * 1000;
+const AUTO_ARCHIVE_DAY_MS = 24 * 60 * 60 * 1000;
 let autoArchiveInflight: Promise<number> | null = null;
 
 export function autoArchiveOldTasks(now = Date.now()): Promise<number> {
   if (autoArchiveInflight) return autoArchiveInflight;
   const promise = (async () => {
-    const cutoff = now - AUTO_ARCHIVE_AFTER_MS;
-    const eligible = (task: TaskSummary) => {
+    const days = parseAutoArchiveDays(getSetting(AUTO_ARCHIVE_DAYS_SETTING_KEY));
+    if (days === null) return 0;
+    const eligible = (task: TaskSummary, cutoff: number) => {
       const updatedAt = Date.parse(task.updatedAt);
       return (task.status === "idle" || task.status === "error") &&
         Number.isFinite(updatedAt) && updatedAt <= cutoff;
@@ -10172,12 +10174,14 @@ export function autoArchiveOldTasks(now = Date.now()): Promise<number> {
     let archivedCount = 0;
     // Bot and Room tasks are not restorable from the archived Code task list.
     for (const candidate of listTasks(false)) {
-      if (!eligible(candidate)) continue;
-      // A previous archive may have yielded while this session was pinned.
+      if (!eligible(candidate, now - days * AUTO_ARCHIVE_DAY_MS)) continue;
+      // A previous archive may have yielded while these settings changed.
+      const currentDays = parseAutoArchiveDays(getSetting(AUTO_ARCHIVE_DAYS_SETTING_KEY));
+      if (currentDays === null) break;
       const pinnedIds = parsePinnedTaskIds(getSetting(PINNED_TASKS_SETTING_KEY));
       if (pinnedIds === null) break; // Wait for legacy pins to migrate; never guess protected IDs.
       const task = getTask(candidate.id);
-      if (!task || !eligible(task) || pinnedIds.includes(task.id) || state().live.has(task.id) || isTaskRuntimeBusyForDestructiveEdit(task.id)) continue;
+      if (!task || !eligible(task, now - currentDays * AUTO_ARCHIVE_DAY_MS) || pinnedIds.includes(task.id) || state().live.has(task.id) || isTaskRuntimeBusyForDestructiveEdit(task.id)) continue;
       try {
         await archiveTask(task.id);
         archivedCount += 1;
