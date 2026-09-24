@@ -689,7 +689,7 @@ function ContextUsageMeter({ usage }: { usage: ContextUsageDto }) {
           style={{ width: `${barWidth}%` }}
         />
       </span>
-      <span className="font-mono tabular-nums">
+      <span className="tabular-nums">
         {usedLabel}/{limitLabel} ({pctLabel})
       </span>
     </span>

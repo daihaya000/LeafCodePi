@@ -320,7 +320,7 @@ function WindowRow({
     <div className="flex flex-col gap-0.5">
       <div className="flex items-center justify-between gap-2 text-[11px]">
         <span className="truncate text-muted">{title}</span>
-        <span className={cx("shrink-0 font-mono", textClass[tone])}>
+        <span className={cx("shrink-0", textClass[tone])}>
           {percent === null ? "—" : `${Math.round(percent)}%`}
         </span>
       </div>
@@ -345,12 +345,12 @@ function CreditsRow({ credits }: { credits: CodexBarCredits }) {
     <div className="flex flex-col gap-0.5 border-t border-border pt-1.5">
       <div className="flex items-center justify-between gap-2 text-[11px]">
         <span className="truncate text-muted">{credits.title ?? "利用クレジット"}</span>
-        {amount && <span className="shrink-0 font-mono text-text">{amount}</span>}
+        {amount && <span className="shrink-0 text-text">{amount}</span>}
       </div>
       {percent !== null && (
         <>
           <UsageBar tone={tone} percent={percent} />
-          <div className={cx("text-right text-[10px] font-mono", textClass[tone])}>
+          <div className={cx("text-right text-[10px]", textClass[tone])}>
             {Math.round(percent)}%
           </div>
         </>
@@ -470,7 +470,7 @@ function ResetCreditsRow({
     <div className="flex flex-col gap-1 border-t border-border pt-1.5">
       <div className="flex items-center justify-between gap-2 text-[11px]">
         <span className="truncate text-muted">
-          リセット権 <span className="font-mono text-text">{available}</span>
+          リセット権 <span className="text-text">{available}</span>
         </span>
         <button
           type="button"
@@ -588,7 +588,7 @@ function ProviderRow({
         ) : (
           <span
             className={cx(
-              "ml-auto shrink-0 font-mono",
+              "ml-auto shrink-0",
               p.stale && tone === "ok" ? "text-warning" : textClass[tone],
             )}
             title={p.stale ? "直近の取得値（stale）" : undefined}
@@ -706,7 +706,7 @@ function ProviderGroupRow({
         )}
         <span
           className={cx(
-            "ml-auto shrink-0 font-mono",
+            "ml-auto shrink-0",
             p.stale && tone === "ok" ? "text-warning" : textClass[tone],
           )}
           title={p.stale ? "直近の取得値（stale）" : undefined}
@@ -960,10 +960,10 @@ export function CodexBarWidget({
         <Activity className={cx("h-3.5 w-3.5", textClass[summaryTone])} />
         <span className="font-medium text-text">CodexBar</span>
         {overall !== null && (
-          <span className="font-mono text-muted">全体 {Math.round(overall)}%</span>
+          <span className="text-muted">全体 {Math.round(overall)}%</span>
         )}
         {limited > 0 && (
-          <span className="rounded-full bg-danger-bg px-1.5 font-mono text-danger">
+          <span className="rounded-full bg-danger-bg px-1.5 text-danger">
             {limited} 制限
           </span>
         )}
