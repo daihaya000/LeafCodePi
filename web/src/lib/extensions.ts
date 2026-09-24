@@ -164,9 +164,15 @@ export function isExtensionDisabled(name: string, state = readExtensionsState())
 export function filterExtensionsByState<T extends { path: string }>(
   extensions: readonly T[],
   state = readExtensionsState(),
+  agentDir = resolvePiAgentDir(),
 ): T[] {
+  // Package entries can live at <package>/pi-extension/index.js, whose basename
+  // is not the package name shown in the Extensions UI.
+  const packageNames = new Map(
+    discoverPackageExtensions(agentDir).map((entry) => [resolve(entry.filePath), entry.name]),
+  );
   return extensions.filter((extension) => {
-    const name = basenameKey(extension.path);
+    const name = packageNames.get(resolve(extension.path)) ?? basenameKey(extension.path);
     return !TEST_FILE_PATTERN.test(extension.path) &&
       !RETIRED_EXTENSION_NAMES.has(name) &&
       (isWebUiRequiredExtension(name) || state.disabled[name] !== true);

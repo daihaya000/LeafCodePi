@@ -275,6 +275,13 @@ describe("listExtensions / setExtensionEnabled", () => {
     assert.equal(listed.extensions.find((e) => e.name === "ponytail")?.filePath, join(pkgDir, "pi-extension", "index.js"));
     assert.equal(listed.extensions.find((e) => e.name === "ponytail")?.source, "user");
     expectNames(listed.extensions, ["one", "ponytail"]);
+
+    const loaded = [{ path: join(pkgDir, "pi-extension", "index.js") }, { path: join(agent, "extensions", "one.js") }];
+    assert.deepEqual(filterExtensionsByState(loaded, undefined, agent), loaded);
+    setExtensionEnabled("ponytail", false, agent);
+    assert.deepEqual(filterExtensionsByState(loaded, undefined, agent), [loaded[1]]);
+    setExtensionEnabled("ponytail", true, agent);
+    assert.deepEqual(filterExtensionsByState(loaded, undefined, agent), loaded);
   });
 
   it("discovers extensions from npm packages (settings.json packages)", () => {
