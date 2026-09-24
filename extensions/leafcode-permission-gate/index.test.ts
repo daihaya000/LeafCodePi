@@ -696,6 +696,17 @@ describe("LeafCode permission gate", () => {
       assert.ok(prompts.some((text) => text.includes("setText @e1")));
       assert.ok(prompts.every((text) => !text.includes("secret-value")));
 
+      const g = globalThis as { __leafcodeComputerUseDescribe?: (stateId: string, ref?: string) => string | undefined };
+      g.__leafcodeComputerUseDescribe = (stateId, ref) => stateId !== "S1" ? undefined : ref ? 'text "password"' : "App \u2014 Win";
+      prompts.length = 0;
+      await handlers.get("tool_call")?.({ toolName: "act_ui", input: { stateId: "S1", actions: [
+        { action: "setText", ref: "@e1", text: "secret-value" },
+        { action: "keypress", keys: ["control", "Return"] },
+      ] } }, ctx);
+      delete g.__leafcodeComputerUseDescribe;
+      assert.ok(prompts.some((text) => text.includes('App \u2014 Win: setText @e1 [text "password"] (12\u6587\u5b57) \u2192 keypress control+Return')));
+      assert.ok(prompts.every((text) => !text.includes("secret-value")));
+
       writeFileSync(join(appDir, "permission-gate.json"), JSON.stringify({ mode: "deny" }), "utf8");
       const denied = await handlers.get("tool_call")?.(call, ctx);
       assert.equal((denied as { block?: boolean })?.block, true);

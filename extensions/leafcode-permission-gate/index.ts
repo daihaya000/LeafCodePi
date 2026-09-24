@@ -970,16 +970,30 @@ function operationText(toolName: string, input: unknown): string {
 }
 
 function computerUseActionSummary(input: unknown): string | null {
-  const actions = asRecord(input)?.actions;
+  const record = asRecord(input);
+  const actions = record?.actions;
   if (!Array.isArray(actions) || actions.length === 0) return null;
+  // Registered by leafcode-computer-use; resolves @e refs to role/label (never values).
+  const describe = (globalThis as { __leafcodeComputerUseDescribe?: (stateId: string, ref?: string) => string | undefined })
+    .__leafcodeComputerUseDescribe;
+  const stateId = typeof record?.stateId === "string" ? record.stateId : "";
+  const lookup = (ref?: string) => {
+    try { return stateId ? describe?.(stateId, ref) : undefined; } catch { return undefined; }
+  };
   const steps = actions.map((item) => {
     const action = asRecord(item);
     if (typeof action?.action !== "string") return null;
-    const target = typeof action.ref === "string" ? ` ${action.ref}`
+    const ref = typeof action.ref === "string" ? action.ref : undefined;
+    const label = ref ? lookup(ref) : undefined;
+    const target = ref ? ` ${ref}${label ? ` [${label}]` : ""}`
       : typeof action.x === "number" && typeof action.y === "number" ? ` (${action.x}, ${action.y})` : "";
-    return `${action.action}${target}`;
+    const keys = Array.isArray(action.keys) ? ` ${action.keys.filter((key) => typeof key === "string").join("+")}` : "";
+    const text = typeof action.text === "string" ? ` (${action.text.length}文字)` : "";
+    return `${action.action}${target}${keys}${text}`;
   });
-  return steps.every((step) => step !== null) ? steps.join(" → ") : null;
+  if (steps.some((step) => step === null)) return null;
+  const window = lookup();
+  return `${window ? `${window}: ` : ""}${steps.join(" → ")}`;
 }
 
 function safetyLabels(matches: readonly SystemSafetyMatch[]): string[] {

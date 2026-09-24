@@ -307,6 +307,17 @@ const runtimeState: RuntimeState = {
 };
 
 const savedStates = new SavedStates();
+
+/** Lets leafcode-permission-gate show real targets in act_ui approvals. Never exposes node values. */
+(globalThis as { __leafcodeComputerUseDescribe?: (stateId: string, ref?: string) => string | undefined }).__leafcodeComputerUseDescribe = (stateId, ref) => {
+	const value = savedStates.get(stateId)?.value;
+	if (!value) return undefined;
+	if (!ref) return value.kind === "desktop" ? `${value.target.appName} — ${value.target.windowTitle}` : undefined;
+	const node = nodeByRef(restoreOutline(value.outline), ref);
+	if (!node) return undefined;
+	const label = (node.title || node.description || node.identifier).slice(0, 60);
+	return label ? `${node.role} ${JSON.stringify(label)}` : node.role;
+};
 let resourceScheduler = new ResourceScheduler();
 
 function operationState(): OperationState {
