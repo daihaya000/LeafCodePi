@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   parseCacheWarmingMode,
   parseCompactionAction,
+  parseCompactionThreshold,
   reserveTokensForThreshold,
   shouldCompactAtThreshold,
   shouldSuggestAtThreshold,
@@ -20,6 +21,12 @@ describe("compaction settings", () => {
     expect(parseCompactionAction("unknown")).toBe("auto");
     expect(parseCompactionAction("suggest")).toBe("suggest");
     expect(parseCompactionAction("off")).toBe("off");
+  });
+
+  it("defaults the threshold to 95% when unset or invalid", () => {
+    expect(parseCompactionThreshold(null)).toBe(95);
+    expect(parseCompactionThreshold("50")).toBe(95);
+    expect(parseCompactionThreshold("80")).toBe(80);
   });
 
   it("only auto-compacts at or above the configured threshold", () => {

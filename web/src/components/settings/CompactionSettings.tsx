@@ -7,6 +7,7 @@ import { formatTokens } from "@/lib/context-usage";
 import {
   COMPACTION_ACTION_SETTING_KEY,
   COMPACTION_THRESHOLD_SETTING_KEY,
+  DEFAULT_COMPACTION_THRESHOLD,
   parseCacheWarmingMode,
   parseCompactionAction,
   parseCompactionThreshold,
@@ -25,7 +26,7 @@ import {
 export function CompactionSettings() {
   const [settings, setSettings] = useState<CompactionSettingsDto | null>(null);
   const [action, setAction] = useState<CompactionAction>("auto");
-  const [threshold, setThreshold] = useState(80);
+  const [threshold, setThreshold] = useState(DEFAULT_COMPACTION_THRESHOLD);
   const [cacheWarmingMode, setCacheWarmingMode] = useState<CacheWarmingMode>("streaming");
   const [jevEnabled, setJevEnabled] = useState(false);
   const [jevThreshold, setJevThreshold] = useState(DEFAULT_JEV_COMPACTION_THRESHOLD);

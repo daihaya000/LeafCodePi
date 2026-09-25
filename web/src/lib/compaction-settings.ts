@@ -1,5 +1,6 @@
 export const COMPACTION_ACTION_SETTING_KEY = "compactionAction";
 export const COMPACTION_THRESHOLD_SETTING_KEY = "compactionThreshold";
+export const DEFAULT_COMPACTION_THRESHOLD = 95;
 
 export const CACHE_WARMING_MODES = ["off", "streaming", "idle"] as const;
 export type CacheWarmingMode = (typeof CACHE_WARMING_MODES)[number];
@@ -18,7 +19,7 @@ export function parseCompactionAction(value: string | null): CompactionAction {
 
 export function parseCompactionThreshold(value: string | null): number {
   const parsed = Number(value);
-  return Number.isInteger(parsed) && parsed >= 70 && parsed <= 95 ? parsed : 80;
+  return Number.isInteger(parsed) && parsed >= 70 && parsed <= 95 ? parsed : DEFAULT_COMPACTION_THRESHOLD;
 }
 
 function isAtCompactionThreshold(
