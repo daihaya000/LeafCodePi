@@ -17,8 +17,11 @@ export function SwipeArchiveRow({ children, label, disabled, onArchive }: {
   const [offset, setOffset] = useState(0);
   const [dragging, setDragging] = useState(false);
   const start = useRef<SwipeStart | null>(null);
+  const draggedOffset = useRef(0);
   const swiped = useRef(false);
   const vertical = useRef(false);
+  const mousePointer = useRef<number | null>(null);
+  const mouseSwipeIntent = useRef(false);
   const root = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -36,6 +39,7 @@ export function SwipeArchiveRow({ children, label, disabled, onArchive }: {
   function onTouchStart(event: TouchEvent<HTMLDivElement>) {
     const touch = event.touches[0];
     if (touch) start.current = { x: touch.clientX, y: touch.clientY, offset: open ? ACTION_WIDTH : 0 };
+    draggedOffset.current = open ? ACTION_WIDTH : 0;
     swiped.current = false;
     vertical.current = false;
   }
@@ -53,12 +57,13 @@ export function SwipeArchiveRow({ children, label, disabled, onArchive }: {
     }
     swiped.current = true;
     setDragging(true);
-    setOffset(Math.max(0, Math.min(ACTION_WIDTH, gesture.offset - dx)));
+    draggedOffset.current = Math.max(0, Math.min(ACTION_WIDTH, gesture.offset - dx));
+    setOffset(draggedOffset.current);
   }
 
   function onTouchEnd() {
     if (swiped.current) {
-      const next = offset >= ACTION_WIDTH / 2;
+      const next = draggedOffset.current >= ACTION_WIDTH / 2;
       setOpen(next);
       setOffset(next ? ACTION_WIDTH : 0);
     }
@@ -80,7 +85,59 @@ export function SwipeArchiveRow({ children, label, disabled, onArchive }: {
         setOffset(open ? ACTION_WIDTH : 0);
       }}
       onPointerDownCapture={(event) => {
-        if (event.pointerType === "mouse") swiped.current = false;
+        if (event.pointerType !== "mouse" || event.button !== 0) return;
+        swiped.current = false;
+        vertical.current = false;
+        mousePointer.current = event.pointerId;
+        mouseSwipeIntent.current = false;
+        start.current = { x: event.clientX, y: event.clientY, offset: open ? ACTION_WIDTH : 0 };
+        draggedOffset.current = open ? ACTION_WIDTH : 0;
+      }}
+      onPointerMove={(event) => {
+        const gesture = start.current;
+        if (event.pointerId !== mousePointer.current || !gesture || vertical.current) return;
+        const dx = event.clientX - gesture.x;
+        const dy = event.clientY - gesture.y;
+        mouseSwipeIntent.current = swiped.current || (Math.abs(dx) > 1 && Math.abs(dx) > Math.abs(dy) && (dx < 0 || open));
+        if (!dragging) {
+          if (Math.abs(dy) > 6 && Math.abs(dy) > Math.abs(dx)) {
+            vertical.current = true;
+            mouseSwipeIntent.current = false;
+          }
+          if (Math.abs(dx) < 6 || Math.abs(dx) <= Math.abs(dy) || (!open && dx > 0)) return;
+          event.currentTarget.setPointerCapture?.(event.pointerId);
+        }
+        event.preventDefault();
+        swiped.current = true;
+        setDragging(true);
+        draggedOffset.current = Math.max(0, Math.min(ACTION_WIDTH, gesture.offset - dx));
+        setOffset(draggedOffset.current);
+      }}
+      onPointerUp={(event) => {
+        if (event.pointerId !== mousePointer.current) return;
+        if (swiped.current) {
+          const next = draggedOffset.current >= ACTION_WIDTH / 2;
+          setOpen(next);
+          setOffset(next ? ACTION_WIDTH : 0);
+        }
+        setDragging(false);
+        start.current = null;
+        mousePointer.current = null;
+        mouseSwipeIntent.current = false;
+      }}
+      onPointerCancel={(event) => {
+        if (event.pointerId !== mousePointer.current) return;
+        setDragging(false);
+        setOffset(open ? ACTION_WIDTH : 0);
+        start.current = null;
+        mousePointer.current = null;
+        mouseSwipeIntent.current = false;
+      }}
+      onDragStartCapture={(event) => {
+        if (mousePointer.current !== null && mouseSwipeIntent.current) {
+          event.preventDefault();
+          event.stopPropagation();
+        }
       }}
       onClickCapture={(event) => {
         const wasSwiped = swiped.current;
@@ -121,7 +178,8 @@ export function SwipeArchiveRow({ children, label, disabled, onArchive }: {
         disabled={disabled}
         onFocus={() => { setOpen(true); setOffset(ACTION_WIDTH); }}
         onClick={onArchive}
-        className="absolute inset-y-0 right-0 flex w-16 flex-col items-center justify-center gap-0.5 bg-danger text-[10px] font-medium text-white dark:text-bg disabled:opacity-40"
+        style={{ opacity: offset === 0 && !open ? 0 : undefined }}
+        className={"absolute inset-y-0 right-0 flex w-16 flex-col items-center justify-center gap-0.5 bg-danger text-[10px] font-medium text-white dark:text-bg disabled:opacity-40" + (offset === 0 && !open ? " pointer-events-none" : "")}
       >
         <Archive className="h-4 w-4" aria-hidden="true" />
         <span>アーカイブ</span>
