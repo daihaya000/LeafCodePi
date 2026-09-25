@@ -1,8 +1,7 @@
 "use client";
 
 import { type ReactNode, useEffect, useRef } from "react";
-import Link from "next/link";
-import { ArrowLeft, Settings2, Users } from "lucide-react";
+import { Settings2, Users } from "lucide-react";
 import { BotAvatar } from "@/components/bot/BotAvatar";
 import type { BotFace } from "@/components/bot/BotAvatar";
 import { MobileMenuButton } from "@/components/shell/MobileMenuHeader";
@@ -43,13 +42,11 @@ export function BotChatHeader({
   const extraCount = Math.max(0, members.length - visibleMembers.length);
   return (
     <header
-      className="@container/bot flex min-h-[3.75rem] shrink-0 items-center gap-2 border-b border-bot-outline bg-bot-chat px-4"
+      className="@container/bot flex min-h-[3.75rem] shrink-0 items-center gap-2 border-b border-bot-outline bg-bot-chat px-3 md:px-4"
       style={{ paddingTop: "env(safe-area-inset-top)" }}
     >
-      <MobileMenuButton />
-      <Link href="/bots" aria-label="ボット一覧へ戻る" className="rounded-lg p-1.5 text-muted hover:bg-surface-2 hover:text-text md:hidden">
-        <ArrowLeft className="h-4 w-4" />
-      </Link>
+      {/* Codeヘッダーと同じ位置（44pxタップ領域は維持） */}
+      <MobileMenuButton className="-ml-2.5 -mr-1.5" />
       <button type="button" onClick={onSettings} aria-label={settingsOpen ? "設定を閉じる" : "設定を開く"} aria-expanded={settingsOpen} aria-controls="bot-settings-panel" className="shrink-0 rounded-full hover:opacity-80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent">
         {bot ? <BotAvatar size={32} {...bot} active={active} /> : <span className="flex h-8 w-8 items-center justify-center rounded-full bg-success-bg text-success"><Users className="h-4 w-4" /></span>}
       </button>
