@@ -196,6 +196,27 @@ describe("completeModelText", () => {
     );
   });
 
+  it("passes a routing session id to direct completions", async () => {
+    const calls = installRuntime(
+      assistant({ content: [{ type: "text", text: "ok" }] }),
+    );
+
+    await completeModelText({
+      providerID: "anthropic",
+      modelID: "claude-sonnet",
+      system: "system",
+      prompt: "prompt",
+    });
+
+    const requestOptions = (calls[0] as unknown[] | undefined)?.[2] as {
+      sessionId?: string;
+    };
+    // OpenCode Go は x-opencode-session の無い直接生成を 400 で拒否する。
+    assert.ok(
+      requestOptions.sessionId && requestOptions.sessionId.length > 0,
+    );
+  });
+
   it("omits temperature for every Codex model, including legacy API labels", async () => {
     const calls = installRuntime(
       assistant({ content: [{ type: "text", text: "ok" }] }),

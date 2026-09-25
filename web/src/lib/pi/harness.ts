@@ -332,6 +332,7 @@ import type {
 } from "@/lib/types";
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { uuidv7 } from "@earendil-works/pi-ai/utils/uuid";
 
 type PiModule = typeof import("@earendil-works/pi-coding-agent");
 
@@ -5685,6 +5686,10 @@ async function completeModelTextOnRoute(
           options.maxTokens,
           options.reasoning,
         ),
+        // OpenCode Go は x-opencode-session の無いリクエストを 400 で拒否する。
+        // 直接生成にはエージェント会話が無いため、Pi の要約処理と同様に
+        // 呼び出しごとの一回限りのルーティングIDを付ける。
+        sessionId: uuidv7(),
         // Codex rejects temperature regardless of the model catalog API label.
         ...(model.provider === "openai-codex" || model.api === "openai-codex-responses"
           ? {}
