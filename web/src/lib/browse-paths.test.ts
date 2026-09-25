@@ -1,7 +1,7 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { browseAllowedRoots, isAllowedBrowsePath } from "./browse-paths";
 
 const originalAppData = process.env.APPDATA;
@@ -55,6 +55,34 @@ describe("isAllowedBrowsePath", () => {
         realpath: (path) => (path === "/home/user/link" ? "/etc" : path),
       }),
     ).toBe(false);
+  });
+
+  it("rejects a UNC path outside the roots without touching the file system", () => {
+    const realpath = vi.fn((path: string) => path);
+    expect(
+      isAllowedBrowsePath("\\\\attacker\\share\\x", { platform: "win32", roots: ["C:\\Users\\me"], realpath }),
+    ).toBe(false);
+    expect(realpath).not.toHaveBeenCalledWith(expect.stringMatching(/^\\\\attacker/));
+  });
+
+  it("allows a UNC path under a registered UNC root", () => {
+    expect(
+      isAllowedBrowsePath("\\\\nas\\work\\repo\\src", {
+        platform: "win32",
+        roots: ["\\\\nas\\work\\repo"],
+        realpath: (path) => path,
+      }),
+    ).toBe(true);
+  });
+
+  it("allows the real path of a junctioned root", () => {
+    expect(
+      isAllowedBrowsePath("D:\\Users\\me\\x", {
+        platform: "win32",
+        roots: ["C:\\Users\\me"],
+        realpath: (path) => path.replace(/^C:\\Users\\me/i, "D:\\Users\\me"),
+      }),
+    ).toBe(true);
   });
 
   it("blocks paths outside allowed roots", () => {

@@ -45,23 +45,32 @@ export function isAllowedBrowsePath(
 ): boolean {
   const pathApi = (options.platform ?? process.platform) === "win32" ? win32 : posix;
   const canonicalize = options.realpath ?? realpathSync.native;
-  let needle: string;
-  try {
-    needle = canonicalize(pathApi.resolve(target));
-  } catch {
-    return false;
-  }
+  const within = (base: string, path: string) => {
+    const child = pathApi.relative(base, path);
+    return !child || (child !== ".." && !child.startsWith(`..${pathApi.sep}`) && !pathApi.isAbsolute(child));
+  };
+  // Roots are trusted; canonicalize them first (raw spelling and real path both count).
+  const rawBases: string[] = [];
+  const canonicalBases: string[] = [];
   for (const root of options.roots ?? browseAllowedRoots()) {
+    const raw = pathApi.resolve(root);
     try {
-      const base = canonicalize(pathApi.resolve(root));
-      const child = pathApi.relative(base, needle);
-      if (!child) return true;
-      if (child !== ".." && !child.startsWith(`..${pathApi.sep}`) && !pathApi.isAbsolute(child)) {
-        return true;
-      }
+      canonicalBases.push(canonicalize(raw));
+      rawBases.push(raw);
     } catch {
       // Missing or unreadable roots cannot authorize browsing.
     }
   }
-  return false;
+  const requested = pathApi.resolve(target);
+  // Do not touch the file system for an untrusted path (e.g. \\attacker\share would
+  // leak Windows credentials over SMB) until it is lexically inside an allowed root.
+  if (![...rawBases, ...canonicalBases].some((base) => within(base, requested))) return false;
+  let needle: string;
+  try {
+    needle = canonicalize(requested);
+  } catch {
+    return false;
+  }
+  // Symlinks/junctions must still resolve inside a canonical root.
+  return canonicalBases.some((base) => within(base, needle));
 }
