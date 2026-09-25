@@ -2809,6 +2809,7 @@ export const TaskView = memo(function TaskView({
     const userIds: string[] = [];
     const fallbackIds: string[] = [];
     let detectedHangRetryCount = 0;
+    let totalOutputTokens = 0;
     let durationMs = 0;
     let prevCreatedAt: number | null = null;
     for (const message of messages) {
@@ -2821,6 +2822,9 @@ export const TaskView = memo(function TaskView({
       if (message.role === "user") userIds.push(message.id);
       else if (message.role !== "compaction") fallbackIds.push(message.id);
       if (message.role === "user" || message.role === "compaction") continue;
+      if (typeof message.outputTokens === "number" && message.outputTokens > 0) {
+        totalOutputTokens += message.outputTokens;
+      }
       if (prevCreatedAt !== null) {
         durationMs += Math.max(0, message.createdAt - prevCreatedAt);
       }
@@ -2832,6 +2836,7 @@ export const TaskView = memo(function TaskView({
       userMessageIds: userIds,
       navigationMessageIds: userIds.length > 0 ? userIds : fallbackIds,
       stats: {
+        totalOutputTokens,
         durationMs: messages.length > 1 ? durationMs : 0,
       },
     };
@@ -2908,6 +2913,26 @@ export const TaskView = memo(function TaskView({
     return count > 0 ? sum / count : null;
   }, [messageBlocks, showResume, resumeInsideExistingBanner, resumeTarget?.messageId]);
   const avgHeaderRateLabel = avgHeaderRate === null ? null : formatTokensPerSecond(avgHeaderRate);
+  // 幅狭はラベル行、幅広は状態行に同じ使用量（合計出力tok → 平均tok/s → 合計時間）を出す。
+  const usageStats = (visibility: string) => (
+    <>
+      {stats.totalOutputTokens > 0 && (
+        <span className={cx("font-mono tabular-nums", visibility)} title="合計出力トークン">
+          {formatTokens(stats.totalOutputTokens)} tok
+        </span>
+      )}
+      {avgHeaderRateLabel && (
+        <span className={cx("font-mono tabular-nums", visibility)} title="平均 tok/s（メッセージヘッダーの tok/s の平均）">
+          {avgHeaderRateLabel}
+        </span>
+      )}
+      {stats.durationMs > 0 && (
+        <span className={cx("font-mono tabular-nums", visibility)} title="合計生成時間（メッセージ間隔の累計）">
+          {formatDuration(stats.durationMs)}
+        </span>
+      )}
+    </>
+  );
   const resumeBannerText =
     resumeTarget?.reason === "silent"
       ? "応答がありませんでした"
@@ -3074,14 +3099,7 @@ export const TaskView = memo(function TaskView({
                   <ContextUsageMeter usage={contextUsage} />
                 </span>
               )}
-              {avgHeaderRateLabel && (
-                <span
-                  className="shrink-0 font-mono tabular-nums"
-                  title="平均 tok/s（メッセージヘッダーの tok/s の平均）"
-                >
-                  {avgHeaderRateLabel}
-                </span>
-              )}
+              {usageStats("shrink-0")}
             </div>
           </div>
           <div className="hidden @min-[500px]/task:flex">
@@ -3117,22 +3135,7 @@ export const TaskView = memo(function TaskView({
               <ContextUsageMeter usage={contextUsage} />
             </span>
           )}
-          {avgHeaderRateLabel && (
-            <span
-              className="hidden font-mono tabular-nums @min-[500px]/task:inline"
-              title="平均 tok/s（メッセージヘッダーの tok/s の平均）"
-            >
-              {avgHeaderRateLabel}
-            </span>
-          )}
-          {stats.durationMs > 0 && (
-            <span
-              className="hidden font-mono tabular-nums @min-[500px]/task:inline"
-              title="合計生成時間（メッセージ間隔の累計）"
-            >
-              {formatDuration(stats.durationMs)}
-            </span>
-          )}
+          {usageStats("hidden @min-[500px]/task:inline")}
         </div>
         <div
           role="group"

@@ -1334,7 +1334,7 @@ describe("TaskView draft submission", () => {
         {
           id: "assistant-2",
           role: "assistant",
-          createdAt: 2,
+          createdAt: 60_001,
           tokensPerSecond: 40,
           parts: [{ id: "reply-2", type: "text", text: "reply two" }],
         },
@@ -1372,6 +1372,18 @@ describe("TaskView draft submission", () => {
     expect(wideRate!.textContent).toBe("30 tok/s");
     expect(wideRate!.className).toContain("hidden");
     expect(wideRate!.className).toContain("@min-[500px]/task:inline");
+    const [narrowTokens, wideTokens] = screen.getAllByTitle("合計出力トークン");
+    const [narrowDuration, wideDuration] = screen.getAllByTitle("合計生成時間（メッセージ間隔の累計）");
+    expect(narrowTokens!.textContent).toBe("1.2k tok");
+    expect(sessionInfo.contains(narrowTokens!)).toBe(true);
+    expect(narrowTokens!.compareDocumentPosition(narrowRate!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(narrowRate!.compareDocumentPosition(narrowDuration!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(narrowDuration!.textContent).toBe("1m 0s");
+    expect(sessionInfo.contains(narrowDuration!)).toBe(true);
+    expect(status.contains(wideTokens!)).toBe(true);
+    expect(status.contains(wideDuration!)).toBe(true);
+    expect(wideTokens!.compareDocumentPosition(wideRate!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(wideTokens!.className).toContain("@min-[500px]/task:inline");
     expect(wideMeter?.className).toContain("@min-[500px]/task:text-[11px]");
   });
 
