@@ -101,6 +101,7 @@ describe("subscription provider ids", () => {
 
   it("highlights API providers with subscriptions", () => {
     assert.ok(isHighlightedProvider("ollama-cloud"));
+    assert.ok(isHighlightedProvider("openrouter"));
     assert.ok(isHighlightedProvider("commandcode"));
     assert.ok(isHighlightedProvider("typesafe"));
     assert.ok(isHighlightedProvider("orcarouter"));

@@ -923,7 +923,7 @@ describe("getRuntimeFor", () => {
       authLabel: undefined,
       subscription: false,
       oauthAvailable: false,
-      highlighted: false,
+      highlighted: true,
       accountRoutingMode: "separate",
     });
   });

@@ -240,6 +240,7 @@ export const SUBSCRIPTION_PROVIDER_IDS = new Set([
 /** Cloud API providers surfaced near subscription logins in settings. */
 export const HIGHLIGHTED_API_PROVIDER_IDS = new Set([
   "ollama-cloud",
+  "openrouter",
   "commandcode",
   "opencode",
   "opencode-go",
