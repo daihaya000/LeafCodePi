@@ -30,6 +30,7 @@ import { discoverExplorerTarget, type ExplorerTarget } from "@/components/task/P
 import { CodexBarWidget } from "@/components/codexbar/CodexBarWidget";
 import { SystemMonitorWidget } from "@/components/sysmon/SystemMonitorWidget";
 import { useBotStatusFor, useTaskPanesNavigation } from "@/components/shell/TaskPanesContext";
+import { SwipeArchiveRow } from "@/components/shell/SwipeArchiveRow";
 import { Button, cx, timeAgo } from "@/components/ui";
 import { SessionLabelBadge } from "@/components/SessionLabelBadge";
 import { BotAvatar, type BotFace } from "@/components/bot/BotAvatar";
@@ -815,6 +816,7 @@ export const SidebarTaskRow = memo(function SidebarTaskRow({
   // contain-intrinsic-size のフォールバックは実測の行高（約53px）に合わせ、未描画行の高さズレを防ぐ。
   return (
     <li className="group rounded-lg [content-visibility:auto] [contain-intrinsic-size:auto_3.25rem] [&_button:focus-visible]:outline-offset-[-2px]">
+      <SwipeArchiveRow label={`「${task.title}」をアーカイブ`} onArchive={() => onArchiveTask(task.id)}>
       <div className="flex items-center">
         <button
           type="button"
@@ -862,17 +864,9 @@ export const SidebarTaskRow = memo(function SidebarTaskRow({
             <FolderUp className="h-3 w-3" />
           </button>
         )}
-        <button
-          type="button"
-          aria-label={`「${task.title}」をアーカイブ`}
-          title="タスクをアーカイブ"
-          className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-muted hover:bg-surface-2 hover:text-text md:h-6 md:w-6"
-          onClick={() => onArchiveTask(task.id)}
-        >
-          <Archive className="h-3 w-3" />
-        </button>
       </div>
       <TaskProgressBar task={task} className="mx-8 pb-1.5 md:mx-7" />
+      </SwipeArchiveRow>
     </li>
   );
 });
@@ -2361,6 +2355,11 @@ const SidebarView = memo(function SidebarView({
               const unread = allChildren.some((task) => hasUnreadTask(task, activeTaskId));
               return (
                 <li key={project.id}>
+                  <SwipeArchiveRow
+                    label={`${project.name}をアーカイブ`}
+                    disabled={actionBusyKey !== null}
+                    onArchive={() => void archiveProjectAction(project)}
+                  >
                   <div
                     data-project-row={project.id}
                     className={cx(
@@ -2436,17 +2435,8 @@ const SidebarView = memo(function SidebarView({
                     >
                       <Settings className="h-3.5 w-3.5" />
                     </button>
-                    <button
-                      type="button"
-                      aria-label={`${project.name}をアーカイブ`}
-                      title="プロジェクトをアーカイブ"
-                      disabled={actionBusyKey !== null}
-                      onClick={() => void archiveProjectAction(project)}
-                      className="inline-flex h-11 w-11 items-center justify-center rounded-md text-muted hover:bg-danger-bg hover:text-danger md:h-8 md:w-8"
-                    >
-                      <Archive className="h-3.5 w-3.5" />
-                    </button>
                   </div>
+                  </SwipeArchiveRow>
                   {open && renderTaskList(children)}
                 </li>
               );
