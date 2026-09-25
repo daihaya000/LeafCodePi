@@ -1269,10 +1269,11 @@ describe("TaskView draft submission", () => {
     const botControl = selector.closest("label");
     // The compaction and TTS controls appear only after the settings fetch settles.
     const compact = await screen.findByRole("button", { name: "コンテキスト圧縮" });
-    const generateTitle = screen.getByRole("button", { name: "タイトルを生成" });
+    const generateTitle = screen.getByRole("group", { name: "タスク操作" })
+      .querySelector('button[aria-label="タイトルを生成"]');
     const tts = await screen.findByRole("switch", { name: "読み上げ" });
-    expect(generateTitle.previousElementSibling).toBe(compact);
-    expect(botControl?.previousElementSibling).toBe(generateTitle);
+    expect(generateTitle?.parentElement?.previousElementSibling).toBe(compact);
+    expect(botControl?.previousElementSibling).toBe(generateTitle?.parentElement);
     expect(tts.previousElementSibling).toBe(botControl);
   });
 
@@ -1360,12 +1361,15 @@ describe("TaskView draft submission", () => {
     expect(screen.queryByRole("button", { name: `タイトルを編集: ${title}` })).toBeNull();
     expect(heading.textContent).toBe(title);
     expect(screen.getAllByText("クリーン")).toHaveLength(1);
-    const generateTitle = screen.getByRole("button", { name: "タイトルを生成" });
+    const header = heading.closest("header")!;
     const actions = screen.getByRole("group", { name: "タスク操作" });
     const botControl = screen.getByRole("combobox", { name: "Codeタスクを監督するBot" }).closest("label");
-    expect(actions.contains(generateTitle)).toBe(true);
-    expect(heading.parentElement?.contains(generateTitle)).toBe(false);
-    expect(generateTitle.compareDocumentPosition(botControl!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    const wideButton = header.firstElementChild?.querySelector('button[aria-label="タイトルを生成"]');
+    const narrowButton = actions.querySelector('button[aria-label="タイトルを生成"]');
+    expect(wideButton?.parentElement?.className).toContain("hidden @min-[48rem]/task:flex");
+    expect(narrowButton?.parentElement?.className).toContain("@min-[48rem]/task:hidden");
+    expect(heading.parentElement?.contains(wideButton!)).toBe(false);
+    expect(narrowButton!.compareDocumentPosition(botControl!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     fireEvent.click(heading);
     const input = screen.getByRole("textbox", { name: "セッションタイトル" });
     expect(document.activeElement).toBe(input);
@@ -1398,7 +1402,9 @@ describe("TaskView draft submission", () => {
     render(<TaskView taskId={task.id} mdUp />);
 
     expect(mocks.sendJson).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole("button", { name: "タイトルを生成" }));
+    const wideButton = screen.getByRole("heading", { name: task.title }).closest("header")!
+      .firstElementChild?.querySelector('button[aria-label="タイトルを生成"]');
+    fireEvent.click(wideButton!);
 
     await waitFor(() => expect(mocks.sendJson).toHaveBeenCalledWith(
       `/api/tasks/${task.id}/title`, {},
