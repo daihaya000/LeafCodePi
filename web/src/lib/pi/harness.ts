@@ -119,6 +119,8 @@ import {
 import { registerTypeSafeProvider } from "@/lib/pi/typesafe-provider";
 import { isJevModel, type JevCatalogModel, type JevModelRef } from "@/lib/jev-model-catalog";
 import { clearJevDiscoveryCache, discoverJevModels, registeredJevEndpoint } from "@/lib/pi/jev-model-discovery";
+import { readJevModelSettings } from "@/lib/pi/jev-model-config";
+import { hasUsableJevModel } from "@/lib/jev-model-settings";
 import {
   registerOrcaRouterProvider,
   syncOrcaRouterProvider,
@@ -4875,6 +4877,15 @@ export async function listJevModels(refresh = false): Promise<JevCatalogModel[]>
     .map(({ model }) => model);
 }
 
+/** False when no Jev model can be called, so callers skip the request entirely. */
+export async function hasUsableJevModelConfigured(): Promise<boolean> {
+  try {
+    return hasUsableJevModel({ settings: readJevModelSettings(), models: await listJevModels() });
+  } catch {
+    return false;
+  }
+}
+
 /** Resolve current credentials, never copy account keys or silently pick another account. */
 export async function resolveRegisteredJevModel(ref: JevModelRef): Promise<{
   baseUrl: string; model: string; apiKey?: string; headers?: Record<string, string>;
@@ -7252,9 +7263,12 @@ function startInitialSessionLabelClassification(taskId: string, prompt: string):
   ) {
     return;
   }
-  void classifySessionLabelWithJev(
-    { prompt, labels },
-    { minConfidence: parseAutoJevMinConfidence(getSetting(AUTO_JEV_MIN_CONFIDENCE_SETTING_KEY)) },
+  void hasUsableJevModelConfigured().then((usable) => usable
+    ? classifySessionLabelWithJev(
+      { prompt, labels },
+      { minConfidence: parseAutoJevMinConfidence(getSetting(AUTO_JEV_MIN_CONFIDENCE_SETTING_KEY)) },
+    )
+    : undefined,
   ).then((label) => {
     if (label) patchTask(taskId, { label });
   }).catch(() => undefined);

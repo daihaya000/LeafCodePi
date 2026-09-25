@@ -5,6 +5,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const state = vi.hoisted(() => ({
   root: "",
+  hasUsableJevModelConfigured: vi.fn(async () => false),
+  classifySessionLabelWithJev: vi.fn(async (): Promise<string | undefined> => "code"),
   generateDirectTextWithFallbackResult: vi.fn(),
   getSetting: vi.fn<(key: string) => string>(() => ""),
   readSessionConversation: vi.fn(() => [{ role: "user", text: "hello" }]),
@@ -29,6 +31,15 @@ vi.mock("@/lib/direct-generation", async (importOriginal) => {
     generateDirectTextWithFallbackResult: state.generateDirectTextWithFallbackResult,
   };
 });
+
+vi.mock("@/lib/pi/harness", () => ({
+  hasUsableJevModelConfigured: state.hasUsableJevModelConfigured,
+}));
+
+vi.mock("@/lib/auto-jev", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@/lib/auto-jev")>(),
+  classifySessionLabelWithJev: state.classifySessionLabelWithJev,
+}));
 
 vi.mock("@/lib/pi/web-settings", () => ({
   getSetting: state.getSetting,
@@ -78,6 +89,21 @@ describe("refreshTaskTitleDirect account pin", () => {
     expect(result.label).toBe("debug");
     expect(result.task?.label).toBe("debug");
     expect(state.generateDirectTextWithFallbackResult).not.toHaveBeenCalled();
+  });
+
+  it("skips Jev when no Jev model is usable and uses it once one is", async () => {
+    state.getSetting.mockImplementation((key: string) => (key === "auto-jev-enabled" ? "1" : ""));
+    state.classifySessionLabelWithJev.mockClear();
+    const task = insertTask({ project: null, title: "t", providerID: "anthropic", modelID: "claude-sonnet" });
+    state.readSessionConversation.mockReturnValue([{ role: "user", text: "\u4e0d\u5177\u5408\u3068\u30a8\u30e9\u30fc" }]);
+
+    state.hasUsableJevModelConfigured.mockResolvedValueOnce(false);
+    expect((await refreshTaskLabelDirect(task.id)).label).toBe("debug");
+    expect(state.classifySessionLabelWithJev).not.toHaveBeenCalled();
+
+    state.hasUsableJevModelConfigured.mockResolvedValueOnce(true);
+    expect((await refreshTaskLabelDirect(task.id)).label).toBe("code");
+    expect(state.classifySessionLabelWithJev).toHaveBeenCalledOnce();
   });
 
   it("forwards task accountIdExplicit so paused accounts do not silently switch", async () => {

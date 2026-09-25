@@ -22,6 +22,7 @@ import {
   splitTitleAndLabel,
 } from "@/lib/direct-generation-text";
 import { classifySessionLabelWithJev, matchSessionLabelByRule } from "@/lib/auto-jev";
+import { hasUsableJevModelConfigured } from "@/lib/pi/harness";
 import {
   AUTO_JEV_ENABLED_SETTING_KEY,
   AUTO_JEV_MIN_CONFIDENCE_SETTING_KEY,
@@ -36,9 +37,11 @@ import {
   type SessionLabel,
 } from "@/lib/session-label-settings";
 
-function shouldUseJevForLabels(): boolean {
+/** Settings are checked first so the Jev catalog is not consulted when Jev is off. */
+async function shouldUseJevForLabels(): Promise<boolean> {
   return isAutoJevEnabled(getSetting(AUTO_JEV_ENABLED_SETTING_KEY)) &&
-    isSessionLabelJevEnabled(getSetting(SESSION_LABEL_JEV_SETTING_KEY));
+    isSessionLabelJevEnabled(getSetting(SESSION_LABEL_JEV_SETTING_KEY)) &&
+    await hasUsableJevModelConfigured();
 }
 
 const TITLE_SYSTEM_INSTRUCTION =
@@ -78,7 +81,7 @@ export async function refreshTaskLabelDirect(
 
   const labels = resolveSessionLabels(getSetting(SESSION_LABELS_SETTING_KEY));
   const labelPrompt = conversation.length > 0 ? buildTranscript(conversation) : prompt;
-  const jevLabel = shouldUseJevForLabels()
+  const jevLabel = await shouldUseJevForLabels()
     ? await classifySessionLabelWithJev(
       { prompt: labelPrompt, labels },
       { minConfidence: parseAutoJevMinConfidence(getSetting(AUTO_JEV_MIN_CONFIDENCE_SETTING_KEY)) },
@@ -133,12 +136,12 @@ export async function refreshTaskTitleDirect(
   // Jev はタイトル生成と同じ会話を使うので直列にせず同時に走らせる。
   let jevSettled = false;
   let jevLabel: string | undefined;
-  const jevLabelPromise = (shouldUseJevForLabels()
+  const jevLabelPromise = shouldUseJevForLabels().then((useJev) => useJev
     ? classifySessionLabelWithJev(
       { prompt: labelPrompt, labels },
       { minConfidence: parseAutoJevMinConfidence(getSetting(AUTO_JEV_MIN_CONFIDENCE_SETTING_KEY)) },
     )
-    : Promise.resolve(undefined)
+    : undefined,
   ).then((value) => {
     jevSettled = true;
     jevLabel = value;
