@@ -108,6 +108,19 @@ describe("refreshTaskTitleDirect account pin", () => {
     expect(state.classifySessionLabelWithJev).toHaveBeenCalledOnce();
   });
 
+  it("notifies open panes when the Jev label settles", async () => {
+    state.getSetting.mockImplementation((key: string) =>
+      key === GENERATION_MODEL_SETTING_KEY ? "anthropic::claude-sonnet" : key === "auto-jev-enabled" ? "1" : "",
+    );
+    state.emitTaskChanged.mockClear();
+    state.hasUsableJevModelConfigured.mockResolvedValueOnce(true);
+    const task = insertTask({ project: null, title: "t", providerID: "anthropic", modelID: "claude-sonnet" });
+
+    await refreshTaskTitleDirect(task.id);
+
+    await vi.waitFor(() => expect(state.emitTaskChanged).toHaveBeenCalledWith(task.id, "label_changed"));
+  });
+
   it("forwards task accountIdExplicit so paused accounts do not silently switch", async () => {
     const task = insertTask({
       project: null,
