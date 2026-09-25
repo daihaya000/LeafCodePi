@@ -54,6 +54,7 @@ describe("normalizeSessionLabels", () => {
 describe("resolveSessionLabels", () => {
   it("uses the defaults only when never configured", () => {
     expect(resolveSessionLabels(null)).toEqual([...DEFAULT_SESSION_LABELS]);
+    expect(resolveSessionLabels(null).find(({ id }) => id === "code")?.name).toBe("実装");
     expect(resolveSessionLabels("")).toEqual([...DEFAULT_SESSION_LABELS]);
     expect(resolveSessionLabels("[]")).toEqual([]);
     expect(resolveSessionLabels(JSON.stringify([valid]))).toEqual([valid]);

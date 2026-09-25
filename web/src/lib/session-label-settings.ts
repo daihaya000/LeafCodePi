@@ -30,7 +30,7 @@ export type SessionLabel = {
 /** Used when the setting was never saved. An empty array means "labels disabled". */
 export const DEFAULT_SESSION_LABELS: readonly SessionLabel[] = [
   { id: "debug", name: "デバッグ", hint: "不具合・エラー・失敗の調査や修正", color: "red" },
-  { id: "code", name: "コード", hint: "実装・修正・リファクタなどコードを変更する作業", color: "blue" },
+  { id: "code", name: "実装", hint: "実装・修正・リファクタなどコードを変更する作業", color: "blue" },
   { id: "research", name: "調査", hint: "変更を伴わない調査・比較・仕様やコードの読解", color: "purple" },
   { id: "chat", name: "チャット", hint: "相談・計画・質問など具体的な作業を伴わない会話", color: "teal" },
   { id: "ops", name: "運用", hint: "ビルド・デプロイ・git・環境設定などの運用操作", color: "orange" },
