@@ -30,6 +30,7 @@ import { SubagentPermissionSelect } from "@/components/SubagentPermissionSelect"
 import { SkillPermissionSelect } from "@/components/SkillPermissionSelect";
 import { PermissionSelect } from "@/components/PermissionSelect";
 import { MobileMenuHeader } from "@/components/shell/MobileMenuHeader";
+import { HostnameLabel } from "@/components/shell/HostnameContext";
 import { Button, cx, GhostSelect } from "@/components/ui";
 import {
   AUTO_MODEL_OPTION,
@@ -535,11 +536,14 @@ export const HomeView = memo(function HomeView({
           <div className="min-h-0 min-w-0 flex-1 overflow-y-auto overflow-x-clip">
             <main className="mx-auto flex min-h-full max-w-5xl flex-col justify-center px-[max(1rem,env(safe-area-inset-left),env(safe-area-inset-right))] py-12 pb-[max(6rem,env(safe-area-inset-bottom))]">
           <section>
-            <h1 className="mb-6 flex items-center justify-center gap-2 text-center text-2xl font-semibold tracking-tight sm:text-3xl">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src="/icon.svg" alt="" width={28} height={28} className="h-7 w-7 shrink-0 rounded-[6px] object-contain sm:h-8 sm:w-8" />
-              <span>LeafCodePi</span>
-            </h1>
+            <div className="mb-6 flex flex-col items-center gap-1">
+              <h1 className="flex items-center justify-center gap-2 text-center text-2xl font-semibold tracking-tight sm:text-3xl">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src="/icon.svg" alt="" width={28} height={28} className="h-7 w-7 shrink-0 rounded-[6px] object-contain sm:h-8 sm:w-8" />
+                <span>LeafCodePi</span>
+              </h1>
+              <HostnameLabel className="max-w-full truncate text-xs text-muted" />
+            </div>
             <div className="mx-auto mb-3 flex max-w-5xl items-center justify-start gap-2 overflow-x-auto px-1 py-1">
               <GhostSelect
                 value={projectId ?? ""}

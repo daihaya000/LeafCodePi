@@ -32,6 +32,7 @@ import { CodexBarWidget } from "@/components/codexbar/CodexBarWidget";
 import { SystemMonitorWidget } from "@/components/sysmon/SystemMonitorWidget";
 import { useBotStatusFor, useTaskPanesNavigation } from "@/components/shell/TaskPanesContext";
 import { SwipeArchiveRow } from "@/components/shell/SwipeArchiveRow";
+import { HostnameLabel } from "@/components/shell/HostnameContext";
 import { Button, cx, timeAgo } from "@/components/ui";
 import { SessionLabelBadge } from "@/components/SessionLabelBadge";
 import { BotAvatar, type BotFace } from "@/components/bot/BotAvatar";
@@ -533,7 +534,10 @@ const BotSidebarBody = memo(function BotSidebarBody({
         <Link href="/bots" onClick={onClose} className="flex min-w-0 items-center gap-2">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src="/icon.svg" alt="" className="h-6 w-6 rounded-[5px]" />
-          <span className="truncate text-sm font-semibold">LeafCodePi</span>
+          <span className="flex min-w-0 flex-col leading-tight">
+            <span className="truncate text-sm font-semibold">LeafCodePi</span>
+            <HostnameLabel className="truncate text-[11px] text-muted" />
+          </span>
         </Link>
         <button
           type="button"
@@ -2256,7 +2260,10 @@ const SidebarView = memo(function SidebarView({
         <Link href="/" onClick={onClose} className="flex min-w-0 items-center gap-2">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src="/icon.svg" alt="" className="h-6 w-6 rounded-[5px]" />
-          <span className="truncate text-sm font-semibold">LeafCodePi</span>
+          <span className="flex min-w-0 flex-col leading-tight">
+            <span className="truncate text-sm font-semibold">LeafCodePi</span>
+            <HostnameLabel className="truncate text-[11px] text-muted" />
+          </span>
         </Link>
         <button
           type="button"
