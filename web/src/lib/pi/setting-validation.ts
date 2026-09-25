@@ -239,7 +239,9 @@ export function validateSettingValue(key: string, value: string): string | null 
   }
   if (key === COMPOSER_DEFAULTS_SETTING_KEY) {
     try {
-      return JSON.stringify(normalizeComposerDefaults(JSON.parse(value)));
+      const parsed = JSON.parse(value) as unknown;
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
+      return JSON.stringify(normalizeComposerDefaults(parsed));
     } catch {
       return null;
     }

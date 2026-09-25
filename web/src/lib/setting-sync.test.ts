@@ -136,4 +136,24 @@ describe("setting-sync", () => {
     await hydrateServerSettings();
 
     expect(sync.read()).toBe("local");
+  });
+
+  it("drops a pending write the server rejects so hydration can apply the server value", async () => {
+    storage.setItem("hydrate:f", "bad");
+    storage.setItem("hydrate:f:server-synced", "1");
+    storage.setItem("hydrate:f:server-pending", '"bad"');
+    client.getJson.mockResolvedValue({ values: { "hydrate-f": "good" } });
+    client.sendJson.mockRejectedValue(Object.assign(new Error("invalid value"), { status: 400 }));
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const sync = createSettingSync({ storageKey: "hydrate:f", serverPath: "/api/settings/hydrate-f", eventName: "e" });
+
+    await hydrateServerSettings();
+    await vi.runAllTimersAsync();
+
+    expect(client.sendJson).toHaveBeenCalledTimes(1);
+    expect(storage.getItem("hydrate:f:server-pending")).toBeNull();
+    resetServerSettingsHydration();
+    await hydrateServerSettings();
+    expect(sync.read()).toBe("good");
+    warn.mockRestore();
   });});

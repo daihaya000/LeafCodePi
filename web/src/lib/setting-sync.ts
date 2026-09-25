@@ -13,6 +13,12 @@ import { getJson, sendJson } from "./client";
  * 未送信の書き込みがあるキーはサーバ値で戻さず再送を優先する。
  * サーバ書き込み失敗は非致命的（localStorage は既に更新済み、次回hydrate時に再送）。
  */
+/** 4xx（タイムアウト・レート制限を除く）は再送しても成功しない。 */
+function isRejected(err: unknown): boolean {
+  const status = (err as { status?: unknown } | null)?.status;
+  return typeof status === "number" && status >= 400 && status < 500 && status !== 408 && status !== 429;
+}
+
 type ServerSettingApplier = (value: string | null) => void;
 
 const appliers = new Map<string, ServerSettingApplier[]>();
@@ -99,6 +105,17 @@ export function createSettingSync(options: {
     }
   }
 
+  function clearPending(pending: { encoded: string }): void {
+    if (memoryPending?.encoded === pending.encoded) memoryPending = null;
+    try {
+      if (localStorage.getItem(pendingKey) === pending.encoded) {
+        localStorage.removeItem(pendingKey);
+      }
+    } catch {
+      /* memoryPending は上で解消済み。 */
+    }
+  }
+
   async function flushPending(): Promise<void> {
     const delays = [0, 250, 1_000, 3_000];
     for (const delay of delays) {
@@ -107,16 +124,15 @@ export function createSettingSync(options: {
       if (delay > 0) await new Promise((resolve) => setTimeout(resolve, delay));
       try {
         await sendJson(serverPath, { value: pending.value }, "PUT");
-        if (memoryPending?.encoded === pending.encoded) memoryPending = null;
-        try {
-          if (localStorage.getItem(pendingKey) === pending.encoded) {
-            localStorage.removeItem(pendingKey);
-          }
-        } catch {
-          /* memoryPending は上で解消済み。 */
-        }
+        clearPending(pending);
         return;
       } catch (err) {
+        if (isRejected(err)) {
+          // 不正値など再送しても通らない値は破棄し、hydrate がサーバ値を適用できるようにする。
+          clearPending(pending);
+          console.warn(`${eventName} server rejected value`, err);
+          return;
+        }
         if (delay === delays.at(-1)) {
           console.warn(`${eventName} server write failed`, err);
         }

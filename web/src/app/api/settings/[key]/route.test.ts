@@ -490,6 +490,7 @@ describe("/api/settings/[key]", () => {
 
   it.each([
     ["composer-defaults", "{"],
+    ["composer-defaults", "[]"],
     ["scroll-button-opacity", "abc"],
     ["task-pane-prefer-new", "yes"],
     ["reasoning-translation-mode", "other"],
