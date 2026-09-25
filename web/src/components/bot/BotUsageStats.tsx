@@ -36,8 +36,8 @@ function ContextUsageMeter({ usage }: { usage: ContextUsageDto }) {
   const limitLabel = formatTokens(usage.contextWindow);
   const pctLabel = pct === null ? "?" : `${pct}%`;
   return (
-    <span className="flex min-w-0 items-center gap-1" title={`コンテキスト使用量: ${usedLabel} / ${limitLabel} トークン（${pctLabel}）`}>
-      <span className="h-1 w-6 shrink-0 overflow-hidden rounded-full bg-surface-2">
+    <span className="flex min-w-0 items-center gap-1 @min-[500px]/bot:gap-1.5" title={`コンテキスト使用量: ${usedLabel} / ${limitLabel} トークン（${pctLabel}）`}>
+      <span className="h-1 w-6 shrink-0 overflow-hidden rounded-full bg-surface-2 @min-[500px]/bot:h-1.5 @min-[500px]/bot:w-10">
         <span
           className={cx(
             "block h-full rounded-full transition-[width]",
@@ -55,7 +55,7 @@ export function BotUsageStats({ messages, contextUsage }: { messages: UiMessage[
   const stats = useMemo(() => botUsageStats(messages), [messages]);
   if (!contextUsage && stats.totalOutputTokens <= 0 && stats.avgRate === null && stats.durationMs <= 0) return null;
   return (
-    <span aria-label="セッション情報" className="flex h-4 min-w-0 items-center gap-2 overflow-hidden text-[10px] text-muted">
+    <span aria-label="セッション情報" className="flex h-4 min-w-0 flex-1 items-center gap-2 overflow-hidden text-[10px] @min-[500px]/bot:text-[11px]">
       {contextUsage && <ContextUsageMeter usage={contextUsage} />}
       {stats.totalOutputTokens > 0 && <span className="shrink-0 tabular-nums" title="合計出力トークン">{formatTokens(stats.totalOutputTokens)} tok</span>}
       {stats.avgRate !== null && <span className="shrink-0 tabular-nums" title="平均 tok/s">{formatTokensPerSecond(stats.avgRate)}</span>}

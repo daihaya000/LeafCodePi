@@ -43,7 +43,7 @@ export function BotChatHeader({
   const extraCount = Math.max(0, members.length - visibleMembers.length);
   return (
     <header
-      className="flex min-h-[3.75rem] shrink-0 items-center gap-2 border-b border-bot-outline bg-bot-chat px-4"
+      className="@container/bot flex min-h-[3.75rem] shrink-0 items-center gap-2 border-b border-bot-outline bg-bot-chat px-4"
       style={{ paddingTop: "env(safe-area-inset-top)" }}
     >
       <MobileMenuButton />
@@ -55,8 +55,11 @@ export function BotChatHeader({
       </button>
       <button type="button" onClick={onSettings} aria-label={settingsOpen ? "設定を閉じる" : "ボット設定を開く"} aria-expanded={settingsOpen} aria-controls="bot-settings-panel" className="min-w-0 flex-1 text-left hover:opacity-80">
         <h1 className="truncate text-sm font-medium">{title}</h1>
-        <p className="truncate text-[11px] leading-4 text-muted">{subtitle}</p>
-        {meta}
+        {/* Codeと同じく統計はラベル行へ詰める。幅狭ではサブタイトルを40%までに抑える。 */}
+        <p className="flex min-w-0 items-center gap-2 overflow-hidden text-[11px] leading-4 text-muted">
+          <span className={meta ? "min-w-0 max-w-[40%] shrink-0 truncate @min-[500px]/bot:max-w-none @min-[500px]/bot:shrink" : "min-w-0 truncate"}>{subtitle}</span>
+          {meta}
+        </p>
       </button>
       {members.length > 0 && <div className="flex shrink-0 -space-x-2" aria-label={`メンバー ${members.length}人`}>
         {visibleMembers.map((member) => <BotAvatar key={member.id} size={26} {...member} className={`ring-2 ${member.attention ? "ring-warning" : "ring-surface"}`} />)}
