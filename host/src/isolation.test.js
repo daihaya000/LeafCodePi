@@ -156,6 +156,15 @@ test("host restart falls back to start-webui.bat without the native launcher", (
   assert.match(lines.join("\n"), /cmd\.exe \/c/);
 });
 
+test("WebUI restart pulls, rebuilds only after an update or on request, then starts without pulling twice", () => {
+  const index = readFileSync(join(repoRoot, "host", "src", "index.js"), "utf8");
+  const restart = index.slice(index.indexOf("async function restartWeb("), index.indexOf("async function restartHost("));
+  assert.match(restart, /const \{ updated \} = pullLatestSources\(/);
+  assert.match(restart, /await stopWeb\(\);\s*if \(rebuild \|\| updated\)/);
+  assert.match(restart, /await buildWeb\([^;]+\{ pull: false \}\)/);
+  assert.match(restart, /await spawnWeb\(\{ pull: false \}\)/);
+});
+
 test("host rebuilds stale production builds like LeafCode", () => {
   const index = readFileSync(join(repoRoot, "host", "src", "index.js"), "utf8");
   assert.match(index, /isWebBuildStale/);

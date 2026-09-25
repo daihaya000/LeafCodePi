@@ -448,7 +448,7 @@ function buildWeb(reason = "missing", { pull = true } = {}) {
   return promise;
 }
 
-async function spawnWeb() {
+async function spawnWeb({ pull = true } = {}) {
   installWebIfNeeded();
   let hasBuild = hasProductionBuild();
   const skipStaleBuild = process.env.LEAFCODE_PI_SKIP_STALE_REBUILD === "1";
@@ -461,7 +461,7 @@ async function spawnWeb() {
   if (plan.needsBuild) {
     const rebuildReason = hasBuild && buildStale ? "stale" : "missing";
     try {
-      await buildWeb(rebuildReason);
+      await buildWeb(rebuildReason, { pull });
     } catch (err) {
       hasBuild = hasProductionBuild();
       const stillStaleAfterFailure = hasBuild && isWebBuildStale(WEB_DIR, webDistDir());
@@ -621,18 +621,18 @@ async function restartWeb({ rebuild = false } = {}) {
       : "Restarting LeafCodePi WebUI...",
   );
   try {
-    pullLatestSources({ repoRoot: REPO_ROOT, log, error });
+    const { updated } = pullLatestSources({ repoRoot: REPO_ROOT, log, error });
     await stopWeb();
-    if (rebuild) {
+    if (rebuild || updated) {
       // The served .next is stashed while next build runs, so the WebUI has to
       // stay stopped here; a failed rebuild falls through to spawnWeb, which
       // serves the build restored by build-web.mjs.
-      await buildWeb("manual", { pull: false }).catch((err) => {
+      await buildWeb(updated && !rebuild ? "stale" : "manual", { pull: false }).catch((err) => {
         error(`Rebuild failed: ${err instanceof Error ? err.message : String(err)}`);
       });
     }
     await sleep(STOP_SETTLE_MS);
-    await spawnWeb();
+    await spawnWeb({ pull: false });
   } finally {
     restarting = false;
     await refreshStatusMenu();

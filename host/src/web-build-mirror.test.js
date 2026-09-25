@@ -611,7 +611,7 @@ test("quit stops the WebUI without building", () => {
 test("a WebUI that stayed up returns its crash-restart budget", () => {
   const source = readFileSync(join(REPO_ROOT, "host", "src", "index.js"), "utf8");
   const spawnSource = source.slice(
-    source.indexOf("async function spawnWeb()"),
+    source.indexOf("async function spawnWeb("),
     source.indexOf("function scheduleWebRestart()"),
   );
   // The budget stops a rapid crash loop, so an unrelated crash hours later
