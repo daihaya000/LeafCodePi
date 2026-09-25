@@ -127,14 +127,21 @@ export function subscribeSessionLabels(listener: () => void): () => void {
   };
 }
 
-/** Restore the server backup only when this browser has no local preference. */
+/**
+ * サーバ値（正本）でローカルキャッシュを更新する。旧実装はローカル値があると
+ * サーバを読まず、他PCでの変更が反映されなかった。
+ * バッジ等は起動中1回の取得を共有し、設定画面は fresh で毎回取り直す。
+ */
 let hydrationPromise: Promise<void> | null = null;
 
-export function hydrateSessionLabelsFromServer(): Promise<void> {
-  if (hasStoredSessionLabels()) return Promise.resolve();
-  hydrationPromise ??= sync.readFromServer().then((value) => {
-    if (value !== null && parseSessionLabels(value) !== null) sync.write(value);
-  });
+async function applySessionLabelsFromServer(): Promise<void> {
+  const value = await sync.readFromServer();
+  if (value !== null && parseSessionLabels(value) !== null && value !== sync.read()) sync.write(value);
+}
+
+export function hydrateSessionLabelsFromServer(options?: { fresh?: boolean }): Promise<void> {
+  if (options?.fresh) return applySessionLabelsFromServer();
+  hydrationPromise ??= applySessionLabelsFromServer();
   return hydrationPromise;
 }
 

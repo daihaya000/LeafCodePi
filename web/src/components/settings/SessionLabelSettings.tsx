@@ -93,7 +93,7 @@ export function SessionLabelSettings() {
   useEffect(() => {
     let active = true;
     setLabels(readSessionLabels());
-    void hydrateSessionLabelsFromServer().then(() => {
+    void hydrateSessionLabelsFromServer({ fresh: true }).then(() => {
       if (active) setLabels(readSessionLabels());
     });
     const unsubscribe = subscribeSessionLabels(() => setLabels(readSessionLabels()));

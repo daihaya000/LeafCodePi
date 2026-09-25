@@ -13,11 +13,12 @@ const usableJev = {
   models: [{ providerId: "typesafe", modelId: "jev", providerEnabled: true }],
 };
 
-function mockServer(options: { jev?: unknown; global?: string | null; labelJev?: string | null }) {
+function mockServer(options: { jev?: unknown; global?: string | null; labelJev?: string | null; labels?: string | null }) {
   client.getJson.mockImplementation((path: string) => {
     if (path === "/api/jev-model") return Promise.resolve(options.jev ?? usableJev);
     if (path === "/api/settings/auto-jev-enabled") return Promise.resolve({ value: "global" in options ? options.global : "1" });
     if (path === "/api/settings/session-label-jev") return Promise.resolve({ value: options.labelJev ?? null });
+    if (path === "/api/settings/session-labels") return Promise.resolve({ value: options.labels ?? null });
     return Promise.resolve({ value: null });
   });
 }
@@ -60,4 +61,10 @@ describe("SessionLabelSettings Jev toggle", () => {
     await waitFor(() => expect(toggle().getAttribute("aria-checked")).toBe("false"));
     expect(client.sendJson).toHaveBeenCalledWith("/api/settings/session-label-jev", { value: "0" }, "PUT");
   });
-});
+
+  it("replaces a stale local label cache with the server value edited on another PC", async () => {
+    localStorage.setItem("webui:session-labels", JSON.stringify([{ id: "code", name: "コード", hint: "", color: "blue" }]));
+    mockServer({ labels: JSON.stringify([{ id: "code", name: "実装", hint: "", color: "blue" }]) });
+    render(<SessionLabelSettings />);
+    await waitFor(() => expect(screen.getByDisplayValue("実装")).toBeTruthy());
+  });});
