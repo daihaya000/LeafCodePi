@@ -1338,26 +1338,26 @@ describe("TaskView draft submission", () => {
     const status = screen.getByLabelText("タスクの状態");
     const heading = screen.getByRole("heading", { name: task.title });
     expect(sessionInfo.textContent).toContain("コード");
-    expect(sessionInfo.className).toContain("@min-[500px]/task:hidden");
-    expect(heading.className).toContain("@min-[500px]/task:items-center");
+    expect(sessionInfo.className).toContain("@min-[300px]/task:hidden");
+    expect(heading.className).toContain("@min-[300px]/task:items-center");
     expect(heading.firstElementChild?.textContent).toBe("コード");
-    expect(heading.firstElementChild?.className).toContain("@min-[500px]/task:inline-flex");
+    expect(heading.firstElementChild?.className).toContain("@min-[300px]/task:inline-flex");
     expect(heading.firstElementChild?.nextElementSibling?.textContent).toBe(task.title);
     const meterTitle = "コンテキスト使用量: 405k / 1M トークン（41%）";
     const narrowMeter = sessionInfo.querySelector(`[title="${meterTitle}"]`);
     const wideMeter = status.querySelector(`[title="${meterTitle}"]`);
     const tokens = screen.getByTitle("合計 ↑3.4k ↓1.2k tok");
     const rate = screen.getByTitle("平均 tok/s（応答ごとの tok/s の平均）");
-    expect(narrowMeter?.parentElement?.className).toContain("@min-[500px]/task:hidden");
-    expect(wideMeter?.parentElement?.className).toContain("hidden @min-[500px]/task:flex");
+    expect(narrowMeter?.parentElement?.className).toContain("@min-[300px]/task:hidden");
+    expect(wideMeter?.parentElement?.className).toContain("hidden @min-[300px]/task:flex");
     expect(sessionInfo.className).toContain("overflow-hidden");
     expect(narrowMeter?.querySelector(".truncate")).toBeTruthy();
     expect(sessionInfo.contains(tokens)).toBe(false);
     expect(status.contains(tokens)).toBe(true);
     expect(status.contains(rate)).toBe(true);
-    expect(tokens.className).toContain("@min-[500px]/task:inline");
-    expect(rate.className).toContain("@min-[500px]/task:inline");
-    expect(wideMeter?.className).toContain("@min-[500px]/task:text-[11px]");
+    expect(tokens.className).toContain("@min-[300px]/task:inline");
+    expect(rate.className).toContain("@min-[300px]/task:inline");
+    expect(wideMeter?.className).toContain("@min-[300px]/task:text-[11px]");
   });
 
   it("edits the full title directly and keeps secondary actions separate", () => {
@@ -1374,8 +1374,8 @@ describe("TaskView draft submission", () => {
     const botControl = screen.getByRole("combobox", { name: "Codeタスクを監督するBot" }).closest("label");
     const wideButton = header.firstElementChild?.querySelector('button[aria-label="タイトルを生成"]');
     const narrowButton = actions.querySelector('button[aria-label="タイトルを生成"]');
-    expect(wideButton?.parentElement?.className).toContain("hidden @min-[500px]/task:flex");
-    expect(narrowButton?.parentElement?.className).toContain("@min-[500px]/task:hidden");
+    expect(wideButton?.parentElement?.className).toContain("hidden @min-[300px]/task:flex");
+    expect(narrowButton?.parentElement?.className).toContain("@min-[300px]/task:hidden");
     expect(heading.parentElement?.contains(wideButton!)).toBe(false);
     expect(narrowButton!.compareDocumentPosition(botControl!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     fireEvent.click(heading);
