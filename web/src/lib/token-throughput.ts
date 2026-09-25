@@ -186,7 +186,14 @@ export function resolveOutputTokens(timing: ThroughputTiming): number {
 }
 
 /**
- * Prefer decode tok/s; fall back to end-to-end when first-token timing is absent.
+ * decode tok/s を信頼できる最短の受信窓。これより短い窓は生成済み出力（思考・本文）が
+ * まとめて届いたケースで、生成時間が分母から欠落し数万 tok/s になる。
+ */
+export const MIN_DECODE_WINDOW_MS = 1_000;
+
+/**
+ * Prefer decode tok/s; fall back to end-to-end when first-token timing is absent
+ * or the observed decode window is too short to reflect generation time.
  */
 export function snapshotThroughput(
   timing: ThroughputTiming,
@@ -196,7 +203,7 @@ export function snapshotThroughput(
   if (outputTokens < 1) return null;
 
   const last = timing.lastTokenAtMs ?? nowMs;
-  if (timing.firstTokenAtMs !== null) {
+  if (timing.firstTokenAtMs !== null && last - timing.firstTokenAtMs >= MIN_DECODE_WINDOW_MS) {
     const decode = decodeTokensPerSecond(outputTokens, timing.firstTokenAtMs, last);
     if (decode !== null) {
       return { outputTokens, tokensPerSecond: decode, decodePhase: true };

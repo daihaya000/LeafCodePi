@@ -61,6 +61,18 @@ describe("snapshotThroughput", () => {
     });
   });
 
+  it("falls back to end-to-end when output arrives in a burst shorter than the decode window", () => {
+    let timing = createThroughputTiming(0);
+    timing = noteContentDelta(timing, "a", 5_998);
+    timing = noteContentDelta(timing, "b", 6_000);
+    timing = noteReportedOutputTokens(timing, 300);
+    expect(snapshotThroughput(timing, 6_000)).toEqual({
+      outputTokens: 300,
+      tokensPerSecond: 50,
+      decodePhase: false,
+    });
+  });
+
   it("estimates tokens from streamed chars while usage is pending", () => {
     let timing = createThroughputTiming(0);
     timing = noteContentDelta(timing, "a".repeat(40), 100);
