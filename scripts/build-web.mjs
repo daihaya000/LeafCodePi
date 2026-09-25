@@ -172,6 +172,19 @@ export function ensureBuildDependencies(mirrorRoot, { install = spawnSync } = {}
   return true;
 }
 
+export function readBuildCommitMetadata({ cwd = REPO_ROOT, exec = execFileSync } = {}) {
+  try {
+    const [commit = "", committedAt = ""] = exec("git", ["log", "-1", "--format=%H%n%cI"], {
+      cwd,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    }).trim().split(/\r?\n/);
+    return { commit, committedAt };
+  } catch {
+    return { commit: "", committedAt: "" };
+  }
+}
+
 export function webUiPort(env = process.env) {
   const port = Number(env.LEAFCODE_PI_PORT);
   return Number.isInteger(port) && port > 0 && port <= 65535 ? port : 3010;
@@ -409,11 +422,14 @@ export async function main(argv = process.argv.slice(2)) {
   // directory. Webpack remains available as an explicit diagnostic fallback.
   const useWebpack = process.env.LEAFCODE_PI_USE_WEBPACK === "1";
   const nextArgs = [nextBin, "build", ...(useWebpack ? ["--webpack"] : [])];
+  const buildMetadata = readBuildCommitMetadata();
   const buildOptions = {
     cwd: mirror.mirrorRoot,
     env: {
       ...process.env,
       LEAFCODE_PI_SKILLS_DIR: join(REPO_ROOT, "skills"),
+      NEXT_PUBLIC_LEAFCODE_PI_BUILD_COMMIT: buildMetadata.commit,
+      NEXT_PUBLIC_LEAFCODE_PI_BUILD_COMMIT_DATE: buildMetadata.committedAt,
     },
   };
   console.error(`[build-web] bundler: ${useWebpack ? "webpack" : "turbopack"}`);

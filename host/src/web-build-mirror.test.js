@@ -30,6 +30,7 @@ import {
   hostControlUrl,
   previousBuildDir,
   productionWebUiIsIdle,
+  readBuildCommitMetadata,
   restorePreviousBuild,
   replantBuildCache,
   settleFailedBuild,
@@ -574,6 +575,25 @@ test("typecheckInvocation gates the build with the mirror's production tsconfig"
   assert.equal(invocation.args[3], join("C:/mirror", "tsconfig.build.json"));
   assert.match(invocation.args[0], /typescript[\\/]bin[\\/]tsc$/);
   assert.equal(invocation.options.cwd, "C:/mirror");
+});
+
+test("readBuildCommitMetadata returns the build HEAD and commit timestamp", () => {
+  const commit = "0123456789abcdef0123456789abcdef01234567";
+  const committedAt = "2026-09-25T11:30:00+09:00";
+  const metadata = readBuildCommitMetadata({
+    cwd: "C:/repo",
+    exec: (command, args, options) => {
+      assert.equal(command, "git");
+      assert.deepEqual(args, ["log", "-1", "--format=%H%n%cI"]);
+      assert.equal(options.cwd, "C:/repo");
+      return `${commit}\n${committedAt}\n`;
+    },
+  });
+  assert.deepEqual(metadata, { commit, committedAt });
+  assert.deepEqual(
+    readBuildCommitMetadata({ exec: () => { throw new Error("git unavailable"); } }),
+    { commit: "", committedAt: "" },
+  );
 });
 
 test("the host builds through build-web.mjs and serves the mirror", () => {

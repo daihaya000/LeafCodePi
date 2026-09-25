@@ -8,6 +8,7 @@ import {
   Archive,
   ArchiveRestore,
   ChevronRight,
+  CircleAlert,
   CodeXml,
   Cpu,
   Folder,
@@ -173,6 +174,9 @@ export function sameHealth(a: HealthDto | null, b: HealthDto): boolean {
 
 const PROJECT_ICON_ACCEPT = "image/png,image/jpeg,image/gif,image/webp,image/x-icon,image/vnd.microsoft.icon,.ico";
 const MODE_KEY = "leafcodepi.mode";
+const BUILD_COMMIT = process.env.NEXT_PUBLIC_LEAFCODE_PI_BUILD_COMMIT ?? "";
+const BUILD_COMMIT_DATE = process.env.NEXT_PUBLIC_LEAFCODE_PI_BUILD_COMMIT_DATE ?? "";
+const BUILD_COMMIT_DATE_LABEL = BUILD_COMMIT_DATE.slice(0, 16).replace("T", " ");
 type AppMode = "code" | "bot";
 type BotListFilter = "all" | "bots" | "rooms";
 type WorkingCounts = Record<AppMode, number>;
@@ -202,6 +206,27 @@ function ModeSegment({ mode, onChange, workingCounts, unreadModes }: { mode: App
 function SidebarFooter({ health, onSettings }: { health: HealthDto | null; onSettings: () => void }) {
   const [restartBusy, setRestartBusy] = useState(false);
   const [restartError, setRestartError] = useState<string | null>(null);
+  const [latestCommit, setLatestCommit] = useState<string | null>(null);
+  const isOutdated = Boolean(BUILD_COMMIT && latestCommit && latestCommit !== BUILD_COMMIT);
+
+  useEffect(() => {
+    if (!BUILD_COMMIT) return;
+    let active = true;
+    const refreshLatestCommit = async () => {
+      try {
+        const info = await getJson<{ commit: string | null }>("/api/build-info");
+        if (active) setLatestCommit(info.commit);
+      } catch {
+        // The build status is unknown when the local repository is unavailable.
+      }
+    };
+    void refreshLatestCommit();
+    const timer = window.setInterval(() => void refreshLatestCommit(), 60_000);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+    };
+  }, []);
 
   const restartWebUi = async () => {
     if (restartBusy || !window.confirm("WebUIを再起動しますか？")) return;
@@ -225,9 +250,29 @@ function SidebarFooter({ health, onSettings }: { health: HealthDto | null; onSet
         <SystemMonitorWidget />
       </div>
       <div className="mt-2 flex items-center justify-between gap-1">
-        <p className="min-w-0 truncate px-2 text-[11px] text-muted">
-          {health?.engineOk ? `Pi ${health.version ?? ""} · モデル ${health.modelCount}` : "Pi 未接続"}
-        </p>
+        <div className="min-w-0 flex-1 px-2">
+          <p className="truncate text-[11px] text-muted">
+            {health?.engineOk ? `Pi ${health.version ?? ""} · モデル ${health.modelCount}` : "Pi 未接続"}
+          </p>
+          {BUILD_COMMIT && (
+            <p
+              className="truncate text-[10px] leading-tight text-muted"
+              title={`ビルドコミット: ${BUILD_COMMIT}\nコミット日時: ${BUILD_COMMIT_DATE}`}
+            >
+              {`Build ${BUILD_COMMIT.slice(0, 8)}${BUILD_COMMIT_DATE_LABEL ? ` · ${BUILD_COMMIT_DATE_LABEL}` : ""}`}
+            </p>
+          )}
+        </div>
+        {isOutdated && latestCommit && (
+          <span
+            role="img"
+            aria-label={`WebUIは最新版ではありません。最新コミット: ${latestCommit.slice(0, 12)}`}
+            title={`WebUIは最新版ではありません。最新コミット: ${latestCommit.slice(0, 12)}。再起動で更新できます`}
+            className="shrink-0"
+          >
+            <CircleAlert aria-hidden="true" className="h-3.5 w-3.5 text-warning" />
+          </span>
+        )}
         <div className="flex shrink-0 items-center">
           <Button
             variant="ghost"
