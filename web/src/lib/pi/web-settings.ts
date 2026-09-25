@@ -16,7 +16,7 @@ import { dataDir } from "@/lib/paths";
  * hang-settings.ts と同じ web-settings.json を共有し、read/write もここへ集約する。
  * （旧: hang-settings.ts が同じファイルを別実装で読み書きしており、開発サーバの
  * 再起動やクラッシュで書き込み途中のファイルが読まれて設定が丸ごと消える障害があった）。
- * setting-sync を使う設定では localStorage が同期読み取りの正本で、ここは永続バックアップ。
+ * setting-sync を使う設定でもここが正本で、クライアントの localStorage は起動時 hydrate されるキャッシュ。
  */
 export type WebSettingsFile = {
   version: 1;

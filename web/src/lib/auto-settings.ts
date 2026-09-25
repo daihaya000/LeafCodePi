@@ -49,6 +49,8 @@ const syncByKey: Record<AutoSettingKey, SettingSync> = {
     storageKey: OPTIMIZE_STORAGE_KEY,
     serverPath: `/api/settings/${AUTO_OPTIMIZE_SETTING_KEY}`,
     eventName: AUTO_OPTIMIZE_EVENT,
+    // 起動時は Composer 既定値の effort で毎回上書きするため hydrate しない。
+    hydrate: false,
   }),
   [AUTO_MODEL_ENABLED_SETTING_KEY]: createSettingSync({
     storageKey: MODEL_ENABLED_STORAGE_KEY,

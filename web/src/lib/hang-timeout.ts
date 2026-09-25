@@ -1,3 +1,5 @@
+import { registerServerSetting } from "@/lib/setting-sync";
+
 export const HANG_TIMEOUT_SETTING_KEY = "hang-timeout";
 export const HANG_TIMEOUT_EVENT = "webui:hang-timeout";
 export const DEFAULT_HANG_TIMEOUT_MS = 5 * 60_000;
@@ -85,3 +87,14 @@ export function subscribeAutoResumeMode(listener: () => void): () => void {
     window.removeEventListener("storage", onStorage);
   };
 }
+
+// 保存・検証は /api/settings/hang-timeout（PATCH）。起動時は一括取得したサーバ値でキャッシュを更新する。
+registerServerSetting(HANG_TIMEOUT_SETTING_KEY, (value) => {
+  const ms = Number(value);
+  if (value !== null && Number.isFinite(ms) && clampHangTimeoutMs(ms) !== readHangTimeoutMs()) {
+    writeHangTimeoutMs(ms);
+  }
+});
+registerServerSetting(AUTO_RESUME_MODE_SETTING_KEY, (value) => {
+  if (isAutoResumeMode(value) && value !== readAutoResumeMode()) writeAutoResumeMode(value);
+});

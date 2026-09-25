@@ -9,6 +9,8 @@
  * - 上限超過・不正操作は前状態を**同一参照**のまま返す no-op（prev === next で拒否を検知可）
  */
 
+import { createSettingSync } from "@/lib/setting-sync";
+
 export const MAX_PANES = 5;
 export const MAX_TABS_PER_PANE = 5;
 export const MAX_OPEN_TABS = 5;
@@ -16,6 +18,12 @@ export const TASK_PANES_STORAGE_KEY = "webui:task-panes";
 export const TASK_PANE_PREFER_NEW_EVENT = "webui:task-pane-prefer-new";
 export const DEFAULT_PREFER_NEW_PANE = false;
 const TASK_PANE_PREFER_NEW_STORAGE_KEY = "webui:task-pane-prefer-new";
+export const TASK_PANE_PREFER_NEW_SETTING_KEY = "task-pane-prefer-new";
+const preferNewPaneSync = createSettingSync({
+  storageKey: TASK_PANE_PREFER_NEW_STORAGE_KEY,
+  serverPath: `/api/settings/${TASK_PANE_PREFER_NEW_SETTING_KEY}`,
+  eventName: TASK_PANE_PREFER_NEW_EVENT,
+});
 /** 新規作成（HomeView）を表す特殊タブID。タスク ID 空間と衝突しない固定値。 */
 export const HOME_TAB_ID = "home";
 /** 設定画面を表す特殊タブID。タスクと同じペイン・タブで保持する。 */
@@ -885,22 +893,14 @@ export function saveTaskPanes(state: TaskPanesState): void {
 
 /** 新規セッションを新しいペインで開くかどうかのブラウザ設定。 */
 export function readPreferNewPane(): boolean {
-  if (typeof window === "undefined") return DEFAULT_PREFER_NEW_PANE;
-  try {
-    return localStorage.getItem(TASK_PANE_PREFER_NEW_STORAGE_KEY) === "1";
-  } catch {
-    return DEFAULT_PREFER_NEW_PANE;
-  }
+  const raw = preferNewPaneSync.read();
+  return raw === null ? DEFAULT_PREFER_NEW_PANE : raw === "1";
 }
 
 export function writePreferNewPane(preferNewPane: boolean): void {
-  if (typeof window === "undefined") return;
-  try {
-    localStorage.setItem(TASK_PANE_PREFER_NEW_STORAGE_KEY, preferNewPane ? "1" : "0");
-    window.dispatchEvent(new CustomEvent(TASK_PANE_PREFER_NEW_EVENT));
-  } catch {
-    /* ignore */
-  }
+  const value = preferNewPane ? "1" : "0";
+  preferNewPaneSync.write(value);
+  void preferNewPaneSync.writeToServer(value);
 }
 
 export function subscribePreferNewPane(listener: () => void): () => void {

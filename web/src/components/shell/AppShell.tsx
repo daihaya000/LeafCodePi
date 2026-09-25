@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
 import { writeAutoOptimizeMode } from "@/lib/auto-settings";
 import { readComposerDefaults } from "@/lib/composer-defaults";
@@ -8,6 +8,8 @@ import { writeStoredAgent } from "@/lib/default-agent";
 import { writePermissionMode } from "@/lib/permission-gate";
 import { writeSkillPermission } from "@/lib/skill-permission";
 import { writeSubagentPermission } from "@/lib/subagent-permission";
+import { hydrateServerSettings } from "@/lib/setting-sync";
+import { writeStoredThinkingLevel } from "@/lib/thinking-levels";
 import { Sidebar } from "./Sidebar";
 import { ShellProvider, useShellMobileNav } from "./ShellContext";
 import { TaskPanesProvider, useTaskPanesNavigation } from "./TaskPanesContext";
@@ -17,7 +19,11 @@ import { cx } from "@/components/ui";
 import { isBotTabId, isSplitHostPath } from "@/lib/task-panes";
 
 const COMPOSER_MODEL_STORAGE_KEY = "leafcodepi.defaultModel";
+/** サーバ設定の取得をこれ以上待たず、キャッシュ値で起動する上限。 */
+export const SETTINGS_HYDRATE_TIMEOUT_MS = 1500;
 let composerDefaultsInitialized = false;
+let bootSettingsReady: Promise<void> | null = null;
+let bootSettingsDone = false;
 
 /** Reset Composer choices once per WebUI boot; later changes remain in this session. */
 function initializeComposerDefaults(): void {
@@ -31,9 +37,29 @@ function initializeComposerDefaults(): void {
   }
   writeAutoOptimizeMode(defaults.autoOptimize);
   writeStoredAgent(defaults.agent);
+  if (defaults.thinkingLevel) writeStoredThinkingLevel(defaults.thinkingLevel);
   writePermissionMode("allow");
   writeSkillPermission("allow");
   writeSubagentPermission("deny");
+}
+
+/** サーバ設定（正本）を一括反映してから Composer 既定値を適用する。 */
+function prepareBootSettings(): Promise<void> {
+  bootSettingsReady ??= Promise.race([
+    hydrateServerSettings(),
+    new Promise<void>((resolve) => setTimeout(resolve, SETTINGS_HYDRATE_TIMEOUT_MS)),
+  ]).then(() => {
+    initializeComposerDefaults();
+    bootSettingsDone = true;
+  });
+  return bootSettingsReady;
+}
+
+/** テスト用: 起動状態を初期化する。 */
+export function resetAppShellBootForTests(): void {
+  composerDefaultsInitialized = false;
+  bootSettingsReady = null;
+  bootSettingsDone = false;
 }
 
 function AppShellContent({
@@ -93,7 +119,19 @@ function AppShellInner({ children }: { children: React.ReactNode }) {
 }
 
 export function AppShell({ children }: { children: React.ReactNode }) {
-  initializeComposerDefaults();
+  const [ready, setReady] = useState(bootSettingsDone);
+  useEffect(() => {
+    if (ready) return;
+    let active = true;
+    void prepareBootSettings().then(() => {
+      if (active) setReady(true);
+    });
+    return () => {
+      active = false;
+    };
+  }, [ready]);
+  // 設定の正本はサーバ。取得完了（または上限時間）まで画面を出さず、古いキャッシュでの起動を防ぐ。
+  if (!ready) return <div className="h-dvh bg-bg" aria-busy="true" />;
   return (
     <ShellProvider>
       <AppShellInner>{children}</AppShellInner>

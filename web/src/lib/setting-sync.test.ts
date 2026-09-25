@@ -7,7 +7,7 @@ const client = vi.hoisted(() => ({
 
 vi.mock("@/lib/client", () => client);
 
-import { createSettingSync } from "@/lib/setting-sync";
+import { createSettingSync, hydrateServerSettings, resetServerSettingsHydration } from "@/lib/setting-sync";
 
 class MemoryStorage {
   private values = new Map<string, string>();
@@ -31,7 +31,8 @@ describe("setting-sync", () => {
   beforeEach(() => {
     vi.useFakeTimers();
     storage = new MemoryStorage();
-    Object.defineProperty(globalThis, "window", { configurable: true, value: {} });
+    Object.defineProperty(globalThis, "window", { configurable: true, value: { dispatchEvent: vi.fn() } });
+    resetServerSettingsHydration();
     Object.defineProperty(globalThis, "localStorage", { configurable: true, value: storage });
     client.getJson.mockReset();
     client.sendJson.mockReset();
@@ -74,4 +75,65 @@ describe("setting-sync", () => {
     expect(storage.getItem("test:setting:server-pending")).toBeNull();
     warn.mockRestore();
   });
-});
+
+  it("overwrites the local cache with the server value on boot hydration", async () => {
+    storage.setItem("hydrate:a", "local");
+    storage.setItem("hydrate:a:server-synced", "1");
+    const sync = createSettingSync({ storageKey: "hydrate:a", serverPath: "/api/settings/hydrate-a", eventName: "e" });
+    client.getJson.mockResolvedValue({ values: { "hydrate-a": "server" } });
+
+    await hydrateServerSettings();
+
+    expect(client.getJson).toHaveBeenCalledWith("/api/settings");
+    expect(sync.read()).toBe("server");
+  });
+
+  it("migrates a local-only value once instead of clearing it", async () => {
+    storage.setItem("hydrate:b", "local");
+    client.getJson.mockResolvedValue({ values: { "hydrate-b": null } });
+    client.sendJson.mockResolvedValue({ value: "local" });
+    const sync = createSettingSync({ storageKey: "hydrate:b", serverPath: "/api/settings/hydrate-b", eventName: "e" });
+
+    await hydrateServerSettings();
+    await vi.runAllTimersAsync();
+
+    expect(sync.read()).toBe("local");
+    expect(client.sendJson).toHaveBeenCalledWith("/api/settings/hydrate-b", { value: "local" }, "PUT");
+    expect(storage.getItem("hydrate:b:server-synced")).toBe("1");
+  });
+
+  it("keeps a pending local write instead of restoring the stale server value", async () => {
+    storage.setItem("hydrate:c", "new");
+    storage.setItem("hydrate:c:server-synced", "1");
+    storage.setItem("hydrate:c:server-pending", '"new"');
+    client.getJson.mockResolvedValue({ values: { "hydrate-c": "old" } });
+    client.sendJson.mockResolvedValue({ value: "new" });
+    const sync = createSettingSync({ storageKey: "hydrate:c", serverPath: "/api/settings/hydrate-c", eventName: "e" });
+
+    await hydrateServerSettings();
+    await vi.runAllTimersAsync();
+
+    expect(sync.read()).toBe("new");
+    expect(client.sendJson).toHaveBeenCalledWith("/api/settings/hydrate-c", { value: "new" }, "PUT");
+  });
+
+  it("applies the boot snapshot to settings registered after hydration", async () => {
+    storage.setItem("hydrate:d:server-synced", "1");
+    client.getJson.mockResolvedValue({ values: { "hydrate-d": "server" } });
+    await hydrateServerSettings();
+
+    const sync = createSettingSync({ storageKey: "hydrate:d", serverPath: "/api/settings/hydrate-d", eventName: "e" });
+
+    expect(sync.read()).toBe("server");
+  });
+
+  it("does not hydrate settings that opt out", async () => {
+    storage.setItem("hydrate:e", "local");
+    storage.setItem("hydrate:e:server-synced", "1");
+    const sync = createSettingSync({ storageKey: "hydrate:e", serverPath: "/api/settings/hydrate-e", eventName: "e", hydrate: false });
+    client.getJson.mockResolvedValue({ values: { "hydrate-e": "server" } });
+
+    await hydrateServerSettings();
+
+    expect(sync.read()).toBe("local");
+  });});

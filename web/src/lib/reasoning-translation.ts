@@ -1,8 +1,15 @@
 import { useEffect, useState } from "react";
+import { createSettingSync } from "@/lib/setting-sync";
 
 export type ReasoningTranslationMode = "original" | "translated" | "bilingual";
 
 const STORAGE_KEY = "webui:reasoning-translation-mode";
+export const REASONING_TRANSLATION_MODE_SETTING_KEY = "reasoning-translation-mode";
+const modeSync = createSettingSync({
+  storageKey: STORAGE_KEY,
+  serverPath: `/api/settings/${REASONING_TRANSLATION_MODE_SETTING_KEY}`,
+  eventName: "webui:reasoning-translation-mode",
+});
 const OVERRIDE_EVENT = "webui:reasoning-translation-override";
 const TRANSLATION_DEBOUNCE_MS = 600;
 const BATCH_WINDOW_MS = 20;
@@ -229,26 +236,15 @@ export function __resetReasoningTranslationForTest(): void {
 }
 
 export function readReasoningTranslationMode(): ReasoningTranslationMode {
-  if (typeof window === "undefined") return "original";
-  try {
-    const value = window.localStorage.getItem(STORAGE_KEY);
-    return value === "original" || value === "bilingual" || value === "translated"
-      ? value
-      : "original";
-  } catch {
-    // プライベートモード等でストレージが使えない場合は既定表示に戻す。
-    return "original";
-  }
+  const value = modeSync.read();
+  return value === "original" || value === "bilingual" || value === "translated"
+    ? value
+    : "original";
 }
 
 export function writeReasoningTranslationMode(mode: ReasoningTranslationMode): void {
-  if (typeof window === "undefined") return;
-  try {
-    window.localStorage.setItem(STORAGE_KEY, mode);
-    window.dispatchEvent(new CustomEvent("webui:reasoning-translation-mode"));
-  } catch {
-    /* プライベートモード等では永続できないだけ */
-  }
+  modeSync.write(mode);
+  void modeSync.writeToServer(mode);
 }
 
 export async function saveReasoningTranslationOverride(

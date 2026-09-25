@@ -8,16 +8,71 @@ import { getJson, sendJson } from "./client";
  * `default-model.ts` の実装を正本として再利用し、各設定は宣言的に定義する
  * ことで「片方だけ localStorage、もう片方はサーバのみ」というドリフトを防ぐ。
  *
- * 永続化ポリシー: localStorage が同期読み取りの正本、サーバは永続バックアップ。
- * サーバ書き込み失敗は非致命的（localStorage は既に更新済み）。
+ * 永続化ポリシー: サーバ `settings` 表が正本、localStorage は同期読み取り用キャッシュ。
+ * 起動時に hydrateServerSettings() が一括取得したサーバ値でキャッシュを上書きする。
+ * 未送信の書き込みがあるキーはサーバ値で戻さず再送を優先する。
+ * サーバ書き込み失敗は非致命的（localStorage は既に更新済み、次回hydrate時に再送）。
  */
+type ServerSettingApplier = (value: string | null) => void;
+
+const appliers = new Map<string, ServerSettingApplier[]>();
+let bootSnapshot: Record<string, string | null> | null = null;
+let hydration: Promise<void> | null = null;
+
+function applySnapshot(key: string, apply: ServerSettingApplier): void {
+  if (!bootSnapshot || !Object.prototype.hasOwnProperty.call(bootSnapshot, key)) return;
+  const value = bootSnapshot[key];
+  try {
+    apply(typeof value === "string" && value.length > 0 ? value : null);
+  } catch (err) {
+    console.warn(`setting hydrate failed: ${key}`, err);
+  }
+}
+
+/**
+ * サーバ設定キーの反映関数を登録する。hydrate済みなら即時に反映する
+ * （遅延importされたモジュールも起動時スナップショットに追従させるため）。
+ */
+export function registerServerSetting(key: string, apply: ServerSettingApplier): void {
+  const list = appliers.get(key) ?? [];
+  list.push(apply);
+  appliers.set(key, list);
+  applySnapshot(key, apply);
+}
+
+/** `/api/settings` を一括取得して登録済み設定へ反映する。起動ごとに1回（失敗時は次回再試行）。 */
+export function hydrateServerSettings(): Promise<void> {
+  if (typeof window === "undefined") return Promise.resolve();
+  hydration ??= getJson<{ values?: Record<string, string | null> }>("/api/settings")
+    .then((data) => {
+      bootSnapshot = data?.values && typeof data.values === "object" ? data.values : {};
+      for (const [key, list] of appliers) {
+        for (const apply of list) applySnapshot(key, apply);
+      }
+    })
+    .catch((err) => {
+      hydration = null;
+      console.warn("settings hydrate failed", err);
+    });
+  return hydration;
+}
+
+/** テスト用: hydrate状態を初期化する（登録済み applier は保持）。 */
+export function resetServerSettingsHydration(): void {
+  bootSnapshot = null;
+  hydration = null;
+}
+
 export function createSettingSync(options: {
   storageKey: string;
   serverPath: string;
   eventName: string;
+  /** false なら起動時hydrateしない（起動時に別の既定値で毎回上書きされる値など）。 */
+  hydrate?: boolean;
 }) {
   const { storageKey, serverPath, eventName } = options;
   const pendingKey = `${storageKey}:server-pending`;
+  const syncedKey = `${storageKey}:server-synced`;
   let writeQueue = Promise.resolve();
   let memoryPending: { encoded: string; value: string | null } | null = null;
 
@@ -128,6 +183,35 @@ export function createSettingSync(options: {
     if (typeof window === "undefined") return;
     setPending(value);
     await queuePendingFlush();
+  }
+
+  function markSynced(): boolean {
+    try {
+      if (localStorage.getItem(syncedKey) === "1") return true;
+      localStorage.setItem(syncedKey, "1");
+    } catch {
+      /* ignore */
+    }
+    return false;
+  }
+
+  /** 起動時スナップショットの反映。初回だけ、サーバ未保存のローカル値をサーバへ移行する。 */
+  function applyServerValue(serverValue: string | null): void {
+    if (readPending()) {
+      void queuePendingFlush();
+      return;
+    }
+    const local = read();
+    const alreadySynced = markSynced();
+    if (serverValue === null && local !== null && !alreadySynced) {
+      void writeToServer(local);
+      return;
+    }
+    if (serverValue !== local) write(serverValue);
+  }
+
+  if (options.hydrate !== false) {
+    registerServerSetting(serverPath.slice(serverPath.lastIndexOf("/") + 1), applyServerValue);
   }
 
   return { read, write, readFromServer, writeToServer };

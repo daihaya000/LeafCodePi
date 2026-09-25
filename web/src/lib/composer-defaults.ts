@@ -1,9 +1,9 @@
 /**
- * 起動時に Composer へ適用する既定値（モデル / effort=Auto最適化方針 / エージェント）。
+ * 起動時に Composer へ適用する既定値（モデル / effort / エージェント）。
  *
- * localStorage が同期読み取りの正本、サーバ settings 表が永続バックアップ。
- * AppShell はブート時に同期読み取りだけを使うため、別デバイスで保存した値は
- * 設定画面を一度開いた次のブートから反映される。
+ * サーバ settings 表が正本、localStorage は同期読み取り用キャッシュ。
+ * AppShell は起動時に `/api/settings` の一括 hydrate を待ってから適用するため、
+ * 別デバイスで保存した値も次の起動から反映される。
  */
 
 import { createSettingSync } from "@/lib/setting-sync";
@@ -13,6 +13,8 @@ import {
   type AutoOptimizeMode,
 } from "@/lib/auto-model";
 import { DEFAULT_AGENT } from "@/lib/default-agent";
+import { isThinkingLevel } from "@/lib/thinking-levels";
+import type { ThinkingLevel } from "@/lib/types";
 
 export type ComposerDefaults = {
   /** モデル value（`auto` または `[accountId::]provider::model`）。 */
@@ -21,6 +23,8 @@ export type ComposerDefaults = {
   autoOptimize: AutoOptimizeMode;
   /** エージェント名（`__auto__` で Auto）。 */
   agent: string;
+  /** 通常モデル時の thinking level。未設定なら前回値を維持する。 */
+  thinkingLevel?: ThinkingLevel;
 };
 
 export const COMPOSER_DEFAULTS_SETTING_KEY = "composer-defaults";
@@ -52,13 +56,15 @@ export function normalizeComposerDefaults(raw: unknown): ComposerDefaults {
     typeof object.agent === "string" && object.agent.trim()
       ? object.agent.trim()
       : BUILTIN_COMPOSER_DEFAULTS.agent;
-  return {
+  const defaults: ComposerDefaults = {
     model,
     autoOptimize: isAutoOptimizeMode(object.autoOptimize)
       ? object.autoOptimize
       : BUILTIN_COMPOSER_DEFAULTS.autoOptimize,
     agent,
   };
+  if (isThinkingLevel(object.thinkingLevel)) defaults.thinkingLevel = object.thinkingLevel;
+  return defaults;
 }
 
 function parse(raw: string | null): ComposerDefaults {
@@ -79,7 +85,7 @@ export function hasStoredComposerDefaults(): boolean {
   return sync.read() !== null;
 }
 
-/** localStorage 即時反映 + サーバへミラー。 */
+/** localStorage 即時反映 + サーバへ保存。 */
 export function writeComposerDefaults(defaults: ComposerDefaults): void {
   const value = JSON.stringify(normalizeComposerDefaults(defaults));
   sync.write(value);

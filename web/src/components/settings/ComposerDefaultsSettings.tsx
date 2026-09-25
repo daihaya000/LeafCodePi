@@ -45,7 +45,7 @@ export function ComposerDefaultsSettings({ refreshToken = 0 }: { refreshToken?: 
   const [autoAgentEnabled, setAutoAgentEnabled] = useState(false);
   const [autoModelEnabled, setAutoModelEnabled] = useState(() => readAutoModelEnabled());
   const [thinkingLevel, setThinkingLevel] = useState<ThinkingLevel>(
-    () => readStoredThinkingLevel() ?? "off",
+    () => readComposerDefaults().thinkingLevel ?? readStoredThinkingLevel() ?? "off",
   );
   const [error, setError] = useState<string | null>(null);
   const touchedRef = useRef(false);
@@ -144,19 +144,22 @@ export function ComposerDefaultsSettings({ refreshToken = 0 }: { refreshToken?: 
   useEffect(() => {
     if (!selectedModel || selectedModel.value === AUTO_MODEL_OPTION.value || !selectedModel.thinkingLevels) return;
     if (thinkingModelRef.current !== selectedModel.value) {
+      // Initial load keeps the saved default; later model changes start from the model default.
+      thinkingLevelTouchedRef.current =
+        thinkingModelRef.current === undefined && defaults.thinkingLevel !== undefined;
       thinkingModelRef.current = selectedModel.value;
-      thinkingLevelTouchedRef.current = false;
     }
     const preferred =
       !thinkingLevelTouchedRef.current && selectedModel.defaultThinkingLevel
         ? selectedModel.defaultThinkingLevel
         : thinkingLevel;
     const safeLevel = resolveThinkingLevel(thinkingLevels, preferred);
-    if (safeLevel !== thinkingLevel) {
+    if (safeLevel !== thinkingLevel || defaults.thinkingLevel !== safeLevel) {
       setThinkingLevel(safeLevel);
       writeStoredThinkingLevel(safeLevel);
+      if (defaults.thinkingLevel !== safeLevel) change({ thinkingLevel: safeLevel });
     }
-  }, [selectedModel, thinkingLevel, thinkingLevels]);
+  }, [change, defaults.thinkingLevel, selectedModel, thinkingLevel, thinkingLevels]);
 
   return (
     <section aria-labelledby="composer-defaults-heading" className="rounded-2xl border border-border bg-surface p-4">
@@ -198,6 +201,7 @@ export function ComposerDefaultsSettings({ refreshToken = 0 }: { refreshToken?: 
                   thinkingLevelTouchedRef.current = true;
                   setThinkingLevel(level);
                   writeStoredThinkingLevel(level);
+                  change({ thinkingLevel: level });
                 }}
                 className="h-9 w-full"
               />

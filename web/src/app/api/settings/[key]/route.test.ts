@@ -474,4 +474,32 @@ describe("/api/settings/[key]", () => {
     expect(response.status).toBe(400);
     expect(settings.setSetting).not.toHaveBeenCalled();
   });
-});
+
+  it.each([
+    ["composer-defaults", JSON.stringify({ model: " p::m ", autoOptimize: "cost", agent: "a", thinkingLevel: "high" }), JSON.stringify({ model: "p::m", autoOptimize: "cost", agent: "a", thinkingLevel: "high" })],
+    ["scroll-button-opacity", "5", "1"],
+    ["task-pane-prefer-new", "1", "1"],
+    ["reasoning-translation-mode", "bilingual", "bilingual"],
+    ["tts-playback-rate", "0.1", "0.5"],
+    ["tts-playback-volume", "150", "100"],
+  ])("normalizes server-owned UI setting %s", async (key, value, stored) => {
+    const response = await PUT(request(key, { value }), { params: Promise.resolve({ key }) });
+    expect(response.status).toBe(200);
+    expect(settings.setSetting).toHaveBeenCalledWith(key, stored);
+  });
+
+  it.each([
+    ["composer-defaults", "{"],
+    ["scroll-button-opacity", "abc"],
+    ["task-pane-prefer-new", "yes"],
+    ["reasoning-translation-mode", "other"],
+    ["tts-playback-rate", ""],
+  ])("rejects invalid server-owned UI setting %s=%s", async (key, value) => {
+    const response = await PUT(request(key, { value }), { params: Promise.resolve({ key }) });
+    if (value === "") {
+      expect(settings.setSetting).toHaveBeenCalledWith(key, null);
+      return;
+    }
+    expect(response.status).toBe(400);
+    expect(settings.setSetting).not.toHaveBeenCalled();
+  });});

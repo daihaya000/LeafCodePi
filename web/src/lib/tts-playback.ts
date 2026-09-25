@@ -3,10 +3,25 @@
  * per-task/per-bot なON/OFFトグル用。サーバー側の leafcode-tts 拡張（Windows SAPI、CLI用）とは別系統。
  */
 import { apiUrl } from "./client";
+import { createSettingSync } from "./setting-sync";
 
 const STORAGE_PREFIX = "webui:tts-enabled:";
 const PLAYBACK_RATE_KEY = "webui:tts-playback-rate";
 const PLAYBACK_VOLUME_KEY = "webui:tts-playback-volume";
+
+export const TTS_PLAYBACK_RATE_SETTING_KEY = "tts-playback-rate";
+export const TTS_PLAYBACK_VOLUME_SETTING_KEY = "tts-playback-volume";
+
+const rateSync = createSettingSync({
+  storageKey: PLAYBACK_RATE_KEY,
+  serverPath: `/api/settings/${TTS_PLAYBACK_RATE_SETTING_KEY}`,
+  eventName: "webui:tts-playback-rate",
+});
+const volumeSync = createSettingSync({
+  storageKey: PLAYBACK_VOLUME_KEY,
+  serverPath: `/api/settings/${TTS_PLAYBACK_VOLUME_SETTING_KEY}`,
+  eventName: "webui:tts-playback-volume",
+});
 
 export const DEFAULT_PLAYBACK_RATE = 1;
 export const DEFAULT_PLAYBACK_VOLUME = 100;
@@ -25,46 +40,26 @@ export function clampPlaybackVolume(value: unknown): number {
 }
 
 export function readPlaybackRate(): number {
-  if (typeof window === "undefined") return DEFAULT_PLAYBACK_RATE;
-  try {
-    const raw = window.localStorage.getItem(PLAYBACK_RATE_KEY);
-    if (raw === null) return DEFAULT_PLAYBACK_RATE;
-    return clampPlaybackRate(Number(raw));
-  } catch {
-    return DEFAULT_PLAYBACK_RATE;
-  }
+  const raw = rateSync.read();
+  return raw === null ? DEFAULT_PLAYBACK_RATE : clampPlaybackRate(Number(raw));
 }
 
 export function writePlaybackRate(rate: number): number {
   const next = clampPlaybackRate(rate);
-  if (typeof window === "undefined") return next;
-  try {
-    window.localStorage.setItem(PLAYBACK_RATE_KEY, String(next));
-  } catch {
-    /* private mode 等では永続できないだけ */
-  }
+  rateSync.write(String(next));
+  void rateSync.writeToServer(String(next));
   return next;
 }
 
 export function readPlaybackVolume(): number {
-  if (typeof window === "undefined") return DEFAULT_PLAYBACK_VOLUME;
-  try {
-    const raw = window.localStorage.getItem(PLAYBACK_VOLUME_KEY);
-    if (raw === null) return DEFAULT_PLAYBACK_VOLUME;
-    return clampPlaybackVolume(Number(raw));
-  } catch {
-    return DEFAULT_PLAYBACK_VOLUME;
-  }
+  const raw = volumeSync.read();
+  return raw === null ? DEFAULT_PLAYBACK_VOLUME : clampPlaybackVolume(Number(raw));
 }
 
 export function writePlaybackVolume(volume: number): number {
   const next = clampPlaybackVolume(volume);
-  if (typeof window === "undefined") return next;
-  try {
-    window.localStorage.setItem(PLAYBACK_VOLUME_KEY, String(next));
-  } catch {
-    /* private mode 等では永続できないだけ */
-  }
+  volumeSync.write(String(next));
+  void volumeSync.writeToServer(String(next));
   return next;
 }
 
