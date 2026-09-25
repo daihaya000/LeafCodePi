@@ -214,14 +214,14 @@ function SidebarFooter({ health, onSettings }: { health: HealthDto | null; onSet
     let active = true;
     const refreshLatestCommit = async () => {
       try {
-        const info = await getJson<{ commit: string | null }>("/api/build-info");
-        if (active) setLatestCommit(info.commit);
+        const info = await getJson<{ commit: string | null; latestCommit: string | null }>("/api/build-info");
+        if (active) setLatestCommit(info.latestCommit ?? info.commit);
       } catch {
         // The build status is unknown when the local repository is unavailable.
       }
     };
     void refreshLatestCommit();
-    const timer = window.setInterval(() => void refreshLatestCommit(), 60_000);
+    const timer = window.setInterval(() => void refreshLatestCommit(), 300_000);
     return () => {
       active = false;
       window.clearInterval(timer);
