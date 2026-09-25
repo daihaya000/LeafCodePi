@@ -482,6 +482,25 @@ describe("projectPiMessages", () => {
     });
     expect(JSON.stringify(messages[0]?.diagnostics)).not.toContain("secret-must-not-be-forwarded");
   });
+
+  it("hides informational Anthropic input transformation diagnostics", () => {
+    const messages = projectPiMessages([
+      {
+        role: "assistant",
+        id: "a-transform",
+        timestamp: 3,
+        content: [{ type: "text", text: "ok" }],
+        diagnostics: [
+          {
+            type: "anthropic_input_transformations",
+            details: { transformations: [{ type: "thinking_dropped" }] },
+          },
+        ],
+      },
+    ]);
+
+    expect(messages[0]?.diagnostics).toBeUndefined();
+  });
 });
 
 describe("entryIdsForProjectedMessages", () => {

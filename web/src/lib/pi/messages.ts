@@ -111,7 +111,8 @@ export function isAgentSwitchMarker(item: unknown): boolean {
 function diagnosticFromRaw(value: unknown): UiDiagnostic | null {
   if (!isRecord(value)) return null;
   const type = asString(value.type).trim();
-  if (!type) return null;
+  // Anthropicが過去のthinkingブロックを入力から除外した通知。障害ではないため表示しない。
+  if (!type || type === "anthropic_input_transformations") return null;
 
   const rawError = isRecord(value.error) ? value.error : undefined;
   const errorMessage = rawError ? asString(rawError.message).trim() : "";
