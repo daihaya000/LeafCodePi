@@ -79,6 +79,7 @@ beforeEach(() => {
   mocks.sendJson.mockReset().mockResolvedValue({});
   mocks.push.mockReset();
   mocks.dispatch.mockReset();
+  mocks.usePathname.mockReset().mockReturnValue("/bots");
   mocks.botStatus = "idle";
   mocks.paneMdUp = true;
   mocks.paneActiveTaskId = null;

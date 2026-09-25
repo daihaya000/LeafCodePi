@@ -1472,29 +1472,28 @@ const SidebarView = memo(function SidebarView({
     // refresh は mode で作り直されるため、モードの再判定は画面遷移時だけに限る。
     // 毎回判定すると、モバイルで Bot ページから離れる遷移の完了前に Code 選択を Bot へ戻してしまう。
     const last = modeSyncRef.current;
-    if (last && last.pathname === pathname && last.paneMdUp === paneMdUp) {
-      void refresh();
-      const onChange = () => void refresh();
-      window.addEventListener("webui:tasks-changed", onChange);
-      return () => window.removeEventListener("webui:tasks-changed", onChange);
+    let syncedMode: AppMode | undefined;
+    if (!last || last.pathname !== pathname || last.paneMdUp !== paneMdUp) {
+      modeSyncRef.current = { pathname, paneMdUp };
+      let initialMode: AppMode = "code";
+      try {
+        const storedMode = localStorage.getItem(MODE_KEY);
+        if (storedMode === "bot" || storedMode === "code") initialMode = storedMode;
+        if (pathname.startsWith("/bots") && !paneMdUp) initialMode = "bot";
+        setMode(initialMode);
+        const storedWidth = Number(localStorage.getItem(WIDTH_KEY));
+        if (Number.isFinite(storedWidth) && storedWidth >= MIN_WIDTH) setWidth(storedWidth);
+        setCollapsed(localStorage.getItem(COLLAPSED_KEY) === "1");
+        setExpanded(loadExpanded());
+        setArchivedExpanded(localStorage.getItem(ARCHIVED_EXPANDED_KEY) === "1");
+        setArchivedProjectsExpanded(localStorage.getItem(ARCHIVED_PROJECTS_EXPANDED_KEY) === "1");
+      } catch {
+        /* ignore */
+      }
+      syncedMode = initialMode;
     }
-    modeSyncRef.current = { pathname, paneMdUp };
-    let initialMode: AppMode = "code";
-    try {
-      const storedMode = localStorage.getItem(MODE_KEY);
-      if (storedMode === "bot" || storedMode === "code") initialMode = storedMode;
-      if (pathname.startsWith("/bots") && !paneMdUp) initialMode = "bot";
-      setMode(initialMode);
-      const storedWidth = Number(localStorage.getItem(WIDTH_KEY));
-      if (Number.isFinite(storedWidth) && storedWidth >= MIN_WIDTH) setWidth(storedWidth);
-      setCollapsed(localStorage.getItem(COLLAPSED_KEY) === "1");
-      setExpanded(loadExpanded());
-      setArchivedExpanded(localStorage.getItem(ARCHIVED_EXPANDED_KEY) === "1");
-      setArchivedProjectsExpanded(localStorage.getItem(ARCHIVED_PROJECTS_EXPANDED_KEY) === "1");
-    } catch {
-      /* ignore */
-    }
-    void refresh(false, initialMode);
+    // undefined なら refresh の既定値（現在の mode）を使う。
+    void refresh(false, syncedMode);
     const onChange = () => void refresh();
     window.addEventListener("webui:tasks-changed", onChange);
     return () => {
