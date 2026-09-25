@@ -1130,9 +1130,19 @@ function persistThroughputSample(
         charCount: 0,
       };
       live.throughputByStartedAt.set(timing.startedAtMs, persisted);
-      // モデル一覧の平均 tok/s 実績用。ヘッダー表示と同じ算出式を使う。
-      const rate = snapshotThroughput(persisted, persisted.lastTokenAtMs ?? Date.now())?.tokensPerSecond;
-      if (model && typeof rate === "number") recordModelThroughput(model.provider, model.model, rate);
+      // モデル一覧の平均 tok/s 実績用。TTFT を含む end-to-end 値は混ぜず decode 区間だけ集計する。
+      const snap = snapshotThroughput(persisted, persisted.lastTokenAtMs ?? Date.now());
+      if (
+        model &&
+        snap?.decodePhase &&
+        persisted.firstTokenAtMs !== null &&
+        persisted.lastTokenAtMs !== null
+      ) {
+        recordModelThroughput(model.provider, model.model, {
+          outputTokens: snap.outputTokens,
+          decodeMs: persisted.lastTokenAtMs - persisted.firstTokenAtMs,
+        });
+      }
     } catch {
       /* persistence is best-effort; in-memory sample still works for this process */
     }

@@ -35,7 +35,7 @@ export async function GET(req: NextRequest) {
       })),
     );
     const displayProviders = getCachedUsage(now, USAGE_MAX_AGE_MS)?.providers ?? [];
-    const averages = readModelThroughputAverages();
+    const averages = await readModelThroughputAverages();
     return NextResponse.json({
       models: attachCodexBarUsage(models, displayProviders).map((model) => {
         const avg = averages.get(modelThroughputKey(model.providerID, model.modelID));
