@@ -310,10 +310,12 @@ import {
   isThroughputCustomEntry,
   noteContentDelta,
   noteReportedOutputTokens,
+  snapshotThroughput,
   timingFromPersisted,
   toPersistedThroughput,
   type ThroughputTiming,
 } from "@/lib/token-throughput";
+import { recordModelThroughput } from "@/lib/model-throughput-stats";
 import { BOT_CODE_SESSION_CHANGED_EVENT } from "@/lib/types";
 import type {
   CompactionSettingsDto,
@@ -1108,6 +1110,7 @@ function loadToolTimingFromSession(session: AgentSession): {
 function persistThroughputSample(
   live: LiveRuntime,
   timing: ThroughputTiming,
+  model?: { provider: string; model: string },
 ): void {
   if (live.persistedThroughputKeys.has(timing.startedAtMs)) return;
   const payload = toPersistedThroughput(timing);
@@ -1121,11 +1124,15 @@ function persistThroughputSample(
         payload,
       );
       live.persistedThroughputKeys.add(timing.startedAtMs);
-      live.throughputByStartedAt.set(timing.startedAtMs, {
+      const persisted = {
         ...timing,
         outputTokens: payload.outputTokens,
         charCount: 0,
-      });
+      };
+      live.throughputByStartedAt.set(timing.startedAtMs, persisted);
+      // モデル一覧の平均 tok/s 実績用。ヘッダー表示と同じ算出式を使う。
+      const rate = snapshotThroughput(persisted, persisted.lastTokenAtMs ?? Date.now())?.tokensPerSecond;
+      if (model && typeof rate === "number") recordModelThroughput(model.provider, model.model, rate);
     } catch {
       /* persistence is best-effort; in-memory sample still works for this process */
     }
@@ -1181,7 +1188,12 @@ function trackMessageEndEvent(
     timing = { ...timing, lastTokenAtMs: Date.now() };
   }
   live.throughputByStartedAt.set(startedAt, timing);
-  persistThroughputSample(live, timing);
+  const { provider, model } = message as { provider?: unknown; model?: unknown };
+  persistThroughputSample(
+    live,
+    timing,
+    typeof provider === "string" && typeof model === "string" ? { provider, model } : undefined,
+  );
 }
 
 function trackToolExecutionEvent(

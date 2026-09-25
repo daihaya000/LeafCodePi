@@ -3,6 +3,7 @@ import { listAccounts } from "@/lib/accounts";
 import { listModelsForAccounts, jsonError } from "@/lib/pi/harness";
 import { getCachedUsage } from "@/lib/codexbar/cache";
 import { attachCodexBarUsage } from "./map";
+import { modelThroughputKey, readModelThroughputAverages } from "@/lib/model-throughput-stats";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -34,8 +35,12 @@ export async function GET(req: NextRequest) {
       })),
     );
     const displayProviders = getCachedUsage(now, USAGE_MAX_AGE_MS)?.providers ?? [];
+    const averages = readModelThroughputAverages();
     return NextResponse.json({
-      models: attachCodexBarUsage(models, displayProviders),
+      models: attachCodexBarUsage(models, displayProviders).map((model) => {
+        const avg = averages.get(modelThroughputKey(model.providerID, model.modelID));
+        return avg === undefined ? model : { ...model, avgTokensPerSecond: avg };
+      }),
     });
   } catch (error) {
     const { error: message, status } = jsonError(error);

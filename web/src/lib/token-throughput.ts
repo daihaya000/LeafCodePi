@@ -215,6 +215,13 @@ export function snapshotThroughput(
   return { outputTokens, tokensPerSecond: e2e, decodePhase: false };
 }
 
+/** これ未満の tok/s は低速として赤文字で表示する。 */
+export const SLOW_TOKENS_PER_SECOND = 50;
+
+export function isSlowTokensPerSecond(rate: number | null | undefined): boolean {
+  return typeof rate === "number" && Number.isFinite(rate) && rate > 0 && rate < SLOW_TOKENS_PER_SECOND;
+}
+
 /** Compact display label, e.g. `42 tok/s`, `1.2k tok/s`. */
 export function formatTokensPerSecond(rate: number): string {
   if (!Number.isFinite(rate) || rate <= 0) return "";

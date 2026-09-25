@@ -31,7 +31,7 @@ import { ImageLightbox } from "@/components/Composer";
 import { ProviderIcon } from "@/components/ProviderIcon";
 import { ReferenceHighlight, type ReferenceHighlightReferences } from "@/components/ReferenceHighlight";
 import { formatTokens } from "@/lib/context-usage";
-import { formatTokensPerSecond } from "@/lib/token-throughput";
+import { formatTokensPerSecond, isSlowTokensPerSecond } from "@/lib/token-throughput";
 import { clampScrollTop, isNearBottom, nextStickState } from "@/lib/scroll-stick";
 import {
   parseStructuredResult,
@@ -742,6 +742,7 @@ export const MessageMetaHeader = memo(function MessageMetaHeader({
                     ? "min-w-0 max-w-64 truncate"
                     : "shrink-0",
                 field.key === "rate" && "tabular-nums",
+                field.key === "rate" && isSlowTokensPerSecond(message.tokensPerSecond) && "text-danger",
                 hideOnNarrowTask && "hidden @min-[48rem]/task:inline",
               )}
               title={

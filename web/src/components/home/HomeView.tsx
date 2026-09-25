@@ -156,7 +156,8 @@ function sameModelOptions(
       model.codexbarMaxed === candidate?.codexbarMaxed &&
       model.codexbarStale === candidate?.codexbarStale &&
       model.routingMode === candidate?.routingMode &&
-      model.routingCandidateCount === candidate?.routingCandidateCount;
+      model.routingCandidateCount === candidate?.routingCandidateCount &&
+      model.avgTokensPerSecond === candidate?.avgTokensPerSecond;
   });
 }
 

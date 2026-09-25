@@ -5,6 +5,7 @@ import {
   endToEndTokensPerSecond,
   estimateTokensFromChars,
   formatTokensPerSecond,
+  isSlowTokensPerSecond,
   noteContentDelta,
   noteReportedOutputTokens,
   snapshotThroughput,
@@ -87,6 +88,9 @@ describe("snapshotThroughput", () => {
 
 describe("formatTokensPerSecond", () => {
   it("formats compact labels", () => {
+    expect(isSlowTokensPerSecond(49.9)).toBe(true);
+    expect(isSlowTokensPerSecond(50)).toBe(false);
+    expect(isSlowTokensPerSecond(0)).toBe(false);
     expect(formatTokensPerSecond(4.2)).toBe("4.2 tok/s");
     expect(formatTokensPerSecond(42.4)).toBe("42 tok/s");
     expect(formatTokensPerSecond(1_250)).toBe("1.3k tok/s");

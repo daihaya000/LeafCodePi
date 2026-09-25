@@ -593,6 +593,8 @@ export type ModelOption = {
   routingMode?: "integrated";
   /** Number of authenticated account candidates behind an integrated option. */
   routingCandidateCount?: number;
+  /** 過去応答の平均 tok/s 実績（providerID::modelID 単位）。 */
+  avgTokensPerSecond?: number;
 };
 
 export type HealthDto = {

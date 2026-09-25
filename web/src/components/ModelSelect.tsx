@@ -14,6 +14,7 @@ import { Check, ChevronDown, ImageIcon } from "lucide-react";
 import { ProviderIcon } from "@/components/ProviderIcon";
 import { cx, focusAdjacentControl } from "@/components/ui";
 import { providerLabel, usageTone } from "@/lib/codexbar";
+import { formatTokensPerSecond, isSlowTokensPerSecond } from "@/lib/token-throughput";
 import type { ModelOption } from "@/lib/types";
 
 export function modelSupportsImage(option: ModelOption | undefined): boolean {
@@ -315,6 +316,17 @@ export function ModelSelect({
                 >
                   <ProviderIcon providerID={option.providerID} size={14} />
                   <span className="min-w-0 flex-1 truncate">{option.label}</span>
+                  {option.avgTokensPerSecond !== undefined && formatTokensPerSecond(option.avgTokensPerSecond) && (
+                    <span
+                      title="平均 tok/s 実績"
+                      className={cx(
+                        "shrink-0 text-[11px] tabular-nums",
+                        isSlowTokensPerSecond(option.avgTokensPerSecond) ? "text-danger" : "text-faint",
+                      )}
+                    >
+                      {formatTokensPerSecond(option.avgTokensPerSecond)}
+                    </span>
+                  )}
                   {image && (
                     <span title="画像入力対応" className="inline-flex shrink-0">
                       <ImageIcon

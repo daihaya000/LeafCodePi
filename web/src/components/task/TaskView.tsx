@@ -120,7 +120,7 @@ import {
   writeTitleAutoUpdateEnabled,
   writeTitleAutoUpdateFrequency,
 } from "@/lib/title-auto-update-settings";
-import { formatTokensPerSecond } from "@/lib/token-throughput";
+import { formatTokensPerSecond, isSlowTokensPerSecond } from "@/lib/token-throughput";
 import { notifyBotSidebarChanged, notifyTasksChanged } from "@/lib/events";
 import { taskSidebarNotifyKey } from "@/lib/task-sidebar-notify";
 import { markRead } from "@/lib/bot-unread";
@@ -2923,7 +2923,7 @@ export const TaskView = memo(function TaskView({
         </span>
       )}
       {avgHeaderRateLabel && (
-        <span className={cx("tabular-nums", visibility)} title="平均 tok/s（メッセージヘッダーの tok/s の平均）">
+        <span className={cx("tabular-nums", visibility, isSlowTokensPerSecond(avgHeaderRate) && "text-danger")} title="平均 tok/s（メッセージヘッダーの tok/s の平均）">
           {avgHeaderRateLabel}
         </span>
       )}
