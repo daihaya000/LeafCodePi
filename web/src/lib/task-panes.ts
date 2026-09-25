@@ -75,6 +75,7 @@ export function paneTabIdForTask(task: PaneTaskRef): string {
 export function paneTabIdsForWorkingTasks(
   tasks: readonly PaneTaskRef[],
   activeCodeBotIds: readonly string[] = [],
+  unreadTabIds: readonly string[] = [],
 ): string[] {
   const ids: string[] = [];
   const seen = new Set<string>();
@@ -89,6 +90,12 @@ export function paneTabIdsForWorkingTasks(
     if (!botId) continue;
     const tabId = `/bots/${encodeURIComponent(botId)}`;
     if (seen.has(tabId)) continue;
+    seen.add(tabId);
+    ids.push(tabId);
+  }
+  // Unread sessions follow working ones so they fill remaining panes.
+  for (const tabId of unreadTabIds) {
+    if (!tabId || seen.has(tabId)) continue;
     seen.add(tabId);
     ids.push(tabId);
   }

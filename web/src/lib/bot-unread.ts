@@ -114,6 +114,41 @@ export function hasUnread(lastMessageAt: string | null, lastReadAt: number | nul
   return Number.isFinite(messageAt) && (lastReadAt === null || messageAt > lastReadAt);
 }
 
+type UnreadTaskRef = { id: string; kind?: string | null; status: string; updatedAt: string; projectId?: string | null };
+type UnreadChatRef = { id: string; lastMessageAt: string | null };
+
+/** 未読のCodeタスク・Bot・ルームをペインのタブIDとして新しい順に返す。進行中タスクは対象外。 */
+export function unreadSessionTabIds({
+  tasks = [],
+  bots = [],
+  rooms = [],
+  archivedProjectIds,
+  activeTabId = null,
+}: {
+  tasks?: readonly UnreadTaskRef[];
+  bots?: readonly UnreadChatRef[];
+  rooms?: readonly UnreadChatRef[];
+  archivedProjectIds?: ReadonlySet<string>;
+  activeTabId?: string | null;
+}): string[] {
+  const entries: { tabId: string; at: string }[] = [];
+  for (const task of tasks) {
+    if (task.kind === "bot" || task.status === "working" || task.status === "archived") continue;
+    if (archivedProjectIds?.has(task.projectId ?? "")) continue;
+    if (hasUnread(task.updatedAt, getLastReadAt("task", task.id))) entries.push({ tabId: task.id, at: task.updatedAt });
+  }
+  for (const bot of bots) {
+    if (hasUnread(bot.lastMessageAt, getLastReadAt("bot", bot.id))) entries.push({ tabId: `/bots/${encodeURIComponent(bot.id)}`, at: bot.lastMessageAt! });
+  }
+  for (const room of rooms) {
+    if (hasUnread(room.lastMessageAt, getLastReadAt("room", room.id))) entries.push({ tabId: `/bots/rooms/${encodeURIComponent(room.id)}`, at: room.lastMessageAt! });
+  }
+  return entries
+    .filter((entry) => entry.tabId !== activeTabId)
+    .sort((left, right) => Date.parse(right.at) - Date.parse(left.at))
+    .map((entry) => entry.tabId);
+}
+
 export function resetUnreadStateForTests(): void {
   stateVersion += 1;
   lastRead.clear();

@@ -21,8 +21,8 @@ export function WorkingTasksButton({
   const title = !mdUp
     ? "進行中タスクの分割表示はデスクトップで利用できます"
     : hasWorking === false
-      ? "進行中のタスクはないためホームを表示"
-      : "進行中タスクを分割表示";
+      ? "進行中・未読のタスクはないためホームを表示"
+      : "進行中・未読タスクを分割表示";
   return (
     <button
       type="button"

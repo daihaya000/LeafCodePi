@@ -214,6 +214,20 @@ describe("Sidebar project ordering", () => {
         updatedAt: "2026-01-01T00:02:00.000Z",
         error: null,
       },
+      {
+        id: "unread-done",
+        projectId: "project-a",
+        projectName: "Project A",
+        title: "Unread done task",
+        directory: "C:\\repo-a",
+        isolation: "current_folder" as const,
+        status: "ready" as const,
+        sessionId: "unread-done",
+        sessionFile: null,
+        createdAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: "2026-01-01T00:03:00.000Z",
+        error: null,
+      },
     ];
     mocks.getJson.mockImplementation((path: string) => {
       if (path === "/api/projects?archived=1") return Promise.resolve({ projects });
@@ -238,7 +252,7 @@ describe("Sidebar project ordering", () => {
     fireEvent.click(await screen.findByRole("button", { name: "進行中タスクを分割表示" }));
     expect(mocks.dispatch).toHaveBeenCalledWith({
       type: "showWorkingTasks",
-      taskIds: ["working-new", "working-old"],
+      taskIds: ["working-new", "working-old", "unread-done"],
     });
   });
 

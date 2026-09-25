@@ -46,7 +46,7 @@ import {
   refreshBotSidebar,
   subscribeBotSidebar,
 } from "@/lib/bot-sidebar-store";
-import { getLastReadAt, getUnreadSnapshot, hasUnread, hydrateLastReadState, markRead, subscribeUnreadState } from "@/lib/bot-unread";
+import { getLastReadAt, getUnreadSnapshot, hasUnread, hydrateLastReadState, markRead, subscribeUnreadState, unreadSessionTabIds } from "@/lib/bot-unread";
 import { HOME_TAB_ID, paneTabIdsForWorkingTasks, SETTINGS_TAB_ID, type TaskPanesAction } from "@/lib/task-panes";
 import { PINNED_TASKS_API_PATH, parsePinnedTaskIds, serializePinnedTaskIds } from "@/lib/sidebar-settings";
 import { isGoalLoopLiveStatus } from "@/lib/goal-loop-settings";
@@ -1597,6 +1597,14 @@ const SidebarView = memo(function SidebarView({
   const unreadCodeCount = tasks.filter((task) => task.status !== "archived" && task.kind !== "bot" && !archivedProjectIds.has(task.projectId ?? "") && hasUnreadTask(task, unreadActiveTaskId)).length;
   const unreadBotCount = botSidebar.bots.filter((bot) => unreadActiveTaskId !== `/bots/${encodeURIComponent(bot.id)}` && hasUnread(bot.lastMessageAt, getLastReadAt("bot", bot.id))).length
     + botSidebar.rooms.filter((room) => unreadActiveTaskId !== `/bots/rooms/${encodeURIComponent(room.id)}` && hasUnread(room.lastMessageAt, getLastReadAt("room", room.id))).length;
+  const splitTaskIds = paneTabIdsForWorkingTasks([], [], [...workingTaskIds, ...unreadSessionTabIds({
+    tasks,
+    bots: botSidebar.bots,
+    rooms: botSidebar.rooms,
+    archivedProjectIds,
+    activeTabId: unreadActiveTaskId,
+  })]);
+  const hasSplitTargets = splitTaskIds.length > 0;
   const unreadModes: UnreadModes = {
     code: unreadCodeCount > 0,
     bot: unreadBotCount > 0,
@@ -1694,13 +1702,13 @@ const SidebarView = memo(function SidebarView({
 
   const showWorkingTasks = useCallback(() => {
     if (!paneMdUp) return;
-    if (workingTaskIds.length === 0) {
+    if (splitTaskIds.length === 0) {
       resetPanesToTab(HOME_TAB_ID);
       return;
     }
-    dispatch({ type: "showWorkingTasks", taskIds: workingTaskIds });
+    dispatch({ type: "showWorkingTasks", taskIds: splitTaskIds });
     onClose();
-  }, [dispatch, onClose, paneMdUp, resetPanesToTab, workingTaskIds]);
+  }, [dispatch, onClose, paneMdUp, resetPanesToTab, splitTaskIds]);
 
   const tasksByProject = useMemo(() => {
     const map = new Map<string | null, TaskSummary[]>();
@@ -2666,7 +2674,7 @@ const SidebarView = memo(function SidebarView({
       onCollapse={collapseBotSidebar}
       onExpand={expandBotSidebar}
       onShowWorkingTasks={showWorkingTasks}
-      hasWorking={hasWorking}
+      hasWorking={hasSplitTargets}
     />
   );
 
@@ -2783,7 +2791,7 @@ const SidebarView = memo(function SidebarView({
       </div>
       <div className="flex w-full flex-col items-center gap-1 border-t border-border py-2">
         <WorkingTasksButton
-          hasWorking={hasWorking}
+          hasWorking={hasSplitTargets}
           mdUp={paneMdUp}
           onClick={showWorkingTasks}
         />

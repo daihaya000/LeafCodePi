@@ -7,6 +7,7 @@ import { useCallback, useEffect, useRef, useState, type DragEvent } from "react"
 import { useGetStatusFor, useReportStatus, useTaskPanesNavigation } from "@/components/shell/TaskPanesContext";
 import { WorkingTasksButton } from "@/components/WorkingTasksButton";
 import { cx } from "@/components/ui";
+import { hydrateLastReadState, unreadSessionTabIds } from "@/lib/bot-unread";
 import { getJson } from "@/lib/client";
 import type { TaskStatus, TaskSummary } from "@/lib/types";
 import { isTaskDrag, taskDragIdFrom } from "@/lib/task-drag";
@@ -524,19 +525,38 @@ export function TaskPanesHost() {
     if (workingTasksBusy) return;
     setWorkingTasksBusy(true);
     try {
-      const [taskResult, botResult] = await Promise.all([
+      const [taskResult, botResult, projectResult] = await Promise.all([
         getJson<{ tasks?: TaskSummary[] }>("/api/tasks?archived=1&kind=all"),
-        getJson<{ bots?: { id: string; codeInProgress?: boolean }[] }>("/api/bots/sidebar")
-          .catch(() => ({ bots: [] })),
+        getJson<{
+          bots?: { id: string; codeInProgress?: boolean; lastMessageAt: string | null }[];
+          rooms?: { id: string; lastMessageAt: string | null }[];
+        }>("/api/bots/sidebar")
+          .catch(() => ({ bots: [], rooms: [] })),
+        getJson<{ projects?: { id: string; archived?: boolean }[] }>("/api/projects?archived=1")
+          .catch(() => ({ projects: [] })),
+        hydrateLastReadState(),
       ]);
-      const activeCodeBotIds = (Array.isArray(botResult.bots) ? botResult.bots : [])
+      const tasks = Array.isArray(taskResult.tasks) ? taskResult.tasks : [];
+      const bots = Array.isArray(botResult.bots) ? botResult.bots : [];
+      const activeCodeBotIds = bots
         .filter((bot) => bot.codeInProgress === true)
         .map((bot) => bot.id);
+      const archivedProjectIds = new Set(
+        (Array.isArray(projectResult.projects) ? projectResult.projects : [])
+          .filter((project) => project.archived)
+          .map((project) => project.id),
+      );
       const taskIds = paneTabIdsForWorkingTasks(
-        (Array.isArray(taskResult.tasks) ? taskResult.tasks : [])
+        tasks
           .filter((task) => task.status === "working")
           .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt)),
         activeCodeBotIds,
+        unreadSessionTabIds({
+          tasks,
+          bots,
+          rooms: Array.isArray(botResult.rooms) ? botResult.rooms : [],
+          archivedProjectIds,
+        }),
       );
       dispatch(
         taskIds.length > 0

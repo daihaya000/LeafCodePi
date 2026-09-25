@@ -2,6 +2,7 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { PaneLayout, TaskPanesState } from "@/lib/task-panes";
+import { resetUnreadStateForTests } from "@/lib/bot-unread";
 
 const mocks = vi.hoisted(() => ({
   getJson: vi.fn(),
@@ -141,6 +142,7 @@ describe("TaskPanesHost lazy tab mounting", () => {
   afterEach(() => {
     cleanup();
     localStorage.removeItem("webui:task-pane-prefer-new");
+    resetUnreadStateForTests();
     vi.clearAllMocks();
   });
 
@@ -211,6 +213,7 @@ describe("TaskPanesHost lazy tab mounting", () => {
         { id: "done", status: "idle", updatedAt: "2026-01-01T00:03:00.000Z" },
         { id: "newer", status: "working", updatedAt: "2026-01-01T00:02:00.000Z" },
       ],
+      markers: [{ kind: "task", id: "done", readAt: Date.parse("2026-01-01T00:04:00.000Z") }],
     });
 
     render(<TaskPanesHost />);
@@ -311,6 +314,53 @@ describe("TaskPanesHost lazy tab mounting", () => {
     await waitFor(() => expect(contextValue.dispatch).toHaveBeenCalledWith({
       type: "showWorkingTasks",
       taskIds: ["/bots/bot-a"],
+    }));
+  });
+
+  it("未読セッションを進行中タスクの後ろへ新しい順で追加する", async () => {
+    const contextValue = {
+      state: createTreeState(),
+      statusFor: () => null,
+      reportStatus: vi.fn(),
+      dispatch: vi.fn(),
+      retargetToUrl: vi.fn(),
+      activeTaskId: "task-1",
+      titleFor: () => null,
+      mdUp: true,
+    };
+    mocks.useTaskPanes.mockReturnValue(contextValue);
+    mocks.getJson.mockImplementation((path: string) => {
+      if (path === "/api/tasks?archived=1&kind=all") {
+        return Promise.resolve({
+          tasks: [
+            { id: "working", status: "working", updatedAt: "2026-01-01T00:00:00.000Z" },
+            { id: "unread-old", status: "idle", updatedAt: "2026-01-01T00:01:00.000Z" },
+            { id: "unread-new", status: "idle", updatedAt: "2026-01-01T00:05:00.000Z" },
+            { id: "read", status: "idle", updatedAt: "2026-01-01T00:06:00.000Z" },
+            { id: "archived", status: "archived", updatedAt: "2026-01-01T00:07:00.000Z" },
+            { id: "in-archived-project", status: "idle", projectId: "p-old", updatedAt: "2026-01-01T00:08:00.000Z" },
+          ],
+        });
+      }
+      if (path === "/api/bots/sidebar") {
+        return Promise.resolve({
+          bots: [{ id: "bot-a", lastMessageAt: "2026-01-01T00:03:00.000Z" }],
+          rooms: [{ id: "room-1", lastMessageAt: "2026-01-01T00:04:00.000Z" }],
+        });
+      }
+      if (path === "/api/projects?archived=1") return Promise.resolve({ projects: [{ id: "p-old", archived: true }] });
+      if (path === "/api/unread") {
+        return Promise.resolve({ markers: [{ kind: "task", id: "read", readAt: Date.parse("2026-01-01T00:09:00.000Z") }] });
+      }
+      return Promise.resolve({});
+    });
+
+    render(<TaskPanesHost />);
+    fireEvent.click(screen.getAllByRole("button", { name: "進行中タスクを分割表示" })[0]!);
+
+    await waitFor(() => expect(contextValue.dispatch).toHaveBeenCalledWith({
+      type: "showWorkingTasks",
+      taskIds: ["working", "unread-new", "/bots/rooms/room-1", "/bots/bot-a", "unread-old"],
     }));
   });
 
