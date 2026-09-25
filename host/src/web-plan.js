@@ -38,6 +38,13 @@ const WATCHED_EXTENSIONS = new Set([
   ".svg",
 ]);
 
+/** The host replacement skips stale builds only on its first WebUI launch. */
+export function consumeSkipStaleRebuild(env) {
+  const skip = env.LEAFCODE_PI_SKIP_STALE_REBUILD === "1";
+  delete env.LEAFCODE_PI_SKIP_STALE_REBUILD;
+  return skip;
+}
+
 /**
  * Decide how the tray host should launch the Next.js WebUI.
  * @param {string | undefined} mode

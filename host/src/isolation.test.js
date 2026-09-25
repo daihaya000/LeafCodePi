@@ -163,6 +163,8 @@ test("WebUI restart pulls, rebuilds only after an update, then starts without pu
   assert.match(restart, /await stopWeb\(\);\s*if \(updated\)/);
   assert.match(restart, /await buildWeb\([^;]+\{ pull: false \}\)/);
   assert.match(restart, /await spawnWeb\(\{ pull: false \}\)/);
+  const launch = index.slice(index.indexOf("async function spawnWeb("), index.indexOf("function scheduleWebRestart("));
+  assert.match(launch, /const skipStaleBuild = consumeSkipStaleRebuild\(process\.env\)/);
 });
 
 test("host rebuilds stale production builds like LeafCode", () => {

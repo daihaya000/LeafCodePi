@@ -19,7 +19,14 @@ import { isThisModuleEntrypoint } from "./entry.js";
 import { pidAlive, readLock, removeLock, writeLock } from "./lock.js";
 import { formatLogLine } from "./log-file.js";
 import { localLeafcodePiTempDir } from "./tray-temp.js";
-import { formatWebStatus, getPostBuildLaunchPlan, getWebLaunchPlan, isWebBuildStale, staleRebuildFailureAction } from "./web-plan.js";
+import { consumeSkipStaleRebuild, formatWebStatus, getPostBuildLaunchPlan, getWebLaunchPlan, isWebBuildStale, staleRebuildFailureAction } from "./web-plan.js";
+
+test("host replacement skips stale rebuild only on the first WebUI launch", () => {
+  const env = { LEAFCODE_PI_SKIP_STALE_REBUILD: "1" };
+  assert.equal(consumeSkipStaleRebuild(env), true);
+  assert.equal(consumeSkipStaleRebuild(env), false);
+  assert.deepEqual(env, {});
+});
 
 test("readPort falls back on invalid values", () => {
   assert.equal(readPort("3000", 1), 3000);

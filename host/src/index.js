@@ -29,6 +29,7 @@ import {
   writeWebUiAuthConfig,
 } from "./webui-auth.js";
 import {
+  consumeSkipStaleRebuild,
   formatWebStatus,
   getPostBuildLaunchPlan,
   getWebLaunchPlan,
@@ -451,7 +452,7 @@ function buildWeb(reason = "missing", { pull = true } = {}) {
 async function spawnWeb({ pull = true } = {}) {
   installWebIfNeeded();
   let hasBuild = hasProductionBuild();
-  const skipStaleBuild = process.env.LEAFCODE_PI_SKIP_STALE_REBUILD === "1";
+  const skipStaleBuild = consumeSkipStaleRebuild(process.env);
   const actualBuildStale = hasBuild && isWebBuildStale(WEB_DIR, webDistDir());
   const buildStale = !skipStaleBuild && actualBuildStale;
   if (skipStaleBuild && actualBuildStale) {
