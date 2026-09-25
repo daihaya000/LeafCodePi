@@ -717,6 +717,7 @@ export const BotView = memo(function BotView({ id, active = true }: { id: string
           const payload = JSON.parse((event as MessageEvent).data) as {
             message?: UiMessage | null;
             isStreaming?: boolean;
+            contextUsage?: ContextUsageDto;
           };
           // Text/tool deltas can arrive several times per second. Keep them
           // interruptible so typing and permission controls stay responsive.
@@ -738,6 +739,7 @@ export const BotView = memo(function BotView({ id, active = true }: { id: string
             if (payload.isStreaming !== undefined) {
               setSending((current) => current === payload.isStreaming ? current : payload.isStreaming!);
             }
+            if (payload.contextUsage) setContextUsage(payload.contextUsage);
           });
         } catch { setError("イベントの解析に失敗しました"); }
       });
