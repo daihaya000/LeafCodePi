@@ -120,7 +120,7 @@ import { registerTypeSafeProvider } from "@/lib/pi/typesafe-provider";
 import { isJevModel, type JevCatalogModel, type JevModelRef } from "@/lib/jev-model-catalog";
 import { clearJevDiscoveryCache, discoverJevModels, registeredJevEndpoint } from "@/lib/pi/jev-model-discovery";
 import { readJevModelSettings } from "@/lib/pi/jev-model-config";
-import { hasUsableJevModel } from "@/lib/jev-model-settings";
+import { hasUsableJevModel, JEV_MODEL_SETTING_KEY } from "@/lib/jev-model-settings";
 import {
   registerOrcaRouterProvider,
   syncOrcaRouterProvider,
@@ -4823,7 +4823,10 @@ async function rebuildHealth(): Promise<HealthDto> {
 /** The same enabled accounts and stored credentials as the ordinary model catalog. */
 export async function listJevModels(refresh = false): Promise<JevCatalogModel[]> {
   await ensureRuntime();
-  if (refresh) clearJevDiscoveryCache();
+  if (refresh) {
+    clearJevDiscoveryCache();
+    jevUsableCache = null;
+  }
   const runtime = await getRuntimeFor();
   const shared = runtime ? discoverJevModels(runtime, {
     providerIds: runtime.getProviders().filter((provider) => !runsThroughAccounts(provider.id)).map((provider) => provider.id),
@@ -4877,13 +4880,31 @@ export async function listJevModels(refresh = false): Promise<JevCatalogModel[]>
     .map(({ model }) => model);
 }
 
-/** False when no Jev model can be called, so callers skip the request entirely. */
-export async function hasUsableJevModelConfigured(): Promise<boolean> {
+const JEV_USABLE_TTL_MS = 60_000;
+let jevUsableCache: { key: string; expiresAt: number; value: Promise<boolean> } | null = null;
+
+/**
+ * False when no Jev model can be called, so callers skip the request entirely.
+ * The result is reused while the Jev settings, provider toggles and enabled accounts are
+ * unchanged; credential changes are picked up after the short TTL or a catalog refresh.
+ */
+export function hasUsableJevModelConfigured(): Promise<boolean> {
+  let key: string;
   try {
-    return hasUsableJevModel({ settings: readJevModelSettings(), models: await listJevModels() });
+    key = JSON.stringify([
+      getSetting(JEV_MODEL_SETTING_KEY),
+      readProviderModelState(),
+      listAccounts().filter(isAccountEnabled).map((account) => account.id),
+    ]);
   } catch {
-    return false;
+    return Promise.resolve(false);
   }
+  if (jevUsableCache?.key === key && jevUsableCache.expiresAt > Date.now()) return jevUsableCache.value;
+  const value = listJevModels()
+    .then((models) => hasUsableJevModel({ settings: readJevModelSettings(), models }))
+    .catch(() => false);
+  jevUsableCache = { key, expiresAt: Date.now() + JEV_USABLE_TTL_MS, value };
+  return value;
 }
 
 /** Resolve current credentials, never copy account keys or silently pick another account. */
@@ -5430,7 +5451,8 @@ export async function resolveAutoModel(input: {
     historyMessageCount: input.historyMessageCount ?? 0,
     recentFailure: input.recentFailure === true,
   };
-  const jevTier = isAutoJevEnabled(getSetting(AUTO_JEV_ENABLED_SETTING_KEY))
+  const jevTier = isAutoJevEnabled(getSetting(AUTO_JEV_ENABLED_SETTING_KEY)) &&
+    await hasUsableJevModelConfigured()
     ? await classifyAutoTierWithJev(
       { prompt: input.prompt, ...signals },
       {

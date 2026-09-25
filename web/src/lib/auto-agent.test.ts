@@ -6,8 +6,12 @@ const mocks = vi.hoisted(() => ({
   parseDirectModelKey: vi.fn(),
   buildDirectGenerationCandidates: vi.fn(),
   generateDirectTextWithFallbackResult: vi.fn(),
+  hasUsableJevModelConfigured: vi.fn(),
+  selectAutoAgentWithJev: vi.fn(),
 }));
 
+vi.mock("@/lib/pi/harness", () => ({ hasUsableJevModelConfigured: mocks.hasUsableJevModelConfigured }));
+vi.mock("@/lib/auto-jev", () => ({ selectAutoAgentWithJev: mocks.selectAutoAgentWithJev }));
 vi.mock("@/lib/agents", () => ({ listAgents: mocks.listAgents }));
 vi.mock("@/lib/pi/web-settings", () => ({ getSetting: mocks.getSetting }));
 vi.mock("@/lib/direct-generation", () => ({
@@ -64,6 +68,8 @@ beforeEach(() => {
     ],
     agentsDir: "",
   });
+  mocks.hasUsableJevModelConfigured.mockReset().mockResolvedValue(false);
+  mocks.selectAutoAgentWithJev.mockReset().mockResolvedValue("reviewer");
   mocks.getSetting.mockReturnValue(null);
   mocks.parseDirectModelKey.mockReturnValue(undefined);
   mocks.buildDirectGenerationCandidates.mockReturnValue([]);
@@ -539,5 +545,18 @@ describe("auto-agent rule-first", () => {
       resolveAutoAgent({ conversation: [], prompt }),
     ).resolves.toBe(DEFAULT_AGENT);
     expect(mocks.generateDirectTextWithFallbackResult).not.toHaveBeenCalled();
+  });
+});
+
+describe("resolveAutoAgent Jev guard", () => {
+  it("calls Jev only when a Jev model is usable", async () => {
+    mocks.getSetting.mockImplementation((key: string) => (key === "auto-jev-enabled" ? "1" : null));
+
+    await resolveAutoAgent({ conversation: [], prompt: "review this diff" });
+    expect(mocks.selectAutoAgentWithJev).not.toHaveBeenCalled();
+
+    mocks.hasUsableJevModelConfigured.mockResolvedValue(true);
+    expect(await resolveAutoAgent({ conversation: [], prompt: "review this diff" })).toBe("reviewer");
+    expect(mocks.selectAutoAgentWithJev).toHaveBeenCalledOnce();
   });
 });

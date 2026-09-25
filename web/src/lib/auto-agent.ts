@@ -271,6 +271,16 @@ export function autoAgentHasOwnModel(): boolean {
   return configuredSelectionModel() !== undefined;
 }
 
+/** Lazy import keeps this module free of the harness runtime until Jev is actually enabled. */
+async function jevModelUsable(): Promise<boolean> {
+  try {
+    const { hasUsableJevModelConfigured } = await import("@/lib/pi/harness");
+    return await hasUsableJevModelConfigured();
+  } catch {
+    return false;
+  }
+}
+
 /** Resolve the Auto sentinel without exposing transcript or agent definitions to the browser. */
 export async function resolveAutoAgent(options: AutoAgentOptions): Promise<string> {
   const candidates = enabledCandidates();
@@ -283,7 +293,7 @@ export async function resolveAutoAgent(options: AutoAgentOptions): Promise<strin
   // One candidate is the only possible answer; the router call cannot change it.
   if (candidates.length === 1) return fallback;
 
-  if (isAutoJevEnabled(getSetting(AUTO_JEV_ENABLED_SETTING_KEY))) {
+  if (isAutoJevEnabled(getSetting(AUTO_JEV_ENABLED_SETTING_KEY)) && await jevModelUsable()) {
     try {
       const jevSelection = await selectAutoAgentWithJev(
         {
