@@ -22,7 +22,7 @@ import {
   splitTitleAndLabel,
 } from "@/lib/direct-generation-text";
 import { classifySessionLabelWithJev, matchSessionLabelByRule } from "@/lib/auto-jev";
-import { hasUsableJevModelConfigured } from "@/lib/pi/harness";
+import { emitTaskChanged, hasUsableJevModelConfigured } from "@/lib/pi/harness";
 import {
   AUTO_JEV_ENABLED_SETTING_KEY,
   AUTO_JEV_MIN_CONFIDENCE_SETTING_KEY,
@@ -145,7 +145,7 @@ export async function refreshTaskTitleDirect(
   ).then((value) => {
     jevSettled = true;
     jevLabel = value;
-    if (value) patchTask(taskId, { label: value });
+    if (value && patchTask(taskId, { label: value })) emitTaskChanged(taskId, "label_changed");
     return value;
   }).catch(() => {
     jevSettled = true;

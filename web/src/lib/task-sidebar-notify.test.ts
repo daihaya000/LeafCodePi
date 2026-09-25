@@ -19,6 +19,10 @@ describe("taskSidebarNotifyKey", () => {
     expect(taskSidebarNotifyKey(task)).not.toBe(taskSidebarNotifyKey({ ...task, supervisorBotId: "bot-1" }));
   });
 
+  it("changes when an async label arrives", () => {
+    expect(taskSidebarNotifyKey(task)).not.toBe(taskSidebarNotifyKey({ ...task, label: "debug" }));
+  });
+
   it("does not require loop state for ordinary tasks", () => {
     expect(taskSidebarNotifyKey({ ...task, goalLoopSummary: undefined })).toBe("task-1|idle|タスクA|||");
   });

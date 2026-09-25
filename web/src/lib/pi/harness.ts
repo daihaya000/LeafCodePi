@@ -7316,7 +7316,8 @@ function startInitialSessionLabelClassification(taskId: string, prompt: string):
     )
     : undefined,
   ).then((label) => {
-    if (label) patchTask(taskId, { label });
+    // Push the late label to open panes; otherwise it waits for the next lifecycle snapshot.
+    if (label && patchTask(taskId, { label })) emitTaskChanged(taskId, "label_changed");
   }).catch(() => undefined);
 }
 

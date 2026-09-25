@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const state = vi.hoisted(() => ({
   root: "",
   hasUsableJevModelConfigured: vi.fn(async () => false),
+  emitTaskChanged: vi.fn(),
   classifySessionLabelWithJev: vi.fn(async (): Promise<string | undefined> => "code"),
   generateDirectTextWithFallbackResult: vi.fn(),
   getSetting: vi.fn<(key: string) => string>(() => ""),
@@ -34,6 +35,7 @@ vi.mock("@/lib/direct-generation", async (importOriginal) => {
 
 vi.mock("@/lib/pi/harness", () => ({
   hasUsableJevModelConfigured: state.hasUsableJevModelConfigured,
+  emitTaskChanged: state.emitTaskChanged,
 }));
 
 vi.mock("@/lib/auto-jev", async (importOriginal) => ({
