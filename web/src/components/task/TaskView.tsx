@@ -2809,10 +2809,6 @@ export const TaskView = memo(function TaskView({
     const userIds: string[] = [];
     const fallbackIds: string[] = [];
     let detectedHangRetryCount = 0;
-    let totalInputTokens = 0;
-    let totalOutputTokens = 0;
-    let rateSum = 0;
-    let rateCount = 0;
     let durationMs = 0;
     let prevCreatedAt: number | null = null;
     for (const message of messages) {
@@ -2825,31 +2821,17 @@ export const TaskView = memo(function TaskView({
       if (message.role === "user") userIds.push(message.id);
       else if (message.role !== "compaction") fallbackIds.push(message.id);
       if (message.role === "user" || message.role === "compaction") continue;
-      if (typeof message.inputTokens === "number" && message.inputTokens > 0) {
-        totalInputTokens += message.inputTokens;
-      }
-      if (typeof message.outputTokens === "number" && message.outputTokens > 0) {
-        totalOutputTokens += message.outputTokens;
-      }
-      if (typeof message.tokensPerSecond === "number" && message.tokensPerSecond > 0) {
-        rateSum += message.tokensPerSecond;
-        rateCount += 1;
-      }
       if (prevCreatedAt !== null) {
         durationMs += Math.max(0, message.createdAt - prevCreatedAt);
       }
       prevCreatedAt = message.createdAt;
     }
-    const avgRate = rateCount > 0 ? rateSum / rateCount : null;
     return {
       visibleMessages: visible,
       detectedHangRetryCount,
       userMessageIds: userIds,
       navigationMessageIds: userIds.length > 0 ? userIds : fallbackIds,
       stats: {
-        totalInputTokens,
-        totalOutputTokens,
-        avgRate,
         durationMs: messages.length > 1 ? durationMs : 0,
       },
     };
@@ -2905,6 +2887,25 @@ export const TaskView = memo(function TaskView({
       ),
     [renderedMessages, resumeInsideExistingBanner, resumeTarget?.messageId],
   );
+  // メッセージヘッダーに表示する tok/s だけを平均する。
+  const avgHeaderRate = useMemo(() => {
+    let sum = 0;
+    let count = 0;
+    const add = (message: UiMessage) => {
+      if (message.role === "user" || message.role === "compaction") return;
+      if (typeof message.tokensPerSecond !== "number" || !Number.isFinite(message.tokensPerSecond)) return;
+      sum += message.tokensPerSecond;
+      count += 1;
+    };
+    for (const block of messageBlocks) {
+      if (block.kind === "message") add(block.message);
+      else block.entries.forEach((entry, index) => {
+        if (index > 0 && entry.showHeader) add(entry.message);
+      });
+    }
+    return count > 0 ? sum / count : null;
+  }, [messageBlocks]);
+  const avgHeaderRateLabel = avgHeaderRate === null ? null : formatTokensPerSecond(avgHeaderRate);
   const resumeBannerText =
     resumeTarget?.reason === "silent"
       ? "応答がありませんでした"
@@ -3071,6 +3072,14 @@ export const TaskView = memo(function TaskView({
                   <ContextUsageMeter usage={contextUsage} />
                 </span>
               )}
+              {avgHeaderRateLabel && (
+                <span
+                  className="shrink-0 font-mono tabular-nums"
+                  title="平均 tok/s（メッセージヘッダーの tok/s の平均）"
+                >
+                  {avgHeaderRateLabel}
+                </span>
+              )}
             </div>
           </div>
           <div className="hidden @min-[500px]/task:flex">
@@ -3106,20 +3115,12 @@ export const TaskView = memo(function TaskView({
               <ContextUsageMeter usage={contextUsage} />
             </span>
           )}
-          {(stats.totalInputTokens > 0 || stats.totalOutputTokens > 0) && (
+          {avgHeaderRateLabel && (
             <span
               className="hidden font-mono tabular-nums @min-[500px]/task:inline"
-              title={`合計${stats.totalInputTokens > 0 ? ` ↑${formatTokens(stats.totalInputTokens)}` : ""}${stats.totalOutputTokens > 0 ? ` ↓${formatTokens(stats.totalOutputTokens)}` : ""} tok`}
+              title="平均 tok/s（メッセージヘッダーの tok/s の平均）"
             >
-              {stats.totalInputTokens > 0 ? `↑${formatTokens(stats.totalInputTokens)} ` : ""}{stats.totalOutputTokens > 0 ? `↓${formatTokens(stats.totalOutputTokens)} ` : ""}tok
-            </span>
-          )}
-          {stats.avgRate !== null && (
-            <span
-              className="hidden font-mono tabular-nums @min-[500px]/task:inline"
-              title="平均 tok/s（応答ごとの tok/s の平均）"
-            >
-              {formatTokensPerSecond(stats.avgRate)}
+              {avgHeaderRateLabel}
             </span>
           )}
           {stats.durationMs > 0 && (

@@ -1318,18 +1318,27 @@ describe("TaskView draft submission", () => {
     ));
   });
 
-  it("keeps context beside the label in narrow panes and restores context and token stats to the wide status row", () => {
+  it("shows the average message-header tok/s beside the label in narrow panes and in the wide status row", () => {
     saveTaskSessionCache({
       task: { ...task, label: "code" },
-      messages: [{
-        id: "assistant-1",
-        role: "assistant",
-        createdAt: 1,
-        inputTokens: 3400,
-        outputTokens: 1200,
-        tokensPerSecond: 20,
-        parts: [],
-      }],
+      messages: [
+        {
+          id: "assistant-1",
+          role: "assistant",
+          createdAt: 1,
+          inputTokens: 3400,
+          outputTokens: 1200,
+          tokensPerSecond: 20,
+          parts: [{ id: "reply-1", type: "text", text: "reply one" }],
+        },
+        {
+          id: "assistant-2",
+          role: "assistant",
+          createdAt: 2,
+          tokensPerSecond: 40,
+          parts: [{ id: "reply-2", type: "text", text: "reply two" }],
+        },
+      ],
       isStreaming: false,
       isCompacting: false,
       contextUsage: { tokens: 405_000, contextWindow: 1_000_000, percent: 41 },
@@ -1351,17 +1360,18 @@ describe("TaskView draft submission", () => {
     const meterTitle = "コンテキスト使用量: 405k / 1M トークン（41%）";
     const narrowMeter = sessionInfo.querySelector(`[title="${meterTitle}"]`);
     const wideMeter = status.querySelector(`[title="${meterTitle}"]`);
-    const tokens = screen.getByTitle("合計 ↑3.4k ↓1.2k tok");
-    const rate = screen.getByTitle("平均 tok/s（応答ごとの tok/s の平均）");
+    const [narrowRate, wideRate] = screen.getAllByTitle("平均 tok/s（メッセージヘッダーの tok/s の平均）");
     expect(narrowMeter?.parentElement?.className).toContain("@min-[500px]/task:hidden");
     expect(wideMeter?.parentElement?.className).toContain("hidden @min-[500px]/task:flex");
     expect(sessionInfo.className).toContain("overflow-hidden");
     expect(narrowMeter?.querySelector(".truncate")).toBeTruthy();
-    expect(sessionInfo.contains(tokens)).toBe(false);
-    expect(status.contains(tokens)).toBe(true);
-    expect(status.contains(rate)).toBe(true);
-    expect(tokens.className).toContain("@min-[500px]/task:inline");
-    expect(rate.className).toContain("@min-[500px]/task:inline");
+    expect(screen.queryByText(/↑3\.4k/)).toBeNull();
+    expect(sessionInfo.contains(narrowRate!)).toBe(true);
+    expect(narrowRate!.textContent).toBe("30 tok/s");
+    expect(status.contains(wideRate!)).toBe(true);
+    expect(wideRate!.textContent).toBe("30 tok/s");
+    expect(wideRate!.className).toContain("hidden");
+    expect(wideRate!.className).toContain("@min-[500px]/task:inline");
     expect(wideMeter?.className).toContain("@min-[500px]/task:text-[11px]");
   });
 
