@@ -536,7 +536,7 @@ const BotSidebarBody = memo(function BotSidebarBody({
           <img src="/icon.svg" alt="" className="h-6 w-6 rounded-[5px]" />
           <span className="flex min-w-0 flex-col leading-tight">
             <span className="truncate text-sm font-semibold">LeafCodePi</span>
-            <HostnameLabel className="truncate text-[11px] text-muted" />
+            <HostnameLabel className="self-start" />
           </span>
         </Link>
         <button
@@ -2262,7 +2262,7 @@ const SidebarView = memo(function SidebarView({
           <img src="/icon.svg" alt="" className="h-6 w-6 rounded-[5px]" />
           <span className="flex min-w-0 flex-col leading-tight">
             <span className="truncate text-sm font-semibold">LeafCodePi</span>
-            <HostnameLabel className="truncate text-[11px] text-muted" />
+            <HostnameLabel className="self-start" />
           </span>
         </Link>
         <button

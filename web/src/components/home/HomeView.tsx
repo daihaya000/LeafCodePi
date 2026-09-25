@@ -542,7 +542,7 @@ export const HomeView = memo(function HomeView({
                 <img src="/icon.svg" alt="" width={28} height={28} className="h-7 w-7 shrink-0 rounded-[6px] object-contain sm:h-8 sm:w-8" />
                 <span>LeafCodePi</span>
               </h1>
-              <HostnameLabel className="max-w-full truncate text-xs text-muted" />
+              <HostnameLabel className="px-1.5 text-[11px] leading-[18px]" />
             </div>
             <div className="mx-auto mb-3 flex max-w-5xl items-center justify-start gap-2 overflow-x-auto px-1 py-1">
               <GhostSelect
