@@ -2988,7 +2988,7 @@ export const TaskView = memo(function TaskView({
         className="grid min-h-11 shrink-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-2 border-b border-bot-outline bg-bot-chat px-3 pb-0.5 @min-[500px]/task:px-4"
         style={{ paddingTop: "env(safe-area-inset-top)" }}
       >
-        <div className="col-span-2 flex min-w-0 items-center gap-2">
+        <div className="col-span-2 flex min-w-0 translate-y-1 items-center gap-2">
           <MobileMenuButton />
           {iconFor(taskId, 24, task ?? undefined)}
           <div className="flex min-w-0 flex-1 flex-col justify-center">

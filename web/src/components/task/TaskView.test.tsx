@@ -1337,6 +1337,7 @@ describe("TaskView draft submission", () => {
     const sessionInfo = screen.getByLabelText("セッション情報");
     const status = screen.getByLabelText("タスクの状態");
     const heading = screen.getByRole("heading", { name: task.title });
+    expect(heading.closest("header")?.firstElementChild?.className).toContain("translate-y-1");
     expect(sessionInfo.textContent).toContain("コード");
     expect(sessionInfo.className).toContain("@min-[500px]/task:hidden");
     expect(heading.className).toContain("@min-[500px]/task:items-center");
