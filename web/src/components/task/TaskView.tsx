@@ -2990,7 +2990,6 @@ export const TaskView = memo(function TaskView({
       >
         <div className="col-span-2 flex min-w-0 translate-y-1 items-center gap-2">
           <MobileMenuButton />
-          {iconFor(taskId, 24, task ?? undefined)}
           <div className="flex min-w-0 flex-1 flex-col justify-center">
             {titleEditing ? (
               <form
@@ -3090,6 +3089,7 @@ export const TaskView = memo(function TaskView({
           </div>
         </div>
         <div aria-label="タスクの状態" className="col-span-1 col-start-1 row-start-2 flex min-w-0 items-center gap-x-2 overflow-hidden text-xs text-muted @max-[500px]/task:-translate-y-0.5">
+          <span aria-label="プロジェクトアイコン" className="inline-flex shrink-0">{iconFor(taskId, 24, task ?? undefined)}</span>
           {permissionRequest && <Badge tone="warning" className="shrink-0">承認待ち</Badge>}
           {questionRequest && <Badge tone="warning" className="shrink-0">回答待ち</Badge>}
           {displayedStatus && <StatusBadge status={displayedStatus} className="shrink-0" />}

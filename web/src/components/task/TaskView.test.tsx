@@ -66,7 +66,7 @@ it("keeps a document-hidden active task unread until the document is visible", a
   }
 });
 
-it("displays the project icon to the left of the task title", async () => {
+it("displays the project icon at the start of the status row", async () => {
   const projectTask = { ...task, projectId: "project-1" };
   const icon = <span data-testid="project-icon" />;
   mocks.iconFor.mockReturnValue(icon);
@@ -75,7 +75,9 @@ it("displays the project icon to the left of the task title", async () => {
 
   const projectIcon = await screen.findByTestId("project-icon");
   const title = screen.getByRole("heading", { name: projectTask.title });
-  expect(projectIcon.compareDocumentPosition(title) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  const status = screen.getByLabelText("タスクの状態");
+  expect(status.firstElementChild?.firstElementChild).toBe(projectIcon);
+  expect(title.compareDocumentPosition(projectIcon) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   expect(mocks.iconFor).toHaveBeenCalledWith(task.id, 24, expect.objectContaining({ projectId: "project-1" }));
 });
 
@@ -1338,6 +1340,8 @@ describe("TaskView draft submission", () => {
     const status = screen.getByLabelText("タスクの状態");
     const heading = screen.getByRole("heading", { name: task.title });
     expect(heading.closest("header")?.firstElementChild?.className).toContain("translate-y-1");
+    expect(status.firstElementChild?.getAttribute("aria-label")).toBe("プロジェクトアイコン");
+    expect(heading.closest("header")?.firstElementChild?.contains(status.firstElementChild)).toBe(false);
     expect(sessionInfo.textContent).toContain("コード");
     expect(sessionInfo.className).toContain("@min-[500px]/task:hidden");
     expect(heading.className).toContain("@min-[500px]/task:items-center");
