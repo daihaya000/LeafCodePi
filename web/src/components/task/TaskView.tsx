@@ -2898,13 +2898,15 @@ export const TaskView = memo(function TaskView({
       count += 1;
     };
     for (const block of messageBlocks) {
-      if (block.kind === "message") add(block.message);
-      else block.entries.forEach((entry, index) => {
+      if (block.kind === "message") {
+        // 再開バナーへ置換されたメッセージはヘッダーを表示しない。
+        if (!(showResume && resumeInsideExistingBanner && resumeTarget?.messageId === block.message.id)) add(block.message);
+      } else block.entries.forEach((entry, index) => {
         if (index > 0 && entry.showHeader) add(entry.message);
       });
     }
     return count > 0 ? sum / count : null;
-  }, [messageBlocks]);
+  }, [messageBlocks, showResume, resumeInsideExistingBanner, resumeTarget?.messageId]);
   const avgHeaderRateLabel = avgHeaderRate === null ? null : formatTokensPerSecond(avgHeaderRate);
   const resumeBannerText =
     resumeTarget?.reason === "silent"
