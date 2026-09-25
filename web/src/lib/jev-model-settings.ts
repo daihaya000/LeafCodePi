@@ -106,6 +106,11 @@ export function enabledJevModelKeys(settings: JevModelSettings, models: JevCatal
 export function hasUsableJevModel(dto: Pick<JevModelSettingsDto, "settings" | "models">): boolean {
   if (dto.settings.provider === "compatible") return true;
   const models = dto.models ?? [];
+  // Legacy TypeSafe calls settings.typesafeModel with the TypeSafe credential; the catalog
+  // lists a TypeSafe row exactly when that credential exists, whatever the model ID is.
+  if (dto.settings.provider === "typesafe" && !dto.settings.enabledModels) {
+    return models.some((model) => model.providerId === "typesafe");
+  }
   const keys = enabledJevModelKeys(dto.settings, models);
   return models.some((model) => model.providerEnabled !== false && keys.has(jevModelKey(model)));
 }
