@@ -229,7 +229,7 @@ function SidebarFooter({ health, onSettings }: { health: HealthDto | null; onSet
   }, []);
 
   const restartWebUi = async () => {
-    if (restartBusy || !window.confirm("WebUIを再起動しますか？")) return;
+    if (restartBusy || !window.confirm("WebUIを再起動しますか？（更新がある場合は Pull と再ビルドも行います）")) return;
     setRestartBusy(true);
     setRestartError(null);
     try {
@@ -278,7 +278,7 @@ function SidebarFooter({ health, onSettings }: { health: HealthDto | null; onSet
             variant="ghost"
             size="icon"
             aria-label="WebUIを再起動"
-            title="WebUIを再起動"
+            title="WebUIを再起動（更新があればPull・再ビルド）"
             busy={restartBusy}
             onClick={() => void restartWebUi()}
           >

@@ -98,6 +98,26 @@ afterEach(() => {
 });
 
 describe("Bot mode list", () => {
+  it("フッターの再起動も更新確認付きのWebUI再起動へ送る", async () => {
+    localStorage.setItem("webui.sidebar.collapsed", "0");
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+    const restartEvent = vi.fn();
+    window.addEventListener("leafcode:webui-restart", restartEvent);
+    try {
+      render(<Sidebar mobileOpen={false} onClose={vi.fn()} />);
+      const button = await screen.findByRole("button", { name: "WebUIを再起動" });
+      expect(button.getAttribute("title")).toContain("更新があればPull・再ビルド");
+      fireEvent.click(button);
+
+      expect(confirm).toHaveBeenCalledWith("WebUIを再起動しますか？（更新がある場合は Pull と再ビルドも行います）");
+      await waitFor(() => expect(mocks.sendJson).toHaveBeenCalledWith("/api/host/restart", { target: "webui" }));
+      await waitFor(() => expect(restartEvent).toHaveBeenCalledOnce());
+    } finally {
+      window.removeEventListener("leafcode:webui-restart", restartEvent);
+      confirm.mockRestore();
+    }
+  });
+
   it("defaults to Code when no mode is saved", async () => {
     localStorage.removeItem("leafcodepi.mode");
     localStorage.setItem("webui.sidebar.collapsed", "0");
