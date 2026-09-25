@@ -4887,8 +4887,22 @@ let jevUsableCache: { key: string; expiresAt: number; value: Promise<boolean> } 
  * False when no Jev model can be called, so callers skip the request entirely.
  * The result is reused while the Jev settings, provider toggles and enabled accounts are
  * unchanged; credential changes are picked up after the short TTL or a catalog refresh.
+ * Failures are not cached. A cold catalog read is bounded by the Jev timeout so routing
+ * never waits longer than a Jev call would; the read keeps filling the cache.
  */
 export function hasUsableJevModelConfigured(): Promise<boolean> {
+  let timeoutMs: number;
+  try {
+    timeoutMs = readJevModelSettings().timeoutMs;
+  } catch {
+    return Promise.resolve(false);
+  }
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<boolean>((resolve) => { timer = setTimeout(() => resolve(false), timeoutMs); });
+  return Promise.race([readJevUsable(), timeout]).finally(() => clearTimeout(timer));
+}
+
+function readJevUsable(): Promise<boolean> {
   let key: string;
   try {
     key = JSON.stringify([
@@ -4900,11 +4914,18 @@ export function hasUsableJevModelConfigured(): Promise<boolean> {
     return Promise.resolve(false);
   }
   if (jevUsableCache?.key === key && jevUsableCache.expiresAt > Date.now()) return jevUsableCache.value;
-  const value = listJevModels()
-    .then((models) => hasUsableJevModel({ settings: readJevModelSettings(), models }))
-    .catch(() => false);
-  jevUsableCache = { key, expiresAt: Date.now() + JEV_USABLE_TTL_MS, value };
-  return value;
+  const entry = {
+    key,
+    expiresAt: Date.now() + JEV_USABLE_TTL_MS,
+    value: listJevModels()
+      .then((models) => hasUsableJevModel({ settings: readJevModelSettings(), models }))
+      .catch(() => {
+        if (jevUsableCache === entry) jevUsableCache = null;
+        return false;
+      }),
+  };
+  jevUsableCache = entry;
+  return entry.value;
 }
 
 /** Resolve current credentials, never copy account keys or silently pick another account. */
@@ -5444,6 +5465,10 @@ export async function resolveAutoModel(input: {
     enabled: account.enabled,
     providers: account.providers,
   }));
+  // Check Jev availability while the model catalog loads instead of after it.
+  const jevUsable = isAutoJevEnabled(getSetting(AUTO_JEV_ENABLED_SETTING_KEY))
+    ? hasUsableJevModelConfigured()
+    : Promise.resolve(false);
   const models = await buildModelsForAccounts(accounts, 5 * 60 * 1000);
   const signals = {
     hasImages: input.hasImages,
@@ -5451,8 +5476,7 @@ export async function resolveAutoModel(input: {
     historyMessageCount: input.historyMessageCount ?? 0,
     recentFailure: input.recentFailure === true,
   };
-  const jevTier = isAutoJevEnabled(getSetting(AUTO_JEV_ENABLED_SETTING_KEY)) &&
-    await hasUsableJevModelConfigured()
+  const jevTier = await jevUsable
     ? await classifyAutoTierWithJev(
       { prompt: input.prompt, ...signals },
       {
