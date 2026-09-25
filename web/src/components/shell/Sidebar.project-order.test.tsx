@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import type { ReactNode } from "react";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -56,6 +56,7 @@ vi.mock("@/components/ui", () => ({
   },
   cx: (...classes: unknown[]) => classes.filter(Boolean).join(" "),
   timeAgo: () => "",
+  Spinner: () => null,
   ThemeToggle: () => null,
 }));
 
@@ -94,35 +95,15 @@ async function openProjectSettings() {
   return screen.findByRole("dialog", { name: "プロジェクト設定" });
 }
 
-/** ネイティブダイアログ対応（Windows ホスト）として health を返す。 */
-function useWindowsHost() {
-  const base = mocks.getJson.getMockImplementation()!;
-  mocks.getJson.mockImplementation((path: string) =>
-    path === "/api/health"
-      ? Promise.resolve({
-          ok: true,
-          engine: "pi",
-          engineOk: true,
-          version: "1.0.0",
-          modelCount: 0,
-          dataDir: "C:\\data",
-          error: null,
-          platform: "win32",
-        })
-      : base(path),
-  );
+async function openIconBrowser() {
+  fireEvent.click(await screen.findByRole("button", { name: "Project Aのアイコンを設定" }));
+  return screen.findByRole("dialog", { name: "アイコンを選択" });
 }
 
-/** ホストPCのブラウザ（loopback 制御面に到達できる）を模す。 */
-function useLocalHost() {
-  const json = (body: unknown) =>
-    new Response(JSON.stringify(body), { headers: { "content-type": "application/json" } });
-  vi.stubGlobal(
-    "fetch",
-    vi.fn()
-      .mockResolvedValueOnce(json({ controlUrl: "http://127.0.0.1:18775", path: "C:\\repo-a" }))
-      .mockResolvedValueOnce(json({ ok: true, explorer: true })),
-  );
+/** アプリ内エクスプローラーを開き、端末アップロード用の file input を返す。 */
+async function openIconUpload() {
+  await openIconBrowser();
+  return (await screen.findByLabelText("この端末からアップロード")) as HTMLInputElement;
 }
 
 beforeEach(() => {
@@ -132,6 +113,16 @@ beforeEach(() => {
   mocks.getJson.mockReset().mockImplementation((path: string) => {
     if (path === "/api/projects?archived=1") return Promise.resolve({ projects });
     if (path === "/api/tasks?kind=all" || path === "/api/tasks?archived=1&kind=all") return Promise.resolve({ tasks: [] });
+    if (path === "/api/browse/icon") {
+      return Promise.resolve({
+        path: "C:\\repo-a",
+        parent: null,
+        entries: [
+          { name: "assets", path: "C:\\repo-a\\assets", kind: "dir" },
+          { name: "app.ico", path: "C:\\repo-a\\app.ico", kind: "file" },
+        ],
+      });
+    }
     if (path === "/api/health") {
       return Promise.resolve({
         ok: true,
@@ -408,7 +399,7 @@ describe("Sidebar project ordering", () => {
     render(<Sidebar mobileOpen={false} onClose={vi.fn()} />);
     await openProjectSettings();
 
-    const input = (await screen.findByLabelText("Project Aのアイコンを設定")) as HTMLInputElement;
+    let input = await openIconUpload();
     expect(input.accept.split(",")).toEqual([
       "image/png",
       "image/jpeg",
@@ -424,6 +415,7 @@ describe("Sidebar project ordering", () => {
     });
     expect(alert).toHaveBeenCalledWith("PNG・JPEG・GIF・WebP・ICO の画像を選択してください。");
 
+    input = await openIconUpload();
     fireEvent.change(input, {
       target: { files: [new File([new Uint8Array(2 * 1024 * 1024 + 1)], "large.png", { type: "image/png" })] },
     });
@@ -437,7 +429,7 @@ describe("Sidebar project ordering", () => {
     render(<Sidebar mobileOpen={false} onClose={vi.fn()} />);
     await openProjectSettings();
 
-    const input = (await screen.findByLabelText("Project Aのアイコンを設定")) as HTMLInputElement;
+    const input = await openIconUpload();
     fireEvent.change(input, { target: { files: [new File(["icon"], "icon.ico", { type })] } });
 
     await waitFor(() => {
@@ -451,9 +443,7 @@ describe("Sidebar project ordering", () => {
     alert.mockRestore();
   });
 
-  it("opens the host file dialog at the repository when the host can show it", async () => {
-    useWindowsHost();
-    useLocalHost();
+  it("opens the in-app explorer at the repository and saves the picked icon", async () => {
     const icon = "data:image/x-icon;base64,AAABAA==";
     mocks.sendJson.mockImplementation((path: string) =>
       Promise.resolve(path === "/api/browse/icon" ? { icon } : { project: { ...projects[0], icon } }),
@@ -461,65 +451,46 @@ describe("Sidebar project ordering", () => {
     render(<Sidebar mobileOpen={false} onClose={vi.fn()} />);
     await openProjectSettings();
 
-    fireEvent.click(await screen.findByRole("button", { name: "Project Aのアイコンを設定" }));
+    const browser = await openIconBrowser();
+    expect(mocks.getJson).toHaveBeenCalledWith("/api/browse/icon", { path: "C:\\repo-a" });
+    fireEvent.click(await within(browser).findByRole("button", { name: "app.ico" }));
 
     await waitFor(() => {
       expect(mocks.sendJson).toHaveBeenCalledWith(
         "/api/browse/icon",
-        { path: "C:\\repo-a" },
+        { path: "C:\\repo-a\\app.ico" },
         "POST",
-        { timeoutMs: 135_000 },
+        { timeoutMs: 30_000 },
       );
     });
     await waitFor(() => {
       expect(mocks.sendJson).toHaveBeenCalledWith("/api/projects", { id: "project-a", icon }, "PATCH");
     });
+    expect(screen.queryByRole("dialog", { name: "アイコンを選択" })).toBeNull();
   });
 
-  it("falls back to the browser file input when the host dialog fails", async () => {
-    useWindowsHost();
-    useLocalHost();
-    mocks.sendJson.mockRejectedValueOnce(new Error("ネイティブ選択は Windows のみです"));
+  it("keeps the in-app explorer open after a rejected icon choice", async () => {
+    mocks.sendJson.mockRejectedValueOnce(new Error("EXEからアイコンを取得できませんでした。"));
     render(<Sidebar mobileOpen={false} onClose={vi.fn()} />);
     await openProjectSettings();
 
-    fireEvent.click(await screen.findByRole("button", { name: "Project Aのアイコンを設定" }));
+    const browser = await openIconBrowser();
+    fireEvent.click(await within(browser).findByRole("button", { name: "app.ico" }));
 
-    const alert = await screen.findByRole("alert");
-    expect(alert.textContent).toContain("ネイティブ選択は Windows のみです");
-    expect((await screen.findByLabelText("Project Aのアイコンを設定")).tagName).toBe("INPUT");
+    const alert = await within(browser).findByRole("alert");
+    expect(alert.textContent).toContain("EXEからアイコンを取得できませんでした。");
+    expect(screen.queryByRole("dialog", { name: "アイコンを選択" })).not.toBeNull();
   });
 
-  it("keeps the host dialog after a rejected image choice", async () => {
-    useWindowsHost();
-    useLocalHost();
-    mocks.sendJson.mockRejectedValueOnce(
-      Object.assign(new Error("PNG・JPEG・GIF・WebP・ICO の画像を選択してください。"), { status: 400 }),
-    );
+  it("closes only the in-app explorer on Escape", async () => {
     render(<Sidebar mobileOpen={false} onClose={vi.fn()} />);
     await openProjectSettings();
+    await openIconBrowser();
 
-    fireEvent.click(await screen.findByRole("button", { name: "Project Aのアイコンを設定" }));
+    fireEvent.keyDown(document, { key: "Escape" });
 
-    const alert = await screen.findByRole("alert");
-    expect(alert.textContent).toContain("PNG・JPEG・GIF・WebP・ICO の画像を選択してください。");
-    expect(screen.queryByRole("button", { name: "Project Aのアイコンを設定" })).not.toBeNull();
-  });
-
-  it("keeps the browser file input for a remote client", async () => {
-    useWindowsHost();
-    const json = (body: unknown) =>
-      new Response(JSON.stringify(body), { headers: { "content-type": "application/json" } });
-    vi.stubGlobal(
-      "fetch",
-      vi.fn()
-        .mockResolvedValueOnce(json({ controlUrl: "http://127.0.0.1:18775", path: "C:\\repo-a" }))
-        .mockRejectedValueOnce(new TypeError("Failed to fetch")),
-    );
-    render(<Sidebar mobileOpen={false} onClose={vi.fn()} />);
-    await openProjectSettings();
-
-    expect((await screen.findByLabelText("Project Aのアイコンを設定")).tagName).toBe("INPUT");
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "アイコンを選択" })).toBeNull());
+    expect(screen.queryByRole("dialog", { name: "プロジェクト設定" })).not.toBeNull();
   });
 
   it("shows a user-facing error when a project icon cannot be read", async () => {
@@ -533,7 +504,7 @@ describe("Sidebar project ordering", () => {
     render(<Sidebar mobileOpen={false} onClose={vi.fn()} />);
     await openProjectSettings();
 
-    const input = (await screen.findByLabelText("Project Aのアイコンを設定")) as HTMLInputElement;
+    const input = await openIconUpload();
     fireEvent.change(input, {
       target: { files: [new File(["icon"], "icon.png", { type: "image/png" })] },
     });
@@ -556,7 +527,7 @@ describe("Sidebar project ordering", () => {
     render(<Sidebar mobileOpen={false} onClose={vi.fn()} />);
     await openProjectSettings();
 
-    const input = (await screen.findByLabelText("Project Aのアイコンを設定")) as HTMLInputElement;
+    const input = await openIconUpload();
     fireEvent.change(input, {
       target: { files: [new File(["icon"], "icon.png", { type: "image/png" })] },
     });
@@ -565,17 +536,16 @@ describe("Sidebar project ordering", () => {
     expect(alert.textContent).toContain("プロジェクトアイコンの読み込みに失敗しました");
   });
 
-  it("uses the project settings icon as the file picker", async () => {
+  it("uploads a device image from the in-app explorer", async () => {
     render(<Sidebar mobileOpen={false} onClose={vi.fn()} />);
     await openProjectSettings();
 
-    const input = (await screen.findByLabelText("Project Aのアイコンを設定")) as HTMLInputElement;
-    const picker = input.parentElement;
-    expect(picker?.tagName).toBe("LABEL");
-    expect(picker?.title).toBe("Project Aのアイコンを設定");
+    const trigger = await screen.findByRole("button", { name: "Project Aのアイコンを設定" });
+    expect(trigger.title).toBe("Project Aのアイコンを設定");
+    const input = await openIconUpload();
 
     const file = new File(["icon"], "icon.png", { type: "image/png" });
-    fireEvent.change(input!, { target: { files: [file] } });
+    fireEvent.change(input, { target: { files: [file] } });
 
     await waitFor(() => {
       expect(mocks.sendJson).toHaveBeenCalledWith(
@@ -587,10 +557,7 @@ describe("Sidebar project ordering", () => {
         "PATCH",
       );
     });
-    expect(input.value).toBe("");
-
-    fireEvent.change(input, { target: { files: [file] } });
-    await waitFor(() => expect(mocks.sendJson).toHaveBeenCalledTimes(2));
+    expect(screen.queryByRole("dialog", { name: "アイコンを選択" })).toBeNull();
   });
 
   it("removes a saved project image from its settings", async () => {

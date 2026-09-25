@@ -27,7 +27,7 @@ import {
 import { AddProjectButton } from "@/components/AddProjectButton";
 import { WorkingTasksButton } from "@/components/WorkingTasksButton";
 import { ProjectIcon } from "@/components/ProjectIcon";
-import { discoverExplorerTarget, type ExplorerTarget } from "@/components/task/ProjectExplorerButton";
+import { ProjectIconBrowser } from "@/components/ProjectIconBrowser";
 import { CodexBarWidget } from "@/components/codexbar/CodexBarWidget";
 import { SystemMonitorWidget } from "@/components/sysmon/SystemMonitorWidget";
 import { useBotStatusFor, useTaskPanesNavigation } from "@/components/shell/TaskPanesContext";
@@ -570,57 +570,59 @@ const BotSidebarBody = memo(function BotSidebarBody({
     </div>
   );
 });
-const ICON_PICKER_CLASS = "inline-flex shrink-0 cursor-pointer items-center justify-center rounded-md text-muted has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-inset has-[:focus-visible]:ring-primary";
+const ICON_PICKER_CLASS = "inline-flex shrink-0 cursor-pointer items-center justify-center rounded-md text-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary";
 
+/** アイコンを押すとアプリ内エクスプローラーを開き、リポジトリ（rootPath）起点で選ばせる。 */
 function ProjectIconPicker({
   project,
   className,
   iconClassName,
   onFileChange,
-  role,
-  onOpenHost,
-  hostBusy = false,
+  onPickIcon,
 }: {
-  project: Pick<ProjectDto, "id" | "name" | "icon" | "iconColor">;
+  project: Pick<ProjectDto, "id" | "name" | "icon" | "iconColor" | "rootPath">;
   className?: string;
   iconClassName?: string;
   onFileChange: (file: File | null) => void;
-  role?: "menuitem";
-  /** 指定時はブラウザの file input ではなくホストPCのネイティブダイアログで選ぶ。 */
-  onOpenHost?: (() => void) | undefined;
-  hostBusy?: boolean;
+  onPickIcon: (icon: string) => void;
 }) {
+  const [open, setOpen] = useState(false);
+  const triggerRef = useRef<HTMLButtonElement | null>(null);
+  const close = useCallback(() => {
+    setOpen(false);
+    triggerRef.current?.focus();
+  }, []);
   const label = `${project.name}のアイコンを設定`;
-  const icon = <ProjectIcon project={project} className={cx(iconClassName, !project.icon && "border")} />;
-  if (onOpenHost) {
-    return (
+  return (
+    <>
       <button
+        ref={triggerRef}
         type="button"
-        role={role}
         title={label}
         aria-label={label}
-        disabled={hostBusy}
-        onClick={onOpenHost}
-        className={cx(ICON_PICKER_CLASS, "disabled:cursor-default disabled:opacity-50", className)}
+        aria-haspopup="dialog"
+        onClick={() => setOpen(true)}
+        className={cx(ICON_PICKER_CLASS, className)}
       >
-        {icon}
+        <ProjectIcon project={project} className={cx(iconClassName, !project.icon && "border")} />
       </button>
-    );
-  }
-  return (
-    <label role={role} title={label} className={cx(ICON_PICKER_CLASS, className)}>
-      {icon}
-      <input
-        type="file"
-        aria-label={label}
-        accept={PROJECT_ICON_ACCEPT}
-        className="sr-only"
-        onChange={(event) => {
-          onFileChange(event.target.files?.[0] ?? null);
-          event.currentTarget.value = "";
-        }}
-      />
-    </label>
+      {open && (
+        <ProjectIconBrowser
+          projectName={project.name}
+          startPath={project.rootPath}
+          accept={PROJECT_ICON_ACCEPT}
+          onPick={(icon) => {
+            close();
+            onPickIcon(icon);
+          }}
+          onUpload={(file) => {
+            close();
+            onFileChange(file);
+          }}
+          onClose={close}
+        />
+      )}
+    </>
   );
 }
 
@@ -1105,16 +1107,9 @@ function PromoteTaskDialog({
   );
 }
 
-/** ApiError の status（モックのスタブやネットワーク例外では undefined）。 */
-function errorStatus(error: unknown): number | undefined {
-  const status = (error as { status?: unknown } | null | undefined)?.status;
-  return typeof status === "number" ? status : undefined;
-}
-
 function ProjectSettingsDialog({
   project,
   onClose,
-  hostPlatform,
   onSetIcon,
   onSetIconData,
   onClearIcon,
@@ -1125,8 +1120,6 @@ function ProjectSettingsDialog({
 }: {
   project: ProjectDto;
   onClose: () => void;
-  /** ホストPCのプラットフォーム（ネイティブダイアログの可否）。 */
-  hostPlatform: string | undefined;
   onSetIcon: (file: File | null) => void;
   onSetIconData: (icon: string) => void;
   onClearIcon: () => void;
@@ -1139,29 +1132,6 @@ function ProjectSettingsDialog({
   const [busy, setBusy] = useState(false);
   const [markReadBusy, setMarkReadBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  /** ホスト制御面（loopback）に到達できるクライアントか。判定は explorer と同じ探索を使う。 */
-  const [hostTarget, setHostTarget] = useState<ExplorerTarget | null>(null);
-  /** ネイティブダイアログが失敗したらブラウザの file input へ戻す。 */
-  const [iconHostFailed, setIconHostFailed] = useState(false);
-  const [iconBusy, setIconBusy] = useState(false);
-  const hostIconPick = !iconHostFailed && hostTarget !== null;
-
-  useEffect(() => {
-    if (hostPlatform !== "win32") return;
-    setHostTarget(null);
-    const controller = new AbortController();
-    const timer = window.setTimeout(() => controller.abort(), 1_500);
-    void discoverExplorerTarget(project.id, controller.signal)
-      .then((next) => {
-        if (!controller.signal.aborted) setHostTarget(next);
-      })
-      .finally(() => window.clearTimeout(timer));
-    return () => {
-      window.clearTimeout(timer);
-      controller.abort();
-    };
-  }, [hostPlatform, project.id]);
-
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape" && !busy) onClose();
@@ -1199,28 +1169,6 @@ function ProjectSettingsDialog({
     }
   }
 
-  /** ホストPCのネイティブダイアログをリポジトリ（rootPath）起点で開く。 */
-  async function pickIconFromHost() {
-    if (busy || iconBusy) return;
-    setIconBusy(true);
-    setError(null);
-    try {
-      const result = await sendJson<{ icon?: string; cancelled?: boolean }>(
-        "/api/browse/icon",
-        { path: project.rootPath },
-        "POST",
-        { timeoutMs: 135_000 },
-      );
-      if (result.icon) onSetIconData(result.icon);
-    } catch (err) {
-      // 画像として使えない選択（400）はネイティブのまま、ホスト側の失敗だけ従来の file input へ戻す。
-      if (errorStatus(err) !== 400) setIconHostFailed(true);
-      setError(err instanceof Error ? err.message : "アイコン選択に失敗しました");
-    } finally {
-      setIconBusy(false);
-    }
-  }
-
   return (
     <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/40 p-3 backdrop-blur-[2px] sm:p-4">
       <div role="dialog" aria-modal="true" aria-labelledby="project-settings-title" className="w-full max-w-lg rounded-2xl border border-border bg-surface shadow-2xl">
@@ -1242,8 +1190,7 @@ function ProjectSettingsDialog({
                 className="h-11 w-11 hover:bg-surface-2"
                 iconClassName="flex h-8 w-8 items-center justify-center rounded-lg text-sm font-medium"
                 onFileChange={onSetIcon}
-                onOpenHost={hostIconPick ? () => void pickIconFromHost() : undefined}
-                hostBusy={iconBusy}
+                onPickIcon={onSetIconData}
               />
               <span className="flex-1 text-xs text-muted">画像またはEXEを指定するか、色を選択してください。</span>
               {project.icon && (
@@ -3080,7 +3027,6 @@ const SidebarView = memo(function SidebarView({
         <ProjectSettingsDialog
           project={currentProjectSettingsProject}
           onClose={() => setProjectSettingsProject(null)}
-          hostPlatform={health?.platform}
           onSetIcon={(file) => void setProjectIcon(currentProjectSettingsProject, file)}
           onSetIconData={(icon) => void setProjectIconData(currentProjectSettingsProject, icon)}
           onClearIcon={() => void clearProjectIcon(currentProjectSettingsProject)}

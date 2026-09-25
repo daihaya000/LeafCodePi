@@ -1,134 +1,118 @@
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { NextRequest } from "next/server";
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 
-const mocks = vi.hoisted(() => ({ execFile: vi.fn() }));
+const mocks = vi.hoisted(() => ({ execFile: vi.fn(), allowed: vi.fn() }));
 
 vi.mock("node:child_process", () => ({ execFile: mocks.execFile }));
+vi.mock("@/lib/browse-paths", () => ({ isAllowedBrowsePath: mocks.allowed }));
 
 import { ICON_FILE_ERROR } from "@/lib/icon-file";
-import { POST } from "./route";
+import { GET, POST } from "./route";
 
 const dir = mkdtempSync(join(tmpdir(), "leafcode-icon-route-"));
 const iconPath = join(dir, "app.ico");
+const exePath = join(dir, "tool.exe");
 writeFileSync(iconPath, Buffer.from([0, 0, 1, 0]));
+writeFileSync(exePath, "MZ");
+writeFileSync(join(dir, "notes.txt"), "text");
+writeFileSync(join(dir, ".hidden.png"), "x");
+mkdirSync(join(dir, "assets"));
 
 afterAll(() => {
   rmSync(dir, { recursive: true, force: true });
 });
 
-function request(body: unknown): NextRequest {
-  return new NextRequest("http://localhost/api/browse/icon", {
-    method: "POST",
-    body: JSON.stringify(body),
-  });
+function post(body: unknown): NextRequest {
+  return new NextRequest("http://localhost/api/browse/icon", { method: "POST", body: JSON.stringify(body) });
 }
 
-/** PowerShell の代わりにダイアログの選択結果（標準出力）だけを返す。 */
-function dialogResult(stdout: string): void {
-  mocks.execFile.mockImplementation(
-    (_command: string, _args: string[], _options: unknown, callback: (error: unknown, result: { stdout: string }) => void) => {
-      callback(null, { stdout });
-    },
-  );
+function list(path: string): NextRequest {
+  return new NextRequest(`http://localhost/api/browse/icon?path=${encodeURIComponent(path)}`);
 }
 
 const windowsOnly = process.platform !== "win32";
 
-describe("POST /api/browse/icon", () => {
+describe("/api/browse/icon", () => {
   beforeEach(() => {
     mocks.execFile.mockReset();
+    mocks.allowed.mockReset().mockReturnValue(true);
   });
 
-  it.skipIf(windowsOnly)("starts the dialog in the given folder and returns the picked icon", async () => {
-    dialogResult(iconPath);
-
-    const response = await POST(request({ path: dir }));
+  it("lists folders first, then icon candidates only", async () => {
+    const response = await GET(list(dir));
 
     expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({
-      icon: "data:image/x-icon;base64,AAABAA==",
-      name: "app.ico",
-    });
-    expect(mocks.execFile).toHaveBeenCalledWith(
-      "powershell.exe",
-      ["-NoProfile", "-STA", "-EncodedCommand", expect.any(String)],
-      expect.objectContaining({ env: expect.objectContaining({ LEAFCODE_PI_ICON_DIR: dir }) }),
-      expect.any(Function),
-    );
-    const encoded = mocks.execFile.mock.calls[0]?.[1]?.[3] as string;
-    const script = Buffer.from(encoded, "base64").toString("utf16le");
-    expect(script).toContain("*.exe");
-    expect(script).toContain("ExtractAssociatedIcon");
-    expect(script).toContain("ToBitmap");
-    expect(script).toContain("ImageFormat]::Png");
+    const body = await response.json();
+    expect(body.path).toBe(dir);
+    expect(body.entries.map((entry: { name: string; kind: string }) => `${entry.kind}:${entry.name}`)).toEqual([
+      "dir:assets",
+      "file:app.ico",
+      ...(process.platform === "win32" ? ["file:tool.exe"] : []),
+    ]);
   });
 
-  it.skipIf(windowsOnly)("reports a dismissed dialog without an icon", async () => {
-    dialogResult("");
+  it("rejects folders outside the browse roots", async () => {
+    mocks.allowed.mockReturnValue(false);
 
-    const response = await POST(request({ path: dir }));
+    expect((await GET(list(dir))).status).toBe(403);
+    expect((await POST(post({ path: iconPath }))).status).toBe(403);
+  });
+
+  it("returns a picked image as a data URL", async () => {
+    const response = await POST(post({ path: iconPath }));
 
     expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({ cancelled: true });
+    expect(await response.json()).toEqual({ icon: "data:image/x-icon;base64,AAABAA==", name: "app.ico" });
+    expect(mocks.execFile).not.toHaveBeenCalled();
   });
 
-  it.skipIf(windowsOnly)("returns a PNG icon extracted from a picked executable", async () => {
-    dialogResult(JSON.stringify({ kind: "icon", mime: "image/png", name: "app.exe", base64: "iVBORw==" }));
-
-    const response = await POST(request({ path: dir }));
-
-    expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({
-      icon: "data:image/png;base64,iVBORw==",
-      name: "app.exe",
-    });
-  });
-
-  it.skipIf(windowsOnly)("reports an executable without an extractable icon", async () => {
-    dialogResult(JSON.stringify({ kind: "error" }));
-
-    const response = await POST(request({ path: dir }));
-
-    expect(response.status).toBe(400);
-    expect(await response.json()).toEqual({ error: "EXEからアイコンを取得できませんでした。" });
-  });
-
-  it.skipIf(windowsOnly)("rejects a picked file that is not an icon image", async () => {
-    dialogResult(join(dir, "notes.txt"));
-
-    const response = await POST(request({ path: dir }));
+  it("rejects a file that is not an icon image", async () => {
+    const response = await POST(post({ path: join(dir, "notes.txt") }));
 
     expect(response.status).toBe(400);
     expect(await response.json()).toEqual({ error: ICON_FILE_ERROR });
   });
 
-  it.skipIf(windowsOnly)("reports a dialog failure as a server error", async () => {
+  it("rejects relative paths", async () => {
+    expect((await POST(post({ path: "app.ico" }))).status).toBe(400);
+  });
+
+  it.skipIf(windowsOnly)("extracts a PNG icon from an executable without a dialog", async () => {
     mocks.execFile.mockImplementation(
-      (_command: string, _args: string[], _options: unknown, callback: (error: unknown) => void) => {
-        callback(new Error("spawn failed"));
+      (_command: string, _args: string[], _options: unknown, callback: (error: unknown, result: { stdout: string }) => void) => {
+        callback(null, { stdout: "iVBORw==" });
       },
     );
 
-    const response = await POST(request({ path: dir }));
-
-    expect(response.status).toBe(500);
-    expect(await response.json()).toEqual({ error: "spawn failed" });
-  });
-
-  it.skipIf(windowsOnly)("falls back to the default folder when the start path is not a directory", async () => {
-    dialogResult("");
-
-    const response = await POST(request({ path: join(dir, "missing") }));
+    const response = await POST(post({ path: exePath }));
 
     expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ icon: "data:image/png;base64,iVBORw==", name: "tool.exe" });
     expect(mocks.execFile).toHaveBeenCalledWith(
       "powershell.exe",
-      expect.any(Array),
-      expect.objectContaining({ env: expect.objectContaining({ LEAFCODE_PI_ICON_DIR: "" }) }),
+      ["-NoProfile", "-NonInteractive", "-EncodedCommand", expect.any(String)],
+      expect.objectContaining({ windowsHide: true, env: expect.objectContaining({ LEAFCODE_PI_ICON_FILE: exePath }) }),
       expect.any(Function),
     );
+    const encoded = mocks.execFile.mock.calls[0]?.[1]?.[3] as string;
+    const script = Buffer.from(encoded, "base64").toString("utf16le");
+    expect(script).toContain("ExtractAssociatedIcon");
+    expect(script).not.toContain("OpenFileDialog");
+  });
+
+  it.skipIf(windowsOnly)("reports an executable without an extractable icon", async () => {
+    mocks.execFile.mockImplementation(
+      (_command: string, _args: string[], _options: unknown, callback: (error: unknown, result: { stdout: string }) => void) => {
+        callback(null, { stdout: "" });
+      },
+    );
+
+    const response = await POST(post({ path: exePath }));
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ error: "EXEからアイコンを取得できませんでした。" });
   });
 });

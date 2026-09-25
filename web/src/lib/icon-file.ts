@@ -13,6 +13,12 @@ const ICON_FILE_MIME = new Map([
   [".ico", "image/x-icon"],
 ]);
 
+/** アプリ内エクスプローラーで候補として表示するファイルか（EXEはWindowsのみ）。 */
+export function isIconCandidate(fileName: string, platform = process.platform): boolean {
+  const ext = extname(fileName).toLowerCase();
+  return ICON_FILE_MIME.has(ext) || (platform === "win32" && ext === ".exe");
+}
+
 export const MAX_ICON_FILE_BYTES = 2 * 1024 * 1024;
 
 export type IconFileResult = { ok: true; icon: string; name: string } | { ok: false; error: string };
