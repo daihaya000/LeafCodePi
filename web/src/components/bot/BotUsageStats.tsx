@@ -36,7 +36,7 @@ function ContextUsageMeter({ usage }: { usage: ContextUsageDto }) {
   const limitLabel = formatTokens(usage.contextWindow);
   const pctLabel = pct === null ? "?" : `${pct}%`;
   return (
-    <span className="flex min-w-0 items-center gap-1 @min-[500px]/bot:gap-1.5" title={`コンテキスト使用量: ${usedLabel} / ${limitLabel} トークン（${pctLabel}）`}>
+    <span className="flex shrink-0 items-center gap-1 @min-[500px]/bot:gap-1.5" title={`コンテキスト使用量: ${usedLabel} / ${limitLabel} トークン（${pctLabel}）`}>
       <span className="h-1 w-6 shrink-0 overflow-hidden rounded-full bg-surface-2 @min-[500px]/bot:h-1.5 @min-[500px]/bot:w-10">
         <span
           className={cx(
@@ -46,7 +46,7 @@ function ContextUsageMeter({ usage }: { usage: ContextUsageDto }) {
           style={{ width: `${pct ?? 0}%` }}
         />
       </span>
-      <span className="truncate tabular-nums">{usedLabel}/{limitLabel} ({pctLabel})</span>
+      <span className="whitespace-nowrap tabular-nums">{usedLabel}/{limitLabel} ({pctLabel})</span>
     </span>
   );
 }

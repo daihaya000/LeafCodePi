@@ -57,7 +57,7 @@ export function BotChatHeader({
         <h1 className="truncate text-sm font-medium">{title}</h1>
         {/* Codeと同じく統計はラベル行へ詰める。幅狭ではサブタイトルを40%までに抑える。 */}
         <p className="flex min-w-0 items-center gap-2 overflow-hidden text-[11px] leading-4 text-muted">
-          <span className={meta ? "min-w-0 max-w-[40%] shrink-0 truncate @min-[500px]/bot:max-w-none @min-[500px]/bot:shrink" : "min-w-0 truncate"}>{subtitle}</span>
+          {subtitle && <span className={meta ? "min-w-0 max-w-[40%] shrink-0 truncate @min-[500px]/bot:max-w-none @min-[500px]/bot:shrink" : "min-w-0 truncate"}>{subtitle}</span>}
           {meta}
         </p>
       </button>
