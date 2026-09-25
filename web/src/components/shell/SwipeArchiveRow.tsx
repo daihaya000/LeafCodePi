@@ -79,15 +79,20 @@ export function SwipeArchiveRow({ children, label, disabled, onArchive }: {
         setDragging(false);
         setOffset(open ? ACTION_WIDTH : 0);
       }}
+      onPointerDownCapture={(event) => {
+        if (event.pointerType === "mouse") swiped.current = false;
+      }}
       onClickCapture={(event) => {
-        const isAction = Boolean((event.target as Element).closest("[data-swipe-action]"));
-        if (!isAction && (swiped.current || open)) {
+        const wasSwiped = swiped.current;
+        swiped.current = false;
+        if (wasSwiped || (open && !(event.target as Element).closest("[data-swipe-action]"))) {
           event.preventDefault();
           event.stopPropagation();
-          setOpen(false);
-          setOffset(0);
+          if (!wasSwiped) {
+            setOpen(false);
+            setOffset(0);
+          }
         }
-        swiped.current = false;
       }}
       onBlur={(event) => {
         if (!event.currentTarget.contains(event.relatedTarget)) {
@@ -102,6 +107,12 @@ export function SwipeArchiveRow({ children, label, disabled, onArchive }: {
         setOffset(next ? ACTION_WIDTH : 0);
       }}
     >
+      <div
+        className={"relative z-10 bg-surface" + (dragging ? "" : " transition-transform duration-200")}
+        style={{ transform: `translateX(-${offset}px)` }}
+      >
+        {children}
+      </div>
       <button
         data-swipe-action
         type="button"
@@ -110,17 +121,11 @@ export function SwipeArchiveRow({ children, label, disabled, onArchive }: {
         disabled={disabled}
         onFocus={() => { setOpen(true); setOffset(ACTION_WIDTH); }}
         onClick={onArchive}
-        className="absolute inset-y-0 right-0 flex w-16 flex-col items-center justify-center gap-0.5 bg-danger text-[10px] font-medium text-white disabled:opacity-40"
+        className="absolute inset-y-0 right-0 flex w-16 flex-col items-center justify-center gap-0.5 bg-danger text-[10px] font-medium text-white dark:text-bg disabled:opacity-40"
       >
         <Archive className="h-4 w-4" aria-hidden="true" />
         <span>アーカイブ</span>
       </button>
-      <div
-        className={"relative z-10 bg-bg" + (dragging ? "" : " transition-transform duration-200")}
-        style={{ transform: `translateX(-${offset}px)` }}
-      >
-        {children}
-      </div>
     </div>
   );
 }

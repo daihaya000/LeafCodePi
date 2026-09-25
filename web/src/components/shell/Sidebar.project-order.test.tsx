@@ -168,14 +168,14 @@ afterEach(() => {
 });
 
 describe("Sidebar project ordering", () => {
-  it("defaults to Bot mode when no mode is saved", () => {
+  it("defaults to Code mode when no mode is saved", async () => {
     localStorage.removeItem("leafcodepi.mode");
     render(<Sidebar mobileOpen={false} onClose={vi.fn()} />);
 
     const modeSegment = screen.getByRole("button", { name: "Code" }).parentElement!;
     const modeButtons = [...modeSegment.querySelectorAll("button")];
     expect(modeButtons.map((button) => button.textContent)).toEqual(["Code", "Bot"]);
-    expect(modeButtons[1]?.getAttribute("aria-pressed")).toBe("true");
+    await waitFor(() => expect(modeButtons[0]?.getAttribute("aria-pressed")).toBe("true"));
   });
 
   it("switches from Code to Bot without opening the Bot home", async () => {

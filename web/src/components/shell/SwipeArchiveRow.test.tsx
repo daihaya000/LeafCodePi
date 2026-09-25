@@ -26,23 +26,38 @@ describe("SwipeArchiveRow", () => {
     fireEvent.touchMove(row, { touches: [{ clientX: 38, clientY: 52 }] });
     fireEvent.touchEnd(row);
     expect(foreground.style.transform).toBe("translateX(-64px)");
-    fireEvent.click(screen.getByRole("button", { name: "タスクを開く" }));
+    fireEvent.click(screen.getByRole("button", { name: "タスクを開く" })); // Synthetic click from the swipe.
+    expect(onOpen).not.toHaveBeenCalled();
+    expect(foreground.style.transform).toBe("translateX(-64px)");
+    fireEvent.touchStart(row, { touches: [{ clientX: 100, clientY: 50 }] });
+    fireEvent.touchEnd(row);
+    fireEvent.click(screen.getByRole("button", { name: "タスクを開く" })); // Separate tap closes it.
     expect(onOpen).not.toHaveBeenCalled();
     expect(foreground.style.transform).toBe("translateX(-0px)");
 
     fireEvent.touchStart(row, { touches: [{ clientX: 100, clientY: 50 }] });
     fireEvent.touchMove(row, { touches: [{ clientX: 20, clientY: 50 }] });
     fireEvent.touchEnd(row);
+    fireEvent.click(action); // A swipe ending over the destructive button must not archive.
+    expect(onArchive).not.toHaveBeenCalled();
+    expect(foreground.style.transform).toBe("translateX(-64px)");
+    fireEvent.touchStart(action, { touches: [{ clientX: 20, clientY: 50 }] });
+    fireEvent.touchEnd(action);
     fireEvent.click(action);
     expect(onArchive).toHaveBeenCalledTimes(1);
-    fireEvent.touchStart(row, { touches: [{ clientX: 20, clientY: 50 }] });
-    fireEvent.touchMove(row, { touches: [{ clientX: 100, clientY: 50 }] });
-    fireEvent.touchEnd(row);
+
+    fireEvent.touchStart(action, { touches: [{ clientX: 20, clientY: 50 }] });
+    fireEvent.touchMove(action, { touches: [{ clientX: 100, clientY: 50 }] });
+    fireEvent.touchEnd(action);
+    fireEvent.click(action); // A swipe to close must not archive either.
+    expect(onArchive).toHaveBeenCalledTimes(1);
     expect(foreground.style.transform).toBe("translateX(-0px)");
   });
 
   it("ignores vertical scrolling and supports keyboard focus and horizontal trackpad scrolling", () => {
     const { row, foreground, action } = setup();
+    expect(row.lastElementChild).toBe(action); // Keep the action after the row controls in tab order.
+    expect(foreground.className).toContain("bg-surface");
     fireEvent.touchStart(row, { touches: [{ clientX: 100, clientY: 10 }] });
     fireEvent.touchMove(row, { touches: [{ clientX: 85, clientY: 100 }] });
     fireEvent.touchEnd(row);
