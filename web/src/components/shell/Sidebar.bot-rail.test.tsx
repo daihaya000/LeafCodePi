@@ -281,6 +281,30 @@ describe("Bot mode list", () => {
     expect(screen.getByRole("button", { name: "Code" }).getAttribute("aria-pressed")).toBe("true");
   });
 
+  it("re-runs a refresh requested while another refresh is in flight", async () => {
+    localStorage.setItem("webui.sidebar.collapsed", "0");
+    let releaseTasks: (value: unknown) => void = () => undefined;
+    const baseGetJson = mocks.getJson.getMockImplementation()!;
+    mocks.getJson.mockImplementation((path: string) => {
+      if (path === "/api/tasks?kind=all") return new Promise((resolve) => { releaseTasks = resolve; });
+      if (path === "/api/bots") return Promise.resolve({ bots: [] });
+      return baseGetJson(path);
+    });
+    render(<Sidebar mobileOpen={false} onClose={vi.fn()} />);
+    await waitFor(() => expect(mocks.getJson).toHaveBeenCalledWith("/api/tasks?kind=all"));
+
+    fireEvent.click(screen.getByRole("button", { name: "Code" }));
+    expect(mocks.getJson).not.toHaveBeenCalledWith("/api/bots");
+
+    mocks.getJson.mockImplementation((path: string) => {
+      if (path === "/api/tasks?kind=all") return Promise.resolve({ tasks: [] });
+      if (path === "/api/bots") return Promise.resolve({ bots: [] });
+      return baseGetJson(path);
+    });
+    await act(async () => { releaseTasks({ tasks: [] }); });
+    await waitFor(() => expect(mocks.getJson).toHaveBeenCalledWith("/api/bots"));
+  });
+
   it("polls unread updates while the document is hidden", async () => {
     localStorage.setItem("webui.sidebar.collapsed", "0");
     const hidden = vi.spyOn(document, "hidden", "get").mockReturnValue(true);

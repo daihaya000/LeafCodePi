@@ -1361,11 +1361,19 @@ const SidebarView = memo(function SidebarView({
   const railWidgetRef = useRef<HTMLDivElement | null>(null);
 
   const modeSyncRef = useRef<{ pathname: string; paneMdUp: boolean } | null>(null);
+  /** 実行中に来た refresh を 1 回分だけ保持し、完了後に最新の refresh で実行する。 */
+  const refreshQueuedRef = useRef<{ unreadOnly: boolean; mode: AppMode } | null>(null);
+  const refreshRef = useRef<(unreadOnly?: boolean, modeOverride?: AppMode) => Promise<void>>(async () => undefined);
 
   const refresh = useCallback(async (unreadOnly = false, modeOverride: AppMode = mode) => {
     void hydrateLastReadState();
     // Avoid piling up four JSON requests per poll while a slow host is still responding.
-    if (refreshInFlightRef.current) return;
+    // 捨てると操作直後やモード切替後の更新が次の poll まで反映されないため、完了後に 1 回だけ再実行する。
+    if (refreshInFlightRef.current) {
+      const queued = refreshQueuedRef.current;
+      refreshQueuedRef.current = { unreadOnly: (queued?.unreadOnly ?? true) && unreadOnly, mode: modeOverride };
+      return;
+    }
     refreshInFlightRef.current = true;
     try {
     const gen = ++refreshGenRef.current;
@@ -1433,8 +1441,12 @@ const SidebarView = memo(function SidebarView({
     }
     } finally {
       refreshInFlightRef.current = false;
+      const queued = refreshQueuedRef.current;
+      refreshQueuedRef.current = null;
+      if (queued) void refreshRef.current(queued.unreadOnly, queued.mode);
     }
   }, [archivedExpanded, mode]);
+  refreshRef.current = refresh;
 
   const persistPinnedTaskIds = useCallback((ids: ReadonlySet<string>): Promise<unknown> => {
     const request = pinnedWriteQueueRef.current
@@ -1472,7 +1484,7 @@ const SidebarView = memo(function SidebarView({
     // refresh は mode で作り直されるため、モードの再判定は画面遷移時だけに限る。
     // 毎回判定すると、モバイルで Bot ページから離れる遷移の完了前に Code 選択を Bot へ戻してしまう。
     const last = modeSyncRef.current;
-    let syncedMode: AppMode | undefined;
+    let modeWillChange = false;
     if (!last || last.pathname !== pathname || last.paneMdUp !== paneMdUp) {
       modeSyncRef.current = { pathname, paneMdUp };
       let initialMode: AppMode = "code";
@@ -1490,16 +1502,16 @@ const SidebarView = memo(function SidebarView({
       } catch {
         /* ignore */
       }
-      syncedMode = initialMode;
+      modeWillChange = initialMode !== mode;
     }
-    // undefined なら refresh の既定値（現在の mode）を使う。
-    void refresh(false, syncedMode);
+    // mode が変わる場合は作り直された refresh での再実行に任せ、初回取得の重複を避ける。
+    if (!modeWillChange) void refresh();
     const onChange = () => void refresh();
     window.addEventListener("webui:tasks-changed", onChange);
     return () => {
       window.removeEventListener("webui:tasks-changed", onChange);
     };
-  }, [paneMdUp, refresh, pathname]);
+  }, [mode, paneMdUp, refresh, pathname]);
 
   useEffect(() => {
     let cancelled = false;
