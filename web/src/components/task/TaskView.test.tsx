@@ -1316,7 +1316,7 @@ describe("TaskView draft submission", () => {
     ));
   });
 
-  it("shows context and token statistics beside the session label, not in the status row", () => {
+  it("keeps context beside the label in narrow panes and restores context and token stats to the wide status row", () => {
     saveTaskSessionCache({
       task: { ...task, label: "code" },
       messages: [{
@@ -1337,19 +1337,21 @@ describe("TaskView draft submission", () => {
     const sessionInfo = screen.getByLabelText("セッション情報");
     const status = screen.getByLabelText("タスクの状態");
     expect(sessionInfo.textContent).toContain("コード");
-    const meter = screen.getByTitle("コンテキスト使用量: 405k / 1M トークン（41%）");
+    const meterTitle = "コンテキスト使用量: 405k / 1M トークン（41%）";
+    const narrowMeter = sessionInfo.querySelector(`[title="${meterTitle}"]`);
+    const wideMeter = status.querySelector(`[title="${meterTitle}"]`);
     const tokens = screen.getByTitle("合計 ↑3.4k ↓1.2k tok");
     const rate = screen.getByTitle("平均 tok/s（応答ごとの tok/s の平均）");
-    expect(sessionInfo.contains(meter)).toBe(true);
-    expect(sessionInfo.contains(tokens)).toBe(true);
-    expect(sessionInfo.contains(rate)).toBe(true);
+    expect(narrowMeter?.parentElement?.className).toContain("@min-[48rem]/task:hidden");
+    expect(wideMeter?.parentElement?.className).toContain("hidden @min-[48rem]/task:flex");
     expect(sessionInfo.className).toContain("overflow-hidden");
-    expect(meter.querySelector(".truncate")).toBeTruthy();
-    expect(status.contains(meter)).toBe(false);
-    expect(status.contains(tokens)).toBe(false);
+    expect(narrowMeter?.querySelector(".truncate")).toBeTruthy();
+    expect(sessionInfo.contains(tokens)).toBe(false);
+    expect(status.contains(tokens)).toBe(true);
+    expect(status.contains(rate)).toBe(true);
     expect(tokens.className).toContain("@min-[48rem]/task:inline");
     expect(rate.className).toContain("@min-[48rem]/task:inline");
-    expect(meter.className).toContain("text-[10px]");
+    expect(wideMeter?.className).toContain("@min-[48rem]/task:text-[11px]");
   });
 
   it("edits the full title directly and keeps secondary actions separate", () => {
