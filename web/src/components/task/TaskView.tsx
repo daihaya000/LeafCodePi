@@ -2898,7 +2898,8 @@ export const TaskView = memo(function TaskView({
     let count = 0;
     const add = (message: UiMessage) => {
       if (message.role === "user" || message.role === "compaction") return;
-      if (typeof message.tokensPerSecond !== "number" || !Number.isFinite(message.tokensPerSecond)) return;
+      // formatTokensPerSecond と同じく 0 以下はヘッダーに表示されない。
+      if (typeof message.tokensPerSecond !== "number" || !Number.isFinite(message.tokensPerSecond) || message.tokensPerSecond <= 0) return;
       sum += message.tokensPerSecond;
       count += 1;
     };

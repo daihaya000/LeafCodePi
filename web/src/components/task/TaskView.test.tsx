@@ -1338,6 +1338,13 @@ describe("TaskView draft submission", () => {
           tokensPerSecond: 40,
           parts: [{ id: "reply-2", type: "text", text: "reply two" }],
         },
+        {
+          id: "assistant-3",
+          role: "assistant",
+          createdAt: 60_001,
+          tokensPerSecond: 0,
+          parts: [{ id: "reply-3", type: "text", text: "reply three" }],
+        },
       ],
       isStreaming: false,
       isCompacting: false,
