@@ -5,7 +5,7 @@ import Image from "next/image";
 import { HostnameLabel } from "./HostnameContext";
 import { useOptionalShellMobileNav } from "./ShellContext";
 
-export function MobileMenuButton() {
+export function MobileMenuButton({ className }: { className?: string }) {
   const shell = useOptionalShellMobileNav();
   if (!shell) return null;
   const { openMobileNav } = shell;
@@ -14,7 +14,7 @@ export function MobileMenuButton() {
       type="button"
       aria-label="メニュー"
       onClick={openMobileNav}
-      className="inline-flex h-11 w-11 items-center justify-center rounded-lg text-muted hover:bg-surface-2 md:hidden"
+      className={`inline-flex h-11 w-11 items-center justify-center rounded-lg text-muted hover:bg-surface-2 md:hidden ${className ?? ""}`}
     >
       <Menu className="h-5 w-5" />
     </button>

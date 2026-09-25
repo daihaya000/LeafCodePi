@@ -3018,7 +3018,8 @@ export const TaskView = memo(function TaskView({
         style={{ paddingTop: "env(safe-area-inset-top)" }}
       >
         <div className="col-span-2 flex min-w-0 translate-y-1 items-center gap-2">
-          <MobileMenuButton />
+          {/* 44pxタップ領域は維持し、アイコン中心を下段のプロジェクトアイコン(24px)中心へ揃える */}
+          <MobileMenuButton className="-ml-2.5 -mr-1.5" />
           <div className="flex min-w-0 flex-1 flex-col justify-center">
             {titleEditing ? (
               <form
