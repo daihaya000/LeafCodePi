@@ -73,6 +73,15 @@ describe("/api/settings/[key]", () => {
     expect(settings.setSetting).toHaveBeenCalledWith("auto-jev-min-confidence", "0.75");
   });
 
+  it("stores only the OFF value for session label Jev", async () => {
+    const key = "session-label-jev";
+    const off = await PUT(request(key, { value: "0" }), { params: Promise.resolve({ key }) });
+    const invalid = await PUT(request(key, { value: "1" }), { params: Promise.resolve({ key }) });
+    expect(off.status).toBe(200);
+    expect(invalid.status).toBe(400);
+    expect(settings.setSetting).toHaveBeenCalledWith(key, "0");
+  });
+
   it("accepts the Bot notification sound type and rejects unknown values", async () => {
     const accepted = await PUT(request("notification-sound-type-bot", { value: "soft" }), {
       params: Promise.resolve({ key: "notification-sound-type-bot" }),

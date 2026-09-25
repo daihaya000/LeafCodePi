@@ -232,7 +232,9 @@ import {
 } from "@/lib/auto-model";
 import { classifyAutoTierWithJev, classifySessionLabelWithJev, matchSessionLabelByRule } from "@/lib/auto-jev";
 import {
+  isSessionLabelJevEnabled,
   resolveSessionLabels,
+  SESSION_LABEL_JEV_SETTING_KEY,
   SESSION_LABELS_SETTING_KEY,
 } from "@/lib/session-label-settings";
 import { compactWithJev } from "@/lib/pi/jev-compaction";
@@ -7243,7 +7245,11 @@ function insertTaskForCreateTask(input: {
 /** Apply the Jev refinement after initial task creation without delaying the first turn. */
 function startInitialSessionLabelClassification(taskId: string, prompt: string): void {
   const labels = resolveSessionLabels(getSetting(SESSION_LABELS_SETTING_KEY));
-  if (!prompt.trim() || labels.length === 0 || !isAutoJevEnabled(getSetting(AUTO_JEV_ENABLED_SETTING_KEY))) {
+  if (
+    !prompt.trim() || labels.length === 0 ||
+    !isAutoJevEnabled(getSetting(AUTO_JEV_ENABLED_SETTING_KEY)) ||
+    !isSessionLabelJevEnabled(getSetting(SESSION_LABEL_JEV_SETTING_KEY))
+  ) {
     return;
   }
   void classifySessionLabelWithJev(

@@ -1401,7 +1401,8 @@ describe("TaskView draft submission", () => {
 
     const heading = screen.getByRole("heading", { name: title });
     expect(screen.queryByRole("button", { name: `タイトルを編集: ${title}` })).toBeNull();
-    expect(heading.textContent).toBe(title);
+    // The unlabelled placeholder badge ("-") is decorative and precedes the title.
+    expect(heading.textContent).toBe(`-${title}`);
     expect(screen.getAllByText("クリーン")).toHaveLength(1);
     const header = heading.closest("header")!;
     const actions = screen.getByRole("group", { name: "タスク操作" });

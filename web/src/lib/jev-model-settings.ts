@@ -93,6 +93,21 @@ export function normalizeJevModelSettings(value: unknown): JevModelSettings {
   };
 }
 
+export function enabledJevModelKeys(settings: JevModelSettings, models: JevCatalogModel[]): Set<string> {
+  if (settings.enabledModels) return new Set(settings.enabledModels.map(jevModelKey));
+  if (settings.provider === "registered") return new Set(settings.registeredModel ? [jevModelKey(settings.registeredModel)] : []);
+  const legacy = settings.provider === "typesafe" && models.find((model) => model.providerId === "typesafe" && model.modelId === settings.typesafeModel);
+  return new Set(legacy ? [jevModelKey(legacy)] : []);
+}
+
+/** True when at least one Jev model can actually be called. */
+export function hasUsableJevModel(dto: Pick<JevModelSettingsDto, "settings" | "models">): boolean {
+  if (dto.settings.provider === "compatible") return true;
+  const models = dto.models ?? [];
+  const keys = enabledJevModelKeys(dto.settings, models);
+  return models.some((model) => model.providerEnabled !== false && keys.has(jevModelKey(model)));
+}
+
 export function jevModelEndpoint(settings: JevModelSettings): { baseUrl: string; model: string } {
   if (settings.provider === "registered") throw new Error("既存プロバイダーの接続先はサーバーで解決してください");
   return settings.provider === "typesafe"

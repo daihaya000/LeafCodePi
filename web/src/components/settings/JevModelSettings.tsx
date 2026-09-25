@@ -10,6 +10,7 @@ import { getJson, sendJson } from "@/lib/client";
 import { jevModelKey, type JevCatalogModel } from "@/lib/jev-model-catalog";
 import {
   DEFAULT_JEV_MODEL_SETTINGS,
+  enabledJevModelKeys as enabledModelKeys,
   type JevModelSettings as Settings,
   type JevModelSettingsDto,
 } from "@/lib/jev-model-settings";
@@ -44,13 +45,6 @@ function providerRows(models: JevCatalogModel[]): ProviderRow[] {
     if (model.providerEnabled !== false) row.enabled = true;
   }
   return [...rows.values()];
-}
-
-function enabledModelKeys(settings: Settings, models: JevCatalogModel[]): Set<string> {
-  if (settings.enabledModels) return new Set(settings.enabledModels.map(jevModelKey));
-  if (settings.provider === "registered") return new Set(settings.registeredModel ? [jevModelKey(settings.registeredModel)] : []);
-  const legacy = settings.provider === "typesafe" && models.find((model) => model.providerId === "typesafe" && model.modelId === settings.typesafeModel);
-  return new Set(legacy ? [jevModelKey(legacy)] : []);
 }
 
 export function JevModelSettings({ refreshToken = 0, onProviderCatalogChange }: { refreshToken?: number; onProviderCatalogChange?: () => void }) {

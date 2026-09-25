@@ -23,7 +23,7 @@ function useSessionLabels(): SessionLabel[] {
   return labels;
 }
 
-/** Renders nothing when the task has no label or its definition was deleted. */
+/** Unlabelled tasks show a gray "-" placeholder; nothing renders while labels are disabled. */
 const BASE_FONT_SIZE = 9;
 
 export function SessionLabelBadge({
@@ -64,7 +64,21 @@ export function SessionLabelBadge({
     return () => observer.disconnect();
   }, [labelName]);
 
-  if (!label) return null;
+  if (!label) {
+    if (labels.length === 0) return null;
+    return (
+      <span
+        aria-hidden="true"
+        data-placeholder="true"
+        className={cx(
+          "inline-block shrink-0 rounded border border-border bg-surface-2 px-[3px] text-[9px] leading-[14px] text-muted",
+          className,
+        )}
+      >
+        -
+      </span>
+    );
+  }
   return (
     <span
       ref={badgeRef}

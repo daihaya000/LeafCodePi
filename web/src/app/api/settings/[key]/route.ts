@@ -52,6 +52,7 @@ import {
 } from "@/lib/composer-prompt-presets-schema";
 import {
   parseSessionLabels,
+  SESSION_LABEL_JEV_SETTING_KEY,
   SESSION_LABELS_SETTING_KEY,
 } from "@/lib/session-label-settings";
 import {
@@ -95,6 +96,7 @@ const ALLOWED_KEYS = new Set<string>([
   PINNED_TASKS_SETTING_KEY,
   COMPOSER_PROMPT_PRESETS_SETTING_KEY,
   SESSION_LABELS_SETTING_KEY,
+  SESSION_LABEL_JEV_SETTING_KEY,
   CODEXBAR_WIDGET_SETTING_KEY,
   SYSMON_WIDGET_SETTING_KEY,
 ]);
@@ -166,6 +168,9 @@ function validateValue(key: string, value: string): string | null {
   if (key === SESSION_LABELS_SETTING_KEY) {
     const labels = parseSessionLabels(value);
     return labels === null ? null : JSON.stringify(labels);
+  }
+  if (key === SESSION_LABEL_JEV_SETTING_KEY) {
+    return value === "0" ? value : null;
   }
   if (key === COMPACTION_ACTION_SETTING_KEY) {
     return value === "suggest" || value === "auto" || value === "off" ? value : null;

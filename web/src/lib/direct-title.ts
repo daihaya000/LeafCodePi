@@ -29,10 +29,17 @@ import {
   parseAutoJevMinConfidence,
 } from "@/lib/auto-jev-settings";
 import {
+  isSessionLabelJevEnabled,
   resolveSessionLabels,
+  SESSION_LABEL_JEV_SETTING_KEY,
   SESSION_LABELS_SETTING_KEY,
   type SessionLabel,
 } from "@/lib/session-label-settings";
+
+function shouldUseJevForLabels(): boolean {
+  return isAutoJevEnabled(getSetting(AUTO_JEV_ENABLED_SETTING_KEY)) &&
+    isSessionLabelJevEnabled(getSetting(SESSION_LABEL_JEV_SETTING_KEY));
+}
 
 const TITLE_SYSTEM_INSTRUCTION =
   "会話を要約する簡潔な日本語タイトルを1件だけ生成してください。タイトルのみを返し、説明、引用符、見出し、改行は不要です。";
@@ -71,7 +78,7 @@ export async function refreshTaskLabelDirect(
 
   const labels = resolveSessionLabels(getSetting(SESSION_LABELS_SETTING_KEY));
   const labelPrompt = conversation.length > 0 ? buildTranscript(conversation) : prompt;
-  const jevLabel = isAutoJevEnabled(getSetting(AUTO_JEV_ENABLED_SETTING_KEY))
+  const jevLabel = shouldUseJevForLabels()
     ? await classifySessionLabelWithJev(
       { prompt: labelPrompt, labels },
       { minConfidence: parseAutoJevMinConfidence(getSetting(AUTO_JEV_MIN_CONFIDENCE_SETTING_KEY)) },
@@ -126,7 +133,7 @@ export async function refreshTaskTitleDirect(
   // Jev はタイトル生成と同じ会話を使うので直列にせず同時に走らせる。
   let jevSettled = false;
   let jevLabel: string | undefined;
-  const jevLabelPromise = (isAutoJevEnabled(getSetting(AUTO_JEV_ENABLED_SETTING_KEY))
+  const jevLabelPromise = (shouldUseJevForLabels()
     ? classifySessionLabelWithJev(
       { prompt: labelPrompt, labels },
       { minConfidence: parseAutoJevMinConfidence(getSetting(AUTO_JEV_MIN_CONFIDENCE_SETTING_KEY)) },

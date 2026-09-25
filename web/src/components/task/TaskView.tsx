@@ -3085,7 +3085,7 @@ export const TaskView = memo(function TaskView({
                   }
                 }}
               >
-                {task?.label && (
+                {task && (
                   <span className="hidden shrink-0 @min-[500px]/task:inline-flex">
                     <SessionLabelBadge labelId={task.label} className="font-normal" />
                   </span>
