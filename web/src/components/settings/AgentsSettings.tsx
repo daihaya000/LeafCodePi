@@ -918,7 +918,7 @@ export function AgentsSettings() {
       </div>
       <p className="text-xs text-muted">
         pi-subagents が提供するサブエージェントの有効／無効とモデル・Effortを管理します。ここでのモデル・Effortはサブエージェントとして呼び出された時だけ使われ、直接選択時はComposerの設定を使います。ユーザー定義は{" "}
-        <span className="font-mono">~/.pi/agent/agents/&lt;name&gt;.md</span> に保存されます。
+        <span>~/.pi/agent/agents/&lt;name&gt;.md</span> に保存されます。
       </p>
       {editor.mode !== "closed" && (
         <AgentEditor
@@ -946,7 +946,7 @@ export function AgentsSettings() {
       ) : agents.length === 0 ? (
         <p className="mt-3 text-sm text-muted">
           エージェントがありません。 「＋新規」で作成するか、{" "}
-          <span className="font-mono">~/.pi/agent/agents/&lt;name&gt;.md</span> に追加してください。
+          <span>~/.pi/agent/agents/&lt;name&gt;.md</span> に追加してください。
         </p>
       ) : (
         <ul className="mt-3 grid grid-cols-1 gap-2 @xl:grid-cols-2">
@@ -994,7 +994,7 @@ export function AgentsSettings() {
                   busy={busyId === agent.id}
                   onChange={(thinking) => void changeThinking(agent, thinking)}
                 />
-                <p className="mt-0.5 break-all font-mono text-[11px] text-muted">{agent.filePath}</p>
+                <p className="mt-0.5 break-all text-[11px] text-muted">{agent.filePath}</p>
               </div>
               <div className="flex shrink-0 flex-col items-end gap-1">
                 <Switch

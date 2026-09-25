@@ -294,7 +294,7 @@ export function NextAction({
                       className="text-xs text-muted"
                       title={`生成モデル: ${directGenerationModelKey(state.model)}`}
                     >
-                      生成モデル: <span className="font-mono">{state.model.modelID}</span>
+                      生成モデル: <span>{state.model.modelID}</span>
                     </p>
                   )}
                 </div>

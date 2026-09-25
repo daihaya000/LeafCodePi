@@ -1088,7 +1088,7 @@ function PromoteTaskDialog({
               }}
               aria-label="移動先フォルダーのパス"
               placeholder="C:\\path\\to\\project"
-              className="h-10 min-w-0 flex-1 rounded-lg border border-border bg-bg px-3 font-mono text-xs outline-none placeholder:text-faint focus:border-accent"
+              className="h-10 min-w-0 flex-1 rounded-lg border border-border bg-bg px-3 text-xs outline-none placeholder:text-faint focus:border-accent"
             />
             <AddProjectButton
               label="参照"
@@ -1242,7 +1242,7 @@ function ProjectSettingsDialog({
                 }}
                 aria-label="移動先フォルダーのパス"
                 placeholder="C:\\path\\to\\project"
-                className="h-10 min-w-0 flex-1 rounded-lg border border-border bg-bg px-3 font-mono text-xs outline-none placeholder:text-faint focus:border-accent"
+                className="h-10 min-w-0 flex-1 rounded-lg border border-border bg-bg px-3 text-xs outline-none placeholder:text-faint focus:border-accent"
               />
               <AddProjectButton label="参照" onSelect={setDestinationPath} buttonVariant="secondary" buttonSize="sm" dialogZIndex={120} />
             </div>

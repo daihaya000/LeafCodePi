@@ -302,9 +302,9 @@ export function SettingsView() {
                       <dt className="text-muted">エンジン</dt>
                       <dd>Pi SDK（プロセス内埋め込み）</dd>
                       <dt className="text-muted">バージョン</dt>
-                      <dd className="font-mono">{health?.version ?? "-"}</dd>
+                      <dd>{health?.version ?? "-"}</dd>
                       <dt className="text-muted">データ</dt>
-                      <dd className="break-all font-mono text-xs">{health?.dataDir ?? "-"}</dd>
+                      <dd className="break-all text-xs">{health?.dataDir ?? "-"}</dd>
                       <dt className="text-muted">有効モデル数</dt>
                       <dd>{health?.modelCount ?? 0}</dd>
                     </dl>

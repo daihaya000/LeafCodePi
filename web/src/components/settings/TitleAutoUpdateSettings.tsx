@@ -126,7 +126,7 @@ export function TitleAutoUpdateSettings() {
           onKeyDown={(event) => {
             if (event.key === "Enter") event.currentTarget.blur();
           }}
-          className="h-9 w-full max-w-[10rem] rounded-lg border border-border bg-bg px-3 font-mono text-sm text-text outline-none focus:border-border-strong"
+          className="h-9 w-full max-w-[10rem] rounded-lg border border-border bg-bg px-3 text-sm text-text outline-none focus:border-border-strong"
         />
         <span className="text-xs text-muted">ターンごと</span>
       </label>

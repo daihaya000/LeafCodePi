@@ -268,7 +268,7 @@ export function TtsSettings() {
               }}
               className="min-w-0 flex-1 accent-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary disabled:opacity-60"
             />
-            <output className="w-8 shrink-0 text-right font-mono text-sm text-text">{current.rate}</output>
+            <output className="w-8 shrink-0 text-right tabular-nums text-sm text-text">{current.rate}</output>
           </span>
         </label>
 
@@ -287,7 +287,7 @@ export function TtsSettings() {
               onChange={(event) => setPlaybackRate(writePlaybackRate(Number(event.target.value)))}
               className="min-w-0 flex-1 accent-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary disabled:opacity-60"
             />
-            <output className="w-12 shrink-0 text-right font-mono text-sm text-text">{playbackRate.toFixed(1)}倍</output>
+            <output className="w-12 shrink-0 text-right tabular-nums text-sm text-text">{playbackRate.toFixed(1)}倍</output>
           </span>
         </label>
 
@@ -306,7 +306,7 @@ export function TtsSettings() {
               onChange={(event) => setPlaybackVolume(writePlaybackVolume(Number(event.target.value)))}
               className="min-w-0 flex-1 accent-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary disabled:opacity-60"
             />
-            <output className="w-12 shrink-0 text-right font-mono text-sm text-text">{playbackVolume}%</output>
+            <output className="w-12 shrink-0 text-right tabular-nums text-sm text-text">{playbackVolume}%</output>
           </span>
         </label>
 
@@ -339,13 +339,13 @@ export function TtsSettings() {
                 if (!ready || form === null) return;
                 void save({ url: form.url });
               }}
-              className="h-9 w-full rounded-lg border border-border bg-bg px-3 font-mono text-sm text-text outline-none focus:border-border-strong disabled:opacity-60"
+              className="h-9 w-full rounded-lg border border-border bg-bg px-3 text-sm text-text outline-none focus:border-border-strong disabled:opacity-60"
             />
           </label>
         )}
 
         {backendId !== "custom" && current.url && (
-          <p className="font-mono text-[11px] text-muted">{current.url}</p>
+          <p className="text-[11px] text-muted">{current.url}</p>
         )}
 
         {!current.url && ttsUnsetGuidance(sapiAvailable) && (

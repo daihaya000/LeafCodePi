@@ -210,7 +210,7 @@ function UsageBar({ percent }: { percent: number | null | undefined }) {
     <div className="mt-1">
       <div className="mb-1 flex items-center justify-between gap-2 text-xs">
         <span className="text-muted">使用量</span>
-        <span className={cx("font-mono", usageTextClass[tone])}>
+        <span className={cx("tabular-nums", usageTextClass[tone])}>
           {normalizedPercent === null
             ? "—"
             : `${Math.round(normalizedPercent)}%`}
@@ -242,7 +242,7 @@ function CreditsLine({ credits }: { credits: CodexBarCredits }) {
       <span className="truncate text-muted">
         {credits.title ?? "利用クレジット"}
       </span>
-      <span className="shrink-0 font-mono text-text">{amounts.join(" · ")}</span>
+      <span className="shrink-0 tabular-nums text-text">{amounts.join(" · ")}</span>
     </p>
   );
 }
@@ -341,7 +341,7 @@ function ResetCreditsControl({
     <div className="mt-1.5 flex flex-col gap-1 border-t border-border pt-1.5">
       <div className="flex items-center justify-between gap-2 text-xs">
         <span className="text-muted">
-          リセット権 <span className="font-mono text-text">{available}</span>
+          リセット権 <span className="tabular-nums text-text">{available}</span>
         </span>
         <Button
           size="sm"
@@ -1951,10 +1951,10 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
             登録すると表示できます。cookie未登録・失効時は Jev 呼び出しから積算した
             推定利用額を表示します。マルチアカウント対応プロバイダーはアカウントごとに管理します。共有プロバイダーでは環境変数または
             ~/.pi/agent/auth.json を引き続き使えます。Command Code は{" "}
-            <span className="font-mono">COMMANDCODE_API_KEY</span> /{" "}
-            <span className="font-mono">~/.commandcode/auth.json</span>、Ollama
-            Cloud は <span className="font-mono">OLLAMA_API_KEY</span>{" "}
-            でも設定できます。OrcaRouter は <span className="font-mono">ORCAROUTER_API_KEY</span>{" "}
+            <span>COMMANDCODE_API_KEY</span> /{" "}
+            <span>~/.commandcode/auth.json</span>、Ollama
+            Cloud は <span>OLLAMA_API_KEY</span>{" "}
+            でも設定できます。OrcaRouter は <span>ORCAROUTER_API_KEY</span>{" "}
             でも設定できます。Ollama Cloud はアカウントごとに cookie
             も登録できます。OpenCode Go の利用量にもアカウント別 cookie
             を登録できます。Anthropic はアカウントごとにサブスク（OAuth）と API
@@ -2056,7 +2056,7 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
             <div className="mt-3 rounded-xl border border-border bg-surface p-3 text-sm">
               <p>
                 コード:{" "}
-                <span className="font-mono text-base font-semibold">
+                <span className="tabular-nums text-base font-semibold">
                   {login.deviceCode.userCode}
                 </span>
               </p>
@@ -2198,7 +2198,7 @@ function BaseUrlEditor({
           }}
           placeholder={value}
           aria-label={`${providerName} の API URL`}
-          className="min-w-0 flex-1 rounded-xl border border-border bg-surface px-3 py-1.5 text-xs font-mono outline-none focus:border-accent"
+          className="min-w-0 flex-1 rounded-xl border border-border bg-surface px-3 py-1.5 text-xs outline-none focus:border-accent"
         />
         <Button
           size="sm"
@@ -2258,7 +2258,7 @@ function ProviderRow({
           <div className="flex flex-wrap items-center gap-2">
             <ProviderIcon providerID={provider.id} size={16} />
             <span className="text-sm font-medium">{provider.name}</span>
-            <span className="font-mono text-xs text-muted">{provider.id}</span>
+            <span className="text-xs text-muted">{provider.id}</span>
             {badge && <Badge tone={badge.tone}>{badge.label}</Badge>}
           </div>
           {hint && <p className="mt-0.5 text-xs text-muted">{hint}</p>}

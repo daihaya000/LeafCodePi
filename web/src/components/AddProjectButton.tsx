@@ -341,7 +341,7 @@ export function AddProjectButton({
                       >
                         <ChevronUp className="h-4 w-4" />
                       </button>
-                      <span title={listing.path ?? undefined} className="min-w-0 flex-1 truncate px-1 font-mono text-xs text-muted">
+                      <span title={listing.path ?? undefined} className="min-w-0 flex-1 truncate px-1 text-xs text-muted">
                         {listing.path ?? "場所を読み込めません"}
                       </span>
                       <button

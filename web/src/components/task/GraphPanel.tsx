@@ -288,7 +288,7 @@ const GraphRowView = memo(function GraphRowView({
                 </span>
                 <span
                   title={row.commit.hash}
-                  className="inline-flex max-w-full shrink-0 rounded-md border border-border bg-surface-2 px-1.5 py-0.5 font-mono text-[10px] text-faint"
+                  className="inline-flex max-w-full shrink-0 rounded-md border border-border bg-surface-2 px-1.5 py-0.5 text-[10px] text-faint"
                 >
                   {row.commit.shortHash}
                 </span>
@@ -309,7 +309,7 @@ const GraphRowView = memo(function GraphRowView({
                   key={name}
                   title={name}
                   className={cx(
-                    "inline-flex max-w-[7rem] shrink-0 items-center gap-0.5 truncate rounded-md border px-1.5 py-0.5 font-mono text-[10px]",
+                    "inline-flex max-w-[7rem] shrink-0 items-center gap-0.5 truncate rounded-md border px-1.5 py-0.5 text-[10px]",
                     name === currentBranch
                       ? "border-accent/50 bg-accent/15 text-accent"
                       : "border-border bg-surface-2 text-muted",
@@ -322,7 +322,7 @@ const GraphRowView = memo(function GraphRowView({
               {more > 0 && (
                 <span
                   title={refs.join(", ")}
-                  className="shrink-0 rounded-md border border-border bg-surface-2 px-1.5 py-0.5 font-mono text-[10px] text-faint"
+                  className="shrink-0 rounded-md border border-border bg-surface-2 px-1.5 py-0.5 text-[10px] text-faint"
                 >
                   +{more}
                 </span>
@@ -355,13 +355,13 @@ const GraphRowView = memo(function GraphRowView({
               >
                 <span
                   className={cx(
-                    "w-4 shrink-0 text-center font-mono text-[10px] font-semibold rounded",
+                    "w-4 shrink-0 text-center text-[10px] font-semibold rounded",
                     statusTone(f.status),
                   )}
                 >
                   {f.status}
                 </span>
-                <span className="min-w-0 truncate font-mono text-[11px] text-muted">
+                <span className="min-w-0 truncate text-[11px] text-muted">
                   {f.path}
                 </span>
               </button>
@@ -674,7 +674,7 @@ export function GraphPanel({
         {payload?.currentBranch && (
           <span
             title={payload.currentBranch}
-            className="inline-flex min-w-0 max-w-full flex-[1_1_7rem] items-center gap-1 rounded-md border border-border bg-surface-2 px-1.5 py-0.5 font-mono text-[10px] text-text sm:max-w-[10rem]"
+            className="inline-flex min-w-0 max-w-full flex-[1_1_7rem] items-center gap-1 rounded-md border border-border bg-surface-2 px-1.5 py-0.5 text-[10px] text-text sm:max-w-[10rem]"
           >
             <GitBranch className="h-2.5 w-2.5 shrink-0" />
             <span className="min-w-0 truncate">{payload.currentBranch}</span>

@@ -109,7 +109,7 @@ export function PermissionAdvice({
           className="mt-2 truncate text-xs text-muted"
           title={`生成モデル: ${state.model.providerID}::${state.model.modelID}`}
         >
-          生成モデル: <span className="font-mono">{state.model.modelID}</span>
+          生成モデル: <span>{state.model.modelID}</span>
         </p>
       )}
     </div>

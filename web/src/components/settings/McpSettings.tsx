@@ -453,7 +453,7 @@ export function McpSettings() {
                   >
                     認証ページをブラウザで開く
                   </a>
-                  <p className="mt-1 break-all font-mono text-[10px] text-muted">{oauthUrl}</p>
+                  <p className="mt-1 break-all text-[10px] text-muted">{oauthUrl}</p>
                   <label className="mt-2 block">
                     <span className="sr-only">{server.name} のOAuthコールバックURLまたは認証コード</span>
                     <input
@@ -462,7 +462,7 @@ export function McpSettings() {
                       value={oauthInputById[server.id] ?? ""}
                       onChange={(event) => setOauthInputById((current) => ({ ...current, [server.id]: event.target.value }))}
                       placeholder="コールバックURLまたはコード"
-                      className="h-9 w-full rounded-lg border border-border bg-bg px-3 font-mono text-xs text-text outline-none focus:border-border-strong"
+                      className="h-9 w-full rounded-lg border border-border bg-bg px-3 text-xs text-text outline-none focus:border-border-strong"
                       disabled={authBusy}
                     />
                   </label>
@@ -521,7 +521,7 @@ export function McpSettings() {
                     </Badge>
                   )}
                 </div>
-                {server.url && <p className="mt-1 break-all font-mono text-[10px] text-muted">{server.url}</p>}
+                {server.url && <p className="mt-1 break-all text-[10px] text-muted">{server.url}</p>}
                 {MCP_SERVER_DESCRIPTIONS[server.id] && (
                   <p className="mt-0.5 break-words text-xs text-muted">{MCP_SERVER_DESCRIPTIONS[server.id]}</p>
                 )}
@@ -563,7 +563,7 @@ export function McpSettings() {
       </div>
       <p className="text-xs text-muted">
         リポジトリ同梱のMCP定義と、leafcode-mcp-adapter が読むユーザー設定（
-        <span className="font-mono">~/.pi/agent/mcp.json</span>
+        <span>~/.pi/agent/mcp.json</span>
         ）の有効／無効と認証情報を管理します。組み込み定義はユーザー設定で上書きでき、秘密情報は表示せずOS資格情報ストアへ保存します。
       </p>
       {loading && servers.length === 0 ? (
@@ -576,7 +576,7 @@ export function McpSettings() {
               <Badge tone="neutral">{bundledServers.length}件</Badge>
             </div>
             {bundledConfigPath && (
-              <p className="mt-1 break-all text-[11px] text-muted"><span className="font-mono">{bundledConfigPath}</span></p>
+              <p className="mt-1 break-all text-[11px] text-muted"><span>{bundledConfigPath}</span></p>
             )}
             {renderServerList(bundledServers)}
           </section>
@@ -586,7 +586,7 @@ export function McpSettings() {
               <Badge tone="neutral">{userServers.length}件</Badge>
             </div>
             {configPath && (
-              <p className="mt-1 break-all text-[11px] text-muted"><span className="font-mono">{configPath}</span></p>
+              <p className="mt-1 break-all text-[11px] text-muted"><span>{configPath}</span></p>
             )}
             {renderServerList(userServers)}
           </section>

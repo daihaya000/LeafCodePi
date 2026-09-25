@@ -92,7 +92,7 @@ function MetricRow({
       <div className="flex items-center gap-1.5 text-[11px]">
         <span className="shrink-0 text-faint">{icon}</span>
         <span className="truncate text-muted">{label}</span>
-        <span className={cx("ml-auto shrink-0 font-mono", textClass[tone])} title={detail}>
+        <span className={cx("ml-auto shrink-0 tabular-nums", textClass[tone])} title={detail}>
           {percent === null ? "—" : `${Math.round(percent)}%`}
         </span>
       </div>
@@ -298,7 +298,7 @@ export function SystemMonitorWidget({
         <Cpu className={cx("h-3.5 w-3.5", textClass[summaryTone])} />
         <span className="font-medium text-text">システム</span>
         {avg !== null && (
-          <span className="font-mono text-muted">全体 {Math.round(avg)}%</span>
+          <span className="tabular-nums text-muted">全体 {Math.round(avg)}%</span>
         )}
       </button>
     );

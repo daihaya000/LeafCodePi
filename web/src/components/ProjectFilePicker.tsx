@@ -208,7 +208,7 @@ export function ProjectFilePicker({
                   </button>
                   <span
                     title={listing?.path || undefined}
-                    className="min-w-0 flex-1 truncate px-1 font-mono text-xs text-muted"
+                    className="min-w-0 flex-1 truncate px-1 text-xs text-muted"
                   >
                     {listing ? listing.path || "/" : "読み込み中…"}
                   </span>

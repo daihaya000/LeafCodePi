@@ -137,7 +137,7 @@ export function NextTaskSuggest({
                 className="mt-1 block truncate text-xs text-muted"
                 title={`生成モデル: ${directGenerationModelKey(state.model)}`}
               >
-                生成モデル: <span className="font-mono">{state.model.modelID}</span>
+                生成モデル: <span>{state.model.modelID}</span>
               </span>
             )}
           </span>

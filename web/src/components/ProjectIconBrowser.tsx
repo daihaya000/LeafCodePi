@@ -135,7 +135,7 @@ export function ProjectIconBrowser({
             >
               <ChevronUp className="h-4 w-4" />
             </button>
-            <span title={listing?.path} className="min-w-0 flex-1 truncate px-1 font-mono text-xs text-muted">
+            <span title={listing?.path} className="min-w-0 flex-1 truncate px-1 text-xs text-muted">
               {listing ? listing.path : "読み込み中…"}
             </span>
             <button

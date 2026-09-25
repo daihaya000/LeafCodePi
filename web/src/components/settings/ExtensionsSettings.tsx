@@ -95,7 +95,7 @@ export function ExtensionsSettings() {
                 {extension.description && (
                   <p className="mt-0.5 text-xs break-words text-muted">{extension.description}</p>
                 )}
-                <p className="mt-0.5 break-all font-mono text-[11px] text-muted">{extension.filePath}</p>
+                <p className="mt-0.5 break-all text-[11px] text-muted">{extension.filePath}</p>
                 {extension.required && (
                   <p className="mt-0.5 text-[11px] text-muted">
                     {extension.enabled
@@ -138,7 +138,7 @@ export function ExtensionsSettings() {
           <Badge tone="neutral">{items.length}件</Badge>
         </div>
         {description && <p className="mt-1 text-xs text-muted">{description}</p>}
-        {path && <p className="mt-1 break-all font-mono text-[11px] text-muted">{path}</p>}
+        {path && <p className="mt-1 break-all text-[11px] text-muted">{path}</p>}
         {renderExtensionItems(items)}
       </section>
     );

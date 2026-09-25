@@ -551,7 +551,7 @@ export const ToolCard = memo(function ToolCard({
         </div>
         {!active && state.endedAtMs !== undefined && (
           <span
-            className="shrink-0 font-mono text-[11px] tabular-nums text-faint"
+            className="shrink-0 text-[11px] tabular-nums text-faint"
             title={`実行時間 ${formatElapsed(elapsedMs)}`}
           >
             {formatElapsed(elapsedMs)}
@@ -797,7 +797,7 @@ export const WorkingRow = memo(function WorkingRow({ messages, active = true }: 
       {startedAtMs !== undefined && (
         <span
           className={cx(
-            "shrink-0 font-mono text-xs tabular-nums",
+            "shrink-0 text-xs tabular-nums",
             elapsedMs >= 60_000 ? "text-danger" : elapsedMs >= 30_000 ? "text-warning" : "text-faint",
           )}
         >

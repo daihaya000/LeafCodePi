@@ -114,7 +114,7 @@ export function HangTimeoutSettings() {
           onKeyDown={(event) => {
             if (event.key === "Enter") event.currentTarget.blur();
           }}
-          className="h-9 w-full max-w-[10rem] rounded-lg border border-border bg-surface-2 px-3 font-mono text-sm outline-none focus:border-border-strong"
+          className="h-9 w-full max-w-[10rem] rounded-lg border border-border bg-surface-2 px-3 text-sm outline-none focus:border-border-strong"
         />
         <span className="text-xs text-muted">分</span>
       </label>

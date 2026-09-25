@@ -99,7 +99,7 @@ export function InstructionsMdSettings({
         <div className="min-w-0">
           <h3 className="text-sm font-semibold">{title}</h3>
           {meta?.path && (
-            <p className="mt-1 truncate font-mono text-[11px] text-muted" title={meta.path}>
+            <p className="mt-1 truncate text-[11px] text-muted" title={meta.path}>
               {meta.path}
             </p>
           )}

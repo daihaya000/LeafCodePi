@@ -144,7 +144,7 @@ export function NotificationSoundSettings() {
             />
             <output
               htmlFor="notification-sound-volume"
-              className="w-12 shrink-0 text-right font-mono text-sm text-text"
+              className="w-12 shrink-0 text-right tabular-nums text-sm text-text"
             >
               {volume}%
             </output>

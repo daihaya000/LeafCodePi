@@ -205,7 +205,7 @@ export function SkillsSettings({ scope = "code" }: { scope?: SkillScope } = {}) 
         </div>
         {description && <p className="mt-1 text-xs text-muted">{description}</p>}
         {path && (
-          <p className="mt-1 break-all text-[11px] text-muted">{pathLabel && <span className="font-semibold">{pathLabel}: </span>}<span className="font-mono">{path}</span></p>
+          <p className="mt-1 break-all text-[11px] text-muted">{pathLabel && <span className="font-semibold">{pathLabel}: </span>}<span>{path}</span></p>
         )}
         {items.length === 0 ? (
           <p className="mt-3 text-sm text-muted">該当するスキルはありません。</p>
@@ -232,8 +232,8 @@ export function SkillsSettings({ scope = "code" }: { scope?: SkillScope } = {}) 
       ) : skills.length === 0 ? (
         <p className="mt-3 text-sm text-muted">
           スキルがありません。{" "}
-          <span className="font-mono">~/.pi/agent/skills/&lt;name&gt;/SKILL.md</span>{" "}
-          または <span className="font-mono">skills/&lt;name&gt;/SKILL.md</span> を追加してください。
+          <span>~/.pi/agent/skills/&lt;name&gt;/SKILL.md</span>{" "}
+          または <span>skills/&lt;name&gt;/SKILL.md</span> を追加してください。
         </p>
       ) : (
         <div className="mt-3 space-y-3">

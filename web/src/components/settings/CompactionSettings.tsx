@@ -119,7 +119,7 @@ export function CompactionSettings() {
               min={70}
               max={95}
               step={1}
-              className="h-9 min-w-0 flex-1 rounded-lg border border-border bg-bg px-3 font-mono text-sm text-text outline-none focus:border-border-strong"
+              className="h-9 min-w-0 flex-1 rounded-lg border border-border bg-bg px-3 text-sm text-text outline-none focus:border-border-strong"
               value={threshold}
               onChange={(e) => setThreshold(Number(e.target.value))}
               onBlur={() => void save(COMPACTION_THRESHOLD_SETTING_KEY, String(threshold))}

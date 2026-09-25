@@ -2918,17 +2918,17 @@ export const TaskView = memo(function TaskView({
   const usageStats = (visibility: string) => (
     <>
       {stats.totalOutputTokens > 0 && (
-        <span className={cx("font-mono tabular-nums", visibility)} title="合計出力トークン">
+        <span className={cx("tabular-nums", visibility)} title="合計出力トークン">
           {formatTokens(stats.totalOutputTokens)} tok
         </span>
       )}
       {avgHeaderRateLabel && (
-        <span className={cx("font-mono tabular-nums", visibility)} title="平均 tok/s（メッセージヘッダーの tok/s の平均）">
+        <span className={cx("tabular-nums", visibility)} title="平均 tok/s（メッセージヘッダーの tok/s の平均）">
           {avgHeaderRateLabel}
         </span>
       )}
       {stats.durationMs > 0 && (
-        <span className={cx("font-mono tabular-nums", visibility)} title="合計生成時間（メッセージ間隔の累計）">
+        <span className={cx("tabular-nums", visibility)} title="合計生成時間（メッセージ間隔の累計）">
           {formatDuration(stats.durationMs)}
         </span>
       )}

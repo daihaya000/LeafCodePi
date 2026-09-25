@@ -129,7 +129,7 @@ const FileDiffBlock = memo(function FileDiffBlock({
                 expanded && "rotate-90",
               )}
             />
-            <span className="min-w-0 truncate font-mono text-xs">
+            <span className="min-w-0 truncate text-xs">
               <span className="text-faint">{dir}</span>
               <span className="text-text">{base}</span>
             </span>
@@ -805,7 +805,7 @@ export function DiffPane({
       )}
       {panel === "merge" && (
         <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-border bg-surface px-3 py-2">
-          <span className="font-mono text-xs text-muted">
+          <span className="text-xs text-muted">
             {branches?.current ?? "?"}
           </span>
           <select

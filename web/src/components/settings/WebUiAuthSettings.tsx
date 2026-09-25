@@ -141,7 +141,7 @@ export function WebUiAuthSettings() {
               setNotice(null);
             }}
             aria-describedby="webui-auth-help"
-            className="min-h-11 w-full rounded-lg border border-border bg-surface-2 px-3 font-mono text-sm outline-none focus:border-border-strong disabled:opacity-50"
+            className="min-h-11 w-full rounded-lg border border-border bg-surface-2 px-3 text-sm outline-none focus:border-border-strong disabled:opacity-50"
             placeholder={`${TOKEN_MIN_LENGTH}文字以上（変更しない場合は空欄）`}
           />
         </label>

@@ -71,7 +71,7 @@ function NumberField({
           value={value}
           aria-label={label}
           onChange={(event) => onChange(Number(event.target.value))}
-          className="min-h-11 w-full rounded-lg border border-border bg-surface-2 px-3 font-mono outline-none focus:border-border-strong"
+          className="min-h-11 w-full rounded-lg border border-border bg-surface-2 px-3 outline-none focus:border-border-strong"
         />
         <span className="shrink-0 text-xs text-muted">{unit}</span>
       </span>
@@ -350,7 +350,7 @@ export function MemorySettings() {
         <Button variant="ghost" size="sm" disabled={disabled} onClick={reload}>再読込</Button>
       </div>
 
-      {snapshot?.path && <p className="mt-3 break-all font-mono text-[11px] text-muted">{snapshot.path}{snapshot.exists ? "" : "（未作成・保存時に作成）"}</p>}
+      {snapshot?.path && <p className="mt-3 break-all text-[11px] text-muted">{snapshot.path}{snapshot.exists ? "" : "（未作成・保存時に作成）"}</p>}
       <div aria-live="polite" className="mt-2 min-h-5 text-sm">
         {notice && <p role="status" className="text-success">{notice}</p>}
         {error && <p role="alert" className="text-danger">{error}</p>}

@@ -38,7 +38,7 @@ function ColorField({ label, value, colors, disabled, onSelect }: { label: strin
       </div>
       <form className="mt-2 flex items-center gap-2" onSubmit={(event) => { event.preventDefault(); if (valid) onSelect(draft.toUpperCase()); }}>
         <input type="color" aria-label={`${label}のカラーピッカー`} value={valid ? draft : value} disabled={disabled} onChange={(event) => setDraft(event.target.value)} className="h-11 w-11 shrink-0 cursor-pointer rounded-lg border border-border bg-surface p-1 disabled:opacity-50" />
-        <input type="text" aria-label={`${label}のカラーコード`} value={draft} maxLength={7} spellCheck={false} aria-invalid={!valid} disabled={disabled} onChange={(event) => setDraft(event.target.value)} className="h-11 min-w-0 flex-1 rounded-lg border border-border bg-surface px-2 font-mono text-sm" />
+        <input type="text" aria-label={`${label}のカラーコード`} value={draft} maxLength={7} spellCheck={false} aria-invalid={!valid} disabled={disabled} onChange={(event) => setDraft(event.target.value)} className="h-11 min-w-0 flex-1 rounded-lg border border-border bg-surface px-2 text-sm" />
         <Button type="submit" variant="ghost" disabled={disabled || !valid} className="min-h-11 px-3">適用</Button>
       </form>
       {!valid && <p className="mt-1 text-xs text-danger">#と6桁の英数字（0–9・A–F）を入力してください。</p>}

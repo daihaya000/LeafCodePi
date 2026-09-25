@@ -256,7 +256,7 @@ function ProviderRow({
           <div className="flex flex-wrap items-center gap-2">
             <ProviderIcon providerID={provider.id} size={16} />
             <p className="min-w-0 truncate text-sm font-medium">{provider.name}</p>
-            <span className="font-mono text-xs text-muted">{provider.id}</span>
+            <span className="text-xs text-muted">{provider.id}</span>
             {provider.accountLabel && (
               <span className="text-xs text-muted">アカウント: {provider.accountLabel}</span>
             )}

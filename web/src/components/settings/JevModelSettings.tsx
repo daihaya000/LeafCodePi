@@ -306,7 +306,7 @@ export function JevModelSettings({ refreshToken = 0, onProviderCatalogChange }: 
                   <div className="flex flex-wrap items-center gap-2">
                     <ProviderIcon providerID={row.id} size={16} />
                     <p className="min-w-0 truncate text-sm font-medium">{row.name}</p>
-                    <span className="font-mono text-xs text-muted">{row.id}</span>
+                    <span className="text-xs text-muted">{row.id}</span>
                     {row.accountLabel && <span className="text-xs text-muted">アカウント: {row.accountLabel}</span>}
                     <Badge tone={row.enabled ? "success" : "neutral"}>{row.enabled ? "有効" : "無効"}</Badge>
                   </div>
@@ -350,7 +350,7 @@ export function JevModelSettings({ refreshToken = 0, onProviderCatalogChange }: 
                         {model.integrated && model.accountLabel && <span className="text-xs text-muted">アカウント: {model.accountLabel}</span>}
                         <Badge tone={checked ? "success" : "neutral"}>{checked ? active ? "有効" : "有効（未反映）" : active ? "無効（未反映）" : "無効"}</Badge>
                         {model.source === "documented" && <span className="text-xs text-muted">公式対応</span>}
-                        <span className="break-all font-mono text-xs text-muted">{model.modelId}</span>
+                        <span className="break-all text-xs text-muted">{model.modelId}</span>
                       </span>
                       <Switch checked={checked} disabled={!modelEnabled && !checked} onChange={() => toggleModel(model)} label={`${row.name}${row.accountLabel || model.integrated && model.accountLabel ? ` · ${row.accountLabel ?? model.accountLabel}` : ""} / ${model.name} を${checked ? "無効化" : "有効化"}`} />
                     </div>

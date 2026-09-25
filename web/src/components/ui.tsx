@@ -567,7 +567,7 @@ export function DiffStat({
 }) {
   if (additions === 0 && deletions === 0) return null;
   return (
-    <span className={cx("inline-flex items-center gap-1.5 font-mono text-xs", className)}>
+    <span className={cx("inline-flex items-center gap-1.5 text-xs", className)}>
       <span className="text-success">+{additions}</span>
       <span className="text-danger">−{deletions}</span>
     </span>

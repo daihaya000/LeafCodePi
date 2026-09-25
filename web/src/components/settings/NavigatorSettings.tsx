@@ -55,7 +55,7 @@ export function NavigatorSettings() {
             }}
             className="min-w-0 flex-1 accent-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
           />
-          <output className="w-12 shrink-0 text-right font-mono text-sm text-text">
+          <output className="w-12 shrink-0 text-right tabular-nums text-sm text-text">
             {Math.round(opacity * 100)}%
           </output>
         </span>

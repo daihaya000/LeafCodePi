@@ -253,7 +253,7 @@ export function BotSkillsSettings({
                 rows={3}
                 aria-label={`${activeLabel}スキル名`}
                 placeholder="skill-name（1行1件）"
-                className="w-full resize-y rounded-lg border border-border bg-bg px-2 py-1.5 font-mono text-xs outline-none focus:border-accent"
+                className="w-full resize-y rounded-lg border border-border bg-bg px-2 py-1.5 text-xs outline-none focus:border-accent"
               />
               <div className="flex items-center justify-between gap-2">
                 <p className="text-[11px] text-muted">空行と重複は保存時に整理します。</p>

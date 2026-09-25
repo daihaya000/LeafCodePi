@@ -472,11 +472,11 @@ export function LlamaServerSettings(
       {status && (
         <dl className="mb-3 grid grid-cols-[6rem_1fr] gap-y-2 text-sm @xl:grid-cols-[8rem_1fr]">
           <dt className="text-muted">health</dt>
-          <dd className="font-mono text-xs">{status.health ?? "—"}</dd>
+          <dd className="text-xs">{status.health ?? "—"}</dd>
           <dt className="text-muted">PID</dt>
-          <dd className="font-mono text-xs">{status.pid ?? "—"}</dd>
+          <dd className="tabular-nums text-xs">{status.pid ?? "—"}</dd>
           <dt className="text-muted">listeners</dt>
-          <dd className="font-mono text-xs">
+          <dd className="text-xs">
             {status.listeningPids.length > 0 ? status.listeningPids.join(", ") : "—"}
           </dd>
         </dl>
