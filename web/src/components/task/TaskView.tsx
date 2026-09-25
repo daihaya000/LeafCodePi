@@ -3043,7 +3043,7 @@ export const TaskView = memo(function TaskView({
             ) : (
               <h1
                 className={cx(
-                  "min-w-0 max-w-full rounded-lg text-left text-sm font-semibold",
+                  "min-w-0 max-w-full rounded-lg text-left text-sm font-semibold @min-[48rem]/task:flex @min-[48rem]/task:min-h-8 @min-[48rem]/task:flex-col @min-[48rem]/task:items-start @min-[48rem]/task:justify-center",
                   task && !archived && !titleBusy && "cursor-text",
                 )}
                 aria-label={task?.title ?? "読み込み中…"}
@@ -3058,9 +3058,12 @@ export const TaskView = memo(function TaskView({
                 }}
               >
                 <span className="block max-w-full truncate leading-5">{task?.title ?? "読み込み中…"}</span>
+                <span className="hidden @min-[48rem]/task:inline-flex">
+                  <SessionLabelBadge labelId={task?.label} className="font-normal" />
+                </span>
               </h1>
             )}
-            <div aria-label="セッション情報" className="flex h-4 min-w-0 items-center gap-2 overflow-hidden text-[10px] text-muted">
+            <div aria-label="セッション情報" className="flex h-4 min-w-0 items-center gap-2 overflow-hidden text-[10px] text-muted @min-[48rem]/task:hidden">
               <SessionLabelBadge labelId={task?.label} className="font-normal" />
               {contextUsage && (
                 <span className="min-w-0 @min-[48rem]/task:hidden">

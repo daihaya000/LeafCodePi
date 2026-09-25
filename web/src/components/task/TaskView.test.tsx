@@ -1336,7 +1336,11 @@ describe("TaskView draft submission", () => {
 
     const sessionInfo = screen.getByLabelText("セッション情報");
     const status = screen.getByLabelText("タスクの状態");
+    const heading = screen.getByRole("heading", { name: task.title });
     expect(sessionInfo.textContent).toContain("コード");
+    expect(sessionInfo.className).toContain("@min-[48rem]/task:hidden");
+    expect(heading.textContent).toContain("コード");
+    expect(heading.querySelector("span.hidden")?.className).toContain("@min-[48rem]/task:inline-flex");
     const meterTitle = "コンテキスト使用量: 405k / 1M トークン（41%）";
     const narrowMeter = sessionInfo.querySelector(`[title="${meterTitle}"]`);
     const wideMeter = status.querySelector(`[title="${meterTitle}"]`);
