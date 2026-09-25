@@ -671,10 +671,10 @@ function ContextUsageMeter({ usage }: { usage: ContextUsageDto }) {
   const barWidth = pct === null ? 0 : pct;
   return (
     <span
-      className="flex min-w-0 items-center gap-1 text-[10px] text-muted @min-[48rem]/task:ml-1 @min-[48rem]/task:shrink-0 @min-[48rem]/task:gap-1.5 @min-[48rem]/task:text-[11px]"
+      className="flex min-w-0 items-center gap-1 text-[10px] text-muted @min-[44rem]/task:ml-1 @min-[44rem]/task:shrink-0 @min-[44rem]/task:gap-1.5 @min-[44rem]/task:text-[11px]"
       title={`コンテキスト使用量: ${usedLabel} / ${limitLabel} トークン（${pctLabel}）`}
     >
-      <span className="h-1 w-6 shrink-0 overflow-hidden rounded-full bg-surface-2 @min-[48rem]/task:h-1.5 @min-[48rem]/task:w-10">
+      <span className="h-1 w-6 shrink-0 overflow-hidden rounded-full bg-surface-2 @min-[44rem]/task:h-1.5 @min-[44rem]/task:w-10">
         <span
           className={cx(
             "block h-full rounded-full transition-[width]",
@@ -2985,7 +2985,7 @@ export const TaskView = memo(function TaskView({
       className={cx("@container/task flex min-h-0 min-w-0 flex-1 flex-col bg-bot-chat", !active && "hidden")}
     >
       <header
-        className="grid min-h-11 shrink-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-2 border-b border-bot-outline bg-bot-chat px-3 pb-0.5 @min-[48rem]/task:px-4"
+        className="grid min-h-11 shrink-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-2 border-b border-bot-outline bg-bot-chat px-3 pb-0.5 @min-[44rem]/task:px-4"
         style={{ paddingTop: "env(safe-area-inset-top)" }}
       >
         <div className="col-span-2 flex min-w-0 items-center gap-2">
@@ -3013,13 +3013,13 @@ export const TaskView = memo(function TaskView({
                       cancelTitleEdit();
                     }
                   }}
-                  className="h-11 min-w-0 flex-1 rounded-lg border border-border-strong bg-bg px-2 text-base font-semibold text-text outline-none focus:border-accent @min-[48rem]/task:h-8 @min-[48rem]/task:text-sm"
+                  className="h-11 min-w-0 flex-1 rounded-lg border border-border-strong bg-bg px-2 text-base font-semibold text-text outline-none focus:border-accent @min-[44rem]/task:h-8 @min-[44rem]/task:text-sm"
                   disabled={titleBusy}
                 />
                 <Button
                   variant="ghost"
                   size="icon"
-                  className="h-11 w-11 @min-[48rem]/task:h-8 @min-[48rem]/task:w-8"
+                  className="h-11 w-11 @min-[44rem]/task:h-8 @min-[44rem]/task:w-8"
                   type="submit"
                   aria-label="タイトルを保存"
                   title="タイトルを保存"
@@ -3031,7 +3031,7 @@ export const TaskView = memo(function TaskView({
                 <Button
                   variant="ghost"
                   size="icon"
-                  className="h-11 w-11 @min-[48rem]/task:h-8 @min-[48rem]/task:w-8"
+                  className="h-11 w-11 @min-[44rem]/task:h-8 @min-[44rem]/task:w-8"
                   aria-label="タイトル編集をキャンセル"
                   title="キャンセル"
                   disabled={titleBusy}
@@ -3043,7 +3043,7 @@ export const TaskView = memo(function TaskView({
             ) : (
               <h1
                 className={cx(
-                  "min-w-0 max-w-full rounded-lg text-left text-sm font-semibold @min-[48rem]/task:flex @min-[48rem]/task:min-h-8 @min-[48rem]/task:items-center @min-[48rem]/task:gap-2",
+                  "min-w-0 max-w-full rounded-lg text-left text-sm font-semibold @min-[44rem]/task:flex @min-[44rem]/task:min-h-8 @min-[44rem]/task:items-center @min-[44rem]/task:gap-2",
                   task && !archived && !titleBusy && "cursor-text",
                 )}
                 aria-label={task?.title ?? "読み込み中…"}
@@ -3058,23 +3058,23 @@ export const TaskView = memo(function TaskView({
                 }}
               >
                 {task?.label && (
-                  <span className="hidden shrink-0 @min-[48rem]/task:inline-flex">
+                  <span className="hidden shrink-0 @min-[44rem]/task:inline-flex">
                     <SessionLabelBadge labelId={task.label} className="font-normal" />
                   </span>
                 )}
-                <span className="block min-w-0 max-w-full truncate leading-5 @min-[48rem]/task:flex-1">{task?.title ?? "読み込み中…"}</span>
+                <span className="block min-w-0 max-w-full truncate leading-5 @min-[44rem]/task:flex-1">{task?.title ?? "読み込み中…"}</span>
               </h1>
             )}
-            <div aria-label="セッション情報" className="flex h-4 min-w-0 items-center gap-2 overflow-hidden text-[10px] text-muted @min-[48rem]/task:hidden">
+            <div aria-label="セッション情報" className="flex h-4 min-w-0 items-center gap-2 overflow-hidden text-[10px] text-muted @min-[44rem]/task:hidden">
               <SessionLabelBadge labelId={task?.label} className="font-normal" />
               {contextUsage && (
-                <span className="min-w-0 @min-[48rem]/task:hidden">
+                <span className="min-w-0 @min-[44rem]/task:hidden">
                   <ContextUsageMeter usage={contextUsage} />
                 </span>
               )}
             </div>
           </div>
-          <div className="hidden @min-[48rem]/task:flex">
+          <div className="hidden @min-[44rem]/task:flex">
             <Button
               variant="ghost"
               size="icon"
@@ -3089,7 +3089,7 @@ export const TaskView = memo(function TaskView({
             </Button>
           </div>
         </div>
-        <div aria-label="タスクの状態" className="col-span-1 col-start-1 row-start-2 flex min-w-0 items-center gap-x-2 overflow-hidden text-xs text-muted @max-[48rem]/task:-translate-y-0.5">
+        <div aria-label="タスクの状態" className="col-span-1 col-start-1 row-start-2 flex min-w-0 items-center gap-x-2 overflow-hidden text-xs text-muted @max-[44rem]/task:-translate-y-0.5">
           {permissionRequest && <Badge tone="warning" className="shrink-0">承認待ち</Badge>}
           {questionRequest && <Badge tone="warning" className="shrink-0">回答待ち</Badge>}
           {displayedStatus && <StatusBadge status={displayedStatus} className="shrink-0" />}
@@ -3102,13 +3102,13 @@ export const TaskView = memo(function TaskView({
             </span>
           )}
           {contextUsage && (
-            <span className="hidden @min-[48rem]/task:flex">
+            <span className="hidden @min-[44rem]/task:flex">
               <ContextUsageMeter usage={contextUsage} />
             </span>
           )}
           {(stats.totalInputTokens > 0 || stats.totalOutputTokens > 0) && (
             <span
-              className="hidden font-mono tabular-nums @min-[48rem]/task:inline"
+              className="hidden font-mono tabular-nums @min-[44rem]/task:inline"
               title={`合計${stats.totalInputTokens > 0 ? ` ↑${formatTokens(stats.totalInputTokens)}` : ""}${stats.totalOutputTokens > 0 ? ` ↓${formatTokens(stats.totalOutputTokens)}` : ""} tok`}
             >
               {stats.totalInputTokens > 0 ? `↑${formatTokens(stats.totalInputTokens)} ` : ""}{stats.totalOutputTokens > 0 ? `↓${formatTokens(stats.totalOutputTokens)} ` : ""}tok
@@ -3116,7 +3116,7 @@ export const TaskView = memo(function TaskView({
           )}
           {stats.avgRate !== null && (
             <span
-              className="hidden font-mono tabular-nums @min-[48rem]/task:inline"
+              className="hidden font-mono tabular-nums @min-[44rem]/task:inline"
               title="平均 tok/s（応答ごとの tok/s の平均）"
             >
               {formatTokensPerSecond(stats.avgRate)}
@@ -3124,7 +3124,7 @@ export const TaskView = memo(function TaskView({
           )}
           {stats.durationMs > 0 && (
             <span
-              className="hidden font-mono tabular-nums @min-[48rem]/task:inline"
+              className="hidden font-mono tabular-nums @min-[44rem]/task:inline"
               title="合計生成時間（メッセージ間隔の累計）"
             >
               {formatDuration(stats.durationMs)}
@@ -3142,7 +3142,7 @@ export const TaskView = memo(function TaskView({
               size="icon"
               title="新しいペインを追加"
               aria-label="新しいペインを追加"
-              className="h-11 w-11 @min-[48rem]/task:h-9 @min-[48rem]/task:w-9 @max-[48rem]/task:hidden"
+              className="h-11 w-11 @min-[44rem]/task:h-9 @min-[44rem]/task:w-9 @max-[44rem]/task:hidden"
               onClick={onAddPane}
             >
               <Plus className="h-4 w-4" />
@@ -3156,13 +3156,13 @@ export const TaskView = memo(function TaskView({
               aria-label="コンテキスト圧縮"
               busy={compacting}
               disabled={!task || working || compacting || archived}
-              className="h-11 w-11 @min-[48rem]/task:h-9 @min-[48rem]/task:w-9"
+              className="h-11 w-11 @min-[44rem]/task:h-9 @min-[44rem]/task:w-9"
               onClick={() => void compact()}
             >
               {!compacting && <Shrink className="h-4 w-4" />}
             </Button>
           )}
-          <div className="@min-[48rem]/task:hidden">
+          <div className="@min-[44rem]/task:hidden">
             <Button
               variant="ghost"
               size="icon"
@@ -3180,7 +3180,7 @@ export const TaskView = memo(function TaskView({
             <label
               title={supervisor ? `監督: ${supervisor.name}` : hasSupervisor ? "委任を解除" : working ? "Botへ引き継ぐ" : "タスク実行中にBotへ引き継げます"}
               className={cx(
-                "relative flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-muted hover:bg-surface-2 hover:text-text focus-within:ring-2 focus-within:ring-accent @min-[48rem]/task:h-9 @min-[48rem]/task:w-9",
+                "relative flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-muted hover:bg-surface-2 hover:text-text focus-within:ring-2 focus-within:ring-accent @min-[44rem]/task:h-9 @min-[44rem]/task:w-9",
                 supervisorControlDisabled && "cursor-not-allowed opacity-40",
               )}
             >
@@ -3216,11 +3216,11 @@ export const TaskView = memo(function TaskView({
                 aria-label="読み上げ"
                 title={ttsEnabled ? "読み上げ: ON" : "読み上げ: OFF"}
                 onClick={toggleTts}
-                className={`inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-lg @min-[48rem]/task:h-9 @min-[48rem]/task:w-9 ${ttsEnabled ? "text-accent" : "text-muted"} hover:bg-surface-2 hover:text-text`}
+                className={`inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-lg @min-[44rem]/task:h-9 @min-[44rem]/task:w-9 ${ttsEnabled ? "text-accent" : "text-muted"} hover:bg-surface-2 hover:text-text`}
               >
                 {ttsEnabled ? <Volume2 className="h-4 w-4" /> : <VolumeX className="h-4 w-4" />}
               </button>
-              {ttsError && <span role="alert" title={ttsError} className="max-w-24 shrink-0 truncate text-[11px] text-danger @min-[48rem]/task:max-w-40">{ttsError}</span>}
+              {ttsError && <span role="alert" title={ttsError} className="max-w-24 shrink-0 truncate text-[11px] text-danger @min-[44rem]/task:max-w-40">{ttsError}</span>}
             </>
           )}
           <ProjectExplorerButton
@@ -3236,7 +3236,7 @@ export const TaskView = memo(function TaskView({
             aria-pressed={graphOpen}
             disabled={!task}
             className={cx(
-              "h-11 w-11 @min-[48rem]/task:h-9 @min-[48rem]/task:w-9",
+              "h-11 w-11 @min-[44rem]/task:h-9 @min-[44rem]/task:w-9",
               graphOpen && "bg-surface-2 text-text",
             )}
             onClick={() =>
@@ -3255,7 +3255,7 @@ export const TaskView = memo(function TaskView({
             aria-pressed={diffOpen}
             disabled={!task}
             className={cx(
-              "h-11 w-11 @min-[48rem]/task:h-9 @min-[48rem]/task:w-9",
+              "h-11 w-11 @min-[44rem]/task:h-9 @min-[44rem]/task:w-9",
               diffOpen && "bg-surface-2 text-text",
             )}
             onClick={() =>
