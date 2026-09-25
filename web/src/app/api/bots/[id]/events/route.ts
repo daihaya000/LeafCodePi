@@ -127,6 +127,7 @@ export async function GET(
               : { messages: page!.messages, messageHistory: page!.messageHistory }),
             isStreaming: detail.isStreaming,
             isCompacting: detail.isCompacting,
+            ...(detail.contextUsage ? { contextUsage: detail.contextUsage } : {}),
             permissionRequest: pendingPermissionForTask(taskId),
             questionRequest: pendingQuestionForTask(taskId),
             intercomInbox: getBotIntercomInbox(botId),

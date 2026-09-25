@@ -18,6 +18,7 @@ export function BotChatHeader({
   settingsOpen,
   onSettings,
   action,
+  meta,
 }: {
   title: string;
   subtitle: string;
@@ -27,6 +28,8 @@ export function BotChatHeader({
   settingsOpen: boolean;
   onSettings: () => void;
   action?: ReactNode;
+  /** サブタイトル下のメタ情報（コンテキスト量・tok等）。 */
+  meta?: ReactNode;
 }) {
   const settingsButton = useRef<HTMLButtonElement>(null);
   const wasOpen = useRef(settingsOpen);
@@ -53,6 +56,7 @@ export function BotChatHeader({
       <button type="button" onClick={onSettings} aria-label={settingsOpen ? "設定を閉じる" : "ボット設定を開く"} aria-expanded={settingsOpen} aria-controls="bot-settings-panel" className="min-w-0 flex-1 text-left hover:opacity-80">
         <h1 className="truncate text-sm font-medium">{title}</h1>
         <p className="truncate text-[11px] leading-4 text-muted">{subtitle}</p>
+        {meta}
       </button>
       {members.length > 0 && <div className="flex shrink-0 -space-x-2" aria-label={`メンバー ${members.length}人`}>
         {visibleMembers.map((member) => <BotAvatar key={member.id} size={26} {...member} className={`ring-2 ${member.attention ? "ring-warning" : "ring-surface"}`} />)}

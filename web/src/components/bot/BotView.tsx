@@ -19,6 +19,8 @@ import { DEFAULT_ROUTINE_SCHEDULE } from "@/lib/routine-schedule";
 import { BotEmptyState } from "@/components/bot/BotEmptyState";
 import { BotChatHeader } from "@/components/bot/BotChatHeader";
 import { BotIntercomInbox } from "@/components/bot/BotIntercomInbox";
+import { BotUsageStats } from "@/components/bot/BotUsageStats";
+import type { ContextUsageDto } from "@/lib/context-usage";
 import { useBotFor, useReportStatus } from "@/components/shell/TaskPanesContext";
 import { BotComposer } from "@/components/bot/BotComposer";
 import { composerPromptAttachments, readComposerFiles, useComposerPromptPresetReferences, type ComposerAttachment } from "@/components/Composer";
@@ -179,6 +181,7 @@ export const BotView = memo(function BotView({ id, active = true }: { id: string
   const clearedPermissionIdsRef = useRef(new Set<string>());
   const clearedQuestionIdsRef = useRef(new Set<string>());
   const [messages, setMessages] = useState<UiMessage[]>(() => cachedSession?.messages ?? []);
+  const [contextUsage, setContextUsage] = useState<ContextUsageDto | undefined>(() => cachedSession?.contextUsage);
   const [messageHistory, setMessageHistory] = useState<TaskMessageHistory>(
     () => cachedSession?.messageHistory ?? EMPTY_TASK_MESSAGE_HISTORY,
   );
@@ -267,6 +270,7 @@ export const BotView = memo(function BotView({ id, active = true }: { id: string
         messageHistory,
         isStreaming: sending,
         isCompacting: false,
+        ...(contextUsage ? { contextUsage } : {}),
       } satisfies TaskSessionCacheSnapshot
     : null;
   if (cacheSnapshot) cacheSnapshotsRef.current.set(taskId, cacheSnapshot);
@@ -279,7 +283,7 @@ export const BotView = memo(function BotView({ id, active = true }: { id: string
       if (latest) saveTaskSessionCache(latest);
     }, BOT_SESSION_CACHE_THROTTLE_MS);
     cacheTimersRef.current.set(taskId, timer);
-  }, [cacheSnapshot, messageHistory, messages, sending, taskId]);
+  }, [cacheSnapshot, contextUsage, messageHistory, messages, sending, taskId]);
 
   useEffect(() => {
     const snapshots = cacheSnapshotsRef.current;
@@ -445,6 +449,7 @@ export const BotView = memo(function BotView({ id, active = true }: { id: string
     cacheTaskRef.current = cached;
     const cachedHistory = cached?.messageHistory ?? EMPTY_TASK_MESSAGE_HISTORY;
     setMessages(cached?.messages ?? []);
+    setContextUsage(cached?.contextUsage);
     messageHistoryRef.current = cachedHistory;
     setMessageHistory(cachedHistory);
     historyLoadedRef.current = false;
@@ -635,9 +640,11 @@ export const BotView = memo(function BotView({ id, active = true }: { id: string
             permissionRequest?: PermissionRequestDto | null;
             questionRequest?: QuestionRequestDto | null;
             intercomInbox?: BotIntercomInboxDto;
+            contextUsage?: ContextUsageDto;
             eventType?: string;
             codeRequestId?: string;
           };
+          if ("contextUsage" in payload) setContextUsage(payload.contextUsage);
           if (payload.eventType === BOT_CODE_SESSION_CHANGED_EVENT) notifyBotSidebarChanged(payload.codeRequestId);
           if (payload.eventType === "ready") setTimelineLoading(false);
           if (payload.task) cacheTaskRef.current = payload.task;
@@ -1312,6 +1319,7 @@ export const BotView = memo(function BotView({ id, active = true }: { id: string
         settingsOpen={settingsOpen}
         active={sending || codeSessionActive}
         onSettings={toggleSettings}
+        meta={<BotUsageStats messages={messages} contextUsage={contextUsage} />}
         action={
           <>
             {ttsError && <span role="alert" title={ttsError} className="max-w-40 shrink-0 truncate text-[11px] text-danger">{ttsError}</span>}
