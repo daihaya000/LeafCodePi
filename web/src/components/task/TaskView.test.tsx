@@ -1259,7 +1259,7 @@ describe("TaskView draft submission", () => {
     );
   });
 
-  it("places the read-aloud toggle immediately to the right of the Bot control", async () => {
+  it("places title generation before the Bot control and read-aloud after it", async () => {
     const delegatedTask = { ...task, kind: "code" as const, status: "working" as const, supervisorBotId: "bot-1" };
     saveTaskSessionCache({ task: delegatedTask, messages: [], isStreaming: true, isCompacting: false });
     mocks.botFor.mockImplementation((id) => id === "bot-1" ? { id, name: "監督Bot" } : undefined);
@@ -1269,8 +1269,10 @@ describe("TaskView draft submission", () => {
     const botControl = selector.closest("label");
     // The compaction and TTS controls appear only after the settings fetch settles.
     const compact = await screen.findByRole("button", { name: "コンテキスト圧縮" });
+    const generateTitle = screen.getByRole("button", { name: "タイトルを生成" });
     const tts = await screen.findByRole("switch", { name: "読み上げ" });
-    expect(botControl?.previousElementSibling).toBe(compact);
+    expect(generateTitle.previousElementSibling).toBe(compact);
+    expect(botControl?.previousElementSibling).toBe(generateTitle);
     expect(tts.previousElementSibling).toBe(botControl);
   });
 
@@ -1359,8 +1361,11 @@ describe("TaskView draft submission", () => {
     expect(heading.textContent).toBe(title);
     expect(screen.getAllByText("クリーン")).toHaveLength(1);
     const generateTitle = screen.getByRole("button", { name: "タイトルを生成" });
-    expect(screen.getByRole("group", { name: "タスク操作" }).contains(generateTitle)).toBe(false);
-    expect(heading.compareDocumentPosition(generateTitle) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    const actions = screen.getByRole("group", { name: "タスク操作" });
+    const botControl = screen.getByRole("combobox", { name: "Codeタスクを監督するBot" }).closest("label");
+    expect(actions.contains(generateTitle)).toBe(true);
+    expect(heading.parentElement?.contains(generateTitle)).toBe(false);
+    expect(generateTitle.compareDocumentPosition(botControl!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     fireEvent.click(heading);
     const input = screen.getByRole("textbox", { name: "セッションタイトル" });
     expect(document.activeElement).toBe(input);

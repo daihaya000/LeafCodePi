@@ -3089,20 +3089,6 @@ export const TaskView = memo(function TaskView({
               )}
             </div>
           </div>
-          <div className="flex shrink-0 items-center gap-1">
-            <Button
-              variant="ghost"
-              size="icon"
-              aria-label="タイトルを生成"
-              title="会話内容からタイトルを生成"
-              className="shrink-0 h-11 w-11 @min-[48rem]/task:h-9 @min-[48rem]/task:w-9"
-              disabled={!task || archived || titleBusy}
-              busy={titleBusy}
-              onClick={() => void refreshTitle()}
-            >
-              {!titleBusy && <WandSparkles className="h-4 w-4" />}
-            </Button>
-          </div>
         </div>
         <div aria-label="タスクの状態" className="col-span-1 col-start-1 row-start-2 flex min-w-0 items-center gap-x-2 overflow-hidden text-xs text-muted @max-[48rem]/task:-translate-y-0.5">
           {permissionRequest && <Badge tone="warning" className="shrink-0">承認待ち</Badge>}
@@ -3148,6 +3134,18 @@ export const TaskView = memo(function TaskView({
               {!compacting && <Shrink className="h-4 w-4" />}
             </Button>
           )}
+          <Button
+            variant="ghost"
+            size="icon"
+            aria-label="タイトルを生成"
+            title="会話内容からタイトルを生成"
+            className="h-11 w-11 @min-[48rem]/task:h-9 @min-[48rem]/task:w-9"
+            disabled={!task || archived || titleBusy}
+            busy={titleBusy}
+            onClick={() => void refreshTitle()}
+          >
+            {!titleBusy && <WandSparkles className="h-4 w-4" />}
+          </Button>
           {canManageSupervisor && (
             <label
               title={supervisor ? `監督: ${supervisor.name}` : hasSupervisor ? "委任を解除" : working ? "Botへ引き継ぐ" : "タスク実行中にBotへ引き継げます"}
