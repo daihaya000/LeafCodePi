@@ -160,12 +160,12 @@ describe("room mention responses", () => {
       await vi.waitFor(() => expect(state.promptTask).toHaveBeenCalledTimes(turn + 1));
       const [taskId, prompt] = state.promptTask.mock.calls[turn];
       expect(taskId).toBe(taskIds[turn % 2]);
-      expect(prompt).toContain(`Your identity: ${JSON.stringify({ name: bots[turn % 2].name, id: bots[turn % 2].id })}`);
+      expect(prompt).toContain(`Your name/id: ${JSON.stringify([bots[turn % 2].name, bots[turn % 2].id])}`);
       expect(prompt).toContain("Debugger");
       expect(prompt).toContain("Planner");
       if (turn > 0) expect(prompt).toContain(`Contribution ${turn - 1}`);
-      expect(prompt).toContain("never simulate their replies");
-      expect(prompt).toContain("at most about three short sentences");
+      expect(prompt).toContain("never simulate teammates");
+      expect(prompt).toContain("at most 3 short prose sentences");
       finish(taskId, { messages: [...state.details.get(taskId)!.messages, assistant(`turn-${turn}`, `Contribution ${turn}`)] });
     }
     await vi.waitFor(() => expect(getRoom(room.id)?.messages.filter((message) => message.status === "done")).toHaveLength(2));
@@ -182,8 +182,8 @@ describe("room mention responses", () => {
     for (let turn = 0; turn < 6; turn += 1) {
       await vi.waitFor(() => expect(state.promptTask).toHaveBeenCalledTimes(turn + 1));
       const [taskId, prompt] = state.promptTask.mock.calls[turn];
-      const roster = JSON.parse(prompt.split("Participants (id, name, role): ")[1].split("\n")[0]);
-      expect(roster.map((member: { id: string }) => member.id)).toEqual(bots.slice(0, 6).map((member) => member.id));
+      const roster = JSON.parse(prompt.split("Participants [id,name,role]: ")[1].split("\n")[0]) as string[][];
+      expect(roster.map(([id]) => id)).toEqual(bots.slice(0, 6).map((member) => member.id));
       finish(taskId, { messages: [...state.details.get(taskId)!.messages, assistant(`cap-${turn}`, `意見 ${turn}`)] });
     }
     await new Promise((resolve) => setImmediate(resolve));
@@ -313,7 +313,7 @@ describe("room mention responses", () => {
     await send(room.id, "/discuss Options");
     await vi.waitFor(() => expect(getRoom(room.id)?.messages.filter((message) => message.status === "done")).toHaveLength(limit));
     expect(state.promptTask).toHaveBeenCalledTimes(limit);
-    expect(state.promptTask.mock.calls.at(-1)?.[1]).toContain("This is the final available turn");
+    expect(state.promptTask.mock.calls.at(-1)?.[1]).toContain("Final turn:");
   });
 
   it("stops repeated contributions rather than spending the handoff budget", async () => {
