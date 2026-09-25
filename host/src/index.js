@@ -604,7 +604,7 @@ async function webUiRestartBlockReason() {
   }
 }
 
-async function restartWeb({ rebuild = false } = {}) {
+async function restartWeb() {
   if (restarting) {
     log("Service restart is already in progress");
     return;
@@ -615,19 +615,15 @@ async function restartWeb({ rebuild = false } = {}) {
     return;
   }
   restarting = true;
-  log(
-    rebuild
-      ? "Rebuilding LeafCodePi WebUI (forced production build)…"
-      : "Restarting LeafCodePi WebUI...",
-  );
+  log("Restarting LeafCodePi WebUI...");
   try {
     const { updated } = pullLatestSources({ repoRoot: REPO_ROOT, log, error });
     await stopWeb();
-    if (rebuild || updated) {
+    if (updated) {
       // The served .next is stashed while next build runs, so the WebUI has to
       // stay stopped here; a failed rebuild falls through to spawnWeb, which
       // serves the build restored by build-web.mjs.
-      await buildWeb(updated && !rebuild ? "stale" : "manual", { pull: false }).catch((err) => {
+      await buildWeb("stale", { pull: false }).catch((err) => {
         error(`Rebuild failed: ${err instanceof Error ? err.message : String(err)}`);
       });
     }
@@ -872,7 +868,6 @@ async function startControlServer() {
     onLlamaServerStart: (config) => llamaServerService.start(config),
     onLlamaServerStop: () => llamaServerService.stop(),
     onRestartWebui: () => restartWeb(),
-    onBuildWebui: () => restartWeb({ rebuild: true }),
     onRestartWebuiBlocked: () => webUiRestartBlockReason(),
     onRestartHost: () => restartHost(),
     onBrowserConfigRead: () => readBrowserConfig(),

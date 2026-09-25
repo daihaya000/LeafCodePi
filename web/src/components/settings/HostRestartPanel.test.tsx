@@ -90,10 +90,10 @@ describe("HostRestartPanel", () => {
     }
   });
 
-  it("再ビルドは /api/host/build を叩いてから health 復帰を待つ", async () => {
+  it("WebUI再起動は更新確認付きの /api/host/restart を叩いて health 復帰を待つ", async () => {
     fetchMock
       .mockResolvedValueOnce(jsonResponse({ running: true }))
-      .mockResolvedValueOnce(jsonResponse({ ok: true, target: "webui-rebuild", accepted: true }, 202))
+      .mockResolvedValueOnce(jsonResponse({ ok: true, target: "webui", accepted: true }, 202))
       .mockResolvedValueOnce(jsonResponse({ engineOk: true, startedAt: 1 }));
     const restartEvent = vi.fn();
     window.addEventListener("leafcode:webui-restart", restartEvent);
@@ -102,15 +102,18 @@ describe("HostRestartPanel", () => {
       render(<HostRestartPanel onRestarted={onRestarted} />);
       await waitFor(() => {
         expect(
-          (screen.getByRole("button", { name: "WebUI を再ビルド" }) as HTMLButtonElement).disabled,
+          (screen.getByRole("button", { name: "WebUI を再起動" }) as HTMLButtonElement).disabled,
         ).toBe(false);
       });
 
-      fireEvent.click(screen.getByRole("button", { name: "WebUI を再ビルド" }));
+      expect(screen.queryByRole("button", { name: "WebUI を再ビルド" })).toBeNull();
+      fireEvent.click(screen.getByRole("button", { name: "WebUI を再起動" }));
+      expect(screen.getByRole("dialog").textContent).toContain("更新がある場合は Pull と再ビルド");
       fireEvent.click(screen.getByRole("button", { name: "再起動する" }));
 
       await waitFor(() => expect(onRestarted).toHaveBeenCalled(), { timeout: 3_000 });
-      expect(fetchMock.mock.calls[1]?.[0]).toBe("/api/host/build");
+      expect(fetchMock.mock.calls[1]?.[0]).toBe("/api/host/restart");
+      expect(JSON.parse(fetchMock.mock.calls[1]?.[1]?.body as string)).toEqual({ target: "webui" });
       expect(restartEvent).toHaveBeenCalled();
     } finally {
       window.removeEventListener("leafcode:webui-restart", restartEvent);

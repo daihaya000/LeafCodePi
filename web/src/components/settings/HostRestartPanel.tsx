@@ -6,12 +6,10 @@ import { HOST_LAUNCH_REQUIRED_HINT_ANY, HOST_RESTART_READY_HINT_ANY } from "@/li
 import type { HealthDto } from "@/lib/types";
 
 type RestartTarget = "webui" | "host";
-type PanelAction = RestartTarget | "rebuild";
 
-const LABELS: Record<PanelAction, string> = {
+const LABELS: Record<RestartTarget, string> = {
   webui: "WebUI",
   host: "トレイホスト",
-  rebuild: "WebUI（再ビルド）",
 };
 
 const HEALTH_BUDGET_MS = 90_000;
@@ -28,8 +26,8 @@ async function timedFetch(input: string, init?: RequestInit & { timeoutMs?: numb
 
 export function HostRestartPanel({ onRestarted }: { onRestarted?: () => void }) {
   const [hostOk, setHostOk] = useState<boolean | null>(null);
-  const [pending, setPending] = useState<PanelAction | null>(null);
-  const [restarting, setRestarting] = useState<PanelAction | null>(null);
+  const [pending, setPending] = useState<RestartTarget | null>(null);
+  const [restarting, setRestarting] = useState<RestartTarget | null>(null);
   const [remaining, setRemaining] = useState(HEALTH_BUDGET_MS / 1000);
   const [error, setError] = useState<string | null>(null);
   const restartingRef = useRef(false);
@@ -58,7 +56,7 @@ export function HostRestartPanel({ onRestarted }: { onRestarted?: () => void }) 
     };
   }, []);
 
-  const restartService = async (action: PanelAction) => {
+  const restartService = async (action: RestartTarget) => {
     if (restartingRef.current) return;
     restartingRef.current = true;
     setPending(null);
@@ -66,15 +64,12 @@ export function HostRestartPanel({ onRestarted }: { onRestarted?: () => void }) 
     setRemaining(HEALTH_BUDGET_MS / 1000);
     setError(null);
     try {
-      const res =
-        action === "rebuild"
-          ? await timedFetch("/api/host/build", { method: "POST", timeoutMs: 10_000 })
-          : await timedFetch("/api/host/restart", {
-              method: "POST",
-              headers: { "content-type": "application/json" },
-              body: JSON.stringify({ target: action }),
-              timeoutMs: 10_000,
-            });
+      const res = await timedFetch("/api/host/restart", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ target: action }),
+        timeoutMs: 10_000,
+      });
       const data = (await res.json().catch(() => ({}))) as {
         error?: string;
         hint?: string;
@@ -146,16 +141,6 @@ export function HostRestartPanel({ onRestarted }: { onRestarted?: () => void }) 
           type="button"
           size="sm"
           variant="secondary"
-          busy={restarting === "rebuild"}
-          disabled={hostOk !== true || restarting !== null}
-          onClick={() => setPending("rebuild")}
-        >
-          WebUI を再ビルド
-        </Button>
-        <Button
-          type="button"
-          size="sm"
-          variant="secondary"
           busy={restarting === "host"}
           disabled={hostOk !== true || restarting !== null}
           onClick={() => setPending("host")}
@@ -180,9 +165,7 @@ export function HostRestartPanel({ onRestarted }: { onRestarted?: () => void }) 
           className="mt-3 rounded-lg border border-warning/30 bg-warning-bg px-3 py-2 text-sm text-warning"
         >
           <p className="font-medium">
-            {pending === "rebuild"
-              ? "WebUI を再ビルドして再起動しますか？（ビルドの所要時間ぶん停止します）"
-              : `${LABELS[pending]}を再起動しますか？`}
+            {`${LABELS[pending]}を再起動しますか？${pending === "webui" ? "（更新がある場合は Pull と再ビルドも行います）" : ""}`}
           </p>
           <div className="mt-2 flex flex-wrap gap-2">
             <Button type="button" size="sm" variant="primary" onClick={() => void restartService(pending)}>
@@ -197,9 +180,7 @@ export function HostRestartPanel({ onRestarted }: { onRestarted?: () => void }) 
       <p className="mt-2 min-h-4 text-xs text-muted" role="status" aria-live="polite">
         {restarting ? (
           <>
-            {restarting === "rebuild"
-              ? "WebUIを再ビルドして再起動しています…"
-              : `${LABELS[restarting]}を再起動しています…`}
+            {`${LABELS[restarting]}を再起動しています…`}
             <span aria-hidden="true">{`（残り ${remaining} 秒）`}</span>
           </>
         ) : null}

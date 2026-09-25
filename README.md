@@ -361,7 +361,7 @@ LEAFCODE_PI_HEADLESS=1 ./start.sh
 
 Goal Loop は WebUI プロセス内で動くため、再起動するとセッション終了で必ず一時停止します。実行中の Goal Loop があるときは WebUI 再起動を拒否します（`POST /restart/webui` は 409、トレイの Restart WebUI と設定画面も同じ理由で拒否）。ループを停止・完了してから再起動してください。
 
-設定画面の「WebUI を再ビルド」は、停止 → production build → 再起動を 1 操作で行います（ホスト制御の `POST /build/webui`）。ビルドの所要時間ぶん WebUI は停止し、完了後に新しいビルドを配信します。
+設定画面の「WebUI を再起動」は、ホスト制御の `POST /restart/webui` で更新を Pull します。更新がなければそのまま再起動し、更新があれば WebUI を停止 → production build → 起動します。Pull に失敗した場合もローカルのソースで再起動します。
 
 production build は既存のミラー先を常設ビルド領域として直接使用します。Windows は **`%LOCALAPPDATA%\leafcode-pi\build\<checkout>-<hash>\`**、Linux/macOS は **`$XDG_CACHE_HOME/leafcode-pi/build/<checkout>-<hash>/`**（未設定時は `~/.cache/leafcode-pi/build/...`）で、`next start` も同じ場所から配信します。場所は従来どおり `LEAFCODE_PI_BUILD_DIR` で変更できます。
 
