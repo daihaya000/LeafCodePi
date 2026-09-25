@@ -38,8 +38,11 @@ const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => 
   return new Response(JSON.stringify({ value: body.value }), { status: 200 });
 });
 
-async function renderShell(children: ReactNode = <div />) {
-  render(<AppShell>{children}</AppShell>);
+async function renderShell(
+  children: ReactNode = <div />,
+  initialSettings: Record<string, string | null> | undefined = serverValues,
+) {
+  render(<AppShell initialSettings={initialSettings}>{children}</AppShell>);
   await screen.findByTestId("task-panes");
 }
 
@@ -78,7 +81,7 @@ describe("AppShell", () => {
     expect(localStorage.getItem("webui:subagent-permission")).toBe("deny");
   });
 
-  it("サーバー保存の起動時既定値をローカルキャッシュより優先する", async () => {
+  it("サーバー描画で埋め込まれた起動時既定値をローカルキャッシュより優先し、取得待ちしない", () => {
     localStorage.setItem(
       "leafcodepi.composerDefaults",
       JSON.stringify({ model: "local::model", autoOptimize: "cost", agent: "local" }),
@@ -91,9 +94,11 @@ describe("AppShell", () => {
       thinkingLevel: "high",
     });
 
-    await renderShell();
+    render(<AppShell initialSettings={serverValues}><div /></AppShell>);
 
-    expect(fetchMock).toHaveBeenCalled();
+    // 同期描画で即表示され、起動時の /api/settings 取得は不要。
+    expect(screen.getByTestId("task-panes")).toBeTruthy();
+    expect(fetchMock).not.toHaveBeenCalled();
     expect(localStorage.getItem("leafcodepi.defaultModel")).toBe("server::model");
     expect(localStorage.getItem("webui:auto-optimize")).toBe("intelligence");
     expect(localStorage.getItem("leafcodepi.defaultAgent")).toBe("reviewer");
@@ -114,6 +119,29 @@ describe("AppShell", () => {
         expect.objectContaining({ method: "PUT" }),
       ),
     );
+  });
+
+  it("埋め込みが無ければ /api/settings から後追いで取得する", async () => {
+    render(<AppShell><div /></AppShell>);
+    await vi.waitFor(() =>
+      expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining("/api/settings"), expect.anything()),
+    );
+  });
+
+  it("タブ復帰時に他PCでの変更を取り込む（間隔制限あり）", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      render(<AppShell initialSettings={serverValues}><div /></AppShell>);
+      window.dispatchEvent(new Event("focus"));
+      expect(fetchMock).not.toHaveBeenCalled();
+
+      serverValues["task-pane-prefer-new"] = "1";
+      vi.setSystemTime(Date.now() + 11_000);
+      window.dispatchEvent(new Event("focus"));
+      await vi.waitFor(() => expect(localStorage.getItem("webui:task-pane-prefer-new")).toBe("1"));
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("split host が有効な画面の page 内容をデスクトップではマウントしない", async () => {

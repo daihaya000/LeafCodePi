@@ -4,8 +4,8 @@ import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@/components/shell/AppShell", () => ({
-  AppShell: ({ children }: { children: ReactNode }) => (
-    <div data-testid="app-shell">
+  AppShell: ({ children, initialSettings }: { children: ReactNode; initialSettings?: Record<string, string | null> }) => (
+    <div data-testid="app-shell" data-settings={JSON.stringify(initialSettings ?? null)}>
       {children}
       <div data-testid="global-attention" />
     </div>
@@ -18,20 +18,22 @@ vi.mock("@/lib/localhost-redirect", () => ({
   maybeRedirectToLocalhost: vi.fn(),
 }));
 
-import MainLayout from "./layout";
+import { MainLayoutClient } from "./MainLayoutClient";
 
 afterEach(cleanup);
 
-describe("MainLayout", () => {
+describe("MainLayoutClient", () => {
   it("mounts AppShell (with global attention) outside conditional page content", () => {
     render(
-      <MainLayout>
+      <MainLayoutClient initialSettings={{ "composer-defaults": "{}" }}>
         <div data-testid="page-content" />
-      </MainLayout>,
+      </MainLayoutClient>,
     );
 
     expect(screen.getByTestId("app-shell")).toBeTruthy();
     expect(screen.getByTestId("global-attention")).toBeTruthy();
     expect(screen.getByTestId("notification-sound")).toBeTruthy();
+    // サーバ描画で埋め込んだ設定を AppShell へ渡す。
+    expect(screen.getByTestId("app-shell").dataset.settings).toBe(JSON.stringify({ "composer-defaults": "{}" }));
   });
 });

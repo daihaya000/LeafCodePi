@@ -7,7 +7,13 @@ const client = vi.hoisted(() => ({
 
 vi.mock("@/lib/client", () => client);
 
-import { createSettingSync, hydrateServerSettings, resetServerSettingsHydration } from "@/lib/setting-sync";
+import {
+  createSettingSync,
+  hydrateServerSettings,
+  primeServerSettings,
+  refreshServerSettings,
+  resetServerSettingsHydration,
+} from "@/lib/setting-sync";
 
 class MemoryStorage {
   private values = new Map<string, string>();
@@ -84,7 +90,7 @@ describe("setting-sync", () => {
 
     await hydrateServerSettings();
 
-    expect(client.getJson).toHaveBeenCalledWith("/api/settings");
+    expect(client.getJson).toHaveBeenCalledWith("/api/settings", undefined, { coalesce: false });
     expect(sync.read()).toBe("server");
   });
 
@@ -156,4 +162,31 @@ describe("setting-sync", () => {
     await hydrateServerSettings();
     expect(sync.read()).toBe("good");
     warn.mockRestore();
+  });
+
+  it("applies an embedded snapshot synchronously without fetching", () => {
+    storage.setItem("hydrate:g:server-synced", "1");
+    const sync = createSettingSync({ storageKey: "hydrate:g", serverPath: "/api/settings/hydrate-g", eventName: "e" });
+
+    primeServerSettings({ "hydrate-g": "server" });
+
+    expect(sync.read()).toBe("server");
+    expect(client.getJson).not.toHaveBeenCalled();
+  });
+
+  it("does not revert a value changed in this tab while a refresh was in flight", async () => {
+    storage.setItem("hydrate:h", "old");
+    storage.setItem("hydrate:h:server-synced", "1");
+    const sync = createSettingSync({ storageKey: "hydrate:h", serverPath: "/api/settings/hydrate-h", eventName: "e" });
+    let respond: (value: unknown) => void = () => undefined;
+    client.getJson.mockReturnValue(new Promise((resolve) => { respond = resolve; }));
+    client.sendJson.mockResolvedValue({ value: "new" });
+
+    const refreshing = refreshServerSettings();
+    sync.write("new");
+    await sync.writeToServer("new");
+    respond({ values: { "hydrate-h": "old" } });
+    await refreshing;
+
+    expect(sync.read()).toBe("new");
   });});

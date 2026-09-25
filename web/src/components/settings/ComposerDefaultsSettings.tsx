@@ -19,7 +19,6 @@ import {
   writeComposerDefaults,
   type ComposerDefaults,
 } from "@/lib/composer-defaults";
-import { AUTO_AGENT_VALUE } from "@/lib/default-agent";
 import {
   MAX_COMPOSER_PROMPT_PRESETS_VALUE_CHARS,
   hasStoredComposerPromptPresets,

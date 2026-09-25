@@ -9,7 +9,7 @@ import { getJson, sendJson } from "./client";
  * ことで「片方だけ localStorage、もう片方はサーバのみ」というドリフトを防ぐ。
  *
  * 永続化ポリシー: サーバ `settings` 表が正本、localStorage は同期読み取り用キャッシュ。
- * 起動時に hydrateServerSettings() が一括取得したサーバ値でキャッシュを上書きする。
+ * 起動時はサーバ描画で埋め込んだ値（primeServerSettings）、タブ復帰時は再取得した値で上書きする。
  * 未送信の書き込みがあるキーはサーバ値で戻さず再送を優先する。
  * サーバ書き込み失敗は非致命的（localStorage は既に更新済み、次回hydrate時に再送）。
  */
@@ -19,24 +19,45 @@ function isRejected(err: unknown): boolean {
   return typeof status === "number" && status >= 400 && status < 500 && status !== 408 && status !== 429;
 }
 
-type ServerSettingApplier = (value: string | null) => void;
+/** 第2引数はスナップショット取得開始時点の書き込み番号。これより後のローカル書き込みは戻さない。 */
+type ServerSettingApplier = (value: string | null, snapshotSeq: number) => void;
+type SettingsSnapshot = Record<string, string | null>;
 
 const appliers = new Map<string, ServerSettingApplier[]>();
-let bootSnapshot: Record<string, string | null> | null = null;
+let snapshot: SettingsSnapshot | null = null;
+let snapshotSeq = 0;
 let hydration: Promise<void> | null = null;
+let refreshing: Promise<void> | null = null;
+/** このタブでのユーザー起点のサーバ書き込み番号（取得中に変更された値を古いスナップショットで戻さないため）。 */
+let localWriteSeq = 0;
+
+function nextLocalWriteSeq(): number {
+  localWriteSeq += 1;
+  return localWriteSeq;
+}
 
 function applySnapshot(key: string, apply: ServerSettingApplier): void {
-  if (!bootSnapshot || !Object.prototype.hasOwnProperty.call(bootSnapshot, key)) return;
-  const value = bootSnapshot[key];
+  if (!snapshot || !Object.prototype.hasOwnProperty.call(snapshot, key)) return;
+  const value = snapshot[key];
   try {
-    apply(typeof value === "string" && value.length > 0 ? value : null);
+    apply(typeof value === "string" && value.length > 0 ? value : null, snapshotSeq);
   } catch (err) {
     console.warn(`setting hydrate failed: ${key}`, err);
   }
 }
 
+function applyAll(values: unknown, seq: number): void {
+  snapshot = values && typeof values === "object" && !Array.isArray(values)
+    ? (values as SettingsSnapshot)
+    : {};
+  snapshotSeq = seq;
+  for (const [key, list] of appliers) {
+    for (const apply of list) applySnapshot(key, apply);
+  }
+}
+
 /**
- * サーバ設定キーの反映関数を登録する。hydrate済みなら即時に反映する
+ * サーバ設定キーの反映関数を登録する。スナップショット適用済みなら即時に反映する
  * （遅延importされたモジュールも起動時スナップショットに追従させるため）。
  */
 export function registerServerSetting(key: string, apply: ServerSettingApplier): void {
@@ -46,27 +67,49 @@ export function registerServerSetting(key: string, apply: ServerSettingApplier):
   applySnapshot(key, apply);
 }
 
+/**
+ * サーバ描画時に埋め込まれた設定スナップショットを同期的に適用する。
+ * これにより起動時に取得待ちの空白画面を出さずにサーバ値で起動できる。
+ */
+export function primeServerSettings(values: SettingsSnapshot): void {
+  if (typeof window === "undefined" || hydration) return;
+  applyAll(values, localWriteSeq);
+  hydration = Promise.resolve();
+}
+
+async function fetchAndApply(): Promise<void> {
+  const seq = localWriteSeq;
+  const data = await getJson<{ values?: SettingsSnapshot }>("/api/settings", undefined, { coalesce: false });
+  applyAll(data?.values, seq);
+}
+
 /** `/api/settings` を一括取得して登録済み設定へ反映する。起動ごとに1回（失敗時は次回再試行）。 */
 export function hydrateServerSettings(): Promise<void> {
   if (typeof window === "undefined") return Promise.resolve();
-  hydration ??= getJson<{ values?: Record<string, string | null> }>("/api/settings")
-    .then((data) => {
-      bootSnapshot = data?.values && typeof data.values === "object" ? data.values : {};
-      for (const [key, list] of appliers) {
-        for (const apply of list) applySnapshot(key, apply);
-      }
-    })
-    .catch((err) => {
-      hydration = null;
-      console.warn("settings hydrate failed", err);
-    });
+  hydration ??= fetchAndApply().catch((err) => {
+    hydration = null;
+    console.warn("settings hydrate failed", err);
+  });
   return hydration;
+}
+
+/** 他PCでの変更を取り込むため再取得する（タブ復帰時など）。同時実行は1つに束ねる。 */
+export function refreshServerSettings(): Promise<void> {
+  if (typeof window === "undefined") return Promise.resolve();
+  refreshing ??= fetchAndApply()
+    .catch((err) => console.warn("settings refresh failed", err))
+    .finally(() => {
+      refreshing = null;
+    });
+  return refreshing;
 }
 
 /** テスト用: hydrate状態を初期化する（登録済み applier は保持）。 */
 export function resetServerSettingsHydration(): void {
-  bootSnapshot = null;
+  snapshot = null;
+  snapshotSeq = 0;
   hydration = null;
+  refreshing = null;
 }
 
 export function createSettingSync(options: {
@@ -81,6 +124,7 @@ export function createSettingSync(options: {
   const syncedKey = `${storageKey}:server-synced`;
   let writeQueue = Promise.resolve();
   let memoryPending: { encoded: string; value: string | null } | null = null;
+  let lastLocalWrite = 0;
 
   function readPending(): { encoded: string; value: string | null } | null {
     if (typeof window === "undefined") return null;
@@ -197,6 +241,7 @@ export function createSettingSync(options: {
   /** サーバ settings 表へ書き込む。失敗値はlocalStorageに残し、次回読込時にも再送する。 */
   async function writeToServer(value: string | null): Promise<void> {
     if (typeof window === "undefined") return;
+    lastLocalWrite = nextLocalWriteSeq();
     setPending(value);
     await queuePendingFlush();
   }
@@ -212,7 +257,9 @@ export function createSettingSync(options: {
   }
 
   /** 起動時スナップショットの反映。初回だけ、サーバ未保存のローカル値をサーバへ移行する。 */
-  function applyServerValue(serverValue: string | null): void {
+  function applyServerValue(serverValue: string | null, seq: number): void {
+    // 取得開始後にこのタブで変更した値は、古いスナップショットで戻さない。
+    if (lastLocalWrite > seq) return;
     if (readPending()) {
       void queuePendingFlush();
       return;
