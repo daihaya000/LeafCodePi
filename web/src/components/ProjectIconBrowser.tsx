@@ -35,26 +35,34 @@ export function ProjectIconBrowser({
   const closeButtonRef = useRef<HTMLButtonElement | null>(null);
   const titleId = useId();
 
-  const load = useCallback(async (path?: string) => {
+  /** Resolves true when the listing was loaded. */
+  const load = useCallback(async (path?: string): Promise<boolean> => {
     const requestId = ++listRequestRef.current;
     setLoading(true);
     setError(null);
     try {
       const data = await getJson<IconListing>("/api/browse/icon", path ? { path } : undefined);
-      if (requestId !== listRequestRef.current) return;
+      if (requestId !== listRequestRef.current) return false;
       setListing(data);
       setError(data.error ?? null);
+      return true;
     } catch (err) {
       if (requestId === listRequestRef.current) setError(err instanceof Error ? err.message : "フォルダー一覧を取得できません");
+      return false;
     } finally {
       if (requestId === listRequestRef.current) setLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    void load(startPath);
+    let cancelled = false;
+    // リポジトリが移動・削除済みなどで開けなければホームから開く。
+    void load(startPath).then((ok) => {
+      if (!ok && !cancelled) void load();
+    });
     closeButtonRef.current?.focus();
     return () => {
+      cancelled = true;
       listRequestRef.current += 1;
       pickRequestRef.current += 1;
     };
@@ -170,12 +178,12 @@ export function ProjectIconBrowser({
               ) : (
                 <p className="px-3 py-8 text-center text-sm text-muted">このフォルダーには画像・EXEがありません</p>
               )
-            ) : (
+            ) : loading || !error ? (
               <div className="flex h-full items-center justify-center gap-2 p-8 text-sm text-muted">
                 <Spinner />
                 読み込み中…
               </div>
-            )}
+            ) : null}
           </div>
           {error && <p role="alert" className="mt-2 text-xs text-danger">{error}</p>}
         </div>

@@ -482,6 +482,22 @@ describe("Sidebar project ordering", () => {
     expect(screen.queryByRole("dialog", { name: "アイコンを選択" })).not.toBeNull();
   });
 
+  it("falls back to the home folder when the repository cannot be listed", async () => {
+    const base = mocks.getJson.getMockImplementation()!;
+    mocks.getJson.mockImplementation((path: string, params?: { path?: string }) =>
+      path === "/api/browse/icon" && params?.path
+        ? Promise.reject(new Error("\u3053\u306e\u30d1\u30b9\u306f\u53c2\u7167\u3067\u304d\u307e\u305b\u3093"))
+        : base(path),
+    );
+    render(<Sidebar mobileOpen={false} onClose={vi.fn()} />);
+    await openProjectSettings();
+
+    const browser = await openIconBrowser();
+
+    expect(await within(browser).findByRole("button", { name: "app.ico" })).not.toBeNull();
+    expect(mocks.getJson).toHaveBeenCalledWith("/api/browse/icon", undefined);
+  });
+
   it("closes only the in-app explorer on Escape", async () => {
     render(<Sidebar mobileOpen={false} onClose={vi.fn()} />);
     await openProjectSettings();

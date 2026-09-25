@@ -18,6 +18,7 @@ type IconEntry = { name: string; path: string; kind: "dir" | "file" };
 /** 対象EXEは環境変数で渡す（パスの quoting・文字化けを避ける）。 */
 const EXE_ICON_SCRIPT = String.raw`
 $ErrorActionPreference = 'Stop'
+$ProgressPreference = 'SilentlyContinue'
 $utf8 = New-Object System.Text.UTF8Encoding($false)
 [Console]::OutputEncoding = $utf8
 $OutputEncoding = $utf8
