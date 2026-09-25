@@ -5644,6 +5644,11 @@ export async function completeModelText(options: {
   throw lastError ?? new Error("利用可能なフォールバックモデルがありません");
 }
 
+/** OpenCode (Zen/Go) は x-opencode-session 付きのリクエストだけを受け付ける。 */
+function isOpenCodeProvider(providerID: string): boolean {
+  return providerID === "opencode" || providerID === "opencode-go";
+}
+
 async function completeModelTextOnRoute(
   route: ConcreteModelRoute,
   options: {
@@ -5686,10 +5691,11 @@ async function completeModelTextOnRoute(
           options.maxTokens,
           options.reasoning,
         ),
-        // OpenCode Go は x-opencode-session の無いリクエストを 400 で拒否する。
+        // OpenCode は x-opencode-session の無いリクエストを 400 で拒否する。
         // 直接生成にはエージェント会話が無いため、Pi の要約処理と同様に
-        // 呼び出しごとの一回限りのルーティングIDを付ける。
-        sessionId: uuidv7(),
+        // 呼び出しごとの一回限りのルーティングIDを送る。他のプロバイダーでは
+        // キャッシュキーやアフィニティヘッダーが変わるため送らない。
+        ...(isOpenCodeProvider(model.provider) ? { sessionId: uuidv7() } : {}),
         // Codex rejects temperature regardless of the model catalog API label.
         ...(model.provider === "openai-codex" || model.api === "openai-codex-responses"
           ? {}

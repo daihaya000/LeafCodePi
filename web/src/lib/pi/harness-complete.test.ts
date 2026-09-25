@@ -57,7 +57,9 @@ function installRuntime(response: AssistantMessage) {
         ? { id: modelID, provider: providerID, api: "anthropic-messages", reasoning: modelID === "reasoning-model", maxTokens: 32_768 }
         : providerID === "openai-codex" && (modelID === "codex-model" || modelID === "codex-legacy")
           ? { id: modelID, provider: providerID, api: modelID === "codex-model" ? "openai-codex-responses" : "openai-responses", reasoning: true, maxTokens: 32_768 }
-          : undefined,
+          : (providerID === "opencode" || providerID === "opencode-go") && modelID === "gpt-5.6-luna"
+            ? { id: modelID, provider: providerID, api: "openai-responses", reasoning: false, maxTokens: 32_768 }
+            : undefined,
     completeSimple: (...args: unknown[]) => {
       calls.push(args);
       return Promise.resolve(response);
@@ -196,7 +198,31 @@ describe("completeModelText", () => {
     );
   });
 
-  it("passes a routing session id to direct completions", async () => {
+  it("passes a routing session id to OpenCode direct completions", async () => {
+    for (const providerID of ["opencode", "opencode-go"]) {
+      const calls = installRuntime(
+        assistant({ content: [{ type: "text", text: "ok" }] }),
+      );
+
+      await completeModelText({
+        providerID,
+        modelID: "gpt-5.6-luna",
+        system: "system",
+        prompt: "prompt",
+      });
+
+      const requestOptions = (calls[0] as unknown[] | undefined)?.[2] as {
+        sessionId?: string;
+      };
+      // OpenCode は x-opencode-session の無い直接生成を 400 で拒否する。
+      assert.ok(
+        requestOptions.sessionId && requestOptions.sessionId.length > 0,
+        providerID,
+      );
+    }
+  });
+
+  it("omits the OpenCode routing session id for other providers", async () => {
     const calls = installRuntime(
       assistant({ content: [{ type: "text", text: "ok" }] }),
     );
@@ -211,10 +237,7 @@ describe("completeModelText", () => {
     const requestOptions = (calls[0] as unknown[] | undefined)?.[2] as {
       sessionId?: string;
     };
-    // OpenCode Go は x-opencode-session の無い直接生成を 400 で拒否する。
-    assert.ok(
-      requestOptions.sessionId && requestOptions.sessionId.length > 0,
-    );
+    assert.equal(requestOptions.sessionId, undefined);
   });
 
   it("omits temperature for every Codex model, including legacy API labels", async () => {
