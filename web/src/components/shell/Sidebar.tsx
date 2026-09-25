@@ -280,27 +280,21 @@ function SidebarFooter({ health, onSettings }: { health: HealthDto | null; onSet
             </p>
           )}
         </div>
-        {isOutdated && latestCommit && (
-          <span
-            role="img"
-            aria-label={`WebUIは最新版ではありません。最新コミット: ${latestCommit.slice(0, 12)}`}
-            title={`WebUIは最新版ではありません。最新コミット: ${latestCommit.slice(0, 12)}。再起動で更新できます`}
-            className="shrink-0"
-          >
-            <CircleAlert aria-hidden="true" className="h-3.5 w-3.5 text-warning" />
-          </span>
-        )}
         <div className="flex shrink-0 items-center">
-          {BUILD_COMMIT && !isOutdated && (
+          {BUILD_COMMIT && (
             <Button
               variant="ghost"
               size="icon"
-              aria-label="Pull"
-              title="LeafCodePiをPull（取得後は再起動で反映）"
+              aria-label={isOutdated && latestCommit ? `WebUIは最新版ではありません。最新コミット: ${latestCommit.slice(0, 12)}。Pull` : "Pull"}
+              title={isOutdated && latestCommit
+                ? `WebUIは最新版ではありません。最新コミット: ${latestCommit.slice(0, 12)}。クリックでPull（再起動で反映）`
+                : "LeafCodePiをPull（取得後は再起動で反映）"}
               busy={pullBusy}
               onClick={() => void pullRepository()}
             >
-              {!pullBusy && <Download className="h-4 w-4" aria-hidden="true" />}
+              {!pullBusy && (isOutdated
+                ? <CircleAlert className="h-4 w-4 text-warning" aria-hidden="true" />
+                : <Download className="h-4 w-4" aria-hidden="true" />)}
             </Button>
           )}
           <Button
