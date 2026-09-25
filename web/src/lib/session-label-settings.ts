@@ -1,3 +1,4 @@
+import { getJson, sendJson } from "./client";
 import { createSettingSync } from "./setting-sync";
 import { PROJECT_ICON_COLORS, type ProjectIconColor } from "./types";
 
@@ -6,8 +7,7 @@ export const SESSION_LABELS_EVENT = "webui:session-labels";
 const SESSION_LABELS_STORAGE_KEY = "webui:session-labels";
 /** "0" turns Jev off for labels; unset keeps Jev on. The title model's label line still applies. */
 export const SESSION_LABEL_JEV_SETTING_KEY = "session-label-jev";
-export const SESSION_LABEL_JEV_EVENT = "webui:session-label-jev";
-const SESSION_LABEL_JEV_STORAGE_KEY = "webui:session-label-jev";
+const SESSION_LABEL_JEV_PATH = `/api/settings/${SESSION_LABEL_JEV_SETTING_KEY}`;
 
 export function isSessionLabelJevEnabled(value: string | null | undefined): boolean {
   return value !== "0";
@@ -138,28 +138,14 @@ export function hydrateSessionLabelsFromServer(): Promise<void> {
   return hydrationPromise;
 }
 
-const jevSync = createSettingSync({
-  storageKey: SESSION_LABEL_JEV_STORAGE_KEY,
-  serverPath: `/api/settings/${SESSION_LABEL_JEV_SETTING_KEY}`,
-  eventName: SESSION_LABEL_JEV_EVENT,
-});
-
-export function readSessionLabelJevEnabled(): boolean {
-  return isSessionLabelJevEnabled(jevSync.read());
-}
-
-export async function hydrateSessionLabelJevFromServer(): Promise<boolean> {
-  if (jevSync.read() === null) {
-    const value = await jevSync.readFromServer();
-    if (value === "0") jevSync.write(value);
-  }
-  return readSessionLabelJevEnabled();
+/** Only the server reads this toggle, so the server value is the single source of truth. */
+export async function readSessionLabelJevEnabledFromServer(): Promise<boolean> {
+  const data = await getJson<{ value: string | null }>(SESSION_LABEL_JEV_PATH, undefined, { coalesce: false });
+  return isSessionLabelJevEnabled(data?.value);
 }
 
 export async function writeSessionLabelJevEnabled(enabled: boolean): Promise<void> {
-  const value = enabled ? null : "0";
-  jevSync.write(value);
-  await jevSync.writeToServer(value);
+  await sendJson(SESSION_LABEL_JEV_PATH, { value: enabled ? null : "0" }, "PUT");
 }
 
 export async function writeSessionLabelsToServer(labels: readonly SessionLabel[]): Promise<void> {

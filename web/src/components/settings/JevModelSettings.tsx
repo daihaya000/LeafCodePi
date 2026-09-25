@@ -11,6 +11,7 @@ import { jevModelKey, type JevCatalogModel } from "@/lib/jev-model-catalog";
 import {
   DEFAULT_JEV_MODEL_SETTINGS,
   enabledJevModelKeys as enabledModelKeys,
+  JEV_MODEL_CHANGED_EVENT,
   type JevModelSettings as Settings,
   type JevModelSettingsDto,
 } from "@/lib/jev-model-settings";
@@ -77,6 +78,7 @@ export function JevModelSettings({ refreshToken = 0, onProviderCatalogChange }: 
     }
     loaded.current = true;
     setSaved(dto);
+    window.dispatchEvent(new Event(JEV_MODEL_CHANGED_EVENT));
   }, []);
 
   useEffect(() => {
@@ -112,6 +114,7 @@ export function JevModelSettings({ refreshToken = 0, onProviderCatalogChange }: 
     try {
       const dto = await sendJson<JevModelSettingsDto>("/api/jev-model", { settings: next }, "PUT");
       persisted.current = JSON.stringify(dto.settings);
+      window.dispatchEvent(new Event(JEV_MODEL_CHANGED_EVENT));
       if (mounted.current) {
         setSaved(dto);
         if (JSON.stringify(latestSettings.current) === snapshot) {

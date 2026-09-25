@@ -3,21 +3,25 @@
 import { useEffect, useState } from "react";
 import { Button, Switch } from "@/components/ui";
 import { getJson } from "@/lib/client";
-import { hasUsableJevModel, type JevModelSettingsDto } from "@/lib/jev-model-settings";
+import { AUTO_JEV_ENABLED_SETTING_KEY, isAutoJevEnabled } from "@/lib/auto-jev-settings";
+import { readAutoJevEnabled, subscribeAutoSetting } from "@/lib/auto-settings";
+import {
+  hasUsableJevModel,
+  JEV_MODEL_CHANGED_EVENT,
+  type JevModelSettingsDto,
+} from "@/lib/jev-model-settings";
 import { PROJECT_ICON_TONES } from "@/components/ProjectIcon";
 import { PROJECT_ICON_COLORS, type ProjectIconColor } from "@/lib/types";
 import {
   DEFAULT_SESSION_LABELS,
-  hydrateSessionLabelJevFromServer,
   hydrateSessionLabelsFromServer,
   MAX_SESSION_LABEL_HINT_CHARS,
   MAX_SESSION_LABEL_NAME_CHARS,
   MAX_SESSION_LABELS,
   normalizeSessionLabels,
-  readSessionLabelJevEnabled,
+  readSessionLabelJevEnabledFromServer,
   readSessionLabels,
   resolveSessionLabels,
-  SESSION_LABEL_JEV_EVENT,
   subscribeSessionLabels,
   writeSessionLabelJevEnabled,
   writeSessionLabels,
@@ -29,27 +33,62 @@ export function SessionLabelSettings() {
   // SSRとの一致を保つため初期値は既定値固定とし、mount後に保存値へ切り替える。
   const [labels, setLabels] = useState<SessionLabel[]>([...DEFAULT_SESSION_LABELS]);
   const [error, setError] = useState<string | null>(null);
-  const [jevEnabled, setJevEnabled] = useState(true);
-  // null = checking. Without a usable Jev model the toggle is forced OFF.
-  const [jevAvailable, setJevAvailable] = useState<boolean | null>(null);
+  // null = not loaded yet. The toggle is operable only when every value is known.
+  const [jevEnabled, setJevEnabled] = useState<boolean | null>(null);
+  const [jevModelUsable, setJevModelUsable] = useState<boolean | null>(null);
+  const [jevGlobalEnabled, setJevGlobalEnabled] = useState<boolean | null>(null);
+  const [jevSaving, setJevSaving] = useState(false);
+  const [jevError, setJevError] = useState<string | null>(null);
 
   useEffect(() => {
     let active = true;
-    const updateJev = () => setJevEnabled(readSessionLabelJevEnabled());
-    updateJev();
-    void hydrateSessionLabelJevFromServer().then(() => {
-      if (active) updateJev();
-    });
-    window.addEventListener(SESSION_LABEL_JEV_EVENT, updateJev);
-    void getJson<JevModelSettingsDto>("/api/jev-model")
-      .then((dto) => Boolean(dto?.settings) && hasUsableJevModel(dto))
-      .catch(() => false)
-      .then((available) => { if (active) setJevAvailable(available); });
+    let request = 0;
+    const loadModels = () => {
+      const current = ++request;
+      void getJson<JevModelSettingsDto>("/api/jev-model", undefined, { coalesce: false })
+        .then((dto) => Boolean(dto?.settings) && hasUsableJevModel(dto))
+        .catch(() => false)
+        .then((usable) => { if (active && current === request) setJevModelUsable(usable); });
+    };
+    loadModels();
+    window.addEventListener(JEV_MODEL_CHANGED_EVENT, loadModels);
+    void readSessionLabelJevEnabledFromServer().then(
+      (enabled) => { if (active) setJevEnabled(enabled); },
+      () => { if (active) setJevError("Jev分類の設定を取得できません"); },
+    );
+    void getJson<{ value: string | null }>(`/api/settings/${AUTO_JEV_ENABLED_SETTING_KEY}`)
+      .then((data) => isAutoJevEnabled(data?.value), () => readAutoJevEnabled())
+      .then((enabled) => { if (active) setJevGlobalEnabled(enabled); });
+    const unsubscribeGlobal = subscribeAutoSetting(AUTO_JEV_ENABLED_SETTING_KEY, () => setJevGlobalEnabled(readAutoJevEnabled()));
     return () => {
       active = false;
-      window.removeEventListener(SESSION_LABEL_JEV_EVENT, updateJev);
+      window.removeEventListener(JEV_MODEL_CHANGED_EVENT, loadModels);
+      unsubscribeGlobal();
     };
   }, []);
+
+  const jevBlockedReason = jevModelUsable === false
+    ? "Jevモデルが登録されていないため無効です。"
+    : jevGlobalEnabled === false
+      ? "Jev判定が全体で無効のため無効です。"
+      : null;
+  const jevReady = jevEnabled !== null && jevModelUsable === true && jevGlobalEnabled === true;
+  const jevChecked = jevReady && jevEnabled === true;
+
+  async function toggleJev() {
+    if (!jevReady || jevSaving) return;
+    const next = !jevEnabled;
+    setJevSaving(true);
+    setJevError(null);
+    try {
+      await writeSessionLabelJevEnabled(next);
+      setJevEnabled(next);
+    } catch {
+      setJevError("Jev分類の設定を保存できません");
+    } finally {
+      setJevSaving(false);
+    }
+  }
 
   useEffect(() => {
     let active = true;
@@ -90,22 +129,20 @@ export function SessionLabelSettings() {
         <div className="min-w-0">
           <p className="text-sm">Jevで分類</p>
           <p className="text-[11px] text-muted">
-            {jevAvailable === false
-              ? "Jevモデルが登録されていないため無効です。タイトル生成モデルがタイトルと同時に分類します。"
+            {jevBlockedReason
+              ? `${jevBlockedReason}タイトル生成モデルがタイトルと同時に分類します。`
               : "OFFにするとタイトル生成モデルがタイトルと同時に分類します（追加リクエストなし）。"}
           </p>
         </div>
         <Switch
-          checked={jevAvailable === true && jevEnabled}
-          disabled={jevAvailable !== true}
-          label={`セッションラベルのJev分類を${jevEnabled ? "無効化" : "有効化"}`}
-          onChange={() => {
-            const next = !jevEnabled;
-            setJevEnabled(next);
-            void writeSessionLabelJevEnabled(next);
-          }}
+          checked={jevChecked}
+          disabled={!jevReady}
+          busy={jevSaving}
+          label={`セッションラベルのJev分類を${jevChecked ? "無効化" : "有効化"}`}
+          onChange={() => void toggleJev()}
         />
       </div>
+      {jevError && <p role="alert" className="mt-2 text-sm text-danger">{jevError}</p>}
       <ul className="mt-3 space-y-2">
         {labels.map((label, index) => (
           <li key={label.id} className="grid min-w-0 grid-cols-1 items-center gap-2 @xl:grid-cols-[4rem_10rem_minmax(0,1fr)_9rem_auto]">

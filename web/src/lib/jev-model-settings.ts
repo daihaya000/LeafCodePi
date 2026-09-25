@@ -2,6 +2,8 @@ import { TYPESAFE_API_BASE_URL } from "@/lib/pi/typesafe-provider";
 import { jevModelKey, type JevCatalogModel, type JevModelRef } from "@/lib/jev-model-catalog";
 
 export const JEV_MODEL_SETTING_KEY = "jev-model";
+/** Dispatched on window whenever the Jev model settings or catalog may have changed. */
+export const JEV_MODEL_CHANGED_EVENT = "webui:jev-model-changed";
 
 export type JevModelSettings = {
   provider: "typesafe" | "compatible" | "registered";
