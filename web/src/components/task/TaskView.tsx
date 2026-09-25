@@ -671,10 +671,10 @@ function ContextUsageMeter({ usage }: { usage: ContextUsageDto }) {
   const barWidth = pct === null ? 0 : pct;
   return (
     <span
-      className="ml-1 flex min-w-0 shrink-0 items-center gap-1.5 text-[11px] text-muted"
+      className="flex min-w-0 items-center gap-1 text-[10px] text-muted"
       title={`コンテキスト使用量: ${usedLabel} / ${limitLabel} トークン（${pctLabel}）`}
     >
-      <span className="h-1.5 w-8 shrink-0 overflow-hidden rounded-full bg-surface-2 @min-[48rem]/task:w-10">
+      <span className="h-1 w-6 shrink-0 overflow-hidden rounded-full bg-surface-2 @min-[48rem]/task:w-8">
         <span
           className={cx(
             "block h-full rounded-full transition-[width]",
@@ -689,7 +689,7 @@ function ContextUsageMeter({ usage }: { usage: ContextUsageDto }) {
           style={{ width: `${barWidth}%` }}
         />
       </span>
-      <span className="tabular-nums">
+      <span className="truncate tabular-nums">
         {usedLabel}/{limitLabel} ({pctLabel})
       </span>
     </span>
@@ -2991,7 +2991,7 @@ export const TaskView = memo(function TaskView({
         <div className="col-span-2 flex min-w-0 items-center gap-2">
           <MobileMenuButton />
           {iconFor(taskId, 24, task ?? undefined)}
-          <div className="flex min-w-0 flex-1 items-center gap-1">
+          <div className="flex min-w-0 flex-1 flex-col justify-center">
             {titleEditing ? (
               <form
                 aria-label="セッションタイトルを編集"
@@ -3043,7 +3043,7 @@ export const TaskView = memo(function TaskView({
             ) : (
               <h1
                 className={cx(
-                  "flex min-h-11 min-w-0 max-w-full flex-1 flex-col items-start justify-center rounded-lg text-left text-sm font-semibold @min-[48rem]/task:min-h-8",
+                  "min-w-0 max-w-full rounded-lg text-left text-sm font-semibold",
                   task && !archived && !titleBusy && "cursor-text",
                 )}
                 aria-label={task?.title ?? "読み込み中…"}
@@ -3058,9 +3058,38 @@ export const TaskView = memo(function TaskView({
                 }}
               >
                 <span className="block max-w-full truncate leading-5">{task?.title ?? "読み込み中…"}</span>
-                <SessionLabelBadge labelId={task?.label} className="font-normal" />
               </h1>
             )}
+            <div aria-label="セッション情報" className="flex h-4 min-w-0 items-center gap-2 overflow-hidden text-[10px] text-muted">
+              <SessionLabelBadge labelId={task?.label} className="font-normal" />
+              {contextUsage && <ContextUsageMeter usage={contextUsage} />}
+              {(stats.totalInputTokens > 0 || stats.totalOutputTokens > 0) && (
+                <span
+                  className="hidden shrink-0 font-mono tabular-nums @min-[48rem]/task:inline"
+                  title={`合計${stats.totalInputTokens > 0 ? ` ↑${formatTokens(stats.totalInputTokens)}` : ""}${stats.totalOutputTokens > 0 ? ` ↓${formatTokens(stats.totalOutputTokens)}` : ""} tok`}
+                >
+                  {stats.totalInputTokens > 0 ? `↑${formatTokens(stats.totalInputTokens)} ` : ""}{stats.totalOutputTokens > 0 ? `↓${formatTokens(stats.totalOutputTokens)} ` : ""}tok
+                </span>
+              )}
+              {stats.avgRate !== null && (
+                <span
+                  className="hidden shrink-0 font-mono tabular-nums @min-[48rem]/task:inline"
+                  title="平均 tok/s（応答ごとの tok/s の平均）"
+                >
+                  {formatTokensPerSecond(stats.avgRate)}
+                </span>
+              )}
+              {stats.durationMs > 0 && (
+                <span
+                  className="hidden shrink-0 font-mono tabular-nums @min-[48rem]/task:inline"
+                  title="合計生成時間（メッセージ間隔の累計）"
+                >
+                  {formatDuration(stats.durationMs)}
+                </span>
+              )}
+            </div>
+          </div>
+          <div className="flex shrink-0 items-center gap-1">
             <Button
               variant="ghost"
               size="icon"
@@ -3085,31 +3114,6 @@ export const TaskView = memo(function TaskView({
               className="shrink-0 rounded-full ring-1 ring-working/25"
             >
               <BotAvatar size={20} {...supervisor} active={working} />
-            </span>
-          )}
-          {contextUsage && <ContextUsageMeter usage={contextUsage} />}
-          {(stats.totalInputTokens > 0 || stats.totalOutputTokens > 0) && (
-            <span
-              className="hidden font-mono tabular-nums @min-[36rem]/task:inline"
-              title={`合計${stats.totalInputTokens > 0 ? ` ↑${formatTokens(stats.totalInputTokens)}` : ""}${stats.totalOutputTokens > 0 ? ` ↓${formatTokens(stats.totalOutputTokens)}` : ""} tok`}
-            >
-              {stats.totalInputTokens > 0 ? `↑${formatTokens(stats.totalInputTokens)} ` : ""}{stats.totalOutputTokens > 0 ? `↓${formatTokens(stats.totalOutputTokens)} ` : ""}tok
-            </span>
-          )}
-          {stats.avgRate !== null && (
-            <span
-              className="hidden font-mono tabular-nums @min-[36rem]/task:inline"
-              title="平均 tok/s（応答ごとの tok/s の平均）"
-            >
-              {formatTokensPerSecond(stats.avgRate)}
-            </span>
-          )}
-          {stats.durationMs > 0 && (
-            <span
-              className="hidden font-mono tabular-nums @min-[36rem]/task:inline"
-              title="合計生成時間（メッセージ間隔の累計）"
-            >
-              {formatDuration(stats.durationMs)}
             </span>
           )}
         </div>

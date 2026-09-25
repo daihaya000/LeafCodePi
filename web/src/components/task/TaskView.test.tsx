@@ -1313,9 +1313,9 @@ describe("TaskView draft submission", () => {
     ));
   });
 
-  it("shows token statistics in the lower status row when the task pane has room", () => {
+  it("shows context and token statistics beside the session label, not in the status row", () => {
     saveTaskSessionCache({
-      task,
+      task: { ...task, label: "code" },
       messages: [{
         id: "assistant-1",
         role: "assistant",
@@ -1327,11 +1327,26 @@ describe("TaskView draft submission", () => {
       }],
       isStreaming: false,
       isCompacting: false,
+      contextUsage: { tokens: 405_000, contextWindow: 1_000_000, percent: 41 },
     });
     render(<TaskView taskId={task.id} mdUp={false} />);
 
-    expect(screen.getByTitle("合計 ↑3.4k ↓1.2k tok").className).toContain("@min-[36rem]/task:inline");
-    expect(screen.getByTitle("平均 tok/s（応答ごとの tok/s の平均）").className).toContain("@min-[36rem]/task:inline");
+    const sessionInfo = screen.getByLabelText("セッション情報");
+    const status = screen.getByLabelText("タスクの状態");
+    expect(sessionInfo.textContent).toContain("コード");
+    const meter = screen.getByTitle("コンテキスト使用量: 405k / 1M トークン（41%）");
+    const tokens = screen.getByTitle("合計 ↑3.4k ↓1.2k tok");
+    const rate = screen.getByTitle("平均 tok/s（応答ごとの tok/s の平均）");
+    expect(sessionInfo.contains(meter)).toBe(true);
+    expect(sessionInfo.contains(tokens)).toBe(true);
+    expect(sessionInfo.contains(rate)).toBe(true);
+    expect(sessionInfo.className).toContain("overflow-hidden");
+    expect(meter.querySelector(".truncate")).toBeTruthy();
+    expect(status.contains(meter)).toBe(false);
+    expect(status.contains(tokens)).toBe(false);
+    expect(tokens.className).toContain("@min-[48rem]/task:inline");
+    expect(rate.className).toContain("@min-[48rem]/task:inline");
+    expect(meter.className).toContain("text-[10px]");
   });
 
   it("edits the full title directly and keeps secondary actions separate", () => {
