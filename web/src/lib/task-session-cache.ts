@@ -2,7 +2,8 @@ import type { TaskDetail, TaskMessageHistory, TaskStatus, TaskSummary, ToolState
 import { dedupeUiMessages } from "./stabilize-messages";
 
 export const TASK_SESSION_CACHE_STORAGE_KEY = "webui:task-session-cache";
-export const TASK_SESSION_CACHE_VERSION = 2;
+// 3: 旧算出式の tok/s（短い受信窓で数万 tok/s）を保持したキャッシュを破棄する。
+export const TASK_SESSION_CACHE_VERSION = 3;
 export const TASK_SESSION_CACHE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 export const TASK_SESSION_CACHE_MAX_ENTRIES = 20;
 

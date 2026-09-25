@@ -6659,6 +6659,8 @@ function readOfflineSessionSnapshot(sessionFile: string): {
   const sessionManager = pi.SessionManager.open(sessionFile);
   const context = sessionManager.buildSessionContext?.() ?? { messages: [] };
   const raw = Array.isArray(context.messages) ? context.messages : [];
+  // 履歴ページもライブ表示と同じ tok/s を出せるよう、永続化済み throughput を反映する。
+  const throughput = loadThroughputFromSession({ sessionManager } as unknown as AgentSession).timings;
   const messages = snapshotMessages({
     messages: raw,
     agent: { state: { streamingMessage: undefined } },
@@ -6682,7 +6684,7 @@ function readOfflineSessionSnapshot(sessionFile: string): {
         }
       },
     },
-  } as AgentSession);
+  } as AgentSession, throughput);
   return { messages, todos: todosFromPiMessages(raw) };
 }
 
