@@ -139,7 +139,7 @@ export function ProjectExplorerButton({
       size="icon"
       title={label}
       aria-label={label}
-      className="h-11 w-11 @min-[44rem]/task:h-9 @min-[44rem]/task:w-9"
+      className="h-11 w-11 @min-[500px]/task:h-9 @min-[500px]/task:w-9"
       onClick={() => {
         void openExplorer(target).catch((error) => {
           onError(error instanceof Error ? error.message : "プロジェクトを開けませんでした");
