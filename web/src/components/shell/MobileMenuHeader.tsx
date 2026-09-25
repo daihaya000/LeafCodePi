@@ -2,6 +2,7 @@
 
 import { Menu } from "lucide-react";
 import Image from "next/image";
+import { HostnameLabel } from "./HostnameContext";
 import { useOptionalShellMobileNav } from "./ShellContext";
 
 export function MobileMenuButton() {
@@ -28,7 +29,10 @@ export function MobileMenuHeader() {
     >
       <MobileMenuButton />
       <Image src="/icon.svg" alt="" width={20} height={20} className="h-5 w-5 rounded-[4px]" />
-      <span className="text-sm font-semibold">LeafCodePi</span>
+      <span className="flex min-w-0 flex-col leading-tight">
+        <span className="text-sm font-semibold">LeafCodePi</span>
+        <HostnameLabel className="truncate text-[11px] text-muted" />
+      </span>
     </div>
   );
 }
