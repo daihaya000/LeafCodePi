@@ -16,7 +16,8 @@ export function modelThroughputKey(providerID: string, modelID: string): string 
 function readStats(): Stats {
   try {
     const parsed = JSON.parse(readFileSync(statsPath(), "utf8")) as unknown;
-    return parsed && typeof parsed === "object" ? (parsed as Stats) : {};
+    // 配列を受け入れると文字列キーが JSON.stringify で消え、以後の実績が保存されない。
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? (parsed as Stats) : {};
   } catch {
     return {};
   }

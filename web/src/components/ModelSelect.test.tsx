@@ -304,3 +304,23 @@ describe("ModelSelect grouping by account", () => {
     expect(screen.queryAllByLabelText("画像入力対応").length).toBe(0);
   });
 });
+
+describe("ModelSelect average tok/s", () => {
+  it("shows the average rate per option and marks rates under 50 in red", () => {
+    render(
+      <ModelSelect
+        value="anthropic::claude"
+        options={[
+          option({ avgTokensPerSecond: 42.4 }),
+          option({ value: "openai::gpt", label: "GPT", providerID: "openai", modelID: "gpt", avgTokensPerSecond: 80 }),
+          option({ value: "openai::mini", label: "Mini", providerID: "openai", modelID: "mini" }),
+        ]}
+        onChange={() => undefined}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "モデル" }));
+    expect(screen.getByText("42 tok/s").className).toContain("text-danger");
+    expect(screen.getByText("80 tok/s").className).not.toContain("text-danger");
+    expect(screen.getAllByTitle("平均 tok/s 実績")).toHaveLength(2);
+  });
+});
