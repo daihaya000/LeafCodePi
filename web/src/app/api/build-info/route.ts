@@ -45,13 +45,26 @@ async function latestAvailableCommit(repoRoot: string, localCommit: string): Pro
   }
 }
 
-export async function GET() {
+function repoRootDir(): string {
   const skillsDir = process.env.LEAFCODE_PI_SKILLS_DIR?.trim()
     ? resolve(process.env.LEAFCODE_PI_SKILLS_DIR)
     : resolve(process.cwd(), "..", "skills");
+  return dirname(skillsDir);
+}
 
+/** Fast-forward the LeafCodePi repository; the build then shows as outdated until restart. */
+export async function POST() {
+  const result = await runGit(repoRootDir(), ["pull", "--ff-only", "--no-edit"], 60_000);
+  if (result.code !== 0) {
+    const error = result.stderr.trim() || result.stdout.trim() || "git pull failed";
+    return NextResponse.json({ error }, { status: 500 });
+  }
+  return GET();
+}
+
+export async function GET() {
   try {
-    const repoRoot = dirname(skillsDir);
+    const repoRoot = repoRootDir();
     const result = await runGit(repoRoot, ["log", "-1", "--format=%H%n%cI"], 2_000);
     const [commit, committedAt] = result.stdout.trim().split(/\r?\n/);
     if (result.code !== 0 || !commit || !committedAt) {

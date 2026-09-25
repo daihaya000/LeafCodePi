@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const { runGit } = vi.hoisted(() => ({ runGit: vi.fn() }));
 vi.mock("@/lib/git", () => ({ runGit }));
 
-import { GET } from "./route";
+import { GET, POST } from "./route";
 
 const repoRoot = join(tmpdir(), "leafcode-build-info-test");
 const originalSkillsDir = process.env.LEAFCODE_PI_SKILLS_DIR;
@@ -99,5 +99,31 @@ describe("GET /api/build-info", () => {
 
     expect(response.status).toBe(503);
     expect(await response.json()).toEqual({ commit: null, committedAt: null, latestCommit: null });
+  });
+});
+
+describe("POST /api/build-info", () => {
+  it("fast-forwards the repository and returns the new build info", async () => {
+    const commit = "0123456789abcdef0123456789abcdef01234567";
+    const committedAt = "2026-09-25T11:30:00+09:00";
+    runGit
+      .mockResolvedValueOnce({ code: 0, stdout: "Updating\n", stderr: "" })
+      .mockResolvedValueOnce({ code: 0, stdout: `${commit}\n${committedAt}\n`, stderr: "" })
+      .mockResolvedValueOnce({ code: 1, stdout: "", stderr: "no upstream" });
+
+    const response = await POST();
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ commit, committedAt, latestCommit: commit });
+    expect(runGit).toHaveBeenNthCalledWith(1, repoRoot, ["pull", "--ff-only", "--no-edit"], 60_000);
+  });
+
+  it("returns the git error when pull fails", async () => {
+    runGit.mockResolvedValueOnce({ code: 1, stdout: "", stderr: "Not possible to fast-forward" });
+
+    const response = await POST();
+
+    expect(response.status).toBe(500);
+    expect(await response.json()).toEqual({ error: "Not possible to fast-forward" });
   });
 });

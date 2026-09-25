@@ -11,6 +11,7 @@ import {
   CircleAlert,
   CodeXml,
   Cpu,
+  Download,
   Folder,
   FolderUp,
   Loader2,
@@ -208,6 +209,7 @@ function SidebarFooter({ health, onSettings }: { health: HealthDto | null; onSet
   const [restartBusy, setRestartBusy] = useState(false);
   const [restartError, setRestartError] = useState<string | null>(null);
   const [latestCommit, setLatestCommit] = useState<string | null>(null);
+  const [pullBusy, setPullBusy] = useState(false);
   const isOutdated = Boolean(BUILD_COMMIT && latestCommit && latestCommit !== BUILD_COMMIT);
 
   useEffect(() => {
@@ -239,6 +241,20 @@ function SidebarFooter({ health, onSettings }: { health: HealthDto | null; onSet
     } catch (error) {
       setRestartBusy(false);
       setRestartError(error instanceof Error ? error.message : "WebUIの再起動に失敗しました");
+    }
+  };
+
+  const pullRepository = async () => {
+    if (pullBusy) return;
+    setPullBusy(true);
+    setRestartError(null);
+    try {
+      const info = await sendJson<{ commit: string | null; latestCommit: string | null }>("/api/build-info", {}, "POST", { timeoutMs: 90_000 });
+      setLatestCommit(info.latestCommit ?? info.commit);
+    } catch (error) {
+      setRestartError(error instanceof Error ? error.message : "Pullに失敗しました");
+    } finally {
+      setPullBusy(false);
     }
   };
 
@@ -275,6 +291,18 @@ function SidebarFooter({ health, onSettings }: { health: HealthDto | null; onSet
           </span>
         )}
         <div className="flex shrink-0 items-center">
+          {BUILD_COMMIT && !isOutdated && (
+            <Button
+              variant="ghost"
+              size="icon"
+              aria-label="Pull"
+              title="LeafCodePiをPull（取得後は再起動で反映）"
+              busy={pullBusy}
+              onClick={() => void pullRepository()}
+            >
+              {!pullBusy && <Download className="h-4 w-4" aria-hidden="true" />}
+            </Button>
+          )}
           <Button
             variant="ghost"
             size="icon"
