@@ -1360,6 +1360,8 @@ const SidebarView = memo(function SidebarView({
   const railWidgetHideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const railWidgetRef = useRef<HTMLDivElement | null>(null);
 
+  const modeSyncRef = useRef<{ pathname: string; paneMdUp: boolean } | null>(null);
+
   const refresh = useCallback(async (unreadOnly = false, modeOverride: AppMode = mode) => {
     void hydrateLastReadState();
     // Avoid piling up four JSON requests per poll while a slow host is still responding.
@@ -1467,6 +1469,16 @@ const SidebarView = memo(function SidebarView({
     };
   }, [botSidebar.bots, botStatusFor, tasks]);
   useEffect(() => {
+    // refresh は mode で作り直されるため、モードの再判定は画面遷移時だけに限る。
+    // 毎回判定すると、モバイルで Bot ページから離れる遷移の完了前に Code 選択を Bot へ戻してしまう。
+    const last = modeSyncRef.current;
+    if (last && last.pathname === pathname && last.paneMdUp === paneMdUp) {
+      void refresh();
+      const onChange = () => void refresh();
+      window.addEventListener("webui:tasks-changed", onChange);
+      return () => window.removeEventListener("webui:tasks-changed", onChange);
+    }
+    modeSyncRef.current = { pathname, paneMdUp };
     let initialMode: AppMode = "code";
     try {
       const storedMode = localStorage.getItem(MODE_KEY);

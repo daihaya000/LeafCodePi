@@ -264,6 +264,22 @@ describe("Bot mode list", () => {
     expect(mocks.push).toHaveBeenCalledWith("/bots");
   });
 
+  it("keeps Code mode while mobile navigation away from a Bot page is pending", async () => {
+    localStorage.setItem("webui.sidebar.collapsed", "0");
+    mocks.paneMdUp = false;
+    mocks.usePathname.mockReturnValue("/bots/bot-a");
+    render(<Sidebar mobileOpen={false} onClose={vi.fn()} />);
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Bot" }).getAttribute("aria-pressed")).toBe("true");
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Code" }));
+
+    expect(mocks.push).toHaveBeenCalledWith("/");
+    await act(async () => { await Promise.resolve(); });
+    expect(screen.getByRole("button", { name: "Code" }).getAttribute("aria-pressed")).toBe("true");
+  });
+
   it("polls unread updates while the document is hidden", async () => {
     localStorage.setItem("webui.sidebar.collapsed", "0");
     const hidden = vi.spyOn(document, "hidden", "get").mockReturnValue(true);
