@@ -1206,4 +1206,40 @@ describe("hang-watchdog helpers", () => {
       fs.rmSync(root, { recursive: true, force: true });
     }
   });
+
+  it("preserves another worker's watch when recording missing-live grace", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "leafcode-pi-hang-watchdog-multi-grace-"));
+    const previousDataDir = process.env.LEAFCODE_PI_DATA_DIR;
+    process.env.LEAFCODE_PI_DATA_DIR = root;
+    let first: typeof import("./hang-watchdog") | undefined;
+    let second: typeof import("./hang-watchdog") | undefined;
+    try {
+      vi.resetModules();
+      first = await import("./hang-watchdog");
+      vi.resetModules();
+      second = await import("./hang-watchdog");
+      first.armTaskHangWatch({ taskId: "first", prompt: "work" });
+      const getLive = vi.fn(() => {
+        second!.armTaskHangWatch({ taskId: "second", prompt: "work" });
+        return null;
+      });
+      first.registerHangWatchdogHooks({
+        getLive,
+        abortTask: async () => undefined,
+        resumePrompt: () => undefined,
+        notifyHangRetry: () => undefined,
+      });
+      await first.runHangWatchdogTick();
+      expect(getLive).toHaveBeenCalledOnce();
+      const store = JSON.parse(fs.readFileSync(path.join(root, "hang-watches.json"), "utf8"));
+      expect(store.watches.map((row: { taskId: string }) => row.taskId).sort()).toEqual(["first", "second"]);
+      expect(store.watches.find((row: { taskId: string }) => row.taskId === "first")?.missingLiveSince).toBeDefined();
+    } finally {
+      first?.stopHangWatchdogForTests();
+      second?.stopHangWatchdogForTests();
+      if (previousDataDir === undefined) delete process.env.LEAFCODE_PI_DATA_DIR;
+      else process.env.LEAFCODE_PI_DATA_DIR = previousDataDir;
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
 });
