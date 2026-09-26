@@ -161,6 +161,7 @@ export type ComposerSettingsGroup = {
   id: string;
   label: string;
   content: ReactNode;
+  align?: "end";
 };
 
 export function ImageLightbox({
@@ -421,7 +422,7 @@ export function Composer({
     ? settingsGroups.map((group) => (
         <div
           key={group.id}
-          className="flex min-w-max shrink-0 flex-nowrap items-center gap-1"
+          className={`flex min-w-max shrink-0 flex-nowrap items-center gap-1 ${group.align === "end" ? "ml-auto" : ""}`}
         >
           {group.content}
         </div>

@@ -4033,6 +4033,7 @@ export const TaskView = memo(function TaskView({
             {
               id: "continuation",
               label: "継続実行",
+              align: "end",
               content: (
                 <>
               <GoalLoopToggle

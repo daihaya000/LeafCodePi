@@ -728,6 +728,7 @@ export const HomeView = memo(function HomeView({
                 {
                   id: "continuation",
                   label: "継続実行",
+                  align: "end",
                   content: (
                     <>
                   <GoalLoopToggle

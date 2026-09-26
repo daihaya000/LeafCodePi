@@ -85,6 +85,17 @@ function SettingsComposer() {
           label: "権限設定",
           content: <input aria-label="権限設定" value="確認" readOnly />,
         },
+        {
+          id: "continuation",
+          label: "継続実行",
+          align: "end",
+          content: <button type="button">ループ</button>,
+        },
+        {
+          id: "next-action",
+          label: "次の指示",
+          content: <button type="button">提案</button>,
+        },
       ]}
       action={null}
     />
@@ -139,6 +150,11 @@ describe("Composer", () => {
     expect(toolbar.querySelector('[class*="border-l"]')).toBeNull();
     expect(screen.getByLabelText("モデル設定")).toBeTruthy();
     expect(screen.getByLabelText("権限設定")).toBeTruthy();
+    const loopGroup = screen.getByRole("button", { name: "ループ" }).parentElement;
+    const proposalGroup = screen.getByRole("button", { name: "提案" }).parentElement;
+    expect(loopGroup?.className).toContain("ml-auto");
+    expect(loopGroup?.nextElementSibling).toBe(proposalGroup);
+    expect(toolbar.lastElementChild).toBe(proposalGroup);
 
     const model = screen.getByLabelText("モデル設定") as HTMLInputElement;
     fireEvent.change(model, { target: { value: "Claude" } });
