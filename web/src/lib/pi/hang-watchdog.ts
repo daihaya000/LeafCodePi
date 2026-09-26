@@ -491,6 +491,14 @@ async function resolveHang(row: TaskHangWatchRow): Promise<void> {
     return;
   }
 
+  const previous = {
+    retryUsed: row.retryUsed,
+    startedAt: row.startedAt,
+    lastProgressAt: row.lastProgressAt,
+    progressFingerprint: row.progressFingerprint,
+    state: row.state,
+    updatedAt: row.updatedAt,
+  };
   const now = Date.now();
   row.retryUsed += 1;
   row.startedAt = now;
@@ -498,7 +506,12 @@ async function resolveHang(row: TaskHangWatchRow): Promise<void> {
   row.progressFingerprint = "";
   row.state = "armed";
   row.updatedAt = now;
-  writeStore();
+  try {
+    writeStore();
+  } catch (error) {
+    Object.assign(row, previous);
+    throw error;
+  }
 
   hooks.resumePrompt(row.taskId, {
     prompt: markHangRetryPrompt(autoResumePrompt(resumeMode, row.prompt)),
