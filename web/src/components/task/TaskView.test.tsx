@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { saveTaskSessionCache } from "@/lib/task-session-cache";
 import type { ModelOption, TaskSummary, UiMessage, UiPart } from "@/lib/types";
 import { COMPACTION_ACTION_SETTING_KEY } from "@/lib/compaction-settings";
+import { DEFAULT_SESSION_LABELS } from "@/lib/session-label-settings";
 
 const mocks = vi.hoisted(() => ({ getJson: vi.fn(), sendJson: vi.fn(), apiUrl: (path: string) => path, partView: vi.fn(), toolCard: vi.fn(), messageMetaHeader: vi.fn(), markRead: vi.fn(), botFor: vi.fn(), iconFor: vi.fn() }));
 vi.mock("@/lib/client", () => mocks);
@@ -1401,10 +1402,12 @@ describe("TaskView draft submission", () => {
     expect(heading.closest("header")?.firstElementChild?.className).toContain("translate-y-1");
     expect(status.firstElementChild?.getAttribute("aria-label")).toBe("プロジェクトアイコン");
     expect(heading.closest("header")?.firstElementChild?.contains(status.firstElementChild)).toBe(false);
-    expect(sessionInfo.textContent).toContain("コード");
+    // 表示名は既定ラベルから引く（既定名を変えてもこのレイアウトテストは壊れない）。
+    const codeLabel = DEFAULT_SESSION_LABELS.find(({ id }) => id === "code")!.name;
+    expect(sessionInfo.textContent).toContain(codeLabel);
     expect(sessionInfo.className).toContain("@min-[500px]/task:hidden");
     expect(heading.className).toContain("@min-[500px]/task:items-center");
-    expect(heading.firstElementChild?.textContent).toBe("コード");
+    expect(heading.firstElementChild?.textContent).toBe(codeLabel);
     expect(heading.firstElementChild?.className).toContain("@min-[500px]/task:inline-flex");
     expect(heading.firstElementChild?.nextElementSibling?.textContent).toBe(task.title);
     const meterTitle = "コンテキスト使用量: 405k / 1M トークン（41%）";
