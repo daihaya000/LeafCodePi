@@ -347,14 +347,14 @@ function recoverInterruptedHangWatchesLocked(): void {
       } catch { /* this temp disappeared: inspect the remaining candidates */ }
     }
   } catch { /* missing directory: keep the main snapshot */ }
-  syncMemoryFromDisk(snapshot ?? { version: 1, watches: [] });
-  for (const row of memoryWatches.values()) {
-    if (row.state === "resolving") {
-      row.state = "armed";
-      row.updatedAt = Date.now();
-    }
-  }
-  writeStore();
+  const recovered: WatchStore = {
+    version: 1,
+    watches: (snapshot?.watches ?? []).map((row) => row.state === "resolving"
+      ? { ...row, state: "armed", updatedAt: Date.now() }
+      : row),
+  };
+  writeStore(recovered.watches);
+  syncMemoryFromDisk(recovered);
   // After promotion, discard validated candidates and old orphan temps. Check
   // metadata again so a concurrent writer's replacement is never removed.
   for (const temp of cleanupTemps) {

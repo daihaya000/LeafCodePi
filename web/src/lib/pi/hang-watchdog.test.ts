@@ -430,6 +430,33 @@ describe("hang-watchdog helpers", () => {
     }
   });
 
+  it("keeps in-memory watches unchanged when recovery cannot persist", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "leafcode-pi-hang-watchdog-recovery-save-"));
+    const previousDataDir = process.env.LEAFCODE_PI_DATA_DIR;
+    process.env.LEAFCODE_PI_DATA_DIR = root;
+    try {
+      armTaskHangWatch({ taskId: "valid", prompt: "work" });
+      const before = structuredClone(getTaskHangWatch("valid"));
+      const file = path.join(root, "hang-watches.json");
+      const snapshot = JSON.parse(fs.readFileSync(file, "utf8"));
+      snapshot.watches[0].state = "resolving";
+      snapshot.watches[0].retryUsed = MAX_HANG_RETRIES;
+      const temp = `${file}.777.00000000-0000-4000-8000-000000000001.tmp`;
+      fs.writeFileSync(temp, JSON.stringify(snapshot));
+      fs.renameSync(file, `${file}.saved`);
+      fs.mkdirSync(file);
+      expect(() => recoverInterruptedHangWatches()).toThrow();
+      expect(getTaskHangWatch("valid")).toEqual(before);
+      expect(fs.existsSync(`${file}.lock`)).toBe(false);
+      expect(JSON.parse(fs.readFileSync(temp, "utf8")).watches[0].state).toBe("resolving");
+    } finally {
+      stopHangWatchdogForTests();
+      if (previousDataDir === undefined) delete process.env.LEAFCODE_PI_DATA_DIR;
+      else process.env.LEAFCODE_PI_DATA_DIR = previousDataDir;
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it("recovers a newer complete temp snapshot after an interrupted rename", () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "leafcode-pi-hang-watchdog-temp-"));
     const previousDataDir = process.env.LEAFCODE_PI_DATA_DIR;
