@@ -1186,6 +1186,18 @@ describe("hang-watchdog helpers", () => {
       const afterRearm = JSON.parse(fs.readFileSync(file, "utf8"));
       expect(afterRearm.watches.map((row: { taskId: string }) => row.taskId).sort()).toEqual(["fourth", "third"]);
       expect(afterRearm.watches.find((row: { taskId: string }) => row.taskId === "third")?.state).toBe("armed");
+      const resumePrompt = vi.fn();
+      first.registerHangWatchdogHooks({
+        getLive: () => ({ messages: [], isStreaming: false, isCompacting: false }),
+        abortTask: async () => { second!.armTaskHangWatch({ taskId: "fifth", prompt: "work" }); },
+        resumePrompt,
+        notifyHangRetry: () => undefined,
+      });
+      await first.resolveHangNow("third");
+      expect(resumePrompt).toHaveBeenCalledOnce();
+      const afterRetry = JSON.parse(fs.readFileSync(file, "utf8"));
+      expect(afterRetry.watches.map((row: { taskId: string }) => row.taskId).sort()).toEqual(["fifth", "fourth", "third"]);
+      expect(afterRetry.watches.find((row: { taskId: string }) => row.taskId === "third")?.retryUsed).toBe(1);
     } finally {
       first?.stopHangWatchdogForTests();
       second?.stopHangWatchdogForTests();

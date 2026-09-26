@@ -553,7 +553,7 @@ async function resolveHang(row: TaskHangWatchRow): Promise<void> {
   row.state = "armed";
   row.updatedAt = now;
   try {
-    writeStore();
+    writeWatchRow(row);
   } catch (error) {
     Object.assign(row, previous);
     throw error;
