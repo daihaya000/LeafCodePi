@@ -210,6 +210,9 @@ export function shouldFlushPendingAfterReady(
     const createdAt = typeof tip.createdAt === "number" ? tip.createdAt : 0;
     const id = typeof tip.id === "string" ? tip.id : "";
     if (createdAt > readyRank.lastCreatedAt) return true;
+    // A projected id can be reused after a reset. An older timestamp proves
+    // this is not an update to the ready tail, even when its id matches.
+    if (createdAt > 0 && readyRank.lastCreatedAt > 0 && createdAt < readyRank.lastCreatedAt) return false;
     // Same tip id = streaming update of the ready tail message.
     if (id && id === readyRank.lastId) return true;
     // Same timestamp + different id is usually the projected tip (msg-N) vs

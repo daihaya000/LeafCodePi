@@ -223,6 +223,14 @@ describe("sse-ready-buffer", () => {
     ).toBe(false);
   });
 
+  it("drops a stale delta whose projected id was reused for the ready tip", () => {
+    const ready = rankMessageList([{ id: "msg-1", createdAt: 10 }]);
+    expect(shouldFlushPendingAfterReady(
+      { type: "delta", message: { id: "msg-1", createdAt: 5, parts: [{ text: "stale" }] } },
+      ready,
+    )).toBe(false);
+  });
+
   it("drops buffered tip deltas that only differ by projected msg id", () => {
     const ready = rankMessageList([
       { id: "history", createdAt: 1 },
