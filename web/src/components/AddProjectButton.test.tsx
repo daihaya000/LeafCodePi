@@ -57,6 +57,23 @@ describe("AddProjectButton", () => {
     expect(onSelect).toHaveBeenCalledWith("C:\\Users\\Daichi");
   });
 
+  it("shows another drive and navigates to it", async () => {
+    getJson.mockResolvedValueOnce({
+      path: "C:\\Users\\Daichi",
+      parent: null,
+      drives: [{ name: "D:", path: "D:\\" }],
+      entries: [],
+    }).mockResolvedValueOnce({ path: "D:\\", parent: null, drives: [], entries: [] });
+
+    render(<AddProjectButton label="参照" onSelect={vi.fn()} />);
+    fireEvent.click(screen.getByRole("button", { name: "参照" }));
+    await screen.findByRole("heading", { name: "ドライブ" });
+    fireEvent.click(screen.getByRole("button", { name: "D:" }));
+
+    expect(getJson).toHaveBeenCalledWith("/api/browse/dirs", { path: "D:\\" });
+    expect(await screen.findByDisplayValue("D:\\")).toBeTruthy();
+  });
+
   it("ignores a directory response from a dialog opened before the current one", async () => {
     let resolveFirst!: (value: { path: string; parent: null; entries: never[] }) => void;
     let resolveSecond!: (value: { path: string; parent: null; entries: never[] }) => void;
