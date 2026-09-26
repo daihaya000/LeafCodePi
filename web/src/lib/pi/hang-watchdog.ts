@@ -399,9 +399,17 @@ function markResolving(row: TaskHangWatchRow): boolean {
 function markArmed(taskId: string): void {
   const row = memoryWatches.get(taskId);
   if (!row) return;
+  const previousState = row.state;
+  const previousUpdatedAt = row.updatedAt;
   row.state = "armed";
   row.updatedAt = Date.now();
-  writeStore();
+  try {
+    writeStore();
+  } catch (error) {
+    row.state = previousState;
+    row.updatedAt = previousUpdatedAt;
+    throw error;
+  }
 }
 
 function recordProgress(taskId: string, lastProgressAt: number, fingerprint: string): void {

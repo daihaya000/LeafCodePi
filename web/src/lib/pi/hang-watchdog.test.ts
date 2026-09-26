@@ -228,6 +228,39 @@ describe("hang-watchdog helpers", () => {
     }
   });
 
+  it("restores resolving state when rearming cannot persist", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "leafcode-pi-hang-watchdog-rearm-"));
+    const previousDataDir = process.env.LEAFCODE_PI_DATA_DIR;
+    process.env.LEAFCODE_PI_DATA_DIR = root;
+    vi.useFakeTimers();
+    try {
+      armTaskHangWatch({ taskId: "rearm", prompt: "work" });
+      const blocked = path.join(root, "not-a-directory");
+      fs.writeFileSync(blocked, "blocked");
+      const getLive = vi.fn(() => null);
+      registerHangWatchdogHooks({
+        getLive,
+        abortTask: async () => { process.env.LEAFCODE_PI_DATA_DIR = blocked; },
+        resumePrompt: () => undefined,
+        notifyHangRetry: () => undefined,
+      });
+      const resolving = expect(resolveHangNow("rearm")).rejects.toThrow();
+      await vi.advanceTimersByTimeAsync(6_000);
+      await resolving;
+      expect(getLive).toHaveBeenCalledTimes(6);
+      process.env.LEAFCODE_PI_DATA_DIR = root;
+      const [saved] = JSON.parse(fs.readFileSync(path.join(root, "hang-watches.json"), "utf8")).watches;
+      expect(saved.state).toBe("resolving");
+      expect(getTaskHangWatch("rearm")).toMatchObject({ state: "resolving", updatedAt: saved.updatedAt });
+    } finally {
+      stopHangWatchdogForTests();
+      vi.useRealTimers();
+      if (previousDataDir === undefined) delete process.env.LEAFCODE_PI_DATA_DIR;
+      else process.env.LEAFCODE_PI_DATA_DIR = previousDataDir;
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it("rolls back sampled progress when persistence fails", async () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "leafcode-pi-hang-watchdog-progress-"));
     const previousDataDir = process.env.LEAFCODE_PI_DATA_DIR;
