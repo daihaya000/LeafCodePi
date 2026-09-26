@@ -49,11 +49,13 @@ describe("NextAction", () => {
       expect(screen.getByTestId("composer").contains(panel)).toBe(false);
       expect(screen.queryByRole("dialog")).toBeNull();
     });
+    expect((await screen.findByRole("button", { name: "提案を表示" })).textContent).toBe("提案");
 
     fireEvent.click(screen.getByRole("button", { name: "提案を閉じる" }));
     expect(screen.queryByRole("region", { name: "次の指示の提案" })).toBeNull();
     expect(document.activeElement).toBe(screen.getByRole("button", { name: "提案を表示" }));
     fireEvent.click(screen.getByRole("button", { name: "提案を表示" }));
+    expect(screen.getByRole("button", { name: "提案を表示" }).textContent).toBe("提案");
     expect(screen.getByRole("region", { name: "次の指示の提案" })).toBeTruthy();
     expect(sendJson).toHaveBeenCalledTimes(1);
   });

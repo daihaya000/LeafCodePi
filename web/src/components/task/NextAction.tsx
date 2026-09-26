@@ -233,7 +233,7 @@ export function NextAction({
           className="h-8 min-w-0 whitespace-nowrap px-2.5"
         >
           {state.kind !== "loading" && <Sparkles className="h-3.5 w-3.5" />}
-          {state.kind === "success" ? "提案を表示" : "提案"}
+          提案
         </Button>
       </section>
       {panel && panelContainer && createPortal(panel, panelContainer)}
