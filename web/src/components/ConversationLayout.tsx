@@ -47,8 +47,19 @@ export const ACTIVITY_USAGE_TITLES = {
   elapsed: "作業ログの経過時間（最初の開始から最後の終了まで）",
 } as const;
 
+function lastLogStatus(messages: readonly UiMessage[], parts: readonly UiPart[]) {
+  for (let index = messages.length - 1; index >= 0; index--) {
+    const message = messages[index];
+    if (message.error) return "error";
+    const tool = message.parts.findLast((part) => part.type === "tool");
+    if (tool?.type === "tool") return tool.state.status;
+  }
+  const tool = parts.findLast((part) => part.type === "tool");
+  return tool?.type === "tool" ? tool.state.status : undefined;
+}
+
 /** Keep Bot/Code log icons and layout here to prevent drift; callers own grouping and choose which responses count toward usage. */
-export function ActivityLog({ children, header, count, parts, messages = [], active, running = false, outcome, kind }: {
+export function ActivityLog({ children, header, count, parts, messages = [], statusMessages = messages, active, running = false, outcome, kind }: {
   children: ReactNode;
   /** 枠外と展開内容の先頭に出すメタ行。関数なら作業ログ全体の使用量を受け取って描く。 */
   header?: ReactNode | ((usage: ActivityUsage) => ReactNode);
@@ -56,16 +67,19 @@ export function ActivityLog({ children, header, count, parts, messages = [], act
   parts: readonly UiPart[];
   /** 使用量と経過時間に数える応答。本文を吹き出しに出す応答は吹き出し側の応答として含めない。 */
   messages?: readonly UiMessage[];
+  /** 状態判定用の全応答。使用量の対象 messages とは独立して最後の実行だけを見る。 */
+  statusMessages?: readonly UiMessage[];
   active: boolean;
   /** このログが現在進行中の作業か。active はタブの表示状態。 */
   running?: boolean;
   /** ツールパーツを持たない委譲実行などの最終状態。 */
-  outcome?: "error" | "cancelled";
+  outcome?: "completed" | "error" | "cancelled";
   kind: "bot" | "task";
 }) {
   const elapsedMs = useToolElapsedMs(parts, active, messages);
-  const failed = outcome === "error" || messages.some((message) => Boolean(message.error)) || parts.some((part) => part.type === "tool" && part.state.status === "error");
-  const cancelled = outcome === "cancelled" || parts.some((part) => part.type === "tool" && part.state.status === "cancelled");
+  const status = outcome ?? lastLogStatus(statusMessages, parts);
+  const failed = status === "error";
+  const cancelled = status === "cancelled";
   const headerNode = typeof header === "function" ? header({ ...summarizeThroughput(messages), elapsedMs }) : header;
   const scrollerRef = useRef<HTMLDivElement | null>(null);
   const contentRef = useRef<HTMLDivElement | null>(null);

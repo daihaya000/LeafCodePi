@@ -675,6 +675,26 @@ it("does not mark a failed Code work log as completed when its reply has a bubbl
   expect(document.querySelector('details[data-task-tool-group] summary [role="img"][aria-label="エラー"]')).not.toBeNull();
 });
 
+it("marks a Code work log successful after a later tool recovers from an error", () => {
+  saveTaskSessionCache({
+    task,
+    messages: [
+      { id: "failed", role: "assistant", createdAt: 1, error: "一時失敗", parts: [
+        { id: "failed-tool", type: "tool", tool: "read", callID: "failed", state: { status: "error", input: {} } },
+      ] },
+      { id: "retry", role: "assistant", createdAt: 2, parts: [
+        { id: "success-tool", type: "tool", tool: "read", callID: "success", state: { status: "completed", input: {} } },
+      ] },
+    ],
+    isStreaming: false,
+    isCompacting: false,
+  });
+  render(<TaskView taskId={task.id} mdUp />);
+  const logs = document.querySelectorAll<HTMLDetailsElement>("details[data-task-tool-group]");
+  expect(logs).toHaveLength(1);
+  expect(logs[0]!.querySelector('summary [role="img"][aria-label="完了"]')).not.toBeNull();
+});
+
 it("summarizes usage only for work-log responses whose headers stay in the log", () => {
   const tool = (id: string, startedAtMs: number): UiPart => ({
     id,

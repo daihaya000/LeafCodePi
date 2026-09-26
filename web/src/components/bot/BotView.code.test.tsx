@@ -1124,6 +1124,22 @@ it("does not mark a failed Bot tool response as completed", async () => {
   expect(log.querySelector('summary [role="img"][aria-label="エラー"]')).not.toBeNull();
 });
 
+it("marks a Bot work log successful when a later tool recovers from an error", async () => {
+  const { container } = render(<ShellProvider><BotView id="one" /></ShellProvider>);
+  await screen.findByRole("button", { name: "設定" });
+  snapshot({ messages: [
+    { id: "failed-tool", role: "assistant", createdAt: 2, parts: [
+      { id: "failed", type: "tool", tool: "read", callID: "failed", state: { status: "error", input: {}, error: "一時失敗" } },
+    ] },
+    { id: "retry", role: "assistant", createdAt: 3, parts: [
+      { id: "success", type: "tool", tool: "read", callID: "success", state: { status: "completed", input: {} } },
+    ] },
+  ] });
+  const logs = container.querySelectorAll<HTMLDetailsElement>("details[data-bot-tool-group]");
+  expect(logs).toHaveLength(1);
+  expect(logs[0]!.querySelector('summary [role="img"][aria-label="完了"]')).not.toBeNull();
+});
+
 it("groups consecutive tool-only entries without hiding messages", async () => {
   const { container } = render(<ShellProvider><BotView id="one" /></ShellProvider>);
   await screen.findByRole("button", { name: "設定" });

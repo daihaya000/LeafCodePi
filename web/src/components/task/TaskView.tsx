@@ -3456,9 +3456,9 @@ export const TaskView = memo(function TaskView({
                       parts={block.entries.flatMap((entry) => entry.activityMessage.parts)}
                       // 本文を吹き出しへ出す応答（showHeader=false）は使用量もそちらのヘッダーに出るので数えない。
                       messages={block.entries.filter((entry) => entry.showHeader).map((entry) => entry.message)}
+                      statusMessages={block.entries.map((entry) => entry.message)}
                       active={active}
                       running={runningLog}
-                      outcome={block.entries.some((entry) => Boolean(entry.message.error)) ? "error" : undefined}
                     >{activityContents}</ActivityLog>
                   ) : showResume &&
                     resumeInsideExistingBanner &&

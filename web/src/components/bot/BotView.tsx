@@ -109,9 +109,9 @@ function BotToolActivityGroup({ messages, bot, botId, active, running, modelLabe
       parts={parts}
       // 吹き出しを持つ応答はそちら側の応答なので、作業ログの使用量・経過時間に数えない。
       messages={messages.filter((message) => !botMessageHasBubble(message))}
+      statusMessages={messages}
       active={active}
       running={running}
-      outcome={messages.some((message) => Boolean(message.error)) ? "error" : undefined}
     >
       {messages.map((message, messageIndex) => {
         const { tools } = botMessageDisplayData(message);

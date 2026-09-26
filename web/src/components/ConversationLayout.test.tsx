@@ -108,6 +108,25 @@ it.each([
   expect(summary.querySelector('[aria-label="完了"]')).toBeNull();
 });
 
+it.each([
+  { statuses: ["error", "completed"] as const, label: "完了" },
+  { statuses: ["completed", "error"] as const, label: "エラー" },
+  { statuses: ["cancelled", "completed"] as const, label: "完了" },
+])("uses the last tool result for $statuses", ({ statuses, label }) => {
+  const parts = statuses.map((status, index) => ({ id: `tool-${index}`, type: "tool" as const, tool: "read", callID: `call-${index}`, state: { status, input: {} } }));
+  const { container } = render(<ActivityLog kind="task" count={parts.length} parts={parts} active={false}>Tools</ActivityLog>);
+  expect(container.querySelector(`summary [role="img"][aria-label="${label}"]`)).not.toBeNull();
+});
+
+it("ignores an earlier assistant error after a later successful tool", () => {
+  const messages: UiMessage[] = [
+    { id: "failed", role: "assistant", createdAt: 1, error: "失敗", parts: [] },
+    { id: "recovered", role: "assistant", createdAt: 2, parts: [{ id: "tool", type: "tool", tool: "read", callID: "call", state: { status: "completed", input: {} } }] },
+  ];
+  const { container } = render(<ActivityLog kind="task" count={1} parts={messages[1]!.parts} messages={messages} active={false}>Tool</ActivityLog>);
+  expect(container.querySelector('summary [role="img"][aria-label="完了"]')).not.toBeNull();
+});
+
 it("shows an assistant error instead of a success check", () => {
   const messages: UiMessage[] = [{ id: "failed", role: "assistant", createdAt: 1, error: "失敗", parts: [] }];
   const { container } = render(<ActivityLog kind="task" count={1} parts={[]} messages={messages} active={false}>Tool</ActivityLog>);
