@@ -631,6 +631,54 @@ describe("hang-watchdog helpers", () => {
     }
   });
 
+  it("restores missing-live grace when a foreign-lease reset cannot persist", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(1_000_000);
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "leafcode-pi-hang-watchdog-lease-save-"));
+    const previousDataDir = process.env.LEAFCODE_PI_DATA_DIR;
+    process.env.LEAFCODE_PI_DATA_DIR = root;
+    fs.mkdirSync(path.join(root, "task-leases"), { recursive: true });
+    fs.writeFileSync(path.join(root, "task-leases", "lease-save.json"), `${JSON.stringify({
+      token: "other-worker", pid: process.pid, acquiredAt: 1_000_000, heartbeatAt: 1_000_000,
+    })}\n`);
+    const file = path.join(root, "hang-watches.json");
+    let blockSave = false;
+    const getLive = vi.fn(() => {
+      if (blockSave) {
+        fs.renameSync(file, `${file}.saved`);
+        fs.mkdirSync(file);
+        blockSave = false;
+      }
+      return null;
+    });
+    registerHangWatchdogHooks({
+      getLive,
+      abortTask: async () => undefined,
+      resumePrompt: () => undefined,
+      notifyHangRetry: () => undefined,
+    });
+    try {
+      armTaskHangWatch({ taskId: "lease-save", prompt: "work", startedAt: 1_000_000 });
+      await runHangWatchdogTick();
+      expect(getTaskHangWatch("lease-save")?.missingLiveSince).toBe(1_000_000);
+      vi.setSystemTime(1_000_000 + MISSING_LIVE_GRACE_MS);
+      blockSave = true;
+      await runHangWatchdogTick();
+      expect(getLive).toHaveBeenCalledTimes(2);
+      const [saved] = JSON.parse(fs.readFileSync(`${file}.saved`, "utf8")).watches;
+      expect(getTaskHangWatch("lease-save")).toMatchObject({
+        missingLiveSince: saved.missingLiveSince,
+        updatedAt: saved.updatedAt,
+      });
+      expect(saved.missingLiveSince).toBe(1_000_000);
+    } finally {
+      stopHangWatchdogForTests();
+      if (previousDataDir === undefined) delete process.env.LEAFCODE_PI_DATA_DIR;
+      else process.env.LEAFCODE_PI_DATA_DIR = previousDataDir;
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it("keeps a watch when another worker holds the active lease", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(1_000_000);

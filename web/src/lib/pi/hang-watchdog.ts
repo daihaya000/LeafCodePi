@@ -560,9 +560,17 @@ async function evaluateWatch(row: TaskHangWatchRow, timeoutMs: number): Promise<
     // grace も消費しない（lease 消滅直後に即 onMissingLive しないよう振り直す）。
     if (hasActiveTaskLease(row.taskId) && !ownsTaskLease(row.taskId)) {
       if (row.missingLiveSince !== undefined) {
+        const previousMissingLiveSince = row.missingLiveSince;
+        const previousUpdatedAt = row.updatedAt;
         delete row.missingLiveSince;
         row.updatedAt = now;
-        writeStore();
+        try {
+          writeStore();
+        } catch (error) {
+          row.missingLiveSince = previousMissingLiveSince;
+          row.updatedAt = previousUpdatedAt;
+          throw error;
+        }
       }
       logWatchdog("live session missing - another worker holds the lease", row);
       return;
