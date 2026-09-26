@@ -154,7 +154,15 @@ export function bufferPendingSsePayload(
 ): void {
   if (payload.type === "delta") {
     const previous = pending.at(-1);
-    if (previous?.type === "delta") {
+    const previousMessage = previous?.message as { id?: unknown } | undefined;
+    const nextMessage = payload.message as { id?: unknown } | undefined;
+    // Only cumulative updates to the same message can replace one another.
+    // A different message or a metadata-only delta must retain its own event.
+    if (
+      previous?.type === "delta" &&
+      typeof previousMessage?.id === "string" && previousMessage.id === nextMessage?.id &&
+      Object.keys(previous).sort().join() === Object.keys(payload).sort().join()
+    ) {
       pending[pending.length - 1] = payload;
     } else {
       pending.push(payload);

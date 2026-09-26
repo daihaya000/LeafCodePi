@@ -468,9 +468,19 @@ describe("sse-ready-buffer", () => {
       type: "delta",
       message: { id: "d2" },
     });
-    expect(pending).toHaveLength(2);
+    expect(pending).toHaveLength(3);
     expect(pending[0]).toMatchObject({ permissionRequest: { id: "req-2" } });
-    expect(pending[1]).toMatchObject({ type: "delta", message: { id: "d2" } });
+    expect(pending.slice(1).map((item) => (item.message as { id: string }).id)).toEqual(["d1", "d2"]);
+  });
+
+  it("coalesces cumulative deltas for one message but retains metadata-only deltas", () => {
+    const pending: Record<string, unknown>[] = [];
+    bufferPendingSsePayload(pending, { type: "delta", message: { id: "d1", text: "a" } });
+    bufferPendingSsePayload(pending, { type: "delta", message: { id: "d1", text: "ab" } });
+    bufferPendingSsePayload(pending, { type: "delta", compactionSuggested: true });
+    expect(pending).toHaveLength(2);
+    expect(pending[0]).toMatchObject({ message: { text: "ab" } });
+    expect(pending[1]).toMatchObject({ compactionSuggested: true });
   });
 
   it("keeps a repeated control event after intervening controls", () => {
