@@ -247,6 +247,7 @@ describe("hang-watchdog helpers", () => {
       expect(JSON.parse(fs.readFileSync(file, "utf8")).watches[0].retryUsed).toBe(MAX_HANG_RETRIES);
       expect(fs.existsSync(temp)).toBe(false);
       expect(fs.existsSync(older)).toBe(false);
+      expect(fs.existsSync(torn)).toBe(false);
       // A corrupt main file cannot outrank the last valid temp by mtime.
       fs.writeFileSync(temp, JSON.stringify(snapshot));
       fs.utimesSync(temp, new Date("2021-01-01"), new Date("2021-01-01"));

@@ -272,7 +272,7 @@ function syncMemoryFromDisk(snapshot = readStore()): void {
 export function recoverInterruptedHangWatches(): void {
   const file = watchesPath();
   let snapshot = readStoreFile(file);
-  const recoveredTemps: { file: string; mtimeMs: number; size: number }[] = [];
+  const cleanupTemps: { file: string; mtimeMs: number; size: number }[] = [];
   let newest = 0;
   if (snapshot) {
     try { newest = statSync(file).mtimeMs; } catch { /* main snapshot disappeared */ }
@@ -284,10 +284,14 @@ export function recoverInterruptedHangWatches(): void {
       try {
         const temp = join(dirname(file), name);
         const { mtimeMs, size } = statSync(temp);
-        if (mtimeMs <= mainMtime) continue;
+        const stale = mtimeMs < Date.now() - 10 * 60_000;
+        if (mtimeMs <= mainMtime) {
+          if (stale) cleanupTemps.push({ file: temp, mtimeMs, size });
+          continue;
+        }
         const candidate = readStoreFile(temp);
+        if (candidate || stale) cleanupTemps.push({ file: temp, mtimeMs, size });
         if (candidate) {
-          recoveredTemps.push({ file: temp, mtimeMs, size });
           if (mtimeMs > newest) {
             snapshot = candidate;
             newest = mtimeMs;
@@ -304,9 +308,9 @@ export function recoverInterruptedHangWatches(): void {
     }
   }
   writeStore();
-  // After promotion, discard all validated older candidates too. A temp with
-  // future mtime could otherwise outrank the new main file on the next restart.
-  for (const temp of recoveredTemps) {
+  // After promotion, discard validated candidates and old orphan temps. Check
+  // metadata again so a concurrent writer's replacement is never removed.
+  for (const temp of cleanupTemps) {
     try {
       const current = statSync(temp.file);
       if (current.mtimeMs === temp.mtimeMs && current.size === temp.size) unlinkSync(temp.file);
