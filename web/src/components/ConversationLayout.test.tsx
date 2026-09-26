@@ -54,7 +54,9 @@ it("uses identical closed, scroll-bounded logs with full-width nested cards and 
   expect(bot.querySelector("summary")?.outerHTML).toBe(task.querySelector("summary")?.outerHTML);
   expect(bot.querySelectorAll("summary .lucide-scroll-text")).toHaveLength(1);
   expect(bot.querySelector("summary .lucide-scroll-text")?.getAttribute("aria-hidden")).toBe("true");
-  expect(bot.querySelector("summary .lucide-chevron-right")).not.toBeNull();
+  expect(bot.querySelector("summary .lucide-chevron-right")).toBe(bot.querySelector("summary")?.lastElementChild);
+  expect(bot.querySelector('summary [role="img"][aria-label="完了"]')?.classList.contains("lucide-check")).toBe(true);
+  expect(bot.querySelector('summary [role="img"][aria-label="完了"]')?.nextElementSibling).toBe(bot.querySelector("summary")?.lastElementChild);
   expect(bot.open).toBe(false);
   expect(bot.querySelector("summary")?.textContent).toBe("作業ログ1件");
   const content = bot.querySelector("summary")!.nextElementSibling!;
@@ -77,6 +79,8 @@ it("opens the running log, closes it on completion, and preserves manual toggles
 
   rerender(renderLog(true));
   expect(log.open).toBe(true);
+  expect(summary.querySelector('svg[aria-label="実行中"]')?.classList.contains("animate-spin")).toBe(true);
+  expect(summary.querySelector('svg[aria-label="完了"]')).toBeNull();
   fireEvent.click(summary);
   expect(log.open).toBe(false);
   rerender(renderLog(true));
@@ -84,6 +88,7 @@ it("opens the running log, closes it on completion, and preserves manual toggles
 
   rerender(renderLog(false));
   expect(log.open).toBe(false);
+  expect(summary.querySelector('svg[aria-label="完了"]')?.classList.contains("lucide-check")).toBe(true);
   fireEvent.click(summary);
   expect(log.open).toBe(true);
   rerender(renderLog(true));

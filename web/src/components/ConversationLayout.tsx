@@ -1,7 +1,7 @@
 "use client";
 
 import { type ReactNode, useLayoutEffect, useRef, useState } from "react";
-import { ChevronRight, ScrollText } from "lucide-react";
+import { Check, ChevronRight, Loader2, ScrollText } from "lucide-react";
 import { cx, formatDuration, useToolElapsedMs } from "@/components/ui";
 import { formatTokens } from "@/lib/context-usage";
 import { clampScrollTop, isNearBottom, nextStickState } from "@/lib/scroll-stick";
@@ -104,10 +104,15 @@ export function ActivityLog({ children, header, count, parts, messages = [], act
       className="group/tool-activity w-full min-w-0 max-w-bubble self-start overflow-hidden rounded-card border border-border bg-surface"
     >
       <summary className="flex min-h-11 cursor-pointer list-none items-center gap-2 bg-surface-2 px-3 py-2.5 text-left text-sm text-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary [&::-webkit-details-marker]:hidden">
-        <ChevronRight className="h-4 w-4 shrink-0 transition-transform group-open/tool-activity:rotate-90" aria-hidden="true" />
         <ScrollText className="h-4 w-4 shrink-0" aria-hidden="true" />
         <span className="min-w-0 flex-1 font-medium">作業ログ</span>
         <span className="shrink-0 text-xs text-faint">{count}件</span>
+        {running ? (
+          <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-working" role="img" aria-label="実行中" />
+        ) : (
+          <Check className="h-3.5 w-3.5 shrink-0 text-success/70" role="img" aria-label="完了" />
+        )}
+        <ChevronRight className="h-3.5 w-3.5 shrink-0 text-faint transition-transform group-open/tool-activity:rotate-90" aria-hidden="true" />
       </summary>
       <div
         ref={scrollerRef}
