@@ -177,6 +177,7 @@ import {
   shouldClearQueuedFollowUpOnEvent,
   shouldDrainQueuedFollowUp,
   shouldQueueFollowUp,
+  shouldRestoreQueuedFollowUpOnFailure,
 } from "@/lib/queued-follow-up";
 import { isHangRetryUserMessage } from "@/lib/hang-retry";
 import { mergeTaskDelta, type TaskDeltaState } from "@/lib/task-delta";
@@ -834,6 +835,7 @@ export const TaskView = memo(function TaskView({
   const [queuedAutoSend, setQueuedAutoSend] = useState(false);
   const [failedQueuedId, setFailedQueuedId] = useState<number | null>(null);
   const nextQueueIdRef = useRef(1);
+  const queueClearEpochRef = useRef(0);
   const queuedSendRef = useRef<QueuedFollowUp | null>(null);
   const submitRef = useRef<(queued?: QueuedFollowUp) => Promise<void>>(async () => undefined);
   const [submitting, setSubmitting] = useState(false);
@@ -1441,6 +1443,7 @@ export const TaskView = memo(function TaskView({
             ("manualAbortedAssistantId" in payload &&
               shouldClearQueuedFollowUpOnAbortState(payload.manualAbortedAssistantId))
           ) {
+            queueClearEpochRef.current += 1;
             setQueuedFollowUps([]);
             queuedSendRef.current = null;
             setQueuedAutoSend(false);
@@ -1782,6 +1785,7 @@ export const TaskView = memo(function TaskView({
     setRevertConfirmOpen(false);
     setRevertBusy(false);
     revertEntryRef.current = null;
+    queueClearEpochRef.current += 1;
     setQueuedFollowUps([]);
     queuedSendRef.current = null;
     setQueuedAutoSend(false);
@@ -2201,6 +2205,7 @@ export const TaskView = memo(function TaskView({
   }
 
   async function submit(queued?: QueuedFollowUp) {
+    const sentQueueEpoch = queueClearEpochRef.current;
     const submittedPrompt = queued ? queued.text : prompt;
     const submittedAttachments = queued ? queued.attachments : attachments;
     if (
@@ -2344,7 +2349,7 @@ export const TaskView = memo(function TaskView({
       if (!queued) setFailedQueuedId(null);
       notifyTasksChanged();
     } catch (err) {
-      if (queued && !stopRequestedRef.current) {
+      if (queued && shouldRestoreQueuedFollowUpOnFailure(sentQueueEpoch, queueClearEpochRef.current)) {
         setFailedQueuedId(queued.id);
         setQueuedFollowUps((current) => [queued, ...current]);
       }
@@ -2597,6 +2602,7 @@ export const TaskView = memo(function TaskView({
     try {
       setError(null);
       const result = await sendJson<{ task: TaskSummary }>(`/api/tasks/${taskId}/abort`, {});
+      queueClearEpochRef.current += 1;
       setQueuedFollowUps([]);
       queuedSendRef.current = null;
       setQueuedAutoSend(false);

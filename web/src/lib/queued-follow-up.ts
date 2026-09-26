@@ -6,6 +6,10 @@
  * shouldClearQueuedFollowUpOnEvent.
  */
 
+export function shouldRestoreQueuedFollowUpOnFailure(sentEpoch: number, currentEpoch: number): boolean {
+  return sentEpoch === currentEpoch;
+}
+
 export function shouldQueueFollowUp(input: {
   working: boolean;
   deliveryMode: "queue" | "steer";

@@ -6,6 +6,7 @@ import {
   shouldClearQueuedFollowUpOnEvent,
   shouldDrainQueuedFollowUp,
   shouldQueueFollowUp,
+  shouldRestoreQueuedFollowUpOnFailure,
 } from "./queued-follow-up";
 
 const idle = {
@@ -42,6 +43,13 @@ describe("queued follow-up enqueue", () => {
         goalLoopLive: true,
       }),
     ).toBe(false);
+  });
+});
+
+describe("queued send and abort race", () => {
+  it("restores a failed send while abort is pending or fails, but not after a queue clear", () => {
+    expect(shouldRestoreQueuedFollowUpOnFailure(4, 4)).toBe(true);
+    expect(shouldRestoreQueuedFollowUpOnFailure(4, 5)).toBe(false);
   });
 });
 
