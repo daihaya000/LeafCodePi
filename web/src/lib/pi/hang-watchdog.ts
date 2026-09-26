@@ -353,8 +353,17 @@ export function armTaskHangWatch(input: ArmTaskHangWatchInput): void {
 }
 
 export function disarmTaskHangWatch(taskId: string): void {
-  if (!memoryWatches.delete(taskId.trim())) return;
-  writeStore();
+  const id = taskId.trim();
+  const row = memoryWatches.get(id);
+  if (!row) return;
+  memoryWatches.delete(id);
+  try {
+    writeStore();
+  } catch (error) {
+    // The on-disk watch still exists; do not pretend it was disarmed.
+    memoryWatches.set(id, row);
+    throw error;
+  }
 }
 
 export function getTaskHangWatch(taskId: string): TaskHangWatchRow | null {
