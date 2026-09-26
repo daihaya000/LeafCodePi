@@ -638,7 +638,7 @@ function TurnNoticeBanner({
   return (
     <div
       className={cx(
-        "w-full max-w-bubble self-start rounded-lg border px-3 py-2",
+        "w-full max-w-bubble self-start rounded-card border px-3 py-2",
         tone === "danger"
           ? "border-danger/30 bg-danger-bg"
           : "border-border bg-surface-2",
@@ -3280,7 +3280,7 @@ export const TaskView = memo(function TaskView({
         >
           <div ref={contentRef} className={conversationContentClass}>
             {hangRetryNotice && (
-              <p className="rounded-lg border border-border bg-surface-2 px-3 py-2 text-xs text-muted">
+              <p className="rounded-card border border-border bg-surface-2 px-3 py-2 text-xs text-muted">
                 {hangRetryNotice}
               </p>
             )}
@@ -3626,7 +3626,7 @@ export const TaskView = memo(function TaskView({
           <div
             role="alertdialog"
             aria-label="危険なコマンドの確認"
-            className="mx-auto mb-2 max-w-5xl rounded-lg border border-warning/30 bg-warning-bg px-3 py-3 text-sm text-warning"
+            className="mx-auto mb-2 max-w-5xl rounded-card border border-warning/30 bg-warning-bg px-3 py-3 text-sm text-warning"
           >
             <p className="max-h-32 overflow-auto whitespace-pre-wrap break-all">{permissionRequest.message}</p>
             {permissionRequest.labels.length > 0 && (
@@ -3752,7 +3752,7 @@ export const TaskView = memo(function TaskView({
           </div>
         )}
         {isReverted && (
-          <div className="mx-auto mb-2 flex max-w-5xl items-center gap-3 rounded-lg border border-warning/30 bg-warning-bg px-3 py-2 text-sm text-warning">
+          <div className="mx-auto mb-2 flex max-w-5xl items-center gap-3 rounded-card border border-warning/30 bg-warning-bg px-3 py-2 text-sm text-warning">
             <span className="min-w-0 flex-1">
               巻き戻し中（以降のメッセージは非表示）
             </span>
@@ -3772,7 +3772,7 @@ export const TaskView = memo(function TaskView({
             role="alertdialog"
             aria-label="巻き戻しの確認"
             aria-describedby="session-revert-confirm-description"
-            className="mx-auto mb-2 max-w-5xl rounded-lg border border-warning/30 bg-warning-bg px-3 py-3 text-sm text-warning"
+            className="mx-auto mb-2 max-w-5xl rounded-card border border-warning/30 bg-warning-bg px-3 py-3 text-sm text-warning"
           >
             <p id="session-revert-confirm-description">
               直前の入力を下の入力欄に戻し、その返答以降を巻き戻しますか？
@@ -3802,7 +3802,7 @@ export const TaskView = memo(function TaskView({
           </div>
         )}
         {compacting && (
-          <div className="mx-auto mb-2 flex max-w-5xl items-center gap-3 rounded-lg border border-border bg-surface-2 px-3 py-2 text-sm text-muted">
+          <div className="mx-auto mb-2 flex max-w-5xl items-center gap-3 rounded-card border border-border bg-surface-2 px-3 py-2 text-sm text-muted">
             <span className="min-w-0 flex-1">
               コンテキストを圧縮しています… 完了まで数分かかることがあります
             </span>
@@ -3812,12 +3812,12 @@ export const TaskView = memo(function TaskView({
           </div>
         )}
         {sseReconnecting && !error && (
-          <p role="status" className="mx-auto mb-2 max-w-5xl rounded-lg border border-border bg-surface-2 px-3 py-2 text-sm text-muted">
+          <p role="status" className="mx-auto mb-2 max-w-5xl rounded-card border border-border bg-surface-2 px-3 py-2 text-sm text-muted">
             イベント接続を再試行しています…
           </p>
         )}
         {error && (
-          <p role="alert" className="mx-auto mb-2 max-w-5xl rounded-lg border border-danger/30 bg-danger-bg px-3 py-2 text-sm text-danger">
+          <p role="alert" className="mx-auto mb-2 max-w-5xl rounded-card border border-danger/30 bg-danger-bg px-3 py-2 text-sm text-danger">
             {error}
           </p>
         )}

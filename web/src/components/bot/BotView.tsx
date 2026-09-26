@@ -1378,7 +1378,7 @@ export const BotView = memo(function BotView({ id, active = true }: { id: string
             ? <div aria-live="polite" className="p-5 text-sm text-muted">会話を読み込み中…</div>
             : <BotEmptyState avatar={bot} title={bot.name + " \u3068\u8a71\u3059"} description={"\u4e0b\u306e\u5165\u529b\u6b04\u304b\u3089\u30e1\u30c3\u30bb\u30fc\u30b8\u3092\u9001\u3063\u3066\u4f1a\u8a71\u3092\u59cb\u3081\u307e\u3057\u3087\u3046\u3002"} />)}
           {routines.some((routine) => routine.failureCount > 0) && (
-            <div role="status" className="rounded-2xl border border-danger/40 bg-danger/5 p-4 text-sm">
+            <div role="status" className="rounded-card border border-danger/40 bg-danger/5 p-4 text-sm">
               <p className="font-medium text-danger">ルーティンの実行に失敗しています</p>
               <div className="mt-2 space-y-2 text-xs text-muted">
                 {routines.filter((routine) => routine.failureCount > 0).map((routine) => (

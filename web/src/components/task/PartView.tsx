@@ -85,7 +85,7 @@ function StructuredResultCard({ result }: { result: StructuredResult }) {
   return (
     <section
       aria-label="実行結果"
-      className="rounded-xl border border-border bg-surface-2/60 px-3 py-2.5 text-sm"
+      className="rounded-card border border-border bg-surface-2/60 px-3 py-2.5 text-sm"
     >
       <div className="flex items-center gap-2">
         <span
@@ -119,7 +119,7 @@ function StructuredResultCard({ result }: { result: StructuredResult }) {
 
 function DiagnosticDetails({ diagnostics }: { diagnostics: UiDiagnostic[] }) {
   return (
-    <details className="rounded-lg border border-border bg-surface-2 px-3 py-2 text-xs">
+    <details className="rounded-card border border-border bg-surface-2 px-3 py-2 text-xs">
       <summary className="cursor-pointer select-none font-medium text-muted">
         診断情報 ({diagnostics.length})
       </summary>

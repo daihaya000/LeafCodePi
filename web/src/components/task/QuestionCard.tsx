@@ -109,7 +109,7 @@ export function QuestionCard({
 
   return (
     <div
-      className="mx-auto max-w-5xl rounded-lg border border-accent/40 bg-surface px-3 py-3 text-sm"
+      className="mx-auto max-w-5xl rounded-card border border-accent/40 bg-surface px-3 py-3 text-sm"
       role="alertdialog"
       aria-label="確認が必要です"
     >

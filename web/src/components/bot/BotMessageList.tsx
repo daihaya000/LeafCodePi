@@ -91,7 +91,7 @@ function InternalTaskLink({ href, ...props }: AnchorHTMLAttributes<HTMLAnchorEle
   }, [taskId]);
   const title = task?.title || taskId;
   return (
-    <Link href={href} {...props} aria-label={title} className="my-2 flex items-center gap-3 rounded-xl border border-border bg-surface-2 px-3 py-2.5 text-sm no-underline transition-colors hover:bg-surface-3">
+    <Link href={href} {...props} aria-label={title} className="my-2 flex items-center gap-3 rounded-card border border-border bg-surface-2 px-3 py-2.5 text-sm no-underline transition-colors hover:bg-surface-3">
       <span className="flex h-8 w-8 shrink-0 items-center justify-center" aria-hidden="true">{project && <ProjectIcon project={project} className={cx("flex h-8 w-8 items-center justify-center rounded-lg text-sm font-semibold", !project.icon && "border")} />}</span>
       <span className="min-w-0 truncate font-medium text-text">{title}</span>
     </Link>

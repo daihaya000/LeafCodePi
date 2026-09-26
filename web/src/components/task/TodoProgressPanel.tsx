@@ -75,7 +75,7 @@ export function TodoProgressPanel({ todos }: { todos: TodoDto[] }) {
         />
       </div>
       {expanded && (
-        <div className="mt-2 rounded-xl border border-border bg-surface-2 px-3 py-2.5">
+        <div className="mt-2 rounded-card border border-border bg-surface-2 px-3 py-2.5">
           <div className="flex items-center gap-1.5 text-[11px] font-medium text-faint">
             <ListTodo className="h-3 w-3" aria-hidden="true" />
             <span>ToDo {done}/{todos.length}</span>
