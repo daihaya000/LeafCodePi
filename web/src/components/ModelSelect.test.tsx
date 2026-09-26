@@ -306,13 +306,14 @@ describe("ModelSelect grouping by account", () => {
 });
 
 describe("ModelSelect average tok/s", () => {
-  it("shows the average rate per option and marks rates under 50 in red", () => {
+  it("shows the average rate and colors under 50 red and 100 or more green", () => {
     render(
       <ModelSelect
         value="anthropic::claude"
         options={[
           option({ avgTokensPerSecond: 42.4 }),
           option({ value: "openai::gpt", label: "GPT", providerID: "openai", modelID: "gpt", avgTokensPerSecond: 80 }),
+          option({ value: "openai::fast", label: "Fast", providerID: "openai", modelID: "fast", avgTokensPerSecond: 100 }),
           option({ value: "openai::mini", label: "Mini", providerID: "openai", modelID: "mini" }),
         ]}
         onChange={() => undefined}
@@ -320,7 +321,8 @@ describe("ModelSelect average tok/s", () => {
     );
     fireEvent.click(screen.getByRole("button", { name: "モデル" }));
     expect(screen.getByText("42 tok/s").className).toContain("text-danger");
-    expect(screen.getByText("80 tok/s").className).not.toContain("text-danger");
-    expect(screen.getAllByTitle("平均 tok/s 実績")).toHaveLength(2);
+    expect(screen.getByText("80 tok/s").className).toContain("text-faint");
+    expect(screen.getByText("100 tok/s").className).toContain("text-success");
+    expect(screen.getAllByTitle("平均 tok/s 実績")).toHaveLength(3);
   });
 });

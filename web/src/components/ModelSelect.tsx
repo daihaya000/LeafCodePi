@@ -321,7 +321,11 @@ export function ModelSelect({
                       title="平均 tok/s 実績"
                       className={cx(
                         "shrink-0 text-[11px] tabular-nums",
-                        isSlowTokensPerSecond(option.avgTokensPerSecond) ? "text-danger" : "text-faint",
+                        isSlowTokensPerSecond(option.avgTokensPerSecond)
+                          ? "text-danger"
+                          : option.avgTokensPerSecond >= 100
+                            ? "text-success"
+                            : "text-faint",
                       )}
                     >
                       {formatTokensPerSecond(option.avgTokensPerSecond)}
