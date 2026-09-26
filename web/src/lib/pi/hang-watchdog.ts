@@ -3,8 +3,8 @@
  * OpenCode API の代わりに harness の LiveRuntime を直接監視する。
  */
 
-import { createHash } from "node:crypto";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { createHash, randomUUID } from "node:crypto";
+import { mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import {
   shouldAttachResumeImages,
@@ -146,11 +146,19 @@ function readStore(): WatchStore {
 function writeStore(): void {
   const file = watchesPath();
   mkdirSync(dirname(file), { recursive: true });
-  writeFileSync(
-    file,
-    `${JSON.stringify({ version: 1, watches: [...memoryWatches.values()] }, null, 2)}\n`,
-    "utf8",
-  );
+  const temp = `${file}.${process.pid}.${randomUUID()}.tmp`;
+  try {
+    writeFileSync(
+      temp,
+      `${JSON.stringify({ version: 1, watches: [...memoryWatches.values()] }, null, 2)}\n`,
+      "utf8",
+    );
+    // Never truncate the only recoverable snapshot if the process stops mid-write.
+    renameSync(temp, file);
+  } catch (error) {
+    try { unlinkSync(temp); } catch { /* temp may not exist */ }
+    throw error;
+  }
 }
 
 function logWatchdog(message: string, row: Pick<TaskHangWatchRow, "taskId">, error?: unknown): void {

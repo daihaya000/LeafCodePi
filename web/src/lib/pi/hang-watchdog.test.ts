@@ -207,6 +207,7 @@ describe("hang-watchdog helpers", () => {
       expect(() => recoverInterruptedHangWatches()).not.toThrow();
       expect(getTaskHangWatch("valid")?.prompt).toBe("work");
       expect(JSON.parse(fs.readFileSync(file, "utf8")).watches).toHaveLength(1);
+      expect(fs.readdirSync(root)).toEqual(["hang-watches.json"]);
     } finally {
       stopHangWatchdogForTests();
       if (previousDataDir === undefined) delete process.env.LEAFCODE_PI_DATA_DIR;
