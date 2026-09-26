@@ -3456,8 +3456,16 @@ test("resume recovers a late transcript result and schedules the next turn", asy
     assert.equal(paused.pauseReason, "user");
 
     // Settlement already happened: the assistant JSON is in the transcript, but
-    // turn_end/agent_settled will not fire again. Resume must recover and arm.
+    // turn_end/agent_settled will not fire again. Resume must recover the final
+    // assistant result, not an earlier result in the same tool-using turn.
     busy = false;
+    branch.push({
+      type: "message",
+      message: {
+        role: "assistant",
+        content: [{ type: "text", text: JSON.stringify({ status: "progress", summary: "obsolete intermediate" }) }],
+      },
+    });
     branch.push({
       type: "message",
       message: {

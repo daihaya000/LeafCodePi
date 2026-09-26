@@ -778,17 +778,18 @@ function lateTurnResult(runtime: Runtime, loop: GoalLoop): GoalLoopProgress | nu
     }
   }
   if (promptIndex < 0) return null;
+  // The final assistant result wins, as in extractGoalResultFromMessages.
+  let latest: GoalLoopProgress | null = null;
   for (let index = promptIndex + 1; index < entries.length; index += 1) {
     const entry = asRecord(entries[index]);
     if (entry?.type !== "message") continue;
     const message = asRecord(entry.message);
     if (message?.role === "user") break;
     if (message?.role === "assistant") {
-      const result = extractGoalResult(assistantText(message));
-      if (result) return result;
+      latest = extractGoalResult(assistantText(message)) ?? latest;
     }
   }
-  return null;
+  return latest;
 }
 
 /** Top-level JSON objects, ignoring braces inside JSON strings. */
