@@ -349,7 +349,13 @@ export function armTaskHangWatch(input: ArmTaskHangWatchInput): void {
     updatedAt: Date.now(),
   };
   memoryWatches.set(taskId, row);
-  writeStore();
+  try {
+    writeStore();
+  } catch (error) {
+    if (existing) memoryWatches.set(taskId, existing);
+    else memoryWatches.delete(taskId);
+    throw error;
+  }
 }
 
 export function disarmTaskHangWatch(taskId: string): void {

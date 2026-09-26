@@ -194,7 +194,7 @@ describe("hang-watchdog helpers", () => {
       .not.toBe(progressFingerprint(messages));
   });
 
-  it("keeps a watch in memory when disarm cannot persist", () => {
+  it("rolls back watch changes when arm or disarm cannot persist", () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "leafcode-pi-hang-watchdog-disarm-"));
     const previousDataDir = process.env.LEAFCODE_PI_DATA_DIR;
     process.env.LEAFCODE_PI_DATA_DIR = root;
@@ -205,6 +205,10 @@ describe("hang-watchdog helpers", () => {
       process.env.LEAFCODE_PI_DATA_DIR = blocked;
       expect(() => disarmTaskHangWatch("valid")).toThrow();
       expect(getTaskHangWatch("valid")?.prompt).toBe("work");
+      expect(() => armTaskHangWatch({ taskId: "valid", prompt: "replacement" })).toThrow();
+      expect(getTaskHangWatch("valid")?.prompt).toBe("work");
+      expect(() => armTaskHangWatch({ taskId: "new", prompt: "new work" })).toThrow();
+      expect(getTaskHangWatch("new")).toBeNull();
       process.env.LEAFCODE_PI_DATA_DIR = root;
       expect(JSON.parse(fs.readFileSync(path.join(root, "hang-watches.json"), "utf8")).watches).toHaveLength(1);
     } finally {
