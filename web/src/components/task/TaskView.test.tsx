@@ -1527,6 +1527,12 @@ describe("TaskView draft submission", () => {
     expect(heading.textContent).toBe(`-${title}`);
     expect(screen.getAllByText("クリーン")).toHaveLength(1);
     const header = heading.closest("header")!;
+    const placeholderBadges = header.querySelectorAll('[data-placeholder="true"]');
+    expect(placeholderBadges).toHaveLength(2);
+    for (const badge of placeholderBadges) {
+      expect(badge.className).toContain("w-11");
+      expect(badge.className).toContain("text-center");
+    }
     const actions = screen.getByRole("group", { name: "タスク操作" });
     const botControl = screen.getByRole("combobox", { name: "Codeタスクを監督するBot" }).closest("label");
     const wideButton = header.firstElementChild?.querySelector('button[aria-label="タイトルを生成"]');
