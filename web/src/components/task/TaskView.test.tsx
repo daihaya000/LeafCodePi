@@ -1428,7 +1428,7 @@ describe("TaskView draft submission", () => {
     expect(narrowMeter?.querySelector(".truncate")).toBeTruthy();
     expect(screen.queryByText(/↑3\.4k/)).toBeNull();
     expect(sessionInfo.contains(narrowRate!)).toBe(true);
-    // (20 + 60 + 40) / 3。0 tok/s の応答はヘッダーに出ないので除く。
+    // (20 + 60 + 40) / 3。0 tok/s（未計測）は除く。
     expect(narrowRate!.textContent).toBe("40 tok/s");
     expect(status.contains(wideRate!)).toBe(true);
     expect(wideRate!.textContent).toBe("40 tok/s");

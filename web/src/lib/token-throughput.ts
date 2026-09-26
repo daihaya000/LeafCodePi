@@ -226,7 +226,7 @@ export function isSlowTokensPerSecond(rate: number | null | undefined): boolean 
 
 /**
  * 応答の合計出力tokと平均tok/s（各応答の tok/s の単純平均）。ユーザー発言と圧縮は数えない。
- * 0 以下・非数の tok/s はヘッダーに表示されないので平均にも含めない。
+ * 0 以下・非数の tok/s は未計測（ヘッダーにも表示されない）なので平均に含めない。
  */
 export function summarizeThroughput(
   messages: readonly Pick<UiMessage, "role" | "outputTokens" | "tokensPerSecond">[],

@@ -2797,7 +2797,7 @@ export const TaskView = memo(function TaskView({
   ]);
   // ナビゲーターのジャンプ対象: ユーザーメッセージを優先し、Goal Loop の
   // hidden custom message しかない履歴では投影済みメッセージへフォールバックする。
-  // 表示用フィルタとヘッダー統計はこの memo でまとめて集計し、deltaごとの走査を最小限にする。
+  // 表示用フィルタとヘッダー統計はこの memo でまとめて集計し、履歴を走査する memo を増やさない。
   const {
     visibleMessages,
     detectedHangRetryCount,
