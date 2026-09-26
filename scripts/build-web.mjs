@@ -1,6 +1,6 @@
 import { execFileSync, spawn, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { isMirroredNextCliReady, resolveMirrorRoot, syncMirror } from "./web-build-mirror.mjs";
@@ -170,6 +170,47 @@ export function ensureBuildDependencies(mirrorRoot, { install = spawnSync } = {}
   }
   discardPreviousBuild(dependencies);
   return true;
+}
+
+/**
+ * The WebUI loads bundled extensions straight from the repository, but setup
+ * installs only web/ and host/. Install each extension's locked dependencies
+ * when one is missing; otherwise a fresh clone silently loses tools such as
+ * web_search. A failure is logged and the WebUI starts without those tools.
+ */
+export function ensureExtensionDependencies(extensionsDir = join(REPO_ROOT, "extensions"), { install = spawnSync } = {}) {
+  let entries;
+  try {
+    entries = readdirSync(extensionsDir, { withFileTypes: true });
+  } catch {
+    return [];
+  }
+  const installed = [];
+  for (const entry of entries) {
+    const dir = join(extensionsDir, entry.name);
+    if (!entry.isDirectory() || !existsSync(join(dir, "package-lock.json"))) continue;
+    let dependencies;
+    try {
+      dependencies = Object.keys(JSON.parse(readFileSync(join(dir, "package.json"), "utf8").replace(/^\uFEFF/, "")).dependencies ?? {});
+    } catch {
+      continue;
+    }
+    if (dependencies.every((name) => existsSync(join(dir, "node_modules", name, "package.json")))) continue;
+    console.error(`[build-web] installing extension dependencies in ${dir}`);
+    const result = install(process.platform === "win32" ? "npm.cmd" : "npm",
+      ["ci", "--include=dev", "--no-audit", "--no-fund"], {
+        cwd: dir,
+        shell: process.platform === "win32",
+        windowsHide: true,
+        stdio: "inherit",
+      });
+    if (result.error || result.status !== 0) {
+      console.error(`[build-web] npm ci failed in ${dir} (${result.error?.message ?? `exit ${result.status}`}); its tools stay unavailable`);
+      continue;
+    }
+    installed.push(entry.name);
+  }
+  return installed;
 }
 
 export function readBuildCommitMetadata({ cwd = REPO_ROOT, exec = execFileSync } = {}) {
@@ -405,6 +446,7 @@ export async function main(argv = process.argv.slice(2)) {
     return 1;
   }
 
+  ensureExtensionDependencies();
   const mirror = syncMirror({ sourceDir: WEB_DIR });
   console.error(
     `[build-web] workspace ${mirror.mirrorRoot} (copied ${mirror.copied}, unchanged ${mirror.unchanged}, removed ${mirror.removed}, ${mirror.durationMs}ms)`,

@@ -26,6 +26,7 @@ import {
 import {
   discardPreviousBuild,
   ensureBuildDependencies,
+  ensureExtensionDependencies,
   handOffToServedWebUi,
   hostControlUrl,
   previousBuildDir,
@@ -305,6 +306,36 @@ test("failed dependency installs restore legacy dependencies and leave the previ
     rmSync(join(mirror, "node_modules"), { recursive: true, force: true });
     assert.throws(() => ensureBuildDependencies(mirror, { install: () => ({ status: 1 }) }), /npm ci/);
     assert.equal(existsSync(join(mirror, "node_modules")), false);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("extension dependencies are installed only for locked extensions missing one", () => {
+  const root = mkdtempSync(join(tmpdir(), "lcp-ext-deps-"));
+  try {
+    const manifest = JSON.stringify({ dependencies: { linkedom: "^0.16.0" } });
+    const extension = (name, files) => {
+      mkdirSync(join(root, name), { recursive: true });
+      for (const [file, text] of Object.entries(files)) writeFileSync(join(root, name, file), text);
+    };
+    extension("missing", { "package.json": `\uFEFF${manifest}`, "package-lock.json": "{}" });
+    extension("installed", { "package.json": manifest, "package-lock.json": "{}" });
+    mkdirSync(join(root, "installed", "node_modules", "linkedom"), { recursive: true });
+    writeFileSync(join(root, "installed", "node_modules", "linkedom", "package.json"), "{}");
+    extension("unlocked", { "package.json": manifest });
+    extension("failing", { "package.json": manifest, "package-lock.json": "{}" });
+    const calls = [];
+    const install = (command, args, options) => {
+      calls.push(options.cwd);
+      assert.equal(command, process.platform === "win32" ? "npm.cmd" : "npm");
+      assert.equal(options.shell, process.platform === "win32");
+      assert.deepEqual(args, ["ci", "--include=dev", "--no-audit", "--no-fund"]);
+      return { status: options.cwd.endsWith("failing") ? 1 : 0 };
+    };
+    assert.deepEqual(ensureExtensionDependencies(root, { install }), ["missing"]);
+    assert.deepEqual(calls.sort(), [join(root, "failing"), join(root, "missing")]);
+    assert.deepEqual(ensureExtensionDependencies(join(root, "absent"), { install }), []);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
