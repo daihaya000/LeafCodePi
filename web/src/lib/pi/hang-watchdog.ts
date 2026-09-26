@@ -450,7 +450,7 @@ function markArmed(taskId: string): void {
   row.state = "armed";
   row.updatedAt = Date.now();
   try {
-    writeStore();
+    writeWatchRow(row);
   } catch (error) {
     row.state = previousState;
     row.updatedAt = previousUpdatedAt;

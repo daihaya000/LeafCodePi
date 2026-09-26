@@ -1173,6 +1173,19 @@ describe("hang-watchdog helpers", () => {
       await second.resolveHangNow("second");
       expect(duringAbort.map((row) => row.taskId).sort()).toEqual(["second", "third"]);
       expect(duringAbort.find((row) => row.taskId === "second")?.state).toBe("resolving");
+      vi.useFakeTimers();
+      first.registerHangWatchdogHooks({
+        getLive: () => null,
+        abortTask: async () => { second!.armTaskHangWatch({ taskId: "fourth", prompt: "work" }); },
+        resumePrompt: () => undefined,
+        notifyHangRetry: () => undefined,
+      });
+      const settling = first.resolveHangNow("third");
+      await vi.advanceTimersByTimeAsync(6_000);
+      await settling;
+      const afterRearm = JSON.parse(fs.readFileSync(file, "utf8"));
+      expect(afterRearm.watches.map((row: { taskId: string }) => row.taskId).sort()).toEqual(["fourth", "third"]);
+      expect(afterRearm.watches.find((row: { taskId: string }) => row.taskId === "third")?.state).toBe("armed");
     } finally {
       first?.stopHangWatchdogForTests();
       second?.stopHangWatchdogForTests();
