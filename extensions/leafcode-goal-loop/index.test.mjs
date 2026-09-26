@@ -117,6 +117,13 @@ test("extracts fenced JSON after an unmatched prose brace", () => {
   assert.equal(result?.summary, "recovered");
 });
 
+test("extracts unfenced JSON after an unmatched prose brace", () => {
+  assert.equal(
+    extractGoalResult('unfinished { prose\n{"status":"progress","summary":"recovered"}')?.summary,
+    "recovered",
+  );
+});
+
 test("handles braces inside JSON strings", () => {
   assert.equal(
     jsonObjectCandidates('{"text":"}"}{"status":"blocked","summary":"stop"}').length,

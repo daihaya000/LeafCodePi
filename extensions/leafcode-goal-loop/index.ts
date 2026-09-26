@@ -792,11 +792,10 @@ function lateTurnResult(runtime: Runtime, loop: GoalLoop): GoalLoopProgress | nu
   return latest;
 }
 
-/** Top-level JSON objects, ignoring braces inside JSON strings. */
+/** Balanced JSON objects, including ones after unmatched prose braces. */
 export function jsonObjectCandidates(text: string): string[] {
   const result: string[] = [];
-  let depth = 0;
-  let start = -1;
+  const starts: number[] = [];
   let inString = false;
   let escaped = false;
   for (let index = 0; index < text.length; index += 1) {
@@ -808,18 +807,9 @@ export function jsonObjectCandidates(text: string): string[] {
       continue;
     }
     if (char === '"') inString = true;
-    else if (char === "{") {
-      if (depth === 0) start = index;
-      depth += 1;
-    } else if (char === "}") {
-      depth -= 1;
-      if (depth === 0 && start >= 0) {
-        result.push(text.slice(start, index + 1));
-        start = -1;
-      } else if (depth < 0) {
-        depth = 0;
-        start = -1;
-      }
+    else if (char === "{") starts.push(index);
+    else if (char === "}" && starts.length) {
+      result.push(text.slice(starts.pop()!, index + 1));
     }
   }
   return result;
