@@ -401,7 +401,8 @@ export function listExtensions(
     if (!byName.has(entry.name)) byName.set(entry.name, entry);
   }
   for (const entry of discoverPackageExtensions(agentDir)) {
-    byName.set(entry.name, entry); // installed packages override local same-name entries
+    // A locally installed copy must not replace the extension shipped by this WebUI.
+    if (!bundled.some((candidate) => candidate.name === entry.name)) byName.set(entry.name, entry);
   }
 
   const extensions = [...byName.values()]

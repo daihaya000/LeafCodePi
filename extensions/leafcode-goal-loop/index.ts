@@ -778,24 +778,24 @@ function lateTurnResult(runtime: Runtime, loop: GoalLoop): GoalLoopProgress | nu
     }
   }
   if (promptIndex < 0) return null;
+  // The final assistant result wins, as in extractGoalResultFromMessages.
+  let latest: GoalLoopProgress | null = null;
   for (let index = promptIndex + 1; index < entries.length; index += 1) {
     const entry = asRecord(entries[index]);
     if (entry?.type !== "message") continue;
     const message = asRecord(entry.message);
     if (message?.role === "user") break;
     if (message?.role === "assistant") {
-      const result = extractGoalResult(assistantText(message));
-      if (result) return result;
+      latest = extractGoalResult(assistantText(message)) ?? latest;
     }
   }
-  return null;
+  return latest;
 }
 
-/** Top-level JSON objects, ignoring braces inside JSON strings. */
+/** Balanced JSON objects, including ones after unmatched prose braces. */
 export function jsonObjectCandidates(text: string): string[] {
-  const result: string[] = [];
-  let depth = 0;
-  let start = -1;
+  const candidates: { value: string; end: number; root?: number }[] = [];
+  const starts: number[] = [];
   let inString = false;
   let escaped = false;
   for (let index = 0; index < text.length; index += 1) {
@@ -806,22 +806,21 @@ export function jsonObjectCandidates(text: string): string[] {
       else if (char === '"') inString = false;
       continue;
     }
-    if (char === '"') inString = true;
-    else if (char === "{") {
-      if (depth === 0) start = index;
-      depth += 1;
-    } else if (char === "}") {
-      depth -= 1;
-      if (depth === 0 && start >= 0) {
-        result.push(text.slice(start, index + 1));
-        start = -1;
-      } else if (depth < 0) {
-        depth = 0;
-        start = -1;
-      }
+    // Quotes in prose are not JSON strings and may remain unclosed.
+    if (char === '"' && starts.length) inString = true;
+    else if (char === "{") starts.push(index);
+    else if (char === "}" && starts.length) {
+      const start = starts.pop()!;
+      candidates.push({ value: text.slice(start, index + 1), end: index, ...(starts.length ? { root: starts[0] } : {}) });
     }
   }
-  return result;
+  // Nested objects in a closed parent are not independent answers. Only keep
+  // nested candidates when their enclosing prose brace was left unmatched.
+  const openRoots = new Set(starts);
+  return candidates
+    .filter((candidate) => candidate.root === undefined || openRoots.has(candidate.root))
+    .sort((a, b) => a.end - b.end)
+    .map((candidate) => candidate.value);
 }
 
 export function normalizeStructured(value: unknown): GoalLoopProgress | null {
@@ -848,28 +847,29 @@ export function normalizeStructured(value: unknown): GoalLoopProgress | null {
 export function extractGoalResult(text: string): GoalLoopProgress | null {
   // Parse fenced blocks independently: an unmatched brace in preceding prose
   // must not hide the required final JSON result.
-  const fenced = [...text.matchAll(/```(?:json)?\s*([\s\S]*?)```/gi)];
-  for (let index = fenced.length - 1; index >= 0; index -= 1) {
-    const candidates = jsonObjectCandidates(fenced[index][1]);
-    for (let candidateIndex = candidates.length - 1; candidateIndex >= 0; candidateIndex -= 1) {
+  const parseLast = (part: string): GoalLoopProgress | null => {
+    const candidates = jsonObjectCandidates(part);
+    for (let index = candidates.length - 1; index >= 0; index -= 1) {
       try {
-        const result = normalizeStructured(JSON.parse(candidates[candidateIndex]));
+        const result = normalizeStructured(JSON.parse(candidates[index]));
         if (result) return result;
       } catch {
-        // Try the previous candidate in this fenced block.
+        // Try the previous candidate.
       }
     }
+    return null;
+  };
+  const fenced = [...text.matchAll(/```(?:json)?\s*([\s\S]*?)```/gi)];
+  let end = text.length;
+  for (let index = fenced.length - 1; index >= 0; index -= 1) {
+    const match = fenced[index];
+    const after = parseLast(text.slice(match.index! + match[0].length, end));
+    if (after) return after;
+    const inside = parseLast(match[1]);
+    if (inside) return inside;
+    end = match.index!;
   }
-  const candidates = jsonObjectCandidates(text);
-  for (let index = candidates.length - 1; index >= 0; index -= 1) {
-    try {
-      const result = normalizeStructured(JSON.parse(candidates[index]));
-      if (result) return result;
-    } catch {
-      // Try the previous candidate.
-    }
-  }
-  return null;
+  return parseLast(text.slice(0, end));
 }
 
 /**

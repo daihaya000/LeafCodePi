@@ -10,6 +10,7 @@ import {
   MISSING_LIVE_GRACE_MS,
   getTaskHangWatch,
   progressFingerprint,
+  recoverInterruptedHangWatches,
   registerHangWatchdogHooks,
   resolveHangNow,
   runHangWatchdogTick,
@@ -188,6 +189,152 @@ describe("hang-watchdog helpers", () => {
     ];
     expect(progressFingerprint(running("abc"))).toContain("o:running:3");
     expect(progressFingerprint(running("abcd"))).not.toBe(progressFingerprint(running("abc")));
+    expect(progressFingerprint(running("abd"))).not.toBe(progressFingerprint(running("abc")));
+    expect(progressFingerprint([{ ...messages[0]!, parts: [{ id: "t1", type: "text", text: "ok" }] }]))
+      .not.toBe(progressFingerprint(messages));
+  });
+
+  it("rolls back watch changes when persistence fails", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "leafcode-pi-hang-watchdog-disarm-"));
+    const previousDataDir = process.env.LEAFCODE_PI_DATA_DIR;
+    process.env.LEAFCODE_PI_DATA_DIR = root;
+    try {
+      armTaskHangWatch({ taskId: "valid", prompt: "work" });
+      const blocked = path.join(root, "not-a-directory");
+      fs.writeFileSync(blocked, "blocked");
+      process.env.LEAFCODE_PI_DATA_DIR = blocked;
+      expect(() => disarmTaskHangWatch("valid")).toThrow();
+      expect(getTaskHangWatch("valid")?.prompt).toBe("work");
+      expect(() => armTaskHangWatch({ taskId: "valid", prompt: "replacement" })).toThrow();
+      expect(getTaskHangWatch("valid")?.prompt).toBe("work");
+      expect(() => armTaskHangWatch({ taskId: "new", prompt: "new work" })).toThrow();
+      expect(getTaskHangWatch("new")).toBeNull();
+      registerHangWatchdogHooks({
+        getLive: () => null,
+        abortTask: async () => undefined,
+        resumePrompt: () => undefined,
+        notifyHangRetry: () => undefined,
+      });
+      const before = getTaskHangWatch("valid")?.updatedAt;
+      await expect(resolveHangNow("valid")).rejects.toThrow();
+      expect(getTaskHangWatch("valid")).toMatchObject({ state: "armed", updatedAt: before });
+      process.env.LEAFCODE_PI_DATA_DIR = root;
+      expect(JSON.parse(fs.readFileSync(path.join(root, "hang-watches.json"), "utf8")).watches).toHaveLength(1);
+    } finally {
+      stopHangWatchdogForTests();
+      if (previousDataDir === undefined) delete process.env.LEAFCODE_PI_DATA_DIR;
+      else process.env.LEAFCODE_PI_DATA_DIR = previousDataDir;
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("rolls back sampled progress when persistence fails", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "leafcode-pi-hang-watchdog-progress-"));
+    const previousDataDir = process.env.LEAFCODE_PI_DATA_DIR;
+    process.env.LEAFCODE_PI_DATA_DIR = root;
+    try {
+      armTaskHangWatch({ taskId: "progress", prompt: "work" });
+      const before = getTaskHangWatch("progress");
+      const blocked = path.join(root, "not-a-directory");
+      fs.writeFileSync(blocked, "blocked");
+      const getLive = vi.fn(() => {
+        process.env.LEAFCODE_PI_DATA_DIR = blocked;
+        return { messages: [], isStreaming: true, isCompacting: false, hasPendingAttention: true };
+      });
+      registerHangWatchdogHooks({
+        getLive,
+        abortTask: async () => undefined,
+        resumePrompt: () => undefined,
+        notifyHangRetry: () => undefined,
+      });
+      await runHangWatchdogTick();
+      expect(getLive).toHaveBeenCalledOnce();
+      expect(getTaskHangWatch("progress")).toMatchObject({
+        lastProgressAt: before?.lastProgressAt,
+        progressFingerprint: before?.progressFingerprint,
+        updatedAt: before?.updatedAt,
+      });
+      process.env.LEAFCODE_PI_DATA_DIR = root;
+      expect(JSON.parse(fs.readFileSync(path.join(root, "hang-watches.json"), "utf8")).watches).toHaveLength(1);
+    } finally {
+      stopHangWatchdogForTests();
+      if (previousDataDir === undefined) delete process.env.LEAFCODE_PI_DATA_DIR;
+      else process.env.LEAFCODE_PI_DATA_DIR = previousDataDir;
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("skips corrupt persisted watches without losing valid ones", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "leafcode-pi-hang-watchdog-corrupt-"));
+    const previousDataDir = process.env.LEAFCODE_PI_DATA_DIR;
+    process.env.LEAFCODE_PI_DATA_DIR = root;
+    try {
+      armTaskHangWatch({ taskId: "valid", prompt: "work" });
+      const file = path.join(root, "hang-watches.json");
+      const store = JSON.parse(fs.readFileSync(file, "utf8"));
+      store.watches[0].retryUsed = MAX_HANG_RETRIES;
+      store.watches[0].state = "resolving";
+      store.watches.push(null, { taskId: "", prompt: "bad" }, { taskId: "broken", prompt: "bad" });
+      fs.writeFileSync(file, JSON.stringify(store));
+      expect(() => recoverInterruptedHangWatches()).not.toThrow();
+      expect(getTaskHangWatch("valid")).toMatchObject({
+        prompt: "work", retryUsed: MAX_HANG_RETRIES, state: "armed",
+      });
+      expect(JSON.parse(fs.readFileSync(file, "utf8")).watches).toHaveLength(1);
+      expect(fs.readdirSync(root)).toEqual(["hang-watches.json"]);
+    } finally {
+      stopHangWatchdogForTests();
+      if (previousDataDir === undefined) delete process.env.LEAFCODE_PI_DATA_DIR;
+      else process.env.LEAFCODE_PI_DATA_DIR = previousDataDir;
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("recovers a newer complete temp snapshot after an interrupted rename", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "leafcode-pi-hang-watchdog-temp-"));
+    const previousDataDir = process.env.LEAFCODE_PI_DATA_DIR;
+    process.env.LEAFCODE_PI_DATA_DIR = root;
+    try {
+      armTaskHangWatch({ taskId: "valid", prompt: "work" });
+      const file = path.join(root, "hang-watches.json");
+      const snapshot = JSON.parse(fs.readFileSync(file, "utf8"));
+      snapshot.watches[0].retryUsed = MAX_HANG_RETRIES;
+      snapshot.watches[0].state = "resolving";
+      const temp = `${file}.777.00000000-0000-4000-8000-000000000001.tmp`;
+      fs.writeFileSync(temp, JSON.stringify(snapshot));
+      fs.utimesSync(file, new Date("2020-01-01"), new Date("2020-01-01"));
+      fs.utimesSync(temp, new Date("2032-01-01"), new Date("2032-01-01"));
+      const older = `${file}.777.00000000-0000-4000-8000-000000000003.tmp`;
+      const olderSnapshot = structuredClone(snapshot);
+      olderSnapshot.watches[0].retryUsed = 1;
+      fs.writeFileSync(older, JSON.stringify(olderSnapshot));
+      fs.utimesSync(older, new Date("2031-01-01"), new Date("2031-01-01"));
+      const torn = `${file}.777.00000000-0000-4000-8000-000000000002.tmp`;
+      fs.writeFileSync(torn, '{"version":1,"watches":[null]}');
+      fs.utimesSync(torn, new Date("2022-01-01"), new Date("2022-01-01"));
+      recoverInterruptedHangWatches();
+      expect(getTaskHangWatch("valid")).toMatchObject({ retryUsed: MAX_HANG_RETRIES, state: "armed" });
+      expect(JSON.parse(fs.readFileSync(file, "utf8")).watches[0].retryUsed).toBe(MAX_HANG_RETRIES);
+      expect(fs.existsSync(temp)).toBe(false);
+      expect(fs.existsSync(older)).toBe(false);
+      expect(fs.existsSync(torn)).toBe(false);
+      // A corrupt main file cannot outrank the last valid temp by mtime.
+      fs.writeFileSync(temp, JSON.stringify(snapshot));
+      fs.utimesSync(temp, new Date("2021-01-01"), new Date("2021-01-01"));
+      fs.writeFileSync(file, "{truncated");
+      fs.utimesSync(file, new Date("2023-01-01"), new Date("2023-01-01"));
+      recoverInterruptedHangWatches();
+      expect(getTaskHangWatch("valid")?.retryUsed).toBe(MAX_HANG_RETRIES);
+      expect(fs.existsSync(temp)).toBe(false);
+      armTaskHangWatch({ taskId: "valid", prompt: "new run" });
+      recoverInterruptedHangWatches();
+      expect(getTaskHangWatch("valid")).toMatchObject({ prompt: "new run", retryUsed: 0 });
+    } finally {
+      stopHangWatchdogForTests();
+      if (previousDataDir === undefined) delete process.env.LEAFCODE_PI_DATA_DIR;
+      else process.env.LEAFCODE_PI_DATA_DIR = previousDataDir;
+      fs.rmSync(root, { recursive: true, force: true });
+    }
   });
 
   it("recognizes a turn running only a subagent", () => {

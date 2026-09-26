@@ -6,6 +6,10 @@
  * shouldClearQueuedFollowUpOnEvent.
  */
 
+export function shouldRestoreQueuedFollowUpOnFailure(sentEpoch: number, currentEpoch: number): boolean {
+  return sentEpoch === currentEpoch;
+}
+
 export function shouldQueueFollowUp(input: {
   working: boolean;
   deliveryMode: "queue" | "steer";
@@ -28,6 +32,7 @@ export function shouldDrainQueuedFollowUp(input: {
   goalLoopLive: boolean;
   stopRequested: boolean;
   hasQueuedItem: boolean;
+  queueFailed?: boolean;
   resumingTurn?: boolean;
   sessionHydrating?: boolean;
   sseReconnecting?: boolean;
@@ -36,6 +41,7 @@ export function shouldDrainQueuedFollowUp(input: {
 }): boolean {
   return (
     input.hasQueuedItem &&
+    !input.queueFailed &&
     !input.working &&
     !input.submitting &&
     !input.queuedAutoSend &&
@@ -112,6 +118,9 @@ export function shouldClearQueuedFollowUpOnEvent(eventType: string | undefined):
  */
 export function shouldClearQueuedFollowUpOnAbortState(
   manualAbortedAssistantId: string | null | undefined,
+  working = false,
 ): boolean {
-  return manualAbortedAssistantId != null;
+  // A previous abort sentinel remains until the next turn starts. Do not clear
+  // follow-ups queued during that new run's accepted-to-streaming gap.
+  return manualAbortedAssistantId != null && !working;
 }

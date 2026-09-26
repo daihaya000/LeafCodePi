@@ -223,6 +223,14 @@ describe("sse-ready-buffer", () => {
     ).toBe(false);
   });
 
+  it("drops a stale delta whose projected id was reused for the ready tip", () => {
+    const ready = rankMessageList([{ id: "msg-1", createdAt: 10 }]);
+    expect(shouldFlushPendingAfterReady(
+      { type: "delta", message: { id: "msg-1", createdAt: 5, parts: [{ text: "stale" }] } },
+      ready,
+    )).toBe(false);
+  });
+
   it("drops buffered tip deltas that only differ by projected msg id", () => {
     const ready = rankMessageList([
       { id: "history", createdAt: 1 },
@@ -397,6 +405,54 @@ describe("sse-ready-buffer", () => {
     expect(fresher?.messages).toHaveLength(3);
   });
 
+  it("does not replay older task status from a buffered control event", () => {
+    const ready = rankMessageList([{ id: "latest", createdAt: 5 }]);
+    const prepared = preparePendingPayloadForReadyFlush(
+      {
+        type: "snapshot", eventType: "prompt_accepted",
+        task: { status: "working", updatedAt: "2026-01-01T00:00:00.000Z" },
+        isStreaming: true,
+        messages: [{ id: "old", createdAt: 1 }],
+      },
+      ready,
+      "2026-01-01T00:00:01.000Z",
+    );
+    expect(prepared).not.toHaveProperty("task");
+    expect(prepared).not.toHaveProperty("isStreaming");
+    expect(prepared).not.toHaveProperty("messages");
+    expect(preparePendingPayloadForReadyFlush(
+      { type: "snapshot", eventType: "hang_idle", task: { status: "idle", updatedAt: "2026-01-01T00:00:02.000Z" } },
+      ready,
+      "2026-01-01T00:00:01.000Z",
+    )?.task).toMatchObject({ status: "idle" });
+  });
+
+  it("drops a stale stop event instead of clearing follow-ups from the new run", () => {
+    const ready = rankMessageList([{ id: "current", createdAt: 10 }]);
+    expect(preparePendingPayloadForReadyFlush(
+      {
+        type: "snapshot", eventType: "abort",
+        task: { updatedAt: "2026-01-01T00:00:00.000Z" },
+        messages: [{ id: "previous", createdAt: 1 }],
+      },
+      ready,
+      "2026-01-01T00:00:01.000Z",
+    )).toBeNull();
+  });
+
+  it("drops a historical reset older than the ready task", () => {
+    const ready = rankMessageList([{ id: "current", createdAt: 10 }]);
+    expect(preparePendingPayloadForReadyFlush(
+      {
+        type: "snapshot", eventType: "revert", historyReset: true,
+        task: { updatedAt: "2026-01-01T00:00:00.000Z" },
+        messages: [{ id: "previous", createdAt: 1 }],
+      },
+      ready,
+      "2026-01-01T00:00:01.000Z",
+    )).toBeNull();
+  });
+
   it("preserves reset history even when the reverted branch is shorter", () => {
     const ready = rankMessageList(Array.from({ length: 60 }, (_, index) => ({
       id: `old-${index}`,
@@ -460,9 +516,27 @@ describe("sse-ready-buffer", () => {
       type: "delta",
       message: { id: "d2" },
     });
-    expect(pending).toHaveLength(2);
+    expect(pending).toHaveLength(3);
     expect(pending[0]).toMatchObject({ permissionRequest: { id: "req-2" } });
-    expect(pending[1]).toMatchObject({ type: "delta", message: { id: "d2" } });
+    expect(pending.slice(1).map((item) => (item.message as { id: string }).id)).toEqual(["d1", "d2"]);
+  });
+
+  it("coalesces cumulative deltas for one message but retains metadata-only deltas", () => {
+    const pending: Record<string, unknown>[] = [];
+    bufferPendingSsePayload(pending, { type: "delta", message: { id: "d1", text: "a" } });
+    bufferPendingSsePayload(pending, { type: "delta", message: { id: "d1", text: "ab" } });
+    bufferPendingSsePayload(pending, { type: "delta", compactionSuggested: true });
+    expect(pending).toHaveLength(2);
+    expect(pending[0]).toMatchObject({ message: { text: "ab" } });
+    expect(pending[1]).toMatchObject({ compactionSuggested: true });
+  });
+
+  it("keeps a repeated control event after intervening controls", () => {
+    const pending: Record<string, unknown>[] = [];
+    bufferPendingSsePayload(pending, { type: "snapshot", eventType: "hang_abort", sequence: 1 });
+    bufferPendingSsePayload(pending, { type: "snapshot", eventType: "prompt_accepted", sequence: 2 });
+    bufferPendingSsePayload(pending, { type: "snapshot", eventType: "hang_abort", sequence: 3 });
+    expect(pending.map((item) => item.sequence)).toEqual([2, 3]);
   });
 
   it("cancels a buffered permission request when resolved arrives", () => {

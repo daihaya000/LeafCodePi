@@ -234,6 +234,24 @@ describe("listExtensions / setExtensionEnabled", () => {
     expectNames(listed.extensions, ["leafcode-goal-loop", "one", "other"]);
   });
 
+  it("keeps bundled extensions when settings.json installs another checkout of the same extension", () => {
+    const { agentDir: agent } = fixture();
+    const bundledRoot = join(data, "repo-extensions");
+    writeExtension(bundledRoot, "leafcode-intercom");
+    const installedDir = join(agent, "other-checkout", "leafcode-intercom");
+    mkdirSync(installedDir, { recursive: true });
+    writeFileSync(join(installedDir, "package.json"), JSON.stringify({ pi: { extensions: ["./index.js"] } }), "utf8");
+    writeFileSync(join(installedDir, "index.js"), "export default () => {};\n", "utf8");
+    writeFileSync(join(agent, "settings.json"), JSON.stringify({ packages: [installedDir] }), "utf8");
+
+    const listed = listExtensions(agent, { bundledDir: bundledRoot });
+    const intercom = listed.extensions.filter((entry) => entry.name === "leafcode-intercom");
+    assert.equal(intercom.length, 1);
+    assert.equal(intercom[0].source, "bundled");
+    assert.equal(intercom[0].filePath, join(bundledRoot, "leafcode-intercom", "index.js"));
+    assert.equal(listed.extensions.find((entry) => entry.name === "one")?.source, "user");
+  });
+
   it("hides the legacy MCP adapter when the bundled fork is present", () => {
     const { agentDir: agent } = fixture();
     const bundledRoot = join(data, "repo-extensions");

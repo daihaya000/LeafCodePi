@@ -3,8 +3,9 @@
  * OpenCode API の代わりに harness の LiveRuntime を直接監視する。
  */
 
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { createHash, randomUUID } from "node:crypto";
+import { mkdirSync, readFileSync, readdirSync, renameSync, statSync, unlinkSync, writeFileSync } from "node:fs";
+import { basename, dirname, join } from "node:path";
 import {
   shouldAttachResumeImages,
   turnHasActiveTool,
@@ -119,26 +120,47 @@ function watchesPath(): string {
   return join(dataDir(), "hang-watches.json");
 }
 
-function readStore(): WatchStore {
+function readStoreFile(file: string): WatchStore | null {
   try {
-    const parsed = JSON.parse(readFileSync(watchesPath(), "utf8")) as WatchStore;
-    if (!parsed || parsed.version !== 1 || !Array.isArray(parsed.watches)) {
-      return { version: 1, watches: [] };
-    }
-    return parsed;
+    const parsed = JSON.parse(readFileSync(file, "utf8")) as WatchStore;
+    if (!parsed || parsed.version !== 1 || !Array.isArray(parsed.watches)) return null;
+    const watches = parsed.watches.filter((row): row is TaskHangWatchRow =>
+        row && typeof row.taskId === "string" && row.taskId.trim().length > 0 &&
+        typeof row.prompt === "string" && Array.isArray(row.images) &&
+        typeof row.resumeAllowed === "boolean" &&
+        Number.isFinite(row.startedAt) && Number.isFinite(row.lastProgressAt) &&
+        Number.isInteger(row.retryUsed) && row.retryUsed >= 0 &&
+        typeof row.progressFingerprint === "string" &&
+        (row.state === "armed" || row.state === "resolving"),
+    );
+    // An incomplete temp snapshot must not replace a valid main snapshot.
+    if (parsed.watches.length > 0 && watches.length === 0) return null;
+    return { version: 1, watches };
   } catch {
-    return { version: 1, watches: [] };
+    return null;
   }
+}
+
+function readStore(): WatchStore {
+  return readStoreFile(watchesPath()) ?? { version: 1, watches: [] };
 }
 
 function writeStore(): void {
   const file = watchesPath();
   mkdirSync(dirname(file), { recursive: true });
-  writeFileSync(
-    file,
-    `${JSON.stringify({ version: 1, watches: [...memoryWatches.values()] }, null, 2)}\n`,
-    "utf8",
-  );
+  const temp = `${file}.${process.pid}.${randomUUID()}.tmp`;
+  try {
+    writeFileSync(
+      temp,
+      `${JSON.stringify({ version: 1, watches: [...memoryWatches.values()] }, null, 2)}\n`,
+      "utf8",
+    );
+    // Never truncate the only recoverable snapshot if the process stops mid-write.
+    renameSync(temp, file);
+  } catch (error) {
+    try { unlinkSync(temp); } catch { /* temp may not exist */ }
+    throw error;
+  }
 }
 
 function logWatchdog(message: string, row: Pick<TaskHangWatchRow, "taskId">, error?: unknown): void {
@@ -166,16 +188,17 @@ export function estimateWatchBodyBytes(input: {
 }
 
 export function progressFingerprint(messages: UiMessage[]): string {
+  const contentKey = (text: string) => `${text.length}:${createHash("sha256").update(text).digest("hex").slice(0, 16)}`;
   return messages
     .map((message) => {
       const parts = message.parts
         .map((part) => {
-          if (part.type === "text") return `t:${part.text.length}`;
-          if (part.type === "thinking") return `k:${part.text.length}`;
+          if (part.type === "text") return `t:${contentKey(part.text)}`;
+          if (part.type === "thinking") return `k:${contentKey(part.text)}`;
           if (part.type === "tool") {
-            // Include the partial result length: a tool that keeps printing is
-            // making progress, only silence means a hang.
-            return `o:${part.state.status}:${part.state.output?.length ?? 0}`;
+            // Include content as well as length: overwritten progress lines can
+            // change without growing, and are not a hang.
+            return `o:${part.state.status}:${contentKey(part.state.output ?? "")}`;
           }
           if (part.type === "image") return "i:1";
           if (part.type === "file") return `f:${part.name}`;
@@ -236,9 +259,9 @@ export function turnHasOnlyActiveSubagentTool(
   return hasActiveTool;
 }
 
-function syncMemoryFromDisk(): void {
+function syncMemoryFromDisk(snapshot = readStore()): void {
   memoryWatches.clear();
-  for (const row of readStore().watches) {
+  for (const row of snapshot.watches) {
     memoryWatches.set(row.taskId, {
       ...row,
       files: Array.isArray(row.files) ? row.files : [],
@@ -247,7 +270,37 @@ function syncMemoryFromDisk(): void {
 }
 
 export function recoverInterruptedHangWatches(): void {
-  syncMemoryFromDisk();
+  const file = watchesPath();
+  let snapshot = readStoreFile(file);
+  const cleanupTemps: { file: string; mtimeMs: number; size: number }[] = [];
+  let newest = 0;
+  if (snapshot) {
+    try { newest = statSync(file).mtimeMs; } catch { /* main snapshot disappeared */ }
+  }
+  const mainMtime = newest;
+  try {
+    for (const name of readdirSync(dirname(file))) {
+      if (!name.startsWith(`${basename(file)}.`) || !/\.\d+\.[0-9a-f-]{36}\.tmp$/.test(name)) continue;
+      try {
+        const temp = join(dirname(file), name);
+        const { mtimeMs, size } = statSync(temp);
+        const stale = mtimeMs < Date.now() - 10 * 60_000;
+        if (mtimeMs <= mainMtime) {
+          if (stale) cleanupTemps.push({ file: temp, mtimeMs, size });
+          continue;
+        }
+        const candidate = readStoreFile(temp);
+        if (candidate || stale) cleanupTemps.push({ file: temp, mtimeMs, size });
+        if (candidate) {
+          if (mtimeMs > newest) {
+            snapshot = candidate;
+            newest = mtimeMs;
+          }
+        }
+      } catch { /* this temp disappeared: inspect the remaining candidates */ }
+    }
+  } catch { /* missing directory: keep the main snapshot */ }
+  syncMemoryFromDisk(snapshot ?? { version: 1, watches: [] });
   for (const row of memoryWatches.values()) {
     if (row.state === "resolving") {
       row.state = "armed";
@@ -255,6 +308,14 @@ export function recoverInterruptedHangWatches(): void {
     }
   }
   writeStore();
+  // After promotion, discard validated candidates and old orphan temps. Check
+  // metadata again so a concurrent writer's replacement is never removed.
+  for (const temp of cleanupTemps) {
+    try {
+      const current = statSync(temp.file);
+      if (current.mtimeMs === temp.mtimeMs && current.size === temp.size) unlinkSync(temp.file);
+    } catch { /* another process may have moved it */ }
+  }
 }
 
 export function armTaskHangWatch(input: ArmTaskHangWatchInput): void {
@@ -288,12 +349,27 @@ export function armTaskHangWatch(input: ArmTaskHangWatchInput): void {
     updatedAt: Date.now(),
   };
   memoryWatches.set(taskId, row);
-  writeStore();
+  try {
+    writeStore();
+  } catch (error) {
+    if (existing) memoryWatches.set(taskId, existing);
+    else memoryWatches.delete(taskId);
+    throw error;
+  }
 }
 
 export function disarmTaskHangWatch(taskId: string): void {
-  if (!memoryWatches.delete(taskId.trim())) return;
-  writeStore();
+  const id = taskId.trim();
+  const row = memoryWatches.get(id);
+  if (!row) return;
+  memoryWatches.delete(id);
+  try {
+    writeStore();
+  } catch (error) {
+    // The on-disk watch still exists; do not pretend it was disarmed.
+    memoryWatches.set(id, row);
+    throw error;
+  }
 }
 
 export function getTaskHangWatch(taskId: string): TaskHangWatchRow | null {
@@ -307,9 +383,16 @@ function isCurrentWatch(row: TaskHangWatchRow): boolean {
 function markResolving(row: TaskHangWatchRow): boolean {
   if (memoryWatches.get(row.taskId) !== row) return false;
   if (row.state === "resolving") return false;
+  const previousUpdatedAt = row.updatedAt;
   row.state = "resolving";
   row.updatedAt = Date.now();
-  writeStore();
+  try {
+    writeStore();
+  } catch (error) {
+    row.state = "armed";
+    row.updatedAt = previousUpdatedAt;
+    throw error;
+  }
   return true;
 }
 
@@ -324,10 +407,18 @@ function markArmed(taskId: string): void {
 function recordProgress(taskId: string, lastProgressAt: number, fingerprint: string): void {
   const row = memoryWatches.get(taskId);
   if (!row) return;
+  const { lastProgressAt: previousProgressAt, progressFingerprint: previousFingerprint, updatedAt: previousUpdatedAt } = row;
   row.lastProgressAt = lastProgressAt;
   row.progressFingerprint = fingerprint;
   row.updatedAt = Date.now();
-  writeStore();
+  try {
+    writeStore();
+  } catch (error) {
+    row.lastProgressAt = previousProgressAt;
+    row.progressFingerprint = previousFingerprint;
+    row.updatedAt = previousUpdatedAt;
+    throw error;
+  }
 }
 
 async function waitForIdle(taskId: string): Promise<boolean> {

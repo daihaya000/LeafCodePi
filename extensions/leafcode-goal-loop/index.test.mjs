@@ -105,9 +105,34 @@ test("extracts the final result after tool-call assistant messages", () => {
   );
 });
 
+test("extracts an unfenced result after an earlier fenced result", () => {
+  const result = extractGoalResult(
+    '```json\n{"status":"progress","summary":"old"}\n```\n{"status":"blocked","summary":"latest"}',
+  );
+  assert.equal(result?.summary, "latest");
+});
+
 test("extracts fenced JSON after an unmatched prose brace", () => {
   const result = extractGoalResult('unfinished { prose\n```json\n{"status":"progress","summary":"recovered"}\n```');
   assert.equal(result?.summary, "recovered");
+});
+
+test("extracts unfenced JSON after an unmatched prose brace", () => {
+  assert.equal(
+    extractGoalResult('unfinished { prose\n{"status":"progress","summary":"recovered"}')?.summary,
+    "recovered",
+  );
+});
+
+test("extracts JSON after an unmatched quote in prose", () => {
+  assert.equal(
+    extractGoalResult('unfinished " prose\n{"status":"progress","summary":"recovered"}')?.summary,
+    "recovered",
+  );
+});
+
+test("does not mistake a nested status object for a turn result", () => {
+  assert.equal(extractGoalResult('{"example":{"status":"completed","summary":"not a result"}}'), null);
 });
 
 test("handles braces inside JSON strings", () => {
@@ -3456,8 +3481,16 @@ test("resume recovers a late transcript result and schedules the next turn", asy
     assert.equal(paused.pauseReason, "user");
 
     // Settlement already happened: the assistant JSON is in the transcript, but
-    // turn_end/agent_settled will not fire again. Resume must recover and arm.
+    // turn_end/agent_settled will not fire again. Resume must recover the final
+    // assistant result, not an earlier result in the same tool-using turn.
     busy = false;
+    branch.push({
+      type: "message",
+      message: {
+        role: "assistant",
+        content: [{ type: "text", text: JSON.stringify({ status: "progress", summary: "obsolete intermediate" }) }],
+      },
+    });
     branch.push({
       type: "message",
       message: {

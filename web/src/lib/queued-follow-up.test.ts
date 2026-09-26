@@ -6,6 +6,7 @@ import {
   shouldClearQueuedFollowUpOnEvent,
   shouldDrainQueuedFollowUp,
   shouldQueueFollowUp,
+  shouldRestoreQueuedFollowUpOnFailure,
 } from "./queued-follow-up";
 
 const idle = {
@@ -45,6 +46,13 @@ describe("queued follow-up enqueue", () => {
   });
 });
 
+describe("queued send and abort race", () => {
+  it("restores a failed send while abort is pending or fails, but not after a queue clear", () => {
+    expect(shouldRestoreQueuedFollowUpOnFailure(4, 4)).toBe(true);
+    expect(shouldRestoreQueuedFollowUpOnFailure(4, 5)).toBe(false);
+  });
+});
+
 describe("queued follow-up drain", () => {
   it("drains the next item once the run is idle", () => {
     expect(shouldDrainQueuedFollowUp({ ...idle, hasQueuedItem: true })).toBe(true);
@@ -61,6 +69,10 @@ describe("queued follow-up drain", () => {
         hasQueuedItem: true,
       }),
     ).toBe(false);
+  });
+
+  it("does not automatically retry a failed queued send", () => {
+    expect(shouldDrainQueuedFollowUp({ ...idle, hasQueuedItem: true, queueFailed: true })).toBe(false);
   });
 
   it("does not drain after the user requested stop", () => {
@@ -192,6 +204,7 @@ describe("queued follow-up hang events", () => {
   it("clears the client queue when ready carries an abort sentinel", () => {
     expect(shouldClearQueuedFollowUpOnAbortState("")).toBe(true);
     expect(shouldClearQueuedFollowUpOnAbortState("a1")).toBe(true);
+    expect(shouldClearQueuedFollowUpOnAbortState("a1", true)).toBe(false);
     expect(shouldClearQueuedFollowUpOnAbortState(null)).toBe(false);
     expect(shouldClearQueuedFollowUpOnAbortState(undefined)).toBe(false);
   });

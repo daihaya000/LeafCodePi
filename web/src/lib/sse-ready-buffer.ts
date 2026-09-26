@@ -1,4 +1,5 @@
 import type { UiMessage } from "@/lib/types";
+import { shouldClearQueuedFollowUpOnEvent } from "@/lib/queued-follow-up";
 
 export type MessageListRank = {
   len: number;
@@ -154,7 +155,15 @@ export function bufferPendingSsePayload(
 ): void {
   if (payload.type === "delta") {
     const previous = pending.at(-1);
-    if (previous?.type === "delta") {
+    const previousMessage = previous?.message as { id?: unknown } | undefined;
+    const nextMessage = payload.message as { id?: unknown } | undefined;
+    // Only cumulative updates to the same message can replace one another.
+    // A different message or a metadata-only delta must retain its own event.
+    if (
+      previous?.type === "delta" &&
+      typeof previousMessage?.id === "string" && previousMessage.id === nextMessage?.id &&
+      Object.keys(previous).sort().join() === Object.keys(payload).sort().join()
+    ) {
       pending[pending.length - 1] = payload;
     } else {
       pending.push(payload);
@@ -179,11 +188,9 @@ export function bufferPendingSsePayload(
     const existing = pending.findIndex(
       (item) => item.type === "snapshot" && item.eventType === eventType,
     );
-    if (existing >= 0) {
-      pending[existing] = payload;
-    } else {
-      pending.push(payload);
-    }
+    if (existing >= 0) pending.splice(existing, 1);
+    // Keep the replacement at its real position relative to other controls.
+    pending.push(payload);
     return;
   }
 
@@ -210,6 +217,9 @@ export function shouldFlushPendingAfterReady(
     const createdAt = typeof tip.createdAt === "number" ? tip.createdAt : 0;
     const id = typeof tip.id === "string" ? tip.id : "";
     if (createdAt > readyRank.lastCreatedAt) return true;
+    // A projected id can be reused after a reset. An older timestamp proves
+    // this is not an update to the ready tail, even when its id matches.
+    if (createdAt > 0 && readyRank.lastCreatedAt > 0 && createdAt < readyRank.lastCreatedAt) return false;
     // Same tip id = streaming update of the ready tail message.
     if (id && id === readyRank.lastId) return true;
     // Same timestamp + different id is usually the projected tip (msg-N) vs
@@ -227,6 +237,7 @@ export function shouldFlushPendingAfterReady(
 export function preparePendingPayloadForReadyFlush(
   payload: Record<string, unknown>,
   readyRank: MessageListRank,
+  readyTaskUpdatedAt?: string,
 ): Record<string, unknown> | null {
   if (!shouldFlushPendingAfterReady(payload, readyRank)) return null;
   if (!isControlSnapshot(payload)) return payload;
@@ -235,20 +246,32 @@ export function preparePendingPayloadForReadyFlush(
     payload.eventType === "revert" ||
     payload.eventType === "unrevert" ||
     payload.eventType === "conversation_reset";
-  if (resetsHistory && Array.isArray(payload.messages)) return payload;
-  if (isFresherMessageList(rankMessageList(payload.messages), readyRank)) {
-    return payload;
+  const bufferedUpdatedAt = (payload.task as { updatedAt?: unknown } | undefined)?.updatedAt;
+  const readyTime = typeof readyTaskUpdatedAt === "string" ? Date.parse(readyTaskUpdatedAt) : NaN;
+  const bufferedTime = typeof bufferedUpdatedAt === "string" ? Date.parse(bufferedUpdatedAt) : NaN;
+  const staleTask = Number.isFinite(readyTime) && Number.isFinite(bufferedTime) && bufferedTime < readyTime;
+  // A historical reset or stop is an action, not just stale timeline data.
+  // Replaying it after a newer ready snapshot can rewind history or clear a
+  // follow-up queue belonging to the new run.
+  if (staleTask && (resetsHistory || shouldClearQueuedFollowUpOnEvent(payload.eventType as string | undefined))) {
+    return null;
   }
   const next = { ...payload };
-  delete next.messages;
-  delete next.messageHistory;
-  delete next.todos;
-  delete next.contextUsage;
-  // Ready already delivered the authoritative Goal Loop DTO; a buffered
-  // permission/hang snapshot must not rewind the panel to a prior status.
-  delete next.goalLoop;
-  // Same for compactionSuggested: contextUsage is stripped above, so a stale
-  // true/false here would desync the banner from the ready meter.
-  delete next.compactionSuggested;
+  if (!(resetsHistory && Array.isArray(payload.messages)) &&
+      !isFresherMessageList(rankMessageList(payload.messages), readyRank)) {
+    delete next.messages;
+    delete next.messageHistory;
+    delete next.todos;
+    delete next.contextUsage;
+    // Ready already delivered the authoritative Goal Loop DTO; a buffered
+    // permission/hang snapshot must not rewind the panel to a prior status.
+    delete next.goalLoop;
+    delete next.compactionSuggested;
+  }
+  if (staleTask) {
+    delete next.task;
+    delete next.isStreaming;
+    delete next.isCompacting;
+  }
   return next;
 }
