@@ -17,6 +17,7 @@ echo [LeafCodePi] Starting...
 call :check_node
 if errorlevel 1 goto :failure
 call :install_gh
+call :install_pwsh
 call :install_web
 if errorlevel 1 goto :failure
 call :install_host
@@ -123,6 +124,30 @@ exit /b 0
 
 :gh_warning
 echo [LeafCodePi] WARNING: GitHub CLI is unavailable. Install it to use GitHub PR features.
+exit /b 0
+
+:install_pwsh
+rem Pi's powershell tool uses pwsh.exe when it is on PATH and otherwise falls
+rem back to Windows PowerShell 5.1, which reads BOM-less scripts in the ANSI
+rem code page (CP932) and garbles Japanese text. The per-machine installer may
+rem show a UAC prompt; declining it only prints a warning.
+where pwsh >nul 2>&1
+if not errorlevel 1 exit /b 0
+if exist "%ProgramFiles%\PowerShell\7\pwsh.exe" goto :pwsh_path
+where winget >nul 2>&1
+if errorlevel 1 goto :pwsh_warning
+echo [LeafCodePi] Installing PowerShell 7...
+call winget install --id Microsoft.PowerShell --exact --source winget --silent --accept-package-agreements --accept-source-agreements --disable-interactivity
+if not exist "%ProgramFiles%\PowerShell\7\pwsh.exe" goto :pwsh_warning
+
+:pwsh_path
+rem The installer updates the machine PATH, not this console's copy that the
+rem host and WebUI inherit.
+set "PATH=%ProgramFiles%\PowerShell\7;%PATH%"
+exit /b 0
+
+:pwsh_warning
+echo [LeafCodePi] WARNING: PowerShell 7 is unavailable; the powershell tool uses Windows PowerShell 5.1.
 exit /b 0
 
 :install_web

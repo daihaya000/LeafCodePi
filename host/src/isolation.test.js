@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import test from "node:test";
@@ -58,12 +58,98 @@ test("launcher bats use LEAFCODE_PI_* and port 3010", () => {
   assert.match(bat, /LEAFCODE_PI_PORT=3010/);
   assert.match(bat, /LEAFCODE_PI_HOST=tailscale/);
   assert.match(bat, /title LeafCodePi/);
-  assert.match(bat, /call :install_gh\r?\ncall :install_web/);
+  assert.match(bat, /call :install_gh\r?\ncall :install_pwsh\r?\ncall :install_web/);
+  assert.match(bat, /winget install --id Microsoft\.PowerShell --exact/);
+  assert.match(bat, /:pwsh_warning\r?\necho .*PowerShell 7 is unavailable.*\r?\nexit \/b 0/);
   assert.match(bat, /winget install --id GitHub\.cli --exact/);
   assert.match(bat, /:gh_warning\r?\necho .*GitHub CLI is unavailable.*\r?\nexit \/b 0/);
   assert.doesNotMatch(bat, /LEAFCODE_PORT=/);
   assert.doesNotMatch(bat, /LEAFCODE_DATA_DIR=/);
   assert.doesNotMatch(bat, /LEAFCODE_HEADLESS=/);
+});
+
+test("launcher installs PowerShell 7 only when missing and puts it on PATH for the host", { skip: process.platform !== "win32" }, () => {
+  const bat = readFileSync(join(repoRoot, "scripts", "start-webui.bat"), "utf8");
+  const section = bat.match(/^:install_pwsh\r?\n[\s\S]*?^:pwsh_warning\r?\n[\s\S]*?^exit \/b 0\r?\n/m)?.[0];
+  assert.ok(section);
+  const root = mkdtempSync(join(tmpdir(), "leafcode-pwsh-"));
+  try {
+    // A fake winget stands in for the real one, so the test never installs anything.
+    const run = ({ pwshOnPath = false, preinstalled = false, winget }) => {
+      const dir = mkdtempSync(join(root, "case-"));
+      const bin = join(dir, "bin");
+      const programFiles = join(dir, "Program Files");
+      const pwshDir = join(programFiles, "PowerShell", "7");
+      const log = join(dir, "winget.log");
+      mkdirSync(bin, { recursive: true });
+      if (pwshOnPath) writeFileSync(join(bin, "pwsh.bat"), "@exit /b 0\r\n", "ascii");
+      if (preinstalled) {
+        mkdirSync(pwshDir, { recursive: true });
+        writeFileSync(join(pwshDir, "pwsh.exe"), "", "ascii");
+      }
+      if (winget) {
+        const install = winget === "installs"
+          ? ['mkdir "%ProgramFiles%\\PowerShell\\7" 2>nul', 'type nul > "%ProgramFiles%\\PowerShell\\7\\pwsh.exe"', "exit /b 0"]
+          : ["exit /b 1"];
+        writeFileSync(join(bin, "winget.bat"), ["@echo off", 'echo %*>>"%WINGET_LOG%"', ...install, ""].join("\r\n"), "ascii");
+      }
+      const driver = join(dir, "driver.bat");
+      writeFileSync(driver, [
+        "@echo off",
+        "setlocal EnableExtensions DisableDelayedExpansion",
+        "call :install_pwsh",
+        "echo PATH=%PATH%",
+        "exit /b %ERRORLEVEL%",
+        section.replace(/\r?\n/g, "\r\n"),
+      ].join("\r\n"), "ascii");
+      const path = [bin, join(process.env.SystemRoot, "System32")].join(";");
+      const result = spawnSync("cmd.exe", ["/d", "/c", driver], {
+        encoding: "utf8",
+        timeout: 10_000,
+        windowsHide: true,
+        env: {
+          SystemRoot: process.env.SystemRoot,
+          ComSpec: process.env.ComSpec,
+          PATHEXT: ".COM;.EXE;.BAT;.CMD",
+          PATH: path,
+          ProgramFiles: programFiles,
+          WINGET_LOG: log,
+        },
+      });
+      assert.equal(result.error, undefined);
+      assert.equal(result.status, 0, result.stdout + result.stderr);
+      return {
+        stdout: result.stdout,
+        pathPrefixed: result.stdout.includes(`PATH=${pwshDir};${path}`),
+        pathUnchanged: result.stdout.includes(`PATH=${path}\r\n`),
+        wingetArgs: existsSync(log) ? readFileSync(log, "utf8") : "",
+      };
+    };
+
+    const onPath = run({ pwshOnPath: true, winget: "installs" });
+    assert.ok(onPath.pathUnchanged);
+    assert.equal(onPath.wingetArgs, "");
+
+    const installedOffPath = run({ preinstalled: true, winget: "installs" });
+    assert.ok(installedOffPath.pathPrefixed);
+    assert.equal(installedOffPath.wingetArgs, "");
+
+    const installs = run({ winget: "installs" });
+    assert.match(installs.stdout, /Installing PowerShell 7/);
+    assert.match(installs.wingetArgs, /^install --id Microsoft\.PowerShell --exact /);
+    assert.ok(installs.pathPrefixed);
+
+    // Declined UAC prompt or network failure: warn and keep starting.
+    const declined = run({ winget: "fails" });
+    assert.match(declined.stdout, /WARNING: PowerShell 7 is unavailable/);
+    assert.ok(declined.pathUnchanged);
+
+    const noWinget = run({});
+    assert.match(noWinget.stdout, /WARNING: PowerShell 7 is unavailable/);
+    assert.ok(noWinget.pathUnchanged);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });
 
 test("launcher restarts the host after an unclean exit, not after a clean quit", () => {

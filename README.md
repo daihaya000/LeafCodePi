@@ -4,7 +4,7 @@
 
 ## クイックスタート
 
-1. [Node.js 22.19 以上](https://nodejs.org/) と Git を用意し、このリポジトリを取得します。Windows の `start.bat` は Node.js がない場合、`winget` で導入を試みます。
+1. [Node.js 22.19 以上](https://nodejs.org/) と Git を用意し、このリポジトリを取得します。Windows の `start.bat` は Node.js がない場合、`winget` で導入を試みます。PowerShell 7（`pwsh`）と GitHub CLI も未導入なら `winget` で導入し、失敗しても警告を出して起動を続けます（PowerShell 7 の導入では UAC の確認が出ることがあります）。
    ```bash
    git clone https://github.com/daihaya000/LeafCodePi.git
    cd LeafCodePi
