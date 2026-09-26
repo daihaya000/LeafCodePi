@@ -696,6 +696,51 @@ it("groups consecutive tool-only messages between agent responses", () => {
   expect(group!.open).toBe(true);
 });
 
+it.each([
+  { enabled: ["default"], autoEnabled: false, hideDefault: true },
+  { enabled: ["default", "reviewer"], autoEnabled: false, hideDefault: false },
+  { enabled: ["default"], autoEnabled: true, hideDefault: false },
+])("hides default only in message metadata with one choice ($enabled, Auto: $autoEnabled)", async ({ enabled, autoEnabled, hideDefault }) => {
+  const agentTask = { ...task, agent: "default" };
+  const messages: UiMessage[] = [
+    {
+      id: "tool-meta", role: "assistant", agent: "default", createdAt: 1,
+      parts: [{ id: "tool-part", type: "tool", tool: "read", callID: "call-1", state: { status: "completed", input: { path: "README.md" } } }],
+    },
+    {
+      id: "tool-meta-next", role: "assistant", agent: "default", createdAt: 2,
+      parts: [{ id: "next-tool-part", type: "tool", tool: "grep", callID: "call-2", state: { status: "completed", input: { pattern: "default" } } }],
+    },
+    { id: "default-reply", role: "assistant", agent: "default", createdAt: 3, parts: [{ id: "reply-text", type: "text", text: "done" }] },
+    { id: "old-reply", role: "assistant", agent: "reviewer", createdAt: 4, parts: [{ id: "old-text", type: "text", text: "reviewed" }] },
+  ];
+  saveTaskSessionCache({ task: agentTask, messages, isStreaming: false, isCompacting: false });
+  const originalGetJson = mocks.getJson.getMockImplementation()!;
+  let resolveAgents!: (value: { agents: { name: string; enabled: boolean }[]; autoEnabled: boolean }) => void;
+  const pendingAgents = new Promise<{ agents: { name: string; enabled: boolean }[]; autoEnabled: boolean }>((resolve) => {
+    resolveAgents = resolve;
+  });
+  mocks.getJson.mockImplementation((path: string) =>
+    path === "/api/agents" ? pendingAgents : originalGetJson(path),
+  );
+  render(<TaskView taskId={task.id} mdUp />);
+  await act(async () => {
+    resolveAgents({ agents: enabled.map((name) => ({ name, enabled: true })), autoEnabled });
+    await pendingAgents;
+  });
+
+  const lastProps = (calls: unknown[][], id: string) =>
+    calls.filter(([props]) => (props as { message: UiMessage }).message.id === id).at(-1)?.[0];
+  const logHeader = lastProps(mocks.messageMetaHeader.mock.calls, "tool-meta");
+  const nextLogHeader = lastProps(mocks.messageMetaHeader.mock.calls, "tool-meta-next");
+  const reply = lastProps(mocks.partView.mock.calls, "default-reply");
+  const historical = lastProps(mocks.partView.mock.calls, "old-reply");
+  expect(logHeader).toMatchObject({ agent: "default", hideDefaultAgent: hideDefault });
+  expect(nextLogHeader).toMatchObject({ agent: "default", hideDefaultAgent: hideDefault });
+  expect(reply).toMatchObject({ agent: "default", hideDefaultAgent: hideDefault });
+  expect(historical).toMatchObject({ agent: "reviewer", hideDefaultAgent: hideDefault });
+});
+
 it("opens only the latest work log while the task is running", () => {
   const toolMessage = (id: string, createdAt: number): UiMessage => ({
     id, role: "assistant", createdAt,

@@ -274,6 +274,31 @@ describe("PartView sender and response metadata", () => {
     }
   });
 
+  it("hides only the default agent field when it is the sole choice", () => {
+    const message: UiMessage = { id: "assistant-meta", role: "assistant", createdAt: 1, parts: [] };
+    const view = render(
+      <MessageMetaHeader
+        message={message}
+        modelLabel="Model A"
+        effort="max"
+        agent="default"
+        hideDefaultAgent
+        accountLabel="Account A"
+      />,
+    );
+    const meta = screen.getByLabelText("応答メタデータ");
+    expect(screen.queryByText("default")).toBeNull();
+    expect(meta.querySelector('[data-agent-icon="default"]')).toBeNull();
+    expect(screen.getByText("Model A")).toBeTruthy();
+    expect(screen.getByText("max")).toBeTruthy();
+    expect(screen.getByText("Account A")).toBeTruthy();
+
+    view.rerender(<MessageMetaHeader message={message} agent="reviewer" hideDefaultAgent />);
+    expect(screen.getByText("reviewer")).toBeTruthy();
+    view.rerender(<MessageMetaHeader message={message} agent="default" />);
+    expect(screen.getByText("default")).toBeTruthy();
+  });
+
   it("shows the whole work log's usage instead of the first response's in a group header", () => {
     render(
       <MessageMetaHeader
@@ -335,6 +360,17 @@ describe("PartView sender and response metadata", () => {
 });
 
 describe("PartView memo", () => {
+  it("updates the metadata when default-only visibility changes without changing the agent", () => {
+    const message: UiMessage = { id: "assistant-default", role: "assistant", createdAt: 1, parts: [] };
+    const view = render(<PartView message={message} agent="default" />);
+    expect(screen.getByText("default")).toBeTruthy();
+
+    view.rerender(<PartView message={message} agent="default" hideDefaultAgent />);
+    expect(screen.queryByText("default")).toBeNull();
+    view.rerender(<PartView message={message} agent="default" hideDefaultAgent={false} />);
+    expect(screen.getByText("default")).toBeTruthy();
+  });
+
   afterEach(() => cleanup());
 
   it("skips re-rendering when the message reference and callback are stable", () => {

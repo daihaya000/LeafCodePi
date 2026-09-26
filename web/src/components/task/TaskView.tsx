@@ -1921,6 +1921,8 @@ export const TaskView = memo(function TaskView({
   // 実行中・一時停止中・要対応中は、パネルから操作できるよう表示する。
   // completed / stopped はチャット側に結果が残るため閉じる（Sidebar の LIVE 判定と整合）。
   const goalLoopVisible = isGoalLoopSessionOwnedStatus(task?.goalLoop?.status);
+  const hideDefaultAgentInMeta =
+    !autoAgentEnabled && agents.length === 1 && agents[0]?.name === DEFAULT_AGENT;
   const queuedSendNowDisabled =
     submitting || queuedAutoSend || resumingTurn || compacting || agentChanging ||
     archived || revertBusy || revertConfirmOpen || sessionHydrating ||
@@ -3307,6 +3309,7 @@ export const TaskView = memo(function TaskView({
                               modelLabel={modelLabel}
                               effort={effortLabel}
                               agent={message.agent ?? task?.agent ?? undefined}
+                              hideDefaultAgent={hideDefaultAgentInMeta}
                               accountLabel={accountLabel}
                               usage={usage}
                             />
@@ -3336,6 +3339,7 @@ export const TaskView = memo(function TaskView({
                                 modelLabel={modelLabel}
                                 effort={effortLabel}
                                 agent={entry.message.agent ?? task?.agent ?? undefined}
+                                hideDefaultAgent={hideDefaultAgentInMeta}
                                 accountLabel={accountLabel}
                               />
                             </MessageHeader>,
@@ -3450,6 +3454,7 @@ export const TaskView = memo(function TaskView({
                           ? block.message.agent ?? task?.agent ?? undefined
                           : undefined
                       }
+                      hideDefaultAgent={hideDefaultAgentInMeta}
                       accountLabel={
                         block.message.role === "assistant"
                           ? block.message.accountId

@@ -24,6 +24,7 @@ import {
 } from "lucide-react";
 import { Button, cx, formatElapsed, formatMessageTime, readSharedElapsedNowMs, subscribeSharedElapsedClock } from "@/components/ui";
 import { AgentRoleIcon } from "@/components/AgentSelect";
+import { DEFAULT_AGENT } from "@/lib/default-agent";
 import type { BotFace } from "@/components/bot/BotAvatar";
 import { BotMessageSender, BotMessageTime, BotRevertButton } from "@/components/bot/BotMessageList";
 import {
@@ -685,6 +686,7 @@ export const MessageMetaHeader = memo(function MessageMetaHeader({
   modelLabel,
   effort,
   agent,
+  hideDefaultAgent = false,
   accountLabel,
   usage,
 }: {
@@ -693,12 +695,15 @@ export const MessageMetaHeader = memo(function MessageMetaHeader({
   effort?: string;
   /** 本家同様、担当エージェント名をバッジ表示（セッションのメインペルソナ）。 */
   agent?: string;
+  /** default が唯一の選択肢なら表示だけ省略する。元のエージェント情報は保持。 */
+  hideDefaultAgent?: boolean;
   /** タスクに紐づく利用アカウントの表示名。 */
   accountLabel?: string;
   /** Work-log header: show the whole log's usage instead of the first response's. */
   usage?: ActivityUsage;
 }) {
   const model = modelLabel?.trim() || message.model?.trim() || "";
+  const agentName = agent?.trim();
   const group = usage ? activityUsageLabels(usage) : null;
   const tokens = group
     ? group.tokens
@@ -726,7 +731,9 @@ export const MessageMetaHeader = memo(function MessageMetaHeader({
   const fields = [
     model ? { key: "model", text: model } : null,
     effort?.trim() ? { key: "effort", text: effort.trim() } : null,
-    agent?.trim() ? { key: "agent", text: agent.trim() } : null,
+    agentName && !(hideDefaultAgent && agentName === DEFAULT_AGENT)
+      ? { key: "agent", text: agentName }
+      : null,
     accountLabel?.trim() ? { key: "account", text: accountLabel.trim() } : null,
     { key: "time", text: formatMessageTime(message.createdAt) },
     tokens ? { key: "tokens", text: tokens } : null,
@@ -1007,6 +1014,7 @@ export const PartView = memo(
     modelLabel,
     effort,
     agent,
+    hideDefaultAgent = false,
     accountLabel,
     bot,
     taskId,
@@ -1020,6 +1028,7 @@ export const PartView = memo(
     modelLabel?: string;
     effort?: string;
     agent?: string;
+    hideDefaultAgent?: boolean;
     accountLabel?: string;
     /** Codeへの送信元Bot。応答側のエージェントとは区別する。 */
     bot?: BotFace & { name: string };
@@ -1059,6 +1068,7 @@ export const PartView = memo(
                 modelLabel={modelLabel}
                 effort={effort}
                 agent={agent}
+                hideDefaultAgent={hideDefaultAgent}
                 accountLabel={accountLabel}
               />
             )}
@@ -1138,6 +1148,7 @@ export const PartView = memo(
     prev.modelLabel === next.modelLabel &&
     prev.effort === next.effort &&
     prev.agent === next.agent &&
+    prev.hideDefaultAgent === next.hideDefaultAgent &&
     prev.accountLabel === next.accountLabel &&
     prev.bot === next.bot &&
     prev.taskId === next.taskId &&
