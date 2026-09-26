@@ -611,7 +611,7 @@ async function evaluateWatch(row: TaskHangWatchRow, timeoutMs: number): Promise<
         delete row.missingLiveSince;
         row.updatedAt = now;
         try {
-          writeStore();
+          writeWatchRow(row);
         } catch (error) {
           row.missingLiveSince = previousMissingLiveSince;
           row.updatedAt = previousUpdatedAt;

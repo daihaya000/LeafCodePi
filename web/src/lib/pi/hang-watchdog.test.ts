@@ -697,8 +697,16 @@ describe("hang-watchdog helpers", () => {
       "utf8",
     );
     let reason = "";
+    let addOther = false;
+    let other: typeof import("./hang-watchdog") | undefined;
     registerHangWatchdogHooks({
-      getLive: () => null,
+      getLive: () => {
+        if (addOther) {
+          other!.armTaskHangWatch({ taskId: "other", prompt: "work" });
+          addOther = false;
+        }
+        return null;
+      },
       abortTask: async () => undefined,
       resumePrompt: () => undefined,
       notifyHangRetry: () => undefined,
@@ -710,12 +718,18 @@ describe("hang-watchdog helpers", () => {
       armTaskHangWatch({ taskId: "foreign-lease", prompt: "work", startedAt: 1_000_000 });
       await runHangWatchdogTick();
       expect(getTaskHangWatch("foreign-lease")?.missingLiveSince).toBe(1_000_000);
+      vi.resetModules();
+      other = await import("./hang-watchdog");
+      addOther = true;
       vi.setSystemTime(1_000_000 + MISSING_LIVE_GRACE_MS);
       await runHangWatchdogTick();
       expect(getTaskHangWatch("foreign-lease")).not.toBeNull();
       expect(getTaskHangWatch("foreign-lease")?.missingLiveSince).toBeUndefined();
       expect(reason).toBe("");
+      const store = JSON.parse(fs.readFileSync(path.join(root, "hang-watches.json"), "utf8"));
+      expect(store.watches.map((row: { taskId: string }) => row.taskId).sort()).toEqual(["foreign-lease", "other"]);
     } finally {
+      other?.stopHangWatchdogForTests();
       stopHangWatchdogForTests();
       if (previousDataDir === undefined) delete process.env.LEAFCODE_PI_DATA_DIR;
       else process.env.LEAFCODE_PI_DATA_DIR = previousDataDir;
