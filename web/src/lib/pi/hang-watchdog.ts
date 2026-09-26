@@ -272,6 +272,7 @@ function syncMemoryFromDisk(snapshot = readStore()): void {
 export function recoverInterruptedHangWatches(): void {
   const file = watchesPath();
   let snapshot = readStoreFile(file);
+  let selectedTemp: string | null = null;
   let newest = 0;
   if (snapshot) {
     try { newest = statSync(file).mtimeMs; } catch { /* main snapshot disappeared */ }
@@ -286,6 +287,7 @@ export function recoverInterruptedHangWatches(): void {
         const candidate = readStoreFile(temp);
         if (candidate) {
           snapshot = candidate;
+          selectedTemp = temp;
           newest = mtime;
         }
       } catch { /* this temp disappeared: inspect the remaining candidates */ }
@@ -299,6 +301,11 @@ export function recoverInterruptedHangWatches(): void {
     }
   }
   writeStore();
+  // Once the recovered snapshot is durably promoted, it must not win again
+  // after later updates (a temp file may have a future mtime from clock skew).
+  if (selectedTemp) {
+    try { unlinkSync(selectedTemp); } catch { /* another process may have moved it */ }
+  }
 }
 
 export function armTaskHangWatch(input: ArmTaskHangWatchInput): void {
