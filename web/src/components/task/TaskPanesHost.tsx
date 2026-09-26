@@ -57,7 +57,11 @@ function edgeDirectionAt(
   return distances.find(([, distance]) => distance === nearest)?.[0] ?? null;
 }
 
-/** ペイン境界のドラッグハンドル。axis="x" は縦仕切り（左右移動）、y は横仕切り（上下移動）。 */
+/**
+ * ペイン境界のドラッグハンドル。axis="x" は縦仕切り（左右移動）、y は横仕切り（上下移動）。
+ * z-index は 40 に固定する。ペイン内容（最大 z-30）より上、ポップオーバー等の
+ * フローティング UI（z-50 以上）より下に置き、区切り線がドロップダウンへかぶらないようにする。
+ */
 function PaneResizeHandle({
   boundaryIndex,
   position,
@@ -97,7 +101,7 @@ function PaneResizeHandle({
       aria-valuenow={Math.round(currentSize * 100)}
       tabIndex={0}
       className={cx(
-        "group absolute z-[80] touch-none focus-visible:outline-none",
+        "group absolute z-40 touch-none focus-visible:outline-none",
         axis === "x"
           ? "top-0 h-full w-2 -translate-x-1/2 cursor-col-resize"
           : "left-0 w-full h-2 -translate-y-1/2 cursor-row-resize",
@@ -305,7 +309,8 @@ function PaneSection({
       data-active={isActivePane ? "true" : "false"}
       aria-label={`タスクペイン ${paneIndex + 1}`}
       className={cx(
-        "relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden",
+        // isolate: ペイン内の z-index を内側に閉じ込め、区切り線（z-40）を常にペイン内容より上に保つ。
+        "relative isolate flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden",
         !single && "border-border",
         dragOverPaneId === pane.id && dragEdge?.paneId !== pane.id &&
           "ring-1 ring-inset ring-accent/50",
@@ -363,14 +368,14 @@ function PaneSection({
       {isActivePane && (
         <span
           aria-hidden="true"
-          className="pointer-events-none absolute inset-x-0 top-0 z-[70] h-0.5 bg-accent"
+          className="pointer-events-none absolute inset-x-0 top-0 z-40 h-0.5 bg-accent"
         />
       )}
       {dragEdge?.paneId === pane.id && (
         <span
           aria-hidden="true"
           className={cx(
-            "pointer-events-none absolute z-[75] bg-accent/15 ring-1 ring-inset ring-accent/40",
+            "pointer-events-none absolute z-40 bg-accent/15 ring-1 ring-inset ring-accent/40",
             dragEdge.direction === "left" && "inset-y-0 left-0 w-1/2",
             dragEdge.direction === "right" && "inset-y-0 right-0 w-1/2",
             dragEdge.direction === "top" && "inset-x-0 top-0 h-1/2",

@@ -436,6 +436,31 @@ describe("TaskPanesHost lazy tab mounting", () => {
     expect(host.style.gridTemplateRows).toBe("");
   });
 
+  it("ペイン区切り線とペイン内オーバーレイをフローティングUIより下の層に置く", () => {
+    mocks.useTaskPanes.mockReturnValue({
+      state: createTreeState(),
+      statusFor: () => null,
+      reportStatus: vi.fn(),
+      dispatch: vi.fn(),
+      retargetToUrl: vi.fn(),
+      activeTaskId: "task-1",
+      titleFor: () => null,
+      mdUp: true,
+    });
+
+    const { container } = render(<TaskPanesHost />);
+    const panes = container.querySelectorAll("[data-pane-id]");
+    expect(panes).toHaveLength(4);
+    for (const pane of panes) {
+      // isolate でペイン内の z-index を閉じ込め、区切り線を常にペイン内容より上に保つ。
+      expect(pane.className).toContain("isolate");
+    }
+    // 区切り線は 40。ポップオーバー（ModelSelect は z-50）より下なのでメニューにかぶらない。
+    for (const handle of screen.getAllByRole("separator")) {
+      expect(handle.className).toContain("z-40");
+    }
+  });
+
   it("分割ブランチの子ラッパーが縦方向のflex高さを伝播する", () => {
     mocks.useTaskPanes.mockReturnValue({
       state: createTreeState(),

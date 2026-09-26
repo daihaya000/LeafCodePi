@@ -590,7 +590,7 @@ describe("モバイルナビゲーション", () => {
     const backdrop = (await screen.findAllByRole("button", { name: "メニューを閉じる" }))
       .find((button) => button.className.includes("fixed"));
     expect(backdrop).toBeTruthy();
-    // TaskPanesHost のリサイズハンドル（z-80）より上に置く。
+    // TaskPanesHost のリサイズハンドル（z-40）より上に置く。
     expect(backdrop?.className).toContain("z-[90]");
     expect(screen.getByRole("dialog", { name: "ナビゲーション" }).className).toContain("z-[100]");
 

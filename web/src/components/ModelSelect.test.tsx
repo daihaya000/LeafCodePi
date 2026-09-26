@@ -305,6 +305,23 @@ describe("ModelSelect grouping by account", () => {
   });
 });
 
+describe("ModelSelect floating layer", () => {
+  it("keeps the portaled menu above pane chrome", () => {
+    render(
+      <ModelSelect
+        value="openai::gpt"
+        options={[
+          option({ value: "openai::gpt", label: "GPT", providerID: "openai", modelID: "gpt" }),
+        ]}
+        onChange={() => {}}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "モデル" }));
+    // ペイン区切り線（TaskPanesHost は z-40）より上に置く。
+    expect(screen.getByRole("listbox").parentElement?.className).toContain("z-50");
+  });
+});
+
 describe("ModelSelect average tok/s", () => {
   it("shows the average rate and colors under 50 red and 100 or more green", () => {
     render(
