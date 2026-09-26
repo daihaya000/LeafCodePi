@@ -1441,7 +1441,10 @@ export const TaskView = memo(function TaskView({
           if (
             shouldClearQueuedFollowUpOnEvent(payload.eventType) ||
             ("manualAbortedAssistantId" in payload &&
-              shouldClearQueuedFollowUpOnAbortState(payload.manualAbortedAssistantId))
+              shouldClearQueuedFollowUpOnAbortState(
+                payload.manualAbortedAssistantId,
+                snapshotTask?.status === "working" || payload.isStreaming === true,
+              ))
           ) {
             queueClearEpochRef.current += 1;
             setQueuedFollowUps([]);

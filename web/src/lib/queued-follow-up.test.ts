@@ -204,6 +204,7 @@ describe("queued follow-up hang events", () => {
   it("clears the client queue when ready carries an abort sentinel", () => {
     expect(shouldClearQueuedFollowUpOnAbortState("")).toBe(true);
     expect(shouldClearQueuedFollowUpOnAbortState("a1")).toBe(true);
+    expect(shouldClearQueuedFollowUpOnAbortState("a1", true)).toBe(false);
     expect(shouldClearQueuedFollowUpOnAbortState(null)).toBe(false);
     expect(shouldClearQueuedFollowUpOnAbortState(undefined)).toBe(false);
   });

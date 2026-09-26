@@ -118,6 +118,9 @@ export function shouldClearQueuedFollowUpOnEvent(eventType: string | undefined):
  */
 export function shouldClearQueuedFollowUpOnAbortState(
   manualAbortedAssistantId: string | null | undefined,
+  working = false,
 ): boolean {
-  return manualAbortedAssistantId != null;
+  // A previous abort sentinel remains until the next turn starts. Do not clear
+  // follow-ups queued during that new run's accepted-to-streaming gap.
+  return manualAbortedAssistantId != null && !working;
 }
