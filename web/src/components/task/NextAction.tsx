@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useId, useRef, useState } from "react";
+import type { RefObject } from "react";
 import { createPortal } from "react-dom";
 import { ArrowDownToLine, RefreshCw, Sparkles, X } from "lucide-react";
 import { Button } from "@/components/ui";
@@ -30,6 +31,7 @@ export function NextAction({
   sessionId,
   model,
   invalidateKey,
+  panelRef,
   onApply,
   disabled = false,
 }: {
@@ -37,6 +39,7 @@ export function NextAction({
   sessionId: string;
   model?: DirectModelSelection;
   invalidateKey?: string;
+  panelRef: RefObject<HTMLDivElement | null>;
   onApply: (suggestion: string) => boolean | void;
   disabled?: boolean;
 }) {
@@ -44,12 +47,9 @@ export function NextAction({
   const [previous, setPrevious] = useState<string[]>([]);
   const [applied, setApplied] = useState<number | null>(null);
   const [contextNotice, setContextNotice] = useState(false);
-  const [resultOpen, setResultOpen] = useState(false);
-  const resultId = useId();
+  const [panelOpen, setPanelOpen] = useState(false);
+  const panelId = useId();
   const triggerRef = useRef<HTMLButtonElement>(null);
-  const closeButtonRef = useRef<HTMLButtonElement>(null);
-  const dialogRef = useRef<HTMLDivElement>(null);
-  const preserveFocusRef = useRef(false);
   const generationRef = useRef(0);
   const mountedRef = useRef(false);
   const contextRef = useRef({ taskId, sessionId, invalidateKey });
@@ -73,65 +73,23 @@ export function NextAction({
     }
     contextRef.current = { taskId, sessionId, invalidateKey };
     generationRef.current += 1;
-    if (resultOpen) setContextNotice(true);
+    if (panelOpen) setContextNotice(true);
     setPrevious([]);
     setApplied(null);
-    preserveFocusRef.current = false;
-    setResultOpen(false);
     setState({ kind: "idle" });
-  }, [invalidateKey, resultOpen, sessionId, taskId]);
+  }, [invalidateKey, panelOpen, sessionId, taskId]);
 
-  useEffect(() => {
-    if (!resultOpen) return;
-    const previousFocus = document.activeElement as HTMLElement | null;
-    const trigger = triggerRef.current;
-    const focusTimer = window.setTimeout(() => closeButtonRef.current?.focus(), 0);
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        event.preventDefault();
-        setResultOpen(false);
-        return;
-      }
-      if (event.key !== "Tab") return;
-      const focusable = Array.from(
-        dialogRef.current?.querySelectorAll<HTMLElement>(
-          'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
-        ) ?? [],
-      );
-      if (focusable.length === 0) return;
-      const first = focusable[0];
-      const last = focusable[focusable.length - 1];
-      if (event.shiftKey && document.activeElement === first) {
-        event.preventDefault();
-        last.focus();
-      } else if (!event.shiftKey && document.activeElement === last) {
-        event.preventDefault();
-        first.focus();
-      }
-    };
-
-    document.addEventListener("keydown", onKeyDown);
-    return () => {
-      window.clearTimeout(focusTimer);
-      document.removeEventListener("keydown", onKeyDown);
-      if (!preserveFocusRef.current && previousFocus && document.contains(previousFocus)) {
-        trigger?.focus();
-      }
-      preserveFocusRef.current = false;
-    };
-  }, [resultOpen]);
-
-  function closeResult(preserveFocus = false) {
-    preserveFocusRef.current = preserveFocus;
-    setResultOpen(false);
+  function closePanel(restoreFocus = true) {
+    setPanelOpen(false);
+    setContextNotice(false);
+    if (restoreFocus) triggerRef.current?.focus();
   }
 
   const generate = useCallback(async () => {
     if (!mountedRef.current || disabled) return;
     const generation = ++generationRef.current;
-    preserveFocusRef.current = false;
     setContextNotice(false);
-    setResultOpen(false);
+    setPanelOpen(true);
     setApplied(null);
     setState({ kind: "loading" });
     try {
@@ -154,7 +112,6 @@ export function NextAction({
         return next.slice(-PREVIOUS_SUGGESTIONS_MAX_COUNT);
       });
       setState({ kind: "success", suggestions, model: generatedModel });
-      setResultOpen(true);
     } catch (error) {
       if (!mountedRef.current || generation !== generationRef.current) return;
       setState({
@@ -164,18 +121,100 @@ export function NextAction({
     }
   }, [disabled, model, previous, taskId]);
 
+  const panelContainer = panelRef.current;
+  const panel = panelOpen && panelContainer ? (
+    <section
+      id={`${panelId}-panel`}
+      aria-label="次の指示の提案"
+      className="mt-2 overflow-hidden rounded-xl border border-border bg-surface-2/50"
+    >
+      <div className="flex min-h-11 items-center justify-between gap-2 px-3">
+        <h2 className="text-xs font-medium text-text">次の指示の提案</h2>
+        <Button
+          variant="ghost"
+          size="icon"
+          aria-label="提案を閉じる"
+          title="提案を閉じる"
+          onClick={() => closePanel()}
+          className="h-8 w-8"
+        >
+          <X className="h-4 w-4" />
+        </Button>
+      </div>
+      <div className="max-h-64 overflow-y-auto border-t border-border p-3">
+        {contextNotice && (
+          <p role="status" className="text-xs text-muted">
+            会話が更新されたため、提案を破棄しました。
+          </p>
+        )}
+        {state.kind === "loading" && (
+          <p role="status" className="text-sm text-muted">次の指示を生成中…</p>
+        )}
+        {state.kind === "error" && (
+          <div className="flex flex-wrap items-center gap-2">
+            <p role="alert" className="min-w-0 flex-1 break-words text-xs text-danger">{state.message}</p>
+            <Button variant="secondary" size="sm" disabled={disabled} onClick={() => void generate()}>
+              <RefreshCw className="h-3.5 w-3.5" />
+              再試行
+            </Button>
+          </div>
+        )}
+        {state.kind === "success" && (
+          <div className="flex flex-col gap-2" aria-live="polite">
+            {state.suggestions.map((suggestion, index) => (
+              <div key={`${index}-${suggestion}`} className="rounded-xl border border-border bg-surface-2 p-3">
+                <p className="break-words text-sm leading-6 text-text [overflow-wrap:anywhere]">{suggestion}</p>
+                <Button
+                  variant={applied === index ? "secondary" : "primary"}
+                  size="sm"
+                  disabled={disabled}
+                  onClick={() => {
+                    const appliedResult = onApply(suggestion);
+                    if (appliedResult === false) return;
+                    setApplied(index);
+                    closePanel(appliedResult !== true);
+                  }}
+                  className="mt-2 min-h-11 md:min-h-8"
+                >
+                  <ArrowDownToLine className="h-3.5 w-3.5" />
+                  {applied === index ? "反映済み" : "入力欄に反映"}
+                </Button>
+              </div>
+            ))}
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              {state.model && (
+                <p className="text-xs text-muted" title={`生成モデル: ${directGenerationModelKey(state.model)}`}>
+                  生成モデル: <span>{state.model.modelID}</span>
+                </p>
+              )}
+              <Button
+                variant="secondary"
+                size="sm"
+                disabled={disabled}
+                onClick={() => void generate()}
+                className="min-h-11 md:min-h-8"
+              >
+                <RefreshCw className="h-3.5 w-3.5" />
+                別の提案
+              </Button>
+            </div>
+          </div>
+        )}
+      </div>
+    </section>
+  ) : null;
+
   return (
     <>
-      <section className="min-w-0 w-auto shrink-0" aria-label="次の指示の提案">
+      <section className="min-w-0 w-auto shrink-0" aria-label="次の指示の提案操作">
         <Button
           ref={triggerRef}
           variant="secondary"
           size="sm"
           busy={state.kind === "loading"}
           disabled={disabled || state.kind === "loading"}
-          aria-haspopup={state.kind === "success" ? "dialog" : undefined}
-          aria-expanded={state.kind === "success" ? resultOpen : undefined}
-          aria-controls={state.kind === "success" ? `${resultId}-dialog` : undefined}
+          aria-expanded={panelOpen}
+          aria-controls={panelOpen ? `${panelId}-panel` : undefined}
           aria-label={
             state.kind === "loading"
               ? "次の指示を生成中…"
@@ -186,7 +225,7 @@ export function NextAction({
           onClick={() => {
             setContextNotice(false);
             if (state.kind === "success") {
-              setResultOpen(true);
+              setPanelOpen(true);
               return;
             }
             void generate();
@@ -196,113 +235,8 @@ export function NextAction({
           {state.kind !== "loading" && <Sparkles className="h-3.5 w-3.5" />}
           {state.kind === "success" ? "提案を表示" : "提案"}
         </Button>
-        {state.kind === "loading" && (
-          <span role="status" aria-live="polite" className="sr-only">
-            次の指示を生成中…
-          </span>
-        )}
-        {contextNotice && (
-          <p role="status" className="mt-2 max-w-sm text-xs text-muted">
-            会話が更新されたため、提案を閉じました。
-          </p>
-        )}
-        {state.kind === "error" && (
-          <div className="mt-2 flex max-w-sm flex-wrap items-center gap-2 rounded-lg border border-danger/30 bg-danger-bg px-3 py-2">
-            <p role="alert" className="min-w-0 flex-1 break-words text-xs text-danger">{state.message}</p>
-            <Button
-              variant="secondary"
-              size="sm"
-              disabled={disabled}
-              onClick={() => void generate()}
-              className="min-h-11 md:min-h-8"
-            >
-              <RefreshCw className="h-3.5 w-3.5" />
-              再試行
-            </Button>
-          </div>
-        )}
       </section>
-      {resultOpen &&
-        state.kind === "success" &&
-        typeof document !== "undefined" &&
-        createPortal(
-          <div
-            className="fixed inset-0 z-[100] flex items-center justify-center bg-black/30 p-4"
-            onMouseDown={(event) => {
-              if (event.target === event.currentTarget) closeResult();
-            }}
-          >
-            <div
-              ref={dialogRef}
-              id={`${resultId}-dialog`}
-              role="dialog"
-              aria-modal="true"
-              aria-labelledby={`${resultId}-title`}
-              className="flex max-h-[80dvh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl border border-border bg-surface shadow-xl"
-            >
-              <div className="flex items-center justify-between gap-3 border-b border-border px-4 py-3">
-                <h2 id={`${resultId}-title`} className="min-w-0 text-base font-semibold text-text">
-                  次の指示の提案
-                </h2>
-                <Button
-                  ref={closeButtonRef}
-                  variant="ghost"
-                  size="icon"
-                  aria-label="提案を閉じる"
-                  title="提案を閉じる"
-                  onClick={() => closeResult()}
-                >
-                  <X className="h-4 w-4" />
-                </Button>
-              </div>
-              <div className="min-h-0 overflow-y-auto p-4">
-                <div className="flex flex-col gap-3" aria-live="polite">
-                  {state.suggestions.map((suggestion, index) => (
-                    <div key={`${index}-${suggestion}`} className="rounded-xl border border-border bg-surface-2 p-3">
-                      <p className="break-words text-sm leading-6 text-text [overflow-wrap:anywhere]">{suggestion}</p>
-                      <div className="mt-3 flex flex-wrap items-center gap-2">
-                        <Button
-                          variant={applied === index ? "secondary" : "primary"}
-                          size="sm"
-                          disabled={disabled}
-                          onClick={() => {
-                            const appliedResult = onApply(suggestion);
-                            if (appliedResult === false) return;
-                            setApplied(index);
-                            closeResult(appliedResult === true);
-                          }}
-                          className="min-h-11 md:min-h-8"
-                        >
-                          <ArrowDownToLine className="h-3.5 w-3.5" />
-                          {applied === index ? "反映済み" : "入力欄に反映"}
-                        </Button>
-                        <Button
-                          variant="secondary"
-                          size="sm"
-                          disabled={disabled}
-                          onClick={() => void generate()}
-                          className="min-h-11 md:min-h-8"
-                        >
-                          <RefreshCw className="h-3.5 w-3.5" />
-                          別の提案
-                        </Button>
-                      </div>
-                    </div>
-                  ))}
-                  {state.model && (
-                    <p
-                      className="text-xs text-muted"
-                      title={`生成モデル: ${directGenerationModelKey(state.model)}`}
-                    >
-                      生成モデル: <span>{state.model.modelID}</span>
-                    </p>
-                  )}
-                </div>
-              </div>
-            </div>
-          </div>,
-          document.body,
-        )}
+      {panel && panelContainer && createPortal(panel, panelContainer)}
     </>
   );
 }

@@ -50,6 +50,24 @@ afterEach(() => {
   clearCachedModels();
 });
 
+it("shows the next-action suggestion above the follow-up composer", async () => {
+  saveTaskSessionCache({
+    task: { ...task, sessionId: "session-1" },
+    messages: [],
+    isStreaming: false,
+    isCompacting: false,
+  });
+  mocks.sendJson.mockResolvedValue({ suggestion: "次にテストを追加する" });
+  render(<TaskView taskId={task.id} mdUp />);
+
+  fireEvent.click(await screen.findByRole("button", { name: "次の指示を提案" }));
+  const panel = await screen.findByRole("region", { name: "次の指示の提案" });
+  expect(await screen.findByText("次にテストを追加する")).toBeTruthy();
+  const composer = screen.getByRole("form", { name: "フォローアップ" });
+  expect(panel.compareDocumentPosition(composer) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  expect(screen.queryByRole("dialog", { name: "次の指示の提案" })).toBeNull();
+});
+
 it("keeps a document-hidden active task unread until the document is visible", async () => {
   const updatedAt = "2026-01-01T00:00:00.000Z";
   saveTaskSessionCache({ task: { ...task, updatedAt }, messages: [], isStreaming: false, isCompacting: false });

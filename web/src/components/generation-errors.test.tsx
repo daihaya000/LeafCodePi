@@ -1,4 +1,5 @@
 // @vitest-environment happy-dom
+import { useRef, type ComponentProps } from "react";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { NextTaskSuggest } from "@/components/home/NextTaskSuggest";
@@ -17,6 +18,16 @@ vi.mock("@/lib/client", () => ({
 
 const providerError = "429: stealth/ox-alpha is temporarily rate-limited upstream";
 
+function InlineNextAction(props: Omit<ComponentProps<typeof NextAction>, "panelRef">) {
+  const panelRef = useRef<HTMLDivElement>(null);
+  return (
+    <>
+      <div ref={panelRef} />
+      <NextAction {...props} panelRef={panelRef} />
+    </>
+  );
+}
+
 describe("generation error details", () => {
   beforeEach(() => {
     mocks.getJson.mockReset();
@@ -30,7 +41,7 @@ describe("generation error details", () => {
   it("shows the NextAction API error", async () => {
     mocks.sendJson.mockRejectedValue(new Error(providerError));
     render(
-      <NextAction
+      <InlineNextAction
         taskId="task-1"
         sessionId="session-1"
         onApply={() => undefined}
@@ -63,7 +74,7 @@ describe("generation error details", () => {
       model: { providerID: "opencode-go", modelID: "mimo-v2.5" },
     });
     render(
-      <NextAction
+      <InlineNextAction
         taskId="task-1"
         sessionId="session-1"
         onApply={() => undefined}

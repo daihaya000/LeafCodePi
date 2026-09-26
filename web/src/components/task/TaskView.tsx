@@ -962,6 +962,7 @@ export const TaskView = memo(function TaskView({
   }, []);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const nextActionPanelRef = useRef<HTMLDivElement>(null);
   const composingRef = useRef(false);
   const taskViewRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -3809,6 +3810,7 @@ export const TaskView = memo(function TaskView({
             />
           </div>
         )}
+        <div ref={nextActionPanelRef} className="mx-auto max-w-5xl" />
         <div className="mx-auto max-w-5xl">
           <QueuedFollowUpsNotice
             items={queuedFollowUps}
@@ -4053,6 +4055,7 @@ export const TaskView = memo(function TaskView({
                       <NextAction
                         taskId={taskId}
                         sessionId={task.sessionId}
+                        panelRef={nextActionPanelRef}
                         model={selectedModel?.value === AUTO_MODEL_VALUE ? undefined : selectedModel}
                         invalidateKey={`${messages.length}:${messages.at(-1)?.id ?? ""}:${working ? "working" : "idle"}`}
                         disabled={compacting || archived}
