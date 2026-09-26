@@ -849,28 +849,29 @@ export function normalizeStructured(value: unknown): GoalLoopProgress | null {
 export function extractGoalResult(text: string): GoalLoopProgress | null {
   // Parse fenced blocks independently: an unmatched brace in preceding prose
   // must not hide the required final JSON result.
-  const fenced = [...text.matchAll(/```(?:json)?\s*([\s\S]*?)```/gi)];
-  for (let index = fenced.length - 1; index >= 0; index -= 1) {
-    const candidates = jsonObjectCandidates(fenced[index][1]);
-    for (let candidateIndex = candidates.length - 1; candidateIndex >= 0; candidateIndex -= 1) {
+  const parseLast = (part: string): GoalLoopProgress | null => {
+    const candidates = jsonObjectCandidates(part);
+    for (let index = candidates.length - 1; index >= 0; index -= 1) {
       try {
-        const result = normalizeStructured(JSON.parse(candidates[candidateIndex]));
+        const result = normalizeStructured(JSON.parse(candidates[index]));
         if (result) return result;
       } catch {
-        // Try the previous candidate in this fenced block.
+        // Try the previous candidate.
       }
     }
+    return null;
+  };
+  const fenced = [...text.matchAll(/```(?:json)?\s*([\s\S]*?)```/gi)];
+  let end = text.length;
+  for (let index = fenced.length - 1; index >= 0; index -= 1) {
+    const match = fenced[index];
+    const after = parseLast(text.slice(match.index! + match[0].length, end));
+    if (after) return after;
+    const inside = parseLast(match[1]);
+    if (inside) return inside;
+    end = match.index!;
   }
-  const candidates = jsonObjectCandidates(text);
-  for (let index = candidates.length - 1; index >= 0; index -= 1) {
-    try {
-      const result = normalizeStructured(JSON.parse(candidates[index]));
-      if (result) return result;
-    } catch {
-      // Try the previous candidate.
-    }
-  }
-  return null;
+  return parseLast(text.slice(0, end));
 }
 
 /**
