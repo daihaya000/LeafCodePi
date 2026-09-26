@@ -2,7 +2,7 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { saveTaskSessionCache } from "@/lib/task-session-cache";
-import type { ModelOption, TaskSummary, UiMessage } from "@/lib/types";
+import type { ModelOption, TaskSummary, UiMessage, UiPart } from "@/lib/types";
 import { COMPACTION_ACTION_SETTING_KEY } from "@/lib/compaction-settings";
 
 const mocks = vi.hoisted(() => ({ getJson: vi.fn(), sendJson: vi.fn(), apiUrl: (path: string) => path, partView: vi.fn(), toolCard: vi.fn(), messageMetaHeader: vi.fn(), markRead: vi.fn(), botFor: vi.fn(), iconFor: vi.fn() }));
@@ -626,6 +626,49 @@ it("groups consecutive tool-only messages between agent responses", () => {
   expect(document.querySelectorAll("[data-task-meta]")).toHaveLength(3);
   fireEvent.click(group!.querySelector("summary")!);
   expect(group!.open).toBe(true);
+});
+
+it("summarizes usage only for work-log responses whose headers stay in the log", () => {
+  const tool = (id: string, startedAtMs: number): UiPart => ({
+    id,
+    type: "tool",
+    tool: "read",
+    callID: `${id}-call`,
+    state: { status: "completed", input: { path: "README.md" }, startedAtMs, endedAtMs: startedAtMs + 1_000 },
+  });
+  saveTaskSessionCache({
+    task,
+    messages: [
+      { id: "user-1", role: "user", createdAt: 9_000, parts: [{ id: "user-1-part", type: "text", text: "確認して" }] },
+      { id: "a1", role: "assistant", createdAt: 10_000, responseDurationMs: 2_000, outputTokens: 1_000, tokensPerSecond: 20, parts: [tool("a1-tool", 12_000)] },
+      {
+        id: "a2",
+        role: "assistant",
+        createdAt: 13_500,
+        responseDurationMs: 1_500,
+        outputTokens: 500,
+        tokensPerSecond: 60,
+        parts: [{ id: "a2-thinking", type: "thinking", text: "thinking" }, tool("a2-tool", 15_000)],
+      },
+      // 本文を吹き出しへ出す応答は、そちらのヘッダーが使用量を持つ。
+      {
+        id: "a3",
+        role: "assistant",
+        createdAt: 16_500,
+        responseDurationMs: 4_000,
+        outputTokens: 2_000,
+        tokensPerSecond: 90,
+        parts: [{ id: "a3-thinking", type: "thinking", text: "summary" }, { id: "a3-text", type: "text", text: "done" }],
+      },
+    ],
+    isStreaming: false,
+    isCompacting: false,
+  });
+  render(<TaskView taskId={task.id} mdUp />);
+
+  const summary = document.querySelector("details[data-task-tool-group] summary");
+  // a1〜a2 の生成開始(10.0s)から最後のツール終了(16.0s)まで。a3 は含めない。
+  expect(summary?.textContent).toBe("作業ログ4件 · 1.5k tok · 40 tok/s · 6s");
 });
 
 it("groups every non-message part while keeping each message header", () => {

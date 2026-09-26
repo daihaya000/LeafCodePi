@@ -266,22 +266,33 @@ export function activeToolLabel(message: UiMessage | null | undefined): string |
  * ツール実行の経過時間（最初の開始から最後の終了まで）。
  * 個々の所要時間の合計ではないため、ツール間の待ち時間も含む。
  * 実行中のツールは `nowMs` までを経過時間に含める。
+ * `messages` の応答生成（createdAt 〜 createdAt + responseDurationMs）も区間に含める。
  */
-export function toolElapsedMs(parts: readonly UiPart[], nowMs = Date.now()): number {
+export function toolElapsedMs(
+  parts: readonly UiPart[],
+  nowMs = Date.now(),
+  messages: readonly UiMessage[] = [],
+): number {
   let startedAt = Number.POSITIVE_INFINITY;
   let endedAt = Number.NEGATIVE_INFINITY;
+  const add = (startMs: number, endMs: number) => {
+    if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs < startMs) return;
+    startedAt = Math.min(startedAt, startMs);
+    endedAt = Math.max(endedAt, endMs);
+  };
   for (const part of parts) {
     if (part.type !== "tool") continue;
     const { startedAtMs, endedAtMs, status } = part.state;
     if (
       startedAtMs === undefined ||
-      !Number.isFinite(startedAtMs) ||
       (endedAtMs === undefined && status !== "pending" && status !== "running")
     ) continue;
-    const endMs = endedAtMs ?? nowMs;
-    if (!Number.isFinite(endMs) || endMs < startedAtMs) continue;
-    startedAt = Math.min(startedAt, startedAtMs);
-    endedAt = Math.max(endedAt, endMs);
+    add(startedAtMs, endedAtMs ?? nowMs);
+  }
+  // 所要時間が無い応答（旧セッション等）は生成区間が分からないので含めない。
+  for (const message of messages) {
+    const durationMs = message.responseDurationMs;
+    if (typeof durationMs === "number" && durationMs > 0) add(message.createdAt, message.createdAt + durationMs);
   }
   return endedAt > startedAt ? endedAt - startedAt : 0;
 }

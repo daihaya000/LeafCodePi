@@ -259,4 +259,14 @@ describe("toolElapsedMs", () => {
   it("keeps valid durations when another tool has a non-finite timestamp", () => {
     expect(toolElapsedMs([toolPart("zero", 0, 1_000), toolPart("invalid", Number.NaN, 50_000)])).toBe(1_000);
   });
+
+  it("extends the span with response generation windows", () => {
+    const messages: UiMessage[] = [
+      { id: "before", role: "assistant", createdAt: 0, responseDurationMs: 800, parts: [] },
+      { id: "after", role: "assistant", createdAt: 5_000, responseDurationMs: 1_000, parts: [] },
+      // 所要時間が無い応答は含めない
+      { id: "unknown", role: "assistant", createdAt: -10_000, parts: [] },
+    ];
+    expect(toolElapsedMs([toolPart("a", 1_000, 2_000)], 0, messages)).toBe(6_000);
+  });
 });

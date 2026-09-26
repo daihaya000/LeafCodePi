@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 import { cleanup, fireEvent, render } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
+import type { UiMessage } from "@/lib/types";
 import { ActivityLog, MessageBubble, MessageHeader } from "./ConversationLayout";
 import { BotChatMessage } from "./bot/BotMessageList";
 import { PartView } from "./task/PartView";
@@ -63,6 +64,23 @@ it("uses identical closed, scroll-bounded logs with full-width nested cards and 
   fireEvent.click(bot.querySelector("summary")!);
   expect(bot.open).toBe(true);
   expect(task.open).toBe(false);
+});
+
+it("summarizes the log's total output tokens, average tok/s, and elapsed time", () => {
+  const parts = [{ id: "tool", type: "tool" as const, tool: "read", callID: "call", state: { status: "completed" as const, input: {}, startedAtMs: 3_000, endedAtMs: 4_000 } }];
+  const messages: UiMessage[] = [
+    { id: "a", role: "assistant", createdAt: 1_000, responseDurationMs: 1_500, outputTokens: 1_200, tokensPerSecond: 30, parts: [] },
+    { id: "b", role: "assistant", createdAt: 4_500, responseDurationMs: 2_500, outputTokens: 300, tokensPerSecond: 50, parts: [] },
+    // 使用量も所要時間も無い応答は集計を変えない。
+    { id: "c", role: "assistant", createdAt: 60_000, tokensPerSecond: 0, parts: [] },
+  ];
+  const { container } = render(<ActivityLog kind="task" count={2} parts={parts} messages={messages} active={false}>
+    <MessageBubble>Tool content</MessageBubble>
+  </ActivityLog>);
+  const summary = container.querySelector("summary")!;
+  // 最初の生成開始(1.0s)から最後の生成終了(7.0s)まで。平均は (30 + 50) / 2。
+  expect(summary.textContent).toBe("作業ログ2件 · 1.5k tok · 40 tok/s · 6s");
+  expect(summary.querySelector('[title^="作業ログ内の平均"]')?.className).toContain("text-danger");
 });
 
 it("keeps the activity header both above and inside the collapsible log", () => {

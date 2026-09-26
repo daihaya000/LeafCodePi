@@ -92,6 +92,12 @@ function botMessageModelLabel(message: UiMessage, modelLabels: Record<string, st
   return modelLabels[`${message.provider}::${message.model}`] ?? message.model;
 }
 
+/** 吹き出しにも出る応答か（ツールだけの応答は作業ログにだけ出る）。 */
+function botMessageHasBubble(message: UiMessage): boolean {
+  const { text, images, files, requestIds } = botMessageDisplayData(message);
+  return Boolean(text || images.length || files.length || message.error || requestIds.length);
+}
+
 function BotToolActivityGroup({ messages, bot, botId, active, modelLabels }: { messages: UiMessage[]; bot: BotDto | null; botId: string; active: boolean; modelLabels: Record<string, string> }) {
   const parts = messages.flatMap((message) => botMessageDisplayData(message).tools);
   const firstMessage = messages[0];
@@ -101,12 +107,14 @@ function BotToolActivityGroup({ messages, bot, botId, active, modelLabels }: { m
       header={firstMessage ? <MessageHeader><BotMessageSender {...bot} name={bot?.name ?? "ボット"} createdAt={firstMessage.createdAt} providerID={firstMessage.provider} modelLabel={botMessageModelLabel(firstMessage, modelLabels)} responseDurationMs={firstMessage.responseDurationMs} /></MessageHeader> : undefined}
       count={parts.length}
       parts={parts}
+      // 吹き出しを持つ応答はそちら側の応答なので、作業ログの使用量・経過時間に数えない。
+      messages={messages.filter((message) => !botMessageHasBubble(message))}
       active={active}
     >
       {messages.map((message, messageIndex) => {
-        const { text, tools, images, files, requestIds } = botMessageDisplayData(message);
+        const { tools } = botMessageDisplayData(message);
         return <div key={messageRenderKey(message)} className="min-w-0 space-y-2">
-          {messageIndex > 0 && !text && !images.length && !files.length && !message.error && !requestIds.length && <MessageHeader><BotMessageSender {...bot} name={bot?.name ?? "ボット"} createdAt={message.createdAt} providerID={message.provider} modelLabel={botMessageModelLabel(message, modelLabels)} responseDurationMs={message.responseDurationMs} /></MessageHeader>}
+          {messageIndex > 0 && !botMessageHasBubble(message) && <MessageHeader><BotMessageSender {...bot} name={bot?.name ?? "ボット"} createdAt={message.createdAt} providerID={message.provider} modelLabel={botMessageModelLabel(message, modelLabels)} responseDurationMs={message.responseDurationMs} /></MessageHeader>}
           {tools.map((part) => {
             const partKey = part.id || part.callID;
             const cardKey = part.state.status === "error" || part.state.status === "cancelled" ? `${partKey}:expanded` : partKey;

@@ -3453,6 +3453,8 @@ export const TaskView = memo(function TaskView({
                       header={activityHeader}
                       count={activityCount}
                       parts={block.entries.flatMap((entry) => entry.activityMessage.parts)}
+                      // 本文を吹き出しへ出す応答（showHeader=false）は使用量もそちらのヘッダーに出るので数えない。
+                      messages={block.entries.filter((entry) => entry.showHeader).map((entry) => entry.message)}
                       active={active}
                     >{activityContents}</ActivityLog>
                   ) : showResume &&

@@ -1127,6 +1127,20 @@ it("groups consecutive tool-only entries without hiding messages", async () => {
   expect(screen.getByText("確認しました").closest("details")).toBeNull();
 });
 
+it("summarizes Bot work-log usage without the reply that has its own bubble", async () => {
+  const { container } = render(<ShellProvider><BotView id="one" /></ShellProvider>);
+  await screen.findByRole("button", { name: "設定" });
+  const tool = (id: string, startedAtMs: number) => ({ id, type: "tool", tool: "read", callID: `${id}-call`, state: { status: "completed", input: { path: "README.md" }, startedAtMs, endedAtMs: startedAtMs + 1_000 } });
+  snapshot({ messages: [
+    { id: "tool-only", role: "assistant", createdAt: 1_000, responseDurationMs: 1_000, outputTokens: 800, tokensPerSecond: 80, parts: [tool("tool-1", 2_000)] },
+    { id: "mixed", role: "assistant", createdAt: 3_500, responseDurationMs: 5_000, outputTokens: 5_000, tokensPerSecond: 20, parts: [tool("tool-2", 9_000), { type: "text", text: "done" }] },
+  ] });
+
+  const summary = container.querySelector("details[data-bot-tool-group] summary");
+  // 吹き出しを持つ mixed は使用量に含めず、ツールの実行区間だけ経過時間に入る。
+  expect(summary?.textContent).toBe("作業ログ2件 · 800 tok · 80 tok/s · 9s");
+});
+
 it("updates the collapsed tool elapsed time while a tool is running", async () => {
   vi.useFakeTimers();
   vi.setSystemTime(1_000);

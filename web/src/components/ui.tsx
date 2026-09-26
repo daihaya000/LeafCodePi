@@ -18,7 +18,7 @@ import { useTheme } from "next-themes";
 import { Check, ChevronDown, Loader2, Moon, Sun } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toolElapsedMs } from "@/lib/tool-labels";
-import type { UiPart } from "@/lib/types";
+import type { UiMessage, UiPart } from "@/lib/types";
 
 function cx(...parts: (string | false | null | undefined)[]): string {
   return parts.filter(Boolean).join(" ");
@@ -653,7 +653,11 @@ export function readSharedElapsedNowMs(): number {
 }
 
 /** 実行中のツールがある間だけ共有クロックで再計算し、完了後は固定する。 */
-export function useToolElapsedMs(parts: readonly UiPart[], enabled = true): number {
+export function useToolElapsedMs(
+  parts: readonly UiPart[],
+  enabled = true,
+  messages: readonly UiMessage[] = [],
+): number {
   const [nowMs, setNowMs] = useState(() => Date.now());
   const hasRunningTool = parts.some(
     (part) =>
@@ -669,7 +673,7 @@ export function useToolElapsedMs(parts: readonly UiPart[], enabled = true): numb
     return subscribeSharedElapsedClock(() => setNowMs(readSharedElapsedNowMs()));
   }, [enabled, hasRunningTool]);
 
-  return toolElapsedMs(parts, nowMs);
+  return toolElapsedMs(parts, nowMs, messages);
 }
 
 export function timeAgo(iso: string | number | null | undefined): string {

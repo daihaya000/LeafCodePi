@@ -1,10 +1,12 @@
 "use client";
 
-import { type ReactNode, useLayoutEffect, useRef, useState } from "react";
+import { Fragment, type ReactNode, useLayoutEffect, useRef, useState } from "react";
 import { ChevronRight, ScrollText } from "lucide-react";
 import { cx, formatDuration, useToolElapsedMs } from "@/components/ui";
+import { formatTokens } from "@/lib/context-usage";
 import { clampScrollTop, isNearBottom, nextStickState } from "@/lib/scroll-stick";
-import type { UiPart } from "@/lib/types";
+import { formatTokensPerSecond, isSlowTokensPerSecond } from "@/lib/token-throughput";
+import type { UiMessage, UiPart } from "@/lib/types";
 
 export const conversationViewportClass = "min-h-0 min-w-0 flex-1 overscroll-y-contain overflow-x-clip overflow-y-auto bg-bot-chat px-3 py-5 sm:px-4";
 export const conversationContentClass = "relative mx-auto flex w-full min-w-0 max-w-5xl flex-col gap-4";
@@ -26,16 +28,45 @@ export function MessageBubble({ user = false, neutral = false, className, childr
   )}>{children}</div>;
 }
 
+const NO_MESSAGES: readonly UiMessage[] = [];
+
+/** 作業ログ内の合計出力tokと平均tok/s（0 以下・非数はヘッダーと同じく数えない）。 */
+function activityUsage(messages: readonly UiMessage[]) {
+  let outputTokens = 0;
+  let rateSum = 0;
+  let rateCount = 0;
+  for (const message of messages) {
+    if (typeof message.outputTokens === "number" && message.outputTokens > 0) outputTokens += message.outputTokens;
+    const rate = message.tokensPerSecond;
+    if (typeof rate === "number" && Number.isFinite(rate) && rate > 0) {
+      rateSum += rate;
+      rateCount += 1;
+    }
+  }
+  return { outputTokens, avgRate: rateCount > 0 ? rateSum / rateCount : null };
+}
+
 /** Keep Bot/Code log icons and layout here to prevent drift; callers own grouping and metadata. */
-export function ActivityLog({ children, header, count, parts, active, kind }: {
+export function ActivityLog({ children, header, count, parts, messages = NO_MESSAGES, active, kind }: {
   children: ReactNode;
   header?: ReactNode;
   count: number;
   parts: readonly UiPart[];
+  /** 使用量と経過時間に数える応答。使用量を本文の吹き出し側に出す応答は含めない。 */
+  messages?: readonly UiMessage[];
   active: boolean;
   kind: "bot" | "task";
 }) {
-  const elapsedMs = useToolElapsedMs(parts, active);
+  const elapsedMs = useToolElapsedMs(parts, active, messages);
+  const usage = activityUsage(messages);
+  const rateLabel = usage.avgRate === null ? "" : formatTokensPerSecond(usage.avgRate);
+  // 並びはセッションヘッダーと同じ（件数 → 合計出力tok → 平均tok/s → 経過時間）。
+  const stats = [
+    { key: "count", text: `${count}件` },
+    usage.outputTokens > 0 ? { key: "tokens", text: `${formatTokens(usage.outputTokens)} tok`, title: "作業ログ内の合計出力トークン" } : null,
+    rateLabel ? { key: "rate", text: rateLabel, title: "作業ログ内の平均 tok/s（各応答の tok/s の平均）" } : null,
+    elapsedMs > 0 ? { key: "elapsed", text: formatDuration(elapsedMs), title: "作業ログの経過時間（最初の開始から最後の終了まで）" } : null,
+  ].filter((stat) => stat !== null);
   const scrollerRef = useRef<HTMLDivElement | null>(null);
   const contentRef = useRef<HTMLDivElement | null>(null);
   const stickRef = useRef(true);
@@ -74,8 +105,21 @@ export function ActivityLog({ children, header, count, parts, active, kind }: {
       <summary className="flex min-h-11 cursor-pointer list-none items-center gap-2 bg-surface-2 px-3 py-2.5 text-left text-sm text-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary [&::-webkit-details-marker]:hidden">
         <ChevronRight className="h-4 w-4 shrink-0 transition-transform group-open/tool-activity:rotate-90" aria-hidden="true" />
         <ScrollText className="h-4 w-4 shrink-0" aria-hidden="true" />
-        <span className="min-w-0 flex-1 font-medium">作業ログ</span>
-        <span className="shrink-0 text-xs text-faint">{count}件{elapsedMs > 0 ? ` · ${formatDuration(elapsedMs)}` : ""}</span>
+        <span className="shrink-0 font-medium">作業ログ</span>
+        {/* 幅狭では項目の区切りで折り返し、ラベルは潰さない。 */}
+        <span className="min-w-0 flex-1 text-right text-xs text-faint">
+          {stats.map((stat, index) => (
+            <Fragment key={stat.key}>
+              {index > 0 && " · "}
+              <span
+                title={stat.title}
+                className={cx("whitespace-nowrap tabular-nums", stat.key === "rate" && isSlowTokensPerSecond(usage.avgRate) && "text-danger")}
+              >
+                {stat.text}
+              </span>
+            </Fragment>
+          ))}
+        </span>
       </summary>
       <div
         ref={scrollerRef}
