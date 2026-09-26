@@ -473,6 +473,14 @@ describe("sse-ready-buffer", () => {
     expect(pending[1]).toMatchObject({ type: "delta", message: { id: "d2" } });
   });
 
+  it("keeps a repeated control event after intervening controls", () => {
+    const pending: Record<string, unknown>[] = [];
+    bufferPendingSsePayload(pending, { type: "snapshot", eventType: "hang_abort", sequence: 1 });
+    bufferPendingSsePayload(pending, { type: "snapshot", eventType: "prompt_accepted", sequence: 2 });
+    bufferPendingSsePayload(pending, { type: "snapshot", eventType: "hang_abort", sequence: 3 });
+    expect(pending.map((item) => item.sequence)).toEqual([2, 3]);
+  });
+
   it("cancels a buffered permission request when resolved arrives", () => {
     const pending: Record<string, unknown>[] = [];
     bufferPendingSsePayload(pending, {

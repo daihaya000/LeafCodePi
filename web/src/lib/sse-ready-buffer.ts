@@ -179,11 +179,9 @@ export function bufferPendingSsePayload(
     const existing = pending.findIndex(
       (item) => item.type === "snapshot" && item.eventType === eventType,
     );
-    if (existing >= 0) {
-      pending[existing] = payload;
-    } else {
-      pending.push(payload);
-    }
+    if (existing >= 0) pending.splice(existing, 1);
+    // Keep the replacement at its real position relative to other controls.
+    pending.push(payload);
     return;
   }
 
