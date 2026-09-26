@@ -560,7 +560,7 @@ export function LlamaServerSettings(
             className="mt-2 rounded-lg border border-danger/30 bg-danger-bg px-3 py-2 text-xs text-danger"
             role="alert"
           >
-            このモデルは推測デコード非対応のため、draft-mtp のままでは起動できません。詳細設定で「高速化」を「なし」にしてください。
+            このモデルは推測デコード非対応のため、draft-mtp 系のままでは起動できません。詳細設定で「高速化」を「なし」にしてください。
           </p>
         )}
 
@@ -821,7 +821,7 @@ export function LlamaServerSettings(
               ))}
             </select>
             <span className="mt-1 block text-[11px] text-muted">
-              draft-mtp は MTP 込み GGUF（Qwen3.8 等）専用。非対応モデルでは起動しません
+              draft-mtp 系は MTP 込み GGUF（Qwen3.8 等）専用。ngram-mod 併用は文脈内の逐語コピーを高速化します
             </span>
           </label>
           <label className="block">

@@ -24,9 +24,9 @@ export const LLAMA_SERVER_EFFORTS = ["", "low", "medium", "xhigh"] as const;
 export type LlamaServerEffort = (typeof LLAMA_SERVER_EFFORTS)[number];
 
 /** Speculative decoding types for the bat's SPEC_TYPE env. "" = disabled.
- *  `draft-mtp` needs GGUFs that bundle MTP tensors (nextn_predict_layers >= 1,
- *  e.g. Qwen3.5-class dense builds); models without them fail to load. */
-export const LLAMA_SERVER_SPEC_TYPES = ["", "draft-mtp"] as const;
+ *  `draft-mtp` (also when paired with ngram-mod) needs GGUFs that bundle
+ *  MTP tensors (nextn_predict_layers >= 1); others fail to load. */
+export const LLAMA_SERVER_SPEC_TYPES = ["", "draft-mtp", "draft-mtp,ngram-mod"] as const;
 export type LlamaServerSpecType = (typeof LLAMA_SERVER_SPEC_TYPES)[number];
 
 /** KV cache quantization for the bat's CT_K / CT_V env. "" = f16 (default).
@@ -65,7 +65,7 @@ export type LlamaServerSettings = {
   modelFile: string;
   /** バインド先。127.0.0.1 = このPCのみ / 0.0.0.0 = LAN・Tailscale からも可。 */
   llamaServerHost: LlamaServerHost;
-  /** 推測デコード。"draft-mtp" は MTP テンソル込み GGUF（Qwen3.5系 dense 等）専用。 */
+  /** 推測デコード。draft-mtp 系は MTP テンソル込み GGUF 専用。 */
   specType?: LlamaServerSpecType;
   /** KV キャッシュ型。"" = f16（既定）。q8_0 は VRAM 半減。 */
   cacheTypeK?: LlamaCacheType;
@@ -287,11 +287,11 @@ export const LLAMA_MODEL_PRESETS: readonly LlamaModelPreset[] = [
     match: /(?=.*qwen3[._]?8)(?=.*uncensored)/i,
     label: "Qwen3.8 27B Uncensored（vision・高速）",
     description:
-      "画像入力を有効化（同じフォルダの mmproj を自動適用）。draft-mtp 推測デコード、effort low、KV q8_0、64K コンテキスト。R9700 実測 約52 tok/s。",
+      "画像入力を有効化（同じフォルダの mmproj を自動適用）。MTP+ngram-mod 推測デコード、effort low、KV q8_0、64K コンテキスト。",
     vision: true,
     // 131K + mmproj + MTP draft context overflows 32GB of VRAM on the R9700:
     // WDDM then spills 3-4GB to system RAM and decode drops to 12-17 tok/s.
-    settings: { effort: "low", specType: "draft-mtp", contextLength: 65_536, cacheTypeK: "q8_0", cacheTypeV: "q8_0" },
+    settings: { effort: "low", specType: "draft-mtp,ngram-mod", contextLength: 65_536, cacheTypeK: "q8_0", cacheTypeV: "q8_0" },
   },
   {
     key: "qwen38",
@@ -299,9 +299,9 @@ export const LLAMA_MODEL_PRESETS: readonly LlamaModelPreset[] = [
     match: /qwen3[._]?8|qwen3\.5|qwen35/i,
     label: "Qwen3.8 27B Uncensored（思考つき・高速）",
     description:
-      "テキスト専用（mmproj なし）でプロンプトキャッシュ再利用が有効。draft-mtp 推測デコード、effort low の思考つき、KV q8_0、64K コンテキスト。R9700 実測 約52 tok/s。",
+      "テキスト専用（mmproj なし）でプロンプトキャッシュ再利用が有効。MTP+ngram-mod 推測デコード、effort low の思考つき、KV q8_0、64K コンテキスト。",
     vision: false,
-    settings: { effort: "low", specType: "draft-mtp", contextLength: 65_536, cacheTypeK: "q8_0", cacheTypeV: "q8_0" },
+    settings: { effort: "low", specType: "draft-mtp,ngram-mod", contextLength: 65_536, cacheTypeK: "q8_0", cacheTypeV: "q8_0" }
   },
 ];
 

@@ -5,7 +5,7 @@ rem
 rem Override via env (host passes these from Settings > Engine > llama-server):
 rem   LLAMA_SERVER_BIN, MODEL_DIR, MODEL_FILE, LLAMA_SERVER_HOST,
 rem   CONTEXT_LENGTH, PARALLEL, REASONING_EFFORT, LLAMA_SERVER_LOG,
-rem   THREADS, THREADS_BATCH, BATCH_SIZE, UBATCH, SAMPLING_TEMP, TOP_P, TOP_K, MIN_P,
+rem   THREADS, THREADS_BATCH, BATCH_SIZE, UBATCH, SAMPLING_TEMP, TOP_P, TOP_K, MIN_P, SAMPLERS,
 rem   SAMPLING_SEED, SAMPLING_REPEAT_LAST_N, SAMPLING_REPEAT_PENALTY,
 rem   SAMPLING_DRY_MULTIPLIER, SAMPLING_DRY_BASE, SAMPLING_DRY_ALLOWED_LENGTH,
 rem   SAMPLING_DRY_PENALTY_LAST_N, REASONING_BUDGET, REASONING_BUDGET_MESSAGE,
@@ -45,15 +45,16 @@ rem https://huggingface.co/Qwen/Qwen3.8-27B (thinking mode).
 rem Apply only to selected Qwen3.8 models, not router mode or other families.
 rem Explicit environment overrides still win; non-thinking requests should
 rem provide their own sampler (temp 0.7, top-p 0.8, presence penalty 1.5).
-rem Qwen3.8 vision via mmproj needs a 1024-token image floor for grounding;
-rem below that, image content is dropped or misread (issue 16842).
+rem Keep small images at their native resolution; IMAGE_MIN_TOKENS is an
+rem explicit opt-in for grounding tasks, not the Qwen3.8 default.
 echo(%MODEL_FILE%| findstr /i /c:"qwen3.8" /c:"qwen3_8" >nul
 if not errorlevel 1 (
   if not defined SAMPLING_TEMP set "SAMPLING_TEMP=1.0"
   if not defined MIN_P set "MIN_P=0.0"
   if not defined SAMPLING_REPEAT_PENALTY set "SAMPLING_REPEAT_PENALTY=1.0"
   if not defined SAMPLING_DRY_MULTIPLIER set "SAMPLING_DRY_MULTIPLIER=0.0"
-  if not defined IMAGE_MIN_TOKENS set "IMAGE_MIN_TOKENS=1024"
+  rem Limit the 248k-vocabulary penalty scan to the top-k candidates.
+  if not defined SAMPLERS set "SAMPLERS=top_k;penalties;dry;top_n_sigma;typ_p;top_p;min_p;xtc;temperature"
 )
 if not defined SAMPLING_TEMP set "SAMPLING_TEMP=0.6"
 if not defined MIN_P set "MIN_P=0.05"
@@ -137,8 +138,8 @@ rem GPU_DEVICE overridable for Windows CUDA/Vulkan builds; see the pinning block
 set "DEVICE_ARGS="
 if not "%GPU_DEVICE%"=="" set "DEVICE_ARGS=--device %GPU_DEVICE%"
 set "REASONING_ARGS=--reasoning-budget %REASONING_BUDGET% --reasoning-budget-message "%REASONING_BUDGET_MESSAGE%""
-rem Image token controls. Qwen3.8 uses a minimum grounding floor; Bonsai
-rem uses a 1024-token maximum on Vulkan/CPU by default. Both are overridable.
+rem Image token controls are opt-in for Qwen3.8; Bonsai uses a 1024-token
+rem maximum on Vulkan/CPU by default. Both are overridable.
 set "IMAGE_TOKENS_ARGS="
 if defined IMAGE_MIN_TOKENS if not "%IMAGE_MIN_TOKENS%"=="" set "IMAGE_TOKENS_ARGS=%IMAGE_TOKENS_ARGS% --image-min-tokens %IMAGE_MIN_TOKENS%"
 echo(%MODEL_FILE%| findstr /i /c:"bonsai" /c:"orcabonsai" >nul
@@ -150,7 +151,9 @@ set "LORA_PATH="
 if defined MODEL_FILE if not "%MODEL_FILE%"=="" if not "%LORA_FILE%"=="" set "LORA_PATH=%MODEL_DIR%\%LORA_FILE%"
 set "LORA_ARGS="
 if defined LORA_PATH set LORA_ARGS=--lora "%LORA_PATH%"
-set "PERF_ARGS=--split-mode none --fit off --no-host --threads %THREADS% --threads-batch %THREADS_BATCH% --gpu-layers all --n-cpu-moe 0 --flash-attn on --ctx-size %CONTEXT_LENGTH% --batch-size %BATCH_SIZE% --ubatch-size %UBATCH% --temp %SAMPLING_TEMP% --top-p %TOP_P% --top-k %TOP_K% --min-p %MIN_P% --seed %SAMPLING_SEED% --repeat-last-n %SAMPLING_REPEAT_LAST_N% --repeat-penalty %SAMPLING_REPEAT_PENALTY% --dry-multiplier %SAMPLING_DRY_MULTIPLIER% --dry-base %SAMPLING_DRY_BASE% --dry-allowed-length %SAMPLING_DRY_ALLOWED_LENGTH% --dry-penalty-last-n %SAMPLING_DRY_PENALTY_LAST_N% %REASONING_ARGS% %IMAGE_TOKENS_ARGS% --metrics"
+set "SAMPLER_ARGS="
+if defined SAMPLERS set SAMPLER_ARGS=--samplers "%SAMPLERS%"
+set "PERF_ARGS=--split-mode none --fit off --no-host --threads %THREADS% --threads-batch %THREADS_BATCH% --gpu-layers all --n-cpu-moe 0 --flash-attn on --ctx-size %CONTEXT_LENGTH% --batch-size %BATCH_SIZE% --ubatch-size %UBATCH% --temp %SAMPLING_TEMP% --top-p %TOP_P% --top-k %TOP_K% --min-p %MIN_P% --seed %SAMPLING_SEED% --repeat-last-n %SAMPLING_REPEAT_LAST_N% --repeat-penalty %SAMPLING_REPEAT_PENALTY% --dry-multiplier %SAMPLING_DRY_MULTIPLIER% --dry-base %SAMPLING_DRY_BASE% --dry-allowed-length %SAMPLING_DRY_ALLOWED_LENGTH% --dry-penalty-last-n %SAMPLING_DRY_PENALTY_LAST_N% %SAMPLER_ARGS% %REASONING_ARGS% %IMAGE_TOKENS_ARGS% --metrics"
 set "MODEL_ALIAS="
 
 if /i "%~1"=="/dry-run" (

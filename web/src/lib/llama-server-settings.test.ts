@@ -119,11 +119,12 @@ describe("llama-server-settings", () => {
   });
 
   it("accepts only the known speculative decoding types", () => {
-    expect(LLAMA_SERVER_SPEC_TYPES).toEqual(["", "draft-mtp"]);
+    expect(LLAMA_SERVER_SPEC_TYPES).toEqual(["", "draft-mtp", "draft-mtp,ngram-mod"]);
     const base = { effort: "low", contextLength: 4096, parallel: 1 };
     expect(isLlamaServerSettings(base)).toBe(true);
     expect(isLlamaServerSettings({ ...base, specType: "" })).toBe(true);
     expect(isLlamaServerSettings({ ...base, specType: "draft-mtp" })).toBe(true);
+    expect(isLlamaServerSettings({ ...base, specType: "draft-mtp,ngram-mod" })).toBe(true);
     expect(isLlamaServerSettings({ ...base, specType: "ngram-simple" })).toBe(false);
     expect(isLlamaServerSettings({ ...base, specType: 'evil" & calc' })).toBe(false);
   });
@@ -178,12 +179,12 @@ describe("llama-server-settings", () => {
     const qwenUncensored = findLlamaModelPreset("Qwen3.8-27B-Uncensored-GGUF\\model.gguf");
     expect(qwenUncensored?.key).toBe("qwen38-uncensored");
     expect(qwenUncensored?.label).toContain("vision");
-    expect(qwenUncensored?.settings.specType).toBe("draft-mtp");
+    expect(qwenUncensored?.settings.specType).toBe("draft-mtp,ngram-mod");
     expect(qwenUncensored?.settings.cacheTypeK).toBe("q8_0");
 
     const qwen = findLlamaModelPreset("Qwen3.8-27B-GGUF\\Qwen3.8-27B-Q4_K_M.gguf");
     expect(qwen?.key).toBe("qwen38");
-    expect(qwen?.settings.specType).toBe("draft-mtp");
+    expect(qwen?.settings.specType).toBe("draft-mtp,ngram-mod");
     expect(qwen?.settings.cacheTypeK).toBe("q8_0");
 
     const huihui = findLlamaModelPreset(
