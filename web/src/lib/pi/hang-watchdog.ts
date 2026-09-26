@@ -403,7 +403,10 @@ export function disarmTaskHangWatch(taskId: string): void {
   if (!row) return;
   memoryWatches.delete(id);
   try {
-    writeStore();
+    withWatchStoreLock(() => {
+      const remaining = readStore().watches.filter((watch) => watch.taskId !== id);
+      writeStore(remaining);
+    });
   } catch (error) {
     // The on-disk watch still exists; do not pretend it was disarmed.
     memoryWatches.set(id, row);

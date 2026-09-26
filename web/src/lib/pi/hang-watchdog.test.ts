@@ -1140,8 +1140,12 @@ describe("hang-watchdog helpers", () => {
       second = await import("./hang-watchdog");
       first.armTaskHangWatch({ taskId: "first", prompt: "work" });
       second.armTaskHangWatch({ taskId: "second", prompt: "work" });
-      const store = JSON.parse(fs.readFileSync(path.join(root, "hang-watches.json"), "utf8"));
+      const file = path.join(root, "hang-watches.json");
+      const store = JSON.parse(fs.readFileSync(file, "utf8"));
       expect(store.watches.map((row: { taskId: string }) => row.taskId).sort()).toEqual(["first", "second"]);
+      first.disarmTaskHangWatch("first");
+      const remaining = JSON.parse(fs.readFileSync(file, "utf8"));
+      expect(remaining.watches.map((row: { taskId: string }) => row.taskId)).toEqual(["second"]);
     } finally {
       first?.stopHangWatchdogForTests();
       second?.stopHangWatchdogForTests();
