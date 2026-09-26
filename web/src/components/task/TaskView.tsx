@@ -3081,14 +3081,14 @@ export const TaskView = memo(function TaskView({
               >
                 {task && (
                   <span className="hidden shrink-0 @min-[500px]/task:inline-flex">
-                    <SessionLabelBadge labelId={task.label} className="font-normal" />
+                    <SessionLabelBadge labelId={task.label} className="w-11 text-center font-normal" />
                   </span>
                 )}
                 <span className="block min-w-0 max-w-full truncate leading-5 @min-[500px]/task:flex-1">{task?.title ?? "読み込み中…"}</span>
               </h1>
             )}
             <div aria-label="セッション情報" className="flex h-4 min-w-0 items-center gap-2 overflow-hidden text-[10px] text-muted @min-[500px]/task:hidden">
-              <SessionLabelBadge labelId={task?.label} className="font-normal" />
+              <SessionLabelBadge labelId={task?.label} className="w-11 text-center font-normal" />
               {contextUsage && (
                 <span className="min-w-0 @min-[500px]/task:hidden">
                   <ContextUsageMeter usage={contextUsage} />
