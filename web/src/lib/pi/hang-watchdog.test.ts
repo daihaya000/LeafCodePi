@@ -329,6 +329,40 @@ describe("hang-watchdog helpers", () => {
     }
   });
 
+  it("restores the missing-live clock when persistence fails", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "leafcode-pi-hang-watchdog-missing-save-"));
+    const previousDataDir = process.env.LEAFCODE_PI_DATA_DIR;
+    process.env.LEAFCODE_PI_DATA_DIR = root;
+    try {
+      armTaskHangWatch({ taskId: "missing-save", prompt: "work" });
+      const before = getTaskHangWatch("missing-save")?.updatedAt;
+      const blocked = path.join(root, "not-a-directory");
+      fs.writeFileSync(blocked, "blocked");
+      const getLive = vi.fn(() => {
+        process.env.LEAFCODE_PI_DATA_DIR = blocked;
+        return null;
+      });
+      registerHangWatchdogHooks({
+        getLive,
+        abortTask: async () => undefined,
+        resumePrompt: () => undefined,
+        notifyHangRetry: () => undefined,
+      });
+      await runHangWatchdogTick();
+      expect(getLive).toHaveBeenCalledOnce();
+      expect(getTaskHangWatch("missing-save")).toMatchObject({ updatedAt: before });
+      expect(getTaskHangWatch("missing-save")?.missingLiveSince).toBeUndefined();
+      process.env.LEAFCODE_PI_DATA_DIR = root;
+      const [saved] = JSON.parse(fs.readFileSync(path.join(root, "hang-watches.json"), "utf8")).watches;
+      expect(saved.missingLiveSince).toBeUndefined();
+    } finally {
+      stopHangWatchdogForTests();
+      if (previousDataDir === undefined) delete process.env.LEAFCODE_PI_DATA_DIR;
+      else process.env.LEAFCODE_PI_DATA_DIR = previousDataDir;
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it("skips corrupt persisted watches without losing valid ones", () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "leafcode-pi-hang-watchdog-corrupt-"));
     const previousDataDir = process.env.LEAFCODE_PI_DATA_DIR;

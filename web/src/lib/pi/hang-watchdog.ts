@@ -541,9 +541,16 @@ async function evaluateWatch(row: TaskHangWatchRow, timeoutMs: number): Promise<
     // a working task and its watch around forever.
     const now = Date.now();
     if (row.missingLiveSince === undefined) {
+      const previousUpdatedAt = row.updatedAt;
       row.missingLiveSince = now;
       row.updatedAt = now;
-      writeStore();
+      try {
+        writeStore();
+      } catch (error) {
+        delete row.missingLiveSince;
+        row.updatedAt = previousUpdatedAt;
+        throw error;
+      }
       logWatchdog("live session missing - waiting for reattachment", row);
       return;
     }
