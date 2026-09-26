@@ -15,6 +15,7 @@ import { BOT_AVATAR_SHAPES } from "@/lib/bot-avatar";
 import { toolNameLabel } from "@/lib/tool-labels";
 import { BOT_CODE_SESSION_CHANGED_EVENT, BOT_DEFAULT_DISABLED_TOOL_NAMES, BOT_TOOL_NAMES, type TaskSummary } from "@/lib/types";
 import { ShellProvider } from "@/components/shell/ShellContext";
+import { ACTIVITY_USAGE_TITLES } from "@/components/ConversationLayout";
 import { saveTaskSessionCache, TASK_SESSION_CACHE_STORAGE_KEY } from "@/lib/task-session-cache";
 import { writeTaskTtsEnabled } from "@/lib/tts-playback";
 let listener: (event: { data: string }) => void;
@@ -1121,8 +1122,9 @@ it("groups consecutive tool-only entries without hiding messages", async () => {
   const groups = container.querySelectorAll<HTMLDetailsElement>("details[data-bot-tool-group]");
   expect(groups).toHaveLength(1);
   expect(groups[0]!.open).toBe(false);
-  // 最初の開始(1.0s)から最後の終了(4.5s)までの経過時間。所要時間の合計(3s)ではない。
-  expect(groups[0]!.querySelector("summary")?.textContent).toContain("2件 · 4s");
+  // Elapsed spans the first start (1.0s) to the last end (4.5s), not the 3s sum; the header shows it.
+  expect(groups[0]!.querySelector("summary")?.textContent).toBe("作業ログ2件");
+  expect(groups[0]!.previousElementSibling?.querySelector("[data-bot-thinking]")?.textContent).toBe("4s");
   expect(groups[0]!.querySelectorAll("button[aria-expanded]")).toHaveLength(2);
   expect(screen.getByText("確認しました").closest("details")).toBeNull();
 });
@@ -1136,9 +1138,13 @@ it("summarizes Bot work-log usage without the reply that has its own bubble", as
     { id: "mixed", role: "assistant", createdAt: 3_500, responseDurationMs: 5_000, outputTokens: 5_000, tokensPerSecond: 20, parts: [tool("tool-2", 9_000), { type: "text", text: "done" }] },
   ] });
 
-  const summary = container.querySelector("details[data-bot-tool-group] summary");
-  // 吹き出しを持つ mixed は使用量に含めず、ツールの実行区間だけ経過時間に入る。
-  expect(summary?.textContent).toBe("作業ログ2件 · 800 tok · 80 tok/s · 9s");
+  const log = container.querySelector("details[data-bot-tool-group]")!;
+  // "mixed" has its own bubble, so it adds only its tool span to the elapsed time.
+  expect(log.querySelector("summary")?.textContent).toBe("作業ログ2件");
+  const header = log.previousElementSibling!;
+  expect(header.querySelector(`[title="${ACTIVITY_USAGE_TITLES.tokens}"]`)?.textContent).toBe("800 tok");
+  expect(header.querySelector(`[title="${ACTIVITY_USAGE_TITLES.rate}"]`)?.textContent).toBe("80 tok/s");
+  expect(header.querySelector("[data-bot-thinking]")?.textContent).toBe("9s");
 });
 
 it("updates the collapsed tool elapsed time while a tool is running", async () => {
@@ -1159,10 +1165,10 @@ it("updates the collapsed tool elapsed time while a tool is running", async () =
     }],
   }], isStreaming: true });
 
-  const summary = () => container.querySelector("details[data-bot-tool-group] summary")?.textContent ?? "";
-  expect(summary()).not.toContain("2s");
+  const elapsed = () => container.querySelector("details[data-bot-tool-group]")?.previousElementSibling?.querySelector("[data-bot-thinking]")?.textContent ?? "";
+  expect(elapsed()).toBe("");
   await act(async () => { await vi.advanceTimersByTimeAsync(2_100); });
-  expect(summary()).toContain("1件 · 2s");
+  expect(elapsed()).toBe("2s");
 });
 
 it("pauses Code request polling while the Bot tab is hidden", async () => {

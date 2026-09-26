@@ -26,7 +26,14 @@ import { Button, cx, formatElapsed, formatMessageTime, readSharedElapsedNowMs, s
 import { AgentRoleIcon } from "@/components/AgentSelect";
 import type { BotFace } from "@/components/bot/BotAvatar";
 import { BotMessageSender, BotMessageTime, BotRevertButton } from "@/components/bot/BotMessageList";
-import { MessageBubble, MessageHeader, messageRowClassFor } from "@/components/ConversationLayout";
+import {
+  ACTIVITY_USAGE_TITLES,
+  activityUsageLabels,
+  type ActivityUsage,
+  MessageBubble,
+  MessageHeader,
+  messageRowClassFor,
+} from "@/components/ConversationLayout";
 import { ImageLightbox } from "@/components/Composer";
 import { ProviderIcon } from "@/components/ProviderIcon";
 import { ReferenceHighlight, type ReferenceHighlightReferences } from "@/components/ReferenceHighlight";
@@ -679,7 +686,7 @@ export const MessageMetaHeader = memo(function MessageMetaHeader({
   effort,
   agent,
   accountLabel,
-  showUsage = true,
+  usage,
 }: {
   message: UiMessage;
   modelLabel?: string;
@@ -688,24 +695,34 @@ export const MessageMetaHeader = memo(function MessageMetaHeader({
   agent?: string;
   /** タスクに紐づく利用アカウントの表示名。 */
   accountLabel?: string;
-  /** グループ全体を表すヘッダーでは、個別応答の使用量を表示しない。 */
-  showUsage?: boolean;
+  /** Work-log header: show the whole log's usage instead of the first response's. */
+  usage?: ActivityUsage;
 }) {
   const model = modelLabel?.trim() || message.model?.trim() || "";
-  const tokens =
-    showUsage && typeof message.outputTokens === "number" && message.outputTokens > 0
+  const group = usage ? activityUsageLabels(usage) : null;
+  const tokens = group
+    ? group.tokens
+    : typeof message.outputTokens === "number" && message.outputTokens > 0
       ? `${formatTokens(message.outputTokens)} tok`
       : "";
-  const rate =
-    showUsage && typeof message.tokensPerSecond === "number"
+  const rate = group
+    ? group.rate
+    : typeof message.tokensPerSecond === "number"
       ? formatTokensPerSecond(message.tokensPerSecond)
       : "";
-  // 応答全体の所要時間（直前レコードからの差分）。本家も同じ近似で
-  // 「thinking 秒」として表示している。
-  const thinking =
-    showUsage && typeof message.responseDurationMs === "number" && message.responseDurationMs > 0
+  const slow = group ? group.slow : isSlowTokensPerSecond(message.tokensPerSecond);
+  // Whole response time (generation start to the last token), shown like upstream's "thinking" seconds.
+  // A work-log header shows the log's elapsed time instead.
+  const thinking = group
+    ? group.elapsed
+    : typeof message.responseDurationMs === "number" && message.responseDurationMs > 0
       ? formatElapsed(message.responseDurationMs)
       : "";
+  const groupTitles: Record<string, string> = {
+    tokens: ACTIVITY_USAGE_TITLES.tokens,
+    rate: ACTIVITY_USAGE_TITLES.rate,
+    thinking: ACTIVITY_USAGE_TITLES.elapsed,
+  };
   const fields = [
     model ? { key: "model", text: model } : null,
     effort?.trim() ? { key: "effort", text: effort.trim() } : null,
@@ -742,19 +759,21 @@ export const MessageMetaHeader = memo(function MessageMetaHeader({
                     ? "min-w-0 max-w-64 truncate"
                     : "shrink-0",
                 field.key === "rate" && "tabular-nums",
-                field.key === "rate" && isSlowTokensPerSecond(message.tokensPerSecond) && "text-danger",
+                field.key === "rate" && slow && "text-danger",
                 hideOnNarrowTask && "hidden @min-[48rem]/task:inline",
               )}
               title={
-                field.key === "rate" && message.tokensPerSecondDecode
-                  ? "decode tok/s（最初のトークン以降、TTFT 除外）"
-                  : field.key === "rate"
-                    ? "end-to-end tok/s（TTFT 含む）"
-                    : field.key === "thinking"
-                      ? "応答時間（思考＋生成を含む目安）"
-                      : field.key === "model"
-                        ? field.text
-                        : undefined
+                group && groupTitles[field.key]
+                  ? groupTitles[field.key]
+                  : field.key === "rate" && message.tokensPerSecondDecode
+                    ? "decode tok/s（最初のトークン以降、TTFT 除外）"
+                    : field.key === "rate"
+                      ? "end-to-end tok/s（TTFT 含む）"
+                      : field.key === "thinking"
+                        ? "応答時間（思考＋生成を含む目安）"
+                        : field.key === "model"
+                          ? field.text
+                          : undefined
               }
             >
               {field.key === "agent" && <AgentRoleIcon name={field.text} />}

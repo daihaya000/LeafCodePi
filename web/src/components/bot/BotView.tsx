@@ -10,7 +10,7 @@ import { notifyBotSidebarChanged } from "@/lib/events";
 import { ModelSelect, modelOptionForValue } from "@/components/ModelSelect";
 import { ThinkingSelect } from "@/components/ThinkingSelect";
 import { Button } from "@/components/ui";
-import { ActivityLog, conversationContentClass, MessageHeader } from "@/components/ConversationLayout";
+import { ActivityLog, type ActivityUsage, conversationContentClass, MessageHeader } from "@/components/ConversationLayout";
 import { BotAvatarPicker, type AvatarPatch } from "@/components/bot/BotAvatarPicker";
 import { BotSkillsSettings } from "@/components/bot/BotSkillsSettings";
 import { BotRoutineSettings } from "@/components/bot/BotRoutineSettings";
@@ -104,7 +104,7 @@ function BotToolActivityGroup({ messages, bot, botId, active, modelLabels }: { m
   return (
     <ActivityLog
       kind="bot"
-      header={firstMessage ? <MessageHeader><BotMessageSender {...bot} name={bot?.name ?? "ボット"} createdAt={firstMessage.createdAt} providerID={firstMessage.provider} modelLabel={botMessageModelLabel(firstMessage, modelLabels)} responseDurationMs={firstMessage.responseDurationMs} /></MessageHeader> : undefined}
+      header={firstMessage ? (usage: ActivityUsage) => <MessageHeader><BotMessageSender {...bot} name={bot?.name ?? "ボット"} createdAt={firstMessage.createdAt} providerID={firstMessage.provider} modelLabel={botMessageModelLabel(firstMessage, modelLabels)} usage={usage} /></MessageHeader> : undefined}
       count={parts.length}
       parts={parts}
       // 吹き出しを持つ応答はそちら側の応答なので、作業ログの使用量・経過時間に数えない。

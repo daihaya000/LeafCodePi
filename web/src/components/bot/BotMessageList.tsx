@@ -5,7 +5,7 @@ import Link from "next/link";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { FileText, RotateCcw } from "lucide-react";
-import { conversationViewportClass, MessageBubble, MessageHeader, messageRowClassFor } from "@/components/ConversationLayout";
+import { ACTIVITY_USAGE_TITLES, activityUsageLabels, type ActivityUsage, conversationViewportClass, MessageBubble, MessageHeader, messageRowClassFor } from "@/components/ConversationLayout";
 import { BotAvatar, type BotFace } from "@/components/bot/BotAvatar";
 import { ProjectIcon } from "@/components/ProjectIcon";
 import { ProviderIcon } from "@/components/ProviderIcon";
@@ -186,11 +186,14 @@ export function BotResponseStatus({
 }
 
 /** Sender line above the bubble, mirroring Code mode's meta header. */
-export function BotMessageSender({ name, createdAt, active = false, providerID, modelLabel, responseDurationMs, ...face }: BotFace & { name: string; createdAt?: number; active?: boolean; providerID?: string; modelLabel?: string; responseDurationMs?: number }) {
+export function BotMessageSender({ name, createdAt, active = false, providerID, modelLabel, responseDurationMs, usage, ...face }: BotFace & { name: string; createdAt?: number; active?: boolean; providerID?: string; modelLabel?: string; responseDurationMs?: number; /** Work-log header: the whole log's usage replaces the response time. */ usage?: ActivityUsage }) {
   const model = modelLabel?.trim();
-  const thinking = typeof responseDurationMs === "number" && responseDurationMs > 0
-    ? formatElapsed(responseDurationMs)
-    : "";
+  const labels = usage ? activityUsageLabels(usage) : null;
+  const thinking = labels
+    ? labels.elapsed
+    : typeof responseDurationMs === "number" && responseDurationMs > 0
+      ? formatElapsed(responseDurationMs)
+      : "";
   return (
     <div className="flex w-full min-w-0 max-w-full items-center gap-1.5 overflow-hidden text-[11px] font-medium text-muted">
       <span aria-hidden="true" className="shrink-0"><BotAvatar size={16} {...face} name={name} active={active} /></span>
@@ -202,7 +205,9 @@ export function BotMessageSender({ name, createdAt, active = false, providerID, 
         </span>
       )}
       {createdAt !== undefined && <BotMessageTime createdAt={createdAt} className="ml-1 mt-0 shrink-0" />}
-      {thinking && <span data-bot-thinking className="ml-1 shrink-0" title="応答時間（思考＋生成を含む目安）">{thinking}</span>}
+      {labels?.tokens && <span className="ml-1 shrink-0 tabular-nums" title={ACTIVITY_USAGE_TITLES.tokens}>{labels.tokens}</span>}
+      {labels?.rate && <span className={cx("ml-1 shrink-0 tabular-nums", labels.slow && "text-danger")} title={ACTIVITY_USAGE_TITLES.rate}>{labels.rate}</span>}
+      {thinking && <span data-bot-thinking className="ml-1 shrink-0" title={labels ? ACTIVITY_USAGE_TITLES.elapsed : "応答時間（思考＋生成を含む目安）"}>{thinking}</span>}
     </div>
   );
 }

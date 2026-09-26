@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, type ReactNode, useLayoutEffect, useRef, useState } from "react";
+import { type ReactNode, useLayoutEffect, useRef, useState } from "react";
 import { ChevronRight, ScrollText } from "lucide-react";
 import { cx, formatDuration, useToolElapsedMs } from "@/components/ui";
 import { formatTokens } from "@/lib/context-usage";
@@ -28,10 +28,30 @@ export function MessageBubble({ user = false, neutral = false, className, childr
   )}>{children}</div>;
 }
 
+/** 作業ログ全体の使用量。見出しのメタ行（Code は MessageMetaHeader、Bot は BotMessageSender）に出す。 */
+export type ActivityUsage = { outputTokens: number; avgRate: number | null; elapsedMs: number };
+
+/** メタ行に出す使用量の表記（空文字の項目は出さない）。Code と Bot で表記を揃える。 */
+export function activityUsageLabels(usage: ActivityUsage) {
+  return {
+    tokens: usage.outputTokens > 0 ? `${formatTokens(usage.outputTokens)} tok` : "",
+    rate: usage.avgRate === null ? "" : formatTokensPerSecond(usage.avgRate),
+    slow: isSlowTokensPerSecond(usage.avgRate),
+    elapsed: usage.elapsedMs > 0 ? formatDuration(usage.elapsedMs) : "",
+  };
+}
+
+export const ACTIVITY_USAGE_TITLES = {
+  tokens: "作業ログ内の合計出力トークン",
+  rate: "作業ログ内の平均 tok/s（各応答の tok/s の平均）",
+  elapsed: "作業ログの経過時間（最初の開始から最後の終了まで）",
+} as const;
+
 /** Keep Bot/Code log icons and layout here to prevent drift; callers own grouping and choose which responses count toward usage. */
 export function ActivityLog({ children, header, count, parts, messages = [], active, kind }: {
   children: ReactNode;
-  header?: ReactNode;
+  /** 枠外と展開内容の先頭に出すメタ行。関数なら作業ログ全体の使用量を受け取って描く。 */
+  header?: ReactNode | ((usage: ActivityUsage) => ReactNode);
   count: number;
   parts: readonly UiPart[];
   /** 使用量と経過時間に数える応答。本文を吹き出しに出す応答は吹き出し側の応答として含めない。 */
@@ -40,15 +60,7 @@ export function ActivityLog({ children, header, count, parts, messages = [], act
   kind: "bot" | "task";
 }) {
   const elapsedMs = useToolElapsedMs(parts, active, messages);
-  const usage = summarizeThroughput(messages);
-  const rateLabel = usage.avgRate === null ? "" : formatTokensPerSecond(usage.avgRate);
-  // 並びはセッションヘッダーと同じ（件数 → 合計出力tok → 平均tok/s → 経過時間）。
-  const stats = [
-    { key: "count", text: `${count}件` },
-    usage.outputTokens > 0 ? { key: "tokens", text: `${formatTokens(usage.outputTokens)} tok`, title: "作業ログ内の合計出力トークン" } : null,
-    rateLabel ? { key: "rate", text: rateLabel, title: "作業ログ内の平均 tok/s（各応答の tok/s の平均）" } : null,
-    elapsedMs > 0 ? { key: "elapsed", text: formatDuration(elapsedMs), title: "作業ログの経過時間（最初の開始から最後の終了まで）" } : null,
-  ].filter((stat) => stat !== null);
+  const headerNode = typeof header === "function" ? header({ ...summarizeThroughput(messages), elapsedMs }) : header;
   const scrollerRef = useRef<HTMLDivElement | null>(null);
   const contentRef = useRef<HTMLDivElement | null>(null);
   const stickRef = useRef(true);
@@ -87,21 +99,8 @@ export function ActivityLog({ children, header, count, parts, messages = [], act
       <summary className="flex min-h-11 cursor-pointer list-none items-center gap-2 bg-surface-2 px-3 py-2.5 text-left text-sm text-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary [&::-webkit-details-marker]:hidden">
         <ChevronRight className="h-4 w-4 shrink-0 transition-transform group-open/tool-activity:rotate-90" aria-hidden="true" />
         <ScrollText className="h-4 w-4 shrink-0" aria-hidden="true" />
-        <span className="shrink-0 font-medium">作業ログ</span>
-        {/* 幅狭では項目の区切りで折り返し、ラベルは潰さない。 */}
-        <span className="min-w-0 flex-1 text-right text-xs text-faint">
-          {stats.map((stat, index) => (
-            <Fragment key={stat.key}>
-              {index > 0 && " · "}
-              <span
-                title={stat.title}
-                className={cx("whitespace-nowrap tabular-nums", stat.key === "rate" && isSlowTokensPerSecond(usage.avgRate) && "text-danger")}
-              >
-                {stat.text}
-              </span>
-            </Fragment>
-          ))}
-        </span>
+        <span className="min-w-0 flex-1 font-medium">作業ログ</span>
+        <span className="shrink-0 text-xs text-faint">{count}件</span>
       </summary>
       <div
         ref={scrollerRef}
@@ -114,15 +113,15 @@ export function ActivityLog({ children, header, count, parts, messages = [], act
         className="max-h-[min(28rem,50dvh)] min-w-0 overflow-y-auto overscroll-y-contain border-t border-border bg-surface p-2 [&_.max-w-bubble]:max-w-full"
       >
         <div ref={contentRef} className="min-w-0 space-y-2">
-          {header}
+          {headerNode}
           {children}
         </div>
       </div>
     </details>
   );
-  return header ? (
+  return headerNode ? (
     <div className="w-full min-w-0 self-start space-y-2">
-      {header}
+      {headerNode}
       {log}
     </div>
   ) : log;

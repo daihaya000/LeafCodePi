@@ -3,6 +3,7 @@ import { useLayoutEffect } from "react";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import type { UiMessage } from "@/lib/types";
+import { ACTIVITY_USAGE_TITLES } from "@/components/ConversationLayout";
 import { formatElapsed, MessageMetaHeader, PartView } from "./PartView";
 
 function bashMessage(output: string): UiMessage {
@@ -273,7 +274,7 @@ describe("PartView sender and response metadata", () => {
     }
   });
 
-  it("omits per-response usage from a group header", () => {
+  it("shows the whole work log's usage instead of the first response's in a group header", () => {
     render(
       <MessageMetaHeader
         message={{
@@ -286,13 +287,22 @@ describe("PartView sender and response metadata", () => {
           responseDurationMs: 3_000,
           parts: [],
         }}
-        showUsage={false}
+        usage={{ outputTokens: 1_500, avgRate: 40, elapsedMs: 170_000 }}
       />,
     );
 
     expect(screen.queryByText("32 tok")).toBeNull();
     expect(screen.queryByText("22 tok/s")).toBeNull();
     expect(screen.queryByText("3s")).toBeNull();
+    expect(screen.getByText("1.5k tok").getAttribute("title")).toBe(ACTIVITY_USAGE_TITLES.tokens);
+    const rate = screen.getByText("40 tok/s");
+    expect(rate.getAttribute("title")).toBe(ACTIVITY_USAGE_TITLES.rate);
+    expect(rate.className).toContain("text-danger");
+    expect(screen.getByText("2m 50s").getAttribute("title")).toBe(ACTIVITY_USAGE_TITLES.elapsed);
+    // Same narrow-pane rule as per-response usage.
+    for (const label of ["1.5k tok", "40 tok/s", "2m 50s"]) {
+      expect(screen.getByText(label).className).toContain("hidden @min-[48rem]/task:inline");
+    }
     expect(screen.getByText("gpt")).toBeTruthy();
   });
 

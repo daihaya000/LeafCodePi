@@ -614,9 +614,9 @@ it("groups consecutive tool-only messages between agent responses", () => {
   expect(group!.getAttribute("aria-label")).toBe("作業ログ");
   expect(group!.querySelector("summary")?.textContent).toContain("作業ログ");
   expect(group!.querySelector("summary .lucide-scroll-text")?.getAttribute("aria-hidden")).toBe("true");
-  expect(group!.querySelector("summary")?.textContent).toContain("2件");
-  // 最初の開始(2.0s)から最後の終了(5.0s)までの経過時間。所要時間の合計(2s)ではない。
-  expect(group!.querySelector("summary")?.textContent).toContain("3s");
+  expect(group!.querySelector("summary")?.textContent).toBe("作業ログ2件");
+  // Elapsed spans the first start (2.0s) to the last end (5.0s), not the 2s sum; the header shows it.
+  expect(mocks.messageMetaHeader.mock.calls.find(([props]) => props.usage)?.[0].usage).toEqual({ outputTokens: 0, avgRate: null, elapsedMs: 3_000 });
   expect(group!.querySelectorAll("[data-task-tool-card]")).toHaveLength(2);
   // 先頭のメタ行は閉じた状態でも見せ、展開内容にも各メッセージのメタ行を残す。
   expect(group!.previousElementSibling?.querySelector("[data-task-meta]")?.getAttribute("data-task-meta")).toBe("tool-1");
@@ -668,8 +668,9 @@ it("summarizes usage only for work-log responses whose headers stay in the log",
   render(<TaskView taskId={task.id} mdUp />);
 
   const summary = document.querySelector("details[data-task-tool-group] summary");
-  // a1〜a2 の生成開始(10.0s)から最後のツール終了(16.0s)まで。a3 は含めない。
-  expect(summary?.textContent).toBe("作業ログ4件 · 1.5k tok · 40 tok/s · 6s");
+  // a1..a2 span from generation start (10.0s) to the last tool end (16.0s); a3 is not counted.
+  expect(summary?.textContent).toBe("作業ログ4件");
+  expect(mocks.messageMetaHeader.mock.calls.find(([props]) => props.usage)?.[0].usage).toEqual({ outputTokens: 1_500, avgRate: 40, elapsedMs: 6_000 });
 });
 
 it("groups every non-message part while keeping each message header", () => {

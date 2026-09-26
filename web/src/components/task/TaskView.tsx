@@ -62,7 +62,7 @@ import {
   type QueuedFollowUp,
 } from "@/components/task/QueuedFollowUpsNotice";
 import { Badge, Button, cx, formatDuration, GhostSelect } from "@/components/ui";
-import { ActivityLog, conversationContentClass, conversationViewportClass, MessageHeader } from "@/components/ConversationLayout";
+import { ActivityLog, type ActivityUsage, conversationContentClass, conversationViewportClass, MessageHeader } from "@/components/ConversationLayout";
 import {
   AUTO_MODEL_OPTION,
   AUTO_MODEL_VALUE,
@@ -3316,18 +3316,21 @@ export const TaskView = memo(function TaskView({
                       const accountLabel = message.accountId
                         ? (accountLabels.get(message.accountId) ?? message.accountId)
                         : (taskAccountLabel ?? undefined);
-                      return (
-                        <MessageHeader>
-                          <MessageMetaHeader
-                            message={message}
-                            modelLabel={modelLabel}
-                            effort={effortLabel}
-                            agent={message.agent ?? task?.agent ?? undefined}
-                            accountLabel={accountLabel}
-                            showUsage={false}
-                          />
-                        </MessageHeader>
-                      );
+                      // The group header carries the whole log's usage; the summary keeps only the count.
+                      return function renderActivityHeader(usage: ActivityUsage) {
+                        return (
+                          <MessageHeader>
+                            <MessageMetaHeader
+                              message={message}
+                              modelLabel={modelLabel}
+                              effort={effortLabel}
+                              agent={message.agent ?? task?.agent ?? undefined}
+                              accountLabel={accountLabel}
+                              usage={usage}
+                            />
+                          </MessageHeader>
+                        );
+                      };
                     })()
                   : undefined;
               const activityContents =
