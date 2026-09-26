@@ -363,6 +363,47 @@ describe("hang-watchdog helpers", () => {
     }
   });
 
+  it("restores the missing-live clock when reconnect persistence fails", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "leafcode-pi-hang-watchdog-reconnect-"));
+    const previousDataDir = process.env.LEAFCODE_PI_DATA_DIR;
+    process.env.LEAFCODE_PI_DATA_DIR = root;
+    try {
+      armTaskHangWatch({ taskId: "reconnect", prompt: "work" });
+      const blocked = path.join(root, "not-a-directory");
+      fs.writeFileSync(blocked, "blocked");
+      let reconnected = false;
+      const getLive = vi.fn(() => {
+        if (!reconnected) return null;
+        process.env.LEAFCODE_PI_DATA_DIR = blocked;
+        return { messages: [], isStreaming: true, isCompacting: false };
+      });
+      registerHangWatchdogHooks({
+        getLive,
+        abortTask: async () => undefined,
+        resumePrompt: () => undefined,
+        notifyHangRetry: () => undefined,
+      });
+      await runHangWatchdogTick();
+      const before = getTaskHangWatch("reconnect");
+      expect(before?.missingLiveSince).toBeDefined();
+      reconnected = true;
+      await runHangWatchdogTick();
+      expect(getLive).toHaveBeenCalledTimes(2);
+      process.env.LEAFCODE_PI_DATA_DIR = root;
+      const [saved] = JSON.parse(fs.readFileSync(path.join(root, "hang-watches.json"), "utf8")).watches;
+      expect(getTaskHangWatch("reconnect")).toMatchObject({
+        missingLiveSince: saved.missingLiveSince,
+        updatedAt: saved.updatedAt,
+      });
+      expect(saved.missingLiveSince).toBeDefined();
+    } finally {
+      stopHangWatchdogForTests();
+      if (previousDataDir === undefined) delete process.env.LEAFCODE_PI_DATA_DIR;
+      else process.env.LEAFCODE_PI_DATA_DIR = previousDataDir;
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it("skips corrupt persisted watches without losing valid ones", () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "leafcode-pi-hang-watchdog-corrupt-"));
     const previousDataDir = process.env.LEAFCODE_PI_DATA_DIR;

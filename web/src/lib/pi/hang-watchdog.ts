@@ -576,9 +576,17 @@ async function evaluateWatch(row: TaskHangWatchRow, timeoutMs: number): Promise<
     return;
   }
   if (row.missingLiveSince !== undefined) {
+    const previousMissingLiveSince = row.missingLiveSince;
+    const previousUpdatedAt = row.updatedAt;
     delete row.missingLiveSince;
     row.updatedAt = Date.now();
-    writeStore();
+    try {
+      writeStore();
+    } catch (error) {
+      row.missingLiveSince = previousMissingLiveSince;
+      row.updatedAt = previousUpdatedAt;
+      throw error;
+    }
   }
 
   const { messages, isStreaming, isCompacting, hasPendingAttention } = live;
