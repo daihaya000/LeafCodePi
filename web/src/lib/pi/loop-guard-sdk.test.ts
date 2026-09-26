@@ -15,6 +15,7 @@ import { fauxAssistantMessage, fauxProvider, fauxToolCall } from "@earendil-work
 import { Type } from "typebox";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { bundledExtensionEntries } from "@/lib/extensions";
+import { installToolResultCap, MAX_TOOL_RESULT_CHARS } from "./tool-result-cap";
 import goalLoopExtension from "../../../../extensions/leafcode-goal-loop/index";
 import loopGuardExtension, {
   callIdentity,
@@ -41,7 +42,7 @@ type Responses = Parameters<ReturnType<typeof fauxProvider>["setResponses"]>[0];
 const probeCall = (path: string) => fauxAssistantMessage([fauxToolCall("probe", { path })], { stopReason: "toolUse" });
 
 /** Real SDK session: the loop guard sees the same tool_call/tool_result/message events as in the WebUI. */
-async function createSession(probe: Probe, responses: Responses, extensions: ExtensionFactory[] = []) {
+async function createSession(probe: Probe, responses: Responses, extensions: ExtensionFactory[] = [], guardFirst = false) {
   const agentDir = join(root, "agent");
   mkdirSync(agentDir, { recursive: true });
   const settingsManager = SettingsManager.inMemory();
@@ -68,7 +69,9 @@ async function createSession(probe: Probe, responses: Responses, extensions: Ext
     noThemes: true,
     noContextFiles: true,
     // The bundled extensions resolve Pi types from the repo root; run them on the WebUI's SDK.
-    extensionFactories: [probeTool, ...extensions, loopGuardExtension as unknown as ExtensionFactory],
+    extensionFactories: [probeTool, ...(guardFirst
+      ? [loopGuardExtension as unknown as ExtensionFactory, ...extensions]
+      : [...extensions, loopGuardExtension as unknown as ExtensionFactory])],
   });
   await resourceLoader.reload();
   const faux = fauxProvider();
@@ -105,6 +108,55 @@ function probeResults(session: AgentSession): { text: string; isError: boolean }
 }
 
 const warned = (result: { text: string }) => result.text.includes("[loop-guard]");
+
+it("keeps the warning visible after the production output cap", async () => {
+  const { session } = await createSession(
+    () => "x".repeat(MAX_TOOL_RESULT_CHARS + 1000),
+    [...Array.from({ length: WARN_REPEATS + 1 }, () => probeCall(WRONG_PATH)), fauxAssistantMessage("done")],
+  );
+  installToolResultCap(session.agent);
+  try {
+    await session.prompt("check");
+    expect(warned(probeResults(session)[WARN_REPEATS])).toBe(true);
+  } finally {
+    session.dispose();
+  }
+});
+
+it("does not mistake changing results that revisit an old value for no progress", async () => {
+  const total = STOP_REPEATS + 4;
+  const { session, executions } = await createSession(
+    (_path, call) => String(call % 2),
+    [...Array.from({ length: total }, () => probeCall(WRONG_PATH)), fauxAssistantMessage("done")],
+  );
+  try {
+    await session.prompt("monitor state transitions");
+    expect(executions()).toBe(total);
+    expect(probeResults(session).some(warned)).toBe(false);
+  } finally {
+    session.dispose();
+  }
+});
+
+it.each([false, true])("stops repeated denials regardless of extension load order (guardFirst=%s)", async (guardFirst) => {
+  const deny: ExtensionFactory = (api) => {
+    api.on("tool_call", () => ({ block: true, reason: "Denied by another extension" }));
+  };
+  const { session, faux, executions } = await createSession(
+    () => "should not execute",
+    [...Array.from({ length: STOP_REPEATS + 5 }, () => probeCall(WRONG_PATH)), fauxAssistantMessage("done")],
+    [deny],
+    guardFirst,
+  );
+  try {
+    await session.prompt("check");
+    expect(executions()).toBe(0);
+    expect(probeResults(session).some(warned)).toBe(true);
+    expect(faux.state.callCount).toBeLessThanOrEqual(STOP_REPEATS + 3);
+  } finally {
+    session.dispose();
+  }
+});
 
 it("is discovered and loaded from the bundled extensions directory like the WebUI", async () => {
   // harness.ts passes bundledExtensionEntries() to the SDK as additionalExtensionPaths.
@@ -161,6 +213,27 @@ it("warns on repeated identical results, blocks the call, then ends the run", as
   }
 });
 
+it("clears the previous stop after the model makes fresh progress", async () => {
+  const attempts = STOP_REPEATS + 2;
+  const { session, faux } = await createSession(
+    (path) => path,
+    [
+      ...Array.from({ length: attempts }, () => probeCall(WRONG_PATH)),
+      ...Array.from({ length: attempts }, () => probeCall("C:/work/new-path")),
+      fauxAssistantMessage("reported to user"),
+    ],
+  );
+  try {
+    await session.prompt("check");
+    const blocked = probeResults(session).filter((result) => result.isError);
+    expect(blocked).toHaveLength(2);
+    expect(blocked.every((result) => result.text.includes("この呼び出しを止めました"))).toBe(true);
+    expect(faux.getPendingResponseCount()).toBe(0);
+  } finally {
+    session.dispose();
+  }
+});
+
 it("detects a short cycle of already-seen results", async () => {
   const paths = Array.from({ length: STOP_REPEATS + 6 }, (_, index) => (index % 2 ? "C:/work" : WRONG_PATH));
   const { session, executions } = await createSession(
@@ -171,6 +244,24 @@ it("detects a short cycle of already-seen results", async () => {
     await session.prompt("find the pdf extractor");
     // Two first-time results, then STOP_REPEATS repeats of known results.
     expect(executions()).toBe(STOP_REPEATS + 2);
+    expect(probeResults(session).at(-1)?.text).toContain("この実行を終了しました");
+  } finally {
+    session.dispose();
+  }
+});
+
+it("terminates duplicate calls in parallel batches without counting a result twice", async () => {
+  const { session, executions, faux } = await createSession(
+    () => "False",
+    Array.from({ length: STOP_REPEATS + 4 }, () => fauxAssistantMessage([
+      fauxToolCall("probe", { path: WRONG_PATH }),
+      fauxToolCall("probe", { path: WRONG_PATH }),
+    ], { stopReason: "toolUse" })),
+  );
+  try {
+    await session.prompt("check twice");
+    expect(executions()).toBe(STOP_REPEATS + 2);
+    expect(faux.state.callCount).toBe(7);
     expect(probeResults(session).at(-1)?.text).toContain("この実行を終了しました");
   } finally {
     session.dispose();

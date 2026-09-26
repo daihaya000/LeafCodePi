@@ -75,14 +75,15 @@ test("launcher installs PowerShell 7 only when missing and puts it on PATH for t
   const root = mkdtempSync(join(tmpdir(), "leafcode-pwsh-"));
   try {
     // A fake winget stands in for the real one, so the test never installs anything.
-    const run = ({ pwshOnPath = false, preinstalled = false, winget }) => {
+    const run = ({ pwshOnPath = false, wrapperOnly = false, preinstalled = false, winget }) => {
       const dir = mkdtempSync(join(root, "case-"));
       const bin = join(dir, "bin");
       const programFiles = join(dir, "Program Files");
       const pwshDir = join(programFiles, "PowerShell", "7");
       const log = join(dir, "winget.log");
       mkdirSync(bin, { recursive: true });
-      if (pwshOnPath) writeFileSync(join(bin, "pwsh.bat"), "@exit /b 0\r\n", "ascii");
+      if (pwshOnPath) writeFileSync(join(bin, "pwsh.exe"), "", "ascii");
+      if (wrapperOnly) writeFileSync(join(bin, "pwsh.bat"), "@exit /b 0\r\n", "ascii");
       if (preinstalled) {
         mkdirSync(pwshDir, { recursive: true });
         writeFileSync(join(pwshDir, "pwsh.exe"), "", "ascii");
@@ -129,6 +130,11 @@ test("launcher installs PowerShell 7 only when missing and puts it on PATH for t
     const onPath = run({ pwshOnPath: true, winget: "installs" });
     assert.ok(onPath.pathUnchanged);
     assert.equal(onPath.wingetArgs, "");
+
+    // Pi resolves pwsh.exe, not a pwsh.bat wrapper.
+    const wrapper = run({ wrapperOnly: true, winget: "installs" });
+    assert.match(wrapper.wingetArgs, /^install --id Microsoft\.PowerShell --exact /);
+    assert.ok(wrapper.pathPrefixed);
 
     const installedOffPath = run({ preinstalled: true, winget: "installs" });
     assert.ok(installedOffPath.pathPrefixed);

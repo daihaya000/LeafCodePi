@@ -160,7 +160,7 @@ rem Pi's powershell tool uses pwsh.exe when it is on PATH and otherwise falls
 rem back to Windows PowerShell 5.1, which reads BOM-less scripts in the ANSI
 rem code page (CP932) and garbles Japanese text. The per-machine installer may
 rem show a UAC prompt; declining it only prints a warning.
-where pwsh >nul 2>&1
+where pwsh.exe >nul 2>&1
 if not errorlevel 1 exit /b 0
 if exist "%ProgramFiles%\\PowerShell\\7\\pwsh.exe" goto :pwsh_path
 where winget >nul 2>&1

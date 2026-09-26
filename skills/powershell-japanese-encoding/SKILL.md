@@ -79,11 +79,11 @@ For a byte-exact native interface, avoid a PowerShell text pipeline and use redi
 
 ### Japanese literals in patterns and comparisons
 
-Source text is decoded before it runs: Windows PowerShell 5.1 reads a BOM-less `.ps1` in the ANSI code page (CP932 on Japanese Windows), and native-process output is decoded with `[Console]::OutputEncoding`. A mis-decoded Japanese literal can break parsing when a CP932 lead byte swallows the closing quote; when it still parses, it raises no error and `-match`, `-like`, `-eq`, `Select-String`, and `.Contains()` silently return False or no match (observed with BOM-less UTF-8 scripts on 5.1: `'設定'` fails to parse, `'日本'` parses but never matches). Keep such scripts ASCII-only by writing non-ASCII characters as `\uXXXX` in regex patterns and as `[char]0xXXXX` in string literals:
+Source text is decoded before it runs: Windows PowerShell 5.1 reads a BOM-less `.ps1` in the ANSI code page (CP932 on Japanese Windows), and native-process output is decoded with `[Console]::OutputEncoding`. A mis-decoded Japanese literal can break parsing when a CP932 lead byte swallows the closing quote; when it still parses, it raises no error and `-match`, `-like`, `-eq`, `Select-String`, and `.Contains()` silently return False or no match (observed with BOM-less UTF-8 scripts on 5.1: `'設定'` fails to parse, `'日本'` parses but never matches). Keep such scripts ASCII-only (including comments) by writing non-ASCII characters as `\uXXXX` in regex patterns and as `[char]0xXXXX` in string literals. These escapes do not repair input that was already decoded incorrectly, and `\uXXXX` is not expanded by `-eq` or `-like`:
 
 ```powershell
-# "設定" as an ASCII-only regex; the .NET regex engine decodes \uXXXX itself.
-if ($line -match '\u8A2D\u5B9A') { ... }
+# U+8A2D U+5B9A: the .NET regex engine decodes \uXXXX itself.
+$matched = $line -match '\u8A2D\u5B9A'
 
 # The same text for -eq / -like / Contains.
 $expected = "$([char]0x8A2D)$([char]0x5B9A)"

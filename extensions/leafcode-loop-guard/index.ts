@@ -89,6 +89,24 @@ export class LoopGuard {
     this.pending.clear();
   }
 
+  /** This event precedes all tool_call handlers, including permission denials. */
+  recordStart(toolCallId: string, toolName: string, input: unknown): void {
+    if (!WAIT_TOOLS.has(toolName)) this.pending.set(toolCallId, callIdentity(toolName, input));
+  }
+
+  hasPending(toolCallId: string): boolean {
+    return this.pending.has(toolCallId);
+  }
+
+  clearPending(): void {
+    this.pending.clear();
+  }
+
+  /** Earlier blocking handlers can bypass our tool_call hook; bound that path too. */
+  shouldAbortDeniedLoop(): boolean {
+    return this.repeats >= STOP_REPEATS + 2;
+  }
+
   /** 実行前: 止める呼び出しなら理由を返す。未実行の呼び出しは結果が分からないので止めない。 */
   beforeCall(toolCallId: string, toolName: string, input: unknown): LoopGuardStop | undefined {
     if (WAIT_TOOLS.has(toolName)) return undefined;
@@ -98,6 +116,8 @@ export class LoopGuard {
       this.pending.set(toolCallId, call);
       return undefined;
     }
+    // Our own diagnostic must not reset the streak when its result is emitted.
+    this.pending.delete(toolCallId);
     const terminate = this.stops > 0;
     this.stops += 1;
     return { reason: stopText(this.repeats, terminate), terminate };
@@ -115,7 +135,11 @@ export class LoopGuard {
     const call = this.pending.get(toolCallId) ?? callIdentity(toolName, input);
     this.pending.delete(toolCallId);
     const outcome = outcomeIdentity(call, content, isError);
-    this.repeats = this.recent.some((entry) => entry.outcome === outcome) ? this.repeats + 1 : 0;
+    // Compare with the latest observation for this call, not any older value.
+    // A changing monitor may legitimately revisit a previous state.
+    const previous = [...this.recent].reverse().find((entry) => entry.call === call);
+    this.repeats = previous?.outcome === outcome ? this.repeats + 1 : 0;
+    if (this.repeats === 0) this.stops = 0;
     this.recent.push({ call, outcome });
     if (this.recent.length > WINDOW) this.recent.shift();
     return this.repeats >= WARN_REPEATS ? warningText(this.repeats) : undefined;
@@ -138,6 +162,11 @@ export default function leafcodeLoopGuard(pi: ExtensionAPI): void {
   pi.on("session_start", reset);
   pi.on("agent_start", reset);
   pi.on("session_compact", reset);
+  pi.on("session_shutdown", reset);
+  pi.on("agent_end", () => guard.clearPending());
+  pi.on("tool_execution_start", (event) => {
+    guard.recordStart(event.toolCallId, event.toolName, event.args);
+  });
   // Prompts, steer/follow-up, Goal Loop turns and other extensions' messages
   // all enter the run as user/custom messages: each one is new information.
   pi.on("message_start", (event) => {
@@ -154,6 +183,21 @@ export default function leafcodeLoopGuard(pi: ExtensionAPI): void {
   });
   pi.on("tool_result", (event) => {
     const warning = guard.afterCall(event.toolCallId, event.toolName, event.input, event.content, event.isError);
-    return warning ? { content: [...event.content, { type: "text" as const, text: warning }] } : undefined;
+    // The WebUI cap spends its budget from the first block onwards.
+    return warning ? { content: [{ type: "text" as const, text: warning }, ...event.content] } : undefined;
+  });
+  pi.on("message_end", (event, ctx) => {
+    const message = event.message;
+    if (message.role !== "toolResult" || !guard.hasPending(message.toolCallId)) return;
+    // Blocked/invalid calls skip tool_result, but still publish a toolResult message.
+    let warning = guard.afterCall(message.toolCallId, message.toolName, undefined, message.content, message.isError);
+    if (guard.shouldAbortDeniedLoop()) {
+      warning = `${TAG} 拒否された同じ呼び出しの繰り返しを検知し、実行を中断しました。`;
+      notify(ctx, warning);
+      ctx.abort();
+    }
+    return warning ? {
+      message: { ...message, content: [{ type: "text" as const, text: warning }, ...message.content] },
+    } : undefined;
   });
 }
