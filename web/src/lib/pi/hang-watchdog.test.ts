@@ -455,6 +455,7 @@ describe("hang-watchdog helpers", () => {
       recoverInterruptedHangWatches();
       expect(getTaskHangWatch("valid")).toMatchObject({ retryUsed: MAX_HANG_RETRIES, state: "armed" });
       expect(JSON.parse(fs.readFileSync(file, "utf8")).watches[0].retryUsed).toBe(MAX_HANG_RETRIES);
+      expect(fs.existsSync(`${file}.lock`)).toBe(false);
       expect(fs.existsSync(temp)).toBe(false);
       expect(fs.existsSync(older)).toBe(false);
       expect(fs.existsSync(torn)).toBe(false);

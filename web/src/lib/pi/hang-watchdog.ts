@@ -313,6 +313,10 @@ function syncMemoryFromDisk(snapshot = readStore()): void {
 }
 
 export function recoverInterruptedHangWatches(): void {
+  withWatchStoreLock(recoverInterruptedHangWatchesLocked);
+}
+
+function recoverInterruptedHangWatchesLocked(): void {
   const file = watchesPath();
   let snapshot = readStoreFile(file);
   const cleanupTemps: { file: string; mtimeMs: number; size: number }[] = [];
