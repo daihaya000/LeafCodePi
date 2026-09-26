@@ -124,6 +124,10 @@ test("extracts unfenced JSON after an unmatched prose brace", () => {
   );
 });
 
+test("does not mistake a nested status object for a turn result", () => {
+  assert.equal(extractGoalResult('{"example":{"status":"completed","summary":"not a result"}}'), null);
+});
+
 test("handles braces inside JSON strings", () => {
   assert.equal(
     jsonObjectCandidates('{"text":"}"}{"status":"blocked","summary":"stop"}').length,

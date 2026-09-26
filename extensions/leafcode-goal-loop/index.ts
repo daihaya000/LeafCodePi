@@ -794,7 +794,7 @@ function lateTurnResult(runtime: Runtime, loop: GoalLoop): GoalLoopProgress | nu
 
 /** Balanced JSON objects, including ones after unmatched prose braces. */
 export function jsonObjectCandidates(text: string): string[] {
-  const result: string[] = [];
+  const candidates: { value: string; end: number; root?: number }[] = [];
   const starts: number[] = [];
   let inString = false;
   let escaped = false;
@@ -809,10 +809,17 @@ export function jsonObjectCandidates(text: string): string[] {
     if (char === '"') inString = true;
     else if (char === "{") starts.push(index);
     else if (char === "}" && starts.length) {
-      result.push(text.slice(starts.pop()!, index + 1));
+      const start = starts.pop()!;
+      candidates.push({ value: text.slice(start, index + 1), end: index, ...(starts.length ? { root: starts[0] } : {}) });
     }
   }
-  return result;
+  // Nested objects in a closed parent are not independent answers. Only keep
+  // nested candidates when their enclosing prose brace was left unmatched.
+  const openRoots = new Set(starts);
+  return candidates
+    .filter((candidate) => candidate.root === undefined || openRoots.has(candidate.root))
+    .sort((a, b) => a.end - b.end)
+    .map((candidate) => candidate.value);
 }
 
 export function normalizeStructured(value: unknown): GoalLoopProgress | null {
