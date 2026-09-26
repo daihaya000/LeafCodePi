@@ -111,6 +111,7 @@ function BotToolActivityGroup({ messages, bot, botId, active, running, modelLabe
       messages={messages.filter((message) => !botMessageHasBubble(message))}
       active={active}
       running={running}
+      outcome={messages.some((message) => Boolean(message.error)) ? "error" : undefined}
     >
       {messages.map((message, messageIndex) => {
         const { tools } = botMessageDisplayData(message);

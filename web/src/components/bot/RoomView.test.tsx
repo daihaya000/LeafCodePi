@@ -479,6 +479,11 @@ describe("RoomView delegated work", () => {
     expect(log?.parentElement?.nextElementSibling?.textContent).toContain("依頼しました");
     fireEvent.click(screen.getByRole("button", { name: "停止" }));
     expect(mocks.sendJson).toHaveBeenCalledWith(`/api/bots/rooms/${room.id}/code`, { action: "abort", requestId: "request" });
+    act(() => pushSnapshot({
+      room: { ...room, messages: [{ id: "reply-9", role: "assistant", botId: bot.id, text: "依頼しました", status: "done", createdAt: 2, codeRequestId: "request", codeTaskId: "code-1", codeState: "cancelled" }] },
+    }));
+    expect(log?.querySelector('svg[aria-label="中断"]')).not.toBeNull();
+    expect(log?.querySelector('svg[aria-label="完了"]')).toBeNull();
   });
 
   it("tells the user why a quiet room stopped, and only for the latest request", async () => {

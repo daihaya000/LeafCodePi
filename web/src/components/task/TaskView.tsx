@@ -3458,6 +3458,7 @@ export const TaskView = memo(function TaskView({
                       messages={block.entries.filter((entry) => entry.showHeader).map((entry) => entry.message)}
                       active={active}
                       running={runningLog}
+                      outcome={block.entries.some((entry) => Boolean(entry.message.error)) ? "error" : undefined}
                     >{activityContents}</ActivityLog>
                   ) : showResume &&
                     resumeInsideExistingBanner &&

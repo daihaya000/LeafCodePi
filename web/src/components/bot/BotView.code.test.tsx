@@ -1114,6 +1114,16 @@ it("keeps the current Bot log expanded beside a streaming reply bubble", async (
   expect(log.open).toBe(false);
 });
 
+it("does not mark a failed Bot tool response as completed", async () => {
+  const { container } = render(<ShellProvider><BotView id="one" /></ShellProvider>);
+  await screen.findByRole("button", { name: "設定" });
+  snapshot({ messages: [{ id: "failed", role: "assistant", createdAt: 2, error: "応答失敗", parts: [
+    { id: "tool", type: "tool", tool: "read", callID: "call", state: { status: "completed", input: {} } },
+  ] }] });
+  const log = container.querySelector<HTMLDetailsElement>("details[data-bot-tool-group]")!;
+  expect(log.querySelector('summary [role="img"][aria-label="エラー"]')).not.toBeNull();
+});
+
 it("groups consecutive tool-only entries without hiding messages", async () => {
   const { container } = render(<ShellProvider><BotView id="one" /></ShellProvider>);
   await screen.findByRole("button", { name: "設定" });

@@ -661,6 +661,20 @@ it("keeps the current log expanded when the same response also has a reply bubbl
   expect(document.querySelector<HTMLDetailsElement>("details[data-task-tool-group]")?.open).toBe(true);
 });
 
+it("does not mark a failed Code work log as completed when its reply has a bubble", () => {
+  saveTaskSessionCache({
+    task,
+    messages: [{ id: "failed", role: "assistant", createdAt: 1, error: "失敗", parts: [
+      { id: "tool", type: "tool", tool: "read", callID: "call", state: { status: "completed", input: {} } },
+      { id: "text", type: "text", text: "調査しました。".repeat(80) },
+    ] }],
+    isStreaming: false,
+    isCompacting: false,
+  });
+  render(<TaskView taskId={task.id} mdUp />);
+  expect(document.querySelector('details[data-task-tool-group] summary [role="img"][aria-label="エラー"]')).not.toBeNull();
+});
+
 it("summarizes usage only for work-log responses whose headers stay in the log", () => {
   const tool = (id: string, startedAtMs: number): UiPart => ({
     id,

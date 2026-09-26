@@ -97,6 +97,28 @@ it("opens the running log, closes it on completion, and preserves manual toggles
   expect(log.open).toBe(false);
 });
 
+it.each([
+  { status: "error" as const, label: "エラー", icon: "lucide-circle-alert" },
+  { status: "cancelled" as const, label: "中断", icon: "lucide-minus" },
+])("shows $label instead of a success check for a $status tool", ({ status, label, icon }) => {
+  const parts = [{ id: "tool", type: "tool" as const, tool: "read", callID: "call", state: { status, input: {} } }];
+  const { container } = render(<ActivityLog kind="task" count={1} parts={parts} active={false}>Tool</ActivityLog>);
+  const summary = container.querySelector("summary")!;
+  expect(summary.querySelector(`[role="img"][aria-label="${label}"]`)?.classList.contains(icon)).toBe(true);
+  expect(summary.querySelector('[aria-label="完了"]')).toBeNull();
+});
+
+it("shows an assistant error instead of a success check", () => {
+  const messages: UiMessage[] = [{ id: "failed", role: "assistant", createdAt: 1, error: "失敗", parts: [] }];
+  const { container } = render(<ActivityLog kind="task" count={1} parts={[]} messages={messages} active={false}>Tool</ActivityLog>);
+  expect(container.querySelector('summary [role="img"][aria-label="エラー"]')).not.toBeNull();
+});
+
+it("shows delegated Code cancellation instead of a success check", () => {
+  const { container } = render(<ActivityLog kind="bot" count={1} parts={[]} active={false} outcome="cancelled">Code</ActivityLog>);
+  expect(container.querySelector('summary [role="img"][aria-label="中断"]')).not.toBeNull();
+});
+
 it("passes the log's total output tokens, average tok/s, and elapsed time to the header", () => {
   const parts = [{ id: "tool", type: "tool" as const, tool: "read", callID: "call", state: { status: "completed" as const, input: {}, startedAtMs: 3_000, endedAtMs: 4_000 } }];
   const messages: UiMessage[] = [

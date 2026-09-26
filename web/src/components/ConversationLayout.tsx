@@ -1,7 +1,7 @@
 "use client";
 
 import { type ReactNode, useLayoutEffect, useRef, useState } from "react";
-import { Check, ChevronRight, Loader2, ScrollText } from "lucide-react";
+import { Check, ChevronRight, CircleAlert, Loader2, Minus, ScrollText } from "lucide-react";
 import { cx, formatDuration, useToolElapsedMs } from "@/components/ui";
 import { formatTokens } from "@/lib/context-usage";
 import { clampScrollTop, isNearBottom, nextStickState } from "@/lib/scroll-stick";
@@ -48,7 +48,7 @@ export const ACTIVITY_USAGE_TITLES = {
 } as const;
 
 /** Keep Bot/Code log icons and layout here to prevent drift; callers own grouping and choose which responses count toward usage. */
-export function ActivityLog({ children, header, count, parts, messages = [], active, running = false, kind }: {
+export function ActivityLog({ children, header, count, parts, messages = [], active, running = false, outcome, kind }: {
   children: ReactNode;
   /** 枠外と展開内容の先頭に出すメタ行。関数なら作業ログ全体の使用量を受け取って描く。 */
   header?: ReactNode | ((usage: ActivityUsage) => ReactNode);
@@ -59,9 +59,13 @@ export function ActivityLog({ children, header, count, parts, messages = [], act
   active: boolean;
   /** このログが現在進行中の作業か。active はタブの表示状態。 */
   running?: boolean;
+  /** ツールパーツを持たない委譲実行などの最終状態。 */
+  outcome?: "error" | "cancelled";
   kind: "bot" | "task";
 }) {
   const elapsedMs = useToolElapsedMs(parts, active, messages);
+  const failed = outcome === "error" || messages.some((message) => Boolean(message.error)) || parts.some((part) => part.type === "tool" && part.state.status === "error");
+  const cancelled = outcome === "cancelled" || parts.some((part) => part.type === "tool" && part.state.status === "cancelled");
   const headerNode = typeof header === "function" ? header({ ...summarizeThroughput(messages), elapsedMs }) : header;
   const scrollerRef = useRef<HTMLDivElement | null>(null);
   const contentRef = useRef<HTMLDivElement | null>(null);
@@ -109,6 +113,10 @@ export function ActivityLog({ children, header, count, parts, messages = [], act
         <span className="shrink-0 text-xs text-faint">{count}件</span>
         {running ? (
           <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-working" role="img" aria-label="実行中" />
+        ) : failed ? (
+          <CircleAlert className="h-3.5 w-3.5 shrink-0 text-danger" role="img" aria-label="エラー" />
+        ) : cancelled ? (
+          <Minus className="h-3.5 w-3.5 shrink-0 text-muted" role="img" aria-label="中断" />
         ) : (
           <Check className="h-3.5 w-3.5 shrink-0 text-success/70" role="img" aria-label="完了" />
         )}

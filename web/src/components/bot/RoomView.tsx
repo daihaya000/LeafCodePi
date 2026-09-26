@@ -588,6 +588,7 @@ export function RoomView({ id, active = true }: { id: string; active?: boolean }
             parts={[]}
             active={message.status === "working"}
             running={message.status === "working" || requests.some((request) => request.state === "queued" || request.state === "starting" || request.state === "running")}
+            outcome={message.status === "error" ? "error" : requests.some((request) => request.state === "cancelled") ? "cancelled" : undefined}
           >
             {requests.map((request) => <CodeRequestCard key={request.id ?? "legacy"} {...request} stopping={stoppingCode.includes(request.id ?? "legacy")} onStop={() => void stopCode(request.id)} />)}
           </ActivityLog>
