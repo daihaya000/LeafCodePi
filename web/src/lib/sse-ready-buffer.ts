@@ -245,6 +245,13 @@ export function preparePendingPayloadForReadyFlush(
     payload.eventType === "revert" ||
     payload.eventType === "unrevert" ||
     payload.eventType === "conversation_reset";
+  const bufferedUpdatedAt = (payload.task as { updatedAt?: unknown } | undefined)?.updatedAt;
+  const readyTime = typeof readyTaskUpdatedAt === "string" ? Date.parse(readyTaskUpdatedAt) : NaN;
+  const bufferedTime = typeof bufferedUpdatedAt === "string" ? Date.parse(bufferedUpdatedAt) : NaN;
+  const staleTask = Number.isFinite(readyTime) && Number.isFinite(bufferedTime) && bufferedTime < readyTime;
+  // A historical reset is an action, not just a stale message list. Never
+  // replay it after a newer ready snapshot has already loaded that history.
+  if (resetsHistory && staleTask) return null;
   const next = { ...payload };
   if (!(resetsHistory && Array.isArray(payload.messages)) &&
       !isFresherMessageList(rankMessageList(payload.messages), readyRank)) {
@@ -257,10 +264,7 @@ export function preparePendingPayloadForReadyFlush(
     delete next.goalLoop;
     delete next.compactionSuggested;
   }
-  const bufferedUpdatedAt = (payload.task as { updatedAt?: unknown } | undefined)?.updatedAt;
-  const readyTime = typeof readyTaskUpdatedAt === "string" ? Date.parse(readyTaskUpdatedAt) : NaN;
-  const bufferedTime = typeof bufferedUpdatedAt === "string" ? Date.parse(bufferedUpdatedAt) : NaN;
-  if (Number.isFinite(readyTime) && Number.isFinite(bufferedTime) && bufferedTime < readyTime) {
+  if (staleTask) {
     delete next.task;
     delete next.isStreaming;
     delete next.isCompacting;
