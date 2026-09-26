@@ -1219,9 +1219,18 @@ describe("hang-watchdog helpers", () => {
       vi.resetModules();
       second = await import("./hang-watchdog");
       first.armTaskHangWatch({ taskId: "first", prompt: "work" });
+      let reconnected = false;
+      let addedThird = false;
       const getLive = vi.fn(() => {
-        second!.armTaskHangWatch({ taskId: "second", prompt: "work" });
-        return null;
+        if (!reconnected) {
+          second!.armTaskHangWatch({ taskId: "second", prompt: "work" });
+          return null;
+        }
+        if (!addedThird) {
+          second!.armTaskHangWatch({ taskId: "third", prompt: "work" });
+          addedThird = true;
+        }
+        return { messages: [], isStreaming: true, isCompacting: true };
       });
       first.registerHangWatchdogHooks({
         getLive,
@@ -1234,6 +1243,12 @@ describe("hang-watchdog helpers", () => {
       const store = JSON.parse(fs.readFileSync(path.join(root, "hang-watches.json"), "utf8"));
       expect(store.watches.map((row: { taskId: string }) => row.taskId).sort()).toEqual(["first", "second"]);
       expect(store.watches.find((row: { taskId: string }) => row.taskId === "first")?.missingLiveSince).toBeDefined();
+      reconnected = true;
+      await first.runHangWatchdogTick();
+      expect(getLive).toHaveBeenCalledTimes(3);
+      const afterReconnect = JSON.parse(fs.readFileSync(path.join(root, "hang-watches.json"), "utf8"));
+      expect(afterReconnect.watches.map((row: { taskId: string }) => row.taskId).sort()).toEqual(["first", "second", "third"]);
+      expect(afterReconnect.watches.find((row: { taskId: string }) => row.taskId === "first")?.missingLiveSince).toBeUndefined();
     } finally {
       first?.stopHangWatchdogForTests();
       second?.stopHangWatchdogForTests();
