@@ -202,10 +202,14 @@ describe("hang-watchdog helpers", () => {
       armTaskHangWatch({ taskId: "valid", prompt: "work" });
       const file = path.join(root, "hang-watches.json");
       const store = JSON.parse(fs.readFileSync(file, "utf8"));
+      store.watches[0].retryUsed = MAX_HANG_RETRIES;
+      store.watches[0].state = "resolving";
       store.watches.push(null, { taskId: "", prompt: "bad" }, { taskId: "broken", prompt: "bad" });
       fs.writeFileSync(file, JSON.stringify(store));
       expect(() => recoverInterruptedHangWatches()).not.toThrow();
-      expect(getTaskHangWatch("valid")?.prompt).toBe("work");
+      expect(getTaskHangWatch("valid")).toMatchObject({
+        prompt: "work", retryUsed: MAX_HANG_RETRIES, state: "armed",
+      });
       expect(JSON.parse(fs.readFileSync(file, "utf8")).watches).toHaveLength(1);
       expect(fs.readdirSync(root)).toEqual(["hang-watches.json"]);
     } finally {
