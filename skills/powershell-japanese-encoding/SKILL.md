@@ -77,14 +77,28 @@ $OutputEncoding = $utf8NoBom
 
 For a byte-exact native interface, avoid a PowerShell text pipeline and use redirected files or .NET streams with the documented encoding.
 
+### Japanese literals in patterns and comparisons
+
+Source text is decoded before it runs: Windows PowerShell 5.1 reads a BOM-less `.ps1` in the ANSI code page (CP932 on Japanese Windows), and native-process output is decoded with `[Console]::OutputEncoding`. A mis-decoded Japanese literal can break parsing when a CP932 lead byte swallows the closing quote; when it still parses, it raises no error and `-match`, `-like`, `-eq`, `Select-String`, and `.Contains()` silently return False or no match (observed with BOM-less UTF-8 scripts on 5.1: `'設定'` fails to parse, `'日本'` parses but never matches). Keep such scripts ASCII-only by writing non-ASCII characters as `\uXXXX` in regex patterns and as `[char]0xXXXX` in string literals:
+
+```powershell
+# "設定" as an ASCII-only regex; the .NET regex engine decodes \uXXXX itself.
+if ($line -match '\u8A2D\u5B9A') { ... }
+
+# The same text for -eq / -like / Contains.
+$expected = "$([char]0x8A2D)$([char]0x5B9A)"
+```
+
+When a Japanese comparison is unexpectedly False, check how both sides were decoded (script BOM, `-Encoding` on reads, console encodings) before changing the logic. PowerShell 7 (`pwsh`) reads BOM-less scripts as UTF-8 and Pi's `powershell` tool prefers it (LeafCodePi's `start.bat` installs it when missing), but a script may still run under 5.1 elsewhere.
+
 ## Mandatory review findings
 
-Flag these as risks, not automatic fixes: bare `Get-Content`, `Set-Content`, `Add-Content`, `Out-File`, `Import-Csv`, or `Export-Csv`; an `Out-File` default; `chcp 65001` offered as the only remedy; native-process pipelines; CP932 assumptions; appending to an existing unknown file; and CSV emitted without an Excel/consumer decision.
+Flag these as risks, not automatic fixes: bare `Get-Content`, `Set-Content`, `Add-Content`, `Out-File`, `Import-Csv`, or `Export-Csv`; an `Out-File` default; `chcp 65001` offered as the only remedy; native-process pipelines; CP932 assumptions; appending to an existing unknown file; CSV emitted without an Excel/consumer decision; and non-ASCII literals in regex patterns or comparison operands of a script that Windows PowerShell 5.1 may run without a BOM.
 
 Run:
 
 ```powershell
-pwsh -NoProfile -File scripts/Test-EncodingRisks.ps1 -Path .	arget
+pwsh -NoProfile -File scripts/Test-EncodingRisks.ps1 -Path .\target
 pwsh -NoProfile -File scripts/Test-JapaneseRoundTrip.ps1
 ```
 
