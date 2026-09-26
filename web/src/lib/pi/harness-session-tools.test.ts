@@ -101,6 +101,11 @@ describe("session extension replacement", () => {
       keepsLoadedExtension(resolve("/repo/extensions/leafcode-subagents/index.ts"), index),
       true,
     );
+    const memoryEntry = resolve("/repo/extensions/leafcode-memory/src/index.ts");
+    const memory = { names: new Set(["leafcode-memory"]), paths: new Set([memoryEntry]) };
+    assert.equal(keepsLoadedExtension("/other/leafcode-memory/src/index.ts", memory), false);
+    assert.equal(keepsLoadedExtension(memoryEntry, memory), true);
+    assert.equal(keepsLoadedExtension("/other/unrelated/src/index.ts", memory), true);
   });
 
   it("keeps the upstream extension when its fork is not bundled", () => {

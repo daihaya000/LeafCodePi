@@ -3050,7 +3050,10 @@ export function keepsLoadedExtension(
   if (replacedByFork) return false;
   if (bundled.names.has("leafcode-computer-use") &&
       (key === "pi-computer-use" || /(?:^|[\\/])pi-computer-use(?:[\\/]|$)/i.test(extensionPath))) return false;
-  return !bundled.names.has(key) || bundled.paths.has(resolve(extensionPath));
+  // An entry such as leafcode-memory/src/index.ts is keyed "src"; match its package directory too.
+  const copiesBundled = bundled.names.has(key) ||
+    resolve(extensionPath).split(/[\\/]/).slice(0, -1).some((segment) => bundled.names.has(segment));
+  return !copiesBundled || bundled.paths.has(resolve(extensionPath));
 }
 
 /**
