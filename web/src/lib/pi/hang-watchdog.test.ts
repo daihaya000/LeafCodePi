@@ -188,6 +188,9 @@ describe("hang-watchdog helpers", () => {
     ];
     expect(progressFingerprint(running("abc"))).toContain("o:running:3");
     expect(progressFingerprint(running("abcd"))).not.toBe(progressFingerprint(running("abc")));
+    expect(progressFingerprint(running("abd"))).not.toBe(progressFingerprint(running("abc")));
+    expect(progressFingerprint([{ ...messages[0]!, parts: [{ id: "t1", type: "text", text: "ok" }] }]))
+      .not.toBe(progressFingerprint(messages));
   });
 
   it("recognizes a turn running only a subagent", () => {

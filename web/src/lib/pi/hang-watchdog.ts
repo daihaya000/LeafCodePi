@@ -3,6 +3,7 @@
  * OpenCode API の代わりに harness の LiveRuntime を直接監視する。
  */
 
+import { createHash } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import {
@@ -166,16 +167,17 @@ export function estimateWatchBodyBytes(input: {
 }
 
 export function progressFingerprint(messages: UiMessage[]): string {
+  const contentKey = (text: string) => `${text.length}:${createHash("sha256").update(text).digest("hex").slice(0, 16)}`;
   return messages
     .map((message) => {
       const parts = message.parts
         .map((part) => {
-          if (part.type === "text") return `t:${part.text.length}`;
-          if (part.type === "thinking") return `k:${part.text.length}`;
+          if (part.type === "text") return `t:${contentKey(part.text)}`;
+          if (part.type === "thinking") return `k:${contentKey(part.text)}`;
           if (part.type === "tool") {
-            // Include the partial result length: a tool that keeps printing is
-            // making progress, only silence means a hang.
-            return `o:${part.state.status}:${part.state.output?.length ?? 0}`;
+            // Include content as well as length: overwritten progress lines can
+            // change without growing, and are not a hang.
+            return `o:${part.state.status}:${contentKey(part.state.output ?? "")}`;
           }
           if (part.type === "image") return "i:1";
           if (part.type === "file") return `f:${part.name}`;
