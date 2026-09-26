@@ -252,7 +252,7 @@ it("renders a submitted user prompt only after the authoritative SSE message", a
   expect(document.querySelector("[data-task-message]")?.textContent).toBe("同じ指示");
 });
 
-it("injects an extra prompt into a live Goal loop instead of refusing it", async () => {
+it("queues a Goal loop follow-up first, then injects it only on immediate send", async () => {
   class TestEventSource extends EventTarget {
     static latest: TestEventSource | null = null;
     constructor() {
@@ -268,7 +268,8 @@ it("injects an extra prompt into a live Goal loop instead of refusing it", async
     TestEventSource.latest!.dispatchEvent(new MessageEvent("snapshot", {
       data: JSON.stringify({
         eventType: "message_start",
-        task: { ...task, status: "working", isStreaming: true, goalLoop: { id: "loop-1", status: "running", goal: "目標", acceptance: ["ok"], maxTurns: 5, turnCount: 1 } },
+        task: { ...task, status: "working", isStreaming: true },
+        goalLoop: { id: "loop-1", status: "running", goal: "目標", acceptance: ["ok"], maxTurns: 5, turnCount: 1, progress: [] },
         messages: [],
         isStreaming: true,
       }),
@@ -278,15 +279,81 @@ it("injects an extra prompt into a live Goal loop instead of refusing it", async
 
   const input = screen.getByRole("textbox", { name: "フォローアップ" });
   fireEvent.change(input, { target: { value: "追加の指示" } });
-  // 送信ボタン自体が無効のままだと送れないため、押して送れることも固定する。
-  fireEvent.click(screen.getByRole("button", { name: "差し込みを送信" }));
+  fireEvent.click(screen.getByRole("button", { name: "キューに追加" }));
+  expect(mocks.sendJson).not.toHaveBeenCalled();
+  expect(screen.getByText("追加の指示")).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "即時送信: 追加の指示" }));
 
-  // ループは止めない: クライアント側キューではなく実行中ターンへの差し込みとして送る。
+  // 二段階目だけが実行中ターンへ差し込み、Goal loop は止めない。
   await waitFor(() => expect(mocks.sendJson).toHaveBeenCalledWith(
     `/api/tasks/${task.id}/prompt`,
     expect.objectContaining({ prompt: "追加の指示", streamingBehavior: "steer" }),
   ));
   expect(screen.queryByText("Goal loop の実行中は追加の送信はできません")).toBeNull();
+});
+
+it("holds the default queue until a Goal loop releases the session", async () => {
+  class TestEventSource extends EventTarget {
+    static latest: TestEventSource;
+    constructor() { super(); TestEventSource.latest = this; }
+    close() {}
+  }
+  vi.stubGlobal("EventSource", TestEventSource);
+  mocks.sendJson.mockResolvedValue({ task });
+  render(<TaskView taskId={task.id} mdUp />);
+  const snapshot = async (status: "working" | "idle", loopStatus: "running" | "completed") => {
+    const goalLoop = { id: "loop-1", status: loopStatus, goal: "goal", acceptance: [], maxTurns: 5, turnCount: 1, progress: [] };
+    await act(async () => {
+      TestEventSource.latest.dispatchEvent(new MessageEvent("snapshot", {
+        data: JSON.stringify({
+          eventType: "ready",
+          task: { ...task, status, isStreaming: status === "working" },
+          goalLoop,
+          messages: [],
+        }),
+      }));
+    });
+  };
+  await snapshot("working", "running");
+  fireEvent.change(screen.getByRole("textbox", { name: "フォローアップ" }), { target: { value: "after loop" } });
+  fireEvent.click(screen.getByRole("button", { name: "キューに追加" }));
+  await snapshot("idle", "running");
+  expect(mocks.sendJson).not.toHaveBeenCalled();
+  expect((screen.getByRole("button", { name: "即時送信: after loop" }) as HTMLButtonElement).disabled).toBe(true);
+  await snapshot("idle", "completed");
+  await waitFor(() => expect(mocks.sendJson).toHaveBeenCalledWith(
+    `/api/tasks/${task.id}/prompt`, expect.objectContaining({ prompt: "after loop" }),
+  ));
+  expect(mocks.sendJson.mock.calls[0][1].streamingBehavior).toBeUndefined();
+});
+
+it("drops queued follow-ups when a Goal loop is stopped", async () => {
+  class TestEventSource extends EventTarget {
+    static latest: TestEventSource;
+    constructor() { super(); TestEventSource.latest = this; }
+    close() {}
+  }
+  vi.stubGlobal("EventSource", TestEventSource);
+  render(<TaskView taskId={task.id} mdUp />);
+  await act(async () => {
+    TestEventSource.latest.dispatchEvent(new MessageEvent("snapshot", {
+      data: JSON.stringify({
+        eventType: "ready", task: { ...task, status: "working", isStreaming: true },
+        goalLoop: { id: "loop-1", status: "running", goal: "goal", acceptance: [], maxTurns: 5, turnCount: 1, progress: [] },
+        messages: [],
+      }),
+    }));
+  });
+  fireEvent.change(screen.getByRole("textbox", { name: "フォローアップ" }), { target: { value: "do not send" } });
+  fireEvent.click(screen.getByRole("button", { name: "キューに追加" }));
+  mocks.sendJson.mockResolvedValueOnce({ loop: { id: "loop-1", status: "stopped", progress: [] } });
+  const panel = screen.getByRole("region", { name: "Goal loop" });
+  const stop = panel.querySelector('button[aria-label="停止"]');
+  if (!stop) throw new Error("Goal loop stop button missing");
+  fireEvent.click(stop);
+  await waitFor(() => expect(screen.queryByRole("button", { name: "即時送信: do not send" })).toBeNull());
+  expect(mocks.sendJson).toHaveBeenCalledWith(`/api/tasks/${task.id}/goal-loop`, { action: "stop" }, "PATCH");
+  expect(mocks.sendJson).toHaveBeenCalledTimes(1);
 });
 
 it("does not render a user message twice when SSE reprojects its ids", async () => {
@@ -1689,16 +1756,13 @@ describe("TaskView draft submission", () => {
       });
     };
     await snapshot(true);
-    fireEvent.click(screen.getByRole("button", { name: "送信方式" }));
-    fireEvent.click(screen.getByRole("option", { name: "キュー" }));
+    expect(screen.queryByRole("button", { name: "送信方式" })).toBeNull();
     const input = screen.getByRole("textbox", { name: "フォローアップ" }) as HTMLTextAreaElement;
     fireEvent.change(input, { target: { value: "queued prompt" } });
     fireEvent.submit(screen.getByRole("form", { name: "フォローアップ" }));
     expect(mocks.sendJson).not.toHaveBeenCalled();
     fireEvent.change(input, { target: { value: "unfinished draft" } });
-    fireEvent.click(screen.getByRole("button", { name: "送信方式" }));
-    fireEvent.click(screen.getByRole("option", { name: "差し込み" }));
-    expect(screen.getByRole("button", { name: "差し込みを送信" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "即時送信: queued prompt" })).toBeTruthy();
     await snapshot(false);
     await waitFor(() => expect(mocks.sendJson).toHaveBeenCalledWith(
       `/api/tasks/${task.id}/prompt`, expect.objectContaining({ prompt: "queued prompt" }),
@@ -1706,6 +1770,61 @@ describe("TaskView draft submission", () => {
     expect(input.value).toBe("unfinished draft");
     expect(mocks.sendJson).toHaveBeenCalledTimes(1);
     expect(mocks.sendJson.mock.calls[0][1].streamingBehavior).toBeUndefined();
+  });
+
+  it("injects only the selected queued pill and preserves the next draft", async () => {
+    class TestEventSource extends EventTarget {
+      static latest: TestEventSource;
+      constructor() { super(); TestEventSource.latest = this; }
+      close() {}
+    }
+    vi.stubGlobal("EventSource", TestEventSource);
+    mocks.sendJson.mockResolvedValue({ task });
+    render(<TaskView taskId={task.id} mdUp />);
+    await act(async () => {
+      TestEventSource.latest.dispatchEvent(new MessageEvent("snapshot", {
+        data: JSON.stringify({ eventType: "ready", task: { ...task, status: "working", isStreaming: true }, messages: [] }),
+      }));
+    });
+    const input = screen.getByRole("textbox", { name: "フォローアップ" }) as HTMLTextAreaElement;
+    for (const text of ["first", "second"]) {
+      fireEvent.change(input, { target: { value: text } });
+      fireEvent.submit(screen.getByRole("form", { name: "フォローアップ" }));
+    }
+    fireEvent.change(input, { target: { value: "draft" } });
+    fireEvent.click(screen.getByRole("button", { name: "即時送信: second" }));
+    await waitFor(() => expect(mocks.sendJson).toHaveBeenCalledWith(
+      `/api/tasks/${task.id}/prompt`, expect.objectContaining({ prompt: "second", streamingBehavior: "steer" }),
+    ));
+    expect(input.value).toBe("draft");
+    expect(screen.getByRole("button", { name: "即時送信: first" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "即時送信: second" })).toBeNull();
+    expect(mocks.sendJson).toHaveBeenCalledTimes(1);
+  });
+
+  it("restores a failed immediate send to the queue without duplicating the draft", async () => {
+    class TestEventSource extends EventTarget {
+      static latest: TestEventSource;
+      constructor() { super(); TestEventSource.latest = this; }
+      close() {}
+    }
+    vi.stubGlobal("EventSource", TestEventSource);
+    mocks.sendJson.mockRejectedValueOnce(new Error("offline"));
+    render(<TaskView taskId={task.id} mdUp />);
+    await act(async () => {
+      TestEventSource.latest.dispatchEvent(new MessageEvent("snapshot", {
+        data: JSON.stringify({ eventType: "ready", task: { ...task, status: "working", isStreaming: true }, messages: [] }),
+      }));
+    });
+    const input = screen.getByRole("textbox", { name: "フォローアップ" }) as HTMLTextAreaElement;
+    fireEvent.change(input, { target: { value: "retry this" } });
+    fireEvent.submit(screen.getByRole("form", { name: "フォローアップ" }));
+    fireEvent.change(input, { target: { value: "new draft" } });
+    fireEvent.click(screen.getByRole("button", { name: "即時送信: retry this" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "即時送信: retry this" })).toBeTruthy());
+    expect(input.value).toBe("new draft");
+    expect(mocks.sendJson).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole("alert").textContent).toContain("offline");
   });
 
   it("drains queued content when the current turn ends with an error", async () => {
@@ -1733,8 +1852,6 @@ describe("TaskView draft submission", () => {
       });
     };
     await sendSnapshot("working");
-    fireEvent.click(screen.getByRole("button", { name: "送信方式" }));
-    fireEvent.click(screen.getByRole("option", { name: "キュー" }));
     const input = screen.getByRole("textbox", { name: "フォローアップ" });
     fireEvent.change(input, { target: { value: "retry after error" } });
     fireEvent.submit(screen.getByRole("form", { name: "フォローアップ" }));
@@ -1746,16 +1863,14 @@ describe("TaskView draft submission", () => {
     ));
   });
 
-  it.each([false, true])("uses steer only while working (working: %s)", async (working) => {
-    saveTaskSessionCache({ task: { ...task, status: working ? "working" : "idle" }, messages: [], isStreaming: working, isCompacting: false });
+  it("sends immediately when idle without showing a delivery selector", async () => {
     mocks.sendJson.mockResolvedValue({ task });
     render(<TaskView taskId={task.id} mdUp />);
-    fireEvent.click(screen.getByRole("button", { name: "送信方式" }));
-    fireEvent.click(screen.getByRole("option", { name: "差し込み" }));
+    expect(screen.queryByRole("button", { name: "送信方式" })).toBeNull();
     fireEvent.change(screen.getByRole("textbox", { name: "フォローアップ" }), { target: { value: "instruction" } });
     fireEvent.submit(screen.getByRole("form", { name: "フォローアップ" }));
     await waitFor(() => expect(mocks.sendJson).toHaveBeenCalledTimes(1));
-    expect(mocks.sendJson.mock.calls[0][1].streamingBehavior).toBe(working ? "steer" : undefined);
+    expect(mocks.sendJson.mock.calls[0][1].streamingBehavior).toBeUndefined();
   });
 
   it("refreshes worktree status when a task mutation is reported", async () => {

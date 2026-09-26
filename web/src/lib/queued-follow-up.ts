@@ -12,16 +12,9 @@ export function shouldRestoreQueuedFollowUpOnFailure(sentEpoch: number, currentE
 
 export function shouldQueueFollowUp(input: {
   working: boolean;
-  deliveryMode: "queue" | "steer";
   goalLoopEnabled: boolean;
-  goalLoopLive?: boolean;
 }): boolean {
-  return (
-    input.working &&
-    input.deliveryMode === "queue" &&
-    !input.goalLoopEnabled &&
-    !input.goalLoopLive
-  );
+  return input.working && !input.goalLoopEnabled;
 }
 
 export function shouldDrainQueuedFollowUp(input: {
@@ -82,21 +75,6 @@ export function shouldAutoSendQueuedFollowUp(input: {
     !input.sseReconnecting &&
     !input.compacting
   );
-}
-
-/**
- * Composer send behavior. Steer mode injects into the running turn. While a Goal
- * Loop owns the session (live or paused/blocked), client drain stays disabled so
- * queue mode becomes the engine's followUp during live turns.
- */
-export function composerStreamingBehavior(input: {
-  working: boolean;
-  deliveryMode: "queue" | "steer";
-  goalLoopLive: boolean;
-}): "steer" | "followUp" | undefined {
-  if (!input.working) return undefined;
-  if (input.deliveryMode === "steer") return "steer";
-  return input.goalLoopLive ? "followUp" : undefined;
 }
 
 /** Abort / hang / archive / conversation reset must drop the client queue before idle can drain it. */

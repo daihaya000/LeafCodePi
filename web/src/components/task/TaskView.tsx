@@ -9,7 +9,6 @@ import {
   ChevronsDown,
   ChevronsUp,
   GitGraph,
-  ListPlus,
   PanelRight,
   Plus,
   RotateCcw,
@@ -19,7 +18,6 @@ import {
   Volume2,
   VolumeX,
   X,
-  Zap,
 } from "lucide-react";
 import {
   COMPOSER_ACTION_BUTTON_CLASS,
@@ -36,7 +34,7 @@ import { AutoOptimizeSelect } from "@/components/AutoOptimizeSelect";
 import { canAttachComposerImages, pasteImage } from "@/lib/clipboard-image";
 import { isImeComposingEvent } from "@/lib/composer-ime";
 import { GoalLoopPanel } from "@/components/GoalLoopPanel";
-import { isGoalLoopLiveStatus, isGoalLoopSessionOwnedStatus } from "@/lib/goal-loop-settings";
+import { isGoalLoopSessionOwnedStatus } from "@/lib/goal-loop-settings";
 import { DiffPane } from "@/components/task/DiffPane";
 import { readSidePanelWidth, SidePanel } from "@/components/task/SidePanel";
 import { useBotFor, useIconFor } from "@/components/shell/TaskPanesContext";
@@ -58,7 +56,7 @@ import {
   QueuedFollowUpsNotice,
   type QueuedFollowUp,
 } from "@/components/task/QueuedFollowUpsNotice";
-import { Badge, Button, cx, formatDuration, GhostSelect } from "@/components/ui";
+import { Badge, Button, cx, formatDuration } from "@/components/ui";
 import { ActivityLog, type ActivityUsage, conversationContentClass, conversationViewportClass, MessageHeader } from "@/components/ConversationLayout";
 import {
   AUTO_MODEL_OPTION,
@@ -168,7 +166,6 @@ import {
   type ResumableTurn,
 } from "@/lib/aborted-resume";
 import {
-  composerStreamingBehavior,
   shouldAutoSendQueuedFollowUp,
   shouldClearQueuedFollowUpOnAbortState,
   shouldClearQueuedFollowUpOnEvent,
@@ -814,13 +811,13 @@ export const TaskView = memo(function TaskView({
     diff: readSidePanelWidth("webui.diffpane.width"),
   }));
   const [attachments, setAttachments] = useState<ComposerAttachment[]>([]);
-  const [deliveryMode, setDeliveryMode] = useState<"queue" | "steer">("steer");
   const [queuedFollowUps, setQueuedFollowUps] = useState<QueuedFollowUp[]>([]);
   const [queuedAutoSend, setQueuedAutoSend] = useState(false);
   const [failedQueuedId, setFailedQueuedId] = useState<number | null>(null);
   const nextQueueIdRef = useRef(1);
   const queueClearEpochRef = useRef(0);
   const queuedSendRef = useRef<QueuedFollowUp | null>(null);
+  const sendingQueuedIdRef = useRef<number | null>(null);
   const submitRef = useRef<(queued?: QueuedFollowUp) => Promise<void>>(async () => undefined);
   const [submitting, setSubmitting] = useState(false);
   const [resumingTurn, setResumingTurn] = useState(false);
@@ -1920,10 +1917,13 @@ export const TaskView = memo(function TaskView({
     revertEntryRef.current = { messageId: target.id, message: target };
     setRevertConfirmOpen(true);
   }, []);
-  const goalLoopLive = isGoalLoopLiveStatus(task?.goalLoop?.status);
   // 実行中・一時停止中・要対応中は、パネルから操作できるよう表示する。
   // completed / stopped はチャット側に結果が残るため閉じる（Sidebar の LIVE 判定と整合）。
   const goalLoopVisible = isGoalLoopSessionOwnedStatus(task?.goalLoop?.status);
+  const queuedSendNowDisabled =
+    submitting || queuedAutoSend || resumingTurn || compacting || agentChanging ||
+    archived || revertBusy || revertConfirmOpen || sessionHydrating ||
+    sseReconnecting || stopRequested || goalLoopEnabled || (goalLoopVisible && !working);
 
   useEffect(() => {
     if (!active || !task?.directory) return;
@@ -2180,7 +2180,7 @@ export const TaskView = memo(function TaskView({
     }
   }
 
-  async function submit(queued?: QueuedFollowUp) {
+  async function submit(queued?: QueuedFollowUp, sendNow = false) {
     const sentQueueEpoch = queueClearEpochRef.current;
     const submittedPrompt = queued ? queued.text : prompt;
     const submittedAttachments = queued ? queued.attachments : attachments;
@@ -2200,12 +2200,7 @@ export const TaskView = memo(function TaskView({
     let draftCleared = false;
     if (
       !queued &&
-      shouldQueueFollowUp({
-        working,
-        deliveryMode,
-        goalLoopEnabled,
-        goalLoopLive,
-      })
+      shouldQueueFollowUp({ working, goalLoopEnabled })
     ) {
       setQueuedFollowUps((current) => [
         ...current,
@@ -2268,14 +2263,9 @@ export const TaskView = memo(function TaskView({
         resolvedAutoDecision = result.autoDecision;
         setGoalLoopEnabled(false);
       } else {
-        // working covers prompt_accepted→stream gap; isStreaming alone misses it
-        // and would POST a normal chained prompt instead of steer.
-        // Goal loop 実行中の追加送信も同じ経路で注入し、ループは止めない。
-        const streamingBehavior = composerStreamingBehavior({
-          working,
-          deliveryMode,
-          goalLoopLive,
-        });
+        // Only the explicit action on an already queued pill injects into the
+        // current turn. working covers the prompt_accepted→stream gap.
+        const streamingBehavior = queued && sendNow && working ? "steer" : undefined;
         if (!queued) {
           setPrompt("");
           setAttachments([]);
@@ -2516,6 +2506,13 @@ export const TaskView = memo(function TaskView({
         // Prior Stop left stopRequested latched; resume starts a new run.
         stopRequestedRef.current = false;
         setStopRequested(false);
+      }
+      if (action === "stop") {
+        // Stopping the loop must not start the queued next prompt when it goes idle.
+        queueClearEpochRef.current += 1;
+        setQueuedFollowUps([]);
+        queuedSendRef.current = null;
+        setQueuedAutoSend(false);
       }
       setTask((current) => (current ? { ...current, goalLoop: result.loop } : current));
       notifyTasksChanged();
@@ -3812,6 +3809,18 @@ export const TaskView = memo(function TaskView({
             onRemove={(id) =>
               setQueuedFollowUps((current) => current.filter((item) => item.id !== id))
             }
+            sendNowDisabled={queuedSendNowDisabled}
+            onSendNow={(id) => {
+              if (
+                queuedSendNowDisabled || sendingQueuedIdRef.current !== null ||
+                shouldBlockSubmitWhileStopRequested(stopRequestedRef.current, working)
+              ) return;
+              const queued = queuedFollowUps.find((item) => item.id === id);
+              if (!queued) return;
+              sendingQueuedIdRef.current = id;
+              setQueuedFollowUps((current) => current.filter((item) => item.id !== id));
+              void submit(queued, true).finally(() => { sendingQueuedIdRef.current = null; });
+            }}
           />
         </div>
         <Composer
@@ -3867,9 +3876,7 @@ export const TaskView = memo(function TaskView({
               : compacting
                 ? "圧縮中です…"
                 : working
-                  ? deliveryMode === "queue"
-                    ? "実行中です。送信するとキューに追加します…"
-                    : "実行中です。送信すると現在の処理へ差し込みます…"
+                  ? "実行中です。送信するとキューに追加します…"
                   : "続きを指示…（Ctrl+Enter）",
             className: "w-full min-h-11 resize-none bg-transparent py-2.5 text-base leading-6 outline-none placeholder:text-faint",
             disabled: compacting || archived,
@@ -4030,39 +4037,6 @@ export const TaskView = memo(function TaskView({
                 </>
               ),
             },
-            {
-              id: "delivery",
-              label: "送信方式",
-              content: (
-                <>
-              <GhostSelect
-                value={deliveryMode}
-                disabled={!task || compacting || archived}
-                aria-label="送信方式"
-                title={deliveryMode === "queue" ? "現在の処理後に送信" : "実行中の処理へ差し込む"}
-                icon={
-                  deliveryMode === "queue" ? (
-                    <ListPlus className="h-3.5 w-3.5" />
-                  ) : (
-                    <Zap className="h-3.5 w-3.5" />
-                  )
-                }
-                valueLabel={deliveryMode === "queue" ? "キュー" : "差し込み"}
-                className="h-8 max-w-[8rem] shrink-0"
-                onChange={(value) => {
-                  if (value === "queue" || value === "steer") setDeliveryMode(value);
-                }}
-              >
-                <option value="queue" title="現在の処理後に送信">
-                  キュー
-                </option>
-                <option value="steer" title="実行中の処理へ差し込む">
-                  差し込み
-                </option>
-              </GhostSelect>
-                </>
-              ),
-            },
             ...(task?.sessionId
               ? [
                   {
@@ -4112,8 +4086,8 @@ export const TaskView = memo(function TaskView({
                 variant="primary"
                 size="icon"
                 type="submit"
-                aria-label={working ? (deliveryMode === "queue" ? "キューに追加" : "差し込みを送信") : "送信"}
-                title={working ? (deliveryMode === "queue" ? "現在の処理後に送信" : "実行中の処理へ差し込む") : "送信"}
+                aria-label={working ? "キューに追加" : "送信"}
+                title={working ? "現在の処理後に送信" : "送信"}
                 className={`${COMPOSER_ACTION_BUTTON_CLASS} !bg-accent !text-white hover:!bg-accent/90`}
                 busy={submitting}
                 disabled={archived || compacting || agentChanging || revertBusy || revertConfirmOpen || shouldBlockSubmitWhileStopRequested(stopRequested, working) || (goalLoopEnabled && working) || (!prompt.trim() && attachments.length === 0)}

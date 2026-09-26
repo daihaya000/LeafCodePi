@@ -8,16 +8,40 @@ describe("QueuedFollowUpsNotice", () => {
 
   it("renders queued prompts and removes the selected item", () => {
     const onRemove = vi.fn();
+    const onSendNow = vi.fn();
     render(
       <QueuedFollowUpsNotice
         items={[{ id: 1, text: "テストを実行", attachments: [] }]}
         onRemove={onRemove}
+        onSendNow={onSendNow}
       />,
     );
 
     expect(screen.getByText("キュー待ち:")).toBeTruthy();
     expect(screen.getByText("テストを実行")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /即時送信/ }));
+    expect(onSendNow).toHaveBeenCalledWith(1);
+    expect(onRemove).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: /キューから削除/ }));
     expect(onRemove).toHaveBeenCalledWith(1);
+  });
+
+  it("disables immediate send while keeping removal available", () => {
+    const onSendNow = vi.fn();
+    const onRemove = vi.fn();
+    render(
+      <QueuedFollowUpsNotice
+        items={[{ id: 2, text: "", attachments: [] }]}
+        onSendNow={onSendNow}
+        sendNowDisabled
+        onRemove={onRemove}
+      />,
+    );
+    const sendNow = screen.getByRole("button", { name: "即時送信: 画像" }) as HTMLButtonElement;
+    expect(sendNow.disabled).toBe(true);
+    fireEvent.click(sendNow);
+    expect(onSendNow).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "キューから削除: 画像" }));
+    expect(onRemove).toHaveBeenCalledWith(2);
   });
 });

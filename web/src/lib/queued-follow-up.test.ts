@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 import {
-  composerStreamingBehavior,
   shouldAutoSendQueuedFollowUp,
   shouldClearQueuedFollowUpOnAbortState,
   shouldClearQueuedFollowUpOnEvent,
@@ -19,30 +18,13 @@ const idle = {
 };
 
 describe("queued follow-up enqueue", () => {
-  it("queues a follow-up only while working in queue mode", () => {
-    expect(
-      shouldQueueFollowUp({ working: true, deliveryMode: "queue", goalLoopEnabled: false }),
-    ).toBe(true);
-    expect(
-      shouldQueueFollowUp({ working: true, deliveryMode: "steer", goalLoopEnabled: false }),
-    ).toBe(false);
-    expect(
-      shouldQueueFollowUp({ working: false, deliveryMode: "queue", goalLoopEnabled: false }),
-    ).toBe(false);
+  it("queues by default while working, but sends normally when idle", () => {
+    expect(shouldQueueFollowUp({ working: true, goalLoopEnabled: false })).toBe(true);
+    expect(shouldQueueFollowUp({ working: false, goalLoopEnabled: false })).toBe(false);
   });
 
-  it("does not queue while a Goal loop is on, because drain never runs", () => {
-    expect(
-      shouldQueueFollowUp({ working: true, deliveryMode: "queue", goalLoopEnabled: true }),
-    ).toBe(false);
-    expect(
-      shouldQueueFollowUp({
-        working: true,
-        deliveryMode: "queue",
-        goalLoopEnabled: false,
-        goalLoopLive: true,
-      }),
-    ).toBe(false);
+  it("does not queue a Goal loop start while already working", () => {
+    expect(shouldQueueFollowUp({ working: true, goalLoopEnabled: true })).toBe(false);
   });
 });
 
@@ -209,16 +191,4 @@ describe("queued follow-up hang events", () => {
     expect(shouldClearQueuedFollowUpOnAbortState(undefined)).toBe(false);
   });
 
-  it("sends steer while working even before the stream opens", () => {
-    expect(composerStreamingBehavior({ working: true, deliveryMode: "steer", goalLoopLive: false })).toBe("steer");
-    expect(composerStreamingBehavior({ working: false, deliveryMode: "steer", goalLoopLive: false })).toBeUndefined();
-    expect(composerStreamingBehavior({ working: false, deliveryMode: "queue", goalLoopLive: true })).toBeUndefined();
-    // 通常のキュー送信はクライアント側キューが持ち、streamingBehavior は付けない。
-    expect(composerStreamingBehavior({ working: true, deliveryMode: "queue", goalLoopLive: false })).toBeUndefined();
-  });
-
-  it("uses the engine queue for a live Goal loop instead of the stalled client queue", () => {
-    expect(composerStreamingBehavior({ working: true, deliveryMode: "queue", goalLoopLive: true })).toBe("followUp");
-    expect(composerStreamingBehavior({ working: true, deliveryMode: "steer", goalLoopLive: true })).toBe("steer");
-  });
 });
