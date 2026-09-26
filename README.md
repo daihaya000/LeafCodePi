@@ -304,7 +304,7 @@ npx --prefix extensions/leafcode-todowrite vitest run --dir extensions/leafcode-
 
 ## まだないもの
 
-OpenCode 版 LeafCode にあった worktree 分離、差分ペイン、Caddy は未実装です。権限の承認 UI（Composer のモード切替と SSE の簡易承認ダイアログ）は実装済みです。エージェントはプロジェクトフォルダ上で Pi の標準ツール（read / write / edit / bash / grep / find / ls）を直接実行します。`powershell` は Windows のみ既定で有効です。
+OpenCode 版 LeafCode にあった worktree 分離、差分ペイン、Caddy は未実装です。権限の承認 UI（設定画面のモード切替と SSE の簡易承認ダイアログ）は実装済みです。Code タスクの権限承認（既定: 許可）は「設定 > エンジン > アクセスと安全」、スキル使用（既定: 許可）とサブエージェント使用（既定: 禁止）は「設定 > エージェント」で切り替えます。エージェントはプロジェクトフォルダ上で Pi の標準ツール（read / write / edit / bash / grep / find / ls）を直接実行します。`powershell` は Windows のみ既定で有効です。
 
 ## 動作条件
 

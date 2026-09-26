@@ -53,6 +53,11 @@ vi.mock("@/components/settings/BrowserSettings", () => ({
 vi.mock("@/components/settings/SystemSafetySettings", () => ({
   SystemSafetySettings: () => <h3>システム安全ガード</h3>,
 }));
+vi.mock("@/components/settings/CodePermissionSettings", () => ({
+  PermissionModeSettings: () => <h3>権限承認</h3>,
+  SkillPermissionSettings: () => <h3>スキル使用</h3>,
+  SubagentPermissionSettings: () => <h3>サブエージェント使用</h3>,
+}));
 vi.mock("@/components/settings/NotificationSoundSettings", () => ({
   NotificationSoundSettings: () => <h3>通知音</h3>,
 }));
@@ -347,6 +352,11 @@ describe("SettingsView", () => {
     expect(screen.getByRole("heading", { name: "システム安全ガード" })).toBeTruthy();
     const accessSection = enginePanel.querySelector('section[aria-label="アクセスと安全"]');
     expect(accessSection?.querySelector(":scope > div.grid")?.className).toContain("@4xl:grid-cols-2");
+    expect(Array.from(accessSection?.querySelectorAll("h3") ?? []).map((heading) => heading.textContent)).toEqual([
+      "WebUI アクセス",
+      "システム安全ガード",
+      "権限承認",
+    ]);
     expect(screen.getByRole("heading", { name: "ローカル LLM" })).toBeTruthy();
     const localSection = enginePanel.querySelector('section[aria-label="ローカル推論"]');
     const localGrid = localSection?.querySelector(":scope > div#models-local");
@@ -394,7 +404,9 @@ describe("SettingsView", () => {
     ]);
     expect(agentsPanel.querySelectorAll(":scope > section > header")).toHaveLength(0);
     expect(Array.from(agentsPanel.querySelectorAll("h3")).map((heading) => heading.textContent)).toEqual([
+      "サブエージェント使用",
       "エージェント",
+      "スキル使用",
       "スキル",
     ]);
     expect(screen.queryByRole("heading", { name: "USER.md" })).toBeNull();

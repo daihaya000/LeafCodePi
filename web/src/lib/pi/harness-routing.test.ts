@@ -325,7 +325,9 @@ import { disarmTaskHangWatch } from "@/lib/pi/hang-watchdog";
 import { AccountRuntimeManager } from "./account-runtime-manager";
 import { goalLoopStateFile } from "./goal-loop-state";
 import { taskRuntimeLeasePath } from "@/lib/task-runtime-lease";
+import { readPermissionGateConfig } from "@/lib/permission-gate-config";
 import {
+  applyCodePermissionSettingsToLiveTasks,
   createTask,
   getTaskDetail,
   mergeBundledSkills,
@@ -1393,6 +1395,93 @@ describe("integrated session routing", () => {
     assert.equal(getTask(task.id)?.skillPermission, "deny");
     assert.equal(session.reloads, 1);
     assert.deepEqual(session.events, ["prompt", "reload", "prompt"]);
+  });
+
+  it("creates Code tasks with the Settings permissions and applies later changes at the next prompt", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "leafcode-pi-settings-permissions-"));
+    tempDirs.push(dir);
+    process.env.LEAFCODE_PI_DATA_DIR = dir;
+    process.env.PI_CODING_AGENT_DIR = join(dir, "agent");
+    __resetPiAgentDirCacheForTests();
+    installHarness(new Map());
+    setSetting("code-permission-mode", "ask");
+    setSetting("code-skill-permission", "deny");
+
+    const project = upsertProject({ name: "demo", rootPath: dir });
+    const task = await createTask({ projectId: project.id, prompt: "最初の確認" });
+    await waitFor(() => getTask(task.id)?.status === "idle");
+    const session = fakePi.sessions[0]!;
+    const sessionId = getTask(task.id)?.sessionId;
+    assert.equal(getTask(task.id)?.permissionMode, "ask");
+    assert.equal(getTask(task.id)?.skillPermission, "deny");
+    assert.equal(readPermissionGateConfig(sessionId), "ask");
+
+    // A change saved while the task is closed or in another worker applies before the next turn.
+    setSetting("code-permission-mode", "deny");
+    setSetting("code-skill-permission", "allow");
+    await promptTask(task.id, "設定変更後に続行");
+    await waitFor(() => getTask(task.id)?.status === "idle");
+
+    assert.equal(getTask(task.id)?.permissionMode, "deny");
+    assert.equal(getTask(task.id)?.skillPermission, "allow");
+    assert.equal(readPermissionGateConfig(sessionId), "deny");
+    assert.equal(session.reloads, 1);
+    assert.deepEqual(session.events, ["prompt", "reload", "prompt"]);
+  });
+
+  it("applies changed Settings permissions to open Code sessions", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "leafcode-pi-live-settings-permissions-"));
+    tempDirs.push(dir);
+    process.env.LEAFCODE_PI_DATA_DIR = dir;
+    process.env.PI_CODING_AGENT_DIR = join(dir, "agent");
+    __resetPiAgentDirCacheForTests();
+    installHarness(new Map());
+
+    const project = upsertProject({ name: "demo", rootPath: dir });
+    const task = await createTask({ projectId: project.id, prompt: "最初の確認" });
+    await waitFor(() => getTask(task.id)?.status === "idle");
+    const session = fakePi.sessions[0]!;
+    assert.equal(getTask(task.id)?.permissionMode, "allow");
+    assert.equal(getTask(task.id)?.skillPermission, "allow");
+
+    setSetting("code-permission-mode", "ask");
+    setSetting("code-skill-permission", "deny");
+    await applyCodePermissionSettingsToLiveTasks();
+
+    assert.equal(getTask(task.id)?.permissionMode, "ask");
+    assert.equal(getTask(task.id)?.skillPermission, "deny");
+    assert.equal(readPermissionGateConfig(getTask(task.id)?.sessionId), "ask");
+    assert.equal(session.reloads, 1);
+  });
+
+  it("keeps the Bot approval mode for Bot-started Code tasks", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "leafcode-pi-bot-code-permissions-"));
+    tempDirs.push(dir);
+    process.env.LEAFCODE_PI_DATA_DIR = dir;
+    process.env.PI_CODING_AGENT_DIR = join(dir, "agent");
+    __resetPiAgentDirCacheForTests();
+    installHarness(new Map());
+    setSetting("code-permission-mode", "allow");
+
+    const project = upsertProject({ name: "demo", rootPath: dir });
+    const bot = createBot({ name: "worker" });
+    const task = await createTask({
+      projectId: project.id,
+      prompt: "initial",
+      botId: bot.id,
+      permissionMode: "ask",
+    });
+    const harness = (globalThis as Record<string, unknown>)[GLOBAL_KEY] as {
+      live: Map<string, { promptChain: Promise<void> }>;
+    };
+    await harness.live.get(task.id)!.promptChain;
+
+    await promptTask(task.id, "Code画面からの追加指示");
+    await harness.live.get(task.id)!.promptChain;
+    await applyCodePermissionSettingsToLiveTasks();
+
+    assert.equal(getTask(task.id)?.permissionMode, "ask");
+    assert.equal(readPermissionGateConfig(getTask(task.id)?.sessionId), "ask");
   });
 
   it("applies Composer effort instead of the directly selected agent's subagent default", async () => {

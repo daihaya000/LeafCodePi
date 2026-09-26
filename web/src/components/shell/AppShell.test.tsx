@@ -67,18 +67,16 @@ describe("AppShell", () => {
     localStorage.setItem("leafcodepi.defaultModel", "provider::model");
     localStorage.setItem("webui:auto-optimize", "intelligence");
     localStorage.setItem("leafcodepi.defaultAgent", "reviewer");
-    localStorage.setItem("webui:permission-mode", "deny");
-    localStorage.setItem("webui:skill-permission", "deny");
-    localStorage.setItem("webui:subagent-permission", "allow");
 
     await renderShell();
 
     expect(localStorage.getItem("leafcodepi.defaultModel")).toBe("auto");
     expect(localStorage.getItem("webui:auto-optimize")).toBe("balanced");
     expect(localStorage.getItem("leafcodepi.defaultAgent")).toBe("default");
-    expect(localStorage.getItem("webui:permission-mode")).toBe("allow");
-    expect(localStorage.getItem("webui:skill-permission")).toBe("allow");
-    expect(localStorage.getItem("webui:subagent-permission")).toBe("deny");
+    // 権限は設定画面（サーバー保存）へ移したため、起動時に Composer 用の値を作らない。
+    expect(localStorage.getItem("webui:permission-mode")).toBeNull();
+    expect(localStorage.getItem("webui:skill-permission")).toBeNull();
+    expect(localStorage.getItem("webui:subagent-permission")).toBeNull();
   });
 
   it("サーバー描画で埋め込まれた起動時既定値をローカルキャッシュより優先し、取得待ちしない", () => {

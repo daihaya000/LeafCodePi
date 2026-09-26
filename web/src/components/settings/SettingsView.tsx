@@ -32,6 +32,11 @@ import { HangTimeoutSettings } from "@/components/settings/HangTimeoutSettings";
 import { NotificationSoundSettings } from "@/components/settings/NotificationSoundSettings";
 import { TtsSettings } from "@/components/settings/TtsSettings";
 import { SystemSafetySettings } from "@/components/settings/SystemSafetySettings";
+import {
+  PermissionModeSettings,
+  SkillPermissionSettings,
+  SubagentPermissionSettings,
+} from "@/components/settings/CodePermissionSettings";
 import { BotDefaultsSettings } from "@/components/settings/BotDefaultsSettings";
 import {
   ComposerDefaultsSettings,
@@ -319,11 +324,12 @@ export function SettingsView() {
               <SettingsGroup
                 id="engine-access-heading"
                 title="アクセスと安全"
-                description="WebUI への接続方法と、システム操作に対する安全ガードを設定します。"
+                description="WebUI への接続方法、Codeタスクの権限承認、システム操作に対する安全ガードを設定します。"
               >
                 <div className="grid gap-4 @4xl:grid-cols-2">
                   <WebUiAuthSettings />
                   <SystemSafetySettings />
+                  <PermissionModeSettings />
                 </div>
               </SettingsGroup>
 
@@ -459,16 +465,18 @@ export function SettingsView() {
               <SettingsGroup
                 id="agents-management-heading"
                 title="エージェント運用"
-                description="サブエージェントの有効状態、モデル、Effort、定義を管理します。"
+                description="サブエージェントの使用可否、有効状態、モデル、Effort、定義を管理します。"
               >
+                <SubagentPermissionSettings />
                 <AgentsSettings />
               </SettingsGroup>
               <SettingsGroup
                 id="agents-skills-heading"
                 title="エージェント用スキル"
-                description="エージェントの通常タスクに適用するスキルを管理します。"
+                description="Codeタスクでのスキル使用可否と、通常タスクに適用するスキルを管理します。"
               >
-                <div id="agents-skills" className="scroll-mt-24">
+                <div id="agents-skills" className="scroll-mt-24 space-y-3">
+                  <SkillPermissionSettings />
                   <SkillsSettings scope="code" />
                 </div>
               </SettingsGroup>

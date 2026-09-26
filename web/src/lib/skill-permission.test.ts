@@ -1,33 +1,20 @@
-// @vitest-environment happy-dom
-
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import {
-  readSkillPermission,
-  SKILL_PERMISSION_EVENT,
-  SKILL_PERMISSION_STORAGE_KEY,
-  writeSkillPermission,
+  DEFAULT_SKILL_PERMISSION,
+  isSkillPermission,
+  parseSkillPermission,
 } from "./skill-permission";
 
-describe("skill permission", () => {
-  beforeEach(() => {
-    localStorage.clear();
-  });
-
+describe("skill permission setting", () => {
   it("defaults to allow", () => {
-    expect(readSkillPermission()).toBe("allow");
+    expect(DEFAULT_SKILL_PERMISSION).toBe("allow");
+    expect(parseSkillPermission(null)).toBe("allow");
   });
 
-  it("persists the choice and notifies listeners", () => {
-    const listener = vi.fn();
-    window.addEventListener(SKILL_PERMISSION_EVENT, listener);
-
-    writeSkillPermission("deny");
-
-    expect(localStorage.getItem(SKILL_PERMISSION_STORAGE_KEY)).toBe("deny");
-    expect(readSkillPermission()).toBe("deny");
-    expect(listener).toHaveBeenCalledTimes(1);
-    expect((listener.mock.calls[0]?.[0] as CustomEvent).detail).toBe("deny");
-
-    window.removeEventListener(SKILL_PERMISSION_EVENT, listener);
+  it("returns a stored choice and rejects other values", () => {
+    expect(parseSkillPermission("deny")).toBe("deny");
+    expect(parseSkillPermission("allow")).toBe("allow");
+    expect(isSkillPermission("ask")).toBe(false);
+    expect(parseSkillPermission("ask")).toBe("allow");
   });
 });

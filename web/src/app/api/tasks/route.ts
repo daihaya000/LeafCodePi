@@ -91,9 +91,6 @@ export async function POST(req: NextRequest) {
       agent?: string;
       accountId?: unknown;
       accountIdExplicit?: unknown;
-      subagentPermission?: unknown;
-      permissionMode?: unknown;
-      skillPermission?: unknown;
       goalLoop?: {
         enabled?: unknown;
         acceptance?: unknown;
@@ -129,23 +126,6 @@ export async function POST(req: NextRequest) {
     }
     if (body.agent !== undefined && typeof body.agent !== "string") {
       return NextResponse.json({ error: "invalid agent" }, { status: 400 });
-    }
-    const permissionMode = body.permissionMode;
-    if (
-      permissionMode !== undefined &&
-      permissionMode !== "allow" &&
-      permissionMode !== "ask" &&
-      permissionMode !== "deny"
-    ) {
-      return NextResponse.json({ error: "invalid permissionMode" }, { status: 400 });
-    }
-    const skillPermission = body.skillPermission;
-    if (skillPermission !== undefined && skillPermission !== "allow" && skillPermission !== "deny") {
-      return NextResponse.json({ error: "invalid skillPermission" }, { status: 400 });
-    }
-    const subagentPermission = body.subagentPermission;
-    if (subagentPermission !== undefined && subagentPermission !== "allow" && subagentPermission !== "deny") {
-      return NextResponse.json({ error: "invalid subagentPermission" }, { status: 400 });
     }
     if (body.images !== undefined && (!isPromptImageList(body.images) || body.images.some((image) => !isPromptImageWithinSize(image)))) {
       return NextResponse.json({ error: "invalid images" }, { status: 400 });
@@ -328,9 +308,7 @@ export async function POST(req: NextRequest) {
         : requestedAccountExplicit
           ? { accountIdExplicit: true }
           : {}),
-      subagentPermission,
-      permissionMode,
-      skillPermission,
+      // Permissions come from Settings (resolved by createTask), not the request.
       goalLoop: goalLoop
         ? { ...goalLoop, autoAgent: autoAgentRequested }
         : undefined,

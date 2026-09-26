@@ -483,40 +483,25 @@ describe("POST /api/tasks", () => {
     expect(mocks.createTask).not.toHaveBeenCalled();
   });
 
-  it("rejects an invalid permission mode before creating a task", async () => {
+  it("ignores Composer permission fields because Settings decide them", async () => {
     const response = await POST(
       new NextRequest("http://localhost/api/tasks", {
         method: "POST",
-        body: JSON.stringify({ projectId: null, prompt: "作業", permissionMode: "invalid" }),
+        body: JSON.stringify({
+          projectId: null,
+          prompt: "作業",
+          permissionMode: "deny",
+          skillPermission: "invalid",
+          subagentPermission: "allow",
+        }),
       }),
     );
 
-    expect(response.status).toBe(400);
-    expect(mocks.createTask).not.toHaveBeenCalled();
-  });
-
-  it("rejects an invalid skill permission before creating a task", async () => {
-    const response = await POST(
-      new NextRequest("http://localhost/api/tasks", {
-        method: "POST",
-        body: JSON.stringify({ projectId: null, prompt: "作業", skillPermission: "invalid" }),
-      }),
-    );
-
-    expect(response.status).toBe(400);
-    expect(mocks.createTask).not.toHaveBeenCalled();
-  });
-
-  it("rejects an invalid subagent permission before creating a task", async () => {
-    const response = await POST(
-      new NextRequest("http://localhost/api/tasks", {
-        method: "POST",
-        body: JSON.stringify({ projectId: null, prompt: "作業", subagentPermission: "invalid" }),
-      }),
-    );
-
-    expect(response.status).toBe(400);
-    expect(mocks.createTask).not.toHaveBeenCalled();
+    expect(response.status).toBe(200);
+    const input = mocks.createTask.mock.calls[0]?.[0] as Record<string, unknown>;
+    expect(input).not.toHaveProperty("permissionMode");
+    expect(input).not.toHaveProperty("skillPermission");
+    expect(input).not.toHaveProperty("subagentPermission");
   });
 
   it("rejects an invalid thinking level before creating a task", async () => {

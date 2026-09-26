@@ -5,9 +5,6 @@ import { usePathname } from "next/navigation";
 import { writeAutoOptimizeMode } from "@/lib/auto-settings";
 import { readComposerDefaults } from "@/lib/composer-defaults";
 import { writeStoredAgent } from "@/lib/default-agent";
-import { writePermissionMode } from "@/lib/permission-gate";
-import { writeSkillPermission } from "@/lib/skill-permission";
-import { writeSubagentPermission } from "@/lib/subagent-permission";
 import { hydrateServerSettings, primeServerSettings, refreshServerSettings } from "@/lib/setting-sync";
 import { writeStoredThinkingLevel } from "@/lib/thinking-levels";
 import { Sidebar } from "./Sidebar";
@@ -36,9 +33,6 @@ function initializeComposerDefaults(): void {
   writeAutoOptimizeMode(defaults.autoOptimize);
   writeStoredAgent(defaults.agent);
   if (defaults.thinkingLevel) writeStoredThinkingLevel(defaults.thinkingLevel);
-  writePermissionMode("allow");
-  writeSkillPermission("allow");
-  writeSubagentPermission("deny");
 }
 
 /** 起動ごとに1回: サーバ値（正本）をキャッシュへ反映してから Composer 既定値を適用する。 */

@@ -6,7 +6,10 @@ const settings = vi.hoisted(() => ({
   setSetting: vi.fn(),
 }));
 const accounts = vi.hoisted(() => ({ listAccounts: vi.fn() }));
-const harness = vi.hoisted(() => ({ refreshCompactionSuggestions: vi.fn() }));
+const harness = vi.hoisted(() => ({
+  refreshCompactionSuggestions: vi.fn(),
+  applyCodePermissionSettingsToLiveTasks: vi.fn(async () => undefined),
+}));
 vi.mock("@/lib/pi/harness", () => harness);
 
 vi.mock("@/lib/pi/web-settings", () => ({
@@ -49,6 +52,34 @@ describe("/api/settings/[key]", () => {
     expect(settings.setSetting.mock.invocationCallOrder[0]).toBeLessThan(
       harness.refreshCompactionSuggestions.mock.invocationCallOrder[0]!,
     );
+  });
+
+  it.each([
+    ["code-permission-mode", "ask"],
+    ["code-permission-mode", "deny"],
+    ["code-skill-permission", "deny"],
+    ["code-subagent-permission", "allow"],
+  ])("saves %s=%s and applies it to open Code sessions", async (key, value) => {
+    const response = await PUT(request(key, { value }), { params: Promise.resolve({ key }) });
+
+    expect(response.status).toBe(200);
+    expect(settings.setSetting).toHaveBeenCalledWith(key, value);
+    expect(harness.applyCodePermissionSettingsToLiveTasks).toHaveBeenCalledOnce();
+    expect(settings.setSetting.mock.invocationCallOrder[0]).toBeLessThan(
+      harness.applyCodePermissionSettingsToLiveTasks.mock.invocationCallOrder[0]!,
+    );
+  });
+
+  it.each([
+    ["code-permission-mode", "always"],
+    ["code-skill-permission", "ask"],
+    ["code-subagent-permission", "yes"],
+  ])("rejects %s=%s without touching open sessions", async (key, value) => {
+    const response = await PUT(request(key, { value }), { params: Promise.resolve({ key }) });
+
+    expect(response.status).toBe(400);
+    expect(settings.setSetting).not.toHaveBeenCalled();
+    expect(harness.applyCodePermissionSettingsToLiveTasks).not.toHaveBeenCalled();
   });
 
   it("accepts only valid Jev Auto routing settings", async () => {

@@ -4,10 +4,10 @@
  * - 危険なシェルコマンド実行前に承認ダイアログを出す (permission-gate)
  * - user_bash と tool_call の OS 等への変更を調査・計画・明示承認で保護する (system-safety)
  * - 保護パスへの write/edit をブロックする (protected-paths)
- * - WebUI の Composer から設定される「承認モード」に連動して動作を切り替える
+ * - WebUI の設定画面で選ぶ「権限承認」（承認モード）に連動して動作を切り替える
  *
- * WebUI からは `/api/tasks/:id/permission` で承認モードを設定する。
- * 未設定時は "allow"（許可）。
+ * WebUI はセッションごとの承認モードを `permission-gate.json` の `sessions` に書き、
+ * 承認ダイアログへの回答は `/api/tasks/:id/permission` で受け取る。未設定時は "allow"（許可）。
  * システム安全ガードの度合いは、データディレクトリの `permission-gate.json` で
  * `"systemSafety": "off"|"low"|"standard"|"strict"`（または旧 boolean）を設定する。
  * 未設定時の既定は `off`。保護パスと LeafCodePi 自己終了の禁止はどの度合いでも継続。

@@ -51,9 +51,6 @@ export async function POST(
       autoOptimize?: unknown;
       autoRouteOverrides?: unknown;
       agent?: string;
-      subagentPermission?: "allow" | "deny";
-      permissionMode?: unknown;
-      skillPermission?: "allow" | "deny";
       streamingBehavior?: "steer" | "followUp";
       resume?: boolean;
     } | null;
@@ -80,15 +77,6 @@ export async function POST(
     }
     if (body?.model !== undefined && typeof body.model !== "string") {
       return NextResponse.json({ error: "invalid model" }, { status: 400 });
-    }
-    const permissionMode = body?.permissionMode;
-    if (
-      permissionMode !== undefined &&
-      permissionMode !== "allow" &&
-      permissionMode !== "ask" &&
-      permissionMode !== "deny"
-    ) {
-      return NextResponse.json({ error: "invalid permissionMode" }, { status: 400 });
     }
     if (body?.auto !== undefined && typeof body.auto !== "boolean") {
       return NextResponse.json({ error: "invalid auto" }, { status: 400 });
@@ -222,9 +210,7 @@ export async function POST(
       thinkingLevel,
       ...(body?.auto === true ? { accountIdExplicit: false } : {}),
       agent,
-      subagentPermission: body.subagentPermission,
-      permissionMode,
-      skillPermission: body.skillPermission,
+      // Permissions come from Settings (applied by promptTask), not the request.
       streamingBehavior: body.streamingBehavior,
       ...(body.resume === true ? { resume: true } : {}),
     });

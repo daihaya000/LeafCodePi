@@ -4,6 +4,7 @@ import { ALLOWED_SETTING_KEYS as ALLOWED_KEYS, validateSettingValue as validateV
 import { COMPACTION_ACTION_SETTING_KEY, COMPACTION_THRESHOLD_SETTING_KEY } from "@/lib/compaction-settings";
 import { isAutoOptimizeMode } from "@/lib/auto-model";
 import { AUTO_AGENT_SYSTEM_INSTRUCTION } from "@/lib/auto-agent";
+import { CODE_PERMISSION_SETTING_KEYS } from "@/lib/pi/code-permission-settings";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -75,6 +76,11 @@ export async function PUT(
   if (key === COMPACTION_ACTION_SETTING_KEY || key === COMPACTION_THRESHOLD_SETTING_KEY) {
     const { refreshCompactionSuggestions } = await import("@/lib/pi/harness");
     refreshCompactionSuggestions();
+  }
+  if (CODE_PERMISSION_SETTING_KEYS.has(key)) {
+    // Open Code sessions take the new permissions from their next turn.
+    const { applyCodePermissionSettingsToLiveTasks } = await import("@/lib/pi/harness");
+    await applyCodePermissionSettingsToLiveTasks();
   }
   const stored = getSetting(key);
   return key === "auto-agent-prompt"

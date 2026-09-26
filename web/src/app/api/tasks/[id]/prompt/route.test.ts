@@ -333,13 +333,21 @@ describe("POST /api/tasks/[id]/prompt", () => {
     expect(mocks.promptTask).not.toHaveBeenCalled();
   });
 
-  it("rejects an invalid permission mode before prompting", async () => {
+  it("ignores Composer permission fields because Settings decide them", async () => {
     const response = await POST(
-      request({ prompt: "作業", permissionMode: "invalid" }),
+      request({
+        prompt: "作業",
+        permissionMode: "invalid",
+        skillPermission: "deny",
+        subagentPermission: "allow",
+      }),
       { params: Promise.resolve({ id: "task-1" }) },
     );
 
-    expect(response.status).toBe(400);
-    expect(mocks.promptTask).not.toHaveBeenCalled();
+    expect(response.status).toBe(200);
+    const options = mocks.promptTask.mock.calls[0]?.[3] as Record<string, unknown>;
+    expect(options).not.toHaveProperty("permissionMode");
+    expect(options).not.toHaveProperty("skillPermission");
+    expect(options).not.toHaveProperty("subagentPermission");
   });
 });

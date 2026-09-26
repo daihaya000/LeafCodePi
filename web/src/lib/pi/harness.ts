@@ -179,6 +179,12 @@ import {
   applyPermissionMode,
   readPermissionGateConfig,
 } from "@/lib/permission-gate-config";
+import {
+  codePermissionUpdates,
+  readCodePermissionMode,
+  readCodeSkillPermission,
+  readCodeSubagentPermission,
+} from "@/lib/pi/code-permission-settings";
 import { buildAgentResourceOptions, loadAgentDefinition } from "@/lib/agents";
 import {
   armTaskHangWatch,
@@ -3469,9 +3475,15 @@ async function createSession(options: {
     "createSession.sessionManager",
     sessionManagerStartedAt,
   );
+  // Code sessions follow Settings unless a caller pins a value. Bot sessions
+  // manage skills and tools through their own Bot settings.
   const skillPermissionRef = {
-    current: options.skillPermission ?? ("allow" as SkillPermission),
+    current: options.skillPermission ??
+      (options.botTools ? ("allow" as SkillPermission) : readCodeSkillPermission()),
   };
+  const subagentPermission = options.botTools
+    ? options.subagentPermission
+    : options.subagentPermission ?? readCodeSubagentPermission();
   // Filter disabled skills via state file (skills-state.json), not folder moves.
   // skillsOverride re-reads state on every resourceLoader.reload() / session.reload().
   // Also drop any ~/.agents skills Pi loads internally: this harness must not
@@ -3557,7 +3569,7 @@ async function createSession(options: {
   const tools = sessionToolNames({
     agentTools: agentOptions?.tools,
     botTools: options.botTools,
-    subagentPermission: options.subagentPermission,
+    subagentPermission,
     botSoulTool: Boolean(botSoulBotId),
     botCodeTool: Boolean(botCodeTaskId),
     roomHandoffTool: Boolean(roomHandoffTaskId),
@@ -3589,7 +3601,7 @@ async function createSession(options: {
   const configureStartedAt = options.onTiming ? performance.now() : 0;
   await configureCreatedSession(result.session, {
     botTools: options.botTools,
-    subagentPermission: options.subagentPermission,
+    subagentPermission,
     permissionMode,
     persistPermission,
     goalLoop: options.goalLoop === true,
@@ -4537,6 +4549,12 @@ async function ensureLive(
     const project = task.projectId ? getProject(task.projectId) : undefined;
     const isBot = task.kind === "bot" && Boolean(task.botId);
     const bot = isBot && task.botId ? getBot(task.botId) : undefined;
+    // Code sessions reopen with the current Settings permissions; keep the task
+    // record aligned so later session replacements reuse the same values.
+    const permissionUpdates = isBot ? {} : codePermissionUpdates(task);
+    if (permissionUpdates.permissionMode || permissionUpdates.skillPermission) {
+      patchTask(taskId, permissionUpdates);
+    }
     const cwd = project?.rootPath ?? task.directory;
     const persistedGoalLoop = task.sessionId
       ? readGoalLoopState(cwd, task.sessionId)
@@ -4567,8 +4585,10 @@ async function ensureLive(
       accountId: sessionAccountId,
       model,
       thinkingLevel: sessionThinkingLevel,
-      skillPermission: task.skillPermission,
-      permissionMode: isBot ? (bot?.permissionMode ?? task.permissionMode) : task.permissionMode,
+      skillPermission: permissionUpdates.skillPermission ?? task.skillPermission,
+      permissionMode: isBot
+        ? (bot?.permissionMode ?? task.permissionMode)
+        : (permissionUpdates.permissionMode ?? task.permissionMode),
       agentName: task.agent ?? null,
       taskId,
       goalLoop: isGoalLoopSessionOwned(persistedGoalLoop),
@@ -7659,6 +7679,13 @@ export async function createTask(input: {
 }): Promise<TaskSummary> {
   validateGoalLoopAttachments(Boolean(input.goalLoop), input.files);
   const project = resolveCreateTaskProject(input.projectId);
+  // Settings decide Code permissions; internal callers (Bot delegation) may pin
+  // them. Bot-started tasks keep the Bot's approval mode instead of Settings.
+  const permissionMode =
+    input.permissionMode ?? (input.botId ? undefined : readCodePermissionMode());
+  const skillPermission = input.skillPermission ?? readCodeSkillPermission();
+  const subagentPermission =
+    input.subagentPermission ?? readCodeSubagentPermission();
   const {
     modelValue,
     thinkingLevelInput,
@@ -7699,8 +7726,8 @@ export async function createTask(input: {
       parsed,
       botId: input.botId,
       agent: input.agent,
-      skillPermission: input.skillPermission,
-      permissionMode: input.permissionMode,
+      skillPermission,
+      permissionMode,
     });
   let modelRoute: ConcreteModelRoute | undefined;
   let concreteAccountId = requestedAccountId ?? null;
@@ -7746,9 +7773,9 @@ export async function createTask(input: {
         accountId: concreteAccountId,
         model,
         thinkingLevel,
-        subagentPermission: input.subagentPermission,
-        permissionMode: input.permissionMode,
-        skillPermission: input.skillPermission,
+        subagentPermission,
+        permissionMode,
+        skillPermission,
         // The selected agent talks as the main persona for this whole session.
         agentName: input.agent ?? null,
         taskId: task.id,
@@ -8544,7 +8571,10 @@ async function preparePromptLiveForSend(
     meta?.subagentPermission !== undefined ||
     getTask(activeLive.taskId)?.kind !== "bot"
   ) {
-    applySubagentPermission(activeLive.session, meta?.subagentPermission);
+    applySubagentPermission(
+      activeLive.session,
+      meta?.subagentPermission ?? readCodeSubagentPermission(),
+    );
   }
   applySessionCompactionSettings(activeLive.session);
   const finalBehavior = resolveStreamingBehaviorForPrompt(
@@ -8858,6 +8888,23 @@ function requireTask(id: string): TaskSummary {
   return task;
 }
 
+/** Settings supply Code permissions unless an internal caller pins them. */
+function withCodePermissionSettings(
+  task: TaskSummary,
+  options: Parameters<typeof promptTask>[3],
+): NonNullable<Parameters<typeof promptTask>[3]> {
+  const updates = codePermissionUpdates(task);
+  return {
+    ...options,
+    ...(options?.permissionMode === undefined && updates.permissionMode
+      ? { permissionMode: updates.permissionMode }
+      : {}),
+    ...(options?.skillPermission === undefined && updates.skillPermission
+      ? { skillPermission: updates.skillPermission }
+      : {}),
+  };
+}
+
 async function applyPromptPermissions(
   id: string,
   options: NonNullable<Parameters<typeof promptTask>[3]> | undefined,
@@ -8914,8 +8961,8 @@ async function applyPromptThinkingLevel(
 }
 
 /**
- * Apply the Composer's agent/model/effort/permission selections before the turn
- * is queued, and return the task snapshot the caller should keep using.
+ * Apply the Composer's agent/model/effort selections and the Code permissions
+ * before the turn is queued, and return the task snapshot the caller should keep using.
  */
 async function applyPromptSelections(
   id: string,
@@ -8988,7 +9035,13 @@ export async function promptTask(
   if (isTaskRuntimeOwnedElsewhere(taskBeforePrompt)) {
     throw Object.assign(new Error(TASK_LEASE_BUSY_ERROR), { status: 409 });
   }
-  const task = await applyPromptSelections(id, options);
+  // Settings changed in another worker (or while the task was closed) apply
+  // here. Only the selection step sees them: queued/hang-resume metadata keeps
+  // explicit values so a later resume re-reads Settings instead of pinning them.
+  const task = await applyPromptSelections(
+    id,
+    withCodePermissionSettings(taskBeforePrompt, options),
+  );
   const live = await ensureLive(id, {
     autoPrompt: promptText,
     hasImages: Boolean(images?.length),
@@ -8998,7 +9051,10 @@ export async function promptTask(
     options?.subagentPermission !== undefined ||
     task.kind !== "bot"
   ) {
-    applySubagentPermission(live.session, options?.subagentPermission);
+    applySubagentPermission(
+      live.session,
+      options?.subagentPermission ?? readCodeSubagentPermission(),
+    );
   }
   persistRevertLeafId(id, null);
   // 再開は直前プロンプトの再送。Bot送信のターンを操作者の送信に見せ替えない。
@@ -9069,6 +9125,40 @@ export async function setTaskPermissionMode(
   if (!updated)
     throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });
   return updated;
+}
+
+/**
+ * Apply the Settings Code permissions to Code sessions open in this worker. A
+ * running turn keeps its tools; the next turn (Goal Loop turns included) uses
+ * the new values. Other workers and closed tasks read Settings on their next prompt.
+ */
+export async function applyCodePermissionSettingsToLiveTasks(): Promise<void> {
+  const subagentPermission = readCodeSubagentPermission();
+  for (const live of [...state().live.values()]) {
+    const task = getTask(live.taskId);
+    if (!task || task.kind === "bot") continue;
+    try {
+      const updates = codePermissionUpdates(task);
+      if (updates.permissionMode) {
+        await setTaskPermissionMode(task.id, updates.permissionMode);
+      }
+      if (updates.skillPermission) {
+        await setTaskSkillPermission(task.id, updates.skillPermission);
+      }
+      const current = state().live.get(task.id);
+      if (!current) continue;
+      if (shouldDeferLiveSetting(current, getTask(task.id) ?? task)) {
+        current.pendingSettings = { ...current.pendingSettings, subagentPermission };
+      } else {
+        applySubagentPermission(current.session, subagentPermission);
+      }
+    } catch (error) {
+      console.warn(
+        `[code-permissions] ${task.id}:`,
+        error instanceof Error ? error.message : String(error),
+      );
+    }
+  }
 }
 
 /** Apply the Bot's persisted tool allowlist to an already-created session. */

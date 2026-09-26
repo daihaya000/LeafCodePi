@@ -26,9 +26,6 @@ import { canAttachComposerImages, pasteImage } from "@/lib/clipboard-image";
 import { isImeComposingEvent } from "@/lib/composer-ime";
 import { ModelSelect, modelOptionForValue } from "@/components/ModelSelect";
 import { ThinkingSelect } from "@/components/ThinkingSelect";
-import { SubagentPermissionSelect } from "@/components/SubagentPermissionSelect";
-import { SkillPermissionSelect } from "@/components/SkillPermissionSelect";
-import { PermissionSelect } from "@/components/PermissionSelect";
 import { MobileMenuHeader } from "@/components/shell/MobileMenuHeader";
 import { HostnameLabel } from "@/components/shell/HostnameContext";
 import { Button, cx, GhostSelect } from "@/components/ui";
@@ -61,21 +58,6 @@ import {
   resolveThinkingLevel,
   writeStoredThinkingLevel,
 } from "@/lib/thinking-levels";
-import {
-  readSubagentPermission,
-  writeSubagentPermission,
-  type SubagentPermission,
-} from "@/lib/subagent-permission";
-import {
-  readSkillPermission,
-  writeSkillPermission,
-  type SkillPermission,
-} from "@/lib/skill-permission";
-import {
-  readPermissionMode,
-  writePermissionMode,
-  type PermissionMode,
-} from "@/lib/permission-gate";
 import { NO_PROJECT_NAME, type HealthDto, type ModelOption, type ProjectDto, type TaskSummary, type ThinkingLevel } from "@/lib/types";
 import type { AutoOptimizeMode } from "@/lib/auto-model";
 import { readCachedModels, writeCachedModels } from "@/lib/models-cache";
@@ -204,13 +186,6 @@ export const HomeView = memo(function HomeView({
   const [autoAgentEnabled, setAutoAgentEnabled] = useState(false);
   const [skills, setSkills] = useState<ComposerReference[]>([]);
   const [agent, setAgent] = useState(() => readStoredAgent() || DEFAULT_AGENT);
-  const [subagentPermission, setSubagentPermission] = useState<SubagentPermission>(
-    () => readSubagentPermission(),
-  );
-  const [skillPermission, setSkillPermission] = useState<SkillPermission>(
-    () => readSkillPermission(),
-  );
-  const [permissionMode, setPermissionMode] = useState<PermissionMode>(() => readPermissionMode());
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const composingRef = useRef(false);
@@ -497,9 +472,6 @@ export const HomeView = memo(function HomeView({
         ...(selectedModel?.accountId
           ? { accountId: selectedModel.accountId, accountIdExplicit: true }
           : {}),
-        subagentPermission,
-        permissionMode,
-        skillPermission,
         ...(goalLoopEnabled
           ? {
               goalLoop: {
@@ -750,41 +722,6 @@ export const HomeView = memo(function HomeView({
                       className="min-w-0 max-w-[8rem] shrink sm:max-w-40"
                     />
                   )}
-                    </>
-                  ),
-                },
-                {
-                  id: "permissions",
-                  label: "権限設定",
-                  content: (
-                    <>
-                  <PermissionSelect
-                    value={permissionMode}
-                    disabled={submitting}
-                    onChange={(mode) => {
-                      setPermissionMode(mode);
-                      writePermissionMode(mode);
-                    }}
-                    className="h-8 shrink-0"
-                  />
-                  <SkillPermissionSelect
-                    value={skillPermission}
-                    disabled={submitting}
-                    onChange={(mode) => {
-                      setSkillPermission(mode);
-                      writeSkillPermission(mode);
-                    }}
-                    className="h-8 shrink-0"
-                  />
-                  <SubagentPermissionSelect
-                    value={subagentPermission}
-                    disabled={submitting}
-                    onChange={(mode) => {
-                      setSubagentPermission(mode);
-                      writeSubagentPermission(mode);
-                    }}
-                    className="h-8 shrink-0"
-                  />
                     </>
                   ),
                 },

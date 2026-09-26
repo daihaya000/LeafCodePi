@@ -1,12 +1,14 @@
 /**
- * Pi ツール実行の承認/確認モード。
- * 本家 LeafCode のサブエージェント許可設定と同じ localStorage + CustomEvent 設計。
+ * Code タスクのツール承認モード（権限承認）。
+ * 設定画面（エンジン > アクセスと安全）で選び、サーバーの web-settings.json が正本。
+ * ユーザーが開始した Code タスクへ適用し、未設定は「許可」。
  */
 
 export type PermissionMode = "allow" | "ask" | "deny";
 
-export const PERMISSION_STORAGE_KEY = "webui:permission-mode";
-export const PERMISSION_EVENT = "webui:permission-mode";
+/** `/api/settings/[key]` で保存するキー。 */
+export const PERMISSION_MODE_SETTING_KEY = "code-permission-mode";
+export const DEFAULT_PERMISSION_MODE: PermissionMode = "allow";
 
 export const PERMISSION_OPTIONS: {
   value: PermissionMode;
@@ -30,22 +32,11 @@ export const PERMISSION_OPTIONS: {
   },
 ];
 
-export function readPermissionMode(): PermissionMode {
-  if (typeof window === "undefined") return "allow";
-  try {
-    const raw = localStorage.getItem(PERMISSION_STORAGE_KEY);
-    if (raw === "allow" || raw === "ask" || raw === "deny") return raw;
-  } catch {
-    /* ignore */
-  }
-  return "allow";
+export function isPermissionMode(value: unknown): value is PermissionMode {
+  return value === "allow" || value === "ask" || value === "deny";
 }
 
-export function writePermissionMode(mode: PermissionMode): void {
-  try {
-    localStorage.setItem(PERMISSION_STORAGE_KEY, mode);
-    window.dispatchEvent(new CustomEvent(PERMISSION_EVENT, { detail: mode }));
-  } catch {
-    /* ignore */
-  }
+/** 未設定・不正値は既定の「許可」として扱う。 */
+export function parsePermissionMode(value: unknown): PermissionMode {
+  return isPermissionMode(value) ? value : DEFAULT_PERMISSION_MODE;
 }

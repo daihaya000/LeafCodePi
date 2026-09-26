@@ -42,6 +42,9 @@ import {
   isAutoJevMinConfidence,
 } from "@/lib/auto-jev-settings";
 import { BOT_DEFAULT_PERMISSION_KEY, BOT_DEFAULT_THINKING_KEY, BOT_DEFAULT_PERMISSION_VALUES, BOT_DEFAULT_THINKING_VALUES } from "@/lib/bot-settings";
+import { isPermissionMode, PERMISSION_MODE_SETTING_KEY } from "@/lib/permission-gate";
+import { isSkillPermission, SKILL_PERMISSION_SETTING_KEY } from "@/lib/skill-permission";
+import { isSubagentPermission, SUBAGENT_PERMISSION_SETTING_KEY } from "@/lib/subagent-permission";
 import { PINNED_TASKS_SETTING_KEY, parsePinnedTaskIds } from "@/lib/sidebar-settings";
 import { AUTO_ARCHIVE_DAYS_SETTING_KEY, isAutoArchiveDaysOption } from "@/lib/auto-archive-settings";
 import {
@@ -93,6 +96,9 @@ export const ALLOWED_SETTING_KEYS: ReadonlySet<string> = new Set<string>([
   "auto-agent-prompt",
   BOT_DEFAULT_PERMISSION_KEY,
   BOT_DEFAULT_THINKING_KEY,
+  PERMISSION_MODE_SETTING_KEY,
+  SKILL_PERMISSION_SETTING_KEY,
+  SUBAGENT_PERMISSION_SETTING_KEY,
   GENERATION_FALLBACK_MODEL_SETTING_KEY,
   GENERATION_FALLBACK_MODEL_EFFORT_SETTING_KEY,
   GENERATION_MODEL_SETTING_KEY,
@@ -139,6 +145,15 @@ export function validateSettingValue(key: string, value: string): string | null 
   }
   if (key === BOT_DEFAULT_THINKING_KEY) {
     return BOT_DEFAULT_THINKING_VALUES.includes(value as never) ? value : null;
+  }
+  if (key === PERMISSION_MODE_SETTING_KEY) {
+    return isPermissionMode(value) ? value : null;
+  }
+  if (key === SKILL_PERMISSION_SETTING_KEY) {
+    return isSkillPermission(value) ? value : null;
+  }
+  if (key === SUBAGENT_PERMISSION_SETTING_KEY) {
+    return isSubagentPermission(value) ? value : null;
   }
   if (key === "auto-optimize") {
     return isAutoOptimizeMode(value) ? value : null;

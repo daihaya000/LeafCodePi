@@ -343,9 +343,9 @@ export type TaskSummary = {
   accountId?: string;
   /** accountId がユーザー指定なら true。Auto で選ばれたアカウントは false。 */
   accountIdExplicit?: boolean;
-  /** Composer からのスキル使用許可。未設定の旧タスクは許可扱い。 */
+  /** 適用中のスキル使用許可（設定画面の値）。未設定の旧タスクは許可扱い。 */
   skillPermission?: "allow" | "deny";
-  /** このタスクのツール承認モード。未設定の旧タスクは Composer 既定。 */
+  /** 適用中のツール承認モード。ユーザー開始タスクは設定画面、Bot関与タスクはBotの値。 */
   permissionMode?: "allow" | "ask" | "deny";
   /** 巻き戻し前の leaf。ある間は「復元」できる。 */
   revertLeafId?: string | null;

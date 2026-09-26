@@ -49,9 +49,6 @@ import { TodoProgressPanel } from "@/components/task/TodoProgressPanel";
 import { ModelSelect, modelOptionForValue } from "@/components/ModelSelect";
 import { ThinkingSelect } from "@/components/ThinkingSelect";
 import { AgentSelect } from "@/components/AgentSelect";
-import { SubagentPermissionSelect } from "@/components/SubagentPermissionSelect";
-import { SkillPermissionSelect } from "@/components/SkillPermissionSelect";
-import { PermissionSelect } from "@/components/PermissionSelect";
 import { StatusBadge } from "@/components/StatusBadge";
 import { MobileMenuButton } from "@/components/shell/MobileMenuHeader";
 import { MessageMetaHeader, PartView, ToolCard, WorkingRow } from "@/components/task/PartView";
@@ -221,19 +218,6 @@ import {
   thinkingLevelMetaLabel,
   writeStoredThinkingLevel,
 } from "@/lib/thinking-levels";
-import {
-  readSubagentPermission,
-  writeSubagentPermission,
-  type SubagentPermission,
-} from "@/lib/subagent-permission";
-import {
-  readSkillPermission,
-  type SkillPermission,
-} from "@/lib/skill-permission";
-import {
-  readPermissionMode,
-  type PermissionMode,
-} from "@/lib/permission-gate";
 import type {
   BotDto,
   DiffFilesPayload,
@@ -910,13 +894,6 @@ export const TaskView = memo(function TaskView({
   const taskAccountLabel = task?.accountId
     ? accountLabels.get(task.accountId) ?? task.accountId
     : null;
-  const [subagentPermission, setSubagentPermission] = useState<SubagentPermission>(
-    () => readSubagentPermission(),
-  );
-  const [skillPermission, setSkillPermission] = useState<SkillPermission>(
-    () => readSkillPermission(),
-  );
-  const [permissionMode, setPermissionMode] = useState<PermissionMode>(() => readPermissionMode());
   const [permissionRequest, setPermissionRequest] = useState<PermissionRequestDto | null>(null);
   const [questionRequest, setQuestionRequest] = useState<QuestionRequestDto | null>(null);
   const [permissionBusy, setPermissionBusy] = useState(false);
@@ -1194,8 +1171,6 @@ export const TaskView = memo(function TaskView({
     if (typeof detail.hangRetryCount === "number") {
       setHangRetryCount(detail.hangRetryCount);
     }
-    setSkillPermission(detail.skillPermission ?? readSkillPermission());
-    setPermissionMode(detail.permissionMode ?? readPermissionMode());
     // セッション人格は作成時固定。Auto 選択中は送信待ちの選択を維持する。
     const nextAgent = detail.agent?.trim() || DEFAULT_AGENT;
     setAgent(nextAgent);
@@ -1807,8 +1782,6 @@ export const TaskView = memo(function TaskView({
     setPermissionBusy(false);
     clearedPermissionIdsRef.current.clear();
     clearedQuestionIdsRef.current.clear();
-    setSkillPermission(cached?.skillPermission ?? readSkillPermission());
-    setPermissionMode(cached?.permissionMode ?? readPermissionMode());
     const nextAgent = cached?.agent?.trim() || DEFAULT_AGENT;
     setAgent(nextAgent);
     // タスク切替時は当該タスクの agent を表示。Composer 既定 Auto や前タスクの Auto は引き継がない。
@@ -2323,7 +2296,6 @@ export const TaskView = memo(function TaskView({
               }
             : {}),
           ...(agentSelection ? { agent: agentSelection } : {}),
-          subagentPermission,
           ...(streamingBehavior ? { streamingBehavior } : {}),
         });
         resolvedAgent = result.task.agent ?? null;
@@ -2423,7 +2395,6 @@ export const TaskView = memo(function TaskView({
       model: autoModelValue(escalation),
       ...(retryThinkingLevel ? { thinkingLevel: retryThinkingLevel } : {}),
       ...(autoRecord.agent ? { agent: autoRecord.agent } : {}),
-      subagentPermission,
     })
       .then(() => {
         setAutoRetryNotice(retryNotice);
@@ -2438,7 +2409,6 @@ export const TaskView = memo(function TaskView({
     autoRecord,
     autoRetrying,
     messages,
-    subagentPermission,
     task?.limitError,
     task?.status,
     taskId,
@@ -2650,7 +2620,6 @@ export const TaskView = memo(function TaskView({
                 : `${target.model.providerID}::${target.model.modelID}`,
             }
           : {}),
-        subagentPermission,
       });
       setTask((current) => (current ? { ...current, ...result.task } : current));
       setManualAbortedAssistantId(null);
@@ -2666,7 +2635,7 @@ export const TaskView = memo(function TaskView({
     } finally {
       setResumingTurn(false);
     }
-  }, [archived, resumingTurn, subagentPermission, taskId, working]);
+  }, [archived, resumingTurn, taskId, working]);
 
   // タスクのアカウントを切替えるモデルも選べる（setTaskModel が再作成を担う）ため
   // 他アカウントのモデルも含めて全候補を出す。並び順は /api/models の providerOrder 準拠。
@@ -4045,66 +4014,6 @@ export const TaskView = memo(function TaskView({
                   className="h-8 min-w-0 max-w-[8rem] sm:max-w-40"
                 />
               )}
-                </>
-              ),
-            },
-            {
-              id: "permissions",
-              label: "権限設定",
-              content: (
-                <>
-              <PermissionSelect
-                value={permissionMode}
-                disabled={compacting || archived}
-                onChange={(mode) => {
-                  const previous = permissionMode;
-                  setPermissionMode(mode);
-                  void (async () => {
-                    try {
-                      const { task: updated } = await sendJson<{ task: TaskSummary }>(
-                        `/api/tasks/${taskId}/permission-mode`,
-                        { mode },
-                      );
-                      setPermissionMode(updated.permissionMode ?? mode);
-                      setTask((current) => (current ? { ...current, ...updated } : current));
-                      setError(null);
-                    } catch (err) {
-                      setPermissionMode(previous);
-                      setError(err instanceof Error ? err.message : "権限モードの更新に失敗しました");
-                    }
-                  })();
-                }}
-                className="h-8 shrink-0"
-              />
-              <SkillPermissionSelect
-                value={skillPermission}
-                disabled={compacting || archived}
-                onChange={(permission) => {
-                  void (async () => {
-                    try {
-                      const { task: updated } = await sendJson<{ task: TaskSummary }>(
-                        `/api/tasks/${taskId}/skill-permission`,
-                        { permission },
-                      );
-                      setSkillPermission(updated.skillPermission ?? permission);
-                      setTask((current) => (current ? { ...current, ...updated } : current));
-                      setError(null);
-                    } catch (err) {
-                      setError(err instanceof Error ? err.message : "スキル権限の更新に失敗しました");
-                    }
-                  })();
-                }}
-                className="h-8 shrink-0"
-              />
-              <SubagentPermissionSelect
-                value={subagentPermission}
-                disabled={compacting || archived}
-                onChange={(mode) => {
-                  setSubagentPermission(mode);
-                  writeSubagentPermission(mode);
-                }}
-                className="h-8 shrink-0"
-              />
                 </>
               ),
             },
