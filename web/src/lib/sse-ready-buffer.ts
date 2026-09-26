@@ -1,4 +1,5 @@
 import type { UiMessage } from "@/lib/types";
+import { shouldClearQueuedFollowUpOnEvent } from "@/lib/queued-follow-up";
 
 export type MessageListRank = {
   len: number;
@@ -249,9 +250,12 @@ export function preparePendingPayloadForReadyFlush(
   const readyTime = typeof readyTaskUpdatedAt === "string" ? Date.parse(readyTaskUpdatedAt) : NaN;
   const bufferedTime = typeof bufferedUpdatedAt === "string" ? Date.parse(bufferedUpdatedAt) : NaN;
   const staleTask = Number.isFinite(readyTime) && Number.isFinite(bufferedTime) && bufferedTime < readyTime;
-  // A historical reset is an action, not just a stale message list. Never
-  // replay it after a newer ready snapshot has already loaded that history.
-  if (resetsHistory && staleTask) return null;
+  // A historical reset or stop is an action, not just stale timeline data.
+  // Replaying it after a newer ready snapshot can rewind history or clear a
+  // follow-up queue belonging to the new run.
+  if (staleTask && (resetsHistory || shouldClearQueuedFollowUpOnEvent(payload.eventType as string | undefined))) {
+    return null;
+  }
   const next = { ...payload };
   if (!(resetsHistory && Array.isArray(payload.messages)) &&
       !isFresherMessageList(rankMessageList(payload.messages), readyRank)) {

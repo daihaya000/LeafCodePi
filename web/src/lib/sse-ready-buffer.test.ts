@@ -427,6 +427,19 @@ describe("sse-ready-buffer", () => {
     )?.task).toMatchObject({ status: "idle" });
   });
 
+  it("drops a stale stop event instead of clearing follow-ups from the new run", () => {
+    const ready = rankMessageList([{ id: "current", createdAt: 10 }]);
+    expect(preparePendingPayloadForReadyFlush(
+      {
+        type: "snapshot", eventType: "abort",
+        task: { updatedAt: "2026-01-01T00:00:00.000Z" },
+        messages: [{ id: "previous", createdAt: 1 }],
+      },
+      ready,
+      "2026-01-01T00:00:01.000Z",
+    )).toBeNull();
+  });
+
   it("drops a historical reset older than the ready task", () => {
     const ready = rankMessageList([{ id: "current", createdAt: 10 }]);
     expect(preparePendingPayloadForReadyFlush(
