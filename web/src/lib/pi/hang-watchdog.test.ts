@@ -1126,4 +1126,29 @@ describe("hang-watchdog helpers", () => {
       fs.rmSync(root, { recursive: true, force: true });
     }
   });
+
+  // Known bug: separate workers overwrite each other's entries in the shared snapshot.
+  it.fails("preserves watches armed by separate worker instances", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "leafcode-pi-hang-watchdog-multiwriter-"));
+    const previousDataDir = process.env.LEAFCODE_PI_DATA_DIR;
+    process.env.LEAFCODE_PI_DATA_DIR = root;
+    let first: typeof import("./hang-watchdog") | undefined;
+    let second: typeof import("./hang-watchdog") | undefined;
+    try {
+      vi.resetModules();
+      first = await import("./hang-watchdog");
+      vi.resetModules();
+      second = await import("./hang-watchdog");
+      first.armTaskHangWatch({ taskId: "first", prompt: "work" });
+      second.armTaskHangWatch({ taskId: "second", prompt: "work" });
+      const store = JSON.parse(fs.readFileSync(path.join(root, "hang-watches.json"), "utf8"));
+      expect(store.watches.map((row: { taskId: string }) => row.taskId).sort()).toEqual(["first", "second"]);
+    } finally {
+      first?.stopHangWatchdogForTests();
+      second?.stopHangWatchdogForTests();
+      if (previousDataDir === undefined) delete process.env.LEAFCODE_PI_DATA_DIR;
+      else process.env.LEAFCODE_PI_DATA_DIR = previousDataDir;
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
 });
