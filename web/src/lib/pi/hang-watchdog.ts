@@ -407,10 +407,18 @@ function markArmed(taskId: string): void {
 function recordProgress(taskId: string, lastProgressAt: number, fingerprint: string): void {
   const row = memoryWatches.get(taskId);
   if (!row) return;
+  const { lastProgressAt: previousProgressAt, progressFingerprint: previousFingerprint, updatedAt: previousUpdatedAt } = row;
   row.lastProgressAt = lastProgressAt;
   row.progressFingerprint = fingerprint;
   row.updatedAt = Date.now();
-  writeStore();
+  try {
+    writeStore();
+  } catch (error) {
+    row.lastProgressAt = previousProgressAt;
+    row.progressFingerprint = previousFingerprint;
+    row.updatedAt = previousUpdatedAt;
+    throw error;
+  }
 }
 
 async function waitForIdle(taskId: string): Promise<boolean> {
