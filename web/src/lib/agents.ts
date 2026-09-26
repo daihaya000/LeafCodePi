@@ -378,6 +378,9 @@ function updateAgentOverride(
 }
 
 export function setAgentEnabled(name: string, enabled: boolean, agentDir = resolvePiAgentDir()): AgentListResult {
+  if (name.trim() === DEFAULT_AGENT && !enabled) {
+    throw new AgentsError("readonly", "default エージェントは無効化できません");
+  }
   return updateAgentOverride(
     name,
     (override) => {

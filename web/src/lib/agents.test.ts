@@ -89,6 +89,29 @@ describe("listAgents / setAgentEnabled", () => {
     assert.equal(byName.get("worker")?.enabled, false);
   });
 
+  it("rejects disabling default and can re-enable an old disabled override", () => {
+    fixture();
+    writeFileSync(join(agentDir, "agents", "default.md"), agentNamed("default"), "utf8");
+    const settingsPath = join(agentDir, "settings.json");
+    const before = readFileSync(settingsPath, "utf8");
+
+    assert.throws(
+      () => setAgentEnabled("default", false, agentDir),
+      (error: unknown) => error instanceof AgentsError && agentsErrorStatus(error) === 403,
+    );
+    assert.equal(readFileSync(settingsPath, "utf8"), before);
+    assert.equal(listAgents(agentDir).agents.find((agent) => agent.name === "default")?.enabled, true);
+
+    writeFileSync(settingsPath, JSON.stringify({
+      packages: ["npm:pi-subagents"],
+      subagents: { agentOverrides: { default: { disabled: true } } },
+    }), "utf8");
+    assert.equal(listAgents(agentDir).agents.find((agent) => agent.name === "default")?.enabled, false);
+    setAgentEnabled("default", true, agentDir);
+    assert.equal(listAgents(agentDir).agents.find((agent) => agent.name === "default")?.enabled, true);
+    assert.equal(JSON.parse(readFileSync(settingsPath, "utf8")).subagents, undefined);
+  });
+
   it("user agents override package same-name", () => {
     fixture();
     // Add a user agent with same name as package builtin

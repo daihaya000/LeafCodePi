@@ -33,6 +33,7 @@ import {
 import { readStoredThinkingLevel, resolveThinkingLevel, writeStoredThinkingLevel } from "@/lib/thinking-levels";
 import { ModelSelect, modelOptionForValue } from "@/components/ModelSelect";
 import { AgentSelect } from "@/components/AgentSelect";
+import { AUTO_AGENT_VALUE, hasMultipleAgentChoices, resolveAgentSelection } from "@/lib/default-agent";
 import { AutoOptimizeSelect } from "@/components/AutoOptimizeSelect";
 import { ThinkingSelect } from "@/components/ThinkingSelect";
 import type { ModelOption, ThinkingLevel } from "@/lib/types";
@@ -129,6 +130,7 @@ export function ComposerDefaultsSettings({ refreshToken = 0 }: { refreshToken?: 
   const thinkingLevels = useMemo(() => selectedModel?.thinkingLevels ?? [], [selectedModel]);
   const modelKnown = Boolean(selectedModel);
   const selectModelValue = selectedModel?.value ?? defaults.model;
+  const displayedAgent = resolveAgentSelection(defaults.agent, agents, autoAgentEnabled);
   useEffect(() => {
     if (autoModelEnabled || defaults.model !== AUTO_MODEL_OPTION.value || !models[0]) return;
     change({ model: models[0].value });
@@ -210,13 +212,19 @@ export function ComposerDefaultsSettings({ refreshToken = 0 }: { refreshToken?: 
         <div className="text-sm">
           <span className="font-medium">エージェント</span>
           <div className="mt-2">
-            <AgentSelect
-              value={defaults.agent}
-              agents={agents}
-              autoEnabled={autoAgentEnabled}
-              onChange={(value) => change({ agent: value })}
-              className="h-9 w-full"
-            />
+            {hasMultipleAgentChoices(agents.length, autoAgentEnabled) ? (
+              <AgentSelect
+                value={defaults.agent}
+                agents={agents}
+                autoEnabled={autoAgentEnabled}
+                onChange={(value) => change({ agent: value })}
+                className="h-9 w-full"
+              />
+            ) : (
+              <span aria-label="既定のエージェント" className="flex h-9 items-center rounded-md bg-surface-2 px-3 text-sm text-muted">
+                {displayedAgent === AUTO_AGENT_VALUE ? "Auto" : displayedAgent}
+              </span>
+            )}
           </div>
         </div>
       </div>

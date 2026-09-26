@@ -115,6 +115,53 @@ describe("AgentsSettings", () => {
     });
   });
 
+  it("keeps the default agent enabled while other agents can still be toggled", async () => {
+    const defaultAgent = {
+      id: "default", name: "default", enabled: true,
+      source: "package" as const, filePath: "C:/default.md",
+    };
+    getJson.mockImplementation((path: string) =>
+      path === "/api/agents"
+        ? Promise.resolve({ agents: [defaultAgent, ...agents], autoEnabled: false })
+        : Promise.resolve({ models }),
+    );
+    render(<AgentsSettings />);
+
+    const locked = await screen.findByRole("switch", { name: "default は常に有効" }) as HTMLButtonElement;
+    expect(locked.disabled).toBe(true);
+    expect(locked.getAttribute("aria-checked")).toBe("true");
+    expect(locked.title).toContain("無効化できません");
+    fireEvent.click(locked);
+    expect(sendJson).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("switch", { name: "enabled を無効化" }));
+    await waitFor(() => expect(sendJson).toHaveBeenCalledWith(
+      "/api/agents/enabled", { enabled: false }, "PATCH",
+    ));
+  });
+
+  it("can restore a legacy disabled default agent", async () => {
+    const defaultAgent = {
+      id: "default", name: "default", enabled: false,
+      source: "package" as const, filePath: "C:/default.md",
+    };
+    getJson.mockImplementation((path: string) =>
+      path === "/api/agents"
+        ? Promise.resolve({ agents: [defaultAgent, ...agents], autoEnabled: false })
+        : Promise.resolve({ models }),
+    );
+    sendJson.mockResolvedValueOnce({ agents: [{ ...defaultAgent, enabled: true }, ...agents] });
+    render(<AgentsSettings />);
+
+    const restore = await screen.findByRole("switch", { name: "default を有効化" }) as HTMLButtonElement;
+    expect(restore.disabled).toBe(false);
+    fireEvent.click(restore);
+    await waitFor(() => expect(sendJson).toHaveBeenCalledWith(
+      "/api/agents/default", { enabled: true }, "PATCH",
+    ));
+    expect((await screen.findByRole("switch", { name: "default は常に有効" }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
   it("prioritizes enabled agents and saves a selected model", async () => {
     render(<AgentsSettings />);
 

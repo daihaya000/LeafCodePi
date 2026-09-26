@@ -120,6 +120,40 @@ describe("HomeView project panels", () => {
   });
 });
 
+describe("HomeView agent choices", () => {
+  it.each([
+    { enabled: ["default"], autoEnabled: false, visible: false },
+    { enabled: ["default", "reviewer"], autoEnabled: false, visible: true },
+    { enabled: ["default"], autoEnabled: true, visible: true },
+  ])("shows the dropdown only with multiple choices ($enabled, Auto: $autoEnabled)", async ({ enabled, autoEnabled, visible }) => {
+    const agentResult = deferred<{ agents: { name: string; enabled: boolean }[]; autoEnabled: boolean }>();
+    mocks.getJson.mockImplementation((path: string) => {
+      if (path === "/api/agents") return agentResult.promise;
+      if (path === "/api/projects") return Promise.resolve({ projects: [] });
+      if (path === "/api/health") return Promise.resolve({ engineOk: true });
+      if (path === "/api/models") return Promise.resolve({ models: [] });
+      if (path === "/api/skills") return Promise.resolve({ skills: [] });
+      if (path.startsWith("/api/settings/")) return Promise.resolve({ value: null });
+      return Promise.resolve({});
+    });
+    render(<HomeView initialNoProject />);
+    await act(async () => {
+      agentResult.resolve({
+        agents: [...enabled.map((name) => ({ name, enabled: true })), { name: "disabled", enabled: false }],
+        autoEnabled,
+      });
+    });
+    const selector = screen.queryByRole("button", { name: "エージェント" });
+    expect(Boolean(selector)).toBe(visible);
+    if (selector) {
+      fireEvent.click(selector);
+      expect(screen.getAllByRole("option").map((option) => option.textContent)).toEqual(
+        autoEnabled ? ["Auto", ...enabled] : enabled,
+      );
+    }
+  });
+});
+
 describe("HomeView model refresh", () => {
   it("refreshes and activates a project added from the sidebar", async () => {
     const initial = deferred<{ projects: ProjectDto[] }>();

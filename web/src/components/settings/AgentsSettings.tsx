@@ -16,7 +16,7 @@ import {
   writeAutoJevMinConfidence,
   writeAutoSettingToServer,
 } from "@/lib/auto-settings";
-import { AUTO_AGENT_ENABLED_SETTING_KEY, AUTO_AGENT_VALUE } from "@/lib/default-agent";
+import { AUTO_AGENT_ENABLED_SETTING_KEY, AUTO_AGENT_VALUE, DEFAULT_AGENT } from "@/lib/default-agent";
 import { ToolPermissionList } from "@/components/ToolPermissionList";
 import { ModelSelect } from "@/components/ModelSelect";
 import { Badge, Button, GhostSelect, Switch } from "@/components/ui";
@@ -745,7 +745,7 @@ export function AgentsSettings() {
   }
 
   async function toggle(agent: AgentDto) {
-    if (busyId) return;
+    if (busyId || (agent.name === DEFAULT_AGENT && agent.enabled)) return;
     setBusyId(agent.id);
     setError(null);
     try {
@@ -917,7 +917,7 @@ export function AgentsSettings() {
         </div>
       </div>
       <p className="text-xs text-muted">
-        pi-subagents が提供するサブエージェントの有効／無効とモデル・Effortを管理します。ここでのモデル・Effortはサブエージェントとして呼び出された時だけ使われ、直接選択時はComposerの設定を使います。ユーザー定義は{" "}
+        pi-subagents が提供するサブエージェントの有効／無効とモデル・Effortを管理します。default エージェントは無効化できません。ここでのモデル・Effortはサブエージェントとして呼び出された時だけ使われ、直接選択時はComposerの設定を使います。ユーザー定義は{" "}
         <span>~/.pi/agent/agents/&lt;name&gt;.md</span> に保存されます。
       </p>
       {editor.mode !== "closed" && (
@@ -1000,8 +1000,12 @@ export function AgentsSettings() {
                 <Switch
                   checked={agent.enabled}
                   onChange={() => void toggle(agent)}
-                  label={`${agent.name} を${agent.enabled ? "無効化" : "有効化"}`}
+                  label={agent.name === DEFAULT_AGENT && agent.enabled
+                    ? "default は常に有効"
+                    : `${agent.name} を${agent.enabled ? "無効化" : "有効化"}`}
                   busy={busyId === agent.id}
+                  disabled={agent.name === DEFAULT_AGENT && agent.enabled}
+                  title={agent.name === DEFAULT_AGENT && agent.enabled ? "default エージェントは無効化できません" : undefined}
                 />
                 {agent.source === "user" && (
                   <div className="flex items-center gap-1">

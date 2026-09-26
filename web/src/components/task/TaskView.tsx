@@ -124,6 +124,7 @@ import { readCachedModels, writeCachedModels } from "@/lib/models-cache";
 import {
   AUTO_AGENT_VALUE,
   DEFAULT_AGENT,
+  hasMultipleAgentChoices,
   readStoredAgent,
   resolveAgentSelection,
   writeStoredAgent,
@@ -3984,7 +3985,7 @@ export const TaskView = memo(function TaskView({
                   }}
                 />
               )}
-              {agents.length > 0 && (
+              {hasMultipleAgentChoices(agents.length, autoAgentEnabled) && (
                 <AgentSelect
                   value={agentSelection}
                   agents={agents}

@@ -46,6 +46,19 @@ describe("PATCH /api/agents/:name tool permissions", () => {
     mocks.reloadLiveSessionsContext.mockResolvedValue({ reloaded: true });
   });
 
+  it("rejects disabling default without scheduling a session reload", async () => {
+    mocks.setAgentEnabled.mockImplementationOnce(() => {
+      throw new Error("default エージェントは無効化できません");
+    });
+    mocks.agentsErrorStatus.mockReturnValueOnce(403);
+
+    const response = await PATCH(request({ enabled: false }), context("default"));
+    expect(response.status).toBe(403);
+    expect((await response.json()).error).toContain("無効化できません");
+    expect(mocks.setAgentEnabled).toHaveBeenCalledWith("default", false);
+    expect(mocks.reloadLiveSessionsContext).not.toHaveBeenCalled();
+  });
+
   it("rejects a non-string tool name", async () => {
     const response = await PATCH(request({ tools: ["read", 123] }), context());
 

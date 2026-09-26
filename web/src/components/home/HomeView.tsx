@@ -52,7 +52,7 @@ import {
 import { AUTO_TASK_PROMPT_MAX, writeAutoTaskRecord } from "@/lib/auto-task-record";
 import { notifyTasksChanged } from "@/lib/events";
 import { getJson, sendJson } from "@/lib/client";
-import { DEFAULT_AGENT, readStoredAgent, resolveAgentSelection, writeStoredAgent } from "@/lib/default-agent";
+import { DEFAULT_AGENT, hasMultipleAgentChoices, readStoredAgent, resolveAgentSelection, writeStoredAgent } from "@/lib/default-agent";
 import {
   readStoredThinkingLevel,
   resolveThinkingLevel,
@@ -709,7 +709,7 @@ export const HomeView = memo(function HomeView({
                       className="min-w-0 max-w-[7rem] shrink sm:max-w-[8rem]"
                     />
                   )}
-                  {agents.length > 0 && (
+                  {hasMultipleAgentChoices(agents.length, autoAgentEnabled) && (
                     <AgentSelect
                       value={agent}
                       agents={agents}

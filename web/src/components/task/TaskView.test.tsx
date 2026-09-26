@@ -2144,9 +2144,31 @@ describe("TaskView draft submission", () => {
     });
 
     render(<TaskView taskId={task.id} mdUp />);
-    await waitFor(() => expect(screen.getByRole("button", { name: "エージェント" })).toBeTruthy());
-    expect(screen.getByRole("button", { name: "エージェント" }).textContent).toContain("builder");
-    expect(screen.getByRole("button", { name: "エージェント" }).textContent).not.toMatch(/\bAuto\b/);
+    await act(async () => { await Promise.resolve(); });
+    expect(mocks.getJson).toHaveBeenCalledWith("/api/agents");
+    expect(screen.queryByRole("button", { name: "エージェント" })).toBeNull();
+    fireEvent.change(screen.getByRole("textbox", { name: "フォローアップ" }), { target: { value: "next" } });
+    mocks.sendJson.mockResolvedValue({ task: agentTask });
+    fireEvent.submit(screen.getByRole("form", { name: "フォローアップ" }));
+    await waitFor(() => expect(mocks.sendJson).toHaveBeenCalledWith(
+      `/api/tasks/${task.id}/prompt`, expect.objectContaining({ agent: "builder" }),
+    ));
+  });
+
+  it("shows the task agent selector when another agent is enabled", async () => {
+    mocks.getJson.mockResolvedValue({
+      models: [],
+      agents: [
+        { name: "default", enabled: true },
+        { name: "reviewer", enabled: true },
+        { name: "disabled", enabled: false },
+      ],
+      skills: [],
+      accounts: [],
+    });
+    render(<TaskView taskId={task.id} mdUp />);
+    fireEvent.click(await screen.findByRole("button", { name: "エージェント" }));
+    expect(Array.from(screen.getByRole("listbox", { name: "エージェント" }).querySelectorAll('[role="option"]')).map((option) => option.textContent)).toEqual(["default", "reviewer"]);
   });
 
   it("does not send on Ctrl+Enter with IME keyCode 229", async () => {

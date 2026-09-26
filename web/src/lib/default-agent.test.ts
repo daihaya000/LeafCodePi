@@ -3,9 +3,19 @@ import { describe, it } from "vitest";
 import {
   AUTO_AGENT_VALUE,
   DEFAULT_AGENT,
+  hasMultipleAgentChoices,
   isAutoAgentEnabled,
   resolveAgentSelection,
 } from "./default-agent";
+
+describe("hasMultipleAgentChoices", () => {
+  it("shows the selector only with at least two enabled choices, counting Auto when enabled", () => {
+    assert.equal(hasMultipleAgentChoices(0, false), false);
+    assert.equal(hasMultipleAgentChoices(1, false), false);
+    assert.equal(hasMultipleAgentChoices(1, true), true);
+    assert.equal(hasMultipleAgentChoices(2, false), true);
+  });
+});
 
 describe("resolveAgentSelection", () => {
   it("prefers default and rejects the display placeholder", () => {

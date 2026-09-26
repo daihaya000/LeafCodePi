@@ -89,12 +89,26 @@ describe("ComposerDefaultsSettings model mapping", () => {
     });
 
     render(<ComposerDefaultsSettings />);
-    fireEvent.click(screen.getByRole("button", { name: "エージェント" }));
-
     await waitFor(() => {
-      expect(screen.getByRole("option", { name: "default" })).toBeTruthy();
+      expect(screen.getByLabelText("既定のエージェント").textContent).toBe("default");
     });
+    expect(screen.queryByRole("button", { name: "エージェント" })).toBeNull();
     expect(screen.queryByText(/「builder」は無効です/)).toBeNull();
+  });
+
+  it("shows the default-agent selector once two agents are enabled", async () => {
+    mocks.getJson.mockImplementation((path: string) => {
+      if (path === "/api/models") return Promise.resolve({ models: [] });
+      if (path === "/api/agents") return Promise.resolve({ agents: [
+        { name: "default", enabled: true },
+        { name: "reviewer", enabled: true },
+        { name: "disabled", enabled: false },
+      ] });
+      return Promise.resolve({});
+    });
+    render(<ComposerDefaultsSettings />);
+    fireEvent.click(await screen.findByRole("button", { name: "エージェント" }));
+    expect(screen.getAllByRole("option").map((option) => option.textContent)).toEqual(["default", "reviewer"]);
   });
 
   it("does not read localStorage during server render", () => {

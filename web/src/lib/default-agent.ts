@@ -14,6 +14,11 @@ export function isAutoAgentEnabled(value: string | null | undefined): boolean {
   return value === "1";
 }
 
+/** Auto is a selectable agent when enabled, even though it is not in /api/agents.agents. */
+export function hasMultipleAgentChoices(enabledAgentCount: number, autoEnabled: boolean): boolean {
+  return enabledAgentCount + Number(autoEnabled) >= 2;
+}
+
 /** Keep Composer's controlled value on Auto, build, or an available agent. */
 export function resolveAgentSelection(
   preferred: string | null | undefined,
