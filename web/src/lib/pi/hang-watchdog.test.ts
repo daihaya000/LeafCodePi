@@ -220,6 +220,34 @@ describe("hang-watchdog helpers", () => {
     }
   });
 
+  it("recovers a newer complete temp snapshot after an interrupted rename", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "leafcode-pi-hang-watchdog-temp-"));
+    const previousDataDir = process.env.LEAFCODE_PI_DATA_DIR;
+    process.env.LEAFCODE_PI_DATA_DIR = root;
+    try {
+      armTaskHangWatch({ taskId: "valid", prompt: "work" });
+      const file = path.join(root, "hang-watches.json");
+      const snapshot = JSON.parse(fs.readFileSync(file, "utf8"));
+      snapshot.watches[0].retryUsed = MAX_HANG_RETRIES;
+      snapshot.watches[0].state = "resolving";
+      const temp = `${file}.777.00000000-0000-4000-8000-000000000001.tmp`;
+      fs.writeFileSync(temp, JSON.stringify(snapshot));
+      fs.utimesSync(file, new Date("2020-01-01"), new Date("2020-01-01"));
+      fs.utimesSync(temp, new Date("2021-01-01"), new Date("2021-01-01"));
+      const torn = `${file}.777.00000000-0000-4000-8000-000000000002.tmp`;
+      fs.writeFileSync(torn, '{"version":1,"watches":[null]}');
+      fs.utimesSync(torn, new Date("2022-01-01"), new Date("2022-01-01"));
+      recoverInterruptedHangWatches();
+      expect(getTaskHangWatch("valid")).toMatchObject({ retryUsed: MAX_HANG_RETRIES, state: "armed" });
+      expect(JSON.parse(fs.readFileSync(file, "utf8")).watches[0].retryUsed).toBe(MAX_HANG_RETRIES);
+    } finally {
+      stopHangWatchdogForTests();
+      if (previousDataDir === undefined) delete process.env.LEAFCODE_PI_DATA_DIR;
+      else process.env.LEAFCODE_PI_DATA_DIR = previousDataDir;
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it("recognizes a turn running only a subagent", () => {
     expect(turnHasOnlyActiveSubagentTool(turnWithTools("subagent"), 1)).toBe(true);
     expect(turnHasOnlyActiveSubagentTool(turnWithTools("task"), 1)).toBe(true);

@@ -4,8 +4,8 @@
  */
 
 import { createHash, randomUUID } from "node:crypto";
-import { mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { mkdirSync, readFileSync, readdirSync, renameSync, statSync, unlinkSync, writeFileSync } from "node:fs";
+import { basename, dirname, join } from "node:path";
 import {
   shouldAttachResumeImages,
   turnHasActiveTool,
@@ -120,15 +120,11 @@ function watchesPath(): string {
   return join(dataDir(), "hang-watches.json");
 }
 
-function readStore(): WatchStore {
+function readStoreFile(file: string): WatchStore | null {
   try {
-    const parsed = JSON.parse(readFileSync(watchesPath(), "utf8")) as WatchStore;
-    if (!parsed || parsed.version !== 1 || !Array.isArray(parsed.watches)) {
-      return { version: 1, watches: [] };
-    }
-    return {
-      version: 1,
-      watches: parsed.watches.filter((row): row is TaskHangWatchRow =>
+    const parsed = JSON.parse(readFileSync(file, "utf8")) as WatchStore;
+    if (!parsed || parsed.version !== 1 || !Array.isArray(parsed.watches)) return null;
+    const watches = parsed.watches.filter((row): row is TaskHangWatchRow =>
         row && typeof row.taskId === "string" && row.taskId.trim().length > 0 &&
         typeof row.prompt === "string" && Array.isArray(row.images) &&
         typeof row.resumeAllowed === "boolean" &&
@@ -136,11 +132,17 @@ function readStore(): WatchStore {
         Number.isInteger(row.retryUsed) && row.retryUsed >= 0 &&
         typeof row.progressFingerprint === "string" &&
         (row.state === "armed" || row.state === "resolving"),
-      ),
-    };
+    );
+    // An incomplete temp snapshot must not replace a valid main snapshot.
+    if (parsed.watches.length > 0 && watches.length === 0) return null;
+    return { version: 1, watches };
   } catch {
-    return { version: 1, watches: [] };
+    return null;
   }
+}
+
+function readStore(): WatchStore {
+  return readStoreFile(watchesPath()) ?? { version: 1, watches: [] };
 }
 
 function writeStore(): void {
@@ -257,9 +259,9 @@ export function turnHasOnlyActiveSubagentTool(
   return hasActiveTool;
 }
 
-function syncMemoryFromDisk(): void {
+function syncMemoryFromDisk(snapshot = readStore()): void {
   memoryWatches.clear();
-  for (const row of readStore().watches) {
+  for (const row of snapshot.watches) {
     memoryWatches.set(row.taskId, {
       ...row,
       files: Array.isArray(row.files) ? row.files : [],
@@ -268,7 +270,24 @@ function syncMemoryFromDisk(): void {
 }
 
 export function recoverInterruptedHangWatches(): void {
-  syncMemoryFromDisk();
+  const file = watchesPath();
+  let snapshot = readStore();
+  let newest = 0;
+  try { newest = statSync(file).mtimeMs; } catch { /* no main snapshot yet */ }
+  try {
+    for (const name of readdirSync(dirname(file))) {
+      if (!name.startsWith(`${basename(file)}.`) || !/\.\d+\.[0-9a-f-]{36}\.tmp$/.test(name)) continue;
+      const temp = join(dirname(file), name);
+      const mtime = statSync(temp).mtimeMs;
+      if (mtime <= newest) continue;
+      const candidate = readStoreFile(temp);
+      if (candidate) {
+        snapshot = candidate;
+        newest = mtime;
+      }
+    }
+  } catch { /* missing directory or raced temp: keep the last valid snapshot */ }
+  syncMemoryFromDisk(snapshot);
   for (const row of memoryWatches.values()) {
     if (row.state === "resolving") {
       row.state = "armed";
