@@ -832,6 +832,7 @@ export const TaskView = memo(function TaskView({
   const [deliveryMode, setDeliveryMode] = useState<"queue" | "steer">("steer");
   const [queuedFollowUps, setQueuedFollowUps] = useState<QueuedFollowUp[]>([]);
   const [queuedAutoSend, setQueuedAutoSend] = useState(false);
+  const [failedQueuedId, setFailedQueuedId] = useState<number | null>(null);
   const nextQueueIdRef = useRef(1);
   const queuedSendRef = useRef<QueuedFollowUp | null>(null);
   const submitRef = useRef<(queued?: QueuedFollowUp) => Promise<void>>(async () => undefined);
@@ -1784,6 +1785,7 @@ export const TaskView = memo(function TaskView({
     setQueuedFollowUps([]);
     queuedSendRef.current = null;
     setQueuedAutoSend(false);
+    setFailedQueuedId(null);
     setSubmitting(false);
     setResumingTurn(false);
     setResumeTurnError(null);
@@ -2339,9 +2341,11 @@ export const TaskView = memo(function TaskView({
         );
       }
       // The composer is editable during the request; do not clear its next draft.
+      if (!queued) setFailedQueuedId(null);
       notifyTasksChanged();
     } catch (err) {
       if (queued && !stopRequestedRef.current) {
+        setFailedQueuedId(queued.id);
         setQueuedFollowUps((current) => [queued, ...current]);
       }
       if (draftCleared) {
@@ -2445,6 +2449,7 @@ export const TaskView = memo(function TaskView({
         goalLoopLive: goalLoopVisible,
         stopRequested,
         hasQueuedItem: queuedFollowUps.length > 0,
+        queueFailed: queuedFollowUps[0]?.id === failedQueuedId,
         resumingTurn,
         sessionHydrating,
         sseReconnecting,
@@ -2467,6 +2472,7 @@ export const TaskView = memo(function TaskView({
     goalLoopVisible,
     queuedAutoSend,
     queuedFollowUps,
+    failedQueuedId,
     resumingTurn,
     sessionHydrating,
     sseReconnecting,

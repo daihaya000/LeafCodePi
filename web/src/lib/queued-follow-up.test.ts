@@ -63,6 +63,10 @@ describe("queued follow-up drain", () => {
     ).toBe(false);
   });
 
+  it("does not automatically retry a failed queued send", () => {
+    expect(shouldDrainQueuedFollowUp({ ...idle, hasQueuedItem: true, queueFailed: true })).toBe(false);
+  });
+
   it("does not drain after the user requested stop", () => {
     expect(
       shouldDrainQueuedFollowUp({

@@ -28,6 +28,7 @@ export function shouldDrainQueuedFollowUp(input: {
   goalLoopLive: boolean;
   stopRequested: boolean;
   hasQueuedItem: boolean;
+  queueFailed?: boolean;
   resumingTurn?: boolean;
   sessionHydrating?: boolean;
   sseReconnecting?: boolean;
@@ -36,6 +37,7 @@ export function shouldDrainQueuedFollowUp(input: {
 }): boolean {
   return (
     input.hasQueuedItem &&
+    !input.queueFailed &&
     !input.working &&
     !input.submitting &&
     !input.queuedAutoSend &&
