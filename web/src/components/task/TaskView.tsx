@@ -3852,7 +3852,7 @@ export const TaskView = memo(function TaskView({
               void submit();
             },
           }}
-          className="bot-composer-shell relative mx-auto w-full max-w-5xl rounded-3xl border border-bot-outline bg-bot-panel px-2 py-1 transition-colors focus-within:border-bot-outline"
+          className="bot-composer-shell relative mx-auto w-full max-w-5xl rounded-card border border-bot-outline bg-bot-panel px-2 py-1 transition-colors focus-within:border-bot-outline"
           attachments={attachments}
           onRemoveAttachment={(index) =>
             setAttachments((current) => current.filter((_, itemIndex) => itemIndex !== index))

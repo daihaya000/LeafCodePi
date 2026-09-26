@@ -36,7 +36,7 @@ it.each([true, false])("keeps Bot and Code bubble/header geometry identical (use
   expect([...botRow.classList].filter((name) => !PERF_CLASSES.includes(name)).sort()).toEqual([...codeRow.classList].sort());
   expect(PERF_CLASSES.every((name) => botRow.classList.contains(name))).toBe(true);
   const bot = container.querySelector(".bot-message-bubble")!;
-  const code = container.querySelector('[data-view="code"] .rounded-3xl')!;
+  const code = container.querySelector('[data-view="code"] .rounded-card')!;
   expect([...bot.classList].filter((name) => name !== "bot-message-bubble").sort()).toEqual([...code.classList].sort());
   expect(bot.classList.contains("w-full")).toBe(!user);
   expect(bot.classList.contains("max-w-bubble")).toBe(true);

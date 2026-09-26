@@ -136,7 +136,7 @@ export function BotComposer({
 
   return (
     <div className="shrink-0 bg-bot-chat px-3 pb-[max(1rem,env(safe-area-inset-bottom))] pt-2 sm:px-4">
-      <div className="bot-composer-shell mx-auto w-full max-w-5xl rounded-3xl border border-bot-outline/70 bg-bot-panel px-2 py-1 transition-[border-color,box-shadow] focus-within:border-bot-outline">
+      <div className="bot-composer-shell mx-auto w-full max-w-5xl rounded-card border border-bot-outline/70 bg-bot-panel px-2 py-1 transition-[border-color,box-shadow] focus-within:border-bot-outline">
         {attachments && attachments.length > 0 && (
           <div className="mb-2 flex flex-wrap gap-2">
             {attachments.map((attachment, index) => {

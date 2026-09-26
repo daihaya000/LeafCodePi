@@ -291,7 +291,7 @@ export function BotPermissionCard({ label, title, message, command, disabled, on
   onDeny: () => void;
 }) {
   return (
-    <div role="alertdialog" aria-label={label} className="rounded-2xl border border-warning/40 bg-warning-bg p-4 text-xs">
+    <div role="alertdialog" aria-label={label} className="rounded-card border border-warning/40 bg-warning-bg p-4 text-xs">
       <p className="font-medium">{title}</p>
       <p className="mt-1 whitespace-pre-wrap break-all text-muted">{message}</p>
       <pre className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap break-all rounded-lg bg-surface p-2">{command}</pre>

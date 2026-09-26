@@ -21,7 +21,7 @@ export function MessageHeader({ user = false, children }: { user?: boolean; chil
 
 export function MessageBubble({ user = false, neutral = false, className, children }: { user?: boolean; neutral?: boolean; className?: string; children: ReactNode }) {
   return <div className={cx(
-    "min-w-0 max-w-bubble rounded-3xl px-4 py-3 text-base leading-7 [overflow-wrap:anywhere]",
+    "min-w-0 max-w-bubble rounded-card px-4 py-3 text-base leading-7 [overflow-wrap:anywhere]",
     user ? "ml-auto self-end" : "w-full self-start",
     user && !neutral ? "bg-bot-user text-white" : "bg-bot-assistant text-text",
     className,
@@ -101,7 +101,7 @@ export function ActivityLog({ children, header, count, parts, messages = [], act
         if (event.currentTarget.open) stickRef.current = true;
         setOpen(event.currentTarget.open);
       }}
-      className="group/tool-activity w-full min-w-0 max-w-bubble self-start overflow-hidden rounded-2xl border border-border bg-surface"
+      className="group/tool-activity w-full min-w-0 max-w-bubble self-start overflow-hidden rounded-card border border-border bg-surface"
     >
       <summary className="flex min-h-11 cursor-pointer list-none items-center gap-2 bg-surface-2 px-3 py-2.5 text-left text-sm text-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary [&::-webkit-details-marker]:hidden">
         <ChevronRight className="h-4 w-4 shrink-0 transition-transform group-open/tool-activity:rotate-90" aria-hidden="true" />

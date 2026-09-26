@@ -152,6 +152,7 @@
   --color-bot-user: var(--bot-bubble-user);
   --color-bot-assistant: var(--bot-bubble-assistant);
   --color-bot-outline: var(--bot-outline);
+  --radius-card: 14px;
   --container-bubble: 88%;
   --font-sans: "Segoe UI", "Yu Gothic UI", "Meiryo UI", Meiryo, sans-serif;
   --font-mono: "Cascadia Mono", Consolas, "Courier New", monospace;
@@ -205,7 +206,7 @@ select {
 }
 
 .task-message-row article > [class~="group/reasoning"],
-.task-message-row article > [class~="overflow-hidden"][class~="rounded-xl"] {
+.task-message-row article > [class~="overflow-hidden"][class~="rounded-card"] {
   align-self: flex-start;
   width: 100%;
 }

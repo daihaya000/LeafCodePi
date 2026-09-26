@@ -528,7 +528,7 @@ export const ToolCard = memo(function ToolCard({
   return (
     <div
       className={cx(
-        "w-full max-w-bubble self-start overflow-hidden rounded-xl border text-sm",
+        "w-full max-w-bubble self-start overflow-hidden rounded-card border text-sm",
         isError ? "border-danger/40" : "border-border",
       )}
     >
@@ -664,7 +664,7 @@ function CompactionNotice({ message }: { message: UiMessage }) {
   const before =
     typeof message.tokensBefore === "number" ? formatTokens(message.tokensBefore) : null;
   return (
-    <details className="w-full max-w-bubble self-start rounded-xl border border-border bg-surface-2 px-3 py-2 text-xs text-muted">
+    <details className="w-full max-w-bubble self-start rounded-card border border-border bg-surface-2 px-3 py-2 text-xs text-muted">
       <summary className="cursor-pointer select-none font-medium text-text">
         コンテキストを圧縮しました
         {before ? `（圧縮前 ${before}）` : ""}
@@ -878,7 +878,7 @@ const ReasoningView = memo(function ReasoningView({ text }: { text: string }) {
   };
 
   return (
-    <div className="group/reasoning relative w-full min-w-0 max-w-bubble self-start overflow-hidden rounded-xl border border-border bg-surface">
+    <div className="group/reasoning relative w-full min-w-0 max-w-bubble self-start overflow-hidden rounded-card border border-border bg-surface">
       <button
         type="button"
         aria-expanded={open}
@@ -1122,7 +1122,7 @@ export const PartView = memo(
         {message.error && (
           <p
             role="alert"
-            className="w-full max-w-bubble self-start overflow-hidden rounded-lg border border-danger/30 bg-danger-bg px-3 py-2 text-sm text-danger [overflow-wrap:anywhere]"
+            className="w-full max-w-bubble self-start overflow-hidden rounded-card border border-danger/30 bg-danger-bg px-3 py-2 text-sm text-danger [overflow-wrap:anywhere]"
           >
             {message.error}
           </p>
