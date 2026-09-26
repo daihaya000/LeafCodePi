@@ -4,7 +4,7 @@
  */
 
 import { createHash, randomUUID } from "node:crypto";
-import { mkdirSync, readFileSync, readdirSync, renameSync, statSync, unlinkSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import {
   shouldAttachResumeImages,
@@ -145,14 +145,49 @@ function readStore(): WatchStore {
   return readStoreFile(watchesPath()) ?? { version: 1, watches: [] };
 }
 
-function writeStore(): void {
+const lockWait = new Int32Array(new SharedArrayBuffer(4));
+
+function withWatchStoreLock<T>(operation: () => T): T {
+  const lock = `${watchesPath()}.lock`;
+  const ownerFile = join(lock, "owner");
+  const owner = `${process.pid}:${randomUUID()}`;
+  mkdirSync(dirname(lock), { recursive: true });
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      mkdirSync(lock);
+      break;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+      try {
+        if (Date.now() - statSync(lock).mtimeMs > 30_000) rmSync(lock, { recursive: true, force: true });
+      } catch { /* another writer released the lock */ }
+      if (attempt >= 200) throw new Error("hang-watchdog store lock timeout");
+      Atomics.wait(lockWait, 0, 0, 25);
+    }
+  }
+  try {
+    writeFileSync(ownerFile, owner, "utf8");
+  } catch (error) {
+    rmSync(lock, { recursive: true, force: true });
+    throw error;
+  }
+  try {
+    return operation();
+  } finally {
+    try {
+      if (readFileSync(ownerFile, "utf8") === owner) rmSync(lock, { recursive: true, force: true });
+    } catch { /* a stale lock may have been replaced by another worker */ }
+  }
+}
+
+function writeStore(watches: readonly TaskHangWatchRow[] = [...memoryWatches.values()]): void {
   const file = watchesPath();
   mkdirSync(dirname(file), { recursive: true });
   const temp = `${file}.${process.pid}.${randomUUID()}.tmp`;
   try {
     writeFileSync(
       temp,
-      `${JSON.stringify({ version: 1, watches: [...memoryWatches.values()] }, null, 2)}\n`,
+      `${JSON.stringify({ version: 1, watches }, null, 2)}\n`,
       "utf8",
     );
     // Never truncate the only recoverable snapshot if the process stops mid-write.
@@ -350,7 +385,11 @@ export function armTaskHangWatch(input: ArmTaskHangWatchInput): void {
   };
   memoryWatches.set(taskId, row);
   try {
-    writeStore();
+    withWatchStoreLock(() => {
+      const merged = new Map(readStore().watches.map((watch) => [watch.taskId, watch]));
+      merged.set(taskId, row);
+      writeStore([...merged.values()]);
+    });
   } catch (error) {
     if (existing) memoryWatches.set(taskId, existing);
     else memoryWatches.delete(taskId);

@@ -1127,8 +1127,7 @@ describe("hang-watchdog helpers", () => {
     }
   });
 
-  // Known bug: separate workers overwrite each other's entries in the shared snapshot.
-  it.fails("preserves watches armed by separate worker instances", async () => {
+  it("preserves watches armed by separate worker instances", async () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "leafcode-pi-hang-watchdog-multiwriter-"));
     const previousDataDir = process.env.LEAFCODE_PI_DATA_DIR;
     process.env.LEAFCODE_PI_DATA_DIR = root;
