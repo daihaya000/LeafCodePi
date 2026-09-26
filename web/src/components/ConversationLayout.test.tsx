@@ -62,7 +62,7 @@ it("uses identical closed, scroll-bounded logs with full-width nested cards and 
   const content = bot.querySelector("summary")!.nextElementSibling!;
   expect(content.classList.contains("[&_.max-w-bubble]:max-w-full")).toBe(true);
   expect(content.classList.contains("overflow-y-auto")).toBe(true);
-  expect(content.classList.contains("max-h-[min(28rem,50dvh)]")).toBe(true);
+  expect(content.classList.contains("max-h-[min(19.6rem,35dvh)]")).toBe(true);
   fireEvent.click(bot.querySelector("summary")!);
   expect(bot.open).toBe(true);
   expect(task.open).toBe(false);

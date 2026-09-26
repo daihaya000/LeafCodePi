@@ -144,7 +144,7 @@ export function ActivityLog({ children, header, count, parts, messages = [], sta
           lastTopRef.current = el.scrollTop;
           stickRef.current = nextStickState(stickRef.current, el.scrollTop, prevTop, isNearBottom(el.scrollTop, el.clientHeight, el.scrollHeight));
         }}
-        className="max-h-[min(28rem,50dvh)] min-w-0 overflow-y-auto overscroll-y-contain border-t border-border bg-surface p-2 [&_.max-w-bubble]:max-w-full"
+        className="max-h-[min(19.6rem,35dvh)] min-w-0 overflow-y-auto overscroll-y-contain border-t border-border bg-surface p-2 [&_.max-w-bubble]:max-w-full"
       >
         <div ref={contentRef} className="min-w-0 space-y-2">
           {headerNode}
