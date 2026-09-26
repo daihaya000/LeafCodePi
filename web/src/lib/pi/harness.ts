@@ -3150,17 +3150,28 @@ export function sessionResourceOptions(input: {
   };
 }
 
-function sessionExtensionsOverride(
+const reportedExtensionErrors = new Set<string>();
+
+/** The SDK keeps load failures only in the loader result; log each one once. */
+function reportExtensionErrors(errors: readonly { path: string; error: string }[]): void {
+  for (const { path, error } of errors) {
+    const message = `[extensions] ${path}: ${error.split(/\r?\n/, 1)[0].slice(0, 500)}`;
+    if (reportedExtensionErrors.has(message)) continue;
+    reportedExtensionErrors.add(message);
+    console.error(message);
+  }
+}
+
+export function sessionExtensionsOverride(
   bundled: { names: ReadonlySet<string>; paths: ReadonlySet<string> },
 ): NonNullable<ResourceLoaderOptions["extensionsOverride"]> {
-  return (base) => ({
-    ...base,
-    extensions: filterExtensionsByState(
-      base.extensions.filter((extension) =>
-        keepsLoadedExtension(extension.path, bundled),
-      ),
-    ),
-  });
+  const kept = <T extends { path: string }>(entries: readonly T[]) =>
+    filterExtensionsByState(entries.filter(({ path }) => keepsLoadedExtension(path, bundled)));
+  return (base) => {
+    // Failures of dropped or disabled copies are expected; report only the rest.
+    if (base.errors.length > 0) reportExtensionErrors(kept(base.errors));
+    return { ...base, extensions: kept(base.extensions) };
+  };
 }
 
 function sessionSkillsOverride(input: {

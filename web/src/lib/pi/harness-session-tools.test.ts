@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { resolve } from "node:path";
-import { describe, it } from "vitest";
-import { isReplacedPackageSource, keepsLoadedExtension, replacedUpstreamPackages, sessionToolNames } from "./harness";
+import { describe, it, vi } from "vitest";
+import { isReplacedPackageSource, keepsLoadedExtension, replacedUpstreamPackages, sessionExtensionsOverride, sessionToolNames } from "./harness";
 import { COMPUTER_USE_TOOL_NAMES } from "./deferred-tools";
 
 describe("sessionToolNames", () => {
@@ -105,5 +105,27 @@ describe("session extension replacement", () => {
 
   it("keeps the upstream extension when its fork is not bundled", () => {
     assert.equal(keepsLoadedExtension("/npm/pi-subagents/index.js", bundled()), true);
+  });
+
+  it("logs load failures of kept extensions once, first line only", () => {
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const webAccess = resolve("/repo/extensions/leafcode-web-access/index.ts");
+      const override = sessionExtensionsOverride(bundled("leafcode-intercom", "leafcode-web-access"));
+      const base = {
+        extensions: [{ path: webAccess }, { path: "/npm/pi-intercom/index.js" }],
+        errors: [
+          { path: webAccess, error: "Failed to load extension: Cannot find module 'linkedom'\r\nRequire stack:\n- duckduckgo.ts" },
+          { path: "/npm/pi-intercom/index.js", error: "Failed to load extension: replaced upstream" },
+        ],
+      } as unknown as Parameters<typeof override>[0];
+      assert.deepEqual(override(base).extensions.map(({ path }) => path), [webAccess]);
+      override(base);
+      assert.deepEqual(logged.mock.calls, [
+        [`[extensions] ${webAccess}: Failed to load extension: Cannot find module 'linkedom'`],
+      ]);
+    } finally {
+      logged.mockRestore();
+    }
   });
 });
