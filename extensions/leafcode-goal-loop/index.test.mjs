@@ -124,6 +124,13 @@ test("extracts unfenced JSON after an unmatched prose brace", () => {
   );
 });
 
+test("extracts JSON after an unmatched quote in prose", () => {
+  assert.equal(
+    extractGoalResult('unfinished " prose\n{"status":"progress","summary":"recovered"}')?.summary,
+    "recovered",
+  );
+});
+
 test("does not mistake a nested status object for a turn result", () => {
   assert.equal(extractGoalResult('{"example":{"status":"completed","summary":"not a result"}}'), null);
 });

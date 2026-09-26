@@ -806,7 +806,8 @@ export function jsonObjectCandidates(text: string): string[] {
       else if (char === '"') inString = false;
       continue;
     }
-    if (char === '"') inString = true;
+    // Quotes in prose are not JSON strings and may remain unclosed.
+    if (char === '"' && starts.length) inString = true;
     else if (char === "{") starts.push(index);
     else if (char === "}" && starts.length) {
       const start = starts.pop()!;
