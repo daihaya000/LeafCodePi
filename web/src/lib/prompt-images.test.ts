@@ -60,8 +60,34 @@ describe("prompt file attachments", () => {
       { ...file, name: "second.txt", data: Buffer.alloc(half, "b").toString("base64") },
     ];
 
-    expect(isPromptFileList(files)).toBe(false);
+    // Oversized totals are accepted at the API boundary and spilled to disk when formatted.
+    expect(isPromptFileList(files)).toBe(true);
     expect(() => formatPromptWithFiles("確認", files)).toThrow("合計");
+  });
+
+  it("stores attachments beyond the inline budget and references them by path", () => {
+    const half = Math.floor(MAX_PROMPT_FILE_TOTAL_BYTES / 2) + 1;
+    const files = [
+      { ...file, name: "first.txt", data: Buffer.alloc(half, "a").toString("base64") },
+      { ...file, name: "second.txt", data: Buffer.alloc(half, "b").toString("base64") },
+    ];
+    const stored = new Map<string, string>();
+    const prompt = formatPromptWithFiles("check", files, {
+      storeOversized: (input, content) => {
+        const path = `/store/${input.name}`;
+        stored.set(path, content);
+        return path;
+      },
+    });
+
+    expect([...stored.keys()]).toEqual(["/store/second.txt"]);
+    expect(prompt).toContain("\"path\":\"/store/second.txt\"");
+    expect(prompt).not.toContain("b".repeat(half));
+    expect(Buffer.byteLength(prompt, "utf8")).toBeLessThan(MAX_PROMPT_FILE_TOTAL_BYTES);
+
+    const parsed = parsePromptFileMarkers(prompt, { readStored: (path) => stored.get(path) ?? null });
+    expect(parsed.text).toBe("check");
+    expect(parsed.files).toEqual(files);
   });
 
   it("rejects binary content before it reaches the prompt", () => {

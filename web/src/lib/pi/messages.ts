@@ -238,14 +238,26 @@ function filePartsFromPromptText(value: string, prefix: string): { text: string;
     const end = start + full.length;
     text += value.slice(cursor, start);
     try {
-      const payload = JSON.parse(match[1] ?? "") as { name?: unknown; mimeType?: unknown; content?: unknown };
+      const payload = JSON.parse(match[1] ?? "") as { name?: unknown; mimeType?: unknown; content?: unknown; path?: unknown; size?: unknown };
       if (
         typeof payload.name !== "string" ||
         !payload.name.trim() ||
         typeof payload.mimeType !== "string" ||
-        !payload.mimeType.trim() ||
-        typeof payload.content !== "string"
+        !payload.mimeType.trim()
       ) throw new Error("invalid marker");
+      if (typeof payload.content !== "string") {
+        // Oversized attachments are stored server-side; show metadata only.
+        if (typeof payload.path !== "string" || typeof payload.size !== "number") throw new Error("invalid marker");
+        parts.push({
+          id: `${prefix}-file-${parts.length}`,
+          type: "file",
+          name: payload.name,
+          mime: payload.mimeType,
+          size: payload.size,
+        });
+        cursor = end;
+        continue;
+      }
       const content = payload.content;
       parts.push({
         id: `${prefix}-file-${parts.length}`,

@@ -54,6 +54,7 @@ import {
   type LoginSessionEvent,
 } from "@/lib/pi/auth-login";
 import { formatPromptWithFiles, parsePromptFileMarkers, type PromptFileInput } from "@/lib/prompt-images";
+import { readStoredPromptFileContent, storePromptFileContent } from "@/lib/prompt-file-store";
 import {
   isBotPromptText,
   markBotPrompt,
@@ -8689,7 +8690,9 @@ function queuePrompt(
       if (!stillQueued()) return;
       persistManualAbortedAssistantId(live.taskId, previousManualAbort);
     };
-    const promptToSend = meta?.files?.length ? formatPromptWithFiles(prompt, meta.files) : prompt;
+    const promptToSend = meta?.files?.length
+      ? formatPromptWithFiles(prompt, meta.files, { storeOversized: storePromptFileContent })
+      : prompt;
     const sendCustomTurn = (
       message: Parameters<AgentSession["sendCustomMessage"]>[0],
     ) => {
@@ -9993,6 +9996,7 @@ export async function revertTask(
       : typeof entry.message.content === "string"
         ? entry.message.content
         : "",
+    { readStored: readStoredPromptFileContent },
   );
   return {
     task: taskDetail,
@@ -10079,7 +10083,7 @@ export function filesFromEntry(entry: {
   message: { role: string; content: unknown };
 }): { uri: string; mime: string; name?: string }[] {
   if (typeof entry.message.content !== "string") return [];
-  return parsePromptFileMarkers(entry.message.content).files.map((file) => ({
+  return parsePromptFileMarkers(entry.message.content, { readStored: readStoredPromptFileContent }).files.map((file) => ({
     uri: `data:${file.mimeType};base64,${file.data}`,
     mime: file.mimeType,
     name: file.name,

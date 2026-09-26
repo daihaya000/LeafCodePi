@@ -412,6 +412,17 @@ describe("projectPiMessages", () => {
     });
   });
 
+  it("projects stored oversized file markers as metadata cards", () => {
+    const content = "x".repeat(70 * 1024);
+    const file = { name: "pasted-text.txt", mimeType: "text/plain", data: Buffer.from(content, "utf8").toString("base64") };
+    const prompt = formatPromptWithFiles("check", [file], { storeOversized: () => "/store/pasted-text.txt" });
+    const messages = projectPiMessages([{ role: "user", id: "u-big", timestamp: 1, content: prompt }]);
+    expect(messages[0]?.parts).toEqual([
+      { id: "u-big-text", type: "text", text: "check" },
+      { id: "u-big-file-0", type: "file", name: "pasted-text.txt", mime: "text/plain", size: content.length },
+    ]);
+  });
+
   it("does not classify an error without errorMessage as a silent turn", () => {
     const messages = projectPiMessages([
       { role: "user", id: "u1", timestamp: 1, content: "作業" },

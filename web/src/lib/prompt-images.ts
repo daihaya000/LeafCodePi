@@ -91,8 +91,7 @@ export function isPromptFilesWithinTotalSize(files: readonly Pick<PromptFileInpu
 export function isPromptFileList(value: unknown): value is PromptFileInput[] {
   return Array.isArray(value)
     && value.length <= MAX_PROMPT_FILES
-    && value.every(isPromptFile)
-    && isPromptFilesWithinTotalSize(value);
+    && value.every(isPromptFile);
 }
 
 export function isPromptFileWithinSize(file: PromptFileInput): boolean {
@@ -116,23 +115,59 @@ export function isPromptFileText(file: PromptFileInput): boolean {
   return decodePromptFile(file) !== null;
 }
 
-/** Keep file contents readable to the model while making them removable from UI history. */
-export function formatPromptWithFiles(prompt: string, files: PromptFileInput[]): string {
+export type PromptFileFormatOptions = {
+  /** Persist text beyond the inline budget and return an absolute path the model can read. */
+  storeOversized?: (file: PromptFileInput, content: string) => string;
+};
+
+export type PromptFileParseOptions = {
+  /** Resolve a stored-file marker back to its text; return null when unavailable. */
+  readStored?: (path: string) => string | null;
+};
+
+/**
+ * Keep file contents readable to the model while making them removable from UI history.
+ * Files beyond the inline budget are stored and referenced by path so large pastes still send.
+ */
+export function formatPromptWithFiles(
+  prompt: string,
+  files: PromptFileInput[],
+  options: PromptFileFormatOptions = {},
+): string {
   if (files.length === 0) return prompt;
-  if (!isPromptFilesWithinTotalSize(files)) {
-    throw new Error(`添付ファイルは合計${MAX_PROMPT_FILE_TOTAL_BYTES / 1024}KiBまでです`);
-  }
+  let inlineBytes = 0;
   const markers = files.map((file) => {
     const content = decodePromptFile(file);
     if (content === null) throw new Error("添付ファイルはUTF-8テキストのみ対応しています");
-    const payload = JSON.stringify({ name: file.name, mimeType: file.mimeType, content }).replaceAll("<", "\\u003c");
+    const size = Buffer.byteLength(content, "utf8");
+    let record: Record<string, unknown>;
+    if (inlineBytes + size <= MAX_PROMPT_FILE_TOTAL_BYTES) {
+      inlineBytes += size;
+      record = { name: file.name, mimeType: file.mimeType, content };
+    } else {
+      if (!options.storeOversized) {
+        throw new Error(`添付ファイルは合計${MAX_PROMPT_FILE_TOTAL_BYTES / 1024}KiBまでです`);
+      }
+      const path = options.storeOversized(file, content);
+      record = {
+        name: file.name,
+        mimeType: file.mimeType,
+        path,
+        size,
+        note: "Too large to inline. Read the file at `path` with the read tool when its content is needed.",
+      };
+    }
+    const payload = JSON.stringify(record).replaceAll("<", "\\u003c");
     return `<leafcode-file>\n${payload}\n</leafcode-file>`;
   });
   return [prompt, ...markers].filter((part) => part.length > 0).join("\n\n");
 }
 
 /** Hide the transport marker from the timeline and recover a file payload for revert/resume. */
-export function parsePromptFileMarkers(value: string): { text: string; files: PromptFileInput[] } {
+export function parsePromptFileMarkers(
+  value: string,
+  options: PromptFileParseOptions = {},
+): { text: string; files: PromptFileInput[] } {
   const files: PromptFileInput[] = [];
   const marker = /(?:^|\n\n)<leafcode-file>\r?\n([\s\S]*?)\r?\n<\/leafcode-file>/g;
   let text = "";
@@ -143,15 +178,18 @@ export function parsePromptFileMarkers(value: string): { text: string; files: Pr
     const end = start + full.length;
     text += value.slice(cursor, start);
     try {
-      const payload = JSON.parse(match[1] ?? "") as { name?: unknown; mimeType?: unknown; content?: unknown };
-      if (
-        typeof payload.content !== "string" ||
-        !hasSafeFileMetadata(payload.name, payload.mimeType)
-      ) throw new Error("invalid marker");
+      const payload = JSON.parse(match[1] ?? "") as { name?: unknown; mimeType?: unknown; content?: unknown; path?: unknown };
+      if (!hasSafeFileMetadata(payload.name, payload.mimeType)) throw new Error("invalid marker");
+      const content = typeof payload.content === "string"
+        ? payload.content
+        : typeof payload.path === "string" && options.readStored
+          ? options.readStored(payload.path)
+          : null;
+      if (content === null) throw new Error("invalid marker");
       const file = {
         name: payload.name as string,
         mimeType: payload.mimeType as string,
-        data: Buffer.from(payload.content, "utf8").toString("base64"),
+        data: Buffer.from(content, "utf8").toString("base64"),
       };
       if (!isPromptFile(file)) throw new Error("invalid marker");
       files.push(file);
