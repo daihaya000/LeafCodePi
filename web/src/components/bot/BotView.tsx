@@ -98,7 +98,7 @@ function botMessageHasBubble(message: UiMessage): boolean {
   return Boolean(text || images.length || files.length || message.error || requestIds.length);
 }
 
-function BotToolActivityGroup({ messages, bot, botId, active, modelLabels }: { messages: UiMessage[]; bot: BotDto | null; botId: string; active: boolean; modelLabels: Record<string, string> }) {
+function BotToolActivityGroup({ messages, bot, botId, active, running, modelLabels }: { messages: UiMessage[]; bot: BotDto | null; botId: string; active: boolean; running: boolean; modelLabels: Record<string, string> }) {
   const parts = messages.flatMap((message) => botMessageDisplayData(message).tools);
   const firstMessage = messages[0];
   return (
@@ -110,6 +110,7 @@ function BotToolActivityGroup({ messages, bot, botId, active, modelLabels }: { m
       // 吹き出しを持つ応答はそちら側の応答なので、作業ログの使用量・経過時間に数えない。
       messages={messages.filter((message) => !botMessageHasBubble(message))}
       active={active}
+      running={running}
     >
       {messages.map((message, messageIndex) => {
         const { tools } = botMessageDisplayData(message);
@@ -1239,7 +1240,7 @@ export const BotView = memo(function BotView({ id, active = true }: { id: string
     const rows: ReactNode[] = [];
     const groupedTools: UiMessage[] = [];
     let groupKey: string | null = null;
-    const flushTools = () => {
+    const flushTools = (running = false) => {
       if (groupedTools.length === 0 || groupKey === null) return;
       rows.push(
         <BotToolActivityGroup
@@ -1248,13 +1249,14 @@ export const BotView = memo(function BotView({ id, active = true }: { id: string
           bot={bot}
           botId={`bot:${id}`}
           active={active}
+          running={running}
           modelLabels={modelLabels}
         />,
       );
       groupKey = null;
     };
 
-    for (const message of messages) {
+    for (const [messageIndex, message] of messages.entries()) {
       const user = message.role === "user";
       const { text, images, files, tools, requestIds } = botMessageDisplayData(message);
       const toolOnly =
@@ -1275,7 +1277,7 @@ export const BotView = memo(function BotView({ id, active = true }: { id: string
         if (groupKey === null) groupKey = messageRenderKey(message);
         groupedTools.push(message);
       }
-      flushTools();
+      flushTools(sending && messageIndex === messages.length - 1 && tools.length > 0);
       if (!text && images.length === 0 && files.length === 0 && tools.length === 0 && !message.error && requestIds.length === 0) {
         continue;
       }
@@ -1298,7 +1300,7 @@ export const BotView = memo(function BotView({ id, active = true }: { id: string
         </BotChatMessage>,
       );
     }
-    flushTools();
+    flushTools(sending);
     return rows;
   }, [active, bot, botMentions, id, messages, modelLabels, revertMessage, reverting, sending]);
 

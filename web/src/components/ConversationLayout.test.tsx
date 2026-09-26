@@ -66,6 +66,32 @@ it("uses identical closed, scroll-bounded logs with full-width nested cards and 
   expect(task.open).toBe(false);
 });
 
+it("opens the running log, closes it on completion, and preserves manual toggles between transitions", () => {
+  const renderLog = (running: boolean) => <ActivityLog kind="task" count={1} parts={[]} active running={running}>
+    <MessageBubble>Tool content</MessageBubble>
+  </ActivityLog>;
+  const { container, rerender } = render(renderLog(false));
+  const log = container.querySelector("details")!;
+  const summary = log.querySelector("summary")!;
+  expect(log.open).toBe(false);
+
+  rerender(renderLog(true));
+  expect(log.open).toBe(true);
+  fireEvent.click(summary);
+  expect(log.open).toBe(false);
+  rerender(renderLog(true));
+  expect(log.open).toBe(false);
+
+  rerender(renderLog(false));
+  expect(log.open).toBe(false);
+  fireEvent.click(summary);
+  expect(log.open).toBe(true);
+  rerender(renderLog(true));
+  expect(log.open).toBe(true);
+  rerender(renderLog(false));
+  expect(log.open).toBe(false);
+});
+
 it("passes the log's total output tokens, average tok/s, and elapsed time to the header", () => {
   const parts = [{ id: "tool", type: "tool" as const, tool: "read", callID: "call", state: { status: "completed" as const, input: {}, startedAtMs: 3_000, endedAtMs: 4_000 } }];
   const messages: UiMessage[] = [

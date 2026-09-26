@@ -3316,7 +3316,7 @@ export const TaskView = memo(function TaskView({
                 {historyError && <span className="text-xs text-danger">{historyError}</span>}
               </div>
             )}
-            {messageBlocks.map((block) => {
+            {messageBlocks.map((block, blockIndex) => {
               const firstMessage = block.kind === "tool-group" ? block.entries[0]!.message : block.message;
               const turn = block.showTurnDivider ? firstMessage.goalLoopTurn : undefined;
               const activityHeader =
@@ -3423,6 +3423,11 @@ export const TaskView = memo(function TaskView({
                 block.kind === "tool-group"
                   ? block.entries.reduce((count, entry) => count + taskActivityCount(entry), 0)
                   : 0;
+              const nextBlock = messageBlocks[blockIndex + 1];
+              const runningLog = working && block.kind === "tool-group" && (
+                blockIndex === messageBlocks.length - 1 ||
+                (blockIndex === messageBlocks.length - 2 && nextBlock?.kind === "message" && nextBlock.message.id === block.entries.at(-1)?.message.id)
+              );
               return (
                 <div
                   key={
@@ -3452,6 +3457,7 @@ export const TaskView = memo(function TaskView({
                       // 本文を吹き出しへ出す応答（showHeader=false）は使用量もそちらのヘッダーに出るので数えない。
                       messages={block.entries.filter((entry) => entry.showHeader).map((entry) => entry.message)}
                       active={active}
+                      running={runningLog}
                     >{activityContents}</ActivityLog>
                   ) : showResume &&
                     resumeInsideExistingBanner &&

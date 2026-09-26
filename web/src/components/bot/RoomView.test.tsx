@@ -473,6 +473,7 @@ describe("RoomView delegated work", () => {
 
     expect(screen.getByText("· 読取 README.md")).toBeTruthy();
     const log = screen.getByText("Code実行中").closest<HTMLDetailsElement>("[data-bot-tool-group]");
+    expect(log?.open).toBe(true);
     expect(log?.querySelector("summary .lucide-scroll-text")?.getAttribute("aria-hidden")).toBe("true");
     expect(log?.querySelector("summary")?.textContent).toContain("作業ログ");
     expect(log?.parentElement?.nextElementSibling?.textContent).toContain("依頼しました");

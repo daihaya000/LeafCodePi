@@ -629,6 +629,38 @@ it("groups consecutive tool-only messages between agent responses", () => {
   expect(group!.open).toBe(true);
 });
 
+it("opens only the latest work log while the task is running", () => {
+  const toolMessage = (id: string, createdAt: number): UiMessage => ({
+    id, role: "assistant", createdAt,
+    parts: [{ id: `${id}-tool`, type: "tool", tool: "read", callID: id, state: { status: "completed", input: {} } }],
+  });
+  saveTaskSessionCache({
+    task: { ...task, status: "working" },
+    messages: [toolMessage("old", 1), { id: "prompt", role: "user", createdAt: 2, parts: [{ id: "text", type: "text", text: "続けて" }] }, toolMessage("latest", 3)],
+    isStreaming: true,
+    isCompacting: false,
+  });
+  render(<TaskView taskId={task.id} mdUp />);
+  const logs = document.querySelectorAll<HTMLDetailsElement>("details[data-task-tool-group]");
+  expect(logs).toHaveLength(2);
+  expect(logs[0]!.open).toBe(false);
+  expect(logs[1]!.open).toBe(true);
+});
+
+it("keeps the current log expanded when the same response also has a reply bubble", () => {
+  saveTaskSessionCache({
+    task: { ...task, status: "working" },
+    messages: [{ id: "reply", role: "assistant", createdAt: 1, parts: [
+      { id: "thought", type: "thinking", text: "確認中" },
+      { id: "text", type: "text", text: "回答中" },
+    ] }],
+    isStreaming: true,
+    isCompacting: false,
+  });
+  render(<TaskView taskId={task.id} mdUp />);
+  expect(document.querySelector<HTMLDetailsElement>("details[data-task-tool-group]")?.open).toBe(true);
+});
+
 it("summarizes usage only for work-log responses whose headers stay in the log", () => {
   const tool = (id: string, startedAtMs: number): UiPart => ({
     id,

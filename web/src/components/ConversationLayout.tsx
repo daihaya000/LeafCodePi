@@ -48,7 +48,7 @@ export const ACTIVITY_USAGE_TITLES = {
 } as const;
 
 /** Keep Bot/Code log icons and layout here to prevent drift; callers own grouping and choose which responses count toward usage. */
-export function ActivityLog({ children, header, count, parts, messages = [], active, kind }: {
+export function ActivityLog({ children, header, count, parts, messages = [], active, running = false, kind }: {
   children: ReactNode;
   /** 枠外と展開内容の先頭に出すメタ行。関数なら作業ログ全体の使用量を受け取って描く。 */
   header?: ReactNode | ((usage: ActivityUsage) => ReactNode);
@@ -57,6 +57,8 @@ export function ActivityLog({ children, header, count, parts, messages = [], act
   /** 使用量と経過時間に数える応答。本文を吹き出しに出す応答は吹き出し側の応答として含めない。 */
   messages?: readonly UiMessage[];
   active: boolean;
+  /** このログが現在進行中の作業か。active はタブの表示状態。 */
+  running?: boolean;
   kind: "bot" | "task";
 }) {
   const elapsedMs = useToolElapsedMs(parts, active, messages);
@@ -65,7 +67,11 @@ export function ActivityLog({ children, header, count, parts, messages = [], act
   const contentRef = useRef<HTMLDivElement | null>(null);
   const stickRef = useRef(true);
   const lastTopRef = useRef(0);
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(running);
+  // 作業の開始・完了時だけ開閉を同期し、途中の手動開閉は維持する。
+  useLayoutEffect(() => {
+    setOpen(running);
+  }, [running]);
   // 展開中はタイムラインと同じ追従ルール（明示的な上スクロールだけ追従解除）。
   useLayoutEffect(() => {
     const scroller = scrollerRef.current;
@@ -89,6 +95,7 @@ export function ActivityLog({ children, header, count, parts, messages = [], act
       data-bot-tool-group={kind === "bot" ? "" : undefined}
       data-task-tool-group={kind === "task" ? "" : undefined}
       aria-label="作業ログ"
+      open={open}
       onToggle={(event) => {
         // 開き直しは常に最新から見せる。
         if (event.currentTarget.open) stickRef.current = true;

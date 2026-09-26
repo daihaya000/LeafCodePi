@@ -1072,12 +1072,10 @@ it("renders Bot tool messages with the shared ToolCard outside the chat bubble",
 
   const group = container.querySelector<HTMLDetailsElement>("[data-bot-tool-group]");
   expect(group).not.toBeNull();
-  expect(group!.open).toBe(false);
+  expect(group!.open).toBe(true);
   expect(group!.getAttribute("aria-label")).toBe("作業ログ");
   expect(group!.querySelector("summary")?.textContent).toContain("作業ログ");
   expect(group!.querySelector("summary .lucide-scroll-text")?.getAttribute("aria-hidden")).toBe("true");
-  fireEvent.click(group!.querySelector("summary")!);
-  expect(group!.open).toBe(true);
 
   const card = await screen.findByRole("button", { name: /読取/ });
   expect(card.getAttribute("aria-expanded")).toBe("false");
@@ -1098,6 +1096,22 @@ it("renders Bot tool messages with the shared ToolCard outside the chat bubble",
     }],
   }, isStreaming: false });
   expect(await screen.findByText("読み取り結果")).toBeTruthy();
+  expect(group!.open).toBe(false);
+});
+
+it("keeps the current Bot log expanded beside a streaming reply bubble", async () => {
+  const { container } = render(<ShellProvider><BotView id="one" /></ShellProvider>);
+  await screen.findByRole("button", { name: "設定" });
+  const message = { id: "mixed", role: "assistant", createdAt: 2, parts: [
+    { id: "tool", type: "tool", tool: "read", callID: "call", state: { status: "completed", input: {} } },
+    { id: "text", type: "text", text: "回答中" },
+  ] };
+  snapshot({ messages: [message], isStreaming: true });
+  const log = container.querySelector<HTMLDetailsElement>("details[data-bot-tool-group]")!;
+  expect(log.open).toBe(true);
+  expect(screen.getByText("回答中").closest("details")).toBeNull();
+  delta({ message, isStreaming: false });
+  expect(log.open).toBe(false);
 });
 
 it("groups consecutive tool-only entries without hiding messages", async () => {
