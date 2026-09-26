@@ -271,23 +271,27 @@ function syncMemoryFromDisk(snapshot = readStore()): void {
 
 export function recoverInterruptedHangWatches(): void {
   const file = watchesPath();
-  let snapshot = readStore();
+  let snapshot = readStoreFile(file);
   let newest = 0;
-  try { newest = statSync(file).mtimeMs; } catch { /* no main snapshot yet */ }
+  if (snapshot) {
+    try { newest = statSync(file).mtimeMs; } catch { /* main snapshot disappeared */ }
+  }
   try {
     for (const name of readdirSync(dirname(file))) {
       if (!name.startsWith(`${basename(file)}.`) || !/\.\d+\.[0-9a-f-]{36}\.tmp$/.test(name)) continue;
-      const temp = join(dirname(file), name);
-      const mtime = statSync(temp).mtimeMs;
-      if (mtime <= newest) continue;
-      const candidate = readStoreFile(temp);
-      if (candidate) {
-        snapshot = candidate;
-        newest = mtime;
-      }
+      try {
+        const temp = join(dirname(file), name);
+        const mtime = statSync(temp).mtimeMs;
+        if (mtime <= newest) continue;
+        const candidate = readStoreFile(temp);
+        if (candidate) {
+          snapshot = candidate;
+          newest = mtime;
+        }
+      } catch { /* this temp disappeared: inspect the remaining candidates */ }
     }
-  } catch { /* missing directory or raced temp: keep the last valid snapshot */ }
-  syncMemoryFromDisk(snapshot);
+  } catch { /* missing directory: keep the main snapshot */ }
+  syncMemoryFromDisk(snapshot ?? { version: 1, watches: [] });
   for (const row of memoryWatches.values()) {
     if (row.state === "resolving") {
       row.state = "armed";

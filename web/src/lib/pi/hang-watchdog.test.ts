@@ -240,6 +240,11 @@ describe("hang-watchdog helpers", () => {
       recoverInterruptedHangWatches();
       expect(getTaskHangWatch("valid")).toMatchObject({ retryUsed: MAX_HANG_RETRIES, state: "armed" });
       expect(JSON.parse(fs.readFileSync(file, "utf8")).watches[0].retryUsed).toBe(MAX_HANG_RETRIES);
+      // A corrupt main file cannot outrank the last valid temp by mtime.
+      fs.writeFileSync(file, "{truncated");
+      fs.utimesSync(file, new Date("2023-01-01"), new Date("2023-01-01"));
+      recoverInterruptedHangWatches();
+      expect(getTaskHangWatch("valid")?.retryUsed).toBe(MAX_HANG_RETRIES);
     } finally {
       stopHangWatchdogForTests();
       if (previousDataDir === undefined) delete process.env.LEAFCODE_PI_DATA_DIR;
