@@ -405,6 +405,28 @@ describe("sse-ready-buffer", () => {
     expect(fresher?.messages).toHaveLength(3);
   });
 
+  it("does not replay older task status from a buffered control event", () => {
+    const ready = rankMessageList([{ id: "latest", createdAt: 5 }]);
+    const prepared = preparePendingPayloadForReadyFlush(
+      {
+        type: "snapshot", eventType: "prompt_accepted",
+        task: { status: "working", updatedAt: "2026-01-01T00:00:00.000Z" },
+        isStreaming: true,
+        messages: [{ id: "old", createdAt: 1 }],
+      },
+      ready,
+      "2026-01-01T00:00:01.000Z",
+    );
+    expect(prepared).not.toHaveProperty("task");
+    expect(prepared).not.toHaveProperty("isStreaming");
+    expect(prepared).not.toHaveProperty("messages");
+    expect(preparePendingPayloadForReadyFlush(
+      { type: "snapshot", eventType: "hang_idle", task: { status: "idle", updatedAt: "2026-01-01T00:00:02.000Z" } },
+      ready,
+      "2026-01-01T00:00:01.000Z",
+    )?.task).toMatchObject({ status: "idle" });
+  });
+
   it("preserves reset history even when the reverted branch is shorter", () => {
     const ready = rankMessageList(Array.from({ length: 60 }, (_, index) => ({
       id: `old-${index}`,

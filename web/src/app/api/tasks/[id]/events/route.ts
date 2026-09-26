@@ -239,7 +239,7 @@ export async function GET(
             // events that are still newer so an older mid-fetch snapshot cannot
             // rewind the client after ready. Control events still flush, but
             // stale embedded messages are stripped.
-            const prepared = preparePendingPayloadForReadyFlush(payload, readyRank);
+            const prepared = preparePendingPayloadForReadyFlush(payload, readyRank, detail.updatedAt);
             if (!prepared) continue;
             sse.send(prepared.type === "delta" ? "delta" : "snapshot", prepared);
           }

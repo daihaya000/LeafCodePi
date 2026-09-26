@@ -140,7 +140,7 @@ export async function GET(
             const readyRank = rankMessageList(page?.messages ?? detail.messages);
             for (const payload of pendingPayloads) {
               if (writer.closed) break;
-              const prepared = preparePendingPayloadForReadyFlush(payload, readyRank);
+              const prepared = preparePendingPayloadForReadyFlush(payload, readyRank, detail.updatedAt);
               if (!prepared) continue;
               writer.send(prepared.type === "delta" ? "delta" : "snapshot", prepared);
             }

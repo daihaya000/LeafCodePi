@@ -236,6 +236,7 @@ export function shouldFlushPendingAfterReady(
 export function preparePendingPayloadForReadyFlush(
   payload: Record<string, unknown>,
   readyRank: MessageListRank,
+  readyTaskUpdatedAt?: string,
 ): Record<string, unknown> | null {
   if (!shouldFlushPendingAfterReady(payload, readyRank)) return null;
   if (!isControlSnapshot(payload)) return payload;
@@ -244,20 +245,25 @@ export function preparePendingPayloadForReadyFlush(
     payload.eventType === "revert" ||
     payload.eventType === "unrevert" ||
     payload.eventType === "conversation_reset";
-  if (resetsHistory && Array.isArray(payload.messages)) return payload;
-  if (isFresherMessageList(rankMessageList(payload.messages), readyRank)) {
-    return payload;
-  }
   const next = { ...payload };
-  delete next.messages;
-  delete next.messageHistory;
-  delete next.todos;
-  delete next.contextUsage;
-  // Ready already delivered the authoritative Goal Loop DTO; a buffered
-  // permission/hang snapshot must not rewind the panel to a prior status.
-  delete next.goalLoop;
-  // Same for compactionSuggested: contextUsage is stripped above, so a stale
-  // true/false here would desync the banner from the ready meter.
-  delete next.compactionSuggested;
+  if (!(resetsHistory && Array.isArray(payload.messages)) &&
+      !isFresherMessageList(rankMessageList(payload.messages), readyRank)) {
+    delete next.messages;
+    delete next.messageHistory;
+    delete next.todos;
+    delete next.contextUsage;
+    // Ready already delivered the authoritative Goal Loop DTO; a buffered
+    // permission/hang snapshot must not rewind the panel to a prior status.
+    delete next.goalLoop;
+    delete next.compactionSuggested;
+  }
+  const bufferedUpdatedAt = (payload.task as { updatedAt?: unknown } | undefined)?.updatedAt;
+  const readyTime = typeof readyTaskUpdatedAt === "string" ? Date.parse(readyTaskUpdatedAt) : NaN;
+  const bufferedTime = typeof bufferedUpdatedAt === "string" ? Date.parse(bufferedUpdatedAt) : NaN;
+  if (Number.isFinite(readyTime) && Number.isFinite(bufferedTime) && bufferedTime < readyTime) {
+    delete next.task;
+    delete next.isStreaming;
+    delete next.isCompacting;
+  }
   return next;
 }
