@@ -383,9 +383,16 @@ function isCurrentWatch(row: TaskHangWatchRow): boolean {
 function markResolving(row: TaskHangWatchRow): boolean {
   if (memoryWatches.get(row.taskId) !== row) return false;
   if (row.state === "resolving") return false;
+  const previousUpdatedAt = row.updatedAt;
   row.state = "resolving";
   row.updatedAt = Date.now();
-  writeStore();
+  try {
+    writeStore();
+  } catch (error) {
+    row.state = "armed";
+    row.updatedAt = previousUpdatedAt;
+    throw error;
+  }
   return true;
 }
 
