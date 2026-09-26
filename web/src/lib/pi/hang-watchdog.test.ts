@@ -10,6 +10,7 @@ import {
   MISSING_LIVE_GRACE_MS,
   getTaskHangWatch,
   progressFingerprint,
+  recoverInterruptedHangWatches,
   registerHangWatchdogHooks,
   resolveHangNow,
   runHangWatchdogTick,
@@ -191,6 +192,27 @@ describe("hang-watchdog helpers", () => {
     expect(progressFingerprint(running("abd"))).not.toBe(progressFingerprint(running("abc")));
     expect(progressFingerprint([{ ...messages[0]!, parts: [{ id: "t1", type: "text", text: "ok" }] }]))
       .not.toBe(progressFingerprint(messages));
+  });
+
+  it("skips corrupt persisted watches without losing valid ones", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "leafcode-pi-hang-watchdog-corrupt-"));
+    const previousDataDir = process.env.LEAFCODE_PI_DATA_DIR;
+    process.env.LEAFCODE_PI_DATA_DIR = root;
+    try {
+      armTaskHangWatch({ taskId: "valid", prompt: "work" });
+      const file = path.join(root, "hang-watches.json");
+      const store = JSON.parse(fs.readFileSync(file, "utf8"));
+      store.watches.push(null, { taskId: "", prompt: "bad" }, { taskId: "broken", prompt: "bad" });
+      fs.writeFileSync(file, JSON.stringify(store));
+      expect(() => recoverInterruptedHangWatches()).not.toThrow();
+      expect(getTaskHangWatch("valid")?.prompt).toBe("work");
+      expect(JSON.parse(fs.readFileSync(file, "utf8")).watches).toHaveLength(1);
+    } finally {
+      stopHangWatchdogForTests();
+      if (previousDataDir === undefined) delete process.env.LEAFCODE_PI_DATA_DIR;
+      else process.env.LEAFCODE_PI_DATA_DIR = previousDataDir;
+      fs.rmSync(root, { recursive: true, force: true });
+    }
   });
 
   it("recognizes a turn running only a subagent", () => {

@@ -126,7 +126,18 @@ function readStore(): WatchStore {
     if (!parsed || parsed.version !== 1 || !Array.isArray(parsed.watches)) {
       return { version: 1, watches: [] };
     }
-    return parsed;
+    return {
+      version: 1,
+      watches: parsed.watches.filter((row): row is TaskHangWatchRow =>
+        row && typeof row.taskId === "string" && row.taskId.trim().length > 0 &&
+        typeof row.prompt === "string" && Array.isArray(row.images) &&
+        typeof row.resumeAllowed === "boolean" &&
+        Number.isFinite(row.startedAt) && Number.isFinite(row.lastProgressAt) &&
+        Number.isInteger(row.retryUsed) && row.retryUsed >= 0 &&
+        typeof row.progressFingerprint === "string" &&
+        (row.state === "armed" || row.state === "resolving"),
+      ),
+    };
   } catch {
     return { version: 1, watches: [] };
   }
