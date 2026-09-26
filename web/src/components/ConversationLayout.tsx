@@ -5,7 +5,7 @@ import { ChevronRight, ScrollText } from "lucide-react";
 import { cx, formatDuration, useToolElapsedMs } from "@/components/ui";
 import { formatTokens } from "@/lib/context-usage";
 import { clampScrollTop, isNearBottom, nextStickState } from "@/lib/scroll-stick";
-import { formatTokensPerSecond, isSlowTokensPerSecond } from "@/lib/token-throughput";
+import { formatTokensPerSecond, isSlowTokensPerSecond, summarizeThroughput } from "@/lib/token-throughput";
 import type { UiMessage, UiPart } from "@/lib/types";
 
 export const conversationViewportClass = "min-h-0 min-w-0 flex-1 overscroll-y-contain overflow-x-clip overflow-y-auto bg-bot-chat px-3 py-5 sm:px-4";
@@ -28,37 +28,19 @@ export function MessageBubble({ user = false, neutral = false, className, childr
   )}>{children}</div>;
 }
 
-const NO_MESSAGES: readonly UiMessage[] = [];
-
-/** 作業ログ内の合計出力tokと平均tok/s（0 以下・非数はヘッダーと同じく数えない）。 */
-function activityUsage(messages: readonly UiMessage[]) {
-  let outputTokens = 0;
-  let rateSum = 0;
-  let rateCount = 0;
-  for (const message of messages) {
-    if (typeof message.outputTokens === "number" && message.outputTokens > 0) outputTokens += message.outputTokens;
-    const rate = message.tokensPerSecond;
-    if (typeof rate === "number" && Number.isFinite(rate) && rate > 0) {
-      rateSum += rate;
-      rateCount += 1;
-    }
-  }
-  return { outputTokens, avgRate: rateCount > 0 ? rateSum / rateCount : null };
-}
-
-/** Keep Bot/Code log icons and layout here to prevent drift; callers own grouping and metadata. */
-export function ActivityLog({ children, header, count, parts, messages = NO_MESSAGES, active, kind }: {
+/** Keep Bot/Code log icons and layout here to prevent drift; callers own grouping and choose which responses count toward usage. */
+export function ActivityLog({ children, header, count, parts, messages = [], active, kind }: {
   children: ReactNode;
   header?: ReactNode;
   count: number;
   parts: readonly UiPart[];
-  /** 使用量と経過時間に数える応答。使用量を本文の吹き出し側に出す応答は含めない。 */
+  /** 使用量と経過時間に数える応答。本文を吹き出しに出す応答は吹き出し側の応答として含めない。 */
   messages?: readonly UiMessage[];
   active: boolean;
   kind: "bot" | "task";
 }) {
   const elapsedMs = useToolElapsedMs(parts, active, messages);
-  const usage = activityUsage(messages);
+  const usage = summarizeThroughput(messages);
   const rateLabel = usage.avgRate === null ? "" : formatTokensPerSecond(usage.avgRate);
   // 並びはセッションヘッダーと同じ（件数 → 合計出力tok → 平均tok/s → 経過時間）。
   const stats = [

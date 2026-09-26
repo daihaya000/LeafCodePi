@@ -120,7 +120,7 @@ import {
   writeTitleAutoUpdateEnabled,
   writeTitleAutoUpdateFrequency,
 } from "@/lib/title-auto-update-settings";
-import { formatTokensPerSecond, isSlowTokensPerSecond } from "@/lib/token-throughput";
+import { formatTokensPerSecond, isSlowTokensPerSecond, summarizeThroughput } from "@/lib/token-throughput";
 import { notifyBotSidebarChanged, notifyTasksChanged } from "@/lib/events";
 import { taskSidebarNotifyKey } from "@/lib/task-sidebar-notify";
 import { markRead } from "@/lib/bot-unread";
@@ -2894,24 +2894,17 @@ export const TaskView = memo(function TaskView({
   );
   // メッセージヘッダーに表示する tok/s だけを平均する。
   const avgHeaderRate = useMemo(() => {
-    let sum = 0;
-    let count = 0;
-    const add = (message: UiMessage) => {
-      if (message.role === "user" || message.role === "compaction") return;
-      // formatTokensPerSecond と同じく 0 以下はヘッダーに表示されない。
-      if (typeof message.tokensPerSecond !== "number" || !Number.isFinite(message.tokensPerSecond) || message.tokensPerSecond <= 0) return;
-      sum += message.tokensPerSecond;
-      count += 1;
-    };
+    const shown: UiMessage[] = [];
     for (const block of messageBlocks) {
       if (block.kind === "message") {
         // 再開バナーへ置換されたメッセージはヘッダーを表示しない。
-        if (!(showResume && resumeInsideExistingBanner && resumeTarget?.messageId === block.message.id)) add(block.message);
+        if (!(showResume && resumeInsideExistingBanner && resumeTarget?.messageId === block.message.id)) shown.push(block.message);
       } else block.entries.forEach((entry, index) => {
-        if (index > 0 && entry.showHeader) add(entry.message);
+        if (index > 0 && entry.showHeader) shown.push(entry.message);
       });
     }
-    return count > 0 ? sum / count : null;
+    // 0 以下・非数の tok/s はヘッダーに出ないので、summarizeThroughput が平均から除く。
+    return summarizeThroughput(shown).avgRate;
   }, [messageBlocks, showResume, resumeInsideExistingBanner, resumeTarget?.messageId]);
   const avgHeaderRateLabel = avgHeaderRate === null ? null : formatTokensPerSecond(avgHeaderRate);
   // 幅狭はラベル行、幅広は状態行に同じ使用量（合計出力tok → 平均tok/s → 合計時間）を出す。

@@ -10,6 +10,8 @@
  *   outputTokens / (completedAt - startedAt)
  */
 
+import type { UiMessage } from "@/lib/types";
+
 export type ThroughputTiming = {
   /** Wall time when the assistant message / request started (ms). */
   startedAtMs: number;
@@ -220,6 +222,29 @@ export const SLOW_TOKENS_PER_SECOND = 50;
 
 export function isSlowTokensPerSecond(rate: number | null | undefined): boolean {
   return typeof rate === "number" && Number.isFinite(rate) && rate > 0 && rate < SLOW_TOKENS_PER_SECOND;
+}
+
+/**
+ * 応答の合計出力tokと平均tok/s（各応答の tok/s の単純平均）。ユーザー発言と圧縮は数えない。
+ * 0 以下・非数の tok/s はヘッダーに表示されないので平均にも含めない。
+ */
+export function summarizeThroughput(
+  messages: readonly Pick<UiMessage, "role" | "outputTokens" | "tokensPerSecond">[],
+): { outputTokens: number; avgRate: number | null } {
+  let outputTokens = 0;
+  let rateSum = 0;
+  let rateCount = 0;
+  for (const message of messages) {
+    if (message.role === "user" || message.role === "compaction") continue;
+    const tokens = message.outputTokens;
+    if (typeof tokens === "number" && Number.isFinite(tokens) && tokens > 0) outputTokens += tokens;
+    const rate = message.tokensPerSecond;
+    if (typeof rate === "number" && Number.isFinite(rate) && rate > 0) {
+      rateSum += rate;
+      rateCount += 1;
+    }
+  }
+  return { outputTokens, avgRate: rateCount > 0 ? rateSum / rateCount : null };
 }
 
 /** Compact display label, e.g. `42 tok/s`, `1.2k tok/s`. */

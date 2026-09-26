@@ -3,29 +3,22 @@
 import { useMemo } from "react";
 import { cx, formatDuration } from "@/components/ui";
 import { formatTokens, type ContextUsageDto } from "@/lib/context-usage";
-import { formatTokensPerSecond } from "@/lib/token-throughput";
+import { formatTokensPerSecond, summarizeThroughput } from "@/lib/token-throughput";
 import type { UiMessage } from "@/lib/types";
 
 /** Code（TaskView）ヘッダーと同じ集計: 合計出力tok → 平均tok/s → 合計時間。 */
 export function botUsageStats(messages: UiMessage[]) {
-  let totalOutputTokens = 0;
   let durationMs = 0;
-  let rateSum = 0;
-  let rateCount = 0;
   let prevCreatedAt: number | null = null;
   for (const message of messages) {
     if (message.role === "user" || message.role === "compaction") continue;
-    if (typeof message.outputTokens === "number" && message.outputTokens > 0) totalOutputTokens += message.outputTokens;
-    if (typeof message.tokensPerSecond === "number" && Number.isFinite(message.tokensPerSecond) && message.tokensPerSecond > 0) {
-      rateSum += message.tokensPerSecond;
-      rateCount += 1;
-    }
     if (prevCreatedAt !== null) durationMs += Math.max(0, message.createdAt - prevCreatedAt);
     prevCreatedAt = message.createdAt;
   }
+  const { outputTokens, avgRate } = summarizeThroughput(messages);
   return {
-    totalOutputTokens,
-    avgRate: rateCount > 0 ? rateSum / rateCount : null,
+    totalOutputTokens: outputTokens,
+    avgRate,
     durationMs: messages.length > 1 ? durationMs : 0,
   };
 }

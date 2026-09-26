@@ -542,9 +542,10 @@ export type UiMessage = {
   /** True when tokensPerSecond is decode-phase (excludes TTFT). */
   tokensPerSecondDecode?: boolean;
   /**
-   * Approximate response window (previous record's timestamp → this
-   * assistant message's timestamp) in ms. Shown as the "thinking" seconds in
-   * the meta row, matching the upstream LeafCode display.
+   * Generation window in ms: from createdAt (the assistant timestamp, i.e. when
+   * generation started) to the last streamed token, so it ends at
+   * createdAt + responseDurationMs. Shown as the "thinking" seconds in the meta
+   * row, matching the upstream LeafCode display.
    */
   responseDurationMs?: number;
 };

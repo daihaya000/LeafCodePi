@@ -9,6 +9,7 @@ import {
   noteContentDelta,
   noteReportedOutputTokens,
   snapshotThroughput,
+  summarizeThroughput,
   timingFromPersisted,
   toPersistedThroughput,
 } from "./token-throughput";
@@ -94,6 +95,20 @@ describe("formatTokensPerSecond", () => {
     expect(formatTokensPerSecond(4.2)).toBe("4.2 tok/s");
     expect(formatTokensPerSecond(42.4)).toBe("42 tok/s");
     expect(formatTokensPerSecond(1_250)).toBe("1.3k tok/s");
+  });
+});
+
+describe("summarizeThroughput", () => {
+  it("sums assistant output tokens and averages only the rates headers display", () => {
+    expect(summarizeThroughput([
+      { role: "user", outputTokens: 999, tokensPerSecond: 999 },
+      { role: "assistant", outputTokens: 1_000, tokensPerSecond: 20 },
+      { role: "assistant", outputTokens: 500, tokensPerSecond: 40 },
+      { role: "assistant", outputTokens: 0, tokensPerSecond: 0 },
+      { role: "assistant", tokensPerSecond: Number.NaN },
+      { role: "compaction", outputTokens: 999 },
+    ])).toEqual({ outputTokens: 1_500, avgRate: 30 });
+    expect(summarizeThroughput([])).toEqual({ outputTokens: 0, avgRate: null });
   });
 });
 
