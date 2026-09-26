@@ -1160,6 +1160,19 @@ describe("hang-watchdog helpers", () => {
       expect(getLive).toHaveBeenCalledOnce();
       const afterProgress = JSON.parse(fs.readFileSync(file, "utf8"));
       expect(afterProgress.watches.map((row: { taskId: string }) => row.taskId).sort()).toEqual(["second", "third"]);
+      let duringAbort: { taskId: string; state: string }[] = [];
+      second.registerHangWatchdogHooks({
+        getLive: () => ({ messages: [], isStreaming: false, isCompacting: false }),
+        abortTask: async () => {
+          duringAbort = JSON.parse(fs.readFileSync(file, "utf8")).watches;
+          second!.disarmTaskHangWatch("second");
+        },
+        resumePrompt: () => undefined,
+        notifyHangRetry: () => undefined,
+      });
+      await second.resolveHangNow("second");
+      expect(duringAbort.map((row) => row.taskId).sort()).toEqual(["second", "third"]);
+      expect(duringAbort.find((row) => row.taskId === "second")?.state).toBe("resolving");
     } finally {
       first?.stopHangWatchdogForTests();
       second?.stopHangWatchdogForTests();

@@ -433,7 +433,7 @@ function markResolving(row: TaskHangWatchRow): boolean {
   row.state = "resolving";
   row.updatedAt = Date.now();
   try {
-    writeStore();
+    writeWatchRow(row);
   } catch (error) {
     row.state = "armed";
     row.updatedAt = previousUpdatedAt;
