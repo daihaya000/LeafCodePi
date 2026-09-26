@@ -233,7 +233,12 @@ describe("hang-watchdog helpers", () => {
       const temp = `${file}.777.00000000-0000-4000-8000-000000000001.tmp`;
       fs.writeFileSync(temp, JSON.stringify(snapshot));
       fs.utimesSync(file, new Date("2020-01-01"), new Date("2020-01-01"));
-      fs.utimesSync(temp, new Date("2021-01-01"), new Date("2021-01-01"));
+      fs.utimesSync(temp, new Date("2032-01-01"), new Date("2032-01-01"));
+      const older = `${file}.777.00000000-0000-4000-8000-000000000003.tmp`;
+      const olderSnapshot = structuredClone(snapshot);
+      olderSnapshot.watches[0].retryUsed = 1;
+      fs.writeFileSync(older, JSON.stringify(olderSnapshot));
+      fs.utimesSync(older, new Date("2031-01-01"), new Date("2031-01-01"));
       const torn = `${file}.777.00000000-0000-4000-8000-000000000002.tmp`;
       fs.writeFileSync(torn, '{"version":1,"watches":[null]}');
       fs.utimesSync(torn, new Date("2022-01-01"), new Date("2022-01-01"));
@@ -241,6 +246,7 @@ describe("hang-watchdog helpers", () => {
       expect(getTaskHangWatch("valid")).toMatchObject({ retryUsed: MAX_HANG_RETRIES, state: "armed" });
       expect(JSON.parse(fs.readFileSync(file, "utf8")).watches[0].retryUsed).toBe(MAX_HANG_RETRIES);
       expect(fs.existsSync(temp)).toBe(false);
+      expect(fs.existsSync(older)).toBe(false);
       // A corrupt main file cannot outrank the last valid temp by mtime.
       fs.writeFileSync(temp, JSON.stringify(snapshot));
       fs.utimesSync(temp, new Date("2021-01-01"), new Date("2021-01-01"));

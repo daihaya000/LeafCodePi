@@ -272,23 +272,26 @@ function syncMemoryFromDisk(snapshot = readStore()): void {
 export function recoverInterruptedHangWatches(): void {
   const file = watchesPath();
   let snapshot = readStoreFile(file);
-  let selectedTemp: string | null = null;
+  const recoveredTemps: { file: string; mtimeMs: number; size: number }[] = [];
   let newest = 0;
   if (snapshot) {
     try { newest = statSync(file).mtimeMs; } catch { /* main snapshot disappeared */ }
   }
+  const mainMtime = newest;
   try {
     for (const name of readdirSync(dirname(file))) {
       if (!name.startsWith(`${basename(file)}.`) || !/\.\d+\.[0-9a-f-]{36}\.tmp$/.test(name)) continue;
       try {
         const temp = join(dirname(file), name);
-        const mtime = statSync(temp).mtimeMs;
-        if (mtime <= newest) continue;
+        const { mtimeMs, size } = statSync(temp);
+        if (mtimeMs <= mainMtime) continue;
         const candidate = readStoreFile(temp);
         if (candidate) {
-          snapshot = candidate;
-          selectedTemp = temp;
-          newest = mtime;
+          recoveredTemps.push({ file: temp, mtimeMs, size });
+          if (mtimeMs > newest) {
+            snapshot = candidate;
+            newest = mtimeMs;
+          }
         }
       } catch { /* this temp disappeared: inspect the remaining candidates */ }
     }
@@ -301,10 +304,13 @@ export function recoverInterruptedHangWatches(): void {
     }
   }
   writeStore();
-  // Once the recovered snapshot is durably promoted, it must not win again
-  // after later updates (a temp file may have a future mtime from clock skew).
-  if (selectedTemp) {
-    try { unlinkSync(selectedTemp); } catch { /* another process may have moved it */ }
+  // After promotion, discard all validated older candidates too. A temp with
+  // future mtime could otherwise outrank the new main file on the next restart.
+  for (const temp of recoveredTemps) {
+    try {
+      const current = statSync(temp.file);
+      if (current.mtimeMs === temp.mtimeMs && current.size === temp.size) unlinkSync(temp.file);
+    } catch { /* another process may have moved it */ }
   }
 }
 
