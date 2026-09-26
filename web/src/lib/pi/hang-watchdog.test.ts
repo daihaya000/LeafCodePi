@@ -1146,6 +1146,20 @@ describe("hang-watchdog helpers", () => {
       first.disarmTaskHangWatch("first");
       const remaining = JSON.parse(fs.readFileSync(file, "utf8"));
       expect(remaining.watches.map((row: { taskId: string }) => row.taskId)).toEqual(["second"]);
+      const getLive = vi.fn(() => {
+        first!.armTaskHangWatch({ taskId: "third", prompt: "work" });
+        return { messages: [], isStreaming: true, isCompacting: false, hasPendingAttention: true };
+      });
+      second.registerHangWatchdogHooks({
+        getLive,
+        abortTask: async () => undefined,
+        resumePrompt: () => undefined,
+        notifyHangRetry: () => undefined,
+      });
+      await second.runHangWatchdogTick();
+      expect(getLive).toHaveBeenCalledOnce();
+      const afterProgress = JSON.parse(fs.readFileSync(file, "utf8"));
+      expect(afterProgress.watches.map((row: { taskId: string }) => row.taskId).sort()).toEqual(["second", "third"]);
     } finally {
       first?.stopHangWatchdogForTests();
       second?.stopHangWatchdogForTests();

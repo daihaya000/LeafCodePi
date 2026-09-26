@@ -198,6 +198,14 @@ function writeStore(watches: readonly TaskHangWatchRow[] = [...memoryWatches.val
   }
 }
 
+function writeWatchRow(row: TaskHangWatchRow): void {
+  withWatchStoreLock(() => {
+    const merged = new Map(readStore().watches.map((watch) => [watch.taskId, watch]));
+    merged.set(row.taskId, row);
+    writeStore([...merged.values()]);
+  });
+}
+
 function logWatchdog(message: string, row: Pick<TaskHangWatchRow, "taskId">, error?: unknown): void {
   const detail = error instanceof Error ? ` (${error.message})` : "";
   console.log(`[hang-watchdog] ${message}${detail}`, JSON.stringify({ taskId: row.taskId }));
@@ -385,11 +393,7 @@ export function armTaskHangWatch(input: ArmTaskHangWatchInput): void {
   };
   memoryWatches.set(taskId, row);
   try {
-    withWatchStoreLock(() => {
-      const merged = new Map(readStore().watches.map((watch) => [watch.taskId, watch]));
-      merged.set(taskId, row);
-      writeStore([...merged.values()]);
-    });
+    writeWatchRow(row);
   } catch (error) {
     if (existing) memoryWatches.set(taskId, existing);
     else memoryWatches.delete(taskId);
@@ -462,7 +466,7 @@ function recordProgress(taskId: string, lastProgressAt: number, fingerprint: str
   row.progressFingerprint = fingerprint;
   row.updatedAt = Date.now();
   try {
-    writeStore();
+    writeWatchRow(row);
   } catch (error) {
     row.lastProgressAt = previousProgressAt;
     row.progressFingerprint = previousFingerprint;
