@@ -11,6 +11,7 @@ import {
   Folder,
   FolderOpen,
   FolderPlus,
+  HardDrive,
   Home,
   Image as ImageIcon,
   Monitor,
@@ -23,12 +24,13 @@ import { notifyTasksChanged } from "@/lib/events";
 import { getJson, sendJson } from "@/lib/client";
 import type { ProjectDto } from "@/lib/types";
 
-type EntryKind = "home" | "oneDrive" | "desktop" | "documents" | "downloads" | "pictures" | "project";
+type EntryKind = "home" | "oneDrive" | "desktop" | "documents" | "downloads" | "pictures" | "project" | "drive";
 type DirEntry = { name: string; path: string; kind?: EntryKind };
 type DirList = {
   path: string | null;
   parent: string | null;
   quickAccess?: DirEntry[];
+  drives?: DirEntry[];
   entries: DirEntry[];
   error?: string;
 };
@@ -36,6 +38,7 @@ type DirList = {
 function EntryIcon({ entry }: { entry: DirEntry }) {
   const className = "h-4 w-4 shrink-0";
   if (entry.kind === "home") return <Home aria-hidden="true" className={cx(className, "text-accent")} />;
+  if (entry.kind === "drive") return <HardDrive aria-hidden="true" className={cx(className, "text-muted")} />;
   if (entry.kind === "oneDrive") return <Cloud aria-hidden="true" className={cx(className, "text-accent")} />;
   if (entry.kind === "desktop") return <Monitor aria-hidden="true" className={cx(className, "text-muted")} />;
   if (entry.kind === "documents") return <FileText aria-hidden="true" className={cx(className, "text-muted")} />;
@@ -198,6 +201,7 @@ export function AddProjectButton({
   const oneDriveEntries = quickAccess.filter((entry) => entry.kind === "oneDrive");
   const quickEntries = quickAccess.filter((entry) => entry.kind !== "oneDrive" && entry.kind !== "project");
   const projectEntries = quickAccess.filter((entry) => entry.kind === "project");
+  const driveEntries = (listing?.drives ?? []).map((entry) => ({ ...entry, kind: "drive" as const }));
 
   function shortcutButton(entry: DirEntry) {
     const active = samePath(listing?.path ?? null, entry.path);
@@ -312,6 +316,12 @@ export function AddProjectButton({
                         <section>
                           <h3 className="px-2 py-1 text-[11px] font-semibold tracking-wide text-faint">クイックアクセス</h3>
                           <div className="space-y-0.5">{quickEntries.map(shortcutButton)}</div>
+                        </section>
+                      )}
+                      {driveEntries.length > 0 && (
+                        <section className="mt-3 border-t border-border pt-3">
+                          <h3 className="px-2 py-1 text-[11px] font-semibold tracking-wide text-faint">ドライブ</h3>
+                          <div className="space-y-0.5">{driveEntries.map(shortcutButton)}</div>
                         </section>
                       )}
                       {oneDriveEntries.length > 0 && (

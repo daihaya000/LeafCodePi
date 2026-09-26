@@ -6,6 +6,7 @@ import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { promisify } from "node:util";
 import { browseAllowedRoots, isAllowedBrowsePath, oneDriveRoots } from "@/lib/browse-paths";
+import { listBrowseDrives, type BrowseDrive } from "@/lib/browse-drives";
 import { buildQuickAccessEntries, type QuickAccessEntry } from "@/lib/browse-quick-access";
 import { isAbsolutePath } from "@/lib/paths";
 import { parseWindowsQuickAccess, type QuickAccessItem } from "@/lib/windows-quick-access";
@@ -79,8 +80,8 @@ async function windowsQuickAccessEntries(): Promise<QuickAccessItem[]> {
   return entries ?? quickAccessCache?.entries ?? [];
 }
 
-function allowedBrowseRoots(quickAccess: readonly DirEntry[]): string[] {
-  return [...browseAllowedRoots(), ...quickAccess.map((entry) => entry.path)];
+function allowedBrowseRoots(quickAccess: readonly DirEntry[], drives: readonly BrowseDrive[]): string[] {
+  return [...browseAllowedRoots(), ...quickAccess.map((entry) => entry.path), ...drives.map((drive) => drive.path)];
 }
 
 export async function GET(req: NextRequest) {
@@ -90,12 +91,12 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "絶対パスを指定してください", path: null, entries: [] }, { status: 400 });
   }
   const target = requestedPath ? resolve(/*turbopackIgnore: true*/ requestedPath) : homedir();
-  const windowsEntries = await windowsQuickAccessEntries();
+  const [windowsEntries, drives] = await Promise.all([windowsQuickAccessEntries(), listBrowseDrives()]);
   const quickAccess = quickAccessEntries(windowsEntries);
-  const roots = allowedBrowseRoots(quickAccess);
+  const roots = allowedBrowseRoots(quickAccess, drives);
   if (!isAllowedBrowsePath(target, { roots })) {
     return NextResponse.json(
-      { error: "このパスは参照できません", path: target, quickAccess, entries: [] },
+      { error: "このパスは参照できません", path: target, quickAccess, drives, entries: [] },
       { status: 403 },
     );
   }
@@ -114,6 +115,7 @@ export async function GET(req: NextRequest) {
       path: target,
       parent,
       quickAccess,
+      drives,
       entries: dirs,
     });
   } catch (error) {
@@ -122,6 +124,7 @@ export async function GET(req: NextRequest) {
         path: target,
         parent,
         quickAccess,
+        drives,
         entries: [],
         error: error instanceof Error ? error.message : String(error),
       },
