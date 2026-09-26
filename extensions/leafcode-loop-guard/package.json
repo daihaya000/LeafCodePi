@@ -1,0 +1,13 @@
+{
+  "name": "leafcode-loop-guard",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Pi用ループ検知（同じ呼び出しが同じ結果で続いたら警告・停止）",
+  "pi": {
+    "extensions": ["index.ts"]
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*"
+  }
+}

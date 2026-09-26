@@ -98,6 +98,7 @@ LeafCodePi には次の Pi 拡張を同梱しています。WebUI と連携す�
 | --- | --- |
 | `leafcode-goal-loop` | Goal Loop と完走モード |
 | `leafcode-intercom` | 並行 Pi セッション間の1対1通信（`intercom`、`/intercom`、Alt+M） |
+| `leafcode-loop-guard` | 同じ呼び出しが同じ結果で続くループの警告・停止 |
 | `leafcode-memory` | 永続メモリ、セッション検索、手続き型スキル |
 | `leafcode-mcp-adapter` | MCP サーバー接続とツール呼び出し |
 | `leafcode-permission-gate` | ツール実行の権限ゲート |
@@ -120,6 +121,10 @@ pi install ./extensions/leafcode-goal-loop
 通常モードは完了宣言を検証ターンで確認し、完走モードは完了宣言を無視して指定ターン数まで実行します。最大ターンを `0` にすると無制限、クールタイムは `15m 30s` のように指定できます。状態は `%APPDATA%\leafcode-pi\goals-loop\` に保存されます（`LEAFCODE_PI_DATA_DIR` 指定時はその配下）。
 
 ループ実行中も Composer から追加の指示を送信できます。送信は実行中ターンへ差し込み（送信方式「キュー」なら followUp として現在のターンの後）に渡され、ループは止まりません。追加指示はループ状態にも記録され、以降のターンのプロンプトに再掲されるため、長いループで会話履歴が圧縮されても残ります（最大10件・1件500文字、超過分は古い順に破棄、新しいループの開始で消去）。止めたいときは「一時停止」または「停止」を使います。
+
+### ループ検知 (`leafcode-loop-guard`)
+
+同じツールを同じ引数で呼び、既に得た結果と同じ結果が続く状態をループとみなします。同じ呼び出しだけが続く場合は4回目からの結果に警告を付け、10回目の呼び出しを止め、それでも繰り返すと実行を終了します（A→B→A→B のような短い周期も対象）。結果が変わる呼び出し（進捗が変わるポーリング、編集後のテスト再実行など）は数えません。ユーザーの送信、steer / followUp、Goal Loop の各ターン、compaction のたびに数え直すため、Goal Loop がターンごとに同じ確認を実行しても止まりません。`subagent_wait` / `wait_for` は対象外です。
 
 ### ToDo (`todowrite`)
 
