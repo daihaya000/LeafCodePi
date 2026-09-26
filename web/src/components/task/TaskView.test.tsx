@@ -1362,7 +1362,7 @@ describe("TaskView draft submission", () => {
     ));
   });
 
-  it("shows the average message-header tok/s beside the label in narrow panes and in the wide status row", () => {
+  it("shows the average tok/s of all responses beside the label in narrow panes and in the wide status row", () => {
     saveTaskSessionCache({
       task: { ...task, label: "code" },
       messages: [
@@ -1374,6 +1374,14 @@ describe("TaskView draft submission", () => {
           outputTokens: 1200,
           tokensPerSecond: 20,
           parts: [{ id: "reply-1", type: "text", text: "reply one" }],
+        },
+        // ツールだけの応答は作業ログ先頭になり、メッセージヘッダーに tok/s が出ないが平均には含める。
+        {
+          id: "assistant-tool",
+          role: "assistant",
+          createdAt: 30_001,
+          tokensPerSecond: 60,
+          parts: [{ id: "tool-1", type: "tool", tool: "read", callID: "call-1", state: { status: "completed", input: {} } }],
         },
         {
           id: "assistant-2",
@@ -1413,16 +1421,17 @@ describe("TaskView draft submission", () => {
     const meterTitle = "コンテキスト使用量: 405k / 1M トークン（41%）";
     const narrowMeter = sessionInfo.querySelector(`[title="${meterTitle}"]`);
     const wideMeter = status.querySelector(`[title="${meterTitle}"]`);
-    const [narrowRate, wideRate] = screen.getAllByTitle("平均 tok/s（メッセージヘッダーの tok/s の平均）");
+    const [narrowRate, wideRate] = screen.getAllByTitle("平均 tok/s（全応答の tok/s の平均）");
     expect(narrowMeter?.parentElement?.className).toContain("@min-[500px]/task:hidden");
     expect(wideMeter?.parentElement?.className).toContain("hidden @min-[500px]/task:flex");
     expect(sessionInfo.className).toContain("overflow-hidden");
     expect(narrowMeter?.querySelector(".truncate")).toBeTruthy();
     expect(screen.queryByText(/↑3\.4k/)).toBeNull();
     expect(sessionInfo.contains(narrowRate!)).toBe(true);
-    expect(narrowRate!.textContent).toBe("30 tok/s");
+    // (20 + 60 + 40) / 3。0 tok/s の応答はヘッダーに出ないので除く。
+    expect(narrowRate!.textContent).toBe("40 tok/s");
     expect(status.contains(wideRate!)).toBe(true);
-    expect(wideRate!.textContent).toBe("30 tok/s");
+    expect(wideRate!.textContent).toBe("40 tok/s");
     expect(wideRate!.className).toContain("hidden");
     expect(wideRate!.className).toContain("@min-[500px]/task:inline");
     const [narrowTokens, wideTokens] = screen.getAllByTitle("合計出力トークン");

@@ -2797,7 +2797,7 @@ export const TaskView = memo(function TaskView({
   ]);
   // ナビゲーターのジャンプ対象: ユーザーメッセージを優先し、Goal Loop の
   // hidden custom message しかない履歴では投影済みメッセージへフォールバックする。
-  // 表示用フィルタとヘッダー統計も同じ走査で集計し、deltaごとの履歴再走査を抑える。
+  // 表示用フィルタとヘッダー統計はこの memo でまとめて集計し、deltaごとの走査を最小限にする。
   const {
     visibleMessages,
     detectedHangRetryCount,
@@ -2809,7 +2809,6 @@ export const TaskView = memo(function TaskView({
     const userIds: string[] = [];
     const fallbackIds: string[] = [];
     let detectedHangRetryCount = 0;
-    let totalOutputTokens = 0;
     let durationMs = 0;
     let prevCreatedAt: number | null = null;
     for (const message of messages) {
@@ -2822,14 +2821,13 @@ export const TaskView = memo(function TaskView({
       if (message.role === "user") userIds.push(message.id);
       else if (message.role !== "compaction") fallbackIds.push(message.id);
       if (message.role === "user" || message.role === "compaction") continue;
-      if (typeof message.outputTokens === "number" && message.outputTokens > 0) {
-        totalOutputTokens += message.outputTokens;
-      }
       if (prevCreatedAt !== null) {
         durationMs += Math.max(0, message.createdAt - prevCreatedAt);
       }
       prevCreatedAt = message.createdAt;
     }
+    // 平均 tok/s は全応答が対象（メッセージヘッダーに tok/s が出ない作業ログ先頭の応答も含む）。
+    const { outputTokens: totalOutputTokens, avgRate } = summarizeThroughput(visible);
     return {
       visibleMessages: visible,
       detectedHangRetryCount,
@@ -2837,6 +2835,7 @@ export const TaskView = memo(function TaskView({
       navigationMessageIds: userIds.length > 0 ? userIds : fallbackIds,
       stats: {
         totalOutputTokens,
+        avgRate,
         durationMs: messages.length > 1 ? durationMs : 0,
       },
     };
@@ -2892,21 +2891,7 @@ export const TaskView = memo(function TaskView({
       ),
     [renderedMessages, resumeInsideExistingBanner, resumeTarget?.messageId],
   );
-  // メッセージヘッダーに表示する tok/s だけを平均する。
-  const avgHeaderRate = useMemo(() => {
-    const shown: UiMessage[] = [];
-    for (const block of messageBlocks) {
-      if (block.kind === "message") {
-        // 再開バナーへ置換されたメッセージはヘッダーを表示しない。
-        if (!(showResume && resumeInsideExistingBanner && resumeTarget?.messageId === block.message.id)) shown.push(block.message);
-      } else block.entries.forEach((entry, index) => {
-        if (index > 0 && entry.showHeader) shown.push(entry.message);
-      });
-    }
-    // 0 以下・非数の tok/s はヘッダーに出ないので、summarizeThroughput が平均から除く。
-    return summarizeThroughput(shown).avgRate;
-  }, [messageBlocks, showResume, resumeInsideExistingBanner, resumeTarget?.messageId]);
-  const avgHeaderRateLabel = avgHeaderRate === null ? null : formatTokensPerSecond(avgHeaderRate);
+  const avgRateLabel = stats.avgRate === null ? null : formatTokensPerSecond(stats.avgRate);
   // 幅狭はラベル行、幅広は状態行に同じ使用量（合計出力tok → 平均tok/s → 合計時間）を出す。
   const usageStats = (visibility: string) => (
     <>
@@ -2915,9 +2900,9 @@ export const TaskView = memo(function TaskView({
           {formatTokens(stats.totalOutputTokens)} tok
         </span>
       )}
-      {avgHeaderRateLabel && (
-        <span className={cx("tabular-nums", visibility, isSlowTokensPerSecond(avgHeaderRate) && "text-danger")} title="平均 tok/s（メッセージヘッダーの tok/s の平均）">
-          {avgHeaderRateLabel}
+      {avgRateLabel && (
+        <span className={cx("tabular-nums", visibility, isSlowTokensPerSecond(stats.avgRate) && "text-danger")} title="平均 tok/s（全応答の tok/s の平均）">
+          {avgRateLabel}
         </span>
       )}
       {stats.durationMs > 0 && (
