@@ -1429,6 +1429,32 @@ describe("integrated session routing", () => {
     assert.deepEqual(session.events, ["prompt", "reload", "prompt"]);
   });
 
+  it("opens a closed Code task with the current Settings permissions", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "leafcode-pi-cold-settings-permissions-"));
+    tempDirs.push(dir);
+    process.env.LEAFCODE_PI_DATA_DIR = dir;
+    process.env.PI_CODING_AGENT_DIR = join(dir, "agent");
+    __resetPiAgentDirCacheForTests();
+    installHarness(new Map());
+
+    const project = upsertProject({ name: "demo", rootPath: dir });
+    const task = await createTask({ projectId: project.id, prompt: "最初の確認" });
+    await waitFor(() => getTask(task.id)?.status === "idle");
+    dropLiveSessions();
+
+    setSetting("code-permission-mode", "deny");
+    setSetting("code-skill-permission", "deny");
+    await promptTask(task.id, "再開後に続行");
+    await waitFor(() => getTask(task.id)?.status === "idle");
+
+    // One new session is created and gets the Settings values at creation, without a reload.
+    assert.equal(fakePi.sessions.length, 2);
+    assert.equal(fakePi.sessions[1]?.reloads, 0);
+    assert.equal(getTask(task.id)?.permissionMode, "deny");
+    assert.equal(getTask(task.id)?.skillPermission, "deny");
+    assert.equal(readPermissionGateConfig(getTask(task.id)?.sessionId), "deny");
+  });
+
   it("applies changed Settings permissions to open Code sessions", async () => {
     const dir = mkdtempSync(join(tmpdir(), "leafcode-pi-live-settings-permissions-"));
     tempDirs.push(dir);

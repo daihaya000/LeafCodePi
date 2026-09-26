@@ -8893,7 +8893,9 @@ function withCodePermissionSettings(
   task: TaskSummary,
   options: Parameters<typeof promptTask>[3],
 ): NonNullable<Parameters<typeof promptTask>[3]> {
-  const updates = codePermissionUpdates(task);
+  // Applying to a cold task would open its session before ensureLive receives
+  // the Auto fallback hints; ensureLive applies Settings to new sessions itself.
+  const updates = state().live.has(task.id) ? codePermissionUpdates(task) : {};
   return {
     ...options,
     ...(options?.permissionMode === undefined && updates.permissionMode
