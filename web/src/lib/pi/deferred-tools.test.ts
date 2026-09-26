@@ -1,6 +1,6 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it } from "vitest";
-import { COMPUTER_USE_TOOL_NAMES, needsToolSearch, registerDeferredTools, TOOL_SEARCH_NAME } from "./deferred-tools";
+import { COMPUTER_USE_TOOL_NAMES, registerDeferredTools, TOOL_SEARCH_NAME } from "./deferred-tools";
 
 type SearchTool = {
   name: string;
@@ -38,16 +38,11 @@ function setup(initial: string[], allowedTools?: readonly string[] | (() => read
 }
 
 describe("deferred tools", () => {
-  it("does not widen an agent allowlist without an optional tool", () => {
-    expect(needsToolSearch(["read", "grep"])).toBe(false);
-    for (const name of optionalTools) expect(needsToolSearch(["read", name])).toBe(true);
-  });
-
-  it("starts with the loader but removes low-frequency schemas", () => {
+  it("keeps permitted optional tools callable from the first turn", () => {
     const core = ["read", "write", "edit", "grep", "find", "ls", "powershell", "todowrite", "question", "memory_search", "mcp"];
     const state = setup([...core, ...optionalTools]);
     state.start();
-    expect(state.active).toEqual([...core, TOOL_SEARCH_NAME]);
+    expect(state.active).toEqual([...core, ...optionalTools, TOOL_SEARCH_NAME]);
   });
 
   it.each(optionalTools)(
@@ -58,8 +53,8 @@ describe("deferred tools", () => {
 
       const result = await state.search.execute("tc-1", { query: name });
 
-      expect(result.details).toEqual({ matches: [name], added: [name] });
-      expect(state.active).toEqual(["read", TOOL_SEARCH_NAME, name]);
+      expect(result.details).toEqual({ matches: [name], added: [] });
+      expect(state.active).toEqual(["read", ...optionalTools, TOOL_SEARCH_NAME]);
       expect((await state.search.execute("tc-2", { query: name.toUpperCase() })).details).toEqual({ matches: [name], added: [] });
     },
   );
@@ -68,7 +63,6 @@ describe("deferred tools", () => {
     const state = setup(["read", ...COMPUTER_USE_TOOL_NAMES]);
     state.start();
     expect(state.active).toEqual(["read", ...COMPUTER_USE_TOOL_NAMES, TOOL_SEARCH_NAME]);
-    expect(needsToolSearch([...COMPUTER_USE_TOOL_NAMES])).toBe(false);
     expect((await state.search.execute("tc", { query: "launch_browser" })).details.matches).toEqual([]);
   });
 

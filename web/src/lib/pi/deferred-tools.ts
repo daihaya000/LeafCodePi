@@ -22,10 +22,6 @@ const DEFERRED_TOOLS = [
 
 const deferredNames = new Set<string>(DEFERRED_TOOLS.map(({ name }) => name));
 
-export function needsToolSearch(toolNames: readonly string[]): boolean {
-  return toolNames.some((name) => deferredNames.has(name));
-}
-
 export function registerDeferredTools(
   pi: ExtensionAPI,
   allowedTools?: readonly string[] | (() => readonly string[]),
@@ -67,10 +63,12 @@ export function registerDeferredTools(
   pi.on("session_start", () => {
     const allowed = currentAllowlist();
     const searchAllowed = allowed === undefined || allowed.has(TOOL_SEARCH_NAME);
-    // Without the loader, keep explicitly permitted optional tools usable.
+    // A callable tool must stay in the executable loadout even if the model
+    // names it directly instead of first invoking tool_search. SDK tool calls
+    // against an inactive tool fail with "Tool <name> not found".
     const initial = pi.getActiveTools().filter((name) =>
       (name !== TOOL_SEARCH_NAME || searchAllowed) &&
-      (!deferredNames.has(name) || (!searchAllowed && allowed?.has(name) !== false)));
+      (!deferredNames.has(name) || allowed?.has(name) !== false));
     pi.setActiveTools(searchAllowed ? [...new Set([...initial, TOOL_SEARCH_NAME])] : initial);
   });
 }

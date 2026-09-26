@@ -6,6 +6,7 @@ import { createAgentSession, DefaultResourceLoader, SessionManager, SettingsMana
 import { Type } from "typebox";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { codeOnDemandPrompt, compactSdkDocumentation } from "@/lib/agents-md";
+import { loadAgentDefinition } from "@/lib/agents";
 import { filterExtensionsByState, writeExtensionsState } from "@/lib/extensions";
 import { applyBotTools, sessionExtensionFactories, sessionResourceOptions, sessionToolNames, settingsManagerExcludingReplacedPackages } from "./harness";
 
@@ -32,9 +33,10 @@ async function loader(noContextFiles: boolean, botToolAllowlist?: string[]) {
   return result;
 }
 
-it("loads optional schemas on demand through the real SDK and keeps an agent allowlist", async () => {
+it("keeps permitted tools directly callable through the real SDK without widening an agent allowlist", async () => {
   const settingsManager = SettingsManager.inMemory();
-  const extensionFactories = sessionExtensionFactories({ agentDir, hasBotSkills: false, getExtensions: () => [] });
+  const agentTools = ["read", "web_search", "get_search_content", "tool_search"];
+  const extensionFactories = sessionExtensionFactories({ agentDir, agentToolAllowlist: agentTools, hasBotSkills: false, getExtensions: () => [] });
   const resourceLoader = new DefaultResourceLoader({
     cwd: root, agentDir, settingsManager,
     noExtensions: true, noSkills: true, noPromptTemplates: true, noThemes: true,
@@ -53,11 +55,11 @@ it("loads optional schemas on demand through the real SDK and keeps an agent all
   await resourceLoader.reload();
   const { session } = await createAgentSession({
     cwd: root, agentDir, resourceLoader, settingsManager, sessionManager: SessionManager.inMemory(root),
-    tools: sessionToolNames({ agentTools: ["read", "web_search", "get_search_content"] }),
+    tools: sessionToolNames({ agentTools }),
   });
   try {
     await session.bindExtensions({ onError: (error) => { throw new Error(error.error); } });
-    expect(session.getActiveToolNames()).toEqual(["read", "tool_search"]);
+    expect(session.getActiveToolNames()).toEqual(agentTools);
     const original = session.systemPrompt;
     const compacted = compactSdkDocumentation(original);
     expect(compacted.length).toBeLessThan(original.length);
@@ -69,18 +71,53 @@ it("loads optional schemas on demand through the real SDK and keeps an agent all
     expect(compactSdkDocumentation(`${original}\n\nUser rules remain intact`).endsWith("User rules remain intact")).toBe(true);
     const search = session.agent.state.tools.find(tool => tool.name === "tool_search")!;
     await search.execute("tc", { query: "get_search_content" });
-    expect(session.getActiveToolNames()).toEqual(["read", "tool_search", "get_search_content"]);
+    expect(session.getActiveToolNames()).toEqual(agentTools);
     await search.execute("tc", { query: "fetch_content" });
     expect(session.getActiveToolNames()).not.toContain("fetch_content");
     expect(session.getAllTools().some(tool => tool.name === "fetch_content")).toBe(false);
     await session.reload();
-    expect(session.getActiveToolNames()).toEqual(["read", "tool_search"]);
-    // Bot application also hides permitted optional schemas when a loader exists,
-    // but leaves them callable when the loader is explicitly disabled.
+    expect(session.getActiveToolNames()).toEqual(agentTools);
     applyBotTools(session, ["read", "tool_search", "web_search"]);
-    expect(session.getActiveToolNames()).toEqual(["read", "tool_search"]);
+    expect(session.getActiveToolNames()).toEqual(["read", "tool_search", "web_search"]);
     applyBotTools(session, ["read", "web_search"]);
     expect(session.getActiveToolNames()).toEqual(["read", "web_search"]);
+  } finally {
+    session.dispose();
+  }
+});
+
+it("allows the default agent to call session_search directly and after reload", async () => {
+  const agentTools = loadAgentDefinition("default", agentDir)?.tools;
+  expect(agentTools).toContain("session_search");
+  expect(agentTools).toContain("tool_search");
+  const settingsManager = SettingsManager.inMemory();
+  const resourceLoader = new DefaultResourceLoader({
+    cwd: root, agentDir, settingsManager,
+    noExtensions: true, noSkills: true, noPromptTemplates: true, noThemes: true,
+    extensionFactories: [
+      (api) => api.registerTool({
+        name: "session_search", label: "Session Search", description: "Search previous sessions",
+        parameters: Type.Object({ query: Type.String() }),
+        execute: async (_id, { query }) => ({ content: [{ type: "text", text: query }], details: {} }),
+      }),
+      ...sessionExtensionFactories({ agentDir, agentToolAllowlist: agentTools, hasBotSkills: false, getExtensions: () => [] }).slice(0, 2),
+    ],
+  });
+  await resourceLoader.reload();
+  const { session } = await createAgentSession({
+    cwd: root, agentDir, resourceLoader, settingsManager, sessionManager: SessionManager.inMemory(root),
+    tools: sessionToolNames({ agentTools }),
+  });
+  try {
+    await session.bindExtensions({ onError: (error) => { throw new Error(error.error); } });
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const tool = session.agent.state.tools.find(({ name }) => name === "session_search");
+      expect(tool).toBeDefined();
+      expect((await tool!.execute("tc", { query: "学習を止めて 停止して" })).content).toEqual([
+        { type: "text", text: "学習を止めて 停止して" },
+      ]);
+      await session.reload();
+    }
   } finally {
     session.dispose();
   }
@@ -120,6 +157,7 @@ it.each([
     applyBotTools(session, allowed);
     const expected = session.getActiveToolNames();
     expect(expected).toContain("room_handoff");
+    if (initial.includes("web_search")) expect(expected).toContain("web_search");
     expect(expected).not.toContain("write");
     await session.reload();
     expect(session.getActiveToolNames()).toEqual(expected);

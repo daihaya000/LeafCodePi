@@ -26,7 +26,7 @@ describe("sessionToolNames", () => {
     }
     for (const tool of ["web_search", "source_check", "fetch_content", "get_search_content", "intercom"]) {
       assert.ok(windows.includes(tool));
-      assert.deepEqual(sessionToolNames({ agentTools: ["read", tool] }), ["read", tool, "tool_search"]);
+      assert.deepEqual(sessionToolNames({ agentTools: ["read", tool] }), ["read", tool]);
     }
 
     assert.ok(
@@ -34,7 +34,7 @@ describe("sessionToolNames", () => {
     );
   });
 
-  it("keeps an agent allowlist, adding tool_search only for deferred tools", () => {
+  it("keeps an agent allowlist without implicitly granting tool_search", () => {
     assert.deepEqual(sessionToolNames({ platform: "linux", agentTools: ["read", "grep"] }), [
       "read",
       "grep",
@@ -42,7 +42,6 @@ describe("sessionToolNames", () => {
     assert.deepEqual(sessionToolNames({ platform: "linux", agentTools: ["read", "bash"] }), [
       "read",
       "bash",
-      "tool_search",
     ]);
   });
 

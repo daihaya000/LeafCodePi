@@ -161,7 +161,6 @@ import {
 import type { SkillPermission } from "@/lib/skill-permission";
 import {
   COMPUTER_USE_TOOL_NAMES,
-  needsToolSearch,
   registerDeferredTools,
   TOOL_SEARCH_NAME,
 } from "@/lib/pi/deferred-tools";
@@ -3094,9 +3093,7 @@ export function sessionToolNames(input: {
   const hasDesktop = platform === "win32" || (platform === "linux" && Boolean(env.DISPLAY || env.WAYLAND_DISPLAY));
   const shellTools = platform === "win32" ? ["powershell", "bash"] : ["bash"];
   const configuredTools = input.agentTools
-    ? needsToolSearch(input.agentTools)
-      ? [...new Set([...input.agentTools, TOOL_SEARCH_NAME])]
-      : [...input.agentTools]
+    ? [...input.agentTools]
     : [
         "read",
         "write",
@@ -3227,6 +3224,7 @@ export function sessionExtensionFactories(input: {
   botSoulBotId?: string;
   botToolAllowlist?: readonly string[];
   getBotToolAllowlist?: () => readonly string[];
+  agentToolAllowlist?: readonly string[];
   taskId?: string;
   hasBotSkills: boolean;
   botCodeTaskId?: string;
@@ -3268,7 +3266,9 @@ export function sessionExtensionFactories(input: {
             api.setActiveTools(botActiveToolNames(api.getActiveTools(), allowedTools()));
           });
         }
-      : registerDeferredTools,
+      : input.agentToolAllowlist
+        ? (api: ExtensionAPI) => registerDeferredTools(api, input.agentToolAllowlist)
+        : registerDeferredTools,
     registerJevTool,
     ...(input.taskId ? [registerGoalLoopTurnRouting(input.taskId)] : []),
     ...(input.hasBotSkills
@@ -3529,6 +3529,7 @@ async function createSession(options: {
       botSoulBotId,
       botToolAllowlist,
       getBotToolAllowlist: () => (createdSession && state().botToolAllowlists?.get(createdSession)) ?? botToolAllowlist ?? [],
+      agentToolAllowlist: agentOptions?.tools,
       taskId: options.taskId,
       hasBotSkills: Boolean(options.botSkills),
       botCodeTaskId,
@@ -9185,7 +9186,6 @@ function botActiveToolNames(active: readonly string[], tools: readonly string[])
   const requested = [...new Set(
     tools.filter(
       (tool) => knownBotTools.has(tool) &&
-        (!tools.includes(TOOL_SEARCH_NAME) || !needsToolSearch([tool])) &&
         (tool !== "powershell" || process.platform === "win32"),
     ),
   )];
