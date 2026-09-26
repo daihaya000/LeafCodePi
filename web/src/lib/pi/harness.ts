@@ -1126,7 +1126,9 @@ function persistThroughputSample(
       live.persistedThroughputKeys.add(timing.startedAtMs);
       const persisted = {
         ...timing,
+        // payload holds the resolved count, which stays valid once the streamed chars are dropped.
         outputTokens: payload.outputTokens,
+        outputTokensPartial: false,
         charCount: 0,
       };
       live.throughputByStartedAt.set(timing.startedAtMs, persisted);
@@ -1161,6 +1163,12 @@ function assistantUsageOutput(message: unknown): number | null {
   return Math.max(0, Math.round(usage.output));
 }
 
+/** Aborted/errored streams end before the provider sends its final usage (Anthropic: message_delta). */
+function hasPartialUsage(message: unknown): boolean {
+  const stopReason = (message as { stopReason?: unknown }).stopReason;
+  return stopReason === "aborted" || stopReason === "error";
+}
+
 function toolCallIdFromEvent(event: { [key: string]: unknown }): string {
   return typeof event.toolCallId === "string"
     ? event.toolCallId
@@ -1193,7 +1201,7 @@ function trackMessageEndEvent(
   let timing =
     live.throughputByStartedAt.get(startedAt) ??
     createThroughputTiming(startedAt);
-  timing = noteReportedOutputTokens(timing, assistantUsageOutput(message));
+  timing = noteReportedOutputTokens(timing, assistantUsageOutput(message), hasPartialUsage(message));
   if (timing.lastTokenAtMs === null) {
     timing = { ...timing, lastTokenAtMs: Date.now() };
   }
@@ -1294,7 +1302,8 @@ export function trackThroughputEvent(
         typeof delta === "string" ? delta : undefined,
       );
     }
-    timing = noteReportedOutputTokens(timing, assistantUsageOutput(message));
+    // Mid-stream usage is not final (Anthropic still carries message_start's placeholder).
+    timing = noteReportedOutputTokens(timing, assistantUsageOutput(message), true);
     live.throughputByStartedAt.set(startedAt, timing);
     return;
   }

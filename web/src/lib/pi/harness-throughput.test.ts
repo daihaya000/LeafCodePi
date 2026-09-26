@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { afterEach, describe, it, vi } from "vitest";
+import { snapshotThroughput } from "@/lib/token-throughput";
 import { trackThroughputEvent } from "./harness";
 
 function liveState() {
@@ -50,6 +51,37 @@ describe("trackThroughputEvent", () => {
     assert.equal(persisted.length, 1);
     assert.equal(persisted[0]?.[0], "leafcode-pi.throughput");
     assert.equal((persisted[0]?.[1] as { outputTokens?: number }).outputTokens, 2);
+  });
+
+  it("keeps the streamed estimate when an aborted stream only has a placeholder usage", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(1_000);
+    const { live, persisted } = liveState();
+    const update = (delta: string) => trackThroughputEvent(live, {
+      type: "message_update",
+      message: { role: "assistant", timestamp: 1_000, usage: { output: 6 } },
+      assistantMessageEvent: { type: "thinking_delta", delta },
+    });
+
+    trackThroughputEvent(live, {
+      type: "message_start",
+      message: { role: "assistant", timestamp: 1_000 },
+    });
+    vi.setSystemTime(2_000);
+    update("a".repeat(400));
+    vi.setSystemTime(4_000);
+    update("b".repeat(400));
+    // Mid-stream, message_start's 6 tokens are not the output so far.
+    assert.equal(snapshotThroughput(live.throughputByStartedAt.get(1_000)!)?.outputTokens, 200);
+
+    trackThroughputEvent(live, {
+      type: "message_end",
+      message: { role: "assistant", timestamp: 1_000, stopReason: "aborted", usage: { output: 6 } },
+    });
+    await new Promise<void>((resolve) => queueMicrotask(resolve));
+
+    assert.equal((persisted[0]?.[1] as { outputTokens?: number }).outputTokens, 200);
+    assert.equal(snapshotThroughput(live.throughputByStartedAt.get(1_000)!)?.outputTokens, 200);
   });
 
   it("accepts the legacy tool id field and clears partial output at tool end", () => {

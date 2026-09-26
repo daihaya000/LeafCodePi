@@ -21,6 +21,12 @@ export type ThroughputTiming = {
   lastTokenAtMs: number | null;
   /** Provider-reported output tokens (includes reasoning when reported). */
   outputTokens: number | null;
+  /**
+   * True while outputTokens may be a placeholder: usage seen mid-stream, or the usage of an
+   * aborted/errored message. Anthropic reports a few tokens at message_start and the real
+   * count only at message_delta, so such values are ignored in favor of the streamed estimate.
+   */
+  outputTokensPartial?: boolean;
   /** Accumulated streamed character length for live estimates. */
   charCount: number;
 };
@@ -56,10 +62,8 @@ export function toPersistedThroughput(timing: ThroughputTiming): PersistedThroug
     startedAtMs: timing.startedAtMs,
     firstTokenAtMs: finiteOrNull(timing.firstTokenAtMs),
     lastTokenAtMs: finiteOrNull(timing.lastTokenAtMs),
-    outputTokens:
-      typeof timing.outputTokens === "number" && Number.isFinite(timing.outputTokens)
-        ? Math.round(timing.outputTokens)
-        : snap.outputTokens,
+    // The resolved count, so a placeholder usage never comes back after a reload.
+    outputTokens: snap.outputTokens,
   };
 }
 
@@ -125,14 +129,16 @@ export function noteContentDelta(
   return next;
 }
 
+/** `partial`: the count may not be final yet (see ThroughputTiming.outputTokensPartial). */
 export function noteReportedOutputTokens(
   timing: ThroughputTiming,
   outputTokens: number | null | undefined,
+  partial = false,
 ): ThroughputTiming {
   if (typeof outputTokens !== "number" || !Number.isFinite(outputTokens) || outputTokens < 0) {
     return timing;
   }
-  return { ...timing, outputTokens: Math.round(outputTokens) };
+  return { ...timing, outputTokens: Math.round(outputTokens), outputTokensPartial: partial };
 }
 
 /**
@@ -181,7 +187,7 @@ export function endToEndTokensPerSecond(
 }
 
 export function resolveOutputTokens(timing: ThroughputTiming): number {
-  if (typeof timing.outputTokens === "number" && timing.outputTokens > 0) {
+  if (!timing.outputTokensPartial && typeof timing.outputTokens === "number" && timing.outputTokens > 0) {
     return timing.outputTokens;
   }
   return estimateTokensFromChars(timing.charCount);

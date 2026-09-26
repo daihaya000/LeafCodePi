@@ -85,6 +85,17 @@ describe("snapshotThroughput", () => {
     expect(snap?.decodePhase).toBe(true);
     expect(snap?.tokensPerSecond).toBeCloseTo(19, 5);
   });
+
+  it("ignores a placeholder usage until the final count arrives", () => {
+    let timing = createThroughputTiming(0);
+    timing = noteContentDelta(timing, "a".repeat(400), 1_000);
+    timing = noteContentDelta(timing, "b".repeat(400), 3_000);
+    // Anthropic keeps message_start's few tokens in usage until message_delta.
+    timing = noteReportedOutputTokens(timing, 6, true);
+    expect(snapshotThroughput(timing, 3_000)?.outputTokens).toBe(200);
+    timing = noteReportedOutputTokens(timing, 900);
+    expect(snapshotThroughput(timing, 3_000)?.outputTokens).toBe(900);
+  });
 });
 
 describe("formatTokensPerSecond", () => {
@@ -133,5 +144,16 @@ describe("persistence", () => {
   it("skips incomplete timings", () => {
     expect(toPersistedThroughput(createThroughputTiming(1))).toBeNull();
     expect(timingFromPersisted({ startedAtMs: "x" })).toBeNull();
+  });
+
+  it("persists the streamed estimate instead of an aborted stream's placeholder usage", () => {
+    let timing = createThroughputTiming(0);
+    timing = noteContentDelta(timing, "a".repeat(400), 1_000);
+    timing = noteContentDelta(timing, "b".repeat(400), 3_000);
+    timing = noteReportedOutputTokens(timing, 6, true);
+    expect(toPersistedThroughput(timing)?.outputTokens).toBe(200);
+    // Aborted before any content: the placeholder alone is not a sample.
+    const empty = noteReportedOutputTokens({ ...createThroughputTiming(0), lastTokenAtMs: 5_000 }, 3, true);
+    expect(toPersistedThroughput(empty)).toBeNull();
   });
 });
