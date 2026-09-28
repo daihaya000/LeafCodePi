@@ -223,6 +223,7 @@ function BotTabView({ tabId, active = true }: { tabId: string; active?: boolean 
 type PaneBranchProps = {
   paneById: ReadonlyMap<string, TaskPane>;
   paneIndexes: ReadonlyMap<string, number>;
+  firstPaneId: string;
   activePaneId: string;
   single: boolean;
   dragOverPaneId: string | null;
@@ -274,6 +275,7 @@ function paneRangeLabel(layout: PaneLayout, paneIndexes: ReadonlyMap<string, num
 function PaneSection({
   pane,
   paneIndex,
+  firstPaneId,
   activePaneId,
   single,
   dragOverPaneId,
@@ -325,29 +327,33 @@ function PaneSection({
       }}
     >
       <div className="flex min-h-9 min-w-0 shrink-0 items-stretch bg-surface">
-        <WorkingTasksButton
-          compact
-          mdUp={mdUp}
-          busy={workingTasksBusy}
-          onClick={onShowWorkingTasks}
-          className="m-1"
-        />
-        <button
-          type="button"
-          role="switch"
-          aria-checked={preferNewPane}
-          aria-label="新規セッション・Botを新しいペインで開く"
-          title="新しいペインを優先"
-          onClick={onTogglePreferNewPane}
-          className={cx(
-            "m-1 inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md transition-colors",
-            preferNewPane
-              ? "text-accent hover:bg-surface-2"
-              : "text-muted hover:bg-surface-2 hover:text-text",
-          )}
-        >
-          <PanelRight className="h-4 w-4" aria-hidden="true" />
-        </button>
+        {pane.id === firstPaneId && (
+          <>
+            <WorkingTasksButton
+              compact
+              mdUp={mdUp}
+              busy={workingTasksBusy}
+              onClick={onShowWorkingTasks}
+              className="m-1"
+            />
+            <button
+              type="button"
+              role="switch"
+              aria-checked={preferNewPane}
+              aria-label="新規セッション・Botを新しいペインで開く"
+              title="新しいペインを優先"
+              onClick={onTogglePreferNewPane}
+              className={cx(
+                "m-1 inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md transition-colors",
+                preferNewPane
+                  ? "text-accent hover:bg-surface-2"
+                  : "text-muted hover:bg-surface-2 hover:text-text",
+              )}
+            >
+              <PanelRight className="h-4 w-4" aria-hidden="true" />
+            </button>
+          </>
+        )}
         <div className="min-w-0 flex-1">
           <TaskTabs
             pane={pane}
@@ -743,6 +749,7 @@ export function TaskPanesHost() {
         layout={layout}
         paneById={paneById}
         paneIndexes={paneIndexes}
+        firstPaneId={paneIdsInLayout(layout)[0]!}
         activePaneId={activePaneId}
         single={single}
         dragOverPaneId={dragOverPaneId}

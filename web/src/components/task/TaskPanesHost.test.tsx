@@ -243,7 +243,7 @@ describe("TaskPanesHost lazy tab mounting", () => {
     expect(screen.getByTestId("dynamic-pane").getAttribute("data-task-id")).toBe("active");
   });
 
-  it("各ペインの左上から進行中タスクを分割表示できる", async () => {
+  it("最左ペインの左上から進行中タスクを分割表示できる", async () => {
     const contextValue = {
       state: createTreeState(),
       statusFor: () => null,
@@ -267,7 +267,8 @@ describe("TaskPanesHost lazy tab mounting", () => {
     render(<TaskPanesHost />);
 
     const buttons = screen.getAllByRole("button", { name: "進行中タスクを分割表示" });
-    expect(buttons).toHaveLength(4);
+    expect(buttons).toHaveLength(1);
+    expect(buttons[0]?.closest("[data-pane-id]")?.getAttribute("data-pane-id")).toBe("pane-1");
     expect(buttons[0]?.closest("[data-pane-id]")?.firstElementChild?.contains(buttons[0])).toBe(true);
 
     fireEvent.click(buttons[0]!);
@@ -295,7 +296,7 @@ describe("TaskPanesHost lazy tab mounting", () => {
     mocks.usePathname.mockReturnValue("/task/active");
   });
 
-  it("各ペインの左上から新規セッション・Botの開き方を切り替えられる", async () => {
+  it("最左ペインの左上から新規セッション・Botの開き方を切り替えられる", async () => {
     localStorage.setItem("webui:task-pane-prefer-new", "0");
     mocks.useTaskPanes.mockReturnValue({
       ...mocks.useTaskPanes(),
@@ -307,7 +308,8 @@ describe("TaskPanesHost lazy tab mounting", () => {
     const switches = screen.getAllByRole("switch", {
       name: "新規セッション・Botを新しいペインで開く",
     });
-    expect(switches).toHaveLength(4);
+    expect(switches).toHaveLength(1);
+    expect(switches[0]?.closest("[data-pane-id]")?.getAttribute("data-pane-id")).toBe("pane-1");
     expect(switches[0]?.closest("[data-pane-id]")?.firstElementChild?.contains(switches[0])).toBe(true);
     expect(switches[0]?.getAttribute("aria-checked")).toBe("false");
     expect(switches[0]?.querySelector("svg")).not.toBeNull();
@@ -323,6 +325,21 @@ describe("TaskPanesHost lazy tab mounting", () => {
       // ツールチップは状態に依存せず固定
       expect(switches[0]?.getAttribute("title")).toBe("新しいペインを優先");
     });
+  });
+
+  it("ペイン配列の順序ではなくレイアウトの最左ペインにのみ操作を表示する", () => {
+    const state = createTreeState();
+    mocks.useTaskPanes.mockReturnValue({
+      ...mocks.useTaskPanes(),
+      state: { ...state, panes: [...state.panes].reverse() },
+    });
+
+    render(<TaskPanesHost />);
+
+    expect(screen.getByRole("button", { name: "進行中タスクを分割表示" }).closest("[data-pane-id]")?.getAttribute("data-pane-id")).toBe("pane-1");
+    expect(screen.getByRole("switch", { name: "新規セッション・Botを新しいペインで開く" }).closest("[data-pane-id]")?.getAttribute("data-pane-id")).toBe("pane-1");
+    expect(screen.getAllByRole("button", { name: "進行中タスクを分割表示" })).toHaveLength(1);
+    expect(screen.getAllByRole("switch", { name: "新規セッション・Botを新しいペインで開く" })).toHaveLength(1);
   });
 
   it("進行中のBotとBot紐づけCodeはBotViewタブへ寄せる", async () => {
