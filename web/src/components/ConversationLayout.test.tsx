@@ -25,7 +25,7 @@ function setScrollMetrics(element: HTMLElement, scrollTop: number, scrollHeight:
   });
 }
 
-it.each([true, false])("keeps Bot and Code bubble geometry while widening assistant metadata (user: %s)", (user) => {
+it.each([true, false])("keeps Bot and Code bubble geometry while aligning assistant metadata (user: %s)", (user) => {
   const { container } = render(<>
     <section data-view="bot"><BotChatMessage user={user} createdAt={1} sender={{ name: "Bot" }} text="Short reply" /></section>
     <section data-view="code"><PartView message={{ id: "message", role: user ? "user" : "assistant", createdAt: 1, parts: [{ id: "text", type: "text", text: "Short reply" }] }} /></section>
@@ -42,8 +42,8 @@ it.each([true, false])("keeps Bot and Code bubble geometry while widening assist
   expect(bot.classList.contains("self-end")).toBe(user);
   if (!user) {
     expect(bot.previousElementSibling?.className).toContain("max-w-bubble");
-    expect(code.previousElementSibling?.className).toContain("max-w-full");
-    expect(code.previousElementSibling?.className).not.toContain("max-w-bubble");
+    expect(code.previousElementSibling?.className).toContain("max-w-bubble");
+    expect(code.previousElementSibling?.className).toContain("@container/meta-header");
   }
 });
 

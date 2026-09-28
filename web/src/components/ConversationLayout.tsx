@@ -15,8 +15,8 @@ export function messageRowClassFor(user: boolean): string {
   return cx(messageRowClass, user ? "items-end" : "items-start");
 }
 
-export function MessageHeader({ user = false, wide = false, children }: { user?: boolean; wide?: boolean; children: ReactNode }) {
-  return <div className={cx("flex min-w-0 items-center gap-1.5 px-1 text-[11px] text-muted", wide ? "@container/meta-header max-w-full" : "max-w-bubble", user ? "ml-auto justify-end" : "w-full self-start justify-start")}>{children}</div>;
+export function MessageHeader({ user = false, wide = false, bubbleWidth = false, children }: { user?: boolean; wide?: boolean; bubbleWidth?: boolean; children: ReactNode }) {
+  return <div className={cx("flex min-w-0 items-center gap-1.5 px-1 text-[11px] text-muted", wide ? cx("@container/meta-header", bubbleWidth ? "max-w-bubble" : "max-w-full") : "max-w-bubble", user ? "ml-auto justify-end" : "w-full self-start justify-start")}>{children}</div>;
 }
 
 export function MessageBubble({ user = false, neutral = false, className, children }: { user?: boolean; neutral?: boolean; className?: string; children: ReactNode }) {

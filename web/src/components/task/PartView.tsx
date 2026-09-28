@@ -706,6 +706,7 @@ export const MessageMetaHeader = memo(function MessageMetaHeader({
   accountLabel,
   usage,
   singleLine = false,
+  showAccountInSingleLine = false,
 }: {
   message: UiMessage;
   modelLabel?: string;
@@ -720,6 +721,8 @@ export const MessageMetaHeader = memo(function MessageMetaHeader({
   usage?: ActivityUsage;
   /** Allow the metadata above a bubble or work log to use the full row. */
   singleLine?: boolean;
+  /** Work-log details keep the account visible even when usage fits on the same row. */
+  showAccountInSingleLine?: boolean;
 }) {
   const model = modelLabel?.trim() || message.model?.trim() || "";
   const agentName = agent?.trim();
@@ -753,7 +756,7 @@ export const MessageMetaHeader = memo(function MessageMetaHeader({
     agentName && !(hideDefaultAgent && agentName === DEFAULT_AGENT)
       ? { key: "agent", text: agentName }
       : null,
-    !singleLine && accountLabel?.trim() ? { key: "account", text: accountLabel.trim() } : null,
+    (!singleLine || showAccountInSingleLine) && accountLabel?.trim() ? { key: "account", text: accountLabel.trim() } : null,
     { key: "time", text: formatMessageTime(message.createdAt) },
   ].filter((field): field is { key: string; text: string } => Boolean(field?.text));
   const usageFields = [
@@ -762,7 +765,7 @@ export const MessageMetaHeader = memo(function MessageMetaHeader({
     thinking ? { key: "thinking", text: thinking } : null,
   ].filter((field): field is { key: string; text: string } => Boolean(field?.text));
   const renderField = (field: { key: string; text: string }, index: number) => {
-    // The account and its separator are omitted together from single-line headers.
+    // The account and its separator are omitted together from headers that do not show the account.
     if (field.key === "account") return (
       <span key={field.key} className="inline-flex min-w-0 max-w-64 shrink-[100] items-center gap-1.5 overflow-hidden" title={field.text}>
         {index > 0 && <span className="shrink-0" aria-hidden="true">·</span>}
@@ -1106,7 +1109,7 @@ export const PartView = memo(
     return (
       <article className={messageRowClassFor(isUser)}>
         {!hideMeta && (
-          <MessageHeader user={isUser} wide={!isUser}>
+          <MessageHeader user={isUser} wide={!isUser} bubbleWidth={!isUser}>
             {isUser ? (
               !nested && (bot ? (
                 <div className="min-w-0" title={bot.name} aria-label={`送信者: ${bot.name}（Bot）`}>

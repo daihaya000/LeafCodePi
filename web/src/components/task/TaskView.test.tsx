@@ -793,7 +793,7 @@ it("groups consecutive tool-only messages between agent responses", () => {
 
   const group = document.querySelector<HTMLDetailsElement>("details[data-task-tool-group]");
   expect(group).not.toBeNull();
-  expect(group!.className).toContain("max-w-bubble");
+  expect(group!.className).toContain("max-w-full");
   expect(group!.open).toBe(false);
   expect(group!.getAttribute("aria-label")).toBe("作業ログ");
   expect(group!.querySelector("summary")?.textContent).toContain("作業ログ");
@@ -803,10 +803,13 @@ it("groups consecutive tool-only messages between agent responses", () => {
   const logHeaders = mocks.messageMetaHeader.mock.calls.filter(([props]) => props.usage).map(([props]) => props);
   expect(logHeaders.length).toBeGreaterThanOrEqual(2);
   expect(logHeaders[0].usage).toEqual({ outputTokens: 0, avgRate: null, elapsedMs: 3_000 });
-  expect(logHeaders.map((props) => props.singleLine)).toContain(true);
-  expect(logHeaders.map((props) => props.singleLine)).toContain(false);
+  expect(logHeaders.every((props) => props.singleLine)).toBe(true);
+  expect(logHeaders.map((props) => props.showAccountInSingleLine)).toContain(true);
+  expect(logHeaders.map((props) => props.showAccountInSingleLine)).toContain(false);
   expect(group!.previousElementSibling?.className).toContain("max-w-full");
-  expect(group!.querySelector("[data-task-meta]")?.parentElement?.className).toContain("max-w-bubble");
+  expect(group!.querySelector("[data-task-meta]")?.parentElement?.className).toContain("@container/meta-header");
+  expect(group!.querySelector("[data-task-meta]")?.parentElement?.className).toContain("max-w-full");
+  expect(mocks.messageMetaHeader.mock.calls.find(([props]) => props.message.id === "tool-2")?.[0]).toMatchObject({ singleLine: true, showAccountInSingleLine: true });
   expect(group!.querySelectorAll("[data-task-tool-card]")).toHaveLength(2);
   // 先頭のメタ行は閉じた状態でも見せ、展開内容にも各メッセージのメタ行を残す。
   expect(group!.previousElementSibling?.querySelector("[data-task-meta]")?.getAttribute("data-task-meta")).toBe("tool-1");
