@@ -179,6 +179,32 @@ describe("snapshotMessages", () => {
     expect(assistants[1]?.accountId).toBe("acc-2");
   });
 
+  it("aligns branch entry ids across hidden markers and tool results", () => {
+    const branch = [
+      { type: "message", id: "u1", message: { role: "user", content: "first" } },
+      {
+        type: "custom_message", id: "switch", customType: "leafcode-pi.agent-switch",
+        timestamp: "1970-01-01T00:00:00.001Z", content: "switched",
+        details: { previousAgent: "builder", nextAgent: "planner" },
+      },
+      { type: "message", id: "a1", message: { role: "assistant", content: [
+        { type: "toolCall", id: "call-1", name: "bash", arguments: {} },
+      ] } },
+      { type: "message", id: "r1", message: { role: "toolResult", toolCallId: "call-1", content: [{ type: "text", text: "ok" }] } },
+      { type: "message", id: "u2", message: { role: "user", content: "next" } },
+    ];
+    const session = {
+      messages: [],
+      agent: { state: { streamingMessage: undefined } },
+      sessionManager: { getLeafId: () => "u2", getBranch: () => branch },
+    } as unknown as Parameters<typeof snapshotMessages>[0];
+
+    const projected = snapshotMessages(session);
+    expect(projected.map((item) => item.id)).toEqual(["u1", "a1", "u2"]);
+    expect(projected[1]?.parts[0]?.id).toBe("msg-2-tool-call-1");
+    expect(projected[1]?.agent).toBe("planner");
+  });
+
   it("keeps messages before a compaction entry visible", () => {
     const before = { role: "user", content: "圧縮前" };
     const beforeAnswer = {

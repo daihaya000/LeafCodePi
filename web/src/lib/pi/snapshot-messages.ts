@@ -1,5 +1,4 @@
 import {
-  entryIdsForProjectedMessages,
   isAgentSwitchMarker,
   isGoalLoopTurnMarker,
   isIntercomMessageMarker,
@@ -334,14 +333,17 @@ export function snapshotMessages(
     raw: unknown[],
     indexOffset = 0,
   ): UiMessage[] => {
-    let result = projectPiMessages(raw, indexOffset);
-    // Pi のメッセージ本体には id が無いため、projectPiMessages は `msg-N` を仮 id
-    // にする。「入力欄に戻す」はエントリ id 必須なので、参照一致するエントリの id で上書き
-    const entryIds = entryIdsForProjectedMessages(raw, entryIdByMessage);
-    result = result.map((message, index) => {
-      const entryId = entryIds[index];
-      return entryId ? { ...message, id: entryId } : message;
-    });
+    const result = projectPiMessages(raw, indexOffset);
+    if (entryIdByMessage.size === 0) return result;
+    // Keep projected part ids derived from msg-N; replace only the row id needed for rewind.
+    let projectedIndex = 0;
+    for (const item of raw) {
+      if (!piRawMessageProjectsToUi(item)) continue;
+      const entryId = entryIdByMessage.get(item);
+      const projected = result[projectedIndex];
+      if (entryId && projected) result[projectedIndex] = { ...projected, id: entryId };
+      projectedIndex++;
+    }
     return result;
   };
 
