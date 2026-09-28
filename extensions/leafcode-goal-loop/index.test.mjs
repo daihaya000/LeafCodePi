@@ -4939,6 +4939,154 @@ test("goal-start replacement ignores trailing agent_end from the aborted run", a
   }
 });
 
+test("releases host preparation when Goal Loop is paused before sending", async () => {
+  const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-release-prepared-"));
+  process.env.LEAFCODE_PI_DATA_DIR = cwd;
+  const handlers = new Map();
+  const commands = new Map();
+  let sendCount = 0;
+  let releaseCount = 0;
+  const ctx = {
+    cwd,
+    mode: "rpc",
+    hasUI: false,
+    isIdle: () => true,
+    hasPendingMessages: () => false,
+    abort: () => {},
+    sessionManager: {
+      getSessionId: () => "release-prepared-session",
+      getBranch: () => [],
+    },
+    ui: { setStatus: () => {}, setWidget: () => {}, notify: () => {} },
+    prepareGoalLoopTurn: async () => {
+      await commands.get("goal-pause")?.("", ctx);
+      return true;
+    },
+    releaseGoalLoopTurn: () => { releaseCount += 1; },
+  };
+  const stateFile = () => join(cwd, "goals-loop", "release-prepared-session.json");
+
+  try {
+    goalLoopExtension({
+      on(name, handler) { handlers.set(name, handler); },
+      registerCommand(name, options) { commands.set(name, options.handler); },
+      appendEntry() {},
+      sendMessage() { sendCount += 1; },
+    });
+    await handlers.get("session_start")?.({}, ctx);
+    const payload = Buffer.from(JSON.stringify({ goal: "demo", maxTurns: 3 })).toString("base64url");
+    await commands.get("goal-start")?.(payload, ctx);
+    await waitFor(() => JSON.parse(readFileSync(stateFile(), "utf8")).status === "paused");
+    assert.equal(sendCount, 0);
+    assert.equal(releaseCount, 1);
+  } finally {
+    await handlers.get("session_shutdown")?.({}, ctx);
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test("releases committed host preparation when the session reloads before send", async () => {
+  const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-release-reload-"));
+  process.env.LEAFCODE_PI_DATA_DIR = cwd;
+  const handlers = new Map();
+  const commands = new Map();
+  let sendCount = 0;
+  let releaseCount = 0;
+  const ctx = {
+    cwd,
+    mode: "rpc",
+    hasUI: false,
+    isIdle: () => true,
+    hasPendingMessages: () => false,
+    abort: () => {},
+    sessionManager: {
+      getSessionId: () => "release-reload-session",
+      getBranch: () => [],
+    },
+    ui: { setStatus: () => {}, setWidget: () => {}, notify: () => {} },
+    prepareGoalLoopTurn: async () => {
+      queueMicrotask(() => { void handlers.get("session_shutdown")?.({ reason: "reload" }, ctx); });
+      return true;
+    },
+    releaseGoalLoopTurn: () => { releaseCount += 1; },
+  };
+  const stateFile = () => join(cwd, "goals-loop", "release-reload-session.json");
+
+  try {
+    goalLoopExtension({
+      on(name, handler) { handlers.set(name, handler); },
+      registerCommand(name, options) { commands.set(name, options.handler); },
+      appendEntry() {},
+      sendMessage() { sendCount += 1; },
+    });
+    await handlers.get("session_start")?.({}, ctx);
+    const payload = Buffer.from(JSON.stringify({ goal: "demo", maxTurns: 3 })).toString("base64url");
+    await commands.get("goal-start")?.(payload, ctx);
+    await waitFor(() => releaseCount === 1);
+    assert.equal(sendCount, 0);
+    assert.equal(JSON.parse(readFileSync(stateFile(), "utf8")).status, "queued");
+  } finally {
+    await handlers.get("session_shutdown")?.({}, ctx);
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test("waits for announced host routing before sending a turn", async () => {
+  const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-routing-ready-"));
+  process.env.LEAFCODE_PI_DATA_DIR = cwd;
+  goalLoopTestSeams.setHostRoutingWaitMs(2_000);
+  const handlers = new Map();
+  const commands = new Map();
+  const listeners = new Set();
+  let prepareHook;
+  let sendCount = 0;
+  const ctx = {
+    cwd,
+    mode: "rpc",
+    hasUI: false,
+    isIdle: () => true,
+    hasPendingMessages: () => false,
+    abort: () => {},
+    sessionManager: {
+      getSessionId: () => "routing-ready-session",
+      getBranch: () => [],
+    },
+    get prepareGoalLoopTurn() { return prepareHook; },
+    ui: { setStatus: () => {}, setWidget: () => {}, notify: () => {} },
+  };
+  const events = {
+    emit(channel) { for (const listener of listeners) listener(channel); },
+    on(channel, listener) {
+      const wrapped = (emitted) => { if (emitted === channel) listener(); };
+      listeners.add(wrapped);
+      return () => listeners.delete(wrapped);
+    },
+  };
+
+  try {
+    goalLoopExtension({
+      events,
+      on(name, handler) { handlers.set(name, handler); },
+      registerCommand(name, options) { commands.set(name, options.handler); },
+      appendEntry() {},
+      sendMessage() { sendCount += 1; },
+    });
+    events.emit("leafcode-goal-loop:host-routing");
+    await handlers.get("session_start")?.({}, ctx);
+    const payload = Buffer.from(JSON.stringify({ goal: "demo", maxTurns: 3 })).toString("base64url");
+    await commands.get("goal-start")?.(payload, ctx);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    assert.equal(sendCount, 0);
+
+    prepareHook = async () => true;
+    await waitFor(() => sendCount === 1);
+  } finally {
+    goalLoopTestSeams.setHostRoutingWaitMs(undefined);
+    await handlers.get("session_shutdown")?.({}, ctx);
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
 test("schedule does not start a second sendTurn while prepare is in flight", async () => {
   const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-send-inflight-"));
   process.env.LEAFCODE_PI_DATA_DIR = cwd;

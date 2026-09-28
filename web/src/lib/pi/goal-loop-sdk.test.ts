@@ -1,17 +1,117 @@
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { fauxAssistantMessage, fauxProvider } from "@earendil-works/pi-ai";
 import { expect, it, vi } from "vitest";
 import {
+  createAgentSession,
   DefaultResourceLoader,
   ExtensionRunner,
+  ModelRuntime,
   SessionManager,
   SettingsManager,
   type ExtensionFactory,
   type ModelRegistry,
 } from "@earendil-works/pi-coding-agent";
 import type { AssistantMessage } from "@earendil-works/pi-ai";
-import goalLoopExtension from "../../../../extensions/leafcode-goal-loop/index";
+import goalLoopExtension, { HOST_ROUTING_CHANNEL } from "../../../../extensions/leafcode-goal-loop/index";
+
+it("continues a queued Goal Loop across a real SDK session.reload during turn preparation", async () => {
+  const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-reload-sdk-"));
+  const agentDir = join(cwd, "agent");
+  mkdirSync(agentDir, { recursive: true });
+  vi.stubEnv("LEAFCODE_PI_DATA_DIR", join(cwd, "data"));
+  const manager = SessionManager.inMemory(cwd);
+  const faux = fauxProvider();
+  faux.setResponses([
+    fauxAssistantMessage(JSON.stringify({ status: "progress", summary: "turn one" })),
+    fauxAssistantMessage(JSON.stringify({ status: "progress", summary: "turn two" })),
+  ]);
+  const modelRuntime = await ModelRuntime.create({
+    authPath: join(agentDir, "auth.json"),
+    modelsPath: null,
+    refreshOnCreate: false,
+  });
+  modelRuntime.registerNativeProvider(faux.provider);
+  let session: Awaited<ReturnType<typeof createAgentSession>>["session"];
+  let prepareCount = 0;
+  const goalLoopPath = fileURLToPath(new URL("../../../../extensions/leafcode-goal-loop/index.ts", import.meta.url));
+  const slowStartupFactory: ExtensionFactory = (api) => {
+    api.on("session_start", async () => {
+      await new Promise((resolve) => setTimeout(resolve, 75));
+    });
+  };
+  const routingFactory: ExtensionFactory = (api) => {
+    const hostApi = api as unknown as {
+      events: { emit: (channel: string, data?: unknown) => void };
+      on: (name: string, handler: (event: unknown, ctx: Record<string, unknown>) => void) => void;
+    };
+    hostApi.events.emit(HOST_ROUTING_CHANNEL, { taskId: "reload-regression" });
+    hostApi.on("session_start", (_event, ctx) => {
+      const routingContext = ctx as Record<string, unknown> & {
+        prepareGoalLoopTurn?: (prompt: string) => Promise<boolean | "retry">;
+      };
+      routingContext.prepareGoalLoopTurn = async () => {
+        prepareCount += 1;
+        if (prepareCount === 2) {
+          await session.reload();
+          return false;
+        }
+        return true;
+      };
+    });
+  };
+  const loader = new DefaultResourceLoader({
+    cwd,
+    agentDir,
+    settingsManager: SettingsManager.inMemory(),
+    noExtensions: true,
+    noSkills: true,
+    noPromptTemplates: true,
+    noThemes: true,
+    noContextFiles: true,
+    additionalExtensionPaths: [goalLoopPath],
+    extensionFactories: [slowStartupFactory, routingFactory],
+  });
+  try {
+    await loader.reload();
+    const created = await createAgentSession({
+      cwd,
+      agentDir,
+      resourceLoader: loader,
+      settingsManager: SettingsManager.inMemory(),
+      sessionManager: manager,
+      modelRuntime,
+      model: faux.getModel(),
+      tools: [],
+    });
+    session = created.session;
+    await session.bindExtensions({ onError: (error) => { throw new Error(error.error); } });
+    const stateFile = join(cwd, "data", "goals-loop", `${manager.getSessionId()}.json`);
+    const state = () => JSON.parse(readFileSync(stateFile, "utf8"));
+    const runner = session.extensionRunner as ExtensionRunner;
+    const command = runner.getCommand("goal-start");
+    expect(command).toBeDefined();
+    await command!.handler(Buffer.from(JSON.stringify({
+      goal: "Continue after reload",
+      maxTurns: 2,
+      cooldownSeconds: 0,
+      forceFullRun: true,
+    })).toString("base64url"), runner.createCommandContext());
+    await vi.waitFor(() => expect(state()).toMatchObject({ status: "paused", pauseReason: "turn_limit", turnCount: 2 }), { timeout: 8_000, interval: 25 });
+    expect(prepareCount).toBeGreaterThanOrEqual(3);
+    expect(faux.state.callCount).toBe(2);
+    expect(state().progress.map((item: { summary: string }) => item.summary)).toEqual(["turn one", "turn two"]);
+  } finally {
+    if (session!) {
+      await session.extensionRunner.emit({ type: "session_shutdown", reason: "quit" });
+      session.dispose();
+    }
+    vi.unstubAllEnvs();
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
 
 it("starts, controls and completes Goal Loop through real SDK context dispatch", async () => {
   const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-sdk-"));

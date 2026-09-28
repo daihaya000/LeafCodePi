@@ -169,11 +169,15 @@ export function ImageLightbox({
   alt,
   className,
   triggerClassName,
+  onError,
+  referrerPolicy,
 }: {
   src: string;
   alt: string;
   className: string;
   triggerClassName?: string;
+  onError?: () => void;
+  referrerPolicy?: "no-referrer";
 }) {
   const [open, setOpen] = useState(false);
   const closeButtonRef = useRef<HTMLButtonElement>(null);
@@ -205,7 +209,7 @@ export function ImageLightbox({
         className={`block cursor-zoom-in border-0 bg-transparent p-0 ${triggerClassName ?? ""}`}
       >
         {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src={src} alt={alt} className={className} />
+        <img src={src} alt={alt} className={className} onError={onError} referrerPolicy={referrerPolicy} />
       </button>
       {open &&
         typeof document !== "undefined" &&
@@ -232,6 +236,8 @@ export function ImageLightbox({
               alt={alt}
               className="max-h-[calc(100dvh-2rem)] max-w-[calc(100vw-2rem)] rounded-lg object-contain shadow-2xl"
               onClick={(event) => event.stopPropagation()}
+              onError={onError}
+              referrerPolicy={referrerPolicy}
             />
           </div>,
           document.body,

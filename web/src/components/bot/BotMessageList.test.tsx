@@ -129,6 +129,13 @@ it("renders bot Markdown with GFM", () => {
   expect(container.querySelector("ul li")?.textContent).toBe("item");
 });
 
+it("renders local Markdown images in bot replies through the task image endpoint", () => {
+  const { getByRole } = render(<BotMessageMarkdown text="![render](renders/final.png)" imageTaskId="bot:bot-1" />);
+  expect(getByRole("img", { name: "render" }).getAttribute("src")).toBe(
+    "/api/tasks/bot%3Abot-1/image?path=renders%2Ffinal.png",
+  );
+});
+
 it("turns bare internal task paths into task cards without reusing stale metadata", async () => {
   const fetchMock = vi.fn((url: string) => Promise.resolve({ ok: true, json: async () => url.startsWith("/api/tasks/")
     ? { task: { id: "task-123", title: "Fix login", projectId: null } }

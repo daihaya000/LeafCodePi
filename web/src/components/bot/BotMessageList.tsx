@@ -11,6 +11,7 @@ import { ProjectIcon } from "@/components/ProjectIcon";
 import { ProviderIcon } from "@/components/ProviderIcon";
 import { renderMentions, withMentions } from "@/components/bot/BotMention";
 import { ImageLightbox } from "@/components/Composer";
+import { MarkdownImage, MarkdownImageScope, markdownImageUrlTransform } from "@/components/MarkdownImage";
 import { toolLabel } from "@/lib/tool-labels";
 import { Button, cx, formatElapsed, formatMessageTime } from "@/components/ui";
 import type { BotDto, ProjectDto, TaskSummary, UiMessage } from "@/lib/types";
@@ -98,13 +99,25 @@ function InternalTaskLink({ href, ...props }: AnchorHTMLAttributes<HTMLAnchorEle
   );
 }
 
-export const BotMessageMarkdown = memo(function BotMessageMarkdown({ text, mentions, keyPrefix = "md" }: { text: string; mentions?: BotDto[]; keyPrefix?: string }) {
+export const BotMessageMarkdown = memo(function BotMessageMarkdown({ text, mentions, keyPrefix = "md", imageTaskId }: { text: string; mentions?: BotDto[]; keyPrefix?: string; imageTaskId?: string }) {
   const components = mentions
     ? Object.fromEntries(MENTION_TAGS.map((Tag) => [Tag, ({ children, ...props }: { children?: ReactNode }) => (
       <Tag {...props}>{withMentions(children, mentions, keyPrefix)}</Tag>
     )]))
     : undefined;
-  return <div className="md"><Markdown remarkPlugins={[remarkGfm]} components={{ ...components, a: ({ href, children, ...props }) => <TaskLink href={href} {...props}>{children}</TaskLink> }}>{linkBareTaskPaths(text)}</Markdown></div>;
+  return (
+    <div className="md">
+      <MarkdownImageScope taskId={imageTaskId}>
+        <Markdown
+          remarkPlugins={[remarkGfm]}
+          urlTransform={markdownImageUrlTransform}
+          components={{ ...components, img: MarkdownImage, a: ({ href, children, ...props }) => <TaskLink href={href} {...props}>{children}</TaskLink> }}
+        >
+          {linkBareTaskPaths(text)}
+        </Markdown>
+      </MarkdownImageScope>
+    </div>
+  );
 });
 
 export function BotMessageList({ conversationId, contentKey, children, viewportRef, active = true }: {
@@ -231,7 +244,7 @@ export function BotMessageRow({ user, createdAt, children, footer, header, after
 }
 
 /** Shared conversation presentation; callers supply only conversation-specific content/actions. */
-export function BotChatMessage({ user, createdAt, sender, text, mentions = [], providerID, modelLabel, responseDurationMs, children, images, files, footer, after, bubble = true }: {
+export function BotChatMessage({ user, createdAt, sender, text, mentions = [], providerID, modelLabel, responseDurationMs, imageTaskId, children, images, files, footer, after, bubble = true }: {
   user: boolean;
   createdAt: number;
   sender: BotFace & { name: string; active?: boolean };
@@ -242,6 +255,7 @@ export function BotChatMessage({ user, createdAt, sender, text, mentions = [], p
   modelLabel?: string;
   /** 応答全体の所要時間。Botヘッダーの思考時間表示に使う。 */
   responseDurationMs?: number;
+  imageTaskId?: string;
   children?: ReactNode;
   images?: ReactNode;
   files?: ReactNode;
@@ -253,7 +267,7 @@ export function BotChatMessage({ user, createdAt, sender, text, mentions = [], p
     header={user ? undefined : <BotMessageSender {...sender} createdAt={createdAt} providerID={providerID} modelLabel={modelLabel} responseDurationMs={responseDurationMs} />} footer={footer} after={after} bubble={bubble}>
     {text && (user
       ? <div className="whitespace-pre-wrap break-words">{renderMentions(text, mentions, "user", "user")}</div>
-      : <BotMessageMarkdown text={text} mentions={mentions} />)}
+      : <BotMessageMarkdown text={text} mentions={mentions} imageTaskId={imageTaskId} />)}
     {images}
     {files}
     {children}

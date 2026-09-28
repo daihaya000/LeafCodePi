@@ -92,6 +92,23 @@ function readMessage(status: "running" | "error"): UiMessage {
   };
 }
 
+describe("PartView Markdown images", () => {
+  afterEach(() => cleanup());
+
+  it("renders a local Markdown image through the task image endpoint", () => {
+    const message: UiMessage = {
+      id: "assistant-image",
+      role: "assistant",
+      createdAt: 1,
+      parts: [{ id: "text-image", type: "text", text: "![render](renders/final.png)" }],
+    };
+    render(<PartView message={message} taskId="task-1" />);
+    expect(screen.getByRole("img", { name: "render" }).getAttribute("src")).toBe(
+      "/api/tasks/task-1/image?path=renders%2Ffinal.png",
+    );
+  });
+});
+
 describe("PartView shell log", () => {
   afterEach(() => cleanup());
 

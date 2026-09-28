@@ -36,6 +36,7 @@ import {
   messageRowClassFor,
 } from "@/components/ConversationLayout";
 import { ImageLightbox } from "@/components/Composer";
+import { MarkdownImageScope, markdownImageComponents, markdownImageUrlTransform } from "@/components/MarkdownImage";
 import { ProviderIcon } from "@/components/ProviderIcon";
 import { ReferenceHighlight, type ReferenceHighlightReferences } from "@/components/ReferenceHighlight";
 import { formatTokens } from "@/lib/context-usage";
@@ -162,16 +163,26 @@ const MarkdownBody = memo(function MarkdownBody({
   text,
   className,
   allowStructuredResult,
+  taskId,
 }: {
   text: string;
   className?: string;
   allowStructuredResult: boolean;
+  taskId?: string;
 }) {
   const structuredResult = allowStructuredResult ? parseStructuredResult(text) : null;
   if (structuredResult) return <StructuredResultCard result={structuredResult} />;
   return (
     <div className={cx("md", className ?? "text-sm")}>
-      <Markdown remarkPlugins={[remarkGfm]}>{text}</Markdown>
+      <MarkdownImageScope taskId={taskId}>
+        <Markdown
+          remarkPlugins={[remarkGfm]}
+          components={markdownImageComponents}
+          urlTransform={markdownImageUrlTransform}
+        >
+          {text}
+        </Markdown>
+      </MarkdownImageScope>
     </div>
   );
 });
@@ -179,9 +190,11 @@ const MarkdownBody = memo(function MarkdownBody({
 function AssistantTextPart({
   text,
   goalLoopTurn,
+  taskId,
 }: {
   text: string;
   goalLoopTurn?: UiMessage["goalLoopTurn"];
+  taskId?: string;
 }) {
   return (
     <MessageBubble>
@@ -189,6 +202,7 @@ function AssistantTextPart({
         text={text}
         className="text-base"
         allowStructuredResult={Boolean(goalLoopTurn)}
+        taskId={taskId}
       />
     </MessageBubble>
   );
@@ -327,7 +341,7 @@ function NestedUserMetaHeader({
 }
 
 /** 子タイムライン。実行中は末尾に追従する（上へスクロールしたら追従しない）。 */
-function NestedRunTimeline({ run, active }: { run: SubagentRunDto; active: boolean }) {
+function NestedRunTimeline({ run, active, taskId }: { run: SubagentRunDto; active: boolean; taskId?: string }) {
   const scrollerRef = useRef<HTMLDivElement | null>(null);
   const stickRef = useRef(true);
   const visibleMessages = useMemo(
@@ -363,6 +377,7 @@ function NestedRunTimeline({ run, active }: { run: SubagentRunDto; active: boole
               agent={run.agent}
               active={active}
               reasoningActive={run.status === "running" && visibleMessages.at(-1)?.id === message.id}
+              taskId={taskId}
               nested
             />
           </div>
@@ -444,7 +459,7 @@ function NestedAgentPanel({
               {SUBAGENT_STATUS_LABEL[run.status]}
             </span>
           </div>
-          <NestedRunTimeline run={run} active={live} />
+          <NestedRunTimeline run={run} active={live} taskId={taskId} />
         </section>
       ))}
     </div>
@@ -651,7 +666,7 @@ export const ToolCard = memo(function ToolCard({
                   {output}
                 </pre>
               ) : (
-                <MarkdownBody text={output} allowStructuredResult={false} />
+                <MarkdownBody text={output} allowStructuredResult={false} taskId={taskId} />
               )}
             </div>
           )}
@@ -661,7 +676,7 @@ export const ToolCard = memo(function ToolCard({
   );
 });
 
-function CompactionNotice({ message }: { message: UiMessage }) {
+function CompactionNotice({ message, taskId }: { message: UiMessage; taskId?: string }) {
   const summary = message.parts.find((part) => part.type === "text");
   const before =
     typeof message.tokensBefore === "number" ? formatTokens(message.tokensBefore) : null;
@@ -674,7 +689,7 @@ function CompactionNotice({ message }: { message: UiMessage }) {
       </summary>
       {summary && summary.type === "text" && (
         <div className="mt-2 border-t border-border pt-2">
-          <MarkdownBody text={summary.text} allowStructuredResult={false} />
+          <MarkdownBody text={summary.text} allowStructuredResult={false} taskId={taskId} />
         </div>
       )}
     </details>
@@ -1087,7 +1102,7 @@ export const PartView = memo(
     references?: ReferenceHighlightReferences;
   }) {
     if (message.role === "compaction") {
-      return <CompactionNotice message={message} />;
+      return <CompactionNotice message={message} taskId={taskId} />;
     }
 
     const isUser = message.role === "user";
@@ -1142,6 +1157,7 @@ export const PartView = memo(
                   key={part.id}
                   text={part.text}
                   goalLoopTurn={message.goalLoopTurn}
+                  taskId={taskId}
                 />
               );
             }

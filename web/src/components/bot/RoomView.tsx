@@ -597,6 +597,7 @@ export function RoomView({ id, active = true }: { id: string; active?: boolean }
         )}
         {hasMessageContent && (
           <BotChatMessage user={user} createdAt={message.createdAt} sender={sender} text={text} mentions={bots}
+            imageTaskId={message.botId ? `bot:${message.botId}:room:${id}` : undefined}
             images={<BotMessageImages images={(message.images ?? []).map((image) => ({ key: image.file, src: `/api/bots/rooms/${encodeURIComponent(id)}/images/${encodeURIComponent(image.file)}` }))} />}
             files={<BotMessageFiles files={(message.files ?? []).map((file) => ({ key: file.file, name: file.name, mime: file.mimeType, size: file.size, href: `/api/bots/rooms/${encodeURIComponent(id)}/files/${encodeURIComponent(file.file)}` }))} />}
             footer={user ? <BotRevertButton title="この発言以降を入力欄に戻して巻き戻す" disabled={reverting} onClick={() => void revertMessage(message.id)} /> : undefined}>
