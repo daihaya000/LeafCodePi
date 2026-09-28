@@ -9,6 +9,7 @@ const stored: unknown[] = [];
 const throughput = new Map<number, ThroughputTiming>();
 const started = new Map<string, number>();
 const ended = new Map<string, number>();
+const partialAll = new Map<string, string>();
 for (let index = 0; index < 1_000; index++) {
   const timestamp = 10_000 + index * 10_000;
   const callId = `call-${index}`;
@@ -28,6 +29,7 @@ for (let index = 0; index < 1_000; index++) {
   });
   started.set(callId, timestamp + 500);
   ended.set(callId, timestamp + 1_000);
+  partialAll.set(callId, "partial output");
 }
 const partial = new Map([["call-999", "partial output"]]);
 const session = {
@@ -40,6 +42,7 @@ const cases = [
   ["history only", () => snapshotMessages(session)],
   ["throughput only", () => snapshotMessages(session, throughput)],
   ["partial output only", () => snapshotMessages(session, undefined, undefined, undefined, partial)],
+  ["partial output all", () => snapshotMessages(session, undefined, undefined, undefined, partialAll)],
   ["tool timing only", () => snapshotMessages(session, undefined, started, ended)],
   ["combined", () => snapshotMessages(session, throughput, started, ended, partial)],
 ] as const;

@@ -500,6 +500,21 @@ describe("applyToolOutput", () => {
     ]);
   });
 
+  it("invalidates a cached row when a second tool receives partial output", () => {
+    const message = toolMessage("call-1");
+    message.parts.push(toolMessage("call-2").parts[0]!);
+    const messages = [message];
+    const output = new Map([["call-1", "first"]]);
+    const first = applyToolOutput(messages, output);
+    assert.equal(applyToolOutput(messages, output)[0], first[0]);
+
+    output.set("call-2", "second");
+    const changed = applyToolOutput(messages, output);
+    assert.notEqual(changed[0], first[0]);
+    const secondPart = changed[0]!.parts[1];
+    assert.equal(secondPart?.type === "tool" ? secondPart.state.output : undefined, "second");
+  });
+
   it("does not overwrite a finalized tool result", () => {
     const message = toolMessage("call-1");
     const part = message.parts[0] as Extract<(typeof message)["parts"][number], { type: "tool" }>;
