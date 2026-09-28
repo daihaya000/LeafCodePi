@@ -52,26 +52,27 @@ export function messageRenderKey(message: UiMessage): string {
 export function dedupeUiMessages(messages: UiMessage[]): UiMessage[] {
   if (messages.length < 2) return messages;
   const result: UiMessage[] = [];
-  const indexByKey = new Map<string, number>();
+  const indexByPartId = new Map<string, number>();
+  const indexById = new Map<string, number>();
+  const indexByContent = new Map<string, number>();
   let changed = false;
   for (const message of messages) {
-    const renderKey = messageRenderKey(message);
-    const idKey = `id:${message.id}`;
-    const contentKey = `content:${messageContentFingerprint(message)}`;
+    const partId = message.parts[0]?.id;
+    const content = messageContentFingerprint(message);
     const existing =
-      indexByKey.get(renderKey) ?? indexByKey.get(idKey) ?? indexByKey.get(contentKey);
+      (partId ? indexByPartId.get(partId) : undefined) ??
+      indexById.get(message.id) ??
+      indexByContent.get(content);
+    const index = existing ?? result.length;
     if (existing === undefined) {
-      indexByKey.set(renderKey, result.length);
-      indexByKey.set(idKey, result.length);
-      indexByKey.set(contentKey, result.length);
       result.push(message);
     } else {
       result[existing] = message;
-      indexByKey.set(renderKey, existing);
-      indexByKey.set(idKey, existing);
-      indexByKey.set(contentKey, existing);
       changed = true;
     }
+    if (partId) indexByPartId.set(partId, index);
+    indexById.set(message.id, index);
+    indexByContent.set(content, index);
   }
   return changed ? result : messages;
 }

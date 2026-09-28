@@ -192,6 +192,16 @@ describe("stabilizeUiMessages", () => {
 });
 
 describe("dedupeUiMessages", () => {
+  it("keeps distinct rows when one part id equals another row id", () => {
+    const first = {
+      ...textMessage("entry-1", "first"),
+      parts: [{ type: "text" as const, id: "shared", text: "first" }],
+    };
+    const second = textMessage("shared", "second");
+    const input = [first, second];
+    expect(dedupeUiMessages(input)).toBe(input);
+  });
+
   it("collapses a row whose part ids were reprojected under the same entry id", () => {
     // Part ids come from the raw session index, so the same persisted message
     // can be projected with a different part id after a branch/stored switch.
