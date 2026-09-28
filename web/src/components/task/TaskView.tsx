@@ -39,6 +39,7 @@ import { DiffPane } from "@/components/task/DiffPane";
 import { readSidePanelWidth, SidePanel } from "@/components/task/SidePanel";
 import { useBotFor, useIconFor } from "@/components/shell/TaskPanesContext";
 import { NextAction } from "@/components/task/NextAction";
+import { TaskProgressAsk } from "@/components/task/TaskProgressAsk";
 import { GraphPanel } from "@/components/task/GraphPanel";
 import { ProjectExplorerButton } from "@/components/task/ProjectExplorerButton";
 import { ProjectFilePicker } from "@/components/ProjectFilePicker";
@@ -963,6 +964,7 @@ export const TaskView = memo(function TaskView({
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const nextActionPanelRef = useRef<HTMLDivElement>(null);
+  const progressPanelRef = useRef<HTMLDivElement>(null);
   const composingRef = useRef(false);
   const taskViewRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -3810,6 +3812,7 @@ export const TaskView = memo(function TaskView({
             />
           </div>
         )}
+        <div ref={progressPanelRef} className="mx-auto max-w-5xl" />
         <div ref={nextActionPanelRef} className="mx-auto max-w-5xl" />
         <div className="mx-auto max-w-5xl">
           <QueuedFollowUpsNotice
@@ -4071,6 +4074,18 @@ export const TaskView = memo(function TaskView({
                           textareaRef.current?.focus();
                           return true;
                         }}
+                      />
+                    ),
+                  },
+                  {
+                    id: "progress",
+                    label: "進捗確認",
+                    content: (
+                      <TaskProgressAsk
+                        taskId={taskId}
+                        sessionId={task.sessionId}
+                        panelRef={progressPanelRef}
+                        model={selectedModel?.value === AUTO_MODEL_VALUE ? undefined : selectedModel}
                       />
                     ),
                   },

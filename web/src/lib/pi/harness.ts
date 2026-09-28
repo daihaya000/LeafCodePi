@@ -135,6 +135,7 @@ import {
 } from "@/lib/provider-endpoints";
 import { isGoalLoopLiveStatus, isGoalLoopOperatorHold, isGoalLoopSessionOwned, readGoalLoopState } from "@/lib/pi/goal-loop-state";
 import { activeToolLabel } from "@/lib/tool-labels";
+import type { TaskProgressSnapshot } from "@/lib/task-progress";
 import { AUTO_ARCHIVE_DAYS_SETTING_KEY, parseAutoArchiveDays } from "@/lib/auto-archive-settings";
 import { PINNED_TASKS_SETTING_KEY, parsePinnedTaskIds } from "@/lib/sidebar-settings";
 import { acquireTaskLease, hasActiveTaskLease, ownsTaskLease, releaseTaskLease, reconcileOrphanedWorkingTasks } from "@/lib/task-runtime-lease";
@@ -7136,6 +7137,53 @@ export async function getTaskDetail(
   };
   reportTaskDetailPhase(options.onTiming, "total", totalStartedAt);
   return detail;
+}
+
+/**
+ * 進捗確認（エージェントを止めずに生成モデルへ質問）用の読み取り専用スナップショット。
+ * このプロセスのライブセッションはメモリ上の会話（生成中の応答を含む）を写すだけで、
+ * ensureLive・プロンプト・キュー・セッションファイルには触れない。ライブでなければ
+ * 保存済みのセッションファイルを読む（別ワーカー所有・再起動後も同じ経路）。
+ */
+export async function readTaskProgressSnapshot(
+  id: string,
+): Promise<TaskProgressSnapshot & { task: TaskSummary }> {
+  const task = getTask(id);
+  if (!task)
+    throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });
+  const live = state().live.get(id);
+  if (live) {
+    const session = live.session;
+    return {
+      task: toSummary(task),
+      messages: snapshotMessages(
+        session,
+        live.throughputByStartedAt,
+        live.toolStartedAt,
+        live.toolEndedAt,
+        live.toolPartialOutputByCallId,
+        false,
+        messageContext(live),
+      ),
+      todos: todosFromPiMessages(session.messages),
+      isStreaming: session.isStreaming,
+      isCompacting: session.isCompacting,
+      goalLoop: readGoalLoopState(session.sessionManager.getCwd(), session.sessionId),
+      pendingPermission: pendingPermissionForTask(id),
+      pendingQuestion: pendingQuestionForTask(id),
+    };
+  }
+  const offline = await readArchivedTaskSnapshot(task);
+  return {
+    task: toSummary(task),
+    messages: offline.messages,
+    todos: offline.todos,
+    isStreaming: task.status === "working",
+    isCompacting: false,
+    goalLoop: readGoalLoopState(task.directory, task.sessionId),
+    pendingPermission: pendingPermissionForTask(id),
+    pendingQuestion: pendingQuestionForTask(id),
+  };
 }
 
 /**
