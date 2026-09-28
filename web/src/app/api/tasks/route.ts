@@ -52,6 +52,15 @@ export async function GET(req: NextRequest) {
   if (req.nextUrl.searchParams.get("attention") === "1") {
     return NextResponse.json({ attention: listPendingAttention() });
   }
+  // ペインヘッダーの操作はタスクの ID・状態・時刻だけ必要。Todo 進捗の
+  // セッション走査や自動アーカイブを待たず、ボタンをすぐ反応させる。
+  if (req.nextUrl.searchParams.get("paneCandidates") === "1") {
+    return NextResponse.json({
+      tasks: listTasks(false, "all").map(({ id, status, updatedAt, kind, botId, projectId }) => ({
+        id, status, updatedAt, kind, botId, projectId,
+      })),
+    });
+  }
   await autoArchiveOldTasks();
   // TaskPanesContext のタブ名・存在確認用（todoProgress 計算と toSummary の
   // ライブ走査を伴わない生レコードで返す）。

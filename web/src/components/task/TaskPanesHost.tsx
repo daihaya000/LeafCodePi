@@ -17,7 +17,6 @@ import {
   BOTS_TAB_ID,
   MAX_PANES,
   isBotSurfaceTabId,
-  isBotTabId,
   isSplitHostPath,
   paneTabIdForTask,
   paneTabIdsForWorkingTasks,
@@ -531,7 +530,7 @@ export function TaskPanesHost() {
     setWorkingTasksBusy(true);
     try {
       const [taskResult, botResult, projectResult] = await Promise.all([
-        getJson<{ tasks?: TaskSummary[] }>("/api/tasks?archived=1&kind=all"),
+        getJson<{ tasks?: TaskSummary[] }>("/api/tasks?paneCandidates=1"),
         getJson<{
           bots?: { id: string; codeInProgress?: boolean; lastMessageAt: string | null }[];
           rooms?: { id: string; lastMessageAt: string | null }[];
@@ -779,7 +778,7 @@ export function TaskPanesHost() {
         onReorderTabs={(paneId, tabs) => dispatch({ type: "reorderTabs", paneId, tabs })}
         onMoveTab={onMoveTab}
         onAddPane={addPane}
-        onOpenHome={(paneId) => dispatch({ type: "openTab", paneId, taskId: isBotTabId(activeTaskId) ? BOTS_TAB_ID : HOME_TAB_ID })}
+        onOpenHome={(paneId) => dispatch({ type: "openTab", paneId, taskId: HOME_TAB_ID })}
       />
     </div>
   );

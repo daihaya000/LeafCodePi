@@ -57,6 +57,23 @@ describe("GET /api/tasks", () => {
     expect(mocks.listTasks).toHaveBeenCalledWith(true, "all");
   });
 
+  it("returns lightweight pane candidates without waiting for summary scans or auto-archive", async () => {
+    mocks.listTasks.mockReturnValue([
+      { id: "working", kind: "code", status: "working", updatedAt: "2026-01-01", botId: null, projectId: "p", title: "private", todoProgress: { total: 1 } },
+    ]);
+    mocks.autoArchiveOldTasks.mockImplementation(() => new Promise(() => undefined));
+
+    const response = await GET(new NextRequest("http://localhost/api/tasks?paneCandidates=1"));
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      tasks: [{ id: "working", kind: "code", status: "working", updatedAt: "2026-01-01", botId: null, projectId: "p" }],
+    });
+    expect(mocks.listTasks).toHaveBeenCalledWith(false, "all");
+    expect(mocks.autoArchiveOldTasks).not.toHaveBeenCalled();
+    expect(mocks.getTaskSummariesWithTodoProgress).not.toHaveBeenCalled();
+  });
+
   it("passes kind=all to the hydrated summary path", async () => {
     const tasks = [{ id: "bot-task", kind: "bot", status: "working" }];
     mocks.getTaskSummariesWithTodoProgress.mockResolvedValue(tasks);

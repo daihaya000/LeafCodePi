@@ -39,13 +39,15 @@ vi.mock("next/dynamic", () => ({
 }));
 vi.mock("./TaskTabs", () => ({
   paneLayoutClass: () => "layout",
-  TaskTabs: ({ pane }: { pane: TaskPanesState["panes"][number] }) => (
+  TaskTabs: ({ pane, onOpenHome }: { pane: TaskPanesState["panes"][number]; onOpenHome: () => void }) => (
     <div
       role="tablist"
       aria-label="タスクと設定のタブ"
       data-testid="task-tabs"
       data-tabs={pane.tabs.join(",")}
-    />
+    >
+      <button type="button" aria-label="新規作成タブを開く" onClick={onOpenHome} />
+    </div>
   ),
 }));
 vi.mock("@/components/ui", () => ({
@@ -223,11 +225,28 @@ describe("TaskPanesHost lazy tab mounting", () => {
     expect(buttons[0]?.closest("[data-pane-id]")?.firstElementChild?.contains(buttons[0])).toBe(true);
 
     fireEvent.click(buttons[0]!);
-    expect(mocks.getJson).toHaveBeenCalledWith("/api/tasks?archived=1&kind=all");
+    expect(mocks.getJson).toHaveBeenCalledWith("/api/tasks?paneCandidates=1");
     await waitFor(() => expect(contextValue.dispatch).toHaveBeenCalledWith({
       type: "showWorkingTasks",
       taskIds: ["newer", "older"],
     }));
+  });
+
+  it("Botタブを表示中でも新規作成ボタンはホームを開く", () => {
+    mocks.usePathname.mockReturnValue("/bots/one");
+    const dispatch = vi.fn();
+    mocks.useTaskPanes.mockReturnValue({
+      ...mocks.useTaskPanes(),
+      state: { panes: [{ id: "pane-1", tabs: ["/bots/one"], activeTabId: "/bots/one" }], activePaneId: "pane-1" },
+      activeTaskId: "/bots/one",
+      dispatch,
+    });
+
+    render(<TaskPanesHost />);
+    fireEvent.click(screen.getByRole("button", { name: "新規作成タブを開く" }));
+
+    expect(dispatch).toHaveBeenCalledWith({ type: "openTab", paneId: "pane-1", taskId: "home" });
+    mocks.usePathname.mockReturnValue("/task/active");
   });
 
   it("各ペインの左上から新規セッション・Botの開き方を切り替えられる", async () => {
@@ -303,7 +322,7 @@ describe("TaskPanesHost lazy tab mounting", () => {
     };
     mocks.useTaskPanes.mockReturnValue(contextValue);
     mocks.getJson.mockImplementation((path: string) => {
-      if (path === "/api/tasks?archived=1&kind=all") return Promise.resolve({ tasks: [] });
+      if (path === "/api/tasks?paneCandidates=1") return Promise.resolve({ tasks: [] });
       if (path === "/api/bots/sidebar") return Promise.resolve({ bots: [{ id: "bot-a", codeInProgress: true }] });
       return Promise.resolve({});
     });
@@ -330,7 +349,7 @@ describe("TaskPanesHost lazy tab mounting", () => {
     };
     mocks.useTaskPanes.mockReturnValue(contextValue);
     mocks.getJson.mockImplementation((path: string) => {
-      if (path === "/api/tasks?archived=1&kind=all") {
+      if (path === "/api/tasks?paneCandidates=1") {
         return Promise.resolve({
           tasks: [
             { id: "working", status: "working", updatedAt: "2026-01-01T00:00:00.000Z" },
