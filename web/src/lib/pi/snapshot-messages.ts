@@ -44,6 +44,8 @@ type ProjectionCache = SnapshotProjectionCache | BranchProjectionCache;
 const snapshotProjectionCache = new WeakMap<object, SnapshotProjectionCache>();
 /** Full current-branch history survives compaction and is reused between snapshots. */
 const branchProjectionCache = new WeakMap<object, BranchProjectionCache>();
+/** Reuse the single-row input for latest-only throughput projection. */
+const latestOnlyProjectionCache = new WeakMap<object, { last: UiMessage; projected: UiMessage[] }>();
 
 function isPlainUserMessage(item: unknown): boolean {
   return (
@@ -528,7 +530,14 @@ export function snapshotMessages(
     }
   }
   if (latestOnly && projected.length > 1) {
-    projected = [projected[projected.length - 1]!];
+    const last = projected[projected.length - 1]!;
+    const cached = latestOnlyProjectionCache.get(session);
+    if (cached?.last === last) {
+      projected = cached.projected;
+    } else {
+      projected = [last];
+      latestOnlyProjectionCache.set(session, { last, projected });
+    }
   }
   if (throughputByStartedAt)
     projected = applyThroughput(projected, throughputByStartedAt);

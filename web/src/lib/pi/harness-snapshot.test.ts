@@ -64,6 +64,36 @@ describe("snapshotMessages", () => {
     expect(unmatched[0]?.outputTokens).toBeUndefined();
   });
 
+  it("reuses the latest-only array while the cached last message stays unchanged", () => {
+    const stored: unknown[] = [
+      { role: "user", content: "start" },
+      { role: "assistant", timestamp: 1_000, content: [{ type: "text", text: "first" }] },
+    ];
+    const session = {
+      messages: stored,
+      agent: { state: { streamingMessage: undefined } },
+      sessionManager: { getLeafId: () => null, getBranch: () => [] },
+    } as unknown as Parameters<typeof snapshotMessages>[0];
+    const timings = new Map([[1_000, {
+      startedAtMs: 1_000, firstTokenAtMs: 1_500, lastTokenAtMs: 10_500,
+      outputTokens: 100, charCount: 0,
+    }]]);
+    const latest = () => snapshotMessages(session, timings, undefined, undefined, undefined, true);
+
+    const first = latest();
+    expect(first).toHaveLength(1);
+    expect(latest()).toBe(first);
+    timings.get(1_000)!.outputTokens = 200;
+    const updated = latest();
+    expect(updated).not.toBe(first);
+    expect(updated[0]?.outputTokens).toBe(200);
+
+    stored.push({ role: "assistant", timestamp: 2_000, content: [{ type: "text", text: "next" }] });
+    const changed = latest();
+    expect(changed).not.toBe(updated);
+    expect(changed[0]?.parts[0]).toMatchObject({ text: "next" });
+  });
+
   it("skips stored-history membership checks when no message is streaming", () => {
     const stored: unknown[] = [{ role: "user", content: "idle" }];
     const includes = vi.spyOn(stored, "includes");
