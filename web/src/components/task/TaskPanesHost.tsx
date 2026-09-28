@@ -502,7 +502,7 @@ function PaneLayoutBranch({ layout, ...props }: PaneBranchProps & { layout: Pane
  * 1 ペイン × 1 タブでもタブバーを表示し、タブ操作を常に利用できる。
  */
 export function TaskPanesHost() {
-  const { state, dispatch, retargetToUrl, activeTaskId, mdUp } = useTaskPanesNavigation();
+  const { state, dispatch, retargetToUrl, mdUp } = useTaskPanesNavigation();
   const reportStatus = useReportStatus();
   const getStatusFor = useGetStatusFor();
   const pathname = usePathname();
@@ -624,16 +624,12 @@ export function TaskPanesHost() {
   }, [state]);
 
   // プロジェクト指定付きのホーム遷移は pathname が変わらない場合もあるため、
-  // クエリを検知したら新規作成（Home）タブへ切り替える。
+  // pathname/query の変化を検知して新規作成（Home）タブへ切り替える。
+  // activeTaskId の変化では再実行しない（サイドバーから選んだタスクを Home で上書きしない）。
   useEffect(() => {
-    if (
-      pathname !== "/" ||
-      (projectId === null && !noProject) ||
-      !mdUp ||
-      activeTaskId === HOME_TAB_ID
-    ) return;
+    if (pathname !== "/" || (projectId === null && !noProject) || !mdUp) return;
     retargetToUrl(HOME_TAB_ID);
-  }, [activeTaskId, mdUp, noProject, pathname, projectId, retargetToUrl]);
+  }, [mdUp, noProject, pathname, projectId, retargetToUrl]);
 
   // 分割ホスト対象パス（「/」・task・settings）でのみ render。
   const urlTabId = tabIdFromPathname(pathname);

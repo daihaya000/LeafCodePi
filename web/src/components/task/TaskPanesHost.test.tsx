@@ -8,7 +8,7 @@ const mocks = vi.hoisted(() => ({
   getJson: vi.fn(),
   useTaskPanes: vi.fn(),
   usePathname: vi.fn(() => "/task/active"),
-  useSearchParams: vi.fn(() => ({ get: () => null })),
+  useSearchParams: vi.fn((): { get: (name: string) => string | null } => ({ get: () => null })),
 }));
 
 vi.mock("@/lib/client", () => ({ getJson: mocks.getJson }));
@@ -146,6 +146,52 @@ describe("TaskPanesHost lazy tab mounting", () => {
     localStorage.removeItem("webui:task-pane-prefer-new");
     resetUnreadStateForTests();
     vi.clearAllMocks();
+  });
+
+  it("project home selection does not override a sidebar task selection", () => {
+    const retargetToUrl = vi.fn();
+    const contextValue = {
+      ...mocks.useTaskPanes(),
+      activeTaskId: "home",
+      retargetToUrl,
+    };
+    mocks.useTaskPanes.mockReturnValue(contextValue);
+    mocks.usePathname.mockReturnValue("/");
+    mocks.useSearchParams.mockReturnValue({
+      get: (name: string) => name === "projectId" ? "project-1" : null,
+    });
+
+    const view = render(<TaskPanesHost />);
+    retargetToUrl.mockClear();
+
+    mocks.useTaskPanes.mockReturnValue({
+      ...contextValue,
+      activeTaskId: "existing-task",
+    });
+    view.rerender(<TaskPanesHost />);
+
+    expect(retargetToUrl).not.toHaveBeenCalled();
+  });
+
+  it("retargets to home when the project query changes", () => {
+    const retargetToUrl = vi.fn();
+    const contextValue = {
+      ...mocks.useTaskPanes(),
+      activeTaskId: "existing-task",
+      retargetToUrl,
+    };
+    mocks.useTaskPanes.mockReturnValue(contextValue);
+    mocks.usePathname.mockReturnValue("/");
+    mocks.useSearchParams.mockReturnValue({ get: () => null });
+
+    const view = render(<TaskPanesHost />);
+    mocks.useSearchParams.mockReturnValue({
+      get: (name: string) => name === "projectId" ? "project-1" : null,
+    });
+    view.rerender(<TaskPanesHost />);
+
+    expect(retargetToUrl).toHaveBeenCalledTimes(1);
+    expect(retargetToUrl).toHaveBeenLastCalledWith("home");
   });
 
   it("単一タブのCode・Home・設定・Bot一覧でもタブバーを表示する", () => {
