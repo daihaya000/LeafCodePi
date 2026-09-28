@@ -64,11 +64,14 @@ it("refreshes selected editors when rollback fails and recovery is needed", asyn
   fireEvent.click(screen.getByRole("button", { name: "選択した1件をインポート" }));
   await waitFor(() => expect(onImported).toHaveBeenCalledExactlyOnceWith(["USER.md"]));
   expect(screen.getByRole("alert")).toHaveProperty("textContent", expect.stringContaining("保全ファイル:"));
+  expect(screen.getByText(/認証エクスポート → 保全ファイル/)).toBeTruthy();
   expect(screen.queryByLabelText("USER.mdをインポート")).toBeNull();
 });
 
 it("asks before exporting potentially sensitive prompts", async () => {
   render(<PromptTransfer onImported={vi.fn()} />);
+  expect(screen.getByRole("heading", { level: 3, name: "プロンプトエクスポート" })).toBeTruthy();
+  expect((screen.getByLabelText("プロンプトのバックアップJSONを選択") as HTMLInputElement).accept).toBe(".json,application/json");
   vi.mocked(window.confirm).mockReturnValueOnce(false);
   fireEvent.click(screen.getByRole("button", { name: "エクスポート" }));
   expect(sendJson).not.toHaveBeenCalled();

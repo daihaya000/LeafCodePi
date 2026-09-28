@@ -2117,7 +2117,7 @@ function finishSettledTurn(
       (task.botId ? getBot(task.botId)?.notificationsEnabled !== false : false),
   })) {
     // Do not delay the turn or reveal credentials through the session stream.
-    void notifyPushoverCompletion(task.title);
+    void notifyPushoverCompletion(task.title, { task });
   }
 }
 

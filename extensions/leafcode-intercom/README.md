@@ -431,7 +431,8 @@ Create `~/.pi/agent/intercom/config.json`:
 | `replyHint` | true | Include reply instruction in incoming messages |
 | `status` | — | Optional custom status suffix shown after the automatic lifecycle status, for example `thinking · researching` |
 
-If `config.json` cannot be parsed or contains an invalid value, pi-intercom logs the error and fails closed for inbound broker auto-triggering by using `inboundTrigger: "never"` until the config is fixed.
+If `config.json` cannot be parsed or contains an invalid value when a session starts, pi-intercom reports the error with the config path and does not load for that session.
+`inboundTrigger` is re-read for each inbound message delivered to an idle session, so edits apply to running sessions without a restart. If the file later becomes invalid, the session logs the error once and keeps its last valid policy until the config is fixed.
 Obsolete `toolVisibility` values are ignored; the generic `intercom` tool remains stable in the active tool set for prompt-cache friendliness.
 
 Custom broker commands are trusted local configuration: anyone who can edit this config can choose the executable used for future broker auto-spawns. For example, if you have Bun installed and want it to start the broker directly, use:

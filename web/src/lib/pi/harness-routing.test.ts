@@ -356,6 +356,8 @@ const previousPiAgentDir = process.env.PI_CODING_AGENT_DIR;
 const previousDataDir = process.env.LEAFCODE_PI_DATA_DIR;
 const previousPushoverToken = process.env.LEAFCODE_PI_PUSHOVER_TOKEN;
 const previousPushoverUser = process.env.LEAFCODE_PI_PUSHOVER_USER;
+const previousWebHost = process.env.LEAFCODE_PI_HOST;
+const previousWebPort = process.env.LEAFCODE_PI_PORT;
 
 function runtime(accountId: string) {
   const model = {
@@ -450,6 +452,10 @@ afterEach(() => {
   else process.env.LEAFCODE_PI_PUSHOVER_TOKEN = previousPushoverToken;
   if (previousPushoverUser === undefined) delete process.env.LEAFCODE_PI_PUSHOVER_USER;
   else process.env.LEAFCODE_PI_PUSHOVER_USER = previousPushoverUser;
+  if (previousWebHost === undefined) delete process.env.LEAFCODE_PI_HOST;
+  else process.env.LEAFCODE_PI_HOST = previousWebHost;
+  if (previousWebPort === undefined) delete process.env.LEAFCODE_PI_PORT;
+  else process.env.LEAFCODE_PI_PORT = previousWebPort;
   vi.restoreAllMocks();
   for (const dir of tempDirs.splice(0)) rmSync(dir, { recursive: true, force: true });
   fakePi.reset();
@@ -482,6 +488,8 @@ describe("integrated session routing", () => {
     process.env.PI_CODING_AGENT_DIR = join(dir, "agent");
     process.env.LEAFCODE_PI_PUSHOVER_TOKEN = "test-token";
     process.env.LEAFCODE_PI_PUSHOVER_USER = "test-user";
+    process.env.LEAFCODE_PI_HOST = "100.64.0.1";
+    process.env.LEAFCODE_PI_PORT = "3333";
     __resetPiAgentDirCacheForTests();
     installHarness(new Map());
     const send = vi.spyOn(globalThis, "fetch").mockResolvedValue({ ok: true } as Response);
@@ -493,7 +501,10 @@ describe("integrated session routing", () => {
     const pushes = send.mock.calls.filter(([url]) => url === "https://api.pushover.net/1/messages.json");
     expect(pushes).toHaveLength(1);
     const request = pushes[0]![1] as RequestInit;
-    expect((request.body as URLSearchParams).get("message")).toBe(task.title);
+    const body = request.body as URLSearchParams;
+    const expectedUrl = `http://100.64.0.1:3333/task/${encodeURIComponent(task.id)}`;
+    expect(body.get("message")).toBe(`${task.title}\n${expectedUrl}`);
+    expect(body.get("url")).toBe(expectedUrl);
   });
 
   it("honors a Bot's notification switch", async () => {

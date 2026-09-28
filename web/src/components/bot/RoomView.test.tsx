@@ -18,6 +18,7 @@ vi.mock("next/link", () => ({
 }));
 
 import { RoomView } from "./RoomView";
+import { setNotificationDeliveryEnabled } from "@/lib/notification-delivery-client";
 
 type EventSourceStub = { last?: { listeners: Map<string, (event: MessageEvent) => void> } };
 function pushSnapshot(payload: unknown) {
@@ -36,6 +37,7 @@ const room = {
 };
 
 beforeEach(() => {
+  setNotificationDeliveryEnabled(true);
   mocks.getJson.mockImplementation((path: string) => path === "/api/bots" ? Promise.resolve({ bots: [bot] }) : Promise.resolve({ room }));
   mocks.sendJson.mockResolvedValue({ room });
   class Stub {
@@ -51,6 +53,7 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
+  setNotificationDeliveryEnabled(true);
   vi.unstubAllGlobals();
   mocks.getJson.mockReset();
   mocks.sendJson.mockReset();
@@ -649,6 +652,16 @@ describe("RoomView notifications", () => {
       act(() => pushSnapshot({ room: { ...busyRoom, members } }));
       act(() => pushSnapshot({ room: { ...doneRoom, members } }));
       expect(sent).toEqual(["新しい返信があります"]);
+
+      // Shared footer OFF suppresses a room with an otherwise notifying Bot.
+      cleanup();
+      mocks.getJson.mockImplementation((path: string) => path === "/api/bots" ? Promise.resolve({ bots: [bot] }) : Promise.resolve({ room }));
+      setNotificationDeliveryEnabled(false);
+      render(<RoomView id={room.id} />);
+      await screen.findByRole("textbox");
+      act(() => pushSnapshot({ room: busyRoom }));
+      act(() => pushSnapshot({ room: doneRoom }));
+      expect(sent).toEqual(["新しい返信があります"]);
     } finally {
       Reflect.deleteProperty(document, "hidden");
     }
@@ -674,7 +687,7 @@ describe("RoomView mentions", () => {
 
       Object.defineProperty(document, "hidden", { configurable: true, value: false });
       act(() => document.dispatchEvent(new Event("visibilitychange")));
-      expect(mocks.markRead).toHaveBeenCalledWith("room", room.id, 1);
+      await waitFor(() => expect(mocks.markRead).toHaveBeenCalledWith("room", room.id, 1));
     } finally {
       Reflect.deleteProperty(document, "hidden");
     }

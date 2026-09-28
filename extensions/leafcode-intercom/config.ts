@@ -64,6 +64,46 @@ const defaults: IntercomConfig = {
   replyHint: true,
 };
 
+function parseInboundTrigger(value: unknown): InboundTriggerPolicy {
+  if (value !== "always" && value !== "replies" && value !== "never") {
+    throw new Error(`"inboundTrigger" must be "always", "replies", or "never"`);
+  }
+  return value;
+}
+
+function readConfigObject(configPath: string): Record<string, unknown> {
+  const parsed: unknown = JSON.parse(readFileSync(configPath, "utf-8"));
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+    throw new Error("Config must be a JSON object");
+  }
+  return parsed as Record<string, unknown>;
+}
+
+function configLoadError(configPath: string, error: unknown): Error {
+  const message = error instanceof Error ? error.message : String(error);
+  return new Error(`Failed to load intercom config at ${configPath}: ${message}`, { cause: error });
+}
+
+/**
+ * Re-read only `inboundTrigger` so a running session follows edits (for example
+ * from the LeafCodePi settings screen) without a restart. Broker and identity
+ * keys stay fixed for the session because they cannot change mid-connection.
+ */
+export function loadInboundTriggerPolicy(): InboundTriggerPolicy {
+  const configPath = getConfigPath();
+  if (!existsSync(configPath)) {
+    return defaults.inboundTrigger;
+  }
+  try {
+    const parsedConfig = readConfigObject(configPath);
+    return Object.hasOwn(parsedConfig, "inboundTrigger")
+      ? parseInboundTrigger(parsedConfig.inboundTrigger)
+      : defaults.inboundTrigger;
+  } catch (error) {
+    throw configLoadError(configPath, error);
+  }
+}
+
 export function loadConfig(): IntercomConfig {
   const configPath = getConfigPath();
   if (!existsSync(configPath)) {
@@ -71,13 +111,7 @@ export function loadConfig(): IntercomConfig {
   }
 
   try {
-    const raw = readFileSync(configPath, "utf-8");
-    const parsed: unknown = JSON.parse(raw);
-    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
-      throw new Error("Config must be a JSON object");
-    }
-
-    const parsedConfig = parsed as Record<string, unknown>;
+    const parsedConfig = readConfigObject(configPath);
     const config: IntercomConfig = { ...defaults };
 
     if (Object.hasOwn(parsedConfig, "brokerCommand")) {
@@ -120,14 +154,7 @@ export function loadConfig(): IntercomConfig {
     }
 
     if (Object.hasOwn(parsedConfig, "inboundTrigger")) {
-      if (
-        parsedConfig.inboundTrigger !== "always"
-        && parsedConfig.inboundTrigger !== "replies"
-        && parsedConfig.inboundTrigger !== "never"
-      ) {
-        throw new Error(`"inboundTrigger" must be "always", "replies", or "never"`);
-      }
-      config.inboundTrigger = parsedConfig.inboundTrigger;
+      config.inboundTrigger = parseInboundTrigger(parsedConfig.inboundTrigger);
     }
 
     if (Object.hasOwn(parsedConfig, "replyHint")) {
@@ -157,7 +184,6 @@ export function loadConfig(): IntercomConfig {
 
     return config;
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    throw new Error(`Failed to load intercom config at ${configPath}: ${message}`, { cause: error });
+    throw configLoadError(configPath, error);
   }
 }

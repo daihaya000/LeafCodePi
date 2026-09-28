@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { getConfigPath, loadConfig } from "./config.ts";
+import { getConfigPath, loadConfig, loadInboundTriggerPolicy } from "./config.ts";
 
 async function withAgentDir<T>(agentDir: string, fn: () => T | Promise<T>): Promise<T> {
   const previousAgentDir = process.env.PI_CODING_AGENT_DIR;
@@ -36,7 +36,7 @@ test("loadConfig reads config below PI_CODING_AGENT_DIR", async () => {
   }
 });
 
-test("loadConfig defaults inboundTrigger to replies-only auto-trigger behavior", async () => {
+test("loadConfig defaults inboundTrigger to ask/reply auto-trigger behavior", async () => {
   const root = mkdtempSync(join(tmpdir(), "pi-intercom-config-"));
   try {
     await withAgentDir(root, () => {
@@ -80,6 +80,45 @@ test("loadConfig accepts a restart-stable intercom id", async () => {
     writeFileSync(join(root, "intercom", "config.json"), JSON.stringify({ stableId: " pinned-worker " }));
     await withAgentDir(root, () => {
       assert.equal(loadConfig().stableId, "pinned-worker");
+    });
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("loadInboundTriggerPolicy re-reads the current policy on every call", async () => {
+  const root = mkdtempSync(join(tmpdir(), "pi-intercom-config-"));
+  try {
+    await withAgentDir(root, () => {
+      assert.equal(loadInboundTriggerPolicy(), "replies");
+      mkdirSync(join(root, "intercom"), { recursive: true });
+      const configPath = join(root, "intercom", "config.json");
+      writeFileSync(configPath, JSON.stringify({ inboundTrigger: "never" }));
+      assert.equal(loadInboundTriggerPolicy(), "never");
+      writeFileSync(configPath, JSON.stringify({ inboundTrigger: "always" }));
+      assert.equal(loadInboundTriggerPolicy(), "always");
+      // Session-fixed keys are validated at session start, not by the live policy read.
+      writeFileSync(configPath, JSON.stringify({ brokerArgs: "invalid" }));
+      assert.equal(loadInboundTriggerPolicy(), "replies");
+    });
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("loadInboundTriggerPolicy rejects malformed or invalid policy config", async () => {
+  const root = mkdtempSync(join(tmpdir(), "pi-intercom-config-"));
+  try {
+    mkdirSync(join(root, "intercom"), { recursive: true });
+    const configPath = join(root, "intercom", "config.json");
+    await withAgentDir(root, () => {
+      writeFileSync(configPath, "{ broken");
+      assert.throws(() => loadInboundTriggerPolicy(), /Failed to load intercom config/);
+      writeFileSync(configPath, JSON.stringify({ inboundTrigger: "prompt" }));
+      assert.throws(
+        () => loadInboundTriggerPolicy(),
+        /Failed to load intercom config.*"inboundTrigger" must be "always", "replies", or "never"/,
+      );
     });
   } finally {
     rmSync(root, { recursive: true, force: true });

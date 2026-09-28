@@ -12,7 +12,7 @@ import {
 } from "@/lib/intercom-trigger";
 
 const POLICY_LABELS: Record<IntercomTriggerPolicy, string> = {
-  replies: "進行中の問い合わせへの返信のみ",
+  replies: "問い合わせと返信のみ",
   always: "すべての受信メッセージ",
   never: "自動起動しない",
 };
@@ -101,7 +101,7 @@ export function IntercomSettings() {
         </select>
       </label>
       <p className="mt-2 text-[11px] text-muted">
-        「返信のみ」では、保留中の問い合わせへの返信だけがアイドル中のセッションを自動起動します。変更は次回のセッション開始時から反映されます。
+        「問い合わせと返信のみ」では、返信を求める問い合わせと、自分の問い合わせへの返信だけがアイドル中のセッションを自動起動します。通常のメッセージでは起動しません。変更は実行中のセッションにも次の受信から反映されます。
       </p>
       {saved && <p className="mt-2 text-xs text-muted" aria-live="polite">保存しました</p>}
       {error && <p className="mt-2 text-sm text-danger" role="alert">{error}</p>}

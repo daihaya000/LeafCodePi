@@ -27,7 +27,7 @@ function parsePatch(value: unknown): PushoverSettingsPatch {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("設定形式が不正です");
   const body = value as Record<string, unknown>;
   const keys = Object.keys(body);
-  if (!keys.length || keys.some((key) => !["token", "user", "device"].includes(key))) {
+  if (!keys.length || keys.some((key) => !["token", "user", "device", "enabled"].includes(key))) {
     throw new Error("設定項目が不正です");
   }
   const patch: PushoverSettingsPatch = {};
@@ -38,6 +38,10 @@ function parsePatch(value: unknown): PushoverSettingsPatch {
     else if (typeof item === "string" && KEY_PATTERN.test(item.trim()) && item.trim().length <= 128) {
       patch[key] = item.trim();
     } else throw new Error(`${key} の形式が不正です`);
+  }
+  if ("enabled" in body) {
+    if (typeof body.enabled !== "boolean") throw new Error("enabled の形式が不正です");
+    patch.enabled = body.enabled;
   }
   if ("device" in body) {
     const item = body.device;
@@ -90,6 +94,7 @@ export async function POST(req: NextRequest) {
   try {
     const settings = await getPushoverSettingsDto();
     if (!settings.hasToken || !settings.hasUser) return responseError("トークンとUser Keyを先に設定してください", 400);
+    if (!settings.enabled) return responseError("通知送信がオフです。フッターでオンにしてください", 409);
     if (!await notifyPushoverCompletion("iPhoneへの通知を確認", { title: "テスト通知" })) {
       return responseError("Pushoverへの送信に失敗しました。キーと接続を確認してください", 502);
     }

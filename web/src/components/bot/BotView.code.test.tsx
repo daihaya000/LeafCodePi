@@ -18,6 +18,7 @@ import { ShellProvider } from "@/components/shell/ShellContext";
 import { ACTIVITY_USAGE_TITLES } from "@/components/ConversationLayout";
 import { saveTaskSessionCache, TASK_SESSION_CACHE_STORAGE_KEY } from "@/lib/task-session-cache";
 import { writeTaskTtsEnabled } from "@/lib/tts-playback";
+import { setNotificationDeliveryEnabled } from "@/lib/notification-delivery-client";
 let listener: (event: { data: string }) => void;
 let deltaListener: (event: { data: string }) => void;
 let errorListener: (event: { data: string }) => void;
@@ -42,6 +43,7 @@ const testBot = {
   updatedAt: "",
 };
 beforeEach(() => {
+  setNotificationDeliveryEnabled(true);
   localStorage.clear();
   mocks.botFor.mockImplementation(() => undefined);
   mocks.getJson.mockImplementation(async (url: string) => url === "/api/models" ? { models: [] } : url.endsWith("/routines") ? { routines: [] } : { bot: testBot });
@@ -55,7 +57,7 @@ beforeEach(() => {
     close() {}
   });
 });
-afterEach(() => { cleanup(); localStorage.clear(); vi.unstubAllGlobals(); vi.clearAllMocks(); vi.useRealTimers(); });
+afterEach(() => { cleanup(); setNotificationDeliveryEnabled(true); localStorage.clear(); vi.unstubAllGlobals(); vi.clearAllMocks(); vi.useRealTimers(); });
 
 it("restores the cached Bot transcript and sends its revision to SSE", async () => {
   const task: TaskSummary = {
@@ -189,6 +191,16 @@ it("notifies a hidden tab once per finished reply, and stays silent when the Bot
     // The same transition must stay quiet when the user turned notifications off for this Bot.
     mocks.getJson.mockImplementation(async (url: string) => url === "/api/models" ? { models: [] } : url.endsWith("/routines") ? { routines: [] } : { bot: { ...testBot, notificationsEnabled: false } });
     cleanup();
+    render(<ShellProvider><BotView id="one" active /></ShellProvider>);
+    await screen.findByRole("button", { name: "設定" });
+    snapshot({ isStreaming: true });
+    snapshot({ isStreaming: false });
+    expect(sent).toEqual(["新しい返信があります"]);
+
+    // The shared footer switch mutes even a Bot that has its own toggle ON.
+    cleanup();
+    mocks.getJson.mockImplementation(async (url: string) => url === "/api/models" ? { models: [] } : url.endsWith("/routines") ? { routines: [] } : { bot: testBot });
+    setNotificationDeliveryEnabled(false);
     render(<ShellProvider><BotView id="one" active /></ShellProvider>);
     await screen.findByRole("button", { name: "設定" });
     snapshot({ isStreaming: true });

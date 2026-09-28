@@ -23,7 +23,7 @@ export async function GET(request: NextRequest) {
     });
   } catch (error) {
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : "プロファイルのエクスポートに失敗しました" },
+      { error: error instanceof Error ? error.message : "設定のエクスポートに失敗しました" },
       { status: 500 },
     );
   }
@@ -34,13 +34,13 @@ export async function POST(request: NextRequest) {
     const form = await request.formData();
     const file = form.get("profile");
     if (!(file instanceof File)) {
-      return NextResponse.json({ error: "プロファイルファイルを指定してください" }, { status: 400 });
+      return NextResponse.json({ error: "設定ファイルを指定してください" }, { status: 400 });
     }
     const summary = importProfileWithBackup(Buffer.from(await file.arrayBuffer()));
     return NextResponse.json({ ok: true, ...summary });
   } catch (error) {
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : "プロファイルのインポートに失敗しました" },
+      { error: error instanceof Error ? error.message : "設定のインポートに失敗しました" },
       { status: 400 },
     );
   }
@@ -55,7 +55,7 @@ export async function PATCH(request: NextRequest) {
     return NextResponse.json({ ok: true, ...createProfileBackup() });
   } catch (error) {
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : "プロファイルの処理に失敗しました" },
+      { error: error instanceof Error ? error.message : "設定の処理に失敗しました" },
       { status: 500 },
     );
   }
@@ -70,7 +70,7 @@ export async function PUT(request: NextRequest) {
     return NextResponse.json({ ok: true, ...restoreProfile(body.backup) });
   } catch (error) {
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : "プロファイルの復元に失敗しました" },
+      { error: error instanceof Error ? error.message : "設定の復元に失敗しました" },
       { status: 400 },
     );
   }
@@ -81,7 +81,7 @@ export async function DELETE() {
     return NextResponse.json({ ok: true, ...resetProfile() });
   } catch (error) {
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : "プロファイルの初期化に失敗しました" },
+      { error: error instanceof Error ? error.message : "設定の初期化に失敗しました" },
       { status: 500 },
     );
   }

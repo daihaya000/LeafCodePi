@@ -3,12 +3,14 @@
 import { useCallback, useEffect, useState } from "react";
 import { Badge, Button } from "@/components/ui";
 import { getJson, sendJson } from "@/lib/client";
+import { setNotificationDeliveryEnabled, useNotificationDeliveryEnabled } from "@/lib/notification-delivery-client";
 import type { PushoverSettingsDto, PushoverSettingsPatch } from "@/lib/pushover-config";
 
 const fieldClass = "min-h-11 min-w-0 w-full rounded-lg border border-border bg-surface-2 px-3 text-sm text-text outline-none focus:border-border-strong disabled:opacity-50";
 
 export function PushoverSettings() {
   const [snapshot, setSnapshot] = useState<PushoverSettingsDto | null>(null);
+  const notificationsEnabled = useNotificationDeliveryEnabled();
   const [token, setToken] = useState("");
   const [user, setUser] = useState("");
   const [device, setDevice] = useState("");
@@ -21,6 +23,7 @@ export function PushoverSettings() {
   const [notice, setNotice] = useState<string | null>(null);
 
   const apply = useCallback((value: PushoverSettingsDto) => {
+    setNotificationDeliveryEnabled(value.enabled);
     setSnapshot(value);
     setToken("");
     setUser("");
@@ -70,7 +73,7 @@ export function PushoverSettings() {
   }
 
   async function test() {
-    if (busy || dirty || !configured) return;
+    if (busy || dirty || !configured || !notificationsEnabled) return;
     setTesting(true);
     setError(null);
     setNotice(null);
@@ -89,13 +92,13 @@ export function PushoverSettings() {
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h3 className="text-sm font-semibold">iPhoneへの通知（Pushover）</h3>
-          <p className="mt-1 text-xs text-muted">Code・Botのタスク完了をiPhoneに通知します。会話ではなくタスク名だけを送信します。</p>
+          <p className="mt-1 text-xs text-muted">Code・Botのタスク完了をiPhoneに通知します。会話ではなくタスク名だけを送信します。ブラウザ通知と共通のON/OFFはサイドバー下部で切り替えられます。</p>
           <p className="mt-1 text-xs text-muted">
             <a href="https://pushover.net/" target="_blank" rel="noopener noreferrer" className="text-accent underline">User Key</a>
             と <a href="https://pushover.net/apps/build" target="_blank" rel="noopener noreferrer" className="text-accent underline">アプリ/APIトークン</a> を取得して入力してください。
           </p>
         </div>
-        <Badge tone={configured ? "success" : "neutral"}>{configured ? "設定済み" : "未設定"}</Badge>
+        <Badge tone={configured && notificationsEnabled ? "success" : "neutral"}>{configured ? notificationsEnabled ? "設定済み" : "通知OFF" : "未設定"}</Badge>
       </div>
 
       <div className="mt-4 space-y-3">
@@ -149,7 +152,7 @@ export function PushoverSettings() {
 
       <div className="mt-4 flex flex-wrap gap-2">
         <Button type="button" variant="primary" size="sm" busy={saving} disabled={busy || !dirty} onClick={() => void save()}>保存</Button>
-        <Button type="button" variant="secondary" size="sm" busy={testing} disabled={busy || dirty || !configured} onClick={() => void test()}>テスト通知</Button>
+        <Button type="button" variant="secondary" size="sm" busy={testing} disabled={busy || dirty || !configured || !notificationsEnabled} onClick={() => void test()}>テスト通知</Button>
         <Button type="button" variant="ghost" size="sm" disabled={busy} onClick={reload}>再読込</Button>
       </div>
       <p className="mt-3 text-[11px] text-muted">

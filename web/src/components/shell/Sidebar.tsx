@@ -29,6 +29,7 @@ import { AddProjectButton } from "@/components/AddProjectButton";
 import { WorkingTasksButton } from "@/components/WorkingTasksButton";
 import { ProjectIcon } from "@/components/ProjectIcon";
 import { ProjectIconBrowser } from "@/components/ProjectIconBrowser";
+import { PushoverFooterToggle } from "@/components/shell/PushoverFooterToggle";
 import { CodexBarWidget } from "@/components/codexbar/CodexBarWidget";
 import { SystemMonitorWidget } from "@/components/sysmon/SystemMonitorWidget";
 import { useBotStatusFor, useTaskPanesNavigation } from "@/components/shell/TaskPanesContext";
@@ -286,6 +287,7 @@ function SidebarFooter({ health, onSettings }: { health: HealthDto | null; onSet
           )}
         </div>
         <div className="flex shrink-0 items-center">
+          <PushoverFooterToggle />
           {BUILD_COMMIT && (
             <Button
               variant="ghost"
@@ -528,6 +530,7 @@ const BotSidebarBody = memo(function BotSidebarBody({
           >
             <Users className="h-4 w-4" />
           </button>
+          <div className="flex h-11 w-11 items-center justify-center"><PushoverFooterToggle /></div>
           <Link
             href="/settings"
             aria-label="設定"
@@ -2951,6 +2954,7 @@ const SidebarView = memo(function SidebarView({
         >
           <Cpu className="h-4 w-4" />
         </button>
+        <div className="flex h-11 w-11 items-center justify-center"><PushoverFooterToggle /></div>
         <Link
           href="/settings"
           aria-label="設定"

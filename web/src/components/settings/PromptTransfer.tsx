@@ -1,23 +1,26 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useState } from "react";
+import { Upload } from "lucide-react";
 import { Button } from "@/components/ui";
+import { TransferActions } from "@/components/settings/TransferControls";
 import { sendJson } from "@/lib/client";
 import {
   MAX_PROMPT_BACKUP_BYTES, PROMPT_FILE_GROUPS, PROMPT_FILE_NAMES, type PromptBackup, type PromptFileName,
 } from "@/lib/prompt-transfer-format";
 
+type BusyAction = "export" | "load" | "import";
+
 export function PromptTransfer({ onImported }: { onImported: (imported: PromptFileName[]) => void }) {
   const [backup, setBackup] = useState<PromptBackup | null>(null);
   const [selected, setSelected] = useState<PromptFileName[]>([]);
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useState<BusyAction | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const fileRef = useRef<HTMLInputElement>(null);
 
   async function exportBackup() {
     if (!window.confirm("プロンプトに個人情報や秘密情報が含まれる場合があります。安全な場所に保存しますか？")) return;
-    setBusy(true);
+    setBusy("export");
     setError(null);
     setMessage(null);
     try {
@@ -34,12 +37,12 @@ export function PromptTransfer({ onImported }: { onImported: (imported: PromptFi
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "エクスポートに失敗しました");
     } finally {
-      setBusy(false);
+      setBusy(null);
     }
   }
 
   async function loadBackup(file: File) {
-    setBusy(true);
+    setBusy("load");
     setBackup(null);
     setSelected([]);
     setError(null);
@@ -60,15 +63,14 @@ export function PromptTransfer({ onImported }: { onImported: (imported: PromptFi
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "バックアップの読み込みに失敗しました");
     } finally {
-      if (fileRef.current) fileRef.current.value = "";
-      setBusy(false);
+      setBusy(null);
     }
   }
 
   async function importBackup() {
     if (!backup || !selected.length || busy) return;
     if (!window.confirm(`${selected.join("、")} を上書きします。選択していないファイルは変更しません。選択したファイルの編集中の未保存内容は破棄されます。続行しますか？`)) return;
-    setBusy(true);
+    setBusy("import");
     setError(null);
     setMessage(null);
     try {
@@ -90,47 +92,56 @@ export function PromptTransfer({ onImported }: { onImported: (imported: PromptFi
       }
       setError(detail);
     } finally {
-      setBusy(false);
+      setBusy(null);
     }
   }
 
+  const disabled = busy !== null;
+
   return (
     <div className="rounded-2xl border border-border bg-surface p-4">
-      <h4 className="text-sm font-semibold">プロンプトの転送</h4>
-      <p className="mt-1 text-xs text-muted">この画面の7つのグローバルMarkdownファイルだけを転送します。認証・送信プロンプトのプリセットは対象外です。バックアップには個人情報や秘密情報が含まれ得ます。</p>
-      <div className="mt-3 flex flex-wrap gap-2">
-        <Button type="button" size="sm" variant="secondary" busy={busy} disabled={busy} onClick={() => void exportBackup()}>エクスポート</Button>
-        <label className="inline-flex min-h-10 cursor-pointer items-center rounded-lg border border-border bg-surface-2 px-3 text-sm text-text has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-accent has-[:disabled]:opacity-50">
-          JSONを選択
-          <input ref={fileRef} type="file" accept=".json,application/json" disabled={busy} aria-label="プロンプトのバックアップJSONを選択" className="sr-only" onChange={(event) => { const file = event.target.files?.[0]; if (file) void loadBackup(file); }} />
-        </label>
+      <h3 className="text-sm font-semibold">プロンプトエクスポート</h3>
+      <p className="mt-1 text-xs leading-5 text-muted">この画面の7つのグローバルMarkdownファイルだけを転送します。インポートは選んだファイルだけを上書きします。認証・送信プロンプトのプリセットは対象外です。バックアップには個人情報や秘密情報が含まれ得ます。</p>
+      <div className="mt-3 space-y-4">
+        <TransferActions
+          className="max-w-md"
+          accept=".json,application/json"
+          fileLabel="プロンプトのバックアップJSONを選択"
+          disabled={disabled}
+          exportBusy={busy === "export"}
+          importBusy={busy === "load"}
+          onExport={() => void exportBackup()}
+          onFile={(file) => void loadBackup(file)}
+        />
+        {backup && (
+          <div className="space-y-3">
+            <p className="text-xs leading-5 text-muted">インポートするファイルを選択してください。既存ファイルは上書きし、未選択のファイルとその編集中の内容は変更しません。選択したファイルの未保存内容は破棄されます。</p>
+            {Object.entries(PROMPT_FILE_GROUPS).map(([group, names]) => {
+              const available = names.filter((name) => Object.hasOwn(backup.files, name));
+              if (!available.length) return null;
+              return (
+                <fieldset key={group} className="rounded-lg border border-border px-3 py-2">
+                  <legend className="px-1 text-xs font-medium">{group}</legend>
+                  <div className="flex flex-wrap gap-x-4 gap-y-2">
+                    {available.map((name) => (
+                      <label key={name} className="flex min-h-11 items-center gap-2 text-sm">
+                        <input type="checkbox" checked={selected.includes(name)} disabled={disabled} onChange={(event) => setSelected((current) => event.target.checked ? [...current, name] : current.filter((item) => item !== name))} aria-label={`${name}をインポート`} />
+                        {name}
+                      </label>
+                    ))}
+                  </div>
+                </fieldset>
+              );
+            })}
+            <Button className="w-full max-w-md" variant="primary" busy={busy === "import"} disabled={disabled || selected.length === 0} onClick={() => void importBackup()}>
+              <Upload className="h-4 w-4" />選択した{selected.length}件をインポート
+            </Button>
+          </div>
+        )}
       </div>
-      {backup && (
-        <div className="mt-4 space-y-3">
-          <p className="text-xs text-muted">インポートするファイルを選択してください。既存ファイルは上書きし、未選択のファイルとその編集中の内容は変更しません。選択したファイルの未保存内容は破棄されます。</p>
-          {Object.entries(PROMPT_FILE_GROUPS).map(([group, names]) => {
-            const available = names.filter((name) => Object.hasOwn(backup.files, name));
-            if (!available.length) return null;
-            return (
-              <fieldset key={group} className="rounded-lg border border-border px-3 py-2">
-                <legend className="px-1 text-xs font-medium">{group}</legend>
-                <div className="flex flex-wrap gap-x-4 gap-y-2">
-                  {available.map((name) => (
-                    <label key={name} className="flex min-h-11 items-center gap-2 text-sm">
-                      <input type="checkbox" checked={selected.includes(name)} disabled={busy} onChange={(event) => setSelected((current) => event.target.checked ? [...current, name] : current.filter((item) => item !== name))} aria-label={`${name}をインポート`} />
-                      {name}
-                    </label>
-                  ))}
-                </div>
-              </fieldset>
-            );
-          })}
-          <Button type="button" size="sm" variant="primary" busy={busy} disabled={busy || selected.length === 0} onClick={() => void importBackup()}>選択した{selected.length}件をインポート</Button>
-        </div>
-      )}
-      {message && <p role="status" className="mt-3 text-xs text-success">{message}</p>}
-      {error && <p role="alert" className="mt-3 text-xs text-danger">{error}</p>}
-      {error?.includes("保全ファイル:") && <p className="mt-2 text-xs text-muted">保全ファイルが残った場合は「設定 → エンジン → 認証エクスポート」で復旧を確認してください。</p>}
+      {message && <p role="status" className="mt-2 text-xs text-success">{message}</p>}
+      {error && <p role="alert" className="mt-2 text-xs text-danger">{error}</p>}
+      {error?.includes("保全ファイル:") && <p className="mt-2 text-xs text-muted">保全ファイルが残った場合は「設定 → エンジン → 認証エクスポート → 保全ファイル」で復旧を確認してください。</p>}
     </div>
   );
 }

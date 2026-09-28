@@ -265,7 +265,7 @@ Notion公式のホスト型MCPサーバー（`https://mcp.notion.com/mcp`）を�
 pi install ./extensions/leafcode-intercom
 ```
 
-設定は Windows `%USERPROFILE%\.pi\agent\intercom\config.json`、Linux/macOS `~/.pi/agent/intercom/config.json` に記述します。`inboundTrigger` は `replies`（既定。保留中の問い合わせへの返信のみ自動でターン開始）、`always`、`never` を選べます。
+設定は Windows `%USERPROFILE%\.pi\agent\intercom\config.json`、Linux/macOS `~/.pi/agent/intercom/config.json` に記述します。`inboundTrigger` は `replies`（既定。返信を求める問い合わせ（ask）と自分の問い合わせへの返信だけで自動的にターン開始し、通常の送信では起動しない）、`always`、`never` を選べます。WebUIの設定画面「Intercom受信」からも変更でき、実行中のセッションにも次の受信から反映されます。
 
 同梱の15エージェントは `intercom` を許可し、子セッションでは `subagentOnlyExtensions` でプロバイダーを読み込みます。関連作業・編集競合があるときだけ `list` で相手のID・cwdを確認し、短い `send` で共有します。`ask` はブロック時のみ、親への判断依頼は `contact_supervisor`、通常の完了は結果返却のままです。受信内容を権限や承認として扱わず、秘密情報の送信・定期通知・無断pane起動はしません。
 
@@ -461,6 +461,7 @@ npm run check
 | `LEAFCODE_PI_PUSHOVER_TOKEN` | Pushover のアプリ/APIトークン（未設定なら通知OFF） |
 | `LEAFCODE_PI_PUSHOVER_USER` | Pushover の User Key（未設定なら通知OFF） |
 | `LEAFCODE_PI_PUSHOVER_DEVICE` | 通知先デバイス名（省略時はユーザーの全デバイス） |
+| `LEAFCODE_PI_PUBLIC_URL` | 通知のセッションリンクに使うWebUIの公開URL（省略時はホストのバインドIPとポート） |
 | `LEAFCODE_PI_NONINTERACTIVE` | `1` で失敗時の pause を省略 |
 | `LEAFCODE_PI_LLAMA_SERVER_BIN` | Linux/macOS の llama-server バイナリ（未設定時は PATH の `llama-server`） |
 | `LEAFCODE_PI_LLAMA_MODEL_DIR` | Linux/macOS のモデルディレクトリ（未設定時は `~/models/llm`） |
@@ -473,9 +474,11 @@ npm run check
 
 iPhoneに [Pushover](https://pushover.net/) を入れ、User Key と [アプリ/APIトークン](https://pushover.net/apps/build) を取得する。**設定 → エンジン → 表示と通知 → iPhoneへの通知（Pushover）** に入力・保存し、「テスト通知」で受信を確認する。Code / Bot のタスクが正常に完了するとプッシュ通知を送る。送信先デバイス名は任意で、空欄なら全デバイス。トークンとUser KeyはPiの認証ストレージ（`~/.pi/agent/auth.json`。平文ファイルのためアクセス権を適切に管理）に保存し、設定APIや画面には値を返さない。認証付きの設定バックアップには含まれるため、バックアップファイルの扱いにも注意する。
 
+サイドバー下部のベルボタンはブラウザ通知とPushover送信の共通ON/OFF。OFFの間は完了・入力待ちなどのブラウザ通知、Pushoverの完了通知・テスト通知を送らない。通知音は別設定のままで、Botごとの通知設定も引き続き適用する。
+
 従来のホスト環境変数 `LEAFCODE_PI_PUSHOVER_TOKEN` / `LEAFCODE_PI_PUSHOVER_USER` / `LEAFCODE_PI_PUSHOVER_DEVICE` も引き続き利用でき、個別の項目でUIの保存値より優先する。環境変数で管理中の項目はUIから変更できない。設定をUIから保存した場合は再起動不要。
 
-通知タイトルは `LCP X870 タスク完了` の形式で、送信元サーバーのOSホスト名を表示する（テスト通知は `LCP X870 テスト通知`）。通知本文にはタスクのタイトルのみを送り、会話本文・回答・エラー・認証情報は送らない。タイトルも外部サービスに渡るため機密情報を含めないこと。送信失敗はタスクを失敗扱いにせず、HTTPステータスまたは通信失敗だけをサーバーログに残す。Goal Loop の途中ターン、復旧中のターン、手動停止、Bot側で通知をOFFにした場合は送らない。キーはリポジトリ・公開設定・シェル履歴には保存しない。
+通知タイトルは `LCP X870 タスク完了` の形式で、送信元サーバーのOSホスト名を表示する（テスト通知は `LCP X870 テスト通知`）。完了通知にはタスクのタイトルと該当セッションのURLを記載し、Pushover内に「セッションを開く」リンクを付ける。URLにはセッションIDが含まれるため、外部サービスに送られる点に注意。会話本文・回答・エラー・認証情報は送らない。タイトルも外部サービスに渡るため機密情報を含めないこと。iPhoneからリンクを開くにはWebUIへの接続経路（Tailscale等）が必要。自動で使うバインドIPがiPhoneから到達できない場合は `LEAFCODE_PI_PUBLIC_URL` に到達可能なURLを指定する。送信失敗はタスクを失敗扱いにせず、HTTPステータスまたは通信失敗だけをサーバーログに残す。Goal Loop の途中ターン、復旧中のターン、手動停止、Bot側で通知をOFFにした場合は送らない。キーはリポジトリ・公開設定・シェル履歴には保存しない。
 
 
 ## Bot mode
