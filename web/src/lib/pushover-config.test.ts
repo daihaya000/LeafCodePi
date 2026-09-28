@@ -20,7 +20,7 @@ vi.mock("@/lib/pi/web-settings", () => ({
   setSetting: (key: string, value: string | null) => value === null ? mocks.settings.delete(key) : mocks.settings.set(key, value),
 }));
 
-import { getPushoverSettingsDto, readPushoverCredentials, savePushoverSettings } from "./pushover-config";
+import { getPushoverSettingsDto, readPushoverCredentials, readPushoverNotificationEnabled, savePushoverSettings } from "./pushover-config";
 
 beforeEach(() => {
   mocks.keys.clear();
@@ -38,10 +38,21 @@ describe("Pushover settings storage", () => {
     expect(mocks.keys.get("leafcode-pushover-user")).toBe("user123");
     expect([...mocks.settings]).toEqual([["pushover-device", "iphone"]]);
     expect(await getPushoverSettingsDto()).toEqual({
-      hasToken: true, hasUser: true, device: "iphone",
+      hasToken: true, hasUser: true, device: "iphone", enabled: true,
       envManaged: { token: false, user: false, device: false },
     });
     expect(await readPushoverCredentials()).toEqual({ token: "token123", user: "user123", device: "iphone" });
+  });
+
+  it("persists the notification switch independently of credentials", async () => {
+    expect(readPushoverNotificationEnabled()).toBe(true);
+    await savePushoverSettings({ enabled: false });
+    expect(readPushoverNotificationEnabled()).toBe(false);
+    expect(mocks.settings.get("pushover-notifications-enabled")).toBe("0");
+    expect(await getPushoverSettingsDto()).toMatchObject({ enabled: false, hasToken: false });
+    await savePushoverSettings({ enabled: true });
+    expect(readPushoverNotificationEnabled()).toBe(true);
+    expect(mocks.settings.has("pushover-notifications-enabled")).toBe(false);
   });
 
   it("keeps omitted keys and clears explicit null keys", async () => {
@@ -55,7 +66,7 @@ describe("Pushover settings storage", () => {
     process.env.LEAFCODE_PI_PUSHOVER_DEVICE = "envPhone";
     await savePushoverSettings({ user: "storedUser" });
     expect(await getPushoverSettingsDto()).toEqual({
-      hasToken: true, hasUser: true, device: "envPhone",
+      hasToken: true, hasUser: true, device: "envPhone", enabled: true,
       envManaged: { token: true, user: false, device: true },
     });
     await expect(savePushoverSettings({ token: "overwrite", user: "other" })).rejects.toThrow("環境変数");

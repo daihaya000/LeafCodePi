@@ -1,5 +1,5 @@
 import { hostname } from "node:os";
-import { readPushoverCredentials } from "@/lib/pushover-config";
+import { readPushoverCredentials, readPushoverNotificationEnabled } from "@/lib/pushover-config";
 import { paneTabIdForTask, type PaneTaskRef } from "@/lib/task-panes";
 
 /** Server-side Pushover delivery. Never expose credentials to the browser. */
@@ -43,6 +43,7 @@ export async function notifyPushoverCompletion(
   options: { env?: Record<string, string | undefined>; send?: typeof fetch; title?: string; task?: PaneTaskRef } = {},
 ): Promise<boolean> {
   try {
+    if (!readPushoverNotificationEnabled()) return false;
     const config = options.env ? {
       token: options.env.LEAFCODE_PI_PUSHOVER_TOKEN?.trim(),
       user: options.env.LEAFCODE_PI_PUSHOVER_USER?.trim(),

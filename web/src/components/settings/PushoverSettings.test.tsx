@@ -7,7 +7,7 @@ const mocks = vi.hoisted(() => ({ get: vi.fn(), send: vi.fn() }));
 vi.mock("@/lib/client", () => ({ getJson: mocks.get, sendJson: mocks.send }));
 
 const configured = {
-  hasToken: true, hasUser: true, device: "",
+  hasToken: true, hasUser: true, device: "", enabled: true,
   envManaged: { token: false, user: false, device: false },
 };
 
@@ -29,6 +29,13 @@ describe("PushoverSettings", () => {
     expect((screen.getByLabelText("アプリ/APIトークン") as HTMLInputElement).type).toBe("password");
     expect((screen.getByLabelText("アプリ/APIトークン") as HTMLInputElement).value).toBe("");
     expect((screen.getByLabelText("User Key") as HTMLInputElement).value).toBe("");
+  });
+
+  it("shows the disabled notification state and prevents test delivery", async () => {
+    mocks.get.mockResolvedValue({ ...configured, enabled: false });
+    render(<PushoverSettings />);
+    expect(await screen.findByText("通知OFF")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "テスト通知" }).hasAttribute("disabled")).toBe(true);
   });
 
   it("saves new keys, then clears input values; test button sends only after saved", async () => {

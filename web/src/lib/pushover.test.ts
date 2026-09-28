@@ -2,7 +2,13 @@ import { hostname } from "node:os";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { notifyPushoverCompletion, shouldNotifyPushoverCompletion } from "./pushover";
 
-afterEach(() => vi.restoreAllMocks());
+const settings = vi.hoisted(() => ({ get: vi.fn((): string | null => null) }));
+vi.mock("@/lib/pi/web-settings", () => ({ getSetting: settings.get }));
+
+afterEach(() => {
+  vi.restoreAllMocks();
+  settings.get.mockReturnValue(null);
+});
 
 describe("Pushover completion filtering", () => {
   const ready = {
@@ -28,6 +34,13 @@ describe("Pushover HTTP delivery", () => {
     LEAFCODE_PI_PUSHOVER_TOKEN: "example-token",
     LEAFCODE_PI_PUSHOVER_USER: "example-user",
   };
+
+  it("does not deliver when the footer switch is off, even with credentials", async () => {
+    settings.get.mockReturnValue("0");
+    const send = vi.fn();
+    expect(await notifyPushoverCompletion("Task", { env, send })).toBe(false);
+    expect(send).not.toHaveBeenCalled();
+  });
 
   it("stays disabled without both credentials", async () => {
     const send = vi.fn();

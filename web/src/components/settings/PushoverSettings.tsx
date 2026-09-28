@@ -46,6 +46,7 @@ export function PushoverSettings() {
   );
   const busy = loading || saving || testing;
   const configured = Boolean(snapshot?.hasToken && snapshot.hasUser);
+  const notificationsEnabled = snapshot?.enabled !== false;
 
   async function save() {
     if (!snapshot || !dirty || busy) return;
@@ -70,7 +71,7 @@ export function PushoverSettings() {
   }
 
   async function test() {
-    if (busy || dirty || !configured) return;
+    if (busy || dirty || !configured || !notificationsEnabled) return;
     setTesting(true);
     setError(null);
     setNotice(null);
@@ -89,13 +90,13 @@ export function PushoverSettings() {
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h3 className="text-sm font-semibold">iPhoneへの通知（Pushover）</h3>
-          <p className="mt-1 text-xs text-muted">Code・Botのタスク完了をiPhoneに通知します。会話ではなくタスク名だけを送信します。</p>
+          <p className="mt-1 text-xs text-muted">Code・Botのタスク完了をiPhoneに通知します。会話ではなくタスク名だけを送信します。通知のON/OFFはサイドバー下部で切り替えられます。</p>
           <p className="mt-1 text-xs text-muted">
             <a href="https://pushover.net/" target="_blank" rel="noopener noreferrer" className="text-accent underline">User Key</a>
             と <a href="https://pushover.net/apps/build" target="_blank" rel="noopener noreferrer" className="text-accent underline">アプリ/APIトークン</a> を取得して入力してください。
           </p>
         </div>
-        <Badge tone={configured ? "success" : "neutral"}>{configured ? "設定済み" : "未設定"}</Badge>
+        <Badge tone={configured && notificationsEnabled ? "success" : "neutral"}>{configured ? notificationsEnabled ? "設定済み" : "通知OFF" : "未設定"}</Badge>
       </div>
 
       <div className="mt-4 space-y-3">
@@ -149,7 +150,7 @@ export function PushoverSettings() {
 
       <div className="mt-4 flex flex-wrap gap-2">
         <Button type="button" variant="primary" size="sm" busy={saving} disabled={busy || !dirty} onClick={() => void save()}>保存</Button>
-        <Button type="button" variant="secondary" size="sm" busy={testing} disabled={busy || dirty || !configured} onClick={() => void test()}>テスト通知</Button>
+        <Button type="button" variant="secondary" size="sm" busy={testing} disabled={busy || dirty || !configured || !notificationsEnabled} onClick={() => void test()}>テスト通知</Button>
         <Button type="button" variant="ghost" size="sm" disabled={busy} onClick={reload}>再読込</Button>
       </div>
       <p className="mt-3 text-[11px] text-muted">

@@ -19,7 +19,7 @@ import { PushoverEnvManagedError } from "@/lib/pushover-config";
 import { GET, POST, PUT } from "./route";
 
 const dto = {
-  hasToken: true, hasUser: true, device: "iphone",
+  hasToken: true, hasUser: true, device: "iphone", enabled: true,
   envManaged: { token: false, user: false, device: false },
 };
 const request = (body: unknown) => new NextRequest("http://localhost/api/pushover", {
@@ -51,8 +51,15 @@ describe("Pushover settings API", () => {
     expect(mocks.save).toHaveBeenLastCalledWith({ token: null, device: null });
   });
 
+  it("toggles delivery with an authenticated boolean setting", async () => {
+    expect((await PUT(request({ enabled: false }))).status).toBe(200);
+    expect(mocks.save).toHaveBeenCalledWith({ enabled: false });
+    expect((await PUT(request({ enabled: true }))).status).toBe(200);
+    expect(mocks.save).toHaveBeenLastCalledWith({ enabled: true });
+  });
+
   it.each([
-    {}, { token: 123 }, { token: "invalid\nkey" }, { user: "" },
+    {}, { enabled: "false" }, { enabled: null }, { token: 123 }, { token: "invalid\nkey" }, { user: "" },
     { token: "x".repeat(129) }, { device: "x".repeat(101) }, { device: "line\nbreak" },
     { unknown: "value" }, null,
   ])("rejects malformed input without storage writes", async (body) => {
@@ -100,6 +107,9 @@ describe("Pushover settings API", () => {
     expect(mocks.notify).toHaveBeenCalledWith("iPhoneへの通知を確認", { title: "テスト通知" });
     mocks.get.mockResolvedValue({ ...dto, hasUser: false });
     expect((await POST(read())).status).toBe(400);
+    expect(mocks.notify).toHaveBeenCalledTimes(1);
+    mocks.get.mockResolvedValue({ ...dto, enabled: false });
+    expect((await POST(read())).status).toBe(409);
     expect(mocks.notify).toHaveBeenCalledTimes(1);
     mocks.get.mockResolvedValue(dto);
     mocks.notify.mockResolvedValue(false);

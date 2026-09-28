@@ -4,15 +4,26 @@ import { getSetting, setSetting } from "@/lib/pi/web-settings";
 const TOKEN_PROVIDER = "leafcode-pushover-token";
 const USER_PROVIDER = "leafcode-pushover-user";
 const DEVICE_SETTING = "pushover-device";
+const NOTIFICATIONS_ENABLED_SETTING = "pushover-notifications-enabled";
+
+/** Enabled by default for existing installations; disabling is persisted server-side. */
+export function readPushoverNotificationEnabled(): boolean {
+  return getSetting(NOTIFICATIONS_ENABLED_SETTING) !== "0";
+}
+
+export function savePushoverNotificationEnabled(enabled: boolean): void {
+  setSetting(NOTIFICATIONS_ENABLED_SETTING, enabled ? null : "0");
+}
 
 export type PushoverCredentials = { token?: string; user?: string; device?: string };
 export type PushoverSettingsDto = {
   hasToken: boolean;
   hasUser: boolean;
   device: string;
+  enabled: boolean;
   envManaged: { token: boolean; user: boolean; device: boolean };
 };
-export type PushoverSettingsPatch = { token?: string | null; user?: string | null; device?: string | null };
+export type PushoverSettingsPatch = { token?: string | null; user?: string | null; device?: string | null; enabled?: boolean };
 
 export class PushoverEnvManagedError extends Error {}
 
@@ -50,6 +61,7 @@ export async function getPushoverSettingsDto(): Promise<PushoverSettingsDto> {
     hasToken: Boolean(credentials.token),
     hasUser: Boolean(credentials.user),
     device: credentials.device ?? "",
+    enabled: readPushoverNotificationEnabled(),
     envManaged: {
       token: Boolean(envValue("LEAFCODE_PI_PUSHOVER_TOKEN")),
       user: Boolean(envValue("LEAFCODE_PI_PUSHOVER_USER")),
@@ -74,4 +86,5 @@ export async function savePushoverSettings(patch: PushoverSettingsPatch): Promis
     }
   }
   if (patch.device !== undefined) setSetting(DEVICE_SETTING, patch.device);
+  if (patch.enabled !== undefined) savePushoverNotificationEnabled(patch.enabled);
 }
