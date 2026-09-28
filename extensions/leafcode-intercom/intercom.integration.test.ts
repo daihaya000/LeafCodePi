@@ -41,6 +41,14 @@ process.on("exit", () => {
   rmSync(sharedHomeDir, { recursive: true, force: true });
 });
 
+async function waitForCondition(condition: () => boolean, timeoutMs: number): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (!condition()) {
+    assert.ok(Date.now() < deadline, "Timed out waiting for condition");
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+}
+
 async function withIntercomConfig<T>(config: Record<string, unknown>, fn: () => T | Promise<T>): Promise<T> {
   const configPath = getConfigPath();
   const previous = existsSync(configPath) ? readFileSync(configPath, "utf-8") : undefined;
@@ -2046,6 +2054,68 @@ test("idle interactive sessions do not trigger a new turn by default", { concurr
     await harness.emitLifecycle("session_shutdown");
     await cleanup();
   }
+});
+
+test("public ask wakes an idle recipient by default and resolves through reply", { concurrency: false }, async () => {
+  const { default: piIntercomExtension } = await import("./index.ts");
+  const { planner, cleanup } = await setupClients();
+  const sender = createExtensionHarness("idle-ask-sender", { sessionId: "idle-ask-sender", hasUI: true });
+  const receiver = createExtensionHarness("idle-ask-receiver", { sessionId: "idle-ask-receiver", hasUI: true });
+  const controller = new AbortController();
+  let resultPromise: Promise<CapturedToolResult> | undefined;
+
+  try {
+    piIntercomExtension(sender.pi as never);
+    piIntercomExtension(receiver.pi as never);
+    await sender.emitLifecycle("session_start");
+    await receiver.emitLifecycle("session_start");
+    await waitForSessionByName(planner, "idle-ask-receiver");
+    const senderTool = sender.tools.find((tool) => tool.name === "intercom")!;
+    const receiverTool = receiver.tools.find((tool) => tool.name === "intercom")!;
+    resultPromise = senderTool.execute("idle-ask", {
+      action: "ask", to: "idle-ask-receiver", message: "Are these files free to edit?",
+    }, controller.signal, undefined, sender.ctx);
+    await waitForCondition(() => receiver.sentMessages.length === 1, 2000);
+    assert.equal(receiver.sentMessages[0]?.options?.triggerTurn, true, "an idle peer must run to answer a blocking ask");
+    assert.equal(receiver.sentMessages[0]?.options?.deliverAs, undefined);
+
+    const reply = await receiverTool.execute("idle-reply", {
+      action: "reply", message: "Yes, proceed.",
+    }, new AbortController().signal, undefined, receiver.ctx);
+    assert.notEqual(reply.details?.error, true);
+    const result = await resultPromise;
+    assert.notEqual(result.details?.error, true);
+    assert.match(result.content[0]?.text ?? "", /Yes, proceed/);
+    assert.equal(sender.sentMessages.length, 0, "the matching reply resolves the waiter without another turn");
+  } finally {
+    controller.abort();
+    await resultPromise;
+    await sender.emitLifecycle("session_shutdown");
+    await receiver.emitLifecycle("session_shutdown");
+    await cleanup();
+  }
+});
+
+test("never policy does not wake an idle recipient even for an explicit ask", { concurrency: false }, async () => {
+  await withIntercomConfig({ inboundTrigger: "never" }, async () => {
+    const { default: piIntercomExtension } = await import("./index.ts");
+    const { planner, cleanup } = await setupClients();
+    const harness = createExtensionHarness("idle-never-ask-worker", { hasUI: true });
+    try {
+      piIntercomExtension(harness.pi as never);
+      await harness.emitLifecycle("session_start");
+      const worker = await waitForSessionByName(planner, "idle-never-ask-worker");
+      assert.equal((await planner.send(worker.id, {
+        messageId: "idle-never-ask", text: "Do not auto-start", expectsReply: true,
+      })).delivered, true);
+      await waitForCondition(() => harness.sentMessages.length === 1, 2000);
+      assert.equal(harness.sentMessages[0]?.options?.triggerTurn, undefined);
+      assert.equal(harness.sentMessages[0]?.options?.deliverAs, "steer");
+    } finally {
+      await harness.emitLifecycle("session_shutdown");
+      await cleanup();
+    }
+  });
 });
 
 test("idle interactive sessions trigger a new turn when always is configured", { concurrency: false }, async () => {

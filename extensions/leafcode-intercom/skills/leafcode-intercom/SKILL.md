@@ -276,6 +276,7 @@ Ask the user before opening another visible surface manually.
 ### `ask` Limitations
 
 - **Connected targets only**: `ask` fails immediately when the target is not in the live intercom roster. Use `list` before asking when liveness is uncertain; use `send` for non-blocking mailbox delivery.
+- **Idle recipients**: The default `inboundTrigger: "replies"` starts a turn for explicit asks as well as replies; ordinary sends do not wake idle peers. `"never"` still disables automatic turns, so an ask to such a peer needs manual intervention.
 - **Configurable timeout**: If no reply arrives before the shared ask timeout, the ask fails. The default is 10 minutes; set `PI_INTERCOM_ASK_TIMEOUT_MS` to a positive millisecond value to change it.
 - **One at a time**: Cannot have multiple pending asks from the same session
 - **Cannot self-target**: A session cannot ask itself, including through disconnected-mailbox remapping

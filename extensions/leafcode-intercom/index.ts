@@ -1170,7 +1170,9 @@ export default function piIntercomExtension(pi: ExtensionAPI) {
       return true;
     }
     if (config.inboundTrigger === "replies") {
-      return Boolean(entry.message.replyTo);
+      // Blocking asks need an active recipient just as replies do. Steering an
+      // idle peer without starting a turn leaves the sender waiting until timeout.
+      return Boolean(entry.message.replyTo || entry.message.expectsReply);
     }
     return false;
   }
