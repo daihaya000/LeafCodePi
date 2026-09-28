@@ -2107,7 +2107,7 @@ function finishSettledTurn(
   }
 }
 
-function restoredThroughputState(
+export function restoredThroughputState(
   existing: LiveRuntime | undefined,
   loaded: ReturnType<typeof loadThroughputFromSession> | null,
   loadedToolTiming: ReturnType<typeof loadToolTimingFromSession> | null,

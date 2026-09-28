@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { afterEach, describe, it, vi } from "vitest";
 import { snapshotThroughput } from "@/lib/token-throughput";
-import { trackThroughputEvent } from "./harness";
+import { restoredThroughputState, trackThroughputEvent } from "./harness";
 import { VersionedThroughputMap } from "./versioned-throughput-map";
 
 function liveState() {
@@ -25,6 +25,29 @@ function liveState() {
 
 afterEach(() => {
   vi.useRealTimers();
+});
+
+describe("restoredThroughputState", () => {
+  it("reuses empty existing throughput collections by reference", () => {
+    const existingTimings = new VersionedThroughputMap();
+    const existingKeys = new Set<number>();
+    const loadedTimings = new VersionedThroughputMap([[1_000, {
+      startedAtMs: 1_000, firstTokenAtMs: 1_100, lastTokenAtMs: 1_500,
+      outputTokens: 10, charCount: 0,
+    }]]);
+    const loadedKeys = new Set([1_000]);
+    const existing = {
+      throughputByStartedAt: existingTimings,
+      persistedThroughputKeys: existingKeys,
+    } as unknown as Parameters<typeof restoredThroughputState>[0];
+
+    const restored = restoredThroughputState(existing, {
+      timings: loadedTimings, persistedKeys: loadedKeys,
+    }, null);
+
+    assert.equal(restored.throughputByStartedAt, existingTimings);
+    assert.equal(restored.persistedThroughputKeys, existingKeys);
+  });
 });
 
 describe("trackThroughputEvent", () => {
