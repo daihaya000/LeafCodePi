@@ -444,11 +444,15 @@ export function projectPiMessages(raw: unknown[], indexOffset = 0): UiMessage[] 
   let activeIntercom: IntercomContext | undefined;
   // The first marker describes the persona that produced the preceding history.
   // Later markers switch the active persona for messages that follow them.
-  let activeAgent = raw
-    .filter(isRecord)
-    .map(agentSwitchFromRaw)
-    .find((switchInfo): switchInfo is AgentSwitch => switchInfo !== null)
-    ?.previousAgent;
+  let activeAgent: string | undefined;
+  for (const item of raw) {
+    if (!isRecord(item)) continue;
+    const switchInfo = agentSwitchFromRaw(item);
+    if (switchInfo) {
+      activeAgent = switchInfo.previousAgent;
+      break;
+    }
+  }
   raw.forEach((item, index) => {
     if (!isRecord(item)) return;
     const role = asString(item.role);

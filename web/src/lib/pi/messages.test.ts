@@ -44,6 +44,24 @@ describe("titleFromPrompt", () => {
 });
 
 describe("projectPiMessages", () => {
+  it("seeds the persona from the first switch even when it was the default", () => {
+    const assistant = (id: string, timestamp: number) => ({
+      role: "assistant", id, timestamp, content: [{ type: "text", text: "ok" }],
+    });
+    const marker = (previousAgent: string, nextAgent: string) => ({
+      role: "custom", customType: "leafcode-pi.agent-switch", details: { previousAgent, nextAgent },
+    });
+    const messages = projectPiMessages([
+      assistant("before", 1),
+      marker("the default assistant persona", "planner"),
+      assistant("after", 2),
+      marker("planner", "builder"),
+      assistant("later", 3),
+    ]);
+
+    expect(messages.map((item) => item.agent)).toEqual([undefined, "planner", "builder"]);
+  });
+
   it("does not project hidden custom messages into the user timeline", () => {
     const messages = projectPiMessages([
       {
