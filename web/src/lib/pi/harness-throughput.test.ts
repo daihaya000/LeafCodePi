@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { afterEach, describe, it, vi } from "vitest";
 import { snapshotThroughput, type ThroughputTiming } from "@/lib/token-throughput";
-import { restoredThroughputState, trackThroughputEvent } from "./harness";
+import { loadThroughputFromSession, restoredThroughputState, trackThroughputEvent } from "./harness";
 import { VersionedThroughputMap } from "./versioned-throughput-map";
 
 function liveState() {
@@ -25,6 +25,24 @@ function liveState() {
 
 afterEach(() => {
   vi.useRealTimers();
+});
+
+describe("loadThroughputFromSession", () => {
+  it("returns empty collections when session entries are unavailable", () => {
+    const session = {
+      sessionManager: {
+        getEntries: () => { throw new Error("entries unavailable"); },
+      },
+    } as unknown as Parameters<typeof loadThroughputFromSession>[0];
+
+    const first = loadThroughputFromSession(session);
+    const second = loadThroughputFromSession(session);
+
+    assert.equal(first.timings.size, 0);
+    assert.equal(first.persistedKeys.size, 0);
+    assert.notEqual(first.timings, second.timings);
+    assert.notEqual(first.persistedKeys, second.persistedKeys);
+  });
 });
 
 describe("restoredThroughputState", () => {

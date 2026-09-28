@@ -1078,7 +1078,7 @@ function modelId(model: Model | undefined): {
   };
 }
 
-function loadThroughputFromSession(session: AgentSession): {
+export function loadThroughputFromSession(session: AgentSession): {
   timings: Map<number, ThroughputTiming>;
   persistedKeys: Set<number>;
 } {
