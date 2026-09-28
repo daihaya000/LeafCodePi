@@ -60,10 +60,12 @@ it("shows the next-action suggestion above the follow-up composer", async () => 
   mocks.sendJson.mockResolvedValue({ suggestion: "次にテストを追加する" });
   render(<TaskView taskId={task.id} mdUp />);
 
-  fireEvent.click(await screen.findByRole("button", { name: "次の指示を提案" }));
+  const trigger = await screen.findByRole("button", { name: "次の指示を提案" });
+  fireEvent.click(trigger);
   const panel = await screen.findByRole("region", { name: "次の指示の提案" });
   expect(await screen.findByText("次にテストを追加する")).toBeTruthy();
   const composer = screen.getByRole("form", { name: "フォローアップ" });
+  expect(composer.contains(trigger)).toBe(false);
   expect(panel.compareDocumentPosition(composer) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   expect(screen.queryByRole("dialog", { name: "次の指示の提案" })).toBeNull();
 });
@@ -76,12 +78,17 @@ it("places the progress trigger above the message navigator with a separate gap"
   render(<TaskView taskId={task.id} mdUp />);
 
   const progress = await screen.findByRole("button", { name: "進捗を確認" });
+  const proposal = screen.getByRole("button", { name: "次の指示を提案" });
   const firstMessage = screen.getByRole("button", { name: "最初のユーザーメッセージへ" });
   const navigator = firstMessage.parentElement;
+  const controls = proposal.closest(".flex-col");
+  expect(controls?.classList.contains("gap-2")).toBe(true);
+  expect(controls?.firstElementChild?.contains(proposal)).toBe(true);
+  expect(controls?.lastElementChild?.contains(progress)).toBe(true);
   expect(navigator?.classList.contains("gap-2")).toBe(true);
   expect(navigator?.parentElement?.classList.contains("gap-6")).toBe(true);
-  expect(navigator?.parentElement?.firstElementChild?.contains(progress)).toBe(true);
-  expect(screen.getByRole("form", { name: "フォローアップ" }).contains(progress)).toBe(false);
+  expect(navigator?.parentElement?.firstElementChild).toBe(controls);
+  expect(screen.getByRole("form", { name: "フォローアップ" }).contains(proposal)).toBe(false);
 });
 
 it("keeps the progress answer when a mobile side panel is opened and closed", async () => {
@@ -99,6 +106,23 @@ it("keeps the progress answer when a mobile side panel is opened and closed", as
 
   expect(screen.getByRole("button", { name: "進捗の確認を表示" }).closest(".absolute")?.classList.contains("hidden")).toBe(false);
   expect(screen.getByText("確認した進捗")).toBeTruthy();
+  expect(mocks.sendJson).toHaveBeenCalledTimes(1);
+});
+
+it("keeps the suggestion when a mobile side panel is opened and closed", async () => {
+  saveTaskSessionCache({
+    task: { ...task, sessionId: "session-1" }, messages: [], isStreaming: false, isCompacting: false,
+  });
+  mocks.sendJson.mockResolvedValue({ suggestion: "次にテストを追加する" });
+  render(<TaskView taskId={task.id} mdUp={false} />);
+
+  fireEvent.click(await screen.findByRole("button", { name: "次の指示を提案" }));
+  expect(await screen.findByText("次にテストを追加する")).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "コミットグラフ" }));
+  expect(screen.getByRole("button", { name: "提案を表示" }).closest(".absolute")?.classList.contains("hidden")).toBe(true);
+  fireEvent.click(screen.getByRole("button", { name: "コミットグラフ" }));
+
+  expect(screen.getByText("次にテストを追加する")).toBeTruthy();
   expect(mocks.sendJson).toHaveBeenCalledTimes(1);
 });
 

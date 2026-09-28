@@ -3508,21 +3508,44 @@ export const TaskView = memo(function TaskView({
             )}
           </div>
         </div>
-        {/* 進捗確認とメッセージ移動。移動ボタン間より広い間隔で操作を分ける。 */}
+        {/* 提案・進捗確認とメッセージ移動。移動ボタン間より広い間隔で操作を分ける。 */}
         {(task?.sessionId || navigationMessageIds.length > 0) && (
           <div className={cx(
             "absolute right-4 bottom-4 z-50 flex flex-col items-center gap-6",
             mobilePanelOpen && "hidden",
           )}>
             {task?.sessionId && (
-              <TaskProgressAsk
-                taskId={taskId}
-                sessionId={task.sessionId}
-                panelRef={progressPanelRef}
-                model={selectedModel?.value === AUTO_MODEL_VALUE ? undefined : selectedModel}
-                revision={`${messages.at(-1)?.id ?? ""}:${messages.at(-1)?.parts.length ?? 0}:${working ? "working" : "idle"}`}
-                triggerOpacity={scrollButtonOpacity}
-              />
+              <div className="flex flex-col gap-2">
+                <NextAction
+                  taskId={taskId}
+                  sessionId={task.sessionId}
+                  panelRef={nextActionPanelRef}
+                  model={selectedModel?.value === AUTO_MODEL_VALUE ? undefined : selectedModel}
+                  invalidateKey={`${messages.length}:${messages.at(-1)?.id ?? ""}:${working ? "working" : "idle"}`}
+                  disabled={compacting || archived}
+                  triggerOpacity={scrollButtonOpacity}
+                  onApply={(suggestion) => {
+                    if (
+                      prompt.trim() &&
+                      typeof window !== "undefined" &&
+                      !window.confirm("現在の入力内容を提案で置き換えますか？")
+                    ) {
+                      return false;
+                    }
+                    setPrompt(suggestion);
+                    textareaRef.current?.focus();
+                    return true;
+                  }}
+                />
+                <TaskProgressAsk
+                  taskId={taskId}
+                  sessionId={task.sessionId}
+                  panelRef={progressPanelRef}
+                  model={selectedModel?.value === AUTO_MODEL_VALUE ? undefined : selectedModel}
+                  revision={`${messages.at(-1)?.id ?? ""}:${messages.at(-1)?.parts.length ?? 0}:${working ? "working" : "idle"}`}
+                  triggerOpacity={scrollButtonOpacity}
+                />
+              </div>
             )}
             {navigationMessageIds.length > 0 && (
               <div className="flex flex-col gap-2">
@@ -4069,36 +4092,6 @@ export const TaskView = memo(function TaskView({
                 </>
               ),
             },
-            ...(task?.sessionId
-              ? [
-                  {
-                    id: "next-action",
-                    label: "次の指示",
-                    content: (
-                      <NextAction
-                        taskId={taskId}
-                        sessionId={task.sessionId}
-                        panelRef={nextActionPanelRef}
-                        model={selectedModel?.value === AUTO_MODEL_VALUE ? undefined : selectedModel}
-                        invalidateKey={`${messages.length}:${messages.at(-1)?.id ?? ""}:${working ? "working" : "idle"}`}
-                        disabled={compacting || archived}
-                        onApply={(suggestion) => {
-                          if (
-                            prompt.trim() &&
-                            typeof window !== "undefined" &&
-                            !window.confirm("現在の入力内容を提案で置き換えますか？")
-                          ) {
-                            return false;
-                          }
-                          setPrompt(suggestion);
-                          textareaRef.current?.focus();
-                          return true;
-                        }}
-                      />
-                    ),
-                  },
-                ]
-              : []),
           ]}
           action={
             working && (stopRequested || (!prompt.trim() && attachments.length === 0)) ? (

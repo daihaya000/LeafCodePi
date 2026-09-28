@@ -28,6 +28,16 @@ describe("NextAction", () => {
     sendJson.mockResolvedValue({ suggestion: "テストを実行する" });
   });
 
+  it("uses the navigator icon style and opacity", () => {
+    render(<InlineNextAction taskId="task-1" sessionId="session-1" onApply={() => {}} triggerOpacity={0.6} />);
+
+    const trigger = screen.getByRole("button", { name: "次の指示を提案" });
+    expect(trigger.querySelector(".lucide-sparkles")).toBeTruthy();
+    expect(trigger.classList.contains("rounded-full")).toBe(true);
+    expect(trigger.style.opacity).toBe("0.6");
+    expect(trigger.title).toBe("次の指示を提案");
+  });
+
   it("shows suggestions above the composer instead of in a dialog", async () => {
     render(
       <InlineNextAction
@@ -49,13 +59,13 @@ describe("NextAction", () => {
       expect(screen.getByTestId("composer").contains(panel)).toBe(false);
       expect(screen.queryByRole("dialog")).toBeNull();
     });
-    expect((await screen.findByRole("button", { name: "提案を表示" })).textContent).toBe("提案");
+    expect((await screen.findByRole("button", { name: "提案を表示" })).querySelector(".lucide-sparkles")).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: "提案を閉じる" }));
     expect(screen.queryByRole("region", { name: "次の指示の提案" })).toBeNull();
     expect(document.activeElement).toBe(screen.getByRole("button", { name: "提案を表示" }));
     fireEvent.click(screen.getByRole("button", { name: "提案を表示" }));
-    expect(screen.getByRole("button", { name: "提案を表示" }).textContent).toBe("提案");
+    expect(screen.getByRole("button", { name: "提案を表示" }).querySelector(".lucide-sparkles")).toBeTruthy();
     expect(screen.getByRole("region", { name: "次の指示の提案" })).toBeTruthy();
     expect(sendJson).toHaveBeenCalledTimes(1);
   });

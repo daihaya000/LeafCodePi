@@ -34,6 +34,7 @@ export function NextAction({
   panelRef,
   onApply,
   disabled = false,
+  triggerOpacity = 1,
 }: {
   taskId: string;
   sessionId: string;
@@ -42,6 +43,7 @@ export function NextAction({
   panelRef: RefObject<HTMLDivElement | null>;
   onApply: (suggestion: string) => boolean | void;
   disabled?: boolean;
+  triggerOpacity?: number;
 }) {
   const [state, setState] = useState<State>({ kind: "idle" });
   const [previous, setPrevious] = useState<string[]>([]);
@@ -206,11 +208,11 @@ export function NextAction({
 
   return (
     <>
-      <section className="min-w-0 w-auto shrink-0" aria-label="次の指示の提案操作">
+      <section className="shrink-0" aria-label="次の指示の提案操作">
         <Button
           ref={triggerRef}
           variant="secondary"
-          size="sm"
+          size="icon"
           busy={state.kind === "loading"}
           disabled={disabled || state.kind === "loading"}
           aria-expanded={panelOpen}
@@ -222,6 +224,7 @@ export function NextAction({
                 ? "提案を表示"
                 : "次の指示を提案"
           }
+          title="次の指示を提案"
           onClick={() => {
             setContextNotice(false);
             if (state.kind === "success") {
@@ -230,10 +233,10 @@ export function NextAction({
             }
             void generate();
           }}
-          className="h-8 min-w-0 whitespace-nowrap px-2.5"
+          className="h-10 w-10 rounded-full border border-border-strong bg-surface shadow-lg transition-opacity hover:opacity-100 focus-visible:opacity-100 active:opacity-100"
+          style={{ opacity: disabled ? Math.min(triggerOpacity, 0.4) : triggerOpacity }}
         >
-          {state.kind !== "loading" && <Sparkles className="h-3.5 w-3.5" />}
-          提案
+          {state.kind !== "loading" && <Sparkles className="h-4 w-4" aria-hidden="true" />}
         </Button>
       </section>
       {panel && panelContainer && createPortal(panel, panelContainer)}
