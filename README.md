@@ -446,7 +446,7 @@ npm run check
 | `LEAFCODE_PI_DATA_DIR` | ストアと host.lock / host.log の保存先（未設定時は Windows `%APPDATA%\leafcode-pi`、Linux/macOS `~/.leafcode-pi`） |
 | `LEAFCODE_PI_DEFAULT_DIR` | プロジェクト未登録タスクの作業ルート（未設定時は `~/Documents` があれば `~/Documents/LeafCodePi`、無ければ Linux/macOS は `$XDG_DATA_HOME/LeafCodePi` または `~/.local/share/LeafCodePi`、Windows は `%USERPROFILE%\LeafCodePi`） |
 | `LEAFCODE_PI_PORT` | WebUI ポート（既定 **3010**。LeafCode の 3000 と衝突しない） |
-| `LEAFCODE_PI_HOST` | WebUI 待ち受け。既定 `tailscale`（Tailscale IPv4。未検出時は 127.0.0.1）。`0.0.0.0` / 明示 IP も可 |
+| `LEAFCODE_PI_HOST` | WebUI 待ち受け。既定 `tailscale`（Tailscale IPv4。未検出時は 127.0.0.1）。Tailscale IP で待ち受ける間もホストPCの `127.0.0.1` に同ポートのローカル専用プロキシを設け、ホストPCからのアクセスをローカルへ移す。`0.0.0.0` / 明示 IP も可 |
 | `LEAFCODE_PI_HOST_CONTROL_PORT` | ホスト制御（llama-server 起動など）。既定 **18775**（LeafCode の 18765 と別） |
 | `LEAFCODE_PI_LLAMA_PORT` | llama-server ポート。既定 **8081** |
 | `LEAFCODE_PI_MODE` | `prod`（既定・start.bat / start.sh）または `dev` |

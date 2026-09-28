@@ -9,6 +9,7 @@ import { bindHost, dataDir, DEFAULT_HOST_CONTROL_PORT, DEFAULT_LLAMA_SERVER_PORT
 import { readBrowserConfig, writeBrowserConfig } from "./browser-config.js";
 import { isThisModuleEntrypoint } from "./entry.js";
 import { createLlamaControlServer, closeControlServer, listenControlServer } from "./llama-control-server.js";
+import { createLoopbackWebUiProxy, listenLoopbackWebUiProxy, closeLoopbackWebUiProxy } from "./loopback-webui-proxy.js";
 import { createLlamaServerService } from "./llama-server-service.js";
 import { pidAlive, readLock, removeLock, writeLock } from "./lock.js";
 import { createLogFileWriter, formatLogLine } from "./log-file.js";
@@ -143,6 +144,8 @@ const translationService = createTranslationService({
 
 /** @type {import("node:http").Server | null} */
 let controlServer = null;
+/** @type {import("node:http").Server | null} */
+let loopbackWebUiProxy = null;
 
 const iconData = JSON.parse(readFileSync(join(__dirname, "icon.json"), "utf8"));
 const TRAY_ICON = iconData.base64;
@@ -512,6 +515,20 @@ async function spawnWeb({ pull = true } = {}) {
   // Tailscale can disappear or change while a production build is running.
   // Resolve the automatic bind again immediately before launching Next.js.
   refreshWebUiBinding();
+  if (isLoopbackBind(WEBUI_HOST) || WEBUI_HOST === "0.0.0.0" || WEBUI_HOST === "::") {
+    await closeLoopbackWebUiProxy(loopbackWebUiProxy);
+    loopbackWebUiProxy = null;
+  } else if (!loopbackWebUiProxy) {
+    const proxy = createLoopbackWebUiProxy(() => ({ host: WEBUI_HOST, port: WEBUI_PORT }));
+    try {
+      await listenLoopbackWebUiProxy(proxy, WEBUI_PORT);
+      loopbackWebUiProxy = proxy;
+      log(`Host-only WebUI proxy listening on http://127.0.0.1:${WEBUI_PORT}`);
+    } catch (err) {
+      proxy.close();
+      error(`Host-only WebUI proxy unavailable: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
   // Production serves the mirrored project; dev keeps running from the repo.
   const projectDir = useProd ? WEB_MIRROR_DIR : WEB_DIR;
   const args = useProd
@@ -973,6 +990,12 @@ async function quit() {
   if (quitting) return;
   quitting = true;
   log("Quitting...");
+  try {
+    await closeLoopbackWebUiProxy(loopbackWebUiProxy);
+    loopbackWebUiProxy = null;
+  } catch {
+    /* ignore */
+  }
   try {
     await closeControlServer(controlServer);
     controlServer = null;
