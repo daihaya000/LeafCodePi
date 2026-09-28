@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { sendJson } from "@/lib/client";
+import { getJson, sendJson } from "@/lib/client";
 import { prepareServerSettingsImport, refreshServerSettings } from "@/lib/setting-sync";
 import type { SettingsBackup, TransferScope } from "@/lib/pi/settings-transfer";
 
@@ -16,6 +16,8 @@ export function SettingsTransfer() {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [recoveryId, setRecoveryId] = useState<string | null>(null);
+  const [recoveries, setRecoveries] = useState<string[]>([]);
   const fileRef = useRef<HTMLInputElement>(null);
 
   async function exportBackup() {
@@ -46,6 +48,7 @@ export function SettingsTransfer() {
     setBusy(true);
     setError(null);
     setMessage(null);
+    setRecoveryId(null);
     try {
       if (file.size > 20 * 1024 * 1024) throw new Error("バックアップは20MB以下にしてください");
       const backup = JSON.parse(await file.text()) as SettingsBackup;
@@ -59,9 +62,60 @@ export function SettingsTransfer() {
       await refreshServerSettings();
       setMessage(`${labels[backup.scope]}をインポートしました。実行中セッションや認証キャッシュへの反映にはLeafCodePiを再起動してください。`);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "インポートに失敗しました");
+      const detail = cause instanceof Error ? cause.message : "インポートに失敗しました";
+      setError(detail);
+      setRecoveryId(detail.startsWith("設定の自動復旧に失敗しました")
+        ? detail.match(/settings-transfer-recovery[\\/]([0-9a-f-]{36})\.json/)?.[1] ?? null
+        : null);
     } finally {
       if (fileRef.current) fileRef.current.value = "";
+      setBusy(false);
+    }
+  }
+
+  async function checkRecoveries() {
+    setBusy(true);
+    setError(null);
+    try {
+      const result = await getJson<{ recoveries: string[] }>("/api/settings/transfer", undefined, { coalesce: false });
+      setRecoveries(result.recoveries);
+      if (!result.recoveries.length) setMessage("保全ファイルはありません");
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "保全ファイルの確認に失敗しました");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function recoverBackup(id: string) {
+    if (!window.confirm("書き込み障害を解消しましたか？異常終了で残ったファイルは適用済みの設定を取り消す可能性もあります。保全ファイルからインポート前の状態に戻しますか？")) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await sendJson("/api/settings/transfer", { action: "recover", recoveryId: id });
+      await refreshServerSettings();
+      setRecoveryId(null);
+      setRecoveries((current) => current.filter((item) => item !== id));
+      setMessage("保全ファイルから復旧しました。LeafCodePiを再起動してください。");
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "復旧に失敗しました");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function discardRecovery(id: string) {
+    if (!window.confirm("復旧は不要で、現在の設定が正しいことを確認しましたか？保全ファイルを削除すると復旧できません。")) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await sendJson("/api/settings/transfer", { action: "discard-recovery", recoveryId: id });
+      setRecoveryId(null);
+      setRecoveries((current) => current.filter((item) => item !== id));
+      setMessage("保全ファイルを削除しました");
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "保全ファイルの削除に失敗しました");
+    } finally {
       setBusy(false);
     }
   }
@@ -83,9 +137,25 @@ export function SettingsTransfer() {
           <input ref={fileRef} type="file" accept=".json,application/json" disabled={busy} aria-label="バックアップJSONを選択" className="sr-only" onChange={(event) => { const file = event.target.files?.[0]; if (file) void importBackup(file); }} />
         </label>
       </div>
-      <p className="mt-3 text-xs text-muted">部分転送はローカル接続またはWebUIアクセスゲート有効時のみ。認証バックアップは平文のため、共有・クラウド同期に注意してください。インポートは指定された項目だけを上書きします。</p>
+      <p className="mt-3 text-xs text-muted">部分転送はローカル接続またはWebUIアクセスゲート有効時のみ。認証バックアップは平文のため、共有・クラウド同期に注意してください。インポート前に元のファイルを一時保全し、失敗時は自動復旧します。復旧不能・異常終了時に残る保全ファイルも秘密情報として扱ってください。</p>
       {message && <p role="status" className="mt-3 text-sm text-muted">{message}</p>}
       {error && <p role="alert" className="mt-3 text-sm text-danger">{error}</p>}
+      {recoveryId && <button type="button" disabled={busy} onClick={() => void recoverBackup(recoveryId)} className="mt-3 min-h-11 rounded-lg border border-border bg-surface-2 px-4 text-sm text-text focus-visible:outline-2 focus-visible:outline-accent disabled:opacity-50">保全ファイルから復旧</button>}
+      <div className="mt-3">
+        <button type="button" disabled={busy} onClick={() => void checkRecoveries()} className="min-h-11 text-sm text-accent hover:underline disabled:opacity-50">異常終了後の保全ファイルを確認</button>
+        {recoveries.length > 0 && (
+          <div className="mt-2 space-y-2 text-xs text-muted">
+            <p>保全ファイル {recoveries.length} 件。復旧すると適用済みの変更も取り消す可能性があります。</p>
+            {recoveries.map((id) => (
+              <div key={id} className="flex flex-wrap items-center gap-2">
+                <span className="break-all">{id}</span>
+                {id !== recoveryId && <button type="button" disabled={busy} onClick={() => void recoverBackup(id)} className="min-h-11 rounded-lg border border-border bg-surface-2 px-3 text-text disabled:opacity-50">復旧</button>}
+                <button type="button" disabled={busy} onClick={() => void discardRecovery(id)} className="min-h-11 rounded-lg border border-border bg-surface-2 px-3 text-text disabled:opacity-50">保全ファイルを削除</button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   );
 }

@@ -1,5 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { exportSettingsBackup, importSettingsBackup, type TransferScope } from "@/lib/pi/settings-transfer";
+import { TransferRecoveryError, discardTransferRecoveryFile, listTransferRecoveries, restoreTransferRecoveryFile } from "@/lib/pi/transfer-recovery";
+import { invalidateSettingsFileCache } from "@/lib/pi/web-settings";
+import { invalidateCachedUsage } from "@/lib/codexbar/cache";
+import { dataDir } from "@/lib/paths";
+import { join } from "node:path";
 import { isWebUiRequestAuthorized } from "@/lib/webui-auth";
 
 export const runtime = "nodejs";
@@ -7,12 +12,11 @@ export const dynamic = "force-dynamic";
 
 const noStore = { "Cache-Control": "no-store, private", "X-Content-Type-Options": "nosniff" };
 
-export async function POST(req: NextRequest) {
+function rejectUnauthorized(req: NextRequest): NextResponse | null {
   const origin = req.headers.get("origin");
   if (origin && origin !== new URL(req.url).origin) {
     return NextResponse.json({ error: "許可されない接続元です" }, { status: 403, headers: noStore });
   }
-  // 未認証リクエストは JSON 本文を読み込む前に拒否する。
   const loopbackHosts = ["127.0.0.1", "localhost", "::1", "[::1]"];
   const hostHeader = req.headers.get("host");
   let headerHost = "";
@@ -25,6 +29,19 @@ export async function POST(req: NextRequest) {
   if (!localOnly && !isWebUiRequestAuthorized(req)) {
     return NextResponse.json({ error: "設定の転送にはローカル接続またはWebUIアクセスゲートが必要です" }, { status: 403, headers: noStore });
   }
+  return null;
+}
+
+export async function GET(req: NextRequest) {
+  const unauthorized = rejectUnauthorized(req);
+  if (unauthorized) return unauthorized;
+  return NextResponse.json({ recoveries: listTransferRecoveries() }, { headers: noStore });
+}
+
+export async function POST(req: NextRequest) {
+  // 未認証リクエストは JSON 本文を読み込む前に拒否する。
+  const unauthorized = rejectUnauthorized(req);
+  if (unauthorized) return unauthorized;
   if (Number(req.headers.get("content-length")) > 20 * 1024 * 1024) {
     return NextResponse.json({ error: "バックアップが大きすぎます" }, { status: 413, headers: noStore });
   }
@@ -33,6 +50,20 @@ export async function POST(req: NextRequest) {
     if (Buffer.byteLength(text, "utf8") > 20 * 1024 * 1024) return NextResponse.json({ error: "バックアップが大きすぎます" }, { status: 413, headers: noStore });
     const body = JSON.parse(text) as Record<string, unknown>;
     if (!body || typeof body !== "object" || Array.isArray(body)) return NextResponse.json({ error: "リクエスト形式が不正です" }, { status: 400, headers: noStore });
+    if (body.action === "recover" || body.action === "discard-recovery") {
+      const id = body.recoveryId;
+      if (typeof id !== "string" || !/^[0-9a-f-]{36}$/.test(id)) {
+        return NextResponse.json({ error: "保全ファイルIDが不正です" }, { status: 400, headers: noStore });
+      }
+      if (body.action === "discard-recovery") {
+        discardTransferRecoveryFile(id);
+        return NextResponse.json({ discarded: true }, { headers: noStore });
+      }
+      await restoreTransferRecoveryFile(join(dataDir(), "settings-transfer-recovery", `${id}.json`));
+      invalidateSettingsFileCache();
+      invalidateCachedUsage();
+      return NextResponse.json({ recovered: true }, { headers: noStore });
+    }
     const scope = body.action === "export" ? body.scope : (body.backup as { scope?: unknown } | null)?.scope;
     if (scope !== "settings" && scope !== "credentials" && scope !== "all") return NextResponse.json({ error: "範囲が不正です" }, { status: 400, headers: noStore });
     if (body.action === "export") {
@@ -45,7 +76,11 @@ export async function POST(req: NextRequest) {
     }
     return NextResponse.json({ error: "操作が不正です" }, { status: 400, headers: noStore });
   } catch (error) {
+    if (error instanceof TransferRecoveryError) {
+      return NextResponse.json({ error: error.message, recoveryPath: error.recoveryPath }, { status: 500, headers: noStore });
+    }
     const status = (error as { status?: unknown }).status;
-    return NextResponse.json({ error: status === 400 ? (error as Error).message : "バックアップ処理に失敗しました" }, { status: status === 400 ? 400 : 500, headers: noStore });
+    const expected = status === 400 || status === 409;
+    return NextResponse.json({ error: expected ? (error as Error).message : "転送処理に失敗しました。変更が行われた場合は自動復旧を試みました" }, { status: status === 400 ? 400 : status === 409 ? 409 : 500, headers: noStore });
   }
 }

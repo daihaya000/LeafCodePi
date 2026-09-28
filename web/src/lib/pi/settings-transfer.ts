@@ -1,6 +1,4 @@
 import { lstatSync, readFileSync } from "node:fs";
-import { mkdir, rmdir } from "node:fs/promises";
-import { setTimeout as delay } from "node:timers/promises";
 import { dirname, join } from "node:path";
 import {
   accountAuthPath, importAccountRecords, listAccounts, resolvePiAgentDir,
@@ -18,13 +16,16 @@ import { accountOllamaCookiePath, defaultOllamaCookiePath, saveOllamaCookieFile 
 import { readOpenRouterManagementKey, writeOpenRouterAccountConfig } from "@/lib/codexbar/providers/openrouter";
 import { readAccountOpenCodeGoWorkspace, writeAccountOpenCodeGoWorkspace } from "@/lib/codexbar/providers/opencode-go";
 import { atomicWriteText } from "@/lib/codexbar/utils";
+import { invalidateCachedUsage } from "@/lib/codexbar/cache";
 import {
   AUTO_RESUME_MODE_SETTING_KEY, HANG_TIMEOUT_SETTING_KEY,
   clampHangTimeoutMs, isAutoResumeMode,
 } from "@/lib/hang-timeout";
 import { JEV_MODEL_SETTING_KEY, normalizeJevModelSettings } from "@/lib/jev-model-settings";
 import { ALLOWED_SETTING_KEYS, validateSettingValue } from "@/lib/pi/setting-validation";
-import { MAX_SETTING_VALUE_CHARS, readSettingsFile, updateSettingsFile } from "@/lib/pi/web-settings";
+import { withAuthFileLock, withTransferRecovery } from "@/lib/pi/transfer-recovery";
+import { MAX_SETTING_VALUE_CHARS, invalidateSettingsFileCache, readSettingsFile, updateSettingsFile } from "@/lib/pi/web-settings";
+import { dataDir } from "@/lib/paths";
 
 export type TransferScope = "settings" | "credentials" | "all";
 type AuthEntries = Record<string, Record<string, unknown>>;
@@ -203,26 +204,12 @@ function validateCredentials(raw: unknown): CredentialBackup {
   if (new Set(ids).size !== ids.length) invalid("アカウントIDが重複しています");
   return { defaultAuth: checkAuthEntries(value.defaultAuth), accounts, sharedCookies: validateCookies(value.sharedCookies, [...cookieNames, "typesafe"]) };
 }
-/** Pi SDK / CodexBar と同じ auth.json.lock を取得し、OAuth 更新との競合を避ける。 */
 async function writeAuth(path: string, imported: AuthEntries): Promise<void> {
   if (!Object.keys(imported).length) return;
-  await mkdir(dirname(path), { recursive: true, mode: 0o700 });
-  const lock = `${path}.lock`;
-  const deadline = Date.now() + 30_000;
-  for (;;) {
-    try { await mkdir(lock, { mode: 0o700 }); break; }
-    catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
-      if (Date.now() >= deadline) throw new Error("認証ファイルのロックを取得できません");
-      await delay(25);
-    }
-  }
-  try {
+  await withAuthFileLock(path, () => {
     const current = readAuth(path);
     atomicWriteText(path, `${JSON.stringify({ ...current, ...imported }, null, 2)}\n`, 0o600);
-  } finally {
-    await rmdir(lock);
-  }
+  });
 }
 function writeCookies(cookies: Partial<Record<CookieName | "typesafe", string>>, authPath?: string, accountId?: string): void {
   if (cookies.anthropic) {
@@ -240,8 +227,34 @@ function writeCookies(cookies: Partial<Record<CookieName | "typesafe", string>>,
   if (cookies.typesafe) saveTypesafeCookieFile(cookies.typesafe);
 }
 
+function transferTargets(settings: Record<string, string | number> | null, credentials: CredentialBackup | null, agentDir: string): string[] {
+  const targets: string[] = [];
+  if (settings) targets.push(join(dataDir(), "web-settings.json"));
+  if (!credentials) return targets;
+  if (credentials.accounts.length) targets.push(join(dataDir(), "accounts.json"));
+  if (Object.keys(credentials.defaultAuth).length) targets.push(join(agentDir, "auth.json"));
+  for (const account of credentials.accounts) {
+    const authPath = accountAuthPath(account.record.id, agentDir);
+    if (Object.keys(account.auth).length) targets.push(authPath);
+    const paths = cookiePaths(authPath, account.record.id);
+    for (const name of cookieNames) if (account.cookies[name]) targets.push(paths[name]);
+    if (account.openrouterManagementKey) targets.push(join(dirname(authPath), "openrouter.json"));
+    if (account.opencodeWorkspaceId) targets.push(join(dirname(authPath), "opencode-go.json"));
+  }
+  const shared = credentials.sharedCookies;
+  if (shared.anthropic) targets.push(defaultAnthropicCookiePath());
+  if (shared.opencode) targets.push(defaultOpenCodeCookiePath());
+  if (shared.ollama) targets.push(defaultOllamaCookiePath());
+  if (shared.typesafe) targets.push(defaultTypesafeCookiePath());
+  return targets;
+}
+
 /** 存在するキーだけマージする。インポートに無い既存資格情報・設定は削除しない。 */
-export async function importSettingsBackup(input: unknown): Promise<TransferScope> {
+export async function importSettingsBackup(
+  input: unknown,
+  /** @internal 障害注入テスト用。API からは渡さない。 */
+  testHooks?: { afterDefaultAuth?: () => void; afterApply?: () => void },
+): Promise<TransferScope> {
   const raw = object(input);
   if (Buffer.byteLength(JSON.stringify(raw), "utf8") > MAX_ARCHIVE_BYTES) invalid("バックアップが大きすぎます");
   if (raw.format !== "leafcode-pi-settings" || raw.version !== 1 || !["settings", "credentials", "all"].includes(String(raw.scope))) invalid("未対応のバックアップ形式です");
@@ -250,19 +263,26 @@ export async function importSettingsBackup(input: unknown): Promise<TransferScop
   const credentials = scope === "settings" ? null : validateCredentials(raw.credentials);
   const settings = scope === "credentials" ? null : validateSettings(raw.settings, credentials?.accounts.map(({ record }) => record.id));
   const agentDir = credentials ? await resolvePiAgentDir() : "";
-  // バリデーションが終わるまではディスクに一切書かない。
-  if (credentials) {
-    importAccountRecords(credentials.accounts.map(({ record }) => record));
-    await writeAuth(join(agentDir, "auth.json"), credentials.defaultAuth);
-    for (const account of credentials.accounts) {
-      const authPath = accountAuthPath(account.record.id, agentDir);
-      await writeAuth(authPath, account.auth);
-      writeCookies(account.cookies, authPath, account.record.id);
-      if (account.openrouterManagementKey) writeOpenRouterAccountConfig(authPath, { managementKey: account.openrouterManagementKey });
-      if (account.opencodeWorkspaceId) writeAccountOpenCodeGoWorkspace(authPath, account.opencodeWorkspaceId);
+  // バリデーション後、変更対象の元バイト列を保全してから書き込む。
+  return withTransferRecovery(transferTargets(settings, credentials, agentDir), async () => {
+    if (credentials) {
+      importAccountRecords(credentials.accounts.map(({ record }) => record));
+      await writeAuth(join(agentDir, "auth.json"), credentials.defaultAuth);
+      testHooks?.afterDefaultAuth?.();
+      for (const account of credentials.accounts) {
+        const authPath = accountAuthPath(account.record.id, agentDir);
+        await writeAuth(authPath, account.auth);
+        writeCookies(account.cookies, authPath, account.record.id);
+        if (account.openrouterManagementKey) writeOpenRouterAccountConfig(authPath, { managementKey: account.openrouterManagementKey });
+        if (account.opencodeWorkspaceId) writeAccountOpenCodeGoWorkspace(authPath, account.opencodeWorkspaceId);
+      }
+      writeCookies(credentials.sharedCookies);
     }
-    writeCookies(credentials.sharedCookies);
-  }
-  if (settings) updateSettingsFile((current) => { Object.assign(current, settings); });
-  return scope;
+    if (settings) updateSettingsFile((current) => { Object.assign(current, settings); });
+    testHooks?.afterApply?.();
+    return scope;
+  }, () => {
+    if (settings) invalidateSettingsFileCache();
+    if (credentials) invalidateCachedUsage();
+  });
 }

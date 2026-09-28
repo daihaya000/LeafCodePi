@@ -152,6 +152,11 @@ export function updateSettingsFile<T>(update: (settings: WebSettingsFile) => T):
   }
 }
 
+/** 転送失敗時に元のバイト列へ戻した後、古い設定オブジェクトを再利用しない。 */
+export function invalidateSettingsFileCache(): void {
+  cachedSettings = null;
+}
+
 const readSettings = readSettingsFile;
 
 /** 最大 4KB。この BFF は認証なしで LAN から到達可能なため。 */

@@ -1,14 +1,17 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { NextRequest } from "next/server";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { __resetPiAgentDirCacheForTests, accountAuthPath, createAccount, listAccounts } from "@/lib/accounts";
 import { accountAnthropicCookiePath, defaultTypesafeCookiePath, saveAccountAnthropicCookieFile, saveTypesafeCookieFile } from "@/lib/codexbar/browser-cookies";
 import { accountOllamaCookiePath, saveOllamaCookieFile } from "@/lib/codexbar/providers/ollama-cloud";
 import { readOpenRouterManagementKey, writeOpenRouterAccountConfig } from "@/lib/codexbar/providers/openrouter";
+import { writeAccountOpenCodeGoWorkspace } from "@/lib/codexbar/providers/opencode-go";
 import { getSetting, setSetting } from "@/lib/pi/web-settings";
-import { POST } from "./route";
+import { importSettingsBackup } from "@/lib/pi/settings-transfer";
+import { TransferRecoveryError, withTransferRecovery } from "@/lib/pi/transfer-recovery";
+import { GET, POST } from "./route";
 
 const saved = {
   data: process.env.LEAFCODE_PI_DATA_DIR,
@@ -32,6 +35,9 @@ function request(body: unknown, headers: Record<string, string> = {}) {
   return new NextRequest("http://localhost/api/settings/transfer", {
     method: "POST", headers: { "content-type": "application/json", ...headers }, body: JSON.stringify(body),
   });
+}
+function getRequest(headers: Record<string, string> = {}) {
+  return new NextRequest("http://localhost/api/settings/transfer", { headers });
 }
 function restore(key: keyof typeof saved, env: string) {
   if (saved[key] === undefined) delete process.env[env];
@@ -176,6 +182,9 @@ describe("/api/settings/transfer", () => {
     expect(denied.status).toBe(403);
     const settingsDenied = await POST(request({ action: "export", scope: "settings" }));
     expect(settingsDenied.status).toBe(403);
+    const recoveryDenied = await POST(request({ action: "recover", recoveryId: "12345678-1234-1234-1234-123456789abc" }));
+    expect(recoveryDenied.status).toBe(403);
+    expect((await GET(getRequest())).status).toBe(403);
     const crossOrigin = await POST(request({ action: "export", scope: "credentials" }, { origin: "https://untrusted.example", cookie: "leafcode-pi-token=test-token" }));
     expect(crossOrigin.status).toBe(403);
     process.env.LEAFCODE_PI_WEBUI_AUTH = "";
@@ -207,6 +216,76 @@ describe("/api/settings/transfer", () => {
     const invalidCookie = await POST(request({ action: "import", backup }, { cookie: "leafcode-pi-token=test-token" }));
     expect(invalidCookie.status).toBe(400);
     expect(existsSync(join(process.env.LEAFCODE_PI_DATA_DIR!, "accounts.json"))).toBe(false);
+  });
+
+  it("restores account metadata, auth, cookie and settings after a late write failure", async () => {
+    setup();
+    const account = createAccount({ label: "Providers", providers: ["ollama-cloud", "openrouter", "opencode-go"] });
+    const sourceAccountAuth = accountAuthPath(account.id, process.env.PI_CODING_AGENT_DIR!);
+    writeOpenRouterAccountConfig(sourceAccountAuth, { managementKey: "imported-management" });
+    writeAccountOpenCodeGoWorkspace(sourceAccountAuth, "imported-workspace");
+    saveTypesafeCookieFile("# Netscape HTTP Cookie File\n.console.typesafe.ai\tTRUE\t/\tTRUE\t0\tsession_id\timported-cookie\n.console.typesafe.ai\tTRUE\t/\tTRUE\t0\torganization_id\torg-source\n");
+    const sourceDefaultAuth = join(process.env.PI_CODING_AGENT_DIR!, "auth.json");
+    mkdirSync(dirname(sourceDefaultAuth), { recursive: true });
+    writeFileSync(sourceDefaultAuth, JSON.stringify({ typesafe: { type: "api_key", key: "imported" } }));
+    saveOllamaCookieFile(account.id, "# Netscape HTTP Cookie File\n.ollama.com\tTRUE\t/\tTRUE\t0\tsession\timported-cookie\n");
+    setSetting("auto-optimize", "balanced");
+    const exported = await POST(request({ action: "export", scope: "all" }, { cookie: "leafcode-pi-token=test-token" }));
+    const { backup } = await exported.json();
+
+    setup();
+    const targetDefaultAuth = join(process.env.PI_CODING_AGENT_DIR!, "auth.json");
+    mkdirSync(dirname(targetDefaultAuth), { recursive: true });
+    writeFileSync(targetDefaultAuth, JSON.stringify({ typesafe: { type: "api_key", key: "original" } }));
+    setSetting("auto-optimize", "cost");
+    saveTypesafeCookieFile("# Netscape HTTP Cookie File\n.console.typesafe.ai\tTRUE\t/\tTRUE\t0\tsession_id\toriginal-cookie\n.console.typesafe.ai\tTRUE\t/\tTRUE\t0\torganization_id\torg-target\n");
+    await expect(importSettingsBackup(backup, { afterApply: () => { throw new Error("simulated disk failure"); } }))
+      .rejects.toThrow("simulated disk failure");
+
+    expect(listAccounts()).toHaveLength(0);
+    expect(JSON.parse(readFileSync(targetDefaultAuth, "utf8")).typesafe.key).toBe("original");
+    expect(getSetting("auto-optimize")).toBe("cost");
+    expect(existsSync(accountOllamaCookiePath(account.id)!)).toBe(false);
+    expect(existsSync(join(dirname(accountAuthPath(account.id, process.env.PI_CODING_AGENT_DIR!)), "openrouter.json"))).toBe(false);
+    expect(existsSync(join(dirname(accountAuthPath(account.id, process.env.PI_CODING_AGENT_DIR!)), "opencode-go.json"))).toBe(false);
+    expect(readFileSync(defaultTypesafeCookiePath(), "utf8")).toContain("original-cookie");
+    const recoveryDir = join(process.env.LEAFCODE_PI_DATA_DIR!, "settings-transfer-recovery");
+    expect(readdirSync(recoveryDir)).toEqual([]);
+  });
+
+  it("lists and discards only preserved journals on an authorized connection", async () => {
+    const root = setup();
+    const blocked = join(root, "blocked");
+    let recoveryPath = "";
+    try {
+      await withTransferRecovery([blocked], async () => { mkdirSync(blocked); throw new Error("disk error"); });
+    } catch (error) { recoveryPath = (error as TransferRecoveryError).recoveryPath; }
+    const id = basename(recoveryPath, ".json");
+    const listing = await GET(getRequest({ cookie: "leafcode-pi-token=test-token" }));
+    expect((await listing.json()).recoveries).toContain(id);
+    const discarded = await POST(request({ action: "discard-recovery", recoveryId: id }, { cookie: "leafcode-pi-token=test-token" }));
+    expect(discarded.status).toBe(200);
+    expect(existsSync(recoveryPath)).toBe(false);
+  });
+
+  it("restores a preserved snapshot after the filesystem issue is resolved", async () => {
+    const root = setup();
+    const blocked = join(root, "blocked");
+    let recoveryPath = "";
+    try {
+      await withTransferRecovery([blocked], async () => {
+        mkdirSync(blocked);
+        throw new Error("disk error");
+      });
+    } catch (error) {
+      expect(error).toBeInstanceOf(TransferRecoveryError);
+      recoveryPath = (error as TransferRecoveryError).recoveryPath;
+    }
+    expect(existsSync(recoveryPath)).toBe(true);
+    rmSync(blocked, { recursive: true });
+    const response = await POST(request({ action: "recover", recoveryId: basename(recoveryPath, ".json") }, { cookie: "leafcode-pi-token=test-token" }));
+    expect(response.status).toBe(200);
+    expect(existsSync(recoveryPath)).toBe(false);
   });
 
   it("does not import settings or accounts when a combined archive contains an invalid value", async () => {
