@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { afterEach, describe, it, vi } from "vitest";
-import { snapshotThroughput } from "@/lib/token-throughput";
+import { snapshotThroughput, type ThroughputTiming } from "@/lib/token-throughput";
 import { restoredThroughputState, trackThroughputEvent } from "./harness";
 import { VersionedThroughputMap } from "./versioned-throughput-map";
 
@@ -47,6 +47,25 @@ describe("restoredThroughputState", () => {
 
     assert.equal(restored.throughputByStartedAt, existingTimings);
     assert.equal(restored.persistedThroughputKeys, existingKeys);
+  });
+
+  it("wraps loaded timings and reuses loaded persisted keys without existing runtime", () => {
+    const loadedTiming: ThroughputTiming = {
+      startedAtMs: 1_000, firstTokenAtMs: 1_100, lastTokenAtMs: 1_500,
+      outputTokens: 10, charCount: 0,
+    };
+    const loadedTimings = new Map([[1_000, loadedTiming]]);
+    const loadedKeys = new Set([1_000]);
+
+    const restored = restoredThroughputState(undefined, {
+      timings: loadedTimings, persistedKeys: loadedKeys,
+    }, null);
+
+    assert.ok(restored.throughputByStartedAt instanceof VersionedThroughputMap);
+    assert.notEqual(restored.throughputByStartedAt, loadedTimings);
+    assert.equal(restored.throughputByStartedAt.get(1_000)?.outputTokens, 10);
+    assert.equal(Object.isFrozen(restored.throughputByStartedAt.get(1_000)), true);
+    assert.equal(restored.persistedThroughputKeys, loadedKeys);
   });
 });
 
