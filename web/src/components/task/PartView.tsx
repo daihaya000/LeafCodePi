@@ -539,7 +539,7 @@ export const ToolCard = memo(function ToolCard({
         onClick={() => hasDetail && setOpen((value) => !value)}
         aria-expanded={hasDetail ? open : undefined}
         className={cx(
-          "flex w-full items-center gap-2.5 bg-surface-2 px-3 py-2.5 text-left focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary focus-visible:outline-none",
+          "relative flex w-full items-center gap-2.5 bg-surface-2 px-3 py-2.5 text-left focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary focus-visible:outline-none",
           hasDetail && "cursor-pointer hover:bg-surface-3",
         )}
       >

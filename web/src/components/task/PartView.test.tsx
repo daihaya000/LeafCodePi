@@ -94,6 +94,13 @@ function readMessage(status: "running" | "error"): UiMessage {
 describe("PartView shell log", () => {
   afterEach(() => cleanup());
 
+  it("anchors the screen-reader status inside the tool header instead of extending the timeline scroll range", () => {
+    render(<PartView message={bashMessage("line 1")} />);
+
+    const status = screen.getByText("実行中", { selector: ".sr-only" });
+    expect(status.closest("button")?.classList.contains("relative")).toBe(true);
+  });
+
   it("uses a terminal-style dark surface for shell output", () => {
     render(<PartView message={bashMessage("line 1")} />);
 
