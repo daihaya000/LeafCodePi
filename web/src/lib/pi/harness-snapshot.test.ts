@@ -1,10 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  applyMessageAccountIds,
   buildTaskBootstrap,
   sessionContextUsage,
   snapshotMessages,
 } from "./harness";
-import type { TaskSummary } from "@/lib/types";
+import type { TaskSummary, UiMessage } from "@/lib/types";
 
 describe("snapshotMessages", () => {
   it("reuses stable history while projecting a changing streaming suffix", () => {
@@ -60,6 +61,20 @@ describe("snapshotMessages", () => {
     expect(first).not.toBe(second);
     expect(first[0]?.parts[0]).toMatchObject({ text: "最初の会話" });
     expect(second[0]?.parts[0]).toMatchObject({ text: "別の会話" });
+  });
+
+  it("skips default-account remapping only when no message has a recorded account", () => {
+    const messages: UiMessage[] = [{ id: "a", role: "assistant", createdAt: 1, parts: [] }];
+    const context = { accountId: null, byMessageId: new Map<string, string>() };
+    const map = vi.spyOn(messages, "map");
+    try {
+      expect(applyMessageAccountIds(messages, context)).toBe(messages);
+      expect(map).not.toHaveBeenCalled();
+      context.byMessageId.set("a", "acc-1");
+      expect(applyMessageAccountIds(messages, context)[0]?.accountId).toBe("acc-1");
+    } finally {
+      map.mockRestore();
+    }
   });
 
   it("records the generating account and keeps it after rerouting", () => {

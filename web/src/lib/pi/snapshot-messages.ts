@@ -201,6 +201,7 @@ export function applyMessageAccountIds(
   context: MessageAccountContext,
 ): UiMessage[] {
   const { accountId, byMessageId } = context;
+  if (!accountId && byMessageId.size === 0) return messages;
   let changed = false;
   const result = messages.map((message) => {
     if (message.role !== "assistant") return message;
