@@ -64,11 +64,11 @@ export function WebUiAuthSettings() {
         nextToken.length > TOKEN_MAX_LENGTH ||
         !TOKEN_PATTERN.test(nextToken))
     ) {
-      setError(`トークンは${TOKEN_MIN_LENGTH}〜${TOKEN_MAX_LENGTH}文字のURL-safe文字列で入力してください`);
+      setError(`パスワードは${TOKEN_MIN_LENGTH}〜${TOKEN_MAX_LENGTH}文字のURL-safe文字列で入力してください`);
       return;
     }
     if (snapshot?.envManaged && nextToken) {
-      setError("環境変数で管理されているトークンはここから変更できません");
+      setError("環境変数で管理されているパスワードはここから変更できません");
       return;
     }
 
@@ -98,7 +98,7 @@ export function WebUiAuthSettings() {
         <div>
           <h3 className="text-sm font-semibold">WebUI アクセス</h3>
           <p className="mt-1 text-xs text-muted">
-            リモート接続時のアクセスゲートとトークンを設定します。トークン本文は表示・保存結果に返しません。
+            リモート接続時のアクセスゲートとパスワードを設定します。パスワードは表示・保存結果に返しません。
           </p>
         </div>
         <Badge tone={currentStatus.tone}>{currentStatus.label}</Badge>
@@ -120,7 +120,7 @@ export function WebUiAuthSettings() {
 
         {snapshot?.remote && !enabled && (
           <p className="rounded-xl border border-warning/30 bg-warning-bg px-3 py-2 text-xs text-warning">
-            無効にすると、リモート接続でもトークンなしでWebUIへアクセスできます。
+            無効にすると、リモート接続でもパスワードなしでWebUIへアクセスできます。
           </p>
         )}
         {snapshot && !snapshot.remote && (
@@ -128,7 +128,7 @@ export function WebUiAuthSettings() {
         )}
 
         <label className="block text-sm">
-          <span className="mb-1.5 block text-muted">新しいアクセストークン</span>
+          <span className="mb-1.5 block text-muted">新しいパスワード</span>
           <input
             type="password"
             autoComplete="new-password"
@@ -147,8 +147,8 @@ export function WebUiAuthSettings() {
         </label>
         <p id="webui-auth-help" className="text-[11px] text-muted">
           {snapshot?.envManaged
-            ? "LEAFCODE_PI_WEBUI_TOKEN が環境変数で指定されているため、トークン変更は環境変数側で行ってください。"
-            : "変更後は現在のログイン cookie も新しいトークンへ更新されます。保存時にWebUIが再起動します。"}
+            ? "LEAFCODE_PI_WEBUI_TOKEN が環境変数で指定されているため、パスワード変更は環境変数側で行ってください。"
+            : "変更後は現在のログイン cookie も新しいパスワードへ更新されます。保存時にWebUIが再起動します。"}
         </p>
       </div>
 

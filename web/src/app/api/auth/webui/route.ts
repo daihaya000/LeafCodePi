@@ -24,7 +24,7 @@ export async function POST(req: Request) {
   const given = String(body.token ?? "").trim();
   const expected = expectedWebUiToken();
   if (!tokensMatch(given, expected)) {
-    return NextResponse.json({ error: "Invalid token" }, { status: 401 });
+    return NextResponse.json({ error: "パスワードが正しくありません" }, { status: 401 });
   }
 
   const res = NextResponse.json({ ok: true });

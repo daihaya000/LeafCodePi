@@ -44,7 +44,7 @@ export function ProfileSettings() {
   };
 
   const exportProfile = async () => {
-    if (!window.confirm("認証情報とWebUIトークンを含む設定プロファイルを保存します。安全な場所に保管してください。")) return;
+    if (!window.confirm("認証情報とWebUIパスワードを含む設定プロファイルを保存します。安全な場所に保管してください。")) return;
     setBusy("export");
     setError(null);
     setMessage(null);

@@ -1045,7 +1045,7 @@ async function main() {
     log("Tailscale IPv4 was not found; bound to 127.0.0.1 and will retry automatically. Connect Tailscale or set LEAFCODE_PI_HOST=0.0.0.0");
   }
   if (WEBUI_AUTH.authRequired && WEBUI_AUTH.token) {
-    log(`WebUI remote access requires a token (${webUiAuthPath(DATA_DIR)}). Use /login in the browser.`);
+    log(`WebUI remote access requires a password (${webUiAuthPath(DATA_DIR)}). Use /login in the browser.`);
   }
 
   process.on("SIGINT", () => {

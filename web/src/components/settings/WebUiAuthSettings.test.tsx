@@ -34,7 +34,7 @@ describe("WebUiAuthSettings", () => {
     render(<WebUiAuthSettings />);
 
     const gate = await screen.findByRole("switch", { name: "WebUIアクセスゲート" });
-    const input = screen.getByLabelText("新しいアクセストークン");
+    const input = screen.getByLabelText("新しいパスワード");
     fireEvent.click(gate);
     fireEvent.change(input, { target: { value: "abcd" } });
     fireEvent.click(screen.getByRole("button", { name: "保存" }));
@@ -52,7 +52,7 @@ describe("WebUiAuthSettings", () => {
     getJson.mockResolvedValue({ ...snapshot, envManaged: true });
     render(<WebUiAuthSettings />);
 
-    const input = await screen.findByLabelText("新しいアクセストークン");
+    const input = await screen.findByLabelText("新しいパスワード");
     expect((input as HTMLInputElement).disabled).toBe(true);
     expect(screen.getByText(/環境変数で指定/)).toBeTruthy();
   });

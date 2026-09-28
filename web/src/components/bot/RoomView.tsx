@@ -746,7 +746,7 @@ export function RoomView({ id, active = true }: { id: string; active?: boolean }
                 <input type="checkbox" className="mt-0.5" disabled={relaySaving} checked={room.botRelayEnabled === true} onChange={(event) => void saveBotRelay(event.target.checked)} />
                 <span className="min-w-0">
                   <span className="block font-medium">Bot間リレーを許可</span>
-                  <span className="mt-1 block text-xs text-muted">room_handoff とサーバー発行エンベロープによるメンション連鎖を有効にします。既定はオフで、変更には Web UI トークン認証が必要です。</span>
+                  <span className="mt-1 block text-xs text-muted">room_handoff とサーバー発行エンベロープによるメンション連鎖を有効にします。既定はオフで、変更には WebUI パスワード認証が必要です。</span>
                 </span>
               </label>
             </div>
