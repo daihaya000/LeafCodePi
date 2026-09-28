@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { Infinity } from "lucide-react";
+import { COMPOSER_ACTION_BUTTON_CLASS } from "@/components/Composer";
 import { cx } from "@/components/ui";
 import {
   clampGoalLoopCooldownSeconds,
@@ -36,7 +37,8 @@ export function GoalLoopToggle({
       disabled={disabled}
       onClick={onToggle}
       className={cx(
-        "flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border transition-colors disabled:opacity-40",
+        COMPOSER_ACTION_BUTTON_CLASS,
+        "border",
         enabled
           ? "border-primary/40 bg-primary/10 text-primary"
           : "border-border bg-bg text-muted hover:bg-surface-2 hover:text-text",

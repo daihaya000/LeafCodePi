@@ -59,6 +59,8 @@ it("shows settings only while the loop button is enabled", () => {
   const toggle = screen.getByRole("button", { name: "ループで継続実行" });
   expect(toggle.textContent).toBe("");
   expect(toggle.querySelector("svg.lucide-infinity")).toBeTruthy();
+  expect(toggle.className).toContain("h-9 w-9");
+  expect(toggle.className).toContain("!rounded-full");
   expect(toggle.getAttribute("aria-pressed")).toBe("false");
   expect(screen.queryByRole("region", { name: "ループ設定" })).toBeNull();
   fireEvent.click(toggle);
