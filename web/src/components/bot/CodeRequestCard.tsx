@@ -194,7 +194,7 @@ export function CodeRequestCard({
               </div>
             )}
             {task.todoProgress && task.todoProgress.total > 0 && <p className="text-muted">進捗: {task.todoProgress.completed}/{task.todoProgress.total}</p>}
-            {preview ? <div tabIndex={0} aria-label="Codeの出力" className="max-h-96 overflow-auto rounded-lg bg-bg p-3 text-sm leading-relaxed [overflow-wrap:anywhere] focus-visible:outline-2 focus-visible:outline-accent"><BotMessageMarkdown text={preview} /></div> : <p className="text-muted">{live ? "Codeの出力を待っています…" : "Codeの出力はありません"}</p>}
+            {preview ? <div tabIndex={0} aria-label="Codeの出力" className="max-h-96 overflow-auto rounded-lg bg-bg p-3 text-sm leading-relaxed [overflow-wrap:anywhere] focus-visible:outline-2 focus-visible:outline-accent"><BotMessageMarkdown text={preview} imageTaskId={taskId ?? undefined} /></div> : <p className="text-muted">{live ? "Codeの出力を待っています…" : "Codeの出力はありません"}</p>}
           </>}
           {!loading && !error && !task && <p className="text-muted">Codeタスク情報がありません</p>}
         </div>

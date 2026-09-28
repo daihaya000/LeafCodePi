@@ -1294,6 +1294,7 @@ export const BotView = memo(function BotView({ id, active = true }: { id: string
           sender={{ ...(bot ?? {}), name: senderName }} text={text} mentions={botMentions}
           providerID={message.provider} modelLabel={botMessageModelLabel(message, modelLabels)}
           responseDurationMs={message.responseDurationMs}
+          imageTaskId={`bot:${id}`}
           images={<BotMessageImages images={images.flatMap((part) => part.type === "image" ? [{ key: part.id, src: part.url, alt: part.filename ?? undefined }] : [])} />}
           files={<BotMessageFiles files={files.map((part) => ({ key: part.id, name: part.name, mime: part.mime, size: part.size }))} />}
           bubble={hasBubble}
