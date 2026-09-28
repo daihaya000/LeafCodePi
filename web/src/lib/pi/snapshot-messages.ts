@@ -311,7 +311,8 @@ export function snapshotMessages(
   const streamingHistoryIndex = inHistoryStreamingIndex(historyRaw, streaming);
   const streamingInHistory =
     streamingHistoryIndex >= 0 ||
-    (useBranchHistory ? entryIdByMessage.has(streaming) : stored.includes(streaming));
+    (streaming != null &&
+      (useBranchHistory ? entryIdByMessage.has(streaming) : stored.includes(streaming)));
   if (streamingHistoryIndex >= 0 && historyRaw[streamingHistoryIndex] !== streaming) {
     const branchMessage = historyRaw[streamingHistoryIndex];
     const entryId = entryIdByMessage.get(branchMessage);

@@ -30,6 +30,23 @@ describe("snapshotMessages", () => {
     expect(snapshotMessages(session).at(-1)?.parts[0]).toMatchObject({ text: "二" });
   });
 
+  it("skips stored-history membership checks when no message is streaming", () => {
+    const stored: unknown[] = [{ role: "user", content: "idle" }];
+    const includes = vi.spyOn(stored, "includes");
+    try {
+      const session = {
+        messages: stored,
+        agent: { state: { streamingMessage: undefined } },
+        sessionManager: { getLeafId: () => null, getBranch: () => [] },
+      } as unknown as Parameters<typeof snapshotMessages>[0];
+
+      expect(snapshotMessages(session)).toHaveLength(1);
+      expect(includes).not.toHaveBeenCalled();
+    } finally {
+      includes.mockRestore();
+    }
+  });
+
   it("keeps projection caches isolated between sessions", () => {
     const createSession = (text: string) => ({
       messages: [{ role: "user", content: text }],
