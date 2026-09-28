@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { afterEach, describe, it, vi } from "vitest";
-import { snapshotThroughput, type ThroughputTiming } from "@/lib/token-throughput";
+import { snapshotThroughput, THROUGHPUT_CUSTOM_TYPE, type ThroughputTiming } from "@/lib/token-throughput";
 import { loadThroughputFromSession, restoredThroughputState, trackThroughputEvent } from "./harness";
 import { VersionedThroughputMap } from "./versioned-throughput-map";
 
@@ -42,6 +42,26 @@ describe("loadThroughputFromSession", () => {
     assert.equal(first.persistedKeys.size, 0);
     assert.notEqual(first.timings, second.timings);
     assert.notEqual(first.persistedKeys, second.persistedKeys);
+  });
+
+  it("discards partial state when entry iteration fails", () => {
+    const entries: Iterable<unknown> = {
+      *[Symbol.iterator]() {
+        yield {
+          type: "custom", customType: THROUGHPUT_CUSTOM_TYPE,
+          data: { startedAtMs: 1_000, firstTokenAtMs: 1_100, lastTokenAtMs: 1_500, outputTokens: 10 },
+        };
+        throw new Error("iteration failed");
+      },
+    };
+    const session = {
+      sessionManager: { getEntries: () => entries },
+    } as unknown as Parameters<typeof loadThroughputFromSession>[0];
+
+    const restored = loadThroughputFromSession(session);
+
+    assert.equal(restored.timings.size, 0);
+    assert.equal(restored.persistedKeys.size, 0);
   });
 });
 
