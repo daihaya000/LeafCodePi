@@ -24,6 +24,12 @@ type ServerSettingApplier = (value: string | null, snapshotSeq: number) => void;
 type SettingsSnapshot = Record<string, string | null>;
 
 const appliers = new Map<string, ServerSettingApplier[]>();
+type ImportReconciler = {
+  settle: () => Promise<void>;
+  version: () => number;
+  accept: (version: number) => void;
+};
+const importReconcilers = new Map<string, ImportReconciler[]>();
 let snapshot: SettingsSnapshot | null = null;
 let snapshotSeq = 0;
 let hydration: Promise<void> | null = null;
@@ -106,10 +112,21 @@ export function refreshServerSettings(): Promise<void> {
 
 /** テスト用: hydrate状態を初期化する（登録済み applier は保持）。 */
 export function resetServerSettingsHydration(): void {
+  importReconcilers.clear();
   snapshot = null;
   snapshotSeq = 0;
   hydration = null;
   refreshing = null;
+}
+
+/** 取込前に既存の保存キューを待ち、成功後は旧 pending 値の再送を止める。 */
+export async function prepareServerSettingsImport(keys: readonly string[]): Promise<() => void> {
+  const reconcilers = keys.flatMap((key) => importReconcilers.get(key) ?? []);
+  await Promise.all(reconcilers.map((reconciler) => reconciler.settle()));
+  const versions = reconcilers.map((reconciler) => reconciler.version());
+  return () => {
+    reconcilers.forEach((reconciler, index) => reconciler.accept(versions[index]));
+  };
 }
 
 export function createSettingSync(options: {
@@ -273,8 +290,24 @@ export function createSettingSync(options: {
     if (serverValue !== local) write(serverValue);
   }
 
+  const settingKey = serverPath.slice(serverPath.lastIndexOf("/") + 1);
+  const reconcilers = importReconcilers.get(settingKey) ?? [];
+  reconcilers.push({
+    settle: () => writeQueue,
+    version: () => lastLocalWrite,
+    accept: (version) => {
+      // 取込中に始まった新しいユーザー操作は取り消さない。
+      if (lastLocalWrite !== version) return;
+      memoryPending = null;
+      try {
+        localStorage.removeItem(pendingKey);
+        localStorage.setItem(syncedKey, "1");
+      } catch { /* storage unavailable */ }
+    },
+  });
+  importReconcilers.set(settingKey, reconcilers);
   if (options.hydrate !== false) {
-    registerServerSetting(serverPath.slice(serverPath.lastIndexOf("/") + 1), applyServerValue);
+    registerServerSetting(settingKey, applyServerValue);
   }
 
   return { read, write, readFromServer, writeToServer };

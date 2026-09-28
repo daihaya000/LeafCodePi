@@ -57,6 +57,7 @@ afterEach(() => {
 describe("/api/settings/transfer", () => {
   it("exports settings without secrets, and imports only named settings", async () => {
     setup();
+    process.env.LEAFCODE_PI_BIND_HOST = "127.0.0.1";
     setSetting("auto-optimize", "balanced");
     const account = createAccount({ label: "personal", providers: ["openrouter"] });
     const path = accountAuthPath(account.id, process.env.PI_CODING_AGENT_DIR!);
@@ -111,6 +112,26 @@ describe("/api/settings/transfer", () => {
     expect(readOpenRouterManagementKey(accountAuthPath(account.id, process.env.PI_CODING_AGENT_DIR!))).toBe("management-secret");
   });
 
+  it("preserves SDK keyless API placeholders and legacy access-only OAuth entries", async () => {
+    setup();
+    const account = createAccount({ label: "Go", providers: ["opencode-go", "anthropic"] });
+    const path = accountAuthPath(account.id, process.env.PI_CODING_AGENT_DIR!);
+    mkdirSync(dirname(path), { recursive: true });
+    writeFileSync(path, JSON.stringify({
+      "opencode-go": { type: "api_key" },
+      anthropic: { type: "oauth", access: "legacy-access" },
+    }));
+    const exported = await POST(request({ action: "export", scope: "credentials" }, { cookie: "leafcode-pi-token=test-token" }));
+    expect(exported.status).toBe(200);
+    const { backup } = await exported.json();
+    setup();
+    const imported = await POST(request({ action: "import", backup }, { cookie: "leafcode-pi-token=test-token" }));
+    expect(imported.status).toBe(200);
+    const auth = JSON.parse(readFileSync(accountAuthPath(account.id, process.env.PI_CODING_AGENT_DIR!), "utf8"));
+    expect(auth["opencode-go"]).toEqual({ type: "api_key" });
+    expect(auth.anthropic).toEqual({ type: "oauth", access: "legacy-access" });
+  });
+
   it("round-trips default OAuth, Anthropic account cookie and shared TypeSafe cookie", async () => {
     setup();
     const account = createAccount({ label: "Claude", providers: ["anthropic"] });
@@ -153,6 +174,8 @@ describe("/api/settings/transfer", () => {
     setup();
     const denied = await POST(request({ action: "export", scope: "credentials" }));
     expect(denied.status).toBe(403);
+    const settingsDenied = await POST(request({ action: "export", scope: "settings" }));
+    expect(settingsDenied.status).toBe(403);
     const crossOrigin = await POST(request({ action: "export", scope: "credentials" }, { origin: "https://untrusted.example", cookie: "leafcode-pi-token=test-token" }));
     expect(crossOrigin.status).toBe(403);
     process.env.LEAFCODE_PI_WEBUI_AUTH = "";
@@ -161,6 +184,14 @@ describe("/api/settings/transfer", () => {
     process.env.LEAFCODE_PI_BIND_HOST = "127.0.0.1";
     const localAllowed = await POST(request({ action: "export", scope: "credentials" }));
     expect(localAllowed.status).toBe(200);
+    const rebinding = await POST(new NextRequest("http://rebinding.example/api/settings/transfer", {
+      method: "POST",
+      headers: { origin: "http://rebinding.example", "content-type": "application/json" },
+      body: JSON.stringify({ action: "export", scope: "credentials" }),
+    }));
+    expect(rebinding.status).toBe(403);
+    const spoofedHeader = await POST(request({ action: "export", scope: "settings" }, { host: "rebinding.example" }));
+    expect(spoofedHeader.status).toBe(403);
     process.env.LEAFCODE_PI_BIND_HOST = "100.127.32.3";
     process.env.LEAFCODE_PI_WEBUI_AUTH = "required";
 

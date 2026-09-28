@@ -2,7 +2,7 @@
 
 import { useRef, useState } from "react";
 import { sendJson } from "@/lib/client";
-import { refreshServerSettings } from "@/lib/setting-sync";
+import { prepareServerSettingsImport, refreshServerSettings } from "@/lib/setting-sync";
 import type { SettingsBackup, TransferScope } from "@/lib/pi/settings-transfer";
 
 const labels: Record<TransferScope, string> = {
@@ -53,7 +53,9 @@ export function SettingsTransfer() {
         throw new Error("対応していないバックアップ形式です");
       }
       if (!window.confirm(`${labels[backup.scope]}を取り込みます。重複する設定・認証は上書きし、他の設定は残します。続行しますか？`)) return;
+      const acceptImported = await prepareServerSettingsImport(Object.keys(backup.settings ?? {}));
       await sendJson("/api/settings/transfer", { action: "import", backup });
+      acceptImported();
       await refreshServerSettings();
       setMessage(`${labels[backup.scope]}をインポートしました。実行中セッションや認証キャッシュへの反映にはLeafCodePiを再起動してください。`);
     } catch (cause) {
@@ -81,7 +83,7 @@ export function SettingsTransfer() {
           <input ref={fileRef} type="file" accept=".json,application/json" disabled={busy} aria-label="バックアップJSONを選択" className="sr-only" onChange={(event) => { const file = event.target.files?.[0]; if (file) void importBackup(file); }} />
         </label>
       </div>
-      <p className="mt-3 text-xs text-muted">認証情報の転送はローカル接続またはWebUIアクセスゲート有効時のみ。認証バックアップは平文のため、共有・クラウド同期に注意してください。インポートは指定された項目だけを上書きします。</p>
+      <p className="mt-3 text-xs text-muted">部分転送はローカル接続またはWebUIアクセスゲート有効時のみ。認証バックアップは平文のため、共有・クラウド同期に注意してください。インポートは指定された項目だけを上書きします。</p>
       {message && <p role="status" className="mt-3 text-sm text-muted">{message}</p>}
       {error && <p role="alert" className="mt-3 text-sm text-danger">{error}</p>}
     </div>

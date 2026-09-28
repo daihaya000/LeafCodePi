@@ -3,14 +3,18 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { SettingsTransfer } from "./SettingsTransfer";
 
-const { sendJson, refreshServerSettings } = vi.hoisted(() => ({ sendJson: vi.fn(), refreshServerSettings: vi.fn() }));
+const { sendJson, refreshServerSettings, prepareServerSettingsImport } = vi.hoisted(() => ({
+  sendJson: vi.fn(), refreshServerSettings: vi.fn(), prepareServerSettingsImport: vi.fn(),
+}));
 vi.mock("@/lib/client", () => ({ sendJson }));
-vi.mock("@/lib/setting-sync", () => ({ refreshServerSettings }));
+vi.mock("@/lib/setting-sync", () => ({ refreshServerSettings, prepareServerSettingsImport }));
 
 beforeEach(() => {
   sendJson.mockReset();
   refreshServerSettings.mockReset();
   refreshServerSettings.mockResolvedValue(undefined);
+  prepareServerSettingsImport.mockReset();
+  prepareServerSettingsImport.mockResolvedValue(() => undefined);
   vi.spyOn(window, "confirm").mockReturnValue(true);
 });
 afterEach(() => { cleanup(); vi.restoreAllMocks(); });
@@ -38,6 +42,7 @@ describe("SettingsTransfer", () => {
     Object.defineProperty(file, "text", { value: async () => JSON.stringify(backup) });
     fireEvent.change(screen.getByLabelText("バックアップJSONを選択"), { target: { files: [file] } });
     await waitFor(() => expect(sendJson).toHaveBeenCalledWith("/api/settings/transfer", { action: "import", backup }));
+    expect(prepareServerSettingsImport).toHaveBeenCalledWith(["auto-optimize"]);
     expect(refreshServerSettings).toHaveBeenCalled();
     expect(await screen.findByRole("status")).toBeTruthy();
   });

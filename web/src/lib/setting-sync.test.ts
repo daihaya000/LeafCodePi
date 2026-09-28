@@ -11,6 +11,7 @@ import {
   createSettingSync,
   hydrateServerSettings,
   primeServerSettings,
+  prepareServerSettingsImport,
   refreshServerSettings,
   resetServerSettingsHydration,
 } from "@/lib/setting-sync";
@@ -161,6 +162,36 @@ describe("setting-sync", () => {
     resetServerSettingsHydration();
     await hydrateServerSettings();
     expect(sync.read()).toBe("good");
+    warn.mockRestore();
+  });
+
+  it("prevents a stale pending write from overwriting imported settings", async () => {
+    storage.setItem("hydrate:import", "old-local");
+    storage.setItem("hydrate:import:server-pending", '"old-local"');
+    const sync = createSettingSync({ storageKey: "hydrate:import", serverPath: "/api/settings/hydrate-import", eventName: "e" });
+    client.getJson.mockResolvedValue({ values: { "hydrate-import": "imported" } });
+
+    const acceptImported = await prepareServerSettingsImport(["hydrate-import"]);
+    acceptImported();
+    await refreshServerSettings();
+
+    expect(storage.getItem("hydrate:import:server-pending")).toBeNull();
+    expect(sync.read()).toBe("imported");
+    expect(client.sendJson).not.toHaveBeenCalled();
+  });
+
+  it("does not cancel a new local write started during import", async () => {
+    const sync = createSettingSync({ storageKey: "hydrate:import-new", serverPath: "/api/settings/hydrate-import-new", eventName: "e" });
+    client.sendJson.mockRejectedValue(new Error("offline"));
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const acceptImported = await prepareServerSettingsImport(["hydrate-import-new"]);
+    sync.write("new");
+    const saving = sync.writeToServer("new");
+    await vi.runAllTimersAsync();
+    await saving;
+    acceptImported();
+    expect(sync.read()).toBe("new");
+    expect(storage.getItem("hydrate:import-new:server-pending")).toBe('"new"');
     warn.mockRestore();
   });
 

@@ -12,6 +12,19 @@ export async function POST(req: NextRequest) {
   if (origin && origin !== new URL(req.url).origin) {
     return NextResponse.json({ error: "許可されない接続元です" }, { status: 403, headers: noStore });
   }
+  // 未認証リクエストは JSON 本文を読み込む前に拒否する。
+  const loopbackHosts = ["127.0.0.1", "localhost", "::1", "[::1]"];
+  const hostHeader = req.headers.get("host");
+  let headerHost = "";
+  try {
+    const authority = hostHeader ? new URL(`http://${hostHeader}`) : new URL(req.url);
+    if (!authority.username && !authority.password) headerHost = authority.hostname;
+  } catch { /* malformed Host はローカルアクセスと見なさない */ }
+  const localOnly = loopbackHosts.includes(process.env.LEAFCODE_PI_BIND_HOST ?? "") &&
+    loopbackHosts.includes(new URL(req.url).hostname) && loopbackHosts.includes(headerHost);
+  if (!localOnly && !isWebUiRequestAuthorized(req)) {
+    return NextResponse.json({ error: "設定の転送にはローカル接続またはWebUIアクセスゲートが必要です" }, { status: 403, headers: noStore });
+  }
   if (Number(req.headers.get("content-length")) > 20 * 1024 * 1024) {
     return NextResponse.json({ error: "バックアップが大きすぎます" }, { status: 413, headers: noStore });
   }
@@ -22,11 +35,6 @@ export async function POST(req: NextRequest) {
     if (!body || typeof body !== "object" || Array.isArray(body)) return NextResponse.json({ error: "リクエスト形式が不正です" }, { status: 400, headers: noStore });
     const scope = body.action === "export" ? body.scope : (body.backup as { scope?: unknown } | null)?.scope;
     if (scope !== "settings" && scope !== "credentials" && scope !== "all") return NextResponse.json({ error: "範囲が不正です" }, { status: 400, headers: noStore });
-    // 秘密情報を含むバックアップは、設定画面にアクセスできるだけでは取得できない。
-    const loopbackOnly = ["127.0.0.1", "localhost", "::1", "[::1]"].includes(process.env.LEAFCODE_PI_BIND_HOST ?? "");
-    if (scope !== "settings" && !loopbackOnly && !isWebUiRequestAuthorized(req)) {
-      return NextResponse.json({ error: "認証情報の転送にはローカル接続またはWebUIアクセスゲートが必要です" }, { status: 403, headers: noStore });
-    }
     if (body.action === "export") {
       const backup = await exportSettingsBackup(scope as TransferScope);
       return NextResponse.json({ backup }, { headers: noStore });

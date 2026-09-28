@@ -76,9 +76,23 @@ function checkAuthEntries(raw: unknown): AuthEntries {
     if (!/^[A-Za-z0-9._:-]{1,150}$/.test(provider) || provider === "__proto__") invalid("認証プロバイダーが不正です");
     const credential = object(value);
     if (credential.type === "api_key") {
-      if (typeof credential.key !== "string" && !(credential.env && typeof credential.env === "object" && !Array.isArray(credential.env) && Object.values(credential.env).every((entry) => typeof entry === "string"))) invalid("APIキー形式が不正です");
+      // SDK は key/env 未設定のプレースホルダーも auth.json に保存する。
+      if (
+        (credential.key !== undefined && typeof credential.key !== "string") ||
+        (credential.env !== undefined && (
+          !credential.env || typeof credential.env !== "object" ||
+          Array.isArray(credential.env) ||
+          !Object.values(credential.env).every((entry) => typeof entry === "string")
+        ))
+      ) invalid("APIキー形式が不正です");
     } else if (credential.type === "oauth") {
-      if (typeof credential.access !== "string" || typeof credential.refresh !== "string" || typeof credential.expires !== "number" || !Number.isFinite(credential.expires)) invalid("OAuth形式が不正です");
+      // CodexBar が読み取れる access のみの旧形式も保持する。
+      if (
+        typeof credential.access !== "string" || !credential.access ||
+        (credential.refresh !== undefined && credential.refresh !== null && typeof credential.refresh !== "string") ||
+        (credential.expires !== undefined && credential.expires !== null &&
+          (typeof credential.expires !== "number" || !Number.isFinite(credential.expires)))
+      ) invalid("OAuth形式が不正です");
     } else invalid("認証形式が不正です");
     // JSON由来の平文値だけを保存し、プロトタイプ汚染を防ぐ。
     entries[provider] = JSON.parse(JSON.stringify(credential)) as Record<string, unknown>;
