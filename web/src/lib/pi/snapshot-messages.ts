@@ -170,10 +170,16 @@ export function applyThroughput(
     );
     const snap = snapshotThroughput(timing, nowMs);
     if (!snap || snap.tokensPerSecond === null) {
-      return responseDurationMs > 0
+      return responseDurationMs > 0 && message.responseDurationMs !== responseDurationMs
         ? { ...message, responseDurationMs }
         : message;
     }
+    if (
+      message.outputTokens === snap.outputTokens &&
+      message.tokensPerSecond === snap.tokensPerSecond &&
+      message.tokensPerSecondDecode === snap.decodePhase &&
+      (responseDurationMs <= 0 || message.responseDurationMs === responseDurationMs)
+    ) return message;
     return {
       ...message,
       outputTokens: snap.outputTokens,

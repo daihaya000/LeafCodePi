@@ -553,6 +553,25 @@ describe("applyThroughput", () => {
     assert.equal(result[0]!.responseDurationMs, 9_500);
   });
 
+  it("reuses finalized throughput fields until the timing changes", () => {
+    const timings = new Map([[1_000, timing(1_000)]]);
+    const first = applyThroughput([assistantMessage(1_000)], timings);
+    assert.equal(applyThroughput(first, timings)[0], first[0]);
+
+    timings.set(1_000, { ...timing(1_000), lastTokenAtMs: 11_500 });
+    const changed = applyThroughput(first, timings);
+    assert.notEqual(changed[0], first[0]);
+    assert.equal(changed[0]?.responseDurationMs, 10_500);
+  });
+
+  it("reuses a duration-only row when the token count remains unknown", () => {
+    const unknown = { ...timing(1_000), outputTokens: null };
+    const timings = new Map([[1_000, unknown]]);
+    const first = applyThroughput([assistantMessage(1_000)], timings);
+    assert.equal(first[0]?.responseDurationMs, 9_500);
+    assert.equal(applyThroughput(first, timings)[0], first[0]);
+  });
+
   it("leaves messages without timing untouched instead of fabricating a duration", () => {
     const result = applyThroughput([assistantMessage(2_000)], new Map([[1_000, timing(1_000)]]));
     assert.equal(result[0]!.responseDurationMs, undefined);
