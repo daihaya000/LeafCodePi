@@ -9,6 +9,18 @@ const { getJson, sendJson, refreshServerSettings, prepareServerSettingsImport } 
 vi.mock("@/lib/client", () => ({ getJson, sendJson }));
 vi.mock("@/lib/setting-sync", () => ({ refreshServerSettings, prepareServerSettingsImport }));
 
+const credentialsBackup = {
+  format: "leafcode-pi-settings", version: 1, scope: "credentials",
+  credentials: { defaultAuth: {}, accounts: [], sharedCookies: {} },
+};
+
+function backupFile(backup: unknown): File {
+  const file = new File([JSON.stringify(backup)], "backup.json", { type: "application/json" });
+  // happy-dom's File may not implement text().
+  Object.defineProperty(file, "text", { value: async () => JSON.stringify(backup) });
+  return file;
+}
+
 beforeEach(() => {
   getJson.mockReset();
   sendJson.mockReset();
@@ -21,9 +33,10 @@ beforeEach(() => {
 afterEach(() => { cleanup(); vi.restoreAllMocks(); });
 
 describe("SettingsTransfer", () => {
-  it("exports the selected scope only after a credentials warning", async () => {
+  it("exports provider credentials only after a plaintext warning", async () => {
     render(<SettingsTransfer />);
-    fireEvent.change(screen.getByLabelText("エクスポート範囲"), { target: { value: "credentials" } });
+    expect(screen.getByRole("heading", { name: "認証エクスポート" })).toBeTruthy();
+    expect(screen.queryByLabelText("エクスポート範囲")).toBeNull();
     vi.mocked(window.confirm).mockReturnValue(false);
     fireEvent.click(screen.getByRole("button", { name: "エクスポート" }));
     expect(sendJson).not.toHaveBeenCalled();
@@ -34,15 +47,52 @@ describe("SettingsTransfer", () => {
     expect(await screen.findByRole("alert")).toHaveProperty("textContent", "認証が必要です");
   });
 
+  it("downloads the credentials backup as JSON", async () => {
+    const downloads: string[] = [];
+    vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(function (this: HTMLAnchorElement) { downloads.push(this.download); });
+    const { createObjectURL, revokeObjectURL } = URL;
+    URL.createObjectURL = vi.fn(() => "blob:credentials");
+    URL.revokeObjectURL = vi.fn();
+    try {
+      sendJson.mockResolvedValue({ backup: credentialsBackup });
+      render(<SettingsTransfer />);
+      fireEvent.click(screen.getByRole("button", { name: "エクスポート" }));
+      expect(await screen.findByRole("status")).toHaveProperty("textContent", "プロバイダー認証をエクスポートしました");
+      expect(downloads).toHaveLength(1);
+      expect(downloads[0]).toMatch(/^leafcode-pi-credentials-\d{4}-\d{2}-\d{2}\.json$/);
+    } finally {
+      URL.createObjectURL = createObjectURL;
+      URL.revokeObjectURL = revokeObjectURL;
+    }
+  });
+
+  it("imports a credentials backup after confirming its scope", async () => {
+    sendJson.mockResolvedValue({ scope: "credentials" });
+    render(<SettingsTransfer />);
+    fireEvent.change(screen.getByLabelText("認証JSONを選択"), { target: { files: [backupFile(credentialsBackup)] } });
+    await waitFor(() => expect(sendJson).toHaveBeenCalledWith("/api/settings/transfer", { action: "import", backup: credentialsBackup }));
+    expect(window.confirm).toHaveBeenCalledWith(expect.stringContaining("プロバイダー認証を取り込みます"));
+    expect(prepareServerSettingsImport).toHaveBeenCalledWith([]);
+    expect((await screen.findByRole("status")).textContent).toContain("プロバイダー認証をインポートしました");
+  });
+
+  it("still imports legacy backups that contain WebUI settings", async () => {
+    const backup = { format: "leafcode-pi-settings", version: 1, scope: "settings", settings: { "auto-optimize": "balanced" } };
+    sendJson.mockResolvedValue({ scope: "settings" });
+    render(<SettingsTransfer />);
+    fireEvent.change(screen.getByLabelText("認証JSONを選択"), { target: { files: [backupFile(backup)] } });
+    await waitFor(() => expect(sendJson).toHaveBeenCalledWith("/api/settings/transfer", { action: "import", backup }));
+    expect(prepareServerSettingsImport).toHaveBeenCalledWith(["auto-optimize"]);
+    expect(refreshServerSettings).toHaveBeenCalled();
+    expect((await screen.findByRole("status")).textContent).toContain("WebUI動作設定をインポートしました");
+  });
+
   it("offers recovery after the server reports a preserved snapshot", async () => {
     render(<SettingsTransfer />);
-    const backup = { format: "leafcode-pi-settings", version: 1, scope: "settings", settings: {} };
-    const file = new File([JSON.stringify(backup)], "backup.json", { type: "application/json" });
-    Object.defineProperty(file, "text", { value: async () => JSON.stringify(backup) });
     const recoveryId = "12345678-1234-1234-1234-123456789abc";
     sendJson.mockRejectedValueOnce(new Error(`設定の自動復旧に失敗しました。保全ファイル: C:\\data\\settings-transfer-recovery\\${recoveryId}.json`));
     sendJson.mockResolvedValueOnce({ recovered: true });
-    fireEvent.change(screen.getByLabelText("バックアップJSONを選択"), { target: { files: [file] } });
+    fireEvent.change(screen.getByLabelText("認証JSONを選択"), { target: { files: [backupFile(credentialsBackup)] } });
     fireEvent.click(await screen.findByRole("button", { name: "保全ファイルから復旧" }));
     await waitFor(() => expect(sendJson).toHaveBeenCalledWith("/api/settings/transfer", { action: "recover", recoveryId }));
     expect(await screen.findByRole("status")).toHaveProperty("textContent", "保全ファイルから復旧しました。LeafCodePiを再起動してください。");
@@ -50,11 +100,8 @@ describe("SettingsTransfer", () => {
 
   it("does not suggest rollback when the import succeeded but journal cleanup failed", async () => {
     render(<SettingsTransfer />);
-    const backup = { format: "leafcode-pi-settings", version: 1, scope: "settings", settings: {} };
-    const file = new File([JSON.stringify(backup)], "backup.json", { type: "application/json" });
-    Object.defineProperty(file, "text", { value: async () => JSON.stringify(backup) });
     sendJson.mockRejectedValueOnce(new Error("インポートは完了しましたが、保全ファイルを削除できませんでした。保全ファイル: C:\\data\\settings-transfer-recovery\\12345678-1234-1234-1234-123456789abc.json"));
-    fireEvent.change(screen.getByLabelText("バックアップJSONを選択"), { target: { files: [file] } });
+    fireEvent.change(screen.getByLabelText("認証JSONを選択"), { target: { files: [backupFile(credentialsBackup)] } });
     expect(await screen.findByRole("alert")).toBeTruthy();
     expect(screen.queryByRole("button", { name: "保全ファイルから復旧" })).toBeNull();
   });
@@ -69,19 +116,5 @@ describe("SettingsTransfer", () => {
     fireEvent.click(screen.getByRole("button", { name: "保全ファイルを削除" }));
     await waitFor(() => expect(sendJson).toHaveBeenCalledWith("/api/settings/transfer", { action: "discard-recovery", recoveryId }));
     expect(screen.queryByText(recoveryId)).toBeNull();
-  });
-
-  it("imports the scope declared in the archive, not the export selector", async () => {
-    render(<SettingsTransfer />);
-    const backup = { format: "leafcode-pi-settings", version: 1, scope: "settings", settings: { "auto-optimize": "balanced" } };
-    sendJson.mockResolvedValue({ scope: "settings" });
-    const file = new File([JSON.stringify(backup)], "backup.json", { type: "application/json" });
-    // happy-dom's File may not implement text().
-    Object.defineProperty(file, "text", { value: async () => JSON.stringify(backup) });
-    fireEvent.change(screen.getByLabelText("バックアップJSONを選択"), { target: { files: [file] } });
-    await waitFor(() => expect(sendJson).toHaveBeenCalledWith("/api/settings/transfer", { action: "import", backup }));
-    expect(prepareServerSettingsImport).toHaveBeenCalledWith(["auto-optimize"]);
-    expect(refreshServerSettings).toHaveBeenCalled();
-    expect(await screen.findByRole("status")).toBeTruthy();
   });
 });

@@ -171,9 +171,9 @@ export function ProfileSettings() {
 
   return (
     <div className="rounded-2xl border border-border bg-surface p-4">
-      <h3 className="text-sm font-semibold">設定プロファイル</h3>
+      <h3 className="text-sm font-semibold">設定エクスポート</h3>
       <p className="mt-1 text-xs leading-5 text-muted">
-        Pi認証・モデル・MCP設定、エージェント、拡張、スキル、LeafCodePi設定を1ファイルへ保存・復元します。会話、プロジェクト、OS資格情報ストア、再取得できるパッケージ本体は含みません。
+        Pi認証・モデル・MCP設定、エージェント、拡張、スキル、LeafCodePi設定を一式で1ファイルへ保存・復元します。会話、プロジェクト、OS資格情報ストア、再取得できるパッケージ本体は含みません。
       </p>
       <div className="mt-3 space-y-4">
         <div className="grid grid-cols-2 gap-2">

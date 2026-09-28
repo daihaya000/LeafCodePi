@@ -130,7 +130,7 @@ export function PromptTransfer({ onImported }: { onImported: (imported: PromptFi
       )}
       {message && <p role="status" className="mt-3 text-xs text-success">{message}</p>}
       {error && <p role="alert" className="mt-3 text-xs text-danger">{error}</p>}
-      {error?.includes("保全ファイル:") && <p className="mt-2 text-xs text-muted">保全ファイルが残った場合は「設定 → エンジン → 設定・認証の部分転送」で復旧を確認してください。</p>}
+      {error?.includes("保全ファイル:") && <p className="mt-2 text-xs text-muted">保全ファイルが残った場合は「設定 → エンジン → 認証エクスポート」で復旧を確認してください。</p>}
     </div>
   );
 }
