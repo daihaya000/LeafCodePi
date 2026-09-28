@@ -7,13 +7,17 @@ import { SettingsView } from "./SettingsView";
 
 const { getJson, mountCounts } = vi.hoisted(() => ({
   getJson: vi.fn(),
-  mountCounts: { basic: 0, response: 0, memory: 0 },
+  mountCounts: { basic: 0, response: 0, memory: 0, user: 0, soul: 0 },
 }));
 
 vi.mock("@/lib/client", () => ({ getJson }));
 vi.mock("@/components/shell/MobileMenuHeader", () => ({ MobileMenuHeader: () => null }));
 vi.mock("@/components/settings/HostRestartPanel", () => ({ HostRestartPanel: () => null }));
 vi.mock("@/components/settings/ProfileSettings", () => ({ ProfileSettings: () => null }));
+vi.mock("@/components/settings/PromptTransfer", () => ({
+  PromptTransfer: ({ onImported }: { onImported: (names: string[]) => void }) =>
+    <button type="button" onClick={() => onImported(["USER.md"])}>テスト用USER.mdインポート</button>,
+}));
 vi.mock("@/components/settings/LlamaServerSettings", () => ({
   LlamaServerSettings: () => <h3>ローカル LLM</h3>,
 }));
@@ -86,7 +90,10 @@ vi.mock("@/components/settings/AgentsMdSettings", () => ({
   AgentsMdSettings: () => <h3>AGENTS.md</h3>,
 }));
 vi.mock("@/components/settings/SoulMdSettings", () => ({
-  SoulMdSettings: () => <h3>SOUL.md</h3>,
+  SoulMdSettings: () => {
+    useEffect(() => { mountCounts.soul += 1; }, []);
+    return <><h3>SOUL.md</h3><input aria-label="SOUL.mdの下書き" defaultValue="" /></>;
+  },
 }));
 vi.mock("@/components/settings/ToolsMdSettings", () => ({
   ToolsMdSettings: () => <h3>TOOLS.md</h3>,
@@ -98,7 +105,10 @@ vi.mock("@/components/settings/WorkflowMdSettings", () => ({
   WorkflowMdSettings: () => <h3>WORKFLOW.md</h3>,
 }));
 vi.mock("@/components/settings/UserMdSettings", () => ({
-  UserMdSettings: () => <h3>USER.md</h3>,
+  UserMdSettings: () => {
+    useEffect(() => { mountCounts.user += 1; }, []);
+    return <><h3>USER.md</h3><input aria-label="USER.mdの下書き" defaultValue="" /></>;
+  },
 }));
 vi.mock("@/components/settings/BotsMdSettings", () => ({
   BotsMdSettings: () => <h3>BOTS.md</h3>,
@@ -143,6 +153,8 @@ describe("SettingsView", () => {
     mountCounts.basic = 0;
     mountCounts.response = 0;
     mountCounts.memory = 0;
+    mountCounts.user = 0;
+    mountCounts.soul = 0;
     getJson.mockResolvedValue({ providers: [] });
   });
 
@@ -437,6 +449,20 @@ describe("SettingsView", () => {
     ]);
     expect(promptsPanel.querySelectorAll("section[aria-labelledby] > header > p")).toHaveLength(0);
     expect(promptsPanel.id).toBe("settings-panel-prompts");
+  });
+
+  it("選択したプロンプトだけ再読み込みし、未選択の編集中内容を維持する", () => {
+    render(<SettingsView />);
+    fireEvent.click(screen.getByRole("tab", { name: /^プロンプトタブ$/ }));
+    fireEvent.change(screen.getByLabelText("USER.mdの下書き"), { target: { value: "replace" } });
+    fireEvent.change(screen.getByLabelText("SOUL.mdの下書き"), { target: { value: "keep" } });
+    expect(mountCounts.user).toBe(1);
+    expect(mountCounts.soul).toBe(1);
+    fireEvent.click(screen.getByRole("button", { name: "テスト用USER.mdインポート" }));
+    expect(mountCounts.user).toBe(2);
+    expect(mountCounts.soul).toBe(1);
+    expect((screen.getByLabelText("USER.mdの下書き") as HTMLInputElement).value).toBe("");
+    expect((screen.getByLabelText("SOUL.mdの下書き") as HTMLInputElement).value).toBe("keep");
   });
 
   it("ボットタブの大分類見出しを表示せず、設定を整理する", () => {

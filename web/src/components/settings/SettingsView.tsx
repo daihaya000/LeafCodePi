@@ -47,6 +47,7 @@ import {
 import { BotsMdSettings } from "@/components/settings/BotsMdSettings";
 import { Badge, cx, ThemeToggle } from "@/components/ui";
 import { getJson } from "@/lib/client";
+import type { PromptFileName } from "@/lib/prompt-transfer-format";
 import type { HealthDto, ProviderAuthDto } from "@/lib/types";
 
 type Tab = "engine" | "models" | "agents" | "prompts" | "extensions" | "bots";
@@ -140,7 +141,7 @@ export function SettingsView() {
   const [modelsRevision, setModelsRevision] = useState(0);
   const [catalogRevision, setCatalogRevision] = useState(0);
   const [jevRevision, setJevRevision] = useState(0);
-  const [promptRevision, setPromptRevision] = useState(0);
+  const [promptRevisions, setPromptRevisions] = useState<Partial<Record<PromptFileName, number>>>({});
   const sharedRevision = modelsRevision + catalogRevision;
   const [error, setError] = useState<string | null>(null);
   const reloadGenerationRef = useRef(0);
@@ -500,8 +501,12 @@ export function SettingsView() {
                 title="共通"
               >
                 <div id="prompts-common" className="scroll-mt-24 space-y-4">
-                  <PromptTransfer onImported={() => setPromptRevision((value) => value + 1)} />
-                  <UserMdSettings key={promptRevision} />
+                  <PromptTransfer onImported={(imported) => setPromptRevisions((current) => {
+                    const next = { ...current };
+                    for (const name of imported) next[name] = (next[name] ?? 0) + 1;
+                    return next;
+                  })} />
+                  <UserMdSettings key={promptRevisions["USER.md"] ?? 0} />
                 </div>
               </SettingsGroup>
               <SettingsGroup
@@ -509,11 +514,11 @@ export function SettingsView() {
                 title="Code"
               >
                 <div id="prompts-code" className="scroll-mt-24 space-y-4">
-                  <SoulMdSettings key={`soul-${promptRevision}`} />
-                  <AgentsMdSettings key={`agents-${promptRevision}`} />
-                  <WorkflowMdSettings key={`workflow-${promptRevision}`} />
-                  <ToolsMdSettings key={`tools-${promptRevision}`} />
-                  <DesignMdSettings key={`design-${promptRevision}`} />
+                  <SoulMdSettings key={`soul-${promptRevisions["SOUL.md"] ?? 0}`} />
+                  <AgentsMdSettings key={`agents-${promptRevisions["AGENTS.md"] ?? 0}`} />
+                  <WorkflowMdSettings key={`workflow-${promptRevisions["WORKFLOW.md"] ?? 0}`} />
+                  <ToolsMdSettings key={`tools-${promptRevisions["TOOLS.md"] ?? 0}`} />
+                  <DesignMdSettings key={`design-${promptRevisions["DESIGN.md"] ?? 0}`} />
                 </div>
               </SettingsGroup>
               <SettingsGroup
@@ -521,7 +526,7 @@ export function SettingsView() {
                 title="Bot"
               >
                 <div id="prompts-bot" className="scroll-mt-24">
-                  <BotsMdSettings key={promptRevision} />
+                  <BotsMdSettings key={promptRevisions["BOTS.md"] ?? 0} />
                 </div>
               </SettingsGroup>
             </section>

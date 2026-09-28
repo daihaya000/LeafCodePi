@@ -1,3 +1,5 @@
+export const MAX_PROMPT_BACKUP_BYTES = 20 * 1024 * 1024;
+
 export const PROMPT_FILE_GROUPS = {
   "共通": ["USER.md"],
   Code: ["SOUL.md", "AGENTS.md", "WORKFLOW.md", "TOOLS.md", "DESIGN.md"],

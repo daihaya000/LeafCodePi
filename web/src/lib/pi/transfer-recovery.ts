@@ -20,9 +20,9 @@ function checksum(files: FileSnapshot[]): string {
   return createHash("sha256").update(JSON.stringify(files)).digest("hex");
 }
 
-/** 自動復旧まで失敗した場合だけ、保全したスナップショットの場所を返す。 */
+/** 復旧または保全ファイル削除に失敗した場合、適用状態とスナップショットの場所を返す。 */
 export class TransferRecoveryError extends Error {
-  constructor(readonly recoveryPath: string, message = "設定の自動復旧に失敗しました") {
+  constructor(readonly recoveryPath: string, message = "設定の自動復旧に失敗しました", readonly applied = false) {
     super(`${message}。保全ファイル: ${recoveryPath}`);
   }
 }
@@ -194,7 +194,7 @@ export async function withTransferRecovery<T>(
     }
     // 成功後は平文の保全ファイルを残さない。削除失敗でも適用済みと明示する。
     try { rmSync(journalPath, { force: true }); }
-    catch { throw new TransferRecoveryError(journalPath, "インポートは完了しましたが、保全ファイルを削除できませんでした"); }
+    catch { throw new TransferRecoveryError(journalPath, "インポートは完了しましたが、保全ファイルを削除できませんでした", true); }
     return result;
   } finally {
     activeTransactions.delete(root);

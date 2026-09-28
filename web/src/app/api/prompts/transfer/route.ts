@@ -3,11 +3,13 @@ import { exportPromptBackup, importPromptBackup } from "@/lib/pi/prompt-transfer
 import { rejectUnauthorizedTransfer, transferNoStore } from "@/lib/pi/transfer-access";
 import { reloadLiveSessionsContext } from "@/lib/pi/harness";
 import { TransferRecoveryError } from "@/lib/pi/transfer-recovery";
+import { MAX_PROMPT_BACKUP_BYTES, type PromptFileName } from "@/lib/prompt-transfer-format";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const MAX_REQUEST_BYTES = 20 * 1024 * 1024;
+// Leave room for the action/selection envelope around a valid 20 MiB backup.
+const MAX_REQUEST_BYTES = MAX_PROMPT_BACKUP_BYTES + 4 * 1024;
 
 export async function POST(req: NextRequest) {
   const unauthorized = rejectUnauthorizedTransfer(req);
@@ -31,9 +33,18 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ backup: exportPromptBackup() }, { headers: transferNoStore });
     }
     if (input.action === "import") {
-      const imported = await importPromptBackup(input.backup, input.selected);
+      let imported: PromptFileName[];
+      let warning: string | undefined;
+      try {
+        imported = await importPromptBackup(input.backup, input.selected);
+      } catch (error) {
+        if (!(error instanceof TransferRecoveryError) || !error.applied) throw error;
+        // Journal cleanup failed after all writes. Report the applied import and refresh the UI.
+        imported = input.selected as PromptFileName[];
+        warning = error.message;
+      }
       const reload = await reloadLiveSessionsContext();
-      return NextResponse.json({ imported, reload }, { headers: transferNoStore });
+      return NextResponse.json({ imported, reload, warning }, { headers: transferNoStore });
     }
     return NextResponse.json({ error: "操作が不正です" }, { status: 400, headers: transferNoStore });
   } catch (error) {

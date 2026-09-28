@@ -1,9 +1,8 @@
 import { join } from "node:path";
 import { MAX_AGENTS_MD_BYTES, readAgentsMdFile, resolvePiAgentDir, writeAgentsMdFile } from "@/lib/agents-md";
-import { PROMPT_FILE_NAMES, type PromptBackup, type PromptFileName } from "@/lib/prompt-transfer-format";
+import { MAX_PROMPT_BACKUP_BYTES, PROMPT_FILE_NAMES, type PromptBackup, type PromptFileName } from "@/lib/prompt-transfer-format";
 import { withTransferRecovery } from "@/lib/pi/transfer-recovery";
 
-const MAX_BACKUP_BYTES = 20 * 1024 * 1024;
 const allowedNames = new Set<string>(PROMPT_FILE_NAMES);
 
 function invalid(message: string): never {
@@ -25,7 +24,7 @@ export function exportPromptBackup(): PromptBackup {
   const backup: PromptBackup = {
     format: "leafcode-pi-prompts", version: 1, exportedAt: new Date().toISOString(), files,
   };
-  if (Buffer.byteLength(JSON.stringify(backup), "utf8") > MAX_BACKUP_BYTES) invalid("バックアップが大きすぎます");
+  if (Buffer.byteLength(JSON.stringify(backup), "utf8") > MAX_PROMPT_BACKUP_BYTES) invalid("バックアップが大きすぎます");
   return backup;
 }
 
@@ -42,7 +41,7 @@ export function validatePromptBackup(raw: unknown): PromptBackup {
       Buffer.byteLength(content, "utf8") > MAX_AGENTS_MD_BYTES) invalid(`プロンプトファイルが不正です: ${name}`);
     files[name as PromptFileName] = content;
   }
-  if (Buffer.byteLength(JSON.stringify(value), "utf8") > MAX_BACKUP_BYTES) invalid("バックアップが大きすぎます");
+  if (Buffer.byteLength(JSON.stringify(value), "utf8") > MAX_PROMPT_BACKUP_BYTES) invalid("バックアップが大きすぎます");
   return { format: "leafcode-pi-prompts", version: 1, exportedAt: value.exportedAt as string, files };
 }
 

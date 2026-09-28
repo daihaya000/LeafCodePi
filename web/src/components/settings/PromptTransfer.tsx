@@ -4,12 +4,10 @@ import { useRef, useState } from "react";
 import { Button } from "@/components/ui";
 import { sendJson } from "@/lib/client";
 import {
-  PROMPT_FILE_GROUPS, PROMPT_FILE_NAMES, type PromptBackup, type PromptFileName,
+  MAX_PROMPT_BACKUP_BYTES, PROMPT_FILE_GROUPS, PROMPT_FILE_NAMES, type PromptBackup, type PromptFileName,
 } from "@/lib/prompt-transfer-format";
 
-const MAX_BACKUP_BYTES = 20 * 1024 * 1024;
-
-export function PromptTransfer({ onImported }: { onImported: () => void }) {
+export function PromptTransfer({ onImported }: { onImported: (imported: PromptFileName[]) => void }) {
   const [backup, setBackup] = useState<PromptBackup | null>(null);
   const [selected, setSelected] = useState<PromptFileName[]>([]);
   const [busy, setBusy] = useState(false);
@@ -24,7 +22,7 @@ export function PromptTransfer({ onImported }: { onImported: () => void }) {
     setMessage(null);
     try {
       const result = await sendJson<{ backup: PromptBackup }>("/api/prompts/transfer", { action: "export" });
-      const url = URL.createObjectURL(new Blob([JSON.stringify(result.backup, null, 2)], { type: "application/json" }));
+      const url = URL.createObjectURL(new Blob([JSON.stringify(result.backup)], { type: "application/json" }));
       const link = document.createElement("a");
       link.href = url;
       link.download = `leafcode-pi-prompts-${new Date().toISOString().slice(0, 10)}.json`;
@@ -47,7 +45,7 @@ export function PromptTransfer({ onImported }: { onImported: () => void }) {
     setError(null);
     setMessage(null);
     try {
-      if (file.size > MAX_BACKUP_BYTES) throw new Error("バックアップは20MB以下にしてください");
+      if (file.size > MAX_PROMPT_BACKUP_BYTES) throw new Error("バックアップは20MB以下にしてください");
       const parsed = JSON.parse(await file.text()) as PromptBackup;
       if (parsed?.format !== "leafcode-pi-prompts" || parsed.version !== 1 ||
         !parsed.files || typeof parsed.files !== "object" || Array.isArray(parsed.files)) {
@@ -69,21 +67,28 @@ export function PromptTransfer({ onImported }: { onImported: () => void }) {
 
   async function importBackup() {
     if (!backup || !selected.length || busy) return;
-    if (!window.confirm(`${selected.join("、")} を上書きします。選択していないファイルは変更しません。編集中の未保存内容は破棄されます。続行しますか？`)) return;
+    if (!window.confirm(`${selected.join("、")} を上書きします。選択していないファイルは変更しません。選択したファイルの編集中の未保存内容は破棄されます。続行しますか？`)) return;
     setBusy(true);
     setError(null);
     setMessage(null);
     try {
-      const result = await sendJson<{ imported: PromptFileName[]; reload: { reloaded: number; deferred: number; failed: number; errors: string[] } }>(
+      const result = await sendJson<{ imported: PromptFileName[]; reload: { reloaded: number; deferred: number; failed: number; errors: string[] }; warning?: string }>(
         "/api/prompts/transfer", { action: "import", backup, selected },
       );
-      onImported();
+      onImported(result.imported);
       setBackup(null);
       setSelected([]);
       setMessage(`${result.imported.length}件のプロンプトをインポートしました。開いているセッションへの反映: ${result.reload.reloaded}件成功、${result.reload.deferred}件は処理後に反映、${result.reload.failed}件失敗。`);
-      if (result.reload.errors[0]) setError(result.reload.errors[0]);
+      if (result.warning || result.reload.errors[0]) setError([result.warning, result.reload.errors[0]].filter(Boolean).join("\n"));
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "インポートに失敗しました");
+      const detail = cause instanceof Error ? cause.message : "インポートに失敗しました";
+      if (detail.includes("保全ファイル:")) {
+        // Rollback may have left some selected files changed. Refresh their editors before recovery.
+        onImported(selected);
+        setBackup(null);
+        setSelected([]);
+      }
+      setError(detail);
     } finally {
       setBusy(false);
     }
@@ -102,7 +107,7 @@ export function PromptTransfer({ onImported }: { onImported: () => void }) {
       </div>
       {backup && (
         <div className="mt-4 space-y-3">
-          <p className="text-xs text-muted">インポートするファイルを選択してください。既存ファイルは上書きし、未選択のファイルは変更しません。編集中の未保存内容は破棄されます。</p>
+          <p className="text-xs text-muted">インポートするファイルを選択してください。既存ファイルは上書きし、未選択のファイルとその編集中の内容は変更しません。選択したファイルの未保存内容は破棄されます。</p>
           {Object.entries(PROMPT_FILE_GROUPS).map(([group, names]) => {
             const available = names.filter((name) => Object.hasOwn(backup.files, name));
             if (!available.length) return null;

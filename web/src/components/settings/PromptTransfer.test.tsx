@@ -32,8 +32,39 @@ it("shows only files in the archive and imports just the checked names", async (
   await waitFor(() => expect(sendJson).toHaveBeenCalledWith("/api/prompts/transfer", {
     action: "import", backup, selected: ["USER.md", "BOTS.md"],
   }));
-  expect(onImported).toHaveBeenCalledOnce();
+  expect(onImported).toHaveBeenCalledExactlyOnceWith(["USER.md", "BOTS.md"]);
   expect(await screen.findByRole("status")).toHaveProperty("textContent", "2件のプロンプトをインポートしました。開いているセッションへの反映: 2件成功、1件は処理後に反映、0件失敗。");
+});
+
+it("refreshes imported files even if recovery-journal cleanup leaves a warning", async () => {
+  const onImported = vi.fn();
+  sendJson.mockResolvedValue({
+    imported: ["USER.md"], reload: { reloaded: 0, deferred: 0, failed: 0, errors: [] },
+    warning: "インポートは完了しましたが、保全ファイルを削除できませんでした。保全ファイル: recovery.json",
+  });
+  render(<PromptTransfer onImported={onImported} />);
+  chooseBackup();
+  await screen.findByLabelText("USER.mdをインポート");
+  fireEvent.click(screen.getByLabelText("SOUL.mdをインポート"));
+  fireEvent.click(screen.getByLabelText("BOTS.mdをインポート"));
+  fireEvent.click(screen.getByRole("button", { name: "選択した1件をインポート" }));
+  await waitFor(() => expect(onImported).toHaveBeenCalledExactlyOnceWith(["USER.md"]));
+  expect(await screen.findByRole("status")).toHaveProperty("textContent", expect.stringContaining("1件のプロンプトをインポートしました"));
+  expect(screen.getByRole("alert")).toHaveProperty("textContent", expect.stringContaining("保全ファイルを削除できませんでした"));
+});
+
+it("refreshes selected editors when rollback fails and recovery is needed", async () => {
+  const onImported = vi.fn();
+  sendJson.mockRejectedValueOnce(new Error("設定の自動復旧に失敗しました。保全ファイル: C:/recovery.json"));
+  render(<PromptTransfer onImported={onImported} />);
+  chooseBackup();
+  await screen.findByLabelText("USER.mdをインポート");
+  fireEvent.click(screen.getByLabelText("SOUL.mdをインポート"));
+  fireEvent.click(screen.getByLabelText("BOTS.mdをインポート"));
+  fireEvent.click(screen.getByRole("button", { name: "選択した1件をインポート" }));
+  await waitFor(() => expect(onImported).toHaveBeenCalledExactlyOnceWith(["USER.md"]));
+  expect(screen.getByRole("alert")).toHaveProperty("textContent", expect.stringContaining("保全ファイル:"));
+  expect(screen.queryByLabelText("USER.mdをインポート")).toBeNull();
 });
 
 it("asks before exporting potentially sensitive prompts", async () => {
