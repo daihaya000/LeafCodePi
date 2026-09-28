@@ -336,6 +336,7 @@ import {
   applyCodePermissionSettingsToLiveTasks,
   createTask,
   getTaskDetail,
+  listModelsForAccounts,
   mergeBundledSkills,
   promptTask,
   requestBotSoulReload,
@@ -369,10 +370,11 @@ function runtime(accountId: string) {
   };
 }
 
-function installHarness(runtimes: Map<string, ReturnType<typeof runtime>>) {
+function installHarness(runtimes: Map<string, ReturnType<typeof runtime>>, sharedModel?: { provider: string; id: string }) {
   const defaultRuntime = {
     getProvider: (id: string) => ({ id }),
-    getModel: () => undefined,
+    getModel: (providerID: string, modelID: string) =>
+      sharedModel?.provider === providerID && sharedModel.id === modelID ? sharedModel : undefined,
     getProviders: () => [],
     registerProvider: () => undefined,
   };
@@ -469,6 +471,29 @@ describe("integrated session routing", () => {
       prompt: "開始",
       model: `${account.id}::anthropic::claude-sonnet`,
       accountId: "別アカウント",
+    })).rejects.toMatchObject({ status: 400 });
+    expect(fakePi.sessions).toHaveLength(0);
+  });
+
+  it("never uses shared auth when an explicitly pinned account lacks the model", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "leafcode-pi-explicit-model-missing-"));
+    tempDirs.push(dir);
+    process.env.LEAFCODE_PI_DATA_DIR = dir;
+    const agentDir = join(dir, "agent");
+    process.env.PI_CODING_AGENT_DIR = agentDir;
+    __resetPiAgentDirCacheForTests();
+
+    const account = createAccount({ label: "Pinned", providers: ["anthropic"] });
+    storeProviderAuth(account.id, agentDir);
+    installHarness(new Map([[
+      account.id,
+      { ...runtime(account.id), getAvailable: async () => [] },
+    ]]), { provider: "anthropic", id: "claude-sonnet" });
+
+    await expect(createTask({
+      projectId: null,
+      prompt: "Use only the pinned account",
+      model: `${account.id}::anthropic::claude-sonnet`,
     })).rejects.toMatchObject({ status: 400 });
     expect(fakePi.sessions).toHaveLength(0);
   });
@@ -1750,6 +1775,44 @@ describe("integrated session routing", () => {
     await waitFor(() => getTask(task.id)?.status === "idle");
     expect(fakePi.sessions[2]?.prompts).toEqual(["中断したターンを再開"]);
     assert.equal(getTask(task.id)?.accountId, fallback.id);
+  });
+
+  it("shows the account actually selected for a mixed subscription/API-key integrated model", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "leafcode-pi-mixed-account-routing-"));
+    tempDirs.push(dir);
+    process.env.LEAFCODE_PI_DATA_DIR = dir;
+    const agentDir = join(dir, "agent");
+    process.env.PI_CODING_AGENT_DIR = agentDir;
+    __resetPiAgentDirCacheForTests();
+
+    const subscription = createAccount({ label: "Subscription", providers: ["anthropic"] });
+    const apiKey = createAccount({ label: "API key", providers: ["anthropic"] });
+    storeProviderAuth(subscription.id, agentDir);
+    storeProviderAuth(apiKey.id, agentDir);
+    installHarness(new Map([
+      [subscription.id, { ...runtime(subscription.id), isUsingSubscription: () => true }],
+      [apiKey.id, { ...runtime(apiKey.id), isUsingSubscription: () => false }],
+    ]));
+    await setAccountRoutingMode("anthropic", "integrated");
+    setCachedUsage(parseCodexBarSnapshot({ providers: [
+      { codexBarProviderId: "anthropic", accountId: subscription.id, usedPercent: 100, maxed: true },
+      { codexBarProviderId: "anthropic", accountId: apiKey.id, usedPercent: 20 },
+    ] }));
+
+    const models = await listModelsForAccounts([subscription, apiKey]);
+    const option = models.find((model) => model.value === "anthropic::claude-sonnet");
+    expect(option).toMatchObject({
+      routingMode: "integrated",
+      routingCandidateCount: 2,
+      codexbarUsedPercent: 20,
+      codexbarMaxed: false,
+      subscription: false,
+    });
+
+    const project = upsertProject({ name: "demo", rootPath: dir });
+    const task = await createTask({ projectId: project.id, prompt: "Route to the available account", model: "anthropic::claude-sonnet" });
+    await waitFor(() => getTask(task.id)?.status === "idle");
+    assert.equal(getTask(task.id)?.accountId, apiKey.id);
   });
 
   it("still ranks by usage when the 5 minute usage cache has expired", async () => {

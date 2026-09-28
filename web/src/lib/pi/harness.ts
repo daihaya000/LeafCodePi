@@ -4065,6 +4065,9 @@ async function resolveConcreteModel(
       strictAccountId,
     );
     if (accountRoute) return accountRoute;
+    // An explicit pin must never fall through to the shared auth runtime when
+    // that account does not expose the requested model.
+    if (strictAccountId) return undefined;
   }
 
   if (
@@ -5281,9 +5284,10 @@ function integratedOption(
   const first = records[0]!;
   const providerID = first.option.providerID;
   const modelID = first.option.modelID;
-  const subscriptionRecords = records.filter((record) => record.option.subscription === true);
-  const routingRecords = subscriptionRecords.length > 0 ? subscriptionRecords : records;
-  const candidates: RoutingCandidate<AccountModelRecord>[] = routingRecords.map(
+  // The picker and Auto must rank the same accounts as execution. Restricting
+  // this snapshot to subscription accounts can mark the model exhausted even
+  // while an API-key account is available and selected for the actual turn.
+  const candidates: RoutingCandidate<AccountModelRecord>[] = records.map(
     (record) => ({
       accountId: record.accountId,
       accountIndex: record.accountIndex,
@@ -5324,7 +5328,7 @@ function integratedOption(
     ...(defaultThinkingLevel
       ? { defaultThinkingLevel }
       : {}),
-    subscription: subscriptionRecords.length > 0,
+    subscription: decision.candidate?.value.option.subscription === true,
     codexbarUsedPercent:
       decision.allMaxed ? 100 : selectedUsage?.usedPercent ?? null,
     codexbarMaxed: decision.allMaxed,
