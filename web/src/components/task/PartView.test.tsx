@@ -274,7 +274,11 @@ describe("PartView sender and response metadata", () => {
       expect(element.className).not.toContain("hidden");
       expect(element.compareDocumentPosition(account) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     }
-    expect(account.className).toContain("shrink-[100]");
+    const accountGroup = account.parentElement!;
+    expect(accountGroup.className).toContain("shrink-[100]");
+    expect(accountGroup.className).toContain("overflow-hidden");
+    expect(accountGroup.getAttribute("title")).toBe("long-account@example.com");
+    expect(accountGroup.querySelector('[aria-hidden="true"]')?.textContent).toBe("·");
     expect(meta.className).toContain("overflow-hidden");
   });
 

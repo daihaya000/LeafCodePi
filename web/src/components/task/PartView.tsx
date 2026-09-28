@@ -751,6 +751,17 @@ export const MessageMetaHeader = memo(function MessageMetaHeader({
       {/* 合成メッセージ（シェル実行など）はプロバイダを持たないので汎用アイコンを出さない。 */}
       {message.provider && <ProviderIcon providerID={message.provider} size={14} />}
       {fields.map((field, index) => {
+        // The separator belongs to the low-priority account: it must disappear
+        // with the account instead of taking room away from the usage values.
+        if (field.key === "account") return (
+          <span key={field.key} className="inline-flex min-w-0 max-w-64 shrink-[100] items-center gap-1.5 overflow-hidden" title={field.text}>
+            {index > 0 && <span className="shrink-0" aria-hidden="true">·</span>}
+            <span className="min-w-0 truncate">
+              <UserRound className="mr-0.5 inline h-3 w-3 align-[-1px]" aria-hidden />
+              {field.text}
+            </span>
+          </span>
+        );
         return (
           <Fragment key={field.key}>
             {index > 0 && <span className="shrink-0" aria-hidden="true">·</span>}
@@ -758,11 +769,9 @@ export const MessageMetaHeader = memo(function MessageMetaHeader({
               className={cx(
                 field.key === "agent"
                   ? "inline-flex shrink-0 items-center gap-0.5"
-                  : field.key === "account"
-                    ? "min-w-0 max-w-64 shrink-[100] truncate"
-                    : field.key === "model"
-                      ? "min-w-0 max-w-64 truncate"
-                      : "shrink-0",
+                  : field.key === "model"
+                    ? "min-w-0 max-w-64 truncate"
+                    : "shrink-0",
                 field.key === "rate" && "tabular-nums",
                 field.key === "rate" && slow && "text-danger",
               )}
@@ -781,9 +790,6 @@ export const MessageMetaHeader = memo(function MessageMetaHeader({
               }
             >
               {field.key === "agent" && <AgentRoleIcon name={field.text} />}
-              {field.key === "account" && (
-                <UserRound className="mr-0.5 inline h-3 w-3 align-[-1px]" aria-hidden />
-              )}
               {field.text}
             </span>
           </Fragment>
