@@ -68,6 +68,22 @@ it("shows the next-action suggestion above the follow-up composer", async () => 
   expect(screen.queryByRole("dialog", { name: "次の指示の提案" })).toBeNull();
 });
 
+it("places the progress trigger above the message navigator with a separate gap", async () => {
+  const messages: UiMessage[] = [
+    { id: "prompt", role: "user", createdAt: 1, parts: [{ id: "text", type: "text", text: "指示" }] },
+  ];
+  saveTaskSessionCache({ task: { ...task, sessionId: "session-1" }, messages, isStreaming: false, isCompacting: false });
+  render(<TaskView taskId={task.id} mdUp />);
+
+  const progress = await screen.findByRole("button", { name: "進捗を確認" });
+  const firstMessage = screen.getByRole("button", { name: "最初のユーザーメッセージへ" });
+  const navigator = firstMessage.parentElement;
+  expect(navigator?.classList.contains("gap-2")).toBe(true);
+  expect(navigator?.parentElement?.classList.contains("gap-6")).toBe(true);
+  expect(navigator?.parentElement?.firstElementChild?.contains(progress)).toBe(true);
+  expect(screen.getByRole("form", { name: "フォローアップ" }).contains(progress)).toBe(false);
+});
+
 it("keeps a document-hidden active task unread until the document is visible", async () => {
   const updatedAt = "2026-01-01T00:00:00.000Z";
   saveTaskSessionCache({ task: { ...task, updatedAt }, messages: [], isStreaming: false, isCompacting: false });

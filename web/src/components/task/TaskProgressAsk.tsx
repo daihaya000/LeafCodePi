@@ -5,7 +5,7 @@ import type { KeyboardEvent, RefObject } from "react";
 import { createPortal } from "react-dom";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { Activity, Loader2, RefreshCw, X } from "lucide-react";
+import { Loader2, MessageCircle, RefreshCw, X } from "lucide-react";
 import { Button, cx } from "@/components/ui";
 import { sendJson } from "@/lib/client";
 import { isImeComposingEvent } from "@/lib/composer-ime";
@@ -82,10 +82,12 @@ export function TaskProgressAsk({
   model,
   revision,
   panelRef,
+  triggerOpacity = 1,
 }: {
   taskId: string;
   sessionId: string;
   model?: DirectModelSelection;
+  triggerOpacity?: number;
   /** 会話の版（最新メッセージ・パーツ数・実行状態）。質問後に変わったら回答を古いものとして扱う。 */
   revision?: string;
   panelRef: RefObject<HTMLDivElement | null>;
@@ -303,11 +305,11 @@ export function TaskProgressAsk({
 
   return (
     <>
-      <section className="min-w-0 w-auto shrink-0" aria-label="進捗の確認操作">
+      <section className="shrink-0" aria-label="進捗の確認操作">
         <Button
           ref={triggerRef}
           variant="secondary"
-          size="sm"
+          size="icon"
           aria-busy={loading || undefined}
           aria-expanded={panelOpen}
           aria-controls={panelOpen ? `${panelId}-panel` : undefined}
@@ -331,14 +333,14 @@ export function TaskProgressAsk({
             }
             void ask("");
           }}
-          className="h-8 min-w-0 whitespace-nowrap px-2.5"
+          className="h-10 w-10 rounded-full border border-border-strong bg-surface shadow-lg transition-opacity hover:opacity-100 focus-visible:opacity-100 active:opacity-100"
+          style={{ opacity: triggerOpacity }}
         >
           {loading ? (
-            <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
+            <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
           ) : (
-            <Activity className="h-3.5 w-3.5" aria-hidden="true" />
+            <MessageCircle className="h-4 w-4" aria-hidden="true" />
           )}
-          進捗
         </Button>
       </section>
       {panel && panelContainer && createPortal(panel, panelContainer)}

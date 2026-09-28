@@ -3508,51 +3508,64 @@ export const TaskView = memo(function TaskView({
             )}
           </div>
         </div>
-        {/* メッセージ間を移動するナビゲーター（本家 LeafCode と同じ）。
-            設定した不透明度で常時表示し、ホバー・フォーカス時だけ不透明になる。 */}
-        {!mobilePanelOpen && navigationMessageIds.length > 0 && (
-          <div className="absolute right-4 bottom-4 z-50 flex flex-col gap-2">
-            {(
-              [
-                [`最初の${navigationTargetLabel}へ`, () => jumpToMessage(0), <ChevronsUp key="i" className="h-4 w-4" />],
-                [
-                  `一つ前の${navigationTargetLabel}へ`,
-                  () => {
-                    const target = navigationTargetAt(-1);
-                    if (target !== null) jumpToMessage(target);
-                  },
-                  <ChevronUp key="i" className="h-4 w-4" />,
-                ],
-                [
-                  `一つ後の${navigationTargetLabel}へ`,
-                  () => {
-                    const target = navigationTargetAt(1);
-                    if (target === null) {
-                      jumpToLatest();
-                      return;
-                    }
-                    jumpToMessage(target);
-                  },
-                  <ChevronDown key="i" className="h-4 w-4" />,
-                ],
-                ["最新のメッセージへ", () => jumpToLatest(), <ChevronsDown key="i" className="h-4 w-4" />],
-              ] as const
-            ).map(([label, onClick, icon]) => (
-              <Button
-                key={label}
-                variant="secondary"
-                size="icon"
-                aria-label={label}
-                title={label}
-                className={cx(
-                  "h-10 w-10 rounded-full border border-border-strong bg-surface shadow-lg transition-opacity hover:opacity-100 focus-visible:opacity-100 active:opacity-100",
-                )}
-                style={{ opacity: scrollButtonOpacity }}
-                onClick={onClick}
-              >
-                {icon}
-              </Button>
-            ))}
+        {/* 進捗確認とメッセージ移動。移動ボタン間より広い間隔で操作を分ける。 */}
+        {!mobilePanelOpen && (task?.sessionId || navigationMessageIds.length > 0) && (
+          <div className="absolute right-4 bottom-4 z-50 flex flex-col items-center gap-6">
+            {task?.sessionId && (
+              <TaskProgressAsk
+                taskId={taskId}
+                sessionId={task.sessionId}
+                panelRef={progressPanelRef}
+                model={selectedModel?.value === AUTO_MODEL_VALUE ? undefined : selectedModel}
+                revision={`${messages.at(-1)?.id ?? ""}:${messages.at(-1)?.parts.length ?? 0}:${working ? "working" : "idle"}`}
+                triggerOpacity={scrollButtonOpacity}
+              />
+            )}
+            {navigationMessageIds.length > 0 && (
+              <div className="flex flex-col gap-2">
+                {(
+                  [
+                    [`最初の${navigationTargetLabel}へ`, () => jumpToMessage(0), <ChevronsUp key="i" className="h-4 w-4" />],
+                    [
+                      `一つ前の${navigationTargetLabel}へ`,
+                      () => {
+                        const target = navigationTargetAt(-1);
+                        if (target !== null) jumpToMessage(target);
+                      },
+                      <ChevronUp key="i" className="h-4 w-4" />,
+                    ],
+                    [
+                      `一つ後の${navigationTargetLabel}へ`,
+                      () => {
+                        const target = navigationTargetAt(1);
+                        if (target === null) {
+                          jumpToLatest();
+                          return;
+                        }
+                        jumpToMessage(target);
+                      },
+                      <ChevronDown key="i" className="h-4 w-4" />,
+                    ],
+                    ["最新のメッセージへ", () => jumpToLatest(), <ChevronsDown key="i" className="h-4 w-4" />],
+                  ] as const
+                ).map(([label, onClick, icon]) => (
+                  <Button
+                    key={label}
+                    variant="secondary"
+                    size="icon"
+                    aria-label={label}
+                    title={label}
+                    className={cx(
+                      "h-10 w-10 rounded-full border border-border-strong bg-surface shadow-lg transition-opacity hover:opacity-100 focus-visible:opacity-100 active:opacity-100",
+                    )}
+                    style={{ opacity: scrollButtonOpacity }}
+                    onClick={onClick}
+                  >
+                    {icon}
+                  </Button>
+                ))}
+              </div>
+            )}
           </div>
         )}
         {graphOpen && task?.directory && (
@@ -4078,19 +4091,6 @@ export const TaskView = memo(function TaskView({
                           textareaRef.current?.focus();
                           return true;
                         }}
-                      />
-                    ),
-                  },
-                  {
-                    id: "progress",
-                    label: "進捗確認",
-                    content: (
-                      <TaskProgressAsk
-                        taskId={taskId}
-                        sessionId={task.sessionId}
-                        panelRef={progressPanelRef}
-                        model={selectedModel?.value === AUTO_MODEL_VALUE ? undefined : selectedModel}
-                        revision={`${messages.at(-1)?.id ?? ""}:${messages.at(-1)?.parts.length ?? 0}:${working ? "working" : "idle"}`}
                       />
                     ),
                   },

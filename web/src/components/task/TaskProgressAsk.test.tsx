@@ -45,6 +45,15 @@ describe("TaskProgressAsk", () => {
     sendJson.mockResolvedValue(answer("- 作業中: テストを実行"));
   });
 
+  it("uses a speech-bubble icon and the navigator opacity", () => {
+    render(<InlineProgressAsk taskId="task-1" sessionId="session-1" triggerOpacity={0.45} />);
+
+    const trigger = screen.getByRole("button", { name: "進捗を確認" });
+    expect(trigger.querySelector(".lucide-message-circle")).toBeTruthy();
+    expect(trigger.style.opacity).toBe("0.45");
+    expect(trigger.classList.contains("rounded-full")).toBe(true);
+  });
+
   it("asks for a summary and shows the answer above the composer", async () => {
     render(
       <InlineProgressAsk
