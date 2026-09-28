@@ -10,6 +10,7 @@ import {
   type ThroughputTiming,
 } from "@/lib/token-throughput";
 import type { UiMessage } from "@/lib/types";
+import { VersionedTimingMap } from "@/lib/pi/versioned-timing-map";
 
 type PiModule = typeof import("@earendil-works/pi-coding-agent");
 type AgentSession = Awaited<
@@ -545,7 +546,7 @@ export function snapshotMessages(
     projected = applySnapshotToolOutput(projected, toolPartialOutputByCallId);
   }
   if (toolStartedAt && toolStartedAt.size > 0 && toolEndedAt) {
-    projected = applyToolTiming(projected, toolStartedAt, toolEndedAt);
+    projected = applySnapshotToolTiming(projected, toolStartedAt, toolEndedAt);
   }
   if (accountContext) {
     projected = applyMessageAccountIds(projected, accountContext);
@@ -744,5 +745,38 @@ export function applyToolTiming(
   }
   const result = changed ?? baseline;
   toolTimingArrayCache.set(messages, result);
+  return result;
+}
+
+/** Snapshot projections are immutable; unchanged timing revisions need no row scan. */
+const snapshotTimingRevisionCache = new WeakMap<
+  UiMessage[],
+  {
+    started: VersionedTimingMap;
+    ended: VersionedTimingMap;
+    startedRevision: number;
+    endedRevision: number;
+    result: UiMessage[];
+  }
+>();
+
+function applySnapshotToolTiming(
+  messages: UiMessage[],
+  started: Map<string, number>,
+  ended: Map<string, number>,
+): UiMessage[] {
+  if (!(started instanceof VersionedTimingMap) || !(ended instanceof VersionedTimingMap)) {
+    return applyToolTiming(messages, started, ended);
+  }
+  const cached = snapshotTimingRevisionCache.get(messages);
+  if (cached?.started === started && cached.ended === ended &&
+      cached.startedRevision === started.revision && cached.endedRevision === ended.revision &&
+      cached.result.length === messages.length &&
+      cached.result === toolTimingArrayCache.get(messages)) return cached.result;
+
+  const result = applyToolTiming(messages, started, ended);
+  snapshotTimingRevisionCache.set(messages, {
+    started, ended, startedRevision: started.revision, endedRevision: ended.revision, result,
+  });
   return result;
 }

@@ -7,6 +7,7 @@ import {
   snapshotMessages,
 } from "./harness";
 import type { TaskSummary, UiMessage } from "@/lib/types";
+import { VersionedTimingMap } from "./versioned-timing-map";
 
 describe("snapshotMessages", () => {
   it("reuses stable history while projecting a changing streaming suffix", () => {
@@ -222,6 +223,53 @@ describe("snapshotMessages", () => {
     expect(unmatched).not.toBe(reended);
     expect(unmatched[0]).not.toBe(reended[0]);
     expect(unmatched[0]?.parts[0]).not.toHaveProperty("state.startedAtMs");
+  });
+
+  it("skips timing lookups until a versioned map changes or another map is projected", () => {
+    const session = {
+      messages: [{
+        role: "assistant", timestamp: 1_000,
+        content: [{ type: "toolCall", id: "call-1", name: "bash", arguments: {} }],
+      }],
+      agent: { state: { streamingMessage: undefined } },
+      sessionManager: { getLeafId: () => null, getBranch: () => [] },
+    } as unknown as Parameters<typeof snapshotMessages>[0];
+    const started = new VersionedTimingMap([["call-1", 1_000]]);
+    const ended = new VersionedTimingMap();
+    const snapshot = () => snapshotMessages(session, undefined, started, ended);
+    const first = snapshot();
+    const startGet = vi.spyOn(started, "get");
+    const endGet = vi.spyOn(ended, "get");
+
+    expect(snapshot()).toBe(first);
+    expect(startGet).not.toHaveBeenCalled();
+    expect(endGet).not.toHaveBeenCalled();
+    started.set("call-1", 2_000);
+    const restarted = snapshot();
+    expect(restarted[0]?.parts[0]).toMatchObject({ state: { startedAtMs: 2_000 } });
+    expect(startGet).toHaveBeenCalled();
+    startGet.mockClear();
+    endGet.mockClear();
+    expect(snapshot()).toBe(restarted);
+    expect(startGet).not.toHaveBeenCalled();
+    expect(endGet).not.toHaveBeenCalled();
+    ended.set("call-1", 3_000);
+    expect(snapshot()[0]?.parts[0]).toMatchObject({ state: { endedAtMs: 3_000 } });
+
+    const anotherStart = new VersionedTimingMap([["call-1", 4_000]]);
+    expect(snapshotMessages(session, undefined, anotherStart, ended)[0]?.parts[0])
+      .toMatchObject({ state: { startedAtMs: 4_000 } });
+    expect(snapshot()[0]?.parts[0]).toMatchObject({ state: { startedAtMs: 2_000 } });
+
+    const partial = new Map([["call-1", "first"]]);
+    const withPartial = () => snapshotMessages(session, undefined, started, ended, partial);
+    const beforePartial = withPartial();
+    partial.set("call-1", "second");
+    const afterPartial = withPartial();
+    expect(afterPartial).not.toBe(beforePartial);
+    expect(afterPartial[0]?.parts[0]).toMatchObject({
+      state: { output: "second", startedAtMs: 2_000, endedAtMs: 3_000 },
+    });
   });
 
   it("keeps combined throughput, partial output, and tool timing snapshots stable", () => {
