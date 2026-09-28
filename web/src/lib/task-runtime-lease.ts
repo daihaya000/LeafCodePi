@@ -3,25 +3,35 @@ import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 import { dataDir } from "@/lib/paths";
 import { listTasks, patchTask } from "@/lib/store";
+import type { TaskSummary } from "@/lib/types";
 
 type TaskLeaseRecord = { token: string; pid: number; acquiredAt: number; heartbeatAt: number };
 
 const TASK_LEASE_STALE_MS = 60_000;
 const HEARTBEAT_MS = 15_000;
 const MAX_ACQUIRE_ATTEMPTS = 4;
+/** Bound replay for processes that never register an orphan listener. */
+const MAX_PENDING_ORPHANS = 100;
 // Match the harness runtime lifetime across Next route bundles and hot reloads.
 const globalRef = globalThis as typeof globalThis & {
   __leafcodeTaskLeaseState?: {
     token: string;
     ownedTasks: Set<string>;
     heartbeatTimer: ReturnType<typeof setInterval> | null;
+    orphanListener?: OrphanedTaskListener | null;
+    pendingOrphans?: TaskSummary[];
   };
 };
+/** Receives the pre-reconcile snapshot (status=working) of each task that was just marked orphaned. */
+export type OrphanedTaskListener = (tasks: TaskSummary[]) => void;
 const leaseState = globalRef.__leafcodeTaskLeaseState ??= {
   token: randomUUID(),
   ownedTasks: new Set<string>(),
   heartbeatTimer: null,
 };
+// Older hot-reloaded state objects predate these fields.
+leaseState.orphanListener ??= null;
+leaseState.pendingOrphans ??= [];
 const PROCESS_TOKEN = leaseState.token;
 const ownedTasks = leaseState.ownedTasks;
 
@@ -141,19 +151,45 @@ export function taskRuntimeLeasePath(taskId: string): string {
 
 export const ORPHANED_WORKING_TASK_ERROR = "ホスト再起動後にCodeセッションを復旧できなかったため停止しました";
 
-/** Mark persisted working tasks with no live worker lease as failed, never resume them. */
+/**
+ * Register the handler for tasks orphaned by a worker restart. Orphans reconciled
+ * before registration (module-load reconcile during startup) are replayed once.
+ */
+export function setOrphanedTaskListener(listener: OrphanedTaskListener | null): void {
+  leaseState.orphanListener = listener;
+  if (!listener) return;
+  const pending = leaseState.pendingOrphans ?? [];
+  leaseState.pendingOrphans = [];
+  if (pending.length > 0) notifyOrphans(listener, pending);
+}
+
+function notifyOrphans(listener: OrphanedTaskListener, tasks: TaskSummary[]): void {
+  try { listener(tasks); }
+  catch (error) { console.warn("[task-runtime-lease] orphan listener failed", error); }
+}
+
+/** Mark persisted working tasks with no live worker lease as failed; the orphan listener decides any resume. */
 export function reconcileOrphanedWorkingTasks(): string[] {
   const reconciled: string[] = [];
+  const snapshots: TaskSummary[] = [];
   // listTasks defaults to Code tasks; Bot 1:1 and room tasks also persist
   // status=working and must be stopped after a worker restart.
   const tasks = [...listTasks(true), ...listTasks(true, "bot")];
   for (const task of tasks) {
     if (task.status !== "working" || hasActiveTaskLease(task.id)) continue;
+    // patchTask may mutate the cached row; keep the pre-reconcile status/updatedAt.
+    const snapshot = { ...task };
     const updated = patchTask(task.id, { status: "error", error: ORPHANED_WORKING_TASK_ERROR });
     if (updated?.status === "error" && updated.error === ORPHANED_WORKING_TASK_ERROR) {
       reconciled.push(task.id);
+      snapshots.push(snapshot);
     }
     try { unlinkSync(leasePath(task.id)); } catch { /* already absent */ }
+  }
+  if (snapshots.length > 0) {
+    const listener = leaseState.orphanListener;
+    if (listener) notifyOrphans(listener, snapshots);
+    else leaseState.pendingOrphans = [...(leaseState.pendingOrphans ?? []), ...snapshots].slice(-MAX_PENDING_ORPHANS);
   }
   return reconciled;
 }
