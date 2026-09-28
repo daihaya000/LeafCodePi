@@ -746,7 +746,7 @@ export const MessageMetaHeader = memo(function MessageMetaHeader({
   return (
     <div
       aria-label="応答メタデータ"
-      className="flex w-full min-w-0 max-w-full items-center gap-1.5 overflow-hidden text-[11px] whitespace-nowrap text-muted"
+      className="flex w-full min-w-0 max-w-full flex-wrap items-center gap-x-1.5 gap-y-1 text-[11px] text-muted"
     >
       {/* 合成メッセージ（シェル実行など）はプロバイダを持たないので汎用アイコンを出さない。 */}
       {message.provider && <ProviderIcon providerID={message.provider} size={14} />}
@@ -763,14 +763,20 @@ export const MessageMetaHeader = memo(function MessageMetaHeader({
           </span>
         );
         return (
-          <Fragment key={field.key}>
+          <span
+            key={field.key}
+            className={cx(
+              "inline-flex items-center gap-1.5",
+              field.key === "model" ? "min-w-0 max-w-full" : "shrink-0",
+            )}
+          >
             {index > 0 && <span className="shrink-0" aria-hidden="true">·</span>}
             <span
               className={cx(
                 field.key === "agent"
                   ? "inline-flex shrink-0 items-center gap-0.5"
                   : field.key === "model"
-                    ? "min-w-0 max-w-64 truncate"
+                    ? "min-w-0 [overflow-wrap:anywhere]"
                     : "shrink-0",
                 field.key === "rate" && "tabular-nums",
                 field.key === "rate" && slow && "text-danger",
@@ -792,7 +798,7 @@ export const MessageMetaHeader = memo(function MessageMetaHeader({
               {field.key === "agent" && <AgentRoleIcon name={field.text} />}
               {field.text}
             </span>
-          </Fragment>
+          </span>
         );
       })}
     </div>

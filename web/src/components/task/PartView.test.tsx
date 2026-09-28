@@ -4,6 +4,7 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import type { UiMessage } from "@/lib/types";
 import { ACTIVITY_USAGE_TITLES } from "@/components/ConversationLayout";
+import { formatMessageTime } from "@/components/ui";
 import { formatElapsed, MessageMetaHeader, PartView } from "./PartView";
 
 function bashMessage(output: string): UiMessage {
@@ -286,7 +287,29 @@ describe("PartView sender and response metadata", () => {
     expect(accountGroup.className).toContain("overflow-hidden");
     expect(accountGroup.getAttribute("title")).toBe("long-account@example.com");
     expect(accountGroup.querySelector('[aria-hidden="true"]')?.textContent).toBe("·");
-    expect(meta.className).toContain("overflow-hidden");
+    expect(meta.className).toContain("flex-wrap");
+    expect(meta.className).not.toContain("overflow-hidden");
+  });
+
+  it("wraps long model labels on narrow rows without truncating the model or timestamp", () => {
+    const createdAt = 1_758_947_460_000;
+    const modelLabel = "provider/very-long-model-name-that-must-wrap";
+    render(
+      <MessageMetaHeader
+        message={{ id: "assistant-meta", role: "assistant", createdAt, parts: [] }}
+        modelLabel={modelLabel}
+        effort="max"
+        usage={{ outputTokens: 94_000, avgRate: 140, elapsedMs: 7_440_000 }}
+      />,
+    );
+
+    const meta = screen.getByLabelText("応答メタデータ");
+    const model = screen.getByText(modelLabel);
+    const time = screen.getByText(formatMessageTime(createdAt));
+    expect(meta.className).toContain("flex-wrap");
+    expect(model.className).toContain("[overflow-wrap:anywhere]");
+    expect(model.className).not.toContain("truncate");
+    expect(time.className).toContain("shrink-0");
   });
 
   it("hides only the default agent field when it is the sole choice", () => {
