@@ -1,6 +1,6 @@
 import type { ThroughputTiming } from "@/lib/token-throughput";
 
-/** Live timings are replaced through set; revision and clock-dependent rows stay cheap to check. */
+/** Live timings are immutable snapshots replaced through set, so revisions cover every change. */
 export class VersionedThroughputMap extends Map<number, ThroughputTiming> {
   private revisionValue = 0;
   private awaitingFirstToken = new Set<number>();
@@ -25,7 +25,7 @@ export class VersionedThroughputMap extends Map<number, ThroughputTiming> {
   }
 
   override set(startedAt: number, timing: ThroughputTiming): this {
-    super.set(startedAt, timing);
+    super.set(startedAt, Object.freeze({ ...timing }));
     if (timing.lastTokenAtMs === null) this.awaitingFirstToken.add(startedAt);
     else this.awaitingFirstToken.delete(startedAt);
     this.revisionValue++;

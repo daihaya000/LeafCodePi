@@ -38,6 +38,19 @@ describe("VersionedThroughputMap", () => {
     expect(timings.revision).toBe(6);
   });
 
+  it("stores immutable timing snapshots to prevent untracked in-place mutations", () => {
+    const timing = { ...createThroughputTiming(1_000), lastTokenAtMs: 1_500, outputTokens: 100 };
+    const timings = new VersionedThroughputMap([[1_000, timing]]);
+    const stored = timings.get(1_000)!;
+
+    expect(stored).not.toBe(timing);
+    expect(Object.isFrozen(stored)).toBe(true);
+    expect(() => { stored.outputTokens = 200; }).toThrow();
+    timing.outputTokens = 300;
+    expect(timings.get(1_000)?.outputTokens).toBe(100);
+    expect(timings.revision).toBe(0);
+  });
+
   it("handles duplicate restored keys without a stale pending count", () => {
     const pending = createThroughputTiming(1_000);
     const finalized = { ...pending, lastTokenAtMs: 1_500 };
