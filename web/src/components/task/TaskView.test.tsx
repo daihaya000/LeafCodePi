@@ -70,31 +70,31 @@ it("shows the next-action suggestion above the follow-up composer", async () => 
   expect(screen.queryByRole("dialog", { name: "次の指示の提案" })).toBeNull();
 });
 
-it("places the suggestion and progress triggers below the message navigator with a separate gap", async () => {
+it.each([
+  { status: "idle", isStreaming: false, visible: "次の指示を提案", hidden: "進捗を確認" },
+  { status: "working", isStreaming: false, visible: "進捗を確認", hidden: "次の指示を提案" },
+  { status: "idle", isStreaming: true, visible: "進捗を確認", hidden: "次の指示を提案" },
+] as const)("shows only $visible below the navigator (status: $status, streaming: $isStreaming)", async ({ status, isStreaming, visible, hidden }) => {
   const messages: UiMessage[] = [
     { id: "prompt", role: "user", createdAt: 1, parts: [{ id: "text", type: "text", text: "指示" }] },
   ];
-  saveTaskSessionCache({ task: { ...task, sessionId: "session-1" }, messages, isStreaming: false, isCompacting: false });
+  saveTaskSessionCache({ task: { ...task, sessionId: "session-1", status }, messages, isStreaming, isCompacting: false });
   render(<TaskView taskId={task.id} mdUp />);
 
-  const progress = await screen.findByRole("button", { name: "進捗を確認" });
-  const proposal = screen.getByRole("button", { name: "次の指示を提案" });
+  const control = await screen.findByRole("button", { name: visible });
+  expect(screen.queryByRole("button", { name: hidden })).toBeNull();
   const firstMessage = screen.getByRole("button", { name: "最初のユーザーメッセージへ" });
   const navigator = firstMessage.parentElement;
-  const controls = proposal.closest(".flex-col");
-  expect(controls?.classList.contains("gap-2")).toBe(true);
-  expect(controls?.firstElementChild?.contains(proposal)).toBe(true);
-  expect(controls?.lastElementChild?.contains(progress)).toBe(true);
   expect(navigator?.classList.contains("gap-2")).toBe(true);
   expect(navigator?.parentElement?.classList.contains("gap-6")).toBe(true);
   expect(navigator?.parentElement?.firstElementChild).toBe(navigator);
-  expect(navigator?.parentElement?.lastElementChild).toBe(controls);
-  expect(screen.getByRole("form", { name: "フォローアップ" }).contains(proposal)).toBe(false);
+  expect(navigator?.parentElement?.lastElementChild?.contains(control)).toBe(true);
+  expect(screen.getByRole("form", { name: "フォローアップ" }).contains(control)).toBe(false);
 });
 
 it("keeps the progress answer when a mobile side panel is opened and closed", async () => {
   saveTaskSessionCache({
-    task: { ...task, sessionId: "session-1" }, messages: [], isStreaming: false, isCompacting: false,
+    task: { ...task, sessionId: "session-1", status: "working" }, messages: [], isStreaming: true, isCompacting: false,
   });
   mocks.sendJson.mockResolvedValue({ answer: "確認した進捗", snapshotAt: Date.now(), working: true });
   render(<TaskView taskId={task.id} mdUp={false} />);

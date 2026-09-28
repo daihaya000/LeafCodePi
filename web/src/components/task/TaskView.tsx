@@ -3559,38 +3559,38 @@ export const TaskView = memo(function TaskView({
                 ))}
               </div>
             )}
-            {task?.sessionId && (
-              <div className="flex flex-col gap-2">
-                <NextAction
-                  taskId={taskId}
-                  sessionId={task.sessionId}
-                  panelRef={nextActionPanelRef}
-                  model={selectedModel?.value === AUTO_MODEL_VALUE ? undefined : selectedModel}
-                  invalidateKey={`${messages.length}:${messages.at(-1)?.id ?? ""}:${working ? "working" : "idle"}`}
-                  disabled={compacting || archived}
-                  triggerOpacity={scrollButtonOpacity}
-                  onApply={(suggestion) => {
-                    if (
-                      prompt.trim() &&
-                      typeof window !== "undefined" &&
-                      !window.confirm("現在の入力内容を提案で置き換えますか？")
-                    ) {
-                      return false;
-                    }
-                    setPrompt(suggestion);
-                    textareaRef.current?.focus();
-                    return true;
-                  }}
-                />
-                <TaskProgressAsk
-                  taskId={taskId}
-                  sessionId={task.sessionId}
-                  panelRef={progressPanelRef}
-                  model={selectedModel?.value === AUTO_MODEL_VALUE ? undefined : selectedModel}
-                  revision={`${messages.at(-1)?.id ?? ""}:${messages.at(-1)?.parts.length ?? 0}:${working ? "working" : "idle"}`}
-                  triggerOpacity={scrollButtonOpacity}
-                />
-              </div>
+            {task?.sessionId && !working && (
+              <NextAction
+                taskId={taskId}
+                sessionId={task.sessionId}
+                panelRef={nextActionPanelRef}
+                model={selectedModel?.value === AUTO_MODEL_VALUE ? undefined : selectedModel}
+                invalidateKey={`${messages.length}:${messages.at(-1)?.id ?? ""}:${working ? "working" : "idle"}`}
+                disabled={compacting || archived}
+                triggerOpacity={scrollButtonOpacity}
+                onApply={(suggestion) => {
+                  if (
+                    prompt.trim() &&
+                    typeof window !== "undefined" &&
+                    !window.confirm("現在の入力内容を提案で置き換えますか？")
+                  ) {
+                    return false;
+                  }
+                  setPrompt(suggestion);
+                  textareaRef.current?.focus();
+                  return true;
+                }}
+              />
+            )}
+            {task?.sessionId && working && (
+              <TaskProgressAsk
+                taskId={taskId}
+                sessionId={task.sessionId}
+                panelRef={progressPanelRef}
+                model={selectedModel?.value === AUTO_MODEL_VALUE ? undefined : selectedModel}
+                revision={`${messages.at(-1)?.id ?? ""}:${messages.at(-1)?.parts.length ?? 0}:${working ? "working" : "idle"}`}
+                triggerOpacity={scrollButtonOpacity}
+              />
             )}
           </div>
         )}
