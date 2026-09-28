@@ -267,10 +267,12 @@ export function snapshotMessages(
     if (branch.length > 0) {
       useBranchHistory = true;
       entryIdByMessage = new Map<unknown, string>();
-      historyRaw = branch.flatMap((entry) => {
+      historyRaw = [];
+      for (const entry of branch) {
         if (entry.type === "message") {
           entryIdByMessage.set(entry.message, entry.id);
-          return [entry.message];
+          historyRaw.push(entry.message);
+          continue;
         }
         if (entry.type === "custom_message") {
           const timestamp = Date.parse(entry.timestamp);
@@ -288,22 +290,21 @@ export function snapshotMessages(
             !isGoalLoopTurnMarker(message) &&
             !isAgentSwitchMarker(message) &&
             !isIntercomMessageMarker(message)
-          ) return [];
+          ) continue;
           entryIdByMessage.set(message, entry.id);
-          return [message];
+          historyRaw.push(message);
+          continue;
         }
-        if (entry.type !== "compaction") return [];
+        if (entry.type !== "compaction") continue;
         const timestamp = Date.parse(entry.timestamp);
-        return [
-          {
-            id: entry.id,
-            role: "compactionSummary" as const,
-            timestamp: Number.isFinite(timestamp) ? timestamp : Date.now(),
-            summary: entry.summary,
-            tokensBefore: entry.tokensBefore,
-          },
-        ];
-      });
+        historyRaw.push({
+          id: entry.id,
+          role: "compactionSummary" as const,
+          timestamp: Number.isFinite(timestamp) ? timestamp : Date.now(),
+          summary: entry.summary,
+          tokensBefore: entry.tokensBefore,
+        });
+      }
     }
   }
   const streaming = session.agent.state.streamingMessage;

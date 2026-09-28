@@ -187,6 +187,7 @@ describe("snapshotMessages", () => {
         timestamp: "1970-01-01T00:00:00.001Z", content: "switched",
         details: { previousAgent: "builder", nextAgent: "planner" },
       },
+      { type: "custom_message", id: "ignored", customType: "unrelated", timestamp: "1970-01-01T00:00:00.002Z", content: "hidden" },
       { type: "message", id: "a1", message: { role: "assistant", content: [
         { type: "toolCall", id: "call-1", name: "bash", arguments: {} },
       ] } },
