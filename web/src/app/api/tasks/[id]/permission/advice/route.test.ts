@@ -1,16 +1,23 @@
 import { NextRequest } from "next/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { DEFAULT_LLAMA_SERVER_SETTINGS } from "@/lib/llama-server-settings";
 import { POST } from "./route";
 
 const mocks = vi.hoisted(() => ({
   getSetting: vi.fn(),
   getTask: vi.fn(),
   pendingPermissionForTask: vi.fn(),
+  listActiveLlamaAgentModels: vi.fn(() => [] as { taskId: string; providerID: string; modelID: string }[]),
+  readSettingValue: vi.fn(() => null as string | null),
 }));
 
 vi.mock("@/lib/store", () => ({ getTask: mocks.getTask }));
 vi.mock("@/lib/pi/web-settings", () => ({ getSetting: mocks.getSetting }));
-vi.mock("@/lib/pi/harness", () => ({ pendingPermissionForTask: mocks.pendingPermissionForTask }));
+vi.mock("@/lib/pi/harness", () => ({
+  pendingPermissionForTask: mocks.pendingPermissionForTask,
+  listActiveLlamaAgentModels: mocks.listActiveLlamaAgentModels,
+}));
+vi.mock("@/lib/host-control", () => ({ readSettingValue: mocks.readSettingValue }));
 
 function request(body: unknown): NextRequest {
   return new NextRequest("http://127.0.0.1:3010/api/tasks/task-1/permission/advice", {
@@ -25,6 +32,8 @@ describe("/api/tasks/[id]/permission/advice", () => {
     mocks.getSetting.mockReset();
     mocks.getTask.mockReset();
     mocks.pendingPermissionForTask.mockReset();
+    mocks.listActiveLlamaAgentModels.mockReset().mockReturnValue([]);
+    mocks.readSettingValue.mockReset().mockReturnValue(null);
     vi.unstubAllGlobals();
     mocks.getSetting.mockReturnValue("llama-server::advice-model");
     mocks.getTask.mockReturnValue({ id: "task-1", accountId: undefined });
@@ -74,6 +83,24 @@ describe("/api/tasks/[id]/permission/advice", () => {
 
     expect(response.status).toBe(400);
     expect(await response.json()).toEqual({ error: "生成モデルが設定されていません" });
+  });
+
+  it("refuses to use llama-server while the permission-waiting agent is active", async () => {
+    mocks.listActiveLlamaAgentModels.mockReturnValue([
+      { taskId: "task-1", providerID: "llama-server", modelID: "advice-model" },
+    ]);
+    mocks.readSettingValue.mockReturnValue(JSON.stringify({ ...DEFAULT_LLAMA_SERVER_SETTINGS, parallel: 1 }));
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const response = await POST(
+      request({ requestId: "request-1" }),
+      { params: Promise.resolve({ id: "task-1" }) },
+    );
+
+    expect(response.status).toBe(409);
+    expect((await response.json()).error).toContain("llama-server");
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it("rejects a stale permission request", async () => {

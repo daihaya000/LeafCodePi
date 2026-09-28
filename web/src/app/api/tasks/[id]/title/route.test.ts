@@ -16,6 +16,11 @@ vi.mock("@/lib/direct-session", () => ({
   readSessionWorkSummary: vi.fn(() => ({ todos: [], activity: [] })),
 }));
 vi.mock("@/lib/pi/web-settings", () => ({ getSetting: mocks.getSetting }));
+vi.mock("@/lib/pi/harness", () => ({
+  listActiveLlamaAgentModels: () => [],
+  hasUsableJevModelConfigured: async () => false,
+  emitTaskChanged: vi.fn(),
+}));
 
 function request(body: unknown, method: "POST" | "PATCH" = "POST"): NextRequest {
   return new NextRequest("http://127.0.0.1:3010/api/tasks/task-1/title", {

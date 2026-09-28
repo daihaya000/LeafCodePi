@@ -6,6 +6,7 @@ import { POST } from "./route";
 const mocks = vi.hoisted(() => ({
   readTaskProgressSnapshot: vi.fn(),
   completeModelText: vi.fn(),
+  listActiveLlamaAgentModels: vi.fn(() => [] as { taskId: string; providerID: string; modelID: string }[]),
   getSetting: vi.fn(),
   readSettingValue: vi.fn(),
 }));
@@ -13,6 +14,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock("@/lib/pi/harness", () => ({
   readTaskProgressSnapshot: mocks.readTaskProgressSnapshot,
   completeModelText: mocks.completeModelText,
+  listActiveLlamaAgentModels: mocks.listActiveLlamaAgentModels,
 }));
 vi.mock("@/lib/pi/web-settings", () => ({ getSetting: mocks.getSetting }));
 // 実機の llama-server 設定を読まない。
@@ -308,7 +310,11 @@ describe("/api/tasks/[id]/progress with an agent on llama-server", () => {
       model: { providerID: "anthropic", modelID: "claude-haiku" },
     });
     expect(mocks.completeModelText).toHaveBeenCalledWith(
-      expect.objectContaining({ providerID: "anthropic", modelID: "claude-haiku" }),
+      expect.objectContaining({
+        providerID: "anthropic",
+        modelID: "claude-haiku",
+        excludeProviderIDs: ["llama-server"],
+      }),
     );
     expect(fetchMock).not.toHaveBeenCalled();
   });

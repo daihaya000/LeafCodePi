@@ -8,7 +8,10 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("@/lib/pi/web-settings", () => ({ getSetting: mocks.getSetting }));
-vi.mock("@/lib/pi/harness", () => ({ completeModelText: mocks.completeModelText }));
+vi.mock("@/lib/pi/harness", () => ({
+  completeModelText: mocks.completeModelText,
+  listActiveLlamaAgentModels: () => [],
+}));
 vi.mock("@/lib/browse-paths", () => ({
   isAllowedBrowsePath: () => true,
   browseAllowedRoots: () => [],

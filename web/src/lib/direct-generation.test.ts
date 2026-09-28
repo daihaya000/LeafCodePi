@@ -1,25 +1,33 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-const { completeModelText, accountState } = vi.hoisted(() => ({
+const { completeModelText, accountState, activeLocalModels, readSettingValue } = vi.hoisted(() => ({
   completeModelText: vi.fn(),
   accountState: {
     accounts: [] as { id: string; providers: string[] }[],
   },
+  activeLocalModels: [] as { taskId: string; providerID: string; modelID: string }[],
+  readSettingValue: vi.fn(() => null as string | null),
 }));
 
-vi.mock("@/lib/pi/harness", () => ({ completeModelText }));
+vi.mock("@/lib/pi/harness", () => ({
+  completeModelText,
+  listActiveLlamaAgentModels: () => activeLocalModels,
+}));
+vi.mock("@/lib/host-control", () => ({ readSettingValue }));
 vi.mock("@/lib/accounts", () => ({
   listAccounts: () => accountState.accounts,
   accountHasProvider: (account: { providers: string[] }, providerID: string) =>
     account.providers.includes(providerID),
 }));
 
+import { DEFAULT_LLAMA_SERVER_SETTINGS } from "@/lib/llama-server-settings";
 import {
   buildDirectGenerationCandidates,
   extractDirectText,
   generateDirectText,
   generateDirectTextWithFallback,
   generateDirectTextWithFallbackResult,
+  LocalAgentBusyError,
   parseDirectModel,
   sameDirectModel,
 } from "./direct-generation";
@@ -28,6 +36,8 @@ describe("direct-generation", () => {
   afterEach(() => {
     completeModelText.mockReset();
     accountState.accounts = [];
+    activeLocalModels.length = 0;
+    readSettingValue.mockReset().mockReturnValue(null);
     vi.unstubAllGlobals();
   });
 
@@ -411,5 +421,101 @@ describe("direct-generation", () => {
       model: { providerID: "llama-server", modelID: "Qwen3.8-27B-Uncensored-GGUF" },
     });
     expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("refuses the local server when its only slot is held by an active agent", async () => {
+    activeLocalModels.push({ taskId: "agent-task", providerID: "llama-server", modelID: "agent-model" });
+    readSettingValue.mockReturnValue(JSON.stringify({ ...DEFAULT_LLAMA_SERVER_SETTINGS, parallel: 1 }));
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      generateDirectTextWithFallbackResult({
+        candidates: [{ model: { providerID: "llama-server", modelID: "agent-model" } }],
+        system: "system",
+        prompt: "prompt",
+      }),
+    ).rejects.toBeInstanceOf(LocalAgentBusyError);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("allows the same local model only when an extra parallel slot is configured", async () => {
+    activeLocalModels.push({ taskId: "agent-task", providerID: "llama-server", modelID: "agent-model" });
+    readSettingValue.mockReturnValue(JSON.stringify({ ...DEFAULT_LLAMA_SERVER_SETTINGS, parallel: 2 }));
+    const fetchMock = vi.fn(async () => new Response(
+      JSON.stringify({ choices: [{ message: { content: "local result" } }] }),
+      { status: 200 },
+    ));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      generateDirectTextWithFallbackResult({
+        candidates: [{ model: { providerID: "llama-server", modelID: "agent-model" } }],
+        system: "system",
+        prompt: "prompt",
+      }),
+    ).resolves.toMatchObject({ text: "local result" });
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
+
+  it("does not consume the last slot when every configured slot is held by agents", async () => {
+    activeLocalModels.push(
+      { taskId: "agent-task-1", providerID: "llama-server", modelID: "agent-model" },
+      { taskId: "agent-task-2", providerID: "llama-server", modelID: "agent-model" },
+    );
+    readSettingValue.mockReturnValue(JSON.stringify({ ...DEFAULT_LLAMA_SERVER_SETTINGS, parallel: 2 }));
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      generateDirectTextWithFallbackResult({
+        candidates: [{ model: { providerID: "llama-server", modelID: "agent-model" } }],
+        system: "system",
+        prompt: "prompt",
+      }),
+    ).rejects.toBeInstanceOf(LocalAgentBusyError);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("does not load a different local model even when parallel slots are available", async () => {
+    activeLocalModels.push({ taskId: "agent-task", providerID: "llama-server", modelID: "agent-model" });
+    readSettingValue.mockReturnValue(JSON.stringify({ ...DEFAULT_LLAMA_SERVER_SETTINGS, parallel: 4 }));
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      generateDirectTextWithFallbackResult({
+        candidates: [{ model: { providerID: "llama-server", modelID: "other-model" } }],
+        system: "system",
+        prompt: "prompt",
+      }),
+    ).rejects.toBeInstanceOf(LocalAgentBusyError);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("skips a busy local candidate, uses a cloud fallback, and blocks internal rerouting to llama-server", async () => {
+    activeLocalModels.push({ taskId: "agent-task", providerID: "llama-server", modelID: "agent-model" });
+    readSettingValue.mockReturnValue(JSON.stringify({ ...DEFAULT_LLAMA_SERVER_SETTINGS, parallel: 1 }));
+    completeModelText.mockResolvedValue("cloud result");
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      generateDirectTextWithFallbackResult({
+        candidates: [
+          { model: { providerID: "llama-server", modelID: "agent-model" } },
+          { model: { providerID: "anthropic", modelID: "claude-haiku" } },
+        ],
+        system: "system",
+        prompt: "prompt",
+      }),
+    ).resolves.toMatchObject({
+      text: "cloud result",
+      model: { providerID: "anthropic", modelID: "claude-haiku" },
+    });
+    expect(completeModelText).toHaveBeenCalledWith(
+      expect.objectContaining({ excludeProviderIDs: ["llama-server"] }),
+    );
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });

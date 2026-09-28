@@ -10,6 +10,7 @@ import {
   buildDirectGenerationCandidates,
   DirectGenerationError,
   generateDirectTextWithFallbackResult,
+  isLocalAgentBusyError,
   parseDirectModel,
   parseDirectModelKey,
   type DirectModel,
@@ -158,7 +159,10 @@ async function modelLabelFor(
       timeoutMs: 30_000,
     });
     return labelIdByName(labels, labelNameFromReply(generated.text, labels.map((label) => label.name)));
-  } catch {
+  } catch (error) {
+    // A busy local agent is a deferral, not a failed classification. Keep the transcript
+    // eligible so the existing post-turn retry can try again when llama-server is free.
+    if (isLocalAgentBusyError(error)) throw error;
     return undefined;
   }
 }

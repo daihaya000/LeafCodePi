@@ -13,7 +13,7 @@ import {
   getTaskHangWatch,
   stopHangWatchdogForTests,
 } from "./hang-watchdog";
-import { abortLiveForHangWatchdog, abortTask, archiveTask, autoArchiveOldTasks, destroyProject, destroyTask, getTaskDetail, isLiveBusyForReplace, isTaskRuntimeOwnedElsewhere, markTaskWorkingIfIdle, refreshLiveSessionsForAgentDefinition, reloadLiveSessionsContext, restoreTask, setBotPermissionMode, setBotTools, setTaskAgent, throwIfBusyForModelChange, throwIfBusyForPermissionChange, throwIfBusyForSkillPermissionChange, throwIfBusyForThinkingChange } from "./harness";
+import { abortLiveForHangWatchdog, abortTask, archiveTask, autoArchiveOldTasks, destroyProject, destroyTask, getTaskDetail, isLiveBusyForReplace, isTaskRuntimeOwnedElsewhere, listActiveLlamaAgentModels, markTaskWorkingIfIdle, refreshLiveSessionsForAgentDefinition, reloadLiveSessionsContext, restoreTask, setBotPermissionMode, setBotTools, setTaskAgent, throwIfBusyForModelChange, throwIfBusyForPermissionChange, throwIfBusyForSkillPermissionChange, throwIfBusyForThinkingChange } from "./harness";
 import { taskRuntimeLeasePath } from "@/lib/task-runtime-lease";
 import { botTaskId, createBot, getBot, patchBot } from "@/lib/bots";
 import { setAgentEnabled } from "@/lib/agents";
@@ -275,6 +275,59 @@ describe("isLiveBusyForReplace", () => {
   });
 });
 
+describe("listActiveLlamaAgentModels", () => {
+  it("includes active local models from live sessions", () => {
+    const root = mkdtempSync(join(tmpdir(), "leafcode-pi-local-agent-"));
+    tempDirs.push(root);
+    process.env.LEAFCODE_PI_DATA_DIR = join(root, "data");
+    const project = upsertProject({ name: "local agent", rootPath: root });
+    const task = insertTask({ project, title: "active", providerID: "llama-server", modelID: "local-model" });
+    const live = new Map([[task.id, {
+      taskId: task.id,
+      promptActive: false,
+      autoCompactionPromise: null,
+      pendingProviderFallback: null,
+      session: { model: { provider: "llama-server", id: "local-model" }, isStreaming: true, isCompacting: false },
+    } as FixtureLive]]);
+    installFixtureHarness(live);
+
+    assert.deepEqual(listActiveLlamaAgentModels(), [
+      { taskId: task.id, providerID: "llama-server", modelID: "local-model" },
+    ]);
+  });
+
+  it("includes working sessions owned by another worker", () => {
+    const root = mkdtempSync(join(tmpdir(), "leafcode-pi-remote-local-agent-"));
+    tempDirs.push(root);
+    process.env.LEAFCODE_PI_DATA_DIR = join(root, "data");
+    const project = upsertProject({ name: "remote local agent", rootPath: root });
+    const task = insertTask({ project, title: "active elsewhere", providerID: "llama-server", modelID: "remote-model" });
+    setTaskStatus(task.id, "working");
+    installFixtureHarness(new Map());
+
+    assert.deepEqual(listActiveLlamaAgentModels(), [
+      { taskId: task.id, providerID: "llama-server", modelID: "remote-model" },
+    ]);
+  });
+
+  it("includes cross-worker Goal Loops between turns", () => {
+    const root = mkdtempSync(join(tmpdir(), "leafcode-pi-goal-local-agent-"));
+    tempDirs.push(root);
+    process.env.LEAFCODE_PI_DATA_DIR = join(root, "data");
+    const project = upsertProject({ name: "goal local agent", rootPath: root });
+    const task = insertTask({ project, title: "loop", providerID: "llama-server", modelID: "loop-model" });
+    patchTask(task.id, { sessionId: "loop-session" });
+    const loopDir = join(process.env.LEAFCODE_PI_DATA_DIR, "goals-loop");
+    mkdirSync(loopDir, { recursive: true });
+    writeFileSync(join(loopDir, "loop-session.json"), JSON.stringify({ goal: "continue", status: "queued" }), "utf8");
+    installFixtureHarness(new Map());
+
+    assert.deepEqual(listActiveLlamaAgentModels(), [
+      { taskId: task.id, providerID: "llama-server", modelID: "loop-model" },
+    ]);
+  });
+});
+
 describe("markTaskWorkingIfIdle", () => {
   it("promotes an idle task so the stop control can appear before agent_start", () => {
     const root = mkdtempSync(join(tmpdir(), "leafcode-pi-harness-working-"));
@@ -396,6 +449,9 @@ describe("abortTask", () => {
     const live = new Map([[task.id, {
       taskId: task.id,
       accountId: null,
+      accountByMessageId: new Map(),
+      agentName: null,
+      agentByMessageId: new Map(),
       session,
       skillPermission: "allow",
       skillPermissionRef: { current: "allow" },

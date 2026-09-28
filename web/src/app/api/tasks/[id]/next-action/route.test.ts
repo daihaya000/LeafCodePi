@@ -12,6 +12,7 @@ const { getTask, readSessionConversation, getSetting } = mocks;
 vi.mock("@/lib/store", () => ({ getTask: mocks.getTask }));
 vi.mock("@/lib/direct-session", () => ({ readSessionConversation: mocks.readSessionConversation }));
 vi.mock("@/lib/pi/web-settings", () => ({ getSetting: mocks.getSetting }));
+vi.mock("@/lib/pi/harness", () => ({ listActiveLlamaAgentModels: () => [] }));
 
 function request(body: unknown): NextRequest {
   return new NextRequest("http://127.0.0.1:3010/api/tasks/task-1/next-action", {

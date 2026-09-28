@@ -106,6 +106,7 @@ import {
   type ProviderModelRef,
 } from "@/lib/provider-model-state";
 import {
+  LLAMA_SERVER_PROVIDER_ID,
   registerLlamaProviders,
   syncLlamaServerProvider,
 } from "@/lib/pi/llama-provider";
@@ -4109,6 +4110,7 @@ async function resolveConcreteModelWithFallback(
     strictAccountId?: boolean;
     allowProviderFallback?: boolean;
     accountIdExplicit?: boolean;
+    excludeProviderIDs?: readonly string[];
   },
 ): Promise<ConcreteModelRoute | undefined> {
   const parsed = parseModelValue(value);
@@ -4153,7 +4155,11 @@ async function resolveConcreteModelWithFallback(
     modelID: parsed.modelID,
     ...(requestedAccountId ? { accountId: requestedAccountId } : {}),
   });
-  if (fallbackRoutes[0]) return fallbackRoutes[0];
+  const fallbackRoute = fallbackRoutes.find((candidate) => {
+    const providerID = modelId(candidate.model).providerID;
+    return providerID && !options?.excludeProviderIDs?.includes(providerID);
+  });
+  if (fallbackRoute) return fallbackRoute;
   if (sourceError) throw sourceError;
   return undefined;
 }
@@ -5714,6 +5720,8 @@ export async function completeModelText(options: {
   temperature?: number;
   reasoning?: Exclude<ThinkingLevel, "off">;
   signal?: AbortSignal;
+  /** Excluded from model-resolution and provider-limit fallback routes. */
+  excludeProviderIDs?: readonly string[];
 }): Promise<string> {
   const system = options.system.trim();
   const prompt = options.prompt.trim();
@@ -5726,6 +5734,7 @@ export async function completeModelText(options: {
       strictAccountId: options.accountIdExplicit === true,
       accountIdExplicit: options.accountIdExplicit === true,
       allowProviderFallback: true,
+      excludeProviderIDs: options.excludeProviderIDs,
     },
   );
   if (!sourceRoute)
@@ -5757,6 +5766,7 @@ export async function completeModelText(options: {
         const candidateRef = routeModelRef(candidate);
         return (
           candidateRef !== null &&
+          !options.excludeProviderIDs?.includes(candidateRef.providerID) &&
           !attempted.has(
             `${candidateRef.accountId ?? ""}::${candidateRef.providerID}::${candidateRef.modelID}`,
           )
@@ -7805,7 +7815,6 @@ export async function createTask(input: {
       requestedAccountExplicit,
     );
   }
-  startInitialSessionLabelClassification(task.id, input.prompt);
   const model = modelRoute?.model;
   const requestedThinking = isThinkingLevel(thinkingLevelInput)
     ? thinkingLevelInput
@@ -7848,6 +7857,9 @@ export async function createTask(input: {
       fromBot: Boolean(input.botId),
       goalLoop: input.goalLoop,
     });
+    // Label refinement is background-only; start it after the first prompt is accepted so a
+    // local title-model fallback cannot take llama-server before the new agent's first turn.
+    startInitialSessionLabelClassification(task.id, input.prompt);
     if (promptStart) {
       const loop = await promptStart;
       if (input.goalLoop && (!loop || !isGoalLoopLiveStatus(loop.status))) {
@@ -9681,6 +9693,59 @@ export function isLiveBusyForReplace(live: {
   session: { isStreaming?: boolean; isCompacting?: boolean };
 }): boolean {
   return Boolean(live.promptActive || live.session.isStreaming || live.session.isCompacting);
+}
+
+/** Models held by active llama-server agents, including tasks owned by another worker. */
+export function listActiveLlamaAgentModels(): Array<{
+  taskId: string;
+  providerID: string;
+  modelID: string;
+}> {
+  const current = state();
+  const liveTaskIds = new Set(current.live.keys());
+  const models = new Map<string, { taskId: string; providerID: string; modelID: string }>();
+  const add = (taskId: string, providerID: string | undefined, modelID: string | undefined) => {
+    if (!providerID || !modelID) return;
+    if (providerID !== LLAMA_SERVER_PROVIDER_ID) return;
+    models.set(`${taskId}::${providerID}::${modelID}`, { taskId, providerID, modelID });
+  };
+
+  for (const [taskId, live] of current.live) {
+    const active =
+      isLiveBusyForReplace(live) ||
+      Boolean(live.manualCompactionInProgress) ||
+      Boolean(live.autoCompactionPromise) ||
+      Boolean(live.pendingProviderFallback) ||
+      Boolean(live.pendingTransportRecovery) ||
+      providerFallbackInflight.has(taskId) ||
+      isLiveGoalLoopSession(live.session);
+    if (!active) continue;
+    const currentModel = modelId(live.session.model);
+    add(taskId, currentModel.providerID, currentModel.modelID);
+    // Provider-limit recovery may replace a cloud route with llama-server next; its
+    // destination is unresolved here, so conservatively reserve every local model.
+    if (live.pendingProviderFallback || providerFallbackInflight.has(taskId)) {
+      add(taskId, LLAMA_SERVER_PROVIDER_ID, "*");
+    }
+    const pendingModel = live.pendingSettings?.model?.route.model;
+    if (pendingModel) {
+      const pendingIds = modelId(pendingModel);
+      add(taskId, pendingIds.providerID, pendingIds.modelID);
+    }
+  }
+
+  // Persisted status covers sessions resident in a different Next worker. Goal Loop state
+  // covers its short between-turn windows where the persisted task status may already be idle.
+  for (const task of listTasks(false, "all")) {
+    if (liveTaskIds.has(task.id) || !task.providerID || !task.modelID) continue;
+    if (task.providerID !== LLAMA_SERVER_PROVIDER_ID) continue;
+    const loopActive = Boolean(
+      task.sessionId && isGoalLoopLiveStatus(readGoalLoopState(task.directory, task.sessionId)?.status),
+    );
+    if (task.status !== "working" && !loopActive) continue;
+    add(task.id, task.providerID, task.modelID);
+  }
+  return [...models.values()];
 }
 
 /** A Goal Loop can replace its own live or paused run; other busy work still blocks it. */

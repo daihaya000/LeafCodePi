@@ -36,6 +36,7 @@ vi.mock("@/lib/direct-generation", async (importOriginal) => {
 vi.mock("@/lib/pi/harness", () => ({
   hasUsableJevModelConfigured: state.hasUsableJevModelConfigured,
   emitTaskChanged: state.emitTaskChanged,
+  listActiveLlamaAgentModels: () => [],
 }));
 
 vi.mock("@/lib/auto-jev", async (importOriginal) => ({
@@ -64,6 +65,7 @@ import {
 import {
   GENERATION_MODEL_SETTING_KEY,
 } from "./generation-model-key";
+import { LocalAgentBusyError } from "./direct-generation";
 
 describe("refreshTaskTitleDirect account pin", () => {
   beforeEach(() => {
@@ -187,6 +189,27 @@ describe("refreshTaskTitleDirect account pin", () => {
 
     expect(state.generateDirectTextWithFallbackResult).not.toHaveBeenCalled();
     expect(state.classifySessionLabelWithJev).not.toHaveBeenCalled();
+  });
+
+  it("retries a label after local-agent contention instead of caching it as a miss", async () => {
+    useJevThatMisses();
+    state.getSetting.mockImplementation((key: string) =>
+      key === GENERATION_MODEL_SETTING_KEY
+        ? "llama-server::local-model"
+        : key === "auto-jev-enabled"
+          ? "1"
+          : "",
+    );
+    state.generateDirectTextWithFallbackResult
+      .mockRejectedValueOnce(new LocalAgentBusyError())
+      .mockResolvedValueOnce({ text: "ラベル: 調査", model: { providerID: "llama-server", modelID: "local-model" } });
+    const task = insertTask({ project: null, title: "t", providerID: "llama-server", modelID: "local-model" });
+
+    await expect(ensureTaskLabelDirect(task.id)).resolves.toBeUndefined();
+    await expect(ensureTaskLabelDirect(task.id)).resolves.toBe("research");
+
+    expect(state.generateDirectTextWithFallbackResult).toHaveBeenCalledTimes(2);
+    expect(state.classifySessionLabelWithJev).toHaveBeenCalledTimes(2);
   });
 
   it("does not resend a transcript on which Jev and the title model already missed", async () => {

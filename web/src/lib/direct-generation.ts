@@ -1,5 +1,6 @@
-import { completeModelText } from "@/lib/pi/harness";
+import { completeModelText, listActiveLlamaAgentModels } from "@/lib/pi/harness";
 import { accountHasProvider, listAccounts } from "@/lib/accounts";
+import { readSettingValue } from "@/lib/host-control";
 import { splitGenerationModel } from "@/lib/generation-model-key";
 import {
   DEFAULT_LLAMA_SERVER_BASE,
@@ -8,6 +9,7 @@ import {
   LLAMA_SERVER_PROVIDER_ID,
   rewriteLlamaServerEffortPayload,
 } from "@/lib/pi/llama-provider";
+import { LLAMA_SERVER_SETTINGS_KEY, parseLlamaServerSettings } from "@/lib/llama-server-settings";
 import { isThinkingLevel } from "@/lib/thinking-levels";
 import type { ThinkingLevel } from "@/lib/types";
 
@@ -17,6 +19,9 @@ const MAX_INPUT_CHARS = 32_000;
 const MAX_OUTPUT_CHARS = 4_000;
 const DEFAULT_TIMEOUT_MS = 30_000;
 const MAX_TIMEOUT_MS = 120_000;
+
+export const LOCAL_AGENT_BUSY_MESSAGE =
+  "エージェントが llama-server を使用中のため、追加のローカル生成を見送りました。生成モデルを llama-server 以外にするか、実行中エージェントと同一モデルで空き並列スロットを確保してください。";
 
 export type DirectModel = {
   providerID: string;
@@ -37,6 +42,17 @@ export class DirectGenerationError extends Error {
     this.name = "DirectGenerationError";
     this.status = status;
   }
+}
+
+export class LocalAgentBusyError extends DirectGenerationError {
+  constructor() {
+    super(LOCAL_AGENT_BUSY_MESSAGE, 409);
+    this.name = "LocalAgentBusyError";
+  }
+}
+
+export function isLocalAgentBusyError(error: unknown): error is LocalAgentBusyError {
+  return error instanceof LocalAgentBusyError;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -128,6 +144,44 @@ export function extractDirectText(body: unknown): string {
   return truncateOutputText(textFromContent(choice.message.content));
 }
 
+export type ActiveLocalAgentModel = ReturnType<typeof listActiveLlamaAgentModels>[number];
+
+function activeLocalAgentContext(): {
+  models: ActiveLocalAgentModel[];
+  parallelSlots: number;
+} {
+  const models = listActiveLlamaAgentModels();
+  return {
+    models,
+    parallelSlots: models.length > 0
+      ? parseLlamaServerSettings(readSettingValue(LLAMA_SERVER_SETTINGS_KEY)).parallel
+      : 1,
+  };
+}
+
+function candidateCompetesWithLocalAgents(
+  candidate: DirectGenerationCandidate,
+  activeAgents: readonly ActiveLocalAgentModel[],
+  parallelSlots: number,
+): boolean {
+  if (candidate.model.providerID !== LLAMA_SERVER_PROVIDER_ID || activeAgents.length === 0) return false;
+  return !(
+    parallelSlots >= 2 &&
+    activeAgents.length < parallelSlots &&
+    activeAgents.every((agent) => agent.modelID === candidate.model.modelID)
+  );
+}
+
+export function filterDirectGenerationCandidatesForActiveAgents(
+  candidates: readonly DirectGenerationCandidate[],
+  activeAgents: readonly ActiveLocalAgentModel[],
+  parallelSlots: number,
+): DirectGenerationCandidate[] {
+  return candidates.filter(
+    (candidate) => !candidateCompetesWithLocalAgents(candidate, activeAgents, parallelSlots),
+  );
+}
+
 export async function generateDirectText(options: {
   model: DirectModel;
   /** Account runtime for account-scoped models; null/undefined uses default. */
@@ -141,6 +195,8 @@ export async function generateDirectText(options: {
   effort?: string;
   timeoutMs?: number;
   signal?: AbortSignal;
+  /** Prevent provider-limit recovery from routing to these providers. */
+  excludeProviderIDs?: readonly string[];
 }): Promise<string> {
   const system = options.system.trim();
   const prompt = options.prompt.trim();
@@ -154,6 +210,15 @@ export async function generateDirectText(options: {
     modelID: safeModelId(options.model.modelID),
     ...(options.model.accountId ? { accountId: options.model.accountId } : {}),
   };
+  const activeAgents = activeLocalAgentContext();
+  const exclusions = new Set(options.excludeProviderIDs ?? []);
+  if (activeAgents.models.length > 0) exclusions.add(LLAMA_SERVER_PROVIDER_ID);
+  if (
+    model.providerID === LLAMA_SERVER_PROVIDER_ID &&
+    candidateCompetesWithLocalAgents({ model }, activeAgents.models, activeAgents.parallelSlots)
+  ) {
+    throw new LocalAgentBusyError();
+  }
   const timeoutMs = Math.min(
     MAX_TIMEOUT_MS,
     Math.max(1_000, Math.floor(options.timeoutMs ?? DEFAULT_TIMEOUT_MS)),
@@ -180,6 +245,7 @@ export async function generateDirectText(options: {
         maxTokens: options.maxTokens,
         temperature: options.temperature,
         ...(reasoning ? { reasoning } : {}),
+        ...(exclusions.size > 0 ? { excludeProviderIDs: [...exclusions] } : {}),
         signal: controller.signal,
       });
       return truncateOutputText(text);
@@ -284,6 +350,7 @@ export async function generateDirectTextWithFallbackResult(
     candidates,
     accountId: taskAccountId,
     accountIdExplicit: taskAccountExplicit,
+    excludeProviderIDs,
     ...base
   } = options;
   const taskAccount = taskAccountId
@@ -293,8 +360,22 @@ export async function generateDirectTextWithFallbackResult(
     throw new DirectGenerationError("アカウントが見つかりません", 404);
   }
 
+  const activeAgents = activeLocalAgentContext();
+  const filteredCandidates = filterDirectGenerationCandidatesForActiveAgents(
+    candidates,
+    activeAgents.models,
+    activeAgents.parallelSlots,
+  );
+  if (filteredCandidates.length === 0 && candidates.some((candidate) =>
+    candidate.model.providerID === LLAMA_SERVER_PROVIDER_ID
+  ) && activeAgents.models.length > 0) {
+    throw new LocalAgentBusyError();
+  }
+  const exclusions = new Set(excludeProviderIDs ?? []);
+  if (activeAgents.models.length > 0) exclusions.add(LLAMA_SERVER_PROVIDER_ID);
+
   let lastError: unknown;
-  for (const candidate of candidates) {
+  for (const candidate of filteredCandidates) {
     // A task pin only applies to providers owned by that account. A configured
     // fallback for another provider must resolve its own account/runtime.
     const accountId =
@@ -313,6 +394,7 @@ export async function generateDirectTextWithFallbackResult(
           model: candidate.model,
           effort: candidate.effort,
           ...(pinAccount ? { accountIdExplicit: true } : {}),
+          ...(exclusions.size > 0 ? { excludeProviderIDs: [...exclusions] } : {}),
         }),
         model: candidate.model,
       };
@@ -327,6 +409,7 @@ export async function generateDirectTextWithFallbackResult(
               ...(accountId ? { accountId } : {}),
               model: candidate.model,
               ...(pinAccount ? { accountIdExplicit: true } : {}),
+              ...(exclusions.size > 0 ? { excludeProviderIDs: [...exclusions] } : {}),
             }),
             model: candidate.model,
           };

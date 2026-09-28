@@ -17,6 +17,7 @@ type AdviceState =
   | { requestId: string; status: "loading" }
   | { requestId: string; status: "success"; advice: string; model?: AdviceModel }
   | { requestId: string; status: "missing" }
+  | { requestId: string; status: "busy" }
   | { requestId: string; status: "error" };
 
 const adviceRequests = new Map<string, Promise<AdviceResponse>>();
@@ -70,6 +71,14 @@ export function PermissionAdvice({
           setState({ requestId, status: "missing" });
           return;
         }
+        if (
+          error instanceof ApiError &&
+          error.status === 409 &&
+          /llama-server/i.test(error.message)
+        ) {
+          setState({ requestId, status: "busy" });
+          return;
+        }
         setState({ requestId, status: "error" });
       });
     return () => {
@@ -89,6 +98,13 @@ export function PermissionAdvice({
     return (
       <p role="status" aria-live="polite" className="mt-2 text-xs text-muted">
         第三者アドバイスを表示するには、設定 → モデル → 生成モデルを選択してください。
+      </p>
+    );
+  }
+  if (state.status === "busy") {
+    return (
+      <p role="status" aria-live="polite" className="mt-2 text-xs text-muted">
+        エージェントがローカルLLMを使用中のため第三者アドバイスを生成できません。生成モデルを llama-server 以外にするか、実行中エージェントと同一モデルで空き並列スロットを確保してください。許可・拒否はこの画面から選択してください。
       </p>
     );
   }
