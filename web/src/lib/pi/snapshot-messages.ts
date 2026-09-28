@@ -536,18 +536,20 @@ export function applyToolTiming(
   toolEndedAt: Map<string, number>,
 ): UiMessage[] {
   return messages.map((message) => {
-    if (message.role !== "assistant") return message;
-    let changed = false;
-    const parts = message.parts.map((part) => {
-      if (part.type !== "tool") return part;
+    if (message.role !== "assistant" ||
+        (message.parts.length <= 1 && message.parts[0]?.type !== "tool")) return message;
+    let parts: UiMessage["parts"] | undefined;
+    for (let index = 0; index < message.parts.length; index++) {
+      const part = message.parts[index]!;
+      if (part.type !== "tool") continue;
       const startedAtMs = toolStartedAt.get(part.callID);
-      if (startedAtMs === undefined) return part;
+      if (startedAtMs === undefined) continue;
       const endedAtMs = toolEndedAt.get(part.callID) ?? part.state.endedAtMs;
       // Timing is fixed once known; rebuilding the part on every 100ms snapshot
       // would recreate the whole tool history for no visible change.
-      if (part.state.startedAtMs === startedAtMs && part.state.endedAtMs === endedAtMs) return part;
-      changed = true;
-      return {
+      if (part.state.startedAtMs === startedAtMs && part.state.endedAtMs === endedAtMs) continue;
+      if (!parts) parts = message.parts.slice();
+      parts[index] = {
         ...part,
         state: {
           ...part.state,
@@ -555,7 +557,7 @@ export function applyToolTiming(
           endedAtMs,
         },
       };
-    });
-    return changed ? { ...message, parts } : message;
+    }
+    return parts ? { ...message, parts } : message;
   });
 }

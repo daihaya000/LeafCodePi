@@ -418,6 +418,28 @@ describe("applyToolTiming", () => {
     assert.equal(part.state.endedAtMs, 1000);
   });
 
+  it("keeps unchanged rows and parts when only one tool timing changes", () => {
+    const text: UiMessage = {
+      id: "text", role: "assistant", createdAt: 1,
+      parts: [{ id: "text-1", type: "text", text: "unchanged" }],
+    };
+    const current = toolMessage("call-1");
+    const first = current.parts[0]!;
+    if (first.type !== "tool") throw new Error("expected tool part");
+    first.state.startedAtMs = 1000;
+    first.state.endedAtMs = 3000;
+    current.parts.push(toolMessage("call-2").parts[0]!);
+
+    const result = applyToolTiming([text, current], new Map([
+      ["call-1", 1000], ["call-2", 2000],
+    ]), new Map([["call-1", 3000]]));
+    assert.equal(result[0], text);
+    assert.equal(result[1]!.parts[0], first);
+    assert.notEqual(result[1]!.parts[1], current.parts[1]);
+    const second = result[1]!.parts[1];
+    assert.equal(second?.type === "tool" ? second.state.startedAtMs : undefined, 2000);
+  });
+
   it("reuses parts and messages when the timing is already applied", () => {
     const started = new Map([["call-1", 1000]]);
     const ended = new Map([["call-1", 5000]]);
