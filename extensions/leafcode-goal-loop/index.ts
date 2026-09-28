@@ -124,6 +124,22 @@ const SCHEDULE_WATCHDOG_MS = 5_000;
 const TERMINAL = new Set<GoalLoopStatus>(["completed", "stopped"]);
 const UNSCHEDULABLE = new Set<GoalLoopStatus>(["paused", "blocked"]);
 const ABORTED_TURN_PAUSE_ERROR = "実行が中断されたため一時停止しました。";
+/**
+ * The LeafCodePi WebUI announces its turn routing on this Pi event-bus channel
+ * from an inline extension factory (web/src/lib/pi/harness.ts). Pi loads path
+ * extensions such as this one first, so the announcement always arrives before
+ * session_start, while the routing hooks are installed by the host's own
+ * session_start handler, which runs after ours.
+ */
+export const HOST_ROUTING_CHANNEL = "leafcode-goal-loop:host-routing";
+/** Bound on waiting for announced host routing before sending without it. */
+const HOST_ROUTING_WAIT_MS = 15_000;
+/**
+ * Pi re-imports extensions on every session.reload() (jiti moduleCache: false),
+ * so the successor runtime lives in a fresh module instance. In-memory turn
+ * bookkeeping can only cross that boundary through globalThis.
+ */
+const RELOAD_HANDOFF_KEY = Symbol.for("leafcode-goal-loop.reload-handoff");
 
 const runtimes = new Map<string, Runtime>();
 /** Test-only override for the in-flight turn watchdog. */
@@ -136,6 +152,8 @@ let renameSyncForTests: ((temp: string, file: string) => void) | undefined;
 let writeLoopFailForTests = false;
 /** Test-only: allow N successful writeLoop calls, then fail. */
 let writeLoopAllowCountForTests: number | undefined;
+/** Test-only override for the announced host routing wait. */
+let hostRoutingWaitMsForTests: number | undefined;
 
 function isActiveRuntime(runtime: Runtime): boolean {
   return !runtime.disposed && runtimes.get(runtime.key) === runtime;
@@ -149,6 +167,10 @@ function scheduleWatchdogMs(): number {
   return scheduleWatchdogMsForTests ?? SCHEDULE_WATCHDOG_MS;
 }
 
+function hostRoutingWaitMs(): number {
+  return hostRoutingWaitMsForTests ?? HOST_ROUTING_WAIT_MS;
+}
+
 function renameGoalState(temp: string, file: string): void {
   (renameSyncForTests ?? fs.renameSync)(temp, file);
 }
@@ -158,6 +180,8 @@ type GoalLoopTurnRoutingContext = ExtensionContext & {
   prepareGoalLoopTurn?: (prompt: string) => Promise<boolean | "retry">;
   /** Checks whether a provider-limit turn can be retried on a fallback route. */
   canRetryGoalLoopProviderLimit?: () => Promise<boolean>;
+  /** Undoes the host's pre-send bookkeeping when a prepared turn is not sent. */
+  releaseGoalLoopTurn?: () => void;
 };
 
 type Runtime = {
@@ -191,6 +215,10 @@ type Runtime = {
   abortedTurnPausePending: boolean;
   /** Prevent duplicate hidden end notices if persisting their flag fails. */
   endNoticeQueued: boolean;
+  /** The host announced turn routing; never send before its hooks are installed. */
+  hostRoutingExpected: boolean;
+  /** Stop waiting for announced routing that never arrives after this time. */
+  hostRoutingDeadline: number;
   disposed: boolean;
 };
 
@@ -1049,6 +1077,68 @@ function clearPendingAgentRun(runtime: Runtime): void {
   runtime.pendingAgentAborted = false;
 }
 
+/** In-memory bookkeeping a reload successor inherits from its predecessor. */
+type ReloadHandoff = {
+  sessionManager: unknown;
+  pausedTurnPending: boolean;
+  pausedTurnIndex?: number;
+  pendingAgentMessages?: unknown[];
+  pendingAgentAborted: boolean;
+  discardAgentSettlements: number;
+  abortedTurnPausePending: boolean;
+  endNoticeQueued: boolean;
+};
+
+function reloadHandoffs(): Map<string, ReloadHandoff> {
+  const store = globalThis as typeof globalThis & Record<symbol, unknown>;
+  const existing = store[RELOAD_HANDOFF_KEY];
+  if (existing instanceof Map) return existing as Map<string, ReloadHandoff>;
+  const handoffs = new Map<string, ReloadHandoff>();
+  store[RELOAD_HANDOFF_KEY] = handoffs;
+  return handoffs;
+}
+
+function stashReloadHandoff(runtime: Runtime): void {
+  reloadHandoffs().set(runtime.key, {
+    sessionManager: runtime.sessionManager,
+    pausedTurnPending: runtime.pausedTurnPending,
+    pausedTurnIndex: runtime.pausedTurnIndex,
+    pendingAgentMessages: runtime.pendingAgentMessages,
+    pendingAgentAborted: runtime.pendingAgentAborted,
+    discardAgentSettlements: runtime.discardAgentSettlements,
+    abortedTurnPausePending: runtime.abortedTurnPausePending,
+    endNoticeQueued: runtime.endNoticeQueued,
+  });
+}
+
+/**
+ * Consume the handoff for this key. Only the same SessionManager (the session
+ * that was reloaded in place) inherits it; a stale entry from a failed reload
+ * must never leak into a later session that reuses the ID.
+ */
+function takeReloadHandoff(key: string, sessionManager: unknown): ReloadHandoff | undefined {
+  const handoffs = reloadHandoffs();
+  const handoff = handoffs.get(key);
+  handoffs.delete(key);
+  return handoff?.sessionManager === sessionManager ? handoff : undefined;
+}
+
+/** The predecessor may run older code after an edit, so read every field defensively. */
+function restoreReloadHandoff(runtime: Runtime, handoff: ReloadHandoff): void {
+  runtime.pausedTurnPending = handoff.pausedTurnPending === true;
+  runtime.pausedTurnIndex = typeof handoff.pausedTurnIndex === "number" ? handoff.pausedTurnIndex : undefined;
+  runtime.pendingAgentMessages = Array.isArray(handoff.pendingAgentMessages)
+    ? handoff.pendingAgentMessages
+    : undefined;
+  runtime.pendingAgentAborted = handoff.pendingAgentAborted === true;
+  runtime.discardAgentSettlements = Number.isInteger(handoff.discardAgentSettlements) &&
+    handoff.discardAgentSettlements > 0
+    ? handoff.discardAgentSettlements
+    : 0;
+  runtime.abortedTurnPausePending = handoff.abortedTurnPausePending === true;
+  runtime.endNoticeQueued = handoff.endNoticeQueued === true;
+}
+
 function isAbortPausedLoop(loop: GoalLoop | null): loop is GoalLoop {
   return Boolean(
     loop &&
@@ -1537,6 +1627,29 @@ function startScheduleWatchdog(runtime: Runtime): void {
   runtime.watchdogTimer.unref?.();
 }
 
+/**
+ * True while announced host routing is still missing. Sending then would skip
+ * account routing and could start the turn while the host is still rebuilding
+ * the session (for example mid session.reload()). Bounded so a host that never
+ * installs its hooks cannot stall the loop.
+ */
+function awaitingHostRouting(runtime: Runtime): "waiting" | "timed_out" | "ready" {
+  if (!runtime.hostRoutingExpected) return "ready";
+  if (Date.now() < runtime.hostRoutingDeadline) return "waiting";
+  runtime.hostRoutingExpected = false;
+  console.error("[goal-loop] host routing was announced but never installed");
+  return "timed_out";
+}
+
+/** The host marked the task working for a prepared turn; undo that when it is not sent. */
+function releasePreparedTurn(runtime: Runtime): void {
+  try {
+    runtime.ctx.releaseGoalLoopTurn?.();
+  } catch (error) {
+    console.error("[goal-loop] releaseGoalLoopTurn failed:", error);
+  }
+}
+
 async function sendTurn(runtime: Runtime): Promise<void> {
   if (!isActiveRuntime(runtime) || runtime.awaitingTurn) return;
   const turnGeneration = runtime.turnGeneration;
@@ -1583,6 +1696,25 @@ async function sendTurn(runtime: Runtime): Promise<void> {
       ? buildGoalPrompt(loop, routingTurn)
       : buildGoalContinuationPrompt(loop, routingTurn);
   const prepareGoalLoopTurn = runtime.ctx.prepareGoalLoopTurn;
+  if (!prepareGoalLoopTurn) {
+    const routingState = awaitingHostRouting(runtime);
+    if (routingState === "waiting") {
+      schedule(runtime);
+      return;
+    }
+    if (routingState === "timed_out") {
+      pauseLoop(runtime, "scheduler_error", "ホストのGoal Loopターン準備が期限内に開始されませんでした。");
+      return;
+    }
+  } else {
+    runtime.hostRoutingExpected = false;
+  }
+  // Once the host prepared this turn (lease, working status, hang watch), every
+  // exit that does not send it must hand that bookkeeping back.
+  let hostPrepared = false;
+  const abandonPreparedTurn = () => {
+    if (hostPrepared) releasePreparedTurn(runtime);
+  };
   if (prepareGoalLoopTurn) {
     try {
       const prepared = await prepareGoalLoopTurn(routingPrompt);
@@ -1608,6 +1740,7 @@ async function sendTurn(runtime: Runtime): Promise<void> {
         schedule(runtime, 250);
         return;
       }
+      hostPrepared = true;
     } catch (error) {
       if (!isActiveRuntime(runtime) || runtime.turnGeneration !== turnGeneration) return;
       pauseLoop(
@@ -1620,8 +1753,13 @@ async function sendTurn(runtime: Runtime): Promise<void> {
       return;
     }
     loop = currentLoop(runtime);
-    if (!loop || TERMINAL.has(loop.status) || UNSCHEDULABLE.has(loop.status)) return;
+    // Paused, stopped or replaced while routing awaited.
+    if (!loop || TERMINAL.has(loop.status) || UNSCHEDULABLE.has(loop.status)) {
+      abandonPreparedTurn();
+      return;
+    }
     if (!runtime.ctx.isIdle() || runtime.ctx.hasPendingMessages()) {
+      abandonPreparedTurn();
       schedule(runtime, 500);
       return;
     }
@@ -1637,6 +1775,7 @@ async function sendTurn(runtime: Runtime): Promise<void> {
       loop.status = "paused";
       loop.pauseReason = "turn_limit";
       loop.error = "最大ターン数に到達したため一時停止しました。";
+      abandonPreparedTurn();
       if (!writeLoop(loop)) {
         schedule(runtime, 500);
         return;
@@ -1663,12 +1802,14 @@ async function sendTurn(runtime: Runtime): Promise<void> {
     kind = "verification";
     prompt = buildVerificationPrompt(loop);
   } else {
+    abandonPreparedTurn();
     return;
   }
 
   // Persist running/turnCount before send. On failure disk still has the pre-send
   // queued state; never set awaitingTurn or enqueue a prompt against stale disk.
   if (!writeLoop(loop)) {
+    abandonPreparedTurn();
     schedule(runtime, 500);
     return;
   }
@@ -2191,10 +2332,26 @@ function registerCommandAliases(pi: ExtensionAPI, getRuntime: () => Runtime | nu
 export default function (pi: ExtensionAPI): void {
   // session_start は factory の直後に来るため、runtime はイベント内で作る。
   let runtime: Runtime | undefined;
+  // Set by the host announcement, which Pi delivers while loading extensions.
+  let hostRoutingExpected = false;
+  let stopHostRoutingListener: (() => void) | undefined;
+  try {
+    stopHostRoutingListener = pi.events?.on(HOST_ROUTING_CHANNEL, () => {
+      hostRoutingExpected = true;
+    });
+  } catch {
+    // Hosts without an event bus never announce routing.
+  }
 
-  pi.on("session_start", async (_event, ctx) => {
+  pi.on("session_start", async (event, ctx) => {
     const id = sessionId(ctx);
     const key = runtimeKey(ctx.cwd, id);
+    // Every extension factory has run by now; the announcement cannot arrive later.
+    stopHostRoutingListener?.();
+    stopHostRoutingListener = undefined;
+    // session.reload() rebuilt this extension in place for the same session.
+    const handoff = takeReloadHandoff(key, ctx.sessionManager);
+    const reloaded = event?.reason === "reload" && handoff !== undefined;
     // A single extension instance can receive a new session_start before the
     // old session_shutdown. Retire the prior runtime so its timers cannot act
     // on the old context after this closure begins targeting the new session.
@@ -2244,14 +2401,19 @@ export default function (pi: ExtensionAPI): void {
       sendTurnInFlight: false,
       abortedTurnPausePending: false,
       endNoticeQueued: false,
+      hostRoutingExpected,
+      hostRoutingDeadline: Date.now() + hostRoutingWaitMs(),
       disposed: false,
       pendingAgentAborted: false,
     };
+    if (reloaded) restoreReloadHandoff(runtime, handoff);
     runtimes.set(key, runtime);
     startScheduleWatchdog(runtime);
 
     const loop = currentLoop(runtime);
-    if (loop?.status === "running" || isAbortPausedLoop(loop)) {
+    // A reload successor keeps an abort pause as it is, so a manual compaction
+    // that caused it can still re-queue the loop through the inherited flag.
+    if (loop?.status === "running" || (!reloaded && isAbortPausedLoop(loop))) {
       // Only running has an in-flight prompt that needs manual recovery. An
       // abort pause can be left on disk when the following lifecycle write
       // fails; normalize that internal pause before exposing the new session.
@@ -2414,7 +2576,9 @@ export default function (pi: ExtensionAPI): void {
     if (loop.status === "queued" || loop.status === "verifying_completed") schedule(current);
   });
 
-  pi.on("session_shutdown", async (_event, ctx) => {
+  pi.on("session_shutdown", async (event, ctx) => {
+    stopHostRoutingListener?.();
+    stopHostRoutingListener = undefined;
     // Superseded runtimes must still release their timers, without changing disk.
     const current = runtime;
     // Ignore teardown from the preceding session when its session_start has
@@ -2425,16 +2589,26 @@ export default function (pi: ExtensionAPI): void {
     // dispose()/replace can leave this extension instance alive long enough to
     // see shutdown after a newer runtime already claimed the same key. Never
     // pause the shared loop or delete the replacement's map entry in that case.
+    // session.reload() rebuilds the extensions of a session that keeps running,
+    // and the successor's session_start continues queued work from disk. Only a
+    // real session end pauses between turns. A turn caught mid-flight still gets
+    // the recoverable pause; the host never reloads while a run is streaming.
+    const reloading = event?.reason === "reload";
     const active = isActiveRuntime(current);
     if (active) {
+      // If reload lands after the host committed turn preparation but before
+      // sendMessage made the session busy, return its working reservation.
+      if (reloading) releasePreparedTurn(current);
       const loop = currentLoop(current);
       if (
         loop &&
         (
           loop.status === "running" ||
-          loop.status === "queued" ||
-          loop.status === "verifying_completed" ||
-          (current.abortedTurnPausePending && isAbortPausedLoop(loop))
+          (!reloading && (
+            loop.status === "queued" ||
+            loop.status === "verifying_completed" ||
+            (current.abortedTurnPausePending && isAbortPausedLoop(loop))
+          ))
         )
       ) {
         // An abort settlement can run before teardown emits session_shutdown.
@@ -2445,7 +2619,9 @@ export default function (pi: ExtensionAPI): void {
         if (loop.status === "running") loop.pendingTurnRecovery = true;
         loop.status = "paused";
         loop.pauseReason = "";
-        loop.error = "セッション終了時に一時停止しました。";
+        loop.error = reloading
+          ? "実行中に拡張機能が再読み込みされたため一時停止しました。"
+          : "セッション終了時に一時停止しました。";
         // Session is ending either way: dispose below. On write failure leave disk
         // unchanged so the next session_start can repair running or re-arm queued.
         if (!writeLoop(loop)) {
@@ -2454,6 +2630,7 @@ export default function (pi: ExtensionAPI): void {
         clearTimer(current);
         current.awaitingTurn = false;
       }
+      if (reloading) stashReloadHandoff(current);
     }
     current.abortedTurnPausePending = false;
     current.disposed = true;
@@ -2526,6 +2703,9 @@ export const goalLoopTestSeams = {
   },
   setScheduleWatchdogMs(ms?: number) {
     scheduleWatchdogMsForTests = typeof ms === "number" && Number.isFinite(ms) && ms > 0 ? ms : undefined;
+  },
+  setHostRoutingWaitMs(ms?: number) {
+    hostRoutingWaitMsForTests = typeof ms === "number" && Number.isFinite(ms) && ms >= 0 ? ms : undefined;
   },
   setRenameSync(fn?: (temp: string, file: string) => void) {
     renameSyncForTests = fn;

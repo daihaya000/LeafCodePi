@@ -16,6 +16,7 @@ const fakePi = vi.hoisted(() => {
   type FakeExtensionHandler = (event: unknown, ctx: Record<string, unknown>) => unknown;
   type FakeExtensionApi = {
     on: (name: string, handler: FakeExtensionHandler) => void;
+    events: { emit: (channel: string, data?: unknown) => void; on: (channel: string, handler: (data: unknown) => void) => () => void };
     registerTool: (...args: unknown[]) => void;
     getActiveTools: () => string[];
     setActiveTools: (names: string[]) => void;
@@ -125,6 +126,7 @@ const fakePi = vi.hoisted(() => {
         transport: "auto",
       };
       const listeners = new Set<(event: FakeEvent) => void>();
+      const eventBus = new EventEmitter();
       const emit = (event: FakeEvent) => {
         for (const listener of listeners) listener(event);
       };
@@ -133,6 +135,13 @@ const fakePi = vi.hoisted(() => {
       const extensionHandlers = new Map<string, FakeExtensionHandler[]>();
       let activeTools: string[] = [];
       const extensionApi: FakeExtensionApi = {
+        events: {
+          emit: (channel, data) => { eventBus.emit(channel, data); },
+          on: (channel, handler) => {
+            eventBus.on(channel, handler);
+            return () => eventBus.off(channel, handler);
+          },
+        },
         on: (name, handler) => {
           extensionHandlers.set(name, [
             ...(extensionHandlers.get(name) ?? []),
@@ -196,6 +205,9 @@ const fakePi = vi.hoisted(() => {
         reload: async () => {
           entry.reloads += 1;
           entry.events.push("reload");
+          for (const handler of extensionHandlers.get("session_start") ?? []) {
+            await handler({ type: "session_start", reason: "reload" }, extensionContext);
+          }
         },
         dispose: () => {
           entry.disposed = true;
@@ -305,6 +317,7 @@ vi.mock("@earendil-works/pi-coding-agent", () => fakePi);
 const autoAgentMock = vi.hoisted(() => vi.fn());
 vi.mock("@/lib/auto-agent", () => ({ resolveAutoAgent: autoAgentMock }));
 vi.mock("@/lib/pushover-config", () => ({
+  readPushoverNotificationEnabled: () => true,
   readPushoverCredentials: async () => ({
     token: process.env.LEAFCODE_PI_PUSHOVER_TOKEN,
     user: process.env.LEAFCODE_PI_PUSHOVER_USER,
@@ -333,7 +346,7 @@ import { AUTO_MODEL_VALUE } from "@/lib/auto-model";
 import { setAccountRoutingMode, __resetProviderRoutingQueueForTests, markProviderLimited } from "@/lib/provider-routing";
 import { setSetting } from "@/lib/pi/web-settings";
 import { BOT_PROMPT_PREFIX } from "@/lib/pi/messages";
-import { disarmTaskHangWatch } from "@/lib/pi/hang-watchdog";
+import { disarmTaskHangWatch, getTaskHangWatch } from "@/lib/pi/hang-watchdog";
 import { AccountRuntimeManager } from "./account-runtime-manager";
 import { goalLoopStateFile } from "./goal-loop-state";
 import { taskRuntimeLeasePath } from "@/lib/task-runtime-lease";
@@ -782,6 +795,61 @@ describe("integrated session routing", () => {
       | undefined;
     assert.ok(prepare);
     assert.equal(await prepare("busy"), "retry");
+  });
+
+  it("does not commit a retired Goal Loop prepare across deferred context reload", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "leafcode-pi-goal-loop-reload-"));
+    tempDirs.push(dir);
+    process.env.LEAFCODE_PI_DATA_DIR = dir;
+    process.env.PI_CODING_AGENT_DIR = join(dir, "agent");
+    __resetPiAgentDirCacheForTests();
+    installHarness(new Map());
+
+    const project = upsertProject({ name: "demo", rootPath: dir });
+    const task = await createTask({ projectId: project.id, prompt: "初回" });
+    await waitFor(() => getTask(task.id)?.status === "idle");
+    disarmTaskHangWatch(task.id);
+    const harness = (globalThis as Record<string, unknown>)[GLOBAL_KEY] as {
+      live: Map<string, { contextReloadPending: boolean; session: { sessionManager: unknown } }>;
+    };
+    const live = harness.live.get(task.id)!;
+    live.contextReloadPending = true;
+    const loopFile = goalLoopStateFile(dir, task.sessionId!);
+    mkdirSync(dirname(loopFile), { recursive: true });
+    writeFileSync(loopFile, JSON.stringify({
+      id: task.sessionId,
+      sessionId: task.sessionId,
+      cwd: task.directory,
+      status: "queued",
+      goal: "continue after reload",
+      acceptance: [],
+      maxTurns: 3,
+      turnCount: 1,
+    }), "utf8");
+
+    const routingContext = fakePi.sessions[0]?.routingContext;
+    const oldPrepare = routingContext?.prepareGoalLoopTurn as
+      | ((prompt: string) => Promise<boolean | "retry">)
+      | undefined;
+    assert.ok(oldPrepare);
+    expect(await oldPrepare("turn two")).toBe(false);
+    expect(fakePi.sessions[0]?.reloads).toBe(1);
+    expect(getTask(task.id)?.status).toBe("idle");
+    expect(getTaskHangWatch(task.id)).toBeNull();
+
+    const successorPrepare = routingContext?.prepareGoalLoopTurn as
+      | ((prompt: string) => Promise<boolean | "retry">)
+      | undefined;
+    expect(successorPrepare).toBeTypeOf("function");
+    expect(successorPrepare).not.toBe(oldPrepare);
+    expect(await successorPrepare!("turn two")).toBe(true);
+    expect(getTask(task.id)?.status).toBe("working");
+    expect(getTaskHangWatch(task.id)).toMatchObject({ skipResume: true });
+    const release = routingContext?.releaseGoalLoopTurn as (() => void) | undefined;
+    expect(release).toBeTypeOf("function");
+    release!();
+    expect(getTask(task.id)?.status).toBe("idle");
+    expect(getTaskHangWatch(task.id)).toBeNull();
   });
 
   it("opens an account Bot without waiting for the shared runtime", async () => {

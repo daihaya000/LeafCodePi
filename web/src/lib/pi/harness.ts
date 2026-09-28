@@ -1755,6 +1755,40 @@ export async function __waitForProviderFallbackIdleForTests(): Promise<void> {
 }
 
 const soulReloadInflight = new Map<string, Promise<LiveRuntime>>();
+const sessionReloadInflight = new WeakMap<AgentSession, Promise<void>>();
+const goalLoopRoutingOwners = new WeakMap<object, symbol>();
+const GOAL_LOOP_HOST_ROUTING_CHANNEL = "leafcode-goal-loop:host-routing";
+
+/** Serialize all session.reload() paths and let concurrent prompts wait for rebuild. */
+function reloadSession(session: AgentSession): Promise<void> {
+  const existing = sessionReloadInflight.get(session);
+  if (existing) return existing;
+  const operation = session.reload();
+  sessionReloadInflight.set(session, operation);
+  void operation.then(
+    () => {
+      if (sessionReloadInflight.get(session) === operation) sessionReloadInflight.delete(session);
+    },
+    () => {
+      if (sessionReloadInflight.get(session) === operation) sessionReloadInflight.delete(session);
+    },
+  );
+  return operation;
+}
+
+async function waitForSessionReload(session: AgentSession): Promise<void> {
+  while (true) {
+    const operation = sessionReloadInflight.get(session);
+    if (!operation) return;
+    try {
+      await operation;
+    } catch {
+      // The initiating reload caller reports the error. A waiter re-checks the
+      // live session and proceeds through its normal reload/prepare path.
+    }
+  }
+}
+
 /** Session entry customType for the hidden provider-limit resume prompt. */
 const PROVIDER_FALLBACK_CUSTOM_TYPE = "leafcode-pi.provider-fallback";
 /** Session entry customType for the hidden WebSocket-to-SSE recovery prompt. */
@@ -2821,29 +2855,76 @@ function ensureSessionFilePersisted(sessionManager: PersistableSessionManager): 
 
 type GoalLoopTurnRoutingContext = {
   prepareGoalLoopTurn?: (prompt: string) => Promise<boolean | "retry">;
+  releaseGoalLoopTurn?: () => void;
   canRetryGoalLoopProviderLimit?: () => Promise<boolean>;
 };
 
 function registerGoalLoopTurnRouting(taskId: string): (pi: ExtensionAPI) => void {
   return (pi) => {
+    // Path extensions register session_start first. Announce synchronously now so
+    // Goal Loop can wait for this inline factory's routing hooks before sending.
+    try {
+      pi.events.emit(GOAL_LOOP_HOST_ROUTING_CHANNEL, { taskId });
+    } catch {
+      // Hosts without an event bus keep the extension's standalone behavior.
+    }
     pi.on("session_start", (_event, ctx) => {
       const routingContext = ctx as GoalLoopTurnRoutingContext;
+      const manager = ctx.sessionManager as object;
+      const owner = Symbol(taskId);
+      goalLoopRoutingOwners.set(manager, owner);
+      let preparedTurn = false;
+      const ownsRouting = () => goalLoopRoutingOwners.get(manager) === owner;
+      const releaseIdleReservation = (candidate?: LiveRuntime) => {
+        const live = candidate ?? state().live.get(taskId);
+        const task = getTask(taskId);
+        if (
+          ownsTaskLease(taskId) &&
+          task?.status !== "working" &&
+          live &&
+          !live.promptActive &&
+          !isLiveBusyForReplace(live)
+        ) releaseTaskLease(taskId);
+      };
       routingContext.prepareGoalLoopTurn = async (prompt) => {
+        preparedTurn = false;
+        if (!ownsRouting()) return false;
         const before = state().live.get(taskId);
         // A replacement session emits session_start before attachSession(). Let
         // its Goal Loop retry after the harness has subscribed to the session.
-        if (!before || before.session.sessionManager !== ctx.sessionManager) {
+        if (!before || before.session.sessionManager !== manager) {
           return "retry";
         }
         // Do not route/replace while another prompt is already accepted or streaming.
         if (isLiveBusyForReplace(before)) return "retry";
+        await waitForSessionReload(before.session);
+        if (!ownsRouting()) return false;
+        const latestBefore = state().live.get(taskId);
+        if (!latestBefore || latestBefore.session.sessionManager !== manager) return false;
+        if (isLiveBusyForReplace(latestBefore)) return "retry";
         const after = await prepareLiveForPrompt(
-          before,
+          latestBefore,
           true,
-          copyPendingLiveSettings(before.pendingSettings),
+          copyPendingLiveSettings(latestBefore.pendingSettings),
+          { deferWorking: true },
         );
-        if (after.session !== before.session) return false;
+        // session.reload() emits session_start on a fresh extension instance.
+        // The old prepare must not commit working state or arm a hang watch.
+        if (!ownsRouting() || after.session !== latestBefore.session) {
+          releaseIdleReservation(after);
+          return false;
+        }
         if (isLiveBusyForReplace(after)) return "retry";
+        const commitTurn = () => {
+          if (!ownsRouting() || isLiveBusyForReplace(after)) {
+            releaseIdleReservation(after);
+            return false;
+          }
+          requireTaskLease(taskId);
+          setTaskStatus(taskId, "working");
+          preparedTurn = true;
+          return true;
+        };
         const armHangWatchForGoalTurn = () => {
           const task = getTask(taskId);
           const permissionMode =
@@ -2860,6 +2941,7 @@ function registerGoalLoopTurnRouting(taskId: string): (pi: ExtensionAPI) => void
           after.session.sessionId,
         );
         if (loop?.autoAgent !== true) {
+          if (!commitTurn()) return "retry";
           armHangWatchForGoalTurn();
           return true;
         }
@@ -2867,14 +2949,45 @@ function registerGoalLoopTurnRouting(taskId: string): (pi: ExtensionAPI) => void
         if (!task) {
           throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });
         }
-        const routed = await prepareAutoAgentForGoalLoop(after, task, prompt);
+        let routed: LiveRuntime | "retry";
+        try {
+          routed = await prepareAutoAgentForGoalLoop(after, task, prompt);
+        } catch (error) {
+          releaseIdleReservation(after);
+          throw error;
+        }
+        if (!ownsRouting()) {
+          releaseIdleReservation(after);
+          return false;
+        }
         if (routed === "retry") return "retry";
         if (routed.session === after.session) {
+          if (!commitTurn()) return "retry";
           armHangWatchForGoalTurn();
           return true;
         }
+        releaseIdleReservation(routed);
         emitTaskSnapshot(routed, "agent_routed");
         return false;
+      };
+      routingContext.releaseGoalLoopTurn = () => {
+        if (!preparedTurn || !ownsRouting()) return;
+        preparedTurn = false;
+        const live = state().live.get(taskId);
+        const task = getTask(taskId);
+        if (
+          !live ||
+          live.session.sessionManager !== manager ||
+          !task ||
+          task.status !== "working" ||
+          live.promptActive ||
+          isLiveBusyForReplace(live) ||
+          !ownsTaskLease(taskId)
+        ) return;
+        disarmTaskHangWatch(taskId);
+        setTaskStatus(taskId, "idle");
+        releaseTaskLease(taskId);
+        emitTaskSnapshot(live, "goal_turn_not_sent");
       };
       routingContext.canRetryGoalLoopProviderLimit = async () => {
         const live = state().live.get(taskId);
@@ -8101,10 +8214,13 @@ async function reloadLiveContextIfNeeded(live: LiveRuntime): Promise<LiveRuntime
   const current = state().live.get(live.taskId) ?? live;
   if (!current.contextReloadPending) return current;
   if (current.session.isStreaming || current.session.isCompacting) return current;
+  // Claim the pending work before awaiting so concurrent prompt preparations
+  // cannot start duplicate reloads. Failure restores it for a later attempt.
+  current.contextReloadPending = false;
   try {
-    await current.session.reload();
-    current.contextReloadPending = false;
+    await reloadSession(current.session);
   } catch (error) {
+    current.contextReloadPending = true;
     console.warn(
       `[reload] deferred context reload failed for ${current.taskId}:`,
       error instanceof Error ? error.message : String(error),
@@ -8326,8 +8442,11 @@ async function prepareLiveForPrompt(
   live: LiveRuntime,
   reroute: boolean,
   pendingSettings?: PendingLiveSettings,
+  options?: { deferWorking?: boolean },
 ): Promise<LiveRuntime> {
   let currentLive = state().live.get(live.taskId) ?? live;
+  await waitForSessionReload(currentLive.session);
+  currentLive = state().live.get(live.taskId) ?? currentLive;
   if (pendingSettings) {
     currentLive = await applyPendingLiveSettings(currentLive, pendingSettings);
   }
@@ -8358,7 +8477,7 @@ async function prepareLiveForPrompt(
       });
     }
     requireTaskLease(currentLive.taskId);
-    setTaskStatus(currentLive.taskId, "working");
+    if (!options?.deferWorking) setTaskStatus(currentLive.taskId, "working");
     return currentLive;
   }
 
@@ -8393,7 +8512,7 @@ async function prepareLiveForPrompt(
           !latestLive.session.messages.some((message) => message.role === "user"))
       ) {
         requireTaskLease(latestTask.id);
-        setTaskStatus(latestTask.id, "working");
+        if (!options?.deferWorking) setTaskStatus(latestTask.id, "working");
         return latestLive;
       }
 
@@ -8413,7 +8532,7 @@ async function prepareLiveForPrompt(
       const nextLive = sameRoute
         ? latestLive
         : await replaceLiveForRoute(latestLive, latestTask, route);
-      setTaskStatus(latestTask.id, "working");
+      if (!options?.deferWorking) setTaskStatus(latestTask.id, "working");
       if (nextLive !== latestLive) {
         emitTaskSnapshot(nextLive, "provider_routed");
       }
@@ -9160,7 +9279,7 @@ async function applyLiveSkillPermission(
   const previous = live.skillPermissionRef.current;
   live.skillPermissionRef.current = permission;
   try {
-    await live.session.reload();
+    await reloadSession(live.session);
     live.skillPermission = permission;
   } catch (error) {
     live.skillPermissionRef.current = previous;
@@ -10656,7 +10775,7 @@ export async function reloadLiveSessionsContext(): Promise<{
       continue;
     }
     try {
-      await live.session.reload();
+      await reloadSession(live.session);
       live.contextReloadPending = false;
       reloaded += 1;
     } catch (error) {
