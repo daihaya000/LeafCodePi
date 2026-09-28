@@ -48,11 +48,20 @@ describe("snapshotMessages", () => {
     const timings = new Map([[1_000, timing]]);
 
     const first = snapshotMessages(session, timings);
-    expect(snapshotMessages(session, timings)[0]).toBe(first[0]);
+    const second = snapshotMessages(session, timings);
+    expect(second).toBe(first);
+    expect(second[0]).toBe(first[0]);
     timing.outputTokens = 200;
     const changed = snapshotMessages(session, timings);
+    expect(changed).not.toBe(first);
     expect(changed[0]).not.toBe(first[0]);
     expect(changed[0]?.outputTokens).toBe(200);
+
+    timings.delete(1_000);
+    timings.set(2_000, { ...timing, startedAtMs: 2_000 });
+    const unmatched = snapshotMessages(session, timings);
+    expect(unmatched).not.toBe(changed);
+    expect(unmatched[0]?.outputTokens).toBeUndefined();
   });
 
   it("skips stored-history membership checks when no message is streaming", () => {

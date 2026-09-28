@@ -154,6 +154,7 @@ const finalizedThroughputCache = new WeakMap<
   UiMessage,
   { timing: ThroughputTiming; projected: UiMessage }
 >();
+const appliedThroughputArrayCache = new WeakMap<UiMessage[], UiMessage[]>();
 
 /** throughput timing をメッセージへ反映（tok/s + 実測の応答所要時間）。 */
 export function applyThroughput(
@@ -162,7 +163,9 @@ export function applyThroughput(
 ): UiMessage[] {
   if (throughputByStartedAt.size === 0) return messages;
   const nowMs = Date.now();
-  return messages.map((message) => {
+  const previous = appliedThroughputArrayCache.get(messages);
+  const baseline = previous?.length === messages.length ? previous : messages;
+  const project = (message: UiMessage): UiMessage => {
     if (message.role !== "assistant") return message;
     const timing = throughputByStartedAt.get(message.createdAt);
     if (!timing) return message;
@@ -212,7 +215,17 @@ export function applyThroughput(
       finalizedThroughputCache.set(message, { timing: { ...timing }, projected });
     }
     return projected;
-  });
+  };
+  let changed: UiMessage[] | undefined;
+  for (let index = 0; index < messages.length; index++) {
+    const projected = project(messages[index]!);
+    if (projected === baseline[index]) continue;
+    changed ??= baseline.slice();
+    changed[index] = projected;
+  }
+  const result = changed ?? baseline;
+  appliedThroughputArrayCache.set(messages, result);
+  return result;
 }
 
 export type MessageAccountContext = {
