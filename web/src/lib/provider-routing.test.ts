@@ -356,6 +356,8 @@ describe("provider limit detection and marks", () => {
     );
     assert.equal(isProviderLimitError("HTTP 429 Too Many Requests"), true);
     assert.equal(isProviderLimitError("status code 402"), true);
+    assert.equal(isProviderLimitError("billing limit exceeded"), true);
+    assert.equal(isProviderLimitError("billing address verification required"), false);
     assert.equal(isProviderLimitError("model-429-preview was not found"), false);
     assert.equal(isProviderLimitError("500 internal"), false);
     assert.equal(isProviderLimitError({ status: 503 }), false);
