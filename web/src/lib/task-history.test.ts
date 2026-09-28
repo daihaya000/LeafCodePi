@@ -35,6 +35,39 @@ describe("task history pagination", () => {
     });
   });
 
+  it("places each load-more boundary immediately before a user turn", () => {
+    const messages = [
+      message("user-1"),
+      { ...message("reply-1"), role: "assistant" as const },
+      message("user-2"),
+      { ...message("reply-2a"), role: "assistant" as const },
+      { ...message("reply-2b"), role: "assistant" as const },
+      message("user-3"),
+      { ...message("reply-3"), role: "assistant" as const },
+    ];
+
+    const latest = pageTaskMessages(messages, null, 3);
+    expect(latest.messages.map((item) => item.id)).toEqual([
+      "user-2", "reply-2a", "reply-2b", "user-3", "reply-3",
+    ]);
+    expect(latest.messageHistory).toEqual({ hasMore: true, nextCursor: "user-2" });
+
+    const older = pageTaskMessages(messages, latest.messageHistory.nextCursor, 3);
+    expect(older.messages.map((item) => item.id)).toEqual(["user-1", "reply-1"]);
+    expect(older.messageHistory).toEqual({ hasMore: false, nextCursor: null });
+  });
+
+  it("keeps the original limit when no earlier user turn exists", () => {
+    const messages = Array.from({ length: 4 }, (_, index) => ({
+      ...message(`reply-${index}`),
+      role: "assistant" as const,
+    }));
+    expect(pageTaskMessages(messages, null, 2)).toEqual({
+      messages: messages.slice(2),
+      messageHistory: { hasMore: true, nextCursor: "reply-2" },
+    });
+  });
+
   it("finds a recent cursor without walking the full history", () => {
     const messages = Array.from({ length: 5000 }, (_, index) => message(`m${index}`, index));
     let inspected = 0;

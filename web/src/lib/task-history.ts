@@ -55,7 +55,16 @@ export function pageTaskMessages(
     end = messages.findLastIndex((message) => message.id === cursor);
     if (end < 0) throw new InvalidTaskMessageCursorError();
   }
-  const start = Math.max(0, end - safeLimit);
+  let start = Math.max(0, end - safeLimit);
+  if (start > 0 && messages[start]?.role !== "user") {
+    // Keep the load-more boundary between turns rather than inside an assistant reply.
+    for (let index = start - 1; index >= 0; index--) {
+      if (messages[index]?.role === "user") {
+        start = index;
+        break;
+      }
+    }
+  }
   const page = messages.slice(start, end);
   return {
     messages: page,
