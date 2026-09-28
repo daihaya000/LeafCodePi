@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { ListTodo } from "lucide-react";
+import { Infinity } from "lucide-react";
 import { cx } from "@/components/ui";
 import {
   clampGoalLoopCooldownSeconds,
@@ -36,15 +36,14 @@ export function GoalLoopToggle({
       disabled={disabled}
       onClick={onToggle}
       className={cx(
-        "flex h-8 shrink-0 items-center gap-1.5 rounded-lg border px-2 text-xs transition-colors disabled:opacity-40",
+        "flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border transition-colors disabled:opacity-40",
         enabled
           ? "border-primary/40 bg-primary/10 text-primary"
           : "border-border bg-bg text-muted hover:bg-surface-2 hover:text-text",
         className,
       )}
     >
-      <ListTodo className="h-3.5 w-3.5" aria-hidden="true" />
-      ループ
+      <Infinity className="h-4 w-4" aria-hidden="true" />
     </button>
   );
 }
