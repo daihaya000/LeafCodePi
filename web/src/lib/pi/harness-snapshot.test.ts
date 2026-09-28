@@ -8,6 +8,7 @@ import {
 } from "./harness";
 import type { TaskSummary, UiMessage } from "@/lib/types";
 import { VersionedTimingMap } from "./versioned-timing-map";
+import { VersionedThroughputMap } from "./versioned-throughput-map";
 
 describe("snapshotMessages", () => {
   it("reuses stable history while projecting a changing streaming suffix", () => {
@@ -65,6 +66,32 @@ describe("snapshotMessages", () => {
     expect(unmatched[0]?.outputTokens).toBeUndefined();
   });
 
+  it("skips finalized throughput lookups until the version or map changes", () => {
+    const session = {
+      messages: [{ role: "assistant", timestamp: 1_000, content: [{ type: "text", text: "done" }] }],
+      agent: { state: { streamingMessage: undefined } },
+      sessionManager: { getLeafId: () => null, getBranch: () => [] },
+    } as unknown as Parameters<typeof snapshotMessages>[0];
+    const timing = {
+      startedAtMs: 1_000, firstTokenAtMs: 1_500, lastTokenAtMs: 10_500,
+      outputTokens: 100, charCount: 0,
+    };
+    const timings = new VersionedThroughputMap([[1_000, timing]]);
+    const snapshot = () => snapshotMessages(session, timings);
+    const first = snapshot();
+    const get = vi.spyOn(timings, "get");
+    expect(snapshot()).toBe(first);
+    expect(get).not.toHaveBeenCalled();
+
+    timings.set(1_000, { ...timing, outputTokens: 200 });
+    const changed = snapshot();
+    expect(changed[0]?.outputTokens).toBe(200);
+    expect(get).toHaveBeenCalled();
+    const alternate = new VersionedThroughputMap([[1_000, { ...timing, outputTokens: 300 }]]);
+    expect(snapshotMessages(session, alternate)[0]?.outputTokens).toBe(300);
+    expect(snapshot()[0]?.outputTokens).toBe(200);
+  });
+
   it("updates elapsed duration with the clock before the first token arrives", () => {
     vi.useFakeTimers();
     try {
@@ -74,7 +101,7 @@ describe("snapshotMessages", () => {
         agent: { state: { streamingMessage: undefined } },
         sessionManager: { getLeafId: () => null, getBranch: () => [] },
       } as unknown as Parameters<typeof snapshotMessages>[0];
-      const timings = new Map([[1_000, {
+      const timings = new VersionedThroughputMap([[1_000, {
         startedAtMs: 1_000, firstTokenAtMs: null, lastTokenAtMs: null,
         outputTokens: null, charCount: 0,
       }]]);

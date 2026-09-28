@@ -2,6 +2,7 @@ import { bench, describe } from "vitest";
 import type { ThroughputTiming } from "@/lib/token-throughput";
 import { applyToolOutput, snapshotMessages } from "./snapshot-messages";
 import { VersionedTimingMap } from "./versioned-timing-map";
+import { VersionedThroughputMap } from "./versioned-throughput-map";
 
 // Run from web/: npm exec -- vitest bench src/lib/pi/snapshot-messages.bench.ts --run
 // Synthetic stress: 1,000 assistant tool calls and 1,000 users with retained timings.
@@ -42,6 +43,9 @@ const session = {
 const versionedSession = { ...session } as Parameters<typeof snapshotMessages>[0];
 const versionedStarted = new VersionedTimingMap(started);
 const versionedEnded = new VersionedTimingMap(ended);
+const throughputSession = { ...session } as Parameters<typeof snapshotMessages>[0];
+const fullyVersionedSession = { ...session } as Parameters<typeof snapshotMessages>[0];
+const versionedThroughput = new VersionedThroughputMap(throughput);
 
 // Alternate the output on every call so both paths reproject and replace a row.
 // Separate sessions keep each cached base projection independent.
@@ -55,6 +59,7 @@ let indexedFlip = false;
 const cases = [
   ["history only", () => snapshotMessages(session)],
   ["throughput only", () => snapshotMessages(session, throughput)],
+  ["throughput versioned", () => snapshotMessages(throughputSession, versionedThroughput)],
   ["partial output only", () => snapshotMessages(session, undefined, undefined, undefined, partial)],
   ["partial output all", () => snapshotMessages(session, undefined, undefined, undefined, partialAll)],
   ["tool timing only", () => snapshotMessages(session, undefined, started, ended)],
@@ -64,6 +69,7 @@ const cases = [
   ["throughput + timing", () => snapshotMessages(session, throughput, started, ended)],
   ["combined", () => snapshotMessages(session, throughput, started, ended, partial)],
   ["combined versioned", () => snapshotMessages(versionedSession, throughput, versionedStarted, versionedEnded, partial)],
+  ["combined fully versioned", () => snapshotMessages(fullyVersionedSession, versionedThroughput, versionedStarted, versionedEnded, partial)],
   ["partial changing (full scan)", () => {
     scanFlip = !scanFlip;
     scanPartial.set("call-999", scanFlip ? "partial A" : "partial B");

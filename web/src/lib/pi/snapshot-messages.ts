@@ -11,6 +11,7 @@ import {
 } from "@/lib/token-throughput";
 import type { UiMessage } from "@/lib/types";
 import { VersionedTimingMap } from "@/lib/pi/versioned-timing-map";
+import { VersionedThroughputMap } from "@/lib/pi/versioned-throughput-map";
 
 type PiModule = typeof import("@earendil-works/pi-coding-agent");
 type AgentSession = Awaited<
@@ -228,6 +229,28 @@ export function applyThroughput(
   }
   const result = changed ?? baseline;
   appliedThroughputArrayCache.set(messages, result);
+  return result;
+}
+
+/** A pending first token still needs the wall clock on every snapshot. */
+const snapshotThroughputRevisionCache = new WeakMap<
+  UiMessage[],
+  { timings: VersionedThroughputMap; revision: number; result: UiMessage[] }
+>();
+
+function applySnapshotThroughput(
+  messages: UiMessage[],
+  timings: Map<number, ThroughputTiming>,
+): UiMessage[] {
+  if (!(timings instanceof VersionedThroughputMap)) return applyThroughput(messages, timings);
+  const cached = snapshotThroughputRevisionCache.get(messages);
+  if (timings.awaitingFirstTokenCount === 0 &&
+      cached?.timings === timings && cached.revision === timings.revision &&
+      cached.result.length === messages.length &&
+      cached.result === appliedThroughputArrayCache.get(messages)) return cached.result;
+
+  const result = applyThroughput(messages, timings);
+  snapshotThroughputRevisionCache.set(messages, { timings, revision: timings.revision, result });
   return result;
 }
 
@@ -541,7 +564,7 @@ export function snapshotMessages(
     }
   }
   if (throughputByStartedAt)
-    projected = applyThroughput(projected, throughputByStartedAt);
+    projected = applySnapshotThroughput(projected, throughputByStartedAt);
   if (toolPartialOutputByCallId && toolPartialOutputByCallId.size > 0) {
     projected = applySnapshotToolOutput(projected, toolPartialOutputByCallId);
   }
