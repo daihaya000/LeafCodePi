@@ -2684,6 +2684,18 @@ const SidebarView = memo(function SidebarView({
     setCollapsed(false);
     localStorage.setItem(COLLAPSED_KEY, "0");
   }, []);
+  useEffect(() => {
+    const collapse = () => {
+      setCollapsed(true);
+      try {
+        localStorage.setItem(COLLAPSED_KEY, "1");
+      } catch {
+        /* 表示切替はストレージが利用できなくても行う。 */
+      }
+    };
+    window.addEventListener("webui:collapse-sidebar", collapse);
+    return () => window.removeEventListener("webui:collapse-sidebar", collapse);
+  }, []);
   const botBody = (
     <BotSidebarBody
       onClose={onClose}

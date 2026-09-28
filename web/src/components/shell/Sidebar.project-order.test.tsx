@@ -256,6 +256,21 @@ describe("Sidebar project ordering", () => {
     });
   });
 
+  it.each(["code", "bot"])("collapses the %s sidebar on a split request and allows manual expansion", async (mode) => {
+    localStorage.setItem("leafcodepi.mode", mode);
+    render(<Sidebar mobileOpen={false} onClose={vi.fn()} />);
+    await screen.findByRole("button", { name: "サイドバーを折りたたむ" });
+
+    fireEvent(window, new Event("webui:collapse-sidebar"));
+    expect(localStorage.getItem("webui.sidebar.collapsed")).toBe("1");
+    fireEvent.click(screen.getByRole("button", { name: "サイドバーを展開" }));
+    expect(localStorage.getItem("webui.sidebar.collapsed")).toBe("0");
+    expect(screen.getByRole("button", { name: "サイドバーを折りたたむ" })).toBeTruthy();
+
+    fireEvent(window, new Event("webui:collapse-sidebar"));
+    expect(screen.getByRole("button", { name: "サイドバーを展開" })).toBeTruthy();
+  });
+
   it("shows an unread dot on the matching project", async () => {
     const projectTasks = [{
       id: "unread-a", projectId: "project-a", projectName: "Project A", title: "Unread", directory: "C:\\repo-a", isolation: "current_folder" as const, status: "ready" as const, sessionId: "unread-a", sessionFile: null, createdAt: "", updatedAt: "2026-09-22T00:00:00.000Z",

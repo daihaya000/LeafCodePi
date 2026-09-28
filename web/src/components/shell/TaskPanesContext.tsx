@@ -18,6 +18,7 @@ import {
   isBotTabId,
   HOME_TAB_ID,
   isSplitHostPath,
+  paneTabIdsForWorkingTasks,
   SETTINGS_TAB_ID,
   removeTaskEverywhere,
   restoreTaskPanesForUrl,
@@ -461,7 +462,12 @@ export function TaskPanesProvider({ children }: { children: React.ReactNode }) {
 
   const dispatch = useCallback((action: TaskPanesAction) => {
     rawDispatch(action);
-  }, []);
+    // 共通の実行経路で、分割後が複数ペインになる場合だけレール表示へ切り替える。
+    if (mdUp && action.type === "showWorkingTasks"
+      && paneTabIdsForWorkingTasks(action.taskIds.map((id) => ({ id }))).length >= 2) {
+      window.dispatchEvent(new Event("webui:collapse-sidebar"));
+    }
+  }, [mdUp]);
 
   // localStorage 復元: 初回 mount・md 以上のみ（仕様 §5）
   useEffect(() => {

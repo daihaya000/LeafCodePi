@@ -112,6 +112,53 @@ describe("TaskPanesProvider", () => {
     localStorage.clear();
   });
 
+  it.each([
+    { desktop: true, taskIds: ["first", "second"], collapse: true, panes: 2 },
+    { desktop: true, taskIds: ["first", "second", "third"], collapse: true, panes: 3 },
+    { desktop: true, taskIds: ["first"], collapse: false, panes: 1 },
+    { desktop: true, taskIds: [], collapse: false, panes: 1 },
+    { desktop: true, taskIds: ["bot:one", "/bots/one", ""], collapse: false, panes: 1 },
+    { desktop: false, taskIds: ["first", "second"], collapse: false, panes: 2 },
+  ])("requests sidebar collapse only for desktop multi-pane working tasks: %j", ({ desktop, taskIds, collapse, panes }) => {
+    matches = desktop;
+    function WorkingTasksProbe() {
+      const { dispatch, state } = useTaskPanesNavigation();
+      return <button onClick={() => dispatch({ type: "showWorkingTasks", taskIds })}>
+        {`split ${state.panes.length}`}
+      </button>;
+    }
+    const onCollapse = vi.fn();
+    window.addEventListener("webui:collapse-sidebar", onCollapse);
+    try {
+      render(<TaskPanesProvider><WorkingTasksProbe /></TaskPanesProvider>);
+      fireEvent.click(screen.getByRole("button"));
+      expect(screen.getByRole("button").textContent).toBe(`split ${panes}`);
+      expect(onCollapse).toHaveBeenCalledTimes(collapse ? 1 : 0);
+      // 同じレイアウトでの再実行でも、手動展開したサイドバーを再度最小化できる。
+      fireEvent.click(screen.getByRole("button"));
+      expect(onCollapse).toHaveBeenCalledTimes(collapse ? 2 : 0);
+    } finally {
+      window.removeEventListener("webui:collapse-sidebar", onCollapse);
+    }
+  });
+
+  it("does not request sidebar collapse for ordinary pane splitting", () => {
+    matches = true;
+    function AddPaneProbe() {
+      const { dispatch } = useTaskPanesNavigation();
+      return <button onClick={() => dispatch({ type: "addPane" })}>add pane</button>;
+    }
+    const onCollapse = vi.fn();
+    window.addEventListener("webui:collapse-sidebar", onCollapse);
+    try {
+      render(<TaskPanesProvider><AddPaneProbe /></TaskPanesProvider>);
+      fireEvent.click(screen.getByRole("button", { name: "add pane" }));
+      expect(onCollapse).not.toHaveBeenCalled();
+    } finally {
+      window.removeEventListener("webui:collapse-sidebar", onCollapse);
+    }
+  });
+
   it("does not rerender stable service consumers for status updates", () => {
     const stableRenderSpy = vi.fn();
     const botStatusRenderSpy = vi.fn();
