@@ -33,9 +33,23 @@ describe("NextAction", () => {
 
     const trigger = screen.getByRole("button", { name: "次の指示を提案" });
     expect(trigger.querySelector(".lucide-sparkles")).toBeTruthy();
-    expect(trigger.classList.contains("rounded-full")).toBe(true);
+    expect(trigger.className).toContain("h-9 w-9");
+    expect(trigger.classList.contains("!rounded-full")).toBe(true);
+    expect(trigger.classList.contains("bg-bg")).toBe(true);
+    expect(trigger.classList.contains("shadow-lg")).toBe(false);
     expect(trigger.style.opacity).toBe("0.6");
     expect(trigger.title).toBe("次の指示を提案");
+  });
+
+  it("keeps a visible spinner while generating with the loop-style trigger", () => {
+    sendJson.mockImplementation(() => new Promise(() => {}));
+    render(<InlineNextAction taskId="task-1" sessionId="session-1" onApply={() => {}} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "次の指示を提案" }));
+    const trigger = screen.getByRole("button", { name: "次の指示を生成中…" }) as HTMLButtonElement;
+    expect(trigger.disabled).toBe(true);
+    expect(trigger.getAttribute("aria-busy")).toBe("true");
+    expect(trigger.querySelector(".animate-spin")).toBeTruthy();
   });
 
   it("shows suggestions above the composer instead of in a dialog", async () => {

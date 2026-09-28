@@ -3,8 +3,9 @@
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import type { RefObject } from "react";
 import { createPortal } from "react-dom";
-import { ArrowDownToLine, RefreshCw, Sparkles, X } from "lucide-react";
-import { Button } from "@/components/ui";
+import { ArrowDownToLine, Loader2, RefreshCw, Sparkles, X } from "lucide-react";
+import { COMPOSER_ACTION_BUTTON_CLASS } from "@/components/Composer";
+import { Button, cx } from "@/components/ui";
 import { sendJson } from "@/lib/client";
 import {
   directGenerationModelKey,
@@ -209,12 +210,11 @@ export function NextAction({
   return (
     <>
       <section className="shrink-0" aria-label="次の指示の提案操作">
-        <Button
+        <button
           ref={triggerRef}
-          variant="secondary"
-          size="icon"
-          busy={state.kind === "loading"}
+          type="button"
           disabled={disabled || state.kind === "loading"}
+          aria-busy={state.kind === "loading" || undefined}
           aria-expanded={panelOpen}
           aria-controls={panelOpen ? `${panelId}-panel` : undefined}
           aria-label={
@@ -233,11 +233,18 @@ export function NextAction({
             }
             void generate();
           }}
-          className="h-10 w-10 rounded-full border border-border-strong bg-surface shadow-lg transition-opacity hover:opacity-100 focus-visible:opacity-100 active:opacity-100"
+          className={cx(
+            COMPOSER_ACTION_BUTTON_CLASS,
+            "border border-border bg-bg text-muted hover:bg-surface-2 hover:text-text",
+          )}
           style={{ opacity: disabled ? Math.min(triggerOpacity, 0.4) : triggerOpacity }}
         >
-          {state.kind !== "loading" && <Sparkles className="h-4 w-4" aria-hidden="true" />}
-        </Button>
+          {state.kind === "loading" ? (
+            <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+          ) : (
+            <Sparkles className="h-4 w-4" aria-hidden="true" />
+          )}
+        </button>
       </section>
       {panel && panelContainer && createPortal(panel, panelContainer)}
     </>

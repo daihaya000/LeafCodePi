@@ -6,6 +6,7 @@ import { createPortal } from "react-dom";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Loader2, MessageCircle, RefreshCw, X } from "lucide-react";
+import { COMPOSER_ACTION_BUTTON_CLASS } from "@/components/Composer";
 import { Button, cx } from "@/components/ui";
 import { sendJson } from "@/lib/client";
 import { isImeComposingEvent } from "@/lib/composer-ime";
@@ -306,10 +307,9 @@ export function TaskProgressAsk({
   return (
     <>
       <section className="shrink-0" aria-label="進捗の確認操作">
-        <Button
+        <button
           ref={triggerRef}
-          variant="secondary"
-          size="icon"
+          type="button"
           aria-busy={loading || undefined}
           aria-expanded={panelOpen}
           aria-controls={panelOpen ? `${panelId}-panel` : undefined}
@@ -333,7 +333,10 @@ export function TaskProgressAsk({
             }
             void ask("");
           }}
-          className="h-10 w-10 rounded-full border border-border-strong bg-surface shadow-lg transition-opacity hover:opacity-100 focus-visible:opacity-100 active:opacity-100"
+          className={cx(
+            COMPOSER_ACTION_BUTTON_CLASS,
+            "border border-border bg-bg text-muted hover:bg-surface-2 hover:text-text",
+          )}
           style={{ opacity: triggerOpacity }}
         >
           {loading ? (
@@ -341,7 +344,7 @@ export function TaskProgressAsk({
           ) : (
             <MessageCircle className="h-4 w-4" aria-hidden="true" />
           )}
-        </Button>
+        </button>
       </section>
       {panel && panelContainer && createPortal(panel, panelContainer)}
     </>

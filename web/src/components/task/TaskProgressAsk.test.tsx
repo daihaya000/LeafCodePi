@@ -51,7 +51,10 @@ describe("TaskProgressAsk", () => {
     const trigger = screen.getByRole("button", { name: "進捗を確認" });
     expect(trigger.querySelector(".lucide-message-circle")).toBeTruthy();
     expect(trigger.style.opacity).toBe("0.45");
-    expect(trigger.classList.contains("rounded-full")).toBe(true);
+    expect(trigger.className).toContain("h-9 w-9");
+    expect(trigger.classList.contains("!rounded-full")).toBe(true);
+    expect(trigger.classList.contains("bg-bg")).toBe(true);
+    expect(trigger.classList.contains("shadow-lg")).toBe(false);
   });
 
   it("asks for a summary and shows the answer above the composer", async () => {
