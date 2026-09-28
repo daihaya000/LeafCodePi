@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { ChevronDown, ListTodo } from "lucide-react";
+import { ListTodo } from "lucide-react";
 import { cx } from "@/components/ui";
 import {
   clampGoalLoopCooldownSeconds,
@@ -93,16 +93,15 @@ export function GoalLoopOptions({
   }
 
   return (
-    <details open className="group/loop-options @container/loop-options mt-2 rounded-xl border border-border bg-surface-2/50">
-      <summary className="flex min-h-11 cursor-pointer list-none items-center gap-2 rounded-xl px-2 text-xs [&::-webkit-details-marker]:hidden">
-        <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted transition-transform group-open/loop-options:rotate-180" aria-hidden="true" />
+    <section aria-label="ループ設定" className="@container/loop-options mt-2 rounded-xl border border-border bg-surface-2/50">
+      <div className="flex min-h-11 items-center gap-2 rounded-xl px-2 text-xs">
         <span className="shrink-0 font-medium">ループ設定</span>
         <span className="min-w-0 truncate text-muted">
           {maxTurns === 0 ? "無制限" : `${maxTurns}ターン`}
           {` · 待機 ${formatGoalLoopCooldownSeconds(cooldownSeconds)}`}
           {forceFullRun ? " · 完走" : acceptance.trim() ? " · 承認条件あり" : ""}
         </span>
-      </summary>
+      </div>
       <div className="grid grid-cols-2 gap-2 border-t border-border p-2">
         {!forceFullRun && (
           <textarea
@@ -173,6 +172,6 @@ export function GoalLoopOptions({
           </span>
         </label>
       </div>
-    </details>
+    </section>
   );
 }

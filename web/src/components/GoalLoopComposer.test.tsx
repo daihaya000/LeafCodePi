@@ -20,11 +20,11 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
-it("starts expanded with a settings summary and retains draft normalization", () => {
+it("always displays settings with a non-interactive heading and retains draft normalization", () => {
   const { container, rerender } = render(<GoalLoopOptions {...options} />);
-  const details = container.querySelector("details")!;
-  expect(details.open).toBe(true);
-  expect(details.querySelector("summary")?.textContent).toContain("10ターン · 待機 30s · 承認条件あり");
+  const section = screen.getByRole("region", { name: "ループ設定" });
+  expect(section.textContent).toContain("10ターン · 待機 30s · 承認条件あり");
+  expect(container.querySelector("details, summary")).toBeNull();
 
   const turns = screen.getByLabelText("最大ターン数") as HTMLInputElement;
   fireEvent.change(turns, { target: { value: "" } });
@@ -39,13 +39,12 @@ it("starts expanded with a settings summary and retains draft normalization", ()
   fireEvent.change(screen.getByLabelText("承認条件"), { target: { value: "確認済み" } });
   expect(options.onAcceptanceChange).toHaveBeenCalledWith("確認済み");
 
-  fireEvent.click(details.querySelector("summary")!);
-  expect(details.open).toBe(false);
   rerender(<GoalLoopOptions {...options} maxTurns={20} />);
-  expect(details.open).toBe(false);
+  expect(section.textContent).toContain("20ターン");
+  expect(screen.getByLabelText("最大ターン数")).toBeTruthy();
 });
 
-it("opens settings when the loop button is enabled and respects manual collapse", () => {
+it("shows settings only while the loop button is enabled", () => {
   function LoopComposer() {
     const [enabled, setEnabled] = useState(false);
     return (
@@ -56,18 +55,16 @@ it("opens settings when the loop button is enabled and respects manual collapse"
     );
   }
 
-  const { container } = render(<LoopComposer />);
+  render(<LoopComposer />);
   const toggle = screen.getByRole("button", { name: "ループで継続実行" });
-  expect(container.querySelector("details")).toBeNull();
+  expect(screen.queryByRole("region", { name: "ループ設定" })).toBeNull();
   fireEvent.click(toggle);
-  const details = container.querySelector("details")!;
-  expect(details.open).toBe(true);
-  fireEvent.click(details.querySelector("summary")!);
-  expect(details.open).toBe(false);
+  expect(screen.getByRole("region", { name: "ループ設定" })).toBeTruthy();
+  expect(screen.getByLabelText("最大ターン数")).toBeTruthy();
   fireEvent.click(toggle);
-  expect(container.querySelector("details")).toBeNull();
+  expect(screen.queryByRole("region", { name: "ループ設定" })).toBeNull();
   fireEvent.click(toggle);
-  expect(container.querySelector("details")?.open).toBe(true);
+  expect(screen.getByRole("region", { name: "ループ設定" })).toBeTruthy();
 });
 
 it("summarizes unlimited full runs and preserves disabled controls", () => {
@@ -76,7 +73,7 @@ it("summarizes unlimited full runs and preserves disabled controls", () => {
   expect(options.onForceFullRunChange).toHaveBeenCalledWith(true);
 
   rerender(<GoalLoopOptions {...options} maxTurns={0} forceFullRun disabled />);
-  expect(container.querySelector("summary")?.textContent).toContain("無制限 · 待機 30s · 完走");
+  expect(screen.getByRole("region", { name: "ループ設定" }).textContent).toContain("無制限 · 待機 30s · 完走");
   expect(screen.queryByLabelText("承認条件")).toBeNull();
   for (const input of container.querySelectorAll("input")) expect(input.disabled).toBe(true);
 });
