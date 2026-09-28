@@ -281,6 +281,25 @@ describe("upsertUiMessage", () => {
     expect(next).toEqual([first, textMessage("b", "world")]);
   });
 
+  it.each([false, true])("reidentifies the last row without scanning earlier content (new part id: %s)", (newPartId) => {
+    const previous = Array.from({ length: 200 }, (_, index) => textMessage(`msg-${index}`, `response ${index}`));
+    const last = previous[199]!;
+    const persisted = {
+      ...last,
+      id: "entry-199",
+      parts: newPartId ? [{ ...last.parts[0]!, id: "entry-199-text" }] : last.parts,
+    } as UiMessage;
+    const stringify = vi.spyOn(JSON, "stringify");
+    try {
+      const result = upsertUiMessage(previous, persisted);
+      expect(result).toHaveLength(previous.length);
+      expect(result[199]).toBe(persisted);
+      expect(stringify.mock.calls.length).toBeLessThanOrEqual(4);
+    } finally {
+      stringify.mockRestore();
+    }
+  });
+
   it("replaces a streamed row when its persisted id changes", () => {
     const streamed = textMessage("msg-3", "hello");
     const persisted = { ...streamed, id: "entry-42" };
