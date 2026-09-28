@@ -554,6 +554,17 @@ export function snapshotMessages(
   return projected;
 }
 
+type ToolOutputPatch = {
+  index: number;
+  part: Extract<UiMessage["parts"][number], { type: "tool" }>;
+  output: string;
+  status: string;
+};
+const toolOutputProjectionCache = new WeakMap<
+  UiMessage,
+  { patches: ToolOutputPatch[]; projected: UiMessage }
+>();
+
 /** 実行中 tool の累積 partial result を対応する UI パートへ注入する。 */
 export function applyToolOutput(
   messages: UiMessage[],
@@ -562,26 +573,36 @@ export function applyToolOutput(
   return messages.map((message) => {
     if (message.role !== "assistant" ||
         (message.parts.length <= 1 && message.parts[0]?.type !== "tool")) return message;
-    let parts: UiMessage["parts"] | undefined;
+    let patches: ToolOutputPatch[] | undefined;
     for (let index = 0; index < message.parts.length; index++) {
       const part = message.parts[index]!;
       if (part.type !== "tool") continue;
       const output = partialOutputByCallId.get(part.callID);
       if (
         output === undefined ||
-        (part.state.status !== "running" && part.state.status !== "pending")
+        (part.state.status !== "running" && part.state.status !== "pending") ||
+        (part.state.output === output && part.state.error === undefined)
       ) continue;
-      if (!parts) parts = message.parts.slice();
+      (patches ??= []).push({ index, part, output, status: part.state.status });
+    }
+    if (!patches) return message;
+    const cached = toolOutputProjectionCache.get(message);
+    if (cached?.patches.length === patches.length && patches.every((patch, index) =>
+      patch.index === cached.patches[index]!.index &&
+      patch.part === cached.patches[index]!.part &&
+      patch.output === cached.patches[index]!.output &&
+      patch.status === cached.patches[index]!.status
+    )) return cached.projected;
+    const parts = message.parts.slice();
+    for (const { index, part, output } of patches) {
       parts[index] = {
         ...part,
-        state: {
-          ...part.state,
-          output,
-          error: undefined,
-        },
+        state: { ...part.state, output, error: undefined },
       };
     }
-    return parts ? { ...message, parts } : message;
+    const projected = { ...message, parts };
+    toolOutputProjectionCache.set(message, { patches, projected });
+    return projected;
   });
 }
 

@@ -94,6 +94,28 @@ describe("snapshotMessages", () => {
     expect(changed[0]?.parts[0]).toMatchObject({ text: "next" });
   });
 
+  it("reuses a tool row while its cumulative partial output is unchanged", () => {
+    const stored: unknown[] = [{
+      role: "assistant", timestamp: 1_000,
+      content: [{ type: "toolCall", id: "call-1", name: "bash", arguments: {} }],
+    }];
+    const session = {
+      messages: stored,
+      agent: { state: { streamingMessage: undefined } },
+      sessionManager: { getLeafId: () => null, getBranch: () => [] },
+    } as unknown as Parameters<typeof snapshotMessages>[0];
+    const output = new Map([["call-1", "first"]]);
+    const snapshot = () => snapshotMessages(session, undefined, undefined, undefined, output);
+
+    const first = snapshot();
+    expect(first[0]?.parts[0]).toMatchObject({ state: { output: "first" } });
+    expect(snapshot()[0]).toBe(first[0]);
+    output.set("call-1", "first\nsecond");
+    const changed = snapshot();
+    expect(changed[0]).not.toBe(first[0]);
+    expect(changed[0]?.parts[0]).toMatchObject({ state: { output: "first\nsecond" } });
+  });
+
   it("skips stored-history membership checks when no message is streaming", () => {
     const stored: unknown[] = [{ role: "user", content: "idle" }];
     const includes = vi.spyOn(stored, "includes");
