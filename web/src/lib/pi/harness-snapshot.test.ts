@@ -138,6 +138,60 @@ describe("snapshotMessages", () => {
     }
   });
 
+  it("rebuilds pending indices when history and timing maps change", () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(1_000);
+      const stored: unknown[] = [
+        { role: "assistant", timestamp: 600, content: [{ type: "text", text: "done" }] },
+        { role: "assistant", timestamp: 1_000, content: [{ type: "text", text: "waiting" }] },
+      ];
+      const session = {
+        messages: stored,
+        agent: { state: { streamingMessage: undefined } },
+        sessionManager: { getLeafId: () => null, getBranch: () => [] },
+      } as unknown as Parameters<typeof snapshotMessages>[0];
+      const pending = {
+        startedAtMs: 1_000, firstTokenAtMs: null, lastTokenAtMs: null,
+        outputTokens: null, charCount: 0,
+      };
+      const timings = new VersionedThroughputMap([
+        [600, { startedAtMs: 600, firstTokenAtMs: 700, lastTokenAtMs: 900, outputTokens: 2, charCount: 4 }],
+        [1_000, pending],
+      ]);
+      const snapshot = () => snapshotMessages(session, timings);
+      snapshot();
+      vi.setSystemTime(2_000);
+      stored.push({ role: "assistant", timestamp: 1_000, content: [{ type: "text", text: "added" }] });
+      expect(snapshot()[2]?.responseDurationMs).toBe(1_000);
+      vi.setSystemTime(2_500);
+      const appended = snapshot();
+      expect(appended[1]?.responseDurationMs).toBe(1_500);
+      expect(appended[2]?.responseDurationMs).toBe(1_500);
+
+      const alternate = new VersionedThroughputMap([[1_000, {
+        ...pending, firstTokenAtMs: 2_000, lastTokenAtMs: 2_500, outputTokens: 3,
+      }]]);
+      const switched = snapshotMessages(session, alternate);
+      expect(switched[0]?.outputTokens).toBeUndefined();
+      expect(switched[1]?.outputTokens).toBe(3);
+      expect(switched[2]?.outputTokens).toBe(3);
+      const restored = snapshot();
+      expect(restored[0]?.outputTokens).toBe(2);
+      expect(restored[1]?.outputTokens).toBeUndefined();
+      expect(restored[1]?.responseDurationMs).toBe(1_500);
+      expect(restored[2]?.responseDurationMs).toBe(1_500);
+
+      stored.pop();
+      vi.setSystemTime(3_000);
+      const shortened = snapshot();
+      expect(shortened).toHaveLength(2);
+      expect(shortened[1]?.responseDurationMs).toBe(2_000);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("updates elapsed duration with the clock before the first token arrives", () => {
     vi.useFakeTimers();
     try {
