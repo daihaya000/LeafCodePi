@@ -126,17 +126,17 @@ export function upsertUiMessage(prev: UiMessage[], next: UiMessage): UiMessage[]
   const lastIndex = prev.length - 1;
   let existingIndex = prev[lastIndex]?.id === next.id ? lastIndex : -1;
   if (existingIndex < 0) {
-    const renderKey = messageRenderKey(next);
+    const firstPartId = next.parts[0]?.id;
     const contentKey = messageContentFingerprint(next);
     const last = prev[lastIndex];
     existingIndex = last && (
-      messageRenderKey(last) === renderKey || messageContentFingerprint(last) === contentKey
+      (firstPartId && last.parts[0]?.id === firstPartId) || messageContentFingerprint(last) === contentKey
     )
       ? lastIndex
       : prev.findIndex(
           (message) =>
             message.id === next.id ||
-            messageRenderKey(message) === renderKey ||
+            (firstPartId && message.parts[0]?.id === firstPartId) ||
             messageContentFingerprint(message) === contentKey,
         );
   }

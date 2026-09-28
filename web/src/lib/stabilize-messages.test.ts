@@ -281,6 +281,21 @@ describe("upsertUiMessage", () => {
     expect(next).toEqual([first, textMessage("b", "world")]);
   });
 
+  it("matches an earlier row by its first part id", () => {
+    const previous = [textMessage("m1", "old"), textMessage("m2", "other")];
+    const next = {
+      ...textMessage("entry-1", "updated"),
+      parts: [{ type: "text" as const, id: "m1-t", text: "updated" }],
+    };
+    expect(upsertUiMessage(previous, next)).toEqual([next, previous[1]]);
+  });
+
+  it("does not match two rows merely because both lack a first part id", () => {
+    const first = { ...textMessage("first", "one"), parts: [{ type: "text" as const, id: "", text: "one" }] };
+    const second = { ...textMessage("second", "two"), parts: [{ type: "text" as const, id: "", text: "two" }] };
+    expect(upsertUiMessage([first], second)).toEqual([first, second]);
+  });
+
   it.each([false, true])("reidentifies the last row without scanning earlier content (new part id: %s)", (newPartId) => {
     const previous = Array.from({ length: 200 }, (_, index) => textMessage(`msg-${index}`, `response ${index}`));
     const last = previous[199]!;
