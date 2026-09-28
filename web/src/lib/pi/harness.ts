@@ -6499,6 +6499,18 @@ export function answerProviderLogin(
   session.answer(promptId, value);
 }
 
+export async function completeProviderLoginCallback(
+  providerId: string,
+  sessionId: string,
+  input: string,
+): Promise<void> {
+  const session = state().loginSession;
+  if (!session || session.id !== sessionId || session.providerId !== providerId) {
+    throw Object.assign(new Error("ログインセッションが一致しません"), { status: 409 });
+  }
+  await session.completeCallback(input);
+}
+
 export function cancelProviderLogin(sessionId?: string | null): void {
   const current = state();
   const session = current.loginSession;

@@ -28,7 +28,7 @@ import {
   type CodexBarUsage,
   type UsageTone,
 } from "@/lib/codexbar";
-import { REMOTE_OAUTH_HINT } from "@/lib/oauth-loopback";
+import { REMOTE_OAUTH_HINT, REMOTE_OAUTH_MANUAL_LABEL } from "@/lib/oauth-loopback";
 
 type LoginUiState = {
   providerId: string;
@@ -39,6 +39,8 @@ type LoginUiState = {
   status: string;
   prompt: { id: string; prompt: LoginPromptDto } | null;
   authUrl: string | null;
+  callbackUrl: string | null;
+  finished: boolean;
   deviceCode: (LoginNotifyDto & { type: "device_code" }) | null;
   input: string;
   busy: boolean;
@@ -388,6 +390,15 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
 }) {
   const [login, setLogin] = useState<LoginUiState | null>(null);
   const loginGenerationRef = useRef(0);
+  // Providers with native manual input take precedence over the loopback relay.
+  const loginPrompt = login?.prompt ?? (login?.callbackUrl && !login.finished ? {
+    id: "loopback-callback",
+    prompt: {
+      type: "manual_code" as const,
+      message: "ログイン後の戻り先URL全体",
+      placeholder: login.callbackUrl,
+    },
+  } : null);
   // アカウント（docs/plans/multi-account.md）。null = 未取得、[] = 取得済みで空。
   const [accounts, setAccounts] = useState<AccountRecord[] | null>(null);
   const [accountsError, setAccountsError] = useState<string | null>(null);
@@ -715,6 +726,7 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
         updateLogin((prev) => ({
           ...prev,
           authUrl: event.url,
+          callbackUrl: event.callbackUrl ?? null,
           status: event.instructions ?? "ブラウザでログインしてください",
         }));
         if (!openedAuthUrls.has(event.url)) {
@@ -769,6 +781,9 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
           ...prev,
           busy: false,
           error: "ログイン完了イベントを解釈できませんでした",
+          finished: true,
+          prompt: null,
+          input: "",
           status: "失敗",
         }));
         return;
@@ -781,6 +796,8 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
           busy: false,
           prompt: null,
           status: "ログイン完了",
+          finished: true,
+          input: "",
           warning: "warning" in payload ? (payload.warning ?? null) : null,
           error: null,
         }));
@@ -797,6 +814,9 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
           ...prev,
           busy: false,
           error: payload.error,
+          finished: true,
+          prompt: null,
+          input: "",
           status: "失敗",
         }));
       }
@@ -812,6 +832,9 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
         ...prev,
         busy: false,
         error: "ログインイベント接続に失敗しました",
+        finished: true,
+        prompt: null,
+        input: "",
         status: "失敗",
       }));
     };
@@ -857,6 +880,8 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
       status: "開始中…",
       prompt: null,
       authUrl: null,
+      callbackUrl: null,
+      finished: false,
       deviceCode: null,
       input: "",
       busy: true,
@@ -909,13 +934,17 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
 
   async function submitAnswer(value: string) {
     const activeLogin = login;
-    const prompt = activeLogin?.prompt;
-    if (!prompt) return;
+    const prompt = loginPrompt;
+    if (!activeLogin || activeLogin.finished || !prompt) return;
+    const isRelay = !activeLogin.prompt;
+    const isSamePrompt = (prev: LoginUiState) => !prev.finished && (isRelay
+      ? !prev.prompt && prev.callbackUrl === activeLogin.callbackUrl
+      : prev.prompt?.id === prompt.id);
     const generation = loginGenerationRef.current;
     setLogin((prev) =>
       loginGenerationRef.current === generation &&
       prev?.sessionId === activeLogin.sessionId &&
-      prev.prompt?.id === prompt.id
+      isSamePrompt(prev)
         ? { ...prev, busy: true, error: null }
         : prev,
     );
@@ -924,8 +953,11 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
         throw new Error("ログインセッションがありません");
       }
       await sendJson(
-        `/api/providers/${encodeURIComponent(activeLogin.providerId)}/login/answer`,
-        {
+        `/api/providers/${encodeURIComponent(activeLogin.providerId)}/login/${isRelay ? "callback" : "answer"}`,
+        isRelay ? {
+          input: value,
+          sessionId: activeLogin.sessionId,
+        } : {
           promptId: prompt.id,
           value,
           sessionId: activeLogin.sessionId,
@@ -934,15 +966,15 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
       setLogin((prev) =>
         loginGenerationRef.current === generation &&
         prev?.sessionId === activeLogin.sessionId &&
-        prev.prompt?.id === prompt.id
-          ? { ...prev, prompt: null, input: "", busy: false, status: "続行中…" }
+        isSamePrompt(prev)
+          ? { ...prev, prompt: null, callbackUrl: null, input: "", busy: false, status: "続行中…" }
           : prev,
       );
     } catch (error) {
       setLogin((prev) =>
         loginGenerationRef.current === generation &&
         prev?.sessionId === activeLogin.sessionId &&
-        prev.prompt?.id === prompt.id
+        isSamePrompt(prev)
           ? {
               ...prev,
               busy: false,
@@ -2091,7 +2123,7 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
               ))}
             </div>
           )}
-          {login.prompt && login.prompt.prompt.type !== "select" && (
+          {loginPrompt && loginPrompt.prompt.type !== "select" && !login.finished && (
             <form
               className="mt-3 flex flex-col gap-2"
               onSubmit={(event) => {
@@ -2099,16 +2131,22 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
                 void submitAnswer(login.input);
               }}
             >
-              <label className="text-xs text-muted">
-                {login.prompt.prompt.message}
+              <label htmlFor="provider-login-input" className="text-xs text-muted">
+                {loginPrompt.prompt.type === "manual_code"
+                  ? (login.prompt ? REMOTE_OAUTH_MANUAL_LABEL : loginPrompt.prompt.message)
+                  : loginPrompt.prompt.message}
               </label>
               <input
+                id="provider-login-input"
+                autoComplete="off"
+                autoCapitalize="none"
+                spellCheck={false}
                 className="rounded-xl border border-border bg-surface px-3 py-2 text-sm outline-none focus:border-accent"
                 type={
-                  login.prompt.prompt.type === "secret" ? "password" : "text"
+                  loginPrompt.prompt.type === "secret" ? "password" : "text"
                 }
                 value={login.input}
-                placeholder={login.prompt.prompt.placeholder}
+                placeholder={loginPrompt.prompt.placeholder}
                 disabled={login.busy}
                 onChange={(event) =>
                   setLogin((prev) =>

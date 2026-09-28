@@ -6,4 +6,6 @@ export const REMOTE_OAUTH_SSH_FORWARD =
   "ssh -N -L 53692:127.0.0.1:53692 -L 1455:127.0.0.1:1455 user@host";
 
 export const REMOTE_OAUTH_HINT =
-  `リモートから WebUI を開いている場合、OAuth の戻り先はホストの ${CLAUDE_OAUTH_CALLBACK_HOST}（Claude）と ${CODEX_OAUTH_CALLBACK_HOST}（Codex）です。手元ブラウザでは ${REMOTE_OAUTH_SSH_FORWARD} でポートフォワードするか、API キー / デバイスコードを使ってください。同じマシンのブラウザなら不要です。`;
+  "別端末でも認証できます。認証リンクを開き、ログイン後に localhost / 127.0.0.1 への接続エラーになったら、アドレスバーの戻り先URL全体をコピーし、この画面へ戻って貼り付け・送信してください。接続エラーだけでは認証失敗ではありません。デバイスコード方式は、表示されたコードを認証ページへ入力して完了を待ちます。";
+
+export const REMOTE_OAUTH_MANUAL_LABEL = "認証コード / ログイン後の戻り先URL全体";

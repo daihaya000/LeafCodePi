@@ -2,6 +2,7 @@ import { EventEmitter } from "node:events";
 import { randomUUID } from "node:crypto";
 import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { CredentialSynchronizationError } from "@earendil-works/pi-coding-agent";
+import { forwardOAuthCallback, getOAuthCallbackTarget, type OAuthCallbackTarget } from "./oauth-callback";
 
 export type AuthTypeDto = "api_key" | "oauth";
 
@@ -17,7 +18,7 @@ export type LoginPromptDto =
 
 export type LoginNotifyDto =
   | { type: "info"; message: string; links?: { url: string; label?: string }[] }
-  | { type: "auth_url"; url: string; instructions?: string }
+  | { type: "auth_url"; url: string; instructions?: string; callbackUrl?: string }
   | {
       type: "device_code";
       userCode: string;
@@ -53,6 +54,10 @@ export class ProviderLoginSession {
   private readonly abort = new AbortController();
   private pending: PendingPrompt | null = null;
   private finished = false;
+  private callbackTarget: OAuthCallbackTarget | null = null;
+  private callbackExpiresAt = 0;
+  private callbackBusy = false;
+  private callbackSubmitted = false;
   private readonly history: LoginSessionEvent[] = [];
 
   constructor(
@@ -70,7 +75,22 @@ export class ProviderLoginSession {
   }
 
   subscribe(listener: (event: LoginSessionEvent) => void): () => void {
-    for (const event of this.history) listener(event);
+    for (const event of this.history) {
+      // Mobile browsers reconnect after the external login page. Do not revive
+      // answered/aborted prompts or a callback that has already been submitted.
+      if (event.type === "prompt" && event.id !== this.pending?.id) continue;
+      if (event.type === "notify" && event.event.type === "auth_url") {
+        listener({ ...event, event: {
+          ...event.event,
+          callbackUrl: !this.finished && !this.abort.signal.aborted &&
+            !this.callbackSubmitted && Date.now() < this.callbackExpiresAt &&
+            event.event.callbackUrl === this.callbackTarget?.url
+            ? event.event.callbackUrl : undefined,
+        } });
+      } else {
+        listener(event);
+      }
+    }
     this.events.on("event", listener);
     return () => this.events.off("event", listener);
   }
@@ -87,7 +107,17 @@ export class ProviderLoginSession {
         signal: this.abort.signal,
         prompt: (prompt) => this.handlePrompt(prompt),
         notify: (event) => {
-          this.emit({ type: "notify", event: event as LoginNotifyDto });
+          if (event.type === "auth_url") {
+            this.callbackTarget = this.authType === "oauth" ? getOAuthCallbackTarget(event.url) : null;
+            this.callbackExpiresAt = Date.now() + 10 * 60_000;
+            this.callbackSubmitted = false;
+            this.emit({ type: "notify", event: {
+              ...event,
+              callbackUrl: this.callbackTarget?.url,
+            } });
+          } else {
+            this.emit({ type: "notify", event: event as LoginNotifyDto });
+          }
         },
       });
       this.finishOk();
@@ -162,7 +192,24 @@ export class ProviderLoginSession {
     const pending = this.pending;
     this.pending = null;
     pending.cleanup();
+    if (pending.prompt.type === "manual_code") this.callbackSubmitted = true;
     pending.resolve(value);
+  }
+
+  async completeCallback(input: string): Promise<void> {
+    if (
+      this.finished || this.abort.signal.aborted || !this.callbackTarget ||
+      this.callbackBusy || this.callbackSubmitted || Date.now() >= this.callbackExpiresAt
+    ) {
+      throw Object.assign(new Error("有効なOAuthの戻り先待機がありません"), { status: 409 });
+    }
+    this.callbackBusy = true;
+    try {
+      await forwardOAuthCallback(this.callbackTarget, input, this.abort.signal);
+      this.callbackSubmitted = true;
+    } finally {
+      this.callbackBusy = false;
+    }
   }
 
   cancel() {
@@ -181,12 +228,15 @@ export class ProviderLoginSession {
   private finishOk(warning?: string) {
     if (this.finished) return;
     this.finished = true;
+    this.clearPending(new Error("Login completed"));
+    this.callbackTarget = null;
     this.emit({ type: "done", ok: true, warning });
   }
 
   private finishError(error: string) {
     if (this.finished) return;
     this.finished = true;
+    this.callbackTarget = null;
     this.emit({ type: "done", ok: false, error });
   }
 }
