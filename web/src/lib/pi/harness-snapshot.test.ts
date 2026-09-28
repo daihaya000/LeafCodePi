@@ -158,6 +158,57 @@ describe("snapshotMessages", () => {
     expect(unmatched[0]?.parts[0]).not.toHaveProperty("state.startedAtMs");
   });
 
+  it("keeps combined throughput, partial output, and tool timing snapshots stable", () => {
+    const stored: unknown[] = [
+      { role: "user", content: "start" },
+      { role: "assistant", timestamp: 1_000, content: [
+        { type: "text", text: "working" },
+        { type: "toolCall", id: "call-1", name: "bash", arguments: {} },
+      ] },
+    ];
+    const session = {
+      messages: stored,
+      agent: { state: { streamingMessage: undefined } },
+      sessionManager: { getLeafId: () => null, getBranch: () => [] },
+    } as unknown as Parameters<typeof snapshotMessages>[0];
+    const timing = {
+      startedAtMs: 1_000, firstTokenAtMs: 1_500, lastTokenAtMs: 10_500,
+      outputTokens: 100, charCount: 0,
+    };
+    const throughput = new Map([[1_000, timing]]);
+    const output = new Map([["call-1", "first"]]);
+    const started = new Map([["call-1", 2_000]]);
+    const ended = new Map<string, number>();
+    const snapshot = () => snapshotMessages(session, throughput, started, ended, output);
+
+    const first = snapshot();
+    expect(first[1]).toMatchObject({ outputTokens: 100, responseDurationMs: 9_500 });
+    expect(first[1]?.parts[1]).toMatchObject({ state: { output: "first", startedAtMs: 2_000 } });
+    expect(snapshot()).toBe(first);
+
+    output.set("call-1", "second");
+    const withOutput = snapshot();
+    expect(withOutput).not.toBe(first);
+    expect(withOutput[0]).toBe(first[0]);
+    expect(withOutput[1]?.parts[1]).toMatchObject({ state: { output: "second", startedAtMs: 2_000 } });
+    expect(snapshot()).toBe(withOutput);
+
+    ended.set("call-1", 3_000);
+    const withEnd = snapshot();
+    expect(withEnd).not.toBe(withOutput);
+    expect(withEnd[0]).toBe(first[0]);
+    expect(withEnd[1]?.parts[1]).toMatchObject({ state: { output: "second", endedAtMs: 3_000 } });
+    expect(snapshot()).toBe(withEnd);
+
+    timing.outputTokens = 200;
+    const withUsage = snapshot();
+    expect(withUsage).not.toBe(withEnd);
+    expect(withUsage[0]).toBe(first[0]);
+    expect(withUsage[1]).toMatchObject({ outputTokens: 200 });
+    expect(withUsage[1]?.parts[1]).toMatchObject({ state: { output: "second", endedAtMs: 3_000 } });
+    expect(snapshot()).toBe(withUsage);
+  });
+
   it("skips stored-history membership checks when no message is streaming", () => {
     const stored: unknown[] = [{ role: "user", content: "idle" }];
     const includes = vi.spyOn(stored, "includes");
