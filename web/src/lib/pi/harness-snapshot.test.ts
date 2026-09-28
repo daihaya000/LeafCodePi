@@ -193,6 +193,32 @@ describe("snapshotMessages", () => {
     }
   });
 
+  it("projects restored finalized timings consistently in history and live maps", () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(2_500);
+      const session = {
+        messages: [{ role: "assistant", timestamp: 1_000, content: [{ type: "text", text: "finalized" }] }],
+        agent: { state: { streamingMessage: undefined } },
+        sessionManager: { getLeafId: () => null, getBranch: () => [] },
+      } as unknown as Parameters<typeof snapshotMessages>[0];
+      const restored = restoreThroughputFromEntries([{
+        type: "custom", customType: THROUGHPUT_CUSTOM_TYPE,
+        data: { startedAtMs: 1_000, firstTokenAtMs: 1_200, lastTokenAtMs: 2_200, outputTokens: 101 },
+      }]);
+      const timings = new VersionedThroughputMap(restored.timings);
+      const liveSnapshot = snapshotMessages(session, timings);
+      const historySnapshot = snapshotMessages(session, restored.timings);
+
+      expect(restored.persistedKeys).toEqual(new Set([1_000]));
+      expect(timings.awaitingFirstTokenCount).toBe(0);
+      expect(liveSnapshot).toEqual(historySnapshot);
+      expect(liveSnapshot[0]).toMatchObject({ outputTokens: 101, responseDurationMs: 1_200 });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("projects restored unfinished timings consistently in history and live maps", () => {
     vi.useFakeTimers();
     try {
