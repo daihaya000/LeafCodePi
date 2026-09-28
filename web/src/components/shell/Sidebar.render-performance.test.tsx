@@ -60,13 +60,13 @@ describe("SidebarTaskRow render stability", () => {
     expect(mocks.timeAgo).toHaveBeenCalledTimes(1);
   });
 
-  it("uses content visibility so offscreen session rows skip layout", () => {
+  it("keeps session rows eagerly rendered so scrolling does not jank on mobile", () => {
     const view = render(<SidebarTaskRow task={task} active={false} pinned={false} mdUp actionBusy={false} {...callbacks} />);
     const row = view.container.querySelector("li");
-    expect(row?.className).toContain("[content-visibility:auto]");
-    // 未描画行のプレースホルダ高さは実測の行高（約53px）に合わせる。
-    expect(row?.className).toContain("[contain-intrinsic-size:auto_3.25rem]");
-    // paint containment で行内ボタンのフォーカスリングが欠けないようにする。
+    // content-visibility の遅延描画はスクロール時にレイアウトが集中してジャンクになる。
+    // 描画行数は Sidebar 側の上限（SIDEBAR_TASK_RENDER_STEP）で抑える。
+    expect(row?.className).not.toContain("content-visibility");
+    // 行内ボタンのフォーカスリングは内側へ寄せる。
     expect(row?.className).toContain("[&_button:focus-visible]:outline-offset-[-2px]");
   });
 });

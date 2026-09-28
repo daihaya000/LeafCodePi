@@ -7,9 +7,8 @@ import { BotChatMessage } from "./bot/BotMessageList";
 import { PartView } from "./task/PartView";
 
 /**
- * 描画スキップ用の perf クラスは形状ではない。Bot は行そのもの（BotMessageRow）、
- * Code は TaskView の外側行（.task-message-row）が持つため、形状の比較からは除外し、
- * 行側では別途存在を確認する。
+ * 描画スキップ用の perf クラスは形状ではない。Bot は行そのもの（BotMessageRow）が持つため、
+ * 形状の比較からは除外し、行側では別途存在を確認する。
  */
 const PERF_CLASSES = ["[content-visibility:auto]", "[contain-intrinsic-size:auto_8rem]"];
 

@@ -78,6 +78,8 @@ const POLL_WORKING_MS = 4_000;
 const PROJECT_DRAG_MIME = "application/x-leafcode-project";
 const HOVER_QUERY = "(hover: hover)";
 const NO_PROJECT_GROUP_ID = "__leafcode_no_project__";
+/** 展開したプロジェクト/アーカイブで一度に描画する行数。残りは「さらに表示」で増やす。 */
+export const SIDEBAR_TASK_RENDER_STEP = 50;
 
 /**
  * ドラッグ中の生の幅から表示モードを決める。
@@ -884,11 +886,11 @@ export const SidebarTaskRow = memo(function SidebarTaskRow({
   onDragStart: (event: React.DragEvent<HTMLButtonElement>, taskId: string) => void;
 }) {
   const cannotPromote = promotionBlocked(task);
-  // 展開したプロジェクトは数百行を一度に描画するため、画面外の行は layout/paint をスキップさせる。
-  // content-visibility の paint containment でフォーカスリングが欠けるので、行内のボタンは内側へ寄せる。
-  // contain-intrinsic-size のフォールバックは実測の行高（約53px）に合わせ、未描画行の高さズレを防ぐ。
+  // 行の遅延描画（content-visibility）は初回スクロールでレイアウトが集中してジャンクになるため使わない。
+  // 描画行数は呼び出し側（renderTaskList / アーカイブ）の上限で抑える。
+  // paint containment 前提のフォーカスリング内寄せは残す。
   return (
-    <li className="group rounded-lg [content-visibility:auto] [contain-intrinsic-size:auto_3.25rem] [&_button:focus-visible]:outline-offset-[-2px]">
+    <li className="group rounded-lg [&_button:focus-visible]:outline-offset-[-2px]">
       <SwipeArchiveRow label={`「${task.title}」をアーカイブ`} onArchive={() => onArchiveTask(task.id)}>
       <div className="flex items-center">
         <button
@@ -1332,6 +1334,8 @@ const SidebarView = memo(function SidebarView({
       window.matchMedia(HOVER_QUERY).matches,
   );
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  /** グループごとに一度に描画するタスク行数の上限（未指定は SIDEBAR_TASK_RENDER_STEP）。 */
+  const [renderLimits, setRenderLimits] = useState<Record<string, number>>({});
   const [projectOrder, setProjectOrder] = useState<string[]>(() => loadProjectOrder());
   const [pinnedTaskIds, setPinnedTaskIds] = useState<Set<string>>(new Set());
   const pinnedTaskIdsRef = useRef(new Set<string>());
@@ -1828,14 +1832,47 @@ const SidebarView = memo(function SidebarView({
     matchingTasksByProject?.set(project.id, matches);
     return true;
   });
-  const visibleArchivedGroups: typeof archivedGroups = [];
+  const renderLimitFor = (groupKey: string) => renderLimits[groupKey] ?? SIDEBAR_TASK_RENDER_STEP;
+  const showMoreRows = (groupKey: string) =>
+    setRenderLimits((current) => ({
+      ...current,
+      [groupKey]: (current[groupKey] ?? SIDEBAR_TASK_RENDER_STEP) + SIDEBAR_TASK_RENDER_STEP,
+    }));
+  const renderMoreRows = (groupKey: string, hiddenCount: number) => (
+    <li>
+      <button
+        type="button"
+        onClick={() => showMoreRows(groupKey)}
+        className="w-full rounded-lg px-2 py-1.5 text-left text-[11px] text-muted hover:bg-surface-2 hover:text-text"
+      >
+        さらに表示（残り{hiddenCount}件）
+      </button>
+    </li>
+  );
+
+  // アーカイブは数百件になり得る。一度に描画する行数を絞り、残りは「さらに表示」で増やす
+  // （全行を描画するとスクロール時にレイアウトが集中してスマホでジャンクになる）。
+  const visibleArchivedGroups: {
+    key: string;
+    name: string;
+    tasks: TaskSummary[];
+    total: number;
+    hiddenCount: number;
+  }[] = [];
   for (const group of archivedGroups) {
-    if (matchesCodeSearch(group.name)) {
-      visibleArchivedGroups.push(group);
-      continue;
-    }
-    const matchingTasks = group.tasks.filter((task) => matchesCodeSearch(task.title));
-    if (matchingTasks.length > 0) visibleArchivedGroups.push({ ...group, tasks: matchingTasks });
+    const matchingTasks = matchesCodeSearch(group.name)
+      ? group.tasks
+      : group.tasks.filter((task) => matchesCodeSearch(task.title));
+    if (matchingTasks.length === 0) continue;
+    const groupKey = `archived:${group.key}`;
+    const tasks = matchingTasks.slice(0, renderLimitFor(groupKey));
+    visibleArchivedGroups.push({
+      key: group.key,
+      name: group.name,
+      tasks,
+      total: matchingTasks.length,
+      hiddenCount: matchingTasks.length - tasks.length,
+    });
   }
   const visibleArchivedProjects = archivedProjects.filter((project) => matchesCodeSearch(project.name));
   const showNoProject =
@@ -2258,34 +2295,42 @@ const SidebarView = memo(function SidebarView({
     [cancelProjectTaskMenuHide, cancelRailWidgetHide],
   );
 
-  const renderTaskList = (children: TaskSummary[]) => (
-    <ul
-      className={cx(
-        "mb-1 ml-5 space-y-0.5 border-l border-border pl-1.5",
-        children.length >= 5 && "max-h-72 overflow-y-auto",
-      )}
-    >
-      {children.length === 0 ? (
-        <li className="px-2 py-1.5 text-[11px] text-muted">タスクなし</li>
-      ) : children.map((task) => (
-        <SidebarTaskRow
-          key={task.id}
-          task={task}
-          active={task.id === activeTaskId}
-          bot={(task.botId ?? task.supervisorBotId) ? botsById.get(task.botId ?? task.supervisorBotId!) : undefined}
-          pinned={pinnedTaskIds.has(task.id)}
-          unread={hasUnreadTask(task, activeTaskId)}
-          mdUp={mdUp}
-          actionBusy={actionBusyKey !== null}
-          onOpenTask={openTask}
-          onPinTask={togglePinned}
-          onPromoteTask={setPromotionTask}
-          onArchiveTask={archiveTask}
-          onDragStart={handleTaskDragStart}
-        />
-      ))}
-    </ul>
-  );
+  // 展開したプロジェクトは数百行になり得る。一度に描画する行数を絞り、残りは「さらに表示」で増やす
+  // （全行を描画するとスマホのスクロールでレイアウトが集中してジャンクになる）。
+  const renderTaskList = (children: TaskSummary[], groupKey: string) => {
+    const limit = renderLimitFor(groupKey);
+    const visibleChildren = children.slice(0, limit);
+    const hiddenCount = children.length - visibleChildren.length;
+    return (
+      <ul
+        className={cx(
+          "mb-1 ml-5 space-y-0.5 border-l border-border pl-1.5",
+          children.length >= 5 && "max-h-72 overflow-y-auto",
+        )}
+      >
+        {children.length === 0 ? (
+          <li className="px-2 py-1.5 text-[11px] text-muted">タスクなし</li>
+        ) : visibleChildren.map((task) => (
+          <SidebarTaskRow
+            key={task.id}
+            task={task}
+            active={task.id === activeTaskId}
+            bot={(task.botId ?? task.supervisorBotId) ? botsById.get(task.botId ?? task.supervisorBotId!) : undefined}
+            pinned={pinnedTaskIds.has(task.id)}
+            unread={hasUnreadTask(task, activeTaskId)}
+            mdUp={mdUp}
+            actionBusy={actionBusyKey !== null}
+            onOpenTask={openTask}
+            onPinTask={togglePinned}
+            onPromoteTask={setPromotionTask}
+            onArchiveTask={archiveTask}
+            onDragStart={handleTaskDragStart}
+          />
+        ))}
+        {hiddenCount > 0 && renderMoreRows(groupKey, hiddenCount)}
+      </ul>
+    );
+  };
 
   // `collapsed` はデスクトップ専用のレール表示（collapsedRail）用。body は
   // デスクトップでは !collapsed のときだけ描画され、モバイルドロワーは常に全幅なので、
@@ -2396,7 +2441,7 @@ const SidebarView = memo(function SidebarView({
                   <Plus className="h-3.5 w-3.5" />
                 </button>
               </div>
-              {noProjectOpen && renderTaskList(visibleNoProjectTasks)}
+              {noProjectOpen && renderTaskList(visibleNoProjectTasks, NO_PROJECT_GROUP_ID)}
             </li>
           )}
           {visibleProjects.map((project) => {
@@ -2489,7 +2534,7 @@ const SidebarView = memo(function SidebarView({
                     </button>
                   </div>
                   </SwipeArchiveRow>
-                  {open && renderTaskList(children)}
+                  {open && renderTaskList(children, project.id)}
                 </li>
               );
             })}
@@ -2532,7 +2577,7 @@ const SidebarView = memo(function SidebarView({
                       <span className="min-w-0 flex-1 truncate px-1.5 py-1 text-[11px] font-medium text-muted">
                         {group.name}
                         <span className="ml-1 tabular-nums text-[10px] text-faint">
-                          {group.tasks.length}
+                          {group.total}
                         </span>
                       </span>
                       <button
@@ -2589,6 +2634,7 @@ const SidebarView = memo(function SidebarView({
                           </div>
                         </li>
                       ))}
+                      {group.hiddenCount > 0 && renderMoreRows(`archived:${group.key}`, group.hiddenCount)}
                     </ul>
                   </li>
                 ))

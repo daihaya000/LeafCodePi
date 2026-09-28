@@ -60,7 +60,7 @@ vi.mock("@/components/ui", () => ({
   ThemeToggle: () => null,
 }));
 
-import { Sidebar } from "./Sidebar";
+import { SIDEBAR_TASK_RENDER_STEP, Sidebar } from "./Sidebar";
 import { resetUnreadStateForTests } from "@/lib/bot-unread";
 
 const projects = [
@@ -1276,5 +1276,74 @@ describe("Sidebar project ordering", () => {
     await waitFor(() => {
       expect(mocks.getJson).toHaveBeenCalledWith("/api/tasks?archived=1&kind=all");
     });
+  });
+});
+
+describe("Sidebar task render limit", () => {
+  const health = {
+    ok: true,
+    engine: "pi",
+    engineOk: true,
+    version: "1.0.0",
+    modelCount: 0,
+    dataDir: "C:\\data",
+    error: null,
+  };
+
+  function taskFixture(index: number, status: "idle" | "archived" = "idle") {
+    return {
+      id: `task-${index}`,
+      projectId: "project-a",
+      projectName: "Project A",
+      title: `Task ${index}`,
+      directory: "C:\\repo-a",
+      isolation: "current_folder" as const,
+      status,
+      sessionId: null,
+      sessionFile: null,
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: `2026-01-01T00:${String(index % 60).padStart(2, "0")}:01.000Z`,
+    };
+  }
+
+  function mockData(tasks: ReturnType<typeof taskFixture>[], archived: ReturnType<typeof taskFixture>[]) {
+    mocks.getJson.mockImplementation((path: string) => {
+      if (path === "/api/projects?archived=1") return Promise.resolve({ projects });
+      if (path === "/api/tasks?kind=all") return Promise.resolve({ tasks });
+      if (path === "/api/tasks?archived=1&kind=all") return Promise.resolve({ tasks: archived });
+      if (path === "/api/health") return Promise.resolve(health);
+      return Promise.reject(new Error(`Unexpected request: ${path}`));
+    });
+  }
+
+  it("expands a project without rendering every task row and reveals the rest on demand", async () => {
+    const tasks = Array.from({ length: SIDEBAR_TASK_RENDER_STEP + 70 }, (_, index) => taskFixture(index));
+    mockData(tasks, []);
+
+    render(<Sidebar mobileOpen={false} onClose={vi.fn()} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Project Aを展開" }));
+
+    const rows = () => document.querySelectorAll("li.group.rounded-lg");
+    await waitFor(() => expect(rows()).toHaveLength(SIDEBAR_TASK_RENDER_STEP));
+    fireEvent.click(screen.getByRole("button", { name: "さらに表示（残り70件）" }));
+    await waitFor(() => expect(rows()).toHaveLength(SIDEBAR_TASK_RENDER_STEP * 2));
+    fireEvent.click(screen.getByRole("button", { name: "さらに表示（残り20件）" }));
+    await waitFor(() => expect(rows()).toHaveLength(SIDEBAR_TASK_RENDER_STEP + 70));
+    expect(screen.queryByRole("button", { name: /さらに表示/ })).toBeNull();
+  });
+
+  it("limits archived rows and keeps the group header count as the total", async () => {
+    const archived = Array.from({ length: SIDEBAR_TASK_RENDER_STEP + 10 }, (_, index) => taskFixture(index, "archived"));
+    mockData([], archived);
+
+    render(<Sidebar mobileOpen={false} onClose={vi.fn()} />);
+    fireEvent.click(await screen.findByRole("button", { name: "アーカイブを展開" }));
+
+    expect(await screen.findByRole("button", { name: "さらに表示（残り10件）" })).toBeTruthy();
+    expect(screen.getAllByRole("button", { name: /を復元$/ })).toHaveLength(SIDEBAR_TASK_RENDER_STEP);
+    fireEvent.click(screen.getByRole("button", { name: "さらに表示（残り10件）" }));
+    await waitFor(() =>
+      expect(screen.getAllByRole("button", { name: /を復元$/ })).toHaveLength(SIDEBAR_TASK_RENDER_STEP + 10),
+    );
   });
 });
