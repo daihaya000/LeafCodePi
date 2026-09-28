@@ -65,6 +65,35 @@ describe("snapshotMessages", () => {
     expect(unmatched[0]?.outputTokens).toBeUndefined();
   });
 
+  it("updates elapsed duration with the clock before the first token arrives", () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(1_000);
+      const session = {
+        messages: [{ role: "assistant", timestamp: 1_000, content: [{ type: "text", text: "waiting" }] }],
+        agent: { state: { streamingMessage: undefined } },
+        sessionManager: { getLeafId: () => null, getBranch: () => [] },
+      } as unknown as Parameters<typeof snapshotMessages>[0];
+      const timings = new Map([[1_000, {
+        startedAtMs: 1_000, firstTokenAtMs: null, lastTokenAtMs: null,
+        outputTokens: null, charCount: 0,
+      }]]);
+      const snapshot = () => snapshotMessages(session, timings);
+
+      const first = snapshot();
+      expect(first[0]?.responseDurationMs).toBeUndefined();
+      vi.setSystemTime(2_000);
+      const second = snapshot();
+      expect(second[0]?.responseDurationMs).toBe(1_000);
+      vi.setSystemTime(2_500);
+      const third = snapshot();
+      expect(third[0]?.responseDurationMs).toBe(1_500);
+      expect(third[0]).not.toBe(second[0]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("reuses the latest-only array while the cached last message stays unchanged", () => {
     const stored: unknown[] = [
       { role: "user", content: "start" },
