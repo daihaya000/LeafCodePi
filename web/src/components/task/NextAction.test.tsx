@@ -33,7 +33,8 @@ describe("NextAction", () => {
 
     const trigger = screen.getByRole("button", { name: "次の指示を提案" });
     expect(trigger.querySelector(".lucide-sparkles")).toBeTruthy();
-    expect(trigger.className).toContain("h-9 w-9");
+    expect(trigger.classList.contains("!h-10")).toBe(true);
+    expect(trigger.classList.contains("!w-10")).toBe(true);
     expect(trigger.classList.contains("!rounded-full")).toBe(true);
     expect(trigger.classList.contains("bg-bg")).toBe(true);
     expect(trigger.classList.contains("shadow-lg")).toBe(false);

@@ -235,7 +235,7 @@ export function NextAction({
           }}
           className={cx(
             COMPOSER_ACTION_BUTTON_CLASS,
-            "border border-border bg-bg text-muted hover:bg-surface-2 hover:text-text",
+            "!h-10 !w-10 border border-border bg-bg text-muted hover:bg-surface-2 hover:text-text",
           )}
           style={{ opacity: disabled ? Math.min(triggerOpacity, 0.4) : triggerOpacity }}
         >
