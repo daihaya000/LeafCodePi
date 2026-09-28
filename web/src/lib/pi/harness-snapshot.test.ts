@@ -125,6 +125,35 @@ describe("snapshotMessages", () => {
     expect(unmatched[0]?.parts[0]).not.toHaveProperty("state.output");
   });
 
+  it("reuses a tool row while its start and end timing is unchanged", () => {
+    const stored: unknown[] = [{
+      role: "assistant", timestamp: 1_000,
+      content: [{ type: "toolCall", id: "call-1", name: "bash", arguments: {} }],
+    }];
+    const session = {
+      messages: stored,
+      agent: { state: { streamingMessage: undefined } },
+      sessionManager: { getLeafId: () => null, getBranch: () => [] },
+    } as unknown as Parameters<typeof snapshotMessages>[0];
+    const started = new Map([["call-1", 1_000]]);
+    const ended = new Map<string, number>();
+    const snapshot = () => snapshotMessages(session, undefined, started, ended);
+
+    const first = snapshot();
+    expect(first[0]?.parts[0]).toMatchObject({ state: { startedAtMs: 1_000 } });
+    expect(snapshot()[0]).toBe(first[0]);
+    ended.set("call-1", 3_000);
+    const changed = snapshot();
+    expect(changed[0]).not.toBe(first[0]);
+    expect(changed[0]?.parts[0]).toMatchObject({ state: { endedAtMs: 3_000 } });
+
+    started.delete("call-1");
+    started.set("unmatched", 4_000);
+    const unmatched = snapshot();
+    expect(unmatched[0]).not.toBe(changed[0]);
+    expect(unmatched[0]?.parts[0]).not.toHaveProperty("state.startedAtMs");
+  });
+
   it("skips stored-history membership checks when no message is streaming", () => {
     const stored: unknown[] = [{ role: "user", content: "idle" }];
     const includes = vi.spyOn(stored, "includes");

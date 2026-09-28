@@ -619,6 +619,18 @@ export function applyToolOutput(
   return result;
 }
 
+type ToolTimingPatch = {
+  index: number;
+  part: Extract<UiMessage["parts"][number], { type: "tool" }>;
+  startedAtMs: number;
+  endedAtMs: number | undefined;
+  status: string;
+};
+const toolTimingProjectionCache = new WeakMap<
+  UiMessage,
+  { patches: ToolTimingPatch[]; projected: UiMessage }
+>();
+
 /** toolCallId に対応する tool パートに実行開始/終了時刻を注入する。 */
 export function applyToolTiming(
   messages: UiMessage[],
@@ -628,26 +640,34 @@ export function applyToolTiming(
   return messages.map((message) => {
     if (message.role !== "assistant" ||
         (message.parts.length <= 1 && message.parts[0]?.type !== "tool")) return message;
-    let parts: UiMessage["parts"] | undefined;
+    let patches: ToolTimingPatch[] | undefined;
     for (let index = 0; index < message.parts.length; index++) {
       const part = message.parts[index]!;
       if (part.type !== "tool") continue;
       const startedAtMs = toolStartedAt.get(part.callID);
       if (startedAtMs === undefined) continue;
       const endedAtMs = toolEndedAt.get(part.callID) ?? part.state.endedAtMs;
-      // Timing is fixed once known; rebuilding the part on every 100ms snapshot
-      // would recreate the whole tool history for no visible change.
       if (part.state.startedAtMs === startedAtMs && part.state.endedAtMs === endedAtMs) continue;
-      if (!parts) parts = message.parts.slice();
+      (patches ??= []).push({ index, part, startedAtMs, endedAtMs, status: part.state.status });
+    }
+    if (!patches) return message;
+    const cached = toolTimingProjectionCache.get(message);
+    if (cached?.patches.length === patches.length && patches.every((patch, index) =>
+      patch.index === cached.patches[index]!.index &&
+      patch.part === cached.patches[index]!.part &&
+      patch.startedAtMs === cached.patches[index]!.startedAtMs &&
+      patch.endedAtMs === cached.patches[index]!.endedAtMs &&
+      patch.status === cached.patches[index]!.status
+    )) return cached.projected;
+    const parts = message.parts.slice();
+    for (const { index, part, startedAtMs, endedAtMs } of patches) {
       parts[index] = {
         ...part,
-        state: {
-          ...part.state,
-          startedAtMs,
-          endedAtMs,
-        },
+        state: { ...part.state, startedAtMs, endedAtMs },
       };
     }
-    return parts ? { ...message, parts } : message;
+    const projected = { ...message, parts };
+    toolTimingProjectionCache.set(message, { patches, projected });
+    return projected;
   });
 }
