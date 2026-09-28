@@ -461,6 +461,7 @@ npm run check
 | `LEAFCODE_PI_PUSHOVER_TOKEN` | Pushover のアプリ/APIトークン（未設定なら通知OFF） |
 | `LEAFCODE_PI_PUSHOVER_USER` | Pushover の User Key（未設定なら通知OFF） |
 | `LEAFCODE_PI_PUSHOVER_DEVICE` | 通知先デバイス名（省略時はユーザーの全デバイス） |
+| `LEAFCODE_PI_PUBLIC_URL` | 通知のセッションリンクに使うWebUIの公開URL（省略時はホストのバインドIPとポート） |
 | `LEAFCODE_PI_NONINTERACTIVE` | `1` で失敗時の pause を省略 |
 | `LEAFCODE_PI_LLAMA_SERVER_BIN` | Linux/macOS の llama-server バイナリ（未設定時は PATH の `llama-server`） |
 | `LEAFCODE_PI_LLAMA_MODEL_DIR` | Linux/macOS のモデルディレクトリ（未設定時は `~/models/llm`） |
@@ -475,7 +476,7 @@ iPhoneに [Pushover](https://pushover.net/) を入れ、User Key と [アプリ/
 
 従来のホスト環境変数 `LEAFCODE_PI_PUSHOVER_TOKEN` / `LEAFCODE_PI_PUSHOVER_USER` / `LEAFCODE_PI_PUSHOVER_DEVICE` も引き続き利用でき、個別の項目でUIの保存値より優先する。環境変数で管理中の項目はUIから変更できない。設定をUIから保存した場合は再起動不要。
 
-通知タイトルは `LCP X870 タスク完了` の形式で、送信元サーバーのOSホスト名を表示する（テスト通知は `LCP X870 テスト通知`）。通知本文にはタスクのタイトルのみを送り、会話本文・回答・エラー・認証情報は送らない。タイトルも外部サービスに渡るため機密情報を含めないこと。送信失敗はタスクを失敗扱いにせず、HTTPステータスまたは通信失敗だけをサーバーログに残す。Goal Loop の途中ターン、復旧中のターン、手動停止、Bot側で通知をOFFにした場合は送らない。キーはリポジトリ・公開設定・シェル履歴には保存しない。
+通知タイトルは `LCP X870 タスク完了` の形式で、送信元サーバーのOSホスト名を表示する（テスト通知は `LCP X870 テスト通知`）。完了通知にはタスクのタイトルと該当セッションのURLを記載し、Pushover内に「セッションを開く」リンクを付ける。URLにはセッションIDが含まれるため、外部サービスに送られる点に注意。会話本文・回答・エラー・認証情報は送らない。タイトルも外部サービスに渡るため機密情報を含めないこと。iPhoneからリンクを開くにはWebUIへの接続経路（Tailscale等）が必要。自動で使うバインドIPがiPhoneから到達できない場合は `LEAFCODE_PI_PUBLIC_URL` に到達可能なURLを指定する。送信失敗はタスクを失敗扱いにせず、HTTPステータスまたは通信失敗だけをサーバーログに残す。Goal Loop の途中ターン、復旧中のターン、手動停止、Bot側で通知をOFFにした場合は送らない。キーはリポジトリ・公開設定・シェル履歴には保存しない。
 
 
 ## Bot mode

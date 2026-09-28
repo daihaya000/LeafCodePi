@@ -56,6 +56,50 @@ describe("Pushover HTTP delivery", () => {
     });
   });
 
+  it.each([
+    [{ id: "code a", kind: "code" }, "http://100.64.0.1:3333/task/code%20a"],
+    [{ id: "bot:one", kind: "bot", botId: "one" }, "http://100.64.0.1:3333/bots/one"],
+    [{ id: "bot:one:room:room 1", kind: "bot", botId: "one" }, "http://100.64.0.1:3333/bots/rooms/room%201"],
+    [{ id: "code-owned", kind: "code", botId: "one" }, "http://100.64.0.1:3333/bots/one"],
+  ])("includes a clickable link to the task's WebUI surface", async (task, expectedUrl) => {
+    const send = vi.fn().mockResolvedValue({ ok: true });
+    await notifyPushoverCompletion("Build done", {
+      env: { ...env, LEAFCODE_PI_HOST: "100.64.0.1", LEAFCODE_PI_PORT: "3333" }, send, task,
+    });
+    const body = send.mock.calls[0]![1].body as URLSearchParams;
+    expect(body.get("message")).toBe(`Build done\n${expectedUrl}`);
+    expect(body.get("url")).toBe(expectedUrl);
+    expect(body.get("url_title")).toBe("セッションを開く");
+  });
+
+  it("supports an explicit HTTPS origin and skips invalid or unreachable links", async () => {
+    const send = vi.fn().mockResolvedValue({ ok: true });
+    const task = { id: "code a", kind: "code" };
+    await notifyPushoverCompletion("Done", {
+      env: { ...env, LEAFCODE_PI_PUBLIC_URL: "https://pi.example.test/" }, send, task,
+    });
+    expect((send.mock.calls[0]![1].body as URLSearchParams).get("url")).toBe("https://pi.example.test/task/code%20a");
+    await notifyPushoverCompletion("Done", {
+      env: { ...env, LEAFCODE_PI_HOST: "0.0.0.0" }, send, task,
+    });
+    expect(Object.fromEntries(send.mock.calls[1]![1].body as URLSearchParams)).not.toHaveProperty("url");
+    await notifyPushoverCompletion("Done", {
+      env: { ...env, LEAFCODE_PI_PUBLIC_URL: "javascript:alert(1)" }, send, task,
+    });
+    expect(Object.fromEntries(send.mock.calls[2]![1].body as URLSearchParams)).not.toHaveProperty("url");
+  });
+
+  it("keeps long titles within Pushover's message limit when a URL is included", async () => {
+    const send = vi.fn().mockResolvedValue({ ok: true });
+    await notifyPushoverCompletion("a".repeat(1025), {
+      env: { ...env, LEAFCODE_PI_HOST: "100.64.0.1" }, send,
+      task: { id: "task-1" },
+    });
+    const body = send.mock.calls[0]![1].body as URLSearchParams;
+    expect(body.get("message")).toHaveLength(1024);
+    expect(body.get("message")).toContain("\nhttp://100.64.0.1:3000/task/task-1");
+  });
+
   it("also labels test notifications with the server name", async () => {
     const send = vi.fn().mockResolvedValue({ ok: true });
     expect(await notifyPushoverCompletion("テスト", { env, send, title: "テスト通知" })).toBe(true);
