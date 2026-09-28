@@ -1,3 +1,4 @@
+import { hostname } from "node:os";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { notifyPushoverCompletion, shouldNotifyPushoverCompletion } from "./pushover";
 
@@ -47,10 +48,22 @@ describe("Pushover HTTP delivery", () => {
     expect(init.signal).toBeInstanceOf(AbortSignal);
     expect(init.body).toBeInstanceOf(URLSearchParams);
     const body = init.body as URLSearchParams;
+    const serverName = Array.from(hostname().trim()).slice(0, 64).join("");
     expect(Object.fromEntries(body)).toEqual({
-      token: "example-token", user: "example-user", title: "LeafCodePi タスク完了",
+      token: "example-token", user: "example-user",
+      title: serverName ? `LeafCodePi タスク完了（${serverName}）` : "LeafCodePi タスク完了",
       message: "Build done", device: "iphone",
     });
+  });
+
+  it("also labels test notifications with the server name", async () => {
+    const send = vi.fn().mockResolvedValue({ ok: true });
+    expect(await notifyPushoverCompletion("テスト", { env, send, title: "LeafCodePi テスト通知" })).toBe(true);
+    const body = send.mock.calls[0]![1].body as URLSearchParams;
+    const serverName = Array.from(hostname().trim()).slice(0, 64).join("");
+    expect(body.get("title")).toBe(serverName
+      ? `LeafCodePi テスト通知（${serverName}）`
+      : "LeafCodePi テスト通知");
   });
 
   it("limits the title and never logs credentials or provider responses on failure", async () => {

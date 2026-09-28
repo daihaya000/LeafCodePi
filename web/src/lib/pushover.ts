@@ -1,3 +1,4 @@
+import { hostname } from "node:os";
 import { readPushoverCredentials } from "@/lib/pushover-config";
 
 /** Server-side Pushover delivery. Never expose credentials to the browser. */
@@ -32,10 +33,12 @@ export async function notifyPushoverCompletion(
 
     // Send the task title only, never a transcript, model output or error details.
     const message = Array.from(taskTitle.trim() || "LeafCodePi タスク").slice(0, 1024).join("");
+    const serverName = Array.from(hostname().trim()).slice(0, 64).join("");
+    const baseTitle = Array.from(options.title ?? "LeafCodePi タスク完了").slice(0, 180).join("");
     const body = new URLSearchParams({
       token: config.token,
       user: config.user,
-      title: options.title ?? "LeafCodePi タスク完了",
+      title: serverName ? `${baseTitle}（${serverName}）` : baseTitle,
       message,
     });
     if (config.device) body.set("device", config.device);
