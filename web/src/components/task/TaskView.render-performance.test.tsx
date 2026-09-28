@@ -156,7 +156,7 @@ describe("TaskView render stability", () => {
     expect(mocks.partView).not.toHaveBeenCalled();
   });
 
-  it("uses content visibility to defer offscreen timeline row rendering", async () => {
+  it("keeps timeline rows eagerly rendered so mobile scrolling stays stable", async () => {
     const message: UiMessage = {
       id: "assistant-row",
       role: "assistant",
@@ -169,7 +169,9 @@ describe("TaskView render stability", () => {
     await waitFor(() => expect(mocks.partView).toHaveBeenCalledWith(message.id));
 
     const row = view.container.querySelector(".task-message-row");
-    expect(row?.className).toContain("[content-visibility:auto]");
-    expect(row?.className).toContain("[contain-intrinsic-size:auto_8rem]");
+    // content-visibility の遅延描画は初回スクロール時にレイアウトが集中し、
+    // スマホで指に追従しないジャンクになる。履歴はページングで制限する。
+    expect(row?.className).toContain("task-message-row");
+    expect(row?.className).not.toContain("content-visibility");
   });
 });
