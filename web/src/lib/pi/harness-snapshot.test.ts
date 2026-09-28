@@ -77,6 +77,20 @@ describe("snapshotMessages", () => {
     }
   });
 
+  it("reuses recorded-account rows and copies the list only for a new account", () => {
+    const recorded: UiMessage = { id: "a", role: "assistant", createdAt: 1, parts: [], accountId: "old" };
+    const fresh: UiMessage = { id: "b", role: "assistant", createdAt: 2, parts: [] };
+    const messages = [recorded, fresh];
+    const context = { accountId: "new", byMessageId: new Map([["a", "old"]]) };
+
+    const updated = applyMessageAccountIds(messages, context);
+    expect(updated).not.toBe(messages);
+    expect(updated[0]).toBe(recorded);
+    expect(updated[1]?.accountId).toBe("new");
+    expect(context.byMessageId.get("b")).toBe("new");
+    expect(applyMessageAccountIds(updated, context)).toBe(updated);
+  });
+
   it("records the generating account and keeps it after rerouting", () => {
     const stored: unknown[] = [
       { role: "user", content: "確認して" },

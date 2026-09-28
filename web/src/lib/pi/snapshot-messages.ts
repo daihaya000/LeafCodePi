@@ -202,19 +202,20 @@ export function applyMessageAccountIds(
 ): UiMessage[] {
   const { accountId, byMessageId } = context;
   if (!accountId && byMessageId.size === 0) return messages;
-  let changed = false;
-  const result = messages.map((message) => {
-    if (message.role !== "assistant") return message;
+  let result: UiMessage[] | undefined;
+  for (let index = 0; index < messages.length; index++) {
+    const message = messages[index];
+    if (!message || message.role !== "assistant") continue;
     let recorded = byMessageId.get(message.id);
     if (recorded === undefined && accountId) {
       recorded = accountId;
       byMessageId.set(message.id, recorded);
     }
-    if (!recorded || message.accountId === recorded) return message;
-    changed = true;
-    return { ...message, accountId: recorded };
-  });
-  return changed ? result : messages;
+    if (!recorded || message.accountId === recorded) continue;
+    if (!result) result = messages.slice();
+    result[index] = { ...message, accountId: recorded };
+  }
+  return result ?? messages;
 }
 
 /** アシスタントメッセージへ生成時のエージェントを記録する（初回のみ記録、以降は保持）。 */
