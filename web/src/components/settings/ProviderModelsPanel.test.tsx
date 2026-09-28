@@ -123,6 +123,78 @@ describe("ProviderModelsPanel account model settings", () => {
       .toBeTruthy();
   });
 
+  it("shows only enabled providers and models, also when searching", async () => {
+    fetchMock.mockImplementationOnce(() =>
+      Promise.resolve(jsonResponse({
+        providers: [
+          {
+            id: "active",
+            name: "Active",
+            enabled: true,
+            models: [
+              { id: "ready", name: "Ready", enabled: true },
+              { id: "hidden", name: "Hidden", enabled: false },
+            ],
+          },
+          {
+            id: "inactive",
+            name: "Inactive",
+            enabled: false,
+            models: [{ id: "ready", name: "Ready", enabled: true }],
+          },
+        ],
+      })),
+    );
+    render(<ProviderModelsPanel />);
+    const filter = await screen.findByRole("button", { name: "有効化のみ" });
+    const search = screen.getByRole("searchbox", { name: "プロバイダー・モデルを検索" });
+    expect(filter.getAttribute("aria-pressed")).toBe("false");
+    expect(screen.getByRole("switch", { name: "Inactive を有効化" })).toBeTruthy();
+
+    fireEvent.click(filter);
+    expect(filter.getAttribute("aria-pressed")).toBe("true");
+    expect(screen.queryByRole("switch", { name: "Inactive を有効化" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Active のモデルを展開" }));
+    expect(screen.getByRole("switch", { name: "Active の Ready を無効化" })).toBeTruthy();
+    expect(screen.queryByRole("switch", { name: "Active の Hidden を有効化" })).toBeNull();
+
+    fireEvent.change(search, { target: { value: "hidden" } });
+    expect(screen.queryByRole("switch", { name: "Active の Hidden を有効化" })).toBeNull();
+    expect(screen.getByText("検索条件に一致する項目はありません。")).toBeTruthy();
+    fireEvent.change(search, { target: { value: "ready" } });
+    expect(screen.getByRole("switch", { name: "Active の Ready を無効化" })).toBeTruthy();
+    fireEvent.change(search, { target: { value: "" } });
+    fireEvent.click(screen.getByRole("switch", { name: "Active の Ready を無効化" }));
+    expect(screen.queryByRole("switch", { name: "Active の Ready を無効化" })).toBeNull();
+    await waitFor(() => {
+      expect((screen.getByRole("switch", { name: "Active を無効化" }) as HTMLButtonElement).disabled).toBe(false);
+    });
+    fireEvent.click(screen.getByRole("switch", { name: "Active を無効化" }));
+    expect(screen.getByText("有効なプロバイダーはありません。")).toBeTruthy();
+    fireEvent.click(filter);
+    expect(filter.getAttribute("aria-pressed")).toBe("false");
+    expect(screen.getByRole("switch", { name: "Inactive を有効化" })).toBeTruthy();
+    expect(screen.getByRole("switch", { name: "Active を有効化" })).toBeTruthy();
+  });
+
+  it("keeps enabled providers with no enabled models visible", async () => {
+    fetchMock.mockImplementationOnce(() =>
+      Promise.resolve(jsonResponse({
+        providers: [{
+          id: "empty",
+          name: "Empty",
+          enabled: true,
+          models: [{ id: "off", name: "Off", enabled: false }],
+        }],
+      })),
+    );
+    render(<ProviderModelsPanel />);
+    fireEvent.click(await screen.findByRole("button", { name: "有効化のみ" }));
+    expect(screen.getByRole("switch", { name: "Empty を無効化" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Empty のモデルを展開" }));
+    expect(screen.queryByRole("switch", { name: "Empty の Off を有効化" })).toBeNull();
+  });
+
   it("hides context token controls from model rows", async () => {
     render(<ProviderModelsPanel />);
     await screen.findByRole("heading", { name: "モデル" });

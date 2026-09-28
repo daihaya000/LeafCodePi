@@ -400,6 +400,7 @@ export function ProviderModelsPanel({
   const [orderSaving, setOrderSaving] = useState(false);
   const [reorderAnnouncement, setReorderAnnouncement] = useState("");
   const [query, setQuery] = useState("");
+  const [enabledOnly, setEnabledOnly] = useState(false);
   const mountedRef = useRef(true);
   const orderQueueRef = useRef(Promise.resolve());
   const orderPendingRef = useRef(0);
@@ -652,6 +653,7 @@ export function ProviderModelsPanel({
   );
   const searchTerm = query.trim().toLowerCase();
   const visibleProviders = providers.flatMap((provider, providerIndex) => {
+    if (enabledOnly && !provider.enabled) return [];
     const providerMatches = [
       provider.name,
       provider.id,
@@ -660,13 +662,15 @@ export function ProviderModelsPanel({
       ...(provider.accountIds ?? []),
     ].some((value) => value?.toLowerCase().includes(searchTerm));
     const matchingModels = provider.models.filter((model) =>
-      [model.name, model.id].some((value) => value.toLowerCase().includes(searchTerm)),
+      (!enabledOnly || model.enabled) &&
+      (!searchTerm || providerMatches ||
+        [model.name, model.id].some((value) => value.toLowerCase().includes(searchTerm))),
     );
     if (searchTerm && !providerMatches && matchingModels.length === 0) return [];
     return [{
       provider,
       providerIndex,
-      models: searchTerm && !providerMatches ? matchingModels : provider.models,
+      models: matchingModels,
       searchExpanded: Boolean(searchTerm && !providerMatches),
     }];
   });
@@ -719,25 +723,40 @@ export function ProviderModelsPanel({
       {error && <p role="alert" className="text-sm text-danger">{error}</p>}
       {actionError && <p role="alert" className="text-sm text-danger">{actionError}</p>}
       {providers.length > 0 && (
-        <label className="block @xl:max-w-sm">
-          <span className="sr-only">プロバイダー・モデルを検索</span>
-          <input
-            type="search"
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder="プロバイダー・モデルを検索"
-            aria-label="プロバイダー・モデルを検索"
-            className="h-10 w-full rounded-lg border border-border bg-surface px-3 text-sm outline-none focus:border-accent"
-          />
-        </label>
+        <div className="flex flex-wrap items-center gap-2">
+          <label className="block w-full @xl:max-w-sm">
+            <span className="sr-only">プロバイダー・モデルを検索</span>
+            <input
+              type="search"
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="プロバイダー・モデルを検索"
+              aria-label="プロバイダー・モデルを検索"
+              className="h-10 w-full rounded-lg border border-border bg-surface px-3 text-sm outline-none focus:border-accent"
+            />
+          </label>
+          <button
+            type="button"
+            aria-pressed={enabledOnly}
+            onClick={() => setEnabledOnly((value) => !value)}
+            className={cx(
+              "h-10 rounded-lg border px-3 text-sm transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent",
+              enabledOnly
+                ? "border-accent bg-accent/10 text-accent"
+                : "border-border bg-surface text-muted hover:bg-surface-2 hover:text-text",
+            )}
+          >
+            有効化のみ
+          </button>
+        </div>
       )}
       {status === "ready" && providers.length === 0 && (
         <p className="text-sm text-muted">
           選択可能なプロバイダーまたはログインアカウントがありません。認証設定を確認してください。
         </p>
       )}
-      {status === "ready" && searchTerm && providers.length > 0 && visibleProviders.length === 0 && (
-        <p className="text-sm text-muted">検索条件に一致する項目はありません。</p>
+      {status === "ready" && (searchTerm || enabledOnly) && providers.length > 0 && visibleProviders.length === 0 && (
+        <p className="text-sm text-muted">{searchTerm ? "検索条件に一致する項目はありません。" : "有効なプロバイダーはありません。"}</p>
       )}
       {providers.length > 0 && <ul className="space-y-3">{visibleProviders.map(renderProvider)}</ul>}
     </div>
