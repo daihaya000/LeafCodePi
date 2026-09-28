@@ -67,6 +67,39 @@ describe("restoredThroughputState", () => {
     assert.equal(Object.isFrozen(restored.throughputByStartedAt.get(1_000)), true);
     assert.equal(restored.persistedThroughputKeys, loadedKeys);
   });
+
+  it("creates empty throughput state that can accept and persist new events", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(1_000);
+    const restored = restoredThroughputState(undefined, null, null);
+    assert.ok(restored.throughputByStartedAt instanceof VersionedThroughputMap);
+    assert.equal(restored.throughputByStartedAt.size, 0);
+    assert.equal(restored.throughputByStartedAt.awaitingFirstTokenCount, 0);
+    assert.equal(restored.persistedThroughputKeys.size, 0);
+
+    const { live, persisted } = liveState();
+    Object.assign(live, restored);
+    trackThroughputEvent(live, {
+      type: "message_start",
+      message: { role: "assistant", timestamp: 1_000 },
+    });
+    vi.setSystemTime(1_100);
+    trackThroughputEvent(live, {
+      type: "message_update",
+      message: { role: "assistant", timestamp: 1_000, usage: { output: 2 } },
+      assistantMessageEvent: { type: "text_delta", delta: "ok" },
+    });
+    vi.setSystemTime(1_200);
+    trackThroughputEvent(live, {
+      type: "message_end",
+      message: { role: "assistant", timestamp: 1_000, usage: { output: 2 } },
+    });
+    await new Promise<void>((resolve) => queueMicrotask(resolve));
+
+    assert.equal(live.throughputByStartedAt.size, 1);
+    assert.equal(live.persistedThroughputKeys.has(1_000), true);
+    assert.equal(persisted.length, 1);
+  });
 });
 
 describe("trackThroughputEvent", () => {
