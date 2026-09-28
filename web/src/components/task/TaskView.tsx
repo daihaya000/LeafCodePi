@@ -3509,8 +3509,11 @@ export const TaskView = memo(function TaskView({
           </div>
         </div>
         {/* 進捗確認とメッセージ移動。移動ボタン間より広い間隔で操作を分ける。 */}
-        {!mobilePanelOpen && (task?.sessionId || navigationMessageIds.length > 0) && (
-          <div className="absolute right-4 bottom-4 z-50 flex flex-col items-center gap-6">
+        {(task?.sessionId || navigationMessageIds.length > 0) && (
+          <div className={cx(
+            "absolute right-4 bottom-4 z-50 flex flex-col items-center gap-6",
+            mobilePanelOpen && "hidden",
+          )}>
             {task?.sessionId && (
               <TaskProgressAsk
                 taskId={taskId}

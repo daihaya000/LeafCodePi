@@ -84,6 +84,24 @@ it("places the progress trigger above the message navigator with a separate gap"
   expect(screen.getByRole("form", { name: "フォローアップ" }).contains(progress)).toBe(false);
 });
 
+it("keeps the progress answer when a mobile side panel is opened and closed", async () => {
+  saveTaskSessionCache({
+    task: { ...task, sessionId: "session-1" }, messages: [], isStreaming: false, isCompacting: false,
+  });
+  mocks.sendJson.mockResolvedValue({ answer: "確認した進捗", snapshotAt: Date.now(), working: true });
+  render(<TaskView taskId={task.id} mdUp={false} />);
+
+  fireEvent.click(await screen.findByRole("button", { name: "進捗を確認" }));
+  expect(await screen.findByText("確認した進捗")).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "コミットグラフ" }));
+  expect(screen.getByRole("button", { name: "進捗の確認を表示" }).closest(".absolute")?.classList.contains("hidden")).toBe(true);
+  fireEvent.click(screen.getByRole("button", { name: "コミットグラフ" }));
+
+  expect(screen.getByRole("button", { name: "進捗の確認を表示" }).closest(".absolute")?.classList.contains("hidden")).toBe(false);
+  expect(screen.getByText("確認した進捗")).toBeTruthy();
+  expect(mocks.sendJson).toHaveBeenCalledTimes(1);
+});
+
 it("keeps a document-hidden active task unread until the document is visible", async () => {
   const updatedAt = "2026-01-01T00:00:00.000Z";
   saveTaskSessionCache({ task: { ...task, updatedAt }, messages: [], isStreaming: false, isCompacting: false });
