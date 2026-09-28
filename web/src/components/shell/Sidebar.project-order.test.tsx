@@ -354,7 +354,9 @@ describe("Sidebar project ordering", () => {
 
     render(<Sidebar mobileOpen={false} onClose={vi.fn()} />);
 
-    const search = await screen.findByRole("textbox", { name: "プロジェクトやセッションを検索" });
+    const search = await screen.findByRole("searchbox", { name: "プロジェクトやセッションを検索" });
+    expect(search.getAttribute("type")).toBe("search");
+    expect(search.getAttribute("autocomplete")).toBe("off");
     expect(screen.queryByRole("button", { name: "検索をクリア" })).toBeNull();
     fireEvent.change(search, { target: { value: "beta session" } });
     expect(screen.getByRole("button", { name: "検索をクリア" })).toBeTruthy();
@@ -403,7 +405,7 @@ describe("Sidebar project ordering", () => {
     });
 
     render(<Sidebar mobileOpen={false} onClose={vi.fn()} />);
-    const search = await screen.findByRole("textbox", { name: "プロジェクトやセッションを検索" });
+    const search = await screen.findByRole("searchbox", { name: "プロジェクトやセッションを検索" });
     fireEvent.change(search, { target: { value: "デバッグ" } });
     await waitFor(() => {
       expect(screen.getByRole("button", { name: "Project Bを展開" })).toBeTruthy();
@@ -448,7 +450,7 @@ describe("Sidebar project ordering", () => {
     });
 
     render(<Sidebar mobileOpen={false} onClose={vi.fn()} />);
-    const search = await screen.findByRole("textbox", { name: "プロジェクトやセッションを検索" });
+    const search = await screen.findByRole("searchbox", { name: "プロジェクトやセッションを検索" });
     fireEvent.change(search, { target: { value: "調査" } });
     const ungroupedToggle = await screen.findByRole("button", { name: "プロジェクトなしを展開" });
     fireEvent.click(ungroupedToggle);
@@ -500,7 +502,7 @@ describe("Sidebar project ordering", () => {
     const initialStart = window.performance.now();
     render(<Sidebar mobileOpen={false} onClose={vi.fn()} />);
 
-    const search = await screen.findByRole("textbox", { name: "プロジェクトやセッションを検索" });
+    const search = await screen.findByRole("searchbox", { name: "プロジェクトやセッションを検索" });
     await screen.findByRole("button", { name: "Bench Project 0を展開" });
     const initialMs = window.performance.now() - initialStart;
 

@@ -2391,11 +2391,13 @@ const SidebarView = memo(function SidebarView({
         <div className="mb-2 flex h-9 items-center gap-2 rounded-lg border border-border bg-bg px-2.5 text-xs text-muted focus-within:border-accent">
           <Search className="h-3.5 w-3.5 shrink-0" />
           <input
+            type="search"
+            autoComplete="off"
             value={query}
             onChange={(event) => setQuery(event.target.value)}
             placeholder="プロジェクトやセッションを検索"
             aria-label="プロジェクトやセッションを検索"
-            className="min-w-0 flex-1 bg-transparent outline-none placeholder:text-faint"
+            className="min-w-0 flex-1 appearance-none bg-transparent outline-none placeholder:text-faint [&::-webkit-search-cancel-button]:hidden"
           />
           {query && (
             <button
