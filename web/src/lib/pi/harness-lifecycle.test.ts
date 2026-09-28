@@ -52,7 +52,8 @@ describe("harness lifecycle characterization", () => {
     };
     const staleSnapshot = vi.fn();
     const live = {
-      taskId: task.id, accountId: null, session, promptChain: Promise.resolve(),
+      taskId: task.id, accountId: null, accountByMessageId: new Map(), agentByMessageId: new Map(),
+      session, promptChain: Promise.resolve(),
       promptActive: true, promptEpoch: 7, skillPermission: "allow", skillPermissionRef: { current: "allow" },
       throughputByStartedAt: new Map(), persistedThroughputKeys: new Set(), toolStartedAt: new Map(),
       toolEndedAt: new Map(), toolPartialOutputByCallId: new Map(),
