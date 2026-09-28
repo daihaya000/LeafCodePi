@@ -7,6 +7,7 @@ import {
   snapshotMessages,
 } from "./harness";
 import type { TaskSummary, UiMessage } from "@/lib/types";
+import { timingFromPersisted } from "@/lib/token-throughput";
 import { VersionedTimingMap } from "./versioned-timing-map";
 import { VersionedThroughputMap } from "./versioned-throughput-map";
 
@@ -187,6 +188,33 @@ describe("snapshotMessages", () => {
       const shortened = snapshot();
       expect(shortened).toHaveLength(2);
       expect(shortened[1]?.responseDurationMs).toBe(2_000);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps restored timings with no final token clock-dependent", () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(1_000);
+      const session = {
+        messages: [{ role: "assistant", timestamp: 1_000, content: [{ type: "text", text: "restored" }] }],
+        agent: { state: { streamingMessage: undefined } },
+        sessionManager: { getLeafId: () => null, getBranch: () => [] },
+      } as unknown as Parameters<typeof snapshotMessages>[0];
+      const restored = timingFromPersisted({
+        startedAtMs: 1_000, firstTokenAtMs: null, lastTokenAtMs: null, outputTokens: 10,
+      });
+      expect(restored).not.toBeNull();
+      const timings = new VersionedThroughputMap([[1_000, restored!]]);
+      expect(timings.awaitingFirstTokenCount).toBe(1);
+      const snapshot = () => snapshotMessages(session, timings);
+
+      vi.setSystemTime(2_000);
+      expect(snapshot()[0]?.responseDurationMs).toBe(1_000);
+      vi.setSystemTime(2_500);
+      expect(snapshot()[0]?.responseDurationMs).toBe(1_500);
+      expect(timings.awaitingFirstTokenCount).toBe(1);
     } finally {
       vi.useRealTimers();
     }
