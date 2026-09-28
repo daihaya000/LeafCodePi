@@ -564,13 +564,16 @@ const toolOutputProjectionCache = new WeakMap<
   UiMessage,
   { patches: ToolOutputPatch[]; projected: UiMessage }
 >();
+const toolOutputArrayCache = new WeakMap<UiMessage[], UiMessage[]>();
 
 /** 実行中 tool の累積 partial result を対応する UI パートへ注入する。 */
 export function applyToolOutput(
   messages: UiMessage[],
   partialOutputByCallId: Map<string, string>,
 ): UiMessage[] {
-  return messages.map((message) => {
+  const previous = toolOutputArrayCache.get(messages);
+  const baseline = previous?.length === messages.length ? previous : messages;
+  const project = (message: UiMessage): UiMessage => {
     if (message.role !== "assistant" ||
         (message.parts.length <= 1 && message.parts[0]?.type !== "tool")) return message;
     let patches: ToolOutputPatch[] | undefined;
@@ -603,7 +606,17 @@ export function applyToolOutput(
     const projected = { ...message, parts };
     toolOutputProjectionCache.set(message, { patches, projected });
     return projected;
-  });
+  };
+  let changed: UiMessage[] | undefined;
+  for (let index = 0; index < messages.length; index++) {
+    const projected = project(messages[index]!);
+    if (projected === baseline[index]) continue;
+    changed ??= baseline.slice();
+    changed[index] = projected;
+  }
+  const result = changed ?? baseline;
+  toolOutputArrayCache.set(messages, result);
+  return result;
 }
 
 /** toolCallId に対応する tool パートに実行開始/終了時刻を注入する。 */

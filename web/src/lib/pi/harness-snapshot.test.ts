@@ -109,11 +109,20 @@ describe("snapshotMessages", () => {
 
     const first = snapshot();
     expect(first[0]?.parts[0]).toMatchObject({ state: { output: "first" } });
-    expect(snapshot()[0]).toBe(first[0]);
+    const second = snapshot();
+    expect(second).toBe(first);
+    expect(second[0]).toBe(first[0]);
     output.set("call-1", "first\nsecond");
     const changed = snapshot();
+    expect(changed).not.toBe(first);
     expect(changed[0]).not.toBe(first[0]);
     expect(changed[0]?.parts[0]).toMatchObject({ state: { output: "first\nsecond" } });
+
+    output.delete("call-1");
+    output.set("unmatched", "other");
+    const unmatched = snapshot();
+    expect(unmatched).not.toBe(changed);
+    expect(unmatched[0]?.parts[0]).not.toHaveProperty("state.output");
   });
 
   it("skips stored-history membership checks when no message is streaming", () => {
