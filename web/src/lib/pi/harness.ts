@@ -13,6 +13,7 @@ import {
   samePath,
 } from "@/lib/paths";
 import { prepareWorkspaceMove, type PreparedWorkspaceMove } from "@/lib/workspace-move";
+import { notifyPushoverCompletion, shouldNotifyPushoverCompletion } from "@/lib/pushover";
 import { BOT_DEFAULT_TOOL_NAMES, BOT_TOOL_NAMES, botPromptSources, botRuntimeContext, botSoulRevision, botTaskId, getBot, listBots, patchBot } from "@/lib/bots";
 import { AGENTS_MD_FILENAME, codeOnDemandPrompt, codePromptSources, compactSdkDocumentation, readAgentsMdFile } from "@/lib/agents-md";
 import { BOT_CODE_RESULT, BOT_CODE_TOOL, botCodeReportText, createBotCodeRelay, hasBotCodeReport, isBotCodeOriginTask, isRoomDelegatedCodeTask, queueBotCodePrompt, roomForCodeOrigin, runUserBotCodeRequest, stopBotCodeRequestForTask, truncateCodeReportRequest, type CodePromptOptions, type CodeRequest } from "@/lib/pi/bot-code-relay";
@@ -2106,6 +2107,18 @@ function finishSettledTurn(
     });
   }
   ensureSessionLabelAfterTurn(taskId);
+  const task = getTask(taskId);
+  if (task && shouldNotifyPushoverCompletion({
+    error: settledError,
+    manuallyAborted: live.manualAbortedAssistantId !== null,
+    recovering: pending !== null,
+    goalLoopRunning: isLiveGoalLoopSession(session),
+    botNotificationsEnabled: task.kind !== "bot" ||
+      (task.botId ? getBot(task.botId)?.notificationsEnabled !== false : false),
+  })) {
+    // Do not delay the turn or reveal credentials through the session stream.
+    void notifyPushoverCompletion(task.title);
+  }
 }
 
 export function restoredThroughputState(

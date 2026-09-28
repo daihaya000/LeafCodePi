@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSyn
 import { homedir, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { EventEmitter } from "node:events";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const fakePi = vi.hoisted(() => {
   type FakeEvent = {
@@ -348,6 +348,8 @@ const GLOBAL_KEY = "__leafcodePiHarness";
 const tempDirs: string[] = [];
 const previousPiAgentDir = process.env.PI_CODING_AGENT_DIR;
 const previousDataDir = process.env.LEAFCODE_PI_DATA_DIR;
+const previousPushoverToken = process.env.LEAFCODE_PI_PUSHOVER_TOKEN;
+const previousPushoverUser = process.env.LEAFCODE_PI_PUSHOVER_USER;
 
 function runtime(accountId: string) {
   const model = {
@@ -420,6 +422,12 @@ function dropLiveSessions(): void {
   current.live.clear();
 }
 
+// Tests must never publish to a real account inherited from the host process.
+beforeEach(() => {
+  delete process.env.LEAFCODE_PI_PUSHOVER_TOKEN;
+  delete process.env.LEAFCODE_PI_PUSHOVER_USER;
+});
+
 afterEach(() => {
   const relay = (globalThis as Record<string, unknown>).__leafcodeBotCodeRelay as { dispose?: () => void } | undefined;
   relay?.dispose?.();
@@ -432,6 +440,11 @@ afterEach(() => {
   else process.env.PI_CODING_AGENT_DIR = previousPiAgentDir;
   if (previousDataDir === undefined) delete process.env.LEAFCODE_PI_DATA_DIR;
   else process.env.LEAFCODE_PI_DATA_DIR = previousDataDir;
+  if (previousPushoverToken === undefined) delete process.env.LEAFCODE_PI_PUSHOVER_TOKEN;
+  else process.env.LEAFCODE_PI_PUSHOVER_TOKEN = previousPushoverToken;
+  if (previousPushoverUser === undefined) delete process.env.LEAFCODE_PI_PUSHOVER_USER;
+  else process.env.LEAFCODE_PI_PUSHOVER_USER = previousPushoverUser;
+  vi.restoreAllMocks();
   for (const dir of tempDirs.splice(0)) rmSync(dir, { recursive: true, force: true });
   fakePi.reset();
   autoAgentMock.mockReset();
@@ -456,6 +469,49 @@ describe("mergeBundledSkills", () => {
 });
 
 describe("integrated session routing", () => {
+  it("sends a Pushover notification after a successful settled Code turn", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "leafcode-pi-pushover-"));
+    tempDirs.push(dir);
+    process.env.LEAFCODE_PI_DATA_DIR = dir;
+    process.env.PI_CODING_AGENT_DIR = join(dir, "agent");
+    process.env.LEAFCODE_PI_PUSHOVER_TOKEN = "test-token";
+    process.env.LEAFCODE_PI_PUSHOVER_USER = "test-user";
+    __resetPiAgentDirCacheForTests();
+    installHarness(new Map());
+    const send = vi.spyOn(globalThis, "fetch").mockResolvedValue({ ok: true } as Response);
+
+    const project = upsertProject({ name: "demo", rootPath: dir });
+    const task = await createTask({ projectId: project.id, prompt: "通知テスト" });
+    await waitFor(() => getTask(task.id)?.status === "idle");
+    await waitFor(() => send.mock.calls.some(([url]) => url === "https://api.pushover.net/1/messages.json"));
+    const pushes = send.mock.calls.filter(([url]) => url === "https://api.pushover.net/1/messages.json");
+    expect(pushes).toHaveLength(1);
+    const request = pushes[0]![1] as RequestInit;
+    expect((request.body as URLSearchParams).get("message")).toBe(task.title);
+  });
+
+  it("honors a Bot's notification switch", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "leafcode-pi-pushover-bot-"));
+    tempDirs.push(dir);
+    process.env.LEAFCODE_PI_DATA_DIR = dir;
+    process.env.PI_CODING_AGENT_DIR = join(dir, "agent");
+    process.env.LEAFCODE_PI_PUSHOVER_TOKEN = "test-token";
+    process.env.LEAFCODE_PI_PUSHOVER_USER = "test-user";
+    __resetPiAgentDirCacheForTests();
+    installHarness(new Map());
+    const send = vi.spyOn(globalThis, "fetch").mockResolvedValue({ ok: true } as Response);
+    const bot = createBot({ name: "通知テストBot" });
+    patchBot(bot.id, { notificationsEnabled: false });
+
+    await promptTask(botTaskId(bot.id), "1回目", undefined, { waitForCompletion: true });
+    expect(send).not.toHaveBeenCalled();
+
+    patchBot(bot.id, { notificationsEnabled: true });
+    await promptTask(botTaskId(bot.id), "2回目", undefined, { waitForCompletion: true });
+    await waitFor(() => send.mock.calls.length === 1);
+    expect((send.mock.calls[0]![1] as RequestInit).body).toBeInstanceOf(URLSearchParams);
+  });
+
   it("rejects a model/account mismatch before opening a session", async () => {
     const dir = mkdtempSync(join(tmpdir(), "leafcode-pi-model-account-mismatch-"));
     tempDirs.push(dir);

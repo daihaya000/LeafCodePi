@@ -458,6 +458,9 @@ npm run check
 | `LEAFCODE_PI_HEADLESS` | `1` でトレイなし（`--headless` と同じ。`LEAFCODE_PI_TRAY=1` より優先） |
 | `LEAFCODE_PI_TRAY` | 未設定はデスクトップでトレイ ON、Linux で `DISPLAY`/`WAYLAND_DISPLAY` 無しなら OFF。`0` で明示オフ、`1` でディスプレイ無しでも強制 ON |
 | `LEAFCODE_PI_NO_BROWSER` | `1` で起動時にブラウザを開かない |
+| `LEAFCODE_PI_PUSHOVER_TOKEN` | Pushover のアプリ/APIトークン（未設定なら通知OFF） |
+| `LEAFCODE_PI_PUSHOVER_USER` | Pushover の User Key（未設定なら通知OFF） |
+| `LEAFCODE_PI_PUSHOVER_DEVICE` | 通知先デバイス名（省略時はユーザーの全デバイス） |
 | `LEAFCODE_PI_NONINTERACTIVE` | `1` で失敗時の pause を省略 |
 | `LEAFCODE_PI_LLAMA_SERVER_BIN` | Linux/macOS の llama-server バイナリ（未設定時は PATH の `llama-server`） |
 | `LEAFCODE_PI_LLAMA_MODEL_DIR` | Linux/macOS のモデルディレクトリ（未設定時は `~/models/llm`） |
@@ -465,6 +468,12 @@ npm run check
 | `LEAFCODE_PI_LLAMA_DRAFT_MODEL` | Linux の speculative decoding 用 draft GGUF（省略可） |
 | `LEAFCODE_PI_LLAMA_MMPROJ_PATH` | Linux の vision projector GGUF（省略可） |
 | `ANTHROPIC_API_KEY` など | Pi が読むプロバイダーキー |
+
+### iPhoneへの完了通知（Pushover）
+
+iPhoneに [Pushover](https://pushover.net/) を入れ、User Key と [アプリ/APIトークン](https://pushover.net/apps/build) を取得する。LeafCodePi の**ホストプロセスの環境変数** `LEAFCODE_PI_PUSHOVER_USER` と `LEAFCODE_PI_PUSHOVER_TOKEN` に設定して再起動すると、Code / Bot のタスクが正常に完了した時にプッシュ通知を送る。両方未設定なら送信しない。必要なら `LEAFCODE_PI_PUSHOVER_DEVICE` で送信先を限定する。
+
+通知本文にはタスクのタイトルのみを送り、会話本文・回答・エラー・認証情報は送らない。タイトルも外部サービスに渡るため機密情報を含めないこと。送信失敗はタスクを失敗扱いにせず、HTTPステータスまたは通信失敗だけをサーバーログに残す。Goal Loop の途中ターン、復旧中のターン、手動停止、Bot側で通知をOFFにした場合は送らない。キーはリポジトリ・公開設定・シェル履歴には保存しない。
 
 
 ## Bot mode

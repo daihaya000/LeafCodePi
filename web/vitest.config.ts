@@ -30,6 +30,9 @@ export default defineConfig({
       // accepts it when a test forgets to isolate itself.
       LEAFCODE_PI_DATA_DIR: join(testDataRoot, "data"),
       LEAFCODE_PI_DEFAULT_DIR: join(testDataRoot, "workspaces"),
+      // Never deliver real pushes when the developer's shell has Pushover enabled.
+      LEAFCODE_PI_PUSHOVER_TOKEN: "",
+      LEAFCODE_PI_PUSHOVER_USER: "",
     },
     setupFiles: ["./src/test-environment.ts"],
     include: ["src/**/*.test.ts", "src/**/*.test.tsx", "../extensions/**/*.test.ts"],
