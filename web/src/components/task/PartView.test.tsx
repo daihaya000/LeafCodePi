@@ -205,8 +205,8 @@ describe("PartView sender and response metadata", () => {
     const metadata = screen.getByLabelText("応答メタデータ");
     expect(metadata.className).toContain("w-full");
     expect(metadata.className).toContain("max-w-full");
-    expect(metadata.parentElement?.className).toContain("max-w-full");
-    expect(metadata.parentElement?.className).not.toContain("max-w-bubble");
+    expect(metadata.parentElement?.className).toContain("max-w-bubble");
+    expect(metadata.parentElement?.className).toContain("@container/meta-header");
     for (const label of ["GPT", "builder"]) expect(metadata.textContent).toContain(label);
     expect(metadata.textContent).not.toContain("仕事用");
   });
@@ -332,7 +332,7 @@ describe("PartView sender and response metadata", () => {
     expect(time.className).toContain("shrink-0");
   });
 
-  it("keeps regular response metadata on one full-width row and omits the optional account", () => {
+  it("keeps regular response metadata on one row and omits the optional account", () => {
     render(
       <MessageMetaHeader
         message={{ id: "single-line", role: "assistant", createdAt: 1_758_947_460_000, parts: [] }}
@@ -360,6 +360,24 @@ describe("PartView sender and response metadata", () => {
     expect(meta.textContent).toContain("94k tok");
     expect(meta.textContent).toContain("140 tok/s");
     expect(meta.textContent).toContain("2h 4m");
+  });
+
+  it("keeps the work-log account and right-aligned usage on one row when space permits", () => {
+    render(
+      <MessageMetaHeader
+        message={{ id: "log-entry", role: "assistant", createdAt: 1, outputTokens: 36, tokensPerSecond: 15, parts: [] }}
+        modelLabel="Model A"
+        accountLabel="work@example.com"
+        singleLine
+        showAccountInSingleLine
+      />,
+    );
+    const meta = screen.getByLabelText("応答メタデータ");
+    expect(meta.className).toContain("flex-row");
+    expect(meta.className).toContain("@max-[359px]/meta-header:flex-col");
+    expect(screen.getByLabelText("モデル情報").textContent).toContain("work@example.com");
+    expect(screen.getByLabelText("トークン情報").className).toContain("shrink-0");
+    expect(screen.getByLabelText("トークン情報").textContent).toContain("36 tok");
   });
 
   it("hides only the default agent field when it is the sole choice", () => {

@@ -3317,7 +3317,7 @@ export const TaskView = memo(function TaskView({
                       // The group header carries the whole log's usage; the summary keeps only the count.
                       return function renderActivityHeader(usage: ActivityUsage, placement: "outside" | "inside") {
                         return (
-                          <MessageHeader wide={placement === "outside"}>
+                          <MessageHeader wide>
                             <MessageMetaHeader
                               message={message}
                               modelLabel={modelLabel}
@@ -3326,7 +3326,8 @@ export const TaskView = memo(function TaskView({
                               hideDefaultAgent={hideDefaultAgentInMeta}
                               accountLabel={accountLabel}
                               usage={usage}
-                              singleLine={placement === "outside"}
+                              singleLine
+                              showAccountInSingleLine={placement === "inside"}
                             />
                           </MessageHeader>
                         );
@@ -3348,7 +3349,7 @@ export const TaskView = memo(function TaskView({
                       // 後続メッセージのメタ行だけ展開内容に残す。
                       const header = entryIndex > 0 && entry.showHeader
                         ? [
-                            <MessageHeader key={`task-tool-message-meta:${messageRenderKey(entry.message)}`}>
+                            <MessageHeader wide key={`task-tool-message-meta:${messageRenderKey(entry.message)}`}>
                               <MessageMetaHeader
                                 message={entry.message}
                                 modelLabel={modelLabel}
@@ -3356,6 +3357,8 @@ export const TaskView = memo(function TaskView({
                                 agent={entry.message.agent ?? task?.agent ?? undefined}
                                 hideDefaultAgent={hideDefaultAgentInMeta}
                                 accountLabel={accountLabel}
+                                singleLine
+                                showAccountInSingleLine
                               />
                             </MessageHeader>,
                           ]
