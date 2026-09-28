@@ -314,6 +314,21 @@ describe("upsertUiMessage", () => {
     });
   });
 
+  it("skips old content fingerprints when timestamps cannot match", () => {
+    const previous = Array.from({ length: 200 }, (_, index) => ({
+      ...textMessage(`m-${index}`, `reply ${index}`),
+      createdAt: index,
+    }));
+    const next = { ...textMessage("new", "reply"), createdAt: 200 };
+    const stringify = vi.spyOn(JSON, "stringify");
+    try {
+      expect(upsertUiMessage(previous, next)).toEqual([...previous, next]);
+      expect(stringify).toHaveBeenCalledTimes(1);
+    } finally {
+      stringify.mockRestore();
+    }
+  });
+
   it("appends a new streamed message", () => {
     const first = textMessage("a", "hello");
     const next = upsertUiMessage([first], textMessage("b", "world"));
