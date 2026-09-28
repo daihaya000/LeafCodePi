@@ -125,6 +125,37 @@ describe("snapshotMessages", () => {
     expect(unmatched[0]?.parts[0]).not.toHaveProperty("state.output");
   });
 
+  it("moves a single partial-output key and ignores an orphaned key", () => {
+    const stored: unknown[] = [1, 2].map((index) => ({
+      role: "assistant", timestamp: index * 1_000,
+      content: [{ type: "toolCall", id: `call-${index}`, name: "bash", arguments: {} }],
+    }));
+    const session = {
+      messages: stored,
+      agent: { state: { streamingMessage: undefined } },
+      sessionManager: { getLeafId: () => null, getBranch: () => [] },
+    } as unknown as Parameters<typeof snapshotMessages>[0];
+    const output = new Map([["call-1", "first"]]);
+    const snapshot = () => snapshotMessages(session, undefined, undefined, undefined, output);
+
+    const first = snapshot();
+    expect(first[0]?.parts[0]).toMatchObject({ state: { output: "first" } });
+    expect(first[1]?.parts[0]).not.toHaveProperty("state.output");
+
+    output.delete("call-1");
+    output.set("call-2", "second");
+    const switched = snapshot();
+    expect(switched[0]?.parts[0]).not.toHaveProperty("state.output");
+    expect(switched[1]?.parts[0]).toMatchObject({ state: { output: "second" } });
+
+    output.delete("call-2");
+    output.set("orphan", "stale");
+    const orphaned = snapshot();
+    expect(orphaned[0]).toBe(switched[0]);
+    expect(orphaned[1]?.parts[0]).not.toHaveProperty("state.output");
+    expect(snapshot()).toBe(orphaned);
+  });
+
   it("reuses a tool row while its start and end timing is unchanged", () => {
     const stored: unknown[] = [{
       role: "assistant", timestamp: 1_000,
