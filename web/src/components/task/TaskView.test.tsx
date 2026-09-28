@@ -70,7 +70,7 @@ it("shows the next-action suggestion above the follow-up composer", async () => 
   expect(screen.queryByRole("dialog", { name: "次の指示の提案" })).toBeNull();
 });
 
-it("places the progress trigger above the message navigator with a separate gap", async () => {
+it("places the suggestion and progress triggers below the message navigator with a separate gap", async () => {
   const messages: UiMessage[] = [
     { id: "prompt", role: "user", createdAt: 1, parts: [{ id: "text", type: "text", text: "指示" }] },
   ];
@@ -87,7 +87,8 @@ it("places the progress trigger above the message navigator with a separate gap"
   expect(controls?.lastElementChild?.contains(progress)).toBe(true);
   expect(navigator?.classList.contains("gap-2")).toBe(true);
   expect(navigator?.parentElement?.classList.contains("gap-6")).toBe(true);
-  expect(navigator?.parentElement?.firstElementChild).toBe(controls);
+  expect(navigator?.parentElement?.firstElementChild).toBe(navigator);
+  expect(navigator?.parentElement?.lastElementChild).toBe(controls);
   expect(screen.getByRole("form", { name: "フォローアップ" }).contains(proposal)).toBe(false);
 });
 

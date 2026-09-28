@@ -3514,39 +3514,6 @@ export const TaskView = memo(function TaskView({
             "absolute right-4 bottom-4 z-50 flex flex-col items-center gap-6",
             mobilePanelOpen && "hidden",
           )}>
-            {task?.sessionId && (
-              <div className="flex flex-col gap-2">
-                <NextAction
-                  taskId={taskId}
-                  sessionId={task.sessionId}
-                  panelRef={nextActionPanelRef}
-                  model={selectedModel?.value === AUTO_MODEL_VALUE ? undefined : selectedModel}
-                  invalidateKey={`${messages.length}:${messages.at(-1)?.id ?? ""}:${working ? "working" : "idle"}`}
-                  disabled={compacting || archived}
-                  triggerOpacity={scrollButtonOpacity}
-                  onApply={(suggestion) => {
-                    if (
-                      prompt.trim() &&
-                      typeof window !== "undefined" &&
-                      !window.confirm("現在の入力内容を提案で置き換えますか？")
-                    ) {
-                      return false;
-                    }
-                    setPrompt(suggestion);
-                    textareaRef.current?.focus();
-                    return true;
-                  }}
-                />
-                <TaskProgressAsk
-                  taskId={taskId}
-                  sessionId={task.sessionId}
-                  panelRef={progressPanelRef}
-                  model={selectedModel?.value === AUTO_MODEL_VALUE ? undefined : selectedModel}
-                  revision={`${messages.at(-1)?.id ?? ""}:${messages.at(-1)?.parts.length ?? 0}:${working ? "working" : "idle"}`}
-                  triggerOpacity={scrollButtonOpacity}
-                />
-              </div>
-            )}
             {navigationMessageIds.length > 0 && (
               <div className="flex flex-col gap-2">
                 {(
@@ -3590,6 +3557,39 @@ export const TaskView = memo(function TaskView({
                     {icon}
                   </Button>
                 ))}
+              </div>
+            )}
+            {task?.sessionId && (
+              <div className="flex flex-col gap-2">
+                <NextAction
+                  taskId={taskId}
+                  sessionId={task.sessionId}
+                  panelRef={nextActionPanelRef}
+                  model={selectedModel?.value === AUTO_MODEL_VALUE ? undefined : selectedModel}
+                  invalidateKey={`${messages.length}:${messages.at(-1)?.id ?? ""}:${working ? "working" : "idle"}`}
+                  disabled={compacting || archived}
+                  triggerOpacity={scrollButtonOpacity}
+                  onApply={(suggestion) => {
+                    if (
+                      prompt.trim() &&
+                      typeof window !== "undefined" &&
+                      !window.confirm("現在の入力内容を提案で置き換えますか？")
+                    ) {
+                      return false;
+                    }
+                    setPrompt(suggestion);
+                    textareaRef.current?.focus();
+                    return true;
+                  }}
+                />
+                <TaskProgressAsk
+                  taskId={taskId}
+                  sessionId={task.sessionId}
+                  panelRef={progressPanelRef}
+                  model={selectedModel?.value === AUTO_MODEL_VALUE ? undefined : selectedModel}
+                  revision={`${messages.at(-1)?.id ?? ""}:${messages.at(-1)?.parts.length ?? 0}:${working ? "working" : "idle"}`}
+                  triggerOpacity={scrollButtonOpacity}
+                />
               </div>
             )}
           </div>
