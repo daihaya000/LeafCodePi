@@ -62,6 +62,7 @@ vi.mock("@/components/ui", () => ({
 
 import { SIDEBAR_TASK_RENDER_STEP, Sidebar } from "./Sidebar";
 import { resetUnreadStateForTests } from "@/lib/bot-unread";
+import { DEFAULT_SESSION_LABELS, writeSessionLabels } from "@/lib/session-label-settings";
 
 const projects = [
   { id: "project-a", name: "Project A", rootPath: "C:\\repo-a", favorite: false, archived: false, createdAt: "", lastOpenedAt: null },
@@ -377,6 +378,88 @@ describe("Sidebar project ordering", () => {
     expect(screen.queryByRole("button", { name: "検索をクリア" })).toBeNull();
     await waitFor(() => {
       expect(screen.getByText("Project B")).toBeTruthy();
+    });
+  });
+
+  it("finds sessions by the displayed label name and reacts to label renames", async () => {
+    const labeledTasks = [
+      { id: "session-a", projectId: "project-a", projectName: "Project A", title: "Alpha session", label: "code" },
+      { id: "session-b", projectId: "project-b", projectName: "Project B", title: "Beta session", label: "debug" },
+    ].map((task) => ({
+      ...task,
+      directory: "C:\\repo",
+      isolation: "current_folder" as const,
+      status: "ready" as const,
+      sessionId: task.id,
+      sessionFile: null,
+      createdAt: "",
+      updatedAt: "",
+    }));
+    mocks.getJson.mockImplementation((path: string) => {
+      if (path === "/api/projects?archived=1") return Promise.resolve({ projects });
+      if (path === "/api/tasks?kind=all" || path === "/api/tasks?archived=1&kind=all") return Promise.resolve({ tasks: labeledTasks });
+      if (path === "/api/health") return Promise.resolve({ ok: true, engineOk: true, version: "1", modelCount: 0 });
+      return Promise.reject(new Error(`Unexpected request: ${path}`));
+    });
+
+    render(<Sidebar mobileOpen={false} onClose={vi.fn()} />);
+    const search = await screen.findByRole("textbox", { name: "プロジェクトやセッションを検索" });
+    fireEvent.change(search, { target: { value: "デバッグ" } });
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Project Bを展開" })).toBeTruthy();
+      expect(screen.queryByText("Project A")).toBeNull();
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Project Bを展開" }));
+    expect(screen.getByText("Beta session")).toBeTruthy();
+    expect(screen.queryByText("Alpha session")).toBeNull();
+
+    writeSessionLabels(DEFAULT_SESSION_LABELS.map((label) =>
+      label.id === "debug" ? { ...label, name: "障害対応" } : label,
+    ));
+    fireEvent.change(search, { target: { value: "障害対応" } });
+    await waitFor(() => expect(screen.getByText("Beta session")).toBeTruthy());
+    fireEvent.change(search, { target: { value: "デバッグ" } });
+    await waitFor(() => expect(screen.queryByText("Project B")).toBeNull());
+  });
+
+  it("finds ungrouped and archived sessions by label", async () => {
+    const baseTask = {
+      directory: "C:\\repo",
+      isolation: "current_folder" as const,
+      sessionFile: null,
+      createdAt: "",
+      updatedAt: "",
+      label: "research",
+    };
+    const ungrouped = {
+      ...baseTask, id: "ungrouped", sessionId: "ungrouped", projectId: null,
+      projectName: "プロジェクトなし", title: "First topic", status: "ready" as const,
+    };
+    const archived = {
+      ...baseTask, id: "archived", sessionId: "archived", projectId: "project-a",
+      projectName: "Project A", title: "Past topic", status: "archived" as const,
+    };
+    mocks.getJson.mockImplementation((path: string) => {
+      if (path === "/api/projects?archived=1") return Promise.resolve({ projects });
+      if (path === "/api/tasks?kind=all") return Promise.resolve({ tasks: [ungrouped] });
+      if (path === "/api/tasks?archived=1&kind=all") return Promise.resolve({ tasks: [ungrouped, archived] });
+      if (path === "/api/health") return Promise.resolve({ ok: true, engineOk: true, version: "1", modelCount: 0 });
+      return Promise.reject(new Error(`Unexpected request: ${path}`));
+    });
+
+    render(<Sidebar mobileOpen={false} onClose={vi.fn()} />);
+    const search = await screen.findByRole("textbox", { name: "プロジェクトやセッションを検索" });
+    fireEvent.change(search, { target: { value: "調査" } });
+    const ungroupedToggle = await screen.findByRole("button", { name: "プロジェクトなしを展開" });
+    fireEvent.click(ungroupedToggle);
+    expect(screen.getByText("First topic")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "アーカイブを展開" }));
+    expect(await screen.findByText("Past topic")).toBeTruthy();
+    fireEvent.change(search, { target: { value: "存在しないラベル" } });
+    await waitFor(() => {
+      expect(screen.queryByText("First topic")).toBeNull();
+      expect(screen.queryByText("Past topic")).toBeNull();
     });
   });
 

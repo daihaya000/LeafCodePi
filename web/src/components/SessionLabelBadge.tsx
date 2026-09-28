@@ -1,27 +1,10 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
+import { useSessionLabels } from "@/components/useSessionLabels";
 import { cx } from "@/components/ui";
 import { PROJECT_ICON_TONES } from "@/components/ProjectIcon";
-import {
-  findSessionLabel,
-  hydrateSessionLabelsFromServer,
-  readSessionLabels,
-  subscribeSessionLabels,
-  type SessionLabel,
-} from "@/lib/session-label-settings";
-
-/** Labels live in a browser-synced setting, so read them after hydration. */
-function useSessionLabels(): SessionLabel[] {
-  const [labels, setLabels] = useState<SessionLabel[]>([]);
-  useEffect(() => {
-    const update = () => setLabels(readSessionLabels());
-    update();
-    void hydrateSessionLabelsFromServer().then(update);
-    return subscribeSessionLabels(update);
-  }, []);
-  return labels;
-}
+import { findSessionLabel } from "@/lib/session-label-settings";
 
 /** Unlabelled tasks show a gray "-" placeholder; nothing renders while labels are disabled. */
 const BASE_FONT_SIZE = 9;

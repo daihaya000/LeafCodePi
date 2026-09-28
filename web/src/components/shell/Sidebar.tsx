@@ -36,6 +36,7 @@ import { SwipeArchiveRow } from "@/components/shell/SwipeArchiveRow";
 import { HostnameLabel } from "@/components/shell/HostnameContext";
 import { Button, cx, timeAgo } from "@/components/ui";
 import { SessionLabelBadge } from "@/components/SessionLabelBadge";
+import { useSessionLabels } from "@/components/useSessionLabels";
 import { BotAvatar, type BotFace } from "@/components/bot/BotAvatar";
 import { isTaskDrag, setTaskDragData } from "@/lib/task-drag";
 import { notifyBotSidebarChanged, notifyTasksChanged } from "@/lib/events";
@@ -1813,13 +1814,17 @@ const SidebarView = memo(function SidebarView({
     return ordered;
   }, [projects, projectOrder]);
 
+  const sessionLabels = useSessionLabels();
+  const labelNamesById = useMemo(() => new Map(sessionLabels.map((label) => [label.id, label.name])), [sessionLabels]);
   const normalizedQuery = query.trim().toLocaleLowerCase();
   const matchesCodeSearch = (value: string) =>
     !normalizedQuery || value.toLocaleLowerCase().includes(normalizedQuery);
+  const matchesCodeTask = (task: TaskSummary) =>
+    matchesCodeSearch(task.title) || matchesCodeSearch(labelNamesById.get(task.label ?? "") ?? "");
   const filteredTasks = (groupName: string, groupTasks: TaskSummary[]) =>
     matchesCodeSearch(groupName)
       ? groupTasks
-      : groupTasks.filter((task) => matchesCodeSearch(task.title));
+      : groupTasks.filter(matchesCodeTask);
   const visibleNoProjectTasks = filteredTasks(NO_PROJECT_NAME, noProjectTasks);
   const matchingTasksByProject = normalizedQuery ? new Map<string, TaskSummary[]>() : null;
   const visibleProjects = orderedProjects.filter((project) => {
@@ -1827,7 +1832,7 @@ const SidebarView = memo(function SidebarView({
 
     let matches: TaskSummary[] | null = null;
     for (const task of tasksByProject.get(project.id) ?? []) {
-      if (!matchesCodeSearch(task.title)) continue;
+      if (!matchesCodeTask(task)) continue;
       (matches ??= []).push(task);
     }
     if (!matches) return false;
@@ -1864,7 +1869,7 @@ const SidebarView = memo(function SidebarView({
   for (const group of archivedGroups) {
     const matchingTasks = matchesCodeSearch(group.name)
       ? group.tasks
-      : group.tasks.filter((task) => matchesCodeSearch(task.title));
+      : group.tasks.filter(matchesCodeTask);
     if (matchingTasks.length === 0) continue;
     const groupKey = `archived:${group.key}`;
     const tasks = matchingTasks.slice(0, renderLimitFor(groupKey));
