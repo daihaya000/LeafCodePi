@@ -302,6 +302,38 @@ describe("JevModelSettings", () => {
     await waitFor(() => expect(mocks.send).toHaveBeenCalledWith("/api/jev-model", expect.objectContaining({ settings: expect.objectContaining({ enabledModels: [{ providerId: "typesafe", modelId: "jev-latest" }] }) }), "PUT"));
   });
 
+  it("explains and repairs an unavailable selection when another Jev model is already enabled", async () => {
+    const missing = { providerId: "commandcode", modelId: "typesafe/jev" };
+    mocks.get.mockResolvedValue({ ...dto, settings: {
+      ...DEFAULT_JEV_MODEL_SETTINGS, provider: "registered", registeredModel: missing,
+      enabledModels: [missing, { providerId: "typesafe", modelId: "jev-latest" }],
+    } });
+    await ready();
+    expand("TypeSafe");
+    expect(screen.getByRole("switch", { name: "TypeSafe / Jev を無効化" }).getAttribute("aria-checked")).toBe("true");
+    expect(screen.queryByText("有効なJevモデルを1件以上選び、対象プロバイダーを有効にしてください。")).toBeNull();
+    expect(screen.getByRole("alert").textContent).toContain("未検出または無効");
+    expect(mocks.send).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "利用できない選択を解除" }));
+    await waitFor(() => expect(mocks.send).toHaveBeenCalledWith("/api/jev-model", {
+      settings: { ...DEFAULT_JEV_MODEL_SETTINGS, provider: "registered", registeredModel: { providerId: "typesafe", modelId: "jev-latest" }, enabledModels: [{ providerId: "typesafe", modelId: "jev-latest" }] },
+    }, "PUT"));
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("can remove a selected model whose provider was disabled without dropping usable ones", async () => {
+    mocks.get.mockResolvedValue({ ...dto, settings: {
+      ...DEFAULT_JEV_MODEL_SETTINGS, provider: "registered", registeredModel: { providerId: "typesafe", modelId: "jev-latest" },
+      enabledModels: [{ providerId: "typesafe", modelId: "jev-latest" }, { providerId: "openrouter", modelId: candidate.modelId, accountId: candidate.accountId }],
+    }, models: [typesafe, { ...candidate, providerEnabled: false }] });
+    await ready();
+    expect(screen.getByRole("alert").textContent).toContain("未検出または無効");
+    fireEvent.click(screen.getByRole("button", { name: "利用できない選択を解除" }));
+    await waitFor(() => expect(mocks.send).toHaveBeenCalledWith("/api/jev-model", {
+      settings: { ...DEFAULT_JEV_MODEL_SETTINGS, provider: "registered", registeredModel: { providerId: "typesafe", modelId: "jev-latest" }, enabledModels: [{ providerId: "typesafe", modelId: "jev-latest" }] },
+    }, "PUT"));
+  });
+
   it("preserves an old manual endpoint without offering a second provider form", async () => {
     mocks.get.mockResolvedValue({ ...dto, settings: { ...DEFAULT_JEV_MODEL_SETTINGS, provider: "compatible", compatibleBaseUrl: "http://localhost:8080/v1" } });
     await ready();

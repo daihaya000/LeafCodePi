@@ -99,8 +99,10 @@ export function JevModelSettings({ refreshToken = 0, onProviderCatalogChange }: 
   const rows = providerRows(models);
   const selectedKeys = enabledModelKeys(settings, models);
   const savedKeys = saved ? enabledModelKeys(saved.settings, models) : new Set<string>();
-  const selectionUnavailable = settings.provider === "registered" && (selectedKeys.size === 0 ||
-    [...selectedKeys].some((key) => !models.some((model) => jevModelKey(model) === key && model.providerEnabled !== false)));
+  const usableModels = models.filter((model) => model.providerEnabled !== false && selectedKeys.has(jevModelKey(model)));
+  const usableKeys = new Set(usableModels.map(jevModelKey));
+  const unavailableSelection = settings.provider === "registered" && [...selectedKeys].some((key) => !usableKeys.has(key));
+  const selectionUnavailable = settings.provider === "registered" && (usableModels.length === 0 || unavailableSelection);
   const timeoutInvalid = !Number.isInteger(settings.timeoutMs) || settings.timeoutMs < 100 || settings.timeoutMs > 120_000;
   canSave.current = Boolean(saved) && !selectionUnavailable && !timeoutInvalid;
   const persist = useCallback(async function persist() {
@@ -200,6 +202,16 @@ export function JevModelSettings({ refreshToken = 0, onProviderCatalogChange }: 
       const next = keys.has(jevModelKey(ref)) ? refs.filter((item) => jevModelKey(item) !== jevModelKey(ref)) : [...refs, ref];
       return { ...current, provider: "registered", registeredModel: next[0], enabledModels: next };
     });
+    setStatus("");
+  }
+
+  function removeUnavailableModels() {
+    if (!usableModels.length) return;
+    const enabledModels = usableModels.map((model) => ({
+      providerId: model.providerId, modelId: model.modelId, ...(model.accountId ? { accountId: model.accountId } : {}),
+    }));
+    setSettings((current) => ({ ...current, provider: "registered", registeredModel: enabledModels[0], enabledModels }));
+    setError(null);
     setStatus("");
   }
 
@@ -360,7 +372,11 @@ export function JevModelSettings({ refreshToken = 0, onProviderCatalogChange }: 
               </ul>}
             </li>)}
           </ul>
-          {selectionUnavailable && <p role="alert" className="text-sm text-danger">有効なJevモデルを1件以上選び、対象プロバイダーを有効にしてください。</p>}
+          {settings.provider === "registered" && usableModels.length === 0 && <p role="alert" className="text-sm text-danger">有効なJevモデルを1件以上選び、対象プロバイダーを有効にしてください。</p>}
+          {unavailableSelection && usableModels.length > 0 && <p role="alert" className="text-sm text-danger">
+            選択中のJevモデルに未検出または無効のものがあります。設定を保存するには、対象プロバイダーを有効にするか、
+            <button type="button" onClick={removeUnavailableModels} className="text-accent underline">利用できない選択を解除</button>してください。
+          </p>}
           {timeoutInvalid && <p role="alert" className="text-sm text-danger">タイムアウトは100〜120000ミリ秒で指定してください。</p>}
           {settings.provider === "compatible" && <p className="text-xs text-muted">従来の手動接続先を使用中です。この一覧では接続先を編集できません。切り替える場合は既存プロバイダーのモデルを選んでください。</p>}
           {settings.provider === "typesafe" && selectedKeys.size === 0 && <p className="text-xs text-muted">従来のTypeSafeモデルを使用中です。認証はプロバイダー接続で管理してください。</p>}
