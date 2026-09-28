@@ -102,5 +102,6 @@ function mergeTaskMessages(
   leading: readonly UiMessage[],
   trailing: readonly UiMessage[] = [],
 ): UiMessage[] {
+  // A first pass can leave an id/part-id collision; stabilization dedupes a second time.
   return stabilizeUiMessages(current, dedupeUiMessages([...leading, ...trailing]));
 }

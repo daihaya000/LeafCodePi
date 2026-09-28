@@ -64,6 +64,14 @@ describe("task history pagination", () => {
     expect(merged[1]?.parts[0]).toMatchObject({ text: "updated" });
   });
 
+  it("resolves a cross-key collision left by the first dedupe pass", () => {
+    const first = { ...message("a"), parts: [{ id: "pa", type: "text" as const, text: "one" }] };
+    const second = { ...message("b"), parts: [{ id: "pb", type: "text" as const, text: "two" }] };
+    const bridging = { ...message("a"), parts: [{ id: "pb", type: "text" as const, text: "three" }] };
+
+    expect(mergeNewerTaskMessages([], [first, second, bridging])).toEqual([bridging]);
+  });
+
   it("replaces a streamed row when the snapshot assigns its persisted id", () => {
     const streamed: UiMessage = {
       id: "msg-3",
