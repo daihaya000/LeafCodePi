@@ -9,14 +9,18 @@ describe("VersionedThroughputMap", () => {
     const timings = new VersionedThroughputMap([[1_000, pending], [2_000, finalized]]);
     expect(timings.revision).toBe(0);
     expect(timings.awaitingFirstTokenCount).toBe(1);
+    expect([...timings.pendingStartedAts()]).toEqual([1_000]);
+    expect(timings.pendingStartedAts()).not.toHaveProperty("delete");
 
     timings.set(1_000, { ...pending, lastTokenAtMs: 1_500 });
     expect(timings.size).toBe(2);
     expect(timings.revision).toBe(1);
     expect(timings.awaitingFirstTokenCount).toBe(0);
+    expect([...timings.pendingStartedAts()]).toEqual([]);
     timings.set(2_000, { ...finalized, lastTokenAtMs: null });
     expect(timings.revision).toBe(2);
     expect(timings.awaitingFirstTokenCount).toBe(1);
+    expect([...timings.pendingStartedAts()]).toEqual([2_000]);
 
     expect(timings.delete(1_000)).toBe(true);
     expect(timings.awaitingFirstTokenCount).toBe(1);
@@ -28,6 +32,7 @@ describe("VersionedThroughputMap", () => {
     timings.set(3_000, pending);
     timings.clear();
     expect(timings.awaitingFirstTokenCount).toBe(0);
+    expect([...timings.pendingStartedAts()]).toEqual([]);
     expect(timings.revision).toBe(6);
     timings.clear();
     expect(timings.revision).toBe(6);
@@ -40,5 +45,6 @@ describe("VersionedThroughputMap", () => {
     expect(timings.size).toBe(1);
     expect(timings.revision).toBe(0);
     expect(timings.awaitingFirstTokenCount).toBe(0);
+    expect([...timings.pendingStartedAts()]).toEqual([]);
   });
 });

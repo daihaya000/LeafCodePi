@@ -19,6 +19,11 @@ export class VersionedThroughputMap extends Map<number, ThroughputTiming> {
     return this.awaitingFirstToken.size;
   }
 
+  /** Iterates pending start times without exposing the mutable index. */
+  pendingStartedAts(): Iterable<number> {
+    return this.awaitingFirstToken.values();
+  }
+
   override set(startedAt: number, timing: ThroughputTiming): this {
     super.set(startedAt, timing);
     if (timing.lastTokenAtMs === null) this.awaitingFirstToken.add(startedAt);
