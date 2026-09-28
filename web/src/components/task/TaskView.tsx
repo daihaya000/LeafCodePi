@@ -211,6 +211,7 @@ import {
   decideNotification,
   notificationText,
 } from "@/lib/notify";
+import { useNotificationDeliveryEnabled } from "@/lib/notification-delivery-client";
 import {
   isThinkingLevel,
   resolveThinkingLevel,
@@ -2716,6 +2717,7 @@ export const TaskView = memo(function TaskView({
     prevAttentionSoundRef.current = attention;
   }, [attention]);
 
+  const notificationDeliveryEnabled = useNotificationDeliveryEnabled();
   // デスクトップ通知。document.hidden を state 化するのは、visibilitychange
   // でエフェクトを再実行させ、タブ非表示の瞬間の遷移を見落とさないため。
   const [documentHidden, setDocumentHidden] = useState(() =>
@@ -2736,6 +2738,12 @@ export const TaskView = memo(function TaskView({
   const prevAttentionNotifyRef = useRef(false);
   const prevWorkingNotifyRef = useRef(working);
   useEffect(() => {
+    if (!notificationDeliveryEnabled) {
+      pendingKindRef.current = null;
+      prevAttentionNotifyRef.current = attention;
+      prevWorkingNotifyRef.current = working;
+      return;
+    }
     if (typeof Notification === "undefined") return;
     const permission = Notification.permission;
 
@@ -2782,6 +2790,7 @@ export const TaskView = memo(function TaskView({
     task?.title,
     task?.id,
     documentHidden,
+    notificationDeliveryEnabled,
     permissionTick,
   ]);
   // ナビゲーターのジャンプ対象: ユーザーメッセージを優先し、Goal Loop の

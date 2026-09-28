@@ -5,6 +5,7 @@ import { saveTaskSessionCache } from "@/lib/task-session-cache";
 import type { ModelOption, TaskSummary, UiMessage, UiPart } from "@/lib/types";
 import { COMPACTION_ACTION_SETTING_KEY } from "@/lib/compaction-settings";
 import { DEFAULT_SESSION_LABELS } from "@/lib/session-label-settings";
+import { setNotificationDeliveryEnabled } from "@/lib/notification-delivery-client";
 
 const mocks = vi.hoisted(() => ({ getJson: vi.fn(), sendJson: vi.fn(), apiUrl: (path: string) => path, partView: vi.fn(), toolCard: vi.fn(), messageMetaHeader: vi.fn(), markRead: vi.fn(), botFor: vi.fn(), iconFor: vi.fn() }));
 vi.mock("@/lib/client", () => mocks);
@@ -25,6 +26,7 @@ const task: TaskSummary = {
 };
 
 beforeEach(() => {
+  setNotificationDeliveryEnabled(true);
   localStorage.clear();
   clearCachedModels();
   vi.clearAllMocks();
@@ -45,9 +47,47 @@ beforeEach(() => {
 });
 afterEach(() => {
   cleanup();
+  setNotificationDeliveryEnabled(true);
   vi.unstubAllGlobals();
   localStorage.clear();
   clearCachedModels();
+});
+
+it("shares the footer notification switch with Code task browser notifications", async () => {
+  const sent: string[] = [];
+  class FakeNotification {
+    static permission: NotificationPermission = "granted";
+    constructor(title: string) { sent.push(title); }
+  }
+  class TestEventSource extends EventTarget {
+    static latest: TestEventSource;
+    constructor() { super(); TestEventSource.latest = this; }
+    close() {}
+  }
+  vi.stubGlobal("Notification", FakeNotification);
+  vi.stubGlobal("EventSource", TestEventSource);
+  Object.defineProperty(document, "hidden", { configurable: true, value: true });
+  setNotificationDeliveryEnabled(false);
+  try {
+    render(<TaskView taskId={task.id} mdUp />);
+    const snapshot = async (status: "working" | "idle") => {
+      await act(async () => {
+        TestEventSource.latest.dispatchEvent(new MessageEvent("snapshot", {
+          data: JSON.stringify({ eventType: "ready", task: { ...task, status, isStreaming: status === "working" }, messages: [] }),
+        }));
+      });
+    };
+    await snapshot("working");
+    await snapshot("idle");
+    expect(sent).toEqual([]);
+    act(() => setNotificationDeliveryEnabled(true));
+    expect(sent).toEqual([]);
+    await snapshot("working");
+    await snapshot("idle");
+    expect(sent).toHaveLength(1);
+  } finally {
+    Reflect.deleteProperty(document, "hidden");
+  }
 });
 
 it("shows the next-action suggestion above the follow-up composer", async () => {

@@ -74,7 +74,7 @@ beforeEach(() => {
     if (path === "/api/projects?archived=1") return Promise.resolve({ projects: [] });
     if (path === "/api/tasks?archived=1&kind=all") return Promise.resolve({ tasks: [] });
     if (path === "/api/health") return Promise.resolve({ ok: true, engineOk: true, version: "1", modelCount: 0 });
-    if (path === "/api/pushover") return Promise.resolve({ enabled: true });
+    if (path === "/api/notifications") return Promise.resolve({ enabled: true });
     return Promise.reject(new Error(`Unexpected request: ${path}`));
   });
   mocks.sendJson.mockReset().mockResolvedValue({});
@@ -102,7 +102,7 @@ afterEach(() => {
 describe("Bot mode list", () => {
   it("折りたたみレールにも通知トグルを表示する", async () => {
     render(<Sidebar mobileOpen={false} onClose={vi.fn()} />);
-    expect(await screen.findByRole("button", { name: "Pushover通知をオフにする" })).toBeTruthy();
+    expect(await screen.findByRole("button", { name: "通知をオフにする（ブラウザ・Pushover）" })).toBeTruthy();
   });
 
   it("フッターの再起動も更新確認付きのWebUI再起動へ送る", async () => {

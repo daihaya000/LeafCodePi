@@ -1,18 +1,18 @@
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { getSetting, setSetting } from "@/lib/pi/web-settings";
+import { NOTIFICATION_DELIVERY_SETTING_KEY } from "@/lib/notification-delivery-key";
 
 const TOKEN_PROVIDER = "leafcode-pushover-token";
 const USER_PROVIDER = "leafcode-pushover-user";
 const DEVICE_SETTING = "pushover-device";
-const NOTIFICATIONS_ENABLED_SETTING = "pushover-notifications-enabled";
 
 /** Enabled by default for existing installations; disabling is persisted server-side. */
 export function readPushoverNotificationEnabled(): boolean {
-  return getSetting(NOTIFICATIONS_ENABLED_SETTING) !== "0";
+  return getSetting(NOTIFICATION_DELIVERY_SETTING_KEY) !== "0";
 }
 
 export function savePushoverNotificationEnabled(enabled: boolean): void {
-  setSetting(NOTIFICATIONS_ENABLED_SETTING, enabled ? null : "0");
+  setSetting(NOTIFICATION_DELIVERY_SETTING_KEY, enabled ? null : "0");
 }
 
 export type PushoverCredentials = { token?: string; user?: string; device?: string };

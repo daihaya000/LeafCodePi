@@ -8,6 +8,7 @@ import { notifyBotSidebarChanged } from "@/lib/events";
 import { markRead } from "@/lib/bot-unread";
 import type { SkillDto } from "@/lib/skills";
 import { decideNotification } from "@/lib/notify";
+import { useNotificationDeliveryEnabled } from "@/lib/notification-delivery-client";
 import type { BotDto, QuestionRequestDto, RoomAttention, RoomDto, RoomHandoffState, RoomMessage } from "@/lib/types";
 import { roomOpenerReasonLabel } from "@/lib/room-opener-labels";
 import { QuestionCard } from "@/components/task/QuestionCard";
@@ -140,6 +141,7 @@ function mentionContextFor(value: string, cursor: number): MentionContext | null
 }
 
 export function RoomView({ id, active = true }: { id: string; active?: boolean }) {
+  const notificationDeliveryEnabled = useNotificationDeliveryEnabled();
   const [room, setRoom] = useState<RoomDto | null>(null);
   const [bots, setBots] = useState<BotDto[]>([]);
   const [skills, setSkills] = useState<ComposerReference[]>([]);
@@ -264,8 +266,8 @@ export function RoomView({ id, active = true }: { id: string; active?: boolean }
     prevAttentionRef.current = attentionNow;
     prevWorkingRef.current = busyNow;
     // One notification per room replaces the previous one instead of stacking.
-    if (kind && anyMemberNotifies) new Notification(kind === "attention" ? "承認が必要です" : "新しい返信があります", { body: room.name, tag: `room-${id}` });
-  }, [attention, bots, id, room]);
+    if (kind && anyMemberNotifies && notificationDeliveryEnabled) new Notification(kind === "attention" ? "承認が必要です" : "新しい返信があります", { body: room.name, tag: `room-${id}` });
+  }, [attention, bots, id, notificationDeliveryEnabled, room]);
 
   useEffect(() => {
     let closed = false;

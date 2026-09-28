@@ -15,6 +15,7 @@ vi.mock("@/lib/session-complete-sound", () => ({
 
 import { BotRoutineNotifier } from "./BotRoutineNotifier";
 import { refreshBotSidebar } from "@/lib/bot-sidebar-store";
+import { setNotificationDeliveryEnabled } from "@/lib/notification-delivery-client";
 
 class FakeNotification {
   static permission: NotificationPermission = "granted";
@@ -71,6 +72,7 @@ function fireRoutine(run: Record<string, unknown>) {
 }
 
 beforeEach(() => {
+  setNotificationDeliveryEnabled(true);
   mocks.getJson.mockReset();
   mocks.playSessionCompleteSound.mockReset();
   FakeNotification.permission = "granted";
@@ -84,6 +86,7 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
+  setNotificationDeliveryEnabled(true);
   Reflect.deleteProperty(document, "hidden");
   if (window.location.pathname !== "/") window.history.pushState({}, "", "/");
 });
@@ -102,6 +105,21 @@ describe("BotRoutineNotifier", () => {
     expect(FakeNotification.instances).toEqual([
       { title: "ルーティン完了", body: "リサーチャー・朝の確認\n今日の予定は3件です" },
     ]);
+  });
+
+  it("uses the shared footer switch to mute browser notifications without muting sound", async () => {
+    mocks.getJson.mockResolvedValue({ bots: [{ id: "bot-1", notificationsEnabled: true }], rooms: [] });
+    await refreshBotSidebar();
+    Object.defineProperty(document, "hidden", { configurable: true, value: true });
+    FakeNotification.permission = "default";
+    setNotificationDeliveryEnabled(false);
+
+    render(<BotRoutineNotifier />);
+    fireRoutine(RUN);
+
+    expect(mocks.playSessionCompleteSound).toHaveBeenCalledWith("bot");
+    expect(FakeNotification.requestPermission).not.toHaveBeenCalled();
+    expect(FakeNotification.instances).toEqual([]);
   });
 
   it("keeps ringing the sound but skips the notification on a visible tab", async () => {

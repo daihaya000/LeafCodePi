@@ -33,6 +33,7 @@ import { QuestionCard } from "@/components/task/QuestionCard";
 import { ToolCard } from "@/components/task/PartView";
 import { markRead } from "@/lib/bot-unread";
 import { decideNotification } from "@/lib/notify";
+import { useNotificationDeliveryEnabled } from "@/lib/notification-delivery-client";
 import { playAttentionRequiredSound, playSessionCompleteSound } from "@/lib/session-complete-sound";
 import { cancelPendingSseReconnect, closeSseSource, sseReconnectDelayMs } from "@/lib/sse-reconnect";
 import { messageRenderKey, stabilizeUiMessages, upsertUiMessage } from "@/lib/stabilize-messages";
@@ -213,6 +214,7 @@ export const BotView = memo(function BotView({ id, active = true }: { id: string
   const [profileName, setProfileName] = useState("");
   const [profileLabel, setProfileLabel] = useState("");
   const [notificationsEnabled, setNotificationsEnabled] = useState(true);
+  const notificationDeliveryEnabled = useNotificationDeliveryEnabled();
   const [intercomEnabled, setIntercomEnabled] = useState(false);
   const [intercomScopeId, setIntercomScopeId] = useState("");
   const [intercomFanoutEnabled, setIntercomFanoutEnabled] = useState(false);
@@ -522,8 +524,8 @@ export const BotView = memo(function BotView({ id, active = true }: { id: string
     prevAttentionRef.current = attentionNow;
     prevWorkingRef.current = sending;
     // One notification per Bot replaces the previous one instead of stacking.
-    if (kind && notificationsEnabled) new Notification(kind === "attention" ? "承認が必要です" : "新しい返信があります", { body: bot.name, tag: `bot-${id}` });
-  }, [attentionNow, bot, id, notificationsEnabled, sending]);
+    if (kind && notificationsEnabled && notificationDeliveryEnabled) new Notification(kind === "attention" ? "承認が必要です" : "新しい返信があります", { body: bot.name, tag: `bot-${id}` });
+  }, [attentionNow, bot, id, notificationDeliveryEnabled, notificationsEnabled, sending]);
   // 通知音：Bot側は専用の種類を使う（設定でCodeと分けられる）。
   // 入力待ちを含む1ターンで二重に鳴らさないため、各エッジを独立に見る。
   const prevWorkingSoundRef = useRef(sending);
@@ -555,7 +557,7 @@ export const BotView = memo(function BotView({ id, active = true }: { id: string
     if (!bot) return;
     const previousUnread = prevIntercomUnreadRef.current;
     prevIntercomUnreadRef.current = intercomInbox.unreadCount;
-    if (!notificationsEnabled) return;
+    if (!notificationsEnabled || !notificationDeliveryEnabled) return;
     if (typeof Notification === "undefined" || Notification.permission !== "granted") return;
     if (typeof document !== "undefined" && !document.hidden) return;
     if (intercomInbox.unreadCount <= previousUnread) return;
@@ -563,7 +565,7 @@ export const BotView = memo(function BotView({ id, active = true }: { id: string
       ? `${intercomInbox.preview.fromName}: ${intercomInbox.preview.text}`
       : "内線メッセージ";
     new Notification("内線メッセージ", { body: line, tag: `bot-${id}` });
-  }, [bot, id, intercomInbox, notificationsEnabled]);
+  }, [bot, id, intercomInbox, notificationDeliveryEnabled, notificationsEnabled]);
   // 発言が完了した（working → idle）タイミングで、直前のBotの返信をこのタブでだけ読み上げる。
   // 非表示タブ（裏のペイン等）は喋らない。完了通知が履歴更新より先に届いても待つ。
   const prevTtsSendingRef = useRef(false);

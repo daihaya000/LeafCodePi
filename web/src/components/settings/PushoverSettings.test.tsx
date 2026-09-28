@@ -1,7 +1,8 @@
 // @vitest-environment happy-dom
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { PushoverSettings } from "./PushoverSettings";
+import { setNotificationDeliveryEnabled } from "@/lib/notification-delivery-client";
 
 const mocks = vi.hoisted(() => ({ get: vi.fn(), send: vi.fn() }));
 vi.mock("@/lib/client", () => ({ getJson: mocks.get, sendJson: mocks.send }));
@@ -12,11 +13,13 @@ const configured = {
 };
 
 beforeEach(() => {
+  setNotificationDeliveryEnabled(true);
   mocks.get.mockResolvedValue(configured);
   mocks.send.mockResolvedValue(configured);
 });
 afterEach(() => {
   cleanup();
+  setNotificationDeliveryEnabled(true);
   mocks.get.mockReset();
   mocks.send.mockReset();
 });
@@ -35,6 +38,14 @@ describe("PushoverSettings", () => {
     mocks.get.mockResolvedValue({ ...configured, enabled: false });
     render(<PushoverSettings />);
     expect(await screen.findByText("通知OFF")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "テスト通知" }).hasAttribute("disabled")).toBe(true);
+  });
+
+  it("reflects a footer switch change without reopening settings", async () => {
+    render(<PushoverSettings />);
+    await screen.findAllByText("設定済み");
+    act(() => setNotificationDeliveryEnabled(false));
+    expect(screen.getByText("通知OFF")).toBeTruthy();
     expect(screen.getByRole("button", { name: "テスト通知" }).hasAttribute("disabled")).toBe(true);
   });
 

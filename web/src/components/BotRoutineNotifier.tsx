@@ -3,6 +3,7 @@
 import { useEffect } from "react";
 import { getBotSidebarSnapshot } from "@/lib/bot-sidebar-store";
 import { isRoutineRunHandledInline, routineRunNotificationText } from "@/lib/notify";
+import { getNotificationDeliveryEnabled } from "@/lib/notification-delivery-client";
 import { playSessionCompleteSound } from "@/lib/session-complete-sound";
 import { sseReconnectDelayMs } from "@/lib/sse-reconnect";
 import { BOT_ROUTINE_RUN_EVENT, type RoutineRunEventDto } from "@/lib/types";
@@ -26,7 +27,7 @@ export function notifyRoutineRun(run: RoutineRunEventDto): void {
 
   playSessionCompleteSound("bot");
 
-  if (typeof Notification === "undefined") return;
+  if (!getNotificationDeliveryEnabled() || typeof Notification === "undefined") return;
   if (Notification.permission === "default" && !document.hidden && !permissionRequested) {
     // 初回だけ許可を尋ねる。この実行の通知は次回以降に任せる。
     permissionRequested = true;
