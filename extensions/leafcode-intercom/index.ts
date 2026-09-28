@@ -8,7 +8,13 @@ import { spawnBrokerIfNeeded } from "./broker/spawn.ts";
 import { SessionListOverlay } from "./ui/session-list.ts";
 import { ComposeOverlay, type ComposeResult } from "./ui/compose.ts";
 import { InlineMessageComponent } from "./ui/inline-message.ts";
-import { getAskTimeoutMs, loadConfig, type IntercomConfig } from "./config.ts";
+import {
+  getAskTimeoutMs,
+  loadConfig,
+  loadInboundTriggerPolicy,
+  type InboundTriggerPolicy,
+  type IntercomConfig,
+} from "./config.ts";
 import { EXTENSION_BUS_FEATURE } from "./types.ts";
 import type { Attachment, BrokerMessage, Message, MessageControl, MessageReceiptStatus, SessionInfo, SessionRegistration } from "./types.ts";
 import {
@@ -580,6 +586,10 @@ function getNamePollMs(): number {
 export default function piIntercomExtension(pi: ExtensionAPI) {
   let client: IntercomClient | null = null;
   const config: IntercomConfig = loadConfig();
+  // Re-read per idle delivery so settings edits reach running sessions; an
+  // invalid edit keeps the last valid policy instead of changing behavior.
+  let inboundTrigger: InboundTriggerPolicy = config.inboundTrigger;
+  let inboundTriggerError: string | undefined;
   const askTimeoutMs = getAskTimeoutMs();
   const localExtensions = new Map<string, {
     registration: IntercomExtensionRegistration;
@@ -1162,14 +1172,28 @@ export default function piIntercomExtension(pi: ExtensionAPI) {
       }
     })();
   }
+  function currentInboundTrigger(): InboundTriggerPolicy {
+    try {
+      inboundTrigger = loadInboundTriggerPolicy();
+      inboundTriggerError = undefined;
+    } catch (error) {
+      const message = getErrorMessage(error);
+      if (message !== inboundTriggerError) {
+        inboundTriggerError = message;
+        console.error(`${message}; keeping inboundTrigger "${inboundTrigger}"`);
+      }
+    }
+    return inboundTrigger;
+  }
   function shouldTriggerInboundMessage(entry: InboundMessageEntry, forceTrigger = false): boolean {
     if (forceTrigger) {
       return true;
     }
-    if (config.inboundTrigger === "always") {
+    const policy = currentInboundTrigger();
+    if (policy === "always") {
       return true;
     }
-    if (config.inboundTrigger === "replies") {
+    if (policy === "replies") {
       // Blocking asks need an active recipient just as replies do. Steering an
       // idle peer without starting a turn leaves the sender waiting until timeout.
       return Boolean(entry.message.replyTo || entry.message.expectsReply);

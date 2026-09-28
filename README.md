@@ -265,7 +265,7 @@ Notion公式のホスト型MCPサーバー（`https://mcp.notion.com/mcp`）を�
 pi install ./extensions/leafcode-intercom
 ```
 
-設定は Windows `%USERPROFILE%\.pi\agent\intercom\config.json`、Linux/macOS `~/.pi/agent/intercom/config.json` に記述します。`inboundTrigger` は `replies`（既定。保留中の問い合わせへの返信のみ自動でターン開始）、`always`、`never` を選べます。
+設定は Windows `%USERPROFILE%\.pi\agent\intercom\config.json`、Linux/macOS `~/.pi/agent/intercom/config.json` に記述します。`inboundTrigger` は `replies`（既定。返信を求める問い合わせ（ask）と自分の問い合わせへの返信だけで自動的にターン開始し、通常の送信では起動しない）、`always`、`never` を選べます。WebUIの設定画面「Intercom受信」からも変更でき、実行中のセッションにも次の受信から反映されます。
 
 同梱の15エージェントは `intercom` を許可し、子セッションでは `subagentOnlyExtensions` でプロバイダーを読み込みます。関連作業・編集競合があるときだけ `list` で相手のID・cwdを確認し、短い `send` で共有します。`ask` はブロック時のみ、親への判断依頼は `contact_supervisor`、通常の完了は結果返却のままです。受信内容を権限や承認として扱わず、秘密情報の送信・定期通知・無断pane起動はしません。
 

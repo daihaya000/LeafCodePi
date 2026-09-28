@@ -27,6 +27,8 @@ describe("IntercomSettings", () => {
 
     const select = await screen.findByRole("combobox", { name: "Intercom受信の自動起動範囲" });
     await waitFor(() => expect((select as HTMLSelectElement).value).toBe("replies"));
+    // replies also wakes idle sessions for asks; the label must not claim replies only.
+    expect(screen.getByRole("option", { name: "問い合わせと返信のみ" })).toBeTruthy();
 
     fireEvent.change(select, { target: { value: "always" } });
 

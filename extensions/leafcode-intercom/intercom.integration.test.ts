@@ -2127,6 +2127,60 @@ test("never policy does not wake an idle recipient even for an explicit ask", { 
   });
 });
 
+test("inboundTrigger edits apply to a running session without restart", { concurrency: false }, async () => {
+  const { default: piIntercomExtension } = await import("./index.ts");
+  const { planner, cleanup } = await setupClients();
+  const harness = createExtensionHarness("idle-live-policy-worker", { hasUI: true, isIdle: () => true });
+  const configPath = getConfigPath();
+  const previous = existsSync(configPath) ? readFileSync(configPath, "utf-8") : undefined;
+  const writeConfig = (content: string) => {
+    mkdirSync(path.dirname(configPath), { recursive: true });
+    writeFileSync(configPath, content);
+  };
+  const originalConsoleError = console.error;
+  const policyErrors: string[] = [];
+  console.error = (...args: unknown[]) => {
+    const line = args.map(String).join(" ");
+    if (line.includes("keeping inboundTrigger")) policyErrors.push(line);
+    else originalConsoleError(...args);
+  };
+
+  try {
+    rmSync(configPath, { force: true });
+    piIntercomExtension(harness.pi as never);
+    await harness.emitLifecycle("session_start");
+    const worker = await waitForSessionByName(planner, "idle-live-policy-worker");
+
+    writeConfig(JSON.stringify({ inboundTrigger: "never" }));
+    assert.equal((await planner.send(worker.id, {
+      messageId: "live-policy-never-ask", text: "Ask after never", expectsReply: true,
+    })).delivered, true);
+    await waitForCondition(() => harness.sentMessages.length === 1, 2000);
+    assert.equal(harness.sentMessages[0]?.options?.triggerTurn, undefined, "a session started under replies must follow the edited never policy");
+    assert.equal(harness.sentMessages[0]?.options?.deliverAs, "steer");
+
+    writeConfig(JSON.stringify({ inboundTrigger: "always" }));
+    assert.equal((await planner.send(worker.id, { messageId: "live-policy-always-send", text: "Send after always" })).delivered, true);
+    await waitForCondition(() => harness.sentMessages.length === 2, 2000);
+    assert.equal(harness.sentMessages[1]?.options?.triggerTurn, true);
+
+    writeConfig("{ broken");
+    for (const messageId of ["live-policy-broken-1", "live-policy-broken-2"]) {
+      assert.equal((await planner.send(worker.id, { messageId, text: "Send after a broken edit" })).delivered, true);
+    }
+    await waitForCondition(() => harness.sentMessages.length === 4, 2000);
+    assert.equal(harness.sentMessages[2]?.options?.triggerTurn, true, "an invalid edit keeps the last valid policy");
+    assert.equal(harness.sentMessages[3]?.options?.triggerTurn, true);
+    assert.equal(policyErrors.length, 1, "the same config error is logged once");
+  } finally {
+    console.error = originalConsoleError;
+    if (previous === undefined) rmSync(configPath, { force: true });
+    else writeFileSync(configPath, previous);
+    await harness.emitLifecycle("session_shutdown");
+    await cleanup();
+  }
+});
+
 test("idle interactive sessions trigger a new turn when always is configured", { concurrency: false }, async () => {
   await withIntercomConfig({ inboundTrigger: "always" }, async () => {
     const { default: piIntercomExtension } = await import("./index.ts");
