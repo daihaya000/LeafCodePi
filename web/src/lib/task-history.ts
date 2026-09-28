@@ -1,5 +1,5 @@
 import type { TaskMessageHistory, UiMessage } from "./types";
-import { dedupeUiMessages, messageRenderKey, stabilizeUiMessages } from "./stabilize-messages";
+import { dedupeUiMessages, messageRenderKey, stabilizeIdentifiedList } from "./stabilize-messages";
 
 export const TASK_MESSAGE_PAGE_SIZE = 50;
 
@@ -102,6 +102,11 @@ function mergeTaskMessages(
   leading: readonly UiMessage[],
   trailing: readonly UiMessage[] = [],
 ): UiMessage[] {
-  // A first pass can leave an id/part-id collision; stabilization dedupes a second time.
-  return stabilizeUiMessages(current, dedupeUiMessages([...leading, ...trailing]));
+  const diagnostics = { hasCrossKeyCollision: false };
+  const deduped = dedupeUiMessages([...leading, ...trailing], diagnostics);
+  // Cross-key matches can leave two rows with the same id after the first pass.
+  return stabilizeIdentifiedList(
+    current,
+    diagnostics.hasCrossKeyCollision ? dedupeUiMessages(deduped) : deduped,
+  );
 }

@@ -48,8 +48,13 @@ export function messageRenderKey(message: UiMessage): string {
  * Remove duplicate rows left when a streamed message is re-identified.
  * Either side can change: the entry id is assigned on persist, and part ids are
  * derived from the raw session index, so match on both keys.
+ * Diagnostics flags a message whose keys point to different output rows.
  */
-export function dedupeUiMessages(messages: UiMessage[]): UiMessage[] {
+export function dedupeUiMessages(
+  messages: UiMessage[],
+  diagnostics?: { hasCrossKeyCollision: boolean },
+): UiMessage[] {
+  if (diagnostics) diagnostics.hasCrossKeyCollision = false;
   if (messages.length < 2) return messages;
   const result: UiMessage[] = [];
   const indexByPartId = new Map<string, number>();
@@ -64,6 +69,14 @@ export function dedupeUiMessages(messages: UiMessage[]): UiMessage[] {
       indexById.get(message.id) ??
       indexByContent.get(content);
     const index = existing ?? result.length;
+    if (diagnostics && existing !== undefined) {
+      const idIndex = indexById.get(message.id);
+      const contentIndex = indexByContent.get(content);
+      if ((idIndex !== undefined && idIndex !== existing) ||
+          (contentIndex !== undefined && contentIndex !== existing)) {
+        diagnostics.hasCrossKeyCollision = true;
+      }
+    }
     if (existing === undefined) {
       result.push(message);
     } else {

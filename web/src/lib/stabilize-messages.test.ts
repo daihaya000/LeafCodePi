@@ -202,6 +202,21 @@ describe("dedupeUiMessages", () => {
     expect(dedupeUiMessages(input)).toBe(input);
   });
 
+  it("flags only cross-index matches for a possible second pass", () => {
+    const first = textMessage("a", "one");
+    const second = textMessage("b", "two");
+    const bridge = {
+      ...textMessage("a", "three"),
+      parts: [{ type: "text" as const, id: "b-t", text: "three" }],
+    };
+    const diagnostics = { hasCrossKeyCollision: true };
+
+    dedupeUiMessages([first, { ...first }], diagnostics);
+    expect(diagnostics.hasCrossKeyCollision).toBe(false);
+    dedupeUiMessages([first, second, bridge], diagnostics);
+    expect(diagnostics.hasCrossKeyCollision).toBe(true);
+  });
+
   it("collapses a row whose part ids were reprojected under the same entry id", () => {
     // Part ids come from the raw session index, so the same persisted message
     // can be projected with a different part id after a branch/stored switch.
