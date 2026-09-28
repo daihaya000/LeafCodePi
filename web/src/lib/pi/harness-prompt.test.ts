@@ -441,6 +441,27 @@ describe("applyToolOutput", () => {
     assert.equal(part.state.output, "line 1\nline 2");
   });
 
+  it("reuses unaffected rows while updating multiple tools in one message", () => {
+    const text: UiMessage = {
+      id: "text", role: "assistant", createdAt: 1,
+      parts: [{ id: "text-1", type: "text", text: "unchanged" }],
+    };
+    const current = toolMessage("call-1");
+    const pending = toolMessage("call-2").parts[0]!;
+    if (pending.type !== "tool") throw new Error("expected tool part");
+    pending.state.status = "pending";
+    current.parts.push(pending);
+
+    const result = applyToolOutput([text, current], new Map([
+      ["call-1", "running output"], ["call-2", "pending output"],
+    ]));
+    assert.equal(result[0], text);
+    assert.notEqual(result[1], current);
+    assert.deepEqual(result[1]!.parts.map((part) => part.type === "tool" ? part.state.output : null), [
+      "running output", "pending output",
+    ]);
+  });
+
   it("does not overwrite a finalized tool result", () => {
     const message = toolMessage("call-1");
     const part = message.parts[0] as Extract<(typeof message)["parts"][number], { type: "tool" }>;

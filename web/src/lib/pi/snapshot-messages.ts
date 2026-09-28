@@ -504,19 +504,19 @@ export function applyToolOutput(
   partialOutputByCallId: Map<string, string>,
 ): UiMessage[] {
   return messages.map((message) => {
-    if (message.role !== "assistant") return message;
-    let changed = false;
-    const parts = message.parts.map((part) => {
-      if (part.type !== "tool") return part;
+    if (message.role !== "assistant" ||
+        (message.parts.length <= 1 && message.parts[0]?.type !== "tool")) return message;
+    let parts: UiMessage["parts"] | undefined;
+    for (let index = 0; index < message.parts.length; index++) {
+      const part = message.parts[index]!;
+      if (part.type !== "tool") continue;
       const output = partialOutputByCallId.get(part.callID);
       if (
         output === undefined ||
         (part.state.status !== "running" && part.state.status !== "pending")
-      ) {
-        return part;
-      }
-      changed = true;
-      return {
+      ) continue;
+      if (!parts) parts = message.parts.slice();
+      parts[index] = {
         ...part,
         state: {
           ...part.state,
@@ -524,8 +524,8 @@ export function applyToolOutput(
           error: undefined,
         },
       };
-    });
-    return changed ? { ...message, parts } : message;
+    }
+    return parts ? { ...message, parts } : message;
   });
 }
 
