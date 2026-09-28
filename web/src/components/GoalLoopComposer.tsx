@@ -93,7 +93,7 @@ export function GoalLoopOptions({
   }
 
   return (
-    <details className="group/loop-options @container/loop-options mt-2 rounded-xl border border-border bg-surface-2/50">
+    <details open className="group/loop-options @container/loop-options mt-2 rounded-xl border border-border bg-surface-2/50">
       <summary className="flex min-h-11 cursor-pointer list-none items-center gap-2 rounded-xl px-2 text-xs [&::-webkit-details-marker]:hidden">
         <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted transition-transform group-open/loop-options:rotate-180" aria-hidden="true" />
         <span className="shrink-0 font-medium">ループ設定</span>
