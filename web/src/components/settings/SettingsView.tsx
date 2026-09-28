@@ -27,6 +27,7 @@ import { McpSettings } from "@/components/settings/McpSettings";
 import { AgentsSettings } from "@/components/settings/AgentsSettings";
 import { BrowserSettings } from "@/components/settings/BrowserSettings";
 import { WebUiAuthSettings } from "@/components/settings/WebUiAuthSettings";
+import { SettingsTransfer } from "@/components/settings/SettingsTransfer";
 import { ReasoningTranslationSettings } from "@/components/settings/ReasoningTranslationSettings";
 import { HangTimeoutSettings } from "@/components/settings/HangTimeoutSettings";
 import { NotificationSoundSettings } from "@/components/settings/NotificationSoundSettings";
@@ -318,6 +319,7 @@ export function SettingsView() {
                   </div>
                   <HostRestartPanel onRestarted={reload} />
                   <ProfileSettings />
+                  <SettingsTransfer />
                 </div>
               </SettingsGroup>
 

@@ -125,8 +125,8 @@ export const ALLOWED_SETTING_KEYS: ReadonlySet<string> = new Set<string>([
   TTS_PLAYBACK_VOLUME_SETTING_KEY,
 ]);
 
-function normalizedGenerationModelValue(value: string): string | null {
-  const knownAccountIds = listAccounts().map((account) => account.id);
+function normalizedGenerationModelValue(value: string, importedAccountIds: readonly string[] = []): string | null {
+  const knownAccountIds = [...listAccounts().map((account) => account.id), ...importedAccountIds];
   const model = splitGenerationModel(value, knownAccountIds);
   if (!model) return null;
   return `${model.accountId ? `${model.accountId}::` : ""}${model.providerID}::${model.modelID}`;
@@ -139,7 +139,7 @@ function finiteNumber(value: string): number | null {
 }
 
 /** キー毎に検証・正規化した保存値を返す。不正値は null。 */
-export function validateSettingValue(key: string, value: string): string | null {
+export function validateSettingValue(key: string, value: string, importedAccountIds: readonly string[] = []): string | null {
   if (key === BOT_DEFAULT_PERMISSION_KEY) {
     return BOT_DEFAULT_PERMISSION_VALUES.includes(value as never) ? value : null;
   }
@@ -229,13 +229,13 @@ export function validateSettingValue(key: string, value: string): string | null 
     return isTitleAutoUpdateEnabledSetting(value) ? value : null;
   }
   if (key === GENERATION_FALLBACK_MODEL_SETTING_KEY) {
-    return normalizedGenerationModelValue(value);
+    return normalizedGenerationModelValue(value, importedAccountIds);
   }
   if (key === GENERATION_FALLBACK_MODEL_EFFORT_SETTING_KEY) {
     return isGenerationModelEffort(value) ? value : null;
   }
   if (key === GENERATION_MODEL_SETTING_KEY) {
-    return normalizedGenerationModelValue(value);
+    return normalizedGenerationModelValue(value, importedAccountIds);
   }
   if (key === GENERATION_MODEL_EFFORT_SETTING_KEY) {
     return isGenerationModelEffort(value) ? value : null;

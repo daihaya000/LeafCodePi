@@ -332,6 +332,41 @@ export function reorderAccounts(input: unknown): AccountRecord[] {
   return file.accounts.map((account) => ({ ...account }));
 }
 
+/** バックアップから同じ ID のアカウントを追加。既存アカウントは変更しない。 */
+export function importAccountRecords(input: unknown): AccountRecord[] {
+  if (!Array.isArray(input) || input.length > 200) throw badRequest("アカウント一覧が不正です");
+  const file = readAccountsFile();
+  const ids = new Set<string>();
+  const additions: AccountRecord[] = [];
+  for (const value of input) {
+    if (!value || typeof value !== "object" || Array.isArray(value)) throw badRequest("アカウントが不正です");
+    const row = value as Record<string, unknown>;
+    if (typeof row.id !== "string" || !/^[A-Za-z0-9_-]{1,64}$/.test(row.id) || ids.has(row.id)) {
+      throw badRequest("アカウントIDが不正または重複しています");
+    }
+    ids.add(row.id);
+    const providers = normalizeProviders(row.providers);
+    const label = validateLabel(row.label);
+    const note = validateNote(row.note);
+    if (typeof row.enabled !== "boolean") throw badRequest("アカウントの有効状態が不正です");
+    const existing = file.accounts.find((account) => account.id === row.id);
+    if (existing) {
+      if (providers.some((provider) => !existing.providers.includes(provider))) {
+        throw badRequest("既存アカウントとプロバイダーが一致しません");
+      }
+      continue;
+    }
+    const now = new Date().toISOString();
+    additions.push({ id: row.id, label, enabled: row.enabled, providers, ...(note ? { note } : {}), createdAt: now, updatedAt: now });
+  }
+  if (additions.length) {
+    file.accounts.push(...additions);
+    writeAccountsFile(file);
+    invalidateCachedUsage();
+  }
+  return additions;
+}
+
 export function getAccount(id: string): AccountRecord | undefined {
   const found = readAccountsFile().accounts.find(
     (account) => account.id === id,

@@ -357,6 +357,7 @@ describe("SettingsView", () => {
       "システム安全ガード",
       "権限承認",
     ]);
+    expect(screen.getByRole("heading", { name: "設定・認証の部分転送" })).toBeTruthy();
     expect(screen.getByRole("heading", { name: "ローカル LLM" })).toBeTruthy();
     const localSection = enginePanel.querySelector('section[aria-label="ローカル推論"]');
     const localGrid = localSection?.querySelector(":scope > div#models-local");
