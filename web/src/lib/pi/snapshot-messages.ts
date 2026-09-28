@@ -643,6 +643,27 @@ export function applyToolTiming(
   const project = (message: UiMessage): UiMessage => {
     if (message.role !== "assistant" ||
         (message.parts.length <= 1 && message.parts[0]?.type !== "tool")) return message;
+    const cached = toolTimingProjectionCache.get(message);
+    if (cached) {
+      let matched = 0;
+      let unchanged = true;
+      for (let index = 0; index < message.parts.length; index++) {
+        const part = message.parts[index]!;
+        if (part.type !== "tool") continue;
+        const startedAtMs = toolStartedAt.get(part.callID);
+        if (startedAtMs === undefined) continue;
+        const endedAtMs = toolEndedAt.get(part.callID) ?? part.state.endedAtMs;
+        if (part.state.startedAtMs === startedAtMs && part.state.endedAtMs === endedAtMs) continue;
+        const previous = cached.patches[matched++];
+        if (!previous || previous.index !== index || previous.part !== part ||
+            previous.startedAtMs !== startedAtMs || previous.endedAtMs !== endedAtMs ||
+            previous.status !== part.state.status) {
+          unchanged = false;
+          break;
+        }
+      }
+      if (unchanged && matched === cached.patches.length) return cached.projected;
+    }
     let patches: ToolTimingPatch[] | undefined;
     for (let index = 0; index < message.parts.length; index++) {
       const part = message.parts[index]!;
@@ -654,14 +675,6 @@ export function applyToolTiming(
       (patches ??= []).push({ index, part, startedAtMs, endedAtMs, status: part.state.status });
     }
     if (!patches) return message;
-    const cached = toolTimingProjectionCache.get(message);
-    if (cached?.patches.length === patches.length && patches.every((patch, index) =>
-      patch.index === cached.patches[index]!.index &&
-      patch.part === cached.patches[index]!.part &&
-      patch.startedAtMs === cached.patches[index]!.startedAtMs &&
-      patch.endedAtMs === cached.patches[index]!.endedAtMs &&
-      patch.status === cached.patches[index]!.status
-    )) return cached.projected;
     const parts = message.parts.slice();
     for (const { index, part, startedAtMs, endedAtMs } of patches) {
       parts[index] = {

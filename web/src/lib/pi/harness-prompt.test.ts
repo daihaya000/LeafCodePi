@@ -440,6 +440,22 @@ describe("applyToolTiming", () => {
     assert.equal(second?.type === "tool" ? second.state.startedAtMs : undefined, 2000);
   });
 
+  it("invalidates a cached row when a second tool receives timing", () => {
+    const message = toolMessage("call-1");
+    message.parts.push(toolMessage("call-2").parts[0]!);
+    const messages = [message];
+    const started = new Map([["call-1", 1_000]]);
+    const ended = new Map<string, number>();
+    const first = applyToolTiming(messages, started, ended);
+    assert.equal(applyToolTiming(messages, started, ended)[0], first[0]);
+
+    started.set("call-2", 2_000);
+    const changed = applyToolTiming(messages, started, ended);
+    assert.notEqual(changed[0], first[0]);
+    const secondPart = changed[0]!.parts[1];
+    assert.equal(secondPart?.type === "tool" ? secondPart.state.startedAtMs : undefined, 2_000);
+  });
+
   it("reuses parts and messages when the timing is already applied", () => {
     const started = new Map([["call-1", 1000]]);
     const ended = new Map([["call-1", 5000]]);
