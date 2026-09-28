@@ -62,6 +62,6 @@ describe("Pushover HTTP delivery", () => {
     expect(warn).toHaveBeenCalledWith("[pushover] notification failed (HTTP 400)");
     send.mockRejectedValueOnce(new Error("example-token"));
     expect(await notifyPushoverCompletion("Task", { env, send })).toBe(false);
-    expect(warn).toHaveBeenLastCalledWith("[pushover] notification failed (network or timeout)");
+    expect(warn).toHaveBeenLastCalledWith("[pushover] notification failed (storage, network or timeout)");
   });
 });

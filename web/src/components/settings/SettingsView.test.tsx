@@ -65,6 +65,9 @@ vi.mock("@/components/settings/CodePermissionSettings", () => ({
 vi.mock("@/components/settings/NotificationSoundSettings", () => ({
   NotificationSoundSettings: () => <h3>通知音</h3>,
 }));
+vi.mock("@/components/settings/PushoverSettings", () => ({
+  PushoverSettings: () => <h3>iPhoneへの通知（Pushover）</h3>,
+}));
 vi.mock("@/components/settings/TtsSettings", () => ({
   TtsSettings: () => <h3>読み上げ (TTS)</h3>,
 }));
@@ -378,6 +381,7 @@ describe("SettingsView", () => {
     expect(screen.getByRole("heading", { name: "メモリ" }).tagName).toBe("H3");
     expect(screen.queryByRole("heading", { name: "USER.md" })).toBeNull();
     expect(screen.getByRole("heading", { name: "ブラウザ設定" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "iPhoneへの通知（Pushover）" })).toBeTruthy();
     expect(screen.getByRole("heading", { name: "古いセッションの自動アーカイブ" })).toBeTruthy();
     expect(enginePanel?.querySelector("#composer-defaults-heading")).toBeNull();
     const displaySection = enginePanel.querySelector('section[aria-label="表示と通知"]');

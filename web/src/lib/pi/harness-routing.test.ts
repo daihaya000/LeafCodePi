@@ -304,6 +304,12 @@ vi.mock("@earendil-works/pi-coding-agent", () => fakePi);
 
 const autoAgentMock = vi.hoisted(() => vi.fn());
 vi.mock("@/lib/auto-agent", () => ({ resolveAutoAgent: autoAgentMock }));
+vi.mock("@/lib/pushover-config", () => ({
+  readPushoverCredentials: async () => ({
+    token: process.env.LEAFCODE_PI_PUSHOVER_TOKEN,
+    user: process.env.LEAFCODE_PI_PUSHOVER_USER,
+  }),
+}));
 
 const labelJobs = vi.hoisted(() => ({
   refineInitialTaskLabel: vi.fn(async (): Promise<string | undefined> => undefined),

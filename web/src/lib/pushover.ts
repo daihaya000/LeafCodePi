@@ -1,4 +1,6 @@
-/** Server-side Pushover delivery. Credentials are read from the host environment only. */
+import { readPushoverCredentials } from "@/lib/pushover-config";
+
+/** Server-side Pushover delivery. Never expose credentials to the browser. */
 const PUSHOVER_URL = "https://api.pushover.net/1/messages.json";
 const PUSHOVER_TIMEOUT_MS = 5_000;
 
@@ -18,20 +20,26 @@ export function shouldNotifyPushoverCompletion(context: CompletionContext): bool
 
 export async function notifyPushoverCompletion(
   taskTitle: string,
-  options: { env?: Record<string, string | undefined>; send?: typeof fetch } = {},
+  options: { env?: Record<string, string | undefined>; send?: typeof fetch; title?: string } = {},
 ): Promise<boolean> {
-  const env = options.env ?? process.env;
-  const token = env.LEAFCODE_PI_PUSHOVER_TOKEN?.trim();
-  const user = env.LEAFCODE_PI_PUSHOVER_USER?.trim();
-  if (!token || !user) return false;
-
-  // Send the task title only, never a transcript, model output or error details.
-  const message = Array.from(taskTitle.trim() || "LeafCodePi タスク").slice(0, 1024).join("");
-  const body = new URLSearchParams({ token, user, title: "LeafCodePi タスク完了", message });
-  const device = env.LEAFCODE_PI_PUSHOVER_DEVICE?.trim();
-  if (device) body.set("device", device);
-
   try {
+    const config = options.env ? {
+      token: options.env.LEAFCODE_PI_PUSHOVER_TOKEN?.trim(),
+      user: options.env.LEAFCODE_PI_PUSHOVER_USER?.trim(),
+      device: options.env.LEAFCODE_PI_PUSHOVER_DEVICE?.trim(),
+    } : await readPushoverCredentials();
+    if (!config.token || !config.user) return false;
+
+    // Send the task title only, never a transcript, model output or error details.
+    const message = Array.from(taskTitle.trim() || "LeafCodePi タスク").slice(0, 1024).join("");
+    const body = new URLSearchParams({
+      token: config.token,
+      user: config.user,
+      title: options.title ?? "LeafCodePi タスク完了",
+      message,
+    });
+    if (config.device) body.set("device", config.device);
+
     const response = await (options.send ?? fetch)(PUSHOVER_URL, {
       method: "POST",
       body,
@@ -41,7 +49,7 @@ export async function notifyPushoverCompletion(
     return response.ok;
   } catch {
     // Never log request bodies, credential values or provider responses.
-    console.warn("[pushover] notification failed (network or timeout)");
+    console.warn("[pushover] notification failed (storage, network or timeout)");
     return false;
   }
 }

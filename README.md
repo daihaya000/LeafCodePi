@@ -471,7 +471,9 @@ npm run check
 
 ### iPhoneへの完了通知（Pushover）
 
-iPhoneに [Pushover](https://pushover.net/) を入れ、User Key と [アプリ/APIトークン](https://pushover.net/apps/build) を取得する。LeafCodePi の**ホストプロセスの環境変数** `LEAFCODE_PI_PUSHOVER_USER` と `LEAFCODE_PI_PUSHOVER_TOKEN` に設定して再起動すると、Code / Bot のタスクが正常に完了した時にプッシュ通知を送る。両方未設定なら送信しない。必要なら `LEAFCODE_PI_PUSHOVER_DEVICE` で送信先を限定する。
+iPhoneに [Pushover](https://pushover.net/) を入れ、User Key と [アプリ/APIトークン](https://pushover.net/apps/build) を取得する。**設定 → エンジン → 表示と通知 → iPhoneへの通知（Pushover）** に入力・保存し、「テスト通知」で受信を確認する。Code / Bot のタスクが正常に完了するとプッシュ通知を送る。送信先デバイス名は任意で、空欄なら全デバイス。トークンとUser KeyはPiの認証ストレージ（`~/.pi/agent/auth.json`。平文ファイルのためアクセス権を適切に管理）に保存し、設定APIや画面には値を返さない。認証付きの設定バックアップには含まれるため、バックアップファイルの扱いにも注意する。
+
+従来のホスト環境変数 `LEAFCODE_PI_PUSHOVER_TOKEN` / `LEAFCODE_PI_PUSHOVER_USER` / `LEAFCODE_PI_PUSHOVER_DEVICE` も引き続き利用でき、個別の項目でUIの保存値より優先する。環境変数で管理中の項目はUIから変更できない。設定をUIから保存した場合は再起動不要。
 
 通知本文にはタスクのタイトルのみを送り、会話本文・回答・エラー・認証情報は送らない。タイトルも外部サービスに渡るため機密情報を含めないこと。送信失敗はタスクを失敗扱いにせず、HTTPステータスまたは通信失敗だけをサーバーログに残す。Goal Loop の途中ターン、復旧中のターン、手動停止、Bot側で通知をOFFにした場合は送らない。キーはリポジトリ・公開設定・シェル履歴には保存しない。
 
