@@ -2,12 +2,13 @@ import assert from "node:assert/strict";
 import { afterEach, describe, it, vi } from "vitest";
 import { snapshotThroughput } from "@/lib/token-throughput";
 import { trackThroughputEvent } from "./harness";
+import { VersionedThroughputMap } from "./versioned-throughput-map";
 
 function liveState() {
   const persisted: unknown[][] = [];
   return {
     live: {
-      throughputByStartedAt: new Map(),
+      throughputByStartedAt: new VersionedThroughputMap(),
       persistedThroughputKeys: new Set(),
       toolStartedAt: new Map(),
       toolEndedAt: new Map(),
@@ -36,16 +37,24 @@ describe("trackThroughputEvent", () => {
       type: "message_start",
       message: { role: "assistant", timestamp: 1_000 },
     });
+    const timings = live.throughputByStartedAt;
+    assert.ok(timings instanceof VersionedThroughputMap);
+    assert.equal(timings.revision, 1);
+    assert.equal(timings.awaitingFirstTokenCount, 1);
     vi.setSystemTime(1_100);
     trackThroughputEvent(live, {
       type: "message_update",
       message: { role: "assistant", timestamp: 1_000, usage: { output: 2 } },
       assistantMessageEvent: { type: "text_delta", delta: "ok" },
     });
+    assert.equal(timings.revision, 2);
+    assert.equal(timings.awaitingFirstTokenCount, 0);
     trackThroughputEvent(live, {
       type: "message_end",
       message: { role: "assistant", timestamp: 1_000, usage: { output: 2 } },
     });
+    assert.equal(timings.revision, 3);
+    assert.equal(timings.awaitingFirstTokenCount, 0);
     await new Promise<void>((resolve) => queueMicrotask(resolve));
 
     assert.equal(persisted.length, 1);

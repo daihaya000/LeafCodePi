@@ -75,6 +75,7 @@ import {
   type MessageAccountContext,
 } from "@/lib/pi/snapshot-messages";
 import { VersionedTimingMap } from "@/lib/pi/versioned-timing-map";
+import { VersionedThroughputMap } from "@/lib/pi/versioned-throughput-map";
 export {
   applyMessageAccountIds,
   applyMessageAgentIds,
@@ -2129,7 +2130,7 @@ function restoredThroughputState(
 > {
   return {
     throughputByStartedAt:
-      existing?.throughputByStartedAt ?? loaded?.timings ?? new Map(),
+      existing?.throughputByStartedAt ?? new VersionedThroughputMap(loaded?.timings),
     persistedThroughputKeys:
       existing?.persistedThroughputKeys ?? loaded?.persistedKeys ?? new Set(),
     toolStartedAt:
