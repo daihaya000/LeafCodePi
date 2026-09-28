@@ -84,7 +84,7 @@ describe("trackThroughputEvent", () => {
     assert.equal(snapshotThroughput(live.throughputByStartedAt.get(1_000)!)?.outputTokens, 200);
   });
 
-  it("accepts the legacy tool id field and clears partial output at tool end", () => {
+  it("keeps partial outputs through execution_end and removes each on toolResult", () => {
     const { live } = liveState();
 
     trackThroughputEvent(live, {
@@ -92,12 +92,29 @@ describe("trackThroughputEvent", () => {
       toolCallID: "call-1",
       partialResult: "in progress",
     });
-    assert.equal(live.toolPartialOutputByCallId.get("call-1"), "in progress");
+    trackThroughputEvent(live, {
+      type: "tool_execution_update",
+      toolCallId: "call-2",
+      partialResult: "other progress",
+    });
+    assert.equal(live.toolPartialOutputByCallId.size, 2);
+
+    trackThroughputEvent(live, {
+      type: "tool_execution_end", toolCallId: "call-1", result: "final",
+    });
+    assert.equal(live.toolPartialOutputByCallId.get("call-1"), "final");
+    assert.equal(live.toolPartialOutputByCallId.size, 2);
 
     trackThroughputEvent(live, {
       type: "message_end",
       message: { role: "toolResult", toolCallId: "call-1" },
     });
     assert.equal(live.toolPartialOutputByCallId.has("call-1"), false);
+    assert.equal(live.toolPartialOutputByCallId.get("call-2"), "other progress");
+    trackThroughputEvent(live, {
+      type: "message_end",
+      message: { role: "toolResult", toolCallId: "call-2" },
+    });
+    assert.equal(live.toolPartialOutputByCallId.size, 0);
   });
 });
