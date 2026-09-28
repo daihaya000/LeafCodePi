@@ -150,6 +150,11 @@ function latestContextMarkerIndexes(raw: unknown[], endIndex = raw.length - 1): 
     .sort((a, b) => a - b);
 }
 
+const finalizedThroughputCache = new WeakMap<
+  UiMessage,
+  { timing: ThroughputTiming; projected: UiMessage }
+>();
+
 /** throughput timing をメッセージへ反映（tok/s + 実測の応答所要時間）。 */
 export function applyThroughput(
   messages: UiMessage[],
@@ -161,6 +166,18 @@ export function applyThroughput(
     if (message.role !== "assistant") return message;
     const timing = throughputByStartedAt.get(message.createdAt);
     if (!timing) return message;
+    const cached = timing.lastTokenAtMs != null
+      ? finalizedThroughputCache.get(message)
+      : undefined;
+    if (
+      cached &&
+      cached.timing.startedAtMs === timing.startedAtMs &&
+      cached.timing.firstTokenAtMs === timing.firstTokenAtMs &&
+      cached.timing.lastTokenAtMs === timing.lastTokenAtMs &&
+      cached.timing.outputTokens === timing.outputTokens &&
+      cached.timing.outputTokensPartial === timing.outputTokensPartial &&
+      cached.timing.charCount === timing.charCount
+    ) return cached.projected;
     // 応答全体の所要時間（思考＋生成、TTFT 込み）。Pi の assistant timestamp は
     // 生成「開始」時刻のため、直前レコードとの差分では常に 0s になる —
     // 実測 lastToken を使う（応答完了後は永続化された値で復元）。
@@ -169,24 +186,32 @@ export function applyThroughput(
       (timing.lastTokenAtMs ?? nowMs) - timing.startedAtMs,
     );
     const snap = snapshotThroughput(timing, nowMs);
+    let projected: UiMessage;
     if (!snap || snap.tokensPerSecond === null) {
-      return responseDurationMs > 0 && message.responseDurationMs !== responseDurationMs
+      projected = responseDurationMs > 0 && message.responseDurationMs !== responseDurationMs
         ? { ...message, responseDurationMs }
         : message;
-    }
-    if (
+    } else if (
       message.outputTokens === snap.outputTokens &&
       message.tokensPerSecond === snap.tokensPerSecond &&
       message.tokensPerSecondDecode === snap.decodePhase &&
       (responseDurationMs <= 0 || message.responseDurationMs === responseDurationMs)
-    ) return message;
-    return {
-      ...message,
-      outputTokens: snap.outputTokens,
-      tokensPerSecond: snap.tokensPerSecond,
-      tokensPerSecondDecode: snap.decodePhase,
-      ...(responseDurationMs > 0 ? { responseDurationMs } : {}),
-    };
+    ) {
+      projected = message;
+    } else {
+      projected = {
+        ...message,
+        outputTokens: snap.outputTokens,
+        tokensPerSecond: snap.tokensPerSecond,
+        tokensPerSecondDecode: snap.decodePhase,
+        ...(responseDurationMs > 0 ? { responseDurationMs } : {}),
+      };
+    }
+    // In-progress timing depends on nowMs; snapshot values so in-place updates invalidate the cache.
+    if (timing.lastTokenAtMs != null) {
+      finalizedThroughputCache.set(message, { timing: { ...timing }, projected });
+    }
+    return projected;
   });
 }
 

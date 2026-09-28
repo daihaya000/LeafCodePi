@@ -32,6 +32,29 @@ describe("snapshotMessages", () => {
     expect(snapshotMessages(session).at(-1)?.parts[0]).toMatchObject({ text: "二" });
   });
 
+  it("reuses finalized throughput rows across cached snapshots and observes in-place timing updates", () => {
+    const stored: unknown[] = [{
+      role: "assistant", timestamp: 1_000, content: [{ type: "text", text: "done" }],
+    }];
+    const session = {
+      messages: stored,
+      agent: { state: { streamingMessage: undefined } },
+      sessionManager: { getLeafId: () => null, getBranch: () => [] },
+    } as unknown as Parameters<typeof snapshotMessages>[0];
+    const timing = {
+      startedAtMs: 1_000, firstTokenAtMs: 1_500, lastTokenAtMs: 10_500,
+      outputTokens: 100, charCount: 0,
+    };
+    const timings = new Map([[1_000, timing]]);
+
+    const first = snapshotMessages(session, timings);
+    expect(snapshotMessages(session, timings)[0]).toBe(first[0]);
+    timing.outputTokens = 200;
+    const changed = snapshotMessages(session, timings);
+    expect(changed[0]).not.toBe(first[0]);
+    expect(changed[0]?.outputTokens).toBe(200);
+  });
+
   it("skips stored-history membership checks when no message is streaming", () => {
     const stored: unknown[] = [{ role: "user", content: "idle" }];
     const includes = vi.spyOn(stored, "includes");
