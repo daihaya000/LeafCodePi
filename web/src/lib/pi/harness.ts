@@ -315,11 +315,10 @@ import {
   THROUGHPUT_CUSTOM_TYPE,
   createThroughputTiming,
   isContentDeltaType,
-  isThroughputCustomEntry,
   noteContentDelta,
   noteReportedOutputTokens,
+  restoreThroughputFromEntries,
   snapshotThroughput,
-  timingFromPersisted,
   toPersistedThroughput,
   type ThroughputTiming,
 } from "@/lib/token-throughput";
@@ -1083,21 +1082,12 @@ function loadThroughputFromSession(session: AgentSession): {
   timings: Map<number, ThroughputTiming>;
   persistedKeys: Set<number>;
 } {
-  const timings = new Map<number, ThroughputTiming>();
-  const persistedKeys = new Set<number>();
   try {
-    const entries = session.sessionManager.getEntries();
-    for (const entry of entries) {
-      if (!isThroughputCustomEntry(entry)) continue;
-      const timing = timingFromPersisted((entry as { data?: unknown }).data);
-      if (!timing) continue;
-      timings.set(timing.startedAtMs, timing);
-      persistedKeys.add(timing.startedAtMs);
-    }
+    return restoreThroughputFromEntries(session.sessionManager.getEntries());
   } catch {
     /* session may not expose entries yet */
+    return { timings: new Map(), persistedKeys: new Set() };
   }
-  return { timings, persistedKeys };
 }
 
 /** 再起動後もツール実行時間を表示できるよう、履歴エントリから復元する。 */

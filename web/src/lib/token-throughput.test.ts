@@ -8,8 +8,10 @@ import {
   isSlowTokensPerSecond,
   noteContentDelta,
   noteReportedOutputTokens,
+  restoreThroughputFromEntries,
   snapshotThroughput,
   summarizeThroughput,
+  THROUGHPUT_CUSTOM_TYPE,
   timingFromPersisted,
   toPersistedThroughput,
 } from "./token-throughput";
@@ -139,6 +141,27 @@ describe("persistence", () => {
     const restored = timingFromPersisted(persisted);
     expect(restored).toMatchObject(persisted!);
     expect(snapshotThroughput(restored!)?.tokensPerSecond).toBe(100);
+  });
+
+  it("restores duplicate custom entries with the last valid timing and one persisted key", () => {
+    const restored = restoreThroughputFromEntries([
+      {
+        type: "custom", customType: THROUGHPUT_CUSTOM_TYPE,
+        data: { startedAtMs: 1_000, firstTokenAtMs: 1_100, lastTokenAtMs: 1_500, outputTokens: 10 },
+      },
+      {
+        type: "custom", customType: THROUGHPUT_CUSTOM_TYPE,
+        data: { startedAtMs: 1_000, firstTokenAtMs: 1_200, lastTokenAtMs: 1_800, outputTokens: 77 },
+      },
+      { type: "custom", customType: "other", data: { startedAtMs: 2_000, outputTokens: 5 } },
+      { type: "custom", customType: THROUGHPUT_CUSTOM_TYPE, data: { startedAtMs: "invalid" } },
+    ]);
+
+    expect(restored.timings.size).toBe(1);
+    expect(restored.timings.get(1_000)).toMatchObject({
+      firstTokenAtMs: 1_200, lastTokenAtMs: 1_800, outputTokens: 77,
+    });
+    expect(restored.persistedKeys).toEqual(new Set([1_000]));
   });
 
   it("skips incomplete timings", () => {

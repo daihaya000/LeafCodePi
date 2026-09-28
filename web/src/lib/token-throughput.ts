@@ -89,6 +89,24 @@ export function isThroughputCustomEntry(entry: {
   return entry.type === "custom" && entry.customType === THROUGHPUT_CUSTOM_TYPE;
 }
 
+export function restoreThroughputFromEntries(entries: Iterable<unknown>): {
+  timings: Map<number, ThroughputTiming>;
+  persistedKeys: Set<number>;
+} {
+  const timings = new Map<number, ThroughputTiming>();
+  const persistedKeys = new Set<number>();
+  for (const entry of entries) {
+    if (!entry || typeof entry !== "object") continue;
+    const customEntry = entry as { type?: unknown; customType?: unknown; data?: unknown };
+    if (!isThroughputCustomEntry(customEntry)) continue;
+    const timing = timingFromPersisted(customEntry.data);
+    if (!timing) continue;
+    timings.set(timing.startedAtMs, timing);
+    persistedKeys.add(timing.startedAtMs);
+  }
+  return { timings, persistedKeys };
+}
+
 const CONTENT_DELTA_TYPES = new Set([
   "text_delta",
   "thinking_delta",
