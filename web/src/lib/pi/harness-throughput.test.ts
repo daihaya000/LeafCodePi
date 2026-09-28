@@ -41,6 +41,8 @@ describe("trackThroughputEvent", () => {
     assert.ok(timings instanceof VersionedThroughputMap);
     assert.equal(timings.revision, 1);
     assert.equal(timings.awaitingFirstTokenCount, 1);
+    const startedTiming = timings.get(1_000)!;
+    assert.equal(Object.isFrozen(startedTiming), true);
     vi.setSystemTime(1_100);
     trackThroughputEvent(live, {
       type: "message_update",
@@ -49,12 +51,18 @@ describe("trackThroughputEvent", () => {
     });
     assert.equal(timings.revision, 2);
     assert.equal(timings.awaitingFirstTokenCount, 0);
+    const updatedTiming = timings.get(1_000)!;
+    assert.notEqual(updatedTiming, startedTiming);
+    assert.equal(Object.isFrozen(updatedTiming), true);
+    assert.equal(startedTiming.lastTokenAtMs, null);
     trackThroughputEvent(live, {
       type: "message_end",
       message: { role: "assistant", timestamp: 1_000, usage: { output: 2 } },
     });
     assert.equal(timings.revision, 3);
     assert.equal(timings.awaitingFirstTokenCount, 0);
+    assert.notEqual(timings.get(1_000), updatedTiming);
+    assert.equal(Object.isFrozen(timings.get(1_000)), true);
     await new Promise<void>((resolve) => queueMicrotask(resolve));
 
     assert.equal(persisted.length, 1);
