@@ -124,7 +124,7 @@ export function ActivityLog({ children, header, count, parts, messages = [], sta
         if (event.currentTarget.open) stickRef.current = true;
         setOpen(event.currentTarget.open);
       }}
-      className="group/tool-activity w-full min-w-0 max-w-bubble self-start overflow-hidden rounded-card border border-border bg-surface"
+      className={cx("group/tool-activity w-full min-w-0 self-start overflow-hidden rounded-card border border-border bg-surface", headerNode ? "max-w-full" : "max-w-bubble")}
     >
       <summary className="flex min-h-11 cursor-pointer list-none items-center gap-2 bg-surface-2 px-3 py-2.5 text-left text-sm text-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary [&::-webkit-details-marker]:hidden">
         <ScrollText className="h-4 w-4 shrink-0" aria-hidden="true" />
@@ -159,7 +159,7 @@ export function ActivityLog({ children, header, count, parts, messages = [], sta
     </details>
   );
   return headerNode ? (
-    <div className="w-full min-w-0 self-start space-y-2">
+    <div className="w-full min-w-0 max-w-bubble self-start space-y-2">
       {headerNode}
       {log}
     </div>
