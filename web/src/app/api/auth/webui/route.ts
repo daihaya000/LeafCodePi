@@ -3,6 +3,7 @@ import {
   expectedWebUiToken,
   tokensMatch,
   WEBUI_AUTH_COOKIE,
+  WEBUI_AUTH_COOKIE_OPTIONS,
   webUiAuthRequired,
 } from "@/lib/webui-auth";
 
@@ -27,11 +28,6 @@ export async function POST(req: Request) {
   }
 
   const res = NextResponse.json({ ok: true });
-  res.cookies.set(WEBUI_AUTH_COOKIE, given, {
-    httpOnly: true,
-    sameSite: "lax",
-    path: "/",
-    maxAge: 60 * 60 * 24 * 365,
-  });
+  res.cookies.set(WEBUI_AUTH_COOKIE, given, WEBUI_AUTH_COOKIE_OPTIONS);
   return res;
 }

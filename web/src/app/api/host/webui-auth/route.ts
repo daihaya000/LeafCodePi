@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { hostWebUiAuthPath, resolveHostControlUrl } from "@/lib/host-control";
-import { WEBUI_AUTH_COOKIE } from "@/lib/webui-auth";
+import { WEBUI_AUTH_COOKIE, WEBUI_AUTH_COOKIE_OPTIONS } from "@/lib/webui-auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -63,12 +63,7 @@ export async function POST(req: NextRequest) {
     const upstream = await forward("POST", patch);
     const response = await toResponse(upstream);
     if (upstream.ok && patch.token?.trim()) {
-      response.cookies.set(WEBUI_AUTH_COOKIE, patch.token.trim(), {
-        httpOnly: true,
-        sameSite: "lax",
-        path: "/",
-        maxAge: 60 * 60 * 24 * 365,
-      });
+      response.cookies.set(WEBUI_AUTH_COOKIE, patch.token.trim(), WEBUI_AUTH_COOKIE_OPTIONS);
     }
     return response;
   } catch (err) {

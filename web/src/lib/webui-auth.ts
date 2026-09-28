@@ -4,6 +4,7 @@ export {
   expectedWebUiToken,
   isPublicWebUiPath,
   WEBUI_AUTH_COOKIE,
+  WEBUI_AUTH_COOKIE_OPTIONS,
   webUiAuthRequired,
 } from "./webui-auth-shared";
 

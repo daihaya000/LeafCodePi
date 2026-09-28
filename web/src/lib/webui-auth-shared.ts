@@ -1,4 +1,10 @@
 export const WEBUI_AUTH_COOKIE = "leafcode-pi-token";
+export const WEBUI_AUTH_COOKIE_OPTIONS = {
+  httpOnly: true,
+  sameSite: "lax" as const,
+  path: "/",
+  maxAge: 60 * 60 * 24 * 365,
+};
 
 /** Remote bind requires token auth when host sets LEAFCODE_PI_WEBUI_AUTH=required. */
 export function webUiAuthRequired(): boolean {
