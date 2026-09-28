@@ -6,7 +6,7 @@ vi.mock("@/lib/pi/typesafe-system-one", () => ({
 }));
 
 import { classifySessionLabelWithJev, matchSessionLabelByRule } from "./auto-jev";
-import type { SessionLabel } from "./session-label-settings";
+import { DEFAULT_SESSION_LABELS, type SessionLabel } from "./session-label-settings";
 
 const originalRouting = process.env.TYPESAFE_AUTO_ROUTING;
 
@@ -72,14 +72,28 @@ describe("matchSessionLabelByRule", () => {
     expect(matchSessionLabelByRule("リファクタしたい", labels)).toBe("code");
   });
 
-  it("returns undefined with no overlap, empty input, or a tie", () => {
+  it("returns undefined with no overlap or empty input", () => {
     expect(matchSessionLabelByRule("hello", labels)).toBeUndefined();
     expect(matchSessionLabelByRule("", labels)).toBeUndefined();
-    expect(
-      matchSessionLabelByRule("修正 リファクタ", [
-        { id: "a", name: "AA", hint: "修正", color: "red" },
-        { id: "b", name: "BB", hint: "リファクタ", color: "blue" },
-      ]),
-    ).toBeUndefined();
+  });
+
+  it("breaks a tie with the label listed first", () => {
+    const tied: SessionLabel[] = [
+      { id: "a", name: "AA", hint: "修正", color: "red" },
+      { id: "b", name: "BB", hint: "リファクタ", color: "blue" },
+    ];
+    expect(matchSessionLabelByRule("修正 リファクタ", tied)).toBe("a");
+    expect(matchSessionLabelByRule("修正 リファクタ", [...tied].reverse())).toBe("b");
+  });
+
+  it("labels the everyday requests that used to tie between debug and code", () => {
+    // どれも「不具合/エラー」(debug) と「修正」(code) が1語ずつ一致し、以前はラベル無しになっていた。
+    for (const prompt of [
+      "スマホでのスクロール操作が安定しない不具合を修正",
+      "ツール周りの不具合をすべて修正",
+      "invalid files のエラーで続行できない問題修正",
+    ]) {
+      expect(matchSessionLabelByRule(prompt, DEFAULT_SESSION_LABELS)).toBe("debug");
+    }
   });
 });

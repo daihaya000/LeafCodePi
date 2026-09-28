@@ -241,11 +241,9 @@ import {
   type AutoOptimizeMode,
   type AutoRouteConfig,
 } from "@/lib/auto-model";
-import { classifyAutoTierWithJev, classifySessionLabelWithJev, matchSessionLabelByRule } from "@/lib/auto-jev";
+import { classifyAutoTierWithJev, matchSessionLabelByRule } from "@/lib/auto-jev";
 import {
-  isSessionLabelJevEnabled,
   resolveSessionLabels,
-  SESSION_LABEL_JEV_SETTING_KEY,
   SESSION_LABELS_SETTING_KEY,
 } from "@/lib/session-label-settings";
 import { compactWithJev } from "@/lib/pi/jev-compaction";
@@ -2106,6 +2104,7 @@ function finishSettledTurn(
       );
     });
   }
+  ensureSessionLabelAfterTurn(taskId);
 }
 
 export function restoredThroughputState(
@@ -4949,11 +4948,12 @@ let jevUsableCache: { key: string; expiresAt: number; value: Promise<boolean> } 
  * unchanged; credential changes are picked up after the short TTL or a catalog refresh.
  * Failures are not cached. A cold catalog read is bounded by the Jev timeout so routing
  * never waits longer than a Jev call would; the read keeps filling the cache.
+ * Background callers (session labels) pass a longer waitMs instead of skipping Jev.
  */
-export function hasUsableJevModelConfigured(): Promise<boolean> {
+export function hasUsableJevModelConfigured(options: { waitMs?: number } = {}): Promise<boolean> {
   let timeoutMs: number;
   try {
-    timeoutMs = readJevModelSettings().timeoutMs;
+    timeoutMs = Math.max(readJevModelSettings().timeoutMs, options.waitMs ?? 0);
   } catch {
     return Promise.resolve(false);
   }
@@ -7406,26 +7406,31 @@ function insertTaskForCreateTask(input: {
   });
 }
 
-/** Apply the Jev refinement after initial task creation without delaying the first turn. */
+/** Label jobs call Jev and the generation model in the background; tests opt in explicitly. */
+function backgroundSessionLabelsEnabled(): boolean {
+  return process.env.NODE_ENV !== "test" || process.env.LEAFCODE_BACKGROUND_SESSION_LABELS === "1";
+}
+
+/** Refine the insert-time rule label (Jev, then the title model) without delaying the first turn. */
 function startInitialSessionLabelClassification(taskId: string, prompt: string): void {
+  if (!prompt.trim() || !backgroundSessionLabelsEnabled()) return;
+  // direct-title imports this module, so load it lazily.
+  void import("@/lib/direct-title")
+    .then(({ refineInitialTaskLabel }) => refineInitialTaskLabel(taskId, prompt))
+    .catch(() => undefined);
+}
+
+/** Every creation-time classifier can miss (offline Jev, busy model); retry after each turn. */
+function ensureSessionLabelAfterTurn(taskId: string): void {
+  if (!backgroundSessionLabelsEnabled()) return;
+  const task = getTask(taskId);
+  if (!task || (task.kind ?? "code") !== "code") return;
+  // A deleted label definition renders as "-" too, so only a known label is final.
   const labels = resolveSessionLabels(getSetting(SESSION_LABELS_SETTING_KEY));
-  if (
-    !prompt.trim() || labels.length === 0 ||
-    !isAutoJevEnabled(getSetting(AUTO_JEV_ENABLED_SETTING_KEY)) ||
-    !isSessionLabelJevEnabled(getSetting(SESSION_LABEL_JEV_SETTING_KEY))
-  ) {
-    return;
-  }
-  void hasUsableJevModelConfigured().then((usable) => usable
-    ? classifySessionLabelWithJev(
-      { prompt, labels },
-      { minConfidence: parseAutoJevMinConfidence(getSetting(AUTO_JEV_MIN_CONFIDENCE_SETTING_KEY)) },
-    )
-    : undefined,
-  ).then((label) => {
-    // Push the late label to open panes; otherwise it waits for the next lifecycle snapshot.
-    if (label && patchTask(taskId, { label })) emitTaskChanged(taskId, "label_changed");
-  }).catch(() => undefined);
+  if (labels.length === 0 || labels.some((label) => label.id === task.label)) return;
+  void import("@/lib/direct-title")
+    .then(({ ensureTaskLabelDirect }) => ensureTaskLabelDirect(taskId))
+    .catch(() => undefined);
 }
 
 function markProjectOpened(project: ProjectDto | null): void {

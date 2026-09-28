@@ -1,3 +1,6 @@
+/** Let startup warmups finish before the label backfill calls Jev or the title model. */
+const SESSION_LABEL_BACKFILL_DELAY_MS = 60_000;
+
 export async function register() {
   if (process.env.NEXT_RUNTIME !== "nodejs") return;
   try {
@@ -19,6 +22,14 @@ export async function register() {
     if (typeof listModelsForAccounts === "function") {
       const { listAccounts } = await import("@/lib/accounts");
       void listModelsForAccounts(listAccounts()).catch(() => undefined);
+    }
+    // Sessions still showing "-" (every creation and turn-end classifier missed) are labelled in the background after startup.
+    const { backfillMissingTaskLabels } = await import("@/lib/direct-title");
+    if (typeof backfillMissingTaskLabels === "function") {
+      const timer = setTimeout(() => {
+        void backfillMissingTaskLabels().catch(() => undefined);
+      }, SESSION_LABEL_BACKFILL_DELAY_MS);
+      if (typeof timer.unref === "function") timer.unref();
     }
   } catch (error) {
     console.warn("[bot-code-relay] startup scan unavailable", error);

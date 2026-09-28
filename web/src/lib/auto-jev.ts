@@ -114,6 +114,8 @@ export async function classifySessionLabelWithJev(
 /**
  * Deterministic fallback when Jev is off or unsure. Scores each label by how many
  * of its own words appear in the prompt, so it follows edited labels automatically.
+ * A tie goes to the label listed first, so the user's order acts as priority. Returning
+ * nothing on a tie left common requests such as "...の不具合を修正" (debug vs code) unlabeled.
  * ponytail: naive word-overlap scoring; switch to n-grams or embeddings only if it misfires.
  */
 export function matchSessionLabelByRule(
@@ -123,7 +125,6 @@ export function matchSessionLabelByRule(
   const haystack = prompt.toLowerCase();
   if (!haystack.trim()) return undefined;
   let best: { id: string; score: number } | undefined;
-  let tied = false;
   for (const label of labels) {
     const words = new Set(
       `${label.name} ${label.hint}`
@@ -133,15 +134,9 @@ export function matchSessionLabelByRule(
     );
     let score = 0;
     for (const word of words) if (haystack.includes(word)) score += 1;
-    if (score === 0) continue;
-    if (!best || score > best.score) {
-      best = { id: label.id, score };
-      tied = false;
-    } else if (score === best.score) {
-      tied = true;
-    }
+    if (score > (best?.score ?? 0)) best = { id: label.id, score };
   }
-  return best && !tied ? best.id : undefined;
+  return best?.id;
 }
 
 export async function selectAutoAgentWithJev(

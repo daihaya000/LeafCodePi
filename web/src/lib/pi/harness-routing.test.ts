@@ -305,6 +305,12 @@ vi.mock("@earendil-works/pi-coding-agent", () => fakePi);
 const autoAgentMock = vi.hoisted(() => vi.fn());
 vi.mock("@/lib/auto-agent", () => ({ resolveAutoAgent: autoAgentMock }));
 
+const labelJobs = vi.hoisted(() => ({
+  refineInitialTaskLabel: vi.fn(async (): Promise<string | undefined> => undefined),
+  ensureTaskLabelDirect: vi.fn(async (): Promise<string | undefined> => undefined),
+}));
+vi.mock("@/lib/direct-title", () => labelJobs);
+
 import {
   createAccount,
   accountAuthPath,
@@ -508,6 +514,36 @@ describe("integrated session routing", () => {
     fakePi.sessions[0]?.emit?.({ type: "agent_settled" });
 
     expect(getTask(task.id)).toMatchObject({ status: "idle", manualAbortedAssistantId: "" });
+  });
+
+  it("hands unlabelled tasks to the background labeller at creation and after each settled turn", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "leafcode-pi-session-label-jobs-"));
+    tempDirs.push(dir);
+    process.env.LEAFCODE_PI_DATA_DIR = dir;
+    process.env.PI_CODING_AGENT_DIR = join(dir, "agent");
+    __resetPiAgentDirCacheForTests();
+    installHarness(new Map());
+    vi.stubEnv("LEAFCODE_BACKGROUND_SESSION_LABELS", "1");
+    labelJobs.refineInitialTaskLabel.mockClear();
+    labelJobs.ensureTaskLabelDirect.mockClear();
+    try {
+      const project = upsertProject({ name: "demo", rootPath: dir });
+      // "初回" matches no label keyword, so the task starts unlabelled.
+      const prompt = "初回";
+      const task = await createTask({ projectId: project.id, prompt });
+      expect(task.label).toBeUndefined();
+      await vi.waitFor(() => expect(labelJobs.refineInitialTaskLabel).toHaveBeenCalledWith(task.id, prompt));
+      await waitFor(() => getTask(task.id)?.status === "idle");
+      await vi.waitFor(() => expect(labelJobs.ensureTaskLabelDirect).toHaveBeenCalledWith(task.id));
+
+      const calls = labelJobs.ensureTaskLabelDirect.mock.calls.length;
+      patchTask(task.id, { label: "code" });
+      fakePi.sessions[0]?.emit?.({ type: "agent_settled" });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(labelJobs.ensureTaskLabelDirect).toHaveBeenCalledTimes(calls);
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 
   it("keeps a manual Stop idle after Pi reports an abort settle", async () => {

@@ -1,11 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const state = vi.hoisted(() => ({ relay: vi.fn(), scheduler: vi.fn(), reconcileTasks: vi.fn(), reconcileRooms: vi.fn(), prewarmTasks: vi.fn(() => Promise.resolve([])), warmModels: vi.fn(() => Promise.resolve([])), listAccounts: vi.fn(() => []) }));
+const state = vi.hoisted(() => ({ relay: vi.fn(), scheduler: vi.fn(), reconcileTasks: vi.fn(), reconcileRooms: vi.fn(), prewarmTasks: vi.fn(() => Promise.resolve([])), warmModels: vi.fn(() => Promise.resolve([])), listAccounts: vi.fn(() => []), backfillLabels: vi.fn(() => Promise.resolve(0)) }));
 vi.mock("@/lib/pi/harness", () => ({ startBotCodeRelay: state.relay, getTaskSummariesWithTodoProgress: state.prewarmTasks, listModelsForAccounts: state.warmModels }));
 vi.mock("@/lib/accounts", () => ({ listAccounts: state.listAccounts }));
 vi.mock("@/lib/routines", () => ({ ensureRoutineScheduler: state.scheduler }));
 vi.mock("@/lib/task-runtime-lease", () => ({ reconcileOrphanedWorkingTasks: state.reconcileTasks }));
 vi.mock("@/lib/room-runtime", () => ({ reconcileRoomRuntime: state.reconcileRooms }));
+vi.mock("@/lib/direct-title", () => ({ backfillMissingTaskLabels: state.backfillLabels }));
 
 import { register } from "./instrumentation";
 
@@ -18,6 +19,7 @@ describe("runtime startup", () => {
     state.prewarmTasks.mockClear();
     state.warmModels.mockClear();
     state.listAccounts.mockClear();
+    state.backfillLabels.mockClear();
   });
 
   it("starts the Bot relay and routine scheduler in Node.js", async () => {
@@ -34,6 +36,21 @@ describe("runtime startup", () => {
     expect(state.warmModels).toHaveBeenCalledOnce();
   });
 
+  it("backfills missing session labels once startup has settled", async () => {
+    vi.stubEnv("NEXT_RUNTIME", "nodejs");
+    vi.useFakeTimers();
+    try {
+      await register();
+      expect(state.backfillLabels).not.toHaveBeenCalled();
+
+      vi.advanceTimersByTime(60_000);
+
+      expect(state.backfillLabels).toHaveBeenCalledOnce();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("does not start server services in the Edge runtime", async () => {
     vi.stubEnv("NEXT_RUNTIME", "edge");
 
@@ -45,5 +62,6 @@ describe("runtime startup", () => {
     expect(state.reconcileRooms).not.toHaveBeenCalled();
     expect(state.prewarmTasks).not.toHaveBeenCalled();
     expect(state.warmModels).not.toHaveBeenCalled();
+    expect(state.backfillLabels).not.toHaveBeenCalled();
   });
 });

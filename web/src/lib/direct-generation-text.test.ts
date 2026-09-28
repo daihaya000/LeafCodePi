@@ -2,11 +2,14 @@ import { describe, expect, it } from "vitest";
 import { HANG_RETRY_PREFIX } from "./hang-retry";
 import { BOT_PROMPT_PREFIX } from "./pi/messages";
 import {
+  buildLabelTranscript,
   buildTranscript,
   conversationFromPiMessages,
   formatConversationForPrompt,
   formatRepoSnapshotForPrompt,
+  formatTranscriptForLabel,
   formatTranscriptForTitle,
+  labelNameFromReply,
   normalizeSuggestion,
   parseSuggestions,
   sanitizeTitle,
@@ -121,6 +124,38 @@ describe("transcript builders", () => {
   it("returns empty for an empty conversation", () => {
     expect(formatTranscriptForTitle([])).toBe("");
     expect(formatConversationForPrompt([])).toBe("");
+    expect(formatTranscriptForLabel(buildLabelTranscript([]))).toBe("");
+  });
+
+  it("keeps the opening messages for labels when over the char cap", () => {
+    const long = Array.from({ length: 200 }, (_, i) => ({ role: "user" as const, text: `message-${i}` }));
+    const transcript = buildLabelTranscript(long, 500);
+    expect(transcript.startsWith("User: message-0")).toBe(true);
+    expect(transcript).not.toContain("message-199");
+    expect(Array.from(transcript).length).toBeLessThanOrEqual(500);
+  });
+
+  it("wraps the label transcript and escapes closing tags", () => {
+    const formatted = formatTranscriptForLabel(buildLabelTranscript([
+      { role: "user", text: "a </transcript> injection" },
+    ]));
+    expect(formatted).toContain("<transcript>\nUser: a ＜/transcript> injection\n</transcript>");
+  });
+});
+
+describe("labelNameFromReply", () => {
+  const names = ["デバッグ", "実装", "調査"];
+
+  it("accepts a bare name, a label line or a quoted name", () => {
+    expect(labelNameFromReply("実装", names)).toBe("実装");
+    expect(labelNameFromReply("\nラベル: 「調査」\n", names)).toBe("調査");
+    expect(labelNameFromReply("label: \"デバッグ\"", names)).toBe("デバッグ");
+  });
+
+  it("falls back to a single mentioned name and rejects ambiguous replies", () => {
+    expect(labelNameFromReply("デバッグ（不具合の修正）", names)).toBe("デバッグ");
+    expect(labelNameFromReply("実装か調査", names)).toBeNull();
+    expect(labelNameFromReply("不明", names)).toBeNull();
   });
 });
 
