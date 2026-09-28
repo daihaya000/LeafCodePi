@@ -47,6 +47,25 @@ const throughputSession = { ...session } as Parameters<typeof snapshotMessages>[
 const fullyVersionedSession = { ...session } as Parameters<typeof snapshotMessages>[0];
 const versionedThroughput = new VersionedThroughputMap(throughput);
 
+// One live assistant awaits its first token while 999 earlier timings are finalized.
+const pendingAtMs = Date.now() - 1_000;
+const pendingStored = stored.slice();
+pendingStored[pendingStored.length - 1] = {
+  role: "assistant", timestamp: pendingAtMs, content: [
+    { type: "text", text: "working" },
+    { type: "toolCall", id: "call-999", name: "bash", arguments: {} },
+  ],
+};
+const pendingThroughput = new Map(throughput);
+pendingThroughput.delete(10_000 + 999 * 10_000);
+pendingThroughput.set(pendingAtMs, {
+  startedAtMs: pendingAtMs, firstTokenAtMs: null, lastTokenAtMs: null,
+  outputTokens: null, charCount: 0,
+});
+const pendingSession = { ...session, messages: pendingStored } as Parameters<typeof snapshotMessages>[0];
+const pendingVersionedSession = { ...pendingSession } as Parameters<typeof snapshotMessages>[0];
+const pendingVersionedThroughput = new VersionedThroughputMap(pendingThroughput);
+
 // Alternate the output on every call so both paths reproject and replace a row.
 // Separate sessions keep each cached base projection independent.
 const scanSession = { ...session } as Parameters<typeof snapshotMessages>[0];
@@ -60,6 +79,8 @@ const cases = [
   ["history only", () => snapshotMessages(session)],
   ["throughput only", () => snapshotMessages(session, throughput)],
   ["throughput versioned", () => snapshotMessages(throughputSession, versionedThroughput)],
+  ["throughput pending plain", () => snapshotMessages(pendingSession, pendingThroughput)],
+  ["throughput pending versioned", () => snapshotMessages(pendingVersionedSession, pendingVersionedThroughput)],
   ["partial output only", () => snapshotMessages(session, undefined, undefined, undefined, partial)],
   ["partial output all", () => snapshotMessages(session, undefined, undefined, undefined, partialAll)],
   ["tool timing only", () => snapshotMessages(session, undefined, started, ended)],
