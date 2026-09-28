@@ -66,6 +66,7 @@ import {
   toolTimingFromSessionEntries,
 } from "@/lib/pi/messages";
 import { installToolResultCap } from "@/lib/pi/tool-result-cap";
+import { registerRequestImageCap } from "@/lib/pi/request-image-cap";
 import {
   applyMessageAccountIds,
   applyMessageAgentIds,
@@ -3276,6 +3277,7 @@ export function sessionExtensionFactories(input: {
         ? (api: ExtensionAPI) => registerDeferredTools(api, input.agentToolAllowlist)
         : registerDeferredTools,
     registerJevTool,
+    registerRequestImageCap,
     ...(input.taskId ? [registerGoalLoopTurnRouting(input.taskId)] : []),
     ...(input.hasBotSkills
       ? [
