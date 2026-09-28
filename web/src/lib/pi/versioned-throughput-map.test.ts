@@ -53,9 +53,11 @@ describe("VersionedThroughputMap", () => {
 
   it("handles duplicate restored keys without a stale pending count", () => {
     const pending = createThroughputTiming(1_000);
-    const finalized = { ...pending, lastTokenAtMs: 1_500 };
+    const finalized = { ...pending, lastTokenAtMs: 1_500, outputTokens: 77 };
     const timings = new VersionedThroughputMap([[1_000, pending], [1_000, finalized]]);
     expect(timings.size).toBe(1);
+    expect(timings.get(1_000)?.outputTokens).toBe(77);
+    expect(timings.get(1_000)?.lastTokenAtMs).toBe(1_500);
     expect(timings.revision).toBe(0);
     expect(timings.awaitingFirstTokenCount).toBe(0);
     expect([...timings.pendingStartedAts()]).toEqual([]);
