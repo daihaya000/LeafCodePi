@@ -256,7 +256,7 @@ describe("PartView sender and response metadata", () => {
     expect(screen.getByText("思考")).toBeTruthy();
   });
 
-  it("keeps usage available in narrow task panes and prioritizes it over the account", () => {
+  it("places model, effort, optional account and time above token usage", () => {
     render(
       <PartView
         message={{
@@ -276,18 +276,29 @@ describe("PartView sender and response metadata", () => {
     );
 
     const meta = screen.getByLabelText("応答メタデータ");
+    const identity = screen.getByLabelText("モデル情報");
+    const usage = screen.getByLabelText("トークン情報");
     const account = screen.getByText("long-account@example.com");
+    const time = screen.getByText(formatMessageTime(1));
+    expect(meta.children).toHaveLength(2);
+    expect(meta.children[0]).toBe(identity);
+    expect(meta.children[1]).toBe(usage);
+    for (const label of ["gpt", "low", "builder", "long-account@example.com"]) {
+      expect(identity.contains(screen.getByText(label))).toBe(true);
+    }
+    expect(account.compareDocumentPosition(time) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     for (const label of ["32 tok", "22 tok/s", "3s"]) {
       const element = screen.getByText(label);
+      expect(usage.contains(element)).toBe(true);
       expect(element.className).not.toContain("hidden");
-      expect(element.compareDocumentPosition(account) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     }
     const accountGroup = account.parentElement!;
-    expect(accountGroup.className).toContain("shrink-[100]");
+    expect(accountGroup.className).toContain("hidden");
+    expect(accountGroup.className).toContain("sm:inline-flex");
     expect(accountGroup.className).toContain("overflow-hidden");
     expect(accountGroup.getAttribute("title")).toBe("long-account@example.com");
     expect(accountGroup.querySelector('[aria-hidden="true"]')?.textContent).toBe("·");
-    expect(meta.className).toContain("flex-wrap");
+    expect(identity.className).toContain("flex-wrap");
     expect(meta.className).not.toContain("overflow-hidden");
   });
 
@@ -306,7 +317,9 @@ describe("PartView sender and response metadata", () => {
     const meta = screen.getByLabelText("応答メタデータ");
     const model = screen.getByText(modelLabel);
     const time = screen.getByText(formatMessageTime(createdAt));
-    expect(meta.className).toContain("flex-wrap");
+    expect(screen.getByLabelText("モデル情報").className).toContain("flex-wrap");
+    expect(screen.getByLabelText("トークン情報").textContent).toContain("94k tok");
+    expect(meta.className).toContain("flex-col");
     expect(model.className).toContain("[overflow-wrap:anywhere]");
     expect(model.className).not.toContain("truncate");
     expect(time.className).toContain("shrink-0");
@@ -330,6 +343,7 @@ describe("PartView sender and response metadata", () => {
     expect(screen.getByText("Model A")).toBeTruthy();
     expect(screen.getByText("max")).toBeTruthy();
     expect(screen.getByText("Account A")).toBeTruthy();
+    expect(screen.queryByLabelText("トークン情報")).toBeNull();
 
     view.rerender(<MessageMetaHeader message={message} agent="reviewer" hideDefaultAgent />);
     expect(screen.getByText("reviewer")).toBeTruthy();

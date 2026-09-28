@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import {
@@ -729,78 +729,83 @@ export const MessageMetaHeader = memo(function MessageMetaHeader({
     rate: ACTIVITY_USAGE_TITLES.rate,
     thinking: ACTIVITY_USAGE_TITLES.elapsed,
   };
-  const fields = [
+  const identityFields = [
     model ? { key: "model", text: model } : null,
     effort?.trim() ? { key: "effort", text: effort.trim() } : null,
     agentName && !(hideDefaultAgent && agentName === DEFAULT_AGENT)
       ? { key: "agent", text: agentName }
       : null,
+    accountLabel?.trim() ? { key: "account", text: accountLabel.trim() } : null,
     { key: "time", text: formatMessageTime(message.createdAt) },
+  ].filter((field): field is { key: string; text: string } => Boolean(field?.text));
+  const usageFields = [
     tokens ? { key: "tokens", text: tokens } : null,
     rate ? { key: "rate", text: rate } : null,
     thinking ? { key: "thinking", text: thinking } : null,
-    // Keep account last: usage has priority when the metadata row runs out of room.
-    accountLabel?.trim() ? { key: "account", text: accountLabel.trim() } : null,
   ].filter((field): field is { key: string; text: string } => Boolean(field?.text));
+  const renderField = (field: { key: string; text: string }, index: number) => {
+    // The optional account and its separator are hidden together on phone widths.
+    if (field.key === "account") return (
+      <span key={field.key} className="hidden min-w-0 max-w-64 shrink-[100] items-center gap-1.5 overflow-hidden sm:inline-flex" title={field.text}>
+        {index > 0 && <span className="shrink-0" aria-hidden="true">·</span>}
+        <span className="min-w-0 truncate">
+          <UserRound className="mr-0.5 inline h-3 w-3 align-[-1px]" aria-hidden />
+          {field.text}
+        </span>
+      </span>
+    );
+    return (
+      <span
+        key={field.key}
+        className={cx(
+          "inline-flex items-center gap-1.5",
+          field.key === "model" ? "min-w-0 max-w-full" : "shrink-0",
+        )}
+      >
+        {index > 0 && <span className="shrink-0" aria-hidden="true">·</span>}
+        <span
+          className={cx(
+            field.key === "agent"
+              ? "inline-flex shrink-0 items-center gap-0.5"
+              : field.key === "model"
+                ? "min-w-0 [overflow-wrap:anywhere]"
+                : "shrink-0",
+            field.key === "rate" && "tabular-nums",
+            field.key === "rate" && slow && "text-danger",
+          )}
+          title={
+            group && groupTitles[field.key]
+              ? groupTitles[field.key]
+              : field.key === "rate" && message.tokensPerSecondDecode
+                ? "decode tok/s（最初のトークン以降、TTFT 除外）"
+                : field.key === "rate"
+                  ? "end-to-end tok/s（TTFT 含む）"
+                  : field.key === "thinking"
+                    ? "応答時間（思考＋生成を含む目安）"
+                    : field.key === "model"
+                      ? field.text
+                      : undefined
+          }
+        >
+          {field.key === "agent" && <AgentRoleIcon name={field.text} />}
+          {field.text}
+        </span>
+      </span>
+    );
+  };
 
   return (
-    <div
-      aria-label="応答メタデータ"
-      className="flex w-full min-w-0 max-w-full flex-wrap items-center gap-x-1.5 gap-y-1 text-[11px] text-muted"
-    >
-      {/* 合成メッセージ（シェル実行など）はプロバイダを持たないので汎用アイコンを出さない。 */}
-      {message.provider && <ProviderIcon providerID={message.provider} size={14} />}
-      {fields.map((field, index) => {
-        // The separator belongs to the low-priority account: it must disappear
-        // with the account instead of taking room away from the usage values.
-        if (field.key === "account") return (
-          <span key={field.key} className="inline-flex min-w-0 max-w-64 shrink-[100] items-center gap-1.5 overflow-hidden" title={field.text}>
-            {index > 0 && <span className="shrink-0" aria-hidden="true">·</span>}
-            <span className="min-w-0 truncate">
-              <UserRound className="mr-0.5 inline h-3 w-3 align-[-1px]" aria-hidden />
-              {field.text}
-            </span>
-          </span>
-        );
-        return (
-          <span
-            key={field.key}
-            className={cx(
-              "inline-flex items-center gap-1.5",
-              field.key === "model" ? "min-w-0 max-w-full" : "shrink-0",
-            )}
-          >
-            {index > 0 && <span className="shrink-0" aria-hidden="true">·</span>}
-            <span
-              className={cx(
-                field.key === "agent"
-                  ? "inline-flex shrink-0 items-center gap-0.5"
-                  : field.key === "model"
-                    ? "min-w-0 [overflow-wrap:anywhere]"
-                    : "shrink-0",
-                field.key === "rate" && "tabular-nums",
-                field.key === "rate" && slow && "text-danger",
-              )}
-              title={
-                group && groupTitles[field.key]
-                  ? groupTitles[field.key]
-                  : field.key === "rate" && message.tokensPerSecondDecode
-                    ? "decode tok/s（最初のトークン以降、TTFT 除外）"
-                    : field.key === "rate"
-                      ? "end-to-end tok/s（TTFT 含む）"
-                      : field.key === "thinking"
-                        ? "応答時間（思考＋生成を含む目安）"
-                        : field.key === "model"
-                          ? field.text
-                          : undefined
-              }
-            >
-              {field.key === "agent" && <AgentRoleIcon name={field.text} />}
-              {field.text}
-            </span>
-          </span>
-        );
-      })}
+    <div aria-label="応答メタデータ" className="flex w-full min-w-0 max-w-full flex-col gap-1 text-[11px] text-muted">
+      <div aria-label="モデル情報" className="flex w-full min-w-0 flex-wrap items-center gap-x-1.5 gap-y-1">
+        {/* 合成メッセージ（シェル実行など）はプロバイダを持たないので汎用アイコンを出さない。 */}
+        {message.provider && <ProviderIcon providerID={message.provider} size={14} />}
+        {identityFields.map(renderField)}
+      </div>
+      {usageFields.length > 0 && (
+        <div aria-label="トークン情報" className="flex w-full min-w-0 flex-wrap items-center gap-x-1.5 gap-y-1">
+          {usageFields.map(renderField)}
+        </div>
+      )}
     </div>
   );
 });
