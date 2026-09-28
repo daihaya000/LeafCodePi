@@ -83,6 +83,18 @@ export function dedupeUiMessages(messages: UiMessage[]): UiMessage[] {
 export function stabilizeIdentifiedList<T extends { id: string }>(prev: T[], next: T[]): T[] {
   if (next.length === 0) return next;
   if (prev.length === 0) return next;
+  // Snapshots normally keep the same order; avoid building an id map and output array.
+  if (prev.length === next.length && prev.every((item, index) => item.id === next[index]?.id)) {
+    let out: T[] | undefined;
+    for (let index = 0; index < next.length; index++) {
+      const old = prev[index]!;
+      const message = next[index]!;
+      const unchanged = old === message || messageFingerprint(old) === messageFingerprint(message);
+      if (!unchanged && !out) out = prev.slice(0, index);
+      if (out) out.push(unchanged ? old : message);
+    }
+    return out ?? prev;
+  }
   const prevById = new Map(prev.map((message) => [message.id, message]));
   let changed = prev.length !== next.length;
   const out = next.map((message, index) => {

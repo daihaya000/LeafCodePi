@@ -112,6 +112,18 @@ describe("stabilizeUiMessages", () => {
     expect(out[0]).toBe(prev[0]);
   });
 
+  it("reuses stable-order rows around a changed middle row", () => {
+    const prev = [textMessage("first", "one"), textMessage("middle", "two"), textMessage("last", "three")];
+    const next = [textMessage("first", "one"), textMessage("middle", "updated"), textMessage("last", "three")];
+
+    const out = stabilizeUiMessages(prev, next);
+
+    expect(out).not.toBe(prev);
+    expect(out[0]).toBe(prev[0]);
+    expect(out[1]).toBe(next[1]);
+    expect(out[2]).toBe(prev[2]);
+  });
+
   it("keeps a changed SSE ordering instead of returning the old array", () => {
     const prev = [textMessage("first", "first"), textMessage("second", "second")];
     const next = [textMessage("second", "second"), textMessage("first", "first")];
