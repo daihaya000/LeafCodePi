@@ -65,6 +65,14 @@ pendingThroughput.set(pendingAtMs, {
 const pendingSession = { ...session, messages: pendingStored } as Parameters<typeof snapshotMessages>[0];
 const pendingVersionedSession = { ...pendingSession } as Parameters<typeof snapshotMessages>[0];
 const pendingVersionedThroughput = new VersionedThroughputMap(pendingThroughput);
+const pendingStarted = new Map(started);
+const pendingEnded = new Map(ended);
+pendingStarted.set("call-999", pendingAtMs + 500);
+pendingEnded.set("call-999", pendingAtMs + 1_000);
+const pendingVersionedStarted = new VersionedTimingMap(pendingStarted);
+const pendingVersionedEnded = new VersionedTimingMap(pendingEnded);
+const combinedPendingSession = { ...pendingSession } as Parameters<typeof snapshotMessages>[0];
+const combinedPendingVersionedSession = { ...pendingSession } as Parameters<typeof snapshotMessages>[0];
 
 // Alternate the output on every call so both paths reproject and replace a row.
 // Separate sessions keep each cached base projection independent.
@@ -91,6 +99,8 @@ const cases = [
   ["combined", () => snapshotMessages(session, throughput, started, ended, partial)],
   ["combined versioned", () => snapshotMessages(versionedSession, throughput, versionedStarted, versionedEnded, partial)],
   ["combined fully versioned", () => snapshotMessages(fullyVersionedSession, versionedThroughput, versionedStarted, versionedEnded, partial)],
+  ["combined pending plain", () => snapshotMessages(combinedPendingSession, pendingThroughput, pendingStarted, pendingEnded, partial)],
+  ["combined pending versioned", () => snapshotMessages(combinedPendingVersionedSession, pendingVersionedThroughput, pendingVersionedStarted, pendingVersionedEnded, partial)],
   ["partial changing (full scan)", () => {
     scanFlip = !scanFlip;
     scanPartial.set("call-999", scanFlip ? "partial A" : "partial B");
