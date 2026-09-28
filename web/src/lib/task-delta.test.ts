@@ -37,13 +37,25 @@ describe("mergeTaskDelta", () => {
     expect(mergeTaskDelta(current, {})).toBe(current);
   });
 
+  it("reuses the task when a repeated flag-only delta changes nothing", () => {
+    const current = task();
+
+    expect(mergeTaskDelta(current, { isStreaming: true, isCompacting: false })).toBe(current);
+    expect(mergeTaskDelta(current, { isStreaming: false })).not.toBe(current);
+  });
+
   it("ignores stale isStreaming after the task is already idle", () => {
     const current = task({ status: "idle", isStreaming: false });
 
-    expect(mergeTaskDelta(current, { isStreaming: true })).toMatchObject({
-      status: "idle",
-      isStreaming: false,
-    });
+    expect(mergeTaskDelta(current, { isStreaming: true })).toBe(current);
+  });
+
+  it("still applies a new context usage object", () => {
+    const current = task({ contextUsage: { tokens: 10, contextWindow: 100, percent: 10 } });
+
+    expect(mergeTaskDelta(current, {
+      contextUsage: { tokens: 20, contextWindow: 100, percent: 20 },
+    })?.contextUsage?.tokens).toBe(20);
   });
 
   it("propagates the compaction suggestion state", () => {
