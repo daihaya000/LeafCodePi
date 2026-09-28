@@ -73,6 +73,21 @@ const pendingVersionedStarted = new VersionedTimingMap(pendingStarted);
 const pendingVersionedEnded = new VersionedTimingMap(pendingEnded);
 const combinedPendingSession = { ...pendingSession } as Parameters<typeof snapshotMessages>[0];
 const combinedPendingVersionedSession = { ...pendingSession } as Parameters<typeof snapshotMessages>[0];
+const tickingPendingSession = { ...pendingSession } as Parameters<typeof snapshotMessages>[0];
+const tickingPendingVersionedSession = { ...pendingSession } as Parameters<typeof snapshotMessages>[0];
+
+// Force a new wall-clock millisecond per invocation; both cases pay the same clock override cost.
+let simulatedTick = 0;
+function withAdvancingClock<T>(run: () => T): T {
+  const originalNow = Date.now;
+  const nowMs = pendingAtMs + 1_000 + ++simulatedTick;
+  Date.now = () => nowMs;
+  try {
+    return run();
+  } finally {
+    Date.now = originalNow;
+  }
+}
 
 // Alternate the output on every call so both paths reproject and replace a row.
 // Separate sessions keep each cached base projection independent.
@@ -101,6 +116,8 @@ const cases = [
   ["combined fully versioned", () => snapshotMessages(fullyVersionedSession, versionedThroughput, versionedStarted, versionedEnded, partial)],
   ["combined pending plain", () => snapshotMessages(combinedPendingSession, pendingThroughput, pendingStarted, pendingEnded, partial)],
   ["combined pending versioned", () => snapshotMessages(combinedPendingVersionedSession, pendingVersionedThroughput, pendingVersionedStarted, pendingVersionedEnded, partial)],
+  ["combined pending plain tick", () => withAdvancingClock(() => snapshotMessages(tickingPendingSession, pendingThroughput, pendingStarted, pendingEnded, partial))],
+  ["combined pending versioned tick", () => withAdvancingClock(() => snapshotMessages(tickingPendingVersionedSession, pendingVersionedThroughput, pendingVersionedStarted, pendingVersionedEnded, partial))],
   ["partial changing (full scan)", () => {
     scanFlip = !scanFlip;
     scanPartial.set("call-999", scanFlip ? "partial A" : "partial B");
