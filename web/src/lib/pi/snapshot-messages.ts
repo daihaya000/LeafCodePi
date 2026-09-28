@@ -225,19 +225,20 @@ export function applyMessageAgentIds(
 ): UiMessage[] {
   const { agentName, agentByMessageId } = context;
   if (!agentByMessageId) return messages;
-  let changed = false;
-  const result = messages.map((message) => {
-    if (message.role !== "assistant") return message;
-    if (!agentByMessageId.has(message.id)) {
-      const inferred = message.agent?.trim() || agentName?.trim() || null;
-      agentByMessageId.set(message.id, inferred);
+  let result: UiMessage[] | undefined;
+  for (let index = 0; index < messages.length; index++) {
+    const message = messages[index];
+    if (!message || message.role !== "assistant") continue;
+    let recorded = agentByMessageId.get(message.id);
+    if (recorded === undefined) {
+      recorded = message.agent?.trim() || agentName?.trim() || null;
+      agentByMessageId.set(message.id, recorded);
     }
-    const recorded = agentByMessageId.get(message.id) ?? null;
-    if (recorded === (message.agent?.trim() || null)) return message;
-    changed = true;
-    return recorded ? { ...message, agent: recorded } : { ...message, agent: undefined };
-  });
-  return changed ? result : messages;
+    if (recorded === (message.agent?.trim() || null)) continue;
+    if (!result) result = messages.slice();
+    result[index] = recorded ? { ...message, agent: recorded } : { ...message, agent: undefined };
+  }
+  return result ?? messages;
 }
 
 export function snapshotMessages(

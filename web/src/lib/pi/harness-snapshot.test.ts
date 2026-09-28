@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   applyMessageAccountIds,
+  applyMessageAgentIds,
   buildTaskBootstrap,
   sessionContextUsage,
   snapshotMessages,
@@ -126,6 +127,35 @@ describe("snapshotMessages", () => {
       { accountId: "acc-2", byMessageId },
     );
     expect(second.find((message) => message.role === "assistant")?.accountId).toBe("acc-1");
+  });
+
+  it("reuses matching agent rows and copies the list only for a changed agent", () => {
+    const recorded: UiMessage = { id: "a", role: "assistant", createdAt: 1, parts: [], agent: "builder" };
+    const fresh: UiMessage = { id: "b", role: "assistant", createdAt: 2, parts: [] };
+    const messages = [recorded, fresh];
+    const context = {
+      accountId: null,
+      byMessageId: new Map<string, string>(),
+      agentByMessageId: new Map<string, string | null>([["a", "builder"], ["b", "planner"]]),
+    };
+
+    const updated = applyMessageAgentIds(messages, context);
+    expect(updated).not.toBe(messages);
+    expect(updated[0]).toBe(recorded);
+    expect(updated[1]?.agent).toBe("planner");
+    expect(applyMessageAgentIds(updated, context)).toBe(updated);
+  });
+
+  it("keeps a recorded default persona after the current agent changes", () => {
+    const messages: UiMessage[] = [{ id: "default", role: "assistant", createdAt: 1, parts: [] }];
+    const agentByMessageId = new Map<string, string | null>();
+    const context = { accountId: null, byMessageId: new Map<string, string>(), agentByMessageId };
+
+    expect(applyMessageAgentIds(messages, context)).toBe(messages);
+    expect(agentByMessageId.has("default")).toBe(true);
+    expect(agentByMessageId.get("default")).toBeNull();
+    expect(applyMessageAgentIds(messages, { ...context, agentName: "builder" })).toBe(messages);
+    expect(agentByMessageId.get("default")).toBeNull();
   });
 
   it("records the generating agent and keeps it after rerouting", () => {
