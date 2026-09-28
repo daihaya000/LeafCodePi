@@ -393,6 +393,15 @@ describe("PartView reasoning disclosure", () => {
     expect(toggle.getAttribute("aria-expanded")).toBe("false");
   });
 
+  it("closes a terminal failed thought even if the task is still marked working", () => {
+    const view = render(<PartView message={thinkingMessage("考え中")} reasoningActive />);
+    const toggle = screen.getByRole("button", { name: "思考" });
+    expect(toggle.getAttribute("aria-expanded")).toBe("true");
+
+    view.rerender(<PartView message={{ ...thinkingMessage("中断した思考"), error: "Aborted" }} reasoningActive />);
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+  });
+
   it("starts collapsed for history and preserves manual toggles until the activity changes", () => {
     const view = render(<PartView message={thinkingMessage("短い思考")} />);
     const toggle = screen.getByRole("button", { name: "思考" });

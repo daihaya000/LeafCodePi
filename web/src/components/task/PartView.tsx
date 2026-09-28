@@ -1106,7 +1106,7 @@ export const PartView = memo(
                 />
               );
             }
-            if (part.type === "thinking") return <ReasoningView key={part.id} text={part.text} active={reasoningActive && message.parts.at(-1) === part} />;
+            if (part.type === "thinking") return <ReasoningView key={part.id} text={part.text} active={reasoningActive && !message.error && message.parts.at(-1) === part} />;
             if (part.type === "file") return <FilePartView key={part.id} part={part} />;
             if (part.type === "image") {
               return (
