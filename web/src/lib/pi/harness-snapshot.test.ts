@@ -7,7 +7,7 @@ import {
   snapshotMessages,
 } from "./harness";
 import type { TaskSummary, UiMessage } from "@/lib/types";
-import { timingFromPersisted } from "@/lib/token-throughput";
+import { restoreThroughputFromEntries, THROUGHPUT_CUSTOM_TYPE } from "@/lib/token-throughput";
 import { VersionedTimingMap } from "./versioned-timing-map";
 import { VersionedThroughputMap } from "./versioned-throughput-map";
 
@@ -193,7 +193,7 @@ describe("snapshotMessages", () => {
     }
   });
 
-  it("keeps restored timings with no final token clock-dependent", () => {
+  it("projects restored unfinished timings consistently in history and live maps", () => {
     vi.useFakeTimers();
     try {
       vi.setSystemTime(1_000);
@@ -202,18 +202,22 @@ describe("snapshotMessages", () => {
         agent: { state: { streamingMessage: undefined } },
         sessionManager: { getLeafId: () => null, getBranch: () => [] },
       } as unknown as Parameters<typeof snapshotMessages>[0];
-      const restored = timingFromPersisted({
-        startedAtMs: 1_000, firstTokenAtMs: null, lastTokenAtMs: null, outputTokens: 10,
-      });
-      expect(restored).not.toBeNull();
-      const timings = new VersionedThroughputMap([[1_000, restored!]]);
+      const restored = restoreThroughputFromEntries([{
+        type: "custom", customType: THROUGHPUT_CUSTOM_TYPE,
+        data: { startedAtMs: 1_000, firstTokenAtMs: null, lastTokenAtMs: null, outputTokens: 10 },
+      }]);
+      const timings = new VersionedThroughputMap(restored.timings);
+      expect(restored.persistedKeys).toEqual(new Set([1_000]));
       expect(timings.awaitingFirstTokenCount).toBe(1);
-      const snapshot = () => snapshotMessages(session, timings);
+      const liveSnapshot = () => snapshotMessages(session, timings);
+      const historySnapshot = () => snapshotMessages(session, restored.timings);
 
       vi.setSystemTime(2_000);
-      expect(snapshot()[0]?.responseDurationMs).toBe(1_000);
+      expect(liveSnapshot()[0]?.responseDurationMs).toBe(1_000);
+      expect(liveSnapshot()).toEqual(historySnapshot());
       vi.setSystemTime(2_500);
-      expect(snapshot()[0]?.responseDurationMs).toBe(1_500);
+      expect(liveSnapshot()[0]?.responseDurationMs).toBe(1_500);
+      expect(liveSnapshot()).toEqual(historySnapshot());
       expect(timings.awaitingFirstTokenCount).toBe(1);
     } finally {
       vi.useRealTimers();
