@@ -70,6 +70,28 @@ describe("trackThroughputEvent", () => {
     assert.equal((persisted[0]?.[1] as { outputTokens?: number }).outputTokens, 2);
   });
 
+  it("does not append a throughput entry whose timestamp was already restored", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(1_000);
+    const { live, persisted } = liveState();
+    live.throughputByStartedAt.set(1_000, {
+      startedAtMs: 1_000, firstTokenAtMs: 1_000, lastTokenAtMs: 1_000,
+      outputTokens: 2, charCount: 0,
+    });
+    live.persistedThroughputKeys.add(1_000);
+    live.persistedThroughputKeys.add(1_000);
+
+    trackThroughputEvent(live, {
+      type: "message_end",
+      message: { role: "assistant", timestamp: 1_000, usage: { output: 3 } },
+    });
+    await new Promise<void>((resolve) => queueMicrotask(resolve));
+
+    assert.equal(live.persistedThroughputKeys.size, 1);
+    assert.equal(live.throughputByStartedAt.get(1_000)?.outputTokens, 3);
+    assert.equal(persisted.length, 0);
+  });
+
   it("keeps the streamed estimate when an aborted stream only has a placeholder usage", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(1_000);
