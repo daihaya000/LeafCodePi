@@ -630,6 +630,7 @@ const toolTimingProjectionCache = new WeakMap<
   UiMessage,
   { patches: ToolTimingPatch[]; projected: UiMessage }
 >();
+const toolTimingArrayCache = new WeakMap<UiMessage[], UiMessage[]>();
 
 /** toolCallId に対応する tool パートに実行開始/終了時刻を注入する。 */
 export function applyToolTiming(
@@ -637,7 +638,9 @@ export function applyToolTiming(
   toolStartedAt: Map<string, number>,
   toolEndedAt: Map<string, number>,
 ): UiMessage[] {
-  return messages.map((message) => {
+  const previous = toolTimingArrayCache.get(messages);
+  const baseline = previous?.length === messages.length ? previous : messages;
+  const project = (message: UiMessage): UiMessage => {
     if (message.role !== "assistant" ||
         (message.parts.length <= 1 && message.parts[0]?.type !== "tool")) return message;
     let patches: ToolTimingPatch[] | undefined;
@@ -669,5 +672,15 @@ export function applyToolTiming(
     const projected = { ...message, parts };
     toolTimingProjectionCache.set(message, { patches, projected });
     return projected;
-  });
+  };
+  let changed: UiMessage[] | undefined;
+  for (let index = 0; index < messages.length; index++) {
+    const projected = project(messages[index]!);
+    if (projected === baseline[index]) continue;
+    changed ??= baseline.slice();
+    changed[index] = projected;
+  }
+  const result = changed ?? baseline;
+  toolTimingArrayCache.set(messages, result);
+  return result;
 }

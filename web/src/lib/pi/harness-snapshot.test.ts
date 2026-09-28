@@ -141,15 +141,19 @@ describe("snapshotMessages", () => {
 
     const first = snapshot();
     expect(first[0]?.parts[0]).toMatchObject({ state: { startedAtMs: 1_000 } });
-    expect(snapshot()[0]).toBe(first[0]);
+    const second = snapshot();
+    expect(second).toBe(first);
+    expect(second[0]).toBe(first[0]);
     ended.set("call-1", 3_000);
     const changed = snapshot();
+    expect(changed).not.toBe(first);
     expect(changed[0]).not.toBe(first[0]);
     expect(changed[0]?.parts[0]).toMatchObject({ state: { endedAtMs: 3_000 } });
 
     started.delete("call-1");
     started.set("unmatched", 4_000);
     const unmatched = snapshot();
+    expect(unmatched).not.toBe(changed);
     expect(unmatched[0]).not.toBe(changed[0]);
     expect(unmatched[0]?.parts[0]).not.toHaveProperty("state.startedAtMs");
   });
