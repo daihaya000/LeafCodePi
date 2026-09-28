@@ -348,7 +348,12 @@ describe("PartView sender and response metadata", () => {
     expect(meta.className).toContain("whitespace-nowrap");
     expect(meta.className).toContain("@max-[359px]/meta-header:flex-col");
     expect(screen.getByLabelText("モデル情報").className).toContain("flex-nowrap");
-    expect(screen.getByLabelText("トークン情報").className).toContain("flex-nowrap");
+    const usage = screen.getByLabelText("トークン情報");
+    expect(usage.className).toContain("flex-nowrap");
+    expect(usage.firstElementChild?.textContent).toBe("94k tok");
+    expect(
+      Array.from(usage.querySelectorAll('[aria-hidden="true"]')).map((separator) => separator.textContent),
+    ).toEqual(["·", "·"]);
     expect(screen.getByText("Model A").className).toContain("truncate");
     expect(screen.getByText("Model A").className).toContain("@max-[359px]/meta-header:whitespace-normal");
     expect(screen.queryByText("long-account@example.com")).toBeNull();

@@ -821,7 +821,6 @@ export const MessageMetaHeader = memo(function MessageMetaHeader({
             ? "shrink-0 flex-nowrap gap-x-1 @max-[359px]/meta-header:w-full @max-[359px]/meta-header:flex-wrap"
             : "w-full flex-wrap gap-x-1.5",
         )}>
-          {singleLine && <span className="shrink-0 @max-[359px]/meta-header:hidden" aria-hidden="true">·</span>}
           {usageFields.map(renderField)}
         </div>
       )}
