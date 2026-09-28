@@ -117,4 +117,28 @@ describe("trackThroughputEvent", () => {
     });
     assert.equal(live.toolPartialOutputByCallId.size, 0);
   });
+
+  it("retains tool timing after toolResult and updates reused call IDs in place", () => {
+    vi.useFakeTimers();
+    const { live } = liveState();
+
+    vi.setSystemTime(1_000);
+    trackThroughputEvent(live, { type: "tool_execution_start", toolCallId: "call-1" });
+    vi.setSystemTime(1_600);
+    trackThroughputEvent(live, { type: "tool_execution_end", toolCallId: "call-1", result: "done" });
+    trackThroughputEvent(live, {
+      type: "message_end", message: { role: "toolResult", toolCallId: "call-1" },
+    });
+    assert.deepEqual([...live.toolStartedAt], [["call-1", 1_000]]);
+    assert.deepEqual([...live.toolEndedAt], [["call-1", 1_600]]);
+
+    vi.setSystemTime(2_000);
+    trackThroughputEvent(live, { type: "tool_execution_start", toolCallId: "call-1" });
+    assert.equal(live.toolStartedAt.size, 1);
+    assert.equal(live.toolStartedAt.get("call-1"), 2_000);
+    vi.setSystemTime(2_600);
+    trackThroughputEvent(live, { type: "tool_execution_end", toolCallId: "call-1", result: "again" });
+    assert.equal(live.toolEndedAt.size, 1);
+    assert.equal(live.toolEndedAt.get("call-1"), 2_600);
+  });
 });
