@@ -791,6 +791,26 @@ it("keeps the current log expanded when the same response also has a reply bubbl
   expect(document.querySelector<HTMLDetailsElement>("details[data-task-tool-group]")?.open).toBe(true);
 });
 
+it("marks only the latest unfinished reasoning as active in the work log", () => {
+  const old: UiMessage = { id: "old-thought", role: "assistant", createdAt: 1, parts: [{ id: "old-part", type: "thinking", text: "前の思考" }] };
+  const current: UiMessage = { id: "current-thought", role: "assistant", createdAt: 3, parts: [
+    { id: "current-part", type: "thinking", text: "現在の思考" },
+    { id: "current-answer", type: "text", text: "回答中" },
+  ] };
+  const latest: UiMessage = { id: "latest-thought", role: "assistant", createdAt: 4, parts: [{ id: "latest-part", type: "thinking", text: "続きの思考" }] };
+  saveTaskSessionCache({
+    task: { ...task, status: "working" },
+    messages: [old, { id: "prompt", role: "user", createdAt: 2, parts: [{ id: "prompt-text", type: "text", text: "続けて" }] }, current, latest],
+    isStreaming: true,
+    isCompacting: false,
+  });
+  render(<TaskView taskId={task.id} mdUp />);
+  const reasoningFlag = (id: string) => mocks.partView.mock.calls.find(([props]) => props.message.id === id && props.hideMeta)?.[0].reasoningActive;
+  expect(reasoningFlag("old-thought")).toBe(false);
+  expect(reasoningFlag("current-thought")).toBe(false);
+  expect(reasoningFlag("latest-thought")).toBe(true);
+});
+
 it("does not mark a failed Code work log as completed when its reply has a bubble", () => {
   saveTaskSessionCache({
     task,

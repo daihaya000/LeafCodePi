@@ -3388,6 +3388,7 @@ export const TaskView = memo(function TaskView({
                           references={messageReferences}
                           taskId={taskId}
                           active={active}
+                          reasoningActive={working && renderedMessages.at(-1)?.id === entry.message.id && entry.message.parts.at(-1)?.type === "thinking"}
                           hideMeta
                         />,
                       ];
@@ -3469,6 +3470,7 @@ export const TaskView = memo(function TaskView({
                       references={messageReferences}
                       taskId={taskId}
                       active={active}
+                      reasoningActive={working && renderedMessages.at(-1)?.id === block.message.id && block.message.parts.at(-1)?.type === "thinking"}
                       onRevert={block.message.role === "user" ? requestRevert : undefined}
                     />
                   )}

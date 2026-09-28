@@ -359,6 +359,47 @@ describe("PartView sender and response metadata", () => {
   });
 });
 
+describe("PartView reasoning disclosure", () => {
+  afterEach(() => cleanup());
+
+  const thinkingMessage = (text: string, finished = false): UiMessage => ({
+    id: "assistant-thinking",
+    role: "assistant",
+    createdAt: 1,
+    parts: [
+      { id: "thought", type: "thinking", text },
+      ...(finished ? [{ id: "answer", type: "text" as const, text: "回答" }] : []),
+    ],
+  });
+
+  it("opens while thinking and closes when the response or thinking part ends", () => {
+    const view = render(<PartView message={thinkingMessage("考え中")} reasoningActive />);
+    const toggle = screen.getByRole("button", { name: "思考" });
+    expect(toggle.getAttribute("aria-expanded")).toBe("true");
+
+    view.rerender(<PartView message={thinkingMessage("考え続けています")} reasoningActive />);
+    expect(toggle.getAttribute("aria-expanded")).toBe("true");
+
+    view.rerender(<PartView message={thinkingMessage("考え続けています", true)} reasoningActive />);
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+
+    view.rerender(<PartView message={thinkingMessage("考え続けています")} reasoningActive />);
+    expect(toggle.getAttribute("aria-expanded")).toBe("true");
+    view.rerender(<PartView message={thinkingMessage("考え続けています")} reasoningActive={false} />);
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+  });
+
+  it("starts collapsed for history and preserves manual toggles until the activity changes", () => {
+    const view = render(<PartView message={thinkingMessage("短い思考")} />);
+    const toggle = screen.getByRole("button", { name: "思考" });
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    fireEvent.click(toggle);
+    expect(toggle.getAttribute("aria-expanded")).toBe("true");
+    view.rerender(<PartView message={thinkingMessage("短い思考に追記")} />);
+    expect(toggle.getAttribute("aria-expanded")).toBe("true");
+  });
+});
+
 describe("PartView memo", () => {
   it("updates the metadata when default-only visibility changes without changing the agent", () => {
     const message: UiMessage = { id: "assistant-default", role: "assistant", createdAt: 1, parts: [] };

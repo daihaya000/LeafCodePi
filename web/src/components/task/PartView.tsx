@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, memo, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import {
@@ -362,6 +362,7 @@ function NestedRunTimeline({ run, active }: { run: SubagentRunDto; active: boole
               modelLabel={run.model}
               agent={run.agent}
               active={active}
+              reasoningActive={run.status === "running" && visibleMessages.at(-1)?.id === message.id}
               nested
             />
           </div>
@@ -840,12 +841,15 @@ function stripReasoningMarkdown(text: string): string {
   return text.replace(/(\*\*|__)([\s\S]*?)\1/g, "$2");
 }
 
-const ReasoningView = memo(function ReasoningView({ text }: { text: string }) {
+const ReasoningView = memo(function ReasoningView({ text, active }: { text: string; active: boolean }) {
   const shownText = stripReasoningMarkdown(text);
   const { mode, translated } = useReasoningTranslation(shownText);
   const [showOriginal, setShowOriginal] = useState(false);
-  // ponytail: 初期表示だけで判定。長い思考は畳んでタイムラインを埋めない。
-  const [open, setOpen] = useState(() => shownText.length <= 600);
+  const [open, setOpen] = useState(active);
+  // 思考の開始・終了時だけ同期し、途中の手動開閉は維持する。
+  useLayoutEffect(() => {
+    setOpen(active);
+  }, [active]);
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState("");
   const [saving, setSaving] = useState(false);
@@ -1019,6 +1023,7 @@ export const PartView = memo(
     bot,
     taskId,
     active = true,
+    reasoningActive = false,
     nested = false,
     hideMeta = false,
     onRevert,
@@ -1036,6 +1041,8 @@ export const PartView = memo(
     taskId?: string;
     /** 非表示タブでは表示専用タイマーと子タイムライン取得を止める。 */
     active?: boolean;
+    /** このメッセージが現在生成中か（最後の思考パーツのみ自動展開）。 */
+    reasoningActive?: boolean;
     /** 入れ子タイムライン内での描画（さらに入れ子にはしない）。 */
     nested?: boolean;
     /** メタデータ行を親が表示済みの場合に隠す。 */
@@ -1103,7 +1110,7 @@ export const PartView = memo(
                 />
               );
             }
-            if (part.type === "thinking") return <ReasoningView key={part.id} text={part.text} />;
+            if (part.type === "thinking") return <ReasoningView key={part.id} text={part.text} active={reasoningActive && message.parts.at(-1) === part} />;
             if (part.type === "file") return <FilePartView key={part.id} part={part} />;
             if (part.type === "image") {
               return (
@@ -1153,6 +1160,7 @@ export const PartView = memo(
     prev.bot === next.bot &&
     prev.taskId === next.taskId &&
     prev.active === next.active &&
+    prev.reasoningActive === next.reasoningActive &&
     prev.nested === next.nested &&
     prev.hideMeta === next.hideMeta &&
     prev.onRevert === next.onRevert,
