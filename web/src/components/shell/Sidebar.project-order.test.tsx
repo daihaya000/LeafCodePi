@@ -354,7 +354,9 @@ describe("Sidebar project ordering", () => {
     render(<Sidebar mobileOpen={false} onClose={vi.fn()} />);
 
     const search = await screen.findByRole("textbox", { name: "プロジェクトやセッションを検索" });
+    expect(screen.queryByRole("button", { name: "検索をクリア" })).toBeNull();
     fireEvent.change(search, { target: { value: "beta session" } });
+    expect(screen.getByRole("button", { name: "検索をクリア" })).toBeTruthy();
 
     await waitFor(() => {
       expect(screen.queryByText("Project A")).toBeNull();
@@ -368,6 +370,13 @@ describe("Sidebar project ordering", () => {
     await waitFor(() => {
       expect(screen.getByRole("button", { name: "Project Aを展開" })).toBeTruthy();
       expect(screen.queryByText("Project B")).toBeNull();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "検索をクリア" }));
+    expect((search as HTMLInputElement).value).toBe("");
+    expect(screen.queryByRole("button", { name: "検索をクリア" })).toBeNull();
+    await waitFor(() => {
+      expect(screen.getByText("Project B")).toBeTruthy();
     });
   });
 

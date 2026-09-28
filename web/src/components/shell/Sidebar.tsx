@@ -2383,7 +2383,7 @@ const SidebarView = memo(function SidebarView({
 
       <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
         <ModeSegment mode={mode} onChange={changeMode} workingCounts={workingCounts} unreadModes={unreadModes} />
-        <label className="mb-2 flex h-9 items-center gap-2 rounded-lg border border-border bg-bg px-2.5 text-xs text-muted focus-within:border-accent">
+        <div className="mb-2 flex h-9 items-center gap-2 rounded-lg border border-border bg-bg px-2.5 text-xs text-muted focus-within:border-accent">
           <Search className="h-3.5 w-3.5 shrink-0" />
           <input
             value={query}
@@ -2392,7 +2392,18 @@ const SidebarView = memo(function SidebarView({
             aria-label="プロジェクトやセッションを検索"
             className="min-w-0 flex-1 bg-transparent outline-none placeholder:text-faint"
           />
-        </label>
+          {query && (
+            <button
+              type="button"
+              aria-label="検索をクリア"
+              title="検索をクリア"
+              onClick={() => setQuery("")}
+              className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted hover:bg-surface-2 hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          )}
+        </div>
         {sidebarError && !projectSettingsProject && (
           <p role="alert" className="mb-2 rounded-lg border border-danger/30 bg-danger-bg px-2.5 py-2 text-xs text-danger">
             {sidebarError}
