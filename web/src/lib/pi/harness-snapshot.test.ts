@@ -92,6 +92,52 @@ describe("snapshotMessages", () => {
     expect(snapshot()[0]?.outputTokens).toBe(200);
   });
 
+  it("reprojects only pending rows, including duplicate start times", () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(1_000);
+      const session = {
+        messages: [
+          { role: "user", timestamp: 100, content: "start" },
+          { role: "assistant", timestamp: 600, content: [{ type: "text", text: "done" }] },
+          { role: "assistant", timestamp: 1_000, content: [{ type: "text", text: "waiting A" }] },
+          { role: "assistant", timestamp: 1_000, content: [{ type: "text", text: "waiting B" }] },
+        ],
+        agent: { state: { streamingMessage: undefined } },
+        sessionManager: { getLeafId: () => null, getBranch: () => [] },
+      } as unknown as Parameters<typeof snapshotMessages>[0];
+      const pending = {
+        startedAtMs: 1_000, firstTokenAtMs: null, lastTokenAtMs: null,
+        outputTokens: null, charCount: 0,
+      };
+      const timings = new VersionedThroughputMap([
+        [600, { startedAtMs: 600, firstTokenAtMs: 700, lastTokenAtMs: 900, outputTokens: 2, charCount: 4 }],
+        [1_000, pending],
+      ]);
+      const snapshot = () => snapshotMessages(session, timings);
+      const first = snapshot();
+      expect(first).toHaveLength(4);
+      const get = vi.spyOn(timings, "get");
+      vi.setSystemTime(2_000);
+      const second = snapshot();
+      expect(second[1]).toBe(first[1]);
+      expect(second[2]?.responseDurationMs).toBe(1_000);
+      expect(second[3]?.responseDurationMs).toBe(1_000);
+      expect(get.mock.calls.map(([startedAt]) => startedAt)).toEqual([1_000, 1_000]);
+      expect(snapshot()).toBe(second);
+
+      timings.set(1_000, { ...pending, firstTokenAtMs: 2_100, lastTokenAtMs: 2_500, outputTokens: 2 });
+      const settled = snapshot();
+      expect(settled[2]?.outputTokens).toBe(2);
+      expect(settled[3]?.outputTokens).toBe(2);
+      get.mockClear();
+      expect(snapshot()).toBe(settled);
+      expect(get).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("updates elapsed duration with the clock before the first token arrives", () => {
     vi.useFakeTimers();
     try {

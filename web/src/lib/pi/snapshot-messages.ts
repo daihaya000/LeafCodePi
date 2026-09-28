@@ -232,11 +232,24 @@ export function applyThroughput(
   return result;
 }
 
-/** A pending first token still needs the wall clock on every snapshot. */
-const snapshotThroughputRevisionCache = new WeakMap<
-  UiMessage[],
-  { timings: VersionedThroughputMap; revision: number; result: UiMessage[] }
->();
+/** Pending rows depend on the clock; only those rows need reprojection at a stable revision. */
+type SnapshotThroughputCache = {
+  timings: VersionedThroughputMap;
+  revision: number;
+  result: UiMessage[];
+  pendingIndices: number[];
+  pendingMessages: UiMessage[];
+};
+const snapshotThroughputRevisionCache = new WeakMap<UiMessage[], SnapshotThroughputCache>();
+
+function sameThroughputProjection(left: UiMessage, right: UiMessage): boolean {
+  return left === right || (
+    left.responseDurationMs === right.responseDurationMs &&
+    left.outputTokens === right.outputTokens &&
+    left.tokensPerSecond === right.tokensPerSecond &&
+    left.tokensPerSecondDecode === right.tokensPerSecondDecode
+  );
+}
 
 function applySnapshotThroughput(
   messages: UiMessage[],
@@ -244,13 +257,39 @@ function applySnapshotThroughput(
 ): UiMessage[] {
   if (!(timings instanceof VersionedThroughputMap)) return applyThroughput(messages, timings);
   const cached = snapshotThroughputRevisionCache.get(messages);
-  if (timings.awaitingFirstTokenCount === 0 &&
-      cached?.timings === timings && cached.revision === timings.revision &&
+  if (cached?.timings === timings && cached.revision === timings.revision &&
       cached.result.length === messages.length &&
-      cached.result === appliedThroughputArrayCache.get(messages)) return cached.result;
+      cached.result === appliedThroughputArrayCache.get(messages)) {
+    if (timings.awaitingFirstTokenCount === 0) return cached.result;
+    const pending = applyThroughput(cached.pendingMessages, timings);
+    let changed: UiMessage[] | undefined;
+    for (let offset = 0; offset < pending.length; offset++) {
+      const index = cached.pendingIndices[offset]!;
+      if (sameThroughputProjection(cached.result[index]!, pending[offset]!)) continue;
+      changed ??= cached.result.slice();
+      changed[index] = pending[offset]!;
+    }
+    if (!changed) return cached.result;
+    cached.result = changed;
+    appliedThroughputArrayCache.set(messages, changed);
+    return changed;
+  }
 
   const result = applyThroughput(messages, timings);
-  snapshotThroughputRevisionCache.set(messages, { timings, revision: timings.revision, result });
+  const pendingIndices: number[] = [];
+  const pendingMessages: UiMessage[] = [];
+  if (timings.awaitingFirstTokenCount > 0) {
+    const pendingStarts = new Set(timings.pendingStartedAts());
+    for (let index = 0; index < messages.length; index++) {
+      const message = messages[index]!;
+      if (message.role !== "assistant" || !pendingStarts.has(message.createdAt)) continue;
+      pendingIndices.push(index);
+      pendingMessages.push(message);
+    }
+  }
+  snapshotThroughputRevisionCache.set(messages, {
+    timings, revision: timings.revision, result, pendingIndices, pendingMessages,
+  });
   return result;
 }
 
