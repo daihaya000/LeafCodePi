@@ -146,13 +146,15 @@ export function upsertUiMessage(prev: UiMessage[], next: UiMessage): UiMessage[]
       existingIndex = lastIndex;
     } else {
       const contentKey = messageContentFingerprint(next);
-      existingIndex = last && messageContentFingerprint(last) === contentKey
+      existingIndex = last && last.createdAt === next.createdAt && last.role === next.role &&
+        messageContentFingerprint(last) === contentKey
         ? lastIndex
         : prev.findIndex(
             (message) =>
               message.id === next.id ||
               (firstPartId && message.parts[0]?.id === firstPartId) ||
-              messageContentFingerprint(message) === contentKey,
+              (message.createdAt === next.createdAt && message.role === next.role &&
+                messageContentFingerprint(message) === contentKey),
           );
     }
   }

@@ -49,6 +49,17 @@ export function mergeTaskDelta(
   // without status working would make the client treat the task as busy.
   if (nextStatus !== "working") isStreaming = false;
 
+  // Repeated flag-only deltas need neither a new task nor a downstream field comparison.
+  if (
+    !payload.task &&
+    isStreaming === current.isStreaming &&
+    (payload.isCompacting ?? current.isCompacting) === current.isCompacting &&
+    (payload.contextUsage ?? current.contextUsage) === current.contextUsage &&
+    (payload.compactionSuggested ?? current.compactionSuggested) === current.compactionSuggested
+  ) {
+    return current;
+  }
+
   return {
     ...current,
     ...(payload.task ?? {}),
