@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { SettingsTransfer } from "./SettingsTransfer";
 
@@ -13,12 +13,21 @@ const credentialsBackup = {
   format: "leafcode-pi-settings", version: 1, scope: "credentials",
   credentials: { defaultAuth: {}, accounts: [], sharedCookies: {} },
 };
+const recoveryId = "12345678-1234-1234-1234-123456789abc";
 
 function backupFile(backup: unknown): File {
   const file = new File([JSON.stringify(backup)], "backup.json", { type: "application/json" });
   // happy-dom's File may not implement text().
   Object.defineProperty(file, "text", { value: async () => JSON.stringify(backup) });
   return file;
+}
+
+function openRecoveryDisclosure(): HTMLElement {
+  const summary = screen.getByText("保全ファイル", { selector: "summary" });
+  const disclosure = summary.closest("details");
+  if (!disclosure) throw new Error("保全ファイルの折り畳みがありません");
+  fireEvent.click(summary);
+  return disclosure;
 }
 
 beforeEach(() => {
@@ -89,7 +98,6 @@ describe("SettingsTransfer", () => {
 
   it("offers recovery after the server reports a preserved snapshot", async () => {
     render(<SettingsTransfer />);
-    const recoveryId = "12345678-1234-1234-1234-123456789abc";
     sendJson.mockRejectedValueOnce(new Error(`設定の自動復旧に失敗しました。保全ファイル: C:\\data\\settings-transfer-recovery\\${recoveryId}.json`));
     sendJson.mockResolvedValueOnce({ recovered: true });
     fireEvent.change(screen.getByLabelText("認証JSONを選択"), { target: { files: [backupFile(credentialsBackup)] } });
@@ -100,21 +108,37 @@ describe("SettingsTransfer", () => {
 
   it("does not suggest rollback when the import succeeded but journal cleanup failed", async () => {
     render(<SettingsTransfer />);
-    sendJson.mockRejectedValueOnce(new Error("インポートは完了しましたが、保全ファイルを削除できませんでした。保全ファイル: C:\\data\\settings-transfer-recovery\\12345678-1234-1234-1234-123456789abc.json"));
+    sendJson.mockRejectedValueOnce(new Error(`インポートは完了しましたが、保全ファイルを削除できませんでした。保全ファイル: C:\\data\\settings-transfer-recovery\\${recoveryId}.json`));
     fireEvent.change(screen.getByLabelText("認証JSONを選択"), { target: { files: [backupFile(credentialsBackup)] } });
     expect(await screen.findByRole("alert")).toBeTruthy();
     expect(screen.queryByRole("button", { name: "保全ファイルから復旧" })).toBeNull();
   });
 
-  it("discovers and discards a journal left after a server restart", async () => {
-    const recoveryId = "12345678-1234-1234-1234-123456789abc";
+  it("keeps journal maintenance collapsed and discards a journal left after a server restart", async () => {
     getJson.mockResolvedValue({ recoveries: [recoveryId] });
     sendJson.mockResolvedValue({ discarded: true });
     render(<SettingsTransfer />);
-    fireEvent.click(screen.getByRole("button", { name: "異常終了後の保全ファイルを確認" }));
-    await screen.findByText(recoveryId);
-    fireEvent.click(screen.getByRole("button", { name: "保全ファイルを削除" }));
+    expect(screen.getByText("保全ファイル", { selector: "summary" }).closest("details")?.hasAttribute("open")).toBe(false);
+    const disclosure = openRecoveryDisclosure();
+    fireEvent.click(within(disclosure).getByRole("button", { name: "異常終了後の保全ファイルを確認" }));
+    await within(disclosure).findByText(recoveryId);
+    fireEvent.click(within(disclosure).getByRole("button", { name: "削除" }));
     await waitFor(() => expect(sendJson).toHaveBeenCalledWith("/api/settings/transfer", { action: "discard-recovery", recoveryId }));
     expect(screen.queryByText(recoveryId)).toBeNull();
+    expect(screen.getByRole("status")).toHaveProperty("textContent", "保全ファイルを削除しました");
+  });
+
+  it("restores a listed journal and reports when none remain", async () => {
+    getJson.mockResolvedValueOnce({ recoveries: [recoveryId] }).mockResolvedValueOnce({ recoveries: [] });
+    sendJson.mockResolvedValue({ recovered: true });
+    render(<SettingsTransfer />);
+    const disclosure = openRecoveryDisclosure();
+    fireEvent.click(within(disclosure).getByRole("button", { name: "異常終了後の保全ファイルを確認" }));
+    fireEvent.click(await within(disclosure).findByRole("button", { name: "復旧" }));
+    await waitFor(() => expect(sendJson).toHaveBeenCalledWith("/api/settings/transfer", { action: "recover", recoveryId }));
+    expect(await screen.findByRole("status")).toHaveProperty("textContent", "保全ファイルから復旧しました。LeafCodePiを再起動してください。");
+    expect(screen.queryByText(recoveryId)).toBeNull();
+    fireEvent.click(within(disclosure).getByRole("button", { name: "異常終了後の保全ファイルを確認" }));
+    await waitFor(() => expect(screen.getByRole("status").textContent).toBe("保全ファイルはありません"));
   });
 });

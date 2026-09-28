@@ -1,8 +1,9 @@
 "use client";
 
-import { useRef, useState } from "react";
-import { Download, Upload } from "lucide-react";
+import { useState } from "react";
+import { History, Search, Trash2 } from "lucide-react";
 import { Button, cx } from "@/components/ui";
+import { SettingsDisclosure, TransferActions } from "@/components/settings/TransferControls";
 import { getJson, sendJson } from "@/lib/client";
 import { prepareServerSettingsImport, refreshServerSettings } from "@/lib/setting-sync";
 import type { SettingsBackup, TransferScope } from "@/lib/pi/settings-transfer";
@@ -15,7 +16,7 @@ const labels: Record<TransferScope, string> = {
   all: "WebUI動作設定とプロバイダー認証",
 };
 
-type BusyAction = "export" | "import" | "recovery";
+type BusyAction = "export" | "import" | "check" | `recover:${string}` | `discard:${string}`;
 
 export function SettingsTransfer() {
   const [busy, setBusy] = useState<BusyAction | null>(null);
@@ -23,7 +24,6 @@ export function SettingsTransfer() {
   const [error, setError] = useState<string | null>(null);
   const [recoveryId, setRecoveryId] = useState<string | null>(null);
   const [recoveries, setRecoveries] = useState<string[]>([]);
-  const fileRef = useRef<HTMLInputElement>(null);
 
   async function exportCredentials() {
     if (!window.confirm("APIキー・OAuthトークン・cookie を平文JSONで保存します。安全な場所に保管しますか？")) return;
@@ -73,14 +73,14 @@ export function SettingsTransfer() {
         ? detail.match(/settings-transfer-recovery[\\/]([0-9a-f-]{36})\.json/)?.[1] ?? null
         : null);
     } finally {
-      if (fileRef.current) fileRef.current.value = "";
       setBusy(null);
     }
   }
 
   async function checkRecoveries() {
-    setBusy("recovery");
+    setBusy("check");
     setError(null);
+    setMessage(null);
     try {
       const result = await getJson<{ recoveries: string[] }>("/api/settings/transfer", undefined, { coalesce: false });
       setRecoveries(result.recoveries);
@@ -94,8 +94,9 @@ export function SettingsTransfer() {
 
   async function recoverBackup(id: string) {
     if (!window.confirm("書き込み障害を解消しましたか？異常終了で残ったファイルは適用済みの設定を取り消す可能性もあります。保全ファイルからインポート前の状態に戻しますか？")) return;
-    setBusy("recovery");
+    setBusy(`recover:${id}`);
     setError(null);
+    setMessage(null);
     try {
       await sendJson("/api/settings/transfer", { action: "recover", recoveryId: id });
       await refreshServerSettings();
@@ -111,8 +112,9 @@ export function SettingsTransfer() {
 
   async function discardRecovery(id: string) {
     if (!window.confirm("復旧は不要で、現在の設定が正しいことを確認しましたか？保全ファイルを削除すると復旧できません。")) return;
-    setBusy("recovery");
+    setBusy(`discard:${id}`);
     setError(null);
+    setMessage(null);
     try {
       await sendJson("/api/settings/transfer", { action: "discard-recovery", recoveryId: id });
       setRecoveryId(null);
@@ -133,34 +135,53 @@ export function SettingsTransfer() {
       <p className="mt-1 text-xs leading-5 text-muted">
         プロバイダーのAuth/APIキー/cookieだけをJSONで転送します。インポートは重複する認証だけを上書きし、他は残します。ブラウザ内のcookie・環境変数・OS資格情報ストアは含みません。
       </p>
-      <div className="mt-3 grid grid-cols-2 gap-2">
-        <Button className="w-full" variant="secondary" busy={busy === "export"} disabled={disabled} onClick={() => void exportCredentials()}>
-          <Download className="h-4 w-4" />エクスポート
-        </Button>
-        <label className={cx("inline-flex h-10 w-full cursor-pointer items-center whitespace-nowrap justify-center gap-2 rounded-lg border border-border bg-surface-2 px-3.5 text-sm text-text transition-colors hover:bg-surface-3 has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-accent", disabled && "pointer-events-none opacity-40")}>
-          <Upload className="h-4 w-4" />インポート
-          <input ref={fileRef} type="file" accept=".json,application/json" disabled={disabled} aria-label="認証JSONを選択" className="sr-only" onChange={(event) => { const file = event.target.files?.[0]; if (file) void importBackup(file); }} />
-        </label>
+      <div className="mt-3 space-y-4">
+        <TransferActions
+          accept=".json,application/json"
+          fileLabel="認証JSONを選択"
+          disabled={disabled}
+          exportBusy={busy === "export"}
+          importBusy={busy === "import"}
+          onExport={() => void exportCredentials()}
+          onFile={(file) => void importBackup(file)}
+        />
+        <p className="text-xs leading-5 text-muted">ローカル接続またはWebUIアクセスゲート有効時のみ利用できます。JSONは平文のため、共有・クラウド同期に注意してください。</p>
+        <SettingsDisclosure title="保全ファイル">
+          <p className="text-xs leading-5 text-muted">インポート前に元のファイルを一時保全し、失敗時は自動復旧します。復旧不能・異常終了時に残る保全ファイルも秘密情報として扱ってください。</p>
+          <Button className="w-full" variant="secondary" busy={busy === "check"} disabled={disabled} onClick={() => void checkRecoveries()}>
+            <Search className="h-4 w-4" />異常終了後の保全ファイルを確認
+          </Button>
+          {recoveries.length > 0 && (
+            <>
+              <p className="text-xs leading-5 text-muted">保全ファイル {recoveries.length} 件。復旧すると適用済みの変更も取り消す可能性があります。</p>
+              <ul className="space-y-2">
+                {recoveries.map((id) => (
+                  <li key={id} className="space-y-2">
+                    <p className="break-all font-mono text-xs text-muted">{id}</p>
+                    <div className="grid grid-cols-2 gap-2">
+                      {id !== recoveryId && (
+                        <Button className="w-full" variant="secondary" busy={busy === `recover:${id}`} disabled={disabled} onClick={() => void recoverBackup(id)}>
+                          <History className="h-4 w-4" />復旧
+                        </Button>
+                      )}
+                      <Button className={cx("w-full", id === recoveryId && "col-span-2")} variant="danger" busy={busy === `discard:${id}`} disabled={disabled} onClick={() => void discardRecovery(id)}>
+                        <Trash2 className="h-4 w-4" />削除
+                      </Button>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
+        </SettingsDisclosure>
       </div>
-      <p className="mt-3 text-xs leading-5 text-muted">ローカル接続またはWebUIアクセスゲート有効時のみ利用できます。JSONは平文のため、共有・クラウド同期に注意してください。インポート前に元のファイルを一時保全し、失敗時は自動復旧します。復旧不能・異常終了時に残る保全ファイルも秘密情報として扱ってください。</p>
       {message && <p role="status" className="mt-2 text-xs text-success">{message}</p>}
       {error && <p role="alert" className="mt-2 text-xs text-danger">{error}</p>}
-      {recoveryId && <button type="button" disabled={disabled} onClick={() => void recoverBackup(recoveryId)} className="mt-3 min-h-11 rounded-lg border border-border bg-surface-2 px-4 text-sm text-text focus-visible:outline-2 focus-visible:outline-accent disabled:opacity-50">保全ファイルから復旧</button>}
-      <div className="mt-3">
-        <button type="button" disabled={disabled} onClick={() => void checkRecoveries()} className="min-h-11 text-sm text-accent hover:underline disabled:opacity-50">異常終了後の保全ファイルを確認</button>
-        {recoveries.length > 0 && (
-          <div className="mt-2 space-y-2 text-xs text-muted">
-            <p>保全ファイル {recoveries.length} 件。復旧すると適用済みの変更も取り消す可能性があります。</p>
-            {recoveries.map((id) => (
-              <div key={id} className="flex flex-wrap items-center gap-2">
-                <span className="break-all">{id}</span>
-                {id !== recoveryId && <button type="button" disabled={disabled} onClick={() => void recoverBackup(id)} className="min-h-11 rounded-lg border border-border bg-surface-2 px-3 text-text disabled:opacity-50">復旧</button>}
-                <button type="button" disabled={disabled} onClick={() => void discardRecovery(id)} className="min-h-11 rounded-lg border border-border bg-surface-2 px-3 text-text disabled:opacity-50">保全ファイルを削除</button>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
+      {recoveryId && (
+        <Button className="mt-2 w-full" variant="secondary" busy={busy === `recover:${recoveryId}`} disabled={disabled} onClick={() => void recoverBackup(recoveryId)}>
+          <History className="h-4 w-4" />保全ファイルから復旧
+        </Button>
+      )}
     </div>
   );
 }

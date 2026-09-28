@@ -149,10 +149,10 @@ function addFile(files: Record<string, string>, modes: Record<string, number>, k
   if (!stat.isFile()) return;
   total.bytes += stat.size;
   if (total.bytes > MAX_CONTENT_BYTES) {
-    throw new Error(`プロファイルが${MAX_CONTENT_BYTES / 1024 / 1024}MBを超えています`);
+    throw new Error(`設定ファイルが${MAX_CONTENT_BYTES / 1024 / 1024}MBを超えています`);
   }
   if (total.fileCount >= MAX_PROFILE_FILES) {
-    throw new Error(`プロファイルのファイル数が${MAX_PROFILE_FILES}件を超えています`);
+    throw new Error(`設定ファイルに含めるファイル数が${MAX_PROFILE_FILES}件を超えています`);
   }
   files[key] = readFileSync(path).toString("base64");
   modes[key] = stat.mode & 0o777;
@@ -207,37 +207,37 @@ export function exportProfile(options: ProfileRoots = {}): { archive: Buffer; su
 }
 
 function parseProfile(archive: Buffer): ProfileArchive {
-  if (archive.length > MAX_ARCHIVE_BYTES) throw new Error("プロファイルファイルが大きすぎます");
+  if (archive.length > MAX_ARCHIVE_BYTES) throw new Error("設定ファイルが大きすぎます");
   let parsed: unknown;
   try {
     parsed = JSON.parse(gunzipSync(archive, { maxOutputLength: MAX_EXPANDED_BYTES }).toString("utf8"));
   } catch {
-    throw new Error("有効なLeafCodePiプロファイルではありません");
+    throw new Error("有効なLeafCodePi設定ファイルではありません");
   }
-  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("プロファイル形式が不正です");
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("設定ファイルの形式が不正です");
   const profile = parsed as Partial<ProfileArchive>;
   if (profile.format !== PROFILE_FORMAT || profile.version !== PROFILE_VERSION || !profile.files || typeof profile.files !== "object" || Array.isArray(profile.files)) {
-    throw new Error("対応していないプロファイル形式です");
+    throw new Error("対応していない設定ファイル形式です");
   }
   const files = Object.entries(profile.files);
-  if (files.length > MAX_PROFILE_FILES) throw new Error("プロファイルのファイル数が多すぎます");
+  if (files.length > MAX_PROFILE_FILES) throw new Error("設定ファイルに含まれるファイル数が多すぎます");
   if (profile.modes !== undefined && (typeof profile.modes !== "object" || profile.modes === null || Array.isArray(profile.modes))) {
-    throw new Error("プロファイルの権限情報が不正です");
+    throw new Error("設定ファイルの権限情報が不正です");
   }
   const modes = profile.modes ?? {};
-  if (Object.keys(modes).length > files.length) throw new Error("プロファイルの権限情報が不正です");
+  if (Object.keys(modes).length > files.length) throw new Error("設定ファイルの権限情報が不正です");
   for (const [path, mode] of Object.entries(modes)) {
     if (!Object.hasOwn(profile.files, path) || !isAllowedProfilePath(path) || !Number.isInteger(mode) || mode < 0 || mode > 0o777) {
-      throw new Error("プロファイルの権限情報が不正です");
+      throw new Error("設定ファイルの権限情報が不正です");
     }
   }
   let bytes = 0;
   for (const [path, content] of files) {
-    if (!isAllowedProfilePath(path) || typeof content !== "string") throw new Error("プロファイルに許可されないパスがあります");
+    if (!isAllowedProfilePath(path) || typeof content !== "string") throw new Error("設定ファイルに許可されないパスがあります");
     const decoded = Buffer.from(content, "base64");
-    if (decoded.toString("base64") !== content) throw new Error("プロファイルの内容が壊れています");
+    if (decoded.toString("base64") !== content) throw new Error("設定ファイルの内容が壊れています");
     bytes += decoded.length;
-    if (bytes > MAX_CONTENT_BYTES) throw new Error("プロファイルの展開サイズが大きすぎます");
+    if (bytes > MAX_CONTENT_BYTES) throw new Error("設定ファイルの展開サイズが大きすぎます");
   }
   return profile as ProfileArchive;
 }
@@ -290,7 +290,7 @@ function destination(path: string, agentDir: string, leafcodeDir: string): strin
   const base = root === "agent" ? agentDir : leafcodeDir;
   const result = resolve(base, ...parts);
   if (result !== base && !result.startsWith(`${base}${process.platform === "win32" ? "\\" : "/"}`)) {
-    throw new Error("プロファイルの出力先が不正です");
+    throw new Error("設定ファイルの出力先が不正です");
   }
   return result;
 }
