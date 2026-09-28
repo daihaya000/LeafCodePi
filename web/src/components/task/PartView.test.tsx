@@ -248,7 +248,7 @@ describe("PartView sender and response metadata", () => {
     expect(screen.getByText("思考")).toBeTruthy();
   });
 
-  it("hides token metadata from tok onward in narrow task panes", () => {
+  it("keeps usage available in narrow task panes and prioritizes it over the account", () => {
     render(
       <PartView
         message={{
@@ -263,15 +263,19 @@ describe("PartView sender and response metadata", () => {
         }}
         effort="low"
         agent="builder"
+        accountLabel="long-account@example.com"
       />,
     );
 
+    const meta = screen.getByLabelText("応答メタデータ");
+    const account = screen.getByText("long-account@example.com");
     for (const label of ["32 tok", "22 tok/s", "3s"]) {
       const element = screen.getByText(label);
-      expect(element.className).toContain("hidden");
-      expect(element.className).toContain("@min-[48rem]/task:inline");
-      expect(element.className).not.toContain("sm:inline");
+      expect(element.className).not.toContain("hidden");
+      expect(element.compareDocumentPosition(account) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     }
+    expect(account.className).toContain("shrink-[100]");
+    expect(meta.className).toContain("overflow-hidden");
   });
 
   it("hides only the default agent field when it is the sole choice", () => {
@@ -324,9 +328,9 @@ describe("PartView sender and response metadata", () => {
     expect(rate.getAttribute("title")).toBe(ACTIVITY_USAGE_TITLES.rate);
     expect(rate.className).toContain("text-danger");
     expect(screen.getByText("2m 50s").getAttribute("title")).toBe(ACTIVITY_USAGE_TITLES.elapsed);
-    // Same narrow-pane rule as per-response usage.
+    // Group usage stays visible at narrow widths whenever there is room.
     for (const label of ["1.5k tok", "40 tok/s", "2m 50s"]) {
-      expect(screen.getByText(label).className).toContain("hidden @min-[48rem]/task:inline");
+      expect(screen.getByText(label).className).not.toContain("hidden");
     }
     expect(screen.getByText("gpt")).toBeTruthy();
   });

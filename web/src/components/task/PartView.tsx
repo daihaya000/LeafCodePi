@@ -735,11 +735,12 @@ export const MessageMetaHeader = memo(function MessageMetaHeader({
     agentName && !(hideDefaultAgent && agentName === DEFAULT_AGENT)
       ? { key: "agent", text: agentName }
       : null,
-    accountLabel?.trim() ? { key: "account", text: accountLabel.trim() } : null,
     { key: "time", text: formatMessageTime(message.createdAt) },
     tokens ? { key: "tokens", text: tokens } : null,
     rate ? { key: "rate", text: rate } : null,
     thinking ? { key: "thinking", text: thinking } : null,
+    // Keep account last: usage has priority when the metadata row runs out of room.
+    accountLabel?.trim() ? { key: "account", text: accountLabel.trim() } : null,
   ].filter((field): field is { key: string; text: string } => Boolean(field?.text));
 
   return (
@@ -750,25 +751,20 @@ export const MessageMetaHeader = memo(function MessageMetaHeader({
       {/* 合成メッセージ（シェル実行など）はプロバイダを持たないので汎用アイコンを出さない。 */}
       {message.provider && <ProviderIcon providerID={message.provider} size={14} />}
       {fields.map((field, index) => {
-        const hideOnNarrowTask =
-          field.key === "tokens" || field.key === "rate" || field.key === "thinking";
         return (
           <Fragment key={field.key}>
-            {index > 0 && (
-              <span className={hideOnNarrowTask ? "hidden @min-[48rem]/task:inline" : undefined} aria-hidden="true">
-                ·
-              </span>
-            )}
+            {index > 0 && <span className="shrink-0" aria-hidden="true">·</span>}
             <span
               className={cx(
                 field.key === "agent"
                   ? "inline-flex shrink-0 items-center gap-0.5"
-                  : field.key === "model" || field.key === "account"
-                    ? "min-w-0 max-w-64 truncate"
-                    : "shrink-0",
+                  : field.key === "account"
+                    ? "min-w-0 max-w-64 shrink-[100] truncate"
+                    : field.key === "model"
+                      ? "min-w-0 max-w-64 truncate"
+                      : "shrink-0",
                 field.key === "rate" && "tabular-nums",
                 field.key === "rate" && slow && "text-danger",
-                hideOnNarrowTask && "hidden @min-[48rem]/task:inline",
               )}
               title={
                 group && groupTitles[field.key]
