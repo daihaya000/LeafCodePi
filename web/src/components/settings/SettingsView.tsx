@@ -28,6 +28,7 @@ import { AgentsSettings } from "@/components/settings/AgentsSettings";
 import { BrowserSettings } from "@/components/settings/BrowserSettings";
 import { WebUiAuthSettings } from "@/components/settings/WebUiAuthSettings";
 import { SettingsTransfer } from "@/components/settings/SettingsTransfer";
+import { PromptTransfer } from "@/components/settings/PromptTransfer";
 import { ReasoningTranslationSettings } from "@/components/settings/ReasoningTranslationSettings";
 import { HangTimeoutSettings } from "@/components/settings/HangTimeoutSettings";
 import { NotificationSoundSettings } from "@/components/settings/NotificationSoundSettings";
@@ -139,6 +140,7 @@ export function SettingsView() {
   const [modelsRevision, setModelsRevision] = useState(0);
   const [catalogRevision, setCatalogRevision] = useState(0);
   const [jevRevision, setJevRevision] = useState(0);
+  const [promptRevision, setPromptRevision] = useState(0);
   const sharedRevision = modelsRevision + catalogRevision;
   const [error, setError] = useState<string | null>(null);
   const reloadGenerationRef = useRef(0);
@@ -497,8 +499,9 @@ export function SettingsView() {
                 id="prompts-common-heading"
                 title="共通"
               >
-                <div id="prompts-common" className="scroll-mt-24">
-                  <UserMdSettings />
+                <div id="prompts-common" className="scroll-mt-24 space-y-4">
+                  <PromptTransfer onImported={() => setPromptRevision((value) => value + 1)} />
+                  <UserMdSettings key={promptRevision} />
                 </div>
               </SettingsGroup>
               <SettingsGroup
@@ -506,11 +509,11 @@ export function SettingsView() {
                 title="Code"
               >
                 <div id="prompts-code" className="scroll-mt-24 space-y-4">
-                  <SoulMdSettings />
-                  <AgentsMdSettings />
-                  <WorkflowMdSettings />
-                  <ToolsMdSettings />
-                  <DesignMdSettings />
+                  <SoulMdSettings key={`soul-${promptRevision}`} />
+                  <AgentsMdSettings key={`agents-${promptRevision}`} />
+                  <WorkflowMdSettings key={`workflow-${promptRevision}`} />
+                  <ToolsMdSettings key={`tools-${promptRevision}`} />
+                  <DesignMdSettings key={`design-${promptRevision}`} />
                 </div>
               </SettingsGroup>
               <SettingsGroup
@@ -518,7 +521,7 @@ export function SettingsView() {
                 title="Bot"
               >
                 <div id="prompts-bot" className="scroll-mt-24">
-                  <BotsMdSettings />
+                  <BotsMdSettings key={promptRevision} />
                 </div>
               </SettingsGroup>
             </section>

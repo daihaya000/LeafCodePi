@@ -5,42 +5,20 @@ import { invalidateSettingsFileCache } from "@/lib/pi/web-settings";
 import { invalidateCachedUsage } from "@/lib/codexbar/cache";
 import { dataDir } from "@/lib/paths";
 import { join } from "node:path";
-import { isWebUiRequestAuthorized } from "@/lib/webui-auth";
+import { rejectUnauthorizedTransfer, transferNoStore as noStore } from "@/lib/pi/transfer-access";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const noStore = { "Cache-Control": "no-store, private", "X-Content-Type-Options": "nosniff" };
-
-function rejectUnauthorized(req: NextRequest): NextResponse | null {
-  const origin = req.headers.get("origin");
-  if (origin && origin !== new URL(req.url).origin) {
-    return NextResponse.json({ error: "許可されない接続元です" }, { status: 403, headers: noStore });
-  }
-  const loopbackHosts = ["127.0.0.1", "localhost", "::1", "[::1]"];
-  const hostHeader = req.headers.get("host");
-  let headerHost = "";
-  try {
-    const authority = hostHeader ? new URL(`http://${hostHeader}`) : new URL(req.url);
-    if (!authority.username && !authority.password) headerHost = authority.hostname;
-  } catch { /* malformed Host はローカルアクセスと見なさない */ }
-  const localOnly = loopbackHosts.includes(process.env.LEAFCODE_PI_BIND_HOST ?? "") &&
-    loopbackHosts.includes(new URL(req.url).hostname) && loopbackHosts.includes(headerHost);
-  if (!localOnly && !isWebUiRequestAuthorized(req)) {
-    return NextResponse.json({ error: "設定の転送にはローカル接続またはWebUIアクセスゲートが必要です" }, { status: 403, headers: noStore });
-  }
-  return null;
-}
-
 export async function GET(req: NextRequest) {
-  const unauthorized = rejectUnauthorized(req);
+  const unauthorized = rejectUnauthorizedTransfer(req);
   if (unauthorized) return unauthorized;
   return NextResponse.json({ recoveries: listTransferRecoveries() }, { headers: noStore });
 }
 
 export async function POST(req: NextRequest) {
   // 未認証リクエストは JSON 本文を読み込む前に拒否する。
-  const unauthorized = rejectUnauthorized(req);
+  const unauthorized = rejectUnauthorizedTransfer(req);
   if (unauthorized) return unauthorized;
   if (Number(req.headers.get("content-length")) > 20 * 1024 * 1024) {
     return NextResponse.json({ error: "バックアップが大きすぎます" }, { status: 413, headers: noStore });
