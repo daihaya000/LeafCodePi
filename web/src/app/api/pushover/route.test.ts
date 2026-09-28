@@ -97,7 +97,7 @@ describe("Pushover settings API", () => {
 
   it("sends a test message only when both keys are present", async () => {
     expect((await POST(read())).status).toBe(200);
-    expect(mocks.notify).toHaveBeenCalledWith("iPhoneへの通知を確認", { title: "LeafCodePi テスト通知" });
+    expect(mocks.notify).toHaveBeenCalledWith("iPhoneへの通知を確認", { title: "テスト通知" });
     mocks.get.mockResolvedValue({ ...dto, hasUser: false });
     expect((await POST(read())).status).toBe(400);
     expect(mocks.notify).toHaveBeenCalledTimes(1);

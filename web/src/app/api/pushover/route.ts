@@ -90,7 +90,7 @@ export async function POST(req: NextRequest) {
   try {
     const settings = await getPushoverSettingsDto();
     if (!settings.hasToken || !settings.hasUser) return responseError("トークンとUser Keyを先に設定してください", 400);
-    if (!await notifyPushoverCompletion("iPhoneへの通知を確認", { title: "LeafCodePi テスト通知" })) {
+    if (!await notifyPushoverCompletion("iPhoneへの通知を確認", { title: "テスト通知" })) {
       return responseError("Pushoverへの送信に失敗しました。キーと接続を確認してください", 502);
     }
     return NextResponse.json({ sent: true }, { headers: noStore });
