@@ -35,6 +35,20 @@ describe("task history pagination", () => {
     });
   });
 
+  it("finds a recent cursor without walking the full history", () => {
+    const messages = Array.from({ length: 5000 }, (_, index) => message(`m${index}`, index));
+    let inspected = 0;
+    const tracked = new Proxy(messages, {
+      get(target, key, receiver) {
+        if (typeof key === "string" && /^\d+$/.test(key)) inspected++;
+        return Reflect.get(target, key, receiver);
+      },
+    });
+
+    expect(pageTaskMessages(tracked, "m4950", 2).messages.map((item) => item.id)).toEqual(["m4948", "m4949"]);
+    expect(inspected).toBeLessThan(100);
+  });
+
   it("rejects a cursor from another branch", () => {
     expect(() => pageTaskMessages([message("m1")], "missing", 2)).toThrow(
       InvalidTaskMessageCursorError,

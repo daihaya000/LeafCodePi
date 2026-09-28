@@ -51,7 +51,8 @@ export function pageTaskMessages(
   const cursor = before?.trim() || null;
   let end = messages.length;
   if (cursor) {
-    end = messages.findIndex((message) => message.id === cursor);
+    // Projected message ids are unique; older-page cursors usually sit near the tail.
+    end = messages.findLastIndex((message) => message.id === cursor);
     if (end < 0) throw new InvalidTaskMessageCursorError();
   }
   const start = Math.max(0, end - safeLimit);
