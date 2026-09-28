@@ -1404,6 +1404,15 @@ test("alias names the current session, opens the local input menu, and appears i
       assert.equal(sendResult.content[0]?.text, "Message sent to alias-orchestrator");
       assert.equal((await outgoing)[1].content.text, "Alias display check.");
 
+      const outgoingById = once(orchestrator, "message") as Promise<[SessionInfo, Message]>;
+      const sendByIdResult = await intercomTool.execute("alias-send-by-id", {
+        action: "send",
+        to: orchestrator.sessionId!.slice(0, 8),
+        message: "ID display check.",
+      }, new AbortController().signal, undefined, harness.ctx);
+      assert.equal(sendByIdResult.content[0]?.text, "Message sent to alias-orchestrator");
+      assert.equal((await outgoingById)[1].content.text, "ID display check.");
+
       const askId = "alias-reply-ask";
       assert.equal((await orchestrator.send(initial.id, {
         messageId: askId,

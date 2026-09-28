@@ -1443,11 +1443,16 @@ export default function piIntercomExtension(pi: ExtensionAPI) {
     reconnectPromiseGeneration = generationAtStart;
     return nextReconnectPromise;
   }
-  async function resolveSessionTarget(activeClient: IntercomClient, nameOrId: string): Promise<string | null> {
+  async function resolveSessionTarget(activeClient: IntercomClient, nameOrId: string): Promise<DeliveryTarget | null> {
     const sessions = await activeClient.listSessions();
+    const duplicates = duplicateSessionNames(sessions);
+    const makeTarget = (session: SessionInfo): DeliveryTarget => ({
+      id: session.id,
+      label: formatSessionLabel(session, duplicates),
+    });
     const byId = sessions.find(s => s.id === nameOrId);
     if (byId) {
-      return byId.id;
+      return makeTarget(byId);
     }
     const lowerName = nameOrId.toLowerCase();
     const byName = sessions.filter(s => s.name?.toLowerCase() === lowerName);
@@ -1457,12 +1462,12 @@ export default function piIntercomExtension(pi: ExtensionAPI) {
       throw new Error(`Multiple sessions named "${nameOrId}" are connected. Address one by the id shown in parentheses by "list" (${ids}).`);
     }
     if (byName.length === 1) {
-      return byName[0]!.id;
+      return makeTarget(byName[0]!);
     }
 
     const byIdPrefix = sessions.filter(s => s.id.startsWith(nameOrId));
     if (byIdPrefix.length === 1) {
-      return byIdPrefix[0]!.id;
+      return makeTarget(byIdPrefix[0]!);
     }
     if (byIdPrefix.length > 1) {
       throw new Error(`Multiple sessions match ID prefix "${nameOrId}". Use a longer session ID prefix.`);
@@ -1473,10 +1478,10 @@ export default function piIntercomExtension(pi: ExtensionAPI) {
     if (metadata.orchestratorSessionId) {
       const bySessionId = await resolveSessionTarget(activeClient, metadata.orchestratorSessionId);
       if (bySessionId) {
-        return bySessionId;
+        return bySessionId.id;
       }
     }
-    return resolveSessionTarget(activeClient, metadata.orchestratorTarget);
+    return (await resolveSessionTarget(activeClient, metadata.orchestratorTarget))?.id ?? null;
   }
   async function resolveCwdDeliveryTarget(activeClient: IntercomClient, options: {
     to?: string;
@@ -1505,7 +1510,7 @@ export default function piIntercomExtension(pi: ExtensionAPI) {
       ...(options.to ? { to: options.to } : {}),
     });
     if (existing.kind === "found" && existing.session) {
-      return { id: existing.session.id, label: options.to || existing.session.name || existing.session.id };
+      return { id: existing.session.id, label: formatSessionLabel(existing.session, duplicateSessionNames(sessions)) };
     }
     if (!options.openProjectPaneIfMissing) {
       throw new Error(`${existing.reason ?? `No intercom session is connected in ${targetCwd}.`} Pass openProjectPaneIfMissing: true to open a Herdr project pane and start Pi there.`);
@@ -1630,7 +1635,7 @@ export default function piIntercomExtension(pi: ExtensionAPI) {
       let target: string;
       try {
         activeClient = await ensureConnected("background");
-        target = await resolveSessionTarget(activeClient, parsed.to) ?? parsed.to;
+        target = (await resolveSessionTarget(activeClient, parsed.to))?.id ?? parsed.to;
       } catch (error) {
         if (!relayStillLive()) return;
         recordSubagentDeliveryError(options.errorEntryType, parsed.to, parsed.message, error);
@@ -2310,9 +2315,9 @@ Usage:
             }
             const target: DeliveryTarget = cwd
               ? await resolveCwdDeliveryTarget(connectedClient, { to, cwd, openProjectPaneIfMissing, focus, signal: _signal })
-              : { id: await resolveSessionTarget(connectedClient, to) ?? to, label: to };
+              : (await resolveSessionTarget(connectedClient, to)) ?? { id: to, label: to };
             const sendTo = target.id;
-            const targetDisplay = target.projectPane ? target.label : to ?? target.label;
+            const targetDisplay = target.label;
             if (sendTo === connectedClient.sessionId) {
               return {
                 content: [{ type: "text", text: "Cannot message the current session" }],
@@ -2428,10 +2433,10 @@ Usage:
                   details: { error: true },
                 };
               }
-              target = { id: resolved, label: to };
+              target = resolved;
             }
             const sendTo = target.id;
-            const targetDisplay = target.projectPane ? target.label : to ?? target.label;
+            const targetDisplay = target.label;
             if (_signal?.aborted) {
               return {
                 content: [{ type: "text", text: "Cancelled" }],
