@@ -278,6 +278,20 @@ describe("upsertUiMessage", () => {
     }
   });
 
+  it("skips content fingerprints when the last part id matches", () => {
+    const previous = [textMessage("a", "old")];
+    const next = textMessage("persisted-a", "new");
+    next.parts[0]!.id = previous[0]!.parts[0]!.id;
+    const stringify = vi.spyOn(JSON, "stringify");
+    try {
+      expect(upsertUiMessage(previous, next)).toEqual([next]);
+      // Only the two full-message fingerprints are needed to compare changed content.
+      expect(stringify).toHaveBeenCalledTimes(2);
+    } finally {
+      stringify.mockRestore();
+    }
+  });
+
   it("updates only the delta message without fingerprinting the full history", () => {
     const first = textMessage("a", "hello");
     const second = textMessage("b", "world");
