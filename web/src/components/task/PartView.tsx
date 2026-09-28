@@ -690,6 +690,7 @@ export const MessageMetaHeader = memo(function MessageMetaHeader({
   hideDefaultAgent = false,
   accountLabel,
   usage,
+  singleLine = false,
 }: {
   message: UiMessage;
   modelLabel?: string;
@@ -702,6 +703,8 @@ export const MessageMetaHeader = memo(function MessageMetaHeader({
   accountLabel?: string;
   /** Work-log header: show the whole log's usage instead of the first response's. */
   usage?: ActivityUsage;
+  /** Allow the metadata above a bubble or work log to use the full row. */
+  singleLine?: boolean;
 }) {
   const model = modelLabel?.trim() || message.model?.trim() || "";
   const agentName = agent?.trim();
@@ -735,7 +738,7 @@ export const MessageMetaHeader = memo(function MessageMetaHeader({
     agentName && !(hideDefaultAgent && agentName === DEFAULT_AGENT)
       ? { key: "agent", text: agentName }
       : null,
-    accountLabel?.trim() ? { key: "account", text: accountLabel.trim() } : null,
+    !singleLine && accountLabel?.trim() ? { key: "account", text: accountLabel.trim() } : null,
     { key: "time", text: formatMessageTime(message.createdAt) },
   ].filter((field): field is { key: string; text: string } => Boolean(field?.text));
   const usageFields = [
@@ -744,9 +747,9 @@ export const MessageMetaHeader = memo(function MessageMetaHeader({
     thinking ? { key: "thinking", text: thinking } : null,
   ].filter((field): field is { key: string; text: string } => Boolean(field?.text));
   const renderField = (field: { key: string; text: string }, index: number) => {
-    // The optional account and its separator are hidden together on narrow screens.
+    // The account and its separator are omitted together from single-line headers.
     if (field.key === "account") return (
-      <span key={field.key} className="hidden min-w-0 max-w-64 shrink-[100] items-center gap-1.5 overflow-hidden @min-[800px]/task:inline-flex" title={field.text}>
+      <span key={field.key} className="inline-flex min-w-0 max-w-64 shrink-[100] items-center gap-1.5 overflow-hidden" title={field.text}>
         {index > 0 && <span className="shrink-0" aria-hidden="true">·</span>}
         <span className="min-w-0 truncate">
           <UserRound className="mr-0.5 inline h-3 w-3 align-[-1px]" aria-hidden />
@@ -758,8 +761,8 @@ export const MessageMetaHeader = memo(function MessageMetaHeader({
       <span
         key={field.key}
         className={cx(
-          "inline-flex items-center gap-1.5",
-          field.key === "model" ? "min-w-0 max-w-full @min-[800px]/task:shrink" : "shrink-0",
+          singleLine ? "inline-flex items-center gap-1" : "inline-flex items-center gap-1.5",
+          field.key === "model" ? cx("min-w-0 max-w-full", singleLine && "shrink") : "shrink-0",
         )}
       >
         {index > 0 && <span className="shrink-0" aria-hidden="true">·</span>}
@@ -768,7 +771,7 @@ export const MessageMetaHeader = memo(function MessageMetaHeader({
             field.key === "agent"
               ? "inline-flex shrink-0 items-center gap-0.5"
               : field.key === "model"
-                ? "min-w-0 [overflow-wrap:anywhere] @min-[800px]/task:truncate"
+                ? cx("min-w-0 [overflow-wrap:anywhere]", singleLine && "truncate @max-[359px]/meta-header:overflow-visible @max-[359px]/meta-header:whitespace-normal")
                 : "shrink-0",
             field.key === "rate" && "tabular-nums",
             field.key === "rate" && slow && "text-danger",
@@ -795,15 +798,30 @@ export const MessageMetaHeader = memo(function MessageMetaHeader({
   };
 
   return (
-    <div aria-label="応答メタデータ" className="flex w-full min-w-0 max-w-full flex-col gap-1 text-[11px] text-muted @min-[800px]/task:flex-row @min-[800px]/task:items-center @min-[800px]/task:gap-x-1.5 @min-[800px]/task:overflow-hidden">
-      <div aria-label="モデル情報" className="flex w-full min-w-0 flex-wrap items-center gap-x-1.5 gap-y-1 @min-[800px]/task:w-auto @min-[800px]/task:flex-1 @min-[800px]/task:flex-nowrap @min-[800px]/task:overflow-hidden @min-[800px]/task:whitespace-nowrap">
+    <div aria-label="応答メタデータ" className={cx(
+      "flex w-full min-w-0 max-w-full gap-1 text-[11px] text-muted",
+      singleLine
+        ? "flex-row items-center gap-x-1 overflow-hidden whitespace-nowrap @max-[359px]/meta-header:flex-col @max-[359px]/meta-header:items-stretch @max-[359px]/meta-header:overflow-visible @max-[359px]/meta-header:whitespace-normal"
+        : "flex-col",
+    )}>
+      <div aria-label="モデル情報" className={cx(
+        "flex min-w-0 items-center gap-y-1",
+        singleLine
+          ? "flex-1 flex-nowrap gap-x-1 overflow-hidden @max-[359px]/meta-header:w-full @max-[359px]/meta-header:flex-wrap @max-[359px]/meta-header:overflow-visible"
+          : "w-full flex-wrap gap-x-1.5",
+      )}>
         {/* 合成メッセージ（シェル実行など）はプロバイダを持たないので汎用アイコンを出さない。 */}
         {message.provider && <ProviderIcon providerID={message.provider} size={14} />}
         {identityFields.map(renderField)}
       </div>
       {usageFields.length > 0 && (
-        <div aria-label="トークン情報" className="flex w-full min-w-0 flex-wrap items-center gap-x-1.5 gap-y-1 @min-[800px]/task:w-auto @min-[800px]/task:shrink-0 @min-[800px]/task:flex-nowrap @min-[800px]/task:whitespace-nowrap">
-          <span className="hidden shrink-0 @min-[800px]/task:inline" aria-hidden="true">·</span>
+        <div aria-label="トークン情報" className={cx(
+          "flex min-w-0 items-center gap-y-1",
+          singleLine
+            ? "shrink-0 flex-nowrap gap-x-1 @max-[359px]/meta-header:w-full @max-[359px]/meta-header:flex-wrap"
+            : "w-full flex-wrap gap-x-1.5",
+        )}>
+          {singleLine && <span className="shrink-0 @max-[359px]/meta-header:hidden" aria-hidden="true">·</span>}
           {usageFields.map(renderField)}
         </div>
       )}
@@ -1074,7 +1092,7 @@ export const PartView = memo(
     return (
       <article className={messageRowClassFor(isUser)}>
         {!hideMeta && (
-          <MessageHeader user={isUser}>
+          <MessageHeader user={isUser} wide={!isUser}>
             {isUser ? (
               !nested && (bot ? (
                 <div className="min-w-0" title={bot.name} aria-label={`送信者: ${bot.name}（Bot）`}>
@@ -1091,6 +1109,7 @@ export const PartView = memo(
                 agent={agent}
                 hideDefaultAgent={hideDefaultAgent}
                 accountLabel={accountLabel}
+                singleLine
               />
             )}
           </MessageHeader>

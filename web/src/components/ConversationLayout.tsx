@@ -15,8 +15,8 @@ export function messageRowClassFor(user: boolean): string {
   return cx(messageRowClass, user ? "items-end" : "items-start");
 }
 
-export function MessageHeader({ user = false, children }: { user?: boolean; children: ReactNode }) {
-  return <div className={cx("flex min-w-0 max-w-bubble items-center gap-1.5 px-1 text-[11px] text-muted", user ? "ml-auto justify-end" : "w-full self-start justify-start")}>{children}</div>;
+export function MessageHeader({ user = false, wide = false, children }: { user?: boolean; wide?: boolean; children: ReactNode }) {
+  return <div className={cx("flex min-w-0 items-center gap-1.5 px-1 text-[11px] text-muted", wide ? "@container/meta-header max-w-full" : "max-w-bubble", user ? "ml-auto justify-end" : "w-full self-start justify-start")}>{children}</div>;
 }
 
 export function MessageBubble({ user = false, neutral = false, className, children }: { user?: boolean; neutral?: boolean; className?: string; children: ReactNode }) {
@@ -62,7 +62,7 @@ function lastLogStatus(messages: readonly UiMessage[], parts: readonly UiPart[])
 export function ActivityLog({ children, header, count, parts, messages = [], statusMessages = messages, active, running = false, outcome, kind }: {
   children: ReactNode;
   /** 枠外と展開内容の先頭に出すメタ行。関数なら作業ログ全体の使用量を受け取って描く。 */
-  header?: ReactNode | ((usage: ActivityUsage) => ReactNode);
+  header?: ReactNode | ((usage: ActivityUsage, placement: "outside" | "inside") => ReactNode);
   count: number;
   parts: readonly UiPart[];
   /** 使用量と経過時間に数える応答。本文を吹き出しに出す応答は吹き出し側の応答として含めない。 */
@@ -80,7 +80,12 @@ export function ActivityLog({ children, header, count, parts, messages = [], sta
   const status = outcome ?? lastLogStatus(statusMessages, parts);
   const failed = status === "error";
   const cancelled = status === "cancelled";
-  const headerNode = typeof header === "function" ? header({ ...summarizeThroughput(messages), elapsedMs }) : header;
+  const [headerNode, insideHeaderNode] = typeof header === "function"
+    ? (() => {
+      const usage = { ...summarizeThroughput(messages), elapsedMs };
+      return [header(usage, "outside"), header(usage, "inside")];
+    })()
+    : [header, header];
   const scrollerRef = useRef<HTMLDivElement | null>(null);
   const contentRef = useRef<HTMLDivElement | null>(null);
   const stickRef = useRef(true);
@@ -147,7 +152,7 @@ export function ActivityLog({ children, header, count, parts, messages = [], sta
         className="max-h-[min(19.6rem,35dvh)] min-w-0 overflow-y-auto overscroll-y-contain border-t border-border bg-surface p-2 [&_.max-w-bubble]:max-w-full"
       >
         <div ref={contentRef} className="min-w-0 space-y-2">
-          {headerNode}
+          {insideHeaderNode}
           {children}
         </div>
       </div>

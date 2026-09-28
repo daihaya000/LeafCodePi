@@ -760,7 +760,13 @@ it("groups consecutive tool-only messages between agent responses", () => {
   expect(group!.querySelector("summary .lucide-scroll-text")?.getAttribute("aria-hidden")).toBe("true");
   expect(group!.querySelector("summary")?.textContent).toBe("作業ログ2件");
   // Elapsed spans the first start (2.0s) to the last end (5.0s), not the 2s sum; the header shows it.
-  expect(mocks.messageMetaHeader.mock.calls.find(([props]) => props.usage)?.[0].usage).toEqual({ outputTokens: 0, avgRate: null, elapsedMs: 3_000 });
+  const logHeaders = mocks.messageMetaHeader.mock.calls.filter(([props]) => props.usage).map(([props]) => props);
+  expect(logHeaders.length).toBeGreaterThanOrEqual(2);
+  expect(logHeaders[0].usage).toEqual({ outputTokens: 0, avgRate: null, elapsedMs: 3_000 });
+  expect(logHeaders.map((props) => props.singleLine)).toContain(true);
+  expect(logHeaders.map((props) => props.singleLine)).toContain(false);
+  expect(group!.previousElementSibling?.className).toContain("max-w-full");
+  expect(group!.querySelector("[data-task-meta]")?.parentElement?.className).toContain("max-w-bubble");
   expect(group!.querySelectorAll("[data-task-tool-card]")).toHaveLength(2);
   // 先頭のメタ行は閉じた状態でも見せ、展開内容にも各メッセージのメタ行を残す。
   expect(group!.previousElementSibling?.querySelector("[data-task-meta]")?.getAttribute("data-task-meta")).toBe("tool-1");

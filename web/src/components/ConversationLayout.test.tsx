@@ -25,7 +25,7 @@ function setScrollMetrics(element: HTMLElement, scrollTop: number, scrollHeight:
   });
 }
 
-it.each([true, false])("keeps Bot and Code bubble/header geometry identical (user: %s)", (user) => {
+it.each([true, false])("keeps Bot and Code bubble geometry while widening assistant metadata (user: %s)", (user) => {
   const { container } = render(<>
     <section data-view="bot"><BotChatMessage user={user} createdAt={1} sender={{ name: "Bot" }} text="Short reply" /></section>
     <section data-view="code"><PartView message={{ id: "message", role: user ? "user" : "assistant", createdAt: 1, parts: [{ id: "text", type: "text", text: "Short reply" }] }} /></section>
@@ -40,7 +40,11 @@ it.each([true, false])("keeps Bot and Code bubble/header geometry identical (use
   expect(bot.classList.contains("w-full")).toBe(!user);
   expect(bot.classList.contains("max-w-bubble")).toBe(true);
   expect(bot.classList.contains("self-end")).toBe(user);
-  if (!user) expect(bot.previousElementSibling?.className).toBe(code.previousElementSibling?.className);
+  if (!user) {
+    expect(bot.previousElementSibling?.className).toContain("max-w-bubble");
+    expect(code.previousElementSibling?.className).toContain("max-w-full");
+    expect(code.previousElementSibling?.className).not.toContain("max-w-bubble");
+  }
 });
 
 it("uses identical closed, scroll-bounded logs with full-width nested cards and headers", () => {
@@ -162,6 +166,20 @@ it("passes the log's total output tokens, average tok/s, and elapsed time to the
   expect(log.querySelector("summary")!.nextElementSibling?.textContent).toContain(usage);
   // The summary keeps only the count.
   expect(log.querySelector("summary")?.textContent).toBe("作業ログ2件");
+});
+
+it("lets the activity header use different layouts outside and inside the log", () => {
+  const { container } = render(
+    <ActivityLog kind="task" header={(_usage, placement) => <MessageHeader wide={placement === "outside"}>{placement}</MessageHeader>} count={1} parts={[]} active={false}>
+      <MessageBubble>Tool content</MessageBubble>
+    </ActivityLog>,
+  );
+  const log = container.querySelector("details")!;
+  expect(log.previousElementSibling?.textContent).toBe("outside");
+  expect(log.previousElementSibling?.className).toContain("max-w-full");
+  const inside = log.querySelector("summary")!.nextElementSibling!.firstElementChild?.firstElementChild;
+  expect(inside?.textContent).toBe("inside");
+  expect(inside?.className).toContain("max-w-bubble");
 });
 
 it("keeps the activity header both above and inside the collapsible log", () => {

@@ -205,8 +205,10 @@ describe("PartView sender and response metadata", () => {
     const metadata = screen.getByLabelText("応答メタデータ");
     expect(metadata.className).toContain("w-full");
     expect(metadata.className).toContain("max-w-full");
-    expect(metadata.parentElement?.className).toContain("max-w-bubble");
-    for (const label of ["GPT", "builder", "仕事用"]) expect(metadata.textContent).toContain(label);
+    expect(metadata.parentElement?.className).toContain("max-w-full");
+    expect(metadata.parentElement?.className).not.toContain("max-w-bubble");
+    for (const label of ["GPT", "builder"]) expect(metadata.textContent).toContain(label);
+    expect(metadata.textContent).not.toContain("仕事用");
   });
 
   it("updates the sender and bubble when Bot metadata arrives", () => {
@@ -221,7 +223,7 @@ describe("PartView sender and response metadata", () => {
     expect(screen.getByText("Renamed Bot")).toBeTruthy();
   });
 
-  it("shows the account label beside the agent", () => {
+  it("omits the account on the regular one-line assistant header", () => {
     render(
       <PartView
         message={{ id: "assistant-meta", role: "assistant", createdAt: 1, parts: [] }}
@@ -233,7 +235,7 @@ describe("PartView sender and response metadata", () => {
 
     expect(screen.getByText("max")).toBeTruthy();
     expect(screen.getByText("builder")).toBeTruthy();
-    expect(screen.getByText("仕事用")).toBeTruthy();
+    expect(screen.queryByText("仕事用")).toBeNull();
     expect(screen.getByText("builder").querySelector('[data-agent-icon="builder"]')).not.toBeNull();
   });
 
@@ -258,7 +260,7 @@ describe("PartView sender and response metadata", () => {
 
   it("places model, effort, optional account and time above token usage", () => {
     render(
-      <PartView
+      <MessageMetaHeader
         message={{
           id: "assistant-stats",
           role: "assistant",
@@ -293,18 +295,16 @@ describe("PartView sender and response metadata", () => {
       expect(element.className).not.toContain("hidden");
     }
     const accountGroup = account.parentElement!;
-    expect(accountGroup.className).toContain("hidden");
-    expect(accountGroup.className).toContain("@min-[800px]/task:inline-flex");
+    expect(accountGroup.className).toContain("inline-flex");
     expect(accountGroup.className).toContain("overflow-hidden");
     expect(accountGroup.getAttribute("title")).toBe("long-account@example.com");
     expect(accountGroup.querySelector('[aria-hidden="true"]')?.textContent).toBe("·");
     expect(identity.className).toContain("flex-wrap");
-    expect(identity.className).toContain("@min-[800px]/task:flex-nowrap");
-    expect(usage.className).toContain("@min-[800px]/task:flex-nowrap");
-    expect(usage.firstElementChild?.className).toContain("hidden shrink-0 @min-[800px]/task:inline");
-    expect(usage.firstElementChild?.textContent).toBe("·");
+    expect(identity.className).not.toContain("flex-nowrap");
+    expect(usage.className).not.toContain("flex-nowrap");
+    expect(usage.firstElementChild?.textContent).toBe("32 tok");
     expect(meta.className).toContain("flex-col");
-    expect(meta.className).toContain("@min-[800px]/task:flex-row");
+    expect(meta.className).not.toContain("flex-row");
     expect(meta.className.split(" ")).not.toContain("overflow-hidden");
   });
 
@@ -328,8 +328,33 @@ describe("PartView sender and response metadata", () => {
     expect(meta.className).toContain("flex-col");
     expect(model.className).toContain("[overflow-wrap:anywhere]");
     expect(model.className.split(" ")).not.toContain("truncate");
-    expect(model.className).toContain("@min-[800px]/task:truncate");
+    expect(model.className).not.toContain("truncate");
     expect(time.className).toContain("shrink-0");
+  });
+
+  it("keeps regular response metadata on one full-width row and omits the optional account", () => {
+    render(
+      <MessageMetaHeader
+        message={{ id: "single-line", role: "assistant", createdAt: 1_758_947_460_000, parts: [] }}
+        modelLabel="Model A"
+        effort="max"
+        accountLabel="long-account@example.com"
+        usage={{ outputTokens: 94_000, avgRate: 140, elapsedMs: 7_440_000 }}
+        singleLine
+      />,
+    );
+    const meta = screen.getByLabelText("応答メタデータ");
+    expect(meta.className).toContain("flex-row");
+    expect(meta.className).toContain("whitespace-nowrap");
+    expect(meta.className).toContain("@max-[359px]/meta-header:flex-col");
+    expect(screen.getByLabelText("モデル情報").className).toContain("flex-nowrap");
+    expect(screen.getByLabelText("トークン情報").className).toContain("flex-nowrap");
+    expect(screen.getByText("Model A").className).toContain("truncate");
+    expect(screen.getByText("Model A").className).toContain("@max-[359px]/meta-header:whitespace-normal");
+    expect(screen.queryByText("long-account@example.com")).toBeNull();
+    expect(meta.textContent).toContain("94k tok");
+    expect(meta.textContent).toContain("140 tok/s");
+    expect(meta.textContent).toContain("2h 4m");
   });
 
   it("hides only the default agent field when it is the sole choice", () => {
