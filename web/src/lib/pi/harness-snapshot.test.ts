@@ -156,6 +156,32 @@ describe("snapshotMessages", () => {
     expect(snapshot()).toBe(orphaned);
   });
 
+  it("updates both rows when a partial-output call ID appears twice", () => {
+    const stored: unknown[] = [1, 2].map((index) => ({
+      role: "assistant", timestamp: index * 1_000,
+      content: [{ type: "toolCall", id: "shared-call", name: "bash", arguments: {} }],
+    }));
+    const session = {
+      messages: stored,
+      agent: { state: { streamingMessage: undefined } },
+      sessionManager: { getLeafId: () => null, getBranch: () => [] },
+    } as unknown as Parameters<typeof snapshotMessages>[0];
+    const output = new Map([["shared-call", "first"]]);
+    const snapshot = () => snapshotMessages(session, undefined, undefined, undefined, output);
+
+    const first = snapshot();
+    expect(first.map((message) => message.parts[0])).toEqual([
+      expect.objectContaining({ state: expect.objectContaining({ output: "first" }) }),
+      expect.objectContaining({ state: expect.objectContaining({ output: "first" }) }),
+    ]);
+    output.set("shared-call", "second");
+    const changed = snapshot();
+    expect(changed.map((message) => message.parts[0])).toEqual([
+      expect.objectContaining({ state: expect.objectContaining({ output: "second" }) }),
+      expect.objectContaining({ state: expect.objectContaining({ output: "second" }) }),
+    ]);
+  });
+
   it("reuses a tool row while its start and end timing is unchanged", () => {
     const stored: unknown[] = [{
       role: "assistant", timestamp: 1_000,

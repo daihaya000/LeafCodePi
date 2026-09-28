@@ -542,7 +542,7 @@ export function snapshotMessages(
   if (throughputByStartedAt)
     projected = applyThroughput(projected, throughputByStartedAt);
   if (toolPartialOutputByCallId && toolPartialOutputByCallId.size > 0) {
-    projected = applyToolOutput(projected, toolPartialOutputByCallId);
+    projected = applySnapshotToolOutput(projected, toolPartialOutputByCallId);
   }
   if (toolStartedAt && toolStartedAt.size > 0 && toolEndedAt) {
     projected = applyToolTiming(projected, toolStartedAt, toolEndedAt);
@@ -616,6 +616,55 @@ export function applyToolOutput(
   }
   const result = changed ?? baseline;
   toolOutputArrayCache.set(messages, result);
+  return result;
+}
+
+/** Cached snapshot inputs are immutable; a single live call needs only its matching row. */
+const singleToolOutputRowCache = new WeakMap<
+  UiMessage[],
+  { callID: string; index: number; row: UiMessage[] | null; result: UiMessage[] }
+>();
+
+function applySnapshotToolOutput(
+  messages: UiMessage[],
+  partialOutputByCallId: Map<string, string>,
+): UiMessage[] {
+  if (partialOutputByCallId.size !== 1) {
+    singleToolOutputRowCache.delete(messages);
+    return applyToolOutput(messages, partialOutputByCallId);
+  }
+  const callID = partialOutputByCallId.keys().next().value!;
+  const cached = singleToolOutputRowCache.get(messages);
+  if (cached?.callID === callID &&
+      cached.result === toolOutputArrayCache.get(messages) &&
+      cached.result.length === messages.length &&
+      (cached.index < 0 || cached.row?.[0] === messages[cached.index])) {
+    if (cached.index < 0) return cached.result;
+    const projected = applyToolOutput(cached.row!, partialOutputByCallId)[0]!;
+    if (projected === cached.result[cached.index]) return cached.result;
+    const result = cached.result.slice();
+    result[cached.index] = projected;
+    cached.result = result;
+    toolOutputArrayCache.set(messages, result);
+    return result;
+  }
+
+  const result = applyToolOutput(messages, partialOutputByCallId);
+  let index = -1;
+  for (let i = 0; i < messages.length; i++) {
+    const message = messages[i]!;
+    if (message.role !== "assistant" ||
+        !message.parts.some((part) => part.type === "tool" && part.callID === callID)) continue;
+    if (index >= 0) { index = -2; break; } // A repeated call ID needs a full scan.
+    index = i;
+  }
+  if (index !== -2) {
+    singleToolOutputRowCache.set(messages, {
+      callID, index, row: index >= 0 ? [messages[index]!] : null, result,
+    });
+  } else {
+    singleToolOutputRowCache.delete(messages);
+  }
   return result;
 }
 
