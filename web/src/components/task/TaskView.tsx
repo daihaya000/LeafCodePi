@@ -333,6 +333,8 @@ function sameTaskDetail(a: TaskDetail | null, b: TaskDetail): boolean {
   return (
     a.status === b.status &&
     a.title === b.title &&
+    // Background labels keep updatedAt, so the label itself must be compared.
+    a.label === b.label &&
     a.titleAutoUpdate === b.titleAutoUpdate &&
     a.providerID === b.providerID &&
     a.modelID === b.modelID &&

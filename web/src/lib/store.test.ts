@@ -191,6 +191,21 @@ describe("store", () => {
     rmSync(dir, { recursive: true, force: true });
   });
 
+  it("persists a metadata patch without counting it as activity when asked", async () => {
+    const dir = join(tmpdir(), `leafcode-pi-test-${Date.now()}`);
+    mkdirSync(dir, { recursive: true });
+    process.env.LEAFCODE_PI_DATA_DIR = dir;
+    const store = await import("./store");
+    const project = store.upsertProject({ name: "demo", rootPath: "C:\\tmp\\demo" });
+    const task = store.insertTask({ project, title: "t1" });
+    const before = store.getTask(task.id)!.updatedAt;
+
+    expect(store.patchTask(task.id, { label: "debug" }, { preserveUpdatedAt: true })?.label).toBe("debug");
+
+    expect(store.getTask(task.id)).toMatchObject({ label: "debug", updatedAt: before });
+    rmSync(dir, { recursive: true, force: true });
+  });
+
   it("stores permissionMode on the task without sharing a global default", async () => {
     const dir = join(tmpdir(), `leafcode-pi-test-${Date.now()}`);
     mkdirSync(dir, { recursive: true });

@@ -53,6 +53,7 @@ vi.mock("@/lib/direct-session", () => ({
 }));
 
 import { getTask, insertTask, patchTask } from "./store";
+import { BOT_PROMPT_PREFIX } from "./pi/messages";
 import {
   backfillMissingTaskLabels,
   ensureTaskLabelDirect,
@@ -68,6 +69,9 @@ describe("refreshTaskTitleDirect account pin", () => {
   beforeEach(() => {
     state.root = mkdtempSync(join(tmpdir(), "direct-title-"));
     state.generateDirectTextWithFallbackResult.mockReset();
+    state.hasUsableJevModelConfigured.mockReset().mockResolvedValue(false);
+    state.classifySessionLabelWithJev.mockReset().mockResolvedValue("code");
+    state.emitTaskChanged.mockReset();
     state.getSetting.mockReset().mockImplementation((key: string) =>
       key === GENERATION_MODEL_SETTING_KEY ? "anthropic::claude-sonnet" : "",
     );
@@ -82,6 +86,17 @@ describe("refreshTaskTitleDirect account pin", () => {
   afterEach(() => {
     rmSync(state.root, { recursive: true, force: true });
   });
+
+  /** Jev labelling on with a usable model; Jev itself misses unless a test says otherwise. */
+  function useJevThatMisses(): void {
+    state.getSetting.mockImplementation((key: string) =>
+      key === GENERATION_MODEL_SETTING_KEY ? "anthropic::claude-sonnet" : key === "auto-jev-enabled" ? "1" : "",
+    );
+    state.hasUsableJevModelConfigured.mockResolvedValue(true);
+    state.classifySessionLabelWithJev.mockResolvedValue(undefined);
+  }
+
+  const model = { providerID: "anthropic", modelID: "claude-sonnet" };
 
   it("assigns a fallback label without generating a title", async () => {
     const task = insertTask({
@@ -101,17 +116,28 @@ describe("refreshTaskTitleDirect account pin", () => {
 
   it("skips Jev when no Jev model is usable and uses it once one is", async () => {
     state.getSetting.mockImplementation((key: string) => (key === "auto-jev-enabled" ? "1" : ""));
-    state.classifySessionLabelWithJev.mockClear();
-    const task = insertTask({ project: null, title: "t", providerID: "anthropic", modelID: "claude-sonnet" });
-    state.readSessionConversation.mockReturnValue([{ role: "user", text: "\u4e0d\u5177\u5408\u3068\u30a8\u30e9\u30fc" }]);
+    const withoutJev = insertTask({ project: null, title: "t", providerID: "anthropic", modelID: "claude-sonnet" });
+    const withJev = insertTask({ project: null, title: "t", providerID: "anthropic", modelID: "claude-sonnet" });
+    state.readSessionConversation.mockReturnValue([{ role: "user", text: "不具合とエラー" }]);
 
     state.hasUsableJevModelConfigured.mockResolvedValueOnce(false);
-    expect((await refreshTaskLabelDirect(task.id)).label).toBe("debug");
+    expect((await refreshTaskLabelDirect(withoutJev.id)).label).toBe("debug");
     expect(state.classifySessionLabelWithJev).not.toHaveBeenCalled();
 
     state.hasUsableJevModelConfigured.mockResolvedValueOnce(true);
-    expect((await refreshTaskLabelDirect(task.id)).label).toBe("code");
+    expect((await refreshTaskLabelDirect(withJev.id)).label).toBe("code");
     expect(state.classifySessionLabelWithJev).toHaveBeenCalledOnce();
+  });
+
+  it("returns an already known label to the pane without classifying again", async () => {
+    state.getSetting.mockImplementation((key: string) => (key === "auto-jev-enabled" ? "1" : ""));
+    state.hasUsableJevModelConfigured.mockResolvedValue(true);
+    const labelled = insertTask({ project: null, title: "t", label: "ops", providerID: "anthropic", modelID: "claude-sonnet" });
+
+    await expect(refreshTaskLabelDirect(labelled.id)).resolves.toMatchObject({ label: "ops" });
+
+    expect(state.classifySessionLabelWithJev).not.toHaveBeenCalled();
+    expect(state.generateDirectTextWithFallbackResult).not.toHaveBeenCalled();
   });
 
   it("waits for a cold Jev catalog instead of skipping Jev for labels", async () => {
@@ -125,16 +151,15 @@ describe("refreshTaskTitleDirect account pin", () => {
   });
 
   it("asks the title model for a label when Jev and the keyword rule both miss", async () => {
-    state.emitTaskChanged.mockClear();
-    state.generateDirectTextWithFallbackResult.mockResolvedValue({
-      text: "ラベル: 「調査」",
-      model: { providerID: "anthropic", modelID: "claude-sonnet" },
-    });
+    useJevThatMisses();
+    state.generateDirectTextWithFallbackResult.mockResolvedValue({ text: "ラベル: 「調査」", model });
     const task = insertTask({ project: null, title: "t", providerID: "anthropic", modelID: "claude-sonnet" });
+    const updatedAt = getTask(task.id)?.updatedAt;
 
     await expect(ensureTaskLabelDirect(task.id)).resolves.toBe("research");
 
-    expect(getTask(task.id)?.label).toBe("research");
+    // A background label is not activity: sidebar order, unread and auto-archive stay put.
+    expect(getTask(task.id)).toMatchObject({ label: "research", updatedAt });
     expect(state.emitTaskChanged).toHaveBeenCalledWith(task.id, "label_changed");
     const call = state.generateDirectTextWithFallbackResult.mock.calls[0]?.[0];
     expect(call.system).toContain("- デバッグ: 不具合");
@@ -154,6 +179,35 @@ describe("refreshTaskTitleDirect account pin", () => {
     expect(state.generateDirectTextWithFallbackResult).not.toHaveBeenCalled();
   });
 
+  it("makes no extra model request when Jev is off, as the settings screen promises", async () => {
+    const task = insertTask({ project: null, title: "t", providerID: "anthropic", modelID: "claude-sonnet" });
+
+    await expect(ensureTaskLabelDirect(task.id)).resolves.toBeUndefined();
+    await expect(refineInitialTaskLabel(task.id, "hello")).resolves.toBeUndefined();
+
+    expect(state.generateDirectTextWithFallbackResult).not.toHaveBeenCalled();
+    expect(state.classifySessionLabelWithJev).not.toHaveBeenCalled();
+  });
+
+  it("does not resend a transcript on which Jev and the title model already missed", async () => {
+    useJevThatMisses();
+    state.generateDirectTextWithFallbackResult.mockResolvedValue({ text: "不明", model });
+    const task = insertTask({ project: null, title: "t", providerID: "anthropic", modelID: "claude-sonnet" });
+
+    await expect(ensureTaskLabelDirect(task.id)).resolves.toBeUndefined();
+    await expect(ensureTaskLabelDirect(task.id)).resolves.toBeUndefined();
+    expect(state.classifySessionLabelWithJev).toHaveBeenCalledOnce();
+    expect(state.generateDirectTextWithFallbackResult).toHaveBeenCalledOnce();
+
+    // New conversation text is a new input, and the cheap rule always re-runs.
+    state.readSessionConversation.mockReturnValue([
+      { role: "user", text: "hello" },
+      { role: "assistant", text: "How can I help?" },
+    ]);
+    await expect(ensureTaskLabelDirect(task.id)).resolves.toBeUndefined();
+    expect(state.generateDirectTextWithFallbackResult).toHaveBeenCalledTimes(2);
+  });
+
   it("relabels a task whose label definition was deleted", async () => {
     state.readSessionConversation.mockReturnValue([{ role: "user", text: "不具合を修正" }]);
     const orphaned = insertTask({ project: null, title: "t", label: "deleted-label", providerID: "anthropic", modelID: "claude-sonnet" });
@@ -169,52 +223,76 @@ describe("refreshTaskTitleDirect account pin", () => {
     await expect(refineInitialTaskLabel(ruled.id, "不具合を修正")).resolves.toBe("debug");
     expect(state.generateDirectTextWithFallbackResult).not.toHaveBeenCalled();
 
-    state.getSetting.mockImplementation((key: string) =>
-      key === GENERATION_MODEL_SETTING_KEY ? "anthropic::claude-sonnet" : key === "auto-jev-enabled" ? "1" : "",
-    );
-    state.hasUsableJevModelConfigured.mockResolvedValueOnce(true);
+    useJevThatMisses();
     state.classifySessionLabelWithJev.mockResolvedValueOnce("research");
-    await expect(refineInitialTaskLabel(ruled.id, "不具合を修正")).resolves.toBe("research");
+    await expect(refineInitialTaskLabel(ruled.id, `${BOT_PROMPT_PREFIX}不具合を修正`)).resolves.toBe("research");
     expect(getTask(ruled.id)?.label).toBe("research");
+    // Internal prompt markers are not part of what the session is about.
+    expect(state.classifySessionLabelWithJev).toHaveBeenLastCalledWith(expect.objectContaining({ prompt: "User: 不具合を修正" }), expect.anything());
 
-    state.generateDirectTextWithFallbackResult.mockResolvedValue({
-      text: "チャット",
-      model: { providerID: "anthropic", modelID: "claude-sonnet" },
-    });
+    state.generateDirectTextWithFallbackResult.mockResolvedValue({ text: "チャット", model });
     const unlabelled = insertTask({ project: null, title: "t", providerID: "anthropic", modelID: "claude-sonnet" });
     await expect(refineInitialTaskLabel(unlabelled.id, "hello")).resolves.toBe("chat");
     expect(getTask(unlabelled.id)?.label).toBe("chat");
   });
 
   it("shares one classification between the turn-end job and the pane request", async () => {
-    let reply!: (value: { text: string; model: { providerID: string; modelID: string } }) => void;
+    useJevThatMisses();
+    let reply!: (value: { text: string; model: typeof model }) => void;
     state.generateDirectTextWithFallbackResult.mockReturnValue(new Promise((resolve) => { reply = resolve; }));
     const task = insertTask({ project: null, title: "t", providerID: "anthropic", modelID: "claude-sonnet" });
 
     const background = ensureTaskLabelDirect(task.id);
     const pane = refreshTaskLabelDirect(task.id);
     await vi.waitFor(() => expect(state.generateDirectTextWithFallbackResult).toHaveBeenCalled());
-    reply({ text: "運用", model: { providerID: "anthropic", modelID: "claude-sonnet" } });
+    reply({ text: "運用", model });
 
     await expect(background).resolves.toBe("ops");
     await expect(pane).resolves.toMatchObject({ label: "ops", task: { label: "ops" } });
     expect(state.generateDirectTextWithFallbackResult).toHaveBeenCalledOnce();
   });
 
-  it("backfills the newest unlabelled sessions up to the limit", async () => {
+  it("runs its own classification when the shared creation job finds nothing", async () => {
+    useJevThatMisses();
+    let firstReply!: (value: { text: string; model: typeof model }) => void;
+    state.generateDirectTextWithFallbackResult
+      .mockReturnValueOnce(new Promise((resolve) => { firstReply = resolve; }))
+      .mockResolvedValueOnce({ text: "調査", model });
+    state.readSessionConversation.mockReturnValue([
+      { role: "user", text: "hello" },
+      { role: "assistant", text: "How can I help?" },
+    ]);
+    const task = insertTask({ project: null, title: "t", providerID: "anthropic", modelID: "claude-sonnet" });
+
+    // The creation job only knows the prompt; the turn-end job also sees the reply.
+    const creation = refineInitialTaskLabel(task.id, "hello");
+    const turnEnd = ensureTaskLabelDirect(task.id);
+    await vi.waitFor(() => expect(state.generateDirectTextWithFallbackResult).toHaveBeenCalledOnce());
+    firstReply({ text: "不明", model });
+
+    await expect(creation).resolves.toBeUndefined();
+    await expect(turnEnd).resolves.toBe("research");
+    expect(state.generateDirectTextWithFallbackResult).toHaveBeenCalledTimes(2);
+  });
+
+  it("backfills every unlabelled session, newest first", async () => {
     state.readSessionConversation.mockReturnValue([{ role: "user", text: "不具合を修正" }]);
+    const oldest = insertTask({ project: null, title: "t", providerID: "anthropic", modelID: "claude-sonnet" });
     const noSession = insertTask({ project: null, title: "t", providerID: "anthropic", modelID: "claude-sonnet" });
     const older = insertTask({ project: null, title: "t", providerID: "anthropic", modelID: "claude-sonnet" });
     const newer = insertTask({ project: null, title: "t", providerID: "anthropic", modelID: "claude-sonnet" });
-    patchTask(older.id, { sessionFile: join(state.root, "older.jsonl") });
-    patchTask(newer.id, { sessionFile: join(state.root, "newer.jsonl") });
+    for (const task of [oldest, older, newer]) {
+      patchTask(task.id, { sessionFile: join(state.root, `${task.id}.jsonl`) });
+    }
 
     await expect(backfillMissingTaskLabels(1)).resolves.toBe(1);
     expect(getTask(newer.id)?.label).toBe("debug");
     expect(getTask(older.id)?.label).toBeUndefined();
 
-    await expect(backfillMissingTaskLabels()).resolves.toBe(1);
+    // No per-run cap: sessions that keep failing cannot starve older ones.
+    await expect(backfillMissingTaskLabels()).resolves.toBe(2);
     expect(getTask(older.id)?.label).toBe("debug");
+    expect(getTask(oldest.id)?.label).toBe("debug");
     expect(getTask(noSession.id)?.label).toBeUndefined();
   });
 

@@ -96,6 +96,8 @@ function sameTaskSummary(left: TaskSummary, right: TaskSummary): boolean {
   return left.id === right.id &&
     left.status === right.status &&
     left.title === right.title &&
+    // Background labels keep updatedAt, so the label itself must be compared.
+    left.label === right.label &&
     left.projectId === right.projectId &&
     left.projectName === right.projectName &&
     left.botId === right.botId &&

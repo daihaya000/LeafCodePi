@@ -23,9 +23,11 @@ import {
   LABEL_TRANSCRIPT_MAX_CHARS,
   labelNameFromReply,
   splitTitleAndLabel,
+  type ConversationMessage,
 } from "@/lib/direct-generation-text";
 import { classifySessionLabelWithJev, matchSessionLabelByRule } from "@/lib/auto-jev";
 import { emitTaskChanged, hasUsableJevModelConfigured } from "@/lib/pi/harness";
+import { stripPromptMarkers } from "@/lib/pi/messages";
 import {
   AUTO_JEV_ENABLED_SETTING_KEY,
   AUTO_JEV_MIN_CONFIDENCE_SETTING_KEY,
@@ -46,10 +48,12 @@ import type { TaskSummary } from "@/lib/types";
  * 2s routing bound. That bound used to skip Jev right at session creation.
  */
 const LABEL_JEV_CATALOG_WAIT_MS = 15_000;
-/** Startup pass size; each unlabeled session costs at most one Jev and one model call. */
-const LABEL_BACKFILL_LIMIT = 20;
 
-/** Settings are checked first so the Jev catalog is not consulted when Jev is off. */
+/**
+ * Jev labelling is on and a Jev model can be called. Settings are checked first so the Jev
+ * catalog is not consulted when Jev is off. Without Jev, labels piggyback on title generation
+ * (the settings screen promises no extra request), so background jobs only apply the rule.
+ */
 async function shouldUseJevForLabels(): Promise<boolean> {
   return isAutoJevEnabled(getSetting(AUTO_JEV_ENABLED_SETTING_KEY)) &&
     isSessionLabelJevEnabled(getSetting(SESSION_LABEL_JEV_SETTING_KEY)) &&
@@ -66,15 +70,22 @@ function hasKnownLabel(task: TaskSummary, labels: readonly SessionLabel[]): bool
   return Boolean(task.label) && labels.some((label) => label.id === task.label);
 }
 
+function classifyWithJev(
+  text: string,
+  labels: readonly SessionLabel[],
+): Promise<string | undefined> {
+  return classifySessionLabelWithJev(
+    { prompt: text, labels },
+    { minConfidence: parseAutoJevMinConfidence(getSetting(AUTO_JEV_MIN_CONFIDENCE_SETTING_KEY)) },
+  );
+}
+
 async function jevLabelFor(
   text: string,
   labels: readonly SessionLabel[],
 ): Promise<string | undefined> {
   if (labels.length === 0 || !await shouldUseJevForLabels()) return undefined;
-  return classifySessionLabelWithJev(
-    { prompt: text, labels },
-    { minConfidence: parseAutoJevMinConfidence(getSetting(AUTO_JEV_MIN_CONFIDENCE_SETTING_KEY)) },
-  );
+  return classifyWithJev(text, labels);
 }
 
 const TITLE_SYSTEM_INSTRUCTION =
@@ -155,8 +166,10 @@ async function modelLabelFor(
 /** transcript feeds Jev and the model; ruleText is what the user asked for. */
 type LabelSource = { transcript: string; ruleText: string };
 
-function labelSourceFor(task: TaskSummary): LabelSource | null {
-  const conversation = readSessionConversation(task.sessionFile);
+function labelSourceFor(
+  task: TaskSummary,
+  conversation: readonly ConversationMessage[] = readSessionConversation(task.sessionFile),
+): LabelSource | null {
   if (conversation.length > 0) {
     const transcript = buildLabelTranscript(conversation);
     const userText = conversation
@@ -175,15 +188,40 @@ function labelSourceFor(task: TaskSummary): LabelSource | null {
   return title ? { transcript: `User: ${title}`, ruleText: title } : null;
 }
 
-/** Jev first, then the keyword rule, then the title model, so some label is always found. */
+type LabelJobState = {
+  /** One running classification per task; see runLabelJob. */
+  jobs: Map<string, Promise<string | undefined>>;
+  /** Transcript on which Jev and the title model last found nothing, per task. */
+  missed: Map<string, string>;
+};
+
+const LABEL_JOB_STATE_KEY = Symbol.for("leafcode-pi.session-label-job-state");
+
+function labelJobState(): LabelJobState {
+  const holder = globalThis as typeof globalThis & { [LABEL_JOB_STATE_KEY]?: LabelJobState };
+  return (holder[LABEL_JOB_STATE_KEY] ??= { jobs: new Map(), missed: new Map() });
+}
+
+/**
+ * Jev, then the keyword rule, then one short request to the title model; without Jev only
+ * the rule runs (see shouldUseJevForLabels). A transcript on which Jev and the model already
+ * missed is not sent again: once a session outgrows the head-first window, every later turn
+ * would repeat the same failing requests.
+ */
 async function classifyTaskLabel(
   task: TaskSummary,
   labels: readonly SessionLabel[],
   source: LabelSource,
 ): Promise<string | undefined> {
-  return await jevLabelFor(source.transcript, labels) ??
-    matchSessionLabelByRule(source.ruleText, labels) ??
+  const { missed } = labelJobState();
+  const byRule = () => matchSessionLabelByRule(source.ruleText, labels);
+  if (missed.get(task.id) === source.transcript || !await shouldUseJevForLabels()) return byRule();
+  const label = await classifyWithJev(source.transcript, labels) ??
+    byRule() ??
     await modelLabelFor(task, source.transcript, labels);
+  if (label) missed.delete(task.id);
+  else missed.set(task.id, source.transcript);
+  return label;
 }
 
 function applyLabel(
@@ -195,29 +233,26 @@ function applyLabel(
   if (!current) return undefined;
   // Another writer (e.g. a manual title refresh) may have labelled the task meanwhile.
   if (keepKnownFrom && hasKnownLabel(current, keepKnownFrom)) return current.label;
-  if (current.label !== label && patchTask(taskId, { label })) {
+  // A label is metadata, not activity: keep updatedAt (sidebar order, unread, auto-archive).
+  if (current.label !== label && patchTask(taskId, { label }, { preserveUpdatedAt: true })) {
     // Push the late label to open panes; otherwise it waits for the next lifecycle snapshot.
     emitTaskChanged(taskId, "label_changed");
   }
   return label;
 }
 
-const LABEL_JOBS_KEY = Symbol.for("leafcode-pi.session-label-jobs");
-
 /**
- * One label job per task. Creation, turn end, startup backfill and the pane's request
- * join the same promise instead of classifying the session several times at once.
+ * One label job per task at a time. Creation, turn end, startup backfill and the pane's
+ * request share a running job; when it finds nothing the caller runs its own, because it may
+ * see more of the session (the creation job only knows the first prompt).
  */
-function runLabelJob(
+async function runLabelJob(
   taskId: string,
   job: () => Promise<string | undefined>,
 ): Promise<string | undefined> {
-  const holder = globalThis as typeof globalThis & {
-    [LABEL_JOBS_KEY]?: Map<string, Promise<string | undefined>>;
-  };
-  const jobs = (holder[LABEL_JOBS_KEY] ??= new Map());
+  const { jobs } = labelJobState();
   const running = jobs.get(taskId);
-  if (running) return running;
+  if (running) return (await running) ?? runLabelJob(taskId, job);
   const promise = job()
     .catch(() => undefined)
     .finally(() => {
@@ -237,33 +272,49 @@ export function refineInitialTaskLabel(
 ): Promise<string | undefined> {
   return runLabelJob(taskId, async () => {
     const labels = currentLabels();
-    if (labels.length === 0 || !prompt.trim()) return undefined;
-    const transcript = buildLabelTranscript([{ role: "user", text: prompt }]);
-    const jevLabel = await jevLabelFor(transcript, labels);
-    if (jevLabel) return applyLabel(taskId, jevLabel);
+    const text = stripPromptMarkers(prompt).trim();
     const task = getTask(taskId);
-    if (!task || hasKnownLabel(task, labels)) return task?.label;
-    const modelLabel = await modelLabelFor(task, transcript, labels);
-    return modelLabel ? applyLabel(taskId, modelLabel, labels) : undefined;
+    if (!task || labels.length === 0 || !text) return undefined;
+    // Without Jev the insert-time keyword label stands (see shouldUseJevForLabels).
+    if (!await shouldUseJevForLabels()) return hasKnownLabel(task, labels) ? task.label : undefined;
+    const transcript = buildLabelTranscript([{ role: "user", text }]);
+    const jevLabel = await classifyWithJev(transcript, labels);
+    if (jevLabel) return applyLabel(taskId, jevLabel);
+    const latest = getTask(taskId);
+    if (!latest || hasKnownLabel(latest, labels)) return latest?.label;
+    const modelLabel = await modelLabelFor(latest, transcript, labels);
+    if (modelLabel) return applyLabel(taskId, modelLabel, labels);
+    labelJobState().missed.set(taskId, transcript);
+    return undefined;
   });
 }
 
-/** Label a task that is still unlabeled; used after each settled turn and at startup. */
-export function ensureTaskLabelDirect(taskId: string): Promise<string | undefined> {
+/** Label a task without a known label; the pane passes the source it already read. */
+function labelTaskJob(taskId: string, presetSource?: LabelSource): Promise<string | undefined> {
   return runLabelJob(taskId, async () => {
     const task = getTask(taskId);
     const labels = currentLabels();
     if (!task || labels.length === 0) return undefined;
     if (hasKnownLabel(task, labels)) return task.label;
-    const source = labelSourceFor(task);
+    const source = presetSource ?? labelSourceFor(task);
     if (!source) return undefined;
     const label = await classifyTaskLabel(task, labels, source);
     return label ? applyLabel(taskId, label, labels) : undefined;
   });
 }
 
-/** Startup pass for sessions every earlier attempt missed; newest first, one at a time. */
-export async function backfillMissingTaskLabels(limit = LABEL_BACKFILL_LIMIT): Promise<number> {
+/** Used after each settled turn and by the startup backfill. */
+export function ensureTaskLabelDirect(taskId: string): Promise<string | undefined> {
+  return labelTaskJob(taskId);
+}
+
+/**
+ * Startup pass for sessions every earlier attempt missed: all of them, newest first, one at a
+ * time. Labels keep updatedAt, so this neither reorders the sidebar nor marks sessions unread.
+ */
+export async function backfillMissingTaskLabels(
+  limit = Number.POSITIVE_INFINITY,
+): Promise<number> {
   const labels = currentLabels();
   if (labels.length === 0) return 0;
   const pending = listTasks(false, "code")
@@ -276,6 +327,10 @@ export async function backfillMissingTaskLabels(limit = LABEL_BACKFILL_LIMIT): P
   return labelled;
 }
 
+/**
+ * The pane asks once the first turn is done. It shares the background job and returns an
+ * already known label instead of classifying the session a second time.
+ */
 export async function refreshTaskLabelDirect(
   taskId: string,
 ): Promise<{ label?: string; task: ReturnType<typeof patchTask> }> {
@@ -285,12 +340,7 @@ export async function refreshTaskLabelDirect(
   if (!source) {
     throw new DirectGenerationError("ラベルを判定できる会話・ToDo・作業ログがありません", 422);
   }
-
-  const labels = currentLabels();
-  const label = await runLabelJob(taskId, async () => {
-    const found = labels.length > 0 ? await classifyTaskLabel(task, labels, source) : undefined;
-    return found ? applyLabel(taskId, found) : undefined;
-  });
+  const label = await labelTaskJob(taskId, source);
   return { ...(label ? { label } : {}), task: getTask(taskId) };
 }
 
@@ -318,7 +368,7 @@ export async function refreshTaskTitleDirect(
   if (candidates.length === 0) throw new DirectGenerationError("生成モデルが設定されていません", 400);
 
   const labels = currentLabels();
-  const labelSource = labelSourceFor(task);
+  const labelSource = labelSourceFor(task, conversation);
   // Jev はタイトル生成と同じ会話を使うので直列にせず同時に走らせる。
   let jevSettled = false;
   let jevLabel: string | undefined;
@@ -326,7 +376,7 @@ export async function refreshTaskTitleDirect(
     .then((value) => {
       jevSettled = true;
       jevLabel = value;
-      if (value && patchTask(taskId, { label: value })) emitTaskChanged(taskId, "label_changed");
+      if (value) applyLabel(taskId, value);
       return value;
     }).catch(() => {
       jevSettled = true;

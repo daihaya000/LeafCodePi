@@ -3,7 +3,7 @@ import { stripPromptMarkers } from "@/lib/pi/messages";
 export const TITLE_TRANSCRIPT_MAX_CHARS = 24_000;
 export const TITLE_MAX_CHARS = 60;
 export const NEXT_ACTION_TRANSCRIPT_MAX_CHARS = 8_000;
-/** Session labels only need the opening request; a short input also keeps Jev inside its timeout. */
+/** Session labels only need the opening request, so Jev and the title model get a bounded input. */
 export const LABEL_TRANSCRIPT_MAX_CHARS = 8_000;
 export const SUGGESTION_MAX_CHARS = 500;
 export const PREVIOUS_SUGGESTIONS_MAX_COUNT = 10;

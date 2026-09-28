@@ -75,6 +75,13 @@ describe("sameTaskList", () => {
     expect(stabilized[1]).toBe(next[1]);
   });
 
+  it("detects a session label change that keeps updatedAt", () => {
+    const a = [task("t1", "idle", "タスクA")];
+    const b = [{ ...task("t1", "idle", "タスクA"), label: "debug" }];
+    expect(sameTaskList(a, b)).toBe(false);
+    expect(stabilizeTaskList(a, b)[0]).toBe(b[0]);
+  });
+
   it("detects todo progress changes", () => {
     const a = [task("t1", "idle", "タスクA")];
     const b = [{ ...task("t1", "idle", "タスクA"), todoProgress: { completed: 1, total: 2 } }];

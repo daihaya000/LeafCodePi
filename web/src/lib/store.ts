@@ -261,6 +261,11 @@ export function patchTask(
       | "error"
     >
   >,
+  /**
+   * preserveUpdatedAt: metadata the user did not produce (background session labels) is
+   * not activity. updatedAt drives sidebar order, unread badges and auto-archive.
+   */
+  options: { preserveUpdatedAt?: boolean } = {},
 ): TaskSummary | undefined {
   const store = readStore();
   const task = store.tasks.find((item) => item.id === id);
@@ -275,16 +280,18 @@ export function patchTask(
     }
   }
   if (!changed) return task;
-  // Monotonic guard: two real changes within the same millisecond must still
-  // advance updatedAt (preserves ordering and keeps the store-test's
-  // same-millisecond writes deterministic).
-  const previous = task.updatedAt;
-  let next = new Date().toISOString();
-  if (previous && next <= previous) {
-    const ms = Date.parse(previous) + 1;
-    next = new Date(ms).toISOString();
+  if (!options.preserveUpdatedAt) {
+    // Monotonic guard: two real changes within the same millisecond must still
+    // advance updatedAt (preserves ordering and keeps the store-test's
+    // same-millisecond writes deterministic).
+    const previous = task.updatedAt;
+    let next = new Date().toISOString();
+    if (previous && next <= previous) {
+      const ms = Date.parse(previous) + 1;
+      next = new Date(ms).toISOString();
+    }
+    task.updatedAt = next;
   }
-  task.updatedAt = next;
   writeStore(store);
   return task;
 }
