@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   getTaskSummariesWithTodoProgress: vi.fn(),
   listTasks: vi.fn(),
   listPendingAttention: vi.fn(),
+  reconcileOrphanedWorkingTasks: vi.fn(),
   resolveAutoAgent: vi.fn(),
   autoAgentHasOwnModel: vi.fn(),
   resolveAutoModel: vi.fn(),
@@ -24,6 +25,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("@/lib/pi/harness", () => mocks);
 vi.mock("@/lib/store", () => ({ listTasks: mocks.listTasks }));
+vi.mock("@/lib/task-runtime-lease", () => ({ reconcileOrphanedWorkingTasks: mocks.reconcileOrphanedWorkingTasks }));
 vi.mock("@/lib/auto-agent", () => ({
   resolveAutoAgent: mocks.resolveAutoAgent,
   autoAgentHasOwnModel: mocks.autoAgentHasOwnModel,
@@ -38,6 +40,8 @@ describe("GET /api/tasks", () => {
   beforeEach(() => {
     mocks.autoArchiveOldTasks.mockReset();
     mocks.autoArchiveOldTasks.mockResolvedValue(0);
+    mocks.listTasks.mockReset();
+    mocks.reconcileOrphanedWorkingTasks.mockReset();
   });
 
   it("lists every task kind when kind=all is requested", async () => {
@@ -70,8 +74,23 @@ describe("GET /api/tasks", () => {
       tasks: [{ id: "working", kind: "code", status: "working", updatedAt: "2026-01-01", botId: null, projectId: "p" }],
     });
     expect(mocks.listTasks).toHaveBeenCalledWith(false, "all");
+    expect(mocks.reconcileOrphanedWorkingTasks).toHaveBeenCalledOnce();
     expect(mocks.autoArchiveOldTasks).not.toHaveBeenCalled();
     expect(mocks.getTaskSummariesWithTodoProgress).not.toHaveBeenCalled();
+  });
+
+  it("reconciles orphaned working tasks before returning pane candidates", async () => {
+    let reconciled = false;
+    mocks.reconcileOrphanedWorkingTasks.mockImplementation(() => { reconciled = true; });
+    mocks.listTasks.mockImplementation(() => [{
+      id: "orphan", status: reconciled ? "error" : "working", updatedAt: "2026-01-01",
+    }]);
+
+    const response = await GET(new NextRequest("http://localhost/api/tasks?paneCandidates=1"));
+
+    expect((await response.json()).tasks).toEqual([{
+      id: "orphan", status: "error", updatedAt: "2026-01-01",
+    }]);
   });
 
   it("passes kind=all to the hydrated summary path", async () => {

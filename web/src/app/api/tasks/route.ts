@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { listTasks, type TaskKind } from "@/lib/store";
+import { reconcileOrphanedWorkingTasks } from "@/lib/task-runtime-lease";
 import {
   autoArchiveOldTasks,
   createTask,
@@ -55,6 +56,9 @@ export async function GET(req: NextRequest) {
   // ペインヘッダーの操作はタスクの ID・状態・時刻だけ必要。Todo 進捗の
   // セッション走査や自動アーカイブを待たず、ボタンをすぐ反応させる。
   if (req.nextUrl.searchParams.get("paneCandidates") === "1") {
+    // 生レコードだけを返すため、通常の summary 経路が担う孤児タスクの
+    // 停止処理をここでも実行する。再起動後の古い working を開かない。
+    reconcileOrphanedWorkingTasks();
     return NextResponse.json({
       tasks: listTasks(false, "all").map(({ id, status, updatedAt, kind, botId, projectId }) => ({
         id, status, updatedAt, kind, botId, projectId,
