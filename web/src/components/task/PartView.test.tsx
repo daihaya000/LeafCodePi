@@ -294,12 +294,18 @@ describe("PartView sender and response metadata", () => {
     }
     const accountGroup = account.parentElement!;
     expect(accountGroup.className).toContain("hidden");
-    expect(accountGroup.className).toContain("sm:inline-flex");
+    expect(accountGroup.className).toContain("lg:inline-flex");
     expect(accountGroup.className).toContain("overflow-hidden");
     expect(accountGroup.getAttribute("title")).toBe("long-account@example.com");
     expect(accountGroup.querySelector('[aria-hidden="true"]')?.textContent).toBe("·");
     expect(identity.className).toContain("flex-wrap");
-    expect(meta.className).not.toContain("overflow-hidden");
+    expect(identity.className).toContain("lg:flex-nowrap");
+    expect(usage.className).toContain("lg:flex-nowrap");
+    expect(usage.firstElementChild?.className).toContain("hidden shrink-0 lg:inline");
+    expect(usage.firstElementChild?.textContent).toBe("·");
+    expect(meta.className).toContain("flex-col");
+    expect(meta.className).toContain("lg:flex-row");
+    expect(meta.className.split(" ")).not.toContain("overflow-hidden");
   });
 
   it("wraps long model labels on narrow rows without truncating the model or timestamp", () => {
@@ -321,7 +327,8 @@ describe("PartView sender and response metadata", () => {
     expect(screen.getByLabelText("トークン情報").textContent).toContain("94k tok");
     expect(meta.className).toContain("flex-col");
     expect(model.className).toContain("[overflow-wrap:anywhere]");
-    expect(model.className).not.toContain("truncate");
+    expect(model.className.split(" ")).not.toContain("truncate");
+    expect(model.className).toContain("lg:truncate");
     expect(time.className).toContain("shrink-0");
   });
 
