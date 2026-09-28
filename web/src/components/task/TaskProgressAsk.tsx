@@ -16,6 +16,7 @@ import {
 } from "@/lib/direct-generation-text";
 import {
   DEFAULT_TASK_PROGRESS_QUESTION,
+  TASK_PROGRESS_CLIENT_TIMEOUT_MS,
   TASK_PROGRESS_QUESTION_MAX_CHARS,
 } from "@/lib/task-progress";
 import type { ModelOption } from "@/lib/types";
@@ -28,15 +29,14 @@ type ProgressAnswer = {
   model?: DirectGenerationModel;
   snapshotAt: number;
   working: boolean;
+  /** 質問を送った時点の会話の版。 */
+  revision?: string;
 };
 
 type RequestState =
   | { kind: "idle" }
   | { kind: "loading"; question: string }
   | { kind: "error"; question: string; message: string };
-
-/** 回答生成は長めの作業記録を読むため、直接生成のタイムアウト（90秒）より少し長く待つ。 */
-const REQUEST_TIMEOUT_MS = 100_000;
 
 function pad2(value: number): string {
   return String(value).padStart(2, "0");
@@ -47,7 +47,11 @@ function formatClock(ms: number): string {
   return `${pad2(date.getHours())}:${pad2(date.getMinutes())}`;
 }
 
-function parseProgressAnswer(value: unknown, askedQuestion: string): ProgressAnswer | null {
+function parseProgressAnswer(
+  value: unknown,
+  askedQuestion: string,
+  revision: string | undefined,
+): ProgressAnswer | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const record = value as Record<string, unknown>;
   const answer = typeof record.answer === "string" ? record.answer.trim() : "";
@@ -64,6 +68,7 @@ function parseProgressAnswer(value: unknown, askedQuestion: string): ProgressAns
         ? record.snapshotAt
         : Date.now(),
     working: record.working === true,
+    revision,
   };
 }
 
@@ -75,11 +80,14 @@ export function TaskProgressAsk({
   taskId,
   sessionId,
   model,
+  revision,
   panelRef,
 }: {
   taskId: string;
   sessionId: string;
   model?: DirectModelSelection;
+  /** 会話の版（最新メッセージ・パーツ数・実行状態）。質問後に変わったら回答を古いものとして扱う。 */
+  revision?: string;
   panelRef: RefObject<HTMLDivElement | null>;
 }) {
   const [request, setRequest] = useState<RequestState>({ kind: "idle" });
@@ -91,13 +99,18 @@ export function TaskProgressAsk({
   const generationRef = useRef(0);
   const mountedRef = useRef(false);
   const contextRef = useRef({ taskId, sessionId });
+  const abortRef = useRef<AbortController | null>(null);
   const loading = request.kind === "loading";
+  const stale = result !== null && revision !== undefined && result.revision !== revision;
 
   useEffect(() => {
     mountedRef.current = true;
     return () => {
       mountedRef.current = false;
       generationRef.current += 1;
+      // 画面を離れたら生成も止める（サーバーはリクエストの切断で生成を中止する）。
+      abortRef.current?.abort();
+      abortRef.current = null;
     };
   }, []);
 
@@ -106,6 +119,8 @@ export function TaskProgressAsk({
     if (previous.taskId === taskId && previous.sessionId === sessionId) return;
     contextRef.current = { taskId, sessionId };
     generationRef.current += 1;
+    abortRef.current?.abort();
+    abortRef.current = null;
     setRequest({ kind: "idle" });
     setResult(null);
     setDraft("");
@@ -122,6 +137,9 @@ export function TaskProgressAsk({
       if (!mountedRef.current) return;
       const question = rawQuestion.trim();
       const generation = ++generationRef.current;
+      abortRef.current?.abort();
+      const controller = new AbortController();
+      abortRef.current = controller;
       setPanelOpen(true);
       setRequest({ kind: "loading", question });
       try {
@@ -135,9 +153,10 @@ export function TaskProgressAsk({
           };
         }
         const response = await sendJson<unknown>(`/api/tasks/${taskId}/progress`, body, "POST", {
-          timeoutMs: REQUEST_TIMEOUT_MS,
+          timeoutMs: TASK_PROGRESS_CLIENT_TIMEOUT_MS,
+          signal: controller.signal,
         });
-        const answer = parseProgressAnswer(response, question);
+        const answer = parseProgressAnswer(response, question, revision);
         if (!answer) throw new Error("進捗の回答が空です");
         if (!mountedRef.current || generation !== generationRef.current) return;
         setResult(answer);
@@ -150,9 +169,11 @@ export function TaskProgressAsk({
           question,
           message: error instanceof Error ? error.message : "進捗の確認に失敗しました。",
         });
+      } finally {
+        if (abortRef.current === controller) abortRef.current = null;
       }
     },
-    [model, taskId],
+    [model, revision, taskId],
   );
 
   function handleInputKeyDown(event: KeyboardEvent<HTMLInputElement>) {
@@ -229,6 +250,7 @@ export function TaskProgressAsk({
               <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
                 <p className="min-w-0 break-words text-xs text-muted">
                   {formatClock(result.snapshotAt)} 時点{result.working ? "（実行中）" : ""}
+                  {stale && " ・その後に作業が進んでいます"}
                   {result.model && (
                     <>
                       {" ・ "}
@@ -260,6 +282,8 @@ export function TaskProgressAsk({
           maxLength={TASK_PROGRESS_QUESTION_MAX_CHARS}
           aria-label="進捗についての質問"
           placeholder="質問を入力（空欄で進捗を要約）"
+          enterKeyHint="send"
+          autoComplete="off"
           onChange={(event) => setDraft(event.target.value)}
           onKeyDown={handleInputKeyDown}
           className="h-11 min-w-0 flex-1 rounded-lg border border-border bg-surface px-3 text-base text-text outline-none placeholder:text-faint focus-visible:border-accent md:h-8 md:text-sm"
@@ -290,7 +314,7 @@ export function TaskProgressAsk({
           aria-label={
             loading
               ? "進捗を確認中…"
-              : result || request.kind === "error"
+              : request.kind === "error" || (result && !stale)
                 ? "進捗の確認を表示"
                 : "進捗を確認"
           }
@@ -300,7 +324,8 @@ export function TaskProgressAsk({
               closePanel(false);
               return;
             }
-            if (result || request.kind !== "idle") {
+            // 回答後に作業が進んでいれば、古い回答を開き直さずに最新で確認する。
+            if (request.kind !== "idle" || (result && !stale)) {
               setPanelOpen(true);
               return;
             }

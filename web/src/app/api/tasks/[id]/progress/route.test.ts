@@ -1,11 +1,13 @@
 import { NextRequest } from "next/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { DEFAULT_LLAMA_SERVER_SETTINGS } from "@/lib/llama-server-settings";
 import { POST } from "./route";
 
 const mocks = vi.hoisted(() => ({
   readTaskProgressSnapshot: vi.fn(),
   completeModelText: vi.fn(),
   getSetting: vi.fn(),
+  readSettingValue: vi.fn(),
 }));
 
 vi.mock("@/lib/pi/harness", () => ({
@@ -13,14 +15,20 @@ vi.mock("@/lib/pi/harness", () => ({
   completeModelText: mocks.completeModelText,
 }));
 vi.mock("@/lib/pi/web-settings", () => ({ getSetting: mocks.getSetting }));
+// 実機の llama-server 設定を読まない。
+vi.mock("@/lib/host-control", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/host-control")>()),
+  readSettingValue: mocks.readSettingValue,
+}));
 
-const { readTaskProgressSnapshot, getSetting } = mocks;
+const { readTaskProgressSnapshot, getSetting, readSettingValue } = mocks;
 
-function request(body: unknown): NextRequest {
+function request(body: unknown, signal?: AbortSignal): NextRequest {
   return new NextRequest("http://127.0.0.1:3010/api/tasks/task-1/progress", {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),
+    ...(signal ? { signal } : {}),
   });
 }
 
@@ -32,8 +40,8 @@ function snapshot(overrides: Record<string, unknown> = {}) {
       id: "task-1",
       title: "ログイン修正",
       status: "working",
-      providerID: "llama-server",
-      modelID: "task-model",
+      providerID: "anthropic",
+      modelID: "claude-sonnet",
     },
     messages: [
       {
@@ -76,6 +84,8 @@ describe("/api/tasks/[id]/progress", () => {
     readTaskProgressSnapshot.mockReset();
     mocks.completeModelText.mockReset();
     getSetting.mockReset();
+    readSettingValue.mockReset();
+    readSettingValue.mockReturnValue(null);
     vi.unstubAllGlobals();
     readTaskProgressSnapshot.mockResolvedValue(snapshot());
     getSetting.mockImplementation((key: string) =>
@@ -210,5 +220,148 @@ describe("/api/tasks/[id]/progress", () => {
 
     expect(response.status).toBe(400);
     expect(readTaskProgressSnapshot).not.toHaveBeenCalled();
+  });
+
+  it("stops generating without trying the fallback when the browser disconnects", async () => {
+    getSetting.mockImplementation((key: string) =>
+      key === "generation-model"
+        ? "llama-server::progress-model"
+        : key === "generation-fallback-model"
+          ? "llama-server::fallback-model"
+          : null,
+    );
+    const browser = new AbortController();
+    const fetchMock = vi.fn(
+      (_input: RequestInfo | URL, init?: RequestInit) =>
+        new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener(
+            "abort",
+            () => reject(Object.assign(new Error("aborted"), { name: "AbortError" })),
+            { once: true },
+          );
+          browser.abort();
+        }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const response = await POST(request({}, browser.signal), context);
+
+    expect(response.status).toBe(408);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("/api/tasks/[id]/progress with an agent on llama-server", () => {
+  const localAgent = {
+    id: "task-1",
+    title: "ローカル作業",
+    status: "working",
+    providerID: "llama-server",
+    modelID: "agent-model",
+  };
+
+  function useGenerationModels(primary: string, fallback: string | null = null) {
+    getSetting.mockImplementation((key: string) =>
+      key === "generation-model" ? primary : key === "generation-fallback-model" ? fallback : null,
+    );
+  }
+
+  function useParallelSlots(parallel: number) {
+    readSettingValue.mockImplementation((key: string) =>
+      key === "llama-server-config" ? JSON.stringify({ ...DEFAULT_LLAMA_SERVER_SETTINGS, parallel }) : null,
+    );
+  }
+
+  beforeEach(() => {
+    readTaskProgressSnapshot.mockReset();
+    mocks.completeModelText.mockReset();
+    getSetting.mockReset();
+    readSettingValue.mockReset();
+    readSettingValue.mockReturnValue(null);
+    vi.unstubAllGlobals();
+    readTaskProgressSnapshot.mockResolvedValue(snapshot({ task: localAgent }));
+  });
+
+  it("does not queue behind the running agent on its only llama-server slot", async () => {
+    useGenerationModels("llama-server::agent-model");
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const response = await POST(request({}), context);
+
+    expect(response.status).toBe(409);
+    expect((await response.json()).error).toContain("llama-server");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("uses a fallback model outside llama-server instead", async () => {
+    useGenerationModels("llama-server::agent-model", "anthropic::claude-haiku");
+    mocks.completeModelText.mockResolvedValue("クラウドで回答");
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const response = await POST(request({}), context);
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      answer: "クラウドで回答",
+      model: { providerID: "anthropic", modelID: "claude-haiku" },
+    });
+    expect(mocks.completeModelText).toHaveBeenCalledWith(
+      expect.objectContaining({ providerID: "anthropic", modelID: "claude-haiku" }),
+    );
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("uses the agent's model when llama-server has a free parallel slot", async () => {
+    useGenerationModels("llama-server::agent-model");
+    useParallelSlots(2);
+    const fetchMock = vi.fn(async () => completion("回答"));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const response = await POST(request({}), context);
+
+    expect(response.status).toBe(200);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not load another local model next to the running agent", async () => {
+    useGenerationModels("llama-server::other-model");
+    useParallelSlots(4);
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const response = await POST(request({}), context);
+
+    expect(response.status).toBe(409);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("treats a Goal Loop waiting between turns as active", async () => {
+    readTaskProgressSnapshot.mockResolvedValue(
+      snapshot({ task: { ...localAgent, status: "idle" }, isStreaming: false, goalLoop: { status: "queued" } }),
+    );
+    useGenerationModels("llama-server::agent-model");
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const response = await POST(request({}), context);
+
+    expect(response.status).toBe(409);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("allows the local model while the agent is idle", async () => {
+    readTaskProgressSnapshot.mockResolvedValue(
+      snapshot({ task: { ...localAgent, status: "idle" }, isStreaming: false }),
+    );
+    useGenerationModels("llama-server::agent-model");
+    const fetchMock = vi.fn(async () => completion("回答"));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const response = await POST(request({}), context);
+
+    expect(response.status).toBe(200);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });

@@ -2,11 +2,17 @@
 import { useRef, type ComponentProps } from "react";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { TASK_PROGRESS_CLIENT_TIMEOUT_MS } from "@/lib/task-progress";
 import { TaskProgressAsk } from "./TaskProgressAsk";
 
 const sendJson = vi.hoisted(() => vi.fn());
 
 vi.mock("@/lib/client", () => ({ sendJson }));
+
+const requestOptions = expect.objectContaining({
+  timeoutMs: TASK_PROGRESS_CLIENT_TIMEOUT_MS,
+  signal: expect.any(AbortSignal),
+});
 
 function InlineProgressAsk(props: Omit<ComponentProps<typeof TaskProgressAsk>, "panelRef">) {
   const panelRef = useRef<HTMLDivElement>(null);
@@ -55,7 +61,7 @@ describe("TaskProgressAsk", () => {
       "/api/tasks/task-1/progress",
       { model: { providerID: "anthropic", modelID: "claude-sonnet", accountId: "acc-1" } },
       "POST",
-      { timeoutMs: 100_000 },
+      requestOptions,
     );
     const panel = screen.getByRole("region", { name: "進捗の確認" });
     expect(screen.getByTestId("above-composer").contains(panel)).toBe(true);
@@ -93,7 +99,7 @@ describe("TaskProgressAsk", () => {
       "/api/tasks/task-1/progress",
       { question: "テストは通った？" },
       "POST",
-      { timeoutMs: 100_000 },
+      requestOptions,
     );
     expect(screen.getByText("質問: テストは通った？")).toBeTruthy();
     expect(input.value).toBe("");
@@ -110,7 +116,7 @@ describe("TaskProgressAsk", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "再試行" }));
     expect(await screen.findByText("再試行の回答")).toBeTruthy();
-    expect(sendJson).toHaveBeenNthCalledWith(2, "/api/tasks/task-1/progress", {}, "POST", { timeoutMs: 100_000 });
+    expect(sendJson).toHaveBeenNthCalledWith(2, "/api/tasks/task-1/progress", {}, "POST", requestOptions);
     expect(screen.queryByRole("alert")).toBeNull();
   });
 
@@ -125,5 +131,42 @@ describe("TaskProgressAsk", () => {
       expect(screen.queryByRole("region", { name: "進捗の確認" })).toBeNull();
     });
     expect(screen.getByRole("button", { name: "進捗を確認" })).toBeTruthy();
+  });
+
+  it("marks the answer stale after the work moves on and re-asks from the trigger", async () => {
+    sendJson.mockResolvedValueOnce(answer("最初の回答")).mockResolvedValueOnce(answer("最新の回答"));
+    const view = render(<InlineProgressAsk taskId="task-1" sessionId="session-1" revision="r1" />);
+
+    fireEvent.click(screen.getByRole("button", { name: "進捗を確認" }));
+    await screen.findByText("最初の回答");
+    expect(screen.getByRole("region", { name: "進捗の確認" }).textContent).not.toContain("その後に作業が進んでいます");
+
+    view.rerender(<InlineProgressAsk taskId="task-1" sessionId="session-1" revision="r2" />);
+    expect(screen.getByRole("region", { name: "進捗の確認" }).textContent).toContain("その後に作業が進んでいます");
+
+    fireEvent.click(screen.getByRole("button", { name: "進捗の確認を閉じる" }));
+    fireEvent.click(screen.getByRole("button", { name: "進捗を確認" }));
+
+    expect(await screen.findByText("最新の回答")).toBeTruthy();
+    expect(sendJson).toHaveBeenCalledTimes(2);
+    expect(screen.getByRole("region", { name: "進捗の確認" }).textContent).not.toContain("その後に作業が進んでいます");
+  });
+
+  it("cancels the in-flight request when the view unmounts", async () => {
+    let signal: AbortSignal | undefined;
+    sendJson.mockImplementation(
+      (_path: string, _body: unknown, _method: string, options?: { signal?: AbortSignal }) => {
+        signal = options?.signal;
+        return new Promise(() => {});
+      },
+    );
+    const view = render(<InlineProgressAsk taskId="task-1" sessionId="session-1" />);
+
+    fireEvent.click(screen.getByRole("button", { name: "進捗を確認" }));
+    await waitFor(() => expect(signal).toBeDefined());
+    expect(signal?.aborted).toBe(false);
+
+    view.unmount();
+    expect(signal?.aborted).toBe(true);
   });
 });

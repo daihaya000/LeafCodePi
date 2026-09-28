@@ -4090,6 +4090,7 @@ export const TaskView = memo(function TaskView({
                         sessionId={task.sessionId}
                         panelRef={progressPanelRef}
                         model={selectedModel?.value === AUTO_MODEL_VALUE ? undefined : selectedModel}
+                        revision={`${messages.at(-1)?.id ?? ""}:${messages.at(-1)?.parts.length ?? 0}:${working ? "working" : "idle"}`}
                       />
                     ),
                   },
