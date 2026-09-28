@@ -54,9 +54,11 @@ function formatResetCreditRemainingDays(expiresAt: string | null): string | null
 }
 
 function ResetCreditExpiry({
+  provider,
   accountId,
   accountIds,
 }: {
+  provider: string;
   accountId?: string;
   accountIds?: readonly string[];
 }) {
@@ -64,8 +66,8 @@ function ResetCreditExpiry({
 
   useEffect(() => {
     const requestParams = accountIds
-      ? [...new Set(accountIds)].map((id) => ({ accountId: id }))
-      : [accountId ? { accountId } : undefined];
+      ? [...new Set(accountIds)].map((id) => ({ accountId: id, provider }))
+      : [{ accountId, provider }];
     if (requestParams.length === 0) {
       setExpiresAt(null);
       return;
@@ -89,7 +91,7 @@ function ResetCreditExpiry({
     return () => {
       active = false;
     };
-  }, [accountId, accountIds]);
+  }, [accountId, accountIds, provider]);
 
   const remainingDays = formatResetCreditRemainingDays(expiresAt);
   return remainingDays ? (
@@ -264,8 +266,9 @@ function ProviderRow({
               {provider.enabled ? "有効" : "無効"}
             </Badge>
           </div>
-          {provider.id === "openai-codex" && (
+          {(provider.id === "openai-codex" || provider.id === "anthropic") && (
             <ResetCreditExpiry
+              provider={provider.id}
               accountId={provider.accountId}
               accountIds={provider.accountIds}
             />

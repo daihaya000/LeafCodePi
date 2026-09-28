@@ -160,6 +160,52 @@ describe("ProviderModelsPanel account model settings", () => {
     expect(await screen.findByText("リセット権: 最短期限まであと2日")).toBeTruthy();
   });
 
+  it("shows the nearest Anthropic reset credit expiry for its account", async () => {
+    const dayMs = 24 * 60 * 60 * 1000;
+    const soon = new Date(Date.now() + 3 * dayMs).toISOString();
+    fetchMock.mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = new URL(String(input), "http://localhost");
+      const method = (init?.method ?? "GET").toUpperCase();
+      if (url.pathname === "/api/provider-models" && method === "GET") {
+        return Promise.resolve(
+          jsonResponse({
+            providers: [
+              {
+                id: "anthropic",
+                name: "Anthropic",
+                accountId: "anthropic-1",
+                accountLabel: "daichi@example.com",
+                enabled: true,
+                models: [{ id: "claude", name: "Claude", enabled: true }],
+              },
+            ],
+          }),
+        );
+      }
+      if (url.pathname === "/api/codexbar/reset-credits" && method === "GET") {
+        const matchesAccount =
+          url.searchParams.get("provider") === "anthropic" &&
+          url.searchParams.get("accountId") === "anthropic-1";
+        return Promise.resolve(
+          jsonResponse({ credits: matchesAccount ? [{ expiresAt: soon }] : [] }),
+        );
+      }
+      return Promise.resolve(jsonResponse({}));
+    });
+
+    render(<ProviderModelsPanel />);
+
+    expect(await screen.findByText("リセット権: 最短期限まであと3日")).toBeTruthy();
+    const resetCall = fetchMock.mock.calls.find(([input]) =>
+      new URL(String(input), "http://localhost").pathname ===
+      "/api/codexbar/reset-credits",
+    );
+    expect(resetCall).toBeTruthy();
+    const resetUrl = new URL(String(resetCall?.[0]), "http://localhost");
+    expect(resetUrl.searchParams.get("provider")).toBe("anthropic");
+    expect(resetUrl.searchParams.get("accountId")).toBe("anthropic-1");
+  });
+
   it("shows the nearest reset credit expiry across integrated Codex accounts", async () => {
     const dayMs = 24 * 60 * 60 * 1000;
     const soon = new Date(Date.now() + dayMs).toISOString();

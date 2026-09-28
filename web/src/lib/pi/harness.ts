@@ -74,6 +74,7 @@ import {
   snapshotMessages,
   type MessageAccountContext,
 } from "@/lib/pi/snapshot-messages";
+import { VersionedTimingMap } from "@/lib/pi/versioned-timing-map";
 export {
   applyMessageAccountIds,
   applyMessageAgentIds,
@@ -2132,9 +2133,9 @@ function restoredThroughputState(
     persistedThroughputKeys:
       existing?.persistedThroughputKeys ?? loaded?.persistedKeys ?? new Set(),
     toolStartedAt:
-      existing?.toolStartedAt ?? loadedToolTiming?.startedAt ?? new Map(),
+      existing?.toolStartedAt ?? new VersionedTimingMap(loadedToolTiming?.startedAt),
     toolEndedAt:
-      existing?.toolEndedAt ?? loadedToolTiming?.endedAt ?? new Map(),
+      existing?.toolEndedAt ?? new VersionedTimingMap(loadedToolTiming?.endedAt),
   };
 }
 
