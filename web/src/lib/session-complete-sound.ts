@@ -114,18 +114,17 @@ function withAudioContext(
     const ctx = new AudioContextCtor();
     const oscillators = schedule(ctx, ctx.currentTime);
     let closed = false;
-    let fallbackTimer: ReturnType<typeof setTimeout> | undefined;
     const closeOnce = () => {
       if (closed) return;
       closed = true;
-      if (fallbackTimer !== undefined) clearTimeout(fallbackTimer);
+      clearTimeout(fallbackTimer);
       void ctx.close().catch(() => undefined);
     };
     const last = oscillators[oscillators.length - 1];
     last?.addEventListener("ended", closeOnce);
     // A suspended context (autoplay policy, background tab) never fires
     // "ended"; without this the context leaks and browsers cap live contexts.
-    fallbackTimer = setTimeout(closeOnce, CONTEXT_CLOSE_FALLBACK_MS);
+    const fallbackTimer = setTimeout(closeOnce, CONTEXT_CLOSE_FALLBACK_MS);
     if (!last) closeOnce();
   } catch {
     // Autoplay/user-activation restrictions or unavailable audio devices.
