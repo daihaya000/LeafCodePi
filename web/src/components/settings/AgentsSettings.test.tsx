@@ -187,6 +187,33 @@ describe("AgentsSettings", () => {
     });
   });
 
+  it("各エージェントを初期状態で折り畳み、個別に展開できる", async () => {
+    render(<AgentsSettings />);
+
+    const enabledRow = (await screen.findByRole("switch", { name: "enabled を無効化" })).closest("li")!;
+    const disabledRow = screen.getByRole("switch", { name: "disabled を有効化" }).closest("li")!;
+    const enabledDetails = enabledRow.querySelector<HTMLDetailsElement>("details[aria-label='enabledの設定']")!;
+    const disabledDetails = disabledRow.querySelector<HTMLDetailsElement>("details[aria-label='disabledの設定']")!;
+    expect(enabledDetails.open).toBe(false);
+    expect(disabledDetails.open).toBe(false);
+    expect(enabledDetails.querySelector("summary")?.textContent).toContain("有効");
+
+    fireEvent.click(within(enabledDetails).getByText("enabled"));
+    expect(enabledDetails.open).toBe(true);
+    expect(disabledDetails.open).toBe(false);
+    expect(within(enabledDetails).getByRole("combobox", { name: "enabled のモデル" })).toBeTruthy();
+
+    fireEvent.click(within(enabledRow).getByRole("switch", { name: "enabled を無効化" }));
+    await waitFor(() => expect(sendJson).toHaveBeenCalledWith(
+      "/api/agents/enabled", { enabled: false }, "PATCH",
+    ));
+    expect(enabledDetails.open).toBe(true);
+    expect(disabledDetails.open).toBe(false);
+
+    fireEvent.click(within(enabledDetails).getByText("enabled"));
+    expect(enabledDetails.open).toBe(false);
+  });
+
   it("各エージェントのシステムプロンプトを展開して確認できる", async () => {
     render(<AgentsSettings />);
 

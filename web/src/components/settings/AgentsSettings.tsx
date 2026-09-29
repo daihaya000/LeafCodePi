@@ -956,8 +956,9 @@ export function AgentsSettings() {
               aria-busy={busyId === agent.id || undefined}
               className="flex items-start gap-3 rounded-xl border border-border bg-surface-2 px-3 py-2.5"
             >
-              <div className="min-w-0 flex-1">
-                <div className="flex flex-wrap items-center gap-2">
+              <details className="group min-w-0 flex-1" aria-label={`${agent.name}の設定`}>
+                <summary className="flex min-h-11 cursor-pointer list-none flex-wrap items-center gap-2 rounded-md focus-visible:outline-2 focus-visible:outline-accent sm:min-h-6 [&::-webkit-details-marker]:hidden">
+                  <ChevronRight aria-hidden="true" className="h-4 w-4 shrink-0 text-muted transition-transform group-open:rotate-90" />
                   <AgentRoleIcon name={agent.name} />
                   <p className="min-w-0 truncate text-sm font-medium text-text" title={agent.id}>
                     {agent.name}
@@ -968,60 +969,56 @@ export function AgentsSettings() {
                   <Badge tone={agent.enabled ? "success" : "neutral"}>
                     {agent.enabled ? "有効" : "無効"}
                   </Badge>
+                </summary>
+                <div className="mt-2">
+                  {agent.description && (
+                    <p className="text-xs break-words text-muted">{agent.description}</p>
+                  )}
+                  <AgentPromptSettings name={agent.name} prompt={agent.systemPrompt} />
+                  <AgentToolsSettings
+                    name={agent.name}
+                    tools={agent.tools}
+                    busy={busyId === agent.id}
+                    onChange={(tools) => void changeTools(agent, tools)}
+                  />
+                  <AgentModelPicker
+                    name={agent.name}
+                    model={agent.model}
+                    models={models}
+                    loading={modelsLoading}
+                    busy={busyId === agent.id}
+                    onChange={(model) => void changeModel(agent, model)}
+                  />
+                  <AgentEffortPicker
+                    name={agent.name}
+                    value={agent.thinking}
+                    levels={effortLevelsFor(agent.model, models, agent.thinking)}
+                    busy={busyId === agent.id}
+                    onChange={(thinking) => void changeThinking(agent, thinking)}
+                  />
+                  <p className="mt-0.5 break-all text-[11px] text-muted">{agent.filePath}</p>
+                  {agent.source === "user" && (
+                    <div className="mt-2 flex items-center gap-1">
+                      <Button variant="secondary" size="sm" onClick={(event) => void openEdit(agent, event.currentTarget)}>
+                        編集
+                      </Button>
+                      <Button variant="danger" size="sm" onClick={() => void remove(agent)}>
+                        削除
+                      </Button>
+                    </div>
+                  )}
                 </div>
-                {agent.description && (
-                  <p className="mt-0.5 text-xs break-words text-muted">{agent.description}</p>
-                )}
-                <AgentPromptSettings name={agent.name} prompt={agent.systemPrompt} />
-                <AgentToolsSettings
-                  name={agent.name}
-                  tools={agent.tools}
-                  busy={busyId === agent.id}
-                  onChange={(tools) => void changeTools(agent, tools)}
-                />
-                <AgentModelPicker
-                  name={agent.name}
-                  model={agent.model}
-                  models={models}
-                  loading={modelsLoading}
-                  busy={busyId === agent.id}
-                  onChange={(model) => void changeModel(agent, model)}
-                />
-                <AgentEffortPicker
-                  name={agent.name}
-                  value={agent.thinking}
-                  levels={effortLevelsFor(agent.model, models, agent.thinking)}
-                  busy={busyId === agent.id}
-                  onChange={(thinking) => void changeThinking(agent, thinking)}
-                />
-                <p className="mt-0.5 break-all text-[11px] text-muted">{agent.filePath}</p>
-              </div>
-              <div className="flex shrink-0 flex-col items-end gap-1">
-                <Switch
-                  checked={agent.enabled}
-                  onChange={() => void toggle(agent)}
-                  label={agent.name === DEFAULT_AGENT && agent.enabled
-                    ? "default は常に有効"
-                    : `${agent.name} を${agent.enabled ? "無効化" : "有効化"}`}
-                  busy={busyId === agent.id}
-                  disabled={agent.name === DEFAULT_AGENT && agent.enabled}
-                  title={agent.name === DEFAULT_AGENT && agent.enabled ? "default エージェントは無効化できません" : undefined}
-                />
-                {agent.source === "user" && (
-                  <div className="flex items-center gap-1">
-                    <Button
-                      variant="secondary"
-                      size="sm"
-                      onClick={(event) => void openEdit(agent, event.currentTarget)}
-                    >
-                      編集
-                    </Button>
-                    <Button variant="danger" size="sm" onClick={() => void remove(agent)}>
-                      削除
-                    </Button>
-                  </div>
-                )}
-              </div>
+              </details>
+              <Switch
+                checked={agent.enabled}
+                onChange={() => void toggle(agent)}
+                label={agent.name === DEFAULT_AGENT && agent.enabled
+                  ? "default は常に有効"
+                  : `${agent.name} を${agent.enabled ? "無効化" : "有効化"}`}
+                busy={busyId === agent.id}
+                disabled={agent.name === DEFAULT_AGENT && agent.enabled}
+                title={agent.name === DEFAULT_AGENT && agent.enabled ? "default エージェントは無効化できません" : undefined}
+              />
             </li>
           ))}
         </ul>
