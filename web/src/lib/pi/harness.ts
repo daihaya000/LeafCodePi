@@ -4609,6 +4609,14 @@ async function resolveLiveSessionSettings(
   };
 }
 
+/**
+ * Dispose a session that was created but never attached. createSession() already
+ * ran bindExtensions() (session_start), so its extensions hold resources, but
+ * session_shutdown is intentionally NOT emitted here: the old live session for
+ * the same task may still be active, and shutting down a duplicate Goal Loop /
+ * intercom runtime would pause the loop or clobber the shared
+ * process.env intercom session id. Failure paths only; known residual leak.
+ */
 function disposeSessionBestEffort(session: AgentSession): void {
   try {
     session.dispose();
