@@ -86,6 +86,7 @@ type ProfileRoots = {
 };
 
 const PACKAGE_RESTORE_TIMEOUT_MS = 120_000;
+const PACKAGE_RESTORE_OUTPUT_MAX_CHARS = 64 * 1024;
 
 type PackageUpdateRunner = (agentDir: string) => Promise<void>;
 
@@ -358,8 +359,13 @@ function updateProfilePackages(agentDir: string): Promise<void> {
       rejectUpdate(new Error("パッケージの再取得がタイムアウトしました"));
     }, PACKAGE_RESTORE_TIMEOUT_MS);
     if (typeof timer.unref === "function") timer.unref();
-    child.stdout.on("data", (chunk) => { output += String(chunk); });
-    child.stderr.on("data", (chunk) => { output += String(chunk); });
+    // Only the tail matters for the error message; keep memory bounded.
+    const append = (chunk: unknown) => {
+      output += String(chunk);
+      if (output.length > PACKAGE_RESTORE_OUTPUT_MAX_CHARS) output = output.slice(-PACKAGE_RESTORE_OUTPUT_MAX_CHARS);
+    };
+    child.stdout.on("data", append);
+    child.stderr.on("data", append);
     child.on("error", (error) => {
       if (settled) return;
       settled = true;
