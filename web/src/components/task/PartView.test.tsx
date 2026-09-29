@@ -225,8 +225,9 @@ describe("PartView sender and response metadata", () => {
     expect(metadata.parentElement?.className).toContain("max-w-full");
     expect(metadata.parentElement?.className).toContain("@container/meta-header");
     // 通常返信は吹き出し幅に右端を揃えつつ、1 行に必要な幅が足りれば右へはみ出して 1 行を保つ。
-    expect(metadata.className).toContain("w-max");
-    expect(metadata.className).toContain("min-w-bubble");
+    expect(metadata.className).toContain("w-full");
+    const spacer = metadata.querySelector("[data-meta-bubble-spacer]");
+    expect(spacer).toBeNull(); // 統計がない応答では右寄せ用の空要素を出さない。
     expect(metadata.className).toContain("flex-wrap");
     for (const label of ["GPT", "builder"]) expect(metadata.textContent).toContain(label);
     expect(metadata.textContent).toContain("仕事用");
@@ -378,6 +379,7 @@ describe("PartView sender and response metadata", () => {
     expect(meta.className).toContain("flex-wrap");
     expect(meta.className).toContain("w-full");
     expect(meta.className).not.toContain("min-w-bubble");
+    expect(meta.querySelector("[data-meta-bubble-spacer]")).toBeNull();
     const usage = screen.getByLabelText("トークン情報");
     expect(usage.className).toContain("flex-nowrap");
     expect(usage.firstElementChild?.textContent).toBe("94k tok");
@@ -390,6 +392,25 @@ describe("PartView sender and response metadata", () => {
     expect(meta.textContent).toContain("94k tok");
     expect(meta.textContent).toContain("140 tok/s");
     expect(meta.textContent).toContain("2h 4m");
+  });
+
+  it("right-aligns usage to the bubble edge, or to the row edge when the bubble is too narrow", () => {
+    render(
+      <MessageMetaHeader
+        message={{ id: "aligned", role: "assistant", createdAt: 1, outputTokens: 36, tokensPerSecond: 15, parts: [] }}
+        modelLabel="Model A"
+        singleLine
+        bubbleAligned
+      />,
+    );
+    const meta = screen.getByLabelText("応答メタデータ");
+    expect(meta.className).toContain("flex-wrap");
+    expect(screen.getByLabelText("モデル情報").className).toContain("grow");
+    const spacer = meta.querySelector("[data-meta-bubble-spacer]")!;
+    expect(spacer.previousElementSibling).toBe(screen.getByLabelText("トークン情報"));
+    expect(spacer.className).toContain("basis-[calc(100%-var(--container-bubble))]");
+    expect(spacer.className).toContain("h-0");
+    expect(spacer.className).toContain("shrink-0");
   });
 
   it("keeps the work-log account and right-aligned usage on one row when space permits", () => {

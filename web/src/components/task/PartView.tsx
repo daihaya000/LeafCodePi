@@ -823,10 +823,12 @@ export const MessageMetaHeader = memo(function MessageMetaHeader({
       "flex max-w-full gap-1 text-[11px] text-muted",
       singleLine
         // 1 行に収まるなら右へはみ出してでも 1 行、収まらなければ統計を 2 行目へ回す。
-        // 余裕が吹き出し幅以内なら、統計の右端を吹き出しに合わせる。スマホ幅では文字と間隔を詰めて 1 行に収めやすくする。
+        // 1 行時は統計を右寄せする。吹き出し幅に収まれば右端を吹き出しに、収まらなければ行の右端に揃える。
+        // スマホ幅では文字と間隔を詰めて 1 行に収めやすくする。
         ? cx(
           "flex-row flex-wrap items-center gap-x-1 overflow-hidden whitespace-nowrap @max-[479px]/meta-header:gap-x-0.5 @max-[479px]/meta-header:text-[10px]",
-          bubbleAligned ? "w-max min-w-bubble" : "w-full min-w-0",
+          "w-full min-w-0",
+          bubbleAligned && "gap-y-0",
         )
         : "w-full min-w-0 flex-col",
     )}>
@@ -849,6 +851,11 @@ export const MessageMetaHeader = memo(function MessageMetaHeader({
         )}>
           {usageFields.map(renderField)}
         </div>
+      )}
+      {/* 吹き出し外側の余白幅の空要素。同じ行に入れば統計の右端が吹き出し端になり、
+          入らなければ高さ 0 のまま次行へ折り返して統計が行の右端に寄る。 */}
+      {singleLine && bubbleAligned && usageFields.length > 0 && (
+        <span aria-hidden="true" data-meta-bubble-spacer className="-ml-1 h-0 shrink-0 grow-0 basis-[calc(100%-var(--container-bubble))] @max-[479px]/meta-header:-ml-0.5" />
       )}
     </div>
   );
