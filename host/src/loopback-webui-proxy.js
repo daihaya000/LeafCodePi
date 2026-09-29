@@ -19,8 +19,16 @@ export function createLoopbackWebUiProxy(getTarget) {
     }, (response) => {
       outgoing.writeHead(response.statusCode ?? 502, response.statusMessage, response.headers);
       response.pipe(outgoing);
+      // pipe() does not tear down the source when the destination goes away or
+      // the source dies mid-stream; long-lived SSE responses would leak.
+      response.on("error", () => outgoing.destroy());
+      response.on("aborted", () => outgoing.destroy());
+    });
+    outgoing.on("close", () => {
+      if (!outgoing.writableFinished) upstream.destroy();
     });
     upstream.on("error", () => {
+      if (outgoing.destroyed) return;
       if (!outgoing.headersSent) outgoing.writeHead(502);
       outgoing.end();
     });

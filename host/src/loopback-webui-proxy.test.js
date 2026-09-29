@@ -81,3 +81,26 @@ test("loopback proxy forwards WebSocket upgrade bytes", { timeout: 3000 }, async
     await close(target);
   }
 });
+
+test("loopback proxy closes the upstream stream when the client disconnects", { timeout: 5000 }, async () => {
+  let upstreamClosed;
+  const closed = new Promise((resolve) => { upstreamClosed = resolve; });
+  const target = createServer((_req, res) => {
+    res.writeHead(200, { "content-type": "text/event-stream" });
+    res.write(": open\n\n");
+    res.on("close", upstreamClosed);
+  });
+  const targetPort = await listen(target);
+  const proxy = createLoopbackWebUiProxy(() => ({ host: "127.0.0.1", port: targetPort }));
+  await listenLoopbackWebUiProxy(proxy, 0);
+  const controller = new AbortController();
+  try {
+    const response = await fetch(`http://127.0.0.1:${proxy.address().port}/events`, { signal: controller.signal });
+    await response.body.getReader().read();
+    controller.abort();
+    await closed;
+  } finally {
+    await closeLoopbackWebUiProxy(proxy);
+    await close(target);
+  }
+});
