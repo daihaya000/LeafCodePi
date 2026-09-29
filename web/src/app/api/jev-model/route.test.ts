@@ -49,7 +49,7 @@ describe("Jev model settings API", () => {
     expect(mocks.save).not.toHaveBeenCalled();
   });
 
-  it("saves multiple enabled models only when every reference is detected and enabled", async () => {
+  it("saves multiple enabled models when every reference is detected and one provider is enabled", async () => {
     const second = { ...candidate, accountId: "two", modelId: "typesafe/jev-1.14" };
     const secondRef = { providerId: "openrouter", modelId: second.modelId, accountId: "two" };
     const settings = { ...DEFAULT_JEV_MODEL_SETTINGS, provider: "registered", registeredModel: secondRef, enabledModels: [secondRef, ref] };
@@ -59,6 +59,12 @@ describe("Jev model settings API", () => {
     expect(mocks.list).toHaveBeenCalledTimes(1);
     mocks.save.mockClear();
     mocks.list.mockResolvedValue([candidate, { ...second, providerEnabled: false }]);
+    expect((await PUT(request({ settings }))).status).toBe(200);
+    expect(mocks.save).toHaveBeenCalledWith({ ...settings, registeredModel: ref, enabledModels: [ref, secondRef] }, undefined);
+    mocks.save.mockClear();
+    mocks.list.mockResolvedValue([{ ...candidate, providerEnabled: false }, { ...second, providerEnabled: false }]);
+    expect((await PUT(request({ settings }))).status).toBe(400);
+    mocks.list.mockResolvedValue([candidate]);
     expect((await PUT(request({ settings }))).status).toBe(400);
     expect(mocks.save).not.toHaveBeenCalled();
   });

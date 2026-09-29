@@ -312,7 +312,7 @@ describe("JevModelSettings", () => {
     expand("TypeSafe");
     expect(screen.getByRole("switch", { name: "TypeSafe / Jev を無効化" }).getAttribute("aria-checked")).toBe("true");
     expect(screen.queryByText("有効なJevモデルを1件以上選び、対象プロバイダーを有効にしてください。")).toBeNull();
-    expect(screen.getByRole("alert").textContent).toContain("未検出または無効");
+    expect(screen.getByRole("alert").textContent).toContain("未検出");
     expect(mocks.send).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "利用できない選択を解除" }));
     await waitFor(() => expect(mocks.send).toHaveBeenCalledWith("/api/jev-model", {
@@ -321,17 +321,33 @@ describe("JevModelSettings", () => {
     expect(screen.queryByRole("alert")).toBeNull();
   });
 
-  it("can remove a selected model whose provider was disabled without dropping usable ones", async () => {
+  it("keeps a selection under a disabled provider paused without blocking saves", async () => {
+    const openrouter = { providerId: "openrouter", modelId: candidate.modelId, accountId: candidate.accountId };
+    const missing = { providerId: "commandcode", modelId: "typesafe/jev" };
+    mocks.get.mockResolvedValue({ ...dto, settings: {
+      ...DEFAULT_JEV_MODEL_SETTINGS, provider: "registered", registeredModel: { providerId: "typesafe", modelId: "jev-latest" },
+      enabledModels: [{ providerId: "typesafe", modelId: "jev-latest" }, openrouter, missing],
+    }, models: [typesafe, { ...candidate, providerEnabled: false }] });
+    await ready();
+    expect(screen.getByText("選択1件は停止中")).toBeTruthy();
+    expect(screen.getByText(/無効なプロバイダーの選択1件は停止中/)).toBeTruthy();
+    expand("OpenRouter");
+    expect(screen.getByRole("switch", { name: "OpenRouter · Main / Jev 1.13 を無効化" }).getAttribute("aria-checked")).toBe("true");
+    expect(screen.getByText("停止中（プロバイダー無効）")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "利用できない選択を解除" }));
+    await waitFor(() => expect(mocks.send).toHaveBeenCalledWith("/api/jev-model", {
+      settings: { ...DEFAULT_JEV_MODEL_SETTINGS, provider: "registered", registeredModel: { providerId: "typesafe", modelId: "jev-latest" }, enabledModels: [{ providerId: "typesafe", modelId: "jev-latest" }, openrouter] },
+    }, "PUT"));
+  });
+
+  it("does not report a paused selection as unavailable", async () => {
     mocks.get.mockResolvedValue({ ...dto, settings: {
       ...DEFAULT_JEV_MODEL_SETTINGS, provider: "registered", registeredModel: { providerId: "typesafe", modelId: "jev-latest" },
       enabledModels: [{ providerId: "typesafe", modelId: "jev-latest" }, { providerId: "openrouter", modelId: candidate.modelId, accountId: candidate.accountId }],
     }, models: [typesafe, { ...candidate, providerEnabled: false }] });
     await ready();
-    expect(screen.getByRole("alert").textContent).toContain("未検出または無効");
-    fireEvent.click(screen.getByRole("button", { name: "利用できない選択を解除" }));
-    await waitFor(() => expect(mocks.send).toHaveBeenCalledWith("/api/jev-model", {
-      settings: { ...DEFAULT_JEV_MODEL_SETTINGS, provider: "registered", registeredModel: { providerId: "typesafe", modelId: "jev-latest" }, enabledModels: [{ providerId: "typesafe", modelId: "jev-latest" }] },
-    }, "PUT"));
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(screen.queryByRole("button", { name: "利用できない選択を解除" })).toBeNull();
   });
 
   it("preserves an old manual endpoint without offering a second provider form", async () => {

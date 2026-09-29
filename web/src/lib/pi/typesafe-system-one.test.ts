@@ -5,7 +5,7 @@ import { evaluateTypeSafe } from "./typesafe-system-one";
 const mocks = vi.hoisted(() => ({ readSettings: vi.fn(), readKey: vi.fn(), resolve: vi.fn(), readState: vi.fn(), readRouting: vi.fn(), recordUsage: vi.fn() }));
 vi.mock("./jev-model-config", () => ({ readJevModelSettings: mocks.readSettings, resolveJevModelConnection: mocks.resolve }));
 vi.mock("@/lib/codexbar/providers/typesafe", () => ({ recordTypesafeUsage: mocks.recordUsage }));
-vi.mock("@/lib/provider-model-state", () => ({ readProviderModelState: mocks.readState }));
+vi.mock("@/lib/provider-model-state", () => ({ readProviderModelState: mocks.readState, accountProviderModelKey: (id: string, accountId?: string) => accountId ? `${accountId}::${id}` : id }));
 vi.mock("@/lib/provider-routing", () => ({ readProviderRouting: mocks.readRouting, accountRoutingMode: (id: string, state: { modes: Record<string, string> }) => state.modes[id] ?? "separate" }));
 
 const request = {
@@ -127,6 +127,19 @@ describe("evaluateTypeSafe", () => {
     await expect(evaluateTypeSafe(request, { fetchImpl })).rejects.toThrow("Jev API error: 401");
     expect(mocks.resolve).toHaveBeenCalledTimes(2);
     expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
+  it("skips selections under a disabled provider without surfacing their errors", async () => {
+    const refs = [{ providerId: "openrouter", modelId: "jev-a", accountId: "one" }, { providerId: "typesafe", modelId: "jev-b" }];
+    mocks.readSettings.mockReturnValue({ ...DEFAULT_JEV_MODEL_SETTINGS, provider: "registered", registeredModel: refs[0], enabledModels: refs });
+    mocks.readState.mockReturnValue({ providerOrder: [], modelOrder: {}, disabled: { "one::openrouter": true } });
+    mocks.resolve.mockImplementation(async (settings) => ({ baseUrl: `https://${settings.registeredModel.providerId}.example/v1`, model: settings.registeredModel.modelId }));
+    const fetchImpl = vi.fn().mockResolvedValue(new Response(null, { status: 401 }));
+    await expect(evaluateTypeSafe(request, { fetchImpl })).rejects.toThrow("Jev API error: 401");
+    expect(mocks.resolve).toHaveBeenCalledTimes(1);
+    expect(fetchImpl.mock.calls.map(([url]) => url)).toEqual(["https://typesafe.example/v1/systemone"]);
+    mocks.readState.mockReturnValue({ providerOrder: [], modelOrder: {}, disabled: { "one::openrouter": true, typesafe: true } });
+    await expect(evaluateTypeSafe(request, { fetchImpl })).rejects.toThrow("有効なJevモデルがありません");
   });
 
   it("keeps integrated accounts together despite stale per-account provider order", async () => {

@@ -100,8 +100,10 @@ export function JevModelSettings({ refreshToken = 0, onProviderCatalogChange }: 
   const selectedKeys = enabledModelKeys(settings, models);
   const savedKeys = saved ? enabledModelKeys(saved.settings, models) : new Set<string>();
   const usableModels = models.filter((model) => model.providerEnabled !== false && selectedKeys.has(jevModelKey(model)));
-  const usableKeys = new Set(usableModels.map(jevModelKey));
-  const unavailableSelection = settings.provider === "registered" && [...selectedKeys].some((key) => !usableKeys.has(key));
+  const detectedKeys = new Set(models.map(jevModelKey));
+  // Selections under a disabled provider stay saved but paused; only undetected ones block saving.
+  const pausedModels = models.filter((model) => model.providerEnabled === false && selectedKeys.has(jevModelKey(model)));
+  const unavailableSelection = settings.provider === "registered" && [...selectedKeys].some((key) => !detectedKeys.has(key));
   const selectionUnavailable = settings.provider === "registered" && (usableModels.length === 0 || unavailableSelection);
   const timeoutInvalid = !Number.isInteger(settings.timeoutMs) || settings.timeoutMs < 100 || settings.timeoutMs > 120_000;
   canSave.current = Boolean(saved) && !selectionUnavailable && !timeoutInvalid;
@@ -207,7 +209,7 @@ export function JevModelSettings({ refreshToken = 0, onProviderCatalogChange }: 
 
   function removeUnavailableModels() {
     if (!usableModels.length) return;
-    const enabledModels = usableModels.map((model) => ({
+    const enabledModels = models.filter((model) => selectedKeys.has(jevModelKey(model))).map((model) => ({
       providerId: model.providerId, modelId: model.modelId, ...(model.accountId ? { accountId: model.accountId } : {}),
     }));
     setSettings((current) => ({ ...current, provider: "registered", registeredModel: enabledModels[0], enabledModels }));
@@ -321,6 +323,10 @@ export function JevModelSettings({ refreshToken = 0, onProviderCatalogChange }: 
                     <span className="text-xs text-muted">{row.id}</span>
                     {row.accountLabel && <span className="text-xs text-muted">アカウント: {row.accountLabel}</span>}
                     <Badge tone={row.enabled ? "success" : "neutral"}>{row.enabled ? "有効" : "無効"}</Badge>
+                    {!row.enabled && (() => {
+                      const count = row.models.filter((model) => selectedKeys.has(jevModelKey(model))).length;
+                      return count > 0 && <span className="text-xs text-muted">選択{count}件は停止中</span>;
+                    })()}
                   </div>
                 </div>
                 <Switch checked={row.enabled} onChange={() => toggleProvider(row)} label={`${row.name}${row.accountLabel ? ` · ${row.accountLabel}` : ""} を${row.enabled ? "無効化" : "有効化"}`} busy={busy} />
@@ -360,7 +366,9 @@ export function JevModelSettings({ refreshToken = 0, onProviderCatalogChange }: 
                       <span className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
                         <span className="min-w-0 truncate text-sm font-medium">{model.name}</span>
                         {model.integrated && model.accountLabel && <span className="text-xs text-muted">アカウント: {model.accountLabel}</span>}
-                        <Badge tone={checked ? "success" : "neutral"}>{checked ? active ? "有効" : "有効（未反映）" : active ? "無効（未反映）" : "無効"}</Badge>
+                        <Badge tone={checked && modelEnabled ? "success" : "neutral"}>{checked
+                          ? modelEnabled ? active ? "有効" : "有効（未反映）" : active ? "停止中（プロバイダー無効）" : "停止中（未反映）"
+                          : active ? "無効（未反映）" : "無効"}</Badge>
                         {model.source === "documented" && <span className="text-xs text-muted">公式対応</span>}
                         <span className="break-all text-xs text-muted">{model.modelId}</span>
                       </span>
@@ -374,8 +382,11 @@ export function JevModelSettings({ refreshToken = 0, onProviderCatalogChange }: 
           </ul>
           {settings.provider === "registered" && usableModels.length === 0 && <p role="alert" className="text-sm text-danger">有効なJevモデルを1件以上選び、対象プロバイダーを有効にしてください。</p>}
           {unavailableSelection && usableModels.length > 0 && <p role="alert" className="text-sm text-danger">
-            選択中のJevモデルに未検出または無効のものがあります。設定を保存するには、対象プロバイダーを有効にするか、
+            選択中のJevモデルに未検出のものがあります。設定を保存するには、プロバイダー接続・アカウントを確認するか、
             <button type="button" onClick={removeUnavailableModels} className="text-accent underline">利用できない選択を解除</button>してください。
+          </p>}
+          {settings.provider === "registered" && usableModels.length > 0 && pausedModels.length > 0 && <p className="text-xs text-muted">
+            無効なプロバイダーの選択{pausedModels.length}件は停止中です。プロバイダーを有効にすると選択を保ったまま再開します。
           </p>}
           {timeoutInvalid && <p role="alert" className="text-sm text-danger">タイムアウトは100〜120000ミリ秒で指定してください。</p>}
           {settings.provider === "compatible" && <p className="text-xs text-muted">従来の手動接続先を使用中です。この一覧では接続先を編集できません。切り替える場合は既存プロバイダーのモデルを選んでください。</p>}

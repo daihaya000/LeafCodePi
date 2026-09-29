@@ -50,8 +50,11 @@ export async function PUT(req: NextRequest) {
       if (apiKey !== undefined) throw new Error("既存プロバイダーの認証をここで変更することはできません");
       const models = knownModels = await listJevModels().catch(() => []);
       const selected = settings.enabledModels ?? [settings.registeredModel!];
-      if (selected.some((ref) => !models.some((model) => model.providerEnabled !== false && jevModelKey(model) === jevModelKey(ref)))) {
-        throw new Error("有効にしたJevモデルは未検出、またはアカウントが無効です");
+      // Selections under a disabled provider are kept (paused) so re-enabling restores them.
+      const detected = selected.map((ref) => models.find((model) => jevModelKey(model) === jevModelKey(ref)));
+      if (detected.some((model) => !model)) throw new Error("有効にしたJevモデルは未検出、またはアカウントが無効です");
+      if (!detected.some((model) => model?.providerEnabled !== false)) {
+        throw new Error("有効なプロバイダーのJevモデルを1件以上選んでください");
       }
       if (settings.enabledModels) {
         const keys = new Set(settings.enabledModels.map(jevModelKey));

@@ -1,5 +1,5 @@
 import { recordTypesafeUsage } from "@/lib/codexbar/providers/typesafe";
-import { readProviderModelState } from "@/lib/provider-model-state";
+import { accountProviderModelKey, readProviderModelState } from "@/lib/provider-model-state";
 import { accountRoutingMode, readProviderRouting } from "@/lib/provider-routing";
 import { readJevModelSettings, resolveJevModelConnection } from "./jev-model-config";
 
@@ -93,7 +93,9 @@ export async function evaluateTypeSafe(
     const index = ids.indexOf(ref.modelId);
     return index < 0 ? Number.MAX_SAFE_INTEGER : index;
   };
-  const refs = settings.enabledModels?.map((ref, index) => ({ ref, index })).sort((a, b) => {
+  // Selections under a disabled provider stay saved but are paused until the provider is re-enabled.
+  const paused = (ref: { providerId: string; accountId?: string }) => state?.disabled?.[accountProviderModelKey(ref.providerId, ref.accountId)] === true;
+  const refs = settings.enabledModels?.filter((ref) => !paused(ref)).map((ref, index) => ({ ref, index })).sort((a, b) => {
     const aRank = providerRank(a.ref);
     const bRank = providerRank(b.ref);
     if (aRank !== bRank) return (aRank < 0 ? Number.MAX_SAFE_INTEGER : aRank) - (bRank < 0 ? Number.MAX_SAFE_INTEGER : bRank);
