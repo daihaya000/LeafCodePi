@@ -23,6 +23,9 @@ export const TODO_REQUEST_MAX_CHARS = 3_000;
 //   "もう少し詳しく" 0.07, "1でお願いします" 0.18), which is why dependsOnContext exists.
 // - dependsOnContext: self-contained requests came back at 0.04-0.37, short approvals,
 //   "continue" and references to earlier turns at 0.83-0.96.
+// Only the request is sent. Adding the stopped tool to the state skewed needsList by the tool
+// ("続けて" scored 0.09 for a read-only lookup but 0.55 for an edit), so the same task could be
+// waived or not depending on which call the gate happened to stop first.
 const NEEDS_TODO_QUESTIONS = {
   needsList: {
     instructions:
