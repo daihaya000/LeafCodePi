@@ -6,6 +6,8 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const GH_TIMEOUT_MS = 60_000;
+/** Cap buffered gh output (chars) so a runaway command cannot exhaust the heap. */
+const GH_MAX_OUTPUT_CHARS = 16 * 1024 * 1024;
 
 function runGh(
   cwd: string,
@@ -31,11 +33,28 @@ function runGh(
       reject(new Error(`gh timed out after ${GH_TIMEOUT_MS}ms`));
     }, GH_TIMEOUT_MS);
     if (typeof timer.unref === "function") timer.unref();
+    const overflow = () => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      stdout = "";
+      stderr = "";
+      try {
+        child.kill();
+      } catch {
+        /* already gone */
+      }
+      reject(new Error(`gh output exceeded ${GH_MAX_OUTPUT_CHARS} characters`));
+    };
     child.stdout.on("data", (c) => {
+      if (settled) return;
       stdout += String(c);
+      if (stdout.length + stderr.length > GH_MAX_OUTPUT_CHARS) overflow();
     });
     child.stderr.on("data", (c) => {
+      if (settled) return;
       stderr += String(c);
+      if (stdout.length + stderr.length > GH_MAX_OUTPUT_CHARS) overflow();
     });
     child.on("error", (err) => {
       if (settled) return;
