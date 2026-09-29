@@ -2,8 +2,10 @@
 import { act, cleanup, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  __reasoningTranslationCacheSizeForTest,
   __resetReasoningTranslationForTest,
   readReasoningTranslationMode,
+  saveReasoningTranslationOverride,
   useReasoningTranslation,
   writeReasoningTranslationMode,
 } from "./reasoning-translation";
@@ -40,6 +42,17 @@ describe("reasoning translation scheduler", () => {
     vi.unstubAllGlobals();
     localStorage.clear();
     vi.useRealTimers();
+  });
+
+  it("keeps the translation cache bounded in a long-lived tab", async () => {
+    fetchMock.mockImplementation(async (_input: string, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body)) as { text: string; translation: string };
+      return { ok: true, json: async () => ({ translation: body.translation }) };
+    });
+    for (let index = 0; index < 700; index += 1) {
+      await saveReasoningTranslationOverride(`text ${index}`, `訳 ${index}`);
+    }
+    expect(__reasoningTranslationCacheSizeForTest()).toBeLessThanOrEqual(500);
   });
 
   it("defaults to the original text when no display preference is stored", () => {

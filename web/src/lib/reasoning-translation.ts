@@ -16,6 +16,34 @@ const BATCH_WINDOW_MS = 20;
 const MAX_BATCH_ITEMS = 16;
 const MAX_BATCH_CHARS = 16_000;
 const cache = new Map<string, string>();
+/** Long-lived tabs translate many reasoning parts; keep the cache bounded (LRU). */
+const CACHE_MAX_ENTRIES = 500;
+const CACHE_MAX_CHARS = 2_000_000;
+let cacheChars = 0;
+
+function cacheGet(text: string): string | undefined {
+  const value = cache.get(text);
+  if (value === undefined) return undefined;
+  cache.delete(text);
+  cache.set(text, value);
+  return value;
+}
+
+function cacheSet(text: string, translation: string): void {
+  const previous = cache.get(text);
+  if (previous !== undefined) {
+    cacheChars -= text.length + previous.length;
+    cache.delete(text);
+  }
+  cache.set(text, translation);
+  cacheChars += text.length + translation.length;
+  while (cache.size > CACHE_MAX_ENTRIES || cacheChars > CACHE_MAX_CHARS) {
+    const oldest = cache.keys().next();
+    if (oldest.done || oldest.value === text) break;
+    cacheChars -= oldest.value.length + (cache.get(oldest.value)?.length ?? 0);
+    cache.delete(oldest.value);
+  }
+}
 
 type TranslationResult = {
   translation: string;
@@ -146,7 +174,7 @@ function runNextBatch(): void {
           finishWork(work, null);
           continue;
         }
-        if (!fallback) cache.set(work.text, translation);
+        if (!fallback) cacheSet(work.text, translation);
         finishWork(work, { translation, fallback });
       }
     })
@@ -164,7 +192,7 @@ function requestReasoningTranslation(text: string): {
   promise: Promise<TranslationResult | null>;
   cancel: () => void;
 } {
-  const cached = cache.get(text);
+  const cached = cacheGet(text);
   if (cached) {
     return {
       promise: Promise.resolve({ translation: cached, fallback: false }),
@@ -214,6 +242,11 @@ function requestReasoningTranslation(text: string): {
   return { promise, cancel };
 }
 
+/** Test-only view of the bounded translation cache. */
+export function __reasoningTranslationCacheSizeForTest(): number {
+  return cache.size;
+}
+
 /** Test-only reset for the module-level scheduler and cache. */
 export function __resetReasoningTranslationForTest(): void {
   schedulerGeneration += 1;
@@ -233,6 +266,7 @@ export function __resetReasoningTranslationForTest(): void {
   readyQueue.length = 0;
   activeBatch = false;
   cache.clear();
+  cacheChars = 0;
 }
 
 export function readReasoningTranslationMode(): ReasoningTranslationMode {
@@ -270,7 +304,7 @@ export async function saveReasoningTranslationOverride(
     throw new Error(typeof body.error === "string" ? body.error : "修正訳を保存できませんでした");
   }
   const saved = typeof body.translation === "string" ? body.translation.trim() : corrected;
-  cache.set(text, saved);
+  cacheSet(text, saved);
   if (typeof window !== "undefined") {
     window.dispatchEvent(new CustomEvent(OVERRIDE_EVENT, {
       detail: { text, translation: saved },
