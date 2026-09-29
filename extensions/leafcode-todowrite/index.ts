@@ -10,7 +10,9 @@
 import { StringEnum } from "@earendil-works/pi-ai";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
+import { hasJevNoulJudge } from "./jev-bridge.ts";
 import { normalizeTodos, type TodoItem } from "./state.ts";
+import { clipRequestText, judgeTodoNotNeeded } from "./todo-need.ts";
 export { normalizeTodos } from "./state.ts";
 export type { TodoItem, TodoPriority, TodoStatus } from "./state.ts";
 
@@ -61,6 +63,12 @@ type TodoGateState = {
   substantiveCalls: number;
   violationObserved: boolean;
   reminderSent: boolean;
+  /** The user's request for this task (clipped). Empty when the start of the task is unknown. */
+  requestText: string;
+  /** Jev judged the task too small for a ToDo list, so the gate stays open until the task ends. */
+  waived: boolean;
+  /** The Jev consultation of this task. Shared by every call the gate stops, asked at most once. */
+  waiver: Promise<boolean> | undefined;
 };
 
 type TodoGateAction = "allow" | "count" | "block";
@@ -91,6 +99,9 @@ function createTodoGateState(): TodoGateState {
     substantiveCalls: 0,
     violationObserved: false,
     reminderSent: false,
+    requestText: "",
+    waived: false,
+    waiver: undefined,
   };
 }
 
@@ -108,6 +119,21 @@ function classifyToolForTodoGate(toolName: string, input: unknown): TodoGateActi
     return asRecord(input)?.action === "view" ? "allow" : "block";
   }
   return SUBSTANTIVE_READ_TOOLS.has(toolName) ? "count" : "block";
+}
+
+/** Asks Jev once per task. A clear "no" opens the gate for the rest of the task. Never rejects. */
+function consultJev(task: TodoGateState, signal: AbortSignal | undefined): Promise<void> {
+  if (!task.waiver) {
+    const waiver: Promise<boolean> = judgeTodoNotNeeded({ requestText: task.requestText, signal })
+      .catch(() => false)
+      .then((waive) => {
+        // A steer / followUp may have replaced this consultation while it was in flight.
+        if (waive && task.waiver === waiver) task.waived = true;
+        return waive;
+      });
+    task.waiver = waiver;
+  }
+  return task.waiver.then(() => undefined);
 }
 
 function doneCount(todos: readonly TodoItem[]): number {
@@ -177,19 +203,40 @@ export default function (pi: ExtensionAPI): void {
   pi.on("session_start", async (_event, ctx) => restore(ctx));
   pi.on("session_tree", async (_event, ctx) => restore(ctx));
   pi.on("input", (event) => {
-    if (event.source !== "extension" && event.streamingBehavior === undefined) resetGate();
+    if (event.source === "extension") return;
+    const text = typeof event.text === "string" ? event.text : "";
+    if (event.streamingBehavior === undefined) {
+      resetGate();
+      gate.requestText = clipRequestText(text);
+      return;
+    }
+    // steer / followUp continue the task, but added instructions can make it bigger.
+    // Forget an earlier Jev verdict so the next stop is judged with them. When the start
+    // of the task is unknown, the added text alone would be a misleading request.
+    if (!gate.requestText) return;
+    gate.requestText = clipRequestText(`${gate.requestText}\n\n${text}`);
+    gate.waived = false;
+    gate.waiver = undefined;
   });
-  pi.on("tool_call", (event) => {
-    if (gate.openedThisTask) return;
+  pi.on("tool_call", (event, ctx) => {
+    const task = gate;
+    if (task.openedThisTask || task.waived) return;
     const action = classifyToolForTodoGate(event.toolName, event.input);
     if (action === "allow" || !gateEnabled()) return;
     if (action === "count") {
-      gate.substantiveCalls += 1;
-      if (gate.substantiveCalls < TODO_GATE_READ_LIMIT) return;
+      task.substantiveCalls += 1;
+      if (task.substantiveCalls < TODO_GATE_READ_LIMIT) return;
     }
     // Gate operations, not words in the prompt.
-    gate.violationObserved = true;
-    return { block: true, reason: TODO_GATE_REASON };
+    const stop = () => {
+      if (task.openedThisTask || task.waived) return undefined;
+      task.violationObserved = true;
+      return { block: true, reason: TODO_GATE_REASON };
+    };
+    // Without Jev (no host, or an unknown request) this is the conventional synchronous
+    // stop. Otherwise Jev is asked once whether the task needs a ToDo list at all.
+    if (!task.requestText || !hasJevNoulJudge()) return stop();
+    return consultJev(task, ctx.signal).then(stop);
   });
   pi.on("agent_settled", (_event, ctx) => {
     if (

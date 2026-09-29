@@ -136,6 +136,8 @@ Task 画面には本家 LeafCode と同様の折りたたみ式 ToDo 進捗と�
 起票漏れを防ぐため、`in_progress` を含む non-empty の ToDo を登録する前の変更、shell、委譲、memory変更、未分類toolを停止します。
 `git status` / `git diff` を PowerShell / bash で実行する開始時のGit確認も shell に含まれるため、変更タスクでは初回Git確認より先に `todowrite` を呼びます。通常のread-only作業も3回目までに起票が必要です。`AGENTS.md` / `SKILL.md` の確認と制御toolは対象外です。
 streaming中の `steer` / `followUp` とextension入力は現在のタスクの継続として扱います。
+WebUI では、ゲートが停止する直前に Jev で依頼が起票に値するかを判定します（1タスク1回）。質問・説明・調査・単発の小さな作業など、起票不要と明確に判断された場合はそのタスクのゲートを解除します。「OK」「続けて」のように前の会話に依存する依頼は、作業の大きさが分からないため解除しません。`steer` / `followUp` で指示が追加されると判定をやり直します。
+Jev が未設定・無効・失敗・タイムアウト・曖昧な判定の場合と、拡張を単体で `pi install` した場合は従来どおり停止します。Jev に送るのは依頼文（先頭と末尾を合わせて3000文字まで）だけです。
 
 ```powershell
 pi install ./extensions/leafcode-todowrite

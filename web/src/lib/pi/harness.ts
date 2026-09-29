@@ -21,6 +21,7 @@ import { catalogFromRoomUserRequest, catalogFromSessionEntries } from "@/lib/pi/
 import { roomRequestImages } from "@/lib/rooms";
 import { BOT_SOUL_TOOL, botSoulTool } from "@/lib/pi/bot-soul-tool";
 import { JEV_TOOL_NAME, registerJevTool } from "@/lib/pi/jev-tool";
+import { createJevNoulJudge, registerJevNoulJudge } from "@/lib/pi/jev-noul-judge";
 import { ROOM_HANDOFF_TOOL, roomHandoffTool } from "@/lib/room-handoff-tool";
 import { botIntercomTool } from "@/lib/bot-intercom-tool";
 import {
@@ -879,6 +880,18 @@ async function ensureOptionalProviders(
   }
 }
 
+let jevNoulJudgeRegistered = false;
+
+/**
+ * Lets standalone extensions (the ToDo gate) ask Jev yes/no questions. Jev being
+ * unconfigured or disabled answers null, so they keep their conventional behavior.
+ */
+function ensureJevNoulJudge(): void {
+  if (jevNoulJudgeRegistered) return;
+  jevNoulJudgeRegistered = true;
+  registerJevNoulJudge(createJevNoulJudge({ isUsable: () => hasUsableJevModelConfigured() }));
+}
+
 async function ensureRuntime(
   options: { skipDefaultRuntime?: boolean } = {},
 ): Promise<void> {
@@ -987,6 +1000,7 @@ async function ensureRuntime(
     startLiveIdleReaper();
   }
   ensurePermissionPromptService();
+  ensureJevNoulJudge();
 }
 
 function modelValue(providerID: string, modelID: string): string {

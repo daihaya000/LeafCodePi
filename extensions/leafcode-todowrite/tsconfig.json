@@ -9,5 +9,5 @@
     "skipLibCheck": true,
     "types": ["node"]
   },
-  "include": ["index.ts", "state.ts", "index.test.ts"]
+  "include": ["index.ts", "state.ts", "jev-bridge.ts", "todo-need.ts", "index.test.ts", "jev-bridge.test.ts", "todo-need.test.ts"]
 }
