@@ -222,8 +222,12 @@ describe("PartView sender and response metadata", () => {
     const metadata = screen.getByLabelText("応答メタデータ");
     expect(metadata.className).toContain("w-full");
     expect(metadata.className).toContain("max-w-full");
-    expect(metadata.parentElement?.className).toContain("max-w-bubble");
+    expect(metadata.parentElement?.className).toContain("max-w-full");
     expect(metadata.parentElement?.className).toContain("@container/meta-header");
+    // 通常返信は吹き出し幅に右端を揃えつつ、1 行に必要な幅が足りれば右へはみ出して 1 行を保つ。
+    expect(metadata.className).toContain("w-max");
+    expect(metadata.className).toContain("min-w-bubble");
+    expect(metadata.className).toContain("flex-wrap");
     for (const label of ["GPT", "builder"]) expect(metadata.textContent).toContain(label);
     expect(metadata.textContent).toContain("仕事用");
   });
@@ -365,6 +369,10 @@ describe("PartView sender and response metadata", () => {
     expect(meta.className).toContain("whitespace-nowrap");
     expect(meta.className).toContain("@max-[359px]/meta-header:flex-col");
     expect(screen.getByLabelText("モデル情報").className).toContain("flex-nowrap");
+    expect(screen.getByLabelText("モデル情報").className).toContain("grow");
+    expect(meta.className).toContain("flex-wrap");
+    expect(meta.className).toContain("w-full");
+    expect(meta.className).not.toContain("min-w-bubble");
     const usage = screen.getByLabelText("トークン情報");
     expect(usage.className).toContain("flex-nowrap");
     expect(usage.firstElementChild?.textContent).toBe("94k tok");

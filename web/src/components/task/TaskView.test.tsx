@@ -793,7 +793,7 @@ it("groups consecutive tool-only messages between agent responses", () => {
 
   const group = document.querySelector<HTMLDetailsElement>("details[data-task-tool-group]");
   expect(group).not.toBeNull();
-  expect(group!.className).toContain("max-w-full");
+  expect(group!.className).toContain("max-w-bubble");
   expect(group!.open).toBe(false);
   expect(group!.getAttribute("aria-label")).toBe("作業ログ");
   expect(group!.querySelector("summary")?.textContent).toContain("作業ログ");
@@ -805,6 +805,9 @@ it("groups consecutive tool-only messages between agent responses", () => {
   expect(logHeaders[0].usage).toEqual({ outputTokens: 0, avgRate: null, elapsedMs: 3_000 });
   expect(logHeaders.every((props) => props.singleLine)).toBe(true);
   expect(logHeaders.every((props) => props.showAccountInSingleLine)).toBe(true);
+  // 枠外は吹き出し幅に揃え、枠内は枠幅いっぱいを使う。
+  expect(logHeaders.map((props) => props.bubbleAligned)).toContain(true);
+  expect(logHeaders.map((props) => props.bubbleAligned)).toContain(false);
   expect(group!.previousElementSibling?.className).toContain("max-w-full");
   expect(group!.querySelector("[data-task-meta]")?.parentElement?.className).toContain("@container/meta-header");
   expect(group!.querySelector("[data-task-meta]")?.parentElement?.className).toContain("max-w-full");

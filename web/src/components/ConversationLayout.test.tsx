@@ -42,8 +42,8 @@ it.each([true, false])("keeps Bot and Code bubble geometry while aligning assist
   expect(bot.classList.contains("self-end")).toBe(user);
   if (!user) {
     expect(bot.previousElementSibling?.className).toContain("max-w-bubble");
-    expect(code.previousElementSibling?.className).toContain("max-w-bubble");
-    expect(code.previousElementSibling?.className).toContain("@container/meta-header");
+    expect(code.previousElementSibling?.className).toContain("max-w-full");
+    expect(code.previousElementSibling?.className).not.toContain("max-w-bubble");
   }
 });
 
@@ -178,8 +178,6 @@ it("lets the activity header use different layouts outside and inside the log", 
   const log = container.querySelector("details")!;
   expect(log.previousElementSibling?.textContent).toBe("outside");
   expect(log.previousElementSibling?.className).toContain("max-w-full");
-  expect(log.parentElement?.classList.contains("max-w-bubble")).toBe(true);
-  expect(log.classList.contains("max-w-full")).toBe(true);
   const inside = log.querySelector("summary")!.nextElementSibling!.firstElementChild?.firstElementChild;
   expect(inside?.textContent).toBe("inside");
   expect(inside?.className).toContain("max-w-bubble");
@@ -202,8 +200,8 @@ it("keeps the activity header both above and inside the collapsible log", () => 
   expect(log.previousElementSibling?.textContent).toBe("Frame metadata");
   expect(content.textContent).toContain("Frame metadata");
   expect(log.parentElement?.className).toContain("space-y-2");
-  expect(log.parentElement?.classList.contains("max-w-bubble")).toBe(true);
-  expect(log.classList.contains("max-w-full")).toBe(true);
+  expect(log.parentElement?.className).not.toContain("max-w-bubble");
+  expect(log.className).toContain("max-w-bubble");
 });
 
 it("follows the newest activity while expanded until the user scrolls up", () => {

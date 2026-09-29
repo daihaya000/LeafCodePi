@@ -707,6 +707,7 @@ export const MessageMetaHeader = memo(function MessageMetaHeader({
   usage,
   singleLine = false,
   showAccountInSingleLine = false,
+  bubbleAligned = false,
 }: {
   message: UiMessage;
   modelLabel?: string;
@@ -723,6 +724,8 @@ export const MessageMetaHeader = memo(function MessageMetaHeader({
   singleLine?: boolean;
   /** Work-log details keep the account visible even when usage fits on the same row. */
   showAccountInSingleLine?: boolean;
+  /** Single-line only: align the usage's right edge to the bubble unless the row needs more width. */
+  bubbleAligned?: boolean;
 }) {
   const model = modelLabel?.trim() || message.model?.trim() || "";
   const agentName = agent?.trim();
@@ -817,15 +820,20 @@ export const MessageMetaHeader = memo(function MessageMetaHeader({
 
   return (
     <div aria-label="応答メタデータ" className={cx(
-      "flex w-full min-w-0 max-w-full gap-1 text-[11px] text-muted",
+      "flex max-w-full gap-1 text-[11px] text-muted",
       singleLine
-        ? "flex-row items-center gap-x-1 overflow-hidden whitespace-nowrap @max-[359px]/meta-header:flex-col @max-[359px]/meta-header:items-stretch @max-[359px]/meta-header:overflow-visible @max-[359px]/meta-header:whitespace-normal"
-        : "flex-col",
+        // 1 行に収まるなら右へはみ出してでも 1 行、収まらなければ統計を 2 行目へ回す。
+        // 余裕が吹き出し幅以内なら、統計の右端を吹き出しに合わせる。
+        ? cx(
+          "flex-row flex-wrap items-center gap-x-1 overflow-hidden whitespace-nowrap @max-[359px]/meta-header:w-full @max-[359px]/meta-header:min-w-0 @max-[359px]/meta-header:flex-col @max-[359px]/meta-header:items-stretch @max-[359px]/meta-header:overflow-visible @max-[359px]/meta-header:whitespace-normal",
+          bubbleAligned ? "w-max min-w-bubble" : "w-full min-w-0",
+        )
+        : "w-full min-w-0 flex-col",
     )}>
       <div aria-label="モデル情報" className={cx(
         "flex min-w-0 items-center gap-y-1",
         singleLine
-          ? "flex-1 flex-nowrap gap-x-1 overflow-hidden @max-[359px]/meta-header:w-full @max-[359px]/meta-header:flex-wrap @max-[359px]/meta-header:overflow-visible"
+          ? "max-w-full grow flex-nowrap gap-x-1 overflow-hidden @max-[359px]/meta-header:w-full @max-[359px]/meta-header:flex-wrap @max-[359px]/meta-header:overflow-visible"
           : "w-full flex-wrap gap-x-1.5",
       )}>
         {/* 合成メッセージ（シェル実行など）はプロバイダを持たないので汎用アイコンを出さない。 */}
@@ -1109,7 +1117,7 @@ export const PartView = memo(
     return (
       <article className={messageRowClassFor(isUser)}>
         {!hideMeta && (
-          <MessageHeader user={isUser} wide={!isUser} bubbleWidth={!isUser}>
+          <MessageHeader user={isUser} wide={!isUser}>
             {isUser ? (
               !nested && (bot ? (
                 <div className="min-w-0" title={bot.name} aria-label={`送信者: ${bot.name}（Bot）`}>
@@ -1128,6 +1136,7 @@ export const PartView = memo(
                 accountLabel={accountLabel}
                 singleLine
                 showAccountInSingleLine
+                bubbleAligned
               />
             )}
           </MessageHeader>
