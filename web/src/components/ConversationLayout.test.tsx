@@ -49,7 +49,7 @@ it.each([true, false])("keeps Bot and Code bubble geometry while aligning assist
 
 it("uses identical closed, scroll-bounded logs with full-width nested cards and headers", () => {
   const parts = [{ id: "tool", type: "tool" as const, tool: "read", callID: "call", state: { status: "completed" as const, input: {}, startedAtMs: 1000, endedAtMs: 3000 } }];
-  const { container } = render(<>{(["bot", "task"] as const).map((kind) => <ActivityLog key={kind} kind={kind} count={1} parts={parts} active={false}>
+  const { container } = render(<>{(["bot", "task"] as const).map((kind) => <ActivityLog key={kind} kind={kind} count={2} parts={parts} active={false}>
     <MessageHeader>Metadata</MessageHeader><MessageBubble>Tool content</MessageBubble>
   </ActivityLog>)}</>);
   const [bot, task] = [...container.querySelectorAll("details")];
@@ -62,7 +62,7 @@ it("uses identical closed, scroll-bounded logs with full-width nested cards and 
   expect(bot.querySelector('summary [role="img"][aria-label="完了"]')?.classList.contains("lucide-check")).toBe(true);
   expect(bot.querySelector('summary [role="img"][aria-label="完了"]')?.nextElementSibling).toBe(bot.querySelector("summary")?.lastElementChild);
   expect(bot.open).toBe(false);
-  expect(bot.querySelector("summary")?.textContent).toBe("作業ログ1件");
+  expect(bot.querySelector("summary")?.textContent).toBe("作業ログ2件");
   const content = bot.querySelector("summary")!.nextElementSibling!;
   expect(content.classList.contains("[&_.max-w-bubble]:max-w-full")).toBe(true);
   expect(content.classList.contains("overflow-y-auto")).toBe(true);
@@ -72,8 +72,28 @@ it("uses identical closed, scroll-bounded logs with full-width nested cards and 
   expect(task.open).toBe(false);
 });
 
-it("opens the running log, closes it on completion, and preserves manual toggles between transitions", () => {
+it.each(["task", "bot"] as const)("shows a finished single %s activity directly without a work log", (kind) => {
+  const { container } = render(<ActivityLog kind={kind} header={<MessageHeader>Metadata</MessageHeader>} count={1} parts={[]} active={false}>
+    <MessageBubble>Only item</MessageBubble>
+  </ActivityLog>);
+  expect(container.querySelector("details")).toBeNull();
+  expect(container.textContent).toBe("MetadataOnly item");
+  expect(container.querySelectorAll(".rounded-card")).toHaveLength(1);
+});
+
+it("unwraps a single running activity after completion", () => {
   const renderLog = (running: boolean) => <ActivityLog kind="task" count={1} parts={[]} active running={running}>
+    <MessageBubble>Only item</MessageBubble>
+  </ActivityLog>;
+  const { container, rerender } = render(renderLog(true));
+  expect(container.querySelector("details")?.open).toBe(true);
+  rerender(renderLog(false));
+  expect(container.querySelector("details")).toBeNull();
+  expect(container.textContent).toBe("Only item");
+});
+
+it("opens the running log, closes it on completion, and preserves manual toggles between transitions", () => {
+  const renderLog = (running: boolean) => <ActivityLog kind="task" count={2} parts={[]} active running={running}>
     <MessageBubble>Tool content</MessageBubble>
   </ActivityLog>;
   const { container, rerender } = render(renderLog(false));
@@ -106,7 +126,7 @@ it.each([
   { status: "cancelled" as const, label: "中断", icon: "lucide-minus" },
 ])("shows $label instead of a success check for a $status tool", ({ status, label, icon }) => {
   const parts = [{ id: "tool", type: "tool" as const, tool: "read", callID: "call", state: { status, input: {} } }];
-  const { container } = render(<ActivityLog kind="task" count={1} parts={parts} active={false}>Tool</ActivityLog>);
+  const { container } = render(<ActivityLog kind="task" count={2} parts={parts} active={false}>Tool</ActivityLog>);
   const summary = container.querySelector("summary")!;
   expect(summary.querySelector(`[role="img"][aria-label="${label}"]`)?.classList.contains(icon)).toBe(true);
   expect(summary.querySelector('[aria-label="完了"]')).toBeNull();
@@ -127,18 +147,18 @@ it("ignores an earlier assistant error after a later successful tool", () => {
     { id: "failed", role: "assistant", createdAt: 1, error: "失敗", parts: [] },
     { id: "recovered", role: "assistant", createdAt: 2, parts: [{ id: "tool", type: "tool", tool: "read", callID: "call", state: { status: "completed", input: {} } }] },
   ];
-  const { container } = render(<ActivityLog kind="task" count={1} parts={messages[1]!.parts} messages={messages} active={false}>Tool</ActivityLog>);
+  const { container } = render(<ActivityLog kind="task" count={2} parts={messages[1]!.parts} messages={messages} active={false}>Tool</ActivityLog>);
   expect(container.querySelector('summary [role="img"][aria-label="完了"]')).not.toBeNull();
 });
 
 it("shows an assistant error instead of a success check", () => {
   const messages: UiMessage[] = [{ id: "failed", role: "assistant", createdAt: 1, error: "失敗", parts: [] }];
-  const { container } = render(<ActivityLog kind="task" count={1} parts={[]} messages={messages} active={false}>Tool</ActivityLog>);
+  const { container } = render(<ActivityLog kind="task" count={2} parts={[]} messages={messages} active={false}>Tool</ActivityLog>);
   expect(container.querySelector('summary [role="img"][aria-label="エラー"]')).not.toBeNull();
 });
 
 it("shows delegated Code cancellation instead of a success check", () => {
-  const { container } = render(<ActivityLog kind="bot" count={1} parts={[]} active={false} outcome="cancelled">Code</ActivityLog>);
+  const { container } = render(<ActivityLog kind="bot" count={2} parts={[]} active={false} outcome="cancelled">Code</ActivityLog>);
   expect(container.querySelector('summary [role="img"][aria-label="中断"]')).not.toBeNull();
 });
 
@@ -171,7 +191,7 @@ it("passes the log's total output tokens, average tok/s, and elapsed time to the
 
 it("lets the activity header use different layouts outside and inside the log", () => {
   const { container } = render(
-    <ActivityLog kind="task" header={(_usage, placement) => <MessageHeader wide={placement === "outside"}>{placement}</MessageHeader>} count={1} parts={[]} active={false}>
+    <ActivityLog kind="task" header={(_usage, placement) => <MessageHeader wide={placement === "outside"}>{placement}</MessageHeader>} count={2} parts={[]} active={false}>
       <MessageBubble>Tool content</MessageBubble>
     </ActivityLog>,
   );
@@ -188,7 +208,7 @@ it("keeps the activity header both above and inside the collapsible log", () => 
     <ActivityLog
       kind="task"
       header={<MessageHeader>Frame metadata</MessageHeader>}
-      count={1}
+      count={2}
       parts={[]}
       active={false}
     >
@@ -211,7 +231,7 @@ it("follows the newest activity while expanded until the user scrolls up", () =>
     observe() {}
     disconnect() {}
   });
-  const { container } = render(<ActivityLog kind="task" count={1} parts={[]} active>
+  const { container } = render(<ActivityLog kind="task" count={2} parts={[]} active>
     <MessageBubble>Tool content</MessageBubble>
   </ActivityLog>);
   const log = container.querySelector("details")!;

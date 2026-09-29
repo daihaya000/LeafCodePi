@@ -485,15 +485,16 @@ describe("RoomView delegated work", () => {
     act(() => pushSnapshot({
       room: { ...room, messages: [{ id: "reply-9", role: "assistant", botId: bot.id, text: "依頼しました", status: "done", createdAt: 2, codeRequestId: "request", codeTaskId: "code-1", codeState: "cancelled" }] },
     }));
-    expect(log?.querySelector('svg[aria-label="中断"]')).not.toBeNull();
-    expect(log?.querySelector('svg[aria-label="完了"]')).toBeNull();
+    expect(document.querySelector("details[data-bot-tool-group]")).toBeNull();
+    expect(screen.getByText("Code中断")).toBeTruthy();
     act(() => pushSnapshot({
       room: { ...room, messages: [{ id: "reply-9", role: "assistant", botId: bot.id, text: "依頼しました", status: "done", createdAt: 2, codeRequests: [
         { id: "request", taskId: "code-1", state: "cancelled" },
         { id: "retry", taskId: "code-2", state: "delivered" },
       ] }] },
     }));
-    expect(log?.querySelector('svg[aria-label="完了"]')).not.toBeNull();
+    expect(document.querySelector('details[data-bot-tool-group] summary')?.textContent).toBe("作業ログ2件");
+    expect(document.querySelector('details[data-bot-tool-group] svg[aria-label="完了"]')).not.toBeNull();
   });
 
   it("tells the user why a quiet room stopped, and only for the latest request", async () => {

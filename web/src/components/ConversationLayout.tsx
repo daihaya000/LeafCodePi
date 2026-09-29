@@ -113,6 +113,10 @@ export function ActivityLog({ children, header, count, parts, messages = [], sta
     observer.observe(content);
     return () => observer.disconnect();
   }, [open]);
+  // 完了した単一項目は畳まず、メタ行と内容をそのまま表示する。
+  if (count < 2 && !running) {
+    return <div className="w-full min-w-0 self-start space-y-2">{headerNode}{children}</div>;
+  }
   const log = (
     <details
       data-bot-tool-group={kind === "bot" ? "" : undefined}

@@ -750,6 +750,22 @@ it("shows one Goal Loop turn divider per turn boundary", () => {
   expect(screen.getByText("検証")).toBeTruthy();
 });
 
+it("shows a lone finished assistant error without wrapping it in a work log", () => {
+  saveTaskSessionCache({
+    task,
+    messages: [{ id: "failed", role: "assistant", createdAt: 2, error: "認証に失敗", parts: [] }],
+    isStreaming: false,
+    isCompacting: false,
+  });
+  mocks.partView.mockImplementation(({ message }: { message: UiMessage }) => <div data-activity-error={message.error} />);
+  mocks.messageMetaHeader.mockImplementation(({ message }: { message: UiMessage }) => <div data-task-meta={message.id} />);
+  render(<TaskView taskId={task.id} mdUp />);
+
+  expect(document.querySelector("details[data-task-tool-group]")).toBeNull();
+  expect(document.querySelector('[data-activity-error="認証に失敗"]')).not.toBeNull();
+  expect(document.querySelectorAll('[data-task-meta="failed"]')).toHaveLength(1);
+});
+
 it("groups consecutive tool-only messages between agent responses", () => {
   // tool-1 は 2.0s〜3.0s、tool-2 は 4.0s〜5.0s に実行される想定。
   const toolMessage = (id: string): UiMessage => {
@@ -917,9 +933,8 @@ it("opens only the latest work log while the task is running", () => {
   });
   render(<TaskView taskId={task.id} mdUp />);
   const logs = document.querySelectorAll<HTMLDetailsElement>("details[data-task-tool-group]");
-  expect(logs).toHaveLength(2);
-  expect(logs[0]!.open).toBe(false);
-  expect(logs[1]!.open).toBe(true);
+  expect(logs).toHaveLength(1);
+  expect(logs[0]!.open).toBe(true);
 });
 
 it("keeps the current log expanded when the same response also has a reply bubble", () => {
@@ -1071,9 +1086,8 @@ it("groups every non-message part while keeping each message header", () => {
   render(<TaskView taskId={task.id} mdUp />);
 
   const groups = document.querySelectorAll<HTMLDetailsElement>("details[data-task-tool-group]");
-  expect(groups).toHaveLength(2);
+  expect(groups).toHaveLength(1);
   expect(groups[0]!.querySelector("summary")?.textContent).toContain("4件");
-  expect(groups[1]!.querySelector("summary")?.textContent).toContain("1件");
   // thinking や画像は本文より前に起きているので、本文より上へ出す。
   expect(
     [...document.querySelectorAll("[data-task-part-view]")].map(
@@ -1162,7 +1176,8 @@ it("keeps a long reply outside the activity log even when a tool follows it", ()
 
   const reply = document.querySelector('[data-task-part-view="message"][data-message-id="long-reply"]');
   expect(reply?.getAttribute("data-part-types")).toBe("text");
-  expect(document.querySelector("details[data-task-tool-group]")?.contains(reply!)).toBe(false);
+  expect(document.querySelector("details[data-task-tool-group]")).toBeNull();
+  expect(mocks.toolCard.mock.calls.some(([props]) => props.part.id === "long-tool")).toBe(true);
 });
 
 it("keeps a thinking-only reply visible outside the activity log", () => {
@@ -1367,9 +1382,9 @@ it("hides empty Goal Loop assistants and keeps their turn divider on the next bl
   render(<TaskView taskId={task.id} mdUp />);
 
   const groups = document.querySelectorAll<HTMLDetailsElement>("details[data-task-tool-group]");
-  expect(groups).toHaveLength(2);
+  expect(groups).toHaveLength(1);
   expect(groups[0]!.querySelector("summary")?.textContent).toContain("2件");
-  expect(groups[1]!.querySelector("summary")?.textContent).toContain("1件");
+  expect(mocks.toolCard.mock.calls.some(([props]) => props.part.id === "tool-3-part")).toBe(true);
   expect(document.querySelector('[data-task-part-view="empty-1"]')).toBeNull();
   expect(document.querySelector('[data-task-part-view="empty-2"]')).toBeNull();
   // 空メッセージで始まるターンでも区切りは残す。
@@ -1399,9 +1414,8 @@ it("splits tool groups at Goal Loop turn boundaries", () => {
   render(<TaskView taskId={task.id} mdUp />);
 
   const groups = document.querySelectorAll<HTMLDetailsElement>("details[data-task-tool-group]");
-  expect(groups).toHaveLength(2);
+  expect(groups).toHaveLength(1);
   expect(groups[0]!.querySelector("summary")?.textContent).toContain("2件");
-  expect(groups[1]!.querySelector("summary")?.textContent).toContain("1件");
   expect(screen.getByRole("separator", { name: "ループ 1" })).toBeTruthy();
   expect(screen.getByRole("separator", { name: "ループ 2" })).toBeTruthy();
 });

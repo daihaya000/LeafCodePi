@@ -1108,7 +1108,8 @@ it("renders Bot tool messages with the shared ToolCard outside the chat bubble",
     }],
   }, isStreaming: false });
   expect(await screen.findByText("読み取り結果")).toBeTruthy();
-  expect(group!.open).toBe(false);
+  expect(container.querySelector("details[data-bot-tool-group]")).toBeNull();
+  expect(screen.getByRole("button", { name: /読取/ })).toBeTruthy();
 });
 
 it("keeps the current Bot log expanded beside a streaming reply bubble", async () => {
@@ -1123,7 +1124,8 @@ it("keeps the current Bot log expanded beside a streaming reply bubble", async (
   expect(log.open).toBe(true);
   expect(screen.getByText("回答中").closest("details")).toBeNull();
   delta({ message, isStreaming: false });
-  expect(log.open).toBe(false);
+  expect(container.querySelector("details[data-bot-tool-group]")).toBeNull();
+  expect(screen.getByText("回答中")).toBeTruthy();
 });
 
 it("does not mark a failed Bot tool response as completed", async () => {
@@ -1132,8 +1134,9 @@ it("does not mark a failed Bot tool response as completed", async () => {
   snapshot({ messages: [{ id: "failed", role: "assistant", createdAt: 2, error: "応答失敗", parts: [
     { id: "tool", type: "tool", tool: "read", callID: "call", state: { status: "completed", input: {} } },
   ] }] });
-  const log = container.querySelector<HTMLDetailsElement>("details[data-bot-tool-group]")!;
-  expect(log.querySelector('summary [role="img"][aria-label="エラー"]')).not.toBeNull();
+  expect(container.querySelector("details[data-bot-tool-group]")).toBeNull();
+  expect(screen.getByText("応答失敗")).toBeTruthy();
+  expect(container.querySelector(".lucide-circle-alert")).toBeNull();
 });
 
 it("marks a Bot work log successful when a later tool recovers from an error", async () => {
