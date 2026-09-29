@@ -1181,6 +1181,26 @@ it("groups consecutive tool-only entries without hiding messages", async () => {
   expect(screen.getByText("確認しました").closest("details")).toBeNull();
 });
 
+it("uses the picker model name for Bot work logs and replies", async () => {
+  mocks.getJson.mockImplementation(async (url: string) => url === "/api/models"
+    ? { models: [{ value: "account-a::anthropic::claude-sonnet-5-5", label: "Claude Sonnet 5.5", providerID: "anthropic", modelID: "claude-sonnet-5-5", accountId: "account-a" }] }
+    : url.endsWith("/routines") ? { routines: [] } : { bot: testBot });
+  const { container } = render(<ShellProvider><BotView id="one" /></ShellProvider>);
+  await screen.findByRole("button", { name: "設定" });
+  await waitFor(() => expect(mocks.getJson).toHaveBeenCalledWith("/api/models"));
+  snapshot({ messages: [
+    { id: "tool-only", role: "assistant", provider: "anthropic", model: "claude-sonnet-5-5", accountId: "account-a", createdAt: 1,
+      parts: [{ id: "tool", type: "tool", tool: "read", callID: "call", state: { status: "completed", input: {} } }] },
+    { id: "reply", role: "assistant", provider: "anthropic", model: "claude-sonnet-5-5", accountId: "account-a", createdAt: 2,
+      parts: [{ id: "text", type: "text", text: "完了" }] },
+  ] });
+  await waitFor(() => {
+    const labels = Array.from(container.querySelectorAll("[data-bot-model]"), (node) => node.textContent);
+    expect(labels.length).toBeGreaterThanOrEqual(2);
+    expect(labels.every((label) => label === "Claude Sonnet 5.5")).toBe(true);
+  });
+});
+
 it("summarizes Bot work-log usage without the reply that has its own bubble", async () => {
   const { container } = render(<ShellProvider><BotView id="one" /></ShellProvider>);
   await screen.findByRole("button", { name: "設定" });

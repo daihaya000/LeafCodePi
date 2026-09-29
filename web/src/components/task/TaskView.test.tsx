@@ -824,6 +824,41 @@ it("groups consecutive tool-only messages between agent responses", () => {
   expect(group!.open).toBe(true);
 });
 
+it("uses the picker model name in every Code message metadata placement", async () => {
+  const option: ModelOption = {
+    value: "account-a::anthropic::claude-sonnet-5-5", label: "Claude Sonnet 5.5",
+    providerID: "anthropic", modelID: "claude-sonnet-5-5", accountId: "account-a",
+  };
+  const toolMessage = (id: string, createdAt: number): UiMessage => ({
+    id, role: "assistant", createdAt, provider: "anthropic", model: "claude-sonnet-5-5", accountId: "account-a",
+    parts: [{ id: `${id}-tool`, type: "tool", tool: "read", callID: id, state: { status: "completed", input: {} } }],
+  });
+  saveTaskSessionCache({
+    task, messages: [toolMessage("first-tool", 1), toolMessage("next-tool", 2), {
+      id: "reply", role: "assistant", createdAt: 3, provider: "anthropic", model: "claude-sonnet-5-5", accountId: "account-a",
+      parts: [{ id: "reply-text", type: "text", text: "完了" }],
+    }], isStreaming: false, isCompacting: false,
+  });
+  const originalGetJson = mocks.getJson.getMockImplementation()!;
+  mocks.getJson.mockImplementation((path: string) => path === "/api/models"
+    ? Promise.resolve({ models: [option] }) : originalGetJson(path));
+  render(<TaskView taskId={task.id} mdUp />);
+
+  await waitFor(() => {
+    expect(mocks.getJson).toHaveBeenCalledWith("/api/models");
+    for (const id of ["first-tool", "next-tool"]) {
+      const headers = mocks.messageMetaHeader.mock.calls.filter(([props]) => props.message.id === id);
+      expect(headers.length).toBeGreaterThan(0);
+      expect(headers.at(-1)?.[0].modelLabel).toBe(option.label);
+    }
+    const firstHeaders = mocks.messageMetaHeader.mock.calls.filter(([props]) => props.message.id === "first-tool" && props.modelLabel === option.label);
+    expect(firstHeaders.some(([props]) => props.bubbleAligned === true)).toBe(true);
+    expect(firstHeaders.some(([props]) => props.bubbleAligned === false)).toBe(true);
+    const reply = mocks.partView.mock.calls.filter(([props]) => props.message.id === "reply").at(-1)?.[0];
+    expect(reply?.modelLabel).toBe(option.label);
+  });
+});
+
 it.each([
   { enabled: ["default"], autoEnabled: false, hideDefault: true },
   { enabled: ["default", "reviewer"], autoEnabled: false, hideDefault: false },

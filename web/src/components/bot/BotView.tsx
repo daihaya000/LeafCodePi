@@ -32,6 +32,7 @@ import { ToolPermissionList } from "@/components/ToolPermissionList";
 import { QuestionCard } from "@/components/task/QuestionCard";
 import { ToolCard } from "@/components/task/PartView";
 import { markRead } from "@/lib/bot-unread";
+import { messageModelLabel, messageModelLabels } from "@/lib/message-model-label";
 import { decideNotification } from "@/lib/notify";
 import { useNotificationDeliveryEnabled } from "@/lib/notification-delivery-client";
 import { playAttentionRequiredSound, playSessionCompleteSound } from "@/lib/session-complete-sound";
@@ -87,10 +88,9 @@ function botMessageDisplayData(message: UiMessage): BotMessageDisplayData {
   return data;
 }
 
-/** Code タイムラインと同じ規則で、応答に使われた実モデルを表示ラベルへ解決する。 */
-function botMessageModelLabel(message: UiMessage, modelLabels: Record<string, string>): string | undefined {
-  if (!message.provider || !message.model) return undefined;
-  return modelLabels[`${message.provider}::${message.model}`] ?? message.model;
+/** Code と共通の規則で、応答時のアカウントを含めて表示ラベルへ解決する。 */
+function botMessageModelLabel(message: UiMessage, modelLabels: ReadonlyMap<string, string>): string | undefined {
+  return messageModelLabel(message, modelLabels);
 }
 
 /** 吹き出しにも出る応答か（ツールだけの応答は作業ログにだけ出る）。 */
@@ -99,7 +99,7 @@ function botMessageHasBubble(message: UiMessage): boolean {
   return Boolean(text || images.length || files.length || message.error || requestIds.length);
 }
 
-function BotToolActivityGroup({ messages, bot, botId, active, running, modelLabels }: { messages: UiMessage[]; bot: BotDto | null; botId: string; active: boolean; running: boolean; modelLabels: Record<string, string> }) {
+function BotToolActivityGroup({ messages, bot, botId, active, running, modelLabels }: { messages: UiMessage[]; bot: BotDto | null; botId: string; active: boolean; running: boolean; modelLabels: ReadonlyMap<string, string> }) {
   const parts = messages.flatMap((message) => botMessageDisplayData(message).tools);
   const firstMessage = messages[0];
   return (
@@ -798,9 +798,9 @@ export const BotView = memo(function BotView({ id, active = true }: { id: string
     () => modelOptionForValue(models, bot?.model) ?? models[0],
     [bot?.model, models],
   );
-  /** TaskView と同じキー（provider::model）で、実行モデルの表示ラベルを引く。 */
+  /** TaskView と共通のモデル・アカウント別ラベルを使う。 */
   const modelLabels = useMemo(
-    () => Object.fromEntries(models.map((option) => [option.value, option.label])),
+    () => messageModelLabels(models),
     [models],
   );
   const modelValue = selectedModel?.value ?? bot?.model ?? "";

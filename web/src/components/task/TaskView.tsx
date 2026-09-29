@@ -92,6 +92,7 @@ import {
   type AutoTaskRecord,
 } from "@/lib/auto-task-record";
 import { formatTokens, type ContextUsageDto } from "@/lib/context-usage";
+import { messageModelLabel, messageModelLabels } from "@/lib/message-model-label";
 import {
   COMPACTION_ACTION_SETTING_KEY,
   parseCompactionAction,
@@ -2950,7 +2951,7 @@ export const TaskView = memo(function TaskView({
     setAutoRetryNotice(null);
   }
   const modelLabels = useMemo(
-    () => Object.fromEntries(models.map((option) => [option.value, option.label])),
+    () => messageModelLabels(models),
     [models],
   );
   // モデル一覧の読み込み状態に関係なく、タスクへ実際に保存されたeffortを表示する。
@@ -3307,10 +3308,7 @@ export const TaskView = memo(function TaskView({
                   ? (() => {
                       const entry = block.entries[0]!;
                       const message = entry.message;
-                      const modelLabel =
-                        message.provider && message.model
-                          ? modelLabels[`${message.provider}::${message.model}`]
-                          : undefined;
+                      const modelLabel = messageModelLabel(message, modelLabels);
                       const accountLabel = message.accountId
                         ? (accountLabels.get(message.accountId) ?? message.accountId)
                         : (taskAccountLabel ?? undefined);
@@ -3339,10 +3337,7 @@ export const TaskView = memo(function TaskView({
                 block.kind === "tool-group"
                   ? block.entries.flatMap((entry, entryIndex) => {
                       const message = entry.activityMessage;
-                      const modelLabel =
-                        message.provider && message.model
-                          ? modelLabels[`${message.provider}::${message.model}`]
-                          : undefined;
+                      const modelLabel = messageModelLabel(message, modelLabels);
                       const accountLabel = message.accountId
                         ? (accountLabels.get(message.accountId) ?? message.accountId)
                         : (taskAccountLabel ?? undefined);
@@ -3463,11 +3458,7 @@ export const TaskView = memo(function TaskView({
                   ) : (
                     <PartView
                       message={block.message}
-                      modelLabel={
-                        block.message.provider && block.message.model
-                          ? modelLabels[`${block.message.provider}::${block.message.model}`]
-                          : undefined
-                      }
+                      modelLabel={messageModelLabel(block.message, modelLabels)}
                       effort={block.message.role === "assistant" ? effortLabel : undefined}
                       agent={
                         block.message.role === "assistant"
