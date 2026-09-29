@@ -179,6 +179,49 @@ describe("buildTaskProgressDigest", () => {
     expect(digest).not.toContain("file body");
   });
 
+  it("adds timing and the live progress tail so the model can estimate completion", () => {
+    const digest = buildTaskProgressDigest(
+      input({
+        isStreaming: true,
+        messages: [
+          user("u1", "LoRA学習を回して"),
+          assistant("a1", [
+            {
+              id: "check",
+              type: "tool",
+              tool: "bash",
+              callID: "check",
+              state: {
+                status: "completed",
+                input: { command: "tail train.log" },
+                output: "steps: 1200/5000",
+                startedAtMs: NOW - 20 * 60_000,
+                endedAtMs: NOW - 20 * 60_000 + 3_000,
+              },
+            },
+            {
+              id: "train",
+              type: "tool",
+              tool: "bash",
+              callID: "train",
+              state: {
+                status: "running",
+                input: { command: "python train.py" },
+                output: `${"#".repeat(2_000)} steps: 2400/5000 [1:05:00<1:10:00, 1.60s/it]`,
+                startedAtMs: NOW - 65 * 60_000,
+              },
+            },
+          ]),
+        ],
+      }),
+    );
+
+    expect(digest).toContain("→ 完了［13:45:00〜13:45:03・3秒］（結果末尾: steps: 1200/5000）");
+    expect(digest).toContain("→ 実行中［開始 13:00:00・経過 1時間5分］");
+    expect(digest).toContain("steps: 2400/5000 [1:05:00<1:10:00, 1.60s/it]）");
+    expect(TASK_PROGRESS_SYSTEM_INSTRUCTION).toContain("「不明」だけで済ませず");
+  });
+
   it("asks the model for concrete, evidence-based answers", () => {
     expect(TASK_PROGRESS_SYSTEM_INSTRUCTION).toContain("ファイル名");
     expect(TASK_PROGRESS_SYSTEM_INSTRUCTION).toContain("テスト結果");
