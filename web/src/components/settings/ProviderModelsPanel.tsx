@@ -165,6 +165,16 @@ export function ReorderButtons({
   );
 }
 
+function touchDropTarget(source: DragState, x: number, y: number): DragState | null {
+  const element = document.elementFromPoint(x, y);
+  const providerKey = element?.closest("[data-provider-row]")?.getAttribute("data-provider-row");
+  if (!providerKey) return null;
+  if (source.kind === "provider") return { kind: "provider", rowKey: providerKey };
+  if (source.rowKey !== providerKey) return null;
+  const id = element?.closest("[data-model-row]")?.getAttribute("data-model-row");
+  return id ? { kind: "model", rowKey: providerKey, id } : null;
+}
+
 function ProviderRow({
   provider,
   providerIndex,
@@ -181,6 +191,7 @@ function ProviderRow({
   onDropProvider,
   onDragStartModel,
   onDropModel,
+  touchTarget,
 }: {
   provider: ProviderModelsRow;
   providerIndex: number;
@@ -197,6 +208,7 @@ function ProviderRow({
   onDropProvider: () => void;
   onDragStartModel: (modelId: string) => void;
   onDropModel: (modelId: string) => void;
+  touchTarget: DragState | null;
 }) {
   // 既定は折りたたみ。プロバイダーが増えると全展開では一覧が長くなるため。
   const [expanded, setExpanded] = useState(false);
@@ -212,6 +224,7 @@ function ProviderRow({
   return (
     <li
       aria-busy={isBusy || undefined}
+      data-provider-row={rowKey}
       draggable
       onDragStart={(event) => {
         event.dataTransfer.effectAllowed = "move";
@@ -224,12 +237,15 @@ function ProviderRow({
       }}
       className="space-y-2"
     >
-      <div className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 rounded-xl border border-border bg-surface px-4 py-3 @xl:grid-cols-[auto_minmax(0,1fr)_auto_auto]">
+      <div className={cx("grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 rounded-xl border border-border bg-surface px-4 py-3 @xl:grid-cols-[auto_minmax(0,1fr)_auto_auto]", touchTarget?.kind === "provider" && touchTarget.rowKey === rowKey && "ring-2 ring-accent")}>
         <div className="flex items-center gap-1">
-          <GripVertical
+          <span
+            data-reorder-provider={isBusy ? undefined : rowKey}
             aria-hidden="true"
-            className="h-4 w-4 shrink-0 cursor-grab text-muted"
-          />
+            className="-m-2 inline-flex h-11 w-8 touch-none items-center justify-center rounded-lg text-muted active:text-accent @xl:h-7 @xl:w-5"
+          >
+            <GripVertical className="h-4 w-4 cursor-grab" />
+          </span>
           {hasModels && (
             <button
               type="button"
@@ -303,6 +319,7 @@ function ProviderRow({
             return (
               <li
                 key={model.id}
+                data-model-row={model.id}
                 draggable={!parentDisabled}
                 onDragStart={(event) => {
                   event.stopPropagation();
@@ -319,12 +336,16 @@ function ProviderRow({
                 className={cx(
                   "ml-4 grid grid-cols-[auto_minmax(0,1fr)_auto] items-start gap-x-3 gap-y-2 rounded-xl border border-border border-l-2 border-l-border bg-surface px-4 py-3 @xl:flex @xl:items-center @xl:gap-3",
                   parentDisabled && "opacity-50",
+                  touchTarget?.kind === "model" && touchTarget.rowKey === rowKey && touchTarget.id === model.id && "ring-2 ring-accent",
                 )}
               >
-                <GripVertical
+                <span
+                  data-reorder-model={parentDisabled || modelBusy ? undefined : model.id}
                   aria-hidden="true"
-                  className="mt-1 h-4 w-4 shrink-0 cursor-grab text-muted @xl:mt-0"
-                />
+                  className="-m-2 inline-flex h-11 w-8 touch-none items-center justify-center rounded-lg text-muted active:text-accent @xl:h-7 @xl:w-5"
+                >
+                  <GripVertical className="h-4 w-4 cursor-grab" />
+                </span>
                 <div className="min-w-0 @xl:flex-1">
                   <div className="flex flex-wrap items-center gap-2">
                     <p className="min-w-0 truncate text-sm font-medium">{model.name}</p>
@@ -397,6 +418,8 @@ export function ProviderModelsPanel({
   const [actionError, setActionError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [dragging, setDragging] = useState<DragState | null>(null);
+  const touchDragRef = useRef<{ pointerId: number; source: DragState } | null>(null);
+  const [touchTarget, setTouchTarget] = useState<DragState | null>(null);
   const [orderSaving, setOrderSaving] = useState(false);
   const [reorderAnnouncement, setReorderAnnouncement] = useState("");
   const [query, setQuery] = useState("");
@@ -576,39 +599,35 @@ export function ProviderModelsPanel({
   // 確定した値を一度だけ渡す。updater関数内で saveOrder/setReorderAnnouncement を呼ぶと、
   // Strict Modeや並行レンダーでupdaterが再実行された際にPATCHが重複し得るため。
   const moveProvider = useCallback(
-    (targetRowKey: string) => {
+    (sourceRowKey: string, targetRowKey: string) => {
       setDragging(null);
-      if (dragging?.kind !== "provider" || dragging.rowKey === targetRowKey) return;
-      const from = providers.findIndex((provider) => providerRowKey(provider) === dragging.rowKey);
+      if (sourceRowKey === targetRowKey) return;
+      const from = providers.findIndex((provider) => providerRowKey(provider) === sourceRowKey);
       const to = providers.findIndex((provider) => providerRowKey(provider) === targetRowKey);
       if (from < 0 || to < 0) return;
       const next = moveItem(providers, from, to);
       setProviders(next);
       saveOrder(next);
     },
-    [dragging, providers, saveOrder],
+    [providers, saveOrder],
   );
 
   const moveModel = useCallback(
-    (rowKey: string, targetId: string) => {
+    (rowKey: string, sourceId: string, targetId: string) => {
       setDragging(null);
-      if (
-        dragging?.kind !== "model" ||
-        dragging.rowKey !== rowKey ||
-        dragging.id === targetId
-      ) {
+      if (sourceId === targetId) {
         return;
       }
       const next = providers.map((provider) => {
         if (providerRowKey(provider) !== rowKey) return provider;
-        const from = provider.models.findIndex((model) => model.id === dragging.id);
+        const from = provider.models.findIndex((model) => model.id === sourceId);
         const to = provider.models.findIndex((model) => model.id === targetId);
         return { ...provider, models: moveItem(provider.models, from, to) };
       });
       setProviders(next);
       saveOrder(next);
     },
-    [dragging, providers, saveOrder],
+    [providers, saveOrder],
   );
 
   const moveProviderBy = useCallback(
@@ -690,10 +709,11 @@ export function ProviderModelsPanel({
         visibleModels={models}
         searchExpanded={searchExpanded}
         busyId={busyId}
+        touchTarget={touchTarget}
         onDragStartProvider={() => setDragging({ kind: "provider", rowKey })}
-        onDropProvider={() => moveProvider(rowKey)}
+        onDropProvider={() => { if (dragging?.kind === "provider") moveProvider(dragging.rowKey, rowKey); }}
         onDragStartModel={(modelId) => setDragging({ kind: "model", rowKey, id: modelId })}
-        onDropModel={(modelId) => moveModel(rowKey, modelId)}
+        onDropModel={(modelId) => { if (dragging?.kind === "model" && dragging.rowKey === rowKey) moveModel(rowKey, dragging.id, modelId); }}
         onMoveProvider={(direction) => moveProviderBy(rowKey, direction)}
         onMoveModel={(modelId, direction) => moveModelBy(rowKey, modelId, direction)}
         onToggleProvider={(enabled) => void toggle(provider, undefined, enabled)}
@@ -758,7 +778,47 @@ export function ProviderModelsPanel({
       {status === "ready" && (searchTerm || enabledOnly) && providers.length > 0 && visibleProviders.length === 0 && (
         <p className="text-sm text-muted">{searchTerm ? "検索条件に一致する項目はありません。" : "有効なプロバイダーはありません。"}</p>
       )}
-      {providers.length > 0 && <ul className="space-y-3">{visibleProviders.map(renderProvider)}</ul>}
+      {providers.length > 0 && (
+        <ul
+          className="space-y-3"
+          onPointerDown={(event) => {
+            if (event.pointerType !== "touch" || touchDragRef.current) return;
+            const handle = (event.target as Element).closest<HTMLElement>("[data-reorder-provider], [data-reorder-model]");
+            if (!handle) return;
+            const rowKey = handle.closest("[data-provider-row]")?.getAttribute("data-provider-row");
+            if (!rowKey) return;
+            const id = handle.getAttribute("data-reorder-model");
+            const source: DragState = id
+              ? { kind: "model", rowKey, id }
+              : { kind: "provider", rowKey };
+            event.preventDefault();
+            handle.setPointerCapture(event.pointerId);
+            touchDragRef.current = { pointerId: event.pointerId, source };
+          }}
+          onPointerMove={(event) => {
+            const drag = touchDragRef.current;
+            if (drag?.pointerId !== event.pointerId) return;
+            setTouchTarget(touchDropTarget(drag.source, event.clientX, event.clientY));
+          }}
+          onPointerUp={(event) => {
+            const drag = touchDragRef.current;
+            if (drag?.pointerId !== event.pointerId) return;
+            const target = touchDropTarget(drag.source, event.clientX, event.clientY);
+            touchDragRef.current = null;
+            setTouchTarget(null);
+            if (!target || drag.source.kind !== target.kind) return;
+            if (drag.source.kind === "provider" && target.kind === "provider") {
+              moveProvider(drag.source.rowKey, target.rowKey);
+            } else if (drag.source.kind === "model" && target.kind === "model") {
+              moveModel(drag.source.rowKey, drag.source.id, target.id);
+            }
+          }}
+          onPointerCancel={() => { touchDragRef.current = null; setTouchTarget(null); }}
+          onLostPointerCapture={() => { touchDragRef.current = null; setTouchTarget(null); }}
+        >
+          {visibleProviders.map(renderProvider)}
+        </ul>
+      )}
     </div>
   );
 }

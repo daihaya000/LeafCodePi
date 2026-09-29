@@ -568,6 +568,103 @@ describe("ProviderModelsPanel account model settings", () => {
     );
   });
 
+  it("keeps mouse drag-and-drop reordering alongside touch dragging", async () => {
+    render(<ProviderModelsPanel />);
+    fireEvent.click(await screen.findByRole("button", { name: "OpenAI Codex · 仕事用 のモデルを展開" }));
+    const source = screen.getByRole("button", {
+      name: "OpenAI Codex · 仕事用 の GPT-5 を下へ",
+    }).closest("[data-model-row]")!;
+    const target = screen.getByRole("button", {
+      name: "OpenAI Codex · 仕事用 の GPT-4 を下へ",
+    }).closest("[data-model-row]")!;
+    fireEvent.dragStart(source, { dataTransfer: { effectAllowed: "move" } });
+    fireEvent.dragOver(target);
+    fireEvent.drop(target);
+    await waitFor(() => {
+      const patch = fetchMock.mock.calls.find(([input, init]) =>
+        String(input).endsWith("/api/provider-models/order") && init?.method === "PATCH",
+      );
+      expect(JSON.parse(String(patch?.[1]?.body)).accountModelOrder["acc-1"]["openai-codex"])
+        .toEqual(["gpt-4", "gpt-5"]);
+    });
+  });
+
+  it("touch drag moves models and provider rows and saves each order", async () => {
+    render(<ProviderModelsPanel />);
+    fireEvent.click(await screen.findByRole("button", { name: "OpenAI Codex · 仕事用 のモデルを展開" }));
+    let hitTarget: Element | null = null;
+    Object.defineProperty(document, "elementFromPoint", {
+      configurable: true,
+      value: vi.fn(() => hitTarget),
+    });
+    try {
+      const modelHandle = screen.getByRole("button", {
+        name: "OpenAI Codex · 仕事用 の GPT-5 を下へ",
+      }).closest("[data-model-row]")!.querySelector<HTMLElement>("[data-reorder-model]")!;
+      Object.defineProperty(modelHandle, "setPointerCapture", { value: vi.fn() });
+      hitTarget = screen.getByRole("button", {
+        name: "OpenAI Codex · 仕事用 の GPT-4 を下へ",
+      }).closest("[data-model-row]");
+      fireEvent.pointerDown(modelHandle, { pointerId: 7, pointerType: "touch" });
+      fireEvent.pointerMove(modelHandle, { pointerId: 7, pointerType: "touch", clientX: 100, clientY: 200 });
+      expect(hitTarget?.className).toContain("ring-accent");
+      fireEvent.pointerUp(modelHandle, { pointerId: 7, pointerType: "touch", clientX: 100, clientY: 200 });
+      await waitFor(() => {
+        const patches = fetchMock.mock.calls.filter(([input, init]) =>
+          String(input).endsWith("/api/provider-models/order") && init?.method === "PATCH",
+        );
+        expect(patches).toHaveLength(1);
+        expect(JSON.parse(String(patches[0]?.[1]?.body)).accountModelOrder["acc-1"]["openai-codex"])
+          .toEqual(["gpt-4", "gpt-5"]);
+      });
+
+      const providerHandle = screen.getByRole("button", {
+        name: "OpenAI Codex · 個人用 を上へ",
+      }).closest("[data-provider-row]")!.querySelector<HTMLElement>("[data-reorder-provider]")!;
+      Object.defineProperty(providerHandle, "setPointerCapture", { value: vi.fn() });
+      hitTarget = screen.getByRole("button", { name: "Ollama Cloud を上へ" }).closest("[data-provider-row]");
+      fireEvent.pointerDown(providerHandle, { pointerId: 8, pointerType: "touch" });
+      fireEvent.pointerUp(providerHandle, { pointerId: 8, pointerType: "touch", clientX: 100, clientY: 200 });
+      await waitFor(() => {
+        const patches = fetchMock.mock.calls.filter(([input, init]) =>
+          String(input).endsWith("/api/provider-models/order") && init?.method === "PATCH",
+        );
+        expect(patches).toHaveLength(2);
+        expect(JSON.parse(String(patches[1]?.[1]?.body)).providerOrder)
+          .toEqual(["acc-2::openai-codex", "ollama-cloud", "acc-1::openai-codex"]);
+      });
+    } finally {
+      Reflect.deleteProperty(document, "elementFromPoint");
+    }
+  });
+
+  it("ignores touch model drops on another provider and cancelled drags", async () => {
+    render(<ProviderModelsPanel />);
+    fireEvent.click(await screen.findByRole("button", { name: "OpenAI Codex · 仕事用 のモデルを展開" }));
+    fireEvent.click(screen.getByRole("button", { name: "OpenAI Codex · 個人用 のモデルを展開" }));
+    const handle = screen.getByRole("button", {
+      name: "OpenAI Codex · 仕事用 の GPT-5 を下へ",
+    }).closest("[data-model-row]")!.querySelector<HTMLElement>("[data-reorder-model]")!;
+    Object.defineProperty(handle, "setPointerCapture", { value: vi.fn() });
+    Object.defineProperty(document, "elementFromPoint", {
+      configurable: true,
+      value: vi.fn(() => screen.getByRole("button", {
+        name: "OpenAI Codex · 個人用 の GPT-5 を上へ",
+      })),
+    });
+    try {
+      fireEvent.pointerDown(handle, { pointerId: 9, pointerType: "touch" });
+      fireEvent.pointerUp(handle, { pointerId: 9, pointerType: "touch", clientX: 100, clientY: 200 });
+      fireEvent.pointerDown(handle, { pointerId: 10, pointerType: "touch" });
+      fireEvent.pointerCancel(handle, { pointerId: 10, pointerType: "touch" });
+      expect(fetchMock.mock.calls.filter(([input, init]) =>
+        String(input).endsWith("/api/provider-models/order") && init?.method === "PATCH",
+      )).toHaveLength(0);
+    } finally {
+      Reflect.deleteProperty(document, "elementFromPoint");
+    }
+  });
+
   it("StrictModeでも並び替えボタンの1回クリックでPATCHは1回だけ送信される", async () => {
     render(
       <StrictMode>
