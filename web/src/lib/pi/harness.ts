@@ -10562,12 +10562,45 @@ export async function setCacheWarmingMode(
   return settings.getCacheWarmingMode();
 }
 
+const LIVE_SHUTDOWN_TIMEOUT_MS = 5_000;
+
+/**
+ * Pi's AgentSession.dispose() does not emit session_shutdown, so extensions that
+ * own external resources (MCP stdio servers, intercom sockets/timers, web-access
+ * fetches) never release them. disposeLive() intentionally keeps skipping it for
+ * routine session replacement (Goal Loop pauses on shutdown), but permanent
+ * teardown (destroy/archive) must run the extension cleanup handlers.
+ */
+async function emitLiveSessionShutdown(id: string, logLabel: string): Promise<void> {
+  const live = state().live.get(id);
+  if (!live) return;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    const runner = live.session.extensionRunner;
+    if (!runner.hasHandlers("session_shutdown")) return;
+    await Promise.race([
+      runner.emit({ type: "session_shutdown", reason: "quit" }),
+      new Promise<void>((resolve) => {
+        timer = setTimeout(resolve, LIVE_SHUTDOWN_TIMEOUT_MS);
+      }),
+    ]);
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    console.warn(`[${logLabel}] extension shutdown failed: ${reason}`);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
 async function abortThenDispose(id: string, logLabel: string): Promise<void> {
   try {
     await abortTaskIncludingColdGoalLoop(id);
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error);
     console.warn(`[${logLabel}] abort before teardown failed: ${reason}`);
+  }
+  if (logLabel === "destroy" || logLabel === "archive") {
+    await emitLiveSessionShutdown(id, logLabel);
   }
   disposeLive(id);
 }

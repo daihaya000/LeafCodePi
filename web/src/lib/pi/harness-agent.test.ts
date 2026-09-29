@@ -876,6 +876,10 @@ describe("archiveTask", () => {
             ? { handler: async () => events.push("goal-stop") }
             : undefined,
         createCommandContext: () => ({}),
+        hasHandlers: (type: string) => type === "session_shutdown",
+        emit: async (event: { type: string }) => {
+          events.push(event.type);
+        },
       },
       abort: async () => {
         events.push("abort");
@@ -910,7 +914,8 @@ describe("archiveTask", () => {
 
     await archiveTask(task.id);
 
-    assert.deepEqual(events, ["abort", "goal-stop", "dispose"]);
+    // dispose() alone skips session_shutdown; archive must run extension cleanup first.
+    assert.deepEqual(events, ["abort", "goal-stop", "session_shutdown", "dispose"]);
     assert.equal(getTask(task.id)?.status, "archived");
     assert.equal(live.has(task.id), false);
 
