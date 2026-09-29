@@ -3315,7 +3315,7 @@ export const TaskView = memo(function TaskView({
                         ? (accountLabels.get(message.accountId) ?? message.accountId)
                         : (taskAccountLabel ?? undefined);
                       // The group header carries the whole log's usage; the summary keeps only the count.
-                      return function renderActivityHeader(usage: ActivityUsage, placement: "outside" | "inside") {
+                      return function renderActivityHeader(usage: ActivityUsage) {
                         return (
                           <MessageHeader wide>
                             <MessageMetaHeader
@@ -3327,7 +3327,7 @@ export const TaskView = memo(function TaskView({
                               accountLabel={accountLabel}
                               usage={usage}
                               singleLine
-                              showAccountInSingleLine={placement === "inside"}
+                              showAccountInSingleLine
                             />
                           </MessageHeader>
                         );

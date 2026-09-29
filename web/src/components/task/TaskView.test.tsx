@@ -804,8 +804,7 @@ it("groups consecutive tool-only messages between agent responses", () => {
   expect(logHeaders.length).toBeGreaterThanOrEqual(2);
   expect(logHeaders[0].usage).toEqual({ outputTokens: 0, avgRate: null, elapsedMs: 3_000 });
   expect(logHeaders.every((props) => props.singleLine)).toBe(true);
-  expect(logHeaders.map((props) => props.showAccountInSingleLine)).toContain(true);
-  expect(logHeaders.map((props) => props.showAccountInSingleLine)).toContain(false);
+  expect(logHeaders.every((props) => props.showAccountInSingleLine)).toBe(true);
   expect(group!.previousElementSibling?.className).toContain("max-w-full");
   expect(group!.querySelector("[data-task-meta]")?.parentElement?.className).toContain("@container/meta-header");
   expect(group!.querySelector("[data-task-meta]")?.parentElement?.className).toContain("max-w-full");
