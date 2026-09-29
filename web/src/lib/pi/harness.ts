@@ -475,6 +475,8 @@ type LiveRuntime = {
   jevToolRegistered: boolean;
   /** Last event/request touching this live session (ms); drives idle eviction. */
   lastActivityAt?: number;
+  /** Extension session_shutdown handlers already ran for this session. */
+  shutdownEmitted?: boolean;
   /**
    * Session used Auto because the stored model is unavailable.
    * Keep task.providerID/modelID as the unavailable selection (no silent pin).
@@ -2490,6 +2492,28 @@ async function attachSession(
   return live;
 }
 
+const liveShutdownInflight = new Map<string, Promise<void>>();
+
+/**
+ * Idle sessions get extension cleanup on dispose. Busy sessions and Goal Loop
+ * owners keep the old immediate dispose: Goal Loop pauses on session_shutdown
+ * and must survive routine session replacement.
+ */
+function shouldShutdownOnDispose(live: LiveRuntime, taskId: string): boolean {
+  if (live.shutdownEmitted) return false;
+  try {
+    if (!live.session.extensionRunner.hasHandlers("session_shutdown")) return false;
+    if (isLiveBusyForReplace(live) || isActiveGoalLoopSession(live.session)) return false;
+    const task = getTask(taskId);
+    const loop = task
+      ? readGoalLoopState(task.directory, live.session.sessionId ?? task.sessionId)
+      : null;
+    return !isGoalLoopSessionOwned(loop);
+  } catch {
+    return false;
+  }
+}
+
 /** live セッションを破棄し、保持していたアカウントランタイムの参照を解放する。 */
 function disposeLive(taskId: string): void {
   ensureLiveEpoch.set(taskId, (ensureLiveEpoch.get(taskId) ?? 0) + 1);
@@ -2517,8 +2541,23 @@ function disposeLive(taskId: string): void {
     }
   }
   live.unsubscribe();
-  live.session.dispose();
   state().live.delete(taskId);
+  if (shouldShutdownOnDispose(live, taskId)) {
+    // Extensions (intercom presence/timers, memory SQLite, MCP) only release
+    // resources in session_shutdown, which AgentSession.dispose() never emits.
+    // ensureLive waits for this before recreating the same task's session.
+    const pending: Promise<void> = runExtensionShutdown(live, "dispose").finally(() => {
+      try {
+        live.session.dispose();
+      } catch (error) {
+        console.warn("[dispose] session dispose failed:", error instanceof Error ? error.message : String(error));
+      }
+      if (liveShutdownInflight.get(taskId) === pending) liveShutdownInflight.delete(taskId);
+    });
+    liveShutdownInflight.set(taskId, pending);
+  } else {
+    live.session.dispose();
+  }
   if (live.accountId) {
     const manager = accountRuntimeManager();
     manager.release(live.accountId);
@@ -4649,6 +4688,10 @@ async function ensureLive(
     if (promotion) await promotion.catch(() => undefined);
   }
   throwIfTaskArchived(taskId);
+  // A replaced session's extension shutdown must finish before its successor
+  // starts (shared process.env / broker presence).
+  const retiring = liveShutdownInflight.get(taskId);
+  if (retiring) await retiring.catch(() => undefined);
   const current = state();
   const existing = current.live.get(taskId);
   if (existing) {
@@ -10652,14 +10695,19 @@ function startLiveIdleReaper(): void {
 
 /**
  * Pi's AgentSession.dispose() does not emit session_shutdown, so extensions that
- * own external resources (MCP stdio servers, intercom sockets/timers, web-access
- * fetches) never release them. disposeLive() intentionally keeps skipping it for
- * routine session replacement (Goal Loop pauses on shutdown), but permanent
- * teardown (destroy/archive) must run the extension cleanup handlers.
+ * own external resources (MCP stdio servers, intercom sockets/timers, memory
+ * SQLite, web-access fetches) never release them. Destroy/archive/eviction run
+ * it explicitly here; disposeLive() runs it for idle non-Goal-Loop sessions.
  */
 async function emitLiveSessionShutdown(id: string, logLabel: string): Promise<void> {
   const live = state().live.get(id);
   if (!live) return;
+  await runExtensionShutdown(live, logLabel);
+}
+
+async function runExtensionShutdown(live: LiveRuntime, logLabel: string): Promise<void> {
+  if (live.shutdownEmitted) return;
+  live.shutdownEmitted = true;
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
     const runner = live.session.extensionRunner;

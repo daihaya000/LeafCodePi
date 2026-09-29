@@ -13,7 +13,7 @@ import {
   getTaskHangWatch,
   stopHangWatchdogForTests,
 } from "./hang-watchdog";
-import { abortLiveForHangWatchdog, abortTask, archiveTask, autoArchiveOldTasks, evictIdleLiveSessions, destroyProject, destroyTask, getTaskDetail, isLiveBusyForReplace, isTaskRuntimeOwnedElsewhere, listActiveLlamaAgentModels, markTaskWorkingIfIdle, refreshLiveSessionsForAgentDefinition, reloadLiveSessionsContext, restoreTask, setBotPermissionMode, setBotTools, setTaskAgent, throwIfBusyForModelChange, throwIfBusyForPermissionChange, throwIfBusyForSkillPermissionChange, throwIfBusyForThinkingChange } from "./harness";
+import { abortLiveForHangWatchdog, abortTask, archiveTask, autoArchiveOldTasks, evictIdleLiveSessions, destroyProject, destroyTask, getTaskDetail, isLiveBusyForReplace, isTaskRuntimeOwnedElsewhere, listActiveLlamaAgentModels, markTaskWorkingIfIdle, refreshLiveSessionsForAgentDefinition, reloadLiveSessionsContext, resetTaskSession, restoreTask, setBotPermissionMode, setBotTools, setTaskAgent, throwIfBusyForModelChange, throwIfBusyForPermissionChange, throwIfBusyForSkillPermissionChange, throwIfBusyForThinkingChange } from "./harness";
 import { taskRuntimeLeasePath } from "@/lib/task-runtime-lease";
 import { botTaskId, createBot, getBot, patchBot } from "@/lib/bots";
 import { setAgentEnabled } from "@/lib/agents";
@@ -998,6 +998,52 @@ describe("evictIdleLiveSessions", () => {
       if (previousRegistry === undefined) delete globals[registryKey];
       else globals[registryKey] = previousRegistry;
     }
+  });
+});
+
+describe("session replacement extension cleanup", () => {
+  it("runs extension shutdown before disposing an idle session, but disposes a busy one immediately", async () => {
+    const root = mkdtempSync(join(tmpdir(), "leafcode-pi-harness-replace-"));
+    tempDirs.push(root);
+    process.env.LEAFCODE_PI_DATA_DIR = join(root, "data");
+    process.env.PI_CODING_AGENT_DIR = join(root, "agent");
+    const project = upsertProject({ name: "demo", rootPath: root });
+    const idle = insertTask({ project, title: "idle" });
+    const busy = insertTask({ project, title: "busy" });
+    const events: string[] = [];
+    const make = (taskId: string, streaming: boolean): FixtureLive => ({
+      taskId,
+      accountId: null,
+      session: {
+        sessionId: `session-${taskId}`,
+        messages: [],
+        agent: { state: { streamingMessage: undefined } },
+        isStreaming: streaming,
+        isCompacting: false,
+        sessionManager: { getLeafId: () => null, getBranch: () => [], getCwd: () => root },
+        extensionRunner: {
+          hasHandlers: (type: string) => type === "session_shutdown",
+          emit: async (event: { type: string }) => { events.push(`${taskId}:${event.type}`); },
+        },
+        dispose: () => { events.push(`${taskId}:dispose`); },
+      },
+      skillPermission: "allow",
+      skillPermissionRef: { current: "allow" },
+      unsubscribe: () => {},
+      promptChain: Promise.resolve(),
+      promptActive: false,
+      promptEpoch: 0,
+    });
+    const live = new Map<string, FixtureLive>([[idle.id, make(idle.id, false)], [busy.id, make(busy.id, true)]]);
+    installFixtureHarness(live);
+
+    resetTaskSession(busy.id);
+    assert.deepEqual(events, [`${busy.id}:dispose`]);
+
+    resetTaskSession(idle.id);
+    assert.equal(live.has(idle.id), false);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    assert.deepEqual(events.slice(1), [`${idle.id}:session_shutdown`, `${idle.id}:dispose`]);
   });
 });
 
