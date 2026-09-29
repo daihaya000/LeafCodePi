@@ -607,6 +607,7 @@ export default function piIntercomExtension(pi: ExtensionAPI) {
   let lastPresenceName: string | null = null;
   let lastPresenceRuntimeFallbackAlias: boolean | null = null;
   const previousIntercomSessionId = process.env[INTERCOM_SESSION_ID_ENV];
+  let publishedIntercomSessionId: string | undefined;
   let reconnectPromise: Promise<IntercomClient> | null = null;
   let reconnectPromiseGeneration: number | null = null;
   let startupConnectTimer: NodeJS.Timeout | null = null;
@@ -942,8 +943,13 @@ export default function piIntercomExtension(pi: ExtensionAPI) {
   }
   function publishIntercomSessionId(sessionId: string): void {
     process.env[INTERCOM_SESSION_ID_ENV] = sessionId;
+    publishedIntercomSessionId = sessionId;
   }
   function restoreIntercomSessionId(): void {
+    // The env var is process-wide. If another session published its own id since,
+    // a late shutdown of this instance must not clobber it.
+    if (publishedIntercomSessionId === undefined || process.env[INTERCOM_SESSION_ID_ENV] !== publishedIntercomSessionId) return;
+    publishedIntercomSessionId = undefined;
     if (previousIntercomSessionId === undefined) {
       delete process.env[INTERCOM_SESSION_ID_ENV];
       return;
