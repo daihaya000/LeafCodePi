@@ -112,6 +112,19 @@ describe("session-complete-sound", () => {
     ).toHaveBeenCalledWith(0.54, 0.02);
   });
 
+  it("closes a suspended context even when the oscillator never ends", () => {
+    vi.useFakeTimers();
+    try {
+      playSessionCompleteSound();
+      const context = MockAudioContext.instances[0]!;
+      expect(context.close).not.toHaveBeenCalled();
+      vi.advanceTimersByTime(5_000);
+      expect(context.close).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("keeps the Code and Bot completion sounds independent", () => {
     // Bot の既定は clear（triangle, 1046Hz）。Code は standard のまま。
     playSessionCompleteSound("code");

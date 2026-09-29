@@ -86,6 +86,9 @@ const SOUND_PROFILES: Record<NotificationSoundType, SoundProfile> = {
   },
 };
 
+/** Longest tone sequence is well under a second; close a stuck context after this. */
+const CONTEXT_CLOSE_FALLBACK_MS = 5_000;
+
 type AudioContextConstructor = new () => AudioContext;
 
 function getAudioContextConstructor(): AudioContextConstructor | undefined {
@@ -110,10 +113,20 @@ function withAudioContext(
   try {
     const ctx = new AudioContextCtor();
     const oscillators = schedule(ctx, ctx.currentTime);
-    const last = oscillators[oscillators.length - 1];
-    last?.addEventListener("ended", () => {
+    let closed = false;
+    let fallbackTimer: ReturnType<typeof setTimeout> | undefined;
+    const closeOnce = () => {
+      if (closed) return;
+      closed = true;
+      if (fallbackTimer !== undefined) clearTimeout(fallbackTimer);
       void ctx.close().catch(() => undefined);
-    });
+    };
+    const last = oscillators[oscillators.length - 1];
+    last?.addEventListener("ended", closeOnce);
+    // A suspended context (autoplay policy, background tab) never fires
+    // "ended"; without this the context leaks and browsers cap live contexts.
+    fallbackTimer = setTimeout(closeOnce, CONTEXT_CLOSE_FALLBACK_MS);
+    if (!last) closeOnce();
   } catch {
     // Autoplay/user-activation restrictions or unavailable audio devices.
   }
