@@ -368,6 +368,9 @@ describe("PartView sender and response metadata", () => {
     expect(meta.className).toContain("flex-row");
     expect(meta.className).toContain("whitespace-nowrap");
     expect(meta.className).toContain("@max-[359px]/meta-header:flex-col");
+    // スマホ幅は文字と間隔を詰めて 1 行に収めやすくする。
+    expect(meta.className).toContain("@max-[479px]/meta-header:text-[10px]");
+    expect(meta.className).toContain("@max-[479px]/meta-header:gap-x-0.5");
     expect(screen.getByLabelText("モデル情報").className).toContain("flex-nowrap");
     expect(screen.getByLabelText("モデル情報").className).toContain("grow");
     expect(meta.className).toContain("flex-wrap");
