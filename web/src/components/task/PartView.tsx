@@ -767,7 +767,7 @@ export const MessageMetaHeader = memo(function MessageMetaHeader({
   const renderField = (field: { key: string; text: string }, index: number) => {
     // The account and its separator are omitted together from headers that do not show the account.
     if (field.key === "account") return (
-      <span key={field.key} className="inline-flex min-w-0 max-w-64 shrink-[100] items-center gap-1.5 overflow-hidden" title={field.text}>
+      <span key={field.key} className={cx("inline-flex min-w-0 max-w-64 shrink-[100] items-center gap-1.5 overflow-hidden", singleLine && "@max-[359px]/meta-header:hidden")} title={field.text}>
         {index > 0 && <span className="shrink-0" aria-hidden="true">·</span>}
         <span className="min-w-0 truncate">
           <UserRound className="mr-0.5 inline h-3 w-3 align-[-1px]" aria-hidden />

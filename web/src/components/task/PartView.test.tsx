@@ -393,6 +393,8 @@ describe("PartView sender and response metadata", () => {
     expect(meta.className).toContain("flex-row");
     expect(meta.className).toContain("@max-[359px]/meta-header:flex-col");
     expect(screen.getByLabelText("モデル情報").textContent).toContain("work@example.com");
+    // 幅が足りない狭い枠ではアカウントを区切り文字ごと省略する。
+    expect(screen.getByText("work@example.com").parentElement?.className).toContain("@max-[359px]/meta-header:hidden");
     expect(screen.getByLabelText("トークン情報").className).toContain("shrink-0");
     expect(screen.getByLabelText("トークン情報").textContent).toContain("36 tok");
   });
