@@ -473,6 +473,8 @@ type LiveRuntime = {
   agentDefinitionReloadPending: boolean;
   /** True only after this session was created with the Jev tool factory. */
   jevToolRegistered: boolean;
+  /** Last event/request touching this live session (ms); drives idle eviction. */
+  lastActivityAt?: number;
   /**
    * Session used Auto because the stored model is unavailable.
    * Keep task.providerID/modelID as the unavailable selection (no silent pin).
@@ -980,6 +982,7 @@ async function ensureRuntime(
       },
     });
     startHangWatchdog();
+    startLiveIdleReaper();
   }
   ensurePermissionPromptService();
 }
@@ -1445,6 +1448,8 @@ function emit(
   taskId: string,
   payload: { type: string; [key: string]: unknown },
 ): void {
+  const active = state().live.get(taskId);
+  if (active) active.lastActivityAt = Date.now();
   state().events.emit(taskId, payload.type === "snapshot" && taskId.startsWith("bot:") ? {
     ...payload,
     permissionRequest: pendingPermissionForTask(taskId),
@@ -2469,6 +2474,7 @@ async function attachSession(
     }
     unsubscribe();
   };
+  live.lastActivityAt = Date.now();
   current.live.set(taskId, live);
   // Offline→resident: 1:1 Bot live attach promotes queued mailbox rows.
   // Room attach must NOT flush here — Room may still be idle before prompt,
@@ -4645,7 +4651,10 @@ async function ensureLive(
   throwIfTaskArchived(taskId);
   const current = state();
   const existing = current.live.get(taskId);
-  if (existing) return existing;
+  if (existing) {
+    existing.lastActivityAt = Date.now();
+    return existing;
+  }
 
   const epoch = ensureLiveEpoch.get(taskId) ?? 0;
   const inflight = ensureLiveInflight.get(taskId);
@@ -10563,6 +10572,83 @@ export async function setCacheWarmingMode(
 }
 
 const LIVE_SHUTDOWN_TIMEOUT_MS = 5_000;
+
+/** A viewed task keeps a full AgentSession (history + extensions) in memory; release it once abandoned. */
+const LIVE_IDLE_EVICT_MS = 60 * 60_000;
+const LIVE_REAPER_INTERVAL_MS = 5 * 60_000;
+const BACKGROUND_WORK_REGISTRY_KEY = "pi-subagents.background-work.v1";
+
+/**
+ * Active background work (async subagents etc.) owned by this Pi session.
+ * Returns null when the registry cannot be read reliably, which callers treat as busy.
+ */
+function backgroundWorkForSession(sessionId: string): number | null {
+  try {
+    const registry = (globalThis as Record<PropertyKey, unknown>)[Symbol.for(BACKGROUND_WORK_REGISTRY_KEY)] as
+      | { providers?: Map<string, { listActiveWork?: () => readonly { sessionId?: string }[] }> }
+      | undefined;
+    if (!registry) return 0;
+    if (!(registry.providers instanceof Map)) return null;
+    let count = 0;
+    for (const provider of registry.providers.values()) {
+      if (typeof provider.listActiveWork !== "function") return null;
+      for (const item of provider.listActiveWork()) if (item?.sessionId === sessionId) count += 1;
+    }
+    return count;
+  } catch {
+    return null;
+  }
+}
+
+function isLiveEvictable(live: LiveRuntime, nowMs: number, idleMs: number): boolean {
+  const task = getTask(live.taskId);
+  // Bot sessions stay resident: Bot intercom treats them as reachable.
+  if (!task || task.kind === "bot" || task.status === "working") return false;
+  if (nowMs - (live.lastActivityAt ?? nowMs) < idleMs) return false;
+  if (state().events.listenerCount(live.taskId) > 0) return false;
+  if (isTaskRuntimeBusyForDestructiveEdit(live.taskId)) return false;
+  if (pendingPermissionForTask(live.taskId) || pendingQuestionForTask(live.taskId)) return false;
+  if (botCodeRelay().originForCode(live.taskId)) return false;
+  const sessionId = live.session.sessionId;
+  if (sessionId && backgroundWorkForSession(sessionId) !== 0) return false;
+  return true;
+}
+
+/** Dispose live sessions nobody has touched for `idleMs`. Returns the evicted task ids. */
+export async function evictIdleLiveSessions(
+  nowMs = Date.now(),
+  idleMs = LIVE_IDLE_EVICT_MS,
+): Promise<string[]> {
+  const evicted: string[] = [];
+  for (const live of [...state().live.values()]) {
+    if (state().live.get(live.taskId) !== live || !isLiveEvictable(live, nowMs, idleMs)) continue;
+    await emitLiveSessionShutdown(live.taskId, "idle-evict");
+    // The session may have been replaced or picked up again while shutdown ran.
+    if (state().live.get(live.taskId) !== live || !isLiveEvictable(live, Date.now(), 0)) continue;
+    disposeLive(live.taskId);
+    evicted.push(live.taskId);
+  }
+  return evicted;
+}
+
+let liveReaperTimer: ReturnType<typeof setInterval> | undefined;
+let liveReaperRunning = false;
+
+function startLiveIdleReaper(): void {
+  if (liveReaperTimer) return;
+  liveReaperTimer = setInterval(() => {
+    if (liveReaperRunning) return;
+    liveReaperRunning = true;
+    void evictIdleLiveSessions()
+      .catch((error) => {
+        console.warn("[live-reaper] idle eviction failed:", error instanceof Error ? error.message : String(error));
+      })
+      .finally(() => {
+        liveReaperRunning = false;
+      });
+  }, LIVE_REAPER_INTERVAL_MS);
+  liveReaperTimer.unref?.();
+}
 
 /**
  * Pi's AgentSession.dispose() does not emit session_shutdown, so extensions that

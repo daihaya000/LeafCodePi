@@ -13,7 +13,7 @@ import {
   getTaskHangWatch,
   stopHangWatchdogForTests,
 } from "./hang-watchdog";
-import { abortLiveForHangWatchdog, abortTask, archiveTask, autoArchiveOldTasks, destroyProject, destroyTask, getTaskDetail, isLiveBusyForReplace, isTaskRuntimeOwnedElsewhere, listActiveLlamaAgentModels, markTaskWorkingIfIdle, refreshLiveSessionsForAgentDefinition, reloadLiveSessionsContext, restoreTask, setBotPermissionMode, setBotTools, setTaskAgent, throwIfBusyForModelChange, throwIfBusyForPermissionChange, throwIfBusyForSkillPermissionChange, throwIfBusyForThinkingChange } from "./harness";
+import { abortLiveForHangWatchdog, abortTask, archiveTask, autoArchiveOldTasks, evictIdleLiveSessions, destroyProject, destroyTask, getTaskDetail, isLiveBusyForReplace, isTaskRuntimeOwnedElsewhere, listActiveLlamaAgentModels, markTaskWorkingIfIdle, refreshLiveSessionsForAgentDefinition, reloadLiveSessionsContext, restoreTask, setBotPermissionMode, setBotTools, setTaskAgent, throwIfBusyForModelChange, throwIfBusyForPermissionChange, throwIfBusyForSkillPermissionChange, throwIfBusyForThinkingChange } from "./harness";
 import { taskRuntimeLeasePath } from "@/lib/task-runtime-lease";
 import { botTaskId, createBot, getBot, patchBot } from "@/lib/bots";
 import { setAgentEnabled } from "@/lib/agents";
@@ -927,6 +927,77 @@ describe("archiveTask", () => {
         error.message.includes("アーカイブ"),
     );
     assert.equal(getTask(task.id)?.agent, "builder");
+  });
+});
+
+describe("evictIdleLiveSessions", () => {
+  function idleLive(root: string, taskId: string, events: string[], lastActivityAt: number): FixtureLive {
+    return {
+      taskId,
+      accountId: null,
+      session: {
+        sessionId: `session-${taskId}`,
+        messages: [],
+        agent: { state: { streamingMessage: undefined } },
+        isStreaming: false,
+        isCompacting: false,
+        sessionManager: { getLeafId: () => null, getBranch: () => [], getCwd: () => root },
+        extensionRunner: {
+          hasHandlers: (type: string) => type === "session_shutdown",
+          emit: async (event: { type: string }) => { events.push(event.type); },
+        },
+        dispose: () => { events.push("dispose"); },
+      },
+      skillPermission: "allow",
+      skillPermissionRef: { current: "allow" },
+      unsubscribe: () => {},
+      promptChain: Promise.resolve(),
+      promptActive: false,
+      promptEpoch: 0,
+      lastActivityAt,
+    };
+  }
+
+  it("disposes an abandoned session after running extension shutdown, and keeps active ones", async () => {
+    const root = mkdtempSync(join(tmpdir(), "leafcode-pi-harness-evict-"));
+    tempDirs.push(root);
+    process.env.LEAFCODE_PI_DATA_DIR = join(root, "data");
+    process.env.PI_CODING_AGENT_DIR = join(root, "agent");
+    const project = upsertProject({ name: "demo", rootPath: root });
+    const stale = insertTask({ project, title: "stale" });
+    const recent = insertTask({ project, title: "recent" });
+    const watched = insertTask({ project, title: "watched" });
+    const busyWork = insertTask({ project, title: "background work" });
+    const events: string[] = [];
+    const now = 10_000_000;
+    const live = new Map<string, FixtureLive>([
+      [stale.id, idleLive(root, stale.id, events, now - 3_600_000)],
+      [recent.id, idleLive(root, recent.id, events, now - 1_000)],
+      [watched.id, idleLive(root, watched.id, events, now - 3_600_000)],
+      [busyWork.id, idleLive(root, busyWork.id, events, now - 3_600_000)],
+    ]);
+    const emitter = new EventEmitter();
+    emitter.on(watched.id, () => {});
+    installFixtureHarness(live, { events: emitter });
+    const registryKey = Symbol.for("pi-subagents.background-work.v1");
+    const globals = globalThis as Record<PropertyKey, unknown>;
+    const previousRegistry = globals[registryKey];
+    globals[registryKey] = {
+      version: 1,
+      providers: new Map([["test", { name: "test", listActiveWork: () => [{ id: "w1", sessionId: `session-${busyWork.id}` }] }]]),
+    };
+    try {
+      const evicted = await evictIdleLiveSessions(now, 3_600_000);
+      assert.deepEqual(evicted, [stale.id]);
+      assert.deepEqual(events, ["session_shutdown", "dispose"]);
+      assert.equal(live.has(stale.id), false);
+      assert.equal(live.has(recent.id), true);
+      assert.equal(live.has(watched.id), true);
+      assert.equal(live.has(busyWork.id), true);
+    } finally {
+      if (previousRegistry === undefined) delete globals[registryKey];
+      else globals[registryKey] = previousRegistry;
+    }
   });
 });
 
