@@ -4,7 +4,7 @@
  * Pi resends every image in the conversation on each request, so long sessions
  * (`read` of screenshots, tool captures, pasted files) keep growing, and each
  * route caps the count differently: Claude takes 100 or 600, OpenAI 1,500, but
- * OpenCode Go's DeepSeek upstream rejected "Too many images in request: 54 > 30".
+ * OpenCode Go's DeepSeek upstream has reported limits of 30 and 20 images.
  * The hook only shapes the outgoing request; the session history keeps every image.
  */
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
@@ -36,8 +36,8 @@ type ContentBlock = { type?: unknown; text?: unknown };
 
 /** Documented limits of first-party APIs and limits observed on specific routes. First match wins. */
 const KNOWN_LIMITS: readonly KnownLimit[] = [
-  // Observed 2026-09-29 ("54 > 30"); the DeepSeek API itself accepts 600.
-  { provider: "opencode-go", model: /deepseek/i, limit: 30 },
+  // Observed 2026-09-29: Go's DeepSeek route reported 30, then 20; use the lower limit.
+  { provider: "opencode-go", model: /deepseek/i, limit: 20 },
   // Bedrock Converse: "You can include up to 20 images."
   { api: "bedrock-converse-stream", limit: 20 },
   // Anthropic: 100 per request for models with a 200k-token context window, 600 for all others.
@@ -148,6 +148,7 @@ const IMAGE_COUNT_ERROR = new RegExp(
   [
     String.raw`too many image(?:s|\s+(?:parts|inputs|blocks|attachments|files))\b`,
     String.raw`at most [\d,]+ image(?:s|\(s\))? (?:may|can)`,
+    String.raw`(?:request|prompt|message) may include at most [\d,]+ images?\b`,
     String.raw`images? per (?:request|prompt|message)`,
     String.raw`(?:number|count) of (?:input )?images\b[^.]{0,60}?\b(?:exceed|limit|max)`,
   ].join("|"),

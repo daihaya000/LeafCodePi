@@ -35,6 +35,8 @@ import {
 /** The 2026-09-29 failure after a Claude/GPT session switched to DeepSeek V4.1 Flash on OpenCode Go. */
 const REPORTED_ERROR =
   '400: {"param":null,"type":"invalid_request_error","message":"Upstream request failed: [invalid_request_error] Too many images in request: 54 > 30"}';
+const REPORTED_GO_ERROR =
+  '400: {"type":"invalid_request_error","message":"Upstream request failed: [invalid_request_error] a request may include at most 20 images"}';
 const PNG =
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
 
@@ -105,8 +107,9 @@ describe("capRequestImages", () => {
     expect(omitted(31, 30)).toBe(6);
     expect(omitted(36, 30)).toBe(6);
     expect(omitted(37, 30)).toBe(12);
-    // The reported request: all 30 accepted images now reach DeepSeek.
+    // Both reported Go limits must leave no more images than the route accepts.
     expect(omitted(54, 30)).toBe(24);
+    expect(omitted(78, 20)).toBe(60);
     for (const limit of [1, 4, 20, 30, 100]) {
       for (let total = limit + 1; total <= limit * 4; total++) {
         const kept = total - omitted(total, limit);
@@ -120,6 +123,7 @@ describe("capRequestImages", () => {
 describe("image-count errors", () => {
   it.each([
     [REPORTED_ERROR, 30],
+    [REPORTED_GO_ERROR, 20],
     ["Too many images provided. This model supports up to 5 images", 5],
     ["Too many images in request. Maximum is 100.", 100],
     ["Too many images in request. Max is 20.", 20],
@@ -147,6 +151,7 @@ describe("image-count errors", () => {
     "messages.3.content.1.image.source: image dimensions exceed max allowed size for many-image requests: 2000 pixels",
     "429 Too many requests",
     "prompt is too long: 213462 tokens > 200000 maximum",
+    '413: {"type":"server_error","message":"Upstream request failed: Endpoint is unavailable."}',
     "The number of image tokens (5000) exceeds the limit (4096)",
   ])("ignores %s", (message) => {
     expect(isImageCountError(message)).toBe(false);
@@ -166,7 +171,7 @@ describe("requestImageLimit", () => {
     [{ provider: "opencode", id: "gemini-3.7-flash" }, 3_000],
     [{ provider: "deepseek", id: "deepseek-v4.1-flash" }, 600],
     [{ provider: "opencode", id: "deepseek-v4.1-flash" }, 600],
-    [{ provider: "opencode-go", id: "deepseek-v4.1-flash" }, 30],
+    [{ provider: "opencode-go", id: "deepseek-v4.1-flash" }, 20],
   ])("knows the limit of %o", (model, limit) => {
     expect(requestImageLimit(model)).toBe(limit);
   });
@@ -341,6 +346,23 @@ describe("registerRequestImageCap", () => {
         expect(session.messages.some((message) => (message as { stopReason?: string }).stopReason === "error")).toBe(false);
         await session.prompt("again");
         expect(sent).toEqual([12, 10, 10]);
+      } finally {
+        session.dispose();
+      }
+    });
+
+    it("resends when Go says a request may include at most 20 images", async () => {
+      const sent: number[] = [];
+      const session = await createSession(
+        recordRequests(sent, [new Error(REPORTED_GO_ERROR), "seen"]),
+        { inputLimits: { images: { maxPerRequest: 30 } } },
+      );
+      try {
+        await session.prompt("resume", { images: pngs(30) });
+        // The cache-friendly cut drops two additional old images in a four-image block.
+        expect(sent).toEqual([30, 18]);
+        expect(session.agent.state.errorMessage).toBeUndefined();
+        expect(errors(session)).toEqual([`${REPORTED_GO_ERROR}\n${LIMIT_LEARNED_NOTE}`]);
       } finally {
         session.dispose();
       }
