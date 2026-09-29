@@ -37,7 +37,7 @@ describe("NextAction", () => {
     expect(trigger.classList.contains("!w-10")).toBe(true);
     expect(trigger.classList.contains("!rounded-full")).toBe(true);
     expect(trigger.classList.contains("bg-bg")).toBe(true);
-    expect(trigger.classList.contains("shadow-lg")).toBe(false);
+    expect(trigger.classList.contains("shadow-lg")).toBe(true);
     expect(trigger.style.opacity).toBe("0.6");
     expect(trigger.title).toBe("次の指示を提案");
   });
