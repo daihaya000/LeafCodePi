@@ -32,22 +32,33 @@ export function isPrivateHost(value: string): boolean {
   return false;
 }
 
+async function readProbeId(url: string): Promise<string | null> {
+  const response = await fetch(url, {
+    mode: "cors",
+    method: "GET",
+    cache: "no-store",
+    credentials: "omit",
+    signal: AbortSignal.timeout(PROBE_TIMEOUT_MS),
+  });
+  if (!response.ok) return null;
+  const body = (await response.json()) as { id?: unknown };
+  return typeof body.id === "string" && body.id ? body.id : null;
+}
+
 /**
- * True when this browser is on the host machine and can reach the WebUI on its
- * own loopback. Resolves false on any timeout / network error (fail-closed).
+ * True only when 127.0.0.1:<port> serves the *same* WebUI process as the current
+ * origin (identical per-process id), i.e. this browser is on the host PC.
+ * Any other listener on that port (another PC's own LeafCodePi, a dev server)
+ * has a different id or none. Fail-closed on timeout / network / CORS errors.
  */
 async function canReachLoopbackWebui(): Promise<boolean> {
   try {
-    await fetch(`http://127.0.0.1:${window.location.port}/api/health`, {
-      mode: "no-cors",
-      method: "GET",
-      cache: "no-store",
-      signal: AbortSignal.timeout(PROBE_TIMEOUT_MS),
-    });
-    // With `no-cors` any HTTP response (even an error status) yields an opaque
-    // response; only a network-level failure throws. Either way, no throw
-    // means the host's loopback WebUI answered us.
-    return true;
+    const port = window.location.port;
+    const [own, loopback] = await Promise.all([
+      readProbeId(`/api/host-probe`),
+      readProbeId(`http://127.0.0.1:${port}/api/host-probe`),
+    ]);
+    return own !== null && own === loopback;
   } catch {
     return false;
   }

@@ -30,6 +30,7 @@ export function isPublicWebUiPath(pathname: string): boolean {
   if (pathname === "/login") return true;
   if (pathname.startsWith("/api/auth/webui")) return true;
   if (pathname === "/api/health") return true;
+  if (pathname === "/api/host-probe") return true;
   if (pathname.startsWith("/_next/")) return true;
   if (pathname === "/favicon.ico") return true;
   return false;

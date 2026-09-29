@@ -94,8 +94,34 @@ describe("maybeRedirectToLocalhost", () => {
     expect(replace).not.toHaveBeenCalled();
   });
 
-  it("redirects to 127.0.0.1 once the loopback WebUI answers", async () => {
-    vi.stubGlobal("fetch", vi.fn(async () => new Response(null, { status: 200 })));
+  it("stays put when another WebUI answers on the client's own loopback", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) =>
+        Response.json({ id: url.startsWith("http://127.0.0.1") ? "client-pc" : "host-pc" }),
+      ),
+    );
+    const replace = stubLocation("100.64.0.10", "http://100.64.0.10:3000/", "3000");
+    expect(await maybeRedirectToLocalhost()).toBeNull();
+    expect(replace).not.toHaveBeenCalled();
+  });
+
+  it("stays put when an unrelated service answers without a probe id", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) =>
+        url.startsWith("http://127.0.0.1")
+          ? new Response("<html></html>", { status: 200 })
+          : Response.json({ id: "host-pc" }),
+      ),
+    );
+    const replace = stubLocation("100.64.0.10", "http://100.64.0.10:3000/", "3000");
+    expect(await maybeRedirectToLocalhost()).toBeNull();
+    expect(replace).not.toHaveBeenCalled();
+  });
+
+  it("redirects to 127.0.0.1 once the loopback WebUI is the same process", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ id: "host-pc" })));
     const replace = stubLocation(
       "100.64.0.10",
       "http://100.64.0.10:3000/task/abc",
