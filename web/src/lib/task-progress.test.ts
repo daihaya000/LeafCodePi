@@ -145,6 +145,46 @@ describe("buildTaskProgressDigest", () => {
     expect(digest).not.toContain("【最初の指示】");
   });
 
+  it("keeps command result tails only for the current turn", () => {
+    const bash = (id: string, output: string): UiMessage["parts"][number] => ({
+      id,
+      type: "tool",
+      tool: "bash",
+      callID: id,
+      state: { status: "completed", input: { command: "npm test" }, output },
+    });
+    const digest = buildTaskProgressDigest(
+      input({
+        messages: [
+          user("u1", "最初の依頼"),
+          assistant("a1", [bash("old", "old-turn 3 failed")]),
+          user("u2", "続けて"),
+          assistant("a2", [
+            bash("new", `${"x".repeat(1_000)} Tests 42 passed`),
+            {
+              id: "read",
+              type: "tool",
+              tool: "read",
+              callID: "read",
+              state: { status: "completed", input: { path: "src/a.ts" }, output: "file body" },
+            },
+          ]),
+        ],
+      }),
+    );
+
+    expect(digest).toContain("→ 完了（結果末尾: …");
+    expect(digest).toContain("Tests 42 passed）");
+    expect(digest).not.toContain("old-turn 3 failed");
+    expect(digest).not.toContain("file body");
+  });
+
+  it("asks the model for concrete, evidence-based answers", () => {
+    expect(TASK_PROGRESS_SYSTEM_INSTRUCTION).toContain("ファイル名");
+    expect(TASK_PROGRESS_SYSTEM_INSTRUCTION).toContain("テスト結果");
+    expect(TASK_PROGRESS_SYSTEM_INSTRUCTION).toContain("最新の記録を最も重視");
+  });
+
   it("omits finished thinking and hang-retry resends", () => {
     const digest = buildTaskProgressDigest(
       input({

@@ -22,6 +22,7 @@ import {
   buildTaskProgressPrompt,
   parseTaskProgressQuestion,
   TASK_PROGRESS_CANDIDATE_TIMEOUT_MS,
+  TASK_PROGRESS_MAX_OUTPUT_TOKENS,
   TASK_PROGRESS_SERVER_TIMEOUT_MS,
   TASK_PROGRESS_SYSTEM_INSTRUCTION,
 } from "@/lib/task-progress";
@@ -143,7 +144,7 @@ export async function POST(
       ...(task.accountIdExplicit ? { accountIdExplicit: true } : {}),
       system: TASK_PROGRESS_SYSTEM_INSTRUCTION,
       prompt,
-      maxTokens: 1_024,
+      maxTokens: TASK_PROGRESS_MAX_OUTPUT_TOKENS,
       temperature: 0.2,
       timeoutMs: TASK_PROGRESS_CANDIDATE_TIMEOUT_MS,
       ...(localAgent ? { excludeProviderIDs: [LLAMA_SERVER_PROVIDER_ID] } : {}),
