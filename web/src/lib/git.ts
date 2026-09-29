@@ -6,6 +6,13 @@ import type { GraphCommit, GraphFileChange, GraphRef } from "@/lib/types";
 /** Hard ceiling so a hung git process cannot pin a BFF worker forever. */
 export const GIT_TIMEOUT_MS = 30_000;
 
+/**
+ * Ceiling on buffered stdout+stderr (UTF-16 chars). A diff of huge generated or
+ * binary files would otherwise be concatenated into one string and exhaust the
+ * BFF heap, taking every task down with it.
+ */
+export const GIT_MAX_OUTPUT_CHARS = 128 * 1024 * 1024;
+
 /** Reject absolute paths outside home / OneDrive / registered projects. */
 export function gitDirectoryError(directory: string | null | undefined): string | null {
   if (!directory || !isAbsolutePath(directory)) return "directory is required";
@@ -19,6 +26,7 @@ export function runGit(
   args: string[],
   timeoutMs = GIT_TIMEOUT_MS,
   env?: Record<string, string>,
+  maxOutputChars = GIT_MAX_OUTPUT_CHARS,
 ): Promise<{ code: number; stdout: string; stderr: string }> {
   return new Promise((resolve, reject) => {
     // `core.quotepath=false` keeps non-ASCII paths (e.g. Japanese filenames)
@@ -41,9 +49,7 @@ export function runGit(
     let settled = false;
     // If git ever blocks despite the prompt-disabling env vars, kill it and
     // reject so the awaiting HTTP handler fails fast instead of hanging.
-    const timer = setTimeout(() => {
-      if (settled) return;
-      settled = true;
+    const killChild = () => {
       try {
         if (process.platform === "win32" && child.pid) {
           // `child.kill()` only signals the `git` process itself; a
@@ -59,16 +65,34 @@ export function runGit(
       } catch {
         /* already gone */
       }
+    };
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      killChild();
       reject(new Error(`git timed out after ${timeoutMs}ms: git ${args.join(" ")}`));
     }, timeoutMs);
+    const overflow = () => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      killChild();
+      stdout = "";
+      stderr = "";
+      reject(new Error(`git output exceeded ${maxOutputChars} characters: git ${args.join(" ")}`));
+    };
     if (typeof timer.unref === "function") timer.unref();
     child.stdout.setEncoding("utf8");
     child.stderr.setEncoding("utf8");
     child.stdout.on("data", (c: string) => {
+      if (settled) return;
       stdout += c;
+      if (stdout.length + stderr.length > maxOutputChars) overflow();
     });
     child.stderr.on("data", (c: string) => {
+      if (settled) return;
       stderr += c;
+      if (stdout.length + stderr.length > maxOutputChars) overflow();
     });
     child.on("error", (err) => {
       if (settled) return;

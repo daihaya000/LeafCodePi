@@ -26,6 +26,21 @@ it("decodes UTF-8 across stdout and stderr chunk boundaries", async () => {
   expect(await result).toEqual({ code: 0, stdout: "変更😀\n", stderr: "変更😀\n" });
 });
 
+it("kills git and rejects when output exceeds the buffer ceiling", async () => {
+  const kill = vi.fn();
+  const child = Object.assign(new EventEmitter(), {
+    stdout: new PassThrough(),
+    stderr: new PassThrough(),
+    kill,
+    pid: 123,
+  });
+  mocks.spawn.mockReturnValue(child);
+  const result = runGit(".", ["diff"], 30_000, undefined, 10);
+  child.stdout.write("0123456789ab");
+  await expect(result).rejects.toThrow("git output exceeded 10 characters");
+  if (process.platform !== "win32") expect(kill).toHaveBeenCalledWith("SIGKILL");
+});
+
 it.each(["staged", "unstaged"])("rejects a partial diff when %s git diff fails", async (failed) => {
   mocks.spawn.mockImplementation((_command: string, args: string[] = []) => {
     const child = Object.assign(new EventEmitter(), {
