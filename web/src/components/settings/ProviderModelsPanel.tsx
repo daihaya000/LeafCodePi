@@ -780,7 +780,10 @@ export function ProviderModelsPanel({
       )}
       {providers.length > 0 && (
         <ul
-          className="space-y-3"
+          className="space-y-3 select-none"
+          // touch-action alone does not block iOS long-press selection/callouts.
+          // Limit suppression to reorder rows; search and other settings stay selectable.
+          style={{ WebkitUserSelect: "none", WebkitTouchCallout: "none" }}
           onPointerDown={(event) => {
             if (event.pointerType !== "touch" || touchDragRef.current) return;
             const handle = (event.target as Element).closest<HTMLElement>("[data-reorder-provider], [data-reorder-model]");

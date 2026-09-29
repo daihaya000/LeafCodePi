@@ -568,6 +568,32 @@ describe("ProviderModelsPanel account model settings", () => {
     );
   });
 
+  it("blocks long-press selection only in reorder rows and leaves scrolling enabled", async () => {
+    render(<ProviderModelsPanel />);
+    fireEvent.click(await screen.findByRole("button", { name: "OpenAI Codex · 仕事用 のモデルを展開" }));
+    const providerRow = screen.getByRole("button", {
+      name: "OpenAI Codex · 仕事用 を上へ",
+    }).closest<HTMLElement>("[data-provider-row]")!;
+    const list = providerRow.parentElement!;
+    expect(list.classList.contains("select-none")).toBe(true);
+    // happy-dom stores React's vendor-prefixed assignments as JS properties.
+    const style = list.style as unknown as Record<string, string>;
+    expect(style.WebkitUserSelect).toBe("none");
+    expect(style.WebkitTouchCallout).toBe("none");
+    expect(list.classList.contains("touch-none")).toBe(false);
+    expect(list.style.touchAction).not.toBe("none");
+    for (const handle of list.querySelectorAll<HTMLElement>("[data-reorder-provider], [data-reorder-model]")) {
+      expect(handle.classList.contains("touch-none")).toBe(true);
+    }
+    expect(list.contains(screen.getByRole("searchbox"))).toBe(false);
+
+    const down = new PointerEvent("pointerdown", {
+      bubbles: true, cancelable: true, pointerId: 12, pointerType: "touch",
+    });
+    fireEvent(screen.getByText("GPT-4"), down);
+    expect(down.defaultPrevented).toBe(false);
+  });
+
   it("keeps mouse drag-and-drop reordering alongside touch dragging", async () => {
     render(<ProviderModelsPanel />);
     fireEvent.click(await screen.findByRole("button", { name: "OpenAI Codex · 仕事用 のモデルを展開" }));
