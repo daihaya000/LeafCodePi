@@ -1127,6 +1127,7 @@ export const PartView = memo(
                 hideDefaultAgent={hideDefaultAgent}
                 accountLabel={accountLabel}
                 singleLine
+                showAccountInSingleLine
               />
             )}
           </MessageHeader>

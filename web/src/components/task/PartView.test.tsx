@@ -225,7 +225,7 @@ describe("PartView sender and response metadata", () => {
     expect(metadata.parentElement?.className).toContain("max-w-bubble");
     expect(metadata.parentElement?.className).toContain("@container/meta-header");
     for (const label of ["GPT", "builder"]) expect(metadata.textContent).toContain(label);
-    expect(metadata.textContent).not.toContain("仕事用");
+    expect(metadata.textContent).toContain("仕事用");
   });
 
   it("updates the sender and bubble when Bot metadata arrives", () => {
@@ -240,7 +240,7 @@ describe("PartView sender and response metadata", () => {
     expect(screen.getByText("Renamed Bot")).toBeTruthy();
   });
 
-  it("omits the account on the regular one-line assistant header", () => {
+  it("shows the account on the regular one-line assistant header and hides it when narrow", () => {
     render(
       <PartView
         message={{ id: "assistant-meta", role: "assistant", createdAt: 1, parts: [] }}
@@ -252,7 +252,7 @@ describe("PartView sender and response metadata", () => {
 
     expect(screen.getByText("max")).toBeTruthy();
     expect(screen.getByText("builder")).toBeTruthy();
-    expect(screen.queryByText("仕事用")).toBeNull();
+    expect(screen.getByText("仕事用").parentElement?.className).toContain("@max-[359px]/meta-header:hidden");
     expect(screen.getByText("builder").querySelector('[data-agent-icon="builder"]')).not.toBeNull();
   });
 
