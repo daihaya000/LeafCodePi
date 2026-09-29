@@ -198,4 +198,16 @@ describe("ToDo gate with Jev through a real SDK session", () => {
       session.dispose();
     }
   });
+
+  it("delivers the model guidance through the system prompt built from the bundled extension", async () => {
+    const { session } = await createSession("path");
+    try {
+      // The gate no longer forces a list for small tasks, so the model must be told the same rule.
+      expect(session.systemPrompt).toContain("several dependent steps");
+      expect(session.systemPrompt).toContain("Skip the list for a question, explanation");
+      expect(session.systemPrompt).toContain("If the ToDo gate stops a tool call anyway");
+    } finally {
+      session.dispose();
+    }
+  });
 });

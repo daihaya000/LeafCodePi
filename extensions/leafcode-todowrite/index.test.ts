@@ -7,6 +7,7 @@ import { TODO_JEV_TIMEOUT_MS, TODO_REQUEST_MAX_CHARS } from "./todo-need.ts";
 type Handler = (event: any, ctx: ExtensionContext) => unknown;
 type TodoTool = {
   executionMode?: "sequential" | "parallel";
+  promptGuidelines?: string[];
   execute: (...args: any[]) => Promise<{ details?: { error?: string; todos?: unknown[] } }>;
 };
 
@@ -653,5 +654,17 @@ describe("todowrite Jev waiver", () => {
     await waived.callToolAsync("edit");
     waived.settle();
     expect(waived.sendMessage).not.toHaveBeenCalled();
+  });
+});
+
+describe("todowrite model guidance", () => {
+  it("asks for a list only for multi-step work, lets small tasks skip it, and says what to do after a gate stop", () => {
+    const text = (fixture().tool.promptGuidelines ?? []).join("\n");
+
+    expect(text).toContain("several dependent steps");
+    expect(text).toContain("When unsure, register.");
+    expect(text).toContain("Skip the list for a question, explanation");
+    expect(text).toContain("one small self-contained action");
+    expect(text).toContain("If the ToDo gate stops a tool call anyway, register the list and retry the call.");
   });
 });

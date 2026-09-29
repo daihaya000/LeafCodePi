@@ -138,6 +138,7 @@ Task 画面には本家 LeafCode と同様の折りたたみ式 ToDo 進捗と�
 streaming中の `steer` / `followUp` とextension入力は現在のタスクの継続として扱います。
 WebUI では、ゲートが停止する直前に Jev で依頼が起票に値するかを判定します（1タスク1回）。質問・説明・調査・単発の小さな作業など、起票不要と明確に判断された場合はそのタスクのゲートを解除します。「OK」「続けて」のように前の会話に依存する依頼は、作業の大きさが分からないため解除しません。`steer` / `followUp` で指示が追加されると判定をやり直します。
 Jev が未設定・無効・失敗・タイムアウト・曖昧な判定の場合と、拡張を単体で `pi install` した場合は従来どおり停止します。Jev に送るのは依頼文（先頭と末尾を合わせて3000文字まで）だけです。
+モデル向けの案内（ツールの `promptGuidelines` と [`skills/todowrite-discipline/SKILL.md`](skills/todowrite-discipline/SKILL.md)）も同じ基準で、複数の依存する手順を要する作業だけ起票し（迷えば起票）、質問・説明・単発の小さな作業は起票不要とします。ゲートに停止されたら起票して再実行します。
 
 ```powershell
 pi install ./extensions/leafcode-todowrite

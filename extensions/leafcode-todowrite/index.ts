@@ -271,9 +271,9 @@ export default function (pi: ExtensionAPI): void {
       "Replace the current Todo list. Use statuses pending, in_progress, completed, cancelled and priorities high, medium, low. Keep at most one item in_progress.",
     promptSnippet: "Maintain the task Todo list with statuses and priorities",
     promptGuidelines: [
-      "Call todowrite with a non-empty list and mark the current item in_progress before edits, shell commands, delegation, unclassified tools, or the third substantive read-only tool call. For explicit Todo requests, call it before the first substantive tool.",
+      "Keep a todowrite list for work that takes several dependent steps (changing code, files or configuration, running commands with side effects, verifying, committing, delegating). For such work, call todowrite with a non-empty list and mark the current item in_progress before the first edit, shell command, delegation, unclassified tool, or third substantive read-only tool call. For explicit Todo requests, call it before the first substantive tool. When unsure, register.",
       "Update the list at every step: mark the finished item completed and set the next item in_progress when you start it. Never batch status changes to the end of the task.",
-      "Skip the list only for a standalone judgment call, control-tool use, or a one-shot read-only answer.",
+      "Skip the list for a question, explanation, single lookup, discussion, standalone judgment call, control-tool use, or one small self-contained action. If the ToDo gate stops a tool call anyway, register the list and retry the call.",
     ],
     // The gate opens from execute(); serialize this tool so a same-batch edit
     // cannot be preflighted before todowrite has recorded its result.
