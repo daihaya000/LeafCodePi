@@ -825,7 +825,7 @@ export const MessageMetaHeader = memo(function MessageMetaHeader({
         // 1 行に収まるなら右へはみ出してでも 1 行、収まらなければ統計を 2 行目へ回す。
         // 余裕が吹き出し幅以内なら、統計の右端を吹き出しに合わせる。スマホ幅では文字と間隔を詰めて 1 行に収めやすくする。
         ? cx(
-          "flex-row flex-wrap items-center gap-x-1 overflow-hidden whitespace-nowrap @max-[479px]/meta-header:gap-x-0.5 @max-[479px]/meta-header:text-[10px] @max-[359px]/meta-header:w-full @max-[359px]/meta-header:min-w-0 @max-[359px]/meta-header:flex-col @max-[359px]/meta-header:items-stretch @max-[359px]/meta-header:overflow-visible @max-[359px]/meta-header:whitespace-normal",
+          "flex-row flex-wrap items-center gap-x-1 overflow-hidden whitespace-nowrap @max-[479px]/meta-header:gap-x-0.5 @max-[479px]/meta-header:text-[10px]",
           bubbleAligned ? "w-max min-w-bubble" : "w-full min-w-0",
         )
         : "w-full min-w-0 flex-col",
@@ -833,7 +833,7 @@ export const MessageMetaHeader = memo(function MessageMetaHeader({
       <div aria-label="モデル情報" className={cx(
         "flex min-w-0 items-center gap-y-1",
         singleLine
-          ? "max-w-full grow flex-nowrap gap-x-1 overflow-hidden @max-[479px]/meta-header:gap-x-0.5 @max-[359px]/meta-header:w-full @max-[359px]/meta-header:flex-wrap @max-[359px]/meta-header:overflow-visible"
+          ? "max-w-full grow flex-nowrap gap-x-1 overflow-hidden @max-[479px]/meta-header:gap-x-0.5 @max-[359px]/meta-header:flex-wrap @max-[359px]/meta-header:overflow-visible"
           : "w-full flex-wrap gap-x-1.5",
       )}>
         {/* 合成メッセージ（シェル実行など）はプロバイダを持たないので汎用アイコンを出さない。 */}
@@ -844,7 +844,7 @@ export const MessageMetaHeader = memo(function MessageMetaHeader({
         <div aria-label="トークン情報" className={cx(
           "flex min-w-0 items-center gap-y-1",
           singleLine
-            ? "shrink-0 flex-nowrap gap-x-1 @max-[479px]/meta-header:gap-x-0.5 @max-[359px]/meta-header:w-full @max-[359px]/meta-header:flex-wrap"
+            ? "shrink-0 flex-nowrap gap-x-1 @max-[479px]/meta-header:gap-x-0.5 @max-[359px]/meta-header:flex-wrap"
             : "w-full flex-wrap gap-x-1.5",
         )}>
           {usageFields.map(renderField)}

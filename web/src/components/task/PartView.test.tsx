@@ -367,7 +367,9 @@ describe("PartView sender and response metadata", () => {
     const meta = screen.getByLabelText("応答メタデータ");
     expect(meta.className).toContain("flex-row");
     expect(meta.className).toContain("whitespace-nowrap");
-    expect(meta.className).toContain("@max-[359px]/meta-header:flex-col");
+    // 狭い枠でも縦積みを強制せず、1 行に入らないときだけ統計を折り返す。
+    expect(meta.className).not.toContain("flex-col");
+    expect(meta.className).toContain("flex-wrap");
     // スマホ幅は文字と間隔を詰めて 1 行に収めやすくする。
     expect(meta.className).toContain("@max-[479px]/meta-header:text-[10px]");
     expect(meta.className).toContain("@max-[479px]/meta-header:gap-x-0.5");
@@ -402,7 +404,9 @@ describe("PartView sender and response metadata", () => {
     );
     const meta = screen.getByLabelText("応答メタデータ");
     expect(meta.className).toContain("flex-row");
-    expect(meta.className).toContain("@max-[359px]/meta-header:flex-col");
+    // 狭い枠でも縦積みを強制せず、1 行に入らないときだけ統計を折り返す。
+    expect(meta.className).not.toContain("flex-col");
+    expect(meta.className).toContain("flex-wrap");
     expect(screen.getByLabelText("モデル情報").textContent).toContain("work@example.com");
     // 幅が足りない狭い枠ではアカウントを区切り文字ごと省略する。
     expect(screen.getByText("work@example.com").parentElement?.className).toContain("@max-[359px]/meta-header:hidden");
