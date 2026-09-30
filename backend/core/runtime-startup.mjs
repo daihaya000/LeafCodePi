@@ -33,6 +33,9 @@ export class RuntimeStartup {
   }
 
   async #initialize(services) {
+    // The runtime is attached first: everything after it (resume, relay, schedulers) needs a
+    // session to talk to, and a failed attach is the caller's decision, not an exception here.
+    if (services.loadRuntime) await services.loadRuntime();
     try {
       await services.registerRestartResume();
     } catch (error) {

@@ -41,6 +41,11 @@ export function createBackendStartup({
    * is spent, so the Web process stays the only writer while it still owns them.
    */
   promptTask,
+  /**
+   * Loads the bundled Pi runtime. Left out by default: the Web process still owns the SDK, so the
+   * Backend only attaches a runtime when the host explicitly asks for it.
+   */
+  loadRuntime,
 } = {}) {
   const store = new AppStore({
     storePath,
@@ -58,6 +63,7 @@ export function createBackendStartup({
 
   const unavailable = [];
   const orphaned = [];
+  let runtimeStatus = { ok: false, reason: "not-requested" };
   const resumePending = [];
   const resumeSkipped = [];
   const goalLoopStore = new GoalLoopStateStore({
@@ -118,6 +124,11 @@ export function createBackendStartup({
         leases.setOrphanedTaskListener(orphanListener);
       },
       reconcileOrphanedWorkingTasks: () => leases.reconcileOrphanedWorkingTasks(),
+      // The runtime is attached before anything that needs it; a failure is reported, never thrown,
+      // so the startup prefix still completes and the host decides what readiness means.
+      ...(typeof loadRuntime === "function"
+        ? { loadRuntime: async () => { runtimeStatus = await loadRuntime(); } }
+        : {}),
       ...Object.fromEntries(
         BACKEND_UNAVAILABLE_STARTUP_STEPS.map((step) => [step, () => {
           if (!unavailable.includes(step)) unavailable.push(step);
@@ -142,5 +153,7 @@ export function createBackendStartup({
     resumeSkipped: () => resumeSkipped.map((entry) => ({ ...entry })),
     /** Whether a Pi runtime was supplied, so resumes actually run. */
     resumesOrphanedTasks: () => runtimeAttached,
+    /** Whether the bundled runtime was attached, and why not when it was not. */
+    runtimeStatus: () => ({ ...runtimeStatus }),
   };
 }

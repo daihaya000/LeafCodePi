@@ -155,6 +155,42 @@ test("a Goal Loop-owned task is never prompted even when a runtime is supplied",
   assert.equal(existsSync(join(dir, "restart-resume.json")), false);
 });
 
+test("a requested runtime is attached during startup and reported as available", async (t) => {
+  const { dir, file } = fixture(t);
+  const runtime = { promptTask: () => {} };
+  const started = createBackendStartup({
+    dataDir: () => dir,
+    warn: () => {},
+    loadRuntime: async () => ({ ok: true, runtime }),
+  });
+  started.store.storePath = () => file;
+  assert.deepEqual(started.runtimeStatus(), { ok: false, reason: "not-requested" });
+  await started.startup.start();
+  assert.deepEqual(started.runtimeStatus(), { ok: true, runtime });
+});
+
+test("a runtime that cannot be attached is reported without stopping the startup", async (t) => {
+  const { dir, file } = fixture(t, [task("orphan", "working")]);
+  const started = createBackendStartup({
+    dataDir: () => dir,
+    warn: () => {},
+    // The loader never throws; it reports a reason. Readiness stays the caller's decision.
+    loadRuntime: async () => ({ ok: false, reason: "missing" }),
+  });
+  started.store.storePath = () => file;
+  await started.startup.start();
+  assert.deepEqual(started.runtimeStatus(), { ok: false, reason: "missing" });
+  assert.equal(started.store.getTask("orphan").status, "error", "the startup prefix still reconciles");
+});
+
+test("without a loader the runtime is never attached", async (t) => {
+  const { dir, file } = fixture(t);
+  const started = createBackendStartup({ dataDir: () => dir, warn: () => {} });
+  started.store.storePath = () => file;
+  await started.startup.start();
+  assert.deepEqual(started.runtimeStatus(), { ok: false, reason: "not-requested" });
+});
+
 test("the services the Backend cannot run yet are reported, not silently skipped", async (t) => {
   const { dir, file } = fixture(t);
   const started = createBackendStartup({ dataDir: () => dir, warn: () => {} });

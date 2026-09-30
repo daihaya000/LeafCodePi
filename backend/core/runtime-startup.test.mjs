@@ -151,3 +151,45 @@ test("cancelling warmups cancels the delayed label timer without stopping servic
   await f.startup.start();
   assert.equal(f.scheduled.length, 1);
 });
+
+test("an attached runtime runs first, before the services that need it", async () => {
+  const order = [];
+  const services = {
+    loadRuntime: async () => { order.push("loadRuntime"); },
+    registerRestartResume: () => { order.push("registerRestartResume"); },
+    reconcileOrphanedWorkingTasks: () => { order.push("reconcile"); },
+    startBotCodeRelay: () => { order.push("relay"); },
+    ensureRoutineScheduler: () => { order.push("routines"); },
+    reconcileRoomRuntime: () => { order.push("rooms"); },
+  };
+  await new RuntimeStartup({ loadServices: () => services, warn: () => {} }).start();
+  assert.deepEqual(order, ["loadRuntime", "registerRestartResume", "reconcile", "relay", "routines", "rooms"]);
+});
+
+test("a failing runtime attach stops the sequence so the caller can retry", async () => {
+  const order = [];
+  const services = {
+    loadRuntime: async () => { order.push("loadRuntime"); throw new Error("no runtime"); },
+    registerRestartResume: () => { order.push("registerRestartResume"); },
+    reconcileOrphanedWorkingTasks: () => { order.push("reconcile"); },
+    startBotCodeRelay: () => {},
+    ensureRoutineScheduler: () => {},
+    reconcileRoomRuntime: () => {},
+  };
+  const startup = new RuntimeStartup({ loadServices: () => services, warn: () => {} });
+  await assert.rejects(() => startup.start(), /no runtime/);
+  assert.deepEqual(order, ["loadRuntime"], "nothing after a failed attach runs");
+});
+
+test("a startup without a runtime step is unchanged", async () => {
+  const order = [];
+  const services = {
+    registerRestartResume: () => { order.push("registerRestartResume"); },
+    reconcileOrphanedWorkingTasks: () => { order.push("reconcile"); },
+    startBotCodeRelay: () => {},
+    ensureRoutineScheduler: () => {},
+    reconcileRoomRuntime: () => {},
+  };
+  await new RuntimeStartup({ loadServices: () => services, warn: () => {} }).start();
+  assert.deepEqual(order, ["registerRestartResume", "reconcile"]);
+});

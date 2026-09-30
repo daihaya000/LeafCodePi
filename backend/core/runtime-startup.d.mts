@@ -1,6 +1,8 @@
 type StartupStep = () => unknown | Promise<unknown>;
 
 export type RuntimeStartupServices = {
+  /** Optional first step: attach the Pi runtime the later steps need. */
+  loadRuntime?: StartupStep;
   registerRestartResume: StartupStep;
   reconcileOrphanedWorkingTasks: StartupStep;
   startBotCodeRelay: StartupStep;
