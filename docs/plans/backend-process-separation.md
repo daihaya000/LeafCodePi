@@ -128,7 +128,7 @@ bundleパスは`LEAFCODE_PI_BACKEND_RUNTIME_BUNDLE`で差し替え可能。CLI�
 3. `LEAFCODE_PI_BACKEND=1`でHostを起動し、Backendをdetachedで常駐させる（この時点では旧経路＝Web所有のまま）。
 4. 切替を実行: WebUI停止→Backendをattachで再起動→`/internal/health`が200（世代一致）→WebUIを`LEAFCODE_PI_BACKEND_OWNS_RUNTIME=1`＋`LEAFCODE_PI_BACKEND_RELAY=1`で再起動。
 5. 確認: BackendのPIDが変わらず継続、`/api/backend/status`の`cutover.blockers`が空、storeのmtimeが二重writerで増えていないこと。
-6. ロールバック: Backend停止→WebUIを所有側（relay無効）で再起動。旧経路は残してあるため即時復帰できる。
+6. ロールバック: Backendの終了確認→WebUIを所有側（relay無効）で再起動。切替時は`stopForRestart()`で旧子プロセスの`exit`を待ち、確認後だけ同じサービスでattach起動する（token・世代を維持）。kill拒否・終了待ちtimeout（既定5秒）の間は再起動を拒否する。Backend停止またはWebUI復帰に失敗した場合は`rolledBack:false`を返し、停止未確認のBackendと第二の所有WebUIを重ねない。通常のHost終了用`stop()`は再起動不能なまま。実切替は未実施。
 **未完（実切替前に必要）**: promptTask経路のSDK実行本体、relay要求キューの状態遷移本体、ルーティン実行本体（いずれもWebプロセスのharness/routinesに残る）、起動列の`entry.mjs`接続とready化、内部APIとWeb中継、Host・ビルド・再起動分離、実切替、旧経路撤去。
 
 1. 通信契約・依存境界: **進行中**。認証、版数、health、起動/停止を追加。既存のタスク・モデル・質問/承認・Bot/Room・履歴・Git等のDTOを `shared/types.ts` へ移動。既存 `@/lib/types` は互換再エクスポート。共有契約はNext/SDK/Node型への依存なしで単独型検証できる。設定等の個別ファイルにあるDTOと実行依存の抽出は後続。

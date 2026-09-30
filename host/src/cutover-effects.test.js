@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
+import { EventEmitter } from "node:events";
 import { test } from "node:test";
+import { createBackendService } from "./backend-service.js";
 import { runCutover } from "./cutover.js";
 import { createCutoverEffects, createCutoverVerify } from "./cutover-effects.js";
 
@@ -15,7 +17,7 @@ function harness({ health = { ok: true, ready: true, runtimeGeneration: "gen-a" 
       spawnWeb: async (state) => calls.push(`spawnWeb:${state.ownership}:relay=${state.relay ? "on" : "off"}`),
       backendService: {
         start: (options) => calls.push(`backend.start:attach=${Boolean(options?.attachRuntime)}`),
-        stop: () => calls.push("backend.stop"),
+        stopForRestart: () => calls.push("backend.stop"),
       },
       baseUrl: BASE,
       token: "t".repeat(40),
@@ -41,6 +43,39 @@ test("the effects translate the stages into Host calls", async () => {
     "backend.start:attach=true",
     "spawnWeb:backend:relay=on", // the WebUI returns as a client of the Backend
   ]);
+});
+
+test("cutover waits for the old child's exit before attaching on the same real service", async (t) => {
+  const children = [];
+  const launches = [];
+  const service = createBackendService({
+    repoRoot: "C:/repo", token: "t".repeat(40), generation: "gen-a",
+    spawn: (_command, _args, options) => {
+      const child = new EventEmitter();
+      child.kill = () => true; // Requested, not yet exited.
+      children.push(child);
+      launches.push(options.env);
+      return child;
+    },
+  });
+  t.after(() => {
+    service.stop();
+    for (const child of children) child.emit("exit", 0, null);
+  });
+  service.start();
+  const effects = createCutoverEffects({ ...harness().options, backendService: service });
+  const pending = runCutover(effects);
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(service.status().state, "stopping");
+  assert.equal(launches.length, 1, "kill() did not yet confirm the detached child stopped");
+  children[0].emit("exit", 0, null);
+  assert.equal((await pending).ok, true);
+  assert.equal(launches.length, 2);
+  assert.equal(launches[0].LEAFCODE_PI_BACKEND_RUNTIME, "");
+  assert.equal(launches[1].LEAFCODE_PI_BACKEND_RUNTIME, "attach");
+  assert.equal(launches[1].LEAFCODE_PI_BACKEND_TOKEN, launches[0].LEAFCODE_PI_BACKEND_TOKEN);
+  assert.equal(service.status().generation, "gen-a");
+  assert.equal(service.status().runtime, "attach");
 });
 
 test("waitReady reads the Backend itself, and is false for a not-ready or mismatched Backend", async () => {

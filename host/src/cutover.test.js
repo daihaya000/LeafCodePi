@@ -134,14 +134,15 @@ test("a WebUI that cannot stop is not rolled back over: nothing changed yet", as
   assert.deepEqual(calls, ["preflight", "stopWebUi"]);
 });
 
-test("rollback failures are reported, not thrown", async () => {
+test("a failed Backend stop refuses owner recovery and reports incomplete rollback", async () => {
   const errors = [];
   let stopCalls = 0;
+  let webStarts = 0;
   const result = await runCutover({
     preflight: async () => ({ ok: true, blockers: [] }),
     stopWebUi: async () => {},
     // The hand-over fails, and so does the rollback that follows it.
-    startWebUi: async () => { throw new Error("spawn failed"); },
+    startWebUi: async () => { webStarts += 1; throw new Error("spawn failed"); },
     stopBackend: async () => {
       stopCalls += 1;
       if (stopCalls > 1) throw new Error("kill failed");
@@ -153,11 +154,21 @@ test("rollback failures are reported, not thrown", async () => {
   });
   assert.equal(result.ok, false);
   assert.equal(result.stage, "hand-over");
-  assert.equal(result.rolledBack, true);
+  assert.equal(result.rolledBack, false);
+  assert.equal(webStarts, 1, "only the failed client start ran; no second runtime owner was started");
   assert.deepEqual(errors, [
-    // The hand-over failure itself, then both rollback steps.
     "Cutover could not restart the WebUI: spawn failed",
     "Rollback could not stop the Backend: kill failed",
+  ]);
+});
+
+test("a failed WebUI recovery does not report a completed rollback", async () => {
+  const { options, errors } = harness();
+  options.startWebUi = async () => { throw new Error("spawn failed"); };
+  const result = await runCutover(options);
+  assert.equal(result.rolledBack, false);
+  assert.deepEqual(errors, [
+    "Cutover could not restart the WebUI: spawn failed",
     "Rollback could not restart the WebUI: spawn failed",
   ]);
 });

@@ -47,7 +47,7 @@ test("starting spawns the planned Backend once, with the pinned generation", () 
   assert.equal(children.length, 1);
 });
 
-test("a cutover can ask for the runtime on a fresh launch, and only then", () => {
+test("a cutover can attach after a confirmed stop on the same service", async () => {
   const { spawn, calls, children } = fakeSpawn();
   const service = createBackendService({ repoRoot: REPO_ROOT, token: "t", spawn, generation: "gen-a" });
   service.start();
@@ -55,14 +55,15 @@ test("a cutover can ask for the runtime on a fresh launch, and only then", () =>
   // A running Backend is not relaunched by a request: the Host stops it first.
   assert.equal(service.start({ attachRuntime: true }), null);
   assert.equal(calls.length, 1);
-  service.stop();
-  const restarted = createBackendService({ repoRoot: REPO_ROOT, token: "t", spawn, generation: "gen-a" });
-  restarted.start({ attachRuntime: true });
+  await service.stopForRestart();
+  assert.equal(service.status().state, "idle");
+  service.start({ attachRuntime: true });
   assert.equal(calls.length, 2);
   assert.equal(calls[1].options.env.LEAFCODE_PI_BACKEND_RUNTIME, "attach");
   assert.equal(calls[1].options.env.LEAFCODE_PI_BACKEND_GENERATION, "gen-a");
-  assert.equal(restarted.status().runtime, "attach");
+  assert.equal(service.status().runtime, "attach");
   assert.equal(children.length, 2);
+  service.stop();
 });
 
 test("the WebUI child gets the Backend's address and expected generation", () => {
@@ -115,6 +116,67 @@ test("a clean stop is not a crash, and stops the process", () => {
   assert.equal(service.status().state, "stopped");
   assert.equal(errors.length, 0, "a stop is not a failure");
   assert.throws(() => service.start(), /stopped/);
+  assert.equal(calls.length, 1);
+});
+
+test("a restart stop blocks launches until exit is observed", async () => {
+  const { spawn, calls, children } = fakeSpawn();
+  const service = createBackendService({ repoRoot: REPO_ROOT, token: "t", spawn, generation: "gen-a" });
+  service.start();
+  const running = children[0];
+  running.kill = () => true;
+  const stopped = service.stopForRestart();
+  assert.equal(service.status().state, "stopping");
+  assert.throws(() => service.start({ attachRuntime: true }), /stopping/);
+  assert.equal(calls.length, 1);
+  running.emit("exit", 0, null);
+  assert.throws(() => service.start({ attachRuntime: true }), /stopping/, "the pending stop must settle first");
+  await stopped;
+  assert.equal(service.status().state, "idle");
+  assert.equal(service.status().restarts, 0, "intentional stops do not spend the crash budget");
+  service.start({ attachRuntime: true });
+  assert.equal(calls.length, 2);
+  service.stop();
+});
+
+test("a refused kill keeps the child tracked and cannot relaunch", async () => {
+  const { spawn, calls, children } = fakeSpawn();
+  const service = createBackendService({ repoRoot: REPO_ROOT, token: "t", spawn, generation: "gen-a" });
+  service.start();
+  children[0].kill = () => false;
+  await assert.rejects(service.stopForRestart(), /refused/);
+  assert.equal(service.status().state, "stopping");
+  assert.throws(() => service.start({ attachRuntime: true }), /stopping/);
+  assert.equal(calls.length, 1);
+  children[0].emit("exit", 0, null);
+  assert.equal(service.status().state, "idle", "a later exit confirms termination");
+});
+
+test("a stop timeout keeps relaunch blocked until a late exit", async () => {
+  const { spawn, calls, children } = fakeSpawn();
+  const service = createBackendService({ repoRoot: REPO_ROOT, token: "t", spawn, generation: "gen-a" });
+  service.start();
+  children[0].kill = () => true;
+  await assert.rejects(service.stopForRestart({ timeoutMs: 10 }), /timed out/);
+  assert.equal(service.status().state, "stopping");
+  assert.throws(() => service.start({ attachRuntime: true }), /stopping/);
+  assert.equal(calls.length, 1);
+  children[0].emit("exit", 0, null);
+  assert.equal(service.status().state, "idle");
+});
+
+test("Host shutdown remains terminal even during a restart stop", async () => {
+  const { spawn, calls, children } = fakeSpawn();
+  const service = createBackendService({ repoRoot: REPO_ROOT, token: "t", spawn, generation: "gen-a" });
+  service.start();
+  children[0].kill = () => true;
+  const pending = service.stopForRestart();
+  service.stop();
+  children[0].emit("exit", 0, null);
+  await pending;
+  assert.equal(service.status().state, "stopped");
+  assert.throws(() => service.start({ attachRuntime: true }), /stopped/);
+  await assert.rejects(service.stopForRestart(), /stopped/);
   assert.equal(calls.length, 1);
 });
 

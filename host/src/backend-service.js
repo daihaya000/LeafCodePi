@@ -44,6 +44,7 @@ export function createBackendService({
   let restarts = 0;
   let stopping = false;
   let stableTimer = null;
+  let stopPromise = null;
 
   function clearStableTimer() {
     if (stableTimer) clearTimeout(stableTimer);
@@ -68,7 +69,8 @@ export function createBackendService({
       child = null;
       clearStableTimer();
       if (stopping) {
-        state = "stopped";
+        // A cutover may relaunch only after this exit; shutdown remains terminal.
+        state = state === "stopping" ? "idle" : "stopped";
         return;
       }
       restarts += 1;
@@ -82,6 +84,45 @@ export function createBackendService({
     return started;
   }
 
+  /** Cutover stop: retain the child until exit is observed, never treat kill() as termination. */
+  async function stopForRestart({ timeoutMs = 5_000 } = {}) {
+    if (state === "stopped") throw new Error("Backend service is stopped");
+    if (stopPromise) return stopPromise;
+    const running = child;
+    if (!running) return;
+    stopping = true;
+    state = "stopping";
+    clearStableTimer();
+    stopPromise = new Promise((resolve, reject) => {
+      let timer;
+      const cleanup = () => {
+        clearTimeout(timer);
+        running.removeListener("exit", exited);
+      };
+      const exited = () => {
+        cleanup();
+        resolve();
+      };
+      const failed = (error) => {
+        cleanup();
+        // Still stopping: no new owner may start until the old child actually exits.
+        reject(error);
+      };
+      running.once("exit", exited);
+      timer = setTimeout(() => failed(new Error("Backend stop timed out")), timeoutMs);
+      try {
+        if (running.kill() === false) failed(new Error("Backend stop was refused"));
+      } catch (error) {
+        failed(error);
+      }
+    });
+    try {
+      await stopPromise;
+    } finally {
+      stopPromise = null;
+    }
+  }
+
   return {
     /**
      * Idempotent: a running Backend is not started twice, and a failed one is not retried here.
@@ -90,6 +131,7 @@ export function createBackendService({
     start({ attachRuntime: attach = attachRuntime } = {}) {
       if (state === "running" || state === "starting") return null;
       if (state === "stopped") throw new Error("Backend service is stopped");
+      if (state === "stopping" || stopPromise) throw new Error("Backend service is stopping");
       if (state === "failed") {
         // The budget is spent: retrying is the Host's decision, not an implicit loop.
         error("Backend service failed and will not be started again");
@@ -98,6 +140,7 @@ export function createBackendService({
       plan = buildPlan(Boolean(attach));
       return launch(null);
     },
+    stopForRestart,
     stop() {
       stopping = true;
       clearStableTimer();

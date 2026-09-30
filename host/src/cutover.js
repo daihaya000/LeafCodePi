@@ -41,17 +41,20 @@ export async function runCutover({
       await stopBackend();
     } catch (err) {
       error(`Rollback could not stop the Backend: ${err instanceof Error ? err.message : String(err)}`);
+      return false; // An unconfirmed Backend stop must not bring another runtime owner back.
     }
     try {
       await startWebUi({ ownsRuntime: true, relay: false });
     } catch (err) {
       error(`Rollback could not restart the WebUI: ${err instanceof Error ? err.message : String(err)}`);
+      return false;
     }
+    return true;
   }
 
   const failed = async (stage, reason, blockers) => {
-    await rollback();
-    return { ok: false, stage, reason, ...(blockers ? { blockers } : {}), rolledBack: true, stages };
+    const rolledBack = await rollback();
+    return { ok: false, stage, reason, ...(blockers ? { blockers } : {}), rolledBack, stages };
   };
 
   // 1. Nothing may be running that would be lost, and the Backend must be the build we expect.

@@ -38,7 +38,7 @@ export function createCutoverEffects({
     /** Ownership travels with the WebUI process: the switches are part of its environment. */
     startWebUi: ({ ownsRuntime, relay }) =>
       spawnWeb({ ownership: ownsRuntime ? "in-process" : "backend", relay: Boolean(relay) }),
-    stopBackend: async () => backendService.stop(),
+    stopBackend: async () => backendService.stopForRestart(),
     startBackendAttached: async () => {
       backendService.start({ attachRuntime: true });
     },
