@@ -5,7 +5,8 @@ import {
   codeGoalLoopRefusal,
   codeLaunchRefusal, codeLinkedSessionState, codePromptRefusal, codeProjectRefusal, codeReportingRefusal,
   codeTaskIdRefusal, CODE_DELIVERY_RETRY_MS, CODE_RELAY_TICK_MS,
-  MAX_AUTO_CODE_CHAIN, MAX_CODE_PROMPT_CHARS,
+  markFollowUpAttempt, MAX_AUTO_CODE_CHAIN, MAX_CODE_PROMPT_CHARS,
+  reportingStateForRequest,
   CODE_REQUEST_RETENTION_MS, codeRequestPayload, codeRequestSummaries, codeRequestSummary,
   codeRequestForCodeTask, codeRequestsForRoomTurn, codeStopTargets,
   codeResultBaselineMessages,
@@ -673,4 +674,39 @@ test("the reverse lookup finds the launch request still running a Code task", ()
   assert.equal(codeRequestForCodeTask(requests, "code-4"), undefined);
   assert.equal(codeRequestForCodeTask(requests, "missing"), undefined);
   assert.equal(codeRequestForCodeTask([], "code-1"), undefined);
+});
+
+test("the report-turn state starts with an open follow-up slot", () => {
+  assert.deepEqual(reportingStateForRequest({ room: { id: "room-1" }, autoChain: 2 }), {
+    room: true, followUpStarted: false, userStopped: false, autoChain: 2,
+  });
+  assert.deepEqual(reportingStateForRequest({}), {
+    room: false, followUpStarted: false, userStopped: false, autoChain: 0,
+  });
+  assert.deepEqual(reportingStateForRequest({ stoppedByUser: true, autoChain: 0 }), {
+    room: false, followUpStarted: false, userStopped: true, autoChain: 0,
+  });
+  for (const value of [undefined, null, 0, ""]) {
+    assert.equal(reportingStateForRequest({ stoppedByUser: value }).userStopped, false, String(value));
+    assert.equal(reportingStateForRequest({ room: value }).room, false, String(value));
+  }
+  // `room` is a truthiness check, exactly like the original `Boolean(request.room)`.
+  for (const value of ["true", 1, { id: "room-1" }]) {
+    assert.equal(reportingStateForRequest({ room: value }).room, true, String(value));
+  }
+  // `userStopped` only counts an explicit true.
+  for (const value of ["true", 1]) {
+    assert.equal(reportingStateForRequest({ stoppedByUser: value }).userStopped, false, String(value));
+  }
+});
+
+test("only a successful attempt consumes the follow-up slot", () => {
+  const report = { followUpStarted: false };
+  markFollowUpAttempt(report, { succeeded: true });
+  assert.equal(report.followUpStarted, true);
+  markFollowUpAttempt(report, { succeeded: false });
+  assert.equal(report.followUpStarted, false, "a refused attempt leaves the slot open for a retry");
+  // A missing report (no result being delivered) is a no-op.
+  assert.doesNotThrow(() => markFollowUpAttempt(undefined, { succeeded: true }));
+  assert.doesNotThrow(() => markFollowUpAttempt(null, { succeeded: true }));
 });

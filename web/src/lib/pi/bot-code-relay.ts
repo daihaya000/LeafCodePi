@@ -40,8 +40,10 @@ import {
   codeProjectRefusal,
   codeReportingRefusal,
   codeTaskIdRefusal,
+  markFollowUpAttempt,
   MAX_AUTO_CODE_CHAIN as CORE_MAX_AUTO_CODE_CHAIN,
   parseGoalLoopInput,
+  reportingStateForRequest,
   codeRequestPayload,
   codeRequestSummaries,
   codeRequestForCodeTask,
@@ -875,10 +877,11 @@ export function createBotCodeRelay(deps: RelayDependencies) {
     // Independent starts never share a lock. Follow-ups still protect their exact existing session.
     try {
       const result = targetId ? await withBotCodeSessionLock(`code-task-${targetId}`, execute) : await execute();
-      if (report) report.followUpStarted = true;
+      // Only a started request consumes the follow-up slot (rule lives in backend core).
+      markFollowUpAttempt(report, { succeeded: true });
       return result;
     } catch (error) {
-      if (report) report.followUpStarted = false;
+      markFollowUpAttempt(report, { succeeded: false });
       throw error;
     }
   }
@@ -1166,7 +1169,8 @@ export function createBotCodeRelay(deps: RelayDependencies) {
       if (request.stoppedByUser) markUserStoppedResult(request);
       request.nextAttemptAt = deliveryNow + CODE_DELIVERY_RETRY_MS;
       save(request);
-      reporting.set(request.originTaskId, { room: Boolean(request.room), followUpStarted: false, userStopped: request.stoppedByUser === true, autoChain: request.autoChain ?? 0 });
+      // The report-turn state (and its open follow-up slot) lives in backend core.
+      reporting.set(request.originTaskId, reportingStateForRequest(request));
       try {
         if (await deps.deliver(request)) {
           // Re-read under the per-request lock: an in-flight stop must not be overwritten

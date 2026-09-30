@@ -550,3 +550,28 @@ export function codeRequestForCodeTask(requests, codeTaskId) {
       (request.state === "starting" || request.state === "running"),
   );
 }
+
+/**
+ * The report-turn state kept for one origin while a Code result is being delivered. `userStopped`
+ * freezes the turn (the Bot may not control Code), `room` marks a Room report (the Room turn owns the
+ * conversation), `autoChain` carries the autonomous-continuation count, and the follow-up slot starts
+ * open.
+ */
+export function reportingStateForRequest(request) {
+  return {
+    room: Boolean(request.room),
+    followUpStarted: false,
+    userStopped: request.stoppedByUser === true,
+    autoChain: request.autoChain ?? 0,
+  };
+}
+
+/**
+ * The follow-up slot is consumed only by a request that actually started. A refusal (validation error,
+ * a denied approval, an abort) must leave it open so the Bot can retry, which is why the flag follows
+ * the attempt's outcome rather than being set when the attempt begins.
+ */
+export function markFollowUpAttempt(report, { succeeded }) {
+  if (!report) return;
+  report.followUpStarted = succeeded === true;
+}

@@ -230,3 +230,16 @@ export function codeRequestForCodeTask<T extends {
   state: string;
   userIntervention?: boolean;
 }>(requests: readonly T[], codeTaskId: string): T | undefined;
+
+/** The report-turn state kept for one origin while a Code result is delivered. */
+export function reportingStateForRequest(request: {
+  room?: unknown;
+  stoppedByUser?: boolean;
+  autoChain?: number;
+}): { room: boolean; followUpStarted: boolean; userStopped: boolean; autoChain: number };
+
+/** Records whether a follow-up attempt consumed the report turn's follow-up slot. */
+export function markFollowUpAttempt(
+  report: { followUpStarted: boolean } | null | undefined,
+  outcome: { succeeded: boolean },
+): void;
