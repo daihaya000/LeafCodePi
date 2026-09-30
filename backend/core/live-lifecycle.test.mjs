@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
-  hasOtherBusyRoomLive, oneToOneBotIdFromTaskId, resolveAttachAccount, shouldDeferLiveSetting,
-  shouldShutdownOnDispose,
+  hasOtherBusyRoomLive, oneToOneBotIdFromTaskId, resolveAttachAccount, shouldApplyPendingReload,
+  shouldDeferLiveSetting, shouldFlagSoulReload, shouldReloadAgentDefinition, shouldShutdownOnDispose,
 } from "./live-lifecycle.mjs";
 
 const live = (overrides = {}) => ({ promptActive: false, session: { isStreaming: false, isCompacting: false }, ...overrides });
@@ -112,4 +112,39 @@ test("only explicit true defers, so a missing flag never blocks a setting", () =
     assert.equal(shouldDeferLiveSetting({ ...base, activeGoalLoopSession: value }), false, String(value));
     assert.equal(shouldDeferLiveSetting({ ...base, goalLoopOwned: value }), false, String(value));
   }
+});
+
+test("a pending reload waits for streaming or compacting but not for promptActive", () => {
+  const base = { pending: true, isStreaming: false, isCompacting: false };
+  assert.equal(shouldApplyPendingReload(base), true);
+  assert.equal(shouldApplyPendingReload({ ...base, isStreaming: true }), false);
+  assert.equal(shouldApplyPendingReload({ ...base, isCompacting: true }), false);
+  assert.equal(shouldApplyPendingReload({ ...base, pending: false }), false);
+  // promptActive is not part of the decision, which is why a prepare-time reload still runs.
+  assert.equal(shouldApplyPendingReload({ pending: true, isStreaming: false, isCompacting: false, promptActive: true }), true);
+});
+
+test("only an explicit true defers a reload", () => {
+  for (const value of [undefined, null, 0, "true", 1]) {
+    assert.equal(shouldApplyPendingReload({ pending: true, isStreaming: value, isCompacting: false }), true, String(value));
+    assert.equal(shouldApplyPendingReload({ pending: value, isStreaming: false, isCompacting: false }), false, String(value));
+    assert.equal(shouldFlagSoulReload({ isBot: true, hasBotId: true, revisionChanged: value }), false, String(value));
+    assert.equal(shouldReloadAgentDefinition({ pending: value, missingRegistration: false }), false, String(value));
+    assert.equal(shouldReloadAgentDefinition({ pending: false, missingRegistration: value }), false, String(value));
+  }
+});
+
+test("a SOUL reload is flagged only for a Bot task whose revision changed", () => {
+  const base = { isBot: true, hasBotId: true, revisionChanged: true };
+  assert.equal(shouldFlagSoulReload(base), true);
+  assert.equal(shouldFlagSoulReload({ ...base, isBot: false }), false);
+  assert.equal(shouldFlagSoulReload({ ...base, hasBotId: false }), false);
+  assert.equal(shouldFlagSoulReload({ ...base, revisionChanged: false }), false);
+});
+
+test("the agent-definition reload runs for a pending flag or a missing registration", () => {
+  assert.equal(shouldReloadAgentDefinition({ pending: true, missingRegistration: false }), true);
+  assert.equal(shouldReloadAgentDefinition({ pending: false, missingRegistration: true }), true);
+  assert.equal(shouldReloadAgentDefinition({ pending: false, missingRegistration: false }), false);
+  assert.equal(shouldReloadAgentDefinition({ pending: true, missingRegistration: true }), true);
 });

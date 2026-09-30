@@ -231,7 +231,15 @@ import { detachReplacedLive as coreDetachReplacedLive, disposeUnattachedSession,
 import { restoredPromptState, restoredTaskMetadata, restoredThroughputState as coreRestoredThroughputState } from "@backend-core/live-attach-state.mjs";
 import { compactionFailureMessage, isHarnessAutoCompactionError as coreIsHarnessAutoCompactionError, runAgentStartTaskSync, shouldApplySettledStatus, shouldSkipEventForMissingTask, shouldSyncTaskFromSessionEvent as coreShouldSyncTaskFromSessionEvent, type SessionSyncEvent } from "@backend-core/session-event-decisions.mjs";
 import { classifySnapshotEvent, flushPendingSnapshotOnUnsubscribe, pendingSnapshotFlush, SNAPSHOT_THROTTLE_MS } from "@backend-core/snapshot-schedule.mjs";
-import { publishAttachedLive, resolveEnsureLiveAttempt, runEnsureLiveGates, shouldDeferLiveSetting as coreShouldDeferLiveSetting } from "@backend-core/live-lifecycle.mjs";
+import {
+  publishAttachedLive,
+  resolveEnsureLiveAttempt,
+  runEnsureLiveGates,
+  shouldApplyPendingReload,
+  shouldDeferLiveSetting as coreShouldDeferLiveSetting,
+  shouldFlagSoulReload,
+  shouldReloadAgentDefinition,
+} from "@backend-core/live-lifecycle.mjs";
 import { isReplacedPackageSource, keepsLoadedExtension, replacedUpstreamPackages } from "@backend-core/replaced-packages.mjs";
 import { resolveBotSessionOptions } from "@backend-core/bot-session-options.mjs";
 import { runSessionEventEffects } from "@backend-core/session-event-effects.mjs";
@@ -8242,11 +8250,20 @@ async function replaceLiveForSoul(live: LiveRuntime): Promise<LiveRuntime> {
 async function reloadLiveForSoulIfNeeded(live: LiveRuntime): Promise<LiveRuntime> {
   const current = state().live.get(live.taskId) ?? live;
   const task = getTask(current.taskId);
-  if (task?.kind === "bot" && task.botId && botSoulRevision(task.botId) !== current.soulRevision) {
+  // The flag and gate rules live in backend core; the revision lookup stays here.
+  if (shouldFlagSoulReload({
+    isBot: task?.kind === "bot",
+    hasBotId: Boolean(task?.botId),
+    revisionChanged: task?.botId ? botSoulRevision(task.botId) !== current.soulRevision : false,
+  })) {
     // The write may have happened in another Next worker, so the in-memory callback is not enough.
     current.soulReloadPending = true;
   }
-  if (!current.soulReloadPending || current.session.isStreaming || current.session.isCompacting) {
+  if (!shouldApplyPendingReload({
+    pending: current.soulReloadPending === true,
+    isStreaming: current.session.isStreaming,
+    isCompacting: current.session.isCompacting,
+  })) {
     return current;
   }
   const inflight = soulReloadInflight.get(current.taskId);
@@ -8267,8 +8284,12 @@ async function reloadLiveForSoulIfNeeded(live: LiveRuntime): Promise<LiveRuntime
  */
 async function reloadLiveContextIfNeeded(live: LiveRuntime): Promise<LiveRuntime> {
   const current = state().live.get(live.taskId) ?? live;
-  if (!current.contextReloadPending) return current;
-  if (current.session.isStreaming || current.session.isCompacting) return current;
+  // The gate rule lives in backend core (promptActive deliberately does not block).
+  if (!shouldApplyPendingReload({
+    pending: current.contextReloadPending === true,
+    isStreaming: current.session.isStreaming,
+    isCompacting: current.session.isCompacting,
+  })) return current;
   // Claim the pending work before awaiting so concurrent prompt preparations
   // cannot start duplicate reloads. Failure restores it for a later attempt.
   current.contextReloadPending = false;
@@ -8292,8 +8313,16 @@ async function reloadLiveContextIfNeeded(live: LiveRuntime): Promise<LiveRuntime
  */
 async function reloadLiveAgentDefinitionIfNeeded(live: LiveRuntime): Promise<LiveRuntime> {
   const current = state().live.get(live.taskId) ?? live;
-  if (!current.agentDefinitionReloadPending && current.jevToolRegistered) return current;
-  if (current.session.isStreaming || current.session.isCompacting) return current;
+  // The need and the gate live in backend core.
+  if (!shouldReloadAgentDefinition({
+    pending: current.agentDefinitionReloadPending === true,
+    missingRegistration: current.jevToolRegistered !== true,
+  })) return current;
+  if (!shouldApplyPendingReload({
+    pending: true,
+    isStreaming: current.session.isStreaming,
+    isCompacting: current.session.isCompacting,
+  })) return current;
   try {
     const next = await replaceLiveForSoul(current);
     next.agentDefinitionReloadPending = false;

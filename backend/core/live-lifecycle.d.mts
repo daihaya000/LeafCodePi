@@ -153,3 +153,16 @@ export function shouldDeferLiveSetting(input: {
   activeGoalLoopSession: boolean;
   goalLoopOwned: boolean;
 }): boolean;
+
+/** Whether a pending reload may run now (streaming/compacting block it; promptActive does not). */
+export function shouldApplyPendingReload(input: {
+  pending: boolean;
+  isStreaming: boolean;
+  isCompacting: boolean;
+}): boolean;
+
+/** Whether a Bot session's SOUL must be reloaded after a revision change. */
+export function shouldFlagSoulReload(input: { isBot: boolean; hasBotId: boolean; revisionChanged: boolean }): boolean;
+
+/** Whether the agent-definition reload is needed for this live session. */
+export function shouldReloadAgentDefinition(input: { pending: boolean; missingRegistration: boolean }): boolean;

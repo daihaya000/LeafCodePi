@@ -258,3 +258,30 @@ export function shouldDeferLiveSetting({ busyForReplace, taskStatus, activeGoalL
     goalLoopOwned === true
   );
 }
+
+/**
+ * Whether a pending reload may run now. A streaming or compacting session must not be
+ * reloaded, but `promptActive` deliberately does not count as busy: it is already true while
+ * a prompt is being prepared, so treating it as busy would defer the reload forever.
+ */
+export function shouldApplyPendingReload({ pending, isStreaming, isCompacting }) {
+  return pending === true && isStreaming !== true && isCompacting !== true;
+}
+
+/**
+ * Whether a Bot session's SOUL must be reloaded: only a Bot task whose Bot record revision
+ * differs from the revision the live session was built from. The write may have happened in
+ * another worker, so the revision is compared instead of trusting an in-memory callback.
+ */
+export function shouldFlagSoulReload({ isBot, hasBotId, revisionChanged }) {
+  return isBot === true && hasBotId === true && revisionChanged === true;
+}
+
+/**
+ * Whether a live session needs the agent-definition reload: a pending flag, or a missing
+ * registration that a recreate would add. The session's streaming/compacting state is checked
+ * by the caller through `shouldApplyPendingReload`.
+ */
+export function shouldReloadAgentDefinition({ pending, missingRegistration }) {
+  return pending === true || missingRegistration === true;
+}
