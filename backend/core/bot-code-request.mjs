@@ -225,3 +225,25 @@ export function codeResultOutput(text, maxChars) {
     truncated: value.length > maxChars,
   };
 }
+
+/** How long a request waits before another delivery attempt (a busy origin keeps it queued). */
+export const CODE_DELIVERY_RETRY_MS = 30_000;
+
+/**
+ * Whether a ready request may be delivered now. A busy origin (the Bot or Room is mid-turn) waits
+ * so the report is not injected into a running turn, and a request that already attempted delivery
+ * waits out its backoff.
+ */
+export function shouldAttemptCodeDelivery({ originBusy, nextAttemptAt, now }) {
+  if (originBusy === true) return false;
+  return !((nextAttemptAt ?? 0) > now);
+}
+
+/**
+ * Whether a successful delivery may be written down. The caller re-reads the request under its lock,
+ * and a request that is already delivered or cancelled must keep that state: an in-flight user stop
+ * (cancelled) must not be overwritten by a stale success snapshot.
+ */
+export function shouldConfirmCodeDelivery({ state }) {
+  return state !== "delivered" && state !== "cancelled";
+}

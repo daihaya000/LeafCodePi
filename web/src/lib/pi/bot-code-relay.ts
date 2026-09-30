@@ -27,6 +27,7 @@ import { isGoalLoopOperatorHold } from "@/lib/pi/goal-loop-state";
 import { isRoomStopRequest } from "@/lib/room-conversation";
 import {
   cancellationTargetForRequest,
+  CODE_DELIVERY_RETRY_MS,
   codeCompletionAction,
   codeRequestPayload,
   codeResultBaselineMessages,
@@ -40,6 +41,8 @@ import {
   roomCodeOrigin,
   runningCodeTaskIdsForOrigin,
   selectActiveCodeRequestForTask,
+  shouldAttemptCodeDelivery,
+  shouldConfirmCodeDelivery,
   userStoppedResult,
 } from "@backend-core/bot-code-request.mjs";
 
@@ -1140,10 +1143,16 @@ export function createBotCodeRelay(deps: RelayDependencies) {
         notifySettled(request);
         return;
       }
-      if (deps.isBusy(request.originTaskId) || (request.nextAttemptAt ?? 0) > Date.now()) return;
+      // The delivery gate (busy origin, unexpired backoff) lives in backend core.
+      const deliveryNow = Date.now();
+      if (!shouldAttemptCodeDelivery({
+        originBusy: deps.isBusy(request.originTaskId),
+        nextAttemptAt: request.nextAttemptAt,
+        now: deliveryNow,
+      })) return;
       // A stop may have landed while we waited for this bot lock — deliver the stop outcome.
       if (request.stoppedByUser) markUserStoppedResult(request);
-      request.nextAttemptAt = Date.now() + 30_000;
+      request.nextAttemptAt = deliveryNow + CODE_DELIVERY_RETRY_MS;
       save(request);
       reporting.set(request.originTaskId, { room: Boolean(request.room), followUpStarted: false, userStopped: request.stoppedByUser === true, autoChain: request.autoChain ?? 0 });
       try {
@@ -1152,7 +1161,7 @@ export function createBotCodeRelay(deps: RelayDependencies) {
           // by this stale success snapshot when we flip to delivered.
           await withBotCodeSessionLock(`request-${id}`, async () => {
             const latest = read(id);
-            if (!latest || latest.state === "delivered" || latest.state === "cancelled") return;
+            if (!latest || !shouldConfirmCodeDelivery({ state: latest.state })) return;
             if (latest.stoppedByUser) markUserStoppedResult(latest);
             latest.state = "delivered";
             save(latest);

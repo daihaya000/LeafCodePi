@@ -1,11 +1,12 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
-  cancellationTargetForRequest, codeCompletionAction, codeRequestPayload, codeResultBaselineMessages,
+  cancellationTargetForRequest, codeCompletionAction, CODE_DELIVERY_RETRY_MS, codeRequestPayload,
+  codeResultBaselineMessages,
   codeResultLatestAssistant, codeResultOutcome, codeResultOutput, codeSessionChangedPayload, isActiveCodeRequest,
   isCodeRequestId, isRoomCodeRequestCurrent,
   resolveOutboxScanAction, roomCodeOrigin, runningCodeTaskIdsForOrigin, selectActiveCodeRequestForTask,
-  userStoppedResult,
+  shouldAttemptCodeDelivery, shouldConfirmCodeDelivery, userStoppedResult,
 } from "./bot-code-request.mjs";
 
 test("only the documented task id shape carries a Room origin", () => {
@@ -302,4 +303,26 @@ test("the report output is cut at the limit and says so", () => {
   assert.deepEqual(codeResultOutput("abcde", 5), { output: "abcde", truncated: false });
   assert.deepEqual(codeResultOutput("", 5), { output: "", truncated: false });
   assert.deepEqual(codeResultOutput(undefined, 5), { output: "", truncated: false });
+});
+
+test("a busy origin or an unexpired backoff defers the delivery", () => {
+  const now = 1_000_000;
+  assert.equal(shouldAttemptCodeDelivery({ originBusy: false, nextAttemptAt: undefined, now }), true);
+  assert.equal(shouldAttemptCodeDelivery({ originBusy: false, nextAttemptAt: now - 1, now }), true);
+  // The original compares with `>`, so a backoff ending exactly now is already expired.
+  assert.equal(shouldAttemptCodeDelivery({ originBusy: false, nextAttemptAt: now, now }), true);
+  assert.equal(shouldAttemptCodeDelivery({ originBusy: false, nextAttemptAt: now + CODE_DELIVERY_RETRY_MS, now }), false);
+  assert.equal(shouldAttemptCodeDelivery({ originBusy: true, nextAttemptAt: undefined, now }), false, "the origin is mid-turn");
+  assert.equal(shouldAttemptCodeDelivery({ originBusy: true, nextAttemptAt: now - 1, now }), false);
+  for (const value of [undefined, null, 0, "true", 1]) {
+    assert.equal(shouldAttemptCodeDelivery({ originBusy: value, nextAttemptAt: undefined, now }), true, String(value));
+  }
+  assert.equal(CODE_DELIVERY_RETRY_MS, 30_000);
+});
+
+test("a delivery is not written over an already delivered or cancelled request", () => {
+  assert.equal(shouldConfirmCodeDelivery({ state: "ready" }), true);
+  assert.equal(shouldConfirmCodeDelivery({ state: "running" }), true, "any other state may be flipped to delivered");
+  assert.equal(shouldConfirmCodeDelivery({ state: "delivered" }), false);
+  assert.equal(shouldConfirmCodeDelivery({ state: "cancelled" }), false, "an in-flight stop wins over a stale success");
 });

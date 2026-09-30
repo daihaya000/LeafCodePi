@@ -79,3 +79,16 @@ export function codeResultOutcome(input: {
 
 /** The stored output text and whether it was cut at the report limit. */
 export function codeResultOutput(text: string | null | undefined, maxChars: number): { output: string; truncated: boolean };
+
+/** How long a request waits before another delivery attempt. */
+export const CODE_DELIVERY_RETRY_MS: number;
+
+/** Whether a ready request may be delivered now. */
+export function shouldAttemptCodeDelivery(input: {
+  originBusy: boolean;
+  nextAttemptAt: number | undefined;
+  now: number;
+}): boolean;
+
+/** Whether a successful delivery may be written down. */
+export function shouldConfirmCodeDelivery(input: { state: string }): boolean;
