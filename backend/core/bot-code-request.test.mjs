@@ -6,7 +6,7 @@ import {
   codeLaunchRefusal, codeLinkedSessionState, codePromptRefusal, codeProjectRefusal, codeReportingRefusal,
   codeTaskIdRefusal, CODE_DELIVERY_RETRY_MS, CODE_RELAY_TICK_MS,
   MAX_AUTO_CODE_CHAIN, MAX_CODE_PROMPT_CHARS,
-  CODE_REQUEST_RETENTION_MS, codeRequestPayload,
+  CODE_REQUEST_RETENTION_MS, codeRequestPayload, codeRequestSummaries, codeRequestSummary,
   codeResultBaselineMessages,
   codeResultLatestAssistant, codeResultOutcome, codeResultOutput, codeSessionChangedPayload, isActiveCodeRequest,
   isCodeRequestId, isRoomCodeRequestCurrent,
@@ -522,4 +522,29 @@ test("optional parts are omitted instead of stored empty", () => {
   assert.equal("autoChain" in buildCodeRequestRecord({ ...base, autoChain: 0 }), false);
   assert.equal("promptOptions" in buildCodeRequestRecord({ ...base, images: [] }), false);
   assert.equal("promptOptions" in buildCodeRequestRecord({ ...base, images: undefined }), false);
+});
+
+test("a summary exposes only the panel fields plus the delivered payload", () => {
+  const request = {
+    id: "r1", codeTaskId: "code-1", state: "ready", prompt: "do it", result: '{"outcome":"実行終了"}',
+    queuedAt: 5, botId: "bot-1", supervision: true, autoChain: 2, promptOptions: { images: [1] },
+  };
+  assert.deepEqual(codeRequestSummary(request), {
+    id: "r1", codeTaskId: "code-1", state: "ready", prompt: "do it", result: '{"outcome":"実行終了"}',
+    queuedAt: 5, outcome: "実行終了",
+  });
+});
+
+test("a Bot panel lists its own non-intervention requests, newest first", () => {
+  const requests = [
+    { id: "a", botId: "bot-1", queuedAt: 100 },
+    { id: "b", botId: "bot-1", queuedAt: 300 },
+    { id: "c", botId: "bot-1", queuedAt: 200, userIntervention: true },
+    { id: "d", botId: "bot-2", queuedAt: 400 },
+    { id: "e", botId: "bot-1" },
+  ];
+  assert.deepEqual(codeRequestSummaries(requests, "bot-1").map((item) => item.id), ["b", "a", "e"]);
+  assert.deepEqual(codeRequestSummaries(requests, "bot-2").map((item) => item.id), ["d"]);
+  assert.deepEqual(codeRequestSummaries([], "bot-1"), []);
+  assert.deepEqual(codeRequestSummaries(requests, "bot-3"), []);
 });

@@ -42,6 +42,7 @@ import {
   MAX_AUTO_CODE_CHAIN as CORE_MAX_AUTO_CODE_CHAIN,
   parseGoalLoopInput,
   codeRequestPayload,
+  codeRequestSummaries,
   codeResultBaselineMessages,
   codeResultLatestAssistant,
   codeResultOutcome,
@@ -299,13 +300,8 @@ export type BotCodeRequestSummary = Pick<CodeRequest, "id" | "codeTaskId" | "sta
   goalLoop?: CodeRequestGoalLoopReport;
 };
 export function listBotCodeRequests(botId: string): BotCodeRequestSummary[] {
-  return requests()
-    .filter((request) => request.botId === botId && !request.userIntervention)
-    .map((request) => {
-      const { id, codeTaskId, state, prompt, result, queuedAt } = request;
-      return { id, codeTaskId, state, prompt, result, queuedAt, ...requestPayload(request) };
-    })
-    .sort((a, b) => (b.queuedAt ?? 0) - (a.queuedAt ?? 0));
+  // The filter, projection and ordering live in backend core.
+  return codeRequestSummaries(requests(), botId) as BotCodeRequestSummary[];
 }
 export function roomForCodeOrigin(task: Pick<TaskSummary, "id" | "kind" | "botId"> | undefined | null) {
   if (task?.kind !== "bot" || !task.botId) return undefined;

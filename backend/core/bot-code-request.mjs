@@ -432,3 +432,31 @@ export function buildCodeRequestRecord({
     ...(images?.length ? { promptOptions: { images } } : {}),
   };
 }
+
+/**
+ * The summary of one request: the fields the Bot panel reads, plus the delivered outcome and Goal
+ * Loop report. Nothing else from the file is exposed, so internal bookkeeping (supervision,
+ * auto-chain counts, image options) never reaches the UI.
+ */
+export function codeRequestSummary(request) {
+  return {
+    id: request.id,
+    codeTaskId: request.codeTaskId,
+    state: request.state,
+    prompt: request.prompt,
+    result: request.result,
+    queuedAt: request.queuedAt,
+    ...codeRequestPayload(request),
+  };
+}
+
+/**
+ * The requests a Bot panel lists: its own requests, excluding user interventions (those belong to the
+ * Code UI), newest first. A request without a queue time sorts last rather than crashing the compare.
+ */
+export function codeRequestSummaries(requests, botId) {
+  return requests
+    .filter((request) => request.botId === botId && !request.userIntervention)
+    .map(codeRequestSummary)
+    .sort((a, b) => (b.queuedAt ?? 0) - (a.queuedAt ?? 0));
+}

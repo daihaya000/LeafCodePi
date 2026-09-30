@@ -181,3 +181,12 @@ export function buildCodeRequestRecord(input: {
   room?: unknown;
   images?: readonly unknown[] | undefined;
 }): Record<string, unknown>;
+
+/** The summary of one request: the Bot panel fields plus the delivered outcome/report. */
+export function codeRequestSummary(request: Record<string, unknown>): Record<string, unknown>;
+
+/** The requests a Bot panel lists: its own, excluding user interventions, newest first. */
+export function codeRequestSummaries(
+  requests: ReadonlyArray<Record<string, unknown> & { botId?: string; userIntervention?: boolean; queuedAt?: number }>,
+  botId: string,
+): Array<Record<string, unknown>>;
