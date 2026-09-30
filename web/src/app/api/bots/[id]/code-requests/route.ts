@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { getBot } from "@/lib/bots";
 import { listBotCodeRequests, stopBotCodeRequest } from "@/lib/pi/bot-code-relay";
 import { abortTaskIncludingColdGoalLoop, completeBotCodeRequest, jsonError, peekCodeRequestProgress } from "@/lib/pi/harness";
+import { localRuntimeBlocked } from "@/lib/pi/runtime-ownership";
+import { forwardBotCodeRequestAbort } from "@/lib/backend-forward";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -29,6 +31,22 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     const body = (await req.json().catch(() => null)) as { action?: unknown; requestId?: unknown } | null;
     if (body?.action !== "abort") return NextResponse.json({ error: "Unsupported action" }, { status: 400 });
     if (typeof body.requestId !== "string") return NextResponse.json({ error: "requestId is required" }, { status: 400 });
+    // After the cutover the outbox belongs to the Backend: stopping the request and the session happens
+    // there, and a local stop would leave the real request running.
+    if (localRuntimeBlocked()) {
+      const forwarded = await forwardBotCodeRequestAbort(id, body.requestId);
+      if (forwarded.ok) return NextResponse.json(forwarded.result);
+      if (forwarded.reason === "not-found") {
+        return NextResponse.json({ error: "実行中のCode依頼がありません" }, { status: 404 });
+      }
+      if (forwarded.reason === "not-configured") {
+        return NextResponse.json({ error: "Backendが実行を所有しています", code: "RUNTIME_NOT_OWNED" }, { status: 409 });
+      }
+      return NextResponse.json(
+        { error: "Backendを停止できません", code: "BACKEND_FORWARD_FAILED", reason: forwarded.reason },
+        { status: 502 },
+      );
+    }
     const stopped = await stopBotCodeRequest(id, body.requestId);
     if (!stopped) return NextResponse.json({ error: "実行中のCode依頼がありません" }, { status: 404 });
     let task: Awaited<ReturnType<typeof abortTaskIncludingColdGoalLoop>> | undefined;

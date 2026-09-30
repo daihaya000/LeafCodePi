@@ -25,6 +25,11 @@ export const BACKEND_TASK_DETAIL_SUFFIX = "/detail";
 export const BACKEND_TASK_PERMISSION_SUFFIX = "/permission";
 /** Stopping a running session: `POST /internal/tasks/:id/abort`, optionally with `{ botId }`. */
 export const BACKEND_TASK_ABORT_SUFFIX = "/abort";
+/**
+ * Bot Code request actions: `POST /internal/bots/:id/code-requests` with `{ action, requestId }`.
+ * Stopping a request also updates the Bot's outbox, which only the owning process may write.
+ */
+export const BACKEND_BOT_CODE_REQUESTS_SUFFIX = "/code-requests";
 export const BACKEND_TASK_QUESTION_SUFFIX = "/question";
 
 /** Read-only: the Backend's own view of the Bot store. */

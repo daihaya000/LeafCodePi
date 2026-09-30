@@ -1,5 +1,6 @@
 import {
   abortTaskOnBackend,
+  postBotCodeRequestAction,
   promptTaskOnBackend,
   readBackendPendingSnapshots,
   readBackendTaskDetail,
@@ -176,4 +177,21 @@ export async function forwardPendingRequestsByTask(
     };
   }
   return byTask;
+}
+
+/** Stops a Bot Code request in the owning Backend; the outbox write happens there. */
+export async function forwardBotCodeRequestAbort(
+  botId: string,
+  requestId: string,
+  options: { env?: BackendEnv; fetchImpl?: typeof fetch; timeoutMs?: number } = {},
+): Promise<
+  | { ok: true; result: { requestId: string; state: string; task?: Record<string, unknown> } }
+  | { ok: false; reason: BackendFailureReason | "not-found"; status?: number }
+> {
+  const result = await postBotCodeRequestAction(botId, { action: "abort", requestId }, options);
+  if (!result.ok) {
+    if (result.status === 404) return { ok: false, reason: "not-found", status: 404 };
+    return { ok: false, reason: result.reason, ...(result.status ? { status: result.status } : {}) };
+  }
+  return { ok: true, result: result.body };
 }

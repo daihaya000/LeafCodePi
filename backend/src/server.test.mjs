@@ -536,6 +536,45 @@ test("a non-function abort handler is rejected at creation", () => {
   );
 });
 
+test("a forwarded Bot Code request action reaches the outbox owner", async (t) => {
+  const seen = [];
+  const { snapshotsUrl, headers } = await fixture(t, {
+    botCodeRequestAction: async (botId, body) => {
+      seen.push({ botId, body });
+      return body.requestId === "missing" ? null : { requestId: body.requestId, state: "cancelled" };
+    },
+  });
+  const url = `${snapshotsUrl.replace("pending-snapshots", "bots")}/bot-1/code-requests`;
+  const post = (body) =>
+    request(url, { method: "POST", headers: { ...headers, "content-type": "application/json" }, body: JSON.stringify(body) });
+  const ok = await post({ action: "abort", requestId: "req-1" });
+  assert.equal(ok.status, 200);
+  assert.deepEqual(await ok.json(), { requestId: "req-1", state: "cancelled" });
+  assert.equal((await post({ action: "abort", requestId: "missing" })).status, 404);
+  assert.deepEqual(seen, [
+    { botId: "bot-1", body: { action: "abort", requestId: "req-1" } },
+    { botId: "bot-1", body: { action: "abort", requestId: "missing" } },
+  ]);
+  // A Bot read is still a GET on the plain Bot path.
+  assert.equal((await request(url, { headers })).status, 405, "the action path is POST-only");
+});
+
+test("the Bot Code request action needs a runtime, and a non-function handler is rejected", async (t) => {
+  const { snapshotsUrl, headers } = await fixture(t);
+  const url = `${snapshotsUrl.replace("pending-snapshots", "bots")}/bot-1/code-requests`;
+  const response = await request(url, {
+    method: "POST",
+    headers: { ...headers, "content-type": "application/json" },
+    body: JSON.stringify({ action: "abort", requestId: "req-1" }),
+  });
+  assert.equal(response.status, 503);
+  assert.equal((await response.json()).code, "BACKEND_RUNTIME_UNAVAILABLE");
+  assert.throws(
+    () => createBackendServer({ token: randomBytes(32).toString("base64url"), botCodeRequestAction: "nope" }),
+    /must be a function or null/,
+  );
+});
+
 test("rejects invalid ports and surfaces occupied port errors", async (t) => {
   const { server, address } = await fixture(t);
   for (const port of [-1, 65536, 1.5, "3010", NaN]) {

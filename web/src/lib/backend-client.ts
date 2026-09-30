@@ -11,6 +11,7 @@ import {
   normalizeExpectedGeneration,
 } from "@shared/backend-generation.mjs";
 import {
+  BACKEND_BOT_CODE_REQUESTS_SUFFIX,
   BACKEND_BOTS_PATH,
   BACKEND_HEALTH_PATH,
   BACKEND_PENDING_SNAPSHOTS_PATH,
@@ -163,6 +164,19 @@ export function promptTaskOnBackend(
  */
 export function expectedBackendGeneration(env: BackendEnv = process.env): string {
   return normalizeExpectedGeneration(env.LEAFCODE_PI_BACKEND_GENERATION);
+}
+
+/** Runs a Bot Code request action (stopping a request also updates the outbox) in the owning Backend. */
+export function postBotCodeRequestAction(
+  botId: string,
+  body: { action: "abort"; requestId: string },
+  options: { env?: BackendEnv; fetchImpl?: typeof fetch; timeoutMs?: number } = {},
+): Promise<BackendResult<{ requestId: string; state: string; task?: Record<string, unknown> }>> {
+  return postBackendJson(
+    `${BACKEND_BOTS_PATH}/${encodeURIComponent(botId)}${BACKEND_BOT_CODE_REQUESTS_SUFFIX}`,
+    body,
+    options,
+  );
 }
 
 /** Stops a running session in the owning Backend; a Bot-owned task also marks its outbox. */

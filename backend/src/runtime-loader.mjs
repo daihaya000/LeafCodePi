@@ -18,6 +18,8 @@ export const REQUIRED_RUNTIME_EXPORTS = Object.freeze([
   "abortTask",
   "abortTaskIncludingColdGoalLoop",
   "stopBotCodeTask",
+  "stopBotCodeRequest",
+  "completeBotCodeRequest",
   "listPendingAttention",
   "pendingPermissionForTask",
   "pendingQuestionForTask",

@@ -73,6 +73,27 @@ try {
       }
       return botId ? runtime.stopBotCodeTask(botId, id) : runtime.abortTaskIncludingColdGoalLoop(id);
     },
+    // Stopping a Bot Code request also updates the Bot's outbox, which this process owns.
+    botCodeRequestAction: async (botId, body) => {
+      const runtime = started.runtime();
+      if (!runtime) {
+        throw Object.assign(new Error("runtime unavailable"), { status: 503 });
+      }
+      const action = body?.action;
+      const requestId = body?.requestId;
+      if (action !== "abort" || typeof requestId !== "string") {
+        throw Object.assign(new Error("unsupported action"), { status: 400 });
+      }
+      const stopped = await runtime.stopBotCodeRequest(botId, requestId);
+      if (!stopped) return null;
+      let task;
+      try {
+        if (stopped.codeTaskId) task = await runtime.abortTaskIncludingColdGoalLoop(stopped.codeTaskId);
+      } finally {
+        if (stopped.codeTaskId) await runtime.completeBotCodeRequest(requestId);
+      }
+      return { requestId, state: stopped.state, ...(task ? { task } : {}) };
+    },
     // A pending approval or question lives in this process's memory: only the owner can answer it.
     respondToPermission: (id, requestId, approved) => {
       const runtime = started.runtime();

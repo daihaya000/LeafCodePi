@@ -20,6 +20,9 @@ export {
   respondToPermissionPrompt,
   respondToQuestionPrompt,
   clearPendingAttentionForTask,
+  completeBotCodeRequest,
   startBotCodeRelay,
   applyCodePermissionSettingsToLiveTasks,
 } from "@/lib/pi/harness";
+// Stopping a Bot Code request also updates the outbox, which the owning process must do.
+export { stopBotCodeRequest } from "@/lib/pi/bot-code-relay";
