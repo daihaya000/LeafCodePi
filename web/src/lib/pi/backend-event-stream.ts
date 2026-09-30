@@ -9,8 +9,8 @@ import { forwardTaskDetail, forwardTaskPendingRequests } from "@/lib/backend-for
  * approval/question lives in the owner's memory, so it comes from the Backend's pending snapshots too:
  * without that the approval prompt would never appear after the cutover.
  *
- * A failed read is reported to the caller, which ends the stream with an error; falling back to the
- * in-process session would report a state this process does not own.
+ * An initial failed read is reported to the caller, which ends the stream with an error. Failed polls
+ * retry on the next tick; falling back to an in-process session would report a state we do not own.
  */
 
 /** What the helper needs from an SSE writer; `createSseWriter` satisfies it. */
@@ -73,7 +73,8 @@ export function backendTaskSnapshot(
  * Sends the Backend's snapshot once and keeps polling while the writer is open.
  *
  * Returns `{ ok: false, reason }` when the Backend cannot be read (the caller ends the stream), or
- * `{ ok: true, stop }` where `stop` clears the poll — the caller registers it as cleanup.
+ * `{ ok: true, stop }` where `stop` clears the poll and suppresses in-flight sends. Polls are serialized
+ * through both detail and pending-request reads — the caller registers `stop` as cleanup.
  */
 export async function startBackendTaskStream({
   id,
@@ -92,24 +93,41 @@ export async function startBackendTaskStream({
 }): Promise<{ ok: true; stop: () => void } | { ok: false; reason: string }> {
   const detail = await forwardTaskDetail(id);
   if (!detail.ok) return { ok: false, reason: detail.reason };
+  let stopped = false;
+  let busy = false;
+  let timer: ReturnType<typeof setInterval> | undefined;
+  const stop = () => {
+    stopped = true;
+    if (timer !== undefined) clearIntervalImpl(timer);
+    timer = undefined;
+  };
   const send = async (current: Record<string, unknown> | null) => {
+    if (stopped || sse.closed) return;
     const pending = await forwardTaskPendingRequests(id);
-    if (sse.closed) return;
+    if (stopped || sse.closed) return;
     sse.send("snapshot", backendTaskSnapshot(current, pending, extra));
   };
   await send(detail.detail);
-  if (sse.closed) return { ok: true, stop: () => {} };
-  const timer = setIntervalImpl(() => {
+  if (sse.closed) return { ok: true, stop };
+  timer = setIntervalImpl(() => {
     void (async () => {
-      if (sse.closed) {
-        clearIntervalImpl(timer);
+      if (stopped || sse.closed) {
+        stop();
         return;
       }
-      const next = await forwardTaskDetail(id);
-      if (!next.ok || sse.closed) return;
-      await send(next.detail);
+      if (busy) return;
+      busy = true;
+      try {
+        const next = await forwardTaskDetail(id);
+        if (!next.ok) return;
+        await send(next.detail);
+      } catch {
+        // A transient transport/read failure retries without opening a local session.
+      } finally {
+        busy = false;
+      }
     })();
   }, intervalMs);
   timer.unref?.();
-  return { ok: true, stop: () => clearIntervalImpl(timer) };
+  return { ok: true, stop };
 }
