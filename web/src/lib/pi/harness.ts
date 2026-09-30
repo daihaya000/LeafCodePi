@@ -216,6 +216,7 @@ import { roomBotIdFromTaskId } from "@backend-core/abort-control.mjs";
 import { detachReplacedLive as coreDetachReplacedLive, hasOtherBusyRoomLive, oneToOneBotIdFromTaskId, resolveAttachAccount, shouldShutdownOnDispose as coreShouldShutdownOnDispose } from "@backend-core/live-lifecycle.mjs";
 import { restoredPromptState, restoredTaskMetadata, restoredThroughputState } from "@backend-core/live-attach-state.mjs";
 import { compactionFailureMessage, isHarnessAutoCompactionError as coreIsHarnessAutoCompactionError, shouldApplySettledStatus, shouldSyncTaskFromSessionEvent as coreShouldSyncTaskFromSessionEvent, type SessionSyncEvent } from "@backend-core/session-event-decisions.mjs";
+import { classifySnapshotEvent, pendingSnapshotFlush, SNAPSHOT_THROTTLE_MS } from "@backend-core/snapshot-schedule.mjs";
 import { attachReplacementSession } from "@backend-core/live-replace.mjs";
 import { buildBotCodeReportContent } from "@backend-core/bot-code-report.mjs";
 import {
@@ -381,19 +382,6 @@ export type PromptImage = {
   mimeType: string;
   data: string;
 };
-
-/** High-frequency stream events — coalesce snapshot SSE instead of emitting every token. */
-const THROTTLED_SNAPSHOT_EVENTS = new Set([
-  "message_update",
-  "tool_execution_update",
-]);
-const SNAPSHOT_THROTTLE_MS = 100;
-/** These lifecycle events do not change anything rendered by TaskView. */
-const NON_RENDERING_SESSION_EVENTS = new Set([
-  "turn_start",
-  "turn_end",
-  "entry_appended",
-]);
 
 export type PendingLiveSettings = {
   model?: {
@@ -1624,28 +1612,31 @@ function scheduleTaskSnapshot(
   eventType: string,
   extra?: Record<string, unknown>,
 ): void {
-  if (NON_RENDERING_SESSION_EVENTS.has(eventType)) return;
   // ライフサイクルイベントの連続（message_start/end・agent_start 等）も100ms窓で
-  // 1つのスナップショットへ合流させる。従来はイベント毎に全履歴の射影と数MBの
-  // フルSSE送信が走り、送信直後の反映遅延の主因だった。
-  if (THROTTLED_SNAPSHOT_EVENTS.has(eventType)) {
-    // フルスナップショット待機中に来た delta は、そのフルに含まれるため送らない。
-    if (live.pendingSnapshotEventType && !live.pendingSnapshotIsDelta) return;
-  }
+  // 1つのスナップショットへ合流させる。分類はbackend core、タイマーとemitはここ。
+  const decision = classifySnapshotEvent(eventType, {
+    eventType: live.pendingSnapshotEventType,
+    isDelta: live.pendingSnapshotIsDelta === true,
+  });
+  // フルスナップショット待機中に来た delta は、そのフルに含まれるため送らない。
+  if (decision.action !== "schedule") return;
   live.pendingSnapshotEventType = eventType;
   live.pendingSnapshotExtra = extra;
-  live.pendingSnapshotIsDelta = THROTTLED_SNAPSHOT_EVENTS.has(eventType);
+  live.pendingSnapshotIsDelta = decision.isDelta;
   if (live.snapshotTimer) return;
   live.snapshotTimer = setTimeout(() => {
     live.snapshotTimer = null;
-    const pendingType = live.pendingSnapshotEventType ?? eventType;
-    const pendingExtra = live.pendingSnapshotExtra;
-    const isDelta = live.pendingSnapshotIsDelta === true;
+    const flush = pendingSnapshotFlush({
+      eventType: live.pendingSnapshotEventType,
+      extra: live.pendingSnapshotExtra,
+      isDelta: live.pendingSnapshotIsDelta === true,
+    });
     live.pendingSnapshotEventType = null;
     live.pendingSnapshotExtra = undefined;
     live.pendingSnapshotIsDelta = false;
-    if (isDelta) emitTaskDelta(live, pendingType);
-    else emitTaskSnapshot(live, pendingType, pendingExtra);
+    const pendingType = flush.eventType ?? eventType;
+    if (flush.isDelta) emitTaskDelta(live, pendingType);
+    else emitTaskSnapshot(live, pendingType, flush.extra);
   }, SNAPSHOT_THROTTLE_MS);
 }
 
