@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { attentionItemForTask, resolveAttentionSource } from "./attention.mjs";
+import { attentionClearTargets, attentionItemForTask, resolveAttentionSource } from "./attention.mjs";
 
 test("a non-Bot task is always its own attention key", () => {
   assert.equal(resolveAttentionSource({ taskId: "task-1", isBotTask: false }), "task-1");
@@ -60,4 +60,43 @@ test("nothing waiting means no item, and the origin is only present when known",
     "originTaskId" in attentionItemForTask({ taskId: "t", title: "T", hasPermission: true, hasQuestion: false, originTaskId: undefined }),
     false,
   );
+});
+
+test("a teardown always clears the task itself, and delegated sessions only on request", () => {
+  assert.deepEqual(attentionClearTargets({ taskId: "t", isBotTask: false, includeDelegatedCode: true }), ["t"]);
+  assert.deepEqual(
+    attentionClearTargets({ taskId: "bot:b1", isBotTask: true, includeDelegatedCode: false, delegatedTaskIds: ["code-1"] }),
+    ["bot:b1"],
+    "stopping a Bot keeps its delegated Code running",
+  );
+  assert.deepEqual(
+    attentionClearTargets({ taskId: "bot:b1", isBotTask: true, includeDelegatedCode: true, delegatedTaskIds: ["code-1", "code-2"] }),
+    ["bot:b1", "code-1", "code-2"],
+  );
+});
+
+test("a delegated id equal to the task is not cleared twice, and junk ids are ignored", () => {
+  assert.deepEqual(
+    attentionClearTargets({ taskId: "code-1", isBotTask: true, includeDelegatedCode: true, delegatedTaskIds: ["code-1"] }),
+    ["code-1"],
+  );
+  assert.deepEqual(
+    attentionClearTargets({ taskId: "bot:b1", isBotTask: true, includeDelegatedCode: true, delegatedTaskIds: ["code-1", "code-1", undefined, 42] }),
+    ["bot:b1", "code-1"],
+  );
+});
+
+test("only an explicit true includes delegated sessions for a Bot task", () => {
+  for (const value of [undefined, null, 0, "true", 1]) {
+    assert.deepEqual(
+      attentionClearTargets({ taskId: "bot:b1", isBotTask: true, includeDelegatedCode: value, delegatedTaskIds: ["code-1"] }),
+      ["bot:b1"],
+      String(value),
+    );
+    assert.deepEqual(
+      attentionClearTargets({ taskId: "bot:b1", isBotTask: value, includeDelegatedCode: true, delegatedTaskIds: ["code-1"] }),
+      ["bot:b1"],
+      String(value),
+    );
+  }
 });

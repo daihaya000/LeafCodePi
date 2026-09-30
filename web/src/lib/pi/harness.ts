@@ -254,7 +254,7 @@ import {
   resolveTaskDetailSource,
   shouldSuggestCompaction,
 } from "@backend-core/task-detail.mjs";
-import { attentionItemForTask, resolveAttentionSource } from "@backend-core/attention.mjs";
+import { attentionClearTargets, attentionItemForTask, resolveAttentionSource } from "@backend-core/attention.mjs";
 import { ensureGlobalPromptService } from "@backend-core/webui-bridge.mjs";
 import {
   isSamePromptRoute,
@@ -10927,14 +10927,17 @@ export function clearPendingAttentionForTask(
   taskId: string,
   options?: { includeDelegatedCode?: boolean },
 ): void {
-  ensurePermissionPromptService().clearPendingForTask(taskId);
-  ensureQuestionPromptService().clearPendingForTask(taskId);
-  // Bot/Room Stop keeps delegated Code running; do not auto-deny its prompts unless
-  // the caller is also tearing down those Code sessions (includeDelegatedCode).
-  if (!options?.includeDelegatedCode || !taskId.startsWith("bot:")) return;
-  for (const linked of botCodeRelay().codeTasksForOrigin(taskId)) {
-    ensurePermissionPromptService().clearPendingForTask(linked);
-    ensureQuestionPromptService().clearPendingForTask(linked);
+  // Which keys a teardown clears (own prompts first, delegated Code only when asked) is decided
+  // in backend core; the services and the relay stay here.
+  const targets = attentionClearTargets({
+    taskId,
+    isBotTask: taskId.startsWith("bot:"),
+    includeDelegatedCode: options?.includeDelegatedCode === true,
+    delegatedTaskIds: botCodeRelay().codeTasksForOrigin(taskId),
+  });
+  for (const target of targets) {
+    ensurePermissionPromptService().clearPendingForTask(target);
+    ensureQuestionPromptService().clearPendingForTask(target);
   }
 }
 

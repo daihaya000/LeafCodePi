@@ -15,3 +15,11 @@ export function attentionItemForTask(input: {
   hasQuestion: boolean;
   originTaskId?: string | undefined;
 }): { taskId: string; title: string; kinds: string[]; originTaskId?: string } | null;
+
+/** The attention keys a teardown clears, the task itself first. */
+export function attentionClearTargets(input: {
+  taskId: string;
+  isBotTask: boolean;
+  includeDelegatedCode: boolean;
+  delegatedTaskIds?: readonly string[] | undefined;
+}): string[];

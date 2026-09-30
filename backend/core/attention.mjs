@@ -39,3 +39,18 @@ export function attentionItemForTask({ taskId, title, hasPermission, hasQuestion
     ...(originTaskId ? { originTaskId } : {}),
   };
 }
+
+/**
+ * The attention keys a teardown clears. The task itself is always first. A Bot/Room task's
+ * delegated Code sessions are cleared only when the caller says so: stopping a Bot or Room keeps
+ * the delegated Code running, so auto-denying its prompts would refuse work that is still alive.
+ * Duplicates of the task key are dropped so a delegated session cannot be cleared twice.
+ */
+export function attentionClearTargets({ taskId, isBotTask, includeDelegatedCode, delegatedTaskIds }) {
+  const targets = [taskId];
+  if (includeDelegatedCode !== true || isBotTask !== true) return targets;
+  for (const linked of delegatedTaskIds ?? []) {
+    if (typeof linked === "string" && linked !== taskId && !targets.includes(linked)) targets.push(linked);
+  }
+  return targets;
+}
