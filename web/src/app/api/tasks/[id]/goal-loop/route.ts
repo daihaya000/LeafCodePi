@@ -7,7 +7,7 @@ import { AUTO_AGENT_VALUE } from "@/lib/default-agent";
 import { isGoalLoopLiveStatus } from "@/lib/pi/goal-loop-state";
 import { botIdForCodeTask } from "@/lib/pi/bot-code-relay";
 import { localRuntimeBlocked } from "@/lib/pi/runtime-ownership";
-import { forwardGoalLoopControl } from "@/lib/backend-forward";
+import { forwardGoalLoopControl, forwardGoalLoopStart } from "@/lib/backend-forward";
 import {
   goalLoopCommand,
   goalLoopState,
@@ -98,12 +98,51 @@ export async function POST(req: NextRequest, { params }: Params) {
     if (action !== "start") {
       return NextResponse.json({ error: "POST の action は start です" }, { status: 400 });
     }
-    // Starting resolves Auto/model/agent locally, so it is refused rather than half-run by a process
-    // that does not own the session. Pause/resume/stop/complete are forwarded (see PATCH).
+    // Starting resolves Auto/model/agent locally, so an override is refused; a plain start is forwarded
+    // to the process that owns the session. Pause/resume/stop/complete are forwarded below (see PATCH).
     if (localRuntimeBlocked()) {
+      const needsLocalResolution =
+        body?.auto !== undefined ||
+        body?.model !== undefined ||
+        body?.agent !== undefined ||
+        body?.thinkingLevel !== undefined ||
+        body?.autoOptimize !== undefined ||
+        body?.autoRouteOverrides !== undefined;
+      if (needsLocalResolution) {
+        return NextResponse.json(
+          { error: "Auto/モデル指定つきのGoal Loop開始は非所有モードでは未対応です", code: "GOAL_LOOP_START_NOT_SUPPORTED" },
+          { status: 409 },
+        );
+      }
+      const goal = typeof body?.goal === "string" ? body.goal.trim() : "";
+      const criteria = acceptance(body?.acceptance);
+      if (!goal || goal.length > 4_000 || !criteria) {
+        return NextResponse.json({ error: "goal または acceptance が不正です" }, { status: 400 });
+      }
+      const forwarded = await forwardGoalLoopStart(id, {
+        goal,
+        acceptance: criteria,
+        maxTurns: clampGoalLoopMaxTurns(body?.maxTurns, DEFAULT_GOAL_LOOP_MAX_TURNS),
+        cooldownSeconds: clampGoalLoopCooldownSeconds(body?.cooldownSeconds),
+        forceFullRun: body?.forceFullRun === true,
+        ...(body?.images !== undefined ? { images: body.images } : {}),
+      });
+      if (forwarded.ok) {
+        const loop = forwarded.loop as { status?: string } | null;
+        if (!loop || !isGoalLoopLiveStatus(loop.status)) {
+          return NextResponse.json({ error: "Goal Loop を開始できませんでした" }, { status: 409 });
+        }
+        return NextResponse.json({ loop, agent: null });
+      }
+      if (forwarded.reason === "not-configured") {
+        return NextResponse.json({ error: "Backendが実行を所有しています", code: "RUNTIME_NOT_OWNED" }, { status: 409 });
+      }
+      if (forwarded.reason === "not-found") {
+        return NextResponse.json({ error: "タスクが見つかりません" }, { status: 404 });
+      }
       return NextResponse.json(
-        { error: "Goal Loop の開始は非所有モードでは未対応です", code: "GOAL_LOOP_START_NOT_SUPPORTED" },
-        { status: 409 },
+        { error: "Backendへ転送できません", code: "BACKEND_FORWARD_FAILED", reason: forwarded.reason },
+        { status: 502 },
       );
     }
     const goal = typeof body?.goal === "string" ? body.goal.trim() : "";

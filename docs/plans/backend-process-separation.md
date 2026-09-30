@@ -94,7 +94,7 @@ bundleパスは`LEAFCODE_PI_BACKEND_RUNTIME_BUNDLE`で差し替え可能。CLI�
 **未達（実切替までに必要な残作業・実測）**
 
 - Bot Codeセッション起動の転送（`createBotCodeTask`／`continueBotCodeTask`のBackend化）。現状は非所有モードで409拒否。
-- Goal Loop開始（`start`）の転送。Auto/モデル/エージェント解決がWeb側にあり、現状は409拒否。
+- Goal Loop開始（`start`）のうち**Auto/モデル/エージェント指定を伴うもの**。解決がWeb側にあるため現状は409拒否（指定なしの開始は転送済み）。
 - SSEは非所有モードで2秒ポーリング（`eventType: "remote_poll"`）。所有モードの即時配信と比べ遅延がある。
 - 実切替の未実施（Host・WebUIの再起動を伴うため、ユーザー承認後に実施）。
 - Web全体の型検証は既存の拡張（`leafcode-goal-loop`／`loop-guard`）が`@earendil-works/pi-coding-agent`を解決できず失敗するため、本番用`tsconfig.build.json`で代替している。
@@ -114,6 +114,8 @@ bundleパスは`LEAFCODE_PI_BACKEND_RUNTIME_BUNDLE`で差し替え可能。CLI�
 - shared: **8 pass / 0 fail**（`node --test shared/*.test.mjs`）。
 - web全スイート: **4441 pass / 3 fail**（474ファイル中4ファイルが失敗。いずれも既存: `extensions/leafcode-mcp-adapter/proxy-visibility.test.ts`＝typebox、`extensions/leafcode-subagents/.../subagent-runner.test.ts`＝負荷時のフレーク、`src/app/api/health/route.test.ts`＝dataDir、`src/components/MessageCardRadius.test.tsx`）。
 - web本番型検証（`tsconfig.build.json`）: **0エラー**、`eslint src`: 指摘なし。
+
+**ターン95**: Goal Loop開始の転送を実装。Backendの`/internal/tasks/:id/goal-loop`が`action:"start"`（`goal`／`acceptance`／`maxTurns`／`cooldownSeconds`／`forceFullRun`／`images`）を受け、`entry.mjs`が`goalLoopCommand(id, {action:"start", ...})`を実行する。Webの非所有モードは`forwardGoalLoopStart`で転送し、Auto/モデル/エージェント/thinkingLevel指定を伴う開始だけ409（`GOAL_LOOP_START_NOT_SUPPORTED`）で拒否する。返ったループがliveでなければ409。
 - 検出した回帰1件: `src/lib/shared-types.test.ts`のミラー検証が新しい契約ファイル（`shared/bot-tools.mjs`／`.d.mts`）を写しておらず失敗（本番のミラーは`shared/`全体を写すため影響なし）。テスト側を修正して解消（`3770a9fc`）。
 
 **切替runbook（実行は未実施）**

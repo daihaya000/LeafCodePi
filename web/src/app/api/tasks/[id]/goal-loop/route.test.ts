@@ -17,6 +17,7 @@ const mocks = vi.hoisted(() => ({
   botIdForCodeTask: vi.fn(),
   localRuntimeBlocked: vi.fn(() => false),
   forwardGoalLoopControl: vi.fn(),
+  forwardGoalLoopStart: vi.fn(),
   jsonError: vi.fn((error: unknown) => ({
     error: error instanceof Error ? error.message : String(error),
     status:
@@ -50,6 +51,7 @@ vi.mock("@/lib/pi/runtime-ownership", () => ({
 }));
 vi.mock("@/lib/backend-forward", () => ({
   forwardGoalLoopControl: mocks.forwardGoalLoopControl,
+  forwardGoalLoopStart: mocks.forwardGoalLoopStart,
   forwardBotCodeRequestAbort: vi.fn(),
   forwardTaskAbort: vi.fn(),
   forwardTaskDetail: vi.fn(),
@@ -86,6 +88,7 @@ describe("Goal Loop control after the cutover", () => {
     mocks.localRuntimeBlocked.mockReset();
     mocks.localRuntimeBlocked.mockReturnValue(true);
     mocks.forwardGoalLoopControl.mockReset();
+    mocks.forwardGoalLoopStart.mockReset();
     mocks.goalLoopCommand.mockReset();
     mocks.botIdForCodeTask.mockReset();
     mocks.botIdForCodeTask.mockReturnValue(undefined);
@@ -121,15 +124,42 @@ describe("Goal Loop control after the cutover", () => {
     expect(mocks.goalLoopCommand).not.toHaveBeenCalled();
   });
 
-  it("refuses a start rather than half-running it locally", async () => {
+  it("forwards a plain start to the owning Backend", async () => {
+    mocks.forwardGoalLoopStart.mockResolvedValue({ ok: true, loop: { id: "task-1", status: "running" } });
     const response = await POST(request({ action: "start", goal: "直して", acceptance: ["テストが通る"] }), {
+      params: Promise.resolve({ id: "task-1" }),
+    });
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({ loop: { id: "task-1", status: "running" }, agent: null });
+    expect(mocks.forwardGoalLoopStart).toHaveBeenCalledWith("task-1", {
+      goal: "直して",
+      acceptance: ["テストが通る"],
+      maxTurns: expect.any(Number),
+      cooldownSeconds: expect.any(Number),
+      forceFullRun: false,
+    });
+    expect(mocks.goalLoopCommand).not.toHaveBeenCalled();
+  });
+
+  it("refuses a start that needs WebUI-side resolution", async () => {
+    const response = await POST(request({ action: "start", goal: "直して", acceptance: ["テストが通る"], auto: true }), {
       params: Promise.resolve({ id: "task-1" }),
     });
     expect(response.status).toBe(409);
     await expect(response.json()).resolves.toEqual({
-      error: "Goal Loop の開始は非所有モードでは未対応です",
+      error: "Auto/モデル指定つきのGoal Loop開始は非所有モードでは未対応です",
       code: "GOAL_LOOP_START_NOT_SUPPORTED",
     });
+    expect(mocks.forwardGoalLoopStart).not.toHaveBeenCalled();
+    expect(mocks.goalLoopCommand).not.toHaveBeenCalled();
+  });
+
+  it("reports a Backend start that is not live as a refusal", async () => {
+    mocks.forwardGoalLoopStart.mockResolvedValue({ ok: true, loop: { id: "task-1", status: "stopped" } });
+    const response = await POST(request({ action: "start", goal: "直して", acceptance: ["テストが通る"] }), {
+      params: Promise.resolve({ id: "task-1" }),
+    });
+    expect(response.status).toBe(409);
     expect(mocks.goalLoopCommand).not.toHaveBeenCalled();
   });
 });

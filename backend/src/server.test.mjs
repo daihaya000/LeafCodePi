@@ -592,12 +592,14 @@ test("a forwarded Goal Loop control reaches the loop's owner", async (t) => {
   assert.equal((await post({ action: "resume", maxTurns: 5 })).status, 200);
   assert.equal((await post({ action: "stop", botId: "bot-1" })).status, 200);
   assert.equal((await post({ action: "stop", botId: "missing" })).status, 404, "an unknown loop is a 404");
-  assert.equal((await post({ action: "start" })).status, 400, "start is not a control action");
+  const started = await post({ action: "start", goal: "直して", acceptance: ["テストが通る"] });
+  assert.equal(started.status, 200, "start is forwarded too");
   assert.deepEqual(seen, [
     { id: "task-1", body: { action: "pause" } },
     { id: "task-1", body: { action: "resume", maxTurns: 5 } },
     { id: "task-1", body: { action: "stop", botId: "bot-1" } },
     { id: "task-1", body: { action: "stop", botId: "missing" } },
+    { id: "task-1", body: { action: "start", goal: "直して", acceptance: ["テストが通る"] } },
   ]);
 });
 

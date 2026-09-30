@@ -167,10 +167,15 @@ export function expectedBackendGeneration(env: BackendEnv = process.env): string
   return normalizeExpectedGeneration(env.LEAFCODE_PI_BACKEND_GENERATION);
 }
 
-/** Controls a Goal Loop in the owning Backend (pause/resume/stop/complete). */
+/** The Goal Loop body the owning Backend accepts: start carries the loop's own inputs. */
+export type BackendGoalLoopBody =
+  | { action: "start"; goal: string; acceptance: string[]; maxTurns?: number; cooldownSeconds?: number; forceFullRun?: boolean; images?: unknown }
+  | { action: "pause" | "resume" | "stop" | "complete"; maxTurns?: number; botId?: string };
+
+/** Starts or controls a Goal Loop in the owning Backend. */
 export function controlGoalLoopOnBackend(
   id: string,
-  body: { action: "pause" | "resume" | "stop" | "complete"; maxTurns?: number; botId?: string },
+  body: BackendGoalLoopBody,
   options: { env?: BackendEnv; fetchImpl?: typeof fetch; timeoutMs?: number } = {},
 ): Promise<BackendResult<{ loop: Record<string, unknown> | null }>> {
   return postBackendJson(`${BACKEND_TASKS_PATH}/${encodeURIComponent(id)}${BACKEND_TASK_GOAL_LOOP_SUFFIX}`, body, options);

@@ -237,7 +237,9 @@ export function createBackendServer({
       try {
         if (actionSuffix === BACKEND_TASK_GOAL_LOOP_SUFFIX) {
           const action = body.value?.action;
-          if (action !== "pause" && action !== "resume" && action !== "stop" && action !== "complete") {
+          if (
+            action !== "start" && action !== "pause" && action !== "resume" && action !== "stop" && action !== "complete"
+          ) {
             sendJson(response, 400, { error: "Invalid goal loop action", code: BACKEND_ERROR_CODES.badRequest });
             return;
           }

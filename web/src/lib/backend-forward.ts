@@ -1,6 +1,7 @@
 import {
   abortTaskOnBackend,
   controlGoalLoopOnBackend,
+  type BackendGoalLoopBody,
   postBotCodeRequestAction,
   promptTaskOnBackend,
   readBackendPendingSnapshots,
@@ -197,10 +198,52 @@ export async function forwardBotCodeRequestAbort(
   return { ok: true, result: result.body };
 }
 
+/**
+ * Starts a Goal Loop in the owning Backend.
+ *
+ * The caller must have resolved everything the WebUI owns (Auto, model, agent) first: this forwards
+ * only what the loop itself needs.
+ */
+export async function forwardGoalLoopStart(
+  id: string,
+  body: {
+    goal: string;
+    acceptance: string[];
+    maxTurns?: number;
+    cooldownSeconds?: number;
+    forceFullRun?: boolean;
+    images?: unknown;
+  },
+  options: { env?: BackendEnv; fetchImpl?: typeof fetch; timeoutMs?: number } = {},
+): Promise<
+  | { ok: true; loop: Record<string, unknown> | null }
+  | { ok: false; reason: BackendFailureReason | "not-found"; status?: number }
+> {
+  const result = await controlGoalLoopOnBackend(
+    id,
+    {
+      action: "start",
+      goal: body.goal,
+      acceptance: body.acceptance,
+      ...(body.maxTurns !== undefined ? { maxTurns: body.maxTurns } : {}),
+      ...(body.cooldownSeconds !== undefined ? { cooldownSeconds: body.cooldownSeconds } : {}),
+      ...(body.forceFullRun !== undefined ? { forceFullRun: body.forceFullRun } : {}),
+      ...(body.images !== undefined ? { images: body.images } : {}),
+    },
+    options,
+  );
+  if (!result.ok) {
+    if (result.status === 404) return { ok: false, reason: "not-found", status: 404 };
+    return { ok: false, reason: result.reason, ...(result.status ? { status: result.status } : {}) };
+  }
+  const loop = result.body?.loop;
+  return { ok: true, loop: loop && typeof loop === "object" ? loop : null };
+}
+
 /** Controls a Goal Loop in the owning Backend; a missing loop is a 404, not a fallback. */
 export async function forwardGoalLoopControl(
   id: string,
-  body: { action: "pause" | "resume" | "stop" | "complete"; maxTurns?: number; botId?: string },
+  body: Extract<BackendGoalLoopBody, { action: "pause" | "resume" | "stop" | "complete" }>,
   options: { env?: BackendEnv; fetchImpl?: typeof fetch; timeoutMs?: number } = {},
 ): Promise<
   | { ok: true; loop: Record<string, unknown> | null }
