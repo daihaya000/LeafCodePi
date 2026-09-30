@@ -27,7 +27,7 @@
 ## 段階と現在地
 
 1. 通信契約・依存境界: **進行中**。認証、版数、health、起動/停止を追加。既存のタスク・モデル・質問/承認・Bot/Room・履歴・Git等のDTOを `shared/types.ts` へ移動。既存 `@/lib/types` は互換再エクスポート。共有契約はNext/SDK/Node型への依存なしで単独型検証できる。設定等の個別ファイルにあるDTOと実行依存の抽出は後続。
-2. Next非依存の実行層: **着手済み**。アカウント別ランタイムの所有・参照数・LRU管理を `backend/core/account-runtime-manager.mjs` へ移設し、Web側は互換入口にした。`backend/core/sdk-runtime.mjs` にSDKのlazy/single-flightロード、モデルランタイム生成、セッション生成の境界を追加。Backend側のSDKは移行時のWeb SDKと同じ0.87.1に固定しlockfileを持つ。実SDKを一時ストレージ・ネットワーク無効で初期化するテストを追加。harnessのSDKロード、既定/アカウント別ランタイム生成、セッション生成をこのファクトリへ接続済み。移行中はSDKローダーをharnessから注入し、既存のSDKモジュール・プロバイダー登録・テストのidentityを維持する。既定ランタイムは初期llama-serverプロバイダー登録成功後だけ公開し、その登録失敗時は未初期化として再試行する。保存・ブリッジ、セッション制御、起動処理の移設は未完。
+2. Next非依存の実行層: **着手済み**。アカウント別ランタイムの所有・参照数・LRU管理を `backend/core/account-runtime-manager.mjs` へ移設し、Web側は互換入口にした。`backend/core/sdk-runtime.mjs` にSDKのlazy/single-flightロード、モデルランタイム生成、セッション生成の境界を追加。Backend側のSDKは移行時のWeb SDKと同じ0.87.1に固定しlockfileを持つ。実SDKを一時ストレージ・ネットワーク無効で初期化するテストを追加。harnessのSDKロード、既定/アカウント別ランタイム生成、セッション生成をこのファクトリへ接続済み。移行中はSDKローダーをharnessから注入し、既存のSDKモジュール・プロバイダー登録・テストのidentityを維持する。既定ランタイムは初期llama-serverプロバイダー登録成功後だけ公開し、その登録失敗時は未初期化として再試行する。再起動復旧を `backend/core/restart-resume.mjs` へ移設し、既存の `restart-resume.json` とプロンプト・再試行上限・除外判定を維持する。データディレクトリとタスク/実行コールバックは注入する。起動順序も `backend/core/runtime-startup.mjs` へ抽出し、復旧listener登録→孤立タスク照合→relay→scheduler→Room照合を共通化した。同時起動を集約し、起動失敗は再試行可能。履歴/モデルwarmupと遅延ラベル補完は非必須で、待たずに起動を終える。Web instrumentationはNode/Edge判定と互換アダプターの呼出だけにした。アプリストア・lease・ブリッジ・セッション制御・各起動サービスの実装移設は未完。
 3. 独立API・Web中継: 未着手。既存URLと応答形式を維持。切替は排他的に行い、旧経路とBackendの二重実行/書込を禁止。
 4. Host・ビルド・再起動分離: 未着手。ready確認、独立した再起動予算、稼働中SDK/拡張世代の固定、互換性確認を追加。
 5. 段階導入・旧経路撤去: 未着手。実プロセス継続試験後にSDK依存とシングルトンをWebUIから除去。
@@ -68,6 +68,6 @@
 
 Backend単独のSDK検証前には `npm --prefix backend ci --ignore-scripts` で専用依存を用意する。実SDKテストはauth・models設定・models storeをすべて一時ディレクトリに限定し、モデルのネットワーク更新と起動時refreshを無効にする。既存ユーザー設定・資格情報・実セッションには接続しない。
 
-移行中のWeb互換入口は `@backend-core/*` を参照するため、productionミラー内の `backend-core/` へcoreソースだけを独立コピーする。Backendの依存関係・サーバー・稼働ディレクトリはコピーしない。core更新も一時的にWebのビルド更新判定へ含め、Webからのruntime import撤去時に外す。HTTP BackendへはまだSDKを接続せず、healthは503/startingのまま。
+移行中のWeb互換入口は `@backend-core/*` を参照するため、productionミラー内の `backend-core/` へcoreソースだけを独立コピーする。Backendの依存関係・サーバー・稼働ディレクトリはコピーしない。core更新も一時的にWebのビルド更新判定へ含め、Webからのruntime import撤去時に外す。HTTP BackendへはまだSDKや起動アダプターを接続せず、healthは503/startingのまま。共通startupの完了はSDK/Backendのreadyではない。移行中はWebのプロセス内singletonが起動アダプターを所有し、Backendとの二重起動を行わない。
 
 今回の抽出では以上の分離完了を主張しない。稼働中WebUIやGoal Loopの再起動も行わない。

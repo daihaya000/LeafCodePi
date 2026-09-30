@@ -1,4 +1,15 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { RuntimeStartup } from "@backend-core/runtime-startup.mjs";
+
+const globals = globalThis as typeof globalThis & { __leafcodeRuntimeStartup?: RuntimeStartup };
+afterEach(async () => {
+  globals.__leafcodeRuntimeStartup?.cancelWarmups();
+  delete globals.__leafcodeRuntimeStartup;
+  // Drain already-started mock warmups before resetting the next fixture.
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  vi.unstubAllEnvs();
+  vi.restoreAllMocks();
+});
 
 const state = vi.hoisted(() => ({ relay: vi.fn(), scheduler: vi.fn(), reconcileTasks: vi.fn(), reconcileRooms: vi.fn(), prewarmTasks: vi.fn(() => Promise.resolve([])), warmModels: vi.fn(() => Promise.resolve([])), listAccounts: vi.fn(() => []), backfillLabels: vi.fn(() => Promise.resolve(0)), promptTask: vi.fn(() => Promise.resolve({})), setOrphanListener: vi.fn(), handleOrphans: vi.fn(), order: [] as string[] }));
 vi.mock("@/lib/pi/harness", () => ({ startBotCodeRelay: state.relay, getTaskSummariesWithTodoProgress: state.prewarmTasks, listModelsForAccounts: state.warmModels, promptTask: state.promptTask }));
@@ -40,8 +51,10 @@ describe("runtime startup", () => {
     expect(state.scheduler).toHaveBeenCalledOnce();
     expect(state.reconcileRooms).toHaveBeenCalledOnce();
     expect(state.prewarmTasks).toHaveBeenCalledWith(true);
-    expect(state.listAccounts).toHaveBeenCalledOnce();
-    expect(state.warmModels).toHaveBeenCalledOnce();
+    await vi.waitFor(() => {
+      expect(state.listAccounts).toHaveBeenCalledOnce();
+      expect(state.warmModels).toHaveBeenCalledOnce();
+    });
   });
 
   it("registers restart resume before reconciling and resumes with the task's own settings", async () => {
@@ -68,12 +81,36 @@ describe("runtime startup", () => {
       await register();
       expect(state.backfillLabels).not.toHaveBeenCalled();
 
-      vi.advanceTimersByTime(60_000);
+      await vi.advanceTimersByTimeAsync(60_000);
 
       expect(state.backfillLabels).toHaveBeenCalledOnce();
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("shares startup across concurrent Node registrations", async () => {
+    vi.stubEnv("NEXT_RUNTIME", "nodejs");
+    await Promise.all([register(), register(), register()]);
+    expect(state.setOrphanListener).toHaveBeenCalledOnce();
+    expect(state.reconcileTasks).toHaveBeenCalledOnce();
+    expect(state.relay).toHaveBeenCalledOnce();
+    expect(state.scheduler).toHaveBeenCalledOnce();
+    expect(state.reconcileRooms).toHaveBeenCalledOnce();
+  });
+
+  it("retries failed required startup without starting the relay prematurely", async () => {
+    vi.stubEnv("NEXT_RUNTIME", "nodejs");
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    state.reconcileTasks.mockImplementationOnce(() => { throw new Error("store unavailable"); });
+    await register();
+    expect(state.relay).not.toHaveBeenCalled();
+    expect(state.scheduler).not.toHaveBeenCalled();
+    expect(warning).toHaveBeenCalledWith("[bot-code-relay] startup scan unavailable", expect.any(Error));
+    await register();
+    expect(state.reconcileTasks).toHaveBeenCalledTimes(2);
+    expect(state.relay).toHaveBeenCalledOnce();
+    expect(state.scheduler).toHaveBeenCalledOnce();
   });
 
   it("does not start server services in the Edge runtime", async () => {
