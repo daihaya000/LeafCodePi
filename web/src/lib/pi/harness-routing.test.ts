@@ -38,6 +38,7 @@ const fakePi = vi.hoisted(() => {
     compactionEnabledHistory: boolean[];
     transport: "auto" | "sse";
     routingContext?: Record<string, unknown>;
+    routingHooks?: Record<string, unknown>;
     emit?: (event: FakeEvent) => void;
   }[] = [];
 
@@ -111,6 +112,7 @@ const fakePi = vi.hoisted(() => {
         compactionEnabledHistory: boolean[];
         transport: "auto" | "sse";
         routingContext?: Record<string, unknown>;
+        routingHooks?: Record<string, unknown>;
         emit?: (event: FakeEvent) => void;
       } = {
         accountId: options.modelRuntime?.accountId ?? null,
@@ -136,7 +138,10 @@ const fakePi = vi.hoisted(() => {
       let activeTools: string[] = [];
       const extensionApi: FakeExtensionApi = {
         events: {
-          emit: (channel, data) => { eventBus.emit(channel, data); },
+          emit: (channel, data) => {
+            if (channel === "leafcode-goal-loop:host-routing-ready") entry.routingHooks = data as Record<string, unknown>;
+            eventBus.emit(channel, data);
+          },
           on: (channel, handler) => {
             eventBus.on(channel, handler);
             return () => eventBus.off(channel, handler);
@@ -789,8 +794,11 @@ describe("integrated session routing", () => {
     };
     const live = harness.live.get(task.id)!;
     live.promptActive = true;
-    const prepare = fakePi.sessions[0]?.routingContext
-      ?.prepareGoalLoopTurn as
+    const routingHooks = fakePi.sessions[0]?.routingHooks;
+    expect(routingHooks?.sessionManager).toBe(live.session.sessionManager);
+    expect(routingHooks?.releaseGoalLoopTurn).toBeTypeOf("function");
+    expect(routingHooks?.canRetryGoalLoopProviderLimit).toBeTypeOf("function");
+    const prepare = routingHooks?.prepareGoalLoopTurn as
       | ((prompt: string) => Promise<boolean | "retry">)
       | undefined;
     assert.ok(prepare);
@@ -827,8 +835,8 @@ describe("integrated session routing", () => {
       turnCount: 1,
     }), "utf8");
 
-    const routingContext = fakePi.sessions[0]?.routingContext;
-    const oldPrepare = routingContext?.prepareGoalLoopTurn as
+    const oldRoutingHooks = fakePi.sessions[0]?.routingHooks;
+    const oldPrepare = oldRoutingHooks?.prepareGoalLoopTurn as
       | ((prompt: string) => Promise<boolean | "retry">)
       | undefined;
     assert.ok(oldPrepare);
@@ -837,7 +845,9 @@ describe("integrated session routing", () => {
     expect(getTask(task.id)?.status).toBe("idle");
     expect(getTaskHangWatch(task.id)).toBeNull();
 
-    const successorPrepare = routingContext?.prepareGoalLoopTurn as
+    const routingHooks = fakePi.sessions[0]?.routingHooks;
+    expect(routingHooks).not.toBe(oldRoutingHooks);
+    const successorPrepare = routingHooks?.prepareGoalLoopTurn as
       | ((prompt: string) => Promise<boolean | "retry">)
       | undefined;
     expect(successorPrepare).toBeTypeOf("function");
@@ -845,7 +855,7 @@ describe("integrated session routing", () => {
     expect(await successorPrepare!("turn two")).toBe(true);
     expect(getTask(task.id)?.status).toBe("working");
     expect(getTaskHangWatch(task.id)).toMatchObject({ skipResume: true });
-    const release = routingContext?.releaseGoalLoopTurn as (() => void) | undefined;
+    const release = routingHooks?.releaseGoalLoopTurn as (() => void) | undefined;
     expect(release).toBeTypeOf("function");
     release!();
     expect(getTask(task.id)?.status).toBe("idle");

@@ -138,6 +138,8 @@ const ABORTED_TURN_PAUSE_ERROR = "実行が中断されたため一時停止し�
  * session_start handler, which runs after ours.
  */
 export const HOST_ROUTING_CHANNEL = "leafcode-goal-loop:host-routing";
+/** Session-scoped hooks; do not rely on the host and extension sharing a ctx object. */
+export const HOST_ROUTING_READY_CHANNEL = "leafcode-goal-loop:host-routing-ready";
 /** Bound on waiting for announced host routing before sending without it. */
 const HOST_ROUTING_WAIT_MS = 15_000;
 /**
@@ -175,6 +177,7 @@ function retireRuntime(runtime: Runtime): void {
   clearTimer(runtime);
   if (runtime.watchdogTimer) clearInterval(runtime.watchdogTimer);
   runtime.watchdogTimer = undefined;
+  runtime.stopHostRoutingReady?.();
   if (runtimes.get(runtime.key) === runtime) runtimes.delete(runtime.key);
 }
 
@@ -194,13 +197,17 @@ function renameGoalState(temp: string, file: string): void {
   (renameSyncForTests ?? fs.renameSync)(temp, file);
 }
 
-type GoalLoopTurnRoutingContext = ExtensionContext & {
+type GoalLoopTurnRoutingHooks = {
   /** Returns false when routing replaced this session, or retry when not attached yet. */
   prepareGoalLoopTurn?: (prompt: string) => Promise<boolean | "retry">;
   /** Checks whether a provider-limit turn can be retried on a fallback route. */
   canRetryGoalLoopProviderLimit?: () => Promise<boolean>;
   /** Undoes the host's pre-send bookkeeping when a prepared turn is not sent. */
   releaseGoalLoopTurn?: () => void;
+};
+type GoalLoopTurnRoutingContext = ExtensionContext & GoalLoopTurnRoutingHooks;
+type GoalLoopHostRouting = GoalLoopTurnRoutingHooks & {
+  sessionManager: ExtensionContext["sessionManager"];
 };
 
 type Runtime = {
@@ -236,6 +243,9 @@ type Runtime = {
   endNoticeQueued: boolean;
   /** The host announced turn routing; never send before its hooks are installed. */
   hostRoutingExpected: boolean;
+  /** Hooks published for this exact session manager, independent of event ctx identity. */
+  hostRouting?: GoalLoopHostRouting;
+  stopHostRoutingReady?: () => void;
   /** Stop waiting for announced routing that never arrives after this time. */
   hostRoutingDeadline: number;
   disposed: boolean;
@@ -1290,7 +1300,7 @@ async function settleAwaitingTurn(runtime: Runtime): Promise<void> {
     const turnGeneration = runtime.turnGeneration;
     let canRetry = false;
     try {
-      canRetry = await runtime.ctx.canRetryGoalLoopProviderLimit?.() ?? false;
+      canRetry = await (runtime.hostRouting ?? runtime.ctx).canRetryGoalLoopProviderLimit?.() ?? false;
     } catch {
       canRetry = false;
     }
@@ -1671,7 +1681,7 @@ function startScheduleWatchdog(runtime: Runtime): void {
 function awaitingHostRouting(runtime: Runtime): "waiting" | "timed_out" | "ready" {
   if (!runtime.hostRoutingExpected) return "ready";
   if (Date.now() < runtime.hostRoutingDeadline) return "waiting";
-  runtime.hostRoutingExpected = false;
+  // Keep the requirement after timeout: Resume must never bypass host routing.
   console.error("[goal-loop] host routing was announced but never installed");
   return "timed_out";
 }
@@ -1679,7 +1689,7 @@ function awaitingHostRouting(runtime: Runtime): "waiting" | "timed_out" | "ready
 /** The host marked the task working for a prepared turn; undo that when it is not sent. */
 function releasePreparedTurn(runtime: Runtime): void {
   try {
-    runtime.ctx.releaseGoalLoopTurn?.();
+    (runtime.hostRouting ?? runtime.ctx).releaseGoalLoopTurn?.();
   } catch (error) {
     console.error("[goal-loop] releaseGoalLoopTurn failed:", error);
   }
@@ -1736,7 +1746,7 @@ async function sendTurn(runtime: Runtime): Promise<void> {
     : routingTurn === 1 && loop.unreadableStreak === 0
       ? buildGoalPrompt(loop, routingTurn)
       : buildGoalContinuationPrompt(loop, routingTurn);
-  const prepareGoalLoopTurn = runtime.ctx.prepareGoalLoopTurn;
+  const prepareGoalLoopTurn = (runtime.hostRouting ?? runtime.ctx).prepareGoalLoopTurn;
   if (!prepareGoalLoopTurn) {
     const routingState = awaitingHostRouting(runtime);
     if (routingState === "waiting") {
@@ -1747,8 +1757,6 @@ async function sendTurn(runtime: Runtime): Promise<void> {
       pauseLoop(runtime, "scheduler_error", "ホストのGoal Loopターン準備が期限内に開始されませんでした。");
       return;
     }
-  } else {
-    runtime.hostRoutingExpected = false;
   }
   // Once the host prepared this turn (lease, working status, hang watch), every
   // exit that does not send it must hand that bookkeeping back.
@@ -2020,6 +2028,7 @@ function startLoop(
   }
   updateUI(runtime, loop);
   appendSnapshot(runtime, loop);
+  runtime.hostRoutingDeadline = Date.now() + hostRoutingWaitMs();
   schedule(runtime, 0);
   return loop;
 }
@@ -2209,6 +2218,7 @@ function resumeLoop(runtime: Runtime, maxTurns?: unknown): boolean {
   runtime.endNoticeQueued = false;
   updateUI(runtime, loop);
   appendSnapshot(runtime, loop);
+  runtime.hostRoutingDeadline = Date.now() + hostRoutingWaitMs();
   schedule(runtime, 0);
   return true;
 }
@@ -2385,7 +2395,33 @@ export default function (pi: ExtensionAPI): void {
   let runtime: Runtime | undefined;
   // Set by the host announcement, which Pi delivers while loading extensions.
   let hostRoutingExpected = false;
+  let pendingHostRouting: GoalLoopHostRouting | undefined;
   let stopHostRoutingListener: (() => void) | undefined;
+  let stopHostRoutingReadyListener: (() => void) | undefined;
+  const receiveHostRouting = (data: unknown) => {
+    const packet = asRecord(data);
+    if (!packet?.sessionManager || typeof packet.prepareGoalLoopTurn !== "function") return;
+    const routing = packet as GoalLoopHostRouting;
+    if (!runtime) {
+      pendingHostRouting = routing;
+      return;
+    }
+    if (!isActiveRuntime(runtime) || runtime.sessionManager !== routing.sessionManager) return;
+    runtime.hostRouting = routing;
+    runtime.hostRoutingExpected = true;
+    ensureScheduled(runtime);
+  };
+  const stopHostRoutingReady = () => {
+    stopHostRoutingReadyListener?.();
+    stopHostRoutingReadyListener = undefined;
+  };
+  const listenForHostRoutingReady = () => {
+    try {
+      stopHostRoutingReadyListener ??= pi.events?.on(HOST_ROUTING_READY_CHANNEL, receiveHostRouting);
+    } catch {
+      // Older standalone hosts may not expose an event bus.
+    }
+  };
   try {
     stopHostRoutingListener = pi.events?.on(HOST_ROUTING_CHANNEL, () => {
       hostRoutingExpected = true;
@@ -2393,6 +2429,7 @@ export default function (pi: ExtensionAPI): void {
   } catch {
     // Hosts without an event bus never announce routing.
   }
+  listenForHostRoutingReady();
 
   pi.on("session_start", async (event, ctx) => {
     const id = sessionId(ctx);
@@ -2441,6 +2478,7 @@ export default function (pi: ExtensionAPI): void {
     // before it can touch stale SDK ctx or mutate the successor's queued state.
     const predecessor = runtimes.get(key);
     if (predecessor) retireRuntime(predecessor);
+    listenForHostRoutingReady();
     runtime = {
       key,
       cwd: ctx.cwd,
@@ -2457,10 +2495,13 @@ export default function (pi: ExtensionAPI): void {
       abortedTurnPausePending: false,
       endNoticeQueued: false,
       hostRoutingExpected,
+      stopHostRoutingReady,
+      ...(pendingHostRouting?.sessionManager === ctx.sessionManager ? { hostRouting: pendingHostRouting, hostRoutingExpected: true } : {}),
       hostRoutingDeadline: Date.now() + hostRoutingWaitMs(),
       disposed: false,
       pendingAgentAborted: false,
     };
+    pendingHostRouting = undefined;
     if (reloaded) restoreReloadHandoff(runtime, handoff);
     runtimes.set(key, runtime);
     startScheduleWatchdog(runtime);
@@ -2643,6 +2684,7 @@ export default function (pi: ExtensionAPI): void {
     // Ignore teardown from the preceding session when its session_start has
     // already installed a different runtime in this extension instance.
     if (!current || current.disposed || !matchesRuntimeContext(current, ctx)) return;
+    current.stopHostRoutingReady?.();
     // A replacement can reuse the same cwd/session ID. In that case a delayed
     // shutdown carries the old manager and must not dispose the new runtime.
     // dispose()/replace can leave this extension instance alive long enough to

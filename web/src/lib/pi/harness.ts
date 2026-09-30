@@ -1780,6 +1780,7 @@ const soulReloadInflight = new Map<string, Promise<LiveRuntime>>();
 const sessionReloadInflight = new WeakMap<AgentSession, Promise<void>>();
 const goalLoopRoutingOwners = new WeakMap<object, symbol>();
 const GOAL_LOOP_HOST_ROUTING_CHANNEL = "leafcode-goal-loop:host-routing";
+const GOAL_LOOP_HOST_ROUTING_READY_CHANNEL = "leafcode-goal-loop:host-routing-ready";
 
 /** Serialize all session.reload() paths and let concurrent prompts wait for rebuild. */
 function reloadSession(session: AgentSession): Promise<void> {
@@ -3084,6 +3085,14 @@ function registerGoalLoopTurnRouting(taskId: string): (pi: ExtensionAPI) => void
         });
         return routes.length > 0;
       };
+      // Publish explicit session-scoped hooks. Context properties are retained
+      // for older bundled extensions, but ctx identity is not the transport.
+      pi.events.emit(GOAL_LOOP_HOST_ROUTING_READY_CHANNEL, {
+        sessionManager: manager,
+        prepareGoalLoopTurn: routingContext.prepareGoalLoopTurn,
+        releaseGoalLoopTurn: routingContext.releaseGoalLoopTurn,
+        canRetryGoalLoopProviderLimit: routingContext.canRetryGoalLoopProviderLimit,
+      });
     });
   };
 }

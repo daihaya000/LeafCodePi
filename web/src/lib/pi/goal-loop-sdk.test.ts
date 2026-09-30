@@ -208,6 +208,79 @@ it.each(["queued", "preparing"])("starts a %s Goal Loop after a replacement load
   }
 });
 
+it.each(["attached", "late-after-timeout", "rebound"])("requires session-scoped host routing on start/resume (%s)", async (phase) => {
+  const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-routing-sdk-"));
+  vi.stubEnv("LEAFCODE_PI_DATA_DIR", cwd);
+  vi.useFakeTimers();
+  const manager = SessionManager.inMemory(cwd);
+  let publishRouting!: (sessionManager?: object) => void;
+  const prepare = vi.fn(async () => true);
+  const release = vi.fn();
+  const canRetry = vi.fn(async () => false);
+  const routingFactory: ExtensionFactory = (api) => {
+    api.events.emit(HOST_ROUTING_CHANNEL, {});
+    api.on("session_start", (_event, ctx) => {
+      // The host must not depend on sharing this exact ctx object with Goal Loop.
+      const hostCtx = Object.defineProperties({}, Object.getOwnPropertyDescriptors(ctx)) as typeof ctx;
+      publishRouting = (sessionManager = hostCtx.sessionManager) => api.events.emit("leafcode-goal-loop:host-routing-ready", {
+        sessionManager, prepareGoalLoopTurn: prepare,
+        releaseGoalLoopTurn: release, canRetryGoalLoopProviderLimit: canRetry,
+      });
+      if (phase !== "late-after-timeout") publishRouting();
+    });
+  };
+  const loader = new DefaultResourceLoader({
+    cwd, agentDir: cwd, settingsManager: SettingsManager.inMemory(),
+    noExtensions: true, noSkills: true, noPromptTemplates: true, noThemes: true, noContextFiles: true,
+    extensionFactories: [goalLoopExtension as unknown as ExtensionFactory, routingFactory],
+  });
+  let runner: ExtensionRunner | undefined;
+  try {
+    await loader.reload();
+    const loaded = loader.getExtensions();
+    expect(loaded.errors).toEqual([]);
+    const sendMessage = vi.fn();
+    loaded.runtime.sendMessage = sendMessage;
+    loaded.runtime.appendEntry = (type, data) => { manager.appendCustomEntry(type, data); };
+    runner = new ExtensionRunner(loaded.extensions, loaded.runtime, cwd, manager, {} as ModelRegistry);
+    const state = () => JSON.parse(readFileSync(join(cwd, "goals-loop", `${manager.getSessionId()}.json`), "utf8"));
+    await runner.emit({ type: "session_start", reason: "startup" });
+    await runner.getCommand("goal-start")!.handler(Buffer.from(JSON.stringify({ goal: "Use host routing", maxTurns: 2 })).toString("base64url"), runner.createCommandContext());
+    if (phase === "late-after-timeout") {
+      // Another session's ready event must not satisfy this session's handshake.
+      publishRouting({});
+      await vi.advanceTimersByTimeAsync(15_001);
+      expect(state()).toMatchObject({ status: "paused", pauseReason: "scheduler_error", turnCount: 0 });
+      await runner.getCommand("goal-resume")!.handler("", runner.createCommandContext());
+      await vi.advanceTimersByTimeAsync(1);
+      expect(state()).toMatchObject({ status: "queued", turnCount: 0 });
+      expect(sendMessage.mock.calls.filter(([message]) => message.customType === "leafcode-goal-turn")).toHaveLength(0);
+      publishRouting();
+      await vi.advanceTimersByTimeAsync(250);
+    } else {
+      await vi.advanceTimersByTimeAsync(1);
+    }
+    expect(prepare).toHaveBeenCalledTimes(1);
+    expect(state()).toMatchObject({ status: "running", turnCount: 1 });
+    expect(sendMessage.mock.calls.filter(([message]) => message.customType === "leafcode-goal-turn")).toHaveLength(1);
+    if (phase === "rebound") {
+      await runner.getCommand("goal-stop")!.handler("", runner.createCommandContext());
+      await runner.emit({ type: "session_shutdown", reason: "quit" });
+      await runner.emit({ type: "session_start", reason: "startup" });
+      await runner.getCommand("goal-start")!.handler(Buffer.from(JSON.stringify({ goal: "Start again" })).toString("base64url"), runner.createCommandContext());
+      await vi.advanceTimersByTimeAsync(1);
+      expect(prepare).toHaveBeenCalledTimes(2);
+      expect(state()).toMatchObject({ status: "running", turnCount: 1 });
+      expect(sendMessage.mock.calls.filter(([message]) => message.customType === "leafcode-goal-turn")).toHaveLength(2);
+    }
+  } finally {
+    await runner?.emit({ type: "session_shutdown", reason: "quit" });
+    vi.useRealTimers();
+    vi.unstubAllEnvs();
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
 it("starts, controls and completes Goal Loop through real SDK context dispatch", async () => {
   const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-sdk-"));
   vi.stubEnv("LEAFCODE_PI_DATA_DIR", cwd);
