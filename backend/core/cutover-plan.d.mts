@@ -13,7 +13,12 @@ export type CutoverBlockerCode =
 
 export type CutoverBlocker = { code: CutoverBlockerCode; detail?: string | number };
 
+export type CutoverPhase = "start" | "verify";
+
+export const CUTOVER_PHASES: readonly CutoverPhase[];
+
 export type CutoverPreflightResult = {
+  phase: CutoverPhase;
   ok: boolean;
   blockers: CutoverBlocker[];
   activeTasks: number;
@@ -22,6 +27,7 @@ export type CutoverPreflightResult = {
 };
 
 export function cutoverPreflight(input: {
+  phase?: CutoverPhase;
   backendConfigured?: boolean;
   health?: { ok?: boolean; ready?: boolean; runtimeGeneration?: string | null } | null;
   expectedGeneration?: string;

@@ -12,7 +12,41 @@ test("a ready Backend of the pinned generation with no work in flight may take o
     relayEnabled: true,
     webOwnsRuntime: false,
   });
-  assert.deepEqual(result, { ok: true, blockers: [], activeTasks: 0, goalLoopSessions: 0, foreignLeases: 0 });
+  assert.deepEqual(result, { phase: "verify", ok: true, blockers: [], activeTasks: 0, goalLoopSessions: 0, foreignLeases: 0 });
+});
+
+test("the start phase ignores readiness: the runtime is attached during the cutover", () => {
+  const start = cutoverPreflight({
+    phase: "start",
+    backendConfigured: true,
+    // Detached and not ready: exactly the pre-cutover state.
+    health: { ok: true, ready: false, runtimeGeneration: null },
+    relayEnabled: false,
+    webOwnsRuntime: true,
+  });
+  assert.equal(start.ok, true, JSON.stringify(start.blockers));
+  assert.equal(start.phase, "start");
+  // Work in flight still blocks, in both phases.
+  for (const phase of ["start", "verify"]) {
+    const blocked = cutoverPreflight({
+      phase,
+      backendConfigured: true,
+      health: { ok: true, ready: true, runtimeGeneration: "gen-a" },
+      expectedGeneration: "gen-a",
+      activeTasks: [{ status: "working" }],
+      relayEnabled: true,
+      webOwnsRuntime: false,
+    });
+    assert.deepEqual(blocked.blockers, [{ code: "active-work", detail: 1 }], phase);
+  }
+});
+
+test("the start phase requires the intended pre-cutover ownership, and rejects an unknown phase", () => {
+  assert.deepEqual(
+    cutoverPreflight({ phase: "start", backendConfigured: true, health: { ok: true }, relayEnabled: true, webOwnsRuntime: true }).blockers,
+    [{ code: "relay-disabled" }],
+  );
+  assert.throws(() => cutoverPreflight({ phase: "later" }), /unknown cutover phase/);
 });
 
 test("an unreachable or unconfigured Backend blocks the cutover", () => {
