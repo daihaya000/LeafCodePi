@@ -22,18 +22,21 @@ export type BotSkillsConfig = {
 };
 
 export type BotToolName = "read" | "write" | "edit" | "bash" | "powershell" | "question" | "grep" | "find" | "ls" | "memory_search" | "memory_add" | "memory_replace" | "memory_remove" | "session_search" | "skill_manage" | "subagent" | "todowrite" | "tool_search" | "jev_judge" | "intercom" | "web_search" | "source_check" | "fetch_content" | "get_search_content" | "contact_supervisor" | "subagent_wait" | "structured_output" | "task_mutation_decision" | "watchdog_permission_decision" | "watchdog_warn" | "mcp";
-export const BOT_TOOL_NAMES: readonly BotToolName[] = ["read", "write", "edit", "bash", "powershell", "question", "grep", "find", "ls", "memory_search", "memory_add", "memory_replace", "memory_remove", "session_search", "skill_manage", "subagent", "todowrite", "tool_search", "jev_judge", "intercom", "web_search", "source_check", "fetch_content", "get_search_content", "contact_supervisor", "subagent_wait", "structured_output", "task_mutation_decision", "watchdog_permission_decision", "watchdog_warn", "mcp"];
+// The vocabulary itself lives in shared/bot-tools.mjs so the Backend process can read it too;
+// this file keeps the narrower BotToolName typing for the Web app.
+import {
+  BOT_DEFAULT_DISABLED_TOOL_NAMES as CORE_BOT_DEFAULT_DISABLED_TOOL_NAMES,
+  BOT_DEFAULT_TOOL_NAMES as CORE_BOT_DEFAULT_TOOL_NAMES,
+  BOT_TOOL_NAMES as CORE_BOT_TOOL_NAMES,
+} from "./bot-tools.mjs";
+export const BOT_TOOL_NAMES = CORE_BOT_TOOL_NAMES as readonly BotToolName[];
 /** Windows desktop tools from leafcode-computer-use. Code/agents only; never Bot tools. */
 export const COMPUTER_USE_TOOL_NAMES = [
   "find_roots", "observe_ui", "search_ui", "expand_ui", "inspect_ui", "act_ui", "read_text", "wait_for",
 ] as const;
-/** Tools that mutate state or coordinate subagents internally; off by default for Bots. */
-export const BOT_DEFAULT_DISABLED_TOOL_NAMES = [
-  "write", "edit", "bash", "powershell", "subagent", "todowrite",
-  "contact_supervisor", "subagent_wait", "structured_output", "task_mutation_decision", "watchdog_permission_decision", "watchdog_warn",
-] as const satisfies readonly BotToolName[];
-const BOT_DEFAULT_DISABLED_TOOL_SET = new Set<string>(BOT_DEFAULT_DISABLED_TOOL_NAMES);
-export const BOT_DEFAULT_TOOL_NAMES: readonly BotToolName[] = BOT_TOOL_NAMES.filter((tool) => !BOT_DEFAULT_DISABLED_TOOL_SET.has(tool));
+export const BOT_DEFAULT_DISABLED_TOOL_NAMES = CORE_BOT_DEFAULT_DISABLED_TOOL_NAMES as readonly BotToolName[];
+const BOT_DEFAULT_DISABLED_TOOL_SET = new Set<string>(CORE_BOT_DEFAULT_DISABLED_TOOL_NAMES);
+export const BOT_DEFAULT_TOOL_NAMES = CORE_BOT_DEFAULT_TOOL_NAMES as readonly BotToolName[];
 
 export type RoomConversationTurn = { requestId: string; participantIds: string[]; turn: number; maxTurns: number };
 /** Why the opener bot was chosen for this turn (Room opener v2). */
