@@ -107,3 +107,17 @@ export function shouldPruneCodeRequest(input: {
 
 /** Whether a scan may start (one tick at a time). */
 export function shouldStartCodeRelayTick(input: { ticking: boolean }): boolean;
+
+/** The prompt a Bot may hand to Code, cut to the limit (code points; the ellipsis counts). */
+export function truncateCodeReportRequest(prompt: string, maxChars: number): string;
+
+/** The Goal Loop options a Bot tool call may carry, validated and clamped. */
+export function parseGoalLoopInput(
+  value: unknown,
+  deps: {
+    normalizeAcceptance: (value: unknown) => string[] | null;
+    clampMaxTurns: (value: unknown, fallback: number) => number;
+    clampCooldownSeconds: (value: unknown) => number;
+    defaultMaxTurns: number;
+  },
+): { acceptance: string[] | null; maxTurns: number; cooldownSeconds: number; forceFullRun: boolean } | undefined;

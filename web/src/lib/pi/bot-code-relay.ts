@@ -30,6 +30,7 @@ import {
   CODE_DELIVERY_RETRY_MS,
   CODE_RELAY_TICK_MS,
   codeCompletionAction,
+  parseGoalLoopInput,
   codeRequestPayload,
   codeResultBaselineMessages,
   codeResultLatestAssistant,
@@ -46,6 +47,7 @@ import {
   shouldConfirmCodeDelivery,
   shouldPruneCodeRequest,
   shouldStartCodeRelayTick,
+  truncateCodeReportRequest as coreTruncateCodeReportRequest,
   userStoppedResult,
 } from "@backend-core/bot-code-request.mjs";
 
@@ -57,10 +59,8 @@ export const MAX_CODE_REPORT_OUTPUT_CHARS = 8_000;
 export const MAX_CODE_REPORT_REQUEST_CHARS = 8_000;
 
 export function truncateCodeReportRequest(prompt: string): string {
-  const characters = Array.from(prompt);
-  return characters.length > MAX_CODE_REPORT_REQUEST_CHARS
-    ? `${characters.slice(0, MAX_CODE_REPORT_REQUEST_CHARS - 1).join("")}…`
-    : prompt;
+  // The limit (code points, ellipsis included) lives in backend core.
+  return coreTruncateCodeReportRequest(prompt, MAX_CODE_REPORT_REQUEST_CHARS);
 }
 /**
  * Cumulative cap on Code requests the Bot starts by itself while reporting a result. Per-turn limits
@@ -200,29 +200,13 @@ function goalLoopOutcome(loop: GoalLoopDto): string {
 }
 
 function parseGoalLoop(value: unknown): CodeGoalLoop | undefined {
-  if (value === undefined) return undefined;
-  if (value === null || typeof value !== "object" || Array.isArray(value)) throw new Error("goalLoop must be an object");
-  const loop = value as {
-    acceptance?: unknown;
-    maxTurns?: unknown;
-    cooldownSeconds?: unknown;
-    forceFullRun?: unknown;
-  };
-  if (
-    (loop.maxTurns !== undefined && typeof loop.maxTurns !== "number") ||
-    (loop.cooldownSeconds !== undefined && typeof loop.cooldownSeconds !== "number") ||
-    (loop.forceFullRun !== undefined && typeof loop.forceFullRun !== "boolean")
-  ) {
-    throw new Error("invalid goalLoop");
-  }
-  const acceptance = normalizeGoalLoopAcceptance(loop.acceptance);
-  if (acceptance === null) throw new Error("invalid goalLoop acceptance");
-  return {
-    acceptance,
-    maxTurns: clampGoalLoopMaxTurns(loop.maxTurns, DEFAULT_GOAL_LOOP_MAX_TURNS),
-    cooldownSeconds: clampGoalLoopCooldownSeconds(loop.cooldownSeconds),
-    forceFullRun: loop.forceFullRun === true,
-  };
+  // The validation ladder and clamps live in backend core; the settings functions stay here.
+  return parseGoalLoopInput(value, {
+    normalizeAcceptance: (acceptance) => normalizeGoalLoopAcceptance(acceptance) as string[] | null,
+    clampMaxTurns: (maxTurns, fallback) => clampGoalLoopMaxTurns(maxTurns, fallback),
+    clampCooldownSeconds: (cooldownSeconds) => clampGoalLoopCooldownSeconds(cooldownSeconds),
+    defaultMaxTurns: DEFAULT_GOAL_LOOP_MAX_TURNS,
+  }) as CodeGoalLoop | undefined;
 }
 function requestPath(id: string): string {
   if (!/^[a-f0-9]{64}$/.test(id)) throw new Error("Invalid Code request id");

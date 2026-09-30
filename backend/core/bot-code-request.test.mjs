@@ -7,8 +7,8 @@ import {
   codeResultLatestAssistant, codeResultOutcome, codeResultOutput, codeSessionChangedPayload, isActiveCodeRequest,
   isCodeRequestId, isRoomCodeRequestCurrent,
   resolveOutboxScanAction, roomCodeOrigin, runningCodeTaskIdsForOrigin, selectActiveCodeRequestForTask,
-  shouldAttemptCodeDelivery, shouldConfirmCodeDelivery, shouldPruneCodeRequest, shouldStartCodeRelayTick,
-  userStoppedResult,
+  parseGoalLoopInput, shouldAttemptCodeDelivery, shouldConfirmCodeDelivery, shouldPruneCodeRequest,
+  shouldStartCodeRelayTick, truncateCodeReportRequest, userStoppedResult,
 } from "./bot-code-request.mjs";
 
 test("only the documented task id shape carries a Room origin", () => {
@@ -345,5 +345,51 @@ test("one scan runs at a time and the interval is two seconds", () => {
   assert.equal(shouldStartCodeRelayTick({ ticking: true }), false);
   for (const value of [undefined, null, 0, "true", 1]) {
     assert.equal(shouldStartCodeRelayTick({ ticking: value }), true, String(value));
+  }
+});
+
+test("a long request is cut to the limit without splitting a surrogate pair", () => {
+  assert.equal(truncateCodeReportRequest("abc", 5), "abc");
+  assert.equal(truncateCodeReportRequest("abcde", 5), "abcde");
+  assert.equal(truncateCodeReportRequest("abcdef", 5), "abcd…", "the ellipsis counts toward the limit");
+  const emoji = "😀".repeat(4);
+  const cut = truncateCodeReportRequest(emoji, 3);
+  assert.equal(Array.from(cut).length, 3);
+  assert.equal(cut, "😀😀…");
+  assert.equal(truncateCodeReportRequest("", 5), "");
+  assert.equal(truncateCodeReportRequest(undefined, 5), "");
+});
+
+const goalLoopDeps = {
+  normalizeAcceptance: (value) => (value === undefined || value === null ? [] : Array.isArray(value) ? value.map(String) : null),
+  clampMaxTurns: (value, fallback) => (typeof value === "number" ? Math.max(0, Math.min(100, value)) : fallback),
+  clampCooldownSeconds: (value) => (typeof value === "number" ? Math.max(0, value) : 0),
+  defaultMaxTurns: 10,
+};
+
+test("Goal Loop options are validated, normalized and clamped", () => {
+  assert.equal(parseGoalLoopInput(undefined, goalLoopDeps), undefined, "no loop means nothing to parse");
+  assert.deepEqual(parseGoalLoopInput({}, goalLoopDeps), {
+    acceptance: [], maxTurns: 10, cooldownSeconds: 0, forceFullRun: false,
+  });
+  assert.deepEqual(parseGoalLoopInput({ acceptance: ["a"], maxTurns: 500, cooldownSeconds: 60, forceFullRun: true }, goalLoopDeps), {
+    acceptance: ["a"], maxTurns: 100, cooldownSeconds: 60, forceFullRun: true,
+  });
+});
+
+test("a malformed Goal Loop option is rejected with its own message", () => {
+  for (const value of [null, [], "x", 42, true]) {
+    assert.throws(() => parseGoalLoopInput(value, goalLoopDeps), /goalLoop must be an object/, String(value));
+  }
+  for (const bad of [{ maxTurns: "5" }, { cooldownSeconds: "60" }, { forceFullRun: "yes" }]) {
+    assert.throws(() => parseGoalLoopInput(bad, goalLoopDeps), /invalid goalLoop/, JSON.stringify(bad));
+  }
+  assert.throws(() => parseGoalLoopInput({ acceptance: "not a list" }, goalLoopDeps), /invalid goalLoop acceptance/);
+  // Only an explicit true enables the full-run override; a non-boolean value is rejected above.
+  for (const value of [undefined, false]) {
+    assert.equal(parseGoalLoopInput({ forceFullRun: value }, goalLoopDeps).forceFullRun, false, String(value));
+  }
+  for (const value of [null, 0, "true", 1]) {
+    assert.throws(() => parseGoalLoopInput({ forceFullRun: value }, goalLoopDeps), /invalid goalLoop/, String(value));
   }
 });

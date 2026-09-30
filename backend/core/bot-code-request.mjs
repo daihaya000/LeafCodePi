@@ -267,3 +267,40 @@ export function shouldPruneCodeRequest({ isActive, fileMtimeMs, now }) {
 export function shouldStartCodeRelayTick({ ticking }) {
   return ticking !== true;
 }
+
+/**
+ * The prompt a Bot may hand to Code, cut to the report request limit. The limit counts code points
+ * (so a surrogate pair is never split) and the ellipsis is part of the limit.
+ */
+export function truncateCodeReportRequest(prompt, maxChars) {
+  const characters = Array.from(typeof prompt === "string" ? prompt : "");
+  return characters.length > maxChars
+    ? `${characters.slice(0, maxChars - 1).join("")}…`
+    : typeof prompt === "string" ? prompt : "";
+}
+
+/**
+ * The Goal Loop options a Bot tool call may carry, validated and clamped. The shape is strict — a
+ * non-object, a wrongly typed field or an unusable acceptance list is rejected with a distinct
+ * message — because the tool schema is model-supplied and must not reach the store unchecked.
+ * `undefined` means the caller did not ask for a loop.
+ */
+export function parseGoalLoopInput(value, { normalizeAcceptance, clampMaxTurns, clampCooldownSeconds, defaultMaxTurns }) {
+  if (value === undefined) return undefined;
+  if (value === null || typeof value !== "object" || Array.isArray(value)) throw new Error("goalLoop must be an object");
+  if (
+    (value.maxTurns !== undefined && typeof value.maxTurns !== "number") ||
+    (value.cooldownSeconds !== undefined && typeof value.cooldownSeconds !== "number") ||
+    (value.forceFullRun !== undefined && typeof value.forceFullRun !== "boolean")
+  ) {
+    throw new Error("invalid goalLoop");
+  }
+  const acceptance = normalizeAcceptance(value.acceptance);
+  if (acceptance === null) throw new Error("invalid goalLoop acceptance");
+  return {
+    acceptance,
+    maxTurns: clampMaxTurns(value.maxTurns, defaultMaxTurns),
+    cooldownSeconds: clampCooldownSeconds(value.cooldownSeconds),
+    forceFullRun: value.forceFullRun === true,
+  };
+}
