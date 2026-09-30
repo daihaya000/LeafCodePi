@@ -217,7 +217,7 @@ import { detachReplacedLive as coreDetachReplacedLive, disposeUnattachedSession,
 import { restoredPromptState, restoredTaskMetadata, restoredThroughputState as coreRestoredThroughputState } from "@backend-core/live-attach-state.mjs";
 import { compactionFailureMessage, isHarnessAutoCompactionError as coreIsHarnessAutoCompactionError, runAgentStartTaskSync, shouldApplySettledStatus, shouldSkipEventForMissingTask, shouldSyncTaskFromSessionEvent as coreShouldSyncTaskFromSessionEvent, type SessionSyncEvent } from "@backend-core/session-event-decisions.mjs";
 import { classifySnapshotEvent, flushPendingSnapshotOnUnsubscribe, pendingSnapshotFlush, SNAPSHOT_THROTTLE_MS } from "@backend-core/snapshot-schedule.mjs";
-import { publishAttachedLive } from "@backend-core/live-lifecycle.mjs";
+import { publishAttachedLive, runEnsureLiveGates } from "@backend-core/live-lifecycle.mjs";
 import { runSessionEventEffects } from "@backend-core/session-event-effects.mjs";
 import { isBotTask, liveSessionName, liveSessionWorkspace, preflightLiveSession, resolveSessionAccountId, resolveSessionAccountRefusal, resolveSessionPermissionMode, resolveSessionSkillPermission, resolveSessionThinkingLevelSource, resolveStoredModelOutcome } from "@backend-core/live-session-preflight.mjs";
 import { runSerializedByKey } from "@backend-core/keyed-serializer.mjs";
@@ -4657,16 +4657,19 @@ async function ensureLive(
     onTiming?: TaskDetailTimingReporter;
   } & AutoFallbackHints,
 ): Promise<LiveRuntime> {
-  throwIfTaskArchived(taskId);
-  if (!options?.allowDuringPromotion) {
-    const promotion = promoteInflight.get(taskId);
-    if (promotion) await promotion.catch(() => undefined);
-  }
-  throwIfTaskArchived(taskId);
-  // A replaced session's extension shutdown must finish before its successor
-  // starts (shared process.env / broker presence).
-  const retiring = liveShutdownInflight.get(taskId);
-  if (retiring) await retiring.catch(() => undefined);
+  // Gate order (attachable → promotion → attachable → retirement) lives in backend core.
+  const gates = await runEnsureLiveGates({
+    isAttachable: () => {
+      const task = getTask(taskId);
+      return Boolean(task) && task?.status !== "archived";
+    },
+    allowDuringPromotion: options?.allowDuringPromotion === true,
+    promotion: promoteInflight.get(taskId),
+    // A replaced session's extension shutdown must finish before its successor
+    // starts (shared process.env / broker presence).
+    retirement: liveShutdownInflight.get(taskId),
+  });
+  if (gates === "not-attachable") throwIfTaskArchived(taskId);
   const current = state();
   const existing = current.live.get(taskId);
   if (existing) {

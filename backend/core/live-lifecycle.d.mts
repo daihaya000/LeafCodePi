@@ -30,6 +30,16 @@ export function detachReplacedLive<Live extends {
 ): void;
 
 /**
+ * The ensure-live gates: attachable check, promotion wait, repeat check, retirement wait.
+ */
+export function runEnsureLiveGates(steps: {
+  isAttachable: () => boolean;
+  allowDuringPromotion: boolean;
+  promotion?: Promise<unknown> | undefined;
+  retirement?: Promise<unknown> | undefined;
+}): Promise<"continue" | "not-attachable">;
+
+/**
  * Publishes a freshly attached live in a fixed order: stop hook, activity stamp,
  * registry insert, then the 1:1 Bot mailbox promotion.
  */

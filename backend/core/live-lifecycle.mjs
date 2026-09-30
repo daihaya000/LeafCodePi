@@ -97,6 +97,26 @@ export function resolveAttachedSessionAction({ staleGeneration, isRegistered }) 
 }
 
 /**
+ * The gates an ensure-live attempt passes before it may create a session: the task
+ * must still be attachable, a promotion in flight must settle first (unless this
+ * attempt is the promotion itself), and a retiring predecessor must finish before
+ * its successor starts (they share process.env and broker presence). The attachable
+ * check is repeated after the promotion wait, because that wait can outlive the
+ * task. Both waits swallow their predecessor's failure — a failed promotion or
+ * retirement must not block the next attempt.
+ *
+ * Returns "continue" when the caller may proceed, or "not-attachable" when it must
+ * raise the caller's own missing/archived error.
+ */
+export async function runEnsureLiveGates({ isAttachable, allowDuringPromotion, promotion, retirement }) {
+  if (isAttachable() !== true) return "not-attachable";
+  if (allowDuringPromotion !== true && promotion) await promotion.catch(() => undefined);
+  if (isAttachable() !== true) return "not-attachable";
+  if (retirement) await retirement.catch(() => undefined);
+  return "continue";
+}
+
+/**
  * Publishes a freshly attached live session, in this order: wire the stop hook, stamp
  * the activity clock, insert it into the registry, and finally promote a 1:1 Bot's
  * queued mailbox. The promotion is last so anything it wakes already observes the
