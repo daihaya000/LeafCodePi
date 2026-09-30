@@ -15,4 +15,6 @@ export const BACKEND_ERROR_CODES = Object.freeze({
   notFound: "BACKEND_NOT_FOUND",
   methodNotAllowed: "BACKEND_METHOD_NOT_ALLOWED",
   internal: "BACKEND_INTERNAL_ERROR",
+  /** The Backend has no Pi runtime attached, so this read cannot be served yet. */
+  runtimeUnavailable: "BACKEND_RUNTIME_UNAVAILABLE",
 });

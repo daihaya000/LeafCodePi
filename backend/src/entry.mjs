@@ -45,6 +45,15 @@ try {
     // The Backend's own store view: stored rows, read through the same store the startup owns.
     readTasks: () => [...started.store.listTasks(true), ...started.store.listTasks(true, "bot")],
     readTask: (id) => started.store.getTask(id) ?? null,
+    // Detail needs the runtime, so the handler is only supplied once it is attached; the route
+    // answers 503 until then instead of reporting a missing task.
+    readTaskDetail: (id) => {
+      const runtime = started.runtime();
+      if (!runtime) {
+        throw Object.assign(new Error("runtime unavailable"), { status: 503 });
+      }
+      return runtime.getTaskDetail(id, { offline: true });
+    },
     // Ready means the startup sequence finished *and* the runtime is attached. A detached runtime
     // (or a bundle that could not be loaded) keeps health at 503/starting.
     isReady: () => host.isReady() && started.runtimeStatus().ok === true,

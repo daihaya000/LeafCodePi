@@ -41,6 +41,11 @@ export function createBackendServer({
    */
   readTasks = () => [],
   readTask = () => null,
+  /**
+   * Task detail needs the Pi runtime, so it is only supplied once one is attached. Without it the
+   * route answers 503 with a specific code instead of pretending the task is missing.
+   */
+  readTaskDetail,
 } = {}) {
   if (
     typeof token !== "string" ||
@@ -54,11 +59,15 @@ export function createBackendServer({
   if (typeof readPendingSnapshots !== "function") throw new Error("readPendingSnapshots must be a function");
   if (typeof readTasks !== "function") throw new Error("readTasks must be a function");
   if (typeof readTask !== "function") throw new Error("readTask must be a function");
+  if (readTaskDetail !== undefined && typeof readTaskDetail !== "function") {
+    throw new Error("readTaskDetail must be a function");
+  }
   const expectedDigest = tokenDigest(token);
   const instanceId = randomUUID();
   const startedAt = new Date().toISOString();
 
-  return createServer({ requestTimeout: 30_000, headersTimeout: 10_000 }, (request, response) => {
+  // Async so the runtime-backed reads can await; every await is inside a try/catch.
+  return createServer({ requestTimeout: 30_000, headersTimeout: 10_000 }, async (request, response) => {
     const authorization = request.headers.authorization;
     const candidate = typeof authorization === "string" && /^Bearer /i.test(authorization)
       ? authorization.slice(7)
@@ -77,14 +86,22 @@ export function createBackendServer({
     }
     // Match the request target, not the untrusted Host header. No CORS is enabled.
     const target = new URL(request.url ?? "/", "http://backend.internal");
+    const taskSuffix = target.pathname.startsWith(`${BACKEND_TASKS_PATH}/`)
+      ? target.pathname.slice(BACKEND_TASKS_PATH.length + 1)
+      : null;
+    // `<id>/detail` reads the task's detail; a bare `<id>` reads the stored row.
+    const detailPath = taskSuffix?.endsWith("/detail")
+      ? decodeURIComponent(taskSuffix.slice(0, -"/detail".length))
+      : undefined;
     const taskPath = target.pathname === BACKEND_TASKS_PATH
       ? null
-      : target.pathname.startsWith(`${BACKEND_TASKS_PATH}/`)
-        ? decodeURIComponent(target.pathname.slice(BACKEND_TASKS_PATH.length + 1))
+      : taskSuffix !== null && detailPath === undefined
+        ? decodeURIComponent(taskSuffix)
         : undefined;
     const knownPath = target.pathname === BACKEND_HEALTH_PATH
       || target.pathname === BACKEND_PENDING_SNAPSHOTS_PATH
-      || taskPath !== undefined;
+      || taskPath !== undefined
+      || detailPath !== undefined;
     if (!knownPath) {
       sendJson(response, 404, { error: "Not found", code: BACKEND_ERROR_CODES.notFound });
       return;
@@ -93,6 +110,41 @@ export function createBackendServer({
       sendJson(response, 405, {
         error: "Method not allowed", code: BACKEND_ERROR_CODES.methodNotAllowed,
       }, { Allow: "GET" });
+      return;
+    }
+    if (detailPath !== undefined) {
+      if (!detailPath) {
+        sendJson(response, 404, { error: "Not found", code: BACKEND_ERROR_CODES.notFound });
+        return;
+      }
+      if (typeof readTaskDetail !== "function") {
+        sendJson(response, 503, {
+          error: "Backend runtime is not attached", code: BACKEND_ERROR_CODES.runtimeUnavailable,
+        });
+        return;
+      }
+      try {
+        const detail = await readTaskDetail(detailPath);
+        if (!detail) {
+          sendJson(response, 404, { error: "Not found", code: BACKEND_ERROR_CODES.notFound });
+          return;
+        }
+        sendJson(response, 200, { detail });
+      } catch (error) {
+        const status = typeof error === "object" && error && "status" in error ? Number(error.status) : 500;
+        // A coded refusal keeps its status; anything else is an internal failure with no detail.
+        if (status === 404) {
+          sendJson(response, 404, { error: "Not found", code: BACKEND_ERROR_CODES.notFound });
+        } else if (status === 503) {
+          sendJson(response, 503, {
+            error: "Backend runtime is not attached", code: BACKEND_ERROR_CODES.runtimeUnavailable,
+          });
+        } else {
+          sendJson(response, 500, {
+            error: "Backend task detail read failed", code: BACKEND_ERROR_CODES.internal,
+          });
+        }
+      }
       return;
     }
     if (taskPath !== undefined) {

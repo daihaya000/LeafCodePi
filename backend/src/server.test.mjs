@@ -224,6 +224,55 @@ test("a non-function task reader is rejected at creation", () => {
   }
 });
 
+test("task detail reports a detached runtime instead of a missing task", async (t) => {
+  const { snapshotsUrl, headers } = await fixture(t);
+  const detailUrl = snapshotsUrl.replace("pending-snapshots", "tasks") + "/task-1/detail";
+  const response = await request(detailUrl, { headers });
+  assert.equal(response.status, 503);
+  const body = await response.json();
+  assert.equal(body.code, "BACKEND_RUNTIME_UNAVAILABLE");
+  assert.ok(!JSON.stringify(body).includes("task-1"), "the task id is not echoed back");
+});
+
+test("an attached runtime serves the task detail through the bundle reader", async (t) => {
+  const detail = { id: "task-1", title: "detail", messages: [{ id: "m1" }] };
+  const { snapshotsUrl, headers } = await fixture(t, {
+    readTaskDetail: async (id) => (id === "task-1" ? detail : null),
+  });
+  const base = snapshotsUrl.replace("pending-snapshots", "tasks");
+  const found = await request(`${base}/task-1/detail`, { headers });
+  assert.equal(found.status, 200);
+  assert.deepEqual(await found.json(), { detail });
+  assert.equal((await request(`${base}/nope/detail`, { headers })).status, 404);
+});
+
+test("a failing or coded detail read keeps its own status", async (t) => {
+  const sensitive = "C:/private/session.jsonl";
+  const coded = await fixture(t, {
+    readTaskDetail: async () => { throw Object.assign(new Error(`cannot read ${sensitive}`), { status: 404 }); },
+  });
+  const codedUrl = coded.snapshotsUrl.replace("pending-snapshots", "tasks") + "/task-1/detail";
+  const notFound = await request(codedUrl, { headers: coded.headers });
+  assert.equal(notFound.status, 404);
+
+  const failing = await fixture(t, {
+    readTaskDetail: async () => { throw new Error(`cannot read ${sensitive}`); },
+  });
+  const failingUrl = failing.snapshotsUrl.replace("pending-snapshots", "tasks") + "/task-1/detail";
+  const response = await request(failingUrl, { headers: failing.headers });
+  assert.equal(response.status, 500);
+  const body = await response.json();
+  assert.equal(body.code, "BACKEND_INTERNAL_ERROR");
+  assert.ok(!JSON.stringify(body).includes(sensitive));
+});
+
+test("a non-function detail reader is rejected at creation", () => {
+  assert.throws(
+    () => createBackendServer({ token: randomBytes(32).toString("base64url"), readTaskDetail: "nope" }),
+    /readTaskDetail must be a function/,
+  );
+});
+
 test("rejects invalid ports and surfaces occupied port errors", async (t) => {
   const { server, address } = await fixture(t);
   for (const port of [-1, 65536, 1.5, "3010", NaN]) {

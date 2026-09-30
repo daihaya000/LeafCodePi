@@ -155,5 +155,7 @@ export function createBackendStartup({
     resumesOrphanedTasks: () => runtimeAttached,
     /** Whether the bundled runtime was attached, and why not when it was not. */
     runtimeStatus: () => ({ ...runtimeStatus }),
+    /** The attached runtime, or null while nothing is attached. */
+    runtime: () => (runtimeStatus.ok === true ? runtimeStatus.runtime : null),
   };
 }
