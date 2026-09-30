@@ -3087,7 +3087,6 @@ export const TaskView = memo(function TaskView({
               {usageStats("shrink-0")}
             </div>
           </div>
-          <SessionIdButton key={taskId} sessionId={task?.sessionId} />
           <div className="hidden @min-[500px]/task:flex">
             <Button
               variant="ghost"
@@ -4135,6 +4134,9 @@ export const TaskView = memo(function TaskView({
             )
           }
         />
+        <footer aria-label="セッション識別情報" className="mx-auto flex max-w-5xl justify-end">
+          <SessionIdButton key={taskId} sessionId={task?.sessionId} />
+        </footer>
       </div>
     </div>
   );

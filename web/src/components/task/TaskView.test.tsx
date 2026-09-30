@@ -90,14 +90,17 @@ it("shares the footer notification switch with Code task browser notifications",
   }
 });
 
-it.each([true, false])("exposes the Pi session ID in the header (mdUp: %s)", async (mdUp) => {
+it.each([true, false])("exposes the Pi session ID below the composer, not in the header (mdUp: %s)", async (mdUp) => {
   const sessionId = "01a0efee-1234-5678-9012-123456789abc";
   saveTaskSessionCache({ task: { ...task, sessionId }, messages: [], isStreaming: false, isCompacting: false });
   render(<TaskView taskId={task.id} mdUp={mdUp} />);
   const trigger = await screen.findByRole("button", { name: "セッションIDを確認" });
   expect(trigger.title).toBe(`セッションID: ${sessionId}`);
-  expect(trigger.closest("header")).toBeTruthy();
-  expect(trigger.textContent).not.toContain(task.id);
+  expect(trigger.closest("header")).toBeNull();
+  expect(trigger.closest("footer")?.getAttribute("aria-label")).toBe("セッション識別情報");
+  expect(trigger.textContent).toBe("ID");
+  const composer = screen.getByRole("form", { name: "フォローアップ" });
+  expect(composer.compareDocumentPosition(trigger) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
 });
 
 it("shows the next-action suggestion above the follow-up composer", async () => {

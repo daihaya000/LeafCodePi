@@ -7,6 +7,7 @@ import { Button } from "@/components/ui";
 /** Show the Pi session ID, never the WebUI task ID. */
 export function SessionIdButton({ sessionId }: { sessionId: string | null | undefined }) {
   const dialogRef = useRef<HTMLDialogElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
   const titleId = useId();
   const [copyStatus, setCopyStatus] = useState<"idle" | "copied" | "error">("idle");
 
@@ -17,10 +18,28 @@ export function SessionIdButton({ sessionId }: { sessionId: string | null | unde
   async function copy() {
     if (!sessionId) return;
     try {
-      await navigator.clipboard.writeText(sessionId);
-      setCopyStatus("copied");
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(sessionId);
+        setCopyStatus("copied");
+        return;
+      }
+    } catch {
+      // HTTP origins and denied Clipboard API permissions need the legacy path.
+    }
+
+    const input = inputRef.current;
+    const previousFocus = document.activeElement as HTMLElement | null;
+    try {
+      // Reuse the input inside the modal: elements appended to body are inert.
+      if (!input) throw new Error("Missing session ID input");
+      input.focus({ preventScroll: true });
+      input.select();
+      input.setSelectionRange(0, input.value.length);
+      setCopyStatus(document.execCommand("copy") ? "copied" : "error");
     } catch {
       setCopyStatus("error");
+    } finally {
+      previousFocus?.focus({ preventScroll: true });
     }
   }
 
@@ -31,13 +50,13 @@ export function SessionIdButton({ sessionId }: { sessionId: string | null | unde
         aria-label="セッションIDを確認"
         title={sessionId ? `セッションID: ${sessionId}` : "セッションIDはまだ発行されていない"}
         disabled={!sessionId}
-        className="h-11 shrink-0 px-2 font-mono text-xs text-muted @min-[500px]/task:h-8"
+        className="h-6 shrink-0 px-2 text-xs font-normal text-muted/60 hover:text-muted"
         onClick={() => {
           setCopyStatus("idle");
           dialogRef.current?.showModal();
         }}
       >
-        ID{sessionId ? `: ${sessionId.slice(0, 8)}` : ": 未発行"}
+        ID
       </Button>
       <dialog
         ref={dialogRef}
@@ -51,6 +70,7 @@ export function SessionIdButton({ sessionId }: { sessionId: string | null | unde
           </Button>
         </div>
         <input
+          ref={inputRef}
           aria-label="完全なセッションID"
           readOnly
           value={sessionId ?? ""}
