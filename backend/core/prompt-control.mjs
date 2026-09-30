@@ -243,3 +243,30 @@ export function stillEligibleForAccountRouting({
       (isGoalLoopTurn === true || hasUserMessage === true),
   );
 }
+
+/**
+ * Whether the prompt's subagent permission must be pushed onto the session: a pinned option
+ * always is, and a Code task follows Settings; a Bot task without a pinned value keeps its own
+ * Bot settings.
+ */
+export function shouldApplyPromptSubagentPermission({ hasOption, isBot }) {
+  return hasOption === true || isBot !== true;
+}
+
+/**
+ * Whether an interrupt must be demoted to a normal prompt. A steer/follow-up that finds no
+ * streaming turn to steer (the stream already ended or never opened) is re-queued as the next
+ * serial turn instead of being dropped; `finalBehavior` is the resolved streaming behavior.
+ */
+export function shouldDemoteInterrupt({ hasStreamingBehavior, finalBehavior }) {
+  return hasStreamingBehavior === true && !finalBehavior;
+}
+
+/**
+ * Whether a steer/follow-up must wait for the stream to open before it is sent. Waiting is
+ * only needed while the accepted turn is active but not yet streaming — otherwise the steer
+ * would be serialized onto the prompt chain as a post-turn prompt.
+ */
+export function shouldWaitForSteerStreamBeforeSend({ hasStreamingBehavior, isStreaming }) {
+  return hasStreamingBehavior === true && isStreaming !== true;
+}

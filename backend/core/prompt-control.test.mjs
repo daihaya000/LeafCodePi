@@ -4,7 +4,8 @@ import { test } from "node:test";
 import {
   buildPromptOptions, clearSessionQueue, isReasoningMandatoryError, isStaleHarnessPrompt, nextPromptEpoch,
   canRouteAccountForPrompt, isRecoverableResumeSelectionError, promptSendCustomType, resolveHangWatchQueueAction,
-  resolvePromptGate, stillEligibleForAccountRouting,
+  resolvePromptGate, shouldApplyPromptSubagentPermission, shouldDemoteInterrupt,
+  shouldWaitForSteerStreamBeforeSend, stillEligibleForAccountRouting,
   resolvePromptPermissionOptions, resolvePromptSendKind, shouldIgnorePromptError,
   shouldArmHangWatchAtSend,
   resolveStreamingBehaviorForPrompt, shouldApplyPromptModelSelection, shouldApplyPromptThinkingLevel,
@@ -325,5 +326,36 @@ test("the re-check inside the route lock drops the request flag but keeps every 
   for (const value of [undefined, null, 0, "true", 1]) {
     assert.equal(stillEligibleForAccountRouting({ ...base, accountIdExplicit: value }), true, String(value));
     assert.equal(stillEligibleForAccountRouting({ ...base, isStreaming: value }), true, String(value));
+  }
+});
+
+test("a Code task always applies the subagent permission, a Bot task only when pinned", () => {
+  assert.equal(shouldApplyPromptSubagentPermission({ hasOption: true, isBot: false }), true);
+  assert.equal(shouldApplyPromptSubagentPermission({ hasOption: false, isBot: false }), true);
+  assert.equal(shouldApplyPromptSubagentPermission({ hasOption: true, isBot: true }), true);
+  assert.equal(shouldApplyPromptSubagentPermission({ hasOption: false, isBot: true }), false, "a Bot keeps its own settings");
+  for (const value of [undefined, null, 0, "true", 1]) {
+    assert.equal(shouldApplyPromptSubagentPermission({ hasOption: value, isBot: true }), false, String(value));
+    assert.equal(shouldApplyPromptSubagentPermission({ hasOption: value, isBot: false }), true, String(value));
+  }
+});
+
+test("an interrupt with no stream to steer is demoted, not dropped", () => {
+  assert.equal(shouldDemoteInterrupt({ hasStreamingBehavior: true, finalBehavior: undefined }), true, "no stream to steer means the text runs as the next turn");
+  assert.equal(shouldDemoteInterrupt({ hasStreamingBehavior: true, finalBehavior: "steer" }), false);
+  assert.equal(shouldDemoteInterrupt({ hasStreamingBehavior: false, finalBehavior: undefined }), false);
+  assert.equal(shouldDemoteInterrupt({ hasStreamingBehavior: false, finalBehavior: "followUp" }), false);
+  for (const value of [undefined, null, 0, "true", 1]) {
+    assert.equal(shouldDemoteInterrupt({ hasStreamingBehavior: value, finalBehavior: undefined }), false, String(value));
+  }
+});
+
+test("only a steer aimed at a not-yet-streaming turn waits for the stream", () => {
+  assert.equal(shouldWaitForSteerStreamBeforeSend({ hasStreamingBehavior: true, isStreaming: false }), true);
+  assert.equal(shouldWaitForSteerStreamBeforeSend({ hasStreamingBehavior: true, isStreaming: true }), false, "the stream is already open");
+  assert.equal(shouldWaitForSteerStreamBeforeSend({ hasStreamingBehavior: false, isStreaming: false }), false);
+  for (const value of [undefined, null, 0, "true", 1]) {
+    assert.equal(shouldWaitForSteerStreamBeforeSend({ hasStreamingBehavior: value, isStreaming: false }), false, String(value));
+    assert.equal(shouldWaitForSteerStreamBeforeSend({ hasStreamingBehavior: true, isStreaming: value }), true, String(value));
   }
 });

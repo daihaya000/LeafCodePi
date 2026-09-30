@@ -219,10 +219,13 @@ import {
   resolvePromptPermissionOptions,
   resolvePromptSendKind,
   shouldApplyPromptModelSelection,
+  shouldApplyPromptSubagentPermission,
   shouldApplyPromptThinkingLevel,
   shouldArmHangWatchAtSend,
+  shouldDemoteInterrupt,
   shouldForwardBotCodePrompt as coreShouldForwardBotCodePrompt,
   shouldIgnorePromptError,
+  shouldWaitForSteerStreamBeforeSend,
   stillEligibleForAccountRouting,
 } from "@backend-core/prompt-control.mjs";
 import { runHangWatchdogAbort, runUserAbort } from "@backend-core/abort-coordinator.mjs";
@@ -8742,7 +8745,11 @@ async function waitForSteerStreamIfNeeded(
   stillQueued: () => boolean,
   demoteInterruptToNormalPrompt: () => void,
 ): Promise<LiveRuntime | null> {
-  if (!streamingBehavior || currentLive.session.isStreaming) return currentLive;
+  // The wait rule lives in backend core: only a steer aimed at a not-yet-streaming turn waits.
+  if (!shouldWaitForSteerStreamBeforeSend({
+    hasStreamingBehavior: Boolean(streamingBehavior),
+    isStreaming: currentLive.session.isStreaming,
+  })) return currentLive;
   if (
     !shouldWaitForSteerStream({
       isStreaming: currentLive.session.isStreaming,
@@ -8782,10 +8789,11 @@ async function preparePromptLiveForSend(
   const activeCompaction = activeLive.autoCompactionPromise;
   if (activeCompaction) await activeCompaction;
   if (!stillQueued()) return null;
-  if (
-    meta?.subagentPermission !== undefined ||
-    getTask(activeLive.taskId)?.kind !== "bot"
-  ) {
+  // The apply/demote rules live in backend core; the session calls stay here.
+  if (shouldApplyPromptSubagentPermission({
+    hasOption: meta?.subagentPermission !== undefined,
+    isBot: getTask(activeLive.taskId)?.kind === "bot",
+  })) {
     applySubagentPermission(
       activeLive.session,
       meta?.subagentPermission ?? readCodeSubagentPermission(),
@@ -8796,7 +8804,10 @@ async function preparePromptLiveForSend(
     meta?.streamingBehavior,
     activeLive.session.isStreaming,
   );
-  if (meta?.streamingBehavior && !finalBehavior) {
+  if (shouldDemoteInterrupt({
+    hasStreamingBehavior: Boolean(meta?.streamingBehavior),
+    finalBehavior,
+  })) {
     demoteInterruptToNormalPrompt();
     return null;
   }
@@ -9286,10 +9297,10 @@ export async function promptTask(
     hasImages: Boolean(images?.length),
     attachmentCount: (images?.length ?? 0) + (options?.files?.length ?? 0),
   });
-  if (
-    options?.subagentPermission !== undefined ||
-    task.kind !== "bot"
-  ) {
+  if (shouldApplyPromptSubagentPermission({
+    hasOption: options?.subagentPermission !== undefined,
+    isBot: task.kind === "bot",
+  })) {
     applySubagentPermission(
       live.session,
       options?.subagentPermission ?? readCodeSubagentPermission(),

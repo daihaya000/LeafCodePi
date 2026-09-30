@@ -122,3 +122,12 @@ export function stillEligibleForAccountRouting(input: {
   isGoalLoopTurn: boolean;
   hasUserMessage: boolean;
 }): boolean;
+
+/** Whether the prompt's subagent permission must be pushed onto the session. */
+export function shouldApplyPromptSubagentPermission(input: { hasOption: boolean; isBot: boolean }): boolean;
+
+/** Whether a steer/follow-up must be demoted to the next serial turn. */
+export function shouldDemoteInterrupt(input: { hasStreamingBehavior: boolean; finalBehavior: string | undefined }): boolean;
+
+/** Whether a steer/follow-up must wait for the stream to open before sending. */
+export function shouldWaitForSteerStreamBeforeSend(input: { hasStreamingBehavior: boolean; isStreaming: boolean }): boolean;
