@@ -186,3 +186,60 @@ export function promptSendCustomType(kind, customTypes) {
 export function shouldIgnorePromptError({ isAbortMessage, hasManualAbort }) {
   return isAbortMessage === true && hasManualAbort === true;
 }
+
+/**
+ * Whether a prompt may be re-routed to another account before it is sent. Routing needs
+ * the task to already have a provider and model, a session that is not streaming, at
+ * least one user turn to continue (or an active Goal Loop turn, which has its own
+ * history), a provider that routes through integrated accounts, and an account the user
+ * did not pin explicitly — a pinned account is never replaced. The caller also decides
+ * whether re-routing was requested at all.
+ */
+export function canRouteAccountForPrompt({
+  reroute,
+  hasProviderId,
+  hasModelId,
+  isStreaming,
+  isGoalLoopTurn,
+  hasUserMessage,
+  isAccountRoutingProvider,
+  accountRoutingMode,
+  accountIdExplicit,
+}) {
+  return Boolean(
+    reroute === true &&
+      hasProviderId === true &&
+      hasModelId === true &&
+      isStreaming !== true &&
+      (isGoalLoopTurn === true || hasUserMessage === true) &&
+      isAccountRoutingProvider === true &&
+      accountRoutingMode === "integrated" &&
+      accountIdExplicit !== true,
+  );
+}
+
+/**
+ * The same eligibility re-checked inside the route lock, where a pin or a streaming
+ * session that appeared while waiting must stop the routing. Here the caller has already
+ * decided that routing is wanted, so only the remaining conditions are tested.
+ */
+export function stillEligibleForAccountRouting({
+  hasProviderId,
+  hasModelId,
+  isAccountRoutingProvider,
+  accountRoutingMode,
+  accountIdExplicit,
+  isStreaming,
+  isGoalLoopTurn,
+  hasUserMessage,
+}) {
+  return Boolean(
+    hasProviderId === true &&
+      hasModelId === true &&
+      isAccountRoutingProvider === true &&
+      accountRoutingMode === "integrated" &&
+      accountIdExplicit !== true &&
+      isStreaming !== true &&
+      (isGoalLoopTurn === true || hasUserMessage === true),
+  );
+}

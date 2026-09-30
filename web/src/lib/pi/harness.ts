@@ -211,6 +211,7 @@ import { AccountRuntimeManager } from "@/lib/pi/account-runtime-manager";
 import { SdkRuntimeFactory } from "@backend-core/sdk-runtime.mjs";
 import * as corePromptControl from "@backend-core/prompt-control.mjs";
 import {
+  canRouteAccountForPrompt,
   isRecoverableResumeSelectionError,
   promptSendCustomType,
   resolveHangWatchQueueAction,
@@ -222,6 +223,7 @@ import {
   shouldArmHangWatchAtSend,
   shouldForwardBotCodePrompt as coreShouldForwardBotCodePrompt,
   shouldIgnorePromptError,
+  stillEligibleForAccountRouting,
 } from "@backend-core/prompt-control.mjs";
 import { runHangWatchdogAbort, runUserAbort } from "@backend-core/abort-coordinator.mjs";
 import { roomBotIdFromTaskId } from "@backend-core/abort-control.mjs";
@@ -8513,17 +8515,18 @@ async function prepareLiveForPrompt(
     taskAccount && !isAccountEnabled(taskAccount),
   );
   const isGoalLoopTurn = isActiveGoalLoopSession(currentLive.session);
-  const canRoute = Boolean(
-    reroute &&
-      task?.providerID &&
-      task.modelID &&
-      !currentLive.session.isStreaming &&
-      (isGoalLoopTurn ||
-        currentLive.session.messages.some((message) => message.role === "user")) &&
-      (isAccountRoutingProvider(task.providerID) &&
-        accountRoutingMode(task.providerID) === "integrated" &&
-        !task.accountIdExplicit),
-  );
+  // The routing eligibility rule lives in backend core; the lookups stay here.
+  const canRoute = canRouteAccountForPrompt({
+    reroute,
+    hasProviderId: Boolean(task?.providerID),
+    hasModelId: Boolean(task?.modelID),
+    isStreaming: currentLive.session.isStreaming,
+    isGoalLoopTurn,
+    hasUserMessage: currentLive.session.messages.some((message) => message.role === "user"),
+    isAccountRoutingProvider: Boolean(task?.providerID && isAccountRoutingProvider(task.providerID)),
+    accountRoutingMode: task?.providerID ? accountRoutingMode(task.providerID) : "",
+    accountIdExplicit: task?.accountIdExplicit === true,
+  });
   if (!canRoute || !task?.providerID || !task.modelID) {
     if (taskAccountPaused) {
       throw Object.assign(new Error("一時停止中のアカウントです"), {
@@ -8555,16 +8558,18 @@ async function prepareLiveForPrompt(
           status: 409,
         });
       }
-      if (
-        !latestTask.providerID ||
-        !latestTask.modelID ||
-        !isAccountRoutingProvider(latestTask.providerID) ||
-        accountRoutingMode(latestTask.providerID) !== "integrated" ||
-        latestTask.accountIdExplicit ||
-        latestLive.session.isStreaming ||
-        (!isActiveGoalLoopSession(latestLive.session) &&
-          !latestLive.session.messages.some((message) => message.role === "user"))
-      ) {
+      // The same eligibility re-checked inside the lock lives in backend core.
+      const stillEligible = stillEligibleForAccountRouting({
+        hasProviderId: Boolean(latestTask.providerID),
+        hasModelId: Boolean(latestTask.modelID),
+        isAccountRoutingProvider: Boolean(latestTask.providerID && isAccountRoutingProvider(latestTask.providerID)),
+        accountRoutingMode: latestTask.providerID ? accountRoutingMode(latestTask.providerID) : "",
+        accountIdExplicit: latestTask.accountIdExplicit === true,
+        isStreaming: latestLive.session.isStreaming,
+        isGoalLoopTurn: isActiveGoalLoopSession(latestLive.session),
+        hasUserMessage: latestLive.session.messages.some((message) => message.role === "user"),
+      });
+      if (!stillEligible) {
         requireTaskLease(latestTask.id);
         if (!options?.deferWorking) setTaskStatus(latestTask.id, "working");
         return latestLive;

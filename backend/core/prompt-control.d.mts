@@ -97,3 +97,28 @@ export function promptSendCustomType(
 
 /** Whether a prompt error belongs to a deliberate user abort and must not mark the task errored. */
 export function shouldIgnorePromptError(input: { isAbortMessage: boolean; hasManualAbort: boolean }): boolean;
+
+/** Whether a prompt may be re-routed to another account before it is sent. */
+export function canRouteAccountForPrompt(input: {
+  reroute: boolean;
+  hasProviderId: boolean;
+  hasModelId: boolean;
+  isStreaming: boolean;
+  isGoalLoopTurn: boolean;
+  hasUserMessage: boolean;
+  isAccountRoutingProvider: boolean;
+  accountRoutingMode: string;
+  accountIdExplicit: boolean;
+}): boolean;
+
+/** The routing eligibility re-checked inside the route lock. */
+export function stillEligibleForAccountRouting(input: {
+  hasProviderId: boolean;
+  hasModelId: boolean;
+  isAccountRoutingProvider: boolean;
+  accountRoutingMode: string;
+  accountIdExplicit: boolean;
+  isStreaming: boolean;
+  isGoalLoopTurn: boolean;
+  hasUserMessage: boolean;
+}): boolean;

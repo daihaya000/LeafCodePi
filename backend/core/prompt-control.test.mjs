@@ -3,7 +3,8 @@ import { execFileSync } from "node:child_process";
 import { test } from "node:test";
 import {
   buildPromptOptions, clearSessionQueue, isReasoningMandatoryError, isStaleHarnessPrompt, nextPromptEpoch,
-  isRecoverableResumeSelectionError, promptSendCustomType, resolveHangWatchQueueAction, resolvePromptGate,
+  canRouteAccountForPrompt, isRecoverableResumeSelectionError, promptSendCustomType, resolveHangWatchQueueAction,
+  resolvePromptGate, stillEligibleForAccountRouting,
   resolvePromptPermissionOptions, resolvePromptSendKind, shouldIgnorePromptError,
   shouldArmHangWatchAtSend,
   resolveStreamingBehaviorForPrompt, shouldApplyPromptModelSelection, shouldApplyPromptThinkingLevel,
@@ -277,5 +278,52 @@ test("a prompt error after a user abort is not reported as a task failure", () =
   for (const value of [undefined, null, 0, "true", 1]) {
     assert.equal(shouldIgnorePromptError({ isAbortMessage: value, hasManualAbort: true }), false, String(value));
     assert.equal(shouldIgnorePromptError({ isAbortMessage: true, hasManualAbort: value }), false, String(value));
+  }
+});
+
+const routing = (overrides = {}) => ({
+  reroute: true,
+  hasProviderId: true,
+  hasModelId: true,
+  isStreaming: false,
+  isGoalLoopTurn: false,
+  hasUserMessage: true,
+  isAccountRoutingProvider: true,
+  accountRoutingMode: "integrated",
+  accountIdExplicit: false,
+  ...overrides,
+});
+
+test("routing needs a reroute request, a provider/model, an idle session and an integrated account", () => {
+  assert.equal(canRouteAccountForPrompt(routing()), true);
+  assert.equal(canRouteAccountForPrompt(routing({ reroute: false })), false);
+  assert.equal(canRouteAccountForPrompt(routing({ hasProviderId: false })), false);
+  assert.equal(canRouteAccountForPrompt(routing({ hasModelId: false })), false);
+  assert.equal(canRouteAccountForPrompt(routing({ isStreaming: true })), false);
+  assert.equal(canRouteAccountForPrompt(routing({ isAccountRoutingProvider: false })), false);
+  assert.equal(canRouteAccountForPrompt(routing({ accountRoutingMode: "separate" })), false);
+  assert.equal(canRouteAccountForPrompt(routing({ accountRoutingMode: undefined })), false);
+});
+
+test("a pinned account is never routed, and a turn needs a user message or a Goal Loop", () => {
+  assert.equal(canRouteAccountForPrompt(routing({ accountIdExplicit: true })), false);
+  assert.equal(canRouteAccountForPrompt(routing({ hasUserMessage: false })), false);
+  assert.equal(canRouteAccountForPrompt(routing({ hasUserMessage: false, isGoalLoopTurn: true })), true, "a Goal Loop turn has its own history");
+});
+
+test("the re-check inside the route lock drops the request flag but keeps every other condition", () => {
+  const base = {
+    hasProviderId: true, hasModelId: true, isAccountRoutingProvider: true, accountRoutingMode: "integrated",
+    accountIdExplicit: false, isStreaming: false, isGoalLoopTurn: false, hasUserMessage: true,
+  };
+  assert.equal(stillEligibleForAccountRouting(base), true);
+  assert.equal(stillEligibleForAccountRouting({ ...base, accountIdExplicit: true }), false, "a pin that appeared while waiting stops routing");
+  assert.equal(stillEligibleForAccountRouting({ ...base, isStreaming: true }), false);
+  assert.equal(stillEligibleForAccountRouting({ ...base, hasModelId: false }), false);
+  assert.equal(stillEligibleForAccountRouting({ ...base, hasUserMessage: false }), false);
+  assert.equal(stillEligibleForAccountRouting({ ...base, hasUserMessage: false, isGoalLoopTurn: true }), true);
+  for (const value of [undefined, null, 0, "true", 1]) {
+    assert.equal(stillEligibleForAccountRouting({ ...base, accountIdExplicit: value }), true, String(value));
+    assert.equal(stillEligibleForAccountRouting({ ...base, isStreaming: value }), true, String(value));
   }
 });
