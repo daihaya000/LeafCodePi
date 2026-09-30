@@ -7,6 +7,7 @@ import {
   BACKEND_PENDING_SNAPSHOTS_PATH,
   BACKEND_PROTOCOL_HEADER,
   BACKEND_PROTOCOL_VERSION,
+  BACKEND_TASKS_PATH,
   DEFAULT_BACKEND_PORT,
 } from "../../shared/backend-protocol.mjs";
 
@@ -34,6 +35,12 @@ export function createBackendServer({
   isReady = () => false,
   // The runtime owner supplies the store; without one the read is empty, not an error.
   readPendingSnapshots = () => [],
+  /**
+   * The Backend's own view of the task store. These are stored rows, not the Web's derived
+   * summaries: the derived fields stay in the Web until the relay is enabled.
+   */
+  readTasks = () => [],
+  readTask = () => null,
 } = {}) {
   if (
     typeof token !== "string" ||
@@ -45,6 +52,8 @@ export function createBackendServer({
   }
   if (typeof isReady !== "function") throw new Error("isReady must be a function");
   if (typeof readPendingSnapshots !== "function") throw new Error("readPendingSnapshots must be a function");
+  if (typeof readTasks !== "function") throw new Error("readTasks must be a function");
+  if (typeof readTask !== "function") throw new Error("readTask must be a function");
   const expectedDigest = tokenDigest(token);
   const instanceId = randomUUID();
   const startedAt = new Date().toISOString();
@@ -67,7 +76,16 @@ export function createBackendServer({
       return;
     }
     // Match the request target, not the untrusted Host header. No CORS is enabled.
-    if (request.url !== BACKEND_HEALTH_PATH && request.url !== BACKEND_PENDING_SNAPSHOTS_PATH) {
+    const target = new URL(request.url ?? "/", "http://backend.internal");
+    const taskPath = target.pathname === BACKEND_TASKS_PATH
+      ? null
+      : target.pathname.startsWith(`${BACKEND_TASKS_PATH}/`)
+        ? decodeURIComponent(target.pathname.slice(BACKEND_TASKS_PATH.length + 1))
+        : undefined;
+    const knownPath = target.pathname === BACKEND_HEALTH_PATH
+      || target.pathname === BACKEND_PENDING_SNAPSHOTS_PATH
+      || taskPath !== undefined;
+    if (!knownPath) {
       sendJson(response, 404, { error: "Not found", code: BACKEND_ERROR_CODES.notFound });
       return;
     }
@@ -77,7 +95,27 @@ export function createBackendServer({
       }, { Allow: "GET" });
       return;
     }
-    if (request.url === BACKEND_PENDING_SNAPSHOTS_PATH) {
+    if (taskPath !== undefined) {
+      try {
+        if (taskPath === null) {
+          sendJson(response, 200, { tasks: readTasks() ?? [] });
+          return;
+        }
+        const task = readTask(taskPath);
+        if (!task) {
+          sendJson(response, 404, { error: "Not found", code: BACKEND_ERROR_CODES.notFound });
+          return;
+        }
+        sendJson(response, 200, { task });
+      } catch {
+        // Never send exception messages: a store failure must not leak paths or ids.
+        sendJson(response, 500, {
+          error: "Backend task read failed", code: BACKEND_ERROR_CODES.internal,
+        });
+      }
+      return;
+    }
+    if (target.pathname === BACKEND_PENDING_SNAPSHOTS_PATH) {
       try {
         sendJson(response, 200, { snapshots: readPendingSnapshots() ?? [] });
       } catch {

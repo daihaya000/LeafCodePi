@@ -164,6 +164,66 @@ test("a non-function pending snapshot reader is rejected at creation", () => {
   );
 });
 
+test("serves the Backend's own task view to an authenticated reader", async (t) => {
+  const tasks = [{ id: "task-1", title: "first" }, { id: "task-2", title: "second" }];
+  const { url, snapshotsUrl, headers } = await fixture(t, {
+    readTasks: () => tasks,
+    readTask: (id) => tasks.find((task) => task.id === id) ?? null,
+  });
+  const tasksUrl = snapshotsUrl.replace("pending-snapshots", "tasks");
+  const list = await request(tasksUrl, { headers });
+  assert.equal(list.status, 200);
+  assert.deepEqual(await list.json(), { tasks });
+  const one = await request(`${tasksUrl}/task-2`, { headers });
+  assert.equal(one.status, 200);
+  assert.deepEqual(await one.json(), { task: { id: "task-2", title: "second" } });
+  const missing = await request(`${tasksUrl}/nope`, { headers });
+  assert.equal(missing.status, 404);
+  assert.equal((await missing.json()).code, "BACKEND_NOT_FOUND");
+  assert.ok(url.includes("/internal/health"), "the health route still exists");
+});
+
+test("the task view needs authentication, the protocol header and GET", async (t) => {
+  const { snapshotsUrl, headers } = await fixture(t, { readTasks: () => [] });
+  const tasksUrl = snapshotsUrl.replace("pending-snapshots", "tasks");
+  assert.equal((await request(tasksUrl)).status, 401);
+  assert.equal((await request(tasksUrl, { headers: { authorization: headers.authorization } })).status, 409);
+  const response = await request(tasksUrl, { method: "POST", headers });
+  assert.equal(response.status, 405);
+  assert.equal(response.headers.get("allow"), "GET");
+});
+
+test("a failing task read stays contained and an empty store is not an error", async (t) => {
+  const sensitive = "C:/private/store.json";
+  const failing = await fixture(t, {
+    readTasks: () => { throw new Error(`cannot read ${sensitive}`); },
+    readTask: () => { throw new Error(`cannot read ${sensitive}`); },
+  });
+  const failingUrl = failing.snapshotsUrl.replace("pending-snapshots", "tasks");
+  const list = await request(failingUrl, { headers: failing.headers });
+  assert.equal(list.status, 500);
+  const body = await list.json();
+  assert.equal(body.code, "BACKEND_INTERNAL_ERROR");
+  assert.ok(!JSON.stringify(body).includes(sensitive));
+  const one = await request(`${failingUrl}/task-1`, { headers: failing.headers });
+  assert.equal(one.status, 500);
+  assert.ok(!JSON.stringify(await one.json()).includes(sensitive));
+
+  const empty = await fixture(t);
+  const emptyUrl = empty.snapshotsUrl.replace("pending-snapshots", "tasks");
+  assert.deepEqual(await (await request(emptyUrl, { headers: empty.headers })).json(), { tasks: [] });
+  assert.equal((await request(`${emptyUrl}/task-1`, { headers: empty.headers })).status, 404);
+});
+
+test("a non-function task reader is rejected at creation", () => {
+  for (const options of [{ readTasks: "nope" }, { readTask: 42 }]) {
+    assert.throws(
+      () => createBackendServer({ token: randomBytes(32).toString("base64url"), ...options }),
+      /must be a function/,
+    );
+  }
+});
+
 test("rejects invalid ports and surfaces occupied port errors", async (t) => {
   const { server, address } = await fixture(t);
   for (const port of [-1, 65536, 1.5, "3010", NaN]) {

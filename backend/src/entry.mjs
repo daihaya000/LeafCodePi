@@ -42,6 +42,9 @@ try {
   const server = createBackendServer({
     token: process.env.LEAFCODE_PI_BACKEND_TOKEN,
     readPendingSnapshots: () => pendingSnapshots.list(),
+    // The Backend's own store view: stored rows, read through the same store the startup owns.
+    readTasks: () => [...started.store.listTasks(true), ...started.store.listTasks(true, "bot")],
+    readTask: (id) => started.store.getTask(id) ?? null,
     // Ready means the startup sequence finished *and* the runtime is attached. A detached runtime
     // (or a bundle that could not be loaded) keeps health at 503/starting.
     isReady: () => host.isReady() && started.runtimeStatus().ok === true,
