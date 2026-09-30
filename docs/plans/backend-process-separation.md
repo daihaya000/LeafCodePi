@@ -43,7 +43,7 @@
    | `room-recovery.mjs` | 放置working発言の判定、handoff整理と再配信 | Room保存・実行 |
    | `bot-code-report.mjs` | Bot向けCode結果報告プロンプトの組立 | Room用前置きプロンプトの生成 |
 
-   **未完（実切替前に必要）**: `live`セッションの所有と`attachSession`/`ensureLive`、スナップショット配信、Goal Loop・サブエージェント停止の実体、Bot intercom、各起動サービスの実装、他の業務ストア、待機要求の永続化・リクエストID重複拒否・Backend再起動を跨ぐ再表示、ブリッジのプロセス間化（現状はプロセス内globalThis）、期限切れleaseの取得競合に対する厳密な単一writer保証（現状はPID・heartbeat/mtime期限のみ）。全体のWeb型検証は、拡張（`leafcode-goal-loop`/`loop-guard`）が `@earendil-works/pi-coding-agent` を解決できず既存から失敗しており、本番用 `tsconfig.build.json` の型検証で代替している。
+   **未完（実切替前に必要）**: `live`セッションの所有と`attachSession`/`ensureLive`、スナップショット配信、Goal Loop・サブエージェント停止の実体、Bot intercom、各起動サービスの実装、他の業務ストア、待機要求の永続化・リクエストID重複拒否・Backend再起動を跨ぐ再表示、ブリッジのプロセス間化（現状はプロセス内globalThis）、期限切れleaseの再取得は、複数プロセス競合で旧実装が二重所有（5並列中4つが取得成功）を起こすことを実測した。per-task reclaim lock（再検証付き・10秒でstale回収）で直列化し、同条件で1所有者になることを複数Nodeプロセス試験で確認した。ただしreclaim lock未対応の旧ビルドが同じ`task-leases`を触る間は旧競合が残り、実切替時は旧経路を停止してから切り替える。reclaim lockを残したcrashed holderは10秒で回収する。lock取得に負けた側が一時的に「実行中」と返す挙動は許容仕様。全体のWeb型検証は、拡張（`leafcode-goal-loop`/`loop-guard`）が `@earendil-works/pi-coding-agent` を解決できず既存から失敗しており、本番用 `tsconfig.build.json` の型検証で代替している。
 3. 独立API・Web中継: 未着手。既存URLと応答形式を維持。切替は排他的に行い、旧経路とBackendの二重実行/書込を禁止。
 4. Host・ビルド・再起動分離: 未着手。ready確認、独立した再起動予算、稼働中SDK/拡張世代の固定、互換性確認を追加。
 5. 段階導入・旧経路撤去: 未着手。実プロセス継続試験後にSDK依存とシングルトンをWebUIから除去。
@@ -70,7 +70,7 @@
 - 副作用を伴う要求のID・重複受付防止。応答喪失時に無条件で再実行しない。
 - アプリデータはBackend単一writer。Host固有設定はHost所有のまま。
 - 抽出したアプリストアは既存の固定tmpファイル・mtime/size条件・可変キャッシュ行を維持する。多writerトランザクションや書込失敗時のメモリrollbackは追加していない。実切替ではBackend単一writerを排他的に成立させる。
-- 抽出したleaseのstale判定は既存どおりPID・heartbeat/mtime期限による。実切替時の排他的所有や世代フェンシングを保証するものではなく、期限切れ競合・二重起動を別途検証/強化する。
+- 抽出したleaseのstale判定は既存どおりPID・heartbeat/mtime期限による。期限切れleaseの再取得はper-task reclaim lockで直列化済み（複数Node試験で1所有者を確認）だが、世代フェンシングや旧ビルドとの共存は保証しない。二重起動防止は実切替時に旧経路を止めて別途検証する。
 - Backend障害時の復旧はWebUI再接続と区別。ツールの副作用は完全再開を保証しない。
 - rollbackもBackend停止後に旧経路へ切替。実行中世代のファイルは更新しない。
 

@@ -1,5 +1,6 @@
 export const TASK_LEASE_STALE_MS: number;
 export const HEARTBEAT_MS: number;
+export const RECLAIM_LOCK_STALE_MS: number;
 export const ORPHANED_WORKING_TASK_ERROR: string;
 
 export type TaskLeaseTask = { id: string; status: string; error?: string | null };
