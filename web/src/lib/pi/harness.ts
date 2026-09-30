@@ -213,11 +213,11 @@ import { SdkRuntimeFactory } from "@backend-core/sdk-runtime.mjs";
 import * as corePromptControl from "@backend-core/prompt-control.mjs";
 import { runHangWatchdogAbort, runUserAbort } from "@backend-core/abort-coordinator.mjs";
 import { roomBotIdFromTaskId } from "@backend-core/abort-control.mjs";
-import { detachReplacedLive as coreDetachReplacedLive, disposeUnattachedSession, hasOtherBusyRoomLive, isRegisteredLive, isStaleEnsureEpoch, promoteMailboxOnAttach, resolveAttachAccount, resolveAttachedSessionAction, resolveCreatedSessionAction, resolveJoinedEnsureAction, runCoalescedLiveShutdown, runTrackedEnsure, shouldShutdownOnDispose as coreShouldShutdownOnDispose } from "@backend-core/live-lifecycle.mjs";
+import { detachReplacedLive as coreDetachReplacedLive, disposeUnattachedSession, hasOtherBusyRoomLive, isRegisteredLive, isStaleEnsureEpoch, promoteMailboxOnAttach, resolveAttachAccount, resolveAttachedSessionAction, resolveCreatedSessionAction, runCoalescedLiveShutdown, runTrackedEnsure, shouldShutdownOnDispose as coreShouldShutdownOnDispose } from "@backend-core/live-lifecycle.mjs";
 import { restoredPromptState, restoredTaskMetadata, restoredThroughputState as coreRestoredThroughputState } from "@backend-core/live-attach-state.mjs";
 import { compactionFailureMessage, isHarnessAutoCompactionError as coreIsHarnessAutoCompactionError, runAgentStartTaskSync, shouldApplySettledStatus, shouldSkipEventForMissingTask, shouldSyncTaskFromSessionEvent as coreShouldSyncTaskFromSessionEvent, type SessionSyncEvent } from "@backend-core/session-event-decisions.mjs";
 import { classifySnapshotEvent, flushPendingSnapshotOnUnsubscribe, pendingSnapshotFlush, SNAPSHOT_THROTTLE_MS } from "@backend-core/snapshot-schedule.mjs";
-import { publishAttachedLive, runEnsureLiveGates } from "@backend-core/live-lifecycle.mjs";
+import { publishAttachedLive, resolveEnsureLiveAttempt, runEnsureLiveGates } from "@backend-core/live-lifecycle.mjs";
 import { runSessionEventEffects } from "@backend-core/session-event-effects.mjs";
 import { isBotTask, liveSessionName, liveSessionWorkspace, preflightLiveSession, resolveSessionAccountId, resolveSessionAccountRefusal, resolveSessionPermissionMode, resolveSessionSkillPermission, resolveSessionThinkingLevelSource, resolveStoredModelOutcome } from "@backend-core/live-session-preflight.mjs";
 import { runSerializedByKey } from "@backend-core/keyed-serializer.mjs";
@@ -4670,28 +4670,23 @@ async function ensureLive(
     retirement: liveShutdownInflight.get(taskId),
   });
   if (gates === "not-attachable") throwIfTaskArchived(taskId);
-  const current = state();
-  const existing = current.live.get(taskId);
-  if (existing) {
-    existing.lastActivityAt = Date.now();
-    return existing;
-  }
-
   const epoch = ensureLiveEpoch.get(taskId) ?? 0;
-  const inflight = ensureLiveInflight.get(taskId);
-  if (inflight) {
-    await inflight;
-    throwIfTaskArchived(taskId);
-    const stillLive = state().live.get(taskId);
+  const existingLive = state().live.get(taskId);
+  // Reuse/join ordering lives in backend core; the registry and the epoch map stay here.
+  const attempt = await resolveEnsureLiveAttempt({
+    existing: existingLive,
+    touchExisting: () => {
+      if (existingLive) existingLive.lastActivityAt = Date.now();
+    },
+    inflight: ensureLiveInflight.get(taskId),
+    afterJoin: () => {
+      throwIfTaskArchived(taskId);
+      return state().live.get(taskId);
+    },
     // A stale generation beats adopting the registered live (see backend core).
-    if (resolveJoinedEnsureAction({
-      stale: isStaleEnsureEpoch(ensureLiveEpoch.get(taskId), epoch),
-      hasLive: Boolean(stillLive),
-    }) === "use-live") {
-      return stillLive!;
-    }
-    return ensureLive(taskId, options);
-  }
+    isStale: () => isStaleEnsureEpoch(ensureLiveEpoch.get(taskId), epoch),
+  });
+  if (attempt.action === "reuse") return attempt.live as LiveRuntime;
 
   const promise = runTrackedEnsure(taskId, {
     inflight: ensureLiveInflight,

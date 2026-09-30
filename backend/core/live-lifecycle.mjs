@@ -97,6 +97,33 @@ export function resolveAttachedSessionAction({ staleGeneration, isRegistered }) 
 }
 
 /**
+ * Decides how an ensure-live call proceeds before any session is created. A live
+ * that is already registered is touched (activity clock) and reused as is. With no
+ * live, an in-flight attempt for the same task is joined — the task is re-checked
+ * after that wait, and a live it registered is adopted only while this call's
+ * generation is still current; a stale generation means the joined attempt built its
+ * session for a generation that has since been invalidated, so a fresh attempt is
+ * started instead.
+ *
+ * Returns "reuse" with the live to hand back, or "proceed" when the caller must
+ * create a session (either the first attempt, or a retry after joining). A failed
+ * in-flight attempt propagates to the joiner unchanged .
+ */
+export async function resolveEnsureLiveAttempt({ existing, touchExisting, inflight, afterJoin, isStale }) {
+  if (existing) {
+    touchExisting();
+    return { action: "reuse", live: existing };
+  }
+  if (!inflight) return { action: "proceed" };
+  await inflight;
+  const live = afterJoin();
+  if (resolveJoinedEnsureAction({ stale: isStale(), hasLive: Boolean(live) }) !== "use-live") {
+    return { action: "proceed" };
+  }
+  return { action: "reuse", live };
+}
+
+/**
  * The gates an ensure-live attempt passes before it may create a session: the task
  * must still be attachable, a promotion in flight must settle first (unless this
  * attempt is the promotion itself), and a retiring predecessor must finish before

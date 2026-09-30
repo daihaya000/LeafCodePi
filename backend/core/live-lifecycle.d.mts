@@ -30,6 +30,18 @@ export function detachReplacedLive<Live extends {
 ): void;
 
 /**
+ * Reuse/join decision before creating a session: { action: "reuse", live } or "proceed".
+ */
+export function resolveEnsureLiveAttempt(steps: {
+  existing?: unknown;
+  touchExisting: () => void;
+  inflight?: Promise<unknown> | undefined;
+  /** Runs after the join: re-checks the task, then returns the registered live. */
+  afterJoin: () => unknown;
+  isStale: () => boolean;
+}): Promise<{ action: "reuse"; live: unknown } | { action: "proceed" }>;
+
+/**
  * The ensure-live gates: attachable check, promotion wait, repeat check, retirement wait.
  */
 export function runEnsureLiveGates(steps: {
