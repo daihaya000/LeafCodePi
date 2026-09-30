@@ -68,8 +68,18 @@ function createPendingPromptService(options, kind) {
     // An unmapped session is not a user decision.
     if (!taskId) return Promise.resolve(null);
     const request = kind.buildRequest(input);
-    return new Promise((resolve) => {
-      const row = { taskId, request, resolve, timer: null };
+    // A re-sent request (same id, same session/task) joins the decision already
+    // waiting instead of asking the user twice; a colliding id from another
+    // session is refused without disturbing the original. Only pending requests
+    // are remembered: once decided, the id is free again.
+    const existing = pendingById.get(request.id);
+    if (existing) {
+      if (existing.taskId === taskId && existing.request.sessionId === request.sessionId) return existing.promise;
+      return Promise.resolve(kind.timeoutValue);
+    }
+    const row = { taskId, request, resolve: undefined, timer: null, promise: undefined };
+    row.promise = new Promise((resolve) => {
+      row.resolve = resolve;
       armTimer(row);
       pendingById.set(request.id, row);
       const queue = queueByTask.get(taskId) ?? [];
@@ -77,6 +87,7 @@ function createPendingPromptService(options, kind) {
       queueByTask.set(taskId, queue);
       if (queue.length === 1) pushSnapshot(taskId, request);
     });
+    return row.promise;
   }
 
   function respond(taskId, requestId, value) {
