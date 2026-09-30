@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
   isBotTask, liveSessionName, liveSessionRefusalError, liveSessionWorkspace, preflightLiveSession,
-  resolveSessionAccountId,
+  resolveCodePermissionUpdates, resolveSessionAccountId,
   resolveSessionAccountRefusal, resolveSessionPermissionMode, resolveSessionSkillPermission,
   resolveSessionThinkingLevelSource, resolveStoredModelOutcome, TASK_ARCHIVED_MESSAGE,
   TASK_NOT_FOUND_MESSAGE,
@@ -209,4 +209,61 @@ test("the refusal ladder feeds the error mapping in precedence order", () => {
   assert.equal(liveSessionRefusalError(preflightLiveSession(input), { leaseBusyMessage: "x" }).status, 404);
   assert.equal(liveSessionRefusalError(preflightLiveSession({ ...input, hasTask: true }), { leaseBusyMessage: "x" }).status, 409);
   assert.equal(liveSessionRefusalError(preflightLiveSession({ hasTask: true, status: "idle", leaseHeldElsewhere: true }), { leaseBusyMessage: "x" }).message, "x");
+});
+
+function permissionInput(overrides = {}) {
+  return {
+    kind: "code",
+    followsPermissionMode: true,
+    currentPermissionMode: "allow",
+    taskPermissionMode: "ask",
+    currentSkillPermission: "allow",
+    taskSkillPermission: "ask",
+    defaultSkillPermission: "allow",
+    ...overrides,
+  };
+}
+
+test("a reopening Code session only reports the permission values that changed", () => {
+  assert.deepEqual(resolveCodePermissionUpdates(permissionInput()), {
+    permissionMode: "allow",
+    skillPermission: "allow",
+  });
+  assert.deepEqual(resolveCodePermissionUpdates(permissionInput({ taskPermissionMode: "allow", taskSkillPermission: "allow" })), {});
+  assert.deepEqual(resolveCodePermissionUpdates(permissionInput({ taskPermissionMode: "allow" })), { skillPermission: "allow" });
+  assert.deepEqual(resolveCodePermissionUpdates(permissionInput({ taskSkillPermission: "allow" })), { permissionMode: "allow" });
+});
+
+test("Bot tasks and Bot-run Code tasks never follow the Settings approval mode", () => {
+  assert.deepEqual(resolveCodePermissionUpdates(permissionInput({ kind: "bot" })), {});
+  assert.deepEqual(resolveCodePermissionUpdates(permissionInput({ followsPermissionMode: false })), { skillPermission: "allow" });
+  assert.deepEqual(resolveCodePermissionUpdates(permissionInput({ followsPermissionMode: false, taskSkillPermission: "allow" })), {});
+});
+
+test("a task predating stored skill permissions counts as the default", () => {
+  assert.deepEqual(resolveCodePermissionUpdates(permissionInput({ taskSkillPermission: undefined })), { permissionMode: "allow" });
+  assert.deepEqual(
+    resolveCodePermissionUpdates(permissionInput({ taskSkillPermission: undefined, currentSkillPermission: "deny" })),
+    { permissionMode: "allow", skillPermission: "deny" },
+  );
+  // A task storing the default exactly is unchanged even when it was never written.
+  assert.deepEqual(
+    resolveCodePermissionUpdates(permissionInput({ taskSkillPermission: undefined, currentSkillPermission: "allow", taskPermissionMode: "allow" })),
+    {},
+  );
+});
+
+test("the flags are strict: only an explicit true follows the mode", () => {
+  for (const value of [undefined, null, 0, "true", 1]) {
+    assert.deepEqual(
+      resolveCodePermissionUpdates(permissionInput({ followsPermissionMode: value, taskSkillPermission: "allow" })),
+      {},
+      String(value),
+    );
+  }
+  // An unreadable kind is not a Bot, so it follows the same rules as a Code task.
+  assert.deepEqual(
+    resolveCodePermissionUpdates(permissionInput({ kind: undefined, taskSkillPermission: "allow" })),
+    { permissionMode: "allow" },
+  );
 });

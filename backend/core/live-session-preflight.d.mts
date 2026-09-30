@@ -2,6 +2,17 @@ import type { BotPermissionMode } from "./bot-config.mjs";
 
 export type LiveSessionRefusal = "task-not-found" | "archived" | "lease-busy";
 
+/** Settings values a Code task has not applied yet; unchanged values are omitted. */
+export function resolveCodePermissionUpdates(input: {
+  kind: string | undefined;
+  followsPermissionMode: boolean;
+  currentPermissionMode: string | undefined;
+  taskPermissionMode: string | undefined;
+  currentSkillPermission: string | undefined;
+  taskSkillPermission: string | undefined;
+  defaultSkillPermission: string;
+}): { permissionMode?: string; skillPermission?: string };
+
 export const TASK_NOT_FOUND_MESSAGE: string;
 export const TASK_ARCHIVED_MESSAGE: string;
 

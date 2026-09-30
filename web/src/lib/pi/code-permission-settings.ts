@@ -1,3 +1,4 @@
+import { resolveCodePermissionUpdates } from "@backend-core/live-session-preflight.mjs";
 import { getSetting } from "@/lib/pi/web-settings";
 import {
   PERMISSION_MODE_SETTING_KEY,
@@ -59,16 +60,15 @@ export function codePermissionUpdates(task: CodePermissionTask): {
   permissionMode?: PermissionMode;
   skillPermission?: SkillPermission;
 } {
-  if (task.kind === "bot") return {};
-  const updates: { permissionMode?: PermissionMode; skillPermission?: SkillPermission } = {};
-  if (followsCodePermissionMode(task)) {
-    const permissionMode = readCodePermissionMode();
-    if (permissionMode !== task.permissionMode) updates.permissionMode = permissionMode;
-  }
-  const skillPermission = readCodeSkillPermission();
-  // Tasks created before skill permissions were stored ran with skills allowed.
-  if (skillPermission !== (task.skillPermission ?? DEFAULT_SKILL_PERMISSION)) {
-    updates.skillPermission = skillPermission;
-  }
-  return updates;
+  // The comparison rules live in backend core; the Settings reads stay here.
+  return resolveCodePermissionUpdates({
+    kind: task.kind,
+    followsPermissionMode: followsCodePermissionMode(task),
+    currentPermissionMode: readCodePermissionMode(),
+    taskPermissionMode: task.permissionMode,
+    currentSkillPermission: readCodeSkillPermission(),
+    // Tasks created before skill permissions were stored ran with skills allowed.
+    taskSkillPermission: task.skillPermission,
+    defaultSkillPermission: DEFAULT_SKILL_PERMISSION,
+  }) as { permissionMode?: PermissionMode; skillPermission?: SkillPermission };
 }

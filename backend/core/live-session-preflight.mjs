@@ -13,6 +13,33 @@ export function resolveSessionThinkingLevelSource({ hasStoredLevel, hasModel }) 
   return hasModel === true ? "model-default" : "none";
 }
 
+/**
+ * The permission values a reopening Code session must write onto its task record.
+ * Unchanged values are omitted so a prompt never rewrites the record (or the
+ * permission file) needlessly. Bot tasks never follow the Settings approval mode;
+ * only user-started Code tasks do (`followsPermissionMode`). A task that predates
+ * stored skill permissions counts as the default.
+ */
+export function resolveCodePermissionUpdates({
+  kind,
+  followsPermissionMode,
+  currentPermissionMode,
+  taskPermissionMode,
+  currentSkillPermission,
+  taskSkillPermission,
+  defaultSkillPermission,
+}) {
+  if (kind === "bot") return {};
+  const updates = {};
+  if (followsPermissionMode === true && currentPermissionMode !== taskPermissionMode) {
+    updates.permissionMode = currentPermissionMode;
+  }
+  if (currentSkillPermission !== (taskSkillPermission ?? defaultSkillPermission)) {
+    updates.skillPermission = currentSkillPermission;
+  }
+  return updates;
+}
+
 /** Shared wording for the two task-level refusals every entry point reports. */
 export const TASK_NOT_FOUND_MESSAGE = "タスクが見つかりません";
 export const TASK_ARCHIVED_MESSAGE = "アーカイブされたタスクです";
