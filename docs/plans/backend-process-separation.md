@@ -47,6 +47,7 @@ bundleパスは`LEAFCODE_PI_BACKEND_RUNTIME_BUNDLE`で差し替え可能。CLI�
 **ターン56で追加**: `web/src/lib/backend-client.ts`（サーバー専用の内部クライアント）。トークンはサーバーenvのみから読み（`backendClientStatus`が`configured`を返す）、`fetchBackendJson`はprotocolヘッダ＋bearerを付けて、not-configured／unreachable／timeout／unauthorized／incompatible／bad-responseを区別して返す（例外文は返さない）。`readBackendHealth`・`readBackendTasks`は薄いラッパー。既存routeは切り替えていない（切替前）。
 **ターン57で追加**: 診断用route `GET /api/backend/status`。WebUIの認証ゲート配下で、未設定なら`{configured:false,url,backend:null}`、設定済みならBackendのhealth要約（`{reachable,ready,status}`または失敗理由）を返す。トークンとpidはブラウザ可視の契約に含めない。
 **ターン58で追加**: 内部API `GET /internal/tasks/:id/detail`。runtime未接続時は**503 `BACKEND_RUNTIME_UNAVAILABLE`**（タスクIDは返さない）、接続済みならbundleの`getTaskDetail(id,{offline:true})`の結果を`{detail}`で返す。404は404、その他の例外は500へ封じ込め（例外文は出さない）。`createBackendStartup`に`runtime()`アクセサを追加し、`entry.mjs`は接続済みのときだけ詳細ハンドラを渡す。
+**ターン59で追加**: 中継route `GET /api/backend/tasks`（読み取り専用）。Backend未設定または到達不能なら**503＋理由**（`not-configured`／`unreachable`／`timeout`／`unauthorized`／`incompatible`／`bad-response`）を返し、黙ってプロセス内ストアへフォールバックしない。成功時は`{source:"backend", tasks}`。WebUI認証ゲート配下。既存の`/api/tasks`（派生フィールド付き）は**未切替**。
 **未完（実切替前に必要）**: promptTask経路のSDK実行本体、relay要求キューの状態遷移本体、ルーティン実行本体（いずれもWebプロセスのharness/routinesに残る）、起動列の`entry.mjs`接続とready化、内部APIとWeb中継、Host・ビルド・再起動分離、実切替、旧経路撤去。
 
 1. 通信契約・依存境界: **進行中**。認証、版数、health、起動/停止を追加。既存のタスク・モデル・質問/承認・Bot/Room・履歴・Git等のDTOを `shared/types.ts` へ移動。既存 `@/lib/types` は互換再エクスポート。共有契約はNext/SDK/Node型への依存なしで単独型検証できる。設定等の個別ファイルにあるDTOと実行依存の抽出は後続。
