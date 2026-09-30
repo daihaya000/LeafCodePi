@@ -44,6 +44,7 @@ import { GraphPanel } from "@/components/task/GraphPanel";
 import { ProjectExplorerButton } from "@/components/task/ProjectExplorerButton";
 import { ProjectFilePicker } from "@/components/ProjectFilePicker";
 import { SessionLabelBadge } from "@/components/SessionLabelBadge";
+import { SessionIdButton } from "@/components/SessionIdButton";
 import { TodoProgressPanel } from "@/components/task/TodoProgressPanel";
 import { ModelSelect, modelOptionForValue } from "@/components/ModelSelect";
 import { ThinkingSelect } from "@/components/ThinkingSelect";
@@ -3086,6 +3087,7 @@ export const TaskView = memo(function TaskView({
               {usageStats("shrink-0")}
             </div>
           </div>
+          <SessionIdButton key={taskId} sessionId={task?.sessionId} />
           <div className="hidden @min-[500px]/task:flex">
             <Button
               variant="ghost"
