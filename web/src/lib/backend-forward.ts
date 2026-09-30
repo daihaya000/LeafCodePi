@@ -1,5 +1,6 @@
 import {
   abortTaskOnBackend,
+  controlGoalLoopOnBackend,
   postBotCodeRequestAction,
   promptTaskOnBackend,
   readBackendPendingSnapshots,
@@ -194,4 +195,22 @@ export async function forwardBotCodeRequestAbort(
     return { ok: false, reason: result.reason, ...(result.status ? { status: result.status } : {}) };
   }
   return { ok: true, result: result.body };
+}
+
+/** Controls a Goal Loop in the owning Backend; a missing loop is a 404, not a fallback. */
+export async function forwardGoalLoopControl(
+  id: string,
+  body: { action: "pause" | "resume" | "stop" | "complete"; maxTurns?: number; botId?: string },
+  options: { env?: BackendEnv; fetchImpl?: typeof fetch; timeoutMs?: number } = {},
+): Promise<
+  | { ok: true; loop: Record<string, unknown> | null }
+  | { ok: false; reason: BackendFailureReason | "not-found"; status?: number }
+> {
+  const result = await controlGoalLoopOnBackend(id, body, options);
+  if (!result.ok) {
+    if (result.status === 404) return { ok: false, reason: "not-found", status: 404 };
+    return { ok: false, reason: result.reason, ...(result.status ? { status: result.status } : {}) };
+  }
+  const loop = result.body?.loop;
+  return { ok: true, loop: loop && typeof loop === "object" ? loop : null };
 }

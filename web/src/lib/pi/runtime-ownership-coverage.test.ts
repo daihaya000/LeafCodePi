@@ -28,7 +28,6 @@ const LOCAL_ONLY_PENDING: Record<string, string> = {
   "bots/[id]/code-session/route.ts": "starting a Bot Code session is not forwarded yet",
   "bots/[id]/route.ts": "Bot task detail read is not forwarded yet",
   "bots/rooms/[id]/code/route.ts": "Room Code start is not forwarded yet",
-  "tasks/[id]/goal-loop/route.ts": "Goal Loop start resolves locally and is not forwarded yet",
 };
 
 function routeFiles(dir = API_DIR, found: string[] = []): string[] {
@@ -84,6 +83,7 @@ describe("runtime ownership coverage", () => {
       "bots/rooms/[id]/events/route.ts",
       "tasks/[id]/abort/route.ts",
       "tasks/[id]/events/route.ts",
+      "tasks/[id]/goal-loop/route.ts",
       "tasks/[id]/messages/route.ts",
       "tasks/[id]/permission/route.ts",
       "tasks/[id]/prompt/route.ts",

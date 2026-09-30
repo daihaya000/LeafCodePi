@@ -15,6 +15,8 @@ const mocks = vi.hoisted(() => ({
   validateTaskModelSelection: vi.fn(),
   stopBotCodeTask: vi.fn(),
   botIdForCodeTask: vi.fn(),
+  localRuntimeBlocked: vi.fn(() => false),
+  forwardGoalLoopControl: vi.fn(),
   jsonError: vi.fn((error: unknown) => ({
     error: error instanceof Error ? error.message : String(error),
     status:
@@ -42,6 +44,23 @@ vi.mock("@/lib/pi/harness", () => ({
   validateTaskModelSelection: mocks.validateTaskModelSelection,
   stopBotCodeTask: mocks.stopBotCodeTask,
 }));
+vi.mock("@/lib/pi/runtime-ownership", () => ({
+  localRuntimeBlocked: mocks.localRuntimeBlocked,
+  assertLocalRuntimeAllowed: vi.fn(),
+}));
+vi.mock("@/lib/backend-forward", () => ({
+  forwardGoalLoopControl: mocks.forwardGoalLoopControl,
+  forwardBotCodeRequestAbort: vi.fn(),
+  forwardTaskAbort: vi.fn(),
+  forwardTaskDetail: vi.fn(),
+  forwardTaskPrompt: vi.fn(),
+  forwardPermissionAnswer: vi.fn(),
+  forwardQuestionAnswer: vi.fn(),
+  forwardTaskPendingRequests: vi.fn(),
+  forwardPendingRequestsByTask: vi.fn(),
+  needsLocalResolution: vi.fn(() => false),
+  forwardablePromptBody: vi.fn((body) => body),
+}));
 
 import { AUTO_AGENT_VALUE } from "@/lib/default-agent";
 import { PATCH, POST } from "./route";
@@ -61,6 +80,59 @@ function patchRequest(body: unknown): NextRequest {
     body: JSON.stringify(body),
   });
 }
+
+describe("Goal Loop control after the cutover", () => {
+  beforeEach(() => {
+    mocks.localRuntimeBlocked.mockReset();
+    mocks.localRuntimeBlocked.mockReturnValue(true);
+    mocks.forwardGoalLoopControl.mockReset();
+    mocks.goalLoopCommand.mockReset();
+    mocks.botIdForCodeTask.mockReset();
+    mocks.botIdForCodeTask.mockReturnValue(undefined);
+  });
+
+  it("forwards pause/resume/stop/complete to the owning Backend", async () => {
+    mocks.forwardGoalLoopControl.mockResolvedValue({ ok: true, loop: { id: "task-1", status: "paused" } });
+    const response = await PATCH(patchRequest({ action: "pause" }), { params: Promise.resolve({ id: "task-1" }) });
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({ loop: { id: "task-1", status: "paused" } });
+    expect(mocks.forwardGoalLoopControl).toHaveBeenCalledWith("task-1", { action: "pause" });
+    expect(mocks.goalLoopCommand).not.toHaveBeenCalled();
+  });
+
+  it("keeps the Bot-owned stop path and clamps resume's turn limit", async () => {
+    mocks.botIdForCodeTask.mockReturnValue("bot-1");
+    mocks.forwardGoalLoopControl.mockResolvedValue({ ok: true, loop: { id: "task-1", status: "stopped" } });
+    await PATCH(patchRequest({ action: "stop" }), { params: Promise.resolve({ id: "task-1" }) });
+    expect(mocks.forwardGoalLoopControl).toHaveBeenCalledWith("task-1", { action: "stop", botId: "bot-1" });
+    // A resume is not Bot-owned work: the Bot id only rides along with a stop.
+    mocks.botIdForCodeTask.mockReturnValue(undefined);
+    await PATCH(patchRequest({ action: "resume", maxTurns: 1000 }), { params: Promise.resolve({ id: "task-1" }) });
+    expect(mocks.forwardGoalLoopControl).toHaveBeenLastCalledWith("task-1", { action: "resume", maxTurns: 100 });
+  });
+
+  it("never controls the loop locally when the Backend cannot take it", async () => {
+    mocks.forwardGoalLoopControl.mockResolvedValue({ ok: false, reason: "not-found", status: 404 });
+    expect((await PATCH(patchRequest({ action: "pause" }), { params: Promise.resolve({ id: "task-1" }) })).status).toBe(404);
+    mocks.forwardGoalLoopControl.mockResolvedValue({ ok: false, reason: "unreachable" });
+    const failed = await PATCH(patchRequest({ action: "pause" }), { params: Promise.resolve({ id: "task-1" }) });
+    expect(failed.status).toBe(502);
+    await expect(failed.json()).resolves.toEqual({ error: "Backendへ転送できません", code: "BACKEND_FORWARD_FAILED", reason: "unreachable" });
+    expect(mocks.goalLoopCommand).not.toHaveBeenCalled();
+  });
+
+  it("refuses a start rather than half-running it locally", async () => {
+    const response = await POST(request({ action: "start", goal: "直して", acceptance: ["テストが通る"] }), {
+      params: Promise.resolve({ id: "task-1" }),
+    });
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toEqual({
+      error: "Goal Loop の開始は非所有モードでは未対応です",
+      code: "GOAL_LOOP_START_NOT_SUPPORTED",
+    });
+    expect(mocks.goalLoopCommand).not.toHaveBeenCalled();
+  });
+});
 
 describe("POST /api/tasks/[id]/goal-loop", () => {
   let task: {
@@ -92,6 +164,10 @@ describe("POST /api/tasks/[id]/goal-loop", () => {
     mocks.resolveAutoAgent.mockReset();
     mocks.resolveAutoModel.mockReset();
     mocks.goalLoopCommand.mockReset();
+    // Ownership and forwarding are per-test: a leftover value would make every later test forward.
+    mocks.localRuntimeBlocked.mockReset();
+    mocks.localRuntimeBlocked.mockReturnValue(false);
+    mocks.forwardGoalLoopControl.mockReset();
     mocks.goalLoopState.mockReset();
     mocks.isTaskRuntimeBusyForGoalLoopStart.mockReset();
     mocks.setTaskAgent.mockReset();

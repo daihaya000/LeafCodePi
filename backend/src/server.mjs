@@ -11,6 +11,7 @@ import {
   BACKEND_PROTOCOL_VERSION,
   BACKEND_TASK_ABORT_SUFFIX,
   BACKEND_TASK_DETAIL_SUFFIX,
+  BACKEND_TASK_GOAL_LOOP_SUFFIX,
   BACKEND_TASK_PERMISSION_SUFFIX,
   BACKEND_TASK_QUESTION_SUFFIX,
   BACKEND_TASK_PROMPT_SUFFIX,
@@ -102,6 +103,8 @@ export function createBackendServer({
   abortTask = null,
   /** Stops a Bot Code request (and updates the outbox): `(botId, action, body) => result`. */
   botCodeRequestAction = null,
+  /** Goal Loop control: `(id, body) => loop | null`; null means the loop was not found. */
+  goalLoopAction = null,
 } = {}) {
   if (
     typeof token !== "string" ||
@@ -127,7 +130,7 @@ export function createBackendServer({
   if (promptTask !== null && typeof promptTask !== "function") {
     throw new Error("promptTask must be a function or null");
   }
-  for (const [name, handler] of Object.entries({ respondToPermission, respondToQuestion, abortTask, botCodeRequestAction })) {
+  for (const [name, handler] of Object.entries({ respondToPermission, respondToQuestion, abortTask, botCodeRequestAction, goalLoopAction })) {
     if (handler !== null && typeof handler !== "function") {
       throw new Error(`${name} must be a function or null`);
     }
@@ -165,7 +168,7 @@ export function createBackendServer({
       : undefined;
     // These suffixes act on the owning process's runtime: starting a session, or answering a pending
     // approval or question. Only the owner may serve them, so the WebUI forwards the request here.
-    const actionSuffix = [BACKEND_TASK_PROMPT_SUFFIX, BACKEND_TASK_PERMISSION_SUFFIX, BACKEND_TASK_QUESTION_SUFFIX, BACKEND_TASK_ABORT_SUFFIX]
+    const actionSuffix = [BACKEND_TASK_PROMPT_SUFFIX, BACKEND_TASK_PERMISSION_SUFFIX, BACKEND_TASK_QUESTION_SUFFIX, BACKEND_TASK_ABORT_SUFFIX, BACKEND_TASK_GOAL_LOOP_SUFFIX]
       .find((suffix) => taskSuffix?.endsWith(suffix));
     const actionPath = actionSuffix === undefined || !taskSuffix
       ? undefined
@@ -211,6 +214,7 @@ export function createBackendServer({
         [BACKEND_TASK_PERMISSION_SUFFIX]: respondToPermission,
         [BACKEND_TASK_QUESTION_SUFFIX]: respondToQuestion,
         [BACKEND_TASK_ABORT_SUFFIX]: abortTask,
+        [BACKEND_TASK_GOAL_LOOP_SUFFIX]: goalLoopAction,
       };
       const handler = actionSuffix ? handlers[actionSuffix] : undefined;
       if (typeof handler !== "function") {
@@ -231,7 +235,19 @@ export function createBackendServer({
         return;
       }
       try {
-        if (actionSuffix === BACKEND_TASK_ABORT_SUFFIX) {
+        if (actionSuffix === BACKEND_TASK_GOAL_LOOP_SUFFIX) {
+          const action = body.value?.action;
+          if (action !== "pause" && action !== "resume" && action !== "stop" && action !== "complete") {
+            sendJson(response, 400, { error: "Invalid goal loop action", code: BACKEND_ERROR_CODES.badRequest });
+            return;
+          }
+          const loop = await handler(actionPath, body.value);
+          if (!loop) {
+            sendJson(response, 404, { error: "Goal loop not found", code: BACKEND_ERROR_CODES.notFound });
+            return;
+          }
+          sendJson(response, 200, { loop });
+        } else if (actionSuffix === BACKEND_TASK_ABORT_SUFFIX) {
           const botId = typeof body.value?.botId === "string" && body.value.botId ? body.value.botId : null;
           const task = await handler(actionPath, botId);
           if (!task) {

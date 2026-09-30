@@ -575,6 +575,48 @@ test("the Bot Code request action needs a runtime, and a non-function handler is
   );
 });
 
+test("a forwarded Goal Loop control reaches the loop's owner", async (t) => {
+  const seen = [];
+  const { snapshotsUrl, headers } = await fixture(t, {
+    goalLoopAction: async (id, body) => {
+      seen.push({ id, body });
+      return body.action === "stop" && body.botId === "missing" ? null : { id, status: "paused" };
+    },
+  });
+  const url = `${snapshotsUrl.replace("pending-snapshots", "tasks")}/task-1/goal-loop`;
+  const post = (body) =>
+    request(url, { method: "POST", headers: { ...headers, "content-type": "application/json" }, body: JSON.stringify(body) });
+  const paused = await post({ action: "pause" });
+  assert.equal(paused.status, 200);
+  assert.deepEqual(await paused.json(), { loop: { id: "task-1", status: "paused" } });
+  assert.equal((await post({ action: "resume", maxTurns: 5 })).status, 200);
+  assert.equal((await post({ action: "stop", botId: "bot-1" })).status, 200);
+  assert.equal((await post({ action: "stop", botId: "missing" })).status, 404, "an unknown loop is a 404");
+  assert.equal((await post({ action: "start" })).status, 400, "start is not a control action");
+  assert.deepEqual(seen, [
+    { id: "task-1", body: { action: "pause" } },
+    { id: "task-1", body: { action: "resume", maxTurns: 5 } },
+    { id: "task-1", body: { action: "stop", botId: "bot-1" } },
+    { id: "task-1", body: { action: "stop", botId: "missing" } },
+  ]);
+});
+
+test("the Goal Loop control needs a runtime and refuses a non-function handler", async (t) => {
+  const { snapshotsUrl, headers } = await fixture(t);
+  const url = `${snapshotsUrl.replace("pending-snapshots", "tasks")}/task-1/goal-loop`;
+  const response = await request(url, {
+    method: "POST",
+    headers: { ...headers, "content-type": "application/json" },
+    body: JSON.stringify({ action: "pause" }),
+  });
+  assert.equal(response.status, 503);
+  assert.equal((await response.json()).code, "BACKEND_RUNTIME_UNAVAILABLE");
+  assert.throws(
+    () => createBackendServer({ token: randomBytes(32).toString("base64url"), goalLoopAction: 5 }),
+    /must be a function or null/,
+  );
+});
+
 test("rejects invalid ports and surfaces occupied port errors", async (t) => {
   const { server, address } = await fixture(t);
   for (const port of [-1, 65536, 1.5, "3010", NaN]) {

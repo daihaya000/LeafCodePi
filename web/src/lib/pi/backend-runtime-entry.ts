@@ -21,6 +21,8 @@ export {
   respondToQuestionPrompt,
   clearPendingAttentionForTask,
   completeBotCodeRequest,
+  goalLoopCommand,
+  goalLoopState,
   startBotCodeRelay,
   applyCodePermissionSettingsToLiveTasks,
 } from "@/lib/pi/harness";

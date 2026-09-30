@@ -6,6 +6,8 @@ import { resolveAutoAgent } from "@/lib/auto-agent";
 import { AUTO_AGENT_VALUE } from "@/lib/default-agent";
 import { isGoalLoopLiveStatus } from "@/lib/pi/goal-loop-state";
 import { botIdForCodeTask } from "@/lib/pi/bot-code-relay";
+import { localRuntimeBlocked } from "@/lib/pi/runtime-ownership";
+import { forwardGoalLoopControl } from "@/lib/backend-forward";
 import {
   goalLoopCommand,
   goalLoopState,
@@ -95,6 +97,14 @@ export async function POST(req: NextRequest, { params }: Params) {
     const action = body?.action;
     if (action !== "start") {
       return NextResponse.json({ error: "POST の action は start です" }, { status: 400 });
+    }
+    // Starting resolves Auto/model/agent locally, so it is refused rather than half-run by a process
+    // that does not own the session. Pause/resume/stop/complete are forwarded (see PATCH).
+    if (localRuntimeBlocked()) {
+      return NextResponse.json(
+        { error: "Goal Loop の開始は非所有モードでは未対応です", code: "GOAL_LOOP_START_NOT_SUPPORTED" },
+        { status: 409 },
+      );
     }
     const goal = typeof body?.goal === "string" ? body.goal.trim() : "";
     const criteria = acceptance(body?.acceptance);
@@ -278,6 +288,28 @@ export async function PATCH(req: NextRequest, { params }: Params) {
     const action = body?.action;
     if (action !== "pause" && action !== "resume" && action !== "stop" && action !== "complete") {
       return NextResponse.json({ error: "action は pause/resume/stop/complete のいずれかです" }, { status: 400 });
+    }
+    // The loop runs inside the owner: a local control would find no loop and leave the real one running.
+    if (localRuntimeBlocked()) {
+      const botId = botIdForCodeTask(id);
+      const forwarded = await forwardGoalLoopControl(id, {
+        action,
+        ...(action === "resume" && body?.maxTurns !== undefined
+          ? { maxTurns: clampGoalLoopMaxTurns(body.maxTurns, DEFAULT_GOAL_LOOP_MAX_TURNS) }
+          : {}),
+        ...(botId ? { botId } : {}),
+      });
+      if (forwarded.ok) return NextResponse.json({ loop: forwarded.loop });
+      if (forwarded.reason === "not-found") {
+        return NextResponse.json({ error: "Goal Loop が見つかりません" }, { status: 404 });
+      }
+      if (forwarded.reason === "not-configured") {
+        return NextResponse.json({ error: "Backendが実行を所有しています", code: "RUNTIME_NOT_OWNED" }, { status: 409 });
+      }
+      return NextResponse.json(
+        { error: "Backendへ転送できません", code: "BACKEND_FORWARD_FAILED", reason: forwarded.reason },
+        { status: 502 },
+      );
     }
     // Bot-owned Code: Goal Loop stop must mark the outbox like Bot panel / tasks abort.
     if (action === "stop") {

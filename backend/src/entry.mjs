@@ -73,6 +73,23 @@ try {
       }
       return botId ? runtime.stopBotCodeTask(botId, id) : runtime.abortTaskIncludingColdGoalLoop(id);
     },
+    // The Goal Loop runs inside this process, so pause/resume/stop/complete must be applied here.
+    goalLoopAction: async (id, body) => {
+      const runtime = started.runtime();
+      if (!runtime) {
+        throw Object.assign(new Error("runtime unavailable"), { status: 503 });
+      }
+      const action = body?.action;
+      const botId = typeof body?.botId === "string" && body.botId ? body.botId : null;
+      if (action === "stop" && botId) {
+        await runtime.stopBotCodeTask(botId, id);
+        return runtime.goalLoopState(id, { offline: true });
+      }
+      return runtime.goalLoopCommand(id, {
+        action,
+        ...(action === "resume" && body?.maxTurns !== undefined ? { maxTurns: body.maxTurns } : {}),
+      });
+    },
     // Stopping a Bot Code request also updates the Bot's outbox, which this process owns.
     botCodeRequestAction: async (botId, body) => {
       const runtime = started.runtime();

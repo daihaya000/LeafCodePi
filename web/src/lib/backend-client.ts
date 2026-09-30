@@ -19,6 +19,7 @@ import {
   BACKEND_PROTOCOL_VERSION,
   BACKEND_TASK_ABORT_SUFFIX,
   BACKEND_TASK_DETAIL_SUFFIX,
+  BACKEND_TASK_GOAL_LOOP_SUFFIX,
   BACKEND_TASK_PERMISSION_SUFFIX,
   BACKEND_TASK_QUESTION_SUFFIX,
   BACKEND_TASK_PROMPT_SUFFIX,
@@ -164,6 +165,15 @@ export function promptTaskOnBackend(
  */
 export function expectedBackendGeneration(env: BackendEnv = process.env): string {
   return normalizeExpectedGeneration(env.LEAFCODE_PI_BACKEND_GENERATION);
+}
+
+/** Controls a Goal Loop in the owning Backend (pause/resume/stop/complete). */
+export function controlGoalLoopOnBackend(
+  id: string,
+  body: { action: "pause" | "resume" | "stop" | "complete"; maxTurns?: number; botId?: string },
+  options: { env?: BackendEnv; fetchImpl?: typeof fetch; timeoutMs?: number } = {},
+): Promise<BackendResult<{ loop: Record<string, unknown> | null }>> {
+  return postBackendJson(`${BACKEND_TASKS_PATH}/${encodeURIComponent(id)}${BACKEND_TASK_GOAL_LOOP_SUFFIX}`, body, options);
 }
 
 /** Runs a Bot Code request action (stopping a request also updates the outbox) in the owning Backend. */

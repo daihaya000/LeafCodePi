@@ -30,6 +30,11 @@ export const BACKEND_TASK_ABORT_SUFFIX = "/abort";
  * Stopping a request also updates the Bot's outbox, which only the owning process may write.
  */
 export const BACKEND_BOT_CODE_REQUESTS_SUFFIX = "/code-requests";
+/**
+ * Goal Loop control: `POST /internal/tasks/:id/goal-loop` with `{ action, maxTurns?, botId? }`.
+ * The loop runs inside the owning process, so pause/resume/stop/complete must reach it.
+ */
+export const BACKEND_TASK_GOAL_LOOP_SUFFIX = "/goal-loop";
 export const BACKEND_TASK_QUESTION_SUFFIX = "/question";
 
 /** Read-only: the Backend's own view of the Bot store. */
