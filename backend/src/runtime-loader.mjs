@@ -44,6 +44,9 @@ export const REQUIRED_RUNTIME_EXPORTS = Object.freeze([
   "ensureRoutineScheduler",
   "runRoutine",
   "reconcileRoomRuntime",
+  "revertTask",
+  "cancelBotCodeRequests",
+  "botTaskId",
 ]);
 
 /**

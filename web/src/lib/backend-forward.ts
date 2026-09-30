@@ -9,6 +9,7 @@ import {
   readBackendTaskDetail,
   respondPermissionOnBackend,
   respondQuestionOnBackend,
+  revertBotTaskOnBackend,
   runBotRoutineOnBackend,
   type BackendEnv,
   type BackendFailureReason,
@@ -181,6 +182,23 @@ export async function forwardPendingRequestsByTask(
     };
   }
   return byTask;
+}
+
+/** Rewinds a Bot conversation in the owning Backend. Never falls back to the in-process rewind. */
+export async function forwardBotRevert(
+  botId: string,
+  entryId: string,
+  options: { env?: BackendEnv; fetchImpl?: typeof fetch; timeoutMs?: number } = {},
+): Promise<
+  | { ok: true; result: Record<string, unknown> }
+  | { ok: false; reason: BackendFailureReason | "not-found"; status?: number }
+> {
+  const result = await revertBotTaskOnBackend(botId, entryId, options);
+  if (!result.ok) {
+    if (result.status === 404) return { ok: false, reason: "not-found", status: 404 };
+    return { ok: false, reason: result.reason, ...(result.status ? { status: result.status } : {}) };
+  }
+  return { ok: true, result: result.body ?? {} };
 }
 
 /** Runs a Bot routine in the owning Backend. Never falls back to the in-process run. */

@@ -27,11 +27,13 @@ export {
   goalLoopState,
   startBotCodeRelay,
   applyCodePermissionSettingsToLiveTasks,
+  // Rewinding a transcript rewrites the session and clears the owner's pending attention.
+  revertTask,
 } from "@/lib/pi/harness";
 // Stopping a Bot Code request also updates the outbox, which the owning process must do.
-export { isRoomDelegatedCodeTask, stopBotCodeRequest } from "@/lib/pi/bot-code-relay";
+export { cancelBotCodeRequests, isRoomDelegatedCodeTask, stopBotCodeRequest } from "@/lib/pi/bot-code-relay";
 // Clearing a Code session link writes the store and the Bot record: the owner does both.
-export { getBot, patchBot } from "@/lib/bots";
+export { botTaskId, getBot, patchBot } from "@/lib/bots";
 // The routine scheduler runs its routines by prompting a session, so only the runtime owner may
 // run it; the tick takes a cross-process lock, so two schedulers cannot double-run a routine.
 export { ensureRoutineScheduler, runRoutine } from "@/lib/routines";

@@ -683,6 +683,45 @@ test("the Goal Loop control needs a runtime and refuses a non-function handler",
   );
 });
 
+test("a forwarded Bot revert reaches the runtime owner", async (t) => {
+  const seen = [];
+  const { snapshotsUrl, headers } = await fixture(t, {
+    revertBotTask: async (botId, entryId) => {
+      seen.push({ botId, entryId });
+      return { task: { id: `bot:${botId}` }, text: "戻した", images: [], files: [], cancelledCodeRequests: 2 };
+    },
+  });
+  const url = `${snapshotsUrl.replace("pending-snapshots", "bots")}/bot-1/revert`;
+  const post = (body) => request(url, {
+    method: "POST", headers: { ...headers, "content-type": "application/json" }, body: JSON.stringify(body),
+  });
+  const response = await post({ entryId: "entry-1" });
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), {
+    task: { id: "bot:bot-1" }, text: "戻した", images: [], files: [], cancelledCodeRequests: 2,
+  });
+  assert.deepEqual(seen, [{ botId: "bot-1", entryId: "entry-1" }]);
+  // A missing entry id is refused before the runtime is asked, and the route is POST-only.
+  assert.equal((await post({})).status, 400);
+  assert.equal((await request(url, { headers })).status, 405);
+  const detached = await fixture(t);
+  const detachedUrl = `${detached.snapshotsUrl.replace("pending-snapshots", "bots")}/bot-1/revert`;
+  assert.equal((await request(detachedUrl, {
+    method: "POST", headers: { ...detached.headers, "content-type": "application/json" }, body: JSON.stringify({ entryId: "entry-1" }),
+  })).status, 503);
+  const refusing = await fixture(t, {
+    revertBotTask: async () => { throw Object.assign(new Error("busy"), { status: 409 }); },
+  });
+  const refusingUrl = `${refusing.snapshotsUrl.replace("pending-snapshots", "bots")}/bot-1/revert`;
+  assert.equal((await request(refusingUrl, {
+    method: "POST", headers: { ...refusing.headers, "content-type": "application/json" }, body: JSON.stringify({ entryId: "entry-1" }),
+  })).status, 409);
+  assert.throws(
+    () => createBackendServer({ token: randomBytes(32).toString("base64url"), revertBotTask: 5 }),
+    /revertBotTask must be a function or null/,
+  );
+});
+
 test("a forwarded routine run reaches the runtime owner", async (t) => {
   const seen = [];
   const { snapshotsUrl, headers } = await fixture(t, {

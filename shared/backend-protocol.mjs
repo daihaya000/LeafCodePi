@@ -41,6 +41,11 @@ export const BACKEND_BOT_CODE_SESSIONS_SUFFIX = "/code-sessions";
  */
 export const BACKEND_BOT_ROUTINES_SEGMENT = "routines";
 /**
+ * Rewinding a Bot conversation: `POST /internal/bots/:id/revert` with `{ entryId }`. The rewind
+ * rewrites the session and stops the discarded conversation's Code jobs, so the owner does both.
+ */
+export const BACKEND_BOT_REVERT_SUFFIX = "/revert";
+/**
  * Goal Loop control: `POST /internal/tasks/:id/goal-loop` with `{ action, maxTurns?, botId? }`.
  * The loop runs inside the owning process, so pause/resume/stop/complete must reach it.
  */

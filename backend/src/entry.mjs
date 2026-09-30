@@ -152,6 +152,19 @@ try {
         ...(action === "resume" && body?.maxTurns !== undefined ? { maxTurns: body.maxTurns } : {}),
       });
     },
+    // Rewinding a Bot conversation rewrites its session and stops the discarded Code jobs, which
+    // only the owner may do: the WebUI forwards the request here and returns the same payload.
+    revertBotTask: async (botId, entryId) => {
+      const runtime = started.runtime();
+      if (!runtime || typeof runtime.revertTask !== "function" || typeof runtime.botTaskId !== "function") {
+        throw Object.assign(new Error("runtime unavailable"), { status: 503 });
+      }
+      const result = await runtime.revertTask(runtime.botTaskId(botId), entryId);
+      const cancelledCodeRequests = typeof runtime.cancelBotCodeRequests === "function"
+        ? await runtime.cancelBotCodeRequests(botId)
+        : 0;
+      return { ...result, cancelledCodeRequests };
+    },
     // Running a routine prompts a session, so only the runtime owner may start it.
     runBotRoutine: (botId, routineId) => {
       const runtime = started.runtime();

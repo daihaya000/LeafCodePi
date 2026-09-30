@@ -13,6 +13,7 @@ import {
 import {
   BACKEND_BOT_CODE_REQUESTS_SUFFIX,
   BACKEND_BOT_CODE_SESSIONS_SUFFIX,
+  BACKEND_BOT_REVERT_SUFFIX,
   BACKEND_BOT_ROUTINES_SEGMENT,
   BACKEND_BOTS_PATH,
   BACKEND_HEALTH_PATH,
@@ -199,6 +200,19 @@ export function createBotCodeSessionOnBackend(
   options: { env?: BackendEnv; fetchImpl?: typeof fetch; timeoutMs?: number } = {},
 ): Promise<BackendResult<{ task: Record<string, unknown> | null }>> {
   return postBackendJson(`${BACKEND_BOTS_PATH}/${encodeURIComponent(botId)}${BACKEND_BOT_CODE_SESSIONS_SUFFIX}`, input, options);
+}
+
+/** Rewinds a Bot conversation in the owning Backend: the session rewrite happens there. */
+export function revertBotTaskOnBackend(
+  botId: string,
+  entryId: string,
+  options: { env?: BackendEnv; fetchImpl?: typeof fetch; timeoutMs?: number } = {},
+): Promise<BackendResult<Record<string, unknown>>> {
+  return postBackendJson(
+    `${BACKEND_BOTS_PATH}/${encodeURIComponent(botId)}${BACKEND_BOT_REVERT_SUFFIX}`,
+    { entryId },
+    options,
+  );
 }
 
 /** Runs a Bot routine in the owning Backend: the run prompts a session, which only the owner may do. */

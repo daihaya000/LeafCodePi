@@ -5,6 +5,7 @@ import {
   forwardGoalLoopStart,
   forwardQuestionAnswer,
   forwardTaskAbort,
+  forwardBotRevert,
   forwardBotRoutineRun,
   forwardPendingRequestsByTask,
   forwardTaskPendingRequests,
@@ -224,6 +225,31 @@ describe("forwardTaskAbort", () => {
       status: 404,
     });
     await expect(forwardTaskAbort("t1", { env: {} })).resolves.toEqual({ ok: false, reason: "not-configured" });
+  });
+});
+
+describe("forwardBotRevert", () => {
+  it("returns the rewind the owner performed", async () => {
+    const fetchImpl = vi.fn<typeof fetch>(async () => jsonResponse(200, {
+      task: { id: "bot:bot-1" }, text: "戻した", images: [], files: [], cancelledCodeRequests: 1,
+    }));
+    await expect(forwardBotRevert("bot-1", "entry-1", { env, fetchImpl })).resolves.toEqual({
+      ok: true,
+      result: { task: { id: "bot:bot-1" }, text: "戻した", images: [], files: [], cancelledCodeRequests: 1 },
+    });
+    expect(fetchImpl.mock.calls[0][0]).toBe("http://127.0.0.1:19999/internal/bots/bot-1/revert");
+    expect(JSON.parse(String(fetchImpl.mock.calls[0][1]?.body))).toEqual({ entryId: "entry-1" });
+  });
+
+  it("keeps a miss as not-found and reports an unreachable owner", async () => {
+    const missing = vi.fn<typeof fetch>(async () => jsonResponse(404, { error: "Not found" }));
+    await expect(forwardBotRevert("bot-1", "entry-1", { env, fetchImpl: missing })).resolves.toEqual({
+      ok: false, reason: "not-found", status: 404,
+    });
+    const unreachable = vi.fn<typeof fetch>(async () => { throw new Error("connect refused"); });
+    await expect(forwardBotRevert("bot-1", "entry-1", { env, fetchImpl: unreachable })).resolves.toEqual({
+      ok: false, reason: "unreachable",
+    });
   });
 });
 

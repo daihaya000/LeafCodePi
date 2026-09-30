@@ -6,6 +6,7 @@ import {
   BACKEND_HEALTH_PATH,
   BACKEND_BOT_CODE_REQUESTS_SUFFIX,
   BACKEND_BOT_CODE_SESSIONS_SUFFIX,
+  BACKEND_BOT_REVERT_SUFFIX,
   BACKEND_BOT_ROUTINES_SEGMENT,
   BACKEND_BOTS_PATH,
   BACKEND_PENDING_SNAPSHOTS_PATH,
@@ -116,6 +117,8 @@ export function createBackendServer({
   createBotCodeSession = null,
   /** Runs a Bot routine: `(botId, routineId) => routine`; a run prompts a session, so owner-only. */
   runBotRoutine = null,
+  /** Rewinds a Bot conversation: `(botId, entryId) => result`; the owner rewrites the session. */
+  revertBotTask = null,
 } = {}) {
   if (
     typeof token !== "string" ||
@@ -152,6 +155,7 @@ export function createBackendServer({
     goalLoopAction,
     createBotCodeSession,
     runBotRoutine,
+    revertBotTask,
   })) {
     if (handler !== null && typeof handler !== "function") {
       throw new Error(`${name} must be a function or null`);
@@ -204,7 +208,7 @@ export function createBackendServer({
       ? decodeURIComponent(target.pathname.slice(BACKEND_BOTS_PATH.length + 1))
       : undefined;
     // `<botId>/code-requests` acts on the Bot's outbox: only the owner may write it.
-    const botActionSuffix = [BACKEND_BOT_CODE_REQUESTS_SUFFIX, BACKEND_BOT_CODE_SESSIONS_SUFFIX]
+    const botActionSuffix = [BACKEND_BOT_CODE_REQUESTS_SUFFIX, BACKEND_BOT_CODE_SESSIONS_SUFFIX, BACKEND_BOT_REVERT_SUFFIX]
       .find((suffix) => botSuffix?.endsWith(suffix));
     const botActionPath = botActionSuffix === undefined || !botSuffix
       ? undefined
@@ -375,7 +379,11 @@ export function createBackendServer({
         sendJson(response, 404, { error: "Not found", code: BACKEND_ERROR_CODES.notFound });
         return;
       }
-      const botHandler = botActionSuffix === BACKEND_BOT_CODE_SESSIONS_SUFFIX ? createBotCodeSession : botCodeRequestAction;
+      const botHandler = botActionSuffix === BACKEND_BOT_CODE_SESSIONS_SUFFIX
+        ? createBotCodeSession
+        : botActionSuffix === BACKEND_BOT_REVERT_SUFFIX
+          ? revertBotTask
+          : botCodeRequestAction;
       if (typeof botHandler !== "function") {
         sendJson(response, 503, {
           error: "Backend runtime unavailable", code: BACKEND_ERROR_CODES.runtimeUnavailable,
@@ -391,7 +399,14 @@ export function createBackendServer({
         return;
       }
       try {
-        if (botActionSuffix === BACKEND_BOT_CODE_SESSIONS_SUFFIX) {
+        if (botActionSuffix === BACKEND_BOT_REVERT_SUFFIX) {
+          const entryId = typeof body.value?.entryId === "string" ? body.value.entryId.trim() : "";
+          if (!entryId) {
+            sendJson(response, 400, { error: "Invalid revert request", code: BACKEND_ERROR_CODES.badRequest });
+            return;
+          }
+          sendJson(response, 200, await botHandler(botActionPath, entryId));
+        } else if (botActionSuffix === BACKEND_BOT_CODE_SESSIONS_SUFFIX) {
           const task = await botHandler(botActionPath, body.value);
           sendJson(response, 200, { task: task ?? null });
         } else {
