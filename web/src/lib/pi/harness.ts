@@ -213,7 +213,7 @@ import { SdkRuntimeFactory } from "@backend-core/sdk-runtime.mjs";
 import * as corePromptControl from "@backend-core/prompt-control.mjs";
 import { runHangWatchdogAbort, runUserAbort } from "@backend-core/abort-coordinator.mjs";
 import { roomBotIdFromTaskId } from "@backend-core/abort-control.mjs";
-import { detachReplacedLive as coreDetachReplacedLive, hasOtherBusyRoomLive, promoteMailboxOnAttach, resolveAttachAccount, runCoalescedLiveShutdown, shouldShutdownOnDispose as coreShouldShutdownOnDispose } from "@backend-core/live-lifecycle.mjs";
+import { detachReplacedLive as coreDetachReplacedLive, hasOtherBusyRoomLive, isRegisteredLive, isStaleEnsureEpoch, promoteMailboxOnAttach, resolveAttachAccount, runCoalescedLiveShutdown, shouldShutdownOnDispose as coreShouldShutdownOnDispose } from "@backend-core/live-lifecycle.mjs";
 import { restoredPromptState, restoredTaskMetadata, restoredThroughputState } from "@backend-core/live-attach-state.mjs";
 import { compactionFailureMessage, isHarnessAutoCompactionError as coreIsHarnessAutoCompactionError, runAgentStartTaskSync, shouldApplySettledStatus, shouldSkipEventForMissingTask, shouldSyncTaskFromSessionEvent as coreShouldSyncTaskFromSessionEvent, type SessionSyncEvent } from "@backend-core/session-event-decisions.mjs";
 import { classifySnapshotEvent, flushPendingSnapshotOnUnsubscribe, pendingSnapshotFlush, SNAPSHOT_THROTTLE_MS } from "@backend-core/snapshot-schedule.mjs";
@@ -4562,7 +4562,7 @@ async function attachCreatedLiveSession(
     preserveTaskModel?: boolean;
   } & AutoFallbackHints,
 ): Promise<LiveRuntime> {
-  if ((ensureLiveEpoch.get(taskId) ?? 0) !== epoch) {
+  if (isStaleEnsureEpoch(ensureLiveEpoch.get(taskId), epoch)) {
     disposeSessionBestEffort(setup.session);
     return ensureLive(taskId, options);
   }
@@ -4597,8 +4597,8 @@ async function attachCreatedLiveSession(
           preserveTaskModel: false,
         },
   );
-  if ((ensureLiveEpoch.get(taskId) ?? 0) !== epoch) {
-    if (state().live.get(taskId) === attached) {
+  if (isStaleEnsureEpoch(ensureLiveEpoch.get(taskId), epoch)) {
+    if (isRegisteredLive(() => state().live.get(taskId), attached)) {
       disposeLive(taskId);
     }
     return ensureLive(taskId, options);
@@ -4635,7 +4635,7 @@ async function ensureLive(
   if (inflight) {
     await inflight;
     throwIfTaskArchived(taskId);
-    if ((ensureLiveEpoch.get(taskId) ?? 0) !== epoch) {
+    if (isStaleEnsureEpoch(ensureLiveEpoch.get(taskId), epoch)) {
       return ensureLive(taskId, options);
     }
     const stillLive = state().live.get(taskId);

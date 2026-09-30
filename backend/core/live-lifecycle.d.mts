@@ -43,6 +43,12 @@ export function runCoalescedLiveShutdown(
   },
 ): Promise<void>;
 
+/** True when an ensure-live attempt started in an epoch that is no longer current. */
+export function isStaleEnsureEpoch(currentEpoch: number | undefined | null, epoch: number): boolean;
+
+/** True when the live registered for the task is exactly the one this attempt attached. */
+export function isRegisteredLive<Live>(getLive: () => Live | undefined, attached: Live): boolean;
+
 export function oneToOneBotIdFromTaskId(taskId: string): string | null;
 
 /** 1:1 Bot attaches promote queued mailbox rows; Room attaches never do. */

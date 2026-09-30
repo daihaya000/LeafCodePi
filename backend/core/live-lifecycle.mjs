@@ -36,6 +36,20 @@ export function shouldShutdownOnDispose({ shutdownEmitted, hasShutdownHandler, i
 }
 
 /**
+ * An ensure-live attempt is only valid for the generation it started in. Disposing a
+ * session or replacing it bumps the epoch, so a late attempt must not publish its
+ * result. A missing entry counts as generation 0.
+ */
+export function isStaleEnsureEpoch(currentEpoch, epoch) {
+  return (currentEpoch ?? 0) !== epoch;
+}
+
+/** True when the live registered for the task is exactly the one this attempt attached. */
+export function isRegisteredLive(getLive, attached) {
+  return getLive() === attached;
+}
+
+/**
  * Disposing a live is deferred when one is already shutting down for the same task:
  * the caller joins the in-flight promise instead of stacking a second extension
  * shutdown and session dispose on the same session. The entry is cleared by the
