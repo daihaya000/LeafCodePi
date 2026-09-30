@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
-  detailIncludesGoalLoop, detailStreamingFlag, detailTimeoutError, isDetailTimeoutError,
+  detailIncludesGoalLoop, detailIncludesMessages, detailStreamingFlag, detailTimeoutError, isDetailTimeoutError,
   liveDetailErrorStatus, liveDetailFlags, offlineDetailFlags, resolveTaskDetailSource,
+  shouldSuggestCompaction,
   TASK_DETAIL_OFFLINE_TIMEOUT_MS, TASK_DETAIL_TIMEOUT_MS,
 } from "./task-detail.mjs";
 
@@ -103,4 +104,24 @@ test("only a coded refusal keeps its own status on a failed live read", () => {
   assert.equal(liveDetailErrorStatus(new Error("boom")), 503);
   assert.equal(liveDetailErrorStatus("boom"), 503);
   assert.equal(liveDetailErrorStatus(undefined), 503);
+});
+
+test("messages are included unless the caller says false", () => {
+  assert.equal(detailIncludesMessages(true), true);
+  assert.equal(detailIncludesMessages(undefined), true);
+  assert.equal(detailIncludesMessages(false), false);
+  for (const value of [null, 0, "", "false", 1]) {
+    assert.equal(detailIncludesMessages(value), true, String(value));
+  }
+});
+
+test("compaction is never suggested for a Goal Loop-owned session", () => {
+  assert.equal(shouldSuggestCompaction({ goalLoopOwned: false, overThreshold: true }), true);
+  assert.equal(shouldSuggestCompaction({ goalLoopOwned: false, overThreshold: false }), false);
+  assert.equal(shouldSuggestCompaction({ goalLoopOwned: true, overThreshold: true }), false, "the loop compacts natively");
+  assert.equal(shouldSuggestCompaction({ goalLoopOwned: true, overThreshold: false }), false);
+  for (const value of [undefined, null, 0, "true", 1]) {
+    assert.equal(shouldSuggestCompaction({ goalLoopOwned: value, overThreshold: true }), true, String(value));
+    assert.equal(shouldSuggestCompaction({ goalLoopOwned: false, overThreshold: value }), false, String(value));
+  }
 });

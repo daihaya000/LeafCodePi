@@ -246,11 +246,13 @@ import { compactionFailureMessage, isHarnessAutoCompactionError as coreIsHarness
 import { classifySnapshotEvent, flushPendingSnapshotOnUnsubscribe, pendingSnapshotFlush, SNAPSHOT_THROTTLE_MS } from "@backend-core/snapshot-schedule.mjs";
 import {
   detailIncludesGoalLoop,
+  detailIncludesMessages,
   detailStreamingFlag,
   liveDetailErrorStatus,
   liveDetailFlags,
   offlineDetailFlags,
   resolveTaskDetailSource,
+  shouldSuggestCompaction,
 } from "@backend-core/task-detail.mjs";
 import {
   isSamePromptRoute,
@@ -1459,7 +1461,8 @@ function sessionSnapshotFields(
   todos: TodoDto[];
 } {
   const messagesStartedAt = reporter ? performance.now() : 0;
-  const messages = includeMessages
+  // Only an explicit false omits the projection (rule lives in backend core).
+  const messages = detailIncludesMessages(includeMessages)
     ? snapshotMessages(
         session,
         throughputByStartedAt,
@@ -1487,12 +1490,15 @@ function sessionSnapshotFields(
   const todos = todosFromPiMessages(session.messages);
   reportTaskDetailPhase(reporter, "todos", todosStartedAt);
 
-  const goalLoopActive = isGoalLoopSessionOwned(goalLoop);
-  const compactionSuggested = !goalLoopActive && shouldSuggestAtThreshold(
-    parseCompactionAction(getSetting(COMPACTION_ACTION_SETTING_KEY)),
-    contextUsage?.percent,
-    parseCompactionThreshold(getSetting(COMPACTION_THRESHOLD_SETTING_KEY)),
-  );
+  // The Goal Loop exemption lives in backend core; the Settings reads stay here.
+  const compactionSuggested = shouldSuggestCompaction({
+    goalLoopOwned: isGoalLoopSessionOwned(goalLoop),
+    overThreshold: shouldSuggestAtThreshold(
+      parseCompactionAction(getSetting(COMPACTION_ACTION_SETTING_KEY)),
+      contextUsage?.percent,
+      parseCompactionThreshold(getSetting(COMPACTION_THRESHOLD_SETTING_KEY)),
+    ),
+  });
 
   return {
     messages,
@@ -7328,7 +7334,7 @@ export async function getTaskDetail(
   id: string,
   options: GetTaskDetailOptions = {},
 ): Promise<TaskDetail> {
-  const includeMessages = options.includeMessages !== false;
+  const includeMessages = detailIncludesMessages(options.includeMessages);
   const totalStartedAt = options.onTiming ? performance.now() : 0;
   const task = getTask(id);
   if (!task)

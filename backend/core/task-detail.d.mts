@@ -47,3 +47,9 @@ export function liveDetailFlags(input: {
 
 /** The status a failed live detail read is reported with, or null when it already carries one. */
 export function liveDetailErrorStatus(error: unknown): number | null;
+
+/** Whether a detail payload carries the projected messages (omitted means yes). */
+export function detailIncludesMessages(includeMessages: boolean | undefined): boolean;
+
+/** Whether the payload suggests compaction (never for a Goal Loop-owned session). */
+export function shouldSuggestCompaction(input: { goalLoopOwned: boolean; overThreshold: boolean }): boolean;

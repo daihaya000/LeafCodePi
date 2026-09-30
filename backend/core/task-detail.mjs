@@ -108,3 +108,20 @@ export function liveDetailErrorStatus(error) {
   if (error && typeof error === "object" && "status" in error) return null;
   return 503;
 }
+
+/**
+ * Whether a detail or snapshot payload carries the projected messages. Only an explicit false
+ * omits them, so an omitted option (and any non-boolean value) still returns messages.
+ */
+export function detailIncludesMessages(includeMessages) {
+  return includeMessages !== false;
+}
+
+/**
+ * Whether the payload suggests compaction. A Goal Loop-owned session compacts through Pi's native
+ * compaction instead of the WebUI threshold, so it is never suggested there even above the
+ * threshold; otherwise the threshold decision the caller computed stands.
+ */
+export function shouldSuggestCompaction({ goalLoopOwned, overThreshold }) {
+  return goalLoopOwned !== true && overThreshold === true;
+}
