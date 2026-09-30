@@ -54,6 +54,7 @@
    | `session-identity.mjs` | セッションが報告する識別情報（sessionId/sessionFile/provider/model）の選択（タスクモデル保持時はtranscript位置のみ）と保存済みタスクとの差分計算、書き込む変化があるかの判定。欠落値で保存済みを消さない規則を含む | `lib/pi/session-identity.ts` は同名exportの互換入口 |
    | `routine-scheduler.mjs` | scheduler lock（stale時のみ再取得）、実行対象判定、切り離し起動 | ルーティン保存と実行本体 |
    | `directory-lock.mjs` | 複数workerで共有するロックディレクトリの同期ロック（stale回収・待機上限・busy通知。rooms/routinesが共用） | hang-watchdog・web-settings・pi-auth・model-throughput-stats・transfer-recoveryの個別ロック実装（待機間隔や非同期性が異なり未統合） |
+   | `keyed-serializer.mjs` | キー（promotion先ディレクトリ等）ごとの直列化（前の保持者を待つ→実行→解放、置換された古い保持者はエントリを消さない、異なるキーは並行） | 対象キーの正規化と実行内容 |
    | `room-recovery.mjs` | 放置working発言の判定、handoff整理と再配信 | Room保存・実行 |
    | `room-normalize.mjs` | 保存済みRoom JSONの検証・正規化（不正なメッセージ/handoff/outcomeの破棄、メンバー重複除去、opt-inフラグ。handoff状態の語彙は共有DTO定数を注入） | Room読書き・書込み・イベント発火・Bot検証 |
    | `room-store.mjs` | Roomファイルの読書き（原子的tmp+rename、ID検証、更新日時降順の一覧、書込後の通知フック）、データディレクトリの解決、live上限を超えた発言のhistory.jsonlへの追記、画像・添付のパス検証と読出、relay状態（relay.json）の読書き、relay envelopeの発行・消費（深さ上限・TTL・consumed・claimsによる重複参加の拒否） | ルート解決（dataDir配下）とprocess-localなイベントバスの実体 |

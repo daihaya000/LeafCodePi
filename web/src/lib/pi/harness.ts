@@ -218,6 +218,7 @@ import { restoredPromptState, restoredTaskMetadata, restoredThroughputState } fr
 import { compactionFailureMessage, isHarnessAutoCompactionError as coreIsHarnessAutoCompactionError, runAgentStartTaskSync, shouldApplySettledStatus, shouldSkipEventForMissingTask, shouldSyncTaskFromSessionEvent as coreShouldSyncTaskFromSessionEvent, type SessionSyncEvent } from "@backend-core/session-event-decisions.mjs";
 import { classifySnapshotEvent, flushPendingSnapshotOnUnsubscribe, pendingSnapshotFlush, SNAPSHOT_THROTTLE_MS } from "@backend-core/snapshot-schedule.mjs";
 import { isBotTask, liveSessionName, liveSessionWorkspace, preflightLiveSession, resolveSessionPermissionMode, resolveSessionSkillPermission } from "@backend-core/live-session-preflight.mjs";
+import { runSerializedByKey } from "@backend-core/keyed-serializer.mjs";
 import { attachReplacementSession } from "@backend-core/live-replace.mjs";
 import { buildBotCodeReportContent } from "@backend-core/bot-code-report.mjs";
 import {
@@ -4758,22 +4759,8 @@ async function withPromotionDestinationLock<T>(
   destination: string,
   action: () => Promise<T>,
 ): Promise<T> {
-  const key = pathKey(destination);
-  const previous = promoteDestinationInflight.get(key) ?? Promise.resolve();
-  let release!: () => void;
-  const current = new Promise<void>((resolveLock) => {
-    release = resolveLock;
-  });
-  promoteDestinationInflight.set(key, current);
-  await previous;
-  try {
-    return await action();
-  } finally {
-    release();
-    if (promoteDestinationInflight.get(key) === current) {
-      promoteDestinationInflight.delete(key);
-    }
-  }
+  // Serialization by destination key lives in backend core; the key rule stays here.
+  return runSerializedByKey(promoteDestinationInflight, pathKey(destination), action);
 }
 
 function validateProjectPath(
