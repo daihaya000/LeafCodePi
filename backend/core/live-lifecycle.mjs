@@ -36,6 +36,21 @@ export function shouldShutdownOnDispose({ shutdownEmitted, hasShutdownHandler, i
 }
 
 /**
+ * Disposing a live is deferred when one is already shutting down for the same task:
+ * the caller joins the in-flight promise instead of stacking a second extension
+ * shutdown and session dispose on the same session. The entry is cleared by the
+ * operation that still owns it (a newer one replaces the entry and clears itself).
+ */
+export function runCoalescedLiveShutdown(taskId, deps) {
+  const pending = deps.runShutdown().finally(() => {
+    deps.disposeSession();
+    if (deps.inflight.get(taskId) === pending) deps.inflight.delete(taskId);
+  });
+  deps.inflight.set(taskId, pending);
+  return pending;
+}
+
+/**
  * Detach the live being replaced by a new session, in a fixed order: stop
  * receiving events, release the account runtime reference it held (only when the
  * replacement runs on a different account), dispose the replaced session (unless

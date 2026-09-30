@@ -213,7 +213,7 @@ import { SdkRuntimeFactory } from "@backend-core/sdk-runtime.mjs";
 import * as corePromptControl from "@backend-core/prompt-control.mjs";
 import { runHangWatchdogAbort, runUserAbort } from "@backend-core/abort-coordinator.mjs";
 import { roomBotIdFromTaskId } from "@backend-core/abort-control.mjs";
-import { detachReplacedLive as coreDetachReplacedLive, hasOtherBusyRoomLive, promoteMailboxOnAttach, resolveAttachAccount, shouldShutdownOnDispose as coreShouldShutdownOnDispose } from "@backend-core/live-lifecycle.mjs";
+import { detachReplacedLive as coreDetachReplacedLive, hasOtherBusyRoomLive, promoteMailboxOnAttach, resolveAttachAccount, runCoalescedLiveShutdown, shouldShutdownOnDispose as coreShouldShutdownOnDispose } from "@backend-core/live-lifecycle.mjs";
 import { restoredPromptState, restoredTaskMetadata, restoredThroughputState } from "@backend-core/live-attach-state.mjs";
 import { compactionFailureMessage, isHarnessAutoCompactionError as coreIsHarnessAutoCompactionError, runAgentStartTaskSync, shouldApplySettledStatus, shouldSkipEventForMissingTask, shouldSyncTaskFromSessionEvent as coreShouldSyncTaskFromSessionEvent, type SessionSyncEvent } from "@backend-core/session-event-decisions.mjs";
 import { classifySnapshotEvent, flushPendingSnapshotOnUnsubscribe, pendingSnapshotFlush, SNAPSHOT_THROTTLE_MS } from "@backend-core/snapshot-schedule.mjs";
@@ -2448,15 +2448,18 @@ function disposeLive(taskId: string): void {
     // Extensions (intercom presence/timers, memory SQLite, MCP) only release
     // resources in session_shutdown, which AgentSession.dispose() never emits.
     // ensureLive waits for this before recreating the same task's session.
-    const pending: Promise<void> = runExtensionShutdown(live, "dispose").finally(() => {
-      try {
-        live.session.dispose();
-      } catch (error) {
-        console.warn("[dispose] session dispose failed:", error instanceof Error ? error.message : String(error));
-      }
-      if (liveShutdownInflight.get(taskId) === pending) liveShutdownInflight.delete(taskId);
+    // The shutdown/dispose sequence and the in-flight registry live in backend core.
+    void runCoalescedLiveShutdown(taskId, {
+      inflight: liveShutdownInflight,
+      runShutdown: () => runExtensionShutdown(live, "dispose"),
+      disposeSession: () => {
+        try {
+          live.session.dispose();
+        } catch (error) {
+          console.warn("[dispose] session dispose failed:", error instanceof Error ? error.message : String(error));
+        }
+      },
     });
-    liveShutdownInflight.set(taskId, pending);
   } else {
     live.session.dispose();
   }

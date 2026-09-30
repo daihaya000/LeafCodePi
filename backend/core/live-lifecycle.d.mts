@@ -29,6 +29,20 @@ export function detachReplacedLive<Live extends {
   },
 ): void;
 
+/**
+ * Runs the deferred shutdown for a task and records it as in flight, so a second
+ * dispose for the same task joins the first instead of disposing twice.
+ */
+export function runCoalescedLiveShutdown(
+  taskId: string,
+  deps: {
+    inflight: Map<string, Promise<void>>;
+    runShutdown: () => Promise<void>;
+    /** Runs after the extension shutdown settles, success or failure. */
+    disposeSession: () => void;
+  },
+): Promise<void>;
+
 export function oneToOneBotIdFromTaskId(taskId: string): string | null;
 
 /** 1:1 Bot attaches promote queued mailbox rows; Room attaches never do. */
