@@ -8,7 +8,7 @@ import {
 } from "@/lib/pi/harness";
 import { createSseWriter } from "@/lib/sse-writer";
 import { localRuntimeBlocked } from "@/lib/pi/runtime-ownership";
-import { forwardPendingRequestsByTask } from "@/lib/backend-forward";
+import { forwardPendingRequestsByTask, type PendingRequestsByTask } from "@/lib/backend-forward";
 import { roomSnapshotSignature } from "@/lib/room-events";
 import type { RoomAttention } from "@/lib/types";
 export const runtime = "nodejs";
@@ -26,36 +26,51 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
       // there once per refresh instead of from this process's memory.
       const backendOwns = localRuntimeBlocked();
       let pendingBusy = false;
+      /** The last map the owner reported. A failed read keeps it, so an unanswered prompt stays visible. */
+      let backendPending: PendingRequestsByTask | null = null;
       const snapshot = async () => {
         if (sse?.closed) return;
         if (backendOwns && pendingBusy) return;
         if (backendOwns) pendingBusy = true;
-        const backendPending = backendOwns ? await forwardPendingRequestsByTask() : null;
-        if (sse?.closed) { pendingBusy = false; return; }
-        const room = getRoom(id);
-        if (!room) { sse?.close(); return; }
-        const tasks = new Set(room.members.map((botId) => roomBotTaskId(id, botId)));
-        for (const botId of room.members) {
-          const origin = roomBotTaskId(id, botId);
-          for (const linked of linkedCodeTaskIdsForOrigin(origin)) tasks.add(linked);
+        // The busy flag must clear even when a read or a send fails: a stuck flag would freeze the
+        // stream until the client reconnects, and a rejection must not escape the interval callback.
+        try {
+          if (backendOwns) {
+            try {
+              backendPending = await forwardPendingRequestsByTask();
+            } catch {
+              // Keep the previous map; the next poll retries.
+            }
+          }
+          if (sse?.closed) return;
+          const room = getRoom(id);
+          if (!room) { sse?.close(); return; }
+          const tasks = new Set(room.members.map((botId) => roomBotTaskId(id, botId)));
+          for (const botId of room.members) {
+            const origin = roomBotTaskId(id, botId);
+            for (const linked of linkedCodeTaskIdsForOrigin(origin)) tasks.add(linked);
+          }
+          for (const [taskId, unsubscribe] of subscriptions) if (!tasks.has(taskId)) { unsubscribe(); subscriptions.delete(taskId); }
+          for (const taskId of tasks) if (!subscriptions.has(taskId)) {
+            subscriptions.set(taskId, subscribeTask(taskId, (payload) => { if (payload.type === "snapshot") snapshot(); }));
+          }
+          const attention: RoomAttention[] = room.members.map((botId) => {
+            const taskId = roomBotTaskId(id, botId);
+            // After the cutover this process must not read its own prompt services: the owner's map is
+            // the only source, and its absence means nothing is pending rather than "ask locally".
+            const pending = backendPending?.[taskId];
+            return {
+              botId,
+              taskId,
+              permission: backendOwns ? pending?.permissionRequest ?? null : pendingPermissionForTask(taskId),
+              question: backendOwns ? pending?.questionRequest ?? null : pendingQuestionForTask(taskId),
+            };
+          }).filter((item) => item.permission || item.question);
+          const signature = roomSnapshotSignature(room, attention);
+          if (signature !== previous) { previous = signature; sse?.send("snapshot", { type: "snapshot", room, attention }); }
+        } finally {
+          pendingBusy = false;
         }
-        for (const [taskId, unsubscribe] of subscriptions) if (!tasks.has(taskId)) { unsubscribe(); subscriptions.delete(taskId); }
-        for (const taskId of tasks) if (!subscriptions.has(taskId)) {
-          subscriptions.set(taskId, subscribeTask(taskId, (payload) => { if (payload.type === "snapshot") snapshot(); }));
-        }
-        const attention: RoomAttention[] = room.members.map((botId) => {
-          const taskId = roomBotTaskId(id, botId);
-          const pending = backendPending?.[taskId];
-          return {
-            botId,
-            taskId,
-            permission: backendPending ? pending?.permissionRequest ?? null : pendingPermissionForTask(taskId),
-            question: backendPending ? pending?.questionRequest ?? null : pendingQuestionForTask(taskId),
-          };
-        }).filter((item) => item.permission || item.question);
-        pendingBusy = false;
-        const signature = roomSnapshotSignature(room, attention);
-        if (signature !== previous) { previous = signature; sse?.send("snapshot", { type: "snapshot", room, attention }); }
       };
       const unsubscribe = subscribeRoom(id, () => void snapshot());
       // Room files are shared across Next workers; local emitter events alone miss remote outbox reports.
