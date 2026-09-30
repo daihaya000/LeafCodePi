@@ -38,4 +38,3 @@ export function botRuntimeContext(extensions) {
     "</runtime_context>",
   ].join("\n");
 }
-
