@@ -25,6 +25,7 @@ import { resolvePiAgentDir } from "@/lib/agents-md";
 import { dataDir } from "@/lib/paths";
 import type { BotSkillsConfig } from "@/lib/types";
 import { bundledExtensionEntries } from "@/lib/extensions";
+import { filterSkillsByState as coreFilterSkillsByState, filterSkillsForBot as coreFilterSkillsForBot } from "@backend-core/skill-filters.mjs";
 
 export type SkillSource = "pi" | "bundled";
 
@@ -174,30 +175,21 @@ export function isSkillDisabled(
   return state[scope][name] === true;
 }
 
-/** Filter for DefaultResourceLoader.skillsOverride. */
+/** Filter for DefaultResourceLoader.skillsOverride. The rule lives in backend core. */
 export function filterSkillsByState<T extends { name: string }>(
   skills: readonly T[],
   state = readSkillsState(),
   scope: SkillScope = "code",
 ): T[] {
-  if (Object.keys(state[scope]).length === 0) return [...skills];
-  return skills.filter((skill) => state[scope][skill.name] !== true);
+  return coreFilterSkillsByState(skills, state, scope);
 }
 
-/** Apply a Bot's per-session inherit/include/exclude allowlist. */
+/** Apply a Bot's per-session inherit/include/exclude allowlist (rule lives in backend core). */
 export function filterSkillsForBot<T extends { name: string }>(
   skills: readonly T[],
   config: BotSkillsConfig,
 ): T[] {
-  if (config.mode === "include") {
-    const allowed = new Set(config.include);
-    return skills.filter((skill) => allowed.has(skill.name));
-  }
-  if (config.mode === "exclude") {
-    const excluded = new Set(config.exclude);
-    return skills.filter((skill) => !excluded.has(skill.name));
-  }
-  return [...skills];
+  return coreFilterSkillsForBot(skills, config);
 }
 
 const MAX_PROMPT_DESCRIPTION_CHARS = 120;
