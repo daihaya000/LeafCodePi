@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
-  hasOtherBusyRoomLive, isSamePromptRoute, oneToOneBotIdFromTaskId, resolveAttachAccount,
-  shouldApplyPendingReload, shouldDeferLiveSetting, shouldFlagSoulReload, shouldReloadAgentDefinition,
-  shouldShutdownOnDispose, SOFT_LIVE_SETTING_KEYS, softLiveSettings,
+  hasOtherBusyRoomLive, isSamePromptRoute, oneToOneBotIdFromTaskId, PENDING_LIVE_SETTING_KEYS,
+  remainingPendingLiveSettings, resolveAttachAccount, shouldApplyPendingReload, shouldDeferLiveSetting,
+  shouldFlagSoulReload, shouldReloadAgentDefinition, shouldShutdownOnDispose, SOFT_LIVE_SETTING_KEYS,
+  softLiveSettings,
 } from "./live-lifecycle.mjs";
 
 const live = (overrides = {}) => ({ promptActive: false, session: { isStreaming: false, isCompacting: false }, ...overrides });
@@ -175,4 +176,31 @@ test("only the soft settings reach a busy session, in the documented order", () 
   assert.deepEqual(softLiveSettings(undefined), {});
   // A value that is present but undefined is not applied.
   assert.deepEqual(softLiveSettings({ permissionMode: undefined, botTools: [] }), { botTools: [] });
+});
+
+test("only the applied values leave the deferred record, and an empty one becomes undefined", () => {
+  const current = { permissionMode: "ask", skillPermission: "deny", thinkingLevel: "high" };
+  assert.deepEqual(remainingPendingLiveSettings(current, { permissionMode: "ask" }), {
+    skillPermission: "deny",
+    thinkingLevel: "high",
+  });
+  assert.equal(remainingPendingLiveSettings(current, { ...current }), undefined, "everything applied leaves nothing deferred");
+  assert.deepEqual(remainingPendingLiveSettings(current, {}), current);
+  assert.deepEqual(remainingPendingLiveSettings(current, undefined), current);
+  assert.equal(remainingPendingLiveSettings(undefined, { permissionMode: "ask" }), undefined);
+  assert.equal(remainingPendingLiveSettings({}, {}), undefined);
+});
+
+test("a value that changed while the apply ran stays deferred", () => {
+  // The stored value differs from what was applied, so the newer value must survive.
+  assert.deepEqual(
+    remainingPendingLiveSettings({ permissionMode: "ask", botTools: ["read"] }, { permissionMode: "deny" }),
+    { permissionMode: "ask", botTools: ["read"] },
+  );
+  // Keys outside the contract are carried over untouched.
+  assert.deepEqual(remainingPendingLiveSettings({ unknownKey: 1 }, {}), { unknownKey: 1 });
+  assert.deepEqual([...PENDING_LIVE_SETTING_KEYS], [
+    "model", "thinkingLevel", "agentName", "agentPreviousName",
+    "permissionMode", "skillPermission", "subagentPermission", "botTools",
+  ]);
 });

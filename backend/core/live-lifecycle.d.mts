@@ -182,3 +182,12 @@ export const SOFT_LIVE_SETTING_KEYS: readonly string[];
 
 /** The subset of a pending settings record a busy session may apply now. */
 export function softLiveSettings(requested: Record<string, unknown> | undefined): Record<string, unknown>;
+
+/** Every key a deferred settings record may carry, in comparison/application order. */
+export const PENDING_LIVE_SETTING_KEYS: readonly string[];
+
+/** The values still deferred after applying part of the record, or undefined when none. */
+export function remainingPendingLiveSettings(
+  current: Record<string, unknown> | undefined,
+  applied: Record<string, unknown> | undefined,
+): Record<string, unknown> | undefined;

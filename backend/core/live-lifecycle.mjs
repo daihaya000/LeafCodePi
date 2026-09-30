@@ -321,3 +321,33 @@ export function softLiveSettings(requested) {
   }
   return applied;
 }
+
+/**
+ * Every key a deferred settings record may carry, in the order they are compared and applied.
+ * A deferred record holds only the values that could not be applied yet, so this list is the
+ * contract between the setter that defers a value and the prepare step that applies it.
+ */
+export const PENDING_LIVE_SETTING_KEYS = Object.freeze([
+  "model",
+  "thinkingLevel",
+  "agentName",
+  "agentPreviousName",
+  "permissionMode",
+  "skillPermission",
+  "subagentPermission",
+  "botTools",
+]);
+
+/**
+ * What stays deferred after applying part of the record. A key is dropped only when the value
+ * that was applied equals the deferred one, so a value that changed again while the apply was
+ * running stays pending. Returns undefined when nothing is left.
+ */
+export function remainingPendingLiveSettings(current, applied) {
+  if (!current) return undefined;
+  const next = { ...current };
+  for (const key of PENDING_LIVE_SETTING_KEYS) {
+    if (current[key] === applied?.[key]) delete next[key];
+  }
+  return Object.keys(next).length > 0 ? next : undefined;
+}

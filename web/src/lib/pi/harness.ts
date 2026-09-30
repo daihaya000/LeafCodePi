@@ -237,6 +237,7 @@ import { classifySnapshotEvent, flushPendingSnapshotOnUnsubscribe, pendingSnapsh
 import {
   isSamePromptRoute,
   publishAttachedLive,
+  remainingPendingLiveSettings,
   resolveEnsureLiveAttempt,
   runEnsureLiveGates,
   shouldApplyPendingReload,
@@ -8381,22 +8382,11 @@ function clearAppliedPendingLiveSettings(
   live: LiveRuntime,
   applied: PendingLiveSettings,
 ): void {
-  const current = live.pendingSettings;
-  if (!current) return;
-  const next = { ...current };
-  for (const key of [
-    "model",
-    "thinkingLevel",
-    "agentName",
-    "agentPreviousName",
-    "permissionMode",
-    "skillPermission",
-    "subagentPermission",
-    "botTools",
-  ] as const) {
-    if (current[key] === applied[key]) delete next[key];
-  }
-  live.pendingSettings = Object.keys(next).length > 0 ? next : undefined;
+  // The key contract and the drop rule live in backend core.
+  live.pendingSettings = remainingPendingLiveSettings(
+    live.pendingSettings as Record<string, unknown> | undefined,
+    applied as Record<string, unknown>,
+  ) as PendingLiveSettings | undefined;
 }
 
 function shouldDeferLiveSetting(
