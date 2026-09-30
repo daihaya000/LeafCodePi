@@ -1,40 +1,16 @@
 export const SOUL_TEMPLATE: string;
 export const DEFAULT_SKILLS: BotSkillsConfig;
 
-import type { BotAvatarColor, BotAvatarShape } from "./bot-avatar.mjs";
-import type { BotSkillsConfig, BotToolName, ThinkingLevel } from "@shared/types";
+import type { BotDto, BotSkillsConfig, BotToolName } from "@shared/types";
 
 export type BotPermissionMode = "allow" | "ask" | "deny";
 export type { BotSkillsConfig };
 
-/** The persisted bot record, as read back and normalized. */
-export type BotConfig = {
-  id: string;
-  name: string;
-  label: string;
-  avatarColor: BotAvatarColor;
-  avatarImage: string | null;
-  avatarShape: BotAvatarShape;
-  avatarEyeColor?: string;
-  avatarGlasses: boolean;
-  avatarMustache: boolean;
-  createdAt: string;
-  updatedAt: string;
-  model: string | null;
-  ttsVoice: string | null;
-  thinkingLevel: ThinkingLevel | null;
-  permissionMode: BotPermissionMode;
-  skills: BotSkillsConfig;
-  tools: string[];
-  extraRoots: string[];
-  enabled: boolean;
-  notificationsEnabled: boolean;
-  intercomEnabled: boolean;
-  intercomScopeId: string;
-  intercomFanoutEnabled: boolean;
-  codeAutoApprove: boolean;
-  codeSessionTaskId: string | null;
-};
+/**
+ * The persisted bot record: the shared DTO without the derived `soul`, with the
+ * raw (possibly unknown-name carrying) tool allowlist.
+ */
+export type BotConfig = Omit<BotDto, "soul" | "tools"> & { label: string; tools: string[] };
 
 export function legacyDefaultToolSets(toolNames: readonly string[]): string[][];
 export function shouldMigrateBotTools(value: unknown, raw: readonly string[], toolNames: readonly string[]): boolean;

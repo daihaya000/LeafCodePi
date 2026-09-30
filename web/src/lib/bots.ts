@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { dataDir } from "./paths";
@@ -7,7 +7,8 @@ import { basenameKey, isWebUiRequiredExtension } from "./extensions";
 import { deleteTask, insertBotTask, listTasks, patchTask } from "./store";
 import { BOT_DEFAULT_TOOL_NAMES, BOT_TOOL_NAMES, type BotDto, type ThinkingLevel } from "./types";
 import { isAvatarEyeColor, randomAvatarColor } from "./bot-avatar";
-import { DEFAULT_SKILLS, parseBotConfig, SOUL_TEMPLATE, toBotDto } from "@backend-core/bot-config.mjs";
+import { DEFAULT_SKILLS, SOUL_TEMPLATE, toBotDto } from "@backend-core/bot-config.mjs";
+import { BotFileStore } from "@backend-core/bot-store.mjs";
 
 export type BotConfig = Omit<BotDto, "soul" | "tools"> & { label: string; tools: string[] };
 /** Repeated in Room roster/identity JSON every turn (see room-conversation.ts); keep it short. */
@@ -29,45 +30,21 @@ export function isBotLabelWithinSize(value: string): boolean {
 }
 export { BOT_DEFAULT_TOOL_NAMES, BOT_TOOL_NAMES };
 
-function botsRoot(): string { return join(dataDir(), "bots"); }
-function assertId(id: string): void {
-  if (!/^[0-9a-f]{8}-[0-9a-f-]{27,}$/i.test(id)) throw new Error("invalid bot id");
-}
-function botRoot(id: string): string { assertId(id); return join(botsRoot(), id); }
-function configPath(id: string): string { return join(botRoot(id), "config.json"); }
-function soulPath(id: string): string { return join(botRoot(id), "SOUL.md"); }
-function memoryPath(id: string): string { return join(botRoot(id), "MEMORY.md"); }
-function ensureMemoryFile(id: string): void {
-  const file = memoryPath(id);
-  if (!existsSync(file)) writeFileSync(file, "# Bot memory\n\n", "utf8");
-}
-function writeConfig(config: BotConfig): void {
-  mkdirSync(botRoot(config.id), { recursive: true });
-  const target = configPath(config.id);
-  const temporary = `${target}.${process.pid}.${Math.random().toString(16).slice(2)}.tmp`;
-  writeFileSync(temporary, `${JSON.stringify(config, null, 2)}\n`, "utf8");
-  renameSync(temporary, target);
-}
-function parseConfig(id: string): BotConfig | null {
-  // Normalization and one-time legacy migration live in backend core.
-  return parseBotConfig({
-    id,
-    readText: () => readFileSync(configPath(id), "utf8"),
-    writeConfig: (config) => writeConfig(config),
-    toolNames: BOT_TOOL_NAMES,
-    defaultToolNames: BOT_DEFAULT_TOOL_NAMES,
-  });
-}function toDto(config: BotConfig): BotDto {
-  return toBotDto(config, { readSoulText: () => readFileSync(soulPath(config.id), "utf8"), toolNames: BOT_TOOL_NAMES });
+// Bot files live in backend core; the paths, tool vocabulary and task side effects
+// stay here as injected hooks.
+const botFileStore = new BotFileStore({
+  botsRoot: () => join(dataDir(), "bots"),
+  toolNames: BOT_TOOL_NAMES,
+  defaultToolNames: BOT_DEFAULT_TOOL_NAMES,
+});
+
+function writeConfig(config: BotConfig): void { botFileStore.writeConfig(config); }
+function parseConfig(id: string): BotConfig | null { return botFileStore.readConfig(id); }
+function toDto(config: BotConfig): BotDto {
+  return toBotDto(config, { readSoulText: () => botFileStore.readSoulText(config.id), toolNames: BOT_TOOL_NAMES });
 }
 export function listBots(): BotDto[] {
-  if (!existsSync(botsRoot())) return [];
-  return readdirSync(botsRoot(), { withFileTypes: true })
-    .filter((entry) => entry.isDirectory())
-    .map((entry) => parseConfig(entry.name))
-    .filter((config): config is BotConfig => Boolean(config))
-    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
-    .map(toDto);
+  return botFileStore.listConfigs().map(toDto);
 }
 export function getBot(id: string): BotDto | undefined {
   const config = parseConfig(id);
@@ -77,11 +54,11 @@ export function createBot(input: { name?: string; model?: string | null; thinkin
   const name = input.name?.trim() || "New bot";
   const id = randomUUID(); const now = new Date().toISOString();
   const config: BotConfig = { id, name, label: "", avatarColor: randomAvatarColor(), avatarImage: null, avatarShape: "circle", avatarGlasses: false, avatarMustache: false, createdAt: now, updatedAt: now, model: input.model ?? null, ttsVoice: null, thinkingLevel: input.thinkingLevel ?? null, permissionMode: input.permissionMode ?? "allow", codeAutoApprove: true, skills: { ...DEFAULT_SKILLS }, tools: [...BOT_DEFAULT_TOOL_NAMES], extraRoots: [], enabled: true, notificationsEnabled: true, intercomEnabled: false, intercomScopeId: "", intercomFanoutEnabled: false, codeSessionTaskId: null };
-  mkdirSync(join(botRoot(id), "workspace"), { recursive: true });
-  writeFileSync(soulPath(id), SOUL_TEMPLATE, "utf8");
-  ensureMemoryFile(id);
+  mkdirSync(botFileStore.workspacePath(id), { recursive: true });
+  botFileStore.writeSoul(id, SOUL_TEMPLATE);
+  botFileStore.ensureMemoryFile(id);
   writeConfig(config);
-  insertBotTask({ id: `bot:${id}`, botId: id, name, directory: join(botRoot(id), "workspace"), model: config.model, thinkingLevel: config.thinkingLevel, permissionMode: config.permissionMode });
+  insertBotTask({ id: `bot:${id}`, botId: id, name, directory: botFileStore.workspacePath(id), model: config.model, thinkingLevel: config.thinkingLevel, permissionMode: config.permissionMode });
   return toDto(config);
 }
 export function patchBot(id: string, patch: Partial<Pick<BotConfig, "name" | "label" | "avatarColor" | "avatarImage" | "avatarShape" | "avatarGlasses" | "avatarMustache" | "model" | "ttsVoice" | "thinkingLevel" | "permissionMode" | "skills" | "tools" | "extraRoots" | "enabled" | "notificationsEnabled" | "intercomEnabled" | "intercomScopeId" | "intercomFanoutEnabled" | "codeAutoApprove" | "codeSessionTaskId">> & { soul?: string; avatarEyeColor?: string | null }): BotDto | undefined {
@@ -91,7 +68,7 @@ export function patchBot(id: string, patch: Partial<Pick<BotConfig, "name" | "la
   const next: BotConfig = { ...current, ...patch, ttsVoice, avatarEyeColor: patch.avatarEyeColor === undefined ? current.avatarEyeColor : (isAvatarEyeColor(patch.avatarEyeColor) ? patch.avatarEyeColor : undefined), skills: patch.skills ?? current.skills, updatedAt: new Date().toISOString() };
   delete (next as Record<string, unknown>).soul;
   writeConfig(next);
-  if (patch.soul !== undefined) writeFileSync(soulPath(id), patch.soul, "utf8");
+  if (patch.soul !== undefined) botFileStore.writeSoul(id, patch.soul);
   // Model routing is applied by the bot PATCH route through setTaskModel; do not write the logical model key into modelID.
   patchTask(`bot:${id}`, { title: next.name, thinkingLevel: next.thinkingLevel ?? undefined, permissionMode: next.permissionMode ?? undefined });
   return toDto(next);
@@ -103,18 +80,13 @@ export function deleteBot(id: string): boolean {
     if (task.botId === id) deleteTask(task.id);
     else if (task.supervisorBotId === id) patchTask(task.id, { supervisorBotId: null });
   }
-  rmSync(botRoot(id), { recursive: true, force: true }); return true;
+  botFileStore.removeBot(id); return true;
 }
-export function botWorkspace(id: string): string { return join(botRoot(id), "workspace"); }
-export function botSoul(id: string): string { return readFileSync(soulPath(id), "utf8"); }
+export function botWorkspace(id: string): string { return botFileStore.workspacePath(id); }
+export function botSoul(id: string): string { return botFileStore.readSoulText(id); }
 /** Lightweight revision used to notice SOUL edits made by another worker. */
 export function botSoulRevision(id: string): string | null {
-  try {
-    const stat = statSync(soulPath(id));
-    return `${stat.mtimeMs}:${stat.size}`;
-  } catch {
-    return null;
-  }
+  return botFileStore.soulRevision(id);
 }
 export function botTaskId(id: string): string { return `bot:${id}`; }
 /** Runtime facts are separate from BOTS.md/SOUL.md and never import global AGENTS.md. */
@@ -145,15 +117,15 @@ export function botRuntimeContext(extensions: readonly { path: string }[]): stri
 // Global SOUL.md is Code-only; each bot uses its own SOUL.md instead.
 // Return paths so session.reload() re-reads edits without a new session.
 export function botPromptSources(id: string): string[] {
-  ensureMemoryFile(id);
+  botFileStore.ensureMemoryFile(id);
   const sources: string[] = [];
   const shared = globalBotsMdPath();
   if (existsSync(shared)) sources.push(shared);
   const user = globalUserMdPath();
   if (existsSync(user)) sources.push(user);
-  sources.push(soulPath(id));
+  sources.push(botFileStore.soulPath(id));
   // MEMORY.md is re-read when a session is created, so facts learned in a
   // previous conversation become context without copying them into config.json.
-  if (existsSync(memoryPath(id))) sources.push(memoryPath(id));
+  if (existsSync(botFileStore.memoryPath(id))) sources.push(botFileStore.memoryPath(id));
   return sources;
 }
