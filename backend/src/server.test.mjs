@@ -2,6 +2,9 @@ import assert from "node:assert/strict";
 import { randomBytes } from "node:crypto";
 import { once } from "node:events";
 import { spawn } from "node:child_process";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { createInterface } from "node:readline";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
@@ -229,6 +232,80 @@ test("CLI serves the pending snapshot route with an empty store and stays not re
   assert.equal(health.status, 503, "attaching a store must not imply runtime readiness");
   assert.equal((await health.json()).status, "starting");
   assert.equal((await request(`http://127.0.0.1:${listening.port}${BACKEND_PENDING_SNAPSHOTS_PATH}`)).status, 401);
+});
+
+/** Spawns the CLI against a temp data directory and returns its listening address and token. */
+async function spawnCli(t, extraEnv = {}) {
+  const token = randomBytes(32).toString("base64url");
+  const dataDir = mkdtempSync(join(tmpdir(), "leafcode-backend-cli-"));
+  const child = spawn(process.execPath, [fileURLToPath(new URL("./entry.mjs", import.meta.url))], {
+    env: {
+      ...process.env,
+      // Keep the real store, leases and sessions untouched.
+      NODE_ENV: "test",
+      LEAFCODE_PI_DATA_DIR: dataDir,
+      LEAFCODE_PI_BACKEND_TOKEN: token,
+      LEAFCODE_PI_BACKEND_PORT: "0",
+      ...extraEnv,
+    },
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  const exit = once(child, "exit");
+  const lines = createInterface({ input: child.stdout });
+  t.after(async () => {
+    lines.close();
+    if (child.exitCode === null && child.signalCode === null) child.kill();
+    await exit;
+    rmSync(dataDir, { recursive: true, force: true });
+  });
+  const [line] = await once(lines, "line");
+  const listening = JSON.parse(line);
+  return {
+    listening,
+    headers: { authorization: `Bearer ${token}`, [BACKEND_PROTOCOL_HEADER]: String(BACKEND_PROTOCOL_VERSION) },
+    healthUrl: `http://127.0.0.1:${listening.port}${BACKEND_HEALTH_PATH}`,
+  };
+}
+
+/** Polls health until it reports the expected readiness, or the deadline passes. */
+async function healthUntil(url, headers, expectedStatus, timeoutMs = 20_000) {
+  const deadline = Date.now() + timeoutMs;
+  let last = null;
+  while (Date.now() < deadline) {
+    const response = await request(url, { headers });
+    last = await response.json();
+    if (response.status === expectedStatus) return { status: response.status, body: last };
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+  return { status: null, body: last };
+}
+
+test("the CLI stays not ready while the runtime is not requested", { timeout: 15_000 }, async (t) => {
+  const cli = await spawnCli(t);
+  const health = await request(cli.healthUrl, { headers: cli.headers });
+  assert.equal(health.status, 503);
+  assert.equal((await health.json()).status, "starting");
+});
+
+test("requesting the runtime makes the CLI ready once it is attached", { timeout: 60_000 }, async (t) => {
+  const cli = await spawnCli(t, { LEAFCODE_PI_BACKEND_RUNTIME: "attach" });
+  const health = await healthUntil(cli.healthUrl, cli.headers, 200);
+  assert.equal(health.status, 200, `health never became ready: ${JSON.stringify(health.body)}`);
+  assert.equal(health.body.ready, true);
+  assert.equal(health.body.status, "ready");
+});
+
+test("a missing runtime bundle keeps the CLI at 503 instead of failing to start", { timeout: 15_000 }, async (t) => {
+  const cli = await spawnCli(t, {
+    LEAFCODE_PI_BACKEND_RUNTIME: "attach",
+    LEAFCODE_PI_BACKEND_RUNTIME_BUNDLE: join(tmpdir(), "leafcode-no-such-bundle.mjs"),
+  });
+  const health = await request(cli.healthUrl, { headers: cli.headers });
+  assert.equal(health.status, 503);
+  const body = await health.json();
+  assert.equal(body.ready, false);
+  assert.equal(body.status, "starting");
+  assert.ok(!JSON.stringify(body).includes("leafcode-no-such-bundle"), "the bundle path is never echoed");
 });
 
 test("CLI refuses missing credentials and malformed ports", { timeout: 5_000 }, async () => {
