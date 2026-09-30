@@ -255,7 +255,9 @@ describe("listExtensions / setExtensionEnabled", () => {
   it("prefers optional bundled Anthropic auth over its scoped npm copy and honors disable", () => {
     const { agentDir: agent } = fixture();
     const bundledRoot = join(data, "repo-extensions");
-    writeExtension(bundledRoot, "pi-anthropic-auth");
+    // The real bundled entry is index.ts (not the helper's index.js fixture).
+    mkdirSync(join(bundledRoot, "pi-anthropic-auth"), { recursive: true });
+    writeFileSync(join(bundledRoot, "pi-anthropic-auth", "index.ts"), "export default () => {};\n", "utf8");
     const npmDir = join(agent, "npm", "node_modules", "@gotgenes", "pi-anthropic-auth");
     mkdirSync(join(npmDir, "src"), { recursive: true });
     writeFileSync(join(npmDir, "package.json"), JSON.stringify({ pi: { extensions: ["./src/index.ts"] } }), "utf8");
@@ -269,7 +271,7 @@ describe("listExtensions / setExtensionEnabled", () => {
     assert.equal(auth[0].source, "bundled");
     assert.equal(auth[0].required, false);
     assert.equal(auth[0].enabled, true);
-    assert.equal(auth[0].filePath, join(bundledRoot, "pi-anthropic-auth", "index.js"));
+    assert.equal(auth[0].filePath, join(bundledRoot, "pi-anthropic-auth", "index.ts"));
     const disabled = setExtensionEnabled("pi-anthropic-auth", false, agent, options);
     assert.equal(disabled.extensions.find((entry) => entry.name === "pi-anthropic-auth")?.enabled, false);
     assert.deepEqual(filterExtensionsByState([{ path: auth[0].filePath }, { path: join(npmDir, "src", "index.ts") }], readExtensionsState(), agent), []);

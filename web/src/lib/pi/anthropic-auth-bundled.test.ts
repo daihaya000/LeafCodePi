@@ -7,6 +7,7 @@ import { afterEach, describe, it, vi } from "vitest";
 import { DefaultResourceLoader, SettingsManager } from "@earendil-works/pi-coding-agent";
 import { compactSdkDocumentation } from "../agents-md";
 import { basenameKey, filterExtensionsByState, listExtensions } from "../extensions";
+import { PI_DOCS_SECTION_ANCHOR } from "../../../../extensions/pi-anthropic-auth/src/constants";
 import { shapeAnthropicOAuthSystemPrompt } from "../../../../extensions/pi-anthropic-auth/src/system-prompt-shaping";
 
 const bundledRoot = fileURLToPath(new URL("../../../../extensions/", import.meta.url));
@@ -46,9 +47,9 @@ describe("bundled pi-anthropic-auth", () => {
       "</docs>",
     ].join("\n");
     const compacted = compactSdkDocumentation(prompt);
-    // The compaction must survive the extension's anchor check so shaping drops
-    // the section instead of forwarding the SDK package path to Anthropic.
-    assert.ok(compacted.includes("Pi documentation (read only when the user asks about pi itself"));
+    // Checked against the extension's own constant: if upstream renames the
+    // anchor, this fails instead of silently forwarding the SDK package path.
+    assert.ok(compacted.includes(PI_DOCS_SECTION_ANCHOR));
     const shaped = shapeAnthropicOAuthSystemPrompt(compacted);
     assert.ok(!shaped.includes("<docs>"));
     assert.ok(!shaped.includes("pi-coding-agent"));

@@ -165,14 +165,14 @@ describe("runtimeClockContext", () => {
     const session = {
       agent: {
         state: {
-          systemPrompt: "base\n\n<leafcode_clock>old</leafcode_clock>\n\nbot context",
+          systemPrompt: "base\n\n<host_clock>old</host_clock>\n\nbot context",
         },
       },
     };
     refreshRuntimeClock(session, new Date("2026-09-14T00:00:01.234Z"));
 
     assert.equal(
-      (session.agent.state.systemPrompt.match(/<leafcode_clock>/g) ?? []).length,
+      (session.agent.state.systemPrompt.match(/<host_clock>/g) ?? []).length,
       1,
     );
     assert.match(session.agent.state.systemPrompt, /UTC: 2026-09-14T00:00:01\.234Z/);
@@ -187,7 +187,7 @@ describe("runtimeClockContext", () => {
       },
     };
     refreshRuntimeClock(session, new Date("2026-09-14T00:00:01.234Z"));
-    assert.match(session.agent.state.systemPrompt ?? "", /<leafcode_clock>/);
+    assert.match(session.agent.state.systemPrompt ?? "", /<host_clock>/);
     assert.match(session.agent.state.systemPrompt ?? "", /UTC: 2026-09-14T00:00:01\.234Z/);
   });
 });

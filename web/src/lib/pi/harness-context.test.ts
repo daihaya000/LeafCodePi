@@ -254,7 +254,7 @@ it("refreshes reference discovery each turn and respects Bot/read permissions", 
   const input = { agentDir, hasBotSkills: false, getExtensions: () => [] };
   sessionExtensionFactories(input)[0](api);
   const prompt = () => handlers.get("before_agent_start")!({ systemPrompt: "base" }).systemPrompt;
-  expect(prompt()).not.toContain("leafcode_on_demand_context");
+  expect(prompt()).not.toContain("on_demand_context");
   writeFileSync(join(agentDir, "WORKFLOW.md"), "private workflow body");
   expect(prompt()).toContain("WORKFLOW.md");
   expect(prompt()).not.toContain("private workflow body");
@@ -265,5 +265,5 @@ it("refreshes reference discovery each turn and respects Bot/read permissions", 
   expect(prompt()).not.toContain("WORKFLOW.md");
   sessionExtensionFactories(input)[0](api);
   rmSync(join(agentDir, "WORKFLOW.md"));
-  expect(prompt()).not.toContain("leafcode_on_demand_context");
+  expect(prompt()).not.toContain("on_demand_context");
 });

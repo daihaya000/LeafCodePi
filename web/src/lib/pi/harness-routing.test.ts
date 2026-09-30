@@ -1147,8 +1147,8 @@ describe("integrated session routing", () => {
       waitForCompletion: true,
     });
 
-    expect(fakePi.sessions[0]?.systemPrompts[0]).toContain("<leafcode_clock>");
-    expect(fakePi.sessions[1]?.systemPrompts[0]).toContain("<leafcode_clock>");
+    expect(fakePi.sessions[0]?.systemPrompts[0]).toContain("<host_clock>");
+    expect(fakePi.sessions[1]?.systemPrompts[0]).toContain("<host_clock>");
   });
 
   it("refreshes the runtime clock across a UTC date boundary in one session", async () => {

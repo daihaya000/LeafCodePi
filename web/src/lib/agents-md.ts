@@ -221,11 +221,11 @@ export function codeOnDemandPrompt(agentDir: string): string {
   });
   if (!entries.length) return "";
   return [
-    "<leafcode_on_demand_context>",
+    "<on_demand_context>",
     "Optional reference files are not loaded automatically. Read one with the read tool only when the task needs it:",
     ...entries,
     "Follow the relevant file after reading it; do not spend context loading unrelated files.",
-    "</leafcode_on_demand_context>",
+    "</on_demand_context>",
   ].join("\n");
 }
 

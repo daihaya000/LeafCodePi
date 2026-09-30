@@ -3122,11 +3122,11 @@ export function runtimeClockContext(
     timeZone,
   }).format(now);
   return [
-    "<leafcode_clock>",
+    "<host_clock>",
     `Host clock (authoritative for \"now\"): ${local} (${timeZone}).`,
     `UTC: ${now.toISOString()}.`,
     "For current or relative dates, use this runtime-generated timestamp instead of model memory or web search.",
-    "</leafcode_clock>",
+    "</host_clock>",
   ].join("\n");
 }
 
@@ -3141,8 +3141,8 @@ export function refreshRuntimeClock(
   // a system prompt yet. before_agent_start injects the clock later; do not
   // throw while writing the hidden resume turn.
   const current = typeof state.systemPrompt === "string" ? state.systemPrompt : "";
-  state.systemPrompt = current.includes("<leafcode_clock>")
-    ? current.replace(/<leafcode_clock>[\s\S]*?<\/leafcode_clock>/, clock)
+  state.systemPrompt = current.includes("<host_clock>")
+    ? current.replace(/<host_clock>[\s\S]*?<\/host_clock>/, clock)
     : current
       ? `${current}\n\n${clock}`
       : clock;
