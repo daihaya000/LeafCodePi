@@ -32,6 +32,9 @@ export {
 export { isRoomDelegatedCodeTask, stopBotCodeRequest } from "@/lib/pi/bot-code-relay";
 // Clearing a Code session link writes the store and the Bot record: the owner does both.
 export { getBot, patchBot } from "@/lib/bots";
+// The routine scheduler runs its routines by prompting a session, so only the runtime owner may
+// run it; the tick takes a cross-process lock, so two schedulers cannot double-run a routine.
+export { ensureRoutineScheduler } from "@/lib/routines";
 export { getTask, patchTask } from "@/lib/store";
 export { isGoalLoopSessionOwned, readGoalLoopState } from "@/lib/pi/goal-loop-state";
 export { startGoalLoopWithSelection } from "@/lib/pi/goal-loop-start";

@@ -41,6 +41,7 @@ export const REQUIRED_RUNTIME_EXPORTS = Object.freeze([
   "clearPendingAttentionForTask",
   "startBotCodeRelay",
   "applyCodePermissionSettingsToLiveTasks",
+  "ensureRoutineScheduler",
 ]);
 
 /**

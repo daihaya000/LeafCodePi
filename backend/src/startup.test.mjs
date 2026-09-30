@@ -236,7 +236,7 @@ test("the services the Backend cannot run yet are reported, not silently skipped
   assert.deepEqual(started.orphaned(), []);
 });
 
-test("the Bot Code relay starts only once a runtime is attached", async (t) => {
+test("the owner-only services start only once a runtime is attached", async (t) => {
   const { dir, file } = fixture(t);
   const calls = [];
   const attached = createBackendStartup({
@@ -244,16 +244,20 @@ test("the Bot Code relay starts only once a runtime is attached", async (t) => {
     warn: () => {},
     loadRuntime: async () => ({
       ok: true,
-      runtime: { startBotCodeRelay: () => calls.push("relay") },
+      runtime: {
+        startBotCodeRelay: () => calls.push("relay"),
+        ensureRoutineScheduler: () => calls.push("routines"),
+      },
       generation: "gen-1",
     }),
   });
   attached.store.storePath = () => file;
   await attached.startup.start();
-  assert.deepEqual(calls, ["relay"]);
-  // The relay is no longer an unimplemented step: only the genuinely missing services are listed.
+  assert.deepEqual(calls, ["relay", "routines"]);
+  // Only the genuinely missing services are listed: both owner-only services started here.
   assert.deepEqual(attached.unavailable(), [...BACKEND_UNAVAILABLE_STARTUP_STEPS]);
   assert.equal(attached.unavailable().includes("startBotCodeRelay"), false);
+  assert.equal(attached.unavailable().includes("ensureRoutineScheduler"), false);
 
   const failed = createBackendStartup({
     dataDir: () => dir,
@@ -262,24 +266,31 @@ test("the Bot Code relay starts only once a runtime is attached", async (t) => {
   });
   failed.store.storePath = () => file;
   await failed.startup.start();
-  assert.deepEqual(calls, ["relay"], "a bundle that never attached publishes no relay work");
+  assert.deepEqual(calls, ["relay", "routines"], "a bundle that never attached starts no owner work");
   assert.equal(failed.runtimeStatus().ok, false);
 });
 
-test("a relay that cannot start is reported instead of stopping the sequence", async (t) => {
+test("owner-only services that cannot start are reported instead of stopping the sequence", async (t) => {
   const { dir, file } = fixture(t);
   const started = createBackendStartup({
     dataDir: () => dir,
     warn: () => {},
     loadRuntime: async () => ({
       ok: true,
-      runtime: { startBotCodeRelay: () => { throw new Error("outbox unavailable"); } },
+      runtime: {
+        startBotCodeRelay: () => { throw new Error("outbox unavailable"); },
+        ensureRoutineScheduler: () => { throw new Error("lock unavailable"); },
+      },
       generation: "gen-1",
     }),
   });
   started.store.storePath = () => file;
   await started.startup.start();
-  assert.deepEqual(started.unavailable(), ["startBotCodeRelay", ...BACKEND_UNAVAILABLE_STARTUP_STEPS]);
+  assert.deepEqual(started.unavailable(), [
+    "startBotCodeRelay",
+    "ensureRoutineScheduler",
+    ...BACKEND_UNAVAILABLE_STARTUP_STEPS,
+  ]);
 });
 
 test("a restart-resume listener that fails does not stop the sequence", async (t) => {

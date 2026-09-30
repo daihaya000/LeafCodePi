@@ -7,7 +7,7 @@ const globals = globalThis as typeof globalThis & {
 
 async function loadServices(): Promise<RuntimeStartupServices> {
   const harness = await import("@/lib/pi/harness");
-  const { ensureRoutineScheduler } = await import("@/lib/routines");
+  const { ensureRoutineScheduler: startRoutineScheduler } = await import("@/lib/routines");
   const { reconcileOrphanedWorkingTasks, setOrphanedTaskListener } = await import("@/lib/task-runtime-lease");
   const { reconcileRoomRuntime } = await import("@/lib/room-runtime");
   return {
@@ -34,7 +34,13 @@ async function loadServices(): Promise<RuntimeStartupServices> {
       if (localRuntimeBlocked()) return;
       harness.startBotCodeRelay();
     },
-    ensureRoutineScheduler,
+    // Routines run by prompting a session, so the scheduler belongs to the runtime owner too. Its
+    // tick takes a cross-process lock, but a scheduler here would only fail every run after the
+    // cutover while the Backend's own scheduler does the work.
+    ensureRoutineScheduler: () => {
+      if (localRuntimeBlocked()) return;
+      startRoutineScheduler();
+    },
     reconcileRoomRuntime,
     warmTaskSummaries: typeof harness.getTaskSummariesWithTodoProgress === "function"
       ? () => harness.getTaskSummariesWithTodoProgress(true)

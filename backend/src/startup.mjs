@@ -19,7 +19,6 @@ const NO_PROJECT_NAME = "プロジェクトなし";
  * stay false while this list is non-empty.
  */
 export const BACKEND_UNAVAILABLE_STARTUP_STEPS = Object.freeze([
-  "ensureRoutineScheduler",
   "reconcileRoomRuntime",
 ]);
 
@@ -104,6 +103,23 @@ export function createBackendStartup({
     task.sessionId && isGoalLoopSessionOwnedStatus(goalLoopStore.read(task.directory, task.sessionId)?.status),
   );
 
+  /**
+   * Runs one startup step against the attached runtime, if any. A detached Backend does nothing:
+   * readiness already refuses on the missing runtime, so the step is not reported as unavailable.
+   * A step that fails is reported instead of failing the whole sequence, so readiness never claims
+   * a service runs when it does not.
+   */
+  const runRuntimeStep = (name) => {
+    const runtime = runtimeStatus.ok === true ? runtimeStatus.runtime : null;
+    const step = runtime?.[name];
+    if (typeof step !== "function") return;
+    try {
+      step();
+    } catch {
+      if (!unavailable.includes(name)) unavailable.push(name);
+    }
+  };
+
   const orphanListener = (tasks) => {
     for (const task of tasks) {
       orphaned.push(task.id);
@@ -150,18 +166,13 @@ export function createBackendStartup({
       ...(typeof loadRuntime === "function"
         ? { loadRuntime: async () => { runtimeStatus = await loadRuntime(); } }
         : {}),
-      // The relay publishes Bot Code work by prompting a session, which only the runtime owner can
-      // do: it runs after the runtime is attached and does nothing while nothing is attached (a
-      // detached Backend is already refused readiness by the missing runtime). A relay that cannot
-      // start is reported instead of failing the whole sequence, so readiness never claims it runs.
+      // The relay publishes Bot Code work by prompting a session, which only the owner can do.
       startBotCodeRelay: () => {
-        const runtime = runtimeStatus.ok === true ? runtimeStatus.runtime : null;
-        if (!runtime || typeof runtime.startBotCodeRelay !== "function") return;
-        try {
-          runtime.startBotCodeRelay();
-        } catch {
-          if (!unavailable.includes("startBotCodeRelay")) unavailable.push("startBotCodeRelay");
-        }
+        runRuntimeStep("startBotCodeRelay");
+      },
+      // Routines are run by prompting a session, so the scheduler belongs to the owner as well.
+      ensureRoutineScheduler: () => {
+        runRuntimeStep("ensureRoutineScheduler");
       },
       ...Object.fromEntries(
         BACKEND_UNAVAILABLE_STARTUP_STEPS.map((step) => [step, () => {
