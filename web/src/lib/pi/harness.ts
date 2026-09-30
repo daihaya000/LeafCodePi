@@ -210,6 +210,8 @@ import { AccountRuntimeManager } from "@/lib/pi/account-runtime-manager";
 import { SdkRuntimeFactory } from "@backend-core/sdk-runtime.mjs";
 import * as corePromptControl from "@backend-core/prompt-control.mjs";
 import { runHangWatchdogAbort, runUserAbort } from "@backend-core/abort-coordinator.mjs";
+import { roomBotIdFromTaskId } from "@backend-core/abort-control.mjs";
+import { hasOtherBusyRoomLive, shouldShutdownOnDispose as coreShouldShutdownOnDispose } from "@backend-core/live-lifecycle.mjs";
 import {
   accountAuthPath,
   accountHasProvider,
@@ -2524,18 +2526,18 @@ const liveShutdownInflight = new Map<string, Promise<void>>();
  * and must survive routine session replacement.
  */
 function shouldShutdownOnDispose(live: LiveRuntime, taskId: string): boolean {
-  if (live.shutdownEmitted) return false;
-  try {
-    if (!live.session.extensionRunner.hasHandlers("session_shutdown")) return false;
-    if (isLiveBusyForReplace(live) || isActiveGoalLoopSession(live.session)) return false;
-    const task = getTask(taskId);
-    const loop = task
-      ? readGoalLoopState(task.directory, live.session.sessionId ?? task.sessionId)
-      : null;
-    return !isGoalLoopSessionOwned(loop);
-  } catch {
-    return false;
-  }
+  return coreShouldShutdownOnDispose({
+    shutdownEmitted: live.shutdownEmitted,
+    hasShutdownHandler: () => live.session.extensionRunner.hasHandlers("session_shutdown"),
+    isBusyOrGoalLoopActive: () => isLiveBusyForReplace(live) || isActiveGoalLoopSession(live.session),
+    isGoalLoopOwned: () => {
+      const task = getTask(taskId);
+      const loop = task
+        ? readGoalLoopState(task.directory, live.session.sessionId ?? task.sessionId)
+        : null;
+      return isGoalLoopSessionOwned(loop);
+    },
+  });
 }
 
 /** live セッションを破棄し、保持していたアカウントランタイムの参照を解放する。 */
@@ -2546,18 +2548,10 @@ function disposeLive(taskId: string): void {
   const live = state().live.get(taskId);
   if (!live) return;
   // Room live を map から消す前に flush（消すと resident=false になり queued が永久放置される）。
-  const roomBotId = /^bot:([^:]+):room:/.exec(taskId)?.[1];
+  const roomBotId = roomBotIdFromTaskId(taskId);
   if (roomBotId) {
     live.promptActive = false;
-    const prefix = `bot:${roomBotId}:room:`;
-    let otherRoomBusy = false;
-    for (const [id, other] of state().live) {
-      if (id === taskId || !id.startsWith(prefix)) continue;
-      if (other.promptActive || other.session.isStreaming || other.session.isCompacting) {
-        otherRoomBusy = true;
-        break;
-      }
-    }
+    const otherRoomBusy = hasOtherBusyRoomLive(taskId, roomBotId, state().live);
     try {
       flushQueuedBotIntercom(roomBotId, { ignoreRoomBusy: !otherRoomBusy });
     } catch (error) {
