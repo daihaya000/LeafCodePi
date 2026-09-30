@@ -35,6 +35,7 @@
    | `app-store.mjs` | プロジェクト/タスクCRUD、`store.json` v1、キャッシュ、日次バックアップ | パス方針・workspace割当を注入する同期APIの入口 |
    | `app-paths.mjs` / `xdg-user-dirs.mjs` | データディレクトリ・`store.json`等のパス、パス比較、Documents/XDGの解決、無プロジェクトworkspace作成、テスト時のlive data保護ガード | `lib/paths.ts`・`lib/xdg-user-dirs.ts` は同名exportの互換入口 |
    | `bot-avatar.mjs` | Botアイコンの色パレット・形の語彙と描画データ、色の妥当性検証・ID由来の色決定・ランダム選択、インライン画像データの検証 | `lib/bot-avatar.ts` は同名exportの互換入口 |
+   | `bot-config.mjs` | Bot設定の正規化（旧既定ツール一覧の一度きり移行、未知ツール名の保持、権限モードのfail-closed、skills/extraRootsの正規化、DTOビューのSOUL付与と未知ツール名の除外。ツール語彙は注入） | Botファイルのパス・読書き・タスク連携（store）・作成/更新/削除の副作用 |
    | `task-runtime-lease.mjs` | lease取得/解放、heartbeat、孤立タスク照合と通知 | global token・listener・backlogの引継ぎ |
    | `restart-resume.mjs` / `runtime-startup.mjs` | 再起動復旧の再試行予算、起動順序（listener登録→孤立照合→relay→scheduler→Room照合） | 各起動サービスの実体、instrumentationの互換呼出 |
    | `pending-prompts.mjs` / `webui-bridge.mjs` | 質問/承認の待機キューとタイムアウト、ブリッジ受付口（globalThisの枠・未登録時null） | harnessのprocess-localシングルトン、拡張側コピー |

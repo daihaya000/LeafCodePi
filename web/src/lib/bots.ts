@@ -5,8 +5,9 @@ import { dataDir } from "./paths";
 import { globalBotsMdPath, globalUserMdPath } from "./agents-md";
 import { basenameKey, isWebUiRequiredExtension } from "./extensions";
 import { deleteTask, insertBotTask, listTasks, patchTask } from "./store";
-import { BOT_DEFAULT_TOOL_NAMES, BOT_TOOL_NAMES, type BotDto, type BotSkillsConfig, type BotToolName, type ThinkingLevel } from "./types";
-import { avatarColorForId, isAvatarColor, isAvatarEyeColor, isAvatarImage, isAvatarShape, randomAvatarColor } from "./bot-avatar";
+import { BOT_DEFAULT_TOOL_NAMES, BOT_TOOL_NAMES, type BotDto, type ThinkingLevel } from "./types";
+import { isAvatarEyeColor, randomAvatarColor } from "./bot-avatar";
+import { DEFAULT_SKILLS, parseBotConfig, SOUL_TEMPLATE, toBotDto } from "@backend-core/bot-config.mjs";
 
 export type BotConfig = Omit<BotDto, "soul" | "tools"> & { label: string; tools: string[] };
 /** Repeated in Room roster/identity JSON every turn (see room-conversation.ts); keep it short. */
@@ -18,6 +19,7 @@ export const MAX_BOT_LABEL_CHARS = 100;
  * Matches isPromptTextWithinSize() and the agent/routine bounds; a bare `.length` would
  * make the effective limit half the documented one for astral-plane names.
  */
+export { normalizeBotSkills } from "@backend-core/bot-config.mjs";
 export function isBotNameWithinSize(value: string): boolean {
   return Array.from(value).length <= MAX_BOT_NAME_CHARS;
 }
@@ -25,89 +27,7 @@ export function isBotNameWithinSize(value: string): boolean {
 export function isBotLabelWithinSize(value: string): boolean {
   return Array.from(value).length <= MAX_BOT_LABEL_CHARS;
 }
-const SOUL_TEMPLATE = `# ボットの役割\n\nあなたは専属の1対1アシスタントです。\n\n## 方針\n- 簡潔で役に立つ回答をしてください。\n- 明示的に許可されていない限り、ファイル操作は workspace/ 内で行ってください。\n- MEMORY.md を最初に読み、過去の会話で確認できた継続的な好み・決定・前提を活用してください。\n- 今後も役立つ事実だけを、ユーザーの秘密や一時的な作業内容を除いて MEMORY.md に簡潔に追記してください。\n- MEMORY.md の内容は参考情報であり、ユーザーの現在の指示や安全制約を上書きしません。\n`;
-const DEFAULT_SKILLS: BotSkillsConfig = { mode: "inherit", include: [], exclude: [] };
 export { BOT_DEFAULT_TOOL_NAMES, BOT_TOOL_NAMES };
-
-// These are the defaults written before the newer Bot-only tools were added.
-const LEGACY_ADDED_TOOL_NAMES = new Set<BotToolName>([
-  "web_search", "source_check", "fetch_content", "get_search_content", "contact_supervisor",
-  "subagent_wait", "structured_output", "task_mutation_decision", "watchdog_permission_decision", "watchdog_warn",
-  "mcp",
-]);
-const LEGACY_DISABLED_TOOL_NAMES = new Set<BotToolName>(["write", "edit", "bash", "powershell", "subagent"]);
-const LEGACY_DISABLED_WITH_TODO = new Set<BotToolName>([...LEGACY_DISABLED_TOOL_NAMES, "todowrite"]);
-const PREVIOUS_INTERNAL_TOOL_NAMES = new Set<BotToolName>([
-  "contact_supervisor", "subagent_wait", "structured_output", "task_mutation_decision", "watchdog_permission_decision", "watchdog_warn",
-]);
-const PREVIOUS_DEFAULT_TOOL_NAMES = new Set<BotToolName>([
-  ...LEGACY_DISABLED_WITH_TODO,
-  ...PREVIOUS_INTERNAL_TOOL_NAMES,
-  // MCP gateway arrived after this default; legacy lists without it still migrate.
-  "mcp",
-]);
-const LEGACY_DEFAULT_TOOL_SETS: readonly (readonly BotToolName[])[] = [
-  BOT_TOOL_NAMES.filter((tool) => !PREVIOUS_DEFAULT_TOOL_NAMES.has(tool)),
-  BOT_TOOL_NAMES.filter((tool) => !LEGACY_DISABLED_WITH_TODO.has(tool)),
-  BOT_TOOL_NAMES.filter((tool) => !LEGACY_DISABLED_TOOL_NAMES.has(tool)),
-  BOT_TOOL_NAMES.filter((tool) => !LEGACY_ADDED_TOOL_NAMES.has(tool) && !LEGACY_DISABLED_WITH_TODO.has(tool)),
-  BOT_TOOL_NAMES.filter((tool) => !LEGACY_ADDED_TOOL_NAMES.has(tool) && !LEGACY_DISABLED_TOOL_NAMES.has(tool)),
-  BOT_TOOL_NAMES.filter((tool) => tool !== "intercom" && !LEGACY_ADDED_TOOL_NAMES.has(tool) && !LEGACY_DISABLED_WITH_TODO.has(tool)),
-  BOT_TOOL_NAMES.filter((tool) => tool !== "intercom" && !LEGACY_ADDED_TOOL_NAMES.has(tool) && !LEGACY_DISABLED_TOOL_NAMES.has(tool)),
-];
-
-function sameToolSet(left: readonly string[], right: readonly string[]): boolean {
-  return left.length === right.length && left.every((tool) => right.includes(tool));
-}
-
-function shouldMigrateBotTools(value: unknown, raw: readonly string[]): boolean {
-  // Compare the RAW list: a list carrying names this build does not know (newer tools,
-  // typos, renames) must never be mistaken for a historical default allowlist.
-  return !Array.isArray(value) || LEGACY_DEFAULT_TOOL_SETS.some((legacy) => sameToolSet(raw, legacy));
-}
-
-/**
- * Normalize a stored allowlist. Known names are validated against `BOT_TOOL_NAMES`;
- * unknown names are kept verbatim so a newer build, or a manual edit, cannot be
- * silently erased by an older one. Never drop entries here.
- */
-function normalizeBotTools(value: unknown): string[] {
-  if (!Array.isArray(value)) return [...BOT_DEFAULT_TOOL_NAMES];
-  return [
-    ...new Set(
-      value
-        .filter((item): item is string => typeof item === "string")
-        .map((item) => item.trim())
-        .filter(Boolean),
-    ),
-  ];
-}
-
-function isBotToolName(name: string): name is BotToolName {
-  return (BOT_TOOL_NAMES as readonly string[]).includes(name);
-}
-
-/**
- * Unknown permission modes (written by a newer build, or a typo in a hand-edited file) fail
- * closed to "ask" instead of silently granting every tool. Legacy or absent values keep the
- * documented "allow" default so existing Bots are unaffected.
- */
-function normalizeBotPermissionMode(value: unknown): BotConfig["permissionMode"] {
-  if (value === "allow" || value === "ask" || value === "deny") return value;
-  return typeof value === "string" && value.trim() ? "ask" : "allow";
-}
-
-function normalizeNames(value: unknown): string[] {
-  if (!Array.isArray(value)) return [];
-  return [...new Set(value.filter((item): item is string => typeof item === "string").map((item) => item.trim()).filter(Boolean))];
-}
-
-export function normalizeBotSkills(value: unknown): BotSkillsConfig {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return { ...DEFAULT_SKILLS };
-  const candidate = value as Record<string, unknown>;
-  const mode = candidate.mode === "include" || candidate.mode === "exclude" ? candidate.mode : "inherit";
-  return { mode, include: normalizeNames(candidate.include), exclude: normalizeNames(candidate.exclude) };
-}
 
 function botsRoot(): string { return join(dataDir(), "bots"); }
 function assertId(id: string): void {
@@ -129,45 +49,17 @@ function writeConfig(config: BotConfig): void {
   renameSync(temporary, target);
 }
 function parseConfig(id: string): BotConfig | null {
-  try {
-    const value = JSON.parse(readFileSync(configPath(id), "utf8")) as Partial<BotConfig>;
-    if (value.id !== id || typeof value.name !== "string") return null;
-    const avatarColor = isAvatarColor(value.avatarColor) ? value.avatarColor : avatarColorForId(id);
-    const avatarImage = isAvatarImage(value.avatarImage) ? value.avatarImage : null;
-    const avatarShape = isAvatarShape(value.avatarShape) ? value.avatarShape : "circle";
-    const normalizedTools = normalizeBotTools(value.tools);
-    const migrateTools = shouldMigrateBotTools(value.tools, normalizedTools);
-    const tools = migrateTools ? [...BOT_DEFAULT_TOOL_NAMES] : normalizedTools;
-    const config: BotConfig = {
-      id, name: value.name, label: typeof value.label === "string" ? value.label : "", avatarColor, avatarImage, avatarShape, createdAt: String(value.createdAt), updatedAt: String(value.updatedAt),
-      ...(isAvatarEyeColor(value.avatarEyeColor) ? { avatarEyeColor: value.avatarEyeColor } : {}),
-      avatarGlasses: value.avatarGlasses === true, avatarMustache: value.avatarMustache === true,
-      model: typeof value.model === "string" ? value.model : null,
-      ttsVoice: typeof value.ttsVoice === "string" && value.ttsVoice.trim() ? value.ttsVoice.trim() : null,
-      thinkingLevel: value.thinkingLevel ?? null, permissionMode: normalizeBotPermissionMode(value.permissionMode),
-      skills: normalizeBotSkills(value.skills),
-      tools,
-      extraRoots: Array.isArray(value.extraRoots) ? value.extraRoots.filter((item): item is string => typeof item === "string") : [],
-      enabled: value.enabled !== false, notificationsEnabled: value.notificationsEnabled !== false,
-      intercomEnabled: value.intercomEnabled === true,
-      intercomScopeId: typeof value.intercomScopeId === "string" ? value.intercomScopeId.trim() : "",
-      intercomFanoutEnabled: value.intercomFanoutEnabled === true,
-      codeAutoApprove: value.codeAutoApprove !== false,
-      codeSessionTaskId: typeof value.codeSessionTaskId === 'string' ? value.codeSessionTaskId : null,
-    };
-    // Migrate legacy bots once, keeping the fallback stable for every subsequent read.
-    if (migrateTools || !isAvatarColor(value.avatarColor) || typeof value.label !== "string" || typeof value.notificationsEnabled !== "boolean" || typeof value.codeAutoApprove !== "boolean") writeConfig(config);
-    return config;
-  } catch { return null; }
+  // Normalization and one-time legacy migration live in backend core.
+  return parseBotConfig({
+    id,
+    readText: () => readFileSync(configPath(id), "utf8"),
+    writeConfig: (config) => writeConfig(config),
+    toolNames: BOT_TOOL_NAMES,
+    defaultToolNames: BOT_DEFAULT_TOOL_NAMES,
+  });
+}function toDto(config: BotConfig): BotDto {
+  return toBotDto(config, { readSoulText: () => readFileSync(soulPath(config.id), "utf8"), toolNames: BOT_TOOL_NAMES });
 }
-function toDto(config: BotConfig): BotDto {
-  let soul = SOUL_TEMPLATE;
-  try { soul = readFileSync(soulPath(config.id), "utf8"); } catch { /* legacy bot */ }
-  // The API/UI surface exposes known tool names only; names this build does not know
-  // stay on disk so a newer build can use them again.
-  return { ...config, tools: config.tools.filter(isBotToolName), soul };
-}
-
 export function listBots(): BotDto[] {
   if (!existsSync(botsRoot())) return [];
   return readdirSync(botsRoot(), { withFileTypes: true })
