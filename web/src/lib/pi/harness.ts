@@ -214,6 +214,7 @@ import * as corePromptControl from "@backend-core/prompt-control.mjs";
 import { runHangWatchdogAbort, runUserAbort } from "@backend-core/abort-coordinator.mjs";
 import { roomBotIdFromTaskId } from "@backend-core/abort-control.mjs";
 import { detachReplacedLive as coreDetachReplacedLive, hasOtherBusyRoomLive, oneToOneBotIdFromTaskId, resolveAttachAccount, shouldShutdownOnDispose as coreShouldShutdownOnDispose } from "@backend-core/live-lifecycle.mjs";
+import { restoredPromptState, restoredTaskMetadata, restoredThroughputState } from "@backend-core/live-attach-state.mjs";
 import { attachReplacementSession } from "@backend-core/live-replace.mjs";
 import { buildBotCodeReportContent } from "@backend-core/bot-code-report.mjs";
 import {
@@ -2194,76 +2195,6 @@ function finishSettledTurn(
   }
 }
 
-export function restoredThroughputState(
-  existing: LiveRuntime | undefined,
-  loaded: ReturnType<typeof loadThroughputFromSession> | null,
-  loadedToolTiming: ReturnType<typeof loadToolTimingFromSession> | null,
-): Pick<
-  LiveRuntime,
-  | "throughputByStartedAt"
-  | "persistedThroughputKeys"
-  | "toolStartedAt"
-  | "toolEndedAt"
-> {
-  return {
-    throughputByStartedAt:
-      existing?.throughputByStartedAt ?? new VersionedThroughputMap(loaded?.timings),
-    persistedThroughputKeys:
-      existing?.persistedThroughputKeys ?? loaded?.persistedKeys ?? new Set(),
-    toolStartedAt:
-      existing?.toolStartedAt ?? new VersionedTimingMap(loadedToolTiming?.startedAt),
-    toolEndedAt:
-      existing?.toolEndedAt ?? new VersionedTimingMap(loadedToolTiming?.endedAt),
-  };
-}
-
-function restoredPromptState(
-  existing: LiveRuntime | undefined,
-): Pick<
-  LiveRuntime,
-  | "accountByMessageId"
-  | "agentByMessageId"
-  | "promptChain"
-  | "promptActive"
-  | "pendingSettings"
-  | "promptEpoch"
-  | "toolPartialOutputByCallId"
-> {
-  return {
-    accountByMessageId: existing?.accountByMessageId ?? new Map(),
-    agentByMessageId: existing?.agentByMessageId ?? new Map(),
-    // Keep a queued prompt chain when an idle session is replaced for the
-    // next turn. The current run owns this promise, so follow-ups submitted
-    // during session creation still wait for it.
-    promptChain: existing?.promptChain ?? Promise.resolve(),
-    promptActive: existing?.promptActive ?? false,
-    pendingSettings: existing?.pendingSettings,
-    promptEpoch: existing?.promptEpoch ?? 0,
-    toolPartialOutputByCallId: existing?.toolPartialOutputByCallId ?? new Map(),
-  };
-}
-
-function restoredTaskMetadata(
-  existing: LiveRuntime | undefined,
-  task: ReturnType<typeof getTask>,
-): Pick<
-  LiveRuntime,
-  | "revertLeafId"
-  | "manualAbortedAssistantId"
-  | "hangRetryCount"
-  | "pendingProviderFallback"
-  | "preserveTaskModel"
-> {
-  return {
-    revertLeafId: existing?.revertLeafId ?? task?.revertLeafId ?? null,
-    manualAbortedAssistantId:
-      existing?.manualAbortedAssistantId ?? task?.manualAbortedAssistantId ?? null,
-    hangRetryCount: existing?.hangRetryCount ?? task?.hangRetryCount ?? 0,
-    pendingProviderFallback: existing?.pendingProviderFallback ?? null,
-    preserveTaskModel: existing?.preserveTaskModel === true,
-  };
-}
-
 /** Carry per-task state across a session replacement, or load it from the session file. */
 function buildLiveRuntime(input: {
   taskId: string;
@@ -2282,6 +2213,8 @@ function buildLiveRuntime(input: {
   return {
     taskId,
     accountId: input.accountId,
+    // Initial state rules live in backend core; the transcript scans and versioned
+    // map classes stay here.
     ...restoredPromptState(existing),
     ...restoredTaskMetadata(existing, task),
     ...(input.preserveTaskModel !== undefined
@@ -2296,7 +2229,10 @@ function buildLiveRuntime(input: {
     manualCompactionInProgress: false,
     nativeCompactionAttempted: false,
     goalLoopTurnActive: false,
-    ...restoredThroughputState(existing, loaded, loadedToolTiming),
+    ...restoredThroughputState(existing, loaded, loadedToolTiming, {
+      createThroughputMap: (initial) => new VersionedThroughputMap(initial),
+      createTimingMap: (initial) => new VersionedTimingMap(initial),
+    }),
     snapshotTimer: null,
     pendingSnapshotEventType: null,
     pendingSnapshotIsDelta: false,
@@ -2313,7 +2249,6 @@ function buildLiveRuntime(input: {
     jevToolRegistered: true,
   };
 }
-
 function detachExistingLive(
   existing: LiveRuntime | undefined,
   session: AgentSession,

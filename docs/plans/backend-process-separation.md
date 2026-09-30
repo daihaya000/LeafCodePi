@@ -47,6 +47,7 @@
    | `prompt-control.mjs` | steer/followUp分岐、ストリーム待機、prompt世代、キュー破棄、思考必須エラー判定 | `live`セッション本体・prompt連鎖 |
    | `abort-control.mjs` / `abort-coordinator.mjs` | ユーザー停止とhang watchdog停止の副作用順序（副作用は注入） | Goal Loop・サブエージェント停止の実体、スナップショット配信 |
    | `live-lifecycle.mjs` / `live-replace.mjs` | dispose時のRoom busy・shutdown要否判定、置換時の旧live切離し順序（購読解除→旧アカウント参照の解放→旧セッション破棄→スナップショットタイマー取消）、attach時のアカウント決定、置換の共通末尾（永続化先行・失敗時の破棄と復元） | `live`のmap・購読・`attachSession`/`ensureLive`/`createSession` |
+   | `live-attach-state.mjs` | attach時のlive初期状態（置換前liveのマップ/プロンプト連鎖/世代の引継ぎ、task由来の復元値、transcript由来のタイミング復元。versioned mapは注入） | transcript走査とversioned mapクラス、SOULリビジョン取得 |
    | `routine-scheduler.mjs` | scheduler lock（stale時のみ再取得）、実行対象判定、切り離し起動 | ルーティン保存と実行本体 |
    | `directory-lock.mjs` | 複数workerで共有するロックディレクトリの同期ロック（stale回収・待機上限・busy通知。rooms/routinesが共用） | hang-watchdog・web-settings・pi-auth・model-throughput-stats・transfer-recoveryの個別ロック実装（待機間隔や非同期性が異なり未統合） |
    | `room-recovery.mjs` | 放置working発言の判定、handoff整理と再配信 | Room保存・実行 |
