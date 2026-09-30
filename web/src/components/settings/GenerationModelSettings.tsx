@@ -26,7 +26,7 @@ import {
 import { THINKING_LEVEL_LABELS } from "@/lib/thinking-levels";
 import type { ModelOption, ThinkingLevel } from "@/lib/types";
 
-function GenerationEffortSelect({
+export function GenerationEffortSelect({
   label,
   levels,
   value,

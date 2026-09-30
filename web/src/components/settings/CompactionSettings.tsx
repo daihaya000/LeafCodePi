@@ -1,11 +1,16 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { ModelSelect, modelOptionForValue } from "@/components/ModelSelect";
+import { GenerationEffortSelect } from "@/components/settings/GenerationModelSettings";
 import { JevSettingCard } from "@/components/settings/JevSettingCard";
+import { Button } from "@/components/ui";
 import { getJson, sendJson } from "@/lib/client";
 import { formatTokens } from "@/lib/context-usage";
 import {
   COMPACTION_ACTION_SETTING_KEY,
+  COMPACTION_MODEL_EFFORT_SETTING_KEY,
+  COMPACTION_MODEL_SETTING_KEY,
   COMPACTION_THRESHOLD_SETTING_KEY,
   DEFAULT_COMPACTION_THRESHOLD,
   parseCacheWarmingMode,
@@ -14,7 +19,7 @@ import {
   type CacheWarmingMode,
   type CompactionAction,
 } from "@/lib/compaction-settings";
-import type { CompactionSettingsDto } from "@/lib/types";
+import type { CompactionSettingsDto, ModelOption, ThinkingLevel } from "@/lib/types";
 import {
   DEFAULT_JEV_COMPACTION_THRESHOLD,
   isJevCompactionEnabled,
@@ -30,7 +35,36 @@ export function CompactionSettings() {
   const [cacheWarmingMode, setCacheWarmingMode] = useState<CacheWarmingMode>("streaming");
   const [jevEnabled, setJevEnabled] = useState(false);
   const [jevThreshold, setJevThreshold] = useState(DEFAULT_JEV_COMPACTION_THRESHOLD);
+  const [models, setModels] = useState<ModelOption[]>([]);
+  const [modelsLoading, setModelsLoading] = useState(true);
+  const [compactionModel, setCompactionModel] = useState("");
+  const [compactionEffort, setCompactionEffort] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const selectedModel = useMemo(
+    () => modelOptionForValue(models, compactionModel),
+    [compactionModel, models],
+  );
+
+  const reloadModel = useCallback(async () => {
+    setModelsLoading(true);
+    try {
+      const [modelResult, valueResult, effortResult] = await Promise.all([
+        getJson<{ models: ModelOption[] }>("/api/models"),
+        getJson<{ value: string | null }>(`/api/settings/${COMPACTION_MODEL_SETTING_KEY}`),
+        getJson<{ value: string | null }>(`/api/settings/${COMPACTION_MODEL_EFFORT_SETTING_KEY}`),
+      ]);
+      const nextModels = modelResult.models ?? [];
+      setModels(nextModels);
+      setCompactionModel(modelOptionForValue(nextModels, valueResult.value)?.value ?? "");
+      setCompactionEffort(effortResult.value ?? "");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "コンパクションモデルの読み込みに失敗しました");
+    } finally {
+      setModelsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { void reloadModel(); }, [reloadModel]);
 
   const reload = useCallback(async () => {
     try {
@@ -73,6 +107,21 @@ export function CompactionSettings() {
       );
       setSettings(result.settings);
     }
+  }
+
+  function changeCompactionModel(value: string) {
+    setCompactionModel(value);
+    void save(COMPACTION_MODEL_SETTING_KEY, value);
+    const levels = modelOptionForValue(models, value)?.thinkingLevels ?? [];
+    if (compactionEffort && !levels.includes(compactionEffort as ThinkingLevel)) {
+      setCompactionEffort("");
+      void save(COMPACTION_MODEL_EFFORT_SETTING_KEY, "");
+    }
+  }
+
+  function changeCompactionEffort(value: string) {
+    setCompactionEffort(value);
+    void save(COMPACTION_MODEL_EFFORT_SETTING_KEY, value);
   }
 
   async function changeCacheWarmingMode(value: CacheWarmingMode) {
@@ -129,6 +178,38 @@ export function CompactionSettings() {
         </div>
       </div>
       <p className="mt-3 text-xs text-muted">使用率が{threshold}%に達したら設定した動作を実行します（70〜95%）。</p>
+      <div className="mt-4 border-t border-border pt-4">
+        <h4 className="text-sm font-semibold">コンパクションモデル</h4>
+        <p className="mt-1 text-xs text-muted">
+          圧縮時の要約に使うモデルです。未設定時、または要約に失敗したときはセッションのモデルを使います。
+        </p>
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <ModelSelect
+            value={compactionModel}
+            options={models}
+            disabled={modelsLoading}
+            loading={modelsLoading}
+            onChange={changeCompactionModel}
+            ariaLabel="コンパクションモデル"
+            className="min-w-0 w-full @xl:w-auto @xl:flex-1 @xl:min-w-64"
+            title={selectedModel?.label ?? "コンパクションモデルを選択"}
+          />
+          {compactionModel && (
+            <GenerationEffortSelect
+              label="コンパクションモデルのEffort"
+              levels={selectedModel?.thinkingLevels ?? []}
+              value={compactionEffort}
+              disabled={modelsLoading}
+              onChange={changeCompactionEffort}
+            />
+          )}
+          {compactionModel && (
+            <Button variant="ghost" size="sm" disabled={modelsLoading} onClick={() => changeCompactionModel("")}>
+              クリア
+            </Button>
+          )}
+        </div>
+      </div>
       <div className="mt-4 border-t border-border pt-4">
         <h4 className="text-sm font-semibold">プロンプトキャッシュ維持</h4>
         <p className="mt-1 text-xs text-muted">

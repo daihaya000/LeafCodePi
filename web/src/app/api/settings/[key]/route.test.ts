@@ -136,6 +136,31 @@ describe("/api/settings/[key]", () => {
     expect(harness.refreshCompactionSuggestions).not.toHaveBeenCalled();
   });
 
+  it("validates the compaction model and effort", async () => {
+    accounts.listAccounts.mockReturnValue([{ id: "acc-1" }]);
+    const model = await PUT(request("compaction-model", { value: "acc-1::anthropic::claude-haiku" }), {
+      params: Promise.resolve({ key: "compaction-model" }),
+    });
+    const effort = await PUT(request("compaction-model-effort", { value: "low" }), {
+      params: Promise.resolve({ key: "compaction-model-effort" }),
+    });
+    const invalidModel = await PUT(request("compaction-model", { value: "no-model" }), {
+      params: Promise.resolve({ key: "compaction-model" }),
+    });
+    const invalidEffort = await PUT(request("compaction-model-effort", { value: "huge" }), {
+      params: Promise.resolve({ key: "compaction-model-effort" }),
+    });
+    const cleared = await PUT(request("compaction-model", { value: "" }), {
+      params: Promise.resolve({ key: "compaction-model" }),
+    });
+
+    expect([model.status, effort.status, invalidModel.status, invalidEffort.status, cleared.status])
+      .toEqual([200, 200, 400, 400, 200]);
+    expect(settings.setSetting).toHaveBeenCalledWith("compaction-model", "acc-1::anthropic::claude-haiku");
+    expect(settings.setSetting).toHaveBeenCalledWith("compaction-model-effort", "low");
+    expect(settings.setSetting).toHaveBeenCalledWith("compaction-model", null);
+  });
+
   it("reads and writes the generation model", async () => {
     const getResponse = await GET(new NextRequest("http://127.0.0.1:3010/api/settings/generation-model"), {
       params: Promise.resolve({ key: "generation-model" }),

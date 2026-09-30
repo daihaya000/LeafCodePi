@@ -10,6 +10,16 @@ const { getJson, sendJson } = vi.hoisted(() => ({
 
 vi.mock("@/lib/client", () => ({ getJson, sendJson }));
 
+const models = [
+  {
+    value: "anthropic::claude-haiku",
+    label: "Claude Haiku",
+    providerID: "anthropic",
+    modelID: "claude-haiku",
+    thinkingLevels: ["off", "low", "high"],
+  },
+];
+
 describe("CompactionSettings", () => {
   beforeEach(() => {
     getJson.mockImplementation((path: string) =>
@@ -23,7 +33,9 @@ describe("CompactionSettings", () => {
           })
         : path === "/api/cache-warming"
           ? Promise.resolve({ mode: "streaming" })
-          : Promise.resolve({ value: null }),
+          : path === "/api/models"
+            ? Promise.resolve({ models })
+            : Promise.resolve({ value: null }),
     );
     sendJson.mockResolvedValue({});
   });
@@ -84,5 +96,43 @@ describe("CompactionSettings", () => {
     expect(threshold.className).toContain("min-w-0");
     expect(threshold.parentElement?.className).toContain("flex");
     expect(action.parentElement?.parentElement?.className).toContain("grid");
+  });
+
+  it("コンパクションモデルとEffortを保存し、クリアでEffortも消す", async () => {
+    getJson.mockImplementation((path: string) =>
+      path === "/api/models"
+        ? Promise.resolve({ models })
+        : path === "/api/settings/compaction-model"
+          ? Promise.resolve({ value: "anthropic::claude-haiku" })
+          : path === "/api/settings/compaction-model-effort"
+            ? Promise.resolve({ value: "low" })
+            : path === "/api/compaction-settings"
+              ? Promise.resolve({ settings: { enabled: true, reserveTokens: 1, keepRecentTokens: 1 } })
+              : Promise.resolve({ value: null }),
+    );
+    render(<CompactionSettings />);
+
+    const effort = await screen.findByRole("button", { name: "コンパクションモデルのEffort" });
+    expect(effort.textContent).toContain("low");
+    fireEvent.click(effort);
+    fireEvent.click(screen.getByRole("option", { name: "high" }));
+    await waitFor(() => expect(sendJson).toHaveBeenCalledWith(
+      "/api/settings/compaction-model-effort",
+      { value: "high" },
+      "PUT",
+    ));
+
+    fireEvent.click(screen.getByRole("button", { name: "クリア" }));
+    await waitFor(() => expect(sendJson).toHaveBeenCalledWith(
+      "/api/settings/compaction-model",
+      { value: "" },
+      "PUT",
+    ));
+    expect(sendJson).toHaveBeenCalledWith(
+      "/api/settings/compaction-model-effort",
+      { value: "" },
+      "PUT",
+    );
+    expect(screen.queryByRole("button", { name: "コンパクションモデルのEffort" })).toBeNull();
   });
 });

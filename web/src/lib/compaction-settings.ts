@@ -1,6 +1,9 @@
 export const COMPACTION_ACTION_SETTING_KEY = "compactionAction";
 export const COMPACTION_THRESHOLD_SETTING_KEY = "compactionThreshold";
 export const DEFAULT_COMPACTION_THRESHOLD = 95;
+/** accountID::providerID::modelID (or providerID::modelID). Empty uses the session model. */
+export const COMPACTION_MODEL_SETTING_KEY = "compaction-model";
+export const COMPACTION_MODEL_EFFORT_SETTING_KEY = "compaction-model-effort";
 
 export const CACHE_WARMING_MODES = ["off", "streaming", "idle"] as const;
 export type CacheWarmingMode = (typeof CACHE_WARMING_MODES)[number];

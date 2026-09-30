@@ -9,6 +9,8 @@ import {
 } from "@/lib/generation-model-key";
 import {
   COMPACTION_ACTION_SETTING_KEY,
+  COMPACTION_MODEL_EFFORT_SETTING_KEY,
+  COMPACTION_MODEL_SETTING_KEY,
   COMPACTION_THRESHOLD_SETTING_KEY,
 } from "@/lib/compaction-settings";
 import {
@@ -108,6 +110,8 @@ export const ALLOWED_SETTING_KEYS: ReadonlySet<string> = new Set<string>([
   NOTIFICATION_SOUND_VOLUME_SETTING_KEY,
   COMPACTION_ACTION_SETTING_KEY,
   COMPACTION_THRESHOLD_SETTING_KEY,
+  COMPACTION_MODEL_SETTING_KEY,
+  COMPACTION_MODEL_EFFORT_SETTING_KEY,
   TITLE_AUTO_UPDATE_FREQUENCY_SETTING_KEY,
   TITLE_AUTO_UPDATE_ENABLED_SETTING_KEY,
   AUTO_ARCHIVE_DAYS_SETTING_KEY,
@@ -220,6 +224,12 @@ export function validateSettingValue(key: string, value: string, importedAccount
     return Number.isInteger(threshold) && threshold >= 70 && threshold <= 95
       ? String(threshold)
       : null;
+  }
+  if (key === COMPACTION_MODEL_SETTING_KEY) {
+    return normalizedGenerationModelValue(value, importedAccountIds);
+  }
+  if (key === COMPACTION_MODEL_EFFORT_SETTING_KEY) {
+    return isGenerationModelEffort(value) ? value : null;
   }
   if (key === TITLE_AUTO_UPDATE_FREQUENCY_SETTING_KEY) {
     const frequency = Number(value);
