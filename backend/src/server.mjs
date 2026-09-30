@@ -6,6 +6,7 @@ import {
   BACKEND_HEALTH_PATH,
   BACKEND_BOT_CODE_REQUESTS_SUFFIX,
   BACKEND_BOT_CODE_SESSIONS_SUFFIX,
+  BACKEND_BOT_ROUTINES_SEGMENT,
   BACKEND_BOTS_PATH,
   BACKEND_PENDING_SNAPSHOTS_PATH,
   BACKEND_PROTOCOL_HEADER,
@@ -113,6 +114,8 @@ export function createBackendServer({
   goalLoopAction = null,
   /** Starts a Bot Code session: `(botId, input) => task`; only the runtime owner may create one. */
   createBotCodeSession = null,
+  /** Runs a Bot routine: `(botId, routineId) => routine`; a run prompts a session, so owner-only. */
+  runBotRoutine = null,
 } = {}) {
   if (
     typeof token !== "string" ||
@@ -148,6 +151,7 @@ export function createBackendServer({
     botCodeRequestAction,
     goalLoopAction,
     createBotCodeSession,
+    runBotRoutine,
   })) {
     if (handler !== null && typeof handler !== "function") {
       throw new Error(`${name} must be a function or null`);
@@ -205,11 +209,20 @@ export function createBackendServer({
     const botActionPath = botActionSuffix === undefined || !botSuffix
       ? undefined
       : decodeURIComponent(botSuffix.slice(0, -botActionSuffix.length));
+    // `<botId>/routines/<routineId>` runs a routine in the owning process, which prompts a session.
+    // Segments are decoded one by one: an id containing a slash must not turn into a path.
+    const routineMatch = target.pathname.startsWith(`${BACKEND_BOTS_PATH}/`)
+      ? target.pathname.slice(BACKEND_BOTS_PATH.length + 1).split("/")
+      : null;
+    const routineTarget = routineMatch?.length === 3 && routineMatch[1] === BACKEND_BOT_ROUTINES_SEGMENT
+      ? { botId: decodeURIComponent(routineMatch[0]), routineId: decodeURIComponent(routineMatch[2]) }
+      : undefined;
     const knownPath = target.pathname === BACKEND_HEALTH_PATH
       || target.pathname === BACKEND_PENDING_SNAPSHOTS_PATH
       || target.pathname === BACKEND_BOTS_PATH
       || botSuffix !== undefined
       || botActionPath !== undefined
+      || routineTarget !== undefined
       || taskPath !== undefined
       || detailPath !== undefined
       || actionPath !== undefined;
@@ -314,6 +327,38 @@ export function createBackendServer({
         // Never send exception text: provider errors can contain credentials.
         sendJson(response, typeof error?.status === "number" ? error.status : 500, {
           error: "Backend task action failed",
+          code: BACKEND_ERROR_CODES.internal,
+        });
+      }
+      return;
+    }
+    if (routineTarget !== undefined) {
+      if (request.method !== "POST") {
+        sendJson(response, 405, {
+          error: "Method not allowed", code: BACKEND_ERROR_CODES.methodNotAllowed,
+        }, { Allow: "POST" });
+        return;
+      }
+      if (typeof runBotRoutine !== "function") {
+        sendJson(response, 503, {
+          error: "Backend runtime unavailable", code: BACKEND_ERROR_CODES.runtimeUnavailable,
+        });
+        return;
+      }
+      // The body is unused; draining it keeps the connection reusable instead of ending with an
+      // unread request body.
+      await readJsonBody(request, 64 * 1024);
+      try {
+        const routine = await runBotRoutine(routineTarget.botId, routineTarget.routineId);
+        if (!routine) {
+          sendJson(response, 404, { error: "Routine not found", code: BACKEND_ERROR_CODES.notFound });
+          return;
+        }
+        sendJson(response, 200, { routine });
+      } catch (error) {
+        // A coded refusal (missing routine, concurrent run) keeps its status; nothing else leaks.
+        sendJson(response, typeof error?.status === "number" ? error.status : 500, {
+          error: "Backend routine run failed",
           code: BACKEND_ERROR_CODES.internal,
         });
       }

@@ -152,6 +152,14 @@ try {
         ...(action === "resume" && body?.maxTurns !== undefined ? { maxTurns: body.maxTurns } : {}),
       });
     },
+    // Running a routine prompts a session, so only the runtime owner may start it.
+    runBotRoutine: (botId, routineId) => {
+      const runtime = started.runtime();
+      if (!runtime || typeof runtime.runRoutine !== "function") {
+        throw Object.assign(new Error("runtime unavailable"), { status: 503 });
+      }
+      return runtime.runRoutine(botId, routineId);
+    },
     // Stopping a Bot Code request also updates the Bot's outbox, which this process owns.
     botCodeRequestAction: async (botId, body) => {
       const runtime = started.runtime();

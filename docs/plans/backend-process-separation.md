@@ -244,7 +244,7 @@ bundleパスは`LEAFCODE_PI_BACKEND_RUNTIME_BUNDLE`で差し替え可能。CLI�
 | 5. 切替 | **実装済み（現状は拒否で保護）**。`runCutover`（check→stop-old-path→attach-backend→hand-over→verify→done＋ロールバック）、`cutoverPreflight`（start/verify位相）、Host実体への接続、`LEAFCODE_PI_CUTOVER=1`での起動時実行。Backendの起動列は全ステップ実行可能になり、runtime接続・世代一致・失敗ステップ0でhealthがreadyになる（ターン15）。attach段の拒否は失敗ステップがある場合に限られる。**実切替はユーザー承認待ち**。 |
 | 6. 旧経路撤去 | **未完了**。非所有モードの不変条件は達成（セッションを触る16 routeすべてがガード済み／未配線0件、テストで強制）が、撤去手順の実行（中継フォールバック廃止→旧経路停止→harness依存除去→スイッチ撤去）は実切替後。 |
 
-残作業（実測）: ①Web側に残る非転送の実行経路（ルーティンの手動実行`bots/:id/routines/:routineId/run`、Bot/Roomのrevert）をBackendへ転送する（現状は非所有モードで`RuntimeNotOwnedError`になる）、②非所有モードのSSEは2秒ポーリング（遅延あり）、③実切替の実施とその後の撤去手順、④Web全体型検証は既存拡張（`leafcode-goal-loop`／`loop-guard`）の`@earendil-works/pi-coding-agent`解決失敗により本番用`tsconfig.build.json`で代替。Bot Codeセッションのclear/unlink転送とAuto/モデル指定つきGoal Loop開始の転送は完了済み（旧版の残作業①・②は解消）。
+残作業（実測）: ①Web側に残る非転送の実行経路（Bot/Roomのrevert）をBackendへ転送する（現状は非所有モードで`RuntimeNotOwnedError`になる）、②非所有モードのSSEは2秒ポーリング（遅延あり）、③実切替の実施とその後の撤去手順、④Web全体型検証は既存拡張（`leafcode-goal-loop`／`loop-guard`）の`@earendil-works/pi-coding-agent`解決失敗により本番用`tsconfig.build.json`で代替。Bot Codeセッションのclear/unlink転送とAuto/モデル指定つきGoal Loop開始の転送は完了済み（旧版の残作業①・②は解消）。
 
 ## 完了の証拠
 
@@ -287,4 +287,10 @@ Backend単独のSDK検証前には `npm --prefix backend ci --ignore-scripts` �
 - restart-resumeのプロンプト経路をBackendに配線した。`createResumePrompt`（`backend/src/restart-resume-prompt.mjs`）が呼び出し時にruntimeを解決し、未接続なら503で拒否する。起動列はruntime接続後にのみ再開を試みる（`resumesOrphanedTasks()`は「プロンプト経路あり **かつ** runtime接続済み」）。未接続時は分類のみで、再試行予算を消費しない。
 - Web側は非所有モードでowner-onlyの起動ステップ（restart-resume登録・lease reconciliation・relay・routine scheduler・room recovery）を全てスキップする。切替後にWebが同じ作業を行うと、storeの二重書込と拒否されるプロンプトへの予算消費になる。
 - 検証: 実バンドルをattachしたCLIがhealth 200・`runtimeStartupIncomplete: []`になることを確認（ready到達）。pinned世代一致でも200、不一致は503のまま。`backend/src/startup.test.mjs`16件（owner-only 3サービスの起動順・未接続時は非起動・起動失敗の報告・runtime接続後のみresume）・`server.test.mjs`56件・`pending-requests`5件・`restart-resume-prompt`4件・`runtime-*`成功。Web側`runtime-startup.test.ts`3件（所有時は全owner-onlyステップ実行、非所有時は全て非実行）。
-- 残る切替前の穴（実測）: Web側のルーティン手動実行とrevertはBackendへ未転送で、非所有モードでは`RuntimeNotOwnedError`になる（次ターン以降で転送する）。
+- 残る切替前の穴（実測）: Web側のrevertはBackendへ未転送で、非所有モードでは`RuntimeNotOwnedError`になる（次ターン以降で転送する）。
+
+## ターン16の変更（実測）
+
+- ルーティンの手動実行（`POST /api/bots/:id/routines/:routineId/run`）をBackendへ転送した。内部APIは`POST /internal/bots/:botId/routines/:routineId`（新segment `BACKEND_BOT_ROUTINES_SEGMENT`、セグメント単位でdecodeし`%2F`入りIDでもパスを動かさない）。ハンドラは`runRoutine`で、bundleへexportを追加し必須exportにも加えて再生成。失敗は`{status}`を保持し（409等）、例外文は返さない。
+- Web側のrouteは非所有モードで転送し、ローカル実行と`ensureRoutineScheduler()`を行わない（転送時はschedulerもBackendが所有）。所有モードの応答・404・500の形は従来のまま。
+- 検証: `backend/src/server.test.mjs`58件（実行到達・404・409保持・503・405・非関数拒否・`%2F`ID）、Web側は新規routeテスト4件（所有時ローカル・非所有時転送・失敗status・未知404）と`backend-forward`23件成功。本番tsc・eslint成功。

@@ -42,6 +42,7 @@ export const REQUIRED_RUNTIME_EXPORTS = Object.freeze([
   "startBotCodeRelay",
   "applyCodePermissionSettingsToLiveTasks",
   "ensureRoutineScheduler",
+  "runRoutine",
   "reconcileRoomRuntime",
 ]);
 

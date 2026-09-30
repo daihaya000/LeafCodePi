@@ -9,6 +9,7 @@ import {
   readBackendTaskDetail,
   respondPermissionOnBackend,
   respondQuestionOnBackend,
+  runBotRoutineOnBackend,
   type BackendEnv,
   type BackendFailureReason,
 } from "@/lib/backend-client";
@@ -180,6 +181,24 @@ export async function forwardPendingRequestsByTask(
     };
   }
   return byTask;
+}
+
+/** Runs a Bot routine in the owning Backend. Never falls back to the in-process run. */
+export async function forwardBotRoutineRun(
+  botId: string,
+  routineId: string,
+  options: { env?: BackendEnv; fetchImpl?: typeof fetch; timeoutMs?: number } = {},
+): Promise<
+  | { ok: true; routine: Record<string, unknown> | null }
+  | { ok: false; reason: BackendFailureReason | "not-found"; status?: number }
+> {
+  const result = await runBotRoutineOnBackend(botId, routineId, options);
+  if (!result.ok) {
+    if (result.status === 404) return { ok: false, reason: "not-found", status: 404 };
+    return { ok: false, reason: result.reason, ...(result.status ? { status: result.status } : {}) };
+  }
+  const routine = result.body?.routine;
+  return { ok: true, routine: routine && typeof routine === "object" ? routine : null };
 }
 
 /** Stops a Bot Code request in the owning Backend; the outbox write happens there. */

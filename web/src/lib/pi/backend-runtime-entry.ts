@@ -34,7 +34,7 @@ export { isRoomDelegatedCodeTask, stopBotCodeRequest } from "@/lib/pi/bot-code-r
 export { getBot, patchBot } from "@/lib/bots";
 // The routine scheduler runs its routines by prompting a session, so only the runtime owner may
 // run it; the tick takes a cross-process lock, so two schedulers cannot double-run a routine.
-export { ensureRoutineScheduler } from "@/lib/routines";
+export { ensureRoutineScheduler, runRoutine } from "@/lib/routines";
 // Room recovery settles abandoned turns and delivers ready handoffs, which needs the runtime.
 export { reconcileRoomRuntime } from "@/lib/room-runtime";
 export { getTask, patchTask } from "@/lib/store";

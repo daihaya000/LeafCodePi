@@ -683,6 +683,53 @@ test("the Goal Loop control needs a runtime and refuses a non-function handler",
   );
 });
 
+test("a forwarded routine run reaches the runtime owner", async (t) => {
+  const seen = [];
+  const { snapshotsUrl, headers } = await fixture(t, {
+    runBotRoutine: async (botId, routineId) => {
+      seen.push({ botId, routineId });
+      return { id: routineId, name: "朝の確認" };
+    },
+  });
+  const botsUrl = snapshotsUrl.replace("pending-snapshots", "bots");
+  const url = `${botsUrl}/bot-1/routines/routine-1`;
+  const response = await request(url, { method: "POST", headers });
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), { routine: { id: "routine-1", name: "朝の確認" } });
+  assert.deepEqual(seen, [{ botId: "bot-1", routineId: "routine-1" }]);
+  // GET cannot run a routine, and ids are decoded per segment so a slash cannot move the path.
+  assert.equal((await request(url, { headers })).status, 405);
+  const encoded = [];
+  const encodedFixture = await fixture(t, {
+    runBotRoutine: async (botId, routineId) => { encoded.push([botId, routineId]); return { id: routineId }; },
+  });
+  const encodedUrl = `${encodedFixture.snapshotsUrl.replace("pending-snapshots", "bots")}/bot%2Fone/routines/routine%2F1`;
+  assert.deepEqual(await (await request(encodedUrl, { method: "POST", headers: encodedFixture.headers })).json(), {
+    routine: { id: "routine/1" },
+  });
+  assert.deepEqual(encoded, [["bot/one", "routine/1"]]);
+});
+
+test("a routine run reports a miss, a refusal and a detached runtime", async (t) => {
+  const missing = await fixture(t, { runBotRoutine: async () => null });
+  const missingUrl = `${missing.snapshotsUrl.replace("pending-snapshots", "bots")}/bot-1/routines/none`;
+  assert.equal((await request(missingUrl, { method: "POST", headers: missing.headers })).status, 404);
+  const busy = await fixture(t, {
+    runBotRoutine: async () => { throw Object.assign(new Error("another worker"), { status: 409 }); },
+  });
+  const busyUrl = `${busy.snapshotsUrl.replace("pending-snapshots", "bots")}/bot-1/routines/routine-1`;
+  const busyResponse = await request(busyUrl, { method: "POST", headers: busy.headers });
+  assert.equal(busyResponse.status, 409);
+  assert.equal((await busyResponse.json()).error, "Backend routine run failed");
+  const detached = await fixture(t);
+  const detachedUrl = `${detached.snapshotsUrl.replace("pending-snapshots", "bots")}/bot-1/routines/routine-1`;
+  assert.equal((await request(detachedUrl, { method: "POST", headers: detached.headers })).status, 503);
+  assert.throws(
+    () => createBackendServer({ token: randomBytes(32).toString("base64url"), runBotRoutine: 5 }),
+    /runBotRoutine must be a function or null/,
+  );
+});
+
 test("a forwarded Bot Code session is created by the runtime owner", async (t) => {
   const seen = [];
   const { snapshotsUrl, headers } = await fixture(t, {

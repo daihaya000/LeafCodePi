@@ -5,6 +5,7 @@ import {
   forwardGoalLoopStart,
   forwardQuestionAnswer,
   forwardTaskAbort,
+  forwardBotRoutineRun,
   forwardPendingRequestsByTask,
   forwardTaskPendingRequests,
   forwardTaskDetail,
@@ -223,6 +224,36 @@ describe("forwardTaskAbort", () => {
       status: 404,
     });
     await expect(forwardTaskAbort("t1", { env: {} })).resolves.toEqual({ ok: false, reason: "not-configured" });
+  });
+});
+
+describe("forwardBotRoutineRun", () => {
+  it("returns the routine the owner ran", async () => {
+    const fetchImpl = vi.fn<typeof fetch>(async () => jsonResponse(200, { routine: { id: "routine-1", name: "朝の確認" } }));
+    await expect(forwardBotRoutineRun("bot-1", "routine-1", { env, fetchImpl })).resolves.toEqual({
+      ok: true,
+      routine: { id: "routine-1", name: "朝の確認" },
+    });
+    expect(fetchImpl.mock.calls[0][0]).toBe("http://127.0.0.1:19999/internal/bots/bot-1/routines/routine-1");
+    expect(fetchImpl.mock.calls[0][1]?.method).toBe("POST");
+  });
+
+  it("keeps a miss as not-found and never falls back to the in-process run", async () => {
+    const missing = vi.fn<typeof fetch>(async () => jsonResponse(404, { error: "Routine not found" }));
+    await expect(forwardBotRoutineRun("bot-1", "none", { env, fetchImpl: missing })).resolves.toEqual({
+      ok: false,
+      reason: "not-found",
+      status: 404,
+    });
+    const unreachable = vi.fn<typeof fetch>(async () => { throw new Error("connect refused"); });
+    await expect(forwardBotRoutineRun("bot-1", "routine-1", { env, fetchImpl: unreachable })).resolves.toEqual({
+      ok: false,
+      reason: "unreachable",
+    });
+    await expect(forwardBotRoutineRun("bot-1", "routine-1", { env: {} })).resolves.toEqual({
+      ok: false,
+      reason: "not-configured",
+    });
   });
 });
 
