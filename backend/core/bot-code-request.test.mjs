@@ -7,13 +7,13 @@ import {
   codeTaskIdRefusal, CODE_DELIVERY_RETRY_MS, CODE_RELAY_TICK_MS,
   MAX_AUTO_CODE_CHAIN, MAX_CODE_PROMPT_CHARS,
   CODE_REQUEST_RETENTION_MS, codeRequestPayload, codeRequestSummaries, codeRequestSummary,
-  codeRequestsForRoomTurn,
+  codeRequestsForRoomTurn, codeStopTargets,
   codeResultBaselineMessages,
   codeResultLatestAssistant, codeResultOutcome, codeResultOutput, codeSessionChangedPayload, isActiveCodeRequest,
   isCodeRequestId, isRoomCodeRequestCurrent,
   resolveOutboxScanAction, roomCodeOrigin, runningCodeTaskIdsForOrigin, selectActiveCodeRequestForTask,
   parseGoalLoopInput, shouldAttemptCodeDelivery, shouldConfirmCodeDelivery, shouldPruneCodeRequest,
-  shouldStartCodeRelayTick, truncateCodeReportRequest, userStoppedResult,
+  shouldStartCodeRelayTick, shouldStopCodeSession, truncateCodeReportRequest, userStoppedResult,
 } from "./bot-code-request.mjs";
 
 test("only the documented task id shape carries a Room origin", () => {
@@ -627,4 +627,34 @@ test("the pending view keeps only active requests and can skip one record", () =
     ["a", "b", "c", "d"],
     "without activeOnly the settled records are included too",
   );
+});
+
+test("stop targets are distinct Code sessions of matching requests, settled ones included", () => {
+  const requests = [
+    { id: "a", state: "delivered", codeTaskId: "code-1" },
+    { id: "b", state: "running", codeTaskId: "code-1" },
+    { id: "c", state: "cancelled", codeTaskId: "code-2" },
+    { id: "d", state: "running", codeTaskId: null },
+    { id: "e", state: "running" },
+    { id: "f", state: "running", codeTaskId: "code-3" },
+  ];
+  assert.deepEqual(codeStopTargets(requests, () => true), ["code-1", "code-2", "code-3"]);
+  assert.deepEqual(codeStopTargets(requests, (request) => request.state === "delivered"), ["code-1"]);
+  assert.deepEqual(codeStopTargets(requests, () => false), []);
+  assert.deepEqual(codeStopTargets([], () => true), []);
+});
+
+test("a session is stopped only while it is working or Goal Loop owned", () => {
+  const base = { hasTask: true, archived: false, working: true, goalLoopOwned: false };
+  assert.equal(shouldStopCodeSession(base), true);
+  assert.equal(shouldStopCodeSession({ ...base, working: false }), false);
+  assert.equal(shouldStopCodeSession({ ...base, working: false, goalLoopOwned: true }), true, "a Goal Loop session keeps its turn alive");
+  assert.equal(shouldStopCodeSession({ ...base, archived: true }), false);
+  assert.equal(shouldStopCodeSession({ ...base, archived: true, goalLoopOwned: true }), false, "an archived task has nothing to stop");
+  assert.equal(shouldStopCodeSession({ ...base, hasTask: false }), false);
+  for (const value of [undefined, null, 0, "true", 1]) {
+    assert.equal(shouldStopCodeSession({ ...base, hasTask: value }), false, String(value));
+    assert.equal(shouldStopCodeSession({ ...base, archived: value }), true, String(value));
+    assert.equal(shouldStopCodeSession({ ...base, working: false, goalLoopOwned: value }), false, String(value));
+  }
 });

@@ -209,3 +209,17 @@ export function codeRequestsForRoomTurn<T extends {
   excludeRequestId?: string | undefined;
   activeOnly?: boolean;
 }): T[];
+
+/** The distinct Code sessions a teardown must stop, in read order. */
+export function codeStopTargets<T extends { codeTaskId?: string | null }>(
+  requests: readonly T[],
+  matches: (request: T) => boolean,
+): string[];
+
+/** Whether a Code session still needs stopping. */
+export function shouldStopCodeSession(input: {
+  hasTask: boolean;
+  archived: boolean;
+  working: boolean;
+  goalLoopOwned: boolean;
+}): boolean;

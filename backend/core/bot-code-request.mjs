@@ -509,3 +509,29 @@ export function codeRequestsForRoomTurn(requests, { roomId, requestId, excludeRe
     (activeOnly !== true || isActiveCodeRequest(request)),
   );
 }
+
+/**
+ * The distinct Code sessions a teardown must stop, in the order the requests were read. Settled
+ * requests are included on purpose: a request can be delivered in the outbox while its Code session
+ * still runs (a cold-gap orphan), so filtering by state here would leave that session alive.
+ */
+export function codeStopTargets(requests, matches) {
+  const targets = [];
+  for (const request of requests) {
+    if (!matches(request)) continue;
+    const taskId = request.codeTaskId;
+    if (typeof taskId !== "string" || taskId === "" || targets.includes(taskId)) continue;
+    targets.push(taskId);
+  }
+  return targets;
+}
+
+/**
+ * Whether a Code session still needs stopping. A missing or archived task has nothing to stop, and a
+ * task that is neither working nor owned by a Goal Loop is already finished — the Goal Loop case
+ * matters because such a session keeps its own turn alive.
+ */
+export function shouldStopCodeSession({ hasTask, archived, working, goalLoopOwned }) {
+  if (hasTask !== true || archived === true) return false;
+  return working === true || goalLoopOwned === true;
+}

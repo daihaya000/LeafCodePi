@@ -46,6 +46,7 @@ import {
   codeRequestSummaries,
   codeRequestsForRoomTurn,
   codeResultBaselineMessages,
+  codeStopTargets,
   codeResultLatestAssistant,
   codeResultOutcome,
   codeResultOutput,
@@ -60,6 +61,7 @@ import {
   shouldConfirmCodeDelivery,
   shouldPruneCodeRequest,
   shouldStartCodeRelayTick,
+  shouldStopCodeSession,
   truncateCodeReportRequest as coreTruncateCodeReportRequest,
   userStoppedResult,
 } from "@backend-core/bot-code-request.mjs";
@@ -583,20 +585,19 @@ async function stopMatchedCodeSessions(
   cancelActive: () => Promise<number>,
 ): Promise<number> {
   const cancelled = await cancelActive();
-  const taskIds = [
-    ...new Set(
-      requests()
-        .filter(match)
-        .map((request) => request.codeTaskId as string),
-    ),
-  ];
+  // Which sessions to stop, and whether each still needs stopping, lives in backend core.
+  const taskIds = codeStopTargets(requests(), match);
   let stopped = 0;
   for (const taskId of taskIds) {
     const task = getTask(taskId);
-    if (!task || task.status === "archived") continue;
     const { isGoalLoopSessionOwned, readGoalLoopState } = await import("@/lib/pi/goal-loop-state");
-    const loop = readGoalLoopState(task.directory, task.sessionId);
-    if (task.status !== "working" && !isGoalLoopSessionOwned(loop)) continue;
+    const loop = task ? readGoalLoopState(task.directory, task.sessionId) : null;
+    if (!shouldStopCodeSession({
+      hasTask: Boolean(task),
+      archived: task?.status === "archived",
+      working: task?.status === "working",
+      goalLoopOwned: isGoalLoopSessionOwned(loop),
+    })) continue;
     try {
       const { abortTaskIncludingColdGoalLoop } = await import("@/lib/pi/harness");
       await abortTaskIncludingColdGoalLoop(taskId);
