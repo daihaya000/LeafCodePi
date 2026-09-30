@@ -1,5 +1,10 @@
 import { NextResponse } from "next/server";
-import { backendClientStatus, readBackendHealth } from "@/lib/backend-client";
+import {
+  backendClientStatus,
+  expectedBackendGeneration,
+  isBackendGenerationCompatible,
+  readBackendHealth,
+} from "@/lib/backend-client";
 import { isWebUiRequestAuthorized, webUiAuthRequired } from "@/lib/webui-auth";
 
 export const runtime = "nodejs";
@@ -19,11 +24,22 @@ export async function GET(req: Request) {
     return NextResponse.json({ configured: false, url: status.url, backend: null });
   }
   const health = await readBackendHealth();
+  // The generation check is a diagnostic here; the relay refuses to use a mismatched Backend.
+  const expected = expectedBackendGeneration();
   return NextResponse.json({
     configured: true,
     url: status.url,
     backend: health.ok
-      ? { reachable: true, ready: health.body.ready === true, status: health.body.status }
+      ? {
+          reachable: true,
+          ready: health.body.ready === true,
+          status: health.body.status,
+          generation: {
+            expected: expected || null,
+            running: health.body.runtimeGeneration ?? null,
+            matches: isBackendGenerationCompatible(expected, health.body.runtimeGeneration),
+          },
+        }
       : { reachable: false, ready: false, status: null, reason: health.reason },
   });
 }

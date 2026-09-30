@@ -3,12 +3,17 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   backendClientStatus: vi.fn(),
   readBackendHealth: vi.fn(),
+  expectedBackendGeneration: vi.fn(() => ""),
   webUiAuthRequired: vi.fn(),
   isWebUiRequestAuthorized: vi.fn(),
 }));
 vi.mock("@/lib/backend-client", () => ({
   backendClientStatus: mocks.backendClientStatus,
   readBackendHealth: mocks.readBackendHealth,
+  expectedBackendGeneration: mocks.expectedBackendGeneration,
+  // The real check is exercised in backend-client's own tests; here it only feeds the summary.
+  isBackendGenerationCompatible: (expected: string, running: string | null | undefined) =>
+    !expected || expected === running,
 }));
 vi.mock("@/lib/webui-auth", () => ({
   webUiAuthRequired: mocks.webUiAuthRequired,
@@ -45,16 +50,38 @@ describe("GET /api/backend/status", () => {
     mocks.readBackendHealth.mockResolvedValue({
       ok: true,
       status: 200,
-      body: { ready: true, status: "ready", pid: 4242 },
+      body: { ready: true, status: "ready", pid: 4242, runtimeGeneration: "gen-a" },
     });
+    mocks.expectedBackendGeneration.mockReturnValue("gen-a");
     const body = await (await GET(request())).json();
     expect(body).toEqual({
       configured: true,
       url: "http://127.0.0.1:18776",
-      backend: { reachable: true, ready: true, status: "ready" },
+      backend: {
+        reachable: true,
+        ready: true,
+        status: "ready",
+        generation: { expected: "gen-a", running: "gen-a", matches: true },
+      },
     });
     // The token and the Backend's pid are not part of the browser-visible contract.
     expect(JSON.stringify(body)).not.toContain("4242");
+  });
+
+  it("shows a generation mismatch and an unpinned expectation", async () => {
+    mocks.webUiAuthRequired.mockReturnValue(false);
+    mocks.backendClientStatus.mockReturnValue({ configured: true, url: "http://127.0.0.1:18776" });
+    mocks.readBackendHealth.mockResolvedValue({
+      ok: true,
+      status: 200,
+      body: { ready: true, status: "ready", pid: 4242, runtimeGeneration: "gen-b" },
+    });
+    mocks.expectedBackendGeneration.mockReturnValue("gen-a");
+    const body = await (await GET(request())).json();
+    expect(body.backend.generation).toEqual({ expected: "gen-a", running: "gen-b", matches: false });
+    mocks.expectedBackendGeneration.mockReturnValue("");
+    const unpinned = await (await GET(request())).json();
+    expect(unpinned.backend.generation).toEqual({ expected: null, running: "gen-b", matches: true });
   });
 
   it("reports an unreachable Backend with its reason instead of failing", async () => {

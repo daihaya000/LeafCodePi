@@ -9,7 +9,12 @@ import { insertTask, setTaskStatus } from "../../../lib/store";
 import { MAX_BOT_NAME_CHARS } from "../../../lib/bots";
 import { GET, POST } from "./route";
 
-const backendClientMock = vi.hoisted(() => ({ readBackendBots: vi.fn(), readBackendTasks: vi.fn() }));
+const backendClientMock = vi.hoisted(() => ({
+  readBackendBots: vi.fn(),
+  readBackendTasks: vi.fn(),
+  readBackendHealth: vi.fn(),
+  expectedBackendGeneration: vi.fn(() => ""),
+}));
 vi.mock("../../../lib/backend-client", () => backendClientMock);
 
 describe("/api/bots", () => {

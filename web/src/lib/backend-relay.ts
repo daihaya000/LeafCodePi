@@ -6,14 +6,57 @@
  * data and falls back to its in-process path if the Backend cannot answer — the fallback is the
  * safety net before the cutover, and disappears with the old path in the last phase.
  */
-import { readBackendBots, readBackendTasks } from "@/lib/backend-client";
+import {
+  expectedBackendGeneration,
+  isBackendGenerationCompatible,
+  readBackendBots,
+  readBackendHealth,
+  readBackendTasks,
+} from "@/lib/backend-client";
 import { botsWithCodeSessionCounts } from "@backend-core/bot-session-counts.mjs";
 
 /** Values that turn the relay on; anything else leaves it off. */
 const RELAY_ENABLED_VALUES = new Set(["1", "true", "yes", "on"]);
 
+/** How long a compatibility probe is reused; the relay must not probe the Backend per request. */
+export const RELAY_COMPATIBILITY_TTL_MS = 5_000;
+
+let compatibilityCache: { expected: string; at: number; compatible: boolean } | null = null;
+
+/** Test seam: forget the cached probe. */
+export function resetBackendRelayCompatibilityCache(): void {
+  compatibilityCache = null;
+}
+
 export function isBackendRelayEnabled(env: Record<string, string | undefined> = process.env): boolean {
   return RELAY_ENABLED_VALUES.has((env.LEAFCODE_PI_BACKEND_RELAY ?? "").trim().toLowerCase());
+}
+
+/**
+ * Whether the relay may use this Backend at all: enabled, and the same runtime generation the Host
+ * pinned for this WebUI. A generation mismatch means the WebUI and the Backend disagree about the
+ * running SDK/extensions, so the relay stays on the in-process path instead of writing to it.
+ * An unpinned generation has nothing to compare, so it is compatible.
+ */
+export async function backendRelayCompatible(
+  options: {
+    env?: Record<string, string | undefined>;
+    fetchHealth?: typeof readBackendHealth;
+    now?: () => number;
+  } = {},
+): Promise<boolean> {
+  const env = options.env ?? process.env;
+  if (!isBackendRelayEnabled(env)) return false;
+  const expected = expectedBackendGeneration(env);
+  if (!expected) return true;
+  const now = (options.now ?? Date.now)();
+  if (compatibilityCache?.expected === expected && now - compatibilityCache.at < RELAY_COMPATIBILITY_TTL_MS) {
+    return compatibilityCache.compatible;
+  }
+  const health = await (options.fetchHealth ?? readBackendHealth)({ env });
+  const compatible = health.ok && isBackendGenerationCompatible(expected, health.body.runtimeGeneration);
+  compatibilityCache = { expected, at: now, compatible };
+  return compatible;
 }
 
 /**
@@ -28,10 +71,11 @@ export async function relayTaskRows(
     kind: string;
     env?: Record<string, string | undefined>;
     fetchTasks?: typeof readBackendTasks;
+    fetchHealth?: typeof readBackendHealth;
   },
 ): Promise<Array<Record<string, unknown>> | null> {
   const env = options.env ?? process.env;
-  if (!isBackendRelayEnabled(env)) return null;
+  if (!(await backendRelayCompatible({ env, fetchHealth: options.fetchHealth }))) return null;
   const read = options.fetchTasks ?? readBackendTasks;
   const result = await read();
   if (!result.ok) return null;
@@ -53,10 +97,11 @@ export async function relayBotList(
     env?: Record<string, string | undefined>;
     fetchBots?: typeof readBackendBots;
     fetchTasks?: typeof readBackendTasks;
+    fetchHealth?: typeof readBackendHealth;
   } = {},
 ): Promise<Array<Record<string, unknown>> | null> {
   const env = options.env ?? process.env;
-  if (!isBackendRelayEnabled(env)) return null;
+  if (!(await backendRelayCompatible({ env, fetchHealth: options.fetchHealth }))) return null;
   const [botsResult, tasksResult] = await Promise.all([
     (options.fetchBots ?? readBackendBots)(),
     (options.fetchTasks ?? readBackendTasks)(),

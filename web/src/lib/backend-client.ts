@@ -96,9 +96,39 @@ export async function fetchBackendJson<T>(
   }
 }
 
+/** The health fields this client relies on; the Backend may report more. */
+export type BackendHealth = {
+  ready: boolean;
+  status: string;
+  pid: number;
+  protocolVersion?: number;
+  instanceId?: string;
+  startedAt?: string;
+  /** The build id of the runtime the Backend attached; null while nothing is attached. */
+  runtimeGeneration?: string | null;
+};
+
 /** Whether the Backend process is up and has attached its runtime. */
 export function readBackendHealth(options: Parameters<typeof fetchBackendJson>[1] = {}) {
-  return fetchBackendJson<{ ready: boolean; status: string; pid: number }>(BACKEND_HEALTH_PATH, options);
+  return fetchBackendJson<BackendHealth>(BACKEND_HEALTH_PATH, options);
+}
+
+/**
+ * The runtime generation the Host pinned when it started this Backend, if it recorded one.
+ * Empty means "not pinned": this WebUI has no expectation to compare against.
+ */
+export function expectedBackendGeneration(env: BackendEnv = process.env): string {
+  return env.LEAFCODE_PI_BACKEND_GENERATION?.trim() ?? "";
+}
+
+/**
+ * Whether the running Backend is the generation this WebUI expects. An unpinned expectation is
+ * compatible, and a Backend that reports no generation is only compatible with no expectation:
+ * talking to a build we cannot identify risks writing to the wrong runtime.
+ */
+export function isBackendGenerationCompatible(expected: string, running: string | null | undefined): boolean {
+  if (!expected) return true;
+  return typeof running === "string" && running.length > 0 && running === expected;
 }
 
 /** The Backend's own view of the Bot store. */

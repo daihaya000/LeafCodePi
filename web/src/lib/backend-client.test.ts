@@ -3,7 +3,9 @@ import { BACKEND_PROTOCOL_HEADER, BACKEND_PROTOCOL_VERSION } from "@shared/backe
 import {
   backendBaseUrl,
   backendClientStatus,
+  expectedBackendGeneration,
   fetchBackendJson,
+  isBackendGenerationCompatible,
   readBackendHealth,
   readBackendTasks,
 } from "./backend-client";
@@ -121,5 +123,23 @@ describe("readers", () => {
       "http://127.0.0.1:19999/internal/health",
       "http://127.0.0.1:19999/internal/tasks",
     ]);
+  });
+});
+
+describe("runtime generation", () => {
+  it("reads the pinned generation from the environment", () => {
+    expect(expectedBackendGeneration({ LEAFCODE_PI_BACKEND_GENERATION: " gen-a " })).toBe("gen-a");
+    expect(expectedBackendGeneration({})).toBe("");
+    expect(expectedBackendGeneration({ LEAFCODE_PI_BACKEND_GENERATION: "   " })).toBe("");
+  });
+
+  it("treats an unpinned expectation as compatible, and an unidentified Backend as not", () => {
+    expect(isBackendGenerationCompatible("", "gen-b")).toBe(true);
+    expect(isBackendGenerationCompatible("", null)).toBe(true);
+    expect(isBackendGenerationCompatible("gen-a", "gen-a")).toBe(true);
+    expect(isBackendGenerationCompatible("gen-a", "gen-b")).toBe(false);
+    expect(isBackendGenerationCompatible("gen-a", null)).toBe(false);
+    expect(isBackendGenerationCompatible("gen-a", undefined)).toBe(false);
+    expect(isBackendGenerationCompatible("gen-a", "")).toBe(false);
   });
 });

@@ -1,5 +1,11 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
-import { isBackendRelayEnabled, relayBotList, relayTaskRows } from "./backend-relay";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  backendRelayCompatible,
+  isBackendRelayEnabled,
+  relayBotList,
+  relayTaskRows,
+  resetBackendRelayCompatibilityCache,
+} from "./backend-relay";
 
 afterEach(() => {
   vi.unstubAllEnvs();
@@ -102,5 +108,60 @@ describe("relayBotList", () => {
       fetchTasks: async () => ({ ok: true, status: 200, body: { tasks } }),
     });
     expect(result).toEqual([]);
+  });
+});
+
+describe("generation compatibility", () => {
+  beforeEach(() => resetBackendRelayCompatibilityCache());
+  afterEach(() => resetBackendRelayCompatibilityCache());
+
+  const env = { LEAFCODE_PI_BACKEND_RELAY: "1", LEAFCODE_PI_BACKEND_GENERATION: "gen-a" };
+  const health = (generation: string | null) => async () => ({
+    ok: true as const,
+    status: 200,
+    body: { ready: true, status: "ready", pid: 1, runtimeGeneration: generation },
+  });
+
+  it("accepts a Backend of the pinned generation and rejects another", async () => {
+    expect(await backendRelayCompatible({ env, fetchHealth: health("gen-a") })).toBe(true);
+    resetBackendRelayCompatibilityCache();
+    expect(await backendRelayCompatible({ env, fetchHealth: health("gen-b") })).toBe(false);
+    resetBackendRelayCompatibilityCache();
+    expect(await backendRelayCompatible({ env, fetchHealth: health(null) })).toBe(false);
+  });
+
+  it("reuses the probe inside the window and re-probes after it", async () => {
+    let clock = 1_000;
+    const fetchHealth = vi.fn(health("gen-a"));
+    const options = { env, fetchHealth, now: () => clock };
+    expect(await backendRelayCompatible(options)).toBe(true);
+    expect(await backendRelayCompatible(options)).toBe(true);
+    expect(fetchHealth).toHaveBeenCalledTimes(1);
+    clock += 6_000;
+    fetchHealth.mockImplementation(health("gen-b"));
+    expect(await backendRelayCompatible(options)).toBe(false);
+    expect(fetchHealth).toHaveBeenCalledTimes(2);
+  });
+
+  it("has nothing to compare without a pin, and stays off while the relay is off", async () => {
+    const fetchHealth = vi.fn(health("gen-b"));
+    expect(await backendRelayCompatible({ env: { LEAFCODE_PI_BACKEND_RELAY: "1" }, fetchHealth })).toBe(true);
+    expect(fetchHealth).not.toHaveBeenCalled();
+    expect(await backendRelayCompatible({ env: { LEAFCODE_PI_BACKEND_GENERATION: "gen-a" }, fetchHealth })).toBe(false);
+    expect(fetchHealth).not.toHaveBeenCalled();
+  });
+
+  it("keeps the relay on the in-process path when the generation differs", async () => {
+    const fetchTasks = vi.fn(async () => ({ ok: true as const, status: 200, body: { tasks: [] } }));
+    expect(await relayTaskRows({
+      includeArchived: true,
+      kind: "all",
+      env,
+      fetchTasks,
+      fetchHealth: health("gen-b"),
+    })).toBeNull();
+    expect(fetchTasks).not.toHaveBeenCalled();
+    resetBackendRelayCompatibilityCache();
+    expect(await relayBotList({ env, fetchBots: vi.fn(), fetchTasks: vi.fn(), fetchHealth: health("gen-b") })).toBeNull();
   });
 });
