@@ -20,6 +20,20 @@ export function restartResumeSkipReason(snapshot, now) {
   return null;
 }
 
+/**
+ * Why a candidate cannot be resumed yet, or null when it is resumable. The order is
+ * the refusal precedence: a task the user changed/stopped/deleted, then a
+ * Room-delegated task (the Room owns its turn), then one whose session the Goal Loop
+ * owns. Callers that only classify (for example a process without a runtime) use this
+ * instead of reimplementing the ladder; the resume path uses it too.
+ */
+export function restartResumeRefusal({ task, orphanedTaskError, isRoomDelegated, isGoalLoopOwned }) {
+  if (!task || task.status !== "error" || task.error !== orphanedTaskError) return "changed";
+  if (isRoomDelegated === true) return "room-delegated";
+  if (isGoalLoopOwned === true) return "goal-loop-owned";
+  return null;
+}
+
 function defaultLog(message, error) {
   if (error === undefined) console.info(`[restart-resume] ${message}`);
   else console.warn(`[restart-resume] ${message}`, error);
@@ -80,12 +94,18 @@ export class RestartResumeService {
     const now = (deps.now ?? Date.now)();
     const task = deps.getTask(snapshot.id);
     // Respect edits/stops/deletion while the delayed resume was waiting.
-    if (!task || task.status !== "error" || task.error !== this.orphanedTaskError) return false;
-    if (deps.isRoomDelegated(task.id)) {
+    const refusal = restartResumeRefusal({
+      task,
+      orphanedTaskError: this.orphanedTaskError,
+      isRoomDelegated: task ? deps.isRoomDelegated(task.id) === true : false,
+      isGoalLoopOwned: task ? deps.isGoalLoopOwned(task) === true : false,
+    });
+    if (refusal === "changed") return false;
+    if (refusal === "room-delegated") {
       log(`skip ${task.id}: Room-delegated task`);
       return false;
     }
-    if (deps.isGoalLoopOwned(task)) {
+    if (refusal === "goal-loop-owned") {
       log(`skip ${task.id}: Goal Loop owns the session`);
       return false;
     }

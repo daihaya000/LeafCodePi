@@ -1,7 +1,10 @@
 import { AppStore } from "../core/app-store.mjs";
 import { dataDir as defaultDataDir, noProjectSessionDir, samePath, storePath } from "../core/app-paths.mjs";
-import { createTaskLeaseState, TaskLeaseService } from "../core/task-runtime-lease.mjs";
+import { createTaskLeaseState, ORPHANED_WORKING_TASK_ERROR, TaskLeaseService } from "../core/task-runtime-lease.mjs";
 import { RuntimeStartup } from "../core/runtime-startup.mjs";
+import { restartResumeRefusal, restartResumeSkipReason } from "../core/restart-resume.mjs";
+import { GoalLoopStateStore } from "../core/goal-loop-state.mjs";
+import { clampGoalLoopCooldownSeconds, clampGoalLoopMaxTurns, isGoalLoopSessionOwnedStatus } from "../core/goal-loop-settings.mjs";
 
 /** Must match NO_PROJECT_NAME in shared/types.ts (the Backend cannot import TypeScript). */
 const NO_PROJECT_NAME = "プロジェクトなし";
@@ -49,10 +52,40 @@ export function createBackendStartup({
 
   const unavailable = [];
   const orphaned = [];
-  // The resume itself needs a prompt path into a Pi session, which the Backend does
-  // not have yet: the tasks are recorded so a caller can see what would be resumed.
+  const resumePending = [];
+  const resumeSkipped = [];
+  const goalLoopStore = new GoalLoopStateStore({
+    dataDir,
+    clampMaxTurns: (value) => clampGoalLoopMaxTurns(value),
+    clampCooldownSeconds: (value) => clampGoalLoopCooldownSeconds(value),
+  });
+  /**
+   * The resume itself needs a prompt path into a Pi session, which the Backend does not
+   * have yet. Classification uses the same core ladder as the resume path, but nothing
+   * is attempted and no retry budget is spent: a task is only listed as resumable once a
+   * runtime is attached, and every refusal keeps its reason.
+   */
   const orphanListener = (tasks) => {
-    for (const task of tasks) orphaned.push(task.id);
+    for (const task of tasks) {
+      orphaned.push(task.id);
+      // Staleness is judged on the pre-patch snapshot the reconciler captured, while
+      // status/error come from the row it just wrote.
+      const skip = restartResumeSkipReason(task, Date.now());
+      if (skip) {
+        resumeSkipped.push({ id: task.id, reason: skip });
+        continue;
+      }
+      const stored = store.getTask(task.id) ?? task;
+      const loop = stored.sessionId ? goalLoopStore.read(stored.directory, stored.sessionId) : null;
+      const refusal = restartResumeRefusal({
+        task: stored,
+        orphanedTaskError: ORPHANED_WORKING_TASK_ERROR,
+        isRoomDelegated: false,
+        isGoalLoopOwned: isGoalLoopSessionOwnedStatus(loop?.status),
+      });
+      if (refusal) resumeSkipped.push({ id: task.id, reason: refusal });
+      else resumePending.push(task.id);
+    }
   };
 
   const startup = new RuntimeStartup({
@@ -79,5 +112,9 @@ export function createBackendStartup({
     unavailable: () => [...unavailable],
     /** Tasks that were reconciled and would be resumed once a runtime is attached. */
     orphaned: () => [...orphaned],
+    /** Reconciled tasks that are resumable as soon as a Pi runtime is attached. */
+    resumePending: () => [...resumePending],
+    /** Reconciled tasks that must not be resumed, each with the core ladder's reason. */
+    resumeSkipped: () => resumeSkipped.map((entry) => ({ ...entry })),
   };
 }

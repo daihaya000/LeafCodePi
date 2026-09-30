@@ -1,4 +1,4 @@
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import assert from "node:assert/strict";
@@ -30,7 +30,8 @@ const task = (id, status, extra = {}) => ({
   providerID: "test",
   modelID: "test",
   createdAt: "2026-01-01T00:00:00.000Z",
-  updatedAt: "2026-01-01T00:00:00.000Z",
+  // Recent by default: restart-resume refuses anything interrupted over 12 hours ago.
+  updatedAt: new Date().toISOString(),
   ...extra,
 });
 
@@ -60,6 +61,40 @@ test("a working task with a live lease is not reconciled", async (t) => {
   await started.startup.start();
   assert.deepEqual(started.orphaned(), []);
   assert.equal(started.store.getTask("live").status, "working");
+});
+
+test("resume classification separates resumable tasks from the core ladder's refusals", async (t) => {
+  const { dir, file } = fixture(t, [
+    task("code-orphan", "working"),
+    task("bot-orphan", "working", { kind: "bot", botId: "bot-1" }),
+    task("stale-orphan", "working", { updatedAt: "2020-01-01T00:00:00.000Z" }),
+  ]);
+  const started = createBackendStartup({ dataDir: () => dir, warn: () => {} });
+  started.store.storePath = () => file;
+  await started.startup.start();
+  assert.deepEqual(started.resumePending(), ["code-orphan"]);
+  assert.deepEqual(started.resumeSkipped(), [
+    // The Bot check runs before the staleness check, so the Bot reason wins here.
+    { id: "stale-orphan", reason: "interrupted too long ago" },
+    { id: "bot-orphan", reason: "not a Code task" },
+  ]);
+  // Nothing was attempted, so no retry budget was spent.
+  assert.equal(existsSync(join(dir, "restart-resume.json")), false);
+});
+
+test("a Goal Loop-owned session is refused by the same ladder, without a resume", async (t) => {
+  const { dir, file } = fixture(t, [task("loop-orphan", "working", { sessionId: "session-1" })]);
+  const started = createBackendStartup({ dataDir: () => dir, warn: () => {} });
+  started.store.storePath = () => file;
+  // The Goal Loop state file lives under <dataDir>/goals-loop/<sanitized session>.json.
+  const loopDir = join(dir, "goals-loop");
+  mkdirSync(loopDir, { recursive: true });
+  writeFileSync(join(loopDir, "session-1.json"), `${JSON.stringify({ goal: "続けて", status: "running" })}
+`, "utf8");
+  await started.startup.start();
+  assert.deepEqual(started.resumePending(), []);
+  assert.deepEqual(started.resumeSkipped(), [{ id: "loop-orphan", reason: "goal-loop-owned" }]);
+  assert.equal(existsSync(join(dir, "restart-resume.json")), false);
 });
 
 test("the services the Backend cannot run yet are reported, not silently skipped", async (t) => {

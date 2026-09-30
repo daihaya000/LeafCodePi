@@ -33,3 +33,11 @@ export class RestartResumeService {
   resumeOrphanedTask<T extends RestartResumeTask>(snapshot: T, deps: RestartResumeDeps<T>): Promise<boolean>;
   handleOrphanedTasks<T extends RestartResumeTask>(snapshots: T[], deps: RestartResumeDeps<T>): string[];
 }
+
+/** Why a candidate cannot be resumed yet, or null when it is resumable. */
+export function restartResumeRefusal(input: {
+  task: { status: string; error?: string | null } | null | undefined;
+  orphanedTaskError: string;
+  isRoomDelegated: boolean;
+  isGoalLoopOwned: boolean;
+}): "changed" | "room-delegated" | "goal-loop-owned" | null;

@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import {
-  RestartResumeService, RESTART_RESUME_DELAY_MS, RESTART_RESUME_STAGGER_MS,
+  RestartResumeService, restartResumeRefusal, RESTART_RESUME_DELAY_MS, RESTART_RESUME_STAGGER_MS,
   RESTART_RESUME_WINDOW_MS, RESTART_RESUME_MAX_STALE_MS, RESTART_RESUME_PROMPT,
 } from "./restart-resume.mjs";
 
@@ -139,4 +139,27 @@ test("restart resume works in a plain Node process without Next, Web aliases or 
   const output = execFileSync(process.execPath, ["--input-type=module", "-e", code], { encoding: "utf8", timeout: 5_000 });
   assert.deepEqual(JSON.parse(output), { result: true });
   assert.deepEqual(readBudget(f.root), { t1: { count: 1, lastAt: NOW } });
+});
+
+test("the refusal ladder reports the first reason and nothing when resumable", () => {
+  const task = { status: "error", error: "orphaned" };
+  const base = { task, orphanedTaskError: "orphaned", isRoomDelegated: false, isGoalLoopOwned: false };
+  assert.equal(restartResumeRefusal(base), null);
+  assert.equal(restartResumeRefusal({ ...base, task: undefined }), "changed");
+  assert.equal(restartResumeRefusal({ ...base, task: { status: "working", error: "orphaned" } }), "changed");
+  assert.equal(restartResumeRefusal({ ...base, task: { status: "error", error: null } }), "changed");
+  assert.equal(restartResumeRefusal({ ...base, task: { status: "error", error: "user stopped it" } }), "changed");
+  assert.equal(restartResumeRefusal({ ...base, isRoomDelegated: true }), "room-delegated");
+  assert.equal(restartResumeRefusal({ ...base, isGoalLoopOwned: true }), "goal-loop-owned");
+  // A changed task wins over both ownership checks: nothing is resumable anyway.
+  assert.equal(restartResumeRefusal({ ...base, task: undefined, isRoomDelegated: true, isGoalLoopOwned: true }), "changed");
+  assert.equal(restartResumeRefusal({ ...base, isRoomDelegated: true, isGoalLoopOwned: true }), "room-delegated");
+});
+
+test("only an explicit true refuses for Room or Goal Loop ownership", () => {
+  const base = { task: { status: "error", error: "orphaned" }, orphanedTaskError: "orphaned" };
+  for (const value of [undefined, null, 0, "true", 1]) {
+    assert.equal(restartResumeRefusal({ ...base, isRoomDelegated: value, isGoalLoopOwned: false }), null, String(value));
+    assert.equal(restartResumeRefusal({ ...base, isRoomDelegated: false, isGoalLoopOwned: value }), null, String(value));
+  }
 });
