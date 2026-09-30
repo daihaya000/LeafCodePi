@@ -166,3 +166,19 @@ export function shouldFlagSoulReload(input: { isBot: boolean; hasBotId: boolean;
 
 /** Whether the agent-definition reload is needed for this live session. */
 export function shouldReloadAgentDefinition(input: { pending: boolean; missingRegistration: boolean }): boolean;
+
+/** Whether the requested route equals the session's route (no replace needed). */
+export function isSamePromptRoute(input: {
+  currentAccountId: string | null | undefined;
+  currentProviderId: string | undefined;
+  currentModelId: string | undefined;
+  requestedAccountId: string | null | undefined;
+  requestedProviderId: string | undefined;
+  requestedModelId: string | undefined;
+}): boolean;
+
+/** Settings a busy session may apply without being replaced, in application order. */
+export const SOFT_LIVE_SETTING_KEYS: readonly string[];
+
+/** The subset of a pending settings record a busy session may apply now. */
+export function softLiveSettings(requested: Record<string, unknown> | undefined): Record<string, unknown>;

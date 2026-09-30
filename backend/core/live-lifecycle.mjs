@@ -285,3 +285,39 @@ export function shouldFlagSoulReload({ isBot, hasBotId, revisionChanged }) {
 export function shouldReloadAgentDefinition({ pending, missingRegistration }) {
   return pending === true || missingRegistration === true;
 }
+
+/**
+ * Whether the requested route is already the session's route, so the session can take the new
+ * model in place instead of being replaced. A different account is a different route even when
+ * the provider and model id match.
+ */
+export function isSamePromptRoute({
+  currentAccountId,
+  currentProviderId,
+  currentModelId,
+  requestedAccountId,
+  requestedProviderId,
+  requestedModelId,
+}) {
+  return (
+    currentAccountId === requestedAccountId &&
+    currentProviderId === requestedProviderId &&
+    currentModelId === requestedModelId
+  );
+}
+
+/**
+ * The settings a mid-stream or compacting session can take without being replaced, in the order
+ * they are applied. Replacing a live session mid-stream would drop the running turn, so only
+ * these values are pushed onto the session and the rest stay pending.
+ */
+export const SOFT_LIVE_SETTING_KEYS = Object.freeze(["permissionMode", "subagentPermission", "botTools"]);
+
+/** The subset of a pending settings record that a busy session may apply now. */
+export function softLiveSettings(requested) {
+  const applied = {};
+  for (const key of SOFT_LIVE_SETTING_KEYS) {
+    if (requested?.[key] !== undefined) applied[key] = requested[key];
+  }
+  return applied;
+}

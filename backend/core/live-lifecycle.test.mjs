@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
-  hasOtherBusyRoomLive, oneToOneBotIdFromTaskId, resolveAttachAccount, shouldApplyPendingReload,
-  shouldDeferLiveSetting, shouldFlagSoulReload, shouldReloadAgentDefinition, shouldShutdownOnDispose,
+  hasOtherBusyRoomLive, isSamePromptRoute, oneToOneBotIdFromTaskId, resolveAttachAccount,
+  shouldApplyPendingReload, shouldDeferLiveSetting, shouldFlagSoulReload, shouldReloadAgentDefinition,
+  shouldShutdownOnDispose, SOFT_LIVE_SETTING_KEYS, softLiveSettings,
 } from "./live-lifecycle.mjs";
 
 const live = (overrides = {}) => ({ promptActive: false, session: { isStreaming: false, isCompacting: false }, ...overrides });
@@ -147,4 +148,31 @@ test("the agent-definition reload runs for a pending flag or a missing registrat
   assert.equal(shouldReloadAgentDefinition({ pending: false, missingRegistration: true }), true);
   assert.equal(shouldReloadAgentDefinition({ pending: false, missingRegistration: false }), false);
   assert.equal(shouldReloadAgentDefinition({ pending: true, missingRegistration: true }), true);
+});
+
+test("a route is the same only when account, provider and model all match", () => {
+  const base = {
+    currentAccountId: "acc-1", currentProviderId: "p", currentModelId: "m",
+    requestedAccountId: "acc-1", requestedProviderId: "p", requestedModelId: "m",
+  };
+  assert.equal(isSamePromptRoute(base), true);
+  assert.equal(isSamePromptRoute({ ...base, requestedAccountId: "acc-2" }), false, "another account is another route");
+  assert.equal(isSamePromptRoute({ ...base, requestedProviderId: "q" }), false);
+  assert.equal(isSamePromptRoute({ ...base, requestedModelId: "n" }), false);
+  assert.equal(isSamePromptRoute({ ...base, currentAccountId: null, requestedAccountId: null }), true, "no account on either side is the same route");
+  assert.equal(isSamePromptRoute({ ...base, currentAccountId: null, requestedAccountId: "acc-1" }), false);
+  assert.equal(isSamePromptRoute({ ...base, currentAccountId: undefined, requestedAccountId: null }), false, "an unknown route is never the same");
+});
+
+test("only the soft settings reach a busy session, in the documented order", () => {
+  assert.deepEqual([...SOFT_LIVE_SETTING_KEYS], ["permissionMode", "subagentPermission", "botTools"]);
+  const requested = {
+    permissionMode: "ask", subagentPermission: "deny", botTools: ["read"],
+    model: { route: {} }, thinkingLevel: "high", agentName: "x", skillPermission: "deny",
+  };
+  assert.deepEqual(softLiveSettings(requested), { permissionMode: "ask", subagentPermission: "deny", botTools: ["read"] });
+  assert.deepEqual(softLiveSettings({}), {});
+  assert.deepEqual(softLiveSettings(undefined), {});
+  // A value that is present but undefined is not applied.
+  assert.deepEqual(softLiveSettings({ permissionMode: undefined, botTools: [] }), { botTools: [] });
 });

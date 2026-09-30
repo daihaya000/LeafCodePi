@@ -235,6 +235,7 @@ import { restoredPromptState, restoredTaskMetadata, restoredThroughputState as c
 import { compactionFailureMessage, isHarnessAutoCompactionError as coreIsHarnessAutoCompactionError, runAgentStartTaskSync, shouldApplySettledStatus, shouldSkipEventForMissingTask, shouldSyncTaskFromSessionEvent as coreShouldSyncTaskFromSessionEvent, type SessionSyncEvent } from "@backend-core/session-event-decisions.mjs";
 import { classifySnapshotEvent, flushPendingSnapshotOnUnsubscribe, pendingSnapshotFlush, SNAPSHOT_THROTTLE_MS } from "@backend-core/snapshot-schedule.mjs";
 import {
+  isSamePromptRoute,
   publishAttachedLive,
   resolveEnsureLiveAttempt,
   runEnsureLiveGates,
@@ -242,6 +243,7 @@ import {
   shouldDeferLiveSetting as coreShouldDeferLiveSetting,
   shouldFlagSoulReload,
   shouldReloadAgentDefinition,
+  SOFT_LIVE_SETTING_KEYS,
 } from "@backend-core/live-lifecycle.mjs";
 import { isReplacedPackageSource, keepsLoadedExtension, replacedUpstreamPackages } from "@backend-core/replaced-packages.mjs";
 import { resolveBotSessionOptions } from "@backend-core/bot-session-options.mjs";
@@ -8424,17 +8426,14 @@ async function applyPendingLiveSettings(
   let current = state().live.get(live.taskId) ?? live;
   const applySoftSettings = (): PendingLiveSettings => {
     const applied: PendingLiveSettings = {};
-    if (requested.permissionMode !== undefined) {
-      applyPermissionMode(current.session, requested.permissionMode);
-      applied.permissionMode = requested.permissionMode;
-    }
-    if (requested.subagentPermission !== undefined) {
-      applySubagentPermission(current.session, requested.subagentPermission);
-      applied.subagentPermission = requested.subagentPermission;
-    }
-    if (requested.botTools !== undefined) {
-      applyBotTools(current.session, requested.botTools);
-      applied.botTools = requested.botTools;
+    // Which settings a busy session may take, and in which order, lives in backend core.
+    for (const key of SOFT_LIVE_SETTING_KEYS) {
+      const value = requested[key as keyof PendingLiveSettings];
+      if (value === undefined) continue;
+      if (key === "permissionMode") applyPermissionMode(current.session, value as "allow" | "ask" | "deny");
+      else if (key === "subagentPermission") applySubagentPermission(current.session, value as "allow" | "deny");
+      else if (key === "botTools") applyBotTools(current.session, value as readonly string[]);
+      (applied as Record<string, unknown>)[key] = value;
     }
     return applied;
   };
@@ -8449,10 +8448,15 @@ async function applyPendingLiveSettings(
   if (requested.model) {
     const currentIds = modelId(current.session.model);
     const requestedIds = modelId(requested.model.route.model);
-    const sameRoute =
-      current.accountId === requested.model.route.accountId &&
-      currentIds.providerID === requestedIds.providerID &&
-      currentIds.modelID === requestedIds.modelID;
+    // The route comparison lives in backend core.
+    const sameRoute = isSamePromptRoute({
+      currentAccountId: current.accountId,
+      currentProviderId: currentIds.providerID,
+      currentModelId: currentIds.modelID,
+      requestedAccountId: requested.model.route.accountId,
+      requestedProviderId: requestedIds.providerID,
+      requestedModelId: requestedIds.modelID,
+    });
     if (!sameRoute) {
       const routeTask =
         requested.agentName !== undefined
