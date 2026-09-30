@@ -212,10 +212,12 @@ import { SdkRuntimeFactory } from "@backend-core/sdk-runtime.mjs";
 import * as corePromptControl from "@backend-core/prompt-control.mjs";
 import {
   isRecoverableResumeSelectionError,
+  resolveHangWatchQueueAction,
   resolvePromptGate,
   resolvePromptPermissionOptions,
   shouldApplyPromptModelSelection,
   shouldApplyPromptThinkingLevel,
+  shouldArmHangWatchAtSend,
   shouldForwardBotCodePrompt as coreShouldForwardBotCodePrompt,
 } from "@backend-core/prompt-control.mjs";
 import { runHangWatchdogAbort, runUserAbort } from "@backend-core/abort-coordinator.mjs";
@@ -8812,14 +8814,15 @@ function queuePrompt(
       isHangRetry,
     });
   };
-  // Steer/follow-up must not replace the hang-watch resume prompt. Re-arming
-  // with the short steer text would resume the wrong turn after a hang.
-  // Demoted interrupts also skip until the serial turn actually starts.
-  if (!meta?.streamingBehavior && !meta?.codeResult && !meta?.skipHangRearm) {
-    armHangWatchForPrompt();
-  }
-  // Internal result delivery is retried by its durable outbox, never replayed as user input.
-  if (meta?.codeResult) disarmTaskHangWatch(live.taskId);
+  // Steer/follow-up must not replace the hang-watch resume prompt, and an internal Code
+  // result is never replayed as user input. The action rule lives in backend core.
+  const hangWatchAction = resolveHangWatchQueueAction({
+    hasStreamingBehavior: Boolean(meta?.streamingBehavior),
+    isCodeResult: Boolean(meta?.codeResult),
+    skipRearm: Boolean(meta?.skipHangRearm),
+  });
+  if (hangWatchAction === "arm") armHangWatchForPrompt();
+  if (hangWatchAction === "disarm") disarmTaskHangWatch(live.taskId);
   let activeLive = live;
   const startedEpoch = live.promptEpoch;
   const stillQueued = () =>
@@ -8847,7 +8850,8 @@ function queuePrompt(
   };
   const runPrompt = async () => {
     if (!stillQueued()) return;
-    if (meta?.skipHangRearm) armHangWatchForPrompt();
+    // A demoted interrupt arms the watch here, once the serial turn actually starts.
+    if (shouldArmHangWatchAtSend({ skipRearm: Boolean(meta?.skipHangRearm) })) armHangWatchForPrompt();
     const pendingCompaction = live.autoCompactionPromise;
     if (pendingCompaction) await pendingCompaction;
     if (!stillQueued()) return;

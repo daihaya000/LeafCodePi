@@ -3,7 +3,8 @@ import { execFileSync } from "node:child_process";
 import { test } from "node:test";
 import {
   buildPromptOptions, clearSessionQueue, isReasoningMandatoryError, isStaleHarnessPrompt, nextPromptEpoch,
-  isRecoverableResumeSelectionError, resolvePromptGate, resolvePromptPermissionOptions,
+  isRecoverableResumeSelectionError, resolveHangWatchQueueAction, resolvePromptGate, resolvePromptPermissionOptions,
+  shouldArmHangWatchAtSend,
   resolveStreamingBehaviorForPrompt, shouldApplyPromptModelSelection, shouldApplyPromptThinkingLevel,
   shouldBypassPromptChain, shouldForwardBotCodePrompt, shouldWaitForSteerStream,
   STEER_STREAM_POLL_MS, STEER_STREAM_WAIT_MS, waitForSessionStreaming,
@@ -214,4 +215,24 @@ test("only a deleted model or account on resume is recoverable", () => {
   assert.equal(isRecoverableResumeSelectionError(at(400, "別のエラー")), false);
   assert.equal(isRecoverableResumeSelectionError(new Error("モデルが見つかりません")), false, "no status is not a selection refusal");
   assert.equal(isRecoverableResumeSelectionError(undefined), false);
+});
+
+test("a Code result disarms the hang watch, a steer or skipped rearm keeps it", () => {
+  const base = { hasStreamingBehavior: false, isCodeResult: false, skipRearm: false };
+  assert.equal(resolveHangWatchQueueAction(base), "arm");
+  assert.equal(resolveHangWatchQueueAction({ ...base, hasStreamingBehavior: true }), "keep");
+  assert.equal(resolveHangWatchQueueAction({ ...base, skipRearm: true }), "keep");
+  assert.equal(resolveHangWatchQueueAction({ ...base, isCodeResult: true }), "disarm");
+  assert.equal(resolveHangWatchQueueAction({ ...base, isCodeResult: true, hasStreamingBehavior: true }), "disarm", "a result is never replayed as user input");
+  assert.equal(resolveHangWatchQueueAction({ ...base, isCodeResult: true, skipRearm: true }), "disarm");
+});
+
+test("only an explicit flag changes the hang-watch action", () => {
+  for (const value of [undefined, null, 0, "true", 1]) {
+    assert.equal(resolveHangWatchQueueAction({ hasStreamingBehavior: value, isCodeResult: false, skipRearm: false }), "arm", String(value));
+    assert.equal(resolveHangWatchQueueAction({ hasStreamingBehavior: false, isCodeResult: value, skipRearm: false }), "arm", String(value));
+    assert.equal(resolveHangWatchQueueAction({ hasStreamingBehavior: false, isCodeResult: false, skipRearm: value }), "arm", String(value));
+    assert.equal(shouldArmHangWatchAtSend({ skipRearm: value }), false, String(value));
+  }
+  assert.equal(shouldArmHangWatchAtSend({ skipRearm: true }), true);
 });

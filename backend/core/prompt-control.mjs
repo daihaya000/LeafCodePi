@@ -137,3 +137,21 @@ export function isRecoverableResumeSelectionError(error) {
     (message === "モデルが見つかりません" || message === "アカウントが見つかりません")
   );
 }
+
+/**
+ * What the hang watch does when a prompt is queued. A steer/follow-up must not replace the
+ * hang-watch resume prompt with its short text (that would resume the wrong turn after a
+ * hang), and a demoted interrupt waits until the serial turn actually starts — both keep
+ * the armed watch. Internal Code results are retried by their durable outbox and are never
+ * replayed as user input, so the watch is disarmed. Everything else arms.
+ */
+export function resolveHangWatchQueueAction({ hasStreamingBehavior, isCodeResult, skipRearm }) {
+  if (isCodeResult === true) return "disarm";
+  if (hasStreamingBehavior === true || skipRearm === true) return "keep";
+  return "arm";
+}
+
+/** A prompt queued with `skipRearm` arms the watch at send time, once the serial turn starts. */
+export function shouldArmHangWatchAtSend({ skipRearm }) {
+  return skipRearm === true;
+}

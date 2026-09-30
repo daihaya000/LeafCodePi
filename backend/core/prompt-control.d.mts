@@ -71,3 +71,13 @@ export function shouldApplyPromptThinkingLevel(input: {
 
 /** Whether a resume may ignore this model/account selection failure. */
 export function isRecoverableResumeSelectionError(error: unknown): boolean;
+
+/** What the hang watch does when a prompt is queued: arm, keep the armed one, or disarm. */
+export function resolveHangWatchQueueAction(input: {
+  hasStreamingBehavior: boolean;
+  isCodeResult: boolean;
+  skipRearm: boolean;
+}): "arm" | "keep" | "disarm";
+
+/** Whether a prompt queued with skipRearm arms the watch at send time. */
+export function shouldArmHangWatchAtSend(input: { skipRearm: boolean }): boolean;
