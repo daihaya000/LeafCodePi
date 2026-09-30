@@ -35,6 +35,13 @@ describe("forwardGoalLoopStart", () => {
     expect(JSON.parse(calls[0][1].body as string)).toEqual({ action: "start", ...selection });
   });
 
+  it("marks a Bot start so the owner can initialize a missing Bot task", async () => {
+    const fetchImpl = vi.fn<typeof fetch>(async () => jsonResponse(200, { loop: { status: "queued" }, agent: null }));
+    await forwardGoalLoopStart("bot:one", { botId: "one", goal: "調べる", acceptance: [] }, { env, fetchImpl });
+    expect(fetchImpl.mock.calls[0][0]).toBe("http://127.0.0.1:19999/internal/tasks/bot%3Aone/goal-loop");
+    expect(JSON.parse(fetchImpl.mock.calls[0][1]?.body as string)).toEqual({ action: "start", botId: "one", goal: "調べる", acceptance: [] });
+  });
+
   it("does not time out Auto selection at the ordinary 10s read deadline", async () => {
     vi.useFakeTimers();
     try {

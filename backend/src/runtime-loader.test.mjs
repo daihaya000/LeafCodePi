@@ -94,4 +94,8 @@ test("the built bundle loads with every required export", { skip: !existsSync(DE
     result.runtime.startGoalLoopWithSelection("not-a-task", { goal: "", auto: true }),
     (error) => error.status === 400 && error.message === "goal または acceptance が不正です",
   );
+  await assert.rejects(
+    result.runtime.startBotGoalLoop("not-a-bot", { goal: "test" }),
+    (error) => error.status === 404 && error.message === "Bot not found",
+  );
 });

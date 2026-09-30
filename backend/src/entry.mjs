@@ -142,6 +142,12 @@ try {
         return runtime.goalLoopState(id, { offline: true });
       }
       if (action === "start") {
+        if (body?.botId !== undefined) {
+          if (!botId || id !== `bot:${botId}`) {
+            throw Object.assign(new Error("Bot task mismatch"), { status: 400 });
+          }
+          return runtime.startBotGoalLoop(botId, body);
+        }
         return runtime.startGoalLoopWithSelection(id, body);
       }
       return runtime.goalLoopCommand(id, {

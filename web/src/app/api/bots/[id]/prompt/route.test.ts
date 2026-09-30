@@ -10,6 +10,7 @@ const state = vi.hoisted(() => ({
   isTaskRuntimeBusyForGoalLoopStart: vi.fn(() => false),
   localRuntimeBlocked: vi.fn(() => false),
   forwardTaskPrompt: vi.fn(),
+  forwardGoalLoopStart: vi.fn(),
 }));
 vi.mock("../../../../../lib/pi/harness", () => ({
   promptTask: state.promptTask,
@@ -23,6 +24,7 @@ vi.mock("../../../../../lib/pi/runtime-ownership", () => ({
 }));
 vi.mock("../../../../../lib/backend-forward", () => ({
   forwardTaskPrompt: state.forwardTaskPrompt,
+  forwardGoalLoopStart: state.forwardGoalLoopStart,
   forwardTaskDetail: vi.fn(),
   forwardTaskAbort: vi.fn(),
   forwardPermissionAnswer: vi.fn(),
@@ -60,6 +62,7 @@ describe("POST /api/bots/[id]/prompt", () => {
     state.localRuntimeBlocked.mockReset();
     state.localRuntimeBlocked.mockReturnValue(false);
     state.forwardTaskPrompt.mockReset();
+    state.forwardGoalLoopStart.mockReset();
     vi.unstubAllEnvs();
     rmSync(root, { recursive: true, force: true });
   });
@@ -75,21 +78,67 @@ describe("POST /api/bots/[id]/prompt", () => {
     expect(state.promptTask).not.toHaveBeenCalled();
   });
 
-  it("refuses a Goal Loop start and never prompts locally in the non-owning mode", async () => {
+  it("forwards a Bot Goal Loop start and never runs it locally", async () => {
     const bot = createBot({ name: "Loop bot 2" });
+    const images = [{ mimeType: "image/png", data: "aW1hZ2U=" }];
     state.localRuntimeBlocked.mockReturnValue(true);
+    state.forwardGoalLoopStart.mockResolvedValue({ ok: true, loop: { id: "loop-1", status: "queued" }, agent: null });
     const loop = await POST(
-      request("調査して修正する", { acceptance: ["テストが通る"] }),
+      request("調査して修正する", { acceptance: ["テストが通る"], maxTurns: 1000, cooldownSeconds: 999999 }, images),
       { params: Promise.resolve({ id: bot.id }) },
     );
-    expect(loop.status).toBe(409);
-    await expect(loop.json()).resolves.toEqual({ error: "Goal Loop は非所有モードでは未対応です", code: "GOAL_LOOP_NOT_SUPPORTED" });
+    expect(loop.status).toBe(200);
+    await expect(loop.json()).resolves.toEqual({ task: null, loop: { id: "loop-1", status: "queued" } });
+    expect(state.forwardGoalLoopStart).toHaveBeenCalledWith(`bot:${bot.id}`, {
+      botId: bot.id, goal: "調査して修正する", acceptance: ["テストが通る"],
+      maxTurns: 100, cooldownSeconds: 86400, forceFullRun: false, images,
+    });
     expect(state.goalLoopCommand).not.toHaveBeenCalled();
+    expect(state.isTaskRuntimeBusyForGoalLoopStart).not.toHaveBeenCalled();
     state.forwardTaskPrompt.mockResolvedValue({ ok: false, reason: "unreachable" });
     const failed = await POST(request("調べて"), { params: Promise.resolve({ id: bot.id }) });
     expect(failed.status).toBe(502);
     await expect(failed.json()).resolves.toEqual({ error: "Backendへ転送できません", code: "BACKEND_FORWARD_FAILED", reason: "unreachable" });
     expect(state.promptTask).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    { ok: false, reason: "not-configured", expectedStatus: 409 },
+    { ok: false, reason: "not-found", status: 404, expectedStatus: 404 },
+    { ok: false, reason: "unreachable", expectedStatus: 502 },
+    { ok: false, reason: "bad-status", status: 400, expectedStatus: 400 },
+    { ok: false, reason: "incompatible", status: 409, expectedStatus: 409 },
+    { ok: false, reason: "bad-status", status: 413, expectedStatus: 413 },
+    { ok: true, loop: { status: "stopped" }, expectedStatus: 409 },
+  ])("does not fall back on Backend refusal: %j", async ({ expectedStatus, ...result }) => {
+    const bot = createBot({ name: "Loop bot" });
+    state.localRuntimeBlocked.mockReturnValue(true);
+    state.forwardGoalLoopStart.mockResolvedValue(result);
+    const response = await POST(request("調べる", { acceptance: [] }), { params: Promise.resolve({ id: bot.id }) });
+    expect(response.status).toBe(expectedStatus);
+    expect(state.goalLoopCommand).not.toHaveBeenCalled();
+    expect(state.promptTask).not.toHaveBeenCalled();
+  });
+
+  it.each([null, [], { acceptance: "invalid" }, { maxTurns: {} }])("rejects invalid options before forwarding: %j", async (goalLoop) => {
+    const bot = createBot({ name: "Loop bot" });
+    state.localRuntimeBlocked.mockReturnValue(true);
+    const response = await POST(request("調べる", goalLoop), { params: Promise.resolve({ id: bot.id }) });
+    expect(response.status).toBe(400);
+    expect(state.forwardGoalLoopStart).not.toHaveBeenCalled();
+    expect(state.goalLoopCommand).not.toHaveBeenCalled();
+  });
+
+  it("keeps Goal Loop starts image-only before forwarding", async () => {
+    const bot = createBot({ name: "Loop bot" });
+    state.localRuntimeBlocked.mockReturnValue(true);
+    const response = await POST(new NextRequest("http://localhost", {
+      method: "POST",
+      body: JSON.stringify({ prompt: "調べる", goalLoop: {}, files: [{ name: "memo.txt", mimeType: "text/plain", data: "aGk=" }] }),
+    }), { params: Promise.resolve({ id: bot.id }) });
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({ error: "Goal loop の開始では画像のみ添付できます" });
+    expect(state.forwardGoalLoopStart).not.toHaveBeenCalled();
   });
 
   it("clamps Goal Loop limits before invoking the command", async () => {

@@ -94,7 +94,7 @@ bundleパスは`LEAFCODE_PI_BACKEND_RUNTIME_BUNDLE`で差し替え可能。CLI�
 **未達（実切替までに必要な残作業・実測）**
 
 - （解消済み）Bot Codeセッションの clear/unlink も転送済み。
-- （解消済み・タスクroute）`POST /api/tasks/:id/goal-loop`のAuto/モデル/エージェント指定も転送する。Backendが共通関数`startGoalLoopWithSelection`で入力検証・選択・開始・失敗時復元を実行し、`loop`／`agent`／`autoDecision`を返す。400/409は非所有Webでも同じstatus、エラー詳細は秘匿する。Auto agentの最大30秒を考慮して開始転送の既定timeoutを60秒に設定（上書き可能）。Bot prompt routeのGoal Loop開始は別経路であり、まだ409拒否。実切替・旧経路撤去は未実施。
+- （解消済み・タスクroute）`POST /api/tasks/:id/goal-loop`のAuto/モデル/エージェント指定も転送する。Backendが共通関数`startGoalLoopWithSelection`で入力検証・選択・開始・失敗時復元を実行し、`loop`／`agent`／`autoDecision`を返す。400/409は非所有Webでも同じstatus、エラー詳細は秘匿する。Auto agentの最大30秒を考慮して開始転送の既定timeoutを60秒に設定（上書き可能）。Bot prompt routeも既存Goal Loop APIへ`botId`つきで転送済み。Backendの`startBotGoalLoop`はBotの存在とbusy状態を確認し、未作成のBotタスクも`goalLoopCommand`で初期化する。BotとタスクIDの不一致は実行前に400拒否、返却形式は従来の`{task:null,loop}`を維持する。実切替・旧経路撤去は未実施。
 - SSEは非所有モードで2秒ポーリング（`eventType: "remote_poll"`）。所有モードの即時配信と比べ遅延がある。
 - 実切替の未実施（Host・WebUIの再起動を伴うため、ユーザー承認後に実施）。
 - Web全体の型検証は既存の拡張（`leafcode-goal-loop`／`loop-guard`）が`@earendil-works/pi-coding-agent`を解決できず失敗するため、本番用`tsconfig.build.json`で代替している。

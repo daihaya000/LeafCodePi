@@ -171,7 +171,7 @@ export function expectedBackendGeneration(env: BackendEnv = process.env): string
 /** Start includes selection inputs: only the owning Backend resolves Auto and mutates settings. */
 export type BackendGoalLoopBody =
   | {
-      action: "start"; goal: string; acceptance: string[];
+      action: "start"; goal: string; acceptance: string[]; botId?: string;
       maxTurns?: number; cooldownSeconds?: number; forceFullRun?: boolean; images?: unknown;
       model?: string; thinkingLevel?: string; agent?: string;
       auto?: unknown; autoOptimize?: unknown; autoRouteOverrides?: unknown;

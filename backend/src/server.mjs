@@ -255,6 +255,12 @@ export function createBackendServer({
             sendJson(response, 400, { error: "Invalid goal loop action", code: BACKEND_ERROR_CODES.badRequest });
             return;
           }
+          if (action === "start" && body.value?.botId !== undefined && (
+            typeof body.value.botId !== "string" || !body.value.botId || actionPath !== `bot:${body.value.botId}`
+          )) {
+            sendJson(response, 400, { error: "Bot task mismatch", code: BACKEND_ERROR_CODES.badRequest });
+            return;
+          }
           const result = await handler(actionPath, body.value);
           const loop = action === "start" ? result?.loop : result;
           if (!loop) {

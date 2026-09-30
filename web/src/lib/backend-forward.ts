@@ -212,6 +212,7 @@ export async function forwardGoalLoopStart(
     id,
     {
       action: "start",
+      ...(body.botId !== undefined ? { botId: body.botId } : {}),
       goal: body.goal,
       acceptance: body.acceptance,
       ...(body.maxTurns !== undefined ? { maxTurns: body.maxTurns } : {}),

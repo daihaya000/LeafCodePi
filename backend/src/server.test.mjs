@@ -609,6 +609,29 @@ test("a forwarded Goal Loop control reaches the loop's owner", async (t) => {
   ]);
 });
 
+test("a Bot Goal Loop start carries the Bot identity and rejects a mismatched task", async (t) => {
+  const seen = [];
+  const { snapshotsUrl, headers } = await fixture(t, {
+    goalLoopAction: async (id, body) => {
+      seen.push({ id, body });
+      return { loop: { status: "queued" }, agent: null };
+    },
+  });
+  const post = (id, botId) => request(`${snapshotsUrl.replace("pending-snapshots", "tasks")}/${encodeURIComponent(id)}/goal-loop`, {
+    method: "POST", headers: { ...headers, "content-type": "application/json" },
+    body: JSON.stringify({ action: "start", botId, goal: "調べる", acceptance: [] }),
+  });
+  const started = await post("bot:one", "one");
+  assert.equal(started.status, 200);
+  assert.deepEqual(await started.json(), { loop: { status: "queued" }, agent: null });
+  assert.equal((await post("task-1", "one")).status, 400);
+  assert.equal((await post("bot:one", "two")).status, 400);
+  assert.equal((await post("bot:one", 5)).status, 400);
+  assert.equal(seen.length, 1);
+  assert.equal(seen[0].id, "bot:one");
+  assert.equal(seen[0].body.botId, "one");
+});
+
 test("Goal Loop start refusals retain their status without leaking runtime errors", async (t) => {
   const { snapshotsUrl, headers } = await fixture(t, {
     goalLoopAction: async (_id, body) => {

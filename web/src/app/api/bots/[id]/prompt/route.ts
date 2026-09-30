@@ -4,7 +4,7 @@ import { isPromptFileList, isPromptFileText, isPromptFileWithinSize, isPromptIma
 import { goalLoopCommand, isTaskRuntimeBusyForGoalLoopStart, jsonError, promptTask } from "@/lib/pi/harness";
 import { isGoalLoopLiveStatus } from "@/lib/pi/goal-loop-state";
 import { localRuntimeBlocked } from "@/lib/pi/runtime-ownership";
-import { forwardTaskPrompt } from "@/lib/backend-forward";
+import { forwardGoalLoopStart, forwardTaskPrompt } from "@/lib/backend-forward";
 import { clampGoalLoopCooldownSeconds, clampGoalLoopMaxTurns, DEFAULT_GOAL_LOOP_MAX_TURNS, normalizeGoalLoopAcceptance } from "@/lib/goal-loop-settings";
 export const runtime = "nodejs"; export const dynamic = "force-dynamic";
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -16,13 +16,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     if (body.files !== undefined && (!isPromptFileList(body.files) || body.files.some((file) => !isPromptFileWithinSize(file) || !isPromptFileText(file)))) return NextResponse.json({ error: "invalid files: UTF-8 text only" }, { status: 400 });
     if ((body.images?.length ?? 0) + (body.files?.length ?? 0) > MAX_PROMPT_ATTACHMENTS) return NextResponse.json({ error: `添付は${MAX_PROMPT_ATTACHMENTS}件までです` }, { status: 400 });
     if (!body.prompt.trim() && !body.images?.length && !body.files?.length) return NextResponse.json({ error: "Prompt is required" }, { status: 400 });
-    if (localRuntimeBlocked()) {
-      if (body.goalLoop !== undefined) {
-        return NextResponse.json(
-          { error: "Goal Loop は非所有モードでは未対応です", code: "GOAL_LOOP_NOT_SUPPORTED" },
-          { status: 409 },
-        );
-      }
+    if (localRuntimeBlocked() && body.goalLoop === undefined) {
       const forwarded = await forwardTaskPrompt(botTaskId(id), {
         prompt: body.prompt,
         ...(body.images !== undefined ? { images: body.images } : {}),
@@ -50,6 +44,34 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       const acceptance = normalizeGoalLoopAcceptance(loop.acceptance);
       const validNumber = (value: unknown) => value === undefined || typeof value === "number" || typeof value === "string";
       if (acceptance === null || !validNumber(loop.maxTurns) || !validNumber(loop.cooldownSeconds) || (loop.forceFullRun !== undefined && typeof loop.forceFullRun !== "boolean")) return NextResponse.json({ error: "invalid goalLoop" }, { status: 400 });
+      if (localRuntimeBlocked()) {
+        const forwarded = await forwardGoalLoopStart(botTaskId(id), {
+          botId: id,
+          goal: body.prompt,
+          acceptance,
+          maxTurns: clampGoalLoopMaxTurns(loop.maxTurns, DEFAULT_GOAL_LOOP_MAX_TURNS),
+          cooldownSeconds: clampGoalLoopCooldownSeconds(loop.cooldownSeconds),
+          forceFullRun: loop.forceFullRun === true,
+          ...(body.images !== undefined ? { images: body.images } : {}),
+        });
+        if (forwarded.ok) {
+          if (!forwarded.loop || !isGoalLoopLiveStatus(forwarded.loop.status as string)) {
+            return NextResponse.json({ error: "Goal Loop を開始できませんでした" }, { status: 409 });
+          }
+          return NextResponse.json({ task: null, loop: forwarded.loop });
+        }
+        if (forwarded.reason === "not-configured") {
+          return NextResponse.json({ error: "Backendが実行を所有しています", code: "RUNTIME_NOT_OWNED" }, { status: 409 });
+        }
+        if (forwarded.reason === "not-found") return NextResponse.json({ error: "Bot not found" }, { status: 404 });
+        if (forwarded.status === 400 || forwarded.status === 409 || forwarded.status === 413) {
+          return NextResponse.json({ error: "Goal Loop を開始できませんでした" }, { status: forwarded.status });
+        }
+        return NextResponse.json(
+          { error: "Backendへ転送できません", code: "BACKEND_FORWARD_FAILED", reason: forwarded.reason },
+          { status: 502 },
+        );
+      }
       if (isTaskRuntimeBusyForGoalLoopStart(botTaskId(id))) {
         return NextResponse.json({ error: "タスクが実行中のため Goal Loop を開始できません" }, { status: 409 });
       }
