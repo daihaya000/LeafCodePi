@@ -8,6 +8,7 @@ import {
   type BackendEnv,
   type BackendFailureReason,
 } from "@/lib/backend-client";
+import type { PermissionRequestDto, QuestionRequestDto } from "@/lib/types";
 
 /**
  * Forwarding a prompt to the Backend that owns the runtime.
@@ -143,4 +144,36 @@ export async function forwardTaskPendingRequests(
     permissionRequest: fields.permissionRequest ?? null,
     questionRequest: fields.questionRequest ?? null,
   };
+}
+
+/**
+ * The pending requests of every task the owning Backend is waiting on, keyed by task id. The Backend
+ * emits the same DTOs the WebUI renders, so the values are read as those types.
+ */
+export type PendingRequestsByTask = Record<
+  string,
+  { permissionRequest: PermissionRequestDto | null; questionRequest: QuestionRequestDto | null }
+>;
+
+/**
+ * One read for every pending request, for callers that need several tasks at once (a Room, a panel).
+ * A failed read is an empty map: the caller keeps working and the next poll retries.
+ */
+export async function forwardPendingRequestsByTask(
+  options: { env?: BackendEnv; fetchImpl?: typeof fetch; timeoutMs?: number } = {},
+): Promise<PendingRequestsByTask> {
+  const result = await readBackendPendingSnapshots(options);
+  if (!result.ok) return {};
+  const byTask: PendingRequestsByTask = {};
+  for (const snapshot of result.body?.snapshots ?? []) {
+    const taskId = snapshot?.taskId;
+    if (typeof taskId !== "string" || !taskId) continue;
+    const payload = snapshot?.payload;
+    const fields = payload && typeof payload === "object" ? (payload as Record<string, unknown>) : {};
+    byTask[taskId] = {
+      permissionRequest: (fields.permissionRequest as PermissionRequestDto | null | undefined) ?? null,
+      questionRequest: (fields.questionRequest as QuestionRequestDto | null | undefined) ?? null,
+    };
+  }
+  return byTask;
 }

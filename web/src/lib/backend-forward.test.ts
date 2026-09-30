@@ -3,6 +3,7 @@ import {
   forwardPermissionAnswer,
   forwardQuestionAnswer,
   forwardTaskAbort,
+  forwardPendingRequestsByTask,
   forwardTaskPendingRequests,
   forwardTaskDetail,
   forwardTaskPrompt,
@@ -201,5 +202,32 @@ describe("forwardTaskPendingRequests", () => {
       permissionRequest: null,
       questionRequest: null,
     });
+  });
+});
+
+describe("forwardPendingRequestsByTask", () => {
+  it("keys every pending request by task id", async () => {
+    const fetchImpl = vi.fn(async () =>
+      jsonResponse(200, {
+        snapshots: [
+          { taskId: "t1", payload: { permissionRequest: { requestId: "p1" } } },
+          { taskId: "t2", payload: { questionRequest: { requestId: "q1" } } },
+          { taskId: "", payload: {} },
+          { payload: { permissionRequest: { requestId: "ignored" } } },
+        ],
+      }),
+    );
+    await expect(
+      forwardPendingRequestsByTask({ env, fetchImpl: fetchImpl as unknown as typeof fetch }),
+    ).resolves.toEqual({
+      t1: { permissionRequest: { requestId: "p1" }, questionRequest: null },
+      t2: { permissionRequest: null, questionRequest: { requestId: "q1" } },
+    });
+  });
+
+  it("is empty when the Backend cannot answer", async () => {
+    const broken = vi.fn(async () => jsonResponse(500, {}));
+    await expect(forwardPendingRequestsByTask({ env, fetchImpl: broken as unknown as typeof fetch })).resolves.toEqual({});
+    await expect(forwardPendingRequestsByTask({ env: {} })).resolves.toEqual({});
   });
 });

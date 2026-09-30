@@ -7,6 +7,8 @@ import {
   subscribeTask,
 } from "@/lib/pi/harness";
 import { createSseWriter } from "@/lib/sse-writer";
+import { localRuntimeBlocked } from "@/lib/pi/runtime-ownership";
+import { forwardPendingRequestsByTask } from "@/lib/backend-forward";
 import { roomSnapshotSignature } from "@/lib/room-events";
 import type { RoomAttention } from "@/lib/types";
 export const runtime = "nodejs";
@@ -20,8 +22,16 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
       sse = createSseWriter(controller, { signal: req.signal });
       const subscriptions = new Map<string, () => void>();
       let previous = "";
-      const snapshot = () => {
+      // After the cutover the pending approvals/questions live in the Backend, so they are read from
+      // there once per refresh instead of from this process's memory.
+      const backendOwns = localRuntimeBlocked();
+      let pendingBusy = false;
+      const snapshot = async () => {
         if (sse?.closed) return;
+        if (backendOwns && pendingBusy) return;
+        if (backendOwns) pendingBusy = true;
+        const backendPending = backendOwns ? await forwardPendingRequestsByTask() : null;
+        if (sse?.closed) { pendingBusy = false; return; }
         const room = getRoom(id);
         if (!room) { sse?.close(); return; }
         const tasks = new Set(room.members.map((botId) => roomBotTaskId(id, botId)));
@@ -35,18 +45,25 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
         }
         const attention: RoomAttention[] = room.members.map((botId) => {
           const taskId = roomBotTaskId(id, botId);
-          return { botId, taskId, permission: pendingPermissionForTask(taskId), question: pendingQuestionForTask(taskId) };
+          const pending = backendPending?.[taskId];
+          return {
+            botId,
+            taskId,
+            permission: backendPending ? pending?.permissionRequest ?? null : pendingPermissionForTask(taskId),
+            question: backendPending ? pending?.questionRequest ?? null : pendingQuestionForTask(taskId),
+          };
         }).filter((item) => item.permission || item.question);
+        pendingBusy = false;
         const signature = roomSnapshotSignature(room, attention);
         if (signature !== previous) { previous = signature; sse?.send("snapshot", { type: "snapshot", room, attention }); }
       };
-      const unsubscribe = subscribeRoom(id, snapshot);
+      const unsubscribe = subscribeRoom(id, () => void snapshot());
       // Room files are shared across Next workers; local emitter events alone miss remote outbox reports.
-      const refresh = setInterval(snapshot, 2_000);
+      const refresh = setInterval(() => void snapshot(), 2_000);
       refresh.unref?.();
       sse.onCleanup(() => { unsubscribe(); clearInterval(refresh); for (const off of subscriptions.values()) off(); });
       sse.startHeartbeat();
-      snapshot();
+      void snapshot();
     },
     cancel() { sse?.cleanup(); },
   });
