@@ -4,6 +4,16 @@
  */
 
 /**
+ * Which thinking level a new session starts with: the level stored on the task when
+ * it is a valid one, otherwise the model's own default, and nothing at all when
+ * there is no model to ask.
+ */
+export function resolveSessionThinkingLevelSource({ hasStoredLevel, hasModel }) {
+  if (hasStoredLevel === true) return "stored";
+  return hasModel === true ? "model-default" : "none";
+}
+
+/**
  * Which refusal applies, in this precedence: a task that no longer exists, then an
  * archived one, then a lease held by another worker. The order matters — an
  * archived task must be reported as archived even when a stale lease exists.

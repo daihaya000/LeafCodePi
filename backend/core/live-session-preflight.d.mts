@@ -21,6 +21,15 @@ export function resolveSessionPermissionMode(input: {
 }): BotPermissionMode | undefined;
 
 /**
+ * Where a session's starting thinking level comes from: the stored task level, the
+ * model default, or nothing (no model).
+ */
+export function resolveSessionThinkingLevelSource(input: {
+  hasStoredLevel: boolean;
+  hasModel: boolean;
+}): "stored" | "model-default" | "none";
+
+/**
  * How a stored model resolved: it loaded, Auto replaced it for this session only,
  * or it is unavailable (the caller maps that to 503).
  */

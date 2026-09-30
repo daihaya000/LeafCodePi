@@ -217,7 +217,7 @@ import { detachReplacedLive as coreDetachReplacedLive, disposeUnattachedSession,
 import { restoredPromptState, restoredTaskMetadata, restoredThroughputState as coreRestoredThroughputState } from "@backend-core/live-attach-state.mjs";
 import { compactionFailureMessage, isHarnessAutoCompactionError as coreIsHarnessAutoCompactionError, runAgentStartTaskSync, shouldApplySettledStatus, shouldSkipEventForMissingTask, shouldSyncTaskFromSessionEvent as coreShouldSyncTaskFromSessionEvent, type SessionSyncEvent } from "@backend-core/session-event-decisions.mjs";
 import { classifySnapshotEvent, flushPendingSnapshotOnUnsubscribe, pendingSnapshotFlush, SNAPSHOT_THROTTLE_MS } from "@backend-core/snapshot-schedule.mjs";
-import { isBotTask, liveSessionName, liveSessionWorkspace, preflightLiveSession, resolveSessionAccountId, resolveSessionAccountRefusal, resolveSessionPermissionMode, resolveSessionSkillPermission, resolveStoredModelOutcome } from "@backend-core/live-session-preflight.mjs";
+import { isBotTask, liveSessionName, liveSessionWorkspace, preflightLiveSession, resolveSessionAccountId, resolveSessionAccountRefusal, resolveSessionPermissionMode, resolveSessionSkillPermission, resolveSessionThinkingLevelSource, resolveStoredModelOutcome } from "@backend-core/live-session-preflight.mjs";
 import { runSerializedByKey } from "@backend-core/keyed-serializer.mjs";
 import { attachReplacementSession } from "@backend-core/live-replace.mjs";
 import { buildBotCodeReportContent } from "@backend-core/bot-code-report.mjs";
@@ -4559,9 +4559,14 @@ async function resolveLiveSessionSettings(
     modelRoute,
     sessionAccountIdExplicit,
   );
-  const sessionThinkingLevel = isThinkingLevel(task.thinkingLevel)
+  // Where the starting level comes from is decided in backend core.
+  const thinkingSource = resolveSessionThinkingLevelSource({
+    hasStoredLevel: isThinkingLevel(task.thinkingLevel),
+    hasModel: Boolean(model),
+  });
+  const sessionThinkingLevel = thinkingSource === "stored"
     ? task.thinkingLevel
-    : model
+    : thinkingSource === "model-default" && model
       ? defaultThinkingLevelForRoute(model, sessionAccountId)
       : undefined;
   return {

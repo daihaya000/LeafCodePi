@@ -3,7 +3,7 @@ import { test } from "node:test";
 import {
   isBotTask, liveSessionName, liveSessionWorkspace, preflightLiveSession, resolveSessionAccountId,
   resolveSessionAccountRefusal, resolveSessionPermissionMode, resolveSessionSkillPermission,
-  resolveStoredModelOutcome,
+  resolveSessionThinkingLevelSource, resolveStoredModelOutcome,
 } from "./live-session-preflight.mjs";
 
 test("a live session may be created when nothing stands in the way", () => {
@@ -95,6 +95,23 @@ test("a normalized skill permission wins over the stored one", () => {
 
 const account = (overrides = {}) => ({
   explicit: true, hasTaskAccountId: true, hasAccountRecord: true, accountEnabled: true, ...overrides,
+});
+
+test("a valid stored thinking level wins over the model default", () => {
+  assert.equal(resolveSessionThinkingLevelSource({ hasStoredLevel: true, hasModel: true }), "stored");
+  assert.equal(resolveSessionThinkingLevelSource({ hasStoredLevel: true, hasModel: false }), "stored");
+});
+
+test("without a valid stored level the model default applies, or nothing without a model", () => {
+  assert.equal(resolveSessionThinkingLevelSource({ hasStoredLevel: false, hasModel: true }), "model-default");
+  assert.equal(resolveSessionThinkingLevelSource({ hasStoredLevel: false, hasModel: false }), "none");
+});
+
+test("only an explicit true counts for the stored-level and model flags", () => {
+  for (const value of [undefined, null, 0, "true", 1]) {
+    assert.equal(resolveSessionThinkingLevelSource({ hasStoredLevel: value, hasModel: true }), "model-default", String(value));
+    assert.equal(resolveSessionThinkingLevelSource({ hasStoredLevel: false, hasModel: value }), "none", String(value));
+  }
 });
 
 test("a stored model that loaded, or no stored model at all, needs no fallback", () => {
