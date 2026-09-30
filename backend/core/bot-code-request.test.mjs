@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
-  cancellationTargetForRequest, codeCompletionAction, CODE_DELIVERY_RETRY_MS, CODE_RELAY_TICK_MS,
+  cancellationTargetForRequest, codeAutoChainRefusal, codeCompletionAction, codeGoalLoopRefusal,
+  codePromptRefusal, codeReportingRefusal, codeTaskIdRefusal, CODE_DELIVERY_RETRY_MS, CODE_RELAY_TICK_MS,
+  MAX_AUTO_CODE_CHAIN, MAX_CODE_PROMPT_CHARS,
   CODE_REQUEST_RETENTION_MS, codeRequestPayload,
   codeResultBaselineMessages,
   codeResultLatestAssistant, codeResultOutcome, codeResultOutput, codeSessionChangedPayload, isActiveCodeRequest,
@@ -392,4 +394,50 @@ test("a malformed Goal Loop option is rejected with its own message", () => {
   for (const value of [null, 0, "true", 1]) {
     assert.throws(() => parseGoalLoopInput({ forceFullRun: value }, goalLoopDeps), /invalid goalLoop/, String(value));
   }
+});
+
+test("taskId is refused for a start and for an unusable value", () => {
+  assert.equal(codeTaskIdRefusal({ action: "prompt", taskId: undefined }), null);
+  assert.equal(codeTaskIdRefusal({ action: "status", taskId: "task-1" }), null);
+  assert.equal(codeTaskIdRefusal({ action: "start", taskId: "task-1" }), "taskId is only supported for an existing Code session");
+  for (const taskId of ["", "   ", 42, null, {}]) {
+    assert.equal(codeTaskIdRefusal({ action: "prompt", taskId }), "taskId is only supported for an existing Code session", String(taskId));
+  }
+});
+
+test("goalLoop is refused unless the action starts Code", () => {
+  assert.equal(codeGoalLoopRefusal({ action: "start", hasGoalLoop: true }), null);
+  assert.equal(codeGoalLoopRefusal({ action: "prompt", hasGoalLoop: true }), "goalLoop is only supported when starting Code");
+  assert.equal(codeGoalLoopRefusal({ action: "prompt", hasGoalLoop: false }), null);
+  for (const value of [undefined, null, 0, "true", 1]) {
+    assert.equal(codeGoalLoopRefusal({ action: "prompt", hasGoalLoop: value }), null, String(value));
+  }
+});
+
+test("the reporting gates refuse a stop, a Room report and a second follow-up", () => {
+  assert.equal(codeReportingRefusal({ report: null, action: "start" }), null);
+  assert.equal(codeReportingRefusal({ report: { room: false, followUpStarted: false }, action: "start" }), null);
+  assert.match(codeReportingRefusal({ report: { userStopped: true }, action: "start" }), /user stopped/);
+  assert.match(codeReportingRefusal({ report: { room: true }, action: "start" }), /Result reporting cannot/);
+  assert.match(codeReportingRefusal({ report: { followUpStarted: true }, action: "start" }), /Only one follow-up/);
+  assert.match(codeReportingRefusal({ report: { room: false }, action: "abort" }), /Only one follow-up/, "an abort consumes the slot");
+  // The stop gate wins over the others.
+  assert.match(codeReportingRefusal({ report: { userStopped: true, room: true, followUpStarted: true }, action: "abort" }), /user stopped/);
+});
+
+test("the autonomous continuation limit reports the configured maximum", () => {
+  assert.equal(codeAutoChainRefusal({ autoChain: 5, maxChain: 5 }), null);
+  assert.match(codeAutoChainRefusal({ autoChain: 6, maxChain: 5 }), /cumulative limit of 5/);
+  assert.equal(codeAutoChainRefusal({ autoChain: 0, maxChain: 5 }), null);
+});
+
+test("a prompt is required within the limit, except for an abort", () => {
+  assert.equal(codePromptRefusal({ action: "start", prompt: "do it" }), null);
+  assert.equal(codePromptRefusal({ action: "abort", prompt: undefined }), null);
+  assert.equal(codePromptRefusal({ action: "start", prompt: "   " }), "A prompt of 1–32000 characters is required");
+  assert.equal(codePromptRefusal({ action: "start", prompt: undefined }), "A prompt of 1–32000 characters is required");
+  assert.equal(codePromptRefusal({ action: "start", prompt: "a".repeat(MAX_CODE_PROMPT_CHARS) }), null);
+  assert.equal(codePromptRefusal({ action: "start", prompt: "a".repeat(MAX_CODE_PROMPT_CHARS + 1) }), "A prompt of 1–32000 characters is required");
+  assert.equal(MAX_CODE_PROMPT_CHARS, 32_000);
+  assert.equal(MAX_AUTO_CODE_CHAIN, 5);
 });

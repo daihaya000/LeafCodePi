@@ -121,3 +121,22 @@ export function parseGoalLoopInput(
     defaultMaxTurns: number;
   },
 ): { acceptance: string[] | null; maxTurns: number; cooldownSeconds: number; forceFullRun: boolean } | undefined;
+
+/** The prompt bound a Bot tool call must respect. */
+export const MAX_CODE_PROMPT_CHARS: number;
+/** Cumulative cap on autonomous Code continuations. */
+export const MAX_AUTO_CODE_CHAIN: number;
+
+/** `taskId` refusal message, or null. */
+export function codeTaskIdRefusal(input: { action: string; taskId: string | undefined }): string | null;
+/** `goalLoop` refusal message, or null. */
+export function codeGoalLoopRefusal(input: { action: string; hasGoalLoop: boolean }): string | null;
+/** Reporting-gate refusal message, or null. */
+export function codeReportingRefusal(input: {
+  report: { userStopped?: boolean; room?: boolean; followUpStarted?: boolean } | null | undefined;
+  action: string;
+}): string | null;
+/** Autonomous-continuation limit message, or null. */
+export function codeAutoChainRefusal(input: { autoChain: number; maxChain: number }): string | null;
+/** Prompt refusal message, or null. */
+export function codePromptRefusal(input: { action: string; prompt: string | undefined }): string | null;

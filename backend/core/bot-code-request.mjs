@@ -304,3 +304,56 @@ export function parseGoalLoopInput(value, { normalizeAcceptance, clampMaxTurns, 
     forceFullRun: value.forceFullRun === true,
   };
 }
+
+/** The prompt bound a Bot tool call must respect (1 character minimum after trimming). */
+export const MAX_CODE_PROMPT_CHARS = 32_000;
+/** Cumulative cap on Code requests a Bot starts by itself while reporting a result. */
+export const MAX_AUTO_CODE_CHAIN = 5;
+
+/** `taskId` targets an existing session only, and never a start. */
+export function codeTaskIdRefusal({ action, taskId }) {
+  if (taskId === undefined) return null;
+  if (typeof taskId !== "string" || !taskId.trim() || action === "start") {
+    return "taskId is only supported for an existing Code session";
+  }
+  return null;
+}
+
+/** `goalLoop` is accepted only when starting a Code session. */
+export function codeGoalLoopRefusal({ action, hasGoalLoop }) {
+  return hasGoalLoop === true && action !== "start" ? "goalLoop is only supported when starting Code" : null;
+}
+
+/**
+ * The gates that apply while a result is being reported: a request the user stopped may not start or
+ * control Code, a Room report may not either (the Room turn owns the conversation), and only one
+ * follow-up request is allowed. An abort counts against the follow-up slot because it controls a
+ * session.
+ */
+export function codeReportingRefusal({ report, action }) {
+  if (!report) return null;
+  if (report.userStopped) {
+    return "The user stopped this Code request. Do not start or control Code; report the stop instead.";
+  }
+  if (report.room) return "Result reporting cannot start or control Code. Wait for a new user instruction.";
+  if (report.followUpStarted || action === "abort") {
+    return "Only one follow-up Code request is allowed while reporting a result.";
+  }
+  return null;
+}
+
+/** The cumulative autonomous-continuation limit, or null while there is room. */
+export function codeAutoChainRefusal({ autoChain, maxChain }) {
+  return autoChain > maxChain
+    ? `Autonomous Code continuations reached the cumulative limit of ${maxChain}. Report the remaining work and let the user decide.`
+    : null;
+}
+
+/** The prompt rule: a non-empty trimmed prompt within the limit, except for an abort. */
+export function codePromptRefusal({ action, prompt }) {
+  if (action === "abort") return null;
+  if (!prompt?.trim() || prompt.length > MAX_CODE_PROMPT_CHARS) {
+    return "A prompt of 1–32000 characters is required";
+  }
+  return null;
+}

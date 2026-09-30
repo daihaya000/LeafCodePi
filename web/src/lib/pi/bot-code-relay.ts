@@ -29,7 +29,13 @@ import {
   cancellationTargetForRequest,
   CODE_DELIVERY_RETRY_MS,
   CODE_RELAY_TICK_MS,
+  codeAutoChainRefusal,
   codeCompletionAction,
+  codeGoalLoopRefusal,
+  codePromptRefusal,
+  codeReportingRefusal,
+  codeTaskIdRefusal,
+  MAX_AUTO_CODE_CHAIN as CORE_MAX_AUTO_CODE_CHAIN,
   parseGoalLoopInput,
   codeRequestPayload,
   codeResultBaselineMessages,
@@ -66,7 +72,7 @@ export function truncateCodeReportRequest(prompt: string): string {
  * Cumulative cap on Code requests the Bot starts by itself while reporting a result. Per-turn limits
  * cannot bound a chain that restarts every turn. A new user instruction resets the count to zero.
  */
-export const MAX_AUTO_CODE_CHAIN = 5;
+export const MAX_AUTO_CODE_CHAIN = CORE_MAX_AUTO_CODE_CHAIN;
 /** Prompt options persisted for a Code input that must be delivered by its owning worker. */
 export type CodePromptOptions = {
   /** Same `{ mimeType, data }` payload as a user→Code composer attachment. */
@@ -786,22 +792,22 @@ export function createBotCodeRelay(deps: RelayDependencies) {
         ...(await imageListing(originTaskId)),
       };
     }
-    if (input.taskId !== undefined && (typeof input.taskId !== "string" || !input.taskId.trim() || input.action === "start")) throw new Error("taskId is only supported for an existing Code session");
+    // The tool-input rules (taskId, goalLoop, reporting gates, auto-chain limit, prompt bounds)
+    // live in backend core; the lookups they depend on stay here.
+    const taskIdRefusal = codeTaskIdRefusal({ action: input.action, taskId: input.taskId });
+    if (taskIdRefusal) throw new Error(taskIdRefusal);
     const targetId = input.action === "start" ? undefined : linkedCodeTaskId(originTaskId, bot, input.taskId);
     if (input.action === "status") return { task: getTask(targetId ?? "") ?? null, ...(await imageListing(originTaskId)) };
-    if (input.goalLoop !== undefined && input.action !== "start") throw new Error("goalLoop is only supported when starting Code");
+    const goalLoopRefusal = codeGoalLoopRefusal({ action: input.action, hasGoalLoop: input.goalLoop !== undefined });
+    if (goalLoopRefusal) throw new Error(goalLoopRefusal);
     const goalLoop = input.action === "start" ? parseGoalLoop(input.goalLoop) : undefined;
     const report = reporting.get(originTaskId);
-    if (report?.userStopped) throw new Error("The user stopped this Code request. Do not start or control Code; report the stop instead.");
-    if (report?.room) throw new Error("Result reporting cannot start or control Code. Wait for a new user instruction.");
-    if (report && (report.followUpStarted || input.action === "abort")) {
-      throw new Error("Only one follow-up Code request is allowed while reporting a result.");
-    }
+    const reportingRefusal = codeReportingRefusal({ report, action: input.action });
+    if (reportingRefusal) throw new Error(reportingRefusal);
     // Autonomous continuations accumulate across report turns; only a user instruction restarts the count.
     const autoChain = report ? report.autoChain + 1 : 0;
-    if (autoChain > MAX_AUTO_CODE_CHAIN) {
-      throw new Error(`Autonomous Code continuations reached the cumulative limit of ${MAX_AUTO_CODE_CHAIN}. Report the remaining work and let the user decide.`);
-    }
+    const autoChainRefusal = codeAutoChainRefusal({ autoChain, maxChain: MAX_AUTO_CODE_CHAIN });
+    if (autoChainRefusal) throw new Error(autoChainRefusal);
     const room = roomContext(originTaskId);
     const id = createHash("sha256").update(`${originTaskId}:${sessionId}:${toolCallId}`).digest("hex");
     const previous = read(id);
@@ -815,7 +821,8 @@ export function createBotCodeRelay(deps: RelayDependencies) {
         selected: selectedImages,
       });
     if (input.action !== "abort") {
-      if (!input.prompt?.trim() || input.prompt.length > 32_000) throw new Error("A prompt of 1–32000 characters is required");
+      const promptRefusal = codePromptRefusal({ action: input.action, prompt: input.prompt });
+      if (promptRefusal) throw new Error(promptRefusal);
       const linked = input.action === "prompt" ? getTask(targetId ?? "") : undefined;
       if (input.action === "prompt" && !linked) throw new Error("No linked Code session");
       const projectId = input.action === "start" ? input.projectId?.trim() || null : linked?.projectId ?? null;
@@ -829,7 +836,9 @@ export function createBotCodeRelay(deps: RelayDependencies) {
         ? `\n\nGoal Loop: 最大${goalLoop.maxTurns === 0 ? "無制限" : `${goalLoop.maxTurns}ターン`}、クールタイム${goalLoop.cooldownSeconds}秒`
         : "";
       const imageNote = resolvedImages?.images?.length ? `\n添付画像: ${resolvedImages.images.length}件` : "";
-      const approved = standing || await deps.approve(sessionId, `Codeへ依頼します。\nプロジェクト: ${project?.name ?? NO_PROJECT_NAME}${loopSummary}${imageNote}\n\n${input.prompt.trim()}`);
+      // The refusal above guarantees a usable prompt; keep it in a local for the message.
+      const promptText = input.prompt ?? "";
+      const approved = standing || await deps.approve(sessionId, `Codeへ依頼します。\nプロジェクト: ${project?.name ?? NO_PROJECT_NAME}${loopSummary}${imageNote}\n\n${promptText.trim()}`);
       if (!approved || signal?.aborted) throw new Error("Code request was not approved");
     }
     // Only consume the report-turn follow-up slot after approval (and below, after launch).
