@@ -3,7 +3,8 @@ import { execFileSync } from "node:child_process";
 import { test } from "node:test";
 import {
   buildPromptOptions, clearSessionQueue, isReasoningMandatoryError, isStaleHarnessPrompt, nextPromptEpoch,
-  resolveStreamingBehaviorForPrompt, shouldBypassPromptChain, shouldWaitForSteerStream,
+  resolvePromptGate, resolveStreamingBehaviorForPrompt, shouldBypassPromptChain, shouldForwardBotCodePrompt,
+  shouldWaitForSteerStream,
   STEER_STREAM_POLL_MS, STEER_STREAM_WAIT_MS, waitForSessionStreaming,
 } from "./prompt-control.mjs";
 
@@ -105,4 +106,63 @@ test("plain Node can run prompt control without Web, SDK or session imports", ()
   `;
   const output = execFileSync(process.execPath, ["--input-type=module", "-e", code], { encoding: "utf8", timeout: 5_000 });
   assert.deepEqual(JSON.parse(output), { epoch: 2, options: { streamingBehavior: "followUp" } });
+});
+
+function gates(overrides = {}) {
+  const calls = [];
+  return {
+    calls,
+    input: {
+      projectArchived: () => { calls.push("project"); return false; },
+      forwardToBotCode: () => { calls.push("forward"); return false; },
+      leaseOwnedElsewhere: () => { calls.push("lease"); return false; },
+      ...overrides,
+    },
+  };
+}
+
+test("a prompt with no obstacle proceeds past every gate", () => {
+  const f = gates();
+  assert.equal(resolvePromptGate(f.input), null);
+  assert.deepEqual(f.calls, ["project", "forward", "lease"]);
+});
+
+test("an archived project refuses before the later lookups run", () => {
+  const f = gates({ projectArchived: () => { f.calls.push("project"); return true; } });
+  assert.equal(resolvePromptGate(f.input), "archived-project");
+  assert.deepEqual(f.calls, ["project"]);
+});
+
+test("Bot-code forwarding wins over the lease refusal and stops the ladder", () => {
+  const f = gates({ forwardToBotCode: () => { f.calls.push("forward"); return true; } });
+  assert.equal(resolvePromptGate(f.input), "forward-bot-code");
+  assert.deepEqual(f.calls, ["project", "forward"], "the lease is not read when the prompt is forwarded");
+});
+
+test("a lease held elsewhere refuses last", () => {
+  const f = gates({ leaseOwnedElsewhere: () => { f.calls.push("lease"); return true; } });
+  assert.equal(resolvePromptGate(f.input), "lease-busy");
+  assert.deepEqual(f.calls, ["project", "forward", "lease"]);
+});
+
+test("only a Code task whose Bot is enabled and whose lease is elsewhere forwards", () => {
+  const base = { isBot: false, botId: "bot-1", botEnabled: true, leaseHeldElsewhere: true };
+  assert.equal(shouldForwardBotCodePrompt(base), true);
+  assert.equal(shouldForwardBotCodePrompt({ ...base, isBot: true }), false, "a Bot task never forwards");
+  assert.equal(shouldForwardBotCodePrompt({ ...base, botId: undefined }), false);
+  assert.equal(shouldForwardBotCodePrompt({ ...base, botId: "" }), false);
+  assert.equal(shouldForwardBotCodePrompt({ ...base, botEnabled: false }), false);
+  assert.equal(shouldForwardBotCodePrompt({ ...base, botEnabled: undefined }), false);
+  assert.equal(shouldForwardBotCodePrompt({ ...base, leaseHeldElsewhere: false }), false);
+});
+
+test("the forwarding flags are read truthily, as the record stores them", () => {
+  const base = { isBot: false, botId: "bot-1", leaseHeldElsewhere: true };
+  assert.equal(shouldForwardBotCodePrompt({ ...base, botEnabled: 1 }), true);
+  assert.equal(shouldForwardBotCodePrompt({ ...base, botEnabled: "yes" }), true);
+  assert.equal(shouldForwardBotCodePrompt({ ...base, botEnabled: null }), false);
+  // Only an explicit true counts for the lease, which is computed by the caller.
+  for (const value of [undefined, null, 0, "true", 1]) {
+    assert.equal(shouldForwardBotCodePrompt({ ...base, leaseHeldElsewhere: value }), false, String(value));
+  }
 });

@@ -69,3 +69,25 @@ export function isReasoningMandatoryError(error) {
   const message = error instanceof Error ? error.message : String(error);
   return /reasoning is mandatory/i.test(message);
 }
+
+/**
+ * The gate ladder a prompt passes before any session work, in this order: an archived
+ * project, then Bot-code forwarding, then a lease held by another worker. Each check is
+ * a thunk so a prompt that is rejected early never performs the later lookups (the lease
+ * checks read files). "forward-bot-code" is not a refusal: the Bot's own worker holds the
+ * lease, so the prompt is queued for it instead of being rejected.
+ */
+export function resolvePromptGate({ projectArchived, forwardToBotCode, leaseOwnedElsewhere }) {
+  if (projectArchived()) return "archived-project";
+  if (forwardToBotCode()) return "forward-bot-code";
+  if (leaseOwnedElsewhere()) return "lease-busy";
+  return null;
+}
+
+/**
+ * Whether a Code task's prompt belongs to its Bot's worker. A Bot task, a missing Bot
+ * record, a disabled Bot or a lease this process owns all mean no forwarding.
+ */
+export function shouldForwardBotCodePrompt({ isBot, botId, botEnabled, leaseHeldElsewhere }) {
+  return Boolean(isBot !== true && botId && botEnabled && leaseHeldElsewhere === true);
+}

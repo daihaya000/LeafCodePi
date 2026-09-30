@@ -210,6 +210,7 @@ import { registerWebUiPermissionHandler } from "@/lib/pi/webui-permission-bridge
 import { AccountRuntimeManager } from "@/lib/pi/account-runtime-manager";
 import { SdkRuntimeFactory } from "@backend-core/sdk-runtime.mjs";
 import * as corePromptControl from "@backend-core/prompt-control.mjs";
+import { resolvePromptGate, shouldForwardBotCodePrompt as coreShouldForwardBotCodePrompt } from "@backend-core/prompt-control.mjs";
 import { runHangWatchdogAbort, runUserAbort } from "@backend-core/abort-coordinator.mjs";
 import { roomBotIdFromTaskId } from "@backend-core/abort-control.mjs";
 import { detachReplacedLive as coreDetachReplacedLive, disposeUnattachedSession, hasOtherBusyRoomLive, isRegisteredLive, isStaleEnsureEpoch, promoteMailboxOnAttach, resolveAttachAccount, resolveAttachedSessionAction, resolveCreatedSessionAction, runCoalescedLiveShutdown, runTrackedEnsure, shouldShutdownOnDispose as coreShouldShutdownOnDispose } from "@backend-core/live-lifecycle.mjs";
@@ -9006,13 +9007,13 @@ function lastPromptWasBotSent(live: LiveRuntime): boolean {
 
 function shouldForwardBotCodePrompt(task: TaskSummary): boolean {
   const botId = task.botId ?? task.supervisorBotId;
-  return Boolean(
-    task.kind !== "bot" &&
-      botId &&
-      getBot(botId)?.enabled &&
-      hasActiveTaskLease(task.id) &&
-      !ownsTaskLease(task.id),
-  );
+  // The forwarding rule lives in backend core; the Bot record and lease stay here.
+  return coreShouldForwardBotCodePrompt({
+    isBot: task.kind === "bot",
+    botId,
+    botEnabled: botId ? getBot(botId)?.enabled : undefined,
+    leaseHeldElsewhere: isTaskRuntimeOwnedElsewhere(task),
+  });
 }
 
 /** True when another worker holds the runtime lease for this task (any kind). */
@@ -9182,16 +9183,23 @@ export async function promptTask(
   const taskBeforePrompt = requireTask(id);
   // 送信者はサーバー側でだけ決める。HTTP 本文にマーカーが含まれていてもBot送信にはしない。
   const promptText = options?.fromBot ? markBotPrompt(prompt) : stripBotPromptPrefix(prompt);
-  if (taskBeforePrompt.projectId) {
-    const project = getProject(taskBeforePrompt.projectId);
-    if (project?.archived) {
-      throw Object.assign(
-        new Error("アーカイブ済みのプロジェクトではプロンプトを送信できません"),
-        { status: 409 },
-      );
-    }
+  // Gate precedence (archived project → Bot-code forwarding → foreign lease) lives in
+  // backend core; each lookup stays here and runs only when the ladder reaches it.
+  const promptGate = resolvePromptGate({
+    projectArchived: () => {
+      if (!taskBeforePrompt.projectId) return false;
+      return Boolean(getProject(taskBeforePrompt.projectId)?.archived);
+    },
+    forwardToBotCode: () => shouldForwardBotCodePrompt(taskBeforePrompt),
+    leaseOwnedElsewhere: () => isTaskRuntimeOwnedElsewhere(taskBeforePrompt),
+  });
+  if (promptGate === "archived-project") {
+    throw Object.assign(
+      new Error("アーカイブ済みのプロジェクトではプロンプトを送信できません"),
+      { status: 409 },
+    );
   }
-  if (shouldForwardBotCodePrompt(taskBeforePrompt)) {
+  if (promptGate === "forward-bot-code") {
     startBotCodeRelay();
     queueBotCodePrompt(
       taskBeforePrompt.botId ?? taskBeforePrompt.supervisorBotId!,
@@ -9201,7 +9209,7 @@ export async function promptTask(
     );
     return toSummary(taskBeforePrompt);
   }
-  if (isTaskRuntimeOwnedElsewhere(taskBeforePrompt)) {
+  if (promptGate === "lease-busy") {
     throw Object.assign(new Error(TASK_LEASE_BUSY_ERROR), { status: 409 });
   }
   // Settings changed in another worker (or while the task was closed) apply

@@ -33,3 +33,18 @@ export function clearSessionQueue(
   warn?: (message: string) => void,
 ): void;
 export function isReasoningMandatoryError(error: unknown): boolean;
+
+/** Which prompt gate refuses (or forwards) before any session work; null means proceed. */
+export function resolvePromptGate(gates: {
+  projectArchived: () => boolean;
+  forwardToBotCode: () => boolean;
+  leaseOwnedElsewhere: () => boolean;
+}): "archived-project" | "forward-bot-code" | "lease-busy" | null;
+
+/** Whether a Code task's prompt belongs to its Bot's worker. */
+export function shouldForwardBotCodePrompt(input: {
+  isBot: boolean;
+  botId: string | null | undefined;
+  botEnabled: unknown;
+  leaseHeldElsewhere: boolean;
+}): boolean;
