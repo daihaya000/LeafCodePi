@@ -628,3 +628,19 @@ export function releaseSupervisionRefusal({ kind, hasBotId, roomOrigin, supervis
   }
   return null;
 }
+
+/**
+ * The requests one scan must process, in read order. Only requests that still hold a claim are
+ * processed; the settled ones are left for the pruning step, and the caller runs these in parallel so
+ * one failing request cannot stop the others.
+ */
+export function activeCodeRequestIds(requests) {
+  return requests.filter((request) => isActiveCodeRequest(request)).map((request) => request.id);
+}
+
+/**
+ * Where a Code session's state change is announced: on the origin task's stream (so the Bot or Room
+ * card updates) and on the relay channel (so every worker's UI reacts). The payload is identical for
+ * both, unlike an attention event, because the channel carries no per-task projection.
+ */
+export const CODE_SESSION_EVENT_TARGETS = Object.freeze(["origin-task", "relay-channel"]);

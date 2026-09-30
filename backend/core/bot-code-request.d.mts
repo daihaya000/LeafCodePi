@@ -272,3 +272,9 @@ export function releaseSupervisionRefusal(input: {
   roomOrigin: boolean;
   supervisorBotId: string | null | undefined;
 }): string | null;
+
+/** The requests one scan must process (active only), in read order. */
+export function activeCodeRequestIds(requests: ReadonlyArray<{ id: string; state: string }>): string[];
+
+/** Where a Code session's state change is announced. */
+export const CODE_SESSION_EVENT_TARGETS: readonly string[];

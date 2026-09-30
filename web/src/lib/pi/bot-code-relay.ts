@@ -26,6 +26,7 @@ import {
 import { isGoalLoopOperatorHold } from "@/lib/pi/goal-loop-state";
 import { isRoomStopRequest } from "@/lib/room-conversation";
 import {
+  activeCodeRequestIds,
   adoptSupervisionRefusal,
   botCodeReportText as coreBotCodeReportText,
   buildCodeRequestRecord,
@@ -1222,7 +1223,9 @@ export function createBotCodeRelay(deps: RelayDependencies) {
         if (!shouldPruneCodeRequest({ isActive: active(request), fileMtimeMs, now: pruneNow })) continue;
         try { unlinkSync(requestPath(request.id)); } catch { /* already gone */ }
       }
-      await Promise.all(requests().filter(active).map((request) => processRequest(request.id).catch((error) => {
+      // Which requests a scan processes lives in backend core; the parallel run stays here so one
+      // failing request cannot stop the others.
+      await Promise.all(activeCodeRequestIds(requests()).map((id) => processRequest(id).catch((error) => {
         console.warn("[bot-code-relay] delivery deferred:", error instanceof Error ? error.message : String(error));
       })));
     } finally { ticking = false; }

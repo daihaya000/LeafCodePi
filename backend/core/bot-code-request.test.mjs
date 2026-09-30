@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
-  adoptSupervisionRefusal, botCodeReportText, buildCodeRequestRecord, cancellationTargetForRequest, codeAutoChainRefusal,
-  codeCompletionAction, codeDispatchResultState,
+  activeCodeRequestIds, adoptSupervisionRefusal, botCodeReportText, buildCodeRequestRecord, cancellationTargetForRequest, codeAutoChainRefusal,
+  codeCompletionAction, codeDispatchResultState, CODE_SESSION_EVENT_TARGETS,
   codeGoalLoopRefusal,
   codeLaunchRefusal, codeLinkedSessionState, codePromptRefusal, codeProjectRefusal, codeReportingRefusal,
   codeTaskIdRefusal, CODE_DELIVERY_RETRY_MS, CODE_RELAY_TICK_MS,
@@ -764,4 +764,20 @@ test("only a supervised Code task can be released", () => {
   assert.match(releaseSupervisionRefusal({ kind: "code", hasBotId: false, roomOrigin: false, supervisorBotId: null }), /ユーザー委任したCodeタスク/, "nothing to release without a supervisor");
   assert.match(releaseSupervisionRefusal({ kind: "code", hasBotId: false, roomOrigin: false, supervisorBotId: "" }), /ユーザー委任したCodeタスク/);
   assert.equal(releaseSupervisionRefusal({ kind: undefined, hasBotId: false, roomOrigin: false, supervisorBotId: "bot-1" }), null);
+});
+
+test("a scan processes only the active requests, in read order", () => {
+  const requests = [
+    { id: "a", state: "running" },
+    { id: "b", state: "delivered" },
+    { id: "c", state: "queued" },
+    { id: "d", state: "cancelled" },
+    { id: "e", state: "ready" },
+  ];
+  assert.deepEqual(activeCodeRequestIds(requests), ["a", "c", "e"]);
+  assert.deepEqual(activeCodeRequestIds([]), []);
+});
+
+test("a state change is announced on the origin task and the relay channel", () => {
+  assert.deepEqual([...CODE_SESSION_EVENT_TARGETS], ["origin-task", "relay-channel"]);
 });
