@@ -16,6 +16,7 @@ const mocks = vi.hoisted(() => ({
   stopBotCodeTask: vi.fn(),
   botIdForCodeTask: vi.fn(),
   localRuntimeBlocked: vi.fn(() => false),
+  assertLocalRuntimeAllowed: vi.fn(),
   forwardGoalLoopControl: vi.fn(),
   forwardGoalLoopStart: vi.fn(),
   jsonError: vi.fn((error: unknown) => ({
@@ -47,7 +48,7 @@ vi.mock("@/lib/pi/harness", () => ({
 }));
 vi.mock("@/lib/pi/runtime-ownership", () => ({
   localRuntimeBlocked: mocks.localRuntimeBlocked,
-  assertLocalRuntimeAllowed: vi.fn(),
+  assertLocalRuntimeAllowed: mocks.assertLocalRuntimeAllowed,
 }));
 vi.mock("@/lib/backend-forward", () => ({
   forwardGoalLoopControl: mocks.forwardGoalLoopControl,
@@ -66,6 +67,7 @@ vi.mock("@/lib/backend-forward", () => ({
 
 import { AUTO_AGENT_VALUE } from "@/lib/default-agent";
 import { PATCH, POST } from "./route";
+import { startGoalLoopWithSelection } from "@/lib/pi/goal-loop-start";
 
 function request(body: unknown): NextRequest {
   return new NextRequest("http://localhost/api/tasks/task-1/goal-loop", {
@@ -190,6 +192,7 @@ describe("POST /api/tasks/[id]/goal-loop", () => {
       thinkingLevel: "low",
     };
     mocks.getTask.mockReset();
+    mocks.assertLocalRuntimeAllowed.mockReset();
     mocks.readSessionConversation.mockReset();
     mocks.resolveAutoAgent.mockReset();
     mocks.resolveAutoModel.mockReset();
@@ -225,6 +228,34 @@ describe("POST /api/tasks/[id]/goal-loop", () => {
     });
     mocks.goalLoopCommand.mockResolvedValue({ id: "loop-1", status: "queued" });
     mocks.validateTaskModelSelection.mockResolvedValue(undefined);
+  });
+
+  it("starts directly without Next request/response objects", async () => {
+    const result = await startGoalLoopWithSelection("task-1", {
+      goal: " テストを追加する ",
+      acceptance: "テストが通る\n差分を確認する",
+      auto: true,
+      agent: AUTO_AGENT_VALUE,
+    });
+    expect(result).toMatchObject({ loop: { status: "queued" }, agent: "reviewer" });
+    expect(result.autoDecision).toMatchObject({ modelID: "gpt-5.6-sol" });
+    expect(mocks.goalLoopCommand).toHaveBeenCalledWith("task-1", expect.objectContaining({
+      goal: "テストを追加する",
+      acceptance: ["テストが通る", "差分を確認する"],
+      autoAgent: true,
+    }));
+  });
+
+  it("refuses a direct non-owner start before reading or changing the task", async () => {
+    mocks.assertLocalRuntimeAllowed.mockImplementation(() => {
+      throw new Error("runtime not owned");
+    });
+    await expect(startGoalLoopWithSelection("task-1", { goal: "直す", auto: true }))
+      .rejects.toThrow("runtime not owned");
+    expect(mocks.getTask).not.toHaveBeenCalled();
+    expect(mocks.resolveAutoModel).not.toHaveBeenCalled();
+    expect(mocks.setTaskModel).not.toHaveBeenCalled();
+    expect(mocks.goalLoopCommand).not.toHaveBeenCalled();
   });
 
   it("resolves Auto before starting Goal Loop and returns the selected agent", async () => {
