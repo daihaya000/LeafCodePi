@@ -218,6 +218,7 @@ import { restoredPromptState, restoredTaskMetadata, restoredThroughputState as c
 import { compactionFailureMessage, isHarnessAutoCompactionError as coreIsHarnessAutoCompactionError, runAgentStartTaskSync, shouldApplySettledStatus, shouldSkipEventForMissingTask, shouldSyncTaskFromSessionEvent as coreShouldSyncTaskFromSessionEvent, type SessionSyncEvent } from "@backend-core/session-event-decisions.mjs";
 import { classifySnapshotEvent, flushPendingSnapshotOnUnsubscribe, pendingSnapshotFlush, SNAPSHOT_THROTTLE_MS } from "@backend-core/snapshot-schedule.mjs";
 import { publishAttachedLive, resolveEnsureLiveAttempt, runEnsureLiveGates } from "@backend-core/live-lifecycle.mjs";
+import { resolveBotSessionOptions } from "@backend-core/bot-session-options.mjs";
 import { runSessionEventEffects } from "@backend-core/session-event-effects.mjs";
 import { isBotTask, liveSessionName, liveSessionRefusalError, liveSessionWorkspace, preflightLiveSession, TASK_ARCHIVED_MESSAGE, TASK_NOT_FOUND_MESSAGE, resolveSessionAccountId, resolveSessionAccountRefusal, resolveSessionPermissionMode, resolveSessionSkillPermission, resolveSessionThinkingLevelSource, resolveStoredModelOutcome } from "@backend-core/live-session-preflight.mjs";
 import { runSerializedByKey } from "@backend-core/keyed-serializer.mjs";
@@ -3068,17 +3069,22 @@ function botSessionOptions(
 } {
   if (task.kind !== "bot" || !task.botId) return {};
   const bot = getBot(task.botId);
-  return {
-    appendSystemPrompt: [
-      ...botPromptSources(task.botId),
-      ...(roomForCodeOrigin(task) ? [ROOM_SYSTEM_PROMPT] : []),
-    ],
-    noContextFiles: true,
-    botSkills: bot?.skills,
-    botTools: (bot?.tools ?? BOT_DEFAULT_TOOL_NAMES).filter(
-      (tool) => tool !== "powershell" || process.platform === "win32",
-    ),
-    skillScope: "bot",
+  // The option rules (prompt order, Room prompt, tool filtering) live in backend core.
+  return resolveBotSessionOptions({
+    isBot: true,
+    promptSources: botPromptSources(task.botId),
+    roomOrigin: Boolean(roomForCodeOrigin(task)),
+    roomSystemPrompt: ROOM_SYSTEM_PROMPT,
+    skills: bot?.skills,
+    tools: bot?.tools,
+    defaultToolNames: BOT_DEFAULT_TOOL_NAMES,
+    platform: process.platform,
+  }) as {
+    appendSystemPrompt: string[];
+    noContextFiles: boolean;
+    botSkills: BotSkillsConfig;
+    botTools: readonly string[];
+    skillScope: SkillScope;
   };
 }
 
