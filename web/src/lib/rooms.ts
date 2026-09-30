@@ -4,6 +4,7 @@ import { randomUUID } from "node:crypto";
 import { EventEmitter } from "node:events";
 import { dataDir } from "./paths";
 import { withDirectoryLock } from "@backend-core/directory-lock.mjs";
+import { normalizeRoom as coreNormalizeRoom } from "@backend-core/room-normalize.mjs";
 import { botTaskId, botWorkspace, getBot, listBots } from "./bots";
 import { deleteTask, getTask, insertBotTask, listTasks, patchTask } from "./store";
 import { ROOM_HANDOFF_STATES } from "./types";
@@ -124,36 +125,9 @@ function assertId(id: string): void {
   if (!isValidId(id)) throw new Error("invalid room id");
 }
 function roomPath(id: string): string { assertId(id); return join(roomsRoot(), `${id}.json`); }
-function normalizeOutcome(value: unknown): RoomOutcome | undefined {
-  const outcome = value as Partial<RoomOutcome> | undefined;
-  const kinds = ["code-wait", "members", "turns", "repeat", "done", "mention"];
-  return outcome && typeof outcome.requestId === "string" && typeof outcome.kind === "string" && kinds.includes(outcome.kind)
-    ? { kind: outcome.kind as RoomOutcome["kind"], requestId: outcome.requestId }
-    : undefined;
-}
 function normalizeRoom(value: Partial<RoomDto>, id: string): RoomDto | null {
-  if (value.id !== id || typeof value.name !== "string" || !Array.isArray(value.members)) return null;
-  const messages = Array.isArray(value.messages) ? value.messages.filter((item): item is RoomMessage => Boolean(item && typeof item === "object" && typeof item.id === "string" && (item.role === "user" || item.role === "assistant") && typeof item.text === "string" && typeof item.createdAt === "number" && (!("files" in item) || (Array.isArray(item.files) && item.files.every((file) => Boolean(file && typeof file === "object" && typeof file.file === "string" && typeof file.name === "string" && typeof file.mimeType === "string" && typeof file.size === "number")))))) : [];
-  const lastOutcome = normalizeOutcome(value.lastOutcome);
-  const isHandoff = (item: unknown): item is RoomHandoff => {
-    const handoff = item as RoomHandoff | undefined;
-    return Boolean(handoff && typeof handoff === "object" && typeof handoff.id === "string" && typeof handoff.requestId === "string"
-      && typeof handoff.fromMessageId === "string" && typeof handoff.fromBotId === "string" && typeof handoff.toBotId === "string"
-      && typeof handoff.task === "string" && ROOM_HANDOFF_STATES.includes(handoff.state) && typeof handoff.createdAt === "number");
-  };
-  const handoffs = Array.isArray(value.handoffs) ? value.handoffs.filter(isHandoff) : [];
-  return {
-    id,
-    name: value.name,
-    members: [...new Set(value.members.filter((item): item is string => typeof item === "string"))],
-    botRelayEnabled: value.botRelayEnabled === true,
-    ...(value.codeAutoApprove === true ? { codeAutoApprove: true } : {}),
-    ...(lastOutcome ? { lastOutcome } : {}),
-    createdAt: String(value.createdAt),
-    updatedAt: String(value.updatedAt),
-    messages,
-    ...(handoffs.length > 0 ? { handoffs } : {}),
-  };
+  // Validation lives in backend core; the handoff vocabulary is the shared DTO constant.
+  return coreNormalizeRoom(value, id, ROOM_HANDOFF_STATES);
 }
 function readRoom(id: string): RoomDto | undefined {
   try { return normalizeRoom(JSON.parse(readFileSync(roomPath(id), "utf8")) as Partial<RoomDto>, id) ?? undefined; } catch { return undefined; }
