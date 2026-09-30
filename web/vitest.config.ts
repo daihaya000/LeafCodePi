@@ -1,4 +1,5 @@
 import { configDefaults, defineConfig } from "vitest/config";
+import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -12,6 +13,7 @@ export default defineConfig({
   resolve: {
     alias: {
       "@": fileURLToPath(new URL("./src", import.meta.url)),
+      "@shared": fileURLToPath(new URL(existsSync(fileURLToPath(new URL("./shared", import.meta.url))) ? "./shared" : "../shared", import.meta.url)),
     },
   },
   esbuild: {

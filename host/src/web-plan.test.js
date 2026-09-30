@@ -122,6 +122,21 @@ test("isWebBuildStale ignores test-only changes", () => {
   assert.equal(isWebBuildStale(WEB_DIR, DIST_DIR, fs), false);
 });
 
+test("isWebBuildStale watches shared contracts without watching backend implementations", () => {
+  const shared = join(WEB_DIR, "..", "shared");
+  const fs = fakeFs({
+    files: {
+      [join(DIST_DIR, "BUILD_ID")]: 1000,
+      [join(shared, "types.ts")]: 900,
+      [path("..", "backend", "src", "entry.mjs")]: 5000,
+    },
+    dirs: { [shared]: ["types.ts"] },
+  });
+  assert.equal(isWebBuildStale(WEB_DIR, DIST_DIR, fs), false);
+  fs.files[join(shared, "types.ts")] = 1100;
+  assert.equal(isWebBuildStale(WEB_DIR, DIST_DIR, fs), true);
+});
+
 test("isWebBuildStale returns false without a BUILD_ID", () => {
   const fs = fakeFs({
     files: { [path("package.json")]: 5000 },

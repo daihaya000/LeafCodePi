@@ -26,11 +26,26 @@
 
 ## 段階と現在地
 
-1. 通信契約・依存境界: **着手済み**。認証、版数、health、起動/停止、実HTTP・子プロセステストを追加。タスク・設定・認証・Bot/RoomのAPI棚卸し、DTO抽出は未完。
+1. 通信契約・依存境界: **進行中**。認証、版数、health、起動/停止を追加。既存のタスク・モデル・質問/承認・Bot/Room・履歴・Git等のDTOを `shared/types.ts` へ移動。既存 `@/lib/types` は互換再エクスポート。共有契約はNext/SDK/Node型への依存なしで単独型検証できる。設定等の個別ファイルにあるDTOと実行依存の抽出は後続。
 2. Next非依存の実行層: 未着手。`harness.ts` と保存・ブリッジを抽出し、起動処理を `instrumentation.ts` から移す。
 3. 独立API・Web中継: 未着手。既存URLと応答形式を維持。切替は排他的に行い、旧経路とBackendの二重実行/書込を禁止。
 4. Host・ビルド・再起動分離: 未着手。ready確認、独立した再起動予算、稼働中SDK/拡張世代の固定、互換性確認を追加。
 5. 段階導入・旧経路撤去: 未着手。実プロセス継続試験後にSDK依存とシングルトンをWebUIから除去。
+
+## API境界の棚卸し（2026-09-30、146 route.ts）
+
+| API群 | 移設先・主な依存 |
+| --- | --- |
+| tasks / projects / models / providers / provider-models / accounts | Backend。harness、ストア、履歴投影、OAuth、モデル選択 |
+| bots / bots/rooms / routines | Backend。セッション、Room実行、Bot relay、定期実行、イベント |
+| settings / agents / skills / extensions / MCP / 指示Markdown | Backend。設定・ファイル更新、拡張ブリッジ、ライブセッション再読込 |
+| git / diff / browse / workspace files / memory / usage / notifications / TTS | Backend。ホスト上のファイル・子プロセス・資格情報・外部通信 |
+| auth/webui | WebUIに残す外部認証境界。内部トークンとは分離 |
+| build-info | WebUI配信世代を返すためWebUIに残す |
+| host / llama-server / translation | 既存Host制御APIとの連携。SDK依存・設定更新がある部分はBackendへ移す |
+| host-probe | ローカルクライアント判定の意味を維持し、プロキシ越しの接続元を検証する |
+
+共有契約のproductionビルドは、checkoutの `shared/` を **各Webビルドミラー内の `shared/`** にコピーする。親ディレクトリへの共用コピーやハードリンクは作らない。開発・テスト・ビルドで `@shared/*` を解決し、共有契約の更新もビルド更新判定に含める。今回も実行経路は切り替えない。
 
 ## 後続で必要な通信仕様
 

@@ -106,6 +106,51 @@ test("syncMirror preserves the mirror's own build output while pruning removed s
   }
 });
 
+test("syncMirror isolates shared contracts per checkout and prunes removed contracts", () => {
+  const { root, source, mirror } = sandbox();
+  try {
+    const shared = join(root, "shared");
+    mkdirSync(source, { recursive: true });
+    mkdirSync(shared, { recursive: true });
+    writeFileSync(join(shared, "types.ts"), "export type Status = 'ready';\n");
+    writeFileSync(join(shared, "obsolete.ts"), "export type Old = true;\n");
+    syncMirror({ sourceDir: source, mirrorRoot: mirror });
+    assert.equal(readFileSync(join(mirror, "shared", "types.ts"), "utf8"), "export type Status = 'ready';\n");
+    assert.notEqual(statSync(join(shared, "types.ts")).ino, statSync(join(mirror, "shared", "types.ts")).ino);
+    assert.equal(syncMirror({ sourceDir: source, mirrorRoot: mirror }).copied, 0);
+    rmSync(join(shared, "obsolete.ts"));
+    syncMirror({ sourceDir: source, mirrorRoot: mirror });
+    assert.equal(existsSync(join(mirror, "shared", "obsolete.ts")), false);
+    // Never touch another checkout's contracts in the parent build directory.
+    const unrelated = join(root, "unrelated", "shared");
+    mkdirSync(unrelated, { recursive: true });
+    writeFileSync(join(unrelated, "keep.ts"), "keep\n");
+    rmSync(shared, { recursive: true });
+    syncMirror({ sourceDir: source, mirrorRoot: mirror });
+    assert.equal(existsSync(join(mirror, "shared")), false);
+    assert.equal(readFileSync(join(unrelated, "keep.ts"), "utf8"), "keep\n");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("syncMirror rejects shared path collisions before changing sources", () => {
+  const { root, source, mirror } = sandbox();
+  try {
+    mkdirSync(source, { recursive: true });
+    const shared = join(root, "shared");
+    mkdirSync(shared, { recursive: true });
+    writeFileSync(join(shared, "keep.ts"), "keep\n");
+    assert.throws(() => syncMirror({ sourceDir: source, mirrorRoot: join(shared, "build") }), /must not overlap/);
+    mkdirSync(join(source, "shared"), { recursive: true });
+    assert.throws(() => syncMirror({ sourceDir: source, mirrorRoot: mirror }), /reserved/);
+    assert.equal(readFileSync(join(shared, "keep.ts"), "utf8"), "keep\n");
+    assert.equal(existsSync(mirror), false);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("tsconfig.json is copied, not hard-linked, so a build cannot rewrite the repository", () => {
   const { root, source, mirror } = sandbox();
   try {

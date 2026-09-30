@@ -18,8 +18,9 @@ import { fileURLToPath } from "node:url";
 /**
  * Persistent production workspace outside OneDrive, at the existing mirror path.
  * Next 16 requires distDir to stay inside its project, so copy only web sources
- * here. Dependencies are installed locally by build-web.mjs, never traversed or
- * hard-linked from OneDrive. Build output and caches stay in this workspace.
+ * here, along with the checkout's shared contracts. Dependencies are installed
+ * locally by build-web.mjs, never traversed or hard-linked from OneDrive.
+ * Build output and caches stay in this workspace.
  */
 
 const HERE = fileURLToPath(import.meta.url);
@@ -113,11 +114,11 @@ function isUpToDate(sourceStat, targetStat, from, to) {
   }
 }
 
-function syncDir(sourceDir, targetDir, counters) {
+function syncDir(sourceDir, targetDir, counters, reserved = []) {
   mkdirSync(targetDir, { recursive: true });
 
   const sourceEntries = readdirSync(sourceDir, { withFileTypes: true });
-  const keep = new Set();
+  const keep = new Set(reserved);
 
   for (const entry of sourceEntries) {
     // Name-based: OneDrive placeholders and junctions may not report a directory.
@@ -186,9 +187,33 @@ export function syncMirror(options = {}) {
     throw new Error(`The build mirror (${mirrorRoot}) must not live inside the project (${sourceDir}) or contain it.`);
   }
 
+  const sharedDir = join(dirname(sourceDir), "shared");
+  const mirroredSharedDir = join(mirrorRoot, "shared");
+  if (existsSync(join(sourceDir, "shared"))) {
+    throw new Error("web/shared is reserved for mirrored checkout contracts");
+  }
+  const shared = process.platform === "win32" ? sharedDir.toLowerCase() : sharedDir;
+  if (target === shared || target.startsWith(shared + sep) || shared.startsWith(target.endsWith(sep) ? target : target + sep)) {
+    throw new Error("The build mirror must not overlap the checkout shared directory");
+  }
+  if (existsSync(sharedDir)) {
+    const sharedStat = lstatSync(sharedDir);
+    if (sharedStat.isSymbolicLink() || !sharedStat.isDirectory()) {
+      throw new Error("The checkout shared directory must be a regular directory");
+    }
+  }
+  if (existsSync(mirroredSharedDir) && lstatSync(mirroredSharedDir).isSymbolicLink()) {
+    throw new Error("The mirrored shared directory must not be a symbolic link");
+  }
   const counters = { copied: 0, unchanged: 0, removed: 0 };
   const startedAt = Date.now();
-  syncDir(sourceDir, mirrorRoot, counters);
+  syncDir(sourceDir, mirrorRoot, counters, ["shared"]);
+  if (existsSync(sharedDir)) {
+    syncDir(sharedDir, mirroredSharedDir, counters);
+  } else if (existsSync(mirroredSharedDir)) {
+    rmSync(mirroredSharedDir, { recursive: true, force: true });
+    counters.removed += 1;
+  }
 
   return {
     sourceDir,

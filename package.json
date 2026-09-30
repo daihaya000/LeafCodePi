@@ -11,7 +11,8 @@
     "icons": "node scripts/gen-icons.mjs",
     "lint": "npm --prefix web run lint",
     "test": "npm --prefix web test && npm --prefix host test && npm --prefix backend test && npm --prefix extensions/leafcode-goal-loop test",
-    "typecheck": "npm --prefix web run typecheck && npm run typecheck:todowrite",
+    "typecheck": "npm run typecheck:shared && npm --prefix web run typecheck && npm run typecheck:todowrite",
+    "typecheck:shared": "npm --prefix web exec -- tsc --project shared/tsconfig.json",
     "typecheck:todowrite": "npm --prefix extensions/leafcode-todowrite run typecheck",
     "check": "npm run typecheck && npm run lint && npm test"
   },

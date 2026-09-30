@@ -1,0 +1,797 @@
+export type TaskStatus = "working" | "ready" | "idle" | "error" | "archived" | "unknown";
+
+export type ThinkingLevel =
+  | "off"
+  | "minimal"
+  | "low"
+  | "medium"
+  | "high"
+  | "xhigh"
+  | "max";
+
+export const NO_PROJECT_NAME = "プロジェクトなし";
+/** SSE marker emitted on the Bot conversation when an owned Code request settles. */
+export const BOT_CODE_SESSION_CHANGED_EVENT = "code_session_changed";
+/** SSE event name carrying a finished Bot routine run (`/api/bots/events`). */
+export const BOT_ROUTINE_RUN_EVENT = "routine";
+
+export type BotSkillsConfig = {
+  mode: "inherit" | "include" | "exclude";
+  include: string[];
+  exclude: string[];
+};
+
+export type BotToolName = "read" | "write" | "edit" | "bash" | "powershell" | "question" | "grep" | "find" | "ls" | "memory_search" | "memory_add" | "memory_replace" | "memory_remove" | "session_search" | "skill_manage" | "subagent" | "todowrite" | "tool_search" | "jev_judge" | "intercom" | "web_search" | "source_check" | "fetch_content" | "get_search_content" | "contact_supervisor" | "subagent_wait" | "structured_output" | "task_mutation_decision" | "watchdog_permission_decision" | "watchdog_warn" | "mcp";
+export const BOT_TOOL_NAMES: readonly BotToolName[] = ["read", "write", "edit", "bash", "powershell", "question", "grep", "find", "ls", "memory_search", "memory_add", "memory_replace", "memory_remove", "session_search", "skill_manage", "subagent", "todowrite", "tool_search", "jev_judge", "intercom", "web_search", "source_check", "fetch_content", "get_search_content", "contact_supervisor", "subagent_wait", "structured_output", "task_mutation_decision", "watchdog_permission_decision", "watchdog_warn", "mcp"];
+/** Windows desktop tools from leafcode-computer-use. Code/agents only; never Bot tools. */
+export const COMPUTER_USE_TOOL_NAMES = [
+  "find_roots", "observe_ui", "search_ui", "expand_ui", "inspect_ui", "act_ui", "read_text", "wait_for",
+] as const;
+/** Tools that mutate state or coordinate subagents internally; off by default for Bots. */
+export const BOT_DEFAULT_DISABLED_TOOL_NAMES = [
+  "write", "edit", "bash", "powershell", "subagent", "todowrite",
+  "contact_supervisor", "subagent_wait", "structured_output", "task_mutation_decision", "watchdog_permission_decision", "watchdog_warn",
+] as const satisfies readonly BotToolName[];
+const BOT_DEFAULT_DISABLED_TOOL_SET = new Set<string>(BOT_DEFAULT_DISABLED_TOOL_NAMES);
+export const BOT_DEFAULT_TOOL_NAMES: readonly BotToolName[] = BOT_TOOL_NAMES.filter((tool) => !BOT_DEFAULT_DISABLED_TOOL_SET.has(tool));
+
+export type RoomConversationTurn = { requestId: string; participantIds: string[]; turn: number; maxTurns: number };
+/** Why the opener bot was chosen for this turn (Room opener v2). */
+export type RoomOpenerReasonKind = "keyword" | "llm";
+/** Why an exchange stopped, so a quiet room is not mistaken for a finished one. */
+export type RoomOutcome = { kind: "code-wait" | "members" | "turns" | "repeat" | "done" | "mention"; requestId: string };
+export type CodeRequestState = "queued" | "starting" | "running" | "ready" | "delivered" | "cancelled";
+export type RoomAttention = { botId: string; taskId: string; permission: PermissionRequestDto | null; question: QuestionRequestDto | null };
+/** Image attachment stored beside the room file; `file` is server-generated. */
+export type RoomImage = { file: string; mimeType: string };
+/** Non-image attachment stored beside the room file and served by the files route. */
+export type RoomFile = { file: string; mimeType: string; name: string; size: number };
+
+export type RoomMessage = {
+  id: string;
+  role: "user" | "assistant";
+  text: string;
+  createdAt: number;
+  images?: RoomImage[];
+  files?: RoomFile[];
+  botId?: string;
+  botName?: string;
+  status?: "working" | "done" | "error";
+  /** Server-owned request/turn correlation, also persisted in delegated Code receipts. */
+  conversation?: RoomConversationTurn;
+  codeRequestId?: string;
+  codeTaskId?: string | null;
+  codeState?: CodeRequestState;
+  /** Per-request cards; the singular fields above remain readable for older Room history. */
+  codeRequests?: {
+    id: string;
+    taskId: string | null;
+    state: CodeRequestState;
+    prompt?: string;
+    outcome?: string;
+    goalLoop?: CodeRequestGoalLoopReport;
+    goalLoopSummary?: GoalLoopSummaryDto;
+    todoProgress?: TodoProgressDto;
+    /** Live tool label for this request (folded cards no longer poll task detail). */
+    activity?: string;
+  }[];
+  /** What the delegated Code run is doing right now (tool label only, never its output). */
+  codeActivity?: string;
+  /** Display mirror of the handoffs registered from this message; the room file owns the records. */
+  handoffs?: { id: string; toBotId: string; toBotName: string; state: RoomHandoffState }[];
+  /** Short opener selection reason for UI chips (keyword hit vs LLM pick). */
+  openerReason?: RoomOpenerReasonKind;
+  /** Bot-to-bot relay metadata. These fields are absent for ordinary user messages. */
+  sourceBotId?: string;
+  relayTurnId?: string;
+  relayDepth?: number;
+  relayParentMessageId?: string;
+};
+
+export const ROOM_HANDOFF_STATES = ["waiting", "ready", "running", "done", "failed", "cancelled"] as const;
+export type RoomHandoffState = (typeof ROOM_HANDOFF_STATES)[number];
+/** Follow-up work one participant registered for another; delivered by the server, not by prose. */
+export type RoomHandoff = {
+  id: string;
+  /** Conversation (user request) the handoff belongs to. */
+  requestId: string;
+  /** Assistant message whose turn registered the handoff. */
+  fromMessageId: string;
+  fromBotId: string;
+  toBotId: string;
+  task: string;
+  /** The Code request this handoff waits for; absent means ready as soon as it is registered. */
+  waitForCodeRequestId?: string;
+  state: RoomHandoffState;
+  reason?: string;
+  /** Assistant message opened for the delivery run. */
+  responseMessageId?: string;
+  /** Tool call that registered it; replays of the same call return the same receipt. */
+  toolCallId?: string;
+  /** Opaque server envelope token; claimed at delivery (never client-supplied). */
+  relayEnvelopeToken?: string;
+  /** Server-derived hop depth for loop prevention. */
+  relayDepth?: number;
+  /** True when the server inferred this handoff from a formal @mention pill, not the tool. */
+  implicit?: boolean;
+  createdAt: number;
+  updatedAt: number;
+};
+
+export type RoomDto = {
+  id: string;
+  name: string;
+  members: string[];
+  /** Explicit opt-in for directed bot-to-bot relay / room_handoff. Default false. */
+  botRelayEnabled: boolean;
+  /** Operator opt-in: this room's Code requests skip the per-request approval prompt. */
+  codeAutoApprove?: boolean;
+  lastOutcome?: RoomOutcome;
+  createdAt: string;
+  updatedAt: string;
+  messages: RoomMessage[];
+  handoffs?: RoomHandoff[];
+};
+export type RoutineDto = {
+  id: string;
+  botId: string;
+  name: string;
+  prompt: string;
+  schedule: string;
+  enabled: boolean;
+  createdAt: string;
+  updatedAt: string;
+  failureCount: number;
+  lastRunAt: string | null;
+};
+
+/**
+ * ルーティン1回の実行結果。BotView を開いていない画面にも通知するため、
+ * サーバーから `/api/bots/events` で配る。
+ */
+export type RoutineRunEventDto = {
+  botId: string;
+  botName: string;
+  routineId: string;
+  routineName: string;
+  ok: boolean;
+  at: string;
+  /** 成功時の返信プレビュー（1行・長さ制限あり）。 */
+  preview: string | null;
+  /** 失敗時の理由。 */
+  error: string | null;
+  failureCount: number;
+  /** 連続失敗で自動無効化されたか。 */
+  autoDisabled: boolean;
+};
+
+/** Wire-level avatar IDs; rendering geometry stays in the frontend. */
+export type BotAvatarShape = "circle" | "leaf" | "oval" | "square" | "capsule" | "triangle" | "hexagon" | "cloud" | "droplet";
+
+export type BotDto = {
+  id: string;
+  name: string;
+  label: string;
+  avatarColor: string;
+  /** Legacy bots without a shape use circle. */
+  avatarShape?: BotAvatarShape;
+  /** 目の色。未設定なら白（明るい本体色では自動で暗色）。 */
+  avatarEyeColor?: string;
+  avatarGlasses?: boolean;
+  avatarMustache?: boolean;
+  /** アップロードされたアバター画像（data URL）。未設定ならnullでavatarColorのSVGにフォールバック。 */
+  avatarImage: string | null;
+  createdAt: string;
+  updatedAt: string;
+  model: string | null;
+  /** TTSの音声上書き。未設定ならグローバル設定の音声を使う。 */
+  ttsVoice?: string | null;
+  thinkingLevel: ThinkingLevel | null;
+  permissionMode: "allow" | "ask" | "deny" | null;
+  skills: BotSkillsConfig;
+  /** Tool names enabled for this Bot. Missing legacy values migrate to the safe defaults. */
+  tools?: BotToolName[];
+  extraRoots: string[];
+  enabled: boolean;
+  /** Whether notifications for this bot are enabled in the Bot UI. */
+  notificationsEnabled: boolean;
+  /**
+   * Opt-in for Bot-id intercom. Default off.
+   * Sending also requires `intercom` on the tool allowlist.
+   */
+  intercomEnabled?: boolean;
+  /**
+   * Intercom roster / send scope (workspace or project). Empty = `default`.
+   * Bots in different scopes never list or accept send from each other.
+   */
+  intercomScopeId?: string;
+  /** Opt-in for guarded multi-Bot fanout. Default off. */
+  intercomFanoutEnabled?: boolean;
+  /** Skip the approval prompt for Code requests originating from this Bot. */
+  codeAutoApprove: boolean;
+  /** The Code task currently controlled by this Bot, when one is linked. */
+  codeSessionTaskId?: string | null;
+  /** 現在進行中のCodeセッション数。 */
+  codeSessionCount?: number;
+  soul: string;
+};
+
+/** Versioned Bot-to-Bot DM. Later fields must be ignored by old receivers. */
+export const BOT_INTERCOM_SCHEMA_VERSION = 1;
+export type BotIntercomMessageKind = "send" | "ask" | "reply";
+export type BotIntercomPresence = "online" | "busy" | "offline";
+export type BotIntercomDelivery = "delivered" | "queued" | "steered" | "cancelled" | "superseded";
+export type BotIntercomAttachmentMeta = {
+  kind: "image" | "file";
+  name: string;
+  mimeType: string;
+  file: string;
+  bytes: number;
+};
+export type BotIntercomMessageV1 = {
+  v: typeof BOT_INTERCOM_SCHEMA_VERSION;
+  id: string;
+  fromBotId: string;
+  toBotId: string;
+  text: string;
+  createdAt: number;
+  depth: number;
+  /** Phase B+. Absent on Phase A records; old receivers ignore it. */
+  kind?: BotIntercomMessageKind;
+  conversationId?: string;
+  replyTo?: string;
+  /** True when the recipient had no live 1:1 session at send time (mailbox queue). */
+  queued?: boolean;
+  /** Phase C+. Delivery / cancel / replace. Old receivers ignore these. */
+  delivery?: BotIntercomDelivery;
+  attachments?: BotIntercomAttachmentMeta[];
+  supersedes?: string;
+  supersededBy?: string;
+  retryOf?: string;
+  cancelled?: boolean;
+  /** Phase D+. Same-scope send; old receivers ignore it. */
+  scopeId?: string;
+  /** Phase D+. True when this delivery was part of an explicit fanout. */
+  fanout?: boolean;
+  fanoutDepth?: number;
+};
+export type BotIntercomInboxItemDto = BotIntercomMessageV1 & { fromName: string };
+export type BotIntercomInboxPreviewDto = {
+  fromBotId: string;
+  fromName: string;
+  text: string;
+  createdAt: number;
+  kind?: BotIntercomMessageKind;
+};
+export type BotIntercomPendingAskDto = {
+  id: string;
+  conversationId: string;
+  fromBotId: string;
+  fromName: string;
+  text: string;
+  createdAt: number;
+  expiresAt: number;
+};
+export type BotIntercomPeerPresenceDto = {
+  botId: string;
+  name: string;
+  status: BotIntercomPresence;
+};
+export type BotIntercomInboxDto = {
+  messages: BotIntercomInboxItemDto[];
+  unreadCount: number;
+  preview: BotIntercomInboxPreviewDto | null;
+  pendingAsks: BotIntercomPendingAskDto[];
+  /** Latest counterpart's online/busy/offline. Absent on empty inboxes. */
+  peerPresence?: BotIntercomPeerPresenceDto | null;
+};
+
+export const PROJECT_ICON_COLORS = [
+  "red",
+  "orange",
+  "yellow",
+  "lime",
+  "green",
+  "emerald",
+  "teal",
+  "cyan",
+  "blue",
+  "indigo",
+  "purple",
+  "pink",
+] as const;
+
+export type ProjectIconColor = (typeof PROJECT_ICON_COLORS)[number];
+
+export type ProjectDto = {
+  id: string;
+  name: string;
+  rootPath: string;
+  favorite: boolean;
+  archived: boolean;
+  createdAt: string;
+  lastOpenedAt: string | null;
+  icon?: string | null;
+  iconColor?: ProjectIconColor | null;
+};
+
+export type TodoProgressDto = {
+  completed: number;
+  total: number;
+};
+
+export type TaskSummary = {
+  id: string;
+  kind?: "code" | "bot";
+  /** Bot-originated Code sessions use this to identify the avatar shown in the task list. */
+  botId?: string;
+  /** User-started Code task currently supervised by this Bot. */
+  supervisorBotId?: string | null;
+  projectId: string | null;
+  projectName: string;
+  title: string;
+  /** タイトルの自動更新。未設定は設定のデフォルトに従う。 */
+  titleAutoUpdate?: boolean;
+  /** 自動付与されたセッションラベルの id。定義が消えた id は表示しない。 */
+  label?: string;
+  directory: string;
+  isolation: "current_folder";
+  status: TaskStatus;
+  sessionId: string | null;
+  sessionFile: string | null;
+  providerID?: string;
+  modelID?: string;
+  thinkingLevel?: ThinkingLevel;
+  /** このタスクで使う認証アカウント（docs/plans/multi-account.md）。未設定 = 既定（~/.pi/agent/auth.json）。 */
+  accountId?: string;
+  /** accountId がユーザー指定なら true。Auto で選ばれたアカウントは false。 */
+  accountIdExplicit?: boolean;
+  /** 適用中のスキル使用許可（設定画面の値）。未設定の旧タスクは許可扱い。 */
+  skillPermission?: "allow" | "deny";
+  /** 適用中のツール承認モード。ユーザー開始タスクは設定画面、Bot関与タスクはBotの値。 */
+  permissionMode?: "allow" | "ask" | "deny";
+  /** 巻き戻し前の leaf。ある間は「復元」できる。 */
+  revertLeafId?: string | null;
+  /** 空文字は応答開始前の停止。再開ボタンの目印。 */
+  manualAbortedAssistantId?: string | null;
+  /** 直近のハング自動再開回数。セッション差し替え後も通知を残す。 */
+  hangRetryCount?: number;
+  /** pi-subagents agent running as the main session persona (null = default). */
+  agent?: string | null;
+  createdAt: string;
+  updatedAt: string;
+  error?: string | null;
+  /** 直前の失敗がプロバイダー利用制限であることを示す一時的なUIヒント。 */
+  limitError?: boolean;
+  todoProgress?: TodoProgressDto;
+  /** 左メニューで使う軽量な Goal Loop 進捗。詳細状態は TaskDetail.goalLoop に保持する。 */
+  goalLoopSummary?: GoalLoopSummaryDto;
+};
+
+export type GoalLoopStatus =
+  | "queued"
+  | "running"
+  | "paused"
+  | "verifying_completed"
+  | "completed"
+  | "blocked"
+  | "stopped";
+
+export type GoalLoopProgress = {
+  time: string;
+  status: "progress" | "completed" | "verified_completed" | "blocked";
+  summary: string;
+  next?: string;
+  evidence?: string;
+};
+
+export type GoalLoopDto = {
+  id: string;
+  sessionId: string;
+  cwd: string;
+  status: GoalLoopStatus;
+  goal: string;
+  acceptance: string[];
+  maxTurns: number;
+  /** 次のターン開始までの待機時間（秒）。 */
+  cooldownSeconds: number;
+  /** クールタイム終了時刻。待機不要なら null。 */
+  nextTurnAt: string | null;
+  forceFullRun: boolean;
+  /** Auto agent selection is re-evaluated before every Goal Loop turn. */
+  autoAgent?: boolean;
+  turnCount: number;
+  turnKind: "goal" | "verification";
+  pauseReason: string;
+  error: string;
+  progress: GoalLoopProgress[];
+  summary: string;
+  evidence: string;
+  blockedReason: string;
+  rejectedClaims: number;
+  /** 連続して結果JSONを読めなかったターン数。正常な結果で0に戻る。 */
+  unreadableStreak: number;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type GoalLoopSummaryDto = Pick<GoalLoopDto, "status" | "maxTurns" | "turnCount">;
+
+/** ループ実行のCode依頼に添える結末。配送済み結果とUIの両方が同じ判断材料を見る。 */
+export type CodeRequestGoalLoopReport = GoalLoopSummaryDto & {
+  acceptance?: string[];
+  pauseReason?: string;
+  blockedReason?: string;
+  summary?: string;
+  evidence?: string;
+  /** 完了宣言が検証で却下された回数。0より大きいなら「完了」を疑う根拠になる。 */
+  rejectedClaims?: number;
+};
+
+export type TodoStatus = "pending" | "in_progress" | "completed" | "cancelled";
+export type TodoPriority = "high" | "medium" | "low";
+
+export type TodoDto = {
+  id: string;
+  content: string;
+  status: TodoStatus;
+  priority: TodoPriority;
+};
+
+export type ToolState = {
+  status: "pending" | "running" | "completed" | "cancelled" | "error";
+  input?: Record<string, unknown>;
+  output?: string;
+  title?: string;
+  error?: string;
+  /** Wall-clock start time of tool execution (ms epoch). */
+  startedAtMs?: number;
+  /** Wall-clock end time of tool execution (ms epoch). */
+  endedAtMs?: number;
+  /** pi-subagents run ids reported in the tool result details (subagent tool). */
+  subagentRunIds?: string[];
+};
+
+/** One pi-subagents child run, projected from its transcript artifact. */
+export type SubagentRunDto = {
+  runId: string;
+  agent: string;
+  index?: number;
+  status: "running" | "completed" | "error" | "stale";
+  startedAtMs: number;
+  lastActivityAtMs: number;
+  /** Tool the child is currently running, when known. */
+  currentTool: string | null;
+  /** Provider / model the child runs on (latest assistant message). */
+  provider?: string;
+  model?: string;
+  /** True when only the tail of a huge transcript was read. */
+  truncated: boolean;
+  messages: UiMessage[];
+};
+
+export type UiPart =
+  | { id: string; type: "text"; text: string }
+  | { id: string; type: "thinking"; text: string }
+  | {
+      id: string;
+      type: "tool";
+      tool: string;
+      callID: string;
+      state: ToolState;
+    }
+  | { id: string; type: "image"; url: string; mime: string; filename?: string }
+  | { id: string; type: "file"; name: string; mime: string; size?: number; data?: string; url?: string };
+
+export type UiDiagnostic = {
+  type: string;
+  timestamp?: number;
+  error?: {
+    name?: string;
+    message: string;
+    code?: string | number;
+  };
+  /** Provider transport details only; secrets, headers, and stacks are omitted. */
+  details?: {
+    configuredTransport?: string;
+    fallbackTransport?: string;
+    phase?: string;
+    eventsEmitted?: boolean;
+    requestBytes?: number;
+  };
+};
+
+export type GoalLoopTurn = {
+  /** Goal Loop instance, used to distinguish a restarted loop at turn 1. */
+  goalId?: string;
+  turn: number;
+  kind: "goal" | "verification";
+};
+
+export type UiIntercomContext = {
+  /** Name of the peer that sent the inbound message, when available. */
+  from?: string;
+};
+
+export type UiMessage = {
+  id: string;
+  role: "user" | "assistant" | "compaction";
+  createdAt: number;
+  parts: UiPart[];
+  /** Goal Loop turn that produced this message, when the session marker is available. */
+  goalLoopTurn?: GoalLoopTurn;
+  /** Assistant response generated for an inbound Bot intercom message. */
+  intercom?: UiIntercomContext;
+  /** この応答を生成した認証アカウント（未設定 = 既定）。アカウント切替の履歴確認用。 */
+  accountId?: string;
+  /** この応答を生成したエージェント（Composer変更後も履歴ごとに保持）。 */
+  agent?: string;
+  /** ハング watchdog による自動再送 user メッセージ（UI 非表示）。 */
+  hangRetry?: boolean;
+  /** この user メッセージはBot（Code委譲・Botパネル）が送った。Code画面の入力欄からの送信は未設定。 */
+  fromBot?: boolean;
+  model?: string;
+  provider?: string;
+  error?: string;
+  diagnostics?: UiDiagnostic[];
+  /** Tokens estimated before this compaction (compaction role only). */
+  tokensBefore?: number;
+  /** Provider-reported input tokens consumed to generate this assistant turn. */
+  inputTokens?: number;
+  /** Assistant output tokens used for tok/s (provider usage or live estimate). */
+  outputTokens?: number;
+  /** Generation throughput in tokens/sec for this assistant turn. */
+  tokensPerSecond?: number;
+  /** True when tokensPerSecond is decode-phase (excludes TTFT). */
+  tokensPerSecondDecode?: boolean;
+  /**
+   * Generation window in ms: from createdAt (the assistant timestamp, i.e. when
+   * generation started) to the last streamed token, so it ends at
+   * createdAt + responseDurationMs. Shown as the "thinking" seconds in the meta
+   * row, matching the upstream LeafCode display.
+   */
+  responseDurationMs?: number;
+};
+
+export type TaskMessageHistory = {
+  /** More messages are available before the current page. */
+  hasMore: boolean;
+  /** ID to pass as `before` when loading the preceding page. */
+  nextCursor: string | null;
+};
+
+export type TaskMessagePage = {
+  messages: UiMessage[];
+  messageHistory: TaskMessageHistory;
+};
+
+export type ModelOption = {
+  value: string;
+  label: string;
+  providerID: string;
+  modelID: string;
+  /** このモデルを利用する認証アカウント（既定 = undefined）。
+   *   Home のドロップダウンでアカウントをプロバイダ枠として分けるために使う。 */
+  accountId?: string;
+  accountLabel?: string;
+  /** True when the backing provider uses a subscription allowance, not API credit. */
+  subscription?: boolean;
+  input?: string[];
+  reasoning?: boolean;
+  thinkingLevels?: ThinkingLevel[];
+  /** Settings→モデルで保存した、このモデルの既定 effort。 */
+  defaultThinkingLevel?: ThinkingLevel;
+  /** CodexBar usage percent (0..100+) of the backing provider, when known. */
+  codexbarUsedPercent?: number | null;
+  /** Average CodexBar usage for an integrated provider, used for picker color only. */
+  codexbarIntegratedUsedPercent?: number | null;
+  /** True when the usage percent is display-only (do not use as a routing hint). */
+  codexbarDisplayOnly?: boolean;
+  /** True when the backing provider is near or at its rate limit. */
+  codexbarLimited?: boolean;
+  /** True when the provider hit its rate limit (usage >= 99.5%). */
+  codexbarMaxed?: boolean;
+  /** True when CodexBar is showing a last-good snapshot after a fetch failure. */
+  codexbarStale?: boolean;
+  /** Integrated account routing hides the backing account labels in the picker. */
+  routingMode?: "integrated";
+  /** Number of authenticated account candidates behind an integrated option. */
+  routingCandidateCount?: number;
+  /** 過去応答の平均 tok/s 実績（providerID::modelID 単位）。 */
+  avgTokensPerSecond?: number;
+};
+
+export type HealthDto = {
+  ok: boolean;
+  engine: "pi";
+  engineOk: boolean;
+  version: string | null;
+  modelCount: number;
+  dataDir: string;
+  error?: string | null;
+  /** Non-fatal provider sync issues from the last model list refresh. */
+  warnings?: string[];
+  /** Epoch ms this server process booted; changes only across a real restart. */
+  startedAt?: number;
+  /** ホストPC（このサーバー）のプラットフォーム。ネイティブダイアログの可否判定に使う。 */
+  platform?: string;
+};
+
+export type ProviderAuthDto = {
+  id: string;
+  name: string;
+  authenticated: boolean;
+  accountRoutingMode?: "integrated" | "separate";
+  methods?: ("api_key" | "oauth")[];
+  authSource?: string;
+  authLabel?: string;
+  subscription?: boolean;
+  oauthAvailable?: boolean;
+  highlighted?: boolean;
+  error?: string;
+  /** API URL を変更できるプロバイダーのみ、現在有効な base URL。 */
+  baseUrl?: string;
+};
+
+export type TaskDetail = TaskSummary & {
+  messages: UiMessage[];
+  /** Pagination state for UI timeline messages; omitted by full-history callers. */
+  messageHistory?: TaskMessageHistory;
+  isStreaming: boolean;
+  /** True while manual or auto context compaction is running. */
+  isCompacting?: boolean;
+  /** True when suggest mode reached the configured context threshold. */
+  compactionSuggested?: boolean;
+  contextUsage?: {
+    tokens: number | null;
+    contextWindow: number;
+    percent: number | null;
+  };
+  goalLoop?: GoalLoopDto | null;
+  todos?: TodoDto[];
+  permissionRequest?: PermissionRequestDto | null;
+  questionRequest?: QuestionRequestDto | null;
+  /** Empty string means abort before any assistant message existed. */
+  manualAbortedAssistantId?: string | null;
+  hangRetryCount?: number;
+};
+
+export type PermissionRequestDto = {
+  id: string;
+  sessionId: string;
+  command: string;
+  labels: string[];
+  message: string;
+};
+
+export type QuestionOptionDto = {
+  label: string;
+  description?: string;
+};
+
+export type QuestionInfoDto = {
+  question: string;
+  header?: string;
+  options: QuestionOptionDto[];
+  multiple?: boolean;
+  /** 自由入力を無効化する場合のみ false。 */
+  custom?: boolean;
+};
+
+export type QuestionRequestDto = {
+  id: string;
+  sessionId: string;
+  questions: QuestionInfoDto[];
+};
+
+/** タスク横断の注意喚起（GlobalAttentionProvider 用ポーリング応答）。 */
+export type AttentionItemDto = {
+  taskId: string;
+  title: string;
+  kinds: ("permission" | "question")[];
+  /** Bot/Room origin when `taskId` is a delegated Code session (inline UI lives on the origin). */
+  originTaskId?: string;
+};
+
+export type DiffLine = {
+  t: " " | "+" | "-";
+  text: string;
+};
+
+export type DiffHunk = {
+  header: string;
+  lines: DiffLine[];
+};
+
+export type DiffFile = {
+  path: string;
+  oldPath?: string;
+  additions: number;
+  deletions: number;
+  binary: boolean;
+  untracked: boolean;
+  hunks: DiffHunk[];
+  /** Last on-disk modification time (ISO), when the file still exists. */
+  modifiedAt?: string;
+};
+
+/** プロジェクト／タスク作業フォルダーの一覧 API（files route）が返す1エントリ。 */
+export type WorkspaceEntryDto = {
+  name: string;
+  /** ルートからの `/` 区切り相対パス。 */
+  path: string;
+  kind: "dir" | "file";
+  size?: number;
+};
+
+export type WorkspaceListingDto = {
+  /** 現在のフォルダーの相対パス（ルートは空文字）。 */
+  path: string;
+  /** 親フォルダーの相対パス。ルートは null。 */
+  parent: string | null;
+  entries: WorkspaceEntryDto[];
+  /** 件数上限で打ち切ったか。 */
+  truncated: boolean;
+};
+
+/** 添付に使う読み込み結果。`name` は添付名（相対パス）、`data` は base64。 */
+export type WorkspaceFileDto = {
+  name: string;
+  mimeType: string;
+  size: number;
+  data: string;
+};
+
+export type DiffFilesPayload = {
+  git: boolean;
+  branch: string | null;
+  /** Base ref this diff was computed against (merge-base compare), if any. */
+  base?: string | null;
+  files: DiffFile[];
+  additions: number;
+  deletions: number;
+  /** count=1 モード時のみ: status porcelain の行数（files は空）。 */
+  count?: number;
+  error?: string;
+};
+
+/** One commit for the graph panel. */
+export type GraphCommit = {
+  hash: string;
+  shortHash: string;
+  parents: string[];
+  subject: string;
+  author: string;
+  authorEmail: string;
+  date: string;
+};
+
+export type GraphRef = {
+  name: string;
+  hash: string;
+  current?: boolean;
+};
+
+export type GraphLogPayload = {
+  commits: GraphCommit[];
+  refs: GraphRef[];
+  currentBranch: string | null;
+  hasMore: boolean;
+};
+
+export type GraphFileChange = {
+  path: string;
+  status: "M" | "A" | "D" | "R" | "C" | "T" | "U" | "?";
+};
+
+export type GraphShowPayload = {
+  commit: string;
+  files?: GraphFileChange[];
+  diff?: string;
+};
+
+export type CompactionSettingsDto = {
+  enabled: boolean;
+  reserveTokens: number;
+  keepRecentTokens: number;
+};

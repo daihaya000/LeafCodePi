@@ -123,8 +123,11 @@ export function isWebBuildStale(webDir, distDir, fsApi = {}) {
     }
   }
 
-  for (const dirName of WATCHED_DIRS) {
-    const root = join(webDir, dirName);
+  const watchedRoots = [
+    ...WATCHED_DIRS.map((dirName) => join(webDir, dirName)),
+    join(webDir, "..", "shared"),
+  ];
+  for (const root of watchedRoots) {
     if (!existsSync(root)) continue;
     if (hasNewerFile(root, buildMtimeMs, distDir, { existsSync, statSync, readdirSync })) {
       return true;
