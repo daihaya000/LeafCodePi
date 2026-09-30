@@ -1,4 +1,4 @@
-import { appendFileSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { EventEmitter } from "node:events";
@@ -214,14 +214,7 @@ export function ensureRoomBotTask(room: RoomDto, bot: BotDto): string {
   if (base) patchTask(id, { title, providerID: base.providerID, modelID: base.modelID, thinkingLevel: base.thinkingLevel, accountId: base.accountId, accountIdExplicit: base.accountIdExplicit, permissionMode: base.permissionMode });
   return id;
 }
-/** Live rooms stay a bounded file; older turns move to append-only history. */
-const MAX_LIVE_ROOM_MESSAGES = 500;
-function archiveOverflow(room: RoomDto): void {
-  if (room.messages.length <= MAX_LIVE_ROOM_MESSAGES) return;
-  const overflow = room.messages.splice(0, room.messages.length - MAX_LIVE_ROOM_MESSAGES);
-  mkdirSync(roomDataRoot(room.id), { recursive: true });
-  appendFileSync(join(roomDataRoot(room.id), "history.jsonl"), `${overflow.map((message) => JSON.stringify(message)).join("\n")}\n`, "utf8");
-}
+function archiveOverflow(room: RoomDto): void { roomFileStore.archiveOverflow(room); }
 type RoomMessageInput = Omit<RoomMessage, "id" | "createdAt"> & { id?: string; createdAt?: number };
 function appendRoomMessageLocked(room: RoomDto, message: RoomMessageInput): RoomMessage {
   const existing = message.id ? room.messages.find((item) => item.id === message.id) : undefined;
