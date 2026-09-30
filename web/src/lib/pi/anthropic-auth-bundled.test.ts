@@ -5,7 +5,9 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, it, vi } from "vitest";
 import { DefaultResourceLoader, SettingsManager } from "@earendil-works/pi-coding-agent";
+import { compactSdkDocumentation } from "../agents-md";
 import { basenameKey, filterExtensionsByState, listExtensions } from "../extensions";
+import { shapeAnthropicOAuthSystemPrompt } from "../../../../extensions/pi-anthropic-auth/src/system-prompt-shaping";
 
 const bundledRoot = fileURLToPath(new URL("../../../../extensions/", import.meta.url));
 const entryPath = join(bundledRoot, "pi-anthropic-auth", "index.ts");
@@ -17,7 +19,42 @@ afterEach(() => {
   agentDir = "";
 });
 
+const stockDocsSection = [
+  "Pi documentation (read only when the user asks about pi itself, its SDK, extensions, themes, skills, or TUI):",
+  "- Main documentation: C:\\x\\node_modules\\@earendil-works\\pi-coding-agent\\README.md",
+  "- Additional docs: C:\\x\\node_modules\\@earendil-works\\pi-coding-agent\\docs",
+  "- Examples: C:\\x\\node_modules\\@earendil-works\\pi-coding-agent\\examples (extensions, custom tools, SDK)",
+  "- When reading pi docs or examples, resolve docs/... under Additional docs and examples/... under Examples, not the current working directory",
+  "- When asked about: extensions (docs/extensions.md), themes (docs/themes.md)",
+  "- When working on pi topics, read the docs and examples, and follow .md cross-references before implementing",
+  "- Always read pi .md files completely and follow links to related docs (e.g., tui.md for TUI API details)",
+].join("\n");
+
 describe("bundled pi-anthropic-auth", () => {
+  it("drops the compacted stock docs section from shaped anthropic requests", () => {
+    const prompt = [
+      "You are an expert coding assistant operating inside pi, a coding agent harness.",
+      "",
+      "<tools>",
+      "- read: Read file contents",
+      "",
+      "In addition to the tools above, you may have access to other custom tools depending on the project.",
+      "</tools>",
+      "",
+      "<docs>",
+      stockDocsSection,
+      "</docs>",
+    ].join("\n");
+    const compacted = compactSdkDocumentation(prompt);
+    // The compaction must survive the extension's anchor check so shaping drops
+    // the section instead of forwarding the SDK package path to Anthropic.
+    assert.ok(compacted.includes("Pi documentation (read only when the user asks about pi itself"));
+    const shaped = shapeAnthropicOAuthSystemPrompt(compacted);
+    assert.ok(!shaped.includes("<docs>"));
+    assert.ok(!shaped.includes("pi-coding-agent"));
+    assert.ok(shaped.includes("- read: Read file contents"));
+    assert.ok(!shaped.includes("In addition to the tools above"));
+  });
   it.each([false, true])("loads exactly one bundled copy without credentials (local CLI registration: %s)", async (registeredForCli) => {
     agentDir = mkdtempSync(join(tmpdir(), "leafcode-anthropic-auth-"));
     vi.stubEnv("PI_CODING_AGENT_DIR", agentDir);

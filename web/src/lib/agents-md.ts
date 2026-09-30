@@ -179,7 +179,9 @@ export function compactSdkDocumentation(prompt: string): string {
   if (!prompt.startsWith("You are an expert coding assistant operating inside pi, a coding agent harness.")) return prompt;
   return prompt.replace(
     /Pi documentation \(read only when[^\n]*\n(- Main documentation:[^\n]*\n- Additional docs:[^\n]*\n- Examples:[^\n]*)\n- When reading pi docs[^\n]*\n- When asked about:[^\n]*\n- When working on pi topics[^\n]*\n- Always read pi \.md files completely and follow links to related docs[^\n]*/,
-    "For Pi questions only, read the relevant local .md files completely and follow their links. Resolve docs/examples under these directories:\n$1",
+    // Keep the SDK's opening anchor verbatim: pi-anthropic-auth drops this
+    // whole section for Anthropic OAuth requests by matching it.
+    "Pi documentation (read only when the user asks about pi itself): read the relevant local .md files completely and follow their links. Resolve docs/examples under these directories:\n$1",
   );
 }
 
