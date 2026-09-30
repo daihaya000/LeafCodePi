@@ -266,10 +266,14 @@ export async function forwardBotCodeSessionStart(
   options: { env?: BackendEnv; fetchImpl?: typeof fetch; timeoutMs?: number } = {},
 ): Promise<
   | { ok: true; task: Record<string, unknown> | null }
-  | { ok: false; reason: BackendFailureReason; status?: number }
+  | { ok: false; reason: BackendFailureReason | "not-found"; status?: number }
 > {
   const result = await createBotCodeSessionOnBackend(botId, input, options);
-  if (!result.ok) return { ok: false, reason: result.reason, ...(result.status ? { status: result.status } : {}) };
+  if (!result.ok) {
+    // 404 means the session the caller asked to continue no longer exists.
+    if (result.status === 404) return { ok: false, reason: "not-found", status: 404 };
+    return { ok: false, reason: result.reason, ...(result.status ? { status: result.status } : {}) };
+  }
   const task = result.body?.task;
   return { ok: true, task: task && typeof task === "object" ? task : null };
 }

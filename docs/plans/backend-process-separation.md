@@ -93,7 +93,7 @@ bundleパスは`LEAFCODE_PI_BACKEND_RUNTIME_BUNDLE`で差し替え可能。CLI�
 
 **未達（実切替までに必要な残作業・実測）**
 
-- Bot Codeセッションの**継続**（`continueBotCodeTask`＝`action:"prompt"`）と clear/unlink の転送。起動・停止・Goal Loop制御は転送済み。
+- Bot Codeセッションの clear/unlink の転送（`action:"clear"`／`"unlink"`）。起動・継続・停止・Goal Loop制御は転送済み。
 - Goal Loop開始（`start`）のうち**Auto/モデル/エージェント指定を伴うもの**。解決がWeb側にあるため現状は409拒否（指定なしの開始は転送済み）。
 - SSEは非所有モードで2秒ポーリング（`eventType: "remote_poll"`）。所有モードの即時配信と比べ遅延がある。
 - 実切替の未実施（Host・WebUIの再起動を伴うため、ユーザー承認後に実施）。
@@ -117,7 +117,7 @@ bundleパスは`LEAFCODE_PI_BACKEND_RUNTIME_BUNDLE`で差し替え可能。CLI�
 
 **ターン95**: Goal Loop開始の転送を実装。Backendの`/internal/tasks/:id/goal-loop`が`action:"start"`（`goal`／`acceptance`／`maxTurns`／`cooldownSeconds`／`forceFullRun`／`images`）を受け、`entry.mjs`が`goalLoopCommand(id, {action:"start", ...})`を実行する。Webの非所有モードは`forwardGoalLoopStart`で転送し、Auto/モデル/エージェント/thinkingLevel指定を伴う開始だけ409（`GOAL_LOOP_START_NOT_SUPPORTED`）で拒否する。返ったループがliveでなければ409。
 
-**ターン96**: Bot Codeセッション起動の転送を実装。Backendに `POST /internal/bots/:id/code-sessions`（`BACKEND_BOT_CODE_SESSIONS_SUFFIX`、本文は起動入力）を追加し、`entry.mjs`が`createBotCodeTask(botId, input)`を実行する（タスク行・outboxエントリ・セッションを所有プロセスで作る）。バンドルentryに`createBotCodeTask`を追加して再ビルド。Webの非所有モードは入力を従来どおり検証したうえで`forwardBotCodeSessionStart`で転送し、未設定は409、その他は502でローカル起動へフォールバックしない。`PATCH`は**停止（`action:"abort"`）とGoal Loop制御（`action:"goal-loop"`）を既存の`/internal/tasks/:id/abort`／`/internal/tasks/:id/goal-loop`へ転送**し、継続（`action:"prompt"`）と clear/unlink は引き続き409（`CODE_SESSION_CONTROL_NOT_SUPPORTED`）。転送失敗は未設定409／その他502でローカル動作へフォールバックしない。
+**ターン96**: Bot Codeセッション起動の転送を実装。Backendに `POST /internal/bots/:id/code-sessions`（`BACKEND_BOT_CODE_SESSIONS_SUFFIX`、本文は起動入力）を追加し、`entry.mjs`が`createBotCodeTask(botId, input)`を実行する（タスク行・outboxエントリ・セッションを所有プロセスで作る）。バンドルentryに`createBotCodeTask`を追加して再ビルド。Webの非所有モードは入力を従来どおり検証したうえで`forwardBotCodeSessionStart`で転送し、未設定は409、その他は502でローカル起動へフォールバックしない。`PATCH`は**停止（`action:"abort"`）とGoal Loop制御（`action:"goal-loop"`）を既存の`/internal/tasks/:id/abort`／`/internal/tasks/:id/goal-loop`へ転送**し、継続（`action:"prompt"`）も`createBotCodeSession`エンドポイントへ`{action:"continue", taskId, prompt}`として転送する（バンドルentryに`continueBotCodeTask`を追加して再ビルド）。clear/unlink は引き続き409（`CODE_SESSION_CONTROL_NOT_SUPPORTED`）。転送失敗は未設定409／その他502でローカル動作へフォールバックしない。
 - 検出した回帰1件: `src/lib/shared-types.test.ts`のミラー検証が新しい契約ファイル（`shared/bot-tools.mjs`／`.d.mts`）を写しておらず失敗（本番のミラーは`shared/`全体を写すため影響なし）。テスト側を修正して解消（`3770a9fc`）。
 
 **切替runbook（実行は未実施）**

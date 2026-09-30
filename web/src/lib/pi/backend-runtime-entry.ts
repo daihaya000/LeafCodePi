@@ -22,6 +22,7 @@ export {
   clearPendingAttentionForTask,
   completeBotCodeRequest,
   createBotCodeTask,
+  continueBotCodeTask,
   goalLoopCommand,
   goalLoopState,
   startBotCodeRelay,

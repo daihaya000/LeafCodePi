@@ -79,6 +79,9 @@ try {
       if (!runtime) {
         throw Object.assign(new Error("runtime unavailable"), { status: 503 });
       }
+      if (input?.action === "continue") {
+        return runtime.continueBotCodeTask(botId, input.taskId, input.prompt);
+      }
       return runtime.createBotCodeTask(botId, input);
     },
     // The Goal Loop runs inside this process, so pause/resume/stop/complete must be applied here.

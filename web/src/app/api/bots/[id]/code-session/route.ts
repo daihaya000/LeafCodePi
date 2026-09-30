@@ -216,6 +216,7 @@ export async function PATCH(
       taskId?: unknown;
       goalLoopAction?: unknown;
       maxTurns?: unknown;
+      prompt?: unknown;
     } | null;
     const taskId = typeof body?.taskId === "string" ? body.taskId : bot.codeSessionTaskId;
     if (!taskId) return NextResponse.json({ error: "Code session not found" }, { status: 404 });
@@ -224,6 +225,25 @@ export async function PATCH(
       if (forwarded.ok) return NextResponse.json({ task: forwarded.task });
       if (forwarded.reason === "not-found") return NextResponse.json({ error: "Code session not found" }, { status: 404 });
       return forwardFailure(forwarded.reason, "Backendを停止できません");
+    }
+    if (body?.action === "prompt") {
+      // Continuing a Bot Code session is delegation too: the owner runs it.
+      if (typeof body.prompt !== "string" || !body.prompt.trim()) {
+        return NextResponse.json({ error: "prompt is required" }, { status: 400 });
+      }
+      if (!isPromptTextWithinSize(body.prompt)) {
+        return NextResponse.json({ error: "本文プロンプトが長すぎます" }, { status: 413 });
+      }
+      const forwarded = await forwardBotCodeSessionStart(id, {
+        action: "continue",
+        taskId,
+        prompt: body.prompt,
+      });
+      if (forwarded.ok) return NextResponse.json({ task: forwarded.task });
+      if (forwarded.reason === "not-found") {
+        return NextResponse.json({ error: "Codeセッションが見つかりません" }, { status: 404 });
+      }
+      return forwardFailure(forwarded.reason, "Backendへ転送できません");
     }
     if (body?.action === "goal-loop") {
       const action = body.goalLoopAction;

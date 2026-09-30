@@ -748,6 +748,27 @@ describe("Bot Code session after the cutover", () => {
     expect(mocks.goalLoopCommand).not.toHaveBeenCalled();
   });
 
+  it("forwards a continue to the owning Backend", async () => {
+    mocks.getBot.mockReturnValue({ id: "one", codeSessionTaskId: "task-1" });
+    mocks.localRuntimeBlocked.mockReturnValue(true);
+    mocks.forwardBotCodeSessionStart.mockResolvedValue({ ok: true, task: { id: "task-2", status: "working" } });
+    const response = await PATCH(
+      new NextRequest("http://localhost/api/bots/one/code-session", {
+        method: "PATCH",
+        body: JSON.stringify({ action: "prompt", prompt: "続けて" }),
+      }),
+      { params: Promise.resolve({ id: "one" }) },
+    );
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({ task: { id: "task-2", status: "working" } });
+    expect(mocks.forwardBotCodeSessionStart).toHaveBeenCalledWith("one", {
+      action: "continue",
+      taskId: "task-1",
+      prompt: "続けて",
+    });
+    expect(mocks.continueBotCodeTask).not.toHaveBeenCalled();
+  });
+
   it("never acts locally when a forwarded control cannot be delivered", async () => {
     mocks.getBot.mockReturnValue({ id: "one", codeSessionTaskId: "task-1" });
     mocks.localRuntimeBlocked.mockReturnValue(true);

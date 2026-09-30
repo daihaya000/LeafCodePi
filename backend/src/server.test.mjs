@@ -638,6 +638,16 @@ test("a forwarded Bot Code session is created by the runtime owner", async (t) =
   assert.deepEqual(seen, [
     { botId: "bot-1", input: { prompt: "やって", projectId: "project-1", permissionMode: "ask" } },
   ]);
+  const continued = await request(url, {
+    method: "POST",
+    headers: { ...headers, "content-type": "application/json" },
+    body: JSON.stringify({ action: "continue", taskId: "code-1", prompt: "続けて" }),
+  });
+  assert.equal(continued.status, 200);
+  assert.deepEqual(seen.at(-1), {
+    botId: "bot-1",
+    input: { action: "continue", taskId: "code-1", prompt: "続けて" },
+  });
   const detached = await fixture(t);
   const detachedUrl = `${detached.snapshotsUrl.replace("pending-snapshots", "bots")}/bot-1/code-sessions`;
   const refused = await request(detachedUrl, {
