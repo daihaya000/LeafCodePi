@@ -97,6 +97,20 @@ export function resolveAttachedSessionAction({ staleGeneration, isRegistered }) 
 }
 
 /**
+ * Publishes a freshly attached live session, in this order: wire the stop hook, stamp
+ * the activity clock, insert it into the registry, and finally promote a 1:1 Bot's
+ * queued mailbox. The promotion is last so anything it wakes already observes the
+ * registered live; a failure in an earlier step propagates and leaves the caller to
+ * discard the unattached session.
+ */
+export function publishAttachedLive(steps) {
+  steps.setUnsubscribe();
+  steps.markActivity();
+  steps.register();
+  steps.promoteMailbox();
+}
+
+/**
  * Runs an ensure-live attempt and records its promise for the task, clearing the
  * entry once it settles — unless a newer attempt has already replaced it. The
  * returned promise carries the attempt's result, so callers can join it.

@@ -30,6 +30,17 @@ export function detachReplacedLive<Live extends {
 ): void;
 
 /**
+ * Publishes a freshly attached live in a fixed order: stop hook, activity stamp,
+ * registry insert, then the 1:1 Bot mailbox promotion.
+ */
+export function publishAttachedLive(steps: {
+  setUnsubscribe: () => void;
+  markActivity: () => void;
+  register: () => void;
+  promoteMailbox: () => void;
+}): void;
+
+/**
  * Runs the deferred shutdown for a task and records it as in flight, so a second
  * dispose for the same task joins the first instead of disposing twice.
  */

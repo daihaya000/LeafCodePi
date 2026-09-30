@@ -217,6 +217,7 @@ import { detachReplacedLive as coreDetachReplacedLive, disposeUnattachedSession,
 import { restoredPromptState, restoredTaskMetadata, restoredThroughputState as coreRestoredThroughputState } from "@backend-core/live-attach-state.mjs";
 import { compactionFailureMessage, isHarnessAutoCompactionError as coreIsHarnessAutoCompactionError, runAgentStartTaskSync, shouldApplySettledStatus, shouldSkipEventForMissingTask, shouldSyncTaskFromSessionEvent as coreShouldSyncTaskFromSessionEvent, type SessionSyncEvent } from "@backend-core/session-event-decisions.mjs";
 import { classifySnapshotEvent, flushPendingSnapshotOnUnsubscribe, pendingSnapshotFlush, SNAPSHOT_THROTTLE_MS } from "@backend-core/snapshot-schedule.mjs";
+import { publishAttachedLive } from "@backend-core/live-lifecycle.mjs";
 import { runSessionEventEffects } from "@backend-core/session-event-effects.mjs";
 import { isBotTask, liveSessionName, liveSessionWorkspace, preflightLiveSession, resolveSessionAccountId, resolveSessionAccountRefusal, resolveSessionPermissionMode, resolveSessionSkillPermission, resolveSessionThinkingLevelSource, resolveStoredModelOutcome } from "@backend-core/live-session-preflight.mjs";
 import { runSerializedByKey } from "@backend-core/keyed-serializer.mjs";
@@ -2378,7 +2379,7 @@ async function attachSession(
         ),
     });
   });
-  live.unsubscribe = () => {
+  const stopLive = () => {
     // Cancelling the timer, clearing the slots and emitting what was queued is
     // ordered in backend core; the emit sinks stay here.
     flushPendingSnapshotOnUnsubscribe(
@@ -2402,14 +2403,21 @@ async function attachSession(
     );
     unsubscribe();
   };
-  live.lastActivityAt = Date.now();
-  current.live.set(taskId, live);
-  // Offline→resident: 1:1 Bot live attach promotes queued mailbox rows.
-  // Room attach must NOT flush here — Room may still be idle before prompt,
-  // and wake would steal into 1:1; Room settle/abort flushes instead.
-  promoteMailboxOnAttach(taskId, {
-    flushMailbox: (botId) => flushQueuedBotIntercom(botId),
-    warn: (message, error) => console.warn(message, error),
+  // Wiring the stop hook, stamping activity, registering, then promoting the
+  // mailbox is one ordered sequence owned by backend core.
+  publishAttachedLive({
+    // Stop hook first: nothing else observes this live until it can be stopped.
+    setUnsubscribe: () => { live.unsubscribe = stopLive; },
+    markActivity: () => { live.lastActivityAt = Date.now(); },
+    register: () => { current.live.set(taskId, live); },
+    promoteMailbox: () =>
+      // Offline→resident: 1:1 Bot live attach promotes queued mailbox rows.
+      // Room attach must NOT flush here — Room may still be idle before prompt,
+      // and wake would steal into 1:1; Room settle/abort flushes instead.
+      promoteMailboxOnAttach(taskId, {
+        flushMailbox: (botId) => flushQueuedBotIntercom(botId),
+        warn: (message, error) => console.warn(message, error),
+      }),
   });
   return live;
 }
