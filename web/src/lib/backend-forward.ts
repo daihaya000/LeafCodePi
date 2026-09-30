@@ -10,11 +10,12 @@ import {
   respondPermissionOnBackend,
   respondQuestionOnBackend,
   revertBotTaskOnBackend,
+  revertRoomOnBackend,
   runBotRoutineOnBackend,
   type BackendEnv,
   type BackendFailureReason,
 } from "@/lib/backend-client";
-import type { PermissionRequestDto, QuestionRequestDto } from "@/lib/types";
+import type { PermissionRequestDto, QuestionRequestDto, RoomFile, RoomImage } from "@/lib/types";
 
 /**
  * Forwarding a prompt to the Backend that owns the runtime.
@@ -182,6 +183,34 @@ export async function forwardPendingRequestsByTask(
     };
   }
   return byTask;
+}
+
+/** Rewinds a Room conversation in the owning Backend. Never falls back to the in-process rewind. */
+export async function forwardRoomRevert(
+  roomId: string,
+  messageId: string,
+  options: { env?: BackendEnv; fetchImpl?: typeof fetch; timeoutMs?: number } = {},
+): Promise<
+  | { ok: true; result: { text: string; images: RoomImage[]; files: RoomFile[]; cancelledCodeRequests: number } }
+  | { ok: false; reason: BackendFailureReason | "not-found"; status?: number }
+> {
+  const result = await revertRoomOnBackend(roomId, messageId, options);
+  if (!result.ok) {
+    if (result.status === 404) return { ok: false, reason: "not-found", status: 404 };
+    return { ok: false, reason: result.reason, ...(result.status ? { status: result.status } : {}) };
+  }
+  const body = (result.body ?? {}) as {
+    text?: unknown; images?: unknown; files?: unknown; cancelledCodeRequests?: unknown;
+  };
+  return {
+    ok: true,
+    result: {
+      text: typeof body.text === "string" ? body.text : "",
+      images: Array.isArray(body.images) ? (body.images as RoomImage[]) : [],
+      files: Array.isArray(body.files) ? (body.files as RoomFile[]) : [],
+      cancelledCodeRequests: typeof body.cancelledCodeRequests === "number" ? body.cancelledCodeRequests : 0,
+    },
+  };
 }
 
 /** Rewinds a Bot conversation in the owning Backend. Never falls back to the in-process rewind. */

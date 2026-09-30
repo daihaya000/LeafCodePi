@@ -20,6 +20,8 @@ import {
   BACKEND_PENDING_SNAPSHOTS_PATH,
   BACKEND_PROTOCOL_HEADER,
   BACKEND_PROTOCOL_VERSION,
+  BACKEND_ROOM_REVERT_SUFFIX,
+  BACKEND_ROOMS_PATH,
   BACKEND_TASK_ABORT_SUFFIX,
   BACKEND_TASK_DETAIL_SUFFIX,
   BACKEND_TASK_GOAL_LOOP_SUFFIX,
@@ -200,6 +202,19 @@ export function createBotCodeSessionOnBackend(
   options: { env?: BackendEnv; fetchImpl?: typeof fetch; timeoutMs?: number } = {},
 ): Promise<BackendResult<{ task: Record<string, unknown> | null }>> {
   return postBackendJson(`${BACKEND_BOTS_PATH}/${encodeURIComponent(botId)}${BACKEND_BOT_CODE_SESSIONS_SUFFIX}`, input, options);
+}
+
+/** Rewinds a Room conversation in the owning Backend: the turns, attention and outbox are there. */
+export function revertRoomOnBackend(
+  roomId: string,
+  messageId: string,
+  options: { env?: BackendEnv; fetchImpl?: typeof fetch; timeoutMs?: number } = {},
+): Promise<BackendResult<Record<string, unknown>>> {
+  return postBackendJson(
+    `${BACKEND_ROOMS_PATH}/${encodeURIComponent(roomId)}${BACKEND_ROOM_REVERT_SUFFIX}`,
+    { messageId },
+    options,
+  );
 }
 
 /** Rewinds a Bot conversation in the owning Backend: the session rewrite happens there. */

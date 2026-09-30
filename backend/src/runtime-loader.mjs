@@ -47,6 +47,7 @@ export const REQUIRED_RUNTIME_EXPORTS = Object.freeze([
   "revertTask",
   "cancelBotCodeRequests",
   "botTaskId",
+  "revertRoomConversation",
 ]);
 
 /**

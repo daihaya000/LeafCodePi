@@ -54,6 +54,12 @@ export const BACKEND_TASK_QUESTION_SUFFIX = "/question";
 
 /** Read-only: the Backend's own view of the Bot store. */
 export const BACKEND_BOTS_PATH = "/internal/bots";
+/**
+ * Rewinding a Room conversation: `POST /internal/rooms/:roomId/revert` with `{ messageId }`. The
+ * rewind stops the running turns, clears the owner's attention and cancels its Code jobs.
+ */
+export const BACKEND_ROOMS_PATH = "/internal/rooms";
+export const BACKEND_ROOM_REVERT_SUFFIX = "/revert";
 export const DEFAULT_BACKEND_PORT = 18776;
 
 /** Authentication precedes version checks, including health requests. */

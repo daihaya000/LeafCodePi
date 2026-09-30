@@ -683,6 +683,55 @@ test("the Goal Loop control needs a runtime and refuses a non-function handler",
   );
 });
 
+test("a forwarded Room revert reaches the runtime owner", async (t) => {
+  const seen = [];
+  const { snapshotsUrl, headers } = await fixture(t, {
+    revertRoom: async (roomId, messageId) => {
+      seen.push({ roomId, messageId });
+      return {
+        room: { id: roomId, messages: [] },
+        text: "やり直したい依頼",
+        images: [{ file: "room-1-0.png", mimeType: "image/png" }],
+        files: [{ file: "room-1-0.dat", mimeType: "text/plain", name: "notes.txt" }],
+        cancelledCodeRequests: 2,
+      };
+    },
+  });
+  const url = `${snapshotsUrl.replace("pending-snapshots", "rooms")}/room-1/revert`;
+  const post = (body) => request(url, {
+    method: "POST", headers: { ...headers, "content-type": "application/json" }, body: JSON.stringify(body),
+  });
+  const response = await post({ messageId: "message-1" });
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), {
+    room: { id: "room-1", messages: [] },
+    text: "やり直したい依頼",
+    images: [{ file: "room-1-0.png", mimeType: "image/png" }],
+    files: [{ file: "room-1-0.dat", mimeType: "text/plain", name: "notes.txt" }],
+    cancelledCodeRequests: 2,
+  });
+  assert.deepEqual(seen, [{ roomId: "room-1", messageId: "message-1" }]);
+  // A missing message id is refused before the owner is asked, and the route is POST-only.
+  assert.equal((await post({})).status, 400);
+  assert.equal((await request(url, { headers })).status, 405);
+  const detached = await fixture(t);
+  const detachedUrl = `${detached.snapshotsUrl.replace("pending-snapshots", "rooms")}/room-1/revert`;
+  assert.equal((await request(detachedUrl, {
+    method: "POST", headers: { ...detached.headers, "content-type": "application/json" }, body: JSON.stringify({ messageId: "message-1" }),
+  })).status, 503);
+  const refusing = await fixture(t, {
+    revertRoom: async () => { throw Object.assign(new Error("no such message"), { status: 404 }); },
+  });
+  const refusingUrl = `${refusing.snapshotsUrl.replace("pending-snapshots", "rooms")}/room-1/revert`;
+  assert.equal((await request(refusingUrl, {
+    method: "POST", headers: { ...refusing.headers, "content-type": "application/json" }, body: JSON.stringify({ messageId: "message-1" }),
+  })).status, 404);
+  assert.throws(
+    () => createBackendServer({ token: randomBytes(32).toString("base64url"), revertRoom: 5 }),
+    /revertRoom must be a function or null/,
+  );
+});
+
 test("a forwarded Bot revert reaches the runtime owner", async (t) => {
   const seen = [];
   const { snapshotsUrl, headers } = await fixture(t, {

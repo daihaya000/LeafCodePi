@@ -39,6 +39,8 @@ export { botTaskId, getBot, patchBot } from "@/lib/bots";
 export { ensureRoutineScheduler, runRoutine } from "@/lib/routines";
 // Room recovery settles abandoned turns and delivers ready handoffs, which needs the runtime.
 export { reconcileRoomRuntime } from "@/lib/room-runtime";
+// Rewinding a Room conversation stops its turns and drops the owner's attention and Code jobs.
+export { revertRoomConversation } from "@/lib/room-revert";
 export { getTask, patchTask } from "@/lib/store";
 export { isGoalLoopSessionOwned, readGoalLoopState } from "@/lib/pi/goal-loop-state";
 export { startGoalLoopWithSelection } from "@/lib/pi/goal-loop-start";

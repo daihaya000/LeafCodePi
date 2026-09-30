@@ -244,7 +244,7 @@ bundleパスは`LEAFCODE_PI_BACKEND_RUNTIME_BUNDLE`で差し替え可能。CLI�
 | 5. 切替 | **実装済み（現状は拒否で保護）**。`runCutover`（check→stop-old-path→attach-backend→hand-over→verify→done＋ロールバック）、`cutoverPreflight`（start/verify位相）、Host実体への接続、`LEAFCODE_PI_CUTOVER=1`での起動時実行。Backendの起動列は全ステップ実行可能になり、runtime接続・世代一致・失敗ステップ0でhealthがreadyになる（ターン15）。attach段の拒否は失敗ステップがある場合に限られる。**実切替はユーザー承認待ち**。 |
 | 6. 旧経路撤去 | **未完了**。非所有モードの不変条件は達成（セッションを触る16 routeすべてがガード済み／未配線0件、テストで強制）が、撤去手順の実行（中継フォールバック廃止→旧経路停止→harness依存除去→スイッチ撤去）は実切替後。 |
 
-残作業（実測）: ①Web側に残る非転送の実行経路（Roomのrevert）をBackendへ転送する（現状は非所有モードで`RuntimeNotOwnedError`になる）、②非所有モードのSSEは2秒ポーリング（遅延あり）、③実切替の実施とその後の撤去手順、④Web全体型検証は既存拡張（`leafcode-goal-loop`／`loop-guard`）の`@earendil-works/pi-coding-agent`解決失敗により本番用`tsconfig.build.json`で代替。Bot Codeセッションのclear/unlink転送とAuto/モデル指定つきGoal Loop開始の転送は完了済み（旧版の残作業①・②は解消）。
+残作業（実測）: ①実切替の実施（ユーザー承認待ち）と、その後の旧経路撤去（中継フォールバック廃止→旧経路停止→harness依存除去→スイッチ撤去）、②非所有モードのSSEは2秒ポーリング（遅延あり）、③実切替の実施とその後の撤去手順、④Web全体型検証は既存拡張（`leafcode-goal-loop`／`loop-guard`）の`@earendil-works/pi-coding-agent`解決失敗により本番用`tsconfig.build.json`で代替。Bot Codeセッションのclear/unlink転送とAuto/モデル指定つきGoal Loop開始の転送は完了済み（旧版の残作業①・②は解消）。
 
 ## 完了の証拠
 
@@ -300,3 +300,11 @@ Backend単独のSDK検証前には `npm --prefix backend ci --ignore-scripts` �
 - Botのrevert（`POST /api/bots/:id/revert`）をBackendへ転送した。内部APIは`POST /internal/bots/:botId/revert`（新suffix `BACKEND_BOT_REVERT_SUFFIX`、bodyは`{entryId}`）。Backendは`revertTask(botTaskId(botId), entryId)`と`cancelBotCodeRequests(botId)`を行い、`{task,text,images,files,cancelledCodeRequests}`を返す。未接続は503、`entryId`不正は400、拒否status（409等）は保持し、例外文は返さない。
 - bundleへ`revertTask`・`cancelBotCodeRequests`・`botTaskId`を追加して再生成（9814 KiB）。Web側routeは非所有モードで転送し、ローカルの`revertTask`/`cancelBotCodeRequests`を実行しない。所有モードの応答形は従来のまま。
 - 検証: `backend/src/server.test.mjs`59件（実行到達・400・405・503・409保持・非関数拒否）、Web側revert routeテスト4件（所有時ローカル・非所有時転送・失敗status・400/404）と`backend-forward`25件・所有権カバレッジ4件成功。本番tsc・eslint成功。
+
+## ターン18の変更（実測）
+
+- Roomのrevert（`POST /api/bots/rooms/:id/revert`）をBackendへ転送した。巻き戻しの手順（対象検証→停止→巻き戻し→attention削除→Code job停止）を`web/src/lib/room-revert.ts`の`revertRoomConversation`に集約し、所有モードのrouteとBackendの両方が同じ実装を呼ぶ。内部APIは`POST /internal/rooms/:roomId/revert`（`BACKEND_ROOMS_PATH`＋`BACKEND_ROOM_REVERT_SUFFIX`、bodyは`{messageId}`）。添付はdescriptorのまま返し、data URI化はファイルを共有するWeb側で行う。
+- bundleへ`revertRoomConversation`を追加して再生成（9817 KiB）。Web routeは非所有モードで転送し、ローカルの停止・巻き戻し・attention削除・Code job停止を行わない。
+- 既存のRoom revertテストは、モックした`jsonError`が`status`を無視していたため実装と同じ規則に修正した（製品側の変更ではなくテストの前提修正）。
+- 検証: `backend/src/server.test.mjs`60件（Room revertの実行到達・400・404保持・503・405・非関数拒否）、Web側Room revert routeテスト4件（所有時ローカル・非所有時転送・失敗status・検証順序）と`backend-forward`28件・所有権カバレッジ4件成功。本番tsc・eslint成功。
+- これで非所有モードで`RuntimeNotOwnedError`になる既知の非転送経路は無くなった（routeの所有権カバレッジテスト16経路＋今回の追加分）。

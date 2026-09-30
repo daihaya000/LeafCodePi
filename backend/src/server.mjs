@@ -10,6 +10,8 @@ import {
   BACKEND_BOT_ROUTINES_SEGMENT,
   BACKEND_BOTS_PATH,
   BACKEND_PENDING_SNAPSHOTS_PATH,
+  BACKEND_ROOM_REVERT_SUFFIX,
+  BACKEND_ROOMS_PATH,
   BACKEND_PROTOCOL_HEADER,
   BACKEND_PROTOCOL_VERSION,
   BACKEND_TASK_ABORT_SUFFIX,
@@ -119,6 +121,8 @@ export function createBackendServer({
   runBotRoutine = null,
   /** Rewinds a Bot conversation: `(botId, entryId) => result`; the owner rewrites the session. */
   revertBotTask = null,
+  /** Rewinds a Room conversation: `(roomId, messageId) => result`; the owner stops its turns. */
+  revertRoom = null,
 } = {}) {
   if (
     typeof token !== "string" ||
@@ -156,6 +160,7 @@ export function createBackendServer({
     createBotCodeSession,
     runBotRoutine,
     revertBotTask,
+    revertRoom,
   })) {
     if (handler !== null && typeof handler !== "function") {
       throw new Error(`${name} must be a function or null`);
@@ -221,12 +226,20 @@ export function createBackendServer({
     const routineTarget = routineMatch?.length === 3 && routineMatch[1] === BACKEND_BOT_ROUTINES_SEGMENT
       ? { botId: decodeURIComponent(routineMatch[0]), routineId: decodeURIComponent(routineMatch[2]) }
       : undefined;
+    // `/internal/rooms/<roomId>/revert` rewinds a Room conversation in the owning process.
+    const roomSuffix = target.pathname.startsWith(`${BACKEND_ROOMS_PATH}/`)
+      ? target.pathname.slice(BACKEND_ROOMS_PATH.length + 1)
+      : null;
+    const roomRevertPath = roomSuffix?.endsWith(BACKEND_ROOM_REVERT_SUFFIX)
+      ? decodeURIComponent(roomSuffix.slice(0, -BACKEND_ROOM_REVERT_SUFFIX.length))
+      : undefined;
     const knownPath = target.pathname === BACKEND_HEALTH_PATH
       || target.pathname === BACKEND_PENDING_SNAPSHOTS_PATH
       || target.pathname === BACKEND_BOTS_PATH
       || botSuffix !== undefined
       || botActionPath !== undefined
       || routineTarget !== undefined
+      || roomRevertPath !== undefined
       || taskPath !== undefined
       || detailPath !== undefined
       || actionPath !== undefined;
@@ -331,6 +344,47 @@ export function createBackendServer({
         // Never send exception text: provider errors can contain credentials.
         sendJson(response, typeof error?.status === "number" ? error.status : 500, {
           error: "Backend task action failed",
+          code: BACKEND_ERROR_CODES.internal,
+        });
+      }
+      return;
+    }
+    if (roomRevertPath !== undefined) {
+      if (request.method !== "POST") {
+        sendJson(response, 405, {
+          error: "Method not allowed", code: BACKEND_ERROR_CODES.methodNotAllowed,
+        }, { Allow: "POST" });
+        return;
+      }
+      if (!roomRevertPath) {
+        sendJson(response, 404, { error: "Not found", code: BACKEND_ERROR_CODES.notFound });
+        return;
+      }
+      if (typeof revertRoom !== "function") {
+        sendJson(response, 503, {
+          error: "Backend runtime unavailable", code: BACKEND_ERROR_CODES.runtimeUnavailable,
+        });
+        return;
+      }
+      const body = await readJsonBody(request);
+      if (!body.ok) {
+        sendJson(response, body.reason === "too-large" ? 413 : 400, {
+          error: body.reason === "too-large" ? "Request body too large" : "Invalid request body",
+          code: BACKEND_ERROR_CODES.badRequest,
+        });
+        return;
+      }
+      const messageId = typeof body.value?.messageId === "string" ? body.value.messageId.trim() : "";
+      if (!messageId) {
+        sendJson(response, 400, { error: "Invalid revert request", code: BACKEND_ERROR_CODES.badRequest });
+        return;
+      }
+      try {
+        sendJson(response, 200, await revertRoom(roomRevertPath, messageId));
+      } catch (error) {
+        // A coded refusal (unknown room or message) keeps its status; nothing else leaks.
+        sendJson(response, typeof error?.status === "number" ? error.status : 500, {
+          error: "Backend room revert failed",
           code: BACKEND_ERROR_CODES.internal,
         });
       }

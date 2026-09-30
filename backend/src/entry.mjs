@@ -152,6 +152,15 @@ try {
         ...(action === "resume" && body?.maxTurns !== undefined ? { maxTurns: body.maxTurns } : {}),
       });
     },
+    // Rewinding a Room conversation stops its turns, clears the owner's pending attention and
+    // cancels its Code jobs: all owner work, so the WebUI forwards the request here.
+    revertRoom: async (roomId, messageId) => {
+      const runtime = started.runtime();
+      if (!runtime || typeof runtime.revertRoomConversation !== "function") {
+        throw Object.assign(new Error("runtime unavailable"), { status: 503 });
+      }
+      return runtime.revertRoomConversation(roomId, messageId);
+    },
     // Rewinding a Bot conversation rewrites its session and stops the discarded Code jobs, which
     // only the owner may do: the WebUI forwards the request here and returns the same payload.
     revertBotTask: async (botId, entryId) => {
