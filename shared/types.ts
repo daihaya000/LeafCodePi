@@ -401,6 +401,8 @@ export type GoalLoopDto = {
   /** Auto agent selection is re-evaluated before every Goal Loop turn. */
   autoAgent?: boolean;
   turnCount: number;
+  /** 直前のターンがエラー等で中断されたため、再開時に同じターン番号を再送する。 */
+  retryInterruptedTurn?: boolean;
   turnKind: "goal" | "verification";
   pauseReason: string;
   error: string;

@@ -27,6 +27,19 @@ export function isGoalLoopSessionOwnedStatus(status: string | null | undefined):
   return Boolean(status && (GOAL_LOOP_OWNED_STATUSES as readonly string[]).includes(status));
 }
 
+/**
+ * queued の次に送信されるターン番号。エラーで中断されたターンは再開時に同じ番号を
+ * 再送するため、ターン枠を消費した表示（turnCount + 1）にしない。
+ */
+export function nextGoalLoopTurn(loop: {
+  status?: string | null;
+  turnCount?: number | null;
+  retryInterruptedTurn?: boolean | null;
+}): number {
+  const turnCount = Math.max(0, Math.trunc(Number(loop.turnCount) || 0));
+  return loop.status === "queued" && loop.retryInterruptedTurn !== true ? turnCount + 1 : turnCount;
+}
+
 /** Zero is the explicit no-limit sentinel. */
 export function normalizeGoalLoopMaxTurns(value: unknown): number | null {
   if (value === null || value === undefined) return null;

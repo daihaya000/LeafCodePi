@@ -5,6 +5,7 @@ import {
   formatGoalLoopCooldownSeconds,
   MAX_GOAL_LOOP_ACCEPTANCE_ITEM_CHARS,
   MAX_GOAL_LOOP_ACCEPTANCE_ITEMS,
+  nextGoalLoopTurn,
   normalizeGoalLoopAcceptance,
   parseGoalLoopCooldownSeconds,
 } from "./goal-loop-settings";
@@ -30,6 +31,16 @@ describe("goal loop settings", () => {
 
   it("trims items and drops blank entries", () => {
     expect(normalizeGoalLoopAcceptance(["  テストが通る  ", "", "   "])).toEqual(["テストが通る"]);
+  });
+
+  it("does not advance the turn number when an interrupted turn is re-sent", () => {
+    // 次に送るターンは queue 中だけ +1 される。
+    expect(nextGoalLoopTurn({ status: "queued", turnCount: 2 })).toBe(3);
+    expect(nextGoalLoopTurn({ status: "running", turnCount: 2 })).toBe(2);
+    // 中断ターンの再送は同じ番号を使い回し、ターン枠を消費しない。
+    expect(nextGoalLoopTurn({ status: "queued", turnCount: 2, retryInterruptedTurn: true })).toBe(2);
+    expect(nextGoalLoopTurn({ status: "paused", turnCount: 2, retryInterruptedTurn: true })).toBe(2);
+    expect(nextGoalLoopTurn({ status: "queued" })).toBe(1);
   });
 
   it("rejects a non-array, an oversized list, or an oversized item", () => {

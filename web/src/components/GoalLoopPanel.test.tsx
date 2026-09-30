@@ -234,4 +234,29 @@ describe("GoalLoopPanel progress", () => {
     fireEvent.click(screen.getByRole("button", { name: "再開" }));
     expect(onResume).toHaveBeenCalledWith();
   });
+
+  it("shows the same turn and resumes without a turn input after an interrupted turn", () => {
+    const onResume = vi.fn();
+    render(
+      <GoalLoopPanel
+        loop={loopFixture({
+          status: "paused",
+          pauseReason: "turn_timeout",
+          maxTurns: 10,
+          turnCount: 10,
+          retryInterruptedTurn: true,
+        })}
+        busy={false}
+        onAction={() => {}}
+        onResume={onResume}
+      />,
+    );
+
+    // 中断ターンの再送は次に消費する番号ではなく、同じ番号を使い回す。
+    expect(screen.getByLabelText(/ループ 10 \/ 10/)).toBeTruthy();
+    expect(screen.getByText("中断したターン（10）を再送します。ターン枠は消費しません。")).toBeTruthy();
+    expect(screen.queryByRole("spinbutton", { name: "再開後の最大ターン数" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "再開" }));
+    expect(onResume).toHaveBeenCalledWith();
+  });
 });

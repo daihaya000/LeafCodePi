@@ -134,4 +134,21 @@ describe("task timeline invariants", () => {
     );
     expect(dividers).toEqual(["ループ 1", "ループ 2"]);
   });
+
+  it("keeps one divider when an interrupted turn is re-sent with the same number", () => {
+    // エラーで中断したターンを再開すると、同じ turn 番号のメッセージが再び届く。
+    const resumed: UiMessage[] = [
+      { id: "user-1", role: "user", createdAt: 1, parts: [textPart("user-1", "進めて")] },
+      { id: "a1", role: "assistant", createdAt: 2, goalLoopTurn: turn(1), parts: [textPart("a1", "ターン1")] },
+      { id: "a2", role: "assistant", createdAt: 3, goalLoopTurn: turn(2), parts: [toolPart("a2")] },
+      { id: "a3", role: "assistant", createdAt: 4, goalLoopTurn: turn(2), parts: [], error: "Request was aborted" },
+      { id: "a4", role: "assistant", createdAt: 5, goalLoopTurn: turn(2), parts: [textPart("a4", "再開しました")] },
+    ];
+    saveTaskSessionCache({ task, messages: resumed, isStreaming: false, isCompacting: false });
+    render(<TaskView taskId={task.id} mdUp />);
+    const dividers = [...document.querySelectorAll('[role="separator"]')].map((node) =>
+      node.getAttribute("aria-label"),
+    );
+    expect(dividers).toEqual(["ループ 1", "ループ 2"]);
+  });
 });

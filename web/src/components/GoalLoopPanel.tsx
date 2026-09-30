@@ -4,7 +4,7 @@ import { useEffect, useId, useState } from "react";
 import { Check, ChevronDown, CircleAlert, Pause, Play, Square } from "lucide-react";
 import { Button, cx } from "@/components/ui";
 import type { GoalLoopDto } from "@/lib/types";
-import { formatGoalLoopCooldownSeconds, isGoalLoopLiveStatus } from "@/lib/goal-loop-settings";
+import { formatGoalLoopCooldownSeconds, isGoalLoopLiveStatus, nextGoalLoopTurn } from "@/lib/goal-loop-settings";
 
 const labels: Record<GoalLoopDto["status"], string> = {
   queued: "送信待ち",
@@ -58,12 +58,12 @@ export function GoalLoopPanel({
   const live = isGoalLoopLiveStatus(loop.status);
   const canPause = live;
   const canResume = loop.status === "paused" || loop.status === "blocked";
-  const turn = loop.status === "queued" ? loop.turnCount + 1 : loop.turnCount;
+  const turn = nextGoalLoopTurn(loop);
   const progress = loop.progress.at(-1);
   const turnLimit = loop.pauseReason === "turn_limit";
   // turn_limit 以外の一時停止（unreadable_result / turn_timeout / scheduler_error 等）でも
   // 予算を使い切っていると /goal-resume が上限増やしを要求するため、入力欄が必要。
-  const budgetExhausted = loop.maxTurns > 0 && loop.turnCount >= loop.maxTurns;
+  const budgetExhausted = loop.maxTurns > 0 && loop.turnCount >= loop.maxTurns && loop.retryInterruptedTurn !== true;
   const needsTurns = turnLimit || budgetExhausted;
   const canComplete = loop.status === "blocked" || (loop.status === "paused" && turnLimit);
   const maxTurnsLabel = loop.maxTurns === 0 ? "∞" : String(loop.maxTurns);
@@ -91,11 +91,16 @@ export function GoalLoopPanel({
     setMaxTurns(String(value));
     onResume(value);
   };
-  const pauseHint = loop.status === "blocked"
+  const basePauseHint = loop.status === "blocked"
     ? pauseHints.blocked
     : loop.status === "paused"
       ? pauseHints[loop.pauseReason]
       : undefined;
+  // 中断されたターンは同じ番号で再送され、ターン枠を消費しない。理由のヒントは
+  // 下部の error 表示が担うため、ここでは再開の振る舞いだけを差し替える。
+  const pauseHint = loop.retryInterruptedTurn === true
+    ? `中断したターン（${turn}）を再送します。ターン枠は消費しません。`
+    : basePauseHint;
   const cooldownActive = Boolean(
     loop.nextTurnAt && Date.parse(loop.nextTurnAt) > Date.now(),
   );
