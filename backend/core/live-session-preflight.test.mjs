@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
   isBotTask, liveSessionName, liveSessionRefusalError, liveSessionWorkspace, preflightLiveSession,
-  resolveCodePermissionUpdates, resolveSessionAccountId,
+  resolveCodePermissionUpdates, resolveSessionAccountId, resolveSessionPermissionDefaults,
   resolveSessionAccountRefusal, resolveSessionPermissionMode, resolveSessionSkillPermission,
   resolveSessionThinkingLevelSource, resolveStoredModelOutcome, TASK_ARCHIVED_MESSAGE,
   TASK_NOT_FOUND_MESSAGE,
@@ -266,4 +266,50 @@ test("the flags are strict: only an explicit true follows the mode", () => {
     resolveCodePermissionUpdates(permissionInput({ kind: undefined, taskSkillPermission: "allow" })),
     { permissionMode: "allow" },
   );
+});
+
+function permissionDefaults(overrides = {}) {
+  return {
+    pinnedSkillPermission: undefined,
+    isBotSession: false,
+    pinnedSubagentPermission: undefined,
+    settingsSkillPermission: "allow",
+    settingsSubagentPermission: "deny",
+    ...overrides,
+  };
+}
+
+test("a Code session with nothing pinned follows the Settings values", () => {
+  assert.deepEqual(resolveSessionPermissionDefaults(permissionDefaults()), {
+    skillPermission: "allow",
+    subagentPermission: "deny",
+  });
+});
+
+test("a pinned value wins over the Settings value in both session kinds", () => {
+  assert.deepEqual(
+    resolveSessionPermissionDefaults(permissionDefaults({ pinnedSkillPermission: "deny", pinnedSubagentPermission: "allow" })),
+    { skillPermission: "deny", subagentPermission: "allow" },
+  );
+  assert.deepEqual(
+    resolveSessionPermissionDefaults(permissionDefaults({ isBotSession: true, pinnedSkillPermission: "deny", pinnedSubagentPermission: "deny" })),
+    { skillPermission: "deny", subagentPermission: "deny" },
+  );
+});
+
+test("a Bot session unpinned allows skills and does not inherit the Code settings", () => {
+  assert.deepEqual(
+    resolveSessionPermissionDefaults(permissionDefaults({ isBotSession: true, settingsSkillPermission: "deny", settingsSubagentPermission: "allow" })),
+    { skillPermission: "allow", subagentPermission: undefined },
+  );
+});
+
+test("only an explicit true marks the Bot session kind", () => {
+  for (const value of [undefined, null, 0, "true", 1, false]) {
+    assert.deepEqual(
+      resolveSessionPermissionDefaults(permissionDefaults({ isBotSession: value })),
+      { skillPermission: "allow", subagentPermission: "deny" },
+      String(value),
+    );
+  }
 });

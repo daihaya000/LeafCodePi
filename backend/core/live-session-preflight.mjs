@@ -40,6 +40,31 @@ export function resolveCodePermissionUpdates({
   return updates;
 }
 
+/**
+ * Permission values for a new session when the caller did not pin them. Code sessions
+ * follow the Settings values. Bot sessions follow their own Bot settings instead: an
+ * unpinned skill permission allows skills, and an unpinned subagent permission stays
+ * unset rather than inheriting the Code setting.
+ */
+export function resolveSessionPermissionDefaults({
+  pinnedSkillPermission,
+  isBotSession,
+  pinnedSubagentPermission,
+  settingsSkillPermission,
+  settingsSubagentPermission,
+}) {
+  if (isBotSession === true) {
+    return {
+      skillPermission: pinnedSkillPermission ?? "allow",
+      subagentPermission: pinnedSubagentPermission,
+    };
+  }
+  return {
+    skillPermission: pinnedSkillPermission ?? settingsSkillPermission,
+    subagentPermission: pinnedSubagentPermission ?? settingsSubagentPermission,
+  };
+}
+
 /** Shared wording for the two task-level refusals every entry point reports. */
 export const TASK_NOT_FOUND_MESSAGE = "タスクが見つかりません";
 export const TASK_ARCHIVED_MESSAGE = "アーカイブされたタスクです";

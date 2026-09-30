@@ -2,6 +2,15 @@ import type { BotPermissionMode } from "./bot-config.mjs";
 
 export type LiveSessionRefusal = "task-not-found" | "archived" | "lease-busy";
 
+/** Skill and subagent permission for a new session; unpinned values follow the session kind. */
+export function resolveSessionPermissionDefaults(input: {
+  pinnedSkillPermission: string | undefined;
+  isBotSession: boolean;
+  pinnedSubagentPermission: "allow" | "deny" | undefined;
+  settingsSkillPermission: string | undefined;
+  settingsSubagentPermission: "allow" | "deny" | undefined;
+}): { skillPermission: string | undefined; subagentPermission: "allow" | "deny" | undefined };
+
 /** Settings values a Code task has not applied yet; unchanged values are omitted. */
 export function resolveCodePermissionUpdates(input: {
   kind: string | undefined;

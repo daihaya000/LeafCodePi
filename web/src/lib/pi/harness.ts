@@ -220,7 +220,7 @@ import { classifySnapshotEvent, flushPendingSnapshotOnUnsubscribe, pendingSnapsh
 import { publishAttachedLive, resolveEnsureLiveAttempt, runEnsureLiveGates } from "@backend-core/live-lifecycle.mjs";
 import { resolveBotSessionOptions } from "@backend-core/bot-session-options.mjs";
 import { runSessionEventEffects } from "@backend-core/session-event-effects.mjs";
-import { isBotTask, liveSessionName, liveSessionRefusalError, liveSessionWorkspace, preflightLiveSession, TASK_ARCHIVED_MESSAGE, TASK_NOT_FOUND_MESSAGE, resolveSessionAccountId, resolveSessionAccountRefusal, resolveSessionPermissionMode, resolveSessionSkillPermission, resolveSessionThinkingLevelSource, resolveStoredModelOutcome } from "@backend-core/live-session-preflight.mjs";
+import { isBotTask, liveSessionName, liveSessionRefusalError, liveSessionWorkspace, preflightLiveSession, resolveSessionPermissionDefaults, TASK_ARCHIVED_MESSAGE, TASK_NOT_FOUND_MESSAGE, resolveSessionAccountId, resolveSessionAccountRefusal, resolveSessionPermissionMode, resolveSessionSkillPermission, resolveSessionThinkingLevelSource, resolveStoredModelOutcome } from "@backend-core/live-session-preflight.mjs";
 import { runSerializedByKey } from "@backend-core/keyed-serializer.mjs";
 import { attachReplacementSession } from "@backend-core/live-replace.mjs";
 import { buildBotCodeReportContent } from "@backend-core/bot-code-report.mjs";
@@ -3591,14 +3591,16 @@ async function createSession(options: {
     sessionManagerStartedAt,
   );
   // Code sessions follow Settings unless a caller pins a value. Bot sessions
-  // manage skills and tools through their own Bot settings.
-  const skillPermissionRef = {
-    current: options.skillPermission ??
-      (options.botTools ? ("allow" as SkillPermission) : readCodeSkillPermission()),
-  };
-  const subagentPermission = options.botTools
-    ? options.subagentPermission
-    : options.subagentPermission ?? readCodeSubagentPermission();
+  // manage skills and tools through their own Bot settings. The rule lives in backend core.
+  const sessionPermissions = resolveSessionPermissionDefaults({
+    pinnedSkillPermission: options.skillPermission,
+    isBotSession: Boolean(options.botTools),
+    pinnedSubagentPermission: options.subagentPermission,
+    settingsSkillPermission: readCodeSkillPermission(),
+    settingsSubagentPermission: readCodeSubagentPermission(),
+  });
+  const skillPermissionRef = { current: sessionPermissions.skillPermission as SkillPermission };
+  const subagentPermission = sessionPermissions.subagentPermission;
   // Filter disabled skills via state file (skills-state.json), not folder moves.
   // skillsOverride re-reads state on every resourceLoader.reload() / session.reload().
   // Also drop any ~/.agents skills Pi loads internally: this harness must not
