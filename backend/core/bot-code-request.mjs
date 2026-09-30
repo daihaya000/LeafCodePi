@@ -460,3 +460,36 @@ export function codeRequestSummaries(requests, botId) {
     .map(codeRequestSummary)
     .sort((a, b) => (b.queuedAt ?? 0) - (a.queuedAt ?? 0));
 }
+
+/**
+ * The report a Bot turn produced for one Code request, read from the transcript.
+ *
+ * The window starts at the hidden custom message that carries the request id and ends at the next
+ * Code-result custom message (a later request) or the next user message (a new instruction), whichever
+ * comes first — anything after that belongs to another turn. Inside the window only an assistant
+ * message that stopped normally counts, and only when its text is non-empty after trimming, so a
+ * cancelled or tool-only turn does not look like a report. Returns undefined when there is none.
+ */
+export function botCodeReportText(entries, requestId, codeResultType) {
+  let found = false;
+  for (const value of entries) {
+    const entry = value;
+    if (entry?.type === "custom_message") {
+      if (entry.customType === codeResultType && entry.details?.requestId === requestId) found = true;
+      else if (found && entry.customType === codeResultType) found = false;
+    }
+    const message = entry?.type === "message" ? entry.message : undefined;
+    if (found && message?.role === "user") {
+      found = false;
+      continue;
+    }
+    if (found && message?.role === "assistant" && message.stopReason === "stop") {
+      const text = message.content
+        ?.filter((part) => part?.type === "text")
+        .map((part) => part.text ?? "")
+        .join(String.fromCharCode(10));
+      if (text?.trim()) return text;
+    }
+  }
+  return undefined;
+}

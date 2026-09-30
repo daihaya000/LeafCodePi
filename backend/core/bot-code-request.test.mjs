@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
-  buildCodeRequestRecord, cancellationTargetForRequest, codeAutoChainRefusal, codeCompletionAction,
+  botCodeReportText, buildCodeRequestRecord, cancellationTargetForRequest, codeAutoChainRefusal, codeCompletionAction,
   codeGoalLoopRefusal,
   codeLaunchRefusal, codeLinkedSessionState, codePromptRefusal, codeProjectRefusal, codeReportingRefusal,
   codeTaskIdRefusal, CODE_DELIVERY_RETRY_MS, CODE_RELAY_TICK_MS,
@@ -547,4 +547,35 @@ test("a Bot panel lists its own non-intervention requests, newest first", () => 
   assert.deepEqual(codeRequestSummaries(requests, "bot-2").map((item) => item.id), ["d"]);
   assert.deepEqual(codeRequestSummaries([], "bot-1"), []);
   assert.deepEqual(codeRequestSummaries(requests, "bot-3"), []);
+});
+
+const CODE_RESULT = "bot-code-result";
+const marker = (requestId, customType = CODE_RESULT) => ({ type: "custom_message", customType, details: { requestId } });
+const assistant = (text, stopReason = "stop") => ({ type: "message", message: { role: "assistant", stopReason, content: [{ type: "text", text }] } });
+const user = () => ({ type: "message", message: { role: "user", content: [{ type: "text", text: "next" }] } });
+
+test("the report is the first normal assistant turn inside the request window", () => {
+  const entries = [marker("r1"), { type: "message", message: { role: "assistant", stopReason: "toolUse", content: [{ type: "text", text: "working" }] } }, assistant("done")];
+  assert.equal(botCodeReportText(entries, "r1", CODE_RESULT), "done");
+  assert.equal(botCodeReportText(entries, "r2", CODE_RESULT), undefined, "another request's window does not match");
+  assert.equal(botCodeReportText([], "r1", CODE_RESULT), undefined);
+});
+
+test("a later request or a user message closes the window", () => {
+  const laterRequest = [marker("r1"), marker("r2"), assistant("done")];
+  assert.equal(botCodeReportText(laterRequest, "r1", CODE_RESULT), undefined);
+  assert.equal(botCodeReportText(laterRequest, "r2", CODE_RESULT), "done");
+  const interrupted = [marker("r1"), user(), assistant("done")];
+  assert.equal(botCodeReportText(interrupted, "r1", CODE_RESULT), undefined, "a new instruction ends the window");
+  // A user message after a valid report does not remove it: the scan returns at the report.
+  assert.equal(botCodeReportText([marker("r1"), assistant("done"), user()], "r1", CODE_RESULT), "done");
+});
+
+test("only a normally stopped assistant turn with text counts as a report", () => {
+  assert.equal(botCodeReportText([marker("r1"), assistant("done", "aborted")], "r1", CODE_RESULT), undefined);
+  assert.equal(botCodeReportText([marker("r1"), assistant("   ")], "r1", CODE_RESULT), undefined);
+  assert.equal(botCodeReportText([marker("r1"), { type: "message", message: { role: "assistant", stopReason: "stop" } }], "r1", CODE_RESULT), undefined);
+  assert.equal(botCodeReportText([marker("r1"), assistant("a"), assistant("b")], "r1", CODE_RESULT), "a", "the first report wins");
+  const joined = botCodeReportText([marker("r1"), { type: "message", message: { role: "assistant", stopReason: "stop", content: [{ type: "text", text: "a" }, { type: "tool", text: "x" }, { type: "text", text: "b" }] } }], "r1", CODE_RESULT);
+  assert.equal(joined, "a" + String.fromCharCode(10) + "b", "text parts are joined with a newline");
 });

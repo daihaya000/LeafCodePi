@@ -26,6 +26,7 @@ import {
 import { isGoalLoopOperatorHold } from "@/lib/pi/goal-loop-state";
 import { isRoomStopRequest } from "@/lib/room-conversation";
 import {
+  botCodeReportText as coreBotCodeReportText,
   buildCodeRequestRecord,
   cancellationTargetForRequest,
   CODE_DELIVERY_RETRY_MS,
@@ -642,24 +643,8 @@ function linkedCodeTaskId(originTaskId: string, bot: ReturnType<typeof owner>, t
 
 /** A persisted input is not an acknowledgement: require the final Bot answer after it. */
 export function botCodeReportText(entries: readonly unknown[], requestId: string): string | undefined {
-  let found = false;
-  for (const value of entries) {
-    const entry = value as { type?: string; customType?: string; details?: { requestId?: string }; message?: { role?: string; stopReason?: string; content?: { type?: string; text?: string }[] } };
-    if (entry.type === "custom_message") {
-      if (entry.customType === BOT_CODE_RESULT && entry.details?.requestId === requestId) found = true;
-      else if (found && entry.customType === BOT_CODE_RESULT) found = false;
-    }
-    const message = entry.type === "message" ? entry.message : undefined;
-    if (found && message?.role === "user") {
-      found = false;
-      continue;
-    }
-    if (found && message?.role === "assistant" && message.stopReason === "stop") {
-      const text = message.content?.filter((part) => part.type === "text").map((part) => part.text ?? "").join("\n");
-      if (text?.trim()) return text;
-    }
-  }
-  return undefined;
+  // The window/stop-reason rules live in backend core; the custom type name stays here.
+  return coreBotCodeReportText(entries, requestId, BOT_CODE_RESULT);
 }
 export function hasBotCodeReport(entries: readonly unknown[], requestId: string): boolean {
   return botCodeReportText(entries, requestId) !== undefined;

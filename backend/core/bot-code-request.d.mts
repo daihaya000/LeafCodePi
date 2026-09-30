@@ -190,3 +190,10 @@ export function codeRequestSummaries(
   requests: ReadonlyArray<Record<string, unknown> & { botId?: string; userIntervention?: boolean; queuedAt?: number }>,
   botId: string,
 ): Array<Record<string, unknown>>;
+
+/** The report a Bot turn produced for one Code request, or undefined when there is none. */
+export function botCodeReportText(
+  entries: readonly unknown[],
+  requestId: string,
+  codeResultType: string,
+): string | undefined;
