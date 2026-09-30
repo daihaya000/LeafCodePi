@@ -107,6 +107,15 @@ bundleパスは`LEAFCODE_PI_BACKEND_RUNTIME_BUNDLE`で差し替え可能。CLI�
 - スイッチ: `LEAFCODE_PI_BACKEND`／`_RUNTIME`／`_RUNTIME_BUNDLE`／`_RELAY`／`_OWNS_RUNTIME`／`_GENERATION`／`_URL`／`_TOKEN`／`_PORT`／`_DATA_DIR`／`LEAFCODE_PI_CUTOVER`。
 - 世代: バンドル内容ハッシュ（16桁hex）。Hostがpinし、Backendは不一致ならreadyにならない。実測世代は`bd3d66b604a25790`（ターン89以降のバンドル）。
 
+### 全体検証（ターン94・実測）
+
+- Backend: **721 pass / 0 fail**（`npm run test:backend`）。
+- Host: **250 pass / 0 fail / 3 skip**（`npm --prefix host test`、253件）。
+- shared: **8 pass / 0 fail**（`node --test shared/*.test.mjs`）。
+- web全スイート: **4441 pass / 3 fail**（474ファイル中4ファイルが失敗。いずれも既存: `extensions/leafcode-mcp-adapter/proxy-visibility.test.ts`＝typebox、`extensions/leafcode-subagents/.../subagent-runner.test.ts`＝負荷時のフレーク、`src/app/api/health/route.test.ts`＝dataDir、`src/components/MessageCardRadius.test.tsx`）。
+- web本番型検証（`tsconfig.build.json`）: **0エラー**、`eslint src`: 指摘なし。
+- 検出した回帰1件: `src/lib/shared-types.test.ts`のミラー検証が新しい契約ファイル（`shared/bot-tools.mjs`／`.d.mts`）を写しておらず失敗（本番のミラーは`shared/`全体を写すため影響なし）。テスト側を修正して解消（`3770a9fc`）。
+
 **切替runbook（実行は未実施）**
 1. `npm run build:backend-runtime` でバンドルを更新し、`bundleGeneration`を確定する（世代が変わると稼働中Backendはreadyにならない）。
 2. Goal Loop・稼働中タスク・leaseが無いことを確認（`cutoverPreflight`のblockerが空）。
