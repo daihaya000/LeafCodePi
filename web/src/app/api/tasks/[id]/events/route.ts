@@ -20,7 +20,7 @@ import {
   pageTaskSnapshotPayload,
 } from "@/lib/task-history";
 import { localRuntimeBlocked } from "@/lib/pi/runtime-ownership";
-import { forwardTaskDetail, forwardTaskPendingRequests } from "@/lib/backend-forward";
+import { startBackendTaskStream } from "@/lib/pi/backend-event-stream";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -83,59 +83,13 @@ export async function GET(
         // After the cutover the Backend owns the session: this process must not subscribe to (or open)
         // a session it does not own, so the stream is built from the Backend's detail and polled.
         if (localRuntimeBlocked()) {
-          const forwarded = await forwardTaskDetail(id);
-          if (!forwarded.ok) {
-            sse.send("error", { error: "Backendから取得できません", reason: forwarded.reason });
+          const backendStream = await startBackendTaskStream({ id, sse });
+          if (!backendStream.ok) {
+            sse.send("error", { error: "Backendから取得できません", reason: backendStream.reason });
             sse.close();
             return;
           }
-          const sendBackendSnapshot = async () => {
-            const detail = forwarded.detail ?? {};
-            const pending = await forwardTaskPendingRequests(id);
-            if (sse?.closed) return;
-            const taskSummary = { ...detail } as Record<string, unknown>;
-            for (const key of [
-              "messages",
-              "isStreaming",
-              "isCompacting",
-              "contextUsage",
-              "compactionSuggested",
-              "goalLoop",
-              "todos",
-              "permissionRequest",
-              "questionRequest",
-              "manualAbortedAssistantId",
-              "hangRetryCount",
-            ]) {
-              delete taskSummary[key];
-            }
-            const messages = Array.isArray((detail as { messages?: unknown }).messages)
-              ? ((detail as { messages: Parameters<typeof pageTaskMessages>[0] }).messages)
-              : [];
-            const messagePage = pageTaskMessages(messages);
-            sse?.send("snapshot", {
-              type: "snapshot",
-              task: taskSummary,
-              messages: messagePage.messages,
-              messageHistory: messagePage.messageHistory,
-              isStreaming: (detail as { isStreaming?: unknown }).isStreaming ?? false,
-              isCompacting: (detail as { isCompacting?: unknown }).isCompacting ?? false,
-              contextUsage: (detail as { contextUsage?: unknown }).contextUsage,
-              compactionSuggested: (detail as { compactionSuggested?: unknown }).compactionSuggested,
-              goalLoop: (detail as { goalLoop?: unknown }).goalLoop,
-              todos: (detail as { todos?: unknown }).todos,
-              manualAbortedAssistantId: (detail as { manualAbortedAssistantId?: unknown }).manualAbortedAssistantId ?? null,
-              hangRetryCount: (detail as { hangRetryCount?: unknown }).hangRetryCount ?? 0,
-              revertLeafId: (detail as { revertLeafId?: unknown }).revertLeafId ?? null,
-              permissionRequest: pending.permissionRequest,
-              questionRequest: pending.questionRequest,
-              eventType: "remote_poll",
-            });
-          };
-          await sendBackendSnapshot();
-          if (sse.closed) return;
-          remotePollTimer = setInterval(() => void sendBackendSnapshot(), 2_000);
-          remotePollTimer.unref?.();
+          sse.onCleanup(backendStream.stop);
           return;
         }
         const bootstrapStartedAt = TASK_SSE_PERF_ENABLED ? performance.now() : 0;

@@ -93,7 +93,8 @@ describe("/api/tasks/[id]/events", () => {
       params: Promise.resolve({ id: "task-1" }),
     });
     expect(response.status).toBe(200);
-    const chunk = await readChunk(response.body!.getReader());
+    const reader = response.body!.getReader();
+    const chunk = await readChunk(reader);
     const payload = eventData(chunk);
     expect(payload.eventType).toBe("remote_poll");
     expect(payload.isStreaming).toBe(true);
@@ -103,6 +104,46 @@ describe("/api/tasks/[id]/events", () => {
     // Nothing local: no bootstrap read and no in-process subscription.
     expect(mocks.getTaskBootstrap).not.toHaveBeenCalled();
     expect(mocks.subscribeTask).not.toHaveBeenCalled();
+    await reader.cancel();
+  });
+
+  it("refreshes Backend detail on every poll and stops polling after cancellation", async () => {
+    vi.useFakeTimers();
+    let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
+    try {
+      mocks.localRuntimeBlocked.mockReturnValue(true);
+      const updated = task({
+        status: "idle", isStreaming: false, updatedAt: "2026-01-01T00:00:02.000Z",
+        messages: [{ id: "done", role: "assistant", createdAt: 2, parts: [{ id: "text", type: "text", text: "完了" }] }],
+      });
+      mocks.forwardTaskDetail
+        .mockResolvedValueOnce({ ok: true, detail: task() })
+        .mockResolvedValue({ ok: true, detail: updated });
+      mocks.forwardTaskPendingRequests
+        .mockResolvedValueOnce({ permissionRequest: { requestId: "req-1" }, questionRequest: null })
+        .mockResolvedValue({ permissionRequest: null, questionRequest: null });
+      const response = await GET(new NextRequest("http://localhost/api/tasks/task-1/events"), {
+        params: Promise.resolve({ id: "task-1" }),
+      });
+      reader = response.body!.getReader();
+      expect(eventData(await readChunk(reader)).isStreaming).toBe(true);
+      await vi.advanceTimersByTimeAsync(2_000);
+      expect(mocks.forwardTaskDetail).toHaveBeenCalledTimes(2);
+      const refreshed = eventData(await readChunk(reader));
+      expect(refreshed.task).toMatchObject({ status: "idle", updatedAt: updated.updatedAt });
+      expect(refreshed.messages).toEqual(updated.messages);
+      expect(refreshed.isStreaming).toBe(false);
+      expect(refreshed.permissionRequest).toBeNull();
+      expect(mocks.getTaskBootstrap).not.toHaveBeenCalled();
+      expect(mocks.subscribeTask).not.toHaveBeenCalled();
+      await reader.cancel();
+      await vi.advanceTimersByTimeAsync(4_000);
+      expect(mocks.forwardTaskDetail).toHaveBeenCalledTimes(2);
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      await reader?.cancel();
+      vi.useRealTimers();
+    }
   });
 
   it("ends the stream with an error when the Backend cannot be read", async () => {
