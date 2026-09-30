@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { readPendingRequestSnapshots } from "../../../backend/src/pending-requests.mjs";
 import {
   forwardPermissionAnswer,
   forwardGoalLoopStart,
@@ -226,6 +227,32 @@ describe("forwardTaskAbort", () => {
 });
 
 describe("forwardTaskPendingRequests", () => {
+  it("reads the actual owner snapshot contract for both task and Room consumers", async () => {
+    let permission: { id: string } | null = { id: "p1" };
+    let question: { id: string } | null = { id: "q1" };
+    const runtime = {
+      listPendingAttention: () => [{ taskId: "code-1", originTaskId: "bot:room:one" }],
+      pendingPermissionForTask: () => permission,
+      pendingQuestionForTask: () => question,
+    };
+    const fetchImpl = vi.fn<typeof fetch>(async () =>
+      jsonResponse(200, { snapshots: readPendingRequestSnapshots(runtime) }));
+    const options = { env, fetchImpl };
+    await expect(forwardTaskPendingRequests("code-1", options)).resolves.toEqual({
+      permissionRequest: permission, questionRequest: question,
+    });
+    await expect(forwardPendingRequestsByTask(options)).resolves.toEqual({
+      "code-1": { permissionRequest: permission, questionRequest: question },
+      "bot:room:one": { permissionRequest: permission, questionRequest: question },
+    });
+    permission = null;
+    question = null;
+    await expect(forwardTaskPendingRequests("code-1", options)).resolves.toEqual({
+      permissionRequest: null, questionRequest: null,
+    });
+    await expect(forwardPendingRequestsByTask(options)).resolves.toEqual({});
+  });
+
   it("reads the pending request the owning Backend is waiting on", async () => {
     const fetchImpl = vi.fn(async () =>
       jsonResponse(200, {

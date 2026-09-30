@@ -765,7 +765,7 @@ test("CLI starts as a separate process without pretending SDK is ready", { timeo
   assert.equal((await response.json()).pid, child.pid);
 });
 
-test("CLI serves the pending snapshot route with an empty store and stays not ready", { timeout: 5_000 }, async (t) => {
+test("CLI serves no pending requests with a detached runtime and stays not ready", { timeout: 5_000 }, async (t) => {
   const token = randomBytes(32).toString("base64url");
   const child = spawn(process.execPath, [fileURLToPath(new URL("./entry.mjs", import.meta.url))], {
     env: { ...process.env, LEAFCODE_PI_BACKEND_TOKEN: token, LEAFCODE_PI_BACKEND_PORT: "0" },
@@ -783,7 +783,7 @@ test("CLI serves the pending snapshot route with an empty store and stays not re
   const headers = { authorization: `Bearer ${token}`, [BACKEND_PROTOCOL_HEADER]: String(BACKEND_PROTOCOL_VERSION) };
   const snapshots = await request(`http://127.0.0.1:${listening.port}${BACKEND_PENDING_SNAPSHOTS_PATH}`, { headers });
   assert.equal(snapshots.status, 200);
-  // Nothing has scheduled a snapshot in this process yet, so the read is empty.
+  // No runtime is attached, so there are no owner-held pending requests to expose.
   assert.deepEqual(await snapshots.json(), { snapshots: [] });
   const health = await request(`http://127.0.0.1:${listening.port}${BACKEND_HEALTH_PATH}`, { headers });
   assert.equal(health.status, 503, "attaching a store must not imply runtime readiness");

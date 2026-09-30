@@ -1,6 +1,6 @@
 import { runtimeGenerationStatus } from "../../shared/backend-generation.mjs";
 import { DEFAULT_BACKEND_PORT } from "../../shared/backend-protocol.mjs";
-import { createPendingSnapshotStore } from "../core/pending-snapshot-store.mjs";
+import { readPendingRequestSnapshots } from "./pending-requests.mjs";
 import { createRuntimeHost } from "./runtime-host.mjs";
 import { DEFAULT_RUNTIME_BUNDLE, loadBackendRuntime } from "./runtime-loader.mjs";
 import { closeBackend, createBackendServer, listenBackend } from "./server.mjs";
@@ -48,13 +48,6 @@ async function clearBotCodeSessionLink(runtime, botId, taskId) {
   return clearLinks();
 }
 
-/**
- * The runtime owner records into this store once a Pi runtime is attached. Until
- * then the read stays empty, which is honest: nothing has scheduled a snapshot in
- * this process yet.
- */
-const pendingSnapshots = createPendingSnapshotStore({ limit: 512 });
-
 /** Values that ask the Backend to attach the runtime; anything else leaves it detached. */
 const RUNTIME_ENABLED_VALUES = new Set(["1", "true", "yes", "attach"]);
 
@@ -89,7 +82,7 @@ try {
     runtimeGenerationStatus(pinnedGeneration, started.runtimeStatus().generation ?? null);
   const server = createBackendServer({
     token: process.env.LEAFCODE_PI_BACKEND_TOKEN,
-    readPendingSnapshots: () => pendingSnapshots.list(),
+    readPendingSnapshots: () => readPendingRequestSnapshots(started.runtime()),
     // The Backend's own store view: stored rows, read through the same store the startup owns.
     readTasks: () => [...started.store.listTasks(true), ...started.store.listTasks(true, "bot")],
     readTask: (id) => started.store.getTask(id) ?? null,
