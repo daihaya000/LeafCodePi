@@ -596,3 +596,35 @@ export function shouldCancelCodeDispatch({ hasTask, archived }) {
 export function codeDispatchResultState({ succeeded }) {
   return succeeded === true ? "delivered" : "queued";
 }
+
+/**
+ * Why a Bot may not take over a user-started Code task, or null when it may. Only a plain Code task
+ * that no Bot owns and that is not a Room origin qualifies — a Bot task, a task already supervised by
+ * another Bot and a Room-delegated task all belong to someone else. A task that is not running (and
+ * not reported busy by the worker) has nothing to supervise yet.
+ */
+export function adoptSupervisionRefusal({
+  hasTask,
+  kind,
+  hasBotId,
+  roomOrigin,
+  supervisorBotId,
+  botId,
+  working,
+  busy,
+}) {
+  if (hasTask !== true || (kind ?? "code") !== "code" || hasBotId === true || roomOrigin === true) {
+    return "ユーザーが開始したCodeタスクだけを監督できます";
+  }
+  if (supervisorBotId && supervisorBotId !== botId) return "このCodeタスクは別のBotが監督中です";
+  if (working !== true && busy !== true) return "実行中のCodeタスクだけを監督できます";
+  return null;
+}
+
+/** Why a Bot may not release a supervised Code task, or null when it may. */
+export function releaseSupervisionRefusal({ kind, hasBotId, roomOrigin, supervisorBotId }) {
+  if ((kind ?? "code") !== "code" || hasBotId === true || roomOrigin === true || !supervisorBotId) {
+    return "ユーザー委任したCodeタスクだけを解除できます";
+  }
+  return null;
+}

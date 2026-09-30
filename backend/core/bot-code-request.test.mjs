@@ -1,13 +1,13 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
-  botCodeReportText, buildCodeRequestRecord, cancellationTargetForRequest, codeAutoChainRefusal,
+  adoptSupervisionRefusal, botCodeReportText, buildCodeRequestRecord, cancellationTargetForRequest, codeAutoChainRefusal,
   codeCompletionAction, codeDispatchResultState,
   codeGoalLoopRefusal,
   codeLaunchRefusal, codeLinkedSessionState, codePromptRefusal, codeProjectRefusal, codeReportingRefusal,
   codeTaskIdRefusal, CODE_DELIVERY_RETRY_MS, CODE_RELAY_TICK_MS,
   markFollowUpAttempt, MAX_AUTO_CODE_CHAIN, MAX_CODE_PROMPT_CHARS,
-  reportingStateForRequest,
+  releaseSupervisionRefusal, reportingStateForRequest,
   CODE_REQUEST_RETENTION_MS, codeRequestPayload, codeRequestSummaries, codeRequestSummary,
   codeRequestForCodeTask, codeRequestsForRoomTurn, codeStopTargets,
   codeResultBaselineMessages,
@@ -734,4 +734,34 @@ test("a delivered dispatch stays delivered and a failure re-queues", () => {
   for (const value of [undefined, null, 0, "true", 1]) {
     assert.equal(codeDispatchResultState({ succeeded: value }), "queued", String(value));
   }
+});
+
+const adopt = (overrides = {}) => ({
+  hasTask: true, kind: "code", hasBotId: false, roomOrigin: false,
+  supervisorBotId: null, botId: "bot-1", working: true, busy: false, ...overrides,
+});
+
+test("only a running, unowned Code task can be adopted for supervision", () => {
+  assert.equal(adoptSupervisionRefusal(adopt()), null);
+  assert.equal(adoptSupervisionRefusal(adopt({ kind: undefined })), null, "a task without a kind is a Code task");
+  assert.match(adoptSupervisionRefusal(adopt({ hasTask: false })), /ユーザーが開始したCodeタスク/);
+  assert.match(adoptSupervisionRefusal(adopt({ kind: "bot" })), /ユーザーが開始したCodeタスク/);
+  assert.match(adoptSupervisionRefusal(adopt({ hasBotId: true })), /ユーザーが開始したCodeタスク/);
+  assert.match(adoptSupervisionRefusal(adopt({ roomOrigin: true })), /ユーザーが開始したCodeタスク/);
+  assert.match(adoptSupervisionRefusal(adopt({ supervisorBotId: "bot-2" })), /別のBotが監督中/);
+  assert.equal(adoptSupervisionRefusal(adopt({ supervisorBotId: "bot-1" })), null, "the same Bot may continue supervising");
+  assert.match(adoptSupervisionRefusal(adopt({ working: false })), /実行中のCodeタスク/);
+  assert.equal(adoptSupervisionRefusal(adopt({ working: false, busy: true })), null, "a busy session is running even when the status lags");
+  // The ownership refusals win over the running check.
+  assert.match(adoptSupervisionRefusal(adopt({ kind: "bot", working: false })), /ユーザーが開始したCodeタスク/);
+});
+
+test("only a supervised Code task can be released", () => {
+  assert.equal(releaseSupervisionRefusal({ kind: "code", hasBotId: false, roomOrigin: false, supervisorBotId: "bot-1" }), null);
+  assert.match(releaseSupervisionRefusal({ kind: "bot", hasBotId: false, roomOrigin: false, supervisorBotId: "bot-1" }), /ユーザー委任したCodeタスク/);
+  assert.match(releaseSupervisionRefusal({ kind: "code", hasBotId: true, roomOrigin: false, supervisorBotId: "bot-1" }), /ユーザー委任したCodeタスク/);
+  assert.match(releaseSupervisionRefusal({ kind: "code", hasBotId: false, roomOrigin: true, supervisorBotId: "bot-1" }), /ユーザー委任したCodeタスク/);
+  assert.match(releaseSupervisionRefusal({ kind: "code", hasBotId: false, roomOrigin: false, supervisorBotId: null }), /ユーザー委任したCodeタスク/, "nothing to release without a supervisor");
+  assert.match(releaseSupervisionRefusal({ kind: "code", hasBotId: false, roomOrigin: false, supervisorBotId: "" }), /ユーザー委任したCodeタスク/);
+  assert.equal(releaseSupervisionRefusal({ kind: undefined, hasBotId: false, roomOrigin: false, supervisorBotId: "bot-1" }), null);
 });

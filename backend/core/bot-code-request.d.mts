@@ -252,3 +252,23 @@ export function shouldCancelCodeDispatch(input: { hasTask: boolean; archived: bo
 
 /** The state a finished dispatch records. */
 export function codeDispatchResultState(input: { succeeded: boolean }): "delivered" | "queued";
+
+/** Why a Bot may not adopt a user-started Code task, or null. */
+export function adoptSupervisionRefusal(input: {
+  hasTask: boolean;
+  kind: string | undefined;
+  hasBotId: boolean;
+  roomOrigin: boolean;
+  supervisorBotId: string | null | undefined;
+  botId: string;
+  working: boolean;
+  busy: boolean;
+}): string | null;
+
+/** Why a Bot may not release a supervised Code task, or null. */
+export function releaseSupervisionRefusal(input: {
+  kind: string | undefined;
+  hasBotId: boolean;
+  roomOrigin: boolean;
+  supervisorBotId: string | null | undefined;
+}): string | null;

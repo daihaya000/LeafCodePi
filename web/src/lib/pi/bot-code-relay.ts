@@ -26,6 +26,7 @@ import {
 import { isGoalLoopOperatorHold } from "@/lib/pi/goal-loop-state";
 import { isRoomStopRequest } from "@/lib/room-conversation";
 import {
+  adoptSupervisionRefusal,
   botCodeReportText as coreBotCodeReportText,
   buildCodeRequestRecord,
   cancellationTargetForRequest,
@@ -44,6 +45,7 @@ import {
   markFollowUpAttempt,
   MAX_AUTO_CODE_CHAIN as CORE_MAX_AUTO_CODE_CHAIN,
   parseGoalLoopInput,
+  releaseSupervisionRefusal,
   reportingStateForRequest,
   codeRequestPayload,
   codeRequestSummaries,
@@ -698,15 +700,20 @@ export function createBotCodeRelay(deps: RelayDependencies) {
     return withBotCodeSessionLock(`code-task-${codeTaskId}`, async () => {
       const bot = owner(`bot:${botId}`);
       const task = getTask(codeTaskId);
-      if (!task || (task.kind ?? "code") !== "code" || task.botId || roomForCodeOrigin(task)) {
-        throw new Error("ユーザーが開始したCodeタスクだけを監督できます");
-      }
-      if (task.supervisorBotId && task.supervisorBotId !== botId) {
-        throw new Error("このCodeタスクは別のBotが監督中です");
-      }
-      if (task.status !== "working" && !deps.isBusy(task.id)) {
-        throw new Error("実行中のCodeタスクだけを監督できます");
-      }
+      // The supervision refusals live in backend core; the lookups stay here.
+      const adoptRefusal = adoptSupervisionRefusal({
+        hasTask: Boolean(task),
+        kind: task?.kind,
+        hasBotId: Boolean(task?.botId),
+        roomOrigin: Boolean(task && roomForCodeOrigin(task)),
+        supervisorBotId: task?.supervisorBotId,
+        botId,
+        working: task?.status === "working",
+        busy: task ? deps.isBusy(task.id) : false,
+      });
+      if (adoptRefusal) throw new Error(adoptRefusal);
+      // The refusals above already rejected a missing task; this keeps the types honest.
+      if (!task) throw new Error("ユーザーが開始したCodeタスクだけを監督できます");
       const existing = selectActiveCodeRequestForTask(requests(), codeTaskId);
       if (existing) {
         if (existing.botId !== bot.id) throw new Error("このCodeタスクは別のBotが監督中です");
@@ -748,9 +755,13 @@ export function createBotCodeRelay(deps: RelayDependencies) {
     return withBotCodeSessionLock(`code-task-${codeTaskId}`, async () => {
       const task = getTask(codeTaskId);
       if (!task) throw new Error("タスクが見つかりません");
-      if ((task.kind ?? "code") !== "code" || task.botId || roomForCodeOrigin(task) || !task.supervisorBotId) {
-        throw new Error("ユーザーが委任したCodeタスクだけを解除できます");
-      }
+      const releaseRefusal = releaseSupervisionRefusal({
+        kind: task.kind,
+        hasBotId: Boolean(task.botId),
+        roomOrigin: Boolean(roomForCodeOrigin(task)),
+        supervisorBotId: task.supervisorBotId,
+      });
+      if (releaseRefusal) throw new Error(releaseRefusal);
       const released = deps.linkSupervisor?.(codeTaskId, null);
       if (deps.linkSupervisor && !released) throw new Error("Codeタスクの監督リンクを解除できません");
       for (const request of requests()) {
