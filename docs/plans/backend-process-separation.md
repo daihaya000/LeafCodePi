@@ -82,6 +82,31 @@ bundleパスは`LEAFCODE_PI_BACKEND_RUNTIME_BUNDLE`で差し替え可能。CLI�
 **ターン91**: 8件目を解消。非所有モードの`POST /api/bots/rooms/[id]/code`（Roomの委譲Code停止）は、要求の探索（Roomファイル＝共有ディスク）はローカルのまま、停止を`forwardBotCodeRequestAbort`でBackendのoutbox所有者へ転送する。404（要求が変わった）はローカルと同じく409、未設定は409（`RUNTIME_NOT_OWNED`）、その他は502（`BACKEND_FORWARD_FAILED`）でローカル停止へフォールバックしない。**残り1件**（bots/[id]/code-session）。
 **ターン92**: 9件目を解消し、**未配線は0件**。非所有モードの`POST/PATCH /api/bots/[id]/code-session`は、起動（`createBotCodeTask`）と操作（clear/unlink/continue/Goal Loop制御）を409（`CODE_SESSION_NOT_SUPPORTED`／`CODE_SESSION_CONTROL_NOT_SUPPORTED`）で**明示的に拒否**する。起動の転送（Bot Codeタスク作成のBackend化）は未実装で、停止系は別route（`bots/[id]/abort`・`bots/[id]/code-requests`）から所有プロセスへ届く。カバレッジテストは「未配線リストが空であること」を検証するようになった＝**どのrouteも非所有モードで第二の所有者として振る舞わない**。
 
+### Phase 6 撤去手順（確定・未実施）
+
+前提: 実切替（`LEAFCODE_PI_CUTOVER=1`でのHost起動）を一度実施し、`/api/backend/status`の`cutover.blockers`が空で運用できることを確認してから行う。**旧経路とBackendの同時所有は常に禁止**。
+
+1. **中継フォールバックの廃止**: `relayTaskRows`／`relayBotList`の「Backend失敗時に`null`を返してプロセス内経路へ戻す」分岐を削除し、失敗をそのままエラーとして返す（`backendRelayCompatible`の5秒キャッシュも不要になる）。
+2. **旧経路（Web内SDK所有）の停止**: Hostを`LEAFCODE_PI_BACKEND_OWNS_RUNTIME=1`＋`LEAFCODE_PI_BACKEND_RELAY=1`で常時起動し、`LEAFCODE_PI_BACKEND=1`（Backend常駐）を既定にする。Webの`localRuntimeBlocked()`は常に真になる。
+3. **harness依存の除去**: Webの`@/lib/pi/harness` import を、非所有モードで拒否している機能（Bot Codeセッション起動、Goal Loop開始、AUTO解決を伴う起動）の転送を実装したうえで、起動・停止・回答・購読の各経路をBackend APIへ置換し、`backend-runtime-entry.ts`（Backend側のバンドルentry）だけを残す。
+4. **未使用の撤去**: `LEAFCODE_PI_BACKEND_RELAY`／`LEAFCODE_PI_BACKEND_OWNS_RUNTIME`スイッチ、`runtime-ownership.ts`の「所有モード」分岐、`backend-relay.ts`の全体を削除する。
+
+**未達（実切替までに必要な残作業・実測）**
+
+- Bot Codeセッション起動の転送（`createBotCodeTask`／`continueBotCodeTask`のBackend化）。現状は非所有モードで409拒否。
+- Goal Loop開始（`start`）の転送。Auto/モデル/エージェント解決がWeb側にあり、現状は409拒否。
+- SSEは非所有モードで2秒ポーリング（`eventType: "remote_poll"`）。所有モードの即時配信と比べ遅延がある。
+- 実切替の未実施（Host・WebUIの再起動を伴うため、ユーザー承認後に実施）。
+- Web全体の型検証は既存の拡張（`leafcode-goal-loop`／`loop-guard`）が`@earendil-works/pi-coding-agent`を解決できず失敗するため、本番用`tsconfig.build.json`で代替している。
+
+### 最終棚卸し（ターン93時点・実測）
+
+- `backend/core/`＝**50モジュール／62テストファイル**、`backend/src/`＝`server.mjs`／`entry.mjs`／`runtime-host.mjs`／`startup.mjs`／`runtime-loader.mjs`（各テスト付き）。
+- 内部API: `/internal/health`、`/internal/pending-snapshots`、`/internal/tasks`（一覧・`:id`・`:id/detail`・`:id/prompt`・`:id/permission`・`:id/question`・`:id/abort`・`:id/goal-loop`）、`/internal/bots`（一覧・`:id`・`:id/code-requests`）。
+- カバレッジ: セッションを触る**16 routeすべてがガード済み**（未配線0件、テストで検証）。
+- スイッチ: `LEAFCODE_PI_BACKEND`／`_RUNTIME`／`_RUNTIME_BUNDLE`／`_RELAY`／`_OWNS_RUNTIME`／`_GENERATION`／`_URL`／`_TOKEN`／`_PORT`／`_DATA_DIR`／`LEAFCODE_PI_CUTOVER`。
+- 世代: バンドル内容ハッシュ（16桁hex）。Hostがpinし、Backendは不一致ならreadyにならない。実測世代は`bd3d66b604a25790`（ターン89以降のバンドル）。
+
 **切替runbook（実行は未実施）**
 1. `npm run build:backend-runtime` でバンドルを更新し、`bundleGeneration`を確定する（世代が変わると稼働中Backendはreadyにならない）。
 2. Goal Loop・稼働中タスク・leaseが無いことを確認（`cutoverPreflight`のblockerが空）。
