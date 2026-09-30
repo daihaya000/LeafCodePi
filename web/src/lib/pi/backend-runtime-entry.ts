@@ -34,3 +34,4 @@ export { isRoomDelegatedCodeTask, stopBotCodeRequest } from "@/lib/pi/bot-code-r
 export { getBot, patchBot } from "@/lib/bots";
 export { getTask, patchTask } from "@/lib/store";
 export { isGoalLoopSessionOwned, readGoalLoopState } from "@/lib/pi/goal-loop-state";
+export { startGoalLoopWithSelection } from "@/lib/pi/goal-loop-start";

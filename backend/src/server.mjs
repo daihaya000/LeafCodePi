@@ -104,7 +104,7 @@ export function createBackendServer({
   abortTask = null,
   /** Stops a Bot Code request (and updates the outbox): `(botId, action, body) => result`. */
   botCodeRequestAction = null,
-  /** Goal Loop control: `(id, body) => loop | null`; null means the loop was not found. */
+  /** Goal Loop: start returns `{loop, agent, autoDecision?}`; controls return `loop | null`. */
   goalLoopAction = null,
   /** Starts a Bot Code session: `(botId, input) => task`; only the runtime owner may create one. */
   createBotCodeSession = null,
@@ -255,12 +255,15 @@ export function createBackendServer({
             sendJson(response, 400, { error: "Invalid goal loop action", code: BACKEND_ERROR_CODES.badRequest });
             return;
           }
-          const loop = await handler(actionPath, body.value);
+          const result = await handler(actionPath, body.value);
+          const loop = action === "start" ? result?.loop : result;
           if (!loop) {
             sendJson(response, 404, { error: "Goal loop not found", code: BACKEND_ERROR_CODES.notFound });
             return;
           }
-          sendJson(response, 200, { loop });
+          sendJson(response, 200, action === "start"
+            ? { loop, agent: result.agent ?? null, ...(result.autoDecision ? { autoDecision: result.autoDecision } : {}) }
+            : { loop });
         } else if (actionSuffix === BACKEND_TASK_ABORT_SUFFIX) {
           const botId = typeof body.value?.botId === "string" && body.value.botId ? body.value.botId : null;
           const task = await handler(actionPath, botId);

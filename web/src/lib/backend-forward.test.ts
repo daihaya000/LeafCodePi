@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   forwardPermissionAnswer,
+  forwardGoalLoopStart,
   forwardQuestionAnswer,
   forwardTaskAbort,
   forwardPendingRequestsByTask,
@@ -16,6 +17,50 @@ const env = { LEAFCODE_PI_BACKEND_TOKEN: "t".repeat(40), LEAFCODE_PI_BACKEND_URL
 function jsonResponse(status: number, body: unknown): Response {
   return new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
 }
+
+describe("forwardGoalLoopStart", () => {
+  it("forwards selection fields and returns the owner's selection result", async () => {
+    const autoDecision = { modelID: "selected-model" };
+    const fetchImpl = vi.fn(async () => jsonResponse(200, {
+      loop: { status: "queued" }, agent: "reviewer", autoDecision,
+    }));
+    const selection = {
+      goal: "直す", acceptance: ["テスト成功"], auto: true, autoOptimize: "balanced",
+      autoRouteOverrides: { heavy: "openai/gpt-5" }, model: "openai/gpt-5", thinkingLevel: "high", agent: "auto",
+    };
+    await expect(forwardGoalLoopStart("task-1", selection, { env, fetchImpl: fetchImpl as unknown as typeof fetch }))
+      .resolves.toEqual({ ok: true, loop: { status: "queued" }, agent: "reviewer", autoDecision });
+    const calls = fetchImpl.mock.calls as unknown as Array<[string, RequestInit]>;
+    expect(calls[0][0]).toBe("http://127.0.0.1:19999/internal/tasks/task-1/goal-loop");
+    expect(JSON.parse(calls[0][1].body as string)).toEqual({ action: "start", ...selection });
+  });
+
+  it("does not time out Auto selection at the ordinary 10s read deadline", async () => {
+    vi.useFakeTimers();
+    try {
+      let resolve!: (response: Response) => void;
+      const fetchImpl = vi.fn<typeof fetch>(() =>
+        new Promise<Response>((done) => { resolve = done; }));
+      const pending = forwardGoalLoopStart("task-1", { goal: "直す", acceptance: [], agent: "auto" }, {
+        env, fetchImpl: fetchImpl as typeof fetch,
+      });
+      await vi.advanceTimersByTimeAsync(10_001);
+      expect(fetchImpl.mock.calls[0][1]?.signal?.aborted).toBe(false);
+      resolve(jsonResponse(200, { loop: { status: "queued" }, agent: "reviewer" }));
+      await expect(pending).resolves.toMatchObject({ ok: true, agent: "reviewer" });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it.each([400, 409])("keeps owner refusal status %i", async (status) => {
+    const fetchImpl = vi.fn(async () => jsonResponse(status, { error: "refused" }));
+    const result = await forwardGoalLoopStart("task-1", { goal: "直す", acceptance: [], auto: true }, {
+      env, fetchImpl: fetchImpl as unknown as typeof fetch,
+    });
+    expect(result).toMatchObject({ ok: false, status });
+  });
+});
 
 describe("forwardablePromptBody", () => {
   it("keeps only what the Backend's runtime understands", () => {

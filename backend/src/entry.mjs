@@ -142,15 +142,7 @@ try {
         return runtime.goalLoopState(id, { offline: true });
       }
       if (action === "start") {
-        return runtime.goalLoopCommand(id, {
-          action: "start",
-          goal: body?.goal,
-          acceptance: body?.acceptance,
-          ...(body?.maxTurns !== undefined ? { maxTurns: body.maxTurns } : {}),
-          ...(body?.cooldownSeconds !== undefined ? { cooldownSeconds: body.cooldownSeconds } : {}),
-          ...(body?.forceFullRun !== undefined ? { forceFullRun: body.forceFullRun } : {}),
-          ...(Array.isArray(body?.images) ? { images: body.images } : {}),
-        });
+        return runtime.startGoalLoopWithSelection(id, body);
       }
       return runtime.goalLoopCommand(id, {
         action,

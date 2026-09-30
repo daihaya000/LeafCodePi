@@ -48,22 +48,8 @@ export async function POST(req: NextRequest, { params }: Params) {
     if (action !== "start") {
       return NextResponse.json({ error: "POST の action は start です" }, { status: 400 });
     }
-    // Starting resolves Auto/model/agent locally, so an override is refused; a plain start is forwarded
-    // to the process that owns the session. Pause/resume/stop/complete are forwarded below (see PATCH).
+    // The owner resolves Auto/model/agent and rolls settings back if starting fails.
     if (localRuntimeBlocked()) {
-      const needsLocalResolution =
-        body?.auto !== undefined ||
-        body?.model !== undefined ||
-        body?.agent !== undefined ||
-        body?.thinkingLevel !== undefined ||
-        body?.autoOptimize !== undefined ||
-        body?.autoRouteOverrides !== undefined;
-      if (needsLocalResolution) {
-        return NextResponse.json(
-          { error: "Auto/モデル指定つきのGoal Loop開始は非所有モードでは未対応です", code: "GOAL_LOOP_START_NOT_SUPPORTED" },
-          { status: 409 },
-        );
-      }
       const goal = typeof body?.goal === "string" ? body.goal.trim() : "";
       const criteria = acceptance(body?.acceptance);
       if (!goal || goal.length > 4_000 || !criteria) {
@@ -76,19 +62,32 @@ export async function POST(req: NextRequest, { params }: Params) {
         cooldownSeconds: clampGoalLoopCooldownSeconds(body?.cooldownSeconds),
         forceFullRun: body?.forceFullRun === true,
         ...(body?.images !== undefined ? { images: body.images } : {}),
+        ...(body?.model !== undefined ? { model: body.model } : {}),
+        ...(body?.thinkingLevel !== undefined ? { thinkingLevel: body.thinkingLevel } : {}),
+        ...(body?.agent !== undefined ? { agent: body.agent } : {}),
+        ...(body?.auto !== undefined ? { auto: body.auto } : {}),
+        ...(body?.autoOptimize !== undefined ? { autoOptimize: body.autoOptimize } : {}),
+        ...(body?.autoRouteOverrides !== undefined ? { autoRouteOverrides: body.autoRouteOverrides } : {}),
       });
       if (forwarded.ok) {
         const loop = forwarded.loop as { status?: string } | null;
         if (!loop || !isGoalLoopLiveStatus(loop.status)) {
           return NextResponse.json({ error: "Goal Loop を開始できませんでした" }, { status: 409 });
         }
-        return NextResponse.json({ loop, agent: null });
+        return NextResponse.json({
+          loop,
+          agent: forwarded.agent ?? null,
+          ...(forwarded.autoDecision ? { autoDecision: forwarded.autoDecision } : {}),
+        });
       }
       if (forwarded.reason === "not-configured") {
         return NextResponse.json({ error: "Backendが実行を所有しています", code: "RUNTIME_NOT_OWNED" }, { status: 409 });
       }
       if (forwarded.reason === "not-found") {
         return NextResponse.json({ error: "タスクが見つかりません" }, { status: 404 });
+      }
+      if (forwarded.status === 400 || forwarded.status === 409) {
+        return NextResponse.json({ error: "Goal Loop を開始できませんでした" }, { status: forwarded.status });
       }
       return NextResponse.json(
         { error: "Backendへ転送できません", code: "BACKEND_FORWARD_FAILED", reason: forwarded.reason },

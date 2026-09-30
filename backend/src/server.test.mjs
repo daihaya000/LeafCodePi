@@ -580,6 +580,9 @@ test("a forwarded Goal Loop control reaches the loop's owner", async (t) => {
   const { snapshotsUrl, headers } = await fixture(t, {
     goalLoopAction: async (id, body) => {
       seen.push({ id, body });
+      if (body.action === "start") {
+        return { loop: { id, status: "queued" }, agent: "reviewer", autoDecision: { modelID: "selected-model" } };
+      }
       return body.action === "stop" && body.botId === "missing" ? null : { id, status: "paused" };
     },
   });
@@ -592,15 +595,37 @@ test("a forwarded Goal Loop control reaches the loop's owner", async (t) => {
   assert.equal((await post({ action: "resume", maxTurns: 5 })).status, 200);
   assert.equal((await post({ action: "stop", botId: "bot-1" })).status, 200);
   assert.equal((await post({ action: "stop", botId: "missing" })).status, 404, "an unknown loop is a 404");
-  const started = await post({ action: "start", goal: "直して", acceptance: ["テストが通る"] });
+  const started = await post({ action: "start", goal: "直して", acceptance: ["テストが通る"], auto: true, agent: "auto" });
   assert.equal(started.status, 200, "start is forwarded too");
+  assert.deepEqual(await started.json(), {
+    loop: { id: "task-1", status: "queued" }, agent: "reviewer", autoDecision: { modelID: "selected-model" },
+  });
   assert.deepEqual(seen, [
     { id: "task-1", body: { action: "pause" } },
     { id: "task-1", body: { action: "resume", maxTurns: 5 } },
     { id: "task-1", body: { action: "stop", botId: "bot-1" } },
     { id: "task-1", body: { action: "stop", botId: "missing" } },
-    { id: "task-1", body: { action: "start", goal: "直して", acceptance: ["テストが通る"] } },
+    { id: "task-1", body: { action: "start", goal: "直して", acceptance: ["テストが通る"], auto: true, agent: "auto" } },
   ]);
+});
+
+test("Goal Loop start refusals retain their status without leaking runtime errors", async (t) => {
+  const { snapshotsUrl, headers } = await fixture(t, {
+    goalLoopAction: async (_id, body) => {
+      throw Object.assign(new Error("private provider details"), { status: body.auto ? 400 : 409 });
+    },
+  });
+  const url = `${snapshotsUrl.replace("pending-snapshots", "tasks")}/task-1/goal-loop`;
+  for (const [auto, status] of [[true, 400], [false, 409]]) {
+    const response = await request(url, {
+      method: "POST", headers: { ...headers, "content-type": "application/json" },
+      body: JSON.stringify({ action: "start", goal: "直す", auto }),
+    });
+    assert.equal(response.status, status);
+    const body = await response.json();
+    assert.equal(body.error, "Backend task action failed");
+    assert.equal(JSON.stringify(body).includes("private provider details"), false);
+  }
 });
 
 test("the Goal Loop control needs a runtime and refuses a non-function handler", async (t) => {

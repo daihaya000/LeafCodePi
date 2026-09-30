@@ -92,6 +92,9 @@ describe("Goal Loop control after the cutover", () => {
     mocks.forwardGoalLoopControl.mockReset();
     mocks.forwardGoalLoopStart.mockReset();
     mocks.goalLoopCommand.mockReset();
+    mocks.resolveAutoModel.mockReset();
+    mocks.resolveAutoAgent.mockReset();
+    mocks.setTaskModel.mockReset();
     mocks.botIdForCodeTask.mockReset();
     mocks.botIdForCodeTask.mockReturnValue(undefined);
   });
@@ -143,16 +146,35 @@ describe("Goal Loop control after the cutover", () => {
     expect(mocks.goalLoopCommand).not.toHaveBeenCalled();
   });
 
-  it("refuses a start that needs WebUI-side resolution", async () => {
-    const response = await POST(request({ action: "start", goal: "直して", acceptance: ["テストが通る"], auto: true }), {
+  it.each([
+    { auto: true, autoOptimize: "balanced", autoRouteOverrides: { mode: "test" }, agent: AUTO_AGENT_VALUE },
+    { model: "openai/gpt-5", thinkingLevel: "high", agent: "reviewer", auto: false },
+  ])("forwards selection inputs to the owner: %j", async (selection) => {
+    const autoDecision = { modelID: "selected-model" };
+    mocks.forwardGoalLoopStart.mockResolvedValue({
+      ok: true, loop: { id: "task-1", status: "queued" }, agent: "reviewer", autoDecision,
+    });
+    const response = await POST(request({ action: "start", goal: "直して", acceptance: ["テストが通る"], ...selection }), {
       params: Promise.resolve({ id: "task-1" }),
     });
-    expect(response.status).toBe(409);
+    expect(response.status).toBe(200);
     await expect(response.json()).resolves.toEqual({
-      error: "Auto/モデル指定つきのGoal Loop開始は非所有モードでは未対応です",
-      code: "GOAL_LOOP_START_NOT_SUPPORTED",
+      loop: { id: "task-1", status: "queued" }, agent: "reviewer", autoDecision,
     });
-    expect(mocks.forwardGoalLoopStart).not.toHaveBeenCalled();
+    expect(mocks.forwardGoalLoopStart).toHaveBeenCalledWith("task-1", expect.objectContaining(selection));
+    expect(mocks.resolveAutoModel).not.toHaveBeenCalled();
+    expect(mocks.resolveAutoAgent).not.toHaveBeenCalled();
+    expect(mocks.setTaskModel).not.toHaveBeenCalled();
+    expect(mocks.goalLoopCommand).not.toHaveBeenCalled();
+  });
+
+  it.each([400, 409])("preserves an owner refusal (%i) without a local fallback", async (status) => {
+    mocks.forwardGoalLoopStart.mockResolvedValue({ ok: false, reason: "incompatible", status });
+    const response = await POST(request({ action: "start", goal: "直して", auto: true }), {
+      params: Promise.resolve({ id: "task-1" }),
+    });
+    expect(response.status).toBe(status);
+    expect(mocks.resolveAutoModel).not.toHaveBeenCalled();
     expect(mocks.goalLoopCommand).not.toHaveBeenCalled();
   });
 

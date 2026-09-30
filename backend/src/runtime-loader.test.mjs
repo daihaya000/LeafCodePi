@@ -89,4 +89,9 @@ test("the default path points at the build artifact", () => {
 test("the built bundle loads with every required export", { skip: !existsSync(DEFAULT_RUNTIME_BUNDLE) }, async () => {
   const result = await loadBackendRuntime();
   assert.equal(result.ok, true, result.ok ? "" : `reason=${result.reason} missing=${result.missing?.join(",")}`);
+  // Exercise the real bundled entry without starting a session or calling a provider.
+  await assert.rejects(
+    result.runtime.startGoalLoopWithSelection("not-a-task", { goal: "", auto: true }),
+    (error) => error.status === 400 && error.message === "goal または acceptance が不正です",
+  );
 });

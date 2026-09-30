@@ -199,25 +199,13 @@ export async function forwardBotCodeRequestAbort(
   return { ok: true, result: result.body };
 }
 
-/**
- * Starts a Goal Loop in the owning Backend.
- *
- * The caller must have resolved everything the WebUI owns (Auto, model, agent) first: this forwards
- * only what the loop itself needs.
- */
+/** Starts a Goal Loop in the owner, including Auto/model/agent selection and rollback. */
 export async function forwardGoalLoopStart(
   id: string,
-  body: {
-    goal: string;
-    acceptance: string[];
-    maxTurns?: number;
-    cooldownSeconds?: number;
-    forceFullRun?: boolean;
-    images?: unknown;
-  },
+  body: Omit<Extract<BackendGoalLoopBody, { action: "start" }>, "action">,
   options: { env?: BackendEnv; fetchImpl?: typeof fetch; timeoutMs?: number } = {},
 ): Promise<
-  | { ok: true; loop: Record<string, unknown> | null }
+  | { ok: true; loop: Record<string, unknown> | null; agent: string | null; autoDecision?: Record<string, unknown> }
   | { ok: false; reason: BackendFailureReason | "not-found"; status?: number }
 > {
   const result = await controlGoalLoopOnBackend(
@@ -230,15 +218,27 @@ export async function forwardGoalLoopStart(
       ...(body.cooldownSeconds !== undefined ? { cooldownSeconds: body.cooldownSeconds } : {}),
       ...(body.forceFullRun !== undefined ? { forceFullRun: body.forceFullRun } : {}),
       ...(body.images !== undefined ? { images: body.images } : {}),
+      ...(body.model !== undefined ? { model: body.model } : {}),
+      ...(body.thinkingLevel !== undefined ? { thinkingLevel: body.thinkingLevel } : {}),
+      ...(body.agent !== undefined ? { agent: body.agent } : {}),
+      ...(body.auto !== undefined ? { auto: body.auto } : {}),
+      ...(body.autoOptimize !== undefined ? { autoOptimize: body.autoOptimize } : {}),
+      ...(body.autoRouteOverrides !== undefined ? { autoRouteOverrides: body.autoRouteOverrides } : {}),
     },
-    options,
+    // Auto agent selection alone may take 30s: the normal 10s read timeout is too short.
+    { ...options, timeoutMs: options.timeoutMs ?? 60_000 },
   );
   if (!result.ok) {
     if (result.status === 404) return { ok: false, reason: "not-found", status: 404 };
     return { ok: false, reason: result.reason, ...(result.status ? { status: result.status } : {}) };
   }
   const loop = result.body?.loop;
-  return { ok: true, loop: loop && typeof loop === "object" ? loop : null };
+  return {
+    ok: true,
+    loop: loop && typeof loop === "object" ? loop : null,
+    agent: typeof result.body?.agent === "string" ? result.body.agent : null,
+    ...(result.body?.autoDecision ? { autoDecision: result.body.autoDecision } : {}),
+  };
 }
 
 /** Controls a Goal Loop in the owning Backend; a missing loop is a 404, not a fallback. */

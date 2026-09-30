@@ -168,9 +168,14 @@ export function expectedBackendGeneration(env: BackendEnv = process.env): string
   return normalizeExpectedGeneration(env.LEAFCODE_PI_BACKEND_GENERATION);
 }
 
-/** The Goal Loop body the owning Backend accepts: start carries the loop's own inputs. */
+/** Start includes selection inputs: only the owning Backend resolves Auto and mutates settings. */
 export type BackendGoalLoopBody =
-  | { action: "start"; goal: string; acceptance: string[]; maxTurns?: number; cooldownSeconds?: number; forceFullRun?: boolean; images?: unknown }
+  | {
+      action: "start"; goal: string; acceptance: string[];
+      maxTurns?: number; cooldownSeconds?: number; forceFullRun?: boolean; images?: unknown;
+      model?: string; thinkingLevel?: string; agent?: string;
+      auto?: unknown; autoOptimize?: unknown; autoRouteOverrides?: unknown;
+    }
   | { action: "pause" | "resume" | "stop" | "complete"; maxTurns?: number; botId?: string };
 
 /** Starts or controls a Goal Loop in the owning Backend. */
@@ -178,7 +183,11 @@ export function controlGoalLoopOnBackend(
   id: string,
   body: BackendGoalLoopBody,
   options: { env?: BackendEnv; fetchImpl?: typeof fetch; timeoutMs?: number } = {},
-): Promise<BackendResult<{ loop: Record<string, unknown> | null }>> {
+): Promise<BackendResult<{
+  loop: Record<string, unknown> | null;
+  agent?: string | null;
+  autoDecision?: Record<string, unknown>;
+}>> {
   return postBackendJson(`${BACKEND_TASKS_PATH}/${encodeURIComponent(id)}${BACKEND_TASK_GOAL_LOOP_SUFFIX}`, body, options);
 }
 
