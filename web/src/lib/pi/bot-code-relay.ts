@@ -25,7 +25,7 @@ import {
 } from "@/lib/pi/bot-code-images";
 import { isGoalLoopOperatorHold } from "@/lib/pi/goal-loop-state";
 import { isRoomStopRequest } from "@/lib/room-conversation";
-import { isActiveCodeRequest, isCodeRequestId, isRoomCodeRequestCurrent, roomCodeOrigin, runningCodeTaskIdsForOrigin, selectActiveCodeRequestForTask } from "@backend-core/bot-code-request.mjs";
+import { cancellationTargetForRequest, isActiveCodeRequest, isCodeRequestId, isRoomCodeRequestCurrent, resolveOutboxScanAction, roomCodeOrigin, runningCodeTaskIdsForOrigin, selectActiveCodeRequestForTask } from "@backend-core/bot-code-request.mjs";
 
 export const BOT_CODE_TOOL = "code_session";
 export const BOT_CODE_RESULT = "bot-code-result";
@@ -998,8 +998,10 @@ export function createBotCodeRelay(deps: RelayDependencies) {
       }
       // Another worker owns the live session — leave starting until that owner drains it.
       if (deps.ownsTaskLease && !deps.ownsTaskLease(task.id)) return;
-      // Still mid-prompt: wait. Crash left us starting with an idle task: re-queue.
-      if (deps.isBusy(task.id)) return;
+      // The scan decision (wait while busy, re-queue a crash-left starting row) lives in
+      // backend core; the lease check above stays here because it reads process state.
+      const action = resolveOutboxScanAction({ state: request.state, isBusy: deps.isBusy(task.id) });
+      if (action === "wait") return;
       request.state = "queued";
       save(request);
     }
@@ -1037,7 +1039,7 @@ export function createBotCodeRelay(deps: RelayDependencies) {
       const request = read(id);
       if (!request || !active(request)) return;
       try { owner(request.originTaskId); } catch {
-        const taskToStop = request.state === "queued" ? null : request.codeTaskId;
+        const taskToStop = cancellationTargetForRequest(request);
         request.state = "cancelled";
         save(request);
         if (taskToStop) {
@@ -1057,7 +1059,7 @@ export function createBotCodeRelay(deps: RelayDependencies) {
       }
       // A newer Room user turn supersedes this outbox row even mid-run / mid-report.
       if (request.room && !roomRequestIsCurrent(request)) {
-        const taskToStop = request.state === "queued" ? null : request.codeTaskId;
+        const taskToStop = cancellationTargetForRequest(request);
         request.state = "cancelled";
         save(request);
         await settleHandoffsAfterRoomCancel(request);

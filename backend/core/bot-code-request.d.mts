@@ -31,3 +31,9 @@ export function selectActiveCodeRequestForTask<T extends {
 export function runningCodeTaskIdsForOrigin<T extends {
   originTaskId: string; state: string; codeTaskId?: string | null; userIntervention?: boolean;
 }>(requests: readonly T[], originTaskId: string): string[];
+
+/** What one outbox scan does with a request this worker may act on. */
+export function resolveOutboxScanAction(input: { state: string; isBusy: boolean }): "wait" | "requeue" | "start";
+
+/** The Code task to abort when a request is cancelled, or null when nothing started. */
+export function cancellationTargetForRequest(request: { state: string; codeTaskId?: string | null } | null | undefined): string | null;

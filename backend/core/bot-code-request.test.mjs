@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
-  isActiveCodeRequest, isCodeRequestId, isRoomCodeRequestCurrent, roomCodeOrigin,
-  runningCodeTaskIdsForOrigin, selectActiveCodeRequestForTask,
+  cancellationTargetForRequest, isActiveCodeRequest, isCodeRequestId, isRoomCodeRequestCurrent,
+  resolveOutboxScanAction, roomCodeOrigin, runningCodeTaskIdsForOrigin, selectActiveCodeRequestForTask,
 } from "./bot-code-request.mjs";
 
 test("only the documented task id shape carries a Room origin", () => {
@@ -158,4 +158,22 @@ test("running Code tasks for an origin are launch requests in read order", () =>
   assert.deepEqual(runningCodeTaskIdsForOrigin(requests, "bot:bot-1"), ["code-1", "code-2"]);
   assert.deepEqual(runningCodeTaskIdsForOrigin(requests, "bot:other"), ["code-7"]);
   assert.deepEqual(runningCodeTaskIdsForOrigin([], "bot:bot-1"), []);
+});
+
+test("an outbox scan starts queued rows and re-queues only a crash-left starting row", () => {
+  assert.equal(resolveOutboxScanAction({ state: "queued", isBusy: false }), "start");
+  assert.equal(resolveOutboxScanAction({ state: "queued", isBusy: true }), "start", "a queued row starts even while another prompt runs");
+  assert.equal(resolveOutboxScanAction({ state: "starting", isBusy: true }), "wait");
+  assert.equal(resolveOutboxScanAction({ state: "starting", isBusy: false }), "requeue");
+  for (const state of ["running", "ready", "delivered", "cancelled"]) {
+    assert.equal(resolveOutboxScanAction({ state, isBusy: false }), "wait", state);
+  }
+});
+
+test("cancelling a request only aborts a Code task that was actually started", () => {
+  assert.equal(cancellationTargetForRequest({ state: "queued", codeTaskId: "code-1" }), null);
+  assert.equal(cancellationTargetForRequest({ state: "starting", codeTaskId: "code-1" }), "code-1");
+  assert.equal(cancellationTargetForRequest({ state: "running", codeTaskId: "code-1" }), "code-1");
+  assert.equal(cancellationTargetForRequest({ state: "ready", codeTaskId: null }), null);
+  assert.equal(cancellationTargetForRequest(undefined), null);
 });

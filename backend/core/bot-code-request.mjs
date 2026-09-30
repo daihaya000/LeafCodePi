@@ -84,3 +84,25 @@ export function runningCodeTaskIdsForOrigin(requests, originTaskId) {
     )
     .map((item) => item.codeTaskId);
 }
+
+/**
+ * What one outbox scan does with a request the caller may act on (the lease is already
+ * owned by this worker). A `starting` row whose task is no longer busy was left behind by
+ * a crash, so it is re-queued and started again; a `starting` row that is still busy waits
+ * for the live prompt. Anything else waits: only `queued` rows start.
+ */
+export function resolveOutboxScanAction({ state, isBusy }) {
+  if (state === "starting") return isBusy === true ? "wait" : "requeue";
+  if (state === "queued") return "start";
+  return "wait";
+}
+
+/**
+ * The Code task to abort when a request is cancelled. A request that never left `queued`
+ * started nothing, so there is nothing to stop; a cancelled request that had reached the
+ * session must have its Code task aborted.
+ */
+export function cancellationTargetForRequest(request) {
+  if (!request || request.state === "queued") return null;
+  return request.codeTaskId ?? null;
+}
