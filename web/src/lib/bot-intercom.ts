@@ -4,6 +4,7 @@ import { dirname, join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { botWorkspace, getBot, listBots } from "@/lib/bots";
 import { readIntercomTriggerPolicy } from "@/lib/intercom-config";
+import { botIntercomPresence as coreBotIntercomPresence, shouldWakeIdleDelivery as coreShouldWakeIdleDelivery } from "@backend-core/bot-intercom-policy.mjs";
 import { dataDir, samePath } from "@/lib/paths";
 import {
   isPromptFileText,
@@ -202,9 +203,8 @@ function shouldWakeIdleDelivery(message: BotIntercomMessageV1): boolean {
   } catch {
     /* malformed config — keep ask wakeable */
   }
-  if (policy === "never") return false;
-  if (policy === "always") return true;
-  return message.kind === "ask";
+  // The policy rule lives in backend core; the settings lookup stays here.
+  return coreShouldWakeIdleDelivery(policy, message.kind);
 }
 
 function wakeSteerIfNeeded(message: BotIntercomMessageV1): void {
@@ -294,9 +294,13 @@ export function isBotIntercomResident(botId: string): boolean {
 }
 
 export function botIntercomPresence(botId: string): BotIntercomPresence {
-  if (!isBotIntercomResident(botId)) return "offline";
-  if (waitingBots.has(botId) || busyLookup(botId) || roomBusyLookup(botId)) return "busy";
-  return "online";
+  // The presence rule lives in backend core; the live-session lookups stay here.
+  return coreBotIntercomPresence({
+    resident: isBotIntercomResident(botId),
+    waiting: waitingBots.has(botId),
+    busy: busyLookup(botId),
+    roomBusy: roomBusyLookup(botId),
+  });
 }
 
 export function setBotIntercomAskTimeoutMsForTests(ms: number): void {
