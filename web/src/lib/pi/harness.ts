@@ -217,6 +217,7 @@ import { detachReplacedLive as coreDetachReplacedLive, hasOtherBusyRoomLive, isR
 import { restoredPromptState, restoredTaskMetadata, restoredThroughputState } from "@backend-core/live-attach-state.mjs";
 import { compactionFailureMessage, isHarnessAutoCompactionError as coreIsHarnessAutoCompactionError, runAgentStartTaskSync, shouldApplySettledStatus, shouldSkipEventForMissingTask, shouldSyncTaskFromSessionEvent as coreShouldSyncTaskFromSessionEvent, type SessionSyncEvent } from "@backend-core/session-event-decisions.mjs";
 import { classifySnapshotEvent, flushPendingSnapshotOnUnsubscribe, pendingSnapshotFlush, SNAPSHOT_THROTTLE_MS } from "@backend-core/snapshot-schedule.mjs";
+import { preflightLiveSession, resolveSessionPermissionMode } from "@backend-core/live-session-preflight.mjs";
 import { attachReplacementSession } from "@backend-core/live-replace.mjs";
 import { buildBotCodeReportContent } from "@backend-core/bot-code-report.mjs";
 import {
@@ -4652,14 +4653,20 @@ async function ensureLive(
     if (again) return again;
 
     const task = getTask(taskId);
-    if (!task)
-      throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });
-    if (task.status === "archived") {
-      throw Object.assign(new Error("アーカイブされたタスクです"), {
-        status: 409,
+    const leaseHeldElsewhere = hasActiveTaskLease(taskId) && !ownsTaskLease(taskId);
+    if (!task || task.status === "archived" || leaseHeldElsewhere) {
+      // Refusal precedence (missing → archived → busy lease) lives in backend core.
+      const refusal = preflightLiveSession({
+        hasTask: Boolean(task),
+        status: task?.status ?? "",
+        leaseHeldElsewhere,
       });
-    }
-    if (hasActiveTaskLease(taskId) && !ownsTaskLease(taskId)) {
+      if (refusal === "archived") {
+        throw Object.assign(new Error("アーカイブされたタスクです"), { status: 409 });
+      }
+      if (refusal === "task-not-found") {
+        throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });
+      }
       throw Object.assign(new Error(TASK_LEASE_BUSY_ERROR), { status: 409 });
     }
     const project = task.projectId ? getProject(task.projectId) : undefined;
@@ -4702,9 +4709,12 @@ async function ensureLive(
       model,
       thinkingLevel: sessionThinkingLevel,
       skillPermission: permissionUpdates.skillPermission ?? task.skillPermission,
-      permissionMode: isBot
-        ? (bot?.permissionMode ?? task.permissionMode)
-        : (permissionUpdates.permissionMode ?? task.permissionMode),
+      permissionMode: resolveSessionPermissionMode({
+        isBot,
+        botPermissionMode: bot?.permissionMode,
+        updatedPermissionMode: permissionUpdates.permissionMode,
+        taskPermissionMode: task.permissionMode,
+      }),
       agentName: task.agent ?? null,
       taskId,
       goalLoop: isGoalLoopSessionOwned(persistedGoalLoop),
