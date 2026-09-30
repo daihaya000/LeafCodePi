@@ -252,6 +252,31 @@ describe("listExtensions / setExtensionEnabled", () => {
     assert.equal(listed.extensions.find((entry) => entry.name === "one")?.source, "user");
   });
 
+  it("prefers optional bundled Anthropic auth over its scoped npm copy and honors disable", () => {
+    const { agentDir: agent } = fixture();
+    const bundledRoot = join(data, "repo-extensions");
+    writeExtension(bundledRoot, "pi-anthropic-auth");
+    const npmDir = join(agent, "npm", "node_modules", "@gotgenes", "pi-anthropic-auth");
+    mkdirSync(join(npmDir, "src"), { recursive: true });
+    writeFileSync(join(npmDir, "package.json"), JSON.stringify({ pi: { extensions: ["./src/index.ts"] } }), "utf8");
+    writeFileSync(join(npmDir, "src", "index.ts"), "export default () => {};\n", "utf8");
+    writeFileSync(join(agent, "settings.json"), JSON.stringify({ packages: ["npm:@gotgenes/pi-anthropic-auth@3.3.3"] }), "utf8");
+
+    const options = { bundledDir: bundledRoot };
+    const listed = listExtensions(agent, options);
+    const auth = listed.extensions.filter((entry) => entry.name === "pi-anthropic-auth");
+    assert.equal(auth.length, 1);
+    assert.equal(auth[0].source, "bundled");
+    assert.equal(auth[0].required, false);
+    assert.equal(auth[0].enabled, true);
+    assert.equal(auth[0].filePath, join(bundledRoot, "pi-anthropic-auth", "index.js"));
+    const disabled = setExtensionEnabled("pi-anthropic-auth", false, agent, options);
+    assert.equal(disabled.extensions.find((entry) => entry.name === "pi-anthropic-auth")?.enabled, false);
+    assert.deepEqual(filterExtensionsByState([{ path: auth[0].filePath }, { path: join(npmDir, "src", "index.ts") }], readExtensionsState(), agent), []);
+    const enabled = setExtensionEnabled("pi-anthropic-auth", true, agent, options);
+    assert.equal(enabled.extensions.find((entry) => entry.name === "pi-anthropic-auth")?.enabled, true);
+  });
+
   it("hides the legacy MCP adapter when the bundled fork is present", () => {
     const { agentDir: agent } = fixture();
     const bundledRoot = join(data, "repo-extensions");

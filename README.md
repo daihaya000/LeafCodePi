@@ -144,6 +144,14 @@ Jev が未設定・無効・失敗・タイムアウト・曖昧な判定の場�
 pi install ./extensions/leafcode-todowrite
 ```
 
+### Anthropic OAuth（`pi-anthropic-auth`）
+
+`extensions/pi-anthropic-auth` に [`@gotgenes/pi-anthropic-auth` 3.3.3](https://github.com/gotgenes/pi-anthropic-auth) をMITライセンス付きで同梱しています。LeafCodePiでは自動検出され、設定 → 拡張から無効化できます。既存のnpm版はLeafCodePi内では読み込み対象から除外し、二重登録を防ぎます。
+
+通常の `/login anthropic` と `/anthropic-auth:status` を利用できます。CLIでも同梱版を使う場合は `pi install ./extensions/pi-anthropic-auth` を実行し、旧npm版の登録を削除してください。設定・認証はグローバル配置のままです。
+
+上流の処理は変更していません。サービス側の許可・課金区分・利用規約への適合を保証するものではなく、追加使用量の警告も自動では無効化しません。取り込み元と更新手順は [`SOURCE.md`](extensions/pi-anthropic-auth/SOURCE.md) を参照してください。
+
 ### MCP
 
 `extensions/leafcode-mcp-adapter` に `pi-mcp-adapter` の LeafCodePi 組み込みフォークを同梱しています。

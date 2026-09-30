@@ -80,6 +80,11 @@ describe("session extension replacement", () => {
       ["@injaneity/pi-computer-use"],
     );
     assert.deepEqual([...replacedUpstreamPackages(new Set())], []);
+    const anthropic = replacedUpstreamPackages(new Set(["pi-anthropic-auth"]));
+    assert.deepEqual([...anthropic], ["@gotgenes/pi-anthropic-auth"]);
+    assert.equal(isReplacedPackageSource("npm:@gotgenes/pi-anthropic-auth@3.3.3", anthropic), true);
+    assert.equal(isReplacedPackageSource({ source: "npm:@gotgenes/pi-anthropic-auth" }, anthropic), true);
+    assert.equal(isReplacedPackageSource("npm:@other/pi-anthropic-auth", anthropic), false);
     const names = replacedUpstreamPackages(new Set(["leafcode-computer-use"]));
     assert.equal(isReplacedPackageSource("npm:@injaneity/pi-computer-use@0.5.1", names), true);
     assert.equal(isReplacedPackageSource({ source: "git:github.com/injaneity/pi-computer-use@v0.5.1" }, names), true);
@@ -105,6 +110,12 @@ describe("session extension replacement", () => {
     assert.equal(keepsLoadedExtension("/other/leafcode-memory/src/index.ts", memory), false);
     assert.equal(keepsLoadedExtension(memoryEntry, memory), true);
     assert.equal(keepsLoadedExtension("/other/unrelated/src/index.ts", memory), true);
+    const anthropic = bundled("pi-anthropic-auth");
+    const npmAuth = "/npm/@gotgenes/pi-anthropic-auth/src/index.ts";
+    assert.equal(keepsLoadedExtension(npmAuth, anthropic), false);
+    assert.equal(keepsLoadedExtension("/other/pi-anthropic-auth/index.ts", anthropic), false);
+    assert.equal(keepsLoadedExtension(resolve("/repo/extensions/pi-anthropic-auth/index.ts"), anthropic), true);
+    assert.equal(keepsLoadedExtension(npmAuth, bundled()), true);
   });
 
   it("keeps the upstream extension when its fork is not bundled", () => {

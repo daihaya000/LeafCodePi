@@ -3219,6 +3219,7 @@ const FORK_REPLACED_EXTENSIONS = [
   { fork: "leafcode-intercom", upstream: "pi-intercom", skipDiscovery: true },
   { fork: "leafcode-mcp-adapter", upstream: "pi-mcp-adapter", skipDiscovery: true },
   { fork: "leafcode-computer-use", upstream: "@injaneity/pi-computer-use", skipDiscovery: true },
+  { fork: "pi-anthropic-auth", upstream: "@gotgenes/pi-anthropic-auth", skipDiscovery: true },
 ] as const;
 
 /** npm packages excluded from discovery because a bundled fork replaces them. */
