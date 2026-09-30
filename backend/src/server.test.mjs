@@ -683,6 +683,45 @@ test("the Goal Loop control needs a runtime and refuses a non-function handler",
   );
 });
 
+test("forwarded session settings reach the owner with their own validation", async (t) => {
+  const seen = [];
+  const { snapshotsUrl, headers } = await fixture(t, {
+    setTaskModelAction: async (id, model) => { seen.push(["model", id, model]); return { id, modelID: model }; },
+    setTaskThinkingLevelAction: async (id, level) => { seen.push(["thinking", id, level]); return { id, thinkingLevel: level }; },
+    setTaskAgentAction: async (id, agent) => { seen.push(["agent", id, agent]); return { id, agent }; },
+  });
+  const base = snapshotsUrl.replace("pending-snapshots", "tasks");
+  const post = (path, body) => request(`${base}/task-1${path}`, {
+    method: "POST", headers: { ...headers, "content-type": "application/json" }, body: JSON.stringify(body),
+  });
+  assert.deepEqual(await (await post("/model", { model: "chosen" })).json(), { task: { id: "task-1", modelID: "chosen" } });
+  assert.deepEqual(await (await post("/thinking", { thinkingLevel: "high" })).json(), { task: { id: "task-1", thinkingLevel: "high" } });
+  // An empty agent is meaningful: it clears the selection instead of being refused.
+  assert.deepEqual(await (await post("/agent", { agent: "" })).json(), { task: { id: "task-1", agent: "" } });
+  assert.deepEqual(seen, [
+    ["model", "task-1", "chosen"],
+    ["thinking", "task-1", "high"],
+    ["agent", "task-1", ""],
+  ]);
+  // Each field keeps the route's own rule: a blank model or missing level is refused, a non-string
+  // agent too.
+  assert.equal((await post("/model", { model: "  " })).status, 400);
+  assert.equal((await post("/thinking", {})).status, 400);
+  assert.equal((await post("/agent", { agent: 5 })).status, 400);
+  const missing = await fixture(t, { setTaskModelAction: async () => null });
+  assert.equal((await request(`${missing.snapshotsUrl.replace("pending-snapshots", "tasks")}/task-1/model`, {
+    method: "POST", headers: { ...missing.headers, "content-type": "application/json" }, body: JSON.stringify({ model: "chosen" }),
+  })).status, 404);
+  const detached = await fixture(t);
+  assert.equal((await request(`${detached.snapshotsUrl.replace("pending-snapshots", "tasks")}/task-1/model`, {
+    method: "POST", headers: { ...detached.headers, "content-type": "application/json" }, body: JSON.stringify({ model: "chosen" }),
+  })).status, 503);
+  assert.throws(
+    () => createBackendServer({ token: randomBytes(32).toString("base64url"), setTaskAgentAction: 5 }),
+    /setTaskAgentAction must be a function or null/,
+  );
+});
+
 test("a forwarded compaction runs and stops in the owner", async (t) => {
   const seen = [];
   const { snapshotsUrl, headers } = await fixture(t, {

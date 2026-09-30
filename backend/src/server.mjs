@@ -19,11 +19,14 @@ import {
   BACKEND_TASK_DETAIL_SUFFIX,
   BACKEND_TASK_GOAL_LOOP_SUFFIX,
   BACKEND_TASK_PERMISSION_SUFFIX,
+  BACKEND_TASK_AGENT_SUFFIX,
   BACKEND_TASK_COMPACT_ABORT_SUFFIX,
   BACKEND_TASK_COMPACT_SUFFIX,
+  BACKEND_TASK_MODEL_SUFFIX,
   BACKEND_TASK_QUESTION_SUFFIX,
   BACKEND_TASK_PROMPT_SUFFIX,
   BACKEND_TASK_REVERT_SUFFIX,
+  BACKEND_TASK_THINKING_SUFFIX,
   BACKEND_TASK_UNREVERT_SUFFIX,
   BACKEND_TASKS_PATH,
   DEFAULT_BACKEND_PORT,
@@ -35,6 +38,13 @@ function tokenDigest(value) {
 
 /** The largest prompt body the Backend accepts; attachments are already size-checked by the WebUI. */
 export const BACKEND_PROMPT_BODY_LIMIT_BYTES = 32 * 1024 * 1024;
+
+/** The body field each live-session setting reads. */
+const SETTING_FIELDS = {
+  [BACKEND_TASK_MODEL_SUFFIX]: "model",
+  [BACKEND_TASK_THINKING_SUFFIX]: "thinkingLevel",
+  [BACKEND_TASK_AGENT_SUFFIX]: "agent",
+};
 
 /** Reads a JSON body with a hard limit. Returns `{ ok: false }` for too large, empty or broken JSON. */
 function readJsonBody(request, limit = BACKEND_PROMPT_BODY_LIMIT_BYTES) {
@@ -138,6 +148,10 @@ export function createBackendServer({
   compactTaskAction = null,
   /** Stops a running compaction: `(id) => task`; only the owner can interrupt its own session. */
   abortCompactTaskAction = null,
+  /** Live session settings: `(id, value) => task`; the owner tells a running session and the store. */
+  setTaskModelAction = null,
+  setTaskThinkingLevelAction = null,
+  setTaskAgentAction = null,
 } = {}) {
   if (
     typeof token !== "string" ||
@@ -181,6 +195,9 @@ export function createBackendServer({
     unrevertTaskAction,
     compactTaskAction,
     abortCompactTaskAction,
+    setTaskModelAction,
+    setTaskThinkingLevelAction,
+    setTaskAgentAction,
   })) {
     if (handler !== null && typeof handler !== "function") {
       throw new Error(`${name} must be a function or null`);
@@ -223,6 +240,9 @@ export function createBackendServer({
     const actionSuffix = [
       BACKEND_TASK_COMPACT_ABORT_SUFFIX,
       BACKEND_TASK_COMPACT_SUFFIX,
+      BACKEND_TASK_MODEL_SUFFIX,
+      BACKEND_TASK_THINKING_SUFFIX,
+      BACKEND_TASK_AGENT_SUFFIX,
       BACKEND_TASK_PROMPT_SUFFIX,
       BACKEND_TASK_PERMISSION_SUFFIX,
       BACKEND_TASK_QUESTION_SUFFIX,
@@ -302,6 +322,9 @@ export function createBackendServer({
         [BACKEND_TASK_UNREVERT_SUFFIX]: unrevertTaskAction,
         [BACKEND_TASK_COMPACT_SUFFIX]: compactTaskAction,
         [BACKEND_TASK_COMPACT_ABORT_SUFFIX]: abortCompactTaskAction,
+        [BACKEND_TASK_MODEL_SUFFIX]: setTaskModelAction,
+        [BACKEND_TASK_THINKING_SUFFIX]: setTaskThinkingLevelAction,
+        [BACKEND_TASK_AGENT_SUFFIX]: setTaskAgentAction,
       };
       const handler = actionSuffix ? handlers[actionSuffix] : undefined;
       if (typeof handler !== "function") {
@@ -346,6 +369,22 @@ export function createBackendServer({
           sendJson(response, 200, action === "start"
             ? { loop, agent: result.agent ?? null, ...(result.autoDecision ? { autoDecision: result.autoDecision } : {}) }
             : { loop });
+        } else if (SETTING_FIELDS[actionSuffix] !== undefined) {
+          // Each route's own validation is kept: a model must be non-empty, a thinking level truthy,
+          // and an empty agent is meaningful (it clears the agent).
+          const field = SETTING_FIELDS[actionSuffix];
+          const value = body.value?.[field];
+          const valid = field === "agent" ? typeof value === "string" : typeof value === "string" && value.trim() !== "";
+          if (!valid) {
+            sendJson(response, 400, { error: `Invalid ${field}`, code: BACKEND_ERROR_CODES.badRequest });
+            return;
+          }
+          const task = await handler(actionPath, value);
+          if (!task) {
+            sendJson(response, 404, { error: "Task not found", code: BACKEND_ERROR_CODES.notFound });
+            return;
+          }
+          sendJson(response, 200, { task });
         } else if (actionSuffix === BACKEND_TASK_COMPACT_SUFFIX) {
           const customInstructions = typeof body.value?.customInstructions === "string" ? body.value.customInstructions : undefined;
           const task = await handler(actionPath, customInstructions);

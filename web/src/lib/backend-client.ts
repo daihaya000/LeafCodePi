@@ -26,8 +26,11 @@ import {
   BACKEND_TASK_ABORT_SUFFIX,
   BACKEND_TASK_COMPACT_ABORT_SUFFIX,
   BACKEND_TASK_COMPACT_SUFFIX,
+  BACKEND_TASK_AGENT_SUFFIX,
   BACKEND_TASK_DETAIL_SUFFIX,
   BACKEND_TASK_GOAL_LOOP_SUFFIX,
+  BACKEND_TASK_MODEL_SUFFIX,
+  BACKEND_TASK_THINKING_SUFFIX,
   BACKEND_TASK_PERMISSION_SUFFIX,
   BACKEND_TASK_QUESTION_SUFFIX,
   BACKEND_TASK_PROMPT_SUFFIX,
@@ -207,6 +210,33 @@ export function createBotCodeSessionOnBackend(
   options: { env?: BackendEnv; fetchImpl?: typeof fetch; timeoutMs?: number } = {},
 ): Promise<BackendResult<{ task: Record<string, unknown> | null }>> {
   return postBackendJson(`${BACKEND_BOTS_PATH}/${encodeURIComponent(botId)}${BACKEND_BOT_CODE_SESSIONS_SUFFIX}`, input, options);
+}
+
+/** Changes the model of a task in the owning Backend (a running session is told there). */
+export function setTaskModelOnBackend(
+  id: string,
+  model: string,
+  options: { env?: BackendEnv; fetchImpl?: typeof fetch; timeoutMs?: number } = {},
+): Promise<BackendResult<{ task: Record<string, unknown> | null }>> {
+  return postBackendJson(`${BACKEND_TASKS_PATH}/${encodeURIComponent(id)}${BACKEND_TASK_MODEL_SUFFIX}`, { model }, options);
+}
+
+/** Changes the thinking level of a task in the owning Backend. */
+export function setTaskThinkingLevelOnBackend(
+  id: string,
+  thinkingLevel: string,
+  options: { env?: BackendEnv; fetchImpl?: typeof fetch; timeoutMs?: number } = {},
+): Promise<BackendResult<{ task: Record<string, unknown> | null }>> {
+  return postBackendJson(`${BACKEND_TASKS_PATH}/${encodeURIComponent(id)}${BACKEND_TASK_THINKING_SUFFIX}`, { thinkingLevel }, options);
+}
+
+/** Changes (or clears) the agent of a task in the owning Backend. */
+export function setTaskAgentOnBackend(
+  id: string,
+  agent: string,
+  options: { env?: BackendEnv; fetchImpl?: typeof fetch; timeoutMs?: number } = {},
+): Promise<BackendResult<{ task: Record<string, unknown> | null }>> {
+  return postBackendJson(`${BACKEND_TASKS_PATH}/${encodeURIComponent(id)}${BACKEND_TASK_AGENT_SUFFIX}`, { agent }, options);
 }
 
 /**

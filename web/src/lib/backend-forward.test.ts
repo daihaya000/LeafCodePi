@@ -11,6 +11,9 @@ import {
   forwardRoomPrompt,
   forwardTaskCompact,
   forwardTaskCompactAbort,
+  forwardTaskModel,
+  forwardTaskThinking,
+  forwardTaskAgent,
   forwardRoomRevert,
   forwardTaskRevert,
   forwardTaskUnrevert,
@@ -266,6 +269,34 @@ describe("forwardTaskCompact", () => {
     const missing = vi.fn<typeof fetch>(async () => jsonResponse(404, { error: "Not found" }));
     await expect(forwardTaskCompactAbort("task-1", { env, fetchImpl: missing })).resolves.toEqual({
       ok: false, reason: "not-found", status: 404,
+    });
+  });
+});
+
+describe("forwardTaskModel / forwardTaskThinking / forwardTaskAgent", () => {
+  it.each([
+    [forwardTaskModel, "model", { model: "chosen" }, "model"],
+    [forwardTaskThinking, "thinking", { thinkingLevel: "high" }, "thinkingLevel"],
+    [forwardTaskAgent, "agent", { agent: "" }, "agent"],
+  ] as const)("forwards a %s change to the owner", async (forward, path, body, field) => {
+    const fetchImpl = vi.fn<typeof fetch>(async () => jsonResponse(200, { task: { id: "task-1", [field]: body[field as keyof typeof body] } }));
+    const value = String(body[field as keyof typeof body]);
+    await expect(forward("task-1", value, { env, fetchImpl })).resolves.toEqual({
+      ok: true,
+      task: { id: "task-1", [field]: value },
+    });
+    expect(fetchImpl.mock.calls[0][0]).toBe(`http://127.0.0.1:19999/internal/tasks/task-1/${path}`);
+    expect(JSON.parse(String(fetchImpl.mock.calls[0][1]?.body))).toEqual({ [field]: value });
+  });
+
+  it("keeps a miss as not-found and reports an unreachable owner", async () => {
+    const missing = vi.fn<typeof fetch>(async () => jsonResponse(404, { error: "Not found" }));
+    await expect(forwardTaskModel("task-1", "chosen", { env, fetchImpl: missing })).resolves.toEqual({
+      ok: false, reason: "not-found", status: 404,
+    });
+    const unreachable = vi.fn<typeof fetch>(async () => { throw new Error("connect refused"); });
+    await expect(forwardTaskThinking("task-1", "high", { env, fetchImpl: unreachable })).resolves.toEqual({
+      ok: false, reason: "unreachable",
     });
   });
 });

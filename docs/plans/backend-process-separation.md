@@ -312,7 +312,7 @@ Backend単独のSDK検証前には `npm --prefix backend ci --ignore-scripts` �
 ## ターン19の変更（実測）
 
 - 全routeのowner-only呼出を監査し、未ガードのセッション編集経路を見つけた。今回の対象は`tasks/[id]/revert`（`revertTask`）と`tasks/[id]/unrevert`（`unrevertTask`）で、内部APIは`POST /internal/tasks/:id/revert`（`{entryId}`）と`POST /internal/tasks/:id/unrevert`（入力なし、abortと同じく空bodyを許容）。bundleへ`unrevertTask`を追加して再生成（9817 KiB）。Web側routeは非所有モードで転送する。
-- 監査で残る未ガードのowner-only経路（次ターン以降）: `tasks/[id]/model`・`thinking`・`agent`（liveセッション設定）。
+- 監査で見つかった未ガードのowner-only経路は、ターン19〜22ですべて転送化した（revert/unrevert、Room prompt、compact/abort、model/thinking/agent）。
 - 検証: `backend/src/server.test.mjs`61件（task revert/unrevertの実行到達・400・404・503・405・空body・非関数拒否）、Web側はrevert/unrevert routeテスト各3件と`backend-forward`30件・所有権カバレッジ4件成功。本番tsc・eslint成功。
 
 ## ターン20の変更（実測）
@@ -328,3 +328,10 @@ Backend単独のSDK検証前には `npm --prefix backend ci --ignore-scripts` �
 - 要約は数分かかり得るため、中継のtimeoutは`COMPACT_FORWARD_TIMEOUT_MS`（300s）を既定にした（通常の10s読取では短すぎる）。入力検証（body形・customInstructions型・本文長）はWeb route側に残し、両モードで同じ検証を通す。
 - 検証: 既存のcompact routeテスト4件を保持したまま転送テスト3件を追加（計7件）、compact/abort routeテスト3件を新規追加、`backend-forward`34件・所有権カバレッジ4件、backend server 63件（compact/abortの実行到達・404・503・405・空body・非関数拒否・suffix衝突）成功。本番tsc・eslint成功。
 - 注意: `find`ツールのglobで `[id]` は文字クラス扱いになり既存ファイルを検出できない。既存の`compact/route.test.ts`を新規と誤認して一度上書きしたが、`git show HEAD:` から復元して既存4件を保持した。
+
+## ターン22の変更（実測）
+
+- liveセッション設定の3経路（`POST /api/tasks/:id/model`・`/thinking`・`/agent`）をBackendへ転送した。内部APIは`/internal/tasks/:id/{model,thinking,agent}`で、bodyのfieldは経路ごとに異なる（`model`／`thinkingLevel`／`agent`）。Backend側の検証はroute側の規則を保つ（modelは非空、thinkingLevelは真値、agentは空文字を許容して選択解除を表現）。
+- bundleへ`setTaskModel`・`setTaskThinkingLevel`・`setTaskAgent`を追加して再生成（9826 KiB）。Web routeは非所有モードで転送し、ローカルのセッション/ストア更新を行わない。
+- 検証: 既存のmodel/agent routeテストを保持しつつ転送テストを追加（model3件・agent3件）、thinking routeテスト3件を新規追加、`backend-forward`38件・所有権カバレッジ4件、backend server 64件（3経路の実行到達・検証規則・404・503・非関数拒否）成功。本番tsc・eslint成功。
+- これでrouteの所有権カバレッジは、セッションやその木・設定を触る経路をすべて含む（非所有モードでの既知の非転送経路なし）。

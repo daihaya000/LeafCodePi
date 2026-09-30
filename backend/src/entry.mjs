@@ -152,6 +152,29 @@ try {
         ...(action === "resume" && body?.maxTurns !== undefined ? { maxTurns: body.maxTurns } : {}),
       });
     },
+    // A running session must be told about a model/thinking/agent change by its owner, which also
+    // writes the stored row the next session will start from.
+    setTaskModelAction: (id, model) => {
+      const runtime = started.runtime();
+      if (!runtime || typeof runtime.setTaskModel !== "function") {
+        throw Object.assign(new Error("runtime unavailable"), { status: 503 });
+      }
+      return runtime.setTaskModel(id, model);
+    },
+    setTaskThinkingLevelAction: (id, thinkingLevel) => {
+      const runtime = started.runtime();
+      if (!runtime || typeof runtime.setTaskThinkingLevel !== "function") {
+        throw Object.assign(new Error("runtime unavailable"), { status: 503 });
+      }
+      return runtime.setTaskThinkingLevel(id, thinkingLevel);
+    },
+    setTaskAgentAction: (id, agent) => {
+      const runtime = started.runtime();
+      if (!runtime || typeof runtime.setTaskAgent !== "function") {
+        throw Object.assign(new Error("runtime unavailable"), { status: 503 });
+      }
+      return runtime.setTaskAgent(id, agent);
+    },
     // Compaction summarizes inside the session, so only the owner may run or stop it.
     compactTaskAction: (id, customInstructions) => {
       const runtime = started.runtime();

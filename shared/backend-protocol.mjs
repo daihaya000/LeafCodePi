@@ -38,6 +38,14 @@ export const BACKEND_TASK_UNREVERT_SUFFIX = "/unrevert";
 export const BACKEND_TASK_COMPACT_SUFFIX = "/compact";
 export const BACKEND_TASK_COMPACT_ABORT_SUFFIX = "/compact/abort";
 /**
+ * Live session settings: `POST /internal/tasks/:id/model` with `{ model }`,
+ * `/thinking` with `{ thinkingLevel }` and `/agent` with `{ agent }`. A running session must be told
+ * by its owner, and the owner also writes the stored row.
+ */
+export const BACKEND_TASK_MODEL_SUFFIX = "/model";
+export const BACKEND_TASK_THINKING_SUFFIX = "/thinking";
+export const BACKEND_TASK_AGENT_SUFFIX = "/agent";
+/**
  * Bot Code request actions: `POST /internal/bots/:id/code-requests` with `{ action, requestId }`.
  * Stopping a request also updates the Bot's outbox, which only the owning process may write.
  */

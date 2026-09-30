@@ -33,6 +33,10 @@ export {
   // Compaction summarizes inside the session, so only the owner may run or stop it.
   compactTask,
   abortTaskCompaction,
+  // Live session settings: a running session must be told by its owner.
+  setTaskModel,
+  setTaskThinkingLevel,
+  setTaskAgent,
 } from "@/lib/pi/harness";
 // Stopping a Bot Code request also updates the outbox, which the owning process must do.
 export { cancelBotCodeRequests, isRoomDelegatedCodeTask, stopBotCodeRequest } from "@/lib/pi/bot-code-relay";

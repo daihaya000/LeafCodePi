@@ -16,9 +16,13 @@ import {
   revertRoomOnBackend,
   revertTaskOnBackend,
   runBotRoutineOnBackend,
+  setTaskAgentOnBackend,
+  setTaskModelOnBackend,
+  setTaskThinkingLevelOnBackend,
   unrevertTaskOnBackend,
   type BackendEnv,
   type BackendFailureReason,
+  type BackendResult,
 } from "@/lib/backend-client";
 import type { PermissionRequestDto, QuestionRequestDto, RoomFile, RoomImage } from "@/lib/types";
 
@@ -212,6 +216,51 @@ export async function forwardRoomPrompt(
       body: nested?.body ?? null,
     },
   };
+}
+
+/** A live-session setting the owner must apply; `field` is the body key the Backend reads. */
+async function forwardSessionSetting(
+  id: string,
+  send: (options: { env?: BackendEnv; fetchImpl?: typeof fetch; timeoutMs?: number }) => Promise<BackendResult<{ task: Record<string, unknown> | null }>>,
+  options: { env?: BackendEnv; fetchImpl?: typeof fetch; timeoutMs?: number } = {},
+): Promise<
+  | { ok: true; task: Record<string, unknown> | null }
+  | { ok: false; reason: BackendFailureReason | "not-found"; status?: number }
+> {
+  const result = await send(options);
+  if (!result.ok) {
+    if (result.status === 404) return { ok: false, reason: "not-found", status: 404 };
+    return { ok: false, reason: result.reason, ...(result.status ? { status: result.status } : {}) };
+  }
+  const task = result.body?.task;
+  return { ok: true, task: task && typeof task === "object" ? task : null };
+}
+
+/** Changes a task's model in the owning Backend. Never falls back to the in-process session. */
+export function forwardTaskModel(
+  id: string,
+  model: string,
+  options: { env?: BackendEnv; fetchImpl?: typeof fetch; timeoutMs?: number } = {},
+) {
+  return forwardSessionSetting(id, (request) => setTaskModelOnBackend(id, model, request), options);
+}
+
+/** Changes a task's thinking level in the owning Backend. */
+export function forwardTaskThinking(
+  id: string,
+  thinkingLevel: string,
+  options: { env?: BackendEnv; fetchImpl?: typeof fetch; timeoutMs?: number } = {},
+) {
+  return forwardSessionSetting(id, (request) => setTaskThinkingLevelOnBackend(id, thinkingLevel, request), options);
+}
+
+/** Changes (or clears) a task's agent in the owning Backend. */
+export function forwardTaskAgent(
+  id: string,
+  agent: string,
+  options: { env?: BackendEnv; fetchImpl?: typeof fetch; timeoutMs?: number } = {},
+) {
+  return forwardSessionSetting(id, (request) => setTaskAgentOnBackend(id, agent, request), options);
 }
 
 /** Compaction runs an LLM inside the owner's session; the ordinary 10s read deadline is too short. */
