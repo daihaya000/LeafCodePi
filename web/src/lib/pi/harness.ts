@@ -216,7 +216,7 @@ import { roomBotIdFromTaskId } from "@backend-core/abort-control.mjs";
 import { detachReplacedLive as coreDetachReplacedLive, hasOtherBusyRoomLive, oneToOneBotIdFromTaskId, resolveAttachAccount, shouldShutdownOnDispose as coreShouldShutdownOnDispose } from "@backend-core/live-lifecycle.mjs";
 import { restoredPromptState, restoredTaskMetadata, restoredThroughputState } from "@backend-core/live-attach-state.mjs";
 import { compactionFailureMessage, isHarnessAutoCompactionError as coreIsHarnessAutoCompactionError, runAgentStartTaskSync, shouldApplySettledStatus, shouldSkipEventForMissingTask, shouldSyncTaskFromSessionEvent as coreShouldSyncTaskFromSessionEvent, type SessionSyncEvent } from "@backend-core/session-event-decisions.mjs";
-import { classifySnapshotEvent, pendingSnapshotFlush, SNAPSHOT_THROTTLE_MS } from "@backend-core/snapshot-schedule.mjs";
+import { classifySnapshotEvent, flushPendingSnapshotOnUnsubscribe, pendingSnapshotFlush, SNAPSHOT_THROTTLE_MS } from "@backend-core/snapshot-schedule.mjs";
 import { attachReplacementSession } from "@backend-core/live-replace.mjs";
 import { buildBotCodeReportContent } from "@backend-core/bot-code-report.mjs";
 import {
@@ -2367,20 +2367,27 @@ async function attachSession(
   });
 
   live.unsubscribe = () => {
-    if (live.snapshotTimer) {
-      clearTimeout(live.snapshotTimer);
-      live.snapshotTimer = null;
-      const pendingType = live.pendingSnapshotEventType;
-      const pendingExtra = live.pendingSnapshotExtra;
-      const isDelta = live.pendingSnapshotIsDelta === true;
-      live.pendingSnapshotEventType = null;
-      live.pendingSnapshotExtra = undefined;
-      live.pendingSnapshotIsDelta = false;
-      if (pendingType) {
-        if (isDelta) emitTaskDelta(live, pendingType);
-        else emitTaskSnapshot(live, pendingType, pendingExtra);
-      }
-    }
+    // Cancelling the timer, clearing the slots and emitting what was queued is
+    // ordered in backend core; the emit sinks stay here.
+    flushPendingSnapshotOnUnsubscribe(
+      {
+        timer: live.snapshotTimer,
+        eventType: live.pendingSnapshotEventType,
+        extra: live.pendingSnapshotExtra,
+        isDelta: live.pendingSnapshotIsDelta === true,
+      },
+      {
+        clearTimer: (timer) => clearTimeout(timer as ReturnType<typeof setTimeout>),
+        clearPending: () => {
+          live.snapshotTimer = null;
+          live.pendingSnapshotEventType = null;
+          live.pendingSnapshotExtra = undefined;
+          live.pendingSnapshotIsDelta = false;
+        },
+        emitDelta: (eventType) => emitTaskDelta(live, eventType),
+        emitSnapshot: (eventType, extra) => emitTaskSnapshot(live, eventType, extra),
+      },
+    );
     unsubscribe();
   };
   live.lastActivityAt = Date.now();

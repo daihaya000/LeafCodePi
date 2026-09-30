@@ -40,3 +40,27 @@ export function pendingSnapshotFlush(pending) {
     isDelta: pending?.isDelta === true,
   };
 }
+
+/**
+ * Unsubscribing a live cancels its armed timer, clears the pending slots and emits
+ * what was still queued — in that order, so an emit triggered here cannot observe
+ * stale pending state. Nothing is emitted when no event was pending (a burst that
+ * was fully classified as skip/coalesce leaves the slot empty).
+ *
+ * Returns true when a timer was armed.
+ */
+export function flushPendingSnapshotOnUnsubscribe(pending, deps) {
+  if (!pending?.timer) return false;
+  deps.clearTimer(pending.timer);
+  const flush = pendingSnapshotFlush({
+    eventType: pending.eventType,
+    extra: pending.extra,
+    isDelta: pending.isDelta === true,
+  });
+  deps.clearPending();
+  if (flush.eventType) {
+    if (flush.isDelta) deps.emitDelta(flush.eventType);
+    else deps.emitSnapshot(flush.eventType, flush.extra);
+  }
+  return true;
+}

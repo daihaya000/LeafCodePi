@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
-  classifySnapshotEvent, NON_RENDERING_SESSION_EVENTS, pendingSnapshotFlush, SNAPSHOT_THROTTLE_MS, THROTTLED_SNAPSHOT_EVENTS,
+  classifySnapshotEvent, flushPendingSnapshotOnUnsubscribe, NON_RENDERING_SESSION_EVENTS, pendingSnapshotFlush,
+  SNAPSHOT_THROTTLE_MS, THROTTLED_SNAPSHOT_EVENTS,
 } from "./snapshot-schedule.mjs";
 
 test("the vocabulary and window are the documented ones", () => {
@@ -56,4 +57,49 @@ test("a skipped event never sets a pending slot, so nothing is emitted for it", 
   const pending = { eventType: "agent_start", extra: { stale: true }, isDelta: false };
   assert.notEqual(classifySnapshotEvent("turn_end", pending).action, "schedule");
   assert.deepEqual(pendingSnapshotFlush(pending), { eventType: "agent_start", extra: { stale: true }, isDelta: false });
+});
+
+function flushFixture(pending) {
+  const calls = [];
+  const deps = {
+    clearTimer: (timer) => calls.push(`clear:${timer}`),
+    clearPending: () => calls.push("clearPending"),
+    emitDelta: (eventType) => calls.push(`delta:${eventType}`),
+    emitSnapshot: (eventType, extra) => calls.push(`snapshot:${eventType}:${JSON.stringify(extra)}`),
+  };
+  return { calls, deps, pending };
+}
+
+test("unsubscribing without an armed timer does nothing at all", () => {
+  for (const pending of [undefined, {}, { eventType: "message_update" }, { timer: null }]) {
+    const f = flushFixture(pending);
+    assert.equal(flushPendingSnapshotOnUnsubscribe(f.pending, f.deps), false, JSON.stringify(pending));
+    assert.deepEqual(f.calls, [], JSON.stringify(pending));
+  }
+});
+
+test("unsubscribing cancels the timer, then clears the slots, then emits the queued full snapshot", () => {
+  const f = flushFixture({ timer: "timer-1", eventType: "agent_start", extra: { a: 1 }, isDelta: false });
+  assert.equal(flushPendingSnapshotOnUnsubscribe(f.pending, f.deps), true);
+  assert.deepEqual(f.calls, ["clear:timer-1", "clearPending", 'snapshot:agent_start:{"a":1}']);
+});
+
+test("a queued delta is emitted as a delta", () => {
+  const f = flushFixture({ timer: "timer-2", eventType: "message_update", isDelta: true });
+  flushPendingSnapshotOnUnsubscribe(f.pending, f.deps);
+  assert.deepEqual(f.calls, ["clear:timer-2", "clearPending", "delta:message_update"]);
+});
+
+test("an armed timer with nothing pending is cancelled and cleared without emitting", () => {
+  const f = flushFixture({ timer: "timer-3", eventType: null, isDelta: false });
+  assert.equal(flushPendingSnapshotOnUnsubscribe(f.pending, f.deps), true);
+  assert.deepEqual(f.calls, ["clear:timer-3", "clearPending"]);
+});
+
+test("only an exact true marks the queued snapshot as a delta", () => {
+  for (const isDelta of ["true", 1, undefined, null]) {
+    const f = flushFixture({ timer: "t", eventType: "x", isDelta });
+    flushPendingSnapshotOnUnsubscribe(f.pending, f.deps);
+    assert.equal(f.calls.at(-1), "snapshot:x:undefined", String(isDelta));
+  }
 });
