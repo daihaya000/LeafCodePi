@@ -2,6 +2,7 @@ import type { RoomDto } from "@shared/types";
 
 export const ROOM_ID_PATTERN: RegExp;
 export const MAX_LIVE_ROOM_MESSAGES: number;
+export const ROOM_IMAGE_EXTENSIONS: Record<string, string>;
 export function isValidRoomId(id: string): boolean;
 
 export class RoomFileStore {
@@ -14,6 +15,10 @@ export class RoomFileStore {
   assertId(id: string): void;
   roomPath(id: string): string;
   roomDataRoot(id: string): string;
+  roomImagePath(roomId: string, file: string): string;
+  roomFilePath(roomId: string, file: string): string;
+  readRoomImage(roomId: string, file: string): { bytes: Buffer; mimeType: string } | undefined;
+  readRoomFile(roomId: string, file: string): { bytes: Buffer } | undefined;
   readRoom(id: string): RoomDto | undefined;
   writeRoom(room: RoomDto): void;
   /** Archives everything beyond the live cap; returns the number archived. */

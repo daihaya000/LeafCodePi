@@ -6,6 +6,11 @@ import { normalizeRoom } from "./room-normalize.mjs";
 export const ROOM_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f-]{27,}$/i;
 /** Live rooms stay a bounded file; older turns move to append-only history. */
 export const MAX_LIVE_ROOM_MESSAGES = 500;
+/** Image MIME types the room stores, and the extension used on disk (order matters for lookups). */
+export const ROOM_IMAGE_EXTENSIONS = { "image/png": "png", "image/jpeg": "jpg", "image/webp": "webp", "image/gif": "gif" };
+/** Attachment names are server-generated; anything else must not reach the filesystem. */
+const ROOM_IMAGE_FILE_PATTERN = /^[0-9a-f-]{36}-\d{1,2}\.(png|jpg|webp|gif)$/i;
+const ROOM_FILE_PATTERN = /^[0-9a-f-]{36}-\d{1,2}\.dat$/i;
 
 export function isValidRoomId(id) {
   return ROOM_ID_PATTERN.test(id);
@@ -36,6 +41,30 @@ export class RoomFileStore {
   /** Per-room data directory (images, attachments, relay state, archived history). */
   roomDataRoot(id) {
     return join(this.roomsRoot(), id);
+  }
+
+  roomImagePath(roomId, file) {
+    this.assertId(roomId);
+    if (!ROOM_IMAGE_FILE_PATTERN.test(file)) throw new Error("invalid room image");
+    return join(this.roomDataRoot(roomId), "images", file);
+  }
+
+  roomFilePath(roomId, file) {
+    this.assertId(roomId);
+    if (!ROOM_FILE_PATTERN.test(file)) throw new Error("invalid room file");
+    return join(this.roomDataRoot(roomId), "files", file);
+  }
+
+  /** Undefined when the name has no known image extension, or the file is missing or unreadable. */
+  readRoomImage(roomId, file) {
+    try {
+      const mimeType = Object.entries(ROOM_IMAGE_EXTENSIONS).find(([, extension]) => file.toLowerCase().endsWith(`.${extension}`))?.[0];
+      return mimeType ? { bytes: readFileSync(this.roomImagePath(roomId, file)), mimeType } : undefined;
+    } catch { return undefined; }
+  }
+
+  readRoomFile(roomId, file) {
+    try { return { bytes: readFileSync(this.roomFilePath(roomId, file)) }; } catch { return undefined; }
   }
 
   /**

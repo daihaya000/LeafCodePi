@@ -277,12 +277,7 @@ export function updateRoomHandoffs(id: string, update: (handoffs: RoomHandoff[])
 const ROOM_IMAGE_EXTENSIONS: Record<string, string> = { "image/png": "png", "image/jpeg": "jpg", "image/webp": "webp", "image/gif": "gif" };
 const MAX_ROOM_IMAGES = 8;
 const MAX_ROOM_IMAGE_BYTES = 8 * 1024 * 1024;
-function roomImagePath(roomId: string, file: string): string {
-  assertId(roomId);
-  // Names are server-generated; anything else must not reach the filesystem.
-  if (!/^[0-9a-f-]{36}-\d{1,2}\.(png|jpg|webp|gif)$/i.test(file)) throw new Error("invalid room image");
-  return join(roomDataRoot(roomId), "images", file);
-}
+function roomImagePath(roomId: string, file: string): string { return roomFileStore.roomImagePath(roomId, file); }
 /** Reject at the boundary: a dropped attachment must not look like a delivered one. */
 export function roomImageRejection(images: PromptImageInput[]): string | undefined {
   if (images.length > MAX_ROOM_IMAGES) return `画像は${MAX_ROOM_IMAGES}件までです`;
@@ -311,20 +306,12 @@ export function saveRoomImages(roomId: string, messageId: string, images: Prompt
   });
 }
 export function readRoomImage(roomId: string, file: string): { bytes: Buffer; mimeType: string } | undefined {
-  try {
-    const mimeType = Object.entries(ROOM_IMAGE_EXTENSIONS).find(([, extension]) => file.toLowerCase().endsWith(`.${extension}`))?.[0];
-    return mimeType ? { bytes: readFileSync(roomImagePath(roomId, file)), mimeType } : undefined;
-  } catch { return undefined; }
+  return roomFileStore.readRoomImage(roomId, file);
 }
 
-const ROOM_FILE_PATTERN = /^[0-9a-f-]{36}-\d{1,2}\.dat$/i;
 const MAX_ROOM_FILES = 8;
 const MAX_ROOM_FILE_BYTES = 8 * 1024 * 1024;
-function roomFilePath(roomId: string, file: string): string {
-  assertId(roomId);
-  if (!ROOM_FILE_PATTERN.test(file)) throw new Error("invalid room file");
-  return join(roomDataRoot(roomId), "files", file);
-}
+function roomFilePath(roomId: string, file: string): string { return roomFileStore.roomFilePath(roomId, file); }
 export function roomFileRejection(files: PromptFileInput[]): string | undefined {
   if (files.length > MAX_ROOM_FILES) return `ファイルは${MAX_ROOM_FILES}件までです`;
   if (!isPromptFilesWithinTotalSize(files)) return `添付ファイルは合計${MAX_PROMPT_FILE_TOTAL_BYTES / 1024}KiBまでです`;
@@ -350,7 +337,7 @@ export function saveRoomFiles(roomId: string, messageId: string, files: PromptFi
   });
 }
 export function readRoomFile(roomId: string, file: string): { bytes: Buffer } | undefined {
-  try { return { bytes: readFileSync(roomFilePath(roomId, file)) }; } catch { return undefined; }
+  return roomFileStore.readRoomFile(roomId, file);
 }
 /** Attachments of a request, read back for the model. Turns after the first already have them in session. */
 export function roomRequestImages(roomId: string, messageId: string): PromptImageInput[] {
