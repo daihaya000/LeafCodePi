@@ -213,7 +213,7 @@ import { SdkRuntimeFactory } from "@backend-core/sdk-runtime.mjs";
 import * as corePromptControl from "@backend-core/prompt-control.mjs";
 import { runHangWatchdogAbort, runUserAbort } from "@backend-core/abort-coordinator.mjs";
 import { roomBotIdFromTaskId } from "@backend-core/abort-control.mjs";
-import { detachReplacedLive as coreDetachReplacedLive, hasOtherBusyRoomLive, oneToOneBotIdFromTaskId, resolveAttachAccount, shouldShutdownOnDispose as coreShouldShutdownOnDispose } from "@backend-core/live-lifecycle.mjs";
+import { detachReplacedLive as coreDetachReplacedLive, hasOtherBusyRoomLive, promoteMailboxOnAttach, resolveAttachAccount, shouldShutdownOnDispose as coreShouldShutdownOnDispose } from "@backend-core/live-lifecycle.mjs";
 import { restoredPromptState, restoredTaskMetadata, restoredThroughputState } from "@backend-core/live-attach-state.mjs";
 import { compactionFailureMessage, isHarnessAutoCompactionError as coreIsHarnessAutoCompactionError, runAgentStartTaskSync, shouldApplySettledStatus, shouldSkipEventForMissingTask, shouldSyncTaskFromSessionEvent as coreShouldSyncTaskFromSessionEvent, type SessionSyncEvent } from "@backend-core/session-event-decisions.mjs";
 import { classifySnapshotEvent, flushPendingSnapshotOnUnsubscribe, pendingSnapshotFlush, SNAPSHOT_THROTTLE_MS } from "@backend-core/snapshot-schedule.mjs";
@@ -2395,14 +2395,10 @@ async function attachSession(
   // Offline→resident: 1:1 Bot live attach promotes queued mailbox rows.
   // Room attach must NOT flush here — Room may still be idle before prompt,
   // and wake would steal into 1:1; Room settle/abort flushes instead.
-  const oneToOneBotId = oneToOneBotIdFromTaskId(taskId);
-  if (oneToOneBotId) {
-    try {
-      flushQueuedBotIntercom(oneToOneBotId);
-    } catch (error) {
-      console.warn("[bot-intercom] flush after Bot live attach failed", error);
-    }
-  }
+  promoteMailboxOnAttach(taskId, {
+    flushMailbox: (botId) => flushQueuedBotIntercom(botId),
+    warn: (message, error) => console.warn(message, error),
+  });
   return live;
 }
 

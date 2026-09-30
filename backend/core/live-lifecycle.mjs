@@ -61,6 +61,26 @@ export function oneToOneBotIdFromTaskId(taskId) {
 }
 
 /**
+ * Offline→resident promotion: attaching a 1:1 Bot live hands its queued mailbox
+ * rows to the delivery path. Room attaches deliberately do NOT flush here (a Room
+ * may still be idle before its prompt, and waking would steal the row into the 1:1
+ * chat); Room settle/abort flushes instead. A failing flush is warned, never
+ * raised: the attach itself already succeeded.
+ *
+ * Returns true when a 1:1 Bot mailbox was handed over.
+ */
+export function promoteMailboxOnAttach(taskId, deps) {
+  const botId = oneToOneBotIdFromTaskId(taskId);
+  if (!botId) return false;
+  try {
+    deps.flushMailbox(botId);
+  } catch (error) {
+    deps.warn("[bot-intercom] flush after Bot live attach failed", error);
+  }
+  return true;
+}
+
+/**
  * Which account a newly attached session runs under, and whether a runtime
  * reference must be acquired first. An explicit session account (including an
  * explicit null) wins over the stored task account, which is intentionally

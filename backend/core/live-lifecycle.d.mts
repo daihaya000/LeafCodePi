@@ -31,6 +31,15 @@ export function detachReplacedLive<Live extends {
 
 export function oneToOneBotIdFromTaskId(taskId: string): string | null;
 
+/** 1:1 Bot attaches promote queued mailbox rows; Room attaches never do. */
+export function promoteMailboxOnAttach(
+  taskId: string,
+  deps: {
+    flushMailbox: (botId: string) => void;
+    warn: (message: string, error: unknown) => void;
+  },
+): boolean;
+
 export function resolveAttachAccount(input: {
   /** undefined = use the task account; null = explicitly no account. */
   sessionAccountId?: string | null;
