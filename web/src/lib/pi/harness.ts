@@ -213,7 +213,7 @@ import { SdkRuntimeFactory } from "@backend-core/sdk-runtime.mjs";
 import * as corePromptControl from "@backend-core/prompt-control.mjs";
 import { runHangWatchdogAbort, runUserAbort } from "@backend-core/abort-coordinator.mjs";
 import { roomBotIdFromTaskId } from "@backend-core/abort-control.mjs";
-import { hasOtherBusyRoomLive, oneToOneBotIdFromTaskId, resolveAttachAccount, shouldShutdownOnDispose as coreShouldShutdownOnDispose } from "@backend-core/live-lifecycle.mjs";
+import { detachReplacedLive as coreDetachReplacedLive, hasOtherBusyRoomLive, oneToOneBotIdFromTaskId, resolveAttachAccount, shouldShutdownOnDispose as coreShouldShutdownOnDispose } from "@backend-core/live-lifecycle.mjs";
 import { attachReplacementSession } from "@backend-core/live-replace.mjs";
 import { buildBotCodeReportContent } from "@backend-core/bot-code-report.mjs";
 import {
@@ -2319,21 +2319,12 @@ function detachExistingLive(
   session: AgentSession,
   attachedAccountId: string | null,
 ): void {
-  existing?.unsubscribe();
-  if (
-    existing &&
-    existing.accountId &&
-    existing.accountId !== attachedAccountId
-  ) {
-    accountRuntimeManager().release(existing.accountId);
-  }
-  const replacedSession = existing?.session;
-  if (replacedSession && replacedSession !== session) {
-    replacedSession.dispose();
-  }
-  if (existing?.snapshotTimer) {
-    clearTimeout(existing.snapshotTimer);
-  }
+  // Detach ordering lives in backend core; the account manager and timer stay here.
+  coreDetachReplacedLive(existing, session, attachedAccountId, {
+    releaseAccount: (accountId) => accountRuntimeManager().release(accountId),
+    disposeSession: (replaced) => (replaced as AgentSession).dispose(),
+    clearSnapshotTimer: (timer) => clearTimeout(timer as ReturnType<typeof setTimeout>),
+  });
 }
 
 type SessionSyncEvent = {

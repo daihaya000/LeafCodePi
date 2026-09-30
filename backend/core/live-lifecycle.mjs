@@ -35,6 +35,26 @@ export function shouldShutdownOnDispose({ shutdownEmitted, hasShutdownHandler, i
   }
 }
 
+/**
+ * Detach the live being replaced by a new session, in a fixed order: stop
+ * receiving events, release the account runtime reference it held (only when the
+ * replacement runs on a different account), dispose the replaced session (unless
+ * it IS the new session), then cancel any pending snapshot timer. Does nothing
+ * when there is no previous live.
+ */
+export function detachReplacedLive(existing, session, attachedAccountId, deps) {
+  if (!existing) return;
+  existing.unsubscribe();
+  if (existing.accountId && existing.accountId !== attachedAccountId) {
+    deps.releaseAccount(existing.accountId);
+  }
+  const replacedSession = existing.session;
+  if (replacedSession && replacedSession !== session) {
+    deps.disposeSession(replacedSession);
+  }
+  if (existing.snapshotTimer) deps.clearSnapshotTimer(existing.snapshotTimer);
+}
+
 /** Bot id for a 1:1 Bot task id (`bot:<botId>`), otherwise null. Room ids never match. */
 export function oneToOneBotIdFromTaskId(taskId) {
   return /^bot:([^:]+)$/.exec(taskId)?.[1] ?? null;

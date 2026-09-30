@@ -13,6 +13,22 @@ export function shouldShutdownOnDispose(input: {
   isGoalLoopOwned: () => boolean;
 }): boolean;
 
+export function detachReplacedLive<Live extends {
+  unsubscribe: () => void;
+  accountId?: string | null;
+  session: unknown;
+  snapshotTimer?: unknown;
+}>(
+  existing: Live | undefined,
+  session: unknown,
+  attachedAccountId: string | null,
+  deps: {
+    releaseAccount: (accountId: string) => void;
+    disposeSession: (session: unknown) => void;
+    clearSnapshotTimer: (timer: unknown) => void;
+  },
+): void;
+
 export function oneToOneBotIdFromTaskId(taskId: string): string | null;
 
 export function resolveAttachAccount(input: {
