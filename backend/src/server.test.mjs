@@ -7,9 +7,11 @@ import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import {
   BACKEND_HEALTH_PATH,
+  BACKEND_PENDING_SNAPSHOTS_PATH,
   BACKEND_PROTOCOL_HEADER,
   BACKEND_PROTOCOL_VERSION,
 } from "../../shared/backend-protocol.mjs";
+import { createPendingSnapshotStore } from "../core/pending-snapshot-store.mjs";
 import { closeBackend, createBackendServer, listenBackend } from "./server.mjs";
 
 async function fixture(t, options = {}) {
@@ -23,6 +25,7 @@ async function fixture(t, options = {}) {
     token,
     address,
     url: `http://127.0.0.1:${address.port}${BACKEND_HEALTH_PATH}`,
+    snapshotsUrl: `http://127.0.0.1:${address.port}${BACKEND_PENDING_SNAPSHOTS_PATH}`,
     headers: {
       authorization: `Bearer ${token}`,
       [BACKEND_PROTOCOL_HEADER]: String(BACKEND_PROTOCOL_VERSION),
@@ -110,6 +113,52 @@ test("unknown routes and methods cannot bypass authentication", async (t) => {
   const response = await request(url, { method: "POST", headers });
   assert.equal(response.status, 405);
   assert.equal(response.headers.get("allow"), "GET");
+});
+
+test("serves the pending snapshot per task to an authenticated reader", async (t) => {
+  const store = createPendingSnapshotStore({ limit: 8 });
+  store.record("task-1", { eventType: "compaction_end", extra: { error: "boom" } });
+  store.record("task-2", { eventType: "message_update", isDelta: true });
+  const { snapshotsUrl, headers } = await fixture(t, { readPendingSnapshots: () => store.list() });
+  const response = await request(snapshotsUrl, { headers });
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get("cache-control"), "no-store");
+  assert.deepEqual(await response.json(), {
+    snapshots: [
+      { taskId: "task-1", eventType: "compaction_end", extra: { error: "boom" }, isDelta: false },
+      // `extra` is absent, not null: JSON drops the undefined field.
+      { taskId: "task-2", eventType: "message_update", isDelta: true },
+    ],
+  });
+});
+
+test("an empty or failing pending snapshot read stays contained", async (t) => {
+  const { snapshotsUrl, headers } = await fixture(t);
+  assert.deepEqual(await (await request(snapshotsUrl, { headers })).json(), { snapshots: [] });
+  const sensitive = "private-task-path";
+  const failing = await fixture(t, { readPendingSnapshots: () => { throw new Error(sensitive); } });
+  const response = await request(failing.snapshotsUrl, { headers: failing.headers });
+  assert.equal(response.status, 500);
+  const body = await response.json();
+  assert.equal(body.code, "BACKEND_INTERNAL_ERROR");
+  assert.ok(!JSON.stringify(body).includes(sensitive));
+});
+
+test("the pending snapshot route needs authentication, the protocol header and GET", async (t) => {
+  const { snapshotsUrl, headers } = await fixture(t);
+  assert.equal((await request(snapshotsUrl)).status, 401);
+  assert.equal((await request(snapshotsUrl, { headers: { authorization: headers.authorization } })).status, 409);
+  const response = await request(snapshotsUrl, { method: "POST", headers });
+  assert.equal(response.status, 405);
+  assert.equal(response.headers.get("allow"), "GET");
+  assert.equal((await request(snapshotsUrl.replace("pending-snapshots", "unknown"), { headers })).status, 404);
+});
+
+test("a non-function pending snapshot reader is rejected at creation", () => {
+  assert.throws(
+    () => createBackendServer({ token: randomBytes(32).toString("base64url"), readPendingSnapshots: "nope" }),
+    /readPendingSnapshots/,
+  );
 });
 
 test("rejects invalid ports and surfaces occupied port errors", async (t) => {

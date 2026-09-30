@@ -4,6 +4,7 @@ import { once } from "node:events";
 import {
   BACKEND_ERROR_CODES,
   BACKEND_HEALTH_PATH,
+  BACKEND_PENDING_SNAPSHOTS_PATH,
   BACKEND_PROTOCOL_HEADER,
   BACKEND_PROTOCOL_VERSION,
   DEFAULT_BACKEND_PORT,
@@ -28,7 +29,12 @@ function sendJson(response, status, value, headers = {}) {
  * Creates transport only: a listening socket must not imply SDK readiness.
  * The runtime owner will supply isReady after startup reconciliation completes.
  */
-export function createBackendServer({ token, isReady = () => false } = {}) {
+export function createBackendServer({
+  token,
+  isReady = () => false,
+  // The runtime owner supplies the store; without one the read is empty, not an error.
+  readPendingSnapshots = () => [],
+} = {}) {
   if (
     typeof token !== "string" ||
     token.length < 32 ||
@@ -38,6 +44,7 @@ export function createBackendServer({ token, isReady = () => false } = {}) {
     throw new Error("Backend token must contain 32-512 printable ASCII characters without spaces");
   }
   if (typeof isReady !== "function") throw new Error("isReady must be a function");
+  if (typeof readPendingSnapshots !== "function") throw new Error("readPendingSnapshots must be a function");
   const expectedDigest = tokenDigest(token);
   const instanceId = randomUUID();
   const startedAt = new Date().toISOString();
@@ -60,7 +67,7 @@ export function createBackendServer({ token, isReady = () => false } = {}) {
       return;
     }
     // Match the request target, not the untrusted Host header. No CORS is enabled.
-    if (request.url !== BACKEND_HEALTH_PATH) {
+    if (request.url !== BACKEND_HEALTH_PATH && request.url !== BACKEND_PENDING_SNAPSHOTS_PATH) {
       sendJson(response, 404, { error: "Not found", code: BACKEND_ERROR_CODES.notFound });
       return;
     }
@@ -68,6 +75,17 @@ export function createBackendServer({ token, isReady = () => false } = {}) {
       sendJson(response, 405, {
         error: "Method not allowed", code: BACKEND_ERROR_CODES.methodNotAllowed,
       }, { Allow: "GET" });
+      return;
+    }
+    if (request.url === BACKEND_PENDING_SNAPSHOTS_PATH) {
+      try {
+        sendJson(response, 200, { snapshots: readPendingSnapshots() ?? [] });
+      } catch {
+        // Never send exception messages: a store failure must not leak paths or ids.
+        sendJson(response, 500, {
+          error: "Backend pending snapshot read failed", code: BACKEND_ERROR_CODES.internal,
+        });
+      }
       return;
     }
     try {
