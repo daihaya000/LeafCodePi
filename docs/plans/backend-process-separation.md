@@ -91,6 +91,8 @@ bundleパスは`LEAFCODE_PI_BACKEND_RUNTIME_BUNDLE`で差し替え可能。CLI�
 3. **harness依存の除去**: Webの`@/lib/pi/harness` import を、非所有モードで拒否している機能（Bot Codeセッション起動、Goal Loop開始、AUTO解決を伴う起動）の転送を実装したうえで、起動・停止・回答・購読の各経路をBackend APIへ置換し、`backend-runtime-entry.ts`（Backend側のバンドルentry）だけを残す。
 4. **未使用の撤去**: `LEAFCODE_PI_BACKEND_RELAY`／`LEAFCODE_PI_BACKEND_OWNS_RUNTIME`スイッチ、`runtime-ownership.ts`の「所有モード」分岐、`backend-relay.ts`の全体を削除する。
 
+**切替前の不明状態は拒否**: Hostの事前判定はストア破損・不明なタスク状態を`store-state-unknown`、lease一覧の読取失敗を`lease-state-unknown`、Goal LoopのHTTP/JSON/取得失敗・不正な件数・未注入の観測を`goal-loop-state-unknown`で拒否する。不明な件数は`null`で返し、空や0と区別する。ディスク上の未作成パス（ENOENT）は空として扱う。停止・起動の効果は事前判定の通過後だけ実行する。実切替は未実施。
+
 **未達（実切替までに必要な残作業・実測）**
 
 - （解消済み）Bot Codeセッションの clear/unlink も転送済み。

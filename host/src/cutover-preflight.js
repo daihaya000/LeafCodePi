@@ -1,4 +1,4 @@
-import { existsSync as defaultExistsSync, readFileSync as defaultReadFileSync, readdirSync as defaultReaddirSync } from "node:fs";
+import { readFileSync as defaultReadFileSync, readdirSync as defaultReaddirSync } from "node:fs";
 import { join } from "node:path";
 import { cutoverPreflight } from "../../backend/core/cutover-plan.mjs";
 
@@ -14,25 +14,28 @@ import { cutoverPreflight } from "../../backend/core/cutover-plan.mjs";
  */
 export const CUTOVER_START_PHASE = "start";
 
-/** The task rows in the app store, or none when it cannot be read. Read-only: never written here. */
-export function readStoreTasks(storePath, { readFile = defaultReadFileSync, exists = defaultExistsSync } = {}) {
-  if (!exists(storePath)) return [];
+const KNOWN_TASK_STATUSES = new Set(["working", "starting", "ready", "idle", "error", "archived"]);
+const isKnownCount = (value) => typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
+
+/** Missing is empty; unreadable, malformed or unknown task state is null. Never writes. */
+export function readStoreTasks(storePath, { readFile = defaultReadFileSync } = {}) {
   try {
     const store = JSON.parse(readFile(storePath, "utf8"));
-    return Array.isArray(store?.tasks) ? store.tasks : [];
-  } catch {
-    return [];
+    return Array.isArray(store?.tasks) && store.tasks.every((task) =>
+      typeof task?.id === "string" && task.id.length > 0 && KNOWN_TASK_STATUSES.has(task?.status)
+    ) ? store.tasks : null;
+  } catch (error) {
+    return error?.code === "ENOENT" ? [] : null;
   }
 }
 
-/** Every task lease on disk, with its owner pid. An unreadable lease is unknown, not ignored. */
-export function readLeases(leaseDir, { readdir = defaultReaddirSync, readFile = defaultReadFileSync, exists = defaultExistsSync } = {}) {
-  if (!exists(leaseDir)) return [];
+/** Unreadable listing is null; an unreadable individual lease remains a foreign/unknown owner. */
+export function readLeases(leaseDir, { readdir = defaultReaddirSync, readFile = defaultReadFileSync } = {}) {
   let entries = [];
   try {
     entries = readdir(leaseDir).filter((entry) => entry.endsWith(".json"));
-  } catch {
-    return [];
+  } catch (error) {
+    return error?.code === "ENOENT" ? [] : null;
   }
   const leases = [];
   for (const entry of entries) {
@@ -47,6 +50,22 @@ export function readLeases(leaseDir, { readdir = defaultReaddirSync, readFile = 
   return leases;
 }
 
+/** An unavailable or invalid WebUI observation is unknown, never zero. */
+export async function readActiveGoalLoopCount({ baseUrl, token, fetchImpl = fetch, timeoutMs = 3_000 } = {}) {
+  try {
+    const response = await fetchImpl(`${baseUrl.replace(/\/$/, "")}/api/goal-loop/active`, {
+      cache: "no-store",
+      signal: AbortSignal.timeout(timeoutMs),
+      headers: token ? { authorization: `Bearer ${token}` } : {},
+    });
+    if (!response.ok) return null;
+    const body = await response.json();
+    return isKnownCount(body?.active) ? body.active : null;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Builds the preflight the Host hands to `runCutover`.
  *
@@ -59,7 +78,7 @@ export function createCutoverPreflight({
   expectedGeneration = "",
   ownPid = process.pid,
   readHealth,
-  countGoalLoops = async () => 0,
+  countGoalLoops = async () => null,
   otherOwner = false,
   storePath,
   leaseDir,
@@ -72,21 +91,39 @@ export function createCutoverPreflight({
   const leasesDir = leaseDir ?? join(dataDir, "task-leases");
   return async function preflight() {
     const healthResult = await readHealth();
-    const goalLoopSessions = await countGoalLoops().catch(() => 0);
-    return cutoverPreflight({
+    let goalLoopSessions = null;
+    try {
+      const observed = await countGoalLoops();
+      if (isKnownCount(observed)) goalLoopSessions = observed;
+    } catch {
+      // Unknown work cannot justify stopping the runtime owner.
+    }
+    const tasks = readStoreTasks(store, readers);
+    const leases = readLeases(leasesDir, readers);
+    const result = cutoverPreflight({
       phase: CUTOVER_START_PHASE,
       backendConfigured: Boolean(token),
       // A detached Backend answers ok:true/ready:false, which the start phase accepts.
       health: healthResult?.ok === true ? { ok: true, ready: healthResult.ready === true } : { ok: false },
       expectedGeneration,
-      activeTasks: readStoreTasks(store, readers),
-      leases: readLeases(leasesDir, readers),
+      activeTasks: tasks ?? [],
+      leases: leases ?? [],
       ownPid,
-      goalLoopSessions: Number(goalLoopSessions) || 0,
+      goalLoopSessions: goalLoopSessions ?? 0,
       otherOwner,
       // The pre-cutover state: this WebUI still owns the runtime and does not relay.
       relayEnabled: false,
       webOwnsRuntime: true,
     });
+    if (tasks === null) result.blockers.push({ code: "store-state-unknown" });
+    if (leases === null) result.blockers.push({ code: "lease-state-unknown" });
+    if (goalLoopSessions === null) result.blockers.push({ code: "goal-loop-state-unknown" });
+    return {
+      ...result,
+      ok: result.blockers.length === 0,
+      activeTasks: tasks === null ? null : result.activeTasks,
+      foreignLeases: leases === null ? null : result.foreignLeases,
+      goalLoopSessions,
+    };
   };
 }

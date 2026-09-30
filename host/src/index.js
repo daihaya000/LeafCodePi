@@ -19,7 +19,7 @@ import { DEFAULT_BACKEND_PORT } from "../../shared/backend-protocol.mjs";
 import { createBackendService, isBackendRequested } from "./backend-service.js";
 import { readBackendHealth } from "./backend-health.js";
 import { createCutoverEffects, createCutoverVerify } from "./cutover-effects.js";
-import { createCutoverPreflight } from "./cutover-preflight.js";
+import { createCutoverPreflight, readActiveGoalLoopCount } from "./cutover-preflight.js";
 import { runCutover } from "./cutover.js";
 import { autoUpdatePiInBackground } from "./pi-update.js";
 import { pullLatestSources } from "./git-pull.js";
@@ -465,23 +465,12 @@ function buildWeb(reason = "missing", { pull = true } = {}) {
   return promise;
 }
 
-/**
- * How many Goal Loops the WebUI reports as active. The cutover must not stop a WebUI that is running
- * a loop, and an unreachable WebUI counts as none: the cutover stops it next anyway.
- */
+/** Unknown Goal Loop state refuses the cutover; it must not be guessed as idle. */
 async function countActiveGoalLoops() {
-  try {
-    const response = await fetch(`${WEBUI_URL}/api/goal-loop/active`, {
-      cache: "no-store",
-      signal: AbortSignal.timeout(3000),
-      headers: WEBUI_AUTH.authRequired && WEBUI_AUTH.token ? { authorization: `Bearer ${WEBUI_AUTH.token}` } : {},
-    });
-    if (!response.ok) return 0;
-    const body = await response.json();
-    return Number(body?.active) || 0;
-  } catch {
-    return 0;
-  }
+  return readActiveGoalLoopCount({
+    baseUrl: WEBUI_URL,
+    token: WEBUI_AUTH.authRequired ? WEBUI_AUTH.token : undefined,
+  });
 }
 
 /** Whether the operator asked for the exclusive cutover at startup. */
