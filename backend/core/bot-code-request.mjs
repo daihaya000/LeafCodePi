@@ -106,3 +106,53 @@ export function cancellationTargetForRequest(request) {
   if (!request || request.state === "queued") return null;
   return request.codeTaskId ?? null;
 }
+
+/**
+ * The outcome and Goal Loop report a delivered Code result exposes. The delivered payload owns the
+ * real outcome, so a result that does not parse as an object is treated as a legacy plain-string
+ * failure and surfaced as the outcome; a parsed result contributes only a non-empty string outcome
+ * and a Goal Loop report that has a status. Nothing is exposed when there is no result.
+ */
+export function codeRequestPayload(request) {
+  const result = request?.result;
+  if (!result) return {};
+  try {
+    const parsed = JSON.parse(result);
+    return {
+      ...(typeof parsed?.outcome === "string" && parsed.outcome ? { outcome: parsed.outcome } : {}),
+      ...(parsed?.goalLoop && typeof parsed.goalLoop.status === "string" ? { goalLoop: parsed.goalLoop } : {}),
+    };
+  } catch {
+    const outcome = String(result).trim();
+    return outcome ? { outcome } : {};
+  }
+}
+
+/**
+ * The stored result of a request the user stopped. Existing object fields are kept so the report
+ * still carries what the Code session produced, but the outcome is replaced by the authoritative
+ * stop marker; an unreadable or non-object result becomes only that marker.
+ */
+export function userStoppedResult(result) {
+  let payload = {};
+  try {
+    const parsed = JSON.parse(result ?? "{}");
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) payload = parsed;
+  } catch { /* replace an unreadable result with the authoritative stop outcome */ }
+  return JSON.stringify({ ...payload, outcome: "ユーザーが停止" });
+}
+
+/**
+ * The event a Code request's state change publishes. It goes to the origin task (so the Bot or Room
+ * stream updates its card) and to the relay channel (so every worker's UI reacts); `codeTaskId` is
+ * null until the Code task exists.
+ */
+export function codeSessionChangedPayload({ eventType, requestId, codeTaskId, state }) {
+  return {
+    type: "snapshot",
+    eventType,
+    codeRequestId: requestId,
+    codeTaskId,
+    codeState: state,
+  };
+}

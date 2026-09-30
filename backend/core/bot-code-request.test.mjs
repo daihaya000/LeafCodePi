@@ -1,8 +1,10 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
-  cancellationTargetForRequest, isActiveCodeRequest, isCodeRequestId, isRoomCodeRequestCurrent,
+  cancellationTargetForRequest, codeRequestPayload, codeSessionChangedPayload, isActiveCodeRequest,
+  isCodeRequestId, isRoomCodeRequestCurrent,
   resolveOutboxScanAction, roomCodeOrigin, runningCodeTaskIdsForOrigin, selectActiveCodeRequestForTask,
+  userStoppedResult,
 } from "./bot-code-request.mjs";
 
 test("only the documented task id shape carries a Room origin", () => {
@@ -176,4 +178,47 @@ test("cancelling a request only aborts a Code task that was actually started", (
   assert.equal(cancellationTargetForRequest({ state: "running", codeTaskId: "code-1" }), "code-1");
   assert.equal(cancellationTargetForRequest({ state: "ready", codeTaskId: null }), null);
   assert.equal(cancellationTargetForRequest(undefined), null);
+});
+
+test("a delivered result exposes its outcome and Goal Loop report", () => {
+  assert.deepEqual(codeRequestPayload({ result: '{"outcome":"completed","goalLoop":{"status":"done","turnCount":2}}' }), {
+    outcome: "completed",
+    goalLoop: { status: "done", turnCount: 2 },
+  });
+  assert.deepEqual(codeRequestPayload({ result: '{"outcome":"","goalLoop":{"turnCount":2}}' }), {}, "an empty outcome is dropped");
+  assert.deepEqual(codeRequestPayload({ result: '{"goalLoop":{"status":42}}' }), {}, "a Goal Loop without a status is dropped");
+  assert.deepEqual(codeRequestPayload({ result: '{"outcome":42}' }), {});
+  assert.deepEqual(codeRequestPayload({ result: "" }), {});
+  assert.deepEqual(codeRequestPayload({}), {});
+  assert.deepEqual(codeRequestPayload(undefined), {});
+});
+
+test("an unparsable result is treated as a legacy plain-string outcome", () => {
+  assert.deepEqual(codeRequestPayload({ result: "boom" }), { outcome: "boom" });
+  assert.deepEqual(codeRequestPayload({ result: "  boom  " }), { outcome: "boom" });
+  assert.deepEqual(codeRequestPayload({ result: "   " }), {});
+  // Valid JSON that is not an object parses fine and simply has no outcome to expose.
+  assert.deepEqual(codeRequestPayload({ result: "[1,2]" }), {});
+  assert.deepEqual(codeRequestPayload({ result: "42" }), {});
+});
+
+test("a user stop keeps the produced fields and replaces the outcome", () => {
+  assert.equal(userStoppedResult('{"outcome":"completed","detail":"x"}'), '{"outcome":"ユーザーが停止","detail":"x"}');
+  assert.equal(userStoppedResult("{}"), '{"outcome":"ユーザーが停止"}');
+  assert.equal(userStoppedResult("not json"), '{"outcome":"ユーザーが停止"}');
+  assert.equal(userStoppedResult("[1,2]"), '{"outcome":"ユーザーが停止"}');
+  assert.equal(userStoppedResult(null), '{"outcome":"ユーザーが停止"}');
+  assert.equal(userStoppedResult(undefined), '{"outcome":"ユーザーが停止"}');
+});
+
+test("a state-change event carries the request, its Code task and the state", () => {
+  assert.deepEqual(
+    codeSessionChangedPayload({ eventType: "bot-code-session-changed", requestId: "r1", codeTaskId: "code-1", state: "running" }),
+    { type: "snapshot", eventType: "bot-code-session-changed", codeRequestId: "r1", codeTaskId: "code-1", codeState: "running" },
+  );
+  assert.deepEqual(
+    codeSessionChangedPayload({ eventType: "e", requestId: "r1", codeTaskId: null, state: "queued" }).codeTaskId,
+    null,
+    "a request without a Code task keeps the null id",
+  );
 });

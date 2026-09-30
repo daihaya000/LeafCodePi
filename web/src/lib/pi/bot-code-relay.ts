@@ -25,7 +25,18 @@ import {
 } from "@/lib/pi/bot-code-images";
 import { isGoalLoopOperatorHold } from "@/lib/pi/goal-loop-state";
 import { isRoomStopRequest } from "@/lib/room-conversation";
-import { cancellationTargetForRequest, isActiveCodeRequest, isCodeRequestId, isRoomCodeRequestCurrent, resolveOutboxScanAction, roomCodeOrigin, runningCodeTaskIdsForOrigin, selectActiveCodeRequestForTask } from "@backend-core/bot-code-request.mjs";
+import {
+  cancellationTargetForRequest,
+  codeRequestPayload,
+  isActiveCodeRequest,
+  isCodeRequestId,
+  isRoomCodeRequestCurrent,
+  resolveOutboxScanAction,
+  roomCodeOrigin,
+  runningCodeTaskIdsForOrigin,
+  selectActiveCodeRequestForTask,
+  userStoppedResult,
+} from "@backend-core/bot-code-request.mjs";
 
 export const BOT_CODE_TOOL = "code_session";
 export const BOT_CODE_RESULT = "bot-code-result";
@@ -271,26 +282,12 @@ function active(request: CodeRequest): boolean { return isActiveCodeRequest(requ
 
 /** The delivered payload owns the real outcome; delivery state alone must not be shown as success. */
 function requestPayload(request: CodeRequest): { outcome?: string; goalLoop?: CodeRequestGoalLoopReport } {
-  if (!request.result) return {};
-  try {
-    const parsed = JSON.parse(request.result) as { outcome?: unknown; goalLoop?: CodeRequestGoalLoopReport };
-    return {
-      ...(typeof parsed.outcome === "string" && parsed.outcome ? { outcome: parsed.outcome } : {}),
-      ...(parsed.goalLoop && typeof parsed.goalLoop.status === "string" ? { goalLoop: parsed.goalLoop } : {}),
-    };
-  } catch {
-    // Legacy plain-string failures still surface as an outcome for the UI/handoff.
-    const outcome = request.result.trim();
-    return outcome ? { outcome } : {};
-  }
+  // The delivered-payload contract (including legacy plain-string failures) lives in backend core.
+  return codeRequestPayload(request) as { outcome?: string; goalLoop?: CodeRequestGoalLoopReport };
 }
 function markUserStoppedResult(request: CodeRequest): void {
-  let payload: Record<string, unknown> = {};
-  try {
-    const parsed = JSON.parse(request.result ?? "{}");
-    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) payload = parsed as Record<string, unknown>;
-  } catch { /* replace an unreadable result with the authoritative stop outcome */ }
-  request.result = JSON.stringify({ ...payload, outcome: "ユーザーが停止" });
+  // Keeping the produced fields and replacing the outcome is a backend core rule.
+  request.result = userStoppedResult(request.result);
 }
 export type BotCodeRequestSummary = Pick<CodeRequest, "id" | "codeTaskId" | "state" | "prompt" | "result" | "queuedAt"> & {
   outcome?: string;

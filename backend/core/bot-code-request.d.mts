@@ -37,3 +37,20 @@ export function resolveOutboxScanAction(input: { state: string; isBusy: boolean 
 
 /** The Code task to abort when a request is cancelled, or null when nothing started. */
 export function cancellationTargetForRequest(request: { state: string; codeTaskId?: string | null } | null | undefined): string | null;
+
+/** The outcome/Goal Loop report a delivered Code result exposes. */
+export function codeRequestPayload(request: { result?: string | null } | null | undefined): {
+  outcome?: string;
+  goalLoop?: unknown;
+};
+
+/** The stored result of a request the user stopped (existing object fields kept). */
+export function userStoppedResult(result: string | null | undefined): string;
+
+/** The event payload a Code request's state change publishes. */
+export function codeSessionChangedPayload(input: {
+  eventType: string;
+  requestId: string;
+  codeTaskId: string | null;
+  state: string;
+}): { type: "snapshot"; eventType: string; codeRequestId: string; codeTaskId: string | null; codeState: string };
