@@ -217,6 +217,7 @@ import { detachReplacedLive as coreDetachReplacedLive, disposeUnattachedSession,
 import { restoredPromptState, restoredTaskMetadata, restoredThroughputState as coreRestoredThroughputState } from "@backend-core/live-attach-state.mjs";
 import { compactionFailureMessage, isHarnessAutoCompactionError as coreIsHarnessAutoCompactionError, runAgentStartTaskSync, shouldApplySettledStatus, shouldSkipEventForMissingTask, shouldSyncTaskFromSessionEvent as coreShouldSyncTaskFromSessionEvent, type SessionSyncEvent } from "@backend-core/session-event-decisions.mjs";
 import { classifySnapshotEvent, flushPendingSnapshotOnUnsubscribe, pendingSnapshotFlush, SNAPSHOT_THROTTLE_MS } from "@backend-core/snapshot-schedule.mjs";
+import { runSessionEventEffects } from "@backend-core/session-event-effects.mjs";
 import { isBotTask, liveSessionName, liveSessionWorkspace, preflightLiveSession, resolveSessionAccountId, resolveSessionAccountRefusal, resolveSessionPermissionMode, resolveSessionSkillPermission, resolveSessionThinkingLevelSource, resolveStoredModelOutcome } from "@backend-core/live-session-preflight.mjs";
 import { runSerializedByKey } from "@backend-core/keyed-serializer.mjs";
 import { attachReplacementSession } from "@backend-core/live-replace.mjs";
@@ -2329,64 +2330,54 @@ async function attachSession(
   });
 
   const unsubscribe = session.subscribe((event) => {
-    trackTurnLifecycleFlags(live, session, event);
-    trackProviderLimit(live, session, event);
-    noteWebSocketTransportFailure(live, session, event);
-
-    const harnessAutoCompactionError = isHarnessAutoCompactionError(
-      event,
-      live,
-    );
-    const syncTask = shouldSyncTaskFromSessionEvent(
-      event,
-      harnessAutoCompactionError,
-    );
-    // Message/tool deltas arrive much more often than task metadata changes.
-    // Avoid a synchronous store read for every token; status/identity changes
-    // still use the existing path below.
-    const task = syncTask ? getTask(taskId) : undefined;
-    if (shouldSkipEventForMissingTask(syncTask, Boolean(task))) return;
-    trackThroughputEvent(
-      live,
-      event as { type: string; [key: string]: unknown },
-    );
-    if (event.type === "agent_start" && !runAgentStartTaskSync(taskId, {
-      acquireLease: (id) => acquireTaskLease(id),
-      setStatus: (id, status, error) => setTaskStatus(id, status, error),
-      busyMessage: TASK_LEASE_BUSY_ERROR,
-    })) return;
-    if (shouldApplySettledStatus(event, live.pendingTransportRecovery)) {
-      applySettledTaskStatus(live, session, taskId);
-    }
-    if (event.type === "agent_settled") finishSettledTurn(live, session, taskId);
-    const compactionError = compactionFailureMessage(event, harnessAutoCompactionError);
-    if (compactionError) setTaskStatus(taskId, "error", compactionError);
-    if (task) {
-      const ids = modelId(session.model);
-      // Which identity the session may report (and whether it changed) is decided in backend core.
-      const identityPatch = sessionIdentityPatch(
-        task,
-        sessionIdentitySource({
-          preserveTaskModel: live.preserveTaskModel === true,
-          sessionId: session.sessionId,
-          sessionFile: session.sessionFile,
-          providerID: ids.providerID,
-          modelID: ids.modelID,
+    // The ordered effect sequence lives in backend core; every step below is the
+    // harness-owned implementation of one step in that sequence.
+    runSessionEventEffects(event, {
+      trackTurnLifecycleFlags: () => trackTurnLifecycleFlags(live, session, event),
+      trackProviderLimit: () => trackProviderLimit(live, session, event),
+      noteWebSocketTransportFailure: () => noteWebSocketTransportFailure(live, session, event),
+      isHarnessAutoCompactionError: () => isHarnessAutoCompactionError(event, live),
+      shouldSyncTaskFromSessionEvent: (owned) => shouldSyncTaskFromSessionEvent(event, owned),
+      getTask: () => getTask(taskId),
+      shouldSkipEventForMissingTask,
+      trackThroughputEvent: () =>
+        trackThroughputEvent(live, event as { type: string; [key: string]: unknown }),
+      runAgentStartTaskSync: () =>
+        runAgentStartTaskSync(taskId, {
+          acquireLease: (id) => acquireTaskLease(id),
+          setStatus: (id, status, error) => setTaskStatus(id, status, error),
+          busyMessage: TASK_LEASE_BUSY_ERROR,
         }),
-      );
-      if (hasIdentityChanges(identityPatch)) {
-        patchTask(taskId, identityPatch);
-      }
-    }
-    scheduleTaskSnapshot(
-      live,
-      event.type,
-      event.type === "compaction_end" && event.errorMessage
-        ? { error: event.errorMessage }
-        : undefined,
-    );
+      shouldApplySettledStatus: () => shouldApplySettledStatus(event, live.pendingTransportRecovery),
+      applySettledStatus: () => applySettledTaskStatus(live, session, taskId),
+      finishSettledTurn: () => finishSettledTurn(live, session, taskId),
+      compactionFailureMessage: (owned) => compactionFailureMessage(event, owned),
+      setTaskStatusError: (message) => setTaskStatus(taskId, "error", message),
+      patchIdentity: (task) => {
+        const ids = modelId(session.model);
+        // Which identity the session may report (and whether it changed) is decided in backend core.
+        const identityPatch = sessionIdentityPatch(
+          task as TaskSummary,
+          sessionIdentitySource({
+            preserveTaskModel: live.preserveTaskModel === true,
+            sessionId: session.sessionId,
+            sessionFile: session.sessionFile,
+            providerID: ids.providerID,
+            modelID: ids.modelID,
+          }),
+        );
+        if (hasIdentityChanges(identityPatch)) patchTask(taskId, identityPatch);
+      },
+      scheduleSnapshot: () =>
+        scheduleTaskSnapshot(
+          live,
+          event.type,
+          event.type === "compaction_end" && event.errorMessage
+            ? { error: event.errorMessage }
+            : undefined,
+        ),
+    });
   });
-
   live.unsubscribe = () => {
     // Cancelling the timer, clearing the slots and emitting what was queued is
     // ordered in backend core; the emit sinks stay here.
