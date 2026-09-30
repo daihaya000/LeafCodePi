@@ -2,6 +2,15 @@ import type { BotPermissionMode } from "./bot-config.mjs";
 
 export type LiveSessionRefusal = "task-not-found" | "archived" | "lease-busy";
 
+export const TASK_NOT_FOUND_MESSAGE: string;
+export const TASK_ARCHIVED_MESSAGE: string;
+
+/** Status and message for a refusal; the lease wording is injected. */
+export function liveSessionRefusalError(
+  refusal: LiveSessionRefusal | null,
+  options: { leaseBusyMessage: string },
+): { status: number; message: string };
+
 /**
  * Which refusal applies (task-not-found → archived → lease-busy), or null when a
  * session may be created.

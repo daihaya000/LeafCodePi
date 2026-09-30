@@ -1,9 +1,11 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
-  isBotTask, liveSessionName, liveSessionWorkspace, preflightLiveSession, resolveSessionAccountId,
+  isBotTask, liveSessionName, liveSessionRefusalError, liveSessionWorkspace, preflightLiveSession,
+  resolveSessionAccountId,
   resolveSessionAccountRefusal, resolveSessionPermissionMode, resolveSessionSkillPermission,
-  resolveSessionThinkingLevelSource, resolveStoredModelOutcome,
+  resolveSessionThinkingLevelSource, resolveStoredModelOutcome, TASK_ARCHIVED_MESSAGE,
+  TASK_NOT_FOUND_MESSAGE,
 } from "./live-session-preflight.mjs";
 
 test("a live session may be created when nothing stands in the way", () => {
@@ -184,4 +186,27 @@ test("only an explicit true enables the account flags", () => {
     assert.equal(resolveSessionAccountId(selection({ routedThroughAccounts: value })), null, String(value));
     assert.equal(resolveSessionAccountId(selection({ accountHasProvider: false, routedThroughAccounts: value })), null, String(value));
   }
+});
+
+test("a refusal maps to the status and wording every entry point reports", () => {
+  const lease = { leaseBusyMessage: "タスクは別のワーカーで実行中です" };
+  assert.deepEqual(liveSessionRefusalError("task-not-found", lease), { status: 404, message: TASK_NOT_FOUND_MESSAGE });
+  assert.deepEqual(liveSessionRefusalError("archived", lease), { status: 409, message: TASK_ARCHIVED_MESSAGE });
+  assert.deepEqual(liveSessionRefusalError("lease-busy", lease), { status: 409, message: lease.leaseBusyMessage });
+  assert.equal(TASK_NOT_FOUND_MESSAGE, "タスクが見つかりません");
+  assert.equal(TASK_ARCHIVED_MESSAGE, "アーカイブされたタスクです");
+});
+
+test("the lease wording is passed in, so the worker API keeps its own phrasing", () => {
+  assert.equal(liveSessionRefusalError("lease-busy", { leaseBusyMessage: "custom" }).message, "custom");
+  // Nothing to report still resolves to the busy status, which callers never reach
+  // because preflight returns null first.
+  assert.deepEqual(liveSessionRefusalError(null, { leaseBusyMessage: "custom" }), { status: 409, message: "custom" });
+});
+
+test("the refusal ladder feeds the error mapping in precedence order", () => {
+  const input = { hasTask: false, status: "archived", leaseHeldElsewhere: true };
+  assert.equal(liveSessionRefusalError(preflightLiveSession(input), { leaseBusyMessage: "x" }).status, 404);
+  assert.equal(liveSessionRefusalError(preflightLiveSession({ ...input, hasTask: true }), { leaseBusyMessage: "x" }).status, 409);
+  assert.equal(liveSessionRefusalError(preflightLiveSession({ hasTask: true, status: "idle", leaseHeldElsewhere: true }), { leaseBusyMessage: "x" }).message, "x");
 });

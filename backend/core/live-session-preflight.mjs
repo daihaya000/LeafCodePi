@@ -13,6 +13,21 @@ export function resolveSessionThinkingLevelSource({ hasStoredLevel, hasModel }) 
   return hasModel === true ? "model-default" : "none";
 }
 
+/** Shared wording for the two task-level refusals every entry point reports. */
+export const TASK_NOT_FOUND_MESSAGE = "タスクが見つかりません";
+export const TASK_ARCHIVED_MESSAGE = "アーカイブされたタスクです";
+
+/**
+ * The HTTP status and message a caller raises for a refusal from
+ * `preflightLiveSession`. The lease wording is injected because it is shared with the
+ * worker-facing API; the two task-level messages are owned here.
+ */
+export function liveSessionRefusalError(refusal, { leaseBusyMessage }) {
+  if (refusal === "task-not-found") return { status: 404, message: TASK_NOT_FOUND_MESSAGE };
+  if (refusal === "archived") return { status: 409, message: TASK_ARCHIVED_MESSAGE };
+  return { status: 409, message: leaseBusyMessage };
+}
+
 /**
  * Which refusal applies, in this precedence: a task that no longer exists, then an
  * archived one, then a lease held by another worker. The order matters — an

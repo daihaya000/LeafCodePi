@@ -219,7 +219,7 @@ import { compactionFailureMessage, isHarnessAutoCompactionError as coreIsHarness
 import { classifySnapshotEvent, flushPendingSnapshotOnUnsubscribe, pendingSnapshotFlush, SNAPSHOT_THROTTLE_MS } from "@backend-core/snapshot-schedule.mjs";
 import { publishAttachedLive, resolveEnsureLiveAttempt, runEnsureLiveGates } from "@backend-core/live-lifecycle.mjs";
 import { runSessionEventEffects } from "@backend-core/session-event-effects.mjs";
-import { isBotTask, liveSessionName, liveSessionWorkspace, preflightLiveSession, resolveSessionAccountId, resolveSessionAccountRefusal, resolveSessionPermissionMode, resolveSessionSkillPermission, resolveSessionThinkingLevelSource, resolveStoredModelOutcome } from "@backend-core/live-session-preflight.mjs";
+import { isBotTask, liveSessionName, liveSessionRefusalError, liveSessionWorkspace, preflightLiveSession, TASK_ARCHIVED_MESSAGE, TASK_NOT_FOUND_MESSAGE, resolveSessionAccountId, resolveSessionAccountRefusal, resolveSessionPermissionMode, resolveSessionSkillPermission, resolveSessionThinkingLevelSource, resolveStoredModelOutcome } from "@backend-core/live-session-preflight.mjs";
 import { runSerializedByKey } from "@backend-core/keyed-serializer.mjs";
 import { attachReplacementSession } from "@backend-core/live-replace.mjs";
 import { buildBotCodeReportContent } from "@backend-core/bot-code-report.mjs";
@@ -4428,12 +4428,10 @@ export function resolveSummaryStatus(
 
 function throwIfTaskArchived(taskId: string): void {
   const task = getTask(taskId);
-  if (!task)
-    throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });
+  // Wording for the two task-level refusals lives in backend core.
+  if (!task) throw Object.assign(new Error(TASK_NOT_FOUND_MESSAGE), { status: 404 });
   if (task.status === "archived") {
-    throw Object.assign(new Error("アーカイブされたタスクです"), {
-      status: 409,
-    });
+    throw Object.assign(new Error(TASK_ARCHIVED_MESSAGE), { status: 409 });
   }
 }
 
@@ -4704,13 +4702,10 @@ async function ensureLive(
         status: task?.status ?? "",
         leaseHeldElsewhere,
       });
-      if (refusal === "archived") {
-        throw Object.assign(new Error("アーカイブされたタスクです"), { status: 409 });
-      }
-      if (refusal === "task-not-found") {
-        throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });
-      }
-      throw Object.assign(new Error(TASK_LEASE_BUSY_ERROR), { status: 409 });
+      const refusalError = liveSessionRefusalError(refusal, {
+        leaseBusyMessage: TASK_LEASE_BUSY_ERROR,
+      });
+      throw Object.assign(new Error(refusalError.message), { status: refusalError.status });
     }
     const project = task.projectId ? getProject(task.projectId) : undefined;
     const isBot = isBotTask(task);
