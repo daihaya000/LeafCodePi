@@ -1,3 +1,6 @@
+import { resolve } from "node:path";
+import { basenameKey } from "./bot-runtime-context.mjs";
+
 /**
  * Whether a settings `packages` entry names a package this fork replaces with its own
  * bundled extension. A bare string entry and the `{ source }` form are equivalent, and
@@ -18,4 +21,42 @@ export function isReplacedPackageSource(entry, replacedPackageNames) {
     replacedPackageNames.has("@injaneity/pi-computer-use") &&
     /^(?:git:github\.com\/injaneity\/pi-computer-use|https:\/\/github\.com\/injaneity\/pi-computer-use)(?:@[^/]+)?$/.test(source)
   );
+}
+
+/**
+ * Bundled forks replace their upstream extension. `skipDiscovery` also drops the
+ * npm package from the loader search, which avoids its module import entirely
+ * (pi-mcp-adapter costs ~0.4s per cwd cache clear). The user's settings.json is
+ * never modified; the exclusion only applies inside this loader.
+ */
+export const FORK_REPLACED_EXTENSIONS = [
+  { fork: "leafcode-subagents", upstream: "pi-subagents", skipDiscovery: false },
+  { fork: "leafcode-intercom", upstream: "pi-intercom", skipDiscovery: true },
+  { fork: "leafcode-mcp-adapter", upstream: "pi-mcp-adapter", skipDiscovery: true },
+  { fork: "leafcode-computer-use", upstream: "@injaneity/pi-computer-use", skipDiscovery: true },
+  { fork: "pi-anthropic-auth", upstream: "@gotgenes/pi-anthropic-auth", skipDiscovery: true },
+];
+
+/** npm packages excluded from discovery because a bundled fork replaces them. */
+export function replacedUpstreamPackages(bundledNames) {
+  return new Set(
+    FORK_REPLACED_EXTENSIONS.filter(
+      (entry) => entry.skipDiscovery && bundledNames.has(entry.fork),
+    ).map((entry) => entry.upstream),
+  );
+}
+
+/** Keep one copy of every extension: drop replaced upstreams and stale bundled duplicates. */
+export function keepsLoadedExtension(extensionPath, bundled) {
+  const key = basenameKey(extensionPath);
+  const replacedByFork = FORK_REPLACED_EXTENSIONS.some(
+    (entry) => bundled.names.has(entry.fork) && key === entry.upstream,
+  );
+  if (replacedByFork) return false;
+  if (bundled.names.has("leafcode-computer-use") &&
+      (key === "pi-computer-use" || /(?:^|[\\/])pi-computer-use(?:[\\/]|$)/i.test(extensionPath))) return false;
+  // An entry such as leafcode-memory/src/index.ts is keyed "src"; match its package directory too.
+  const copiesBundled = bundled.names.has(key) ||
+    resolve(extensionPath).split(/[\\/]/).slice(0, -1).some((segment) => bundled.names.has(segment));
+  return !copiesBundled || bundled.paths.has(resolve(extensionPath));
 }

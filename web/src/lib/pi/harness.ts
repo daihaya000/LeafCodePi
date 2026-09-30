@@ -175,7 +175,6 @@ import {
 } from "@/lib/pi/deferred-tools";
 import { hasIdentityChanges, sessionIdentityPatch, sessionIdentitySource } from "@/lib/pi/session-identity";
 import {
-  basenameKey,
   bundledExtensionEntries,
   filterExtensionsByState,
   isExtensionDisabled,
@@ -218,7 +217,7 @@ import { restoredPromptState, restoredTaskMetadata, restoredThroughputState as c
 import { compactionFailureMessage, isHarnessAutoCompactionError as coreIsHarnessAutoCompactionError, runAgentStartTaskSync, shouldApplySettledStatus, shouldSkipEventForMissingTask, shouldSyncTaskFromSessionEvent as coreShouldSyncTaskFromSessionEvent, type SessionSyncEvent } from "@backend-core/session-event-decisions.mjs";
 import { classifySnapshotEvent, flushPendingSnapshotOnUnsubscribe, pendingSnapshotFlush, SNAPSHOT_THROTTLE_MS } from "@backend-core/snapshot-schedule.mjs";
 import { publishAttachedLive, resolveEnsureLiveAttempt, runEnsureLiveGates } from "@backend-core/live-lifecycle.mjs";
-import { isReplacedPackageSource } from "@backend-core/replaced-packages.mjs";
+import { isReplacedPackageSource, keepsLoadedExtension, replacedUpstreamPackages } from "@backend-core/replaced-packages.mjs";
 import { resolveBotSessionOptions } from "@backend-core/bot-session-options.mjs";
 import { runSessionEventEffects } from "@backend-core/session-event-effects.mjs";
 import { isBotTask, liveSessionName, liveSessionRefusalError, liveSessionWorkspace, preflightLiveSession, resolveSessionPermissionDefaults, TASK_ARCHIVED_MESSAGE, TASK_NOT_FOUND_MESSAGE, resolveSessionAccountId, resolveSessionAccountRefusal, resolveSessionPermissionMode, resolveSessionSkillPermission, resolveSessionThinkingLevelSource, resolveStoredModelOutcome } from "@backend-core/live-session-preflight.mjs";
@@ -3128,48 +3127,8 @@ export function settingsManagerExcludingReplacedPackages(
   }) as ReturnType<PiModule["SettingsManager"]["create"]>;
 }
 
-/**
- * Bundled forks replace their upstream extension. `skipDiscovery` also drops the
- * npm package from the loader search, which avoids its module import entirely
- * (pi-mcp-adapter costs ~0.4s per cwd cache clear). The user's settings.json is
- * never modified; the exclusion only applies inside this loader.
- */
-const FORK_REPLACED_EXTENSIONS = [
-  { fork: "leafcode-subagents", upstream: "pi-subagents", skipDiscovery: false },
-  { fork: "leafcode-intercom", upstream: "pi-intercom", skipDiscovery: true },
-  { fork: "leafcode-mcp-adapter", upstream: "pi-mcp-adapter", skipDiscovery: true },
-  { fork: "leafcode-computer-use", upstream: "@injaneity/pi-computer-use", skipDiscovery: true },
-  { fork: "pi-anthropic-auth", upstream: "@gotgenes/pi-anthropic-auth", skipDiscovery: true },
-] as const;
-
-/** npm packages excluded from discovery because a bundled fork replaces them. */
-export function replacedUpstreamPackages(
-  bundledNames: ReadonlySet<string>,
-): Set<string> {
-  return new Set(
-    FORK_REPLACED_EXTENSIONS.filter(
-      (entry) => entry.skipDiscovery && bundledNames.has(entry.fork),
-    ).map((entry) => entry.upstream),
-  );
-}
-
-/** Keep one copy of every extension: drop replaced upstreams and stale bundled duplicates. */
-export function keepsLoadedExtension(
-  extensionPath: string,
-  bundled: { names: ReadonlySet<string>; paths: ReadonlySet<string> },
-): boolean {
-  const key = basenameKey(extensionPath);
-  const replacedByFork = FORK_REPLACED_EXTENSIONS.some(
-    (entry) => bundled.names.has(entry.fork) && key === entry.upstream,
-  );
-  if (replacedByFork) return false;
-  if (bundled.names.has("leafcode-computer-use") &&
-      (key === "pi-computer-use" || /(?:^|[\\/])pi-computer-use(?:[\\/]|$)/i.test(extensionPath))) return false;
-  // An entry such as leafcode-memory/src/index.ts is keyed "src"; match its package directory too.
-  const copiesBundled = bundled.names.has(key) ||
-    resolve(extensionPath).split(/[\\/]/).slice(0, -1).some((segment) => bundled.names.has(segment));
-  return !copiesBundled || bundled.paths.has(resolve(extensionPath));
-}
+// The fork/upstream table and the dedup rule live in backend core.
+export { keepsLoadedExtension, replacedUpstreamPackages };
 
 /**
  * Tools registered on a new session. An agent-defined allowlist wins; otherwise
