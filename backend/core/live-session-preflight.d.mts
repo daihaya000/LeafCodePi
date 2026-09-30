@@ -19,3 +19,21 @@ export function resolveSessionPermissionMode(input: {
   updatedPermissionMode: BotPermissionMode | null | undefined;
   taskPermissionMode: BotPermissionMode | null | undefined;
 }): BotPermissionMode | undefined;
+
+/** A Bot task is a Bot session only when it also carries the Bot it belongs to. */
+export function isBotTask(task: { kind?: string | null; botId?: string | null } | undefined): boolean;
+
+/** The registered project's root, or the task's own directory. */
+export function liveSessionWorkspace(input: {
+  projectRootPath?: string | null;
+  taskDirectory: string;
+}): string;
+
+/** Bot sessions are namespaced as `bot:<title>`. */
+export function liveSessionName(input: { isBot: boolean; title: string }): string;
+
+/** A freshly normalized skill permission wins over the stored one. */
+export function resolveSessionSkillPermission(input: {
+  updatedSkillPermission?: "allow" | "deny" | null;
+  taskSkillPermission?: "allow" | "deny" | null;
+}): "allow" | "deny" | undefined;

@@ -48,7 +48,7 @@
    | `abort-control.mjs` / `abort-coordinator.mjs` | ユーザー停止とhang watchdog停止の副作用順序（副作用は注入） | Goal Loop・サブエージェント停止の実体、スナップショット配信 |
    | `live-lifecycle.mjs` / `live-replace.mjs` | dispose時のRoom busy・shutdown要否判定、置換時の旧live切離し順序（購読解除→旧アカウント参照の解放→旧セッション破棄→スナップショットタイマー取消）、attach時のアカウント決定と1:1 Bot liveのmailbox昇格判定（Roomは昇格しない）、extension shutdown→session disposeの順序とin-flight登録、ensure-live世代の照合と「登録済みliveが自分のattach結果か」の判定・in-flight ensureに合流した後の扱い（世代が古ければ採用せず再試行）、置換の共通末尾（永続化先行・失敗時の破棄と復元） | `live`のmap・購読・`attachSession`/`ensureLive`/`createSession` |
    | `live-attach-state.mjs` | attach時のlive初期状態（置換前liveのマップ/プロンプト連鎖/世代の引継ぎ、task由来の復元値、transcript由来のタイミング復元。versioned mapは注入） | transcript走査とversioned mapクラス、SOULリビジョン取得 |
-   | `live-session-preflight.mjs` | liveセッション生成前の拒否理由の優先順位（task不在→archive済→他workerのlease）と、セッション権限モードの決定（BotはBot記録、Codeは正規化済みタスク値、無ければタスク既存値） | エラー文言とHTTPステータス、通知などの副作用 |
+   | `live-session-preflight.mjs` | liveセッション生成前の拒否理由の優先順位（task不在→archive済→他workerのlease）と、セッション設定の決定（Bot判定、workspace、sessionNameのBot名前空間、権限モードとskill permissionのフォールバック） | エラー文言とHTTPステータス、通知などの副作用 |
    | `session-event-decisions.mjs` | セッションイベントごとの判定（agent_start/settled/endでの同期要否、自動コンパクション失敗の判定と記録メッセージ、transport復旧中のsettle抑止、task行が消えたイベントの破棄、agent_startのlease取得→working公開の順序） | イベント受信時の副作用の実体（タスク更新・状態遷移・スナップショット） |
    | `snapshot-schedule.mjs` | スナップショットの合流規則（非描画イベントの除外、高頻度イベントのdelta化、フル待機中のdelta破棄、100ms窓、発火時に読むpending内容）と、unsubscribe時の後始末順序（タイマー取消→pending消去→保留分のemit） | タイマー実体とSSE emit |
    | `session-identity.mjs` | セッションが報告する識別情報（sessionId/sessionFile/provider/model）の選択（タスクモデル保持時はtranscript位置のみ）と保存済みタスクとの差分計算、書き込む変化があるかの判定。欠落値で保存済みを消さない規則を含む | `lib/pi/session-identity.ts` は同名exportの互換入口 |

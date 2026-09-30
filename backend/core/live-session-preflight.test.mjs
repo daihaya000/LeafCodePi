@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { preflightLiveSession, resolveSessionPermissionMode } from "./live-session-preflight.mjs";
+import {
+  isBotTask, liveSessionName, liveSessionWorkspace, preflightLiveSession, resolveSessionPermissionMode,
+  resolveSessionSkillPermission,
+} from "./live-session-preflight.mjs";
 
 test("a live session may be created when nothing stands in the way", () => {
   assert.equal(preflightLiveSession({ hasTask: true, status: "idle", leaseHeldElsewhere: false }), null);
@@ -49,4 +52,42 @@ test("a Code session uses the normalized task value, falling back to what the ta
 test("with nothing configured the mode stays undefined", () => {
   assert.equal(resolveSessionPermissionMode({ isBot: false }), undefined);
   assert.equal(resolveSessionPermissionMode({ isBot: true }), undefined);
+});
+
+test("a Bot task needs both the Bot kind and a Bot id", () => {
+  assert.equal(isBotTask({ kind: "bot", botId: "b1" }), true);
+  assert.equal(isBotTask({ kind: "bot", botId: null }), false);
+  assert.equal(isBotTask({ kind: "bot" }), false);
+  assert.equal(isBotTask({ kind: "bot", botId: "" }), false);
+  assert.equal(isBotTask({ kind: "code", botId: "b1" }), false);
+  assert.equal(isBotTask({ botId: "b1" }), false);
+  assert.equal(isBotTask(undefined), false);
+});
+
+test("the workspace is the project root when there is one", () => {
+  assert.equal(liveSessionWorkspace({ projectRootPath: "/repo", taskDirectory: "/tmp/x" }), "/repo");
+  assert.equal(liveSessionWorkspace({ projectRootPath: "/repo", taskDirectory: "/repo" }), "/repo");
+  // A project record without a root falls back to the task directory.
+  for (const projectRootPath of [undefined, null, ""]) {
+    assert.equal(liveSessionWorkspace({ projectRootPath, taskDirectory: "/tmp/x" }), projectRootPath === "" ? "" : "/tmp/x", String(projectRootPath));
+  }
+});
+
+test("Bot session titles are namespaced", () => {
+  assert.equal(liveSessionName({ isBot: true, title: "Review" }), "bot:Review");
+  assert.equal(liveSessionName({ isBot: false, title: "Review" }), "Review");
+  assert.equal(liveSessionName({ isBot: true, title: "" }), "bot:");
+  // Only an explicit true namespaces.
+  for (const isBot of [undefined, null, 0, "true"]) {
+    assert.equal(liveSessionName({ isBot, title: "Review" }), "Review", String(isBot));
+  }
+});
+
+test("a normalized skill permission wins over the stored one", () => {
+  assert.equal(resolveSessionSkillPermission({ updatedSkillPermission: "allow", taskSkillPermission: "deny" }), "allow");
+  assert.equal(resolveSessionSkillPermission({ updatedSkillPermission: "deny", taskSkillPermission: "allow" }), "deny");
+  for (const updatedSkillPermission of [undefined, null]) {
+    assert.equal(resolveSessionSkillPermission({ updatedSkillPermission, taskSkillPermission: "deny" }), "deny");
+  }
+  assert.equal(resolveSessionSkillPermission({}), undefined);
 });

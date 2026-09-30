@@ -26,3 +26,32 @@ export function resolveSessionPermissionMode({ isBot, botPermissionMode, updated
   if (isBot === true) return botPermissionMode ?? taskPermissionMode;
   return updatedPermissionMode ?? taskPermissionMode;
 }
+
+/** A Bot task is a Bot session only when it also carries the Bot it belongs to. */
+export function isBotTask(task) {
+  return task?.kind === "bot" && Boolean(task.botId);
+}
+
+/**
+ * Where the session runs: the registered project's root, or the task's own
+ * directory for tasks without a project.
+ */
+export function liveSessionWorkspace({ projectRootPath, taskDirectory }) {
+  return projectRootPath ?? taskDirectory;
+}
+
+/**
+ * Session titles keep Bot sessions namespaced so a Bot's session list cannot be
+ * confused with a Code task of the same title.
+ */
+export function liveSessionName({ isBot, title }) {
+  return isBot === true ? `bot:${title}` : title;
+}
+
+/**
+ * Skill permission for a new session: a freshly normalized value wins, otherwise
+ * the task keeps whatever it already had.
+ */
+export function resolveSessionSkillPermission({ updatedSkillPermission, taskSkillPermission }) {
+  return updatedSkillPermission ?? taskSkillPermission;
+}

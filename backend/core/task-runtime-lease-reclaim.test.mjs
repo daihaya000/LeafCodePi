@@ -74,7 +74,7 @@ test("re-validating under the reclaim lock keeps a lease that became live meanwh
 
 async function nextMessage(child) {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 8_000);
+  const timer = setTimeout(() => controller.abort(), 20_000);
   try {
     return await Promise.race([
       once(child, "message", { signal: controller.signal }).then(([message]) => message),
@@ -92,6 +92,7 @@ async function raceOnce(t, round, workers) {
     import { existsSync } from "node:fs";
     import { TaskLeaseService } from ${JSON.stringify(moduleUrl)};
     const service = new TaskLeaseService({ dataDir: () => ${JSON.stringify(f.root)}, listTasks: () => [], patchTask: () => undefined });
+    process.send({ ready: true, pid: process.pid });
     while (!existsSync(${JSON.stringify(go)})) { /* spin so every worker starts together */ }
     process.send({ acquired: service.acquireTaskLease("contended"), pid: process.pid });
     // Stay alive until told to stop: a finished winner would look dead and be legitimately reclaimed.
@@ -107,8 +108,10 @@ async function raceOnce(t, round, workers) {
     }));
   };
   t.after(stopAll);
-  // Give every worker time to start and reach the spin loop before releasing them together.
-  await new Promise((resolve) => setTimeout(resolve, 500));
+  // Wait until every process is spinning on the go file, so the race is a race and not
+  // a measure of process startup time (the suite runs files in parallel).
+  const ready = await Promise.all(children.map((child) => nextMessage(child)));
+  assert.deepEqual(ready.map((message) => message.ready), Array(workers).fill(true));
   writeFileSync(go, "go");
   const results = await Promise.all(children.map((child) => nextMessage(child)));
   const owner = read(path);

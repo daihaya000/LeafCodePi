@@ -217,7 +217,7 @@ import { detachReplacedLive as coreDetachReplacedLive, hasOtherBusyRoomLive, isR
 import { restoredPromptState, restoredTaskMetadata, restoredThroughputState } from "@backend-core/live-attach-state.mjs";
 import { compactionFailureMessage, isHarnessAutoCompactionError as coreIsHarnessAutoCompactionError, runAgentStartTaskSync, shouldApplySettledStatus, shouldSkipEventForMissingTask, shouldSyncTaskFromSessionEvent as coreShouldSyncTaskFromSessionEvent, type SessionSyncEvent } from "@backend-core/session-event-decisions.mjs";
 import { classifySnapshotEvent, flushPendingSnapshotOnUnsubscribe, pendingSnapshotFlush, SNAPSHOT_THROTTLE_MS } from "@backend-core/snapshot-schedule.mjs";
-import { preflightLiveSession, resolveSessionPermissionMode } from "@backend-core/live-session-preflight.mjs";
+import { isBotTask, liveSessionName, liveSessionWorkspace, preflightLiveSession, resolveSessionPermissionMode, resolveSessionSkillPermission } from "@backend-core/live-session-preflight.mjs";
 import { attachReplacementSession } from "@backend-core/live-replace.mjs";
 import { buildBotCodeReportContent } from "@backend-core/bot-code-report.mjs";
 import {
@@ -4670,7 +4670,7 @@ async function ensureLive(
       throw Object.assign(new Error(TASK_LEASE_BUSY_ERROR), { status: 409 });
     }
     const project = task.projectId ? getProject(task.projectId) : undefined;
-    const isBot = task.kind === "bot" && Boolean(task.botId);
+    const isBot = isBotTask(task);
     const bot = isBot && task.botId ? getBot(task.botId) : undefined;
     // Code sessions reopen with the current Settings permissions; keep the task
     // record aligned so later session replacements reuse the same values.
@@ -4678,7 +4678,7 @@ async function ensureLive(
     if (permissionUpdates.permissionMode || permissionUpdates.skillPermission) {
       patchTask(taskId, permissionUpdates);
     }
-    const cwd = project?.rootPath ?? task.directory;
+    const cwd = liveSessionWorkspace({ projectRootPath: project?.rootPath, taskDirectory: task.directory });
     const persistedGoalLoop = task.sessionId
       ? readGoalLoopState(cwd, task.sessionId)
       : null;
@@ -4703,12 +4703,15 @@ async function ensureLive(
     const setup = await createSession({
       cwd,
       sessionFile: task.sessionFile,
-      sessionName: isBot ? `bot:${task.title}` : task.title,
+      sessionName: liveSessionName({ isBot, title: task.title }),
       ...botSessionOptions(task),
       accountId: sessionAccountId,
       model,
       thinkingLevel: sessionThinkingLevel,
-      skillPermission: permissionUpdates.skillPermission ?? task.skillPermission,
+      skillPermission: resolveSessionSkillPermission({
+        updatedSkillPermission: permissionUpdates.skillPermission,
+        taskSkillPermission: task.skillPermission,
+      }),
       permissionMode: resolveSessionPermissionMode({
         isBot,
         botPermissionMode: bot?.permissionMode,
