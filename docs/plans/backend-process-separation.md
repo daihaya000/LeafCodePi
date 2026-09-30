@@ -26,8 +26,19 @@
 
 ## 段階と現在地
 
+実装フェーズ（残作業の実行順。各フェーズは独立してレビュー・検証する）:
+
+- **Phase 1 実行体のWeb非依存化**: `promptTask`経路、Botコードrelay、Room会話実行、ルーティン実行本体をcore＋注入へ分解し、Backend単体で1往復できるようにする。
+- **Phase 2 起動列とready化**: 起動列を`entry.mjs`へ接続し、完了後のみhealthを200にする。
+- **Phase 3 内部APIとWeb中継**: 主要エンドポイントをBackend所有にし、Webは同一URLで中継する。
+- **Phase 4 Host・ビルド・再起動分離**: Host側の起動/停止/ready確認、稼働中世代の固定、成果物分離。
+- **Phase 5 実切替**: 旧経路停止→Backend起動→ready確認→中継有効化。ロールバック手順を検証する。
+- **Phase 6 旧経路撤去**: 互換入口・プロセス内singleton・旧実装を削除し、未完欄を空にする。
+
+現在地: **Phase 1 着手済み**。Backend単体で動かせる起動列の前段（アプリストア＋タスクleaseの構築、stale leaseの回収、live leaseの無い`working`タスクのerror化、再開予定タスクの記録）を`backend/src/startup.mjs`として実装し、Backendテストで固定した。runtime依存の3ステップ（`startBotCodeRelay`・`ensureRoutineScheduler`・`reconcileRoomRuntime`）は実行せず`unavailable()`へ報告する（ready判定は呼び出し側の判断とし、healthは503のまま）。`entry.mjs`へは**接続していない**（稼働中のWebが同じストアとleaseを所有しているため、二重のreconcileを避ける）。
+
 1. 通信契約・依存境界: **進行中**。認証、版数、health、起動/停止を追加。既存のタスク・モデル・質問/承認・Bot/Room・履歴・Git等のDTOを `shared/types.ts` へ移動。既存 `@/lib/types` は互換再エクスポート。共有契約はNext/SDK/Node型への依存なしで単独型検証できる。設定等の個別ファイルにあるDTOと実行依存の抽出は後続。
-2. Next非依存の実行層: **着手済み・未完**。下表のとおり、Next/SDK/アプリストアに依存しない判定・順序・保存をBackend coreへ移設し、Webは同名の互換入口（注入アダプター）にした。実測（2026-09-30時点）: `backend/core/` は**44モジュール・56テストファイル**、`backend/src/` は transport と起動アダプタの3ファイル（`server.mjs`・`entry.mjs`・`runtime-host.mjs`）。Backendテストは**500件成功**（重複プロセスのlease競合試験を含む。同試験は高負荷時にワーカー起動自体が失敗することがあり、起動失敗のみ再試行する）。Web側は前回の全件実測で**4339件成功・2件失敗**（既存の`/api/health`のdataDir、`MessageCardRadius`）と、MCP拡張の`typebox`未解決によるファイル単位の失敗1件で、いずれも本作業とは無関係。高負荷時にsubagents拡張の並行実行テストが失敗することがあるが、単独実行では成功する（負荷起因のフレーク）。移設済みモジュールはNext/Webをimportせずに読み込め（多くは別Nodeプロセスでの実行もテスト済み）、Backend側テストで挙動を固定している。ただし **Backendプロセスは実行経路に未接続** で、SDK・ストア・leaseの実体は従来どおりWebプロセス内にある（HTTP Backendのhealthは503/startingのまま。内部読み出しAPIは`/internal/pending-snapshots`（認証・プロトコルヘッダ必須、GETのみ、store未注入なら空配列）まで追加済み。Web側は `web/src/lib/pi/pending-snapshots.ts` のプロセス内singletonへ `scheduleTaskSnapshot` が記録し、live破棄時にclearする経路まで入ったが、Backend側は `entry.mjs` がcoreのstoreを生成して `readPendingSnapshots` に注入するところまで接続済み（起動プロセス単体で空配列を返し、healthは503のままであることをCLIテストで固定）。ただしWebプロセスのstoreとBackendプロセスのstoreは別物で、実際の供給（harness→Backend）は未接続）。
+2. Next非依存の実行層: **着手済み・未完**。下表のとおり、Next/SDK/アプリストアに依存しない判定・順序・保存をBackend coreへ移設し、Webは同名の互換入口（注入アダプター）にした。実測（2026-09-30時点）: `backend/core/` は**44モジュール・56テストファイル**、`backend/src/` は transport と起動アダプタの4ファイル（`server.mjs`・`entry.mjs`・`runtime-host.mjs`・`startup.mjs`）。Backendテストは**505件成功**（重複プロセスのlease競合試験を含む。同試験は高負荷時にワーカー起動自体が失敗することがあり、起動失敗のみ再試行する）。Web側は前回の全件実測で**4339件成功・2件失敗**（既存の`/api/health`のdataDir、`MessageCardRadius`）と、MCP拡張の`typebox`未解決によるファイル単位の失敗1件で、いずれも本作業とは無関係。高負荷時にsubagents拡張の並行実行テストが失敗することがあるが、単独実行では成功する（負荷起因のフレーク）。移設済みモジュールはNext/Webをimportせずに読み込め（多くは別Nodeプロセスでの実行もテスト済み）、Backend側テストで挙動を固定している。ただし **Backendプロセスは実行経路に未接続** で、SDK・ストア・leaseの実体は従来どおりWebプロセス内にある（HTTP Backendのhealthは503/startingのまま。内部読み出しAPIは`/internal/pending-snapshots`（認証・プロトコルヘッダ必須、GETのみ、store未注入なら空配列）まで追加済み。Web側は `web/src/lib/pi/pending-snapshots.ts` のプロセス内singletonへ `scheduleTaskSnapshot` が記録し、live破棄時にclearする経路まで入ったが、Backend側は `entry.mjs` がcoreのstoreを生成して `readPendingSnapshots` に注入するところまで接続済み（起動プロセス単体で空配列を返し、healthは503のままであることをCLIテストで固定）。ただしWebプロセスのstoreとBackendプロセスのstoreは別物で、実際の供給（harness→Backend）は未接続）。
 
    | モジュール（`backend/core/`） | 移設した内容 | Webに残るもの |
    | --- | --- | --- |
