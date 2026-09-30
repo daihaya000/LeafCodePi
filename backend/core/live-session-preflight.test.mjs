@@ -3,6 +3,7 @@ import { test } from "node:test";
 import {
   isBotTask, liveSessionName, liveSessionWorkspace, preflightLiveSession, resolveSessionAccountId,
   resolveSessionAccountRefusal, resolveSessionPermissionMode, resolveSessionSkillPermission,
+  resolveStoredModelOutcome,
 } from "./live-session-preflight.mjs";
 
 test("a live session may be created when nothing stands in the way", () => {
@@ -94,6 +95,25 @@ test("a normalized skill permission wins over the stored one", () => {
 
 const account = (overrides = {}) => ({
   explicit: true, hasTaskAccountId: true, hasAccountRecord: true, accountEnabled: true, ...overrides,
+});
+
+test("a stored model that loaded, or no stored model at all, needs no fallback", () => {
+  assert.equal(resolveStoredModelOutcome({ hasStoredModel: true, resolved: true, autoFallback: false }), "resolved");
+  assert.equal(resolveStoredModelOutcome({ hasStoredModel: true, resolved: true, autoFallback: true }), "resolved");
+  assert.equal(resolveStoredModelOutcome({ hasStoredModel: false, resolved: false, autoFallback: false }), "resolved");
+  assert.equal(resolveStoredModelOutcome({ hasStoredModel: false, resolved: false, autoFallback: true }), "resolved");
+});
+
+test("an unresolved stored model is replaced by Auto only when one was found", () => {
+  assert.equal(resolveStoredModelOutcome({ hasStoredModel: true, resolved: false, autoFallback: true }), "auto-fallback");
+  assert.equal(resolveStoredModelOutcome({ hasStoredModel: true, resolved: false, autoFallback: false }), "unavailable");
+});
+
+test("only an explicit true counts for the stored-model and fallback flags", () => {
+  for (const value of [undefined, null, 0, "true", 1]) {
+    assert.equal(resolveStoredModelOutcome({ hasStoredModel: value, resolved: false, autoFallback: false }), "resolved", String(value));
+    assert.equal(resolveStoredModelOutcome({ hasStoredModel: true, resolved: false, autoFallback: value }), "unavailable", String(value));
+  }
 });
 
 test("an explicitly chosen account refuses when it is missing or paused", () => {

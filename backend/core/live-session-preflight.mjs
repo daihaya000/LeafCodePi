@@ -18,6 +18,17 @@ export function preflightLiveSession({ hasTask, status, leaseHeldElsewhere }) {
 }
 
 /**
+ * How a task's stored model resolved. `hasStoredModel` separates "no model chosen
+ * yet" (nothing to resolve, never an error) from "a stored model failed to load":
+ * an Auto route may replace it for this session only, and without one the session
+ * cannot start.
+ */
+export function resolveStoredModelOutcome({ hasStoredModel, resolved, autoFallback }) {
+  if (hasStoredModel !== true || resolved === true) return "resolved";
+  return autoFallback === true ? "auto-fallback" : "unavailable";
+}
+
+/**
  * Refusal for an explicitly chosen account: a missing record is 404, a paused one
  * 409. Only an explicit account id can refuse here; an implicitly inherited one
  * just falls back to no account.

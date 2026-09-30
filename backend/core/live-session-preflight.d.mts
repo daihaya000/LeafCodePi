@@ -20,6 +20,16 @@ export function resolveSessionPermissionMode(input: {
   taskPermissionMode: BotPermissionMode | null | undefined;
 }): BotPermissionMode | undefined;
 
+/**
+ * How a stored model resolved: it loaded, Auto replaced it for this session only,
+ * or it is unavailable (the caller maps that to 503).
+ */
+export function resolveStoredModelOutcome(input: {
+  hasStoredModel: boolean;
+  resolved: boolean;
+  autoFallback: boolean;
+}): "resolved" | "auto-fallback" | "unavailable";
+
 /** "account-not-found" (404) / "account-paused" (409) for an explicit account, else null. */
 export function resolveSessionAccountRefusal(input: {
   explicit: boolean;

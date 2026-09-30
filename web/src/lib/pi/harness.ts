@@ -217,7 +217,7 @@ import { detachReplacedLive as coreDetachReplacedLive, disposeUnattachedSession,
 import { restoredPromptState, restoredTaskMetadata, restoredThroughputState as coreRestoredThroughputState } from "@backend-core/live-attach-state.mjs";
 import { compactionFailureMessage, isHarnessAutoCompactionError as coreIsHarnessAutoCompactionError, runAgentStartTaskSync, shouldApplySettledStatus, shouldSkipEventForMissingTask, shouldSyncTaskFromSessionEvent as coreShouldSyncTaskFromSessionEvent, type SessionSyncEvent } from "@backend-core/session-event-decisions.mjs";
 import { classifySnapshotEvent, flushPendingSnapshotOnUnsubscribe, pendingSnapshotFlush, SNAPSHOT_THROTTLE_MS } from "@backend-core/snapshot-schedule.mjs";
-import { isBotTask, liveSessionName, liveSessionWorkspace, preflightLiveSession, resolveSessionAccountId, resolveSessionAccountRefusal, resolveSessionPermissionMode, resolveSessionSkillPermission } from "@backend-core/live-session-preflight.mjs";
+import { isBotTask, liveSessionName, liveSessionWorkspace, preflightLiveSession, resolveSessionAccountId, resolveSessionAccountRefusal, resolveSessionPermissionMode, resolveSessionSkillPermission, resolveStoredModelOutcome } from "@backend-core/live-session-preflight.mjs";
 import { runSerializedByKey } from "@backend-core/keyed-serializer.mjs";
 import { attachReplacementSession } from "@backend-core/live-replace.mjs";
 import { buildBotCodeReportContent } from "@backend-core/bot-code-report.mjs";
@@ -4526,16 +4526,29 @@ async function resolveLiveSessionSettings(
   let model = modelRoute?.model;
   let preserveTaskModel = false;
   let sessionAccountIdExplicit = accountIdExplicit;
-  if (task.providerID && task.modelID && !model) {
-    const autoRoute = await resolveUnavailableModelViaAuto(task, hints);
-    if (autoRoute?.model) {
-      modelRoute = autoRoute;
-      model = autoRoute.model;
-      preserveTaskModel = true;
-      sessionAccountIdExplicit = false;
-    }
+  const hasStoredModel = Boolean(task.providerID && task.modelID);
+  let storedModelOutcome = resolveStoredModelOutcome({
+    hasStoredModel,
+    resolved: Boolean(model),
+    autoFallback: false,
+  });
+  let autoRoute: ConcreteModelRoute | undefined;
+  if (storedModelOutcome === "unavailable") {
+    autoRoute = await resolveUnavailableModelViaAuto(task, hints);
+    storedModelOutcome = resolveStoredModelOutcome({
+      hasStoredModel,
+      resolved: Boolean(model),
+      autoFallback: Boolean(autoRoute?.model),
+    });
   }
-  if (task.providerID && task.modelID && !model) {
+  if (storedModelOutcome === "auto-fallback" && autoRoute?.model) {
+    // Session-only replacement: the stored model stays on the task so a later
+    // cold start re-checks availability instead of silently pinning Auto.
+    modelRoute = autoRoute;
+    model = autoRoute.model;
+    preserveTaskModel = true;
+    sessionAccountIdExplicit = false;
+  } else if (storedModelOutcome === "unavailable") {
     throw Object.assign(
       new Error(`モデルを利用できません: ${task.providerID}::${task.modelID}`),
       { status: 503 },
