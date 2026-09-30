@@ -35,7 +35,10 @@ export function createBackendService({
   budgetResetMs = BACKEND_RESTART_BUDGET_RESET_MS,
 } = {}) {
   if (typeof spawn !== "function") throw new Error("spawn is required");
-  const plan = backendLaunchPlan({ repoRoot, env, token, attachRuntime, bundlePath, generation });
+  // The plan is rebuilt for every launch so a cutover can ask for the runtime without re-creating
+  // the service; the token, bundle and pinned generation stay the same.
+  const buildPlan = (attach) => backendLaunchPlan({ repoRoot, env, token, attachRuntime: attach, bundlePath, generation });
+  let plan = buildPlan(attachRuntime);
   let child = null;
   let state = "idle";
   let restarts = 0;
@@ -80,8 +83,11 @@ export function createBackendService({
   }
 
   return {
-    /** Idempotent: a running Backend is not started twice, and a failed one is not retried here. */
-    start() {
+    /**
+     * Idempotent: a running Backend is not started twice, and a failed one is not retried here.
+     * `attachRuntime` is the cutover's request to hand the SDK over; it is never implicit.
+     */
+    start({ attachRuntime: attach = attachRuntime } = {}) {
       if (state === "running" || state === "starting") return null;
       if (state === "stopped") throw new Error("Backend service is stopped");
       if (state === "failed") {
@@ -89,6 +95,7 @@ export function createBackendService({
         error("Backend service failed and will not be started again");
         return null;
       }
+      plan = buildPlan(Boolean(attach));
       return launch(null);
     },
     stop() {

@@ -47,6 +47,24 @@ test("starting spawns the planned Backend once, with the pinned generation", () 
   assert.equal(children.length, 1);
 });
 
+test("a cutover can ask for the runtime on a fresh launch, and only then", () => {
+  const { spawn, calls, children } = fakeSpawn();
+  const service = createBackendService({ repoRoot: REPO_ROOT, token: "t", spawn, generation: "gen-a" });
+  service.start();
+  assert.equal(calls[0].options.env.LEAFCODE_PI_BACKEND_RUNTIME, "", "the first launch stays detached");
+  // A running Backend is not relaunched by a request: the Host stops it first.
+  assert.equal(service.start({ attachRuntime: true }), null);
+  assert.equal(calls.length, 1);
+  service.stop();
+  const restarted = createBackendService({ repoRoot: REPO_ROOT, token: "t", spawn, generation: "gen-a" });
+  restarted.start({ attachRuntime: true });
+  assert.equal(calls.length, 2);
+  assert.equal(calls[1].options.env.LEAFCODE_PI_BACKEND_RUNTIME, "attach");
+  assert.equal(calls[1].options.env.LEAFCODE_PI_BACKEND_GENERATION, "gen-a");
+  assert.equal(restarted.status().runtime, "attach");
+  assert.equal(children.length, 2);
+});
+
 test("the WebUI child gets the Backend's address and expected generation", () => {
   const { spawn } = fakeSpawn();
   const service = createBackendService({

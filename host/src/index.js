@@ -15,7 +15,10 @@ import { pidAlive, readLock, removeLock, writeLock } from "./lock.js";
 import { createLogFileWriter, formatLogLine } from "./log-file.js";
 import { getListeningPids, getPortListenerStatus } from "./port-scanner.js";
 import { hardKillTree, stopProcessTreeGracefully } from "./process-stop.js";
+import { DEFAULT_BACKEND_PORT } from "../../shared/backend-protocol.mjs";
 import { createBackendService, isBackendRequested } from "./backend-service.js";
+import { createCutoverEffects } from "./cutover-effects.js";
+import { runCutover } from "./cutover.js";
 import { autoUpdatePiInBackground } from "./pi-update.js";
 import { pullLatestSources } from "./git-pull.js";
 import { createTranslationService } from "./translation-service.js";
@@ -460,7 +463,12 @@ function buildWeb(reason = "missing", { pull = true } = {}) {
   return promise;
 }
 
-async function spawnWeb({ pull = true } = {}) {
+/** Whether the operator asked for the exclusive cutover at startup. */
+function isCutoverRequested(env = {}) {
+  return new Set(["1", "true", "yes"]).has((env.LEAFCODE_PI_CUTOVER ?? "").trim().toLowerCase());
+}
+
+async function spawnWeb({ pull = true, ownership = "in-process", relay = false } = {}) {
   installWebIfNeeded();
   let hasBuild = hasProductionBuild();
   const skipStaleBuild = consumeSkipStaleRebuild(process.env);
@@ -558,6 +566,10 @@ async function spawnWeb({ pull = true } = {}) {
       // Bundled WebUI extensions and skills live in the repo (prod runs from the web/ mirror).
       LEAFCODE_PI_EXTENSIONS_DIR: join(REPO_ROOT, "extensions"),
       LEAFCODE_PI_SKILLS_DIR: join(REPO_ROOT, "skills"),
+      // Who owns the Pi runtime. "in-process" is the pre-cutover default; "backend" makes this WebUI
+      // a client of the independent Backend, which then owns sessions, leases and schedules.
+      LEAFCODE_PI_BACKEND_OWNS_RUNTIME: ownership === "backend" ? "1" : "",
+      LEAFCODE_PI_BACKEND_RELAY: relay ? "1" : "",
       // How the WebUI reaches the Backend, and which runtime generation to expect. Absent when no
       // Backend is configured, so the WebUI keeps its in-process path.
       ...(backendService ? backendService.clientEnv() : {}),
@@ -1090,6 +1102,32 @@ async function main() {
     removeLock(LOCK_FILE);
     error(err instanceof Error ? err.message : String(err));
     process.exit(1);
+  }
+
+  // The exclusive cutover only runs when an operator asks for it: it stops the WebUI, hands the
+  // runtime to the Backend and brings the WebUI back as a client. Off by default, because two owners
+  // of the SDK must never exist at the same time.
+  if (backendService && isCutoverRequested(process.env)) {
+    const clientEnv = backendService.clientEnv();
+    try {
+      await runCutover({
+        ...createCutoverEffects({
+          stopWeb,
+          spawnWeb,
+          backendService,
+          baseUrl: clientEnv.LEAFCODE_PI_BACKEND_URL ?? `http://127.0.0.1:${DEFAULT_BACKEND_PORT}`,
+          token: clientEnv.LEAFCODE_PI_BACKEND_TOKEN,
+          expectedGeneration: backendService.status().generation ?? "",
+          backendOwnsRuntime: true,
+          relayEnabled: true,
+          preflight: async () => ({ ok: true, blockers: [] }),
+        }),
+        log,
+        error,
+      });
+    } catch (err) {
+      error(`Cutover failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
   }
 
   try {
