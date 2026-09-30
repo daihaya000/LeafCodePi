@@ -313,13 +313,17 @@ export function isSamePromptRoute({
  */
 export const SOFT_LIVE_SETTING_KEYS = Object.freeze(["permissionMode", "subagentPermission", "botTools"]);
 
-/** The subset of a pending settings record that a busy session may apply now. */
+/**
+ * The subset of a pending settings record that a busy session may apply now, or undefined when
+ * nothing in the record is soft. Returning undefined (rather than an empty record) lets callers
+ * tell "nothing to apply" apart from "apply nothing", which is what the prepare step needs.
+ */
 export function softLiveSettings(requested) {
   const applied = {};
   for (const key of SOFT_LIVE_SETTING_KEYS) {
     if (requested?.[key] !== undefined) applied[key] = requested[key];
   }
-  return applied;
+  return Object.keys(applied).length > 0 ? applied : undefined;
 }
 
 /**

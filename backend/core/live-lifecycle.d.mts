@@ -180,8 +180,8 @@ export function isSamePromptRoute(input: {
 /** Settings a busy session may apply without being replaced, in application order. */
 export const SOFT_LIVE_SETTING_KEYS: readonly string[];
 
-/** The subset of a pending settings record a busy session may apply now. */
-export function softLiveSettings(requested: Record<string, unknown> | undefined): Record<string, unknown>;
+/** The subset of a pending settings record a busy session may apply now, or undefined when none. */
+export function softLiveSettings(requested: Record<string, unknown> | undefined): Record<string, unknown> | undefined;
 
 /** Every key a deferred settings record may carry, in comparison/application order. */
 export const PENDING_LIVE_SETTING_KEYS: readonly string[];

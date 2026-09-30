@@ -245,6 +245,7 @@ import {
   shouldFlagSoulReload,
   shouldReloadAgentDefinition,
   SOFT_LIVE_SETTING_KEYS,
+  softLiveSettings,
 } from "@backend-core/live-lifecycle.mjs";
 import { isReplacedPackageSource, keepsLoadedExtension, replacedUpstreamPackages } from "@backend-core/replaced-packages.mjs";
 import { resolveBotSessionOptions } from "@backend-core/bot-session-options.mjs";
@@ -8646,20 +8647,12 @@ export const waitForSessionStreaming = corePromptControl.waitForSessionStreaming
 const TASK_LEASE_BUSY_ERROR = "タスクは別のワーカーで実行中です";
 
 /** Settings safe to apply without disposing/recreating the live session. */
+/** The soft subset a mid-stream inject may apply, or undefined when nothing is soft. */
 export function softPendingLiveSettings(
   pending: PendingLiveSettings | undefined,
 ): PendingLiveSettings | undefined {
-  if (!pending) return undefined;
-  const soft: PendingLiveSettings = {
-    ...(pending.permissionMode !== undefined
-      ? { permissionMode: pending.permissionMode }
-      : {}),
-    ...(pending.subagentPermission !== undefined
-      ? { subagentPermission: pending.subagentPermission }
-      : {}),
-    ...(pending.botTools !== undefined ? { botTools: pending.botTools } : {}),
-  };
-  return Object.keys(soft).length > 0 ? soft : undefined;
+  // The key contract lives in backend core; this keeps the public name and its type.
+  return softLiveSettings(pending as Record<string, unknown> | undefined) as PendingLiveSettings | undefined;
 }
 
 export function pendingSettingsForPrompt(

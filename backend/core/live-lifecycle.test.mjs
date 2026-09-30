@@ -172,8 +172,8 @@ test("only the soft settings reach a busy session, in the documented order", () 
     model: { route: {} }, thinkingLevel: "high", agentName: "x", skillPermission: "deny",
   };
   assert.deepEqual(softLiveSettings(requested), { permissionMode: "ask", subagentPermission: "deny", botTools: ["read"] });
-  assert.deepEqual(softLiveSettings({}), {});
-  assert.deepEqual(softLiveSettings(undefined), {});
+  assert.equal(softLiveSettings({}), undefined, "nothing soft means nothing to apply");
+  assert.equal(softLiveSettings(undefined), undefined);
   // A value that is present but undefined is not applied.
   assert.deepEqual(softLiveSettings({ permissionMode: undefined, botTools: [] }), { botTools: [] });
 });
