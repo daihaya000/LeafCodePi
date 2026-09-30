@@ -231,6 +231,19 @@ bundleパスは`LEAFCODE_PI_BACKEND_RUNTIME_BUNDLE`で差し替え可能。CLI�
 - Backend障害時の復旧はWebUI再接続と区別。ツールの副作用は完全再開を保証しない。
 - rollbackもBackend停止後に旧経路へ切替。実行中世代のファイルは更新しない。
 
+## 到達点（ターン100時点・実測）
+
+| 段階 | 状態 |
+| --- | --- |
+| 1. 共有契約・依存境界 | **実装済み**。`shared/`（型＋`.mjs`契約: `backend-protocol`／`backend-generation`／`bot-tools`）をWebとBackendが共有。本番ミラーは`shared/`と`backend/core/`を独立コピー。 |
+| 2. Next非依存のランタイム抽出 | **実装済み**。`backend/core/`＝50モジュール／62テスト（判断・順序・永続化を純関数化し、fs/時計/UUID/emitを注入）。Web側は同名exportの互換入口。 |
+| 3. 独立API・Web中継 | **実装済み**。内部API 12エンドポイント（health／pending-snapshots／tasks一覧・detail・prompt・permission・question・abort・goal-loop／bots一覧・`bots/:id`・code-requests・code-sessions）。中継はopt-in（`LEAFCODE_PI_BACKEND_RELAY`）で、生レコード経路のみBackendを使い失敗時はプロセス内へフォールバック。 |
+| 4. Host・ビルド・再起動分離 | **実装済み**。HostがBackend子プロセス（`backend-service.js`）・起動プラン（`backend-launch.js`）・health/世代判定（`backend-health.js`）・再起動予算と世代固定（`runtime-host.mjs`）を所有。バンドルは`npm run build:backend-runtime`で生成。 |
+| 5. 切替 | **実装済み（未実行）**。`runCutover`（check→stop-old-path→attach-backend→hand-over→verify→done＋ロールバック）、`cutoverPreflight`（start/verify位相）、Host実体への接続、`LEAFCODE_PI_CUTOVER=1`での起動時実行。**実切替はユーザー承認待ち**。 |
+| 6. 旧経路撤去 | **未完了**。非所有モードの不変条件は達成（セッションを触る16 routeすべてがガード済み／未配線0件、テストで強制）が、撤去手順の実行（中継フォールバック廃止→旧経路停止→harness依存除去→スイッチ撤去）は実切替後。 |
+
+残作業（実測）: ①Bot Codeセッションのclear/unlinkの転送、②Auto/モデル指定つきGoal Loop開始の転送、③非所有モードのSSEは2秒ポーリング（遅延あり）、④実切替の実施とその後の撤去手順、⑤Web全体型検証は既存拡張（`leafcode-goal-loop`／`loop-guard`）の`@earendil-works/pi-coding-agent`解決失敗により本番用`tsconfig.build.json`で代替。
+
 ## 完了の証拠
 
 - 生成・ツール・Goal Loop中のWebUI再起動でBackend PIDと実行が維持される。
