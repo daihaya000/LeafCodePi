@@ -60,6 +60,8 @@ try {
     // Ready means the startup sequence finished *and* the runtime is attached. A detached runtime
     // (or a bundle that could not be loaded) keeps health at 503/starting.
     isReady: () => host.isReady() && started.runtimeStatus().ok === true,
+    // The generation of the attached runtime: the frontend compares it with its own build.
+    runtimeGeneration: () => started.runtimeStatus().generation ?? null,
   });
   const address = await listenBackend(server, port);
   // Transport is up, but health stays 503 until the startup sequence has attached the runtime.
@@ -67,9 +69,15 @@ try {
   if (runtimeRequested) {
     // Started in the background: the socket must be usable while the runtime attaches, and a failed
     // attach is reported through health, never through an exception message.
-    void host.start().catch(() => {
-      console.error("Backend runtime startup failed; health stays starting.");
-    });
+    void host
+      .start()
+      .then(() => {
+        // Pin the generation of the runtime this host owns: a restart must not swap it.
+        host.setGeneration(started.runtimeStatus().generation ?? null);
+      })
+      .catch(() => {
+        console.error("Backend runtime startup failed; health stays starting.");
+      });
   }
   let stopping = false;
   const stop = async () => {

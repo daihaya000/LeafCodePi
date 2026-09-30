@@ -50,6 +50,8 @@ export function createBackendServer({
   /** The Backend's own view of the Bot store (the same files the Web app writes). */
   readBots = () => [],
   readBot = () => null,
+  /** The generation (build id) of the attached runtime, or null when nothing is attached. */
+  runtimeGeneration = () => null,
 } = {}) {
   if (
     typeof token !== "string" ||
@@ -68,6 +70,7 @@ export function createBackendServer({
   }
   if (typeof readBots !== "function") throw new Error("readBots must be a function");
   if (typeof readBot !== "function") throw new Error("readBot must be a function");
+  if (typeof runtimeGeneration !== "function") throw new Error("runtimeGeneration must be a function");
   const expectedDigest = tokenDigest(token);
   const instanceId = randomUUID();
   const startedAt = new Date().toISOString();
@@ -219,6 +222,8 @@ export function createBackendServer({
         startedAt,
         ready,
         status: ready ? "ready" : "starting",
+        // Lets the frontend detect that the running Backend is an older/newer build than itself.
+        runtimeGeneration: runtimeGeneration() ?? null,
       });
     } catch {
       // Never send exception messages: providers may include credentials in them.

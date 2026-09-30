@@ -108,3 +108,69 @@ test("stop works without warmup support and before any start", () => {
   assert.equal(host.status(), "stopped");
   assert.equal(host.isReady(), false);
 });
+
+function startupSpy() {
+  const calls = { start: 0, cancelWarmups: 0 };
+  return {
+    calls,
+    startup: {
+      start: async () => { calls.start += 1; },
+      cancelWarmups: () => { calls.cancelWarmups += 1; },
+    },
+  };
+}
+
+test("a restart starts the runtime again and keeps the generation", async () => {
+  const { startup, calls } = startupSpy();
+  const host = createRuntimeHost({ startup });
+  await host.start();
+  host.setGeneration("gen-1");
+  const result = await host.restart({ generation: "gen-1", reason: "operator" });
+  assert.deepEqual(result, { ok: true, generation: "gen-1", restarts: 2, reason: "operator" });
+  assert.equal(calls.start, 2);
+  assert.equal(host.isReady(), true);
+  assert.equal(host.generationInfo().generation, "gen-1");
+});
+
+test("a restart refuses to swap the running generation", async () => {
+  const { startup, calls } = startupSpy();
+  const host = createRuntimeHost({ startup });
+  await host.start();
+  host.setGeneration("gen-1");
+  assert.deepEqual(await host.restart({ generation: "gen-2" }), { ok: false, reason: "generation-mismatch" });
+  assert.equal(calls.start, 1, "the runtime must keep running");
+  assert.equal(host.isReady(), true);
+  // An explicit operator decision may change it.
+  const changed = await host.restart({ generation: "gen-2", allowGenerationChange: true });
+  assert.equal(changed.ok, true);
+  assert.equal(host.generationInfo().generation, "gen-2");
+});
+
+test("the restart budget is bounded inside the window and recovers after it", async () => {
+  const { startup, calls } = startupSpy();
+  let clock = 1_000;
+  const host = createRuntimeHost({ startup, now: () => clock, maxRestarts: 2, restartWindowMs: 1_000 });
+  await host.start();
+  assert.equal((await host.restart()).ok, true);
+  assert.equal((await host.restart()).ok, false);
+  assert.equal(calls.start, 2, "the third attempt is refused before starting");
+  assert.equal(host.generationInfo().restartsInWindow, 2);
+  clock += 1_001;
+  assert.equal((await host.restart()).ok, true);
+  assert.equal(calls.start, 3, "attempts outside the window do not count");
+});
+
+test("a restart of a stopped host is refused, and a failed startup is reported not thrown", async () => {
+  const host = createRuntimeHost({ startup: { start: async () => { throw new Error("nope"); } } });
+  assert.deepEqual(await host.restart(), { ok: false, reason: "startup-failed" });
+  assert.equal(host.status(), "failed");
+  await host.start().catch(() => {});
+  host.stop();
+  assert.deepEqual(await host.restart(), { ok: false, reason: "stopped" });
+});
+
+test("an invalid budget is rejected at construction", () => {
+  for (const options of [{ maxRestarts: -1 }, { restartWindowMs: 0 }, { restartWindowMs: Number.NaN }]) {
+    assert.throws(() => createRuntimeHost({ startup: { start: async () => {} }, ...options }), /must be/);
+  }
+});

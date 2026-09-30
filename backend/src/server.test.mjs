@@ -316,6 +316,22 @@ test("a non-function Bot reader is rejected at creation", () => {
   }
 });
 
+test("health reports the runtime generation so a stale Backend is detectable", async (t) => {
+  const { snapshotsUrl, headers } = await fixture(t, { isReady: () => true, runtimeGeneration: () => "gen-abc" });
+  const body = await (await request(snapshotsUrl.replace("pending-snapshots", "health"), { headers })).json();
+  assert.equal(body.runtimeGeneration, "gen-abc");
+  const detached = await fixture(t, { isReady: () => true });
+  const detachedBody = await (await request(detached.snapshotsUrl.replace("pending-snapshots", "health"), { headers: detached.headers })).json();
+  assert.equal(detachedBody.runtimeGeneration, null);
+});
+
+test("a non-function generation reader is rejected at creation", () => {
+  assert.throws(
+    () => createBackendServer({ token: randomBytes(32).toString("base64url"), runtimeGeneration: 7 }),
+    /must be a function/,
+  );
+});
+
 test("rejects invalid ports and surfaces occupied port errors", async (t) => {
   const { server, address } = await fixture(t);
   for (const port of [-1, 65536, 1.5, "3010", NaN]) {

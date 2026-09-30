@@ -1,4 +1,5 @@
-import { existsSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { existsSync, readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
@@ -33,13 +34,18 @@ export const REQUIRED_RUNTIME_EXPORTS = Object.freeze([
  * say it is not ready. The failure reason never carries exception text, because an import error can
  * contain file paths or provider credentials.
  *
- * Returns `{ ok: true, runtime }`, or `{ ok: false, reason, missing? }` with
+ * The generation identifies the SDK/extension set a running session is using: it is derived from
+ * the bundle bytes, so a WebUI update that rebuilds the bundle is a different generation. The host
+ * pins it and refuses to swap it under a running session.
+ *
+ * Returns `{ ok: true, runtime, generation }`, or `{ ok: false, reason, missing? }` with
  * reason ∈ "missing" | "incomplete" | "unavailable".
  */
 export async function loadBackendRuntime({
   bundlePath = DEFAULT_RUNTIME_BUNDLE,
   importModule = (path) => import(pathToFileURL(path).href),
   exists = existsSync,
+  readBytes = (path) => readFileSync(path),
 } = {}) {
   if (!exists(bundlePath)) return { ok: false, reason: "missing" };
   let runtime;
@@ -50,5 +56,10 @@ export async function loadBackendRuntime({
   }
   const missing = REQUIRED_RUNTIME_EXPORTS.filter((name) => typeof runtime?.[name] !== "function");
   if (missing.length > 0) return { ok: false, reason: "incomplete", missing };
-  return { ok: true, runtime };
+  // A hash that cannot be read is not fatal: the runtime works, only the generation is unknown.
+  let generation = null;
+  try {
+    generation = createHash("sha256").update(readBytes(bundlePath)).digest("hex").slice(0, 16);
+  } catch { /* generation stays null */ }
+  return { ok: true, runtime, generation };
 }
