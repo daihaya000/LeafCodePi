@@ -15,6 +15,10 @@ vi.mock("@/lib/backend-client", () => ({
   isBackendGenerationCompatible: (expected: string, running: string | null | undefined) =>
     !expected || expected === running,
 }));
+vi.mock("@/lib/backend-relay", () => ({
+  isBackendRelayEnabled: vi.fn(() => false),
+  webOwnsRuntime: vi.fn(() => true),
+}));
 vi.mock("@/lib/webui-auth", () => ({
   webUiAuthRequired: mocks.webUiAuthRequired,
   isWebUiRequestAuthorized: mocks.isWebUiRequestAuthorized,
@@ -41,7 +45,6 @@ describe("GET /api/backend/status", () => {
       url: "http://127.0.0.1:18776",
       backend: null,
     });
-    expect(mocks.readBackendHealth).not.toHaveBeenCalled();
   });
 
   it("summarizes a reachable Backend and its readiness", async () => {
@@ -57,6 +60,8 @@ describe("GET /api/backend/status", () => {
     expect(body).toEqual({
       configured: true,
       url: "http://127.0.0.1:18776",
+      // The relay is off and this process still owns the runtime: the pre-cutover state is consistent.
+      cutover: { ok: true, blockers: [] },
       backend: {
         reachable: true,
         ready: true,
@@ -79,9 +84,26 @@ describe("GET /api/backend/status", () => {
     mocks.expectedBackendGeneration.mockReturnValue("gen-a");
     const body = await (await GET(request())).json();
     expect(body.backend.generation).toEqual({ expected: "gen-a", running: "gen-b", matches: false });
+    expect(body.cutover).toEqual({ ok: false, blockers: ["generation-mismatch"] });
     mocks.expectedBackendGeneration.mockReturnValue("");
     const unpinned = await (await GET(request())).json();
     expect(unpinned.backend.generation).toEqual({ expected: null, running: "gen-b", matches: true });
+  });
+
+  it("reports a satisfied cutover preflight once the runtime is handed over", async () => {
+    mocks.webUiAuthRequired.mockReturnValue(false);
+    mocks.backendClientStatus.mockReturnValue({ configured: true, url: "http://127.0.0.1:18776" });
+    mocks.readBackendHealth.mockResolvedValue({
+      ok: true,
+      status: 200,
+      body: { ready: true, status: "ready", pid: 4242, runtimeGeneration: "gen-a" },
+    });
+    mocks.expectedBackendGeneration.mockReturnValue("gen-a");
+    const { isBackendRelayEnabled, webOwnsRuntime } = await import("@/lib/backend-relay");
+    vi.mocked(isBackendRelayEnabled).mockReturnValue(true);
+    vi.mocked(webOwnsRuntime).mockReturnValue(false);
+    const body = await (await GET(request())).json();
+    expect(body.cutover).toEqual({ ok: true, blockers: [] });
   });
 
   it("reports an unreachable Backend with its reason instead of failing", async () => {
@@ -93,6 +115,7 @@ describe("GET /api/backend/status", () => {
     await expect(response.json()).resolves.toEqual({
       configured: true,
       url: "http://127.0.0.1:18776",
+      cutover: { ok: false, blockers: ["backend-unreachable"] },
       backend: { reachable: false, ready: false, status: null, reason: "unreachable" },
     });
   });

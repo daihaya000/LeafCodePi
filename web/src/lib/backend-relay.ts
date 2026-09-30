@@ -33,6 +33,16 @@ export function isBackendRelayEnabled(env: Record<string, string | undefined> = 
 }
 
 /**
+ * Whether this Web process still owns the Pi runtime.
+ *
+ * It does until the cutover hands the runtime over, so the default is "owns": reading the Backend's
+ * view is safe while this process still writes the store, but declaring the cutover done is not.
+ */
+export function webOwnsRuntime(env: Record<string, string | undefined> = process.env): boolean {
+  return !RELAY_ENABLED_VALUES.has((env.LEAFCODE_PI_BACKEND_OWNS_RUNTIME ?? "").trim().toLowerCase());
+}
+
+/**
  * Whether the relay may use this Backend at all: enabled, and the same runtime generation the Host
  * pinned for this WebUI. A generation mismatch means the WebUI and the Backend disagree about the
  * running SDK/extensions, so the relay stays on the in-process path instead of writing to it.
