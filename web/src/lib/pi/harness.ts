@@ -215,6 +215,7 @@ import { runHangWatchdogAbort, runUserAbort } from "@backend-core/abort-coordina
 import { roomBotIdFromTaskId } from "@backend-core/abort-control.mjs";
 import { detachReplacedLive as coreDetachReplacedLive, hasOtherBusyRoomLive, oneToOneBotIdFromTaskId, resolveAttachAccount, shouldShutdownOnDispose as coreShouldShutdownOnDispose } from "@backend-core/live-lifecycle.mjs";
 import { restoredPromptState, restoredTaskMetadata, restoredThroughputState } from "@backend-core/live-attach-state.mjs";
+import { compactionFailureMessage, isHarnessAutoCompactionError as coreIsHarnessAutoCompactionError, shouldApplySettledStatus, shouldSyncTaskFromSessionEvent as coreShouldSyncTaskFromSessionEvent, type SessionSyncEvent } from "@backend-core/session-event-decisions.mjs";
 import { attachReplacementSession } from "@backend-core/live-replace.mjs";
 import { buildBotCodeReportContent } from "@backend-core/bot-code-report.mjs";
 import {
@@ -2262,39 +2263,13 @@ function detachExistingLive(
   });
 }
 
-type SessionSyncEvent = {
-  type: string;
-  willRetry?: boolean;
-  aborted?: boolean;
-  errorMessage?: string;
-  reason?: string;
-};
-
-function shouldSyncTaskFromSessionEvent(
-  event: SessionSyncEvent,
-  harnessAutoCompactionError: boolean,
-): boolean {
-  return (
-    event.type === "agent_start" ||
-    event.type === "agent_settled" ||
-    (event.type === "agent_end" && !event.willRetry) ||
-    (event.type === "compaction_end" &&
-      !event.aborted &&
-      Boolean(event.errorMessage) &&
-      (event.reason !== "manual" || harnessAutoCompactionError))
-  );
+// Event classification lives in backend core; the live's own state is passed in.
+function isHarnessAutoCompactionError(event: SessionSyncEvent, live: LiveRuntime): boolean {
+  return coreIsHarnessAutoCompactionError(event, live.autoCompactionPromise !== null);
 }
 
-function isHarnessAutoCompactionError(
-  event: SessionSyncEvent,
-  live: LiveRuntime,
-): boolean {
-  return (
-    event.type === "compaction_end" &&
-    !event.aborted &&
-    Boolean(event.errorMessage) &&
-    live.autoCompactionPromise !== null
-  );
+function shouldSyncTaskFromSessionEvent(event: SessionSyncEvent, harnessAutoCompactionError: boolean): boolean {
+  return coreShouldSyncTaskFromSessionEvent(event, harnessAutoCompactionError);
 }
 
 async function attachSession(
@@ -2370,22 +2345,12 @@ async function attachSession(
       }
       setTaskStatus(taskId, "working");
     }
-    if (
-      !live.pendingTransportRecovery &&
-      (event.type === "agent_settled" ||
-        (event.type === "agent_end" && !event.willRetry))
-    ) {
+    if (shouldApplySettledStatus(event, live.pendingTransportRecovery)) {
       applySettledTaskStatus(live, session, taskId);
     }
     if (event.type === "agent_settled") finishSettledTurn(live, session, taskId);
-    if (
-      event.type === "compaction_end" &&
-      !event.aborted &&
-      event.errorMessage &&
-      (event.reason !== "manual" || harnessAutoCompactionError)
-    ) {
-      setTaskStatus(taskId, "error", event.errorMessage);
-    }
+    const compactionError = compactionFailureMessage(event, harnessAutoCompactionError);
+    if (compactionError) setTaskStatus(taskId, "error", compactionError);
     if (task) {
       const ids = modelId(session.model);
       const identityPatch = sessionIdentityPatch(
