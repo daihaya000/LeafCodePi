@@ -1,7 +1,11 @@
+import {
+  detailTimeoutError, isDetailTimeoutError, TASK_DETAIL_OFFLINE_TIMEOUT_MS, TASK_DETAIL_TIMEOUT_MS,
+} from "@backend-core/task-detail.mjs";
 import { getTaskDetail } from "@/lib/pi/harness";
 
-const DEFAULT_TIMEOUT_MS = 30_000;
-const DEFAULT_OFFLINE_TIMEOUT_MS = 10_000;
+// The budgets and the timeout contract live in backend core.
+const DEFAULT_TIMEOUT_MS = TASK_DETAIL_TIMEOUT_MS;
+const DEFAULT_OFFLINE_TIMEOUT_MS = TASK_DETAIL_OFFLINE_TIMEOUT_MS;
 
 type DetailOptions = NonNullable<Parameters<typeof getTaskDetail>[1]>;
 
@@ -15,12 +19,7 @@ function withTimeout<T>(
     promise,
     new Promise<never>((_, reject) => {
       timer = setTimeout(() => {
-        reject(
-          Object.assign(new Error(message), {
-            status: 504,
-            timeout: true,
-          }),
-        );
+        reject(Object.assign(new Error(message), { status: 504, timeout: true }));
       }, timeoutMs);
       timer.unref?.();
     }),
@@ -51,27 +50,16 @@ export function getTaskDetailBounded(
     timeoutMs,
     "タスク詳細の取得がタイムアウトしました",
   ).catch((error) => {
-    if (
-      typeof error === "object" &&
-      error !== null &&
-      "timeout" in error &&
-      (error as { timeout?: boolean }).timeout === true
-    ) {
+    // The timeout flag rule lives in backend core.
+    if (isDetailTimeoutError(error)) {
       return withTimeout(
         getTaskDetail(id, { ...detailOptions, offline: true }),
         offlineTimeoutMs,
         "オフラインのタスク詳細取得がタイムアウトしました",
       ).catch((offlineError) => {
-        if (
-          typeof offlineError === "object" &&
-          offlineError !== null &&
-          "timeout" in offlineError &&
-          (offlineError as { timeout?: boolean }).timeout === true
-        ) {
-          throw Object.assign(
-            new Error("タスク詳細を取得できませんでした"),
-            { status: 503, timeout: true },
-          );
+        if (isDetailTimeoutError(offlineError)) {
+          const failure = detailTimeoutError("final");
+          throw Object.assign(new Error(failure.message), { status: failure.status, timeout: true });
         }
         throw offlineError;
       });

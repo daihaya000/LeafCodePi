@@ -39,3 +39,35 @@ export function detailStreamingFlag(source, taskStatus) {
 export function detailIncludesGoalLoop(source) {
   return source !== "archived";
 }
+
+/**
+ * Bounds for an HTTP detail read that may have to create a live session. A live read gets the
+ * longer budget; the fallback transcript read is fast and must not hold the request open, and a
+ * transcript that also times out is reported as unavailable rather than as a timeout of the
+ * original read.
+ */
+export const TASK_DETAIL_TIMEOUT_MS = 30_000;
+export const TASK_DETAIL_OFFLINE_TIMEOUT_MS = 10_000;
+
+/** Whether an error is one of these detail-read timeouts (the flag, not the message). */
+export function isDetailTimeoutError(error) {
+  return Boolean(
+    error && typeof error === "object" && "timeout" in error && error.timeout === true,
+  );
+}
+
+/**
+ * The error a timed-out stage reports: the live stage names the read that timed out, the
+ * transcript stage names its own read, and once both timed out the caller gets a 503 that says
+ * the detail is unavailable. Each carries the timeout flag so the caller can tell a timeout from
+ * a real failure.
+ */
+export function detailTimeoutError(stage) {
+  if (stage === "live") {
+    return { message: "タスク詳細の取得がタイムアウトしました", status: 504, timeout: true };
+  }
+  if (stage === "offline") {
+    return { message: "オフラインのタスク詳細取得がタイムアウトしました", status: 504, timeout: true };
+  }
+  return { message: "タスク詳細を取得できませんでした", status: 503, timeout: true };
+}
