@@ -27,7 +27,7 @@
 ## 段階と現在地
 
 1. 通信契約・依存境界: **進行中**。認証、版数、health、起動/停止を追加。既存のタスク・モデル・質問/承認・Bot/Room・履歴・Git等のDTOを `shared/types.ts` へ移動。既存 `@/lib/types` は互換再エクスポート。共有契約はNext/SDK/Node型への依存なしで単独型検証できる。設定等の個別ファイルにあるDTOと実行依存の抽出は後続。
-2. Next非依存の実行層: **着手済み・未完**。下表のとおり、Next/SDK/アプリストアに依存しない判定・順序・保存をBackend coreへ移設し、Webは同名の互換入口（注入アダプター）にした。実測（2026-09-30時点）: `backend/core/` は**36モジュール・45テストファイル**、`backend/src/` は transport と起動アダプタの3ファイル（`server.mjs`・`entry.mjs`・`runtime-host.mjs`）。Backendテストは**399件成功**（重複プロセスのlease競合試験を含む。同試験は高負荷時にワーカー起動自体が失敗することがあり、起動失敗のみ再試行する）。Web側は**4339件成功・2件失敗**（既存の`/api/health`のdataDir、`MessageCardRadius`）と、MCP拡張の`typebox`未解決によるファイル単位の失敗1件で、いずれも本作業とは無関係。高負荷時にsubagents拡張の並行実行テストが失敗することがあるが、単独実行では成功する（負荷起因のフレーク）。移設済みモジュールはNext/Webをimportせずに読み込め（多くは別Nodeプロセスでの実行もテスト済み）、Backend側テストで挙動を固定している。ただし **Backendプロセスは実行経路に未接続** で、SDK・ストア・leaseの実体は従来どおりWebプロセス内にある（HTTP Backendのhealthは503/startingのまま）。
+2. Next非依存の実行層: **着手済み・未完**。下表のとおり、Next/SDK/アプリストアに依存しない判定・順序・保存をBackend coreへ移設し、Webは同名の互換入口（注入アダプター）にした。実測（2026-09-30時点）: `backend/core/` は**37モジュール・46テストファイル**、`backend/src/` は transport と起動アダプタの3ファイル（`server.mjs`・`entry.mjs`・`runtime-host.mjs`）。Backendテストは**408件成功**（重複プロセスのlease競合試験を含む。同試験は高負荷時にワーカー起動自体が失敗することがあり、起動失敗のみ再試行する）。Web側は**4339件成功・2件失敗**（既存の`/api/health`のdataDir、`MessageCardRadius`）と、MCP拡張の`typebox`未解決によるファイル単位の失敗1件で、いずれも本作業とは無関係。高負荷時にsubagents拡張の並行実行テストが失敗することがあるが、単独実行では成功する（負荷起因のフレーク）。移設済みモジュールはNext/Webをimportせずに読み込め（多くは別Nodeプロセスでの実行もテスト済み）、Backend側テストで挙動を固定している。ただし **Backendプロセスは実行経路に未接続** で、SDK・ストア・leaseの実体は従来どおりWebプロセス内にある（HTTP Backendのhealthは503/startingのまま）。
 
    | モジュール（`backend/core/`） | 移設した内容 | Webに残るもの |
    | --- | --- | --- |
@@ -51,6 +51,7 @@
    | `live-session-preflight.mjs` | liveセッション生成前の拒否理由の優先順位（task不在→archive済→他workerのlease）と、セッション設定の決定（Bot判定、workspace、sessionNameのBot名前空間、権限モードとskill permissionのフォールバック、セッションが使うアカウントの選択と明示アカウントの拒否理由、保存済みモデルの解決結果（解決済み/Autoで代替/利用不可=503）、思考レベルの出所（保存値/モデル既定/無し）） | エラー文言とHTTPステータス、通知などの副作用 |
    | `session-event-decisions.mjs` | セッションイベントごとの判定（agent_start/settled/endでの同期要否、自動コンパクション失敗の判定と記録メッセージ、transport復旧中のsettle抑止、task行が消えたイベントの破棄、agent_startのlease取得→working公開の順序） | イベント受信時の副作用の実体（タスク更新・状態遷移・スナップショット） |
    | `goal-loop-settings.mjs` | Goal Loopのターン上限・クールダウン（数値/`1h 30m`形式の解析・整形）・受け入れ条件の正規化と上限・所有ステータス判定（live＋operator hold） | `lib/goal-loop-settings.ts` は同名exportの互換入口 |
+   | `goal-loop-state.mjs` | Goal Loop状態ファイルの読取（dataDir配下`goals-loop/<安全化したsessionId>.json`、mtime/size/inodeで検証する上限付きキャッシュ、欠落・破損・不正形はnull、数値/配列フィールドの正規化）とoperator hold判定 | データディレクトリ・設定値のclamp・呼出側の書き込み |
    | `snapshot-schedule.mjs` | スナップショットの合流規則（非描画イベントの除外、高頻度イベントのdelta化、フル待機中のdelta破棄、100ms窓、発火時に読むpending内容）と、unsubscribe時の後始末順序（タイマー取消→pending消去→保留分のemit） | タイマー実体とSSE emit |
    | `session-identity.mjs` | セッションが報告する識別情報（sessionId/sessionFile/provider/model）の選択（タスクモデル保持時はtranscript位置のみ）と保存済みタスクとの差分計算、書き込む変化があるかの判定。欠落値で保存済みを消さない規則を含む | `lib/pi/session-identity.ts` は同名exportの互換入口 |
    | `routine-scheduler.mjs` | scheduler lock（stale時のみ再取得）、実行対象判定、切り離し起動 | ルーティン保存と実行本体 |

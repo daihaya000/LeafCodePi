@@ -1,5 +1,4 @@
-import { readFileSync, statSync } from "node:fs";
-import { join } from "node:path";
+import { GoalLoopStateStore } from "@backend-core/goal-loop-state.mjs";
 import type { GoalLoopDto } from "@/lib/types";
 import { dataDir } from "@/lib/paths";
 import {
@@ -10,44 +9,19 @@ import {
 
 export { GOAL_LOOP_LIVE_STATUSES, isGoalLoopLiveStatus } from "@/lib/goal-loop-settings";
 
-/**
- * 状態はプロジェクト配下に置かない（LeafCodePiはプロジェクト内 .pi を許可しない）。
- * Pi拡張側（extensions/leafcode-goal-loop/index.ts の goalsDir()）と同じ基底：
- * dataDir()/goals-loop/<sessionId>.json。LEAFCODE_PI_DATA_DIRで両側を一括上書きする。
- */
-const GOAL_LOOP_DIR = "goals-loop";
-
-type GoalLoopCacheEntry = {
-  mtimeMs: number;
-  size: number;
-  ino: number;
-  value: GoalLoopDto | null;
-};
-
-const goalLoopCache = new Map<string, GoalLoopCacheEntry>();
-/** キャッシュ上限。全タスク走査で 400+ 件の状態ファイルを stat するため、
- *  上限以下で毎回追い出されて再読込が起きないよう余裕を持たせる。 */
-const GOAL_LOOP_CACHE_MAX_ENTRIES = 2048;
-
-function cacheGoalLoopState(file: string, entry: GoalLoopCacheEntry): void {
-  if (
-    goalLoopCache.size >= GOAL_LOOP_CACHE_MAX_ENTRIES &&
-    !goalLoopCache.has(file)
-  ) {
-    const oldest = goalLoopCache.keys().next().value;
-    if (oldest !== undefined) goalLoopCache.delete(oldest);
-  }
-  goalLoopCache.set(file, entry);
-}
-
-/** Operator-held pauses that expect Resume — must not settle Bot Code outbox yet. */
-const GOAL_LOOP_OPERATOR_HOLD_REASONS = new Set(["user", "manual_send"]);
+// Compatibility entrypoint. Files live in backend core; the data directory and the
+// settings clamps are injected, and the process-local cache belongs to the store.
+const store = new GoalLoopStateStore({
+  dataDir,
+  clampMaxTurns: clampGoalLoopMaxTurns,
+  clampCooldownSeconds: clampGoalLoopCooldownSeconds,
+});
 
 /** True when the loop is paused for a user/operator hold (not turn_limit / blocked). */
 export function isGoalLoopOperatorHold(
   loop: { status?: string | null; pauseReason?: string | null } | null | undefined,
 ): boolean {
-  return loop?.status === "paused" && GOAL_LOOP_OPERATOR_HOLD_REASONS.has(loop.pauseReason ?? "");
+  return GoalLoopStateStore.isOperatorHold(loop);
 }
 
 /**
@@ -61,51 +35,10 @@ export function isGoalLoopSessionOwned(
 }
 
 /** cwd引数は呼び出し元互換のため残す。状態配置はグローバルでcwd非依存。 */
-export function goalLoopStateFile(_cwd: string, sessionId: string): string {
-  const safeId = sessionId.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 120) || "session";
-  return join(dataDir(), GOAL_LOOP_DIR, `${safeId}.json`);
+export function goalLoopStateFile(cwd: string, sessionId: string): string {
+  return store.stateFile(cwd, sessionId);
 }
 
 export function readGoalLoopState(cwd: string, sessionId: string | null | undefined): GoalLoopDto | null {
-  if (!sessionId) return null;
-  const file = goalLoopStateFile(cwd, sessionId);
-  try {
-    const stat = statSync(file);
-    const cached = goalLoopCache.get(file);
-    if (
-      cached &&
-      cached.mtimeMs === stat.mtimeMs &&
-      cached.size === stat.size &&
-      cached.ino === stat.ino
-    ) {
-      return cached.value;
-    }
-    const value = JSON.parse(readFileSync(file, "utf8")) as Partial<GoalLoopDto>;
-    if (!value || typeof value.goal !== "string" || typeof value.status !== "string") {
-      goalLoopCache.delete(file);
-      return null;
-    }
-    const result = {
-      ...value,
-      maxTurns: clampGoalLoopMaxTurns(value.maxTurns),
-      cooldownSeconds: clampGoalLoopCooldownSeconds(value.cooldownSeconds),
-      nextTurnAt: typeof value.nextTurnAt === "string" ? value.nextTurnAt : null,
-      unreadableStreak: Math.max(0, Math.trunc(Number(value.unreadableStreak) || 0)),
-      // GoalLoopPanel reads progress.at(-1) and turnCount unconditionally, so a
-      // partial/hand-edited state file must not crash the panel or render NaN.
-      // Mirror the extension's hydrate defaults instead of trusting the cast.
-      progress: Array.isArray(value.progress) ? value.progress : [],
-      turnCount: Math.max(0, Math.trunc(Number(value.turnCount) || 0)),
-    } as GoalLoopDto;
-    cacheGoalLoopState(file, {
-      mtimeMs: stat.mtimeMs,
-      size: stat.size,
-      ino: stat.ino,
-      value: result,
-    });
-    return result;
-  } catch {
-    goalLoopCache.delete(file);
-    return null;
-  }
+  return store.read(cwd, sessionId);
 }
