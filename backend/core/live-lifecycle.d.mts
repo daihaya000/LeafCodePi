@@ -50,6 +50,18 @@ export function isStaleEnsureEpoch(currentEpoch: number | undefined | null, epoc
 export function isRegisteredLive<Live>(getLive: () => Live | undefined, attached: Live): boolean;
 
 /**
+ * Records an ensure-live attempt as in flight for the task and clears it on settle,
+ * unless a newer attempt replaced the entry. The result is passed through.
+ */
+export function runTrackedEnsure<T>(
+  taskId: string,
+  deps: {
+    inflight: Map<string, Promise<T>>;
+    attempt: () => Promise<T>;
+  },
+): Promise<T>;
+
+/**
  * After joining an in-flight ensure-live: a stale generation forces a retry even
  * when a live is registered; otherwise the registered live is adopted, and with
  * none the caller retries.

@@ -213,7 +213,7 @@ import { SdkRuntimeFactory } from "@backend-core/sdk-runtime.mjs";
 import * as corePromptControl from "@backend-core/prompt-control.mjs";
 import { runHangWatchdogAbort, runUserAbort } from "@backend-core/abort-coordinator.mjs";
 import { roomBotIdFromTaskId } from "@backend-core/abort-control.mjs";
-import { detachReplacedLive as coreDetachReplacedLive, hasOtherBusyRoomLive, isRegisteredLive, isStaleEnsureEpoch, promoteMailboxOnAttach, resolveAttachAccount, resolveJoinedEnsureAction, runCoalescedLiveShutdown, shouldShutdownOnDispose as coreShouldShutdownOnDispose } from "@backend-core/live-lifecycle.mjs";
+import { detachReplacedLive as coreDetachReplacedLive, hasOtherBusyRoomLive, isRegisteredLive, isStaleEnsureEpoch, promoteMailboxOnAttach, resolveAttachAccount, resolveJoinedEnsureAction, runCoalescedLiveShutdown, runTrackedEnsure, shouldShutdownOnDispose as coreShouldShutdownOnDispose } from "@backend-core/live-lifecycle.mjs";
 import { restoredPromptState, restoredTaskMetadata, restoredThroughputState } from "@backend-core/live-attach-state.mjs";
 import { compactionFailureMessage, isHarnessAutoCompactionError as coreIsHarnessAutoCompactionError, runAgentStartTaskSync, shouldApplySettledStatus, shouldSkipEventForMissingTask, shouldSyncTaskFromSessionEvent as coreShouldSyncTaskFromSessionEvent, type SessionSyncEvent } from "@backend-core/session-event-decisions.mjs";
 import { classifySnapshotEvent, flushPendingSnapshotOnUnsubscribe, pendingSnapshotFlush, SNAPSHOT_THROTTLE_MS } from "@backend-core/snapshot-schedule.mjs";
@@ -4648,7 +4648,9 @@ async function ensureLive(
     return ensureLive(taskId, options);
   }
 
-  const promise = (async () => {
+  const promise = runTrackedEnsure(taskId, {
+    inflight: ensureLiveInflight,
+    attempt: () => (async () => {
     throwIfTaskArchived(taskId);
     const again = state().live.get(taskId);
     if (again) return again;
@@ -4745,13 +4747,8 @@ async function ensureLive(
       attachSessionStartedAt,
     );
     return attached;
-  })().finally(() => {
-    if (ensureLiveInflight.get(taskId) === promise) {
-      ensureLiveInflight.delete(taskId);
-    }
+    })(),
   });
-
-  ensureLiveInflight.set(taskId, promise);
   return promise;
 }
 

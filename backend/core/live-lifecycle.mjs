@@ -61,6 +61,19 @@ export function resolveJoinedEnsureAction({ stale, hasLive }) {
 }
 
 /**
+ * Runs an ensure-live attempt and records its promise for the task, clearing the
+ * entry once it settles — unless a newer attempt has already replaced it. The
+ * returned promise carries the attempt's result, so callers can join it.
+ */
+export function runTrackedEnsure(taskId, deps) {
+  const promise = deps.attempt().finally(() => {
+    if (deps.inflight.get(taskId) === promise) deps.inflight.delete(taskId);
+  });
+  deps.inflight.set(taskId, promise);
+  return promise;
+}
+
+/**
  * Disposing a live is deferred when one is already shutting down for the same task:
  * the caller joins the in-flight promise instead of stacking a second extension
  * shutdown and session dispose on the same session. The entry is cleared by the
