@@ -1,5 +1,7 @@
 import {
+  abortCompactTaskOnBackend,
   abortTaskOnBackend,
+  compactTaskOnBackend,
   controlGoalLoopOnBackend,
   createBotCodeSessionOnBackend,
   type BackendGoalLoopBody,
@@ -210,6 +212,47 @@ export async function forwardRoomPrompt(
       body: nested?.body ?? null,
     },
   };
+}
+
+/** Compaction runs an LLM inside the owner's session; the ordinary 10s read deadline is too short. */
+export const COMPACT_FORWARD_TIMEOUT_MS = 300_000;
+
+/** Compacts a task in the owning Backend. Never falls back to the in-process compaction. */
+export async function forwardTaskCompact(
+  id: string,
+  customInstructions?: string,
+  options: { env?: BackendEnv; fetchImpl?: typeof fetch; timeoutMs?: number } = {},
+): Promise<
+  | { ok: true; task: Record<string, unknown> | null }
+  | { ok: false; reason: BackendFailureReason | "not-found"; status?: number }
+> {
+  const result = await compactTaskOnBackend(id, customInstructions, {
+    ...options,
+    timeoutMs: options.timeoutMs ?? COMPACT_FORWARD_TIMEOUT_MS,
+  });
+  if (!result.ok) {
+    if (result.status === 404) return { ok: false, reason: "not-found", status: 404 };
+    return { ok: false, reason: result.reason, ...(result.status ? { status: result.status } : {}) };
+  }
+  const task = result.body?.task;
+  return { ok: true, task: task && typeof task === "object" ? task : null };
+}
+
+/** Stops a running compaction in the owning Backend. */
+export async function forwardTaskCompactAbort(
+  id: string,
+  options: { env?: BackendEnv; fetchImpl?: typeof fetch; timeoutMs?: number } = {},
+): Promise<
+  | { ok: true; task: Record<string, unknown> | null }
+  | { ok: false; reason: BackendFailureReason | "not-found"; status?: number }
+> {
+  const result = await abortCompactTaskOnBackend(id, options);
+  if (!result.ok) {
+    if (result.status === 404) return { ok: false, reason: "not-found", status: 404 };
+    return { ok: false, reason: result.reason, ...(result.status ? { status: result.status } : {}) };
+  }
+  const task = result.body?.task;
+  return { ok: true, task: task && typeof task === "object" ? task : null };
 }
 
 /** Rewinds a task's transcript in the owning Backend. Never falls back to the in-process rewind. */

@@ -152,6 +152,21 @@ try {
         ...(action === "resume" && body?.maxTurns !== undefined ? { maxTurns: body.maxTurns } : {}),
       });
     },
+    // Compaction summarizes inside the session, so only the owner may run or stop it.
+    compactTaskAction: (id, customInstructions) => {
+      const runtime = started.runtime();
+      if (!runtime || typeof runtime.compactTask !== "function") {
+        throw Object.assign(new Error("runtime unavailable"), { status: 503 });
+      }
+      return runtime.compactTask(id, customInstructions);
+    },
+    abortCompactTaskAction: (id) => {
+      const runtime = started.runtime();
+      if (!runtime || typeof runtime.abortTaskCompaction !== "function") {
+        throw Object.assign(new Error("runtime unavailable"), { status: 503 });
+      }
+      return runtime.abortTaskCompaction(id);
+    },
     // Posting a Room turn routes bots and starts their sessions, so only the owner may run it. The
     // answer keeps its own status and body: the WebUI replays both unchanged.
     roomPrompt: (roomId, body) => {

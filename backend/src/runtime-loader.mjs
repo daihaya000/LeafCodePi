@@ -46,6 +46,8 @@ export const REQUIRED_RUNTIME_EXPORTS = Object.freeze([
   "reconcileRoomRuntime",
   "revertTask",
   "unrevertTask",
+  "compactTask",
+  "abortTaskCompaction",
   "cancelBotCodeRequests",
   "botTaskId",
   "revertRoomConversation",

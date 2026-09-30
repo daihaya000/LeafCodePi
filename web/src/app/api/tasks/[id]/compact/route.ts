@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { compactTask, jsonError } from "@/lib/pi/harness";
 import { isPromptTextWithinSize } from "@/lib/prompt-images";
+import { forwardTaskCompact } from "@/lib/backend-forward";
+import { localRuntimeBlocked } from "@/lib/pi/runtime-ownership";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -35,6 +37,14 @@ export async function POST(
     const customInstructions = typeof body?.customInstructions === "string"
       ? body.customInstructions
       : undefined;
+    // Summarization runs inside the owner's session; after the cutover this process must not start it.
+    if (localRuntimeBlocked()) {
+      const forwarded = await forwardTaskCompact(id, customInstructions);
+      if (!forwarded.ok) {
+        return NextResponse.json({ error: "圧縮に失敗しました" }, { status: forwarded.status ?? 502 });
+      }
+      return NextResponse.json({ task: forwarded.task });
+    }
     const task = await compactTask(id, customInstructions);
     return NextResponse.json({ task });
   } catch (error) {

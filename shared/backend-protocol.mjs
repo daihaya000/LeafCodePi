@@ -32,6 +32,12 @@ export const BACKEND_TASK_ABORT_SUFFIX = "/abort";
 export const BACKEND_TASK_REVERT_SUFFIX = "/revert";
 export const BACKEND_TASK_UNREVERT_SUFFIX = "/unrevert";
 /**
+ * Compaction: `POST /internal/tasks/:id/compact` with `{ customInstructions? }`, and
+ * `POST /internal/tasks/:id/compact/abort` to stop it. Compaction runs inside the owning session.
+ */
+export const BACKEND_TASK_COMPACT_SUFFIX = "/compact";
+export const BACKEND_TASK_COMPACT_ABORT_SUFFIX = "/compact/abort";
+/**
  * Bot Code request actions: `POST /internal/bots/:id/code-requests` with `{ action, requestId }`.
  * Stopping a request also updates the Bot's outbox, which only the owning process may write.
  */

@@ -312,7 +312,7 @@ Backend単独のSDK検証前には `npm --prefix backend ci --ignore-scripts` �
 ## ターン19の変更（実測）
 
 - 全routeのowner-only呼出を監査し、未ガードのセッション編集経路を見つけた。今回の対象は`tasks/[id]/revert`（`revertTask`）と`tasks/[id]/unrevert`（`unrevertTask`）で、内部APIは`POST /internal/tasks/:id/revert`（`{entryId}`）と`POST /internal/tasks/:id/unrevert`（入力なし、abortと同じく空bodyを許容）。bundleへ`unrevertTask`を追加して再生成（9817 KiB）。Web側routeは非所有モードで転送する。
-- 監査で残る未ガードのowner-only経路（次ターン以降）: `tasks/[id]/compact`と`compact/abort`、`tasks/[id]/model`・`thinking`・`agent`（liveセッション設定）。
+- 監査で残る未ガードのowner-only経路（次ターン以降）: `tasks/[id]/model`・`thinking`・`agent`（liveセッション設定）。
 - 検証: `backend/src/server.test.mjs`61件（task revert/unrevertの実行到達・400・404・503・405・空body・非関数拒否）、Web側はrevert/unrevert routeテスト各3件と`backend-forward`30件・所有権カバレッジ4件成功。本番tsc・eslint成功。
 
 ## ターン20の変更（実測）
@@ -321,3 +321,10 @@ Backend単独のSDK検証前には `npm --prefix backend ci --ignore-scripts` �
 - 所有者の回答はHTTP 200で`{result:{status,body}}`として返し、WebUIはstatusとbodyをそのまま再生する。relay envelope拒否（403）や長すぎる本文（413）を転送失敗として誤報しないため、共通クライアントの失敗理由分類（401/403→unauthorized、409→incompatible）に依存しない形にした。
 - bundleへ`handleRoomPrompt`を追加して再生成（9826 KiB）。Web routeは非所有モードで転送し、ローカルの部屋書込・セッション開始を行わない。
 - 検証: 既存のRoom promptテスト55件が抽出後も全て成功。追加の所有権テスト3件（転送・拒否status再生・到達不能502）と`backend-forward`32件・所有権カバレッジ4件、backend server 62件（Room promptのnested result・405・503・非関数拒否）成功。本番tsc・eslint成功。
+
+## ターン21の変更（実測）
+
+- 圧縮（`POST /api/tasks/:id/compact`と`/compact/abort`）をBackendへ転送した。内部APIは`POST /internal/tasks/:id/compact`（`{customInstructions?}`）と`/internal/tasks/:id/compact/abort`（入力なし、空bodyを許容）。`/compact/abort`は`/abort`と末尾が衝突するためsuffixリストの先頭に置いた（テストでパス取り違えを固定）。bundleへ`compactTask`・`abortTaskCompaction`を追加して再生成（9826 KiB）。
+- 要約は数分かかり得るため、中継のtimeoutは`COMPACT_FORWARD_TIMEOUT_MS`（300s）を既定にした（通常の10s読取では短すぎる）。入力検証（body形・customInstructions型・本文長）はWeb route側に残し、両モードで同じ検証を通す。
+- 検証: 既存のcompact routeテスト4件を保持したまま転送テスト3件を追加（計7件）、compact/abort routeテスト3件を新規追加、`backend-forward`34件・所有権カバレッジ4件、backend server 63件（compact/abortの実行到達・404・503・405・空body・非関数拒否・suffix衝突）成功。本番tsc・eslint成功。
+- 注意: `find`ツールのglobで `[id]` は文字クラス扱いになり既存ファイルを検出できない。既存の`compact/route.test.ts`を新規と誤認して一度上書きしたが、`git show HEAD:` から復元して既存4件を保持した。

@@ -683,6 +683,46 @@ test("the Goal Loop control needs a runtime and refuses a non-function handler",
   );
 });
 
+test("a forwarded compaction runs and stops in the owner", async (t) => {
+  const seen = [];
+  const { snapshotsUrl, headers } = await fixture(t, {
+    compactTaskAction: async (id, customInstructions) => {
+      seen.push(["compact", id, customInstructions]);
+      return { id, isCompacting: true };
+    },
+    abortCompactTaskAction: async (id) => {
+      seen.push(["abort", id]);
+      return { id, isCompacting: false };
+    },
+  });
+  const base = snapshotsUrl.replace("pending-snapshots", "tasks");
+  const post = (url, body) => request(url, {
+    method: "POST", headers: { ...headers, "content-type": "application/json" }, ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+  });
+  const compacted = await post(`${base}/task-1/compact`, { customInstructions: "要点だけ" });
+  assert.equal(compacted.status, 200);
+  assert.deepEqual(await compacted.json(), { task: { id: "task-1", isCompacting: true } });
+  // An abort takes no input: an empty body is accepted like the task abort.
+  const stopped = await post(`${base}/task-1/compact/abort`);
+  assert.equal(stopped.status, 200);
+  assert.deepEqual(await stopped.json(), { task: { id: "task-1", isCompacting: false } });
+  assert.deepEqual(seen, [["compact", "task-1", "要点だけ"], ["abort", "task-1"]]);
+  // `/compact/abort` must not be parsed as a task abort of `task-1/compact`.
+  assert.equal((await request(`${base}/task-1/compact/abort`, { headers })).status, 405);
+  const missing = await fixture(t, { compactTaskAction: async () => null });
+  assert.equal((await request(`${missing.snapshotsUrl.replace("pending-snapshots", "tasks")}/task-1/compact`, {
+    method: "POST", headers: { ...missing.headers, "content-type": "application/json" }, body: "{}",
+  })).status, 404);
+  const detached = await fixture(t);
+  assert.equal((await request(`${detached.snapshotsUrl.replace("pending-snapshots", "tasks")}/task-1/compact`, {
+    method: "POST", headers: { ...detached.headers, "content-type": "application/json" }, body: "{}",
+  })).status, 503);
+  assert.throws(
+    () => createBackendServer({ token: randomBytes(32).toString("base64url"), compactTaskAction: 5 }),
+    /compactTaskAction must be a function or null/,
+  );
+});
+
 test("a forwarded Room prompt returns the owner's own status and body", async (t) => {
   const seen = [];
   const { snapshotsUrl, headers } = await fixture(t, {

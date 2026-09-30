@@ -7,7 +7,10 @@ import {
   forwardTaskAbort,
   forwardBotRevert,
   forwardBotRoutineRun,
+  COMPACT_FORWARD_TIMEOUT_MS,
   forwardRoomPrompt,
+  forwardTaskCompact,
+  forwardTaskCompactAbort,
   forwardRoomRevert,
   forwardTaskRevert,
   forwardTaskUnrevert,
@@ -229,6 +232,41 @@ describe("forwardTaskAbort", () => {
       status: 404,
     });
     await expect(forwardTaskAbort("t1", { env: {} })).resolves.toEqual({ ok: false, reason: "not-configured" });
+  });
+});
+
+describe("forwardTaskCompact", () => {
+  it("forwards the instructions and keeps a long deadline for summarization", async () => {
+    vi.useFakeTimers();
+    try {
+      let resolve!: (response: Response) => void;
+      const fetchImpl = vi.fn<typeof fetch>(() => new Promise<Response>((done) => { resolve = done; }));
+      const pending = forwardTaskCompact("task-1", "要点だけ", { env, fetchImpl });
+      await vi.advanceTimersByTimeAsync(30_000);
+      expect(fetchImpl.mock.calls[0][1]?.signal?.aborted).toBe(false);
+      expect(fetchImpl.mock.calls[0][0]).toBe("http://127.0.0.1:19999/internal/tasks/task-1/compact");
+      expect(JSON.parse(String(fetchImpl.mock.calls[0][1]?.body))).toEqual({ customInstructions: "要点だけ" });
+      resolve(jsonResponse(200, { task: { id: "task-1", isCompacting: true } }));
+      await expect(pending).resolves.toEqual({ ok: true, task: { id: "task-1", isCompacting: true } });
+      expect(COMPACT_FORWARD_TIMEOUT_MS).toBeGreaterThan(30_000);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("sends no instructions when none were given and stops a running compaction", async () => {
+    const compact = vi.fn<typeof fetch>(async () => jsonResponse(200, { task: { id: "task-1" } }));
+    await forwardTaskCompact("task-1", undefined, { env, fetchImpl: compact });
+    expect(JSON.parse(String(compact.mock.calls[0][1]?.body))).toEqual({});
+    const abort = vi.fn<typeof fetch>(async () => jsonResponse(200, { task: { id: "task-1", isCompacting: false } }));
+    await expect(forwardTaskCompactAbort("task-1", { env, fetchImpl: abort })).resolves.toEqual({
+      ok: true, task: { id: "task-1", isCompacting: false },
+    });
+    expect(abort.mock.calls[0][0]).toBe("http://127.0.0.1:19999/internal/tasks/task-1/compact/abort");
+    const missing = vi.fn<typeof fetch>(async () => jsonResponse(404, { error: "Not found" }));
+    await expect(forwardTaskCompactAbort("task-1", { env, fetchImpl: missing })).resolves.toEqual({
+      ok: false, reason: "not-found", status: 404,
+    });
   });
 });
 

@@ -24,6 +24,8 @@ import {
   BACKEND_ROOM_REVERT_SUFFIX,
   BACKEND_ROOMS_PATH,
   BACKEND_TASK_ABORT_SUFFIX,
+  BACKEND_TASK_COMPACT_ABORT_SUFFIX,
+  BACKEND_TASK_COMPACT_SUFFIX,
   BACKEND_TASK_DETAIL_SUFFIX,
   BACKEND_TASK_GOAL_LOOP_SUFFIX,
   BACKEND_TASK_PERMISSION_SUFFIX,
@@ -205,6 +207,30 @@ export function createBotCodeSessionOnBackend(
   options: { env?: BackendEnv; fetchImpl?: typeof fetch; timeoutMs?: number } = {},
 ): Promise<BackendResult<{ task: Record<string, unknown> | null }>> {
   return postBackendJson(`${BACKEND_BOTS_PATH}/${encodeURIComponent(botId)}${BACKEND_BOT_CODE_SESSIONS_SUFFIX}`, input, options);
+}
+
+/**
+ * Compacts a task in the owning Backend. Summarization runs inside the session, so it can take
+ * minutes: the caller passes a long timeout instead of the ordinary read deadline.
+ */
+export function compactTaskOnBackend(
+  id: string,
+  customInstructions: string | undefined,
+  options: { env?: BackendEnv; fetchImpl?: typeof fetch; timeoutMs?: number } = {},
+): Promise<BackendResult<{ task: Record<string, unknown> | null }>> {
+  return postBackendJson(
+    `${BACKEND_TASKS_PATH}/${encodeURIComponent(id)}${BACKEND_TASK_COMPACT_SUFFIX}`,
+    customInstructions === undefined ? {} : { customInstructions },
+    options,
+  );
+}
+
+/** Stops a running compaction in the owning Backend. */
+export function abortCompactTaskOnBackend(
+  id: string,
+  options: { env?: BackendEnv; fetchImpl?: typeof fetch; timeoutMs?: number } = {},
+): Promise<BackendResult<{ task: Record<string, unknown> | null }>> {
+  return postBackendJson(`${BACKEND_TASKS_PATH}/${encodeURIComponent(id)}${BACKEND_TASK_COMPACT_ABORT_SUFFIX}`, {}, options);
 }
 
 /** Rewinds a task's transcript in the owning Backend: the session tree lives there. */

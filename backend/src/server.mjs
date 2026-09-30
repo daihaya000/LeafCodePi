@@ -19,6 +19,8 @@ import {
   BACKEND_TASK_DETAIL_SUFFIX,
   BACKEND_TASK_GOAL_LOOP_SUFFIX,
   BACKEND_TASK_PERMISSION_SUFFIX,
+  BACKEND_TASK_COMPACT_ABORT_SUFFIX,
+  BACKEND_TASK_COMPACT_SUFFIX,
   BACKEND_TASK_QUESTION_SUFFIX,
   BACKEND_TASK_PROMPT_SUFFIX,
   BACKEND_TASK_REVERT_SUFFIX,
@@ -132,6 +134,10 @@ export function createBackendServer({
   revertTaskAction = null,
   /** Restores the leaf after a rewind: `(id) => task`; only the owner edits the session. */
   unrevertTaskAction = null,
+  /** Compacts a session: `(id, customInstructions?) => task`; the summarization runs in the owner. */
+  compactTaskAction = null,
+  /** Stops a running compaction: `(id) => task`; only the owner can interrupt its own session. */
+  abortCompactTaskAction = null,
 } = {}) {
   if (
     typeof token !== "string" ||
@@ -173,6 +179,8 @@ export function createBackendServer({
     roomPrompt,
     revertTaskAction,
     unrevertTaskAction,
+    compactTaskAction,
+    abortCompactTaskAction,
   })) {
     if (handler !== null && typeof handler !== "function") {
       throw new Error(`${name} must be a function or null`);
@@ -211,7 +219,10 @@ export function createBackendServer({
       : undefined;
     // These suffixes act on the owning process's runtime: starting a session, or answering a pending
     // approval or question. Only the owner may serve them, so the WebUI forwards the request here.
+    // `/compact/abort` is listed before `/abort`: both end with it, and the longer one owns the path.
     const actionSuffix = [
+      BACKEND_TASK_COMPACT_ABORT_SUFFIX,
+      BACKEND_TASK_COMPACT_SUFFIX,
       BACKEND_TASK_PROMPT_SUFFIX,
       BACKEND_TASK_PERMISSION_SUFFIX,
       BACKEND_TASK_QUESTION_SUFFIX,
@@ -289,6 +300,8 @@ export function createBackendServer({
         [BACKEND_TASK_GOAL_LOOP_SUFFIX]: goalLoopAction,
         [BACKEND_TASK_REVERT_SUFFIX]: revertTaskAction,
         [BACKEND_TASK_UNREVERT_SUFFIX]: unrevertTaskAction,
+        [BACKEND_TASK_COMPACT_SUFFIX]: compactTaskAction,
+        [BACKEND_TASK_COMPACT_ABORT_SUFFIX]: abortCompactTaskAction,
       };
       const handler = actionSuffix ? handlers[actionSuffix] : undefined;
       if (typeof handler !== "function") {
@@ -297,8 +310,9 @@ export function createBackendServer({
         });
         return;
       }
-      // Abort and unrevert take no input, so an empty body is normal there.
+      // Abort, unrevert and a compaction abort take no input, so an empty body is normal there.
       const body = actionSuffix === BACKEND_TASK_ABORT_SUFFIX || actionSuffix === BACKEND_TASK_UNREVERT_SUFFIX
+        || actionSuffix === BACKEND_TASK_COMPACT_ABORT_SUFFIX
         ? await readJsonBody(request).then((read) => (read.ok ? read : { ok: true, value: {} }))
         : await readJsonBody(request);
       if (!body.ok) {
@@ -332,6 +346,21 @@ export function createBackendServer({
           sendJson(response, 200, action === "start"
             ? { loop, agent: result.agent ?? null, ...(result.autoDecision ? { autoDecision: result.autoDecision } : {}) }
             : { loop });
+        } else if (actionSuffix === BACKEND_TASK_COMPACT_SUFFIX) {
+          const customInstructions = typeof body.value?.customInstructions === "string" ? body.value.customInstructions : undefined;
+          const task = await handler(actionPath, customInstructions);
+          if (!task) {
+            sendJson(response, 404, { error: "Task not found", code: BACKEND_ERROR_CODES.notFound });
+            return;
+          }
+          sendJson(response, 200, { task });
+        } else if (actionSuffix === BACKEND_TASK_COMPACT_ABORT_SUFFIX) {
+          const task = await handler(actionPath);
+          if (!task) {
+            sendJson(response, 404, { error: "Task not found", code: BACKEND_ERROR_CODES.notFound });
+            return;
+          }
+          sendJson(response, 200, { task });
         } else if (actionSuffix === BACKEND_TASK_REVERT_SUFFIX) {
           const entryId = typeof body.value?.entryId === "string" ? body.value.entryId.trim() : "";
           if (!entryId) {
