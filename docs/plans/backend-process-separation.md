@@ -308,3 +308,9 @@ Backend単独のSDK検証前には `npm --prefix backend ci --ignore-scripts` �
 - 既存のRoom revertテストは、モックした`jsonError`が`status`を無視していたため実装と同じ規則に修正した（製品側の変更ではなくテストの前提修正）。
 - 検証: `backend/src/server.test.mjs`60件（Room revertの実行到達・400・404保持・503・405・非関数拒否）、Web側Room revert routeテスト4件（所有時ローカル・非所有時転送・失敗status・検証順序）と`backend-forward`28件・所有権カバレッジ4件成功。本番tsc・eslint成功。
 - これで非所有モードで`RuntimeNotOwnedError`になる既知の非転送経路は無くなった（routeの所有権カバレッジテスト16経路＋今回の追加分）。
+
+## ターン19の変更（実測）
+
+- 全routeのowner-only呼出を監査し、未ガードのセッション編集経路を見つけた。今回の対象は`tasks/[id]/revert`（`revertTask`）と`tasks/[id]/unrevert`（`unrevertTask`）で、内部APIは`POST /internal/tasks/:id/revert`（`{entryId}`）と`POST /internal/tasks/:id/unrevert`（入力なし、abortと同じく空bodyを許容）。bundleへ`unrevertTask`を追加して再生成（9817 KiB）。Web側routeは非所有モードで転送する。
+- 監査で残る未ガードのowner-only経路（次ターン以降）: `bots/rooms/[id]/prompt`（`runRoomConversation`/`runRoomBot`/`stopRoomTurns`）、`tasks/[id]/compact`と`compact/abort`、`tasks/[id]/model`・`thinking`・`agent`（liveセッション設定）。
+- 検証: `backend/src/server.test.mjs`61件（task revert/unrevertの実行到達・400・404・503・405・空body・非関数拒否）、Web側はrevert/unrevert routeテスト各3件と`backend-forward`30件・所有権カバレッジ4件成功。本番tsc・eslint成功。

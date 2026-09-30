@@ -683,6 +683,50 @@ test("the Goal Loop control needs a runtime and refuses a non-function handler",
   );
 });
 
+test("a forwarded task revert and unrevert reach the runtime owner", async (t) => {
+  const seen = [];
+  const { snapshotsUrl, headers } = await fixture(t, {
+    revertTaskAction: async (id, entryId) => {
+      seen.push(["revert", id, entryId]);
+      return { task: { id }, text: "戻した", images: [], files: [] };
+    },
+    unrevertTaskAction: async (id) => {
+      seen.push(["unrevert", id]);
+      return { id, revertLeafId: null };
+    },
+  });
+  const base = snapshotsUrl.replace("pending-snapshots", "tasks");
+  const post = (url, body) => request(url, {
+    method: "POST", headers: { ...headers, "content-type": "application/json" }, body: JSON.stringify(body),
+  });
+  const reverted = await post(`${base}/task-1/revert`, { entryId: "entry-1" });
+  assert.equal(reverted.status, 200);
+  assert.deepEqual(await reverted.json(), { task: { id: "task-1" }, text: "戻した", images: [], files: [] });
+  // Unrevert takes no input: an empty body is accepted like abort.
+  const restored = await request(`${base}/task-1/unrevert`, { method: "POST", headers });
+  assert.equal(restored.status, 200);
+  assert.deepEqual(await restored.json(), { task: { id: "task-1", revertLeafId: null } });
+  assert.deepEqual(seen, [["revert", "task-1", "entry-1"], ["unrevert", "task-1"]]);
+  // A missing entry id is refused before the owner is asked, and both routes are POST-only.
+  assert.equal((await post(`${base}/task-1/revert`, {})).status, 400);
+  assert.equal((await request(`${base}/task-1/unrevert`, { headers })).status, 405);
+  // An unknown task is a 404 from the owner's own lookup.
+  const missing = await fixture(t, { unrevertTaskAction: async () => null });
+  const missingBase = missing.snapshotsUrl.replace("pending-snapshots", "tasks");
+  assert.equal((await request(`${missingBase}/task-1/unrevert`, {
+    method: "POST", headers: { ...missing.headers, "content-type": "application/json" }, body: "{}",
+  })).status, 404);
+  const detached = await fixture(t);
+  const detachedBase = detached.snapshotsUrl.replace("pending-snapshots", "tasks");
+  assert.equal((await request(`${detachedBase}/task-1/revert`, {
+    method: "POST", headers: { ...detached.headers, "content-type": "application/json" }, body: JSON.stringify({ entryId: "entry-1" }),
+  })).status, 503);
+  assert.throws(
+    () => createBackendServer({ token: randomBytes(32).toString("base64url"), revertTaskAction: 5 }),
+    /revertTaskAction must be a function or null/,
+  );
+});
+
 test("a forwarded Room revert reaches the runtime owner", async (t) => {
   const seen = [];
   const { snapshotsUrl, headers } = await fixture(t, {

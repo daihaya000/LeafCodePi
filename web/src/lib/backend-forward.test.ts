@@ -8,6 +8,8 @@ import {
   forwardBotRevert,
   forwardBotRoutineRun,
   forwardRoomRevert,
+  forwardTaskRevert,
+  forwardTaskUnrevert,
   forwardPendingRequestsByTask,
   forwardTaskPendingRequests,
   forwardTaskDetail,
@@ -226,6 +228,33 @@ describe("forwardTaskAbort", () => {
       status: 404,
     });
     await expect(forwardTaskAbort("t1", { env: {} })).resolves.toEqual({ ok: false, reason: "not-configured" });
+  });
+});
+
+describe("forwardTaskRevert and forwardTaskUnrevert", () => {
+  it("returns the rewind the owner performed", async () => {
+    const fetchImpl = vi.fn<typeof fetch>(async () => jsonResponse(200, { task: { id: "task-1" }, text: "戻した" }));
+    await expect(forwardTaskRevert("task-1", "entry-1", { env, fetchImpl })).resolves.toEqual({
+      ok: true, result: { task: { id: "task-1" }, text: "戻した" },
+    });
+    expect(fetchImpl.mock.calls[0][0]).toBe("http://127.0.0.1:19999/internal/tasks/task-1/revert");
+    expect(JSON.parse(String(fetchImpl.mock.calls[0][1]?.body))).toEqual({ entryId: "entry-1" });
+  });
+
+  it("returns the restored task and keeps a miss as not-found", async () => {
+    const restored = vi.fn<typeof fetch>(async () => jsonResponse(200, { task: { id: "task-1", revertLeafId: null } }));
+    await expect(forwardTaskUnrevert("task-1", { env, fetchImpl: restored })).resolves.toEqual({
+      ok: true, task: { id: "task-1", revertLeafId: null },
+    });
+    expect(restored.mock.calls[0][0]).toBe("http://127.0.0.1:19999/internal/tasks/task-1/unrevert");
+    const missing = vi.fn<typeof fetch>(async () => jsonResponse(404, { error: "Not found" }));
+    await expect(forwardTaskRevert("task-1", "entry-1", { env, fetchImpl: missing })).resolves.toEqual({
+      ok: false, reason: "not-found", status: 404,
+    });
+    const unreachable = vi.fn<typeof fetch>(async () => { throw new Error("connect refused"); });
+    await expect(forwardTaskUnrevert("task-1", { env, fetchImpl: unreachable })).resolves.toEqual({
+      ok: false, reason: "unreachable",
+    });
   });
 });
 

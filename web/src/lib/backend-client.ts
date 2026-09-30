@@ -28,6 +28,8 @@ import {
   BACKEND_TASK_PERMISSION_SUFFIX,
   BACKEND_TASK_QUESTION_SUFFIX,
   BACKEND_TASK_PROMPT_SUFFIX,
+  BACKEND_TASK_REVERT_SUFFIX,
+  BACKEND_TASK_UNREVERT_SUFFIX,
   BACKEND_TASKS_PATH,
   DEFAULT_BACKEND_PORT,
 } from "@shared/backend-protocol.mjs";
@@ -202,6 +204,23 @@ export function createBotCodeSessionOnBackend(
   options: { env?: BackendEnv; fetchImpl?: typeof fetch; timeoutMs?: number } = {},
 ): Promise<BackendResult<{ task: Record<string, unknown> | null }>> {
   return postBackendJson(`${BACKEND_BOTS_PATH}/${encodeURIComponent(botId)}${BACKEND_BOT_CODE_SESSIONS_SUFFIX}`, input, options);
+}
+
+/** Rewinds a task's transcript in the owning Backend: the session tree lives there. */
+export function revertTaskOnBackend(
+  id: string,
+  entryId: string,
+  options: { env?: BackendEnv; fetchImpl?: typeof fetch; timeoutMs?: number } = {},
+): Promise<BackendResult<Record<string, unknown>>> {
+  return postBackendJson(`${BACKEND_TASKS_PATH}/${encodeURIComponent(id)}${BACKEND_TASK_REVERT_SUFFIX}`, { entryId }, options);
+}
+
+/** Restores the leaf after a rewind in the owning Backend. */
+export function unrevertTaskOnBackend(
+  id: string,
+  options: { env?: BackendEnv; fetchImpl?: typeof fetch; timeoutMs?: number } = {},
+): Promise<BackendResult<{ task: Record<string, unknown> | null }>> {
+  return postBackendJson(`${BACKEND_TASKS_PATH}/${encodeURIComponent(id)}${BACKEND_TASK_UNREVERT_SUFFIX}`, {}, options);
 }
 
 /** Rewinds a Room conversation in the owning Backend: the turns, attention and outbox are there. */

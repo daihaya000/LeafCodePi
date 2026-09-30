@@ -20,6 +20,8 @@ import {
   BACKEND_TASK_PERMISSION_SUFFIX,
   BACKEND_TASK_QUESTION_SUFFIX,
   BACKEND_TASK_PROMPT_SUFFIX,
+  BACKEND_TASK_REVERT_SUFFIX,
+  BACKEND_TASK_UNREVERT_SUFFIX,
   BACKEND_TASKS_PATH,
   DEFAULT_BACKEND_PORT,
 } from "../../shared/backend-protocol.mjs";
@@ -123,6 +125,10 @@ export function createBackendServer({
   revertBotTask = null,
   /** Rewinds a Room conversation: `(roomId, messageId) => result`; the owner stops its turns. */
   revertRoom = null,
+  /** Rewinds a task's session tree: `(id, entryId) => result`; only the owner edits the session. */
+  revertTaskAction = null,
+  /** Restores the leaf after a rewind: `(id) => task`; only the owner edits the session. */
+  unrevertTaskAction = null,
 } = {}) {
   if (
     typeof token !== "string" ||
@@ -161,6 +167,8 @@ export function createBackendServer({
     runBotRoutine,
     revertBotTask,
     revertRoom,
+    revertTaskAction,
+    unrevertTaskAction,
   })) {
     if (handler !== null && typeof handler !== "function") {
       throw new Error(`${name} must be a function or null`);
@@ -199,8 +207,15 @@ export function createBackendServer({
       : undefined;
     // These suffixes act on the owning process's runtime: starting a session, or answering a pending
     // approval or question. Only the owner may serve them, so the WebUI forwards the request here.
-    const actionSuffix = [BACKEND_TASK_PROMPT_SUFFIX, BACKEND_TASK_PERMISSION_SUFFIX, BACKEND_TASK_QUESTION_SUFFIX, BACKEND_TASK_ABORT_SUFFIX, BACKEND_TASK_GOAL_LOOP_SUFFIX]
-      .find((suffix) => taskSuffix?.endsWith(suffix));
+    const actionSuffix = [
+      BACKEND_TASK_PROMPT_SUFFIX,
+      BACKEND_TASK_PERMISSION_SUFFIX,
+      BACKEND_TASK_QUESTION_SUFFIX,
+      BACKEND_TASK_ABORT_SUFFIX,
+      BACKEND_TASK_GOAL_LOOP_SUFFIX,
+      BACKEND_TASK_REVERT_SUFFIX,
+      BACKEND_TASK_UNREVERT_SUFFIX,
+    ].find((suffix) => taskSuffix?.endsWith(suffix));
     const actionPath = actionSuffix === undefined || !taskSuffix
       ? undefined
       : decodeURIComponent(taskSuffix.slice(0, -actionSuffix.length));
@@ -265,6 +280,8 @@ export function createBackendServer({
         [BACKEND_TASK_QUESTION_SUFFIX]: respondToQuestion,
         [BACKEND_TASK_ABORT_SUFFIX]: abortTask,
         [BACKEND_TASK_GOAL_LOOP_SUFFIX]: goalLoopAction,
+        [BACKEND_TASK_REVERT_SUFFIX]: revertTaskAction,
+        [BACKEND_TASK_UNREVERT_SUFFIX]: unrevertTaskAction,
       };
       const handler = actionSuffix ? handlers[actionSuffix] : undefined;
       if (typeof handler !== "function") {
@@ -273,8 +290,8 @@ export function createBackendServer({
         });
         return;
       }
-      // Abort carries no payload beyond an optional Bot id, so an empty body is normal there.
-      const body = actionSuffix === BACKEND_TASK_ABORT_SUFFIX
+      // Abort and unrevert take no input, so an empty body is normal there.
+      const body = actionSuffix === BACKEND_TASK_ABORT_SUFFIX || actionSuffix === BACKEND_TASK_UNREVERT_SUFFIX
         ? await readJsonBody(request).then((read) => (read.ok ? read : { ok: true, value: {} }))
         : await readJsonBody(request);
       if (!body.ok) {
@@ -308,6 +325,20 @@ export function createBackendServer({
           sendJson(response, 200, action === "start"
             ? { loop, agent: result.agent ?? null, ...(result.autoDecision ? { autoDecision: result.autoDecision } : {}) }
             : { loop });
+        } else if (actionSuffix === BACKEND_TASK_REVERT_SUFFIX) {
+          const entryId = typeof body.value?.entryId === "string" ? body.value.entryId.trim() : "";
+          if (!entryId) {
+            sendJson(response, 400, { error: "Invalid revert request", code: BACKEND_ERROR_CODES.badRequest });
+            return;
+          }
+          sendJson(response, 200, await handler(actionPath, entryId));
+        } else if (actionSuffix === BACKEND_TASK_UNREVERT_SUFFIX) {
+          const task = await handler(actionPath);
+          if (!task) {
+            sendJson(response, 404, { error: "Task not found", code: BACKEND_ERROR_CODES.notFound });
+            return;
+          }
+          sendJson(response, 200, { task });
         } else if (actionSuffix === BACKEND_TASK_ABORT_SUFFIX) {
           const botId = typeof body.value?.botId === "string" && body.value.botId ? body.value.botId : null;
           const task = await handler(actionPath, botId);

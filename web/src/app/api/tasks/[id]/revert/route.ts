@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { revertTask, jsonError } from "@/lib/pi/harness";
+import { forwardTaskRevert } from "@/lib/backend-forward";
+import { localRuntimeBlocked } from "@/lib/pi/runtime-ownership";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -14,6 +16,14 @@ export async function POST(
     const entryId = typeof body?.entryId === "string" ? body.entryId.trim() : "";
     if (!entryId) {
       return NextResponse.json({ error: "entryId が指定されていません" }, { status: 400 });
+    }
+    // The session tree lives in the owner: after the cutover this process must not edit it.
+    if (localRuntimeBlocked()) {
+      const forwarded = await forwardTaskRevert(id, entryId);
+      if (!forwarded.ok) {
+        return NextResponse.json({ error: "巻き戻しに失敗しました" }, { status: forwarded.status ?? 502 });
+      }
+      return NextResponse.json(forwarded.result);
     }
     const result = await revertTask(id, entryId);
     return NextResponse.json(result);

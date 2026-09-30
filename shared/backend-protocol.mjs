@@ -26,6 +26,12 @@ export const BACKEND_TASK_PERMISSION_SUFFIX = "/permission";
 /** Stopping a running session: `POST /internal/tasks/:id/abort`, optionally with `{ botId }`. */
 export const BACKEND_TASK_ABORT_SUFFIX = "/abort";
 /**
+ * Rewinding a task's transcript: `POST /internal/tasks/:id/revert` with `{ entryId }`, and
+ * `POST /internal/tasks/:id/unrevert` to restore the leaf. Both edit the owner's session tree.
+ */
+export const BACKEND_TASK_REVERT_SUFFIX = "/revert";
+export const BACKEND_TASK_UNREVERT_SUFFIX = "/unrevert";
+/**
  * Bot Code request actions: `POST /internal/bots/:id/code-requests` with `{ action, requestId }`.
  * Stopping a request also updates the Bot's outbox, which only the owning process may write.
  */

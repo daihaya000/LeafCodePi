@@ -11,7 +11,9 @@ import {
   respondQuestionOnBackend,
   revertBotTaskOnBackend,
   revertRoomOnBackend,
+  revertTaskOnBackend,
   runBotRoutineOnBackend,
+  unrevertTaskOnBackend,
   type BackendEnv,
   type BackendFailureReason,
 } from "@/lib/backend-client";
@@ -183,6 +185,40 @@ export async function forwardPendingRequestsByTask(
     };
   }
   return byTask;
+}
+
+/** Rewinds a task's transcript in the owning Backend. Never falls back to the in-process rewind. */
+export async function forwardTaskRevert(
+  id: string,
+  entryId: string,
+  options: { env?: BackendEnv; fetchImpl?: typeof fetch; timeoutMs?: number } = {},
+): Promise<
+  | { ok: true; result: Record<string, unknown> }
+  | { ok: false; reason: BackendFailureReason | "not-found"; status?: number }
+> {
+  const result = await revertTaskOnBackend(id, entryId, options);
+  if (!result.ok) {
+    if (result.status === 404) return { ok: false, reason: "not-found", status: 404 };
+    return { ok: false, reason: result.reason, ...(result.status ? { status: result.status } : {}) };
+  }
+  return { ok: true, result: result.body ?? {} };
+}
+
+/** Restores the leaf after a rewind in the owning Backend. */
+export async function forwardTaskUnrevert(
+  id: string,
+  options: { env?: BackendEnv; fetchImpl?: typeof fetch; timeoutMs?: number } = {},
+): Promise<
+  | { ok: true; task: Record<string, unknown> | null }
+  | { ok: false; reason: BackendFailureReason | "not-found"; status?: number }
+> {
+  const result = await unrevertTaskOnBackend(id, options);
+  if (!result.ok) {
+    if (result.status === 404) return { ok: false, reason: "not-found", status: 404 };
+    return { ok: false, reason: result.reason, ...(result.status ? { status: result.status } : {}) };
+  }
+  const task = result.body?.task;
+  return { ok: true, task: task && typeof task === "object" ? task : null };
 }
 
 /** Rewinds a Room conversation in the owning Backend. Never falls back to the in-process rewind. */

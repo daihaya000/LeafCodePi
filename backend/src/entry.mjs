@@ -152,6 +152,22 @@ try {
         ...(action === "resume" && body?.maxTurns !== undefined ? { maxTurns: body.maxTurns } : {}),
       });
     },
+    // Rewinding a task's transcript edits its session tree and clears the owner's pending attention.
+    revertTaskAction: (id, entryId) => {
+      const runtime = started.runtime();
+      if (!runtime || typeof runtime.revertTask !== "function") {
+        throw Object.assign(new Error("runtime unavailable"), { status: 503 });
+      }
+      return runtime.revertTask(id, entryId);
+    },
+    // Restoring the leaf after a rewind is the same kind of session edit.
+    unrevertTaskAction: (id) => {
+      const runtime = started.runtime();
+      if (!runtime || typeof runtime.unrevertTask !== "function") {
+        throw Object.assign(new Error("runtime unavailable"), { status: 503 });
+      }
+      return runtime.unrevertTask(id);
+    },
     // Rewinding a Room conversation stops its turns, clears the owner's pending attention and
     // cancels its Code jobs: all owner work, so the WebUI forwards the request here.
     revertRoom: async (roomId, messageId) => {
