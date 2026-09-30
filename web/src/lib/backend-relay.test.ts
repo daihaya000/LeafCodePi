@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { isBackendRelayEnabled, relayTaskRows } from "./backend-relay";
+import { isBackendRelayEnabled, relayBotList, relayTaskRows } from "./backend-relay";
 
 afterEach(() => {
   vi.unstubAllEnvs();
@@ -54,5 +54,53 @@ describe("relayTaskRows", () => {
     }
     readTasks.mockResolvedValue({ ok: true, status: 200, body: {} });
     await expect(relayTaskRows({ includeArchived: false, kind: "code", env, fetchTasks: readTasks })).resolves.toEqual([]);
+  });
+});
+
+describe("relayBotList", () => {
+  const bots = [{ id: "bot-1", name: "busy" }, { id: "bot-2", name: "idle" }];
+  const tasks = [{ id: "t1", status: "working", botId: "bot-1" }];
+
+  it("stays out of the way while the relay is off", async () => {
+    const fetchBots = vi.fn();
+    const result = await relayBotList({ env: {}, fetchBots, fetchTasks: vi.fn() });
+    expect(result).toBeNull();
+    expect(fetchBots).not.toHaveBeenCalled();
+  });
+
+  it("returns the Backend Bots with their running-session counts", async () => {
+    const result = await relayBotList({
+      env: { LEAFCODE_PI_BACKEND_RELAY: "1" },
+      fetchBots: async () => ({ ok: true, status: 200, body: { bots } }),
+      fetchTasks: async () => ({ ok: true, status: 200, body: { tasks } }),
+    });
+    expect(result).toEqual([
+      { id: "bot-1", name: "busy", codeSessionCount: 1 },
+      { id: "bot-2", name: "idle", codeSessionCount: 0 },
+    ]);
+  });
+
+  it("returns null when either read fails, so the caller falls back", async () => {
+    const env = { LEAFCODE_PI_BACKEND_RELAY: "1" };
+    const ok = { ok: true, status: 200, body: { bots, tasks } };
+    await expect(relayBotList({
+      env,
+      fetchBots: async () => ({ ok: false, reason: "unreachable" }),
+      fetchTasks: async () => ok,
+    })).resolves.toBeNull();
+    await expect(relayBotList({
+      env,
+      fetchBots: async () => ({ ok: true, status: 200, body: { bots } }),
+      fetchTasks: async () => ({ ok: false, reason: "timeout" }),
+    })).resolves.toBeNull();
+  });
+
+  it("tolerates a payload without a Bot list", async () => {
+    const result = await relayBotList({
+      env: { LEAFCODE_PI_BACKEND_RELAY: "1" },
+      fetchBots: async () => ({ ok: true, status: 200, body: {} }),
+      fetchTasks: async () => ({ ok: true, status: 200, body: { tasks } }),
+    });
+    expect(result).toEqual([]);
   });
 });

@@ -9,6 +9,9 @@ import { insertTask, setTaskStatus } from "../../../lib/store";
 import { MAX_BOT_NAME_CHARS } from "../../../lib/bots";
 import { GET, POST } from "./route";
 
+const backendClientMock = vi.hoisted(() => ({ readBackendBots: vi.fn(), readBackendTasks: vi.fn() }));
+vi.mock("../../../lib/backend-client", () => backendClientMock);
+
 describe("/api/bots", () => {
   let root = ""; beforeEach(() => { root = mkdtempSync(join(tmpdir(), "leafcode-api-bots-")); botApiTestState.root = root; });
   afterEach(() => { rmSync(root, { recursive: true, force: true }); botApiTestState.root = ""; });
@@ -39,5 +42,32 @@ describe("/api/bots", () => {
 
     const listed = await GET();
     expect((await listed.json()).bots[0].codeSessionCount).toBe(1);
+  });
+});
+
+describe("/api/bots relay", () => {
+  let root = "";
+  beforeEach(() => { root = mkdtempSync(join(tmpdir(), "leafcode-api-bots-relay-")); botApiTestState.root = root; });
+  afterEach(() => { rmSync(root, { recursive: true, force: true }); botApiTestState.root = ""; delete process.env.LEAFCODE_PI_BACKEND_RELAY; });
+  const relayEnv = { LEAFCODE_PI_BACKEND_RELAY: "1" };
+  it("serves the Backend Bot view while the relay is on", async () => {
+    process.env.LEAFCODE_PI_BACKEND_RELAY = relayEnv.LEAFCODE_PI_BACKEND_RELAY;
+    const { readBackendBots, readBackendTasks } = await import("../../../lib/backend-client");
+    vi.mocked(readBackendBots).mockResolvedValue({ ok: true, status: 200, body: { bots: [{ id: "bot-remote", name: "Backend bot" }] } } as never);
+    vi.mocked(readBackendTasks).mockResolvedValue({ ok: true, status: 200, body: { tasks: [{ id: "t1", status: "working", botId: "bot-remote" }] } } as never);
+    const listed = await GET();
+    expect(await listed.json()).toEqual({ bots: [{ id: "bot-remote", name: "Backend bot", codeSessionCount: 1 }] });
+  });
+  it("falls back to the in-process list when the Backend cannot answer", async () => {
+    process.env.LEAFCODE_PI_BACKEND_RELAY = relayEnv.LEAFCODE_PI_BACKEND_RELAY;
+    const response = await POST(new NextRequest("http://localhost/api/bots", { method: "POST", body: JSON.stringify({ name: "Local bot" }) }));
+    const bot = (await response.json()).bot;
+    const { readBackendBots, readBackendTasks } = await import("../../../lib/backend-client");
+    vi.mocked(readBackendBots).mockResolvedValue({ ok: false, reason: "unreachable" } as never);
+    vi.mocked(readBackendTasks).mockResolvedValue({ ok: true, status: 200, body: { tasks: [] } } as never);
+    const listed = await GET();
+    const bots = (await listed.json()).bots;
+    expect(bots.map((item: { id: string }) => item.id)).toEqual([bot.id]);
+    expect(bots[0].codeSessionCount).toBe(0);
   });
 });

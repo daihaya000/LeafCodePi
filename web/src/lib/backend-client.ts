@@ -7,6 +7,7 @@
  * decide between falling back to the in-process path and reporting an error.
  */
 import {
+  BACKEND_BOTS_PATH,
   BACKEND_HEALTH_PATH,
   BACKEND_PROTOCOL_HEADER,
   BACKEND_PROTOCOL_VERSION,
@@ -98,6 +99,11 @@ export async function fetchBackendJson<T>(
 /** Whether the Backend process is up and has attached its runtime. */
 export function readBackendHealth(options: Parameters<typeof fetchBackendJson>[1] = {}) {
   return fetchBackendJson<{ ready: boolean; status: string; pid: number }>(BACKEND_HEALTH_PATH, options);
+}
+
+/** The Backend's own view of the Bot store. */
+export function readBackendBots(options: Parameters<typeof fetchBackendJson>[1] = {}) {
+  return fetchBackendJson<{ bots: Array<Record<string, unknown>> }>(BACKEND_BOTS_PATH, options);
 }
 
 /** The Backend's own view of the task store (stored rows, not the Web's derived summaries). */

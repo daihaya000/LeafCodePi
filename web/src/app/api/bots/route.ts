@@ -1,20 +1,21 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createBot, isBotNameWithinSize, listBots, patchBot } from "@/lib/bots";
+import { relayBotList } from "@/lib/backend-relay";
 import { listTasks } from "@/lib/store";
 import { botTemplateById } from "@/lib/bot-marketplace";
 import { getSetting } from "@/lib/pi/web-settings";
 import { parseBotDefaultPermission, parseBotDefaultThinking, BOT_DEFAULT_PERMISSION_KEY, BOT_DEFAULT_THINKING_KEY } from "@/lib/bot-settings";
+import { botsWithCodeSessionCounts } from "@backend-core/bot-session-counts.mjs";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function GET() {
-  const counts = new Map<string, number>();
-  for (const task of listTasks()) {
-    const botId = task.botId ?? task.supervisorBotId;
-    if (task.status === "working" && botId) counts.set(botId, (counts.get(botId) ?? 0) + 1);
-  }
-  return NextResponse.json({ bots: listBots().map((bot) => ({ ...bot, codeSessionCount: counts.get(bot.id) ?? 0 })) });
+  // 中継が有効ならBackendのBotビュー（同じ設定ファイル＋同じ稼働数ルール）を使う。失敗時は従来経路へ。
+  const relayed = await relayBotList();
+  if (relayed) return NextResponse.json({ bots: relayed });
+  // 稼働数はcoreの規則（workingのみ・botId優先）で数える。
+  return NextResponse.json({ bots: botsWithCodeSessionCounts(listBots(), listTasks()) });
 }
 export async function POST(req: NextRequest) {
   const body = (await req.json().catch(() => null)) as { name?: unknown; templateId?: unknown } | null;

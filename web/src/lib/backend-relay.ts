@@ -6,7 +6,8 @@
  * data and falls back to its in-process path if the Backend cannot answer — the fallback is the
  * safety net before the cutover, and disappears with the old path in the last phase.
  */
-import { readBackendTasks } from "@/lib/backend-client";
+import { readBackendBots, readBackendTasks } from "@/lib/backend-client";
+import { botsWithCodeSessionCounts } from "@backend-core/bot-session-counts.mjs";
 
 /** Values that turn the relay on; anything else leaves it off. */
 const RELAY_ENABLED_VALUES = new Set(["1", "true", "yes", "on"]);
@@ -39,4 +40,29 @@ export async function relayTaskRows(
     if (options.kind !== "all" && (task?.kind ?? "code") !== options.kind) return false;
     return options.includeArchived || task?.status !== "archived";
   });
+}
+
+/**
+ * The Bot list `listBots()` plus its running-session counts, read from the Backend.
+ *
+ * Returns null when the relay is off or the Backend cannot answer, so the caller keeps its
+ * in-process result. Both reads must succeed: a partial list would report wrong counts.
+ */
+export async function relayBotList(
+  options: {
+    env?: Record<string, string | undefined>;
+    fetchBots?: typeof readBackendBots;
+    fetchTasks?: typeof readBackendTasks;
+  } = {},
+): Promise<Array<Record<string, unknown>> | null> {
+  const env = options.env ?? process.env;
+  if (!isBackendRelayEnabled(env)) return null;
+  const [botsResult, tasksResult] = await Promise.all([
+    (options.fetchBots ?? readBackendBots)(),
+    (options.fetchTasks ?? readBackendTasks)(),
+  ]);
+  if (!botsResult.ok || !tasksResult.ok) return null;
+  const bots = Array.isArray(botsResult.body?.bots) ? botsResult.body.bots : [];
+  const tasks = Array.isArray(tasksResult.body?.tasks) ? tasksResult.body.tasks : [];
+  return botsWithCodeSessionCounts(bots, tasks) as Array<Record<string, unknown>>;
 }
