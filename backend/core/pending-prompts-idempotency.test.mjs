@@ -135,3 +135,16 @@ test("timeout of a joined request resolves every waiter with the refusal", async
   assert.equal(await first, false);
   assert.equal(await again, false);
 });
+
+test("pending requests are in-memory only: a fresh service after a restart has none and cannot answer old ids", async () => {
+  const before = permission();
+  const waiting = before.service.handleRequest(perm("across-restart"));
+  assert.equal(before.service.pendingForTask("task-a").id, "across-restart");
+  // A restarted process builds a new service; nothing is restored from disk or shared state.
+  const after = permission();
+  assert.equal(after.service.pendingForTask("task-a"), null);
+  assert.deepEqual([...after.service.pendingTaskIds()], []);
+  assert.equal(after.service.respond("task-a", "across-restart", true), false);
+  before.service.dispose();
+  assert.equal(await waiting, false);
+});
