@@ -210,6 +210,7 @@ import { AccountRuntimeManager } from "@/lib/pi/account-runtime-manager";
 import { SdkRuntimeFactory } from "@backend-core/sdk-runtime.mjs";
 import * as corePromptControl from "@backend-core/prompt-control.mjs";
 import { finalAssistantIdOfCurrentTurn, isHangWatchReplaced, roomBotIdFromTaskId } from "@backend-core/abort-control.mjs";
+import { runUserAbort } from "@backend-core/abort-coordinator.mjs";
 import {
   accountAuthPath,
   accountHasProvider,
@@ -9644,60 +9645,43 @@ export const nextPromptEpoch = corePromptControl.nextPromptEpoch;
 export const isStaleHarnessPrompt = corePromptControl.isStaleHarnessPrompt;
 
 export async function abortTask(id: string): Promise<TaskSummary> {
-  // An explicit stop is terminal for the current request; do not leave the
-  // persisted watchdog armed to wake it up later.
-  disarmTaskHangWatch(id);
-  clearPendingAttentionForTask(id);
-  const live = state().live.get(id);
-  if (live) {
-    // Clear work that could be resumed before asking the SDK to abort. These
-    // operations are synchronous and keep the already-requested stop final.
-    // abort() must happen before history projection or extension cleanup: both
-    // can be slow enough to make the Stop button look unresponsive.
-    clearSessionQueue(live.session);
-    cancelHarnessPrompt(live);
-    cancelPendingTaskSnapshot(live);
-    // Install the sentinel first so even a synchronous settled event cannot
-    // schedule auto-compaction while the final assistant id is being read.
-    persistManualAbortedAssistantId(id, "");
-    const abortPromise = live.session.abort();
-    const msgs = snapshotMessages(
-      live.session,
-      live.throughputByStartedAt,
-      live.toolStartedAt,
-      live.toolEndedAt,
-      live.toolPartialOutputByCallId,
-    );
-    persistManualAbortedAssistantId(id, finalAssistantIdOfCurrentTurn(msgs));
-    await stopGoalLoopForTask(live);
-    await stopSubagentRunsForTask(live, msgs);
-    await abortPromise;
-  }
-  const task = setTaskStatus(id, "idle");
-  releaseTaskLease(id);
-  if (!task)
-    throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });
-  // 全購読先へ最終状態を送る。idle 保存前に送ると、停止要求元以外のペインが
-  // working のまま残り、停止ボタンが再表示される。
-  if (live) emitTaskSnapshot(live, "abort", {
-    isStreaming: false,
-    permissionRequest: null,
-    questionRequest: null,
+  // Ordering lives in backend core; every side effect stays owned by the harness
+  // and is resolved at call time so module mocks and hot reloads keep working.
+  return runUserAbort(id, {
+    disarmHangWatch: (taskId) => disarmTaskHangWatch(taskId),
+    clearPendingAttention: (taskId) => clearPendingAttentionForTask(taskId),
+    getLive: (taskId) => state().live.get(taskId),
+    clearSessionQueue: (live) => clearSessionQueue(live.session),
+    cancelPrompt: (live) => cancelHarnessPrompt(live),
+    cancelPendingSnapshot: (live) => cancelPendingTaskSnapshot(live),
+    persistManualAbortedAssistantId: (taskId, assistantId) =>
+      persistManualAbortedAssistantId(taskId, assistantId),
+    abortSession: (live) => live.session.abort(),
+    snapshotMessages: (live) =>
+      snapshotMessages(
+        live.session,
+        live.throughputByStartedAt,
+        live.toolStartedAt,
+        live.toolEndedAt,
+        live.toolPartialOutputByCallId,
+      ),
+    stopGoalLoop: (live) => stopGoalLoopForTask(live),
+    stopSubagentRuns: (live, messages) => stopSubagentRunsForTask(live, messages),
+    setIdle: (taskId) => setTaskStatus(taskId, "idle"),
+    releaseLease: (taskId) => releaseTaskLease(taskId),
+    // 全購読先へ最終状態を送る。idle 保存前に送ると、停止要求元以外のペインが
+    // working のまま残り、停止ボタンが再表示される。
+    emitAbort: (live) =>
+      emitTaskSnapshot(live, "abort", {
+        isStreaming: false,
+        permissionRequest: null,
+        questionRequest: null,
+      }),
+    flushRoomMailbox: (botId) => flushQueuedBotIntercom(botId),
+    warn: (message, error) => console.warn(message, error),
+    toSummary: (task) => toSummary(task),
   });
-  // Room abort clears promptActive before the prompt finally runs; flush here so
-  // mailbox rows queued during the Room turn are not left stranded if finally
-  // is skipped or delayed.
-  const roomBotId = roomBotIdFromTaskId(id);
-  if (roomBotId) {
-    try {
-      flushQueuedBotIntercom(roomBotId);
-    } catch (error) {
-      console.warn("[bot-intercom] flush after Room abort failed", error);
-    }
-  }
-  return toSummary(task);
 }
-
 /**
  * Like abortTask, but also stops a Goal Loop that exists only on disk after the
  * live session was disposed (worker restart / turn-gap cooldown).
