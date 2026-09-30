@@ -65,6 +65,14 @@ try {
       const { prompt, images, ...options } = body ?? {};
       return runtime.promptTask(id, prompt, Array.isArray(images) && images.length > 0 ? images : undefined, options);
     },
+    // Stopping a session: a Bot-owned Code task must mark its outbox as user-stopped, like the Bot panel.
+    abortTask: (id, botId) => {
+      const runtime = started.runtime();
+      if (!runtime) {
+        throw Object.assign(new Error("runtime unavailable"), { status: 503 });
+      }
+      return botId ? runtime.stopBotCodeTask(botId, id) : runtime.abortTaskIncludingColdGoalLoop(id);
+    },
     // A pending approval or question lives in this process's memory: only the owner can answer it.
     respondToPermission: (id, requestId, approved) => {
       const runtime = started.runtime();

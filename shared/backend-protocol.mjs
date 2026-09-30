@@ -23,6 +23,8 @@ export const BACKEND_TASK_DETAIL_SUFFIX = "/detail";
  * and `POST /internal/tasks/:id/question`. The pending request itself never leaves the owner's memory.
  */
 export const BACKEND_TASK_PERMISSION_SUFFIX = "/permission";
+/** Stopping a running session: `POST /internal/tasks/:id/abort`, optionally with `{ botId }`. */
+export const BACKEND_TASK_ABORT_SUFFIX = "/abort";
 export const BACKEND_TASK_QUESTION_SUFFIX = "/question";
 
 /** Read-only: the Backend's own view of the Bot store. */

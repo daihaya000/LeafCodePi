@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   forwardPermissionAnswer,
   forwardQuestionAnswer,
+  forwardTaskAbort,
   forwardTaskDetail,
   forwardTaskPrompt,
   forwardablePromptBody,
@@ -143,5 +144,29 @@ describe("forwarding answers", () => {
       forwardQuestionAnswer("task-1", { requestId: "q1" }, { env, fetchImpl: failed as unknown as typeof fetch }),
     ).resolves.toEqual({ ok: false, reason: "bad-response", status: 500 });
     await expect(forwardQuestionAnswer("task-1", { requestId: "q1" }, { env: {} })).resolves.toEqual({ ok: false, reason: "not-configured" });
+  });
+});
+
+describe("forwardTaskAbort", () => {
+  it("stops the session in the Backend and keeps the Bot id", async () => {
+    const fetchImpl = vi.fn(async () => jsonResponse(200, { task: { id: "t1", status: "error" } }));
+    await expect(
+      forwardTaskAbort("t1", { botId: "bot-1", env, fetchImpl: fetchImpl as unknown as typeof fetch }),
+    ).resolves.toEqual({ ok: true, task: { id: "t1", status: "error" } });
+    expect(fetchImpl.mock.calls[0][0]).toBe("http://127.0.0.1:19999/internal/tasks/t1/abort");
+    expect(JSON.parse(String(fetchImpl.mock.calls[0][1]?.body))).toEqual({ botId: "bot-1" });
+  });
+
+  it("sends no Bot id for an ordinary task, and maps 404 to not-found", async () => {
+    const ok = vi.fn(async () => jsonResponse(200, { task: { id: "t1" } }));
+    await forwardTaskAbort("t1", { env, fetchImpl: ok as unknown as typeof fetch });
+    expect(JSON.parse(String(ok.mock.calls[0][1]?.body))).toEqual({});
+    const missing = vi.fn(async () => jsonResponse(404, { error: "Task not found" }));
+    await expect(forwardTaskAbort("t1", { env, fetchImpl: missing as unknown as typeof fetch })).resolves.toEqual({
+      ok: false,
+      reason: "not-found",
+      status: 404,
+    });
+    await expect(forwardTaskAbort("t1", { env: {} })).resolves.toEqual({ ok: false, reason: "not-configured" });
   });
 });

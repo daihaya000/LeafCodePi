@@ -15,6 +15,7 @@ import {
   BACKEND_HEALTH_PATH,
   BACKEND_PROTOCOL_HEADER,
   BACKEND_PROTOCOL_VERSION,
+  BACKEND_TASK_ABORT_SUFFIX,
   BACKEND_TASK_DETAIL_SUFFIX,
   BACKEND_TASK_PERMISSION_SUFFIX,
   BACKEND_TASK_QUESTION_SUFFIX,
@@ -161,6 +162,15 @@ export function promptTaskOnBackend(
  */
 export function expectedBackendGeneration(env: BackendEnv = process.env): string {
   return normalizeExpectedGeneration(env.LEAFCODE_PI_BACKEND_GENERATION);
+}
+
+/** Stops a running session in the owning Backend; a Bot-owned task also marks its outbox. */
+export function abortTaskOnBackend(
+  id: string,
+  body: { botId?: string } = {},
+  options: { env?: BackendEnv; fetchImpl?: typeof fetch; timeoutMs?: number } = {},
+): Promise<BackendResult<{ task: Record<string, unknown> | null }>> {
+  return postBackendJson(`${BACKEND_TASKS_PATH}/${encodeURIComponent(id)}${BACKEND_TASK_ABORT_SUFFIX}`, body, options);
 }
 
 /** Answers a pending approval in the owning Backend. */

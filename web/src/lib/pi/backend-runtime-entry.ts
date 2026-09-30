@@ -11,6 +11,9 @@ export {
   promptTask,
   getTaskDetail,
   abortTask,
+  // Abort must reproduce both the Goal Loop (cold) path and the Bot-owned outbox path.
+  abortTaskIncludingColdGoalLoop,
+  stopBotCodeTask,
   listPendingAttention,
   pendingPermissionForTask,
   pendingQuestionForTask,

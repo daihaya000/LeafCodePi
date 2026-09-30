@@ -1,4 +1,5 @@
 import {
+  abortTaskOnBackend,
   promptTaskOnBackend,
   readBackendTaskDetail,
   respondPermissionOnBackend,
@@ -104,4 +105,19 @@ export async function forwardQuestionAnswer(
   options: { env?: BackendEnv; fetchImpl?: typeof fetch; timeoutMs?: number } = {},
 ): Promise<ForwardedAnswerResult> {
   return answerResult(await respondQuestionOnBackend(id, body, options));
+}
+
+/** Stops a session in the owning Backend. Never falls back to the in-process abort. */
+export async function forwardTaskAbort(
+  id: string,
+  options: { botId?: string; env?: BackendEnv; fetchImpl?: typeof fetch; timeoutMs?: number } = {},
+): Promise<{ ok: true; task: Record<string, unknown> | null } | { ok: false; reason: BackendFailureReason | "not-found"; status?: number }> {
+  const { botId, ...request } = options;
+  const result = await abortTaskOnBackend(id, botId ? { botId } : {}, request);
+  if (!result.ok) {
+    if (result.status === 404) return { ok: false, reason: "not-found", status: 404 };
+    return { ok: false, reason: result.reason, ...(result.status ? { status: result.status } : {}) };
+  }
+  const task = result.body?.task;
+  return { ok: true, task: task && typeof task === "object" ? task : null };
 }

@@ -494,6 +494,48 @@ test("a non-function approval handler is rejected at creation", () => {
   }
 });
 
+test("a forwarded abort stops the session, with the Bot-owned path kept", async (t) => {
+  const seen = [];
+  const { snapshotsUrl, headers } = await fixture(t, {
+    abortTask: async (id, botId) => {
+      seen.push({ id, botId });
+      return botId === "missing" ? null : { id, status: "error" };
+    },
+  });
+  const url = `${snapshotsUrl.replace("pending-snapshots", "tasks")}/task-1/abort`;
+  const post = (body) =>
+    request(url, { method: "POST", headers: { ...headers, "content-type": "application/json" }, body: JSON.stringify(body) });
+  const plain = await post({});
+  assert.equal(plain.status, 200);
+  assert.deepEqual(await plain.json(), { task: { id: "task-1", status: "error" } });
+  assert.equal((await post({ botId: "bot-1" })).status, 200);
+  assert.equal((await post({ botId: "missing" })).status, 404, "nothing to stop is a 404");
+  assert.deepEqual(seen, [
+    { id: "task-1", botId: null },
+    { id: "task-1", botId: "bot-1" },
+    { id: "task-1", botId: "missing" },
+  ]);
+});
+
+test("an abort without a body is accepted, and without a runtime it is a 503", async (t) => {
+  const { snapshotsUrl, headers } = await fixture(t, { abortTask: async (id) => ({ id, status: "error" }) });
+  const url = `${snapshotsUrl.replace("pending-snapshots", "tasks")}/task-1/abort`;
+  assert.equal((await request(url, { method: "POST", headers })).status, 200, "no body at all is fine");
+  const detached = await fixture(t);
+  const detachedUrl = `${detached.snapshotsUrl.replace("pending-snapshots", "tasks")}/task-1/abort`;
+  const response = await request(detachedUrl, { method: "POST", headers: detached.headers });
+  assert.equal(response.status, 503);
+  assert.equal((await response.json()).code, "BACKEND_RUNTIME_UNAVAILABLE");
+  assert.equal((await request(detachedUrl, { headers: detached.headers })).status, 405);
+});
+
+test("a non-function abort handler is rejected at creation", () => {
+  assert.throws(
+    () => createBackendServer({ token: randomBytes(32).toString("base64url"), abortTask: 7 }),
+    /must be a function or null/,
+  );
+});
+
 test("rejects invalid ports and surfaces occupied port errors", async (t) => {
   const { server, address } = await fixture(t);
   for (const port of [-1, 65536, 1.5, "3010", NaN]) {

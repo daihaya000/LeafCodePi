@@ -8,6 +8,7 @@ import {
   BACKEND_PENDING_SNAPSHOTS_PATH,
   BACKEND_PROTOCOL_HEADER,
   BACKEND_PROTOCOL_VERSION,
+  BACKEND_TASK_ABORT_SUFFIX,
   BACKEND_TASK_DETAIL_SUFFIX,
   BACKEND_TASK_PERMISSION_SUFFIX,
   BACKEND_TASK_QUESTION_SUFFIX,
@@ -96,6 +97,8 @@ export function createBackendServer({
   respondToPermission = null,
   /** Answers a pending question: `(id, requestId, answer) => boolean`. */
   respondToQuestion = null,
+  /** Stops a running session: `(id, botId) => task | null`; null means there was nothing to stop. */
+  abortTask = null,
 } = {}) {
   if (
     typeof token !== "string" ||
@@ -121,7 +124,7 @@ export function createBackendServer({
   if (promptTask !== null && typeof promptTask !== "function") {
     throw new Error("promptTask must be a function or null");
   }
-  for (const [name, handler] of Object.entries({ respondToPermission, respondToQuestion })) {
+  for (const [name, handler] of Object.entries({ respondToPermission, respondToQuestion, abortTask })) {
     if (handler !== null && typeof handler !== "function") {
       throw new Error(`${name} must be a function or null`);
     }
@@ -159,7 +162,7 @@ export function createBackendServer({
       : undefined;
     // These suffixes act on the owning process's runtime: starting a session, or answering a pending
     // approval or question. Only the owner may serve them, so the WebUI forwards the request here.
-    const actionSuffix = [BACKEND_TASK_PROMPT_SUFFIX, BACKEND_TASK_PERMISSION_SUFFIX, BACKEND_TASK_QUESTION_SUFFIX]
+    const actionSuffix = [BACKEND_TASK_PROMPT_SUFFIX, BACKEND_TASK_PERMISSION_SUFFIX, BACKEND_TASK_QUESTION_SUFFIX, BACKEND_TASK_ABORT_SUFFIX]
       .find((suffix) => taskSuffix?.endsWith(suffix));
     const actionPath = actionSuffix === undefined || !taskSuffix
       ? undefined
@@ -195,14 +198,23 @@ export function createBackendServer({
         return;
       }
       // No runtime means this process cannot own a session: the caller must not fall back locally.
-      const handler = actionSuffix === BACKEND_TASK_PROMPT_SUFFIX ? promptTask : actionSuffix === BACKEND_TASK_PERMISSION_SUFFIX ? respondToPermission : respondToQuestion;
+      const handlers = {
+        [BACKEND_TASK_PROMPT_SUFFIX]: promptTask,
+        [BACKEND_TASK_PERMISSION_SUFFIX]: respondToPermission,
+        [BACKEND_TASK_QUESTION_SUFFIX]: respondToQuestion,
+        [BACKEND_TASK_ABORT_SUFFIX]: abortTask,
+      };
+      const handler = actionSuffix ? handlers[actionSuffix] : undefined;
       if (typeof handler !== "function") {
         sendJson(response, 503, {
           error: "Backend runtime unavailable", code: BACKEND_ERROR_CODES.runtimeUnavailable,
         });
         return;
       }
-      const body = await readJsonBody(request);
+      // Abort carries no payload beyond an optional Bot id, so an empty body is normal there.
+      const body = actionSuffix === BACKEND_TASK_ABORT_SUFFIX
+        ? await readJsonBody(request).then((read) => (read.ok ? read : { ok: true, value: {} }))
+        : await readJsonBody(request);
       if (!body.ok) {
         sendJson(response, body.reason === "too-large" ? 413 : 400, {
           error: body.reason === "too-large" ? "Request body too large" : "Invalid request body",
@@ -211,7 +223,15 @@ export function createBackendServer({
         return;
       }
       try {
-        if (actionSuffix === BACKEND_TASK_PROMPT_SUFFIX) {
+        if (actionSuffix === BACKEND_TASK_ABORT_SUFFIX) {
+          const botId = typeof body.value?.botId === "string" && body.value.botId ? body.value.botId : null;
+          const task = await handler(actionPath, botId);
+          if (!task) {
+            sendJson(response, 404, { error: "Task not found", code: BACKEND_ERROR_CODES.notFound });
+            return;
+          }
+          sendJson(response, 200, { task });
+        } else if (actionSuffix === BACKEND_TASK_PROMPT_SUFFIX) {
           const summary = await handler(actionPath, body.value);
           sendJson(response, 200, { task: summary ?? null });
         } else if (actionSuffix === BACKEND_TASK_PERMISSION_SUFFIX) {
