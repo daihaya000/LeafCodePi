@@ -67,6 +67,35 @@ export class RoomFileStore {
     try { return { bytes: readFileSync(this.roomFilePath(roomId, file)) }; } catch { return undefined; }
   }
 
+  /** Relay envelope/claim state for one room, kept beside its history and attachments. */
+  relayStatePath(roomId) {
+    this.assertId(roomId);
+    return join(this.roomDataRoot(roomId), "relay.json");
+  }
+
+  /** A missing, unreadable or malformed file is an empty state, never a thrown error. */
+  readRelayState(roomId) {
+    try {
+      const value = JSON.parse(readFileSync(this.relayStatePath(roomId), "utf8"));
+      const envelopes = value.envelopes && typeof value.envelopes === "object" ? value.envelopes : {};
+      const claims = value.claims && typeof value.claims === "object" ? value.claims : {};
+      return { envelopes, claims };
+    } catch { return { envelopes: {}, claims: {} }; }
+  }
+
+  /**
+   * Replace the relay state atomically: rename is atomic on the room's local
+   * filesystem, so a restart never sees a half-written claim or envelope file.
+   * As before, a failed write leaves its temporary file behind.
+   */
+  writeRelayState(roomId, state) {
+    mkdirSync(this.roomDataRoot(roomId), { recursive: true });
+    const path = this.relayStatePath(roomId);
+    const temporary = `${path}.${process.pid}.${randomUUID()}.tmp`;
+    writeFileSync(temporary, `${JSON.stringify(state, null, 2)}\n`, "utf8");
+    renameSync(temporary, path);
+  }
+
   /**
    * Live rooms stay a bounded file; older turns move to the append-only history.
    * Removes the overflow from room.messages in place so the caller can write the

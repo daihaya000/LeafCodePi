@@ -1,4 +1,4 @@
-import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { EventEmitter } from "node:events";
@@ -28,24 +28,8 @@ type RoomRelayEnvelope = { roomId: string; sourceBotId: string; targetBotIds: st
 type RoomRelayState = { envelopes: Record<string, RoomRelayEnvelope>; claims: Record<string, string[]> };
 const RELAY_ENVELOPE_TTL_MS = 10 * 60 * 1000;
 
-function relayStatePath(roomId: string): string { assertId(roomId); return join(roomDataRoot(roomId), "relay.json"); }
-function readRelayState(roomId: string): RoomRelayState {
-  try {
-    const value = JSON.parse(readFileSync(relayStatePath(roomId), "utf8")) as Partial<RoomRelayState>;
-    const envelopes = value.envelopes && typeof value.envelopes === "object" ? value.envelopes : {};
-    const claims = value.claims && typeof value.claims === "object" ? value.claims : {};
-    return { envelopes: envelopes as Record<string, RoomRelayEnvelope>, claims: claims as Record<string, string[]> };
-  } catch { return { envelopes: {}, claims: {} }; }
-}
-function writeRelayState(roomId: string, state: RoomRelayState): void {
-  mkdirSync(roomDataRoot(roomId), { recursive: true });
-  const path = relayStatePath(roomId);
-  const temporary = `${path}.${process.pid}.${randomUUID()}.tmp`;
-  writeFileSync(temporary, `${JSON.stringify(state, null, 2)}\n`, "utf8");
-  // Rename is atomic on the room's local filesystem, so a restart never sees
-  // a half-written claim/envelope file.
-  renameSync(temporary, path);
-}
+function readRelayState(roomId: string): RoomRelayState { return roomFileStore.readRelayState(roomId); }
+function writeRelayState(roomId: string, state: RoomRelayState): void { roomFileStore.writeRelayState(roomId, state); }
 
 function relayBotIsActive(room: RoomDto, botId: string): boolean {
   return room.members.includes(botId) && getBot(botId)?.enabled === true;
