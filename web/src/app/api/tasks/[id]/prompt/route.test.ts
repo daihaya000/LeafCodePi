@@ -27,6 +27,10 @@ vi.mock("@/lib/auto-agent", () => ({
   resolveAutoAgent: mocks.resolveAutoAgent,
   autoAgentHasOwnModel: mocks.autoAgentHasOwnModel,
 }));
+vi.mock("@/lib/pi/runtime-ownership", () => ({
+  localRuntimeBlocked: vi.fn(() => false),
+  assertLocalRuntimeAllowed: vi.fn(),
+}));
 vi.mock("@/lib/pi/harness", () => ({
   isRecoverableResumeSelectionError: mocks.isRecoverableResumeSelectionError,
   jsonError: mocks.jsonError,
@@ -79,6 +83,18 @@ describe("POST /api/tasks/[id]/prompt", () => {
     });
     mocks.promptTask.mockResolvedValue({ id: "task-1", agent: "reviewer" });
     mocks.validateTaskModelSelection.mockResolvedValue(undefined);
+  });
+
+  it("refuses to start a session when the Backend owns the runtime", async () => {
+    const { localRuntimeBlocked } = await import("@/lib/pi/runtime-ownership");
+    vi.mocked(localRuntimeBlocked).mockReturnValue(true);
+    const response = await POST(request({ prompt: "こんにちは" }), { params: Promise.resolve({ id: "task-1" }) });
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toEqual({ error: "Backendが実行を所有しています", code: "RUNTIME_NOT_OWNED" });
+    // The refusal happens before the task is even read, so nothing can be written.
+    expect(mocks.getTask).not.toHaveBeenCalled();
+    expect(mocks.promptTask).not.toHaveBeenCalled();
+    vi.mocked(localRuntimeBlocked).mockReturnValue(false);
   });
 
   it("resolves Auto from the persisted conversation and passes the real agent", async () => {

@@ -13,6 +13,7 @@ import {
   samePath,
 } from "@/lib/paths";
 import { prepareWorkspaceMove, type PreparedWorkspaceMove } from "@/lib/workspace-move";
+import { assertLocalRuntimeAllowed } from "@/lib/pi/runtime-ownership";
 import { notifyPushoverCompletion, shouldNotifyPushoverCompletion } from "@/lib/pushover";
 import { BOT_DEFAULT_TOOL_NAMES, BOT_TOOL_NAMES, botPromptSources, botRuntimeContext, botSoulRevision, botTaskId, getBot, listBots, patchBot } from "@/lib/bots";
 import { AGENTS_MD_FILENAME, codeOnDemandPrompt, codePromptSources, compactSdkDocumentation, readAgentsMdFile } from "@/lib/agents-md";
@@ -9280,6 +9281,9 @@ export async function promptTask(
     fromBot?: boolean;
   },
 ): Promise<TaskSummary> {
+  // A process that does not own the runtime must never start a session: after the cutover the Backend
+  // owns it, and a second owner would double-write the store, leases and sessions.
+  assertLocalRuntimeAllowed();
   const taskBeforePrompt = requireTask(id);
   // 送信者はサーバー側でだけ決める。HTTP 本文にマーカーが含まれていてもBot送信にはしない。
   const promptText = options?.fromBot ? markBotPrompt(prompt) : stripBotPromptPrefix(prompt);

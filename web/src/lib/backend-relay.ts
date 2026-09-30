@@ -14,6 +14,8 @@ import {
   readBackendTasks,
 } from "@/lib/backend-client";
 import { botsWithCodeSessionCounts } from "@backend-core/bot-session-counts.mjs";
+// The ownership rule lives with the runtime guards; the relay only reads it.
+import { webOwnsRuntime } from "@/lib/pi/runtime-ownership";
 
 /** Values that turn the relay on; anything else leaves it off. */
 const RELAY_ENABLED_VALUES = new Set(["1", "true", "yes", "on"]);
@@ -33,14 +35,9 @@ export function isBackendRelayEnabled(env: Record<string, string | undefined> = 
 }
 
 /**
- * Whether this Web process still owns the Pi runtime.
- *
- * It does until the cutover hands the runtime over, so the default is "owns": reading the Backend's
- * view is safe while this process still writes the store, but declaring the cutover done is not.
+ * Whether this Web process still owns the Pi runtime: re-exported so existing callers keep one import.
  */
-export function webOwnsRuntime(env: Record<string, string | undefined> = process.env): boolean {
-  return !RELAY_ENABLED_VALUES.has((env.LEAFCODE_PI_BACKEND_OWNS_RUNTIME ?? "").trim().toLowerCase());
-}
+export { webOwnsRuntime };
 
 /**
  * Whether the relay may use this Backend at all: enabled, and the same runtime generation the Host

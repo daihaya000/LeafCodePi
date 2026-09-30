@@ -30,6 +30,7 @@ import {
   type AutoDecision,
 } from "@/lib/auto-model";
 import type { ThinkingLevel } from "@/lib/types";
+import { localRuntimeBlocked } from "@/lib/pi/runtime-ownership";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -103,6 +104,14 @@ export async function POST(
       !["steer", "followUp"].includes(body.streamingBehavior)
     ) {
       return NextResponse.json({ error: "無効な送信方式です" }, { status: 400 });
+    }
+    // The Backend owns the runtime after the cutover: this process must not start a session, and the
+    // request is refused before any store write or model resolution happens.
+    if (localRuntimeBlocked()) {
+      return NextResponse.json(
+        { error: "Backendが実行を所有しています", code: "RUNTIME_NOT_OWNED" },
+        { status: 409 },
+      );
     }
     const currentTask = getTask(id);
     if (!currentTask) {
