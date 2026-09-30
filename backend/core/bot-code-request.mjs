@@ -357,3 +357,37 @@ export function codePromptRefusal({ action, prompt }) {
   }
   return null;
 }
+
+/**
+ * The state of the Code session a follow-up prompt targets. The caller supplies the facts; the order
+ * matters because the message is the same for every unusable case, while "available" is the only
+ * state that lets a follow-up proceed.
+ */
+export function codeLinkedSessionState({ hasSession, archived, permissionDenied, busy }) {
+  if (hasSession !== true) return "missing";
+  if (archived === true) return "archived";
+  if (permissionDenied === true) return "denied";
+  if (busy === true) return "busy";
+  return "available";
+}
+
+/**
+ * The pre-launch refusals, in order: a Bot that does not allow Code delegation, a Room request whose
+ * turn is gone, an action that is neither start nor prompt, and a follow-up whose target session is
+ * unusable (the caller passes the state from `codeLinkedSessionState`).
+ */
+export function codeLaunchRefusal({ botPermissionMode, isRoomRequest, roomRequestCurrent, action, linkedState }) {
+  if (botPermissionMode === "deny") return "This Bot does not permit Code delegation";
+  if (isRoomRequest === true && roomRequestCurrent !== true) return "Room request is no longer active";
+  if (action !== "start" && action !== "prompt") return "Unknown Code action";
+  if (action === "prompt" && linkedState !== "available") {
+    return "The linked Code session is unavailable or busy; start a separate Code request for independent work";
+  }
+  return null;
+}
+
+/** A start or follow-up may only use a registered, active project. */
+export function codeProjectRefusal({ hasProjectId, hasProject, archived }) {
+  if (hasProjectId !== true) return null;
+  return hasProject === true && archived !== true ? null : "Project is unavailable";
+}

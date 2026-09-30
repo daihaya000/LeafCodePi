@@ -32,7 +32,10 @@ import {
   codeAutoChainRefusal,
   codeCompletionAction,
   codeGoalLoopRefusal,
+  codeLaunchRefusal,
+  codeLinkedSessionState,
   codePromptRefusal,
+  codeProjectRefusal,
   codeReportingRefusal,
   codeTaskIdRefusal,
   MAX_AUTO_CODE_CHAIN as CORE_MAX_AUTO_CODE_CHAIN,
@@ -950,14 +953,30 @@ export function createBotCodeRelay(deps: RelayDependencies) {
   async function launchRequest(request: CodeRequest): Promise<void> {
     const bot = owner(request.originTaskId);
     try {
-      if (bot.permissionMode === "deny") throw new Error("This Bot does not permit Code delegation");
-      if (request.room && !roomRequestIsCurrent(request)) throw new Error("Room request is no longer active");
-      if (request.action !== "start" && request.action !== "prompt") throw new Error("Unknown Code action");
+      // The pre-launch refusals (Bot permission, Room currency, action, linked session, project)
+      // live in backend core; the lookups stay here.
       const linked = request.action === "prompt" ? getTask(request.codeTaskId ?? "") : undefined;
-      if (request.action === "prompt" && (!linked || linked.status === "archived" || linked.permissionMode === "deny" || deps.isBusy(linked.id))) throw new Error("The linked Code session is unavailable or busy; start a separate Code request for independent work");
+      const launchRefusal = codeLaunchRefusal({
+        botPermissionMode: bot.permissionMode,
+        isRoomRequest: Boolean(request.room),
+        roomRequestCurrent: request.room ? roomRequestIsCurrent(request) : false,
+        action: request.action,
+        linkedState: codeLinkedSessionState({
+          hasSession: Boolean(linked),
+          archived: linked?.status === "archived",
+          permissionDenied: linked?.permissionMode === "deny",
+          busy: linked ? deps.isBusy(linked.id) : false,
+        }),
+      });
+      if (launchRefusal) throw new Error(launchRefusal);
       const projectId = request.action === "start" ? request.projectId ?? null : linked!.projectId;
       const project = projectId ? getProject(projectId) : null;
-      if (projectId && (!project || project.archived)) throw new Error("Project is unavailable");
+      const projectRefusal = codeProjectRefusal({
+        hasProjectId: Boolean(projectId),
+        hasProject: Boolean(project),
+        archived: project?.archived === true,
+      });
+      if (projectRefusal) throw new Error(projectRefusal);
       request.state = "starting";
       save(request);
       if (request.action === "start") {

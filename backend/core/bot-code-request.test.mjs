@@ -2,7 +2,8 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
   cancellationTargetForRequest, codeAutoChainRefusal, codeCompletionAction, codeGoalLoopRefusal,
-  codePromptRefusal, codeReportingRefusal, codeTaskIdRefusal, CODE_DELIVERY_RETRY_MS, CODE_RELAY_TICK_MS,
+  codeLaunchRefusal, codeLinkedSessionState, codePromptRefusal, codeProjectRefusal, codeReportingRefusal,
+  codeTaskIdRefusal, CODE_DELIVERY_RETRY_MS, CODE_RELAY_TICK_MS,
   MAX_AUTO_CODE_CHAIN, MAX_CODE_PROMPT_CHARS,
   CODE_REQUEST_RETENTION_MS, codeRequestPayload,
   codeResultBaselineMessages,
@@ -440,4 +441,43 @@ test("a prompt is required within the limit, except for an abort", () => {
   assert.equal(codePromptRefusal({ action: "start", prompt: "a".repeat(MAX_CODE_PROMPT_CHARS + 1) }), "A prompt of 1–32000 characters is required");
   assert.equal(MAX_CODE_PROMPT_CHARS, 32_000);
   assert.equal(MAX_AUTO_CODE_CHAIN, 5);
+});
+
+test("the linked session state reports the first unusable reason", () => {
+  assert.equal(codeLinkedSessionState({ hasSession: true, archived: false, permissionDenied: false, busy: false }), "available");
+  assert.equal(codeLinkedSessionState({ hasSession: false, archived: false, permissionDenied: false, busy: false }), "missing");
+  assert.equal(codeLinkedSessionState({ hasSession: true, archived: true, permissionDenied: false, busy: false }), "archived");
+  assert.equal(codeLinkedSessionState({ hasSession: true, archived: false, permissionDenied: true, busy: false }), "denied");
+  assert.equal(codeLinkedSessionState({ hasSession: true, archived: false, permissionDenied: false, busy: true }), "busy");
+  assert.equal(codeLinkedSessionState({ hasSession: true, archived: true, permissionDenied: true, busy: true }), "archived", "the first reason wins");
+  for (const value of [undefined, null, 0, "true", 1]) {
+    assert.equal(codeLinkedSessionState({ hasSession: value, archived: false, permissionDenied: false, busy: false }), "missing", String(value));
+    assert.equal(codeLinkedSessionState({ hasSession: true, archived: value, permissionDenied: false, busy: false }), "available", String(value));
+  }
+});
+
+test("the pre-launch refusals follow the documented order", () => {
+  const base = { botPermissionMode: "ask", isRoomRequest: false, roomRequestCurrent: true, action: "start", linkedState: "available" };
+  assert.equal(codeLaunchRefusal(base), null);
+  assert.match(codeLaunchRefusal({ ...base, botPermissionMode: "deny" }), /does not permit/);
+  assert.match(codeLaunchRefusal({ ...base, isRoomRequest: true, roomRequestCurrent: false }), /no longer active/);
+  assert.equal(codeLaunchRefusal({ ...base, isRoomRequest: true, roomRequestCurrent: true }), null);
+  assert.match(codeLaunchRefusal({ ...base, action: "status" }), /Unknown Code action/);
+  assert.match(codeLaunchRefusal({ ...base, action: "prompt", linkedState: "busy" }), /unavailable or busy/);
+  assert.equal(codeLaunchRefusal({ ...base, action: "prompt", linkedState: "available" }), null);
+  // The earlier refusals win over the later ones.
+  assert.match(codeLaunchRefusal({ ...base, botPermissionMode: "deny", isRoomRequest: true, roomRequestCurrent: false, action: "status" }), /does not permit/);
+  assert.match(codeLaunchRefusal({ ...base, isRoomRequest: true, roomRequestCurrent: false, action: "status" }), /no longer active/);
+  assert.match(codeLaunchRefusal({ ...base, action: "status", linkedState: "missing" }), /Unknown Code action/, "an unknown action is refused before the session state is read");
+});
+
+test("a project is only refused when one was requested but is unusable", () => {
+  assert.equal(codeProjectRefusal({ hasProjectId: false, hasProject: false, archived: false }), null);
+  assert.equal(codeProjectRefusal({ hasProjectId: true, hasProject: true, archived: false }), null);
+  assert.equal(codeProjectRefusal({ hasProjectId: true, hasProject: false, archived: false }), "Project is unavailable");
+  assert.equal(codeProjectRefusal({ hasProjectId: true, hasProject: true, archived: true }), "Project is unavailable");
+  for (const value of [undefined, null, 0, "true", 1]) {
+    assert.equal(codeProjectRefusal({ hasProjectId: value, hasProject: false, archived: false }), null, String(value));
+    assert.equal(codeProjectRefusal({ hasProjectId: true, hasProject: value, archived: false }), "Project is unavailable", String(value));
+  }
 });

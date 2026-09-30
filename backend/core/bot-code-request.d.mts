@@ -140,3 +140,27 @@ export function codeReportingRefusal(input: {
 export function codeAutoChainRefusal(input: { autoChain: number; maxChain: number }): string | null;
 /** Prompt refusal message, or null. */
 export function codePromptRefusal(input: { action: string; prompt: string | undefined }): string | null;
+
+/** The state of the Code session a follow-up prompt targets. */
+export function codeLinkedSessionState(input: {
+  hasSession: boolean;
+  archived: boolean;
+  permissionDenied: boolean;
+  busy: boolean;
+}): "missing" | "archived" | "denied" | "busy" | "available";
+
+/** The pre-launch refusal message, or null. */
+export function codeLaunchRefusal(input: {
+  botPermissionMode: string | null | undefined;
+  isRoomRequest: boolean;
+  roomRequestCurrent: boolean;
+  action: string | undefined;
+  linkedState?: string | undefined;
+}): string | null;
+
+/** The project refusal message, or null. */
+export function codeProjectRefusal(input: {
+  hasProjectId: boolean;
+  hasProject: boolean;
+  archived: boolean;
+}): string | null;
