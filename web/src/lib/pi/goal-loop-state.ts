@@ -7,7 +7,9 @@ import {
   isGoalLoopSessionOwnedStatus,
 } from "@/lib/goal-loop-settings";
 
-export { GOAL_LOOP_LIVE_STATUSES, isGoalLoopLiveStatus } from "@/lib/goal-loop-settings";
+export {
+  GOAL_LOOP_LIVE_STATUSES, isGoalLoopControlAction, isGoalLoopLiveStatus, shouldRollbackStaleGoalPrepare,
+} from "@/lib/goal-loop-settings";
 
 // Compatibility entrypoint. Files live in backend core; the data directory and the
 // settings clamps are injected, and the process-local cache belongs to the store.

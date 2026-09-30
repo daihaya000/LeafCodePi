@@ -20,3 +20,16 @@ export function normalizeGoalLoopAcceptance(value: unknown): string[] | null;
 export function parseGoalLoopCooldownSeconds(value: unknown): number;
 export function clampGoalLoopCooldownSeconds(value: unknown): number;
 export function formatGoalLoopCooldownSeconds(value: number): string;
+
+/** Whether a Goal Loop command is a control action that bypasses the stale-generation guard. */
+export function isGoalLoopControlAction(action: string): boolean;
+
+/** Whether a stale start/resume must roll back the status and lease it prepared. */
+export function shouldRollbackStaleGoalPrepare(input: {
+  isStartOrResume: boolean;
+  ownsLease: boolean;
+  taskStatus: string | undefined;
+  promptActive: boolean;
+  isStreaming: boolean;
+  isCompacting: boolean;
+}): boolean;

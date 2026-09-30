@@ -137,7 +137,14 @@ import {
   isEditableBaseUrlProvider,
   setProviderBaseUrl as setProviderBaseUrlFromEndpoints,
 } from "@/lib/provider-endpoints";
-import { isGoalLoopLiveStatus, isGoalLoopOperatorHold, isGoalLoopSessionOwned, readGoalLoopState } from "@/lib/pi/goal-loop-state";
+import {
+  isGoalLoopControlAction,
+  isGoalLoopLiveStatus,
+  isGoalLoopOperatorHold,
+  isGoalLoopSessionOwned,
+  readGoalLoopState,
+  shouldRollbackStaleGoalPrepare,
+} from "@/lib/pi/goal-loop-state";
 import { activeToolLabel } from "@/lib/tool-labels";
 import type { TaskProgressSnapshot } from "@/lib/task-progress";
 import { AUTO_ARCHIVE_DAYS_SETTING_KEY, parseAutoArchiveDays } from "@/lib/auto-archive-settings";
@@ -7503,19 +7510,18 @@ export async function goalLoopCommand(
     );
   }
   const current = state().live.get(taskId) ?? live;
-  const isControlAction =
-    input.action === "pause" || input.action === "stop" || input.action === "complete";
+  // The control-action classification and the rollback rule live in backend core.
+  const isControlAction = isGoalLoopControlAction(input.action);
   const rollbackStaleGoalPrepare = (liveState: typeof current) => {
     // prepareLiveForPrompt may have set working + lease after abort already idled us.
-    // Roll that back when we still own the lease and nothing else is running.
-    if (
-      (input.action === "start" || input.action === "resume") &&
-      ownsTaskLease(taskId) &&
-      getTask(taskId)?.status === "working" &&
-      !liveState.promptActive &&
-      !liveState.session.isStreaming &&
-      !liveState.session.isCompacting
-    ) {
+    if (shouldRollbackStaleGoalPrepare({
+      isStartOrResume: input.action === "start" || input.action === "resume",
+      ownsLease: ownsTaskLease(taskId),
+      taskStatus: getTask(taskId)?.status,
+      promptActive: liveState.promptActive === true,
+      isStreaming: liveState.session.isStreaming === true,
+      isCompacting: liveState.session.isCompacting === true,
+    })) {
       setTaskStatus(taskId, "idle");
       releaseTaskLease(taskId);
       emitTaskSnapshot(liveState, "goal_command_stale");

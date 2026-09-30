@@ -114,3 +114,36 @@ export function formatGoalLoopCooldownSeconds(value) {
   if (remaining) parts.push(`${remaining}s`);
   return parts.join(" ");
 }
+
+/**
+ * Whether a Goal Loop command is a control action (pause/stop/complete). Control actions must
+ * still reach the session after an abort bumped the prompt generation, otherwise the on-disk
+ * Goal Loop would stay live while the API reported success.
+ */
+export function isGoalLoopControlAction(action) {
+  return action === "pause" || action === "stop" || action === "complete";
+}
+
+/**
+ * Whether a stale start/resume must roll back what it prepared. `prepareLiveForPrompt` may have
+ * marked the task working and taken the lease before the generation turned stale; that is only
+ * rolled back while this worker still owns the lease and nothing is running, so a real turn
+ * that started in the meantime keeps its status.
+ */
+export function shouldRollbackStaleGoalPrepare({
+  isStartOrResume,
+  ownsLease,
+  taskStatus,
+  promptActive,
+  isStreaming,
+  isCompacting,
+}) {
+  return (
+    isStartOrResume === true &&
+    ownsLease === true &&
+    taskStatus === "working" &&
+    promptActive !== true &&
+    isStreaming !== true &&
+    isCompacting !== true
+  );
+}

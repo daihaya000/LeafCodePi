@@ -5,6 +5,8 @@ export {
   DEFAULT_GOAL_LOOP_MAX_TURNS,
   formatGoalLoopCooldownSeconds,
   GOAL_LOOP_LIVE_STATUSES,
+  isGoalLoopControlAction,
+  shouldRollbackStaleGoalPrepare,
   MAX_GOAL_LOOP_ACCEPTANCE_ITEMS,
   MAX_GOAL_LOOP_ACCEPTANCE_ITEM_CHARS,
   MAX_GOAL_LOOP_COOLDOWN_SECONDS,

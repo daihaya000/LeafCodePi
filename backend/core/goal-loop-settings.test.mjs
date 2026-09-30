@@ -3,9 +3,11 @@ import { test } from "node:test";
 import {
   clampGoalLoopCooldownSeconds, clampGoalLoopMaxTurns, DEFAULT_GOAL_LOOP_COOLDOWN_SECONDS,
   DEFAULT_GOAL_LOOP_MAX_TURNS, formatGoalLoopCooldownSeconds, GOAL_LOOP_LIVE_STATUSES,
-  isGoalLoopLiveStatus, isGoalLoopSessionOwnedStatus, MAX_GOAL_LOOP_ACCEPTANCE_ITEMS,
+  isGoalLoopControlAction, isGoalLoopLiveStatus, isGoalLoopSessionOwnedStatus,
+  MAX_GOAL_LOOP_ACCEPTANCE_ITEMS,
   MAX_GOAL_LOOP_ACCEPTANCE_ITEM_CHARS, MAX_GOAL_LOOP_COOLDOWN_SECONDS, MAX_GOAL_LOOP_TURNS,
   nextGoalLoopTurn, normalizeGoalLoopAcceptance, normalizeGoalLoopMaxTurns, parseGoalLoopCooldownSeconds,
+  shouldRollbackStaleGoalPrepare,
 } from "./goal-loop-settings.mjs";
 
 test("the documented defaults and bounds are unchanged", () => {
@@ -106,4 +108,42 @@ test("cooldowns clamp into range and format back into the token form", () => {
   assert.equal(formatGoalLoopCooldownSeconds(30), "30s");
   // Round-trips through parsing, and clamps first like the original.
   assert.equal(formatGoalLoopCooldownSeconds(MAX_GOAL_LOOP_COOLDOWN_SECONDS + 10), "1d");
+});
+
+test("only pause, stop and complete are control actions", () => {
+  for (const action of ["pause", "stop", "complete"]) {
+    assert.equal(isGoalLoopControlAction(action), true, action);
+  }
+  for (const action of ["start", "resume", "", "PAUSE", undefined, null]) {
+    assert.equal(isGoalLoopControlAction(action), false, String(action));
+  }
+});
+
+test("a stale start/resume rolls back only its own preparation", () => {
+  const base = {
+    isStartOrResume: true, ownsLease: true, taskStatus: "working",
+    promptActive: false, isStreaming: false, isCompacting: false,
+  };
+  assert.equal(shouldRollbackStaleGoalPrepare(base), true);
+  assert.equal(shouldRollbackStaleGoalPrepare({ ...base, isStartOrResume: false }), false, "a control action keeps its state");
+  assert.equal(shouldRollbackStaleGoalPrepare({ ...base, ownsLease: false }), false, "another worker owns the lease now");
+  assert.equal(shouldRollbackStaleGoalPrepare({ ...base, taskStatus: "idle" }), false);
+  assert.equal(shouldRollbackStaleGoalPrepare({ ...base, taskStatus: undefined }), false);
+  assert.equal(shouldRollbackStaleGoalPrepare({ ...base, promptActive: true }), false);
+  assert.equal(shouldRollbackStaleGoalPrepare({ ...base, isStreaming: true }), false);
+  assert.equal(shouldRollbackStaleGoalPrepare({ ...base, isCompacting: true }), false);
+});
+
+test("only an explicit true counts as running or owning in the rollback check", () => {
+  const base = {
+    isStartOrResume: true, ownsLease: true, taskStatus: "working",
+    promptActive: false, isStreaming: false, isCompacting: false,
+  };
+  for (const value of [undefined, null, 0, "true", 1]) {
+    assert.equal(shouldRollbackStaleGoalPrepare({ ...base, isStartOrResume: value }), false, String(value));
+    assert.equal(shouldRollbackStaleGoalPrepare({ ...base, ownsLease: value }), false, String(value));
+    assert.equal(shouldRollbackStaleGoalPrepare({ ...base, promptActive: value }), true, String(value));
+    assert.equal(shouldRollbackStaleGoalPrepare({ ...base, isStreaming: value }), true, String(value));
+    assert.equal(shouldRollbackStaleGoalPrepare({ ...base, isCompacting: value }), true, String(value));
+  }
 });
