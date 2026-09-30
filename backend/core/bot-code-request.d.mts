@@ -164,3 +164,20 @@ export function codeProjectRefusal(input: {
   hasProject: boolean;
   archived: boolean;
 }): string | null;
+
+/** The outbox row for a new Code request (optional parts omitted when empty). */
+export function buildCodeRequestRecord(input: {
+  id: string;
+  botId: string;
+  originTaskId: string;
+  action: string;
+  linkedTaskId?: string | null;
+  projectId: string | null;
+  goalLoop?: unknown;
+  autoChain?: number;
+  queuedAt: number;
+  prompt: string;
+  baseline?: string | null;
+  room?: unknown;
+  images?: readonly unknown[] | undefined;
+}): Record<string, unknown>;

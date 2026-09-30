@@ -391,3 +391,44 @@ export function codeProjectRefusal({ hasProjectId, hasProject, archived }) {
   if (hasProjectId !== true) return null;
   return hasProject === true && archived !== true ? null : "Project is unavailable";
 }
+
+/**
+ * The outbox row for a new Code request. A `prompt` action targets the linked session and records the
+ * message it must read from (`baseline`); a `start` creates its own session, so both the id and the
+ * baseline are null. Optional parts are omitted rather than stored empty: a request without a Goal
+ * Loop, without an autonomous-continuation count, without a Room origin and without images keeps
+ * those keys out of the file, which is what the readers expect.
+ */
+export function buildCodeRequestRecord({
+  id,
+  botId,
+  originTaskId,
+  action,
+  linkedTaskId,
+  projectId,
+  goalLoop,
+  autoChain,
+  queuedAt,
+  prompt,
+  baseline,
+  room,
+  images,
+}) {
+  const isPrompt = action === "prompt";
+  return {
+    id,
+    botId,
+    originTaskId,
+    codeTaskId: isPrompt ? linkedTaskId ?? null : null,
+    state: "starting",
+    action: isPrompt ? "prompt" : "start",
+    projectId,
+    ...(goalLoop ? { goalLoop } : {}),
+    ...(autoChain ? { autoChain } : {}),
+    queuedAt,
+    prompt: typeof prompt === "string" ? prompt.trim() : "",
+    baseline: isPrompt ? baseline ?? null : null,
+    ...(room ? { room } : {}),
+    ...(images?.length ? { promptOptions: { images } } : {}),
+  };
+}

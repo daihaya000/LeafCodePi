@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
-  cancellationTargetForRequest, codeAutoChainRefusal, codeCompletionAction, codeGoalLoopRefusal,
+  buildCodeRequestRecord, cancellationTargetForRequest, codeAutoChainRefusal, codeCompletionAction,
+  codeGoalLoopRefusal,
   codeLaunchRefusal, codeLinkedSessionState, codePromptRefusal, codeProjectRefusal, codeReportingRefusal,
   codeTaskIdRefusal, CODE_DELIVERY_RETRY_MS, CODE_RELAY_TICK_MS,
   MAX_AUTO_CODE_CHAIN, MAX_CODE_PROMPT_CHARS,
@@ -480,4 +481,45 @@ test("a project is only refused when one was requested but is unusable", () => {
     assert.equal(codeProjectRefusal({ hasProjectId: value, hasProject: false, archived: false }), null, String(value));
     assert.equal(codeProjectRefusal({ hasProjectId: true, hasProject: value, archived: false }), "Project is unavailable", String(value));
   }
+});
+
+test("a start records no linked session or baseline, a prompt records both", () => {
+  const base = {
+    id: "r1", botId: "bot-1", originTaskId: "bot:bot-1", projectId: null,
+    queuedAt: 1_000, prompt: "  do it  ", linkedTaskId: "code-1", baseline: "msg-1",
+  };
+  assert.deepEqual(buildCodeRequestRecord({ ...base, action: "start" }), {
+    id: "r1", botId: "bot-1", originTaskId: "bot:bot-1", codeTaskId: null,
+    state: "starting", action: "start", projectId: null, queuedAt: 1_000, prompt: "do it", baseline: null,
+  });
+  assert.deepEqual(buildCodeRequestRecord({ ...base, action: "prompt" }), {
+    id: "r1", botId: "bot-1", originTaskId: "bot:bot-1", codeTaskId: "code-1",
+    state: "starting", action: "prompt", projectId: null, queuedAt: 1_000, prompt: "do it", baseline: "msg-1",
+  });
+});
+
+test("optional parts are omitted instead of stored empty", () => {
+  const base = {
+    id: "r1", botId: "bot-1", originTaskId: "bot:bot-1", action: "start",
+    projectId: null, queuedAt: 1_000, prompt: "do it",
+  };
+  const bare = buildCodeRequestRecord(base);
+  for (const key of ["goalLoop", "autoChain", "room", "promptOptions"]) {
+    assert.equal(key in bare, false, key);
+  }
+  const full = buildCodeRequestRecord({
+    ...base,
+    goalLoop: { maxTurns: 3 },
+    autoChain: 2,
+    room: { id: "room-1" },
+    images: [{ mimeType: "image/png", data: "x" }],
+  });
+  assert.deepEqual(full.goalLoop, { maxTurns: 3 });
+  assert.equal(full.autoChain, 2);
+  assert.deepEqual(full.room, { id: "room-1" });
+  assert.deepEqual(full.promptOptions, { images: [{ mimeType: "image/png", data: "x" }] });
+  // A zero count and an empty image list are "absent".
+  assert.equal("autoChain" in buildCodeRequestRecord({ ...base, autoChain: 0 }), false);
+  assert.equal("promptOptions" in buildCodeRequestRecord({ ...base, images: [] }), false);
+  assert.equal("promptOptions" in buildCodeRequestRecord({ ...base, images: undefined }), false);
 });

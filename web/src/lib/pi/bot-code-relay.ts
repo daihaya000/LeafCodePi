@@ -26,6 +26,7 @@ import {
 import { isGoalLoopOperatorHold } from "@/lib/pi/goal-loop-state";
 import { isRoomStopRequest } from "@/lib/room-conversation";
 import {
+  buildCodeRequestRecord,
   cancellationTargetForRequest,
   CODE_DELIVERY_RETRY_MS,
   CODE_RELAY_TICK_MS,
@@ -863,7 +864,22 @@ export function createBotCodeRelay(deps: RelayDependencies) {
       const project = projectId ? getProject(projectId) : null;
       if (projectId && (!project || project.archived)) throw new Error("Project is unavailable");
       const baseline = input.action === "prompt" ? (await deps.messages(linked!)).at(-1)?.id ?? null : null;
-      const request: CodeRequest = { id, botId: bot.id, originTaskId, codeTaskId: input.action === "prompt" ? linked!.id : null, state: "starting", action: input.action === "prompt" ? "prompt" : "start", projectId, ...(goalLoop ? { goalLoop } : {}), ...(autoChain ? { autoChain } : {}), queuedAt: Date.now(), prompt: input.prompt!.trim(), baseline, ...(room ? { room } : {}), ...(resolvedImages?.images?.length ? { promptOptions: { images: resolvedImages.images } } : {}) };
+      // The record shape (linked session, baseline, omitted empty parts) lives in backend core.
+      const request = buildCodeRequestRecord({
+        id,
+        botId: bot.id,
+        originTaskId,
+        action: input.action,
+        linkedTaskId: linked?.id,
+        projectId,
+        goalLoop,
+        autoChain,
+        queuedAt: Date.now(),
+        prompt: input.prompt ?? "",
+        baseline,
+        room,
+        images: resolvedImages?.images,
+      }) as CodeRequest;
       await launchRequest(request);
       start();
       return {
