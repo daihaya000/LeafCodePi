@@ -254,6 +254,7 @@ import {
   resolveTaskDetailSource,
   shouldSuggestCompaction,
 } from "@backend-core/task-detail.mjs";
+import { codeSessionChangedPayload } from "@backend-core/bot-code-request.mjs";
 import { attentionClearTargets, attentionEmitPlan, attentionItemForTask, resolveAttentionSource } from "@backend-core/attention.mjs";
 import { ensureGlobalPromptService } from "@backend-core/webui-bridge.mjs";
 import {
@@ -1561,13 +1562,13 @@ function emitAttention(taskId: string, payload: { type: string; [key: string]: u
 
 /** Tell the originating Bot/Room stream about a Code request's terminal state without mounting Code UI. */
 function emitCodeSessionChanged(request: CodeRequest): void {
-  const payload = {
-    type: "snapshot",
+  // The event payload shape lives in backend core; the event names stay here.
+  const payload = codeSessionChangedPayload({
     eventType: BOT_CODE_SESSION_CHANGED_EVENT,
-    codeRequestId: request.id,
+    requestId: request.id,
     codeTaskId: request.codeTaskId,
-    codeState: request.state,
-  } satisfies Record<string, unknown>;
+    state: request.state,
+  }) satisfies Record<string, unknown>;
   emit(request.originTaskId, payload);
   state().events.emit(BOT_CODE_SESSION_EVENT_CHANNEL, payload);
 }
