@@ -218,6 +218,7 @@ import { restoredPromptState, restoredTaskMetadata, restoredThroughputState as c
 import { compactionFailureMessage, isHarnessAutoCompactionError as coreIsHarnessAutoCompactionError, runAgentStartTaskSync, shouldApplySettledStatus, shouldSkipEventForMissingTask, shouldSyncTaskFromSessionEvent as coreShouldSyncTaskFromSessionEvent, type SessionSyncEvent } from "@backend-core/session-event-decisions.mjs";
 import { classifySnapshotEvent, flushPendingSnapshotOnUnsubscribe, pendingSnapshotFlush, SNAPSHOT_THROTTLE_MS } from "@backend-core/snapshot-schedule.mjs";
 import { publishAttachedLive, resolveEnsureLiveAttempt, runEnsureLiveGates } from "@backend-core/live-lifecycle.mjs";
+import { isReplacedPackageSource } from "@backend-core/replaced-packages.mjs";
 import { resolveBotSessionOptions } from "@backend-core/bot-session-options.mjs";
 import { runSessionEventEffects } from "@backend-core/session-event-effects.mjs";
 import { isBotTask, liveSessionName, liveSessionRefusalError, liveSessionWorkspace, preflightLiveSession, resolveSessionPermissionDefaults, TASK_ARCHIVED_MESSAGE, TASK_NOT_FOUND_MESSAGE, resolveSessionAccountId, resolveSessionAccountRefusal, resolveSessionPermissionMode, resolveSessionSkillPermission, resolveSessionThinkingLevelSource, resolveStoredModelOutcome } from "@backend-core/live-session-preflight.mjs";
@@ -3088,20 +3089,8 @@ function botSessionOptions(
   };
 }
 
-/** Match pinned npm and git sources without changing the user's settings. */
-export function isReplacedPackageSource(entry: unknown, replacedPackageNames: ReadonlySet<string>): boolean {
-  const source =
-    typeof entry === "string"
-      ? entry
-      : entry && typeof entry === "object" && typeof (entry as { source?: unknown }).source === "string"
-        ? (entry as { source: string }).source
-        : "";
-  const name = source.startsWith("npm:") ? source.slice("npm:".length) : source;
-  const versionAt = name.lastIndexOf("@");
-  if (replacedPackageNames.has(versionAt > 0 ? name.slice(0, versionAt) : name)) return true;
-  return replacedPackageNames.has("@injaneity/pi-computer-use")
-    && /^(?:git:github\.com\/injaneity\/pi-computer-use|https:\/\/github\.com\/injaneity\/pi-computer-use)(?:@[^/]+)?$/.test(source);
-}
+// The matching rule lives in backend core; callers keep passing the replaced set.
+export { isReplacedPackageSource };
 
 /** Exclude replaced packages and disabled package extensions before SDK import. */
 export function settingsManagerExcludingReplacedPackages(
