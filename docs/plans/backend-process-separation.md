@@ -27,7 +27,7 @@
 ## 段階と現在地
 
 1. 通信契約・依存境界: **進行中**。認証、版数、health、起動/停止を追加。既存のタスク・モデル・質問/承認・Bot/Room・履歴・Git等のDTOを `shared/types.ts` へ移動。既存 `@/lib/types` は互換再エクスポート。共有契約はNext/SDK/Node型への依存なしで単独型検証できる。設定等の個別ファイルにあるDTOと実行依存の抽出は後続。
-2. Next非依存の実行層: **着手済み・未完**。下表のとおり、Next/SDK/アプリストアに依存しない判定・順序・保存をBackend coreへ移設し、Webは同名の互換入口（注入アダプター）にした。移設済みモジュールはNext/Webをimportせずに読み込め（多くは別Nodeプロセスでの実行もテスト済み）、Backend側テストで挙動を固定している。ただし **Backendプロセスは実行経路に未接続** で、SDK・ストア・leaseの実体は従来どおりWebプロセス内にある（HTTP Backendのhealthは503/startingのまま）。
+2. Next非依存の実行層: **着手済み・未完**。下表のとおり、Next/SDK/アプリストアに依存しない判定・順序・保存をBackend coreへ移設し、Webは同名の互換入口（注入アダプター）にした。実測（2026-09-30時点）: `backend/core/` は**29モジュール・31テストファイル**、`backend/src/` は transport と起動アダプタの3ファイル（`server.mjs`・`entry.mjs`・`runtime-host.mjs`）。Backendテストは**283件成功**。Web側は4339件成功・2件失敗（既存の`/api/health`のdataDir、`MessageCardRadius`）とMCP拡張の`typebox`未解決による失敗1件で、いずれも本作業とは無関係。移設済みモジュールはNext/Webをimportせずに読み込め（多くは別Nodeプロセスでの実行もテスト済み）、Backend側テストで挙動を固定している。ただし **Backendプロセスは実行経路に未接続** で、SDK・ストア・leaseの実体は従来どおりWebプロセス内にある（HTTP Backendのhealthは503/startingのまま）。
 
    | モジュール（`backend/core/`） | 移設した内容 | Webに残るもの |
    | --- | --- | --- |
@@ -52,6 +52,7 @@
    | `room-recovery.mjs` | 放置working発言の判定、handoff整理と再配信 | Room保存・実行 |
    | `room-normalize.mjs` | 保存済みRoom JSONの検証・正規化（不正なメッセージ/handoff/outcomeの破棄、メンバー重複除去、opt-inフラグ。handoff状態の語彙は共有DTO定数を注入） | Room読書き・書込み・イベント発火・Bot検証 |
    | `room-store.mjs` | Roomファイルの読書き（原子的tmp+rename、ID検証、更新日時降順の一覧、書込後の通知フック）、データディレクトリの解決、live上限を超えた発言のhistory.jsonlへの追記、画像・添付のパス検証と読出、relay状態（relay.json）の読書き、relay envelopeの発行・消費（深さ上限・TTL・consumed・claimsによる重複参加の拒否） | ルート解決（dataDir配下）とprocess-localなイベントバスの実体 |
+   | `room-relay.mjs` | relay envelopeの発行・消費（深さ上限3、TTL10分、consumed、親envelopeの検証、claimsと既参加ターンによるfan-out拒否、room lock下の原子的クレーム） | 部屋とBotの実体・ロック・時計・UUID |
    | `bot-code-report.mjs` | Bot向けCode結果報告プロンプトの組立 | Room用前置きプロンプトの生成 |
 
    既知の潜在不具合: `createBotConfig` の `skills` は浅いコピーで、`include`/`exclude` の配列が `DEFAULT_SKILLS` と共有される（現状は誰も変更しないため実害は未確認。移設前からの挙動を維持しつつ、テストで実挙動として固定）。**未完（実切替前に必要）**: `live`セッションの所有と`attachSession`/`ensureLive`、スナップショット配信、Goal Loop・サブエージェント停止の実体、Bot intercom、各起動サービスの実装、他の業務ストア、待機要求の内部API化（Web再接続時にBackendのpending snapshotを取得して再表示する経路。getTaskDetail・SSE snapshot・attention一覧はすでに同じメモリ上のpendingを返すので、Backend内に限れば再表示は成立している）。同一IDの待機中再送の合流と別セッションとのID衝突の拒否はpending-promptsで実装済み。待機要求のディスク永続化は行わない方針とする（根拠: 待機は SDK のツール呼び出しがプロセス内で await しているため、Backend再起動後に保存済みの要求を復元しても応答先がない。再起動時は孤立タスク照合でerrorになりrestart-resumeが扱う。この前提はセッションをBackendプロセス内に置く限り成り立つ）。WebUI切断中もBackend側の5分タイムアウトは進み、期限後は拒否扱いとなる（従来のブラウザを閉じた場合と同じ）、ブリッジのプロセス間化（現状はプロセス内globalThis）、期限切れleaseの再取得は、複数プロセス競合で旧実装が二重所有（5並列中4つが取得成功）を起こすことを実測した。per-task reclaim lock（再検証付き・10秒でstale回収）で直列化し、同条件で1所有者になることを複数Nodeプロセス試験で確認した。ただしreclaim lock未対応の旧ビルドが同じ`task-leases`を触る間は旧競合が残り、実切替時は旧経路を停止してから切り替える。reclaim lockを残したcrashed holderは10秒で回収する。lock取得に負けた側が一時的に「実行中」と返す挙動は許容仕様。Backend起動アダプタの前提: `backend/src/runtime-host.mjs` に、共通startupの完了後だけreadyになり、失敗・停止時はreadyにならない状態機械（失敗は再試行可、停止は永続、例外本文は出さない）を追加した。`entry.mjs` にはまだ接続せず、healthは503/startingのまま。接続には、startupの各サービスがWeb専用モジュールに依存している点の解消が先に必要: パス解決（`lib/paths.ts` のdataDir・storePath・workspace割当・path同一性）、Bot/Roomストア、`harness`（promptTask・startBotCodeRelay）、ルーティン実行本体。現状でWeb非依存に組み立てられるのはleaseとアプリストアで、そのパス解決（`app-paths.mjs`・`xdg-user-dirs.mjs`）はcoreへ移設済み。Bot/Roomストア、`harness`依存部、ルーティン実行本体のWeb非依存化が残る。全体のWeb型検証は、拡張（`leafcode-goal-loop`/`loop-guard`）が `@earendil-works/pi-coding-agent` を解決できず既存から失敗しており、本番用 `tsconfig.build.json` の型検証で代替している。
@@ -99,4 +100,4 @@ Backend単独のSDK検証前には `npm --prefix backend ci --ignore-scripts` �
 
 移行中のWeb互換入口は `@backend-core/*` を参照するため、productionミラー内の `backend-core/` へcoreソースだけを独立コピーする。Backendの依存関係・サーバー・稼働ディレクトリはコピーしない。core更新も一時的にWebのビルド更新判定へ含め、Webからのruntime import撤去時に外す。HTTP BackendへはまだSDKや起動アダプターを接続せず、healthは503/startingのまま。共通startupの完了はSDK/Backendのreadyではない。移行中はWebのプロセス内singletonが起動アダプターを所有し、Backendとの二重起動を行わない。
 
-今回の抽出では以上の分離完了を主張しない。稼働中WebUIやGoal Loopの再起動も行わない。
+本ループ（ターン21〜30）で追加した移設: 期限内leaseの二重所有修正（reclaim lock）、待機要求の冪等受付と永続化しない方針の明文化、Backendのreadiness状態機械、アプリのパス解決、同期ディレクトリロック、Roomの正規化・ファイル読書き・履歴追記・画像/添付・relay状態とenvelope、Botのアイコン語彙・設定正規化・ファイル層・既定値/パッチ・副作用順序・runtime context・プロンプトソース。いずれもWeb側の互換入口を残し、Backendテストで挙動を固定した。ただし **分離完了は主張しない**。Backendプロセスは依然として実行経路に未接続（healthは503/starting）で、稼働中WebUIやGoal Loopの再起動も行っていない。実切替は「段階3以降（独立API・Web中継、Host分離、旧経路撤去）」を終えた後に行う。
