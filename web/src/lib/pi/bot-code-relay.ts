@@ -44,6 +44,7 @@ import {
   parseGoalLoopInput,
   codeRequestPayload,
   codeRequestSummaries,
+  codeRequestsForRoomTurn,
   codeResultBaselineMessages,
   codeResultLatestAssistant,
   codeResultOutcome,
@@ -482,10 +483,11 @@ export async function runUserBotCodeRequest(
 }
 /** Turn-scoped: only this conversation's own job may pause it. A stale record must not silence a new request. */
 export function pendingRoomCodeRequestsForTurn(roomId: string, requestId: string, excludeRequestId?: string): CodeRequest[] {
-  return requests().filter((request) => request.id !== excludeRequestId && request.room?.id === roomId && request.room.conversation.requestId === requestId && active(request));
+  // The turn selection rules live in backend core.
+  return codeRequestsForRoomTurn(requests(), { roomId, requestId, excludeRequestId, activeOnly: true });
 }
 export function roomCodeRequestsForTurn(roomId: string, requestId: string): CodeRequest[] {
-  return requests().filter((request) => request.room?.id === roomId && request.room.conversation.requestId === requestId);
+  return codeRequestsForRoomTurn(requests(), { roomId, requestId });
 }
 export function pendingRoomCodeRequestForTurn(roomId: string, requestId: string, excludeRequestId?: string): CodeRequest | undefined {
   return pendingRoomCodeRequestsForTurn(roomId, requestId, excludeRequestId)[0];

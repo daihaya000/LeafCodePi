@@ -197,3 +197,15 @@ export function botCodeReportText(
   requestId: string,
   codeResultType: string,
 ): string | undefined;
+
+/** The requests that belong to one Room conversation turn. */
+export function codeRequestsForRoomTurn<T extends {
+  id: string;
+  state: string;
+  room?: { id: string; conversation?: { requestId: string } } | null;
+}>(requests: readonly T[], options: {
+  roomId: string;
+  requestId: string;
+  excludeRequestId?: string | undefined;
+  activeOnly?: boolean;
+}): T[];

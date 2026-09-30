@@ -7,6 +7,7 @@ import {
   codeTaskIdRefusal, CODE_DELIVERY_RETRY_MS, CODE_RELAY_TICK_MS,
   MAX_AUTO_CODE_CHAIN, MAX_CODE_PROMPT_CHARS,
   CODE_REQUEST_RETENTION_MS, codeRequestPayload, codeRequestSummaries, codeRequestSummary,
+  codeRequestsForRoomTurn,
   codeResultBaselineMessages,
   codeResultLatestAssistant, codeResultOutcome, codeResultOutput, codeSessionChangedPayload, isActiveCodeRequest,
   isCodeRequestId, isRoomCodeRequestCurrent,
@@ -578,4 +579,52 @@ test("only a normally stopped assistant turn with text counts as a report", () =
   assert.equal(botCodeReportText([marker("r1"), assistant("a"), assistant("b")], "r1", CODE_RESULT), "a", "the first report wins");
   const joined = botCodeReportText([marker("r1"), { type: "message", message: { role: "assistant", stopReason: "stop", content: [{ type: "text", text: "a" }, { type: "tool", text: "x" }, { type: "text", text: "b" }] } }], "r1", CODE_RESULT);
   assert.equal(joined, "a" + String.fromCharCode(10) + "b", "text parts are joined with a newline");
+});
+
+const roomRequest = (overrides) => ({
+  id: "r", state: "running", room: { id: "room-1", conversation: { requestId: "turn-1" } }, ...overrides,
+});
+
+test("a Room turn only sees its own conversation's requests", () => {
+  const requests = [
+    roomRequest({ id: "a" }),
+    roomRequest({ id: "b", room: { id: "room-1", conversation: { requestId: "turn-2" } } }),
+    roomRequest({ id: "c", room: { id: "room-2", conversation: { requestId: "turn-1" } } }),
+    roomRequest({ id: "d", room: undefined }),
+  ];
+  assert.deepEqual(
+    codeRequestsForRoomTurn(requests, { roomId: "room-1", requestId: "turn-1" }).map((item) => item.id),
+    ["a"],
+  );
+  assert.deepEqual(
+    codeRequestsForRoomTurn(requests, { roomId: "room-1", requestId: "turn-2" }).map((item) => item.id),
+    ["b"],
+  );
+  assert.deepEqual(codeRequestsForRoomTurn([], { roomId: "room-1", requestId: "turn-1" }), []);
+});
+
+test("the pending view keeps only active requests and can skip one record", () => {
+  const requests = [
+    roomRequest({ id: "a", state: "running" }),
+    roomRequest({ id: "b", state: "delivered" }),
+    roomRequest({ id: "c", state: "cancelled" }),
+    roomRequest({ id: "d", state: "ready" }),
+  ];
+  assert.deepEqual(
+    codeRequestsForRoomTurn(requests, { roomId: "room-1", requestId: "turn-1", activeOnly: true }).map((item) => item.id),
+    ["a", "d"],
+  );
+  assert.deepEqual(
+    codeRequestsForRoomTurn(requests, { roomId: "room-1", requestId: "turn-1", excludeRequestId: "a" }).map((item) => item.id),
+    ["b", "c", "d"],
+  );
+  assert.deepEqual(
+    codeRequestsForRoomTurn(requests, { roomId: "room-1", requestId: "turn-1", activeOnly: true, excludeRequestId: "a" }).map((item) => item.id),
+    ["d"],
+  );
+  assert.deepEqual(
+    codeRequestsForRoomTurn(requests, { roomId: "room-1", requestId: "turn-1" }).map((item) => item.id),
+    ["a", "b", "c", "d"],
+    "without activeOnly the settled records are included too",
+  );
 });

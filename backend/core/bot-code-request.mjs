@@ -493,3 +493,19 @@ export function botCodeReportText(entries, requestId, codeResultType) {
   }
   return undefined;
 }
+
+/**
+ * The requests that belong to one Room conversation turn. A turn is identified by the Room and the
+ * conversation's request id, so a later user turn never sees the previous turn's jobs. `activeOnly`
+ * keeps only the requests that still hold a claim (used to decide what is still pending); a caller
+ * that needs the settled ones as well leaves it off. An `excludeRequestId` skips one record, which is
+ * how a caller asks "what else is pending for this turn".
+ */
+export function codeRequestsForRoomTurn(requests, { roomId, requestId, excludeRequestId, activeOnly }) {
+  return requests.filter((request) =>
+    request.id !== excludeRequestId &&
+    request.room?.id === roomId &&
+    request.room.conversation?.requestId === requestId &&
+    (activeOnly !== true || isActiveCodeRequest(request)),
+  );
+}
