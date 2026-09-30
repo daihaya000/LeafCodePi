@@ -39,6 +39,7 @@
    | `bot-store.mjs` | Botファイルのパス解決（bots/<id>配下のconfig.json・SOUL.md・MEMORY.md・workspace）と原子的な設定書込み、一覧・SOUL読書き・MEMORY初期化・SOULリビジョン・ディレクトリ削除 | タスク連携（insertBotTask/patchTask/deleteTask/listTasks）と作成/更新/削除の副作用 |
    | `bot-runtime-context.mjs` | 拡張の同一性判定（index.*はディレクトリ名、それ以外はステム）とLeafCode同梱判定、Botのモデル向けruntime context文字列の組立（ロード済み拡張をJSON行で列挙） | 拡張の探索・有効/無効状態（extensions.ts） |
    | `bot-crud.mjs` | 新規Bot設定の既定値生成と、パッチ適用のマージ規則（声のtrim/空で消去、目色の検証と自動への戻し、skillsの据え置き、soulの剥離、updatedAtの更新） | ファイル書込み・SOULファイル・タスク同期・ID生成と現在時刻 |
+   | `bot-lifecycle.mjs` | Bot作成・更新・削除の副作用順序（workspace→SOUL→MEMORY→config→1:1タスク登録、config→SOUL→タスク項目同期、タスク後始末→ディレクトリ削除）と戻り値契約 | ファイル実体・タスク実体・ID生成・現在時刻 |
    | `task-runtime-lease.mjs` | lease取得/解放、heartbeat、孤立タスク照合と通知 | global token・listener・backlogの引継ぎ |
    | `restart-resume.mjs` / `runtime-startup.mjs` | 再起動復旧の再試行予算、起動順序（listener登録→孤立照合→relay→scheduler→Room照合） | 各起動サービスの実体、instrumentationの互換呼出 |
    | `pending-prompts.mjs` / `webui-bridge.mjs` | 質問/承認の待機キューとタイムアウト、ブリッジ受付口（globalThisの枠・未登録時null） | harnessのprocess-localシングルトン、拡張側コピー |

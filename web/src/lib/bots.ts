@@ -9,7 +9,7 @@ import { BOT_DEFAULT_TOOL_NAMES, BOT_TOOL_NAMES, type BotDto, type ThinkingLevel
 import { SOUL_TEMPLATE, toBotDto } from "@backend-core/bot-config.mjs";
 import { BotFileStore } from "@backend-core/bot-store.mjs";
 import { botRuntimeContext as coreBotRuntimeContext } from "@backend-core/bot-runtime-context.mjs";
-import { applyBotConfigPatch as coreApplyBotConfigPatch, createBotConfig as coreCreateBotConfig } from "@backend-core/bot-crud.mjs";
+import { createBotWithEffects, deleteBotWithEffects, patchBotWithEffects } from "@backend-core/bot-lifecycle.mjs";
 
 export type BotConfig = Omit<BotDto, "soul" | "tools"> & { label: string; tools: string[] };
 /** Repeated in Room roster/identity JSON every turn (see room-conversation.ts); keep it short. */
@@ -39,7 +39,6 @@ const botFileStore = new BotFileStore({
   defaultToolNames: BOT_DEFAULT_TOOL_NAMES,
 });
 
-function writeConfig(config: BotConfig): void { botFileStore.writeConfig(config); }
 function parseConfig(id: string): BotConfig | null { return botFileStore.readConfig(id); }
 function toDto(config: BotConfig): BotDto {
   return toBotDto(config, { readSoulText: () => botFileStore.readSoulText(config.id), toolNames: BOT_TOOL_NAMES });
@@ -51,44 +50,28 @@ export function getBot(id: string): BotDto | undefined {
   const config = parseConfig(id);
   return config ? toDto(config) : undefined;
 }
-export function createBot(input: { name?: string; model?: string | null; thinkingLevel?: ThinkingLevel | null; permissionMode?: BotConfig["permissionMode"] }): BotDto {
-  const id = randomUUID();
-  // Defaults live in backend core; the file/task side effects stay here.
-  const config: BotConfig = coreCreateBotConfig({
-    id,
-    name: input.name,
-    model: input.model,
-    thinkingLevel: input.thinkingLevel,
-    permissionMode: input.permissionMode,
-    now: new Date().toISOString(),
+/** Side effects live in backend core; the file store, task store and clock are injected. */
+function botLifecycleDeps() {
+  return {
+    store: botFileStore,
+    tasks: { insertBotTask, patchTask, deleteTask, listTasks },
     defaultToolNames: BOT_DEFAULT_TOOL_NAMES,
-  });
-  const name = config.name;
-  mkdirSync(botFileStore.workspacePath(id), { recursive: true });
-  botFileStore.writeSoul(id, SOUL_TEMPLATE);
-  botFileStore.ensureMemoryFile(id);
-  writeConfig(config);
-  insertBotTask({ id: `bot:${id}`, botId: id, name, directory: botFileStore.workspacePath(id), model: config.model, thinkingLevel: config.thinkingLevel, permissionMode: config.permissionMode });
-  return toDto(config);
+    soulTemplate: SOUL_TEMPLATE,
+    ensureWorkspace: (directory: string) => mkdirSync(directory, { recursive: true }),
+    toDto,
+    uuid: () => randomUUID(),
+    now: () => new Date().toISOString(),
+  };
+}
+
+export function createBot(input: { name?: string; model?: string | null; thinkingLevel?: ThinkingLevel | null; permissionMode?: BotConfig["permissionMode"] }): BotDto {
+  return createBotWithEffects(input, botLifecycleDeps());
 }
 export function patchBot(id: string, patch: Partial<Pick<BotConfig, "name" | "label" | "avatarColor" | "avatarImage" | "avatarShape" | "avatarGlasses" | "avatarMustache" | "model" | "ttsVoice" | "thinkingLevel" | "permissionMode" | "skills" | "tools" | "extraRoots" | "enabled" | "notificationsEnabled" | "intercomEnabled" | "intercomScopeId" | "intercomFanoutEnabled" | "codeAutoApprove" | "codeSessionTaskId">> & { soul?: string; avatarEyeColor?: string | null }): BotDto | undefined {
-  const current = parseConfig(id); if (!current) return undefined;
-  // Merge rules (voice trimming, eye-colour validation, SOUL stripping) live in backend core.
-  const next: BotConfig = coreApplyBotConfigPatch(current, patch, { now: new Date().toISOString() });
-  writeConfig(next);
-  if (patch.soul !== undefined) botFileStore.writeSoul(id, patch.soul);
-  // Model routing is applied by the bot PATCH route through setTaskModel; do not write the logical model key into modelID.
-  patchTask(`bot:${id}`, { title: next.name, thinkingLevel: next.thinkingLevel ?? undefined, permissionMode: next.permissionMode ?? undefined });
-  return toDto(next);
+  return patchBotWithEffects(id, patch, botLifecycleDeps());
 }
 export function deleteBot(id: string): boolean {
-  if (!parseConfig(id)) return false;
-  // Removes the 1:1 task, Room sessions, and any Bot-owned Code tasks left after API teardown.
-  for (const task of listTasks(true, "all")) {
-    if (task.botId === id) deleteTask(task.id);
-    else if (task.supervisorBotId === id) patchTask(task.id, { supervisorBotId: null });
-  }
-  botFileStore.removeBot(id); return true;
+  return deleteBotWithEffects(id, botLifecycleDeps());
 }
 export function botWorkspace(id: string): string { return botFileStore.workspacePath(id); }
 export function botSoul(id: string): string { return botFileStore.readSoulText(id); }
