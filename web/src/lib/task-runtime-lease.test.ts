@@ -1,4 +1,4 @@
-import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -19,10 +19,15 @@ describe("task runtime restart reconciliation", () => {
     dirs.push(dir);
     process.env.LEAFCODE_PI_DATA_DIR = dir;
     expect(acquireTaskLease("reload")).toBe(true);
+    const globals = globalThis as Record<string, unknown>;
+    const state = globals.__leafcodeTaskLeaseState;
+    const before = JSON.parse(readFileSync(taskRuntimeLeasePath("reload"), "utf8"));
     try {
       vi.resetModules();
       const reloaded = await import("./task-runtime-lease");
       expect(reloaded.acquireTaskLease("reload")).toBe(true);
+      expect(globals.__leafcodeTaskLeaseState).toBe(state);
+      expect(JSON.parse(readFileSync(taskRuntimeLeasePath("reload"), "utf8"))).toMatchObject({ token: before.token, pid: process.pid });
       reloaded.releaseTaskLease("reload");
       expect(reloaded.hasActiveTaskLease("reload")).toBe(false);
     } finally {
@@ -117,5 +122,48 @@ describe("task runtime restart reconciliation", () => {
     writeFileSync(taskRuntimeLeasePath("recover"), JSON.stringify({ token: "dead", pid: 999999, acquiredAt: Date.now() - 120_000, heartbeatAt: Date.now() - 120_000 }));
     expect(acquireTaskLease("recover")).toBe(true);
     releaseTaskLease("recover");
+  });
+
+  it("reads the current clock even when timers are replaced after module initialization", () => {
+    const dir = join(tmpdir(), `leafcode-clock-lease-${Date.now()}-${Math.random()}`);
+    dirs.push(dir);
+    process.env.LEAFCODE_PI_DATA_DIR = dir;
+    const now = Date.now() + 2_000;
+    vi.useFakeTimers();
+    vi.setSystemTime(now);
+    try {
+      expect(acquireTaskLease("clock")).toBe(true);
+      expect(JSON.parse(readFileSync(taskRuntimeLeasePath("clock"), "utf8"))).toMatchObject({ acquiredAt: now, heartbeatAt: now });
+    } finally {
+      releaseTaskLease("clock");
+      vi.useRealTimers();
+    }
+  });
+
+  it("adopts a pre-extraction global state without replacing its token or lease", async () => {
+    const dir = join(tmpdir(), `leafcode-legacy-lease-${Date.now()}-${Math.random()}`);
+    dirs.push(dir);
+    process.env.LEAFCODE_PI_DATA_DIR = dir;
+    mkdirSync(join(dir, "task-leases"), { recursive: true });
+    const globals = globalThis as Record<string, unknown>;
+    const previous = globals.__leafcodeTaskLeaseState;
+    const legacy = { token: "legacy-owner", ownedTasks: new Set<string>(), heartbeatTimer: null as ReturnType<typeof setInterval> | null };
+    globals.__leafcodeTaskLeaseState = legacy;
+    writeFileSync(taskRuntimeLeasePath("legacy"), JSON.stringify({ token: legacy.token, pid: process.pid, acquiredAt: Date.now(), heartbeatAt: Date.now() }), "utf8");
+    try {
+      vi.resetModules();
+      const reloaded = await import("./task-runtime-lease");
+      expect(globals.__leafcodeTaskLeaseState).toBe(legacy);
+      expect(reloaded.acquireTaskLease("legacy")).toBe(true);
+      expect(reloaded.ownsTaskLease("legacy")).toBe(true);
+      expect(JSON.parse(readFileSync(reloaded.taskRuntimeLeasePath("legacy"), "utf8")).token).toBe("legacy-owner");
+      expect(legacy).toHaveProperty("orphanListener", null);
+      expect(legacy).toHaveProperty("pendingOrphans", []);
+      reloaded.releaseTaskLease("legacy");
+    } finally {
+      if (legacy.heartbeatTimer) clearInterval(legacy.heartbeatTimer);
+      globals.__leafcodeTaskLeaseState = previous;
+      vi.resetModules();
+    }
   });
 });
