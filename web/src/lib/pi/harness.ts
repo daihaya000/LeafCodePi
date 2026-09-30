@@ -221,6 +221,7 @@ import {
   canRouteAccountForPrompt,
   isRecoverableResumeSelectionError,
   promptSendCustomType,
+  reasoningFallbackLevel as coreReasoningFallbackLevel,
   resolveHangWatchQueueAction,
   resolvePromptGate,
   resolvePromptPermissionOptions,
@@ -229,9 +230,11 @@ import {
   shouldApplyPromptSubagentPermission,
   shouldApplyPromptThinkingLevel,
   shouldArmHangWatchAtSend,
+  shouldCompleteCodeRequestAfterPrompt,
   shouldDemoteInterrupt,
   shouldForwardBotCodePrompt as coreShouldForwardBotCodePrompt,
   shouldIgnorePromptError,
+  shouldRetryWithReasoningFallback,
   shouldWaitForSteerStreamBeforeSend,
   stillEligibleForAccountRouting,
 } from "@backend-core/prompt-control.mjs";
@@ -1561,10 +1564,9 @@ export const isReasoningMandatoryError = corePromptControl.isReasoningMandatoryE
 export function reasoningFallbackLevel(
   model: Model | null | undefined,
 ): ThinkingLevel {
-  const levels = model
-    ? thinkingLevelsForModel(model).filter((l) => l !== "off")
-    : [];
-  return levels[0] ?? "minimal";
+  // The level rule lives in backend core; the model's level list stays here.
+  const levels = model ? thinkingLevelsForModel(model) : [];
+  return coreReasoningFallbackLevel(levels) as ThinkingLevel;
 }
 
 function emitTaskSnapshot(
@@ -8706,7 +8708,11 @@ async function sendPromptWithReasoningFallback(
     if (!stillQueued()) return;
     // 一部モデル（o系/gpt-5-pro 等）は思考オフ不可の 400 を返す。
     // 思考レベルを引き上げて同じプロンプトを一度だけ再試行する。
-    if (!isReasoningMandatoryError(error) || activeLive.reasoningFallbackTried) {
+    // The retry rule lives in backend core: only a mandatory-reasoning 400, and only once.
+    if (!shouldRetryWithReasoningFallback({
+      isReasoningMandatory: isReasoningMandatoryError(error),
+      alreadyTried: activeLive.reasoningFallbackTried === true,
+    })) {
       restoreManualAbortIfPromptNeverStarted();
       throw error;
     }
@@ -9024,8 +9030,12 @@ function queuePrompt(
     .then(runPrompt)
     .catch(handlePromptError)
     .finally(async () => {
-      if (meta?.codeRequestId && getTaskHangWatch(live.taskId)?.state !== "resolving") {
-        try { await botCodeRelay().complete(meta.codeRequestId); }
+      const codeRequestId = meta?.codeRequestId;
+      if (codeRequestId && shouldCompleteCodeRequestAfterPrompt({
+        hasCodeRequestId: true,
+        hangWatchState: getTaskHangWatch(live.taskId)?.state,
+      })) {
+        try { await botCodeRelay().complete(codeRequestId); }
         catch (error) { console.warn("[bot-code-relay] result capture deferred", error); }
       }
       // A queued prompt or a route switch may replace this live object's

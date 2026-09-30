@@ -131,3 +131,15 @@ export function shouldDemoteInterrupt(input: { hasStreamingBehavior: boolean; fi
 
 /** Whether a steer/follow-up must wait for the stream to open before sending. */
 export function shouldWaitForSteerStreamBeforeSend(input: { hasStreamingBehavior: boolean; isStreaming: boolean }): boolean;
+
+/** Thinking level to fall back to when a model rejects thinking-off. */
+export function reasoningFallbackLevel(levels: readonly string[] | undefined): string;
+
+/** Whether a failed send is retried once with a higher thinking level. */
+export function shouldRetryWithReasoningFallback(input: { isReasoningMandatory: boolean; alreadyTried: boolean }): boolean;
+
+/** Whether the prompt chain hands the Code result to its durable outbox. */
+export function shouldCompleteCodeRequestAfterPrompt(input: {
+  hasCodeRequestId: boolean;
+  hangWatchState: string | undefined;
+}): boolean;

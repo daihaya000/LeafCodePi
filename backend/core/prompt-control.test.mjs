@@ -4,8 +4,9 @@ import { test } from "node:test";
 import {
   buildPromptOptions, clearSessionQueue, isReasoningMandatoryError, isStaleHarnessPrompt, nextPromptEpoch,
   canRouteAccountForPrompt, isRecoverableResumeSelectionError, promptSendCustomType, resolveHangWatchQueueAction,
-  resolvePromptGate, shouldApplyPromptSubagentPermission, shouldDemoteInterrupt,
-  shouldWaitForSteerStreamBeforeSend, stillEligibleForAccountRouting,
+  reasoningFallbackLevel, resolvePromptGate, shouldApplyPromptSubagentPermission,
+  shouldCompleteCodeRequestAfterPrompt, shouldDemoteInterrupt,
+  shouldRetryWithReasoningFallback, shouldWaitForSteerStreamBeforeSend, stillEligibleForAccountRouting,
   resolvePromptPermissionOptions, resolvePromptSendKind, shouldIgnorePromptError,
   shouldArmHangWatchAtSend,
   resolveStreamingBehaviorForPrompt, shouldApplyPromptModelSelection, shouldApplyPromptThinkingLevel,
@@ -357,5 +358,35 @@ test("only a steer aimed at a not-yet-streaming turn waits for the stream", () =
   for (const value of [undefined, null, 0, "true", 1]) {
     assert.equal(shouldWaitForSteerStreamBeforeSend({ hasStreamingBehavior: value, isStreaming: false }), false, String(value));
     assert.equal(shouldWaitForSteerStreamBeforeSend({ hasStreamingBehavior: true, isStreaming: value }), true, String(value));
+  }
+});
+
+test("the reasoning fallback level is the lowest non-off level, or minimal", () => {
+  assert.equal(reasoningFallbackLevel(["off", "minimal", "high"]), "minimal");
+  assert.equal(reasoningFallbackLevel(["minimal", "high"]), "minimal");
+  assert.equal(reasoningFallbackLevel(["high"]), "high");
+  assert.equal(reasoningFallbackLevel(["off"]), "minimal", "a model without usable levels still needs one");
+  assert.equal(reasoningFallbackLevel([]), "minimal");
+  assert.equal(reasoningFallbackLevel(undefined), "minimal");
+  assert.equal(reasoningFallbackLevel("not a list"), "minimal");
+});
+
+test("only a mandatory-reasoning failure retries, and only once", () => {
+  assert.equal(shouldRetryWithReasoningFallback({ isReasoningMandatory: true, alreadyTried: false }), true);
+  assert.equal(shouldRetryWithReasoningFallback({ isReasoningMandatory: true, alreadyTried: true }), false, "the second failure is the real error");
+  assert.equal(shouldRetryWithReasoningFallback({ isReasoningMandatory: false, alreadyTried: false }), false);
+  for (const value of [undefined, null, 0, "true", 1]) {
+    assert.equal(shouldRetryWithReasoningFallback({ isReasoningMandatory: value, alreadyTried: false }), false, String(value));
+    assert.equal(shouldRetryWithReasoningFallback({ isReasoningMandatory: true, alreadyTried: value }), true, String(value));
+  }
+});
+
+test("a Code result is handed over unless the watchdog is resolving it", () => {
+  assert.equal(shouldCompleteCodeRequestAfterPrompt({ hasCodeRequestId: true, hangWatchState: "armed" }), true);
+  assert.equal(shouldCompleteCodeRequestAfterPrompt({ hasCodeRequestId: true, hangWatchState: undefined }), true);
+  assert.equal(shouldCompleteCodeRequestAfterPrompt({ hasCodeRequestId: true, hangWatchState: "resolving" }), false, "the resume turn delivers it");
+  assert.equal(shouldCompleteCodeRequestAfterPrompt({ hasCodeRequestId: false, hangWatchState: "armed" }), false);
+  for (const value of [undefined, null, 0, "true", 1]) {
+    assert.equal(shouldCompleteCodeRequestAfterPrompt({ hasCodeRequestId: value, hangWatchState: "armed" }), false, String(value));
   }
 });

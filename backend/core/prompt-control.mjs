@@ -270,3 +270,31 @@ export function shouldDemoteInterrupt({ hasStreamingBehavior, finalBehavior }) {
 export function shouldWaitForSteerStreamBeforeSend({ hasStreamingBehavior, isStreaming }) {
   return hasStreamingBehavior === true && isStreaming !== true;
 }
+
+/**
+ * The thinking level to fall back to when a model rejects thinking-off. Models that cannot
+ * disable thinking expose their levels without "off"; the lowest of those is used, and a model
+ * with no levels at all falls back to "minimal" (the level such models accept).
+ */
+export function reasoningFallbackLevel(levels) {
+  const usable = Array.isArray(levels) ? levels.filter((level) => level !== "off") : [];
+  return usable[0] ?? "minimal";
+}
+
+/**
+ * Whether a failed send is retried once with a higher thinking level. Only the provider's
+ * "reasoning is mandatory" 400 qualifies, and only once per turn: the second failure is the
+ * real error.
+ */
+export function shouldRetryWithReasoningFallback({ isReasoningMandatory, alreadyTried }) {
+  return isReasoningMandatory === true && alreadyTried !== true;
+}
+
+/**
+ * Whether the prompt chain must hand the Code result to its durable outbox. A request without
+ * an id has no outbox entry, and while the hang watchdog is resolving, the resume turn delivers
+ * the result itself — completing here would capture it twice.
+ */
+export function shouldCompleteCodeRequestAfterPrompt({ hasCodeRequestId, hangWatchState }) {
+  return hasCodeRequestId === true && hangWatchState !== "resolving";
+}
