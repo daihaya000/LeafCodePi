@@ -58,3 +58,24 @@ export function codeSessionChangedPayload(input: {
 /** What a completion request does for a request in this state. */
 export function codeCompletionAction(input: { state: string; stoppedByUser: boolean }):
   "capture" | "stop-and-ready" | "stop-only" | "none";
+
+/** The messages after a run's baseline; empty when the baseline left the transcript. */
+export function codeResultBaselineMessages<T>(messages: readonly T[], baseline: string | null | undefined): T[];
+
+/** The last assistant message of a run. */
+export function codeResultLatestAssistant<T>(messages: readonly T[]): T | undefined;
+
+/** The outcome word a captured run reports. */
+export function codeResultOutcome(input: {
+  hasTask: boolean;
+  stoppedByUser: boolean;
+  manualAborted: boolean;
+  archived: boolean;
+  taskError?: string | null;
+  messageError?: string | null;
+  goalLoopOutcome?: string | null;
+  hasText: boolean;
+}): string;
+
+/** The stored output text and whether it was cut at the report limit. */
+export function codeResultOutput(text: string | null | undefined, maxChars: number): { output: string; truncated: boolean };

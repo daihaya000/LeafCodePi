@@ -29,6 +29,10 @@ import {
   cancellationTargetForRequest,
   codeCompletionAction,
   codeRequestPayload,
+  codeResultBaselineMessages,
+  codeResultLatestAssistant,
+  codeResultOutcome,
+  codeResultOutput,
   isActiveCodeRequest,
   isCodeRequestId,
   isRoomCodeRequestCurrent,
@@ -883,23 +887,32 @@ export function createBotCodeRelay(deps: RelayDependencies) {
   async function captureResult(request: CodeRequest): Promise<void> {
     const task = request.codeTaskId ? getTask(request.codeTaskId) : undefined;
     const messages = task ? await deps.messages(task) : [];
-    const baselineIndex = request.baseline ? messages.findIndex((message) => message.id === request.baseline) : -1;
-    // A baseline that left the transcript (revert, session reset) breaks the correlation: scanning
-    // the whole history would report an earlier answer as this run's outcome, so keep it empty.
-    const sinceBaseline = request.baseline && baselineIndex < 0 ? [] : messages.slice(baselineIndex + 1);
-    const latest = sinceBaseline.filter((message) => message.role === "assistant").at(-1);
+    // Baseline correlation and assistant selection live in backend core.
+    const sinceBaseline = codeResultBaselineMessages(messages, request.baseline);
+    const latest = codeResultLatestAssistant(sinceBaseline);
     const text = latest?.parts.filter((part) => part.type === "text").map((part) => part.text).join("\n") ?? "";
     // Only a run that asked for a loop is judged by the loop file; a later plain follow-up on the same
     // session must not inherit the old loop's verdict.
     const loop = task && request.goalLoop ? deps.goalLoop(task) : null;
     // Defense in depth: complete()/races must not settle an operator-held pause.
     if (loop && isGoalLoopOperatorHold(loop) && !request.stoppedByUser) return;
-    const outcome = !task ? "セッションが削除されました" : request.stoppedByUser ? "ユーザーが停止" : task.manualAbortedAssistantId != null || task.status === "archived" ? "停止・中断" : task.error || latest?.error ? "失敗" : loop ? goalLoopOutcome(loop) : text ? "実行終了" : "結果を取得できませんでした";
+    // The outcome precedence and the output limit live in backend core.
+    const outcome = codeResultOutcome({
+      hasTask: Boolean(task),
+      stoppedByUser: request.stoppedByUser === true,
+      manualAborted: task?.manualAbortedAssistantId != null,
+      archived: task?.status === "archived",
+      taskError: task?.error,
+      messageError: latest?.error,
+      goalLoopOutcome: loop ? goalLoopOutcome(loop) : null,
+      hasText: Boolean(text),
+    });
+    const report = codeResultOutput(text, MAX_CODE_REPORT_OUTPUT_CHARS);
     request.result = JSON.stringify({
       outcome,
       error: task?.error ?? latest?.error ?? null,
-      output: text.slice(0, MAX_CODE_REPORT_OUTPUT_CHARS),
-      truncated: text.length > MAX_CODE_REPORT_OUTPUT_CHARS,
+      output: report.output,
+      truncated: report.truncated,
       codeTaskId: request.codeTaskId,
       ...(loop ? { goalLoop: goalLoopReport(loop, request.goalLoop) } : {}),
     });

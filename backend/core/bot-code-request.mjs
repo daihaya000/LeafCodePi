@@ -173,3 +173,55 @@ export function codeCompletionAction({ state, stoppedByUser }) {
   if (state === "ready" && stoppedByUser === true) return "stop-only";
   return "none";
 }
+
+/**
+ * The messages that belong to one Code run: everything after the request's baseline message. When
+ * the baseline is gone from the transcript (revert, session reset) the correlation is broken, so the
+ * run reports nothing instead of scanning the whole history and reporting an earlier answer as this
+ * run's outcome.
+ */
+export function codeResultBaselineMessages(messages, baseline) {
+  const list = Array.isArray(messages) ? messages : [];
+  if (!baseline) return list;
+  const baselineIndex = list.findIndex((message) => message?.id === baseline);
+  return baselineIndex < 0 ? [] : list.slice(baselineIndex + 1);
+}
+
+/** The last assistant message of a run, which carries its report text. */
+export function codeResultLatestAssistant(messages) {
+  const list = Array.isArray(messages) ? messages : [];
+  return list.filter((message) => message?.role === "assistant").at(-1);
+}
+
+/**
+ * The outcome word a captured run reports. The order is the refusal precedence the UI relies on: a
+ * deleted session, then the user's own stop, then a stop/abort (manual abort or an archived task),
+ * then a failure (task or message error), then the Goal Loop's own verdict, then a plain finished
+ * run, and finally a run that produced nothing.
+ */
+export function codeResultOutcome({
+  hasTask,
+  stoppedByUser,
+  manualAborted,
+  archived,
+  taskError,
+  messageError,
+  goalLoopOutcome,
+  hasText,
+}) {
+  if (hasTask !== true) return "セッションが削除されました";
+  if (stoppedByUser === true) return "ユーザーが停止";
+  if (manualAborted === true || archived === true) return "停止・中断";
+  if (taskError || messageError) return "失敗";
+  if (goalLoopOutcome) return goalLoopOutcome;
+  return hasText === true ? "実行終了" : "結果を取得できませんでした";
+}
+
+/** The stored output text and whether it was cut at the report limit. */
+export function codeResultOutput(text, maxChars) {
+  const value = typeof text === "string" ? text : "";
+  return {
+    output: value.slice(0, maxChars),
+    truncated: value.length > maxChars,
+  };
+}

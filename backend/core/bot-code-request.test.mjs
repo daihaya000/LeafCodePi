@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
-  cancellationTargetForRequest, codeCompletionAction, codeRequestPayload, codeSessionChangedPayload,
-  isActiveCodeRequest,
+  cancellationTargetForRequest, codeCompletionAction, codeRequestPayload, codeResultBaselineMessages,
+  codeResultLatestAssistant, codeResultOutcome, codeResultOutput, codeSessionChangedPayload, isActiveCodeRequest,
   isCodeRequestId, isRoomCodeRequestCurrent,
   resolveOutboxScanAction, roomCodeOrigin, runningCodeTaskIdsForOrigin, selectActiveCodeRequestForTask,
   userStoppedResult,
@@ -242,4 +242,64 @@ test("only an explicit true counts as a user stop", () => {
     assert.equal(codeCompletionAction({ state: "ready", stoppedByUser: value }), "none", String(value));
     assert.equal(codeCompletionAction({ state: "running", stoppedByUser: value }), "capture", String(value));
   }
+});
+
+test("a run reports only what happened after its baseline", () => {
+  const messages = [{ id: "m1" }, { id: "m2" }, { id: "m3" }];
+  assert.deepEqual(codeResultBaselineMessages(messages, "m1"), [{ id: "m2" }, { id: "m3" }]);
+  assert.deepEqual(codeResultBaselineMessages(messages, "m3"), []);
+  assert.deepEqual(codeResultBaselineMessages(messages, null), messages, "no baseline means the whole transcript");
+  assert.deepEqual(codeResultBaselineMessages(messages, "gone"), [], "a vanished baseline breaks the correlation");
+  assert.deepEqual(codeResultBaselineMessages(undefined, "m1"), []);
+});
+
+test("the latest assistant message carries the report text", () => {
+  const messages = [{ id: "u1", role: "user" }, { id: "a1", role: "assistant" }, { id: "a2", role: "assistant" }];
+  assert.deepEqual(codeResultLatestAssistant(messages), { id: "a2", role: "assistant" });
+  assert.equal(codeResultLatestAssistant([{ id: "u1", role: "user" }]), undefined);
+  assert.equal(codeResultLatestAssistant([]), undefined);
+  assert.equal(codeResultLatestAssistant(undefined), undefined);
+});
+
+test("the outcome word follows the documented precedence", () => {
+  const base = {
+    hasTask: true, stoppedByUser: false, manualAborted: false, archived: false,
+    taskError: null, messageError: null, goalLoopOutcome: null, hasText: true,
+  };
+  assert.equal(codeResultOutcome(base), "実行終了");
+  assert.equal(codeResultOutcome({ ...base, hasTask: false }), "セッションが削除されました");
+  assert.equal(codeResultOutcome({ ...base, stoppedByUser: true }), "ユーザーが停止");
+  assert.equal(codeResultOutcome({ ...base, manualAborted: true }), "停止・中断");
+  assert.equal(codeResultOutcome({ ...base, archived: true }), "停止・中断");
+  assert.equal(codeResultOutcome({ ...base, taskError: "boom" }), "失敗");
+  assert.equal(codeResultOutcome({ ...base, messageError: "boom" }), "失敗");
+  assert.equal(codeResultOutcome({ ...base, goalLoopOutcome: "目標達成" }), "目標達成");
+  assert.equal(codeResultOutcome({ ...base, hasText: false }), "結果を取得できませんでした");
+  // The earlier reasons win over the later ones.
+  assert.equal(codeResultOutcome({ ...base, stoppedByUser: true, manualAborted: true, taskError: "boom", goalLoopOutcome: "目標達成" }), "ユーザーが停止");
+  assert.equal(codeResultOutcome({ ...base, taskError: "boom", goalLoopOutcome: "目標達成" }), "失敗");
+  assert.equal(codeResultOutcome({ ...base, goalLoopOutcome: "目標達成", hasText: false }), "目標達成");
+});
+
+test("only an explicit flag selects an earlier outcome reason", () => {
+  const base = {
+    hasTask: true, stoppedByUser: false, manualAborted: false, archived: false,
+    taskError: null, messageError: null, goalLoopOutcome: null, hasText: true,
+  };
+  for (const value of [undefined, null, 0, "true", 1]) {
+    // A missing task is the deleted-session outcome, exactly like the original `!task` check.
+    assert.equal(codeResultOutcome({ ...base, hasTask: value }), "セッションが削除されました", String(value));
+    assert.equal(codeResultOutcome({ ...base, stoppedByUser: value }), "実行終了", String(value));
+    assert.equal(codeResultOutcome({ ...base, manualAborted: value }), "実行終了", String(value));
+    assert.equal(codeResultOutcome({ ...base, archived: value }), "実行終了", String(value));
+    assert.equal(codeResultOutcome({ ...base, hasText: value }), "結果を取得できませんでした", String(value));
+  }
+});
+
+test("the report output is cut at the limit and says so", () => {
+  assert.deepEqual(codeResultOutput("abc", 5), { output: "abc", truncated: false });
+  assert.deepEqual(codeResultOutput("abcdef", 5), { output: "abcde", truncated: true });
+  assert.deepEqual(codeResultOutput("abcde", 5), { output: "abcde", truncated: false });
+  assert.deepEqual(codeResultOutput("", 5), { output: "", truncated: false });
+  assert.deepEqual(codeResultOutput(undefined, 5), { output: "", truncated: false });
 });
