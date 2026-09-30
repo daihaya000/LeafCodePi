@@ -120,6 +120,8 @@ bundleパスは`LEAFCODE_PI_BACKEND_RUNTIME_BUNDLE`で差し替え可能。CLI�
 **ターン96**: Bot Codeセッション起動の転送を実装。Backendに `POST /internal/bots/:id/code-sessions`（`BACKEND_BOT_CODE_SESSIONS_SUFFIX`、本文は起動入力）を追加し、`entry.mjs`が`createBotCodeTask(botId, input)`を実行する（タスク行・outboxエントリ・セッションを所有プロセスで作る）。バンドルentryに`createBotCodeTask`を追加して再ビルド。Webの非所有モードは入力を従来どおり検証したうえで`forwardBotCodeSessionStart`で転送し、未設定は409、その他は502でローカル起動へフォールバックしない。`PATCH`は**停止（`action:"abort"`）とGoal Loop制御（`action:"goal-loop"`）を既存の`/internal/tasks/:id/abort`／`/internal/tasks/:id/goal-loop`へ転送**し、継続（`action:"prompt"`）も`createBotCodeSession`エンドポイントへ`{action:"continue", taskId, prompt}`として転送する（バンドルentryに`continueBotCodeTask`を追加して再ビルド）。clear/unlink は引き続き409（`CODE_SESSION_CONTROL_NOT_SUPPORTED`）。転送失敗は未設定409／その他502でローカル動作へフォールバックしない。
 - 検出した回帰1件: `src/lib/shared-types.test.ts`のミラー検証が新しい契約ファイル（`shared/bot-tools.mjs`／`.d.mts`）を写しておらず失敗（本番のミラーは`shared/`全体を写すため影響なし）。テスト側を修正して解消（`3770a9fc`）。
 
+**ターン99の再検証（全インクリメント後）**: Backend **722 pass / 0 fail**、Host 253件（250 pass / 3 skip / 0 fail）、shared 8 pass、web **4446 pass / 4 fail**（失敗4ファイルはすべて既存: mcp-adapter typebox・subagent-runnerフレーク・api/health dataDir・MessageCardRadius）、web本番型検証0エラー、`eslint src`指摘なし。なお web全スイートと並行してBackendのCLIテスト（runtime attach）を走らせると負荷で3件が一時的に失敗する（単独実行では成功）＝既知の負荷フレーク。
+
 **切替runbook（実行は未実施）**
 1. `npm run build:backend-runtime` でバンドルを更新し、`bundleGeneration`を確定する（世代が変わると稼働中Backendはreadyにならない）。
 2. Goal Loop・稼働中タスク・leaseが無いことを確認（`cutoverPreflight`のblockerが空）。
