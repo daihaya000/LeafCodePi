@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -108,6 +108,101 @@ it("continues a queued Goal Loop across a real SDK session.reload during turn pr
       await session.extensionRunner.emit({ type: "session_shutdown", reason: "quit" });
       session.dispose();
     }
+    vi.unstubAllEnvs();
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+it.each(["queued", "preparing"])("starts a %s Goal Loop after a replacement loads a fresh extension module", async (phase) => {
+  const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-replace-sdk-"));
+  const agentDir = join(cwd, "agent");
+  mkdirSync(agentDir, { recursive: true });
+  vi.stubEnv("LEAFCODE_PI_DATA_DIR", join(cwd, "data"));
+  const manager = SessionManager.create(cwd, join(cwd, "sessions"));
+  const file = manager.getSessionFile()!;
+  writeFileSync(file, JSON.stringify(manager.getHeader()) + "\n", "utf8");
+  manager.setSessionFile(file);
+  const faux = fauxProvider();
+  faux.setResponses([fauxAssistantMessage(JSON.stringify({ status: "progress", summary: "first turn" }))]);
+  const modelRuntime = await ModelRuntime.create({
+    authPath: join(agentDir, "auth.json"),
+    modelsPath: null,
+    refreshOnCreate: false,
+  });
+  modelRuntime.registerNativeProvider(faux.provider);
+  let releasePrepare!: () => void;
+  const prepareGate = new Promise<boolean>((resolve) => { releasePrepare = () => resolve(true); });
+  let prepareCount = 0;
+  const routingFactory: ExtensionFactory = (api) => {
+    api.events.emit(HOST_ROUTING_CHANNEL, {});
+    api.on("session_start", (_event, ctx) => {
+      (ctx as typeof ctx & { prepareGoalLoopTurn?: () => Promise<boolean> }).prepareGoalLoopTurn = async () => {
+        prepareCount += 1;
+        return phase === "preparing" && prepareCount === 1 ? prepareGate : true;
+      };
+    });
+  };
+  const goalLoopPath = fileURLToPath(new URL("../../../../extensions/leafcode-goal-loop/index.ts", import.meta.url));
+  const loader = new DefaultResourceLoader({
+    cwd,
+    agentDir,
+    settingsManager: SettingsManager.inMemory(),
+    noExtensions: true,
+    noSkills: true,
+    noPromptTemplates: true,
+    noThemes: true,
+    noContextFiles: true,
+    additionalExtensionPaths: [goalLoopPath],
+    extensionFactories: [routingFactory],
+  });
+  const sessions: Awaited<ReturnType<typeof createAgentSession>>["session"][] = [];
+  try {
+    await loader.reload();
+    const original = (await createAgentSession({
+      cwd, agentDir, resourceLoader: loader, settingsManager: SettingsManager.inMemory(),
+      sessionManager: manager, modelRuntime, model: faux.getModel(), tools: [],
+    })).session;
+    sessions.push(original);
+    vi.useFakeTimers();
+    await original.bindExtensions({});
+    await original.prompt(`/goal-start ${Buffer.from(JSON.stringify({
+      goal: "Start after replacement", maxTurns: 1, cooldownSeconds: 0, forceFullRun: true,
+    })).toString("base64url")}`);
+    const stateFile = join(cwd, "data", "goals-loop", `${manager.getSessionId()}.json`);
+    const state = () => JSON.parse(readFileSync(stateFile, "utf8"));
+    expect(state()).toMatchObject({ status: "queued", turnCount: 0 });
+    if (phase === "preparing") {
+      await vi.advanceTimersByTimeAsync(1);
+      expect(prepareCount).toBe(1);
+    }
+
+    // Like an Auto-agent/account replacement after another session's /reload:
+    // import a fresh module, bind the successor, then dispose without shutdown.
+    await loader.reload();
+    const successor = (await createAgentSession({
+      cwd, agentDir, resourceLoader: loader, settingsManager: SettingsManager.inMemory(),
+      sessionManager: SessionManager.open(file), modelRuntime, model: faux.getModel(), tools: [],
+    })).session;
+    sessions.push(successor);
+    expect(successor.sessionId).toBe(original.sessionId);
+    await successor.bindExtensions({});
+    original.dispose();
+    releasePrepare();
+    // Delayed shutdown from the retired module must not pause the successor.
+    await original.extensionRunner.emit({ type: "session_shutdown", reason: "quit" });
+    expect(state()).toMatchObject({ status: "queued", turnCount: 0 });
+    await vi.advanceTimersByTimeAsync(1);
+    await vi.waitFor(() => expect(state()).toMatchObject({ status: "paused", pauseReason: "turn_limit", turnCount: 1 }));
+    expect(faux.state.callCount).toBe(1);
+    // Old module's scheduler/watchdog must be retired, not left with stale ctx.
+    await successor.extensionRunner.emit({ type: "session_shutdown", reason: "quit" });
+    expect(vi.getTimerCount()).toBe(0);
+  } finally {
+    for (const session of sessions) {
+      await session.extensionRunner.emit({ type: "session_shutdown", reason: "quit" });
+      session.dispose();
+    }
+    vi.useRealTimers();
     vi.unstubAllEnvs();
     rmSync(cwd, { recursive: true, force: true });
   }

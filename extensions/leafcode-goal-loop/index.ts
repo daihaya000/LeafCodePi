@@ -140,8 +140,12 @@ const HOST_ROUTING_WAIT_MS = 15_000;
  * bookkeeping can only cross that boundary through globalThis.
  */
 const RELOAD_HANDOFF_KEY = Symbol.for("leafcode-goal-loop.reload-handoff");
-
-const runtimes = new Map<string, Runtime>();
+/** Ownership must also survive fresh imports during account/persona replacement. */
+const RUNTIME_REGISTRY_KEY = Symbol.for("leafcode-goal-loop.runtimes");
+const runtimeRegistry = globalThis as typeof globalThis & {
+  [RUNTIME_REGISTRY_KEY]?: Map<string, Runtime>;
+};
+const runtimes = runtimeRegistry[RUNTIME_REGISTRY_KEY] ??= new Map<string, Runtime>();
 /** Test-only override for the in-flight turn watchdog. */
 let turnTimeoutMsForTests: number | undefined;
 /** Test-only override for the lost-timer watchdog interval. */
@@ -157,6 +161,15 @@ let hostRoutingWaitMsForTests: number | undefined;
 
 function isActiveRuntime(runtime: Runtime): boolean {
   return !runtime.disposed && runtimes.get(runtime.key) === runtime;
+}
+
+function retireRuntime(runtime: Runtime): void {
+  runtime.disposed = true;
+  clearPendingAgentRun(runtime);
+  clearTimer(runtime);
+  if (runtime.watchdogTimer) clearInterval(runtime.watchdogTimer);
+  runtime.watchdogTimer = undefined;
+  if (runtimes.get(runtime.key) === runtime) runtimes.delete(runtime.key);
 }
 
 function turnTimeoutMs(): number {
@@ -2379,13 +2392,13 @@ export default function (pi: ExtensionAPI): void {
           }
         }
       }
-      runtime.disposed = true;
-      clearPendingAgentRun(runtime);
-      clearTimer(runtime);
-      if (runtime.watchdogTimer) clearInterval(runtime.watchdogTimer);
-      runtime.watchdogTimer = undefined;
-      if (runtimes.get(runtime.key) === runtime) runtimes.delete(runtime.key);
+      retireRuntime(runtime);
     }
+    // Pi can load this factory from a different module after another session's
+    // reload. dispose() does not emit shutdown: retire that module's predecessor
+    // before it can touch stale SDK ctx or mutate the successor's queued state.
+    const predecessor = runtimes.get(key);
+    if (predecessor) retireRuntime(predecessor);
     runtime = {
       key,
       cwd: ctx.cwd,
