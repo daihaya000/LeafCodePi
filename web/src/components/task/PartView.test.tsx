@@ -7,7 +7,10 @@ import { ACTIVITY_USAGE_TITLES } from "@/components/ConversationLayout";
 import { formatMessageTime } from "@/components/ui";
 import { formatElapsed, MessageMetaHeader, PartView } from "./PartView";
 
-function bashMessage(output: string): UiMessage {
+function bashMessage(
+  output: string,
+  status: "running" | "completed" | "error" | "cancelled" = "running",
+): UiMessage {
   return {
     id: "assistant-1",
     role: "assistant",
@@ -19,9 +22,10 @@ function bashMessage(output: string): UiMessage {
         tool: "bash",
         callID: "call-1",
         state: {
-          status: "running",
+          status,
           input: { command: "npm test" },
           output,
+          ...(status === "error" ? { error: output } : {}),
           title: "bash",
         },
       },
@@ -111,6 +115,39 @@ describe("PartView Markdown images", () => {
 
 describe("PartView shell log", () => {
   afterEach(() => cleanup());
+
+  function toggle(): HTMLButtonElement {
+    const button = document.querySelector<HTMLButtonElement>("button[aria-expanded]");
+    if (!button) throw new Error("ツールカードの開閉ボタンが見つかりません");
+    return button;
+  }
+
+  it("collapses a finished command, keeps manual expansion, and keeps failures open", () => {
+    const view = render(<PartView message={bashMessage("line 1")} />);
+    expect(toggle().getAttribute("aria-expanded")).toBe("true");
+
+    // 成功したコマンドは完了時に自動で畳む。
+    view.rerender(<PartView message={bashMessage("line 1\ndone", "completed")} />);
+    expect(toggle().getAttribute("aria-expanded")).toBe("false");
+
+    // 完了状態のまま手動で開いた後は、畳み直さない。
+    fireEvent.click(toggle());
+    expect(toggle().getAttribute("aria-expanded")).toBe("true");
+    view.rerender(<PartView message={bashMessage("line 1\ndone\nmore", "completed")} />);
+    expect(toggle().getAttribute("aria-expanded")).toBe("true");
+  });
+
+  it("keeps a failed command open", () => {
+    const view = render(<PartView message={bashMessage("boom")} />);
+    view.rerender(<PartView message={bashMessage("boom", "error")} />);
+    expect(toggle().getAttribute("aria-expanded")).toBe("true");
+  });
+
+  it("keeps a cancelled command open", () => {
+    const view = render(<PartView message={bashMessage("line 1")} />);
+    view.rerender(<PartView message={bashMessage("line 1", "cancelled")} />);
+    expect(toggle().getAttribute("aria-expanded")).toBe("true");
+  });
 
   it("anchors the screen-reader status inside the tool header instead of extending the timeline scroll range", () => {
     render(<PartView message={bashMessage("line 1")} />);

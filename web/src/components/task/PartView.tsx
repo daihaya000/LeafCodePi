@@ -536,8 +536,12 @@ export const ToolCard = memo(function ToolCard({
       logStickRef.current = true;
       setOpen(true);
     }
+    // 成功したコマンドは完了時に畳む。失敗・中断は理由を見せるため開いたまま。
+    if (isShell && wasShellActiveRef.current && !active && status === "completed") {
+      setOpen(false);
+    }
     wasShellActiveRef.current = isShell && active;
-  }, [isShell, active]);
+  }, [isShell, active, status]);
   const elapsedMs = useElapsedMs(state.startedAtMs, state.endedAtMs, tabActive);
   const Icon = toolIcon(tool, state.input);
   const summary = toolSummary(tool, state);
