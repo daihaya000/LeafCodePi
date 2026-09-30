@@ -15,7 +15,7 @@ import { pidAlive, readLock, removeLock, writeLock } from "./lock.js";
 import { createLogFileWriter, formatLogLine } from "./log-file.js";
 import { getListeningPids, getPortListenerStatus } from "./port-scanner.js";
 import { hardKillTree, stopProcessTreeGracefully } from "./process-stop.js";
-import { buildHostRestartScript } from "./host-restart.js";
+import { createBackendService, isBackendRequested } from "./backend-service.js";
 import { autoUpdatePiInBackground } from "./pi-update.js";
 import { pullLatestSources } from "./git-pull.js";
 import { createTranslationService } from "./translation-service.js";
@@ -163,6 +163,14 @@ let webRestarts = 0;
 let trayRestarts = 0;
 let trayCopyDir = true;
 let restarting = false;
+/**
+ * The Host's independent Backend process, or null when the operator did not ask for one. It stays
+ * detached (no SDK runtime) until the cutover hands the runtime over: two owners would double-write
+ * the store, leases and sessions.
+ */
+const backendService = isBackendRequested(process.env)
+  ? createBackendService({ repoRoot: REPO_ROOT, env: process.env, spawn, log, error })
+  : null;
 let bindingReconcileInProgress = false;
 const expectedWebExitPids = new Set();
 
@@ -550,10 +558,19 @@ async function spawnWeb({ pull = true } = {}) {
       // Bundled WebUI extensions and skills live in the repo (prod runs from the web/ mirror).
       LEAFCODE_PI_EXTENSIONS_DIR: join(REPO_ROOT, "extensions"),
       LEAFCODE_PI_SKILLS_DIR: join(REPO_ROOT, "skills"),
+      // How the WebUI reaches the Backend, and which runtime generation to expect. Absent when no
+      // Backend is configured, so the WebUI keeps its in-process path.
+      ...(backendService ? backendService.clientEnv() : {}),
     },
   });
   webProc = child;
   pipeChild("webui", child);
+  // The Backend runs alongside the WebUI; start() is idempotent across WebUI restarts.
+  try {
+    backendService?.start();
+  } catch (err) {
+    error(`Backend start failed: ${err instanceof Error ? err.message : String(err)}`);
+  }
   const stableTimer = setTimeout(() => {
     if (!quitting && webProc === child) webRestarts = 0;
   }, RESTART_BUDGET_RESET_MS);
@@ -1004,6 +1021,12 @@ async function quit() {
   }
   try {
     translationService.stop();
+  } catch {
+    /* ignore */
+  }
+  try {
+    // The Backend is this Host's child: it stops with the Host.
+    backendService?.stop();
   } catch {
     /* ignore */
   }
