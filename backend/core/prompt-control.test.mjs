@@ -3,8 +3,9 @@ import { execFileSync } from "node:child_process";
 import { test } from "node:test";
 import {
   buildPromptOptions, clearSessionQueue, isReasoningMandatoryError, isStaleHarnessPrompt, nextPromptEpoch,
-  resolvePromptGate, resolveStreamingBehaviorForPrompt, shouldBypassPromptChain, shouldForwardBotCodePrompt,
-  shouldWaitForSteerStream,
+  isRecoverableResumeSelectionError, resolvePromptGate, resolvePromptPermissionOptions,
+  resolveStreamingBehaviorForPrompt, shouldApplyPromptModelSelection, shouldApplyPromptThinkingLevel,
+  shouldBypassPromptChain, shouldForwardBotCodePrompt, shouldWaitForSteerStream,
   STEER_STREAM_POLL_MS, STEER_STREAM_WAIT_MS, waitForSessionStreaming,
 } from "./prompt-control.mjs";
 
@@ -165,4 +166,52 @@ test("the forwarding flags are read truthily, as the record stores them", () => 
   for (const value of [undefined, null, 0, "true", 1]) {
     assert.equal(shouldForwardBotCodePrompt({ ...base, leaseHeldElsewhere: value }), false, String(value));
   }
+});
+
+test("a pinned permission wins and Settings only fill the gap for a live session", () => {
+  const base = {
+    hasLive: true,
+    optionPermissionMode: undefined,
+    optionSkillPermission: undefined,
+    updatedPermissionMode: "allow",
+    updatedSkillPermission: "deny",
+  };
+  assert.deepEqual(resolvePromptPermissionOptions(base), { permissionMode: "allow", skillPermission: "deny" });
+  assert.deepEqual(resolvePromptPermissionOptions({ ...base, hasLive: false }), { permissionMode: undefined, skillPermission: undefined });
+  assert.deepEqual(resolvePromptPermissionOptions({ ...base, optionPermissionMode: "ask" }), { permissionMode: undefined, skillPermission: "deny" });
+  assert.deepEqual(resolvePromptPermissionOptions({ ...base, optionSkillPermission: "allow" }), { permissionMode: "allow", skillPermission: undefined });
+  assert.deepEqual(
+    resolvePromptPermissionOptions({ ...base, optionPermissionMode: "ask", optionSkillPermission: "allow" }),
+    { permissionMode: undefined, skillPermission: undefined },
+  );
+  // Only an explicit true counts as "has a live session".
+  for (const value of [undefined, null, 0, "true", 1]) {
+    assert.deepEqual(resolvePromptPermissionOptions({ ...base, hasLive: value }), { permissionMode: undefined, skillPermission: undefined }, String(value));
+  }
+});
+
+test("the model is only rewritten when the request differs", () => {
+  assert.equal(shouldApplyPromptModelSelection({ hasOption: true, matches: false }), true);
+  assert.equal(shouldApplyPromptModelSelection({ hasOption: true, matches: true }), false);
+  assert.equal(shouldApplyPromptModelSelection({ hasOption: false, matches: false }), false);
+});
+
+test("the effort level is rewritten when the model changed or the level differs", () => {
+  assert.equal(shouldApplyPromptThinkingLevel({ hasOption: true, modelChanged: true, taskLevel: "high", optionLevel: "high" }), true);
+  assert.equal(shouldApplyPromptThinkingLevel({ hasOption: true, modelChanged: false, taskLevel: "high", optionLevel: "low" }), true);
+  assert.equal(shouldApplyPromptThinkingLevel({ hasOption: true, modelChanged: false, taskLevel: "high", optionLevel: "high" }), false);
+  assert.equal(shouldApplyPromptThinkingLevel({ hasOption: false, modelChanged: true, taskLevel: "high", optionLevel: "low" }), false);
+  assert.equal(shouldApplyPromptThinkingLevel({ hasOption: true, modelChanged: false, taskLevel: undefined, optionLevel: undefined }), false);
+});
+
+test("only a deleted model or account on resume is recoverable", () => {
+  const at = (status, message) => Object.assign(new Error(message), { status });
+  assert.equal(isRecoverableResumeSelectionError(at(400, "モデルが見つかりません")), true);
+  assert.equal(isRecoverableResumeSelectionError(at(404, "モデルが見つかりません")), true);
+  assert.equal(isRecoverableResumeSelectionError(at(404, "アカウントが見つかりません")), true);
+  assert.equal(isRecoverableResumeSelectionError(at(400, "アカウントが見つかりません")), true);
+  assert.equal(isRecoverableResumeSelectionError(at(500, "モデルが見つかりません")), false);
+  assert.equal(isRecoverableResumeSelectionError(at(400, "別のエラー")), false);
+  assert.equal(isRecoverableResumeSelectionError(new Error("モデルが見つかりません")), false, "no status is not a selection refusal");
+  assert.equal(isRecoverableResumeSelectionError(undefined), false);
 });

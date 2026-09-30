@@ -48,3 +48,26 @@ export function shouldForwardBotCodePrompt(input: {
   botEnabled: unknown;
   leaseHeldElsewhere: boolean;
 }): boolean;
+
+/** Permission values a prompt should carry: a pinned option wins, Settings fill the gap only with a live session. */
+export function resolvePromptPermissionOptions(input: {
+  hasLive: boolean;
+  optionPermissionMode: string | undefined;
+  optionSkillPermission: string | undefined;
+  updatedPermissionMode: string | undefined;
+  updatedSkillPermission: string | undefined;
+}): { permissionMode: string | undefined; skillPermission: string | undefined };
+
+/** Whether the stored model must be rewritten for this request. */
+export function shouldApplyPromptModelSelection(input: { hasOption: boolean; matches: boolean }): boolean;
+
+/** Whether the stored effort level must be rewritten for this request. */
+export function shouldApplyPromptThinkingLevel(input: {
+  hasOption: boolean;
+  modelChanged: boolean;
+  taskLevel: string | undefined;
+  optionLevel: string | undefined;
+}): boolean;
+
+/** Whether a resume may ignore this model/account selection failure. */
+export function isRecoverableResumeSelectionError(error: unknown): boolean;

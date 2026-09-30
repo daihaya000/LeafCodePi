@@ -210,7 +210,14 @@ import { registerWebUiPermissionHandler } from "@/lib/pi/webui-permission-bridge
 import { AccountRuntimeManager } from "@/lib/pi/account-runtime-manager";
 import { SdkRuntimeFactory } from "@backend-core/sdk-runtime.mjs";
 import * as corePromptControl from "@backend-core/prompt-control.mjs";
-import { resolvePromptGate, shouldForwardBotCodePrompt as coreShouldForwardBotCodePrompt } from "@backend-core/prompt-control.mjs";
+import {
+  isRecoverableResumeSelectionError,
+  resolvePromptGate,
+  resolvePromptPermissionOptions,
+  shouldApplyPromptModelSelection,
+  shouldApplyPromptThinkingLevel,
+  shouldForwardBotCodePrompt as coreShouldForwardBotCodePrompt,
+} from "@backend-core/prompt-control.mjs";
 import { runHangWatchdogAbort, runUserAbort } from "@backend-core/abort-coordinator.mjs";
 import { roomBotIdFromTaskId } from "@backend-core/abort-control.mjs";
 import { detachReplacedLive as coreDetachReplacedLive, disposeUnattachedSession, hasOtherBusyRoomLive, isRegisteredLive, isStaleEnsureEpoch, promoteMailboxOnAttach, resolveAttachAccount, resolveAttachedSessionAction, resolveCreatedSessionAction, runCoalescedLiveShutdown, runTrackedEnsure, shouldShutdownOnDispose as coreShouldShutdownOnDispose } from "@backend-core/live-lifecycle.mjs";
@@ -9064,14 +9071,19 @@ function withCodePermissionSettings(
   // Applying to a cold task would open its session before ensureLive receives
   // the Auto fallback hints; ensureLive applies Settings to new sessions itself.
   const updates = state().live.has(task.id) ? codePermissionUpdates(task) : {};
+  // The merge rule (pinned option wins, Settings fill the gap only for a live session)
+  // lives in backend core.
+  const filled = resolvePromptPermissionOptions({
+    hasLive: state().live.has(task.id),
+    optionPermissionMode: options?.permissionMode,
+    optionSkillPermission: options?.skillPermission,
+    updatedPermissionMode: updates.permissionMode,
+    updatedSkillPermission: updates.skillPermission,
+  });
   return {
     ...options,
-    ...(options?.permissionMode === undefined && updates.permissionMode
-      ? { permissionMode: updates.permissionMode }
-      : {}),
-    ...(options?.skillPermission === undefined && updates.skillPermission
-      ? { skillPermission: updates.skillPermission }
-      : {}),
+    ...(filled.permissionMode ? { permissionMode: filled.permissionMode as "allow" | "ask" | "deny" } : {}),
+    ...(filled.skillPermission ? { skillPermission: filled.skillPermission as SkillPermission } : {}),
   };
 }
 
@@ -9097,17 +9109,19 @@ async function applyPromptModelSelection(
     const requested = parseModelValue(options.model);
     const requestedAccountExplicit =
       options.accountIdExplicit ?? Boolean(requested?.accountId);
-    if (!taskMatchesRequestedModel(task, requested, requestedAccountExplicit)) {
+    // The rewrite decision lives in backend core; the store write stays here.
+    const needsWrite = shouldApplyPromptModelSelection({
+      hasOption: true,
+      matches: taskMatchesRequestedModel(task, requested, requestedAccountExplicit),
+    });
+    if (needsWrite) {
       try {
         await setTaskModel(id, options.model, {
           accountIdExplicit: options.accountIdExplicit,
         });
         modelChanged = true;
       } catch (error) {
-        if (
-          options.resume !== true ||
-          !isRecoverableResumeSelectionError(error)
-        ) {
+        if (options.resume !== true || !isRecoverableResumeSelectionError(error)) {
           throw error;
         }
       }
@@ -9122,11 +9136,15 @@ async function applyPromptThinkingLevel(
   options: NonNullable<Parameters<typeof promptTask>[3]> | undefined,
   modelChanged: boolean,
 ): Promise<void> {
-  if (
-    options?.thinkingLevel &&
-    (modelChanged || task.thinkingLevel !== options.thinkingLevel)
-  ) {
-    await setTaskThinkingLevel(id, options.thinkingLevel);
+  // The rewrite decision lives in backend core; the store write stays here.
+  const level = options?.thinkingLevel;
+  if (shouldApplyPromptThinkingLevel({
+    hasOption: Boolean(level),
+    modelChanged,
+    taskLevel: task.thinkingLevel,
+    optionLevel: level,
+  })) {
+    await setTaskThinkingLevel(id, level as ThinkingLevel);
   }
 }
 
@@ -10893,18 +10911,8 @@ export function listPendingAttention(): AttentionItemDto[] {
   return items;
 }
 
-export function isRecoverableResumeSelectionError(error: unknown): boolean {
-  const message = error instanceof Error ? error.message : String(error);
-  const status =
-    typeof error === "object" && error !== null && "status" in error
-      ? Number(error.status)
-      : 0;
-  return (
-    (status === 400 || status === 404) &&
-    (message === "モデルが見つかりません" ||
-      message === "アカウントが見つかりません")
-  );
-}
+// The recoverable-resume rule lives in backend core; this stays as the public entry point.
+export { isRecoverableResumeSelectionError };
 
 export function jsonError(
   error: unknown,

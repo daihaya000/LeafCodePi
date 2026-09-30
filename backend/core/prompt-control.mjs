@@ -91,3 +91,49 @@ export function resolvePromptGate({ projectArchived, forwardToBotCode, leaseOwne
 export function shouldForwardBotCodePrompt({ isBot, botId, botEnabled, leaseHeldElsewhere }) {
   return Boolean(isBot !== true && botId && botEnabled && leaseHeldElsewhere === true);
 }
+
+/**
+ * The permission values a prompt should carry. An option the caller pinned always wins;
+ * otherwise the Settings-derived update fills the gap, but only while the task already has
+ * a live session. A cold task gets its permissions from `ensureLive` instead, which applies
+ * Settings while the session is created.
+ */
+export function resolvePromptPermissionOptions({
+  hasLive,
+  optionPermissionMode,
+  optionSkillPermission,
+  updatedPermissionMode,
+  updatedSkillPermission,
+}) {
+  return {
+    permissionMode: optionPermissionMode === undefined && hasLive === true ? updatedPermissionMode : undefined,
+    skillPermission: optionSkillPermission === undefined && hasLive === true ? updatedSkillPermission : undefined,
+  };
+}
+
+/** A stored model is only rewritten when the request differs from what the task already has. */
+export function shouldApplyPromptModelSelection({ hasOption, matches }) {
+  return hasOption === true && matches !== true;
+}
+
+/**
+ * The effort level is rewritten when the model just changed (the old level belonged to the
+ * previous model) or when it differs from the stored one.
+ */
+export function shouldApplyPromptThinkingLevel({ hasOption, modelChanged, taskLevel, optionLevel }) {
+  if (hasOption !== true) return false;
+  return modelChanged === true || taskLevel !== optionLevel;
+}
+
+/**
+ * A resume may carry a model/account the user has since deleted: those 400/404 selection
+ * failures are recoverable, everything else must fail the prompt.
+ */
+export function isRecoverableResumeSelectionError(error) {
+  const message = error instanceof Error ? error.message : String(error);
+  const status = typeof error === "object" && error !== null && "status" in error ? Number(error.status) : 0;
+  return (
+    (status === 400 || status === 404) &&
+    (message === "モデルが見つかりません" || message === "アカウントが見つかりません")
+  );
+}
