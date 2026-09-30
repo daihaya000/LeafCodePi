@@ -14,6 +14,8 @@ const mocks = vi.hoisted(() => ({
   getTaskDetail: vi.fn(),
   pendingPermissionForTask: vi.fn((): unknown => null),
   pendingQuestionForTask: vi.fn((): unknown => null),
+  localRuntimeBlocked: vi.fn(() => false),
+  startBackendTaskStream: vi.fn(),
 }));
 
 vi.mock("@/lib/bots", () => ({ botTaskId: (id: string) => `bot:${id}` }));
@@ -27,6 +29,13 @@ vi.mock("@/lib/pi/harness", () => ({
   getTaskDetail: mocks.getTaskDetail,
   pendingPermissionForTask: mocks.pendingPermissionForTask,
   pendingQuestionForTask: mocks.pendingQuestionForTask,
+}));
+vi.mock("@/lib/pi/runtime-ownership", () => ({
+  localRuntimeBlocked: mocks.localRuntimeBlocked,
+  assertLocalRuntimeAllowed: vi.fn(),
+}));
+vi.mock("@/lib/pi/backend-event-stream", () => ({
+  startBackendTaskStream: mocks.startBackendTaskStream,
 }));
 
 import { GET } from "./route";
@@ -75,6 +84,41 @@ beforeEach(() => {
 });
 
 describe("GET /api/bots/[id]/events", () => {
+  beforeEach(() => {
+    // Ownership and the Backend stream are per-test: a leftover value would make every later test poll.
+    mocks.localRuntimeBlocked.mockReset();
+    mocks.localRuntimeBlocked.mockReturnValue(false);
+    mocks.startBackendTaskStream.mockReset();
+  });
+
+  it("streams from the owning Backend without opening the Bot session locally", async () => {
+    mocks.localRuntimeBlocked.mockReturnValue(true);
+    mocks.startBackendTaskStream.mockImplementation(async ({ sse, extra }: { sse: { send: (e: string, p: unknown) => void }; extra: Record<string, unknown> }) => {
+      sse.send("snapshot", { type: "snapshot", eventType: "remote_poll", ...extra });
+      return { ok: true, stop: () => undefined };
+    });
+    const response = await GET(request(), params);
+    const events = await readEvents(response, 1);
+    expect(events[0]).toMatchObject({ event: "snapshot" });
+    expect(events[0].data).toMatchObject({ eventType: "remote_poll" });
+    // The intercom inbox is a local read of shared files, so it still rides along.
+    expect(events[0].data.intercomInbox).toMatchObject({ unreadCount: 0 });
+    expect(mocks.startBackendTaskStream).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "bot:one" }),
+    );
+    expect(mocks.getTaskBootstrap).not.toHaveBeenCalled();
+  });
+
+  it("ends the stream with an error when the Backend cannot be read", async () => {
+    mocks.localRuntimeBlocked.mockReturnValue(true);
+    mocks.startBackendTaskStream.mockResolvedValue({ ok: false, reason: "unreachable" });
+    const response = await GET(request(), params);
+    const events = await readEvents(response, 1);
+    expect(events[0]).toMatchObject({ event: "error" });
+    expect(events[0].data).toMatchObject({ reason: "unreachable" });
+    expect(mocks.getTaskBootstrap).not.toHaveBeenCalled();
+  });
+
   it("sends a bootstrap snapshot first, then the latest page for the same task", async () => {
     mocks.getTaskBootstrap.mockReturnValue({ id: "bot:one", status: "idle", messages: [], isStreaming: false });
     mocks.getTaskDetail.mockResolvedValue({

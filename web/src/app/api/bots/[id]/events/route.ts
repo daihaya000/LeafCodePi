@@ -10,6 +10,8 @@ import {
 } from "@/lib/pi/harness";
 import { getTaskDetailBounded } from "@/lib/pi/get-task-detail-bounded";
 import { createSseWriter } from "@/lib/sse-writer";
+import { localRuntimeBlocked } from "@/lib/pi/runtime-ownership";
+import { startBackendTaskStream } from "@/lib/pi/backend-event-stream";
 import {
   bufferPendingSsePayload,
   preparePendingPayloadForReadyFlush,
@@ -44,7 +46,7 @@ export async function GET(
   const cachedSessionId = req.nextUrl.searchParams.get("cachedSessionId");
   let sse: ReturnType<typeof createSseWriter> | undefined;
   const stream = new ReadableStream({
-    start(controller) {
+    async start(controller) {
       let ready = false;
       const pendingPayloads: Record<string, unknown>[] = [];
       const botId = taskId.slice("bot:".length);
@@ -65,6 +67,23 @@ export async function GET(
       sse.onCleanup(inboxSub);
       sse.startHeartbeat();
       try {
+        // After the cutover the Bot session lives in the Backend: this process must not open it, so the
+        // stream is built from the Backend's detail and polled. The intercom inbox is a local read of
+        // shared mailbox files, so it is still sent from here.
+        if (localRuntimeBlocked()) {
+          const started = await startBackendTaskStream({
+            id: taskId,
+            sse,
+            extra: { intercomInbox: getBotIntercomInbox(botId) },
+          });
+          if (!started.ok) {
+            sse.send("error", { error: "Backendから取得できません", reason: started.reason });
+            sse.close();
+            return;
+          }
+          sse.onCleanup(started.stop);
+          return;
+        }
         const bootstrap = getTaskBootstrap(taskId);
         sse.send("snapshot", {
           type: "snapshot",
