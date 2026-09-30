@@ -173,7 +173,7 @@ import {
   registerDeferredTools,
   TOOL_SEARCH_NAME,
 } from "@/lib/pi/deferred-tools";
-import { sessionIdentityPatch } from "@/lib/pi/session-identity";
+import { hasIdentityChanges, sessionIdentityPatch, sessionIdentitySource } from "@/lib/pi/session-identity";
 import {
   basenameKey,
   bundledExtensionEntries,
@@ -2344,21 +2344,18 @@ async function attachSession(
     if (compactionError) setTaskStatus(taskId, "error", compactionError);
     if (task) {
       const ids = modelId(session.model);
+      // Which identity the session may report (and whether it changed) is decided in backend core.
       const identityPatch = sessionIdentityPatch(
         task,
-        live.preserveTaskModel
-          ? {
-              sessionId: session.sessionId,
-              sessionFile: session.sessionFile,
-            }
-          : {
-              providerID: ids.providerID,
-              modelID: ids.modelID,
-              sessionId: session.sessionId,
-              sessionFile: session.sessionFile,
-            },
+        sessionIdentitySource({
+          preserveTaskModel: live.preserveTaskModel === true,
+          sessionId: session.sessionId,
+          sessionFile: session.sessionFile,
+          providerID: ids.providerID,
+          modelID: ids.modelID,
+        }),
       );
-      if (Object.keys(identityPatch).length > 0) {
+      if (hasIdentityChanges(identityPatch)) {
         patchTask(taskId, identityPatch);
       }
     }

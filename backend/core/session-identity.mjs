@@ -23,3 +23,18 @@ export function sessionIdentityPatch(task, identity) {
   }
   return patch;
 }
+
+/**
+ * The identity a running session is allowed to report: with a preserved task model
+ * only the transcript location is projected; otherwise the model pair is included
+ * too (and the patch rule above keeps a model-less runtime from erasing it).
+ */
+export function sessionIdentitySource({ preserveTaskModel, sessionId, sessionFile, providerID, modelID }) {
+  const transcript = { sessionId, sessionFile };
+  return preserveTaskModel === true ? transcript : { providerID, modelID, ...transcript };
+}
+
+/** True when the patch would actually write something. */
+export function hasIdentityChanges(patch) {
+  return Object.keys(patch).length > 0;
+}

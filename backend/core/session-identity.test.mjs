@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { sessionIdentityPatch } from "./session-identity.mjs";
+import { hasIdentityChanges, sessionIdentityPatch, sessionIdentitySource } from "./session-identity.mjs";
 
 const task = { sessionId: "session-1", sessionFile: "file-1", providerID: "p", modelID: "m" };
 
@@ -51,4 +51,33 @@ test("the returned patch is a fresh object and never the identity passed in", ()
   assert.deepEqual(patch, identity);
   patch.modelID = "changed";
   assert.equal(identity.modelID, "m2");
+});
+
+test("a preserved task model reports only the transcript location", () => {
+  const runtime = { sessionId: "s", sessionFile: "f", providerID: "p2", modelID: "m2" };
+  assert.deepEqual(sessionIdentitySource({ ...runtime, preserveTaskModel: true }), { sessionId: "s", sessionFile: "f" });
+  assert.deepEqual(sessionIdentitySource({ ...runtime, preserveTaskModel: false }), { providerID: "p2", modelID: "m2", sessionId: "s", sessionFile: "f" });
+  // Only an explicit true preserves; anything else tracks the model.
+  for (const flag of [undefined, null, 0, "true"]) {
+    assert.deepEqual(sessionIdentitySource({ ...runtime, preserveTaskModel: flag }), { providerID: "p2", modelID: "m2", sessionId: "s", sessionFile: "f" }, String(flag));
+  }
+  // Missing runtime values are forwarded as undefined and never erase anything downstream.
+  const source = sessionIdentitySource({ preserveTaskModel: false, sessionId: task.sessionId });
+  assert.deepEqual(source, { providerID: undefined, modelID: undefined, sessionId: task.sessionId, sessionFile: undefined });
+  assert.deepEqual(sessionIdentityPatch(task, source), {});
+  assert.equal(hasIdentityChanges(sessionIdentityPatch(task, source)), false);
+});
+
+test("a preserved model still records a new transcript location on the task", () => {
+  const source = sessionIdentitySource({ preserveTaskModel: true, sessionId: "session-2", sessionFile: undefined, providerID: "p2", modelID: "m2" });
+  const patch = sessionIdentityPatch(task, source);
+  assert.deepEqual(patch, { sessionId: "session-2" });
+  assert.equal(hasIdentityChanges(patch), true);
+});
+
+test("hasIdentityChanges only reports a non-empty patch", () => {
+  assert.equal(hasIdentityChanges({}), false);
+  assert.equal(hasIdentityChanges({ modelID: "m" }), true);
+  // A key present but undefined still counts as a key, matching Object.keys semantics.
+  assert.equal(hasIdentityChanges({ modelID: undefined }), true);
 });
