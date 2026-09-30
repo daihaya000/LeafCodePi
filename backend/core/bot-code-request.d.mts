@@ -243,3 +243,12 @@ export function markFollowUpAttempt(
   report: { followUpStarted: boolean } | null | undefined,
   outcome: { succeeded: boolean },
 ): void;
+
+/** Whether a user-intervention dispatch has a Code session to target. */
+export function shouldDispatchUserIntervention(input: { hasCodeTaskId: boolean }): boolean;
+
+/** Whether a dispatch must cancel because its Code task is gone or archived. */
+export function shouldCancelCodeDispatch(input: { hasTask: boolean; archived: boolean }): boolean;
+
+/** The state a finished dispatch records. */
+export function codeDispatchResultState(input: { succeeded: boolean }): "delivered" | "queued";

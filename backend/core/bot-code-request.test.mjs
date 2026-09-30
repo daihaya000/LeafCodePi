@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
-  botCodeReportText, buildCodeRequestRecord, cancellationTargetForRequest, codeAutoChainRefusal, codeCompletionAction,
+  botCodeReportText, buildCodeRequestRecord, cancellationTargetForRequest, codeAutoChainRefusal,
+  codeCompletionAction, codeDispatchResultState,
   codeGoalLoopRefusal,
   codeLaunchRefusal, codeLinkedSessionState, codePromptRefusal, codeProjectRefusal, codeReportingRefusal,
   codeTaskIdRefusal, CODE_DELIVERY_RETRY_MS, CODE_RELAY_TICK_MS,
@@ -13,7 +14,8 @@ import {
   codeResultLatestAssistant, codeResultOutcome, codeResultOutput, codeSessionChangedPayload, isActiveCodeRequest,
   isCodeRequestId, isRoomCodeRequestCurrent,
   resolveOutboxScanAction, roomCodeOrigin, runningCodeTaskIdsForOrigin, selectActiveCodeRequestForTask,
-  parseGoalLoopInput, shouldAttemptCodeDelivery, shouldConfirmCodeDelivery, shouldPruneCodeRequest,
+  parseGoalLoopInput, shouldAttemptCodeDelivery, shouldCancelCodeDispatch, shouldConfirmCodeDelivery,
+  shouldDispatchUserIntervention, shouldPruneCodeRequest,
   shouldStartCodeRelayTick, shouldStopCodeSession, truncateCodeReportRequest, userStoppedResult,
 } from "./bot-code-request.mjs";
 
@@ -709,4 +711,27 @@ test("only a successful attempt consumes the follow-up slot", () => {
   // A missing report (no result being delivered) is a no-op.
   assert.doesNotThrow(() => markFollowUpAttempt(undefined, { succeeded: true }));
   assert.doesNotThrow(() => markFollowUpAttempt(null, { succeeded: true }));
+});
+
+test("a dispatch needs a Code session and cancels when the task is gone", () => {
+  assert.equal(shouldDispatchUserIntervention({ hasCodeTaskId: true }), true);
+  assert.equal(shouldDispatchUserIntervention({ hasCodeTaskId: false }), false);
+  for (const value of [undefined, null, 0, "true", 1]) {
+    assert.equal(shouldDispatchUserIntervention({ hasCodeTaskId: value }), false, String(value));
+  }
+  assert.equal(shouldCancelCodeDispatch({ hasTask: true, archived: false }), false);
+  assert.equal(shouldCancelCodeDispatch({ hasTask: true, archived: true }), true);
+  assert.equal(shouldCancelCodeDispatch({ hasTask: false, archived: false }), true);
+  for (const value of [undefined, null, 0, "true", 1]) {
+    assert.equal(shouldCancelCodeDispatch({ hasTask: true, archived: value }), false, String(value));
+    assert.equal(shouldCancelCodeDispatch({ hasTask: value, archived: false }), true, String(value));
+  }
+});
+
+test("a delivered dispatch stays delivered and a failure re-queues", () => {
+  assert.equal(codeDispatchResultState({ succeeded: true }), "delivered");
+  assert.equal(codeDispatchResultState({ succeeded: false }), "queued");
+  for (const value of [undefined, null, 0, "true", 1]) {
+    assert.equal(codeDispatchResultState({ succeeded: value }), "queued", String(value));
+  }
 });

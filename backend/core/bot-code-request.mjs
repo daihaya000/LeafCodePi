@@ -575,3 +575,24 @@ export function markFollowUpAttempt(report, { succeeded }) {
   if (!report) return;
   report.followUpStarted = succeeded === true;
 }
+
+/** A user-intervention dispatch needs a Code session to send into. */
+export function shouldDispatchUserIntervention({ hasCodeTaskId }) {
+  return hasCodeTaskId === true;
+}
+
+/**
+ * A dispatch whose Code task vanished or was archived cancels the request instead of prompting: the
+ * session it targeted no longer exists, so the intervention has nowhere to go.
+ */
+export function shouldCancelCodeDispatch({ hasTask, archived }) {
+  return hasTask !== true || archived === true;
+}
+
+/**
+ * The state a finished dispatch records. A delivered prompt stays delivered; a failure returns the
+ * request to the queue so the next scan retries it instead of dropping the user's instruction.
+ */
+export function codeDispatchResultState({ succeeded }) {
+  return succeeded === true ? "delivered" : "queued";
+}

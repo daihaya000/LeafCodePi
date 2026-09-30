@@ -33,6 +33,7 @@ import {
   CODE_RELAY_TICK_MS,
   codeAutoChainRefusal,
   codeCompletionAction,
+  codeDispatchResultState,
   codeGoalLoopRefusal,
   codeLaunchRefusal,
   codeLinkedSessionState,
@@ -61,7 +62,9 @@ import {
   runningCodeTaskIdsForOrigin,
   selectActiveCodeRequestForTask,
   shouldAttemptCodeDelivery,
+  shouldCancelCodeDispatch,
   shouldConfirmCodeDelivery,
+  shouldDispatchUserIntervention,
   shouldPruneCodeRequest,
   shouldStartCodeRelayTick,
   shouldStopCodeSession,
@@ -1022,14 +1025,18 @@ export function createBotCodeRelay(deps: RelayDependencies) {
   }
 
   async function dispatchUserIntervention(request: CodeRequest): Promise<void> {
-    if (!request.codeTaskId) return;
+    // The dispatch rules (needs a session, cancels on a gone task, delivered vs re-queued) live in
+    // backend core; the lookups and the prompt call stay here.
+    if (!shouldDispatchUserIntervention({ hasCodeTaskId: Boolean(request.codeTaskId) })) return;
     if (request.state === "starting") {
-      const task = getTask(request.codeTaskId);
-      if (!task || task.status === "archived") {
+      const task = getTask(request.codeTaskId!);
+      if (shouldCancelCodeDispatch({ hasTask: Boolean(task), archived: task?.status === "archived" })) {
         request.state = "cancelled";
         save(request);
         return;
       }
+      // The guard above already returned when the task was missing; this keeps the types honest.
+      if (!task) return;
       // Another worker owns the live session — leave starting until that owner drains it.
       if (deps.ownsTaskLease && !deps.ownsTaskLease(task.id)) return;
       // The scan decision (wait while busy, re-queue a crash-left starting row) lives in
@@ -1040,12 +1047,14 @@ export function createBotCodeRelay(deps: RelayDependencies) {
       save(request);
     }
     if (request.state !== "queued") return;
-    const task = getTask(request.codeTaskId);
-    if (!task || task.status === "archived") {
+    const task = getTask(request.codeTaskId!);
+    if (shouldCancelCodeDispatch({ hasTask: Boolean(task), archived: task?.status === "archived" })) {
       request.state = "cancelled";
       save(request);
       return;
     }
+    // The guard above already returned when the task was missing; this keeps the types honest.
+    if (!task) return;
     // Every worker scans the shared outbox. Only the lease owner may touch the live SDK session.
     if (deps.ownsTaskLease && !deps.ownsTaskLease(task.id)) return;
     request.state = "starting";
@@ -1054,10 +1063,10 @@ export function createBotCodeRelay(deps: RelayDependencies) {
       await withBotCodeSessionLock(`code-task-${task.id}`, () =>
         deps.prompt(task.id, request.prompt, request.id, request.promptOptions),
       );
-      request.state = "delivered";
+      request.state = codeDispatchResultState({ succeeded: true });
       save(request);
     } catch (error) {
-      request.state = "queued";
+      request.state = codeDispatchResultState({ succeeded: false });
       save(request);
       throw error;
     }
