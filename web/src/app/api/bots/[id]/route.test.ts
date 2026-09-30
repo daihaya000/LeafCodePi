@@ -27,6 +27,8 @@ const mocks = vi.hoisted(() => ({
   stopOneToOneCodeSessionsForBot: vi.fn(async () => 0),
   isWebUiRequestAuthorized: vi.fn(() => false),
   withBotCodeSessionLock: vi.fn(async (_key: string, operation: () => Promise<unknown>) => await operation()),
+  localRuntimeBlocked: vi.fn(() => false),
+  forwardTaskAbort: vi.fn(),
 }));
 vi.mock("@/lib/bots", () => ({
   getBot: mocks.getBot,
@@ -60,6 +62,23 @@ vi.mock("@/lib/pi/bot-code-relay", () => ({
   stopAllCodeSessionsForBot: mocks.stopAllCodeSessionsForBot,
   stopOneToOneCodeSessionsForBot: mocks.stopOneToOneCodeSessionsForBot,
 }));
+vi.mock("@/lib/pi/runtime-ownership", () => ({
+  localRuntimeBlocked: mocks.localRuntimeBlocked,
+  assertLocalRuntimeAllowed: vi.fn(),
+}));
+vi.mock("@/lib/backend-forward", () => ({
+  forwardTaskAbort: mocks.forwardTaskAbort,
+  forwardBotCodeRequestAbort: vi.fn(),
+  forwardGoalLoopControl: vi.fn(),
+  forwardTaskDetail: vi.fn(),
+  forwardTaskPrompt: vi.fn(),
+  forwardPermissionAnswer: vi.fn(),
+  forwardQuestionAnswer: vi.fn(),
+  forwardTaskPendingRequests: vi.fn(),
+  forwardPendingRequestsByTask: vi.fn(),
+  needsLocalResolution: vi.fn(() => false),
+  forwardablePromptBody: vi.fn((body) => body),
+}));
 vi.mock("@/lib/webui-auth", () => ({
   isWebUiRequestAuthorized: mocks.isWebUiRequestAuthorized,
 }));
@@ -90,7 +109,12 @@ const bot = (id = "one"): BotDto => ({
 });
 
 const params = (id: string) => ({ params: Promise.resolve({ id }) });
-beforeEach(() => { vi.clearAllMocks(); });
+beforeEach(() => {
+  vi.clearAllMocks();
+  // Ownership and forwarding are per-test: a leftover value would make every later test forward.
+  mocks.localRuntimeBlocked.mockReturnValue(false);
+  mocks.forwardTaskAbort.mockReset();
+});
 const jsonRequest = (body: unknown): NextRequest =>
   new Request("http://localhost/api/bots/one", {
     method: "PATCH",
@@ -400,5 +424,47 @@ describe("DELETE /api/bots/[id]", () => {
     expect(mocks.destroyTask).not.toHaveBeenCalled();
     expect(mocks.deleteBot).not.toHaveBeenCalled();
     expect(mocks.removeRoomMember).not.toHaveBeenCalled();
+  });
+});
+
+describe("Bot mutations after the cutover", () => {
+  it("stops the linked Code session in the owning Backend instead of locally", async () => {
+    mocks.getBot.mockReturnValue({ ...bot(), codeSessionTaskId: "code-loop" });
+    mocks.getTask.mockReturnValue({ id: "code-loop", status: "working" });
+    mocks.deleteBot.mockReturnValue(true);
+    mocks.localRuntimeBlocked.mockReturnValue(true);
+    mocks.forwardTaskAbort.mockResolvedValue({ ok: true, task: { id: "code-loop", status: "error" } });
+
+    const response = await DELETE(emptyRequest(), params("one"));
+
+    expect(response.status).toBe(200);
+    expect(mocks.forwardTaskAbort).toHaveBeenCalledWith("code-loop", { botId: "one" });
+    expect(mocks.abortTaskIncludingColdGoalLoop).not.toHaveBeenCalled();
+    expect(mocks.stopBotCodeTask).not.toHaveBeenCalled();
+  });
+
+  it("stops the Bot's own task in the owning Backend when it is disabled", async () => {
+    mocks.getBot.mockReturnValue({ ...bot(), codeSessionTaskId: "code-loop" });
+    mocks.patchBot.mockReturnValue({ ...bot(), enabled: false, codeSessionTaskId: "code-loop" });
+    mocks.getTask.mockReturnValue({ id: "code-loop", status: "working" });
+    mocks.localRuntimeBlocked.mockReturnValue(true);
+    mocks.forwardTaskAbort.mockResolvedValue({ ok: true, task: { id: "bot:one", status: "error" } });
+
+    const response = await PATCH(jsonRequest({ enabled: false }), params("one"));
+
+    expect(response.status).toBe(200);
+    expect(mocks.forwardTaskAbort).toHaveBeenCalledWith("bot:one", { botId: "one" });
+    expect(mocks.abortTaskIncludingColdGoalLoop).not.toHaveBeenCalled();
+  });
+
+  it("keeps the local stops while this process owns the runtime", async () => {
+    mocks.getBot.mockReturnValue({ ...bot(), codeSessionTaskId: "code-loop" });
+    mocks.getTask.mockReturnValue({ id: "code-loop", status: "working" });
+    mocks.deleteBot.mockReturnValue(true);
+
+    await DELETE(emptyRequest(), params("one"));
+
+    expect(mocks.forwardTaskAbort).not.toHaveBeenCalled();
+    expect(mocks.stopBotCodeTask).toHaveBeenCalledWith("one", "code-loop");
   });
 });

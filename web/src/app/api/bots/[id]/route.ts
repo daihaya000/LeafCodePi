@@ -11,6 +11,8 @@ import { stopAllCodeSessionsForBot, stopOneToOneCodeSessionsForBot } from "@/lib
 import { detachBotFromRoomRuntime } from "@/lib/room-runtime";
 import { withBotCodeSessionLock } from "@/lib/bot-code-session-lock";
 import { isWebUiRequestAuthorized } from "@/lib/webui-auth";
+import { localRuntimeBlocked } from "@/lib/pi/runtime-ownership";
+import { forwardTaskAbort } from "@/lib/backend-forward";
 import type { BotSkillsConfig } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -27,6 +29,15 @@ async function stopLinkedBotCodeSession(
   if (!linkedId) return;
   const linked = getTask(linkedId);
   if (!linked || linked.status === "archived") return;
+  // After the cutover the session lives in the Backend: stopping it locally would find nothing, and
+  // the real session would keep running.
+  if (localRuntimeBlocked()) {
+    const forwarded = await forwardTaskAbort(linkedId, { botId });
+    if (!forwarded.ok && forwarded.reason !== "not-found") {
+      console.warn(`[bots] failed to stop linked Code task ${linkedId} on ${reason}: ${forwarded.reason}`);
+    }
+    return;
+  }
   try {
     await stopBotCodeTask(botId, linkedId);
   } catch {
@@ -167,7 +178,14 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       // Stop in-flight 1:1 turns / Goal Loop on bot:${id}. New direct messages stay allowed
       // (prompt/route); this only aborts work already accepted before disable.
       try {
-        await abortTaskIncludingColdGoalLoop(botTaskId(id));
+        if (localRuntimeBlocked()) {
+          const forwarded = await forwardTaskAbort(botTaskId(id), { botId: id });
+          if (!forwarded.ok && forwarded.reason !== "not-found") {
+            console.warn(`[bots] failed to abort 1:1 task on disable: ${forwarded.reason}`);
+          }
+        } else {
+          await abortTaskIncludingColdGoalLoop(botTaskId(id));
+        }
       } catch (error) {
         console.warn(
           `[bots] failed to abort 1:1 task on disable:`,
