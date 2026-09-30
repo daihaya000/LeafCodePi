@@ -25,6 +25,7 @@ import {
 } from "@/lib/pi/bot-code-images";
 import { isGoalLoopOperatorHold } from "@/lib/pi/goal-loop-state";
 import { isRoomStopRequest } from "@/lib/room-conversation";
+import { isCodeRequestId, isRoomCodeRequestCurrent, roomCodeOrigin } from "@backend-core/bot-code-request.mjs";
 
 export const BOT_CODE_TOOL = "code_session";
 export const BOT_CODE_RESULT = "bot-code-result";
@@ -305,9 +306,10 @@ export function listBotCodeRequests(botId: string): BotCodeRequestSummary[] {
 }
 export function roomForCodeOrigin(task: Pick<TaskSummary, "id" | "kind" | "botId"> | undefined | null) {
   if (task?.kind !== "bot" || !task.botId) return undefined;
-  const prefix = `bot:${task.botId}:room:`;
-  if (!task.id.startsWith(prefix)) return undefined;
-  const room = getRoom(task.id.slice(prefix.length));
+  // The task id shape lives in backend core; the room lookup stays here.
+  const origin = roomCodeOrigin(task.id);
+  if (!origin || origin.botId !== task.botId) return undefined;
+  const room = getRoom(origin.roomId);
   return room?.members.includes(task.botId) && roomBotTaskId(room.id, task.botId) === task.id ? room : undefined;
 }
 export function isBotCodeOriginTask(task: Pick<TaskSummary, "id" | "kind" | "botId"> | undefined | null): boolean {
@@ -334,43 +336,25 @@ function roomContext(originTaskId: string): CodeRequest["room"] {
   return { id: room.id, responseId: response.id, conversation: response.conversation };
 }
 function roomRequestIsCurrent(request: CodeRequest): boolean {
-  if (!request.room) return false;
-  const room = getRoom(request.room.id);
-  const response = room?.messages.find((message) => message.id === request.room!.responseId);
-  if (!room || !response) return false;
-  const requestId = request.room.conversation.requestId;
-  const requestIndex = room.messages.findIndex((item) => item.id === requestId);
-  // /stop appends a user line and may error-close the turn, but Code must keep running
-  // so its report can still deliver (resume stays blocked via latestRoomRequest).
-  const stopAfterRequest =
-    requestIndex >= 0 &&
-    room.messages
-      .slice(requestIndex + 1)
-      .some((message) => message.role === "user" && isRoomStopRequest(message.text ?? ""));
-  const responseAlive = response.status !== "error" || stopAfterRequest;
-  const latestWorkUser = room.messages.findLast(
-    (message) => message.role === "user" && !isRoomStopRequest(message.text ?? ""),
-  );
-  return Boolean(
-    responseAlive
-      && response.conversation?.requestId === requestId
-      && response.conversation.participantIds.includes(request.botId)
-      && latestWorkUser?.id === requestId
-      && room.members.includes(request.botId),
-  );
+  // The liveness rule lives in backend core; the room lookup and stop wording stay here.
+  return isRoomCodeRequestCurrent({
+    room: request.room ? getRoom(request.room.id) : undefined,
+    request,
+    isRoomStopRequest,
+  });
 }
 /** Legacy callers may select the first outstanding request; new controls use its exact id. */
 export function pendingRoomCodeRequestForRoom(roomId: string): CodeRequest | undefined {
   return requests().find((request) => request.room?.id === roomId && active(request));
 }
 export function roomCodeRequestForRoom(roomId: string, requestId: string): CodeRequest | undefined {
-  if (!/^[a-f0-9]{64}$/.test(requestId)) return undefined;
+  if (!isCodeRequestId(requestId)) return undefined;
   const request = read(requestId);
   return request?.room?.id === roomId && active(request) ? request : undefined;
 }
 /** A settled (delivered/cancelled) request file, so a waiting handoff can resolve its trigger after the fact. */
 export function settledRoomCodeRequest(roomId: string, requestId: string): CodeRequest | undefined {
-  if (!/^[a-f0-9]{64}$/.test(requestId)) return undefined;
+  if (!isCodeRequestId(requestId)) return undefined;
   const request = read(requestId);
   return request?.room?.id === roomId && !active(request) ? request : undefined;
 }
