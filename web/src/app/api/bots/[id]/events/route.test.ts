@@ -16,11 +16,12 @@ const mocks = vi.hoisted(() => ({
   pendingQuestionForTask: vi.fn((): unknown => null),
   localRuntimeBlocked: vi.fn(() => false),
   startBackendTaskStream: vi.fn(),
+  getBotIntercomInbox: vi.fn(() => ({ messages: [], unreadCount: 0, preview: null, pendingAsks: [] })),
 }));
 
 vi.mock("@/lib/bots", () => ({ botTaskId: (id: string) => `bot:${id}` }));
 vi.mock("@/lib/bot-intercom", () => ({
-  getBotIntercomInbox: () => ({ messages: [], unreadCount: 0, preview: null, pendingAsks: [] }),
+  getBotIntercomInbox: mocks.getBotIntercomInbox,
   subscribeBotIntercomInbox: () => () => undefined,
 }));
 vi.mock("@/lib/pi/harness", () => ({
@@ -72,6 +73,11 @@ async function readEvents(response: Response, count = 2): Promise<Array<{ event:
   return events;
 }
 
+/** Mirrors the stream helper: the Bot route passes a getter so the inbox is read per snapshot. */
+function extraFields(extra: Record<string, unknown> | (() => Record<string, unknown>)): Record<string, unknown> {
+  return typeof extra === "function" ? extra() : extra;
+}
+
 const request = () => new NextRequest("http://localhost/api/bots/one/events");
 const params = { params: Promise.resolve({ id: "one" }) };
 
@@ -81,6 +87,7 @@ beforeEach(() => {
   mocks.listener = undefined;
   mocks.pendingPermissionForTask.mockReturnValue(null);
   mocks.pendingQuestionForTask.mockReturnValue(null);
+  mocks.getBotIntercomInbox.mockReturnValue({ messages: [], unreadCount: 0, preview: null, pendingAsks: [] });
 });
 
 describe("GET /api/bots/[id]/events", () => {
@@ -93,8 +100,13 @@ describe("GET /api/bots/[id]/events", () => {
 
   it("streams from the owning Backend without opening the Bot session locally", async () => {
     mocks.localRuntimeBlocked.mockReturnValue(true);
-    mocks.startBackendTaskStream.mockImplementation(async ({ sse, extra }: { sse: { send: (e: string, p: unknown) => void }; extra: Record<string, unknown> }) => {
-      sse.send("snapshot", { type: "snapshot", eventType: "remote_poll", ...extra });
+    let extra: Record<string, unknown> | (() => Record<string, unknown>) = {};
+    mocks.startBackendTaskStream.mockImplementation(async (input: {
+      sse: { send: (e: string, p: unknown) => void };
+      extra: typeof extra;
+    }) => {
+      extra = input.extra;
+      input.sse.send("snapshot", { type: "snapshot", eventType: "remote_poll", ...extraFields(input.extra) });
       return { ok: true, stop: () => undefined };
     });
     const response = await GET(request(), params);
@@ -107,6 +119,9 @@ describe("GET /api/bots/[id]/events", () => {
       expect.objectContaining({ id: "bot:one" }),
     );
     expect(mocks.getTaskBootstrap).not.toHaveBeenCalled();
+    // A later poll must read the mailbox again, not reuse the value captured at stream start.
+    mocks.getBotIntercomInbox.mockReturnValue({ messages: [], unreadCount: 3, preview: null, pendingAsks: [] });
+    expect(extraFields(extra).intercomInbox).toMatchObject({ unreadCount: 3 });
   });
 
   it("ends the stream with an error when the Backend cannot be read", async () => {

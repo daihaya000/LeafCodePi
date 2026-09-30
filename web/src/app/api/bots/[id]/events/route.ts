@@ -74,7 +74,9 @@ export async function GET(
           const started = await startBackendTaskStream({
             id: taskId,
             sse,
-            extra: { intercomInbox: getBotIntercomInbox(botId) },
+            // Read per poll: the mailbox is shared files this process still owns, and the local
+            // inbox subscription is gated until `ready`, which never happens on this path.
+            extra: () => ({ intercomInbox: getBotIntercomInbox(botId) }),
           });
           if (!started.ok) {
             sse.send("error", { error: "Backendから取得できません", reason: started.reason });

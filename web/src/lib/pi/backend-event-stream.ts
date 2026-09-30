@@ -75,6 +75,9 @@ export function backendTaskSnapshot(
  * Returns `{ ok: false, reason }` when the Backend cannot be read (the caller ends the stream), or
  * `{ ok: true, stop }` where `stop` clears the poll and suppresses in-flight sends. Polls are serialized
  * through both detail and pending-request reads — the caller registers `stop` as cleanup.
+ *
+ * `extra` may be a getter so fields this process still owns (the Bot intercom inbox is a local read of
+ * shared mailbox files) are re-read for every snapshot instead of being frozen at stream start.
  */
 export async function startBackendTaskStream({
   id,
@@ -86,7 +89,7 @@ export async function startBackendTaskStream({
 }: {
   id: string;
   sse: BackendEventSink;
-  extra?: Record<string, unknown>;
+  extra?: Record<string, unknown> | (() => Record<string, unknown>);
   intervalMs?: number;
   setIntervalImpl?: typeof setInterval;
   clearIntervalImpl?: typeof clearInterval;
@@ -101,11 +104,19 @@ export async function startBackendTaskStream({
     if (timer !== undefined) clearIntervalImpl(timer);
     timer = undefined;
   };
+  const extraFields = (): Record<string, unknown> => {
+    try {
+      return (typeof extra === "function" ? extra() : extra) ?? {};
+    } catch {
+      // A local read behind the extra fields must not take the task snapshot down with it.
+      return {};
+    }
+  };
   const send = async (current: Record<string, unknown> | null) => {
     if (stopped || sse.closed) return;
     const pending = await forwardTaskPendingRequests(id);
     if (stopped || sse.closed) return;
-    sse.send("snapshot", backendTaskSnapshot(current, pending, extra));
+    sse.send("snapshot", backendTaskSnapshot(current, pending, extraFields()));
   };
   await send(detail.detail);
   if (sse.closed) return { ok: true, stop };

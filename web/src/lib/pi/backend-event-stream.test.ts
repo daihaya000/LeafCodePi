@@ -115,6 +115,33 @@ describe("Backend task stream polling", () => {
     stream.stop();
   });
 
+  it("re-reads a getter extra for every snapshot", async () => {
+    const sse = sink();
+    let inbox = { unreadCount: 1 };
+    const stream = await startBackendTaskStream({
+      id: "task-1", sse, extra: () => ({ intercomInbox: inbox }),
+    });
+    if (!stream.ok) throw new Error(stream.reason);
+    expect(sse.send).toHaveBeenLastCalledWith("snapshot", expect.objectContaining({ intercomInbox: { unreadCount: 1 } }));
+    inbox = { unreadCount: 2 };
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(sse.send).toHaveBeenLastCalledWith("snapshot", expect.objectContaining({ intercomInbox: { unreadCount: 2 } }));
+    stream.stop();
+  });
+
+  it("keeps the task snapshot when a getter extra throws", async () => {
+    const sse = sink();
+    const stream = await startBackendTaskStream({
+      id: "task-1", sse, extra: () => { throw new Error("inbox read failed"); },
+    });
+    if (!stream.ok) throw new Error(stream.reason);
+    expect(sse.send).toHaveBeenCalledTimes(1);
+    expect(sse.send).toHaveBeenLastCalledWith("snapshot", expect.objectContaining({ task: { id: "task-1", updatedAt: 0 } }));
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(sse.send).toHaveBeenCalledTimes(2);
+    stream.stop();
+  });
+
   it("preserves the initial failure contract without starting a timer", async () => {
     mocks.forwardTaskDetail.mockResolvedValueOnce({ ok: false, reason: "unreachable" });
     const sse = sink();
