@@ -855,6 +855,8 @@ test("requesting the runtime attaches it but stays not ready while required step
   // The runtime is attached, but the missing services keep the Backend from being a replacement.
   assert.equal(body.ready, false);
   assert.deepEqual(body.runtimeStartupIncomplete, [...BACKEND_UNAVAILABLE_STARTUP_STEPS]);
+  // The Bot Code relay started with the real bundle: only the unimplemented services are listed.
+  assert.equal(body.runtimeStartupIncomplete.includes("startBotCodeRelay"), false);
   assert.equal((await request(cli.healthUrl, { headers: cli.headers })).status, 503);
 });
 

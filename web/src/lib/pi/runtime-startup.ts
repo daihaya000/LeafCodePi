@@ -1,4 +1,5 @@
 import { RuntimeStartup, type RuntimeStartupServices } from "@backend-core/runtime-startup.mjs";
+import { localRuntimeBlocked } from "@/lib/pi/runtime-ownership";
 
 const globals = globalThis as typeof globalThis & {
   __leafcodeRuntimeStartup?: RuntimeStartup;
@@ -26,7 +27,13 @@ async function loadServices(): Promise<RuntimeStartupServices> {
       });
     },
     reconcileOrphanedWorkingTasks,
-    startBotCodeRelay: harness.startBotCodeRelay,
+    // The relay publishes work by prompting a session, so only the runtime owner may run it. After
+    // the cutover the Backend owns the relay; a second one here would double-write the outbox and
+    // repeatedly fail to deliver.
+    startBotCodeRelay: () => {
+      if (localRuntimeBlocked()) return;
+      harness.startBotCodeRelay();
+    },
     ensureRoutineScheduler,
     reconcileRoomRuntime,
     warmTaskSummaries: typeof harness.getTaskSummariesWithTodoProgress === "function"

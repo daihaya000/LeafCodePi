@@ -14,13 +14,11 @@ import { clampGoalLoopCooldownSeconds, clampGoalLoopMaxTurns, isGoalLoopSessionO
 const NO_PROJECT_NAME = "プロジェクトなし";
 
 /**
- * Startup steps that need a Pi runtime or a Web-owned service and therefore cannot run
- * in the Backend process yet. They are reported instead of silently skipped, so a
- * caller can tell a complete startup from a prefix. Readiness must stay false while
- * this list is non-empty.
+ * Startup steps the Backend cannot run yet. They are reported instead of silently
+ * skipped, so a caller can tell a complete startup from a prefix. Readiness must
+ * stay false while this list is non-empty.
  */
 export const BACKEND_UNAVAILABLE_STARTUP_STEPS = Object.freeze([
-  "startBotCodeRelay",
   "ensureRoutineScheduler",
   "reconcileRoomRuntime",
 ]);
@@ -152,6 +150,19 @@ export function createBackendStartup({
       ...(typeof loadRuntime === "function"
         ? { loadRuntime: async () => { runtimeStatus = await loadRuntime(); } }
         : {}),
+      // The relay publishes Bot Code work by prompting a session, which only the runtime owner can
+      // do: it runs after the runtime is attached and does nothing while nothing is attached (a
+      // detached Backend is already refused readiness by the missing runtime). A relay that cannot
+      // start is reported instead of failing the whole sequence, so readiness never claims it runs.
+      startBotCodeRelay: () => {
+        const runtime = runtimeStatus.ok === true ? runtimeStatus.runtime : null;
+        if (!runtime || typeof runtime.startBotCodeRelay !== "function") return;
+        try {
+          runtime.startBotCodeRelay();
+        } catch {
+          if (!unavailable.includes("startBotCodeRelay")) unavailable.push("startBotCodeRelay");
+        }
+      },
       ...Object.fromEntries(
         BACKEND_UNAVAILABLE_STARTUP_STEPS.map((step) => [step, () => {
           if (!unavailable.includes(step)) unavailable.push(step);
@@ -166,7 +177,7 @@ export function createBackendStartup({
     startup,
     store,
     leases,
-    /** Startup steps that had to be skipped because the Backend cannot run them yet. */
+    /** Startup steps that were skipped (not implemented here yet) or that failed to start. */
     unavailable: () => [...unavailable],
     /** Tasks that were reconciled and would be resumed once a runtime is attached. */
     orphaned: () => [...orphaned],
