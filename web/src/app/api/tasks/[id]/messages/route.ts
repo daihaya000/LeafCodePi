@@ -4,6 +4,8 @@ import {
   InvalidTaskMessageCursorError,
   pageTaskMessages,
 } from "@/lib/task-history";
+import { localRuntimeBlocked } from "@/lib/pi/runtime-ownership";
+import { forwardTaskDetail } from "@/lib/backend-forward";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -17,6 +19,25 @@ export async function GET(
     const before = req.nextUrl.searchParams.get("before");
     if (before !== null && (before.trim().length === 0 || before.length > 512)) {
       return NextResponse.json({ error: "履歴カーソルが不正です" }, { status: 400 });
+    }
+    // After the cutover the Backend owns the session; history comes from its detail, paged with the
+    // same rule. There is no local fallback: a session this process does not own reports stale state.
+    if (localRuntimeBlocked()) {
+      const forwarded = await forwardTaskDetail(id);
+      if (!forwarded.ok) {
+        if (forwarded.reason === "not-configured") {
+          return NextResponse.json(
+            { error: "Backendが実行を所有しています", code: "RUNTIME_NOT_OWNED" },
+            { status: 409 },
+          );
+        }
+        return NextResponse.json(
+          { error: "Backendから取得できません", code: "BACKEND_FORWARD_FAILED", reason: forwarded.reason },
+          { status: 502 },
+        );
+      }
+      const messages = Array.isArray(forwarded.detail?.messages) ? forwarded.detail.messages : [];
+      return NextResponse.json(pageTaskMessages(messages, before));
     }
     // History paging must not block on ensureLive; transcript on disk is enough.
     const detail = await getTaskDetail(id, { offline: true });

@@ -5,6 +5,8 @@ import { GET } from "./route";
 
 const mocks = vi.hoisted(() => ({
   getTaskDetail: vi.fn(),
+  localRuntimeBlocked: vi.fn(() => false),
+  forwardTaskDetail: vi.fn(),
   jsonError: vi.fn((error: unknown) => ({
     error: error instanceof Error ? error.message : String(error),
     status: 500,
@@ -12,6 +14,16 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("@/lib/pi/harness", () => mocks);
+vi.mock("@/lib/pi/runtime-ownership", () => ({
+  localRuntimeBlocked: mocks.localRuntimeBlocked,
+  assertLocalRuntimeAllowed: vi.fn(),
+}));
+vi.mock("@/lib/backend-forward", () => ({
+  forwardTaskDetail: mocks.forwardTaskDetail,
+  forwardTaskPrompt: vi.fn(),
+  needsLocalResolution: vi.fn(() => false),
+  forwardablePromptBody: vi.fn((body) => body),
+}));
 
 function message(id: string, createdAt = 1): UiMessage {
   return {
@@ -26,6 +38,9 @@ describe("/api/tasks/[id]/messages", () => {
   beforeEach(() => {
     mocks.getTaskDetail.mockReset();
     mocks.jsonError.mockClear();
+    mocks.localRuntimeBlocked.mockReset();
+    mocks.localRuntimeBlocked.mockReturnValue(false);
+    mocks.forwardTaskDetail.mockReset();
   });
 
   it("returns the page before the cursor", async () => {
@@ -60,5 +75,53 @@ describe("/api/tasks/[id]/messages", () => {
     );
     expect(unknown.status).toBe(409);
     expect(await unknown.json()).toEqual({ error: "履歴カーソルが無効です" });
+  });
+});
+
+describe("/api/tasks/[id]/messages after the cutover", () => {
+  beforeEach(() => {
+    mocks.localRuntimeBlocked.mockReset();
+    mocks.localRuntimeBlocked.mockReturnValue(true);
+    mocks.forwardTaskDetail.mockReset();
+    mocks.getTaskDetail.mockReset();
+  });
+
+  it("pages the Backend history with the same rule and never reads locally", async () => {
+    const messages = Array.from({ length: 52 }, (_, index) => message(`m${index + 1}`, index));
+    mocks.forwardTaskDetail.mockResolvedValue({ ok: true, detail: { messages } });
+    const response = await GET(new NextRequest("http://localhost/api/tasks/task-1/messages"), {
+      params: Promise.resolve({ id: "task-1" }),
+    });
+    expect(response.status).toBe(200);
+    expect(Array.isArray((await response.json()).messages)).toBe(true);
+    expect(mocks.getTaskDetail).not.toHaveBeenCalled();
+  });
+
+  it("keeps rejecting a bad cursor, and reports a Backend failure without falling back", async () => {
+    const badCursor = await GET(new NextRequest("http://localhost/api/tasks/task-1/messages?before=%20"), {
+      params: Promise.resolve({ id: "task-1" }),
+    });
+    expect(badCursor.status).toBe(400);
+    mocks.forwardTaskDetail.mockResolvedValue({ ok: false, reason: "unreachable" });
+    const failed = await GET(new NextRequest("http://localhost/api/tasks/task-1/messages"), {
+      params: Promise.resolve({ id: "task-1" }),
+    });
+    expect(failed.status).toBe(502);
+    await expect(failed.json()).resolves.toEqual({ error: "Backendから取得できません", code: "BACKEND_FORWARD_FAILED", reason: "unreachable" });
+    mocks.forwardTaskDetail.mockResolvedValue({ ok: false, reason: "not-configured" });
+    const unconfigured = await GET(new NextRequest("http://localhost/api/tasks/task-1/messages"), {
+      params: Promise.resolve({ id: "task-1" }),
+    });
+    expect(unconfigured.status).toBe(409);
+    expect(mocks.getTaskDetail).not.toHaveBeenCalled();
+  });
+
+  it("treats a Backend detail without messages as an empty history", async () => {
+    mocks.forwardTaskDetail.mockResolvedValue({ ok: true, detail: { id: "task-1" } });
+    const response = await GET(new NextRequest("http://localhost/api/tasks/task-1/messages"), {
+      params: Promise.resolve({ id: "task-1" }),
+    });
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({ messages: [] });
   });
 });
