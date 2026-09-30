@@ -45,3 +45,17 @@ export function createQuestionBridge({ host = globalThis, uuid = () => randomUUI
     },
   };
 }
+
+/**
+ * One prompt service per process. The instance is kept on the process global, because Next route
+ * bundles and development reloads each get their own module scope but must share the pending
+ * requests. The bridge handler is registered on every call, so a reloaded bundle always wires the
+ * current instance; `create` runs only when no instance exists yet.
+ */
+export function ensureGlobalPromptService({ host, key, create, registerHandler }) {
+  const existing = host[key];
+  const service = existing ?? create();
+  host[key] = service;
+  registerHandler((request) => service.handleRequest(request));
+  return service;
+}

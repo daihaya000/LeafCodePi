@@ -255,6 +255,7 @@ import {
   shouldSuggestCompaction,
 } from "@backend-core/task-detail.mjs";
 import { attentionItemForTask, resolveAttentionSource } from "@backend-core/attention.mjs";
+import { ensureGlobalPromptService } from "@backend-core/webui-bridge.mjs";
 import {
   isSamePromptRoute,
   publishAttachedLive,
@@ -714,39 +715,37 @@ function permissionSnapshotExtras(taskId: string): Record<string, unknown> {
 
 function ensurePermissionPromptService(): PermissionPromptService {
   if (permissionPromptService) return permissionPromptService;
-  const globalRef = globalThis as typeof globalThis & {
-    [PERMISSION_PROMPT_SERVICE_KEY]?: PermissionPromptService;
-  };
-  permissionPromptService =
-    globalRef[PERMISSION_PROMPT_SERVICE_KEY] ??
-    createPermissionPromptService({
-      resolveTaskId: resolveTaskIdFromSession,
-      emit: emitAttention,
-      snapshotExtras: permissionSnapshotExtras,
-    });
-  globalRef[PERMISSION_PROMPT_SERVICE_KEY] = permissionPromptService;
-  registerWebUiPermissionHandler((request) =>
-    permissionPromptService!.handleRequest(request),
-  );
+  // One service per process and the handler wiring live in backend core.
+  permissionPromptService = ensureGlobalPromptService({
+    host: globalThis as unknown as Record<string, unknown>,
+    key: PERMISSION_PROMPT_SERVICE_KEY,
+    create: () =>
+      createPermissionPromptService({
+        resolveTaskId: resolveTaskIdFromSession,
+        emit: emitAttention,
+        snapshotExtras: permissionSnapshotExtras,
+      }),
+    registerHandler: (handler) =>
+      registerWebUiPermissionHandler((request) => handler(request) as ReturnType<PermissionPromptService["handleRequest"]>),
+  });
   return permissionPromptService;
 }
 
 function ensureQuestionPromptService(): QuestionPromptService {
   if (questionPromptService) return questionPromptService;
-  const globalRef = globalThis as typeof globalThis & {
-    [QUESTION_PROMPT_SERVICE_KEY]?: QuestionPromptService;
-  };
-  questionPromptService =
-    globalRef[QUESTION_PROMPT_SERVICE_KEY] ??
-    createQuestionPromptService({
-      resolveTaskId: resolveTaskIdFromSession,
-      emit: emitAttention,
-      snapshotExtras: permissionSnapshotExtras,
-    });
-  globalRef[QUESTION_PROMPT_SERVICE_KEY] = questionPromptService;
-  registerWebUiQuestionHandler((request) =>
-    questionPromptService!.handleRequest(request),
-  );
+  // One service per process and the handler wiring live in backend core.
+  questionPromptService = ensureGlobalPromptService({
+    host: globalThis as unknown as Record<string, unknown>,
+    key: QUESTION_PROMPT_SERVICE_KEY,
+    create: () =>
+      createQuestionPromptService({
+        resolveTaskId: resolveTaskIdFromSession,
+        emit: emitAttention,
+        snapshotExtras: permissionSnapshotExtras,
+      }),
+    registerHandler: (handler) =>
+      registerWebUiQuestionHandler((request) => handler(request) as ReturnType<QuestionPromptService["handleRequest"]>),
+  });
   return questionPromptService;
 }
 

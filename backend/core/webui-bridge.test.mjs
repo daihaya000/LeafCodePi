@@ -3,7 +3,8 @@ import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import {
-  createPermissionBridge, createQuestionBridge, WEBUI_PERMISSION_HANDLER_KEY, WEBUI_QUESTION_HANDLER_KEY,
+  createPermissionBridge, createQuestionBridge, ensureGlobalPromptService, WEBUI_PERMISSION_HANDLER_KEY,
+  WEBUI_QUESTION_HANDLER_KEY,
 } from "./webui-bridge.mjs";
 
 const permissionInput = { sessionId: "session", command: "edit", labels: ["write"], message: "Allow?" };
@@ -90,4 +91,42 @@ test("plain Node uses the default globalThis slot without Web imports", () => {
   `;
   const output = execFileSync(process.execPath, ["--input-type=module", "-e", code], { encoding: "utf8", timeout: 5_000 });
   assert.deepEqual(JSON.parse(output), { approved: true });
+});
+
+test("one prompt service per process, with the handler registered on every call", () => {
+  const host = {};
+  let created = 0;
+  const registered = [];
+  const create = () => {
+    created += 1;
+    return { id: `service-${created}`, handleRequest: (request) => ({ service: created, request }) };
+  };
+  const registerHandler = (handler) => registered.push(handler);
+  const first = ensureGlobalPromptService({ host, key: "key", create, registerHandler });
+  assert.equal(created, 1);
+  assert.equal(host.key, first);
+  assert.equal(registered.length, 1);
+  assert.deepEqual(registered[0]("r1"), { service: 1, request: "r1" });
+
+  // A second call (another route bundle) reuses the instance but wires the current one again.
+  const second = ensureGlobalPromptService({ host, key: "key", create, registerHandler });
+  assert.equal(second, first);
+  assert.equal(created, 1, "the instance is not recreated");
+  assert.equal(registered.length, 2);
+  assert.deepEqual(registered[1]("r2"), { service: 1, request: "r2" });
+});
+
+test("a service already on the process global is adopted instead of replaced", () => {
+  const existing = { handleRequest: () => "existing" };
+  const host = { key: existing };
+  let created = 0;
+  const registered = [];
+  const service = ensureGlobalPromptService({
+    host, key: "key",
+    create: () => { created += 1; return { handleRequest: () => "new" }; },
+    registerHandler: (handler) => registered.push(handler),
+  });
+  assert.equal(service, existing);
+  assert.equal(created, 0);
+  assert.equal(registered[0]("r"), "existing");
 });

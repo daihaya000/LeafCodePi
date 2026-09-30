@@ -22,3 +22,14 @@ export function createQuestionBridge(options?: BridgeOptions): {
   registerWebUiQuestionHandler: (next: WebUiQuestionHandler | null) => void;
   requestWebUiQuestion: (input: Omit<QuestionRequestDto, "id">) => Promise<WebUiQuestionAnswer | null>;
 };
+
+/**
+ * One prompt service per process, with the bridge handler registered on every call. The created
+ * service must expose `handleRequest`; the caller's own service type is preserved.
+ */
+export function ensureGlobalPromptService<T>(options: {
+  host: Record<string, unknown>;
+  key: string;
+  create: () => T;
+  registerHandler: (handler: (request: unknown) => unknown) => void;
+}): T;
