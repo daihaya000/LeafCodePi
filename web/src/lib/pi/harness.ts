@@ -254,6 +254,7 @@ import {
   resolveTaskDetailSource,
   shouldSuggestCompaction,
 } from "@backend-core/task-detail.mjs";
+import { attentionItemForTask, resolveAttentionSource } from "@backend-core/attention.mjs";
 import {
   isSamePromptRoute,
   publishAttachedLive,
@@ -2787,15 +2788,18 @@ function botAttentionSource(taskId: string, kind: "permission" | "question", req
   const service = kind === "permission" ? ensurePermissionPromptService() : ensureQuestionPromptService();
   // Snapshot emits run this constantly; stay in memory unless something is actually waiting.
   if (!taskId.startsWith("bot:") || service.pendingTaskIds().size === 0) return taskId;
-  const own = service.pendingForTask(taskId);
-  if (own && (!requestId || own.id === requestId)) return taskId;
-  // Several delegated Code sessions can wait at once, so pick the one that actually owns this
-  // request instead of whichever session started first.
-  for (const linked of botCodeRelay().codeTasksForOrigin(taskId)) {
-    const delegated = service.pendingForTask(linked);
-    if (delegated && (!requestId || delegated.id === requestId)) return linked;
-  }
-  return taskId;
+  // Which key owns this request (the Bot itself or the delegated session that owns it) lives in
+  // backend core; the lookups stay here.
+  return resolveAttentionSource({
+    taskId,
+    isBotTask: true,
+    requestId,
+    ownRequestId: service.pendingForTask(taskId)?.id,
+    delegated: botCodeRelay().codeTasksForOrigin(taskId).map((linked) => ({
+      taskId: linked,
+      requestId: service.pendingForTask(linked)?.id,
+    })),
+  });
 }
 
 /** Mark every live session for a Bot so its next turn reloads SOUL.md. */
@@ -10972,18 +10976,16 @@ export function listPendingAttention(): AttentionItemDto[] {
   for (const taskId of candidateIds) {
     const task = getTask(taskId);
     if (!task || task.status === "archived") continue;
-    const kinds: AttentionItemDto["kinds"] = [];
-    if (permissionIds.has(taskId)) kinds.push("permission");
-    if (questionIds.has(taskId)) kinds.push("question");
-    if (kinds.length === 0) continue;
     // Delegated Code pending ids stay as taskId (respond API), but surface on Bot/Room via origin.
-    const originTaskId = botCodeRelay().originForCode(taskId) ?? undefined;
-    items.push({
+    // The item shape (kinds order, optional origin) lives in backend core.
+    const item = attentionItemForTask({
       taskId,
       title: task.title,
-      kinds,
-      ...(originTaskId ? { originTaskId } : {}),
+      hasPermission: permissionIds.has(taskId),
+      hasQuestion: questionIds.has(taskId),
+      originTaskId: botCodeRelay().originForCode(taskId) ?? undefined,
     });
+    if (item) items.push(item as AttentionItemDto);
   }
   return items;
 }
