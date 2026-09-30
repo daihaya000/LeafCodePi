@@ -190,6 +190,12 @@ test("desktop shortcut name is LeafCodePi.lnk", () => {
   assert.match(ps1, /leafcode-pi/);
 });
 
+test("the Host entry imports the restart script builder it calls", () => {
+  const source = readFileSync(join(repoRoot, "host", "src", "index.js"), "utf8");
+  assert.ok(/^import\s*\{\s*buildHostRestartScript\s*\}\s*from\s*["']\.\/host-restart\.js["'];?\s*$/m.test(source), "Host must import its restart script builder");
+  assert.ok(/\bbuildHostRestartScript\(\{/.test(source), "Host restart must use the imported builder");
+});
+
 test("host restart relaunches through LeafCodePi.exe when available", () => {
   const lines = buildHostRestartScript({
     lockFile: "C:\\Users\\Daichi\\AppData\\Roaming\\leafcode-pi\\host.lock",

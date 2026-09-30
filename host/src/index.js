@@ -15,6 +15,7 @@ import { pidAlive, readLock, removeLock, writeLock } from "./lock.js";
 import { createLogFileWriter, formatLogLine } from "./log-file.js";
 import { getListeningPids, getPortListenerStatus } from "./port-scanner.js";
 import { hardKillTree, stopProcessTreeGracefully } from "./process-stop.js";
+import { buildHostRestartScript } from "./host-restart.js";
 import { DEFAULT_BACKEND_PORT } from "../../shared/backend-protocol.mjs";
 import { createBackendService, isBackendRequested } from "./backend-service.js";
 import { readBackendHealth } from "./backend-health.js";
