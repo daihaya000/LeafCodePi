@@ -334,4 +334,12 @@ Backend単独のSDK検証前には `npm --prefix backend ci --ignore-scripts` �
 - liveセッション設定の3経路（`POST /api/tasks/:id/model`・`/thinking`・`/agent`）をBackendへ転送した。内部APIは`/internal/tasks/:id/{model,thinking,agent}`で、bodyのfieldは経路ごとに異なる（`model`／`thinkingLevel`／`agent`）。Backend側の検証はroute側の規則を保つ（modelは非空、thinkingLevelは真値、agentは空文字を許容して選択解除を表現）。
 - bundleへ`setTaskModel`・`setTaskThinkingLevel`・`setTaskAgent`を追加して再生成（9826 KiB）。Web routeは非所有モードで転送し、ローカルのセッション/ストア更新を行わない。
 - 検証: 既存のmodel/agent routeテストを保持しつつ転送テストを追加（model3件・agent3件）、thinking routeテスト3件を新規追加、`backend-forward`38件・所有権カバレッジ4件、backend server 64件（3経路の実行到達・検証規則・404・503・非関数拒否）成功。本番tsc・eslint成功。
-- これでrouteの所有権カバレッジは、セッションやその木・設定を触る経路をすべて含む（非所有モードでの既知の非転送経路なし）。
+- これでrouteの所有権カバレッジは、セッションやその木・設定を触る経路をすべて含む。
+
+## ターン23の変更（実測）
+
+- 所有権カバレッジテストの検出語彙を、転送化した全操作（revertTask/unrevertTask/compactTask/abortTaskCompaction/setTaskModel・Thinking・Agent/runRoutine/handleRoomPrompt/revertRoomConversation/runRoomConversation・FanOut・Bot/stopRoomTurns/steerRoomTurns/deliverReadyRoomHandoffs）へ広げ、検出対象は16 routeから28 routeになった。期待リストも実測に合わせて更新。
+- 拡張した走査で**未ガードの経路を1件検出**: `bots/rooms/[id]/route.ts`。PATCH（`resetMessages`／`members`）とDELETEが`stopRoomTurns`・`stopAllRoomCodeSessions`・`resetTaskConversation`・`detachBotFromRoomRuntime`・`destroyTask`をローカル実行しており、切替後はRoomのリセット・メンバー変更・削除が途中で失敗し得る。
+- この1件は`LOCAL_ONLY_PENDING`に理由付きで記録し、テストは「未ガードのstarterは必ず記録済みの既知ギャップである」ことを強制する形にした（未記録のものが現れたら失敗）。現況は starters 28・guarded 27・pending 1。
+- 検証: `runtime-ownership-coverage.test.ts`4件と`bots/rooms/[id]/route.test.ts`4件・runtime-startup3件成功、eslint成功。
+- 次: Roomの管理操作（PATCH/DELETE）をBackendへ転送し、`LOCAL_ONLY_PENDING`を空にして段階6の前提を満たす。
