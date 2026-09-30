@@ -50,6 +50,17 @@ export function isRegisteredLive(getLive, attached) {
 }
 
 /**
+ * What a caller should do after joining an ensure-live that was already running.
+ * A stale generation wins over a registered live: the joined attempt built its
+ * session for a generation that has since been invalidated, so a fresh attempt is
+ * started instead of adopting whatever is registered now.
+ */
+export function resolveJoinedEnsureAction({ stale, hasLive }) {
+  if (stale === true) return "retry";
+  return hasLive === true ? "use-live" : "retry";
+}
+
+/**
  * Disposing a live is deferred when one is already shutting down for the same task:
  * the caller joins the in-flight promise instead of stacking a second extension
  * shutdown and session dispose on the same session. The entry is cleared by the

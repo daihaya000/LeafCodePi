@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { isRegisteredLive, isStaleEnsureEpoch } from "./live-lifecycle.mjs";
+import { isRegisteredLive, isStaleEnsureEpoch, resolveJoinedEnsureAction } from "./live-lifecycle.mjs";
 
 test("a missing epoch entry counts as generation 0", () => {
   assert.equal(isStaleEnsureEpoch(undefined, 0), false);
@@ -34,4 +34,22 @@ test("the registry is read at call time", () => {
   assert.equal(isRegisteredLive(getLive, attached), true);
   current = { id: "replaced" };
   assert.equal(isRegisteredLive(getLive, attached), false);
+});
+
+test("after joining an in-flight ensure, a stale generation forces a retry", () => {
+  assert.equal(resolveJoinedEnsureAction({ stale: true, hasLive: true }), "retry");
+  assert.equal(resolveJoinedEnsureAction({ stale: true, hasLive: false }), "retry");
+});
+
+test("a fresh generation adopts the registered live, and retries when there is none", () => {
+  assert.equal(resolveJoinedEnsureAction({ stale: false, hasLive: true }), "use-live");
+  assert.equal(resolveJoinedEnsureAction({ stale: false, hasLive: false }), "retry");
+});
+
+test("only an explicit true counts for either flag", () => {
+  for (const value of [undefined, null, 0, "true", 1]) {
+    assert.equal(resolveJoinedEnsureAction({ stale: value, hasLive: value }), "retry", String(value));
+  }
+  assert.equal(resolveJoinedEnsureAction({ stale: false, hasLive: "yes" }), "retry");
+  assert.equal(resolveJoinedEnsureAction({ stale: false, hasLive: true }), "use-live");
 });

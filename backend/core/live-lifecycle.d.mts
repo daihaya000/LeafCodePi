@@ -49,6 +49,13 @@ export function isStaleEnsureEpoch(currentEpoch: number | undefined | null, epoc
 /** True when the live registered for the task is exactly the one this attempt attached. */
 export function isRegisteredLive<Live>(getLive: () => Live | undefined, attached: Live): boolean;
 
+/**
+ * After joining an in-flight ensure-live: a stale generation forces a retry even
+ * when a live is registered; otherwise the registered live is adopted, and with
+ * none the caller retries.
+ */
+export function resolveJoinedEnsureAction(input: { stale: boolean; hasLive: boolean }): "use-live" | "retry";
+
 export function oneToOneBotIdFromTaskId(taskId: string): string | null;
 
 /** 1:1 Bot attaches promote queued mailbox rows; Room attaches never do. */
