@@ -208,6 +208,7 @@ import {
 import { registerWebUiPermissionHandler } from "@/lib/pi/webui-permission-bridge";
 import { AccountRuntimeManager } from "@/lib/pi/account-runtime-manager";
 import { SdkRuntimeFactory } from "@backend-core/sdk-runtime.mjs";
+import * as corePromptControl from "@backend-core/prompt-control.mjs";
 import {
   accountAuthPath,
   accountHasProvider,
@@ -1513,10 +1514,7 @@ function emitCodeSessionChanged(request: CodeRequest): void {
 }
 
 /** プロバイダが「思考オフ不可」の 400 を返したか。 */
-export function isReasoningMandatoryError(error: unknown): boolean {
-  const message = error instanceof Error ? error.message : String(error);
-  return /reasoning is mandatory/i.test(message);
-}
+export const isReasoningMandatoryError = corePromptControl.isReasoningMandatoryError;
 
 /** 思考必須モデル向けのフォールバックレベル（対応する最下位、なければ minimal）。 */
 export function reasoningFallbackLevel(
@@ -8649,89 +8647,22 @@ async function prepareLiveForPrompt(
   );
 }
 
-export function buildPromptOptions({
-  images,
-  streamingBehavior,
-  isStreaming,
-  isHangRetry,
-}: {
+export function buildPromptOptions(input: {
   images?: PromptImage[];
   streamingBehavior?: "steer" | "followUp";
   isStreaming: boolean;
   isHangRetry: boolean;
 }): SessionPromptOptions {
-  const options: SessionPromptOptions = {};
-  if (isHangRetry) options.source = "extension";
-  if (images?.length) {
-    options.images = images.map((image) => ({
-      type: "image" as const,
-      data: image.data,
-      mimeType: image.mimeType,
-    }));
-  }
-  if (streamingBehavior) options.streamingBehavior = streamingBehavior;
-  // Hang retries must start a fresh turn after abort — never inject as followUp
-  // if isStreaming is still briefly true.
-  else if (isStreaming && !isHangRetry) options.streamingBehavior = "followUp";
-  return options;
+  return corePromptControl.buildPromptOptions(input);
 }
 
-/** Only steer/follow-up injects skip the serial prompt chain (wait for stream in runPrompt). */
-export function shouldBypassPromptChain(
-  streamingBehavior: "steer" | "followUp" | undefined,
-): boolean {
-  return Boolean(streamingBehavior);
-}
-
-/**
- * Drop steer/follow-up once the current turn is no longer streaming so a
- * late interrupt becomes a no-op instead of a parallel run or next-turn prompt.
- */
-export function resolveStreamingBehaviorForPrompt(
-  streamingBehavior: "steer" | "followUp" | undefined,
-  isStreaming: boolean,
-): "steer" | "followUp" | undefined {
-  return isStreaming ? streamingBehavior : undefined;
-}
-
-export const STEER_STREAM_WAIT_MS = 30_000;
-export const STEER_STREAM_POLL_MS = 50;
-
-/**
- * Wait for the stream only while the accepted prompt is still active.
- * If promptActive is already false, the turn ended (or never started) —
- * callers should demote steer to a normal chained prompt instead of waiting.
- */
-export function shouldWaitForSteerStream(input: {
-  isStreaming: boolean;
-  promptActive: boolean;
-}): boolean {
-  return !input.isStreaming && input.promptActive;
-}
-
-/** Wait until the live session is streaming, or give up (caller demotes/drops). */
-export async function waitForSessionStreaming(
-  isStreaming: () => boolean,
-  stillActive: () => boolean,
-  options?: {
-    timeoutMs?: number;
-    pollMs?: number;
-    sleep?: (ms: number) => Promise<void>;
-  },
-): Promise<boolean> {
-  if (isStreaming()) return true;
-  const timeoutMs = options?.timeoutMs ?? STEER_STREAM_WAIT_MS;
-  const pollMs = options?.pollMs ?? STEER_STREAM_POLL_MS;
-  const sleep =
-    options?.sleep ?? ((ms: number) => new Promise((resolve) => setTimeout(resolve, ms)));
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    if (!stillActive()) return false;
-    await sleep(pollMs);
-    if (isStreaming()) return true;
-  }
-  return isStreaming();
-}
+// Prompt ordering/stream-wait rules live in backend core; harness keeps session ownership.
+export const shouldBypassPromptChain = corePromptControl.shouldBypassPromptChain;
+export const resolveStreamingBehaviorForPrompt = corePromptControl.resolveStreamingBehaviorForPrompt;
+export const STEER_STREAM_WAIT_MS = corePromptControl.STEER_STREAM_WAIT_MS;
+export const STEER_STREAM_POLL_MS = corePromptControl.STEER_STREAM_POLL_MS;
+export const shouldWaitForSteerStream = corePromptControl.shouldWaitForSteerStream;
+export const waitForSessionStreaming = corePromptControl.waitForSessionStreaming;
 
 const TASK_LEASE_BUSY_ERROR = "タスクは別のワーカーで実行中です";
 
@@ -9708,13 +9639,8 @@ export function cancelPendingTaskSnapshot(live: {
   return true;
 }
 
-export function nextPromptEpoch(current: number | undefined): number {
-  return (current || 0) + 1;
-}
-
-export function isStaleHarnessPrompt(startedEpoch: number, currentEpoch: number): boolean {
-  return startedEpoch !== currentEpoch;
-}
+export const nextPromptEpoch = corePromptControl.nextPromptEpoch;
+export const isStaleHarnessPrompt = corePromptControl.isStaleHarnessPrompt;
 
 export async function abortTask(id: string): Promise<TaskSummary> {
   // An explicit stop is terminal for the current request; do not leave the
@@ -9813,12 +9739,8 @@ export async function abortTaskIncludingColdGoalLoop(id: string): Promise<TaskSu
 
 /** abort() leaves steer/follow-up queues; drop them so a later run cannot drain stale work. */
 export function clearSessionQueue(session: { clearQueue?: () => unknown }): void {
-  try {
-    session.clearQueue?.();
-  } catch (error) {
-    const reason = error instanceof Error ? error.message : String(error);
-    console.warn(`[abort] clearQueue failed: ${reason}`);
-  }
+  // Resolve console.warn at call time so tests and log hooks can replace it.
+  corePromptControl.clearSessionQueue(session, (message) => console.warn(message));
 }
 
 /**
