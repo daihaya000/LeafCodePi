@@ -214,7 +214,7 @@ import * as corePromptControl from "@backend-core/prompt-control.mjs";
 import { runHangWatchdogAbort, runUserAbort } from "@backend-core/abort-coordinator.mjs";
 import { roomBotIdFromTaskId } from "@backend-core/abort-control.mjs";
 import { detachReplacedLive as coreDetachReplacedLive, disposeUnattachedSession, hasOtherBusyRoomLive, isRegisteredLive, isStaleEnsureEpoch, promoteMailboxOnAttach, resolveAttachAccount, resolveAttachedSessionAction, resolveCreatedSessionAction, resolveJoinedEnsureAction, runCoalescedLiveShutdown, runTrackedEnsure, shouldShutdownOnDispose as coreShouldShutdownOnDispose } from "@backend-core/live-lifecycle.mjs";
-import { restoredPromptState, restoredTaskMetadata, restoredThroughputState } from "@backend-core/live-attach-state.mjs";
+import { restoredPromptState, restoredTaskMetadata, restoredThroughputState as coreRestoredThroughputState } from "@backend-core/live-attach-state.mjs";
 import { compactionFailureMessage, isHarnessAutoCompactionError as coreIsHarnessAutoCompactionError, runAgentStartTaskSync, shouldApplySettledStatus, shouldSkipEventForMissingTask, shouldSyncTaskFromSessionEvent as coreShouldSyncTaskFromSessionEvent, type SessionSyncEvent } from "@backend-core/session-event-decisions.mjs";
 import { classifySnapshotEvent, flushPendingSnapshotOnUnsubscribe, pendingSnapshotFlush, SNAPSHOT_THROTTLE_MS } from "@backend-core/snapshot-schedule.mjs";
 import { isBotTask, liveSessionName, liveSessionWorkspace, preflightLiveSession, resolveSessionPermissionMode, resolveSessionSkillPermission } from "@backend-core/live-session-preflight.mjs";
@@ -2190,7 +2190,29 @@ function finishSettledTurn(
 }
 
 /** Carry per-task state across a session replacement, or load it from the session file. */
-function buildLiveRuntime(input: {
+/**
+ * Transcript-derived timing state for a new (or replaced) live. Kept as a named
+ * export because callers outside this module restore throughput state directly;
+ * the rules live in backend core and the versioned map classes stay here.
+ */
+export function restoredThroughputState(
+  existing: LiveRuntime | undefined,
+  loaded: ReturnType<typeof loadThroughputFromSession> | null,
+  loadedToolTiming: ReturnType<typeof loadToolTimingFromSession> | null,
+): Pick<
+  LiveRuntime,
+  | "throughputByStartedAt"
+  | "persistedThroughputKeys"
+  | "toolStartedAt"
+  | "toolEndedAt"
+> {
+  return coreRestoredThroughputState(existing, loaded, loadedToolTiming, {
+    createThroughputMap: (initial) => new VersionedThroughputMap(initial),
+    createTimingMap: (initial) => new VersionedTimingMap(initial),
+  });
+}
+
+/** Carry per-task state across a session replacement, or load it from the session file. */function buildLiveRuntime(input: {
   taskId: string;
   session: AgentSession;
   skillPermissionRef: { current: SkillPermission };
@@ -2223,10 +2245,7 @@ function buildLiveRuntime(input: {
     manualCompactionInProgress: false,
     nativeCompactionAttempted: false,
     goalLoopTurnActive: false,
-    ...restoredThroughputState(existing, loaded, loadedToolTiming, {
-      createThroughputMap: (initial) => new VersionedThroughputMap(initial),
-      createTimingMap: (initial) => new VersionedTimingMap(initial),
-    }),
+    ...restoredThroughputState(existing, loaded, loadedToolTiming),
     snapshotTimer: null,
     pendingSnapshotEventType: null,
     pendingSnapshotIsDelta: false,
