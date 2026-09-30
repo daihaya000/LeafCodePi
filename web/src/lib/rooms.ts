@@ -1,10 +1,10 @@
-import { existsSync, appendFileSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { appendFileSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { EventEmitter } from "node:events";
 import { dataDir } from "./paths";
 import { withDirectoryLock } from "@backend-core/directory-lock.mjs";
-import { normalizeRoom as coreNormalizeRoom } from "@backend-core/room-normalize.mjs";
+import { RoomFileStore } from "@backend-core/room-store.mjs";
 import { botTaskId, botWorkspace, getBot, listBots } from "./bots";
 import { deleteTask, getTask, insertBotTask, listTasks, patchTask } from "./store";
 import { ROOM_HANDOFF_STATES } from "./types";
@@ -121,29 +121,20 @@ roomEvents.setMaxListeners(0);
 
 function roomsRoot(): string { return join(dataDir(), "bots", "rooms"); }
 function isValidId(id: string): boolean { return /^[0-9a-f]{8}-[0-9a-f-]{27,}$/i.test(id); }
+// File persistence lives in backend core; the shared DTO vocabulary and the
+// process-local event bus stay here as injected hooks.
+const roomFileStore = new RoomFileStore({
+  roomsRoot: () => roomsRoot(),
+  handoffStates: ROOM_HANDOFF_STATES,
+  onWritten: (room) => roomEvents.emit(room.id, room),
+});
+
 function assertId(id: string): void {
   if (!isValidId(id)) throw new Error("invalid room id");
 }
-function roomPath(id: string): string { assertId(id); return join(roomsRoot(), `${id}.json`); }
-function normalizeRoom(value: Partial<RoomDto>, id: string): RoomDto | null {
-  // Validation lives in backend core; the handoff vocabulary is the shared DTO constant.
-  return coreNormalizeRoom(value, id, ROOM_HANDOFF_STATES);
-}
-function readRoom(id: string): RoomDto | undefined {
-  try { return normalizeRoom(JSON.parse(readFileSync(roomPath(id), "utf8")) as Partial<RoomDto>, id) ?? undefined; } catch { return undefined; }
-}
-function writeRoom(room: RoomDto): void {
-  mkdirSync(roomsRoot(), { recursive: true });
-  const path = roomPath(room.id);
-  const temporary = `${path}.${process.pid}.${randomUUID()}.tmp`;
-  try {
-    writeFileSync(temporary, `${JSON.stringify(room, null, 2)}\n`, "utf8");
-    renameSync(temporary, path);
-  } finally {
-    rmSync(temporary, { force: true });
-  }
-  roomEvents.emit(room.id, room);
-}
+function roomPath(id: string): string { return roomFileStore.roomPath(id); }
+function readRoom(id: string): RoomDto | undefined { return roomFileStore.readRoom(id); }
+function writeRoom(room: RoomDto): void { roomFileStore.writeRoom(room); }
 function validMembers(members: string[]): string[] {
   return [...new Set(members)].filter((id) => Boolean(getBot(id)));
 }
@@ -161,12 +152,7 @@ export function assertKnownRoomMembers(members: string[]): string[] {
 }
 
 export function listRooms(): RoomDto[] {
-  if (!existsSync(roomsRoot())) return [];
-  return readdirSync(roomsRoot(), { withFileTypes: true })
-    .filter((entry) => entry.isFile() && entry.name.endsWith(".json"))
-    .map((entry) => readRoom(entry.name.slice(0, -5)))
-    .filter((room): room is RoomDto => Boolean(room))
-    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  return roomFileStore.listRooms();
 }
 export function getRoom(id: string): RoomDto | undefined { return readRoom(id); }
 export function createRoom(input: { name?: string; members?: string[] }): RoomDto {
