@@ -34,6 +34,7 @@
    | `sdk-runtime.mjs` / `account-runtime-manager.mjs` | SDKのlazy/single-flightロード、モデルランタイム・セッション生成境界、アカウント別ランタイムのLRU管理 | harnessからのSDKローダー注入（identity維持） |
    | `app-store.mjs` | プロジェクト/タスクCRUD、`store.json` v1、キャッシュ、日次バックアップ | パス方針・workspace割当を注入する同期APIの入口 |
    | `app-paths.mjs` / `xdg-user-dirs.mjs` | データディレクトリ・`store.json`等のパス、パス比較、Documents/XDGの解決、無プロジェクトworkspace作成、テスト時のlive data保護ガード | `lib/paths.ts`・`lib/xdg-user-dirs.ts` は同名exportの互換入口 |
+   | `bot-avatar.mjs` | Botアイコンの色パレット・形の語彙と描画データ、色の妥当性検証・ID由来の色決定・ランダム選択、インライン画像データの検証 | `lib/bot-avatar.ts` は同名exportの互換入口 |
    | `task-runtime-lease.mjs` | lease取得/解放、heartbeat、孤立タスク照合と通知 | global token・listener・backlogの引継ぎ |
    | `restart-resume.mjs` / `runtime-startup.mjs` | 再起動復旧の再試行予算、起動順序（listener登録→孤立照合→relay→scheduler→Room照合） | 各起動サービスの実体、instrumentationの互換呼出 |
    | `pending-prompts.mjs` / `webui-bridge.mjs` | 質問/承認の待機キューとタイムアウト、ブリッジ受付口（globalThisの枠・未登録時null） | harnessのprocess-localシングルトン、拡張側コピー |
