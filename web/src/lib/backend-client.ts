@@ -15,6 +15,7 @@ import {
   BACKEND_HEALTH_PATH,
   BACKEND_PROTOCOL_HEADER,
   BACKEND_PROTOCOL_VERSION,
+  BACKEND_TASK_DETAIL_SUFFIX,
   BACKEND_TASK_PROMPT_SUFFIX,
   BACKEND_TASKS_PATH,
   DEFAULT_BACKEND_PORT,
@@ -158,6 +159,14 @@ export function promptTaskOnBackend(
  */
 export function expectedBackendGeneration(env: BackendEnv = process.env): string {
   return normalizeExpectedGeneration(env.LEAFCODE_PI_BACKEND_GENERATION);
+}
+
+/** A task's detail as the owning Backend sees it (offline transcript read). */
+export function readBackendTaskDetail(
+  id: string,
+  options: { env?: BackendEnv; fetchImpl?: typeof fetch; timeoutMs?: number } = {},
+): Promise<BackendResult<{ detail: Record<string, unknown> | null }>> {
+  return fetchBackendJson(`${BACKEND_TASKS_PATH}/${encodeURIComponent(id)}${BACKEND_TASK_DETAIL_SUFFIX}`, options);
 }
 
 /** The Backend's own view of the Bot store. */

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { forwardTaskPrompt, forwardablePromptBody, needsLocalResolution } from "./backend-forward";
+import { forwardTaskDetail, forwardTaskPrompt, forwardablePromptBody, needsLocalResolution } from "./backend-forward";
 
 const env = { LEAFCODE_PI_BACKEND_TOKEN: "t".repeat(40), LEAFCODE_PI_BACKEND_URL: "http://127.0.0.1:19999" };
 
@@ -81,6 +81,32 @@ describe("forwardTaskPrompt", () => {
     await expect(forwardTaskPrompt("task-1", { prompt: "hi" }, { env, fetchImpl: fetchImpl as unknown as typeof fetch })).resolves.toEqual({
       ok: true,
       task: null,
+    });
+  });
+});
+
+describe("forwardTaskDetail", () => {
+  it("reads the detail from the Backend and reports its failures", async () => {
+    const ok = vi.fn(async () => jsonResponse(200, { detail: { id: "task-1", status: "working" } }));
+    await expect(forwardTaskDetail("task-1", { env, fetchImpl: ok as unknown as typeof fetch })).resolves.toEqual({
+      ok: true,
+      detail: { id: "task-1", status: "working" },
+    });
+    expect(ok.mock.calls[0][0]).toBe("http://127.0.0.1:19999/internal/tasks/task-1/detail");
+    const missing = vi.fn(async () => jsonResponse(404, { error: "Not found" }));
+    const result = await forwardTaskDetail("task-1", { env, fetchImpl: missing as unknown as typeof fetch });
+    expect(result.ok).toBe(false);
+    expect(result.ok === false && result.reason).toBe("bad-response");
+    expect(result.ok === false && result.status).toBe(404);
+    const unconfigured = await forwardTaskDetail("task-1", { env: {} });
+    expect(unconfigured).toEqual({ ok: false, reason: "not-configured" });
+  });
+
+  it("treats a body without a detail as an empty detail", async () => {
+    const empty = vi.fn(async () => jsonResponse(200, {}));
+    await expect(forwardTaskDetail("task-1", { env, fetchImpl: empty as unknown as typeof fetch })).resolves.toEqual({
+      ok: true,
+      detail: null,
     });
   });
 });

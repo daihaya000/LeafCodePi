@@ -8,6 +8,7 @@ import {
   BACKEND_PENDING_SNAPSHOTS_PATH,
   BACKEND_PROTOCOL_HEADER,
   BACKEND_PROTOCOL_VERSION,
+  BACKEND_TASK_DETAIL_SUFFIX,
   BACKEND_TASK_PROMPT_SUFFIX,
   BACKEND_TASKS_PATH,
   DEFAULT_BACKEND_PORT,
@@ -142,8 +143,8 @@ export function createBackendServer({
       ? target.pathname.slice(BACKEND_TASKS_PATH.length + 1)
       : null;
     // `<id>/detail` reads the task's detail; a bare `<id>` reads the stored row.
-    const detailPath = taskSuffix?.endsWith("/detail")
-      ? decodeURIComponent(taskSuffix.slice(0, -"/detail".length))
+    const detailPath = taskSuffix?.endsWith(BACKEND_TASK_DETAIL_SUFFIX)
+      ? decodeURIComponent(taskSuffix.slice(0, -BACKEND_TASK_DETAIL_SUFFIX.length))
       : undefined;
     // `<id>/prompt` starts a session: only the process that owns the runtime may do that.
     const promptPath = taskSuffix?.endsWith(BACKEND_TASK_PROMPT_SUFFIX)

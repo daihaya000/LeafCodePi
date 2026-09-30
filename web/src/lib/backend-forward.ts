@@ -1,4 +1,9 @@
-import { promptTaskOnBackend, type BackendEnv, type BackendFailureReason } from "@/lib/backend-client";
+import {
+  promptTaskOnBackend,
+  readBackendTaskDetail,
+  type BackendEnv,
+  type BackendFailureReason,
+} from "@/lib/backend-client";
 
 /**
  * Forwarding a prompt to the Backend that owns the runtime.
@@ -52,4 +57,19 @@ export async function forwardTaskPrompt(
   if (!result.ok) return { ok: false, reason: result.reason, ...(result.status ? { status: result.status } : {}) };
   const task = result.body?.task;
   return { ok: true, task: task && typeof task === "object" ? task : null };
+}
+
+export type ForwardedDetailResult =
+  | { ok: true; detail: Record<string, unknown> | null }
+  | { ok: false; reason: BackendFailureReason; status?: number };
+
+/** Reads a task's detail from the owning Backend. Never falls back to the in-process read. */
+export async function forwardTaskDetail(
+  id: string,
+  options: { env?: BackendEnv; fetchImpl?: typeof fetch; timeoutMs?: number } = {},
+): Promise<ForwardedDetailResult> {
+  const result = await readBackendTaskDetail(id, options);
+  if (!result.ok) return { ok: false, reason: result.reason, ...(result.status ? { status: result.status } : {}) };
+  const detail = result.body?.detail;
+  return { ok: true, detail: detail && typeof detail === "object" ? detail : null };
 }

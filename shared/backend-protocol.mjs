@@ -12,6 +12,12 @@ export const BACKEND_TASKS_PATH = "/internal/tasks";
  */
 export const BACKEND_TASK_PROMPT_SUFFIX = "/prompt";
 
+/**
+ * The suffix that turns a task path into its detail endpoint: `GET /internal/tasks/:id/detail`.
+ * The owning process reads the session; a WebUI that handed the runtime over reads it from here.
+ */
+export const BACKEND_TASK_DETAIL_SUFFIX = "/detail";
+
 /** Read-only: the Backend's own view of the Bot store. */
 export const BACKEND_BOTS_PATH = "/internal/bots";
 export const DEFAULT_BACKEND_PORT = 18776;
