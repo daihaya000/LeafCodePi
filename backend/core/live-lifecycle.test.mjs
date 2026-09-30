@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { hasOtherBusyRoomLive, oneToOneBotIdFromTaskId, resolveAttachAccount, shouldShutdownOnDispose } from "./live-lifecycle.mjs";
+import {
+  hasOtherBusyRoomLive, oneToOneBotIdFromTaskId, resolveAttachAccount, shouldDeferLiveSetting,
+  shouldShutdownOnDispose,
+} from "./live-lifecycle.mjs";
 
 const live = (overrides = {}) => ({ promptActive: false, session: { isStreaming: false, isCompacting: false }, ...overrides });
 
@@ -86,4 +89,27 @@ test("attach account: an explicit session account overrides the task account, in
   assert.deepEqual(resolveAttachAccount({ sessionAccountId: null, taskAccountId: "t", existingAccountId: "t" }), { accountId: null, acquire: false });
   assert.deepEqual(resolveAttachAccount({ sessionAccountId: undefined, taskAccountId: "t" }), { accountId: "t", acquire: true });
   assert.deepEqual(resolveAttachAccount({ sessionAccountId: "", taskAccountId: "t" }), { accountId: "", acquire: false });
+});
+
+test("a live setting is deferred for a busy session, a working task or Goal Loop ownership", () => {
+  const base = { busyForReplace: false, taskStatus: "idle", activeGoalLoopSession: false, goalLoopOwned: false };
+  assert.equal(shouldDeferLiveSetting(base), false);
+  assert.equal(shouldDeferLiveSetting({ ...base, busyForReplace: true }), true);
+  assert.equal(shouldDeferLiveSetting({ ...base, taskStatus: "working" }), true);
+  assert.equal(shouldDeferLiveSetting({ ...base, activeGoalLoopSession: true }), true);
+  assert.equal(shouldDeferLiveSetting({ ...base, goalLoopOwned: true }), true);
+  // Any one reason is enough, and unrelated statuses do not defer.
+  for (const taskStatus of ["idle", "complete", "error", "archived", undefined]) {
+    assert.equal(shouldDeferLiveSetting({ ...base, taskStatus }), false, String(taskStatus));
+  }
+  assert.equal(shouldDeferLiveSetting({ ...base, busyForReplace: true, goalLoopOwned: true }), true);
+});
+
+test("only explicit true defers, so a missing flag never blocks a setting", () => {
+  const base = { busyForReplace: false, taskStatus: "idle", activeGoalLoopSession: false, goalLoopOwned: false };
+  for (const value of [undefined, null, 0, "true", 1]) {
+    assert.equal(shouldDeferLiveSetting({ ...base, busyForReplace: value }), false, String(value));
+    assert.equal(shouldDeferLiveSetting({ ...base, activeGoalLoopSession: value }), false, String(value));
+    assert.equal(shouldDeferLiveSetting({ ...base, goalLoopOwned: value }), false, String(value));
+  }
 });

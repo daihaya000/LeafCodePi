@@ -145,3 +145,11 @@ export function resolveAttachAccount(input: {
   taskAccountId?: string | null;
   existingAccountId?: string | null;
 }): { accountId: string | null; acquire: boolean };
+
+/** Whether a live setting must be deferred instead of applied to the session now. */
+export function shouldDeferLiveSetting(input: {
+  busyForReplace: boolean;
+  taskStatus: string | undefined;
+  activeGoalLoopSession: boolean;
+  goalLoopOwned: boolean;
+}): boolean;

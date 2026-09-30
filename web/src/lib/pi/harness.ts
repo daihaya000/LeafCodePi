@@ -224,7 +224,7 @@ import { detachReplacedLive as coreDetachReplacedLive, disposeUnattachedSession,
 import { restoredPromptState, restoredTaskMetadata, restoredThroughputState as coreRestoredThroughputState } from "@backend-core/live-attach-state.mjs";
 import { compactionFailureMessage, isHarnessAutoCompactionError as coreIsHarnessAutoCompactionError, runAgentStartTaskSync, shouldApplySettledStatus, shouldSkipEventForMissingTask, shouldSyncTaskFromSessionEvent as coreShouldSyncTaskFromSessionEvent, type SessionSyncEvent } from "@backend-core/session-event-decisions.mjs";
 import { classifySnapshotEvent, flushPendingSnapshotOnUnsubscribe, pendingSnapshotFlush, SNAPSHOT_THROTTLE_MS } from "@backend-core/snapshot-schedule.mjs";
-import { publishAttachedLive, resolveEnsureLiveAttempt, runEnsureLiveGates } from "@backend-core/live-lifecycle.mjs";
+import { publishAttachedLive, resolveEnsureLiveAttempt, runEnsureLiveGates, shouldDeferLiveSetting as coreShouldDeferLiveSetting } from "@backend-core/live-lifecycle.mjs";
 import { isReplacedPackageSource, keepsLoadedExtension, replacedUpstreamPackages } from "@backend-core/replaced-packages.mjs";
 import { resolveBotSessionOptions } from "@backend-core/bot-session-options.mjs";
 import { runSessionEventEffects } from "@backend-core/session-event-effects.mjs";
@@ -8369,12 +8369,13 @@ function shouldDeferLiveSetting(
   const loop = task
     ? readGoalLoopState(task.directory, live.session.sessionId ?? task.sessionId)
     : null;
-  return (
-    isLiveBusyForReplace(live) ||
-    task?.status === "working" ||
-    isActiveGoalLoopSession(live.session) ||
-    isGoalLoopSessionOwned(loop)
-  );
+  // The deferral rule lives in backend core; the Goal Loop lookup stays here.
+  return coreShouldDeferLiveSetting({
+    busyForReplace: isLiveBusyForReplace(live),
+    taskStatus: task?.status,
+    activeGoalLoopSession: isActiveGoalLoopSession(live.session),
+    goalLoopOwned: isGoalLoopSessionOwned(loop),
+  });
 }
 
 async function applyPendingLiveSettings(

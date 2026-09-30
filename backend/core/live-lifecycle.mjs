@@ -242,3 +242,19 @@ export function resolveAttachAccount({ sessionAccountId, taskAccountId, existing
   const keepsExistingRef = Boolean(accountId && existingAccountId === accountId);
   return { accountId, acquire: Boolean(accountId) && !keepsExistingRef };
 }
+
+/**
+ * Whether a live setting must wait instead of touching the session now. A session that is
+ * prompting, streaming or compacting keeps its current values; a task reported as working,
+ * an active Goal Loop session or a session the Goal Loop owns also defers, because the next
+ * turn (a Goal Loop turn included) re-reads the values. The caller reads the Goal Loop state
+ * and passes the two flags in.
+ */
+export function shouldDeferLiveSetting({ busyForReplace, taskStatus, activeGoalLoopSession, goalLoopOwned }) {
+  return (
+    busyForReplace === true ||
+    taskStatus === "working" ||
+    activeGoalLoopSession === true ||
+    goalLoopOwned === true
+  );
+}
