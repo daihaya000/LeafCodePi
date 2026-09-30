@@ -1,4 +1,4 @@
-import { finalAssistantIdOfCurrentTurn, roomBotIdFromTaskId } from "./abort-control.mjs";
+import { finalAssistantIdOfCurrentTurn, isHangWatchReplaced, roomBotIdFromTaskId } from "./abort-control.mjs";
 
 export const TASK_NOT_FOUND_MESSAGE = "タスクが見つかりません";
 
@@ -49,4 +49,54 @@ export async function runUserAbort(id, deps) {
     }
   }
   return deps.toSummary(task);
+}
+
+/**
+ * Hang-watchdog stop. Unlike a user stop it keeps the persisted watch armed (so
+ * the retry can resume), does not tear down the Goal Loop, announces
+ * `hang_abort` before the SDK settles, and leaves state alone when a newer
+ * prompt re-armed the watch while the abort was in flight.
+ */
+export async function runHangWatchdogAbort(taskId, deps) {
+  // Capture before any await: a newer prompt may replace the watch while the
+  // SDK abort settles, and then idle/lease must not tear down that turn.
+  const startedAtBeforeAbort = deps.getHangWatchStartedAt(taskId);
+  const live = deps.getLive(taskId);
+  deps.clearPendingAttention(taskId);
+  if (live) {
+    deps.clearSessionQueue(live);
+    deps.cancelPrompt(live);
+    deps.cancelPendingSnapshot(live);
+    // Keep the manual-abort guard active even if agent_end is observed before
+    // the final assistant id can be projected.
+    deps.persistManualAbortedAssistantId(taskId, "");
+    const abortPromise = deps.abortSession(live);
+    const messages = deps.snapshotMessages(live);
+    // Persist before hang_abort so SSE carries the sentinel / assistant id.
+    deps.persistManualAbortedAssistantId(taskId, finalAssistantIdOfCurrentTurn(messages));
+    // Emit before idle so clients clear queued follow-ups before hang_retry.
+    deps.emitHangAbort(live);
+    await deps.stopSubagentRuns(live, messages);
+    await abortPromise;
+  }
+  if (isHangWatchReplaced(startedAtBeforeAbort, deps.getHangWatch(taskId))) {
+    // The replacement turn keeps its working state and lease.
+    return;
+  }
+  deps.setIdle(taskId);
+  deps.releaseLease(taskId);
+  // hang_abort still carried status=working; announce idle even if resume is
+  // deferred. A live session registered meanwhile takes precedence.
+  const idleLive = deps.getLive(taskId) ?? live;
+  if (idleLive) deps.emitHangIdle(idleLive);
+  // promptChain.finally may have flushed while still streaming (roomBusy no-op);
+  // re-flush after the abort settles.
+  const roomBotId = roomBotIdFromTaskId(taskId);
+  if (roomBotId) {
+    try {
+      deps.flushRoomMailbox(roomBotId);
+    } catch (error) {
+      deps.warn("[bot-intercom] flush after Room hang abort failed", error);
+    }
+  }
 }

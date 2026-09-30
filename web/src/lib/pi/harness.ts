@@ -209,8 +209,7 @@ import { registerWebUiPermissionHandler } from "@/lib/pi/webui-permission-bridge
 import { AccountRuntimeManager } from "@/lib/pi/account-runtime-manager";
 import { SdkRuntimeFactory } from "@backend-core/sdk-runtime.mjs";
 import * as corePromptControl from "@backend-core/prompt-control.mjs";
-import { finalAssistantIdOfCurrentTurn, isHangWatchReplaced, roomBotIdFromTaskId } from "@backend-core/abort-control.mjs";
-import { runUserAbort } from "@backend-core/abort-coordinator.mjs";
+import { runHangWatchdogAbort, runUserAbort } from "@backend-core/abort-coordinator.mjs";
 import {
   accountAuthPath,
   accountHasProvider,
@@ -9723,68 +9722,44 @@ export function clearSessionQueue(session: { clearQueue?: () => unknown }): void
  * hang retry cannot also drain leftover steer/follow-up prompts.
  */
 export async function abortLiveForHangWatchdog(taskId: string): Promise<void> {
-  // Capture before any await — a newer prompt may replace the hang watch while
-  // session.abort settles; idle/lease must not tear down that replacement turn.
-  const hangWatchStartedAt = getTaskHangWatch(taskId)?.startedAt;
-  const live = state().live.get(taskId);
-  clearPendingAttentionForTask(taskId);
-  if (live) {
-    // Stop queued work before the SDK settles, then signal the native abort
-    // before projecting the history or enumerating detached children.
-    clearSessionQueue(live.session);
-    cancelHarnessPrompt(live);
-    cancelPendingTaskSnapshot(live);
-    // Keep the manual-abort guard active even if agent_end is observed before
-    // the final assistant id can be projected.
-    persistManualAbortedAssistantId(taskId, "");
-    const abortPromise = live.session.abort();
-    const msgs = snapshotMessages(
-      live.session,
-      live.throughputByStartedAt,
-      live.toolStartedAt,
-      live.toolEndedAt,
-      live.toolPartialOutputByCallId,
-      false,
-      messageContext(live),
-    );
-    // Persist before hang_abort so SSE (and ready-buffer flush) carries the
-    // early-abort "" sentinel / assistant id — same order as abortTask.
-    persistManualAbortedAssistantId(taskId, finalAssistantIdOfCurrentTurn(msgs));
-    // Emit before idle so clients clear queued follow-ups before hang_retry.
+  // Ordering lives in backend core; side effects stay with the harness and are
+  // resolved at call time so module mocks and hot reloads keep working.
+  await runHangWatchdogAbort(taskId, {
+    getHangWatchStartedAt: (id) => getTaskHangWatch(id)?.startedAt,
+    getHangWatch: (id) => getTaskHangWatch(id),
+    getLive: (id) => state().live.get(id),
+    clearPendingAttention: (id) => clearPendingAttentionForTask(id),
+    clearSessionQueue: (live) => clearSessionQueue(live.session),
+    cancelPrompt: (live) => cancelHarnessPrompt(live),
+    cancelPendingSnapshot: (live) => cancelPendingTaskSnapshot(live),
+    persistManualAbortedAssistantId: (id, assistantId) =>
+      persistManualAbortedAssistantId(id, assistantId),
+    abortSession: (live) => live.session.abort(),
+    snapshotMessages: (live) =>
+      snapshotMessages(
+        live.session,
+        live.throughputByStartedAt,
+        live.toolStartedAt,
+        live.toolEndedAt,
+        live.toolPartialOutputByCallId,
+        false,
+        messageContext(live),
+      ),
     // Force isStreaming false while the SDK abort is settling.
-    emitTaskSnapshot(live, "hang_abort", { isStreaming: false });
-    await stopSubagentRunsForTask(live, msgs);
-    await abortPromise;
-  }
-  const hangWatchAfter = getTaskHangWatch(taskId);
-  if (isHangWatchReplaced(hangWatchStartedAt, hangWatchAfter)) {
-    // Newer prompt re-armed the watch; leave working/lease for that turn.
-    return;
-  }
-  setTaskStatus(taskId, "idle");
-  releaseTaskLease(taskId);
-  // hang_abort above still carried status=working from the store. Tell the
-  // client we are idle even when resume is deferred (waitForIdle failure).
-  const idleLive = state().live.get(taskId) ?? live;
-  if (idleLive) {
-    emitTaskSnapshot(idleLive, "hang_idle", {
-      isStreaming: false,
-      permissionRequest: null,
-      questionRequest: null,
-    });
-  }
-  // Same as abortTask: promptChain.finally may have flushed while isStreaming
-  // was still true (roomBusy → no-op). Re-flush after abort settles.
-  const roomBotId = roomBotIdFromTaskId(taskId);
-  if (roomBotId) {
-    try {
-      flushQueuedBotIntercom(roomBotId);
-    } catch (error) {
-      console.warn("[bot-intercom] flush after Room hang abort failed", error);
-    }
-  }
+    emitHangAbort: (live) => emitTaskSnapshot(live, "hang_abort", { isStreaming: false }),
+    stopSubagentRuns: (live, messages) => stopSubagentRunsForTask(live, messages),
+    setIdle: (id) => setTaskStatus(id, "idle"),
+    releaseLease: (id) => releaseTaskLease(id),
+    emitHangIdle: (live) =>
+      emitTaskSnapshot(live, "hang_idle", {
+        isStreaming: false,
+        permissionRequest: null,
+        questionRequest: null,
+      }),
+    flushRoomMailbox: (botId) => flushQueuedBotIntercom(botId),
+    warn: (message, error) => console.warn(message, error),
+  });
 }
-
 /** Session entry customType for the hidden agent-switch boundary notice. */
 const AGENT_SWITCH_CUSTOM_TYPE = "leafcode-pi.agent-switch";
 

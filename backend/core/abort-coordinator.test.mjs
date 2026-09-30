@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { runUserAbort, TASK_NOT_FOUND_MESSAGE } from "./abort-coordinator.mjs";
+import { runHangWatchdogAbort, runUserAbort, TASK_NOT_FOUND_MESSAGE } from "./abort-coordinator.mjs";
 
 function fixture({ live = { name: "live" }, task = { id: "task" }, messages = [], abort, onEvent } = {}) {
   const order = [];
@@ -100,4 +100,101 @@ test("a synchronous abort failure happens after resumable work was already clear
   await assert.rejects(runUserAbort("task", f.deps), /abort failed/);
   assert.deepEqual(f.order.slice(3), ["queue", "cancelPrompt", "cancelSnapshot", "persist:", "abort"]);
   assert.deepEqual(f.persisted, [""]);
+});
+
+function hangFixture({ live = { name: "live" }, later, before = 10, after = { startedAt: 10 }, messages = [], abort } = {}) {
+  const order = [];
+  const persisted = [];
+  const warnings = [];
+  const deps = {
+    getHangWatchStartedAt: () => { order.push("watchStart"); return before; },
+    getHangWatch: () => { order.push("watchAfter"); return after; },
+    getLive: () => { order.push("getLive"); return order.filter((entry) => entry === "getLive").length > 1 ? later : live; },
+    clearPendingAttention: () => order.push("attention"),
+    clearSessionQueue: () => order.push("queue"),
+    cancelPrompt: () => order.push("cancelPrompt"),
+    cancelPendingSnapshot: () => order.push("cancelSnapshot"),
+    persistManualAbortedAssistantId: (_id, value) => { persisted.push(value); order.push(`persist:${value}`); },
+    abortSession: () => { order.push("abort"); return abort ? abort() : Promise.resolve(); },
+    snapshotMessages: () => { order.push("snapshot"); return messages; },
+    emitHangAbort: () => order.push("emitHangAbort"),
+    stopSubagentRuns: async (_live, given) => { order.push(`subagents:${given.length}`); },
+    setIdle: () => order.push("idle"),
+    releaseLease: () => order.push("release"),
+    emitHangIdle: (value) => order.push(`emitHangIdle:${value?.name}`),
+    flushRoomMailbox: (botId) => order.push(`flush:${botId}`),
+    warn: (...args) => warnings.push(args),
+  };
+  return { order, persisted, warnings, deps };
+}
+
+test("hang abort captures the watch first, announces hang_abort before cleanup, then idles", async () => {
+  const f = hangFixture({ messages: [{ role: "user", id: "u" }, { role: "assistant", id: "a" }] });
+  await runHangWatchdogAbort("task", f.deps);
+  assert.deepEqual(f.order, [
+    "watchStart", "getLive", "attention",
+    "queue", "cancelPrompt", "cancelSnapshot", "persist:", "abort", "snapshot", "persist:a",
+    "emitHangAbort", "subagents:2", "watchAfter", "idle", "release", "getLive", "emitHangIdle:live",
+  ]);
+  assert.deepEqual(f.persisted, ["", "a"]);
+});
+
+test("hang abort never tears down the Goal Loop or disarms the watch", async () => {
+  const f = hangFixture();
+  await runHangWatchdogAbort("task", f.deps);
+  assert.equal(f.order.some((entry) => /goal|disarm/i.test(entry)), false);
+});
+
+test("a watch re-armed by a newer prompt leaves idle, lease, events and Room mailbox untouched", async () => {
+  const f = hangFixture({ before: 10, after: { startedAt: 11 } });
+  await runHangWatchdogAbort("bot:one:room:main", f.deps);
+  assert.deepEqual(f.order.slice(-2), ["subagents:0", "watchAfter"]);
+  assert.equal(f.order.some((entry) => ["idle", "release", "flush:one"].includes(entry) || entry.startsWith("emitHangIdle")), false);
+});
+
+test("a missing or disarmed watch is not a replacement and the abort completes", async () => {
+  for (const options of [{ before: null, after: { startedAt: 3 } }, { before: 10, after: null }]) {
+    const f = hangFixture(options);
+    await runHangWatchdogAbort("task", f.deps);
+    assert.deepEqual(f.order.slice(-4), ["idle", "release", "getLive", "emitHangIdle:live"]);
+  }
+});
+
+test("hang abort waits for the SDK abort before idle and prefers a newly registered live session", async () => {
+  let settle;
+  const pending = new Promise((resolve) => { settle = resolve; });
+  const f = hangFixture({ abort: () => pending, later: { name: "replacement" } });
+  const running = runHangWatchdogAbort("task", f.deps);
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(f.order.includes("idle"), false);
+  settle();
+  await running;
+  assert.equal(f.order.at(-1), "emitHangIdle:replacement");
+});
+
+test("without any live session hang abort still idles durable state but emits nothing", async () => {
+  const f = hangFixture({ live: undefined, later: undefined });
+  f.deps.getLive = () => { f.order.push("getLive"); return undefined; };
+  await runHangWatchdogAbort("task", f.deps);
+  assert.deepEqual(f.order, ["watchStart", "getLive", "attention", "watchAfter", "idle", "release", "getLive"]);
+  assert.deepEqual(f.persisted, []);
+});
+
+test("Room hang aborts flush after idle announcement and only warn when the mailbox fails", async () => {
+  const f = hangFixture();
+  await runHangWatchdogAbort("bot:one:room:main", f.deps);
+  assert.deepEqual(f.order.slice(-2), ["emitHangIdle:live", "flush:one"]);
+  const failing = hangFixture();
+  const failure = new Error("mailbox unavailable");
+  failing.deps.flushRoomMailbox = () => { throw failure; };
+  await runHangWatchdogAbort("bot:one:room:main", failing.deps);
+  assert.deepEqual(failing.warnings, [["[bot-intercom] flush after Room hang abort failed", failure]]);
+});
+
+test("hang cleanup failures propagate before idle is saved", async () => {
+  const f = hangFixture();
+  f.deps.stopSubagentRuns = async () => { throw new Error("subagent stop failed"); };
+  await assert.rejects(runHangWatchdogAbort("task", f.deps), /subagent stop failed/);
+  assert.equal(f.order.includes("idle"), false);
+  assert.equal(f.order.includes("release"), false);
 });
