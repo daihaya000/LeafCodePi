@@ -28,6 +28,10 @@ import {
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { resolvePiAgentDir } from "@/lib/agents-md";
 import { dataDir } from "@/lib/paths";
+import { basenameKey, isWebUiRequiredExtension } from "@backend-core/bot-runtime-context.mjs";
+
+// Extension identity lives in backend core; keep the same named exports here.
+export { basenameKey, isWebUiRequiredExtension };
 
 export type ExtensionSource = "user" | "bundled";
 
@@ -113,9 +117,6 @@ const BUNDLED_REPLACEMENTS = new Map([
 const TEST_FILE_PATTERN = /\.(?:test|spec)\.(?:ts|js|mjs|cjs)$/i;
 
 /** LeafCodePi の WebUI が依存する拡張。無効化禁止。 */
-export function isWebUiRequiredExtension(name: string): boolean {
-  return name.startsWith("leafcode-");
-}
 
 /** Readers (incl. the agent-side extensions) must never see a partial file. */
 export function atomicWrite(filePath: string, content: string): void {
@@ -184,11 +185,6 @@ export function filterExtensionsByState<T extends { path: string }>(
  * entry the directory name is used instead, so a subdirectory extension is
  * keyed by its folder (e.g. `ponytail/index.js` → `ponytail`).
  */
-export function basenameKey(entryPath: string): string {
-  const base = basename(entryPath);
-  if (/^index\.(ts|js|mjs|cjs)$/i.test(base)) return basename(dirname(entryPath));
-  return base.replace(/\.(ts|js|mjs|cjs)$/i, "");
-}
 
 type PiSettings = {
   packages?: string[];
