@@ -44,6 +44,7 @@ import {
   parseGoalLoopInput,
   codeRequestPayload,
   codeRequestSummaries,
+  codeRequestForCodeTask,
   codeRequestsForRoomTurn,
   codeResultBaselineMessages,
   codeStopTargets,
@@ -660,12 +661,8 @@ export function createBotCodeRelay(deps: RelayDependencies) {
   const notifySettled = (request: CodeRequest) => notifyCodeSessionSettled(deps.onCodeSessionSettled, request);
 
   function linkedOutboxForCode(taskId: string): CodeRequest | undefined {
-    return requests().find(
-      (item) =>
-        item.codeTaskId === taskId &&
-        !item.userIntervention &&
-        (item.state === "starting" || item.state === "running"),
-    );
+    // The reverse lookup rule lives in backend core.
+    return codeRequestForCodeTask(requests(), taskId);
   }
 
   function originForCode(taskId: string): string | null {

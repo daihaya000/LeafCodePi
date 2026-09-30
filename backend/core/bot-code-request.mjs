@@ -535,3 +535,18 @@ export function shouldStopCodeSession({ hasTask, archived, working, goalLoopOwne
   if (hasTask !== true || archived === true) return false;
   return working === true || goalLoopOwned === true;
 }
+
+/**
+ * The reverse of `runningCodeTaskIdsForOrigin`: the launch request that is still running one Code
+ * task. Only a launch request in `starting`/`running` counts (a delivered or cancelled one no longer
+ * owns the session), a user intervention is skipped, and the first match in read order wins so every
+ * reader resolves the same request.
+ */
+export function codeRequestForCodeTask(requests, codeTaskId) {
+  return requests.find(
+    (request) =>
+      request.codeTaskId === codeTaskId &&
+      !request.userIntervention &&
+      (request.state === "starting" || request.state === "running"),
+  );
+}

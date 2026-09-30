@@ -7,7 +7,7 @@ import {
   codeTaskIdRefusal, CODE_DELIVERY_RETRY_MS, CODE_RELAY_TICK_MS,
   MAX_AUTO_CODE_CHAIN, MAX_CODE_PROMPT_CHARS,
   CODE_REQUEST_RETENTION_MS, codeRequestPayload, codeRequestSummaries, codeRequestSummary,
-  codeRequestsForRoomTurn, codeStopTargets,
+  codeRequestForCodeTask, codeRequestsForRoomTurn, codeStopTargets,
   codeResultBaselineMessages,
   codeResultLatestAssistant, codeResultOutcome, codeResultOutput, codeSessionChangedPayload, isActiveCodeRequest,
   isCodeRequestId, isRoomCodeRequestCurrent,
@@ -657,4 +657,20 @@ test("a session is stopped only while it is working or Goal Loop owned", () => {
     assert.equal(shouldStopCodeSession({ ...base, archived: value }), true, String(value));
     assert.equal(shouldStopCodeSession({ ...base, working: false, goalLoopOwned: value }), false, String(value));
   }
+});
+
+test("the reverse lookup finds the launch request still running a Code task", () => {
+  const requests = [
+    { id: "a", codeTaskId: "code-1", state: "delivered" },
+    { id: "b", codeTaskId: "code-1", state: "running" },
+    { id: "c", codeTaskId: "code-2", state: "starting" },
+    { id: "d", codeTaskId: "code-3", state: "running", userIntervention: true },
+    { id: "e", codeTaskId: "code-4", state: "queued" },
+  ];
+  assert.equal(codeRequestForCodeTask(requests, "code-1")?.id, "b", "a delivered request no longer owns the session");
+  assert.equal(codeRequestForCodeTask(requests, "code-2")?.id, "c");
+  assert.equal(codeRequestForCodeTask(requests, "code-3"), undefined, "a user intervention is not the Bot's request");
+  assert.equal(codeRequestForCodeTask(requests, "code-4"), undefined);
+  assert.equal(codeRequestForCodeTask(requests, "missing"), undefined);
+  assert.equal(codeRequestForCodeTask([], "code-1"), undefined);
 });

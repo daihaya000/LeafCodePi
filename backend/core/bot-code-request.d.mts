@@ -223,3 +223,10 @@ export function shouldStopCodeSession(input: {
   working: boolean;
   goalLoopOwned: boolean;
 }): boolean;
+
+/** The launch request still running one Code task (reverse lookup), or undefined. */
+export function codeRequestForCodeTask<T extends {
+  codeTaskId?: string | null;
+  state: string;
+  userIntervention?: boolean;
+}>(requests: readonly T[], codeTaskId: string): T | undefined;
