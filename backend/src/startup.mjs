@@ -14,20 +14,11 @@ import { clampGoalLoopCooldownSeconds, clampGoalLoopMaxTurns, isGoalLoopSessionO
 const NO_PROJECT_NAME = "プロジェクトなし";
 
 /**
- * Startup steps the Backend cannot run yet. They are reported instead of silently
- * skipped, so a caller can tell a complete startup from a prefix. Readiness must
- * stay false while this list is non-empty.
- */
-export const BACKEND_UNAVAILABLE_STARTUP_STEPS = Object.freeze([
-  "reconcileRoomRuntime",
-]);
-
-/**
- * The part of the startup sequence the Backend process can already run on its own:
- * it owns the application store and the task lease, so stale leases are reclaimed and
- * working tasks without a live lease are reconciled to error before anything else
- * touches them. The services that still need the runtime are recorded in
- * `unavailable()`, and the host's readiness stays the caller's decision.
+ * The Backend's startup sequence: it owns the application store and the task lease, so stale leases
+ * are reclaimed and working tasks without a live lease are reconciled to error before anything else
+ * touches them. The owner-only services (relay, routine scheduler, room recovery) run against the
+ * attached runtime, and one that cannot start is recorded in `unavailable()` so readiness never
+ * claims it runs. The host's readiness stays the caller's decision.
  *
  * Nothing is scheduled here: `start()` runs the sequence once, and a failure in a
  * required step rejects (the host decides whether to retry).
@@ -98,7 +89,12 @@ export function createBackendStartup({
    * runtime is attached, and every refusal keeps its reason.
    */
   const restartResume = new RestartResumeService({ dataDir, orphanedTaskError: ORPHANED_WORKING_TASK_ERROR });
-  const runtimeAttached = typeof promptTask === "function";
+  /**
+   * Whether a resume will actually be attempted. A supplied prompt path is not enough on its own:
+   * the runtime must be attached, or every attempt would fail and spend the retry budget that the
+   * detached case deliberately keeps untouched.
+   */
+  const resumesOrphaned = () => typeof promptTask === "function" && runtimeStatus.ok === true;
   const goalLoopOwned = (task) => Boolean(
     task.sessionId && isGoalLoopSessionOwnedStatus(goalLoopStore.read(task.directory, task.sessionId)?.status),
   );
@@ -141,7 +137,7 @@ export function createBackendStartup({
       if (refusal) resumeSkipped.push({ id: task.id, reason: refusal });
       else resumePending.push(task.id);
     }
-    if (!runtimeAttached) return;
+    if (!resumesOrphaned()) return;
     // The same ladder runs again inside the service, which also spends the retry budget
     // and only then prompts; Room delegation has no owner in this process yet, so a Room
     // task would be classified as resumable here once the relay moves over.
@@ -174,11 +170,10 @@ export function createBackendStartup({
       ensureRoutineScheduler: () => {
         runRuntimeStep("ensureRoutineScheduler");
       },
-      ...Object.fromEntries(
-        BACKEND_UNAVAILABLE_STARTUP_STEPS.map((step) => [step, () => {
-          if (!unavailable.includes(step)) unavailable.push(step);
-        }]),
-      ),
+      // Room recovery settles abandoned turns and delivers ready handoffs, which prompts a session.
+      reconcileRoomRuntime: () => {
+        runRuntimeStep("reconcileRoomRuntime");
+      },
     }),
     warn,
     ...(schedule ? { schedule } : {}),
@@ -188,7 +183,7 @@ export function createBackendStartup({
     startup,
     store,
     leases,
-    /** Startup steps that were skipped (not implemented here yet) or that failed to start. */
+    /** Startup steps that failed to start. Empty means every step of the sequence ran. */
     unavailable: () => [...unavailable],
     /** Tasks that were reconciled and would be resumed once a runtime is attached. */
     orphaned: () => [...orphaned],
@@ -196,8 +191,8 @@ export function createBackendStartup({
     resumePending: () => [...resumePending],
     /** Reconciled tasks that must not be resumed, each with the core ladder's reason. */
     resumeSkipped: () => resumeSkipped.map((entry) => ({ ...entry })),
-    /** Whether a Pi runtime was supplied, so resumes actually run. */
-    resumesOrphanedTasks: () => runtimeAttached,
+    /** Whether a resume will actually be attempted (a prompt path *and* an attached runtime). */
+    resumesOrphanedTasks: () => resumesOrphaned(),
     /** Whether the bundled runtime was attached, and why not when it was not. */
     runtimeStatus: () => ({ ...runtimeStatus }),
     /** The attached runtime, or null while nothing is attached. */

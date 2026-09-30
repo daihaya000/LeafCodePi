@@ -35,6 +35,8 @@ export { getBot, patchBot } from "@/lib/bots";
 // The routine scheduler runs its routines by prompting a session, so only the runtime owner may
 // run it; the tick takes a cross-process lock, so two schedulers cannot double-run a routine.
 export { ensureRoutineScheduler } from "@/lib/routines";
+// Room recovery settles abandoned turns and delivers ready handoffs, which needs the runtime.
+export { reconcileRoomRuntime } from "@/lib/room-runtime";
 export { getTask, patchTask } from "@/lib/store";
 export { isGoalLoopSessionOwned, readGoalLoopState } from "@/lib/pi/goal-loop-state";
 export { startGoalLoopWithSelection } from "@/lib/pi/goal-loop-start";

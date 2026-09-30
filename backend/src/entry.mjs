@@ -2,6 +2,7 @@ import { runtimeGenerationStatus } from "../../shared/backend-generation.mjs";
 import { DEFAULT_BACKEND_PORT } from "../../shared/backend-protocol.mjs";
 import { readPendingRequestSnapshots } from "./pending-requests.mjs";
 import { createRuntimeHost } from "./runtime-host.mjs";
+import { createResumePrompt } from "./restart-resume-prompt.mjs";
 import { DEFAULT_RUNTIME_BUNDLE, loadBackendRuntime } from "./runtime-loader.mjs";
 import { closeBackend, createBackendServer, listenBackend } from "./server.mjs";
 import { createBackendStartup } from "./startup.mjs";
@@ -71,6 +72,9 @@ try {
             loadBackendRuntime({
               bundlePath: process.env.LEAFCODE_PI_BACKEND_RUNTIME_BUNDLE?.trim() || DEFAULT_RUNTIME_BUNDLE,
             }),
+          // Restart resume prompts a session, which only the attached runtime can do; the lookup is
+          // late-bound because the attach runs before the reconciliation that offers orphaned tasks.
+          promptTask: createResumePrompt({ getRuntime: () => started.runtime() }),
         }
       : {}),
   });

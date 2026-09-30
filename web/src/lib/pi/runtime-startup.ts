@@ -8,10 +8,13 @@ const globals = globalThis as typeof globalThis & {
 async function loadServices(): Promise<RuntimeStartupServices> {
   const harness = await import("@/lib/pi/harness");
   const { ensureRoutineScheduler: startRoutineScheduler } = await import("@/lib/routines");
-  const { reconcileOrphanedWorkingTasks, setOrphanedTaskListener } = await import("@/lib/task-runtime-lease");
-  const { reconcileRoomRuntime } = await import("@/lib/room-runtime");
+  const { reconcileOrphanedWorkingTasks: reconcileLeases, setOrphanedTaskListener } = await import("@/lib/task-runtime-lease");
+  const { reconcileRoomRuntime: reconcileRooms } = await import("@/lib/room-runtime");
   return {
     registerRestartResume: async () => {
+      // Recovery prompts sessions, so it belongs to the runtime owner. After the cutover the Backend
+      // registers its own listener; one here would only spend its retry budget on refused prompts.
+      if (localRuntimeBlocked()) return;
       if (typeof setOrphanedTaskListener !== "function" || typeof harness.promptTask !== "function") return;
       const { handleOrphanedTasks } = await import("@/lib/pi/restart-resume");
       const { getTask } = await import("@/lib/store");
@@ -26,7 +29,11 @@ async function loadServices(): Promise<RuntimeStartupServices> {
         });
       });
     },
-    reconcileOrphanedWorkingTasks,
+    // Reconciliation writes the store and can prompt; after the cutover the Backend does both.
+    reconcileOrphanedWorkingTasks: () => {
+      if (localRuntimeBlocked()) return;
+      reconcileLeases();
+    },
     // The relay publishes work by prompting a session, so only the runtime owner may run it. After
     // the cutover the Backend owns the relay; a second one here would double-write the outbox and
     // repeatedly fail to deliver.
@@ -41,7 +48,11 @@ async function loadServices(): Promise<RuntimeStartupServices> {
       if (localRuntimeBlocked()) return;
       startRoutineScheduler();
     },
-    reconcileRoomRuntime,
+    // Room recovery settles abandoned turns and delivers ready handoffs, which prompts a session.
+    reconcileRoomRuntime: () => {
+      if (localRuntimeBlocked()) return;
+      reconcileRooms();
+    },
     warmTaskSummaries: typeof harness.getTaskSummariesWithTodoProgress === "function"
       ? () => harness.getTaskSummariesWithTodoProgress(true)
       : undefined,

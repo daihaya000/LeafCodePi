@@ -42,7 +42,7 @@ describe("startRuntimeServices", () => {
     globals.__leafcodeRuntimeStartup = undefined;
   });
 
-  it("starts the owner-only services while this process owns the runtime", async () => {
+  it("starts every owner-only service while this process owns the runtime", async () => {
     await startRuntimeServices();
     expect(mocks.startBotCodeRelay).toHaveBeenCalledTimes(1);
     expect(mocks.ensureRoutineScheduler).toHaveBeenCalledTimes(1);
@@ -50,14 +50,13 @@ describe("startRuntimeServices", () => {
     expect(mocks.reconcileRoomRuntime).toHaveBeenCalledTimes(1);
   });
 
-  it("does not start the owner-only services once the Backend owns the runtime", async () => {
+  it("does not start any owner-only service once the Backend owns the runtime", async () => {
     mocks.localRuntimeBlocked.mockReturnValue(true);
     await startRuntimeServices();
     expect(mocks.startBotCodeRelay).not.toHaveBeenCalled();
     expect(mocks.ensureRoutineScheduler).not.toHaveBeenCalled();
-    // The remaining startup steps still run: only the owner's services are skipped here.
-    expect(mocks.reconcileOrphanedWorkingTasks).toHaveBeenCalledTimes(1);
-    expect(mocks.reconcileRoomRuntime).toHaveBeenCalledTimes(1);
+    expect(mocks.reconcileOrphanedWorkingTasks).not.toHaveBeenCalled();
+    expect(mocks.reconcileRoomRuntime).not.toHaveBeenCalled();
   });
 
   it("reuses one startup across calls", async () => {

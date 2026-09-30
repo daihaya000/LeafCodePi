@@ -10,7 +10,6 @@ import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { BACKEND_PROTOCOL_HEADER, BACKEND_PROTOCOL_VERSION } from "../../shared/backend-protocol.mjs";
 import { REQUIRED_RUNTIME_EXPORTS } from "./runtime-loader.mjs";
-import { BACKEND_UNAVAILABLE_STARTUP_STEPS } from "./startup.mjs";
 import { readPendingRequestSnapshots } from "./pending-requests.mjs";
 
 const permission = { id: "p1", taskId: "task-1", title: "Permission" };
@@ -103,8 +102,7 @@ test("CLI exposes live pending DTOs and removes them after owner responses", { t
     assert.equal(response.status, 200);
     return response.json();
   };
-  // The fake runtime is attached once the pending read sees it. Health stays 503 regardless: this
-  // build still lacks required startup steps, so it must not present itself as a replacement.
+  // The fake runtime is attached once the pending read sees it.
   const deadline = Date.now() + 5_000;
   let first = null;
   while (Date.now() < deadline) {
@@ -116,10 +114,10 @@ test("CLI exposes live pending DTOs and removes them after owner responses", { t
     snapshots: [{ taskId: "task-1", payload: { permissionRequest: permission, questionRequest: question } }],
   });
   const health = await request("/health");
-  assert.equal(health.status, 503);
+  assert.equal(health.status, 200);
   const healthBody = await health.json();
   assert.ok(healthBody.runtimeGeneration, "the fake runtime never attached");
-  assert.deepEqual(healthBody.runtimeStartupIncomplete, [...BACKEND_UNAVAILABLE_STARTUP_STEPS]);
+  assert.deepEqual(healthBody.runtimeStartupIncomplete, []);
   const respond = (kind, body) => request(`/tasks/task-1/${kind}`, {
     method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body),
   });

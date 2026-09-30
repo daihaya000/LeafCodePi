@@ -5,7 +5,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { RESTART_RESUME_PROMPT } from "../core/restart-resume.mjs";
 import { ORPHANED_WORKING_TASK_ERROR } from "../core/task-runtime-lease.mjs";
-import { BACKEND_UNAVAILABLE_STARTUP_STEPS, createBackendStartup } from "./startup.mjs";
+import { createBackendStartup } from "./startup.mjs";
 
 /** A temp data dir plus a store file, both outside the real user data. */
 function fixture(t, tasks = []) {
@@ -120,10 +120,14 @@ test("a supplied runtime resumes the orphaned task through the core service", as
     // Run the delayed resume immediately instead of waiting out the real delay.
     schedule: (callback) => { scheduled.push(callback); },
     promptTask: async (id, prompt) => { prompted.push([id, prompt]); },
+    // A prompt path without an attached runtime would spend the retry budget on refused prompts.
+    loadRuntime: async () => ({ ok: true, runtime: { promptTask: async () => {} } }),
   });
   started.store.storePath = () => file;
-  assert.equal(started.resumesOrphanedTasks(), true);
+  // A prompt path alone is not enough: the runtime attaches during startup, before the resume runs.
+  assert.equal(started.resumesOrphanedTasks(), false);
   await started.startup.start();
+  assert.equal(started.resumesOrphanedTasks(), true);
   assert.equal(scheduled.length, 1);
   assert.deepEqual(prompted, [], "the resume waits for its scheduled delay");
   scheduled[0]();
@@ -146,6 +150,7 @@ test("a Goal Loop-owned task is never prompted even when a runtime is supplied",
     warn: () => {},
     schedule: (callback) => { scheduled.push(callback); },
     promptTask: async (id) => { prompted.push(id); },
+    loadRuntime: async () => ({ ok: true, runtime: { promptTask: async () => {} } }),
   });
   started.store.storePath = () => file;
   await started.startup.start();
@@ -223,20 +228,20 @@ test("the Bot store reads the same config files the Web app writes", async (t) =
   assert.equal(started.bots.get("../escape"), null);
 });
 
-test("the services the Backend cannot run yet are reported, not silently skipped", async (t) => {
+test("a detached Backend reports no missing service and reconciles the store", async (t) => {
   const { dir, file } = fixture(t);
   const started = createBackendStartup({ dataDir: () => dir, warn: () => {} });
   started.store.storePath = () => file;
   assert.deepEqual(started.unavailable(), []);
   await started.startup.start();
-  assert.deepEqual(started.unavailable(), [...BACKEND_UNAVAILABLE_STARTUP_STEPS]);
+  assert.deepEqual(started.unavailable(), []);
   // A second start shares the first attempt, so nothing is reported twice.
   await started.startup.start();
-  assert.deepEqual(started.unavailable(), [...BACKEND_UNAVAILABLE_STARTUP_STEPS]);
+  assert.deepEqual(started.unavailable(), []);
   assert.deepEqual(started.orphaned(), []);
 });
 
-test("the owner-only services start only once a runtime is attached", async (t) => {
+test("every owner-only service starts, in order, once a runtime is attached", async (t) => {
   const { dir, file } = fixture(t);
   const calls = [];
   const attached = createBackendStartup({
@@ -247,17 +252,16 @@ test("the owner-only services start only once a runtime is attached", async (t) 
       runtime: {
         startBotCodeRelay: () => calls.push("relay"),
         ensureRoutineScheduler: () => calls.push("routines"),
+        reconcileRoomRuntime: () => calls.push("rooms"),
       },
       generation: "gen-1",
     }),
   });
   attached.store.storePath = () => file;
   await attached.startup.start();
-  assert.deepEqual(calls, ["relay", "routines"]);
-  // Only the genuinely missing services are listed: both owner-only services started here.
-  assert.deepEqual(attached.unavailable(), [...BACKEND_UNAVAILABLE_STARTUP_STEPS]);
-  assert.equal(attached.unavailable().includes("startBotCodeRelay"), false);
-  assert.equal(attached.unavailable().includes("ensureRoutineScheduler"), false);
+  assert.deepEqual(calls, ["relay", "routines", "rooms"]);
+  // Nothing is missing or failed: this is a complete startup as far as the steps are concerned.
+  assert.deepEqual(attached.unavailable(), []);
 
   const failed = createBackendStartup({
     dataDir: () => dir,
@@ -266,7 +270,8 @@ test("the owner-only services start only once a runtime is attached", async (t) 
   });
   failed.store.storePath = () => file;
   await failed.startup.start();
-  assert.deepEqual(calls, ["relay", "routines"], "a bundle that never attached starts no owner work");
+  assert.deepEqual(calls, ["relay", "routines", "rooms"], "a bundle that never attached starts no owner work");
+  assert.deepEqual(failed.unavailable(), [], "a detached Backend reports no failed step");
   assert.equal(failed.runtimeStatus().ok, false);
 });
 
@@ -280,17 +285,14 @@ test("owner-only services that cannot start are reported instead of stopping the
       runtime: {
         startBotCodeRelay: () => { throw new Error("outbox unavailable"); },
         ensureRoutineScheduler: () => { throw new Error("lock unavailable"); },
+        reconcileRoomRuntime: () => { throw new Error("rooms unavailable"); },
       },
       generation: "gen-1",
     }),
   });
   started.store.storePath = () => file;
   await started.startup.start();
-  assert.deepEqual(started.unavailable(), [
-    "startBotCodeRelay",
-    "ensureRoutineScheduler",
-    ...BACKEND_UNAVAILABLE_STARTUP_STEPS,
-  ]);
+  assert.deepEqual(started.unavailable(), ["startBotCodeRelay", "ensureRoutineScheduler", "reconcileRoomRuntime"]);
 });
 
 test("a restart-resume listener that fails does not stop the sequence", async (t) => {
@@ -311,5 +313,5 @@ test("cancelWarmups is safe on a startup with no warmup services", async (t) => 
   started.store.storePath = () => file;
   await started.startup.start();
   started.startup.cancelWarmups();
-  assert.deepEqual(started.unavailable(), [...BACKEND_UNAVAILABLE_STARTUP_STEPS]);
+  assert.deepEqual(started.unavailable(), []);
 });

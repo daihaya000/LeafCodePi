@@ -241,10 +241,10 @@ bundleパスは`LEAFCODE_PI_BACKEND_RUNTIME_BUNDLE`で差し替え可能。CLI�
 | 2. Next非依存のランタイム抽出 | **実装済み**。`backend/core/`＝50モジュール／62テスト（判断・順序・永続化を純関数化し、fs/時計/UUID/emitを注入）。Web側は同名exportの互換入口。 |
 | 3. 独立API・Web中継 | **実装済み**。内部API 12エンドポイント（health／pending-snapshots／tasks一覧・detail・prompt・permission・question・abort・goal-loop／bots一覧・`bots/:id`・code-requests・code-sessions）。中継はopt-in（`LEAFCODE_PI_BACKEND_RELAY`）で、生レコード経路のみBackendを使い失敗時はプロセス内へフォールバック。 |
 | 4. Host・ビルド・再起動分離 | **実装済み**。HostがBackend子プロセス（`backend-service.js`）・起動プラン（`backend-launch.js`）・health/世代判定（`backend-health.js`）・再起動予算と世代固定（`runtime-host.mjs`）を所有。バンドルは`npm run build:backend-runtime`で生成。 |
-| 5. 切替 | **実装済み（現状は拒否で保護）**。`runCutover`（check→stop-old-path→attach-backend→hand-over→verify→done＋ロールバック）、`cutoverPreflight`（start/verify位相）、Host実体への接続、`LEAFCODE_PI_CUTOVER=1`での起動時実行。Backendが必須起動ステップ（Room runtime reconciliation）を実装するまではhealthがreadyにならないため、attach段は`not-ready`で拒否しロールバックする（Bot Code relayはターン13、routine schedulerはターン14で接続済み）。**実切替はユーザー承認待ち**。 |
+| 5. 切替 | **実装済み（現状は拒否で保護）**。`runCutover`（check→stop-old-path→attach-backend→hand-over→verify→done＋ロールバック）、`cutoverPreflight`（start/verify位相）、Host実体への接続、`LEAFCODE_PI_CUTOVER=1`での起動時実行。Backendの起動列は全ステップ実行可能になり、runtime接続・世代一致・失敗ステップ0でhealthがreadyになる（ターン15）。attach段の拒否は失敗ステップがある場合に限られる。**実切替はユーザー承認待ち**。 |
 | 6. 旧経路撤去 | **未完了**。非所有モードの不変条件は達成（セッションを触る16 routeすべてがガード済み／未配線0件、テストで強制）が、撤去手順の実行（中継フォールバック廃止→旧経路停止→harness依存除去→スイッチ撤去）は実切替後。 |
 
-残作業（実測）: ①必須起動ステップ（Room runtime reconciliation）のBackend実装（未実装の間は切替が拒否される）、②非所有モードのSSEは2秒ポーリング（遅延あり）、③実切替の実施とその後の撤去手順、④Web全体型検証は既存拡張（`leafcode-goal-loop`／`loop-guard`）の`@earendil-works/pi-coding-agent`解決失敗により本番用`tsconfig.build.json`で代替。Bot Codeセッションのclear/unlink転送とAuto/モデル指定つきGoal Loop開始の転送は完了済み（旧版の残作業①・②は解消）。
+残作業（実測）: ①Web側に残る非転送の実行経路（ルーティンの手動実行`bots/:id/routines/:routineId/run`、Bot/Roomのrevert）をBackendへ転送する（現状は非所有モードで`RuntimeNotOwnedError`になる）、②非所有モードのSSEは2秒ポーリング（遅延あり）、③実切替の実施とその後の撤去手順、④Web全体型検証は既存拡張（`leafcode-goal-loop`／`loop-guard`）の`@earendil-works/pi-coding-agent`解決失敗により本番用`tsconfig.build.json`で代替。Bot Codeセッションのclear/unlink転送とAuto/モデル指定つきGoal Loop開始の転送は完了済み（旧版の残作業①・②は解消）。
 
 ## 完了の証拠
 
@@ -280,3 +280,11 @@ Backend単独のSDK検証前には `npm --prefix backend ci --ignore-scripts` �
 - 起動列のowner-onlyステップは共通ヘルパー（`runRuntimeStep`）にまとめ、runtime未接続時は何もしない（healthはruntime欠落で既に非ready）。
 - Web側の起動列は非所有モードでroutine schedulerを起動しない（tickの相互プロセスロックがあっても、runtimeを持たないschedulerは実行だけが失敗し続ける）。
 - 検証: 実バンドルをattachしたCLIで`runtimeStartupIncomplete`が`["reconcileRoomRuntime"]`のみになることを確認（relayとschedulerの両方が実際に起動）。`backend/src/startup.test.mjs`24件（owner-only 2サービスの起動順・未接続時は非起動・起動失敗の報告）／`server.test.mjs`＋`pending-requests.test.mjs`61件／`runtime-*`成功。Web側`runtime-startup.test.ts`3件と所有権4件成功。bundle再生成により世代が変わるため、旧世代をpinしたままのBackendは`incomplete`で拒否される（Hostは起動時にpinする）。
+
+## ターン15の変更（実測）
+
+- Backendの起動列に`reconcileRoomRuntime`を接続し、bundleのentry／必須exportにも追加（再生成9814 KiB）。未実装ステップの定数は不要になり削除した。`unavailable()`は「起動できなかったステップ」だけを表し、空なら起動列完走を意味する。
+- restart-resumeのプロンプト経路をBackendに配線した。`createResumePrompt`（`backend/src/restart-resume-prompt.mjs`）が呼び出し時にruntimeを解決し、未接続なら503で拒否する。起動列はruntime接続後にのみ再開を試みる（`resumesOrphanedTasks()`は「プロンプト経路あり **かつ** runtime接続済み」）。未接続時は分類のみで、再試行予算を消費しない。
+- Web側は非所有モードでowner-onlyの起動ステップ（restart-resume登録・lease reconciliation・relay・routine scheduler・room recovery）を全てスキップする。切替後にWebが同じ作業を行うと、storeの二重書込と拒否されるプロンプトへの予算消費になる。
+- 検証: 実バンドルをattachしたCLIがhealth 200・`runtimeStartupIncomplete: []`になることを確認（ready到達）。pinned世代一致でも200、不一致は503のまま。`backend/src/startup.test.mjs`16件（owner-only 3サービスの起動順・未接続時は非起動・起動失敗の報告・runtime接続後のみresume）・`server.test.mjs`56件・`pending-requests`5件・`restart-resume-prompt`4件・`runtime-*`成功。Web側`runtime-startup.test.ts`3件（所有時は全owner-onlyステップ実行、非所有時は全て非実行）。
+- 残る切替前の穴（実測）: Web側のルーティン手動実行とrevertはBackendへ未転送で、非所有モードでは`RuntimeNotOwnedError`になる（次ターン以降で転送する）。
