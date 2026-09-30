@@ -9,6 +9,7 @@ import { pendingRoomCodeRequestForTurn, pendingRoomCodeRequestsForTurn, roomCode
 import { activeToolLabel } from "./tool-labels";
 import { latestRoomRequest, MAX_ROOM_CONVERSATION_TURNS, parseRoomReply, roomBotPrompt, withImplicitRoomMention, type RoomReply, type RoomTurn } from "./room-conversation";
 import { resolveRoomOpener, type RoomOpenerReason } from "./room-opener";
+import { findStaleRoomTurns, runRoomReconcile } from "@backend-core/room-recovery.mjs";
 import type { BotDto, RoomDto, RoomHandoff, RoomMessage, RoomOutcome, UiMessage } from "./types";
 
 // Share queue ownership across Next route module instances in the same worker.
@@ -380,18 +381,15 @@ export async function runRoomFanOut(room: RoomDto, bots: BotDto[], prompt: strin
 
 /** A crashed worker leaves "working" placeholders behind; nothing else ever settles them. */
 export function settleStaleRoomTurns(roomId: string, now = Date.now()): number {
-  const stale = (getRoom(roomId)?.messages ?? []).filter((message) => {
-    if (message.status !== "working" || now - message.createdAt <= STALE_TURN_MS) return false;
-    if (!message.botId) return true;
-    // A slow turn is not an abandoned one: never settle a run this worker owns, nor one whose
-    // task record is still being updated by another worker.
-    const taskId = roomBotTaskId(roomId, message.botId);
-    if (roomBotRuns.has(taskId)) return false;
-    // Cross-worker: a live Code session holds a disk lease even when this Map is empty.
-    if (hasActiveTaskLease(taskId)) return false;
-    const task = getTask(taskId);
-    const touchedAt = task ? Date.parse(task.updatedAt) : Number.NaN;
-    return !(task?.status === "working" && Number.isFinite(touchedAt) && now - touchedAt <= STALE_TURN_MS);
+  // A slow turn is not an abandoned one: the decision lives in backend core and the
+  // ownership sources (this worker's runs, disk leases, task records) are injected.
+  const stale = findStaleRoomTurns(getRoom(roomId)?.messages ?? [], {
+    now,
+    staleMs: STALE_TURN_MS,
+    taskIdFor: (botId) => roomBotTaskId(roomId, botId),
+    isRunOwned: (taskId) => roomBotRuns.has(taskId),
+    hasActiveLease: (taskId) => hasActiveTaskLease(taskId),
+    getTask: (taskId) => getTask(taskId),
   });
   for (const message of stale) updateRoomMessage(roomId, message.id, { text: "応答が中断されました。", status: "error" });
   return stale.length;
@@ -399,14 +397,13 @@ export function settleStaleRoomTurns(roomId: string, now = Date.now()): number {
 
 /** Recover room placeholders and ready handoffs after a worker restart. */
 export function reconcileRoomRuntime(): void {
-  for (const room of listRooms()) {
-    settleStaleRoomTurns(room.id);
-    if (settleRoomHandoffs(room.id) > 0) {
-      void deliverReadyRoomHandoffs(room.id).catch((error) => {
-        console.warn("[room-runtime] startup handoff recovery failed:", error instanceof Error ? error.message : String(error));
-      });
-    }
-  }
+  runRoomReconcile({
+    listRooms: () => listRooms(),
+    settleStaleTurns: (roomId) => settleStaleRoomTurns(roomId),
+    settleHandoffs: (roomId) => settleRoomHandoffs(roomId),
+    deliverHandoffs: (roomId) => deliverReadyRoomHandoffs(roomId),
+    warn: (message, reason) => console.warn(message, reason),
+  });
 }
 
 type Resume = { startTurn: number; maxTurns: number; nextBotId: string };
