@@ -1,0 +1,206 @@
+import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { test } from "node:test";
+import { AppStore } from "./app-store.mjs";
+
+function fixture(t) {
+  const root = mkdtempSync(join(tmpdir(), "leafcode-backend-app-store-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  let file = join(root, "store.json");
+  let time = Date.parse("2026-09-01T12:00:00.000Z");
+  let ids = 0;
+  let workspaces = 0;
+  const options = {
+    storePath: () => file,
+    noProjectSessionDir: () => {
+      const directory = join(root, `workspace-${++workspaces}`);
+      mkdirSync(directory, { recursive: true });
+      return directory;
+    },
+    samePath: (left, right) => left.toLowerCase() === right.toLowerCase(),
+    noProjectName: "プロジェクトなし",
+    now: () => new Date(time),
+    uuid: () => `id-${++ids}`,
+  };
+  return {
+    root, store: new AppStore(options), options,
+    file: () => file, setFile: (value) => { file = value; },
+    setTime: (value) => { time = value; },
+    read: () => JSON.parse(readFileSync(file, "utf8")),
+  };
+}
+
+test("construction starts no path, filesystem, clock or UUID work", () => {
+  const fail = () => { throw new Error("must remain lazy"); };
+  new AppStore({ storePath: fail, noProjectSessionDir: fail, samePath: fail, noProjectName: "none", now: fail, uuid: fail });
+});
+
+test("project/task CRUD preserves v1 format, Unicode, settings and recreation", (t) => {
+  const f = fixture(t);
+  const project = f.store.upsertProject({ name: " メカ😀 ", rootPath: "C:/Work", favorite: true });
+  const task = f.store.insertTask({
+    project, title: "モデル確認", label: "render", thinkingLevel: "high", providerID: "p", modelID: "m",
+    accountId: "account", accountIdExplicit: true, botId: "bot", agent: "reviewer",
+    skillPermission: "deny", permissionMode: "ask",
+  });
+  assert.equal(project.name, "メカ😀");
+  assert.equal(task.directory, project.rootPath);
+  assert.equal(task.accountIdExplicit, true);
+  assert.equal(task.kind, undefined);
+  assert.equal(f.read().version, 1);
+  assert.equal(readFileSync(f.file(), "utf8"), `${JSON.stringify(f.read(), null, 2)}\n`);
+  const restarted = new AppStore(f.options);
+  assert.deepEqual(restarted.getTask(task.id), f.read().tasks[0]);
+  assert.deepEqual(restarted.getProject(project.id), project);
+  assert.equal(existsSync(`${f.file()}.tmp`), false);
+});
+
+test("path policy is injected and reopening preserves the existing project identity/name", (t) => {
+  const f = fixture(t);
+  const project = f.store.upsertProject({ name: "first", rootPath: "C:/Work", favorite: true });
+  f.store.patchProject(project.id, { archived: true, icon: "folder", iconColor: "blue" });
+  assert.deepEqual(f.store.listProjects(), []);
+  const reopened = f.store.upsertProject({ name: "ignored", rootPath: "c:/work", favorite: false });
+  assert.equal(reopened, project);
+  assert.equal(reopened.archived, false);
+  assert.equal(reopened.name, "first");
+  assert.equal(reopened.favorite, false);
+  assert.equal(reopened.iconColor, "blue");
+  const listed = f.store.listProjects(true);
+  listed.splice(0, listed.length);
+  assert.equal(f.store.listProjects(true).length, 1);
+});
+
+test("no-project workspaces are isolated by the injected allocator", (t) => {
+  const f = fixture(t);
+  const a = f.store.insertTask({ project: null, title: "a" });
+  const b = f.store.insertTask({ project: null, title: "b", accountIdExplicit: true });
+  assert.notEqual(a.directory, b.directory);
+  assert.equal(existsSync(a.directory), true);
+  assert.equal(a.projectName, "プロジェクトなし");
+  assert.equal(b.accountIdExplicit, undefined);
+  assert.deepEqual(f.store.listTasks().map((task) => task.id), [b.id, a.id]);
+});
+
+test("legacy Code filtering, Bot deduplication and archive visibility remain unchanged", (t) => {
+  const f = fixture(t);
+  const code = f.store.insertTask({ project: null, title: "Code" });
+  const bot = f.store.insertBotTask({ id: "bot:one", botId: "one", name: "Bot", directory: f.root, model: "p::m", thinkingLevel: "low", permissionMode: "deny" });
+  const before = readFileSync(f.file(), "utf8");
+  assert.equal(f.store.insertBotTask({ id: bot.id, botId: "one", name: "ignored", directory: "ignored" }), bot);
+  assert.equal(readFileSync(f.file(), "utf8"), before);
+  assert.deepEqual(f.store.listTasks().map((task) => task.id), [code.id]);
+  assert.deepEqual(f.store.listTasks(false, "bot").map((task) => task.id), [bot.id]);
+  f.store.setTaskStatus(bot.id, "archived");
+  assert.deepEqual(f.store.listTasks(false, "all").map((task) => task.id), [code.id]);
+  assert.deepEqual(f.store.listTasks(true, "all").map((task) => task.id), [bot.id, code.id]);
+});
+
+test("no-op patches skip writes, real patches advance time and metadata can preserve time", (t) => {
+  const f = fixture(t);
+  const task = f.store.insertTask({ project: null, title: "test" });
+  const originalTime = task.updatedAt;
+  const firstStat = statSync(f.file());
+  assert.equal(f.store.patchTask(task.id, { title: "test" }), task);
+  assert.equal(statSync(f.file()).mtimeMs, firstStat.mtimeMs);
+  assert.equal(existsSync(join(f.root, "backups", "store-2026-09-01.json")), false);
+  f.store.setTaskStatus(task.id, "working");
+  assert.equal(task.updatedAt, new Date(Date.parse(originalTime) + 1).toISOString());
+  const changedTime = task.updatedAt;
+  f.store.patchTask(task.id, { label: "classified", accountId: "new", hangRetryCount: 2 }, { preserveUpdatedAt: true });
+  assert.equal(task.updatedAt, changedTime);
+  f.store.patchTask(task.id, { accountId: undefined, permissionMode: "allow", manualAbortedAssistantId: "" });
+  assert.equal(task.accountId, undefined);
+  assert.ok(task.updatedAt > changedTime);
+  assert.equal("accountId" in f.read().tasks[0], false);
+});
+
+test("delete operations return the same counts and do not delete workspaces", (t) => {
+  const f = fixture(t);
+  const project = f.store.upsertProject({ rootPath: f.root });
+  const a = f.store.insertTask({ project, title: "a" });
+  f.store.insertTask({ project, title: "b" });
+  const independent = f.store.insertTask({ project: null, title: "independent" });
+  assert.equal(f.store.deleteTask("missing"), false);
+  assert.equal(f.store.deleteTask(a.id), true);
+  assert.equal(f.store.deleteTasksByProject(project.id), 1);
+  assert.equal(f.store.deleteProjectRecord(project.id), true);
+  assert.equal(f.store.deleteProjectRecord(project.id), false);
+  assert.equal(existsSync(independent.directory), true);
+  assert.equal(f.store.getTask(a.id), undefined);
+});
+
+test("the first daily snapshot is retained and only seven snapshots are kept", (t) => {
+  const f = fixture(t);
+  f.store.upsertProject({ name: "first", rootPath: "first" });
+  f.store.upsertProject({ name: "second", rootPath: "second" });
+  const first = join(f.root, "backups", "store-2026-09-01.json");
+  assert.deepEqual(JSON.parse(readFileSync(first, "utf8")).projects.map((p) => p.name), ["first"]);
+  f.store.upsertProject({ name: "third", rootPath: "third" });
+  assert.deepEqual(JSON.parse(readFileSync(first, "utf8")).projects.map((p) => p.name), ["first"]);
+  for (let day = 2; day <= 10; day += 1) {
+    f.setTime(Date.parse(`2026-09-${String(day).padStart(2, "0")}T12:00:00.000Z`));
+    f.store.upsertProject({ rootPath: `day-${day}` });
+  }
+  const names = readdirSync(join(f.root, "backups")).sort();
+  assert.equal(names.length, 7);
+  assert.equal(names[0], "store-2026-09-04.json");
+});
+
+test("cache identity is reused, external changes are seen and storage roots remain isolated", (t) => {
+  const f = fixture(t);
+  const task = f.store.insertTask({ project: null, title: "before" });
+  assert.equal(f.store.getTask(task.id), task);
+  const disk = f.read();
+  disk.tasks[0].title = "from external writer with a different file size";
+  writeFileSync(f.file(), `${JSON.stringify(disk, null, 2)}\n`, "utf8");
+  assert.equal(f.store.getTask(task.id).title, disk.tasks[0].title);
+  const firstFile = f.file();
+  f.setFile(join(f.root, "other", "store.json"));
+  assert.deepEqual(f.store.listTasks(), []);
+  f.store.insertTask({ project: null, title: "second root" });
+  f.setFile(firstFile);
+  assert.equal(f.store.getTask(task.id).title, disk.tasks[0].title);
+});
+
+test("missing, corrupt and unsupported files return an empty store without eager rewrites", (t) => {
+  const f = fixture(t);
+  assert.deepEqual(f.store.listProjects(), []);
+  assert.equal(existsSync(f.file()), false);
+  for (const text of ["{invalid", JSON.stringify({ version: 2, projects: [], tasks: [] }), JSON.stringify({ version: 1, projects: [], tasks: null })]) {
+    writeFileSync(f.file(), text, "utf8");
+    assert.deepEqual(f.store.listTasks(), []);
+    assert.equal(readFileSync(f.file(), "utf8"), text);
+  }
+});
+
+test("a failed temporary write leaves the previous destination intact", (t) => {
+  const f = fixture(t);
+  const project = f.store.upsertProject({ rootPath: "first" });
+  const before = readFileSync(f.file(), "utf8");
+  mkdirSync(`${f.file()}.tmp`);
+  assert.throws(() => f.store.patchProject(project.id, { name: "new" }));
+  assert.equal(readFileSync(f.file(), "utf8"), before);
+  assert.equal(new AppStore(f.options).getProject(project.id).name, "Untitled");
+});
+
+test("a plain Node process can read and update the same v1 store without Web/SDK imports", (t) => {
+  const f = fixture(t);
+  const task = f.store.insertTask({ project: null, title: "before" });
+  const moduleUrl = new URL("./app-store.mjs", import.meta.url).href;
+  const code = `
+    import { AppStore } from ${JSON.stringify(moduleUrl)};
+    const store = new AppStore({
+      storePath: () => ${JSON.stringify(f.file())}, noProjectSessionDir: () => ${JSON.stringify(f.root)},
+      samePath: (a, b) => a === b, noProjectName: "none",
+    });
+    const task = store.patchTask(${JSON.stringify(task.id)}, { title: "別プロセス😀" });
+    console.log(JSON.stringify({ title: task.title }));
+  `;
+  const output = execFileSync(process.execPath, ["--input-type=module", "-e", code], { encoding: "utf8", timeout: 5_000 });
+  assert.deepEqual(JSON.parse(output), { title: "別プロセス😀" });
+  assert.equal(f.store.getTask(task.id).title, "別プロセス😀");
+});

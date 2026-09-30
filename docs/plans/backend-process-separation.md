@@ -27,7 +27,7 @@
 ## 段階と現在地
 
 1. 通信契約・依存境界: **進行中**。認証、版数、health、起動/停止を追加。既存のタスク・モデル・質問/承認・Bot/Room・履歴・Git等のDTOを `shared/types.ts` へ移動。既存 `@/lib/types` は互換再エクスポート。共有契約はNext/SDK/Node型への依存なしで単独型検証できる。設定等の個別ファイルにあるDTOと実行依存の抽出は後続。
-2. Next非依存の実行層: **着手済み**。アカウント別ランタイムの所有・参照数・LRU管理を `backend/core/account-runtime-manager.mjs` へ移設し、Web側は互換入口にした。`backend/core/sdk-runtime.mjs` にSDKのlazy/single-flightロード、モデルランタイム生成、セッション生成の境界を追加。Backend側のSDKは移行時のWeb SDKと同じ0.87.1に固定しlockfileを持つ。実SDKを一時ストレージ・ネットワーク無効で初期化するテストを追加。harnessのSDKロード、既定/アカウント別ランタイム生成、セッション生成をこのファクトリへ接続済み。移行中はSDKローダーをharnessから注入し、既存のSDKモジュール・プロバイダー登録・テストのidentityを維持する。既定ランタイムは初期llama-serverプロバイダー登録成功後だけ公開し、その登録失敗時は未初期化として再試行する。再起動復旧を `backend/core/restart-resume.mjs` へ移設し、既存の `restart-resume.json` とプロンプト・再試行上限・除外判定を維持する。データディレクトリとタスク/実行コールバックは注入する。起動順序も `backend/core/runtime-startup.mjs` へ抽出し、復旧listener登録→孤立タスク照合→relay→scheduler→Room照合を共通化した。同時起動を集約し、起動失敗は再試行可能。履歴/モデルwarmupと遅延ラベル補完は非必須で、待たずに起動を終える。Web instrumentationはNode/Edge判定と互換アダプターの呼出だけにした。タスクleaseの取得/解放・heartbeat・孤立タスク照合/通知も `backend/core/task-runtime-lease.mjs` へ移設した。保存先・ストア操作・時計・PID生存確認・timerは注入できる。ファイル名とレコード形式、取得上限、stale期限、通知backlog上限は維持し、Web互換入口は移設前のglobal token/ownedTasks/timer/listener/backlogを引き継ぐ。単独Nodeプロセス間の競合と死んだ所有者からの復旧を一時ストレージで検証する。アプリストア・ブリッジ・セッション制御・各起動サービスの実装移設は未完。
+2. Next非依存の実行層: **着手済み**。アカウント別ランタイムの所有・参照数・LRU管理を `backend/core/account-runtime-manager.mjs` へ移設し、Web側は互換入口にした。`backend/core/sdk-runtime.mjs` にSDKのlazy/single-flightロード、モデルランタイム生成、セッション生成の境界を追加。Backend側のSDKは移行時のWeb SDKと同じ0.87.1に固定しlockfileを持つ。実SDKを一時ストレージ・ネットワーク無効で初期化するテストを追加。harnessのSDKロード、既定/アカウント別ランタイム生成、セッション生成をこのファクトリへ接続済み。移行中はSDKローダーをharnessから注入し、既存のSDKモジュール・プロバイダー登録・テストのidentityを維持する。既定ランタイムは初期llama-serverプロバイダー登録成功後だけ公開し、その登録失敗時は未初期化として再試行する。再起動復旧を `backend/core/restart-resume.mjs` へ移設し、既存の `restart-resume.json` とプロンプト・再試行上限・除外判定を維持する。データディレクトリとタスク/実行コールバックは注入する。起動順序も `backend/core/runtime-startup.mjs` へ抽出し、復旧listener登録→孤立タスク照合→relay→scheduler→Room照合を共通化した。同時起動を集約し、起動失敗は再試行可能。履歴/モデルwarmupと遅延ラベル補完は非必須で、待たずに起動を終える。Web instrumentationはNode/Edge判定と互換アダプターの呼出だけにした。タスクleaseの取得/解放・heartbeat・孤立タスク照合/通知も `backend/core/task-runtime-lease.mjs` へ移設した。保存先・ストア操作・時計・PID生存確認・timerは注入できる。ファイル名とレコード形式、取得上限、stale期限、通知backlog上限は維持し、Web互換入口は移設前のglobal token/ownedTasks/timer/listener/backlogを引き継ぐ。単独Nodeプロセス間の競合と死んだ所有者からの復旧を一時ストレージで検証する。プロジェクト/タスクのCRUDとJSON読書き・キャッシュ・日次バックアップを `backend/core/app-store.mjs` へ移設した。保存先・workspace割当・path同一性・名称・時計・UUIDは注入し、公開型は共有DTOを参照する。`store.json` v1、7日分の初回スナップショット、mtime/sizeキャッシュ、同一値patchの書込省略、単調増加updatedAtとメタデータ更新の例外を維持する。Web storeは同名の同期APIとmodule-localキャッシュ寿命を持つ互換入口にした。ブリッジ・セッション制御・各起動サービス・他の業務ストアの移設は未完。
 3. 独立API・Web中継: 未着手。既存URLと応答形式を維持。切替は排他的に行い、旧経路とBackendの二重実行/書込を禁止。
 4. Host・ビルド・再起動分離: 未着手。ready確認、独立した再起動予算、稼働中SDK/拡張世代の固定、互換性確認を追加。
 5. 段階導入・旧経路撤去: 未着手。実プロセス継続試験後にSDK依存とシングルトンをWebUIから除去。
@@ -53,6 +53,7 @@
 - pending質問/承認の再表示。接続切断は購読解除だけで、実行停止は明示APIのみ。
 - 副作用を伴う要求のID・重複受付防止。応答喪失時に無条件で再実行しない。
 - アプリデータはBackend単一writer。Host固有設定はHost所有のまま。
+- 抽出したアプリストアは既存の固定tmpファイル・mtime/size条件・可変キャッシュ行を維持する。多writerトランザクションや書込失敗時のメモリrollbackは追加していない。実切替ではBackend単一writerを排他的に成立させる。
 - 抽出したleaseのstale判定は既存どおりPID・heartbeat/mtime期限による。実切替時の排他的所有や世代フェンシングを保証するものではなく、期限切れ競合・二重起動を別途検証/強化する。
 - Backend障害時の復旧はWebUI再接続と区別。ツールの副作用は完全再開を保証しない。
 - rollbackもBackend停止後に旧経路へ切替。実行中世代のファイルは更新しない。
