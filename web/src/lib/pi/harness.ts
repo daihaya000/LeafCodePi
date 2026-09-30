@@ -213,7 +213,7 @@ import { SdkRuntimeFactory } from "@backend-core/sdk-runtime.mjs";
 import * as corePromptControl from "@backend-core/prompt-control.mjs";
 import { runHangWatchdogAbort, runUserAbort } from "@backend-core/abort-coordinator.mjs";
 import { roomBotIdFromTaskId } from "@backend-core/abort-control.mjs";
-import { detachReplacedLive as coreDetachReplacedLive, hasOtherBusyRoomLive, isRegisteredLive, isStaleEnsureEpoch, promoteMailboxOnAttach, resolveAttachAccount, resolveAttachedSessionAction, resolveCreatedSessionAction, resolveJoinedEnsureAction, runCoalescedLiveShutdown, runTrackedEnsure, shouldShutdownOnDispose as coreShouldShutdownOnDispose } from "@backend-core/live-lifecycle.mjs";
+import { detachReplacedLive as coreDetachReplacedLive, disposeUnattachedSession, hasOtherBusyRoomLive, isRegisteredLive, isStaleEnsureEpoch, promoteMailboxOnAttach, resolveAttachAccount, resolveAttachedSessionAction, resolveCreatedSessionAction, resolveJoinedEnsureAction, runCoalescedLiveShutdown, runTrackedEnsure, shouldShutdownOnDispose as coreShouldShutdownOnDispose } from "@backend-core/live-lifecycle.mjs";
 import { restoredPromptState, restoredTaskMetadata, restoredThroughputState } from "@backend-core/live-attach-state.mjs";
 import { compactionFailureMessage, isHarnessAutoCompactionError as coreIsHarnessAutoCompactionError, runAgentStartTaskSync, shouldApplySettledStatus, shouldSkipEventForMissingTask, shouldSyncTaskFromSessionEvent as coreShouldSyncTaskFromSessionEvent, type SessionSyncEvent } from "@backend-core/session-event-decisions.mjs";
 import { classifySnapshotEvent, flushPendingSnapshotOnUnsubscribe, pendingSnapshotFlush, SNAPSHOT_THROTTLE_MS } from "@backend-core/snapshot-schedule.mjs";
@@ -4543,11 +4543,8 @@ async function resolveLiveSessionSettings(
  * process.env intercom session id. Failure paths only; known residual leak.
  */
 function disposeSessionBestEffort(session: AgentSession): void {
-  try {
-    session.dispose();
-  } catch {
-    /* best-effort */
-  }
+  // The discard contract (no session_shutdown, swallowed errors) lives in backend core.
+  disposeUnattachedSession(session);
 }
 
 async function attachCreatedLiveSession(

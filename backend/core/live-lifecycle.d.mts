@@ -50,6 +50,15 @@ export function isStaleEnsureEpoch(currentEpoch: number | undefined | null, epoc
 export function isRegisteredLive<Live>(getLive: () => Live | undefined, attached: Live): boolean;
 
 /**
+ * Discards a session that was created but never attached, swallowing disposal
+ * errors and deliberately not emitting extension shutdown.
+ */
+export function disposeUnattachedSession<S>(
+  session: S,
+  disposeSession?: (session: S) => void,
+): void;
+
+/**
  * After creating a session: a stale generation wins over a vanished task, and only
  * otherwise may it be attached.
  */

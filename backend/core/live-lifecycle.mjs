@@ -61,6 +61,21 @@ export function resolveJoinedEnsureAction({ stale, hasLive }) {
 }
 
 /**
+ * Discard a session that was created but never attached. `createSession` already
+ * ran `bindExtensions()` (session_start), so its extensions hold resources; the
+ * shutdown event is intentionally NOT emitted here, because the old live session
+ * for the same task may still be active and shutting down a duplicate Goal Loop /
+ * intercom runtime would pause the loop or clobber the shared process-global
+ * intercom identity. Failure paths only; a known residual leak. Disposal errors
+ * are swallowed: the caller is already handling another failure.
+ */
+export function disposeUnattachedSession(session, disposeSession = (value) => value.dispose()) {
+  try {
+    disposeSession(session);
+  } catch { /* best-effort */ }
+}
+
+/**
  * What to do with a session that was just created: a stale generation means the
  * work no longer applies (discard the session and retry), a vanished task is a
  * 404, otherwise the session may be attached.
