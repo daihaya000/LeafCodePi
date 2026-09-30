@@ -20,6 +20,8 @@ const mocks = vi.hoisted(() => ({
   withBotCodeSessionLock: vi.fn(async (_id: string, operation: () => Promise<unknown>) => operation()),
   localRuntimeBlocked: vi.fn(() => false),
   forwardBotCodeSessionStart: vi.fn(),
+  forwardTaskAbort: vi.fn(),
+  forwardGoalLoopControl: vi.fn(),
   isRoomDelegatedCodeTask: vi.fn(() => false),
   readGoalLoopState: vi.fn((): Partial<GoalLoopDto> | null => null),
   isGoalLoopLiveStatus: vi.fn((status: string | undefined) =>
@@ -67,10 +69,10 @@ vi.mock("@/lib/pi/runtime-ownership", () => ({
 }));
 vi.mock("@/lib/backend-forward", () => ({
   forwardBotCodeSessionStart: mocks.forwardBotCodeSessionStart,
+  forwardTaskAbort: mocks.forwardTaskAbort,
+  forwardGoalLoopControl: mocks.forwardGoalLoopControl,
   forwardBotCodeRequestAbort: vi.fn(),
-  forwardGoalLoopControl: vi.fn(),
   forwardGoalLoopStart: vi.fn(),
-  forwardTaskAbort: vi.fn(),
   forwardTaskDetail: vi.fn(),
   forwardTaskPrompt: vi.fn(),
   forwardPermissionAnswer: vi.fn(),
@@ -107,6 +109,8 @@ beforeEach(() => {
   // Ownership is per-test: a leftover value would make every later test refuse.
   mocks.localRuntimeBlocked.mockReturnValue(false);
   mocks.forwardBotCodeSessionStart.mockReset();
+  mocks.forwardTaskAbort.mockReset();
+  mocks.forwardGoalLoopControl.mockReset();
   mocks.getBot.mockReturnValue({ ...bot });
   mocks.patchBot.mockImplementation((_id: string, patch: Record<string, unknown>) => ({ ...bot, ...patch }));
   mocks.getProject.mockReturnValue({ id: "project-1", archived: false });
@@ -712,5 +716,55 @@ describe("Bot Code session after the cutover", () => {
     });
     expect(mocks.stopBotCodeTask).not.toHaveBeenCalled();
     expect(mocks.abortTaskIncludingColdGoalLoop).not.toHaveBeenCalled();
+  });
+
+  it("forwards stop and Goal Loop control to the owning Backend", async () => {
+    mocks.getBot.mockReturnValue({ id: "one", codeSessionTaskId: "task-1" });
+    mocks.localRuntimeBlocked.mockReturnValue(true);
+    mocks.forwardTaskAbort.mockResolvedValue({ ok: true, task: { id: "task-1", status: "error" } });
+    const stopped = await PATCH(
+      new NextRequest("http://localhost/api/bots/one/code-session", {
+        method: "PATCH",
+        body: JSON.stringify({ action: "abort" }),
+      }),
+      { params: Promise.resolve({ id: "one" }) },
+    );
+    expect(stopped.status).toBe(200);
+    await expect(stopped.json()).resolves.toEqual({ task: { id: "task-1", status: "error" } });
+    expect(mocks.forwardTaskAbort).toHaveBeenCalledWith("task-1", { botId: "one" });
+
+    mocks.forwardGoalLoopControl.mockResolvedValue({ ok: true, loop: { id: "task-1", status: "paused" } });
+    const paused = await PATCH(
+      new NextRequest("http://localhost/api/bots/one/code-session", {
+        method: "PATCH",
+        body: JSON.stringify({ action: "goal-loop", goalLoopAction: "pause" }),
+      }),
+      { params: Promise.resolve({ id: "one" }) },
+    );
+    expect(paused.status).toBe(200);
+    await expect(paused.json()).resolves.toEqual({ loop: { id: "task-1", status: "paused" } });
+    expect(mocks.forwardGoalLoopControl).toHaveBeenCalledWith("task-1", { action: "pause", botId: "one" });
+    expect(mocks.stopBotCodeTask).not.toHaveBeenCalled();
+    expect(mocks.goalLoopCommand).not.toHaveBeenCalled();
+  });
+
+  it("never acts locally when a forwarded control cannot be delivered", async () => {
+    mocks.getBot.mockReturnValue({ id: "one", codeSessionTaskId: "task-1" });
+    mocks.localRuntimeBlocked.mockReturnValue(true);
+    mocks.forwardTaskAbort.mockResolvedValue({ ok: false, reason: "unreachable" });
+    const failed = await PATCH(
+      new NextRequest("http://localhost/api/bots/one/code-session", {
+        method: "PATCH",
+        body: JSON.stringify({ action: "abort" }),
+      }),
+      { params: Promise.resolve({ id: "one" }) },
+    );
+    expect(failed.status).toBe(502);
+    await expect(failed.json()).resolves.toEqual({
+      error: "Backendを停止できません",
+      code: "BACKEND_FORWARD_FAILED",
+      reason: "unreachable",
+    });
+    expect(mocks.stopBotCodeTask).not.toHaveBeenCalled();
   });
 });

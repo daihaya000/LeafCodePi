@@ -4,7 +4,7 @@ import { isPromptTextWithinSize } from "@/lib/prompt-images";
 import { getProject, getTask, patchTask } from "@/lib/store";
 import { continueBotCodeTask, createBotCodeTask, getBotCodeSessionPanelState, goalLoopCommand, jsonError, stopBotCodeTask, abortTaskIncludingColdGoalLoop } from "@/lib/pi/harness";
 import { localRuntimeBlocked } from "@/lib/pi/runtime-ownership";
-import { forwardBotCodeSessionStart } from "@/lib/backend-forward";
+import { forwardBotCodeSessionStart, forwardGoalLoopControl, forwardTaskAbort } from "@/lib/backend-forward";
 import { isThinkingLevel } from "@/lib/thinking-levels";
 import { reconcileOrphanedWorkingTasks } from "@/lib/task-runtime-lease";
 import { isRoomDelegatedCodeTask } from "@/lib/pi/bot-code-relay";
@@ -18,6 +18,20 @@ import {
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+
+/** A forwarded call that could not be delivered: the status and code the WebUI reports. */
+function forwardFailure(reason: string, message: string) {
+  if (reason === "not-configured") {
+    return NextResponse.json(
+      { error: "Backendが実行を所有しています", code: "RUNTIME_NOT_OWNED" },
+      { status: 409 },
+    );
+  }
+  return NextResponse.json(
+    { error: message, code: "BACKEND_FORWARD_FAILED", reason },
+    { status: 502 },
+  );
+}
 
 async function botId(params: Promise<{ id: string }>): Promise<string> {
   return (await params).id;
@@ -191,9 +205,42 @@ export async function PATCH(
   { params }: { params: Promise<{ id: string }> },
 ) {
   const id = await botId(params);
-  // Clear/unlink/continue all act on the Bot's session and its outbox, which the Backend owns after
-  // the cutover; they are refused rather than half-run against a session this process does not have.
+  // After the cutover the Bot's session and its outbox belong to the Backend. Stop and Goal Loop control
+  // reach it through the existing task endpoints; the rest (continue/clear/unlink) is refused rather
+  // than half-run against a session this process does not have.
   if (localRuntimeBlocked()) {
+    const bot = getBot(id);
+    if (!bot) return NextResponse.json({ error: "Bot not found" }, { status: 404 });
+    const body = (await req.json().catch(() => null)) as {
+      action?: unknown;
+      taskId?: unknown;
+      goalLoopAction?: unknown;
+      maxTurns?: unknown;
+    } | null;
+    const taskId = typeof body?.taskId === "string" ? body.taskId : bot.codeSessionTaskId;
+    if (!taskId) return NextResponse.json({ error: "Code session not found" }, { status: 404 });
+    if (body?.action === "abort") {
+      const forwarded = await forwardTaskAbort(taskId, { botId: id });
+      if (forwarded.ok) return NextResponse.json({ task: forwarded.task });
+      if (forwarded.reason === "not-found") return NextResponse.json({ error: "Code session not found" }, { status: 404 });
+      return forwardFailure(forwarded.reason, "Backendを停止できません");
+    }
+    if (body?.action === "goal-loop") {
+      const action = body.goalLoopAction;
+      if (action !== "pause" && action !== "resume" && action !== "stop" && action !== "complete") {
+        return NextResponse.json({ error: "invalid goalLoopAction" }, { status: 400 });
+      }
+      const forwarded = await forwardGoalLoopControl(taskId, {
+        action,
+        ...(action === "resume" && body.maxTurns !== undefined
+          ? { maxTurns: clampGoalLoopMaxTurns(body.maxTurns, DEFAULT_GOAL_LOOP_MAX_TURNS) }
+          : {}),
+        botId: id,
+      });
+      if (forwarded.ok) return NextResponse.json({ loop: forwarded.loop });
+      if (forwarded.reason === "not-found") return NextResponse.json({ error: "Code session not found" }, { status: 404 });
+      return forwardFailure(forwarded.reason, "Backendへ転送できません");
+    }
     return NextResponse.json(
       { error: "Codeセッションの操作は非所有モードでは未対応です", code: "CODE_SESSION_CONTROL_NOT_SUPPORTED" },
       { status: 409 },
