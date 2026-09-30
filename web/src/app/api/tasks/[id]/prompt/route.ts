@@ -31,6 +31,7 @@ import {
 } from "@/lib/auto-model";
 import type { ThinkingLevel } from "@/lib/types";
 import { localRuntimeBlocked } from "@/lib/pi/runtime-ownership";
+import { forwardTaskPrompt, needsLocalResolution } from "@/lib/backend-forward";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -105,12 +106,27 @@ export async function POST(
     ) {
       return NextResponse.json({ error: "無効な送信方式です" }, { status: 400 });
     }
-    // The Backend owns the runtime after the cutover: this process must not start a session, and the
-    // request is refused before any store write or model resolution happens.
+    // The Backend owns the runtime after the cutover: this process must not start a session, so the
+    // request is forwarded to the owner. There is no local fallback — a second owner would double-write
+    // the store, and a silent fallback would hide a broken cutover.
     if (localRuntimeBlocked()) {
+      if (needsLocalResolution(body)) {
+        return NextResponse.json(
+          { error: "Auto設定は非所有モードでは未対応です", code: "AUTO_NOT_SUPPORTED" },
+          { status: 409 },
+        );
+      }
+      const forwarded = await forwardTaskPrompt(id, body);
+      if (forwarded.ok) return NextResponse.json({ task: forwarded.task });
+      if (forwarded.reason === "not-configured") {
+        return NextResponse.json(
+          { error: "Backendが実行を所有しています", code: "RUNTIME_NOT_OWNED" },
+          { status: 409 },
+        );
+      }
       return NextResponse.json(
-        { error: "Backendが実行を所有しています", code: "RUNTIME_NOT_OWNED" },
-        { status: 409 },
+        { error: "Backendへ転送できません", code: "BACKEND_FORWARD_FAILED", reason: forwarded.reason },
+        { status: 502 },
       );
     }
     const currentTask = getTask(id);

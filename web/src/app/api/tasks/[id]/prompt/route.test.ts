@@ -31,6 +31,11 @@ vi.mock("@/lib/pi/runtime-ownership", () => ({
   localRuntimeBlocked: vi.fn(() => false),
   assertLocalRuntimeAllowed: vi.fn(),
 }));
+vi.mock("@/lib/backend-forward", () => ({
+  forwardTaskPrompt: vi.fn(),
+  needsLocalResolution: vi.fn(() => false),
+  forwardablePromptBody: vi.fn((body) => body),
+}));
 vi.mock("@/lib/pi/harness", () => ({
   isRecoverableResumeSelectionError: mocks.isRecoverableResumeSelectionError,
   jsonError: mocks.jsonError,
@@ -39,6 +44,8 @@ vi.mock("@/lib/pi/harness", () => ({
   validateTaskModelSelection: mocks.validateTaskModelSelection,
 }));
 
+import { localRuntimeBlocked } from "@/lib/pi/runtime-ownership";
+import { forwardTaskPrompt, needsLocalResolution } from "@/lib/backend-forward";
 import { AUTO_AGENT_VALUE } from "@/lib/default-agent";
 import { MAX_PROMPT_IMAGE_BYTES, MAX_PROMPT_TEXT_CHARS } from "@/lib/prompt-images";
 import { POST } from "./route";
@@ -83,18 +90,46 @@ describe("POST /api/tasks/[id]/prompt", () => {
     });
     mocks.promptTask.mockResolvedValue({ id: "task-1", agent: "reviewer" });
     mocks.validateTaskModelSelection.mockResolvedValue(undefined);
+    // Ownership and forwarding are per-test: a leftover value would make every later test forward.
+    vi.mocked(localRuntimeBlocked).mockReturnValue(false);
+    vi.mocked(needsLocalResolution).mockReturnValue(false);
+    vi.mocked(forwardTaskPrompt).mockReset();
   });
 
-  it("refuses to start a session when the Backend owns the runtime", async () => {
-    const { localRuntimeBlocked } = await import("@/lib/pi/runtime-ownership");
+  it("forwards the prompt to the owning Backend instead of starting a session", async () => {
     vi.mocked(localRuntimeBlocked).mockReturnValue(true);
+    vi.mocked(needsLocalResolution).mockReturnValue(false);
+    vi.mocked(forwardTaskPrompt).mockResolvedValue({ ok: true, task: { id: "task-1", status: "working" } });
     const response = await POST(request({ prompt: "こんにちは" }), { params: Promise.resolve({ id: "task-1" }) });
-    expect(response.status).toBe(409);
-    await expect(response.json()).resolves.toEqual({ error: "Backendが実行を所有しています", code: "RUNTIME_NOT_OWNED" });
-    // The refusal happens before the task is even read, so nothing can be written.
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({ task: { id: "task-1", status: "working" } });
+    // Nothing local ran: no task read, no in-process session.
     expect(mocks.getTask).not.toHaveBeenCalled();
     expect(mocks.promptTask).not.toHaveBeenCalled();
-    vi.mocked(localRuntimeBlocked).mockReturnValue(false);
+    expect(vi.mocked(forwardTaskPrompt).mock.calls[0][0]).toBe("task-1");
+  });
+
+  it("never falls back locally when the Backend cannot take the prompt", async () => {
+    vi.mocked(localRuntimeBlocked).mockReturnValue(true);
+    vi.mocked(needsLocalResolution).mockReturnValue(false);
+    vi.mocked(forwardTaskPrompt).mockResolvedValue({ ok: false, reason: "unreachable" });
+    const failed = await POST(request({ prompt: "こんにちは" }), { params: Promise.resolve({ id: "task-1" }) });
+    expect(failed.status).toBe(502);
+    await expect(failed.json()).resolves.toEqual({ error: "Backendへ転送できません", code: "BACKEND_FORWARD_FAILED", reason: "unreachable" });
+    vi.mocked(forwardTaskPrompt).mockResolvedValue({ ok: false, reason: "not-configured" });
+    const unconfigured = await POST(request({ prompt: "こんにちは" }), { params: Promise.resolve({ id: "task-1" }) });
+    expect(unconfigured.status).toBe(409);
+    await expect(unconfigured.json()).resolves.toEqual({ error: "Backendが実行を所有しています", code: "RUNTIME_NOT_OWNED" });
+    expect(mocks.promptTask).not.toHaveBeenCalled();
+  });
+
+  it("refuses Auto in the non-owning mode rather than resolving it locally", async () => {
+    vi.mocked(localRuntimeBlocked).mockReturnValue(true);
+    vi.mocked(needsLocalResolution).mockReturnValue(true);
+    const response = await POST(request({ prompt: "こんにちは", auto: true }), { params: Promise.resolve({ id: "task-1" }) });
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toEqual({ error: "Auto設定は非所有モードでは未対応です", code: "AUTO_NOT_SUPPORTED" });
+    expect(forwardTaskPrompt).not.toHaveBeenCalled();
   });
 
   it("resolves Auto from the persisted conversation and passes the real agent", async () => {

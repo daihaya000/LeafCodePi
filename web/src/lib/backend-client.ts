@@ -15,6 +15,7 @@ import {
   BACKEND_HEALTH_PATH,
   BACKEND_PROTOCOL_HEADER,
   BACKEND_PROTOCOL_VERSION,
+  BACKEND_TASK_PROMPT_SUFFIX,
   BACKEND_TASKS_PATH,
   DEFAULT_BACKEND_PORT,
 } from "@shared/backend-protocol.mjs";
@@ -52,17 +53,20 @@ export function backendBaseUrl(env: BackendEnv = process.env): string {
 }
 
 /**
- * One authenticated read against the Backend. The request carries the protocol header, and the
+/**
+ * One authenticated call against the Backend. The request carries the protocol header, and the
  * response status decides the failure reason: 401/403 unauthorized, 409 incompatible, anything else
  * non-2xx is a bad response. Network errors and timeouts are separated so a caller can retry the
  * latter and treat the former as "Backend is down".
  */
-export async function fetchBackendJson<T>(
+async function backendRequest<T>(
   path: string,
   options: {
     env?: BackendEnv;
     fetchImpl?: typeof fetch;
     timeoutMs?: number;
+    method?: "GET" | "POST";
+    body?: unknown;
   } = {},
 ): Promise<BackendResult<T>> {
   const env = options.env ?? process.env;
@@ -73,16 +77,19 @@ export async function fetchBackendJson<T>(
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   timer.unref?.();
+  const hasBody = options.body !== undefined;
   let response: Response;
   try {
     response = await doFetch(`${backendBaseUrl(env)}${path}`, {
-      method: "GET",
+      method: options.method ?? "GET",
       headers: {
+        ...(hasBody ? { "content-type": "application/json" } : {}),
         authorization: `Bearer ${token}`,
         [BACKEND_PROTOCOL_HEADER]: String(BACKEND_PROTOCOL_VERSION),
       },
       cache: "no-store",
       signal: controller.signal,
+      ...(hasBody ? { body: JSON.stringify(options.body) } : {}),
     });
   } catch (error) {
     const aborted = error instanceof Error && error.name === "AbortError";
@@ -117,6 +124,32 @@ export type BackendHealth = {
 /** Whether the Backend process is up and has attached its runtime. */
 export function readBackendHealth(options: Parameters<typeof fetchBackendJson>[1] = {}) {
   return fetchBackendJson<BackendHealth>(BACKEND_HEALTH_PATH, options);
+}
+
+/** One authenticated read against the Backend. */
+export function fetchBackendJson<T>(
+  path: string,
+  options: { env?: BackendEnv; fetchImpl?: typeof fetch; timeoutMs?: number } = {},
+): Promise<BackendResult<T>> {
+  return backendRequest<T>(path, { ...options, method: "GET" });
+}
+
+/** One authenticated write against the Backend. A failed call is a reason, never a local retry. */
+export function postBackendJson<T>(
+  path: string,
+  body: unknown,
+  options: { env?: BackendEnv; fetchImpl?: typeof fetch; timeoutMs?: number } = {},
+): Promise<BackendResult<T>> {
+  return backendRequest<T>(path, { ...options, method: "POST", body });
+}
+
+/** Starts a session in the owning Backend: `POST /internal/tasks/:id/prompt`. */
+export function promptTaskOnBackend(
+  id: string,
+  body: unknown,
+  options: { env?: BackendEnv; fetchImpl?: typeof fetch; timeoutMs?: number } = {},
+): Promise<BackendResult<{ task: Record<string, unknown> | null }>> {
+  return postBackendJson(`${BACKEND_TASKS_PATH}/${encodeURIComponent(id)}${BACKEND_TASK_PROMPT_SUFFIX}`, body, options);
 }
 
 /**
