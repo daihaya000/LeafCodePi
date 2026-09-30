@@ -15,7 +15,8 @@ const state = globals.__leafcodeTaskLeaseState ??= createTaskLeaseState<TaskSumm
 const service = new TaskLeaseService({
   dataDir,
   listTasks: () => [...listTasks(true), ...listTasks(true, "bot")],
-  patchTask,
+  // Resolve store exports at call time; partial module mocks may omit unused ones.
+  patchTask: (id, patch) => patchTask(id, patch),
   state,
 });
 
