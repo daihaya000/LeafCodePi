@@ -3,6 +3,8 @@ import { getBot, botTaskId } from "@/lib/bots";
 import { isPromptFileList, isPromptFileText, isPromptFileWithinSize, isPromptImageList, isPromptImageWithinSize, isPromptTextWithinSize, MAX_PROMPT_ATTACHMENTS, type PromptFileInput } from "@/lib/prompt-images";
 import { goalLoopCommand, isTaskRuntimeBusyForGoalLoopStart, jsonError, promptTask } from "@/lib/pi/harness";
 import { isGoalLoopLiveStatus } from "@/lib/pi/goal-loop-state";
+import { localRuntimeBlocked } from "@/lib/pi/runtime-ownership";
+import { forwardTaskPrompt } from "@/lib/backend-forward";
 import { clampGoalLoopCooldownSeconds, clampGoalLoopMaxTurns, DEFAULT_GOAL_LOOP_MAX_TURNS, normalizeGoalLoopAcceptance } from "@/lib/goal-loop-settings";
 export const runtime = "nodejs"; export const dynamic = "force-dynamic";
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -14,6 +16,30 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     if (body.files !== undefined && (!isPromptFileList(body.files) || body.files.some((file) => !isPromptFileWithinSize(file) || !isPromptFileText(file)))) return NextResponse.json({ error: "invalid files: UTF-8 text only" }, { status: 400 });
     if ((body.images?.length ?? 0) + (body.files?.length ?? 0) > MAX_PROMPT_ATTACHMENTS) return NextResponse.json({ error: `添付は${MAX_PROMPT_ATTACHMENTS}件までです` }, { status: 400 });
     if (!body.prompt.trim() && !body.images?.length && !body.files?.length) return NextResponse.json({ error: "Prompt is required" }, { status: 400 });
+    if (localRuntimeBlocked()) {
+      if (body.goalLoop !== undefined) {
+        return NextResponse.json(
+          { error: "Goal Loop は非所有モードでは未対応です", code: "GOAL_LOOP_NOT_SUPPORTED" },
+          { status: 409 },
+        );
+      }
+      const forwarded = await forwardTaskPrompt(botTaskId(id), {
+        prompt: body.prompt,
+        ...(body.images !== undefined ? { images: body.images } : {}),
+        ...(body.files !== undefined ? { files: body.files } : {}),
+      });
+      if (forwarded.ok) return NextResponse.json({ task: forwarded.task });
+      if (forwarded.reason === "not-configured") {
+        return NextResponse.json(
+          { error: "Backendが実行を所有しています", code: "RUNTIME_NOT_OWNED" },
+          { status: 409 },
+        );
+      }
+      return NextResponse.json(
+        { error: "Backendへ転送できません", code: "BACKEND_FORWARD_FAILED", reason: forwarded.reason },
+        { status: 502 },
+      );
+    }
     if (body.goalLoop !== undefined) {
       if (body.files?.length) return NextResponse.json({ error: "Goal loop の開始では画像のみ添付できます" }, { status: 400 });
       if (body.goalLoop === null || typeof body.goalLoop !== "object" || Array.isArray(body.goalLoop)) return NextResponse.json({ error: "invalid goalLoop" }, { status: 400 });
