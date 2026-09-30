@@ -1,4 +1,5 @@
 import { mkdirSync, rmSync, statSync } from "node:fs";
+import { cronMatches as defaultCronMatches } from "./routine-schedule.mjs";
 
 /**
  * Cross-worker scheduler lock: an atomically created directory. A holder that
@@ -29,7 +30,14 @@ export function tryAcquireSchedulerLock({ lockPath, parentDir, staleMs, now = ()
  * lastRunAt never blocks a run.
  */
 export function isRoutineDue(routine, { minute, nowMs, minIntervalMs, cronMatches }) {
-  if (!routine.enabled || !cronMatches(routine.schedule, minute)) return false;
+  if (!routine.enabled) return false;
+  try {
+    if (!cronMatches(routine.schedule, minute)) return false;
+  } catch {
+    // A schedule that cannot be parsed (hand-edited file) is never due: one bad
+    // row must not abort the whole tick and strand every other routine.
+    return false;
+  }
   const lastRunAt = routine.lastRunAt ? new Date(routine.lastRunAt).getTime() : Number.NaN;
   return !(Number.isFinite(lastRunAt) && nowMs - lastRunAt < minIntervalMs);
 }
@@ -44,6 +52,9 @@ export function isRoutineDue(routine, { minute, nowMs, minIntervalMs, cronMatche
 export async function runSchedulerTick(deps, now = new Date()) {
   const lock = deps.acquireLock();
   if (!lock) return;
+  // The core cron implementation is the default; callers may still inject one
+  // (the Web app supplies the same module through its compatibility entrypoint).
+  const matches = deps.cronMatches ?? defaultCronMatches;
   try {
     const minute = new Date(now);
     minute.setSeconds(0, 0);
@@ -51,7 +62,7 @@ export async function runSchedulerTick(deps, now = new Date()) {
     for (const bot of deps.listBots()) {
       if (!bot.enabled) continue;
       for (const routine of deps.listRoutines(bot.id)) {
-        if (!isRoutineDue(routine, { minute, nowMs, minIntervalMs: deps.minIntervalMs, cronMatches: deps.cronMatches })) continue;
+        if (!isRoutineDue(routine, { minute, nowMs, minIntervalMs: deps.minIntervalMs, cronMatches: matches })) continue;
         // Start synchronously (the run claims its slot before its first await),
         // then detach. A synchronous throw must not abort the remaining routines.
         try {

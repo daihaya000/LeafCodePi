@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { isRoutineDue, runSchedulerTick, tryAcquireSchedulerLock } from "./routine-scheduler.mjs";
+import { cronMatches as routineScheduleCronMatches } from "./routine-schedule.mjs";
 
 function tempRoot(t) {
   const root = mkdtempSync(join(tmpdir(), "leafcode-routine-scheduler-"));
@@ -50,6 +51,18 @@ test("routine due decision: enabled, cron match, and minimum interval since the 
   assert.equal(isRoutineDue({ ...routine, lastRunAt: new Date(base.nowMs - 300_000).toISOString() }, base), true);
   assert.equal(isRoutineDue({ ...routine, lastRunAt: "not a date" }, base), true);
   assert.equal(isRoutineDue({ ...routine, lastRunAt: "" }, base), true);
+});
+
+test("an unparsable schedule is never due and never aborts the tick", () => {
+  const base = { minute: new Date(2024, 0, 1, 0, 5), nowMs: 1, minIntervalMs: 300_000, cronMatches: () => true };
+  // With the core matcher (the default), an unparsable schedule is simply not due.
+  const coreMatcher = routineScheduleCronMatches;
+  assert.equal(isRoutineDue({ id: "r", enabled: true, schedule: "nonsense", lastRunAt: null }, { ...base, cronMatches: coreMatcher }), false);
+  assert.equal(isRoutineDue({ id: "r", enabled: true, schedule: "5 0 * * *", lastRunAt: null }, { ...base, cronMatches: coreMatcher }), true);
+  // A matcher that throws is contained instead of aborting the tick.
+  assert.equal(isRoutineDue({ id: "r", enabled: true, schedule: "nonsense", lastRunAt: null }, { ...base, cronMatches: () => { throw new Error("bad cron"); } }), false);
+  // A disabled routine is skipped before the cron is consulted at all.
+  assert.equal(isRoutineDue({ id: "r", enabled: false, schedule: "nonsense" }, { ...base, cronMatches: () => { throw new Error("must not be called"); } }), false);
 });
 
 test("cron is evaluated against the minute with seconds and milliseconds cleared", () => {
@@ -109,6 +122,27 @@ test("routine failures are detached: rejections are swallowed and later routines
   await runSchedulerTick(f.deps);
   await new Promise((resolve) => setImmediate(resolve));
   assert.deepEqual(started, ["sync-throw", "async-reject", "ok"]);
+});
+
+test("without an injected matcher the core cron implementation is used", async () => {
+  const started = [];
+  const deps = {
+    acquireLock: () => "lock",
+    releaseLock: () => undefined,
+    listBots: () => [{ id: "b", enabled: true }],
+    listRoutines: () => [
+      { id: "daily-9", enabled: true, schedule: "0 9 * * *" },
+      { id: "daily-10", enabled: true, schedule: "0 10 * * *" },
+      { id: "broken", enabled: true, schedule: "nonsense" },
+    ],
+    minIntervalMs: 300_000,
+    runRoutine: (_botId, routineId) => { started.push(routineId); },
+  };
+  await runSchedulerTick(deps, new Date(2026, 0, 5, 9, 0));
+  assert.deepEqual(started, ["daily-9"]);
+  started.length = 0;
+  await runSchedulerTick(deps, new Date(2026, 0, 5, 10, 0));
+  assert.deepEqual(started, ["daily-10"], "an unparsable schedule never starts a run");
 });
 
 test("the lock is released before a long-running routine finishes", async () => {

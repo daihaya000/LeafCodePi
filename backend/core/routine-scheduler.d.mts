@@ -23,7 +23,8 @@ export function runSchedulerTick<R extends SchedulableRoutine>(
     releaseLock: (lock: string) => void;
     listBots: () => Array<{ id: string; enabled: boolean }>;
     listRoutines: (botId: string) => R[];
-    cronMatches: (schedule: string, minute: Date) => boolean;
+    /** Defaults to the core cron implementation; the Web app injects the same one. */
+    cronMatches?: (schedule: string, minute: Date) => boolean;
     minIntervalMs: number;
     runRoutine: (botId: string, routineId: string) => Promise<unknown> | unknown;
   },
