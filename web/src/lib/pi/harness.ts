@@ -209,6 +209,7 @@ import { registerWebUiPermissionHandler } from "@/lib/pi/webui-permission-bridge
 import { AccountRuntimeManager } from "@/lib/pi/account-runtime-manager";
 import { SdkRuntimeFactory } from "@backend-core/sdk-runtime.mjs";
 import * as corePromptControl from "@backend-core/prompt-control.mjs";
+import { finalAssistantIdOfCurrentTurn, isHangWatchReplaced, roomBotIdFromTaskId } from "@backend-core/abort-control.mjs";
 import {
   accountAuthPath,
   accountHasProvider,
@@ -9667,18 +9668,7 @@ export async function abortTask(id: string): Promise<TaskSummary> {
       live.toolEndedAt,
       live.toolPartialOutputByCallId,
     );
-    let promptIndex = -1;
-    for (let i = msgs.length - 1; i >= 0; i -= 1) {
-      if (msgs[i]?.role === "user") {
-        promptIndex = i;
-        break;
-      }
-    }
-    const turnAssistants =
-      promptIndex >= 0
-        ? msgs.slice(promptIndex + 1).filter((m) => m.role === "assistant")
-        : [];
-    persistManualAbortedAssistantId(id, turnAssistants.at(-1)?.id ?? "");
+    persistManualAbortedAssistantId(id, finalAssistantIdOfCurrentTurn(msgs));
     await stopGoalLoopForTask(live);
     await stopSubagentRunsForTask(live, msgs);
     await abortPromise;
@@ -9697,10 +9687,10 @@ export async function abortTask(id: string): Promise<TaskSummary> {
   // Room abort clears promptActive before the prompt finally runs; flush here so
   // mailbox rows queued during the Room turn are not left stranded if finally
   // is skipped or delayed.
-  const roomBotMatch = /^bot:([^:]+):room:/.exec(id);
-  if (roomBotMatch?.[1]) {
+  const roomBotId = roomBotIdFromTaskId(id);
+  if (roomBotId) {
     try {
-      flushQueuedBotIntercom(roomBotMatch[1]);
+      flushQueuedBotIntercom(roomBotId);
     } catch (error) {
       console.warn("[bot-intercom] flush after Room abort failed", error);
     }
@@ -9773,20 +9763,9 @@ export async function abortLiveForHangWatchdog(taskId: string): Promise<void> {
       false,
       messageContext(live),
     );
-    let promptIndex = -1;
-    for (let i = msgs.length - 1; i >= 0; i -= 1) {
-      if (msgs[i]?.role === "user") {
-        promptIndex = i;
-        break;
-      }
-    }
-    const turnAssistants =
-      promptIndex >= 0
-        ? msgs.slice(promptIndex + 1).filter((m) => m.role === "assistant")
-        : [];
     // Persist before hang_abort so SSE (and ready-buffer flush) carries the
     // early-abort "" sentinel / assistant id — same order as abortTask.
-    persistManualAbortedAssistantId(taskId, turnAssistants.at(-1)?.id ?? "");
+    persistManualAbortedAssistantId(taskId, finalAssistantIdOfCurrentTurn(msgs));
     // Emit before idle so clients clear queued follow-ups before hang_retry.
     // Force isStreaming false while the SDK abort is settling.
     emitTaskSnapshot(live, "hang_abort", { isStreaming: false });
@@ -9794,11 +9773,7 @@ export async function abortLiveForHangWatchdog(taskId: string): Promise<void> {
     await abortPromise;
   }
   const hangWatchAfter = getTaskHangWatch(taskId);
-  if (
-    hangWatchStartedAt != null &&
-    hangWatchAfter != null &&
-    hangWatchAfter.startedAt !== hangWatchStartedAt
-  ) {
+  if (isHangWatchReplaced(hangWatchStartedAt, hangWatchAfter)) {
     // Newer prompt re-armed the watch; leave working/lease for that turn.
     return;
   }
@@ -9816,10 +9791,10 @@ export async function abortLiveForHangWatchdog(taskId: string): Promise<void> {
   }
   // Same as abortTask: promptChain.finally may have flushed while isStreaming
   // was still true (roomBusy → no-op). Re-flush after abort settles.
-  const roomBotMatch = /^bot:([^:]+):room:/.exec(taskId);
-  if (roomBotMatch?.[1]) {
+  const roomBotId = roomBotIdFromTaskId(taskId);
+  if (roomBotId) {
     try {
-      flushQueuedBotIntercom(roomBotMatch[1]);
+      flushQueuedBotIntercom(roomBotId);
     } catch (error) {
       console.warn("[bot-intercom] flush after Room hang abort failed", error);
     }
