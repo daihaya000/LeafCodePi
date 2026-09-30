@@ -14,6 +14,7 @@ export default defineConfig({
     alias: {
       "@": fileURLToPath(new URL("./src", import.meta.url)),
       "@shared": fileURLToPath(new URL(existsSync(fileURLToPath(new URL("./shared", import.meta.url))) ? "./shared" : "../shared", import.meta.url)),
+      "@backend-core": fileURLToPath(new URL(existsSync(fileURLToPath(new URL("./backend-core", import.meta.url))) ? "./backend-core" : "../backend/core", import.meta.url)),
     },
   },
   esbuild: {

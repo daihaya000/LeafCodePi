@@ -126,6 +126,8 @@ export function isWebBuildStale(webDir, distDir, fsApi = {}) {
   const watchedRoots = [
     ...WATCHED_DIRS.map((dirName) => join(webDir, dirName)),
     join(webDir, "..", "shared"),
+    // Temporary while WebUI compatibility entrypoints still import runtime core.
+    join(webDir, "..", "backend", "core"),
   ];
   for (const root of watchedRoots) {
     if (!existsSync(root)) continue;

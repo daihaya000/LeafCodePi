@@ -8,6 +8,9 @@
     "start": "node src/entry.mjs",
     "test": "node --test"
   },
+  "dependencies": {
+    "@earendil-works/pi-coding-agent": "0.87.1"
+  },
   "engines": {
     "node": ">=22.19"
   }

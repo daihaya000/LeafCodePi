@@ -134,6 +134,24 @@ test("syncMirror isolates shared contracts per checkout and prunes removed contr
   }
 });
 
+test("syncMirror copies only the transitional backend core, not its dependencies or server", () => {
+  const { root, source, mirror } = sandbox();
+  try {
+    mkdirSync(source, { recursive: true });
+    const backend = join(root, "backend");
+    for (const dir of ["core", "src", "node_modules"]) mkdirSync(join(backend, dir), { recursive: true });
+    writeFileSync(join(backend, "core", "manager.mjs"), "export class Manager {}\n");
+    writeFileSync(join(backend, "src", "entry.mjs"), "server\n");
+    writeFileSync(join(backend, "node_modules", "secret"), "dependency\n");
+    syncMirror({ sourceDir: source, mirrorRoot: mirror });
+    assert.equal(readFileSync(join(mirror, "backend-core", "manager.mjs"), "utf8"), "export class Manager {}\n");
+    assert.equal(existsSync(join(mirror, "backend-core", "entry.mjs")), false);
+    assert.equal(existsSync(join(mirror, "backend-core", "node_modules")), false);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("syncMirror rejects shared path collisions before changing sources", () => {
   const { root, source, mirror } = sandbox();
   try {

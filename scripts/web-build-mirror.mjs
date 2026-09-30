@@ -187,32 +187,41 @@ export function syncMirror(options = {}) {
     throw new Error(`The build mirror (${mirrorRoot}) must not live inside the project (${sourceDir}) or contain it.`);
   }
 
-  const sharedDir = join(dirname(sourceDir), "shared");
-  const mirroredSharedDir = join(mirrorRoot, "shared");
-  if (existsSync(join(sourceDir, "shared"))) {
-    throw new Error("web/shared is reserved for mirrored checkout contracts");
-  }
-  const shared = process.platform === "win32" ? sharedDir.toLowerCase() : sharedDir;
-  if (target === shared || target.startsWith(shared + sep) || shared.startsWith(target.endsWith(sep) ? target : target + sep)) {
-    throw new Error("The build mirror must not overlap the checkout shared directory");
-  }
-  if (existsSync(sharedDir)) {
-    const sharedStat = lstatSync(sharedDir);
-    if (sharedStat.isSymbolicLink() || !sharedStat.isDirectory()) {
-      throw new Error("The checkout shared directory must be a regular directory");
+  // Transitional runtime imports are copied as source, never as dependencies.
+  const extras = [
+    { name: "shared", source: join(dirname(sourceDir), "shared") },
+    { name: "backend-core", source: join(dirname(sourceDir), "backend", "core") },
+  ];
+  for (const extra of extras) {
+    if (existsSync(join(sourceDir, extra.name))) {
+      throw new Error(`web/${extra.name} is reserved for mirrored checkout sources`);
     }
-  }
-  if (existsSync(mirroredSharedDir) && lstatSync(mirroredSharedDir).isSymbolicLink()) {
-    throw new Error("The mirrored shared directory must not be a symbolic link");
+    const normalized = process.platform === "win32" ? extra.source.toLowerCase() : extra.source;
+    if (target === normalized || target.startsWith(normalized + sep) || normalized.startsWith(target.endsWith(sep) ? target : target + sep)) {
+      throw new Error(`The build mirror must not overlap the checkout ${extra.name} directory`);
+    }
+    if (existsSync(extra.source)) {
+      const sourceStat = lstatSync(extra.source);
+      if (sourceStat.isSymbolicLink() || !sourceStat.isDirectory()) {
+        throw new Error(`The checkout ${extra.name} directory must be a regular directory`);
+      }
+    }
+    const destination = join(mirrorRoot, extra.name);
+    if (existsSync(destination) && lstatSync(destination).isSymbolicLink()) {
+      throw new Error(`The mirrored ${extra.name} directory must not be a symbolic link`);
+    }
   }
   const counters = { copied: 0, unchanged: 0, removed: 0 };
   const startedAt = Date.now();
-  syncDir(sourceDir, mirrorRoot, counters, ["shared"]);
-  if (existsSync(sharedDir)) {
-    syncDir(sharedDir, mirroredSharedDir, counters);
-  } else if (existsSync(mirroredSharedDir)) {
-    rmSync(mirroredSharedDir, { recursive: true, force: true });
-    counters.removed += 1;
+  syncDir(sourceDir, mirrorRoot, counters, extras.map((extra) => extra.name));
+  for (const extra of extras) {
+    const destination = join(mirrorRoot, extra.name);
+    if (existsSync(extra.source)) {
+      syncDir(extra.source, destination, counters);
+    } else if (existsSync(destination)) {
+      rmSync(destination, { recursive: true, force: true });
+      counters.removed += 1;
+    }
   }
 
   return {

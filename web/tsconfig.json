@@ -31,6 +31,10 @@
       "@shared/*": [
         "./shared/*",
         "../shared/*"
+      ],
+      "@backend-core/*": [
+        "./backend-core/*",
+        "../backend/core/*"
       ]
     }
   },

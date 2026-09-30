@@ -135,6 +135,11 @@ test("isWebBuildStale watches shared contracts without watching backend implemen
   assert.equal(isWebBuildStale(WEB_DIR, DIST_DIR, fs), false);
   fs.files[join(shared, "types.ts")] = 1100;
   assert.equal(isWebBuildStale(WEB_DIR, DIST_DIR, fs), true);
+  fs.files[join(shared, "types.ts")] = 900;
+  const core = join(WEB_DIR, "..", "backend", "core");
+  fs.dirs[core] = ["sdk-runtime.mjs"];
+  fs.files[join(core, "sdk-runtime.mjs")] = 1100;
+  assert.equal(isWebBuildStale(WEB_DIR, DIST_DIR, fs), true);
 });
 
 test("isWebBuildStale returns false without a BUILD_ID", () => {
