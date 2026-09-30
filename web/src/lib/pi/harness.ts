@@ -215,7 +215,7 @@ import { runHangWatchdogAbort, runUserAbort } from "@backend-core/abort-coordina
 import { roomBotIdFromTaskId } from "@backend-core/abort-control.mjs";
 import { detachReplacedLive as coreDetachReplacedLive, hasOtherBusyRoomLive, oneToOneBotIdFromTaskId, resolveAttachAccount, shouldShutdownOnDispose as coreShouldShutdownOnDispose } from "@backend-core/live-lifecycle.mjs";
 import { restoredPromptState, restoredTaskMetadata, restoredThroughputState } from "@backend-core/live-attach-state.mjs";
-import { compactionFailureMessage, isHarnessAutoCompactionError as coreIsHarnessAutoCompactionError, shouldApplySettledStatus, shouldSyncTaskFromSessionEvent as coreShouldSyncTaskFromSessionEvent, type SessionSyncEvent } from "@backend-core/session-event-decisions.mjs";
+import { compactionFailureMessage, isHarnessAutoCompactionError as coreIsHarnessAutoCompactionError, runAgentStartTaskSync, shouldApplySettledStatus, shouldSkipEventForMissingTask, shouldSyncTaskFromSessionEvent as coreShouldSyncTaskFromSessionEvent, type SessionSyncEvent } from "@backend-core/session-event-decisions.mjs";
 import { classifySnapshotEvent, pendingSnapshotFlush, SNAPSHOT_THROTTLE_MS } from "@backend-core/snapshot-schedule.mjs";
 import { attachReplacementSession } from "@backend-core/live-replace.mjs";
 import { buildBotCodeReportContent } from "@backend-core/bot-code-report.mjs";
@@ -2324,18 +2324,16 @@ async function attachSession(
     // Avoid a synchronous store read for every token; status/identity changes
     // still use the existing path below.
     const task = syncTask ? getTask(taskId) : undefined;
-    if (syncTask && !task) return;
+    if (shouldSkipEventForMissingTask(syncTask, Boolean(task))) return;
     trackThroughputEvent(
       live,
       event as { type: string; [key: string]: unknown },
     );
-    if (event.type === "agent_start") {
-      if (!acquireTaskLease(taskId)) {
-        setTaskStatus(taskId, "error", TASK_LEASE_BUSY_ERROR);
-        return;
-      }
-      setTaskStatus(taskId, "working");
-    }
+    if (event.type === "agent_start" && !runAgentStartTaskSync(taskId, {
+      acquireLease: (id) => acquireTaskLease(id),
+      setStatus: (id, status, error) => setTaskStatus(id, status, error),
+      busyMessage: TASK_LEASE_BUSY_ERROR,
+    })) return;
     if (shouldApplySettledStatus(event, live.pendingTransportRecovery)) {
       applySettledTaskStatus(live, session, taskId);
     }

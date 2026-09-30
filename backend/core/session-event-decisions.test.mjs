@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
-  compactionFailureMessage, isHarnessAutoCompactionError, shouldApplySettledStatus, shouldSyncTaskFromSessionEvent,
+  compactionFailureMessage, isHarnessAutoCompactionError, runAgentStartTaskSync, shouldApplySettledStatus,
+  shouldSkipEventForMissingTask, shouldSyncTaskFromSessionEvent,
 } from "./session-event-decisions.mjs";
 
 test("automatic compaction errors need a compaction failure plus a harness-owned promise", () => {
@@ -55,4 +56,45 @@ test("the same failure classified with the same inputs always decides the same w
   assert.equal(compactionFailureMessage(failure, harnessOwned), "same");
   assert.equal(shouldSyncTaskFromSessionEvent(failure, false), false);
   assert.equal(compactionFailureMessage(failure, false), null);
+});
+
+test("an event that wants the task is dropped when the task row is gone", () => {
+  assert.equal(shouldSkipEventForMissingTask(true, false), true);
+  assert.equal(shouldSkipEventForMissingTask(true, true), false);
+  // Events that do not touch the task keep flowing even with no row.
+  assert.equal(shouldSkipEventForMissingTask(false, false), false);
+  assert.equal(shouldSkipEventForMissingTask(false, true), false);
+});
+
+test("agent_start claims the lease before publishing the task as working", () => {
+  const calls = [];
+  const deps = {
+    acquireLease: (taskId) => { calls.push(`lease:${taskId}`); return true; },
+    setStatus: (taskId, status) => { calls.push(`${status}:${taskId}`); },
+    busyMessage: "busy",
+  };
+  assert.equal(runAgentStartTaskSync("task", deps), true);
+  assert.deepEqual(calls, ["lease:task", "working:task"]);
+});
+
+test("a lease held elsewhere marks the task failed and stops the event", () => {
+  const calls = [];
+  const deps = {
+    acquireLease: () => { calls.push("lease"); return false; },
+    setStatus: (taskId, status, error) => { calls.push(`${status}:${taskId}:${error}`); },
+    busyMessage: "別のワーカーで実行中です",
+  };
+  assert.equal(runAgentStartTaskSync("task", deps), false);
+  assert.deepEqual(calls, ["lease", "error:task:別のワーカーで実行中です"]);
+});
+
+test("a lease throw surfaces without marking the task and never publishes working", () => {
+  const calls = [];
+  const deps = {
+    acquireLease: () => { throw new Error("lease store down"); },
+    setStatus: (_taskId, status) => { calls.push(status); },
+    busyMessage: "busy",
+  };
+  assert.throws(() => runAgentStartTaskSync("task", deps), /lease store down/);
+  assert.deepEqual(calls, []);
 });

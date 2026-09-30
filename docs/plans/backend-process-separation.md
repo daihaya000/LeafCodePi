@@ -48,7 +48,7 @@
    | `abort-control.mjs` / `abort-coordinator.mjs` | ユーザー停止とhang watchdog停止の副作用順序（副作用は注入） | Goal Loop・サブエージェント停止の実体、スナップショット配信 |
    | `live-lifecycle.mjs` / `live-replace.mjs` | dispose時のRoom busy・shutdown要否判定、置換時の旧live切離し順序（購読解除→旧アカウント参照の解放→旧セッション破棄→スナップショットタイマー取消）、attach時のアカウント決定、置換の共通末尾（永続化先行・失敗時の破棄と復元） | `live`のmap・購読・`attachSession`/`ensureLive`/`createSession` |
    | `live-attach-state.mjs` | attach時のlive初期状態（置換前liveのマップ/プロンプト連鎖/世代の引継ぎ、task由来の復元値、transcript由来のタイミング復元。versioned mapは注入） | transcript走査とversioned mapクラス、SOULリビジョン取得 |
-   | `session-event-decisions.mjs` | セッションイベントごとの判定（agent_start/settled/endでの同期要否、自動コンパクション失敗の判定と記録メッセージ、transport復旧中のsettle抑止） | イベント受信時の副作用（タスク更新・状態遷移・スナップショット） |
+   | `session-event-decisions.mjs` | セッションイベントごとの判定（agent_start/settled/endでの同期要否、自動コンパクション失敗の判定と記録メッセージ、transport復旧中のsettle抑止、task行が消えたイベントの破棄、agent_startのlease取得→working公開の順序） | イベント受信時の副作用の実体（タスク更新・状態遷移・スナップショット） |
    | `snapshot-schedule.mjs` | スナップショットの合流規則（非描画イベントの除外、高頻度イベントのdelta化、フル待機中のdelta破棄、100ms窓、発火時に読むpending内容） | タイマー実体とSSE emit |
    | `session-identity.mjs` | セッションが報告する識別情報（sessionId/sessionFile/provider/model）の選択（タスクモデル保持時はtranscript位置のみ）と保存済みタスクとの差分計算、書き込む変化があるかの判定。欠落値で保存済みを消さない規則を含む | `lib/pi/session-identity.ts` は同名exportの互換入口 |
    | `routine-scheduler.mjs` | scheduler lock（stale時のみ再取得）、実行対象判定、切り離し起動 | ルーティン保存と実行本体 |

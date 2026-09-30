@@ -26,3 +26,20 @@ export function compactionFailureMessage(
   event: SessionSyncEvent,
   harnessAutoCompactionError: boolean,
 ): string | null;
+
+/** True when a task-touching event has no task row left and must be dropped. */
+export function shouldSkipEventForMissingTask(syncTask: boolean, hasTask: boolean): boolean;
+
+/**
+ * Runs the agent_start task sync in order: claim the lease, then publish the task
+ * as working. Returns false (after marking the task failed) when the lease is held
+ * elsewhere, so the caller stops handling this event.
+ */
+export function runAgentStartTaskSync(
+  taskId: string,
+  deps: {
+    acquireLease: (taskId: string) => boolean;
+    setStatus: (taskId: string, status: "working" | "error", error?: string) => unknown;
+    busyMessage: string;
+  },
+): boolean;

@@ -39,3 +39,27 @@ export function compactionFailureMessage(event, harnessAutoCompactionError) {
   if (event.reason === "manual" && harnessAutoCompactionError !== true) return null;
   return event.errorMessage;
 }
+
+/**
+ * A task-touching event with no task row left (hard-deleted mid-turn) is dropped:
+ * there is nothing left to record, and the streams keep flowing until the session
+ * settles by itself.
+ */
+export function shouldSkipEventForMissingTask(syncTask, hasTask) {
+  return syncTask === true && hasTask !== true;
+}
+
+/**
+ * An agent turn starting re-claims the task's runtime lease before it is published
+ * as working. A lease held elsewhere is a conflict, not a failure of the turn: the
+ * task is marked failed and the caller must stop processing the event. Returns
+ * true when the caller may continue.
+ */
+export function runAgentStartTaskSync(taskId, deps) {
+  if (!deps.acquireLease(taskId)) {
+    deps.setStatus(taskId, "error", deps.busyMessage);
+    return false;
+  }
+  deps.setStatus(taskId, "working");
+  return true;
+}
