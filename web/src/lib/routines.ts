@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { dataDir } from "@/lib/paths";
 import { cronMatches, parseCron, weekdayMatches } from "@/lib/routine-schedule";
+import { runSchedulerTick, tryAcquireSchedulerLock } from "@backend-core/routine-scheduler.mjs";
 import { botTaskId, getBot, listBots } from "@/lib/bots";
 import { getTaskDetail, promptTask } from "@/lib/pi/harness";
 import type { RoutineDto, RoutineRunEventDto, UiMessage } from "@/lib/types";
@@ -281,39 +282,24 @@ export async function runRoutine(botId: string, routineId: string): Promise<Rout
   }
 }
 function tryRoutineSchedulerLock(): string | undefined {
-  const lock = join(dataDir(), "bots", "routines.scheduler.lock");
-  mkdirSync(join(dataDir(), "bots"), { recursive: true });
-  try {
-    mkdirSync(lock);
-    return lock;
-  } catch {
-    try {
-      if (Date.now() - statSync(lock).mtimeMs > ROUTINE_LOCK_STALE_MS) {
-        rmSync(lock, { recursive: true, force: true });
-        mkdirSync(lock);
-        return lock;
-      }
-    } catch { /* another worker owns or replaced the lock */ }
-    return undefined;
-  }
+  return tryAcquireSchedulerLock({
+    lockPath: join(dataDir(), "bots", "routines.scheduler.lock"),
+    parentDir: join(dataDir(), "bots"),
+    staleMs: ROUTINE_LOCK_STALE_MS,
+  });
 }
 export async function tickRoutines(now = new Date()): Promise<void> {
-  const lock = tryRoutineSchedulerLock();
-  if (!lock) return;
-  try {
-    const minute = new Date(now); minute.setSeconds(0, 0); const nowMs = now.getTime();
-    for (const bot of listBots()) {
-      if (!bot.enabled) continue;
-      for (const routine of listRoutines(bot.id)) {
-        if (!routine.enabled || !cronMatches(routine.schedule, minute)) continue;
-        const lastRunAt = routine.lastRunAt ? new Date(routine.lastRunAt).getTime() : Number.NaN;
-        if (Number.isFinite(lastRunAt) && nowMs - lastRunAt < ROUTINE_MIN_INTERVAL_MS) continue;
-        void runRoutine(bot.id, routine.id).catch(() => undefined);
-      }
-    }
-  } finally {
-    rmSync(lock, { recursive: true, force: true });
-  }
+  // Lock, due decision and detached starts live in backend core; storage and
+  // the run itself stay here and are resolved at call time.
+  return runSchedulerTick({
+    acquireLock: () => tryRoutineSchedulerLock(),
+    releaseLock: (lock) => rmSync(lock, { recursive: true, force: true }),
+    listBots: () => listBots(),
+    listRoutines: (botId) => listRoutines(botId),
+    cronMatches: (schedule, minute) => cronMatches(schedule, minute),
+    minIntervalMs: ROUTINE_MIN_INTERVAL_MS,
+    runRoutine: (botId, routineId) => runRoutine(botId, routineId),
+  }, now);
 }
 type SchedulerState = { interval?: ReturnType<typeof setInterval>; started?: boolean };
 const schedulerState = (globalThis as typeof globalThis & { __leafcodeRoutineScheduler?: SchedulerState }).__leafcodeRoutineScheduler ??= {};

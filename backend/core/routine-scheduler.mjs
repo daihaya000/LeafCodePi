@@ -1,0 +1,65 @@
+import { mkdirSync, rmSync, statSync } from "node:fs";
+
+/**
+ * Cross-worker scheduler lock: an atomically created directory. A holder that
+ * died leaves it behind, so one older than `staleMs` is reclaimed (the reclaim
+ * itself can lose a race, which just means another worker owns it). Returns the
+ * lock path, or undefined when another worker owns it.
+ */
+export function tryAcquireSchedulerLock({ lockPath, parentDir, staleMs, now = () => Date.now() }) {
+  mkdirSync(parentDir, { recursive: true });
+  try {
+    mkdirSync(lockPath);
+    return lockPath;
+  } catch {
+    try {
+      if (now() - statSync(lockPath).mtimeMs > staleMs) {
+        rmSync(lockPath, { recursive: true, force: true });
+        mkdirSync(lockPath);
+        return lockPath;
+      }
+    } catch { /* another worker owns or replaced the lock */ }
+    return undefined;
+  }
+}
+
+/**
+ * True when an enabled routine should start for this minute: its cron matches and
+ * the last run is not within the minimum interval. A missing or unparsable
+ * lastRunAt never blocks a run.
+ */
+export function isRoutineDue(routine, { minute, nowMs, minIntervalMs, cronMatches }) {
+  if (!routine.enabled || !cronMatches(routine.schedule, minute)) return false;
+  const lastRunAt = routine.lastRunAt ? new Date(routine.lastRunAt).getTime() : Number.NaN;
+  return !(Number.isFinite(lastRunAt) && nowMs - lastRunAt < minIntervalMs);
+}
+
+/**
+ * One scheduler tick. Holds the cross-worker lock only while deciding what is
+ * due; started runs are fire-and-forget (failures are swallowed here, the run
+ * records its own outcome) and are not awaited, so the lock is released before
+ * any routine finishes. Disabled bots are skipped entirely. Routines are
+ * started in the same synchronous pass, in bot/routine order.
+ */
+export async function runSchedulerTick(deps, now = new Date()) {
+  const lock = deps.acquireLock();
+  if (!lock) return;
+  try {
+    const minute = new Date(now);
+    minute.setSeconds(0, 0);
+    const nowMs = now.getTime();
+    for (const bot of deps.listBots()) {
+      if (!bot.enabled) continue;
+      for (const routine of deps.listRoutines(bot.id)) {
+        if (!isRoutineDue(routine, { minute, nowMs, minIntervalMs: deps.minIntervalMs, cronMatches: deps.cronMatches })) continue;
+        // Start synchronously (the run claims its slot before its first await),
+        // then detach. A synchronous throw must not abort the remaining routines.
+        try {
+          void Promise.resolve(deps.runRoutine(bot.id, routine.id)).catch(() => undefined);
+        } catch { /* runs record their own failures */ }
+      }
+    }
+  } finally {
+    deps.releaseLock(lock);
+  }
+}
