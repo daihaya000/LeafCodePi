@@ -357,4 +357,16 @@ Backend単独のSDK検証前には `npm --prefix backend ci --ignore-scripts` �
 - Backend: `npm --prefix backend test` → 745件すべて成功（0失敗、27.1s）。
 - Host: `npm --prefix host test` → 267件（264成功・3skip・0失敗、2.9s）。
 - Web: `cd web && npx vitest run` → 482ファイル・4552件（4547成功・5失敗、76.3s）。失敗の内訳: 既存の3件（`src/app/api/health/route.test.ts`のdataDir、`src/components/MessageCardRadius.test.tsx`、`extensions/leafcode-mcp-adapter/proxy-visibility.test.ts`のロード）＋並列実行時のフレーク3件（`settings/transfer`・`codexbar/orchestrator`・`pi/request-image-cap`。単独再実行で成功）。
-- したがって切替前の前提（起動列完走・所有権カバレッジ・全スイート）は満たしており、残るは**実切替の実施（ユーザー承認待ち）**と、その後の旧経路撤去である。
+- したがって切替前の前提（起動列完走・所有権カバレッジ・全スイート）は満たしており、残るは**実切替の実施（承認済み・実行は無稼働時）**と、その後の旧経路撤去である。
+
+## 実切替の実行手順（承認済み・2026-10-01）
+
+実切替はHostの起動時処理で、`LEAFCODE_PI_BACKEND`（Backend子プロセス）と`LEAFCODE_PI_CUTOVER`（切替要求）の両方が必要なため、起動中のHostへ後から指示できない。また実行するとWebUIを一度停止するので、**稼働中タスクが無い状態で起動しなおす**必要がある（稼働中はpreflightが`active-work`／`foreign-lease`で拒否し、無理に進めてもそのタスクのセッションが終了する）。
+
+1. アプリを終了する（タスクトレイ→Quit。実装中のセッションもここで終わる）。
+2. `scripts\start-cutover.bat`を実行する（中身は`LEAFCODE_PI_BACKEND=1`と`LEAFCODE_PI_CUTOVER=1`を設定して`scripts\start-webui.bat`を呼ぶだけ）。手動なら`set LEAFCODE_PI_BACKEND=1`＋`set LEAFCODE_PI_CUTOVER=1`の後`start.bat`。
+3. Hostは「Backendをdetachedで起動→WebUIを所有モードで起動→cutover（WebUI停止→Backendをattach→ready待ち→WebUIをクライアントとして再起動→verify）」を実行する。失敗時はロールバックして切替前の状態に戻る。
+4. 確認: `%APPDATA%\leafcode-pi\host.log`の`Cutover complete`、WebUIの`/api/backend/status`（`cutover.ok`と`backend.ready`、世代一致）、Backend health（token付き）の`ready:true`と`runtimeGenerationPinned`。
+5. 切替後は旧経路撤去（中継フォールバック廃止→旧経路停止→harness依存除去→スイッチ撤去）へ進む。
+
+実測した現在の状態（切替前）: 稼働中のタスクは1件（本作業の`b77593c7-68f9-4510-8403-1dd7c237fe00`、status working）で、そのleaseを保持しているため、起動中Hostのcutoverは拒否される（`active-work`・`foreign-lease`）。Hostは2026-09-28 19:52起動で、今日04:51にWebUIを再生成している（prodミラー）。本リポジトリのHEADは`72f320ca`でoriginと一致、Backendバンドルは9831KiBを再生成済み。
