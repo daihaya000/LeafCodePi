@@ -12,3 +12,12 @@ export function shouldShutdownOnDispose(input: {
   isBusyOrGoalLoopActive: () => boolean;
   isGoalLoopOwned: () => boolean;
 }): boolean;
+
+export function oneToOneBotIdFromTaskId(taskId: string): string | null;
+
+export function resolveAttachAccount(input: {
+  /** undefined = use the task account; null = explicitly no account. */
+  sessionAccountId?: string | null;
+  taskAccountId?: string | null;
+  existingAccountId?: string | null;
+}): { accountId: string | null; acquire: boolean };

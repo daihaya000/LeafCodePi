@@ -34,3 +34,21 @@ export function shouldShutdownOnDispose({ shutdownEmitted, hasShutdownHandler, i
     return false;
   }
 }
+
+/** Bot id for a 1:1 Bot task id (`bot:<botId>`), otherwise null. Room ids never match. */
+export function oneToOneBotIdFromTaskId(taskId) {
+  return /^bot:([^:]+)$/.exec(taskId)?.[1] ?? null;
+}
+
+/**
+ * Which account a newly attached session runs under, and whether a runtime
+ * reference must be acquired first. An explicit session account (including an
+ * explicit null) wins over the stored task account, which is intentionally
+ * left unchanged in that case. The reference already held by the live being
+ * replaced is kept rather than acquired twice.
+ */
+export function resolveAttachAccount({ sessionAccountId, taskAccountId, existingAccountId }) {
+  const accountId = sessionAccountId !== undefined ? (sessionAccountId ?? null) : (taskAccountId ?? null);
+  const keepsExistingRef = Boolean(accountId && existingAccountId === accountId);
+  return { accountId, acquire: Boolean(accountId) && !keepsExistingRef };
+}

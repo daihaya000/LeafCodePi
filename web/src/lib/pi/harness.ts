@@ -150,6 +150,8 @@ import {
 import { toContextUsageDto, type ContextUsageDto } from "@/lib/context-usage";
 import {
   COMPACTION_ACTION_SETTING_KEY,
+  COMPACTION_MODEL_EFFORT_SETTING_KEY,
+  COMPACTION_MODEL_SETTING_KEY,
   COMPACTION_THRESHOLD_SETTING_KEY,
   parseCompactionAction,
   parseCompactionThreshold,
@@ -211,7 +213,7 @@ import { SdkRuntimeFactory } from "@backend-core/sdk-runtime.mjs";
 import * as corePromptControl from "@backend-core/prompt-control.mjs";
 import { runHangWatchdogAbort, runUserAbort } from "@backend-core/abort-coordinator.mjs";
 import { roomBotIdFromTaskId } from "@backend-core/abort-control.mjs";
-import { hasOtherBusyRoomLive, shouldShutdownOnDispose as coreShouldShutdownOnDispose } from "@backend-core/live-lifecycle.mjs";
+import { hasOtherBusyRoomLive, oneToOneBotIdFromTaskId, resolveAttachAccount, shouldShutdownOnDispose as coreShouldShutdownOnDispose } from "@backend-core/live-lifecycle.mjs";
 import { attachReplacementSession } from "@backend-core/live-replace.mjs";
 import {
   accountAuthPath,
@@ -257,6 +259,7 @@ import {
   SESSION_LABELS_SETTING_KEY,
 } from "@/lib/session-label-settings";
 import { compactWithJev } from "@/lib/pi/jev-compaction";
+import { compactWithConfiguredModel } from "@/lib/pi/compaction-model";
 import {
   isJevCompactionEnabled,
   JEV_COMPACTION_ENABLED_SETTING_KEY,
@@ -2386,15 +2389,14 @@ async function attachSession(
   const current = state();
   const existing = current.live.get(taskId);
   // タスクの利用アカウント。セッション生存中はマネージャ参照で蒸発対象外にする。
-  const attachedAccountId =
-    options?.sessionAccountId !== undefined
-      ? options.sessionAccountId ?? null
-      : attachedTask.accountId ?? null;
+  const { accountId: attachedAccountId, acquire: acquiresAccountRef } = resolveAttachAccount({
+    sessionAccountId: options?.sessionAccountId,
+    taskAccountId: attachedTask.accountId,
+    existingAccountId: existing?.accountId,
+  });
   const attachedAgentName = attachedTask.agent?.trim() || null;
   const attachedBotId = attachedTask.kind === "bot" ? attachedTask.botId : undefined;
-  const keepsExistingAccountRef =
-    Boolean(attachedAccountId && existing?.accountId === attachedAccountId);
-  if (attachedAccountId && !keepsExistingAccountRef) {
+  if (acquiresAccountRef && attachedAccountId) {
     await accountRuntimeManager().acquire(attachedAccountId);
   }
   detachExistingLive(existing, session, attachedAccountId);
@@ -2508,10 +2510,10 @@ async function attachSession(
   // Offline→resident: 1:1 Bot live attach promotes queued mailbox rows.
   // Room attach must NOT flush here — Room may still be idle before prompt,
   // and wake would steal into 1:1; Room settle/abort flushes instead.
-  const oneToOneBot = /^bot:([^:]+)$/.exec(taskId);
-  if (oneToOneBot?.[1]) {
+  const oneToOneBotId = oneToOneBotIdFromTaskId(taskId);
+  if (oneToOneBotId) {
     try {
-      flushQueuedBotIntercom(oneToOneBot[1]);
+      flushQueuedBotIntercom(oneToOneBotId);
     } catch (error) {
       console.warn("[bot-intercom] flush after Bot live attach failed", error);
     }
@@ -3436,13 +3438,16 @@ export function sessionExtensionFactories(input: {
         return { systemPrompt: [compactSdkDocumentation(event.systemPrompt), references, runtimeClockContext()].filter(Boolean).join("\n\n") };
       });
       api.on("session_before_compact", async (event) => {
-        if (!isJevCompactionEnabled(getSetting(JEV_COMPACTION_ENABLED_SETTING_KEY))) return;
-        const compaction = await compactWithJev(
-          event.preparation,
-          parseJevCompactionThreshold(getSetting(JEV_COMPACTION_THRESHOLD_SETTING_KEY)),
-          event.signal,
-          event.customInstructions,
-        );
+        if (isJevCompactionEnabled(getSetting(JEV_COMPACTION_ENABLED_SETTING_KEY))) {
+          const compaction = await compactWithJev(
+            event.preparation,
+            parseJevCompactionThreshold(getSetting(JEV_COMPACTION_THRESHOLD_SETTING_KEY)),
+            event.signal,
+            event.customInstructions,
+          );
+          if (compaction) return { compaction };
+        }
+        const compaction = await compactWithCompactionModel(event, input.taskId);
         return compaction ? { compaction } : undefined;
       });
     },
@@ -5991,6 +5996,61 @@ export async function completeModelText(options: {
     }
   }
   throw lastError ?? new Error("利用可能なフォールバックモデルがありません");
+}
+
+type CompactionPreparation = Parameters<PiModule["compact"]>[0];
+
+/** Resolve the compaction-model setting through Pi's runtime for that route's account. */
+async function resolveCompactionModelRoute(value: string, accountId: string | null) {
+  const route = await resolveConcreteModelWithFallback(value, accountId, {
+    allowProviderFallback: true,
+  });
+  if (!route) return undefined;
+  const ids = modelId(route.model);
+  const heldAccountId = route.accountId;
+  const manager = heldAccountId ? accountRuntimeManager() : null;
+  const runtime = manager ? await manager.acquire(heldAccountId!) : route.runtime;
+  const release = () => {
+    if (manager) manager.release(heldAccountId!);
+  };
+  const model = manager
+    ? runtime.getModel(ids.providerID ?? "", ids.modelID ?? "")
+    : route.model;
+  if (!model) {
+    release();
+    return undefined;
+  }
+  const streamFn: NonNullable<Parameters<PiModule["compact"]>[7]> = (requestModel, context, options) =>
+    runtime.streamSimple(requestModel, context, options);
+  return { model, streamFn, release };
+}
+
+/** Summarize with the configured compaction model; undefined keeps Pi's default. */
+async function compactWithCompactionModel(
+  event: { preparation: CompactionPreparation; signal: AbortSignal; customInstructions?: string },
+  taskId: string | undefined,
+) {
+  return compactWithConfiguredModel({
+    value: getSetting(COMPACTION_MODEL_SETTING_KEY),
+    effort: getSetting(COMPACTION_MODEL_EFFORT_SETTING_KEY),
+    signal: event.signal,
+    resolve: (value) =>
+      resolveCompactionModelRoute(value, (taskId ? getTask(taskId)?.accountId : undefined) ?? null),
+    compact: async (model, streamFn, thinkingLevel) =>
+      (await loadPi()).compact(
+        event.preparation,
+        model,
+        undefined,
+        undefined,
+        event.customInstructions,
+        event.signal,
+        thinkingLevel,
+        streamFn,
+      ),
+    onError: (error) => {
+      console.warn("[compaction-model] fallback to session model:", error);
+    },
+  });
 }
 
 /** OpenCode (Zen/Go) は x-opencode-session 付きのリクエストだけを受け付ける。 */
@@ -9034,10 +9094,10 @@ function queuePrompt(
         activeLive.promptActive = false;
       }
       // Room turn ended → promote mailbox rows that were queued while Room-busy.
-      const roomBotMatch = /^bot:([^:]+):room:/.exec(live.taskId);
-      if (roomBotMatch?.[1]) {
+      const roomBotId = roomBotIdFromTaskId(live.taskId);
+      if (roomBotId) {
         try {
-          flushQueuedBotIntercom(roomBotMatch[1]);
+          flushQueuedBotIntercom(roomBotId);
         } catch (error) {
           console.warn("[bot-intercom] flush after Room turn failed", error);
         }

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { hasOtherBusyRoomLive, shouldShutdownOnDispose } from "./live-lifecycle.mjs";
+import { hasOtherBusyRoomLive, oneToOneBotIdFromTaskId, resolveAttachAccount, shouldShutdownOnDispose } from "./live-lifecycle.mjs";
 
 const live = (overrides = {}) => ({ promptActive: false, session: { isStreaming: false, isCompacting: false }, ...overrides });
 
@@ -62,4 +62,28 @@ test("a failing check means do not wait for shutdown, and undefined emitted flag
     assert.equal(shouldShutdownOnDispose(shutdownProbe(values).input), false);
   }
   assert.equal(shouldShutdownOnDispose({ ...shutdownProbe({}).input, shutdownEmitted: undefined }), true);
+});
+
+test("only 1:1 Bot task ids are resident-promotion candidates, never Room or Code ids", () => {
+  assert.equal(oneToOneBotIdFromTaskId("bot:one"), "one");
+  assert.equal(oneToOneBotIdFromTaskId("bot:one:room:main"), null);
+  assert.equal(oneToOneBotIdFromTaskId("bot:"), null);
+  assert.equal(oneToOneBotIdFromTaskId("code-task"), null);
+  assert.equal(oneToOneBotIdFromTaskId("xbot:one"), null);
+});
+
+test("attach account: the task account is acquired unless the replaced live already holds it", () => {
+  assert.deepEqual(resolveAttachAccount({ taskAccountId: "a" }), { accountId: "a", acquire: true });
+  assert.deepEqual(resolveAttachAccount({ taskAccountId: "a", existingAccountId: "a" }), { accountId: "a", acquire: false });
+  assert.deepEqual(resolveAttachAccount({ taskAccountId: "a", existingAccountId: "b" }), { accountId: "a", acquire: true });
+  assert.deepEqual(resolveAttachAccount({}), { accountId: null, acquire: false });
+  assert.deepEqual(resolveAttachAccount({ taskAccountId: null, existingAccountId: "a" }), { accountId: null, acquire: false });
+});
+
+test("attach account: an explicit session account overrides the task account, including explicit null", () => {
+  assert.deepEqual(resolveAttachAccount({ sessionAccountId: "s", taskAccountId: "t" }), { accountId: "s", acquire: true });
+  assert.deepEqual(resolveAttachAccount({ sessionAccountId: "s", taskAccountId: "t", existingAccountId: "s" }), { accountId: "s", acquire: false });
+  assert.deepEqual(resolveAttachAccount({ sessionAccountId: null, taskAccountId: "t", existingAccountId: "t" }), { accountId: null, acquire: false });
+  assert.deepEqual(resolveAttachAccount({ sessionAccountId: undefined, taskAccountId: "t" }), { accountId: "t", acquire: true });
+  assert.deepEqual(resolveAttachAccount({ sessionAccountId: "", taskAccountId: "t" }), { accountId: "", acquire: false });
 });
