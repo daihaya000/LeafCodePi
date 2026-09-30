@@ -244,6 +244,7 @@ import { detachReplacedLive as coreDetachReplacedLive, disposeUnattachedSession,
 import { restoredPromptState, restoredTaskMetadata, restoredThroughputState as coreRestoredThroughputState } from "@backend-core/live-attach-state.mjs";
 import { compactionFailureMessage, isHarnessAutoCompactionError as coreIsHarnessAutoCompactionError, runAgentStartTaskSync, shouldApplySettledStatus, shouldSkipEventForMissingTask, shouldSyncTaskFromSessionEvent as coreShouldSyncTaskFromSessionEvent, type SessionSyncEvent } from "@backend-core/session-event-decisions.mjs";
 import { classifySnapshotEvent, flushPendingSnapshotOnUnsubscribe, pendingSnapshotFlush, SNAPSHOT_THROTTLE_MS } from "@backend-core/snapshot-schedule.mjs";
+import { detailIncludesGoalLoop, detailStreamingFlag, resolveTaskDetailSource } from "@backend-core/task-detail.mjs";
 import {
   isSamePromptRoute,
   publishAttachedLive,
@@ -7327,14 +7328,21 @@ export async function getTaskDetail(
   const task = getTask(id);
   if (!task)
     throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });
-  if (task.status === "archived") {
+  // Which source answers this read (archived → stored transcript, offline/foreign lease →
+  // transcript, else this worker's live session) lives in backend core.
+  const detailSource = resolveTaskDetailSource({
+    isArchived: task.status === "archived",
+    isForeignLease: isTaskRuntimeOwnedElsewhere(task),
+    offline: options.offline === true,
+  });
+  if (detailSource === "archived") {
     const detail = {
       ...getTaskBootstrap(id),
       ...(await offlineDetailParts(task, options.onTiming)),
-      isStreaming: false,
+      isStreaming: detailStreamingFlag(detailSource, task.status) ?? false,
       permissionRequest: pendingPermissionForTask(id),
       questionRequest: pendingQuestionForTask(id),
-      goalLoop: null,
+      goalLoop: detailIncludesGoalLoop(detailSource) ? readGoalLoopState(task.directory, task.sessionId) : null,
     };
     reportTaskDetailPhase(options.onTiming, "total", totalStartedAt);
     return detail;
@@ -7342,14 +7350,14 @@ export async function getTaskDetail(
   // A Code task owned by another Next worker cannot be opened as a live SDK session here.
   // Read its append-only transcript instead; prompts are delivered through the relay outbox
   // (Bot Code) or rejected with 409 (ordinary Code).
-  if (options.offline || isTaskRuntimeOwnedElsewhere(task)) {
+  if (detailSource === "offline") {
     const parts = await offlineDetailParts(task, options.onTiming);
     const detail = {
       ...toSummary(task),
       ...parts,
       messages: includeMessages ? parts.messages : [],
-      isStreaming: task.status === "working",
-      goalLoop: readGoalLoopState(task.directory, task.sessionId),
+      isStreaming: detailStreamingFlag(detailSource, task.status) ?? false,
+      goalLoop: detailIncludesGoalLoop(detailSource) ? readGoalLoopState(task.directory, task.sessionId) : null,
       permissionRequest: null,
       questionRequest: null,
     };
