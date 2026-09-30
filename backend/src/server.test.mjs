@@ -15,6 +15,7 @@ import {
   BACKEND_PROTOCOL_VERSION,
 } from "../../shared/backend-protocol.mjs";
 import { createPendingSnapshotStore } from "../core/pending-snapshot-store.mjs";
+import { BACKEND_UNAVAILABLE_STARTUP_STEPS } from "./startup.mjs";
 import { loadBackendRuntime } from "./runtime-loader.mjs";
 import { closeBackend, createBackendServer, listenBackend } from "./server.mjs";
 
@@ -96,6 +97,22 @@ test("reports readiness with stable instance identity and no credentials", async
   assert.equal(body.pid, process.pid);
   assert.equal(body.instanceId, first.instanceId);
   assert.ok(!JSON.stringify(body).includes(token));
+});
+
+test("health reports the startup steps this build cannot run yet", async (t) => {
+  const { url, headers } = await fixture(t, {
+    isReady: () => true,
+    runtimeStartupIncomplete: () => ["startBotCodeRelay", "ensureRoutineScheduler"],
+  });
+  const response = await request(url, { headers });
+  assert.equal(response.status, 200);
+  assert.deepEqual((await response.json()).runtimeStartupIncomplete, ["startBotCodeRelay", "ensureRoutineScheduler"]);
+  const empty = await fixture(t, { isReady: () => true });
+  assert.deepEqual((await (await request(empty.url, { headers: empty.headers })).json()).runtimeStartupIncomplete, []);
+  assert.throws(
+    () => createBackendServer({ token: randomBytes(32).toString("base64url"), runtimeStartupIncomplete: "nope" }),
+    /runtimeStartupIncomplete/,
+  );
 });
 
 test("redacts runtime health failures", async (t) => {
@@ -824,19 +841,6 @@ async function spawnCli(t, extraEnv = {}) {
   };
 }
 
-/** Polls health until it reports the expected readiness, or the deadline passes. */
-async function healthUntil(url, headers, expectedStatus, timeoutMs = 20_000) {
-  const deadline = Date.now() + timeoutMs;
-  let last = null;
-  while (Date.now() < deadline) {
-    const response = await request(url, { headers });
-    last = await response.json();
-    if (response.status === expectedStatus) return { status: response.status, body: last };
-    await new Promise((resolve) => setTimeout(resolve, 250));
-  }
-  return { status: null, body: last };
-}
-
 test("the CLI stays not ready while the runtime is not requested", { timeout: 15_000 }, async (t) => {
   const cli = await spawnCli(t);
   const health = await request(cli.healthUrl, { headers: cli.headers });
@@ -844,22 +848,32 @@ test("the CLI stays not ready while the runtime is not requested", { timeout: 15
   assert.equal((await health.json()).status, "starting");
 });
 
-test("requesting the runtime makes the CLI ready once it is attached", { timeout: 60_000 }, async (t) => {
+test("requesting the runtime attaches it but stays not ready while required steps are missing", { timeout: 90_000 }, async (t) => {
   const cli = await spawnCli(t, { LEAFCODE_PI_BACKEND_RUNTIME: "attach" });
-  const health = await healthUntil(cli.healthUrl, cli.headers, 200);
-  assert.equal(health.status, 200, `health never became ready: ${JSON.stringify(health.body)}`);
-  assert.equal(health.body.ready, true);
-  assert.equal(health.body.status, "ready");
+  const body = await generationUntil(cli.healthUrl, cli.headers);
+  assert.ok(body?.runtimeGeneration, `the runtime never attached: ${JSON.stringify(body)}`);
+  // The runtime is attached, but the missing services keep the Backend from being a replacement.
+  assert.equal(body.ready, false);
+  assert.deepEqual(body.runtimeStartupIncomplete, [...BACKEND_UNAVAILABLE_STARTUP_STEPS]);
+  assert.equal((await request(cli.healthUrl, { headers: cli.headers })).status, 503);
 });
 
-/** Polls health until the runtime reports a generation, or the deadline passes. */
+/**
+ * Polls health until the runtime reports a generation, or the deadline passes. A request that times
+ * out is retried: the CLI blocks its event loop while it imports the runtime bundle, so the first
+ * poll can be slower than the 2s request timeout.
+ */
 async function generationUntil(url, headers, timeoutMs = 45_000) {
   const deadline = Date.now() + timeoutMs;
   let last = null;
   while (Date.now() < deadline) {
-    const response = await request(url, { headers });
-    last = await response.json();
-    if (typeof last.runtimeGeneration === "string" && last.runtimeGeneration) return last;
+    try {
+      const response = await request(url, { headers });
+      last = await response.json();
+      if (typeof last.runtimeGeneration === "string" && last.runtimeGeneration) return last;
+    } catch {
+      // Still attaching; the next poll retries.
+    }
     await new Promise((resolve) => setTimeout(resolve, 250));
   }
   return last;
@@ -881,17 +895,20 @@ test("a pinned generation the bundle does not have keeps the CLI at 503", { time
   assert.equal(health.status, 503);
 });
 
-test("the CLI becomes ready when the pinned generation is the bundle's own", { timeout: 90_000 }, async (t) => {
+test("the pinned generation matches but the CLI still refuses readiness", { timeout: 90_000 }, async (t) => {
   const runtime = await loadBackendRuntime();
   if (!runtime.ok) return t.skip(`no built bundle: ${runtime.reason}`);
   const cli = await spawnCli(t, {
     LEAFCODE_PI_BACKEND_RUNTIME: "attach",
     LEAFCODE_PI_BACKEND_GENERATION: runtime.generation,
   });
-  const health = await healthUntil(cli.healthUrl, cli.headers, 200);
-  assert.equal(health.status, 200, `health never became ready: ${JSON.stringify(health.body)}`);
-  assert.equal(health.body.runtimeGeneration, runtime.generation);
-  assert.equal(health.body.runtimeGenerationPinned, runtime.generation);
+  const body = await generationUntil(cli.healthUrl, cli.headers);
+  assert.equal(body.runtimeGeneration, runtime.generation);
+  assert.equal(body.runtimeGenerationPinned, runtime.generation);
+  // A matching generation is necessary but not sufficient: the missing services still refuse readiness.
+  assert.equal(body.ready, false);
+  assert.deepEqual(body.runtimeStartupIncomplete, [...BACKEND_UNAVAILABLE_STARTUP_STEPS]);
+  assert.equal((await request(cli.healthUrl, { headers: cli.headers })).status, 503);
 });
 
 test("a missing runtime bundle keeps the CLI at 503 instead of failing to start", { timeout: 15_000 }, async (t) => {

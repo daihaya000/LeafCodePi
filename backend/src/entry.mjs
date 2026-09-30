@@ -191,13 +191,20 @@ try {
       }
       return runtime.getTaskDetail(id, { offline: true });
     },
-    // Ready means the startup sequence finished *and* the runtime is attached. A detached runtime
-    // (or a bundle that could not be loaded) keeps health at 503/starting.
+    // Ready means the startup sequence finished *and* the runtime is attached *and* every required
+    // startup step exists in this process. A missing service (Bot Code relay, routine scheduler,
+    // room runtime reconciliation) must keep health at 503: a cutover onto a Backend that cannot run
+    // them would leave those features dead in both processes.
     isReady: () =>
-      host.isReady() && started.runtimeStatus().ok === true && generationStatus().matches,
+      host.isReady() &&
+      started.runtimeStatus().ok === true &&
+      generationStatus().matches &&
+      started.unavailable().length === 0,
     // The generation of the attached runtime: the frontend compares it with its own build.
     runtimeGeneration: () => generationStatus().running,
     runtimeGenerationPinned: () => generationStatus().pinned,
+    // Why this build is not a complete replacement yet, so the refusal is diagnosable.
+    runtimeStartupIncomplete: () => started.unavailable(),
   });
   const address = await listenBackend(server, port);
   // Transport is up, but health stays 503 until the startup sequence has attached the runtime.

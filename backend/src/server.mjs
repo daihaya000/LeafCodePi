@@ -94,6 +94,11 @@ export function createBackendServer({
   runtimeGeneration = () => null,
   /** The generation the Host pinned for this Backend, or null when it pinned none. */
   runtimeGenerationPinned = () => null,
+  /**
+   * The startup steps this build cannot run yet. Non-empty means the Backend is not a complete
+   * replacement, so health reports why instead of only that it is not ready.
+   */
+  runtimeStartupIncomplete = () => [],
   /** Starts a session for a forwarded prompt; null when no runtime is attached. */
   promptTask = null,
   /** Answers a pending approval: `(id, requestId, approved) => boolean`. */
@@ -129,6 +134,9 @@ export function createBackendServer({
   if (typeof runtimeGeneration !== "function") throw new Error("runtimeGeneration must be a function");
   if (typeof runtimeGenerationPinned !== "function") {
     throw new Error("runtimeGenerationPinned must be a function");
+  }
+  if (typeof runtimeStartupIncomplete !== "function") {
+    throw new Error("runtimeStartupIncomplete must be a function");
   }
   if (promptTask !== null && typeof promptTask !== "function") {
     throw new Error("promptTask must be a function or null");
@@ -463,6 +471,9 @@ export function createBackendServer({
         // and see which generation the Host pinned when it started this process.
         runtimeGeneration: runtimeGeneration() ?? null,
         runtimeGenerationPinned: runtimeGenerationPinned() ?? null,
+        // Empty when this build can run every startup step: an operator can tell a slow start from
+        // a Backend that is not a complete replacement yet.
+        runtimeStartupIncomplete: runtimeStartupIncomplete() ?? [],
       });
     } catch {
       // Never send exception messages: providers may include credentials in them.

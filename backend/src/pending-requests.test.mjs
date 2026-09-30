@@ -10,6 +10,7 @@ import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { BACKEND_PROTOCOL_HEADER, BACKEND_PROTOCOL_VERSION } from "../../shared/backend-protocol.mjs";
 import { REQUIRED_RUNTIME_EXPORTS } from "./runtime-loader.mjs";
+import { BACKEND_UNAVAILABLE_STARTUP_STEPS } from "./startup.mjs";
 import { readPendingRequestSnapshots } from "./pending-requests.mjs";
 
 const permission = { id: "p1", taskId: "task-1", title: "Permission" };
@@ -97,22 +98,28 @@ test("CLI exposes live pending DTOs and removes them after owner responses", { t
   const request = (path, options = {}) => fetch(`${base}${path}`, {
     ...options, headers: { ...headers, ...options.headers }, signal: AbortSignal.timeout(2_000),
   });
-  let ready = false;
-  const deadline = Date.now() + 5_000;
-  while (Date.now() < deadline) {
-    const response = await request("/health");
-    if (response.status === 200) { ready = true; break; }
-    await new Promise((resolve) => setTimeout(resolve, 25));
-  }
-  assert.equal(ready, true, "fake runtime never attached");
   const snapshots = async () => {
     const response = await request("/pending-snapshots");
     assert.equal(response.status, 200);
     return response.json();
   };
-  assert.deepEqual(await snapshots(), {
+  // The fake runtime is attached once the pending read sees it. Health stays 503 regardless: this
+  // build still lacks required startup steps, so it must not present itself as a replacement.
+  const deadline = Date.now() + 5_000;
+  let first = null;
+  while (Date.now() < deadline) {
+    first = await snapshots();
+    if (first.snapshots.length > 0) break;
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  assert.deepEqual(first, {
     snapshots: [{ taskId: "task-1", payload: { permissionRequest: permission, questionRequest: question } }],
   });
+  const health = await request("/health");
+  assert.equal(health.status, 503);
+  const healthBody = await health.json();
+  assert.ok(healthBody.runtimeGeneration, "the fake runtime never attached");
+  assert.deepEqual(healthBody.runtimeStartupIncomplete, [...BACKEND_UNAVAILABLE_STARTUP_STEPS]);
   const respond = (kind, body) => request(`/tasks/task-1/${kind}`, {
     method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body),
   });

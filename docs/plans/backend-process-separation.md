@@ -241,10 +241,10 @@ bundleパスは`LEAFCODE_PI_BACKEND_RUNTIME_BUNDLE`で差し替え可能。CLI�
 | 2. Next非依存のランタイム抽出 | **実装済み**。`backend/core/`＝50モジュール／62テスト（判断・順序・永続化を純関数化し、fs/時計/UUID/emitを注入）。Web側は同名exportの互換入口。 |
 | 3. 独立API・Web中継 | **実装済み**。内部API 12エンドポイント（health／pending-snapshots／tasks一覧・detail・prompt・permission・question・abort・goal-loop／bots一覧・`bots/:id`・code-requests・code-sessions）。中継はopt-in（`LEAFCODE_PI_BACKEND_RELAY`）で、生レコード経路のみBackendを使い失敗時はプロセス内へフォールバック。 |
 | 4. Host・ビルド・再起動分離 | **実装済み**。HostがBackend子プロセス（`backend-service.js`）・起動プラン（`backend-launch.js`）・health/世代判定（`backend-health.js`）・再起動予算と世代固定（`runtime-host.mjs`）を所有。バンドルは`npm run build:backend-runtime`で生成。 |
-| 5. 切替 | **実装済み（未実行）**。`runCutover`（check→stop-old-path→attach-backend→hand-over→verify→done＋ロールバック）、`cutoverPreflight`（start/verify位相）、Host実体への接続、`LEAFCODE_PI_CUTOVER=1`での起動時実行。**実切替はユーザー承認待ち**。 |
+| 5. 切替 | **実装済み（現状は拒否で保護）**。`runCutover`（check→stop-old-path→attach-backend→hand-over→verify→done＋ロールバック）、`cutoverPreflight`（start/verify位相）、Host実体への接続、`LEAFCODE_PI_CUTOVER=1`での起動時実行。Backendが必須起動ステップ（Bot Code relay／routine scheduler／Room runtime reconciliation）を実装するまではhealthがreadyにならないため、attach段は`not-ready`で拒否しロールバックする。**実切替はユーザー承認待ち**。 |
 | 6. 旧経路撤去 | **未完了**。非所有モードの不変条件は達成（セッションを触る16 routeすべてがガード済み／未配線0件、テストで強制）が、撤去手順の実行（中継フォールバック廃止→旧経路停止→harness依存除去→スイッチ撤去）は実切替後。 |
 
-残作業（実測）: ①Bot Codeセッションのclear/unlinkの転送、②Auto/モデル指定つきGoal Loop開始の転送、③非所有モードのSSEは2秒ポーリング（遅延あり）、④実切替の実施とその後の撤去手順、⑤Web全体型検証は既存拡張（`leafcode-goal-loop`／`loop-guard`）の`@earendil-works/pi-coding-agent`解決失敗により本番用`tsconfig.build.json`で代替。
+残作業（実測）: ①必須起動ステップ（Bot Code relay／routine scheduler／Room runtime reconciliation）のBackend実装（未実装の間は切替が拒否される）、②非所有モードのSSEは2秒ポーリング（遅延あり）、③実切替の実施とその後の撤去手順、④Web全体型検証は既存拡張（`leafcode-goal-loop`／`loop-guard`）の`@earendil-works/pi-coding-agent`解決失敗により本番用`tsconfig.build.json`で代替。Bot Codeセッションのclear/unlink転送とAuto/モデル指定つきGoal Loop開始の転送は完了済み（旧版の残作業①・②は解消）。
 
 ## 完了の証拠
 
@@ -261,3 +261,9 @@ Backend単独のSDK検証前には `npm --prefix backend ci --ignore-scripts` �
 移行中のWeb互換入口は `@backend-core/*` を参照するため、productionミラー内の `backend-core/` へcoreソースだけを独立コピーする。Backendの依存関係・サーバー・稼働ディレクトリはコピーしない。core更新も一時的にWebのビルド更新判定へ含め、Webからのruntime import撤去時に外す。HTTP BackendへはまだSDKや起動アダプターを接続せず、healthは503/startingのまま。共通startupの完了はSDK/Backendのreadyではない。移行中はWebのプロセス内singletonが起動アダプターを所有し、Backendとの二重起動を行わない。
 
 本ループ（ターン21〜70）で追加した移設: 期限内leaseの二重所有修正（reclaim lock）、待機要求の冪等受付と永続化しない方針、Backendのreadiness状態機械、アプリのパス解決、同期ディレクトリロック、キー単位直列化、Roomの正規化・ファイル読書き・履歴追記・画像/添付・relay状態とenvelope・復旧判定、Botのアイコン語彙・設定正規化・ファイル層・既定値/パッチ・副作用順序・runtime context・プロンプトソース・コードレポート組み立て・intercomの起動ポリシーとpresence判定・セッションオプション組み立て、liveのattach初期状態・公開順序・切離し順序・mailbox昇格・遅延shutdown・in-flight管理・世代照合・生成/attach直後の扱い・未接続セッション破棄・開始ゲート順序・再利用/合流判定、セッションイベント判定と副作用順序・スナップショット合流と購読解除時の後始末、セッション識別と識別差分、liveセッション生成前の拒否順序・共通知文とHTTP対応・権限既定値・再開時の権限差分、Goal Loopの設定と状態ストア、ルーティンのcron解析とスケジューラ既定、置換パッケージ判定と拡張の重複排除、skillの除外規則。いずれもWeb側の互換入口を残し、Backendテストで挙動を固定した。ただし **分離完了は主張しない**。Backendプロセスは依然として実行経路に未接続（healthは503/starting）で、稼働中WebUIやGoal Loopの再起動も行っていない。実切替は「段階3以降（独立API・Web中継、Host分離、旧経路撤去）」を終えた後に行う。
+
+## ターン12の変更（実測）
+
+- Backendの`isReady`は、起動列が未実装ステップ（`startBotCodeRelay`／`ensureRoutineScheduler`／`reconcileRoomRuntime`）を報告している間はfalseを返すようにした。従来は「起動列完了＋runtime接続＋世代一致」だけで200を返しており、必須サービスを持たないBackendでも切替が進み得た。healthは`runtimeStartupIncomplete`で不足ステップを返し、拒否理由を診断できる。
+- 背景（実測）: 切替後のWebUIは非所有モードで`assertLocalRuntimeAllowed()`によりプロンプトを拒否するため、Backendが`startBotCodeRelay`を持たない現状ではBot Code委譲の配達が両プロセスで成立しない。routines（`ensureRoutineScheduler`）とRoom runtime reconciliationも同様。したがって段階5の切替は現時点で**意図的に拒否**され、段階6の撤去前提（必須サービスのBackend実装）が未達であることをゲートが明示する。
+- 検証: `backend/src/server.test.mjs` 56件（runtime接続後のhealthは503・不足ステップを返す、世代一致でもreadyにならない、を追加）／`pending-requests.test.mjs` 5件／`startup`・`runtime-*` 41件すべて成功。CLIのhealth待ちテストは、attach中に2秒のリクエストtimeoutを跨ぐ場合があるため再試行するヘルパーに変更した。
