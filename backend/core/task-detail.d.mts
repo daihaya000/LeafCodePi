@@ -25,3 +25,25 @@ export function detailTimeoutError(stage: "live" | "offline" | "final"): {
   status: number;
   timeout: true;
 };
+
+/** Bookkeeping fields a transcript detail read reports. */
+export function offlineDetailFlags(task: {
+  hangRetryCount?: number;
+  revertLeafId?: string | null;
+  manualAbortedAssistantId?: string | null;
+} | null | undefined): {
+  isCompacting: false;
+  compactionSuggested: false;
+  hangRetryCount: number;
+  revertLeafId: string | null;
+  manualAbortedAssistantId: string | null;
+};
+
+/** Bookkeeping fields a live detail read reports (session values win, stored values fall back). */
+export function liveDetailFlags(input: {
+  task: { hangRetryCount?: number; revertLeafId?: string | null; manualAbortedAssistantId?: string | null } | null | undefined;
+  live: { hangRetryCount?: number; revertLeafId?: string | null; manualAbortedAssistantId?: string | null } | null | undefined;
+}): { hangRetryCount: number; revertLeafId: string | null; manualAbortedAssistantId: string | null };
+
+/** The status a failed live detail read is reported with, or null when it already carries one. */
+export function liveDetailErrorStatus(error: unknown): number | null;

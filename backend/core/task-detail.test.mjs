@@ -2,7 +2,8 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
   detailIncludesGoalLoop, detailStreamingFlag, detailTimeoutError, isDetailTimeoutError,
-  resolveTaskDetailSource, TASK_DETAIL_OFFLINE_TIMEOUT_MS, TASK_DETAIL_TIMEOUT_MS,
+  liveDetailErrorStatus, liveDetailFlags, offlineDetailFlags, resolveTaskDetailSource,
+  TASK_DETAIL_OFFLINE_TIMEOUT_MS, TASK_DETAIL_TIMEOUT_MS,
 } from "./task-detail.mjs";
 
 test("an archived task always reads its stored transcript", () => {
@@ -66,4 +67,40 @@ test("each stage names itself and the final failure is a 503", () => {
     message: "タスク詳細を取得できませんでした", status: 503, timeout: true,
   });
   assert.equal(detailTimeoutError("unknown").status, 503, "an unknown stage degrades to the final failure");
+});
+
+test("a transcript read never claims compaction and reads a missing retry count as zero", () => {
+  assert.deepEqual(offlineDetailFlags({ hangRetryCount: 3, revertLeafId: "leaf-1", manualAbortedAssistantId: "msg-1" }), {
+    isCompacting: false, compactionSuggested: false, hangRetryCount: 3, revertLeafId: "leaf-1", manualAbortedAssistantId: "msg-1",
+  });
+  assert.deepEqual(offlineDetailFlags({}), {
+    isCompacting: false, compactionSuggested: false, hangRetryCount: 0, revertLeafId: null, manualAbortedAssistantId: null,
+  });
+  assert.deepEqual(offlineDetailFlags(undefined), {
+    isCompacting: false, compactionSuggested: false, hangRetryCount: 0, revertLeafId: null, manualAbortedAssistantId: null,
+  });
+});
+
+test("a live read prefers the session values and keeps a stored retry count", () => {
+  const task = { hangRetryCount: 2, revertLeafId: "stored-leaf", manualAbortedAssistantId: "stored-msg" };
+  assert.deepEqual(liveDetailFlags({ task, live: { hangRetryCount: 5, revertLeafId: "live-leaf", manualAbortedAssistantId: "live-msg" } }), {
+    hangRetryCount: 5, revertLeafId: "live-leaf", manualAbortedAssistantId: "live-msg",
+  });
+  assert.deepEqual(liveDetailFlags({ task, live: { hangRetryCount: 0 } }), {
+    hangRetryCount: 2, revertLeafId: "stored-leaf", manualAbortedAssistantId: "stored-msg",
+  }, "a live zero must not hide the stored count");
+  assert.deepEqual(liveDetailFlags({ task, live: {} }), {
+    hangRetryCount: 2, revertLeafId: "stored-leaf", manualAbortedAssistantId: "stored-msg",
+  });
+  assert.deepEqual(liveDetailFlags({ task: undefined, live: undefined }), {
+    hangRetryCount: 0, revertLeafId: null, manualAbortedAssistantId: null,
+  });
+});
+
+test("only a coded refusal keeps its own status on a failed live read", () => {
+  assert.equal(liveDetailErrorStatus(Object.assign(new Error("nope"), { status: 404 })), null);
+  assert.equal(liveDetailErrorStatus(Object.assign(new Error("busy"), { status: 409 })), null);
+  assert.equal(liveDetailErrorStatus(new Error("boom")), 503);
+  assert.equal(liveDetailErrorStatus("boom"), 503);
+  assert.equal(liveDetailErrorStatus(undefined), 503);
 });

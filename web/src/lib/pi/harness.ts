@@ -244,7 +244,14 @@ import { detachReplacedLive as coreDetachReplacedLive, disposeUnattachedSession,
 import { restoredPromptState, restoredTaskMetadata, restoredThroughputState as coreRestoredThroughputState } from "@backend-core/live-attach-state.mjs";
 import { compactionFailureMessage, isHarnessAutoCompactionError as coreIsHarnessAutoCompactionError, runAgentStartTaskSync, shouldApplySettledStatus, shouldSkipEventForMissingTask, shouldSyncTaskFromSessionEvent as coreShouldSyncTaskFromSessionEvent, type SessionSyncEvent } from "@backend-core/session-event-decisions.mjs";
 import { classifySnapshotEvent, flushPendingSnapshotOnUnsubscribe, pendingSnapshotFlush, SNAPSHOT_THROTTLE_MS } from "@backend-core/snapshot-schedule.mjs";
-import { detailIncludesGoalLoop, detailStreamingFlag, resolveTaskDetailSource } from "@backend-core/task-detail.mjs";
+import {
+  detailIncludesGoalLoop,
+  detailStreamingFlag,
+  liveDetailErrorStatus,
+  liveDetailFlags,
+  offlineDetailFlags,
+  resolveTaskDetailSource,
+} from "@backend-core/task-detail.mjs";
 import {
   isSamePromptRoute,
   publishAttachedLive,
@@ -7277,11 +7284,8 @@ async function offlineDetailParts(
   return {
     messages: offline.messages,
     todos: offline.todos,
-    isCompacting: false,
-    compactionSuggested: false,
-    hangRetryCount: task.hangRetryCount || 0,
-    revertLeafId: task.revertLeafId ?? null,
-    manualAbortedAssistantId: task.manualAbortedAssistantId ?? null,
+    // The bookkeeping fields of a transcript read live in backend core.
+    ...offlineDetailFlags(task),
   };
 }
 
@@ -7291,9 +7295,10 @@ async function liveDetailParts(
   includeMessages: boolean,
   onTiming?: TaskDetailTimingReporter,
 ) {
-  let manualAbortedAssistantId: string | null = task.manualAbortedAssistantId ?? null;
-  let hangRetryCount = 0;
-  let revertLeafId: string | null = task.revertLeafId ?? null;
+  const storedFlags = liveDetailFlags({ task, live: undefined });
+  let manualAbortedAssistantId: string | null = storedFlags.manualAbortedAssistantId;
+  let hangRetryCount = storedFlags.hangRetryCount;
+  let revertLeafId: string | null = storedFlags.revertLeafId;
   try {
     const ensureLiveStartedAt = onTiming ? performance.now() : 0;
     const live = await ensureLive(id, { onTiming });
@@ -7301,9 +7306,11 @@ async function liveDetailParts(
     const fieldsStartedAt = onTiming ? performance.now() : 0;
     const fields = liveSnapshotFields(live, includeMessages, onTiming);
     reportTaskDetailPhase(onTiming, "snapshotFields", fieldsStartedAt);
-    manualAbortedAssistantId = live.manualAbortedAssistantId ?? manualAbortedAssistantId;
-    hangRetryCount = live.hangRetryCount || task.hangRetryCount || 0;
-    revertLeafId = live.revertLeafId ?? revertLeafId;
+    // Session values win, the stored ones fall back (rule lives in backend core).
+    const flags = liveDetailFlags({ task, live });
+    manualAbortedAssistantId = flags.manualAbortedAssistantId;
+    hangRetryCount = flags.hangRetryCount;
+    revertLeafId = flags.revertLeafId;
     return {
       ...fields,
       manualAbortedAssistantId,
@@ -7311,11 +7318,9 @@ async function liveDetailParts(
       revertLeafId,
     };
   } catch (error) {
-    if (error && typeof error === "object" && "status" in error) throw error;
-    throw Object.assign(
-      error instanceof Error ? error : new Error(String(error)),
-      { status: 503 },
-    );
+    const status = liveDetailErrorStatus(error);
+    if (status === null) throw error;
+    throw Object.assign(error instanceof Error ? error : new Error(String(error)), { status });
   }
 }
 

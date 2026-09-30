@@ -71,3 +71,40 @@ export function detailTimeoutError(stage) {
   }
   return { message: "タスク詳細を取得できませんでした", status: 503, timeout: true };
 }
+
+/**
+ * The bookkeeping fields a transcript read reports. The transcript path never runs a turn, so it
+ * always reports not compacting and no compaction suggestion; the counters come from the task row,
+ * with a missing retry count read as zero.
+ */
+export function offlineDetailFlags(task) {
+  return {
+    isCompacting: false,
+    compactionSuggested: false,
+    hangRetryCount: task?.hangRetryCount || 0,
+    revertLeafId: task?.revertLeafId ?? null,
+    manualAbortedAssistantId: task?.manualAbortedAssistantId ?? null,
+  };
+}
+
+/**
+ * The same fields for a live read: the session's values win, the stored ones are the fallback,
+ * and a live retry count of zero keeps the stored count (a session that has not retried this turn
+ * must not hide an earlier count).
+ */
+export function liveDetailFlags({ task, live }) {
+  return {
+    manualAbortedAssistantId: live?.manualAbortedAssistantId ?? task?.manualAbortedAssistantId ?? null,
+    hangRetryCount: live?.hangRetryCount || task?.hangRetryCount || 0,
+    revertLeafId: live?.revertLeafId ?? task?.revertLeafId ?? null,
+  };
+}
+
+/**
+ * A live detail read that failed for any reason other than a coded refusal is reported as a
+ * 503: the caller must not mistake an internal failure for a missing task.
+ */
+export function liveDetailErrorStatus(error) {
+  if (error && typeof error === "object" && "status" in error) return null;
+  return 503;
+}
