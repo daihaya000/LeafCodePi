@@ -1,5 +1,9 @@
 import { AppStore } from "../core/app-store.mjs";
+import { toBotDto } from "../core/bot-config.mjs";
+import { BotFileStore } from "../core/bot-store.mjs";
+import { BOT_DEFAULT_TOOL_NAMES, BOT_TOOL_NAMES } from "../../shared/bot-tools.mjs";
 import { dataDir as defaultDataDir, noProjectSessionDir, samePath, storePath } from "../core/app-paths.mjs";
+import { join } from "node:path";
 import { createTaskLeaseState, ORPHANED_WORKING_TASK_ERROR, TaskLeaseService } from "../core/task-runtime-lease.mjs";
 import { RuntimeStartup } from "../core/runtime-startup.mjs";
 import { RestartResumeService, restartResumeRefusal, restartResumeSkipReason } from "../core/restart-resume.mjs";
@@ -53,6 +57,25 @@ export function createBackendStartup({
     samePath,
     noProjectName: NO_PROJECT_NAME,
   });
+  // The Bot store reads the same files the Web app does; the tool vocabulary comes from the shared
+  // module so both processes validate stored tool names identically.
+  const bots = new BotFileStore({
+    botsRoot: () => join(dataDir(), "bots"),
+    toolNames: BOT_TOOL_NAMES,
+    defaultToolNames: BOT_DEFAULT_TOOL_NAMES,
+  });
+  const listBots = () =>
+    bots.listConfigs().map((config) =>
+      toBotDto(config, { readSoulText: () => bots.readSoulText(config.id), toolNames: BOT_TOOL_NAMES }),
+    );
+  const getBot = (id) => {
+    // An unusable id is a miss, not a crash: `readConfig` validates the id and the file shape.
+    let config;
+    try { config = bots.readConfig(id); } catch { return null; }
+    return config
+      ? toBotDto(config, { readSoulText: () => bots.readSoulText(config.id), toolNames: BOT_TOOL_NAMES })
+      : null;
+  };
   const leases = new TaskLeaseService({
     dataDir,
     listTasks: () => [...store.listTasks(true), ...store.listTasks(true, "bot")],
@@ -157,5 +180,7 @@ export function createBackendStartup({
     runtimeStatus: () => ({ ...runtimeStatus }),
     /** The attached runtime, or null while nothing is attached. */
     runtime: () => (runtimeStatus.ok === true ? runtimeStatus.runtime : null),
+    /** The Bot store this process reads: the same files the Web app writes. */
+    bots: { list: listBots, get: getBot },
   };
 }

@@ -6,6 +6,8 @@ export const BACKEND_HEALTH_PATH = "/internal/health";
 export const BACKEND_PENDING_SNAPSHOTS_PATH = "/internal/pending-snapshots";
 /** Read-only: the Backend's own view of the task store, before the Web relay is enabled. */
 export const BACKEND_TASKS_PATH = "/internal/tasks";
+/** Read-only: the Backend's own view of the Bot store. */
+export const BACKEND_BOTS_PATH = "/internal/bots";
 export const DEFAULT_BACKEND_PORT = 18776;
 
 /** Authentication precedes version checks, including health requests. */

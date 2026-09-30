@@ -191,6 +191,38 @@ test("without a loader the runtime is never attached", async (t) => {
   assert.deepEqual(started.runtimeStatus(), { ok: false, reason: "not-requested" });
 });
 
+test("the Bot store reads the same config files the Web app writes", async (t) => {
+  const { dir, file } = fixture(t);
+  const botId = "11111111-2222-3333-4444-555555555555";
+  mkdirSync(join(dir, "bots", botId), { recursive: true });
+  writeFileSync(join(dir, "bots", botId, "config.json"), `${JSON.stringify({
+    id: botId,
+    name: "Probe Bot",
+    label: "probe",
+    enabled: true,
+    tools: ["read", "unknown-tool"],
+    permissionMode: "ask",
+    skills: { mode: "inherit", include: [], exclude: [] },
+    notificationsEnabled: true,
+    codeAutoApprove: true,
+    createdAt: "2026-01-01T00:00:00.000Z",
+    updatedAt: "2026-01-01T00:00:00.000Z",
+  })}
+`, "utf8");
+  const started = createBackendStartup({ dataDir: () => dir, warn: () => {} });
+  started.store.storePath = () => file;
+  const bots = started.bots.list();
+  assert.equal(bots.length, 1);
+  assert.equal(bots[0].id, botId);
+  assert.equal(bots[0].name, "Probe Bot");
+  assert.deepEqual(bots[0].tools, ["read"], "only tools this build knows are exposed");
+  assert.equal(typeof bots[0].soul, "string");
+  assert.equal(started.bots.get(botId)?.name, "Probe Bot");
+  assert.equal(started.bots.get("missing-bot"), null);
+  // An id that is not a Bot id is refused rather than read from an arbitrary path.
+  assert.equal(started.bots.get("../escape"), null);
+});
+
 test("the services the Backend cannot run yet are reported, not silently skipped", async (t) => {
   const { dir, file } = fixture(t);
   const started = createBackendStartup({ dataDir: () => dir, warn: () => {} });

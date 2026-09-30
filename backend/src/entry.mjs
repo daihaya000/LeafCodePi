@@ -47,6 +47,9 @@ try {
     readTask: (id) => started.store.getTask(id) ?? null,
     // Detail needs the runtime, so the handler is only supplied once it is attached; the route
     // answers 503 until then instead of reporting a missing task.
+    // The Bot store is owned by the startup, like the task store.
+    readBots: () => started.bots.list(),
+    readBot: (id) => started.bots.get(id),
     readTaskDetail: (id) => {
       const runtime = started.runtime();
       if (!runtime) {

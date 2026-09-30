@@ -273,6 +273,49 @@ test("a non-function detail reader is rejected at creation", () => {
   );
 });
 
+test("serves the Backend's own Bot view and 404s an unknown Bot", async (t) => {
+  const bots = [{ id: "bot-1", name: "first" }, { id: "bot-2", name: "second" }];
+  const { snapshotsUrl, headers } = await fixture(t, {
+    readBots: () => bots,
+    readBot: (id) => bots.find((bot) => bot.id === id) ?? null,
+  });
+  const botsUrl = snapshotsUrl.replace("pending-snapshots", "bots");
+  const list = await request(botsUrl, { headers });
+  assert.equal(list.status, 200);
+  assert.deepEqual(await list.json(), { bots });
+  const one = await request(`${botsUrl}/bot-2`, { headers });
+  assert.equal(one.status, 200);
+  assert.deepEqual(await one.json(), { bot: { id: "bot-2", name: "second" } });
+  assert.equal((await request(`${botsUrl}/nope`, { headers })).status, 404);
+  assert.equal((await request(`${botsUrl}/`, { headers })).status, 404, "an empty id is not a Bot");
+});
+
+test("the Bot view needs authentication and the protocol header, and never leaks a path", async (t) => {
+  const sensitive = "C:/private/bots";
+  const { snapshotsUrl, headers } = await fixture(t, {
+    readBots: () => { throw new Error(`cannot read ${sensitive}`); },
+    readBot: () => { throw new Error(`cannot read ${sensitive}`); },
+  });
+  const botsUrl = snapshotsUrl.replace("pending-snapshots", "bots");
+  assert.equal((await request(botsUrl)).status, 401);
+  assert.equal((await request(botsUrl, { headers: { authorization: headers.authorization } })).status, 409);
+  const failing = await request(botsUrl, { headers });
+  assert.equal(failing.status, 500);
+  const body = await failing.json();
+  assert.equal(body.code, "BACKEND_INTERNAL_ERROR");
+  assert.ok(!JSON.stringify(body).includes(sensitive));
+  assert.equal((await request(`${botsUrl}/bot-1`, { headers })).status, 500);
+});
+
+test("a non-function Bot reader is rejected at creation", () => {
+  for (const options of [{ readBots: "nope" }, { readBot: 42 }]) {
+    assert.throws(
+      () => createBackendServer({ token: randomBytes(32).toString("base64url"), ...options }),
+      /must be a function/,
+    );
+  }
+});
+
 test("rejects invalid ports and surfaces occupied port errors", async (t) => {
   const { server, address } = await fixture(t);
   for (const port of [-1, 65536, 1.5, "3010", NaN]) {

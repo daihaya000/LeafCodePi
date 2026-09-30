@@ -4,6 +4,7 @@ import { once } from "node:events";
 import {
   BACKEND_ERROR_CODES,
   BACKEND_HEALTH_PATH,
+  BACKEND_BOTS_PATH,
   BACKEND_PENDING_SNAPSHOTS_PATH,
   BACKEND_PROTOCOL_HEADER,
   BACKEND_PROTOCOL_VERSION,
@@ -46,6 +47,9 @@ export function createBackendServer({
    * route answers 503 with a specific code instead of pretending the task is missing.
    */
   readTaskDetail,
+  /** The Backend's own view of the Bot store (the same files the Web app writes). */
+  readBots = () => [],
+  readBot = () => null,
 } = {}) {
   if (
     typeof token !== "string" ||
@@ -62,6 +66,8 @@ export function createBackendServer({
   if (readTaskDetail !== undefined && typeof readTaskDetail !== "function") {
     throw new Error("readTaskDetail must be a function");
   }
+  if (typeof readBots !== "function") throw new Error("readBots must be a function");
+  if (typeof readBot !== "function") throw new Error("readBot must be a function");
   const expectedDigest = tokenDigest(token);
   const instanceId = randomUUID();
   const startedAt = new Date().toISOString();
@@ -98,8 +104,13 @@ export function createBackendServer({
       : taskSuffix !== null && detailPath === undefined
         ? decodeURIComponent(taskSuffix)
         : undefined;
+    const botSuffix = target.pathname.startsWith(`${BACKEND_BOTS_PATH}/`)
+      ? decodeURIComponent(target.pathname.slice(BACKEND_BOTS_PATH.length + 1))
+      : undefined;
     const knownPath = target.pathname === BACKEND_HEALTH_PATH
       || target.pathname === BACKEND_PENDING_SNAPSHOTS_PATH
+      || target.pathname === BACKEND_BOTS_PATH
+      || botSuffix !== undefined
       || taskPath !== undefined
       || detailPath !== undefined;
     if (!knownPath) {
@@ -110,6 +121,26 @@ export function createBackendServer({
       sendJson(response, 405, {
         error: "Method not allowed", code: BACKEND_ERROR_CODES.methodNotAllowed,
       }, { Allow: "GET" });
+      return;
+    }
+    if (target.pathname === BACKEND_BOTS_PATH || botSuffix !== undefined) {
+      try {
+        if (botSuffix !== undefined) {
+          const bot = botSuffix ? readBot(botSuffix) : null;
+          if (!bot) {
+            sendJson(response, 404, { error: "Not found", code: BACKEND_ERROR_CODES.notFound });
+            return;
+          }
+          sendJson(response, 200, { bot });
+        } else {
+          sendJson(response, 200, { bots: readBots() ?? [] });
+        }
+      } catch {
+        // Never send exception messages: a store failure must not leak paths or ids.
+        sendJson(response, 500, {
+          error: "Backend bot read failed", code: BACKEND_ERROR_CODES.internal,
+        });
+      }
       return;
     }
     if (detailPath !== undefined) {
