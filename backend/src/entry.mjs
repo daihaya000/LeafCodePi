@@ -1,3 +1,4 @@
+import { runtimeGenerationStatus } from "../../shared/backend-generation.mjs";
 import { DEFAULT_BACKEND_PORT } from "../../shared/backend-protocol.mjs";
 import { createPendingSnapshotStore } from "../core/pending-snapshot-store.mjs";
 import { createRuntimeHost } from "./runtime-host.mjs";
@@ -39,6 +40,11 @@ try {
       : {}),
   });
   const host = createRuntimeHost({ startup: started.startup });
+  // The Host pins the generation it started this Backend with; a mismatch means this process is not
+  // the build the Host intended, so it must not become ready and must not be written to.
+  const pinnedGeneration = process.env.LEAFCODE_PI_BACKEND_GENERATION;
+  const generationStatus = () =>
+    runtimeGenerationStatus(pinnedGeneration, started.runtimeStatus().generation ?? null);
   const server = createBackendServer({
     token: process.env.LEAFCODE_PI_BACKEND_TOKEN,
     readPendingSnapshots: () => pendingSnapshots.list(),
@@ -59,9 +65,11 @@ try {
     },
     // Ready means the startup sequence finished *and* the runtime is attached. A detached runtime
     // (or a bundle that could not be loaded) keeps health at 503/starting.
-    isReady: () => host.isReady() && started.runtimeStatus().ok === true,
+    isReady: () =>
+      host.isReady() && started.runtimeStatus().ok === true && generationStatus().matches,
     // The generation of the attached runtime: the frontend compares it with its own build.
-    runtimeGeneration: () => started.runtimeStatus().generation ?? null,
+    runtimeGeneration: () => generationStatus().running,
+    runtimeGenerationPinned: () => generationStatus().pinned,
   });
   const address = await listenBackend(server, port);
   // Transport is up, but health stays 503 until the startup sequence has attached the runtime.

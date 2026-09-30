@@ -15,6 +15,7 @@ import {
   BACKEND_PROTOCOL_VERSION,
 } from "../../shared/backend-protocol.mjs";
 import { createPendingSnapshotStore } from "../core/pending-snapshot-store.mjs";
+import { loadBackendRuntime } from "./runtime-loader.mjs";
 import { closeBackend, createBackendServer, listenBackend } from "./server.mjs";
 
 async function fixture(t, options = {}) {
@@ -325,11 +326,27 @@ test("health reports the runtime generation so a stale Backend is detectable", a
   assert.equal(detachedBody.runtimeGeneration, null);
 });
 
+test("health reports the pinned generation alongside the running one", async (t) => {
+  const { snapshotsUrl, headers } = await fixture(t, {
+    isReady: () => true,
+    runtimeGeneration: () => "gen-b",
+    runtimeGenerationPinned: () => "gen-a",
+  });
+  const body = await (await request(snapshotsUrl.replace("pending-snapshots", "health"), { headers })).json();
+  assert.equal(body.runtimeGeneration, "gen-b");
+  assert.equal(body.runtimeGenerationPinned, "gen-a");
+  const unpinned = await fixture(t, { isReady: () => true, runtimeGeneration: () => "gen-b" });
+  const unpinnedBody = await (await request(unpinned.snapshotsUrl.replace("pending-snapshots", "health"), { headers: unpinned.headers })).json();
+  assert.equal(unpinnedBody.runtimeGenerationPinned, null);
+});
+
 test("a non-function generation reader is rejected at creation", () => {
-  assert.throws(
-    () => createBackendServer({ token: randomBytes(32).toString("base64url"), runtimeGeneration: 7 }),
-    /must be a function/,
-  );
+  for (const options of [{ runtimeGeneration: 7 }, { runtimeGenerationPinned: "gen-a" }]) {
+    assert.throws(
+      () => createBackendServer({ token: randomBytes(32).toString("base64url"), ...options }),
+      /must be a function/,
+    );
+  }
 });
 
 test("rejects invalid ports and surfaces occupied port errors", async (t) => {
@@ -461,6 +478,48 @@ test("requesting the runtime makes the CLI ready once it is attached", { timeout
   assert.equal(health.status, 200, `health never became ready: ${JSON.stringify(health.body)}`);
   assert.equal(health.body.ready, true);
   assert.equal(health.body.status, "ready");
+});
+
+/** Polls health until the runtime reports a generation, or the deadline passes. */
+async function generationUntil(url, headers, timeoutMs = 45_000) {
+  const deadline = Date.now() + timeoutMs;
+  let last = null;
+  while (Date.now() < deadline) {
+    const response = await request(url, { headers });
+    last = await response.json();
+    if (typeof last.runtimeGeneration === "string" && last.runtimeGeneration) return last;
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+  return last;
+}
+
+test("a pinned generation the bundle does not have keeps the CLI at 503", { timeout: 90_000 }, async (t) => {
+  const cli = await spawnCli(t, {
+    LEAFCODE_PI_BACKEND_RUNTIME: "attach",
+    LEAFCODE_PI_BACKEND_GENERATION: "gen-not-this-build",
+  });
+  const body = await generationUntil(cli.healthUrl, cli.headers);
+  // The runtime did attach: the refusal is the generation, not a failed attach.
+  assert.ok(body?.runtimeGeneration, `the runtime never attached: ${JSON.stringify(body)}`);
+  assert.notEqual(body.runtimeGeneration, "gen-not-this-build");
+  assert.equal(body.runtimeGenerationPinned, "gen-not-this-build");
+  assert.equal(body.ready, false);
+  assert.equal(body.status, "starting");
+  const health = await request(cli.healthUrl, { headers: cli.headers });
+  assert.equal(health.status, 503);
+});
+
+test("the CLI becomes ready when the pinned generation is the bundle's own", { timeout: 90_000 }, async (t) => {
+  const runtime = await loadBackendRuntime();
+  if (!runtime.ok) return t.skip(`no built bundle: ${runtime.reason}`);
+  const cli = await spawnCli(t, {
+    LEAFCODE_PI_BACKEND_RUNTIME: "attach",
+    LEAFCODE_PI_BACKEND_GENERATION: runtime.generation,
+  });
+  const health = await healthUntil(cli.healthUrl, cli.headers, 200);
+  assert.equal(health.status, 200, `health never became ready: ${JSON.stringify(health.body)}`);
+  assert.equal(health.body.runtimeGeneration, runtime.generation);
+  assert.equal(health.body.runtimeGenerationPinned, runtime.generation);
 });
 
 test("a missing runtime bundle keeps the CLI at 503 instead of failing to start", { timeout: 15_000 }, async (t) => {

@@ -52,6 +52,8 @@ export function createBackendServer({
   readBot = () => null,
   /** The generation (build id) of the attached runtime, or null when nothing is attached. */
   runtimeGeneration = () => null,
+  /** The generation the Host pinned for this Backend, or null when it pinned none. */
+  runtimeGenerationPinned = () => null,
 } = {}) {
   if (
     typeof token !== "string" ||
@@ -71,6 +73,9 @@ export function createBackendServer({
   if (typeof readBots !== "function") throw new Error("readBots must be a function");
   if (typeof readBot !== "function") throw new Error("readBot must be a function");
   if (typeof runtimeGeneration !== "function") throw new Error("runtimeGeneration must be a function");
+  if (typeof runtimeGenerationPinned !== "function") {
+    throw new Error("runtimeGenerationPinned must be a function");
+  }
   const expectedDigest = tokenDigest(token);
   const instanceId = randomUUID();
   const startedAt = new Date().toISOString();
@@ -222,8 +227,10 @@ export function createBackendServer({
         startedAt,
         ready,
         status: ready ? "ready" : "starting",
-        // Lets the frontend detect that the running Backend is an older/newer build than itself.
+        // Lets the frontend detect that the running Backend is an older/newer build than itself,
+        // and see which generation the Host pinned when it started this process.
         runtimeGeneration: runtimeGeneration() ?? null,
+        runtimeGenerationPinned: runtimeGenerationPinned() ?? null,
       });
     } catch {
       // Never send exception messages: providers may include credentials in them.

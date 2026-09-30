@@ -7,6 +7,10 @@
  * decide between falling back to the in-process path and reporting an error.
  */
 import {
+  isBackendGenerationCompatible,
+  normalizeExpectedGeneration,
+} from "@shared/backend-generation.mjs";
+import {
   BACKEND_BOTS_PATH,
   BACKEND_HEALTH_PATH,
   BACKEND_PROTOCOL_HEADER,
@@ -106,6 +110,8 @@ export type BackendHealth = {
   startedAt?: string;
   /** The build id of the runtime the Backend attached; null while nothing is attached. */
   runtimeGeneration?: string | null;
+  /** The build id the Host pinned when it started the Backend; null when it pinned none. */
+  runtimeGenerationPinned?: string | null;
 };
 
 /** Whether the Backend process is up and has attached its runtime. */
@@ -118,17 +124,7 @@ export function readBackendHealth(options: Parameters<typeof fetchBackendJson>[1
  * Empty means "not pinned": this WebUI has no expectation to compare against.
  */
 export function expectedBackendGeneration(env: BackendEnv = process.env): string {
-  return env.LEAFCODE_PI_BACKEND_GENERATION?.trim() ?? "";
-}
-
-/**
- * Whether the running Backend is the generation this WebUI expects. An unpinned expectation is
- * compatible, and a Backend that reports no generation is only compatible with no expectation:
- * talking to a build we cannot identify risks writing to the wrong runtime.
- */
-export function isBackendGenerationCompatible(expected: string, running: string | null | undefined): boolean {
-  if (!expected) return true;
-  return typeof running === "string" && running.length > 0 && running === expected;
+  return normalizeExpectedGeneration(env.LEAFCODE_PI_BACKEND_GENERATION);
 }
 
 /** The Backend's own view of the Bot store. */
@@ -140,3 +136,6 @@ export function readBackendBots(options: Parameters<typeof fetchBackendJson>[1] 
 export function readBackendTasks(options: Parameters<typeof fetchBackendJson>[1] = {}) {
   return fetchBackendJson<{ tasks: Array<Record<string, unknown>> }>(BACKEND_TASKS_PATH, options);
 }
+
+// The comparison itself is a shared contract: the Backend uses the same rule for readiness.
+export { isBackendGenerationCompatible };
