@@ -253,3 +253,28 @@ it("follows the newest activity while expanded until the user scrolls up", () =>
   grow.forEach((callback) => callback());
   expect(scroller.scrollTop).toBe(1400);
 });
+
+it("keeps following when a card collapses and another auto-expands before the scroll event", () => {
+  const grow: (() => void)[] = [];
+  vi.stubGlobal("ResizeObserver", class {
+    constructor(callback: () => void) { grow.push(callback); }
+    observe() {}
+    disconnect() {}
+  });
+  const { container } = render(<ActivityLog kind="task" count={2} parts={[]} active>
+    <MessageBubble>Tool content</MessageBubble>
+  </ActivityLog>);
+  const log = container.querySelector("details")!;
+  const scroller = log.querySelector("summary")!.nextElementSibling as HTMLElement;
+
+  setScrollMetrics(scroller, 0, 1000);
+  fireEvent.click(log.querySelector("summary")!);
+  expect(scroller.scrollTop).toBe(800);
+
+  // The browser clamped scrollTop after a collapse, then a new card expanded: the
+  // scroll event sees a lower scrollTop far from the new bottom.
+  setScrollMetrics(scroller, 500, 1400);
+  fireEvent.scroll(scroller);
+  grow.forEach((callback) => callback());
+  expect(scroller.scrollTop).toBe(1200);
+});

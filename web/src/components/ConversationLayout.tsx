@@ -90,6 +90,7 @@ export function ActivityLog({ children, header, count, parts, messages = [], sta
   const contentRef = useRef<HTMLDivElement | null>(null);
   const stickRef = useRef(true);
   const lastTopRef = useRef(0);
+  const lastHeightRef = useRef(0);
   const [open, setOpen] = useState(running);
   // 作業の開始・完了時だけ開閉を同期し、途中の手動開閉は維持する。
   useLayoutEffect(() => {
@@ -106,6 +107,7 @@ export function ActivityLog({ children, header, count, parts, messages = [], sta
       const nextTop = clampScrollTop(scrollHeight, clientHeight, scrollHeight);
       if (scroller.scrollTop !== nextTop) scroller.scrollTop = nextTop;
       lastTopRef.current = scroller.scrollTop;
+      lastHeightRef.current = scrollHeight;
     };
     pin();
     if (typeof ResizeObserver === "undefined") return;
@@ -151,7 +153,9 @@ export function ActivityLog({ children, header, count, parts, messages = [], sta
           const el = event.currentTarget;
           const prevTop = lastTopRef.current;
           lastTopRef.current = el.scrollTop;
-          stickRef.current = nextStickState(stickRef.current, el.scrollTop, prevTop, isNearBottom(el.scrollTop, el.clientHeight, el.scrollHeight));
+          const layoutChanged = el.scrollHeight !== lastHeightRef.current;
+          lastHeightRef.current = el.scrollHeight;
+          stickRef.current = nextStickState(stickRef.current, el.scrollTop, prevTop, isNearBottom(el.scrollTop, el.clientHeight, el.scrollHeight), undefined, layoutChanged);
         }}
         className="max-h-[min(19.6rem,35dvh)] min-w-0 overflow-y-auto overscroll-y-contain border-t border-border bg-surface p-2 [&_.max-w-bubble]:max-w-full"
       >

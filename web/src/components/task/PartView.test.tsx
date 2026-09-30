@@ -135,8 +135,9 @@ describe("PartView shell log", () => {
     view.rerender(<PartView message={bashMessage("line 1\nline 2")} />);
     expect(scroller.scrollTop).toBe(900);
 
-    setScrollMetrics(scroller, 300, 1200);
+    setScrollMetrics(scroller, 300, 1000);
     fireEvent.scroll(scroller);
+    setScrollMetrics(scroller, 300, 1200);
     view.rerender(<PartView message={bashMessage("line 1\nline 2\nline 3")} />);
     expect(scroller.scrollTop).toBe(300);
 

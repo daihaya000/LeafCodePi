@@ -12,6 +12,7 @@ import { ProviderIcon } from "@/components/ProviderIcon";
 import { renderMentions, withMentions } from "@/components/bot/BotMention";
 import { ImageLightbox } from "@/components/Composer";
 import { MarkdownImage, MarkdownImageScope, markdownImageUrlTransform } from "@/components/MarkdownImage";
+import { isNearBottom, nextStickState } from "@/lib/scroll-stick";
 import { toolLabel } from "@/lib/tool-labels";
 import { Button, cx, formatElapsed, formatMessageTime } from "@/components/ui";
 import type { BotDto, ProjectDto, TaskSummary, UiMessage } from "@/lib/types";
@@ -131,6 +132,13 @@ export function BotMessageList({ conversationId, contentKey, children, viewportR
   const viewport = viewportRef ?? localViewport;
   const contentRef = useRef<HTMLDivElement>(null);
   const following = useRef(true);
+  const lastTop = useRef(0);
+  const lastHeight = useRef(0);
+  const pinToBottom = (element: HTMLElement) => {
+    element.scrollTop = element.scrollHeight;
+    lastTop.current = element.scrollTop;
+    lastHeight.current = element.scrollHeight;
+  };
   // Keep prompt/settings-only parent renders from forcing a scroll layout read.
   const scrollKey = contentKey ?? children;
 
@@ -142,7 +150,7 @@ export function BotMessageList({ conversationId, contentKey, children, viewportR
   useLayoutEffect(() => {
     if (!active) return;
     const element = viewport.current;
-    if (element && following.current) element.scrollTop = element.scrollHeight;
+    if (element && following.current) pinToBottom(element);
   }, [active, conversationId, scrollKey, viewport]);
   useLayoutEffect(() => {
     if (!active || typeof ResizeObserver === "undefined") return;
@@ -150,7 +158,7 @@ export function BotMessageList({ conversationId, contentKey, children, viewportR
     const content = contentRef.current;
     if (!element || !content) return;
     const observer = new ResizeObserver(() => {
-      if (following.current) element.scrollTop = element.scrollHeight;
+      if (following.current) pinToBottom(element);
     });
     observer.observe(content);
     return () => observer.disconnect();
@@ -159,7 +167,18 @@ export function BotMessageList({ conversationId, contentKey, children, viewportR
   return (
     <main ref={viewport} onScroll={(event) => {
       const element = event.currentTarget;
-      following.current = element.scrollHeight - element.scrollTop - element.clientHeight <= 48;
+      const previousTop = lastTop.current;
+      lastTop.current = element.scrollTop;
+      const layoutChanged = element.scrollHeight !== lastHeight.current;
+      lastHeight.current = element.scrollHeight;
+      following.current = nextStickState(
+        following.current,
+        element.scrollTop,
+        previousTop,
+        isNearBottom(element.scrollTop, element.clientHeight, element.scrollHeight, 48),
+        undefined,
+        layoutChanged,
+      );
     }} className={conversationViewportClass}>
       <div ref={contentRef}>{children}</div>
     </main>

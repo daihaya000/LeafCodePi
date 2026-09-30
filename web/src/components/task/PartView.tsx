@@ -344,6 +344,8 @@ function NestedUserMetaHeader({
 function NestedRunTimeline({ run, active, taskId }: { run: SubagentRunDto; active: boolean; taskId?: string }) {
   const scrollerRef = useRef<HTMLDivElement | null>(null);
   const stickRef = useRef(true);
+  const lastTopRef = useRef(0);
+  const lastHeightRef = useRef(0);
   const visibleMessages = useMemo(
     () => run.messages.filter((message) => !isSubagentPromptPlaceholder(message)),
     [run.messages],
@@ -351,14 +353,28 @@ function NestedRunTimeline({ run, active, taskId }: { run: SubagentRunDto; activ
   useEffect(() => {
     if (run.status !== "running" || !stickRef.current) return;
     const el = scrollerRef.current;
-    if (el) el.scrollTop = clampScrollTop(el.scrollHeight, el.clientHeight, el.scrollHeight);
+    if (!el) return;
+    el.scrollTop = clampScrollTop(el.scrollHeight, el.clientHeight, el.scrollHeight);
+    lastTopRef.current = el.scrollTop;
+    lastHeightRef.current = el.scrollHeight;
   }, [visibleMessages, run.status, run.currentTool]);
   return (
     <div
       ref={scrollerRef}
       onScroll={(event) => {
         const el = event.currentTarget;
-        stickRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 48;
+        const previousTop = lastTopRef.current;
+        lastTopRef.current = el.scrollTop;
+        const layoutChanged = el.scrollHeight !== lastHeightRef.current;
+        lastHeightRef.current = el.scrollHeight;
+        stickRef.current = nextStickState(
+          stickRef.current,
+          el.scrollTop,
+          previousTop,
+          isNearBottom(el.scrollTop, el.clientHeight, el.scrollHeight, 48),
+          undefined,
+          layoutChanged,
+        );
       }}
       className="max-h-72 space-y-3 overflow-y-auto border-t border-border px-3 py-3"
     >
@@ -497,6 +513,7 @@ export const ToolCard = memo(function ToolCard({
   const logScrollerRef = useRef<HTMLDivElement | null>(null);
   const logStickRef = useRef(true);
   const lastLogScrollTopRef = useRef(0);
+  const lastLogScrollHeightRef = useRef(0);
   useEffect(() => {
     if (isError || isCancelled) setOpen(true);
   }, [isError, isCancelled]);
@@ -514,7 +531,11 @@ export const ToolCard = memo(function ToolCard({
     }
   }, [isSubagent, active]);
   useEffect(() => {
-    if (isShell && active && !wasShellActiveRef.current) setOpen(true);
+    if (isShell && active && !wasShellActiveRef.current) {
+      // 自動展開は常に最新から見せる（前回の手動スクロールの追従解除を持ち越さない）。
+      logStickRef.current = true;
+      setOpen(true);
+    }
     wasShellActiveRef.current = isShell && active;
   }, [isShell, active]);
   const elapsedMs = useElapsedMs(state.startedAtMs, state.endedAtMs, tabActive);
@@ -530,6 +551,7 @@ export const ToolCard = memo(function ToolCard({
     if (!el) return;
     el.scrollTop = clampScrollTop(el.scrollHeight, el.clientHeight, el.scrollHeight);
     lastLogScrollTopRef.current = el.scrollTop;
+    lastLogScrollHeightRef.current = el.scrollHeight;
   }, [isShell, open, output]);
   const preview = isCancelled
     ? "中断されました"
@@ -615,11 +637,15 @@ export const ToolCard = memo(function ToolCard({
                   const atBottom = isNearBottom(el.scrollTop, el.clientHeight, el.scrollHeight);
                   const previousTop = lastLogScrollTopRef.current;
                   lastLogScrollTopRef.current = el.scrollTop;
+                  const layoutChanged = el.scrollHeight !== lastLogScrollHeightRef.current;
+                  lastLogScrollHeightRef.current = el.scrollHeight;
                   logStickRef.current = nextStickState(
                     logStickRef.current,
                     el.scrollTop,
                     previousTop,
                     atBottom,
+                    undefined,
+                    layoutChanged,
                   );
                 }
               : undefined

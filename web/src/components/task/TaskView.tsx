@@ -1012,6 +1012,7 @@ export const TaskView = memo(function TaskView({
   }, []);
   const stickRef = useRef(true);
   const lastScrollTopRef = useRef(0);
+  const lastScrollHeightRef = useRef(0);
   const previousWorkingRef = useRef(false);
   const titleTaskRef = useRef(taskId);
   const titleCompletionPendingRef = useRef(false);
@@ -1669,6 +1670,7 @@ export const TaskView = memo(function TaskView({
     const top = clampScrollTop(el.scrollHeight, el.clientHeight, el.scrollHeight);
     el.scrollTo({ top, behavior: "auto" });
     lastScrollTopRef.current = top;
+    lastScrollHeightRef.current = el.scrollHeight;
   }, []);
 
   const scheduleScrollToBottom = useCallback(() => {
@@ -1683,7 +1685,9 @@ export const TaskView = memo(function TaskView({
     const atBottom = isNearBottom(el.scrollTop, el.clientHeight, el.scrollHeight);
     const prevTop = lastScrollTopRef.current;
     lastScrollTopRef.current = el.scrollTop;
-    stickRef.current = nextStickState(stickRef.current, el.scrollTop, prevTop, atBottom);
+    const layoutChanged = el.scrollHeight !== lastScrollHeightRef.current;
+    lastScrollHeightRef.current = el.scrollHeight;
+    stickRef.current = nextStickState(stickRef.current, el.scrollTop, prevTop, atBottom, undefined, layoutChanged);
   }, []);
 
   // 現在のスクロール上端から見た前後方向のジャンプ先を求める。
@@ -1828,6 +1832,7 @@ export const TaskView = memo(function TaskView({
     const content = contentRef.current;
     if (!scroller || !content) return;
     lastScrollTopRef.current = scroller.scrollTop;
+    lastScrollHeightRef.current = scroller.scrollHeight;
     const pinned = () => {
       if (!stickRef.current) return;
       if (isNearBottom(scroller.scrollTop, scroller.clientHeight, scroller.scrollHeight)) return;

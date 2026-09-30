@@ -22,6 +22,10 @@ export function clampScrollTop(top: number, clientHeight: number, scrollHeight: 
  * Stick-to-bottom follow mode.
  * Unstick only on an explicit upward scroll — content growth that moves the
  * bottom away must not drop follow mode (scroll anchoring / streaming).
+ * `layoutChanged` marks a scroll event whose content height differs from the
+ * last one we saw: a card collapsing (browser clamps scrollTop) and then
+ * another auto-expanding before the event fires looks like an upward scroll
+ * that is not at the bottom, but it is layout, not the user.
  */
 export function nextStickState(
   currentlyStuck: boolean,
@@ -29,8 +33,10 @@ export function nextStickState(
   prevScrollTop: number,
   atBottom: boolean,
   upwardThreshold = 4,
+  layoutChanged = false,
 ): boolean {
   if (atBottom) return true;
+  if (layoutChanged) return currentlyStuck;
   if (scrollTop < prevScrollTop - upwardThreshold) return false;
   return currentlyStuck;
 }

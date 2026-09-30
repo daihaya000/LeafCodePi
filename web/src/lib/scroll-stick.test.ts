@@ -41,6 +41,13 @@ describe("nextStickState", () => {
     expect(nextStickState(true, 400, 400, false)).toBe(true);
   });
 
+  it("ignores a clamped scrollTop when the content height changed", () => {
+    // A card collapsed (scrollTop clamped down) and another expanded before the scroll event.
+    expect(nextStickState(true, 300, 800, false, 4, true)).toBe(true);
+    expect(nextStickState(false, 300, 800, false, 4, true)).toBe(false);
+    expect(nextStickState(false, 1200, 800, true, 4, true)).toBe(true);
+  });
+
   it("keeps unstuck when still scrolled up", () => {
     expect(nextStickState(false, 200, 200, false)).toBe(false);
   });
