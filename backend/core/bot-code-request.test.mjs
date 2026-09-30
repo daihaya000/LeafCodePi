@@ -1,12 +1,14 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
-  cancellationTargetForRequest, codeCompletionAction, CODE_DELIVERY_RETRY_MS, codeRequestPayload,
+  cancellationTargetForRequest, codeCompletionAction, CODE_DELIVERY_RETRY_MS, CODE_RELAY_TICK_MS,
+  CODE_REQUEST_RETENTION_MS, codeRequestPayload,
   codeResultBaselineMessages,
   codeResultLatestAssistant, codeResultOutcome, codeResultOutput, codeSessionChangedPayload, isActiveCodeRequest,
   isCodeRequestId, isRoomCodeRequestCurrent,
   resolveOutboxScanAction, roomCodeOrigin, runningCodeTaskIdsForOrigin, selectActiveCodeRequestForTask,
-  shouldAttemptCodeDelivery, shouldConfirmCodeDelivery, userStoppedResult,
+  shouldAttemptCodeDelivery, shouldConfirmCodeDelivery, shouldPruneCodeRequest, shouldStartCodeRelayTick,
+  userStoppedResult,
 } from "./bot-code-request.mjs";
 
 test("only the documented task id shape carries a Room origin", () => {
@@ -325,4 +327,23 @@ test("a delivery is not written over an already delivered or cancelled request",
   assert.equal(shouldConfirmCodeDelivery({ state: "running" }), true, "any other state may be flipped to delivered");
   assert.equal(shouldConfirmCodeDelivery({ state: "delivered" }), false);
   assert.equal(shouldConfirmCodeDelivery({ state: "cancelled" }), false, "an in-flight stop wins over a stale success");
+});
+
+test("only a settled request older than the retention window is pruned", () => {
+  const now = 1_000_000_000;
+  assert.equal(CODE_REQUEST_RETENTION_MS, 7 * 86_400_000);
+  assert.equal(shouldPruneCodeRequest({ isActive: false, fileMtimeMs: now - CODE_REQUEST_RETENTION_MS - 1, now }), true);
+  assert.equal(shouldPruneCodeRequest({ isActive: false, fileMtimeMs: now - CODE_REQUEST_RETENTION_MS, now }), false, "the boundary keeps the file");
+  assert.equal(shouldPruneCodeRequest({ isActive: false, fileMtimeMs: now, now }), false);
+  assert.equal(shouldPruneCodeRequest({ isActive: true, fileMtimeMs: now - CODE_REQUEST_RETENTION_MS - 1, now }), false, "an active request is never pruned");
+  assert.equal(shouldPruneCodeRequest({ isActive: false, fileMtimeMs: undefined, now }), false, "a stat failure must not delete the file");
+});
+
+test("one scan runs at a time and the interval is two seconds", () => {
+  assert.equal(CODE_RELAY_TICK_MS, 2_000);
+  assert.equal(shouldStartCodeRelayTick({ ticking: false }), true);
+  assert.equal(shouldStartCodeRelayTick({ ticking: true }), false);
+  for (const value of [undefined, null, 0, "true", 1]) {
+    assert.equal(shouldStartCodeRelayTick({ ticking: value }), true, String(value));
+  }
 });

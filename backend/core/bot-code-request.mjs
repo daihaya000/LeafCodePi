@@ -247,3 +247,23 @@ export function shouldAttemptCodeDelivery({ originBusy, nextAttemptAt, now }) {
 export function shouldConfirmCodeDelivery({ state }) {
   return state !== "delivered" && state !== "cancelled";
 }
+
+/** Settled requests only guard tool-call replay, so they are dropped after this long. */
+export const CODE_REQUEST_RETENTION_MS = 7 * 86_400_000;
+/** How often the outbox is scanned. */
+export const CODE_RELAY_TICK_MS = 2_000;
+
+/**
+ * Whether a request file may be deleted by the scan. Only settled requests are pruned, and only once
+ * the file has been untouched for the retention window; an active request's file is never removed.
+ */
+export function shouldPruneCodeRequest({ isActive, fileMtimeMs, now }) {
+  if (isActive === true) return false;
+  if (typeof fileMtimeMs !== "number") return false;
+  return now - fileMtimeMs > CODE_REQUEST_RETENTION_MS;
+}
+
+/** One scan at a time: a tick that is still running makes the next one a no-op. */
+export function shouldStartCodeRelayTick({ ticking }) {
+  return ticking !== true;
+}

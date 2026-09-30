@@ -92,3 +92,18 @@ export function shouldAttemptCodeDelivery(input: {
 
 /** Whether a successful delivery may be written down. */
 export function shouldConfirmCodeDelivery(input: { state: string }): boolean;
+
+/** How long a settled request file is kept before the scan may delete it. */
+export const CODE_REQUEST_RETENTION_MS: number;
+/** How often the outbox is scanned. */
+export const CODE_RELAY_TICK_MS: number;
+
+/** Whether a request file may be deleted by the scan. */
+export function shouldPruneCodeRequest(input: {
+  isActive: boolean;
+  fileMtimeMs: number | undefined;
+  now: number;
+}): boolean;
+
+/** Whether a scan may start (one tick at a time). */
+export function shouldStartCodeRelayTick(input: { ticking: boolean }): boolean;

@@ -28,6 +28,7 @@ import { isRoomStopRequest } from "@/lib/room-conversation";
 import {
   cancellationTargetForRequest,
   CODE_DELIVERY_RETRY_MS,
+  CODE_RELAY_TICK_MS,
   codeCompletionAction,
   codeRequestPayload,
   codeResultBaselineMessages,
@@ -43,6 +44,8 @@ import {
   selectActiveCodeRequestForTask,
   shouldAttemptCodeDelivery,
   shouldConfirmCodeDelivery,
+  shouldPruneCodeRequest,
+  shouldStartCodeRelayTick,
   userStoppedResult,
 } from "@backend-core/bot-code-request.mjs";
 
@@ -1174,13 +1177,17 @@ export function createBotCodeRelay(deps: RelayDependencies) {
   }
 
   async function tick(): Promise<void> {
-    if (ticking) return;
+    // One scan at a time lives in backend core.
+    if (!shouldStartCodeRelayTick({ ticking })) return;
     ticking = true;
     try {
       // Settled records only guard tool-call replay, so drop the old ones and keep scans small.
+      const pruneNow = Date.now();
       for (const request of requests()) {
-        if (active(request)) continue;
-        try { if (Date.now() - statSync(requestPath(request.id)).mtimeMs > 7 * 86_400_000) unlinkSync(requestPath(request.id)); } catch { /* already gone */ }
+        let fileMtimeMs: number | undefined;
+        try { fileMtimeMs = statSync(requestPath(request.id)).mtimeMs; } catch { /* already gone */ }
+        if (!shouldPruneCodeRequest({ isActive: active(request), fileMtimeMs, now: pruneNow })) continue;
+        try { unlinkSync(requestPath(request.id)); } catch { /* already gone */ }
       }
       await Promise.all(requests().filter(active).map((request) => processRequest(request.id).catch((error) => {
         console.warn("[bot-code-relay] delivery deferred:", error instanceof Error ? error.message : String(error));
@@ -1190,7 +1197,7 @@ export function createBotCodeRelay(deps: RelayDependencies) {
   function start(): void {
     if (timer) return;
     // ponytail: file-backed outbox scan; index pending requests if history grows large.
-    timer = setInterval(() => { void tick().catch((error) => console.warn("[bot-code-relay] scan failed", error)); }, 2_000);
+    timer = setInterval(() => { void tick().catch((error) => console.warn("[bot-code-relay] scan failed", error)); }, CODE_RELAY_TICK_MS);
     timer.unref?.();
   }
   function register(originTaskId: string): (pi: ExtensionAPI) => void {
