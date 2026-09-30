@@ -25,7 +25,7 @@ import {
 } from "@/lib/pi/bot-code-images";
 import { isGoalLoopOperatorHold } from "@/lib/pi/goal-loop-state";
 import { isRoomStopRequest } from "@/lib/room-conversation";
-import { isCodeRequestId, isRoomCodeRequestCurrent, roomCodeOrigin } from "@backend-core/bot-code-request.mjs";
+import { isActiveCodeRequest, isCodeRequestId, isRoomCodeRequestCurrent, roomCodeOrigin, runningCodeTaskIdsForOrigin, selectActiveCodeRequestForTask } from "@backend-core/bot-code-request.mjs";
 
 export const BOT_CODE_TOOL = "code_session";
 export const BOT_CODE_RESULT = "bot-code-result";
@@ -266,7 +266,8 @@ function requests(): CodeRequest[] {
     return request ? [request] : [];
   });
 }
-function active(request: CodeRequest): boolean { return request.state !== "delivered" && request.state !== "cancelled"; }
+// The terminal-state rule lives in backend core.
+function active(request: CodeRequest): boolean { return isActiveCodeRequest(request); }
 
 /** The delivered payload owns the real outcome; delivery state alone must not be shown as success. */
 function requestPayload(request: CodeRequest): { outcome?: string; goalLoop?: CodeRequestGoalLoopReport } {
@@ -387,10 +388,10 @@ export async function stopBotCodeRequestForTask(
   botId: string,
   codeTaskId: string,
 ): Promise<{ state: CodeRequestState; codeTaskId: string | null } | undefined> {
-  const request = requests()
-    .filter((item) => item.botId === botId && !item.userIntervention && item.codeTaskId === codeTaskId && active(item))
-    .sort((a, b) => (b.queuedAt ?? 0) - (a.queuedAt ?? 0) || b.id.localeCompare(a.id))[0];
-  return request ? stopBotCodeRequest(botId, request.id) : undefined;
+  // The selection rule (newest active non-intervention request) lives in backend core.
+  const request = selectActiveCodeRequestForTask(requests(), codeTaskId);
+  if (!request || request.botId !== botId) return undefined;
+  return stopBotCodeRequest(botId, request.id);
 }
 
 /** Owner Bot for a Code task opened from TaskView — task fields first, then active outbox. */
@@ -398,9 +399,7 @@ export function botIdForCodeTask(codeTaskId: string): string | undefined {
   const task = getTask(codeTaskId);
   if (typeof task?.botId === "string" && task.botId) return task.botId;
   if (typeof task?.supervisorBotId === "string" && task.supervisorBotId) return task.supervisorBotId;
-  return requests()
-    .filter((item) => item.codeTaskId === codeTaskId && !item.userIntervention && active(item))
-    .sort((a, b) => (b.queuedAt ?? 0) - (a.queuedAt ?? 0) || b.id.localeCompare(a.id))[0]?.botId;
+  return selectActiveCodeRequestForTask(requests(), codeTaskId)?.botId;
 }
 /** Persist a Code-side prompt for the worker that owns the Bot's Code session. */
 export function queueBotCodePrompt(
@@ -696,14 +695,7 @@ export function createBotCodeRelay(deps: RelayDependencies) {
   /** Every Code session this Bot conversation is currently waiting on, not just the first one. */
   function codeTasksForOrigin(originTaskId: string): string[] {
     try { owner(originTaskId); } catch { return []; }
-    return requests().flatMap((item) => (
-      item.originTaskId === originTaskId &&
-      !item.userIntervention &&
-      (item.state === "starting" || item.state === "running") &&
-      item.codeTaskId
-        ? [item.codeTaskId]
-        : []
-    ));
+    return runningCodeTaskIdsForOrigin(requests(), originTaskId);
   }
 
   function codeForOrigin(originTaskId: string): string | null {
@@ -727,9 +719,7 @@ export function createBotCodeRelay(deps: RelayDependencies) {
       if (task.status !== "working" && !deps.isBusy(task.id)) {
         throw new Error("実行中のCodeタスクだけを監督できます");
       }
-      const existing = requests()
-        .filter((item) => item.codeTaskId === codeTaskId && !item.userIntervention && active(item))
-        .sort((a, b) => (b.queuedAt ?? 0) - (a.queuedAt ?? 0) || b.id.localeCompare(a.id))[0];
+      const existing = selectActiveCodeRequestForTask(requests(), codeTaskId);
       if (existing) {
         if (existing.botId !== bot.id) throw new Error("このCodeタスクは別のBotが監督中です");
         deps.linkSupervisor?.(codeTaskId, bot.id);

@@ -16,3 +16,18 @@ export function isRoomCodeRequestCurrent(input: {
   } | null | undefined;
   isRoomStopRequest: (text: string) => boolean;
 }): boolean;
+
+export const TERMINAL_CODE_REQUEST_STATES: readonly string[];
+
+/** Whether the request still holds a claim (not delivered and not cancelled). */
+export function isActiveCodeRequest(request: { state: string } | null | undefined): boolean;
+
+/** The active, non-intervention request that already owns a Code task, newest first. */
+export function selectActiveCodeRequestForTask<T extends {
+  id: string; codeTaskId?: string | null; state: string; userIntervention?: boolean; queuedAt?: number;
+}>(requests: readonly T[], codeTaskId: string): T | undefined;
+
+/** Code tasks a Bot is still running for one origin, in the order the requests were read. */
+export function runningCodeTaskIdsForOrigin<T extends {
+  originTaskId: string; state: string; codeTaskId?: string | null; userIntervention?: boolean;
+}>(requests: readonly T[], originTaskId: string): string[];

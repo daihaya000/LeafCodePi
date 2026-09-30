@@ -50,3 +50,37 @@ export function isRoomCodeRequestCurrent({ room, request, isRoomStopRequest }) {
       room.members.includes(request.botId),
   );
 }
+
+/** Request states that still hold a claim on their Code task. */
+export const TERMINAL_CODE_REQUEST_STATES = Object.freeze(["delivered", "cancelled"]);
+
+/** Whether the request still holds a claim (not delivered and not cancelled). */
+export function isActiveCodeRequest(request) {
+  return !TERMINAL_CODE_REQUEST_STATES.includes(request?.state);
+}
+
+/**
+ * The active, non-intervention request that already owns a Code task: the newest by
+ * queue time, with the id as a tiebreaker so the choice is stable across readers.
+ */
+export function selectActiveCodeRequestForTask(requests, codeTaskId) {
+  return requests
+    .filter((item) => item.codeTaskId === codeTaskId && !item.userIntervention && isActiveCodeRequest(item))
+    .sort((a, b) => (b.queuedAt ?? 0) - (a.queuedAt ?? 0) || b.id.localeCompare(a.id))[0];
+}
+
+/**
+ * The Code tasks a Bot is still running for one origin: launch requests only, in the
+ * order the requests were read. A delivered/cancelled request or a user intervention
+ * never counts, and a request without a Code task id contributes nothing.
+ */
+export function runningCodeTaskIdsForOrigin(requests, originTaskId) {
+  return requests
+    .filter((item) =>
+      item.originTaskId === originTaskId &&
+      !item.userIntervention &&
+      (item.state === "starting" || item.state === "running") &&
+      item.codeTaskId,
+    )
+    .map((item) => item.codeTaskId);
+}

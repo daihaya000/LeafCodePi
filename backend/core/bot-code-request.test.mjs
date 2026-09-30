@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { isCodeRequestId, isRoomCodeRequestCurrent, roomCodeOrigin } from "./bot-code-request.mjs";
+import {
+  isActiveCodeRequest, isCodeRequestId, isRoomCodeRequestCurrent, roomCodeOrigin,
+  runningCodeTaskIdsForOrigin, selectActiveCodeRequestForTask,
+} from "./bot-code-request.mjs";
 
 test("only the documented task id shape carries a Room origin", () => {
   assert.deepEqual(roomCodeOrigin("bot:one:room:main"), { botId: "one", roomId: "main" });
@@ -106,4 +109,53 @@ test("a stop line before the request does not count as a stop after it", () => {
     ],
   });
   assert.equal(isRoomCodeRequestCurrent({ room: before, request: request(), isRoomStopRequest: stop }), false);
+});
+
+test("only delivered and cancelled requests stop being active", () => {
+  for (const state of ["queued", "starting", "running", "ready"]) {
+    assert.equal(isActiveCodeRequest({ state }), true, state);
+  }
+  for (const state of ["delivered", "cancelled"]) {
+    assert.equal(isActiveCodeRequest({ state }), false, state);
+  }
+  assert.equal(isActiveCodeRequest(undefined), true, "a missing state is not terminal");
+});
+
+const req = (overrides) => ({ id: "a".repeat(64), botId: "bot-1", originTaskId: "bot:bot-1", codeTaskId: "code-1", state: "running", ...overrides });
+
+test("the newest active non-intervention request owns the Code task", () => {
+  const older = req({ id: "b".repeat(64), queuedAt: 100 });
+  const newer = req({ id: "c".repeat(64), queuedAt: 200 });
+  assert.equal(selectActiveCodeRequestForTask([older, newer], "code-1"), newer);
+  assert.equal(selectActiveCodeRequestForTask([newer, older], "code-1"), newer);
+  // Same queue time: the larger id wins, so every reader agrees.
+  const same = req({ id: "d".repeat(64), queuedAt: 200 });
+  assert.equal(selectActiveCodeRequestForTask([newer, same], "code-1"), same);
+});
+
+test("a delivered, cancelled, intervention or other-task request never owns it", () => {
+  const delivered = req({ id: "e".repeat(64), state: "delivered", queuedAt: 300 });
+  const cancelled = req({ id: "f".repeat(64), state: "cancelled", queuedAt: 300 });
+  const intervention = req({ id: "g".repeat(64), userIntervention: true, queuedAt: 300 });
+  const other = req({ id: "h".repeat(64), codeTaskId: "code-2", queuedAt: 300 });
+  const active = req({ id: "i".repeat(64), queuedAt: 100 });
+  assert.equal(selectActiveCodeRequestForTask([delivered, cancelled, intervention, other, active], "code-1"), active);
+  assert.equal(selectActiveCodeRequestForTask([delivered, cancelled], "code-1"), undefined);
+  assert.equal(selectActiveCodeRequestForTask([], "code-1"), undefined);
+});
+
+test("running Code tasks for an origin are launch requests in read order", () => {
+  const requests = [
+    req({ id: "a".repeat(64), codeTaskId: "code-1", state: "running" }),
+    req({ id: "b".repeat(64), codeTaskId: "code-2", state: "starting" }),
+    req({ id: "c".repeat(64), codeTaskId: "code-3", state: "queued" }),
+    req({ id: "d".repeat(64), codeTaskId: "code-4", state: "ready" }),
+    req({ id: "e".repeat(64), codeTaskId: "code-5", state: "delivered" }),
+    req({ id: "f".repeat(64), codeTaskId: "code-6", state: "running", userIntervention: true }),
+    req({ id: "g".repeat(64), codeTaskId: null, state: "running" }),
+    req({ id: "h".repeat(64), originTaskId: "bot:other", codeTaskId: "code-7", state: "running" }),
+  ];
+  assert.deepEqual(runningCodeTaskIdsForOrigin(requests, "bot:bot-1"), ["code-1", "code-2"]);
+  assert.deepEqual(runningCodeTaskIdsForOrigin(requests, "bot:other"), ["code-7"]);
+  assert.deepEqual(runningCodeTaskIdsForOrigin([], "bot:bot-1"), []);
 });
