@@ -241,10 +241,10 @@ bundleパスは`LEAFCODE_PI_BACKEND_RUNTIME_BUNDLE`で差し替え可能。CLI�
 | 2. Next非依存のランタイム抽出 | **実装済み**。`backend/core/`＝50モジュール／62テスト（判断・順序・永続化を純関数化し、fs/時計/UUID/emitを注入）。Web側は同名exportの互換入口。 |
 | 3. 独立API・Web中継 | **実装済み**。内部API 12エンドポイント（health／pending-snapshots／tasks一覧・detail・prompt・permission・question・abort・goal-loop／bots一覧・`bots/:id`・code-requests・code-sessions）。中継はopt-in（`LEAFCODE_PI_BACKEND_RELAY`）で、生レコード経路のみBackendを使い失敗時はプロセス内へフォールバック。 |
 | 4. Host・ビルド・再起動分離 | **実装済み**。HostがBackend子プロセス（`backend-service.js`）・起動プラン（`backend-launch.js`）・health/世代判定（`backend-health.js`）・再起動予算と世代固定（`runtime-host.mjs`）を所有。バンドルは`npm run build:backend-runtime`で生成。 |
-| 5. 切替 | **実装済み（現状は拒否で保護）**。`runCutover`（check→stop-old-path→attach-backend→hand-over→verify→done＋ロールバック）、`cutoverPreflight`（start/verify位相）、Host実体への接続、`LEAFCODE_PI_CUTOVER=1`での起動時実行。Backendの起動列は全ステップ実行可能になり、runtime接続・世代一致・失敗ステップ0でhealthがreadyになる（ターン15）。attach段の拒否は失敗ステップがある場合に限られる。**実切替はユーザー承認待ち**。 |
+| 5. 切替 | **実装済み（実行は承認待ち）**。`runCutover`（check→stop-old-path→attach-backend→hand-over→verify→done＋ロールバック）、`cutoverPreflight`（start/verify位相）、Host実体への接続、`LEAFCODE_PI_CUTOVER=1`での起動時実行。Backendの起動列は全ステップ実行可能（ターン15）で、非所有モードでローカル実行されるowner-only経路は0（ターン24のカバレッジ走査）。**実切替はユーザー承認待ち**。 |
 | 6. 旧経路撤去 | **未完了**。非所有モードの不変条件は達成（セッションを触る16 routeすべてがガード済み／未配線0件、テストで強制）が、撤去手順の実行（中継フォールバック廃止→旧経路停止→harness依存除去→スイッチ撤去）は実切替後。 |
 
-残作業（実測）: ①実切替の実施（ユーザー承認待ち）と、その後の旧経路撤去（中継フォールバック廃止→旧経路停止→harness依存除去→スイッチ撤去）、②非所有モードのSSEは2秒ポーリング（遅延あり）、③実切替の実施とその後の撤去手順、④Web全体型検証は既存拡張（`leafcode-goal-loop`／`loop-guard`）の`@earendil-works/pi-coding-agent`解決失敗により本番用`tsconfig.build.json`で代替。Bot Codeセッションのclear/unlink転送とAuto/モデル指定つきGoal Loop開始の転送は完了済み（旧版の残作業①・②は解消）。
+残作業（実測）: ①実切替の実施（ユーザー承認待ち。実行は`LEAFCODE_PI_CUTOVER=1`でHostが排他的に行い、失敗時はロールバック）と、②その後の旧経路撤去（中継フォールバック廃止→旧経路停止→harness依存除去→スイッチ撤去）、②非所有モードのSSEは2秒ポーリング（遅延あり）、③実切替の実施とその後の撤去手順、④Web全体型検証は既存拡張（`leafcode-goal-loop`／`loop-guard`）の`@earendil-works/pi-coding-agent`解決失敗により本番用`tsconfig.build.json`で代替。Bot Codeセッションのclear/unlink転送とAuto/モデル指定つきGoal Loop開始の転送は完了済み（旧版の残作業①・②は解消）。
 
 ## 完了の証拠
 
@@ -351,3 +351,10 @@ Backend単独のSDK検証前には `npm --prefix backend ci --ignore-scripts` �
 - bundleへ`handleRoomPatch`・`handleRoomDelete`を追加して再生成（9831 KiB）。
 - 検証: `runtime-ownership-coverage.test.ts`は starters 28・guarded 28・pending 0になり、`LOCAL_ONLY_PENDING`は空（未ガード経路なし）。Room routeテスト8件（所有時の停止/リセット/削除・転送時のローカル不実行・拒否status再生・到達不能502）、`backend-forward`40件、backend server 65件（PATCH/DELETEのnested result・405・404・503・非関数拒否）成功。本番tsc・eslint成功。
 - これで切替前の「非所有モードでローカル実行されるowner-only経路」は無くなった（残るは実切替の実施と、その後の旧経路撤去）。
+
+## ターン25のフルスイート実測（切替前の最終確認）
+
+- Backend: `npm --prefix backend test` → 745件すべて成功（0失敗、27.1s）。
+- Host: `npm --prefix host test` → 267件（264成功・3skip・0失敗、2.9s）。
+- Web: `cd web && npx vitest run` → 482ファイル・4552件（4547成功・5失敗、76.3s）。失敗の内訳: 既存の3件（`src/app/api/health/route.test.ts`のdataDir、`src/components/MessageCardRadius.test.tsx`、`extensions/leafcode-mcp-adapter/proxy-visibility.test.ts`のロード）＋並列実行時のフレーク3件（`settings/transfer`・`codexbar/orchestrator`・`pi/request-image-cap`。単独再実行で成功）。
+- したがって切替前の前提（起動列完走・所有権カバレッジ・全スイート）は満たしており、残るは**実切替の実施（ユーザー承認待ち）**と、その後の旧経路撤去である。
