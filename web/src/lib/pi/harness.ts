@@ -207,6 +207,7 @@ import {
 } from "@/lib/pi/permission-prompt";
 import { registerWebUiPermissionHandler } from "@/lib/pi/webui-permission-bridge";
 import { AccountRuntimeManager } from "@/lib/pi/account-runtime-manager";
+import { SdkRuntimeFactory } from "@backend-core/sdk-runtime.mjs";
 import {
   accountAuthPath,
   accountHasProvider,
@@ -502,6 +503,7 @@ type SessionSetup = {
 
 type HarnessState = {
   pi: PiModule | null;
+  sdkFactory: SdkRuntimeFactory | null;
   modelRuntime: ModelRuntime | null;
   /** アカウント別ランタイム（accountId → runtime）。既定は上のシングルトン。 */
   accountRuntimes: AccountRuntimeManager | null;
@@ -735,6 +737,7 @@ function state(): HarnessState {
     });
     globalRef[GLOBAL_KEY] = {
       pi: null,
+      sdkFactory: null,
       modelRuntime: null,
       accountRuntimes: null,
       initError: null,
@@ -791,11 +794,20 @@ function packageVersion(): string | null {
   }
 }
 
-async function loadPi(): Promise<PiModule> {
+function sdkRuntimeFactory(): SdkRuntimeFactory {
   const current = state();
-  if (current.pi) return current.pi;
-  current.pi = await import("@earendil-works/pi-coding-agent");
-  return current.pi;
+  // Keep the SDK identity with the existing process-local harness state. The
+  // injected loader preserves WebUI dependency resolution and test SDK stubs.
+  return current.sdkFactory ??= new SdkRuntimeFactory({
+    loadSdk: async () => {
+      if (!current.pi) current.pi = await import("@earendil-works/pi-coding-agent");
+      return current.pi;
+    },
+  });
+}
+
+async function loadPi(): Promise<PiModule> {
+  return state().pi ?? sdkRuntimeFactory().load();
 }
 
 /**
@@ -829,16 +841,16 @@ function accountRuntimeManager(): AccountRuntimeManager {
   const current = state();
   if (!current.accountRuntimes) {
     current.accountRuntimes = new AccountRuntimeManager(async (id) => {
-      const pi = await loadPi();
+      const factory = sdkRuntimeFactory();
+      await factory.load();
       const agentDir = await resolvePiAgentDir();
       const authPath = accountAuthPath(id, agentDir);
-      const runtime = await pi.ModelRuntime.create({
+      const runtime = await factory.createModelRuntime({
         authPath,
         modelsStorePath: accountModelsStorePath(id, agentDir),
         allowModelNetwork: true,
         modelRefreshTimeoutMs: 8_000,
-      });
-      await registerLlamaProviders(runtime);
+      }, registerLlamaProviders);
       await ensureOptionalProviders(runtime, {
         key: `account:${id}`,
         kind: "account",
@@ -904,12 +916,10 @@ async function ensureRuntime(
   if (ensureDefaultRuntime && !current.modelRuntime && !current.initPromise) {
     current.initPromise = (async () => {
       try {
-        const pi = await loadPi();
-        current.modelRuntime = await pi.ModelRuntime.create({
+        current.modelRuntime = await sdkRuntimeFactory().createModelRuntime({
           allowModelNetwork: true,
           modelRefreshTimeoutMs: 8_000,
-        });
-        await registerLlamaProviders(current.modelRuntime);
+        }, registerLlamaProviders);
         current.initError = null;
       } catch (error) {
         current.initError =
@@ -3773,7 +3783,7 @@ async function createSession(options: {
     modelRuntimeStartedAt,
   );
   const agentSessionStartedAt = options.onTiming ? performance.now() : 0;
-  const result = await pi.createAgentSession({
+  const result = await sdkRuntimeFactory().createAgentSession({
     cwd: options.cwd,
     agentDir,
     model: options.model,

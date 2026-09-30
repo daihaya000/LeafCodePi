@@ -177,6 +177,7 @@ import {
 } from "@/lib/provider-routing";
 import { getTaskHangWatch } from "./hang-watchdog";
 import { AccountRuntimeManager } from "./account-runtime-manager";
+import { SdkRuntimeFactory } from "@backend-core/sdk-runtime.mjs";
 import {
   createTask,
   promptTask,
@@ -270,10 +271,12 @@ afterEach(async () => {
   else process.env.LEAFCODE_PI_DATA_DIR = previousDataDir;
   for (const dir of tempDirs.splice(0)) rmSync(dir, { recursive: true, force: true });
   fakePi.reset();
+  vi.restoreAllMocks();
 });
 
 describe("provider limit fallback", () => {
   it("moves an integrated task to another account after a usage limit", async () => {
+    const factorySession = vi.spyOn(SdkRuntimeFactory.prototype, "createAgentSession");
     const dir = mkdtempSync(join(tmpdir(), "leafcode-pi-limit-fallback-"));
     tempDirs.push(dir);
     process.env.LEAFCODE_PI_DATA_DIR = dir;
@@ -310,6 +313,11 @@ describe("provider limit fallback", () => {
     await waitFor(() => getTask(task.id)?.status === "idle");
     assert.equal(getTask(task.id)?.accountId, first.id);
     assert.equal(fakePi.sessions.length, 1);
+    expect(factorySession).toHaveBeenCalledTimes(1);
+    expect(factorySession.mock.calls[0][0]).toMatchObject({
+      cwd: dir,
+      modelRuntime: { accountId: first.id },
+    });
 
     fakePi.sessions[0].nextError =
       "You have hit your ChatGPT usage limit (team plan). Try again in ~286 min.";
@@ -317,6 +325,11 @@ describe("provider limit fallback", () => {
 
     await waitFor(() => fakePi.sessions.length === 2);
     expect(fakePi.sessions[1]).toMatchObject({ accountId: second.id });
+    expect(factorySession).toHaveBeenCalledTimes(2);
+    expect(factorySession.mock.calls[1][0]).toMatchObject({
+      cwd: dir,
+      modelRuntime: { accountId: second.id },
+    });
     assert.equal(getTask(task.id)?.accountId, second.id);
     await waitFor(() => fakePi.sessions[1]?.prompts.length === 1);
     expect(getTaskHangWatch(task.id)).toBeNull();
