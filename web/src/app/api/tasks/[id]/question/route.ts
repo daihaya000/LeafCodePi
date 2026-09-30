@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { jsonError, respondToQuestionPrompt } from "@/lib/pi/harness";
 import type { QuestionAnswer } from "@/lib/pi/question-prompt";
+import { localRuntimeBlocked } from "@/lib/pi/runtime-ownership";
+import { forwardQuestionAnswer } from "@/lib/backend-forward";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -40,6 +42,21 @@ export async function POST(
       answer = { answers: body!.answers as string[][] };
     }
 
+    // After the cutover the pending question lives in the Backend, so the answer goes there.
+    if (localRuntimeBlocked()) {
+      const forwarded = await forwardQuestionAnswer(id, { requestId, ...(answer ? { answer } : {}) });
+      if (forwarded.ok) return NextResponse.json({ ok: true });
+      if (forwarded.reason === "not-found") {
+        return NextResponse.json({ error: "question request not found" }, { status: 404 });
+      }
+      if (forwarded.reason === "not-configured") {
+        return NextResponse.json({ error: "Backendが実行を所有しています", code: "RUNTIME_NOT_OWNED" }, { status: 409 });
+      }
+      return NextResponse.json(
+        { error: "Backendへ回答できません", code: "BACKEND_FORWARD_FAILED", reason: forwarded.reason },
+        { status: 502 },
+      );
+    }
     const ok = respondToQuestionPrompt(id, requestId, answer);
     if (!ok) {
       return NextResponse.json({ error: "question request not found" }, { status: 404 });

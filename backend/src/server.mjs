@@ -9,6 +9,8 @@ import {
   BACKEND_PROTOCOL_HEADER,
   BACKEND_PROTOCOL_VERSION,
   BACKEND_TASK_DETAIL_SUFFIX,
+  BACKEND_TASK_PERMISSION_SUFFIX,
+  BACKEND_TASK_QUESTION_SUFFIX,
   BACKEND_TASK_PROMPT_SUFFIX,
   BACKEND_TASKS_PATH,
   DEFAULT_BACKEND_PORT,
@@ -90,6 +92,10 @@ export function createBackendServer({
   runtimeGenerationPinned = () => null,
   /** Starts a session for a forwarded prompt; null when no runtime is attached. */
   promptTask = null,
+  /** Answers a pending approval: `(id, requestId, approved) => boolean`. */
+  respondToPermission = null,
+  /** Answers a pending question: `(id, requestId, answer) => boolean`. */
+  respondToQuestion = null,
 } = {}) {
   if (
     typeof token !== "string" ||
@@ -114,6 +120,11 @@ export function createBackendServer({
   }
   if (promptTask !== null && typeof promptTask !== "function") {
     throw new Error("promptTask must be a function or null");
+  }
+  for (const [name, handler] of Object.entries({ respondToPermission, respondToQuestion })) {
+    if (handler !== null && typeof handler !== "function") {
+      throw new Error(`${name} must be a function or null`);
+    }
   }
   const expectedDigest = tokenDigest(token);
   const instanceId = randomUUID();
@@ -146,13 +157,16 @@ export function createBackendServer({
     const detailPath = taskSuffix?.endsWith(BACKEND_TASK_DETAIL_SUFFIX)
       ? decodeURIComponent(taskSuffix.slice(0, -BACKEND_TASK_DETAIL_SUFFIX.length))
       : undefined;
-    // `<id>/prompt` starts a session: only the process that owns the runtime may do that.
-    const promptPath = taskSuffix?.endsWith(BACKEND_TASK_PROMPT_SUFFIX)
-      ? decodeURIComponent(taskSuffix.slice(0, -BACKEND_TASK_PROMPT_SUFFIX.length))
-      : undefined;
+    // These suffixes act on the owning process's runtime: starting a session, or answering a pending
+    // approval or question. Only the owner may serve them, so the WebUI forwards the request here.
+    const actionSuffix = [BACKEND_TASK_PROMPT_SUFFIX, BACKEND_TASK_PERMISSION_SUFFIX, BACKEND_TASK_QUESTION_SUFFIX]
+      .find((suffix) => taskSuffix?.endsWith(suffix));
+    const actionPath = actionSuffix === undefined || !taskSuffix
+      ? undefined
+      : decodeURIComponent(taskSuffix.slice(0, -actionSuffix.length));
     const taskPath = target.pathname === BACKEND_TASKS_PATH
       ? null
-      : taskSuffix !== null && detailPath === undefined && promptPath === undefined
+      : taskSuffix !== null && detailPath === undefined && actionPath === undefined
         ? decodeURIComponent(taskSuffix)
         : undefined;
     const botSuffix = target.pathname.startsWith(`${BACKEND_BOTS_PATH}/`)
@@ -164,24 +178,25 @@ export function createBackendServer({
       || botSuffix !== undefined
       || taskPath !== undefined
       || detailPath !== undefined
-      || promptPath !== undefined;
+      || actionPath !== undefined;
     if (!knownPath) {
       sendJson(response, 404, { error: "Not found", code: BACKEND_ERROR_CODES.notFound });
       return;
     }
-    if (promptPath !== undefined) {
+    if (actionPath !== undefined) {
       if (request.method !== "POST") {
         sendJson(response, 405, {
           error: "Method not allowed", code: BACKEND_ERROR_CODES.methodNotAllowed,
         }, { Allow: "POST" });
         return;
       }
-      if (promptPath === "") {
+      if (actionPath === "") {
         sendJson(response, 404, { error: "Not found", code: BACKEND_ERROR_CODES.notFound });
         return;
       }
       // No runtime means this process cannot own a session: the caller must not fall back locally.
-      if (typeof promptTask !== "function") {
+      const handler = actionSuffix === BACKEND_TASK_PROMPT_SUFFIX ? promptTask : actionSuffix === BACKEND_TASK_PERMISSION_SUFFIX ? respondToPermission : respondToQuestion;
+      if (typeof handler !== "function") {
         sendJson(response, 503, {
           error: "Backend runtime unavailable", code: BACKEND_ERROR_CODES.runtimeUnavailable,
         });
@@ -190,18 +205,40 @@ export function createBackendServer({
       const body = await readJsonBody(request);
       if (!body.ok) {
         sendJson(response, body.reason === "too-large" ? 413 : 400, {
-          error: body.reason === "too-large" ? "Prompt body too large" : "Invalid prompt body",
+          error: body.reason === "too-large" ? "Request body too large" : "Invalid request body",
           code: BACKEND_ERROR_CODES.badRequest,
         });
         return;
       }
       try {
-        const summary = await promptTask(promptPath, body.value);
-        sendJson(response, 200, { task: summary ?? null });
+        if (actionSuffix === BACKEND_TASK_PROMPT_SUFFIX) {
+          const summary = await handler(actionPath, body.value);
+          sendJson(response, 200, { task: summary ?? null });
+        } else if (actionSuffix === BACKEND_TASK_PERMISSION_SUFFIX) {
+          const { requestId, approved } = body.value ?? {};
+          if (typeof requestId !== "string" || typeof approved !== "boolean") {
+            sendJson(response, 400, { error: "Invalid permission answer", code: BACKEND_ERROR_CODES.badRequest });
+            return;
+          }
+          const ok = await handler(actionPath, requestId, approved);
+          sendJson(response, ok ? 200 : 404, ok
+            ? { ok: true }
+            : { error: "Permission request not found", code: BACKEND_ERROR_CODES.notFound });
+        } else {
+          const { requestId, answer } = body.value ?? {};
+          if (typeof requestId !== "string") {
+            sendJson(response, 400, { error: "Invalid question answer", code: BACKEND_ERROR_CODES.badRequest });
+            return;
+          }
+          const ok = await handler(actionPath, requestId, answer ?? null);
+          sendJson(response, ok ? 200 : 404, ok
+            ? { ok: true }
+            : { error: "Question request not found", code: BACKEND_ERROR_CODES.notFound });
+        }
       } catch (error) {
         // Never send exception text: provider errors can contain credentials.
         sendJson(response, typeof error?.status === "number" ? error.status : 500, {
-          error: "Backend prompt failed",
+          error: "Backend task action failed",
           code: BACKEND_ERROR_CODES.internal,
         });
       }

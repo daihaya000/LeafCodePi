@@ -1,5 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
-import { forwardTaskDetail, forwardTaskPrompt, forwardablePromptBody, needsLocalResolution } from "./backend-forward";
+import {
+  forwardPermissionAnswer,
+  forwardQuestionAnswer,
+  forwardTaskDetail,
+  forwardTaskPrompt,
+  forwardablePromptBody,
+  needsLocalResolution,
+} from "./backend-forward";
 
 const env = { LEAFCODE_PI_BACKEND_TOKEN: "t".repeat(40), LEAFCODE_PI_BACKEND_URL: "http://127.0.0.1:19999" };
 
@@ -108,5 +115,33 @@ describe("forwardTaskDetail", () => {
       ok: true,
       detail: null,
     });
+  });
+});
+
+describe("forwarding answers", () => {
+  it("posts the approval to the owning Backend", async () => {
+    const fetchImpl = vi.fn(async () => jsonResponse(200, { ok: true }));
+    await expect(
+      forwardPermissionAnswer("task-1", { requestId: "req-1", approved: true }, { env, fetchImpl: fetchImpl as unknown as typeof fetch }),
+    ).resolves.toEqual({ ok: true });
+    expect(fetchImpl.mock.calls[0][0]).toBe("http://127.0.0.1:19999/internal/tasks/task-1/permission");
+    expect(JSON.parse(String(fetchImpl.mock.calls[0][1]?.body))).toEqual({ requestId: "req-1", approved: true });
+  });
+
+  it("keeps a rejection as a missing answer and reports a stale request as not-found", async () => {
+    const fetchImpl = vi.fn(async () => jsonResponse(200, { ok: true }));
+    await expect(
+      forwardQuestionAnswer("task-1", { requestId: "q1" }, { env, fetchImpl: fetchImpl as unknown as typeof fetch }),
+    ).resolves.toEqual({ ok: true });
+    expect(JSON.parse(String(fetchImpl.mock.calls[0][1]?.body))).toEqual({ requestId: "q1" });
+    const stale = vi.fn(async () => jsonResponse(404, { error: "Question request not found" }));
+    await expect(
+      forwardQuestionAnswer("task-1", { requestId: "q1", answer: { answers: [["a"]] } }, { env, fetchImpl: stale as unknown as typeof fetch }),
+    ).resolves.toEqual({ ok: false, reason: "not-found", status: 404 });
+    const failed = vi.fn(async () => jsonResponse(500, { error: "nope" }));
+    await expect(
+      forwardQuestionAnswer("task-1", { requestId: "q1" }, { env, fetchImpl: failed as unknown as typeof fetch }),
+    ).resolves.toEqual({ ok: false, reason: "bad-response", status: 500 });
+    await expect(forwardQuestionAnswer("task-1", { requestId: "q1" }, { env: {} })).resolves.toEqual({ ok: false, reason: "not-configured" });
   });
 });

@@ -434,6 +434,66 @@ test("a non-function prompt handler is rejected at creation", () => {
   );
 });
 
+test("a forwarded approval reaches the runtime, and an unknown request is a 404", async (t) => {
+  const seen = [];
+  const { snapshotsUrl, headers } = await fixture(t, {
+    respondToPermission: async (id, requestId, approved) => {
+      seen.push({ id, requestId, approved });
+      return requestId === "req-1";
+    },
+  });
+  const url = `${snapshotsUrl.replace("pending-snapshots", "tasks")}/task-1/permission`;
+  const post = (body) =>
+    request(url, { method: "POST", headers: { ...headers, "content-type": "application/json" }, body: JSON.stringify(body) });
+  const ok = await post({ requestId: "req-1", approved: true });
+  assert.equal(ok.status, 200);
+  assert.deepEqual(await ok.json(), { ok: true });
+  assert.deepEqual(seen, [{ id: "task-1", requestId: "req-1", approved: true }]);
+  assert.equal((await post({ requestId: "other", approved: false })).status, 404);
+  assert.equal((await post({ requestId: "req-1" })).status, 400, "approved must be a boolean");
+  assert.equal((await post({ approved: true })).status, 400, "requestId is required");
+});
+
+test("a forwarded question answer reaches the runtime, with rejection as a null answer", async (t) => {
+  const seen = [];
+  const { snapshotsUrl, headers } = await fixture(t, {
+    respondToQuestion: async (id, requestId, answer) => {
+      seen.push({ id, requestId, answer });
+      return true;
+    },
+  });
+  const url = `${snapshotsUrl.replace("pending-snapshots", "tasks")}/task-1/question`;
+  const post = (body) =>
+    request(url, { method: "POST", headers: { ...headers, "content-type": "application/json" }, body: JSON.stringify(body) });
+  assert.equal((await post({ requestId: "q1", answer: { answers: [["はい"]] } })).status, 200);
+  assert.equal((await post({ requestId: "q2" })).status, 200, "a missing answer is a rejection");
+  assert.equal((await post({ answer: { answers: [] } })).status, 400, "requestId is required");
+  assert.deepEqual(seen, [
+    { id: "task-1", requestId: "q1", answer: { answers: [["はい"]] } },
+    { id: "task-1", requestId: "q2", answer: null },
+  ]);
+});
+
+test("the answering endpoints need a runtime and are POST-only", async (t) => {
+  const { snapshotsUrl, headers } = await fixture(t);
+  for (const suffix of ["permission", "question"]) {
+    const url = `${snapshotsUrl.replace("pending-snapshots", "tasks")}/task-1/${suffix}`;
+    const response = await request(url, { method: "POST", headers: { ...headers, "content-type": "application/json" }, body: JSON.stringify({ requestId: "r" }) });
+    assert.equal(response.status, 503, suffix);
+    assert.equal((await response.json()).code, "BACKEND_RUNTIME_UNAVAILABLE");
+    assert.equal((await request(url, { headers })).status, 405, suffix);
+  }
+});
+
+test("a non-function approval handler is rejected at creation", () => {
+  for (const options of [{ respondToPermission: "nope" }, { respondToQuestion: 1 }]) {
+    assert.throws(
+      () => createBackendServer({ token: randomBytes(32).toString("base64url"), ...options }),
+      /must be a function or null/,
+    );
+  }
+});
+
 test("rejects invalid ports and surfaces occupied port errors", async (t) => {
   const { server, address } = await fixture(t);
   for (const port of [-1, 65536, 1.5, "3010", NaN]) {

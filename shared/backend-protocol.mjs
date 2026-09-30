@@ -18,6 +18,13 @@ export const BACKEND_TASK_PROMPT_SUFFIX = "/prompt";
  */
 export const BACKEND_TASK_DETAIL_SUFFIX = "/detail";
 
+/**
+ * Answering a pending approval or question in the owning process: `POST /internal/tasks/:id/permission`
+ * and `POST /internal/tasks/:id/question`. The pending request itself never leaves the owner's memory.
+ */
+export const BACKEND_TASK_PERMISSION_SUFFIX = "/permission";
+export const BACKEND_TASK_QUESTION_SUFFIX = "/question";
+
 /** Read-only: the Backend's own view of the Bot store. */
 export const BACKEND_BOTS_PATH = "/internal/bots";
 export const DEFAULT_BACKEND_PORT = 18776;

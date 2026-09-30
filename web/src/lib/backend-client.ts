@@ -16,6 +16,8 @@ import {
   BACKEND_PROTOCOL_HEADER,
   BACKEND_PROTOCOL_VERSION,
   BACKEND_TASK_DETAIL_SUFFIX,
+  BACKEND_TASK_PERMISSION_SUFFIX,
+  BACKEND_TASK_QUESTION_SUFFIX,
   BACKEND_TASK_PROMPT_SUFFIX,
   BACKEND_TASKS_PATH,
   DEFAULT_BACKEND_PORT,
@@ -159,6 +161,32 @@ export function promptTaskOnBackend(
  */
 export function expectedBackendGeneration(env: BackendEnv = process.env): string {
   return normalizeExpectedGeneration(env.LEAFCODE_PI_BACKEND_GENERATION);
+}
+
+/** Answers a pending approval in the owning Backend. */
+export function respondPermissionOnBackend(
+  id: string,
+  body: { requestId: string; approved: boolean },
+  options: { env?: BackendEnv; fetchImpl?: typeof fetch; timeoutMs?: number } = {},
+): Promise<BackendResult<{ ok: boolean }>> {
+  return postBackendJson(
+    `${BACKEND_TASKS_PATH}/${encodeURIComponent(id)}${BACKEND_TASK_PERMISSION_SUFFIX}`,
+    body,
+    options,
+  );
+}
+
+/** Answers a pending question in the owning Backend; a missing answer means rejection. */
+export function respondQuestionOnBackend(
+  id: string,
+  body: { requestId: string; answer?: unknown },
+  options: { env?: BackendEnv; fetchImpl?: typeof fetch; timeoutMs?: number } = {},
+): Promise<BackendResult<{ ok: boolean }>> {
+  return postBackendJson(
+    `${BACKEND_TASKS_PATH}/${encodeURIComponent(id)}${BACKEND_TASK_QUESTION_SUFFIX}`,
+    body,
+    options,
+  );
 }
 
 /** A task's detail as the owning Backend sees it (offline transcript read). */

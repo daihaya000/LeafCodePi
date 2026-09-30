@@ -1,6 +1,8 @@
 import {
   promptTaskOnBackend,
   readBackendTaskDetail,
+  respondPermissionOnBackend,
+  respondQuestionOnBackend,
   type BackendEnv,
   type BackendFailureReason,
 } from "@/lib/backend-client";
@@ -72,4 +74,34 @@ export async function forwardTaskDetail(
   if (!result.ok) return { ok: false, reason: result.reason, ...(result.status ? { status: result.status } : {}) };
   const detail = result.body?.detail;
   return { ok: true, detail: detail && typeof detail === "object" ? detail : null };
+}
+
+/** The answer to a pending request: the owner knows whether the request was still waiting. */
+export type ForwardedAnswerResult =
+  | { ok: true }
+  | { ok: false; reason: BackendFailureReason | "not-found"; status?: number };
+
+function answerResult(result: { ok: true; status: number } | { ok: false; reason: BackendFailureReason; status?: number }): ForwardedAnswerResult {
+  if (result.ok) return { ok: true };
+  // 404 means the request is no longer pending: that is an answer, not a transport failure.
+  if (result.status === 404) return { ok: false, reason: "not-found", status: 404 };
+  return { ok: false, reason: result.reason, ...(result.status ? { status: result.status } : {}) };
+}
+
+/** Answers a pending approval in the owning Backend. */
+export async function forwardPermissionAnswer(
+  id: string,
+  body: { requestId: string; approved: boolean },
+  options: { env?: BackendEnv; fetchImpl?: typeof fetch; timeoutMs?: number } = {},
+): Promise<ForwardedAnswerResult> {
+  return answerResult(await respondPermissionOnBackend(id, body, options));
+}
+
+/** Answers a pending question in the owning Backend. */
+export async function forwardQuestionAnswer(
+  id: string,
+  body: { requestId: string; answer?: unknown },
+  options: { env?: BackendEnv; fetchImpl?: typeof fetch; timeoutMs?: number } = {},
+): Promise<ForwardedAnswerResult> {
+  return answerResult(await respondQuestionOnBackend(id, body, options));
 }

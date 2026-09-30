@@ -65,6 +65,21 @@ try {
       const { prompt, images, ...options } = body ?? {};
       return runtime.promptTask(id, prompt, Array.isArray(images) && images.length > 0 ? images : undefined, options);
     },
+    // A pending approval or question lives in this process's memory: only the owner can answer it.
+    respondToPermission: (id, requestId, approved) => {
+      const runtime = started.runtime();
+      if (!runtime) {
+        throw Object.assign(new Error("runtime unavailable"), { status: 503 });
+      }
+      return runtime.respondToPermissionPrompt(id, requestId, approved);
+    },
+    respondToQuestion: (id, requestId, answer) => {
+      const runtime = started.runtime();
+      if (!runtime) {
+        throw Object.assign(new Error("runtime unavailable"), { status: 503 });
+      }
+      return runtime.respondToQuestionPrompt(id, requestId, answer);
+    },
     readTaskDetail: (id) => {
       const runtime = started.runtime();
       if (!runtime) {
