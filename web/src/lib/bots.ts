@@ -5,10 +5,11 @@ import { dataDir } from "./paths";
 import { globalBotsMdPath, globalUserMdPath } from "./agents-md";
 import { deleteTask, insertBotTask, listTasks, patchTask } from "./store";
 import { BOT_DEFAULT_TOOL_NAMES, BOT_TOOL_NAMES, type BotDto, type ThinkingLevel } from "./types";
-import { isAvatarEyeColor, randomAvatarColor } from "./bot-avatar";
-import { DEFAULT_SKILLS, SOUL_TEMPLATE, toBotDto } from "@backend-core/bot-config.mjs";
+
+import { SOUL_TEMPLATE, toBotDto } from "@backend-core/bot-config.mjs";
 import { BotFileStore } from "@backend-core/bot-store.mjs";
 import { botRuntimeContext as coreBotRuntimeContext } from "@backend-core/bot-runtime-context.mjs";
+import { applyBotConfigPatch as coreApplyBotConfigPatch, createBotConfig as coreCreateBotConfig } from "@backend-core/bot-crud.mjs";
 
 export type BotConfig = Omit<BotDto, "soul" | "tools"> & { label: string; tools: string[] };
 /** Repeated in Room roster/identity JSON every turn (see room-conversation.ts); keep it short. */
@@ -51,9 +52,18 @@ export function getBot(id: string): BotDto | undefined {
   return config ? toDto(config) : undefined;
 }
 export function createBot(input: { name?: string; model?: string | null; thinkingLevel?: ThinkingLevel | null; permissionMode?: BotConfig["permissionMode"] }): BotDto {
-  const name = input.name?.trim() || "New bot";
-  const id = randomUUID(); const now = new Date().toISOString();
-  const config: BotConfig = { id, name, label: "", avatarColor: randomAvatarColor(), avatarImage: null, avatarShape: "circle", avatarGlasses: false, avatarMustache: false, createdAt: now, updatedAt: now, model: input.model ?? null, ttsVoice: null, thinkingLevel: input.thinkingLevel ?? null, permissionMode: input.permissionMode ?? "allow", codeAutoApprove: true, skills: { ...DEFAULT_SKILLS }, tools: [...BOT_DEFAULT_TOOL_NAMES], extraRoots: [], enabled: true, notificationsEnabled: true, intercomEnabled: false, intercomScopeId: "", intercomFanoutEnabled: false, codeSessionTaskId: null };
+  const id = randomUUID();
+  // Defaults live in backend core; the file/task side effects stay here.
+  const config: BotConfig = coreCreateBotConfig({
+    id,
+    name: input.name,
+    model: input.model,
+    thinkingLevel: input.thinkingLevel,
+    permissionMode: input.permissionMode,
+    now: new Date().toISOString(),
+    defaultToolNames: BOT_DEFAULT_TOOL_NAMES,
+  });
+  const name = config.name;
   mkdirSync(botFileStore.workspacePath(id), { recursive: true });
   botFileStore.writeSoul(id, SOUL_TEMPLATE);
   botFileStore.ensureMemoryFile(id);
@@ -63,10 +73,8 @@ export function createBot(input: { name?: string; model?: string | null; thinkin
 }
 export function patchBot(id: string, patch: Partial<Pick<BotConfig, "name" | "label" | "avatarColor" | "avatarImage" | "avatarShape" | "avatarGlasses" | "avatarMustache" | "model" | "ttsVoice" | "thinkingLevel" | "permissionMode" | "skills" | "tools" | "extraRoots" | "enabled" | "notificationsEnabled" | "intercomEnabled" | "intercomScopeId" | "intercomFanoutEnabled" | "codeAutoApprove" | "codeSessionTaskId">> & { soul?: string; avatarEyeColor?: string | null }): BotDto | undefined {
   const current = parseConfig(id); if (!current) return undefined;
-  // null clears the eye color back to the automatic default.
-  const ttsVoice = patch.ttsVoice === undefined ? current.ttsVoice : (typeof patch.ttsVoice === "string" && patch.ttsVoice.trim() ? patch.ttsVoice.trim() : null);
-  const next: BotConfig = { ...current, ...patch, ttsVoice, avatarEyeColor: patch.avatarEyeColor === undefined ? current.avatarEyeColor : (isAvatarEyeColor(patch.avatarEyeColor) ? patch.avatarEyeColor : undefined), skills: patch.skills ?? current.skills, updatedAt: new Date().toISOString() };
-  delete (next as Record<string, unknown>).soul;
+  // Merge rules (voice trimming, eye-colour validation, SOUL stripping) live in backend core.
+  const next: BotConfig = coreApplyBotConfigPatch(current, patch, { now: new Date().toISOString() });
   writeConfig(next);
   if (patch.soul !== undefined) botFileStore.writeSoul(id, patch.soul);
   // Model routing is applied by the bot PATCH route through setTaskModel; do not write the logical model key into modelID.
