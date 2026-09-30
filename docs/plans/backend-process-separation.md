@@ -27,7 +27,7 @@
 ## 段階と現在地
 
 1. 通信契約・依存境界: **進行中**。認証、版数、health、起動/停止を追加。既存のタスク・モデル・質問/承認・Bot/Room・履歴・Git等のDTOを `shared/types.ts` へ移動。既存 `@/lib/types` は互換再エクスポート。共有契約はNext/SDK/Node型への依存なしで単独型検証できる。設定等の個別ファイルにあるDTOと実行依存の抽出は後続。
-2. Next非依存の実行層: **着手済み・未完**。下表のとおり、Next/SDK/アプリストアに依存しない判定・順序・保存をBackend coreへ移設し、Webは同名の互換入口（注入アダプター）にした。実測（2026-09-30時点）: `backend/core/` は**35モジュール・44テストファイル**、`backend/src/` は transport と起動アダプタの3ファイル（`server.mjs`・`entry.mjs`・`runtime-host.mjs`）。Backendテストは**380件成功**（重複プロセスのlease競合試験を含む）。Web側は**4339件成功・2件失敗**（既存の`/api/health`のdataDir、`MessageCardRadius`）と、MCP拡張の`typebox`未解決によるファイル単位の失敗1件で、いずれも本作業とは無関係。高負荷時にsubagents拡張の並行実行テストが失敗することがあるが、単独実行では成功する（負荷起因のフレーク）。移設済みモジュールはNext/Webをimportせずに読み込め（多くは別Nodeプロセスでの実行もテスト済み）、Backend側テストで挙動を固定している。ただし **Backendプロセスは実行経路に未接続** で、SDK・ストア・leaseの実体は従来どおりWebプロセス内にある（HTTP Backendのhealthは503/startingのまま）。
+2. Next非依存の実行層: **着手済み・未完**。下表のとおり、Next/SDK/アプリストアに依存しない判定・順序・保存をBackend coreへ移設し、Webは同名の互換入口（注入アダプター）にした。実測（2026-09-30時点）: `backend/core/` は**35モジュール・44テストファイル**、`backend/src/` は transport と起動アダプタの3ファイル（`server.mjs`・`entry.mjs`・`runtime-host.mjs`）。Backendテストは**385件成功**（重複プロセスのlease競合試験を含む。同試験は高負荷時にワーカー起動自体が失敗することがあり、起動失敗のみ再試行する）。Web側は**4339件成功・2件失敗**（既存の`/api/health`のdataDir、`MessageCardRadius`）と、MCP拡張の`typebox`未解決によるファイル単位の失敗1件で、いずれも本作業とは無関係。高負荷時にsubagents拡張の並行実行テストが失敗することがあるが、単独実行では成功する（負荷起因のフレーク）。移設済みモジュールはNext/Webをimportせずに読み込め（多くは別Nodeプロセスでの実行もテスト済み）、Backend側テストで挙動を固定している。ただし **Backendプロセスは実行経路に未接続** で、SDK・ストア・leaseの実体は従来どおりWebプロセス内にある（HTTP Backendのhealthは503/startingのまま）。
 
    | モジュール（`backend/core/`） | 移設した内容 | Webに残るもの |
    | --- | --- | --- |
@@ -48,7 +48,7 @@
    | `abort-control.mjs` / `abort-coordinator.mjs` | ユーザー停止とhang watchdog停止の副作用順序（副作用は注入） | Goal Loop・サブエージェント停止の実体、スナップショット配信 |
    | `live-lifecycle.mjs` / `live-replace.mjs` | dispose時のRoom busy・shutdown要否判定、置換時の旧live切離し順序（購読解除→旧アカウント参照の解放→旧セッション破棄→スナップショットタイマー取消）、attach時のアカウント決定と1:1 Bot liveのmailbox昇格判定（Roomは昇格しない）、extension shutdown→session disposeの順序とin-flight登録、ensure-live世代の照合と「登録済みliveが自分のattach結果か」の判定・in-flight ensureの登録/解除（新しい試行が置き換えたら古い側は消さない）・未接続セッションの破棄（session_shutdownは出さず例外は握りつぶす契約）・セッション生成直後/attach直後の扱い（世代が古ければ破棄して再試行、タスク消滅は404、attach結果が最新でなければ破棄しない）・in-flight ensureに合流した後の扱い（世代が古ければ採用せず再試行）、置換の共通末尾（永続化先行・失敗時の破棄と復元） | `live`のmap・購読・`attachSession`/`ensureLive`/`createSession` |
    | `live-attach-state.mjs` | attach時のlive初期状態（置換前liveのマップ/プロンプト連鎖/世代の引継ぎ、task由来の復元値、transcript由来のタイミング復元。versioned mapは注入） | transcript走査とversioned mapクラス、SOULリビジョン取得 |
-   | `live-session-preflight.mjs` | liveセッション生成前の拒否理由の優先順位（task不在→archive済→他workerのlease）と、セッション設定の決定（Bot判定、workspace、sessionNameのBot名前空間、権限モードとskill permissionのフォールバック） | エラー文言とHTTPステータス、通知などの副作用 |
+   | `live-session-preflight.mjs` | liveセッション生成前の拒否理由の優先順位（task不在→archive済→他workerのlease）と、セッション設定の決定（Bot判定、workspace、sessionNameのBot名前空間、権限モードとskill permissionのフォールバック、セッションが使うアカウントの選択と明示アカウントの拒否理由） | エラー文言とHTTPステータス、通知などの副作用 |
    | `session-event-decisions.mjs` | セッションイベントごとの判定（agent_start/settled/endでの同期要否、自動コンパクション失敗の判定と記録メッセージ、transport復旧中のsettle抑止、task行が消えたイベントの破棄、agent_startのlease取得→working公開の順序） | イベント受信時の副作用の実体（タスク更新・状態遷移・スナップショット） |
    | `snapshot-schedule.mjs` | スナップショットの合流規則（非描画イベントの除外、高頻度イベントのdelta化、フル待機中のdelta破棄、100ms窓、発火時に読むpending内容）と、unsubscribe時の後始末順序（タイマー取消→pending消去→保留分のemit） | タイマー実体とSSE emit |
    | `session-identity.mjs` | セッションが報告する識別情報（sessionId/sessionFile/provider/model）の選択（タスクモデル保持時はtranscript位置のみ）と保存済みタスクとの差分計算、書き込む変化があるかの判定。欠落値で保存済みを消さない規則を含む | `lib/pi/session-identity.ts` は同名exportの互換入口 |

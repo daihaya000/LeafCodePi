@@ -20,6 +20,25 @@ export function resolveSessionPermissionMode(input: {
   taskPermissionMode: BotPermissionMode | null | undefined;
 }): BotPermissionMode | undefined;
 
+/** "account-not-found" (404) / "account-paused" (409) for an explicit account, else null. */
+export function resolveSessionAccountRefusal(input: {
+  explicit: boolean;
+  hasTaskAccountId: boolean;
+  hasAccountRecord: boolean;
+  accountEnabled: boolean;
+}): "account-not-found" | "account-paused" | null;
+
+/** The account a new session uses: route account, else a usable task account, else null. */
+export function resolveSessionAccountId(input: {
+  modelRouteAccountId?: string | null;
+  taskAccountId?: string | null;
+  hasAccountRecord: boolean;
+  accountEnabled: boolean;
+  hasProviderId: boolean;
+  routedThroughAccounts: boolean;
+  accountHasProvider: boolean;
+}): string | null;
+
 /** A Bot task is a Bot session only when it also carries the Bot it belongs to. */
 export function isBotTask(task: { kind?: string | null; botId?: string | null } | undefined): boolean;
 

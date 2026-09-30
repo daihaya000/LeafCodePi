@@ -217,7 +217,7 @@ import { detachReplacedLive as coreDetachReplacedLive, disposeUnattachedSession,
 import { restoredPromptState, restoredTaskMetadata, restoredThroughputState as coreRestoredThroughputState } from "@backend-core/live-attach-state.mjs";
 import { compactionFailureMessage, isHarnessAutoCompactionError as coreIsHarnessAutoCompactionError, runAgentStartTaskSync, shouldApplySettledStatus, shouldSkipEventForMissingTask, shouldSyncTaskFromSessionEvent as coreShouldSyncTaskFromSessionEvent, type SessionSyncEvent } from "@backend-core/session-event-decisions.mjs";
 import { classifySnapshotEvent, flushPendingSnapshotOnUnsubscribe, pendingSnapshotFlush, SNAPSHOT_THROTTLE_MS } from "@backend-core/snapshot-schedule.mjs";
-import { isBotTask, liveSessionName, liveSessionWorkspace, preflightLiveSession, resolveSessionPermissionMode, resolveSessionSkillPermission } from "@backend-core/live-session-preflight.mjs";
+import { isBotTask, liveSessionName, liveSessionWorkspace, preflightLiveSession, resolveSessionAccountId, resolveSessionAccountRefusal, resolveSessionPermissionMode, resolveSessionSkillPermission } from "@backend-core/live-session-preflight.mjs";
 import { runSerializedByKey } from "@backend-core/keyed-serializer.mjs";
 import { attachReplacementSession } from "@backend-core/live-replace.mjs";
 import { buildBotCodeReportContent } from "@backend-core/bot-code-report.mjs";
@@ -4444,25 +4444,32 @@ function resolveLiveSessionAccount(
   accountIdExplicit: boolean,
 ): string | null | undefined {
   const taskAccount = task.accountId ? getAccount(task.accountId) : undefined;
-  if (accountIdExplicit && task.accountId && !taskAccount) {
+  // Refusal and selection rules live in backend core; the lookups stay here.
+  const refusal = resolveSessionAccountRefusal({
+    explicit: accountIdExplicit,
+    hasTaskAccountId: Boolean(task.accountId),
+    hasAccountRecord: Boolean(taskAccount),
+    accountEnabled: taskAccount ? isAccountEnabled(taskAccount) : false,
+  });
+  if (refusal === "account-not-found") {
     throw Object.assign(new Error("アカウントが見つかりません"), {
       status: 404,
     });
   }
-  if (accountIdExplicit && taskAccount && !isAccountEnabled(taskAccount)) {
+  if (refusal === "account-paused") {
     throw Object.assign(new Error("一時停止中のアカウントです"), {
       status: 409,
     });
   }
-  const taskAccountForSession =
-    taskAccount &&
-    isAccountEnabled(taskAccount) &&
-    (!task.providerID ||
-      (isAccountRoutingProvider(task.providerID) &&
-        accountHasProvider(taskAccount, task.providerID)))
-      ? task.accountId ?? null
-      : null;
-  return modelRoute?.accountId ?? taskAccountForSession;
+  return resolveSessionAccountId({
+    modelRouteAccountId: modelRoute?.accountId,
+    taskAccountId: task.accountId,
+    hasAccountRecord: Boolean(taskAccount),
+    accountEnabled: taskAccount ? isAccountEnabled(taskAccount) : false,
+    hasProviderId: Boolean(task.providerID),
+    routedThroughAccounts: task.providerID ? isAccountRoutingProvider(task.providerID) : false,
+    accountHasProvider: taskAccount && task.providerID ? accountHasProvider(taskAccount, task.providerID) : false,
+  });
 }
 
 type AutoFallbackHints = {

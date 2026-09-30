@@ -18,6 +18,35 @@ export function preflightLiveSession({ hasTask, status, leaseHeldElsewhere }) {
 }
 
 /**
+ * Refusal for an explicitly chosen account: a missing record is 404, a paused one
+ * 409. Only an explicit account id can refuse here; an implicitly inherited one
+ * just falls back to no account.
+ */
+export function resolveSessionAccountRefusal({ explicit, hasTaskAccountId, hasAccountRecord, accountEnabled }) {
+  if (explicit !== true || hasTaskAccountId !== true) return null;
+  if (hasAccountRecord !== true) return "account-not-found";
+  if (accountEnabled !== true) return "account-paused";
+  return null;
+}
+
+/**
+ * Which account the new session runs under: the route's account wins; otherwise the
+ * task's account is reused only when it exists, is enabled, and either the task has
+ * no provider or that provider routes through accounts and the account holds it.
+ * Anything else means no account (the ambient auth path).
+ */
+export function resolveSessionAccountId({
+  modelRouteAccountId, taskAccountId, hasAccountRecord, accountEnabled,
+  hasProviderId, routedThroughAccounts, accountHasProvider,
+}) {
+  if (modelRouteAccountId != null) return modelRouteAccountId;
+  if (hasAccountRecord !== true || accountEnabled !== true) return null;
+  if (hasProviderId !== true) return taskAccountId ?? null;
+  if (routedThroughAccounts === true && accountHasProvider === true) return taskAccountId ?? null;
+  return null;
+}
+
+/**
  * The permission mode a new session runs with: a Bot follows its own record (and
  * falls back to the task), while a Code task uses the value just normalized into
  * the task and otherwise what the task already had.

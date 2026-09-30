@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
-  isBotTask, liveSessionName, liveSessionWorkspace, preflightLiveSession, resolveSessionPermissionMode,
-  resolveSessionSkillPermission,
+  isBotTask, liveSessionName, liveSessionWorkspace, preflightLiveSession, resolveSessionAccountId,
+  resolveSessionAccountRefusal, resolveSessionPermissionMode, resolveSessionSkillPermission,
 } from "./live-session-preflight.mjs";
 
 test("a live session may be created when nothing stands in the way", () => {
@@ -90,4 +90,61 @@ test("a normalized skill permission wins over the stored one", () => {
     assert.equal(resolveSessionSkillPermission({ updatedSkillPermission, taskSkillPermission: "deny" }), "deny");
   }
   assert.equal(resolveSessionSkillPermission({}), undefined);
+});
+
+const account = (overrides = {}) => ({
+  explicit: true, hasTaskAccountId: true, hasAccountRecord: true, accountEnabled: true, ...overrides,
+});
+
+test("an explicitly chosen account refuses when it is missing or paused", () => {
+  assert.equal(resolveSessionAccountRefusal(account()), null);
+  assert.equal(resolveSessionAccountRefusal(account({ hasAccountRecord: false })), "account-not-found");
+  assert.equal(resolveSessionAccountRefusal(account({ accountEnabled: false })), "account-paused");
+  // A missing record is reported before the paused state can be considered.
+  assert.equal(resolveSessionAccountRefusal(account({ hasAccountRecord: false, accountEnabled: false })), "account-not-found");
+});
+
+test("an inherited account never refuses, it just falls back", () => {
+  for (const input of [account({ explicit: false }), account({ explicit: false, hasAccountRecord: false, accountEnabled: false })]) {
+    assert.equal(resolveSessionAccountRefusal(input), null);
+  }
+  assert.equal(resolveSessionAccountRefusal(account({ hasTaskAccountId: false, hasAccountRecord: false })), null);
+  for (const explicit of [undefined, null, 0, "true"]) {
+    assert.equal(resolveSessionAccountRefusal(account({ explicit })), null, String(explicit));
+  }
+});
+
+const selection = (overrides = {}) => ({
+  hasAccountRecord: true, accountEnabled: true, hasProviderId: true,
+  routedThroughAccounts: true, accountHasProvider: true, taskAccountId: "acc-1", ...overrides,
+});
+
+test("the resolved route account always wins", () => {
+  assert.equal(resolveSessionAccountId({ ...selection({ modelRouteAccountId: "acc-2" }) }), "acc-2");
+  assert.equal(resolveSessionAccountId({ ...selection({ modelRouteAccountId: "acc-2", accountEnabled: false }) }), "acc-2");
+  // A null route account is not a choice, so the task account is considered.
+  assert.equal(resolveSessionAccountId({ ...selection({ modelRouteAccountId: null }) }), "acc-1");
+  assert.equal(resolveSessionAccountId({ ...selection({ modelRouteAccountId: undefined }) }), "acc-1");
+});
+
+test("the task account is reused only when it is present, enabled and covers the provider", () => {
+  assert.equal(resolveSessionAccountId(selection()), "acc-1");
+  assert.equal(resolveSessionAccountId(selection({ hasAccountRecord: false })), null);
+  assert.equal(resolveSessionAccountId(selection({ accountEnabled: false })), null);
+  assert.equal(resolveSessionAccountId(selection({ accountHasProvider: false })), null);
+  assert.equal(resolveSessionAccountId(selection({ routedThroughAccounts: false })), null);
+  // A task without a provider only needs an enabled account.
+  assert.equal(resolveSessionAccountId(selection({ hasProviderId: false })), "acc-1");
+  assert.equal(resolveSessionAccountId(selection({ hasProviderId: false, routedThroughAccounts: false, accountHasProvider: false })), "acc-1");
+  assert.equal(resolveSessionAccountId(selection({ hasProviderId: false, accountEnabled: false })), null);
+  // No task account at all means the ambient auth path.
+  assert.equal(resolveSessionAccountId(selection({ taskAccountId: null })), null);
+});
+
+test("only an explicit true enables the account flags", () => {
+  for (const value of [undefined, null, 0, "true", 1]) {
+    assert.equal(resolveSessionAccountId(selection({ accountEnabled: value })), null, String(value));
+    assert.equal(resolveSessionAccountId(selection({ routedThroughAccounts: value })), null, String(value));
+    assert.equal(resolveSessionAccountId(selection({ accountHasProvider: false, routedThroughAccounts: value })), null, String(value));
+  }
 });
