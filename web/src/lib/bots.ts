@@ -10,6 +10,7 @@ import { SOUL_TEMPLATE, toBotDto } from "@backend-core/bot-config.mjs";
 import { BotFileStore } from "@backend-core/bot-store.mjs";
 import { botRuntimeContext as coreBotRuntimeContext } from "@backend-core/bot-runtime-context.mjs";
 import { createBotWithEffects, deleteBotWithEffects, patchBotWithEffects } from "@backend-core/bot-lifecycle.mjs";
+import { botPromptSources as coreBotPromptSources } from "@backend-core/bot-prompt-sources.mjs";
 
 export type BotConfig = Omit<BotDto, "soul" | "tools"> & { label: string; tools: string[] };
 /** Repeated in Room roster/identity JSON every turn (see room-conversation.ts); keep it short. */
@@ -88,15 +89,13 @@ export function botRuntimeContext(extensions: readonly { path: string }[]): stri
 // Global SOUL.md is Code-only; each bot uses its own SOUL.md instead.
 // Return paths so session.reload() re-reads edits without a new session.
 export function botPromptSources(id: string): string[] {
-  botFileStore.ensureMemoryFile(id);
-  const sources: string[] = [];
-  const shared = globalBotsMdPath();
-  if (existsSync(shared)) sources.push(shared);
-  const user = globalUserMdPath();
-  if (existsSync(user)) sources.push(user);
-  sources.push(botFileStore.soulPath(id));
-  // MEMORY.md is re-read when a session is created, so facts learned in a
-  // previous conversation become context without copying them into config.json.
-  if (existsSync(botFileStore.memoryPath(id))) sources.push(botFileStore.memoryPath(id));
-  return sources;
+  // Order and conditions live in backend core; the global paths and file checks are injected.
+  return coreBotPromptSources(id, {
+    ensureMemoryFile: (botId) => botFileStore.ensureMemoryFile(botId),
+    sharedBotsMdPath: () => globalBotsMdPath(),
+    globalUserMdPath: () => globalUserMdPath(),
+    soulPath: (botId) => botFileStore.soulPath(botId),
+    memoryPath: (botId) => botFileStore.memoryPath(botId),
+    exists: (path) => existsSync(path),
+  });
 }
