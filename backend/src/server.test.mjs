@@ -205,6 +205,32 @@ test("CLI starts as a separate process without pretending SDK is ready", { timeo
   assert.equal((await response.json()).pid, child.pid);
 });
 
+test("CLI serves the pending snapshot route with an empty store and stays not ready", { timeout: 5_000 }, async (t) => {
+  const token = randomBytes(32).toString("base64url");
+  const child = spawn(process.execPath, [fileURLToPath(new URL("./entry.mjs", import.meta.url))], {
+    env: { ...process.env, LEAFCODE_PI_BACKEND_TOKEN: token, LEAFCODE_PI_BACKEND_PORT: "0" },
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  const exit = once(child, "exit");
+  const lines = createInterface({ input: child.stdout });
+  t.after(async () => {
+    lines.close();
+    if (child.exitCode === null && child.signalCode === null) child.kill();
+    await exit;
+  });
+  const [line] = await once(lines, "line");
+  const listening = JSON.parse(line);
+  const headers = { authorization: `Bearer ${token}`, [BACKEND_PROTOCOL_HEADER]: String(BACKEND_PROTOCOL_VERSION) };
+  const snapshots = await request(`http://127.0.0.1:${listening.port}${BACKEND_PENDING_SNAPSHOTS_PATH}`, { headers });
+  assert.equal(snapshots.status, 200);
+  // Nothing has scheduled a snapshot in this process yet, so the read is empty.
+  assert.deepEqual(await snapshots.json(), { snapshots: [] });
+  const health = await request(`http://127.0.0.1:${listening.port}${BACKEND_HEALTH_PATH}`, { headers });
+  assert.equal(health.status, 503, "attaching a store must not imply runtime readiness");
+  assert.equal((await health.json()).status, "starting");
+  assert.equal((await request(`http://127.0.0.1:${listening.port}${BACKEND_PENDING_SNAPSHOTS_PATH}`)).status, 401);
+});
+
 test("CLI refuses missing credentials and malformed ports", { timeout: 5_000 }, async () => {
   for (const env of [
     { LEAFCODE_PI_BACKEND_TOKEN: "", LEAFCODE_PI_BACKEND_PORT: "0" },
