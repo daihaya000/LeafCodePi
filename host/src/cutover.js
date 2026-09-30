@@ -11,7 +11,7 @@
  */
 
 /** The stages, in order. The last stage is the only success state. */
-export const CUTOVER_STAGES = ["check", "stop-old-path", "attach-backend", "hand-over", "done"];
+export const CUTOVER_STAGES = ["check", "stop-old-path", "attach-backend", "hand-over", "verify", "done"];
 
 export async function runCutover({
   preflight,
@@ -20,6 +20,7 @@ export async function runCutover({
   stopBackend,
   startBackendAttached,
   waitReady,
+  verify,
   log = () => {},
   error = () => {},
   sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
@@ -97,6 +98,23 @@ export async function runCutover({
   } catch (err) {
     error(`Cutover could not restart the WebUI: ${err instanceof Error ? err.message : String(err)}`);
     return await failed("hand-over", "start-failed");
+  }
+
+  // 5. Confirm the hand-over from the outside: the WebUI must report a satisfied cutover and the
+  // Backend must still be ready. A hand-over that only looks finished is rolled back.
+  if (typeof verify === "function") {
+    stages.push("verify");
+    let verified = { ok: false, blockers: [] };
+    try {
+      verified = (await verify()) ?? { ok: false, blockers: [] };
+    } catch (err) {
+      error(`Cutover verification failed: ${err instanceof Error ? err.message : String(err)}`);
+      verified = { ok: false, blockers: [] };
+    }
+    if (!verified.ok) {
+      error("Cutover verification did not pass; rolling back");
+      return await failed("verify", "verify-failed", verified.blockers);
+    }
   }
 
   stages.push("done");

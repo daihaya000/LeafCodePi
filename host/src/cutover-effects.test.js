@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { runCutover } from "./cutover.js";
-import { createCutoverEffects } from "./cutover-effects.js";
+import { createCutoverEffects, createCutoverVerify } from "./cutover-effects.js";
 
 const BASE = "http://127.0.0.1:18776";
 
@@ -77,9 +77,42 @@ test("a rollback restarts the WebUI owning the runtime and relay off", async () 
   assert.deepEqual(calls.slice(-2), ["backend.stop", "spawnWeb:in-process:relay=off"]);
 });
 
+test("verification needs both the Backend and the WebUI to agree", async () => {
+  const ready = async () => ({ ok: true, ready: true, generation: { pinned: "gen-a", running: "gen-a", matches: true } });
+  const satisfied = async () => ({ cutover: { ok: true, blockers: [] } });
+  const cases = [
+    [ready, satisfied, true, []],
+    [async () => ({ ok: true, ready: false }), satisfied, false, [{ code: "backend-not-ready" }]],
+    [async () => ({ ok: false, reason: "unreachable" }), satisfied, false, [{ code: "backend-unreachable" }]],
+    [ready, async () => ({ cutover: { ok: false, blockers: ["relay-disabled"] } }), false, [{ code: "relay-disabled" }]],
+    [ready, async () => ({ cutover: { ok: false } }), false, [{ code: "webui-cutover-not-ok" }]],
+    [ready, async () => { throw new Error("ECONNREFUSED"); }, false, [{ code: "webui-unreachable" }]],
+    [
+      async () => ({ ok: true, ready: true, generation: { pinned: "gen-a", running: "gen-b", matches: false } }),
+      satisfied,
+      false,
+      [{ code: "generation-mismatch", detail: "gen-a" }],
+    ],
+  ];
+  for (const [readHealth, readWebUiCutover, expected, blockers] of cases) {
+    const verify = createCutoverVerify({ readHealth, readWebUiCutover, expectedGeneration: "gen-a" });
+    const result = await verify();
+    assert.equal(result.ok, expected);
+    assert.deepEqual(result.blockers, blockers);
+  }
+  // Without a pinned generation there is nothing to compare.
+  const unpinned = createCutoverVerify({
+    readHealth: async () => ({ ok: true, ready: true, generation: { pinned: null, running: "gen-z", matches: true } }),
+    readWebUiCutover: satisfied,
+  });
+  assert.equal((await unpinned()).ok, true);
+});
+
 test("the switches the Host must set are reported, and missing primitives are refused", () => {
   const effects = createCutoverEffects({ ...harness().options, backendOwnsRuntime: true, relayEnabled: true });
   assert.deepEqual(effects.switches, { backendOwnsRuntime: true, relayEnabled: true });
   assert.throws(() => createCutoverEffects({}), /stopWeb is required/);
   assert.throws(() => createCutoverEffects({ stopWeb: async () => {}, spawnWeb: async () => {}, preflight: async () => ({ ok: true }) }), /backendService is required/);
+  assert.throws(() => createCutoverVerify({}), /readHealth is required/);
+  assert.throws(() => createCutoverVerify({ readHealth: async () => ({}) }), /readWebUiCutover is required/);
 });

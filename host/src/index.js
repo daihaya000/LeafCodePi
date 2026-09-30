@@ -18,7 +18,7 @@ import { hardKillTree, stopProcessTreeGracefully } from "./process-stop.js";
 import { DEFAULT_BACKEND_PORT } from "../../shared/backend-protocol.mjs";
 import { createBackendService, isBackendRequested } from "./backend-service.js";
 import { readBackendHealth } from "./backend-health.js";
-import { createCutoverEffects } from "./cutover-effects.js";
+import { createCutoverEffects, createCutoverVerify } from "./cutover-effects.js";
 import { createCutoverPreflight } from "./cutover-preflight.js";
 import { runCutover } from "./cutover.js";
 import { autoUpdatePiInBackground } from "./pi-update.js";
@@ -1133,6 +1133,16 @@ async function main() {
     const baseUrl = clientEnv.LEAFCODE_PI_BACKEND_URL ?? `http://127.0.0.1:${DEFAULT_BACKEND_PORT}`;
     const readHealth = () =>
       readBackendHealth({ baseUrl, token: clientEnv.LEAFCODE_PI_BACKEND_TOKEN, expectedGeneration: backendService.status().generation ?? "" });
+    // The hand-over is confirmed from the outside: the WebUI must report a satisfied cutover.
+    const readWebUiCutover = async () => {
+      const response = await fetch(`${WEBUI_URL}/api/backend/status`, {
+        cache: "no-store",
+        signal: AbortSignal.timeout(5000),
+        headers: WEBUI_AUTH.authRequired && WEBUI_AUTH.token ? { authorization: `Bearer ${WEBUI_AUTH.token}` } : {},
+      });
+      if (!response.ok) return null;
+      return response.json();
+    };
     try {
       await runCutover({
         ...createCutoverEffects({
@@ -1153,6 +1163,11 @@ async function main() {
             readHealth,
             countGoalLoops: countActiveGoalLoops,
           }),
+        }),
+        verify: createCutoverVerify({
+          readHealth,
+          readWebUiCutover,
+          expectedGeneration: backendService.status().generation ?? "",
         }),
         log,
         error,

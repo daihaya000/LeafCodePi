@@ -28,6 +28,11 @@ function harness({ failAt = null, ready = true } = {}) {
       stopBackend: record("stopBackend"),
       startBackendAttached: record("startBackendAttached"),
       waitReady: record("waitReady"),
+      verify: async () => {
+        calls.push("verify");
+        if (failAt === "verify") return { ok: false, blockers: [{ code: "backend-not-ready" }] };
+        return { ok: true, blockers: [] };
+      },
       log: () => {},
       error: (message) => errors.push(message),
       sleep: async () => {},
@@ -36,7 +41,7 @@ function harness({ failAt = null, ready = true } = {}) {
 }
 
 test("the stages are ordered, and the runtime never has two owners", () => {
-  assert.deepEqual(CUTOVER_STAGES, ["check", "stop-old-path", "attach-backend", "hand-over", "done"]);
+  assert.deepEqual(CUTOVER_STAGES, ["check", "stop-old-path", "attach-backend", "hand-over", "verify", "done"]);
 });
 
 test("a satisfied cutover stops the old path, attaches, then hands over", async () => {
@@ -50,7 +55,29 @@ test("a satisfied cutover stops the old path, attaches, then hands over", async 
     "startBackendAttached",
     "waitReady",
     "startWebUi:client:relay=on", // the WebUI returns as a client of the Backend
+    "verify", // the hand-over is confirmed from the outside
   ]);
+});
+
+test("a hand-over that fails verification is rolled back", async () => {
+  const { calls, options } = harness({ failAt: "verify" });
+  const result = await runCutover(options);
+  assert.equal(result.ok, false);
+  assert.equal(result.stage, "verify");
+  assert.equal(result.reason, "verify-failed");
+  assert.deepEqual(result.blockers, [{ code: "backend-not-ready" }]);
+  assert.equal(result.rolledBack, true);
+  assert.deepEqual(calls.slice(-3), ["verify", "stopBackend", "startWebUi:owns:relay=off"]);
+});
+
+test("the verification stage is skipped when the Host has nothing to verify with", async () => {
+  const { calls, options } = harness();
+  delete options.verify;
+  const result = await runCutover(options);
+  assert.equal(result.ok, true);
+  assert.equal(result.stages.includes("verify"), false);
+  assert.equal(calls.includes("verify"), false);
+  assert.deepEqual(result.stages, ["check", "stop-old-path", "attach-backend", "hand-over", "done"]);
 });
 
 test("a refused preflight changes nothing at all", async () => {

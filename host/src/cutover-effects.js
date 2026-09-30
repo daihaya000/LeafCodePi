@@ -51,3 +51,35 @@ export function createCutoverEffects({
     switches: { backendOwnsRuntime: Boolean(backendOwnsRuntime), relayEnabled: Boolean(relayEnabled) },
   };
 }
+
+/**
+ * Confirms the hand-over from the outside: the WebUI must report a satisfied cutover (it is serving the
+ * Backend and no longer owns the runtime) and the Backend must still be ready at the pinned generation.
+ *
+ * A status that cannot be read is a failure, not a pass: an unverified cutover is rolled back.
+ */
+export function createCutoverVerify({ readHealth, readWebUiCutover, expectedGeneration = "" } = {}) {
+  if (typeof readHealth !== "function") throw new Error("readHealth is required");
+  if (typeof readWebUiCutover !== "function") throw new Error("readWebUiCutover is required");
+  return async function verify() {
+    const blockers = [];
+    const health = await readHealth();
+    if (health?.ok !== true) blockers.push({ code: "backend-unreachable" });
+    else if (health.ready !== true) blockers.push({ code: "backend-not-ready" });
+    else if (expectedGeneration && health.generation?.running !== expectedGeneration) {
+      blockers.push({ code: "generation-mismatch", detail: expectedGeneration });
+    }
+    let status = null;
+    try {
+      status = await readWebUiCutover();
+    } catch {
+      status = null;
+    }
+    if (!status) blockers.push({ code: "webui-unreachable" });
+    else if (status.cutover?.ok !== true) {
+      const reported = Array.isArray(status.cutover?.blockers) ? status.cutover.blockers : [];
+      blockers.push(...(reported.length > 0 ? reported.map((code) => ({ code })) : [{ code: "webui-cutover-not-ok" }]));
+    }
+    return { ok: blockers.length === 0, blockers };
+  };
+}
