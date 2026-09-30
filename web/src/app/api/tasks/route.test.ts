@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
   listTasks: vi.fn(),
   listPendingAttention: vi.fn(),
   reconcileOrphanedWorkingTasks: vi.fn(),
+  relayTaskRows: vi.fn(),
   resolveAutoAgent: vi.fn(),
   autoAgentHasOwnModel: vi.fn(),
   resolveAutoModel: vi.fn(),
@@ -26,6 +27,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock("@/lib/pi/harness", () => mocks);
 vi.mock("@/lib/store", () => ({ listTasks: mocks.listTasks }));
 vi.mock("@/lib/task-runtime-lease", () => ({ reconcileOrphanedWorkingTasks: mocks.reconcileOrphanedWorkingTasks }));
+vi.mock("@/lib/backend-relay", () => ({ relayTaskRows: mocks.relayTaskRows }));
 vi.mock("@/lib/auto-agent", () => ({
   resolveAutoAgent: mocks.resolveAutoAgent,
   autoAgentHasOwnModel: mocks.autoAgentHasOwnModel,
@@ -42,6 +44,8 @@ describe("GET /api/tasks", () => {
     mocks.autoArchiveOldTasks.mockResolvedValue(0);
     mocks.listTasks.mockReset();
     mocks.reconcileOrphanedWorkingTasks.mockReset();
+    mocks.relayTaskRows.mockReset();
+    mocks.relayTaskRows.mockResolvedValue(null);
   });
 
   it("lists every task kind when kind=all is requested", async () => {
@@ -562,5 +566,39 @@ describe("POST /api/tasks", () => {
 
     expect(response.status).toBe(400);
     expect(mocks.createTask).not.toHaveBeenCalled();
+  });
+});
+
+describe("GET /api/tasks relay switch", () => {
+  beforeEach(() => {
+    mocks.autoArchiveOldTasks.mockResolvedValue(0);
+    mocks.listTasks.mockReturnValue([{ id: "local", status: "idle" }]);
+    mocks.reconcileOrphanedWorkingTasks.mockReset();
+    mocks.relayTaskRows.mockReset();
+  });
+
+  it("serves the Backend rows for the raw modes when the relay answers", async () => {
+    mocks.relayTaskRows.mockResolvedValue([{ id: "from-backend", status: "idle" }]);
+    const titles = await GET(new NextRequest("http://127.0.0.1:3010/api/tasks?titles=1"));
+    expect(await titles.json()).toEqual({ tasks: [{ id: "from-backend", status: "idle" }] });
+    const pane = await GET(new NextRequest("http://127.0.0.1:3010/api/tasks?paneCandidates=1"));
+    expect(await pane.json()).toEqual({ tasks: [{ id: "from-backend", status: "idle" }] });
+    // The projection keeps exactly the pane-header fields.
+    expect(mocks.relayTaskRows).toHaveBeenCalledWith({ includeArchived: false, kind: "all" });
+    expect(mocks.relayTaskRows).toHaveBeenCalledWith({ includeArchived: false, kind: "code" });
+  });
+
+  it("falls back to the in-process store when the relay cannot answer", async () => {
+    mocks.relayTaskRows.mockResolvedValue(null);
+    const response = await GET(new NextRequest("http://127.0.0.1:3010/api/tasks?titles=1"));
+    expect(await response.json()).toEqual({ tasks: [{ id: "local", status: "idle" }] });
+  });
+
+  it("never relays the derived summary or attention modes", async () => {
+    mocks.getTaskSummariesWithTodoProgress.mockResolvedValue([]);
+    mocks.listPendingAttention.mockReturnValue([]);
+    await GET(new NextRequest("http://127.0.0.1:3010/api/tasks"));
+    await GET(new NextRequest("http://127.0.0.1:3010/api/tasks?attention=1"));
+    expect(mocks.relayTaskRows).not.toHaveBeenCalled();
   });
 });

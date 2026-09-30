@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { relayTaskRows } from "@/lib/backend-relay";
 import { listTasks, type TaskKind } from "@/lib/store";
 import { reconcileOrphanedWorkingTasks } from "@/lib/task-runtime-lease";
 import {
@@ -59,8 +60,10 @@ export async function GET(req: NextRequest) {
     // 生レコードだけを返すため、通常の summary 経路が担う孤児タスクの
     // 停止処理をここでも実行する。再起動後の古い working を開かない。
     reconcileOrphanedWorkingTasks();
+    // 中継が有効ならBackendの生レコードを使う（形は同じ）。失敗時は従来経路へ。
+    const relayedRows = await relayTaskRows({ includeArchived: false, kind: "all" });
     return NextResponse.json({
-      tasks: listTasks(false, "all").map(({ id, status, updatedAt, kind, botId, projectId }) => ({
+      tasks: (relayedRows ?? listTasks(false, "all")).map(({ id, status, updatedAt, kind, botId, projectId }) => ({
         id, status, updatedAt, kind, botId, projectId,
       })),
     });
@@ -69,7 +72,9 @@ export async function GET(req: NextRequest) {
   // TaskPanesContext のタブ名・存在確認用（todoProgress 計算と toSummary の
   // ライブ走査を伴わない生レコードで返す）。
   if (req.nextUrl.searchParams.get("titles") === "1") {
-    return NextResponse.json({ tasks: listTasks(includeArchived, kind) });
+    // 中継が有効ならBackendの行を使う（保存行そのもので形は同じ）。失敗時は従来経路へ。
+    const relayedTitles = await relayTaskRows({ includeArchived, kind });
+    return NextResponse.json({ tasks: relayedTitles ?? listTasks(includeArchived, kind) });
   }
   return NextResponse.json({ tasks: await getTaskSummariesWithTodoProgress(includeArchived, kind) });
 }
