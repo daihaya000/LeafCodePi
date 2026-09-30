@@ -44,6 +44,7 @@ bundleの`getTaskDetail(id,{offline:true})`がタスク詳細を返し、存在�
 bundleを読み込み、`runtime-host`のreadyと`runtimeStatus().ok`の**両方**が真のときだけhealthを200にする（既定は無効＝従来どおり503/starting）。
 bundleパスは`LEAFCODE_PI_BACKEND_RUNTIME_BUNDLE`で差し替え可能。CLIテストで「無効=503」「有効かつbundle有り=200（attach完了を待つ）」「bundle欠落=503のまま（パスをechoしない）」の3通りを固定。
 **ターン55で追加**: 内部API `GET /internal/tasks`（Backend自身のstoreビュー＝保存された行そのもの）と `GET /internal/tasks/:id`（無ければ404）。認証・プロトコルヘッダ・GETのみという既存規則を踏襲し、store読取の失敗は500へ封じ込めてパスを漏らさない。`entry.mjs`は起動列が持つstoreを注入する。Web側の中継は未接続（派生フィールドはWeb側に残る）。
+**ターン56で追加**: `web/src/lib/backend-client.ts`（サーバー専用の内部クライアント）。トークンはサーバーenvのみから読み（`backendClientStatus`が`configured`を返す）、`fetchBackendJson`はprotocolヘッダ＋bearerを付けて、not-configured／unreachable／timeout／unauthorized／incompatible／bad-responseを区別して返す（例外文は返さない）。`readBackendHealth`・`readBackendTasks`は薄いラッパー。既存routeは切り替えていない（切替前）。
 **未完（実切替前に必要）**: promptTask経路のSDK実行本体、relay要求キューの状態遷移本体、ルーティン実行本体（いずれもWebプロセスのharness/routinesに残る）、起動列の`entry.mjs`接続とready化、内部APIとWeb中継、Host・ビルド・再起動分離、実切替、旧経路撤去。
 
 1. 通信契約・依存境界: **進行中**。認証、版数、health、起動/停止を追加。既存のタスク・モデル・質問/承認・Bot/Room・履歴・Git等のDTOを `shared/types.ts` へ移動。既存 `@/lib/types` は互換再エクスポート。共有契約はNext/SDK/Node型への依存なしで単独型検証できる。設定等の個別ファイルにあるDTOと実行依存の抽出は後続。
