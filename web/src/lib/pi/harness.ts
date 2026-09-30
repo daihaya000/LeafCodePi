@@ -254,7 +254,7 @@ import {
   resolveTaskDetailSource,
   shouldSuggestCompaction,
 } from "@backend-core/task-detail.mjs";
-import { attentionClearTargets, attentionItemForTask, resolveAttentionSource } from "@backend-core/attention.mjs";
+import { attentionClearTargets, attentionEmitPlan, attentionItemForTask, resolveAttentionSource } from "@backend-core/attention.mjs";
 import { ensureGlobalPromptService } from "@backend-core/webui-bridge.mjs";
 import {
   isSamePromptRoute,
@@ -1553,9 +1553,10 @@ export function subscribeBotCodeSession(
 }
 
 function emitAttention(taskId: string, payload: { type: string; [key: string]: unknown }): void {
-  emit(taskId, payload);
-  const origin = botCodeRelay().originForCode(taskId);
-  if (origin) emit(origin, { type: "snapshot", eventType: payload.eventType, ...permissionSnapshotExtras(origin) });
+  // Where an attention event goes (task, plus a distinct origin) lives in backend core.
+  const plan = attentionEmitPlan({ taskId, originTaskId: botCodeRelay().originForCode(taskId) });
+  emit(plan.taskId, payload);
+  if (plan.origin) emit(plan.origin, { type: "snapshot", eventType: payload.eventType, ...permissionSnapshotExtras(plan.origin) });
 }
 
 /** Tell the originating Bot/Room stream about a Code request's terminal state without mounting Code UI. */

@@ -23,3 +23,9 @@ export function attentionClearTargets(input: {
   includeDelegatedCode: boolean;
   delegatedTaskIds?: readonly string[] | undefined;
 }): string[];
+
+/** Where an attention event is emitted: the task, plus a distinct origin when there is one. */
+export function attentionEmitPlan(input: {
+  taskId: string;
+  originTaskId?: string | null | undefined;
+}): { taskId: string; origin: string | null };

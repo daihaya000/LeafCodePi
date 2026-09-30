@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { attentionClearTargets, attentionItemForTask, resolveAttentionSource } from "./attention.mjs";
+import {
+  attentionClearTargets, attentionEmitPlan, attentionItemForTask, resolveAttentionSource,
+} from "./attention.mjs";
 
 test("a non-Bot task is always its own attention key", () => {
   assert.equal(resolveAttentionSource({ taskId: "task-1", isBotTask: false }), "task-1");
@@ -98,5 +100,17 @@ test("only an explicit true includes delegated sessions for a Bot task", () => {
       ["bot:b1"],
       String(value),
     );
+  }
+});
+
+test("an attention event reaches the task and a distinct origin", () => {
+  assert.deepEqual(attentionEmitPlan({ taskId: "task-1" }), { taskId: "task-1", origin: null });
+  assert.deepEqual(attentionEmitPlan({ taskId: "code-1", originTaskId: "bot:b1" }), { taskId: "code-1", origin: "bot:b1" });
+});
+
+test("a task that is its own origin, or has no usable origin, emits once", () => {
+  assert.deepEqual(attentionEmitPlan({ taskId: "task-1", originTaskId: "task-1" }), { taskId: "task-1", origin: null });
+  for (const originTaskId of ["", undefined, null, 0, 42, {}]) {
+    assert.deepEqual(attentionEmitPlan({ taskId: "task-1", originTaskId }), { taskId: "task-1", origin: null }, String(originTaskId));
   }
 });

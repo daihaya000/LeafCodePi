@@ -54,3 +54,17 @@ export function attentionClearTargets({ taskId, isBotTask, includeDelegatedCode,
   }
   return targets;
 }
+
+/**
+ * Where an attention event is emitted. The task itself always receives the payload; a delegated
+ * Code task additionally reports to its origin (the Bot or Room conversation) so that stream shows
+ * the pending request without mounting the Code UI. The origin receives a snapshot of its own state
+ * rather than a copy of the Code payload, so the caller builds that payload itself. A task that is
+ * its own origin (or an unusable origin id) emits once.
+ */
+export function attentionEmitPlan({ taskId, originTaskId }) {
+  const origin = typeof originTaskId === "string" && originTaskId !== "" && originTaskId !== taskId
+    ? originTaskId
+    : null;
+  return { taskId, origin };
+}
