@@ -50,6 +50,24 @@ export function isStaleEnsureEpoch(currentEpoch: number | undefined | null, epoc
 export function isRegisteredLive<Live>(getLive: () => Live | undefined, attached: Live): boolean;
 
 /**
+ * After creating a session: a stale generation wins over a vanished task, and only
+ * otherwise may it be attached.
+ */
+export function resolveCreatedSessionAction(input: {
+  staleGeneration: boolean;
+  hasTask: boolean;
+}): "retry" | "not-found" | "attach";
+
+/**
+ * After attaching: a stale generation disposes the attached live when it is still
+ * the registered one, and always retries.
+ */
+export function resolveAttachedSessionAction(input: {
+  staleGeneration: boolean;
+  isRegistered: boolean;
+}): "keep" | "dispose-and-retry" | "retry";
+
+/**
  * Records an ensure-live attempt as in flight for the task and clears it on settle,
  * unless a newer attempt replaced the entry. The result is passed through.
  */

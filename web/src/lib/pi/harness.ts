@@ -213,7 +213,7 @@ import { SdkRuntimeFactory } from "@backend-core/sdk-runtime.mjs";
 import * as corePromptControl from "@backend-core/prompt-control.mjs";
 import { runHangWatchdogAbort, runUserAbort } from "@backend-core/abort-coordinator.mjs";
 import { roomBotIdFromTaskId } from "@backend-core/abort-control.mjs";
-import { detachReplacedLive as coreDetachReplacedLive, hasOtherBusyRoomLive, isRegisteredLive, isStaleEnsureEpoch, promoteMailboxOnAttach, resolveAttachAccount, resolveJoinedEnsureAction, runCoalescedLiveShutdown, runTrackedEnsure, shouldShutdownOnDispose as coreShouldShutdownOnDispose } from "@backend-core/live-lifecycle.mjs";
+import { detachReplacedLive as coreDetachReplacedLive, hasOtherBusyRoomLive, isRegisteredLive, isStaleEnsureEpoch, promoteMailboxOnAttach, resolveAttachAccount, resolveAttachedSessionAction, resolveCreatedSessionAction, resolveJoinedEnsureAction, runCoalescedLiveShutdown, runTrackedEnsure, shouldShutdownOnDispose as coreShouldShutdownOnDispose } from "@backend-core/live-lifecycle.mjs";
 import { restoredPromptState, restoredTaskMetadata, restoredThroughputState } from "@backend-core/live-attach-state.mjs";
 import { compactionFailureMessage, isHarnessAutoCompactionError as coreIsHarnessAutoCompactionError, runAgentStartTaskSync, shouldApplySettledStatus, shouldSkipEventForMissingTask, shouldSyncTaskFromSessionEvent as coreShouldSyncTaskFromSessionEvent, type SessionSyncEvent } from "@backend-core/session-event-decisions.mjs";
 import { classifySnapshotEvent, flushPendingSnapshotOnUnsubscribe, pendingSnapshotFlush, SNAPSHOT_THROTTLE_MS } from "@backend-core/snapshot-schedule.mjs";
@@ -4564,12 +4564,14 @@ async function attachCreatedLiveSession(
     preserveTaskModel?: boolean;
   } & AutoFallbackHints,
 ): Promise<LiveRuntime> {
-  if (isStaleEnsureEpoch(ensureLiveEpoch.get(taskId), epoch)) {
+  // A stale generation wins over a vanished task (see backend core).
+  const createdAction = resolveCreatedSessionAction({
+    staleGeneration: isStaleEnsureEpoch(ensureLiveEpoch.get(taskId), epoch),
+    hasTask: Boolean(getTask(taskId)),
+  });
+  if (createdAction !== "attach") {
     disposeSessionBestEffort(setup.session);
-    return ensureLive(taskId, options);
-  }
-  if (!getTask(taskId)) {
-    disposeSessionBestEffort(setup.session);
+    if (createdAction === "retry") return ensureLive(taskId, options);
     throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });
   }
   const preserveTaskModel = options?.preserveTaskModel === true;
@@ -4599,13 +4601,13 @@ async function attachCreatedLiveSession(
           preserveTaskModel: false,
         },
   );
-  if (isStaleEnsureEpoch(ensureLiveEpoch.get(taskId), epoch)) {
-    if (isRegisteredLive(() => state().live.get(taskId), attached)) {
-      disposeLive(taskId);
-    }
-    return ensureLive(taskId, options);
-  }
-  return attached;
+  const attachedAction = resolveAttachedSessionAction({
+    staleGeneration: isStaleEnsureEpoch(ensureLiveEpoch.get(taskId), epoch),
+    isRegistered: isRegisteredLive(() => state().live.get(taskId), attached),
+  });
+  if (attachedAction === "keep") return attached;
+  if (attachedAction === "dispose-and-retry") disposeLive(taskId);
+  return ensureLive(taskId, options);
 }
 
 async function ensureLive(

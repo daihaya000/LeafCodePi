@@ -61,6 +61,27 @@ export function resolveJoinedEnsureAction({ stale, hasLive }) {
 }
 
 /**
+ * What to do with a session that was just created: a stale generation means the
+ * work no longer applies (discard the session and retry), a vanished task is a
+ * 404, otherwise the session may be attached.
+ */
+export function resolveCreatedSessionAction({ staleGeneration, hasTask }) {
+  if (staleGeneration === true) return "retry";
+  if (hasTask !== true) return "not-found";
+  return "attach";
+}
+
+/**
+ * What to do with a session that was just attached: on a stale generation the
+ * attached live must not survive — though only when it is still the registered
+ * one — and the caller retries either way.
+ */
+export function resolveAttachedSessionAction({ staleGeneration, isRegistered }) {
+  if (staleGeneration !== true) return "keep";
+  return isRegistered === true ? "dispose-and-retry" : "retry";
+}
+
+/**
  * Runs an ensure-live attempt and records its promise for the task, clearing the
  * entry once it settles — unless a newer attempt has already replaced it. The
  * returned promise carries the attempt's result, so callers can join it.
