@@ -5457,3 +5457,94 @@ test("queues the loop-end notice after a verified completion", async () => {
     rmSync(cwd, { recursive: true, force: true });
   }
 });
+
+test("resume after an interrupted turn re-sends the same turn number", async () => {
+  const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-interrupted-turn-"));
+  process.env.LEAFCODE_PI_DATA_DIR = cwd;
+  const harness = loopEndNoticeHarness("interrupted-turn-session");
+  const { sent, readState, handlers, commands, ctx, pi, setBusy } = harness;
+  const turns = () => sent.filter((item) => item.message.customType === "leafcode-goal-turn");
+  const result = (summary) => ({
+    type: "agent_end",
+    messages: [{ role: "assistant", content: [{ type: "text", text: JSON.stringify({ status: "progress", summary }) }] }],
+  });
+
+  try {
+    goalLoopExtension(pi);
+    await handlers.get("session_start")?.({}, ctx);
+    const payload = Buffer.from(JSON.stringify({ goal: "demo", maxTurns: 3 })).toString("base64url");
+    await commands.get("goal-start")?.(payload, ctx);
+    await waitFor(() => readState().status === "running");
+    assert.equal(turns()[0]?.message.details.turn, 1);
+
+    // Turn 1 finishes normally so turn 2 is the in-flight turn.
+    setBusy(false);
+    await handlers.get("agent_end")?.(result("turn1"), ctx);
+    await handlers.get("agent_settled")?.({ type: "agent_settled" }, ctx);
+    await waitFor(() => turns().length === 2);
+    assert.equal(turns()[1]?.message.details.turn, 2);
+
+    // An error interrupts turn 2 before it produces a result.
+    setBusy(false);
+    await handlers.get("agent_end")?.({
+      type: "agent_end",
+      messages: [{ role: "assistant", stopReason: "aborted", content: [] }],
+    }, ctx);
+    await handlers.get("agent_settled")?.({ type: "agent_settled" }, ctx);
+    const paused = readState();
+    assert.equal(paused.status, "paused");
+    assert.equal(paused.turnCount, 2);
+    assert.equal(paused.retryInterruptedTurn, true);
+
+    // Resume re-sends turn 2 instead of consuming turn 3.
+    setBusy(false);
+    await commands.get("goal-resume")?.("", ctx);
+    await waitFor(() => turns().length === 3);
+    assert.equal(turns()[2]?.message.details.turn, 2);
+    assert.equal(String(turns()[2]?.message.content).includes("This is turn 2 of at most 3"), true);
+    const resumed = readState();
+    assert.equal(resumed.status, "running");
+    assert.equal(resumed.turnCount, 2);
+    assert.equal(resumed.retryInterruptedTurn, false);
+  } finally {
+    await handlers.get("session_shutdown")?.({}, ctx);
+    delete process.env.LEAFCODE_PI_DATA_DIR;
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test("resume after a turn timeout re-sends the same turn without a budget bump", async () => {
+  const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-timeout-resume-"));
+  process.env.LEAFCODE_PI_DATA_DIR = cwd;
+  goalLoopTestSeams.setTurnTimeoutMs(40);
+  const harness = loopEndNoticeHarness("timeout-resume-session");
+  const { sent, readState, handlers, commands, ctx, pi, setBusy } = harness;
+  const turns = () => sent.filter((item) => item.message.customType === "leafcode-goal-turn");
+
+  try {
+    goalLoopExtension(pi);
+    await handlers.get("session_start")?.({}, ctx);
+    const payload = Buffer.from(JSON.stringify({ goal: "demo", maxTurns: 1 })).toString("base64url");
+    await commands.get("goal-start")?.(payload, ctx);
+    await waitFor(() => readState().status === "paused" && readState().pauseReason === "turn_timeout");
+    const timedOut = readState();
+    assert.equal(timedOut.turnCount, 1);
+    assert.equal(timedOut.retryInterruptedTurn, true);
+
+    // The retry keeps the same number, so the exhausted budget does not block it.
+    goalLoopTestSeams.setTurnTimeoutMs(60_000);
+    setBusy(false);
+    await commands.get("goal-resume")?.("", ctx);
+    await waitFor(() => turns().length === 2);
+    assert.equal(turns()[1]?.message.details.turn, 1);
+    const resumed = readState();
+    assert.equal(resumed.status, "running");
+    assert.equal(resumed.turnCount, 1);
+    assert.equal(resumed.retryInterruptedTurn, false);
+  } finally {
+    goalLoopTestSeams.setTurnTimeoutMs();
+    await handlers.get("session_shutdown")?.({}, ctx);
+    delete process.env.LEAFCODE_PI_DATA_DIR;
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});

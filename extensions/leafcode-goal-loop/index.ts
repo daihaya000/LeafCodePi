@@ -80,6 +80,12 @@ export type GoalLoop = {
   unreadableStreak: number;
   /** Durable: mid-turn was interrupted by session lifecycle and needs transcript recovery. */
   pendingTurnRecovery: boolean;
+  /**
+   * Durable: the in-flight turn was interrupted (abort/error/timeout/session end)
+   * before it produced a result. Resume re-sends that same turn number instead of
+   * consuming the next one, so an interrupted turn never costs a turn slot.
+   */
+  retryInterruptedTurn: boolean;
   /** The loop-end notice was queued for the next user prompt (sent at most once per run). */
   endNoticeSent?: boolean;
   /**
@@ -523,6 +529,7 @@ function hydrateLoop(value: unknown, cwd: string, id: string): GoalLoop | null {
     rejectedClaims: nonNegativeInteger(raw.rejectedClaims),
     unreadableStreak: nonNegativeInteger(raw.unreadableStreak),
     pendingTurnRecovery: raw.pendingTurnRecovery === true,
+    retryInterruptedTurn: raw.retryInterruptedTurn === true,
     endNoticeSent: !resumeFullRun && raw.endNoticeSent === true,
     notes: normalizeNotes(raw.notes),
     createdAt: typeof raw.createdAt === "string" ? raw.createdAt : now,
@@ -730,6 +737,14 @@ function statusLabel(status: GoalLoopStatus): string {
   }[status];
 }
 
+/**
+ * 次に送信するターン番号。queued は次の番号を送るが、中断されたターンの再送は同じ
+ * 番号を使い回す（ターン枠を消費しない）。
+ */
+function nextTurnNumber(loop: GoalLoop): number {
+  return loop.status === "queued" && loop.retryInterruptedTurn !== true ? loop.turnCount + 1 : loop.turnCount;
+}
+
 function updateUI(runtime: Runtime, loop: GoalLoop | null): void {
   try {
     if (!loop) {
@@ -737,7 +752,7 @@ function updateUI(runtime: Runtime, loop: GoalLoop | null): void {
       runtime.ctx.ui.setWidget(WIDGET_KEY, undefined);
       return;
     }
-    const turn = loop.status === "queued" ? loop.turnCount + 1 : loop.turnCount;
+    const turn = nextTurnNumber(loop);
     const max = loop.maxTurns === 0 ? "∞" : String(loop.maxTurns);
     const shownTurn = loop.maxTurns === 0 ? turn : Math.min(turn, loop.maxTurns);
     const badge = `${statusLabel(loop.status)} ${shownTurn}/${max}`;
@@ -992,6 +1007,8 @@ export function applyResult(loop: GoalLoop, result: GoalLoopProgress | null): bo
     return applyMissingResult(loop, "");
   }
   loop.unreadableStreak = 0;
+  // A real result ends the interrupted-turn retry (the turn produced an outcome).
+  loop.retryInterruptedTurn = false;
 
   // Full-run never performs completion verification. A stale verifying_* state or
   // a model returning verified_completed must not end the loop early.
@@ -1067,6 +1084,7 @@ export function applyMissingResult(loop: GoalLoop, assistantText: string): boole
   loop.evidence = "";
   loop.blockedReason = "";
   loop.unreadableStreak = Math.max(0, Math.trunc(Number(loop.unreadableStreak) || 0)) + 1;
+  loop.retryInterruptedTurn = false;
   loop.turnKind = verification ? "verification" : "goal";
   if (loop.unreadableStreak >= MAX_UNREADABLE_STREAK) {
     loop.status = "paused";
@@ -1426,7 +1444,11 @@ function pauseLoop(runtime: Runtime, reason: GoalLoopPauseReason = "user", error
   const pending = runtime.awaitingTurn;
   const pendingIndex = runtime.awaitingTurnIndex;
   // Survive process restart: in-memory pausedTurnPending alone is not enough.
-  if (pending) loop.pendingTurnRecovery = true;
+  if (pending) {
+    loop.pendingTurnRecovery = true;
+    // The interrupted turn produced no result: resume must re-send its number.
+    loop.retryInterruptedTurn = true;
+  }
   loop.status = "paused";
   loop.pauseReason = reason;
   loop.error = error;
@@ -1684,7 +1706,13 @@ async function sendTurn(runtime: Runtime): Promise<void> {
 
   if (loop.status === "queued") {
     const retryingUnreadableResult = loop.unreadableStreak === 1;
-    if (loop.maxTurns > 0 && loop.turnCount >= loop.maxTurns && !retryingUnreadableResult) {
+    const retryingInterruptedTurn = !retryingUnreadableResult && loop.retryInterruptedTurn === true;
+    if (
+      loop.maxTurns > 0 &&
+      loop.turnCount >= loop.maxTurns &&
+      !retryingUnreadableResult &&
+      !retryingInterruptedTurn
+    ) {
       loop.status = "paused";
       loop.pauseReason = "turn_limit";
       loop.error = "最大ターン数に到達したため一時停止しました。";
@@ -1699,7 +1727,7 @@ async function sendTurn(runtime: Runtime): Promise<void> {
   }
 
   const routingTurn = loop.status === "queued"
-    ? loop.unreadableStreak === 1
+    ? loop.unreadableStreak === 1 || loop.retryInterruptedTurn === true
       ? loop.turnCount
       : loop.turnCount + 1
     : loop.turnCount;
@@ -1784,7 +1812,13 @@ async function sendTurn(runtime: Runtime): Promise<void> {
   let isInitialTurn = false;
   if (loop.status === "queued") {
     const retryingUnreadableResult = loop.unreadableStreak === 1;
-    if (loop.maxTurns > 0 && loop.turnCount >= loop.maxTurns && !retryingUnreadableResult) {
+    const retryingInterruptedTurn = !retryingUnreadableResult && loop.retryInterruptedTurn === true;
+    if (
+      loop.maxTurns > 0 &&
+      loop.turnCount >= loop.maxTurns &&
+      !retryingUnreadableResult &&
+      !retryingInterruptedTurn
+    ) {
       loop.status = "paused";
       loop.pauseReason = "turn_limit";
       loop.error = "最大ターン数に到達したため一時停止しました。";
@@ -1796,12 +1830,14 @@ async function sendTurn(runtime: Runtime): Promise<void> {
       updateUI(runtime, loop);
       return;
     }
-    if (!retryingUnreadableResult) loop.turnCount += 1;
+    if (!retryingUnreadableResult && !retryingInterruptedTurn) loop.turnCount += 1;
+    // The interrupted turn now owns this number; drop the retry marker.
+    loop.retryInterruptedTurn = false;
     loop.status = "running";
     loop.turnKind = "goal";
     loop.nextTurnAt = null;
     kind = "goal";
-    isInitialTurn = loop.turnCount === 1 && !retryingUnreadableResult;
+    isInitialTurn = loop.turnCount === 1 && !retryingUnreadableResult && !retryingInterruptedTurn;
     prompt = isInitialTurn
       ? buildGoalPrompt(loop, loop.turnCount)
       : buildGoalContinuationPrompt(loop, loop.turnCount);
@@ -1953,6 +1989,7 @@ function startLoop(
     rejectedClaims: 0,
     unreadableStreak: 0,
     pendingTurnRecovery: false,
+    retryInterruptedTurn: false,
     createdAt: now,
     updatedAt: now,
   };
@@ -2060,7 +2097,7 @@ async function compose(runtime: Runtime): Promise<void> {
 
 function statusMessage(loop: GoalLoop | null): string {
   if (!loop) return "Goal loop はありません。/goal-compose で作成できます。";
-  const turn = loop.status === "queued" ? loop.turnCount + 1 : loop.turnCount;
+  const turn = nextTurnNumber(loop);
   const max = loop.maxTurns === 0 ? "∞" : String(loop.maxTurns);
   const shownTurn = loop.maxTurns === 0 ? turn : Math.min(turn, loop.maxTurns);
   const mode = loop.forceFullRun ? " · 完走モード" : "";
@@ -2080,7 +2117,8 @@ function resumeLoop(runtime: Runtime, maxTurns?: unknown): boolean {
       ? 0
       : Math.max(loop.maxTurns, requestedMaxTurns);
   }
-  if (loop.maxTurns > 0 && loop.turnCount >= loop.maxTurns) {
+  // 中断ターンの再送は同じ番号を使い回すため、上限を使い切っていても再開できる。
+  if (loop.maxTurns > 0 && loop.turnCount >= loop.maxTurns && loop.retryInterruptedTurn !== true) {
     // A final-turn JSON miss pauses as unreadable_result after the free retry.
     // Allow one more non-consuming send (streak===1) instead of forcing the
     // user to raise the turn budget just to recover from a formatting miss.
@@ -2383,7 +2421,11 @@ export default function (pi: ExtensionAPI): void {
             isAbortPausedLoop(previousLoop)
           )
         ) {
-          if (previousLoop.status === "running") previousLoop.pendingTurnRecovery = true;
+          if (previousLoop.status === "running") {
+            previousLoop.pendingTurnRecovery = true;
+            // The unfinished turn is re-sent on resume instead of costing a slot.
+            previousLoop.retryInterruptedTurn = true;
+          }
           previousLoop.status = "paused";
           previousLoop.pauseReason = "";
           previousLoop.error = "セッション切替時に一時停止しました。";
@@ -2430,7 +2472,11 @@ export default function (pi: ExtensionAPI): void {
       // Only running has an in-flight prompt that needs manual recovery. An
       // abort pause can be left on disk when the following lifecycle write
       // fails; normalize that internal pause before exposing the new session.
-      if (loop.status === "running") loop.pendingTurnRecovery = true;
+      if (loop.status === "running") {
+        loop.pendingTurnRecovery = true;
+        // The unfinished turn is re-sent on resume instead of costing a slot.
+        loop.retryInterruptedTurn = true;
+      }
       loop.status = "paused";
       loop.pauseReason = "";
       loop.error = "セッション再開時は自動継続しません。/goal-resume で再開してください。";
@@ -2629,7 +2675,11 @@ export default function (pi: ExtensionAPI): void {
         // exposing it as a user action.
         // Persist mid-turn recovery across restart. pausedTurnPending alone dies
         // with this runtime, and the next session_start only sees status=paused.
-        if (loop.status === "running") loop.pendingTurnRecovery = true;
+        if (loop.status === "running") {
+          loop.pendingTurnRecovery = true;
+          // The unfinished turn is re-sent on resume instead of costing a slot.
+          loop.retryInterruptedTurn = true;
+        }
         loop.status = "paused";
         loop.pauseReason = "";
         loop.error = reloading
