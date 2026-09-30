@@ -58,6 +58,15 @@ bundleパスは`LEAFCODE_PI_BACKEND_RUNTIME_BUNDLE`で差し替え可能。CLI�
 **ターン67で追加（Phase 4・Host側）**: `host/src/backend-launch.js`にBackend起動プラン（`bundleGeneration`＝バンドル内容ハッシュ、`backendLaunchPlan`＝entryパス・token・port・runtime attach可否・pinする世代、`backendClientEnv`＝WebUI子プロセスへ渡す到達情報と期待世代）を追加。既定は`detached`（WebがSDKを所有している間はBackendへruntimeをattachしない＝二重writer防止）で、attachは明示時のみ。実測: Hostが算出した世代がBackendのローダーの世代（d3f72f1088c3730c）と一致。実プロセスの起動配線は実切替時に行う。
 **ターン68で追加（Phase 4・Host側）**: `host/src/backend-service.js`にBackend子プロセスのライフサイクル（`isBackendRequested`＝`LEAFCODE_PI_BACKEND`で明示オプトイン、`createBackendService`＝spawn/停止/状態、独自の再起動予算（既定3回・60秒安定で回復、失敗後は暗黙再起動しない）、WebUI子プロセスへ渡す`clientEnv`）を追加し、`host/src/index.js`へ配線（既定オフ＝`backendService`はnullで従来と同一挙動、有効時のみspawnWebと同じenvに到達情報を足してstart、終了時にstop）。runtimeは切替時までattachしない（二重writer防止）。
 **ターン69で追加（Phase 5の前提）**: `backend/core/cutover-plan.mjs`に排他的切替の事前判定（`cutoverPreflight`）を追加。blockerコードは backend-not-configured／backend-unreachable／backend-not-ready／runtime-detached／generation-mismatch／another-owner／active-work／goal-loop-active／foreign-lease／mixed-ownership／relay-disabled。判定は純粋関数（health・稼働中タスク・Goal Loop数・lease所有者・所有権スイッチを注入）で、`/api/backend/status`が`cutover: {ok, blockers}`として診断表示する。
+**ターン70で追加（Phase 5）**: `host/src/cutover.js`に段階遷移＋ロールバック（`CUTOVER_STAGES`＝check→stop-old-path→attach-backend→hand-over→done、`runCutover`は全効果を注入）を追加。順序は「事前判定→旧経路（WebUI）停止→Backendをruntime attachで起動しready待ち→WebUIをBackendのクライアントとして再起動（relay有効・非所有）」で、失敗時はロールバック（Backend停止→WebUIを所有側で再起動）。**切替中はWebUIが短時間停止する**がBackendは稼働し続ける（分離の狙い）。ロールバック中の失敗は例外にせず`error`で報告する。
+
+**切替runbook（実行は未実施）**
+1. `npm run build:backend-runtime` でバンドルを更新し、`bundleGeneration`を確定する（世代が変わると稼働中Backendはreadyにならない）。
+2. Goal Loop・稼働中タスク・leaseが無いことを確認（`cutoverPreflight`のblockerが空）。
+3. `LEAFCODE_PI_BACKEND=1`でHostを起動し、Backendをdetachedで常駐させる（この時点では旧経路＝Web所有のまま）。
+4. 切替を実行: WebUI停止→Backendをattachで再起動→`/internal/health`が200（世代一致）→WebUIを`LEAFCODE_PI_BACKEND_OWNS_RUNTIME=1`＋`LEAFCODE_PI_BACKEND_RELAY=1`で再起動。
+5. 確認: BackendのPIDが変わらず継続、`/api/backend/status`の`cutover.blockers`が空、storeのmtimeが二重writerで増えていないこと。
+6. ロールバック: Backend停止→WebUIを所有側（relay無効）で再起動。旧経路は残してあるため即時復帰できる。
 **未完（実切替前に必要）**: promptTask経路のSDK実行本体、relay要求キューの状態遷移本体、ルーティン実行本体（いずれもWebプロセスのharness/routinesに残る）、起動列の`entry.mjs`接続とready化、内部APIとWeb中継、Host・ビルド・再起動分離、実切替、旧経路撤去。
 
 1. 通信契約・依存境界: **進行中**。認証、版数、health、起動/停止を追加。既存のタスク・モデル・質問/承認・Bot/Room・履歴・Git等のDTOを `shared/types.ts` へ移動。既存 `@/lib/types` は互換再エクスポート。共有契約はNext/SDK/Node型への依存なしで単独型検証できる。設定等の個別ファイルにあるDTOと実行依存の抽出は後続。
