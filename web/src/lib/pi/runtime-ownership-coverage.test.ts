@@ -31,7 +31,6 @@ const LOCAL_ONLY_PENDING: Record<string, string> = {
   "bots/[id]/route.ts": "Bot task detail read is not forwarded yet",
   "bots/rooms/[id]/code/route.ts": "Room Code start is not forwarded yet",
   "bots/rooms/[id]/events/route.ts": "Room event stream is still the in-process subscription",
-  "tasks/[id]/events/route.ts": "task event stream is still the in-process subscription",
   "tasks/[id]/goal-loop/route.ts": "Goal Loop start resolves locally and is not forwarded yet",
 };
 
@@ -84,6 +83,7 @@ describe("runtime ownership coverage", () => {
       "bots/[id]/abort/route.ts",
       "bots/[id]/prompt/route.ts",
       "tasks/[id]/abort/route.ts",
+      "tasks/[id]/events/route.ts",
       "tasks/[id]/messages/route.ts",
       "tasks/[id]/permission/route.ts",
       "tasks/[id]/prompt/route.ts",

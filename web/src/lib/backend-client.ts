@@ -13,6 +13,7 @@ import {
 import {
   BACKEND_BOTS_PATH,
   BACKEND_HEALTH_PATH,
+  BACKEND_PENDING_SNAPSHOTS_PATH,
   BACKEND_PROTOCOL_HEADER,
   BACKEND_PROTOCOL_VERSION,
   BACKEND_TASK_ABORT_SUFFIX,
@@ -197,6 +198,13 @@ export function respondQuestionOnBackend(
     body,
     options,
   );
+}
+
+/** The Backend's buffered pending snapshots: the pending approvals/questions it is waiting on. */
+export function readBackendPendingSnapshots(
+  options: { env?: BackendEnv; fetchImpl?: typeof fetch; timeoutMs?: number } = {},
+): Promise<BackendResult<{ snapshots: Array<Record<string, unknown>> }>> {
+  return fetchBackendJson(BACKEND_PENDING_SNAPSHOTS_PATH, options);
 }
 
 /** A task's detail as the owning Backend sees it (offline transcript read). */

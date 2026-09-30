@@ -11,10 +11,27 @@ const mocks = vi.hoisted(() => ({
   pendingPermissionForTask: vi.fn(),
   pendingQuestionForTask: vi.fn(),
   subscribeTask: vi.fn(),
+  localRuntimeBlocked: vi.fn(() => false),
+  forwardTaskDetail: vi.fn(),
+  forwardTaskPendingRequests: vi.fn(),
 }));
 
 vi.mock("@/lib/pi/harness", () => mocks);
 vi.mock("@/lib/store", () => ({ getTask: mocks.getTask }));
+vi.mock("@/lib/pi/runtime-ownership", () => ({
+  localRuntimeBlocked: mocks.localRuntimeBlocked,
+  assertLocalRuntimeAllowed: vi.fn(),
+}));
+vi.mock("@/lib/backend-forward", () => ({
+  forwardTaskDetail: mocks.forwardTaskDetail,
+  forwardTaskPendingRequests: mocks.forwardTaskPendingRequests,
+  forwardTaskAbort: vi.fn(),
+  forwardTaskPrompt: vi.fn(),
+  forwardPermissionAnswer: vi.fn(),
+  forwardQuestionAnswer: vi.fn(),
+  needsLocalResolution: vi.fn(() => false),
+  forwardablePromptBody: vi.fn((body) => body),
+}));
 
 function task(overrides: Partial<TaskDetail> = {}): TaskDetail {
   return {
@@ -57,6 +74,46 @@ describe("/api/tasks/[id]/events", () => {
     mocks.pendingPermissionForTask.mockReset().mockReturnValue(null);
     mocks.pendingQuestionForTask.mockReset().mockReturnValue(null);
     mocks.subscribeTask.mockReset();
+    mocks.localRuntimeBlocked.mockReset().mockReturnValue(false);
+    mocks.forwardTaskDetail.mockReset();
+    mocks.forwardTaskPendingRequests.mockReset().mockResolvedValue({ permissionRequest: null, questionRequest: null });
+  });
+
+  it("streams from the owning Backend without subscribing locally after the cutover", async () => {
+    mocks.localRuntimeBlocked.mockReturnValue(true);
+    mocks.forwardTaskDetail.mockResolvedValue({
+      ok: true,
+      detail: task({ messages: [], isStreaming: true, status: "working" }),
+    });
+    mocks.forwardTaskPendingRequests.mockResolvedValue({
+      permissionRequest: { requestId: "req-1" },
+      questionRequest: null,
+    });
+    const response = await GET(new NextRequest("http://localhost/api/tasks/task-1/events"), {
+      params: Promise.resolve({ id: "task-1" }),
+    });
+    expect(response.status).toBe(200);
+    const chunk = await readChunk(response.body!.getReader());
+    const payload = eventData(chunk);
+    expect(payload.eventType).toBe("remote_poll");
+    expect(payload.isStreaming).toBe(true);
+    // The pending approval lives in the Backend, so it must come from there.
+    expect(payload.permissionRequest).toEqual({ requestId: "req-1" });
+    expect(payload.questionRequest).toBeNull();
+    // Nothing local: no bootstrap read and no in-process subscription.
+    expect(mocks.getTaskBootstrap).not.toHaveBeenCalled();
+    expect(mocks.subscribeTask).not.toHaveBeenCalled();
+  });
+
+  it("ends the stream with an error when the Backend cannot be read", async () => {
+    mocks.localRuntimeBlocked.mockReturnValue(true);
+    mocks.forwardTaskDetail.mockResolvedValue({ ok: false, reason: "unreachable" });
+    const response = await GET(new NextRequest("http://localhost/api/tasks/task-1/events"), {
+      params: Promise.resolve({ id: "task-1" }),
+    });
+    const chunk = await readChunk(response.body!.getReader());
+    expect(chunk).toContain("event: error");
+    expect(mocks.subscribeTask).not.toHaveBeenCalled();
   });
 
   it("unsubscribes when the request is already aborted before task subscription", async () => {

@@ -3,6 +3,7 @@ import {
   forwardPermissionAnswer,
   forwardQuestionAnswer,
   forwardTaskAbort,
+  forwardTaskPendingRequests,
   forwardTaskDetail,
   forwardTaskPrompt,
   forwardablePromptBody,
@@ -168,5 +169,37 @@ describe("forwardTaskAbort", () => {
       status: 404,
     });
     await expect(forwardTaskAbort("t1", { env: {} })).resolves.toEqual({ ok: false, reason: "not-configured" });
+  });
+});
+
+describe("forwardTaskPendingRequests", () => {
+  it("reads the pending request the owning Backend is waiting on", async () => {
+    const fetchImpl = vi.fn(async () =>
+      jsonResponse(200, {
+        snapshots: [
+          { taskId: "other", payload: { permissionRequest: { requestId: "nope" } } },
+          { taskId: "task-1", payload: { permissionRequest: { requestId: "req-1" }, questionRequest: { requestId: "q1" } } },
+        ],
+      }),
+    );
+    await expect(
+      forwardTaskPendingRequests("task-1", { env, fetchImpl: fetchImpl as unknown as typeof fetch }),
+    ).resolves.toEqual({ permissionRequest: { requestId: "req-1" }, questionRequest: { requestId: "q1" } });
+    expect(fetchImpl.mock.calls[0][0]).toBe("http://127.0.0.1:19999/internal/pending-snapshots");
+  });
+
+  it("reports nothing pending when the task is absent or the Backend cannot answer", async () => {
+    const empty = vi.fn(async () => jsonResponse(200, { snapshots: [] }));
+    await expect(
+      forwardTaskPendingRequests("task-1", { env, fetchImpl: empty as unknown as typeof fetch }),
+    ).resolves.toEqual({ permissionRequest: null, questionRequest: null });
+    const broken = vi.fn(async () => jsonResponse(500, {}));
+    await expect(
+      forwardTaskPendingRequests("task-1", { env, fetchImpl: broken as unknown as typeof fetch }),
+    ).resolves.toEqual({ permissionRequest: null, questionRequest: null });
+    await expect(forwardTaskPendingRequests("task-1", { env: {} })).resolves.toEqual({
+      permissionRequest: null,
+      questionRequest: null,
+    });
   });
 });
