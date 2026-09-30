@@ -54,3 +54,7 @@ export function codeSessionChangedPayload(input: {
   codeTaskId: string | null;
   state: string;
 }): { type: "snapshot"; eventType: string; codeRequestId: string; codeTaskId: string | null; codeState: string };
+
+/** What a completion request does for a request in this state. */
+export function codeCompletionAction(input: { state: string; stoppedByUser: boolean }):
+  "capture" | "stop-and-ready" | "stop-only" | "none";

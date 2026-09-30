@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
-  cancellationTargetForRequest, codeRequestPayload, codeSessionChangedPayload, isActiveCodeRequest,
+  cancellationTargetForRequest, codeCompletionAction, codeRequestPayload, codeSessionChangedPayload,
+  isActiveCodeRequest,
   isCodeRequestId, isRoomCodeRequestCurrent,
   resolveOutboxScanAction, roomCodeOrigin, runningCodeTaskIdsForOrigin, selectActiveCodeRequestForTask,
   userStoppedResult,
@@ -221,4 +222,24 @@ test("a state-change event carries the request, its Code task and the state", ()
     null,
     "a request without a Code task keeps the null id",
   );
+});
+
+test("a completion captures a running request and only rewrites outcomes for a user stop", () => {
+  assert.equal(codeCompletionAction({ state: "running", stoppedByUser: false }), "capture");
+  assert.equal(codeCompletionAction({ state: "running", stoppedByUser: true }), "capture", "a stop while running still captures the produced result");
+  assert.equal(codeCompletionAction({ state: "starting", stoppedByUser: true }), "stop-and-ready");
+  assert.equal(codeCompletionAction({ state: "starting", stoppedByUser: false }), "none");
+  assert.equal(codeCompletionAction({ state: "ready", stoppedByUser: true }), "stop-only");
+  assert.equal(codeCompletionAction({ state: "ready", stoppedByUser: false }), "none");
+  for (const state of ["queued", "delivered", "cancelled", "", "unknown"]) {
+    assert.equal(codeCompletionAction({ state, stoppedByUser: true }), "none", state);
+  }
+});
+
+test("only an explicit true counts as a user stop", () => {
+  for (const value of [undefined, null, 0, "true", 1]) {
+    assert.equal(codeCompletionAction({ state: "starting", stoppedByUser: value }), "none", String(value));
+    assert.equal(codeCompletionAction({ state: "ready", stoppedByUser: value }), "none", String(value));
+    assert.equal(codeCompletionAction({ state: "running", stoppedByUser: value }), "capture", String(value));
+  }
 });

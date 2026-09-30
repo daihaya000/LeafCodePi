@@ -27,6 +27,7 @@ import { isGoalLoopOperatorHold } from "@/lib/pi/goal-loop-state";
 import { isRoomStopRequest } from "@/lib/room-conversation";
 import {
   cancellationTargetForRequest,
+  codeCompletionAction,
   codeRequestPayload,
   isActiveCodeRequest,
   isCodeRequestId,
@@ -913,14 +914,19 @@ export function createBotCodeRelay(deps: RelayDependencies) {
     if (!initial) return;
     await withBotCodeSessionLock(`request-${id}`, async () => {
       const request = read(id);
-      if (request?.state === "running") {
+      // Which completion applies to this state lives in backend core.
+      const action = codeCompletionAction({
+        state: request?.state ?? "",
+        stoppedByUser: request?.stoppedByUser === true,
+      });
+      if (action === "capture" && request) {
         await captureResult(request);
-      } else if (request?.state === "starting" && request.stoppedByUser) {
+      } else if (action === "stop-and-ready" && request) {
         markUserStoppedResult(request);
         request.state = "ready";
         save(request);
         notifySettled(request);
-      } else if (request?.state === "ready" && request.stoppedByUser) {
+      } else if (action === "stop-only" && request) {
         // Abort during report: keep stop outcome durable before an in-flight deliver saves.
         markUserStoppedResult(request);
         save(request);

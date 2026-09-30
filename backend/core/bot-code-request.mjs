@@ -156,3 +156,20 @@ export function codeSessionChangedPayload({ eventType, requestId, codeTaskId, st
     codeState: state,
   };
 }
+
+/**
+ * What a completion request does for a request in this state:
+ * - "capture": a running request captures its result;
+ * - "stop-and-ready": a request still starting after a user stop records the stop outcome and
+ *   moves to ready, because the launch is in flight and the outcome must be durable before it
+ *   settles;
+ * - "stop-only": a ready request after a user stop rewrites the outcome so an in-flight delivery
+ *   cannot save a success over the user's stop;
+ * - "none": nothing to do (the request is gone, or its state owns its own completion).
+ */
+export function codeCompletionAction({ state, stoppedByUser }) {
+  if (state === "running") return "capture";
+  if (state === "starting" && stoppedByUser === true) return "stop-and-ready";
+  if (state === "ready" && stoppedByUser === true) return "stop-only";
+  return "none";
+}
