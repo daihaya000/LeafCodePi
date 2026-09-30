@@ -3,12 +3,13 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { DEFAULT_JEV_MODEL_SETTINGS } from "@/lib/jev-model-settings";
 import { GET, PUT } from "./route";
 
-const mocks = vi.hoisted(() => ({ get: vi.fn(), save: vi.fn(), list: vi.fn() }));
+const mocks = vi.hoisted(() => ({ get: vi.fn(), save: vi.fn(), list: vi.fn(), latency: vi.fn() }));
 vi.mock("@/lib/pi/jev-model-config", () => ({ getJevModelSettingsDto: mocks.get, saveJevModelSettings: mocks.save }));
+vi.mock("@/lib/pi/jev-latency", () => ({ readJevLatencyStats: mocks.latency }));
 vi.mock("@/lib/pi/harness", () => ({ listJevModels: mocks.list }));
 const ref = { providerId: "openrouter", modelId: "typesafe/jev-1.13", accountId: "one" };
 const candidate = { ...ref, providerName: "OpenRouter", name: "Jev", baseUrl: "https://openrouter.ai/api/v1", source: "catalog" };
-const dto = { settings: DEFAULT_JEV_MODEL_SETTINGS, hasApiKey: { typesafe: true, compatible: false }, models: [] };
+const dto = { settings: DEFAULT_JEV_MODEL_SETTINGS, hasApiKey: { typesafe: true, compatible: false }, models: [], latency: {} };
 const request = (body: unknown, headers: Record<string, string> = {}) => new NextRequest("http://localhost/api/jev-model", {
   method: "PUT",
   headers: { "content-type": "application/json", ...headers },
@@ -20,11 +21,18 @@ beforeEach(() => {
   mocks.get.mockResolvedValue(dto);
   mocks.save.mockResolvedValue(undefined);
   mocks.list.mockResolvedValue([]);
+  mocks.latency.mockReturnValue({});
 });
 
 describe("Jev model settings API", () => {
   it("returns settings and key presence without credentials", async () => {
     expect(await (await GET()).json()).toEqual(dto);
+  });
+
+  it("includes recorded per-model latency in the settings response", async () => {
+    const latency = { "jev-1.13.0": { count: 3, averageMs: 410, lastMs: 380 } };
+    mocks.latency.mockReturnValue(latency);
+    expect(await (await GET()).json()).toEqual({ ...dto, latency });
   });
 
   it("returns discovered models without changing the active selection and accepts explicit refresh", async () => {

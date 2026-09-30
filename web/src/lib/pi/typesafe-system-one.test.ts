@@ -2,11 +2,12 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { DEFAULT_JEV_MODEL_SETTINGS, jevModelEndpoint } from "@/lib/jev-model-settings";
 import { evaluateTypeSafe } from "./typesafe-system-one";
 
-const mocks = vi.hoisted(() => ({ readSettings: vi.fn(), readKey: vi.fn(), resolve: vi.fn(), readState: vi.fn(), readRouting: vi.fn(), recordUsage: vi.fn() }));
+const mocks = vi.hoisted(() => ({ readSettings: vi.fn(), readKey: vi.fn(), resolve: vi.fn(), readState: vi.fn(), readRouting: vi.fn(), recordUsage: vi.fn(), recordLatency: vi.fn() }));
 vi.mock("./jev-model-config", () => ({ readJevModelSettings: mocks.readSettings, resolveJevModelConnection: mocks.resolve }));
 vi.mock("@/lib/codexbar/providers/typesafe", () => ({ recordTypesafeUsage: mocks.recordUsage }));
 vi.mock("@/lib/provider-model-state", () => ({ readProviderModelState: mocks.readState, accountProviderModelKey: (id: string, accountId?: string) => accountId ? `${accountId}::${id}` : id }));
 vi.mock("@/lib/provider-routing", () => ({ readProviderRouting: mocks.readRouting, accountRoutingMode: (id: string, state: { modes: Record<string, string> }) => state.modes[id] ?? "separate" }));
+vi.mock("./jev-latency", () => ({ recordJevLatency: mocks.recordLatency }));
 
 const request = {
   state: "connectivity test",
@@ -39,6 +40,32 @@ describe("evaluateTypeSafe", () => {
       body: JSON.stringify({ ...request, model: "jev-latest" }),
     }));
     expect(mocks.recordUsage).toHaveBeenCalledWith(result.usage);
+  });
+
+  it("records the answering model's round-trip latency once per success", async () => {
+    await evaluateTypeSafe(request, { fetchImpl: respond() });
+    expect(mocks.recordLatency).toHaveBeenCalledTimes(1);
+    const [model, duration] = mocks.recordLatency.mock.calls[0];
+    expect(model).toBe(result.model);
+    expect(Number.isFinite(duration)).toBe(true);
+    expect(duration).toBeGreaterThanOrEqual(0);
+  });
+
+  it("records only the model that answered and never failed attempts", async () => {
+    const first = { providerId: "openrouter", modelId: "jev-a" };
+    const second = { providerId: "typesafe", modelId: "jev-b" };
+    mocks.readSettings.mockReturnValue({ ...DEFAULT_JEV_MODEL_SETTINGS, provider: "registered", registeredModel: first, enabledModels: [first, second] });
+    mocks.readState.mockReturnValue({ providerOrder: ["openrouter", "typesafe"], modelOrder: {} });
+    mocks.resolve.mockImplementation(async (settings) => ({ baseUrl: `https://${settings.registeredModel.providerId}.example/v1`, model: settings.registeredModel.modelId }));
+    const answered = { ...result, model: "jev-b" };
+    const fetchImpl = vi.fn().mockResolvedValueOnce(new Response(null, { status: 503 })).mockResolvedValueOnce(new Response(JSON.stringify(answered)));
+    await evaluateTypeSafe(request, { fetchImpl });
+    expect(mocks.recordLatency).toHaveBeenCalledTimes(1);
+    expect(mocks.recordLatency.mock.calls[0][0]).toBe("jev-b");
+
+    mocks.recordLatency.mockClear();
+    await expect(evaluateTypeSafe(request, { fetchImpl: vi.fn().mockResolvedValue(new Response(null, { status: 500 })) })).rejects.toThrow("Jev API error: 500");
+    expect(mocks.recordLatency).not.toHaveBeenCalled();
   });
 
   it("uses the configured compatible endpoint and model without charging TypeSafe", async () => {
@@ -195,6 +222,7 @@ describe("evaluateTypeSafe", () => {
   ])("rejects malformed responses before consumers or accounting", async (body) => {
     await expect(evaluateTypeSafe(request, { fetchImpl: respond(body) })).rejects.toThrow("Jev API returned");
     expect(mocks.recordUsage).not.toHaveBeenCalled();
+    expect(mocks.recordLatency).not.toHaveBeenCalled();
   });
 
   it("validates choice options, score bounds and confidence", async () => {

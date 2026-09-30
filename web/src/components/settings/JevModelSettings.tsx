@@ -12,11 +12,17 @@ import {
   DEFAULT_JEV_MODEL_SETTINGS,
   enabledJevModelKeys as enabledModelKeys,
   JEV_MODEL_CHANGED_EVENT,
+  type JevLatencyEntry,
   type JevModelSettings as Settings,
   type JevModelSettingsDto,
 } from "@/lib/jev-model-settings";
 
 const inputClass = "h-10 w-full rounded-lg border border-border bg-surface px-3 text-sm text-text outline-none focus:border-accent";
+
+/** モデル行に出す要約。未計測ならnullで非表示。 */
+function latencyText(entry: JevLatencyEntry | undefined): string | null {
+  return entry ? `平均 ${entry.averageMs} ms（${entry.count} 回）` : null;
+}
 
 type ProviderRow = { key: string; id: string; name: string; accountId?: string; accountLabel?: string; enabled: boolean; models: JevCatalogModel[] };
 
@@ -280,6 +286,7 @@ export function JevModelSettings({ refreshToken = 0, onProviderCatalogChange }: 
           <h3 className="mb-1 text-sm font-semibold">Jevモデル</h3>
           <p className="text-xs text-muted">
             有効なJevモデルを上から順に試します。接続先・認証は<a href="#models-providers" className="text-accent hover:underline">プロバイダー接続</a>、プロバイダー状態・表示順はモデル一覧と共通です。Composerには表示しません。
+            平均はJev判定1回あたりの往復時間（成功分のみ記録）です。
             {saved && `（${rows.length} モデル枠・${models.length} モデル）`}
           </p>
         </div>
@@ -343,6 +350,7 @@ export function JevModelSettings({ refreshToken = 0, onProviderCatalogChange }: 
                   const modelEnabled = model.providerEnabled !== false;
                   const siblingModels = row.models.filter((item) => item.accountId === model.accountId);
                   const modelIndex = siblingModels.findIndex((item) => jevModelKey(item) === key);
+                  const latency = saved?.latency?.[model.modelId];
                   const targetIndex = (direction: -1 | 1) => {
                     const target = siblingModels[modelIndex + direction];
                     if (target) moveModel(row, model, target);
@@ -371,6 +379,7 @@ export function JevModelSettings({ refreshToken = 0, onProviderCatalogChange }: 
                           : active ? "無効（未反映）" : "無効"}</Badge>
                         {model.source === "documented" && <span className="text-xs text-muted">公式対応</span>}
                         <span className="break-all text-xs text-muted">{model.modelId}</span>
+                        {latency && <span className="text-xs text-muted" title={`Jev判定の成功時の往復時間。最終 ${latency.lastMs} ms`}>{latencyText(latency)}</span>}
                       </span>
                       <Switch checked={checked} disabled={!modelEnabled && !checked} onChange={() => toggleModel(model)} label={`${row.name}${row.accountLabel || model.integrated && model.accountLabel ? ` · ${row.accountLabel ?? model.accountLabel}` : ""} / ${model.name} を${checked ? "無効化" : "有効化"}`} />
                     </div>
@@ -391,6 +400,8 @@ export function JevModelSettings({ refreshToken = 0, onProviderCatalogChange }: 
           {timeoutInvalid && <p role="alert" className="text-sm text-danger">タイムアウトは100〜120000ミリ秒で指定してください。</p>}
           {settings.provider === "compatible" && <p className="text-xs text-muted">従来の手動接続先を使用中です。この一覧では接続先を編集できません。切り替える場合は既存プロバイダーのモデルを選んでください。</p>}
           {settings.provider === "typesafe" && selectedKeys.size === 0 && <p className="text-xs text-muted">従来のTypeSafeモデルを使用中です。認証はプロバイダー接続で管理してください。</p>}
+          {settings.provider === "typesafe" && selectedKeys.size === 0 && latencyText(saved?.latency?.[settings.typesafeModel]) && <p className="text-xs text-muted">Jev応答 {latencyText(saved?.latency?.[settings.typesafeModel])}</p>}
+          {settings.provider === "compatible" && latencyText(saved?.latency?.[settings.compatibleModel]) && <p className="text-xs text-muted">Jev応答 {latencyText(saved?.latency?.[settings.compatibleModel])}</p>}
           <p className="text-xs text-muted">会話・ツール結果を有効なモデルへ上から順に送信します。失敗すると次の有効モデルへ転送します。</p>
           <div className="flex flex-wrap items-center gap-3">
             <details className="text-xs text-muted">

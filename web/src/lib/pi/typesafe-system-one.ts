@@ -1,6 +1,7 @@
 import { recordTypesafeUsage } from "@/lib/codexbar/providers/typesafe";
 import { accountProviderModelKey, readProviderModelState } from "@/lib/provider-model-state";
 import { accountRoutingMode, readProviderRouting } from "@/lib/provider-routing";
+import { recordJevLatency } from "./jev-latency";
 import { readJevModelSettings, resolveJevModelConnection } from "./jev-model-config";
 
 type TypeSafeQuestion = {
@@ -110,6 +111,8 @@ export async function evaluateTypeSafe(
         ? { ...settings, provider: "registered", registeredModel: ref }
         : settings);
       const apiKey = ref ? storedKey : options.apiKey ?? storedKey;
+      // 認証解決は含めず、HTTP往復と本文検証だけを計測する。
+      const startedAt = performance.now();
       const response = await (options.fetchImpl ?? fetch)(`${baseUrl}/systemone`, {
         method: "POST",
         headers: {
@@ -126,6 +129,7 @@ export async function evaluateTypeSafe(
       if (!response.ok) throw new Error(`Jev API error: ${response.status}`);
       const result: unknown = await response.json();
       validateResponse(result, request);
+      recordJevLatency(result.model, performance.now() - startedAt);
       if (ref?.providerId === "typesafe" || !ref && settings.provider === "typesafe") recordTypesafeUsage(result.usage);
       return result;
     } catch (error) {

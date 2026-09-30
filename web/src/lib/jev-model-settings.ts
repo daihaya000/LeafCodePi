@@ -15,10 +15,21 @@ export type JevModelSettings = {
   timeoutMs: number;
 };
 
+export type JevLatencyEntry = {
+  count: number;
+  /** 成功した判定の往復時間の平均（丸めたミリ秒）。 */
+  averageMs: number;
+  lastMs: number;
+};
+/** 実際に応答したモデルIDごとのレイテンシサマリー。 */
+export type JevLatencyStats = Record<string, JevLatencyEntry>;
+
 export type JevModelSettingsDto = {
   settings: JevModelSettings;
   hasApiKey: { typesafe: boolean; compatible: boolean };
   models?: JevCatalogModel[];
+  /** サーバーが記録した直近のモデル別レイテンシ（未記録なら空）。 */
+  latency?: JevLatencyStats;
 };
 
 export const DEFAULT_JEV_MODEL_SETTINGS: JevModelSettings = {

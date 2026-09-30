@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { normalizeJevModelSettings } from "@/lib/jev-model-settings";
 import { getJevModelSettingsDto, saveJevModelSettings } from "@/lib/pi/jev-model-config";
+import { readJevLatencyStats } from "@/lib/pi/jev-latency";
 import { listJevModels } from "@/lib/pi/harness";
 import { jevModelKey, type JevCatalogModel } from "@/lib/jev-model-catalog";
 
@@ -12,7 +13,7 @@ async function settingsDto(refresh = false, knownModels?: JevCatalogModel[]) {
     getJevModelSettingsDto(),
     knownModels ?? listJevModels(refresh).catch(() => []),
   ]);
-  return { ...dto, models };
+  return { ...dto, models, latency: readJevLatencyStats() };
 }
 
 export async function GET(req?: NextRequest) {
