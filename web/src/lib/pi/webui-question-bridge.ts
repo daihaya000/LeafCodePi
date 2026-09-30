@@ -1,36 +1,10 @@
-import { randomUUID } from "node:crypto";
-import type { QuestionRequestDto } from "@/lib/types";
+import { createQuestionBridge, type WebUiQuestionAnswer } from "@backend-core/webui-bridge.mjs";
 
-export type WebUiQuestionAnswer = {
-  /** 質問ごとの回答ラベル配列（自由入力含む）。 */
-  answers: string[][];
-};
+export type { WebUiQuestionAnswer };
 
-/** Must match extensions/leafcode-question/webui-question-bridge.ts */
-const GLOBAL_KEY = "__leafcodeWebUiQuestionHandler" as const;
+// Compatibility entrypoint. The process-global handler slot remains the shared
+// contract with extensions/leafcode-question/webui-question-bridge.ts.
+const bridge = createQuestionBridge();
 
-type WebUiQuestionHandler = (
-  request: Omit<QuestionRequestDto, "id"> & { id: string },
-) => Promise<WebUiQuestionAnswer | null>;
-
-function readHandler(): WebUiQuestionHandler | null {
-  return (globalThis as typeof globalThis & { [GLOBAL_KEY]?: WebUiQuestionHandler | null })[GLOBAL_KEY] ?? null;
-}
-
-export function registerWebUiQuestionHandler(next: WebUiQuestionHandler | null): void {
-  (globalThis as typeof globalThis & { [GLOBAL_KEY]?: WebUiQuestionHandler | null })[GLOBAL_KEY] = next;
-}
-
-/** Returns null when no WebUI handler is registered (caller should fall back). */
-export async function requestWebUiQuestion(input: {
-  sessionId: string;
-  questions: QuestionRequestDto["questions"];
-}): Promise<WebUiQuestionAnswer | null> {
-  const handler = readHandler();
-  if (!handler) return null;
-  return handler({
-    id: randomUUID(),
-    sessionId: input.sessionId,
-    questions: input.questions,
-  });
-}
+export const registerWebUiQuestionHandler = bridge.registerWebUiQuestionHandler;
+export const requestWebUiQuestion = bridge.requestWebUiQuestion;
