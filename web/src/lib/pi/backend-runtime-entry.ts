@@ -29,4 +29,8 @@ export {
   applyCodePermissionSettingsToLiveTasks,
 } from "@/lib/pi/harness";
 // Stopping a Bot Code request also updates the outbox, which the owning process must do.
-export { stopBotCodeRequest } from "@/lib/pi/bot-code-relay";
+export { isRoomDelegatedCodeTask, stopBotCodeRequest } from "@/lib/pi/bot-code-relay";
+// Clearing a Code session link writes the store and the Bot record: the owner does both.
+export { getBot, patchBot } from "@/lib/bots";
+export { getTask, patchTask } from "@/lib/store";
+export { isGoalLoopSessionOwned, readGoalLoopState } from "@/lib/pi/goal-loop-state";

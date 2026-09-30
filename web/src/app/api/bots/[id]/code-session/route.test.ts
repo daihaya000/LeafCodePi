@@ -699,23 +699,34 @@ describe("Bot Code session after the cutover", () => {
     expect(mocks.createBotCodeTask).not.toHaveBeenCalled();
   });
 
-  it("refuses session control rather than acting on a session it does not own", async () => {
+  it("forwards a clear to the owning Backend and refuses unknown actions", async () => {
     mocks.getBot.mockReturnValue({ id: "one", codeSessionTaskId: "task-1" });
     mocks.localRuntimeBlocked.mockReturnValue(true);
-    const response = await PATCH(
+    mocks.forwardBotCodeSessionStart.mockResolvedValue({ ok: true, task: null });
+    const cleared = await PATCH(
       new NextRequest("http://localhost/api/bots/one/code-session", {
         method: "PATCH",
         body: JSON.stringify({ action: "clear" }),
       }),
       { params: Promise.resolve({ id: "one" }) },
     );
-    expect(response.status).toBe(409);
-    await expect(response.json()).resolves.toEqual({
+    expect(cleared.status).toBe(200);
+    await expect(cleared.json()).resolves.toEqual({ task: null });
+    expect(mocks.forwardBotCodeSessionStart).toHaveBeenCalledWith("one", { action: "clear", taskId: "task-1" });
+    expect(mocks.stopBotCodeTask).not.toHaveBeenCalled();
+
+    const unknown = await PATCH(
+      new NextRequest("http://localhost/api/bots/one/code-session", {
+        method: "PATCH",
+        body: JSON.stringify({ action: "unknown" }),
+      }),
+      { params: Promise.resolve({ id: "one" }) },
+    );
+    expect(unknown.status).toBe(409);
+    await expect(unknown.json()).resolves.toEqual({
       error: "Codeセッションの操作は非所有モードでは未対応です",
       code: "CODE_SESSION_CONTROL_NOT_SUPPORTED",
     });
-    expect(mocks.stopBotCodeTask).not.toHaveBeenCalled();
-    expect(mocks.abortTaskIncludingColdGoalLoop).not.toHaveBeenCalled();
   });
 
   it("forwards stop and Goal Loop control to the owning Backend", async () => {

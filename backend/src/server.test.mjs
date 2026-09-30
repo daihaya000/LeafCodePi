@@ -624,6 +624,8 @@ test("a forwarded Bot Code session is created by the runtime owner", async (t) =
   const { snapshotsUrl, headers } = await fixture(t, {
     createBotCodeSession: async (botId, input) => {
       seen.push({ botId, input });
+      // Clearing a link answers with no task, like the WebUI's owning path.
+      if (input.action === "clear" || input.action === "unlink") return null;
       return { id: "code-1", status: "working", botId };
     },
   });
@@ -648,6 +650,14 @@ test("a forwarded Bot Code session is created by the runtime owner", async (t) =
     botId: "bot-1",
     input: { action: "continue", taskId: "code-1", prompt: "続けて" },
   });
+  const cleared = await request(url, {
+    method: "POST",
+    headers: { ...headers, "content-type": "application/json" },
+    body: JSON.stringify({ action: "clear", taskId: "code-1" }),
+  });
+  assert.equal(cleared.status, 200);
+  assert.deepEqual(await cleared.json(), { task: null });
+  assert.deepEqual(seen.at(-1), { botId: "bot-1", input: { action: "clear", taskId: "code-1" } });
   const detached = await fixture(t);
   const detachedUrl = `${detached.snapshotsUrl.replace("pending-snapshots", "bots")}/bot-1/code-sessions`;
   const refused = await request(detachedUrl, {

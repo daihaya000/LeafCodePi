@@ -226,6 +226,15 @@ export async function PATCH(
       if (forwarded.reason === "not-found") return NextResponse.json({ error: "Code session not found" }, { status: 404 });
       return forwardFailure(forwarded.reason, "Backendを停止できません");
     }
+    if (body?.action === "clear" || body?.action === "unlink") {
+      // The link lives in the store and the Bot record, which the owner writes.
+      const forwarded = await forwardBotCodeSessionStart(id, { action: body.action, taskId });
+      if (forwarded.ok) return NextResponse.json({ task: forwarded.task });
+      if (forwarded.reason === "not-found") {
+        return NextResponse.json({ error: "Code session not found" }, { status: 404 });
+      }
+      return forwardFailure(forwarded.reason, "Backendへ転送できません");
+    }
     if (body?.action === "prompt") {
       // Continuing a Bot Code session is delegation too: the owner runs it.
       if (typeof body.prompt !== "string" || !body.prompt.trim()) {

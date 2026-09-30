@@ -7,6 +7,48 @@ import { closeBackend, createBackendServer, listenBackend } from "./server.mjs";
 import { createBackendStartup } from "./startup.mjs";
 
 /**
+ * Clears a Bot's Code session link, stopping the session first when it is still running.
+ *
+ * Mirrors the WebUI's owning-mode ladder: an archived or missing task only clears matching links, a
+ * task that is not a Bot-panel Code session is a miss, and a session that cannot be stopped is
+ * refused instead of silently unlinking a running run.
+ *
+ * Returns the new task (always null, like the WebUI) or throws `{status}` for a refusal.
+ */
+async function clearBotCodeSessionLink(runtime, botId, taskId) {
+  const linked = runtime.getTask(taskId);
+  const bot = runtime.getBot(botId);
+  // The endpoint wraps the answer as `{ task }`, and a cleared link has no task.
+  const clearLinks = () => {
+    if (linked?.supervisorBotId === botId) runtime.patchTask(taskId, { supervisorBotId: null });
+    if (bot?.codeSessionTaskId === taskId) runtime.patchBot(botId, { codeSessionTaskId: null });
+    return null;
+  };
+  if (!linked || linked.status === "archived") return clearLinks();
+  const isBotPanelCodeTask =
+    linked.kind !== "bot" &&
+    (linked.botId === botId || linked.supervisorBotId === botId) &&
+    !runtime.isRoomDelegatedCodeTask(taskId);
+  if (!isBotPanelCodeTask) {
+    throw Object.assign(new Error("Code session not found"), { status: 404 });
+  }
+  const loop = runtime.readGoalLoopState(linked.directory, linked.sessionId);
+  if (linked.status === "working" || runtime.isGoalLoopSessionOwned(loop)) {
+    try {
+      await runtime.stopBotCodeTask(botId, taskId);
+    } catch {
+      await runtime.abortTaskIncludingColdGoalLoop(taskId).catch(() => {});
+    }
+    const after = runtime.getTask(taskId);
+    const afterLoop = after ? runtime.readGoalLoopState(after.directory, after.sessionId) : null;
+    if (after && (after.status === "working" || runtime.isGoalLoopSessionOwned(afterLoop))) {
+      throw Object.assign(new Error("Code session could not be stopped"), { status: 409 });
+    }
+  }
+  return clearLinks();
+}
+
+/**
  * The runtime owner records into this store once a Pi runtime is attached. Until
  * then the read stays empty, which is honest: nothing has scheduled a snapshot in
  * this process yet.
@@ -81,6 +123,9 @@ try {
       }
       if (input?.action === "continue") {
         return runtime.continueBotCodeTask(botId, input.taskId, input.prompt);
+      }
+      if (input?.action === "clear" || input?.action === "unlink") {
+        return clearBotCodeSessionLink(runtime, botId, input.taskId);
       }
       return runtime.createBotCodeTask(botId, input);
     },
