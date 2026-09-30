@@ -4,6 +4,7 @@ import {
   createBotCodeSessionOnBackend,
   type BackendGoalLoopBody,
   postBotCodeRequestAction,
+  promptRoomOnBackend,
   promptTaskOnBackend,
   readBackendPendingSnapshots,
   readBackendTaskDetail,
@@ -185,6 +186,30 @@ export async function forwardPendingRequestsByTask(
     };
   }
   return byTask;
+}
+
+/**
+ * Posts a Room turn in the owning Backend. The owner's answer keeps its own status and body, so a
+ * refusal (a bad envelope, an oversized prompt) is not reported as a transport failure.
+ */
+export async function forwardRoomPrompt(
+  roomId: string,
+  body: Record<string, unknown> | null,
+  options: { env?: BackendEnv; fetchImpl?: typeof fetch; timeoutMs?: number } = {},
+): Promise<
+  | { ok: true; result: { status: number; body: unknown } }
+  | { ok: false; reason: BackendFailureReason; status?: number }
+> {
+  const result = await promptRoomOnBackend(roomId, body ?? {}, options);
+  if (!result.ok) return { ok: false, reason: result.reason, ...(result.status ? { status: result.status } : {}) };
+  const nested = result.body?.result;
+  return {
+    ok: true,
+    result: {
+      status: Number.isInteger(nested?.status) ? nested.status : 200,
+      body: nested?.body ?? null,
+    },
+  };
 }
 
 /** Rewinds a task's transcript in the owning Backend. Never falls back to the in-process rewind. */

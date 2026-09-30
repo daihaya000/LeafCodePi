@@ -42,6 +42,8 @@ export { ensureRoutineScheduler, runRoutine } from "@/lib/routines";
 export { reconcileRoomRuntime } from "@/lib/room-runtime";
 // Rewinding a Room conversation stops its turns and drops the owner's attention and Code jobs.
 export { revertRoomConversation } from "@/lib/room-revert";
+// Posting a Room turn routes bots and starts their sessions, so the owner runs the whole ladder.
+export { handleRoomPrompt } from "@/lib/room-prompt";
 export { getTask, patchTask } from "@/lib/store";
 export { isGoalLoopSessionOwned, readGoalLoopState } from "@/lib/pi/goal-loop-state";
 export { startGoalLoopWithSelection } from "@/lib/pi/goal-loop-start";

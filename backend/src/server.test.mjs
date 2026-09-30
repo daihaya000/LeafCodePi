@@ -683,6 +683,37 @@ test("the Goal Loop control needs a runtime and refuses a non-function handler",
   );
 });
 
+test("a forwarded Room prompt returns the owner's own status and body", async (t) => {
+  const seen = [];
+  const { snapshotsUrl, headers } = await fixture(t, {
+    roomPrompt: async (roomId, body) => {
+      seen.push({ roomId, body });
+      return { status: 403, body: { error: "A valid server relay envelope is required" } };
+    },
+  });
+  const url = `${snapshotsUrl.replace("pending-snapshots", "rooms")}/room-1/prompt`;
+  const post = (body) => request(url, {
+    method: "POST", headers: { ...headers, "content-type": "application/json" }, body: JSON.stringify(body),
+  });
+  const response = await post({ prompt: "調べて", fromBot: true });
+  // The transport answer is 200: the owner's refusal is replayed by the WebUI, not mislabelled.
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), {
+    result: { status: 403, body: { error: "A valid server relay envelope is required" } },
+  });
+  assert.deepEqual(seen, [{ roomId: "room-1", body: { prompt: "調べて", fromBot: true } }]);
+  assert.equal((await request(url, { headers })).status, 405);
+  const detached = await fixture(t);
+  const detachedUrl = `${detached.snapshotsUrl.replace("pending-snapshots", "rooms")}/room-1/prompt`;
+  assert.equal((await request(detachedUrl, {
+    method: "POST", headers: { ...detached.headers, "content-type": "application/json" }, body: JSON.stringify({ prompt: "調べて" }),
+  })).status, 503);
+  assert.throws(
+    () => createBackendServer({ token: randomBytes(32).toString("base64url"), roomPrompt: 5 }),
+    /roomPrompt must be a function or null/,
+  );
+});
+
 test("a forwarded task revert and unrevert reach the runtime owner", async (t) => {
   const seen = [];
   const { snapshotsUrl, headers } = await fixture(t, {

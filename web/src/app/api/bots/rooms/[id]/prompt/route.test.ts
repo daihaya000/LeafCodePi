@@ -14,6 +14,13 @@ const state = vi.hoisted(() => ({
   abortTask: vi.fn(),
   resolveRoomOpener: vi.fn(),
   cancelRoomCodeRequests: vi.fn(async () => 0),
+  forwardRoomPrompt: vi.fn(),
+  localRuntimeBlocked: vi.fn(() => false),
+}));
+vi.mock("@/lib/backend-forward", () => ({ forwardRoomPrompt: state.forwardRoomPrompt }));
+vi.mock("@/lib/pi/runtime-ownership", () => ({
+  localRuntimeBlocked: state.localRuntimeBlocked,
+  assertLocalRuntimeAllowed: vi.fn(),
 }));
 vi.mock("@/lib/room-opener", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/room-opener")>();
@@ -89,6 +96,9 @@ function setup(names = ["A"]) {
 
 beforeEach(() => {
   state.root = mkdtempSync(join(tmpdir(), "leafcode-room-prompt-"));
+  state.localRuntimeBlocked.mockReturnValue(false);
+  state.forwardRoomPrompt.mockReset();
+  state.forwardRoomPrompt.mockResolvedValue({ ok: true, result: { status: 200, body: { room: { id: "room-1" }, routedBotIds: ["a"], broadcast: false } } });
   state.cancelRoomCodeRequests.mockClear();
   state.cancelRoomCodeRequests.mockResolvedValue(0);
   state.resolveRoomOpener.mockReset();
@@ -114,6 +124,54 @@ afterEach(async () => {
   state.promptTask.mockReset();
   state.abortTask.mockReset();
   vi.restoreAllMocks();
+});
+
+describe("room prompt ownership", () => {
+  it("forwards the whole body after the cutover and replays the owner's answer", async () => {
+    state.localRuntimeBlocked.mockReturnValue(true);
+    const { room } = setup(["A"]);
+    state.forwardRoomPrompt.mockResolvedValue({
+      ok: true,
+      result: { status: 200, body: { room: { id: room.id }, routedBotIds: ["a"], broadcast: true } },
+    });
+
+    const response = await send(room.id, "調べて", { broadcast: true });
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({ routedBotIds: ["a"], broadcast: true });
+    expect(state.forwardRoomPrompt).toHaveBeenCalledWith(room.id, { prompt: "調べて", broadcast: true });
+    // Nothing local: the owner appended the turn and started the sessions.
+    expect(getRoom(room.id)!.messages).toHaveLength(0);
+    expect(state.promptTask).not.toHaveBeenCalled();
+  });
+
+  it("replays an owner refusal with its status instead of reporting a transport failure", async () => {
+    state.localRuntimeBlocked.mockReturnValue(true);
+    const { room } = setup(["A"]);
+    state.forwardRoomPrompt.mockResolvedValue({
+      ok: true,
+      result: { status: 403, body: { error: "A valid server relay envelope is required" } },
+    });
+
+    const response = await send(room.id, "調べて", { fromBot: true });
+
+    expect(response.status).toBe(403);
+    await expect(response.json()).resolves.toEqual({ error: "A valid server relay envelope is required" });
+    expect(getRoom(room.id)!.messages).toHaveLength(0);
+  });
+
+  it("reports an unreachable Backend without falling back to the local ladder", async () => {
+    state.localRuntimeBlocked.mockReturnValue(true);
+    const { room } = setup(["A"]);
+    state.forwardRoomPrompt.mockResolvedValue({ ok: false, reason: "unreachable" });
+
+    const response = await send(room.id, "調べて");
+
+    expect(response.status).toBe(502);
+    await expect(response.json()).resolves.toMatchObject({ error: "Backendへ転送できません", reason: "unreachable" });
+    expect(getRoom(room.id)!.messages).toHaveLength(0);
+    expect(state.promptTask).not.toHaveBeenCalled();
+  });
 });
 
 describe("room mention responses", () => {

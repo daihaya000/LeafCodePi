@@ -7,6 +7,7 @@ import {
   forwardTaskAbort,
   forwardBotRevert,
   forwardBotRoutineRun,
+  forwardRoomPrompt,
   forwardRoomRevert,
   forwardTaskRevert,
   forwardTaskUnrevert,
@@ -228,6 +229,32 @@ describe("forwardTaskAbort", () => {
       status: 404,
     });
     await expect(forwardTaskAbort("t1", { env: {} })).resolves.toEqual({ ok: false, reason: "not-configured" });
+  });
+});
+
+describe("forwardRoomPrompt", () => {
+  it("replays the owner's status and body from the nested result", async () => {
+    const fetchImpl = vi.fn<typeof fetch>(async () => jsonResponse(200, {
+      result: { status: 413, body: { error: "本文プロンプトが長すぎます" } },
+    }));
+    await expect(forwardRoomPrompt("room-1", { prompt: "長い" }, { env, fetchImpl })).resolves.toEqual({
+      ok: true,
+      result: { status: 413, body: { error: "本文プロンプトが長すぎます" } },
+    });
+    expect(fetchImpl.mock.calls[0][0]).toBe("http://127.0.0.1:19999/internal/rooms/room-1/prompt");
+    expect(JSON.parse(String(fetchImpl.mock.calls[0][1]?.body))).toEqual({ prompt: "長い" });
+  });
+
+  it("sends an empty object for a missing body and reports a transport failure", async () => {
+    const fetchImpl = vi.fn<typeof fetch>(async () => jsonResponse(200, { result: { status: 400, body: { error: "Prompt is required" } } }));
+    await expect(forwardRoomPrompt("room-1", null, { env, fetchImpl })).resolves.toEqual({
+      ok: true, result: { status: 400, body: { error: "Prompt is required" } },
+    });
+    expect(JSON.parse(String(fetchImpl.mock.calls[0][1]?.body))).toEqual({});
+    const unreachable = vi.fn<typeof fetch>(async () => { throw new Error("connect refused"); });
+    await expect(forwardRoomPrompt("room-1", { prompt: "x" }, { env, fetchImpl: unreachable })).resolves.toEqual({
+      ok: false, reason: "unreachable",
+    });
   });
 });
 

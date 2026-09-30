@@ -1,113 +1,31 @@
 import { NextRequest, NextResponse } from "next/server";
-import { appendRoomMessage, botsForRoomPrompt, consumeRoomRelayEnvelope, getRoom, roomFileRejection, roomImageRejection, saveRoomFiles, saveRoomImages, updateRoomMessage } from "@/lib/rooms";
-import { getBot } from "@/lib/bots";
-import type { BotDto, RoomMessage } from "@/lib/types";
-import { isPromptFileList, isPromptImageList, isPromptTextWithinSize, MAX_PROMPT_ATTACHMENTS, type PromptFileInput } from "@/lib/prompt-images";
-import { jsonError } from "@/lib/pi/harness";
-import { isRoomConversationRequest, isRoomStopRequest, MAX_ROOM_CONVERSATION_PARTICIPANTS, latestRoomRequest } from "@/lib/room-conversation";
-import { resolveRoomOpener, type RoomOpenerReason } from "@/lib/room-opener";
-import { cancelPendingRoomHandoffs, deliverReadyRoomHandoffs, runRoomBot, runRoomConversation, runRoomFanOut, settleRoomHandoffs, settleStaleRoomTurns, steerRoomTurns, stopRoomTurns } from "@/lib/room-runtime";
-import { cancelRoomCodeRequests } from "@/lib/pi/bot-code-relay";
+import { handleRoomPrompt, type RoomPromptBody } from "@/lib/room-prompt";
+import { forwardRoomPrompt } from "@/lib/backend-forward";
+import { localRuntimeBlocked } from "@/lib/pi/runtime-ownership";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-type PromptBody = { prompt?: unknown; broadcast?: unknown; fromBot?: unknown; relayEnvelope?: unknown; images?: unknown; files?: unknown };
-
+/**
+ * Post a user turn into a Room.
+ *
+ * The routing ladder (validation, stop requests, relay envelopes, steering, session starts) lives in
+ * `handleRoomPrompt`, because the owner must run it: after the cutover this route forwards the same
+ * body to the Backend and replays the owner's answer unchanged.
+ */
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  try {
-    const id = (await params).id;
-    const room = getRoom(id);
-    if (!room) return NextResponse.json({ error: "Room not found" }, { status: 404 });
-    const body = (await req.json().catch(() => null)) as PromptBody | null;
-    if (typeof body?.prompt === "string" && !isPromptTextWithinSize(body.prompt)) {
-      return NextResponse.json({ error: "本文プロンプトが長すぎます" }, { status: 413 });
-    }
-    const isRelayRequest = body?.fromBot === true || body?.relayEnvelope !== undefined;
-    if (isRelayRequest) {
-      if (typeof body?.prompt !== "string" || !body.prompt.trim()) return NextResponse.json({ error: "Prompt is required" }, { status: 400 });
-      // Only a server-issued, single-use envelope can establish source, targets, depth, and turn.
-      // Client fromBot / turnId / sourceBotId / depth are never trusted.
-      const envelope = typeof body.relayEnvelope === "string" ? consumeRoomRelayEnvelope(id, body.relayEnvelope) : undefined;
-      if (!envelope) return NextResponse.json({ error: "A valid server relay envelope is required" }, { status: 403 });
-      const prompt = body.prompt.trim();
-      const userMessage = appendRoomMessage(id, { role: "user", text: prompt, sourceBotId: envelope.sourceBotId, relayTurnId: envelope.turnId, relayDepth: envelope.depth });
-      if (!userMessage) return NextResponse.json({ error: "Room not found" }, { status: 404 });
-      const targets = envelope.targetBotIds.map((botId) => getBot(botId)).filter((bot): bot is BotDto => Boolean(bot));
-      const responses = targets.map((bot) => appendRoomMessage(id, { role: "assistant", botId: bot.id, botName: bot.name, text: "", status: "working", sourceBotId: envelope.sourceBotId, relayTurnId: envelope.turnId, relayDepth: envelope.depth, relayParentMessageId: userMessage.id })).filter((item): item is RoomMessage => Boolean(item));
-      for (const [index, bot] of targets.entries()) { const response = responses[index]; if (response) void runRoomBot(room, bot, prompt, response.id, userMessage.id); }
-      return NextResponse.json({ room: getRoom(id), routedBotIds: targets.map((bot) => bot.id), relay: true, relayDepth: envelope.depth, relayTurnId: envelope.turnId });
-    }
-    if (typeof body?.prompt !== "string") return NextResponse.json({ error: "Prompt is required" }, { status: 400 });
-    // Attachments only ever come from the user composer, never from a relayed bot payload.
-    if (body.images !== undefined && !isPromptImageList(body.images)) return NextResponse.json({ error: "invalid images" }, { status: 400 });
-    if (body.files !== undefined && !isPromptFileList(body.files)) return NextResponse.json({ error: "invalid files" }, { status: 400 });
-    const images = body.images ?? [];
-    const files = body.files ?? [];
-    if (images.length + files.length > MAX_PROMPT_ATTACHMENTS) return NextResponse.json({ error: `添付は${MAX_PROMPT_ATTACHMENTS}件までです` }, { status: 400 });
-    const imageRejection = images.length > 0 ? roomImageRejection(images) : undefined;
-    if (imageRejection) return NextResponse.json({ error: imageRejection }, { status: 400 });
-    const fileRejection = files.length > 0 ? roomFileRejection(files as PromptFileInput[]) : undefined;
-    if (fileRejection) return NextResponse.json({ error: fileRejection }, { status: 400 });
-    if (!body.prompt.trim() && images.length === 0 && files.length === 0) return NextResponse.json({ error: "Prompt is required" }, { status: 400 });
-    const prompt = body.prompt.trim();
-    settleStaleRoomTurns(id);
-    if (isRoomStopRequest(prompt)) {
-      const userMessage = appendRoomMessage(id, { role: "user", text: prompt });
-      if (!userMessage) return NextResponse.json({ error: "Room not found" }, { status: 404 });
-      const stopped = await stopRoomTurns(id);
-      const cancelledHandoffs = cancelPendingRoomHandoffs(id);
-      return NextResponse.json({ room: getRoom(id), routedBotIds: [], stopped: true, stoppedTurns: stopped, cancelledHandoffs });
-    }
-    // Recovery scan before the new request lands: resolve handoffs whose trigger was missed
-    // (restart, crash) and let ready ones claim the floor first; a new user message can steer them.
-    if (settleRoomHandoffs(id) > 0) void deliverReadyRoomHandoffs(id).catch(() => console.error("Room handoff delivery failed"));
-    const supersededRequestId = latestRoomRequest(getRoom(id) ?? room)?.id;
-    const userMessage = appendRoomMessage(id, { role: "user", text: prompt });
-    if (!userMessage) return NextResponse.json({ error: "Room not found" }, { status: 404 });
-    // A newer user turn supersedes prior Code outbox jobs (same finality as revert).
-    if (supersededRequestId) {
-      void cancelRoomCodeRequests(id, supersededRequestId).catch((error) =>
-        console.warn("[room-prompt] superseded Code cancel failed:", error instanceof Error ? error.message : String(error)),
+  const id = (await params).id;
+  const parsed: unknown = await req.json().catch(() => null);
+  const body = parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed as RoomPromptBody : null;
+  if (localRuntimeBlocked()) {
+    const forwarded = await forwardRoomPrompt(id, body);
+    if (!forwarded.ok) {
+      return NextResponse.json(
+        { error: "Backendへ転送できません", reason: forwarded.reason },
+        { status: forwarded.status ?? 502 },
       );
     }
-    // ponytail: attachment files outlive a revert; the whole directory goes when the room is deleted.
-    if (images.length > 0) {
-      const saved = saveRoomImages(id, userMessage.id, images);
-      if (saved.length > 0) updateRoomMessage(id, userMessage.id, { images: saved });
-    }
-    if (files.length > 0) {
-      const saved = saveRoomFiles(id, userMessage.id, files as PromptFileInput[]);
-      if (saved.length > 0) updateRoomMessage(id, userMessage.id, { files: saved });
-    }
-    // A new instruction redirects the turns already being written; those bots answer once, there.
-    const steered = new Set(await steerRoomTurns(id, prompt, userMessage.id));
-    // Everyday @-less work is single-bot (keyword first, else LLM). Open rotate is reserved for /discuss-like only.
-    const conversation = isRoomConversationRequest(prompt);
-    let routed = botsForRoomPrompt(room, prompt, body.broadcast === true);
-    let singleOpenerReason: RoomOpenerReason | undefined;
-    if (routed.bots.length === 0 && !prompt.includes("@") && body.broadcast !== true) {
-      if (conversation) {
-        routed = botsForRoomPrompt(room, prompt, true);
-      } else {
-        const members = [...botsForRoomPrompt(room, prompt, true).bots].sort((a, b) => room.members.indexOf(a.id) - room.members.indexOf(b.id));
-        const opener = await resolveRoomOpener({ prompt, bots: members });
-        if (opener) {
-          routed = { bots: [opener.bot], broadcast: false };
-          singleOpenerReason = opener.reason;
-        }
-      }
-    }
-    const pending = routed.bots.filter((bot) => !steered.has(bot.id));
-    if (conversation && pending.length > 1) {
-      const participants = [...pending].sort((a, b) => room.members.indexOf(a.id) - room.members.indexOf(b.id)).slice(0, MAX_ROOM_CONVERSATION_PARTICIPANTS);
-      void runRoomConversation(room, participants, prompt, userMessage.id).catch(() => console.error("Room conversation failed"));
-      return NextResponse.json({ room: getRoom(id), routedBotIds: participants.map((bot) => bot.id), steeredBotIds: [...steered], broadcast: routed.broadcast });
-    }
-    const responses = pending.map((bot, index) => appendRoomMessage(id, {
-      role: "assistant", botId: bot.id, botName: bot.name, text: "", status: "working",
-      ...(index === 0 && singleOpenerReason ? { openerReason: singleOpenerReason } : {}),
-    })).filter((item): item is NonNullable<typeof item> => Boolean(item));
-    void runRoomFanOut(room, pending, prompt, responses.map((response) => response.id), userMessage.id).catch(() => console.error("Room fan-out failed"));
-    return NextResponse.json({ room: getRoom(id), routedBotIds: pending.map((bot) => bot.id), steeredBotIds: [...steered], broadcast: routed.broadcast });
-  } catch (error) { const { error: message, status } = jsonError(error); return NextResponse.json({ error: message }, { status }); }
+    return NextResponse.json(forwarded.result.body, { status: forwarded.result.status });
+  }
+  const result = await handleRoomPrompt(id, body);
+  return NextResponse.json(result.body, { status: result.status });
 }

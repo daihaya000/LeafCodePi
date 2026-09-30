@@ -312,5 +312,12 @@ Backend単独のSDK検証前には `npm --prefix backend ci --ignore-scripts` �
 ## ターン19の変更（実測）
 
 - 全routeのowner-only呼出を監査し、未ガードのセッション編集経路を見つけた。今回の対象は`tasks/[id]/revert`（`revertTask`）と`tasks/[id]/unrevert`（`unrevertTask`）で、内部APIは`POST /internal/tasks/:id/revert`（`{entryId}`）と`POST /internal/tasks/:id/unrevert`（入力なし、abortと同じく空bodyを許容）。bundleへ`unrevertTask`を追加して再生成（9817 KiB）。Web側routeは非所有モードで転送する。
-- 監査で残る未ガードのowner-only経路（次ターン以降）: `bots/rooms/[id]/prompt`（`runRoomConversation`/`runRoomBot`/`stopRoomTurns`）、`tasks/[id]/compact`と`compact/abort`、`tasks/[id]/model`・`thinking`・`agent`（liveセッション設定）。
+- 監査で残る未ガードのowner-only経路（次ターン以降）: `tasks/[id]/compact`と`compact/abort`、`tasks/[id]/model`・`thinking`・`agent`（liveセッション設定）。
 - 検証: `backend/src/server.test.mjs`61件（task revert/unrevertの実行到達・400・404・503・405・空body・非関数拒否）、Web側はrevert/unrevert routeテスト各3件と`backend-forward`30件・所有権カバレッジ4件成功。本番tsc・eslint成功。
+
+## ターン20の変更（実測）
+
+- Roomの投稿（`POST /api/bots/rooms/:id/prompt`）をBackendへ転送した。ルーティングの階段（検証・停止要求・relay envelope・steering・セッション開始）を`web/src/lib/room-prompt.ts`の`handleRoomPrompt`に集約し、所有モードのrouteとBackendが同じ実装を呼ぶ。内部APIは`POST /internal/rooms/:roomId/prompt`（WebUIのbodyをそのまま送る）。
+- 所有者の回答はHTTP 200で`{result:{status,body}}`として返し、WebUIはstatusとbodyをそのまま再生する。relay envelope拒否（403）や長すぎる本文（413）を転送失敗として誤報しないため、共通クライアントの失敗理由分類（401/403→unauthorized、409→incompatible）に依存しない形にした。
+- bundleへ`handleRoomPrompt`を追加して再生成（9826 KiB）。Web routeは非所有モードで転送し、ローカルの部屋書込・セッション開始を行わない。
+- 検証: 既存のRoom promptテスト55件が抽出後も全て成功。追加の所有権テスト3件（転送・拒否status再生・到達不能502）と`backend-forward`32件・所有権カバレッジ4件、backend server 62件（Room promptのnested result・405・503・非関数拒否）成功。本番tsc・eslint成功。

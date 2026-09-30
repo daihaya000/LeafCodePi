@@ -20,6 +20,7 @@ import {
   BACKEND_PENDING_SNAPSHOTS_PATH,
   BACKEND_PROTOCOL_HEADER,
   BACKEND_PROTOCOL_VERSION,
+  BACKEND_ROOM_PROMPT_SUFFIX,
   BACKEND_ROOM_REVERT_SUFFIX,
   BACKEND_ROOMS_PATH,
   BACKEND_TASK_ABORT_SUFFIX,
@@ -221,6 +222,22 @@ export function unrevertTaskOnBackend(
   options: { env?: BackendEnv; fetchImpl?: typeof fetch; timeoutMs?: number } = {},
 ): Promise<BackendResult<{ task: Record<string, unknown> | null }>> {
   return postBackendJson(`${BACKEND_TASKS_PATH}/${encodeURIComponent(id)}${BACKEND_TASK_UNREVERT_SUFFIX}`, {}, options);
+}
+
+/**
+ * Posts a Room turn in the owning Backend. The owner runs the whole ladder, so the answer is
+ * `{ result: { status, body } }` with HTTP 200 and the WebUI replays it unchanged.
+ */
+export function promptRoomOnBackend(
+  roomId: string,
+  body: Record<string, unknown>,
+  options: { env?: BackendEnv; fetchImpl?: typeof fetch; timeoutMs?: number } = {},
+): Promise<BackendResult<{ result: { status: number; body: unknown } }>> {
+  return postBackendJson(
+    `${BACKEND_ROOMS_PATH}/${encodeURIComponent(roomId)}${BACKEND_ROOM_PROMPT_SUFFIX}`,
+    body,
+    options,
+  );
 }
 
 /** Rewinds a Room conversation in the owning Backend: the turns, attention and outbox are there. */

@@ -10,6 +10,7 @@ import {
   BACKEND_BOT_ROUTINES_SEGMENT,
   BACKEND_BOTS_PATH,
   BACKEND_PENDING_SNAPSHOTS_PATH,
+  BACKEND_ROOM_PROMPT_SUFFIX,
   BACKEND_ROOM_REVERT_SUFFIX,
   BACKEND_ROOMS_PATH,
   BACKEND_PROTOCOL_HEADER,
@@ -125,6 +126,8 @@ export function createBackendServer({
   revertBotTask = null,
   /** Rewinds a Room conversation: `(roomId, messageId) => result`; the owner stops its turns. */
   revertRoom = null,
+  /** Posts a Room turn: `(roomId, body) => { status, body }`; the owner runs the routing ladder. */
+  roomPrompt = null,
   /** Rewinds a task's session tree: `(id, entryId) => result`; only the owner edits the session. */
   revertTaskAction = null,
   /** Restores the leaf after a rewind: `(id) => task`; only the owner edits the session. */
@@ -167,6 +170,7 @@ export function createBackendServer({
     runBotRoutine,
     revertBotTask,
     revertRoom,
+    roomPrompt,
     revertTaskAction,
     unrevertTaskAction,
   })) {
@@ -241,20 +245,23 @@ export function createBackendServer({
     const routineTarget = routineMatch?.length === 3 && routineMatch[1] === BACKEND_BOT_ROUTINES_SEGMENT
       ? { botId: decodeURIComponent(routineMatch[0]), routineId: decodeURIComponent(routineMatch[2]) }
       : undefined;
-    // `/internal/rooms/<roomId>/revert` rewinds a Room conversation in the owning process.
+    // `/internal/rooms/<roomId>/revert` rewinds a Room conversation, and `/prompt` posts a turn:
+    // both run in the owning process.
     const roomSuffix = target.pathname.startsWith(`${BACKEND_ROOMS_PATH}/`)
       ? target.pathname.slice(BACKEND_ROOMS_PATH.length + 1)
       : null;
-    const roomRevertPath = roomSuffix?.endsWith(BACKEND_ROOM_REVERT_SUFFIX)
-      ? decodeURIComponent(roomSuffix.slice(0, -BACKEND_ROOM_REVERT_SUFFIX.length))
-      : undefined;
+    const roomActionSuffix = [BACKEND_ROOM_REVERT_SUFFIX, BACKEND_ROOM_PROMPT_SUFFIX]
+      .find((suffix) => roomSuffix?.endsWith(suffix));
+    const roomActionPath = roomActionSuffix === undefined || !roomSuffix
+      ? undefined
+      : decodeURIComponent(roomSuffix.slice(0, -roomActionSuffix.length));
     const knownPath = target.pathname === BACKEND_HEALTH_PATH
       || target.pathname === BACKEND_PENDING_SNAPSHOTS_PATH
       || target.pathname === BACKEND_BOTS_PATH
       || botSuffix !== undefined
       || botActionPath !== undefined
       || routineTarget !== undefined
-      || roomRevertPath !== undefined
+      || roomActionPath !== undefined
       || taskPath !== undefined
       || detailPath !== undefined
       || actionPath !== undefined;
@@ -380,18 +387,19 @@ export function createBackendServer({
       }
       return;
     }
-    if (roomRevertPath !== undefined) {
+    if (roomActionPath !== undefined) {
       if (request.method !== "POST") {
         sendJson(response, 405, {
           error: "Method not allowed", code: BACKEND_ERROR_CODES.methodNotAllowed,
         }, { Allow: "POST" });
         return;
       }
-      if (!roomRevertPath) {
+      if (!roomActionPath) {
         sendJson(response, 404, { error: "Not found", code: BACKEND_ERROR_CODES.notFound });
         return;
       }
-      if (typeof revertRoom !== "function") {
+      const handler = roomActionSuffix === BACKEND_ROOM_PROMPT_SUFFIX ? roomPrompt : revertRoom;
+      if (typeof handler !== "function") {
         sendJson(response, 503, {
           error: "Backend runtime unavailable", code: BACKEND_ERROR_CODES.runtimeUnavailable,
         });
@@ -405,17 +413,24 @@ export function createBackendServer({
         });
         return;
       }
-      const messageId = typeof body.value?.messageId === "string" ? body.value.messageId.trim() : "";
-      if (!messageId) {
-        sendJson(response, 400, { error: "Invalid revert request", code: BACKEND_ERROR_CODES.badRequest });
-        return;
-      }
       try {
-        sendJson(response, 200, await revertRoom(roomRevertPath, messageId));
+        if (roomActionSuffix === BACKEND_ROOM_PROMPT_SUFFIX) {
+          // The owner's answer carries its own status and body; the WebUI replays them unchanged.
+          const result = await handler(roomActionPath, body.value ?? null);
+          const status = Number.isInteger(result?.status) ? result.status : 200;
+          sendJson(response, 200, { result: { status, body: result?.body ?? null } });
+        } else {
+          const messageId = typeof body.value?.messageId === "string" ? body.value.messageId.trim() : "";
+          if (!messageId) {
+            sendJson(response, 400, { error: "Invalid revert request", code: BACKEND_ERROR_CODES.badRequest });
+            return;
+          }
+          sendJson(response, 200, await handler(roomActionPath, messageId));
+        }
       } catch (error) {
         // A coded refusal (unknown room or message) keeps its status; nothing else leaks.
         sendJson(response, typeof error?.status === "number" ? error.status : 500, {
-          error: "Backend room revert failed",
+          error: "Backend room request failed",
           code: BACKEND_ERROR_CODES.internal,
         });
       }

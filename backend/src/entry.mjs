@@ -152,6 +152,15 @@ try {
         ...(action === "resume" && body?.maxTurns !== undefined ? { maxTurns: body.maxTurns } : {}),
       });
     },
+    // Posting a Room turn routes bots and starts their sessions, so only the owner may run it. The
+    // answer keeps its own status and body: the WebUI replays both unchanged.
+    roomPrompt: (roomId, body) => {
+      const runtime = started.runtime();
+      if (!runtime || typeof runtime.handleRoomPrompt !== "function") {
+        throw Object.assign(new Error("runtime unavailable"), { status: 503 });
+      }
+      return runtime.handleRoomPrompt(roomId, body);
+    },
     // Rewinding a task's transcript edits its session tree and clears the owner's pending attention.
     revertTaskAction: (id, entryId) => {
       const runtime = started.runtime();

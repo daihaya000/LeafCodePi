@@ -66,6 +66,13 @@ export const BACKEND_BOTS_PATH = "/internal/bots";
  */
 export const BACKEND_ROOMS_PATH = "/internal/rooms";
 export const BACKEND_ROOM_REVERT_SUFFIX = "/revert";
+/**
+ * Posting a Room turn: `POST /internal/rooms/:roomId/prompt` with the WebUI's own body. The owner
+ * runs the whole ladder, so its answer is wrapped as `{ result: { status, body } }` with HTTP 200:
+ * the WebUI replays the status and body unchanged (a relay-envelope refusal is not a transport
+ * failure, and the client's failure reasons would otherwise mislabel it).
+ */
+export const BACKEND_ROOM_PROMPT_SUFFIX = "/prompt";
 export const DEFAULT_BACKEND_PORT = 18776;
 
 /** Authentication precedes version checks, including health requests. */
