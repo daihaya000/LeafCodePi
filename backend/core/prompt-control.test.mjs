@@ -3,7 +3,8 @@ import { execFileSync } from "node:child_process";
 import { test } from "node:test";
 import {
   buildPromptOptions, clearSessionQueue, isReasoningMandatoryError, isStaleHarnessPrompt, nextPromptEpoch,
-  isRecoverableResumeSelectionError, resolveHangWatchQueueAction, resolvePromptGate, resolvePromptPermissionOptions,
+  isRecoverableResumeSelectionError, promptSendCustomType, resolveHangWatchQueueAction, resolvePromptGate,
+  resolvePromptPermissionOptions, resolvePromptSendKind, shouldIgnorePromptError,
   shouldArmHangWatchAtSend,
   resolveStreamingBehaviorForPrompt, shouldApplyPromptModelSelection, shouldApplyPromptThinkingLevel,
   shouldBypassPromptChain, shouldForwardBotCodePrompt, shouldWaitForSteerStream,
@@ -235,4 +236,46 @@ test("only an explicit flag changes the hang-watch action", () => {
     assert.equal(shouldArmHangWatchAtSend({ skipRearm: value }), false, String(value));
   }
   assert.equal(shouldArmHangWatchAtSend({ skipRearm: true }), true);
+});
+
+test("an internal turn is sent as its own hidden custom message, a normal one as a prompt", () => {
+  const base = { isCodeResult: false, isProviderFallback: false, isTransportRecovery: false };
+  assert.equal(resolvePromptSendKind(base), "prompt");
+  assert.equal(resolvePromptSendKind({ ...base, isCodeResult: true }), "code-result");
+  assert.equal(resolvePromptSendKind({ ...base, isProviderFallback: true }), "provider-fallback");
+  assert.equal(resolvePromptSendKind({ ...base, isTransportRecovery: true }), "transport-recovery");
+  assert.equal(
+    resolvePromptSendKind({ isCodeResult: true, isProviderFallback: true, isTransportRecovery: true }),
+    "code-result",
+    "a Code result wins: it is never replayed as user input",
+  );
+  assert.equal(resolvePromptSendKind({ isCodeResult: false, isProviderFallback: true, isTransportRecovery: true }), "provider-fallback");
+});
+
+test("only an explicit flag selects an internal send kind", () => {
+  for (const value of [undefined, null, 0, "true", 1]) {
+    assert.equal(resolvePromptSendKind({ isCodeResult: value, isProviderFallback: false, isTransportRecovery: false }), "prompt", String(value));
+    assert.equal(resolvePromptSendKind({ isCodeResult: false, isProviderFallback: value, isTransportRecovery: false }), "prompt", String(value));
+    assert.equal(resolvePromptSendKind({ isCodeResult: false, isProviderFallback: false, isTransportRecovery: value }), "prompt", String(value));
+  }
+});
+
+test("each internal send kind maps to its own custom type and a plain prompt to none", () => {
+  const types = { codeResult: "bot-code-result", providerFallback: "leafcode-pi.provider-fallback", transportRecovery: "leafcode-pi.provider-transport-recovery" };
+  assert.equal(promptSendCustomType("code-result", types), types.codeResult);
+  assert.equal(promptSendCustomType("provider-fallback", types), types.providerFallback);
+  assert.equal(promptSendCustomType("transport-recovery", types), types.transportRecovery);
+  assert.equal(promptSendCustomType("prompt", types), null);
+  assert.equal(promptSendCustomType("unknown", types), null);
+});
+
+test("a prompt error after a user abort is not reported as a task failure", () => {
+  assert.equal(shouldIgnorePromptError({ isAbortMessage: true, hasManualAbort: true }), true);
+  assert.equal(shouldIgnorePromptError({ isAbortMessage: true, hasManualAbort: false }), false);
+  assert.equal(shouldIgnorePromptError({ isAbortMessage: false, hasManualAbort: true }), false);
+  assert.equal(shouldIgnorePromptError({ isAbortMessage: false, hasManualAbort: false }), false);
+  for (const value of [undefined, null, 0, "true", 1]) {
+    assert.equal(shouldIgnorePromptError({ isAbortMessage: value, hasManualAbort: true }), false, String(value));
+    assert.equal(shouldIgnorePromptError({ isAbortMessage: true, hasManualAbort: value }), false, String(value));
+  }
 });

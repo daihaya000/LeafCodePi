@@ -81,3 +81,19 @@ export function resolveHangWatchQueueAction(input: {
 
 /** Whether a prompt queued with skipRearm arms the watch at send time. */
 export function shouldArmHangWatchAtSend(input: { skipRearm: boolean }): boolean;
+
+/** How one prompt reaches the session: a hidden custom message or the SDK prompt path. */
+export function resolvePromptSendKind(input: {
+  isCodeResult: boolean;
+  isProviderFallback: boolean;
+  isTransportRecovery: boolean;
+}): "code-result" | "provider-fallback" | "transport-recovery" | "prompt";
+
+/** The custom message type for an internal send kind, or null for a plain prompt. */
+export function promptSendCustomType(
+  kind: string,
+  customTypes: { codeResult: string; providerFallback: string; transportRecovery: string },
+): string | null;
+
+/** Whether a prompt error belongs to a deliberate user abort and must not mark the task errored. */
+export function shouldIgnorePromptError(input: { isAbortMessage: boolean; hasManualAbort: boolean }): boolean;

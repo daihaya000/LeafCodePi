@@ -155,3 +155,34 @@ export function resolveHangWatchQueueAction({ hasStreamingBehavior, isCodeResult
 export function shouldArmHangWatchAtSend({ skipRearm }) {
   return skipRearm === true;
 }
+
+/**
+ * How one prompt reaches the session. Internal turns are delivered as hidden custom
+ * messages so the transcript keeps the internal cause, while a normal prompt goes through
+ * the SDK prompt path. The precedence matches the transcript contract: a Code result is
+ * never replayed as user input, and a provider/transport recovery is not shown as a user
+ * turn. The custom type names are the caller's (they are part of the transcript format).
+ */
+export function resolvePromptSendKind({ isCodeResult, isProviderFallback, isTransportRecovery }) {
+  if (isCodeResult === true) return "code-result";
+  if (isProviderFallback === true) return "provider-fallback";
+  if (isTransportRecovery === true) return "transport-recovery";
+  return "prompt";
+}
+
+/** The custom message type each internal send kind uses, or null for a plain prompt. */
+export function promptSendCustomType(kind, customTypes) {
+  if (kind === "code-result") return customTypes.codeResult;
+  if (kind === "provider-fallback") return customTypes.providerFallback;
+  if (kind === "transport-recovery") return customTypes.transportRecovery;
+  return null;
+}
+
+/**
+ * A prompt error is ignored when the turn was aborted by the user: the abort path already
+ * recorded the outcome, so marking the task as errored here would report a failure for a
+ * deliberate stop.
+ */
+export function shouldIgnorePromptError({ isAbortMessage, hasManualAbort }) {
+  return isAbortMessage === true && hasManualAbort === true;
+}

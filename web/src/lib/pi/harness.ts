@@ -212,13 +212,16 @@ import { SdkRuntimeFactory } from "@backend-core/sdk-runtime.mjs";
 import * as corePromptControl from "@backend-core/prompt-control.mjs";
 import {
   isRecoverableResumeSelectionError,
+  promptSendCustomType,
   resolveHangWatchQueueAction,
   resolvePromptGate,
   resolvePromptPermissionOptions,
+  resolvePromptSendKind,
   shouldApplyPromptModelSelection,
   shouldApplyPromptThinkingLevel,
   shouldArmHangWatchAtSend,
   shouldForwardBotCodePrompt as coreShouldForwardBotCodePrompt,
+  shouldIgnorePromptError,
 } from "@backend-core/prompt-control.mjs";
 import { runHangWatchdogAbort, runUserAbort } from "@backend-core/abort-coordinator.mjs";
 import { roomBotIdFromTaskId } from "@backend-core/abort-control.mjs";
@@ -8909,26 +8912,27 @@ function queuePrompt(
       refreshRuntimeClock(activeLive.session);
       return activeLive.session.sendCustomMessage(message, { triggerTurn: true });
     };
-    const sendPrompt = () => meta?.codeResult
+    // Which internal kind this turn is (and its hidden custom type) is decided in core.
+    const sendKind = resolvePromptSendKind({
+      isCodeResult: Boolean(meta?.codeResult),
+      isProviderFallback: Boolean(meta?.isProviderFallback),
+      isTransportRecovery: Boolean(meta?.isTransportRecovery),
+    });
+    const sendCustomType = promptSendCustomType(sendKind, {
+      codeResult: BOT_CODE_RESULT,
+      providerFallback: PROVIDER_FALLBACK_CUSTOM_TYPE,
+      transportRecovery: PROVIDER_TRANSPORT_RECOVERY_CUSTOM_TYPE,
+    });
+    const sendPrompt = () => sendCustomType
       ? sendCustomTurn({
-          customType: BOT_CODE_RESULT,
+          customType: sendCustomType,
           content: promptToSend,
           display: false,
-          details: { requestId: meta.codeResult.id, codeTaskId: meta.codeResult.codeTaskId },
+          ...(sendKind === "code-result" && meta?.codeResult
+            ? { details: { requestId: meta.codeResult.id, codeTaskId: meta.codeResult.codeTaskId } }
+            : {}),
         })
-      : meta?.isProviderFallback
-        ? sendCustomTurn({
-            customType: PROVIDER_FALLBACK_CUSTOM_TYPE,
-            content: promptToSend,
-            display: false,
-          })
-        : meta?.isTransportRecovery
-          ? sendCustomTurn({
-              customType: PROVIDER_TRANSPORT_RECOVERY_CUSTOM_TYPE,
-              content: promptToSend,
-              display: false,
-            })
-          : activeLive.session.prompt(promptToSend, options);
+      : activeLive.session.prompt(promptToSend, options);
     await sendPromptWithReasoningFallback(
       activeLive,
       sendPrompt,
@@ -8940,10 +8944,11 @@ function queuePrompt(
     if (!stillQueued()) return;
     const message = error instanceof Error ? error.message : String(error);
     const currentLive = state().live.get(live.taskId) ?? activeLive;
-    if (
-      isAbortErrorMessage(message) &&
-      currentLive.manualAbortedAssistantId !== null
-    ) {
+    // A deliberate abort already recorded its outcome; the rule lives in backend core.
+    if (shouldIgnorePromptError({
+      isAbortMessage: isAbortErrorMessage(message),
+      hasManualAbort: currentLive.manualAbortedAssistantId !== null,
+    })) {
       return;
     }
     setTaskStatus(live.taskId, "error", message);
