@@ -12,6 +12,7 @@ import {
 } from "@shared/backend-generation.mjs";
 import {
   BACKEND_BOT_CODE_REQUESTS_SUFFIX,
+  BACKEND_BOT_CODE_SESSIONS_SUFFIX,
   BACKEND_BOTS_PATH,
   BACKEND_HEALTH_PATH,
   BACKEND_PENDING_SNAPSHOTS_PATH,
@@ -179,6 +180,15 @@ export function controlGoalLoopOnBackend(
   options: { env?: BackendEnv; fetchImpl?: typeof fetch; timeoutMs?: number } = {},
 ): Promise<BackendResult<{ loop: Record<string, unknown> | null }>> {
   return postBackendJson(`${BACKEND_TASKS_PATH}/${encodeURIComponent(id)}${BACKEND_TASK_GOAL_LOOP_SUFFIX}`, body, options);
+}
+
+/** Starts a Bot Code session in the owning Backend (the task row, its outbox entry and the session). */
+export function createBotCodeSessionOnBackend(
+  botId: string,
+  input: Record<string, unknown>,
+  options: { env?: BackendEnv; fetchImpl?: typeof fetch; timeoutMs?: number } = {},
+): Promise<BackendResult<{ task: Record<string, unknown> | null }>> {
+  return postBackendJson(`${BACKEND_BOTS_PATH}/${encodeURIComponent(botId)}${BACKEND_BOT_CODE_SESSIONS_SUFFIX}`, input, options);
 }
 
 /** Runs a Bot Code request action (stopping a request also updates the outbox) in the owning Backend. */

@@ -4,6 +4,7 @@ import { isPromptTextWithinSize } from "@/lib/prompt-images";
 import { getProject, getTask, patchTask } from "@/lib/store";
 import { continueBotCodeTask, createBotCodeTask, getBotCodeSessionPanelState, goalLoopCommand, jsonError, stopBotCodeTask, abortTaskIncludingColdGoalLoop } from "@/lib/pi/harness";
 import { localRuntimeBlocked } from "@/lib/pi/runtime-ownership";
+import { forwardBotCodeSessionStart } from "@/lib/backend-forward";
 import { isThinkingLevel } from "@/lib/thinking-levels";
 import { reconcileOrphanedWorkingTasks } from "@/lib/task-runtime-lease";
 import { isRoomDelegatedCodeTask } from "@/lib/pi/bot-code-relay";
@@ -71,15 +72,9 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> },
 ) {
   const id = await botId(params);
-  // After the cutover the Bot's Code session is created inside the Backend. Creating it here would be a
-  // second owner, so the start is refused until it is forwarded; the Bot panel's stop paths already
-  // reach the owner through the abort and code-request endpoints.
-  if (localRuntimeBlocked()) {
-    return NextResponse.json(
-      { error: "Codeセッションの起動は非所有モードでは未対応です", code: "CODE_SESSION_NOT_SUPPORTED" },
-      { status: 409 },
-    );
-  }
+  // After the cutover the Bot's Code session is created inside the Backend. The request is validated
+  // here (same rules as the owning mode) and then forwarded to the process that will run it.
+  const forwardToBackend = localRuntimeBlocked();
   try {
     reconcileOrphanedWorkingTasks();
       const bot = getBot(id);
@@ -140,17 +135,38 @@ export async function POST(
       }
 
       // Registered through the Bot outbox so this run reports back into the conversation.
-      const task = await createBotCodeTask(id, {
-        projectId,
-        prompt: body.prompt,
-        ...(typeof body.model === "string" ? { model: body.model.trim() } : {}),
-        ...(isThinkingLevel(body.thinkingLevel) ? { thinkingLevel: body.thinkingLevel } : {}),
-        permissionMode:
-          body.permissionMode === "allow" || body.permissionMode === "deny" || body.permissionMode === "ask"
-            ? body.permissionMode
-            : bot.permissionMode ?? "ask",
-        ...(goalLoop ? { goalLoop } : {}),
-      });
+      const task = forwardToBackend
+        ? await (async () => {
+            const forwarded = await forwardBotCodeSessionStart(id, {
+              projectId,
+              prompt: body.prompt,
+              ...(typeof body.model === "string" ? { model: body.model.trim() } : {}),
+              ...(isThinkingLevel(body.thinkingLevel) ? { thinkingLevel: body.thinkingLevel } : {}),
+              permissionMode:
+                body.permissionMode === "allow" || body.permissionMode === "deny" || body.permissionMode === "ask"
+                  ? body.permissionMode
+                  : bot.permissionMode ?? "ask",
+              ...(goalLoop ? { goalLoop } : {}),
+            });
+            if (!forwarded.ok) {
+              if (forwarded.reason === "not-configured") {
+                throw Object.assign(new Error("Backendが実行を所有しています"), { status: 409, code: "RUNTIME_NOT_OWNED" });
+              }
+              throw Object.assign(new Error("Backendへ転送できません"), { status: 502, code: "BACKEND_FORWARD_FAILED" });
+            }
+            return forwarded.task;
+          })()
+        : await createBotCodeTask(id, {
+            projectId,
+            prompt: body.prompt,
+            ...(typeof body.model === "string" ? { model: body.model.trim() } : {}),
+            ...(isThinkingLevel(body.thinkingLevel) ? { thinkingLevel: body.thinkingLevel } : {}),
+            permissionMode:
+              body.permissionMode === "allow" || body.permissionMode === "deny" || body.permissionMode === "ask"
+                ? body.permissionMode
+                : bot.permissionMode ?? "ask",
+            ...(goalLoop ? { goalLoop } : {}),
+          });
     return NextResponse.json({ task });
   } catch (error) {
     const { error: message, status } = jsonError(error);

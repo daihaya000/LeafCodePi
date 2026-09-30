@@ -5,6 +5,7 @@ import {
   BACKEND_ERROR_CODES,
   BACKEND_HEALTH_PATH,
   BACKEND_BOT_CODE_REQUESTS_SUFFIX,
+  BACKEND_BOT_CODE_SESSIONS_SUFFIX,
   BACKEND_BOTS_PATH,
   BACKEND_PENDING_SNAPSHOTS_PATH,
   BACKEND_PROTOCOL_HEADER,
@@ -105,6 +106,8 @@ export function createBackendServer({
   botCodeRequestAction = null,
   /** Goal Loop control: `(id, body) => loop | null`; null means the loop was not found. */
   goalLoopAction = null,
+  /** Starts a Bot Code session: `(botId, input) => task`; only the runtime owner may create one. */
+  createBotCodeSession = null,
 } = {}) {
   if (
     typeof token !== "string" ||
@@ -130,7 +133,14 @@ export function createBackendServer({
   if (promptTask !== null && typeof promptTask !== "function") {
     throw new Error("promptTask must be a function or null");
   }
-  for (const [name, handler] of Object.entries({ respondToPermission, respondToQuestion, abortTask, botCodeRequestAction, goalLoopAction })) {
+  for (const [name, handler] of Object.entries({
+    respondToPermission,
+    respondToQuestion,
+    abortTask,
+    botCodeRequestAction,
+    goalLoopAction,
+    createBotCodeSession,
+  })) {
     if (handler !== null && typeof handler !== "function") {
       throw new Error(`${name} must be a function or null`);
     }
@@ -182,9 +192,11 @@ export function createBackendServer({
       ? decodeURIComponent(target.pathname.slice(BACKEND_BOTS_PATH.length + 1))
       : undefined;
     // `<botId>/code-requests` acts on the Bot's outbox: only the owner may write it.
-    const botActionPath = botSuffix?.endsWith(BACKEND_BOT_CODE_REQUESTS_SUFFIX)
-      ? decodeURIComponent(botSuffix.slice(0, -BACKEND_BOT_CODE_REQUESTS_SUFFIX.length))
-      : undefined;
+    const botActionSuffix = [BACKEND_BOT_CODE_REQUESTS_SUFFIX, BACKEND_BOT_CODE_SESSIONS_SUFFIX]
+      .find((suffix) => botSuffix?.endsWith(suffix));
+    const botActionPath = botActionSuffix === undefined || !botSuffix
+      ? undefined
+      : decodeURIComponent(botSuffix.slice(0, -botActionSuffix.length));
     const knownPath = target.pathname === BACKEND_HEALTH_PATH
       || target.pathname === BACKEND_PENDING_SNAPSHOTS_PATH
       || target.pathname === BACKEND_BOTS_PATH
@@ -301,7 +313,8 @@ export function createBackendServer({
         sendJson(response, 404, { error: "Not found", code: BACKEND_ERROR_CODES.notFound });
         return;
       }
-      if (typeof botCodeRequestAction !== "function") {
+      const botHandler = botActionSuffix === BACKEND_BOT_CODE_SESSIONS_SUFFIX ? createBotCodeSession : botCodeRequestAction;
+      if (typeof botHandler !== "function") {
         sendJson(response, 503, {
           error: "Backend runtime unavailable", code: BACKEND_ERROR_CODES.runtimeUnavailable,
         });
@@ -316,12 +329,17 @@ export function createBackendServer({
         return;
       }
       try {
-        const result = await botCodeRequestAction(botActionPath, body.value);
-        if (!result) {
-          sendJson(response, 404, { error: "Not found", code: BACKEND_ERROR_CODES.notFound });
-          return;
+        if (botActionSuffix === BACKEND_BOT_CODE_SESSIONS_SUFFIX) {
+          const task = await botHandler(botActionPath, body.value);
+          sendJson(response, 200, { task: task ?? null });
+        } else {
+          const result = await botHandler(botActionPath, body.value);
+          if (!result) {
+            sendJson(response, 404, { error: "Not found", code: BACKEND_ERROR_CODES.notFound });
+            return;
+          }
+          sendJson(response, 200, result);
         }
-        sendJson(response, 200, result);
       } catch (error) {
         sendJson(response, typeof error?.status === "number" ? error.status : 500, {
           error: "Backend bot request action failed",

@@ -619,6 +619,40 @@ test("the Goal Loop control needs a runtime and refuses a non-function handler",
   );
 });
 
+test("a forwarded Bot Code session is created by the runtime owner", async (t) => {
+  const seen = [];
+  const { snapshotsUrl, headers } = await fixture(t, {
+    createBotCodeSession: async (botId, input) => {
+      seen.push({ botId, input });
+      return { id: "code-1", status: "working", botId };
+    },
+  });
+  const url = `${snapshotsUrl.replace("pending-snapshots", "bots")}/bot-1/code-sessions`;
+  const response = await request(url, {
+    method: "POST",
+    headers: { ...headers, "content-type": "application/json" },
+    body: JSON.stringify({ prompt: "やって", projectId: "project-1", permissionMode: "ask" }),
+  });
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), { task: { id: "code-1", status: "working", botId: "bot-1" } });
+  assert.deepEqual(seen, [
+    { botId: "bot-1", input: { prompt: "やって", projectId: "project-1", permissionMode: "ask" } },
+  ]);
+  const detached = await fixture(t);
+  const detachedUrl = `${detached.snapshotsUrl.replace("pending-snapshots", "bots")}/bot-1/code-sessions`;
+  const refused = await request(detachedUrl, {
+    method: "POST",
+    headers: { ...detached.headers, "content-type": "application/json" },
+    body: JSON.stringify({ prompt: "やって" }),
+  });
+  assert.equal(refused.status, 503);
+  assert.equal((await refused.json()).code, "BACKEND_RUNTIME_UNAVAILABLE");
+  assert.throws(
+    () => createBackendServer({ token: randomBytes(32).toString("base64url"), createBotCodeSession: 1 }),
+    /must be a function or null/,
+  );
+});
+
 test("rejects invalid ports and surfaces occupied port errors", async (t) => {
   const { server, address } = await fixture(t);
   for (const port of [-1, 65536, 1.5, "3010", NaN]) {

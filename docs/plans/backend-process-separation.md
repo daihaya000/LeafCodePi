@@ -93,7 +93,7 @@ bundleパスは`LEAFCODE_PI_BACKEND_RUNTIME_BUNDLE`で差し替え可能。CLI�
 
 **未達（実切替までに必要な残作業・実測）**
 
-- Bot Codeセッション起動の転送（`createBotCodeTask`／`continueBotCodeTask`のBackend化）。現状は非所有モードで409拒否。
+- Bot Codeセッションの**継続**（`continueBotCodeTask`）と clear/unlink の転送。起動（`createBotCodeTask`）は転送済み。
 - Goal Loop開始（`start`）のうち**Auto/モデル/エージェント指定を伴うもの**。解決がWeb側にあるため現状は409拒否（指定なしの開始は転送済み）。
 - SSEは非所有モードで2秒ポーリング（`eventType: "remote_poll"`）。所有モードの即時配信と比べ遅延がある。
 - 実切替の未実施（Host・WebUIの再起動を伴うため、ユーザー承認後に実施）。
@@ -116,6 +116,8 @@ bundleパスは`LEAFCODE_PI_BACKEND_RUNTIME_BUNDLE`で差し替え可能。CLI�
 - web本番型検証（`tsconfig.build.json`）: **0エラー**、`eslint src`: 指摘なし。
 
 **ターン95**: Goal Loop開始の転送を実装。Backendの`/internal/tasks/:id/goal-loop`が`action:"start"`（`goal`／`acceptance`／`maxTurns`／`cooldownSeconds`／`forceFullRun`／`images`）を受け、`entry.mjs`が`goalLoopCommand(id, {action:"start", ...})`を実行する。Webの非所有モードは`forwardGoalLoopStart`で転送し、Auto/モデル/エージェント/thinkingLevel指定を伴う開始だけ409（`GOAL_LOOP_START_NOT_SUPPORTED`）で拒否する。返ったループがliveでなければ409。
+
+**ターン96**: Bot Codeセッション起動の転送を実装。Backendに `POST /internal/bots/:id/code-sessions`（`BACKEND_BOT_CODE_SESSIONS_SUFFIX`、本文は起動入力）を追加し、`entry.mjs`が`createBotCodeTask(botId, input)`を実行する（タスク行・outboxエントリ・セッションを所有プロセスで作る）。バンドルentryに`createBotCodeTask`を追加して再ビルド。Webの非所有モードは入力を従来どおり検証したうえで`forwardBotCodeSessionStart`で転送し、未設定は409、その他は502でローカル起動へフォールバックしない。`PATCH`（clear/unlink/continue）は引き続き409（`CODE_SESSION_CONTROL_NOT_SUPPORTED`）。
 - 検出した回帰1件: `src/lib/shared-types.test.ts`のミラー検証が新しい契約ファイル（`shared/bot-tools.mjs`／`.d.mts`）を写しておらず失敗（本番のミラーは`shared/`全体を写すため影響なし）。テスト側を修正して解消（`3770a9fc`）。
 
 **切替runbook（実行は未実施）**

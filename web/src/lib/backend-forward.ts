@@ -1,6 +1,7 @@
 import {
   abortTaskOnBackend,
   controlGoalLoopOnBackend,
+  createBotCodeSessionOnBackend,
   type BackendGoalLoopBody,
   postBotCodeRequestAction,
   promptTaskOnBackend,
@@ -256,4 +257,19 @@ export async function forwardGoalLoopControl(
   }
   const loop = result.body?.loop;
   return { ok: true, loop: loop && typeof loop === "object" ? loop : null };
+}
+
+/** Starts a Bot Code session in the owning Backend. Never falls back to a local start. */
+export async function forwardBotCodeSessionStart(
+  botId: string,
+  input: Record<string, unknown>,
+  options: { env?: BackendEnv; fetchImpl?: typeof fetch; timeoutMs?: number } = {},
+): Promise<
+  | { ok: true; task: Record<string, unknown> | null }
+  | { ok: false; reason: BackendFailureReason; status?: number }
+> {
+  const result = await createBotCodeSessionOnBackend(botId, input, options);
+  if (!result.ok) return { ok: false, reason: result.reason, ...(result.status ? { status: result.status } : {}) };
+  const task = result.body?.task;
+  return { ok: true, task: task && typeof task === "object" ? task : null };
 }

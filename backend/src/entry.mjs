@@ -73,6 +73,14 @@ try {
       }
       return botId ? runtime.stopBotCodeTask(botId, id) : runtime.abortTaskIncludingColdGoalLoop(id);
     },
+    // A Bot Code session is created and run here: the task row, its outbox entry and the session.
+    createBotCodeSession: async (botId, input) => {
+      const runtime = started.runtime();
+      if (!runtime) {
+        throw Object.assign(new Error("runtime unavailable"), { status: 503 });
+      }
+      return runtime.createBotCodeTask(botId, input);
+    },
     // The Goal Loop runs inside this process, so pause/resume/stop/complete must be applied here.
     goalLoopAction: async (id, body) => {
       const runtime = started.runtime();

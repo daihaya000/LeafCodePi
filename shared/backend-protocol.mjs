@@ -31,6 +31,11 @@ export const BACKEND_TASK_ABORT_SUFFIX = "/abort";
  */
 export const BACKEND_BOT_CODE_REQUESTS_SUFFIX = "/code-requests";
 /**
+ * Starting a Bot Code session: `POST /internal/bots/:id/code-sessions`. The session and its outbox
+ * entry are created inside the owning process, which then runs it.
+ */
+export const BACKEND_BOT_CODE_SESSIONS_SUFFIX = "/code-sessions";
+/**
  * Goal Loop control: `POST /internal/tasks/:id/goal-loop` with `{ action, maxTurns?, botId? }`.
  * The loop runs inside the owning process, so pause/resume/stop/complete must reach it.
  */

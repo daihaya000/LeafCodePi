@@ -19,6 +19,7 @@ const mocks = vi.hoisted(() => ({
   reconcileOrphanedWorkingTasks: vi.fn(),
   withBotCodeSessionLock: vi.fn(async (_id: string, operation: () => Promise<unknown>) => operation()),
   localRuntimeBlocked: vi.fn(() => false),
+  forwardBotCodeSessionStart: vi.fn(),
   isRoomDelegatedCodeTask: vi.fn(() => false),
   readGoalLoopState: vi.fn((): Partial<GoalLoopDto> | null => null),
   isGoalLoopLiveStatus: vi.fn((status: string | undefined) =>
@@ -64,6 +65,21 @@ vi.mock("@/lib/pi/runtime-ownership", () => ({
   localRuntimeBlocked: mocks.localRuntimeBlocked,
   assertLocalRuntimeAllowed: vi.fn(),
 }));
+vi.mock("@/lib/backend-forward", () => ({
+  forwardBotCodeSessionStart: mocks.forwardBotCodeSessionStart,
+  forwardBotCodeRequestAbort: vi.fn(),
+  forwardGoalLoopControl: vi.fn(),
+  forwardGoalLoopStart: vi.fn(),
+  forwardTaskAbort: vi.fn(),
+  forwardTaskDetail: vi.fn(),
+  forwardTaskPrompt: vi.fn(),
+  forwardPermissionAnswer: vi.fn(),
+  forwardQuestionAnswer: vi.fn(),
+  forwardTaskPendingRequests: vi.fn(),
+  forwardPendingRequestsByTask: vi.fn(),
+  needsLocalResolution: vi.fn(() => false),
+  forwardablePromptBody: vi.fn((body) => body),
+}));
 
 import { MAX_PROMPT_TEXT_CHARS } from "@/lib/prompt-images";
 import type { GoalLoopDto } from "@/lib/types";
@@ -90,6 +106,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   // Ownership is per-test: a leftover value would make every later test refuse.
   mocks.localRuntimeBlocked.mockReturnValue(false);
+  mocks.forwardBotCodeSessionStart.mockReset();
   mocks.getBot.mockReturnValue({ ...bot });
   mocks.patchBot.mockImplementation((_id: string, patch: Record<string, unknown>) => ({ ...bot, ...patch }));
   mocks.getProject.mockReturnValue({ id: "project-1", archived: false });
@@ -642,21 +659,39 @@ describe("Bot Code session control", () => {
 });
 
 describe("Bot Code session after the cutover", () => {
-  it("refuses to start a session rather than creating a second owner", async () => {
+  it("forwards the start to the owning Backend instead of creating a second owner", async () => {
     mocks.getBot.mockReturnValue({ id: "one", permissionMode: "ask", enabled: true });
     mocks.localRuntimeBlocked.mockReturnValue(true);
+    mocks.forwardBotCodeSessionStart.mockResolvedValue({ ok: true, task: { id: "code-1", status: "working" } });
     const response = await POST(
       new NextRequest("http://localhost/api/bots/one/code-session", {
         method: "POST",
-        body: JSON.stringify({ prompt: "やって" }),
+        body: JSON.stringify({ prompt: "やって", projectId: null }),
       }),
       { params: Promise.resolve({ id: "one" }) },
     );
-    expect(response.status).toBe(409);
-    await expect(response.json()).resolves.toEqual({
-      error: "Codeセッションの起動は非所有モードでは未対応です",
-      code: "CODE_SESSION_NOT_SUPPORTED",
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({ task: { id: "code-1", status: "working" } });
+    expect(mocks.forwardBotCodeSessionStart).toHaveBeenCalledWith("one", {
+      projectId: null,
+      prompt: "やって",
+      permissionMode: "ask",
     });
+    expect(mocks.createBotCodeTask).not.toHaveBeenCalled();
+  });
+
+  it("never starts locally when the Backend cannot take it", async () => {
+    mocks.getBot.mockReturnValue({ id: "one", permissionMode: "ask", enabled: true });
+    mocks.localRuntimeBlocked.mockReturnValue(true);
+    mocks.forwardBotCodeSessionStart.mockResolvedValue({ ok: false, reason: "unreachable" });
+    const failed = await POST(
+      new NextRequest("http://localhost/api/bots/one/code-session", {
+        method: "POST",
+        body: JSON.stringify({ prompt: "やって", projectId: null }),
+      }),
+      { params: Promise.resolve({ id: "one" }) },
+    );
+    expect(failed.status).toBe(502);
     expect(mocks.createBotCodeTask).not.toHaveBeenCalled();
   });
 
