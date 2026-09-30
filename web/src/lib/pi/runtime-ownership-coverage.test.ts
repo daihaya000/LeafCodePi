@@ -25,7 +25,6 @@ const OWNERSHIP_GUARDS =
 
 /** Routes that still act locally in the non-owning mode, with the reason they are still allowed. */
 const LOCAL_ONLY_PENDING: Record<string, string> = {
-  "bots/[id]/abort/route.ts": "Bot panel abort still stops the Bot task in this process",
   "bots/[id]/code-requests/route.ts": "Bot code request list reads the outbox this process owns",
   "bots/[id]/code-session/route.ts": "starting a Bot Code session is not forwarded yet",
   "bots/[id]/events/route.ts": "Bot event stream is still the in-process subscription",
@@ -82,6 +81,7 @@ describe("runtime ownership coverage", () => {
       .map((route) => route.path)
       .sort();
     expect(guarded).toEqual([
+      "bots/[id]/abort/route.ts",
       "bots/[id]/prompt/route.ts",
       "tasks/[id]/abort/route.ts",
       "tasks/[id]/messages/route.ts",
