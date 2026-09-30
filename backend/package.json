@@ -1,0 +1,14 @@
+{
+  "name": "leafcode-pi-backend",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Independent Pi SDK runtime for LeafCodePi",
+  "scripts": {
+    "start": "node src/entry.mjs",
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=22.19"
+  }
+}

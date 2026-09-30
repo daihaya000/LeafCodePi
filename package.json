@@ -6,9 +6,11 @@
     "dev": "npm --prefix web run dev -- --hostname 127.0.0.1 --port 3010",
     "build": "node scripts/build-web.mjs",
     "host": "npm --prefix host start",
+    "backend": "npm --prefix backend start",
+    "test:backend": "npm --prefix backend test",
     "icons": "node scripts/gen-icons.mjs",
     "lint": "npm --prefix web run lint",
-    "test": "npm --prefix web test && npm --prefix host test && npm --prefix extensions/leafcode-goal-loop test",
+    "test": "npm --prefix web test && npm --prefix host test && npm --prefix backend test && npm --prefix extensions/leafcode-goal-loop test",
     "typecheck": "npm --prefix web run typecheck && npm run typecheck:todowrite",
     "typecheck:todowrite": "npm --prefix extensions/leafcode-todowrite run typecheck",
     "check": "npm run typecheck && npm run lint && npm test"
