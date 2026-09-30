@@ -11,6 +11,13 @@ const state = vi.hoisted(() => ({
   cancelPendingRoomHandoffs: vi.fn(() => 0),
   stopAllRoomCodeSessions: vi.fn(async () => 0),
   detachBotFromRoomRuntime: vi.fn(async () => undefined),
+  forwardRoomAdmin: vi.fn(),
+  localRuntimeBlocked: vi.fn(() => false),
+}));
+vi.mock("@/lib/backend-forward", () => ({ forwardRoomAdmin: state.forwardRoomAdmin }));
+vi.mock("@/lib/pi/runtime-ownership", () => ({
+  localRuntimeBlocked: state.localRuntimeBlocked,
+  assertLocalRuntimeAllowed: vi.fn(),
 }));
 vi.mock("@/lib/pi/harness", () => ({
   destroyTask: state.destroyTask,
@@ -65,6 +72,41 @@ describe("DELETE /api/bots/rooms/[id]", () => {
     expect(state.destroyTask).toHaveBeenCalledWith(taskId);
     expect(getTask(taskId)).toBeUndefined();
   });
+
+  it("forwards the deletion after the cutover without tearing down locally", async () => {
+    const bot = createBot({ name: "Room bot" });
+    const room = createRoom({ members: [bot.id] });
+    const taskId = ensureRoomBotTask(room, bot);
+    state.localRuntimeBlocked.mockReturnValue(true);
+    state.forwardRoomAdmin.mockResolvedValue({ ok: true, result: { status: 200, body: { ok: true } } });
+
+    const response = await DELETE(new NextRequest("http://localhost", { method: "DELETE" }), {
+      params: Promise.resolve({ id: room.id }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(state.forwardRoomAdmin).toHaveBeenCalledWith("DELETE", room.id, null);
+    expect(state.stopRoomTurns).not.toHaveBeenCalled();
+    expect(state.destroyTask).not.toHaveBeenCalled();
+    expect(getTask(taskId)).toBeDefined();
+    expect(getRoom(room.id)).toBeDefined();
+    state.localRuntimeBlocked.mockReturnValue(false);
+  });
+
+  it("reports an unreachable Backend instead of deleting locally", async () => {
+    const room = createRoom({ name: "Team" });
+    state.localRuntimeBlocked.mockReturnValue(true);
+    state.forwardRoomAdmin.mockResolvedValue({ ok: false, reason: "unreachable" });
+
+    const response = await DELETE(new NextRequest("http://localhost", { method: "DELETE" }), {
+      params: Promise.resolve({ id: room.id }),
+    });
+
+    expect(response.status).toBe(502);
+    await expect(response.json()).resolves.toMatchObject({ error: "Backendへ転送できません", reason: "unreachable" });
+    expect(getRoom(room.id)).toBeDefined();
+    state.localRuntimeBlocked.mockReturnValue(false);
+  });
 });
 
 describe("PATCH /api/bots/rooms/[id] resetMessages", () => {
@@ -104,6 +146,44 @@ describe("PATCH /api/bots/rooms/[id] resetMessages", () => {
     expect(state.stopAllRoomCodeSessions).toHaveBeenCalledWith(room.id);
     expect(state.resetTaskConversation).toHaveBeenCalledWith(taskId);
     expect(getRoom(room.id)?.messages).toEqual([]);
+  });
+
+  it("forwards the settings change after the cutover and touches nothing locally", async () => {
+    const bot = createBot({ name: "Room bot" });
+    const room = createRoom({ members: [bot.id] });
+    appendRoomMessage(room.id, { role: "user", text: "残作業も進めて" });
+    state.localRuntimeBlocked.mockReturnValue(true);
+    state.forwardRoomAdmin.mockResolvedValue({ ok: true, result: { status: 200, body: { room: { id: room.id, messages: [] } } } });
+
+    const response = await PATCH(
+      new NextRequest("http://localhost", { method: "PATCH", body: JSON.stringify({ resetMessages: true }) }),
+      { params: Promise.resolve({ id: room.id }) },
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({ room: { id: room.id } });
+    expect(state.forwardRoomAdmin).toHaveBeenCalledWith("PATCH", room.id, { resetMessages: true });
+    expect(state.stopRoomTurns).not.toHaveBeenCalled();
+    expect(state.stopAllRoomCodeSessions).not.toHaveBeenCalled();
+    expect(state.resetTaskConversation).not.toHaveBeenCalled();
+    // The owner rewound the transcript; this process did not touch it.
+    expect(getRoom(room.id)?.messages).toHaveLength(1);
+    state.localRuntimeBlocked.mockReturnValue(false);
+  });
+
+  it("replays an owner refusal for a forwarded settings change", async () => {
+    const room = createRoom({ name: "Original" });
+    state.localRuntimeBlocked.mockReturnValue(true);
+    state.forwardRoomAdmin.mockResolvedValue({ ok: true, result: { status: 400, body: { error: "ルーム設定が不正です" } } });
+
+    const response = await PATCH(
+      new NextRequest("http://localhost", { method: "PATCH", body: JSON.stringify({ name: "x".repeat(MAX_ROOM_NAME_CHARS + 1) }) }),
+      { params: Promise.resolve({ id: room.id }) },
+    );
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({ error: "ルーム設定が不正です" });
+    state.localRuntimeBlocked.mockReturnValue(false);
   });
 
   it("rejects an oversized name before patching a room", async () => {

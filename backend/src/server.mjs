@@ -140,6 +140,10 @@ export function createBackendServer({
   revertRoom = null,
   /** Posts a Room turn: `(roomId, body) => { status, body }`; the owner runs the routing ladder. */
   roomPrompt = null,
+  /** Changes Room settings: `(roomId, body) => { status, body }`; the teardown is owner work. */
+  roomAdminPatch = null,
+  /** Deletes a Room: `(roomId) => { status, body }`; the teardown is owner work. */
+  roomAdminDelete = null,
   /** Rewinds a task's session tree: `(id, entryId) => result`; only the owner edits the session. */
   revertTaskAction = null,
   /** Restores the leaf after a rewind: `(id) => task`; only the owner edits the session. */
@@ -191,6 +195,8 @@ export function createBackendServer({
     revertBotTask,
     revertRoom,
     roomPrompt,
+    roomAdminPatch,
+    roomAdminDelete,
     revertTaskAction,
     unrevertTaskAction,
     compactTaskAction,
@@ -286,6 +292,10 @@ export function createBackendServer({
     const roomActionPath = roomActionSuffix === undefined || !roomSuffix
       ? undefined
       : decodeURIComponent(roomSuffix.slice(0, -roomActionSuffix.length));
+    // A bare `/internal/rooms/<roomId>` is the Room itself: PATCH changes it, DELETE removes it.
+    const roomPath = roomSuffix !== null && roomActionPath === undefined && !roomSuffix.includes("/")
+      ? decodeURIComponent(roomSuffix)
+      : undefined;
     const knownPath = target.pathname === BACKEND_HEALTH_PATH
       || target.pathname === BACKEND_PENDING_SNAPSHOTS_PATH
       || target.pathname === BACKEND_BOTS_PATH
@@ -293,6 +303,7 @@ export function createBackendServer({
       || botActionPath !== undefined
       || routineTarget !== undefined
       || roomActionPath !== undefined
+      || roomPath !== undefined
       || taskPath !== undefined
       || detailPath !== undefined
       || actionPath !== undefined;
@@ -450,6 +461,46 @@ export function createBackendServer({
         // Never send exception text: provider errors can contain credentials.
         sendJson(response, typeof error?.status === "number" ? error.status : 500, {
           error: "Backend task action failed",
+          code: BACKEND_ERROR_CODES.internal,
+        });
+      }
+      return;
+    }
+    if (roomPath !== undefined) {
+      const isPatch = request.method === "PATCH";
+      const isDelete = request.method === "DELETE";
+      if (!isPatch && !isDelete) {
+        sendJson(response, 405, {
+          error: "Method not allowed", code: BACKEND_ERROR_CODES.methodNotAllowed,
+        }, { Allow: "PATCH, DELETE" });
+        return;
+      }
+      const handler = isPatch ? roomAdminPatch : roomAdminDelete;
+      if (typeof handler !== "function") {
+        sendJson(response, 503, {
+          error: "Backend runtime unavailable", code: BACKEND_ERROR_CODES.runtimeUnavailable,
+        });
+        return;
+      }
+      let body = { ok: true, value: null };
+      if (isPatch) {
+        body = await readJsonBody(request);
+        if (!body.ok) {
+          sendJson(response, body.reason === "too-large" ? 413 : 400, {
+            error: body.reason === "too-large" ? "Request body too large" : "Invalid request body",
+            code: BACKEND_ERROR_CODES.badRequest,
+          });
+          return;
+        }
+      }
+      try {
+        // The owner's answer carries its own status and body; the WebUI replays them unchanged.
+        const result = isPatch ? await handler(roomPath, body.value ?? null) : await handler(roomPath);
+        const status = Number.isInteger(result?.status) ? result.status : 200;
+        sendJson(response, 200, { result: { status, body: result?.body ?? null } });
+      } catch (error) {
+        sendJson(response, typeof error?.status === "number" ? error.status : 500, {
+          error: "Backend room admin failed",
           code: BACKEND_ERROR_CODES.internal,
         });
       }

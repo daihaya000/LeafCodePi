@@ -55,6 +55,8 @@ export const REQUIRED_RUNTIME_EXPORTS = Object.freeze([
   "botTaskId",
   "revertRoomConversation",
   "handleRoomPrompt",
+  "handleRoomPatch",
+  "handleRoomDelete",
 ]);
 
 /**

@@ -1,60 +1,60 @@
 import { NextRequest, NextResponse } from "next/server";
-import { deleteRoom, getRoom, isRoomNameWithinSize, patchRoom, roomBotTaskId, assertKnownRoomMembers } from "@/lib/rooms";
-import { destroyTask, jsonError, resetTaskConversation } from "@/lib/pi/harness";
-import { stopAllRoomCodeSessions } from "@/lib/pi/bot-code-relay";
-import { cancelPendingRoomHandoffs, detachBotFromRoomRuntime, stopRoomTurns } from "@/lib/room-runtime";
-import { getTask, listTasks } from "@/lib/store";
+import { getRoom } from "@/lib/rooms";
+import { hasPrivilegedRoomMutation, handleRoomDelete, handleRoomPatch, type RoomAdminBody } from "@/lib/room-admin";
+import { forwardRoomAdmin } from "@/lib/backend-forward";
+import { localRuntimeBlocked } from "@/lib/pi/runtime-ownership";
 import { isWebUiRequestAuthorized } from "@/lib/webui-auth";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 async function idOf(params: Promise<{ id: string }>) { return (await params).id; }
+
+/**
+ * Room settings and deletion.
+ *
+ * The teardown (stopping turns, resetting member sessions, detaching a Bot, destroying member tasks)
+ * lives in `handleRoomPatch`/`handleRoomDelete`, because only the runtime owner may do it: after the
+ * cutover this route forwards the same body to the Backend and replays its answer unchanged. The
+ * WebUI token check stays here, before the forward.
+ */
 export async function GET(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const room = getRoom(await idOf(params));
-  return room ? NextResponse.json({ room }) : NextResponse.json({ error: "\u30eb\u30fc\u30e0\u304c\u898b\u3064\u304b\u308a\u307e\u305b\u3093" }, { status: 404 });
+  return room ? NextResponse.json({ room }) : NextResponse.json({ error: "ルームが見つかりません" }, { status: 404 });
 }
+
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  try {
-  const body = (await req.json().catch(() => null)) as { name?: unknown; members?: unknown; botRelayEnabled?: unknown; codeAutoApprove?: unknown; resetMessages?: unknown } | null;
-  if (!body || (body.name !== undefined && (typeof body.name !== "string" || !isRoomNameWithinSize(body.name))) || (body.members !== undefined && (!Array.isArray(body.members) || body.members.some((item) => typeof item !== "string"))) || (body.botRelayEnabled !== undefined && typeof body.botRelayEnabled !== "boolean") || (body.codeAutoApprove !== undefined && typeof body.codeAutoApprove !== "boolean") || (body.resetMessages !== undefined && typeof body.resetMessages !== "boolean")) return NextResponse.json({ error: "\u30eb\u30fc\u30e0\u8a2d\u5b9a\u304c\u4e0d\u6b63\u3067\u3059" }, { status: 400 });
+  const id = await idOf(params);
+  const parsed: unknown = await req.json().catch(() => null);
+  const body = parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed as RoomAdminBody : null;
   // Relay / standing Code approval are privileged mutations: require Web UI token.
-  if (
-    (body?.botRelayEnabled !== undefined || body?.codeAutoApprove !== undefined) &&
-    !isWebUiRequestAuthorized(req)
-  ) {
+  if (hasPrivilegedRoomMutation(body) && !isWebUiRequestAuthorized(req)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
   }
-  const id = await idOf(params);
-  const existing = getRoom(id);
-  if (!existing) return NextResponse.json({ error: "\u30eb\u30fc\u30e0\u304c\u898b\u3064\u304b\u308a\u307e\u305b\u3093" }, { status: 404 });
-  if (body.resetMessages === true) {
-    // Mirror 1:1 Bot reset: stop live turns, cancel Code outbox/handoffs, then wipe member sessions
-    // before clearing the shared transcript so attention/Code cannot report into an empty room.
-    await stopRoomTurns(id);
-    cancelPendingRoomHandoffs(id);
-    await stopAllRoomCodeSessions(id);
-    for (const memberId of existing.members) {
-      const taskId = roomBotTaskId(id, memberId);
-      if (getTask(taskId)) await resetTaskConversation(taskId);
+  if (localRuntimeBlocked()) {
+    const forwarded = await forwardRoomAdmin("PATCH", id, body);
+    if (!forwarded.ok) {
+      return NextResponse.json(
+        { error: "Backendへ転送できません", reason: forwarded.reason },
+        { status: forwarded.status ?? 502 },
+      );
     }
-  } else if (body.members !== undefined) {
-    const nextMembers = assertKnownRoomMembers(body.members as string[]);
-    const removed = existing.members.filter((memberId) => !nextMembers.includes(memberId));
-    for (const botId of removed) await detachBotFromRoomRuntime(id, botId);
+    return NextResponse.json(forwarded.result.body, { status: forwarded.result.status });
   }
-  const room = patchRoom(id, { ...(body.name !== undefined ? { name: body.name } : {}), ...(body.members !== undefined ? { members: body.members as string[] } : {}), ...(body.botRelayEnabled !== undefined ? { botRelayEnabled: body.botRelayEnabled } : {}), ...(body.codeAutoApprove !== undefined ? { codeAutoApprove: body.codeAutoApprove } : {}), ...(body.resetMessages !== undefined ? { resetMessages: body.resetMessages } : {}) });
-  return room ? NextResponse.json({ room }) : NextResponse.json({ error: "\u30eb\u30fc\u30e0\u304c\u898b\u3064\u304b\u308a\u307e\u305b\u3093" }, { status: 404 });
-  } catch (error) {
-    const { error: message, status } = jsonError(error);
-    return NextResponse.json({ error: message }, { status });
-  }
+  const result = await handleRoomPatch(id, body);
+  return NextResponse.json(result.body, { status: result.status });
 }
+
 export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const id = await idOf(params);
-  if (!getRoom(id)) return NextResponse.json({ error: "\u30eb\u30fc\u30e0\u304c\u898b\u3064\u304b\u308a\u307e\u305b\u3093" }, { status: 404 });
-  // Same teardown as resetMessages: stop turns/handoffs/Code before destroying member tasks.
-  await stopRoomTurns(id);
-  cancelPendingRoomHandoffs(id);
-  await stopAllRoomCodeSessions(id);
-  for (const task of listTasks(true, "bot").filter((item) => item.id.endsWith(`:room:${id}`))) await destroyTask(task.id);
-  return deleteRoom(id) ? NextResponse.json({ ok: true }) : NextResponse.json({ error: "\u30eb\u30fc\u30e0\u304c\u898b\u3064\u304b\u308a\u307e\u305b\u3093" }, { status: 404 });
+  if (localRuntimeBlocked()) {
+    const forwarded = await forwardRoomAdmin("DELETE", id, null);
+    if (!forwarded.ok) {
+      return NextResponse.json(
+        { error: "Backendへ転送できません", reason: forwarded.reason },
+        { status: forwarded.status ?? 502 },
+      );
+    }
+    return NextResponse.json(forwarded.result.body, { status: forwarded.result.status });
+  }
+  const result = await handleRoomDelete(id);
+  return NextResponse.json(result.body, { status: result.status });
 }

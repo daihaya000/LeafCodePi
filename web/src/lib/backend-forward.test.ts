@@ -8,6 +8,7 @@ import {
   forwardBotRevert,
   forwardBotRoutineRun,
   COMPACT_FORWARD_TIMEOUT_MS,
+  forwardRoomAdmin,
   forwardRoomPrompt,
   forwardTaskCompact,
   forwardTaskCompactAbort,
@@ -297,6 +298,34 @@ describe("forwardTaskModel / forwardTaskThinking / forwardTaskAgent", () => {
     const unreachable = vi.fn<typeof fetch>(async () => { throw new Error("connect refused"); });
     await expect(forwardTaskThinking("task-1", "high", { env, fetchImpl: unreachable })).resolves.toEqual({
       ok: false, reason: "unreachable",
+    });
+  });
+});
+
+describe("forwardRoomAdmin", () => {
+  it("replays the owner's status and body for PATCH and DELETE", async () => {
+    const patch = vi.fn<typeof fetch>(async () => jsonResponse(200, { result: { status: 400, body: { error: "ルーム設定が不正です" } } }));
+    await expect(forwardRoomAdmin("PATCH", "room-1", { resetMessages: true }, { env, fetchImpl: patch })).resolves.toEqual({
+      ok: true, result: { status: 400, body: { error: "ルーム設定が不正です" } },
+    });
+    expect(patch.mock.calls[0][0]).toBe("http://127.0.0.1:19999/internal/rooms/room-1");
+    expect(patch.mock.calls[0][1]?.method).toBe("PATCH");
+    expect(JSON.parse(String(patch.mock.calls[0][1]?.body))).toEqual({ resetMessages: true });
+    const remove = vi.fn<typeof fetch>(async () => jsonResponse(200, { result: { status: 200, body: { ok: true } } }));
+    await expect(forwardRoomAdmin("DELETE", "room-1", null, { env, fetchImpl: remove })).resolves.toEqual({
+      ok: true, result: { status: 200, body: { ok: true } },
+    });
+    expect(remove.mock.calls[0][1]?.method).toBe("DELETE");
+    expect(remove.mock.calls[0][1]?.body).toBeUndefined();
+  });
+
+  it("reports a transport failure without a local fallback", async () => {
+    const unreachable = vi.fn<typeof fetch>(async () => { throw new Error("connect refused"); });
+    await expect(forwardRoomAdmin("PATCH", "room-1", {}, { env, fetchImpl: unreachable })).resolves.toEqual({
+      ok: false, reason: "unreachable",
+    });
+    await expect(forwardRoomAdmin("DELETE", "room-1", null, { env: {} })).resolves.toEqual({
+      ok: false, reason: "not-configured",
     });
   });
 });

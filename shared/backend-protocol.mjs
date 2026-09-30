@@ -87,6 +87,13 @@ export const BACKEND_ROOM_REVERT_SUFFIX = "/revert";
  * failure, and the client's failure reasons would otherwise mislabel it).
  */
 export const BACKEND_ROOM_PROMPT_SUFFIX = "/prompt";
+/**
+ * Room settings and deletion: `PATCH /internal/rooms/:roomId` with the WebUI's own body, and
+ * `DELETE /internal/rooms/:roomId`. The teardown stops turns and member sessions, so it is owner
+ * work. Like the prompt, the owner's answer is wrapped as `{ result: { status, body } }` with HTTP
+ * 200 and the WebUI replays both unchanged.
+ */
+export const BACKEND_ROOM_ADMIN_PATH = BACKEND_ROOMS_PATH;
 export const DEFAULT_BACKEND_PORT = 18776;
 
 /** Authentication precedes version checks, including health requests. */

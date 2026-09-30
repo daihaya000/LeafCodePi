@@ -343,3 +343,11 @@ Backend単独のSDK検証前には `npm --prefix backend ci --ignore-scripts` �
 - この1件は`LOCAL_ONLY_PENDING`に理由付きで記録し、テストは「未ガードのstarterは必ず記録済みの既知ギャップである」ことを強制する形にした（未記録のものが現れたら失敗）。現況は starters 28・guarded 27・pending 1。
 - 検証: `runtime-ownership-coverage.test.ts`4件と`bots/rooms/[id]/route.test.ts`4件・runtime-startup3件成功、eslint成功。
 - 次: Roomの管理操作（PATCH/DELETE）をBackendへ転送し、`LOCAL_ONLY_PENDING`を空にして段階6の前提を満たす。
+
+## ターン24の変更（実測）
+
+- Roomの管理操作（`PATCH /api/bots/rooms/:id`と`DELETE`）をBackendへ転送した。手順（設定検証→resetMessagesの停止/リセット、membersのdetach→patchRoom／削除の停止・task破棄→deleteRoom）を`web/src/lib/room-admin.ts`の`handleRoomPatch`・`handleRoomDelete`に集約し、所有モードのrouteとBackendが同じ実装を呼ぶ。WebUIトークンが必要なprivileged変更の判定（`hasPrivilegedRoomMutation`）はroute側に残し、転送前に拒否する。
+- 内部APIは`PATCH/DELETE /internal/rooms/:roomId`（bare path）で、room promptと同じく`{result:{status,body}}`をHTTP 200で返しWebUIがそのまま再生する。クライアントに`PATCH`/`DELETE`メソッドを追加（`patchBackendJson`/`deleteBackendJson`）。
+- bundleへ`handleRoomPatch`・`handleRoomDelete`を追加して再生成（9831 KiB）。
+- 検証: `runtime-ownership-coverage.test.ts`は starters 28・guarded 28・pending 0になり、`LOCAL_ONLY_PENDING`は空（未ガード経路なし）。Room routeテスト8件（所有時の停止/リセット/削除・転送時のローカル不実行・拒否status再生・到達不能502）、`backend-forward`40件、backend server 65件（PATCH/DELETEのnested result・405・404・503・非関数拒否）成功。本番tsc・eslint成功。
+- これで切替前の「非所有モードでローカル実行されるowner-only経路」は無くなった（残るは実切替の実施と、その後の旧経路撤去）。

@@ -21,7 +21,7 @@ const API_DIR = join(__dirname, "..", "..", "app", "api");
  * through a shared ladder (`handleRoomPrompt`, `revertRoomConversation`).
  */
 const SESSION_STARTERS =
-  /\b(promptTask|goalLoopCommand|abortTask|abortTaskIncludingColdGoalLoop|stopBotCodeTask|respondToPermissionPrompt|respondToQuestionPrompt|ensureLive|subscribeTask|getTaskBootstrap|getTaskDetail|getTaskDetailBounded|queueBotCodePrompt|runUserBotCodeRequest|revertTask|unrevertTask|compactTask|abortTaskCompaction|setTaskModel|setTaskThinkingLevel|setTaskAgent|runRoutine|handleRoomPrompt|revertRoomConversation|runRoomConversation|runRoomFanOut|runRoomBot|stopRoomTurns|steerRoomTurns|deliverReadyRoomHandoffs)\b/;
+  /\b(promptTask|goalLoopCommand|abortTask|abortTaskIncludingColdGoalLoop|stopBotCodeTask|respondToPermissionPrompt|respondToQuestionPrompt|ensureLive|subscribeTask|getTaskBootstrap|getTaskDetail|getTaskDetailBounded|queueBotCodePrompt|runUserBotCodeRequest|revertTask|unrevertTask|compactTask|abortTaskCompaction|setTaskModel|setTaskThinkingLevel|setTaskAgent|runRoutine|handleRoomPrompt|handleRoomPatch|handleRoomDelete|revertRoomConversation|runRoomConversation|runRoomFanOut|runRoomBot|stopRoomTurns|steerRoomTurns|deliverReadyRoomHandoffs)\b/;
 
 /** How a route proves it is not acting as the owner: it consults the switch or forwards. */
 const OWNERSHIP_GUARDS =
@@ -32,8 +32,6 @@ const OWNERSHIP_GUARDS =
  * unfinished work, not an allowance: the scan fails when one appears without being listed here.
  */
 const LOCAL_ONLY_PENDING: Record<string, string> = {
-  "bots/rooms/[id]/route.ts":
-    "Room PATCH(resetMessages/members) and DELETE stop turns, Code sessions and member tasks locally; forwarding the room admin actions is the next step",
 };
 
 function routeFiles(dir = API_DIR, found: string[] = []): string[] {
@@ -94,6 +92,7 @@ describe("runtime ownership coverage", () => {
       "bots/rooms/[id]/events/route.ts",
       "bots/rooms/[id]/prompt/route.ts",
       "bots/rooms/[id]/revert/route.ts",
+      "bots/rooms/[id]/route.ts",
       "tasks/[id]/abort/route.ts",
       "tasks/[id]/agent/route.ts",
       "tasks/[id]/compact/abort/route.ts",
@@ -119,7 +118,9 @@ describe("runtime ownership coverage", () => {
     expect(pending).toEqual(Object.keys(LOCAL_ONLY_PENDING).sort());
     expect({ starters: starters.length, guarded: starters.length - pending.length }).toEqual({
       starters: 28,
-      guarded: 27,
+      guarded: 28,
     });
+    // No route may act as a second owner: every starter is guarded and the pending list is empty.
+    expect(pending).toEqual([]);
   });
 });

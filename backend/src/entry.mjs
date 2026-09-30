@@ -190,6 +190,22 @@ try {
       }
       return runtime.abortTaskCompaction(id);
     },
+    // Room settings and deletion stop turns and member sessions, so only the owner may run them. The
+    // answer keeps its own status and body: the WebUI replays both unchanged.
+    roomAdminPatch: (roomId, body) => {
+      const runtime = started.runtime();
+      if (!runtime || typeof runtime.handleRoomPatch !== "function") {
+        throw Object.assign(new Error("runtime unavailable"), { status: 503 });
+      }
+      return runtime.handleRoomPatch(roomId, body);
+    },
+    roomAdminDelete: (roomId) => {
+      const runtime = started.runtime();
+      if (!runtime || typeof runtime.handleRoomDelete !== "function") {
+        throw Object.assign(new Error("runtime unavailable"), { status: 503 });
+      }
+      return runtime.handleRoomDelete(roomId);
+    },
     // Posting a Room turn routes bots and starts their sessions, so only the owner may run it. The
     // answer keeps its own status and body: the WebUI replays both unchanged.
     roomPrompt: (roomId, body) => {

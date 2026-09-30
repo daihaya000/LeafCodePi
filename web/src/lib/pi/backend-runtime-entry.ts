@@ -51,6 +51,8 @@ export { reconcileRoomRuntime } from "@/lib/room-runtime";
 export { revertRoomConversation } from "@/lib/room-revert";
 // Posting a Room turn routes bots and starts their sessions, so the owner runs the whole ladder.
 export { handleRoomPrompt } from "@/lib/room-prompt";
+// Room settings and deletion tear down turns and member sessions, so the owner runs them too.
+export { handleRoomDelete, handleRoomPatch } from "@/lib/room-admin";
 export { getTask, patchTask } from "@/lib/store";
 export { isGoalLoopSessionOwned, readGoalLoopState } from "@/lib/pi/goal-loop-state";
 export { startGoalLoopWithSelection } from "@/lib/pi/goal-loop-start";

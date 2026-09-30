@@ -20,6 +20,7 @@ import {
   BACKEND_PENDING_SNAPSHOTS_PATH,
   BACKEND_PROTOCOL_HEADER,
   BACKEND_PROTOCOL_VERSION,
+  BACKEND_ROOM_ADMIN_PATH,
   BACKEND_ROOM_PROMPT_SUFFIX,
   BACKEND_ROOM_REVERT_SUFFIX,
   BACKEND_ROOMS_PATH,
@@ -85,7 +86,7 @@ async function backendRequest<T>(
     env?: BackendEnv;
     fetchImpl?: typeof fetch;
     timeoutMs?: number;
-    method?: "GET" | "POST";
+    method?: "GET" | "POST" | "PATCH" | "DELETE";
     body?: unknown;
   } = {},
 ): Promise<BackendResult<T>> {
@@ -161,6 +162,23 @@ export function postBackendJson<T>(
   options: { env?: BackendEnv; fetchImpl?: typeof fetch; timeoutMs?: number } = {},
 ): Promise<BackendResult<T>> {
   return backendRequest<T>(path, { ...options, method: "POST", body });
+}
+
+/** One authenticated PATCH with a JSON body. */
+export function patchBackendJson<T>(
+  path: string,
+  body: unknown,
+  options: { env?: BackendEnv; fetchImpl?: typeof fetch; timeoutMs?: number } = {},
+): Promise<BackendResult<T>> {
+  return backendRequest<T>(path, { ...options, method: "PATCH", body });
+}
+
+/** One authenticated DELETE without a body. */
+export function deleteBackendJson<T>(
+  path: string,
+  options: { env?: BackendEnv; fetchImpl?: typeof fetch; timeoutMs?: number } = {},
+): Promise<BackendResult<T>> {
+  return backendRequest<T>(path, { ...options, method: "DELETE" });
 }
 
 /** Starts a session in the owning Backend: `POST /internal/tasks/:id/prompt`. */
@@ -278,6 +296,22 @@ export function unrevertTaskOnBackend(
   options: { env?: BackendEnv; fetchImpl?: typeof fetch; timeoutMs?: number } = {},
 ): Promise<BackendResult<{ task: Record<string, unknown> | null }>> {
   return postBackendJson(`${BACKEND_TASKS_PATH}/${encodeURIComponent(id)}${BACKEND_TASK_UNREVERT_SUFFIX}`, {}, options);
+}
+
+/**
+ * Changes a Room or deletes it in the owning Backend. The teardown is owner work, so the answer is
+ * `{ result: { status, body } }` with HTTP 200 and the WebUI replays it unchanged.
+ */
+export function roomAdminOnBackend(
+  method: "PATCH" | "DELETE",
+  roomId: string,
+  body: Record<string, unknown> | null,
+  options: { env?: BackendEnv; fetchImpl?: typeof fetch; timeoutMs?: number } = {},
+): Promise<BackendResult<{ result: { status: number; body: unknown } }>> {
+  const path = `${BACKEND_ROOM_ADMIN_PATH}/${encodeURIComponent(roomId)}`;
+  return method === "PATCH"
+    ? patchBackendJson(path, body ?? {}, options)
+    : deleteBackendJson(path, options);
 }
 
 /**

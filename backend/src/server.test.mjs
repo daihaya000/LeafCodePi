@@ -762,6 +762,40 @@ test("a forwarded compaction runs and stops in the owner", async (t) => {
   );
 });
 
+test("forwarded Room admin actions return the owner's own status and body", async (t) => {
+  const seen = [];
+  const { snapshotsUrl, headers } = await fixture(t, {
+    roomAdminPatch: async (roomId, body) => {
+      seen.push(["patch", roomId, body]);
+      return { status: 400, body: { error: "ルーム設定が不正です" } };
+    },
+    roomAdminDelete: async (roomId) => {
+      seen.push(["delete", roomId]);
+      return { status: 200, body: { ok: true } };
+    },
+  });
+  const url = `${snapshotsUrl.replace("pending-snapshots", "rooms")}/room-1`;
+  const patched = await request(url, {
+    method: "PATCH", headers: { ...headers, "content-type": "application/json" }, body: JSON.stringify({ resetMessages: true }),
+  });
+  assert.equal(patched.status, 200);
+  assert.deepEqual(await patched.json(), { result: { status: 400, body: { error: "ルーム設定が不正です" } } });
+  const deleted = await request(url, { method: "DELETE", headers });
+  assert.equal(deleted.status, 200);
+  assert.deepEqual(await deleted.json(), { result: { status: 200, body: { ok: true } } });
+  assert.deepEqual(seen, [["patch", "room-1", { resetMessages: true }], ["delete", "room-1"]]);
+  // GET on the room path is not an admin action, and a nested path is not a room id.
+  assert.equal((await request(url, { headers })).status, 405);
+  assert.equal((await request(`${url}/extra`, { method: "PATCH", headers })).status, 404);
+  const detached = await fixture(t);
+  const detachedUrl = `${detached.snapshotsUrl.replace("pending-snapshots", "rooms")}/room-1`;
+  assert.equal((await request(detachedUrl, { method: "DELETE", headers: detached.headers })).status, 503);
+  assert.throws(
+    () => createBackendServer({ token: randomBytes(32).toString("base64url"), roomAdminPatch: 5 }),
+    /roomAdminPatch must be a function or null/,
+  );
+});
+
 test("a forwarded Room prompt returns the owner's own status and body", async (t) => {
   const seen = [];
   const { snapshotsUrl, headers } = await fixture(t, {
