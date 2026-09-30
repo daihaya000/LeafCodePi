@@ -212,6 +212,7 @@ import * as corePromptControl from "@backend-core/prompt-control.mjs";
 import { runHangWatchdogAbort, runUserAbort } from "@backend-core/abort-coordinator.mjs";
 import { roomBotIdFromTaskId } from "@backend-core/abort-control.mjs";
 import { hasOtherBusyRoomLive, shouldShutdownOnDispose as coreShouldShutdownOnDispose } from "@backend-core/live-lifecycle.mjs";
+import { attachReplacementSession } from "@backend-core/live-replace.mjs";
 import {
   accountAuthPath,
   accountHasProvider,
@@ -8146,40 +8147,37 @@ async function replaceLiveForRoute(
       : options.accountIdExplicit && route.accountId
         ? true
         : undefined;
-  const updatedTask = patchTask(task.id, {
-    accountId: route.accountId ?? undefined,
-    providerID: routeIds.providerID ?? task.providerID,
-    modelID: routeIds.modelID ?? task.modelID,
-    thinkingLevel,
-    ...(options?.accountIdExplicit !== undefined
-      ? { accountIdExplicit: nextAccountIdExplicit }
-      : {}),
-  });
-  if (!updatedTask) {
-    setup.session.dispose();
-    throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });
-  }
-
-  try {
+  return attachReplacementSession({
+    persistIdentity: () =>
+      patchTask(task.id, {
+        accountId: route.accountId ?? undefined,
+        providerID: routeIds.providerID ?? task.providerID,
+        modelID: routeIds.modelID ?? task.modelID,
+        thinkingLevel,
+        ...(options?.accountIdExplicit !== undefined
+          ? { accountIdExplicit: nextAccountIdExplicit }
+          : {}),
+      }),
     // Intentional route change: stop preserving an unavailable stored model.
-    return await attachSession(task.id, setup.session, setup.skillPermissionRef, {
-      preserveTaskModel: false,
-    });
-  } catch (error) {
-    setup.session.dispose();
+    attach: () =>
+      attachSession(task.id, setup.session, setup.skillPermissionRef, {
+        preserveTaskModel: false,
+      }),
+    disposeSession: () => setup.session.dispose(),
     // attachSession acquires the new runtime before replacing the old live
     // session. Restore the persisted identity if acquisition failed.
-    patchTask(task.id, {
-      accountId: task.accountId,
-      providerID: task.providerID,
-      modelID: task.modelID,
-      thinkingLevel: task.thinkingLevel,
-      ...(options?.accountIdExplicit !== undefined
-        ? { accountIdExplicit: task.accountIdExplicit }
-        : {}),
-    });
-    throw error;
-  }
+    restoreIdentity: () => {
+      patchTask(task.id, {
+        accountId: task.accountId,
+        providerID: task.providerID,
+        modelID: task.modelID,
+        thinkingLevel: task.thinkingLevel,
+        ...(options?.accountIdExplicit !== undefined
+          ? { accountIdExplicit: task.accountIdExplicit }
+          : {}),
+      });
+    },
+  });
 }
 
 /** Record the persona transition in the existing transcript before reopening it. */
@@ -8231,18 +8229,14 @@ async function replaceLiveForAgent(
     taskId: task.id,
     goalLoop: true,
   });
-  const updatedTask = patchTask(task.id, { agent: agentName });
-  if (!updatedTask) {
-    setup.session.dispose();
-    throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });
-  }
-  try {
-    return await attachSession(task.id, setup.session, setup.skillPermissionRef);
-  } catch (error) {
-    setup.session.dispose();
-    patchTask(task.id, { agent: task.agent ?? null });
-    throw error;
-  }
+  return attachReplacementSession({
+    persistIdentity: () => patchTask(task.id, { agent: agentName }),
+    attach: () => attachSession(task.id, setup.session, setup.skillPermissionRef),
+    disposeSession: () => setup.session.dispose(),
+    restoreIdentity: () => {
+      patchTask(task.id, { agent: task.agent ?? null });
+    },
+  });
 }
 
 /** Reopen the same transcript after a Bot changed its own SOUL.md. */
@@ -8277,12 +8271,10 @@ async function replaceLiveForSoul(live: LiveRuntime): Promise<LiveRuntime> {
     taskId: task.id,
     goalLoop: isActiveGoalLoopSession(live.session),
   });
-  try {
-    return await attachSession(task.id, setup.session, setup.skillPermissionRef);
-  } catch (error) {
-    setup.session.dispose();
-    throw error;
-  }
+  return attachReplacementSession({
+    attach: () => attachSession(task.id, setup.session, setup.skillPermissionRef),
+    disposeSession: () => setup.session.dispose(),
+  });
 }
 
 async function reloadLiveForSoulIfNeeded(live: LiveRuntime): Promise<LiveRuntime> {
