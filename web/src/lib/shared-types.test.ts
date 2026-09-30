@@ -33,6 +33,11 @@ describe("shared wire contracts", () => {
       mkdirSync(join(mirror, "src", "lib"), { recursive: true });
       copyFileSync(fileURLToPath(new URL("../../tsconfig.json", import.meta.url)), join(mirror, "tsconfig.json"));
       copyFileSync(fileURLToPath(new URL("../../../shared/types.ts", import.meta.url)), join(mirror, "shared", "types.ts"));
+      // The mirror copies the whole shared directory in production; the contract files it imports must
+      // be present here too, or the probe fails on a missing module instead of a broken contract.
+      for (const contract of ["bot-tools.mjs", "bot-tools.d.mts"]) {
+        copyFileSync(fileURLToPath(new URL(`../../../shared/${contract}`, import.meta.url)), join(mirror, "shared", contract));
+      }
       copyFileSync(fileURLToPath(new URL("./types.ts", import.meta.url)), join(mirror, "src", "lib", "types.ts"));
       const probe = join(mirror, "probe.ts");
       writeFileSync(probe, 'import { BOT_ROUTINE_RUN_EVENT, type TaskDetail } from "@/lib/types";\nexport const event: "routine" = BOT_ROUTINE_RUN_EVENT;\nexport type Task = TaskDetail;\n');
