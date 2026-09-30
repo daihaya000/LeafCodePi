@@ -49,9 +49,13 @@ test("the name is trimmed, empty names fall back, and inputs are copied not alia
   config.tools.push("write");
   assert.deepEqual(DEFAULT_TOOLS, ["read", "intercom"]);
   assert.deepEqual(create().tools, DEFAULT_TOOLS);
-  // The skills object is shallow-copied: its nested arrays are shared with DEFAULT_SKILLS
-  // (pre-existing behavior, kept as-is here and recorded as a risk in the plan document).
-  assert.equal(create().skills.include, DEFAULT_SKILLS.include);
+  // Every nested array belongs to this config alone: mutating one bot's skills
+  // can no longer reach DEFAULT_SKILLS or a later bot.
+  const skills = create().skills;
+  skills.include.push("x");
+  skills.exclude.push("y");
+  assert.deepEqual(DEFAULT_SKILLS, { mode: "inherit", include: [], exclude: [] });
+  assert.deepEqual(create().skills, DEFAULT_SKILLS);
 });
 
 test("a patch merges plain fields and always refreshes updatedAt", () => {

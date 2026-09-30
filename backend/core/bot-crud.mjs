@@ -15,7 +15,7 @@ export function createBotConfig({ id, name, model, thinkingLevel, permissionMode
     createdAt: now, updatedAt: now,
     model: model ?? null, ttsVoice: null, thinkingLevel: thinkingLevel ?? null,
     permissionMode: permissionMode ?? "allow", codeAutoApprove: true,
-    skills: { ...DEFAULT_SKILLS }, tools: [...defaultToolNames],
+    skills: { mode: DEFAULT_SKILLS.mode, include: [...DEFAULT_SKILLS.include], exclude: [...DEFAULT_SKILLS.exclude] }, tools: [...defaultToolNames],
     extraRoots: [], enabled: true, notificationsEnabled: true,
     intercomEnabled: false, intercomScopeId: "", intercomFanoutEnabled: false,
     codeSessionTaskId: null,
