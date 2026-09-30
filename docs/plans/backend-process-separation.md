@@ -50,6 +50,7 @@
    | `live-attach-state.mjs` | attach時のlive初期状態（置換前liveのマップ/プロンプト連鎖/世代の引継ぎ、task由来の復元値、transcript由来のタイミング復元。versioned mapは注入） | transcript走査とversioned mapクラス、SOULリビジョン取得 |
    | `session-event-decisions.mjs` | セッションイベントごとの判定（agent_start/settled/endでの同期要否、自動コンパクション失敗の判定と記録メッセージ、transport復旧中のsettle抑止） | イベント受信時の副作用（タスク更新・状態遷移・スナップショット） |
    | `snapshot-schedule.mjs` | スナップショットの合流規則（非描画イベントの除外、高頻度イベントのdelta化、フル待機中のdelta破棄、100ms窓、発火時に読むpending内容） | タイマー実体とSSE emit |
+   | `session-identity.mjs` | セッションが報告する識別情報（sessionId/sessionFile/provider/model）と保存済みタスクの差分計算。欠落値で保存済みを消さない規則を含む | `lib/pi/session-identity.ts` は同名exportの互換入口 |
    | `routine-scheduler.mjs` | scheduler lock（stale時のみ再取得）、実行対象判定、切り離し起動 | ルーティン保存と実行本体 |
    | `directory-lock.mjs` | 複数workerで共有するロックディレクトリの同期ロック（stale回収・待機上限・busy通知。rooms/routinesが共用） | hang-watchdog・web-settings・pi-auth・model-throughput-stats・transfer-recoveryの個別ロック実装（待機間隔や非同期性が異なり未統合） |
    | `room-recovery.mjs` | 放置working発言の判定、handoff整理と再配信 | Room保存・実行 |
