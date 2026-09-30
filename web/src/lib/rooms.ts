@@ -1,8 +1,9 @@
-import { existsSync, appendFileSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, appendFileSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { EventEmitter } from "node:events";
 import { dataDir } from "./paths";
+import { withDirectoryLock } from "@backend-core/directory-lock.mjs";
 import { botTaskId, botWorkspace, getBot, listBots } from "./bots";
 import { deleteTask, getTask, insertBotTask, listTasks, patchTask } from "./store";
 import { ROOM_HANDOFF_STATES } from "./types";
@@ -107,22 +108,12 @@ export function consumeRoomRelayEnvelope(roomId: string, token: string): Omit<Ro
 export function withRoomLock<T>(roomId: string, action: () => T): T {
   // Keep the public missing-room behavior for malformed route parameters.
   if (!isValidId(roomId)) return action();
-  const lock = roomLockPath(roomId);
-  mkdirSync(roomsRoot(), { recursive: true });
-  const waitBuffer = new Int32Array(new SharedArrayBuffer(4));
-  for (let attempt = 0; ; attempt += 1) {
-    try {
-      mkdirSync(lock);
-      break;
-    } catch {
-      try {
-        if (Date.now() - statSync(lock).mtimeMs > 30_000) rmSync(lock, { recursive: true, force: true });
-      } catch { /* another worker removed it */ }
-      if (attempt >= 300) throw new Error("room file is busy");
-      Atomics.wait(waitBuffer, 0, 0, 10);
-    }
-  }
-  try { return action(); } finally { rmSync(lock, { recursive: true, force: true }); }
+  return withDirectoryLock({
+    lockPath: roomLockPath(roomId),
+    parentDir: roomsRoot(),
+    staleMs: 30_000,
+    busyMessage: "room file is busy",
+  }, action);
 }
 
 roomEvents.setMaxListeners(0);

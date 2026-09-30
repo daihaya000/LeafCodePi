@@ -5,6 +5,7 @@ import { randomUUID } from "node:crypto";
 import { dataDir } from "@/lib/paths";
 import { cronMatches, parseCron, weekdayMatches } from "@/lib/routine-schedule";
 import { runSchedulerTick, tryAcquireSchedulerLock } from "@backend-core/routine-scheduler.mjs";
+import { withDirectoryLock } from "@backend-core/directory-lock.mjs";
 import { botTaskId, getBot, listBots } from "@/lib/bots";
 import { getTaskDetail, promptTask } from "@/lib/pi/harness";
 import type { RoutineDto, RoutineRunEventDto, UiMessage } from "@/lib/types";
@@ -64,21 +65,7 @@ function routinePath(botId: string, routineId: string): string { return join(rou
 function routineLockPath(botId: string, routineId: string): string { return join(routineDir(botId), `${routineId}.lock`); }
 function routineRunLockPath(botId: string, routineId: string): string { return join(routineDir(botId), `${routineId}.run.lock`); }
 function withFileLock<T>(lock: string, parent: string, action: () => T): T {
-  mkdirSync(parent, { recursive: true });
-  const waitBuffer = new Int32Array(new SharedArrayBuffer(4));
-  for (let attempt = 0; ; attempt += 1) {
-    try {
-      mkdirSync(lock);
-      break;
-    } catch {
-      try {
-        if (Date.now() - statSync(lock).mtimeMs > ROUTINE_LOCK_STALE_MS) rmSync(lock, { recursive: true, force: true });
-      } catch { /* another worker removed or replaced the lock */ }
-      if (attempt >= 300) throw new Error("routine file is busy");
-      Atomics.wait(waitBuffer, 0, 0, 10);
-    }
-  }
-  try { return action(); } finally { rmSync(lock, { recursive: true, force: true }); }
+  return withDirectoryLock({ lockPath: lock, parentDir: parent, staleMs: ROUTINE_LOCK_STALE_MS, busyMessage: "routine file is busy" }, action);
 }
 function withRoutineLock<T>(botId: string, routineId: string, action: () => T): T { return withFileLock(routineLockPath(botId, routineId), routineDir(botId), action); }
 function withBotRoutineLock<T>(botId: string, action: () => T): T { const botsDir = join(dataDir(), "bots"); return withFileLock(join(botsDir, `${botId}.routines.lock`), botsDir, action); }
