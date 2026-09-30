@@ -1,4 +1,5 @@
-import { HANG_RETRY_PREFIX, stripHangRetryPrefix } from "../hang-retry";
+import { HANG_RETRY_PREFIX } from "../hang-retry";
+import { BOT_PROMPT_PREFIX, stripBotPromptPrefix, stripHangRetryPrefix } from "@backend-core/prompt-markers.mjs";
 import type { GoalLoopTurn, ToolState, UiDiagnostic, UiMessage, UiPart } from "../types";
 
 /**
@@ -6,30 +7,7 @@ import type { GoalLoopTurn, ToolState, UiDiagnostic, UiMessage, UiPart } from ".
  * user メッセージ先頭に付与し、UI では送信者をBotとして描画する（本文からは除去）。
  * Code画面の入力欄からユーザーが送った本文には付かない。
  */
-export const BOT_PROMPT_PREFIX = "<!-- leafcode-pi-bot-prompt -->\n";
-
-/** Bot送信プロンプトにマーカーを付ける（二重付与しない）。 */
-export function markBotPrompt(text: string): string {
-  return text.startsWith(BOT_PROMPT_PREFIX) ? text : `${BOT_PROMPT_PREFIX}${text}`;
-}
-
-/** 表示用にマーカーを除去する。 */
-export function stripBotPromptPrefix(text: string): string {
-  return text.startsWith(BOT_PROMPT_PREFIX) ? text.slice(BOT_PROMPT_PREFIX.length) : text;
-}
-
-/**
- * user メッセージ本文から内部マーカー（ハング再送・Bot送信）をすべて除いた表示用テキスト。
- * 生セッションを読む経路（サイドバーのプレビュー、タイトル生成、エージェント選択）で使う。
- */
-export function stripPromptMarkers(text: string): string {
-  return stripBotPromptPrefix(stripHangRetryPrefix(text));
-}
-
-/** Bot送信マーカー付きの本文か（ハング再送で包まれていても判定する）。 */
-export function isBotPromptText(text: string): boolean {
-  return stripHangRetryPrefix(text).startsWith(BOT_PROMPT_PREFIX);
-}
+export { BOT_PROMPT_PREFIX, isBotPromptText, markBotPrompt, stripBotPromptPrefix, stripPromptMarkers } from "@backend-core/prompt-markers.mjs";
 
 /** セッションの raw メッセージから user プロンプト本文を取る（マーカーは付けたまま）。user 以外は空。 */
 export function rawUserMessageText(item: unknown): string {

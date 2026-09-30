@@ -1,16 +1,11 @@
 import type { UiMessage } from "./types";
+import { HANG_RETRY_PREFIX } from "@backend-core/prompt-markers.mjs";
 
 /**
  * ハング watchdog が再送したプロンプトを識別するマーカー。
  * user メッセージ先頭に付与し、UI では非表示にする。
  */
-export const HANG_RETRY_PREFIX = "<!-- leafcode-pi-hang-retry -->\n";
-
-/** 再送プロンプトにマーカーを付ける。 */
-export function markHangRetryPrompt(text: string): string {
-  if (text.startsWith(HANG_RETRY_PREFIX)) return text;
-  return `${HANG_RETRY_PREFIX}${text}`;
-}
+export { HANG_RETRY_PREFIX, markHangRetryPrompt, stripHangRetryPrefix } from "@backend-core/prompt-markers.mjs";
 
 /** マーカー付き user メッセージかどうか。 */
 export function isHangRetryUserMessage(message: UiMessage): boolean {
@@ -18,11 +13,6 @@ export function isHangRetryUserMessage(message: UiMessage): boolean {
   if (message.hangRetry) return true;
   const text = message.parts.find((part) => part.type === "text")?.text ?? "";
   return text.startsWith(HANG_RETRY_PREFIX);
-}
-
-/** 表示用にマーカーを除去する。 */
-export function stripHangRetryPrefix(text: string): string {
-  return text.startsWith(HANG_RETRY_PREFIX) ? text.slice(HANG_RETRY_PREFIX.length) : text;
 }
 
 /** 自動再開回数（transcript 内の hang-retry user 数）。 */
