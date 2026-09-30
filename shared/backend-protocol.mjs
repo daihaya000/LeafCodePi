@@ -6,6 +6,12 @@ export const BACKEND_HEALTH_PATH = "/internal/health";
 export const BACKEND_PENDING_SNAPSHOTS_PATH = "/internal/pending-snapshots";
 /** Read-only: the Backend's own view of the task store, before the Web relay is enabled. */
 export const BACKEND_TASKS_PATH = "/internal/tasks";
+/**
+ * The suffix that turns a task path into its prompt endpoint: `POST /internal/tasks/:id/prompt`.
+ * Only the owning process may start a session, so the WebUI forwards the request here.
+ */
+export const BACKEND_TASK_PROMPT_SUFFIX = "/prompt";
+
 /** Read-only: the Backend's own view of the Bot store. */
 export const BACKEND_BOTS_PATH = "/internal/bots";
 export const DEFAULT_BACKEND_PORT = 18776;
@@ -19,4 +25,6 @@ export const BACKEND_ERROR_CODES = Object.freeze({
   internal: "BACKEND_INTERNAL_ERROR",
   /** The Backend has no Pi runtime attached, so this read cannot be served yet. */
   runtimeUnavailable: "BACKEND_RUNTIME_UNAVAILABLE",
+  /** The request itself was unusable: a malformed or oversized body. */
+  badRequest: "BACKEND_BAD_REQUEST",
 });

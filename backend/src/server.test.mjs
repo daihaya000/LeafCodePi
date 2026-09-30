@@ -349,6 +349,91 @@ test("a non-function generation reader is rejected at creation", () => {
   }
 });
 
+test("a forwarded prompt reaches the runtime and answers with the task summary", async (t) => {
+  const seen = [];
+  const { snapshotsUrl, headers } = await fixture(t, {
+    promptTask: async (id, body) => {
+      seen.push({ id, body });
+      return { id, agent: "builder", status: "working" };
+    },
+  });
+  const url = `${snapshotsUrl.replace("pending-snapshots", "tasks")}/task-1/prompt`;
+  const response = await request(url, {
+    method: "POST",
+    headers: { ...headers, "content-type": "application/json" },
+    body: JSON.stringify({ prompt: "こんにちは", model: "openai/gpt-5" }),
+  });
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), { task: { id: "task-1", agent: "builder", status: "working" } });
+  assert.deepEqual(seen, [{ id: "task-1", body: { prompt: "こんにちは", model: "openai/gpt-5" } }]);
+});
+
+test("a forwarded prompt is refused when nothing owns the runtime", async (t) => {
+  const { snapshotsUrl, headers } = await fixture(t);
+  const url = `${snapshotsUrl.replace("pending-snapshots", "tasks")}/task-1/prompt`;
+  const response = await request(url, {
+    method: "POST",
+    headers: { ...headers, "content-type": "application/json" },
+    body: JSON.stringify({ prompt: "hi" }),
+  });
+  assert.equal(response.status, 503);
+  assert.equal((await response.json()).code, "BACKEND_RUNTIME_UNAVAILABLE");
+  // A GET on the prompt path is a method error, not a task read.
+  assert.equal((await request(url, { headers })).status, 405);
+});
+
+test("an unusable prompt body is refused without calling the runtime", async (t) => {
+  let calls = 0;
+  const { snapshotsUrl, headers } = await fixture(t, { promptTask: async () => { calls += 1; return { id: "task-1" }; } });
+  const url = `${snapshotsUrl.replace("pending-snapshots", "tasks")}/task-1/prompt`;
+  const post = (body, contentType = "application/json") =>
+    request(url, { method: "POST", headers: { ...headers, "content-type": contentType }, body });
+  assert.equal((await post("")).status, 400, "an empty body is not a prompt");
+  assert.equal((await post("{not json")).status, 400);
+  assert.equal((await post(JSON.stringify({ prompt: "x" }), "text/plain")).status, 200, "content type is not enforced");
+  assert.equal(calls, 1);
+  assert.equal((await request(`${snapshotsUrl.replace("pending-snapshots", "tasks")}//prompt`, {
+    method: "POST",
+    headers: { ...headers, "content-type": "application/json" },
+    body: JSON.stringify({ prompt: "x" }),
+  })).status, 404, "an empty id is not a task");
+});
+
+test("a failing prompt reports a status without leaking the exception text", async (t) => {
+  const secret = "sk-secret-credential";
+  const { snapshotsUrl, headers } = await fixture(t, {
+    promptTask: async () => {
+      throw Object.assign(new Error(`provider rejected ${secret}`), { status: 409 });
+    },
+  });
+  const url = `${snapshotsUrl.replace("pending-snapshots", "tasks")}/task-1/prompt`;
+  const response = await request(url, {
+    method: "POST",
+    headers: { ...headers, "content-type": "application/json" },
+    body: JSON.stringify({ prompt: "hi" }),
+  });
+  assert.equal(response.status, 409);
+  const body = await response.json();
+  assert.equal(body.code, "BACKEND_INTERNAL_ERROR");
+  assert.ok(!JSON.stringify(body).includes(secret));
+});
+
+test("the prompt endpoint needs authentication and the protocol header", async (t) => {
+  const { snapshotsUrl, headers } = await fixture(t, { promptTask: async () => ({ id: "task-1" }) });
+  const url = `${snapshotsUrl.replace("pending-snapshots", "tasks")}/task-1/prompt`;
+  const body = JSON.stringify({ prompt: "hi" });
+  assert.equal((await request(url, { method: "POST", headers: { "content-type": "application/json" }, body })).status, 401);
+  const withoutProtocol = { authorization: headers.authorization, "content-type": "application/json" };
+  assert.equal((await request(url, { method: "POST", headers: withoutProtocol, body })).status, 409, "the protocol header is required");
+});
+
+test("a non-function prompt handler is rejected at creation", () => {
+  assert.throws(
+    () => createBackendServer({ token: randomBytes(32).toString("base64url"), promptTask: "nope" }),
+    /promptTask must be a function or null/,
+  );
+});
+
 test("rejects invalid ports and surfaces occupied port errors", async (t) => {
   const { server, address } = await fixture(t);
   for (const port of [-1, 65536, 1.5, "3010", NaN]) {

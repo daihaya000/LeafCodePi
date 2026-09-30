@@ -8,12 +8,45 @@ import {
   BACKEND_PENDING_SNAPSHOTS_PATH,
   BACKEND_PROTOCOL_HEADER,
   BACKEND_PROTOCOL_VERSION,
+  BACKEND_TASK_PROMPT_SUFFIX,
   BACKEND_TASKS_PATH,
   DEFAULT_BACKEND_PORT,
 } from "../../shared/backend-protocol.mjs";
 
 function tokenDigest(value) {
   return createHash("sha256").update(value).digest();
+}
+
+/** The largest prompt body the Backend accepts; attachments are already size-checked by the WebUI. */
+export const BACKEND_PROMPT_BODY_LIMIT_BYTES = 32 * 1024 * 1024;
+
+/** Reads a JSON body with a hard limit. Returns `{ ok: false }` for too large, empty or broken JSON. */
+function readJsonBody(request, limit = BACKEND_PROMPT_BODY_LIMIT_BYTES) {
+  return new Promise((resolve) => {
+    let size = 0;
+    const chunks = [];
+    request.on("data", (chunk) => {
+      size += chunk.length;
+      if (size > limit) {
+        resolve({ ok: false, reason: "too-large" });
+        request.destroy();
+        return;
+      }
+      chunks.push(chunk);
+    });
+    request.on("end", () => {
+      if (size === 0) {
+        resolve({ ok: false, reason: "empty" });
+        return;
+      }
+      try {
+        resolve({ ok: true, value: JSON.parse(Buffer.concat(chunks).toString("utf8")) });
+      } catch {
+        resolve({ ok: false, reason: "invalid" });
+      }
+    });
+    request.on("error", () => resolve({ ok: false, reason: "invalid" }));
+  });
 }
 
 function sendJson(response, status, value, headers = {}) {
@@ -54,6 +87,8 @@ export function createBackendServer({
   runtimeGeneration = () => null,
   /** The generation the Host pinned for this Backend, or null when it pinned none. */
   runtimeGenerationPinned = () => null,
+  /** Starts a session for a forwarded prompt; null when no runtime is attached. */
+  promptTask = null,
 } = {}) {
   if (
     typeof token !== "string" ||
@@ -75,6 +110,9 @@ export function createBackendServer({
   if (typeof runtimeGeneration !== "function") throw new Error("runtimeGeneration must be a function");
   if (typeof runtimeGenerationPinned !== "function") {
     throw new Error("runtimeGenerationPinned must be a function");
+  }
+  if (promptTask !== null && typeof promptTask !== "function") {
+    throw new Error("promptTask must be a function or null");
   }
   const expectedDigest = tokenDigest(token);
   const instanceId = randomUUID();
@@ -107,9 +145,13 @@ export function createBackendServer({
     const detailPath = taskSuffix?.endsWith("/detail")
       ? decodeURIComponent(taskSuffix.slice(0, -"/detail".length))
       : undefined;
+    // `<id>/prompt` starts a session: only the process that owns the runtime may do that.
+    const promptPath = taskSuffix?.endsWith(BACKEND_TASK_PROMPT_SUFFIX)
+      ? decodeURIComponent(taskSuffix.slice(0, -BACKEND_TASK_PROMPT_SUFFIX.length))
+      : undefined;
     const taskPath = target.pathname === BACKEND_TASKS_PATH
       ? null
-      : taskSuffix !== null && detailPath === undefined
+      : taskSuffix !== null && detailPath === undefined && promptPath === undefined
         ? decodeURIComponent(taskSuffix)
         : undefined;
     const botSuffix = target.pathname.startsWith(`${BACKEND_BOTS_PATH}/`)
@@ -120,9 +162,48 @@ export function createBackendServer({
       || target.pathname === BACKEND_BOTS_PATH
       || botSuffix !== undefined
       || taskPath !== undefined
-      || detailPath !== undefined;
+      || detailPath !== undefined
+      || promptPath !== undefined;
     if (!knownPath) {
       sendJson(response, 404, { error: "Not found", code: BACKEND_ERROR_CODES.notFound });
+      return;
+    }
+    if (promptPath !== undefined) {
+      if (request.method !== "POST") {
+        sendJson(response, 405, {
+          error: "Method not allowed", code: BACKEND_ERROR_CODES.methodNotAllowed,
+        }, { Allow: "POST" });
+        return;
+      }
+      if (promptPath === "") {
+        sendJson(response, 404, { error: "Not found", code: BACKEND_ERROR_CODES.notFound });
+        return;
+      }
+      // No runtime means this process cannot own a session: the caller must not fall back locally.
+      if (typeof promptTask !== "function") {
+        sendJson(response, 503, {
+          error: "Backend runtime unavailable", code: BACKEND_ERROR_CODES.runtimeUnavailable,
+        });
+        return;
+      }
+      const body = await readJsonBody(request);
+      if (!body.ok) {
+        sendJson(response, body.reason === "too-large" ? 413 : 400, {
+          error: body.reason === "too-large" ? "Prompt body too large" : "Invalid prompt body",
+          code: BACKEND_ERROR_CODES.badRequest,
+        });
+        return;
+      }
+      try {
+        const summary = await promptTask(promptPath, body.value);
+        sendJson(response, 200, { task: summary ?? null });
+      } catch (error) {
+        // Never send exception text: provider errors can contain credentials.
+        sendJson(response, typeof error?.status === "number" ? error.status : 500, {
+          error: "Backend prompt failed",
+          code: BACKEND_ERROR_CODES.internal,
+        });
+      }
       return;
     }
     if (request.method !== "GET") {

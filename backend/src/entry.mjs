@@ -56,6 +56,15 @@ try {
     // The Bot store is owned by the startup, like the task store.
     readBots: () => started.bots.list(),
     readBot: (id) => started.bots.get(id),
+    // Forwarded prompts start sessions in this process, which owns the runtime after the cutover.
+    promptTask: (id, body) => {
+      const runtime = started.runtime();
+      if (!runtime) {
+        throw Object.assign(new Error("runtime unavailable"), { status: 503 });
+      }
+      const { prompt, images, ...options } = body ?? {};
+      return runtime.promptTask(id, prompt, Array.isArray(images) && images.length > 0 ? images : undefined, options);
+    },
     readTaskDetail: (id) => {
       const runtime = started.runtime();
       if (!runtime) {
