@@ -18,6 +18,7 @@ const mocks = vi.hoisted(() => ({
   promptTask: vi.fn(),
   reconcileOrphanedWorkingTasks: vi.fn(),
   withBotCodeSessionLock: vi.fn(async (_id: string, operation: () => Promise<unknown>) => operation()),
+  localRuntimeBlocked: vi.fn(() => false),
   isRoomDelegatedCodeTask: vi.fn(() => false),
   readGoalLoopState: vi.fn((): Partial<GoalLoopDto> | null => null),
   isGoalLoopLiveStatus: vi.fn((status: string | undefined) =>
@@ -59,6 +60,10 @@ vi.mock("@/lib/pi/harness", () => ({
   promptTask: mocks.promptTask,
   jsonError: mocks.jsonError,
 }));
+vi.mock("@/lib/pi/runtime-ownership", () => ({
+  localRuntimeBlocked: mocks.localRuntimeBlocked,
+  assertLocalRuntimeAllowed: vi.fn(),
+}));
 
 import { MAX_PROMPT_TEXT_CHARS } from "@/lib/prompt-images";
 import type { GoalLoopDto } from "@/lib/types";
@@ -83,6 +88,8 @@ function request(method: string, body?: unknown): NextRequest {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  // Ownership is per-test: a leftover value would make every later test refuse.
+  mocks.localRuntimeBlocked.mockReturnValue(false);
   mocks.getBot.mockReturnValue({ ...bot });
   mocks.patchBot.mockImplementation((_id: string, patch: Record<string, unknown>) => ({ ...bot, ...patch }));
   mocks.getProject.mockReturnValue({ id: "project-1", archived: false });
@@ -631,5 +638,44 @@ describe("Bot Code session control", () => {
       },
     });
     expect(mocks.getBotCodeSessionPanelState).toHaveBeenCalledWith("bot-1");
+  });
+});
+
+describe("Bot Code session after the cutover", () => {
+  it("refuses to start a session rather than creating a second owner", async () => {
+    mocks.getBot.mockReturnValue({ id: "one", permissionMode: "ask", enabled: true });
+    mocks.localRuntimeBlocked.mockReturnValue(true);
+    const response = await POST(
+      new NextRequest("http://localhost/api/bots/one/code-session", {
+        method: "POST",
+        body: JSON.stringify({ prompt: "やって" }),
+      }),
+      { params: Promise.resolve({ id: "one" }) },
+    );
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toEqual({
+      error: "Codeセッションの起動は非所有モードでは未対応です",
+      code: "CODE_SESSION_NOT_SUPPORTED",
+    });
+    expect(mocks.createBotCodeTask).not.toHaveBeenCalled();
+  });
+
+  it("refuses session control rather than acting on a session it does not own", async () => {
+    mocks.getBot.mockReturnValue({ id: "one", codeSessionTaskId: "task-1" });
+    mocks.localRuntimeBlocked.mockReturnValue(true);
+    const response = await PATCH(
+      new NextRequest("http://localhost/api/bots/one/code-session", {
+        method: "PATCH",
+        body: JSON.stringify({ action: "clear" }),
+      }),
+      { params: Promise.resolve({ id: "one" }) },
+    );
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toEqual({
+      error: "Codeセッションの操作は非所有モードでは未対応です",
+      code: "CODE_SESSION_CONTROL_NOT_SUPPORTED",
+    });
+    expect(mocks.stopBotCodeTask).not.toHaveBeenCalled();
+    expect(mocks.abortTaskIncludingColdGoalLoop).not.toHaveBeenCalled();
   });
 });

@@ -25,7 +25,6 @@ const OWNERSHIP_GUARDS =
 
 /** Routes that still act locally in the non-owning mode, with the reason they are still allowed. */
 const LOCAL_ONLY_PENDING: Record<string, string> = {
-  "bots/[id]/code-session/route.ts": "starting a Bot Code session is not forwarded yet",
 };
 
 function routeFiles(dir = API_DIR, found: string[] = []): string[] {
@@ -76,6 +75,7 @@ describe("runtime ownership coverage", () => {
     expect(guarded).toEqual([
       "bots/[id]/abort/route.ts",
       "bots/[id]/code-requests/route.ts",
+      "bots/[id]/code-session/route.ts",
       "bots/[id]/events/route.ts",
       "bots/[id]/prompt/route.ts",
       "bots/[id]/route.ts",
@@ -99,6 +99,8 @@ describe("runtime ownership coverage", () => {
       starters: starters.length,
       pending: Object.keys(LOCAL_ONLY_PENDING).length,
     });
-    expect(pending.length).toBeGreaterThan(0);
+    // No route may act as a second owner: every starter is guarded, and the pending list is empty.
+    expect(pending.length).toBe(0);
+    expect(Object.keys(LOCAL_ONLY_PENDING)).toEqual([]);
   });
 });

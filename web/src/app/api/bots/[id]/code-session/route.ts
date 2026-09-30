@@ -3,6 +3,7 @@ import { getBot, patchBot } from "@/lib/bots";
 import { isPromptTextWithinSize } from "@/lib/prompt-images";
 import { getProject, getTask, patchTask } from "@/lib/store";
 import { continueBotCodeTask, createBotCodeTask, getBotCodeSessionPanelState, goalLoopCommand, jsonError, stopBotCodeTask, abortTaskIncludingColdGoalLoop } from "@/lib/pi/harness";
+import { localRuntimeBlocked } from "@/lib/pi/runtime-ownership";
 import { isThinkingLevel } from "@/lib/thinking-levels";
 import { reconcileOrphanedWorkingTasks } from "@/lib/task-runtime-lease";
 import { isRoomDelegatedCodeTask } from "@/lib/pi/bot-code-relay";
@@ -70,6 +71,15 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> },
 ) {
   const id = await botId(params);
+  // After the cutover the Bot's Code session is created inside the Backend. Creating it here would be a
+  // second owner, so the start is refused until it is forwarded; the Bot panel's stop paths already
+  // reach the owner through the abort and code-request endpoints.
+  if (localRuntimeBlocked()) {
+    return NextResponse.json(
+      { error: "Codeセッションの起動は非所有モードでは未対応です", code: "CODE_SESSION_NOT_SUPPORTED" },
+      { status: 409 },
+    );
+  }
   try {
     reconcileOrphanedWorkingTasks();
       const bot = getBot(id);
@@ -165,6 +175,14 @@ export async function PATCH(
   { params }: { params: Promise<{ id: string }> },
 ) {
   const id = await botId(params);
+  // Clear/unlink/continue all act on the Bot's session and its outbox, which the Backend owns after
+  // the cutover; they are refused rather than half-run against a session this process does not have.
+  if (localRuntimeBlocked()) {
+    return NextResponse.json(
+      { error: "Codeセッションの操作は非所有モードでは未対応です", code: "CODE_SESSION_CONTROL_NOT_SUPPORTED" },
+      { status: 409 },
+    );
+  }
   try {
     reconcileOrphanedWorkingTasks();
       const bot = getBot(id);
