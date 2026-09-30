@@ -3,7 +3,10 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync, utimesSync } from "node:fs"
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { isRoutineDue, runSchedulerTick, tryAcquireSchedulerLock } from "./routine-scheduler.mjs";
+import {
+  isRoutineDue, isTransientRoutineStartError, nextRoutineFailureState, routineAutoDisabled,
+  runSchedulerTick, tryAcquireSchedulerLock,
+} from "./routine-scheduler.mjs";
 import { cronMatches as routineScheduleCronMatches } from "./routine-schedule.mjs";
 
 function tempRoot(t) {
@@ -157,4 +160,40 @@ test("the lock is released before a long-running routine finishes", async () => 
   await runSchedulerTick(f.deps);
   assert.deepEqual(events, ["released"]);
   finish();
+});
+
+test("a failed run counts up and disables only at the limit", () => {
+  const max = 3;
+  let state = { failureCount: 0, enabled: true };
+  state = nextRoutineFailureState(state, max);
+  assert.deepEqual(state, { failureCount: 1, enabled: true });
+  state = nextRoutineFailureState(state, max);
+  assert.deepEqual(state, { failureCount: 2, enabled: true });
+  state = nextRoutineFailureState(state, max);
+  assert.deepEqual(state, { failureCount: 3, enabled: false });
+  state = nextRoutineFailureState(state, max);
+  assert.deepEqual(state, { failureCount: 4, enabled: false });
+});
+
+test("a failure never re-enables a disabled routine or loses a count", () => {
+  assert.deepEqual(nextRoutineFailureState({ failureCount: 1, enabled: false }, 3), { failureCount: 2, enabled: false });
+  assert.deepEqual(nextRoutineFailureState({ failureCount: 5, enabled: true }, 3), { failureCount: 6, enabled: false });
+  assert.deepEqual(nextRoutineFailureState(undefined, 3), { failureCount: 1, enabled: false }, "a missing record counts as disabled");
+  assert.deepEqual(nextRoutineFailureState({}, 3), { failureCount: 1, enabled: false });
+  assert.deepEqual(nextRoutineFailureState({ failureCount: 2 }, 1), { failureCount: 3, enabled: false });
+});
+
+test("the auto-disable note appears exactly at the limit", () => {
+  assert.equal(routineAutoDisabled(0, 3), false);
+  assert.equal(routineAutoDisabled(2, 3), false);
+  assert.equal(routineAutoDisabled(3, 3), true);
+  assert.equal(routineAutoDisabled(4, 3), true);
+});
+
+test("only the lost worker race is transient", () => {
+  assert.equal(isTransientRoutineStartError(new Error("タスクは別のワーカーで実行中です")), true);
+  assert.equal(isTransientRoutineStartError(Object.assign(new Error("タスクは別のワーカーで実行中です"), { status: 409 })), true);
+  assert.equal(isTransientRoutineStartError(new Error("Bot の実行に失敗しました")), false);
+  assert.equal(isTransientRoutineStartError("タスクは別のワーカーで実行中です"), true, "a string error is read the same way");
+  assert.equal(isTransientRoutineStartError(undefined), false);
 });

@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { dataDir } from "@/lib/paths";
 import { cronMatches, parseCron, weekdayMatches } from "@/lib/routine-schedule";
-import { runSchedulerTick, tryAcquireSchedulerLock } from "@backend-core/routine-scheduler.mjs";
+import { isTransientRoutineStartError, nextRoutineFailureState, routineAutoDisabled, runSchedulerTick, tryAcquireSchedulerLock } from "@backend-core/routine-scheduler.mjs";
 import { withDirectoryLock } from "@backend-core/directory-lock.mjs";
 import { botTaskId, getBot, listBots } from "@/lib/bots";
 import { getTaskDetail, promptTask } from "@/lib/pi/harness";
@@ -166,11 +166,6 @@ function updateRoutine(botId: string, routineId: string, update: (routine: Routi
   });
 }
 
-function isTransientRoutineStartError(error: unknown): boolean {
-  const message = error instanceof Error ? error.message : String(error);
-  return message.includes("別のワーカーで実行中");
-}
-
 function tryClaimRoutineRun(botId: string, routineId: string): string | undefined {
   const lock = routineRunLockPath(botId, routineId);
   mkdirSync(routineDir(botId), { recursive: true });
@@ -238,15 +233,12 @@ export async function runRoutine(botId: string, routineId: string): Promise<Rout
         return updated;
       } catch (error) {
         if (isTransientRoutineStartError(error)) throw error;
-        const updated = updateRoutine(botId, routineId, (current) => {
-          const failureCount = current.failureCount + 1;
-          return {
-            ...current,
-            failureCount,
-            enabled: current.enabled && failureCount < ROUTINE_MAX_FAILURES,
-            updatedAt: new Date().toISOString(),
-          };
-        });
+        const updated = updateRoutine(botId, routineId, (current) => ({
+          ...current,
+          // The auto-disable ladder lives in backend core.
+          ...nextRoutineFailureState(current, ROUTINE_MAX_FAILURES),
+          updatedAt: new Date().toISOString(),
+        }));
         if (!updated) throw error;
         const message = error instanceof Error ? error.message : String(error);
         publishRoutineRun({
@@ -254,7 +246,7 @@ export async function runRoutine(botId: string, routineId: string): Promise<Rout
           ok: false, at: new Date().toISOString(), preview: null, error: message,
           failureCount: updated.failureCount, autoDisabled: !updated.enabled,
         });
-        const suffix = updated.failureCount >= ROUTINE_MAX_FAILURES ? "（連続失敗のため自動的に無効化しました）" : "";
+        const suffix = routineAutoDisabled(updated.failureCount, ROUTINE_MAX_FAILURES) ? "（連続失敗のため自動的に無効化しました）" : "";
         throw new Error(`${message}${suffix}`);
       }
     } finally {

@@ -30,3 +30,15 @@ export function runSchedulerTick<R extends SchedulableRoutine>(
   },
   now?: Date,
 ): Promise<void>;
+
+/** Failure bookkeeping for one routine run; a disabled routine is never re-enabled. */
+export function nextRoutineFailureState(
+  current: { failureCount?: number; enabled?: boolean } | null | undefined,
+  maxFailures: number,
+): { failureCount: number; enabled: boolean };
+
+/** Whether the failure count reached the auto-disable limit. */
+export function routineAutoDisabled(failureCount: number, maxFailures: number): boolean;
+
+/** Whether the run lost the worker race, so it must not count as a failure. */
+export function isTransientRoutineStartError(error: unknown): boolean;

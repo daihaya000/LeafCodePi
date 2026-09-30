@@ -74,3 +74,30 @@ export async function runSchedulerTick(deps, now = new Date()) {
     deps.releaseLock(lock);
   }
 }
+
+/**
+ * A failed routine run counts toward the auto-disable ladder: the failure count grows
+ * and the routine stays enabled only while it is below the limit (an already-disabled
+ * routine is never re-enabled by a failure).
+ */
+export function nextRoutineFailureState(current, maxFailures) {
+  const failureCount = (current?.failureCount ?? 0) + 1;
+  return {
+    failureCount,
+    enabled: current?.enabled === true && failureCount < maxFailures,
+  };
+}
+
+/** The failure count reached the limit, so the run's error carries the auto-disable note. */
+export function routineAutoDisabled(failureCount, maxFailures) {
+  return failureCount >= maxFailures;
+}
+
+/**
+ * A run that lost the worker race is transient: it must not count as a routine failure,
+ * because another worker is already running the same routine.
+ */
+export function isTransientRoutineStartError(error) {
+  const message = error instanceof Error ? error.message : String(error);
+  return message.includes("別のワーカーで実行中");
+}
