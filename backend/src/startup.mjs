@@ -2,7 +2,7 @@ import { AppStore } from "../core/app-store.mjs";
 import { dataDir as defaultDataDir, noProjectSessionDir, samePath, storePath } from "../core/app-paths.mjs";
 import { createTaskLeaseState, ORPHANED_WORKING_TASK_ERROR, TaskLeaseService } from "../core/task-runtime-lease.mjs";
 import { RuntimeStartup } from "../core/runtime-startup.mjs";
-import { restartResumeRefusal, restartResumeSkipReason } from "../core/restart-resume.mjs";
+import { RestartResumeService, restartResumeRefusal, restartResumeSkipReason } from "../core/restart-resume.mjs";
 import { GoalLoopStateStore } from "../core/goal-loop-state.mjs";
 import { clampGoalLoopCooldownSeconds, clampGoalLoopMaxTurns, isGoalLoopSessionOwnedStatus } from "../core/goal-loop-settings.mjs";
 
@@ -35,6 +35,12 @@ export function createBackendStartup({
   dataDir = defaultDataDir,
   warn = (message, error) => console.warn(message, error),
   schedule,
+  /**
+   * Sends the restart-resume prompt into a Pi session. Until the runtime owner supplies
+   * this, orphaned tasks are only classified: no resume is attempted and no retry budget
+   * is spent, so the Web process stays the only writer while it still owns them.
+   */
+  promptTask,
 } = {}) {
   const store = new AppStore({
     storePath,
@@ -65,6 +71,12 @@ export function createBackendStartup({
    * is attempted and no retry budget is spent: a task is only listed as resumable once a
    * runtime is attached, and every refusal keeps its reason.
    */
+  const restartResume = new RestartResumeService({ dataDir, orphanedTaskError: ORPHANED_WORKING_TASK_ERROR });
+  const runtimeAttached = typeof promptTask === "function";
+  const goalLoopOwned = (task) => Boolean(
+    task.sessionId && isGoalLoopSessionOwnedStatus(goalLoopStore.read(task.directory, task.sessionId)?.status),
+  );
+
   const orphanListener = (tasks) => {
     for (const task of tasks) {
       orphaned.push(task.id);
@@ -86,6 +98,18 @@ export function createBackendStartup({
       if (refusal) resumeSkipped.push({ id: task.id, reason: refusal });
       else resumePending.push(task.id);
     }
+    if (!runtimeAttached) return;
+    // The same ladder runs again inside the service, which also spends the retry budget
+    // and only then prompts; Room delegation has no owner in this process yet, so a Room
+    // task would be classified as resumable here once the relay moves over.
+    restartResume.handleOrphanedTasks(tasks, {
+      getTask: (id) => store.getTask(id),
+      promptTask,
+      isGoalLoopOwned: goalLoopOwned,
+      isRoomDelegated: () => false,
+      log: warn,
+      ...(schedule ? { schedule } : {}),
+    });
   };
 
   const startup = new RuntimeStartup({
@@ -116,5 +140,7 @@ export function createBackendStartup({
     resumePending: () => [...resumePending],
     /** Reconciled tasks that must not be resumed, each with the core ladder's reason. */
     resumeSkipped: () => resumeSkipped.map((entry) => ({ ...entry })),
+    /** Whether a Pi runtime was supplied, so resumes actually run. */
+    resumesOrphanedTasks: () => runtimeAttached,
   };
 }

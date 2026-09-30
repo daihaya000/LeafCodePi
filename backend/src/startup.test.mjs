@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { RESTART_RESUME_PROMPT } from "../core/restart-resume.mjs";
 import { ORPHANED_WORKING_TASK_ERROR } from "../core/task-runtime-lease.mjs";
 import { BACKEND_UNAVAILABLE_STARTUP_STEPS, createBackendStartup } from "./startup.mjs";
 
@@ -94,6 +95,63 @@ test("a Goal Loop-owned session is refused by the same ladder, without a resume"
   await started.startup.start();
   assert.deepEqual(started.resumePending(), []);
   assert.deepEqual(started.resumeSkipped(), [{ id: "loop-orphan", reason: "goal-loop-owned" }]);
+  assert.equal(existsSync(join(dir, "restart-resume.json")), false);
+});
+
+test("without a runtime no resume is attempted and no retry budget is written", async (t) => {
+  const { dir, file } = fixture(t, [task("code-orphan", "working")]);
+  const prompted = [];
+  const started = createBackendStartup({ dataDir: () => dir, warn: () => {} });
+  started.store.storePath = () => file;
+  assert.equal(started.resumesOrphanedTasks(), false);
+  await started.startup.start();
+  assert.deepEqual(prompted, []);
+  assert.deepEqual(started.resumePending(), ["code-orphan"]);
+  assert.equal(existsSync(join(dir, "restart-resume.json")), false, "classification must not spend the retry budget");
+});
+
+test("a supplied runtime resumes the orphaned task through the core service", async (t) => {
+  const { dir, file } = fixture(t, [task("code-orphan", "working")]);
+  const prompted = [];
+  const scheduled = [];
+  const started = createBackendStartup({
+    dataDir: () => dir,
+    warn: () => {},
+    // Run the delayed resume immediately instead of waiting out the real delay.
+    schedule: (callback) => { scheduled.push(callback); },
+    promptTask: async (id, prompt) => { prompted.push([id, prompt]); },
+  });
+  started.store.storePath = () => file;
+  assert.equal(started.resumesOrphanedTasks(), true);
+  await started.startup.start();
+  assert.equal(scheduled.length, 1);
+  assert.deepEqual(prompted, [], "the resume waits for its scheduled delay");
+  scheduled[0]();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(prompted.map(([id]) => id), ["code-orphan"]);
+  assert.equal(prompted[0][1], RESTART_RESUME_PROMPT);
+  assert.equal(existsSync(join(dir, "restart-resume.json")), true, "the attempt budget is recorded before prompting");
+});
+
+test("a Goal Loop-owned task is never prompted even when a runtime is supplied", async (t) => {
+  const { dir, file } = fixture(t, [task("loop-orphan", "working", { sessionId: "session-1" })]);
+  const loopDir = join(dir, "goals-loop");
+  mkdirSync(loopDir, { recursive: true });
+  writeFileSync(join(loopDir, "session-1.json"), `${JSON.stringify({ goal: "続けて", status: "running" })}
+`, "utf8");
+  const prompted = [];
+  const scheduled = [];
+  const started = createBackendStartup({
+    dataDir: () => dir,
+    warn: () => {},
+    schedule: (callback) => { scheduled.push(callback); },
+    promptTask: async (id) => { prompted.push(id); },
+  });
+  started.store.storePath = () => file;
+  await started.startup.start();
+  for (const callback of scheduled) callback();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(prompted, []);
   assert.equal(existsSync(join(dir, "restart-resume.json")), false);
 });
 
