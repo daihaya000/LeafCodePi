@@ -1,10 +1,9 @@
 /**
- * Pre-cutover relay switch for the WebUI's own routes.
+ * Reading the WebUI's own routes from the Backend instead of the in-process store.
  *
- * The relay is off by default: the Web process still owns the store, so a route must only read from
- * the Backend when the operator explicitly asks for it. When it is on, a route serves the Backend's
- * data and falls back to its in-process path if the Backend cannot answer — the fallback is the
- * safety net before the cutover, and disappears with the old path in the last phase.
+ * The rule is the ownership itself, not a switch: a process that owns the runtime serves its own
+ * store, and a client (after the cutover) reads the owner's view. A client that cannot read the
+ * Backend reports the failure rather than serving its local copy (`relayFallbackAllowed`).
  */
 import {
   expectedBackendGeneration,
@@ -17,9 +16,6 @@ import { botsWithCodeSessionCounts } from "@backend-core/bot-session-counts.mjs"
 // The ownership rule lives with the runtime guards; the relay only reads it.
 import { localRuntimeBlocked, webOwnsRuntime } from "@/lib/pi/runtime-ownership";
 
-/** Values that turn the relay on; anything else leaves it off. */
-const RELAY_ENABLED_VALUES = new Set(["1", "true", "yes", "on"]);
-
 /** How long a compatibility probe is reused; the relay must not probe the Backend per request. */
 export const RELAY_COMPATIBILITY_TTL_MS = 5_000;
 
@@ -28,10 +24,6 @@ let compatibilityCache: { expected: string; at: number; compatible: boolean } | 
 /** Test seam: forget the cached probe. */
 export function resetBackendRelayCompatibilityCache(): void {
   compatibilityCache = null;
-}
-
-export function isBackendRelayEnabled(env: Record<string, string | undefined> = process.env): boolean {
-  return RELAY_ENABLED_VALUES.has((env.LEAFCODE_PI_BACKEND_RELAY ?? "").trim().toLowerCase());
 }
 
 /**
@@ -51,9 +43,10 @@ export function relayFallbackAllowed(env: Record<string, string | undefined> = p
 }
 
 /**
- * Whether the relay may use this Backend at all: enabled, and the same runtime generation the Host
- * pinned for this WebUI. A generation mismatch means the WebUI and the Backend disagree about the
- * running SDK/extensions, so the relay stays on the in-process path instead of writing to it.
+ * Whether this process may read its data from the Backend: only a process that does not own the
+ * runtime relays (the owner serves its own store), and only when the generation the Host pinned
+ * matches the one the Backend is running. A generation mismatch means the two disagree about the
+ * running SDK/extensions, so the relay stays on the in-process path instead of trusting it.
  * An unpinned generation has nothing to compare, so it is compatible.
  */
 export async function backendRelayCompatible(
@@ -64,7 +57,7 @@ export async function backendRelayCompatible(
   } = {},
 ): Promise<boolean> {
   const env = options.env ?? process.env;
-  if (!isBackendRelayEnabled(env)) return false;
+  if (relayFallbackAllowed(env)) return false;
   const expected = expectedBackendGeneration(env);
   if (!expected) return true;
   const now = (options.now ?? Date.now)();

@@ -16,7 +16,6 @@ vi.mock("@/lib/backend-client", () => ({
     !expected || expected === running,
 }));
 vi.mock("@/lib/backend-relay", () => ({
-  isBackendRelayEnabled: vi.fn(() => false),
   webOwnsRuntime: vi.fn(() => true),
 }));
 vi.mock("@/lib/webui-auth", () => ({
@@ -99,8 +98,7 @@ describe("GET /api/backend/status", () => {
       body: { ready: true, status: "ready", pid: 4242, runtimeGeneration: "gen-a" },
     });
     mocks.expectedBackendGeneration.mockReturnValue("gen-a");
-    const { isBackendRelayEnabled, webOwnsRuntime } = await import("@/lib/backend-relay");
-    vi.mocked(isBackendRelayEnabled).mockReturnValue(true);
+    const { webOwnsRuntime } = await import("@/lib/backend-relay");
     vi.mocked(webOwnsRuntime).mockReturnValue(false);
     const body = await (await GET(request())).json();
     expect(body.cutover).toEqual({ ok: true, blockers: [] });

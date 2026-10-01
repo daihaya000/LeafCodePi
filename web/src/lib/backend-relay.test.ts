@@ -1,7 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   backendRelayCompatible,
-  isBackendRelayEnabled,
   relayBotList,
   relayFallbackAllowed,
   relayTaskRows,
@@ -10,17 +9,6 @@ import {
 
 afterEach(() => {
   vi.unstubAllEnvs();
-});
-
-describe("isBackendRelayEnabled", () => {
-  it("is off unless the environment explicitly turns it on", () => {
-    for (const value of [undefined, "", "0", "false", "off", "no", "maybe"]) {
-      expect(isBackendRelayEnabled({ LEAFCODE_PI_BACKEND_RELAY: value })).toBe(false);
-    }
-    for (const value of ["1", "true", "TRUE", "yes", "on", " on "]) {
-      expect(isBackendRelayEnabled({ LEAFCODE_PI_BACKEND_RELAY: value })).toBe(true);
-    }
-  });
 });
 
 describe("relayFallbackAllowed", () => {
@@ -41,7 +29,7 @@ describe("relayTaskRows", () => {
   ];
   const readTasks = vi.fn();
 
-  it("stays out of the way while the relay is off", async () => {
+  it("stays out of the way while this process owns the runtime", async () => {
     const result = await relayTaskRows({ includeArchived: false, kind: "code", env: {}, fetchTasks: readTasks });
     expect(result).toBeNull();
     expect(readTasks).not.toHaveBeenCalled();
@@ -49,7 +37,7 @@ describe("relayTaskRows", () => {
 
   it("filters the Backend rows exactly like the store does", async () => {
     readTasks.mockResolvedValue({ ok: true, status: 200, body: { tasks: rows } });
-    const env = { LEAFCODE_PI_BACKEND_RELAY: "1" };
+    const env = { LEAFCODE_PI_BACKEND_OWNS_RUNTIME: "1" };
     const code = await relayTaskRows({ includeArchived: false, kind: "code", env, fetchTasks: readTasks });
     expect(code?.map((row) => row.id)).toEqual(["code-1"]);
     const all = await relayTaskRows({ includeArchived: true, kind: "all", env, fetchTasks: readTasks });
@@ -59,7 +47,7 @@ describe("relayTaskRows", () => {
   });
 
   it("returns null so the caller can fall back when the Backend cannot answer", async () => {
-    const env = { LEAFCODE_PI_BACKEND_RELAY: "1" };
+    const env = { LEAFCODE_PI_BACKEND_OWNS_RUNTIME: "1" };
     for (const failure of [
       { ok: false, reason: "not-configured" },
       { ok: false, reason: "unreachable" },
@@ -77,7 +65,7 @@ describe("relayBotList", () => {
   const bots = [{ id: "bot-1", name: "busy" }, { id: "bot-2", name: "idle" }];
   const tasks = [{ id: "t1", status: "working", botId: "bot-1" }];
 
-  it("stays out of the way while the relay is off", async () => {
+  it("stays out of the way while this process owns the runtime", async () => {
     const fetchBots = vi.fn();
     const result = await relayBotList({ env: {}, fetchBots, fetchTasks: vi.fn() });
     expect(result).toBeNull();
@@ -86,7 +74,7 @@ describe("relayBotList", () => {
 
   it("returns the Backend Bots with their running-session counts", async () => {
     const result = await relayBotList({
-      env: { LEAFCODE_PI_BACKEND_RELAY: "1" },
+      env: { LEAFCODE_PI_BACKEND_OWNS_RUNTIME: "1" },
       fetchBots: async () => ({ ok: true, status: 200, body: { bots } }),
       fetchTasks: async () => ({ ok: true, status: 200, body: { tasks } }),
     });
@@ -97,7 +85,7 @@ describe("relayBotList", () => {
   });
 
   it("returns null when either read fails, so the caller falls back", async () => {
-    const env = { LEAFCODE_PI_BACKEND_RELAY: "1" };
+    const env = { LEAFCODE_PI_BACKEND_OWNS_RUNTIME: "1" };
     const ok = { ok: true, status: 200, body: { bots, tasks } };
     await expect(relayBotList({
       env,
@@ -113,7 +101,7 @@ describe("relayBotList", () => {
 
   it("tolerates a payload without a Bot list", async () => {
     const result = await relayBotList({
-      env: { LEAFCODE_PI_BACKEND_RELAY: "1" },
+      env: { LEAFCODE_PI_BACKEND_OWNS_RUNTIME: "1" },
       fetchBots: async () => ({ ok: true, status: 200, body: {} }),
       fetchTasks: async () => ({ ok: true, status: 200, body: { tasks } }),
     });
@@ -125,7 +113,7 @@ describe("generation compatibility", () => {
   beforeEach(() => resetBackendRelayCompatibilityCache());
   afterEach(() => resetBackendRelayCompatibilityCache());
 
-  const env = { LEAFCODE_PI_BACKEND_RELAY: "1", LEAFCODE_PI_BACKEND_GENERATION: "gen-a" };
+  const env = { LEAFCODE_PI_BACKEND_OWNS_RUNTIME: "1", LEAFCODE_PI_BACKEND_GENERATION: "gen-a" };
   const health = (generation: string | null) => async () => ({
     ok: true as const,
     status: 200,
@@ -153,10 +141,11 @@ describe("generation compatibility", () => {
     expect(fetchHealth).toHaveBeenCalledTimes(2);
   });
 
-  it("has nothing to compare without a pin, and stays off while the relay is off", async () => {
+  it("has nothing to compare without a pin, and stays off for the owner", async () => {
     const fetchHealth = vi.fn(health("gen-b"));
-    expect(await backendRelayCompatible({ env: { LEAFCODE_PI_BACKEND_RELAY: "1" }, fetchHealth })).toBe(true);
+    expect(await backendRelayCompatible({ env: { LEAFCODE_PI_BACKEND_OWNS_RUNTIME: "1" }, fetchHealth })).toBe(true);
     expect(fetchHealth).not.toHaveBeenCalled();
+    // The owner serves its own store: no Backend read, not even a probe.
     expect(await backendRelayCompatible({ env: { LEAFCODE_PI_BACKEND_GENERATION: "gen-a" }, fetchHealth })).toBe(false);
     expect(fetchHealth).not.toHaveBeenCalled();
   });

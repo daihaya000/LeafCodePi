@@ -5,7 +5,7 @@ import {
   isBackendGenerationCompatible,
   readBackendHealth,
 } from "@/lib/backend-client";
-import { isBackendRelayEnabled, webOwnsRuntime } from "@/lib/backend-relay";
+import { webOwnsRuntime } from "@/lib/backend-relay";
 import { cutoverPreflight } from "@backend-core/cutover-plan.mjs";
 import { isWebUiRequestAuthorized, webUiAuthRequired } from "@/lib/webui-auth";
 
@@ -36,7 +36,8 @@ export async function GET(req: Request) {
       ? { ok: true, ready: health.body.ready === true, runtimeGeneration: health.body.runtimeGeneration ?? null }
       : { ok: false },
     expectedGeneration: expected,
-    relayEnabled: isBackendRelayEnabled(),
+    // The relay is the ownership itself now: a client always reads the owner's view.
+    relayEnabled: !webOwnsRuntime(),
     webOwnsRuntime: webOwnsRuntime(),
   });
   return NextResponse.json({

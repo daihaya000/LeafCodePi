@@ -32,20 +32,6 @@ describe("/api/bots", () => {
     expect((await listed.json()).bots).toEqual([]);
   });
 
-  it("reports a relay miss instead of the local Bot list once this process no longer owns the runtime", async () => {
-    // The Backend owns the store after the cutover, so the local copy must not hide its failure.
-    // The host flag is cleared too: a test process may inherit it when it runs inside the Backend.
-    vi.stubEnv("LEAFCODE_PI_BACKEND_OWNS_RUNTIME", "1");
-    vi.stubEnv("LEAFCODE_PI_BACKEND_RUNTIME", "");
-    try {
-      const response = await GET();
-      expect(response.status).toBe(503);
-      await expect(response.json()).resolves.toEqual({ error: "BackendのBot一覧を取得できません" });
-    } finally {
-      vi.unstubAllEnvs();
-    }
-  });
-
   it("counts only working Code sessions", async () => {
     const response = await POST(new NextRequest("http://localhost/api/bots", { method: "POST", body: JSON.stringify({ name: "Working bot" }) }));
     const bot = (await response.json()).bot;
@@ -67,26 +53,45 @@ describe("/api/bots", () => {
 describe("/api/bots relay", () => {
   let root = "";
   beforeEach(() => { root = mkdtempSync(join(tmpdir(), "leafcode-api-bots-relay-")); botApiTestState.root = root; });
-  afterEach(() => { rmSync(root, { recursive: true, force: true }); botApiTestState.root = ""; delete process.env.LEAFCODE_PI_BACKEND_RELAY; });
-  const relayEnv = { LEAFCODE_PI_BACKEND_RELAY: "1" };
-  it("serves the Backend Bot view while the relay is on", async () => {
-    process.env.LEAFCODE_PI_BACKEND_RELAY = relayEnv.LEAFCODE_PI_BACKEND_RELAY;
+  afterEach(() => {
+    rmSync(root, { recursive: true, force: true });
+    botApiTestState.root = "";
+    delete process.env.LEAFCODE_PI_BACKEND_OWNS_RUNTIME;
+    delete process.env.LEAFCODE_PI_BACKEND_RUNTIME;
+  });
+  /** A WebUI that handed the runtime over: not an owner, and not the runtime host either. */
+  const clientEnv = () => {
+    process.env.LEAFCODE_PI_BACKEND_OWNS_RUNTIME = "1";
+    delete process.env.LEAFCODE_PI_BACKEND_RUNTIME;
+  };
+  it("serves the Backend Bot view while this process is a client", async () => {
+    clientEnv();
     const { readBackendBots, readBackendTasks } = await import("../../../lib/backend-client");
     vi.mocked(readBackendBots).mockResolvedValue({ ok: true, status: 200, body: { bots: [{ id: "bot-remote", name: "Backend bot" }] } } as never);
     vi.mocked(readBackendTasks).mockResolvedValue({ ok: true, status: 200, body: { tasks: [{ id: "t1", status: "working", botId: "bot-remote" }] } } as never);
     const listed = await GET();
     expect(await listed.json()).toEqual({ bots: [{ id: "bot-remote", name: "Backend bot", codeSessionCount: 1 }] });
   });
-  it("falls back to the in-process list when the Backend cannot answer", async () => {
-    process.env.LEAFCODE_PI_BACKEND_RELAY = relayEnv.LEAFCODE_PI_BACKEND_RELAY;
+  it("reports a failing Backend instead of the local list for a client", async () => {
+    clientEnv();
     const response = await POST(new NextRequest("http://localhost/api/bots", { method: "POST", body: JSON.stringify({ name: "Local bot" }) }));
-    const bot = (await response.json()).bot;
+    expect(response.status).toBe(201);
     const { readBackendBots, readBackendTasks } = await import("../../../lib/backend-client");
     vi.mocked(readBackendBots).mockResolvedValue({ ok: false, reason: "unreachable" } as never);
     vi.mocked(readBackendTasks).mockResolvedValue({ ok: true, status: 200, body: { tasks: [] } } as never);
     const listed = await GET();
+    expect(listed.status).toBe(503);
+    await expect(listed.json()).resolves.toEqual({ error: "BackendのBot一覧を取得できません" });
+  });
+  it("keeps the in-process list while this process owns the runtime", async () => {
+    const response = await POST(new NextRequest("http://localhost/api/bots", { method: "POST", body: JSON.stringify({ name: "Local bot" }) }));
+    const bot = (await response.json()).bot;
+    const { readBackendBots } = await import("../../../lib/backend-client");
+    vi.mocked(readBackendBots).mockClear();
+    const listed = await GET();
     const bots = (await listed.json()).bots;
     expect(bots.map((item: { id: string }) => item.id)).toEqual([bot.id]);
     expect(bots[0].codeSessionCount).toBe(0);
+    expect(vi.mocked(readBackendBots)).not.toHaveBeenCalled();
   });
 });
