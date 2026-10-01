@@ -124,6 +124,9 @@ export async function POST(
           { status: 409 },
         );
       }
+      if (forwarded.reason === "bad-response" && forwarded.status && forwarded.status >= 400 && forwarded.status < 500) {
+        return NextResponse.json({ error: "Backendで送信を実行できません", code: "BACKEND_REQUEST_REJECTED" }, { status: forwarded.status });
+      }
       return NextResponse.json(
         { error: "Backendへ転送できません", code: "BACKEND_FORWARD_FAILED", reason: forwarded.reason },
         { status: 502 },

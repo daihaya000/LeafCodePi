@@ -109,6 +109,17 @@ describe("POST /api/tasks/[id]/prompt", () => {
     expect(vi.mocked(forwardTaskPrompt).mock.calls[0][0]).toBe("task-1");
   });
 
+  it("preserves domain rejection statuses rather than turning them into transport errors", async () => {
+    vi.mocked(localRuntimeBlocked).mockReturnValue(true);
+    for (const status of [400, 404, 409, 413, 422, 429]) {
+      vi.mocked(forwardTaskPrompt).mockResolvedValue({ ok: false, reason: "bad-response", status });
+      const response = await POST(request({ prompt: "test" }), { params: Promise.resolve({ id: "task-1" }) });
+      expect(response.status).toBe(status);
+      expect(await response.json()).toMatchObject({ code: "BACKEND_REQUEST_REJECTED" });
+    }
+    expect(mocks.promptTask).not.toHaveBeenCalled();
+  });
+
   it("never falls back locally when the Backend cannot take the prompt", async () => {
     vi.mocked(localRuntimeBlocked).mockReturnValue(true);
     vi.mocked(needsLocalResolution).mockReturnValue(false);

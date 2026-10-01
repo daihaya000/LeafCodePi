@@ -125,7 +125,9 @@ async function backendRequest<T>(
     if (response.status === 409) {
       try {
         const body = await response.json();
-        if (body?.code === BACKEND_ERROR_CODES.badRequest) return { ok: false, reason: "bad-response", status: 409 };
+        if (body?.code === BACKEND_ERROR_CODES.badRequest || body?.code === BACKEND_ERROR_CODES.internal) {
+          return { ok: false, reason: "bad-response", status: 409 };
+        }
       } catch (error) {
         if (controller.signal.aborted) throw error;
         // An unrecognized conflict remains a protocol refusal, as with older Backends.

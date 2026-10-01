@@ -39,7 +39,7 @@ describe("backendClientStatus", () => {
 
 describe("fetchBackendJson", () => {
   it("distinguishes an input conflict from a protocol refusal", async () => {
-    for (const [code, reason] of [["BACKEND_BAD_REQUEST", "bad-response"], ["BACKEND_PROTOCOL_MISMATCH", "incompatible"]]) {
+    for (const [code, reason] of [["BACKEND_BAD_REQUEST", "bad-response"], ["BACKEND_INTERNAL_ERROR", "bad-response"], ["BACKEND_PROTOCOL_MISMATCH", "incompatible"]]) {
       const fetchImpl = vi.fn(async () => jsonResponse(409, { code }));
       await expect(fetchBackendJson("/internal/tasks/task-1/detail?messages=page", { env, fetchImpl })).resolves.toEqual({
         ok: false, reason, status: 409,
