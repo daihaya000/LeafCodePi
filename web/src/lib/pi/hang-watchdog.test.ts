@@ -14,6 +14,7 @@ import {
   registerHangWatchdogHooks,
   resolveHangNow,
   runHangWatchdogTick,
+  shouldRunHangWatchdog,
   stopHangWatchdogForTests,
   SUBAGENT_ACTIVE_GRACE_MS,
   turnHasOnlyActiveSubagentTool,
@@ -151,6 +152,14 @@ function streamingToolTurn(startedAt: number, output: string): UiMessage[] {
 }
 
 describe("hang-watchdog helpers", () => {
+  it("only the runtime owner judges session liveness", () => {
+    // The cutover switch: a client WebUI must not evaluate rows for sessions the Backend hosts.
+    expect(shouldRunHangWatchdog({})).toBe(true);
+    expect(shouldRunHangWatchdog({ LEAFCODE_PI_BACKEND_OWNS_RUNTIME: "1" })).toBe(false);
+    // The Backend itself is never blocked, even when it is asked to own the runtime.
+    expect(shouldRunHangWatchdog({ LEAFCODE_PI_BACKEND_OWNS_RUNTIME: "1", LEAFCODE_PI_BACKEND_RUNTIME: "attach" })).toBe(true);
+  });
+
   it("estimates prompt and image payload size", () => {
     expect(
       estimateWatchBodyBytes({

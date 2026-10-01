@@ -19,6 +19,7 @@ import {
   readHangTimeoutSettingMs,
 } from "@/lib/pi/hang-settings";
 import type { PromptImage } from "@/lib/pi/harness";
+import { localRuntimeBlocked } from "@/lib/pi/runtime-ownership";
 import { hasActiveTaskLease, ownsTaskLease } from "@/lib/task-runtime-lease";
 import type { PromptFileInput } from "@/lib/prompt-images";
 import type { UiMessage } from "@/lib/types";
@@ -727,8 +728,18 @@ export async function runHangWatchdogTick(): Promise<void> {
   }
 }
 
+/**
+ * Whether this process runs the watchdog. Only the runtime owner may judge a session's liveness:
+ * after the cutover the Backend hosts the sessions and runs this watchdog for them, and a client
+ * that evaluated the same rows would see every session as missing and stop tasks it does not own.
+ */
+export function shouldRunHangWatchdog(env: Record<string, string | undefined> = process.env): boolean {
+  return !localRuntimeBlocked(env);
+}
+
 export function startHangWatchdog(): void {
   if (watchdogStarted) return;
+  if (!shouldRunHangWatchdog()) return;
   watchdogStarted = true;
   recoverInterruptedHangWatches();
   watchdogTimer = setInterval(() => {
