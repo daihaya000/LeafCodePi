@@ -29,6 +29,7 @@ import {
   ensureExtensionDependencies,
   handOffToServedWebUi,
   hostControlUrl,
+  nextBuildArgs,
   previousBuildDir,
   productionWebUiIsIdle,
   readBuildCommitMetadata,
@@ -655,6 +656,14 @@ test("webUiPort falls back to 3010 for absent or invalid values", () => {
   assert.equal(webUiPort({}), 3010);
   assert.equal(webUiPort({ LEAFCODE_PI_PORT: "nope" }), 3010);
   assert.equal(webUiPort({ LEAFCODE_PI_PORT: "70000" }), 3010);
+});
+
+test("production builds use webpack for the Pi SDK's WASM unless Turbopack is explicitly requested", () => {
+  const nextBin = join("C:/build workspace", "node_modules", "next", "dist", "bin", "next");
+  for (const env of [{}, { LEAFCODE_PI_USE_WEBPACK: "1" }, { LEAFCODE_PI_USE_WEBPACK: "" }, { LEAFCODE_PI_USE_WEBPACK: "invalid" }]) {
+    assert.deepEqual(nextBuildArgs(nextBin, env), [nextBin, "build", "--webpack"]);
+  }
+  assert.deepEqual(nextBuildArgs(nextBin, { LEAFCODE_PI_USE_WEBPACK: "0" }), [nextBin, "build"]);
 });
 
 test("typecheckInvocation gates the build with the mirror's production tsconfig", () => {

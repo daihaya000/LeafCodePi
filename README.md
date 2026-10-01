@@ -381,6 +381,7 @@ Goal Loop は WebUI プロセス内で動くため、再起動するとセッシ
 production build は既存のミラー先を常設ビルド領域として直接使用します。Windows は **`%LOCALAPPDATA%\leafcode-pi\build\<checkout>-<hash>\`**、Linux/macOS は **`$XDG_CACHE_HOME/leafcode-pi/build/<checkout>-<hash>/`**（未設定時は `~/.cache/leafcode-pi/build/...`）で、`next start` も同じ場所から配信します。場所は従来どおり `LEAFCODE_PI_BUILD_DIR` で変更できます。
 
 - `npm run build` と `npm --prefix web run build` は同じ入口を使います。稼働中の production WebUI を保護するため、手動ビルド前にトレイから終了してください。
+- 本番ビルドは既定で Webpack を使います。Next.js 16.3.1 の Turbopack は Pi SDK 0.99.2 が参照する QuickJS WASM のファイル追跡で `NftJsonAsset ... [turbopack-wasm]/node/loadWasm.ts` を出して失敗するためです。`LEAFCODE_PI_USE_WEBPACK=0` は Turbopack の修正確認・切り分け時だけ指定してください。
 - Next 16 はプロジェクト外の `distDir` を許可しないため、ソースの差分コピーだけを残します。OneDrive側の `node_modules` はビルド時に走査・同期・ハードリンクしません。
 - 依存関係は初回または `package.json` / `package-lock.json` / Node.js環境の変更時に、ビルド領域で `npm ci --include=dev` します。旧ミラーも次回ビルドで移行するため、初回は依存インストールの時間・空き容量・ネットワーク接続が必要です。インストール失敗時は以前の依存関係を復元します。
 - npm 12用に `web/package.json` の `allowScripts` で `better-sqlite3@12.9.0` のみを許可しています。依存インストール後はSQLiteの起動も検証します。SQLiteのバージョン更新時はこの許可も見直してください。
@@ -464,7 +465,7 @@ npm run check
 | `LEAFCODE_PI_EXTENSIONS_DIR` | 組み込み拡張のディレクトリ（host が自動設定） |
 | `LEAFCODE_PI_SKILLS_DIR` | 組み込みスキルのディレクトリ（host が自動設定、既定はリポジトリの `skills/`） |
 | `XDG_CACHE_HOME` | Linux/macOS の production build ミラー基底ディレクトリ |
-| `LEAFCODE_PI_USE_WEBPACK` | `1` で `next build` を Turbopack でなく webpack で行う（切り分け用） |
+| `LEAFCODE_PI_USE_WEBPACK` | 未設定・`1` は本番ビルドに Webpack を使用。`0` のときだけ Turbopack を使用（切り分け用、Pi SDK の WASM 追跡に既知の問題あり） |
 | `LEAFCODE_PI_HEADLESS` | `1` でトレイなし（`--headless` と同じ。`LEAFCODE_PI_TRAY=1` より優先） |
 | `LEAFCODE_PI_TRAY` | 未設定はデスクトップでトレイ ON、Linux で `DISPLAY`/`WAYLAND_DISPLAY` 無しなら OFF。`0` で明示オフ、`1` でディスプレイ無しでも強制 ON |
 | `LEAFCODE_PI_NO_BROWSER` | `1` で起動時にブラウザを開かない |

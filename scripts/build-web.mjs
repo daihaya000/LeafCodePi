@@ -437,6 +437,11 @@ export function typecheckInvocation(mirrorRoot, deps = {}) {
   };
 }
 
+/** Turbopack 16.3.1 cannot trace the Pi SDK's QuickJS WASM; use webpack unless explicitly diagnosing it. */
+export function nextBuildArgs(nextBin, env = process.env) {
+  return [nextBin, "build", ...(env.LEAFCODE_PI_USE_WEBPACK === "0" ? [] : ["--webpack"])];
+}
+
 export async function main(argv = process.argv.slice(2)) {
   const port = webUiPort();
   if (!argv.includes("--skip-guard") && !productionWebUiIsIdle({ port })) {
@@ -459,11 +464,8 @@ export async function main(argv = process.argv.slice(2)) {
     return 1;
   }
 
-  // A failed/cancelled Turbopack build can leave an incremental cache that
-  // immediately panics on the next attempt. Retry once from a clean generated
-  // directory. Webpack remains available as an explicit diagnostic fallback.
-  const useWebpack = process.env.LEAFCODE_PI_USE_WEBPACK === "1";
-  const nextArgs = [nextBin, "build", ...(useWebpack ? ["--webpack"] : [])];
+  const nextArgs = nextBuildArgs(nextBin);
+  const useWebpack = nextArgs.includes("--webpack");
   const buildMetadata = readBuildCommitMetadata();
   const buildOptions = {
     cwd: mirror.mirrorRoot,
@@ -493,6 +495,7 @@ export async function main(argv = process.argv.slice(2)) {
     : null;
   let status = await spawnPiped(process.execPath, nextArgs, buildOptions);
   if (status !== 0 && !useWebpack) {
+    // An explicitly requested Turbopack build may fail because of a stale cache.
     console.error("[build-web] Turbopack failed; clearing generated output and retrying once...");
     rmSync(mirror.distDir, { recursive: true, force: true });
     status = await spawnPiped(process.execPath, nextArgs, buildOptions);
