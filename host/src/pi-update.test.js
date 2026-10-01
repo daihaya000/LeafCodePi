@@ -83,6 +83,65 @@ test("autoUpdatePiInBackground updates without blocking startup", () => {
   }
 });
 
+test("autoUpdatePiInBackground aligns a Backend SDK that is behind the WebUI install", () => {
+  const webDir = makeWebDir("0.99.2");
+  const backendDir = makeWebDir("0.87.1");
+  const calls = [];
+  const logs = [];
+  const handlers = [];
+  try {
+    autoUpdatePiInBackground({
+      webDir,
+      backendDir,
+      env: {},
+      platform: "win32",
+      spawn: (command, args, options) => {
+        calls.push({ command, args, options });
+        const own = {};
+        handlers.push(own);
+        return { once: (event, handler) => { own[event] = handler; }, unref: () => {} };
+      },
+      log: (message) => logs.push(message),
+    });
+    handlers[0].close(0);
+    assert.equal(calls.length, 2);
+    assert.deepEqual(calls[1].args, ["install", `${PI_PACKAGE_NAME}@0.99.2`, "--save-exact", "--no-audit", "--no-fund"]);
+    assert.equal(calls[1].options.cwd, backendDir);
+    handlers[1].close(0);
+    assert.match(logs.at(-1), /Backend Pi SDK aligned from v0\.87\.1 to v0\.99\.2/);
+  } finally {
+    rmSync(webDir, { recursive: true, force: true });
+    rmSync(backendDir, { recursive: true, force: true });
+  }
+});
+
+test("autoUpdatePiInBackground leaves a matching or newer Backend SDK alone", () => {
+  for (const [web, backend] of [["0.99.2", "0.99.2"], ["0.87.1", "0.99.2"], ["0.99.10", "0.99.9"]]) {
+    const webDir = makeWebDir(web);
+    const backendDir = makeWebDir(backend);
+    const calls = [];
+    const handlers = {};
+    try {
+      autoUpdatePiInBackground({
+        webDir,
+        backendDir,
+        env: {},
+        platform: "win32",
+        spawn: (command, args) => {
+          calls.push(args[0]);
+          return { once: (event, handler) => { handlers[event] = handler; }, unref: () => {} };
+        },
+      });
+      handlers.close(0);
+      // Only a strictly newer WebUI SDK triggers an install: 0.99.10 beats 0.99.9 numerically.
+      assert.deepEqual(calls, web === "0.99.10" ? ["update", "install"] : ["update"], `${web} vs ${backend}`);
+    } finally {
+      rmSync(webDir, { recursive: true, force: true });
+      rmSync(backendDir, { recursive: true, force: true });
+    }
+  }
+});
+
 test("autoUpdatePiInBackground respects the opt-out flag", () => {
   const webDir = makeWebDir("0.84.4");
   try {

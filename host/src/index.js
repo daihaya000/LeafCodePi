@@ -1225,7 +1225,7 @@ async function main() {
 
   const ready = await waitUntilReady(`${WEBUI_URL}/api/health`, "LeafCodePi", 120, () => webProc);
   // `npm update` のネットワーク待ちで起動を止めない。UI 応答後に裏で更新する。
-  autoUpdatePiInBackground({ webDir: WEB_DIR, log, error });
+  autoUpdatePiInBackground({ webDir: WEB_DIR, backendDir: join(REPO_ROOT, "backend"), log, error });
   if (ready && shouldOpenBrowser()) openBrowser(WEBUI_URL);
 }
 

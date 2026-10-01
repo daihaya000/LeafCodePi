@@ -9,6 +9,57 @@ function packageJsonPath(webDir) {
   return join(webDir, "node_modules", ...PI_PACKAGE_NAME.split("/"), "package.json");
 }
 
+function versionParts(version) {
+  return String(version).split(/[.-]/).map((part) => Number.parseInt(part, 10) || 0);
+}
+
+/** True when `a` is a strictly newer dotted version than `b`. */
+function isNewerVersion(a, b) {
+  const left = versionParts(a);
+  const right = versionParts(b);
+  for (let index = 0; index < Math.max(left.length, right.length); index += 1) {
+    const delta = (left[index] ?? 0) - (right[index] ?? 0);
+    if (delta !== 0) return delta > 0;
+  }
+  return false;
+}
+
+/**
+ * The Backend runs the sessions and the WebUI shares its typed modules, so the two installs must
+ * carry the same SDK. `npm update` only ever touches the WebUI install, which left a newer WebUI SDK
+ * beside an older Backend one (two incompatible declarations; every WebUI rebuild then fails its
+ * typecheck gate). The Backend follows the WebUI install; it runs the new SDK after its next restart.
+ */
+function alignBackendSdk({ webDir, backendDir, npm, platform, spawn, log, error }) {
+  const web = installedPiVersion(webDir);
+  const backend = installedPiVersion(backendDir);
+  if (!web || !backend || !isNewerVersion(web, backend)) return false;
+  let child;
+  try {
+    child = spawn(npm, ["install", `${PI_PACKAGE_NAME}@${web}`, "--save-exact", "--no-audit", "--no-fund"], {
+      cwd: backendDir,
+      shell: platform === "win32",
+      windowsHide: true,
+      stdio: "ignore",
+    });
+  } catch (err) {
+    error(`Backend Pi SDK alignment failed (${err instanceof Error ? err.message : String(err)})`);
+    return false;
+  }
+  child.once("error", (err) => {
+    error(`Backend Pi SDK alignment failed (${err instanceof Error ? err.message : String(err)})`);
+  });
+  child.once("close", (code) => {
+    if (code !== 0) {
+      error(`Backend Pi SDK alignment failed (npm exited ${code ?? "unknown"}); the Backend stays on v${backend}`);
+      return;
+    }
+    log(`Backend Pi SDK aligned from v${backend} to v${web}; restart the Backend to run it`);
+  });
+  child.unref?.();
+  return true;
+}
+
 function writeCapturedOutput(result) {
   if (result?.stdout) process.stdout.write(result.stdout);
   if (result?.stderr) process.stderr.write(result.stderr);
@@ -90,6 +141,7 @@ export function autoUpdatePi({
  */
 export function autoUpdatePiInBackground({
   webDir,
+  backendDir,
   env = process.env,
   platform = process.platform,
   spawn = defaultSpawn,
@@ -117,9 +169,13 @@ export function autoUpdatePiInBackground({
   child.once("error", (err) => {
     error(`Pi auto-update failed; continuing with the installed version (${err instanceof Error ? err.message : String(err)})`);
   });
+  const align = () => {
+    if (backendDir) alignBackendSdk({ webDir, backendDir, npm, platform, spawn, log, error });
+  };
   child.once("close", (code) => {
     if (code !== 0) {
       error(`Pi auto-update failed; continuing with the installed version (npm exited ${code ?? "unknown"})`);
+      align();
       return;
     }
     const after = installedPiVersion(webDir);
@@ -130,6 +186,7 @@ export function autoUpdatePiInBackground({
     } else {
       log("Pi auto-update completed");
     }
+    align();
   });
   child.unref?.();
   return { attempted: true, skipped: false };
