@@ -55,6 +55,7 @@ export const REQUIRED_RUNTIME_EXPORTS = Object.freeze([
   "runRoutine",
   "reconcileRoomRuntime",
   "revertTask",
+  "forkTask",
   "unrevertTask",
   "archiveTask",
   "reloadLiveSessionsContext",

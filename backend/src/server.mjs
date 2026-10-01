@@ -553,15 +553,16 @@ export function createBackendServer({
           }
           sendJson(response, 200, { task });
         } else if (actionSuffix === BACKEND_TASK_ADMIN_SUFFIX) {
-          const { action, destinationPath, botId } = body.value ?? {};
+          const { action, destinationPath, botId, entryId } = body.value ?? {};
           const valid = (action === "promote" && typeof destinationPath === "string" && destinationPath.trim())
             || (action === "handoff" && typeof botId === "string" && botId.trim())
+            || (action === "fork" && typeof entryId === "string" && entryId.trim())
             || action === "release";
           if (!valid) {
             sendJson(response, 400, { error: "Invalid task admin request", code: BACKEND_ERROR_CODES.badRequest });
             return;
           }
-          sendJson(response, 200, { result: await handler(actionPath, { action, destinationPath, botId }) });
+          sendJson(response, 200, { result: await handler(actionPath, { action, destinationPath, botId, ...(action === "fork" ? { entryId: entryId.trim() } : {}) }) });
         } else if (actionSuffix === BACKEND_TASK_TEARDOWN_SUFFIX) {
           const mode = body.value?.mode;
           if (mode !== "archive" && mode !== "destroy") {

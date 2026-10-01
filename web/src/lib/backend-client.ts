@@ -346,7 +346,7 @@ export function reloadLiveSessionsOnBackend(
 /** Moves a task or hands it to / back from a Bot in the owning Backend, which holds the session. */
 export function taskAdminOnBackend(
   id: string,
-  request: { action: "promote"; destinationPath: string } | { action: "handoff"; botId: string } | { action: "release" },
+  request: { action: "promote"; destinationPath: string } | { action: "fork"; entryId: string } | { action: "handoff"; botId: string } | { action: "release" },
   options: { env?: BackendEnv; fetchImpl?: typeof fetch; timeoutMs?: number } = {},
 ): Promise<BackendResult<{ result: { status: number; body: unknown } }>> {
   return postBackendJson(`${BACKEND_TASKS_PATH}/${encodeURIComponent(id)}${BACKEND_TASK_ADMIN_SUFFIX}`, request, options);

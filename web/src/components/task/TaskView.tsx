@@ -42,6 +42,7 @@ import { NextAction } from "@/components/task/NextAction";
 import { TaskProgressAsk } from "@/components/task/TaskProgressAsk";
 import { GraphPanel } from "@/components/task/GraphPanel";
 import { ProjectExplorerButton } from "@/components/task/ProjectExplorerButton";
+import { useForkDraft } from "@/components/task/use-fork-draft";
 import { ProjectFilePicker } from "@/components/ProjectFilePicker";
 import { SessionLabelBadge } from "@/components/SessionLabelBadge";
 import { TodoProgressPanel } from "@/components/task/TodoProgressPanel";
@@ -1803,6 +1804,8 @@ export const TaskView = memo(function TaskView({
     stickRef.current = true;
     lastScrollTopRef.current = 0;
   }, [cachedSession, taskId]);
+
+  useForkDraft(taskId, setPrompt, setAttachments);
 
   useLayoutEffect(() => {
     scheduleScrollToBottom();

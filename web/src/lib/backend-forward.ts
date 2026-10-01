@@ -409,7 +409,7 @@ export async function forwardLiveSessionsReload(
  */
 export async function forwardTaskAdmin(
   id: string,
-  request: { action: "promote"; destinationPath: string } | { action: "handoff"; botId: string } | { action: "release" },
+  request: { action: "promote"; destinationPath: string } | { action: "fork"; entryId: string } | { action: "handoff"; botId: string } | { action: "release" },
   options: { env?: BackendEnv; fetchImpl?: typeof fetch; timeoutMs?: number } = {},
 ): Promise<
   | { ok: true; status: number; body: unknown }

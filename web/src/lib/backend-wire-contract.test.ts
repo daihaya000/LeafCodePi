@@ -59,6 +59,22 @@ describe("forwarding helpers against the real Backend router", () => {
     expect(seen).toEqual([["task 1", "archive"], ["task-1", "destroy"], ["gone", "destroy"]]);
   });
 
+  it("task fork carries the selected entry and replays the owner answer without losing the draft", async () => {
+    const seen: unknown[] = [];
+    const result = { task: { id: "forked" }, text: "分岐する入力", images: [], files: [] };
+    const { env } = await start({
+      taskAdminAction: async (id: string, request: Record<string, unknown>) => {
+        seen.push({ id, ...request });
+        return request.entryId === "busy" ? { status: 409, body: { error: "処理中" } } : { status: 200, body: result };
+      },
+    });
+    await expect(forwardTaskAdmin("task 1", { action: "fork", entryId: " entry-1 " }, { env })).resolves.toEqual({ ok: true, status: 200, body: result });
+    expect(seen[0]).toMatchObject({ id: "task 1", action: "fork", entryId: "entry-1" });
+    await expect(forwardTaskAdmin("task 1", { action: "fork", entryId: "busy" }, { env })).resolves.toEqual({ ok: true, status: 409, body: { error: "処理中" } });
+    await expect(forwardTaskAdmin("task 1", { action: "fork", entryId: " " }, { env })).resolves.toMatchObject({ ok: false, status: 400 });
+    expect(seen).toHaveLength(2);
+  });
+
   it("task admin: promote, hand-off and release keep the owner's status and body", async () => {
     const seen: Array<Record<string, unknown>> = [];
     const { env } = await start({

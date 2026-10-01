@@ -78,3 +78,4 @@ export { isGoalLoopSessionOwned, readGoalLoopState } from "@/lib/pi/goal-loop-st
 export { startGoalLoopWithSelection } from "@/lib/pi/goal-loop-start";
 export { startBotGoalLoop } from "@/lib/pi/bot-goal-loop-start";
 export { handleTaskPrompt } from "@/lib/pi/task-prompt";
+export { forkTask } from "@/lib/pi/task-fork";
