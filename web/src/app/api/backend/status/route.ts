@@ -6,7 +6,6 @@ import {
   readBackendHealth,
 } from "@/lib/backend-client";
 import { webOwnsRuntime } from "@/lib/backend-relay";
-import { cutoverPreflight } from "@backend-core/cutover-plan.mjs";
 import { isWebUiRequestAuthorized, webUiAuthRequired } from "@/lib/webui-auth";
 
 export const runtime = "nodejs";
@@ -28,22 +27,12 @@ export async function GET(req: Request) {
   const health = await readBackendHealth();
   // The generation check is a diagnostic here; the relay refuses to use a mismatched Backend.
   const expected = expectedBackendGeneration();
-  // Whether this WebUI may stop owning the runtime: the Host reads the same decision before it
-  // flips the switches, and this route only reports it.
-  const preflight = cutoverPreflight({
-    backendConfigured: true,
-    health: health.ok
-      ? { ok: true, ready: health.body.ready === true, runtimeGeneration: health.body.runtimeGeneration ?? null }
-      : { ok: false },
-    expectedGeneration: expected,
-    // The relay is the ownership itself now: a client always reads the owner's view.
-    relayEnabled: !webOwnsRuntime(),
-    webOwnsRuntime: webOwnsRuntime(),
-  });
   return NextResponse.json({
     configured: true,
     url: status.url,
-    cutover: { ok: preflight.ok, blockers: preflight.blockers.map((blocker) => blocker.code) },
+    // This WebUI is always the Backend's client: it never owns the runtime, so there is no hand-over
+    // left to report. The ownership is still exposed for diagnostics.
+    ownsRuntime: webOwnsRuntime(),
     backend: health.ok
       ? {
           reachable: true,

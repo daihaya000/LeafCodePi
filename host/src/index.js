@@ -19,9 +19,6 @@ import { buildHostRestartScript } from "./host-restart.js";
 import { DEFAULT_BACKEND_PORT } from "../../shared/backend-protocol.mjs";
 import { createBackendService, shouldRunBackend } from "./backend-service.js";
 import { readBackendHealth, waitForBackendReady } from "./backend-health.js";
-import { createCutoverEffects, createCutoverVerify } from "./cutover-effects.js";
-import { createCutoverPreflight, readActiveGoalLoopCount } from "./cutover-preflight.js";
-import { runCutover } from "./cutover.js";
 import { autoUpdatePiInBackground } from "./pi-update.js";
 import { pullLatestSources } from "./git-pull.js";
 import { createTranslationService } from "./translation-service.js";
@@ -171,7 +168,7 @@ let trayCopyDir = true;
 let restarting = false;
 /**
  * The Host's independent Backend process, or null when the operator did not ask for one. It stays
- * detached (no SDK runtime) until the cutover hands the runtime over: two owners would double-write
+ * always attached: it owns the Pi runtime, and two owners would double-write
  * the store, leases and sessions.
  */
 // Production runs the Backend by default: it owns the Pi runtime, so the WebUI is always its client.
@@ -467,35 +464,21 @@ function buildWeb(reason = "missing", { pull = true } = {}) {
   return promise;
 }
 
-/** Unknown Goal Loop state refuses the cutover; it must not be guessed as idle. */
-async function countActiveGoalLoops() {
-  return readActiveGoalLoopCount({
-    baseUrl: WEBUI_URL,
-    token: WEBUI_AUTH.authRequired ? WEBUI_AUTH.token : undefined,
-  });
-}
-
-/** Whether the operator asked for the exclusive cutover at startup. */
-function isCutoverRequested(env = {}) {
-  return new Set(["1", "true", "yes"]).has((env.LEAFCODE_PI_CUTOVER ?? "").trim().toLowerCase());
-}
-
 /**
- * The ownership the WebUI is running with. A restart must preserve it: after the cutover the Backend
- * owns the Pi runtime, and a WebUI restarted as an owner would be a second owner writing the same
- * store, leases and sessions. Every spawn records what it started, and the cutover updates it when
- * it hands the runtime over (or rolls back).
+ * Whether the WebUI was started as the Backend's client. It is always true in this build (the Backend
+ * owns the runtime), and it is what `restartWeb` reads before deciding that a restart must wait for
+ * the Backend.
  */
-let webOwnership = { ownership: "in-process" };
+let webOwnership = { ownership: "backend" };
 
 /** How long a restarted Host waits for the Backend it is bringing back before serving the WebUI. */
 export const BACKEND_START_READY_TIMEOUT_MS = 20_000;
 
-async function spawnWeb({ pull = true, ownership = webOwnership.ownership } = {}) {
+async function spawnWeb({ pull = true, ownership = "backend" } = {}) {
   webOwnership = { ownership };
   // A client WebUI needs its owner first: bring the Backend back attached and give the runtime a
   // bounded moment to attach, so the restarted WebUI does not serve failures while it catches up.
-  if (ownership === "backend" && backendService) {
+  if (backendService) {
     try {
       backendService.start({ attachRuntime: true });
       const clientEnv = backendService.clientEnv();
@@ -612,9 +595,8 @@ async function spawnWeb({ pull = true, ownership = webOwnership.ownership } = {}
       // Bundled WebUI extensions and skills live in the repo (prod runs from the web/ mirror).
       LEAFCODE_PI_EXTENSIONS_DIR: join(REPO_ROOT, "extensions"),
       LEAFCODE_PI_SKILLS_DIR: join(REPO_ROOT, "skills"),
-      // Who owns the Pi runtime. The Host always starts a client in production; the owner value only
-      // remains for the rollback path of a cutover, which restores the pre-cutover architecture.
-      LEAFCODE_PI_BACKEND_OWNS_RUNTIME: ownership === "backend" ? "1" : "in-process",
+      // Who owns the Pi runtime: the Backend, always. The WebUI is its client from the first launch.
+      LEAFCODE_PI_BACKEND_OWNS_RUNTIME: "1",
       // How the WebUI reaches the Backend, and which runtime generation to expect. Absent when no
       // Backend is configured, so the WebUI keeps its in-process path.
       ...(backendService ? backendService.clientEnv() : {}),
@@ -1157,63 +1139,12 @@ async function main() {
 
   try {
     // The Backend owns the runtime in this build, so the WebUI starts as its client from the first
-    // launch: no hand-over is needed, and the recorded ownership only confirms it after a restart.
-    await spawnWeb({ ownership: "backend" });
+    // launch: there is no hand-over to perform.
+    await spawnWeb();
   } catch (err) {
     removeLock(LOCK_FILE);
     error(err instanceof Error ? err.message : String(err));
     process.exit(1);
-  }
-
-  // The exclusive cutover only runs when an operator asks for it: it stops the WebUI, hands the
-  // runtime to the Backend and brings the WebUI back as a client. Off by default, because two owners
-  // of the SDK must never exist at the same time.
-  if (backendService && isCutoverRequested(process.env)) {
-    const clientEnv = backendService.clientEnv();
-    const baseUrl = clientEnv.LEAFCODE_PI_BACKEND_URL ?? `http://127.0.0.1:${DEFAULT_BACKEND_PORT}`;
-    const readHealth = () =>
-      readBackendHealth({ baseUrl, token: clientEnv.LEAFCODE_PI_BACKEND_TOKEN, expectedGeneration: backendService.status().generation ?? "" });
-    // The hand-over is confirmed from the outside: the WebUI must report a satisfied cutover.
-    const readWebUiCutover = async () => {
-      const response = await fetch(`${WEBUI_URL}/api/backend/status`, {
-        cache: "no-store",
-        signal: AbortSignal.timeout(5000),
-        headers: WEBUI_AUTH.authRequired && WEBUI_AUTH.token ? { authorization: `Bearer ${WEBUI_AUTH.token}` } : {},
-      });
-      if (!response.ok) return null;
-      return response.json();
-    };
-    try {
-      await runCutover({
-        ...createCutoverEffects({
-          stopWeb,
-          spawnWeb,
-          backendService,
-          baseUrl,
-          token: clientEnv.LEAFCODE_PI_BACKEND_TOKEN,
-          expectedGeneration: backendService.status().generation ?? "",
-          backendOwnsRuntime: true,
-          // Only work in flight and foreign owners refuse the hand-over; the attach stage checks
-          // readiness and the generation once the runtime is actually attached.
-          preflight: createCutoverPreflight({
-            dataDir: DATA_DIR,
-            token: clientEnv.LEAFCODE_PI_BACKEND_TOKEN,
-            expectedGeneration: backendService.status().generation ?? "",
-            readHealth,
-            countGoalLoops: countActiveGoalLoops,
-          }),
-        }),
-        verify: createCutoverVerify({
-          readHealth,
-          readWebUiCutover,
-          expectedGeneration: backendService.status().generation ?? "",
-        }),
-        log,
-        error,
-      });
-    } catch (err) {
-      error(`Cutover failed: ${err instanceof Error ? err.message : String(err)}`);
-    }
   }
 
   try {

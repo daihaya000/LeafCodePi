@@ -265,12 +265,12 @@ test("WebUI restart pulls, rebuilds only after an update, then starts without pu
   assert.match(launch, /const skipStaleBuild = consumeSkipStaleRebuild\(process\.env\)/);
 });
 
-test("a WebUI restart keeps the runtime ownership the cutover handed over", () => {
+test("the WebUI is always the Backend's client", () => {
   const index = readFileSync(join(repoRoot, "host", "src", "index.js"), "utf8");
-  // The ownership the WebUI runs with is remembered, so a restart cannot silently become an owner.
-  assert.match(index, /let webOwnership = \{ ownership: "in-process" \}/);
+  // The ownership the WebUI runs with is always the client side, so a restart cannot become an owner.
+  assert.match(index, /let webOwnership = \{ ownership: "backend" \}/);
   const launch = index.slice(index.indexOf("async function spawnWeb("), index.indexOf("function scheduleWebRestart("));
-  assert.match(launch, /ownership = webOwnership\.ownership/);
+  assert.match(launch, /async function spawnWeb\(\{ pull = true, ownership = "backend" \} = \{\}\)/);
   assert.match(launch, /webOwnership = \{ ownership \}/);
   const restart = index.slice(index.indexOf("async function restartWeb("), index.indexOf("async function restartHost("));
   // A client WebUI only comes back when the Backend it depends on is genuinely ready.
@@ -283,13 +283,12 @@ test("production starts Backend-owned without a hand-over", () => {
   const index = readFileSync(join(repoRoot, "host", "src", "index.js"), "utf8");
   // The Backend owns the runtime in the shipped build, so the Host runs one by default.
   assert.match(index, /const backendService = shouldRunBackend\(process\.env\)/);
-  assert.match(index, /await spawnWeb\(\{ ownership: "backend" \}\)/);
+  assert.match(index, /await spawnWeb\(\);/);
   // A restarted Host brings the Backend back attached before the client WebUI is served.
-  assert.match(index, /if \(ownership === "backend" && backendService\)/);
   assert.match(index, /backendService\.start\(\{ attachRuntime: true \}\)/);
   assert.match(index, /waitForBackendReady\(/);
-  // The recorded ownership is gone: the startup decision no longer depends on a previous hand-over.
-  assert.doesNotMatch(index, /writeRuntimeOwner|readRuntimeOwner/);
+  // No hand-over and no recorded ownership remain: the startup decision is unconditional.
+  assert.doesNotMatch(index, /runCutover|writeRuntimeOwner|readRuntimeOwner/);
 });
 
 test("host rebuilds stale production builds like LeafCode", () => {

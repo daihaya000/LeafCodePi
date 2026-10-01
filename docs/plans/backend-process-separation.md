@@ -241,7 +241,7 @@ bundleパスは`LEAFCODE_PI_BACKEND_RUNTIME_BUNDLE`で差し替え可能。CLI�
 | 2. Next非依存のランタイム抽出 | **実装済み**。`backend/core/`＝50モジュール／62テスト（判断・順序・永続化を純関数化し、fs/時計/UUID/emitを注入）。Web側は同名exportの互換入口。 |
 | 3. 独立API・Web中継 | **実装済み**。内部API 12エンドポイント（health／pending-snapshots／tasks一覧・detail・prompt・permission・question・abort・goal-loop／bots一覧・`bots/:id`・code-requests・code-sessions）。中継はopt-in（`LEAFCODE_PI_BACKEND_RELAY`）で、生レコード経路のみBackendを使い失敗時はプロセス内へフォールバック。 |
 | 4. Host・ビルド・再起動分離 | **実装済み**。HostがBackend子プロセス（`backend-service.js`）・起動プラン（`backend-launch.js`）・health/世代判定（`backend-health.js`）・再起動予算と世代固定（`runtime-host.mjs`）を所有。バンドルは`npm run build:backend-runtime`で生成。 |
-| 5. 切替 | **実装済み（実行は承認待ち）**。`runCutover`（check→stop-old-path→attach-backend→hand-over→verify→done＋ロールバック）、`cutoverPreflight`（start/verify位相）、Host実体への接続、`LEAFCODE_PI_CUTOVER=1`での起動時実行。Backendの起動列は全ステップ実行可能（ターン15）で、非所有モードでローカル実行されるowner-only経路は0（ターン24のカバレッジ走査）。**実切替はユーザー承認待ち**。 |
+| 5. 切替 | **完了（切替機構は撤去済み）**。実切替は2026-10-01 09:37に完了（Hostログ`Cutover complete`、`/api/backend/status`の`cutover.ok=true`・`backend.ready=true`・世代一致）。本番は起動時からBackend所有（`shouldRunBackend`）でWebUIは常にクライアントになったため、切替機構（`runCutover`／preflight／verify／所有権マーカー／`LEAFCODE_PI_CUTOVER`／`start-cutover.bat`）は不要になり削除した。 |
 | 6. 旧経路撤去 | **進行中**。実切替済み（2026-10-01、Backend所有）。済: 中継フォールバック廃止・中継スイッチ撤去・注意一覧の転送・所有権の永続化（再起動で維持）・所有権スイッチの両側明示と本番既定=クライアント・**本番は起動時からBackendを常時起動しWebUIは常にクライアント**（切替不要。`shouldRunBackend`）。残りは下の「旧経路撤去の順序」のとおり（推奨はフォールバックの完全撤去。判断待ち）。 |
 
 残作業（実測）: ①実切替の実施（ユーザー承認待ち。実行は`LEAFCODE_PI_CUTOVER=1`でHostが排他的に行い、失敗時はロールバック）と、②その後の旧経路撤去（中継フォールバック廃止→旧経路停止→harness依存除去→スイッチ撤去）、②非所有モードのSSEは2秒ポーリング（遅延あり）、③実切替の実施とその後の撤去手順、④Web全体型検証は既存拡張（`leafcode-goal-loop`／`loop-guard`）の`@earendil-works/pi-coding-agent`解決失敗により本番用`tsconfig.build.json`で代替。Bot Codeセッションのclear/unlink転送とAuto/モデル指定つきGoal Loop開始の転送は完了済み（旧版の残作業①・②は解消）。
@@ -359,17 +359,13 @@ Backend単独のSDK検証前には `npm --prefix backend ci --ignore-scripts` �
 - Web: `cd web && npx vitest run` → 482ファイル・4552件（4547成功・5失敗、76.3s）。失敗の内訳: 既存の3件（`src/app/api/health/route.test.ts`のdataDir、`src/components/MessageCardRadius.test.tsx`、`extensions/leafcode-mcp-adapter/proxy-visibility.test.ts`のロード）＋並列実行時のフレーク3件（`settings/transfer`・`codexbar/orchestrator`・`pi/request-image-cap`。単独再実行で成功）。
 - したがって切替前の前提（起動列完走・所有権カバレッジ・全スイート）は満たしており、残るは**実切替の実施（承認済み・実行は無稼働時）**と、その後の旧経路撤去である。
 
-## 実切替の実行手順（承認済み・2026-10-01）
+## 起動と確認（切替後の運用）
 
-実切替はHostの起動時処理で、`LEAFCODE_PI_BACKEND`（Backend子プロセス）と`LEAFCODE_PI_CUTOVER`（切替要求）の両方が必要なため、起動中のHostへ後から指示できない。また実行するとWebUIを一度停止するので、**稼働中タスクが無い状態で起動しなおす**必要がある（稼働中はpreflightが`active-work`／`foreign-lease`で拒否し、無理に進めてもそのタスクのセッションが終了する）。
+切替は済んでおり、以後は通常起動だけでBackend所有の状態になる。Hostは起動時に「Backendをattachedで起動→ready待ち（最大20秒）→WebUIをクライアントで起動」を行う（`shouldRunBackend`。`LEAFCODE_PI_MODE=dev`または`LEAFCODE_PI_BACKEND=0`のときだけBackendを起動しない）。
 
-1. アプリを終了する（タスクトレイ→Quit。実装中のセッションもここで終わる）。
-2. `scripts\start-cutover.bat`を実行する（中身は`LEAFCODE_PI_BACKEND=1`と`LEAFCODE_PI_CUTOVER=1`を設定して`scripts\start-webui.bat`を呼ぶだけ）。手動なら`set LEAFCODE_PI_BACKEND=1`＋`set LEAFCODE_PI_CUTOVER=1`の後`start.bat`。
-3. Hostは「Backendをdetachedで起動→WebUIを所有モードで起動→cutover（WebUI停止→Backendをattach→ready待ち→WebUIをクライアントとして再起動→verify）」を実行する。失敗時はロールバックして切替前の状態に戻る。
-4. 確認: `%APPDATA%\leafcode-pi\host.log`の`Cutover complete`、WebUIの`/api/backend/status`（`cutover.ok`と`backend.ready`、世代一致）、Backend health（token付き）の`ready:true`と`runtimeGenerationPinned`。
-5. 切替後は旧経路撤去（中継フォールバック廃止→旧経路停止→harness依存除去→スイッチ撤去）へ進む。
-
-実測した現在の状態（切替前）: 稼働中のタスクは1件（本作業の`b77593c7-68f9-4510-8403-1dd7c237fe00`、status working）で、そのleaseを保持しているため、起動中Hostのcutoverは拒否される（`active-work`・`foreign-lease`）。Hostは2026-09-28 19:52起動で、今日04:51にWebUIを再生成している（prodミラー）。本リポジトリのHEADは`72f320ca`でoriginと一致、Backendバンドルは9831KiBを再生成済み。
+- 起動: アプリ（トレイ／`start.bat`）を通常どおり起動する。`LEAFCODE_PI_CUTOVER`は不要（撤去済み）。
+- 確認: `%APPDATA%\leafcode-pi\host.log`にBackend起動とWebUI起動が出る。`/api/backend/status`が`backend.ready=true`・世代一致、`/api/tasks?titles=1`などが200で返れば正常。
+- Backendがreadyにならない場合: WebUIは起動するがセッション系APIは503のまま（設定・閲覧系は動作）。`host.log`と`/api/backend/status`で原因（bundle欠落・世代不一致など）を確認する。
 
 ## 旧経路撤去の順序（実測インベントリ）
 
@@ -388,4 +384,4 @@ Backend単独のSDK検証前には `npm --prefix backend ci --ignore-scripts` �
 3. **owner専用コードの削除**: `createSession`／`ensureLive`とその依存（liveライフサイクル・owner専用のSDK実行時依存）を削除し、`session-creation-surface.test.ts`の期待値を空にする。
 4. **中継の常時化**: `backend-relay.ts`のモジュールを削除し、非所有者の読み取りは常に`backend-forward`経由とする。
 
-進捗: 本番の起動は常に「Backendをattachedで先に起動→ready待ち（最大20秒）→WebUIをクライアントで起動」になった（`shouldRunBackend`、2026-10-01）。ロールバック（`startWebUi({ownsRuntime:true})`）と`LEAFCODE_PI_BACKEND_OWNS_RUNTIME=in-process`だけが旧モードの残存経路で、ここを消すかどうかが推奨判断（推奨=消す: 所有者が常に1つになる。Backend不調時はセッション系APIが503のまま、WebUIは起動して`/api/backend/status`で状態を見られる）。
+進捗（2026-10-01）: 本番の起動は常に「Backendをattachedで先に起動→ready待ち（最大20秒）→WebUIをクライアントで起動」になった（`shouldRunBackend`）。切替機構（`runCutover`／`cutover-effects`／`cutover-preflight`／`backend/core/cutover-plan.mjs`／所有権マーカー／`LEAFCODE_PI_CUTOVER`／`scripts/start-cutover.bat`）とロールバックのowner起動を削除した。残るは `LEAFCODE_PI_BACKEND_OWNS_RUNTIME`スイッチのWebUI側読取（devのみ所有者として使うNODE_ENV規則と並存）と、owner専用コード（`ensureLive`／liveライフサイクル）の削除。
