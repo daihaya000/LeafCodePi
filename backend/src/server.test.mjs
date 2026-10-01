@@ -79,6 +79,28 @@ test("listening alone is not SDK readiness", async (t) => {
   assert.equal(body.status, "starting");
 });
 
+test("creates a task only through the authenticated runtime handler", async (t) => {
+  const calls = [];
+  const { url, headers } = await fixture(t, { createTask: async (input) => {
+    calls.push(input);
+    return { id: "created" };
+  } });
+  const tasksUrl = url.replace(BACKEND_HEALTH_PATH, "/internal/tasks");
+  const input = { projectId: null, prompt: "start" };
+  const unauthorized = await request(tasksUrl, { method: "POST", body: JSON.stringify(input) });
+  assert.equal(unauthorized.status, 401);
+  const invalid = await request(tasksUrl, { method: "POST", headers, body: JSON.stringify({ prompt: "start" }) });
+  assert.equal(invalid.status, 400);
+  const privileged = await request(tasksUrl, { method: "POST", headers,
+    body: JSON.stringify({ ...input, botId: "some-bot", permissionMode: "allow" }) });
+  assert.equal(privileged.status, 400);
+  assert.equal(calls.length, 0);
+  const response = await request(tasksUrl, { method: "POST", headers, body: JSON.stringify(input) });
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), { task: { id: "created" } });
+  assert.deepEqual(calls, [input]);
+});
+
 test("reports readiness with stable instance identity and no credentials", async (t) => {
   let ready = false;
   const { url, headers, token } = await fixture(t, { isReady: () => ready });
@@ -228,12 +250,12 @@ test("serves the Backend's own task view to an authenticated reader", async (t) 
   assert.ok(url.includes("/internal/health"), "the health route still exists");
 });
 
-test("the task view needs authentication, the protocol header and GET", async (t) => {
+test("the task view needs authentication, the protocol header and rejects unsupported methods", async (t) => {
   const { snapshotsUrl, headers } = await fixture(t, { readTasks: () => [] });
   const tasksUrl = snapshotsUrl.replace("pending-snapshots", "tasks");
   assert.equal((await request(tasksUrl)).status, 401);
   assert.equal((await request(tasksUrl, { headers: { authorization: headers.authorization } })).status, 409);
-  const response = await request(tasksUrl, { method: "POST", headers });
+  const response = await request(tasksUrl, { method: "PUT", headers });
   assert.equal(response.status, 405);
   assert.equal(response.headers.get("allow"), "GET");
 });

@@ -97,6 +97,11 @@ try {
     // The Backend's own store view: stored rows, read through the same store the startup owns.
     readTasks: () => [...started.store.listTasks(true), ...started.store.listTasks(true, "bot")],
     readTask: (id) => started.store.getTask(id) ?? null,
+    createTask: (input) => {
+      const runtime = started.runtime();
+      if (!runtime) throw Object.assign(new Error("runtime unavailable"), { status: 503 });
+      return runtime.createTask(input);
+    },
     // Detail needs the runtime, so the handler is only supplied once it is attached; the route
     // answers 503 until then instead of reporting a missing task.
     // The Bot store is owned by the startup, like the task store.

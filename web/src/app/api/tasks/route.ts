@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { relayFallbackAllowed, relayTaskRows } from "@/lib/backend-relay";
 import { forwardPendingAttention } from "@/lib/backend-forward";
+import { createTaskOnBackend } from "@/lib/backend-client";
+import { localRuntimeBlocked } from "@/lib/pi/runtime-ownership";
 import { listTasks, type TaskKind } from "@/lib/store";
 import { reconcileOrphanedWorkingTasks } from "@/lib/task-runtime-lease";
 import {
@@ -328,7 +330,7 @@ export async function POST(req: NextRequest) {
             : {}),
         }));
     }
-    const task = await createTask({
+    const input = {
       projectId,
       prompt,
       ...(model && model !== AUTO_MODEL_VALUE ? { model } : {}),
@@ -346,7 +348,18 @@ export async function POST(req: NextRequest) {
       goalLoop: goalLoop
         ? { ...goalLoop, autoAgent: autoAgentRequested }
         : undefined,
-    });
+    };
+    if (localRuntimeBlocked()) {
+      const forwarded = await createTaskOnBackend(input, { timeoutMs: 60_000 });
+      if (!forwarded.ok) {
+        return NextResponse.json(
+          { error: "Backendでタスクを作成できません", code: "BACKEND_FORWARD_FAILED", reason: forwarded.reason },
+          { status: 502 },
+        );
+      }
+      return NextResponse.json({ task: forwarded.body.task, ...(autoDecision ? { autoDecision } : {}) });
+    }
+    const task = await createTask(input);
     return NextResponse.json({ task, ...(autoDecision ? { autoDecision } : {}) });
   } catch (error) {
     const { error: message, status } = jsonError(error);

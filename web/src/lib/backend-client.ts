@@ -188,6 +188,14 @@ export function deleteBackendJson<T>(
   return backendRequest<T>(path, { ...options, method: "DELETE" });
 }
 
+/** Creates and starts a task in the owning Backend. */
+export function createTaskOnBackend(
+  input: unknown,
+  options: { env?: BackendEnv; fetchImpl?: typeof fetch; timeoutMs?: number } = {},
+): Promise<BackendResult<{ task: Record<string, unknown> | null }>> {
+  return postBackendJson(BACKEND_TASKS_PATH, input, options);
+}
+
 /** Starts a session in the owning Backend: `POST /internal/tasks/:id/prompt`. */
 export function promptTaskOnBackend(
   id: string,

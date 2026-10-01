@@ -52,6 +52,10 @@ const SETTING_FIELDS = {
   [BACKEND_TASK_THINKING_SUFFIX]: "thinkingLevel",
   [BACKEND_TASK_AGENT_SUFFIX]: "agent",
 };
+const TASK_CREATE_FIELDS = new Set([
+  "projectId", "prompt", "model", "thinkingLevel", "images", "files", "agent",
+  "accountId", "accountIdExplicit", "goalLoop",
+]);
 
 /** Reads a JSON body with a hard limit. Returns `{ ok: false }` for too large, empty or broken JSON. */
 function readJsonBody(request, limit = BACKEND_PROMPT_BODY_LIMIT_BYTES) {
@@ -110,6 +114,7 @@ export function createBackendServer({
    */
   readTasks = () => [],
   readTask = () => null,
+  createTask = null,
   /**
    * Task detail needs the Pi runtime, so it is only supplied once one is attached. Without it the
    * route answers 503 with a specific code instead of pretending the task is missing.
@@ -206,6 +211,7 @@ export function createBackendServer({
   }
   for (const [name, handler] of Object.entries({
     respondToPermission,
+    createTask,
     respondToQuestion,
     abortTask,
     botCodeRequestAction,
@@ -340,6 +346,7 @@ export function createBackendServer({
       || botAdminPath !== undefined
       || target.pathname === BACKEND_PENDING_SNAPSHOTS_PATH
       || target.pathname === BACKEND_ATTENTION_PATH
+      || target.pathname === BACKEND_TASKS_PATH
       || target.pathname === BACKEND_BOTS_PATH
       || botSuffix !== undefined
       || botActionPath !== undefined
@@ -351,6 +358,33 @@ export function createBackendServer({
       || actionPath !== undefined;
     if (!knownPath) {
       sendJson(response, 404, { error: "Not found", code: BACKEND_ERROR_CODES.notFound });
+      return;
+    }
+    if (target.pathname === BACKEND_TASKS_PATH && request.method === "POST") {
+      if (!createTask) {
+        sendJson(response, 503, { error: "Backend runtime unavailable", code: BACKEND_ERROR_CODES.runtimeUnavailable });
+        return;
+      }
+      const body = await readJsonBody(request);
+      if (!body.ok || !body.value || typeof body.value !== "object" || Array.isArray(body.value)
+        || (body.value.projectId !== null && typeof body.value.projectId !== "string")
+        || typeof body.value.prompt !== "string"
+        || (!body.value.prompt.trim() && !body.value.images?.length && !body.value.files?.length)
+        || Object.keys(body.value).some((key) => !TASK_CREATE_FIELDS.has(key))
+        || (body.value.model !== undefined && typeof body.value.model !== "string")
+        || (body.value.agent !== undefined && typeof body.value.agent !== "string")
+        || (body.value.accountId !== undefined && typeof body.value.accountId !== "string")
+        || (body.value.accountIdExplicit !== undefined && typeof body.value.accountIdExplicit !== "boolean")) {
+        sendJson(response, !body.ok && body.reason === "too-large" ? 413 : 400,
+          { error: "Invalid task create request", code: BACKEND_ERROR_CODES.badRequest });
+        return;
+      }
+      try {
+        sendJson(response, 200, { task: await createTask(body.value) });
+      } catch (error) {
+        sendJson(response, typeof error?.status === "number" ? error.status : 500,
+          { error: "Backend task create failed", code: BACKEND_ERROR_CODES.internal });
+      }
       return;
     }
     if (actionPath !== undefined) {

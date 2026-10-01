@@ -12,6 +12,8 @@ const mocks = vi.hoisted(() => ({
   relayTaskRows: vi.fn(),
   relayFallbackAllowed: vi.fn(() => true),
   forwardPendingAttention: vi.fn(),
+  createTaskOnBackend: vi.fn(),
+  localRuntimeBlocked: vi.fn(() => false),
   resolveAutoAgent: vi.fn(),
   autoAgentHasOwnModel: vi.fn(),
   resolveAutoModel: vi.fn(),
@@ -34,6 +36,8 @@ vi.mock("@/lib/backend-relay", () => ({
   relayFallbackAllowed: mocks.relayFallbackAllowed,
 }));
 vi.mock("@/lib/backend-forward", () => ({ forwardPendingAttention: mocks.forwardPendingAttention }));
+vi.mock("@/lib/backend-client", () => ({ createTaskOnBackend: mocks.createTaskOnBackend }));
+vi.mock("@/lib/pi/runtime-ownership", () => ({ localRuntimeBlocked: mocks.localRuntimeBlocked }));
 vi.mock("@/lib/auto-agent", () => ({
   resolveAutoAgent: mocks.resolveAutoAgent,
   autoAgentHasOwnModel: mocks.autoAgentHasOwnModel,
@@ -123,6 +127,8 @@ describe("GET /api/tasks", () => {
 describe("POST /api/tasks", () => {
   beforeEach(() => {
     mocks.createTask.mockReset();
+    mocks.createTaskOnBackend.mockReset();
+    mocks.localRuntimeBlocked.mockReturnValue(false);
     mocks.resolveAutoAgent.mockReset();
     mocks.autoAgentHasOwnModel.mockReset();
     mocks.autoAgentHasOwnModel.mockReturnValue(false);
@@ -132,6 +138,24 @@ describe("POST /api/tasks", () => {
     mocks.parseDirectModelKey.mockReturnValue(undefined);
     mocks.validateTaskModelSelection.mockResolvedValue(undefined);
     mocks.createTask.mockResolvedValue({ id: "task-1" });
+  });
+
+  it("creates new sessions only in the owning Backend in production", async () => {
+    mocks.localRuntimeBlocked.mockReturnValue(true);
+    mocks.createTaskOnBackend.mockResolvedValue({ ok: true, body: { task: { id: "backend-task" } } });
+    const request = () => new NextRequest("http://localhost/api/tasks", {
+      method: "POST", body: JSON.stringify({ projectId: null, prompt: "開始" }),
+    });
+    const response = await POST(request());
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ task: { id: "backend-task" } });
+    expect(mocks.createTaskOnBackend).toHaveBeenCalledWith(expect.objectContaining({ projectId: null, prompt: "開始" }), { timeoutMs: 60_000 });
+    expect(mocks.createTask).not.toHaveBeenCalled();
+
+    mocks.createTaskOnBackend.mockResolvedValue({ ok: false, reason: "unreachable" });
+    const failed = await POST(request());
+    expect(failed.status).toBe(502);
+    expect(mocks.createTask).not.toHaveBeenCalled();
   });
 
   it("passes null as the project id for a no-project task", async () => {

@@ -7972,6 +7972,7 @@ export async function createTask(input: {
     autoAgent?: boolean;
   };
 }): Promise<TaskSummary> {
+  assertLocalRuntimeAllowed();
   validateGoalLoopAttachments(Boolean(input.goalLoop), input.files);
   const project = resolveCreateTaskProject(input.projectId);
   // Settings decide Code permissions; internal callers (Bot delegation) may pin
