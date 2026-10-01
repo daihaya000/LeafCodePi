@@ -11,12 +11,18 @@ import { localRuntimeBlocked } from "@/lib/pi/runtime-ownership";
 import { forwardPendingRequestsByTask, type PendingRequestsByTask } from "@/lib/backend-forward";
 import { subscribeBackendTaskDirty } from "@/lib/backend-task-dirty-hub";
 import { roomSnapshotSignature } from "@/lib/room-events";
-import type { RoomAttention } from "@/lib/types";
+import type { RoomAttention, RoomDto } from "@/lib/types";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-/** Safety-net poll when Backend owns pending; dirty wakes refresh sooner. */
+/**
+ * Safety-net poll when Backend owns the room.
+ * Dirty wakes already call snapshot(); getRoom() is always a fresh disk read (no cache).
+ * The longer interval is only for missed wakes / streaming text that may lack non-delta dirty.
+ */
 const ROOM_BACKEND_POLL_MS = 5_000;
+/** While the dirty hub is attached, keep a tighter disk safety net for room body updates. */
+const ROOM_BACKEND_DIRTY_POLL_MS = 2_000;
 const ROOM_LOCAL_POLL_MS = 2_000;
 
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -33,8 +39,76 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
       // there once per refresh instead of from this process's memory.
       const backendOwns = localRuntimeBlocked();
       let pendingBusy = false;
+      /** Dirty / interval wakes that arrived while a snapshot was in flight. */
+      let dirtyQueued = false;
+      let dirtyAttached = false;
+      let refresh: ReturnType<typeof setInterval> | undefined;
       /** The last map the owner reported. A failed read keeps it, so an unanswered prompt stays visible. */
       let backendPending: PendingRequestsByTask | null = null;
+
+      const attentionFor = (room: RoomDto): RoomAttention[] => room.members.map((botId) => {
+        const taskId = roomBotTaskId(id, botId);
+        // After the cutover this process must not read its own prompt services: the owner's map is
+        // the only source, and its absence means nothing is pending rather than "ask locally".
+        const pending = backendPending?.[taskId];
+        return {
+          botId,
+          taskId,
+          permission: backendOwns ? pending?.permissionRequest ?? null : pendingPermissionForTask(taskId),
+          question: backendOwns ? pending?.questionRequest ?? null : pendingQuestionForTask(taskId),
+        };
+      }).filter((item) => item.permission || item.question);
+
+      const emitIfChanged = (room: RoomDto, attention: RoomAttention[]) => {
+        const signature = roomSnapshotSignature(room, attention);
+        if (signature === previous) return;
+        previous = signature;
+        sse?.send("snapshot", { type: "snapshot", room, attention });
+      };
+
+      const collectTasks = (room: RoomDto): Set<string> => {
+        const tasks = new Set(room.members.map((botId) => roomBotTaskId(id, botId)));
+        for (const botId of room.members) {
+          const origin = roomBotTaskId(id, botId);
+          for (const linked of linkedCodeTaskIdsForOrigin(origin)) tasks.add(linked);
+        }
+        return tasks;
+      };
+
+      const syncLocalTaskSubs = (tasks: Set<string>) => {
+        // After cutover this process has no live emitters for those tasks — dirty + disk poll wake instead.
+        if (!backendOwns) {
+          for (const [taskId, unsubscribe] of subscriptions) {
+            if (!tasks.has(taskId)) {
+              unsubscribe();
+              subscriptions.delete(taskId);
+            }
+          }
+          for (const taskId of tasks) {
+            if (subscriptions.has(taskId)) continue;
+            subscriptions.set(taskId, subscribeTask(taskId, (payload) => {
+              if (payload.type === "snapshot") void snapshot();
+            }));
+          }
+          return;
+        }
+        if (subscriptions.size > 0) {
+          for (const off of subscriptions.values()) off();
+          subscriptions.clear();
+        }
+      };
+
+      const rescheduleRefresh = () => {
+        if (refresh) clearInterval(refresh);
+        const intervalMs = !backendOwns
+          ? ROOM_LOCAL_POLL_MS
+          : dirtyAttached
+            ? ROOM_BACKEND_DIRTY_POLL_MS
+            : ROOM_BACKEND_POLL_MS;
+        refresh = setInterval(() => void snapshot(), intervalMs);
+        refresh.unref?.();
+      };
+
       const syncDirty = (taskIds: Set<string>) => {
         if (!backendOwns) return;
         for (const [taskId, stop] of dirtyStops) {
@@ -46,18 +120,39 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
           if (dirtyStops.has(taskId)) continue;
           try {
             dirtyStops.set(taskId, subscribeBackendTaskDirty(taskId, () => { void snapshot(); }));
+            if (!dirtyAttached) {
+              dirtyAttached = true;
+              rescheduleRefresh();
+            }
           } catch {
             // Hub connect failures fall back to the safety-net poll.
           }
         }
+        if (dirtyStops.size === 0 && dirtyAttached) {
+          dirtyAttached = false;
+          rescheduleRefresh();
+        }
       };
+
       const snapshot = async () => {
         if (sse?.closed) return;
-        if (backendOwns && pendingBusy) return;
+        if (backendOwns && pendingBusy) {
+          dirtyQueued = true;
+          return;
+        }
         if (backendOwns) pendingBusy = true;
         // The busy flag must clear even when a read or a send fails: a stuck flag would freeze the
         // stream until the client reconnects, and a rejection must not escape the interval callback.
         try {
+          // Disk-first: getRoom() always re-reads the room file. Emit with the last-known pending
+          // map so cutover room body / outbox cards do not wait on the pending HTTP round-trip.
+          let room = getRoom(id);
+          if (!room) { sse?.close(); return; }
+          let tasks = collectTasks(room);
+          syncLocalTaskSubs(tasks);
+          syncDirty(tasks);
+          if (backendOwns) emitIfChanged(room, attentionFor(room));
+
           if (backendOwns) {
             try {
               const forwarded = await forwardPendingRequestsByTask();
@@ -65,51 +160,30 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
             } catch {
               // Keep the previous map; the next poll retries.
             }
+            if (sse?.closed) return;
+            // Re-read after the await: another Backend write may have landed while pending was in flight.
+            room = getRoom(id);
+            if (!room) { sse?.close(); return; }
+            tasks = collectTasks(room);
+            syncLocalTaskSubs(tasks);
+            syncDirty(tasks);
           }
-          if (sse?.closed) return;
-          const room = getRoom(id);
-          if (!room) { sse?.close(); return; }
-          const tasks = new Set(room.members.map((botId) => roomBotTaskId(id, botId)));
-          for (const botId of room.members) {
-            const origin = roomBotTaskId(id, botId);
-            for (const linked of linkedCodeTaskIdsForOrigin(origin)) tasks.add(linked);
-          }
-          // After cutover this process has no live emitters for those tasks — dirty + disk poll wake instead.
-          if (!backendOwns) {
-            for (const [taskId, unsubscribe] of subscriptions) if (!tasks.has(taskId)) { unsubscribe(); subscriptions.delete(taskId); }
-            for (const taskId of tasks) if (!subscriptions.has(taskId)) {
-              subscriptions.set(taskId, subscribeTask(taskId, (payload) => { if (payload.type === "snapshot") snapshot(); }));
-            }
-          } else if (subscriptions.size > 0) {
-            for (const off of subscriptions.values()) off();
-            subscriptions.clear();
-          }
-          syncDirty(tasks);
-          const attention: RoomAttention[] = room.members.map((botId) => {
-            const taskId = roomBotTaskId(id, botId);
-            // After the cutover this process must not read its own prompt services: the owner's map is
-            // the only source, and its absence means nothing is pending rather than "ask locally".
-            const pending = backendPending?.[taskId];
-            return {
-              botId,
-              taskId,
-              permission: backendOwns ? pending?.permissionRequest ?? null : pendingPermissionForTask(taskId),
-              question: backendOwns ? pending?.questionRequest ?? null : pendingQuestionForTask(taskId),
-            };
-          }).filter((item) => item.permission || item.question);
-          const signature = roomSnapshotSignature(room, attention);
-          if (signature !== previous) { previous = signature; sse?.send("snapshot", { type: "snapshot", room, attention }); }
+
+          emitIfChanged(room, attentionFor(room));
         } finally {
           pendingBusy = false;
+          if (dirtyQueued) {
+            dirtyQueued = false;
+            void snapshot();
+          }
         }
       };
       const unsubscribe = subscribeRoom(id, () => void snapshot());
       // Room files are shared across Next workers; local emitter events alone miss remote outbox reports.
-      const refresh = setInterval(() => void snapshot(), backendOwns ? ROOM_BACKEND_POLL_MS : ROOM_LOCAL_POLL_MS);
-      refresh.unref?.();
+      rescheduleRefresh();
       sse.onCleanup(() => {
         unsubscribe();
-        clearInterval(refresh);
+        if (refresh) clearInterval(refresh);
         for (const off of subscriptions.values()) off();
         for (const stop of dirtyStops.values()) stop();
         dirtyStops.clear();
