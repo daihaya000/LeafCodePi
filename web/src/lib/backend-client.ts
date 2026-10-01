@@ -37,6 +37,8 @@ import {
   BACKEND_TASK_QUESTION_SUFFIX,
   BACKEND_TASK_PROMPT_SUFFIX,
   BACKEND_TASK_REVERT_SUFFIX,
+  BACKEND_PROJECT_TEARDOWN_SUFFIX,
+  BACKEND_PROJECTS_PATH,
   BACKEND_TASK_TEARDOWN_SUFFIX,
   BACKEND_TASK_UNREVERT_SUFFIX,
   BACKEND_TASKS_PATH,
@@ -298,6 +300,15 @@ export function unrevertTaskOnBackend(
   options: { env?: BackendEnv; fetchImpl?: typeof fetch; timeoutMs?: number } = {},
 ): Promise<BackendResult<{ task: Record<string, unknown> | null }>> {
   return postBackendJson(`${BACKEND_TASKS_PATH}/${encodeURIComponent(id)}${BACKEND_TASK_UNREVERT_SUFFIX}`, {}, options);
+}
+
+/** Archives, deletes or moves a project in the owning Backend, which stops its sessions first. */
+export function teardownProjectOnBackend(
+  id: string,
+  request: { action: "archive" | "destroy" | "migrate"; destinationPath?: string },
+  options: { env?: BackendEnv; fetchImpl?: typeof fetch; timeoutMs?: number } = {},
+): Promise<BackendResult<{ result: { status: number; body: unknown } }>> {
+  return postBackendJson(`${BACKEND_PROJECTS_PATH}/${encodeURIComponent(id)}${BACKEND_PROJECT_TEARDOWN_SUFFIX}`, request, options);
 }
 
 /** Archives or deletes a task in the owning Backend, which stops its running session first. */

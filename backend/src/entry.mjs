@@ -230,6 +230,23 @@ try {
       }
       return runtime.revertTask(id, entryId);
     },
+    // Archiving, deleting or moving a project stops its sessions and Code work, which only the owner
+    // holds. The answer keeps its own status and body: the WebUI replays both unchanged.
+    teardownProjectAction: async (id, action, destinationPath) => {
+      const runtime = started.runtime();
+      const run = action === "archive" ? runtime?.archiveProjectAndStopTasks
+        : action === "destroy" ? runtime?.destroyProject : runtime?.migrateProject;
+      if (typeof run !== "function") {
+        throw Object.assign(new Error("runtime unavailable"), { status: 503 });
+      }
+      try {
+        const value = action === "migrate" ? await run(id, destinationPath) : await run(id);
+        return { status: 200, body: action === "archive" ? { project: value } : value };
+      } catch (error) {
+        const status = typeof error?.status === "number" ? error.status : 500;
+        return { status, body: { error: error instanceof Error ? error.message : String(error) } };
+      }
+    },
     // Archiving or deleting stops and disposes the live session, which only the owner holds.
     teardownTaskAction: (id, mode) => {
       const runtime = started.runtime();

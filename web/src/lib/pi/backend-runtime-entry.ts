@@ -31,6 +31,9 @@ export {
   revertTask,
   unrevertTask,
   archiveTask,
+  archiveProjectAndStopTasks,
+  destroyProject,
+  migrateProject,
   destroyTask,
   // Compaction summarizes inside the session, so only the owner may run or stop it.
   compactTask,

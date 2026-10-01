@@ -18,6 +18,7 @@ import {
   forwardTaskAgent,
   forwardRoomRevert,
   forwardTaskRevert,
+  forwardProjectTeardown,
   forwardTaskTeardown,
   forwardTaskUnrevert,
   forwardPendingRequestsByTask,
@@ -382,6 +383,25 @@ describe("forwardPendingAttention", () => {
     const missing = vi.fn<typeof fetch>(async () => jsonResponse(200, {}));
     await expect(forwardPendingAttention({ env, fetchImpl: missing })).resolves.toEqual({ ok: true, items: [] });
     await expect(forwardPendingAttention({ env: {} })).resolves.toEqual({ ok: false, reason: "not-configured" });
+  });
+});
+
+describe("forwardProjectTeardown", () => {
+  it("returns the owner's own status and body, and refuses a malformed answer", async () => {
+    const fetchImpl = vi.fn<typeof fetch>(async () => jsonResponse(200, { result: { status: 404, body: { error: "無い" } } }));
+    await expect(forwardProjectTeardown("project-1", { action: "destroy" }, { env, fetchImpl })).resolves.toEqual({
+      ok: true, status: 404, body: { error: "無い" },
+    });
+    expect(fetchImpl.mock.calls[0][0]).toBe("http://127.0.0.1:19999/internal/projects/project-1/teardown");
+    expect(JSON.parse(String(fetchImpl.mock.calls[0][1]?.body))).toEqual({ action: "destroy" });
+    const malformed = vi.fn<typeof fetch>(async () => jsonResponse(200, { result: {} }));
+    await expect(forwardProjectTeardown("project-1", { action: "archive" }, { env, fetchImpl: malformed })).resolves.toEqual({
+      ok: false, reason: "bad-response",
+    });
+    const unreachable = vi.fn<typeof fetch>(async () => { throw new Error("connect refused"); });
+    await expect(forwardProjectTeardown("project-1", { action: "archive" }, { env, fetchImpl: unreachable })).resolves.toEqual({
+      ok: false, reason: "unreachable",
+    });
   });
 });
 

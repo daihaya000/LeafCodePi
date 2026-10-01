@@ -934,6 +934,44 @@ test("a forwarded task teardown reaches the runtime owner with its mode", async 
   );
 });
 
+test("a forwarded project teardown reaches the runtime owner and keeps its answer", async (t) => {
+  const seen = [];
+  const { snapshotsUrl, headers } = await fixture(t, {
+    teardownProjectAction: async (id, action, destinationPath) => {
+      seen.push([id, action, destinationPath]);
+      if (id === "gone") throw Object.assign(new Error("missing"), { status: 404 });
+      return { status: action === "migrate" ? 409 : 200, body: { action } };
+    },
+  });
+  const base = snapshotsUrl.replace("pending-snapshots", "projects");
+  const post = (url, body) => request(url, {
+    method: "POST", headers: { ...headers, "content-type": "application/json" }, body: JSON.stringify(body),
+  });
+  const archived = await post(`${base}/project-1/teardown`, { action: "archive" });
+  assert.equal(archived.status, 200);
+  assert.deepEqual(await archived.json(), { result: { status: 200, body: { action: "archive" } } });
+  // The owner's own refusal travels inside the 200 envelope, unchanged.
+  const moved = await post(`${base}/project-1/teardown`, { action: "migrate", destinationPath: "C:\moved" });
+  assert.deepEqual(await moved.json(), { result: { status: 409, body: { action: "migrate" } } });
+  assert.deepEqual(seen, [["project-1", "archive", undefined], ["project-1", "migrate", "C:\moved"]]);
+  // Unknown actions and a move without a destination never reach the owner.
+  assert.equal((await post(`${base}/project-1/teardown`, { action: "wipe" })).status, 400);
+  assert.equal((await post(`${base}/project-1/teardown`, { action: "migrate" })).status, 400);
+  assert.equal((await post(`${base}/project-1/teardown`, { action: "migrate", destinationPath: " " })).status, 400);
+  assert.equal(seen.length, 2);
+  assert.equal((await post(`${base}/gone/teardown`, { action: "destroy" })).status, 404);
+  assert.equal((await request(`${base}/project-1/teardown`, { headers })).status, 405);
+  const detached = await fixture(t);
+  const detachedBase = detached.snapshotsUrl.replace("pending-snapshots", "projects");
+  assert.equal((await request(`${detachedBase}/project-1/teardown`, {
+    method: "POST", headers: { ...detached.headers, "content-type": "application/json" }, body: JSON.stringify({ action: "archive" }),
+  })).status, 503);
+  assert.throws(
+    () => createBackendServer({ token: randomBytes(32).toString("base64url"), teardownProjectAction: 5 }),
+    /teardownProjectAction must be a function or null/,
+  );
+});
+
 test("a forwarded Room revert reaches the runtime owner", async (t) => {
   const seen = [];
   const { snapshotsUrl, headers } = await fixture(t, {

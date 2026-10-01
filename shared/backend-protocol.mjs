@@ -105,6 +105,14 @@ export const BACKEND_ROOM_PROMPT_SUFFIX = "/prompt";
  * 200 and the WebUI replays both unchanged.
  */
 export const BACKEND_ROOM_ADMIN_PATH = BACKEND_ROOMS_PATH;
+/**
+ * Archiving, deleting or moving a project: `POST /internal/projects/:id/teardown` with
+ * `{ action: "archive" | "destroy" | "migrate", destinationPath? }`. Each stops the project's running
+ * sessions first, which only the owner holds. The owner's answer is wrapped as
+ * `{ result: { status, body } }` with HTTP 200 so the WebUI replays its messages unchanged.
+ */
+export const BACKEND_PROJECTS_PATH = "/internal/projects";
+export const BACKEND_PROJECT_TEARDOWN_SUFFIX = "/teardown";
 export const DEFAULT_BACKEND_PORT = 18776;
 
 /** Authentication precedes version checks, including health requests. */

@@ -11,6 +11,8 @@ import {
   BACKEND_ATTENTION_PATH,
   BACKEND_BOTS_PATH,
   BACKEND_PENDING_SNAPSHOTS_PATH,
+  BACKEND_PROJECT_TEARDOWN_SUFFIX,
+  BACKEND_PROJECTS_PATH,
   BACKEND_ROOM_PROMPT_SUFFIX,
   BACKEND_ROOM_REVERT_SUFFIX,
   BACKEND_ROOMS_PATH,
@@ -154,6 +156,8 @@ export function createBackendServer({
   unrevertTaskAction = null,
   /** Archives or deletes a task: `(id, "archive" | "destroy") => result`; the owner stops its session first. */
   teardownTaskAction = null,
+  /** Archives, deletes or moves a project: `(id, action, destinationPath?) => { status, body }`; the owner stops its sessions. */
+  teardownProjectAction = null,
   /** Compacts a session: `(id, customInstructions?) => task`; the summarization runs in the owner. */
   compactTaskAction = null,
   /** Stops a running compaction: `(id) => task`; only the owner can interrupt its own session. */
@@ -207,6 +211,7 @@ export function createBackendServer({
     revertTaskAction,
     unrevertTaskAction,
     teardownTaskAction,
+    teardownProjectAction,
     compactTaskAction,
     abortCompactTaskAction,
     setTaskModelAction,
@@ -305,7 +310,15 @@ export function createBackendServer({
     const roomPath = roomSuffix !== null && roomActionPath === undefined && !roomSuffix.includes("/")
       ? decodeURIComponent(roomSuffix)
       : undefined;
+    // `/internal/projects/<id>/teardown` archives, deletes or moves a project and its sessions.
+    const projectSuffix = target.pathname.startsWith(`${BACKEND_PROJECTS_PATH}/`)
+      ? target.pathname.slice(BACKEND_PROJECTS_PATH.length + 1)
+      : null;
+    const projectActionPath = projectSuffix?.endsWith(BACKEND_PROJECT_TEARDOWN_SUFFIX)
+      ? decodeURIComponent(projectSuffix.slice(0, -BACKEND_PROJECT_TEARDOWN_SUFFIX.length))
+      : undefined;
     const knownPath = target.pathname === BACKEND_HEALTH_PATH
+      || projectActionPath !== undefined
       || target.pathname === BACKEND_PENDING_SNAPSHOTS_PATH
       || target.pathname === BACKEND_ATTENTION_PATH
       || target.pathname === BACKEND_BOTS_PATH
@@ -520,6 +533,42 @@ export function createBackendServer({
         sendJson(response, typeof error?.status === "number" ? error.status : 500, {
           error: "Backend room admin failed",
           code: BACKEND_ERROR_CODES.internal,
+        });
+      }
+      return;
+    }
+    if (projectActionPath !== undefined) {
+      if (request.method !== "POST") {
+        sendJson(response, 405, {
+          error: "Method not allowed", code: BACKEND_ERROR_CODES.methodNotAllowed,
+        }, { Allow: "POST" });
+        return;
+      }
+      if (!projectActionPath) {
+        sendJson(response, 404, { error: "Not found", code: BACKEND_ERROR_CODES.notFound });
+        return;
+      }
+      if (typeof teardownProjectAction !== "function") {
+        sendJson(response, 503, {
+          error: "Backend runtime unavailable", code: BACKEND_ERROR_CODES.runtimeUnavailable,
+        });
+        return;
+      }
+      const body = await readJsonBody(request);
+      const action = body.ok ? body.value?.action : undefined;
+      const destinationPath = body.ok ? body.value?.destinationPath : undefined;
+      if (!body.ok || (action !== "archive" && action !== "destroy" && action !== "migrate")
+        || (action === "migrate" && (typeof destinationPath !== "string" || !destinationPath.trim()))) {
+        sendJson(response, body.ok ? 400 : body.reason === "too-large" ? 413 : 400, {
+          error: "Invalid project teardown request", code: BACKEND_ERROR_CODES.badRequest,
+        });
+        return;
+      }
+      try {
+        sendJson(response, 200, { result: await teardownProjectAction(projectActionPath, action, destinationPath) });
+      } catch (error) {
+        sendJson(response, typeof error?.status === "number" ? error.status : 500, {
+          error: "Backend project teardown failed", code: BACKEND_ERROR_CODES.internal,
         });
       }
       return;

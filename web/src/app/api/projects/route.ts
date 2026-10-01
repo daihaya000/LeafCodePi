@@ -10,9 +10,29 @@ import {
   restoreProject,
 } from "@/lib/pi/harness";
 import { PROJECT_ICON_COLORS, type ProjectIconColor } from "@/lib/types";
+import { forwardProjectTeardown } from "@/lib/backend-forward";
+import { localRuntimeBlocked } from "@/lib/pi/runtime-ownership";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+
+/**
+ * Archiving, deleting or moving a project stops its running sessions, which only the owning Backend
+ * holds. The owner's own status and body are replayed; a Backend that cannot answer is a 502.
+ */
+async function teardownOnBackend(
+  id: string,
+  request: { action: "archive" | "destroy" | "migrate"; destinationPath?: string },
+): Promise<NextResponse> {
+  const forwarded = await forwardProjectTeardown(id, request);
+  if (!forwarded.ok) {
+    return NextResponse.json(
+      { error: "Backendで実行できません", code: "BACKEND_FORWARD_FAILED", reason: forwarded.reason },
+      { status: 502 },
+    );
+  }
+  return NextResponse.json(forwarded.body, { status: forwarded.status });
+}
 
 export async function GET(req: NextRequest) {
   const includeArchived = req.nextUrl.searchParams.get("archived") === "1";
@@ -46,6 +66,7 @@ export async function PATCH(req: NextRequest) {
       return NextResponse.json({ error: "id is required" }, { status: 400 });
     }
     if (body.archived === true) {
+      if (localRuntimeBlocked()) return await teardownOnBackend(body.id, { action: "archive" });
       return NextResponse.json({ project: await archiveProjectAndStopTasks(body.id) });
     }
     if (body.archived === false) {
@@ -54,6 +75,9 @@ export async function PATCH(req: NextRequest) {
     if (body.destinationPath !== undefined) {
       if (typeof body.destinationPath !== "string" || !body.destinationPath.trim()) {
         return NextResponse.json({ error: "destinationPath が必要です" }, { status: 400 });
+      }
+      if (localRuntimeBlocked()) {
+        return await teardownOnBackend(body.id, { action: "migrate", destinationPath: body.destinationPath });
       }
       return NextResponse.json(await migrateProject(body.id, body.destinationPath));
     }
@@ -86,6 +110,7 @@ export async function DELETE(req: NextRequest) {
     if (!id) {
       return NextResponse.json({ error: "id is required" }, { status: 400 });
     }
+    if (localRuntimeBlocked()) return await teardownOnBackend(id, { action: "destroy" });
     return NextResponse.json(await destroyProject(id));
   } catch (error) {
     const { error: message, status } = jsonError(error);

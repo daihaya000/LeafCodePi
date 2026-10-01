@@ -156,8 +156,6 @@ const HANDLER_GAPS: Record<string, string> = {
   "skills/[name]/route.ts PATCH": SETTINGS_RELOAD,
   "bots/[id]/route.ts GET": "setBotTools applies to this process's sessions only",
   "bots/[id]/route.ts DELETE": TEARDOWN,
-  "projects/route.ts PATCH": TEARDOWN,
-  "projects/route.ts DELETE": TEARDOWN,
   "tasks/route.ts DELETE": "bulk destroy of archived tasks; archived tasks have no live session",
   "tasks/[id]/promote/route.ts POST": "promotion rewires a session this process does not own",
   "tasks/[id]/supervisor/route.ts POST": "hand-off/release rewires a session this process does not own",
