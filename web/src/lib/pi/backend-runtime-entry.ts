@@ -27,6 +27,7 @@ export {
   continueBotCodeTask,
   goalLoopCommand,
   goalLoopState,
+  activeGoalLoopTaskIds,
   startBotCodeRelay,
   applyCodePermissionSettingsToLiveTasks,
   // Rewinding a transcript rewrites the session and clears the owner's pending attention.

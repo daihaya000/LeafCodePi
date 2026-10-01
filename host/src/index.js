@@ -643,12 +643,12 @@ async function stopWeb() {
 }
 
 /**
- * Goal Loop runs inside the WebUI process, so restarting Next.js ends its Pi
- * session and pauses the loop mid-turn. Ask the WebUI first and refuse while a
- * loop is live. An unreachable WebUI has no loop left to protect, so probe
- * failures fall through and keep restart available for recovery.
+ * Only standalone development owns sessions inside Next.js. A production client
+ * can restart freely without interrupting the independent Backend.
  */
 async function webUiRestartBlockReason() {
+  // Restarting the client cannot interrupt sessions in the independent Backend.
+  if (backendService) return null;
   try {
     const response = await fetch(`${WEBUI_URL}/api/goal-loop/active`, {
       cache: "no-store",
@@ -669,12 +669,19 @@ async function webUiRestartBlockReason() {
 }
 
 /**
- * Goal Loops run inside the Backend's Pi runtime, so restarting the Backend ends them mid-turn (and
- * every other live session). The same WebUI probe answers whether any loop is live; an unreachable
- * WebUI has no loop left to protect, so a probe failure keeps the restart available.
+ * Restarting the runtime ends live sessions. Probe the owner directly, including
+ * when WebUI is down; an unknown state on a living owner must fail closed.
  */
 async function backendRestartBlockReason() {
-  return webUiRestartBlockReason();
+  // A confirmed dead owner has no live sessions to protect; recovery stays available.
+  if (!backendService || backendService.status().state !== "running") return null;
+  const { backendRuntimeRestartBlockReason } = await import("./runtime-restart-guard.js");
+  const env = backendService.clientEnv();
+  return backendRuntimeRestartBlockReason({
+    baseUrl: env.LEAFCODE_PI_BACKEND_URL,
+    token: env.LEAFCODE_PI_BACKEND_TOKEN,
+    expectedGeneration: backendService.status().generation,
+  });
 }
 
 /**

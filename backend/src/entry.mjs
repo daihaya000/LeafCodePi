@@ -88,6 +88,11 @@ try {
     token: process.env.LEAFCODE_PI_BACKEND_TOKEN,
     readPendingSnapshots: () => readPendingRequestSnapshots(started.runtime()),
     // Attention is the owner's in-memory view; a detached Backend has none, which is honest.
+    readRuntimeState: () => {
+      const runtime = started.runtime();
+      if (!runtime) throw new Error("runtime unavailable");
+      return { taskIds: runtime.activeGoalLoopTaskIds() };
+    },
     readAttention: () => {
       const runtime = started.runtime();
       return runtime && typeof runtime.listPendingAttention === "function"

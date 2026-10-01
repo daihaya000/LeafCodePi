@@ -21,6 +21,7 @@ import {
   BACKEND_BOT_ROUTINES_SEGMENT,
   BACKEND_BOTS_PATH,
   BACKEND_HEALTH_PATH,
+  BACKEND_RUNTIME_CONTROL_PATH,
   BACKEND_PENDING_SNAPSHOTS_PATH,
   BACKEND_PROTOCOL_HEADER,
   BACKEND_PROTOCOL_VERSION,
@@ -143,6 +144,11 @@ async function backendRequest<T>(
   } finally {
     clearTimeout(timer);
   }
+}
+
+/** Read owner-scoped state without opening or driving a session. */
+export function readBackendRuntimeState(options: { env?: BackendEnv; fetchImpl?: typeof fetch; timeoutMs?: number } = {}): Promise<BackendResult<{ taskIds: string[] }>> {
+  return backendRequest(BACKEND_RUNTIME_CONTROL_PATH, options);
 }
 
 /** The health fields this client relies on; the Backend may report more. */

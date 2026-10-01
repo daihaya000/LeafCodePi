@@ -2,6 +2,8 @@
 export const BACKEND_PROTOCOL_VERSION = 1;
 export const BACKEND_PROTOCOL_HEADER = "x-leafcode-backend-protocol";
 export const BACKEND_HEALTH_PATH = "/internal/health";
+/** Owner-scoped runtime state and settings (not the client's empty session map). */
+export const BACKEND_RUNTIME_CONTROL_PATH = "/internal/runtime/control";
 /** Read-only: the pending snapshot per task, so a reconnecting WebUI can re-display state. */
 export const BACKEND_PENDING_SNAPSHOTS_PATH = "/internal/pending-snapshots";
 /**

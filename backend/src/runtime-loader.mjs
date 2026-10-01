@@ -32,6 +32,7 @@ export const REQUIRED_RUNTIME_EXPORTS = Object.freeze([
   "isRoomDelegatedCodeTask",
   "goalLoopCommand",
   "goalLoopState",
+  "activeGoalLoopTaskIds",
   "startGoalLoopWithSelection",
   "startBotGoalLoop",
   "listPendingAttention",

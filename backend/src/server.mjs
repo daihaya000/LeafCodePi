@@ -5,6 +5,7 @@ import { InvalidTaskMessageCursorError, pageTaskMessages } from "../../shared/ta
 import {
   BACKEND_ERROR_CODES,
   BACKEND_HEALTH_PATH,
+  BACKEND_RUNTIME_CONTROL_PATH,
   BACKEND_LIVE_SESSIONS_RELOAD_PATH,
   BACKEND_BOT_ADMIN_SUFFIX,
   BACKEND_BOT_CODE_REQUESTS_SUFFIX,
@@ -135,6 +136,8 @@ export function createBackendServer({
   runtimeStartupIncomplete = () => [],
   /** Starts a session for a forwarded prompt; null when no runtime is attached. */
   promptTask = null,
+  /** Owner-scoped active Goal Loops. A missing runtime must never report an empty list. */
+  readRuntimeState = null,
   /** Answers a pending approval: `(id, requestId, approved) => boolean`. */
   respondToPermission = null,
   /** Answers a pending question: `(id, requestId, answer) => boolean`. */
@@ -212,6 +215,7 @@ export function createBackendServer({
   }
   for (const [name, handler] of Object.entries({
     respondToPermission,
+    readRuntimeState,
     createTask,
     respondToQuestion,
     abortTask,
@@ -342,6 +346,7 @@ export function createBackendServer({
       ? decodeURIComponent(projectSuffix.slice(0, -BACKEND_PROJECT_TEARDOWN_SUFFIX.length))
       : undefined;
     const knownPath = target.pathname === BACKEND_HEALTH_PATH
+      || target.pathname === BACKEND_RUNTIME_CONTROL_PATH
       || target.pathname === BACKEND_LIVE_SESSIONS_RELOAD_PATH
       || projectActionPath !== undefined
       || botAdminPath !== undefined
@@ -359,6 +364,15 @@ export function createBackendServer({
       || actionPath !== undefined;
     if (!knownPath) {
       sendJson(response, 404, { error: "Not found", code: BACKEND_ERROR_CODES.notFound });
+      return;
+    }
+    if (target.pathname === BACKEND_RUNTIME_CONTROL_PATH && request.method === "GET") {
+      if (!readRuntimeState) {
+        sendJson(response, 503, { error: "Backend runtime unavailable", code: BACKEND_ERROR_CODES.runtimeUnavailable });
+        return;
+      }
+      try { sendJson(response, 200, await readRuntimeState()); }
+      catch { sendJson(response, 503, { error: "Backend runtime state unavailable", code: BACKEND_ERROR_CODES.runtimeUnavailable }); }
       return;
     }
     if (target.pathname === BACKEND_TASKS_PATH && request.method === "POST") {
