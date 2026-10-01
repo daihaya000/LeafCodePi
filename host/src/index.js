@@ -18,7 +18,8 @@ import { hardKillTree, stopProcessTreeGracefully } from "./process-stop.js";
 import { buildHostRestartScript } from "./host-restart.js";
 import { DEFAULT_BACKEND_PORT } from "../../shared/backend-protocol.mjs";
 import { createBackendService, isBackendRequested } from "./backend-service.js";
-import { readBackendHealth } from "./backend-health.js";
+import { readBackendHealth, waitForBackendReady } from "./backend-health.js";
+import { BACKEND_OWNER, readRuntimeOwner, writeRuntimeOwner } from "./runtime-owner-state.js";
 import { createCutoverEffects, createCutoverVerify } from "./cutover-effects.js";
 import { createCutoverPreflight, readActiveGoalLoopCount } from "./cutover-preflight.js";
 import { runCutover } from "./cutover.js";
@@ -487,8 +488,33 @@ function isCutoverRequested(env = {}) {
  */
 let webOwnership = { ownership: "in-process" };
 
+/** How long a restarted Host waits for the Backend it is bringing back before serving the WebUI. */
+export const BACKEND_START_READY_TIMEOUT_MS = 20_000;
+
 async function spawnWeb({ pull = true, ownership = webOwnership.ownership } = {}) {
   webOwnership = { ownership };
+  // A client WebUI needs its owner first: bring the Backend back attached and give the runtime a
+  // bounded moment to attach, so the restarted WebUI does not serve failures while it catches up.
+  if (ownership === "backend" && backendService) {
+    try {
+      backendService.start({ attachRuntime: true });
+      const clientEnv = backendService.clientEnv();
+      const ready = await waitForBackendReady({
+        read: () =>
+          readBackendHealth({
+            baseUrl: clientEnv.LEAFCODE_PI_BACKEND_URL ?? `http://127.0.0.1:${DEFAULT_BACKEND_PORT}`,
+            token: clientEnv.LEAFCODE_PI_BACKEND_TOKEN,
+            expectedGeneration: backendService.status().generation ?? "",
+          }),
+        timeoutMs: BACKEND_START_READY_TIMEOUT_MS,
+      });
+      if (!ready.ok) {
+        error(`Backend was not ready before the WebUI client started (${ready.reason ?? "timeout"})`);
+      }
+    } catch (err) {
+      error(`Backend could not be started for the WebUI client: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
   installWebIfNeeded();
   let hasBuild = hasProductionBuild();
   const skipStaleBuild = consumeSkipStaleRebuild(process.env);
@@ -1131,7 +1157,8 @@ async function main() {
   process.on("exit", onHostExit);
 
   try {
-    await spawnWeb();
+    // The ownership the last cutover recorded: a restart must come back on the same side.
+    await spawnWeb({ ownership: readRuntimeOwner(DATA_DIR) });
   } catch (err) {
     removeLock(LOCK_FILE);
     error(err instanceof Error ? err.message : String(err));
@@ -1157,7 +1184,7 @@ async function main() {
       return response.json();
     };
     try {
-      await runCutover({
+      const cutover = await runCutover({
         ...createCutoverEffects({
           stopWeb,
           spawnWeb,
@@ -1184,6 +1211,11 @@ async function main() {
         log,
         error,
       });
+      // The decision must outlive this process: a Host restarted later reads it and comes back as
+      // the same side of the hand-over instead of silently taking the runtime back.
+      if (!writeRuntimeOwner(DATA_DIR, cutover.ok ? BACKEND_OWNER : "in-process")) {
+        error("Cutover finished but the runtime ownership could not be recorded for the next start");
+      }
     } catch (err) {
       error(`Cutover failed: ${err instanceof Error ? err.message : String(err)}`);
     }

@@ -279,6 +279,18 @@ test("a WebUI restart keeps the runtime ownership the cutover handed over", () =
   assert.match(restart, /Refusing to restart the WebUI as a Backend client/);
 });
 
+test("the cutover's ownership survives a Host restart", () => {
+  const index = readFileSync(join(repoRoot, "host", "src", "index.js"), "utf8");
+  // Startup reads the recorded decision instead of defaulting to an owner WebUI.
+  assert.match(index, /await spawnWeb\(\{ ownership: readRuntimeOwner\(DATA_DIR\) \}\)/);
+  // A restarted Host brings the Backend back attached before the client WebUI is served.
+  assert.match(index, /if \(ownership === "backend" && backendService\)/);
+  assert.match(index, /backendService\.start\(\{ attachRuntime: true \}\)/);
+  assert.match(index, /waitForBackendReady\(/);
+  // The cutover records what it decided, so the next start is on the same side.
+  assert.match(index, /writeRuntimeOwner\(DATA_DIR, cutover\.ok \? BACKEND_OWNER : "in-process"\)/);
+});
+
 test("host rebuilds stale production builds like LeafCode", () => {
   const index = readFileSync(join(repoRoot, "host", "src", "index.js"), "utf8");
   assert.match(index, /isWebBuildStale/);
