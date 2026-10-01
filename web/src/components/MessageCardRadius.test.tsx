@@ -12,7 +12,7 @@ it("uses the shared card radius across chat and request cards", () => {
     <MessageBubble user>ユーザー</MessageBubble>
     <MessageBubble>エージェント</MessageBubble>
     <ToolCard part={{ id: "tool", type: "tool", tool: "read", callID: "call", state: { status: "completed", input: {} } }} />
-    <ActivityLog kind="task" count={1} parts={[]} active={false}>作業ログ</ActivityLog>
+    <ActivityLog kind="task" count={2} parts={[]} active={false}>作業ログ</ActivityLog>
     <CodeRequestCard state="delivered" />
     <QuestionCard
       request={{ id: "question", sessionId: "session", questions: [{ question: "確認", options: [], multiple: false, custom: false }] }}
@@ -26,6 +26,8 @@ it("uses the shared card radius across chat and request cards", () => {
   expect(cards).toHaveLength(6);
   expect(composer?.classList.contains("rounded-card")).toBe(true);
   for (const card of cards) {
-    expect(card.classList.contains("rounded-card")).toBe(true);
+    // The work log wraps its card (with an optional header row) in a plain layout element.
+    const target = card.classList.contains("rounded-card") ? card : card.querySelector("details");
+    expect(target?.classList.contains("rounded-card")).toBe(true);
   }
 });
