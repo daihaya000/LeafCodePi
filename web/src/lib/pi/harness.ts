@@ -3580,6 +3580,9 @@ async function createSession(options: {
     roomHandoffTaskId,
     botSoulBotId,
   } = sessionTaskContext(options.taskId);
+  // The single place a Pi session is created in this process. Guarding it here (not only at the
+  // prompt entry) means no future caller can make this WebUI a second owner of the same runtime.
+  assertLocalRuntimeAllowed();
   const loadPiStartedAt = options.onTiming ? performance.now() : 0;
   const pi = await loadPi();
   reportTaskDetailPhase(options.onTiming, "createSession.loadPi", loadPiStartedAt);

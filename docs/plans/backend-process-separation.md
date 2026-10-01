@@ -242,7 +242,7 @@ bundleパスは`LEAFCODE_PI_BACKEND_RUNTIME_BUNDLE`で差し替え可能。CLI�
 | 3. 独立API・Web中継 | **実装済み**。内部API 12エンドポイント（health／pending-snapshots／tasks一覧・detail・prompt・permission・question・abort・goal-loop／bots一覧・`bots/:id`・code-requests・code-sessions）。中継はopt-in（`LEAFCODE_PI_BACKEND_RELAY`）で、生レコード経路のみBackendを使い失敗時はプロセス内へフォールバック。 |
 | 4. Host・ビルド・再起動分離 | **実装済み**。HostがBackend子プロセス（`backend-service.js`）・起動プラン（`backend-launch.js`）・health/世代判定（`backend-health.js`）・再起動予算と世代固定（`runtime-host.mjs`）を所有。バンドルは`npm run build:backend-runtime`で生成。 |
 | 5. 切替 | **実装済み（実行は承認待ち）**。`runCutover`（check→stop-old-path→attach-backend→hand-over→verify→done＋ロールバック）、`cutoverPreflight`（start/verify位相）、Host実体への接続、`LEAFCODE_PI_CUTOVER=1`での起動時実行。Backendの起動列は全ステップ実行可能（ターン15）で、非所有モードでローカル実行されるowner-only経路は0（ターン24のカバレッジ走査）。**実切替はユーザー承認待ち**。 |
-| 6. 旧経路撤去 | **未完了**。非所有モードの不変条件は達成（セッションを触る16 routeすべてがガード済み／未配線0件、テストで強制）が、撤去手順の実行（中継フォールバック廃止→旧経路停止→harness依存除去→スイッチ撤去）は実切替後。 |
+| 6. 旧経路撤去 | **進行中**。実切替済み（2026-10-01、Backend所有）。済: 中継フォールバック廃止・中継スイッチ撤去・注意一覧の転送・所有権の永続化（再起動で維持）・所有権スイッチの両側明示と本番既定=クライアント。残りは下の「旧経路撤去の順序」のとおり。 |
 
 残作業（実測）: ①実切替の実施（ユーザー承認待ち。実行は`LEAFCODE_PI_CUTOVER=1`でHostが排他的に行い、失敗時はロールバック）と、②その後の旧経路撤去（中継フォールバック廃止→旧経路停止→harness依存除去→スイッチ撤去）、②非所有モードのSSEは2秒ポーリング（遅延あり）、③実切替の実施とその後の撤去手順、④Web全体型検証は既存拡張（`leafcode-goal-loop`／`loop-guard`）の`@earendil-works/pi-coding-agent`解決失敗により本番用`tsconfig.build.json`で代替。Bot Codeセッションのclear/unlink転送とAuto/モデル指定つきGoal Loop開始の転送は完了済み（旧版の残作業①・②は解消）。
 
@@ -370,3 +370,20 @@ Backend単独のSDK検証前には `npm --prefix backend ci --ignore-scripts` �
 5. 切替後は旧経路撤去（中継フォールバック廃止→旧経路停止→harness依存除去→スイッチ撤去）へ進む。
 
 実測した現在の状態（切替前）: 稼働中のタスクは1件（本作業の`b77593c7-68f9-4510-8403-1dd7c237fe00`、status working）で、そのleaseを保持しているため、起動中Hostのcutoverは拒否される（`active-work`・`foreign-lease`）。Hostは2026-09-28 19:52起動で、今日04:51にWebUIを再生成している（prodミラー）。本リポジトリのHEADは`72f320ca`でoriginと一致、Backendバンドルは9831KiBを再生成済み。
+
+## 旧経路撤去の順序（実測インベントリ）
+
+切替後の実測（2026-10-01）:
+
+- **セッション生成は1箇所だけ**: `web/src/lib/pi/harness.ts` の `createSession`（`sdkRuntimeFactory().createAgentSession(...)`）。生成直前に`assertLocalRuntimeAllowed()`を置き、所有者でないプロセスは呼び出し経路に関係なく拒否される（`session-creation-surface.test.ts`で「1箇所・ガード済み」を固定）。
+- **所有者判定の分岐**: `runtime-ownership.ts`（`webOwnsRuntime`／`isBackendRuntimeHost`／`localRuntimeBlocked`）。routeは28件がガード済み（`runtime-ownership-coverage.test.ts`）。lib側の利用は`runtime-startup`（起動ステップのスキップ）・`hang-watchdog`（watchdogの起動可否）・`backend-relay`（中継可否）。
+- **中継**: `backend-relay.ts`は「非所有者だけがBackendを読む」規則に縮小済み（`relayTaskRows`／`relayBotList`／`relayFallbackAllowed`）。
+- **SDK依存の種類**: 型のみ（`import type { ExtensionAPI }`等）は残ってよい。実行時依存は`harness.ts`（セッション生成・モデル解決）、`accounts.ts`（アカウントのモデルランタイム）、`auth-login.ts`、`jev-model-config.ts`、`pushover-config.ts`、`skills.ts`、`direct-session.ts`（セッションファイルの**読み取り**のみ）。
+- **owner専用の死コード候補**（スイッチ撤去後に到達不能）: `harness.ts`の`ensureLive`／`createSession`／liveライフサイクル、`runtime-startup.ts`のowner分岐、`hang-watchdog`のowner分岐。
+
+撤去順（各段階でテストを通す）:
+
+1. **明示スイッチの撤去**: Hostが渡す`LEAFCODE_PI_BACKEND_OWNS_RUNTIME`（`1`／`in-process`）と`LEAFCODE_PI_BACKEND_RUNTIME`を廃止し、WebUIは常にクライアント、Backendは常にホストとする（`runtime-owner.json`の所有権記録と`backend/core/runtime-owner-state.mjs`は残す）。
+2. **所有モード分岐の削除**: `webOwnsRuntime`／`localRuntimeBlocked`を「Backendプロセスか否か」だけに縮小し、owner側の分岐（`runtime-startup`・`hang-watchdog`・relay）を削除する。
+3. **owner専用コードの削除**: `createSession`／`ensureLive`とその依存（liveライフサイクル・owner専用のSDK実行時依存）を削除し、`session-creation-surface.test.ts`の期待値を空にする。
+4. **中継の常時化**: `backend-relay.ts`のモジュールを削除し、非所有者の読み取りは常に`backend-forward`経由とする。
