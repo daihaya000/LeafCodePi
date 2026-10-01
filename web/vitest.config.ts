@@ -11,6 +11,8 @@ const testDataRoot = join(tmpdir(), `leafcode-pi-vitest-${process.pid}`);
 
 export default defineConfig({
   resolve: {
+    // Extension tests live outside web/, but consume the same SDK peer dependencies as the runner.
+    dedupe: ["typebox", "@earendil-works/pi-ai", "@earendil-works/pi-tui"],
     alias: {
       "@": fileURLToPath(new URL("./src", import.meta.url)),
       "@shared": fileURLToPath(new URL(existsSync(fileURLToPath(new URL("./shared", import.meta.url))) ? "./shared" : "../shared", import.meta.url)),
