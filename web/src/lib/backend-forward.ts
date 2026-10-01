@@ -16,6 +16,7 @@ import {
   revertBotTaskOnBackend,
   revertRoomOnBackend,
   revertTaskOnBackend,
+  teardownTaskOnBackend,
   roomAdminOnBackend,
   runBotRoutineOnBackend,
   setTaskAgentOnBackend,
@@ -363,6 +364,23 @@ export async function forwardTaskRevert(
     return { ok: false, reason: result.reason, ...(result.status ? { status: result.status } : {}) };
   }
   return { ok: true, result: result.body ?? {} };
+}
+
+/** Archives or deletes a task in the owning Backend, which stops its running session first. */
+export async function forwardTaskTeardown(
+  id: string,
+  mode: "archive" | "destroy",
+  options: { env?: BackendEnv; fetchImpl?: typeof fetch; timeoutMs?: number } = {},
+): Promise<
+  | { ok: true; result: Record<string, unknown> | null }
+  | { ok: false; reason: BackendFailureReason | "not-found"; status?: number }
+> {
+  const result = await teardownTaskOnBackend(id, mode, options);
+  if (!result.ok) {
+    if (result.status === 404) return { ok: false, reason: "not-found", status: 404 };
+    return { ok: false, reason: result.reason, ...(result.status ? { status: result.status } : {}) };
+  }
+  return { ok: true, result: result.body?.result ?? null };
 }
 
 /** Restores the leaf after a rewind in the owning Backend. */

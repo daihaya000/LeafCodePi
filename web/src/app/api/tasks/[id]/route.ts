@@ -7,7 +7,7 @@ import {
 } from "@/lib/pi/harness";
 import { getTaskDetailBounded } from "@/lib/pi/get-task-detail-bounded";
 import { localRuntimeBlocked } from "@/lib/pi/runtime-ownership";
-import { forwardTaskDetail } from "@/lib/backend-forward";
+import { forwardTaskDetail, forwardTaskTeardown } from "@/lib/backend-forward";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -69,6 +69,21 @@ export async function DELETE(
   try {
     const { id } = await params;
     const hard = req.nextUrl.searchParams.get("hard") === "1";
+    // The running session lives in the owner: only it can stop and dispose it before the row changes.
+    if (localRuntimeBlocked()) {
+      const forwarded = await forwardTaskTeardown(id, hard ? "destroy" : "archive");
+      if (!forwarded.ok) {
+        if (forwarded.reason === "not-found") {
+          return NextResponse.json({ error: "タスクが見つかりません" }, { status: 404 });
+        }
+        return NextResponse.json(
+          { error: "Backendで実行できません", code: "BACKEND_FORWARD_FAILED", reason: forwarded.reason },
+          { status: 502 },
+        );
+      }
+      // Same shapes as the in-process path: the archived summary, or `{ ok: true }` for a delete.
+      return NextResponse.json(hard ? forwarded.result ?? { ok: true } : { task: forwarded.result });
+    }
     if (hard) {
       return NextResponse.json(await destroyTask(id));
     }

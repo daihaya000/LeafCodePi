@@ -37,6 +37,7 @@ import {
   BACKEND_TASK_QUESTION_SUFFIX,
   BACKEND_TASK_PROMPT_SUFFIX,
   BACKEND_TASK_REVERT_SUFFIX,
+  BACKEND_TASK_TEARDOWN_SUFFIX,
   BACKEND_TASK_UNREVERT_SUFFIX,
   BACKEND_TASKS_PATH,
   DEFAULT_BACKEND_PORT,
@@ -297,6 +298,15 @@ export function unrevertTaskOnBackend(
   options: { env?: BackendEnv; fetchImpl?: typeof fetch; timeoutMs?: number } = {},
 ): Promise<BackendResult<{ task: Record<string, unknown> | null }>> {
   return postBackendJson(`${BACKEND_TASKS_PATH}/${encodeURIComponent(id)}${BACKEND_TASK_UNREVERT_SUFFIX}`, {}, options);
+}
+
+/** Archives or deletes a task in the owning Backend, which stops its running session first. */
+export function teardownTaskOnBackend(
+  id: string,
+  mode: "archive" | "destroy",
+  options: { env?: BackendEnv; fetchImpl?: typeof fetch; timeoutMs?: number } = {},
+): Promise<BackendResult<{ result: Record<string, unknown> | null }>> {
+  return postBackendJson(`${BACKEND_TASKS_PATH}/${encodeURIComponent(id)}${BACKEND_TASK_TEARDOWN_SUFFIX}`, { mode }, options);
 }
 
 /**

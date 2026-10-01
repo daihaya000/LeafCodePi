@@ -30,6 +30,8 @@ export {
   // Rewinding a transcript rewrites the session and clears the owner's pending attention.
   revertTask,
   unrevertTask,
+  archiveTask,
+  destroyTask,
   // Compaction summarizes inside the session, so only the owner may run or stop it.
   compactTask,
   abortTaskCompaction,

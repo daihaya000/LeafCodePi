@@ -27,6 +27,7 @@ import {
   BACKEND_TASK_QUESTION_SUFFIX,
   BACKEND_TASK_PROMPT_SUFFIX,
   BACKEND_TASK_REVERT_SUFFIX,
+  BACKEND_TASK_TEARDOWN_SUFFIX,
   BACKEND_TASK_THINKING_SUFFIX,
   BACKEND_TASK_UNREVERT_SUFFIX,
   BACKEND_TASKS_PATH,
@@ -151,6 +152,8 @@ export function createBackendServer({
   revertTaskAction = null,
   /** Restores the leaf after a rewind: `(id) => task`; only the owner edits the session. */
   unrevertTaskAction = null,
+  /** Archives or deletes a task: `(id, "archive" | "destroy") => result`; the owner stops its session first. */
+  teardownTaskAction = null,
   /** Compacts a session: `(id, customInstructions?) => task`; the summarization runs in the owner. */
   compactTaskAction = null,
   /** Stops a running compaction: `(id) => task`; only the owner can interrupt its own session. */
@@ -203,6 +206,7 @@ export function createBackendServer({
     roomAdminDelete,
     revertTaskAction,
     unrevertTaskAction,
+    teardownTaskAction,
     compactTaskAction,
     abortCompactTaskAction,
     setTaskModelAction,
@@ -260,6 +264,7 @@ export function createBackendServer({
       BACKEND_TASK_GOAL_LOOP_SUFFIX,
       BACKEND_TASK_REVERT_SUFFIX,
       BACKEND_TASK_UNREVERT_SUFFIX,
+      BACKEND_TASK_TEARDOWN_SUFFIX,
     ].find((suffix) => taskSuffix?.endsWith(suffix));
     const actionPath = actionSuffix === undefined || !taskSuffix
       ? undefined
@@ -336,6 +341,7 @@ export function createBackendServer({
         [BACKEND_TASK_GOAL_LOOP_SUFFIX]: goalLoopAction,
         [BACKEND_TASK_REVERT_SUFFIX]: revertTaskAction,
         [BACKEND_TASK_UNREVERT_SUFFIX]: unrevertTaskAction,
+        [BACKEND_TASK_TEARDOWN_SUFFIX]: teardownTaskAction,
         [BACKEND_TASK_COMPACT_SUFFIX]: compactTaskAction,
         [BACKEND_TASK_COMPACT_ABORT_SUFFIX]: abortCompactTaskAction,
         [BACKEND_TASK_MODEL_SUFFIX]: setTaskModelAction,
@@ -430,6 +436,13 @@ export function createBackendServer({
             return;
           }
           sendJson(response, 200, { task });
+        } else if (actionSuffix === BACKEND_TASK_TEARDOWN_SUFFIX) {
+          const mode = body.value?.mode;
+          if (mode !== "archive" && mode !== "destroy") {
+            sendJson(response, 400, { error: "Invalid teardown request", code: BACKEND_ERROR_CODES.badRequest });
+            return;
+          }
+          sendJson(response, 200, { result: await handler(actionPath, mode) });
         } else if (actionSuffix === BACKEND_TASK_ABORT_SUFFIX) {
           const botId = typeof body.value?.botId === "string" && body.value.botId ? body.value.botId : null;
           const task = await handler(actionPath, botId);

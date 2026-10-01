@@ -38,6 +38,11 @@ export const BACKEND_TASK_ABORT_SUFFIX = "/abort";
 export const BACKEND_TASK_REVERT_SUFFIX = "/revert";
 export const BACKEND_TASK_UNREVERT_SUFFIX = "/unrevert";
 /**
+ * Archiving or deleting a task: `POST /internal/tasks/:id/teardown` with `{ mode: "archive" | "destroy" }`.
+ * The running session lives in the owner, so only the owner can stop and dispose it before the row changes.
+ */
+export const BACKEND_TASK_TEARDOWN_SUFFIX = "/teardown";
+/**
  * Compaction: `POST /internal/tasks/:id/compact` with `{ customInstructions? }`, and
  * `POST /internal/tasks/:id/compact/abort` to stop it. Compaction runs inside the owning session.
  */

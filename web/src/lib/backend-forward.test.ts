@@ -18,6 +18,7 @@ import {
   forwardTaskAgent,
   forwardRoomRevert,
   forwardTaskRevert,
+  forwardTaskTeardown,
   forwardTaskUnrevert,
   forwardPendingRequestsByTask,
   forwardTaskPendingRequests,
@@ -381,6 +382,25 @@ describe("forwardPendingAttention", () => {
     const missing = vi.fn<typeof fetch>(async () => jsonResponse(200, {}));
     await expect(forwardPendingAttention({ env, fetchImpl: missing })).resolves.toEqual({ ok: true, items: [] });
     await expect(forwardPendingAttention({ env: {} })).resolves.toEqual({ ok: false, reason: "not-configured" });
+  });
+});
+
+describe("forwardTaskTeardown", () => {
+  it("asks the owner to archive or delete, and keeps a miss as not-found", async () => {
+    const fetchImpl = vi.fn<typeof fetch>(async () => jsonResponse(200, { result: { ok: true } }));
+    await expect(forwardTaskTeardown("task-1", "destroy", { env, fetchImpl })).resolves.toEqual({
+      ok: true, result: { ok: true },
+    });
+    expect(fetchImpl.mock.calls[0][0]).toBe("http://127.0.0.1:19999/internal/tasks/task-1/teardown");
+    expect(JSON.parse(String(fetchImpl.mock.calls[0][1]?.body))).toEqual({ mode: "destroy" });
+    const missing = vi.fn<typeof fetch>(async () => jsonResponse(404, { error: "x" }));
+    await expect(forwardTaskTeardown("task-1", "archive", { env, fetchImpl: missing })).resolves.toEqual({
+      ok: false, reason: "not-found", status: 404,
+    });
+    const unreachable = vi.fn<typeof fetch>(async () => { throw new Error("connect refused"); });
+    await expect(forwardTaskTeardown("task-1", "archive", { env, fetchImpl: unreachable })).resolves.toEqual({
+      ok: false, reason: "unreachable",
+    });
   });
 });
 

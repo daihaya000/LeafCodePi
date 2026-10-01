@@ -230,6 +230,15 @@ try {
       }
       return runtime.revertTask(id, entryId);
     },
+    // Archiving or deleting stops and disposes the live session, which only the owner holds.
+    teardownTaskAction: (id, mode) => {
+      const runtime = started.runtime();
+      const run = mode === "destroy" ? runtime?.destroyTask : runtime?.archiveTask;
+      if (typeof run !== "function") {
+        throw Object.assign(new Error("runtime unavailable"), { status: 503 });
+      }
+      return run(id);
+    },
     // Restoring the leaf after a rewind is the same kind of session edit.
     unrevertTaskAction: (id) => {
       const runtime = started.runtime();

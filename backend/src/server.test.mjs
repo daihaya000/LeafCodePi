@@ -899,6 +899,41 @@ test("a forwarded task revert and unrevert reach the runtime owner", async (t) =
   );
 });
 
+test("a forwarded task teardown reaches the runtime owner with its mode", async (t) => {
+  const seen = [];
+  const { snapshotsUrl, headers } = await fixture(t, {
+    teardownTaskAction: async (id, mode) => {
+      seen.push([id, mode]);
+      if (id === "gone") throw Object.assign(new Error("missing"), { status: 404 });
+      return mode === "destroy" ? { ok: true } : { id, status: "archived" };
+    },
+  });
+  const base = snapshotsUrl.replace("pending-snapshots", "tasks");
+  const post = (url, body) => request(url, {
+    method: "POST", headers: { ...headers, "content-type": "application/json" }, body: JSON.stringify(body),
+  });
+  const archived = await post(`${base}/task-1/teardown`, { mode: "archive" });
+  assert.equal(archived.status, 200);
+  assert.deepEqual(await archived.json(), { result: { id: "task-1", status: "archived" } });
+  const destroyed = await post(`${base}/task-1/teardown`, { mode: "destroy" });
+  assert.deepEqual(await destroyed.json(), { result: { ok: true } });
+  assert.deepEqual(seen, [["task-1", "archive"], ["task-1", "destroy"]]);
+  // Only the two known modes reach the owner, and an unknown task keeps the owner's 404.
+  assert.equal((await post(`${base}/task-1/teardown`, { mode: "wipe" })).status, 400);
+  assert.equal((await post(`${base}/task-1/teardown`, {})).status, 400);
+  assert.equal((await post(`${base}/gone/teardown`, { mode: "destroy" })).status, 404);
+  assert.equal((await request(`${base}/task-1/teardown`, { headers })).status, 405);
+  const detached = await fixture(t);
+  const detachedBase = detached.snapshotsUrl.replace("pending-snapshots", "tasks");
+  assert.equal((await request(`${detachedBase}/task-1/teardown`, {
+    method: "POST", headers: { ...detached.headers, "content-type": "application/json" }, body: JSON.stringify({ mode: "archive" }),
+  })).status, 503);
+  assert.throws(
+    () => createBackendServer({ token: randomBytes(32).toString("base64url"), teardownTaskAction: 5 }),
+    /teardownTaskAction must be a function or null/,
+  );
+});
+
 test("a forwarded Room revert reaches the runtime owner", async (t) => {
   const seen = [];
   const { snapshotsUrl, headers } = await fixture(t, {
