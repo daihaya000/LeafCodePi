@@ -256,6 +256,31 @@ test("opt-out and an existing synchronization lock never spawn npm", () => {
   } finally { f.cleanup(); }
 });
 
+test("a dead-owner deps lock is reclaimed instead of bricking Host restart", () => {
+  const f = fixture();
+  const npm = fakeNpm();
+  try {
+    writeFileSync(join(f.webDir, ".leafcode-pi-deps.lock"), JSON.stringify({ pid: 424_242 }));
+    const result = autoUpdatePi({ ...f, ...npm });
+    assert.equal(result.safeToStart, true);
+    assert.equal(result.error, undefined);
+    assert.equal(existsSync(join(f.webDir, ".leafcode-pi-deps.lock")), false);
+    assert.ok(npm.calls.length >= 2);
+  } finally { f.cleanup(); }
+});
+
+test("build gates ignore a dead-owner deps lock but still refuse a live or opaque one", () => {
+  const f = fixture();
+  try {
+    writeFileSync(join(f.webDir, ".leafcode-pi-deps.lock"), JSON.stringify({ pid: 424_242 }));
+    assert.doesNotThrow(() => assertPiDependencyVersions(f.webDir, f.backendDir));
+    writeFileSync(join(f.webDir, ".leafcode-pi-deps.lock"), "worker");
+    assert.throws(() => assertPiDependencyVersions(f.webDir, f.backendDir), /unfinished/);
+    writeFileSync(join(f.webDir, ".leafcode-pi-deps.lock"), JSON.stringify({ pid: process.pid }));
+    assert.throws(() => assertPiDependencyVersions(f.webDir, f.backendDir), /unfinished/);
+  } finally { f.cleanup(); }
+});
+
 test("manual updates are refused while a Host is running", () => {
   const f = fixture();
   const npm = fakeNpm();
@@ -419,6 +444,9 @@ test("a timed-out worker that is still alive keeps the deps lock so a second syn
     });
     assert.equal(timedOut.safeToStart, false);
     assert.equal(existsSync(join(f.webDir, ".leafcode-pi-deps.lock")), true);
+    // The Host left the lock because it believes the worker is alive; use a real live pid so the
+    // gate's ESRCH check matches that belief under unit-test PIDs.
+    writeFileSync(join(f.webDir, ".leafcode-pi-deps.lock"), JSON.stringify({ pid: process.pid }));
     assert.throws(() => assertPiDependencyVersions(f.webDir, f.backendDir), /unfinished/);
   } finally { f.cleanup(); }
 });
