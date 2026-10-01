@@ -479,7 +479,16 @@ function isCutoverRequested(env = {}) {
   return new Set(["1", "true", "yes"]).has((env.LEAFCODE_PI_CUTOVER ?? "").trim().toLowerCase());
 }
 
-async function spawnWeb({ pull = true, ownership = "in-process", relay = false } = {}) {
+/**
+ * The ownership the WebUI is running with. A restart must preserve it: after the cutover the Backend
+ * owns the Pi runtime, and a WebUI restarted as an owner would be a second owner writing the same
+ * store, leases and sessions. Every spawn records what it started, and the cutover updates it when
+ * it hands the runtime over (or rolls back).
+ */
+let webOwnership = { ownership: "in-process", relay: false };
+
+async function spawnWeb({ pull = true, ownership = webOwnership.ownership, relay = webOwnership.relay } = {}) {
+  webOwnership = { ownership, relay };
   installWebIfNeeded();
   let hasBuild = hasProductionBuild();
   const skipStaleBuild = consumeSkipStaleRebuild(process.env);
@@ -671,6 +680,20 @@ async function restartWeb() {
   if (blocked) {
     error(blocked);
     return;
+  }
+  // A client WebUI may only come back while the Backend it depends on is genuinely ready: starting
+  // one against a stopped or unready Backend would serve a UI that cannot own anything.
+  if (webOwnership.ownership === "backend" && backendService) {
+    const clientEnv = backendService.clientEnv();
+    const health = await readBackendHealth({
+      baseUrl: clientEnv.LEAFCODE_PI_BACKEND_URL ?? `http://127.0.0.1:${DEFAULT_BACKEND_PORT}`,
+      token: clientEnv.LEAFCODE_PI_BACKEND_TOKEN,
+      expectedGeneration: backendService.status().generation ?? "",
+    });
+    if (health.ok !== true || health.ready !== true) {
+      error("Refusing to restart the WebUI as a Backend client while the Backend is not ready");
+      return;
+    }
   }
   restarting = true;
   log("Restarting LeafCodePi WebUI...");
