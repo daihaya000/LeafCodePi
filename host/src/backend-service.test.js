@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
 import { join } from "node:path";
 import { test } from "node:test";
-import { createBackendService, isBackendRequested } from "./backend-service.js";
+import { createBackendService, isBackendRequested, shouldRunBackend } from "./backend-service.js";
 
 const REPO_ROOT = join("C:", "repo");
 
@@ -30,6 +30,18 @@ test("the Backend is off unless an operator asks for it", () => {
   for (const value of ["", "0", "no", "maybe", undefined]) {
     assert.equal(isBackendRequested({ LEAFCODE_PI_BACKEND: value }), false, String(value));
   }
+});
+
+test("production runs the Backend by default, and only an explicit opt-out stops it", () => {
+  assert.equal(shouldRunBackend({}), true);
+  assert.equal(shouldRunBackend({ LEAFCODE_PI_MODE: "prod" }), true);
+  assert.equal(shouldRunBackend({ LEAFCODE_PI_BACKEND: "1" }), true);
+  for (const value of ["0", "false", "no", "off", " OFF "]) {
+    assert.equal(shouldRunBackend({ LEAFCODE_PI_BACKEND: value }), false, value);
+  }
+  // A development WebUI owns the runtime itself, so there is no Backend to run next to it.
+  assert.equal(shouldRunBackend({ LEAFCODE_PI_MODE: "dev" }), false);
+  assert.equal(shouldRunBackend({ LEAFCODE_PI_BACKEND: "dev" }), false);
 });
 
 test("starting spawns the planned Backend once, with the pinned generation", () => {

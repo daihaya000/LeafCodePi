@@ -14,10 +14,26 @@ import { backendClientEnv, backendLaunchPlan } from "./backend-launch.js";
 export const BACKEND_RESTART_BUDGET_RESET_MS = 60_000;
 
 const REQUESTED_VALUES = new Set(["1", "true", "yes", "attach"]);
+const DISABLED_VALUES = new Set(["0", "false", "no", "off"]);
 
 /** Whether the operator asked the Host to run a Backend process. */
 export function isBackendRequested(env = {}) {
   return REQUESTED_VALUES.has((env.LEAFCODE_PI_BACKEND ?? "").trim().toLowerCase());
+}
+
+/**
+ * Whether the Host runs the Backend process.
+ *
+ * The shipped architecture owns the runtime there, so production always runs one: a WebUI started
+ * without a Backend would be a client of nothing. An explicit `LEAFCODE_PI_BACKEND=0` (tests,
+ * headless probes) and an explicit development mode (where `next dev` owns the runtime itself) turn
+ * it off.
+ */
+export function shouldRunBackend(env = {}) {
+  const value = (env.LEAFCODE_PI_BACKEND ?? "").trim().toLowerCase();
+  if (DISABLED_VALUES.has(value)) return false;
+  if (value === "dev") return false;
+  return (env.LEAFCODE_PI_MODE ?? "").trim().toLowerCase() !== "dev";
 }
 
 export function createBackendService({

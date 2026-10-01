@@ -242,7 +242,7 @@ bundleパスは`LEAFCODE_PI_BACKEND_RUNTIME_BUNDLE`で差し替え可能。CLI�
 | 3. 独立API・Web中継 | **実装済み**。内部API 12エンドポイント（health／pending-snapshots／tasks一覧・detail・prompt・permission・question・abort・goal-loop／bots一覧・`bots/:id`・code-requests・code-sessions）。中継はopt-in（`LEAFCODE_PI_BACKEND_RELAY`）で、生レコード経路のみBackendを使い失敗時はプロセス内へフォールバック。 |
 | 4. Host・ビルド・再起動分離 | **実装済み**。HostがBackend子プロセス（`backend-service.js`）・起動プラン（`backend-launch.js`）・health/世代判定（`backend-health.js`）・再起動予算と世代固定（`runtime-host.mjs`）を所有。バンドルは`npm run build:backend-runtime`で生成。 |
 | 5. 切替 | **実装済み（実行は承認待ち）**。`runCutover`（check→stop-old-path→attach-backend→hand-over→verify→done＋ロールバック）、`cutoverPreflight`（start/verify位相）、Host実体への接続、`LEAFCODE_PI_CUTOVER=1`での起動時実行。Backendの起動列は全ステップ実行可能（ターン15）で、非所有モードでローカル実行されるowner-only経路は0（ターン24のカバレッジ走査）。**実切替はユーザー承認待ち**。 |
-| 6. 旧経路撤去 | **進行中**。実切替済み（2026-10-01、Backend所有）。済: 中継フォールバック廃止・中継スイッチ撤去・注意一覧の転送・所有権の永続化（再起動で維持）・所有権スイッチの両側明示と本番既定=クライアント。残りは下の「旧経路撤去の順序」のとおり。 |
+| 6. 旧経路撤去 | **進行中**。実切替済み（2026-10-01、Backend所有）。済: 中継フォールバック廃止・中継スイッチ撤去・注意一覧の転送・所有権の永続化（再起動で維持）・所有権スイッチの両側明示と本番既定=クライアント・**本番は起動時からBackendを常時起動しWebUIは常にクライアント**（切替不要。`shouldRunBackend`）。残りは下の「旧経路撤去の順序」のとおり（推奨はフォールバックの完全撤去。判断待ち）。 |
 
 残作業（実測）: ①実切替の実施（ユーザー承認待ち。実行は`LEAFCODE_PI_CUTOVER=1`でHostが排他的に行い、失敗時はロールバック）と、②その後の旧経路撤去（中継フォールバック廃止→旧経路停止→harness依存除去→スイッチ撤去）、②非所有モードのSSEは2秒ポーリング（遅延あり）、③実切替の実施とその後の撤去手順、④Web全体型検証は既存拡張（`leafcode-goal-loop`／`loop-guard`）の`@earendil-works/pi-coding-agent`解決失敗により本番用`tsconfig.build.json`で代替。Bot Codeセッションのclear/unlink転送とAuto/モデル指定つきGoal Loop開始の転送は完了済み（旧版の残作業①・②は解消）。
 
@@ -387,3 +387,5 @@ Backend単独のSDK検証前には `npm --prefix backend ci --ignore-scripts` �
 2. **所有モード分岐の削除**: `webOwnsRuntime`／`localRuntimeBlocked`を「Backendプロセスか否か」だけに縮小し、owner側の分岐（`runtime-startup`・`hang-watchdog`・relay）を削除する。
 3. **owner専用コードの削除**: `createSession`／`ensureLive`とその依存（liveライフサイクル・owner専用のSDK実行時依存）を削除し、`session-creation-surface.test.ts`の期待値を空にする。
 4. **中継の常時化**: `backend-relay.ts`のモジュールを削除し、非所有者の読み取りは常に`backend-forward`経由とする。
+
+進捗: 本番の起動は常に「Backendをattachedで先に起動→ready待ち（最大20秒）→WebUIをクライアントで起動」になった（`shouldRunBackend`、2026-10-01）。ロールバック（`startWebUi({ownsRuntime:true})`）と`LEAFCODE_PI_BACKEND_OWNS_RUNTIME=in-process`だけが旧モードの残存経路で、ここを消すかどうかが推奨判断（推奨=消す: 所有者が常に1つになる。Backend不調時はセッション系APIが503のまま、WebUIは起動して`/api/backend/status`で状態を見られる）。

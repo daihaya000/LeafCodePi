@@ -17,7 +17,7 @@ import { getListeningPids, getPortListenerStatus } from "./port-scanner.js";
 import { hardKillTree, stopProcessTreeGracefully } from "./process-stop.js";
 import { buildHostRestartScript } from "./host-restart.js";
 import { DEFAULT_BACKEND_PORT } from "../../shared/backend-protocol.mjs";
-import { createBackendService, isBackendRequested } from "./backend-service.js";
+import { createBackendService, shouldRunBackend } from "./backend-service.js";
 import { readBackendHealth, waitForBackendReady } from "./backend-health.js";
 // The ownership contract is shared with the Backend (the other writer), so it lives in backend core.
 import { BACKEND_OWNER, readRuntimeOwner, writeRuntimeOwner } from "../../backend/core/runtime-owner-state.mjs";
@@ -176,7 +176,8 @@ let restarting = false;
  * detached (no SDK runtime) until the cutover hands the runtime over: two owners would double-write
  * the store, leases and sessions.
  */
-const backendService = isBackendRequested(process.env)
+// Production runs the Backend by default: it owns the Pi runtime, so the WebUI is always its client.
+const backendService = shouldRunBackend(process.env)
   ? createBackendService({ repoRoot: REPO_ROOT, env: process.env, spawn, log, error })
   : null;
 let bindingReconcileInProgress = false;
@@ -613,11 +614,8 @@ async function spawnWeb({ pull = true, ownership = webOwnership.ownership } = {}
       // Bundled WebUI extensions and skills live in the repo (prod runs from the web/ mirror).
       LEAFCODE_PI_EXTENSIONS_DIR: join(REPO_ROOT, "extensions"),
       LEAFCODE_PI_SKILLS_DIR: join(REPO_ROOT, "skills"),
-      // Who owns the Pi runtime. "in-process" is the pre-cutover default; "backend" makes this WebUI
-      // a client of the independent Backend, which then owns sessions, leases and schedules (and a
-      // client always reads that owner's view — the ownership is the only switch left).
-      // The switch is explicit on both sides: the WebUI's own default (production = client) must not
-      // decide what a Host-started process is.
+      // Who owns the Pi runtime. The Host always starts a client in production; the owner value only
+      // remains for the rollback path of a cutover, which restores the pre-cutover architecture.
       LEAFCODE_PI_BACKEND_OWNS_RUNTIME: ownership === "backend" ? "1" : "in-process",
       // How the WebUI reaches the Backend, and which runtime generation to expect. Absent when no
       // Backend is configured, so the WebUI keeps its in-process path.
@@ -1160,8 +1158,9 @@ async function main() {
   process.on("exit", onHostExit);
 
   try {
-    // The ownership the last cutover recorded: a restart must come back on the same side.
-    await spawnWeb({ ownership: readRuntimeOwner(DATA_DIR) });
+    // The Backend owns the runtime in this build, so the WebUI starts as its client from the first
+    // launch: no hand-over is needed, and the recorded ownership only confirms it after a restart.
+    await spawnWeb({ ownership: "backend" });
   } catch (err) {
     removeLock(LOCK_FILE);
     error(err instanceof Error ? err.message : String(err));

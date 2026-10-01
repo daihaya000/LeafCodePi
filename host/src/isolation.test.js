@@ -279,15 +279,16 @@ test("a WebUI restart keeps the runtime ownership the cutover handed over", () =
   assert.match(restart, /Refusing to restart the WebUI as a Backend client/);
 });
 
-test("the cutover's ownership survives a Host restart", () => {
+test("production starts Backend-owned without a hand-over", () => {
   const index = readFileSync(join(repoRoot, "host", "src", "index.js"), "utf8");
-  // Startup reads the recorded decision instead of defaulting to an owner WebUI.
-  assert.match(index, /await spawnWeb\(\{ ownership: readRuntimeOwner\(DATA_DIR\) \}\)/);
+  // The Backend owns the runtime in the shipped build, so the Host runs one by default.
+  assert.match(index, /const backendService = shouldRunBackend\(process\.env\)/);
+  assert.match(index, /await spawnWeb\(\{ ownership: "backend" \}\)/);
   // A restarted Host brings the Backend back attached before the client WebUI is served.
   assert.match(index, /if \(ownership === "backend" && backendService\)/);
   assert.match(index, /backendService\.start\(\{ attachRuntime: true \}\)/);
   assert.match(index, /waitForBackendReady\(/);
-  // The cutover records what it decided, so the next start is on the same side.
+  // The cutover still records what it decided, so a rollback start comes back on the same side.
   assert.match(index, /writeRuntimeOwner\(DATA_DIR, cutover\.ok \? BACKEND_OWNER : "in-process"\)/);
 });
 
