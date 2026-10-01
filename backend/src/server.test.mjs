@@ -14,7 +14,6 @@ import {
   BACKEND_PROTOCOL_HEADER,
   BACKEND_PROTOCOL_VERSION,
 } from "../../shared/backend-protocol.mjs";
-import { createPendingSnapshotStore } from "../core/pending-snapshot-store.mjs";
 import { loadBackendRuntime } from "./runtime-loader.mjs";
 import { closeBackend, createBackendServer, listenBackend } from "./server.mjs";
 
@@ -136,10 +135,12 @@ test("unknown routes and methods cannot bypass authentication", async (t) => {
 });
 
 test("serves the pending snapshot per task to an authenticated reader", async (t) => {
-  const store = createPendingSnapshotStore({ limit: 8 });
-  store.record("task-1", { eventType: "compaction_end", extra: { error: "boom" } });
-  store.record("task-2", { eventType: "message_update", isDelta: true });
-  const { snapshotsUrl, headers } = await fixture(t, { readPendingSnapshots: () => store.list() });
+  // The reader is whatever the owner injects; the route only forwards its answer.
+  const snapshots = [
+    { taskId: "task-1", eventType: "compaction_end", extra: { error: "boom" }, isDelta: false },
+    { taskId: "task-2", eventType: "message_update", isDelta: true },
+  ];
+  const { snapshotsUrl, headers } = await fixture(t, { readPendingSnapshots: () => snapshots });
   const response = await request(snapshotsUrl, { headers });
   assert.equal(response.status, 200);
   assert.equal(response.headers.get("cache-control"), "no-store");
