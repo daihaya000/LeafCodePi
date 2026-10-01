@@ -20,7 +20,7 @@ export function streamRuntimeEvents(response, subscribe) {
   response.flushHeaders();
   try {
     unsubscribe = subscribe(({ event, payload }) => {
-      if (closed || !["snapshot", "routine"].includes(event)) return;
+      if (closed || !["snapshot", "routine", "task_dirty"].includes(event)) return;
       // Drop a stalled transport rather than buffer unbounded events. EventSource reconnects.
       try {
         if (!response.write(`event: ${event}\ndata: ${JSON.stringify(payload)}\n\n`)) response.destroy();

@@ -34,6 +34,7 @@ export {
   setCacheWarmingMode,
   refreshCompactionSuggestions,
   subscribeBotCodeSession,
+  subscribeTaskDirty,
   startBotCodeRelay,
   applyCodePermissionSettingsToLiveTasks,
   // Rewinding a transcript rewrites the session and clears the owner's pending attention.

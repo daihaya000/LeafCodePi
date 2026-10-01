@@ -93,9 +93,20 @@ try {
       if (!runtime) throw new Error("runtime unavailable");
       const unsubscribeCode = runtime.subscribeBotCodeSession((payload) => listener({ event: "snapshot", payload }));
       let unsubscribeRoutine;
-      try { unsubscribeRoutine = runtime.subscribeRoutineRuns((payload) => listener({ event: "routine", payload })); }
-      catch (error) { unsubscribeCode(); throw error; }
-      return () => { unsubscribeCode(); unsubscribeRoutine(); };
+      let unsubscribeDirty;
+      try {
+        unsubscribeRoutine = runtime.subscribeRoutineRuns((payload) => listener({ event: "routine", payload }));
+        unsubscribeDirty = runtime.subscribeTaskDirty((payload) => listener({ event: "task_dirty", payload }));
+      } catch (error) {
+        unsubscribeCode();
+        unsubscribeRoutine?.();
+        throw error;
+      }
+      return () => {
+        unsubscribeCode();
+        unsubscribeRoutine();
+        unsubscribeDirty();
+      };
     },
     runtimeControlAction: async ({ action, value }) => {
       const runtime = started.runtime();

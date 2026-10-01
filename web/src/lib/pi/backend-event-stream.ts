@@ -1,19 +1,22 @@
 import { pageTaskDetailMessages } from "@/lib/task-history";
 import { forwardTaskDetail, forwardTaskPendingRequests } from "@/lib/backend-forward";
+import { subscribeBackendTaskDirty } from "@/lib/backend-task-dirty-hub";
 
 /**
  * The event stream of a task this process does not own.
  *
  * After the cutover the Backend owns the session, so a WebUI stream must be built from the Backend's
- * detail — never from a local subscription or an `ensureLive` — and refreshed by polling. The pending
- * approval/question lives in the owner's memory, so it comes from the Backend's pending snapshots too:
- * without that the approval prompt would never appear after the cutover.
+ * detail — never from a local subscription or an `ensureLive` — and refreshed by polling or by a
+ * Backend dirty wake. The pending approval/question lives in the owner's memory, so it comes from
+ * the Backend's pending snapshots too: without that the approval prompt would never appear after
+ * the cutover.
+ *
+ * Idle polls use `messages=omit` and keep the last page locally when `messageRevision` is unchanged,
+ * so the owner skips full history projection. Streaming/compacting and revision changes still fetch
+ * a page. Dirty wakes refetch immediately; a slow idle timer remains as a safety net.
  *
  * An initial failed read is reported to the caller, which ends the stream with an error. Failed polls
  * retry on the next tick; falling back to an in-process session would report a state we do not own.
- *
- * Streaming polls stay at {@link BACKEND_EVENT_POLL_MS}; idle polls stretch to
- * {@link BACKEND_EVENT_IDLE_POLL_MS} so cutover clients do not keep projecting every open task at 2Hz.
  */
 
 /** What the helper needs from an SSE writer; `createSseWriter` satisfies it. */
@@ -24,31 +27,72 @@ export type BackendEventSink = {
 };
 
 export const BACKEND_EVENT_POLL_MS = 2_000;
-/** Idle remote polls are slower: open tabs otherwise hammer full detail projection every 2s. */
+/** Idle remote polls without a dirty wake: open tabs otherwise hammer full detail projection. */
 export const BACKEND_EVENT_IDLE_POLL_MS = 5_000;
+/** When Backend dirty events are subscribed, idle safety-net polls can stretch further. */
+export const BACKEND_EVENT_DIRTY_IDLE_POLL_MS = 30_000;
 
 type PendingRequests = { permissionRequest: unknown; questionRequest: unknown };
+type DetailMessages = "page" | "omit";
 type BackendSnapshotRead = [
   Awaited<ReturnType<typeof forwardTaskDetail>>,
   Awaited<ReturnType<typeof forwardTaskPendingRequests>>,
 ];
+type CachedPage = {
+  messages: unknown[];
+  messageHistory: unknown;
+  messageRevision: string;
+};
+
 // Share only in-flight reads, never cached state: approvals and rewinds must stay fresh.
-// ponytail: coalesces within one Web worker; a Backend event relay would also remove polling.
+// Key includes the message mode so omit/page waiters never share a mismatched response.
 const inFlightReads = new Map<string, Promise<BackendSnapshotRead>>();
 
-function readBackendSnapshot(id: string): Promise<BackendSnapshotRead> {
-  const existing = inFlightReads.get(id);
+function readBackendSnapshot(id: string, messages: DetailMessages): Promise<BackendSnapshotRead> {
+  const key = `${id}:${messages}`;
+  const existing = inFlightReads.get(key);
   if (existing) return existing;
-  const read = Promise.allSettled([forwardTaskDetail(id, { messages: "page" }), forwardTaskPendingRequests(id)])
+  const read = Promise.allSettled([forwardTaskDetail(id, { messages }), forwardTaskPendingRequests(id)])
     .then(([detail, pending]): BackendSnapshotRead => {
       // Keep a rejected read coalesced until its sibling finishes too.
       if (detail.status === "rejected") throw detail.reason;
       if (pending.status === "rejected") throw pending.reason;
       return [detail.value, pending.value];
     })
-    .finally(() => { inFlightReads.delete(id); });
-  inFlightReads.set(id, read);
+    .finally(() => { inFlightReads.delete(key); });
+  inFlightReads.set(key, read);
   return read;
+}
+
+function detailRevision(detail: Record<string, unknown> | null | undefined): string | undefined {
+  return typeof detail?.messageRevision === "string" && detail.messageRevision
+    ? detail.messageRevision
+    : undefined;
+}
+
+function cachePageFromDetail(detail: Record<string, unknown> | null): CachedPage | undefined {
+  const messageRevision = detailRevision(detail);
+  if (!detail || !messageRevision) return undefined;
+  const paged = pageTaskDetailMessages(detail);
+  return {
+    messages: paged.messages,
+    messageHistory: paged.messageHistory,
+    messageRevision,
+  };
+}
+
+function mergeOmitWithCache(
+  detail: Record<string, unknown> | null,
+  cache: CachedPage | undefined,
+): { detail: Record<string, unknown> | null; needsPage: boolean } {
+  if (!detail) return { detail, needsPage: false };
+  const revision = detailRevision(detail);
+  if (!revision || !cache) return { detail, needsPage: true };
+  if (revision !== cache.messageRevision) return { detail, needsPage: true };
+  return {
+    detail: { ...detail, messages: cache.messages, messageHistory: cache.messageHistory },
+    needsPage: false,
+  };
 }
 
 /** The task-detail fields that are sent separately, so they are not duplicated inside `task`. */
@@ -116,27 +160,36 @@ export async function startBackendTaskStream({
   extra = {},
   intervalMs = BACKEND_EVENT_POLL_MS,
   idleIntervalMs = BACKEND_EVENT_IDLE_POLL_MS,
+  dirtyIdleIntervalMs = BACKEND_EVENT_DIRTY_IDLE_POLL_MS,
   setTimeoutImpl = setTimeout,
   clearTimeoutImpl = clearTimeout,
+  subscribeDirty = subscribeBackendTaskDirty,
 }: {
   id: string;
   sse: BackendEventSink;
   extra?: Record<string, unknown> | (() => Record<string, unknown>);
   intervalMs?: number;
   idleIntervalMs?: number;
+  dirtyIdleIntervalMs?: number;
   setTimeoutImpl?: typeof setTimeout;
   clearTimeoutImpl?: typeof clearTimeout;
+  subscribeDirty?: typeof subscribeBackendTaskDirty;
 }): Promise<{ ok: true; stop: () => void } | { ok: false; reason: string }> {
-  const [detail, pending] = await readBackendSnapshot(id);
+  const [detail, pending] = await readBackendSnapshot(id, "page");
   if (!detail.ok) return { ok: false, reason: detail.reason };
   let stopped = false;
   let busy = false;
   let timer: ReturnType<typeof setTimeout> | undefined;
+  let wake: (() => void) | undefined;
+  let dirtyAttached = false;
+  let cachedPage = cachePageFromDetail(detail.detail);
   let lastStreaming = detail.detail?.isStreaming === true || detail.detail?.isCompacting === true;
   const stop = () => {
     stopped = true;
     if (timer !== undefined) clearTimeoutImpl(timer);
     timer = undefined;
+    wake?.();
+    wake = undefined;
   };
   const extraFields = (): Record<string, unknown> => {
     try {
@@ -168,39 +221,64 @@ export async function startBackendTaskStream({
     lastSnapshot = serialized;
     lastStreaming = current?.isStreaming === true || current?.isCompacting === true;
   };
+  const readNext = async (): Promise<{ detail: Record<string, unknown> | null; pending: BackendSnapshotRead[1] } | null> => {
+    const mode: DetailMessages = lastStreaming || !cachedPage ? "page" : "omit";
+    const [next, requests] = await readBackendSnapshot(id, mode);
+    if (stopped || sse.closed || !next.ok) return null;
+    if (mode === "page") {
+      cachedPage = cachePageFromDetail(next.detail) ?? cachedPage;
+      return { detail: next.detail, pending: requests };
+    }
+    const merged = mergeOmitWithCache(next.detail, cachedPage);
+    if (!merged.needsPage) return { detail: merged.detail, pending: requests };
+    const [full, fullPending] = await readBackendSnapshot(id, "page");
+    if (stopped || sse.closed || !full.ok) return null;
+    cachedPage = cachePageFromDetail(full.detail) ?? cachedPage;
+    return { detail: full.detail, pending: fullPending.ok ? fullPending : requests };
+  };
+  const pollOnce = async () => {
+    if (stopped || sse.closed) {
+      stop();
+      return;
+    }
+    if (busy) return;
+    busy = true;
+    try {
+      const next = await readNext();
+      if (next) send(next.detail, next.pending);
+    } catch {
+      // A transient transport/read failure retries without opening a local session.
+    } finally {
+      busy = false;
+      schedule();
+    }
+  };
   const schedule = () => {
     if (stopped || sse.closed) {
       stop();
       return;
     }
-    const delay = lastStreaming ? intervalMs : idleIntervalMs;
+    if (timer !== undefined) clearTimeoutImpl(timer);
+    const delay = lastStreaming ? intervalMs : dirtyAttached ? dirtyIdleIntervalMs : idleIntervalMs;
     timer = setTimeoutImpl(() => {
-      void (async () => {
-        if (stopped || sse.closed) {
-          stop();
-          return;
-        }
-        if (busy) {
-          schedule();
-          return;
-        }
-        busy = true;
-        try {
-          const [next, requests] = await readBackendSnapshot(id);
-          if (!next.ok) return;
-          send(next.detail, requests);
-        } catch {
-          // A transient transport/read failure retries without opening a local session.
-        } finally {
-          busy = false;
-          schedule();
-        }
-      })();
+      void pollOnce();
     }, delay);
     timer.unref?.();
   };
   send(detail.detail, pending);
   if (sse.closed) return { ok: true, stop };
+  try {
+    wake = subscribeDirty(id, () => {
+      if (stopped || sse.closed || busy) return;
+      if (timer !== undefined) clearTimeoutImpl(timer);
+      timer = undefined;
+      void pollOnce();
+    });
+    dirtyAttached = true;
+  } catch {
+    dirtyAttached = false;
+    wake = undefined;
+  }
   schedule();
   return { ok: true, stop };
 }

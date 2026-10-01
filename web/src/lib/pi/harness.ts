@@ -1554,9 +1554,36 @@ function emit(
     permissionRequest: pendingPermissionForTask(taskId),
     questionRequest: pendingQuestionForTask(taskId),
   } : payload);
+  // Deltas are high-frequency; remote Web streams poll while streaming. Lifecycle/attention
+  // snapshots must still wake the cutover UI even when this process has no SSE listeners.
+  if (payload.type !== "delta") {
+    publishTaskDirty(taskId, typeof payload.eventType === "string" ? payload.eventType : payload.type);
+  }
 }
 
 const BOT_CODE_SESSION_EVENT_CHANNEL = "__bot_code_session_changed__";
+const TASK_DIRTY_EVENT_CHANNEL = "__task_dirty__";
+const TASK_DIRTY_COALESCE_MS = 50;
+const pendingTaskDirty = new Map<string, { reason: string; timer: ReturnType<typeof setTimeout> }>();
+
+/** Coalesced dirty wake for Web cutover streams that do not subscribeTask in this process. */
+function publishTaskDirty(taskId: string, reason: string): void {
+  const existing = pendingTaskDirty.get(taskId);
+  if (existing) {
+    existing.reason = reason;
+    return;
+  }
+  const timer = setTimeout(() => {
+    const pending = pendingTaskDirty.get(taskId);
+    pendingTaskDirty.delete(taskId);
+    state().events.emit(TASK_DIRTY_EVENT_CHANNEL, {
+      taskId,
+      reason: pending?.reason ?? reason,
+    });
+  }, TASK_DIRTY_COALESCE_MS);
+  timer.unref?.();
+  pendingTaskDirty.set(taskId, { reason, timer });
+}
 
 export function subscribeBotCodeSession(
   listener: (payload: Record<string, unknown>) => void,
@@ -1564,6 +1591,15 @@ export function subscribeBotCodeSession(
   const handler = (payload: Record<string, unknown>) => listener(payload);
   state().events.on(BOT_CODE_SESSION_EVENT_CHANNEL, handler);
   return () => state().events.off(BOT_CODE_SESSION_EVENT_CHANNEL, handler);
+}
+
+/** Backend→Web cutover: light task change notices without projecting a full snapshot. */
+export function subscribeTaskDirty(
+  listener: (payload: { taskId: string; reason?: string }) => void,
+): () => void {
+  const handler = (payload: { taskId: string; reason?: string }) => listener(payload);
+  state().events.on(TASK_DIRTY_EVENT_CHANNEL, handler);
+  return () => state().events.off(TASK_DIRTY_EVENT_CHANNEL, handler);
 }
 
 function emitAttention(taskId: string, payload: { type: string; [key: string]: unknown }): void {
@@ -1603,6 +1639,8 @@ function emitTaskSnapshot(
   eventType: string,
   extra?: Record<string, unknown>,
 ): void {
+  // Always wake cutover Web viewers even when this process has no local SSE listeners.
+  publishTaskDirty(live.taskId, eventType);
   // SSE リスナーが誰もいないタスクのスナップショット生成（メッセージ射影・
   // エントリ走査・goal loop 読込・todo 抽出）は丸ごと不要。リスナーが付いた
   // タイミングで getTaskDetail が初期状態を送るため欠落は生じない。
