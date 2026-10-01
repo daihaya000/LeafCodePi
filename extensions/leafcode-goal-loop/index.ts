@@ -1973,6 +1973,7 @@ function startLoop(
   const previous = currentLoop(runtime);
   const replacingLiveLoop = !!previous && !TERMINAL.has(previous.status);
   const now = isoNow();
+  const maxTurns = clampMaxTurns(config.maxTurns);
   const loop: GoalLoop = {
     id: runtime.sessionId,
     sessionId: runtime.sessionId,
@@ -1980,10 +1981,11 @@ function startLoop(
     status: "queued",
     goal,
     acceptance,
-    maxTurns: clampMaxTurns(config.maxTurns),
+    maxTurns,
     cooldownSeconds: clampCooldownSeconds(config.cooldownSeconds),
     nextTurnAt: null,
-    forceFullRun: config.forceFullRun === true,
+    // 無制限(0)では完走モードを有効化できない
+    forceFullRun: config.forceFullRun === true && maxTurns !== 0,
     autoAgent: config.autoAgent === true,
     initialImages: normalizeInitialImages(config.initialImages),
     turnCount: 0,
@@ -2067,6 +2069,7 @@ function parseStartArgs(args: string): {
     acceptance = normalizeAcceptance(value.replace(/\\n/g, "\n")) ?? [];
     text = text.replace(acceptanceFlag[0], " ");
   }
+  if (maxTurns === 0) forceFullRun = false;
   return { goal: text.replace(/\s+/g, " ").trim(), maxTurns, cooldownSeconds, forceFullRun, acceptance };
 }
 
@@ -2083,10 +2086,14 @@ async function compose(runtime: Runtime): Promise<void> {
     : await runtime.ctx.ui.input("承認条件（任意・改行区切り）", "例: npm test が成功");
   const maxTurnsText = await runtime.ctx.ui.input("最大ターン数", String(DEFAULT_MAX_TURNS));
   const cooldownText = await runtime.ctx.ui.input("クールタイム", "0");
-  const forceFullRun = await runtime.ctx.ui.confirm(
-    "完走モード",
-    "完了宣言を使わず、指定した最大ターン数まで必ず実行します。",
-  );
+  const requestedMaxTurns = clampMaxTurns(maxTurnsText || DEFAULT_MAX_TURNS);
+  // 無制限(0)では完走モードを選べない
+  const forceFullRun = requestedMaxTurns === 0
+    ? false
+    : await runtime.ctx.ui.confirm(
+      "完走モード",
+      "完了宣言を使わず、指定した最大ターン数まで必ず実行します。",
+    );
   // The dialog may outlive this session or a newer start on the same runtime.
   if (!isActiveRuntime(runtime) || runtime.turnGeneration !== turnGeneration) return;
   const maxTurns = clampMaxTurns(maxTurnsText || DEFAULT_MAX_TURNS);

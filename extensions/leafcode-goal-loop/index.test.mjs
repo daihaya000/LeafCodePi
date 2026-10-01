@@ -55,6 +55,8 @@ test("matches LeafCode turn-budget and cooldown normalization", () => {
   assert.deepEqual(goalLoopTestSeams.parseStartArgs("demo --turns -1"), {
     goal: "demo", maxTurns: 0, cooldownSeconds: 0, forceFullRun: false, acceptance: [],
   });
+  assert.equal(goalLoopTestSeams.parseStartArgs("demo --full-run --turns 0").forceFullRun, false);
+  assert.equal(goalLoopTestSeams.parseStartArgs("demo --full-run --turns 3").forceFullRun, true);
   assert.equal(clampCooldownSeconds(-1), 0);
   assert.equal(safeIdPart("safe_id"), "safe_id");
   assert.notEqual(safeIdPart("a/b"), safeIdPart("a?b"));
