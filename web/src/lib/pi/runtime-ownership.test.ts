@@ -9,13 +9,24 @@ import {
 } from "./runtime-ownership";
 
 describe("runtime ownership", () => {
-  it("owns the runtime by default: the cutover is opt-in", () => {
-    expect(webOwnsRuntime({})).toBe(true);
-    expect(webOwnsRuntime({ LEAFCODE_PI_BACKEND_OWNS_RUNTIME: "" })).toBe(true);
-    expect(webOwnsRuntime({ LEAFCODE_PI_BACKEND_OWNS_RUNTIME: "0" })).toBe(true);
-    for (const value of ["1", "true", "yes", "on", " ON "]) {
-      expect(webOwnsRuntime({ LEAFCODE_PI_BACKEND_OWNS_RUNTIME: value })).toBe(false);
+  it("honours an explicit switch on either side", () => {
+    for (const value of ["0", "false", "no", "off", "in-process", " IN-PROCESS "]) {
+      expect(webOwnsRuntime({ LEAFCODE_PI_BACKEND_OWNS_RUNTIME: value, NODE_ENV: "production" })).toBe(true);
     }
+    for (const value of ["1", "true", "yes", "on", " ON "]) {
+      expect(webOwnsRuntime({ LEAFCODE_PI_BACKEND_OWNS_RUNTIME: value, NODE_ENV: "development" })).toBe(false);
+    }
+    // An empty value is not a switch: it falls through to the build's default.
+    expect(webOwnsRuntime({ LEAFCODE_PI_BACKEND_OWNS_RUNTIME: "" })).toBe(true);
+    expect(webOwnsRuntime({ LEAFCODE_PI_BACKEND_OWNS_RUNTIME: "", NODE_ENV: "production" })).toBe(false);
+  });
+
+  it("defaults to the shipped architecture: production is a client, development owns it", () => {
+    expect(webOwnsRuntime({})).toBe(true);
+    expect(webOwnsRuntime({ NODE_ENV: "development" })).toBe(true);
+    expect(webOwnsRuntime({ NODE_ENV: "test" })).toBe(true);
+    expect(webOwnsRuntime({ NODE_ENV: "production" })).toBe(false);
+    expect(localRuntimeBlocked({ NODE_ENV: "production" })).toBe(true);
   });
 
   it("recognises the Backend runtime host", () => {

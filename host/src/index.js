@@ -616,7 +616,9 @@ async function spawnWeb({ pull = true, ownership = webOwnership.ownership } = {}
       // Who owns the Pi runtime. "in-process" is the pre-cutover default; "backend" makes this WebUI
       // a client of the independent Backend, which then owns sessions, leases and schedules (and a
       // client always reads that owner's view — the ownership is the only switch left).
-      LEAFCODE_PI_BACKEND_OWNS_RUNTIME: ownership === "backend" ? "1" : "",
+      // The switch is explicit on both sides: the WebUI's own default (production = client) must not
+      // decide what a Host-started process is.
+      LEAFCODE_PI_BACKEND_OWNS_RUNTIME: ownership === "backend" ? "1" : "in-process",
       // How the WebUI reaches the Backend, and which runtime generation to expect. Absent when no
       // Backend is configured, so the WebUI keeps its in-process path.
       ...(backendService ? backendService.clientEnv() : {}),
