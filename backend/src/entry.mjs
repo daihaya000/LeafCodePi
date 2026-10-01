@@ -230,6 +230,15 @@ try {
       }
       return runtime.revertTask(id, entryId);
     },
+    // A settings change rebuilds the context of live sessions, which only the owner holds.
+    reloadLiveSessionsAction: async ({ action, agentName }) => {
+      const runtime = started.runtime();
+      const run = action === "refresh-agent" ? runtime?.refreshLiveSessionsForAgentDefinition : runtime?.reloadLiveSessionsContext;
+      if (typeof run !== "function") {
+        throw Object.assign(new Error("runtime unavailable"), { status: 503 });
+      }
+      return action === "refresh-agent" ? run(agentName) : await run();
+    },
     // A Bot settings change reaches its live conversations and a deletion stops its Room turns, Code
     // sessions and tasks, which only the owner holds. The answer keeps its own status and body.
     botAdminAction: (id, action, body) => {

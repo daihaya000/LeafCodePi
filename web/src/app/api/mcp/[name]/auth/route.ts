@@ -6,7 +6,7 @@
  * included in a response or written to mcp.json.
  */
 import { NextRequest, NextResponse } from "next/server";
-import { reloadLiveSessionsContext } from "@/lib/pi/harness";
+import { reloadLiveSessionsContext } from "@/lib/live-context";
 import {
   disableMcpBearerStore,
   disableMcpHeadersStore,

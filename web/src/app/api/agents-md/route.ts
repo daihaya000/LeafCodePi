@@ -4,7 +4,7 @@ import {
   readGlobalAgentsMd,
   writeGlobalAgentsMd,
 } from "@/lib/agents-md";
-import { reloadLiveSessionsContext } from "@/lib/pi/harness";
+import { reloadLiveSessionsContext } from "@/lib/live-context";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";

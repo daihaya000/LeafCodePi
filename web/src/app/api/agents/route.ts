@@ -4,7 +4,7 @@
  */
 import { NextResponse } from "next/server";
 import { agentsErrorStatus, createAgent, listAgents, type AgentDraft } from "@/lib/agents";
-import { reloadLiveSessionsContext } from "@/lib/pi/harness";
+import { reloadLiveSessionsContext } from "@/lib/live-context";
 import { isThinkingLevel } from "@/lib/thinking-levels";
 import { getSetting } from "@/lib/pi/web-settings";
 import { AUTO_AGENT_ENABLED_SETTING_KEY, isAutoAgentEnabled } from "@/lib/default-agent";

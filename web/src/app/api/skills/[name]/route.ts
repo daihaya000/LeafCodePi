@@ -2,7 +2,7 @@
  * PATCH /api/skills/:name — enable/disable via skills-state.json (no folder moves).
  */
 import { NextRequest, NextResponse } from "next/server";
-import { reloadLiveSessionsContext } from "@/lib/pi/harness";
+import { reloadLiveSessionsContext } from "@/lib/live-context";
 import { setSkillEnabled, skillsErrorStatus, type SkillScope } from "@/lib/skills";
 
 export const runtime = "nodejs";

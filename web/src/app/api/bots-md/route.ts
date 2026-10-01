@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { errorStatus, readGlobalBotsMd, writeGlobalBotsMd } from "@/lib/agents-md";
-import { reloadLiveSessionsContext } from "@/lib/pi/harness";
+import { reloadLiveSessionsContext } from "@/lib/live-context";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";

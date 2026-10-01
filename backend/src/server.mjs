@@ -4,6 +4,7 @@ import { once } from "node:events";
 import {
   BACKEND_ERROR_CODES,
   BACKEND_HEALTH_PATH,
+  BACKEND_LIVE_SESSIONS_RELOAD_PATH,
   BACKEND_BOT_ADMIN_SUFFIX,
   BACKEND_BOT_CODE_REQUESTS_SUFFIX,
   BACKEND_BOT_CODE_SESSIONS_SUFFIX,
@@ -164,6 +165,8 @@ export function createBackendServer({
   teardownProjectAction = null,
   /** Changes or deletes a Bot: `(id, "patch" | "delete", body?) => { status, body }`; the owner holds its sessions. */
   botAdminAction = null,
+  /** Rebuilds live sessions after a settings change: `({ action, agentName? }) => result`; the owner holds them. */
+  reloadLiveSessionsAction = null,
   /** Compacts a session: `(id, customInstructions?) => task`; the summarization runs in the owner. */
   compactTaskAction = null,
   /** Stops a running compaction: `(id) => task`; only the owner can interrupt its own session. */
@@ -220,6 +223,7 @@ export function createBackendServer({
     taskAdminAction,
     teardownProjectAction,
     botAdminAction,
+    reloadLiveSessionsAction,
     compactTaskAction,
     abortCompactTaskAction,
     setTaskModelAction,
@@ -331,6 +335,7 @@ export function createBackendServer({
       ? decodeURIComponent(projectSuffix.slice(0, -BACKEND_PROJECT_TEARDOWN_SUFFIX.length))
       : undefined;
     const knownPath = target.pathname === BACKEND_HEALTH_PATH
+      || target.pathname === BACKEND_LIVE_SESSIONS_RELOAD_PATH
       || projectActionPath !== undefined
       || botAdminPath !== undefined
       || target.pathname === BACKEND_PENDING_SNAPSHOTS_PATH
@@ -558,6 +563,37 @@ export function createBackendServer({
         sendJson(response, typeof error?.status === "number" ? error.status : 500, {
           error: "Backend room admin failed",
           code: BACKEND_ERROR_CODES.internal,
+        });
+      }
+      return;
+    }
+    if (target.pathname === BACKEND_LIVE_SESSIONS_RELOAD_PATH) {
+      if (request.method !== "POST") {
+        sendJson(response, 405, {
+          error: "Method not allowed", code: BACKEND_ERROR_CODES.methodNotAllowed,
+        }, { Allow: "POST" });
+        return;
+      }
+      if (typeof reloadLiveSessionsAction !== "function") {
+        sendJson(response, 503, {
+          error: "Backend runtime unavailable", code: BACKEND_ERROR_CODES.runtimeUnavailable,
+        });
+        return;
+      }
+      const body = await readJsonBody(request);
+      const action = body.ok ? body.value?.action : undefined;
+      const agentName = body.ok ? body.value?.agentName : undefined;
+      if (!body.ok || (action !== "reload" && !(action === "refresh-agent" && typeof agentName === "string" && agentName.trim()))) {
+        sendJson(response, body.ok ? 400 : body.reason === "too-large" ? 413 : 400, {
+          error: "Invalid live session reload request", code: BACKEND_ERROR_CODES.badRequest,
+        });
+        return;
+      }
+      try {
+        sendJson(response, 200, { result: await reloadLiveSessionsAction({ action, agentName }) });
+      } catch (error) {
+        sendJson(response, typeof error?.status === "number" ? error.status : 500, {
+          error: "Backend live session reload failed", code: BACKEND_ERROR_CODES.internal,
         });
       }
       return;

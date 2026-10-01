@@ -2,7 +2,7 @@
  * PATCH /api/mcp/:name — enable/disable a global MCP server via ~/.pi/agent/mcp.json.
  */
 import { NextRequest, NextResponse } from "next/server";
-import { reloadLiveSessionsContext } from "@/lib/pi/harness";
+import { reloadLiveSessionsContext } from "@/lib/live-context";
 import { listMcpServers, mcpErrorStatus, setMcpServerEnabled } from "@/lib/mcp";
 
 export const runtime = "nodejs";

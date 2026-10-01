@@ -15,6 +15,7 @@ import {
   BACKEND_BOT_CODE_REQUESTS_SUFFIX,
   BACKEND_BOT_CODE_SESSIONS_SUFFIX,
   BACKEND_BOT_ADMIN_SUFFIX,
+  BACKEND_LIVE_SESSIONS_RELOAD_PATH,
   BACKEND_BOT_REVERT_SUFFIX,
   BACKEND_BOT_ROUTINES_SEGMENT,
   BACKEND_BOTS_PATH,
@@ -302,6 +303,14 @@ export function unrevertTaskOnBackend(
   options: { env?: BackendEnv; fetchImpl?: typeof fetch; timeoutMs?: number } = {},
 ): Promise<BackendResult<{ task: Record<string, unknown> | null }>> {
   return postBackendJson(`${BACKEND_TASKS_PATH}/${encodeURIComponent(id)}${BACKEND_TASK_UNREVERT_SUFFIX}`, {}, options);
+}
+
+/** Rebuilds live sessions after a settings change in the owning Backend, which holds them. */
+export function reloadLiveSessionsOnBackend(
+  request: { action: "reload" } | { action: "refresh-agent"; agentName: string },
+  options: { env?: BackendEnv; fetchImpl?: typeof fetch; timeoutMs?: number } = {},
+): Promise<BackendResult<{ result: unknown }>> {
+  return postBackendJson(BACKEND_LIVE_SESSIONS_RELOAD_PATH, request, options);
 }
 
 /** Moves a task or hands it to / back from a Bot in the owning Backend, which holds the session. */

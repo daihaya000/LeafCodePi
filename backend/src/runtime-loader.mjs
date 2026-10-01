@@ -47,6 +47,8 @@ export const REQUIRED_RUNTIME_EXPORTS = Object.freeze([
   "revertTask",
   "unrevertTask",
   "archiveTask",
+  "reloadLiveSessionsContext",
+  "refreshLiveSessionsForAgentDefinition",
   "promoteTask",
   "handoffTaskToBot",
   "releaseTaskFromBot",

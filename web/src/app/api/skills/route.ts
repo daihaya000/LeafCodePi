@@ -2,7 +2,7 @@
  * GET /api/skills — list Pi and bundled skills with ON/OFF state.
  */
 import { NextRequest, NextResponse } from "next/server";
-import { reloadLiveSessionsContext } from "@/lib/pi/harness";
+import { reloadLiveSessionsContext } from "@/lib/live-context";
 import { listSkills, setSkillsEnabled, skillsErrorStatus, type SkillScope } from "@/lib/skills";
 
 export const runtime = "nodejs";

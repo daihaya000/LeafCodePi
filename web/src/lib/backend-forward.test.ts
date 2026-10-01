@@ -19,6 +19,7 @@ import {
   forwardRoomRevert,
   forwardTaskRevert,
   forwardBotAdmin,
+  forwardLiveSessionsReload,
   forwardTaskAdmin,
   forwardProjectTeardown,
   forwardTaskTeardown,
@@ -385,6 +386,24 @@ describe("forwardPendingAttention", () => {
     const missing = vi.fn<typeof fetch>(async () => jsonResponse(200, {}));
     await expect(forwardPendingAttention({ env, fetchImpl: missing })).resolves.toEqual({ ok: true, items: [] });
     await expect(forwardPendingAttention({ env: {} })).resolves.toEqual({ ok: false, reason: "not-configured" });
+  });
+});
+
+describe("forwardLiveSessionsReload", () => {
+  it("returns the owner's reload result and reports failures", async () => {
+    const fetchImpl = vi.fn<typeof fetch>(async () => jsonResponse(200, { result: { reloaded: 2, deferred: 1, failed: 0, errors: [] } }));
+    await expect(forwardLiveSessionsReload({ action: "reload" }, { env, fetchImpl })).resolves.toEqual({
+      ok: true, result: { reloaded: 2, deferred: 1, failed: 0, errors: [] },
+    });
+    expect(fetchImpl.mock.calls[0][0]).toBe("http://127.0.0.1:19999/internal/live-sessions/reload");
+    expect(JSON.parse(String(fetchImpl.mock.calls[0][1]?.body))).toEqual({ action: "reload" });
+    const refresh = vi.fn<typeof fetch>(async () => jsonResponse(200, { result: { refreshed: 1, deferred: 0 } }));
+    await forwardLiveSessionsReload({ action: "refresh-agent", agentName: "reviewer" }, { env, fetchImpl: refresh });
+    expect(JSON.parse(String(refresh.mock.calls[0][1]?.body))).toEqual({ action: "refresh-agent", agentName: "reviewer" });
+    const unreachable = vi.fn<typeof fetch>(async () => { throw new Error("connect refused"); });
+    await expect(forwardLiveSessionsReload({ action: "reload" }, { env, fetchImpl: unreachable })).resolves.toEqual({
+      ok: false, reason: "unreachable",
+    });
   });
 });
 

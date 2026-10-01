@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { exportPromptBackup, importPromptBackup } from "@/lib/pi/prompt-transfer";
 import { rejectUnauthorizedTransfer, transferNoStore } from "@/lib/pi/transfer-access";
-import { reloadLiveSessionsContext } from "@/lib/pi/harness";
+import { reloadLiveSessionsContext } from "@/lib/live-context";
 import { TransferRecoveryError } from "@/lib/pi/transfer-recovery";
 import { MAX_PROMPT_BACKUP_BYTES, type PromptFileName } from "@/lib/prompt-transfer-format";
 

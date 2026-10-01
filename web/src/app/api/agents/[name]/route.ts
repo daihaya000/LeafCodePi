@@ -4,7 +4,7 @@
  * DELETE /api/agents/:name — delete a user agent.
  */
 import { NextRequest, NextResponse } from "next/server";
-import { refreshLiveSessionsForAgentDefinition, reloadLiveSessionsContext } from "@/lib/pi/harness";
+import { refreshLiveSessionsForAgentDefinition, reloadLiveSessionsContext } from "@/lib/live-context";
 import {
   agentsErrorStatus,
   deleteAgent,
@@ -29,9 +29,7 @@ function scheduleLiveSessionsContextReload(agentName?: string) {
   // Persisted settings can be returned immediately; a live session reload may wait for an active turn.
   setImmediate(() => {
     void reloadLiveSessionsContext()
-      .then(() => {
-        if (agentName) refreshLiveSessionsForAgentDefinition(agentName);
-      })
+      .then(() => (agentName ? refreshLiveSessionsForAgentDefinition(agentName) : undefined))
       .catch((error) => {
         console.warn("[agents] live session context reload failed", error);
       });

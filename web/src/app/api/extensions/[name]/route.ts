@@ -2,7 +2,7 @@
  * PATCH /api/extensions/:name — enable/disable via extensions-state.json (no folder moves).
  */
 import { NextRequest, NextResponse } from "next/server";
-import { reloadLiveSessionsContext } from "@/lib/pi/harness";
+import { reloadLiveSessionsContext } from "@/lib/live-context";
 import { extensionsErrorStatus, listExtensions, setExtensionEnabled } from "@/lib/extensions";
 
 export const runtime = "nodejs";

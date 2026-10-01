@@ -17,6 +17,7 @@ import {
   revertRoomOnBackend,
   revertTaskOnBackend,
   botAdminOnBackend,
+  reloadLiveSessionsOnBackend,
   taskAdminOnBackend,
   teardownProjectOnBackend,
   teardownTaskOnBackend,
@@ -367,6 +368,19 @@ export async function forwardTaskRevert(
     return { ok: false, reason: result.reason, ...(result.status ? { status: result.status } : {}) };
   }
   return { ok: true, result: result.body ?? {} };
+}
+
+/** Rebuilds live sessions after a settings change in the owning Backend; the owner's result comes back as-is. */
+export async function forwardLiveSessionsReload(
+  request: { action: "reload" } | { action: "refresh-agent"; agentName: string },
+  options: { env?: BackendEnv; fetchImpl?: typeof fetch; timeoutMs?: number } = {},
+): Promise<
+  | { ok: true; result: unknown }
+  | { ok: false; reason: BackendFailureReason; status?: number }
+> {
+  const result = await reloadLiveSessionsOnBackend(request, options);
+  if (!result.ok) return { ok: false, reason: result.reason, ...(result.status ? { status: result.status } : {}) };
+  return { ok: true, result: result.body?.result ?? null };
 }
 
 /**

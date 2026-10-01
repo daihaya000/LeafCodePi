@@ -1046,6 +1046,40 @@ test("a forwarded task promote, hand-off and release reach the runtime owner", a
   );
 });
 
+test("a forwarded live session reload reaches the runtime owner", async (t) => {
+  const seen = [];
+  const { snapshotsUrl, headers } = await fixture(t, {
+    reloadLiveSessionsAction: async (request) => {
+      seen.push(request);
+      return request.action === "reload" ? { reloaded: 3 } : { refreshed: 1, deferred: 0 };
+    },
+  });
+  const url = snapshotsUrl.replace("pending-snapshots", "live-sessions/reload");
+  const post = (target, body) => request(target, {
+    method: "POST", headers: { ...headers, "content-type": "application/json" }, body: JSON.stringify(body),
+  });
+  const reloaded = await post(url, { action: "reload" });
+  assert.equal(reloaded.status, 200);
+  assert.deepEqual(await reloaded.json(), { result: { reloaded: 3 } });
+  const refreshed = await post(url, { action: "refresh-agent", agentName: "reviewer" });
+  assert.deepEqual(await refreshed.json(), { result: { refreshed: 1, deferred: 0 } });
+  assert.deepEqual(seen, [{ action: "reload", agentName: undefined }, { action: "refresh-agent", agentName: "reviewer" }]);
+  // An unknown action or a refresh without an agent name never reaches the owner; the route is POST-only.
+  assert.equal((await post(url, { action: "wipe" })).status, 400);
+  assert.equal((await post(url, { action: "refresh-agent" })).status, 400);
+  assert.equal(seen.length, 2);
+  assert.equal((await request(url, { headers })).status, 405);
+  const detached = await fixture(t);
+  const detachedUrl = detached.snapshotsUrl.replace("pending-snapshots", "live-sessions/reload");
+  assert.equal((await request(detachedUrl, {
+    method: "POST", headers: { ...detached.headers, "content-type": "application/json" }, body: JSON.stringify({ action: "reload" }),
+  })).status, 503);
+  assert.throws(
+    () => createBackendServer({ token: randomBytes(32).toString("base64url"), reloadLiveSessionsAction: 5 }),
+    /reloadLiveSessionsAction must be a function or null/,
+  );
+});
+
 test("a forwarded Room revert reaches the runtime owner", async (t) => {
   const seen = [];
   const { snapshotsUrl, headers } = await fixture(t, {

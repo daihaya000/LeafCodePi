@@ -50,6 +50,12 @@ export const BACKEND_TASK_TEARDOWN_SUFFIX = "/teardown";
  */
 export const BACKEND_TASK_ADMIN_SUFFIX = "/admin";
 /**
+ * Reloading the context of live sessions after a settings change (AGENTS.md, SOUL, skills, MCP,
+ * agents): `POST /internal/live-sessions/reload` with `{ action: "reload" }` or
+ * `{ action: "refresh-agent", agentName }`. The sessions live in the owner, so only it can rebuild them.
+ */
+export const BACKEND_LIVE_SESSIONS_RELOAD_PATH = "/internal/live-sessions/reload";
+/**
  * Compaction: `POST /internal/tasks/:id/compact` with `{ customInstructions? }`, and
  * `POST /internal/tasks/:id/compact/abort` to stop it. Compaction runs inside the owning session.
  */

@@ -3,7 +3,7 @@
  * POST /api/mcp — add a known preset server group (n8n / slack / google-workspace / notion).
  */
 import { NextRequest, NextResponse } from "next/server";
-import { reloadLiveSessionsContext } from "@/lib/pi/harness";
+import { reloadLiveSessionsContext } from "@/lib/live-context";
 import {
   addGoogleWorkspaceServers,
   addN8nServer,

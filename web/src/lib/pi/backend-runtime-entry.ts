@@ -31,6 +31,8 @@ export {
   revertTask,
   unrevertTask,
   archiveTask,
+  reloadLiveSessionsContext,
+  refreshLiveSessionsForAgentDefinition,
   promoteTask,
   handoffTaskToBot,
   releaseTaskFromBot,

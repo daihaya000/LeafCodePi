@@ -132,26 +132,13 @@ describe("runtime ownership coverage", () => {
  * `createTask` is deliberately absent until its forwarding lands; it is tracked separately.
  */
 const OWNER_OPERATIONS =
-  /\b(handleBotPatch|handleBotDelete|destroyArchivedTasksByProject|archiveTask|destroyTask|archiveProjectAndStopTasks|destroyProject|migrateProject|promoteTask|handoffTaskToBot|releaseTaskFromBot|reloadLiveSessionsContext|refreshLiveSessionsForAgentDefinition|resetTaskConversation|setBotModel|setBotPermissionMode|setBotThinkingLevel|setBotTools|requestBotSoulReload|createBotCodeTask|continueBotCodeTask|completeBotCodeRequest|promptTask|goalLoopCommand|abortTask|abortTaskIncludingColdGoalLoop|stopBotCodeTask|respondToPermissionPrompt|respondToQuestionPrompt|revertTask|unrevertTask|compactTask|abortTaskCompaction|setTaskModel|setTaskThinkingLevel|setTaskAgent|runRoutine|handleRoomPrompt|handleRoomPatch|handleRoomDelete|revertRoomConversation)\b/;
+  /\b(handleBotPatch|handleBotDelete|destroyArchivedTasksByProject|archiveTask|destroyTask|archiveProjectAndStopTasks|destroyProject|migrateProject|promoteTask|handoffTaskToBot|releaseTaskFromBot|resetTaskConversation|setBotModel|setBotPermissionMode|setBotThinkingLevel|setBotTools|requestBotSoulReload|createBotCodeTask|continueBotCodeTask|completeBotCodeRequest|promptTask|goalLoopCommand|abortTask|abortTaskIncludingColdGoalLoop|stopBotCodeTask|respondToPermissionPrompt|respondToQuestionPrompt|revertTask|unrevertTask|compactTask|abortTaskCompaction|setTaskModel|setTaskThinkingLevel|setTaskAgent|runRoutine|handleRoomPrompt|handleRoomPatch|handleRoomDelete|revertRoomConversation)\b/;
 
 const HANDLER_GUARDS = /\b(localRuntimeBlocked|forward[A-Z]\w*|\w+OnBackend|relayFallbackAllowed|readBackend\w+)\b/;
 
-const SETTINGS_RELOAD = "the Backend's live sessions are not reloaded; running sessions keep the old context";
 
 /** Measured handler-level gaps. Each entry is unfinished work; the scan fails on an unlisted one. */
 const HANDLER_GAPS: Record<string, string> = {
-  "agents-md/route.ts PATCH": SETTINGS_RELOAD,
-  "bots-md/route.ts PATCH": SETTINGS_RELOAD,
-  "soul-md/route.ts PATCH": SETTINGS_RELOAD,
-  "user-md/route.ts PATCH": SETTINGS_RELOAD,
-  "extensions/[name]/route.ts PATCH": SETTINGS_RELOAD,
-  "mcp/route.ts POST": SETTINGS_RELOAD,
-  "mcp/[name]/route.ts PATCH": SETTINGS_RELOAD,
-  "mcp/[name]/auth/route.ts POST": SETTINGS_RELOAD,
-  "mcp/[name]/auth/route.ts DELETE": SETTINGS_RELOAD,
-  "prompts/transfer/route.ts POST": SETTINGS_RELOAD,
-  "skills/route.ts POST": SETTINGS_RELOAD,
-  "skills/[name]/route.ts PATCH": SETTINGS_RELOAD,
   "tasks/route.ts DELETE": "bulk destroy of archived tasks; archived tasks have no live session",
 };
 
@@ -183,5 +170,17 @@ describe("runtime ownership coverage per handler", () => {
       (id) => !handlers.some((handler) => handler.id === id && !handler.guarded),
     );
     expect(stale, "a wired or deleted handler must leave the gap list").toEqual([]);
+  });
+});
+
+describe("live session reload", () => {
+  it("no route reloads live sessions straight from the harness", () => {
+    // `reloadLiveSessionsContext` walks this process's session table, which is empty in a client. The
+    // routes go through `@/lib/live-context`, which asks the owning Backend instead.
+    const direct = routeFiles()
+      .map((file) => ({ path: relative(API_DIR, file).replace(/\\/g, "/"), source: stripComments(readFileSync(file, "utf8")) }))
+      .filter(({ source }) => /import\s*\{[^}]*\b(reloadLiveSessionsContext|refreshLiveSessionsForAgentDefinition)\b[^}]*\}\s*from\s*"@\/lib\/pi\/harness"/.test(source))
+      .map(({ path }) => path);
+    expect(direct).toEqual([]);
   });
 });
