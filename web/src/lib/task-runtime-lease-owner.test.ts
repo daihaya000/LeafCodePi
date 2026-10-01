@@ -28,5 +28,6 @@ describe("orphan reconciliation belongs to the runtime owner", () => {
     vi.stubEnv("NODE_ENV", "development");
     const reconcile = vi.spyOn(TaskLeaseService.prototype, "reconcileOrphanedWorkingTasks").mockReturnValue(["dev-orphan"]);
     expect(reconcileOrphanedWorkingTasks()).toEqual(["dev-orphan"]);
+    expect(reconcile).toHaveBeenCalledOnce();
   });
 });

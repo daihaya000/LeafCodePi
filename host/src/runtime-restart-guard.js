@@ -4,7 +4,9 @@ import { BACKEND_PROTOCOL_HEADER, BACKEND_PROTOCOL_VERSION, BACKEND_RUNTIME_CONT
 /** A living runtime owner must answer authoritatively before it can be restarted. */
 export async function backendRuntimeRestartBlockReason({ baseUrl, token, expectedGeneration, fetchImpl = fetch }) {
   const unavailable = "Backendの実行状態を確認できないため再起動を拒否しました。状態を確認してから再試行してください。";
-  const health = await readBackendHealth({ baseUrl, token, expectedGeneration, fetchImpl, timeoutMs: 1500 });
+  // Keep a separate deadline alive through JSON consumption, not only response headers.
+  const healthFetch = (url, init) => fetchImpl(url, { ...init, signal: AbortSignal.any([init.signal, AbortSignal.timeout(1500)]) });
+  const health = await readBackendHealth({ baseUrl, token, expectedGeneration, fetchImpl: healthFetch, timeoutMs: 1500 });
   if (!health.ok || !health.ready) return unavailable;
   try {
     const response = await fetchImpl(`${baseUrl.replace(/\/+$/, "")}${BACKEND_RUNTIME_CONTROL_PATH}`, {

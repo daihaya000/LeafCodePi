@@ -1,6 +1,7 @@
 import { mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { randomUUID } from "node:crypto";
+import { DatabaseSync } from "node:sqlite";
 
 const sleeper = new Int32Array(new SharedArrayBuffer(4));
 
@@ -16,8 +17,31 @@ function abandoned(lock) {
   }
 }
 
-/** Synchronous cross-process read/modify/write lock; live owners never expire. */
+/**
+ * SQLite's OS lock serializes *all* acquisitions, including stale-lock reclamation.
+ * Never unlink this sidecar: its stable identity is what makes takeover atomic.
+ * JSON v1 remains the only source of application data; no records go into SQLite.
+ */
 export function withFileLock(file, update, { timeoutMs = 5_000 } = {}) {
+  if (!Number.isFinite(timeoutMs) || timeoutMs < 0) throw new TypeError("invalid lock timeout");
+  mkdirSync(dirname(file), { recursive: true });
+  const startedAt = Date.now();
+  const mutex = new DatabaseSync(`${file}.lock.sqlite`);
+  try {
+    mutex.exec(`PRAGMA busy_timeout=${Math.floor(timeoutMs)}`);
+    try { mutex.exec("BEGIN IMMEDIATE"); }
+    catch (error) {
+      if (error.errcode === 5 || error.errcode === 6) throw new Error("shared file lock timeout", { cause: error });
+      throw error;
+    }
+    return withDirectoryLock(file, update, { timeoutMs: Math.max(0, timeoutMs - (Date.now() - startedAt)) });
+  } finally {
+    // Closing rolls back the empty transaction and releases the kernel-managed lock.
+    mutex.close();
+  }
+}
+
+function withDirectoryLock(file, update, { timeoutMs }) {
   const lock = `${file}.lock`;
   const reclaim = `${lock}.reclaim`;
   const owner = `${process.pid}:${randomUUID()}`;
