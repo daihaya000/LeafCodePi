@@ -124,3 +124,73 @@ describe("runtime ownership coverage", () => {
     expect(pending).toEqual([]);
   });
 });
+
+/**
+ * The route-level scan above cannot see a method that skips the guard its sibling has (`tasks/[id]`
+ * forwards GET but DELETE still archives locally). This scan works per exported handler, over the
+ * wider set of operations that tear down, stop or reload sessions the Backend owns.
+ *
+ * `createTask` is deliberately absent until its forwarding lands; it is tracked separately.
+ */
+const OWNER_OPERATIONS =
+  /\b(destroyArchivedTasksByProject|archiveTask|destroyTask|archiveProjectAndStopTasks|destroyProject|migrateProject|promoteTask|handoffTaskToBot|releaseTaskFromBot|reloadLiveSessionsContext|refreshLiveSessionsForAgentDefinition|resetTaskConversation|setBotModel|setBotPermissionMode|setBotThinkingLevel|setBotTools|requestBotSoulReload|createBotCodeTask|continueBotCodeTask|completeBotCodeRequest|promptTask|goalLoopCommand|abortTask|abortTaskIncludingColdGoalLoop|stopBotCodeTask|respondToPermissionPrompt|respondToQuestionPrompt|revertTask|unrevertTask|compactTask|abortTaskCompaction|setTaskModel|setTaskThinkingLevel|setTaskAgent|runRoutine|handleRoomPrompt|handleRoomPatch|handleRoomDelete|revertRoomConversation)\b/;
+
+const HANDLER_GUARDS = /\b(localRuntimeBlocked|forward[A-Z]\w*|\w+OnBackend|relayFallbackAllowed|readBackend\w+)\b/;
+
+const SETTINGS_RELOAD = "the Backend's live sessions are not reloaded; running sessions keep the old context";
+const TEARDOWN = "stops/disposes only this process's sessions; the Backend's running session keeps going";
+
+/** Measured handler-level gaps. Each entry is unfinished work; the scan fails on an unlisted one. */
+const HANDLER_GAPS: Record<string, string> = {
+  "agents-md/route.ts PATCH": SETTINGS_RELOAD,
+  "bots-md/route.ts PATCH": SETTINGS_RELOAD,
+  "soul-md/route.ts PATCH": SETTINGS_RELOAD,
+  "user-md/route.ts PATCH": SETTINGS_RELOAD,
+  "extensions/[name]/route.ts PATCH": SETTINGS_RELOAD,
+  "mcp/route.ts POST": SETTINGS_RELOAD,
+  "mcp/[name]/route.ts PATCH": SETTINGS_RELOAD,
+  "mcp/[name]/auth/route.ts POST": SETTINGS_RELOAD,
+  "mcp/[name]/auth/route.ts DELETE": SETTINGS_RELOAD,
+  "prompts/transfer/route.ts POST": SETTINGS_RELOAD,
+  "skills/route.ts POST": SETTINGS_RELOAD,
+  "skills/[name]/route.ts PATCH": SETTINGS_RELOAD,
+  "bots/[id]/route.ts GET": "setBotTools applies to this process's sessions only",
+  "bots/[id]/route.ts DELETE": TEARDOWN,
+  "projects/route.ts PATCH": TEARDOWN,
+  "projects/route.ts DELETE": TEARDOWN,
+  "tasks/route.ts DELETE": "bulk destroy of archived tasks; archived tasks have no live session",
+  "tasks/[id]/route.ts DELETE": TEARDOWN,
+  "tasks/[id]/promote/route.ts POST": "promotion rewires a session this process does not own",
+  "tasks/[id]/supervisor/route.ts POST": "hand-off/release rewires a session this process does not own",
+};
+
+/** Every exported HTTP handler that touches an owner-only operation, and whether it guards itself. */
+function ownerHandlers(): Array<{ id: string; guarded: boolean }> {
+  const found: Array<{ id: string; guarded: boolean }> = [];
+  for (const file of routeFiles()) {
+    const path = relative(API_DIR, file).replaceAll("\\", "/");
+    const source = stripComments(readFileSync(file, "utf8"));
+    const starts = [...source.matchAll(/export\s+async\s+function\s+(GET|POST|PUT|PATCH|DELETE)\b/g)];
+    starts.forEach((match, index) => {
+      const body = source.slice(match.index, starts[index + 1]?.index ?? source.length);
+      if (!OWNER_OPERATIONS.test(body)) return;
+      found.push({ id: `${path} ${match[1]}`, guarded: HANDLER_GUARDS.test(body) });
+    });
+  }
+  return found;
+}
+
+describe("runtime ownership coverage per handler", () => {
+  it("every handler that touches an owner-only operation guards itself or is a listed gap", () => {
+    const unexpected = ownerHandlers().filter((handler) => !handler.guarded && !(handler.id in HANDLER_GAPS));
+    expect(unexpected.map((handler) => handler.id), "forward to the Backend or refuse locally").toEqual([]);
+  });
+
+  it("the handler gap list has no stale entries", () => {
+    const handlers = ownerHandlers();
+    const stale = Object.keys(HANDLER_GAPS).filter(
+      (id) => !handlers.some((handler) => handler.id === id && !handler.guarded),
+    );
+    expect(stale, "a wired or deleted handler must leave the gap list").toEqual([]);
+  });
+});
