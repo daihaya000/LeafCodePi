@@ -173,8 +173,11 @@ describe("forwardTaskDetail", () => {
     const missing = vi.fn(async () => jsonResponse(404, { error: "Not found" }));
     const result = await forwardTaskDetail("task-1", { env, fetchImpl: missing as unknown as typeof fetch });
     expect(result.ok).toBe(false);
-    expect(result.ok === false && result.reason).toBe("bad-response");
+    expect(result.ok === false && result.reason).toBe("not-found");
     expect(result.ok === false && result.status).toBe(404);
+    const broken = vi.fn(async () => jsonResponse(500, { error: "boom" }));
+    const failed = await forwardTaskDetail("task-1", { env, fetchImpl: broken as unknown as typeof fetch });
+    expect(failed.ok === false && failed.reason).toBe("bad-response");
     const unconfigured = await forwardTaskDetail("task-1", { env: {} });
     expect(unconfigured).toEqual({ ok: false, reason: "not-configured" });
   });

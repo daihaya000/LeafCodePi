@@ -58,6 +58,15 @@ describe("GET /api/tasks/[id]", () => {
     expect(mocks.getTaskDetailBounded).not.toHaveBeenCalled();
   });
 
+  it("answers 404 when the owning Backend has no such task", async () => {
+    mocks.localRuntimeBlocked.mockReturnValue(true);
+    mocks.forwardTaskDetail.mockResolvedValue({ ok: false, reason: "not-found", status: 404 });
+    const response = await GET(request(), params);
+    expect(response.status).toBe(404);
+    await expect(response.json()).resolves.toEqual({ error: "タスクが見つかりません" });
+    expect(mocks.getTaskDetailBounded).not.toHaveBeenCalled();
+  });
+
   it("never falls back to the local read when the Backend cannot answer", async () => {
     mocks.localRuntimeBlocked.mockReturnValue(true);
     mocks.forwardTaskDetail.mockResolvedValue({ ok: false, reason: "timeout" });

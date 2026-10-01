@@ -113,6 +113,12 @@ describe("/api/tasks/[id]/messages after the cutover", () => {
       params: Promise.resolve({ id: "task-1" }),
     });
     expect(unconfigured.status).toBe(409);
+    mocks.forwardTaskDetail.mockResolvedValue({ ok: false, reason: "not-found", status: 404 });
+    const missing = await GET(new NextRequest("http://localhost/api/tasks/task-1/messages"), {
+      params: Promise.resolve({ id: "task-1" }),
+    });
+    expect(missing.status).toBe(404);
+    await expect(missing.json()).resolves.toEqual({ error: "タスクが見つかりません" });
     expect(mocks.getTaskDetail).not.toHaveBeenCalled();
   });
 

@@ -85,7 +85,10 @@ export async function GET(
         if (localRuntimeBlocked()) {
           const backendStream = await startBackendTaskStream({ id, sse });
           if (!backendStream.ok) {
-            sse.send("error", { error: "Backendから取得できません", reason: backendStream.reason });
+            sse.send("error", {
+              error: backendStream.reason === "not-found" ? "タスクが見つかりません" : "Backendから取得できません",
+              reason: backendStream.reason,
+            });
             sse.close();
             return;
           }

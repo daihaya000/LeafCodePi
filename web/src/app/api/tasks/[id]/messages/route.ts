@@ -25,6 +25,9 @@ export async function GET(
     if (localRuntimeBlocked()) {
       const forwarded = await forwardTaskDetail(id);
       if (!forwarded.ok) {
+        if (forwarded.reason === "not-found") {
+          return NextResponse.json({ error: "タスクが見つかりません" }, { status: 404 });
+        }
         if (forwarded.reason === "not-configured") {
           return NextResponse.json(
             { error: "Backendが実行を所有しています", code: "RUNTIME_NOT_OWNED" },
