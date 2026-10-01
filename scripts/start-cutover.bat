@@ -7,6 +7,6 @@ setlocal EnableExtensions DisableDelayedExpansion
 if not defined LEAFCODE_PI_BACKEND set "LEAFCODE_PI_BACKEND=1"
 if not defined LEAFCODE_PI_CUTOVER set "LEAFCODE_PI_CUTOVER=1"
 echo [LeafCodePi] Cutover requested: starting the Host with the Backend enabled.
-call "%~dp0scripts\start-webui.bat"
+call "%~dp0start-webui.bat"
 set ERR=%ERRORLEVEL%
 exit /b %ERR%

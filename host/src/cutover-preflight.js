@@ -1,6 +1,7 @@
 import { readFileSync as defaultReadFileSync, readdirSync as defaultReaddirSync } from "node:fs";
 import { join } from "node:path";
 import { cutoverPreflight } from "../../backend/core/cutover-plan.mjs";
+import { TASK_LEASE_STALE_MS } from "../../backend/core/task-runtime-lease.mjs";
 
 /**
  * The Host's own preflight inputs for the cutover.
@@ -29,8 +30,8 @@ export function readStoreTasks(storePath, { readFile = defaultReadFileSync } = {
   }
 }
 
-/** Unreadable listing is null; an unreadable individual lease remains a foreign/unknown owner. */
-export function readLeases(leaseDir, { readdir = defaultReaddirSync, readFile = defaultReadFileSync } = {}) {
+/** Expired records are not owners; unreadable or incomplete records remain blockers. Never writes. */
+export function readLeases(leaseDir, { readdir = defaultReaddirSync, readFile = defaultReadFileSync, now = Date.now } = {}) {
   let entries = [];
   try {
     entries = readdir(leaseDir).filter((entry) => entry.endsWith(".json"));
@@ -42,6 +43,9 @@ export function readLeases(leaseDir, { readdir = defaultReaddirSync, readFile = 
     const taskId = entry.slice(0, -".json".length);
     try {
       const parsed = JSON.parse(readFile(join(leaseDir, entry), "utf8"));
+      if (Number.isInteger(parsed?.pid) && parsed.pid > 0 && typeof parsed.token === "string" && parsed.token.length > 0 &&
+        Number.isFinite(parsed.acquiredAt) && parsed.acquiredAt >= 0 && Number.isFinite(parsed.heartbeatAt) &&
+        parsed.heartbeatAt >= parsed.acquiredAt && now() - parsed.heartbeatAt > TASK_LEASE_STALE_MS) continue;
       leases.push({ taskId, pid: typeof parsed?.pid === "number" ? parsed.pid : null });
     } catch {
       leases.push({ taskId, pid: null });

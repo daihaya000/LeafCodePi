@@ -110,6 +110,14 @@ test("tracked batch files use platform-safe line endings when git is available",
   for (const filePath of files) assertSafeBatchBytes(filePath);
 });
 
+test("cutover launcher calls an existing sibling startup script", () => {
+  const scriptDir = join(repoRoot, "scripts");
+  const launcher = readFileSync(join(scriptDir, "start-cutover.bat"), "ascii");
+  const target = launcher.match(/^call "%~dp0([^"]+)"$/m)?.[1];
+  assert.ok(target, "expected a quoted startup script relative to the cutover launcher");
+  assert.ok(existsSync(join(scriptDir, ...target.split("\\"))), `startup script not found: ${target}`);
+});
+
 const messageDir = join(repoRoot, "scripts", "setup-messages");
 
 test("Windows launcher quotes mmproj paths and avoids arbitrary listener kills", () => {

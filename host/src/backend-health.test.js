@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { BACKEND_HEALTH_PATH, BACKEND_PROTOCOL_HEADER, BACKEND_PROTOCOL_VERSION } from "../../shared/backend-protocol.mjs";
 import { backendHealthUrl, readBackendHealth, waitForBackendReady } from "./backend-health.js";
+import { closeBackend, createBackendServer, listenBackend } from "../../backend/src/server.mjs";
 
 const TOKEN = "t".repeat(40);
 const BASE = "http://127.0.0.1:18776";
@@ -75,6 +76,26 @@ test("transport and auth failures are reasons, not exceptions", async () => {
     fetchImpl: async () => ({ status: 200, ok: true, json: async () => { throw new Error("not json"); } }),
   });
   assert.deepEqual(brokenJson, { ok: false, reason: "bad-response", status: 200 });
+});
+
+test("a real detached Backend is reachable at HTTP 503, but never ready", async (t) => {
+  const server = createBackendServer({ token: TOKEN });
+  t.after(() => closeBackend(server));
+  const { port } = await listenBackend(server, 0);
+  assert.deepEqual(await readBackendHealth({ baseUrl: `http://127.0.0.1:${port}`, token: TOKEN, expectedGeneration: "gen-a" }), {
+    ok: true,
+    status: 503,
+    ready: false,
+    generation: { pinned: "gen-a", running: null, matches: false },
+  });
+});
+
+test("an arbitrary or contradictory HTTP 503 is not valid Backend health", async () => {
+  for (const body of [{}, { ready: false }, { service: "leafcode-pi-backend", protocolVersion: BACKEND_PROTOCOL_VERSION, ready: true, status: "ready" }]) {
+    assert.deepEqual(await readBackendHealth({ baseUrl: BASE, token: TOKEN, fetchImpl: async () => jsonResponse(503, body) }), {
+      ok: false, reason: "bad-response", status: 503,
+    });
+  }
 });
 
 test("waiting polls until ready", async () => {

@@ -50,11 +50,16 @@ export async function readBackendHealth({
   }
   if (response.status === 401 || response.status === 403) return { ok: false, reason: "unauthorized", status: response.status };
   if (response.status === 409) return { ok: false, reason: "incompatible", status: response.status };
-  if (!response.ok) return { ok: false, reason: "bad-response", status: response.status };
+  if (!response.ok && response.status !== 503) return { ok: false, reason: "bad-response", status: response.status };
   let body;
   try {
     body = await response.json();
   } catch {
+    return { ok: false, reason: "bad-response", status: response.status };
+  }
+  // Detached/starting is reachable, not ready. Do not accept a generic HTTP 503 as health.
+  if (response.status === 503 && (body?.service !== "leafcode-pi-backend" ||
+    body?.protocolVersion !== BACKEND_PROTOCOL_VERSION || body?.ready !== false || body?.status !== "starting")) {
     return { ok: false, reason: "bad-response", status: response.status };
   }
   const generation = runtimeGenerationStatus(expectedGeneration, body?.runtimeGeneration ?? null);

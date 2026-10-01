@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { createCutoverPreflight, readActiveGoalLoopCount, readLeases, readStoreTasks } from "./cutover-preflight.js";
 import { runCutover } from "./cutover.js";
+import { TASK_LEASE_STALE_MS } from "../../backend/core/task-runtime-lease.mjs";
 
 function fixture(t) {
   const dir = mkdtempSync(join(tmpdir(), "leafcode-cutover-preflight-"));
@@ -34,10 +35,38 @@ test("the lease reader reports owners, and treats an unreadable lease as unknown
   writeFileSync(join(leaseDir, "task-a.json"), JSON.stringify({ token: "x", pid: 4242, acquiredAt: 1, heartbeatAt: 2 }), "utf8");
   writeFileSync(join(leaseDir, "task-b.json"), "{broken", "utf8");
   writeFileSync(join(leaseDir, "notes.txt"), "ignore me", "utf8");
-  assert.deepEqual(readLeases(leaseDir).sort((a, b) => a.taskId.localeCompare(b.taskId)), [
+  assert.deepEqual(readLeases(leaseDir, { now: () => 2 }).sort((a, b) => a.taskId.localeCompare(b.taskId)), [
     { taskId: "task-a", pid: 4242 },
     { taskId: "task-b", pid: null },
   ]);
+});
+
+test("expired leases do not block cutover, while fresh and unknown leases still do", async (t) => {
+  const dir = fixture(t);
+  const leaseDir = join(dir, "task-leases");
+  mkdirSync(leaseDir);
+  const now = 200_000;
+  const record = { token: "test-lease", pid: process.pid, acquiredAt: 1, heartbeatAt: now - TASK_LEASE_STALE_MS - 1 };
+  const file = join(leaseDir, "task-a.json");
+  const preflight = createCutoverPreflight({
+    dataDir: dir, token: "test-token", ownPid: process.pid + 1,
+    readHealth: async () => ({ ok: true, ready: false }), countGoalLoops: () => 0, readers: { now: () => now },
+  });
+  writeFileSync(file, JSON.stringify(record), "utf8");
+  assert.equal((await preflight()).ok, true, "an expired heartbeat is not a live owner even if the pid was reused");
+  assert.deepEqual(JSON.parse(readFileSync(file, "utf8")), record, "preflight must not remove or modify expired files");
+  for (const lease of [
+    { ...record, heartbeatAt: now - TASK_LEASE_STALE_MS },
+    { ...record, heartbeatAt: now },
+    { ...record, heartbeatAt: undefined },
+    { ...record, pid: undefined },
+    { ...record, token: undefined },
+    { ...record, acquiredAt: undefined },
+    { ...record, heartbeatAt: "old" },
+  ]) {
+    writeFileSync(file, JSON.stringify(lease), "utf8");
+    assert.deepEqual((await preflight()).blockers, [{ code: "foreign-lease", detail: 1 }]);
+  }
 });
 
 test("the start phase accepts a detached Backend and refuses when work is running", async (t) => {

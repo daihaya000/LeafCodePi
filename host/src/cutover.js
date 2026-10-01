@@ -59,7 +59,16 @@ export async function runCutover({
 
   // 1. Nothing may be running that would be lost, and the Backend must be the build we expect.
   stages.push("check");
-  const preflightResult = await preflight();
+  const preflightDeadline = now() + readyTimeoutMs;
+  let preflightResult;
+  for (;;) {
+    preflightResult = await preflight();
+    const blockers = preflightResult?.blockers ?? [];
+    // Cold HTTP endpoints may not be observable yet. Work or unknown disk ownership never retries.
+    if (preflightResult?.ok || blockers.length === 0 || now() >= preflightDeadline ||
+      blockers.some(({ code }) => code !== "backend-unreachable" && code !== "goal-loop-state-unknown")) break;
+    await sleep(pollMs);
+  }
   if (!preflightResult?.ok) {
     log("Cutover refused: the preconditions are not met");
     return { ok: false, stage: "check", reason: "preflight", blockers: preflightResult?.blockers ?? [], rolledBack: false, stages };
@@ -107,9 +116,17 @@ export async function runCutover({
   // Backend must still be ready. A hand-over that only looks finished is rolled back.
   if (typeof verify === "function") {
     stages.push("verify");
+    const verifyDeadline = now() + readyTimeoutMs;
     let verified = { ok: false, blockers: [] };
     try {
-      verified = (await verify()) ?? { ok: false, blockers: [] };
+      for (;;) {
+        verified = (await verify()) ?? { ok: false, blockers: [] };
+        // A spawned WebUI is not yet listening. Any ownership/generation failure is still final.
+        const blockers = verified.blockers ?? [];
+        if (verified.ok || blockers.length === 0 || now() >= verifyDeadline ||
+          blockers.some(({ code }) => code !== "webui-unreachable")) break;
+        await sleep(pollMs);
+      }
     } catch (err) {
       error(`Cutover verification failed: ${err instanceof Error ? err.message : String(err)}`);
       verified = { ok: false, blockers: [] };

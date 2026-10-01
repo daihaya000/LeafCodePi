@@ -59,6 +59,49 @@ test("a satisfied cutover stops the old path, attaches, then hands over", async 
   ]);
 });
 
+test("cold startup waits before stopping the owner and verifying the new WebUI", async () => {
+  const { calls, options } = harness();
+  let clock = 0;
+  let preflightReads = 0;
+  let verifyReads = 0;
+  options.now = () => clock;
+  options.sleep = async () => {
+    if (preflightReads < 2) assert.equal(calls.includes("stopWebUi"), false);
+    clock += 500;
+  };
+  options.preflight = async () => {
+    preflightReads += 1;
+    return preflightReads < 2
+      ? { ok: false, blockers: [{ code: "backend-unreachable" }, { code: "goal-loop-state-unknown" }] }
+      : { ok: true, blockers: [] };
+  };
+  options.verify = async () => {
+    verifyReads += 1;
+    return verifyReads < 2 ? { ok: false, blockers: [{ code: "webui-unreachable" }] } : { ok: true, blockers: [] };
+  };
+  assert.equal((await runCutover(options)).ok, true);
+  assert.equal(preflightReads, 2);
+  assert.equal(verifyReads, 2);
+});
+
+test("startup waits are bounded and never bypass a refusal", async () => {
+  for (const stage of ["check", "verify"]) {
+    const { calls, options } = harness();
+    let clock = 0;
+    options.now = () => clock;
+    options.sleep = async () => { clock += 500; };
+    options.readyTimeoutMs = 1_000;
+    if (stage === "check") options.preflight = async () => ({ ok: false, blockers: [{ code: "goal-loop-state-unknown" }] });
+    else options.verify = async () => ({ ok: false, blockers: [{ code: "webui-unreachable" }] });
+    const result = await runCutover(options);
+    assert.equal(result.ok, false);
+    assert.equal(result.stage, stage);
+    assert.equal(clock, 1_000);
+    if (stage === "check") assert.deepEqual(calls, []);
+    else assert.equal(result.rolledBack, true);
+  }
+});
+
 test("a hand-over that fails verification is rolled back", async () => {
   const { calls, options } = harness({ failAt: "verify" });
   const result = await runCutover(options);
