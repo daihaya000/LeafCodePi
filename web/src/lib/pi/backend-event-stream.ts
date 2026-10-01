@@ -22,6 +22,7 @@ export type BackendEventSink = {
 
 export const BACKEND_EVENT_POLL_MS = 2_000;
 
+type PendingRequests = { permissionRequest: unknown; questionRequest: unknown };
 type BackendSnapshotRead = [
   Awaited<ReturnType<typeof forwardTaskDetail>>,
   Awaited<ReturnType<typeof forwardTaskPendingRequests>>,
@@ -137,9 +138,20 @@ export async function startBackendTaskStream({
     }
   };
   let lastSnapshot: string | undefined;
+  let lastPending: PendingRequests = pending.ok
+    ? { permissionRequest: pending.permissionRequest, questionRequest: pending.questionRequest }
+    : { permissionRequest: null, questionRequest: null };
+  const resolvePending = (requests: BackendSnapshotRead[1]): PendingRequests => {
+    if (!requests.ok) return lastPending;
+    lastPending = {
+      permissionRequest: requests.permissionRequest,
+      questionRequest: requests.questionRequest,
+    };
+    return lastPending;
+  };
   const send = (current: Record<string, unknown> | null, requests: BackendSnapshotRead[1]) => {
     if (stopped || sse.closed) return;
-    const snapshot = backendTaskSnapshot(current, requests, extraFields());
+    const snapshot = backendTaskSnapshot(current, resolvePending(requests), extraFields());
     const serialized = JSON.stringify(snapshot);
     if (serialized === lastSnapshot) return;
     if (sse.sendSerialized) sse.sendSerialized("snapshot", serialized);

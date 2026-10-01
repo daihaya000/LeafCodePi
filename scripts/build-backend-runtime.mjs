@@ -3,8 +3,8 @@
  *
  * The Backend runs the same harness the Web app does, so it is built from the same sources: the
  * Web app's `@/` alias, the shared contracts and the extracted `backend/core/` modules are all
- * resolved here. The Pi SDK stays external because the Backend installs its own pinned copy — the
- * bundle must never embed a second SDK generation.
+ * resolved here. The Pi SDK and AI stay external because the Backend installs their synchronized
+ * pinned copies — the bundle must never embed a second Pi generation.
  *
  * Output is a build artifact (`backend/runtime/runtime.bundle.mjs`), not source: it is ignored by
  * git and rebuilt by `npm run build:backend-runtime`.
@@ -13,6 +13,7 @@ import { mkdirSync, rmSync, statSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { assertInstalledPiVersions, assertPiDependencyVersions } from "../shared/pi-dependencies.mjs";
 
 const HERE = fileURLToPath(import.meta.url);
 const ROOT = resolve(dirname(HERE), "..");
@@ -31,14 +32,17 @@ export function runtimeAliases() {
 }
 
 /**
- * Packages that must stay external. The SDK is pinned by the Backend's own package.json, and Node
- * builtins are never bundled.
+ * Packages that must stay external. Both Pi packages are pinned by the Backend's own package.json,
+ * and Node builtins are never bundled.
  */
 export function runtimeExternals() {
-  return ["@earendil-works/pi-coding-agent", "node:*"];
+  return ["@earendil-works/pi-coding-agent", "@earendil-works/pi-ai", "node:*"];
 }
 
 export async function buildBackendRuntime({ log = console.log } = {}) {
+  const version = assertPiDependencyVersions(join(ROOT, "web"), join(ROOT, "backend"));
+  for (const dir of ["web", "backend"]) assertInstalledPiVersions(join(ROOT, dir), version);
+  mkdirSync(dirname(BUNDLE_PATH), { recursive: true });
   // esbuild is a Web devDependency (through vitest); resolve it from the Web project so the root
   // script does not need its own copy.
   const webRequire = createRequire(join(ROOT, "web", "package.json"));

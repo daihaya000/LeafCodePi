@@ -385,7 +385,10 @@ production build は既存のミラー先を常設ビルド領域として直接
 - Next 16 はプロジェクト外の `distDir` を許可しないため、ソースの差分コピーだけを残します。OneDrive側の `node_modules` はビルド時に走査・同期・ハードリンクしません。
 - 依存関係は初回または `package.json` / `package-lock.json` / Node.js環境の変更時に、ビルド領域で `npm ci --include=dev` します。旧ミラーも次回ビルドで移行するため、初回は依存インストールの時間・空き容量・ネットワーク接続が必要です。インストール失敗時は以前の依存関係を復元します。
 - npm 12用に `web/package.json` の `allowScripts` で `better-sqlite3@12.9.0` のみを許可しています。依存インストール後はSQLiteの起動も検証します。SQLiteのバージョン更新時はこの許可も見直してください。
-- `.next`・依存関係・ビルドキャッシュをOneDriveへ書き戻しません。`next dev` と開発用依存のインストール、起動後のPi 0.x自動更新は従来どおりリポジトリ側です。
+- `.next`・依存関係・ビルドキャッシュをOneDriveへ書き戻しません。`next dev` と開発用依存のインストールはリポジトリ側です。
+- PiはHost起動前にSDK・AI両パッケージのnpm `latest`（安定版）を確認し、Web・Backendのmanifest・lock・実体を同じ厳密バージョンへ一括同期します。推移依存もoverrideで統一し、Backend bundleへ古いAIを埋め込みません。両側の準備・モジュール検証が成功してから適用し、失敗時は以前の依存を維持します。公開タイミング差で両パッケージのlatestが異なる場合も更新を見送ります。
+- 実行中のセッションの依存は更新せず、次のHost起動時に反映します。npm処理の待ち時間は合計最大120秒（後始末・ビルドを除く）、`LEAFCODE_PI_AUTO_UPDATE=0`で自動更新を無効化できます。オフラインでも以前の同期済みバージョンで起動し、不一致が残る場合は起動・ビルドを拒否します。
+- 手動同期はHost停止後に `npm run sync:pi`。整合性だけの確認は `npm run sync:pi -- --check`。production mirrorが異なる依存を持つ場合は起動前に再ビルドします。
 - 型チェックは `next build` の中ではなく、ビルド領域の `tsc --noEmit` を `next build` と並列に実行して担保します（`web/next.config.ts` の `typescript.ignoreBuildErrors`）。型エラー時は新しいビルドを破棄し、前回の production build を復元します。
 
 トレイメニュー:

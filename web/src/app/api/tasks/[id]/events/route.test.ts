@@ -76,7 +76,7 @@ describe("/api/tasks/[id]/events", () => {
     mocks.subscribeTask.mockReset();
     mocks.localRuntimeBlocked.mockReset().mockReturnValue(false);
     mocks.forwardTaskDetail.mockReset();
-    mocks.forwardTaskPendingRequests.mockReset().mockResolvedValue({ permissionRequest: null, questionRequest: null });
+    mocks.forwardTaskPendingRequests.mockReset().mockResolvedValue({ ok: true, permissionRequest: null, questionRequest: null });
   });
 
   it("streams from the owning Backend without subscribing locally after the cutover", async () => {
@@ -86,7 +86,7 @@ describe("/api/tasks/[id]/events", () => {
       detail: task({ messages: [], isStreaming: true, status: "working" }),
     });
     mocks.forwardTaskPendingRequests.mockResolvedValue({
-      permissionRequest: { requestId: "req-1" },
+      ok: true, permissionRequest: { requestId: "req-1" },
       questionRequest: null,
     });
     const response = await GET(new NextRequest("http://localhost/api/tasks/task-1/events"), {
@@ -120,8 +120,8 @@ describe("/api/tasks/[id]/events", () => {
         .mockResolvedValueOnce({ ok: true, detail: task() })
         .mockResolvedValue({ ok: true, detail: updated });
       mocks.forwardTaskPendingRequests
-        .mockResolvedValueOnce({ permissionRequest: { requestId: "req-1" }, questionRequest: null })
-        .mockResolvedValue({ permissionRequest: null, questionRequest: null });
+        .mockResolvedValueOnce({ ok: true, permissionRequest: { requestId: "req-1" }, questionRequest: null })
+        .mockResolvedValue({ ok: true, permissionRequest: null, questionRequest: null });
       const response = await GET(new NextRequest("http://localhost/api/tasks/task-1/events"), {
         params: Promise.resolve({ id: "task-1" }),
       });

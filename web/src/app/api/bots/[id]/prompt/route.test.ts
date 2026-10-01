@@ -78,7 +78,31 @@ describe("POST /api/bots/[id]/prompt", () => {
     expect(state.promptTask).not.toHaveBeenCalled();
   });
 
-  it("forwards a Bot Goal Loop start and never runs it locally", async () => {
+    it("replays Backend business errors from the result envelope", async () => {
+    const bot = createBot({ name: "Result bot" });
+    state.localRuntimeBlocked.mockReturnValue(true);
+    state.forwardTaskPrompt.mockResolvedValue({
+      ok: true,
+      task: null,
+      result: { status: 409, body: { error: "a turn is already active" } },
+    });
+    const response = await POST(request("check"), { params: Promise.resolve({ id: bot.id }) });
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toEqual({ error: "a turn is already active" });
+    expect(state.promptTask).not.toHaveBeenCalled();
+  });
+
+  it("preserves Backend 4xx refusals for ordinary Bot prompts", async () => {
+    const bot = createBot({ name: "Rejected bot" });
+    state.localRuntimeBlocked.mockReturnValue(true);
+    state.forwardTaskPrompt.mockResolvedValue({ ok: false, reason: "bad-response", status: 409 });
+    const response = await POST(request("check"), { params: Promise.resolve({ id: bot.id }) });
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toEqual({ error: "Backendで送信を実行できません", code: "BACKEND_REQUEST_REJECTED" });
+    expect(state.promptTask).not.toHaveBeenCalled();
+  });
+
+it("forwards a Bot Goal Loop start and never runs it locally", async () => {
     const bot = createBot({ name: "Loop bot 2" });
     const images = [{ mimeType: "image/png", data: "aW1hZ2U=" }];
     state.localRuntimeBlocked.mockReturnValue(true);

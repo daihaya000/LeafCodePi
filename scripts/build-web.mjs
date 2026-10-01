@@ -7,6 +7,7 @@ import { isMirroredNextCliReady, resolveMirrorRoot, syncMirror } from "./web-bui
 import { DEFAULT_HOST_CONTROL_PORT, dataDir, readPort } from "../host/src/config.js";
 import { hasSsListeningPort, parseListeningPids, parseLsofListeningPids, parseSsListeningPids } from "../host/src/port-plan.js";
 import { runPortSnapshot } from "../host/src/port-scanner.js";
+import { assertInstalledPiVersions, assertPiDependencyVersions, PI_SDK_PACKAGE } from "../shared/pi-dependencies.mjs";
 
 /**
  * Single entry point for the production WebUI build, shared by `npm run build`
@@ -129,6 +130,12 @@ export function replantBuildCache(distDir, fsApi = {}) {
 export function ensureBuildDependencies(mirrorRoot, { install = spawnSync } = {}) {
   const dependencies = join(mirrorRoot, "node_modules");
   const stamp = join(dependencies, ".leafcode-pi-build-deps");
+  const piVersion = JSON.parse(readFileSync(join(mirrorRoot, "package.json"), "utf8")).dependencies?.[PI_SDK_PACKAGE];
+  const piReady = () => {
+    if (!piVersion) return true;
+    try { assertInstalledPiVersions(mirrorRoot, piVersion); return true; }
+    catch { return false; }
+  };
   const fingerprint = createHash("sha256")
     .update(JSON.stringify([
       readFileSync(join(mirrorRoot, "package.json"), "utf8"),
@@ -137,7 +144,7 @@ export function ensureBuildDependencies(mirrorRoot, { install = spawnSync } = {}
     ]))
     .digest("hex");
   try {
-    if (readFileSync(stamp, "utf8") === fingerprint && isMirroredNextCliReady(mirrorRoot)) return false;
+    if (readFileSync(stamp, "utf8") === fingerprint && isMirroredNextCliReady(mirrorRoot) && piReady()) return false;
   } catch {
     // The legacy hard-link mirror has no stamp and is migrated on its next build.
   }
@@ -157,6 +164,7 @@ export function ensureBuildDependencies(mirrorRoot, { install = spawnSync } = {}
     if (result.error) throw result.error;
     if (result.status !== 0) throw new Error(`npm ci (build workspace) exited ${result.status}`);
     if (!isMirroredNextCliReady(mirrorRoot)) throw new Error("npm ci did not install a usable Next.js CLI");
+    if (piVersion) assertInstalledPiVersions(mirrorRoot, piVersion);
     // A successful Next build does not load SQLite's native binding. npm 12
     // can skip its install script and still exit 0; do not cache that install.
     const nativeStatus = run(process.execPath,
@@ -451,6 +459,7 @@ export async function main(argv = process.argv.slice(2)) {
     return 1;
   }
 
+  assertPiDependencyVersions(WEB_DIR, join(REPO_ROOT, "backend"));
   ensureExtensionDependencies();
   const mirror = syncMirror({ sourceDir: WEB_DIR });
   console.error(

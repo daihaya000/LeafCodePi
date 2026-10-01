@@ -183,19 +183,24 @@ export async function forwardPendingAttention(
  * The pending approval/question the owning Backend is waiting on for a task.
  *
  * The requests live in the owner's memory, so a WebUI that does not own the session must ask the
- * Backend for them; without this the approval prompt would never appear after the cutover. A read
- * failure is reported as "nothing pending" so a stream keeps working, but the caller may retry.
+ * Backend for them; without this the approval prompt would never appear after the cutover.
+ * Transport failure is reported as `ok: false` so callers can keep the last known pending UI
+ * instead of flashing an empty approval state.
  */
 export async function forwardTaskPendingRequests(
   id: string,
   options: { env?: BackendEnv; fetchImpl?: typeof fetch; timeoutMs?: number } = {},
-): Promise<{ permissionRequest: unknown; questionRequest: unknown }> {
+): Promise<
+  | { ok: true; permissionRequest: unknown; questionRequest: unknown }
+  | { ok: false; reason: BackendFailureReason; status?: number }
+> {
   const result = await readBackendPendingSnapshots(options);
-  if (!result.ok) return { permissionRequest: null, questionRequest: null };
+  if (!result.ok) return { ok: false, reason: result.reason, ...(result.status ? { status: result.status } : {}) };
   const entry = (result.body?.snapshots ?? []).find((snapshot) => snapshot?.taskId === id);
   const payload = entry?.payload;
   const fields = payload && typeof payload === "object" ? (payload as Record<string, unknown>) : {};
   return {
+    ok: true,
     permissionRequest: fields.permissionRequest ?? null,
     questionRequest: fields.questionRequest ?? null,
   };

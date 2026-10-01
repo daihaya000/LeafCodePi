@@ -647,7 +647,7 @@ describe("forwardTaskPendingRequests", () => {
       jsonResponse(200, { snapshots: readPendingRequestSnapshots(runtime) }));
     const options = { env, fetchImpl };
     await expect(forwardTaskPendingRequests("code-1", options)).resolves.toEqual({
-      permissionRequest: permission, questionRequest: question,
+      ok: true, permissionRequest: permission, questionRequest: question,
     });
     await expect(forwardPendingRequestsByTask(options)).resolves.toEqual({
       "code-1": { permissionRequest: permission, questionRequest: question },
@@ -656,7 +656,7 @@ describe("forwardTaskPendingRequests", () => {
     permission = null;
     question = null;
     await expect(forwardTaskPendingRequests("code-1", options)).resolves.toEqual({
-      permissionRequest: null, questionRequest: null,
+      ok: true, permissionRequest: null, questionRequest: null,
     });
     await expect(forwardPendingRequestsByTask(options)).resolves.toEqual({});
   });
@@ -672,22 +672,22 @@ describe("forwardTaskPendingRequests", () => {
     );
     await expect(
       forwardTaskPendingRequests("task-1", { env, fetchImpl: fetchImpl as unknown as typeof fetch }),
-    ).resolves.toEqual({ permissionRequest: { requestId: "req-1" }, questionRequest: { requestId: "q1" } });
+    ).resolves.toEqual({ ok: true, permissionRequest: { requestId: "req-1" }, questionRequest: { requestId: "q1" } });
     expect(fetchImpl.mock.calls[0][0]).toBe("http://127.0.0.1:19999/internal/pending-snapshots");
   });
 
-  it("reports nothing pending when the task is absent or the Backend cannot answer", async () => {
+  it("reports a failed pending read instead of pretending nothing is waiting", async () => {
     const empty = vi.fn(async () => jsonResponse(200, { snapshots: [] }));
     await expect(
       forwardTaskPendingRequests("task-1", { env, fetchImpl: empty as unknown as typeof fetch }),
-    ).resolves.toEqual({ permissionRequest: null, questionRequest: null });
+    ).resolves.toEqual({ ok: true, permissionRequest: null, questionRequest: null });
     const broken = vi.fn(async () => jsonResponse(500, {}));
     await expect(
       forwardTaskPendingRequests("task-1", { env, fetchImpl: broken as unknown as typeof fetch }),
-    ).resolves.toEqual({ permissionRequest: null, questionRequest: null });
+    ).resolves.toEqual({ ok: false, reason: "bad-response", status: 500 });
     await expect(forwardTaskPendingRequests("task-1", { env: {} })).resolves.toEqual({
-      permissionRequest: null,
-      questionRequest: null,
+      ok: false,
+      reason: "not-configured",
     });
   });
 });

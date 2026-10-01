@@ -16,25 +16,32 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     if (body.files !== undefined && (!isPromptFileList(body.files) || body.files.some((file) => !isPromptFileWithinSize(file) || !isPromptFileText(file)))) return NextResponse.json({ error: "invalid files: UTF-8 text only" }, { status: 400 });
     if ((body.images?.length ?? 0) + (body.files?.length ?? 0) > MAX_PROMPT_ATTACHMENTS) return NextResponse.json({ error: `添付は${MAX_PROMPT_ATTACHMENTS}件までです` }, { status: 400 });
     if (!body.prompt.trim() && !body.images?.length && !body.files?.length) return NextResponse.json({ error: "Prompt is required" }, { status: 400 });
-    if (localRuntimeBlocked() && body.goalLoop === undefined) {
+        if (localRuntimeBlocked() && body.goalLoop === undefined) {
       const forwarded = await forwardTaskPrompt(botTaskId(id), {
         prompt: body.prompt,
         ...(body.images !== undefined ? { images: body.images } : {}),
         ...(body.files !== undefined ? { files: body.files } : {}),
       });
-      if (forwarded.ok) return NextResponse.json({ task: forwarded.task });
+      if (forwarded.ok) {
+        // Backend business errors arrive as HTTP 200 + result envelope; replay them like tasks.
+        if (forwarded.result) return NextResponse.json(forwarded.result.body, { status: forwarded.result.status });
+        return NextResponse.json({ task: forwarded.task });
+      }
       if (forwarded.reason === "not-configured") {
         return NextResponse.json(
           { error: "Backendが実行を所有しています", code: "RUNTIME_NOT_OWNED" },
           { status: 409 },
         );
       }
+      if (forwarded.reason === "bad-response" && forwarded.status && forwarded.status >= 400 && forwarded.status < 500) {
+        return NextResponse.json({ error: "Backendで送信を実行できません", code: "BACKEND_REQUEST_REJECTED" }, { status: forwarded.status });
+      }
       return NextResponse.json(
         { error: "Backendへ転送できません", code: "BACKEND_FORWARD_FAILED", reason: forwarded.reason },
         { status: 502 },
       );
     }
-    if (body.goalLoop !== undefined) {
+if (body.goalLoop !== undefined) {
       if (body.files?.length) return NextResponse.json({ error: "Goal loop の開始では画像のみ添付できます" }, { status: 400 });
       if (body.goalLoop === null || typeof body.goalLoop !== "object" || Array.isArray(body.goalLoop)) return NextResponse.json({ error: "invalid goalLoop" }, { status: 400 });
       const loop = body.goalLoop as { acceptance?: unknown; maxTurns?: unknown; cooldownSeconds?: unknown; forceFullRun?: unknown };

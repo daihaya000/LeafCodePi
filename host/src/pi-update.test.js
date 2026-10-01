@@ -1,180 +1,451 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { EventEmitter } from "node:events";
+import { spawnSync as realSpawnSync } from "node:child_process";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import test from "node:test";
-import { autoUpdatePi, autoUpdatePiInBackground, PI_PACKAGE_NAME, PI_UPDATE_TIMEOUT_MS } from "./pi-update.js";
+import { PI_PACKAGES, assertPiDependencyVersions } from "../../shared/pi-dependencies.mjs";
+import { autoUpdatePi, installedPiVersion, PI_UPDATE_TIMEOUT_MS, updatePiBeforeStartup } from "./pi-update.js";
 
-function makeWebDir(version) {
-  const webDir = mkdtempSync(join(tmpdir(), "leafcode-pi-update-"));
-  const packageDir = join(webDir, "node_modules", ...PI_PACKAGE_NAME.split("/"));
-  mkdirSync(packageDir, { recursive: true });
-  writeFileSync(join(packageDir, "package.json"), JSON.stringify({ version }), "utf8");
-  return webDir;
+function manifest(version) {
+  return {
+    dependencies: Object.fromEntries(PI_PACKAGES.map((name) => [name, version])),
+    overrides: Object.fromEntries(PI_PACKAGES.map((name) => [name, `$${name}`])),
+  };
+}
+function lockFor(data) {
+  return { lockfileVersion: 3, packages: {
+    "": { dependencies: data.dependencies },
+    ...Object.fromEntries(PI_PACKAGES.map((name) => [`node_modules/${name}`, { version: data.dependencies[name] }])),
+  } };
+}
+function installFake(dir, version) {
+  for (const name of PI_PACKAGES) {
+    const packageDir = join(dir, "node_modules", name);
+    mkdirSync(packageDir, { recursive: true });
+    writeFileSync(join(packageDir, "package.json"), JSON.stringify({ version }));
+  }
+}
+function fixture(web = "0.99.2", backend = web) {
+  const root = mkdtempSync(join(tmpdir(), "leafcode-pi-sync-"));
+  const webDir = join(root, "web");
+  const backendDir = join(root, "backend");
+  for (const [dir, version] of [[webDir, web], [backendDir, backend]]) {
+    mkdirSync(dir);
+    writeFileSync(join(dir, "package.json"), `${JSON.stringify(manifest(version), null, 2).replaceAll("\n", "\r\n")}\r\n`);
+    writeFileSync(join(dir, "package-lock.json"), JSON.stringify(lockFor(manifest(version))));
+    installFake(dir, version);
+  }
+  return { root, webDir, backendDir, env: { LEAFCODE_PI_DATA_DIR: root }, runtimeIsIdle: () => true, cleanup: () => rmSync(root, { recursive: true, force: true }) };
+}
+function fakeNpm({ latest = ["0.100.0", "0.100.0"], intercept = () => {} } = {}) {
+  const calls = [];
+  function spawnSync(command, args, options) {
+    calls.push({ command, args, options });
+    const intercepted = intercept(command, args, options, calls);
+    if (intercepted) return intercepted;
+    if (args[0] === "view") {
+      const index = PI_PACKAGES.findIndex((name) => args[1] === `${name}@latest`);
+      return { status: 0, stdout: JSON.stringify([latest[index]]) };
+    }
+    if (args[0] === "install") {
+      const data = JSON.parse(readFileSync(join(options.cwd, "package.json"), "utf8"));
+      writeFileSync(join(options.cwd, "package-lock.json"), JSON.stringify(lockFor(data)));
+    } else if (args[0] === "ci") {
+      const data = JSON.parse(readFileSync(join(options.cwd, "package.json"), "utf8"));
+      installFake(options.cwd, data.dependencies[PI_PACKAGES[0]]);
+    }
+    return { status: 0, stdout: "" };
+  }
+  return { calls, spawnSync };
+}
+function snapshot(f) {
+  return [f.webDir, f.backendDir].map((dir) => ({
+    manifest: readFileSync(join(dir, "package.json")),
+    lock: readFileSync(join(dir, "package-lock.json")),
+    versions: PI_PACKAGES.map((name) => installedPiVersion(dir, name)),
+  }));
+}
+function assertClean(f) {
+  for (const dir of [f.webDir, f.backendDir]) {
+    assert.equal(readdirSync(dir).some((name) => name.startsWith(".leafcode-pi-")), false);
+  }
 }
 
-test("autoUpdatePi updates the embedded Pi package once", () => {
-  const webDir = makeWebDir("0.84.4");
-  const calls = [];
-  const logs = [];
+test("latest SDK and AI are fetched once, pinned and installed for both projects before publication", () => {
+  const f = fixture();
+  const npm = fakeNpm();
   try {
-    const result = autoUpdatePi({
-      webDir,
-      // The suite may run inside a live Host (LEAFCODE_PI_AUTO_UPDATE=0): this test decides itself.
-      env: {},
-      platform: "win32",
-      spawnSync: (command, args, options) => {
-        calls.push({ command, args, options });
-        const packageJson = join(webDir, "node_modules", ...PI_PACKAGE_NAME.split("/"), "package.json");
-        writeFileSync(packageJson, JSON.stringify({ version: "0.85.0" }), "utf8");
-        return { status: 0 };
-      },
-      log: (message) => logs.push(message),
-    });
-
-    assert.equal(result.attempted, true);
-    assert.equal(result.updated, true);
-    assert.equal(result.version, "0.85.0");
-    assert.equal(calls.length, 1);
-    assert.equal(calls[0].command, "npm.cmd");
-    assert.deepEqual(calls[0].args, ["update", PI_PACKAGE_NAME, "--no-audit", "--no-fund"]);
-    assert.equal(calls[0].options.cwd, webDir);
-    assert.deepEqual(calls[0].options.stdio, ["ignore", "pipe", "pipe"]);
-    assert.equal(calls[0].options.timeout, PI_UPDATE_TIMEOUT_MS);
-    assert.deepEqual(logs, ["Pi updated from v0.84.4 to v0.85.0"]);
-  } finally {
-    rmSync(webDir, { recursive: true, force: true });
-  }
-});
-
-test("autoUpdatePiInBackground updates without blocking startup", () => {
-  const webDir = makeWebDir("0.84.4");
-  const calls = [];
-  const logs = [];
-  const handlers = {};
-  try {
-    const result = autoUpdatePiInBackground({
-      webDir,
-      env: {},
-      platform: "win32",
-      spawn: (command, args, options) => {
-        calls.push({ command, args, options });
-        return {
-          once: (event, handler) => {
-            handlers[event] = handler;
-          },
-          unref: () => {},
-        };
-      },
-      log: (message) => logs.push(message),
-    });
-
-    assert.deepEqual(result, { attempted: true, skipped: false });
-    assert.equal(calls.length, 1);
-    assert.equal(calls[0].command, "npm.cmd");
-    assert.deepEqual(calls[0].args, ["update", PI_PACKAGE_NAME, "--no-audit", "--no-fund"]);
-    assert.equal(calls[0].options.cwd, webDir);
-    const packageJson = join(webDir, "node_modules", ...PI_PACKAGE_NAME.split("/"), "package.json");
-    writeFileSync(packageJson, JSON.stringify({ version: "0.85.0" }), "utf8");
-    handlers.close(0);
-    assert.deepEqual(logs, ["Pi updated from v0.84.4 to v0.85.0"]);
-  } finally {
-    rmSync(webDir, { recursive: true, force: true });
-  }
-});
-
-test("autoUpdatePiInBackground aligns a Backend SDK that is behind the WebUI install", () => {
-  const webDir = makeWebDir("0.99.2");
-  const backendDir = makeWebDir("0.87.1");
-  const calls = [];
-  const logs = [];
-  const handlers = [];
-  try {
-    autoUpdatePiInBackground({
-      webDir,
-      backendDir,
-      env: {},
-      platform: "win32",
-      spawn: (command, args, options) => {
-        calls.push({ command, args, options });
-        const own = {};
-        handlers.push(own);
-        return { once: (event, handler) => { own[event] = handler; }, unref: () => {} };
-      },
-      log: (message) => logs.push(message),
-    });
-    handlers[0].close(0);
-    assert.equal(calls.length, 2);
-    assert.deepEqual(calls[1].args, ["install", `${PI_PACKAGE_NAME}@0.99.2`, "--save-exact", "--no-audit", "--no-fund"]);
-    assert.equal(calls[1].options.cwd, backendDir);
-    handlers[1].close(0);
-    assert.match(logs.at(-1), /Backend Pi SDK aligned from v0\.87\.1 to v0\.99\.2/);
-  } finally {
-    rmSync(webDir, { recursive: true, force: true });
-    rmSync(backendDir, { recursive: true, force: true });
-  }
-});
-
-test("autoUpdatePiInBackground leaves a matching or newer Backend SDK alone", () => {
-  for (const [web, backend] of [["0.99.2", "0.99.2"], ["0.87.1", "0.99.2"], ["0.99.10", "0.99.9"]]) {
-    const webDir = makeWebDir(web);
-    const backendDir = makeWebDir(backend);
-    const calls = [];
-    const handlers = {};
-    try {
-      autoUpdatePiInBackground({
-        webDir,
-        backendDir,
-        env: {},
-        platform: "win32",
-        spawn: (command, args) => {
-          calls.push(args[0]);
-          return { once: (event, handler) => { handlers[event] = handler; }, unref: () => {} };
-        },
-      });
-      handlers.close(0);
-      // Only a strictly newer WebUI SDK triggers an install: 0.99.10 beats 0.99.9 numerically.
-      assert.deepEqual(calls, web === "0.99.10" ? ["update", "install"] : ["update"], `${web} vs ${backend}`);
-    } finally {
-      rmSync(webDir, { recursive: true, force: true });
-      rmSync(backendDir, { recursive: true, force: true });
+    const result = autoUpdatePi({ ...f, ...npm, platform: "win32" });
+    assert.deepEqual(result, { attempted: true, updated: true, skipped: false, safeToStart: true, version: "0.100.0" });
+    assert.equal(assertPiDependencyVersions(f.webDir, f.backendDir), "0.100.0");
+    assert.deepEqual(npm.calls.map(({ args }) => args[0]), ["view", "view", "install", "ci", "--input-type=module", "install", "ci", "--input-type=module"]);
+    for (const call of npm.calls) {
+      assert.ok(call.options.timeout > 0 && call.options.timeout <= PI_UPDATE_TIMEOUT_MS);
+      if (call.args[0] === "view") assert.equal(call.command, "npm.cmd");
+      else assert.notEqual(call.options.cwd, f.webDir);
     }
+    for (const dir of [f.webDir, f.backendDir]) {
+      assert.deepEqual(PI_PACKAGES.map((name) => installedPiVersion(dir, name)), ["0.100.0", "0.100.0"]);
+      const text = readFileSync(join(dir, "package.json"), "utf8");
+      assert.equal(/(?<!\r)\n/.test(text), false, "existing CRLF preserved");
+    }
+    assertClean(f);
+  } finally { f.cleanup(); }
+});
+
+test("matching latest versions perform no install or dependency writes", () => {
+  const f = fixture();
+  const npm = fakeNpm({ latest: ["0.99.2", "0.99.2"] });
+  try {
+    const before = snapshot(f);
+    const result = autoUpdatePi({ ...f, ...npm });
+    assert.equal(result.updated, false);
+    assert.equal(result.version, "0.99.2");
+    assert.deepEqual(npm.calls.map(({ args }) => args[0]), ["view", "view"]);
+    assert.deepEqual(snapshot(f), before);
+    assertClean(f);
+  } finally { f.cleanup(); }
+});
+
+test("an old AI beside a current SDK is repaired even when the SDK itself did not advance", () => {
+  const f = fixture();
+  const npm = fakeNpm({ latest: ["0.99.2", "0.99.2"] });
+  try {
+    const data = manifest("0.99.2");
+    data.dependencies[PI_PACKAGES[1]] = "^0.87.0";
+    writeFileSync(join(f.webDir, "package.json"), JSON.stringify(data));
+    installFake(f.webDir, "0.87.1");
+    const result = autoUpdatePi({ ...f, ...npm });
+    assert.equal(result.updated, true);
+    assert.equal(assertPiDependencyVersions(f.webDir, f.backendDir), "0.99.2");
+    assert.deepEqual(PI_PACKAGES.map((name) => installedPiVersion(f.webDir, name)), ["0.99.2", "0.99.2"]);
+  } finally { f.cleanup(); }
+});
+
+test("any Backend mismatch is aligned to the chosen latest version, including a newer installed Backend", () => {
+  const f = fixture("0.99.2", "0.101.0");
+  const npm = fakeNpm();
+  try {
+    assert.equal(autoUpdatePi({ ...f, ...npm }).updated, true);
+    assert.equal(assertPiDependencyVersions(f.webDir, f.backendDir), "0.100.0");
+  } finally { f.cleanup(); }
+});
+
+test("different latest tags or a prerelease never cause a partial update", () => {
+  for (const latest of [["0.100.0", "0.99.2"], ["0.100.0-rc.1", "0.100.0-rc.1"]]) {
+    const f = fixture();
+    try {
+      const before = snapshot(f);
+      const npm = fakeNpm({ latest });
+      const result = autoUpdatePi({ ...f, ...npm });
+      assert.equal(result.updated, false);
+      assert.equal(result.safeToStart, true);
+      assert.ok(result.error);
+      assert.deepEqual(snapshot(f), before);
+      assertClean(f);
+    } finally { f.cleanup(); }
   }
 });
 
-test("autoUpdatePiInBackground respects the opt-out flag", () => {
-  const webDir = makeWebDir("0.84.4");
+test("network, second install and module validation failures retain both previous installs", () => {
+  for (const failAt of [1, 2, 6, 7, 8]) {
+    const f = fixture();
+    try {
+      const before = snapshot(f);
+      const npm = fakeNpm({ intercept: (_command, _args, _options, calls) => calls.length === failAt ? { status: 1 } : null });
+      const result = autoUpdatePi({ ...f, ...npm });
+      assert.equal(result.updated, false);
+      assert.equal(result.safeToStart, true);
+      assert.deepEqual(snapshot(f), before);
+      assertClean(f);
+    } finally { f.cleanup(); }
+  }
+});
+
+test("a malformed staged lock cannot be published", () => {
+  const f = fixture();
   try {
-    let spawned = false;
-    const result = autoUpdatePiInBackground({
-      webDir,
-      env: { LEAFCODE_PI_AUTO_UPDATE: "0" },
-      spawn: () => {
-        spawned = true;
+    const before = snapshot(f);
+    const npm = fakeNpm({ intercept: (_command, args, options) => {
+      if (args[0] !== "install") return null;
+      writeFileSync(join(options.cwd, "package-lock.json"), JSON.stringify(lockFor(manifest("0.87.1"))));
+      return { status: 0 };
+    } });
+    const result = autoUpdatePi({ ...f, ...npm });
+    assert.equal(result.updated, false);
+    assert.deepEqual(snapshot(f), before);
+    assertClean(f);
+  } finally { f.cleanup(); }
+});
+
+test("publication failure in the second project rolls back the first project's files and modules", () => {
+  for (const operation of ["rename", "write"]) {
+    const f = fixture();
+    let failed = false;
+    try {
+      const before = snapshot(f);
+      const fs = {
+        renameSync: (from, to) => {
+          if (operation === "rename" && !failed && to === join(f.backendDir, "node_modules")) {
+            failed = true;
+            throw new Error("rename refused");
+          }
+          renameSync(from, to);
+        },
+        writeFileSync: (path, content) => {
+          if (operation === "write" && !failed && path === join(f.backendDir, "package-lock.json")) {
+            failed = true;
+            throw new Error("write refused");
+          }
+          writeFileSync(path, content);
+        },
+      };
+      const result = autoUpdatePi({ ...f, ...fakeNpm(), fs });
+      assert.equal(result.updated, false);
+      assert.equal(result.safeToStart, true);
+      assert.deepEqual(snapshot(f), before);
+      assertClean(f);
+    } finally { f.cleanup(); }
+  }
+});
+
+test("rollback failure refuses startup and retains the affected backup", () => {
+  const f = fixture();
+  try {
+    const result = autoUpdatePi({ ...f, ...fakeNpm(), fs: {
+      renameSync: (from, to) => {
+        if (to === join(f.backendDir, "node_modules")) throw new Error("locked modules");
+        renameSync(from, to);
+      }, writeFileSync,
+    } });
+    assert.equal(result.safeToStart, false);
+    const retained = readdirSync(f.backendDir).find((name) => name.startsWith(".leafcode-pi-update-"));
+    assert.ok(retained);
+    assert.ok(existsSync(join(f.backendDir, retained, "previous-node_modules")));
+  } finally { f.cleanup(); }
+});
+
+test("concurrent edits are preserved instead of overwritten by the prepared version", () => {
+  const f = fixture();
+  try {
+    const changed = `${JSON.stringify({ ...manifest("0.99.2"), edited: true })}\n`;
+    const npm = fakeNpm({ intercept: (_command, _args, _options, calls) => {
+      if (calls.length === 8) writeFileSync(join(f.webDir, "package.json"), changed);
+    } });
+    const result = autoUpdatePi({ ...f, ...npm });
+    assert.equal(result.updated, false);
+    assert.equal(readFileSync(join(f.webDir, "package.json"), "utf8"), changed);
+    assert.equal(installedPiVersion(f.webDir), "0.99.2");
+    assert.equal(installedPiVersion(f.backendDir), "0.99.2");
+    assertClean(f);
+  } finally { f.cleanup(); }
+});
+
+test("opt-out and an existing synchronization lock never spawn npm", () => {
+  const f = fixture();
+  const npm = fakeNpm();
+  try {
+    assert.equal(autoUpdatePi({ ...f, ...npm, env: { LEAFCODE_PI_AUTO_UPDATE: "0" } }).skipped, true);
+    writeFileSync(join(f.webDir, ".leafcode-pi-deps.lock"), "other worker");
+    assert.equal(autoUpdatePi({ ...f, ...npm }).updated, false);
+    assert.equal(npm.calls.length, 0);
+    assert.equal(readFileSync(join(f.webDir, ".leafcode-pi-deps.lock"), "utf8"), "other worker");
+  } finally { f.cleanup(); }
+});
+
+test("manual updates are refused while a Host is running", () => {
+  const f = fixture();
+  const npm = fakeNpm();
+  try {
+    writeFileSync(join(f.root, "host.lock"), JSON.stringify({ pid: process.pid }));
+    const result = autoUpdatePi({ ...f, ...npm });
+    assert.match(result.error, /Stop the Host/);
+    assert.equal(npm.calls.length, 0);
+  } finally { f.cleanup(); }
+});
+
+test("a live or unidentified orphan runtime prevents installation even without a Host lock", () => {
+  const f = fixture();
+  const npm = fakeNpm();
+  try {
+    const before = snapshot(f);
+    const result = autoUpdatePi({ ...f, ...npm, runtimeIsIdle: () => false });
+    assert.match(result.error, /listeners must be idle/);
+    assert.deepEqual(npm.calls.map(({ args }) => args[0]), ["view", "view"]);
+    assert.deepEqual(snapshot(f), before);
+    assertClean(f);
+  } finally { f.cleanup(); }
+});
+
+test("a runtime appearing during preparation prevents publication of either install", () => {
+  const f = fixture();
+  let checks = 0;
+  try {
+    const before = snapshot(f);
+    const result = autoUpdatePi({ ...f, ...fakeNpm(), runtimeIsIdle: () => ++checks === 1 });
+    assert.match(result.error, /started during preparation/);
+    assert.equal(checks, 2);
+    assert.deepEqual(snapshot(f), before);
+    assertClean(f);
+  } finally { f.cleanup(); }
+});
+
+test("the deadline prevents another npm step and leaves both installs intact", () => {
+  const f = fixture();
+  let clock = 0;
+  try {
+    const before = snapshot(f);
+    const npm = fakeNpm({ intercept: () => { clock += PI_UPDATE_TIMEOUT_MS; } });
+    const result = autoUpdatePi({ ...f, ...npm, now: () => clock });
+    assert.match(result.error, /timed out/);
+    assert.equal(npm.calls.length, 1);
+    assert.deepEqual(snapshot(f), before);
+  } finally { f.cleanup(); }
+});
+
+test("startup awaits the worker and treats a missing completion message as unsafe", async () => {
+  for (const reported of [true, false]) {
+    const child = new EventEmitter();
+    let settled = false;
+    const pending = updatePiBeforeStartup({
+      webDir: "web", backendDir: "backend", env: {},
+      spawn: (command, args, options) => {
+        assert.equal(command, process.execPath);
+        assert.equal(dirname(args[0]).endsWith("scripts"), true);
+        assert.equal(options.stdio.at(-1), "ipc");
+        return child;
       },
-    });
-    assert.deepEqual(result, { attempted: false, skipped: true });
-    assert.equal(spawned, false);
-  } finally {
-    rmSync(webDir, { recursive: true, force: true });
+    }).then((value) => { settled = true; return value; });
+    await Promise.resolve();
+    assert.equal(settled, false);
+    if (reported) child.emit("message", { safeToStart: true, updated: true, version: "0.100.0" });
+    child.emit("close", reported ? 0 : 1);
+    assert.equal((await pending).safeToStart, reported);
   }
 });
 
-test("autoUpdatePi keeps startup usable when npm fails", () => {
-  const webDir = makeWebDir("0.84.4");
-  const errors = [];
+test("silent publication corruption is detected and rolled back", () => {
+  const f = fixture();
+  let corrupted = false;
   try {
-    const result = autoUpdatePi({
-      webDir,
-      env: {},
-      spawnSync: () => ({ status: 1 }),
-      error: (message) => errors.push(message),
-    });
+    const before = snapshot(f);
+    const result = autoUpdatePi({ ...f, ...fakeNpm(), fs: {
+      renameSync,
+      writeFileSync: (path, content) => {
+        if (!corrupted && path === join(f.backendDir, "package.json")) {
+          corrupted = true;
+          writeFileSync(path, `${content}\n`);
+        } else writeFileSync(path, content);
+      },
+    } });
+    assert.equal(result.updated, false);
+    assert.match(result.error, /published dependency bytes/);
+    assert.deepEqual(snapshot(f), before);
+  } finally { f.cleanup(); }
+});
 
-    assert.deepEqual(result, { attempted: true, updated: false, skipped: false });
-    assert.equal(errors.length, 1);
-    assert.match(errors[0], /continuing with the installed version/);
-  } finally {
-    rmSync(webDir, { recursive: true, force: true });
-  }
+test("build gates reject a pending updater, missing overrides and mixed transitive locks", () => {
+  const f = fixture();
+  try {
+    writeFileSync(join(f.webDir, ".leafcode-pi-deps.lock"), "worker");
+    assert.throws(() => assertPiDependencyVersions(f.webDir, f.backendDir), /unfinished/);
+    rmSync(join(f.webDir, ".leafcode-pi-deps.lock"));
+    const data = manifest("0.99.2");
+    delete data.overrides[PI_PACKAGES[1]];
+    writeFileSync(join(f.webDir, "package.json"), JSON.stringify(data));
+    assert.throws(() => assertPiDependencyVersions(f.webDir, f.backendDir), /override/);
+    writeFileSync(join(f.webDir, "package.json"), JSON.stringify(manifest("0.99.2")));
+    const lock = lockFor(manifest("0.99.2"));
+    lock.packages[`node_modules/plugin/node_modules/${PI_PACKAGES[1]}`] = { version: "0.87.1" };
+    writeFileSync(join(f.webDir, "package-lock.json"), JSON.stringify(lock));
+    assert.throws(() => assertPiDependencyVersions(f.webDir, f.backendDir), /mixed locked/);
+  } finally { f.cleanup(); }
+});
+
+test("the real CLI checks isolated fixtures without modifying them or reaching npm", () => {
+  const f = fixture();
+  try {
+    const before = snapshot(f);
+    const cli = new URL("../../scripts/sync-pi-dependencies.mjs", import.meta.url);
+    const result = realSpawnSync(process.execPath, [fileURLToPath(cli), "--check", "--web", f.webDir, "--backend", f.backendDir], { encoding: "utf8", timeout: 5_000 });
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stdout, /match v0\.99\.2/);
+    assert.deepEqual(snapshot(f), before);
+  } finally { f.cleanup(); }
+});
+
+test("a worker that never reports completion is stopped instead of blocking startup forever", async () => {
+  const f = fixture();
+  const child = new EventEmitter();
+  child.pid = 4242;
+  const killed = [];
+  // A killed worker never runs its own cleanup, so it leaves the lock that every later start refuses.
+  writeFileSync(join(f.webDir, ".leafcode-pi-deps.lock"), JSON.stringify({ pid: child.pid }));
+  try {
+    const pending = updatePiBeforeStartup({
+      webDir: f.webDir, backendDir: f.backendDir, env: {}, timeoutMs: 25,
+      spawn: () => child,
+      killTree: (pid) => { killed.push(pid); },
+      isAlive: () => false,
+      error: () => {},
+    });
+    const timedOut = await pending;
+    // A completion message that arrives after the deadline must not resurrect the wedged startup.
+    child.emit("message", { safeToStart: true, updated: true });
+    child.emit("close", 0);
+    assert.equal(timedOut.safeToStart, false);
+    assert.match(timedOut.error, /did not report completion/);
+    assert.deepEqual(killed, [4242]);
+    assert.equal(existsSync(join(f.webDir, ".leafcode-pi-deps.lock")), false);
+    assert.doesNotThrow(() => assertPiDependencyVersions(f.webDir, f.backendDir));
+  } finally { f.cleanup(); }
+});
+
+test("a timed-out worker that is still alive keeps the deps lock so a second sync cannot start", async () => {
+  const f = fixture();
+  const child = new EventEmitter();
+  child.pid = 4244;
+  writeFileSync(join(f.webDir, ".leafcode-pi-deps.lock"), JSON.stringify({ pid: child.pid }));
+  try {
+    const timedOut = await updatePiBeforeStartup({
+      webDir: f.webDir, backendDir: f.backendDir, env: {}, timeoutMs: 25,
+      spawn: () => child,
+      killTree: () => false,
+      isAlive: () => true,
+      error: () => {},
+    });
+    assert.equal(timedOut.safeToStart, false);
+    assert.equal(existsSync(join(f.webDir, ".leafcode-pi-deps.lock")), true);
+    assert.throws(() => assertPiDependencyVersions(f.webDir, f.backendDir), /unfinished/);
+  } finally { f.cleanup(); }
+});
+
+test("a worker that reports in time is not killed", async () => {
+  const child = new EventEmitter();
+  child.pid = 4243;
+  const killed = [];
+  const pending = updatePiBeforeStartup({
+    webDir: "web", backendDir: "backend", env: {}, timeoutMs: 5_000,
+    spawn: () => child,
+    killTree: (pid) => { killed.push(pid); },
+  });
+  child.emit("message", { safeToStart: true, updated: false, version: "0.99.2" });
+  child.emit("close", 0);
+  const result = await pending;
+  assert.equal(result.safeToStart, true);
+  assert.equal(result.version, "0.99.2");
+  assert.deepEqual(killed, []);
+});
+
+test("startup worker opt-out, spawn throw and spawn error settle without launching a runtime", async () => {
+  const skipped = await updatePiBeforeStartup({ env: { LEAFCODE_PI_AUTO_UPDATE: "0" }, spawn: () => assert.fail("must not spawn") });
+  assert.equal(skipped.skipped, true);
+  assert.equal((await updatePiBeforeStartup({ env: {}, spawn: () => { throw new Error("cannot spawn"); } })).safeToStart, false);
+  const child = new EventEmitter();
+  const pending = updatePiBeforeStartup({ env: {}, spawn: () => child });
+  child.emit("error", new Error("cannot spawn"));
+  assert.equal((await pending).safeToStart, false);
 });

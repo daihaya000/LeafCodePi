@@ -289,6 +289,20 @@ test("the Host can restart the Backend on request, and refuses while a Goal Loop
   assert.match(restart, /waitForBackendReady\(/);
 });
 
+test("Pi synchronization and matching build gates finish before either runtime starts", () => {
+  const index = readFileSync(join(repoRoot, "host", "src", "index.js"), "utf8");
+  const main = index.slice(index.indexOf("async function main()"));
+  const sync = main.indexOf("await updatePiBeforeStartup(");
+  const gate = main.indexOf("assertPiDependencyVersions(WEB_DIR");
+  const backendBuild = main.indexOf("await buildBackendRuntime(");
+  const launch = main.indexOf("await spawnWeb();");
+  assert.ok(sync >= 0 && gate > sync && backendBuild > gate && launch > backendBuild);
+  assert.match(main, /if \(!synchronized\.safeToStart\) throw/);
+  assert.match(main, /assertPiDependencyVersions\(WEB_MIRROR_DIR, join\(REPO_ROOT, "backend"\), \{ requireUnlocked: false \}\)/);
+  assert.match(main, /if \(!mirrorMatches\)[\s\S]*await buildWeb\("stale", \{ pull: false \}\)/);
+  assert.doesNotMatch(index, /autoUpdatePiInBackground|npm update/);
+});
+
 test("production starts Backend-owned without a hand-over", () => {
   const index = readFileSync(join(repoRoot, "host", "src", "index.js"), "utf8");
   // The Backend owns the runtime in the shipped build, so the Host runs one by default.

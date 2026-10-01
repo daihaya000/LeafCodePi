@@ -158,7 +158,7 @@ describe("POST /api/tasks", () => {
     expect(mocks.createTask).not.toHaveBeenCalled();
   });
 
-  it.each([400, 404, 413, 422])("preserves Backend create validation status %s without local fallback", async (status) => {
+  it.each([400, 404, 409, 413, 422])("preserves Backend create validation status %s without local fallback", async (status) => {
     mocks.localRuntimeBlocked.mockReturnValue(true);
     mocks.createTaskOnBackend.mockResolvedValue({ ok: false, reason: "bad-response", status });
     const response = await POST(new NextRequest("http://localhost/api/tasks", {

@@ -121,8 +121,8 @@ function syncDir(sourceDir, targetDir, counters, reserved = []) {
   const keep = new Set(reserved);
 
   for (const entry of sourceEntries) {
-    // Name-based: OneDrive placeholders and junctions may not report a directory.
-    if (SKIP_DIRS.has(entry.name) || SKIP_FILES.has(entry.name)) continue;
+    // Name-based: also exclude the updater's private staging trees and mutex.
+    if (SKIP_DIRS.has(entry.name) || SKIP_FILES.has(entry.name) || entry.name.startsWith(".leafcode-pi-")) continue;
 
     const from = join(sourceDir, entry.name);
     const to = join(targetDir, entry.name);
@@ -163,6 +163,7 @@ function syncDir(sourceDir, targetDir, counters, reserved = []) {
   }
 
   // Prune removed sources, not the workspace's dependencies, output or caches.
+  // Updater staging/locks are never valid in the mirror: skip them on copy, remove if left behind.
   for (const entry of readdirSync(targetDir, { withFileTypes: true })) {
     if (keep.has(entry.name)) continue;
     if (SKIP_DIRS.has(entry.name) || SKIP_FILES.has(entry.name)) continue;

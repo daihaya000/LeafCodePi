@@ -17,6 +17,8 @@ web/.playwright/
 web/coverage/
 web/tsconfig.tsbuildinfo
 .leafcode-pi/
+.leafcode-pi-update-*/
+.leafcode-pi-deps.lock
 
 # Native launcher: the entry-point exe itself (LeafCodePi.exe) is tracked
 # at the repo root; scripts/build-launcher.bat regenerates it from

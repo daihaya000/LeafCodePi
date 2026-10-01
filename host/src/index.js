@@ -19,7 +19,9 @@ import { buildHostRestartScript } from "./host-restart.js";
 import { DEFAULT_BACKEND_PORT } from "../../shared/backend-protocol.mjs";
 import { createBackendService, shouldRunBackend } from "./backend-service.js";
 import { readBackendHealth, waitForBackendReady } from "./backend-health.js";
-import { autoUpdatePiInBackground } from "./pi-update.js";
+import { updatePiBeforeStartup } from "./pi-update.js";
+import { assertInstalledPiVersions, assertPiDependencyVersions } from "../../shared/pi-dependencies.mjs";
+import { buildBackendRuntime } from "../../scripts/build-backend-runtime.mjs";
 import { pullLatestSources } from "./git-pull.js";
 import { createTranslationService } from "./translation-service.js";
 import { openProjectInExplorer } from "./open-explorer.js";
@@ -1187,8 +1189,27 @@ async function main() {
   process.on("exit", onHostExit);
 
   try {
-    // The Backend owns the runtime in this build, so the WebUI starts as its client from the first
-    // launch: there is no hand-over to perform.
+    // Never change SDK files underneath a running session. Both installs are prepared and
+    // validated before either child starts; a failed preparation retains the previous pair.
+    const synchronized = await updatePiBeforeStartup({ webDir: WEB_DIR, backendDir: join(REPO_ROOT, "backend"), log, error });
+    if (!synchronized.safeToStart) throw new Error("Pi dependency synchronization did not finish safely");
+    const piVersion = assertPiDependencyVersions(WEB_DIR, join(REPO_ROOT, "backend"));
+    assertInstalledPiVersions(WEB_DIR, piVersion);
+    assertInstalledPiVersions(join(REPO_ROOT, "backend"), piVersion);
+    if (synchronized.updated) delete process.env.LEAFCODE_PI_SKIP_STALE_REBUILD;
+    if (process.env.LEAFCODE_PI_MODE !== "dev" && hasProductionBuild()) {
+      let mirrorMatches = false;
+      try {
+        assertPiDependencyVersions(WEB_MIRROR_DIR, join(REPO_ROOT, "backend"), { requireUnlocked: false });
+        assertInstalledPiVersions(WEB_MIRROR_DIR, piVersion);
+        mirrorMatches = true;
+      } catch { /* a legacy or stale build must not serve a different SDK/AI pair */ }
+      if (!mirrorMatches) {
+        delete process.env.LEAFCODE_PI_SKIP_STALE_REBUILD;
+        await buildWeb("stale", { pull: false });
+      }
+    }
+    if (backendService) await buildBackendRuntime({ log });
     await spawnWeb();
   } catch (err) {
     removeLock(LOCK_FILE);
@@ -1231,8 +1252,6 @@ async function main() {
   await refreshStatusMenu();
 
   const ready = await waitUntilReady(`${WEBUI_URL}/api/health`, "LeafCodePi", 120, () => webProc);
-  // `npm update` のネットワーク待ちで起動を止めない。UI 応答後に裏で更新する。
-  autoUpdatePiInBackground({ webDir: WEB_DIR, backendDir: join(REPO_ROOT, "backend"), log, error });
   if (ready && shouldOpenBrowser()) openBrowser(WEBUI_URL);
 }
 

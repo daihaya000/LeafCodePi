@@ -1,50 +1,53 @@
-﻿# LeafCodePi 境界バグ調査 (2026-10-01)
+﻿# LeafCodePi FE/BE 分離バグ潰し (2026-10-01)
 
-対象: Web(Next.js BFF) ↔ Backend ↔ Host の API / SSE / lease / restart 分離。
-除外（既知）: mirror deps.lock prune / pi-update kill+lock / worker 後始末予算 / restart-guard 二重 deadline。
+対象: Web(Next.js BFF) ↔ Backend ↔ Host の API / SSE / 依存同期 / ミラー / 再起動境界。
 
-## 優先度付きバグ
+## 修正済み
 
-### P0 — Bot prompt が Backend 業務エラー envelope を破棄し 200 化する
+### P0 — Bot prompt が業務エラー envelope を破棄して 200 化
 
-- 場所: `web/src/app/api/bots/[id]/prompt/route.ts`（`forwardTaskPrompt` 成功分岐）
-- 対照: `web/src/app/api/tasks/[id]/prompt/route.ts` は `forwarded.result` を replay
-- Backend: `backend/src/server.mjs` が `{ result: { status, body } }` を HTTP 200 で返す
-- Forward: `web/src/lib/backend-forward.ts` `forwardTaskPrompt` が `result` を返す
-- 実害: Bot 送信の 409 等（例: 停止直後再試行拒否）が `{ task: null }` の 200 になり、UI が成功扱い
-- 証拠: 同一入力で task 経路は 409、bot 経路は 200 になる最小スクリプトで確認。既存 bot prompt テストは `result` ケース無し
+- 場所: `web/src/app/api/bots/[id]/prompt/route.ts`
+- 修正: `forwarded.result` を task prompt と同様に replay。4xx `bad-response` も保全。
+- 回帰: `bots/[id]/prompt/route.test.ts`（result envelope / 4xx）
 
-### P1 — Task SSE の pending ソフト失敗が承認/質問を null で上書き
+### P1 — Task SSE が pending 失敗で承認 UI を null 上書き
 
-- 場所: `web/src/lib/backend-forward.ts` `forwardTaskPendingRequests`（失敗→両方 null）
-- 消費: `web/src/lib/pi/backend-event-stream.ts`（detail 成功時に pending をそのまま send）
-- 実害: pending-snapshots の一瞬の失敗で permission/question が消え、再取得まで承認 UI が消える
-- 証拠: soft-fail→null 送信の最小再現で確認。detail 失敗はスキップするが pending 失敗はスキップしない非対称
+- 場所: `web/src/lib/backend-forward.ts` + `web/src/lib/pi/backend-event-stream.ts`
+- 修正: pending 失敗は `{ ok: false }`。ストリームは直前の pending を保持。
+- 回帰: `backend-forward.test.ts` / `backend-event-stream.test.ts`
 
-### P1 — タスク作成の 409 が Web で 502 に潰れる
+### P1 — タスク作成 409 が Web で 502 に潰れる
 
-- 場所: `web/src/app/api/tasks/route.ts`（許可 status: 400/404/413/422 のみ、409 欠落）
-- Backend: `createTask` 例外は `error.status` を HTTP に載せ `code: internal`（`backend/src/server.mjs`）
-- Client: 409+internal は `bad-response`+status 409（`web/src/lib/backend-client.ts`）
-- 実害: アーカイブ中・競合などの 409 が輸送失敗 502 になり、再試行/メッセージが誤る
+- 場所: `web/src/app/api/tasks/route.ts`
+- 修正: 保全 status に 409 を追加。
+- 回帰: `tasks/route.test.ts`
 
-### P2 — アカウント削除/停止の hang 監視が client Web で常に空
+### 高 — ミラー内 `.leafcode-pi-deps.lock` が prune されず毎起動 stale rebuild
 
-- 場所: `web/src/lib/accounts.ts` `assertAccountIdleForDisable` → `getTaskHangWatch`
-- Hang: `web/src/lib/pi/hang-watchdog.ts` `shouldRunHangWatchdog` は `!localRuntimeBlocked`（production client では未起動）
-- 実害: hang abort→idle→resume の隙間で、Backend が復旧中でも Web からアカウント削除/停止が通る可能性
-- lease/`working`/Goal Loop ディスク状態は共有のため一部は防げるが、コメントが想定する hang watch ガードは client では無効
+- 場所: `scripts/web-build-mirror.mjs` / `shared/pi-dependencies.mjs` / `host/src/index.js`
+- 修正: ミラー prune で `.leafcode-pi-*` を削除。ミラー版ゲートは `requireUnlocked: false`。
+- 回帰: `web-build-mirror.test.js` / `isolation.test.js`
 
-## 実行した検証
+### 高 — worker タイムアウト時に kill 成否を見ずに lock 削除
 
-- `vitest`: bot prompt / backend-event-stream / lease-owner（59 pass）
-- `node --test`: file-lock / lease-reclaim / directory-lock（19 pass）
-- `node --test`: host isolation + runtime-restart-guard（24 pass）
-- 既知4件および WIP（pi-update / mirror）は本報告から除外
+- 場所: `host/src/pi-update.js`
+- 修正: `isAlive` で死亡確認後のみ lock 削除。生存時は lock 維持して二重同期を防ぐ。
+- 併せて cleanup 予算を 180s に拡大（README の「後始末除外」に整合）。
+- 回帰: `pi-update.test.js`
 
-## 修正方針（未着手）
+### 中 — restart-guard の health 期限ハードコード
 
-1. Bot prompt を task prompt と同様に `forwarded.result` replay + 4xx 保全
-2. SSE は pending 失敗時に前回 pending を維持（または detail と同様スキップ）
-3. create-task 許可 status に 409 を追加（必要なら元メッセージも転送）
-4. アカウント無効化は Backend に問い合わせるか、共有 hang-watch 永続を参照
+- 場所: `host/src/runtime-restart-guard.js`
+- 修正: `timeoutMs` 引数で health / control の期限を揃える。`init.signal` 欠落時の TypeError も回避。
+
+## 既知の残リスク（未修正）
+
+### P2 — アカウント削除/停止の hang 監視が client Web で空振り
+
+- `accounts.ts` は `getTaskHangWatch` を見るが、`shouldRunHangWatchdog` は production client（`localRuntimeBlocked`）で常に false。
+- lease / working / Goal Loop ディスク状態で一部は防げるが、hang abort→idle→resume の隙間は Backend 側の idle 判定へ寄せる必要がある。
+
+## 検証
+
+- host: pi-update / web-build-mirror / isolation / runtime-restart-guard → pass
+- web vitest: backend-event-stream / backend-forward / tasks route / bot prompt / events → 165 pass

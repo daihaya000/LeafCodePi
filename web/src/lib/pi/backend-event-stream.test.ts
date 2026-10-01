@@ -8,7 +8,7 @@ const mocks = vi.hoisted(() => ({
 }));
 vi.mock("@/lib/backend-forward", () => mocks);
 
-const pending = { permissionRequest: null, questionRequest: null };
+const pending = { ok: true as const, permissionRequest: null, questionRequest: null };
 const detail = (revision: number) => ({ id: "task-1", updatedAt: revision, messages: [] });
 const result = (revision: number) => ({ ok: true as const, detail: detail(revision) });
 function deferred<T>() {
@@ -150,6 +150,24 @@ describe("Backend task stream polling", () => {
     await vi.advanceTimersByTimeAsync(2_000);
     expect(sse.send).toHaveBeenLastCalledWith("snapshot", expect.objectContaining({ permissionRequest: null }));
     expect(sse.send).toHaveBeenCalledTimes(3);
+    stream.stop();
+  });
+
+  it("keeps the last approval when a pending poll soft-fails", async () => {
+    const sse = sink();
+    const stream = await start(sse);
+    mocks.forwardTaskPendingRequests.mockResolvedValueOnce({
+      ok: true, permissionRequest: { requestId: "approval-1" }, questionRequest: null,
+    });
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(sse.send).toHaveBeenLastCalledWith("snapshot", expect.objectContaining({ permissionRequest: { requestId: "approval-1" } }));
+    mocks.forwardTaskDetail.mockResolvedValue(result(1));
+    mocks.forwardTaskPendingRequests.mockResolvedValueOnce({ ok: false, reason: "unreachable" });
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(sse.send).toHaveBeenLastCalledWith("snapshot", expect.objectContaining({
+      task: expect.objectContaining({ updatedAt: 1 }),
+      permissionRequest: { requestId: "approval-1" },
+    }));
     stream.stop();
   });
 

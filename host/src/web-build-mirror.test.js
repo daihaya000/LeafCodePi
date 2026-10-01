@@ -85,6 +85,36 @@ test("syncMirror copies sources across and skips .git / .next", () => {
   }
 });
 
+test("syncMirror never copies Pi updater staging dependencies, config or its mutex", () => {
+  const { root, source, mirror } = sandbox();
+  try {
+    mkdirSync(join(source, ".leafcode-pi-update-test", "node_modules"), { recursive: true });
+    writeFileSync(join(source, ".leafcode-pi-update-test", ".npmrc"), "private-config\n");
+    writeFileSync(join(source, ".leafcode-pi-deps.lock"), "worker\n");
+    writeFileSync(join(source, "page.ts"), "source\n");
+    syncMirror({ sourceDir: source, mirrorRoot: mirror });
+    assert.equal(existsSync(join(mirror, ".leafcode-pi-update-test")), false);
+    assert.equal(existsSync(join(mirror, ".leafcode-pi-deps.lock")), false);
+    assert.equal(readFileSync(join(mirror, "page.ts"), "utf8"), "source\n");
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("syncMirror prunes a leftover Pi deps lock from the mirror so version gates stay clean", () => {
+  const { root, source, mirror } = sandbox();
+  try {
+    mkdirSync(source, { recursive: true });
+    writeFileSync(join(source, "page.ts"), "source\n");
+    mkdirSync(mirror, { recursive: true });
+    writeFileSync(join(mirror, ".leafcode-pi-deps.lock"), "stale-worker\n");
+    mkdirSync(join(mirror, ".leafcode-pi-update-stale", "node_modules"), { recursive: true });
+    writeFileSync(join(mirror, ".leafcode-pi-update-stale", "keep"), "junk\n");
+    syncMirror({ sourceDir: source, mirrorRoot: mirror });
+    assert.equal(existsSync(join(mirror, ".leafcode-pi-deps.lock")), false);
+    assert.equal(existsSync(join(mirror, ".leafcode-pi-update-stale")), false);
+    assert.equal(readFileSync(join(mirror, "page.ts"), "utf8"), "source\n");
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
 test("syncMirror preserves the mirror's own build output while pruning removed sources", () => {
   const { root, source, mirror } = sandbox();
   try {
@@ -341,6 +371,31 @@ test("dependencies migrate once, stay local across source syncs, and refresh whe
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
+});
+
+test("a valid mirror dependency stamp does not hide an outdated installed AI package", () => {
+  const { root, mirror } = sandbox();
+  const packages = ["@earendil-works/pi-coding-agent", "@earendil-works/pi-ai"];
+  let calls = 0;
+  try {
+    mkdirSync(mirror);
+    writeFileSync(join(mirror, "package.json"), JSON.stringify({ dependencies: Object.fromEntries(packages.map((name) => [name, "0.99.2"])) }));
+    writeFileSync(join(mirror, "package-lock.json"), "{}\n");
+    const install = (command, args, options) => {
+      calls++;
+      for (const name of packages) {
+        const path = join(options.cwd, "node_modules", name, "package.json");
+        mkdirSync(dirname(path), { recursive: true });
+        writeFileSync(path, JSON.stringify({ version: "0.99.2" }));
+      }
+      return installNextFixture(command, args, options);
+    };
+    assert.equal(ensureBuildDependencies(mirror, { install }), true);
+    assert.equal(ensureBuildDependencies(mirror, { install }), false);
+    writeFileSync(join(mirror, "node_modules", packages[1], "package.json"), JSON.stringify({ version: "0.87.1" }));
+    assert.equal(ensureBuildDependencies(mirror, { install }), true);
+    assert.equal(calls, 2);
+  } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
 test("failed dependency installs restore legacy dependencies and leave the previous build intact", () => {
