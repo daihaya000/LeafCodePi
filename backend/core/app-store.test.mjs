@@ -177,14 +177,15 @@ test("missing, corrupt and unsupported files return an empty store without eager
   }
 });
 
-test("a failed temporary write leaves the previous destination intact", (t) => {
+test("a failed mutation leaves the previous destination and read cache intact", (t) => {
   const f = fixture(t);
   const project = f.store.upsertProject({ rootPath: "first" });
   const before = readFileSync(f.file(), "utf8");
-  mkdirSync(`${f.file()}.tmp`);
+  f.store.now = () => { throw new Error("injected write preparation failure"); };
   assert.throws(() => f.store.patchProject(project.id, { name: "new" }));
   assert.equal(readFileSync(f.file(), "utf8"), before);
-  assert.equal(new AppStore(f.options).getProject(project.id).name, "Untitled");
+  assert.equal(f.store.getProject(project.id).name, "Untitled");
+  assert.equal(existsSync(`${f.file()}.lock`), false);
 });
 
 test("a plain Node process can read and update the same v1 store without Web/SDK imports", (t) => {

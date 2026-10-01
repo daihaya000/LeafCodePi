@@ -1,6 +1,7 @@
 import { copyFileSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { randomUUID } from "node:crypto";
+import { withFileLock } from "./file-lock.mjs";
 
 const STORE_BACKUP_DAYS = 7;
 const emptyStore = () => ({ version: 1, projects: [], tasks: [] });
@@ -18,7 +19,19 @@ export class AppStore {
     this.uuid = uuid;
   }
 
-  #readStore() {
+  #mutate(update) {
+    return withFileLock(this.storePath(), () => {
+      try {
+        this.#readStore(true);
+        return update();
+      } catch (error) {
+        this.#cachedStore = null;
+        throw error;
+      }
+    });
+  }
+
+  #readStore(fresh = false) {
     const file = this.storePath();
     let stat;
     try { stat = statSync(file); }
@@ -26,7 +39,7 @@ export class AppStore {
       if (this.#cachedStore?.file === file) this.#cachedStore = null;
       return emptyStore();
     }
-    if (this.#cachedStore?.file === file && this.#cachedStore.mtimeMs === stat.mtimeMs && this.#cachedStore.size === stat.size) {
+    if (!fresh && this.#cachedStore?.file === file && this.#cachedStore.mtimeMs === stat.mtimeMs && this.#cachedStore.size === stat.size) {
       return this.#cachedStore.value;
     }
     try {
@@ -34,6 +47,11 @@ export class AppStore {
       if (!parsed || parsed.version !== 1 || !Array.isArray(parsed.projects) || !Array.isArray(parsed.tasks)) {
         this.#cachedStore = null;
         return emptyStore();
+      }
+      if (this.#cachedStore?.file === file && JSON.stringify(this.#cachedStore.value) === JSON.stringify(parsed)) {
+        this.#cachedStore.mtimeMs = stat.mtimeMs;
+        this.#cachedStore.size = stat.size;
+        return this.#cachedStore.value;
       }
       this.#cachedStore = { file, value: parsed, mtimeMs: stat.mtimeMs, size: stat.size };
       return parsed;
@@ -60,9 +78,11 @@ export class AppStore {
     const file = this.storePath();
     mkdirSync(dirname(file), { recursive: true });
     this.#snapshotStore(file);
-    const temp = `${file}.tmp`;
-    writeFileSync(temp, `${JSON.stringify(store, null, 2)}\n`, "utf8");
-    renameSync(temp, file);
+    const temp = `${file}.${process.pid}.${randomUUID()}.tmp`;
+    try {
+      writeFileSync(temp, `${JSON.stringify(store, null, 2)}\n`, "utf8");
+      renameSync(temp, file);
+    } finally { rmSync(temp, { force: true }); }
     let mtimeMs = -1;
     let size = -1;
     try {
@@ -80,7 +100,9 @@ export class AppStore {
 
   getProject(id) { return this.#readStore().projects.find((project) => project.id === id); }
 
-  upsertProject(input) {
+  upsertProject(input) { return this.#mutate(() => this.#upsertProject(input)); }
+
+  #upsertProject(input) {
     const store = this.#readStore();
     const existing = store.projects.find((project) => this.samePath(project.rootPath, input.rootPath));
     const now = this.now().toISOString();
@@ -100,7 +122,9 @@ export class AppStore {
     return project;
   }
 
-  patchProject(id, patch) {
+  patchProject(id, patch) { return this.#mutate(() => this.#patchProject(id, patch)); }
+
+  #patchProject(id, patch) {
     const store = this.#readStore();
     const project = store.projects.find((item) => item.id === id);
     if (!project) return undefined;
@@ -114,7 +138,9 @@ export class AppStore {
     return includeArchived ? tasks : tasks.filter((task) => task.status !== "archived");
   }
 
-  insertBotTask(input) {
+  insertBotTask(input) { return this.#mutate(() => this.#insertBotTask(input)); }
+
+  #insertBotTask(input) {
     const store = this.#readStore();
     const existing = store.tasks.find((task) => task.id === input.id);
     if (existing) return existing;
@@ -135,7 +161,9 @@ export class AppStore {
 
   getTask(id) { return this.#readStore().tasks.find((task) => task.id === id); }
 
-  insertTask(input) {
+  insertTask(input) { return this.#mutate(() => this.#insertTask(input)); }
+
+  #insertTask(input) {
     const store = this.#readStore();
     const now = this.now().toISOString();
     const task = {
@@ -158,7 +186,9 @@ export class AppStore {
     return task;
   }
 
-  patchTask(id, patch, options = {}) {
+  patchTask(id, patch, options = {}) { return this.#mutate(() => this.#patchTask(id, patch, options)); }
+
+  #patchTask(id, patch, options) {
     const store = this.#readStore();
     const task = store.tasks.find((item) => item.id === id);
     if (!task) return undefined;
@@ -179,7 +209,9 @@ export class AppStore {
 
   setTaskStatus(id, status, error) { return this.patchTask(id, { status, error: error ?? null }); }
 
-  deleteTask(id) {
+  deleteTask(id) { return this.#mutate(() => this.#deleteTask(id)); }
+
+  #deleteTask(id) {
     const store = this.#readStore();
     const index = store.tasks.findIndex((task) => task.id === id);
     if (index < 0) return false;
@@ -188,7 +220,9 @@ export class AppStore {
     return true;
   }
 
-  deleteTasksByProject(projectId) {
+  deleteTasksByProject(projectId) { return this.#mutate(() => this.#deleteTasksByProject(projectId)); }
+
+  #deleteTasksByProject(projectId) {
     const store = this.#readStore();
     const before = store.tasks.length;
     store.tasks = store.tasks.filter((task) => task.projectId !== projectId);
@@ -196,7 +230,9 @@ export class AppStore {
     return before - store.tasks.length;
   }
 
-  deleteProjectRecord(id) {
+  deleteProjectRecord(id) { return this.#mutate(() => this.#deleteProjectRecord(id)); }
+
+  #deleteProjectRecord(id) {
     const store = this.#readStore();
     const index = store.projects.findIndex((project) => project.id === id);
     if (index < 0) return false;
