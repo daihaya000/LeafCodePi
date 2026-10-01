@@ -8,6 +8,7 @@ import {
   BACKEND_BOT_CODE_SESSIONS_SUFFIX,
   BACKEND_BOT_REVERT_SUFFIX,
   BACKEND_BOT_ROUTINES_SEGMENT,
+  BACKEND_ATTENTION_PATH,
   BACKEND_BOTS_PATH,
   BACKEND_PENDING_SNAPSHOTS_PATH,
   BACKEND_ROOM_PROMPT_SUFFIX,
@@ -95,6 +96,8 @@ export function createBackendServer({
   isReady = () => false,
   // The runtime owner supplies the store; without one the read is empty, not an error.
   readPendingSnapshots = () => [],
+  /** The owner's attention list: tasks waiting on an approval or a question. Empty when detached. */
+  readAttention = () => [],
   /**
    * The Backend's own view of the task store. These are stored rows, not the Web's derived
    * summaries: the derived fields stay in the Web until the relay is enabled.
@@ -167,6 +170,7 @@ export function createBackendServer({
   }
   if (typeof isReady !== "function") throw new Error("isReady must be a function");
   if (typeof readPendingSnapshots !== "function") throw new Error("readPendingSnapshots must be a function");
+  if (typeof readAttention !== "function") throw new Error("readAttention must be a function");
   if (typeof readTasks !== "function") throw new Error("readTasks must be a function");
   if (typeof readTask !== "function") throw new Error("readTask must be a function");
   if (readTaskDetail !== undefined && typeof readTaskDetail !== "function") {
@@ -298,6 +302,7 @@ export function createBackendServer({
       : undefined;
     const knownPath = target.pathname === BACKEND_HEALTH_PATH
       || target.pathname === BACKEND_PENDING_SNAPSHOTS_PATH
+      || target.pathname === BACKEND_ATTENTION_PATH
       || target.pathname === BACKEND_BOTS_PATH
       || botSuffix !== undefined
       || botActionPath !== undefined
@@ -721,6 +726,17 @@ export function createBackendServer({
         // Never send exception messages: a store failure must not leak paths or ids.
         sendJson(response, 500, {
           error: "Backend task read failed", code: BACKEND_ERROR_CODES.internal,
+        });
+      }
+      return;
+    }
+    if (target.pathname === BACKEND_ATTENTION_PATH) {
+      try {
+        sendJson(response, 200, { items: readAttention() ?? [] });
+      } catch {
+        // Never send exception messages: a store failure must not leak paths or ids.
+        sendJson(response, 500, {
+          error: "Backend attention read failed", code: BACKEND_ERROR_CODES.internal,
         });
       }
       return;

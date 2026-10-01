@@ -8,6 +8,7 @@ import {
   forwardBotRevert,
   forwardBotRoutineRun,
   COMPACT_FORWARD_TIMEOUT_MS,
+  forwardPendingAttention,
   forwardRoomAdmin,
   forwardRoomPrompt,
   forwardTaskCompact,
@@ -353,6 +354,30 @@ describe("forwardRoomPrompt", () => {
     await expect(forwardRoomPrompt("room-1", { prompt: "x" }, { env, fetchImpl: unreachable })).resolves.toEqual({
       ok: false, reason: "unreachable",
     });
+  });
+});
+
+describe("forwardPendingAttention", () => {
+  it("returns the owner's attention items", async () => {
+    const fetchImpl = vi.fn<typeof fetch>(async () => jsonResponse(200, {
+      items: [{ taskId: "task-1", title: "first", kinds: ["permission"] }],
+    }));
+    await expect(forwardPendingAttention({ env, fetchImpl })).resolves.toEqual({
+      ok: true,
+      items: [{ taskId: "task-1", title: "first", kinds: ["permission"] }],
+    });
+    expect(fetchImpl.mock.calls[0][0]).toBe("http://127.0.0.1:19999/internal/attention");
+  });
+
+  it("reports a failure instead of an empty local list", async () => {
+    const unreachable = vi.fn<typeof fetch>(async () => { throw new Error("connect refused"); });
+    await expect(forwardPendingAttention({ env, fetchImpl: unreachable })).resolves.toEqual({
+      ok: false,
+      reason: "unreachable",
+    });
+    const missing = vi.fn<typeof fetch>(async () => jsonResponse(200, {}));
+    await expect(forwardPendingAttention({ env, fetchImpl: missing })).resolves.toEqual({ ok: true, items: [] });
+    await expect(forwardPendingAttention({ env: {} })).resolves.toEqual({ ok: false, reason: "not-configured" });
   });
 });
 

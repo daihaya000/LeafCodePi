@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
   reconcileOrphanedWorkingTasks: vi.fn(),
   relayTaskRows: vi.fn(),
   relayFallbackAllowed: vi.fn(() => true),
+  forwardPendingAttention: vi.fn(),
   resolveAutoAgent: vi.fn(),
   autoAgentHasOwnModel: vi.fn(),
   resolveAutoModel: vi.fn(),
@@ -32,6 +33,7 @@ vi.mock("@/lib/backend-relay", () => ({
   relayTaskRows: mocks.relayTaskRows,
   relayFallbackAllowed: mocks.relayFallbackAllowed,
 }));
+vi.mock("@/lib/backend-forward", () => ({ forwardPendingAttention: mocks.forwardPendingAttention }));
 vi.mock("@/lib/auto-agent", () => ({
   resolveAutoAgent: mocks.resolveAutoAgent,
   autoAgentHasOwnModel: mocks.autoAgentHasOwnModel,
@@ -580,10 +582,13 @@ describe("GET /api/tasks relay switch", () => {
     mocks.autoArchiveOldTasks.mockResolvedValue(0);
     mocks.listTasks.mockClear();
     mocks.listTasks.mockReturnValue([{ id: "local", status: "idle" }]);
+    mocks.listPendingAttention.mockClear();
     mocks.reconcileOrphanedWorkingTasks.mockReset();
     mocks.relayTaskRows.mockReset();
     mocks.relayFallbackAllowed.mockReset();
     mocks.relayFallbackAllowed.mockReturnValue(true);
+    mocks.forwardPendingAttention.mockReset();
+    mocks.forwardPendingAttention.mockResolvedValue({ ok: true, items: [] });
   });
 
   it("serves the Backend rows for the raw modes when the relay answers", async () => {
@@ -615,11 +620,30 @@ describe("GET /api/tasks relay switch", () => {
     expect(mocks.listTasks).not.toHaveBeenCalled();
   });
 
-  it("never relays the derived summary or attention modes", async () => {
+  it("never relays the derived summary with the raw row relay", async () => {
     mocks.getTaskSummariesWithTodoProgress.mockResolvedValue([]);
-    mocks.listPendingAttention.mockReturnValue([]);
+    mocks.listPendingAttention.mockReturnValue([{ taskId: "local", kinds: ["permission"] }]);
     await GET(new NextRequest("http://127.0.0.1:3010/api/tasks"));
-    await GET(new NextRequest("http://127.0.0.1:3010/api/tasks?attention=1"));
+    // The owner's attention comes from its own memory; only a client reads it from the Backend.
+    const attention = await GET(new NextRequest("http://127.0.0.1:3010/api/tasks?attention=1"));
+    expect(await attention.json()).toEqual({ attention: [{ taskId: "local", kinds: ["permission"] }] });
+    expect(mocks.forwardPendingAttention).not.toHaveBeenCalled();
     expect(mocks.relayTaskRows).not.toHaveBeenCalled();
+  });
+
+  it("reads the attention list from the owner once this process no longer owns the runtime", async () => {
+    mocks.relayFallbackAllowed.mockReturnValue(false);
+    mocks.forwardPendingAttention.mockResolvedValue({
+      ok: true,
+      items: [{ taskId: "remote", kinds: ["question"] }],
+    });
+    const response = await GET(new NextRequest("http://127.0.0.1:3010/api/tasks?attention=1"));
+    expect(await response.json()).toEqual({ attention: [{ taskId: "remote", kinds: ["question"] }] });
+    expect(mocks.listPendingAttention).not.toHaveBeenCalled();
+    // A failed read is reported, not answered with the empty local memory.
+    mocks.forwardPendingAttention.mockResolvedValue({ ok: false, reason: "unreachable" });
+    const failed = await GET(new NextRequest("http://127.0.0.1:3010/api/tasks?attention=1"));
+    expect(failed.status).toBe(503);
+    await expect(failed.json()).resolves.toEqual({ error: "Backendの注意一覧を取得できません" });
   });
 });

@@ -11,6 +11,7 @@ import {
   normalizeExpectedGeneration,
 } from "@shared/backend-generation.mjs";
 import {
+  BACKEND_ATTENTION_PATH,
   BACKEND_BOT_CODE_REQUESTS_SUFFIX,
   BACKEND_BOT_CODE_SESSIONS_SUFFIX,
   BACKEND_BOT_REVERT_SUFFIX,
@@ -415,6 +416,13 @@ export function respondQuestionOnBackend(
     body,
     options,
   );
+}
+
+/** The owner's attention list: tasks waiting on an approval or a question. */
+export function readBackendAttention(
+  options: { env?: BackendEnv; fetchImpl?: typeof fetch; timeoutMs?: number } = {},
+): Promise<BackendResult<{ items: Array<Record<string, unknown>> }>> {
+  return fetchBackendJson(BACKEND_ATTENTION_PATH, options);
 }
 
 /** The Backend's buffered pending snapshots: the pending approvals/questions it is waiting on. */

@@ -8,6 +8,7 @@ import {
   postBotCodeRequestAction,
   promptRoomOnBackend,
   promptTaskOnBackend,
+  readBackendAttention,
   readBackendPendingSnapshots,
   readBackendTaskDetail,
   respondPermissionOnBackend,
@@ -139,6 +140,21 @@ export async function forwardTaskAbort(
   }
   const task = result.body?.task;
   return { ok: true, task: task && typeof task === "object" ? task : null };
+}
+
+/**
+ * The owner's attention list. A failed read is reported, never answered with the local memory: the
+ * WebUI that does not own the sessions has none.
+ */
+export async function forwardPendingAttention(
+  options: { env?: BackendEnv; fetchImpl?: typeof fetch; timeoutMs?: number } = {},
+): Promise<
+  | { ok: true; items: Array<Record<string, unknown>> }
+  | { ok: false; reason: BackendFailureReason; status?: number }
+> {
+  const result = await readBackendAttention(options);
+  if (!result.ok) return { ok: false, reason: result.reason, ...(result.status ? { status: result.status } : {}) };
+  return { ok: true, items: Array.isArray(result.body?.items) ? result.body.items : [] };
 }
 
 /**

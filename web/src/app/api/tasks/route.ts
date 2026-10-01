@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { relayFallbackAllowed, relayTaskRows } from "@/lib/backend-relay";
+import { forwardPendingAttention } from "@/lib/backend-forward";
 import { listTasks, type TaskKind } from "@/lib/store";
 import { reconcileOrphanedWorkingTasks } from "@/lib/task-runtime-lease";
 import {
@@ -51,7 +52,15 @@ export async function GET(req: NextRequest) {
   const requestedKind = req.nextUrl.searchParams.get("kind");
   const kind: TaskKind = requestedKind === "all" || requestedKind === "bot" ? requestedKind : "code";
   // GlobalAttentionProvider のポーリング用（軽量リスト）。
+  // 切替後は承認・質問がBackendのメモリにあるため、非所有者はそこから読む（ローカルには無い）。
   if (req.nextUrl.searchParams.get("attention") === "1") {
+    if (!relayFallbackAllowed()) {
+      const forwarded = await forwardPendingAttention();
+      if (!forwarded.ok) {
+        return NextResponse.json({ error: "Backendの注意一覧を取得できません" }, { status: 503 });
+      }
+      return NextResponse.json({ attention: forwarded.items });
+    }
     return NextResponse.json({ attention: listPendingAttention() });
   }
   // ペインヘッダーの操作はタスクの ID・状態・時刻だけ必要。Todo 進捗の

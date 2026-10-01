@@ -4,6 +4,12 @@ export const BACKEND_PROTOCOL_HEADER = "x-leafcode-backend-protocol";
 export const BACKEND_HEALTH_PATH = "/internal/health";
 /** Read-only: the pending snapshot per task, so a reconnecting WebUI can re-display state. */
 export const BACKEND_PENDING_SNAPSHOTS_PATH = "/internal/pending-snapshots";
+/**
+ * Read-only: the attention list (tasks with a pending approval or question), so a WebUI that does
+ * not own the sessions can still show the same global list it built from its own memory before.
+ */
+export const BACKEND_ATTENTION_PATH = "/internal/attention";
+
 /** Read-only: the Backend's own view of the task store, before the Web relay is enabled. */
 export const BACKEND_TASKS_PATH = "/internal/tasks";
 /**

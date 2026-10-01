@@ -181,6 +181,33 @@ test("a non-function pending snapshot reader is rejected at creation", () => {
   );
 });
 
+test("serves the owner's attention list to an authenticated reader", async (t) => {
+  const { url, headers } = await fixture(t, {
+    readAttention: () => [{ taskId: "task-1", title: "first", kinds: ["permission"] }],
+  });
+  const attentionUrl = url.replace(BACKEND_HEALTH_PATH, "/internal/attention");
+  const response = await request(attentionUrl, { headers });
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get("cache-control"), "no-store");
+  assert.deepEqual(await response.json(), {
+    items: [{ taskId: "task-1", title: "first", kinds: ["permission"] }],
+  });
+  // A detached Backend has no sessions, so its attention list is empty rather than an error.
+  const detached = await fixture(t);
+  assert.deepEqual(await (await request(detached.url.replace(BACKEND_HEALTH_PATH, "/internal/attention"), { headers: detached.headers })).json(), { items: [] });
+  // A failing read is contained, and a non-function reader is refused at creation.
+  const sensitive = "private-task-path";
+  const failing = await fixture(t, { readAttention: () => { throw new Error(sensitive); } });
+  const failed = await request(failing.url.replace(BACKEND_HEALTH_PATH, "/internal/attention"), { headers: failing.headers });
+  assert.equal(failed.status, 500);
+  assert.ok(!JSON.stringify(await failed.json()).includes(sensitive));
+  assert.throws(
+    () => createBackendServer({ token: randomBytes(32).toString("base64url"), readAttention: "nope" }),
+    /readAttention/,
+  );
+  assert.equal((await request(attentionUrl, { method: "POST", headers })).status, 405);
+});
+
 test("serves the Backend's own task view to an authenticated reader", async (t) => {
   const tasks = [{ id: "task-1", title: "first" }, { id: "task-2", title: "second" }];
   const { url, snapshotsUrl, headers } = await fixture(t, {

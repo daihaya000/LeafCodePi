@@ -89,6 +89,13 @@ try {
   const server = createBackendServer({
     token: process.env.LEAFCODE_PI_BACKEND_TOKEN,
     readPendingSnapshots: () => readPendingRequestSnapshots(started.runtime()),
+    // Attention is the owner's in-memory view; a detached Backend has none, which is honest.
+    readAttention: () => {
+      const runtime = started.runtime();
+      return runtime && typeof runtime.listPendingAttention === "function"
+        ? runtime.listPendingAttention()
+        : [];
+    },
     // The Backend's own store view: stored rows, read through the same store the startup owns.
     readTasks: () => [...started.store.listTasks(true), ...started.store.listTasks(true, "bot")],
     readTask: (id) => started.store.getTask(id) ?? null,
