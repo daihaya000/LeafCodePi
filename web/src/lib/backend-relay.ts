@@ -15,7 +15,7 @@ import {
 } from "@/lib/backend-client";
 import { botsWithCodeSessionCounts } from "@backend-core/bot-session-counts.mjs";
 // The ownership rule lives with the runtime guards; the relay only reads it.
-import { webOwnsRuntime } from "@/lib/pi/runtime-ownership";
+import { localRuntimeBlocked, webOwnsRuntime } from "@/lib/pi/runtime-ownership";
 
 /** Values that turn the relay on; anything else leaves it off. */
 const RELAY_ENABLED_VALUES = new Set(["1", "true", "yes", "on"]);
@@ -38,6 +38,17 @@ export function isBackendRelayEnabled(env: Record<string, string | undefined> = 
  * Whether this Web process still owns the Pi runtime: re-exported so existing callers keep one import.
  */
 export { webOwnsRuntime };
+
+/**
+ * Whether a route may fall back to its in-process read when the relay cannot answer.
+ *
+ * Before the cutover the WebUI still owns the store, so a relay miss is a fallback. After the
+ * cutover the Backend owns it: serving the local copy would hide a broken owner and can show state
+ * the owner never confirmed, so the route reports the failure instead.
+ */
+export function relayFallbackAllowed(env: Record<string, string | undefined> = process.env): boolean {
+  return !localRuntimeBlocked(env);
+}
 
 /**
  * Whether the relay may use this Backend at all: enabled, and the same runtime generation the Host
@@ -69,8 +80,9 @@ export async function backendRelayCompatible(
 /**
  * The rows `listTasks(includeArchived, kind)` would return, read from the Backend.
  *
- * Returns null when the relay is off or the Backend cannot answer, so the caller keeps its
- * in-process result. A task row without a `kind` counts as a Code task, exactly like the store.
+ * Returns null when the relay is off or the Backend cannot answer. The caller decides what a miss
+ * means: an owner keeps its in-process result, a client reports the failure (see
+ * `relayFallbackAllowed`). A task row without a `kind` counts as a Code task, exactly like the store.
  */
 export async function relayTaskRows(
   options: {

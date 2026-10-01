@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => ({
   listPendingAttention: vi.fn(),
   reconcileOrphanedWorkingTasks: vi.fn(),
   relayTaskRows: vi.fn(),
+  relayFallbackAllowed: vi.fn(() => true),
   resolveAutoAgent: vi.fn(),
   autoAgentHasOwnModel: vi.fn(),
   resolveAutoModel: vi.fn(),
@@ -27,7 +28,10 @@ const mocks = vi.hoisted(() => ({
 vi.mock("@/lib/pi/harness", () => mocks);
 vi.mock("@/lib/store", () => ({ listTasks: mocks.listTasks }));
 vi.mock("@/lib/task-runtime-lease", () => ({ reconcileOrphanedWorkingTasks: mocks.reconcileOrphanedWorkingTasks }));
-vi.mock("@/lib/backend-relay", () => ({ relayTaskRows: mocks.relayTaskRows }));
+vi.mock("@/lib/backend-relay", () => ({
+  relayTaskRows: mocks.relayTaskRows,
+  relayFallbackAllowed: mocks.relayFallbackAllowed,
+}));
 vi.mock("@/lib/auto-agent", () => ({
   resolveAutoAgent: mocks.resolveAutoAgent,
   autoAgentHasOwnModel: mocks.autoAgentHasOwnModel,
@@ -46,6 +50,8 @@ describe("GET /api/tasks", () => {
     mocks.reconcileOrphanedWorkingTasks.mockReset();
     mocks.relayTaskRows.mockReset();
     mocks.relayTaskRows.mockResolvedValue(null);
+    mocks.relayFallbackAllowed.mockReset();
+    mocks.relayFallbackAllowed.mockReturnValue(true);
   });
 
   it("lists every task kind when kind=all is requested", async () => {
@@ -572,9 +578,12 @@ describe("POST /api/tasks", () => {
 describe("GET /api/tasks relay switch", () => {
   beforeEach(() => {
     mocks.autoArchiveOldTasks.mockResolvedValue(0);
+    mocks.listTasks.mockClear();
     mocks.listTasks.mockReturnValue([{ id: "local", status: "idle" }]);
     mocks.reconcileOrphanedWorkingTasks.mockReset();
     mocks.relayTaskRows.mockReset();
+    mocks.relayFallbackAllowed.mockReset();
+    mocks.relayFallbackAllowed.mockReturnValue(true);
   });
 
   it("serves the Backend rows for the raw modes when the relay answers", async () => {
@@ -592,6 +601,18 @@ describe("GET /api/tasks relay switch", () => {
     mocks.relayTaskRows.mockResolvedValue(null);
     const response = await GET(new NextRequest("http://127.0.0.1:3010/api/tasks?titles=1"));
     expect(await response.json()).toEqual({ tasks: [{ id: "local", status: "idle" }] });
+  });
+
+  it("reports the failure instead of the local copy once this process no longer owns the runtime", async () => {
+    // After the cutover the Backend owns the store: a relay miss must not be hidden by stale reads.
+    mocks.relayTaskRows.mockResolvedValue(null);
+    mocks.relayFallbackAllowed.mockReturnValue(false);
+    const titles = await GET(new NextRequest("http://127.0.0.1:3010/api/tasks?titles=1"));
+    expect(titles.status).toBe(503);
+    await expect(titles.json()).resolves.toEqual({ error: "Backendのタスク一覧を取得できません" });
+    const pane = await GET(new NextRequest("http://127.0.0.1:3010/api/tasks?paneCandidates=1"));
+    expect(pane.status).toBe(503);
+    expect(mocks.listTasks).not.toHaveBeenCalled();
   });
 
   it("never relays the derived summary or attention modes", async () => {

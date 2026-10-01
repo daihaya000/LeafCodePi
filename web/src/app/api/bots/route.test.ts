@@ -32,6 +32,20 @@ describe("/api/bots", () => {
     expect((await listed.json()).bots).toEqual([]);
   });
 
+  it("reports a relay miss instead of the local Bot list once this process no longer owns the runtime", async () => {
+    // The Backend owns the store after the cutover, so the local copy must not hide its failure.
+    // The host flag is cleared too: a test process may inherit it when it runs inside the Backend.
+    vi.stubEnv("LEAFCODE_PI_BACKEND_OWNS_RUNTIME", "1");
+    vi.stubEnv("LEAFCODE_PI_BACKEND_RUNTIME", "");
+    try {
+      const response = await GET();
+      expect(response.status).toBe(503);
+      await expect(response.json()).resolves.toEqual({ error: "BackendのBot一覧を取得できません" });
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
   it("counts only working Code sessions", async () => {
     const response = await POST(new NextRequest("http://localhost/api/bots", { method: "POST", body: JSON.stringify({ name: "Working bot" }) }));
     const bot = (await response.json()).bot;

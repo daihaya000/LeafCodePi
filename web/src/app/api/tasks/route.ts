@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { relayTaskRows } from "@/lib/backend-relay";
+import { relayFallbackAllowed, relayTaskRows } from "@/lib/backend-relay";
 import { listTasks, type TaskKind } from "@/lib/store";
 import { reconcileOrphanedWorkingTasks } from "@/lib/task-runtime-lease";
 import {
@@ -60,8 +60,12 @@ export async function GET(req: NextRequest) {
     // 生レコードだけを返すため、通常の summary 経路が担う孤児タスクの
     // 停止処理をここでも実行する。再起動後の古い working を開かない。
     reconcileOrphanedWorkingTasks();
-    // 中継が有効ならBackendの生レコードを使う（形は同じ）。失敗時は従来経路へ。
+    // 中継が有効ならBackendの生レコードを使う（形は同じ）。
+    // 切替後はこのプロセスが所有者ではないので、読めないなら従来経路へ落とさずエラーにする。
     const relayedRows = await relayTaskRows({ includeArchived: false, kind: "all" });
+    if (!relayedRows && !relayFallbackAllowed()) {
+      return NextResponse.json({ error: "Backendのタスク一覧を取得できません" }, { status: 503 });
+    }
     return NextResponse.json({
       tasks: (relayedRows ?? listTasks(false, "all")).map(({ id, status, updatedAt, kind, botId, projectId }) => ({
         id, status, updatedAt, kind, botId, projectId,
@@ -72,8 +76,11 @@ export async function GET(req: NextRequest) {
   // TaskPanesContext のタブ名・存在確認用（todoProgress 計算と toSummary の
   // ライブ走査を伴わない生レコードで返す）。
   if (req.nextUrl.searchParams.get("titles") === "1") {
-    // 中継が有効ならBackendの行を使う（保存行そのもので形は同じ）。失敗時は従来経路へ。
+    // 中継が有効ならBackendの行を使う（保存行そのもので形は同じ）。
     const relayedTitles = await relayTaskRows({ includeArchived, kind });
+    if (!relayedTitles && !relayFallbackAllowed()) {
+      return NextResponse.json({ error: "Backendのタスク一覧を取得できません" }, { status: 503 });
+    }
     return NextResponse.json({ tasks: relayedTitles ?? listTasks(includeArchived, kind) });
   }
   return NextResponse.json({ tasks: await getTaskSummariesWithTodoProgress(includeArchived, kind) });

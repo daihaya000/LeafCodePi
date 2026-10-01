@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createBot, isBotNameWithinSize, listBots, patchBot } from "@/lib/bots";
-import { relayBotList } from "@/lib/backend-relay";
+import { relayBotList, relayFallbackAllowed } from "@/lib/backend-relay";
 import { listTasks } from "@/lib/store";
 import { botTemplateById } from "@/lib/bot-marketplace";
 import { getSetting } from "@/lib/pi/web-settings";
@@ -11,9 +11,13 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function GET() {
-  // 中継が有効ならBackendのBotビュー（同じ設定ファイル＋同じ稼働数ルール）を使う。失敗時は従来経路へ。
+  // 中継が有効ならBackendのBotビュー（同じ設定ファイル＋同じ稼働数ルール）を使う。
+  // 切替後はこのプロセスが所有者ではないので、読めないなら従来経路へ落とさずエラーにする。
   const relayed = await relayBotList();
   if (relayed) return NextResponse.json({ bots: relayed });
+  if (!relayFallbackAllowed()) {
+    return NextResponse.json({ error: "BackendのBot一覧を取得できません" }, { status: 503 });
+  }
   // 稼働数はcoreの規則（workingのみ・botId優先）で数える。
   return NextResponse.json({ bots: botsWithCodeSessionCounts(listBots(), listTasks()) });
 }

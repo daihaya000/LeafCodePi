@@ -3,6 +3,7 @@ import {
   backendRelayCompatible,
   isBackendRelayEnabled,
   relayBotList,
+  relayFallbackAllowed,
   relayTaskRows,
   resetBackendRelayCompatibilityCache,
 } from "./backend-relay";
@@ -19,6 +20,15 @@ describe("isBackendRelayEnabled", () => {
     for (const value of ["1", "true", "TRUE", "yes", "on", " on "]) {
       expect(isBackendRelayEnabled({ LEAFCODE_PI_BACKEND_RELAY: value })).toBe(true);
     }
+  });
+});
+
+describe("relayFallbackAllowed", () => {
+  it("is only the owner's option: a client must report the miss", () => {
+    expect(relayFallbackAllowed({})).toBe(true);
+    expect(relayFallbackAllowed({ LEAFCODE_PI_BACKEND_OWNS_RUNTIME: "1" })).toBe(false);
+    // The Backend process itself is never blocked, even when it is the runtime host.
+    expect(relayFallbackAllowed({ LEAFCODE_PI_BACKEND_OWNS_RUNTIME: "1", LEAFCODE_PI_BACKEND_RUNTIME: "attach" })).toBe(true);
   });
 });
 
