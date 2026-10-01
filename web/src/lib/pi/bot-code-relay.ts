@@ -755,7 +755,7 @@ export function createBotCodeRelay(deps: RelayDependencies) {
   async function releaseUserCodeTask(codeTaskId: string): Promise<TaskSummary> {
     return withBotCodeSessionLock(`code-task-${codeTaskId}`, async () => {
       const task = getTask(codeTaskId);
-      if (!task) throw new Error("タスクが見つかりません");
+      if (!task) throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });
       const releaseRefusal = releaseSupervisionRefusal({
         kind: task.kind,
         hasBotId: Boolean(task.botId),

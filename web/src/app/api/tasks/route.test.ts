@@ -158,6 +158,33 @@ describe("POST /api/tasks", () => {
     expect(mocks.createTask).not.toHaveBeenCalled();
   });
 
+  it.each([400, 404, 413, 422])("preserves Backend create validation status %s without local fallback", async (status) => {
+    mocks.localRuntimeBlocked.mockReturnValue(true);
+    mocks.createTaskOnBackend.mockResolvedValue({ ok: false, reason: "bad-response", status });
+    const response = await POST(new NextRequest("http://localhost/api/tasks", {
+      method: "POST", body: JSON.stringify({ projectId: "missing", prompt: "start" }),
+    }));
+    expect(response.status).toBe(status);
+    expect(await response.json()).toEqual({
+      error: status === 404 ? "プロジェクトが見つかりません" : "タスクを作成できません",
+    });
+    expect(mocks.createTask).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    { reason: "unauthorized", status: 401 },
+    { reason: "incompatible", status: 409 },
+    { reason: "bad-response", status: 503 },
+  ])("keeps Backend transport/protocol failures as 502: $reason/$status", async (failure) => {
+    mocks.localRuntimeBlocked.mockReturnValue(true);
+    mocks.createTaskOnBackend.mockResolvedValue({ ok: false, ...failure });
+    const response = await POST(new NextRequest("http://localhost/api/tasks", {
+      method: "POST", body: JSON.stringify({ projectId: null, prompt: "start" }),
+    }));
+    expect(response.status).toBe(502);
+    expect(mocks.createTask).not.toHaveBeenCalled();
+  });
+
   it("passes null as the project id for a no-project task", async () => {
     const response = await POST(
       new NextRequest("http://localhost/api/tasks", {

@@ -200,6 +200,14 @@ describe("Bot ⇄ Code relay", () => {
     expect(deps.deliver).toHaveBeenCalledWith(expect.objectContaining({ codeTaskId: "user-code", supervision: true }));
   });
 
+  it("reports 404 for release of a missing task without touching supervision", async () => {
+    await expect(relay.releaseUserCodeTask("missing")).rejects.toMatchObject({
+      message: "タスクが見つかりません", status: 404,
+    });
+    expect(deps.linkSupervisor).not.toHaveBeenCalled();
+    expect(deps.abort).not.toHaveBeenCalled();
+  });
+
   it("returns a supervised user Code task to user ownership without stopping it", async () => {
     const code = task("user-code", { kind: "code", status: "working" });
     store.tasks.set(code.id, code);

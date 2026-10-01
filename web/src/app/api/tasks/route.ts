@@ -352,6 +352,13 @@ export async function POST(req: NextRequest) {
     if (localRuntimeBlocked()) {
       const forwarded = await createTaskOnBackend(input, { timeoutMs: 60_000 });
       if (!forwarded.ok) {
+        // Runtime validation failures are owner answers, not failed transport. Never retry locally.
+        if (forwarded.reason === "bad-response" && forwarded.status && [400, 404, 413, 422].includes(forwarded.status)) {
+          return NextResponse.json(
+            { error: forwarded.status === 404 ? "プロジェクトが見つかりません" : "タスクを作成できません" },
+            { status: forwarded.status },
+          );
+        }
         return NextResponse.json(
           { error: "Backendでタスクを作成できません", code: "BACKEND_FORWARD_FAILED", reason: forwarded.reason },
           { status: 502 },
