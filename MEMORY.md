@@ -40,14 +40,19 @@
 - 場所: `host/src/runtime-restart-guard.js`
 - 修正: `timeoutMs` 引数で health / control の期限を揃える。`init.signal` 欠落時の TypeError も回避。
 
-## 既知の残リスク（未修正）
-
 ### P2 — アカウント削除/停止の hang 監視が client Web で空振り
 
-- `accounts.ts` は `getTaskHangWatch` を見るが、`shouldRunHangWatchdog` は production client（`localRuntimeBlocked`）で常に false。
-- lease / working / Goal Loop ディスク状態で一部は防げるが、hang abort→idle→resume の隙間は Backend 側の idle 判定へ寄せる必要がある。
+- 場所: `web/src/lib/pi/hang-watchdog.ts` `getTaskHangWatch`
+- 修正: production client（`localRuntimeBlocked`）では共有 `hang-watches.json` を読む。
+- 回帰: `hang-watchdog.test.ts` / `accounts.test.ts`
+
+## 既知の残リスク（未修正）
+
+なし（調査時点で証拠付きの分離境界バグは対応済み）。
 
 ## 検証
 
 - host: pi-update / web-build-mirror / isolation / runtime-restart-guard → pass
 - web vitest: backend-event-stream / backend-forward / tasks route / bot prompt / events → 165 pass
+- web vitest: hang-watchdog / accounts → 57 pass
+- backend: sdk-dependency-versions + lease 関連 → pass

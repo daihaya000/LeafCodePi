@@ -424,7 +424,12 @@ export function disarmTaskHangWatch(taskId: string): void {
 }
 
 export function getTaskHangWatch(taskId: string): TaskHangWatchRow | null {
-  return memoryWatches.get(taskId.trim()) ?? null;
+  const id = taskId.trim();
+  const fromMemory = memoryWatches.get(id) ?? null;
+  if (fromMemory || !localRuntimeBlocked()) return fromMemory;
+  // After the cutover the owner keeps watches in its own process memory. A client WebUI that
+  // only guards account disable/pause must still see the shared on-disk snapshot.
+  return readStore().watches.find((watch) => watch.taskId === id) ?? null;
 }
 
 function isCurrentWatch(row: TaskHangWatchRow): boolean {

@@ -696,6 +696,44 @@ describe("accounts store CRUD", () => {
       hang.stopHangWatchdogForTests();
     }
   });
+
+  it("refuses account disable from a production client using the shared hang-watch snapshot", async () => {
+    tempDataDir();
+    const hang = await import("@/lib/pi/hang-watchdog");
+    const previousNodeEnv = process.env.NODE_ENV;
+    hang.registerHangWatchdogHooks({
+      getLive: () => ({ isStreaming: false, isCompacting: false, messages: [] }),
+      abortTask: async () => undefined,
+      resumePrompt: () => undefined,
+      notifyHangRetry: () => undefined,
+    });
+    try {
+      const project = upsertProject({
+        name: "hang-client",
+        rootPath: join(tmpdir(), "hang-client-root"),
+      });
+      const task = insertTask({ project, title: "hang recovery" });
+      const account = createAccount({
+        label: "hang-client",
+        providers: ["openai-codex"],
+      });
+      patchLoose(task.id, { status: "idle", accountId: account.id });
+      hang.armTaskHangWatch({ taskId: task.id, prompt: "continue" });
+      hang.stopHangWatchdogForTests();
+      process.env.NODE_ENV = "production";
+      assert.throws(
+        () => patchAccount(account.id, { enabled: false }),
+        (error) =>
+          httpStatus(error) === 409 &&
+          String((error as Error).message).includes("ハング復旧"),
+      );
+      assert.equal(getAccount(account.id)?.enabled, true);
+    } finally {
+      if (previousNodeEnv === undefined) delete process.env.NODE_ENV;
+      else process.env.NODE_ENV = previousNodeEnv;
+      hang.stopHangWatchdogForTests();
+    }
+  });
 });
 
 type AccountRecordLike = {

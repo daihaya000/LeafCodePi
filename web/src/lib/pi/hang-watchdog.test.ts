@@ -237,6 +237,27 @@ describe("hang-watchdog helpers", () => {
     }
   });
 
+  it("lets a production client read hang watches from the shared disk snapshot", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "leafcode-pi-hang-watchdog-client-"));
+    const previousDataDir = process.env.LEAFCODE_PI_DATA_DIR;
+    const previousNodeEnv = process.env.NODE_ENV;
+    process.env.LEAFCODE_PI_DATA_DIR = root;
+    try {
+      armTaskHangWatch({ taskId: "owned", prompt: "continue" });
+      stopHangWatchdogForTests();
+      expect(getTaskHangWatch("owned")).toBeNull();
+      process.env.NODE_ENV = "production";
+      expect(getTaskHangWatch("owned")).toMatchObject({ taskId: "owned", prompt: "continue", state: "armed" });
+    } finally {
+      stopHangWatchdogForTests();
+      if (previousDataDir === undefined) delete process.env.LEAFCODE_PI_DATA_DIR;
+      else process.env.LEAFCODE_PI_DATA_DIR = previousDataDir;
+      if (previousNodeEnv === undefined) delete process.env.NODE_ENV;
+      else process.env.NODE_ENV = previousNodeEnv;
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it("restores resolving state when rearming cannot persist", async () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "leafcode-pi-hang-watchdog-rearm-"));
     const previousDataDir = process.env.LEAFCODE_PI_DATA_DIR;
