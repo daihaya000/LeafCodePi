@@ -73,13 +73,29 @@ it("shows settings only while the loop button is enabled", () => {
   expect(screen.getByRole("region", { name: "ループ設定" })).toBeTruthy();
 });
 
-it("summarizes unlimited full runs and preserves disabled controls", () => {
+it("summarizes full runs and preserves disabled controls", () => {
   const { container, rerender } = render(<GoalLoopOptions {...options} />);
   fireEvent.click(screen.getByLabelText("完走モード"));
   expect(options.onForceFullRunChange).toHaveBeenCalledWith(true);
 
-  rerender(<GoalLoopOptions {...options} maxTurns={0} forceFullRun disabled />);
-  expect(screen.getByRole("region", { name: "ループ設定" }).textContent).toContain("無制限 · 待機 30s · 完走");
+  rerender(<GoalLoopOptions {...options} forceFullRun disabled />);
+  expect(screen.getByRole("region", { name: "ループ設定" }).textContent).toContain("10ターン · 待機 30s · 完走");
   expect(screen.queryByLabelText("承認条件")).toBeNull();
   for (const input of container.querySelectorAll("input")) expect(input.disabled).toBe(true);
+});
+
+it("refuses full-run mode while the turn count is unlimited", () => {
+  const onChange = vi.fn();
+  const { container } = render(
+    <GoalLoopOptions {...options} maxTurns={0} forceFullRun onForceFullRunChange={onChange} />,
+  );
+  // 無制限（0）では終了ターンが決まらないため、完走モードは使えない。
+  expect(onChange).toHaveBeenCalledWith(false);
+  const checkbox = screen.getByLabelText("完走モード") as HTMLInputElement;
+  expect(checkbox.disabled).toBe(true);
+  expect(checkbox.checked).toBe(false);
+  expect(screen.getByRole("region", { name: "ループ設定" }).textContent).toContain("無制限では使用不可");
+  // 承認条件は完走モードではないので編集できる。
+  expect(screen.getByLabelText("承認条件")).toBeTruthy();
+  expect(container.querySelectorAll("input").length).toBeGreaterThan(0);
 });

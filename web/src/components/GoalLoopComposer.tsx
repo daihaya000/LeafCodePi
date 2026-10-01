@@ -13,6 +13,8 @@ import {
 
 export const GOAL_LOOP_FORCE_FULL_RUN_HINT =
   "完了宣言を使わず、指定の最大ターン数まで必ず実行します";
+export const GOAL_LOOP_FORCE_FULL_RUN_UNLIMITED_HINT =
+  "最大ターンが0（無制限）の間は完走モードを使えません";
 export const GOAL_LOOP_COOLDOWN_LABEL = "クールタイム";
 export const GOAL_LOOP_COOLDOWN_HINT =
   "次のターンを開始するまでの待機時間です。15m 30sのように入力できます。0で待機なし。";
@@ -73,6 +75,12 @@ export function GoalLoopOptions({
 }) {
   const [draft, setDraft] = useState(String(maxTurns));
   useEffect(() => setDraft(String(maxTurns)), [maxTurns]);
+  // 完走モードは終了ターンが決まらない無制限(0)では成立しない。
+  const unlimited = maxTurns === 0;
+  const fullRun = forceFullRun && !unlimited;
+  useEffect(() => {
+    if (unlimited && forceFullRun) onForceFullRunChange(false);
+  }, [unlimited, forceFullRun, onForceFullRunChange]);
   const [cooldownDraft, setCooldownDraft] = useState(
     formatGoalLoopCooldownSeconds(cooldownSeconds),
   );
@@ -84,6 +92,7 @@ export function GoalLoopOptions({
   function commitMaxTurns() {
     const value = clampGoalLoopMaxTurns(draft, 1);
     setDraft(String(value));
+    if (value === 0 && forceFullRun) onForceFullRunChange(false);
     if (value !== maxTurns) onMaxTurnsChange(value);
   }
 
@@ -100,11 +109,11 @@ export function GoalLoopOptions({
         <span className="min-w-0 truncate text-muted">
           {maxTurns === 0 ? "無制限" : `${maxTurns}ターン`}
           {` · 待機 ${formatGoalLoopCooldownSeconds(cooldownSeconds)}`}
-          {forceFullRun ? " · 完走" : acceptance.trim() ? " · 承認条件あり" : ""}
+          {fullRun ? " · 完走" : acceptance.trim() ? " · 承認条件あり" : ""}
         </span>
       </div>
       <div className="grid grid-cols-2 gap-2 border-t border-border p-2">
-        {!forceFullRun && (
+        {!fullRun && (
           <textarea
             value={acceptance}
             disabled={disabled}
@@ -158,18 +167,20 @@ export function GoalLoopOptions({
             className="h-11 w-full min-w-0 rounded-lg border border-border bg-bg px-2 text-base text-text outline-none focus:border-primary @lg/loop-options:h-8 @lg/loop-options:w-24 @lg/loop-options:text-sm"
           />
         </label>
-        <label className="col-span-2 flex min-h-11 cursor-pointer items-center gap-2 text-xs text-muted" title={GOAL_LOOP_FORCE_FULL_RUN_HINT}>
+        <label className="col-span-2 flex min-h-11 cursor-pointer items-center gap-2 text-xs text-muted" title={unlimited ? GOAL_LOOP_FORCE_FULL_RUN_UNLIMITED_HINT : GOAL_LOOP_FORCE_FULL_RUN_HINT}>
           <input
             type="checkbox"
-            checked={forceFullRun}
-            disabled={disabled}
+            checked={fullRun}
+            disabled={disabled || unlimited}
             aria-label="完走モード"
             onChange={(event) => onForceFullRunChange(event.target.checked)}
             className="h-4 w-4 shrink-0 rounded border-border accent-primary"
           />
           <span>
             完走モード
-            <span className="ml-1">（完了宣言なし・指定ターン数を必ず実行）</span>
+            <span className="ml-1">
+              {unlimited ? "（無制限では使用不可）" : "（完了宣言なし・指定ターン数を必ず実行）"}
+            </span>
           </span>
         </label>
       </div>
