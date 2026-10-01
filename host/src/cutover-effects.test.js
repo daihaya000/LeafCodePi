@@ -14,7 +14,7 @@ function harness({ health = { ok: true, ready: true, runtimeGeneration: "gen-a" 
     calls,
     options: {
       stopWeb: async () => calls.push("stopWeb"),
-      spawnWeb: async (state) => calls.push(`spawnWeb:${state.ownership}:relay=${state.relay ? "on" : "off"}`),
+      spawnWeb: async (state) => calls.push(`spawnWeb:${state.ownership}`),
       backendService: {
         start: (options) => calls.push(`backend.start:attach=${Boolean(options?.attachRuntime)}`),
         stopForRestart: () => calls.push("backend.stop"),
@@ -41,7 +41,7 @@ test("the effects translate the stages into Host calls", async () => {
     "stopWeb", // the old owner stops first
     "backend.stop", // the detached Backend is replaced by an attached one
     "backend.start:attach=true",
-    "spawnWeb:backend:relay=on", // the WebUI returns as a client of the Backend
+    "spawnWeb:backend", // the WebUI returns as a client of the Backend
   ]);
 });
 
@@ -97,7 +97,7 @@ test("waitReady reads the Backend itself, and is false for a not-ready or mismat
   assert.equal(await unreachable.waitReady(), false);
 });
 
-test("a rollback restarts the WebUI owning the runtime and relay off", async () => {
+test("a rollback restarts the WebUI owning the runtime again", async () => {
   const { calls, options } = harness({ health: { ok: true, ready: false } });
   const effects = createCutoverEffects(options);
   let clock = 0;
@@ -109,7 +109,7 @@ test("a rollback restarts the WebUI owning the runtime and relay off", async () 
   });
   assert.equal(result.stage, "attach-backend");
   assert.equal(result.rolledBack, true);
-  assert.deepEqual(calls.slice(-2), ["backend.stop", "spawnWeb:in-process:relay=off"]);
+  assert.deepEqual(calls.slice(-2), ["backend.stop", "spawnWeb:in-process"]);
 });
 
 test("verification needs both the Backend and the WebUI to agree", async () => {
@@ -144,8 +144,8 @@ test("verification needs both the Backend and the WebUI to agree", async () => {
 });
 
 test("the switches the Host must set are reported, and missing primitives are refused", () => {
-  const effects = createCutoverEffects({ ...harness().options, backendOwnsRuntime: true, relayEnabled: true });
-  assert.deepEqual(effects.switches, { backendOwnsRuntime: true, relayEnabled: true });
+  const effects = createCutoverEffects({ ...harness().options, backendOwnsRuntime: true });
+  assert.deepEqual(effects.switches, { backendOwnsRuntime: true });
   assert.throws(() => createCutoverEffects({}), /stopWeb is required/);
   assert.throws(() => createCutoverEffects({ stopWeb: async () => {}, spawnWeb: async () => {}, preflight: async () => ({ ok: true }) }), /backendService is required/);
   assert.throws(() => createCutoverVerify({}), /readHealth is required/);

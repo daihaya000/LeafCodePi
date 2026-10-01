@@ -44,7 +44,7 @@ export async function runCutover({
       return false; // An unconfirmed Backend stop must not bring another runtime owner back.
     }
     try {
-      await startWebUi({ ownsRuntime: true, relay: false });
+      await startWebUi({ ownsRuntime: true });
     } catch (err) {
       error(`Rollback could not restart the WebUI: ${err instanceof Error ? err.message : String(err)}`);
       return false;
@@ -106,7 +106,7 @@ export async function runCutover({
   // 4. Bring the WebUI back as a client of the Backend: it must not own the runtime any more.
   stages.push("hand-over");
   try {
-    await startWebUi({ ownsRuntime: false, relay: true });
+    await startWebUi({ ownsRuntime: false });
   } catch (err) {
     error(`Cutover could not restart the WebUI: ${err instanceof Error ? err.message : String(err)}`);
     return await failed("hand-over", "start-failed");

@@ -15,7 +15,6 @@ export function createCutoverEffects({
   token,
   expectedGeneration = "",
   backendOwnsRuntime,
-  relayEnabled,
   preflight,
   fetchImpl,
   timeoutMs,
@@ -35,9 +34,9 @@ export function createCutoverEffects({
   return {
     preflight,
     stopWebUi: () => stopWeb(),
-    /** Ownership travels with the WebUI process: the switches are part of its environment. */
-    startWebUi: ({ ownsRuntime, relay }) =>
-      spawnWeb({ ownership: ownsRuntime ? "in-process" : "backend", relay: Boolean(relay) }),
+    /** Ownership travels with the WebUI process: its environment decides what it may do. */
+    startWebUi: ({ ownsRuntime }) =>
+      spawnWeb({ ownership: ownsRuntime ? "in-process" : "backend" }),
     stopBackend: async () => backendService.stopForRestart(),
     startBackendAttached: async () => {
       backendService.start({ attachRuntime: true });
@@ -47,8 +46,8 @@ export function createCutoverEffects({
       const health = await read();
       return health.ok === true && health.ready === true;
     },
-    /** The switches the Host must set on the WebUI process for the hand-over to be consistent. */
-    switches: { backendOwnsRuntime: Boolean(backendOwnsRuntime), relayEnabled: Boolean(relayEnabled) },
+    /** The ownership the Host must set on the WebUI process for the hand-over to be consistent. */
+    switches: { backendOwnsRuntime: Boolean(backendOwnsRuntime) },
   };
 }
 

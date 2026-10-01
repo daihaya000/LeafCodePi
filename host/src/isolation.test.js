@@ -268,10 +268,10 @@ test("WebUI restart pulls, rebuilds only after an update, then starts without pu
 test("a WebUI restart keeps the runtime ownership the cutover handed over", () => {
   const index = readFileSync(join(repoRoot, "host", "src", "index.js"), "utf8");
   // The ownership the WebUI runs with is remembered, so a restart cannot silently become an owner.
-  assert.match(index, /let webOwnership = \{ ownership: "in-process", relay: false \}/);
+  assert.match(index, /let webOwnership = \{ ownership: "in-process" \}/);
   const launch = index.slice(index.indexOf("async function spawnWeb("), index.indexOf("function scheduleWebRestart("));
-  assert.match(launch, /ownership = webOwnership\.ownership, relay = webOwnership\.relay/);
-  assert.match(launch, /webOwnership = \{ ownership, relay \}/);
+  assert.match(launch, /ownership = webOwnership\.ownership/);
+  assert.match(launch, /webOwnership = \{ ownership \}/);
   const restart = index.slice(index.indexOf("async function restartWeb("), index.indexOf("async function restartHost("));
   // A client WebUI only comes back when the Backend it depends on is genuinely ready.
   assert.match(restart, /webOwnership\.ownership === "backend"/);

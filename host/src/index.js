@@ -485,10 +485,10 @@ function isCutoverRequested(env = {}) {
  * store, leases and sessions. Every spawn records what it started, and the cutover updates it when
  * it hands the runtime over (or rolls back).
  */
-let webOwnership = { ownership: "in-process", relay: false };
+let webOwnership = { ownership: "in-process" };
 
-async function spawnWeb({ pull = true, ownership = webOwnership.ownership, relay = webOwnership.relay } = {}) {
-  webOwnership = { ownership, relay };
+async function spawnWeb({ pull = true, ownership = webOwnership.ownership } = {}) {
+  webOwnership = { ownership };
   installWebIfNeeded();
   let hasBuild = hasProductionBuild();
   const skipStaleBuild = consumeSkipStaleRebuild(process.env);
@@ -587,9 +587,9 @@ async function spawnWeb({ pull = true, ownership = webOwnership.ownership, relay
       LEAFCODE_PI_EXTENSIONS_DIR: join(REPO_ROOT, "extensions"),
       LEAFCODE_PI_SKILLS_DIR: join(REPO_ROOT, "skills"),
       // Who owns the Pi runtime. "in-process" is the pre-cutover default; "backend" makes this WebUI
-      // a client of the independent Backend, which then owns sessions, leases and schedules.
+      // a client of the independent Backend, which then owns sessions, leases and schedules (and a
+      // client always reads that owner's view — the ownership is the only switch left).
       LEAFCODE_PI_BACKEND_OWNS_RUNTIME: ownership === "backend" ? "1" : "",
-      LEAFCODE_PI_BACKEND_RELAY: relay ? "1" : "",
       // How the WebUI reaches the Backend, and which runtime generation to expect. Absent when no
       // Backend is configured, so the WebUI keeps its in-process path.
       ...(backendService ? backendService.clientEnv() : {}),
@@ -1166,7 +1166,6 @@ async function main() {
           token: clientEnv.LEAFCODE_PI_BACKEND_TOKEN,
           expectedGeneration: backendService.status().generation ?? "",
           backendOwnsRuntime: true,
-          relayEnabled: true,
           // Only work in flight and foreign owners refuse the hand-over; the attach stage checks
           // readiness and the generation once the runtime is actually attached.
           preflight: createCutoverPreflight({

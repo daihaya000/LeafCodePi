@@ -22,7 +22,7 @@ function harness({ failAt = null, ready = true } = {}) {
       },
       stopWebUi: record("stopWebUi"),
       startWebUi: async (state) => {
-        calls.push(`startWebUi:${state.ownsRuntime ? "owns" : "client"}:relay=${state.relay ? "on" : "off"}`);
+        calls.push(`startWebUi:${state.ownsRuntime ? "owns" : "client"}`);
         if (failAt === "startWebUi" && !state.ownsRuntime) throw new Error("startWebUi failed");
       },
       stopBackend: record("stopBackend"),
@@ -54,7 +54,7 @@ test("a satisfied cutover stops the old path, attaches, then hands over", async 
     "stopBackend",
     "startBackendAttached",
     "waitReady",
-    "startWebUi:client:relay=on", // the WebUI returns as a client of the Backend
+    "startWebUi:client", // the WebUI returns as a client of the Backend
     "verify", // the hand-over is confirmed from the outside
   ]);
 });
@@ -110,7 +110,7 @@ test("a hand-over that fails verification is rolled back", async () => {
   assert.equal(result.reason, "verify-failed");
   assert.deepEqual(result.blockers, [{ code: "backend-not-ready" }]);
   assert.equal(result.rolledBack, true);
-  assert.deepEqual(calls.slice(-3), ["verify", "stopBackend", "startWebUi:owns:relay=off"]);
+  assert.deepEqual(calls.slice(-3), ["verify", "stopBackend", "startWebUi:owns"]);
 });
 
 test("the verification stage is skipped when the Host has nothing to verify with", async () => {
@@ -154,7 +154,7 @@ test("a failed attach rolls back to the WebUI owning the runtime", async () => {
     "waitReady",
     "waitReady",
     "stopBackend",
-    "startWebUi:owns:relay=off",
+    "startWebUi:owns",
   ]);
   assert.deepEqual(errors, [], "a rollback is expected, not an error");
 });
@@ -166,7 +166,7 @@ test("a failed hand-over rolls back too, and the WebUI gets its runtime back", a
   assert.equal(result.stage, "hand-over");
   assert.equal(result.reason, "start-failed");
   assert.equal(result.rolledBack, true);
-  assert.deepEqual(calls.slice(-3), ["startWebUi:client:relay=on", "stopBackend", "startWebUi:owns:relay=off"]);
+  assert.deepEqual(calls.slice(-3), ["startWebUi:client", "stopBackend", "startWebUi:owns"]);
 });
 
 test("a WebUI that cannot stop is not rolled back over: nothing changed yet", async () => {
