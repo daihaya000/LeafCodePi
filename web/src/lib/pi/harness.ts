@@ -14,6 +14,7 @@ import {
 } from "@/lib/paths";
 import { prepareWorkspaceMove, type PreparedWorkspaceMove } from "@/lib/workspace-move";
 import { assertLocalRuntimeAllowed, localRuntimeBlocked } from "@/lib/pi/runtime-ownership";
+import { fetchRemoteTodoProgress, fetchRemoteTodoProgressMany } from "@/lib/pi/remote-todo-progress";
 import { beginTaskPreparation, hasTaskPreparation, invalidateTaskPreparations, isTaskTreeEditing, withTaskSessionMutation, withTaskTreeEdit } from "./task-operation-guard";
 import { dispatchGoalLoopCommand, isGoalLoopCommandApplied } from "@/lib/pi/goal-loop-command";
 import { notifyPushoverCompletion, shouldNotifyPushoverCompletion } from "@/lib/pushover";
@@ -4381,8 +4382,10 @@ export async function peekCodeRequestProgress(taskId: string): Promise<{
   }
   let todoProgress = summary.todoProgress;
   // After cutover this process does not own sessions: opening Pi cold here reintroduces the
-  // sidebar-class cost on every Bot code-requests poll.
-  if (!todoProgress && task.sessionFile && !state().live.has(taskId) && !localRuntimeBlocked()) {
+  // sidebar-class cost on every Bot code-requests poll. Ask the owner for an omit detail instead.
+  if (!todoProgress && localRuntimeBlocked()) {
+    todoProgress = await fetchRemoteTodoProgress(taskId);
+  } else if (!todoProgress && task.sessionFile && !state().live.has(taskId)) {
     try {
       const pi = state().pi ?? (await loadPi());
       todoProgress = readTodoProgress(pi, summary);
@@ -7244,7 +7247,13 @@ async function buildTaskSummariesWithTodoProgress(
   // After the cutover this process does not own live sessions: opening every cold
   // session for sidebar Todo bars re-parses transcripts (seconds) on each poll.
   // Goal Loop summaries above are disk-only and stay available to the client WebUI.
-  if (tasksToRead.length > 0 && !localRuntimeBlocked()) {
+  // Remote: only enrich working / goal-loop tasks so a large idle list cannot stampede omit GETs.
+  if (tasksToRead.length > 0 && localRuntimeBlocked()) {
+    const remoteIds = tasksToRead
+      .filter((task) => task.status === "working" || goalLoopByTaskId.has(task.id))
+      .map((task) => task.id);
+    progressByTaskId = await fetchRemoteTodoProgressMany(remoteIds);
+  } else if (tasksToRead.length > 0) {
     try {
       const pi = await loadPi();
       progressByTaskId = new Map(
@@ -7317,7 +7326,12 @@ export async function getBotCodeSessionPanelState(botId: string): Promise<{
   let progressByTaskId = new Map<string, TodoProgressDto>();
   // Same cutover rule as getTaskSummariesWithTodoProgress: never open cold sessions
   // from a client WebUI just to paint Todo bars on the Bot Code panel.
-  if (coldNeedingTodo.length > 0 && !localRuntimeBlocked()) {
+  if (coldNeedingTodo.length > 0 && localRuntimeBlocked()) {
+    const remoteIds = coldNeedingTodo
+      .filter((task) => task.status === "working" || goalLoopByTaskId.has(task.id) || loops[task.id])
+      .map((task) => task.id);
+    progressByTaskId = await fetchRemoteTodoProgressMany(remoteIds);
+  } else if (coldNeedingTodo.length > 0) {
     try {
       const pi = await loadPi();
       progressByTaskId = new Map(
