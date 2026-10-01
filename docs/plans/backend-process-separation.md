@@ -383,7 +383,7 @@ Backend単独のSDK検証前には `npm --prefix backend ci --ignore-scripts` �
 
 撤去順（各段階でテストを通す）:
 
-1. **明示スイッチの撤去**: Hostが渡す`LEAFCODE_PI_BACKEND_OWNS_RUNTIME`（`1`／`in-process`）と`LEAFCODE_PI_BACKEND_RUNTIME`を廃止し、WebUIは常にクライアント、Backendは常にホストとする（`runtime-owner.json`の所有権記録と`backend/core/runtime-owner-state.mjs`は残す）。
+1. **明示スイッチの撤去**: Hostが渡す`LEAFCODE_PI_BACKEND_OWNS_RUNTIME`（`1`／`in-process`）と`LEAFCODE_PI_BACKEND_RUNTIME`を廃止し、WebUIは常にクライアント、Backendは常にホストとする。（`runtime-owner.json`の記録はループ13で削除済み: 本番は起動時からBackend所有になったため、切替の記憶は不要になった。）
 2. **所有モード分岐の削除**: `webOwnsRuntime`／`localRuntimeBlocked`を「Backendプロセスか否か」だけに縮小し、owner側の分岐（`runtime-startup`・`hang-watchdog`・relay）を削除する。
 3. **owner専用コードの削除**: `createSession`／`ensureLive`とその依存（liveライフサイクル・owner専用のSDK実行時依存）を削除し、`session-creation-surface.test.ts`の期待値を空にする。
 4. **中継の常時化**: `backend-relay.ts`のモジュールを削除し、非所有者の読み取りは常に`backend-forward`経由とする。

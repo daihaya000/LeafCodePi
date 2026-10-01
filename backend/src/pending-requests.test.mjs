@@ -10,7 +10,6 @@ import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { BACKEND_PROTOCOL_HEADER, BACKEND_PROTOCOL_VERSION } from "../../shared/backend-protocol.mjs";
 import { REQUIRED_RUNTIME_EXPORTS } from "./runtime-loader.mjs";
-import { readRuntimeOwner } from "../core/runtime-owner-state.mjs";
 import { readPendingRequestSnapshots } from "./pending-requests.mjs";
 
 const permission = { id: "p1", taskId: "task-1", title: "Permission" };
@@ -119,12 +118,6 @@ test("CLI exposes live pending DTOs and removes them after owner responses", { t
   const healthBody = await health.json();
   assert.ok(healthBody.runtimeGeneration, "the fake runtime never attached");
   assert.deepEqual(healthBody.runtimeStartupIncomplete, []);
-  // Attaching the runtime makes this process the owner, and it records that for the next Host start.
-  const ownerDeadline = Date.now() + 2_000;
-  while (readRuntimeOwner(dataDir) !== "backend" && Date.now() < ownerDeadline) {
-    await new Promise((resolve) => setTimeout(resolve, 25));
-  }
-  assert.equal(readRuntimeOwner(dataDir), "backend");
   const respond = (kind, body) => request(`/tasks/task-1/${kind}`, {
     method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body),
   });

@@ -288,8 +288,8 @@ test("production starts Backend-owned without a hand-over", () => {
   assert.match(index, /if \(ownership === "backend" && backendService\)/);
   assert.match(index, /backendService\.start\(\{ attachRuntime: true \}\)/);
   assert.match(index, /waitForBackendReady\(/);
-  // The cutover still records what it decided, so a rollback start comes back on the same side.
-  assert.match(index, /writeRuntimeOwner\(DATA_DIR, cutover\.ok \? BACKEND_OWNER : "in-process"\)/);
+  // The recorded ownership is gone: the startup decision no longer depends on a previous hand-over.
+  assert.doesNotMatch(index, /writeRuntimeOwner|readRuntimeOwner/);
 });
 
 test("host rebuilds stale production builds like LeafCode", () => {

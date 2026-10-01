@@ -19,8 +19,6 @@ import { buildHostRestartScript } from "./host-restart.js";
 import { DEFAULT_BACKEND_PORT } from "../../shared/backend-protocol.mjs";
 import { createBackendService, shouldRunBackend } from "./backend-service.js";
 import { readBackendHealth, waitForBackendReady } from "./backend-health.js";
-// The ownership contract is shared with the Backend (the other writer), so it lives in backend core.
-import { BACKEND_OWNER, readRuntimeOwner, writeRuntimeOwner } from "../../backend/core/runtime-owner-state.mjs";
 import { createCutoverEffects, createCutoverVerify } from "./cutover-effects.js";
 import { createCutoverPreflight, readActiveGoalLoopCount } from "./cutover-preflight.js";
 import { runCutover } from "./cutover.js";
@@ -1186,7 +1184,7 @@ async function main() {
       return response.json();
     };
     try {
-      const cutover = await runCutover({
+      await runCutover({
         ...createCutoverEffects({
           stopWeb,
           spawnWeb,
@@ -1213,11 +1211,6 @@ async function main() {
         log,
         error,
       });
-      // The decision must outlive this process: a Host restarted later reads it and comes back as
-      // the same side of the hand-over instead of silently taking the runtime back.
-      if (!writeRuntimeOwner(DATA_DIR, cutover.ok ? BACKEND_OWNER : "in-process")) {
-        error("Cutover finished but the runtime ownership could not be recorded for the next start");
-      }
     } catch (err) {
       error(`Cutover failed: ${err instanceof Error ? err.message : String(err)}`);
     }
