@@ -274,7 +274,6 @@ import {
 import { isReplacedPackageSource, keepsLoadedExtension, replacedUpstreamPackages } from "@backend-core/replaced-packages.mjs";
 import { resolveBotSessionOptions } from "@backend-core/bot-session-options.mjs";
 import { runSessionEventEffects } from "@backend-core/session-event-effects.mjs";
-import { pendingSnapshots } from "@/lib/pi/pending-snapshots";
 import { isBotTask, liveSessionName, liveSessionRefusalError, liveSessionWorkspace, preflightLiveSession, resolveSessionPermissionDefaults, TASK_ARCHIVED_MESSAGE, TASK_NOT_FOUND_MESSAGE, resolveSessionAccountId, resolveSessionAccountRefusal, resolveSessionPermissionMode, resolveSessionSkillPermission, resolveSessionThinkingLevelSource, resolveStoredModelOutcome } from "@backend-core/live-session-preflight.mjs";
 import { runSerializedByKey } from "@backend-core/keyed-serializer.mjs";
 import { attachReplacementSession } from "@backend-core/live-replace.mjs";
@@ -1685,9 +1684,6 @@ function scheduleTaskSnapshot(
   live.pendingSnapshotEventType = eventType;
   live.pendingSnapshotExtra = extra;
   live.pendingSnapshotIsDelta = decision.isDelta;
-  // Recorded for readers outside this live (see pending-snapshots.ts); the SSE path
-  // below never reads it back, so the emitted sequence is unchanged.
-  pendingSnapshots.record(live.taskId, { eventType, extra, isDelta: decision.isDelta });
   if (live.snapshotTimer) return;
   live.snapshotTimer = setTimeout(() => {
     live.snapshotTimer = null;
@@ -2525,8 +2521,6 @@ function disposeLive(taskId: string): void {
   }
   live.unsubscribe();
   state().live.delete(taskId);
-  // The live is gone, so its recorded snapshot must not outlive it.
-  pendingSnapshots.clear(taskId);
   if (shouldShutdownOnDispose(live, taskId)) {
     // Extensions (intercom presence/timers, memory SQLite, MCP) only release
     // resources in session_shutdown, which AgentSession.dispose() never emits.
