@@ -9,7 +9,7 @@ import { hostLaunchCheckHint } from "@/lib/host-launch-hints";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const TARGETS = new Set<HostRestartTarget>(["webui", "host"]);
+const TARGETS = new Set<HostRestartTarget>(["webui", "backend", "host"]);
 
 export async function POST(req: Request) {
   let target: HostRestartTarget | null = null;
@@ -19,13 +19,13 @@ export async function POST(req: Request) {
       target = body.target as HostRestartTarget;
     } else {
       return NextResponse.json(
-        { error: "target must be webui or host" },
+        { error: "target must be webui, backend or host" },
         { status: 400 },
       );
     }
   } catch {
     return NextResponse.json(
-      { error: "target must be webui or host" },
+      { error: "target must be webui, backend or host" },
       { status: 400 },
     );
   }

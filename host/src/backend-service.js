@@ -142,7 +142,8 @@ export function createBackendService({
   return {
     /**
      * Idempotent: a running Backend is not started twice, and a failed one is not retried here.
-     * `attachRuntime` is the cutover's request to hand the SDK over; it is never implicit.
+     * `attachRuntime` is an explicit request for the SDK-owning runtime (the Host's normal start
+     * and its Backend restart both pass it); it is never implicit.
      */
     start({ attachRuntime: attach = attachRuntime } = {}) {
       if (state === "running" || state === "starting") return null;

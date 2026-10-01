@@ -5,11 +5,19 @@ import { Button } from "@/components/ui";
 import { HOST_LAUNCH_REQUIRED_HINT_ANY, HOST_RESTART_READY_HINT_ANY } from "@/lib/host-launch-hints";
 import type { HealthDto } from "@/lib/types";
 
-type RestartTarget = "webui" | "host";
+type RestartTarget = "webui" | "backend" | "host";
 
 const LABELS: Record<RestartTarget, string> = {
   webui: "WebUI",
+  backend: "バックエンド（Piランタイム）",
   host: "トレイホスト",
+};
+
+/** What each restart ends, so the confirmation can say it instead of a generic warning. */
+const CONFIRM_NOTES: Record<RestartTarget, string> = {
+  webui: "（更新がある場合は Pull と再ビルドも行います。実行中のセッションはBackendで継続します）",
+  backend: "（実行中のセッションはすべて終了します。WebUIは再起動しません）",
+  host: "（WebUIとバックエンドが再起動し、実行中のセッションは終了します）",
 };
 
 const HEALTH_BUDGET_MS = 90_000;
@@ -79,7 +87,7 @@ export function HostRestartPanel({ onRestarted }: { onRestarted?: () => void }) 
           [data.error, data.hint].filter(Boolean).join(" — ") || "再起動に失敗しました",
         );
       }
-      if (action !== "host") window.dispatchEvent(new Event("leafcode:webui-restart"));
+      if (action === "webui") window.dispatchEvent(new Event("leafcode:webui-restart"));
       const deadline = Date.now() + HEALTH_BUDGET_MS;
       let success = false;
       while (Date.now() < deadline) {
@@ -87,17 +95,29 @@ export function HostRestartPanel({ onRestarted }: { onRestarted?: () => void }) 
         if (!mountedRef.current) return;
         setRemaining(Math.max(0, Math.ceil((deadline - Date.now()) / 1000)));
         try {
-          const h = await timedFetch(`/api/health?restart=${Date.now()}`, {
-            timeoutMs: HEALTH_TIMEOUT_MS,
-          });
+          // A Backend restart leaves the WebUI up, so its readiness — not the WebUI's health — is
+          // what the operator waits for.
+          const h = await timedFetch(
+            action === "backend" ? `/api/backend/status?restart=${Date.now()}` : `/api/health?restart=${Date.now()}`,
+            { timeoutMs: HEALTH_TIMEOUT_MS },
+          );
           if (!h.ok) continue;
-          const body = (await h.json().catch(() => ({}))) as HealthDto;
+          const body = (await h.json().catch(() => ({}))) as HealthDto & {
+            backend?: { ready?: boolean } | null;
+          };
+          if (action === "backend") {
+            if (body?.backend?.ready === true) {
+              success = true;
+              break;
+            }
+            continue;
+          }
           if (body && typeof body.engineOk === "boolean") {
             success = true;
             break;
           }
         } catch {
-          // WebUI may still be restarting.
+          // WebUI (or the Backend it depends on) may still be restarting.
         }
       }
       if (!success) {
@@ -126,6 +146,9 @@ export function HostRestartPanel({ onRestarted }: { onRestarted?: () => void }) 
           ? HOST_LAUNCH_REQUIRED_HINT_ANY
           : HOST_RESTART_READY_HINT_ANY}
       </p>
+      <p className="mt-1 text-xs text-muted">
+        WebUI の再起動ではバックエンドは継続します。バックエンドを再起動すると実行中のセッション（Piランタイム）は終了します。
+      </p>
       <div className="mt-3 flex flex-wrap gap-2">
         <Button
           type="button"
@@ -136,6 +159,16 @@ export function HostRestartPanel({ onRestarted }: { onRestarted?: () => void }) 
           onClick={() => setPending("webui")}
         >
           WebUI を再起動
+        </Button>
+        <Button
+          type="button"
+          size="sm"
+          variant="secondary"
+          busy={restarting === "backend"}
+          disabled={hostOk !== true || restarting !== null}
+          onClick={() => setPending("backend")}
+        >
+          バックエンド（Pi）を再起動
         </Button>
         <Button
           type="button"
@@ -165,7 +198,7 @@ export function HostRestartPanel({ onRestarted }: { onRestarted?: () => void }) 
           className="mt-3 rounded-lg border border-warning/30 bg-warning-bg px-3 py-2 text-sm text-warning"
         >
           <p className="font-medium">
-            {`${LABELS[pending]}を再起動しますか？${pending === "webui" ? "（更新がある場合は Pull と再ビルドも行います）" : ""}`}
+            {`${LABELS[pending]}を再起動しますか？${CONFIRM_NOTES[pending]}`}
           </p>
           <div className="mt-2 flex flex-wrap gap-2">
             <Button type="button" size="sm" variant="primary" onClick={() => void restartService(pending)}>

@@ -26,10 +26,11 @@ export function hostTranslationPath(action: HostTranslationAction): string {
   return `/translation/${action}`;
 }
 
-export type HostRestartTarget = "webui" | "host";
+export type HostRestartTarget = "webui" | "backend" | "host";
 
 export function hostRestartPath(target: HostRestartTarget): string {
   if (target === "host") return "/restart/host";
+  if (target === "backend") return "/restart/backend";
   return "/restart/webui";
 }
 

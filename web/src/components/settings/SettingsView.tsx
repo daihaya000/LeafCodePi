@@ -289,7 +289,7 @@ export function SettingsView() {
               <SettingsGroup
                 id="engine-runtime-heading"
                 title="ランタイム"
-                description="Pi Coding Agent の状態を確認し、WebUI とホストを管理します。"
+                description="Pi Coding Agent の状態を確認し、WebUI・バックエンド・ホストを管理します。"
               >
                 <div className="grid gap-4 @3xl:grid-cols-2">
                   <div className="rounded-2xl border border-border bg-surface p-4">
@@ -310,7 +310,7 @@ export function SettingsView() {
                     </div>
                     <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-2 text-sm">
                       <dt className="text-muted">エンジン</dt>
-                      <dd>Pi SDK（プロセス内埋め込み）</dd>
+                      <dd>Pi SDK（バックエンドプロセスで稼働）</dd>
                       <dt className="text-muted">バージョン</dt>
                       <dd>{health?.version ?? "-"}</dd>
                       <dt className="text-muted">データ</dt>

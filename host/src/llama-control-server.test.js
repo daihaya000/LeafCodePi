@@ -185,6 +185,59 @@ test("POST /restart/webui returns 202 then invokes handler", async () => {
   await closeControlServer(server);
 });
 
+test("POST /restart/backend returns 202 then invokes the runtime owner restart", async () => {
+  let called = false;
+  const port = await freePort();
+  const server = createLlamaControlServer({
+    controlPort: port,
+    onLlamaServerStatus: () => ({ ok: true }),
+    onLlamaServerStart: async () => ({ ok: true }),
+    onLlamaServerStop: () => {},
+    onRestartBackend: () => {
+      called = true;
+    },
+  });
+  await listenControlServer(server, port);
+  const res = await fetch(`http://127.0.0.1:${port}/restart/backend`, {
+    method: "POST",
+    headers: { host: `127.0.0.1:${port}` },
+  });
+  assert.equal(res.status, 202);
+  const body = await res.json();
+  assert.equal(body.ok, true);
+  assert.equal(body.target, "backend");
+  await new Promise((r) => setTimeout(r, 180));
+  assert.equal(called, true);
+  await closeControlServer(server);
+});
+
+test("POST /restart/backend is refused with 409 while a Goal Loop is live", async () => {
+  let called = false;
+  const port = await freePort();
+  const server = createLlamaControlServer({
+    controlPort: port,
+    onLlamaServerStatus: () => ({ ok: true }),
+    onLlamaServerStart: async () => ({ ok: true }),
+    onLlamaServerStop: () => {},
+    onRestartBackend: () => {
+      called = true;
+    },
+    onRestartBackendBlocked: () => "Goal Loop が 1 件実行中",
+  });
+  await listenControlServer(server, port);
+  const res = await fetch(`http://127.0.0.1:${port}/restart/backend`, {
+    method: "POST",
+    headers: { host: `127.0.0.1:${port}` },
+  });
+  assert.equal(res.status, 409);
+  const body = await res.json();
+  assert.equal(body.target, "backend");
+  assert.equal(body.blocked, true);
+  await new Promise((r) => setTimeout(r, 180));
+  assert.equal(called, false);
+  await closeControlServer(server);
+});
+
 test("POST /restart/webui is refused with 409 while a Goal Loop is live", async () => {
   let called = false;
   const port = await freePort();

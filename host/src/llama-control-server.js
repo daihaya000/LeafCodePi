@@ -82,6 +82,8 @@ async function readJsonBody(req, maxBytes = 16_384) {
  *   onLlamaServerStop: () => Promise<unknown> | unknown,
  *   onRestartWebui?: () => Promise<unknown> | unknown,
  *   onRestartWebuiBlocked?: () => Promise<string | null> | string | null,
+ *   onRestartBackend?: () => Promise<unknown> | unknown,
+ *   onRestartBackendBlocked?: () => Promise<string | null> | string | null,
  *   onRestartHost?: () => Promise<unknown> | unknown,
  *   onBrowserConfigRead?: () => { autoOpenBrowser: boolean },
  *   onBrowserConfigWrite?: (patch: { autoOpenBrowser: boolean }) => { autoOpenBrowser: boolean },
@@ -303,6 +305,26 @@ export function createLlamaControlServer(handlers) {
         res.writeHead(202, JSON_HEADERS);
         res.end(JSON.stringify({ ok: true, target: "webui", accepted: true }));
         deferRestartUntilResponseSent(res, () => handlers.onRestartWebui());
+        return;
+      }
+
+      if (method === "POST" && pathname === "/restart/backend") {
+        if (typeof handlers.onRestartBackend !== "function") {
+          res.writeHead(501, JSON_HEADERS);
+          res.end(JSON.stringify({ ok: false, error: "backend restart is not supported by this host" }));
+          return;
+        }
+        // The Pi runtime restart ends every live session (Goal Loops included), so a refusal has to
+        // be decided here rather than inside the restart handler.
+        const blocked = await Promise.resolve(handlers.onRestartBackendBlocked?.()).catch(() => null);
+        if (blocked) {
+          res.writeHead(409, JSON_HEADERS);
+          res.end(JSON.stringify({ ok: false, target: "backend", blocked: true, error: blocked }));
+          return;
+        }
+        res.writeHead(202, JSON_HEADERS);
+        res.end(JSON.stringify({ ok: true, target: "backend", accepted: true }));
+        deferRestartUntilResponseSent(res, () => handlers.onRestartBackend());
         return;
       }
 

@@ -278,6 +278,17 @@ test("the WebUI is always the Backend's client", () => {
   assert.match(restart, /Refusing to restart the WebUI as a Backend client/);
 });
 
+test("the Host can restart the Backend on request, and refuses while a Goal Loop is live", () => {
+  const index = readFileSync(join(repoRoot, "host", "src", "index.js"), "utf8");
+  assert.match(index, /onRestartBackend: \(\) => restartBackend\(\)/);
+  assert.match(index, /onRestartBackendBlocked: \(\) => backendRestartBlockReason\(\)/);
+  const restart = index.slice(index.indexOf("async function restartBackend("), index.indexOf("async function restartWeb("));
+  // The runtime owner is stopped with confirmation, started attached again, then awaited.
+  assert.match(restart, /await backendService\.stopForRestart\(\)/);
+  assert.match(restart, /backendService\.start\(\{ attachRuntime: true \}\)/);
+  assert.match(restart, /waitForBackendReady\(/);
+});
+
 test("production starts Backend-owned without a hand-over", () => {
   const index = readFileSync(join(repoRoot, "host", "src", "index.js"), "utf8");
   // The Backend owns the runtime in the shipped build, so the Host runs one by default.

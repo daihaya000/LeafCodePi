@@ -668,6 +668,55 @@ async function webUiRestartBlockReason() {
   }
 }
 
+/**
+ * Goal Loops run inside the Backend's Pi runtime, so restarting the Backend ends them mid-turn (and
+ * every other live session). The same WebUI probe answers whether any loop is live; an unreachable
+ * WebUI has no loop left to protect, so a probe failure keeps the restart available.
+ */
+async function backendRestartBlockReason() {
+  return webUiRestartBlockReason();
+}
+
+/**
+ * Restart the Pi runtime owner: stop the Backend (confirmed exit), start it attached again and wait
+ * for readiness. The WebUI stays up as its client and serves 503s until the runtime is back.
+ */
+async function restartBackend() {
+  if (restarting) {
+    log("Service restart is already in progress");
+    return;
+  }
+  if (!backendService) {
+    error("Backend restart requested, but this Host does not run a Backend");
+    return;
+  }
+  restarting = true;
+  log("Restarting the Backend (Pi runtime)...");
+  try {
+    await backendService.stopForRestart();
+    backendService.start({ attachRuntime: true });
+    const clientEnv = backendService.clientEnv();
+    const ready = await waitForBackendReady({
+      read: () =>
+        readBackendHealth({
+          baseUrl: clientEnv.LEAFCODE_PI_BACKEND_URL ?? `http://127.0.0.1:${DEFAULT_BACKEND_PORT}`,
+          token: clientEnv.LEAFCODE_PI_BACKEND_TOKEN,
+          expectedGeneration: backendService.status().generation ?? "",
+        }),
+      timeoutMs: BACKEND_START_READY_TIMEOUT_MS,
+    });
+    if (!ready.ok) {
+      error(`Backend did not become ready after the restart (${ready.reason ?? "timeout"})`);
+    } else {
+      log("Backend restarted and ready");
+    }
+  } catch (err) {
+    error(`Backend restart failed: ${err instanceof Error ? err.message : String(err)}`);
+  } finally {
+    restarting = false;
+  }
+}
+
 async function restartWeb() {
   if (restarting) {
     log("Service restart is already in progress");
@@ -948,6 +997,8 @@ async function startControlServer() {
     onLlamaServerStop: () => llamaServerService.stop(),
     onRestartWebui: () => restartWeb(),
     onRestartWebuiBlocked: () => webUiRestartBlockReason(),
+    onRestartBackend: () => restartBackend(),
+    onRestartBackendBlocked: () => backendRestartBlockReason(),
     onRestartHost: () => restartHost(),
     onBrowserConfigRead: () => readBrowserConfig(),
     onBrowserConfigWrite: (patch) => writeBrowserConfig(patch),
