@@ -7,6 +7,33 @@ describe("createSseWriter", () => {
     vi.useRealTimers();
   });
 
+  it("preserves the wire format for pre-serialized JSON and reports only transport timings", () => {
+    const enqueue = vi.fn();
+    const controller = { enqueue } as unknown as ReadableStreamDefaultController<Uint8Array>;
+    const timings: string[] = [];
+    const sse = createSseWriter(controller, { onTiming: ({ phase }) => timings.push(phase) });
+    const data = { text: "日本語\nsecond line", quoted: '"' };
+    sse.send("snapshot", data);
+    timings.length = 0;
+    sse.sendSerialized("snapshot", JSON.stringify(data));
+    expect(enqueue.mock.calls[1][0]).toEqual(enqueue.mock.calls[0][0]);
+    expect(timings).toEqual(["sse.encode:snapshot", "sse.enqueue:snapshot"]);
+    sse.cleanup();
+    sse.sendSerialized("snapshot", "{}");
+    expect(enqueue).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not serialize payloads after cleanup", () => {
+    const enqueue = vi.fn();
+    const controller = { enqueue } as unknown as ReadableStreamDefaultController<Uint8Array>;
+    const sse = createSseWriter(controller);
+    const toJSON = vi.fn(() => ({}));
+    sse.cleanup();
+    sse.send("snapshot", { toJSON });
+    expect(toJSON).not.toHaveBeenCalled();
+    expect(enqueue).not.toHaveBeenCalled();
+  });
+
   it("does not throw when a heartbeat fires after the stream is closed", async () => {
     vi.useFakeTimers();
     let controller!: ReadableStreamDefaultController<Uint8Array>;

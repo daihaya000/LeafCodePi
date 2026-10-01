@@ -1,6 +1,8 @@
 export type SseWriter = {
   readonly closed: boolean;
   send(event: string, data: unknown): void;
+  /** Accepts JSON.stringify output from trusted server code, without serializing it again. */
+  sendSerialized(event: string, json: string): void;
   startHeartbeat(intervalMs?: number): void;
   onCleanup(fn: () => void): void;
   cleanup(): void;
@@ -64,9 +66,14 @@ export function createSseWriter(
       return closed;
     },
     send(event: string, data: unknown) {
+      if (closed) return;
       const jsonStartedAt = options.onTiming ? performance.now() : 0;
       const json = JSON.stringify(data);
       reportTiming(`sse.json:${event}`, jsonStartedAt);
+      writer.sendSerialized(event, json);
+    },
+    sendSerialized(event: string, json: string) {
+      if (closed) return;
       const encodeStartedAt = options.onTiming ? performance.now() : 0;
       const bytes = encoder.encode(`event: ${event}\ndata: ${json}\n\n`);
       reportTiming(`sse.encode:${event}`, encodeStartedAt);

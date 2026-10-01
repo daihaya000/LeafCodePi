@@ -1,4 +1,4 @@
-import { pageTaskMessages } from "@/lib/task-history";
+import { pageTaskDetailMessages } from "@/lib/task-history";
 import { forwardTaskDetail, forwardTaskPendingRequests } from "@/lib/backend-forward";
 
 /**
@@ -16,14 +16,39 @@ import { forwardTaskDetail, forwardTaskPendingRequests } from "@/lib/backend-for
 /** What the helper needs from an SSE writer; `createSseWriter` satisfies it. */
 export type BackendEventSink = {
   send(event: string, payload: unknown): void;
+  sendSerialized?(event: string, json: string): void;
   readonly closed: boolean;
 };
 
 export const BACKEND_EVENT_POLL_MS = 2_000;
 
+type BackendSnapshotRead = [
+  Awaited<ReturnType<typeof forwardTaskDetail>>,
+  Awaited<ReturnType<typeof forwardTaskPendingRequests>>,
+];
+// Share only in-flight reads, never cached state: approvals and rewinds must stay fresh.
+// ponytail: coalesces within one Web worker; a Backend event relay would also remove polling.
+const inFlightReads = new Map<string, Promise<BackendSnapshotRead>>();
+
+function readBackendSnapshot(id: string): Promise<BackendSnapshotRead> {
+  const existing = inFlightReads.get(id);
+  if (existing) return existing;
+  const read = Promise.allSettled([forwardTaskDetail(id, { messages: "page" }), forwardTaskPendingRequests(id)])
+    .then(([detail, pending]): BackendSnapshotRead => {
+      // Keep a rejected read coalesced until its sibling finishes too.
+      if (detail.status === "rejected") throw detail.reason;
+      if (pending.status === "rejected") throw pending.reason;
+      return [detail.value, pending.value];
+    })
+    .finally(() => { inFlightReads.delete(id); });
+  inFlightReads.set(id, read);
+  return read;
+}
+
 /** The task-detail fields that are sent separately, so they are not duplicated inside `task`. */
 const DETAIL_ONLY_FIELDS = [
   "messages",
+  "messageHistory",
   "isStreaming",
   "isCompacting",
   "contextUsage",
@@ -44,10 +69,7 @@ export function backendTaskSnapshot(
 ): Record<string, unknown> {
   const summary: Record<string, unknown> = { ...(detail ?? {}) };
   for (const key of DETAIL_ONLY_FIELDS) delete summary[key];
-  const messages = Array.isArray(detail?.messages)
-    ? (detail.messages as Parameters<typeof pageTaskMessages>[0])
-    : [];
-  const page = pageTaskMessages(messages);
+  const page = pageTaskDetailMessages(detail);
   return {
     type: "snapshot",
     task: summary,
@@ -70,11 +92,13 @@ export function backendTaskSnapshot(
 }
 
 /**
- * Sends the Backend's snapshot once and keeps polling while the writer is open.
+ * Sends the Backend's snapshot once and polls for changes while the writer is open.
  *
  * Returns `{ ok: false, reason }` when the Backend cannot be read (the caller ends the stream), or
  * `{ ok: true, stop }` where `stop` clears the poll and suppresses in-flight sends. Polls are serialized
- * through both detail and pending-request reads — the caller registers `stop` as cleanup.
+ * across ticks; detail and pending reads run concurrently and overlapping viewers share them.
+ * The caller registers `stop` as cleanup. Unchanged snapshots are not resent; SSE heartbeats
+ * remain the caller's responsibility.
  *
  * `extra` may be a getter so fields this process still owns (the Bot intercom inbox is a local read of
  * shared mailbox files) are re-read for every snapshot instead of being frozen at stream start.
@@ -94,7 +118,7 @@ export async function startBackendTaskStream({
   setIntervalImpl?: typeof setInterval;
   clearIntervalImpl?: typeof clearInterval;
 }): Promise<{ ok: true; stop: () => void } | { ok: false; reason: string }> {
-  const detail = await forwardTaskDetail(id);
+  const [detail, pending] = await readBackendSnapshot(id);
   if (!detail.ok) return { ok: false, reason: detail.reason };
   let stopped = false;
   let busy = false;
@@ -112,13 +136,17 @@ export async function startBackendTaskStream({
       return {};
     }
   };
-  const send = async (current: Record<string, unknown> | null) => {
+  let lastSnapshot: string | undefined;
+  const send = (current: Record<string, unknown> | null, requests: BackendSnapshotRead[1]) => {
     if (stopped || sse.closed) return;
-    const pending = await forwardTaskPendingRequests(id);
-    if (stopped || sse.closed) return;
-    sse.send("snapshot", backendTaskSnapshot(current, pending, extraFields()));
+    const snapshot = backendTaskSnapshot(current, requests, extraFields());
+    const serialized = JSON.stringify(snapshot);
+    if (serialized === lastSnapshot) return;
+    if (sse.sendSerialized) sse.sendSerialized("snapshot", serialized);
+    else sse.send("snapshot", snapshot);
+    lastSnapshot = serialized;
   };
-  await send(detail.detail);
+  send(detail.detail, pending);
   if (sse.closed) return { ok: true, stop };
   timer = setIntervalImpl(() => {
     void (async () => {
@@ -129,9 +157,9 @@ export async function startBackendTaskStream({
       if (busy) return;
       busy = true;
       try {
-        const next = await forwardTaskDetail(id);
+        const [next, requests] = await readBackendSnapshot(id);
         if (!next.ok) return;
-        await send(next.detail);
+        send(next.detail, requests);
       } catch {
         // A transient transport/read failure retries without opening a local session.
       } finally {
