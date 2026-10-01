@@ -18,6 +18,7 @@ import {
   forwardTaskAgent,
   forwardRoomRevert,
   forwardTaskRevert,
+  forwardBotAdmin,
   forwardProjectTeardown,
   forwardTaskTeardown,
   forwardTaskUnrevert,
@@ -383,6 +384,25 @@ describe("forwardPendingAttention", () => {
     const missing = vi.fn<typeof fetch>(async () => jsonResponse(200, {}));
     await expect(forwardPendingAttention({ env, fetchImpl: missing })).resolves.toEqual({ ok: true, items: [] });
     await expect(forwardPendingAttention({ env: {} })).resolves.toEqual({ ok: false, reason: "not-configured" });
+  });
+});
+
+describe("forwardBotAdmin", () => {
+  it("returns the owner's own status and body, and refuses a malformed answer", async () => {
+    const fetchImpl = vi.fn<typeof fetch>(async () => jsonResponse(200, { result: { status: 400, body: { error: "不正" } } }));
+    await expect(forwardBotAdmin("bot-1", { action: "patch", body: { enabled: false } }, { env, fetchImpl })).resolves.toEqual({
+      ok: true, status: 400, body: { error: "不正" },
+    });
+    expect(fetchImpl.mock.calls[0][0]).toBe("http://127.0.0.1:19999/internal/bots/bot-1/admin");
+    expect(JSON.parse(String(fetchImpl.mock.calls[0][1]?.body))).toEqual({ action: "patch", body: { enabled: false } });
+    const malformed = vi.fn<typeof fetch>(async () => jsonResponse(200, { result: {} }));
+    await expect(forwardBotAdmin("bot-1", { action: "delete" }, { env, fetchImpl: malformed })).resolves.toEqual({
+      ok: false, reason: "bad-response",
+    });
+    const unreachable = vi.fn<typeof fetch>(async () => { throw new Error("connect refused"); });
+    await expect(forwardBotAdmin("bot-1", { action: "delete" }, { env, fetchImpl: unreachable })).resolves.toEqual({
+      ok: false, reason: "unreachable",
+    });
   });
 });
 

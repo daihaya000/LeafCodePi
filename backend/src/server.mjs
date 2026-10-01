@@ -4,6 +4,7 @@ import { once } from "node:events";
 import {
   BACKEND_ERROR_CODES,
   BACKEND_HEALTH_PATH,
+  BACKEND_BOT_ADMIN_SUFFIX,
   BACKEND_BOT_CODE_REQUESTS_SUFFIX,
   BACKEND_BOT_CODE_SESSIONS_SUFFIX,
   BACKEND_BOT_REVERT_SUFFIX,
@@ -158,6 +159,8 @@ export function createBackendServer({
   teardownTaskAction = null,
   /** Archives, deletes or moves a project: `(id, action, destinationPath?) => { status, body }`; the owner stops its sessions. */
   teardownProjectAction = null,
+  /** Changes or deletes a Bot: `(id, "patch" | "delete", body?) => { status, body }`; the owner holds its sessions. */
+  botAdminAction = null,
   /** Compacts a session: `(id, customInstructions?) => task`; the summarization runs in the owner. */
   compactTaskAction = null,
   /** Stops a running compaction: `(id) => task`; only the owner can interrupt its own session. */
@@ -212,6 +215,7 @@ export function createBackendServer({
     unrevertTaskAction,
     teardownTaskAction,
     teardownProjectAction,
+    botAdminAction,
     compactTaskAction,
     abortCompactTaskAction,
     setTaskModelAction,
@@ -282,6 +286,10 @@ export function createBackendServer({
     const botSuffix = target.pathname.startsWith(`${BACKEND_BOTS_PATH}/`)
       ? decodeURIComponent(target.pathname.slice(BACKEND_BOTS_PATH.length + 1))
       : undefined;
+    // `<botId>/admin` changes or deletes a Bot together with the sessions it owns.
+    const botAdminPath = botSuffix?.endsWith(BACKEND_BOT_ADMIN_SUFFIX)
+      ? botSuffix.slice(0, -BACKEND_BOT_ADMIN_SUFFIX.length)
+      : undefined;
     // `<botId>/code-requests` acts on the Bot's outbox: only the owner may write it.
     const botActionSuffix = [BACKEND_BOT_CODE_REQUESTS_SUFFIX, BACKEND_BOT_CODE_SESSIONS_SUFFIX, BACKEND_BOT_REVERT_SUFFIX]
       .find((suffix) => botSuffix?.endsWith(suffix));
@@ -319,6 +327,7 @@ export function createBackendServer({
       : undefined;
     const knownPath = target.pathname === BACKEND_HEALTH_PATH
       || projectActionPath !== undefined
+      || botAdminPath !== undefined
       || target.pathname === BACKEND_PENDING_SNAPSHOTS_PATH
       || target.pathname === BACKEND_ATTENTION_PATH
       || target.pathname === BACKEND_BOTS_PATH
@@ -650,6 +659,40 @@ export function createBackendServer({
         sendJson(response, typeof error?.status === "number" ? error.status : 500, {
           error: "Backend routine run failed",
           code: BACKEND_ERROR_CODES.internal,
+        });
+      }
+      return;
+    }
+    if (botAdminPath !== undefined) {
+      if (request.method !== "POST") {
+        sendJson(response, 405, {
+          error: "Method not allowed", code: BACKEND_ERROR_CODES.methodNotAllowed,
+        }, { Allow: "POST" });
+        return;
+      }
+      if (!botAdminPath || botAdminPath.includes("/")) {
+        sendJson(response, 404, { error: "Not found", code: BACKEND_ERROR_CODES.notFound });
+        return;
+      }
+      if (typeof botAdminAction !== "function") {
+        sendJson(response, 503, {
+          error: "Backend runtime unavailable", code: BACKEND_ERROR_CODES.runtimeUnavailable,
+        });
+        return;
+      }
+      const body = await readJsonBody(request);
+      const action = body.ok ? body.value?.action : undefined;
+      if (!body.ok || (action !== "patch" && action !== "delete")) {
+        sendJson(response, body.ok ? 400 : body.reason === "too-large" ? 413 : 400, {
+          error: "Invalid bot admin request", code: BACKEND_ERROR_CODES.badRequest,
+        });
+        return;
+      }
+      try {
+        sendJson(response, 200, { result: await botAdminAction(botAdminPath, action, body.value?.body ?? null) });
+      } catch (error) {
+        sendJson(response, typeof error?.status === "number" ? error.status : 500, {
+          error: "Backend bot admin failed", code: BACKEND_ERROR_CODES.internal,
         });
       }
       return;

@@ -86,7 +86,6 @@ describe("runtime ownership coverage", () => {
       "bots/[id]/events/route.ts",
       "bots/[id]/prompt/route.ts",
       "bots/[id]/revert/route.ts",
-      "bots/[id]/route.ts",
       "bots/[id]/routines/[routineId]/run/route.ts",
       "bots/rooms/[id]/code/route.ts",
       "bots/rooms/[id]/events/route.ts",
@@ -117,8 +116,8 @@ describe("runtime ownership coverage", () => {
     // Every unguarded starter is a measured, listed gap — never an unrecorded one.
     expect(pending).toEqual(Object.keys(LOCAL_ONLY_PENDING).sort());
     expect({ starters: starters.length, guarded: starters.length - pending.length }).toEqual({
-      starters: 28,
-      guarded: 28,
+      starters: 27,
+      guarded: 27,
     });
     // No route may act as a second owner: every starter is guarded and the pending list is empty.
     expect(pending).toEqual([]);
@@ -133,12 +132,11 @@ describe("runtime ownership coverage", () => {
  * `createTask` is deliberately absent until its forwarding lands; it is tracked separately.
  */
 const OWNER_OPERATIONS =
-  /\b(destroyArchivedTasksByProject|archiveTask|destroyTask|archiveProjectAndStopTasks|destroyProject|migrateProject|promoteTask|handoffTaskToBot|releaseTaskFromBot|reloadLiveSessionsContext|refreshLiveSessionsForAgentDefinition|resetTaskConversation|setBotModel|setBotPermissionMode|setBotThinkingLevel|setBotTools|requestBotSoulReload|createBotCodeTask|continueBotCodeTask|completeBotCodeRequest|promptTask|goalLoopCommand|abortTask|abortTaskIncludingColdGoalLoop|stopBotCodeTask|respondToPermissionPrompt|respondToQuestionPrompt|revertTask|unrevertTask|compactTask|abortTaskCompaction|setTaskModel|setTaskThinkingLevel|setTaskAgent|runRoutine|handleRoomPrompt|handleRoomPatch|handleRoomDelete|revertRoomConversation)\b/;
+  /\b(handleBotPatch|handleBotDelete|destroyArchivedTasksByProject|archiveTask|destroyTask|archiveProjectAndStopTasks|destroyProject|migrateProject|promoteTask|handoffTaskToBot|releaseTaskFromBot|reloadLiveSessionsContext|refreshLiveSessionsForAgentDefinition|resetTaskConversation|setBotModel|setBotPermissionMode|setBotThinkingLevel|setBotTools|requestBotSoulReload|createBotCodeTask|continueBotCodeTask|completeBotCodeRequest|promptTask|goalLoopCommand|abortTask|abortTaskIncludingColdGoalLoop|stopBotCodeTask|respondToPermissionPrompt|respondToQuestionPrompt|revertTask|unrevertTask|compactTask|abortTaskCompaction|setTaskModel|setTaskThinkingLevel|setTaskAgent|runRoutine|handleRoomPrompt|handleRoomPatch|handleRoomDelete|revertRoomConversation)\b/;
 
 const HANDLER_GUARDS = /\b(localRuntimeBlocked|forward[A-Z]\w*|\w+OnBackend|relayFallbackAllowed|readBackend\w+)\b/;
 
 const SETTINGS_RELOAD = "the Backend's live sessions are not reloaded; running sessions keep the old context";
-const TEARDOWN = "stops/disposes only this process's sessions; the Backend's running session keeps going";
 
 /** Measured handler-level gaps. Each entry is unfinished work; the scan fails on an unlisted one. */
 const HANDLER_GAPS: Record<string, string> = {
@@ -154,8 +152,6 @@ const HANDLER_GAPS: Record<string, string> = {
   "prompts/transfer/route.ts POST": SETTINGS_RELOAD,
   "skills/route.ts POST": SETTINGS_RELOAD,
   "skills/[name]/route.ts PATCH": SETTINGS_RELOAD,
-  "bots/[id]/route.ts GET": "setBotTools applies to this process's sessions only",
-  "bots/[id]/route.ts DELETE": TEARDOWN,
   "tasks/route.ts DELETE": "bulk destroy of archived tasks; archived tasks have no live session",
   "tasks/[id]/promote/route.ts POST": "promotion rewires a session this process does not own",
   "tasks/[id]/supervisor/route.ts POST": "hand-off/release rewires a session this process does not own",

@@ -230,6 +230,16 @@ try {
       }
       return runtime.revertTask(id, entryId);
     },
+    // A Bot settings change reaches its live conversations and a deletion stops its Room turns, Code
+    // sessions and tasks, which only the owner holds. The answer keeps its own status and body.
+    botAdminAction: (id, action, body) => {
+      const runtime = started.runtime();
+      const run = action === "delete" ? runtime?.handleBotDelete : runtime?.handleBotPatch;
+      if (typeof run !== "function") {
+        throw Object.assign(new Error("runtime unavailable"), { status: 503 });
+      }
+      return action === "delete" ? run(id) : run(id, body);
+    },
     // Archiving, deleting or moving a project stops its sessions and Code work, which only the owner
     // holds. The answer keeps its own status and body: the WebUI replays both unchanged.
     teardownProjectAction: async (id, action, destinationPath) => {

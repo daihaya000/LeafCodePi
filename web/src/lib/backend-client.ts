@@ -14,6 +14,7 @@ import {
   BACKEND_ATTENTION_PATH,
   BACKEND_BOT_CODE_REQUESTS_SUFFIX,
   BACKEND_BOT_CODE_SESSIONS_SUFFIX,
+  BACKEND_BOT_ADMIN_SUFFIX,
   BACKEND_BOT_REVERT_SUFFIX,
   BACKEND_BOT_ROUTINES_SEGMENT,
   BACKEND_BOTS_PATH,
@@ -300,6 +301,15 @@ export function unrevertTaskOnBackend(
   options: { env?: BackendEnv; fetchImpl?: typeof fetch; timeoutMs?: number } = {},
 ): Promise<BackendResult<{ task: Record<string, unknown> | null }>> {
   return postBackendJson(`${BACKEND_TASKS_PATH}/${encodeURIComponent(id)}${BACKEND_TASK_UNREVERT_SUFFIX}`, {}, options);
+}
+
+/** Changes or deletes a Bot in the owning Backend, which holds its conversations and Code sessions. */
+export function botAdminOnBackend(
+  botId: string,
+  request: { action: "patch"; body: unknown } | { action: "delete" },
+  options: { env?: BackendEnv; fetchImpl?: typeof fetch; timeoutMs?: number } = {},
+): Promise<BackendResult<{ result: { status: number; body: unknown } }>> {
+  return postBackendJson(`${BACKEND_BOTS_PATH}/${encodeURIComponent(botId)}${BACKEND_BOT_ADMIN_SUFFIX}`, request, options);
 }
 
 /** Archives, deletes or moves a project in the owning Backend, which stops its sessions first. */

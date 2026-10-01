@@ -77,6 +77,13 @@ export const BACKEND_BOT_ROUTINES_SEGMENT = "routines";
  */
 export const BACKEND_BOT_REVERT_SUFFIX = "/revert";
 /**
+ * Changing or deleting a Bot: `POST /internal/bots/:id/admin` with `{ action: "patch", body }` or
+ * `{ action: "delete" }`. A settings change reaches the Bot's live conversations and a deletion stops
+ * its Room turns, Code sessions and tasks, all of which only the owner holds. The owner's answer is
+ * wrapped as `{ result: { status, body } }` with HTTP 200 and the WebUI replays it unchanged.
+ */
+export const BACKEND_BOT_ADMIN_SUFFIX = "/admin";
+/**
  * Goal Loop control: `POST /internal/tasks/:id/goal-loop` with `{ action, maxTurns?, botId? }`.
  * The loop runs inside the owning process, so pause/resume/stop/complete must reach it.
  */

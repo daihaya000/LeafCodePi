@@ -58,6 +58,7 @@ export { revertRoomConversation } from "@/lib/room-revert";
 export { handleRoomPrompt } from "@/lib/room-prompt";
 // Room settings and deletion tear down turns and member sessions, so the owner runs them too.
 export { handleRoomDelete, handleRoomPatch } from "@/lib/room-admin";
+export { handleBotDelete, handleBotPatch } from "@/lib/bot-admin";
 export { getTask, patchTask } from "@/lib/store";
 export { isGoalLoopSessionOwned, readGoalLoopState } from "@/lib/pi/goal-loop-state";
 export { startGoalLoopWithSelection } from "@/lib/pi/goal-loop-start";

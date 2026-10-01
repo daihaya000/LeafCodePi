@@ -972,6 +972,42 @@ test("a forwarded project teardown reaches the runtime owner and keeps its answe
   );
 });
 
+test("a forwarded Bot settings change and deletion reach the runtime owner", async (t) => {
+  const seen = [];
+  const { snapshotsUrl, headers } = await fixture(t, {
+    botAdminAction: async (id, action, body) => {
+      seen.push([id, action, body]);
+      if (id === "gone") throw Object.assign(new Error("missing"), { status: 404 });
+      return action === "delete" ? { status: 200, body: { ok: true } } : { status: 400, body: { error: "不正" } };
+    },
+  });
+  const base = snapshotsUrl.replace("pending-snapshots", "bots");
+  const post = (url, body) => request(url, {
+    method: "POST", headers: { ...headers, "content-type": "application/json" }, body: JSON.stringify(body),
+  });
+  const patched = await post(`${base}/bot-1/admin`, { action: "patch", body: { enabled: false } });
+  assert.equal(patched.status, 200);
+  // The owner's own refusal travels inside the 200 envelope, unchanged.
+  assert.deepEqual(await patched.json(), { result: { status: 400, body: { error: "不正" } } });
+  const deleted = await post(`${base}/bot-1/admin`, { action: "delete" });
+  assert.deepEqual(await deleted.json(), { result: { status: 200, body: { ok: true } } });
+  assert.deepEqual(seen, [["bot-1", "patch", { enabled: false }], ["bot-1", "delete", null]]);
+  assert.equal((await post(`${base}/bot-1/admin`, { action: "wipe" })).status, 400);
+  assert.equal((await post(`${base}/bot-1/admin`, {})).status, 400);
+  assert.equal(seen.length, 2);
+  assert.equal((await post(`${base}/gone/admin`, { action: "delete" })).status, 404);
+  assert.equal((await request(`${base}/bot-1/admin`, { headers })).status, 405);
+  const detached = await fixture(t);
+  const detachedBase = detached.snapshotsUrl.replace("pending-snapshots", "bots");
+  assert.equal((await request(`${detachedBase}/bot-1/admin`, {
+    method: "POST", headers: { ...detached.headers, "content-type": "application/json" }, body: JSON.stringify({ action: "delete" }),
+  })).status, 503);
+  assert.throws(
+    () => createBackendServer({ token: randomBytes(32).toString("base64url"), botAdminAction: 5 }),
+    /botAdminAction must be a function or null/,
+  );
+});
+
 test("a forwarded Room revert reaches the runtime owner", async (t) => {
   const seen = [];
   const { snapshotsUrl, headers } = await fixture(t, {
