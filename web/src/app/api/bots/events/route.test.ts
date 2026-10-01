@@ -76,4 +76,16 @@ describe("GET /api/bots/events", () => {
     expect(mocks.subscribeRoutineRuns).toHaveBeenCalledTimes(1);
     expect(mocks.routineUnsubscribe).toHaveBeenCalledTimes(1);
   });
+
+  it("a production client cannot subscribe to its own empty buses on owner failure", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("LEAFCODE_PI_BACKEND_RUNTIME", "");
+    vi.stubEnv("LEAFCODE_PI_BACKEND_TOKEN", "");
+    try {
+      const response = await GET(new NextRequest("http://localhost/api/bots/events"));
+      expect(response.status).toBe(503);
+      expect(mocks.subscribe).not.toHaveBeenCalled();
+      expect(mocks.subscribeRoutineRuns).not.toHaveBeenCalled();
+    } finally { vi.unstubAllEnvs(); }
+  });
 });

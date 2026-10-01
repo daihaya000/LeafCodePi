@@ -88,6 +88,15 @@ try {
     token: process.env.LEAFCODE_PI_BACKEND_TOKEN,
     readPendingSnapshots: () => readPendingRequestSnapshots(started.runtime()),
     // Attention is the owner's in-memory view; a detached Backend has none, which is honest.
+    subscribeRuntimeEvents: (listener) => {
+      const runtime = started.runtime();
+      if (!runtime) throw new Error("runtime unavailable");
+      const unsubscribeCode = runtime.subscribeBotCodeSession((payload) => listener({ event: "snapshot", payload }));
+      let unsubscribeRoutine;
+      try { unsubscribeRoutine = runtime.subscribeRoutineRuns((payload) => listener({ event: "routine", payload })); }
+      catch (error) { unsubscribeCode(); throw error; }
+      return () => { unsubscribeCode(); unsubscribeRoutine(); };
+    },
     runtimeControlAction: async ({ action, value }) => {
       const runtime = started.runtime();
       if (!runtime) throw new Error("runtime unavailable");

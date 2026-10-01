@@ -38,6 +38,8 @@ export const REQUIRED_RUNTIME_EXPORTS = Object.freeze([
   "getCacheWarmingMode",
   "setCacheWarmingMode",
   "refreshCompactionSuggestions",
+  "subscribeBotCodeSession",
+  "subscribeRoutineRuns",
   "startGoalLoopWithSelection",
   "startBotGoalLoop",
   "listPendingAttention",

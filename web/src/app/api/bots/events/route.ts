@@ -1,4 +1,6 @@
 import { NextRequest } from "next/server";
+import { localRuntimeBlocked } from "@/lib/pi/runtime-ownership";
+import { forwardRuntimeEventStream } from "@/lib/backend-runtime-events";
 import { subscribeBotCodeSession } from "@/lib/pi/harness";
 import { subscribeRoutineRuns } from "@/lib/routines";
 import { createSseWriter } from "@/lib/sse-writer";
@@ -12,6 +14,7 @@ export const dynamic = "force-dynamic";
  * that have no individual BotView mounted.
  */
 export async function GET(req: NextRequest) {
+  if (localRuntimeBlocked()) return forwardRuntimeEventStream(req.signal);
   let sse: ReturnType<typeof createSseWriter> | undefined;
   const stream = new ReadableStream({
     start(controller) {

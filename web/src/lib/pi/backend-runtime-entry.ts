@@ -33,6 +33,7 @@ export {
   getCacheWarmingMode,
   setCacheWarmingMode,
   refreshCompactionSuggestions,
+  subscribeBotCodeSession,
   startBotCodeRelay,
   applyCodePermissionSettingsToLiveTasks,
   // Rewinding a transcript rewrites the session and clears the owner's pending attention.
@@ -62,7 +63,7 @@ export { cancelBotCodeRequests, isRoomDelegatedCodeTask, stopBotCodeRequest } fr
 export { botTaskId, getBot, patchBot } from "@/lib/bots";
 // The routine scheduler runs its routines by prompting a session, so only the runtime owner may
 // run it; the tick takes a cross-process lock, so two schedulers cannot double-run a routine.
-export { ensureRoutineScheduler, runRoutine } from "@/lib/routines";
+export { ensureRoutineScheduler, runRoutine, subscribeRoutineRuns } from "@/lib/routines";
 // Room recovery settles abandoned turns and delivers ready handoffs, which needs the runtime.
 export { reconcileRoomRuntime } from "@/lib/room-runtime";
 // Rewinding a Room conversation stops its turns and drops the owner's attention and Code jobs.
