@@ -138,8 +138,15 @@ const HANDLER_GUARDS = /\b(localRuntimeBlocked|forward[A-Z]\w*|\w+OnBackend|rela
 
 
 /** Measured handler-level gaps. Each entry is unfinished work; the scan fails on an unlisted one. */
-const HANDLER_GAPS: Record<string, string> = {
-  "tasks/route.ts DELETE": "bulk destroy of archived tasks; archived tasks have no live session",
+const HANDLER_GAPS: Record<string, string> = {};
+
+/**
+ * Handlers that touch an owner-only operation and may act locally on purpose, each with the reason it
+ * is safe. This is a decision, not unfinished work: the scan still fails when one stops needing it.
+ */
+const LOCAL_BY_DESIGN: Record<string, string> = {
+  "tasks/route.ts DELETE":
+    "bulk delete of archived tasks only: archiving already stopped and disposed the session in the owner, so there is no live session to stop, and the rest is store-level",
 };
 
 /** Every exported HTTP handler that touches an owner-only operation, and whether it guards itself. */
@@ -160,7 +167,9 @@ function ownerHandlers(): Array<{ id: string; guarded: boolean }> {
 
 describe("runtime ownership coverage per handler", () => {
   it("every handler that touches an owner-only operation guards itself or is a listed gap", () => {
-    const unexpected = ownerHandlers().filter((handler) => !handler.guarded && !(handler.id in HANDLER_GAPS));
+    const unexpected = ownerHandlers().filter(
+      (handler) => !handler.guarded && !(handler.id in HANDLER_GAPS) && !(handler.id in LOCAL_BY_DESIGN),
+    );
     expect(unexpected.map((handler) => handler.id), "forward to the Backend or refuse locally").toEqual([]);
   });
 
@@ -170,6 +179,14 @@ describe("runtime ownership coverage per handler", () => {
       (id) => !handlers.some((handler) => handler.id === id && !handler.guarded),
     );
     expect(stale, "a wired or deleted handler must leave the gap list").toEqual([]);
+    const staleByDesign = Object.keys(LOCAL_BY_DESIGN).filter(
+      (id) => !handlers.some((handler) => handler.id === id && !handler.guarded),
+    );
+    expect(staleByDesign, "a handler that now guards itself must leave the by-design list").toEqual([]);
+  });
+
+  it("no handler is left as unfinished work", () => {
+    expect(Object.keys(HANDLER_GAPS)).toEqual([]);
   });
 });
 
