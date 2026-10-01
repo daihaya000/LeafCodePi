@@ -2150,20 +2150,13 @@ export const TaskView = memo(function TaskView({
         `/api/tasks/${taskId}/revert`,
         { entryId: target.messageId },
       );
-      if (target.message) {
-        setPrompt(
-          target.message.parts
-            .filter((part) => part.type === "text")
-            .map((part) => part.text)
-            .join("\n\n"),
-        );
-        setAttachments((current) => [
-          ...current,
-          ...[...result.images, ...(result.files ?? [])].filter(
-            (file) => !current.some((item) => item.uri === file.uri),
-          ),
-        ]);
-      }
+      setPrompt(result.text);
+      setAttachments((current) => [
+        ...current,
+        ...[...result.images, ...(result.files ?? [])].filter(
+          (file) => !current.some((item) => item.uri === file.uri),
+        ),
+      ]);
       clearedPermissionIdsRef.current.clear();
       clearedQuestionIdsRef.current.clear();
       setPermissionRequest(null);

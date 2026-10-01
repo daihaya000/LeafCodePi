@@ -7,7 +7,7 @@ import { expect, it, vi } from "vitest";
 import goalLoopExtension from "../../../../extensions/leafcode-goal-loop/index";
 import { dispatchGoalLoopCommand } from "./goal-loop-command";
 
-it.each(["pause", "stop", "complete"] as const)("applies %s immediately while the real SDK is settling", async (action) => {
+it.each(["pause", "stop", "complete", "start", "resume"] as const)("applies %s immediately while the real SDK is settling", async (action) => {
   const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-control-"));
   const agentDir = join(cwd, "agent");
   mkdirSync(agentDir, { recursive: true });
@@ -42,15 +42,28 @@ it.each(["pause", "stop", "complete"] as const)("applies %s immediately while th
     await vi.waitFor(() => expect(settling).toBe(true));
     const before = action === "complete" ? "paused" : "queued";
     expect(state().status).toBe(before);
-    // Reproduce the old path: prompt returns success but only queues the control.
-    await session.prompt(`/goal-${action}`);
-    expect(state().status).toBe(before);
-    await dispatchGoalLoopCommand(session, `/goal-${action}`);
-    expect(state().status).toBe({ pause: "paused", stop: "stopped", complete: "completed" }[action]);
+    if (action === "resume") {
+      await dispatchGoalLoopCommand(session, "/goal-pause");
+      expect(state().status).toBe("paused");
+    }
+    const expected = { pause: "paused", stop: "stopped", complete: "completed", start: "queued", resume: "queued" }[action];
+    const command = action === "start"
+      ? `/goal-start ${Buffer.from(JSON.stringify({ goal: "replacement", maxTurns: 20 })).toString("base64url")}`
+      : action === "resume" ? "/goal-resume --turns 20" : `/goal-${action}`;
+    if (action !== "start" && action !== "resume") {
+      // The old control path returns success but only queues the command.
+      await session.prompt(command);
+      expect(state().status).toBe(before);
+    }
+    await dispatchGoalLoopCommand(session, command);
+    expect(state().status).toBe(expected);
+    if (action === "start") expect(state()).toMatchObject({ goal: "replacement", turnCount: 0 });
+    if (action === "resume") expect(state().maxTurns).toBe(20);
+    if (action === "start" || action === "resume") await dispatchGoalLoopCommand(session, "/goal-stop");
     expect(faux.state.callCount).toBe(1);
     releaseSettled();
     await session.waitForIdle();
-    expect(state().status).toBe({ pause: "paused", stop: "stopped", complete: "completed" }[action]);
+    expect(state().status).toBe(action === "start" || action === "resume" ? "stopped" : expected);
     expect(faux.state.callCount).toBe(1);
   } finally {
     releaseSettled();
@@ -64,10 +77,13 @@ it.each(["pause", "stop", "complete"] as const)("applies %s immediately while th
   }
 });
 
-it.each(["/goal-start payload", "/goal-resume --turns 20"])("keeps %s on the normal SDK prompt path", async (command) => {
-  const prompt = vi.fn();
-  await dispatchGoalLoopCommand({ prompt } as unknown as AgentSession, command);
-  expect(prompt).toHaveBeenCalledWith(command);
+it.each([["/goal-start payload", "goal-start", "payload"], ["/goal-resume --turns 20", "goal-resume", "--turns 20"]])("dispatches %s directly without leaving a deferred SDK action", async (command, name, args) => {
+  const prompt = vi.fn(); const handler = vi.fn(); const context = {};
+  const session = { prompt, extensionRunner: { getCommand: vi.fn(() => ({ handler })), createCommandContext: () => context } } as unknown as AgentSession;
+  await dispatchGoalLoopCommand(session, command);
+  expect(session.extensionRunner.getCommand).toHaveBeenCalledWith(name);
+  expect(handler).toHaveBeenCalledWith(args, context);
+  expect(prompt).not.toHaveBeenCalled();
 });
 
 it("rejects missing controls without sending them to the model", async () => {

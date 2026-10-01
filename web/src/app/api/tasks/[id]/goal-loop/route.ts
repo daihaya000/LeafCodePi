@@ -5,6 +5,7 @@ import {
   type GoalLoopStartBody,
 } from "@/lib/pi/goal-loop-start";
 import { isGoalLoopLiveStatus } from "@/lib/pi/goal-loop-state";
+import { isGoalLoopCommandApplied } from "@/lib/pi/goal-loop-command";
 import { botIdForCodeTask } from "@/lib/pi/bot-code-relay";
 import { localRuntimeBlocked } from "@/lib/pi/runtime-ownership";
 import { forwardGoalLoopControl, forwardGoalLoopStart } from "@/lib/backend-forward";
@@ -119,12 +120,20 @@ export async function PATCH(req: NextRequest, { params }: Params) {
           : {}),
         ...(botId ? { botId } : {}),
       });
-      if (forwarded.ok) return NextResponse.json({ loop: forwarded.loop });
+      if (forwarded.ok) {
+        if (!isGoalLoopCommandApplied(action, forwarded.loop)) {
+          return NextResponse.json({ error: "Goal Loop の操作が反映されませんでした" }, { status: 409 });
+        }
+        return NextResponse.json({ loop: forwarded.loop });
+      }
       if (forwarded.reason === "not-found") {
         return NextResponse.json({ error: "Goal Loop が見つかりません" }, { status: 404 });
       }
       if (forwarded.reason === "not-configured") {
         return NextResponse.json({ error: "Backendが実行を所有しています", code: "RUNTIME_NOT_OWNED" }, { status: 409 });
+      }
+      if (forwarded.reason === "bad-response" && forwarded.status && forwarded.status >= 400 && forwarded.status < 500) {
+        return NextResponse.json({ error: "Goal Loop を操作できませんでした" }, { status: forwarded.status });
       }
       return NextResponse.json(
         { error: "Backendへ転送できません", code: "BACKEND_FORWARD_FAILED", reason: forwarded.reason },
@@ -136,7 +145,11 @@ export async function PATCH(req: NextRequest, { params }: Params) {
       const botId = botIdForCodeTask(id);
       if (botId) {
         await stopBotCodeTask(botId, id);
-        return NextResponse.json({ loop: await goalLoopState(id, { offline: true }) });
+        const loop = await goalLoopState(id, { offline: true });
+        if (!isGoalLoopCommandApplied(action, loop)) {
+          return NextResponse.json({ error: "Goal Loop の停止が反映されませんでした" }, { status: 409 });
+        }
+        return NextResponse.json({ loop });
       }
     }
     const loop = await goalLoopCommand(id, {
@@ -146,9 +159,9 @@ export async function PATCH(req: NextRequest, { params }: Params) {
           ? clampGoalLoopMaxTurns(body.maxTurns, DEFAULT_GOAL_LOOP_MAX_TURNS)
           : undefined,
     });
-    if (action === "resume" && (!loop || !isGoalLoopLiveStatus(loop.status))) {
+    if (!isGoalLoopCommandApplied(action, loop)) {
       return NextResponse.json(
-        { error: "Goal Loop を再開できませんでした" },
+        { error: action === "resume" ? "Goal Loop を再開できませんでした" : "Goal Loop の操作が反映されませんでした" },
         { status: 409 },
       );
     }

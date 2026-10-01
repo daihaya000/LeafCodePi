@@ -129,6 +129,27 @@ describe("Goal Loop control after the cutover", () => {
     expect(mocks.goalLoopCommand).not.toHaveBeenCalled();
   });
 
+  it.each([null, { status: "stopped" }, { status: "paused" }])("does not acknowledge a refused owner resume: %j", async (loop) => {
+    mocks.forwardGoalLoopControl.mockResolvedValue({ ok: true, loop });
+    const response = await PATCH(patchRequest({ action: "resume" }), { params: Promise.resolve({ id: "task-1" }) });
+    expect(response.status).toBe(409);
+  });
+
+  it.each([
+    { action: "stop", loop: { status: "paused" } },
+    { action: "pause", loop: { status: "running" } },
+    { action: "complete", loop: { status: "paused" } },
+  ])("refuses an unapplied $action control", async ({ action, loop }) => {
+    mocks.forwardGoalLoopControl.mockResolvedValue({ ok: true, loop });
+    expect((await PATCH(patchRequest({ action }), { params: Promise.resolve({ id: "task-1" }) })).status).toBe(409);
+  });
+
+  it.each([400, 409, 429])("preserves a control refusal status (%i)", async (status) => {
+    mocks.forwardGoalLoopControl.mockResolvedValue({ ok: false, reason: "bad-response", status });
+    const response = await PATCH(patchRequest({ action: "resume" }), { params: Promise.resolve({ id: "task-1" }) });
+    expect(response.status).toBe(status);
+  });
+
   it("forwards a plain start to the owning Backend", async () => {
     mocks.forwardGoalLoopStart.mockResolvedValue({ ok: true, loop: { id: "task-1", status: "running" } });
     const response = await POST(request({ action: "start", goal: "直して", acceptance: ["テストが通る"] }), {

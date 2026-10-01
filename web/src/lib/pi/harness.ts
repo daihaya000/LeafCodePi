@@ -14,7 +14,8 @@ import {
 } from "@/lib/paths";
 import { prepareWorkspaceMove, type PreparedWorkspaceMove } from "@/lib/workspace-move";
 import { assertLocalRuntimeAllowed } from "@/lib/pi/runtime-ownership";
-import { dispatchGoalLoopCommand } from "@/lib/pi/goal-loop-command";
+import { beginTaskPreparation, hasTaskPreparation, invalidateTaskPreparations, isTaskTreeEditing, withTaskSessionMutation, withTaskTreeEdit } from "./task-operation-guard";
+import { dispatchGoalLoopCommand, isGoalLoopCommandApplied } from "@/lib/pi/goal-loop-command";
 import { notifyPushoverCompletion, shouldNotifyPushoverCompletion } from "@/lib/pushover";
 import { BOT_DEFAULT_TOOL_NAMES, BOT_TOOL_NAMES, botPromptSources, botRuntimeContext, botSoulRevision, botTaskId, getBot, listBots, patchBot } from "@/lib/bots";
 import { AGENTS_MD_FILENAME, codeOnDemandPrompt, codePromptSources, compactSdkDocumentation, readAgentsMdFile } from "@/lib/agents-md";
@@ -2771,6 +2772,7 @@ export async function continueBotCodeTask(botId: string, taskId: string, prompt:
  * result is reported as a stop and the Bot cannot continue it on its own.
  */
 export async function stopBotCodeTask(botId: string, taskId: string): Promise<TaskSummary> {
+  invalidateTaskPreparations(taskId);
   const relay = botCodeRelay();
   const requestId = relay.requestIdForCode(taskId);
   await stopBotCodeRequestForTask(botId, taskId);
@@ -7530,7 +7532,15 @@ export async function goalLoopCommand(
       }
     | { action: "pause" | "resume" | "stop" | "complete"; maxTurns?: number },
 ): Promise<GoalLoopDto | null> {
+  assertLocalRuntimeAllowed();
+  if (isGoalLoopControlAction(input.action)) invalidateTaskPreparations(taskId);
+  if (input.action === "resume" && hasTaskPreparation(taskId)) {
+    throw Object.assign(new Error("送信・設定変更の準備中は Goal Loop を再開できません"), { status: 409 });
+  }
+  const preparation = input.action === "start" || input.action === "resume" ? beginTaskPreparation(taskId) : undefined;
+  try {
   let live = await ensureLive(taskId);
+  preparation?.assertCurrent();
   if (input.action === "start") {
     ensureSessionFilePersisted(live.session.sessionManager);
   }
@@ -7628,11 +7638,14 @@ export async function goalLoopCommand(
       status: 409,
     });
   }
+  preparation?.assertCurrent();
   await dispatchGoalLoopCommand(latest.session, command);
-  return readGoalLoopState(
-    latest.session.sessionManager.getCwd(),
-    latest.session.sessionId,
-  );
+  const outcome = readGoalLoopState(latest.session.sessionManager.getCwd(), latest.session.sessionId);
+  if (outcome && !isGoalLoopCommandApplied(input.action, outcome)) {
+    throw Object.assign(new Error("Goal Loop の操作が反映されませんでした"), { status: 409 });
+  }
+  return outcome;
+  } finally { preparation?.release(); }
 }
 
 /** Validate a browser-selected model before any prompt is sent to a generation model. */
@@ -9012,11 +9025,15 @@ function queuePrompt(
     });
     const previousManualAbort =
       (state().live.get(live.taskId) ?? activeLive).manualAbortedAssistantId ?? null;
+    const previousRevert = getTask(live.taskId)?.revertLeafId ?? null;
+    // Commit the new branch only at send time, not while a queued request can still be cancelled.
+    persistRevertLeafId(live.taskId, null);
     persistManualAbortedAssistantId(live.taskId, null);
     const restoreManualAbortIfPromptNeverStarted = () => {
       // Abort bumped the epoch and wrote its own sentinel — leave it alone.
       if (!stillQueued()) return;
       persistManualAbortedAssistantId(live.taskId, previousManualAbort);
+      persistRevertLeafId(live.taskId, previousRevert);
     };
     const promptToSend = meta?.files?.length
       ? formatPromptWithFiles(prompt, meta.files, { storeOversized: storePromptFileContent })
@@ -9330,6 +9347,8 @@ export async function promptTask(
   // A process that does not own the runtime must never start a session: after the cutover the Backend
   // owns it, and a second owner would double-write the store, leases and sessions.
   assertLocalRuntimeAllowed();
+  const preparation = beginTaskPreparation(id);
+  try {
   const taskBeforePrompt = requireTask(id);
   // 送信者はサーバー側でだけ決める。HTTP 本文にマーカーが含まれていてもBot送信にはしない。
   const promptText = options?.fromBot ? markBotPrompt(prompt) : stripBotPromptPrefix(prompt);
@@ -9369,11 +9388,13 @@ export async function promptTask(
     id,
     withCodePermissionSettings(taskBeforePrompt, options),
   );
+  preparation.assertCurrent();
   const live = await ensureLive(id, {
     autoPrompt: promptText,
     hasImages: Boolean(images?.length),
     attachmentCount: (images?.length ?? 0) + (options?.files?.length ?? 0),
   });
+  preparation.assertCurrent();
   if (shouldApplyPromptSubagentPermission({
     hasOption: options?.subagentPermission !== undefined,
     isBot: task.kind === "bot",
@@ -9383,7 +9404,6 @@ export async function promptTask(
       options?.subagentPermission ?? readCodeSubagentPermission(),
     );
   }
-  persistRevertLeafId(id, null);
   // 再開は直前プロンプトの再送。Bot送信のターンを操作者の送信に見せ替えない。
   const resumedPromptText =
     options?.resume && !options.fromBot && lastPromptWasBotSent(live)
@@ -9400,6 +9420,7 @@ export async function promptTask(
   if (options?.waitForCompletion) await completion;
   // The task can be deleted while the prompt runs; report 404 instead of crashing on a missing task.
   return toSummary(requireTask(id));
+  } finally { preparation.release(); }
 }
 
 async function applyLiveSkillPermission(
@@ -9422,6 +9443,7 @@ export async function setTaskSkillPermission(
   id: string,
   permission: SkillPermission,
 ): Promise<TaskSummary> {
+  return withTaskSessionMutation(id, async () => {
   const live = await ensureLive(id);
   const task = getTask(id);
   if (!task)
@@ -9434,12 +9456,14 @@ export async function setTaskSkillPermission(
   if (!updated)
     throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });
   return updated;
+  });
 }
 
 export async function setTaskPermissionMode(
   id: string,
   mode: "allow" | "ask" | "deny",
 ): Promise<TaskSummary> {
+  return withTaskSessionMutation(id, async () => {
   const live = await ensureLive(id);
   const task = getTask(id);
   if (!task)
@@ -9452,6 +9476,7 @@ export async function setTaskPermissionMode(
   if (!updated)
     throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });
   return updated;
+  });
 }
 
 /**
@@ -9671,18 +9696,14 @@ async function stopGoalLoopForTask(live: LiveRuntime): Promise<void> {
     live.session.sessionManager.getCwd(),
     live.session.sessionId,
   );
-  if (!loop || !isGoalLoopLiveStatus(loop.status)) return;
+  if (!isGoalLoopSessionOwned(loop)) return;
 
   const command = live.session.extensionRunner.getCommand("goal-stop");
-  if (!command) return;
-  try {
-    await command.handler(
-      "",
-      live.session.extensionRunner.createCommandContext(),
-    );
-  } catch (error) {
-    const reason = error instanceof Error ? error.message : String(error);
-    console.warn(`[goal-loop] failed to stop before abort: ${reason}`);
+  if (!command) throw Object.assign(new Error("Goal Loop の停止コマンドが利用できません"), { status: 409 });
+  await command.handler("", live.session.extensionRunner.createCommandContext());
+  const stopped = readGoalLoopState(live.session.sessionManager.getCwd(), live.session.sessionId);
+  if (!isGoalLoopCommandApplied("stop", stopped)) {
+    throw Object.assign(new Error("Goal Loop の停止状態を保存できませんでした"), { status: 409 });
   }
 }
 
@@ -9735,6 +9756,7 @@ export const nextPromptEpoch = corePromptControl.nextPromptEpoch;
 export const isStaleHarnessPrompt = corePromptControl.isStaleHarnessPrompt;
 
 export async function abortTask(id: string): Promise<TaskSummary> {
+  invalidateTaskPreparations(id);
   // Ordering lives in backend core; every side effect stays owned by the harness
   // and is resolved at call time so module mocks and hot reloads keep working.
   return runUserAbort(id, {
@@ -9777,6 +9799,7 @@ export async function abortTask(id: string): Promise<TaskSummary> {
  * live session was disposed (worker restart / turn-gap cooldown).
  */
 export async function abortTaskIncludingColdGoalLoop(id: string): Promise<TaskSummary | null> {
+  invalidateTaskPreparations(id);
   const task = getTask(id);
   if (!task || task.status === "archived") return null;
   const live = state().live.get(id);
@@ -9937,12 +9960,14 @@ export function listActiveLlamaAgentModels(): Array<{
 
 /** A Goal Loop can replace its own live or paused run; other busy work still blocks it. */
 export function isTaskRuntimeBusyForGoalLoopStart(taskId: string): boolean {
+  if (isTaskTreeEditing(taskId)) return true;
   const task = getTask(taskId);
   const live = state().live.get(taskId);
   const loop = task
     ? readGoalLoopState(task.directory, live?.session.sessionId ?? task.sessionId)
     : null;
-  if (!isGoalLoopSessionOwned(loop)) return isTaskRuntimeBusyForDestructiveEdit(taskId);
+  // Start owns its own preparation token; unrelated preparers are rejected by the selection facade.
+  if (!isGoalLoopSessionOwned(loop)) return isTaskRuntimeBusyForDestructiveEdit(taskId, { allowPreparation: true });
   return Boolean(live && isLiveBusyForReplace(live) && !isLiveGoalLoopSession(live.session));
 }
 
@@ -9950,7 +9975,8 @@ export function isTaskRuntimeBusyForGoalLoopStart(taskId: string): boolean {
  * True when promote / account disable / tree navigate must wait: leases, fallback,
  * compaction, Goal loop, or an active prompt/stream.
  */
-export function isTaskRuntimeBusyForDestructiveEdit(taskId: string): boolean {
+export function isTaskRuntimeBusyForDestructiveEdit(taskId: string, options?: { allowTreeEdit?: boolean; allowPreparation?: boolean }): boolean {
+  if ((!options?.allowTreeEdit && isTaskTreeEditing(taskId)) || (!options?.allowPreparation && hasTaskPreparation(taskId))) return true;
   const task = getTask(taskId);
   const live = state().live.get(taskId);
   const goalLoop = task
@@ -10045,6 +10071,7 @@ export async function setTaskAgent(
   id: string,
   agentName: string,
 ): Promise<TaskSummary> {
+  return withTaskSessionMutation(id, async () => {
   const task = getTask(id);
   if (!task)
     throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });
@@ -10096,6 +10123,7 @@ export async function setTaskAgent(
   const summary = toSummary(updatedTask);
   emit(id, { type: "snapshot", task: summary, eventType: "agent_changed" });
   return summary;
+  });
 }
 
 async function applyLiveModel(
@@ -10136,6 +10164,7 @@ export async function setTaskModel(
   modelValueRaw: string,
   options?: { accountIdExplicit?: boolean },
 ): Promise<TaskSummary> {
+  return withTaskSessionMutation(id, async () => {
   const task = getTask(id);
   const parsed = parseModelValue(modelValueRaw);
   if (!task || !parsed) {
@@ -10257,12 +10286,14 @@ export async function setTaskModel(
     thinkingLevel,
     accountIdExplicit,
   );
+  });
 }
 
 export async function setTaskThinkingLevel(
   id: string,
   levelRaw: string,
 ): Promise<TaskSummary> {
+  return withTaskSessionMutation(id, async () => {
   if (!isThinkingLevel(levelRaw)) {
     throw Object.assign(new Error("thinkingLevel が不正です"), { status: 400 });
   }
@@ -10287,12 +10318,14 @@ export async function setTaskThinkingLevel(
     ...liveSnapshotFields(live),
   });
   return summary;
+  });
 }
 
 export async function compactTask(
   id: string,
   customInstructions?: string,
 ): Promise<TaskDetail> {
+  return withTaskSessionMutation(id, async () => {
   const live = await ensureLive(id);
   if (
     live.session.isCompacting ||
@@ -10316,6 +10349,7 @@ export async function compactTask(
     live.manualCompactionInProgress = false;
   }
   return getTaskDetail(id);
+  });
 }
 
 export async function abortTaskCompaction(id: string): Promise<TaskDetail> {
@@ -10334,7 +10368,7 @@ export async function abortTaskCompaction(id: string): Promise<TaskDetail> {
  * 移し、破棄した分の入力を editorText として返す。
  */
 function assertIdleForSessionTreeEdit(id: string): void {
-  if (isTaskRuntimeBusyForDestructiveEdit(id)) {
+  if (isTaskRuntimeBusyForDestructiveEdit(id, { allowTreeEdit: true })) {
     throw Object.assign(
       new Error("応答中は巻き戻せません。停止してからお試しください"),
       { status: 409 },
@@ -10351,6 +10385,8 @@ export async function revertTask(
   images: { uri: string; mime: string; name?: string }[];
   files: { uri: string; mime: string; name?: string }[];
 }> {
+  assertLocalRuntimeAllowed();
+  return withTaskTreeEdit(id, async () => {
   const live = await ensureLive(id);
   assertIdleForSessionTreeEdit(id);
   const entry = messageEntryById(live.session, messageId);
@@ -10366,12 +10402,12 @@ export async function revertTask(
   }
   const previousLeafId = live.session.sessionManager.getLeafId();
   const result = await live.session.navigateTree(entry.id);
-  if (result.cancelled) {
+  if (result.cancelled || result.aborted) {
     throw Object.assign(new Error("巻き戻しがキャンセルされました"), {
       status: 400,
     });
   }
-  live.revertLeafId = captureRevertLeafId(previousLeafId);
+  live.revertLeafId = live.revertLeafId ?? getTask(id)?.revertLeafId ?? captureRevertLeafId(previousLeafId);
   persistRevertLeafId(id, live.revertLeafId);
   // Revert drops the conversational context that raised the prompt; keep abort/reset parity.
   clearPendingAttentionForTask(id);
@@ -10386,9 +10422,7 @@ export async function revertTask(
   const restoredPrompt = parsePromptFileMarkers(
     entry.editorText ?? (typeof result.editorText === "string"
       ? result.editorText
-      : typeof entry.message.content === "string"
-        ? entry.message.content
-        : ""),
+      : rawUserMessageText(entry.message)),
     { readStored: readStoredPromptFileContent },
   );
   return {
@@ -10397,6 +10431,7 @@ export async function revertTask(
     images: imagesFromEntry(entry),
     files: filesFromEntry(entry),
   };
+  });
 }
 
 /** UI のメッセージ id からセッションエントリを取り出す。 */
@@ -10430,7 +10465,9 @@ export function messageEntryById(
     // フォールバック: 旧スナップショットの仮 id `msg-N`（ブランチ上のメッセージ順）
     const fallback = /^msg-(\d+)$/.exec(messageId);
     if (fallback) {
-      const branch = entries.filter((entry) => entry.type === "message");
+      const activeBranch = typeof session.sessionManager.getBranch === "function"
+        ? session.sessionManager.getBranch() : entries;
+      const branch = activeBranch.filter((entry) => entry.type === "message");
       const entry = branch[Number(fallback[1])];
       const message = entry
         ? (entry as { message?: unknown }).message
@@ -10486,8 +10523,7 @@ export function imagesFromEntry(entry: {
 export function filesFromEntry(entry: {
   message: { role: string; content: unknown };
 }): { uri: string; mime: string; name?: string }[] {
-  if (typeof entry.message.content !== "string") return [];
-  return parsePromptFileMarkers(entry.message.content, { readStored: readStoredPromptFileContent }).files.map((file) => ({
+  return parsePromptFileMarkers(rawUserMessageText(entry.message), { readStored: readStoredPromptFileContent }).files.map((file) => ({
     uri: `data:${file.mimeType};base64,${file.data}`,
     mime: file.mimeType,
     name: file.name,
@@ -10549,6 +10585,8 @@ export function restoreExactSessionLeaf(
 
 /** 巻き戻し取消: revert 前の leaf へ戻す。 */
 export async function unrevertTask(id: string): Promise<TaskDetail> {
+  assertLocalRuntimeAllowed();
+  return withTaskTreeEdit(id, async () => {
   const live = await ensureLive(id);
   assertIdleForSessionTreeEdit(id);
   const target = live.revertLeafId ?? getTask(id)?.revertLeafId ?? null;
@@ -10574,6 +10612,7 @@ export async function unrevertTask(id: string): Promise<TaskDetail> {
     eventType: "unrevert",
   });
   return taskDetail;
+  });
 }
 
 export async function getCompactionSettings(): Promise<CompactionSettingsDto> {

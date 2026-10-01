@@ -9,7 +9,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, it } from "vitest";
+import { afterEach, describe, it, vi } from "vitest";
 import {
   accountAuthPath,
   accountCredentialKinds,
@@ -700,7 +700,6 @@ describe("accounts store CRUD", () => {
   it("refuses account disable from a production client using the shared hang-watch snapshot", async () => {
     tempDataDir();
     const hang = await import("@/lib/pi/hang-watchdog");
-    const previousNodeEnv = process.env.NODE_ENV;
     hang.registerHangWatchdogHooks({
       getLive: () => ({ isStreaming: false, isCompacting: false, messages: [] }),
       abortTask: async () => undefined,
@@ -720,7 +719,8 @@ describe("accounts store CRUD", () => {
       patchLoose(task.id, { status: "idle", accountId: account.id });
       hang.armTaskHangWatch({ taskId: task.id, prompt: "continue" });
       hang.stopHangWatchdogForTests();
-      process.env.NODE_ENV = "production";
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("LEAFCODE_PI_BACKEND_RUNTIME", undefined);
       assert.throws(
         () => patchAccount(account.id, { enabled: false }),
         (error) =>
@@ -729,8 +729,7 @@ describe("accounts store CRUD", () => {
       );
       assert.equal(getAccount(account.id)?.enabled, true);
     } finally {
-      if (previousNodeEnv === undefined) delete process.env.NODE_ENV;
-      else process.env.NODE_ENV = previousNodeEnv;
+      vi.unstubAllEnvs();
       hang.stopHangWatchdogForTests();
     }
   });

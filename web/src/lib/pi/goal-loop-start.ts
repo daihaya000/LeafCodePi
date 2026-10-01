@@ -5,6 +5,7 @@ import { resolveAutoAgent } from "@/lib/auto-agent";
 import { AUTO_AGENT_VALUE } from "@/lib/default-agent";
 import { isGoalLoopLiveStatus } from "@/lib/pi/goal-loop-state";
 import { assertLocalRuntimeAllowed } from "@/lib/pi/runtime-ownership";
+import { beginTaskPreparation, hasTaskPreparation } from "./task-operation-guard";
 import {
   goalLoopCommand,
   isTaskRuntimeBusyForGoalLoopStart,
@@ -69,6 +70,10 @@ function fail(message: string, status: number): never {
 /** Owner-only operation, independent of Next's request/response objects. */
 export async function startGoalLoopWithSelection(id: string, body: GoalLoopStartBody) {
   assertLocalRuntimeAllowed();
+  if (!body || typeof body !== "object" || Array.isArray(body)) fail("invalid Goal Loop request", 400);
+  if (hasTaskPreparation(id)) fail("タスクの送信準備中です", 409);
+  const preparation = beginTaskPreparation(id);
+  try {
   const goal = typeof body.goal === "string" ? body.goal.trim() : "";
   const criteria = normalizeGoalLoopStartAcceptance(body.acceptance);
   if (!goal || goal.length > 4_000 || !criteria) {
@@ -89,21 +94,21 @@ export async function startGoalLoopWithSelection(id: string, body: GoalLoopStart
   const currentTask = getTask(id);
   if (!currentTask) fail("タスクが見つかりません", 404);
   if (currentTask.status !== "working" && body.model && body.auto !== true) {
-    await validateTaskModelSelection(body.model);
+    await preparation.waitFor(validateTaskModelSelection(body.model));
   }
   let model = body.model;
   let thinkingLevel = body.thinkingLevel;
   let autoDecision: AutoDecision | undefined;
   if (body.auto === true && currentTask.status !== "working") {
     autoDecision =
-      (await resolveAutoModel({
+      (await preparation.waitFor(resolveAutoModel({
         prompt: goal,
         hasImages: Boolean(body.images?.length),
         historyMessageCount: readSessionConversation(currentTask.sessionFile).length,
         recentFailure: currentTask.status === "error" || Boolean(currentTask.error),
         mode: isAutoOptimizeMode(body.autoOptimize) ? body.autoOptimize : DEFAULT_AUTO_OPTIMIZE_MODE,
         config: body.autoRouteOverrides === undefined ? undefined : normalizeAutoRouteConfig(body.autoRouteOverrides),
-      })) ?? undefined;
+      }))) ?? undefined;
     if (!autoDecision) fail("Auto で選択可能なモデルがありません", 400);
     model = autoModelValue(autoDecision);
     thinkingLevel = autoVariantToThinkingLevel(autoDecision.variant);
@@ -111,6 +116,7 @@ export async function startGoalLoopWithSelection(id: string, body: GoalLoopStart
     model = undefined;
     thinkingLevel = undefined;
   }
+  preparation.assertCurrent();
   let agent = body.agent?.trim() || undefined;
   const autoAgentRequested = agent === AUTO_AGENT_VALUE;
   if (agent === AUTO_AGENT_VALUE) {
@@ -125,15 +131,16 @@ export async function startGoalLoopWithSelection(id: string, body: GoalLoopStart
           }
         : undefined;
       const requestedModel = parseDirectModelKey(model) ?? taskModel;
-      agent = await resolveAutoAgent({
+      agent = await preparation.waitFor(resolveAutoAgent({
         conversation: readSessionConversation(currentTask.sessionFile),
         prompt: goal,
         ...(requestedModel ? { requestedModel } : {}),
         ...(currentTask.accountId ? { accountId: currentTask.accountId } : {}),
         ...(currentTask.accountIdExplicit ? { accountIdExplicit: true } : {}),
-      });
+      }));
     }
   }
+  preparation.assertCurrent();
   const nextAgent = agent && agent !== (currentTask.agent?.trim() || undefined) ? agent : undefined;
   if (isTaskRuntimeBusyForGoalLoopStart(id)) {
     fail("タスクが実行中のため Goal Loop を開始できません", 409);
@@ -153,10 +160,13 @@ export async function startGoalLoopWithSelection(id: string, body: GoalLoopStart
   const changedThinking = Boolean(thinkingLevel);
   try {
     if (nextAgent) await setTaskAgent(id, nextAgent);
+    preparation.assertCurrent();
     if (model) {
       await setTaskModel(id, model, body.auto === true ? { accountIdExplicit: false } : undefined);
     }
+    preparation.assertCurrent();
     if (thinkingLevel) await setTaskThinkingLevel(id, thinkingLevel);
+    preparation.assertCurrent();
     const loop = await goalLoopCommand(id, {
       action: "start",
       goal,
@@ -176,8 +186,10 @@ export async function startGoalLoopWithSelection(id: string, body: GoalLoopStart
     };
   } catch (error) {
     try {
-      if (changedAgent && previousAgent && previousAgent !== getTask(id)?.agent) {
-        await setTaskAgent(id, previousAgent);
+      // A cancelled request must not overwrite a newer request's settings.
+      if (!preparation.isCurrent()) throw error;
+      if (changedAgent && previousAgent !== (getTask(id)?.agent?.trim() || undefined)) {
+        await setTaskAgent(id, previousAgent ?? "");
       }
       if (changedModel && previousModel) {
         await setTaskModel(id, previousModel, { accountIdExplicit: previousAccountExplicit });
@@ -188,4 +200,5 @@ export async function startGoalLoopWithSelection(id: string, body: GoalLoopStart
     }
     throw error;
   }
+  } finally { preparation.release(); }
 }

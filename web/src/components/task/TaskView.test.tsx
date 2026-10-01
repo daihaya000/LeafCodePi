@@ -53,6 +53,18 @@ afterEach(() => {
   clearCachedModels();
 });
 
+it("restores the owner's authoritative rewind text rather than the cached message projection", async () => {
+  const message: UiMessage = { id: "user-input", role: "user", createdAt: 1, parts: [{ id: "text", type: "text", text: "stale cached projection" }] };
+  saveTaskSessionCache({ task, messages: [message], isStreaming: false, isCompacting: false });
+  mocks.partView.mockImplementation(({ message: item, onRevert }: { message: UiMessage; onRevert?: (message: UiMessage) => void }) =>
+    <button onClick={() => onRevert?.(item)}>Restore input</button>);
+  mocks.sendJson.mockResolvedValue({ task: { ...task, messages: [], revertLeafId: "original", isStreaming: false }, text: "authoritative user input", images: [], files: [] });
+  render(<TaskView taskId={task.id} mdUp />);
+  fireEvent.click(await screen.findByRole("button", { name: "Restore input" }));
+  fireEvent.click(screen.getByRole("button", { name: "巻き戻す" }));
+  await waitFor(() => expect((screen.getByRole("textbox", { name: "フォローアップ" }) as HTMLTextAreaElement).value).toBe("authoritative user input"));
+});
+
 it("shares the footer notification switch with Code task browser notifications", async () => {
   const sent: string[] = [];
   class FakeNotification {

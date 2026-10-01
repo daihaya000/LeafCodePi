@@ -1,7 +1,22 @@
 import assert from "node:assert/strict";
 import { describe, it } from "vitest";
 import { EventEmitter } from "node:events";
-import { revertTask, captureRevertLeafId, imagesFromEntry, messageEntryById, persistHangRetryCount, persistManualAbortedAssistantId, persistRevertLeafId, restoreExactSessionLeaf, unrevertTask } from "./harness";
+import { revertTask, captureRevertLeafId, filesFromEntry, imagesFromEntry, messageEntryById, persistHangRetryCount, persistManualAbortedAssistantId, persistRevertLeafId, restoreExactSessionLeaf, unrevertTask } from "./harness";
+
+describe("rewind branch and attachment regressions", () => {
+  it("maps a legacy msg-N against the active branch rather than every historical branch", () => {
+    const old = { type: "message", id: "old", message: { role: "user", content: "discarded" } };
+    const current = { type: "message", id: "current", message: { role: "user", content: "current" } };
+    const session = { sessionManager: { getEntries: () => [old, current], getBranch: () => [current] } };
+    assert.equal(messageEntryById(session as never, "msg-0")?.id, "current");
+  });
+  it("restores file attachments from SDK text blocks as well as string content", async () => {
+    const { formatPromptWithFiles } = await import("@/lib/prompt-images");
+    const text = formatPromptWithFiles("review", [{ name: "note.txt", mimeType: "text/plain", data: Buffer.from("contents").toString("base64") }]);
+    const entry = { message: { role: "user", content: [{ type: "text", text }, { type: "image", mimeType: "image/png", data: "AAEC" }] } };
+    assert.equal(filesFromEntry(entry)[0]?.name, "note.txt");
+  });
+});
 
 describe("captureRevertLeafId", () => {
   it("keeps the pre-navigate leaf id (not the post-navigate position)", () => {

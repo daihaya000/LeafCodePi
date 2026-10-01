@@ -181,7 +181,13 @@ const fakePi = vi.hoisted(() => {
         agent,
         model: options.model,
         thinkingLevel: "off" as ThinkingLevel,
-        extensionRunner: { createContext: () => ({}) },
+        extensionRunner: {
+          createContext: () => ({}),
+          createCommandContext: () => ({}),
+          getCommand: (name: string): { handler: (args: string) => Promise<void> } | undefined => name === "goal-start"
+            ? { handler: async (args: string): Promise<void> => { await session.prompt(`/goal-start ${args}`); } }
+            : undefined,
+        },
         get isStreaming() {
           return streaming;
         },

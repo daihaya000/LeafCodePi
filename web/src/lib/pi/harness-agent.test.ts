@@ -536,7 +536,10 @@ describe("abortTask", () => {
       extensionRunner: {
         getCommand: (name: string) =>
           name === "goal-stop"
-            ? { handler: async () => events.push("goal-stop") }
+            ? { handler: async () => {
+                events.push("goal-stop");
+                writeFileSync(join(goalDir, `${sessionId}.json`), JSON.stringify({ goal: "作業", status: "stopped" }), "utf8");
+              } }
             : undefined,
         createCommandContext: () => ({}),
       },
