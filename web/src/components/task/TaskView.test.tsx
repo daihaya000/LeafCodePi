@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { saveTaskSessionCache } from "@/lib/task-session-cache";
 import type { ModelOption, TaskSummary, UiMessage, UiPart } from "@/lib/types";
@@ -2457,6 +2457,47 @@ describe("TaskView draft submission", () => {
         expect.objectContaining({ prompt: "draft prompt" }),
       ),
     );
+  });
+
+  it.each(["pause", "stop"] as const)("keeps %s available while the loop start response is pending", async (action) => {
+    class TestEventSource extends EventTarget {
+      static latest: TestEventSource;
+      constructor() { super(); TestEventSource.latest = this; }
+      close() {}
+    }
+    vi.stubGlobal("EventSource", TestEventSource);
+    const loop = {
+      id: "loop-1", sessionId: "session-1", cwd: "C:/work", status: "queued" as const,
+      goal: "goal", acceptance: [], maxTurns: 0, cooldownSeconds: 0, nextTurnAt: null,
+      forceFullRun: false, turnCount: 0, turnKind: "goal" as const, pauseReason: "" as const,
+      error: "", progress: [], summary: "", evidence: "", blockedReason: "",
+      rejectedClaims: 0, unreadableStreak: 0, createdAt: "2026-01-01", updatedAt: "2026-01-01",
+    };
+    let resolveStart!: (value: unknown) => void;
+    mocks.sendJson.mockImplementation((_path: string, body: { action?: string }) => body.action === "start"
+      ? new Promise((resolve) => { resolveStart = resolve; })
+      : Promise.resolve({ loop: { ...loop, status: action === "pause" ? "paused" : "stopped" } }));
+    render(<TaskView taskId={task.id} mdUp />);
+    fireEvent.click(screen.getByRole("button", { name: "ループで継続実行" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "フォローアップ" }), { target: { value: "goal" } });
+    fireEvent.submit(screen.getByRole("form", { name: "フォローアップ" }));
+    await act(async () => {
+      TestEventSource.latest.dispatchEvent(new MessageEvent("snapshot", {
+        data: JSON.stringify({ eventType: "ready", task: { ...task, status: "working" }, goalLoop: loop, messages: [] }),
+      }));
+    });
+    const control = within(screen.getByRole("region", { name: "Goal loop" })).getByRole("button", { name: action === "pause" ? "一時停止" : "停止" }) as HTMLButtonElement;
+    expect(control.disabled).toBe(false);
+    fireEvent.click(control);
+    await waitFor(() => expect(mocks.sendJson).toHaveBeenCalledWith(
+      `/api/tasks/${task.id}/goal-loop`, { action }, "PATCH",
+    ));
+    // Finishing the control must not clear the still-pending start submission.
+    await act(async () => {});
+    fireEvent.change(screen.getByRole("textbox", { name: "フォローアップ" }), { target: { value: "next draft" } });
+    fireEvent.submit(screen.getByRole("form", { name: "フォローアップ" }));
+    expect(mocks.sendJson).toHaveBeenCalledTimes(2);
+    await act(async () => { resolveStart({ loop }); });
   });
 
   it("preserves a new draft while starting a goal loop", async () => {

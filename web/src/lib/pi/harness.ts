@@ -14,6 +14,7 @@ import {
 } from "@/lib/paths";
 import { prepareWorkspaceMove, type PreparedWorkspaceMove } from "@/lib/workspace-move";
 import { assertLocalRuntimeAllowed } from "@/lib/pi/runtime-ownership";
+import { dispatchGoalLoopCommand } from "@/lib/pi/goal-loop-command";
 import { notifyPushoverCompletion, shouldNotifyPushoverCompletion } from "@/lib/pushover";
 import { BOT_DEFAULT_TOOL_NAMES, BOT_TOOL_NAMES, botPromptSources, botRuntimeContext, botSoulRevision, botTaskId, getBot, listBots, patchBot } from "@/lib/bots";
 import { AGENTS_MD_FILENAME, codeOnDemandPrompt, codePromptSources, compactSdkDocumentation, readAgentsMdFile } from "@/lib/agents-md";
@@ -7626,7 +7627,7 @@ export async function goalLoopCommand(
       status: 409,
     });
   }
-  await latest.session.prompt(command);
+  await dispatchGoalLoopCommand(latest.session, command);
   return readGoalLoopState(
     latest.session.sessionManager.getCwd(),
     latest.session.sessionId,

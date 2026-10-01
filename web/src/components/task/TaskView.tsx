@@ -825,7 +825,9 @@ export const TaskView = memo(function TaskView({
   const queuedSendRef = useRef<QueuedFollowUp | null>(null);
   const sendingQueuedIdRef = useRef<number | null>(null);
   const submitRef = useRef<(queued?: QueuedFollowUp) => Promise<void>>(async () => undefined);
-  const [submitting, setSubmitting] = useState(false);
+  const [promptSubmitting, setSubmitting] = useState(false);
+  const [goalLoopSubmitting, setGoalLoopSubmitting] = useState(false);
+  const submitting = promptSubmitting || goalLoopSubmitting;
   const [resumingTurn, setResumingTurn] = useState(false);
   const [resumeTurnError, setResumeTurnError] = useState<string | null>(null);
   const [manualAbortedAssistantId, setManualAbortedAssistantId] = useState<string | null>(null);
@@ -1778,6 +1780,7 @@ export const TaskView = memo(function TaskView({
     setQueuedAutoSend(false);
     setFailedQueuedId(null);
     setSubmitting(false);
+    setGoalLoopSubmitting(false);
     setResumingTurn(false);
     setResumeTurnError(null);
     setManualAbortedAssistantId(null);
@@ -2508,8 +2511,8 @@ export const TaskView = memo(function TaskView({
   ]);
 
   async function goalLoopAction(action: "pause" | "resume" | "stop" | "complete", maxTurns?: number) {
-    if (archived) return;
-    setSubmitting(true);
+    if (archived || goalLoopSubmitting) return;
+    setGoalLoopSubmitting(true);
     setError(null);
     try {
       const result = await sendJson<{ loop: GoalLoopDto | null }>(
@@ -2534,7 +2537,7 @@ export const TaskView = memo(function TaskView({
     } catch (err) {
       setError(err instanceof Error ? err.message : "Goal loop の操作に失敗しました");
     } finally {
-      setSubmitting(false);
+      setGoalLoopSubmitting(false);
     }
   }
 
@@ -3502,7 +3505,7 @@ export const TaskView = memo(function TaskView({
             {goalLoopVisible && !archived && (
               <GoalLoopPanel
                 loop={task?.goalLoop}
-                busy={submitting}
+                busy={goalLoopSubmitting}
                 onAction={(action) => void goalLoopAction(action)}
                 onResume={(maxTurns) => void goalLoopAction("resume", maxTurns)}
               />
