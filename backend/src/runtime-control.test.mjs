@@ -17,6 +17,18 @@ test("runtime state is authenticated and reads the owner's live loops", async (t
   assert.equal(response.status, 200);
   assert.deepEqual(await response.json(), { taskIds: ["owner-loop"] });
 });
+test("validated setting changes execute in the runtime owner", async (t) => {
+  const calls = [];
+  const { url, headers } = await fixture(t, { runtimeControlAction: (body) => { calls.push(body); return "saved"; } });
+  const post = (body) => fetch(url, { method: "POST", headers: { ...headers, "content-type": "application/json" }, body: JSON.stringify(body) });
+  const response = await post({ action: "set-cache-warming", value: "off" });
+  assert.deepEqual(await response.json(), { result: "saved" });
+  assert.deepEqual(calls, [{ action: "set-cache-warming", value: "off" }]);
+  assert.equal((await post({ action: "set-compaction", value: "false" })).status, 400);
+  assert.equal((await post({ action: "set-cache-warming", value: "unknown" })).status, 400);
+  assert.equal((await post({ action: "execute-arbitrary-function" })).status, 400);
+  assert.equal(calls.length, 1);
+});
 test("an unavailable owner never answers that no loops exist", async (t) => {
   const { url, headers } = await fixture(t);
   assert.equal((await fetch(url, { headers })).status, 503);

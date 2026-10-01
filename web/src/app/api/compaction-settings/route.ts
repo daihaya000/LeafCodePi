@@ -3,7 +3,7 @@ import {
   getCompactionSettings,
   jsonError,
   setCompactionEnabled,
-} from "@/lib/pi/harness";
+} from "@/lib/runtime-settings";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";

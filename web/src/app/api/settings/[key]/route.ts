@@ -73,14 +73,18 @@ export async function PUT(
   } else {
     setSetting(key, null);
   }
-  if (key === COMPACTION_ACTION_SETTING_KEY || key === COMPACTION_THRESHOLD_SETTING_KEY) {
-    const { refreshCompactionSuggestions } = await import("@/lib/pi/harness");
-    refreshCompactionSuggestions();
-  }
-  if (CODE_PERMISSION_SETTING_KEYS.has(key)) {
-    // Open Code sessions take the new permissions from their next turn.
-    const { applyCodePermissionSettingsToLiveTasks } = await import("@/lib/pi/harness");
-    await applyCodePermissionSettingsToLiveTasks();
+  try {
+    if (key === COMPACTION_ACTION_SETTING_KEY || key === COMPACTION_THRESHOLD_SETTING_KEY) {
+      const { refreshCompactionSuggestions } = await import("@/lib/runtime-settings");
+      await refreshCompactionSuggestions();
+    }
+    if (CODE_PERMISSION_SETTING_KEYS.has(key)) {
+      // Open Code sessions take the new permissions from their next turn.
+      const { applyCodePermissionSettingsToLiveTasks } = await import("@/lib/runtime-settings");
+      await applyCodePermissionSettingsToLiveTasks();
+    }
+  } catch {
+    return NextResponse.json({ error: "設定は保存しましたがBackendへの反映に失敗しました。再試行してください" }, { status: 503 });
   }
   const stored = getSetting(key);
   return key === "auto-agent-prompt"

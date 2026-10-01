@@ -3,7 +3,7 @@ import {
   getCacheWarmingMode,
   jsonError,
   setCacheWarmingMode,
-} from "@/lib/pi/harness";
+} from "@/lib/runtime-settings";
 import {
   parseCacheWarmingMode,
   type CacheWarmingMode,

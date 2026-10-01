@@ -28,6 +28,11 @@ export {
   goalLoopCommand,
   goalLoopState,
   activeGoalLoopTaskIds,
+  getCompactionSettings,
+  setCompactionEnabled,
+  getCacheWarmingMode,
+  setCacheWarmingMode,
+  refreshCompactionSuggestions,
   startBotCodeRelay,
   applyCodePermissionSettingsToLiveTasks,
   // Rewinding a transcript rewrites the session and clears the owner's pending attention.

@@ -88,6 +88,19 @@ try {
     token: process.env.LEAFCODE_PI_BACKEND_TOKEN,
     readPendingSnapshots: () => readPendingRequestSnapshots(started.runtime()),
     // Attention is the owner's in-memory view; a detached Backend has none, which is honest.
+    runtimeControlAction: async ({ action, value }) => {
+      const runtime = started.runtime();
+      if (!runtime) throw new Error("runtime unavailable");
+      switch (action) {
+        case "read-compaction": return runtime.getCompactionSettings();
+        case "set-compaction": return runtime.setCompactionEnabled(value);
+        case "read-cache-warming": return runtime.getCacheWarmingMode();
+        case "set-cache-warming": return runtime.setCacheWarmingMode(value);
+        case "refresh-compaction": runtime.refreshCompactionSuggestions(); return null;
+        case "code-permissions": await runtime.applyCodePermissionSettingsToLiveTasks(); return null;
+        default: throw new Error("unknown runtime setting");
+      }
+    },
     readRuntimeState: () => {
       const runtime = started.runtime();
       if (!runtime) throw new Error("runtime unavailable");

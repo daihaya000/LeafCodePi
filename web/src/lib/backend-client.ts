@@ -151,6 +151,10 @@ export function readBackendRuntimeState(options: { env?: BackendEnv; fetchImpl?:
   return backendRequest(BACKEND_RUNTIME_CONTROL_PATH, options);
 }
 
+export function controlBackendRuntime<T>(action: string, value?: unknown): Promise<BackendResult<{ result: T }>> {
+  return backendRequest(BACKEND_RUNTIME_CONTROL_PATH, { method: "POST", body: { action, ...(value !== undefined ? { value } : {}) } });
+}
+
 /** The health fields this client relies on; the Backend may report more. */
 export type BackendHealth = {
   ready: boolean;

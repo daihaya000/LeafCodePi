@@ -138,6 +138,7 @@ export function createBackendServer({
   promptTask = null,
   /** Owner-scoped active Goal Loops. A missing runtime must never report an empty list. */
   readRuntimeState = null,
+  runtimeControlAction = null,
   /** Answers a pending approval: `(id, requestId, approved) => boolean`. */
   respondToPermission = null,
   /** Answers a pending question: `(id, requestId, answer) => boolean`. */
@@ -216,6 +217,7 @@ export function createBackendServer({
   for (const [name, handler] of Object.entries({
     respondToPermission,
     readRuntimeState,
+    runtimeControlAction,
     createTask,
     respondToQuestion,
     abortTask,
@@ -364,6 +366,25 @@ export function createBackendServer({
       || actionPath !== undefined;
     if (!knownPath) {
       sendJson(response, 404, { error: "Not found", code: BACKEND_ERROR_CODES.notFound });
+      return;
+    }
+    if (target.pathname === BACKEND_RUNTIME_CONTROL_PATH && request.method === "POST") {
+      if (!runtimeControlAction) {
+        sendJson(response, 503, { error: "Backend runtime unavailable", code: BACKEND_ERROR_CODES.runtimeUnavailable });
+        return;
+      }
+      const body = await readJsonBody(request, 4096);
+      const value = body.value;
+      const actions = new Set(["read-compaction", "set-compaction", "read-cache-warming", "set-cache-warming", "refresh-compaction", "code-permissions"]);
+      if (!body.ok || !value || typeof value !== "object" || Array.isArray(value) || !actions.has(value.action)
+        || Object.keys(value).some((key) => key !== "action" && key !== "value")
+        || (value.action === "set-compaction" && typeof value.value !== "boolean")
+        || (value.action === "set-cache-warming" && !["off", "streaming", "idle"].includes(value.value))) {
+        sendJson(response, 400, { error: "Invalid runtime setting", code: BACKEND_ERROR_CODES.badRequest });
+        return;
+      }
+      try { sendJson(response, 200, { result: await runtimeControlAction(value) }); }
+      catch { sendJson(response, 503, { error: "Backend setting update failed", code: BACKEND_ERROR_CODES.runtimeUnavailable }); }
       return;
     }
     if (target.pathname === BACKEND_RUNTIME_CONTROL_PATH && request.method === "GET") {
