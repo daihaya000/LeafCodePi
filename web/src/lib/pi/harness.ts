@@ -13,7 +13,7 @@ import {
   samePath,
 } from "@/lib/paths";
 import { prepareWorkspaceMove, type PreparedWorkspaceMove } from "@/lib/workspace-move";
-import { assertLocalRuntimeAllowed } from "@/lib/pi/runtime-ownership";
+import { assertLocalRuntimeAllowed, localRuntimeBlocked } from "@/lib/pi/runtime-ownership";
 import { beginTaskPreparation, hasTaskPreparation, invalidateTaskPreparations, isTaskTreeEditing, withTaskSessionMutation, withTaskTreeEdit } from "./task-operation-guard";
 import { dispatchGoalLoopCommand, isGoalLoopCommandApplied } from "@/lib/pi/goal-loop-command";
 import { notifyPushoverCompletion, shouldNotifyPushoverCompletion } from "@/lib/pushover";
@@ -1463,6 +1463,8 @@ function sessionSnapshotFields(
   compactionSuggested: boolean;
   goalLoop: GoalLoopDto | null;
   todos: TodoDto[];
+  /** Cheap transcript identity for idle remote polls that omit message bodies. */
+  messageRevision: string;
 } {
   const messagesStartedAt = reporter ? performance.now() : 0;
   // Only an explicit false omits the projection (rule lives in backend core).
@@ -1504,6 +1506,13 @@ function sessionSnapshotFields(
     ),
   });
 
+  const storedMessages = Array.isArray(session.messages) ? session.messages : [];
+  const lastStored = storedMessages.at(-1);
+  const lastId =
+    lastStored && typeof lastStored === "object" && lastStored && "id" in lastStored
+      ? String((lastStored as { id: unknown }).id ?? "")
+      : "";
+
   return {
     messages,
     isStreaming: session.isStreaming,
@@ -1512,6 +1521,7 @@ function sessionSnapshotFields(
     compactionSuggested,
     goalLoop,
     todos,
+    messageRevision: `${storedMessages.length}:${lastId}:${session.isStreaming ? 1 : 0}:${session.isCompacting ? 1 : 0}`,
   };
 }
 
@@ -5014,6 +5024,24 @@ export async function getHealth(): Promise<HealthDto> {
 }
 
 async function rebuildHealth(): Promise<HealthDto> {
+  // A client WebUI must not warm the Pi SDK / model catalog on every Sidebar poll:
+  // those sessions and providers live in the Backend after the cutover.
+  if (localRuntimeBlocked()) {
+    const current = state();
+    const value: HealthDto = {
+      ok: true,
+      engine: "pi",
+      engineOk: true,
+      version: packageVersion(),
+      modelCount: current.healthCache?.value.modelCount ?? 0,
+      dataDir: dataDir(),
+      error: null,
+      startedAt: PROCESS_STARTED_AT,
+      platform: process.platform,
+    };
+    current.healthCache = nextHealthCache(value, Date.now());
+    return value;
+  }
   try {
     await ensureRuntime();
   } catch {
@@ -7173,7 +7201,10 @@ async function buildTaskSummariesWithTodoProgress(
   );
 
   let progressByTaskId = new Map<string, TodoProgressDto>();
-  if (tasksToRead.length > 0) {
+  // After the cutover this process does not own live sessions: opening every cold
+  // session for sidebar Todo bars re-parses transcripts (seconds) on each poll.
+  // Goal Loop summaries above are disk-only and stay available to the client WebUI.
+  if (tasksToRead.length > 0 && !localRuntimeBlocked()) {
     try {
       const pi = await loadPi();
       progressByTaskId = new Map(
@@ -7244,7 +7275,9 @@ export async function getBotCodeSessionPanelState(botId: string): Promise<{
       !task.todoProgress,
   );
   let progressByTaskId = new Map<string, TodoProgressDto>();
-  if (coldNeedingTodo.length > 0) {
+  // Same cutover rule as getTaskSummariesWithTodoProgress: never open cold sessions
+  // from a client WebUI just to paint Todo bars on the Bot Code panel.
+  if (coldNeedingTodo.length > 0 && !localRuntimeBlocked()) {
     try {
       const pi = await loadPi();
       progressByTaskId = new Map(
@@ -7435,8 +7468,11 @@ export async function getTaskDetail(
 }
 
 /** Optional Backend export: older bundles fall back to their explicit offline reader. */
-export function getTaskDetailReadOnly(id: string): Promise<TaskDetail> {
-  return getTaskDetail(id, { readOnly: true });
+export function getTaskDetailReadOnly(
+  id: string,
+  options: { includeMessages?: boolean } = {},
+): Promise<TaskDetail> {
+  return getTaskDetail(id, { readOnly: true, includeMessages: options.includeMessages });
 }
 
 /**

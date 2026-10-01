@@ -9,7 +9,12 @@ const mocks = vi.hoisted(() => ({
 vi.mock("@/lib/backend-forward", () => mocks);
 
 const pending = { ok: true as const, permissionRequest: null, questionRequest: null };
-const detail = (revision: number) => ({ id: "task-1", updatedAt: revision, messages: [] });
+const detail = (revision: number) => ({
+  id: "task-1",
+  updatedAt: revision,
+  messages: [] as Array<Record<string, unknown>>,
+  messageRevision: `0:${revision}`,
+});
 const result = (revision: number) => ({ ok: true as const, detail: detail(revision) });
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -18,8 +23,13 @@ function deferred<T>() {
 }
 const sink = () => ({ closed: false, send: vi.fn() });
 
-async function start(sse: ReturnType<typeof sink>) {
-  const stream = await startBackendTaskStream({ id: "task-1", sse });
+async function start(sse: ReturnType<typeof sink>, options: { idleIntervalMs?: number; intervalMs?: number } = {}) {
+  const stream = await startBackendTaskStream({
+    id: "task-1",
+    sse,
+    intervalMs: options.intervalMs ?? 2_000,
+    idleIntervalMs: options.idleIntervalMs ?? 2_000,
+  });
   if (!stream.ok) throw new Error(stream.reason);
   return stream;
 }
@@ -44,6 +54,23 @@ describe("Backend task stream polling", () => {
     ]);
   });
 
+  it("stretches idle polls beyond the streaming interval", async () => {
+    const stream = await start(sink(), { intervalMs: 2_000, idleIntervalMs: 5_000 });
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(mocks.forwardTaskDetail).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(3_000);
+    expect(mocks.forwardTaskDetail).toHaveBeenCalledTimes(2);
+    stream.stop();
+  });
+
+  it("keeps the streaming poll interval while isStreaming", async () => {
+    mocks.forwardTaskDetail.mockResolvedValue({ ok: true, detail: { ...detail(0), isStreaming: true } });
+    const stream = await start(sink(), { intervalMs: 2_000, idleIntervalMs: 5_000 });
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(mocks.forwardTaskDetail).toHaveBeenCalledTimes(2);
+    stream.stop();
+  });
+
   it("preserves the owner's page cursor instead of paging the page again", () => {
     const messages = Array.from({ length: 50 }, (_, index) => ({ id: `m${index + 4950}`, role: "user", parts: [] }));
     const messageHistory = { hasMore: true, nextCursor: "m4950" };
@@ -66,7 +93,7 @@ describe("Backend task stream polling", () => {
     const controller = { enqueue } as unknown as ReadableStreamDefaultController<Uint8Array>;
     const sse = createSseWriter(controller);
     const toJSON = vi.fn(() => ({ unreadCount: 1 }));
-    const stream = await startBackendTaskStream({ id: "task-1", sse, extra: { intercomInbox: { toJSON } } });
+    const stream = await startBackendTaskStream({ id: "task-1", sse, intervalMs: 2_000, idleIntervalMs: 2_000, extra: { intercomInbox: { toJSON } } });
     if (!stream.ok) throw new Error(stream.reason);
     try {
       expect(toJSON).toHaveBeenCalledTimes(1);
@@ -101,8 +128,8 @@ describe("Backend task stream polling", () => {
     const first = sink();
     const second = sink();
     const starting = [
-      startBackendTaskStream({ id: "task-1", sse: first, extra: { viewer: 1 } }),
-      startBackendTaskStream({ id: "task-1", sse: second, extra: { viewer: 2 } }),
+      startBackendTaskStream({ id: "task-1", sse: first, intervalMs: 2_000, idleIntervalMs: 2_000, extra: { viewer: 1 } }),
+      startBackendTaskStream({ id: "task-1", sse: second, intervalMs: 2_000, idleIntervalMs: 2_000, extra: { viewer: 2 } }),
     ];
     await vi.advanceTimersByTimeAsync(0);
     slow.resolve(result(0));
@@ -175,7 +202,10 @@ describe("Backend task stream polling", () => {
     const sse = sink();
     const stream = await start(sse);
     const messages = [{ id: "reply-1", role: "assistant", parts: [{ type: "text", text: "new text" }] }];
-    mocks.forwardTaskDetail.mockResolvedValue({ ok: true, detail: { ...detail(0), messages } });
+    mocks.forwardTaskDetail.mockResolvedValue({
+      ok: true,
+      detail: { ...detail(0), messages, messageRevision: "1:reply-1" },
+    });
     await vi.advanceTimersByTimeAsync(2_000);
     expect(sse.send).toHaveBeenLastCalledWith("snapshot", expect.objectContaining({ messages }));
     expect(sse.send).toHaveBeenCalledTimes(2);
@@ -185,7 +215,7 @@ describe("Backend task stream polling", () => {
   it("detects mutation of a local extra object without task changes", async () => {
     const sse = sink();
     const inbox = { unreadCount: 1 };
-    const stream = await startBackendTaskStream({ id: "task-1", sse, extra: () => ({ intercomInbox: inbox }) });
+    const stream = await startBackendTaskStream({ id: "task-1", sse, intervalMs: 2_000, idleIntervalMs: 2_000, extra: () => ({ intercomInbox: inbox }) });
     if (!stream.ok) throw new Error(stream.reason);
     inbox.unreadCount = 2;
     await vi.advanceTimersByTimeAsync(2_000);
@@ -216,8 +246,8 @@ describe("Backend task stream polling", () => {
 
   it("does not combine reads of different tasks", async () => {
     const [one, two] = await Promise.all([
-      startBackendTaskStream({ id: "task-1", sse: sink() }),
-      startBackendTaskStream({ id: "task-2", sse: sink() }),
+      startBackendTaskStream({ id: "task-1", sse: sink(), intervalMs: 2_000, idleIntervalMs: 2_000 }),
+      startBackendTaskStream({ id: "task-2", sse: sink(), intervalMs: 2_000, idleIntervalMs: 2_000 }),
     ]);
     if (one.ok) one.stop();
     if (two.ok) two.stop();
@@ -331,7 +361,7 @@ describe("Backend task stream polling", () => {
     const sse = sink();
     let inbox = { unreadCount: 1 };
     const stream = await startBackendTaskStream({
-      id: "task-1", sse, extra: () => ({ intercomInbox: inbox }),
+      id: "task-1", sse, intervalMs: 2_000, idleIntervalMs: 2_000, extra: () => ({ intercomInbox: inbox }),
     });
     if (!stream.ok) throw new Error(stream.reason);
     expect(sse.send).toHaveBeenLastCalledWith("snapshot", expect.objectContaining({ intercomInbox: { unreadCount: 1 } }));
@@ -344,7 +374,7 @@ describe("Backend task stream polling", () => {
   it("keeps the task snapshot when a getter extra throws", async () => {
     const sse = sink();
     const stream = await startBackendTaskStream({
-      id: "task-1", sse, extra: () => { throw new Error("inbox read failed"); },
+      id: "task-1", sse, intervalMs: 2_000, idleIntervalMs: 2_000, extra: () => { throw new Error("inbox read failed"); },
     });
     if (!stream.ok) throw new Error(stream.reason);
     expect(sse.send).toHaveBeenCalledTimes(1);
@@ -358,7 +388,7 @@ describe("Backend task stream polling", () => {
   it("preserves the initial failure contract without starting a timer", async () => {
     mocks.forwardTaskDetail.mockResolvedValueOnce({ ok: false, reason: "unreachable" });
     const sse = sink();
-    expect(await startBackendTaskStream({ id: "task-1", sse })).toEqual({ ok: false, reason: "unreachable" });
+    expect(await startBackendTaskStream({ id: "task-1", sse, intervalMs: 2_000, idleIntervalMs: 2_000 })).toEqual({ ok: false, reason: "unreachable" });
     expect(sse.send).not.toHaveBeenCalled();
     expect(mocks.forwardTaskPendingRequests).toHaveBeenCalledTimes(1);
     expect(vi.getTimerCount()).toBe(0);

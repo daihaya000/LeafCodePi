@@ -119,6 +119,24 @@ export async function forwardTaskDetail(
   return { ok: true, detail: detail && typeof detail === "object" ? detail : null };
 }
 
+/** One in-flight pending-snapshots GET shared across every Task/Bot/Room stream in this process. */
+let pendingSnapshotsInflight: Promise<Awaited<ReturnType<typeof readBackendPendingSnapshots>>> | null = null;
+
+function readPendingSnapshotsShared(
+  options: { env?: BackendEnv; fetchImpl?: typeof fetch; timeoutMs?: number } = {},
+): Promise<Awaited<ReturnType<typeof readBackendPendingSnapshots>>> {
+  // Custom fetch/env callers (tests) bypass the share so they stay isolated.
+  if (options.env || options.fetchImpl || options.timeoutMs !== undefined) {
+    return readBackendPendingSnapshots(options);
+  }
+  if (!pendingSnapshotsInflight) {
+    pendingSnapshotsInflight = readBackendPendingSnapshots(options).finally(() => {
+      pendingSnapshotsInflight = null;
+    });
+  }
+  return pendingSnapshotsInflight;
+}
+
 /** The answer to a pending request: the owner knows whether the request was still waiting. */
 export type ForwardedAnswerResult =
   | { ok: true }
@@ -194,7 +212,7 @@ export async function forwardTaskPendingRequests(
   | { ok: true; permissionRequest: unknown; questionRequest: unknown }
   | { ok: false; reason: BackendFailureReason; status?: number }
 > {
-  const result = await readBackendPendingSnapshots(options);
+  const result = await readPendingSnapshotsShared(options);
   if (!result.ok) return { ok: false, reason: result.reason, ...(result.status ? { status: result.status } : {}) };
   const entry = (result.body?.snapshots ?? []).find((snapshot) => snapshot?.taskId === id);
   const payload = entry?.payload;
@@ -222,7 +240,7 @@ export type PendingRequestsByTask = Record<
 export async function forwardPendingRequestsByTask(
   options: { env?: BackendEnv; fetchImpl?: typeof fetch; timeoutMs?: number } = {},
 ): Promise<PendingRequestsByTask> {
-  const result = await readBackendPendingSnapshots(options);
+  const result = await readPendingSnapshotsShared(options);
   if (!result.ok) return {};
   const byTask: PendingRequestsByTask = {};
   for (const snapshot of result.body?.snapshots ?? []) {

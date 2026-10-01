@@ -398,14 +398,14 @@ try {
       }
       return runtime.respondToQuestionPrompt(id, requestId, answer);
     },
-    readTaskDetail: (id) => {
+    readTaskDetail: (id, options = {}) => {
       const runtime = started.runtime();
       if (!runtime) {
         throw Object.assign(new Error("runtime unavailable"), { status: 503 });
       }
       return typeof runtime.getTaskDetailReadOnly === "function"
-        ? runtime.getTaskDetailReadOnly(id)
-        : runtime.getTaskDetail(id, { offline: true });
+        ? runtime.getTaskDetailReadOnly(id, options)
+        : runtime.getTaskDetail(id, { offline: true, includeMessages: options.includeMessages });
     },
     // Ready means the startup sequence finished *and* the runtime is attached *and* every required
     // startup step exists in this process. A missing service (Bot Code relay, routine scheduler,

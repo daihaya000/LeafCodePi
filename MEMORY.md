@@ -1,58 +1,48 @@
-﻿# LeafCodePi FE/BE 分離バグ潰し (2026-10-01)
+﻿# LeafCodePi FE/BE 分離パフォーマンス改善 (2026-10-02)
 
-対象: Web(Next.js BFF) ↔ Backend ↔ Host の API / SSE / 依存同期 / ミラー / 再起動境界。
+対象: 分離後に増えた定常負荷（SSE poll・pending 全件・サイドバー cold 走査・health SDK 温め・Host 毎回 bundle）。
 
 ## 修正済み
 
-### P0 — Bot prompt が業務エラー envelope を破棄して 200 化
+### サイドバー cold SessionManager 走査を client で停止
 
-- 場所: `web/src/app/api/bots/[id]/prompt/route.ts`
-- 修正: `forwarded.result` を task prompt と同様に replay。4xx `bad-response` も保全。
-- 回帰: `bots/[id]/prompt/route.test.ts`（result envelope / 4xx）
+- `getTaskSummariesWithTodoProgress` / `getBotCodeSessionPanelState`
+- `localRuntimeBlocked()` 時は Todo 用に cold session を開かない（Goal Loop はディスクのみ継続）
+- 分離後は全タスクが cold 扱いになり、4–12 秒 poll ごとに秒単位の再解析が走っていた
 
-### P1 — Task SSE が pending 失敗で承認 UI を null 上書き
+### pending-snapshots のプロセス内共有
 
-- 場所: `web/src/lib/backend-forward.ts` + `web/src/lib/pi/backend-event-stream.ts`
-- 修正: pending 失敗は `{ ok: false }`。ストリームは直前の pending を保持。
-- 回帰: `backend-forward.test.ts` / `backend-event-stream.test.ts`
+- `forwardTaskPendingRequests` / `forwardPendingRequestsByTask` が同一 in-flight GET を共有
+- 開いている Task/Bot/Room SSE 数ぶんの全件取得を1本に畳む
 
-### P1 — タスク作成 409 が Web で 502 に潰れる
+### リモート SSE のアイドル poll 間隔を 5s に伸ばす
 
-- 場所: `web/src/app/api/tasks/route.ts`
-- 修正: 保全 status に 409 を追加。
-- 回帰: `tasks/route.test.ts`
+- `BACKEND_EVENT_IDLE_POLL_MS = 5000`（streaming/compacting 中は従来の 2s）
+- アイドル時のフル detail 投影頻度を約 2.5 倍削減
 
-### 高 — ミラー内 `.leafcode-pi-deps.lock` が prune されず毎起動 stale rebuild
+### client `/api/health` が Pi SDK / listModels を温めない
 
-- 場所: `scripts/web-build-mirror.mjs` / `shared/pi-dependencies.mjs` / `host/src/index.js`
-- 修正: ミラー prune で `.leafcode-pi-*` を削除。ミラー版ゲートは `requireUnlocked: false`。
-- 回帰: `web-build-mirror.test.js` / `isolation.test.js`
+- `rebuildHealth` が `localRuntimeBlocked()` なら ensureRuntime を呼ばない
+- Sidebar の health poll が ~250ms の catalog 再構築を起こさない
 
-### 高 — worker タイムアウト時に kill 成否を見ずに lock 削除
+### Backend runtime bundle の stamp 再利用
 
-- 場所: `host/src/pi-update.js`
-- 修正: `isAlive` で死亡確認後のみ lock 削除。生存時は lock 維持して二重同期を防ぐ。
-- 併せて cleanup 予算を 180s に拡大（README の「後始末除外」に整合）。
-- 回帰: `pi-update.test.js`
+- `scripts/build-backend-runtime.mjs` がソース fingerprint 一致時に esbuild をスキップ
+- Host 起動の毎回フルバンドルを回避（`--force` で再ビルド可）
 
-### 中 — restart-guard の health 期限ハードコード
+### 予備 API: `messages=omit`
 
-- 場所: `host/src/runtime-restart-guard.js`
-- 修正: `timeoutMs` 引数で health / control の期限を揃える。`init.signal` 欠落時の TypeError も回避。
+- Backend detail が `includeMessages: false` を受け付ける（将来の軽量 poll 用）
+- 現 SSE は correctness のため page のまま。`messageRevision` を live snapshot に付与
 
-### P2 — アカウント削除/停止の hang 監視が client Web で空振り
+## 意図的にまだやらない（大きいが本丸）
 
-- 場所: `web/src/lib/pi/hang-watchdog.ts` `getTaskHangWatch`
-- 修正: production client（`localRuntimeBlocked`）では共有 `hang-watches.json` を読む。
-- 回帰: `hang-watchdog.test.ts` / `accounts.test.ts`
-
-## 既知の残リスク（未修正）
-
-なし（調査時点で証拠付きの分離境界バグは対応済み）。
+- Backend→Web のイベント push 中継（計画書どおり「即時配信 vs 2s poll」）
+- poll 時のフル履歴射影そのものの削減（revision/304）
+- サイドバー summary の Backend 側 todoProgress 提供
 
 ## 検証
 
-- host: pi-update / web-build-mirror / isolation / runtime-restart-guard → pass
-- web vitest: backend-event-stream / backend-forward / tasks route / bot prompt / events → 165 pass
-- web vitest: hang-watchdog / accounts → 57 pass
-- backend: sdk-dependency-versions + lease 関連 → pass
+- web: backend-event-stream 27 / backend-forward 50 pass
+- backend: server.test 76 pass
+- scripts: build-backend-runtime.test.mjs（stamp）

@@ -515,11 +515,20 @@ export function readBackendPendingSnapshots(
 /** A task's detail as the owning Backend sees it (offline transcript read). */
 export function readBackendTaskDetail(
   id: string,
-  options: { env?: BackendEnv; fetchImpl?: typeof fetch; timeoutMs?: number; messages?: "page"; before?: string } = {},
+  options: {
+    env?: BackendEnv;
+    fetchImpl?: typeof fetch;
+    timeoutMs?: number;
+    messages?: "page" | "omit";
+    before?: string;
+  } = {},
 ): Promise<BackendResult<{ detail: Record<string, unknown> | null }>> {
-  const query = options.messages === "page" ? new URLSearchParams({
-    messages: "page", ...(options.before !== undefined ? { before: options.before } : {}),
-  }) : null;
+  const query = options.messages
+    ? new URLSearchParams({
+        messages: options.messages,
+        ...(options.messages === "page" && options.before !== undefined ? { before: options.before } : {}),
+      })
+    : null;
   return fetchBackendJson(`${BACKEND_TASKS_PATH}/${encodeURIComponent(id)}${BACKEND_TASK_DETAIL_SUFFIX}${query ? `?${query}` : ""}`, options);
 }
 

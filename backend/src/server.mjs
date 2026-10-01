@@ -925,10 +925,12 @@ export function createBackendServer({
       }
       const messagesMode = target.searchParams.get("messages");
       const paged = messagesMode === "page";
+      const omitMessages = messagesMode === "omit";
       const before = target.searchParams.get("before");
-      if ((messagesMode !== null && (!paged || target.searchParams.getAll("messages").length !== 1))
+      if ((messagesMode !== null && ((!paged && !omitMessages) || target.searchParams.getAll("messages").length !== 1))
         || (paged && (target.searchParams.getAll("before").length > 1
-          || (before !== null && (!before.trim() || before.length > 512))))) {
+          || (before !== null && (!before.trim() || before.length > 512))))
+        || (omitMessages && before !== null)) {
         sendJson(response, 400, { error: "Invalid history page request", code: BACKEND_ERROR_CODES.badRequest });
         return;
       }
@@ -939,7 +941,7 @@ export function createBackendServer({
         return;
       }
       try {
-        const detail = await readTaskDetail(detailPath);
+        const detail = await readTaskDetail(detailPath, { includeMessages: !omitMessages });
         if (!detail) {
           sendJson(response, 404, { error: "Not found", code: BACKEND_ERROR_CODES.notFound });
           return;

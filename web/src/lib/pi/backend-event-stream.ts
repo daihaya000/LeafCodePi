@@ -11,6 +11,9 @@ import { forwardTaskDetail, forwardTaskPendingRequests } from "@/lib/backend-for
  *
  * An initial failed read is reported to the caller, which ends the stream with an error. Failed polls
  * retry on the next tick; falling back to an in-process session would report a state we do not own.
+ *
+ * Streaming polls stay at {@link BACKEND_EVENT_POLL_MS}; idle polls stretch to
+ * {@link BACKEND_EVENT_IDLE_POLL_MS} so cutover clients do not keep projecting every open task at 2Hz.
  */
 
 /** What the helper needs from an SSE writer; `createSseWriter` satisfies it. */
@@ -21,6 +24,8 @@ export type BackendEventSink = {
 };
 
 export const BACKEND_EVENT_POLL_MS = 2_000;
+/** Idle remote polls are slower: open tabs otherwise hammer full detail projection every 2s. */
+export const BACKEND_EVENT_IDLE_POLL_MS = 5_000;
 
 type PendingRequests = { permissionRequest: unknown; questionRequest: unknown };
 type BackendSnapshotRead = [
@@ -60,6 +65,7 @@ const DETAIL_ONLY_FIELDS = [
   "questionRequest",
   "manualAbortedAssistantId",
   "hangRetryCount",
+  "messageRevision",
 ] as const;
 
 /** One snapshot payload built from the Backend's detail, in the shape the clients already parse. */
@@ -109,24 +115,27 @@ export async function startBackendTaskStream({
   sse,
   extra = {},
   intervalMs = BACKEND_EVENT_POLL_MS,
-  setIntervalImpl = setInterval,
-  clearIntervalImpl = clearInterval,
+  idleIntervalMs = BACKEND_EVENT_IDLE_POLL_MS,
+  setTimeoutImpl = setTimeout,
+  clearTimeoutImpl = clearTimeout,
 }: {
   id: string;
   sse: BackendEventSink;
   extra?: Record<string, unknown> | (() => Record<string, unknown>);
   intervalMs?: number;
-  setIntervalImpl?: typeof setInterval;
-  clearIntervalImpl?: typeof clearInterval;
+  idleIntervalMs?: number;
+  setTimeoutImpl?: typeof setTimeout;
+  clearTimeoutImpl?: typeof clearTimeout;
 }): Promise<{ ok: true; stop: () => void } | { ok: false; reason: string }> {
   const [detail, pending] = await readBackendSnapshot(id);
   if (!detail.ok) return { ok: false, reason: detail.reason };
   let stopped = false;
   let busy = false;
-  let timer: ReturnType<typeof setInterval> | undefined;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let lastStreaming = detail.detail?.isStreaming === true || detail.detail?.isCompacting === true;
   const stop = () => {
     stopped = true;
-    if (timer !== undefined) clearIntervalImpl(timer);
+    if (timer !== undefined) clearTimeoutImpl(timer);
     timer = undefined;
   };
   const extraFields = (): Record<string, unknown> => {
@@ -157,28 +166,41 @@ export async function startBackendTaskStream({
     if (sse.sendSerialized) sse.sendSerialized("snapshot", serialized);
     else sse.send("snapshot", snapshot);
     lastSnapshot = serialized;
+    lastStreaming = current?.isStreaming === true || current?.isCompacting === true;
+  };
+  const schedule = () => {
+    if (stopped || sse.closed) {
+      stop();
+      return;
+    }
+    const delay = lastStreaming ? intervalMs : idleIntervalMs;
+    timer = setTimeoutImpl(() => {
+      void (async () => {
+        if (stopped || sse.closed) {
+          stop();
+          return;
+        }
+        if (busy) {
+          schedule();
+          return;
+        }
+        busy = true;
+        try {
+          const [next, requests] = await readBackendSnapshot(id);
+          if (!next.ok) return;
+          send(next.detail, requests);
+        } catch {
+          // A transient transport/read failure retries without opening a local session.
+        } finally {
+          busy = false;
+          schedule();
+        }
+      })();
+    }, delay);
+    timer.unref?.();
   };
   send(detail.detail, pending);
   if (sse.closed) return { ok: true, stop };
-  timer = setIntervalImpl(() => {
-    void (async () => {
-      if (stopped || sse.closed) {
-        stop();
-        return;
-      }
-      if (busy) return;
-      busy = true;
-      try {
-        const [next, requests] = await readBackendSnapshot(id);
-        if (!next.ok) return;
-        send(next.detail, requests);
-      } catch {
-        // A transient transport/read failure retries without opening a local session.
-      } finally {
-        busy = false;
-      }
-    })();
-  }, intervalMs);
-  timer.unref?.();
+  schedule();
   return { ok: true, stop };
 }
