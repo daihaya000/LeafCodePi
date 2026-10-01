@@ -1,5 +1,6 @@
 /** Goal Loop timing and turn-budget settings shared by UI and API routes. */
-export const DEFAULT_GOAL_LOOP_MAX_TURNS = 10;
+/** Zero is the no-limit sentinel; new loops default to unlimited. */
+export const DEFAULT_GOAL_LOOP_MAX_TURNS = 0;
 export const MAX_GOAL_LOOP_TURNS = 100;
 export const DEFAULT_GOAL_LOOP_COOLDOWN_SECONDS = 0;
 export const MAX_GOAL_LOOP_COOLDOWN_SECONDS = 24 * 60 * 60;

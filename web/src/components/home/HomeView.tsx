@@ -21,6 +21,7 @@ import {
   type ComposerReference,
 } from "@/components/Composer";
 import { GoalLoopOptions, GoalLoopToggle } from "@/components/GoalLoopComposer";
+import { DEFAULT_GOAL_LOOP_MAX_TURNS } from "@/lib/goal-loop-settings";
 import { NextTaskSuggest } from "@/components/home/NextTaskSuggest";
 import { canAttachComposerImages, pasteImage } from "@/lib/clipboard-image";
 import { isImeComposingEvent } from "@/lib/composer-ime";
@@ -174,7 +175,7 @@ export const HomeView = memo(function HomeView({
   const [prompt, setPrompt] = useState("");
   const [goalLoopEnabled, setGoalLoopEnabled] = useState(false);
   const [goalLoopAcceptance, setGoalLoopAcceptance] = useState("");
-  const [goalLoopMaxTurns, setGoalLoopMaxTurns] = useState(10);
+  const [goalLoopMaxTurns, setGoalLoopMaxTurns] = useState(DEFAULT_GOAL_LOOP_MAX_TURNS);
   const [goalLoopCooldownSeconds, setGoalLoopCooldownSeconds] = useState(0);
   const [goalLoopForceFullRun, setGoalLoopForceFullRun] = useState(false);
   const [attachments, setAttachments] = useState<ComposerAttachment[]>([]);

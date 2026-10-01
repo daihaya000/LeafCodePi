@@ -4088,7 +4088,8 @@ for (const replaceSession of [false, true]) {
       sessionManager: { getSessionId: () => "retired-compose", getBranch: () => [] },
       ui: {
         setStatus() {}, setWidget() {}, notify() {},
-        async input() { return "old composer"; },
+        // goal, acceptance, then a finite max-turns value (0 skips the full-run dialog).
+        async input(title) { return String(title).includes("\u6700\u5927\u30bf\u30fc\u30f3") ? "3" : "old composer"; },
         confirm() { confirmOpened = true; return confirmation; },
       },
     };

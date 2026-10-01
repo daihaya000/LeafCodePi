@@ -34,7 +34,7 @@ import { AutoOptimizeSelect } from "@/components/AutoOptimizeSelect";
 import { canAttachComposerImages, pasteImage } from "@/lib/clipboard-image";
 import { isImeComposingEvent } from "@/lib/composer-ime";
 import { GoalLoopPanel } from "@/components/GoalLoopPanel";
-import { isGoalLoopSessionOwnedStatus } from "@/lib/goal-loop-settings";
+import { DEFAULT_GOAL_LOOP_MAX_TURNS, isGoalLoopSessionOwnedStatus } from "@/lib/goal-loop-settings";
 import { DiffPane } from "@/components/task/DiffPane";
 import { readSidePanelWidth, SidePanel } from "@/components/task/SidePanel";
 import { useBotFor, useIconFor } from "@/components/shell/TaskPanesContext";
@@ -804,7 +804,7 @@ export const TaskView = memo(function TaskView({
   );
   const [goalLoopEnabled, setGoalLoopEnabled] = useState(false);
   const [goalLoopAcceptance, setGoalLoopAcceptance] = useState("");
-  const [goalLoopMaxTurns, setGoalLoopMaxTurns] = useState(10);
+  const [goalLoopMaxTurns, setGoalLoopMaxTurns] = useState(DEFAULT_GOAL_LOOP_MAX_TURNS);
   const [goalLoopCooldownSeconds, setGoalLoopCooldownSeconds] = useState(0);
   const [goalLoopForceFullRun, setGoalLoopForceFullRun] = useState(false);
   const [panelState, setPanelState] = useState<TaskPanelState>({
@@ -1763,7 +1763,7 @@ export const TaskView = memo(function TaskView({
     autoRetryStatusRef.current = cached?.status;
     setGoalLoopEnabled(false);
     setGoalLoopAcceptance("");
-    setGoalLoopMaxTurns(10);
+    setGoalLoopMaxTurns(DEFAULT_GOAL_LOOP_MAX_TURNS);
     setGoalLoopCooldownSeconds(0);
     setGoalLoopForceFullRun(false);
     setSessionHydrating(true);

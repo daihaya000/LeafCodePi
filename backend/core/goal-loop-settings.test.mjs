@@ -11,7 +11,7 @@ import {
 } from "./goal-loop-settings.mjs";
 
 test("the documented defaults and bounds are unchanged", () => {
-  assert.equal(DEFAULT_GOAL_LOOP_MAX_TURNS, 10);
+  assert.equal(DEFAULT_GOAL_LOOP_MAX_TURNS, 0);
   assert.equal(MAX_GOAL_LOOP_TURNS, 100);
   assert.equal(DEFAULT_GOAL_LOOP_COOLDOWN_SECONDS, 0);
   assert.equal(MAX_GOAL_LOOP_COOLDOWN_SECONDS, 24 * 60 * 60);
