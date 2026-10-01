@@ -384,4 +384,4 @@ Backend単独のSDK検証前には `npm --prefix backend ci --ignore-scripts` �
 3. **owner専用コードの削除**: `createSession`／`ensureLive`とその依存（liveライフサイクル・owner専用のSDK実行時依存）を削除し、`session-creation-surface.test.ts`の期待値を空にする。
 4. **中継の常時化**: `backend-relay.ts`のモジュールを削除し、非所有者の読み取りは常に`backend-forward`経由とする。
 
-進捗（2026-10-01）: 本番の起動は常に「Backendをattachedで先に起動→ready待ち（最大20秒）→WebUIをクライアントで起動」になった（`shouldRunBackend`）。切替機構（`runCutover`／`cutover-effects`／`cutover-preflight`／`backend/core/cutover-plan.mjs`／所有権マーカー／`LEAFCODE_PI_CUTOVER`／`scripts/start-cutover.bat`）とロールバックのowner起動を削除した。残るは `LEAFCODE_PI_BACKEND_OWNS_RUNTIME`スイッチのWebUI側読取（devのみ所有者として使うNODE_ENV規則と並存）と、owner専用コード（`ensureLive`／liveライフサイクル）の削除。
+進捗（2026-10-01）: 本番の起動は常に「Backendをattachedで先に起動→ready待ち（最大20秒）→WebUIをクライアントで起動」になった（`shouldRunBackend`）。切替機構（`runCutover`／`cutover-effects`／`cutover-preflight`／`backend/core/cutover-plan.mjs`／所有権マーカー／`LEAFCODE_PI_CUTOVER`／`scripts/start-cutover.bat`）とロールバックのowner起動を削除した。所有権スイッチは完全に消えた（WebUIはproduction=クライアント・development=所有者のNODE_ENV規則のみ。Hostは何も渡さない）。残るはowner専用コード（`ensureLive`／liveライフサイクルとそのSDK依存）の削除。

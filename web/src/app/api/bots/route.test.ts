@@ -56,13 +56,12 @@ describe("/api/bots relay", () => {
   afterEach(() => {
     rmSync(root, { recursive: true, force: true });
     botApiTestState.root = "";
-    delete process.env.LEAFCODE_PI_BACKEND_OWNS_RUNTIME;
-    delete process.env.LEAFCODE_PI_BACKEND_RUNTIME;
+    vi.unstubAllEnvs();
   });
-  /** A WebUI that handed the runtime over: not an owner, and not the runtime host either. */
+  /** A shipped WebUI: production is the Backend's client, and not the runtime host itself. */
   const clientEnv = () => {
-    process.env.LEAFCODE_PI_BACKEND_OWNS_RUNTIME = "1";
-    delete process.env.LEAFCODE_PI_BACKEND_RUNTIME;
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("LEAFCODE_PI_BACKEND_RUNTIME", "");
   };
   it("serves the Backend Bot view while this process is a client", async () => {
     clientEnv();

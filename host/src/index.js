@@ -464,18 +464,10 @@ function buildWeb(reason = "missing", { pull = true } = {}) {
   return promise;
 }
 
-/**
- * Whether the WebUI was started as the Backend's client. It is always true in this build (the Backend
- * owns the runtime), and it is what `restartWeb` reads before deciding that a restart must wait for
- * the Backend.
- */
-let webOwnership = { ownership: "backend" };
-
 /** How long a restarted Host waits for the Backend it is bringing back before serving the WebUI. */
 export const BACKEND_START_READY_TIMEOUT_MS = 20_000;
 
-async function spawnWeb({ pull = true, ownership = "backend" } = {}) {
-  webOwnership = { ownership };
+async function spawnWeb({ pull = true } = {}) {
   // A client WebUI needs its owner first: bring the Backend back attached and give the runtime a
   // bounded moment to attach, so the restarted WebUI does not serve failures while it catches up.
   if (backendService) {
@@ -595,8 +587,6 @@ async function spawnWeb({ pull = true, ownership = "backend" } = {}) {
       // Bundled WebUI extensions and skills live in the repo (prod runs from the web/ mirror).
       LEAFCODE_PI_EXTENSIONS_DIR: join(REPO_ROOT, "extensions"),
       LEAFCODE_PI_SKILLS_DIR: join(REPO_ROOT, "skills"),
-      // Who owns the Pi runtime: the Backend, always. The WebUI is its client from the first launch.
-      LEAFCODE_PI_BACKEND_OWNS_RUNTIME: "1",
       // How the WebUI reaches the Backend, and which runtime generation to expect. Absent when no
       // Backend is configured, so the WebUI keeps its in-process path.
       ...(backendService ? backendService.clientEnv() : {}),
@@ -688,9 +678,10 @@ async function restartWeb() {
     error(blocked);
     return;
   }
-  // A client WebUI may only come back while the Backend it depends on is genuinely ready: starting
-  // one against a stopped or unready Backend would serve a UI that cannot own anything.
-  if (webOwnership.ownership === "backend" && backendService) {
+  // The WebUI is the Backend's client, so it may only come back while that Backend is genuinely
+  // ready: starting one against a stopped or unready Backend would serve a UI that cannot own
+  // anything.
+  if (backendService) {
     const clientEnv = backendService.clientEnv();
     const health = await readBackendHealth({
       baseUrl: clientEnv.LEAFCODE_PI_BACKEND_URL ?? `http://127.0.0.1:${DEFAULT_BACKEND_PORT}`,

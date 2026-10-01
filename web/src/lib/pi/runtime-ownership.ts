@@ -1,27 +1,21 @@
 /**
  * Who owns the Pi runtime in this process.
  *
- * Before the cutover the WebUI owns it: it creates sessions, runs tools and writes the store. After the
- * cutover the independent Backend owns it, and a WebUI that started a session anyway would be a second
- * owner writing the same files. These helpers are the single answer to "may this process start a
- * session?", and the Backend itself is never blocked by the WebUI's switch.
+ * The shipped WebUI is a client: the independent Backend owns the runtime (it creates sessions, runs
+ * tools and writes the store), and a WebUI that started a session anyway would be a second owner
+ * writing the same files. These helpers are the single answer to "may this process start a session?",
+ * and the Backend itself is never blocked by the WebUI's rule.
  *
- * The switch has an explicit value on both sides (`LEAFCODE_PI_BACKEND_OWNS_RUNTIME=1` / `=in-process`),
- * so the *absent* value is free to mean "whatever this build is": a production WebUI is a client of the
- * Backend (the shipped architecture), a development one owns the runtime (there is usually no Backend
- * running next to `next dev`).
+ * There is no ownership switch left: a production WebUI is a client, and a development one owns the
+ * runtime because `next dev` usually runs without a Backend next to it. The Host always starts the
+ * Backend and the WebUI as its client, so production never needs to be told.
  */
 
-/** Values that mean the Backend owns the runtime (and that the runtime is attached, for the Backend). */
+/** Values that mean this process is the Backend runtime host (the Backend's own marker). */
 const ENABLED_VALUES = new Set(["1", "true", "yes", "on", "attach"]);
-/** Values that explicitly ask this process to own the runtime. */
-const OWNER_VALUES = new Set(["0", "false", "no", "off", "in-process"]);
 
-/** Whether this process owns the Pi runtime. An explicit switch wins; otherwise production is a client. */
+/** Whether this process owns the Pi runtime: only a development build does. */
 export function webOwnsRuntime(env: Record<string, string | undefined> = process.env): boolean {
-  const value = (env.LEAFCODE_PI_BACKEND_OWNS_RUNTIME ?? "").trim().toLowerCase();
-  if (ENABLED_VALUES.has(value)) return false;
-  if (OWNER_VALUES.has(value)) return true;
   return (env.NODE_ENV ?? "").trim().toLowerCase() !== "production";
 }
 

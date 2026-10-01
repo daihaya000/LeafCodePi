@@ -267,14 +267,13 @@ test("WebUI restart pulls, rebuilds only after an update, then starts without pu
 
 test("the WebUI is always the Backend's client", () => {
   const index = readFileSync(join(repoRoot, "host", "src", "index.js"), "utf8");
-  // The ownership the WebUI runs with is always the client side, so a restart cannot become an owner.
-  assert.match(index, /let webOwnership = \{ ownership: "backend" \}/);
+  // There is no ownership bookkeeping left: the WebUI is the Backend's client in every start.
+  assert.doesNotMatch(index, /webOwnership|LEAFCODE_PI_BACKEND_OWNS_RUNTIME/);
   const launch = index.slice(index.indexOf("async function spawnWeb("), index.indexOf("function scheduleWebRestart("));
-  assert.match(launch, /async function spawnWeb\(\{ pull = true, ownership = "backend" \} = \{\}\)/);
-  assert.match(launch, /webOwnership = \{ ownership \}/);
+  assert.match(launch, /async function spawnWeb\(\{ pull = true \} = \{\}\)/);
   const restart = index.slice(index.indexOf("async function restartWeb("), index.indexOf("async function restartHost("));
   // A client WebUI only comes back when the Backend it depends on is genuinely ready.
-  assert.match(restart, /webOwnership\.ownership === "backend"/);
+  assert.match(restart, /The WebUI is the Backend's client/);
   assert.match(restart, /health\.ok !== true \|\| health\.ready !== true/);
   assert.match(restart, /Refusing to restart the WebUI as a Backend client/);
 });

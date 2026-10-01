@@ -14,9 +14,9 @@ afterEach(() => {
 describe("relayFallbackAllowed", () => {
   it("is only the owner's option: a client must report the miss", () => {
     expect(relayFallbackAllowed({})).toBe(true);
-    expect(relayFallbackAllowed({ LEAFCODE_PI_BACKEND_OWNS_RUNTIME: "1" })).toBe(false);
+    expect(relayFallbackAllowed({ NODE_ENV: "production" })).toBe(false);
     // The Backend process itself is never blocked, even when it is the runtime host.
-    expect(relayFallbackAllowed({ LEAFCODE_PI_BACKEND_OWNS_RUNTIME: "1", LEAFCODE_PI_BACKEND_RUNTIME: "attach" })).toBe(true);
+    expect(relayFallbackAllowed({ NODE_ENV: "production", LEAFCODE_PI_BACKEND_RUNTIME: "attach" })).toBe(true);
   });
 });
 
@@ -37,7 +37,7 @@ describe("relayTaskRows", () => {
 
   it("filters the Backend rows exactly like the store does", async () => {
     readTasks.mockResolvedValue({ ok: true, status: 200, body: { tasks: rows } });
-    const env = { LEAFCODE_PI_BACKEND_OWNS_RUNTIME: "1" };
+    const env = { NODE_ENV: "production" };
     const code = await relayTaskRows({ includeArchived: false, kind: "code", env, fetchTasks: readTasks });
     expect(code?.map((row) => row.id)).toEqual(["code-1"]);
     const all = await relayTaskRows({ includeArchived: true, kind: "all", env, fetchTasks: readTasks });
@@ -47,7 +47,7 @@ describe("relayTaskRows", () => {
   });
 
   it("returns null so the caller can fall back when the Backend cannot answer", async () => {
-    const env = { LEAFCODE_PI_BACKEND_OWNS_RUNTIME: "1" };
+    const env = { NODE_ENV: "production" };
     for (const failure of [
       { ok: false, reason: "not-configured" },
       { ok: false, reason: "unreachable" },
@@ -74,7 +74,7 @@ describe("relayBotList", () => {
 
   it("returns the Backend Bots with their running-session counts", async () => {
     const result = await relayBotList({
-      env: { LEAFCODE_PI_BACKEND_OWNS_RUNTIME: "1" },
+      env: { NODE_ENV: "production" },
       fetchBots: async () => ({ ok: true, status: 200, body: { bots } }),
       fetchTasks: async () => ({ ok: true, status: 200, body: { tasks } }),
     });
@@ -85,7 +85,7 @@ describe("relayBotList", () => {
   });
 
   it("returns null when either read fails, so the caller falls back", async () => {
-    const env = { LEAFCODE_PI_BACKEND_OWNS_RUNTIME: "1" };
+    const env = { NODE_ENV: "production" };
     const ok = { ok: true, status: 200, body: { bots, tasks } };
     await expect(relayBotList({
       env,
@@ -101,7 +101,7 @@ describe("relayBotList", () => {
 
   it("tolerates a payload without a Bot list", async () => {
     const result = await relayBotList({
-      env: { LEAFCODE_PI_BACKEND_OWNS_RUNTIME: "1" },
+      env: { NODE_ENV: "production" },
       fetchBots: async () => ({ ok: true, status: 200, body: {} }),
       fetchTasks: async () => ({ ok: true, status: 200, body: { tasks } }),
     });
@@ -113,7 +113,7 @@ describe("generation compatibility", () => {
   beforeEach(() => resetBackendRelayCompatibilityCache());
   afterEach(() => resetBackendRelayCompatibilityCache());
 
-  const env = { LEAFCODE_PI_BACKEND_OWNS_RUNTIME: "1", LEAFCODE_PI_BACKEND_GENERATION: "gen-a" };
+  const env = { NODE_ENV: "production", LEAFCODE_PI_BACKEND_GENERATION: "gen-a" };
   const health = (generation: string | null) => async () => ({
     ok: true as const,
     status: 200,
@@ -143,7 +143,7 @@ describe("generation compatibility", () => {
 
   it("has nothing to compare without a pin, and stays off for the owner", async () => {
     const fetchHealth = vi.fn(health("gen-b"));
-    expect(await backendRelayCompatible({ env: { LEAFCODE_PI_BACKEND_OWNS_RUNTIME: "1" }, fetchHealth })).toBe(true);
+    expect(await backendRelayCompatible({ env: { NODE_ENV: "production" }, fetchHealth })).toBe(true);
     expect(fetchHealth).not.toHaveBeenCalled();
     // The owner serves its own store: no Backend read, not even a probe.
     expect(await backendRelayCompatible({ env: { LEAFCODE_PI_BACKEND_GENERATION: "gen-a" }, fetchHealth })).toBe(false);
