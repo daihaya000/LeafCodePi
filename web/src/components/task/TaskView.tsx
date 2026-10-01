@@ -44,7 +44,6 @@ import { GraphPanel } from "@/components/task/GraphPanel";
 import { ProjectExplorerButton } from "@/components/task/ProjectExplorerButton";
 import { ProjectFilePicker } from "@/components/ProjectFilePicker";
 import { SessionLabelBadge } from "@/components/SessionLabelBadge";
-import { SessionIdButton } from "@/components/SessionIdButton";
 import { TodoProgressPanel } from "@/components/task/TodoProgressPanel";
 import { ModelSelect, modelOptionForValue } from "@/components/ModelSelect";
 import { ThinkingSelect } from "@/components/ThinkingSelect";
@@ -3620,6 +3619,7 @@ export const TaskView = memo(function TaskView({
           >
             <DiffPane
               directory={task.directory}
+              sessionId={task.sessionId}
               agent={task.agent?.trim() || undefined}
               model={
                 task.providerID && task.modelID
@@ -4134,9 +4134,6 @@ export const TaskView = memo(function TaskView({
             )
           }
         />
-        <footer aria-label="セッション識別情報" className="mx-auto flex max-w-5xl justify-end">
-          <SessionIdButton key={taskId} sessionId={task?.sessionId} />
-        </footer>
       </div>
     </div>
   );

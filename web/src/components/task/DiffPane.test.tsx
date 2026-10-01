@@ -67,6 +67,33 @@ describe("DiffPane 全選択", () => {
     cleanup();
   });
 
+  it("shows the full session ID above all Diff controls", async () => {
+    const sessionId = "01a0efee-1234-5678-9012-123456789abc";
+    render(<DiffPane directory="C:\\repo" sessionId={sessionId} />);
+    await screen.findByText("a.ts");
+    const trigger = screen.getByRole("button", { name: "セッションIDを確認" });
+    expect(trigger.textContent).toBe(sessionId);
+    const row = trigger.parentElement!;
+    expect(row.firstElementChild?.textContent).toBe("Session ID");
+    expect(row.parentElement?.firstElementChild).toBe(row);
+    expect(row.compareDocumentPosition(screen.getByText("変更")) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("does not show a session ID row for a project-only Diff panel", async () => {
+    render(<DiffPane directory="C:\\repo" />);
+    await screen.findByText("a.ts");
+    expect(screen.queryByText("Session ID")).toBeNull();
+    expect(screen.queryByRole("button", { name: "セッションIDを確認" })).toBeNull();
+  });
+
+  it("shows an unissued session without substituting a task ID", async () => {
+    render(<DiffPane directory="C:\\repo" sessionId={null} />);
+    await screen.findByText("a.ts");
+    const trigger = screen.getByRole("button", { name: "セッションIDを確認" }) as HTMLButtonElement;
+    expect(trigger.textContent).toBe("未発行");
+    expect(trigger.disabled).toBe(true);
+  });
+
   it("ヘッダの全選択チェックボックスで表示中のファイルの選択状態が切り替わる", async () => {
     render(<DiffPane directory="C:\\repo" />);
     await screen.findByText("a.ts");

@@ -50,13 +50,14 @@ export function SessionIdButton({ sessionId }: { sessionId: string | null | unde
         aria-label="セッションIDを確認"
         title={sessionId ? `セッションID: ${sessionId}` : "セッションIDはまだ発行されていない"}
         disabled={!sessionId}
-        className="h-6 shrink-0 px-2 text-xs font-normal text-muted/60 hover:text-muted"
+        className="h-auto min-h-6 min-w-0 max-w-full justify-start rounded !bg-surface px-2 py-0.5 text-left font-mono text-[11px] font-normal text-muted hover:text-text"
+        style={{ flexShrink: 1 }}
         onClick={() => {
           setCopyStatus("idle");
           dialogRef.current?.showModal();
         }}
       >
-        ID
+        <span className="min-w-0 break-all whitespace-normal">{sessionId ?? "未発行"}</span>
       </Button>
       <dialog
         ref={dialogRef}

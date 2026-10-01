@@ -22,10 +22,10 @@ afterEach(() => {
   else Reflect.deleteProperty(document, "execCommand");
 });
 
-it("shows a discreet ID label and opens the full, selectable Pi ID", () => {
+it("shows the full ID inline and opens the selectable Pi ID", () => {
   render(<SessionIdButton sessionId={sessionId} />);
   const trigger = screen.getByRole("button", { name: "セッションIDを確認" });
-  expect(trigger.textContent).toBe("ID");
+  expect(trigger.textContent).toBe(sessionId);
   expect(trigger.title).toContain(sessionId);
   fireEvent.click(trigger);
   const dialog = screen.getByRole("dialog", { name: "セッションID" });
@@ -82,7 +82,7 @@ it("does not substitute the task ID when no session exists", () => {
   render(<SessionIdButton sessionId={null} />);
   const trigger = screen.getByRole("button", { name: "セッションIDを確認" }) as HTMLButtonElement;
   expect(trigger.disabled).toBe(true);
-  expect(trigger.textContent).toBe("ID");
+  expect(trigger.textContent).toBe("未発行");
   expect(trigger.title).toContain("まだ発行されていない");
 });
 

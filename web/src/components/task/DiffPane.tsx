@@ -17,6 +17,7 @@ import {
   Trash2,
 } from "lucide-react";
 import { Button, DiffStat, Spinner, cx } from "@/components/ui";
+import { SessionIdButton } from "@/components/SessionIdButton";
 import { getJson, sendJson } from "@/lib/client";
 import type { DiffFile, DiffFilesPayload } from "@/lib/types";
 import { tintCodeLine } from "@/lib/difftint";
@@ -266,12 +267,15 @@ const FileDiffBlock = memo(function FileDiffBlock({
 
 export function DiffPane({
   directory,
+  sessionId,
   agent,
   model,
   refreshKey,
   onMutated,
 }: {
   directory: string;
+  /** Pi session ID; undefined for project-only Diff panels. */
+  sessionId?: string | null;
   agent?: string;
   model?: { providerID: string; modelID: string };
   /** Bump this to force an immediate refetch (e.g. after commit/merge/revert). */
@@ -552,6 +556,12 @@ export function DiffPane({
 
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-bg @container">
+      {sessionId !== undefined && (
+        <div aria-label="セッション識別情報" className="flex min-w-0 shrink-0 items-center gap-2 border-b border-border bg-surface-2 px-3 py-2">
+          <span className="shrink-0 text-[11px] text-muted">Session ID</span>
+          <SessionIdButton sessionId={sessionId} />
+        </div>
+      )}
       {/* Action bar */}
       <div className="flex shrink-0 flex-col border-b border-border bg-surface">
         {/* 変更概要 + 表示中のファイル数 + フィルター */}

@@ -90,17 +90,22 @@ it("shares the footer notification switch with Code task browser notifications",
   }
 });
 
-it.each([true, false])("exposes the Pi session ID below the composer, not in the header (mdUp: %s)", async (mdUp) => {
+it.each([true, false])("shows the Pi session ID only at the top of the Diff panel (mdUp: %s)", async (mdUp) => {
   const sessionId = "01a0efee-1234-5678-9012-123456789abc";
-  saveTaskSessionCache({ task: { ...task, sessionId }, messages: [], isStreaming: false, isCompacting: false });
+  saveTaskSessionCache({ task: { ...task, sessionId, directory: "C:\\repo" }, messages: [], isStreaming: false, isCompacting: false });
+  mocks.getJson.mockImplementation(() => Promise.resolve({ files: [], git: true, additions: 0, deletions: 0, models: [], agents: [], skills: [], accounts: [] }));
   render(<TaskView taskId={task.id} mdUp={mdUp} />);
+  expect(screen.queryByRole("button", { name: "セッションIDを確認" })).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Diff パネル" }));
   const trigger = await screen.findByRole("button", { name: "セッションIDを確認" });
   expect(trigger.title).toBe(`セッションID: ${sessionId}`);
-  expect(trigger.closest("header")).toBeNull();
-  expect(trigger.closest("footer")?.getAttribute("aria-label")).toBe("セッション識別情報");
-  expect(trigger.textContent).toBe("ID");
-  const composer = screen.getByRole("form", { name: "フォローアップ" });
-  expect(composer.compareDocumentPosition(trigger) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  expect(trigger.textContent).toBe(sessionId);
+  const row = trigger.parentElement!;
+  expect(row.getAttribute("aria-label")).toBe("セッション識別情報");
+  expect(row.parentElement?.firstElementChild).toBe(row);
+  expect(screen.getByRole("form", { name: "フォローアップ" }).contains(trigger)).toBe(false);
+  fireEvent.click(screen.getByRole("button", { name: "Diff パネル" }));
+  await waitFor(() => expect(screen.queryByRole("button", { name: "セッションIDを確認" })).toBeNull());
 });
 
 it("shows the next-action suggestion above the follow-up composer", async () => {
