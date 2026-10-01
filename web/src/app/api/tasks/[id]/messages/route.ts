@@ -3,6 +3,7 @@ import { getTaskDetail, jsonError } from "@/lib/pi/harness";
 import {
   InvalidTaskMessageCursorError,
   pageTaskMessages,
+  pageTaskDetailMessages,
 } from "@/lib/task-history";
 import { localRuntimeBlocked } from "@/lib/pi/runtime-ownership";
 import { forwardTaskDetail } from "@/lib/backend-forward";
@@ -23,8 +24,11 @@ export async function GET(
     // After the cutover the Backend owns the session; history comes from its detail, paged with the
     // same rule. There is no local fallback: a session this process does not own reports stale state.
     if (localRuntimeBlocked()) {
-      const forwarded = await forwardTaskDetail(id);
+      const forwarded = await forwardTaskDetail(id, { messages: "page", ...(before !== null ? { before } : {}) });
       if (!forwarded.ok) {
+        if (forwarded.reason === "invalid-cursor") {
+          return NextResponse.json({ error: "履歴カーソルが無効です" }, { status: 409 });
+        }
         if (forwarded.reason === "not-found") {
           return NextResponse.json({ error: "タスクが見つかりません" }, { status: 404 });
         }
@@ -39,8 +43,7 @@ export async function GET(
           { status: 502 },
         );
       }
-      const messages = Array.isArray(forwarded.detail?.messages) ? forwarded.detail.messages : [];
-      return NextResponse.json(pageTaskMessages(messages, before));
+      return NextResponse.json(pageTaskDetailMessages(forwarded.detail, before));
     }
     // History paging must not block on ensureLive; transcript on disk is enough.
     const detail = await getTaskDetail(id, { offline: true });

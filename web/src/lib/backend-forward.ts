@@ -89,16 +89,19 @@ export async function forwardTaskPrompt(
 
 export type ForwardedDetailResult =
   | { ok: true; detail: Record<string, unknown> | null }
-  | { ok: false; reason: BackendFailureReason | "not-found"; status?: number };
+  | { ok: false; reason: BackendFailureReason | "not-found" | "invalid-cursor"; status?: number };
 
 /** Reads a task's detail from the owning Backend. Never falls back to the in-process read. */
 export async function forwardTaskDetail(
   id: string,
-  options: { env?: BackendEnv; fetchImpl?: typeof fetch; timeoutMs?: number } = {},
+  options: NonNullable<Parameters<typeof readBackendTaskDetail>[1]> = {},
 ): Promise<ForwardedDetailResult> {
   const result = await readBackendTaskDetail(id, options);
   // 404 is the Backend's answer ("no such task"), not a transport failure.
   if (!result.ok && result.status === 404) return { ok: false, reason: "not-found", status: 404 };
+  if (!result.ok && options.messages === "page" && result.status === 409 && result.reason === "bad-response") {
+    return { ok: false, reason: "invalid-cursor", status: 409 };
+  }
   if (!result.ok) return { ok: false, reason: result.reason, ...(result.status ? { status: result.status } : {}) };
   const detail = result.body?.detail;
   return { ok: true, detail: detail && typeof detail === "object" ? detail : null };

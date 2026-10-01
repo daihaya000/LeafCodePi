@@ -8,6 +8,7 @@ import {
   isBackendGenerationCompatible,
   readBackendHealth,
   readBackendTasks,
+  readBackendTaskDetail,
 } from "./backend-client";
 
 const env = { LEAFCODE_PI_BACKEND_TOKEN: "t".repeat(40), LEAFCODE_PI_BACKEND_URL: "http://127.0.0.1:19999/" };
@@ -37,6 +38,19 @@ describe("backendClientStatus", () => {
 });
 
 describe("fetchBackendJson", () => {
+  it("distinguishes an input conflict from a protocol refusal", async () => {
+    for (const [code, reason] of [["BACKEND_BAD_REQUEST", "bad-response"], ["BACKEND_PROTOCOL_MISMATCH", "incompatible"]]) {
+      const fetchImpl = vi.fn(async () => jsonResponse(409, { code }));
+      await expect(fetchBackendJson("/internal/tasks/task-1/detail?messages=page", { env, fetchImpl })).resolves.toEqual({
+        ok: false, reason, status: 409,
+      });
+    }
+    const fetchImpl = vi.fn(async () => new Response("invalid JSON", { status: 409 }));
+    await expect(fetchBackendJson("/internal/health", { env, fetchImpl })).resolves.toEqual({
+      ok: false, reason: "incompatible", status: 409,
+    });
+  });
+
   it("refuses to call anything without a token", async () => {
     const fetchImpl = vi.fn();
     await expect(fetchBackendJson("/internal/health", { env: {}, fetchImpl })).resolves.toEqual({
@@ -101,9 +115,51 @@ describe("fetchBackendJson", () => {
     const result = await fetchBackendJson("/internal/health", { env, fetchImpl: fetchImpl as unknown as typeof fetch, timeoutMs: 5 });
     expect(result).toEqual({ ok: false, reason: "timeout" });
   });
+
+  it.each([200, 409])("keeps the deadline active while a %s response body is stalled", async (status) => {
+    vi.useFakeTimers();
+    let bodyController!: ReadableStreamDefaultController<Uint8Array>;
+    const fetchImpl = vi.fn(async (_url: string, init: RequestInit) => new Response(new ReadableStream<Uint8Array>({
+      start(controller) {
+        bodyController = controller;
+        init.signal?.addEventListener("abort", () => controller.error(new DOMException("deadline", "AbortError")), { once: true });
+      },
+    }), { status }));
+    const promise = fetchBackendJson("/internal/health", { env, fetchImpl: fetchImpl as unknown as typeof fetch, timeoutMs: 100 });
+    let settled = false;
+    void promise.then(() => { settled = true; });
+    await vi.advanceTimersByTimeAsync(100);
+    const settledAtDeadline = settled;
+    // Finish the old implementation too, so a failed regression never leaves a hanging read.
+    if (!settled) bodyController.error(new Error("test cleanup"));
+    const result = await promise;
+    expect(settledAtDeadline).toBe(true);
+    expect(result).toEqual({ ok: false, reason: "timeout", status });
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("clears the deadline after a successful body read", async () => {
+    vi.useFakeTimers();
+    const fetchImpl = vi.fn(async () => jsonResponse(200, { ok: true }));
+    await expect(fetchBackendJson("/internal/health", { env, fetchImpl, timeoutMs: 100 })).resolves.toMatchObject({ ok: true });
+    expect(vi.getTimerCount()).toBe(0);
+  });
 });
 
 describe("readers", () => {
+  it("opts into history paging without changing ordinary detail reads", async () => {
+    const fetchImpl = vi.fn<(url: string) => Promise<Response>>().mockImplementation(async () => jsonResponse(200, { detail: { messages: [] } }));
+    const options = { env, fetchImpl: fetchImpl as unknown as typeof fetch };
+    await readBackendTaskDetail("task/1", options);
+    await readBackendTaskDetail("task/1", { ...options, messages: "page" });
+    await readBackendTaskDetail("task/1", { ...options, messages: "page", before: "cursor?&+/ 日本語" });
+    expect(fetchImpl.mock.calls[0][0]).toBe("http://127.0.0.1:19999/internal/tasks/task%2F1/detail");
+    expect(fetchImpl.mock.calls[1][0]).toBe("http://127.0.0.1:19999/internal/tasks/task%2F1/detail?messages=page");
+    const older = new URL(fetchImpl.mock.calls[2][0]);
+    expect(older.searchParams.get("messages")).toBe("page");
+    expect(older.searchParams.get("before")).toBe("cursor?&+/ 日本語");
+  });
+
   it("reads health and the task list from their paths", async () => {
     const fetchImpl = vi.fn(async (url: string) =>
       url.endsWith("/internal/tasks")

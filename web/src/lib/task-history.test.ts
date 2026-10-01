@@ -4,6 +4,7 @@ import {
   mergeNewerTaskMessages,
   remapTaskMessageCursor,
   pageTaskMessages,
+  pageTaskDetailMessages,
   pageTaskSnapshotPayload,
   prependOlderTaskMessages,
 } from "./task-history";
@@ -19,6 +20,14 @@ function message(id: string, createdAt = 1): UiMessage {
 }
 
 describe("task history pagination", () => {
+  it("preserves a remote page or falls back to paging older full-history responses", () => {
+    const messages = [message("m1"), message("m2")];
+    const messageHistory = { hasMore: true, nextCursor: "m1" };
+    expect(pageTaskDetailMessages({ messages, messageHistory }, "external-cursor")).toEqual({ messages, messageHistory });
+    expect(pageTaskDetailMessages({ messages }, "m2").messages).toEqual([messages[0]]);
+    expect(pageTaskDetailMessages({ messages, messageHistory: { hasMore: "invalid" } }, "m2").messages).toEqual([messages[0]]);
+  });
+
   it("returns the latest page and a cursor for older messages", () => {
     const messages = Array.from({ length: 5 }, (_, index) => message(`m${index}`, index));
     expect(pageTaskMessages(messages, null, 2)).toEqual({

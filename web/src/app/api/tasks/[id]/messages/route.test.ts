@@ -86,6 +86,31 @@ describe("/api/tasks/[id]/messages after the cutover", () => {
     mocks.getTaskDetail.mockReset();
   });
 
+  it("requests an older page from the Backend and preserves its cursor", async () => {
+    const messages = [message("m100"), message("m101")];
+    const messageHistory = { hasMore: true, nextCursor: "m100" };
+    mocks.forwardTaskDetail.mockResolvedValue({ ok: true, detail: { messages, messageHistory } });
+    const response = await GET(new NextRequest("http://localhost/api/tasks/task-1/messages?before=m150"), {
+      params: Promise.resolve({ id: "task-1" }),
+    });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ messages, messageHistory });
+    expect(mocks.forwardTaskDetail).toHaveBeenCalledWith("task-1", { messages: "page", before: "m150" });
+    expect(mocks.getTaskDetail).not.toHaveBeenCalled();
+  });
+
+  it("returns a cursor conflict as 409 but keeps protocol failures as 502", async () => {
+    mocks.forwardTaskDetail.mockResolvedValue({ ok: false, reason: "invalid-cursor", status: 409 });
+    const url = "http://localhost/api/tasks/task-1/messages?before=missing";
+    const response = await GET(new NextRequest(url), { params: Promise.resolve({ id: "task-1" }) });
+    expect(response.status).toBe(409);
+    expect(await response.json()).toEqual({ error: "履歴カーソルが無効です" });
+    mocks.forwardTaskDetail.mockResolvedValue({ ok: false, reason: "incompatible", status: 409 });
+    const mismatch = await GET(new NextRequest(url), { params: Promise.resolve({ id: "task-1" }) });
+    expect(mismatch.status).toBe(502);
+    expect(mocks.getTaskDetail).not.toHaveBeenCalled();
+  });
+
   it("pages the Backend history with the same rule and never reads locally", async () => {
     const messages = Array.from({ length: 52 }, (_, index) => message(`m${index + 1}`, index));
     mocks.forwardTaskDetail.mockResolvedValue({ ok: true, detail: { messages } });

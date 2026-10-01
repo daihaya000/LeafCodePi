@@ -333,6 +333,54 @@ test("a failing or coded detail read keeps its own status", async (t) => {
   assert.ok(!JSON.stringify(body).includes(sensitive));
 });
 
+test("task detail pages history before HTTP serialization only when requested", async (t) => {
+  const messages = Array.from({ length: 5000 }, (_, index) => ({
+    id: `m${index}`, role: "user", parts: [{ type: "text", text: "x".repeat(100) }],
+  }));
+  const detail = { id: "task-1", status: "working", messages };
+  const { snapshotsUrl, headers } = await fixture(t, { readTaskDetail: async () => detail });
+  const url = snapshotsUrl.replace("pending-snapshots", "tasks") + "/task-1/detail";
+  const full = await (await request(url, { headers })).text();
+  assert.deepEqual(JSON.parse(full), { detail });
+  const response = await request(`${url}?messages=page`, { headers });
+  const paged = await response.text();
+  assert.equal(response.status, 200);
+  assert.deepEqual(JSON.parse(paged), { detail: {
+    ...detail, messages: messages.slice(-50), messageHistory: { hasMore: true, nextCursor: "m4950" },
+  } });
+  assert.ok(Buffer.byteLength(paged) < Buffer.byteLength(full) / 90);
+  const older = await request(`${url}?messages=page&before=m4950`, { headers });
+  const olderBody = await older.json();
+  assert.equal(older.status, 200);
+  assert.deepEqual(olderBody.detail.messages, messages.slice(4900, 4950));
+  assert.equal(detail.messages.length, 5000, "the cached runtime detail must not be mutated");
+  t.diagnostic(`HTTP detail bytes: full=${Buffer.byteLength(full)}, page=${Buffer.byteLength(paged)}`);
+});
+
+test("rejects invalid pagination inputs before executing the detail reader", async (t) => {
+  let calls = 0;
+  const { snapshotsUrl, headers } = await fixture(t, { readTaskDetail: async () => {
+    calls++;
+    return { messages: [] };
+  } });
+  const url = snapshotsUrl.replace("pending-snapshots", "tasks") + "/task-1/detail";
+  for (const query of ["messages=bad", "messages=", "messages=page&messages=page", "messages=page&before=", "messages=page&before=%20", `messages=page&before=${"x".repeat(513)}`, "messages=page&before=a&before=b"]) {
+    const response = await request(`${url}?${query}`, { headers });
+    await response.arrayBuffer();
+    assert.equal(response.status, 400, query);
+  }
+  assert.equal(calls, 0);
+});
+
+test("an invalid history cursor is a conflict without leaking the requested cursor", async (t) => {
+  const { snapshotsUrl, headers } = await fixture(t, { readTaskDetail: async () => ({ messages: [] }) });
+  const url = snapshotsUrl.replace("pending-snapshots", "tasks") + "/task-1/detail?messages=page&before=private-cursor";
+  const response = await request(url, { headers });
+  const body = await response.text();
+  assert.equal(response.status, 409);
+  assert.ok(!body.includes("private-cursor"));
+});
+
 test("a non-function detail reader is rejected at creation", () => {
   assert.throws(
     () => createBackendServer({ token: randomBytes(32).toString("base64url"), readTaskDetail: "nope" }),

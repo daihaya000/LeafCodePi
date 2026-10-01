@@ -11,6 +11,7 @@ import {
   normalizeExpectedGeneration,
 } from "@shared/backend-generation.mjs";
 import {
+  BACKEND_ERROR_CODES,
   BACKEND_ATTENTION_PATH,
   BACKEND_BOT_CODE_REQUESTS_SUFFIX,
   BACKEND_BOT_CODE_SESSIONS_SUFFIX,
@@ -85,7 +86,7 @@ export function backendBaseUrl(env: BackendEnv = process.env): string {
  * One authenticated call against the Backend. The request carries the protocol header, and the
  * response status decides the failure reason: 401/403 unauthorized, 409 incompatible, anything else
  * non-2xx is a bad response. Network errors and timeouts are separated so a caller can retry the
- * latter and treat the former as "Backend is down".
+ * latter and treat the former as "Backend is down". The deadline covers headers and body reads.
  */
 async function backendRequest<T>(
   path: string,
@@ -106,7 +107,7 @@ async function backendRequest<T>(
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   timer.unref?.();
   const hasBody = options.body !== undefined;
-  let response: Response;
+  let response: Response | undefined;
   try {
     response = await doFetch(`${backendBaseUrl(env)}${path}`, {
       method: options.method ?? "GET",
@@ -119,19 +120,28 @@ async function backendRequest<T>(
       signal: controller.signal,
       ...(hasBody ? { body: JSON.stringify(options.body) } : {}),
     });
+    if (response.status === 401 || response.status === 403) return { ok: false, reason: "unauthorized", status: response.status };
+    if (response.status === 409) {
+      try {
+        const body = await response.json();
+        if (body?.code === BACKEND_ERROR_CODES.badRequest) return { ok: false, reason: "bad-response", status: 409 };
+      } catch (error) {
+        if (controller.signal.aborted) throw error;
+        // An unrecognized conflict remains a protocol refusal, as with older Backends.
+      }
+      return { ok: false, reason: "incompatible", status: 409 };
+    }
+    if (!response.ok) return { ok: false, reason: "bad-response", status: response.status };
+    return { ok: true, status: response.status, body: (await response.json()) as T };
   } catch (error) {
-    const aborted = error instanceof Error && error.name === "AbortError";
-    return { ok: false, reason: aborted ? "timeout" : "unreachable" };
+    const aborted = controller.signal.aborted || (error instanceof Error && error.name === "AbortError");
+    return {
+      ok: false,
+      reason: aborted ? "timeout" : response ? "bad-response" : "unreachable",
+      ...(response ? { status: response.status } : {}),
+    };
   } finally {
     clearTimeout(timer);
-  }
-  if (response.status === 401 || response.status === 403) return { ok: false, reason: "unauthorized", status: response.status };
-  if (response.status === 409) return { ok: false, reason: "incompatible", status: response.status };
-  if (!response.ok) return { ok: false, reason: "bad-response", status: response.status };
-  try {
-    return { ok: true, status: response.status, body: (await response.json()) as T };
-  } catch {
-    return { ok: false, reason: "bad-response", status: response.status };
   }
 }
 
@@ -493,9 +503,12 @@ export function readBackendPendingSnapshots(
 /** A task's detail as the owning Backend sees it (offline transcript read). */
 export function readBackendTaskDetail(
   id: string,
-  options: { env?: BackendEnv; fetchImpl?: typeof fetch; timeoutMs?: number } = {},
+  options: { env?: BackendEnv; fetchImpl?: typeof fetch; timeoutMs?: number; messages?: "page"; before?: string } = {},
 ): Promise<BackendResult<{ detail: Record<string, unknown> | null }>> {
-  return fetchBackendJson(`${BACKEND_TASKS_PATH}/${encodeURIComponent(id)}${BACKEND_TASK_DETAIL_SUFFIX}`, options);
+  const query = options.messages === "page" ? new URLSearchParams({
+    messages: "page", ...(options.before !== undefined ? { before: options.before } : {}),
+  }) : null;
+  return fetchBackendJson(`${BACKEND_TASKS_PATH}/${encodeURIComponent(id)}${BACKEND_TASK_DETAIL_SUFFIX}${query ? `?${query}` : ""}`, options);
 }
 
 /** The Backend's own view of the Bot store. */

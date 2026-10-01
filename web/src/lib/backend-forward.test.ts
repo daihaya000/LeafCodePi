@@ -168,6 +168,25 @@ describe("forwardTaskPrompt", () => {
 });
 
 describe("forwardTaskDetail", () => {
+  it("reports an invalid page cursor separately from protocol incompatibility", async () => {
+    const inputConflict = vi.fn(async () => jsonResponse(409, { code: "BACKEND_BAD_REQUEST" }));
+    const options = { env, fetchImpl: inputConflict as unknown as typeof fetch, messages: "page" as const, before: "missing" };
+    await expect(forwardTaskDetail("task-1", options)).resolves.toEqual({ ok: false, reason: "invalid-cursor", status: 409 });
+    const mismatch = vi.fn(async () => jsonResponse(409, { code: "BACKEND_PROTOCOL_MISMATCH" }));
+    await expect(forwardTaskDetail("task-1", { ...options, fetchImpl: mismatch as unknown as typeof fetch })).resolves.toEqual({
+      ok: false, reason: "incompatible", status: 409,
+    });
+  });
+
+  it("forwards page selection and preserves the owner's history marker", async () => {
+    const detail = { messages: [], messageHistory: { hasMore: true, nextCursor: "m50" } };
+    const fetchImpl = vi.fn<(url: string) => Promise<Response>>().mockImplementation(async () => jsonResponse(200, { detail }));
+    await expect(forwardTaskDetail("task-1", {
+      env, fetchImpl: fetchImpl as unknown as typeof fetch, messages: "page",
+    })).resolves.toEqual({ ok: true, detail });
+    expect(fetchImpl.mock.calls[0][0]).toBe("http://127.0.0.1:19999/internal/tasks/task-1/detail?messages=page");
+  });
+
   it("reads the detail from the Backend and reports its failures", async () => {
     const ok = vi.fn(async () => jsonResponse(200, { detail: { id: "task-1", status: "working" } }));
     await expect(forwardTaskDetail("task-1", { env, fetchImpl: ok as unknown as typeof fetch })).resolves.toEqual({

@@ -1,6 +1,7 @@
 import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
 import { createServer } from "node:http";
 import { once } from "node:events";
+import { InvalidTaskMessageCursorError, pageTaskMessages } from "../../shared/task-history.mjs";
 import {
   BACKEND_ERROR_CODES,
   BACKEND_HEALTH_PATH,
@@ -871,6 +872,15 @@ export function createBackendServer({
         sendJson(response, 404, { error: "Not found", code: BACKEND_ERROR_CODES.notFound });
         return;
       }
+      const messagesMode = target.searchParams.get("messages");
+      const paged = messagesMode === "page";
+      const before = target.searchParams.get("before");
+      if ((messagesMode !== null && (!paged || target.searchParams.getAll("messages").length !== 1))
+        || (paged && (target.searchParams.getAll("before").length > 1
+          || (before !== null && (!before.trim() || before.length > 512))))) {
+        sendJson(response, 400, { error: "Invalid history page request", code: BACKEND_ERROR_CODES.badRequest });
+        return;
+      }
       if (typeof readTaskDetail !== "function") {
         sendJson(response, 503, {
           error: "Backend runtime is not attached", code: BACKEND_ERROR_CODES.runtimeUnavailable,
@@ -883,8 +893,14 @@ export function createBackendServer({
           sendJson(response, 404, { error: "Not found", code: BACKEND_ERROR_CODES.notFound });
           return;
         }
-        sendJson(response, 200, { detail });
+        sendJson(response, 200, { detail: paged
+          ? { ...detail, ...pageTaskMessages(Array.isArray(detail.messages) ? detail.messages : [], before) }
+          : detail });
       } catch (error) {
+        if (error instanceof InvalidTaskMessageCursorError) {
+          sendJson(response, 409, { error: "Invalid history cursor", code: BACKEND_ERROR_CODES.badRequest });
+          return;
+        }
         const status = typeof error === "object" && error && "status" in error ? Number(error.status) : 500;
         // A coded refusal keeps its status; anything else is an internal failure with no detail.
         if (status === 404) {
