@@ -86,6 +86,17 @@ test("a missing task is reported as a coded refusal, not a crash", { skip }, asy
   });
 });
 
+test("the bundled read-only API reads a cold task without hydrating its unavailable model", { skip }, async (t) => {
+  const { data } = fixture(t, [task("cold-readonly")]);
+  const runtime = await import(pathToFileURL(BUNDLE).href);
+  await withDataDir(data, async () => {
+    const offline = await runtime.getTaskDetail("cold-readonly", { offline: true });
+    const detail = await runtime.getTaskDetailReadOnly("cold-readonly");
+    assert.deepEqual(detail, offline);
+    await assert.rejects(() => runtime.getTaskDetailReadOnly("missing"), (error) => error.status === 404);
+  });
+});
+
 test("the runtime does not read the live data directory during these tests", { skip }, async (t) => {
   const { data } = fixture(t, [task("task-1")]);
   const runtime = await import(pathToFileURL(BUNDLE).href);

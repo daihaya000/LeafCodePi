@@ -15,6 +15,7 @@ const BUNDLE = resolve(HERE, "..", "runtime", "runtime.bundle.mjs");
 const RUNTIME_API = [
   "promptTask",
   "getTaskDetail",
+  "getTaskDetailReadOnly",
   "abortTask",
   "listPendingAttention",
   "pendingPermissionForTask",

@@ -377,7 +377,9 @@ try {
       if (!runtime) {
         throw Object.assign(new Error("runtime unavailable"), { status: 503 });
       }
-      return runtime.getTaskDetail(id, { offline: true });
+      return typeof runtime.getTaskDetailReadOnly === "function"
+        ? runtime.getTaskDetailReadOnly(id)
+        : runtime.getTaskDetail(id, { offline: true });
     },
     // Ready means the startup sequence finished *and* the runtime is attached *and* every required
     // startup step exists in this process. A missing service (Bot Code relay, routine scheduler,

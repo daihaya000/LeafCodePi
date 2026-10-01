@@ -7010,16 +7010,33 @@ export function getTaskSummaries(
   return listTasks(includeArchived, kind).map(toSummary);
 }
 
-function readOfflineSessionSnapshot(sessionFile: string): {
+type OfflineSessionSnapshot = {
   messages: UiMessage[];
   todos: TodoDto[];
-} {
+};
+// ponytail: retain at most eight transcripts up to 2 MiB each; larger histories stay uncached.
+const offlineSessionSnapshots = new Map<string, {
+  pi: PiModule;
+  version: string;
+  snapshot: OfflineSessionSnapshot;
+}>();
+
+function offlineSessionFileVersion(file: string) {
+  const stat = statSync(file, { bigint: true });
+  return { size: stat.size, version: `${stat.dev}:${stat.ino}:${stat.size}:${stat.mtimeNs}:${stat.ctimeNs}` };
+}
+
+function readOfflineSessionSnapshot(sessionFile: string): OfflineSessionSnapshot {
   const pi = state().pi;
   if (!pi) {
     throw Object.assign(new Error("Pi ランタイムが初期化されていません"), {
       status: 503,
     });
   }
+  const before = offlineSessionFileVersion(sessionFile);
+  const cached = offlineSessionSnapshots.get(sessionFile);
+  if (cached?.pi === pi && cached.version === before.version) return cached.snapshot;
+  offlineSessionSnapshots.delete(sessionFile);
   const sessionManager = pi.SessionManager.open(sessionFile);
   const context = sessionManager.buildSessionContext?.() ?? { messages: [] };
   const raw = Array.isArray(context.messages) ? context.messages : [];
@@ -7049,7 +7066,16 @@ function readOfflineSessionSnapshot(sessionFile: string): {
       },
     },
   } as AgentSession, throughput);
-  return { messages, todos: todosFromPiMessages(raw) };
+  const snapshot = { messages, todos: todosFromPiMessages(raw) };
+  // A concurrent append/rewrite must not label an older projection with a newer file version.
+  if (before.size <= 2n * 1024n * 1024n && offlineSessionFileVersion(sessionFile).version === before.version) {
+    if (offlineSessionSnapshots.size >= 8) {
+      const oldest = offlineSessionSnapshots.keys().next().value;
+      if (oldest !== undefined) offlineSessionSnapshots.delete(oldest);
+    }
+    offlineSessionSnapshots.set(sessionFile, { pi, version: before.version, snapshot });
+  }
+  return snapshot;
 }
 
 async function readArchivedTaskSnapshot(task: TaskSummary): Promise<{
@@ -7061,6 +7087,7 @@ async function readArchivedTaskSnapshot(task: TaskSummary): Promise<{
     await loadPi();
     return readOfflineSessionSnapshot(task.sessionFile);
   } catch {
+    offlineSessionSnapshots.delete(task.sessionFile);
     return { messages: [], todos: [] };
   }
 }
@@ -7272,6 +7299,8 @@ type GetTaskDetailOptions = {
   onTiming?: TaskDetailTimingReporter;
   /** Read a cross-worker transcript without trying to claim its live runtime lease. */
   offline?: boolean;
+  /** Use an existing owned live session, or the transcript; never call ensureLive. */
+  readOnly?: boolean;
 };
 
 /** Transcript-only fields shared by the archived and cross-worker (offline) reads. */
@@ -7344,11 +7373,23 @@ export async function getTaskDetail(
     throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });
   // Which source answers this read (archived → stored transcript, offline/foreign lease →
   // transcript, else this worker's live session) lives in backend core.
+  const registeredLive = options.readOnly === true ? state().live.get(id) : undefined;
   const detailSource = resolveTaskDetailSource({
     isArchived: task.status === "archived",
     isForeignLease: isTaskRuntimeOwnedElsewhere(task),
-    offline: options.offline === true,
+    offline: options.offline === true || (options.readOnly === true && !registeredLive),
   });
+  if (options.readOnly === true && registeredLive && detailSource === "live") {
+    const detail = {
+      ...toSummary(task),
+      ...liveSnapshotFields(registeredLive, includeMessages, options.onTiming),
+      ...liveDetailFlags({ task, live: registeredLive }),
+      permissionRequest: pendingPermissionForTask(id),
+      questionRequest: pendingQuestionForTask(id),
+    };
+    reportTaskDetailPhase(options.onTiming, "total", totalStartedAt);
+    return detail;
+  }
   if (detailSource === "archived") {
     const detail = {
       ...getTaskBootstrap(id),
@@ -7387,6 +7428,11 @@ export async function getTaskDetail(
   };
   reportTaskDetailPhase(options.onTiming, "total", totalStartedAt);
   return detail;
+}
+
+/** Optional Backend export: older bundles fall back to their explicit offline reader. */
+export function getTaskDetailReadOnly(id: string): Promise<TaskDetail> {
+  return getTaskDetail(id, { readOnly: true });
 }
 
 /**
