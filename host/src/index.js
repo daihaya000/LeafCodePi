@@ -19,7 +19,8 @@ import { buildHostRestartScript } from "./host-restart.js";
 import { DEFAULT_BACKEND_PORT } from "../../shared/backend-protocol.mjs";
 import { createBackendService, isBackendRequested } from "./backend-service.js";
 import { readBackendHealth, waitForBackendReady } from "./backend-health.js";
-import { BACKEND_OWNER, readRuntimeOwner, writeRuntimeOwner } from "./runtime-owner-state.js";
+// The ownership contract is shared with the Backend (the other writer), so it lives in backend core.
+import { BACKEND_OWNER, readRuntimeOwner, writeRuntimeOwner } from "../../backend/core/runtime-owner-state.mjs";
 import { createCutoverEffects, createCutoverVerify } from "./cutover-effects.js";
 import { createCutoverPreflight, readActiveGoalLoopCount } from "./cutover-preflight.js";
 import { runCutover } from "./cutover.js";

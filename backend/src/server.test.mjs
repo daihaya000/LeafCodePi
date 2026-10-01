@@ -1081,7 +1081,15 @@ test("close releases the socket and is idempotent", async (t) => {
 test("CLI starts as a separate process without pretending SDK is ready", { timeout: 5_000 }, async (t) => {
   const token = randomBytes(32).toString("base64url");
   const child = spawn(process.execPath, [fileURLToPath(new URL("./entry.mjs", import.meta.url))], {
-    env: { ...process.env, LEAFCODE_PI_BACKEND_TOKEN: token, LEAFCODE_PI_BACKEND_PORT: "0" },
+    // A test process running inside a live Backend inherits its runtime flag: a detached CLI is what
+    // this test is about, so it is cleared explicitly.
+    env: {
+      ...process.env,
+      LEAFCODE_PI_BACKEND_TOKEN: token,
+      LEAFCODE_PI_BACKEND_PORT: "0",
+      LEAFCODE_PI_BACKEND_RUNTIME: "",
+      LEAFCODE_PI_BACKEND_GENERATION: "",
+    },
     stdio: ["ignore", "pipe", "pipe"],
   });
   const exit = once(child, "exit");
@@ -1107,7 +1115,13 @@ test("CLI starts as a separate process without pretending SDK is ready", { timeo
 test("CLI serves no pending requests with a detached runtime and stays not ready", { timeout: 5_000 }, async (t) => {
   const token = randomBytes(32).toString("base64url");
   const child = spawn(process.execPath, [fileURLToPath(new URL("./entry.mjs", import.meta.url))], {
-    env: { ...process.env, LEAFCODE_PI_BACKEND_TOKEN: token, LEAFCODE_PI_BACKEND_PORT: "0" },
+    env: {
+      ...process.env,
+      LEAFCODE_PI_BACKEND_TOKEN: token,
+      LEAFCODE_PI_BACKEND_PORT: "0",
+      LEAFCODE_PI_BACKEND_RUNTIME: "",
+      LEAFCODE_PI_BACKEND_GENERATION: "",
+    },
     stdio: ["ignore", "pipe", "pipe"],
   });
   const exit = once(child, "exit");
@@ -1142,6 +1156,9 @@ async function spawnCli(t, extraEnv = {}) {
       LEAFCODE_PI_DATA_DIR: dataDir,
       LEAFCODE_PI_BACKEND_TOKEN: token,
       LEAFCODE_PI_BACKEND_PORT: "0",
+      // Inherited from a live Backend when the suite runs inside one; each test opts in explicitly.
+      LEAFCODE_PI_BACKEND_RUNTIME: "",
+      LEAFCODE_PI_BACKEND_GENERATION: "",
       ...extraEnv,
     },
     stdio: ["ignore", "pipe", "pipe"],

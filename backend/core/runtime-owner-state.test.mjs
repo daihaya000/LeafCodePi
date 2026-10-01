@@ -9,7 +9,7 @@ import {
   readRuntimeOwner,
   runtimeOwnerPath,
   writeRuntimeOwner,
-} from "./runtime-owner-state.js";
+} from "./runtime-owner-state.mjs";
 
 function fixture(t) {
   const dir = mkdtempSync(join(tmpdir(), "leafcode-runtime-owner-"));

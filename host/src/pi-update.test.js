@@ -20,6 +20,8 @@ test("autoUpdatePi updates the embedded Pi package once", () => {
   try {
     const result = autoUpdatePi({
       webDir,
+      // The suite may run inside a live Host (LEAFCODE_PI_AUTO_UPDATE=0): this test decides itself.
+      env: {},
       platform: "win32",
       spawnSync: (command, args, options) => {
         calls.push({ command, args, options });
@@ -53,6 +55,7 @@ test("autoUpdatePiInBackground updates without blocking startup", () => {
   try {
     const result = autoUpdatePiInBackground({
       webDir,
+      env: {},
       platform: "win32",
       spawn: (command, args, options) => {
         calls.push({ command, args, options });
@@ -104,6 +107,7 @@ test("autoUpdatePi keeps startup usable when npm fails", () => {
   try {
     const result = autoUpdatePi({
       webDir,
+      env: {},
       spawnSync: () => ({ status: 1 }),
       error: (message) => errors.push(message),
     });

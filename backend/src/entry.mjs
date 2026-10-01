@@ -1,4 +1,6 @@
 import { runtimeGenerationStatus } from "../../shared/backend-generation.mjs";
+import { BACKEND_OWNER, writeRuntimeOwner } from "../core/runtime-owner-state.mjs";
+import { dataDir } from "../core/app-paths.mjs";
 import { DEFAULT_BACKEND_PORT } from "../../shared/backend-protocol.mjs";
 import { readPendingRequestSnapshots } from "./pending-requests.mjs";
 import { createRuntimeHost } from "./runtime-host.mjs";
@@ -330,6 +332,10 @@ try {
       .then(() => {
         // Pin the generation of the runtime this host owns: a restart must not swap it.
         host.setGeneration(started.runtimeStatus().generation ?? null);
+        // The runtime is attached, so this process is the owner. Recording it here (the owner's own
+        // statement, next to the Host's cutover bookkeeping) keeps a later Host start from bringing
+        // the WebUI back as an owner of the same runtime.
+        if (started.runtimeStatus().ok === true) writeRuntimeOwner(dataDir(), BACKEND_OWNER);
       })
       .catch(() => {
         console.error("Backend runtime startup failed; health stays starting.");
