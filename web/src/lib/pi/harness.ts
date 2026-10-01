@@ -14,7 +14,7 @@ import {
 } from "@/lib/paths";
 import { prepareWorkspaceMove, type PreparedWorkspaceMove } from "@/lib/workspace-move";
 import { assertLocalRuntimeAllowed, localRuntimeBlocked } from "@/lib/pi/runtime-ownership";
-import { fetchRemoteTodoProgress, fetchRemoteTodoProgressMany } from "@/lib/pi/remote-todo-progress";
+import { fetchRemoteCodeProgress, fetchRemoteTodoProgressMany } from "@/lib/pi/remote-todo-progress";
 import { beginTaskPreparation, hasTaskPreparation, invalidateTaskPreparations, isTaskTreeEditing, withTaskSessionMutation, withTaskTreeEdit } from "./task-operation-guard";
 import { dispatchGoalLoopCommand, isGoalLoopCommandApplied } from "@/lib/pi/goal-loop-command";
 import { notifyPushoverCompletion, shouldNotifyPushoverCompletion } from "@/lib/pushover";
@@ -1466,10 +1466,13 @@ function sessionSnapshotFields(
   todos: TodoDto[];
   /** Cheap transcript identity for idle remote polls that omit message bodies. */
   messageRevision: string;
+  /** Running tool label; kept when messages are omitted for cutover peeks. */
+  activity?: string;
 } {
   const messagesStartedAt = reporter ? performance.now() : 0;
   // Only an explicit false omits the projection (rule lives in backend core).
-  const messages = detailIncludesMessages(includeMessages)
+  const includeBodies = detailIncludesMessages(includeMessages);
+  const messages = includeBodies
     ? snapshotMessages(
         session,
         throughputByStartedAt,
@@ -1480,6 +1483,19 @@ function sessionSnapshotFields(
         accountContext,
       )
     : [];
+  // Omit still needs the live tool label for Bot/Room Code cards after cutover.
+  const activityMessage = includeBodies
+    ? messages.at(-1) ?? null
+    : snapshotMessages(
+        session,
+        throughputByStartedAt,
+        toolStartedAt,
+        toolEndedAt,
+        toolPartialOutputByCallId,
+        true,
+        accountContext,
+      ).at(-1) ?? null;
+  const activity = activeToolLabel(activityMessage)?.slice(0, 80);
   reportTaskDetailPhase(reporter, "messages", messagesStartedAt);
 
   const contextStartedAt = reporter ? performance.now() : 0;
@@ -1523,6 +1539,7 @@ function sessionSnapshotFields(
     goalLoop,
     todos,
     messageRevision: `${storedMessages.length}:${lastId}:${session.isStreaming ? 1 : 0}:${session.isCompacting ? 1 : 0}`,
+    ...(activity ? { activity } : {}),
   };
 }
 
@@ -4381,18 +4398,6 @@ export async function peekCodeRequestProgress(taskId: string): Promise<{
     );
   }
   let todoProgress = summary.todoProgress;
-  // After cutover this process does not own sessions: opening Pi cold here reintroduces the
-  // sidebar-class cost on every Bot code-requests poll. Ask the owner for an omit detail instead.
-  if (!todoProgress && localRuntimeBlocked()) {
-    todoProgress = await fetchRemoteTodoProgress(taskId);
-  } else if (!todoProgress && task.sessionFile && !state().live.has(taskId)) {
-    try {
-      const pi = state().pi ?? (await loadPi());
-      todoProgress = readTodoProgress(pi, summary);
-    } catch {
-      /* Goal loop summary above is enough when Pi cannot open. */
-    }
-  }
   // Latest-only projection keeps Bot list polls off the full transcript path.
   let activity: string | undefined;
   const live = state().live.get(taskId);
@@ -4408,6 +4413,19 @@ export async function peekCodeRequestProgress(taskId: string): Promise<{
         messageContext(live),
       ).at(-1) ?? null;
     activity = activeToolLabel(message)?.slice(0, 80);
+  } else if (localRuntimeBlocked()) {
+    // After cutover this process has no live maps: opening Pi cold reintroduces the
+    // sidebar-class cost on every Bot code-requests poll. One omit detail covers Todo + activity.
+    const remote = await fetchRemoteCodeProgress(taskId);
+    if (!todoProgress) todoProgress = remote.todoProgress;
+    activity = remote.activity;
+  } else if (!todoProgress && task.sessionFile) {
+    try {
+      const pi = state().pi ?? (await loadPi());
+      todoProgress = readTodoProgress(pi, summary);
+    } catch {
+      /* Goal loop summary above is enough when Pi cannot open. */
+    }
   }
   return {
     ...(todoProgress ? { todoProgress } : {}),

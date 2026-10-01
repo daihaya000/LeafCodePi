@@ -17,25 +17,52 @@ export function todoProgressFromDetail(
   return undefined;
 }
 
-const inflight = new Map<string, Promise<TodoProgressDto | undefined>>();
+/** Running tool label the owner stamped on omit/page detail (see sessionSnapshotFields). */
+export function activityFromDetail(
+  detail: Record<string, unknown> | null | undefined,
+): string | undefined {
+  if (!detail) return undefined;
+  const activity = detail.activity;
+  return typeof activity === "string" && activity.trim() ? activity.slice(0, 80) : undefined;
+}
 
-/** One omit detail read per task; overlapping peek/sidebar polls share the in-flight GET. */
-export async function fetchRemoteTodoProgress(taskId: string): Promise<TodoProgressDto | undefined> {
+export type RemoteCodeProgress = {
+  todoProgress?: TodoProgressDto;
+  activity?: string;
+};
+
+const inflight = new Map<string, Promise<RemoteCodeProgress>>();
+
+/**
+ * One omit detail read per task for cutover peeks: Todo bars and the live tool label
+ * share the same Backend GET. Overlapping sidebar / code-requests polls coalesce.
+ */
+export async function fetchRemoteCodeProgress(taskId: string): Promise<RemoteCodeProgress> {
   const existing = inflight.get(taskId);
   if (existing) return existing;
-  const promise = (async () => {
+  const promise = (async (): Promise<RemoteCodeProgress> => {
     try {
       const result = await forwardTaskDetail(taskId, { messages: "omit" });
-      if (!result.ok) return undefined;
-      return todoProgressFromDetail(result.detail);
+      if (!result.ok) return {};
+      const todoProgress = todoProgressFromDetail(result.detail);
+      const activity = activityFromDetail(result.detail);
+      return {
+        ...(todoProgress ? { todoProgress } : {}),
+        ...(activity ? { activity } : {}),
+      };
     } catch {
-      return undefined;
+      return {};
     }
   })().finally(() => {
     inflight.delete(taskId);
   });
   inflight.set(taskId, promise);
   return promise;
+}
+
+/** One omit detail read per task; overlapping peek/sidebar polls share the in-flight GET. */
+export async function fetchRemoteTodoProgress(taskId: string): Promise<TodoProgressDto | undefined> {
+  return (await fetchRemoteCodeProgress(taskId)).todoProgress;
 }
 
 /** Bound concurrency so a large working set cannot stampede the Backend. */

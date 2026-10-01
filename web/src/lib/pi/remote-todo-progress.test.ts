@@ -1,5 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { fetchRemoteTodoProgress, fetchRemoteTodoProgressMany, todoProgressFromDetail } from "./remote-todo-progress";
+import {
+  activityFromDetail,
+  fetchRemoteCodeProgress,
+  fetchRemoteTodoProgress,
+  fetchRemoteTodoProgressMany,
+  todoProgressFromDetail,
+} from "./remote-todo-progress";
 
 const mocks = vi.hoisted(() => ({
   forwardTaskDetail: vi.fn(),
@@ -24,18 +30,24 @@ describe("remote-todo-progress", () => {
     expect(todoProgressFromDetail(null)).toBeUndefined();
   });
 
+  it("reads activity from omit detail", () => {
+    expect(activityFromDetail({ activity: "読取 README.md" })).toBe("読取 README.md");
+    expect(activityFromDetail({ activity: "   " })).toBeUndefined();
+    expect(activityFromDetail(null)).toBeUndefined();
+  });
+
   it("shares in-flight omit detail reads for the same task", async () => {
     let resolve!: (value: unknown) => void;
     mocks.forwardTaskDetail.mockReturnValue(new Promise((done) => { resolve = done; }));
-    const first = fetchRemoteTodoProgress("task-1");
+    const first = fetchRemoteCodeProgress("task-1");
     const second = fetchRemoteTodoProgress("task-1");
     expect(mocks.forwardTaskDetail).toHaveBeenCalledTimes(1);
     expect(mocks.forwardTaskDetail).toHaveBeenCalledWith("task-1", { messages: "omit" });
     resolve({
       ok: true,
-      detail: { todoProgress: { total: 1, completed: 0 } },
+      detail: { todoProgress: { total: 1, completed: 0 }, activity: "検索" },
     });
-    await expect(first).resolves.toEqual({ total: 1, completed: 0 });
+    await expect(first).resolves.toEqual({ todoProgress: { total: 1, completed: 0 }, activity: "検索" });
     await expect(second).resolves.toEqual({ total: 1, completed: 0 });
   });
 
@@ -49,8 +61,9 @@ describe("remote-todo-progress", () => {
     expect(mocks.forwardTaskDetail).toHaveBeenCalledTimes(2);
   });
 
-  it("returns undefined when the Backend omit read fails", async () => {
+  it("returns empty progress when the Backend omit read fails", async () => {
     mocks.forwardTaskDetail.mockResolvedValue({ ok: false, reason: "unreachable" });
+    await expect(fetchRemoteCodeProgress("task-1")).resolves.toEqual({});
     await expect(fetchRemoteTodoProgress("task-1")).resolves.toBeUndefined();
   });
 });

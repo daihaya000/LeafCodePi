@@ -74,9 +74,15 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
             const origin = roomBotTaskId(id, botId);
             for (const linked of linkedCodeTaskIdsForOrigin(origin)) tasks.add(linked);
           }
-          for (const [taskId, unsubscribe] of subscriptions) if (!tasks.has(taskId)) { unsubscribe(); subscriptions.delete(taskId); }
-          for (const taskId of tasks) if (!subscriptions.has(taskId)) {
-            subscriptions.set(taskId, subscribeTask(taskId, (payload) => { if (payload.type === "snapshot") snapshot(); }));
+          // After cutover this process has no live emitters for those tasks — dirty + disk poll wake instead.
+          if (!backendOwns) {
+            for (const [taskId, unsubscribe] of subscriptions) if (!tasks.has(taskId)) { unsubscribe(); subscriptions.delete(taskId); }
+            for (const taskId of tasks) if (!subscriptions.has(taskId)) {
+              subscriptions.set(taskId, subscribeTask(taskId, (payload) => { if (payload.type === "snapshot") snapshot(); }));
+            }
+          } else if (subscriptions.size > 0) {
+            for (const off of subscriptions.values()) off();
+            subscriptions.clear();
           }
           syncDirty(tasks);
           const attention: RoomAttention[] = room.members.map((botId) => {

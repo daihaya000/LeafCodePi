@@ -654,6 +654,11 @@ export type TaskDetail = TaskSummary & {
   };
   goalLoop?: GoalLoopDto | null;
   todos?: TodoDto[];
+  /**
+   * Live tool label for collapsed Code cards / Room mirrors.
+   * Present even when `messages` are omitted so cutover peeks stay cheap.
+   */
+  activity?: string;
   permissionRequest?: PermissionRequestDto | null;
   questionRequest?: QuestionRequestDto | null;
   /** Empty string means abort before any assistant message existed. */

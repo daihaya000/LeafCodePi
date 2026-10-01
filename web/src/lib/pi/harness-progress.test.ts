@@ -123,6 +123,7 @@ describe("readTaskProgressSnapshot", () => {
     assert.equal(live.get(task.id)?.lastActivityAt, 123, "a read must not keep an idle session alive");
     const summary = await getTaskDetail(task.id, { readOnly: true, includeMessages: false });
     assert.deepEqual(summary.messages, []);
+    assert.equal(summary.activity, "コマンド");
     const offline = await getTaskDetail(task.id, { readOnly: true, offline: true });
     assert.deepEqual(offline.messages, [], "explicit offline still excludes memory-only replies");
     patchTask(task.id, { status: "archived" });

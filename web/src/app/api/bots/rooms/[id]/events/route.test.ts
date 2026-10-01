@@ -117,6 +117,8 @@ describe("GET /api/bots/rooms/[id]/events", () => {
     expect(mocks.pendingQuestionForTask).not.toHaveBeenCalled();
     expect(mocks.forwardPendingRequestsByTask).toHaveBeenCalledTimes(1);
     expect(mocks.subscribeBackendTaskDirty).toHaveBeenCalled();
+    // Cutover Room streams wake via dirty + disk poll; local task emitters are empty.
+    expect(mocks.subscribeTask).not.toHaveBeenCalled();
     await reader.cancel();
   });
 
@@ -132,6 +134,7 @@ describe("GET /api/bots/rooms/[id]/events", () => {
     ]);
     expect(mocks.forwardPendingRequestsByTask).not.toHaveBeenCalled();
     expect(mocks.subscribeBackendTaskDirty).not.toHaveBeenCalled();
+    expect(mocks.subscribeTask).toHaveBeenCalled();
     await reader.cancel();
   });
 
