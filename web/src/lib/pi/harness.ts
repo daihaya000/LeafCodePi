@@ -63,6 +63,7 @@ import {
   isBotPromptText,
   markBotPrompt,
   rawUserMessageText,
+  goalLoopUiPrompt,
   stripBotPromptPrefix,
   titleFromPrompt,
   toolResultText,
@@ -10383,11 +10384,11 @@ export async function revertTask(
     eventType: "revert",
   });
   const restoredPrompt = parsePromptFileMarkers(
-    typeof result.editorText === "string"
+    entry.editorText ?? (typeof result.editorText === "string"
       ? result.editorText
       : typeof entry.message.content === "string"
         ? entry.message.content
-        : "",
+        : ""),
     { readStored: readStoredPromptFileContent },
   );
   return {
@@ -10402,12 +10403,23 @@ export async function revertTask(
 export function messageEntryById(
   session: AgentSession,
   messageId: string,
-): { id: string; message: { role: string; content: unknown } } | null {
+): { id: string; message: { role: string; content: unknown }; editorText?: string } | null {
   try {
     const entries = session.sessionManager.getEntries();
     // 通常経路: snapshotMessages が UiMessage.id へ設定したエントリ id
     for (const entry of entries) {
-      if (entry.type !== "message" || entry.id !== messageId) continue;
+      if (entry.id !== messageId) continue;
+      if (entry.type === "custom_message") {
+        // Only the initial Goal Loop prompt is a visible user input. Other custom entries stay hidden.
+        const prompt = goalLoopUiPrompt(entry as unknown as Record<string, unknown>);
+        if (prompt === null) continue;
+        const content = Array.isArray(entry.content)
+          ? [{ type: "text", text: prompt }, ...entry.content.filter((block) => block.type === "image")]
+          : prompt;
+        // navigateTree returns the full scheduler prompt; never restore it into the user's composer.
+        return { id: entry.id, message: { role: "user", content }, editorText: prompt };
+      }
+      if (entry.type !== "message") continue;
       const message = (entry as { message?: unknown }).message;
       if (!message || typeof message !== "object") continue;
       return {

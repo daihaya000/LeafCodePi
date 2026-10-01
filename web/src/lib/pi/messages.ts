@@ -345,7 +345,7 @@ function goalLoopTurnFromRaw(item: Record<string, unknown>): GoalLoopTurn | null
  * Goal Loop custom messages carry the full LLM prompt in `content`. Only the
  * separately supplied user goal is safe to project into the WebUI timeline.
  */
-function goalLoopUiPrompt(item: Record<string, unknown>): string | null {
+export function goalLoopUiPrompt(item: Record<string, unknown>): string | null {
   if (item.customType !== GOAL_LOOP_TURN_CUSTOM_TYPE) return null;
   const details = isRecord(item.details) ? item.details : null;
   const prompt = asString(details?.uiPrompt);
