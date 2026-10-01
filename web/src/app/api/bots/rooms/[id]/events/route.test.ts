@@ -8,7 +8,7 @@ const mocks = vi.hoisted(() => ({
   subscribeTask: vi.fn(() => () => undefined),
   linkedCodeTaskIdsForOrigin: vi.fn((): string[] => []),
   pendingPermissionForTask: vi.fn((): unknown => null),
-  pendingQuestionForTask: vi.fn((): unknown => null),
+  pendingQuestionForTask: vi.fn<(taskId: string) => unknown>(() => null),
   localRuntimeBlocked: vi.fn(() => false),
   forwardPendingRequestsByTask: vi.fn(),
 }));

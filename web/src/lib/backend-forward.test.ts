@@ -131,7 +131,7 @@ describe("forwardablePromptBody", () => {
 
 describe("forwardTaskPrompt", () => {
   it("posts to the owning Backend and returns its task summary", async () => {
-    const fetchImpl = vi.fn(async () => jsonResponse(200, { task: { id: "task-1", status: "working" } }));
+    const fetchImpl = vi.fn<typeof fetch>(async () => jsonResponse(200, { task: { id: "task-1", status: "working" } }));
     const result = await forwardTaskPrompt("task-1", { prompt: "hi", auto: true }, { env, fetchImpl: fetchImpl as unknown as typeof fetch });
     expect(result).toEqual({ ok: true, task: { id: "task-1", status: "working" } });
     expect(fetchImpl.mock.calls[0][0]).toBe("http://127.0.0.1:19999/internal/tasks/task-1/prompt");
@@ -188,7 +188,7 @@ describe("forwardTaskDetail", () => {
   });
 
   it("reads the detail from the Backend and reports its failures", async () => {
-    const ok = vi.fn(async () => jsonResponse(200, { detail: { id: "task-1", status: "working" } }));
+    const ok = vi.fn<typeof fetch>(async () => jsonResponse(200, { detail: { id: "task-1", status: "working" } }));
     await expect(forwardTaskDetail("task-1", { env, fetchImpl: ok as unknown as typeof fetch })).resolves.toEqual({
       ok: true,
       detail: { id: "task-1", status: "working" },
@@ -217,7 +217,7 @@ describe("forwardTaskDetail", () => {
 
 describe("forwarding answers", () => {
   it("posts the approval to the owning Backend", async () => {
-    const fetchImpl = vi.fn(async () => jsonResponse(200, { ok: true }));
+    const fetchImpl = vi.fn<typeof fetch>(async () => jsonResponse(200, { ok: true }));
     await expect(
       forwardPermissionAnswer("task-1", { requestId: "req-1", approved: true }, { env, fetchImpl: fetchImpl as unknown as typeof fetch }),
     ).resolves.toEqual({ ok: true });
@@ -226,7 +226,7 @@ describe("forwarding answers", () => {
   });
 
   it("keeps a rejection as a missing answer and reports a stale request as not-found", async () => {
-    const fetchImpl = vi.fn(async () => jsonResponse(200, { ok: true }));
+    const fetchImpl = vi.fn<typeof fetch>(async () => jsonResponse(200, { ok: true }));
     await expect(
       forwardQuestionAnswer("task-1", { requestId: "q1" }, { env, fetchImpl: fetchImpl as unknown as typeof fetch }),
     ).resolves.toEqual({ ok: true });
@@ -245,7 +245,7 @@ describe("forwarding answers", () => {
 
 describe("forwardTaskAbort", () => {
   it("stops the session in the Backend and keeps the Bot id", async () => {
-    const fetchImpl = vi.fn(async () => jsonResponse(200, { task: { id: "t1", status: "error" } }));
+    const fetchImpl = vi.fn<typeof fetch>(async () => jsonResponse(200, { task: { id: "t1", status: "error" } }));
     await expect(
       forwardTaskAbort("t1", { botId: "bot-1", env, fetchImpl: fetchImpl as unknown as typeof fetch }),
     ).resolves.toEqual({ ok: true, task: { id: "t1", status: "error" } });
@@ -254,7 +254,7 @@ describe("forwardTaskAbort", () => {
   });
 
   it("sends no Bot id for an ordinary task, and maps 404 to not-found", async () => {
-    const ok = vi.fn(async () => jsonResponse(200, { task: { id: "t1" } }));
+    const ok = vi.fn<typeof fetch>(async () => jsonResponse(200, { task: { id: "t1" } }));
     await forwardTaskAbort("t1", { env, fetchImpl: ok as unknown as typeof fetch });
     expect(JSON.parse(String(ok.mock.calls[0][1]?.body))).toEqual({});
     const missing = vi.fn(async () => jsonResponse(404, { error: "Task not found" }));
@@ -653,7 +653,7 @@ describe("forwardTaskPendingRequests", () => {
   });
 
   it("reads the pending request the owning Backend is waiting on", async () => {
-    const fetchImpl = vi.fn(async () =>
+    const fetchImpl = vi.fn<typeof fetch>(async () =>
       jsonResponse(200, {
         snapshots: [
           { taskId: "other", payload: { permissionRequest: { requestId: "nope" } } },

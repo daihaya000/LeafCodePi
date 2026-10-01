@@ -61,7 +61,7 @@ describe("fetchBackendJson", () => {
   });
 
   it("sends the bearer token and protocol header and returns the body", async () => {
-    const fetchImpl = vi.fn(async () => jsonResponse(200, { ready: true, status: "ready", pid: 1 }));
+    const fetchImpl = vi.fn<typeof fetch>(async () => jsonResponse(200, { ready: true, status: "ready", pid: 1 }));
     const result = await fetchBackendJson<{ ready: boolean }>("/internal/health", { env, fetchImpl });
     expect(result).toEqual({ ok: true, status: 200, body: { ready: true, status: "ready", pid: 1 } });
     const [url, init] = fetchImpl.mock.calls[0] as [string, RequestInit];

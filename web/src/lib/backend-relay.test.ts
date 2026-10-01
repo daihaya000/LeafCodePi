@@ -86,7 +86,7 @@ describe("relayBotList", () => {
 
   it("returns null when either read fails, so the caller falls back", async () => {
     const env = { NODE_ENV: "production" };
-    const ok = { ok: true, status: 200, body: { bots, tasks } };
+    const ok = { ok: true as const, status: 200, body: { bots, tasks } };
     await expect(relayBotList({
       env,
       fetchBots: async () => ({ ok: false, reason: "unreachable" }),
@@ -102,7 +102,7 @@ describe("relayBotList", () => {
   it("tolerates a payload without a Bot list", async () => {
     const result = await relayBotList({
       env: { NODE_ENV: "production" },
-      fetchBots: async () => ({ ok: true, status: 200, body: {} }),
+      fetchBots: vi.fn().mockResolvedValue({ ok: true, status: 200, body: {} }),
       fetchTasks: async () => ({ ok: true, status: 200, body: { tasks } }),
     });
     expect(result).toEqual([]);
