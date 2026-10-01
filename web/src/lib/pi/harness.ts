@@ -14,6 +14,7 @@ import {
 } from "@/lib/paths";
 import { prepareWorkspaceMove, type PreparedWorkspaceMove } from "@/lib/workspace-move";
 import { assertLocalRuntimeAllowed, localRuntimeBlocked } from "@/lib/pi/runtime-ownership";
+import { readDiskTodoProgress } from "@/lib/pi/disk-todo-progress";
 import { fetchRemoteCodeProgress, fetchRemoteTodoProgressMany } from "@/lib/pi/remote-todo-progress";
 import { beginTaskPreparation, hasTaskPreparation, invalidateTaskPreparations, isTaskTreeEditing, withTaskSessionMutation, withTaskTreeEdit } from "./task-operation-guard";
 import { dispatchGoalLoopCommand, isGoalLoopCommandApplied } from "@/lib/pi/goal-loop-command";
@@ -4414,11 +4415,14 @@ export async function peekCodeRequestProgress(taskId: string): Promise<{
       ).at(-1) ?? null;
     activity = activeToolLabel(message)?.slice(0, 80);
   } else if (localRuntimeBlocked()) {
-    // After cutover this process has no live maps: opening Pi cold reintroduces the
-    // sidebar-class cost on every Bot code-requests poll. One omit detail covers Todo + activity.
-    const remote = await fetchRemoteCodeProgress(taskId);
-    if (!todoProgress) todoProgress = remote.todoProgress;
-    activity = remote.activity;
+    // After cutover this process has no live maps. Shared-disk Todo bars stay cheap;
+    // only a working task needs Backend omit for the live tool label (+ freshest Todo).
+    if (!todoProgress) todoProgress = readDiskTodoProgress(task.sessionFile);
+    if (task.status === "working") {
+      const remote = await fetchRemoteCodeProgress(taskId);
+      if (!todoProgress) todoProgress = remote.todoProgress;
+      activity = remote.activity;
+    }
   } else if (!todoProgress && task.sessionFile) {
     try {
       const pi = state().pi ?? (await loadPi());
@@ -7263,14 +7267,20 @@ async function buildTaskSummariesWithTodoProgress(
 
   let progressByTaskId = new Map<string, TodoProgressDto>();
   // After the cutover this process does not own live sessions: opening every cold
-  // session for sidebar Todo bars re-parses transcripts (seconds) on each poll.
-  // Goal Loop summaries above are disk-only and stay available to the client WebUI.
-  // Remote: only enrich working / goal-loop tasks so a large idle list cannot stampede omit GETs.
+  // session via Pi SessionManager for sidebar Todo bars re-parses transcripts (seconds)
+  // on each poll. Goal Loop summaries above are disk-only and stay available.
+  // Remote: omit only working / goal-loop (live accuracy); idle bars use shared-disk
+  // todowrite scans (mtime-cached) so a large idle list cannot stampede omit GETs.
   if (tasksToRead.length > 0 && localRuntimeBlocked()) {
     const remoteIds = tasksToRead
       .filter((task) => task.status === "working" || goalLoopByTaskId.has(task.id))
       .map((task) => task.id);
     progressByTaskId = await fetchRemoteTodoProgressMany(remoteIds);
+    for (const task of tasksToRead) {
+      if (progressByTaskId.has(task.id)) continue;
+      const progress = readDiskTodoProgress(task.sessionFile);
+      if (progress) progressByTaskId.set(task.id, progress);
+    }
   } else if (tasksToRead.length > 0) {
     try {
       const pi = await loadPi();
@@ -7342,13 +7352,18 @@ export async function getBotCodeSessionPanelState(botId: string): Promise<{
       !task.todoProgress,
   );
   let progressByTaskId = new Map<string, TodoProgressDto>();
-  // Same cutover rule as getTaskSummariesWithTodoProgress: never open cold sessions
-  // from a client WebUI just to paint Todo bars on the Bot Code panel.
+  // Same cutover rule as getTaskSummariesWithTodoProgress: omit for live / goal-loop,
+  // shared-disk for idle Todo bars (no Pi SessionManager, no N×omit).
   if (coldNeedingTodo.length > 0 && localRuntimeBlocked()) {
     const remoteIds = coldNeedingTodo
       .filter((task) => task.status === "working" || goalLoopByTaskId.has(task.id) || loops[task.id])
       .map((task) => task.id);
     progressByTaskId = await fetchRemoteTodoProgressMany(remoteIds);
+    for (const task of coldNeedingTodo) {
+      if (progressByTaskId.has(task.id)) continue;
+      const progress = readDiskTodoProgress(task.sessionFile);
+      if (progress) progressByTaskId.set(task.id, progress);
+    }
   } else if (coldNeedingTodo.length > 0) {
     try {
       const pi = await loadPi();
