@@ -112,6 +112,8 @@ describe("forwardablePromptBody", () => {
       agent: "builder",
       streamingBehavior: "followUp",
       resume: true,
+      auto: true,
+      autoRetry: true,
       images: [{ mimeType: "image/png", data: "x" }],
       files: [],
     });
@@ -119,7 +121,7 @@ describe("forwardablePromptBody", () => {
     expect(forwardablePromptBody(undefined)).toEqual({});
   });
 
-  it("flags the fields the WebUI has to resolve first", () => {
+  it("identifies the selection fields now resolved by the owner", () => {
     expect(needsLocalResolution({ prompt: "hi" })).toBe(false);
     expect(needsLocalResolution(null)).toBe(false);
     for (const field of ["auto", "autoRetry", "autoOptimize", "autoRouteOverrides"]) {
@@ -135,7 +137,14 @@ describe("forwardTaskPrompt", () => {
     const result = await forwardTaskPrompt("task-1", { prompt: "hi", auto: true }, { env, fetchImpl: fetchImpl as unknown as typeof fetch });
     expect(result).toEqual({ ok: true, task: { id: "task-1", status: "working" } });
     expect(fetchImpl.mock.calls[0][0]).toBe("http://127.0.0.1:19999/internal/tasks/task-1/prompt");
-    expect(JSON.parse(String(fetchImpl.mock.calls[0][1]?.body))).toEqual({ prompt: "hi" });
+    expect(JSON.parse(String(fetchImpl.mock.calls[0][1]?.body))).toEqual({ prompt: "hi", auto: true });
+  });
+
+  it("preserves the owner's business response and Auto decision envelope", async () => {
+    const answer = { status: 409, body: { error: "a turn is already active" } };
+    const fetchImpl = vi.fn<typeof fetch>(async () => jsonResponse(200, { result: answer }));
+    await expect(forwardTaskPrompt("task-1", { prompt: "hi", auto: true }, { env, fetchImpl }))
+      .resolves.toEqual({ ok: true, task: null, result: answer });
   });
 
   it("reports a failure instead of falling back locally", async () => {

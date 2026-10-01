@@ -21,7 +21,7 @@ const API_DIR = join(__dirname, "..", "..", "app", "api");
  * through a shared ladder (`handleRoomPrompt`, `revertRoomConversation`).
  */
 const SESSION_STARTERS =
-  /\b(promptTask|goalLoopCommand|abortTask|abortTaskIncludingColdGoalLoop|stopBotCodeTask|respondToPermissionPrompt|respondToQuestionPrompt|ensureLive|subscribeTask|getTaskBootstrap|getTaskDetail|getTaskDetailBounded|queueBotCodePrompt|runUserBotCodeRequest|revertTask|unrevertTask|compactTask|abortTaskCompaction|setTaskModel|setTaskThinkingLevel|setTaskAgent|runRoutine|handleRoomPrompt|handleRoomPatch|handleRoomDelete|revertRoomConversation|runRoomConversation|runRoomFanOut|runRoomBot|stopRoomTurns|steerRoomTurns|deliverReadyRoomHandoffs)\b/;
+  /\b(handleTaskPrompt|promptTask|goalLoopCommand|abortTask|abortTaskIncludingColdGoalLoop|stopBotCodeTask|respondToPermissionPrompt|respondToQuestionPrompt|ensureLive|subscribeTask|getTaskBootstrap|getTaskDetail|getTaskDetailBounded|queueBotCodePrompt|runUserBotCodeRequest|revertTask|unrevertTask|compactTask|abortTaskCompaction|setTaskModel|setTaskThinkingLevel|setTaskAgent|runRoutine|handleRoomPrompt|handleRoomPatch|handleRoomDelete|revertRoomConversation|runRoomConversation|runRoomFanOut|runRoomBot|stopRoomTurns|steerRoomTurns|deliverReadyRoomHandoffs)\b/;
 
 /** How a route proves it is not acting as the owner: it consults the switch or forwards. */
 const OWNERSHIP_GUARDS =
@@ -130,7 +130,7 @@ describe("runtime ownership coverage", () => {
  * wider set of operations that tear down, stop or reload sessions the Backend owns.
  */
 const OWNER_OPERATIONS =
-  /\b(createTask|handleBotPatch|handleBotDelete|destroyArchivedTasksByProject|archiveTask|destroyTask|archiveProjectAndStopTasks|destroyProject|migrateProject|promoteTask|handoffTaskToBot|releaseTaskFromBot|resetTaskConversation|setBotModel|setBotPermissionMode|setBotThinkingLevel|setBotTools|requestBotSoulReload|createBotCodeTask|continueBotCodeTask|completeBotCodeRequest|promptTask|goalLoopCommand|abortTask|abortTaskIncludingColdGoalLoop|stopBotCodeTask|respondToPermissionPrompt|respondToQuestionPrompt|revertTask|unrevertTask|compactTask|abortTaskCompaction|setTaskModel|setTaskThinkingLevel|setTaskAgent|runRoutine|handleRoomPrompt|handleRoomPatch|handleRoomDelete|revertRoomConversation)\b/;
+  /\b(handleTaskPrompt|createTask|handleBotPatch|handleBotDelete|destroyArchivedTasksByProject|archiveTask|destroyTask|archiveProjectAndStopTasks|destroyProject|migrateProject|promoteTask|handoffTaskToBot|releaseTaskFromBot|resetTaskConversation|setBotModel|setBotPermissionMode|setBotThinkingLevel|setBotTools|requestBotSoulReload|createBotCodeTask|continueBotCodeTask|completeBotCodeRequest|promptTask|goalLoopCommand|abortTask|abortTaskIncludingColdGoalLoop|stopBotCodeTask|respondToPermissionPrompt|respondToQuestionPrompt|revertTask|unrevertTask|compactTask|abortTaskCompaction|setTaskModel|setTaskThinkingLevel|setTaskAgent|runRoutine|handleRoomPrompt|handleRoomPatch|handleRoomDelete|revertRoomConversation)\b/;
 
 const HANDLER_GUARDS = /\b(localRuntimeBlocked|forward[A-Z]\w*|\w+OnBackend|relayFallbackAllowed|readBackend\w+)\b/;
 

@@ -140,8 +140,7 @@ try {
       if (!runtime) {
         throw Object.assign(new Error("runtime unavailable"), { status: 503 });
       }
-      const { prompt, images, ...options } = body ?? {};
-      return runtime.promptTask(id, prompt, Array.isArray(images) && images.length > 0 ? images : undefined, options);
+      return runtime.handleTaskPrompt(id, body);
     },
     // Stopping a session: a Bot-owned Code task must mark its outbox as user-stopped, like the Bot panel.
     abortTask: (id, botId) => {

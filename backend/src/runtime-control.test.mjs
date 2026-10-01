@@ -29,6 +29,16 @@ test("validated setting changes execute in the runtime owner", async (t) => {
   assert.equal((await post({ action: "execute-arbitrary-function" })).status, 400);
   assert.equal(calls.length, 1);
 });
+test("prompt selection metadata and domain errors retain the owner's envelope", async (t) => {
+  let received;
+  const answer = { status: 409, body: { error: "a turn is active" } };
+  const { url, headers } = await fixture(t, { readTask: () => ({ id: "task" }), promptTask: (_id, body) => { received = body; return answer; } });
+  const request = { prompt: "fix", auto: true, autoOptimize: "balanced", agent: "__auto__" };
+  const response = await fetch(url.replace("/runtime/control", "/tasks/task/prompt"), { method: "POST", headers, body: JSON.stringify(request) });
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), { result: answer });
+  assert.deepEqual(received, request);
+});
 test("an unavailable owner never answers that no loops exist", async (t) => {
   const { url, headers } = await fixture(t);
   assert.equal((await fetch(url, { headers })).status, 503);

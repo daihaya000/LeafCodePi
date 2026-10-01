@@ -32,6 +32,7 @@ import {
   type BackendResult,
 } from "@/lib/backend-client";
 import type { PermissionRequestDto, QuestionRequestDto, RoomFile, RoomImage } from "@/lib/types";
+import { AUTO_AGENT_VALUE } from "@/lib/default-agent";
 
 /**
  * Forwarding a prompt to the Backend that owns the runtime.
@@ -51,9 +52,10 @@ const FORWARDED_FIELDS = [
   "agent",
   "streamingBehavior",
   "resume",
+  "auto", "autoRetry", "autoOptimize", "autoRouteOverrides",
 ] as const;
 
-/** Fields the WebUI resolves before sending (Auto selection). Forwarding them would be meaningless. */
+/** Selection fields resolved by the owner; retained for callers identifying selection requests. */
 const WEBUI_ONLY_FIELDS = ["auto", "autoRetry", "autoOptimize", "autoRouteOverrides"] as const;
 
 /** Whether this body needs WebUI-side resolution before it can be forwarded. */
@@ -72,7 +74,7 @@ export function forwardablePromptBody(body: Record<string, unknown> | null | und
 }
 
 export type ForwardedPromptResult =
-  | { ok: true; task: Record<string, unknown> | null }
+  | { ok: true; task: Record<string, unknown> | null; result?: { status: number; body: Record<string, unknown> } }
   | { ok: false; reason: BackendFailureReason; status?: number };
 
 /** Starts the session in the owning Backend. Never falls back to the in-process path. */
@@ -81,8 +83,18 @@ export async function forwardTaskPrompt(
   body: Record<string, unknown> | null | undefined,
   options: { env?: BackendEnv; fetchImpl?: typeof fetch; timeoutMs?: number } = {},
 ): Promise<ForwardedPromptResult> {
-  const result = await promptTaskOnBackend(id, forwardablePromptBody(body), options);
+  const result = await promptTaskOnBackend(id, forwardablePromptBody(body), {
+    ...options, timeoutMs: options.timeoutMs ?? (body?.auto === true || body?.agent === AUTO_AGENT_VALUE ? 180_000 : undefined),
+  });
   if (!result.ok) return { ok: false, reason: result.reason, ...(result.status ? { status: result.status } : {}) };
+  if (result.body?.result !== undefined) {
+    const answer = result.body.result;
+    if (!answer || !Number.isInteger(answer.status) || answer.status < 200 || answer.status > 599 || !answer.body || typeof answer.body !== "object" || Array.isArray(answer.body)) {
+      return { ok: false, reason: "bad-response", status: 502 };
+    }
+    const task = answer.body.task;
+    return { ok: true, task: task && typeof task === "object" ? task as Record<string, unknown> : null, result: answer };
+  }
   const task = result.body?.task;
   return { ok: true, task: task && typeof task === "object" ? task : null };
 }

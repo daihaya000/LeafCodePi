@@ -15,6 +15,7 @@ export const DEFAULT_RUNTIME_BUNDLE = resolve(HERE, "..", "runtime", "runtime.bu
 export const REQUIRED_RUNTIME_EXPORTS = Object.freeze([
   "createTask",
   "promptTask",
+  "handleTaskPrompt",
   "getTaskDetail",
   "abortTask",
   "abortTaskIncludingColdGoalLoop",

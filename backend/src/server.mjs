@@ -579,7 +579,10 @@ export function createBackendServer({
           sendJson(response, 200, { task });
         } else if (actionSuffix === BACKEND_TASK_PROMPT_SUFFIX) {
           const summary = await handler(actionPath, body.value);
-          sendJson(response, 200, { task: summary ?? null });
+          // Owning-mode selection/recovery carries its original HTTP contract inside the envelope.
+          if (Number.isInteger(summary?.status) && summary.body && typeof summary.body === "object") {
+            sendJson(response, 200, { result: summary });
+          } else sendJson(response, 200, { task: summary ?? null });
         } else if (actionSuffix === BACKEND_TASK_PERMISSION_SUFFIX) {
           const { requestId, approved } = body.value ?? {};
           if (typeof requestId !== "string" || typeof approved !== "boolean") {

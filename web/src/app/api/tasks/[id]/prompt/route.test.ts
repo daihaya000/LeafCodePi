@@ -134,13 +134,25 @@ describe("POST /api/tasks/[id]/prompt", () => {
     expect(mocks.promptTask).not.toHaveBeenCalled();
   });
 
-  it("refuses Auto in the non-owning mode rather than resolving it locally", async () => {
+  it("forwards Auto to the owner instead of refusing it or resolving locally", async () => {
     vi.mocked(localRuntimeBlocked).mockReturnValue(true);
-    vi.mocked(needsLocalResolution).mockReturnValue(true);
+    const body = { task: { id: "task-1" }, autoDecision: { modelID: "selected" } };
+    vi.mocked(forwardTaskPrompt).mockResolvedValue({ ok: true, task: body.task, result: { status: 200, body } });
     const response = await POST(request({ prompt: "こんにちは", auto: true }), { params: Promise.resolve({ id: "task-1" }) });
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual(body);
+    expect(forwardTaskPrompt).toHaveBeenCalledWith("task-1", expect.objectContaining({ auto: true }));
+    expect(mocks.resolveAutoModel).not.toHaveBeenCalled();
+    expect(mocks.resolveAutoAgent).not.toHaveBeenCalled();
+    expect(mocks.promptTask).not.toHaveBeenCalled();
+  });
+
+  it("replays the owner's original business error and status", async () => {
+    vi.mocked(localRuntimeBlocked).mockReturnValue(true);
+    vi.mocked(forwardTaskPrompt).mockResolvedValue({ ok: true, task: null, result: { status: 409, body: { error: "停止後に再試行してください" } } });
+    const response = await POST(request({ prompt: "test" }), { params: Promise.resolve({ id: "task-1" }) });
     expect(response.status).toBe(409);
-    await expect(response.json()).resolves.toEqual({ error: "Auto設定は非所有モードでは未対応です", code: "AUTO_NOT_SUPPORTED" });
-    expect(forwardTaskPrompt).not.toHaveBeenCalled();
+    expect(await response.json()).toEqual({ error: "停止後に再試行してください" });
   });
 
   it("resolves Auto from the persisted conversation and passes the real agent", async () => {

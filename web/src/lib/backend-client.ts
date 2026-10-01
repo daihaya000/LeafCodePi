@@ -223,7 +223,7 @@ export function promptTaskOnBackend(
   id: string,
   body: unknown,
   options: { env?: BackendEnv; fetchImpl?: typeof fetch; timeoutMs?: number } = {},
-): Promise<BackendResult<{ task: Record<string, unknown> | null }>> {
+): Promise<BackendResult<{ task?: Record<string, unknown> | null; result?: { status: number; body: Record<string, unknown> } }>> {
   return postBackendJson(`${BACKEND_TASKS_PATH}/${encodeURIComponent(id)}${BACKEND_TASK_PROMPT_SUFFIX}`, body, options);
 }
 
