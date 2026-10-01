@@ -57,6 +57,8 @@ async function loadServices(): Promise<RuntimeStartupServices> {
       ? () => harness.getTaskSummariesWithTodoProgress(true)
       : undefined,
     warmModels: typeof harness.listModelsForAccounts === "function" ? async () => {
+      // Client Web must not warm the Pi model catalog after the Backend owns the runtime.
+      if (localRuntimeBlocked()) return;
       const { listAccounts } = await import("@/lib/accounts");
       return harness.listModelsForAccounts(listAccounts());
     } : undefined,

@@ -4380,7 +4380,9 @@ export async function peekCodeRequestProgress(taskId: string): Promise<{
     );
   }
   let todoProgress = summary.todoProgress;
-  if (!todoProgress && task.sessionFile && !state().live.has(taskId)) {
+  // After cutover this process does not own sessions: opening Pi cold here reintroduces the
+  // sidebar-class cost on every Bot code-requests poll.
+  if (!todoProgress && task.sessionFile && !state().live.has(taskId) && !localRuntimeBlocked()) {
     try {
       const pi = state().pi ?? (await loadPi());
       todoProgress = readTodoProgress(pi, summary);

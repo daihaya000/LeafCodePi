@@ -122,6 +122,7 @@ import { notifyBotSidebarChanged, notifyTasksChanged } from "@/lib/events";
 import { taskSidebarNotifyKey } from "@/lib/task-sidebar-notify";
 import { markRead } from "@/lib/bot-unread";
 import { getJson, sendJson } from "@/lib/client";
+import { hasReceivedSubmittedPrompt, isUnconfirmedPromptDelivery } from "@/lib/prompt-delivery";
 import { readCachedModels, writeCachedModels } from "@/lib/models-cache";
 import {
   AUTO_AGENT_VALUE,
@@ -2236,6 +2237,7 @@ export const TaskView = memo(function TaskView({
     setStopRequested(false);
     setSubmitting(true);
     setError(null);
+    const beforeSubmitMessages = messagesRef.current.map((message) => ({ ...message }));
     try {
       const { images, files } = composerPromptAttachments(submittedAttachments);
       const isAuto = modelValue === AUTO_MODEL_VALUE;
@@ -2325,6 +2327,33 @@ export const TaskView = memo(function TaskView({
       if (!queued) setFailedQueuedId(null);
       notifyTasksChanged();
     } catch (err) {
+      // A lost/invalid HTTP reply does not undo a prompt already accepted by the owner.
+      // Reconcile against a fresh persisted user message, never against working=true.
+      if (!goalLoopEnabled && submittedAttachments.length === 0 && isUnconfirmedPromptDelivery(err)) {
+        let received = hasReceivedSubmittedPrompt(beforeSubmitMessages, messagesRef.current, submittedPrompt);
+        if (!received) {
+          let timer: ReturnType<typeof setTimeout> | undefined;
+          try {
+            const response = await Promise.race([
+              getJson<{ task: TaskDetail }>(`/api/tasks/${taskId}`, { messages: "page" }, { coalesce: false }).catch(() => null),
+              new Promise<null>((resolve) => { timer = setTimeout(() => resolve(null), 2_000); }),
+            ]);
+            const detail = response?.task;
+            if (detail?.id === taskId && Array.isArray(detail.messages)
+              && hasReceivedSubmittedPrompt(beforeSubmitMessages, detail.messages, submittedPrompt)) {
+              applyDetail(detail);
+              received = true;
+            }
+          } finally {
+            if (timer !== undefined) clearTimeout(timer);
+          }
+        }
+        if (received) {
+          if (!queued) setFailedQueuedId(null);
+          notifyTasksChanged();
+          return;
+        }
+      }
       if (queued && shouldRestoreQueuedFollowUpOnFailure(sentQueueEpoch, queueClearEpochRef.current)) {
         setFailedQueuedId(queued.id);
         setQueuedFollowUps((current) => [queued, ...current]);
@@ -2335,7 +2364,9 @@ export const TaskView = memo(function TaskView({
           current.length > 0 ? current : submittedAttachments,
         );
       }
-      setError(err instanceof Error ? err.message : "送信に失敗しました");
+      setError(isUnconfirmedPromptDelivery(err)
+        ? `送信結果を確認できません。再送前に履歴を確認してください（${"reason" in err && typeof err.reason === "string" ? err.reason : "unknown"}）`
+        : err instanceof Error ? err.message : "送信に失敗しました");
     } finally {
       setSubmitting(false);
     }

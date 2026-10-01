@@ -235,13 +235,16 @@ export type PendingRequestsByTask = Record<
 
 /**
  * One read for every pending request, for callers that need several tasks at once (a Room, a panel).
- * A failed read is an empty map: the caller keeps working and the next poll retries.
+ * Transport failure is `ok: false` so callers keep the last map instead of flashing empty attention.
  */
 export async function forwardPendingRequestsByTask(
   options: { env?: BackendEnv; fetchImpl?: typeof fetch; timeoutMs?: number } = {},
-): Promise<PendingRequestsByTask> {
+): Promise<
+  | { ok: true; byTask: PendingRequestsByTask }
+  | { ok: false; reason: BackendFailureReason; status?: number }
+> {
   const result = await readPendingSnapshotsShared(options);
-  if (!result.ok) return {};
+  if (!result.ok) return { ok: false, reason: result.reason, ...(result.status ? { status: result.status } : {}) };
   const byTask: PendingRequestsByTask = {};
   for (const snapshot of result.body?.snapshots ?? []) {
     const taskId = snapshot?.taskId;
@@ -253,7 +256,7 @@ export async function forwardPendingRequestsByTask(
       questionRequest: (fields.questionRequest as QuestionRequestDto | null | undefined) ?? null,
     };
   }
-  return byTask;
+  return { ok: true, byTask };
 }
 
 /**

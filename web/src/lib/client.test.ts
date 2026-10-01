@@ -1,9 +1,25 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { getJson, sendJson } from "./client";
+import { ApiError, getJson, sendJson } from "./client";
 
 afterEach(() => vi.unstubAllGlobals());
 
 describe("getJson", () => {
+  it.each(["get", "send"])("preserves structured Backend failure details on %s", async (method) => {
+    vi.stubGlobal("window", { location: { origin: "http://localhost" } });
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      error: "Backendへ転送できません", code: "BACKEND_FORWARD_FAILED", reason: "bad-response",
+    }), { status: 502 })));
+    const request = method === "get" ? getJson("/api/test") : sendJson("/api/test", {});
+    await expect(request).rejects.toBeInstanceOf(ApiError);
+    await expect(request).rejects.toMatchObject({ status: 502, code: "BACKEND_FORWARD_FAILED", reason: "bad-response" });
+  });
+
+  it("retains ordinary non-JSON HTTP errors", async () => {
+    vi.stubGlobal("window", { location: { origin: "http://localhost" } });
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("invalid", { status: 503, statusText: "Unavailable" })));
+    await expect(sendJson("/api/test", {})).rejects.toMatchObject({ message: "Unavailable", status: 503 });
+  });
+
   it("coalesces simultaneous GETs and removes the request after completion", async () => {
     vi.stubGlobal("window", { location: { origin: "http://localhost" } });
 

@@ -1,49 +1,43 @@
-﻿# LeafCodePi FE/BE 分離パフォーマンス改善 (2026-10-02)
+﻿# LeafCodePi FE/BE 分離 バグ潰し / パフォーマンス (2026-10-02)
 
-対象: 分離後に増えた定常負荷（SSE poll・pending 全件・サイドバー cold 走査・health SDK 温め・Host 毎回 bundle）と、残本丸（dirty push・履歴射影削減）。
+## 本ターンで追加した修正
 
-## 修正済み
+### Prompt 配送リコンサイル（バグ）
 
-### サイドバー cold SessionManager 走査を client で停止
+- `ApiError` が `code` / `reason` を伝播（`BACKEND_FORWARD_FAILED` 判定に必要）
+- `prompt-delivery.ts`: transport 失敗のみ reconcile、明示拒否はエラーのまま
+- TaskView / BotView: 失敗時に `{ task }` + `messages=page` で受け取り済み user を確認し、誤って下書き復元しない
+- `GET /api/tasks/[id]` が `messages=page|omit` を Backend に転送
 
-- `getTaskSummariesWithTodoProgress` / `getBotCodeSessionPanelState`
-- `localRuntimeBlocked()` 時は Todo 用に cold session を開かない（Goal Loop はディスクのみ継続）
+### Room pending soft-fail（バグ）
 
-### pending-snapshots のプロセス内共有
+- `forwardPendingRequestsByTask` が `ok: false` を返す（空マップで attention を消さない）
+- Room events は失敗時に前回 map を保持
 
-- `forwardTaskPendingRequests` / `forwardPendingRequestsByTask` が同一 in-flight GET を共有
+### Room dirty + poll 間隔（perf）
 
-### リモート SSE: idle omit + messageRevision
+- Room events が `subscribeBackendTaskDirty` で即 refresh
+- Backend 所有時の安全網 poll を 5s に延長（本地 2s のまま）
 
-- 初回と streaming/compacting は `messages=page`
-- idle は `messages=omit`。`messageRevision` 不変なら前回 page の messages を再利用
-- revision 変化時のみ page を追加取得（Backend のフル履歴射影を回避）
-- in-flight coalesce キーは `${taskId}:${page|omit}`
+### peekCodeRequestProgress cold 開き停止（perf）
 
-### Backend→Web task_dirty push
+- `localRuntimeBlocked()` 時は Pi cold open しない
 
-- harness `publishTaskDirty`（50ms coalesce）。`emitTaskSnapshot` は listener 無しでも dirty を出す。delta は出さない（streaming は 2s page poll）
-- `subscribeTaskDirty` を runtime entry / loader 必須 export に追加
-- `/internal/runtime/events` が `task_dirty` を配信
-- Web `backend-task-dirty-hub` がプロセス内で 1 本の SSE を共有し、taskId ごとに wake
-- dirty 購読中の idle 安全網は 30s（`BACKEND_EVENT_DIRTY_IDLE_POLL_MS`）。未接続時は 5s
+### startup warmModels（perf）
 
-### client `/api/health` が Pi SDK / listModels を温めない
+- cutover 後は `listModelsForAccounts` を呼ばない
 
-- `localRuntimeBlocked()` なら ensureRuntime を呼ばない
+## 既存（前回まで）
 
-### Backend runtime bundle の stamp 再利用
+- サイドバー cold Todo 走査停止、pending 共有、omit+revision、task_dirty push、health ensureRuntime skip、bundle stamp
 
-- fingerprint 一致時に esbuild をスキップ（`--force` で再ビルド可）
+## まだ残る本丸
 
-## 意図的にまだやらない
-
-- フル delta 中継（Backend per-task SSE）— dirty+page で十分な即時性
-- HTTP 304 / ETag（クライアント revision 比較で代替）
-- サイドバー summary の Backend 側 todoProgress 提供
+- Code requests / code-session の Backend 進捗 enrich
+- GlobalAttention の dirty 化
+- サイドバー summary の Backend todoProgress
+- フル delta 中継（意図的 defer）
 
 ## 検証
 
-- web: backend-event-stream 31 / backend-task-dirty-hub 1 / backend-forward 50 / tasks events route 19 pass
-- backend: runtime-events / runtime-loader / server.test 76 pass
-- `node scripts/build-backend-runtime.mjs --force` で subscribeTaskDirty を bundle に反映
+- prompt-delivery 2 / backend-forward 50 / rooms events 6 / backend-event-stream 31 / dirty-hub 1 / tasks events 19 pass

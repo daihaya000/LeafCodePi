@@ -6,6 +6,7 @@ import { Volume2, VolumeX, X } from "lucide-react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { getJson, sendJson } from "@/lib/client";
+import { hasReceivedSubmittedPrompt, isUnconfirmedPromptDelivery } from "@/lib/prompt-delivery";
 import { notifyBotSidebarChanged } from "@/lib/events";
 import { ModelSelect, modelOptionForValue } from "@/components/ModelSelect";
 import { ThinkingSelect } from "@/components/ThinkingSelect";
@@ -834,6 +835,8 @@ export const BotView = memo(function BotView({ id, active = true }: { id: string
     if ((!value && attachments.length === 0) || sending || reverting) return;
     const requestContext = botRequestContextRef.current;
     const submittedAttachments = attachments;
+    const submittedPrompt = value;
+    const beforeSubmitMessages = messagesRef.current.map((message) => ({ ...message }));
     const { images, files } = composerPromptAttachments(submittedAttachments);
     setPrompt("");
     setAttachments([]);
@@ -848,6 +851,34 @@ export const BotView = memo(function BotView({ id, active = true }: { id: string
       if (botRequestContextRef.current === requestContext) notifyBotSidebarChanged();
     } catch (reason) {
       if (botRequestContextRef.current !== requestContext) return;
+      if (submittedAttachments.length === 0 && isUnconfirmedPromptDelivery(reason)) {
+        let received = hasReceivedSubmittedPrompt(beforeSubmitMessages, messagesRef.current, submittedPrompt);
+        if (!received) {
+          let timer: ReturnType<typeof setTimeout> | undefined;
+          try {
+            const response = await Promise.race([
+              getJson<{ task: { id?: string; messages?: UiMessage[] } }>(
+                `/api/tasks/${encodeURIComponent(`bot:${id}`)}`,
+                { messages: "page" },
+                { coalesce: false },
+              ).catch(() => null),
+              new Promise<null>((resolve) => { timer = setTimeout(() => resolve(null), 2_000); }),
+            ]);
+            const detail = response?.task;
+            if (detail && Array.isArray(detail.messages)
+              && hasReceivedSubmittedPrompt(beforeSubmitMessages, detail.messages, submittedPrompt)) {
+              setMessages(() => stabilizeUiMessages([], detail.messages!));
+              received = true;
+            }
+          } finally {
+            if (timer !== undefined) clearTimeout(timer);
+          }
+        }
+        if (received) {
+          notifyBotSidebarChanged();
+          return;
+        }
+      }
       setSending(false);
       setPrompt((current) => current || value);
       setAttachments((current) => current.length > 0 ? current : submittedAttachments);

@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
   pendingQuestionForTask: vi.fn<(taskId: string) => unknown>(() => null),
   localRuntimeBlocked: vi.fn(() => false),
   forwardPendingRequestsByTask: vi.fn(),
+  subscribeBackendTaskDirty: vi.fn(() => () => undefined),
 }));
 
 vi.mock("@/lib/rooms", () => ({
@@ -30,6 +31,9 @@ vi.mock("@/lib/pi/runtime-ownership", () => ({
 }));
 vi.mock("@/lib/backend-forward", () => ({
   forwardPendingRequestsByTask: mocks.forwardPendingRequestsByTask,
+}));
+vi.mock("@/lib/backend-task-dirty-hub", () => ({
+  subscribeBackendTaskDirty: mocks.subscribeBackendTaskDirty,
 }));
 
 import { GET } from "./route";
@@ -86,7 +90,8 @@ describe("GET /api/bots/rooms/[id]/events", () => {
     mocks.pendingPermissionForTask.mockReturnValue(null);
     mocks.pendingQuestionForTask.mockReturnValue(null);
     mocks.localRuntimeBlocked.mockReturnValue(false);
-    mocks.forwardPendingRequestsByTask.mockResolvedValue({});
+    mocks.forwardPendingRequestsByTask.mockResolvedValue({ ok: true, byTask: {} });
+    mocks.subscribeBackendTaskDirty.mockReturnValue(() => undefined);
   });
   afterEach(() => {
     vi.useRealTimers();
@@ -95,7 +100,10 @@ describe("GET /api/bots/rooms/[id]/events", () => {
   it("reads pending attention from the owning Backend, never from this process", async () => {
     mocks.localRuntimeBlocked.mockReturnValue(true);
     mocks.forwardPendingRequestsByTask.mockResolvedValue({
-      "bot:one:room:r1": { permissionRequest: { id: "p1" }, questionRequest: null },
+      ok: true,
+      byTask: {
+        "bot:one:room:r1": { permissionRequest: { id: "p1" }, questionRequest: null },
+      },
     });
     const response = await GET(request(), params);
     const reader = response.body!.getReader();
@@ -108,6 +116,7 @@ describe("GET /api/bots/rooms/[id]/events", () => {
     expect(mocks.pendingPermissionForTask).not.toHaveBeenCalled();
     expect(mocks.pendingQuestionForTask).not.toHaveBeenCalled();
     expect(mocks.forwardPendingRequestsByTask).toHaveBeenCalledTimes(1);
+    expect(mocks.subscribeBackendTaskDirty).toHaveBeenCalled();
     await reader.cancel();
   });
 
@@ -122,6 +131,7 @@ describe("GET /api/bots/rooms/[id]/events", () => {
       { botId: "two", taskId: "bot:two:room:r1", permission: null, question: { id: "q2" } },
     ]);
     expect(mocks.forwardPendingRequestsByTask).not.toHaveBeenCalled();
+    expect(mocks.subscribeBackendTaskDirty).not.toHaveBeenCalled();
     await reader.cancel();
   });
 
@@ -129,19 +139,53 @@ describe("GET /api/bots/rooms/[id]/events", () => {
     vi.useFakeTimers();
     mocks.localRuntimeBlocked.mockReturnValue(true);
     mocks.forwardPendingRequestsByTask.mockResolvedValue({
-      "bot:one:room:r1": { permissionRequest: { id: "p1" }, questionRequest: { id: "q1" } },
+      ok: true,
+      byTask: {
+        "bot:one:room:r1": { permissionRequest: { id: "p1" }, questionRequest: { id: "q1" } },
+      },
     });
     const response = await GET(request(), params);
     const reader = response.body!.getReader();
     expect((await readEvent(reader)).data.attention).toHaveLength(1);
     // A slow owner read holds the poll: the next tick must not start a second read.
-    const slow = deferred<Record<string, never>>();
+    const slow = deferred<{ ok: true; byTask: Record<string, never> }>();
     mocks.forwardPendingRequestsByTask.mockReturnValue(slow.promise);
-    await vi.advanceTimersByTimeAsync(4_000);
+    await vi.advanceTimersByTimeAsync(5_000);
     expect(mocks.forwardPendingRequestsByTask).toHaveBeenCalledTimes(2);
-    slow.resolve({});
+    slow.resolve({ ok: true, byTask: {} });
     await vi.advanceTimersByTimeAsync(0);
     expect((await readEvent(reader)).data.attention).toEqual([]);
+    await reader.cancel();
+  });
+
+  it("keeps the last attention map when a soft-failed owner read returns ok:false", async () => {
+    vi.useFakeTimers();
+    mocks.localRuntimeBlocked.mockReturnValue(true);
+    mocks.forwardPendingRequestsByTask.mockResolvedValueOnce({
+      ok: true,
+      byTask: {
+        "bot:one:room:r1": { permissionRequest: { id: "p1" }, questionRequest: null },
+      },
+    });
+    const response = await GET(request(), params);
+    const reader = response.body!.getReader();
+    expect((await readEvent(reader)).data.attention).toEqual([
+      { botId: "one", taskId: "bot:one:room:r1", permission: { id: "p1" }, question: null },
+    ]);
+    mocks.forwardPendingRequestsByTask.mockResolvedValueOnce({ ok: false, reason: "unreachable" });
+    await vi.advanceTimersByTimeAsync(5_000);
+    // Soft-fail must not clear attention; signature stays the same so no new snapshot is required.
+    expect(mocks.forwardPendingRequestsByTask).toHaveBeenCalledTimes(2);
+    mocks.forwardPendingRequestsByTask.mockResolvedValueOnce({
+      ok: true,
+      byTask: {
+        "bot:two:room:r1": { permissionRequest: { id: "p2" }, questionRequest: null },
+      },
+    });
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect((await readEvent(reader)).data.attention).toEqual([
+      { botId: "two", taskId: "bot:two:room:r1", permission: { id: "p2" }, question: null },
+    ]);
     await reader.cancel();
   });
 
@@ -153,9 +197,12 @@ describe("GET /api/bots/rooms/[id]/events", () => {
     const reader = response.body!.getReader();
     expect((await readEvent(reader)).data.attention).toEqual([]);
     mocks.forwardPendingRequestsByTask.mockResolvedValue({
-      "bot:two:room:r1": { permissionRequest: { id: "p2" }, questionRequest: null },
+      ok: true,
+      byTask: {
+        "bot:two:room:r1": { permissionRequest: { id: "p2" }, questionRequest: null },
+      },
     });
-    await vi.advanceTimersByTimeAsync(2_000);
+    await vi.advanceTimersByTimeAsync(5_000);
     expect((await readEvent(reader)).data.attention).toEqual([
       { botId: "two", taskId: "bot:two:room:r1", permission: { id: "p2" }, question: null },
     ]);

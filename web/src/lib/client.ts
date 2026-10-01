@@ -2,9 +2,13 @@
 
 export class ApiError extends Error {
   status: number;
-  constructor(message: string, status: number) {
+  code?: string;
+  reason?: string;
+  constructor(message: string, status: number, details?: { code?: string; reason?: string }) {
     super(message);
     this.status = status;
+    this.code = details?.code;
+    this.reason = details?.reason;
   }
 }
 
@@ -19,14 +23,16 @@ export function apiUrl(path: string, params?: Record<string, string | undefined>
   return url.toString();
 }
 
-async function parseError(res: Response): Promise<string> {
+async function parseError(res: Response): Promise<ApiError> {
   try {
-    const body = (await res.json()) as { error?: string };
-    if (body?.error) return body.error;
+    const body = (await res.json()) as { error?: unknown; code?: unknown; reason?: unknown };
+    return new ApiError(typeof body?.error === "string" ? body.error : res.statusText || `HTTP ${res.status}`, res.status, {
+      ...(typeof body?.code === "string" ? { code: body.code } : {}),
+      ...(typeof body?.reason === "string" ? { reason: body.reason } : {}),
+    });
   } catch {
-    /* ignore */
+    return new ApiError(res.statusText || `HTTP ${res.status}`, res.status);
   }
-  return res.statusText || `HTTP ${res.status}`;
 }
 
 export async function getJson<T>(
@@ -41,7 +47,7 @@ export async function getJson<T>(
 
   const request = (async () => {
     const res = await fetch(url, { cache: "no-store" });
-    if (!res.ok) throw new ApiError(await parseError(res), res.status);
+    if (!res.ok) throw await parseError(res);
     return (await res.json()) as T;
   })();
   if (coalesce) inflightGets.set(url, request);
@@ -88,7 +94,7 @@ export async function sendJson<T>(
       body: body === undefined ? undefined : JSON.stringify(body),
       signal,
     });
-    if (!res.ok) throw new ApiError(await parseError(res), res.status);
+    if (!res.ok) throw await parseError(res);
     if (res.status === 204) return undefined as T;
     return (await res.json()) as T;
   } catch (error) {
