@@ -45,7 +45,9 @@ export async function POST(req: Request) {
           error:
             typeof data.error === "string"
               ? data.error
-              : `host control failed: ${res.status}`,
+              : res.status === 501 && target === "backend"
+                ? "トレイホストがバックエンド再起動に未対応です。トレイメニューからホストを再起動してください"
+                : `host control failed: ${res.status}`,
           target,
         },
         { status: 502 },
