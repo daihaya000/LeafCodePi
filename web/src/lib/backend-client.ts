@@ -40,6 +40,7 @@ import {
   BACKEND_TASK_REVERT_SUFFIX,
   BACKEND_PROJECT_TEARDOWN_SUFFIX,
   BACKEND_PROJECTS_PATH,
+  BACKEND_TASK_ADMIN_SUFFIX,
   BACKEND_TASK_TEARDOWN_SUFFIX,
   BACKEND_TASK_UNREVERT_SUFFIX,
   BACKEND_TASKS_PATH,
@@ -301,6 +302,15 @@ export function unrevertTaskOnBackend(
   options: { env?: BackendEnv; fetchImpl?: typeof fetch; timeoutMs?: number } = {},
 ): Promise<BackendResult<{ task: Record<string, unknown> | null }>> {
   return postBackendJson(`${BACKEND_TASKS_PATH}/${encodeURIComponent(id)}${BACKEND_TASK_UNREVERT_SUFFIX}`, {}, options);
+}
+
+/** Moves a task or hands it to / back from a Bot in the owning Backend, which holds the session. */
+export function taskAdminOnBackend(
+  id: string,
+  request: { action: "promote"; destinationPath: string } | { action: "handoff"; botId: string } | { action: "release" },
+  options: { env?: BackendEnv; fetchImpl?: typeof fetch; timeoutMs?: number } = {},
+): Promise<BackendResult<{ result: { status: number; body: unknown } }>> {
+  return postBackendJson(`${BACKEND_TASKS_PATH}/${encodeURIComponent(id)}${BACKEND_TASK_ADMIN_SUFFIX}`, request, options);
 }
 
 /** Changes or deletes a Bot in the owning Backend, which holds its conversations and Code sessions. */

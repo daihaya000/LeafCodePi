@@ -43,6 +43,13 @@ export const BACKEND_TASK_UNREVERT_SUFFIX = "/unrevert";
  */
 export const BACKEND_TASK_TEARDOWN_SUFFIX = "/teardown";
 /**
+ * Moving a task to another directory or handing it to / taking it back from a Bot:
+ * `POST /internal/tasks/:id/admin` with `{ action: "promote", destinationPath }`,
+ * `{ action: "handoff", botId }` or `{ action: "release" }`. Each rewires a session the owner holds. The
+ * owner's answer is wrapped as `{ result: { status, body } }` with HTTP 200 and the WebUI replays it.
+ */
+export const BACKEND_TASK_ADMIN_SUFFIX = "/admin";
+/**
  * Compaction: `POST /internal/tasks/:id/compact` with `{ customInstructions? }`, and
  * `POST /internal/tasks/:id/compact/abort` to stop it. Compaction runs inside the owning session.
  */

@@ -11,11 +11,36 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("@/lib/pi/harness", () => mocks);
 
+const owner = vi.hoisted(() => ({
+  localRuntimeBlocked: vi.fn(() => false),
+  forwardTaskAdmin: vi.fn(),
+}));
+vi.mock("@/lib/pi/runtime-ownership", () => ({ localRuntimeBlocked: owner.localRuntimeBlocked }));
+vi.mock("@/lib/backend-forward", () => ({ forwardTaskAdmin: owner.forwardTaskAdmin }));
+
 import { POST } from "./route";
 
 describe("POST /api/tasks/[id]/promote", () => {
   beforeEach(() => {
     mocks.promoteTask.mockReset();
+    owner.localRuntimeBlocked.mockReturnValue(false);
+    owner.forwardTaskAdmin.mockReset();
+  });
+
+  it("hands the promotion to the owning Backend and replays its answer", async () => {
+    owner.localRuntimeBlocked.mockReturnValue(true);
+    owner.forwardTaskAdmin.mockResolvedValueOnce({ ok: true, status: 409, body: { error: "移動先が使われています" } });
+    const request = () => new NextRequest("http://localhost/api/tasks/task-1/promote", {
+      method: "POST",
+      body: JSON.stringify({ destinationPath: "C:\\work\\project" }),
+    });
+    const refused = await POST(request(), { params: Promise.resolve({ id: "task-1" }) });
+    expect(owner.forwardTaskAdmin).toHaveBeenCalledWith("task-1", { action: "promote", destinationPath: "C:\\work\\project" });
+    expect(refused.status).toBe(409);
+    expect(await refused.json()).toEqual({ error: "移動先が使われています" });
+    owner.forwardTaskAdmin.mockResolvedValueOnce({ ok: false, reason: "unreachable" });
+    expect((await POST(request(), { params: Promise.resolve({ id: "task-1" }) })).status).toBe(502);
+    expect(mocks.promoteTask).not.toHaveBeenCalled();
   });
 
   it("passes the selected destination to the promotion service", async () => {

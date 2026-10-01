@@ -17,6 +17,7 @@ import {
   revertRoomOnBackend,
   revertTaskOnBackend,
   botAdminOnBackend,
+  taskAdminOnBackend,
   teardownProjectOnBackend,
   teardownTaskOnBackend,
   roomAdminOnBackend,
@@ -366,6 +367,25 @@ export async function forwardTaskRevert(
     return { ok: false, reason: result.reason, ...(result.status ? { status: result.status } : {}) };
   }
   return { ok: true, result: result.body ?? {} };
+}
+
+/**
+ * Moves a task or hands it to / back from a Bot in the owning Backend. The owner's own status and
+ * body come back unchanged so the WebUI can replay its messages.
+ */
+export async function forwardTaskAdmin(
+  id: string,
+  request: { action: "promote"; destinationPath: string } | { action: "handoff"; botId: string } | { action: "release" },
+  options: { env?: BackendEnv; fetchImpl?: typeof fetch; timeoutMs?: number } = {},
+): Promise<
+  | { ok: true; status: number; body: unknown }
+  | { ok: false; reason: BackendFailureReason; status?: number }
+> {
+  const result = await taskAdminOnBackend(id, request, options);
+  if (!result.ok) return { ok: false, reason: result.reason, ...(result.status ? { status: result.status } : {}) };
+  const answer = result.body?.result;
+  if (!answer || typeof answer.status !== "number") return { ok: false, reason: "bad-response" };
+  return { ok: true, status: answer.status, body: answer.body };
 }
 
 /**

@@ -1008,6 +1008,44 @@ test("a forwarded Bot settings change and deletion reach the runtime owner", asy
   );
 });
 
+test("a forwarded task promote, hand-off and release reach the runtime owner", async (t) => {
+  const seen = [];
+  const { snapshotsUrl, headers } = await fixture(t, {
+    taskAdminAction: async (id, request) => {
+      seen.push([id, request]);
+      if (id === "gone") throw Object.assign(new Error("missing"), { status: 404 });
+      return { status: request.action === "promote" ? 409 : 200, body: { action: request.action } };
+    },
+  });
+  const base = snapshotsUrl.replace("pending-snapshots", "tasks");
+  const post = (url, body) => request(url, {
+    method: "POST", headers: { ...headers, "content-type": "application/json" }, body: JSON.stringify(body),
+  });
+  const promoted = await post(`${base}/task-1/admin`, { action: "promote", destinationPath: "C:\\work" });
+  assert.deepEqual(await promoted.json(), { result: { status: 409, body: { action: "promote" } } });
+  const handed = await post(`${base}/task-1/admin`, { action: "handoff", botId: "bot-1" });
+  assert.deepEqual(await handed.json(), { result: { status: 200, body: { action: "handoff" } } });
+  await post(`${base}/task-1/admin`, { action: "release" });
+  assert.deepEqual(seen.map(([, req]) => req.action), ["promote", "handoff", "release"]);
+  assert.equal(seen[1][1].botId, "bot-1");
+  // Missing inputs never reach the owner, and an unknown task keeps the owner's 404.
+  assert.equal((await post(`${base}/task-1/admin`, { action: "promote" })).status, 400);
+  assert.equal((await post(`${base}/task-1/admin`, { action: "handoff", botId: " " })).status, 400);
+  assert.equal((await post(`${base}/task-1/admin`, { action: "wipe" })).status, 400);
+  assert.equal(seen.length, 3);
+  assert.equal((await post(`${base}/gone/admin`, { action: "release" })).status, 404);
+  assert.equal((await request(`${base}/task-1/admin`, { headers })).status, 405);
+  const detached = await fixture(t);
+  const detachedBase = detached.snapshotsUrl.replace("pending-snapshots", "tasks");
+  assert.equal((await request(`${detachedBase}/task-1/admin`, {
+    method: "POST", headers: { ...detached.headers, "content-type": "application/json" }, body: JSON.stringify({ action: "release" }),
+  })).status, 503);
+  assert.throws(
+    () => createBackendServer({ token: randomBytes(32).toString("base64url"), taskAdminAction: 5 }),
+    /taskAdminAction must be a function or null/,
+  );
+});
+
 test("a forwarded Room revert reaches the runtime owner", async (t) => {
   const seen = [];
   const { snapshotsUrl, headers } = await fixture(t, {

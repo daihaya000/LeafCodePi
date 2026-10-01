@@ -153,8 +153,6 @@ const HANDLER_GAPS: Record<string, string> = {
   "skills/route.ts POST": SETTINGS_RELOAD,
   "skills/[name]/route.ts PATCH": SETTINGS_RELOAD,
   "tasks/route.ts DELETE": "bulk destroy of archived tasks; archived tasks have no live session",
-  "tasks/[id]/promote/route.ts POST": "promotion rewires a session this process does not own",
-  "tasks/[id]/supervisor/route.ts POST": "hand-off/release rewires a session this process does not own",
 };
 
 /** Every exported HTTP handler that touches an owner-only operation, and whether it guards itself. */

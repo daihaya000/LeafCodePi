@@ -20,6 +20,7 @@ import {
   BACKEND_PROTOCOL_HEADER,
   BACKEND_PROTOCOL_VERSION,
   BACKEND_TASK_ABORT_SUFFIX,
+  BACKEND_TASK_ADMIN_SUFFIX,
   BACKEND_TASK_DETAIL_SUFFIX,
   BACKEND_TASK_GOAL_LOOP_SUFFIX,
   BACKEND_TASK_PERMISSION_SUFFIX,
@@ -157,6 +158,8 @@ export function createBackendServer({
   unrevertTaskAction = null,
   /** Archives or deletes a task: `(id, "archive" | "destroy") => result`; the owner stops its session first. */
   teardownTaskAction = null,
+  /** Moves a task or hands it to / back from a Bot: `(id, request) => { status, body }`; the owner holds the session. */
+  taskAdminAction = null,
   /** Archives, deletes or moves a project: `(id, action, destinationPath?) => { status, body }`; the owner stops its sessions. */
   teardownProjectAction = null,
   /** Changes or deletes a Bot: `(id, "patch" | "delete", body?) => { status, body }`; the owner holds its sessions. */
@@ -214,6 +217,7 @@ export function createBackendServer({
     revertTaskAction,
     unrevertTaskAction,
     teardownTaskAction,
+    taskAdminAction,
     teardownProjectAction,
     botAdminAction,
     compactTaskAction,
@@ -274,6 +278,7 @@ export function createBackendServer({
       BACKEND_TASK_REVERT_SUFFIX,
       BACKEND_TASK_UNREVERT_SUFFIX,
       BACKEND_TASK_TEARDOWN_SUFFIX,
+      BACKEND_TASK_ADMIN_SUFFIX,
     ].find((suffix) => taskSuffix?.endsWith(suffix));
     const actionPath = actionSuffix === undefined || !taskSuffix
       ? undefined
@@ -364,6 +369,7 @@ export function createBackendServer({
         [BACKEND_TASK_REVERT_SUFFIX]: revertTaskAction,
         [BACKEND_TASK_UNREVERT_SUFFIX]: unrevertTaskAction,
         [BACKEND_TASK_TEARDOWN_SUFFIX]: teardownTaskAction,
+        [BACKEND_TASK_ADMIN_SUFFIX]: taskAdminAction,
         [BACKEND_TASK_COMPACT_SUFFIX]: compactTaskAction,
         [BACKEND_TASK_COMPACT_ABORT_SUFFIX]: abortCompactTaskAction,
         [BACKEND_TASK_MODEL_SUFFIX]: setTaskModelAction,
@@ -458,6 +464,16 @@ export function createBackendServer({
             return;
           }
           sendJson(response, 200, { task });
+        } else if (actionSuffix === BACKEND_TASK_ADMIN_SUFFIX) {
+          const { action, destinationPath, botId } = body.value ?? {};
+          const valid = (action === "promote" && typeof destinationPath === "string" && destinationPath.trim())
+            || (action === "handoff" && typeof botId === "string" && botId.trim())
+            || action === "release";
+          if (!valid) {
+            sendJson(response, 400, { error: "Invalid task admin request", code: BACKEND_ERROR_CODES.badRequest });
+            return;
+          }
+          sendJson(response, 200, { result: await handler(actionPath, { action, destinationPath, botId }) });
         } else if (actionSuffix === BACKEND_TASK_TEARDOWN_SUFFIX) {
           const mode = body.value?.mode;
           if (mode !== "archive" && mode !== "destroy") {

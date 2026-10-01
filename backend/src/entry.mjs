@@ -257,6 +257,24 @@ try {
         return { status, body: { error: error instanceof Error ? error.message : String(error) } };
       }
     },
+    // Moving a task or handing it to / back from a Bot rewires the live session, which only the owner
+    // holds. The answer keeps its own status and body: the WebUI replays both unchanged.
+    taskAdminAction: async (id, request) => {
+      const runtime = started.runtime();
+      const run = request.action === "promote" ? runtime?.promoteTask
+        : request.action === "handoff" ? runtime?.handoffTaskToBot : runtime?.releaseTaskFromBot;
+      if (typeof run !== "function") {
+        throw Object.assign(new Error("runtime unavailable"), { status: 503 });
+      }
+      try {
+        if (request.action === "promote") return { status: 200, body: await run(id, request.destinationPath) };
+        if (request.action === "handoff") return { status: 200, body: { task: await run(request.botId, id) } };
+        return { status: 200, body: { task: await run(id) } };
+      } catch (error) {
+        const status = typeof error?.status === "number" ? error.status : 500;
+        return { status, body: { error: error instanceof Error ? error.message : String(error) } };
+      }
+    },
     // Archiving or deleting stops and disposes the live session, which only the owner holds.
     teardownTaskAction: (id, mode) => {
       const runtime = started.runtime();
