@@ -2238,7 +2238,18 @@ function applySettledTaskStatus(
     isAbortErrorMessage(settledError) &&
     (goalLoopIsStopped(live) || live.manualAbortedAssistantId !== null);
   if (stoppedByUser) persistManualAbortedAssistantId(taskId, "");
-  setTaskStatus(taskId, stoppedByUser || !settledError ? "idle" : "error", stoppedByUser ? null : settledError);
+  let taskError = settledError;
+  if (!stoppedByUser && settledError && isAbortErrorMessage(settledError)) {
+    // Automatic inactivity timeout is not a manual Stop. Preserve its recorded
+    // cause rather than reporting the SDK's generic "Request was aborted".
+    try {
+      const loop = readGoalLoopState(session.sessionManager.getCwd(), session.sessionId);
+      if (loop?.status === "paused" && loop.pauseReason === "turn_timeout") {
+        taskError = loop.error || "Goal Loop の進捗が確認できないため時間切れで停止しました。";
+      }
+    } catch { /* retain the SDK error when loop state is unavailable */ }
+  }
+  setTaskStatus(taskId, stoppedByUser || !settledError ? "idle" : "error", stoppedByUser ? null : taskError);
   // Keep the lease while provider-limit fallback still needs to replace the session.
   if (!live.pendingProviderFallback) {
     releaseTaskLease(taskId);

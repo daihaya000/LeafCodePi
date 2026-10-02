@@ -118,6 +118,7 @@ const MAX_UNREADABLE_STREAK = 2;
 /** Keep the replay prompt bounded; older notes fall off first. */
 const MAX_NOTES = 10;
 const MAX_NOTE_CHARS = 500;
+/** Maximum time without SDK progress, not a wall-clock limit on productive turns. */
 const TURN_TIMEOUT_MS = 15 * 60 * 1000;
 /** Node clamps longer delays to 1ms, which would spin on a corrupt far-future timestamp. */
 const MAX_TIMER_DELAY_MS = 2 ** 31 - 1;
@@ -235,6 +236,9 @@ type Runtime = {
   pausedTurnIndex?: number;
   timer?: ReturnType<typeof setTimeout>;
   timeoutTimer?: ReturnType<typeof setTimeout>;
+  lastTurnActivityAt?: number;
+  /** Blocking extension UI is user wait, not a hung model/tool. */
+  pendingUiPrompts?: number;
   /** Re-arms a live loop whose scheduler timer was lost to a settle/replace race. */
   watchdogTimer?: ReturnType<typeof setInterval>;
   /** An abort-paused turn may be re-armed when it was caused by manual compaction. */
@@ -728,6 +732,42 @@ function clearTimer(runtime: Runtime): void {
   if (runtime.timeoutTimer) clearTimeout(runtime.timeoutTimer);
   runtime.timer = undefined;
   runtime.timeoutTimer = undefined;
+  runtime.lastTurnActivityAt = undefined;
+}
+
+/** One timer per turn; streaming tokens only update a timestamp, not timers or disk. */
+function armTurnTimeout(runtime: Runtime): void {
+  if (runtime.timeoutTimer) clearTimeout(runtime.timeoutTimer);
+  const timeoutMs = turnTimeoutMs();
+  const generation = runtime.turnGeneration;
+  runtime.lastTurnActivityAt = Date.now();
+  const check = () => {
+    if (!isActiveRuntime(runtime) || runtime.turnGeneration !== generation || !runtime.awaitingTurn) return;
+    runtime.timeoutTimer = undefined;
+    const now = Date.now();
+    const remaining = runtime.pendingUiPrompts
+      ? Math.max(1, timeoutMs)
+      : timeoutMs - (now - (runtime.lastTurnActivityAt ?? now));
+    if (remaining > 0) {
+      runtime.timeoutTimer = setTimeout(check, remaining);
+      runtime.timeoutTimer.unref?.();
+      return;
+    }
+    if (currentLoop(runtime)?.status !== "running") return;
+    if (!pauseLoop(runtime, "turn_timeout", "進捗が確認できないまま時間切れになったため一時停止しました。")) {
+      // A failed state write must not leave a running turn without its watchdog.
+      runtime.timeoutTimer = setTimeout(check, Math.max(250, timeoutMs));
+      runtime.timeoutTimer.unref?.();
+      return;
+    }
+    try {
+      if (!runtime.ctx.isIdle()) runtime.ctx.abort();
+    } catch {
+      // Already settled.
+    }
+  };
+  runtime.timeoutTimer = setTimeout(check, timeoutMs);
+  runtime.timeoutTimer.unref?.();
 }
 
 function short(value: string, max: number): string {
@@ -1879,26 +1919,7 @@ async function sendTurn(runtime: Runtime): Promise<void> {
   runtime.pendingAgentAborted = false;
   runtime.awaitingTurnIndex = undefined;
   runtime.pausedTurnIndex = undefined;
-  if (runtime.timeoutTimer) clearTimeout(runtime.timeoutTimer);
-  runtime.timeoutTimer = setTimeout(() => {
-    // After a dispose()-without-shutdown replacement, the new session may be
-    // running again. A stale watchdog must not pause the shared loop state.
-    if (!isActiveRuntime(runtime)) return;
-    const current = currentLoop(runtime);
-    if (runtime.awaitingTurn && current?.status === "running") {
-      if (!pauseLoop(runtime, "turn_timeout", "応答が確認できないまま時間切れになったため一時停止しました。")) {
-        return;
-      }
-      // Match user pause: stop the in-flight model run so a hung tool/stream
-      // cannot keep consuming tokens after the loop is already paused.
-      try {
-        if (!runtime.ctx.isIdle()) runtime.ctx.abort();
-      } catch {
-        // Already settled.
-      }
-    }
-  }, turnTimeoutMs());
-  runtime.timeoutTimer.unref?.();
+  armTurnTimeout(runtime);
 
   try {
     runtime.pi.sendMessage(
@@ -2571,10 +2592,37 @@ export default function (pi: ExtensionAPI): void {
     recordOperatorNote(current, loop, event.text);
   });
 
+  const recordTurnActivity = (ctx: ExtensionContext) => {
+    const current = getRuntime();
+    if (current?.awaitingTurn && matchesRuntimeContext(current, ctx)) {
+      current.lastTurnActivityAt = Date.now();
+    }
+  };
+  // Tool-using turns may legitimately run longer than 15 minutes. SDK stream
+  // deltas and tool results keep them alive; no-progress runs remain bounded.
+  pi.on("message_update", (_event, ctx) => { recordTurnActivity(ctx); });
+  pi.on("message_end", (_event, ctx) => { recordTurnActivity(ctx); });
+  pi.on("tool_execution_start", (_event, ctx) => { recordTurnActivity(ctx); });
+  pi.on("tool_execution_update", (_event, ctx) => { recordTurnActivity(ctx); });
+  pi.on("tool_execution_end", (_event, ctx) => { recordTurnActivity(ctx); });
+  pi.on("ui_prompt_start", (_event, ctx) => {
+    const current = getRuntime();
+    if (!current || !matchesRuntimeContext(current, ctx)) return;
+    current.pendingUiPrompts = (current.pendingUiPrompts ?? 0) + 1;
+    recordTurnActivity(ctx);
+  });
+  pi.on("ui_prompt_end", (_event, ctx) => {
+    const current = getRuntime();
+    if (!current || !matchesRuntimeContext(current, ctx)) return;
+    current.pendingUiPrompts = Math.max(0, (current.pendingUiPrompts ?? 0) - 1);
+    recordTurnActivity(ctx);
+  });
+
   pi.on("turn_start", async (event, ctx) => {
     const current = getRuntime();
     if (!current || !matchesRuntimeContext(current, ctx)) return;
     if (current.awaitingTurn) current.awaitingTurnIndex = event.turnIndex;
+    recordTurnActivity(ctx);
   });
 
   pi.on("turn_end", async (event, ctx) => {

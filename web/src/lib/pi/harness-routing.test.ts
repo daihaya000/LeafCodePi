@@ -638,6 +638,44 @@ describe("integrated session routing", () => {
     expect(getTask(task.id)).toMatchObject({ status: "idle", manualAbortedAssistantId: "" });
   });
 
+  it("reports the recorded Goal Loop timeout cause without treating it as a manual Stop", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "leafcode-pi-goal-timeout-status-"));
+    tempDirs.push(dir);
+    process.env.LEAFCODE_PI_DATA_DIR = dir;
+    process.env.PI_CODING_AGENT_DIR = join(dir, "agent");
+    __resetPiAgentDirCacheForTests();
+    installHarness(new Map());
+
+    const project = upsertProject({ name: "demo", rootPath: dir });
+    const task = await createTask({ projectId: project.id, prompt: "初回" });
+    await waitFor(() => getTask(task.id)?.status === "idle");
+    const harness = (globalThis as Record<string, unknown>)[GLOBAL_KEY] as {
+      live: Map<string, { session: { sessionId: string; agent: { state: { errorMessage?: string } } }; manualAbortedAssistantId: string | null }>;
+    };
+    const live = harness.live.get(task.id)!;
+    const loopFile = goalLoopStateFile(dir, live.session.sessionId);
+    mkdirSync(dirname(loopFile), { recursive: true });
+    const timeoutError = "進捗が確認できないまま時間切れになったため一時停止しました。";
+    writeFileSync(loopFile, JSON.stringify({
+      id: live.session.sessionId, sessionId: live.session.sessionId, cwd: dir,
+      status: "paused", pauseReason: "turn_timeout", error: timeoutError,
+      goal: "目標", acceptance: [], maxTurns: 1, turnCount: 1,
+    }), "utf8");
+    live.session.agent.state.errorMessage = "Request was aborted";
+    fakePi.sessions[0]?.emit?.({ type: "agent_settled" });
+    expect(getTask(task.id)).toMatchObject({ status: "error", error: timeoutError, manualAbortedAssistantId: null });
+
+    // A real provider error must not be masked by an earlier timeout record.
+    live.session.agent.state.errorMessage = "接続に失敗しました";
+    fakePi.sessions[0]?.emit?.({ type: "agent_settled" });
+    expect(getTask(task.id)?.error).toBe("接続に失敗しました");
+
+    live.manualAbortedAssistantId = "";
+    live.session.agent.state.errorMessage = "Request was aborted";
+    fakePi.sessions[0]?.emit?.({ type: "agent_settled" });
+    expect(getTask(task.id)).toMatchObject({ status: "idle", error: null });
+  });
+
   it("hands unlabelled tasks to the background labeller at creation and after each settled turn", async () => {
     const dir = mkdtempSync(join(tmpdir(), "leafcode-pi-session-label-jobs-"));
     tempDirs.push(dir);
