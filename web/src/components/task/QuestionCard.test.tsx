@@ -71,4 +71,19 @@ describe("QuestionCard", () => {
     });
     expect(screen.queryByRole("alert")).toBeNull();
   });
+
+  it("keeps question newlines and scrolls only the body so actions stay reachable", () => {
+    const current = request("q-long", "前提\n- 制約1\n- 制約2");
+    current.questions[0]!.custom = true;
+    render(<QuestionCard request={current} onReply={vi.fn()} onReject={vi.fn()} />);
+    const text = screen.getByText((_, el) => el?.tagName === "P" && el.textContent === current.questions[0]!.question);
+    expect(text.className).toContain("whitespace-pre-wrap");
+    const dialog = screen.getByRole("alertdialog");
+    expect(dialog.className).toContain("max-h-");
+    const body = screen.getByTestId("question-body");
+    expect(body.className).toContain("overflow-y-auto");
+    expect(body.contains(screen.getByRole("radio", { name: "はい" }))).toBe(true);
+    expect(body.contains(screen.getByRole("textbox"))).toBe(false);
+    expect(body.contains(screen.getByRole("button", { name: "キャンセル" }))).toBe(false);
+  });
 });
