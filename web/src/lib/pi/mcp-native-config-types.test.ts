@@ -18,6 +18,7 @@ describe("Backend native MCP callback public SDK contract", () => {
       const authorityPath = fileURLToPath(new URL("../../../../backend/core/mcp-native-credential-authority.mjs", import.meta.url));
       const generationLeasePath = fileURLToPath(new URL("../../../../backend/core/mcp-native-generation-lease.mjs", import.meta.url));
       const writeCoordinatorPath = fileURLToPath(new URL("../../../../backend/core/mcp-native-write-coordinator.mjs", import.meta.url));
+      const configUpdaterPath = fileURLToPath(new URL("../../../../backend/core/mcp-native-config-updater.mjs", import.meta.url));
       const compilerOptions: ts.CompilerOptions = { module: ts.ModuleKind.NodeNext, moduleResolution: ts.ModuleResolutionKind.NodeNext,
         target: ts.ScriptTarget.ES2022, strict: true, skipLibCheck: true, noEmit: true, types: [] };
       // Resolve the public ESM/types export in Backend scope; this package has no CommonJS main.
@@ -34,6 +35,7 @@ import { createBackendMcpOAuthStatusReader, type BackendMcpOAuthStatus } from ${
 import { createBackendMcpCredentialAuthority } from ${JSON.stringify(authorityPath)};
 import { createBackendMcpGenerationOwner } from ${JSON.stringify(generationLeasePath)};
 import { createBackendMcpWriteCoordinator } from ${JSON.stringify(writeCoordinatorPath)};
+import { createBackendMcpConfigUpdater } from ${JSON.stringify(configUpdaterPath)};
 import type { DefaultResourceLoader, ExtensionContext, LoadedMcpConfig, McpExtensionOptions, McpServerEntry } from "@earendil-works/pi-coding-agent";
 const checkStorage = createBackendMcpPrivateStorageCheck({ agentDir: "owner" });
 const owner = createBackendMcpCredentialOwner({ agentDir: "owner", assertOwner: (identity) => {}, assertPrivateStorage: checkStorage });
@@ -76,6 +78,14 @@ if (prepared.ok) {
     coordinator.runWriteSync((scope) => { scope.assertOwner(); return undefined; });
   };
   const synchronousServices: BackendMcpOwnerServices = { ...services, updateConfig: synchronousUpdater };
+  const updaterOptions = { agentDir: "owner", bundledConfigPath: "bundle", prepared, coordinator, assertSnapshotOwner: writerLease.assertOwner };
+  const nativeUpdater: NonNullable<McpExtensionOptions["updateConfig"]> = createBackendMcpConfigUpdater({ ...updaterOptions,
+    writeConfig: (request, scope) => { const name: string = request.serverName; const hash: string | null = request.expectedSha256; scope.assertOwner(); return undefined; } });
+  const nativeServices: BackendMcpOwnerServices = { ...services, updateConfig: nativeUpdater };
+  // @ts-expect-error Explicit synchronous Backend IO dependency is mandatory.
+  createBackendMcpConfigUpdater(updaterOptions);
+  // @ts-expect-error Async IO cannot acknowledge a synchronous SDK update.
+  createBackendMcpConfigUpdater({ ...updaterOptions, writeConfig: async (request, scope) => {} });
   // @ts-expect-error Undefined return excludes Promise callbacks (unlike the SDK void callback).
   coordinator.runWriteSync(async (scope) => { scope.assertOwner(); });
   // @ts-expect-error Arbitrary private return data is not a synchronous write acknowledgment.
