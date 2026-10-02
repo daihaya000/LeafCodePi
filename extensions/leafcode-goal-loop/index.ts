@@ -241,7 +241,7 @@ type Runtime = {
   pendingUiPrompts?: number;
   /** Re-arms a live loop whose scheduler timer was lost to a settle/replace race. */
   watchdogTimer?: ReturnType<typeof setInterval>;
-  /** An abort-paused turn may be re-armed when it was caused by manual compaction. */
+  /** Internal abort pause retained until retry or session lifecycle recovery. */
   abortedTurnPausePending: boolean;
   /** Prevent duplicate hidden end notices if persisting their flag fails. */
   endNoticeQueued: boolean;
@@ -1220,7 +1220,7 @@ function restoreReloadHandoff(runtime: Runtime, handoff: ReloadHandoff): void {
   runtime.endNoticeQueued = handoff.endNoticeQueued === true;
 }
 
-function isAbortPausedLoop(loop: GoalLoop | null): loop is GoalLoop {
+function isAbortPausedLoop(loop: GoalLoop | null): loop is GoalLoop & { status: "paused"; pauseReason: "user" } {
   return Boolean(
     loop &&
     loop.status === "paused" &&
@@ -1229,20 +1229,26 @@ function isAbortPausedLoop(loop: GoalLoop | null): loop is GoalLoop {
   );
 }
 
+function hasInterruptedTurnRecovery(loop: GoalLoop): boolean {
+  return (loop.status === "queued" || loop.status === "verifying_completed") &&
+    loop.retryInterruptedTurn && loop.pendingTurnRecovery;
+}
+
 /**
  * Apply a result that arrived after the loop was paused mid-turn.
- * user/manual_send keep progress but stay paused; turn_timeout/unknown_delivery continue.
+ * Explicit user/manual_send pauses stay paused; automatic interruptions continue.
  */
 function applyLatePausedResult(runtime: Runtime, result: GoalLoopProgress): boolean {
   const loop = currentLoop(runtime);
   if (
     !loop ||
-    loop.status !== "paused" ||
+    !(loop.status === "paused" || hasInterruptedTurnRecovery(loop)) ||
     !(runtime.pausedTurnPending || loop.pendingTurnRecovery)
   ) {
     return false;
   }
   if (
+    loop.pauseReason !== "" &&
     loop.pauseReason !== "user" &&
     loop.pauseReason !== "manual_send" &&
     loop.pauseReason !== "unknown_delivery" &&
@@ -1267,7 +1273,7 @@ function applyLatePausedResult(runtime: Runtime, result: GoalLoopProgress): bool
   updateUI(runtime, updated);
   appendSnapshot(runtime, updated);
   if (
-    (pauseReason === "user" || pauseReason === "manual_send") &&
+    (pauseReason === "manual_send" || (pauseReason === "user" && pauseError !== ABORTED_TURN_PAUSE_ERROR)) &&
     !TERMINAL.has(updated.status) &&
     !UNSCHEDULABLE.has(updated.status)
   ) {
@@ -1328,11 +1334,14 @@ async function settleAwaitingTurn(runtime: Runtime): Promise<void> {
   const error = errorFromAgentMessages(messages);
   const result = extractGoalResultFromMessages(messages);
   if (aborted) {
-    // Keep any JSON that landed before abort (same contract as manual_send):
-    // progress is preserved, but the loop stays paused for the operator.
+    // Explicit pause/stop already changed durable status before settlement.
+    // An otherwise running loop was interrupted internally: keep a late result
+    // or retry the same turn after the SDK has fully settled.
     const paused = pauseLoop(runtime, "user", ABORTED_TURN_PAUSE_ERROR);
-    if (paused) runtime.abortedTurnPausePending = true;
-    if (result) applyLatePausedResult(runtime, result);
+    if (!paused) return; // Keep evidence and the watchdog on failed persistence.
+    runtime.abortedTurnPausePending = true;
+    if (result && !applyLatePausedResult(runtime, result)) return;
+    if (!result) requeueInterruptedTurn(runtime);
     clearPendingAgentRun(runtime);
     return;
   }
@@ -1434,6 +1443,8 @@ function notifyLoopEnded(runtime: Runtime): void {
   const loop = currentLoop(runtime);
   if (!loop || loop.endNoticeSent || runtime.endNoticeQueued) return;
   if (!TERMINAL.has(loop.status) && loop.status !== "blocked" && loop.status !== "paused") return;
+  // Internal abort/timeout is a retry boundary, not the end of the loop's contract.
+  if (isAbortPausedLoop(loop) || (loop.status === "paused" && loop.pauseReason === "turn_timeout")) return;
   try {
     runtime.pi.sendMessage(
       {
@@ -1520,37 +1531,34 @@ function pauseLoop(runtime: Runtime, reason: GoalLoopPauseReason = "user", error
   return true;
 }
 
-function requeueAfterManualCompaction(runtime: Runtime): void {
-  if (!runtime.abortedTurnPausePending) return;
-  runtime.abortedTurnPausePending = false;
+function requeueInterruptedTurn(runtime: Runtime): void {
+  if (!isActiveRuntime(runtime)) return;
   const loop = currentLoop(runtime);
-  if (!isAbortPausedLoop(loop)) {
-    return;
-  }
+  if (!loop || (!isAbortPausedLoop(loop) && !(loop.status === "paused" && loop.pauseReason === "turn_timeout"))) return;
 
   const resumed: GoalLoop = {
     ...loop,
     status: loop.turnKind === "verification" ? "verifying_completed" : "queued",
     pauseReason: "" as const,
     error: "",
-    pendingTurnRecovery: false,
+    // Keep late-result recovery until sendTurn actually replaces the old turn.
+    pendingTurnRecovery: loop.pendingTurnRecovery,
     endNoticeSent: false,
-    nextTurnAt: null,
+    nextTurnAt: loop.cooldownSeconds > 0
+      ? new Date(Date.now() + loop.cooldownSeconds * 1000).toISOString()
+      : null,
   };
-  if (!writeLoop(resumed)) {
-    runtime.ctx.ui.notify("圧縮後のGoal loop再開状態を保存できませんでした。/goal-resume で再開してください。", "error");
-    return;
-  }
+  // Leave recovery markers intact on failure; the idle watchdog retries this write.
+  if (!writeLoop(resumed)) return;
   runtime.awaitingTurn = false;
-  runtime.pausedTurnPending = false;
+  runtime.abortedTurnPausePending = false;
   runtime.endNoticeQueued = false;
   runtime.awaitingTurnIndex = undefined;
-  runtime.pausedTurnIndex = undefined;
   clearPendingAgentRun(runtime);
   clearTimer(runtime);
   updateUI(runtime, resumed);
   appendSnapshot(runtime, resumed);
-  schedule(runtime, 0);
+  schedule(runtime);
 }
 
 function stopLoop(runtime: Runtime): boolean {
@@ -1693,7 +1701,17 @@ function ensureScheduled(runtime: Runtime): void {
     return;
   }
   const loop = currentLoop(runtime);
-  if (!loop || TERMINAL.has(loop.status) || UNSCHEDULABLE.has(loop.status)) return;
+  if (!loop) return;
+  if (isAbortPausedLoop(loop) || (loop.status === "paused" && loop.pauseReason === "turn_timeout")) {
+    // Also recover when an internal abort never emitted agent_settled, or the
+    // settlement write failed. The idle/pending gates above prevent overlap.
+    const recovered = extractGoalResultFromMessages(runtime.pendingAgentMessages ?? []) ?? lateTurnResult(runtime, loop);
+    if (recovered) {
+      if (applyLatePausedResult(runtime, recovered)) clearPendingAgentRun(runtime);
+    } else requeueInterruptedTurn(runtime);
+    return;
+  }
+  if (TERMINAL.has(loop.status) || UNSCHEDULABLE.has(loop.status)) return;
   if (loop.status === "running") {
     // The run is gone but its settlement never landed: fall back to the status
     // the settle would have produced so the next turn is still sent.
@@ -1903,6 +1921,8 @@ async function sendTurn(runtime: Runtime): Promise<void> {
     return;
   }
 
+  loop.pendingTurnRecovery = false;
+  loop.retryInterruptedTurn = false;
   // Persist running/turnCount before send. On failure disk still has the pre-send
   // queued state; never set awaitingTurn or enqueue a prompt against stale disk.
   if (!writeLoop(loop)) {
@@ -2634,7 +2654,7 @@ export default function (pi: ExtensionAPI): void {
     if (
       !current.awaitingTurn &&
       current.pausedTurnPending &&
-      loop.status === "paused" &&
+      (loop.status === "paused" || hasInterruptedTurnRecovery(loop)) &&
       // Tool-using runs emit multiple turnIndices. Accept this turn and later
       // ones from the interrupted run; also allow recovery when turn_start never
       // armed pausedTurnIndex before the pause.
@@ -2670,7 +2690,7 @@ export default function (pi: ExtensionAPI): void {
       current &&
       matchesRuntimeContext(current, ctx) &&
       event.reason === "manual"
-    ) requeueAfterManualCompaction(current);
+    ) requeueInterruptedTurn(current);
   });
 
   pi.on("session_compact_failed", async (event, ctx) => {
@@ -2679,7 +2699,7 @@ export default function (pi: ExtensionAPI): void {
       current &&
       matchesRuntimeContext(current, ctx) &&
       event.reason === "manual"
-    ) requeueAfterManualCompaction(current);
+    ) requeueInterruptedTurn(current);
   });
 
   pi.on("agent_settled", async (_event, ctx) => {
@@ -2723,8 +2743,9 @@ export default function (pi: ExtensionAPI): void {
     }
     if (current.pausedTurnPending && loop.status === "paused") {
       const result = extractGoalResultFromMessages(current.pendingAgentMessages ?? []);
+      if (result && !applyLatePausedResult(current, result)) return;
+      if (!result) requeueInterruptedTurn(current);
       clearPendingAgentRun(current);
-      if (result) applyLatePausedResult(current, result);
       return;
     }
     clearPendingAgentRun(current);
