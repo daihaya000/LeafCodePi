@@ -7,6 +7,7 @@ import { Button, cx } from "@/components/ui";
 import { PermissionAdvice } from "@/components/task/PermissionAdvice";
 import { QuestionCard } from "@/components/task/QuestionCard";
 import { getJson, sendJson } from "@/lib/client";
+import { subscribeBotsEvents } from "@/lib/bots-events-hub";
 import { playAttentionRequiredSound } from "@/lib/session-complete-sound";
 import { BOTS_TAB_ID, HOME_TAB_ID, SETTINGS_TAB_ID, isAttentionHandledInline, isBotTabId, paneTabIdForTask, taskIdFromPathname } from "@/lib/task-panes";
 import { useTaskPanesNavigation } from "@/components/shell/TaskPanesContext";
@@ -141,7 +142,7 @@ export function GlobalAttentionProvider() {
     let closed = false;
     let timer: ReturnType<typeof setTimeout> | null = null;
     let dirtyAttached = false;
-    let dirtySource: EventSource | null = null;
+    let unsubscribeDirty: (() => void) | null = null;
     let pollBusy = false;
     let pendingWake = false;
 
@@ -224,30 +225,27 @@ export function GlobalAttentionProvider() {
       void poll().finally(schedule);
     };
 
-    // Cutover clients already proxy Backend runtime events here; task_dirty wakes attention.
-    if (typeof EventSource !== "undefined") {
-      try {
-        dirtySource = new EventSource(`/api/bots/events?epoch=${Date.now()}`);
-        dirtySource.addEventListener("task_dirty", wakeFromDirty);
-        dirtySource.onopen = () => {
+    // Cutover clients proxy Backend runtime events here; task_dirty wakes attention.
+    // One shared EventSource per tab keeps the browser's connection budget for task panes.
+    try {
+      unsubscribeDirty = subscribeBotsEvents({
+        events: { task_dirty: wakeFromDirty },
+        onOpen: () => {
           dirtyAttached = true;
-        };
-        dirtySource.onerror = () => {
+        },
+        onError: () => {
           dirtyAttached = false;
-        };
-      } catch {
-        dirtySource = null;
-      }
+        },
+      });
+    } catch {
+      unsubscribeDirty = null;
     }
 
     void poll().finally(schedule);
     return () => {
       closed = true;
       if (timer) clearTimeout(timer);
-      if (dirtySource) {
-        dirtySource.removeEventListener("task_dirty", wakeFromDirty);
-        dirtySource.close();
-      }
+      unsubscribeDirty?.();
     };
   }, [tryAutoOpen]);
 

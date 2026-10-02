@@ -4,6 +4,7 @@ import {
   fetchRemoteCodeProgress,
   fetchRemoteTodoProgress,
   fetchRemoteTodoProgressMany,
+  needsRemoteTodoProgress,
   todoProgressFromDetail,
 } from "./remote-todo-progress";
 
@@ -59,6 +60,18 @@ describe("remote-todo-progress", () => {
     const map = await fetchRemoteTodoProgressMany(["a", "b", "a"], 2);
     expect([...map.keys()].sort()).toEqual(["a", "b"]);
     expect(mocks.forwardTaskDetail).toHaveBeenCalledTimes(2);
+  });
+
+  it("needs the owner read only for working or live Goal Loop tasks", () => {
+    expect(needsRemoteTodoProgress("working", null)).toBe(true);
+    expect(needsRemoteTodoProgress("idle", "queued")).toBe(true);
+    expect(needsRemoteTodoProgress("idle", "running")).toBe(true);
+    expect(needsRemoteTodoProgress("idle", "verifying_completed")).toBe(true);
+    // A finished/held loop cannot advance, so the persisted state is authoritative.
+    expect(needsRemoteTodoProgress("idle", "completed")).toBe(false);
+    expect(needsRemoteTodoProgress("idle", "stopped")).toBe(false);
+    expect(needsRemoteTodoProgress("idle", "paused")).toBe(false);
+    expect(needsRemoteTodoProgress("idle", undefined)).toBe(false);
   });
 
   it("returns empty progress when the Backend omit read fails", async () => {
