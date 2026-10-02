@@ -59,6 +59,7 @@ import type { McpBearerSaveRequest, McpBearerSaveResult } from "@shared/mcp-bear
 import type { McpHeadersSaveRequest, McpHeadersSaveResult } from "@shared/mcp-headers-save-request.mjs";
 import type { McpBearerRemoveRequest, McpBearerRemoveResult } from "@shared/mcp-bearer-remove-request.mjs";
 import type { McpAuthRemoveRequest, McpAuthRemoveResult } from "@shared/mcp-auth-remove-request.mjs";
+import type { McpOAuthStartRequest, McpOAuthStartResult } from "@shared/mcp-oauth-start-request.mjs";
 
 export const BACKEND_REQUEST_TIMEOUT_MS = 10_000;
 
@@ -203,6 +204,17 @@ export function saveMcpHeadersAuthOnBackend(
   input: McpHeadersSaveRequest,
   options: { env?: BackendEnv; fetchImpl?: typeof fetch; timeoutMs?: number } = {},
 ): Promise<BackendResult<McpHeadersSaveResult>> {
+  return backendRequest(`${BACKEND_MCP_SERVERS_PATH}/${encodeURIComponent(name)}${BACKEND_MCP_AUTH_SUFFIX}`, {
+    ...options, method: "POST", body: input,
+  });
+}
+
+/** Starts OAuth only in the owner, where the pending callback state is retained. */
+export function startMcpOAuthAuthOnBackend(
+  name: string,
+  input: McpOAuthStartRequest,
+  options: { env?: BackendEnv; fetchImpl?: typeof fetch; timeoutMs?: number } = {},
+): Promise<BackendResult<McpOAuthStartResult>> {
   return backendRequest(`${BACKEND_MCP_SERVERS_PATH}/${encodeURIComponent(name)}${BACKEND_MCP_AUTH_SUFFIX}`, {
     ...options, method: "POST", body: input,
   });

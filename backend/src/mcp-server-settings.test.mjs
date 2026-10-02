@@ -192,6 +192,48 @@ test("header save POST is owner-only, validates private headers and sanitizes ev
   assert.throws(() => createBackendServer({ token: "x".repeat(32), saveMcpHeadersAuthAction: true }), /saveMcpHeadersAuthAction/);
 });
 
+test("OAuth start POST is authenticated, owner-ready, whitelisted and isolated from other auth handlers", async (t) => {
+  const calls = [];
+  const { url: itemUrl, headers } = await endpoint(t, { startMcpOAuthAuthAction: (name, input) => {
+    calls.push([name, input]); return { ok: true, name, status: "pending", authorizationUrl: "https://id.example.invalid/authorize?state=public-state",
+      token: "private-fixture-secret", error: "private-fixture-secret" };
+  } });
+  const url = `${itemUrl}/auth`;
+  const post = (body, auth = headers, target = url) => request(target, { method: "POST", headers: auth, body: JSON.stringify(body) });
+  assert.equal((await post({ type: "oauth" }, {})).status, 401);
+  assert.equal((await post({ type: "oauth" }, { authorization: headers.authorization })).status, 409);
+  for (const body of [null, [], {}, { type: "oauth", action: "complete" }, { type: "oauth", input: "private-fixture-secret" },
+    { type: "oauth", configPath: "other" }, { type: "oauth", token: "private-fixture-secret" }]) assert.equal((await post(body)).status, 400);
+  assert.equal((await post({ type: "oauth" }, headers, `${url}?agentDir=other`)).status, 400);
+  assert.equal(calls.length, 0);
+  for (const input of [{ type: "oauth" }, { type: "oauth", action: "start" }]) {
+    const response = await post(input);
+    assert.equal(response.status, 200);
+    assert.equal((await response.text()).includes("private"), false);
+  }
+  assert.deepEqual(calls, [["fixture", { type: "oauth", action: "start" }], ["fixture", { type: "oauth", action: "start" }]]);
+  for (const options of [{}, { startMcpOAuthAuthAction: () => calls.push("unexpected"), isReady: () => false },
+    { saveMcpBearerAuthAction: () => calls.push("unexpected") }, { startMcpOAuthAuthAction: () => calls.push("unexpected"), isReady: () => { throw new Error("private-fixture"); } }]) {
+    const missing = await endpoint(t, options);
+    assert.equal((await post({ type: "oauth" }, missing.headers, `${missing.url}/auth`)).status, 503);
+  }
+  assert.equal(calls.length, 2);
+  for (const status of [400, 404, 409, 503, 500]) {
+    const failed = await endpoint(t, { startMcpOAuthAuthAction: () => { throw Object.assign(new Error("private-fixture-secret"), { status }); } });
+    const response = await post({ type: "oauth" }, failed.headers, `${failed.url}/auth`);
+    assert.equal(response.status, status);
+    assert.equal((await response.text()).includes("private"), false);
+  }
+  for (const value of [{ ok: true, name: "another-server", status: "authenticated" },
+    { ok: true, name: "fixture", status: "pending", authorizationUrl: "https://id.example.invalid/authorize?client_secret=private" }]) {
+    const invalid = await endpoint(t, { startMcpOAuthAuthAction: () => value });
+    assert.equal((await post({ type: "oauth" }, invalid.headers, `${invalid.url}/auth`)).status, 500);
+  }
+  const authenticated = await endpoint(t, { startMcpOAuthAuthAction: (name) => ({ ok: true, name, status: "authenticated" }) });
+  assert.equal((await post({ type: "oauth" }, authenticated.headers, `${authenticated.url}/auth`)).status, 200);
+  assert.throws(() => createBackendServer({ token: "x".repeat(32), startMcpOAuthAuthAction: true }), /startMcpOAuthAuthAction/);
+});
+
 test("bearer/header/OAuth DELETE reaches only the owner with explicit or owner-resolved defaults", async (t) => {
   const calls = [];
   const { url: itemUrl, headers } = await endpoint(t, { removeMcpAuthAction: (name, input) => {
@@ -351,6 +393,11 @@ test("Backend entry persists ON/OFF through the rebuilt runtime and returns only
   });
   assert.equal(detachedHeaders.status, 503);
   assert.equal((await detachedHeaders.text()).includes("private-fixture-header-secret"), false);
+  const detachedOAuthStart = await request(`${base}${BACKEND_MCP_SERVERS_PATH}/n8n/auth`, {
+    method: "POST", headers, body: JSON.stringify({ type: "oauth", action: "start" }),
+  });
+  assert.equal(detachedOAuthStart.status, 503); // No live owner credential bridge; no local fallback or config write.
+  assert.equal((await detachedOAuthStart.text()).includes(root), false);
   const defaultDelete = await request(`${base}${BACKEND_MCP_SERVERS_PATH}/n8n/auth`, { method: "DELETE", headers });
   assert.equal(defaultDelete.status, 503); // Owner resolves OAuth; absent credential bridge must fail closed.
   const explicitOAuthDelete = await request(`${base}${BACKEND_MCP_SERVERS_PATH}/n8n/auth`, {

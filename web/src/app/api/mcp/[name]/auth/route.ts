@@ -8,11 +8,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { reloadLiveSessionsContext } from "@/lib/live-context";
 import { publicMcpAuthSnapshot } from "@shared/mcp-auth-snapshot.mjs";
-import { readMcpAuthStatusOnBackend, saveMcpBearerAuthOnBackend, saveMcpHeadersAuthOnBackend, removeMcpAuthOnBackend } from "@/lib/backend-client";
+import { readMcpAuthStatusOnBackend, saveMcpBearerAuthOnBackend, saveMcpHeadersAuthOnBackend, removeMcpAuthOnBackend, startMcpOAuthAuthOnBackend } from "@/lib/backend-client";
 import { parseMcpHeadersSaveRequest, publicMcpHeadersSaveResult } from "@shared/mcp-headers-save-request.mjs";
 import { saveMcpHeadersAuth } from "@/lib/mcp-headers-admin";
 import { parseMcpAuthRemoveRequest, publicMcpAuthRemoveResult } from "@shared/mcp-auth-remove-request.mjs";
 import { removeMcpAuth } from "@/lib/mcp-auth-remove-admin";
+import { parseMcpOAuthStartRequest, publicMcpOAuthStartResult } from "@shared/mcp-oauth-start-request.mjs";
+import { startMcpOAuthAuth } from "@/lib/mcp-oauth-start-admin";
 import { parseMcpBearerSaveRequest, publicMcpBearerSaveResult } from "@shared/mcp-bearer-save-request.mjs";
 import { saveMcpBearerAuth } from "@/lib/mcp-bearer-admin";
 import { readMcpAuthStatus } from "@/lib/mcp-auth-status";
@@ -260,15 +262,30 @@ export async function POST(req: NextRequest, context: RouteContext) {
 
     const action = body.action ?? "start";
     if (action === "start") {
-      const response = await callAdapter({ operation: "oauth-start", serverName: name });
-      if (response.ok !== true || response.operation !== "oauth-start") {
-        throw new McpError("auth-unavailable", "OAuth認証を開始できませんでした");
+      const parsed = parseMcpOAuthStartRequest(body);
+      const canonicalName = name.trim();
+      if (!parsed.ok) throw new McpError("invalid-auth", "OAuth開始リクエストが不正です");
+      if (!canonicalName || canonicalName.includes("/") || canonicalName.includes("\\") || canonicalName.includes("..")) {
+        throw new McpError("invalid-name", "名前が不正です");
       }
-      return NextResponse.json({
-        ok: true,
-        authorizationUrl: response.authorizationUrl,
-        status: response.status,
-      });
+      if (localRuntimeBlocked()) {
+        const forwarded = await startMcpOAuthAuthOnBackend(canonicalName, parsed.value).catch(() => {
+          throw new McpError("auth-unavailable", "BackendでOAuth認証を開始できません");
+        });
+        if (!forwarded.ok) {
+          const status = forwarded.status && forwarded.status >= 400 && forwarded.status <= 599 ? forwarded.status : 502;
+          return NextResponse.json({ error: "BackendでOAuth認証を開始できません" }, { status });
+        }
+        const result = publicMcpOAuthStartResult(forwarded.body);
+        if (!result || result.name !== canonicalName) {
+          return NextResponse.json({ error: "BackendのMCP応答が不正です" }, { status: 502 });
+        }
+        return NextResponse.json(result);
+      }
+      try { return NextResponse.json(await startMcpOAuthAuth(canonicalName, parsed.value)); }
+      catch (error) {
+        return NextResponse.json({ error: "OAuth認証を開始できませんでした" }, { status: mcpErrorStatus(error) });
+      }
     }
     if (action === "complete") {
       const input = requireText(body.input, "OAuthコールバックURLまたは認証コード", 16384);

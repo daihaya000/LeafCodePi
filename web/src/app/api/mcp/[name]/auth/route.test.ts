@@ -11,12 +11,13 @@ const adapter = vi.hoisted(() => ({
   requestMcpWebUiAuth: vi.fn(),
 }));
 
-const owner = vi.hoisted(() => ({ localRuntimeBlocked: vi.fn(), readMcpAuthStatusOnBackend: vi.fn(), saveMcpBearerAuthOnBackend: vi.fn(), saveMcpHeadersAuthOnBackend: vi.fn(), removeMcpAuthOnBackend: vi.fn() }));
+const owner = vi.hoisted(() => ({ localRuntimeBlocked: vi.fn(), readMcpAuthStatusOnBackend: vi.fn(), saveMcpBearerAuthOnBackend: vi.fn(), saveMcpHeadersAuthOnBackend: vi.fn(), removeMcpAuthOnBackend: vi.fn(), startMcpOAuthAuthOnBackend: vi.fn() }));
 vi.mock("@/lib/backend-client", async (importOriginal) => ({
   ...await importOriginal<typeof import("@/lib/backend-client")>(), readMcpAuthStatusOnBackend: owner.readMcpAuthStatusOnBackend,
   saveMcpBearerAuthOnBackend: owner.saveMcpBearerAuthOnBackend,
   saveMcpHeadersAuthOnBackend: owner.saveMcpHeadersAuthOnBackend,
   removeMcpAuthOnBackend: owner.removeMcpAuthOnBackend,
+  startMcpOAuthAuthOnBackend: owner.startMcpOAuthAuthOnBackend,
 }));
 vi.mock("@/lib/pi/runtime-ownership", async (importOriginal) => ({
   ...await importOriginal<typeof import("@/lib/pi/runtime-ownership")>(), localRuntimeBlocked: owner.localRuntimeBlocked,
@@ -66,6 +67,7 @@ describe("/api/mcp/:name/auth", () => {
     owner.saveMcpBearerAuthOnBackend.mockReset();
     owner.saveMcpHeadersAuthOnBackend.mockReset();
     owner.removeMcpAuthOnBackend.mockReset();
+    owner.startMcpOAuthAuthOnBackend.mockReset();
     adapter.requestMcpWebUiAuth.mockReset();
     adapter.requestMcpWebUiAuth.mockImplementation(async (input: { operation: string }) => {
       if (input.operation === "bearer-status") {
@@ -233,6 +235,7 @@ describe("/api/mcp/:name/auth", () => {
   });
 
   it("returns OAuth authorization URLs but never credential material", async () => {
+    writeFileSync(join(agentDir, "mcp.json"), JSON.stringify({ mcpServers: { n8n: { url: "https://n8n.example.invalid/mcp", auth: "oauth" } } }));
     adapter.requestMcpWebUiAuth.mockResolvedValue({
       ok: true,
       operation: "oauth-start",
@@ -246,6 +249,55 @@ describe("/api/mcp/:name/auth", () => {
       status: "pending",
       authorizationUrl: "https://id.example.com/authorize?state=public-state",
     });
+  });
+
+  it.each([{ type: "oauth" }, { type: "oauth", action: "start" }])("production OAuth start forwards without local config, bridge or reload", async (input) => {
+    owner.localRuntimeBlocked.mockReturnValue(true);
+    const read = vi.spyOn(mcpLibrary, "getMcpServerAuth");
+    const before = readFileSync(join(agentDir, "mcp.json"));
+    owner.startMcpOAuthAuthOnBackend.mockResolvedValue({ ok: true, body: { ok: true, name: "n8n", status: "pending",
+      authorizationUrl: "https://id.example.invalid/authorize?state=public&code_challenge=public", token: "private-fixture-token", configPath: "private-path" } });
+    const response = await POST(request("POST", input), context());
+    expect(response.status).toBe(200);
+    expect(JSON.stringify(await response.json())).not.toContain("private");
+    expect(owner.startMcpOAuthAuthOnBackend).toHaveBeenCalledWith("n8n", { type: "oauth", action: "start" });
+    expect(read).not.toHaveBeenCalled();
+    expect(adapter.requestMcpWebUiAuth).not.toHaveBeenCalled();
+    expect(harness.reloadLiveSessionsContext).not.toHaveBeenCalled();
+    expect(readFileSync(join(agentDir, "mcp.json"))).toEqual(before);
+  });
+  it.each(["not-configured", "unreachable", "timeout", "unauthorized"])("OAuth start refuses %s without local fallback", async (reason) => {
+    owner.localRuntimeBlocked.mockReturnValue(true);
+    owner.startMcpOAuthAuthOnBackend.mockResolvedValue({ ok: false, reason, status: reason === "unauthorized" ? 401 : undefined, error: "private-error" });
+    const response = await POST(request("POST", { type: "oauth" }), context());
+    expect(response.status).toBe(reason === "unauthorized" ? 401 : 502);
+    expect(JSON.stringify(await response.json())).not.toContain("private-error");
+    expect(adapter.requestMcpWebUiAuth).not.toHaveBeenCalled();
+    expect(harness.reloadLiveSessionsContext).not.toHaveBeenCalled();
+  });
+  it("OAuth start rejects privileged inputs, unsafe/mismatched owner results and private exceptions", async () => {
+    owner.localRuntimeBlocked.mockReturnValue(true);
+    for (const input of [{ type: "oauth", token: "private" }, { type: "oauth", input: "private" }, { type: "oauth", configPath: "private" }]) {
+      expect((await POST(request("POST", input), context())).status).toBe(400);
+    }
+    expect(owner.startMcpOAuthAuthOnBackend).not.toHaveBeenCalled();
+    for (const body of [{ ok: true, name: "other", status: "authenticated" },
+      { ok: true, name: "n8n", status: "pending", authorizationUrl: "javascript:alert(1)" }]) {
+      owner.startMcpOAuthAuthOnBackend.mockResolvedValueOnce({ ok: true, body });
+      expect((await POST(request("POST", { type: "oauth" }), context())).status).toBe(502);
+    }
+    owner.startMcpOAuthAuthOnBackend.mockRejectedValueOnce(new Error("private-oauth-secret"));
+    const response = await POST(request("POST", { type: "oauth" }), context());
+    expect(response.status).toBe(503);
+    expect(JSON.stringify(await response.json())).not.toContain("private-oauth-secret");
+    expect(adapter.requestMcpWebUiAuth).not.toHaveBeenCalled();
+  });
+  it("OAuth start accepts an already authenticated owner without opening a URL", async () => {
+    owner.localRuntimeBlocked.mockReturnValue(true);
+    owner.startMcpOAuthAuthOnBackend.mockResolvedValueOnce({ ok: true, body: { ok: true, name: "n8n", status: "authenticated", token: "private-token" } });
+    const response = await POST(request("POST", { type: "oauth" }), context());
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ ok: true, name: "n8n", status: "authenticated" });
   });
 
   it("rejects empty bearer tokens before contacting the adapter", async () => {
