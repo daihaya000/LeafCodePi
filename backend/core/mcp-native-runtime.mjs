@@ -56,17 +56,17 @@ export function createBackendMcpNativeRuntime(options) {
           /** One SDK extension family for one session cwd. No activation. */
           forSession(sessionCwd) {
             try {
-            const common = { snapshot, configPath, sessionCwd, assertSnapshotOwner: binding.assertOwner };
-            const stdioFactory = createBackendMcpStdioTransportFactory({ ...common, homeDir: captured.homeDir, environment: captured.environment });
-            const httpFactory = createBackendMcpHttpTransportFactory({ ...common, variables: captured.variables, fetch: captured.fetch });
-            return prepareBackendMcpExtensionsFromBinding({
-              binding,
-              mcp: {
-                credentials, openUrl: captured.openUrl,
-                createTransport: (entry, cwd, authProvider) => (entry?.config?.url !== undefined ? httpFactory : stdioFactory)(entry, cwd, authProvider),
-                ...(captured.startupWaitMs === undefined ? {} : { startupWaitMs: captured.startupWaitMs }),
-              },
-            });
+              const common = { snapshot, configPath, sessionCwd, assertSnapshotOwner: binding.assertOwner };
+              const stdioFactory = createBackendMcpStdioTransportFactory({ ...common, homeDir: captured.homeDir, environment: captured.environment });
+              const httpFactory = createBackendMcpHttpTransportFactory({ ...common, variables: captured.variables, fetch: captured.fetch });
+              return prepareBackendMcpExtensionsFromBinding({
+                binding,
+                mcp: {
+                  credentials, openUrl: captured.openUrl,
+                  createTransport: (entry, cwd, authProvider) => (entry?.config?.url !== undefined ? httpFactory : stdioFactory)(entry, cwd, authProvider),
+                  ...(captured.startupWaitMs === undefined ? {} : { startupWaitMs: captured.startupWaitMs }),
+                },
+              });
             } catch { throw unavailable(); }
           },
         });

@@ -279,6 +279,7 @@ import {
   softLiveSettings,
 } from "@backend-core/live-lifecycle.mjs";
 import { isReplacedPackageSource, keepsLoadedExtension, replacedUpstreamPackages } from "@backend-core/replaced-packages.mjs";
+import { bundledPathsForNativeMcp, resolveBackendMcpNativeSession } from "@backend-core/mcp-native-session.mjs";
 import { resolveBotSessionOptions } from "@backend-core/bot-session-options.mjs";
 import { runSessionEventEffects } from "@backend-core/session-event-effects.mjs";
 import { isBotTask, liveSessionName, liveSessionRefusalError, liveSessionWorkspace, preflightLiveSession, resolveSessionPermissionDefaults, TASK_ARCHIVED_MESSAGE, TASK_NOT_FOUND_MESSAGE, resolveSessionAccountId, resolveSessionAccountRefusal, resolveSessionPermissionMode, resolveSessionSkillPermission, resolveSessionThinkingLevelSource, resolveStoredModelOutcome } from "@backend-core/live-session-preflight.mjs";
@@ -3742,9 +3743,16 @@ async function createSession(options: {
   // production WebUI supplies explicit roots because it runs from a mirror.
   const bundled = bundledExtensionEntries();
   const bundledSkills = bundledSkillPaths();
+  // Native MCP (when a Backend provider is installed) replaces the bundled adapter without dual
+  // operation. Names stay complete so the replaced upstream package is still excluded.
+  const nativeMcp = resolveBackendMcpNativeSession(options.cwd);
+  if (nativeMcp.issues.length > 0) {
+    console.error(`[mcp-native] unavailable: ${nativeMcp.issues.map((issue) => issue.code).join(",")}`);
+  }
+  const loadedBundled = bundledPathsForNativeMcp(bundled, nativeMcp.active);
   const bundledIndex = {
     names: new Set(bundled.map((entry) => entry.name)),
-    paths: new Set(bundled.map((entry) => entry.filePath)),
+    paths: new Set(loadedBundled.map((entry) => entry.filePath)),
   };
   const replacedPackageNames = replacedUpstreamPackages(bundledIndex.names);
   // テスト環境のSDKモックはSettingsManagerを持たないことがあるため、存在時だけ適用する。
@@ -3772,9 +3780,9 @@ async function createSession(options: {
     cwd: options.cwd,
     agentDir,
     ...(settingsManager ? { settingsManager } : {}),
-    additionalExtensionPaths: bundled.map((entry) => entry.filePath),
+    additionalExtensionPaths: loadedBundled.map((entry) => entry.filePath),
     additionalSkillPaths: bundledSkills,
-    extensionFactories: sessionExtensionFactories({
+    extensionFactories: [...nativeMcp.factories, ...sessionExtensionFactories({
       agentDir,
       botSoulBotId,
       botToolAllowlist,
@@ -3785,7 +3793,7 @@ async function createSession(options: {
       botCodeTaskId,
       roomHandoffTaskId,
       getExtensions: () => resourceLoader.getExtensions().extensions,
-    }),
+    })],
     skillsOverride: sessionSkillsOverride({
       noSkills: agentOptions?.noSkills,
       skillPermissionRef,
