@@ -5,6 +5,7 @@ import { streamRuntimeEvents } from "./runtime-events.mjs";
 import { parseMcpPresetRequest } from "../../shared/mcp-preset-request.mjs";
 import { publicMcpAuthSnapshot } from "../../shared/mcp-auth-snapshot.mjs";
 import { parseMcpBearerSaveRequest, publicMcpBearerSaveResult } from "../../shared/mcp-bearer-save-request.mjs";
+import { parseMcpHeadersSaveRequest, publicMcpHeadersSaveResult } from "../../shared/mcp-headers-save-request.mjs";
 import { InvalidTaskMessageCursorError, pageTaskMessages } from "../../shared/task-history.mjs";
 import {
   BACKEND_ERROR_CODES,
@@ -218,6 +219,8 @@ export function createBackendServer({
   readMcpAuthStatus = null,
   /** Saves a validated bearer token through the owner's credential-store bridge. */
   saveMcpBearerAuthAction = null,
+  /** Saves validated private headers through the owner's credential-store bridge. */
+  saveMcpHeadersAuthAction = null,
   /** Compacts a session: `(id, customInstructions?) => task`; the summarization runs in the owner. */
   compactTaskAction = null,
   /** Stops a running compaction: `(id) => task`; only the owner can interrupt its own session. */
@@ -284,6 +287,7 @@ export function createBackendServer({
     createMcpPresetAction,
     readMcpAuthStatus,
     saveMcpBearerAuthAction,
+    saveMcpHeadersAuthAction,
     compactTaskAction,
     abortCompactTaskAction,
     setTaskModelAction,
@@ -433,25 +437,33 @@ export function createBackendServer({
       }
       let ready = false;
       try { ready = isReady() === true; } catch { /* Refuse without exception detail. */ }
-      const available = request.method === "POST" ? saveMcpBearerAuthAction : readMcpAuthStatus;
+      const available = request.method === "POST" ? saveMcpBearerAuthAction || saveMcpHeadersAuthAction : readMcpAuthStatus;
       if (!available || !ready) {
         sendJson(response, 503, { error: "Backend runtime unavailable", code: BACKEND_ERROR_CODES.runtimeUnavailable });
         return;
       }
       if (request.method === "POST") {
-        const body = await readJsonBody(request, 65_536);
-        const parsed = body.ok ? parseMcpBearerSaveRequest(body.value) : { ok: false };
+        // 32 headers at 8192 UTF-16 characters each, including JSON escape expansion.
+        const body = await readJsonBody(request, 2_097_152);
+        const isHeaders = (body.value?.type ?? body.value?.action) === "headers";
+        const parsed = body.ok ? (isHeaders ? parseMcpHeadersSaveRequest(body.value) : parseMcpBearerSaveRequest(body.value)) : { ok: false };
         if (!parsed.ok) {
-          sendJson(response, 400, { error: "Invalid MCP bearer save request", code: BACKEND_ERROR_CODES.badRequest });
+          sendJson(response, 400, { error: "Invalid MCP auth save request", code: BACKEND_ERROR_CODES.badRequest });
+          return;
+        }
+        const action = isHeaders ? saveMcpHeadersAuthAction : saveMcpBearerAuthAction;
+        if (!action) {
+          sendJson(response, 503, { error: "Backend runtime unavailable", code: BACKEND_ERROR_CODES.runtimeUnavailable });
           return;
         }
         try {
-          const result = publicMcpBearerSaveResult(await saveMcpBearerAuthAction(name, parsed.value));
-          if (!result || result.auth.name !== name) throw new Error("Invalid MCP bearer save result");
+          const value = await action(name, parsed.value);
+          const result = isHeaders ? publicMcpHeadersSaveResult(value) : publicMcpBearerSaveResult(value);
+          if (!result || result.auth.name !== name) throw new Error("Invalid MCP auth save result");
           sendJson(response, 200, result);
         } catch (error) {
           const status = [400, 404, 409, 503].includes(error?.status) ? error.status : 500;
-          sendJson(response, status, { error: "Backend MCP bearer save failed",
+          sendJson(response, status, { error: "Backend MCP auth save failed",
             code: status === 404 ? BACKEND_ERROR_CODES.notFound : status < 500 ? BACKEND_ERROR_CODES.badRequest : BACKEND_ERROR_CODES.internal });
         }
         return;

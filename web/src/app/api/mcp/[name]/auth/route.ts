@@ -8,7 +8,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { reloadLiveSessionsContext } from "@/lib/live-context";
 import { publicMcpAuthSnapshot } from "@shared/mcp-auth-snapshot.mjs";
-import { readMcpAuthStatusOnBackend, saveMcpBearerAuthOnBackend } from "@/lib/backend-client";
+import { readMcpAuthStatusOnBackend, saveMcpBearerAuthOnBackend, saveMcpHeadersAuthOnBackend } from "@/lib/backend-client";
+import { parseMcpHeadersSaveRequest, publicMcpHeadersSaveResult } from "@shared/mcp-headers-save-request.mjs";
+import { saveMcpHeadersAuth } from "@/lib/mcp-headers-admin";
 import { parseMcpBearerSaveRequest, publicMcpBearerSaveResult } from "@shared/mcp-bearer-save-request.mjs";
 import { saveMcpBearerAuth } from "@/lib/mcp-bearer-admin";
 import { readMcpAuthStatus } from "@/lib/mcp-auth-status";
@@ -16,7 +18,6 @@ import { localRuntimeBlocked } from "@/lib/pi/runtime-ownership";
 import {
   disableMcpBearerStore,
   disableMcpHeadersStore,
-  enableMcpHeadersStore,
   getMcpServerAuth,
   McpError,
   mcpErrorStatus,
@@ -161,33 +162,6 @@ function requireText(value: unknown, label: string, maxLength: number): string {
   return text;
 }
 
-function requireHeaders(value: unknown): Record<string, string> {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    throw new McpError("invalid-auth", "HTTPヘッダーが必要です");
-  }
-  const entries = Object.entries(value as Record<string, unknown>);
-  if (entries.length === 0 || entries.length > 32) {
-    throw new McpError("invalid-auth", "HTTPヘッダーは1〜32個で指定してください");
-  }
-  const headers: Record<string, string> = {};
-  for (const [rawName, rawValue] of entries) {
-    const name = requireText(rawName, "HTTPヘッダー名", 256);
-    const valueText = requireText(rawValue, `HTTPヘッダー ${name} の値`, 8192);
-    Object.defineProperty(headers, name, {
-      configurable: true,
-      enumerable: true,
-      value: valueText,
-      writable: true,
-    });
-  }
-  try {
-    new Headers(headers);
-  } catch {
-    throw new McpError("invalid-auth", "HTTPヘッダー名または値が不正です");
-  }
-  return headers;
-}
-
 export async function GET(_req: NextRequest, context: RouteContext) {
   try {
     const { name: rawName } = await context.params;
@@ -258,21 +232,30 @@ export async function POST(req: NextRequest, context: RouteContext) {
     }
 
     if (method === "headers") {
-      const headers = requireHeaders(body.headers);
-      const current = getMcpServerAuth(name);
-      await callAdapter({ operation: "headers-save", serverName: name, headers });
-      if (current.authType === "bearer" && current.credentialSource === "secure-store") {
-        await callAdapter({ operation: "bearer-remove", serverName: name });
+      const parsed = parseMcpHeadersSaveRequest(body);
+      const canonicalName = name.trim();
+      if (!parsed.ok) throw new McpError("invalid-auth", "HTTPヘッダー認証リクエストが不正です");
+      if (!canonicalName || canonicalName.includes("/") || canonicalName.includes("\\") || canonicalName.includes("..")) {
+        throw new McpError("invalid-name", "名前が不正です");
       }
-      // Header values stay in the adapter's OS credential store. Only this
-      // non-secret selector is persisted in mcp.json.
-      enableMcpHeadersStore(name);
-      const reload = await reloadLiveSessionsContext();
-      return NextResponse.json({
-        ok: true,
-        auth: await snapshotWithLiveStatus(name),
-        reload,
-      });
+      if (localRuntimeBlocked()) {
+        const forwarded = await saveMcpHeadersAuthOnBackend(canonicalName, parsed.value).catch(() => {
+          throw new McpError("auth-unavailable", "BackendでHTTPヘッダー認証情報を保存できません");
+        });
+        if (!forwarded.ok) {
+          const status = forwarded.status && forwarded.status >= 400 && forwarded.status <= 599 ? forwarded.status : 502;
+          return NextResponse.json({ error: "BackendでHTTPヘッダー認証情報を保存できません" }, { status });
+        }
+        const result = publicMcpHeadersSaveResult(forwarded.body);
+        if (!result || result.auth.name !== canonicalName) {
+          return NextResponse.json({ error: "BackendのMCP応答が不正です" }, { status: 502 });
+        }
+        return NextResponse.json(result);
+      }
+      try { return NextResponse.json(await saveMcpHeadersAuth(canonicalName, parsed.value)); }
+      catch (error) {
+        return NextResponse.json({ error: "HTTPヘッダー認証情報を保存できませんでした" }, { status: mcpErrorStatus(error) });
+      }
     }
 
     const action = body.action ?? "start";

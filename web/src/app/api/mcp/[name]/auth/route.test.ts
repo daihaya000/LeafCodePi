@@ -11,10 +11,11 @@ const adapter = vi.hoisted(() => ({
   requestMcpWebUiAuth: vi.fn(),
 }));
 
-const owner = vi.hoisted(() => ({ localRuntimeBlocked: vi.fn(), readMcpAuthStatusOnBackend: vi.fn(), saveMcpBearerAuthOnBackend: vi.fn() }));
+const owner = vi.hoisted(() => ({ localRuntimeBlocked: vi.fn(), readMcpAuthStatusOnBackend: vi.fn(), saveMcpBearerAuthOnBackend: vi.fn(), saveMcpHeadersAuthOnBackend: vi.fn() }));
 vi.mock("@/lib/backend-client", async (importOriginal) => ({
   ...await importOriginal<typeof import("@/lib/backend-client")>(), readMcpAuthStatusOnBackend: owner.readMcpAuthStatusOnBackend,
   saveMcpBearerAuthOnBackend: owner.saveMcpBearerAuthOnBackend,
+  saveMcpHeadersAuthOnBackend: owner.saveMcpHeadersAuthOnBackend,
 }));
 vi.mock("@/lib/pi/runtime-ownership", async (importOriginal) => ({
   ...await importOriginal<typeof import("@/lib/pi/runtime-ownership")>(), localRuntimeBlocked: owner.localRuntimeBlocked,
@@ -62,6 +63,7 @@ describe("/api/mcp/:name/auth", () => {
     owner.localRuntimeBlocked.mockReturnValue(false);
     owner.readMcpAuthStatusOnBackend.mockReset();
     owner.saveMcpBearerAuthOnBackend.mockReset();
+    owner.saveMcpHeadersAuthOnBackend.mockReset();
     adapter.requestMcpWebUiAuth.mockReset();
     adapter.requestMcpWebUiAuth.mockImplementation(async (input: { operation: string }) => {
       if (input.operation === "bearer-status") {
@@ -176,6 +178,56 @@ describe("/api/mcp/:name/auth", () => {
       serverName: "n8n",
       headers: { "X-API-Key": secret },
     });
+  });
+
+  it("production header POST forwards only normalized credentials without touching local state", async () => {
+    owner.localRuntimeBlocked.mockReturnValue(true);
+    const localRead = vi.spyOn(mcpLibrary, "getMcpServerAuth");
+    const localWrite = vi.spyOn(mcpLibrary, "enableMcpHeadersStore");
+    const before = readFileSync(join(agentDir, "mcp.json"));
+    owner.saveMcpHeadersAuthOnBackend.mockResolvedValue({ ok: true, body: { ok: true,
+      auth: { name: "n8n", authType: "headers", credentialConfigured: true, credentialSource: "secure-store", credentialStatus: "present",
+        configPath: "owner-private-path", credentialMessage: "private-fixture-secret" }, headers: { "X-Key": "private-fixture-secret" },
+      reload: { reloaded: 0, deferred: 0, failed: 1, errors: ["private-fixture-secret"] } } });
+    const response = await POST(request("POST", { action: "headers", headers: { " X-Key ": " private-fixture-secret " } }), context());
+    expect(response.status).toBe(200);
+    expect(JSON.stringify(await response.json())).not.toContain("private");
+    expect(owner.saveMcpHeadersAuthOnBackend).toHaveBeenCalledWith("n8n", { type: "headers", headers: { "X-Key": "private-fixture-secret" } });
+    expect(owner.saveMcpBearerAuthOnBackend).not.toHaveBeenCalled();
+    expect(localRead).not.toHaveBeenCalled();
+    expect(localWrite).not.toHaveBeenCalled();
+    expect(adapter.requestMcpWebUiAuth).not.toHaveBeenCalled();
+    expect(harness.reloadLiveSessionsContext).not.toHaveBeenCalled();
+    expect(readFileSync(join(agentDir, "mcp.json"))).toEqual(before);
+  });
+
+  it.each([["not-configured", undefined, 502], ["unreachable", undefined, 502], ["timeout", undefined, 502],
+    ["unauthorized", 401, 401], ["bad-response", 404, 404], ["bad-response", 200, 502]])(
+    "header POST refuses %s/%s without local fallback", async (reason, status, expected) => {
+      owner.localRuntimeBlocked.mockReturnValue(true);
+      owner.saveMcpHeadersAuthOnBackend.mockResolvedValue({ ok: false, reason, status, error: "private-fixture-secret" });
+      const before = readFileSync(join(agentDir, "mcp.json"));
+      const response = await POST(request("POST", { type: "headers", headers: { "X-Key": "private-fixture-secret" } }), context());
+      expect(response.status).toBe(expected);
+      expect(JSON.stringify(await response.json())).not.toContain("private-fixture-secret");
+      expect(adapter.requestMcpWebUiAuth).not.toHaveBeenCalled();
+      expect(harness.reloadLiveSessionsContext).not.toHaveBeenCalled();
+      expect(readFileSync(join(agentDir, "mcp.json"))).toEqual(before);
+    });
+
+  it("header POST rejects invalid fields, malformed responses and unexpected private errors", async () => {
+    owner.localRuntimeBlocked.mockReturnValue(true);
+    for (const body of [{ type: "headers", headers: {} }, { type: "headers", headers: { "Bad Header": "private-fixture-secret" } },
+      { type: "headers", headers: { "X-Key": "private-fixture-secret" }, configPath: "other" }]) {
+      expect((await POST(request("POST", body), context())).status).toBe(400);
+    }
+    expect(owner.saveMcpHeadersAuthOnBackend).not.toHaveBeenCalled();
+    owner.saveMcpHeadersAuthOnBackend.mockResolvedValueOnce({ ok: true, body: {} });
+    expect((await POST(request("POST", { type: "headers", headers: { "X-Key": "secret" } }), context())).status).toBe(502);
+    owner.saveMcpHeadersAuthOnBackend.mockRejectedValueOnce(new Error("private-fixture-secret"));
+    const response = await POST(request("POST", { type: "headers", headers: { "X-Key": "secret" } }), context());
+    expect(response.status).toBe(503);
+    expect(JSON.stringify(await response.json())).not.toContain("private-fixture-secret");
   });
 
   it("returns OAuth authorization URLs but never credential material", async () => {
