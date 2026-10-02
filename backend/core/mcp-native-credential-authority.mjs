@@ -1,13 +1,11 @@
-import fs from "node:fs";
-import { createHash } from "node:crypto";
 import { isAbsolute, join, resolve } from "node:path";
+import { createBackendMcpConfigRevisionCheck } from "./mcp-native-config-revision.mjs";
 
 const plain = (value) => value && typeof value === "object" && !Array.isArray(value)
   && [Object.prototype, null].includes(Object.getPrototypeOf(value));
 const unavailable = () => new Error("MCP credential authority unavailable");
 const own = (value, keys) => plain(value) && keys.every((key) => Object.hasOwn(value, key));
 const digest = (value) => typeof value === "string" && /^[a-f0-9]{64}$/.test(value);
-const MAX_BYTES = 2_097_152;
 function synchronous(value) {
   if (value && typeof value.then === "function") { Promise.resolve(value).catch(() => undefined); throw unavailable(); }
   return value;
@@ -17,26 +15,6 @@ function endpoint(value) {
   const url = new URL(value);
   if (!["http:", "https:"].includes(url.protocol) || url.username || url.password || url.hash) throw unavailable();
   return url.href;
-}
-function revision(path, missingAllowed) {
-  let fd;
-  try {
-    let before;
-    try { before = fs.lstatSync(path); }
-    catch (error) { if (missingAllowed && error.code === "ENOENT") return null; throw error; }
-    const regular = (stat) => stat.isFile() && !stat.isSymbolicLink() && stat.nlink === 1 && stat.size <= MAX_BYTES;
-    if (!regular(before)) throw unavailable();
-    fd = fs.openSync(path, fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW ?? 0));
-    const opened = fs.fstatSync(fd);
-    if (!regular(opened) || opened.ino !== before.ino || opened.dev !== before.dev) throw unavailable();
-    const bytes = Buffer.alloc(MAX_BYTES + 1);
-    let size = 0, read;
-    while (size < bytes.length && (read = fs.readSync(fd, bytes, size, bytes.length - size, null)) > 0) size += read;
-    const after = fs.fstatSync(fd), current = fs.lstatSync(path);
-    if (size > MAX_BYTES || size !== after.size || !regular(after) || !regular(current)
-      || ["ino", "dev", "size", "mtimeMs", "ctimeMs"].some((key) => opened[key] !== after[key] || after[key] !== current[key])) throw unavailable();
-    return createHash("sha256").update(bytes.subarray(0, size)).digest("hex");
-  } finally { if (fd !== undefined) fs.closeSync(fd); }
 }
 
 /**
@@ -90,20 +68,15 @@ export function createBackendMcpCredentialAuthority(options) {
       if (config.headers && Object.keys(config.headers).some((key) => key.toLowerCase() === "authorization")) continue;
       allowed.set(namespace, url);
     }
-    let fenced = false;
+    const assertRevision = createBackendMcpConfigRevisionCheck({ agentDir, bundledConfigPath: bundledPath,
+      expectedSha256: prepared.sourceSha256, expectedBundledSha256: prepared.bundledSha256, assertRuntimeOwner: captured.assertRuntimeOwner });
     return (value) => {
       try {
         if (!own(value, ["namespace", "serverUrl"]) || Object.keys(value).some((key) => !["namespace", "serverUrl"].includes(key))) throw unavailable();
         const id = Object.freeze({ namespace: value.namespace, serverUrl: value.serverUrl });
         if (typeof id.namespace !== "string" || !/^mcp__[A-Za-z0-9_]+$/.test(id.namespace)
-          || endpoint(id.serverUrl) !== id.serverUrl || allowed.get(id.namespace) !== id.serverUrl || fenced) throw unavailable();
-        try {
-          if (synchronous(captured.assertRuntimeOwner()) !== undefined || fenced) throw unavailable();
-          const directory = fs.lstatSync(agentDir);
-          if (!directory.isDirectory() || directory.isSymbolicLink()) throw unavailable();
-          if (revision(configPath, true) !== prepared.sourceSha256 || revision(bundledPath, false) !== prepared.bundledSha256) throw unavailable();
-          if (fenced || synchronous(captured.assertRuntimeOwner()) !== undefined || fenced) throw unavailable();
-        } catch { fenced = true; throw unavailable(); }
+          || endpoint(id.serverUrl) !== id.serverUrl || allowed.get(id.namespace) !== id.serverUrl) throw unavailable();
+        assertRevision();
       } catch { throw unavailable(); }
     };
   } catch { throw unavailable(); }

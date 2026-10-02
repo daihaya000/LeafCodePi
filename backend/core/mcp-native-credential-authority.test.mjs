@@ -91,16 +91,15 @@ test("runtime revocation before or during revision reads is terminal; invalid ca
   assert.throws(() => during(id()), safe); assert.equal(calls, 2);
 });
 
-test("a swallowed nested lease failure still fences the outer assertion and every later call", async (t) => {
+test("a swallowed reentrant assertion fences the outer gate without recursively invoking the lease", async (t) => {
   const f = await fixture(t); let gate, calls = 0;
   gate = createBackendMcpCredentialAuthority({ ...f.options, assertRuntimeOwner() {
     if (++calls === 1) { try { gate(id()); } catch { /* Host callback must not undo revocation. */ } }
-    else if (calls === 2) throw Error("private-nested-revocation");
   } });
   assert.throws(() => gate(id()), safe);
-  assert.equal(calls, 2);
+  assert.equal(calls, 1);
   assert.throws(() => gate(id()), safe);
-  assert.equal(calls, 2);
+  assert.equal(calls, 1);
 });
 
 test("hardlinked/oversized source files and filesystem errors fail closed without private diagnostics", async (t) => {
