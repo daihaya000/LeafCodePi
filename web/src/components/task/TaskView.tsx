@@ -47,6 +47,7 @@ import { SessionLabelBadge } from "@/components/SessionLabelBadge";
 import { TodoProgressPanel } from "@/components/task/TodoProgressPanel";
 import { ModelSelect, modelOptionForValue } from "@/components/ModelSelect";
 import { ThinkingSelect } from "@/components/ThinkingSelect";
+import { FastModeSelect } from "@/components/FastModeSelect";
 import { AgentSelect } from "@/components/AgentSelect";
 import { StatusBadge } from "@/components/StatusBadge";
 import { MobileMenuButton } from "@/components/shell/MobileMenuHeader";
@@ -4091,6 +4092,11 @@ export const TaskView = memo(function TaskView({
                   }}
                 />
               )}
+              <FastModeSelect
+                providerID={modelValue === AUTO_MODEL_VALUE ? null : selectedModel?.providerID}
+                disabled={compacting || archived}
+                className="h-8 shrink-0"
+              />
               {hasMultipleAgentChoices(agents.length, autoAgentEnabled) && (
                 <AgentSelect
                   value={agentSelection}
