@@ -61,6 +61,18 @@ test("strict contracts/selectors, transport/url/header/template refusals never i
   assert.equal(fetched, 0); const healthy = call(factory, options); await healthy.close();
 });
 
+test("ambient variable names are kept but unreferencable; invalid keys/values still refuse", async () => {
+  const options = input(); options.variables = { ...options.variables, "ProgramFiles(x86)": "C:\\Program Files (x86)" };
+  const factory = create(options); const transport = call(factory, options); assert.equal(transport instanceof StreamableHttpTransport, true); await transport.close();
+  for (const variables of [{ "": "x" }, { TOKEN: "bad\nvalue" }, { TOKEN: 1 }]) {
+    assert.throws(() => create({ ...options, variables }), safe);
+  }
+  // A template can only name identifier variables, so an ambient-only key cannot be referenced.
+  const templated = input(); templated.snapshot.servers[0].config.url = "https://example.test/${ProgramFiles(x86)}/mcp";
+  templated.variables = { "ProgramFiles(x86)": "x" };
+  const templatedFactory = create(templated); assert.throws(() => call(templatedFactory, templated), safe);
+});
+
 test("401 challenge receives original authProvider and explicit context fetch, then retries with its rotated token", async () => {
   const options = input(), requests = []; let token = "old", unauthorized = 0;
   options.fetch = async (url, init) => {

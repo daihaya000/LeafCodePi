@@ -9,11 +9,15 @@ const unavailable = () => new Error("MCP stdio transport unavailable");
 const text = (v) => typeof v === "string" && !v.includes("\0");
 const absolute = (v) => text(v) && isAbsolute(v);
 const envKey = (key) => process.platform === "win32" ? key.toLowerCase() : key;
-function environment(value) {
+/** `identifiers` is true for server-declared config env (must be `${NAME}`-referable and predictable);
+ * the base environment only has to be a valid child env map, so ambient keys such as `ProgramFiles(x86)`
+ * are kept instead of refusing every session. */
+function environment(value, identifiers) {
   if (!plain(value)) throw unavailable();
   const result = new Map();
   for (const key of Reflect.ownKeys(value)) {
-    if (typeof key !== "string" || !/^[A-Za-z_][A-Za-z0-9_]*$/.test(key) || result.has(envKey(key))) throw unavailable();
+    if (typeof key !== "string" || !key || key.includes("=") || key.includes("\0")
+      || (identifiers && !/^[A-Za-z_][A-Za-z0-9_]*$/.test(key)) || result.has(envKey(key))) throw unavailable();
     const item = value[key]; if (!text(item)) throw unavailable();
     result.set(envKey(key), [key, item]);
   }
@@ -29,6 +33,8 @@ function environment(value) {
  * explicit home, and ${NAME} in config env from explicit base env. Child inheritEnv is false.
  * Missing/recursive refs, other $NAME/escape syntax, !commands, PATH executables, Windows scripts/
  * shims and HTTP fail closed; broader SDK template syntax is a separate compatibility gate.
+ * The explicit base environment accepts any valid env key (ambient names like `ProgramFiles(x86)`
+ * are kept); server config env keys must be identifier-safe because they are referenced by name.
  * Arguments are literal, as in the SDK. Executable contents/ancestors are NOT pinned or attested;
  * cross-spawn/OS internals still have platform behavior. Not a sandbox or full process authorization.
  * Creation/start entry/completion and synchronous JSON-RPC listener dispatch are fenced.
@@ -47,7 +53,7 @@ export function createBackendMcpStdioTransportFactory(options) {
     if (!absolute(captured.configPath) || basename(captured.configPath) !== "mcp.json"
       || !absolute(captured.sessionCwd) || !absolute(captured.homeDir)
       || typeof captured.assertSnapshotOwner !== "function" || types.isAsyncFunction(captured.assertSnapshotOwner)) throw unavailable();
-    const base = environment(captured.environment), snapshot = structuredClone(captured.snapshot);
+    const base = environment(captured.environment, false), snapshot = structuredClone(captured.snapshot);
     if (!own(snapshot, ["servers", "errors"]) || !only(snapshot, ["servers", "errors", "autoEnableCodemode"])
       || !Array.isArray(snapshot.servers) || !Array.isArray(snapshot.errors) || snapshot.errors.length !== 0) throw unavailable();
     const entries = new Map(), namespaces = new Set();
@@ -117,7 +123,7 @@ export function createBackendMcpStdioTransportFactory(options) {
         const command = expandHome(config.command);
         if (!absolute(command) || command.includes("${") || (process.platform === "win32" && !/\.(exe|com)$/i.test(command))) throw unavailable();
         const env = new Map(base);
-        for (const [normalized, [key, value]] of environment(config.env ?? {})) env.set(normalized, [key, expandEnv(value)]);
+        for (const [normalized, [key, value]] of environment(config.env ?? {}, true)) env.set(normalized, [key, expandEnv(value)]);
         const childEnv = Object.freeze(Object.fromEntries(env.values()));
         const args = (config.args ?? []).map(expandHome), childCwd = resolve(captured.sessionCwd, expandHome(config.cwd ?? "."));
         assertOwner();

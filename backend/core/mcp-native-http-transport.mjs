@@ -11,6 +11,7 @@ const absolute = (v) => text(v) && isAbsolute(v);
 
 /** INTERNAL inert constructor from SDK-validated private snapshot + SAME binding authority.
  * Explicit headers variables/fetch; no config/credential/browser/network IO or ambient env lookup.
+ * Variable names that cannot appear in `${NAME}` templates are kept but unreferencable.
  * Fixed global selectors/cwd and immutable MCP endpoint. HTTPS or exact loopback HTTP only;
  * userinfo/fragments/unresolved URLs, !commands, other $NAME/escapes and redirects fail closed.
  * SDK authProvider passes through unchanged: token refresh, OAuth discovery/issuer permissions,
@@ -36,7 +37,9 @@ export function createBackendMcpHttpTransportFactory(options) {
       || types.isAsyncFunction(captured.assertSnapshotOwner) || !plain(captured.variables)) throw unavailable();
     const variables = new Map();
     for (const key of Reflect.ownKeys(captured.variables)) {
-      if (typeof key !== "string" || !/^[A-Za-z_][A-Za-z0-9_]*$/.test(key)) throw unavailable();
+      // Only identifier names can be referenced, but an ambient map (process.env) may hold other keys:
+      // they are unreferencable rather than a reason to refuse every endpoint.
+      if (typeof key !== "string" || !key || key.includes("\0")) throw unavailable();
       const value = captured.variables[key]; if (!text(value)) throw unavailable(); variables.set(key, value);
     }
     const snapshot = structuredClone(captured.snapshot);

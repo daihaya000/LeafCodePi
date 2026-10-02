@@ -84,6 +84,19 @@ test("observed authority failure/restoration and reentrant/async acknowledgments
   reenter = false; assert.throws(() => call(recursive, reentrant), safe);
 });
 
+test("the base environment keeps ambient keys, while server config env still requires identifier names", async () => {
+  const options = input();
+  options.environment = { "ProgramFiles(x86)": "C:\\Program Files (x86)", NORMAL: "value" };
+  options.snapshot.servers[0].config.env = { VALUE: "${NORMAL}" };
+  const transport = call(create(options), options);
+  assert.equal(transport.options.env["ProgramFiles(x86)"], "C:\\Program Files (x86)");
+  assert.equal(transport.options.env.VALUE, "value"); await transport.close();
+  const configEnv = input(); configEnv.snapshot.servers[0].config.env = { "BAD-KEY": "x" };
+  assert.throws(() => call(create(configEnv), configEnv), safe);
+  const emptyKey = input(); emptyKey.environment = { "": "x" };
+  assert.throws(() => call(create(emptyKey), emptyKey), safe);
+});
+
 test("env case aliases reject within a Windows map; config overrides the explicit base without duplicate keys", async () => {
   const options = input(); options.environment.PATH = "fixed base"; options.snapshot.servers[0].config.env = { PATH: "fixed override" };
   const transport = call(create(options), options); assert.equal(transport.options.env.PATH, "fixed override"); await transport.close();

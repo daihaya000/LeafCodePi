@@ -39,6 +39,23 @@ credential storage: REFUSED MCP private storage permissions unavailable
 
 未設定の `${N8N_MCP_URL}` を持つ同梱既定 n8n は config から落ち、その他のエントリはそのまま読める。
 
+実サーバー接続の実測（storage attestation だけを no-op にした probe。つまり transport 層の確認であり、
+本番の受け入れではない）:
+
+```
+enabled browser-use: stdio exposure=codemode
+enabled blendermcp: stdio exposure=codemode
+enabled comfy-mcp: stdio exposure=codemode
+direct MCP tools: blendermcp:26
+shutdown: ok
+```
+
+blendermcp は native の stdio transport で実接続し 26 の直接ツールを登録できた。
+三点とも codemode 公開なので、browser-use と comfy-mcp の接続は遅延（初回 codemode 実行時）で未検証。
+また、この過程で判明した不具合を修正した: activation が渡す環境マップに
+`ProgramFiles(x86)` のような非識別子キーが含まれると transport が構築自体を拒否していた。
+基底環境は任意の有効なキーを保持し、サーバー定義 `env` のキーだけ識別子を要求する。
+
 ## 切替ブロッカー
 
 1. **私的ストレージ ACL**（Windows・未解決）
@@ -76,4 +93,5 @@ credential storage: REFUSED MCP private storage permissions unavailable
 - 実行中セッションの reload: 設定変更は新規セッションのみに反映される。
 - project config・CLI/adapter writer 群の一本化、migration apply
   （`configuration-writers-not-quiesced`）。
-- 実サーバー受け入れ（上記4）は未実施。
+- 実サーバー受け入れ: transport 層は blendermcp で確認済み。ACL 承認後に flag を入れた
+  本番受け入れ（codemode 経由の browser-use / comfy-mcp を含む）を行う。
