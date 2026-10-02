@@ -89,6 +89,8 @@ async function readJsonBody(req, maxBytes = 16_384) {
  *   onBrowserConfigWrite?: (patch: { autoOpenBrowser: boolean }) => { autoOpenBrowser: boolean },
  *   onWebUiAuthRead?: () => object,
  *   onWebUiAuthWrite?: (patch: { token?: string, enabled?: boolean }) => Promise<object> | object,
+ *   onPiUpdateRead?: () => Promise<object> | object,
+ *   onPiUpdateRequest?: (body: { mode: "default" | "latest" }) => Promise<object> | object,
  *   isLocalClientOrigin?: (origin: string) => boolean,
  *   onOpenExplorer?: (path: string) => Promise<object> | object,
  *   onTranslationStatus?: () => Promise<object> | object,
@@ -384,6 +386,50 @@ export function createLlamaControlServer(handlers) {
             const saved = await handlers.onWebUiAuthWrite(patch);
             res.writeHead(202, JSON_HEADERS);
             res.end(JSON.stringify({ ok: true, accepted: true, ...saved }));
+          } catch (err) {
+            const status =
+              typeof err === "object" && err && "status" in err &&
+              typeof err.status === "number" && err.status >= 400 && err.status < 500
+                ? err.status
+                : 500;
+            res.writeHead(status, JSON_HEADERS);
+            res.end(JSON.stringify({ ok: false, error: err instanceof Error ? err.message : String(err) }));
+          }
+          return;
+        }
+        res.writeHead(405, JSON_HEADERS);
+        res.end(JSON.stringify({ ok: false, error: "method not allowed" }));
+        return;
+      }
+
+      if (pathname === "/pi/update") {
+        if (typeof handlers.onPiUpdateRead !== "function" || typeof handlers.onPiUpdateRequest !== "function") {
+          res.writeHead(501, JSON_HEADERS);
+          res.end(JSON.stringify({ ok: false, error: "Pi update is not supported by this host" }));
+          return;
+        }
+        if (method === "GET") {
+          try {
+            const result = await handlers.onPiUpdateRead();
+            res.writeHead(200, JSON_HEADERS);
+            res.end(JSON.stringify({ ok: true, ...result }));
+          } catch (err) {
+            res.writeHead(502, JSON_HEADERS);
+            res.end(JSON.stringify({ ok: false, error: err instanceof Error ? err.message : String(err) }));
+          }
+          return;
+        }
+        if (method === "POST") {
+          const body = await readJsonBody(req).catch(() => ({}));
+          if (body?.mode !== "default" && body?.mode !== "latest") {
+            res.writeHead(400, JSON_HEADERS);
+            res.end(JSON.stringify({ ok: false, error: "mode must be default or latest" }));
+            return;
+          }
+          try {
+            const result = await handlers.onPiUpdateRequest({ mode: body.mode });
+            res.writeHead(202, JSON_HEADERS);
+            res.end(JSON.stringify({ ok: true, accepted: true, ...result }));
           } catch (err) {
             const status =
               typeof err === "object" && err && "status" in err &&

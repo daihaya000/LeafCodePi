@@ -333,6 +333,29 @@ describe("HomeView model refresh", () => {
     expect(screen.getByRole("button", { name: "思考レベル" })).toBeTruthy();
   });
 
+  it("shows the Fast mode selector only for OpenAI models", async () => {
+    const openai = model("openai::gpt-5", "GPT-5");
+    const other = model("provider::model-a", "Model A");
+    const defaults = mocks.getJson.getMockImplementation()!;
+    mocks.getJson.mockImplementation((path: string) =>
+      path === "/api/settings/openai-fast-mode"
+        ? Promise.resolve({ value: "1" })
+        : path === "/api/models"
+          ? Promise.resolve({ models: [openai, other] })
+          : defaults(path),
+    );
+    localStorage.setItem("leafcodepi.defaultModel", "openai::gpt-5");
+    writeCachedModels([openai, other]);
+
+    render(<HomeView initialNoProject />);
+
+    const fast = await screen.findByRole("button", { name: "処理速度" });
+    await waitFor(() => expect(fast.textContent).toContain("Fast"));
+    fireEvent.click(screen.getByRole("button", { name: "モデル" }));
+    fireEvent.click(await screen.findByRole("option", { name: /Model A/ }));
+    await waitFor(() => expect(screen.queryByRole("button", { name: "処理速度" })).toBeNull());
+  });
+
   it("applies a model default effort and sends an explicit override only after editing", async () => {
     const pending = deferred<{ models: ModelOption[] }>();
     modelResponses.push(pending.promise);

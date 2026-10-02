@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
+import { readFileSync } from "node:fs";
 import { join, relative } from "node:path";
 import {
   bindHost,
@@ -26,6 +27,15 @@ test("host replacement skips stale rebuild only on the first WebUI launch", () =
   assert.equal(consumeSkipStaleRebuild(env), true);
   assert.equal(consumeSkipStaleRebuild(env), false);
   assert.deepEqual(env, {});
+});
+
+test("host repairs extension dependencies before starting children even with a reused Web build", () => {
+  const source = readFileSync(new URL("./index.js", import.meta.url), "utf8");
+  const check = source.indexOf('    ensureExtensionDependencies(join(REPO_ROOT, "extensions"));');
+  const backendBuild = source.indexOf("    if (backendService) await buildBackendRuntime({ log });");
+  const webStart = source.indexOf("    await spawnWeb();", check);
+  assert.ok(check > source.indexOf("async function main("));
+  assert.ok(check < backendBuild && backendBuild < webStart);
 });
 
 test("readPort falls back on invalid values", () => {

@@ -1,4 +1,4 @@
-import { hostname } from "node:os";
+import { hostname, networkInterfaces } from "node:os";
 import { readPushoverCredentials, readPushoverNotificationEnabled } from "@/lib/pushover-config";
 import { paneTabIdForTask, type PaneTaskRef } from "@/lib/task-panes";
 
@@ -6,12 +6,36 @@ import { paneTabIdForTask, type PaneTaskRef } from "@/lib/task-panes";
 const PUSHOVER_URL = "https://api.pushover.net/1/messages.json";
 const PUSHOVER_TIMEOUT_MS = 5_000;
 
-/** Use the same route as the WebUI tab; the host supplies its reachable bind address. */
-function sessionUrl(task: PaneTaskRef, env: Record<string, string | undefined>): string | null {
+type FindTailscaleIPv4 = () => string | null;
+
+/** Mirrors the Host's lookup: prefer a NIC named Tailscale, otherwise any CGNAT 100.64/10 IPv4. */
+export function findTailscaleIPv4(interfaces = networkInterfaces()): string | null {
+  const isCgnat = (address: string) => {
+    const [a, b, ...rest] = address.split(".").map(Number);
+    return rest.length === 2 && a === 100 && b >= 64 && b <= 127;
+  };
+  const entries = Object.entries(interfaces);
+  for (const preferName of [true, false]) {
+    for (const [name, list] of entries) {
+      if (preferName && !/tailscale/i.test(name)) continue;
+      const match = list?.find((info) => !info.internal && String(info.family) !== "IPv6" && String(info.family) !== "6" && isCgnat(info.address));
+      if (match) return match.address;
+    }
+  }
+  return null;
+}
+
+/**
+ * Use the same route as the WebUI tab. The WebUI child receives the resolved bind address, but the
+ * Backend inherits the Host's raw `LEAFCODE_PI_HOST` (unset or `tailscale`), so resolve it here.
+ */
+function sessionUrl(task: PaneTaskRef, env: Record<string, string | undefined>, findTailscale: FindTailscaleIPv4): string | null {
   try {
     const configured = env.LEAFCODE_PI_PUBLIC_URL?.trim();
-    const host = env.LEAFCODE_PI_HOST?.trim();
-    const port = Number(env.LEAFCODE_PI_PORT || env.PORT || "3000");
+    const rawHost = env.LEAFCODE_PI_HOST?.trim();
+    const host = !rawHost || rawHost.toLowerCase() === "tailscale" ? findTailscale() ?? undefined : rawHost;
+    // Same default as the Host's DEFAULT_WEBUI_PORT; the Backend may not receive PORT at all.
+    const port = Number(env.LEAFCODE_PI_PORT || env.PORT || "3010");
     if (!configured && (!host || host === "0.0.0.0" || host === "::" || !Number.isInteger(port) || port < 1 || port > 65535)) return null;
     const base = new URL(configured || `http://${host}:${port}/`);
     if (!(["http:", "https:"].includes(base.protocol)) || base.username || base.password) return null;
@@ -40,7 +64,13 @@ export function shouldNotifyPushoverCompletion(context: CompletionContext): bool
 
 export async function notifyPushoverCompletion(
   taskTitle: string,
-  options: { env?: Record<string, string | undefined>; send?: typeof fetch; title?: string; task?: PaneTaskRef } = {},
+  options: {
+    env?: Record<string, string | undefined>;
+    send?: typeof fetch;
+    title?: string;
+    task?: PaneTaskRef;
+    findTailscale?: FindTailscaleIPv4;
+  } = {},
 ): Promise<boolean> {
   try {
     if (!readPushoverNotificationEnabled()) return false;
@@ -52,7 +82,7 @@ export async function notifyPushoverCompletion(
     if (!config.token || !config.user) return false;
 
     // Never include a transcript, model output or error details in the notification.
-    const link = options.task ? sessionUrl(options.task, options.env ?? process.env) : null;
+    const link = options.task ? sessionUrl(options.task, options.env ?? process.env, options.findTailscale ?? findTailscaleIPv4) : null;
     const message = `${Array.from(taskTitle.trim() || "LeafCodePi タスク").slice(0, 1024 - (link ? link.length + 1 : 0)).join("")}${link ? `\n${link}` : ""}`;
     const serverName = Array.from(hostname().trim()).slice(0, 64).join("");
     const subject = Array.from(options.title ?? "タスク完了").slice(0, 180).join("");

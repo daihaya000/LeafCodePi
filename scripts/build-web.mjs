@@ -127,7 +127,7 @@ export function replantBuildCache(distDir, fsApi = {}) {
 }
 
 /** Install once locally; source/lock or Node changes invalidate the dependency stamp. */
-export function ensureBuildDependencies(mirrorRoot, { install = spawnSync } = {}) {
+export function ensureBuildDependencies(mirrorRoot, { install = spawnSync, probeNative = spawnSync } = {}) {
   const dependencies = join(mirrorRoot, "node_modules");
   const stamp = join(dependencies, ".leafcode-pi-build-deps");
   const piVersion = JSON.parse(readFileSync(join(mirrorRoot, "package.json"), "utf8")).dependencies?.[PI_SDK_PACKAGE];
@@ -144,7 +144,7 @@ export function ensureBuildDependencies(mirrorRoot, { install = spawnSync } = {}
     ]))
     .digest("hex");
   try {
-    if (readFileSync(stamp, "utf8") === fingerprint && isMirroredNextCliReady(mirrorRoot) && piReady()) return false;
+    if (readFileSync(stamp, "utf8") === fingerprint && isMirroredNextCliReady(mirrorRoot) && piReady() && sqliteDependencyReady(mirrorRoot, probeNative)) return false;
   } catch {
     // The legacy hard-link mirror has no stamp and is migrated on its next build.
   }
@@ -167,10 +167,7 @@ export function ensureBuildDependencies(mirrorRoot, { install = spawnSync } = {}
     if (piVersion) assertInstalledPiVersions(mirrorRoot, piVersion);
     // A successful Next build does not load SQLite's native binding. npm 12
     // can skip its install script and still exit 0; do not cache that install.
-    const nativeStatus = run(process.execPath,
-      ["-e", "const Database = require('better-sqlite3'); new Database(':memory:').close();"],
-      { cwd: mirrorRoot });
-    if (nativeStatus !== 0) throw new Error("SQLite is unavailable; check the better-sqlite3 install-script approval and Node.js compatibility");
+    if (!sqliteDependencyReady(mirrorRoot, probeNative)) throw new Error("SQLite is unavailable; check the better-sqlite3 install-script approval and Node.js compatibility");
     writeFileSync(stamp, fingerprint, "utf8");
   } catch (err) {
     if (!restorePreviousBuild(dependencies)) rmSync(dependencies, { recursive: true, force: true });
@@ -181,12 +178,46 @@ export function ensureBuildDependencies(mirrorRoot, { install = spawnSync } = {}
 }
 
 /**
- * The WebUI loads bundled extensions straight from the repository, but setup
- * installs only web/ and host/. Install each extension's locked dependencies
- * when one is missing; otherwise a fresh clone silently loses tools such as
- * web_search. A failure is logged and the WebUI starts without those tools.
+ * Fingerprint for an extension install: package.json + optional lock + Node identity.
+ * Existence of node_modules alone is not enough — lock updates must repair dependencies.
  */
-export function ensureExtensionDependencies(extensionsDir = join(REPO_ROOT, "extensions"), { install = spawnSync } = {}) {
+export function extensionDependencyFingerprint(extensionDir) {
+  return createHash("sha256")
+    .update(JSON.stringify([
+      readFileSync(join(extensionDir, "package.json"), "utf8").replace(/^\uFEFF/, ""),
+      existsSync(join(extensionDir, "package-lock.json"))
+        ? readFileSync(join(extensionDir, "package-lock.json"), "utf8")
+        : null,
+      process.version, process.platform, process.arch,
+    ]))
+    .digest("hex");
+}
+
+/** Check native SQLite in a child so the Host never locks the DLL it may update. */
+function sqliteDependencyReady(directory, probeNative) {
+  const result = probeNative(process.execPath,
+    ["-e", "const Database = require('better-sqlite3'); new Database(':memory:').close();"], {
+      cwd: directory,
+      windowsHide: true,
+      stdio: "ignore",
+      timeout: 10_000,
+    });
+  return !result.error && result.status === 0;
+}
+
+export function extensionDependenciesReady(extensionDir, dependencies, { probeNative = spawnSync } = {}) {
+  if (!dependencies.every((name) => existsSync(join(extensionDir, "node_modules", name, "package.json")))) return false;
+  return !dependencies.includes("better-sqlite3") || sqliteDependencyReady(extensionDir, probeNative);
+}
+
+/**
+ * The WebUI loads bundled extensions straight from the repository, but setup
+ * installs only web/ and host/. Install each extension's declared dependencies
+ * when the fingerprint is missing/stale or a declared package is absent; otherwise
+ * a fresh clone (or lock-only update) silently loses tools such as web_search.
+ * A failure is logged and the WebUI starts without those tools.
+ */
+export function ensureExtensionDependencies(extensionsDir = join(REPO_ROOT, "extensions"), { install = spawnSync, probeNative = spawnSync } = {}) {
   let entries;
   try {
     entries = readdirSync(extensionsDir, { withFileTypes: true });
@@ -196,25 +227,67 @@ export function ensureExtensionDependencies(extensionsDir = join(REPO_ROOT, "ext
   const installed = [];
   for (const entry of entries) {
     const dir = join(extensionsDir, entry.name);
-    if (!entry.isDirectory() || !existsSync(join(dir, "package-lock.json"))) continue;
+    if (!entry.isDirectory() || !existsSync(join(dir, "package.json"))) continue;
+    const hasLock = existsSync(join(dir, "package-lock.json"));
     let dependencies;
+    let fingerprint;
     try {
-      dependencies = Object.keys(JSON.parse(readFileSync(join(dir, "package.json"), "utf8").replace(/^\uFEFF/, "")).dependencies ?? {});
+      const packageJson = readFileSync(join(dir, "package.json"), "utf8").replace(/^\uFEFF/, "");
+      dependencies = Object.keys(JSON.parse(packageJson).dependencies ?? {});
+      if (!hasLock && dependencies.length === 0) continue;
+      fingerprint = extensionDependencyFingerprint(dir);
     } catch {
       continue;
     }
-    if (dependencies.every((name) => existsSync(join(dir, "node_modules", name, "package.json")))) continue;
+    const stamp = join(dir, "node_modules", ".leafcode-pi-build-deps");
+    const dependenciesReady = () => extensionDependenciesReady(dir, dependencies, { probeNative });
+    const packagesPresent = dependenciesReady();
+    let stampMatches = false;
+    try {
+      stampMatches = readFileSync(stamp, "utf8") === fingerprint;
+    } catch {
+      stampMatches = false;
+    }
+    if (packagesPresent && stampMatches) continue;
     console.error(`[build-web] installing extension dependencies in ${dir}`);
-    const result = install(process.platform === "win32" ? "npm.cmd" : "npm",
-      ["ci", "--include=dev", "--no-audit", "--no-fund"], {
-        cwd: dir,
-        shell: process.platform === "win32",
-        windowsHide: true,
-        stdio: "inherit",
-      });
+    // npm ci first removes node_modules. On Windows a live SQLite DLL can
+    // block that removal after other packages are already gone. Repair an
+    // existing tree in place; --no-save keeps the manifest and lock unchanged.
+    const existingTree = existsSync(join(dir, "node_modules"));
+    const installArgs = existingTree || !hasLock ? ["install", "--no-save"] : ["ci"];
+    const npm = process.platform === "win32" ? "npm.cmd" : "npm";
+    const installOptions = {
+      cwd: dir,
+      shell: process.platform === "win32",
+      windowsHide: true,
+      stdio: "inherit",
+    };
+    const result = install(npm,
+      [...installArgs, "--include=dev", "--no-audit", "--no-fund"], installOptions);
     if (result.error || result.status !== 0) {
-      console.error(`[build-web] npm ci failed in ${dir} (${result.error?.message ?? `exit ${result.status}`}); its tools stay unavailable`);
+      console.error(`[build-web] npm ${installArgs[0]} failed in ${dir} (${result.error?.message ?? `exit ${result.status}`}); its tools stay unavailable`);
       continue;
+    }
+    // npm install can consider a package current even when its native binding
+    // is absent. Explicitly rebuild only that module, without deleting the tree.
+    let ready = dependenciesReady();
+    if (!ready && dependencies.includes("better-sqlite3") &&
+        dependencies.every((name) => existsSync(join(dir, "node_modules", name, "package.json")))) {
+      console.error(`[build-web] rebuilding SQLite native binding in ${dir}`);
+      const rebuild = install(npm, ["rebuild", "better-sqlite3", "--no-audit", "--no-fund"], installOptions);
+      ready = !rebuild.error && rebuild.status === 0 && dependenciesReady();
+    }
+    // An exit code alone cannot prove recovery (missing native bindings,
+    // interrupted installs, or partially restored packages). Never stamp those.
+    if (!ready) {
+      console.error(`[build-web] dependency verification failed in ${dir}; its tools may remain unavailable`);
+      continue;
+    }
+    try {
+      mkdirSync(join(dir, "node_modules"), { recursive: true });
+      writeFileSync(stamp, fingerprint, "utf8");
+    } catch (error) {
+      console.error(`[build-web] could not write extension deps stamp in ${dir} (${error instanceof Error ? error.message : String(error)})`);
     }
     installed.push(entry.name);
   }

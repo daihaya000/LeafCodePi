@@ -7,6 +7,7 @@ import { Button, cx } from "@/components/ui";
 import { PermissionAdvice } from "@/components/task/PermissionAdvice";
 import { QuestionCard } from "@/components/task/QuestionCard";
 import { getJson, sendJson } from "@/lib/client";
+import { subscribeBotsEvents } from "@/lib/bots-events-hub";
 import { playAttentionRequiredSound } from "@/lib/session-complete-sound";
 import { BOTS_TAB_ID, HOME_TAB_ID, SETTINGS_TAB_ID, isAttentionHandledInline, isBotTabId, paneTabIdForTask, taskIdFromPathname } from "@/lib/task-panes";
 import { useTaskPanesNavigation } from "@/components/shell/TaskPanesContext";
@@ -24,11 +25,14 @@ import type {
  * 注意音を鳴らしてモーダルを自動オープンする（テキスト入力中は開けない。
  * focusout 後に再試行。本家と同じ）。
  *
- * ponytail: 4 秒間隔の全件ポーリング。LAN ツール前提。タスク数が数百を超える
- * ようなら /api/tasks への SSE 購読か差分 API に上げる。
+ * After cutover, `/api/bots/events` carries `task_dirty` from the Backend; those wakes
+ * refresh attention immediately and the safety-net poll stretches to
+ * {@link DIRTY_IDLE_POLL_MS}. Without a dirty stream the historical 4s interval remains.
  */
 
 const POLL_INTERVAL_MS = 4_000;
+/** When Backend dirty events are attached, idle attention scans can stretch. */
+const DIRTY_IDLE_POLL_MS = 15_000;
 
 /** Task composer sits in the same corner; lift the bell above the send button. */
 export const ATTENTION_BELL_BOTTOM_HOME = "bottom-[max(1rem,env(safe-area-inset-bottom))]";
@@ -137,10 +141,20 @@ export function GlobalAttentionProvider() {
   useEffect(() => {
     let closed = false;
     let timer: ReturnType<typeof setTimeout> | null = null;
+    let dirtyAttached = false;
+    let unsubscribeDirty: (() => void) | null = null;
+    let pollBusy = false;
+    let pendingWake = false;
 
     const poll = async () => {
       // Background tabs cannot present the dialog; avoid full attention scans until visible.
       if (document.visibilityState === "hidden") return;
+      if (pollBusy) {
+        pendingWake = true;
+        return;
+      }
+      pollBusy = true;
+      pendingWake = false;
       try {
         const data = await getJson<{ attention: AttentionItemDto[] }>(
           "/api/tasks",
@@ -186,18 +200,52 @@ export function GlobalAttentionProvider() {
         }
       } catch {
         /* ポーリング失敗は無視（次回再試行） */
+      } finally {
+        pollBusy = false;
+        if (pendingWake && !closed) {
+          pendingWake = false;
+          void poll().finally(schedule);
+          return;
+        }
       }
     };
 
-    const loop = () => {
-      void poll().finally(() => {
-        if (!closed) timer = setTimeout(loop, POLL_INTERVAL_MS);
-      });
+    const schedule = () => {
+      if (closed) return;
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(() => {
+        void poll().finally(schedule);
+      }, dirtyAttached ? DIRTY_IDLE_POLL_MS : POLL_INTERVAL_MS);
     };
-    loop();
+
+    const wakeFromDirty = () => {
+      if (closed || document.visibilityState === "hidden") return;
+      if (timer) clearTimeout(timer);
+      timer = null;
+      void poll().finally(schedule);
+    };
+
+    // Cutover clients proxy Backend runtime events here; task_dirty wakes attention.
+    // One shared EventSource per tab keeps the browser's connection budget for task panes.
+    try {
+      unsubscribeDirty = subscribeBotsEvents({
+        events: { task_dirty: wakeFromDirty },
+        onOpen: () => {
+          dirtyAttached = true;
+        },
+        onError: () => {
+          dirtyAttached = false;
+        },
+      });
+    } catch {
+      unsubscribeDirty = null;
+    }
+
+    void poll().finally(schedule);
     return () => {
       closed = true;
       if (timer) clearTimeout(timer);
+      unsubscribeDirty?.();
     };
   }, [tryAutoOpen]);
 

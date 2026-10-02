@@ -9,7 +9,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, it } from "vitest";
+import { afterEach, describe, it, vi } from "vitest";
 import {
   accountAuthPath,
   accountCredentialKinds,
@@ -84,6 +84,7 @@ describe("accountStoredProviders", () => {
     writeFileSync(
       accountAuthPath("acc-9", agentDir),
       JSON.stringify({
+        openai: { type: "oauth", access: "new", refresh: "new-r", expires: 1, clientId: "test-client", scopes: ["chatgpt.tokens.use.direct"] },
         "openai-codex": { type: "oauth", access: "a", refresh: "r", expires: 1 },
         anthropic: { type: "oauth", access: "a", refresh: "r", expires: 1 },
         cursor: { type: "oauth", access: "a", refresh: "r", expires: 1 },
@@ -95,6 +96,7 @@ describe("accountStoredProviders", () => {
     );
     // 既知のプロバイダーだけを既定順で返す
     assert.deepEqual(accountStoredProviders("acc-9", agentDir), [
+      "openai",
       "openai-codex",
       "anthropic",
       "commandcode",
@@ -157,6 +159,17 @@ describe("accountStoredProviders", () => {
 });
 
 describe("accounts store CRUD", () => {
+  it("keeps new OpenAI and legacy Codex account membership independent", () => {
+    tempDataDir();
+    const modern = createAccount({ label: "ChatGPT", providers: ["openai"] });
+    const legacy = createAccount({ label: "Codex", providers: ["openai-codex"] });
+    assert.equal(accountHasProvider(modern, "openai"), true);
+    assert.equal(accountHasProvider(modern, "openai-codex"), false);
+    assert.equal(accountHasProvider(legacy, "openai"), false);
+    assert.deepEqual(getAccount(modern.id)?.providers, ["openai"]);
+    assert.deepEqual(getAccount(legacy.id)?.providers, ["openai-codex"]);
+  });
+
   it("allows only the account's registered provider", () => {
     tempDataDir();
     const account = createAccount({
@@ -700,7 +713,6 @@ describe("accounts store CRUD", () => {
   it("refuses account disable from a production client using the shared hang-watch snapshot", async () => {
     tempDataDir();
     const hang = await import("@/lib/pi/hang-watchdog");
-    const previousNodeEnv = process.env.NODE_ENV;
     hang.registerHangWatchdogHooks({
       getLive: () => ({ isStreaming: false, isCompacting: false, messages: [] }),
       abortTask: async () => undefined,
@@ -720,7 +732,8 @@ describe("accounts store CRUD", () => {
       patchLoose(task.id, { status: "idle", accountId: account.id });
       hang.armTaskHangWatch({ taskId: task.id, prompt: "continue" });
       hang.stopHangWatchdogForTests();
-      process.env.NODE_ENV = "production";
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("LEAFCODE_PI_BACKEND_RUNTIME", undefined);
       assert.throws(
         () => patchAccount(account.id, { enabled: false }),
         (error) =>
@@ -729,8 +742,7 @@ describe("accounts store CRUD", () => {
       );
       assert.equal(getAccount(account.id)?.enabled, true);
     } finally {
-      if (previousNodeEnv === undefined) delete process.env.NODE_ENV;
-      else process.env.NODE_ENV = previousNodeEnv;
+      vi.unstubAllEnvs();
       hang.stopHangWatchdogForTests();
     }
   });

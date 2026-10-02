@@ -2589,7 +2589,7 @@ test("keeps a manually stopped loop terminal after the aborted run settles", asy
   }
 });
 
-test("abort settlement keeps a late JSON result without auto-continuing", async () => {
+test("automatic abort preserves a late JSON result and continues", async () => {
   const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-abort-result-"));
   process.env.LEAFCODE_PI_DATA_DIR = cwd;
   const handlers = new Map();
@@ -2637,11 +2637,11 @@ test("abort settlement keeps a late JSON result without auto-continuing", async 
 
     const loop = JSON.parse(readFileSync(stateFile(), "utf8"));
     assert.equal(loop.progress.at(-1)?.summary, "saved before abort");
-    assert.equal(loop.status, "paused");
-    assert.equal(loop.pauseReason, "user");
+    assert.equal(loop.status, "queued");
+    assert.equal(loop.pauseReason, "");
     assert.equal(sendCount, 1);
-    await new Promise((resolve) => setTimeout(resolve, 400));
-    assert.equal(sendCount, 1);
+    await waitFor(() => sendCount === 2);
+    assert.equal(JSON.parse(readFileSync(stateFile(), "utf8")).turnCount, 2);
   } finally {
     await handlers.get("session_shutdown")?.({}, ctx);
     rmSync(cwd, { recursive: true, force: true });
@@ -2699,26 +2699,27 @@ test("manual compaction does not leave an active loop paused after aborting its 
     }, ctx);
     await handlers.get("agent_settled")?.({ type: "agent_settled" }, ctx);
     const paused = JSON.parse(readFileSync(stateFile(), "utf8"));
-    assert.equal(paused.status, "paused");
-    assert.equal(paused.pauseReason, "user");
+    assert.equal(paused.status, "queued");
+    assert.equal(paused.pauseReason, "");
 
     await handlers.get("session_compact")?.({ type: "session_compact", reason: "manual" }, oldCtx);
     const unchanged = JSON.parse(readFileSync(stateFile(), "utf8"));
-    assert.equal(unchanged.status, "paused");
+    assert.equal(unchanged.status, "queued");
 
     await handlers.get("session_compact")?.({ type: "session_compact", reason: "manual" }, ctx);
     const resumed = JSON.parse(readFileSync(stateFile(), "utf8"));
     assert.equal(resumed.status, "queued");
     assert.equal(resumed.pauseReason, "");
-    assert.equal(resumed.pendingTurnRecovery, false);
+    assert.equal(resumed.pendingTurnRecovery, true);
     await waitFor(() => sendCount === 2);
+    assert.equal(JSON.parse(readFileSync(stateFile(), "utf8")).turnCount, 1);
   } finally {
     await handlers.get("session_shutdown")?.({}, ctx);
     rmSync(cwd, { recursive: true, force: true });
   }
 });
 
-test("session replacement normalizes an abort pause to a lifecycle pause", async () => {
+test("session replacement keeps an automatic abort retry lifecycle-paused", async () => {
   const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-replacement-pause-"));
   process.env.LEAFCODE_PI_DATA_DIR = cwd;
   const handlers = new Map();
@@ -2760,7 +2761,7 @@ test("session replacement normalizes an abort pause to a lifecycle pause", async
       messages: [{ role: "assistant", stopReason: "aborted", content: [] }],
     }, ctx);
     await handlers.get("agent_settled")?.({ type: "agent_settled" }, ctx);
-    assert.equal(JSON.parse(readFileSync(stateFile(), "utf8")).pauseReason, "user");
+    assert.equal(JSON.parse(readFileSync(stateFile(), "utf8")).status, "queued");
 
     await handlers.get("session_shutdown")?.({ type: "session_shutdown", reason: "new" }, ctx);
     const lifecycle = JSON.parse(readFileSync(stateFile(), "utf8"));
@@ -3938,13 +3939,12 @@ test("same-ID stale agent events do not settle the replacement turn", async () =
     }, replacementCtx);
     await handlers.get("agent_settled")?.({}, replacementCtx);
     const aborted = JSON.parse(readFileSync(stateFile, "utf8"));
-    assert.equal(aborted.status, "paused");
-    assert.match(aborted.error, /中断/);
+    assert.equal(aborted.status, "queued");
+    assert.equal(aborted.retryInterruptedTurn, true);
 
     await handlers.get("session_compact")?.({ reason: "manual" }, oldCtx);
     const afterOldCompact = JSON.parse(readFileSync(stateFile, "utf8"));
-    assert.equal(afterOldCompact.status, "paused");
-    assert.match(afterOldCompact.error, /中断/);
+    assert.deepEqual(afterOldCompact, aborted);
   } finally {
     await handlers.get("session_shutdown")?.({}, replacementCtx);
     rmSync(cwd, { recursive: true, force: true });
@@ -5461,7 +5461,7 @@ test("queues the loop-end notice after a verified completion", async () => {
   }
 });
 
-test("resume after an interrupted turn re-sends the same turn number", async () => {
+test("automatic abort retry re-sends the same turn number", async () => {
   const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-interrupted-turn-"));
   process.env.LEAFCODE_PI_DATA_DIR = cwd;
   const harness = loopEndNoticeHarness("interrupted-turn-session");
@@ -5495,13 +5495,13 @@ test("resume after an interrupted turn re-sends the same turn number", async () 
     }, ctx);
     await handlers.get("agent_settled")?.({ type: "agent_settled" }, ctx);
     const paused = readState();
-    assert.equal(paused.status, "paused");
+    assert.equal(paused.status, "queued");
     assert.equal(paused.turnCount, 2);
     assert.equal(paused.retryInterruptedTurn, true);
+    assert.equal(harness.notices().length, 0);
 
-    // Resume re-sends turn 2 instead of consuming turn 3.
+    // Automatic retry re-sends turn 2 instead of consuming turn 3.
     setBusy(false);
-    await commands.get("goal-resume")?.("", ctx);
     await waitFor(() => turns().length === 3);
     assert.equal(turns()[2]?.message.details.turn, 2);
     assert.equal(String(turns()[2]?.message.content).includes("This is turn 2 of at most 3"), true);
@@ -5516,7 +5516,278 @@ test("resume after an interrupted turn re-sends the same turn number", async () 
   }
 });
 
-test("resume after a turn timeout re-sends the same turn without a budget bump", async () => {
+for (const eventType of ["message_update", "message_end", "tool_execution_start", "tool_execution_update", "tool_execution_end", "turn_start"]) {
+  test(`turn inactivity timeout follows ${eventType} progress instead of total elapsed time`, async (t) => {
+    const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-progress-timeout-"));
+    process.env.LEAFCODE_PI_DATA_DIR = cwd;
+    goalLoopTestSeams.setTurnTimeoutMs(1000);
+    t.mock.timers.enable({ apis: ["setTimeout", "Date"] });
+    const { readState, handlers, commands, ctx, pi } = loopEndNoticeHarness(`progress-${eventType}`);
+    let aborts = 0;
+    ctx.abort = () => { aborts += 1; };
+    try {
+      goalLoopExtension(pi);
+      await handlers.get("session_start")?.({}, ctx);
+      await commands.get("goal-start")?.(Buffer.from(JSON.stringify({ goal: "demo" })).toString("base64url"), ctx);
+      t.mock.timers.tick(250);
+      assert.equal(readState().status, "running");
+      t.mock.timers.tick(600);
+      await handlers.get(eventType)?.({ type: eventType, turnIndex: 0 }, ctx);
+      t.mock.timers.tick(500);
+      assert.equal(readState().status, "running", "productive turn survives the old fixed deadline");
+      assert.equal(aborts, 0);
+      t.mock.timers.tick(500);
+      assert.equal(readState().pauseReason, "turn_timeout", "no progress still times out");
+      assert.equal(readState().retryInterruptedTurn, true);
+      assert.equal(aborts, 1);
+    } finally {
+      await handlers.get("session_shutdown")?.({}, ctx);
+      t.mock.timers.reset();
+      goalLoopTestSeams.setTurnTimeoutMs();
+      delete process.env.LEAFCODE_PI_DATA_DIR;
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+}
+
+test("turn inactivity timeout excludes blocking UI wait and grants a fresh deadline after the answer", async (t) => {
+  const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-ui-timeout-"));
+  process.env.LEAFCODE_PI_DATA_DIR = cwd;
+  goalLoopTestSeams.setTurnTimeoutMs(1000);
+  t.mock.timers.enable({ apis: ["setTimeout", "Date"] });
+  const { readState, handlers, commands, ctx, pi } = loopEndNoticeHarness("ui-timeout-session");
+  let aborts = 0;
+  ctx.abort = () => { aborts += 1; };
+  try {
+    goalLoopExtension(pi);
+    await handlers.get("session_start")?.({}, ctx);
+    await commands.get("goal-start")?.(Buffer.from(JSON.stringify({ goal: "demo" })).toString("base64url"), ctx);
+    t.mock.timers.tick(250);
+    await handlers.get("ui_prompt_start")?.({ type: "ui_prompt_start" }, ctx);
+    await handlers.get("ui_prompt_start")?.({ type: "ui_prompt_start" }, ctx);
+    await handlers.get("ui_prompt_end")?.({ type: "ui_prompt_end" }, ctx);
+    t.mock.timers.tick(5000);
+    assert.equal(readState().status, "running");
+    assert.equal(aborts, 0);
+    await handlers.get("ui_prompt_end")?.({ type: "ui_prompt_end" }, ctx);
+    t.mock.timers.tick(999);
+    assert.equal(readState().status, "running");
+    t.mock.timers.tick(1);
+    assert.equal(readState().pauseReason, "turn_timeout");
+    assert.equal(aborts, 1);
+  } finally {
+    await handlers.get("session_shutdown")?.({}, ctx);
+    t.mock.timers.reset();
+    goalLoopTestSeams.setTurnTimeoutMs();
+    delete process.env.LEAFCODE_PI_DATA_DIR;
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test("continued tool progress survives multiple timeout windows without extra turns or aborts", async (t) => {
+  const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-long-progress-"));
+  process.env.LEAFCODE_PI_DATA_DIR = cwd;
+  goalLoopTestSeams.setTurnTimeoutMs(1000);
+  t.mock.timers.enable({ apis: ["setTimeout", "Date"] });
+  const { readState, handlers, commands, ctx, pi, sent } = loopEndNoticeHarness("long-progress-session");
+  let aborts = 0;
+  ctx.abort = () => { aborts += 1; };
+  try {
+    goalLoopExtension(pi);
+    await handlers.get("session_start")?.({}, ctx);
+    await commands.get("goal-start")?.(Buffer.from(JSON.stringify({ goal: "demo" })).toString("base64url"), ctx);
+    t.mock.timers.tick(250);
+    for (let i = 0; i < 10; i += 1) {
+      t.mock.timers.tick(600);
+      await handlers.get("tool_execution_end")?.({ type: "tool_execution_end" }, ctx);
+      assert.equal(readState().status, "running");
+    }
+    assert.equal(aborts, 0);
+    assert.equal(readState().turnCount, 1);
+    assert.equal(sent.filter((item) => item.message.customType === "leafcode-goal-turn").length, 1);
+  } finally {
+    await handlers.get("session_shutdown")?.({}, ctx);
+    t.mock.timers.reset();
+    goalLoopTestSeams.setTurnTimeoutMs();
+    delete process.env.LEAFCODE_PI_DATA_DIR;
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test("failed timeout state persistence retains the inactivity watchdog until it can safely stop", async (t) => {
+  const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-timeout-write-"));
+  process.env.LEAFCODE_PI_DATA_DIR = cwd;
+  goalLoopTestSeams.setTurnTimeoutMs(1000);
+  t.mock.timers.enable({ apis: ["setTimeout", "Date"] });
+  const { readState, handlers, commands, ctx, pi } = loopEndNoticeHarness("timeout-write-session");
+  let aborts = 0;
+  ctx.abort = () => { aborts += 1; };
+  try {
+    goalLoopExtension(pi);
+    await handlers.get("session_start")?.({}, ctx);
+    await commands.get("goal-start")?.(Buffer.from(JSON.stringify({ goal: "demo" })).toString("base64url"), ctx);
+    t.mock.timers.tick(250);
+    goalLoopTestSeams.setWriteLoopFail(true);
+    t.mock.timers.tick(1000);
+    assert.equal(readState().status, "running");
+    assert.equal(aborts, 0);
+    goalLoopTestSeams.setWriteLoopFail(false);
+    t.mock.timers.tick(1000);
+    assert.equal(readState().pauseReason, "turn_timeout");
+    assert.equal(aborts, 1);
+  } finally {
+    goalLoopTestSeams.setWriteLoopFail(false);
+    await handlers.get("session_shutdown")?.({}, ctx);
+    t.mock.timers.reset();
+    goalLoopTestSeams.setTurnTimeoutMs();
+    delete process.env.LEAFCODE_PI_DATA_DIR;
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test("stale session activity cannot extend a turn and late progress cannot undo manual pause", async (t) => {
+  const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-stale-progress-"));
+  process.env.LEAFCODE_PI_DATA_DIR = cwd;
+  goalLoopTestSeams.setTurnTimeoutMs(1000);
+  t.mock.timers.enable({ apis: ["setTimeout", "Date"] });
+  const { readState, handlers, commands, ctx, pi, setBusy } = loopEndNoticeHarness("stale-progress-session");
+  let aborts = 0;
+  ctx.abort = () => { aborts += 1; setBusy(false); };
+  try {
+    goalLoopExtension(pi);
+    await handlers.get("session_start")?.({}, ctx);
+    await commands.get("goal-start")?.(Buffer.from(JSON.stringify({ goal: "demo" })).toString("base64url"), ctx);
+    t.mock.timers.tick(250);
+    t.mock.timers.tick(600);
+    const staleCtx = { ...ctx, sessionManager: { ...ctx.sessionManager } };
+    await handlers.get("message_update")?.({ type: "message_update" }, staleCtx);
+    await handlers.get("ui_prompt_start")?.({ type: "ui_prompt_start" }, staleCtx);
+    t.mock.timers.tick(400);
+    assert.equal(readState().pauseReason, "turn_timeout");
+    assert.equal(aborts, 1);
+    await commands.get("goal-resume")?.("", ctx);
+    t.mock.timers.tick(250);
+    assert.equal(readState().status, "running");
+    await commands.get("goal-pause")?.("", ctx);
+    await handlers.get("tool_execution_end")?.({ type: "tool_execution_end" }, ctx);
+    t.mock.timers.tick(2000);
+    assert.equal(readState().pauseReason, "user");
+    assert.equal(aborts, 2);
+  } finally {
+    await handlers.get("session_shutdown")?.({}, ctx);
+    t.mock.timers.reset();
+    goalLoopTestSeams.setTurnTimeoutMs();
+    delete process.env.LEAFCODE_PI_DATA_DIR;
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+for (const mode of ["aborted", "signal", "verification"]) {
+  test(`automatic interruption retries ${mode} without losing budget or bypassing cooldown`, async (t) => {
+    const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-auto-retry-"));
+    process.env.LEAFCODE_PI_DATA_DIR = cwd;
+    t.mock.timers.enable({ apis: ["setTimeout", "Date"] });
+    const { sent, notices, readState, handlers, commands, ctx, pi, setBusy } = loopEndNoticeHarness(`auto-${mode}`);
+    const turns = () => sent.filter((item) => item.message.customType !== "leafcode-goal-loop-ended");
+    try {
+      goalLoopExtension(pi);
+      await handlers.get("session_start")?.({}, ctx);
+      await commands.get("goal-start")?.(Buffer.from(JSON.stringify({ goal: "demo", maxTurns: 1, cooldownSeconds: 2 })).toString("base64url"), ctx);
+      t.mock.timers.tick(250);
+      await new Promise((resolve) => setImmediate(resolve));
+      if (mode === "verification") {
+        setBusy(false);
+        await handlers.get("agent_end")?.({ messages: [{ role: "assistant", content: [{ type: "text", text: '{"status":"completed","summary":"done"}' }] }] }, ctx);
+        await handlers.get("agent_settled")?.({}, ctx);
+        t.mock.timers.tick(2000);
+        await new Promise((resolve) => setImmediate(resolve));
+        assert.equal(readState().turnKind, "verification");
+      }
+      const before = turns().length;
+      setBusy(false);
+      const controller = new AbortController();
+      if (mode === "signal") controller.abort();
+      await handlers.get("agent_end")?.({ messages: [{ role: "assistant", stopReason: mode === "signal" ? "stop" : "aborted", content: [] }] }, { ...ctx, signal: controller.signal });
+      await handlers.get("agent_settled")?.({}, ctx);
+      assert.equal(readState().status, mode === "verification" ? "verifying_completed" : "queued");
+      assert.equal(readState().retryInterruptedTurn, true);
+      assert.equal(notices().length, 0);
+      t.mock.timers.tick(1999);
+      assert.equal(turns().length, before);
+      // Scheduler polls with a 250ms minimum delay near the deadline.
+      t.mock.timers.tick(250);
+      assert.equal(turns().length, before + 1);
+      assert.equal(readState().turnCount, 1);
+      assert.equal(readState().pendingTurnRecovery, false);
+      assert.equal(readState().retryInterruptedTurn, false);
+      assert.equal(turns().at(-1).message.customType, mode === "verification" ? "leafcode-goal-verification" : "leafcode-goal-turn");
+    } finally {
+      await handlers.get("session_shutdown")?.({}, ctx);
+      t.mock.timers.reset();
+      delete process.env.LEAFCODE_PI_DATA_DIR;
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+}
+
+for (const mode of ["missing-settlement", "write-failure", "manual-pause", "manual-stop"]) {
+  test(`automatic timeout recovery respects ${mode}`, async (t) => {
+    const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-auto-timeout-"));
+    process.env.LEAFCODE_PI_DATA_DIR = cwd;
+    goalLoopTestSeams.setTurnTimeoutMs(1000);
+    t.mock.timers.enable({ apis: ["setTimeout", "setInterval", "Date"] });
+    const { sent, notices, readState, handlers, commands, ctx, pi, setBusy } = loopEndNoticeHarness(`auto-timeout-${mode}`);
+    const turns = () => sent.filter((item) => item.message.customType === "leafcode-goal-turn");
+    try {
+      goalLoopExtension(pi);
+      await handlers.get("session_start")?.({}, ctx);
+      await commands.get("goal-start")?.(Buffer.from(JSON.stringify({ goal: "demo", maxTurns: 1 })).toString("base64url"), ctx);
+      t.mock.timers.tick(250);
+      await new Promise((resolve) => setImmediate(resolve));
+      t.mock.timers.tick(1000);
+      assert.equal(readState().pauseReason, "turn_timeout");
+      goalLoopTestSeams.setTurnTimeoutMs(60_000);
+      // No retry while the old run is still busy, even if settlement is missing.
+      setBusy(true);
+      t.mock.timers.tick(5000);
+      assert.equal(turns().length, 1);
+      if (mode === "manual-pause" || mode === "manual-stop") {
+        await commands.get(mode === "manual-pause" ? "goal-pause" : "goal-stop")?.("", ctx);
+      }
+      setBusy(false);
+      if (mode !== "missing-settlement") {
+        await handlers.get("agent_end")?.({ messages: [{ role: "assistant", stopReason: "aborted", content: [] }] }, ctx);
+        if (mode === "write-failure") goalLoopTestSeams.setWriteLoopFail(true);
+        await handlers.get("agent_settled")?.({}, ctx);
+        if (mode === "write-failure") {
+          assert.equal(readState().pauseReason, "turn_timeout");
+          goalLoopTestSeams.setWriteLoopFail(false);
+        }
+      }
+      t.mock.timers.tick(5000);
+      t.mock.timers.tick(250);
+      if (mode.startsWith("manual-")) {
+        assert.equal(turns().length, 1);
+        assert.equal(readState().status, mode === "manual-stop" ? "stopped" : "paused");
+        assert.equal(notices().length, 1);
+      } else {
+        assert.equal(turns().length, 2);
+        assert.equal(readState().status, "running");
+        assert.equal(readState().turnCount, 1);
+        assert.equal(notices().length, 0);
+      }
+    } finally {
+      goalLoopTestSeams.setWriteLoopFail(false);
+      await handlers.get("session_shutdown")?.({}, ctx);
+      t.mock.timers.reset();
+      goalLoopTestSeams.setTurnTimeoutMs();
+      delete process.env.LEAFCODE_PI_DATA_DIR;
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+}
+
+test("automatic retry after a turn timeout re-sends the same turn without a budget bump", async () => {
   const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-timeout-resume-"));
   process.env.LEAFCODE_PI_DATA_DIR = cwd;
   goalLoopTestSeams.setTurnTimeoutMs(40);
@@ -5537,7 +5808,10 @@ test("resume after a turn timeout re-sends the same turn without a budget bump",
     // The retry keeps the same number, so the exhausted budget does not block it.
     goalLoopTestSeams.setTurnTimeoutMs(60_000);
     setBusy(false);
-    await commands.get("goal-resume")?.("", ctx);
+    await handlers.get("agent_end")?.({ messages: [{ role: "assistant", stopReason: "aborted", content: [] }] }, ctx);
+    await handlers.get("agent_settled")?.({}, ctx);
+    assert.equal(readState().status, "queued");
+    assert.equal(harness.notices().length, 0);
     await waitFor(() => turns().length === 2);
     assert.equal(turns()[1]?.message.details.turn, 1);
     const resumed = readState();

@@ -297,6 +297,13 @@ test("Pi synchronization and matching build gates finish before either runtime s
   const backendBuild = main.indexOf("await buildBackendRuntime(");
   const launch = main.indexOf("await spawnWeb();");
   assert.ok(sync >= 0 && gate > sync && backendBuild > gate && launch > backendBuild);
+  // Updates are settings-triggered: startup consumes a reservation, and without one the pinned
+  // pair is used exactly as committed.
+  assert.match(main, /const piUpdateRequest = consumePiUpdateRequest\(DATA_DIR\)/);
+  assert.match(main, /if \(piUpdateRequest\) \{[\s\S]*await updatePiBeforeStartup\(/);
+  assert.match(main, /targetVersion: piUpdateRequest\.mode === "default" \? DEFAULT_PI_VERSION : null/);
+  assert.match(main, /writePiUpdateState\(DATA_DIR/);
+  assert.doesNotMatch(index, /LEAFCODE_PI_AUTO_UPDATE/);
   assert.match(main, /if \(!synchronized\.safeToStart\) throw/);
   assert.match(main, /assertPiDependencyVersions\(WEB_MIRROR_DIR, join\(REPO_ROOT, "backend"\), \{ requireUnlocked: false \}\)/);
   assert.match(main, /if \(!mirrorMatches\)[\s\S]*await buildWeb\("stale", \{ pull: false \}\)/);

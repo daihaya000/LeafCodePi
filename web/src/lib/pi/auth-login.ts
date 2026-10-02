@@ -1,6 +1,7 @@
 import { EventEmitter } from "node:events";
 import { randomUUID } from "node:crypto";
 import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
+import type { LoginOptions } from "@earendil-works/pi-ai";
 import { CredentialSynchronizationError } from "@earendil-works/pi-coding-agent";
 import { forwardOAuthCallback, getOAuthCallbackTarget, type OAuthCallbackTarget } from "./oauth-callback";
 
@@ -95,7 +96,7 @@ export class ProviderLoginSession {
     return () => this.events.off("event", listener);
   }
 
-  async run(runtime: ModelRuntime): Promise<void> {
+  async run(runtime: ModelRuntime, options?: LoginOptions): Promise<void> {
     this.emit({
       type: "started",
       providerId: this.providerId,
@@ -119,7 +120,7 @@ export class ProviderLoginSession {
             this.emit({ type: "notify", event: event as LoginNotifyDto });
           }
         },
-      });
+      }, options);
       this.finishOk();
     } catch (error) {
       if (error instanceof CredentialSynchronizationError) {
@@ -282,6 +283,7 @@ function serializePrompt(prompt: {
 /** Providers that expose Claude / ChatGPT / Cursor / Meta Muse subscription OAuth. */
 export const SUBSCRIPTION_PROVIDER_IDS = new Set([
   "anthropic",
+  "openai",
   "openai-codex",
   "cursor",
   "meta",

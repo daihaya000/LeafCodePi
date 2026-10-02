@@ -11,7 +11,7 @@ export function main(argv = process.argv.slice(2)) {
   for (let index = 0; index < argv.length; index++) {
     const key = argv[index];
     if (key === "--check") values.check = true;
-    else if (["--web", "--backend", "--startup-host"].includes(key) && argv[index + 1] && !argv[index + 1].startsWith("--")) {
+    else if (["--web", "--backend", "--startup-host", "--target"].includes(key) && argv[index + 1] && !argv[index + 1].startsWith("--")) {
       values[key] = argv[++index];
     } else throw new Error(`Invalid Pi synchronization argument: ${key}`);
   }
@@ -27,7 +27,7 @@ export function main(argv = process.argv.slice(2)) {
   if (startupHostPid !== null && startupHostPid !== process.ppid) throw new Error("Only the starting parent Host may authorize synchronization");
   return autoUpdatePi({
     webDir, backendDir, startupHostPid,
-    env: { ...process.env, LEAFCODE_PI_AUTO_UPDATE: "1" },
+    targetVersion: values["--target"] ?? null,
     log: console.log, error: console.error,
   });
 }

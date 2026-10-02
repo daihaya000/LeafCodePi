@@ -119,6 +119,24 @@ export async function forwardTaskDetail(
   return { ok: true, detail: detail && typeof detail === "object" ? detail : null };
 }
 
+/** One in-flight pending-snapshots GET shared across every Task/Bot/Room stream in this process. */
+let pendingSnapshotsInflight: Promise<Awaited<ReturnType<typeof readBackendPendingSnapshots>>> | null = null;
+
+function readPendingSnapshotsShared(
+  options: { env?: BackendEnv; fetchImpl?: typeof fetch; timeoutMs?: number } = {},
+): Promise<Awaited<ReturnType<typeof readBackendPendingSnapshots>>> {
+  // Custom fetch/env callers (tests) bypass the share so they stay isolated.
+  if (options.env || options.fetchImpl || options.timeoutMs !== undefined) {
+    return readBackendPendingSnapshots(options);
+  }
+  if (!pendingSnapshotsInflight) {
+    pendingSnapshotsInflight = readBackendPendingSnapshots(options).finally(() => {
+      pendingSnapshotsInflight = null;
+    });
+  }
+  return pendingSnapshotsInflight;
+}
+
 /** The answer to a pending request: the owner knows whether the request was still waiting. */
 export type ForwardedAnswerResult =
   | { ok: true }
@@ -194,7 +212,7 @@ export async function forwardTaskPendingRequests(
   | { ok: true; permissionRequest: unknown; questionRequest: unknown }
   | { ok: false; reason: BackendFailureReason; status?: number }
 > {
-  const result = await readBackendPendingSnapshots(options);
+  const result = await readPendingSnapshotsShared(options);
   if (!result.ok) return { ok: false, reason: result.reason, ...(result.status ? { status: result.status } : {}) };
   const entry = (result.body?.snapshots ?? []).find((snapshot) => snapshot?.taskId === id);
   const payload = entry?.payload;
@@ -217,13 +235,16 @@ export type PendingRequestsByTask = Record<
 
 /**
  * One read for every pending request, for callers that need several tasks at once (a Room, a panel).
- * A failed read is an empty map: the caller keeps working and the next poll retries.
+ * Transport failure is `ok: false` so callers keep the last map instead of flashing empty attention.
  */
 export async function forwardPendingRequestsByTask(
   options: { env?: BackendEnv; fetchImpl?: typeof fetch; timeoutMs?: number } = {},
-): Promise<PendingRequestsByTask> {
-  const result = await readBackendPendingSnapshots(options);
-  if (!result.ok) return {};
+): Promise<
+  | { ok: true; byTask: PendingRequestsByTask }
+  | { ok: false; reason: BackendFailureReason; status?: number }
+> {
+  const result = await readPendingSnapshotsShared(options);
+  if (!result.ok) return { ok: false, reason: result.reason, ...(result.status ? { status: result.status } : {}) };
   const byTask: PendingRequestsByTask = {};
   for (const snapshot of result.body?.snapshots ?? []) {
     const taskId = snapshot?.taskId;
@@ -235,7 +256,7 @@ export async function forwardPendingRequestsByTask(
       questionRequest: (fields.questionRequest as QuestionRequestDto | null | undefined) ?? null,
     };
   }
-  return byTask;
+  return { ok: true, byTask };
 }
 
 /**
@@ -380,12 +401,19 @@ export async function forwardTaskRevert(
   options: { env?: BackendEnv; fetchImpl?: typeof fetch; timeoutMs?: number } = {},
 ): Promise<
   | { ok: true; result: Record<string, unknown> }
-  | { ok: false; reason: BackendFailureReason | "not-found"; status?: number }
+  | { ok: false; reason: BackendFailureReason | "not-found"; status?: number; error?: string }
 > {
   const result = await revertTaskOnBackend(id, entryId, options);
   if (!result.ok) {
-    if (result.status === 404) return { ok: false, reason: "not-found", status: 404 };
-    return { ok: false, reason: result.reason, ...(result.status ? { status: result.status } : {}) };
+    if (result.status === 404) {
+      return { ok: false, reason: "not-found", status: 404, ...(result.error ? { error: result.error } : {}) };
+    }
+    return {
+      ok: false,
+      reason: result.reason,
+      ...(result.status ? { status: result.status } : {}),
+      ...(result.error ? { error: result.error } : {}),
+    };
   }
   return { ok: true, result: result.body ?? {} };
 }
@@ -483,12 +511,19 @@ export async function forwardTaskUnrevert(
   options: { env?: BackendEnv; fetchImpl?: typeof fetch; timeoutMs?: number } = {},
 ): Promise<
   | { ok: true; task: Record<string, unknown> | null }
-  | { ok: false; reason: BackendFailureReason | "not-found"; status?: number }
+  | { ok: false; reason: BackendFailureReason | "not-found"; status?: number; error?: string }
 > {
   const result = await unrevertTaskOnBackend(id, options);
   if (!result.ok) {
-    if (result.status === 404) return { ok: false, reason: "not-found", status: 404 };
-    return { ok: false, reason: result.reason, ...(result.status ? { status: result.status } : {}) };
+    if (result.status === 404) {
+      return { ok: false, reason: "not-found", status: 404, ...(result.error ? { error: result.error } : {}) };
+    }
+    return {
+      ok: false,
+      reason: result.reason,
+      ...(result.status ? { status: result.status } : {}),
+      ...(result.error ? { error: result.error } : {}),
+    };
   }
   const task = result.body?.task;
   return { ok: true, task: task && typeof task === "object" ? task : null };

@@ -21,7 +21,11 @@ export async function POST(
     if (localRuntimeBlocked()) {
       const forwarded = await forwardTaskRevert(id, entryId);
       if (!forwarded.ok) {
-        return NextResponse.json({ error: "巻き戻しに失敗しました" }, { status: forwarded.status ?? 502 });
+        const error = forwarded.error
+          ?? (forwarded.status === 409
+            ? "応答中は巻き戻せません。停止してからお試しください"
+            : "巻き戻しに失敗しました");
+        return NextResponse.json({ error }, { status: forwarded.status ?? 502 });
       }
       return NextResponse.json(forwarded.result);
     }

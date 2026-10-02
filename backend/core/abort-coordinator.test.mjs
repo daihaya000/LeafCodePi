@@ -94,12 +94,47 @@ test("cleanup failures propagate before idle is saved, matching the original beh
   assert.equal(f.order.includes("release"), false);
 });
 
+test("Goal cleanup failure still stops children and waits for the native abort", async () => {
+  let settle;
+  const pending = new Promise((resolve) => { settle = resolve; });
+  const f = fixture({ abort: () => pending });
+  f.deps.stopGoalLoop = async () => { throw new Error("goal stop failed"); };
+  let finished = false;
+  const running = runUserAbort("task", f.deps).catch((error) => { finished = true; return error; });
+  await new Promise((resolve) => setImmediate(resolve));
+  const premature = finished;
+  settle();
+  assert.match((await running).message, /goal stop failed/);
+  assert.equal(premature, false);
+  assert.equal(f.order.includes("subagents:0"), true);
+  assert.equal(f.order.includes("idle"), false);
+});
+test("simultaneous Goal and native abort failures do not leave an unobserved rejection", async () => {
+  const f = fixture({ abort: () => Promise.reject(new Error("native abort failed")) });
+  f.deps.stopGoalLoop = async () => { throw new Error("goal stop failed"); };
+  await assert.rejects(runUserAbort("task", f.deps), /goal stop failed/);
+  assert.equal(f.order.includes("subagents:0"), true);
+});
 test("a synchronous abort failure happens after resumable work was already cleared", async () => {
   const f = fixture();
   f.deps.abortSession = () => { f.order.push("abort"); throw new Error("abort failed"); };
   await assert.rejects(runUserAbort("task", f.deps), /abort failed/);
   assert.deepEqual(f.order.slice(3), ["queue", "cancelPrompt", "cancelSnapshot", "persist:", "abort"]);
   assert.deepEqual(f.persisted, [""]);
+});
+
+test("watchdog child cleanup failure still waits for the native abort", async () => {
+  let settle;
+  const pending = new Promise((resolve) => { settle = resolve; });
+  const f = hangFixture({ abort: () => pending });
+  f.deps.stopSubagentRuns = async () => { throw new Error("child cleanup failed"); };
+  let finished = false;
+  const running = runHangWatchdogAbort("task", f.deps).catch((error) => { finished = true; return error; });
+  await new Promise((resolve) => setImmediate(resolve));
+  const premature = finished;
+  settle();
+  assert.match((await running).message, /child cleanup failed/);
+  assert.equal(premature, false);
 });
 
 function hangFixture({ live = { name: "live" }, later, before = 10, after = { startedAt: 10 }, messages = [], abort } = {}) {

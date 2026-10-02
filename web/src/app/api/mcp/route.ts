@@ -1,82 +1,56 @@
-/**
- * GET /api/mcp — list bundled and global MCP servers with ON/OFF state.
- * POST /api/mcp — add a known preset server group (n8n / slack / google-workspace / notion).
- */
+/** GET lists owner MCP metadata; POST adds known presets in the runtime owner. */
 import { NextRequest, NextResponse } from "next/server";
-import { reloadLiveSessionsContext } from "@/lib/live-context";
-import {
-  addGoogleWorkspaceServers,
-  addN8nServer,
-  addNotionServer,
-  addSlackServer,
-  listMcpServers,
-  mcpErrorStatus,
-} from "@/lib/mcp";
+import { parseMcpPresetRequest, publicMcpReload } from "@shared/mcp-preset-request.mjs";
+import { mcpErrorStatus } from "@/lib/mcp";
+import { publicMcpServerList } from "@shared/mcp-server-list.mjs";
+import { readMcpServerList } from "@/lib/mcp-list-admin";
+import { createMcpPreset } from "@/lib/mcp-preset-admin";
+import { createMcpPresetOnBackend, readMcpServerListOnBackend } from "@/lib/backend-client";
+import { localRuntimeBlocked } from "@/lib/pi/runtime-ownership";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function GET() {
   try {
-    return NextResponse.json(listMcpServers());
+    if (localRuntimeBlocked()) {
+      const forwarded = await readMcpServerListOnBackend();
+      if (!forwarded.ok) {
+        const status = forwarded.status && forwarded.status >= 400 && forwarded.status <= 599 ? forwarded.status : 502;
+        return NextResponse.json({ error: "BackendでMCP サーバー一覧を取得できません" }, { status });
+      }
+      const result = publicMcpServerList(forwarded.body);
+      if (!result) return NextResponse.json({ error: "BackendのMCP応答が不正です" }, { status: 502 });
+      return NextResponse.json(result);
+    }
+    return NextResponse.json(readMcpServerList());
   } catch (error) {
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : "MCP サーバー一覧の取得に失敗しました" },
+      { error: "MCP サーバー一覧の取得に失敗しました" },
       { status: mcpErrorStatus(error) },
     );
   }
 }
 
 export async function POST(req: NextRequest) {
-  let body: unknown;
-  try {
-    body = await req.json();
-  } catch {
-    return NextResponse.json({ error: "リクエスト本文が不正です" }, { status: 400 });
+  const input = parseMcpPresetRequest(await req.json().catch(() => null));
+  if (!input.ok) {
+    return NextResponse.json({ error: "プリセットと必須項目を確認してください" }, { status: 400 });
   }
-  if (!body || typeof body !== "object" || Array.isArray(body)) {
-    return NextResponse.json({ error: "preset（n8n / slack）が必要です" }, { status: 400 });
-  }
-  const { preset, url, clientId, clientSecret } = body as {
-    preset?: unknown;
-    url?: unknown;
-    clientId?: unknown;
-    clientSecret?: unknown;
-  };
-
   try {
-    let name: string;
-    if (preset === "n8n") {
-      if (typeof url !== "string") {
-        return NextResponse.json({ error: "preset（n8n）には url（string）が必要です" }, { status: 400 });
+    if (localRuntimeBlocked()) {
+      const forwarded = await createMcpPresetOnBackend(input.value);
+      if (!forwarded.ok) {
+        return NextResponse.json({ error: "BackendでMCP サーバーを追加できません" }, { status: forwarded.status ?? 502 });
       }
-      addN8nServer(url);
-      name = "n8n";
-    } else if (preset === "slack") {
-      if (typeof clientId !== "string") {
-        return NextResponse.json({ error: "preset（slack）には clientId（string）が必要です" }, { status: 400 });
+      const result = forwarded.body;
+      const reload = publicMcpReload(result?.reload);
+      if (result?.ok !== true || result.name !== input.value.preset || !Array.isArray(result.servers) || !reload) {
+        return NextResponse.json({ error: "BackendのMCP応答が不正です" }, { status: 502 });
       }
-      addSlackServer(clientId);
-      name = "slack";
-    } else if (preset === "google-workspace") {
-      if (typeof clientId !== "string" || typeof clientSecret !== "string") {
-        return NextResponse.json(
-          { error: "preset（google-workspace）には clientId と clientSecret（string）が必要です" },
-          { status: 400 },
-        );
-      }
-      addGoogleWorkspaceServers(clientId, clientSecret);
-      name = "google-workspace";
-    } else if (preset === "notion") {
-      addNotionServer();
-      name = "notion";
-    } else {
-      return NextResponse.json({ error: "preset（n8n / slack / google-workspace / notion）が必要です" }, { status: 400 });
+      return NextResponse.json({ ok: true, name: result.name, servers: result.servers, reload });
     }
-
-    const reload = await reloadLiveSessionsContext();
-    const listed = listMcpServers();
-    return NextResponse.json({ ok: true, name, servers: listed.servers, reload });
+    return NextResponse.json(await createMcpPreset(input.value));
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "MCP サーバーの追加に失敗しました" },

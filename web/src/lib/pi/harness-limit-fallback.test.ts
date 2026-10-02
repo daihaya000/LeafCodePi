@@ -103,7 +103,14 @@ const fakePi = vi.hoisted(() => {
         sessionId: sessionManager.__sessionId,
         sessionManager,
         messages: sessionManager.history,
-        agent: { state: { errorMessage: undefined, streamingMessage: undefined } },
+        agent: {
+          state: {
+            // SDK 1.0: a plain writable fake hid fallback-resume failures.
+            get systemPrompt() { return "base"; },
+            errorMessage: undefined,
+            streamingMessage: undefined,
+          },
+        },
         model: options.model,
         thinkingLevel: "off" as ThinkingLevel,
         extensionRunner: { createContext: () => ({}) },
@@ -185,13 +192,12 @@ import {
 } from "./harness";
 
 const GLOBAL_KEY = "__leafcodePiHarness";
-const PROVIDER = "openai-codex";
 const MODEL_ID = "gpt-6-astra";
 const tempDirs: string[] = [];
 const previousPiAgentDir = process.env.PI_CODING_AGENT_DIR;
 const previousDataDir = process.env.LEAFCODE_PI_DATA_DIR;
 
-function runtime(accountId: string, provider = PROVIDER, modelID = MODEL_ID) {
+function runtime(accountId: string, provider: string, modelID = MODEL_ID) {
   const model = {
     provider,
     id: modelID,
@@ -208,6 +214,7 @@ function runtime(accountId: string, provider = PROVIDER, modelID = MODEL_ID) {
     getModel: (providerID: string, requested: string) =>
       providerID === model.provider && requested === model.id ? { ...model } : undefined,
     hasConfiguredAuth: () => true,
+    isUsingSubscription: () => true,
     getAvailable: async () => [model],
   };
 }
@@ -237,7 +244,7 @@ function installHarness(runtimes: Map<string, ReturnType<typeof runtime>>) {
   };
 }
 
-function storeProviderAuth(accountId: string, agentDir: string, provider = PROVIDER): void {
+function storeProviderAuth(accountId: string, agentDir: string, provider: string): void {
   const path = accountAuthPath(accountId, agentDir);
   mkdirSync(dirname(path), { recursive: true });
   writeFileSync(
@@ -274,7 +281,7 @@ afterEach(async () => {
   vi.restoreAllMocks();
 });
 
-describe("provider limit fallback", () => {
+describe.each(["openai-codex", "openai"] as const)("provider limit fallback: %s", (PROVIDER) => {
   it("moves an integrated task to another account after a usage limit", async () => {
     const factorySession = vi.spyOn(SdkRuntimeFactory.prototype, "createAgentSession");
     const dir = mkdtempSync(join(tmpdir(), "leafcode-pi-limit-fallback-"));
@@ -286,16 +293,17 @@ describe("provider limit fallback", () => {
 
     const first = createAccount({ label: "codex-1", providers: [PROVIDER] });
     const second = createAccount({ label: "codex-2", providers: [PROVIDER] });
-    storeProviderAuth(first.id, agentDir);
-    storeProviderAuth(second.id, agentDir);
+    storeProviderAuth(first.id, agentDir, PROVIDER);
+    storeProviderAuth(second.id, agentDir, PROVIDER);
     installHarness(
       new Map([
-        [first.id, runtime(first.id)],
-        [second.id, runtime(second.id)],
+        [first.id, runtime(first.id, PROVIDER)],
+        [second.id, runtime(second.id, PROVIDER)],
       ]),
     );
     await setAccountRoutingMode(PROVIDER, "integrated");
-    setCachedUsage(
+    // New ChatGPT OAuth has no legacy Codex usage endpoint: exercise unknown usage.
+    if (PROVIDER === "openai-codex") setCachedUsage(
       parseCodexBarSnapshot({
         providers: [
           { codexBarProviderId: PROVIDER, accountId: first.id, usedPercent: 10 },
@@ -319,9 +327,14 @@ describe("provider limit fallback", () => {
       modelRuntime: { accountId: first.id },
     });
 
-    fakePi.sessions[0].nextError =
-      "You have hit your ChatGPT usage limit (team plan). Try again in ~286 min.";
-    await promptTask(task.id, "continue working");
+    fakePi.sessions[0].nextError = PROVIDER === "openai"
+      ? "OpenAI API error: subscription_sharing_usage_limit_exceeded"
+      : "You have hit your ChatGPT usage limit (team plan). Try again in ~286 min.";
+    // Unknown usage can rebalance before the turn; pin the failing account so
+    // this exercises error recovery rather than ordinary load balancing.
+    await promptTask(task.id, "continue working", undefined, PROVIDER === "openai"
+      ? { model: `${first.id}::${PROVIDER}::${MODEL_ID}` }
+      : undefined);
 
     await waitFor(() => fakePi.sessions.length === 2);
     expect(fakePi.sessions[1]).toMatchObject({ accountId: second.id });
@@ -337,8 +350,9 @@ describe("provider limit fallback", () => {
       {
         message: {
           customType: "leafcode-pi.provider-fallback",
-          content:
-            "The previous response was interrupted by a provider usage limit. Continue the pending request from the existing conversation. Do not repeat completed actions.",
+          content: expect.stringMatching(
+            /<host_clock>[\s\S]+<\/host_clock>\n\nThe previous response was interrupted by a provider usage limit\./,
+          ),
           display: false,
         },
         options: { triggerTurn: true },
@@ -358,11 +372,11 @@ describe("provider limit fallback", () => {
 
     const codex = createAccount({ label: "codex", providers: [PROVIDER] });
     const claude = createAccount({ label: "claude", providers: ["anthropic"] });
-    storeProviderAuth(codex.id, agentDir);
+    storeProviderAuth(codex.id, agentDir, PROVIDER);
     storeProviderAuth(claude.id, agentDir, "anthropic");
     installHarness(
       new Map([
-        [codex.id, runtime(codex.id)],
+        [codex.id, runtime(codex.id, PROVIDER)],
         [claude.id, runtime(claude.id, "anthropic", "claude-sonnet")],
       ]),
     );
@@ -428,12 +442,12 @@ describe("provider limit fallback", () => {
     const codex = createAccount({ label: "codex", providers: [PROVIDER] });
     storeProviderAuth(claude.id, agentDir, "anthropic");
     storeProviderAuth(claudeOther.id, agentDir, "anthropic");
-    storeProviderAuth(codex.id, agentDir);
+    storeProviderAuth(codex.id, agentDir, PROVIDER);
     installHarness(
       new Map([
         [claude.id, runtime(claude.id, "anthropic", "claude-sonnet")],
         [claudeOther.id, runtime(claudeOther.id, "anthropic", "claude-sonnet")],
-        [codex.id, runtime(codex.id)],
+        [codex.id, runtime(codex.id, PROVIDER)],
       ]),
     );
     // Separate mode keeps the anthropic accounts as distinct picker rows.
@@ -476,5 +490,97 @@ describe("provider limit fallback", () => {
     await waitFor(() => fakePi.sessions[2]?.prompts.length === 1);
     assert.equal(getTask(task.id)?.accountId, codex.id);
     assert.equal(getTask(task.id)?.accountIdExplicit, undefined);
+  });
+});
+
+// A queued prompt marks its task working before the integrated route is
+// re-resolved. The task must not count against its own account in that ranking,
+// or every re-route prefers another account and abandons the limit fallback.
+describe.each(["openai-codex", "openai"] as const)("integrated routing load count: %s", (PROVIDER) => {
+  it("keeps a later prompt on the current account when usage is unknown", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "leafcode-pi-self-load-route-"));
+    tempDirs.push(dir);
+    process.env.LEAFCODE_PI_DATA_DIR = dir;
+    const agentDir = join(dir, "agent");
+    process.env.PI_CODING_AGENT_DIR = agentDir;
+    __resetPiAgentDirCacheForTests();
+
+    const first = createAccount({ label: "codex-1", providers: [PROVIDER] });
+    const second = createAccount({ label: "codex-2", providers: [PROVIDER] });
+    const third = createAccount({ label: "codex-3", providers: [PROVIDER] });
+    for (const account of [first, second, third]) {
+      storeProviderAuth(account.id, agentDir, PROVIDER);
+    }
+    installHarness(
+      new Map([
+        [first.id, runtime(first.id, PROVIDER)],
+        [second.id, runtime(second.id, PROVIDER)],
+        [third.id, runtime(third.id, PROVIDER)],
+      ]),
+    );
+    await setAccountRoutingMode(PROVIDER, "integrated");
+
+    const project = upsertProject({ name: "demo", rootPath: dir });
+    const task = await createTask({
+      projectId: project.id,
+      prompt: "start",
+      model: `${PROVIDER}::${MODEL_ID}`,
+    });
+    await waitFor(() => getTask(task.id)?.status === "idle");
+    assert.equal(getTask(task.id)?.accountId, first.id);
+    assert.equal(fakePi.sessions.length, 1);
+
+    await promptTask(task.id, "second prompt");
+    await waitFor(() => getTask(task.id)?.status === "idle");
+
+    assert.equal(getTask(task.id)?.accountId, first.id);
+    assert.equal(fakePi.sessions.length, 1, "the same account must keep the session");
+    expect(fakePi.sessions[0]?.prompts).toEqual(["start", "second prompt"]);
+  });
+
+  it("keeps the fallback account on the hidden resume prompt", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "leafcode-pi-fallback-resume-"));
+    tempDirs.push(dir);
+    process.env.LEAFCODE_PI_DATA_DIR = dir;
+    const agentDir = join(dir, "agent");
+    process.env.PI_CODING_AGENT_DIR = agentDir;
+    __resetPiAgentDirCacheForTests();
+
+    const first = createAccount({ label: "codex-1", providers: [PROVIDER] });
+    const second = createAccount({ label: "codex-2", providers: [PROVIDER] });
+    const third = createAccount({ label: "codex-3", providers: [PROVIDER] });
+    for (const account of [first, second, third]) {
+      storeProviderAuth(account.id, agentDir, PROVIDER);
+    }
+    installHarness(
+      new Map([
+        [first.id, runtime(first.id, PROVIDER)],
+        [second.id, runtime(second.id, PROVIDER)],
+        [third.id, runtime(third.id, PROVIDER)],
+      ]),
+    );
+    await setAccountRoutingMode(PROVIDER, "integrated");
+
+    const project = upsertProject({ name: "demo", rootPath: dir });
+    const task = await createTask({
+      projectId: project.id,
+      prompt: "start",
+      model: `${PROVIDER}::${MODEL_ID}`,
+    });
+    await waitFor(() => getTask(task.id)?.status === "idle");
+    assert.equal(getTask(task.id)?.accountId, first.id);
+
+    fakePi.sessions[0].nextError = PROVIDER === "openai"
+      ? "OpenAI API error: subscription_sharing_usage_limit_exceeded"
+      : "You have hit your ChatGPT usage limit (team plan). Try again in ~286 min.";
+    // Pin the failing account so the turn reaches the limit on the account under
+    // test instead of being rebalanced before it starts.
+    await promptTask(task.id, "continue working", undefined, {
+      model: `${first.id}::${PROVIDER}::${MODEL_ID}`,
+    });
+
+    await waitFor(() => fakePi.sessions.length === 2 && fakePi.sessions[1]?.prompts.length === 1);
+    expect(fakePi.sessions[1]).toMatchObject({ accountId: second.id });
+    assert.equal(getTask(task.id)?.accountId, second.id);
   });
 });

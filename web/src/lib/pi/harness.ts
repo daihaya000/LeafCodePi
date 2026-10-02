@@ -13,8 +13,11 @@ import {
   samePath,
 } from "@/lib/paths";
 import { prepareWorkspaceMove, type PreparedWorkspaceMove } from "@/lib/workspace-move";
-import { assertLocalRuntimeAllowed } from "@/lib/pi/runtime-ownership";
-import { dispatchGoalLoopCommand } from "@/lib/pi/goal-loop-command";
+import { assertLocalRuntimeAllowed, localRuntimeBlocked } from "@/lib/pi/runtime-ownership";
+import { readDiskTodoProgress } from "@/lib/pi/disk-todo-progress";
+import { fetchRemoteCodeProgress, fetchRemoteTodoProgressMany, needsRemoteTodoProgress } from "@/lib/pi/remote-todo-progress";
+import { beginTaskPreparation, hasTaskPreparation, invalidateTaskPreparations, isTaskTreeEditing, withTaskSessionMutation, withTaskTreeEdit } from "./task-operation-guard";
+import { dispatchGoalLoopCommand, isGoalLoopCommandApplied } from "@/lib/pi/goal-loop-command";
 import { notifyPushoverCompletion, shouldNotifyPushoverCompletion } from "@/lib/pushover";
 import { BOT_DEFAULT_TOOL_NAMES, BOT_TOOL_NAMES, botPromptSources, botRuntimeContext, botSoulRevision, botTaskId, getBot, listBots, patchBot } from "@/lib/bots";
 import { AGENTS_MD_FILENAME, codeOnDemandPrompt, codePromptSources, compactSdkDocumentation, readAgentsMdFile } from "@/lib/agents-md";
@@ -96,6 +99,7 @@ import {
   buildProviderModelsCatalog,
   enabledModelOptionsFromCatalog,
   mergeIntegratedProviderRows,
+  providerDisplayName,
   type ProviderModelSnapshot,
   type ProviderModelsRow,
 } from "@/lib/provider-models";
@@ -128,7 +132,8 @@ import {
 } from "@/lib/pi/ollama-cloud-provider";
 import { registerTypeSafeProvider } from "@/lib/pi/typesafe-provider";
 import { isJevModel, type JevCatalogModel, type JevModelRef } from "@/lib/jev-model-catalog";
-import { clearJevDiscoveryCache, discoverJevModels, registeredJevEndpoint } from "@/lib/pi/jev-model-discovery";
+import { clearJevDiscoveryCache, discoverJevModels } from "@/lib/pi/jev-model-discovery";
+import { resolveRegisteredJevConnection } from "@/lib/pi/jev-model-connection";
 import { readJevModelSettings } from "@/lib/pi/jev-model-config";
 import { hasUsableJevModel, JEV_MODEL_SETTING_KEY } from "@/lib/jev-model-settings";
 import {
@@ -304,6 +309,7 @@ import { listSubagentRuns } from "@/lib/pi/subagent-runs";
 import { stopRunningSubagentRuns } from "@/lib/pi/stop-subagent-runs";
 import { getCachedUsage, invalidateCachedUsage } from "@/lib/codexbar/cache";
 import type { CodexBarProvider } from "@/lib/codexbar";
+import { ensureFreshRoutingUsage } from "@/lib/pi/routing-usage";
 import {
   autoModelValue,
   autoProviderUsageFromModels,
@@ -331,6 +337,11 @@ import {
   JEV_COMPACTION_THRESHOLD_SETTING_KEY,
   parseJevCompactionThreshold,
 } from "@/lib/jev-compaction-settings";
+import {
+  applyOpenAiFastMode,
+  isOpenAiFastModeEnabled,
+  OPENAI_FAST_MODE_SETTING_KEY,
+} from "@/lib/openai-fast-mode";
 import {
   AUTO_JEV_ENABLED_SETTING_KEY,
   AUTO_JEV_MIN_CONFIDENCE_SETTING_KEY,
@@ -1462,10 +1473,15 @@ function sessionSnapshotFields(
   compactionSuggested: boolean;
   goalLoop: GoalLoopDto | null;
   todos: TodoDto[];
+  /** Cheap transcript identity for idle remote polls that omit message bodies. */
+  messageRevision: string;
+  /** Running tool label; kept when messages are omitted for cutover peeks. */
+  activity?: string;
 } {
   const messagesStartedAt = reporter ? performance.now() : 0;
   // Only an explicit false omits the projection (rule lives in backend core).
-  const messages = detailIncludesMessages(includeMessages)
+  const includeBodies = detailIncludesMessages(includeMessages);
+  const messages = includeBodies
     ? snapshotMessages(
         session,
         throughputByStartedAt,
@@ -1476,6 +1492,19 @@ function sessionSnapshotFields(
         accountContext,
       )
     : [];
+  // Omit still needs the live tool label for Bot/Room Code cards after cutover.
+  const activityMessage = includeBodies
+    ? messages.at(-1) ?? null
+    : snapshotMessages(
+        session,
+        throughputByStartedAt,
+        toolStartedAt,
+        toolEndedAt,
+        toolPartialOutputByCallId,
+        true,
+        accountContext,
+      ).at(-1) ?? null;
+  const activity = activeToolLabel(activityMessage)?.slice(0, 80);
   reportTaskDetailPhase(reporter, "messages", messagesStartedAt);
 
   const contextStartedAt = reporter ? performance.now() : 0;
@@ -1503,6 +1532,13 @@ function sessionSnapshotFields(
     ),
   });
 
+  const storedMessages = Array.isArray(session.messages) ? session.messages : [];
+  const lastStored = storedMessages.at(-1);
+  const lastId =
+    lastStored && typeof lastStored === "object" && lastStored && "id" in lastStored
+      ? String((lastStored as { id: unknown }).id ?? "")
+      : "";
+
   return {
     messages,
     isStreaming: session.isStreaming,
@@ -1511,6 +1547,8 @@ function sessionSnapshotFields(
     compactionSuggested,
     goalLoop,
     todos,
+    messageRevision: `${storedMessages.length}:${lastId}:${session.isStreaming ? 1 : 0}:${session.isCompacting ? 1 : 0}`,
+    ...(activity ? { activity } : {}),
   };
 }
 
@@ -1543,9 +1581,36 @@ function emit(
     permissionRequest: pendingPermissionForTask(taskId),
     questionRequest: pendingQuestionForTask(taskId),
   } : payload);
+  // Deltas are high-frequency; remote Web streams poll while streaming. Lifecycle/attention
+  // snapshots must still wake the cutover UI even when this process has no SSE listeners.
+  if (payload.type !== "delta") {
+    publishTaskDirty(taskId, typeof payload.eventType === "string" ? payload.eventType : payload.type);
+  }
 }
 
 const BOT_CODE_SESSION_EVENT_CHANNEL = "__bot_code_session_changed__";
+const TASK_DIRTY_EVENT_CHANNEL = "__task_dirty__";
+const TASK_DIRTY_COALESCE_MS = 50;
+const pendingTaskDirty = new Map<string, { reason: string; timer: ReturnType<typeof setTimeout> }>();
+
+/** Coalesced dirty wake for Web cutover streams that do not subscribeTask in this process. */
+function publishTaskDirty(taskId: string, reason: string): void {
+  const existing = pendingTaskDirty.get(taskId);
+  if (existing) {
+    existing.reason = reason;
+    return;
+  }
+  const timer = setTimeout(() => {
+    const pending = pendingTaskDirty.get(taskId);
+    pendingTaskDirty.delete(taskId);
+    state().events.emit(TASK_DIRTY_EVENT_CHANNEL, {
+      taskId,
+      reason: pending?.reason ?? reason,
+    });
+  }, TASK_DIRTY_COALESCE_MS);
+  timer.unref?.();
+  pendingTaskDirty.set(taskId, { reason, timer });
+}
 
 export function subscribeBotCodeSession(
   listener: (payload: Record<string, unknown>) => void,
@@ -1553,6 +1618,15 @@ export function subscribeBotCodeSession(
   const handler = (payload: Record<string, unknown>) => listener(payload);
   state().events.on(BOT_CODE_SESSION_EVENT_CHANNEL, handler);
   return () => state().events.off(BOT_CODE_SESSION_EVENT_CHANNEL, handler);
+}
+
+/** Backend→Web cutover: light task change notices without projecting a full snapshot. */
+export function subscribeTaskDirty(
+  listener: (payload: { taskId: string; reason?: string }) => void,
+): () => void {
+  const handler = (payload: { taskId: string; reason?: string }) => listener(payload);
+  state().events.on(TASK_DIRTY_EVENT_CHANNEL, handler);
+  return () => state().events.off(TASK_DIRTY_EVENT_CHANNEL, handler);
 }
 
 function emitAttention(taskId: string, payload: { type: string; [key: string]: unknown }): void {
@@ -1592,6 +1666,8 @@ function emitTaskSnapshot(
   eventType: string,
   extra?: Record<string, unknown>,
 ): void {
+  // Always wake cutover Web viewers even when this process has no local SSE listeners.
+  publishTaskDirty(live.taskId, eventType);
   // SSE リスナーが誰もいないタスクのスナップショット生成（メッセージ射影・
   // エントリ走査・goal loop 読込・todo 抽出）は丸ごと不要。リスナーが付いた
   // タイミングで getTaskDetail が初期状態を送るため欠落は生じない。
@@ -2169,7 +2245,18 @@ function applySettledTaskStatus(
     isAbortErrorMessage(settledError) &&
     (goalLoopIsStopped(live) || live.manualAbortedAssistantId !== null);
   if (stoppedByUser) persistManualAbortedAssistantId(taskId, "");
-  setTaskStatus(taskId, stoppedByUser || !settledError ? "idle" : "error", stoppedByUser ? null : settledError);
+  let taskError = settledError;
+  if (!stoppedByUser && settledError && isAbortErrorMessage(settledError)) {
+    // Automatic inactivity timeout is not a manual Stop. Preserve its recorded
+    // cause rather than reporting the SDK's generic "Request was aborted".
+    try {
+      const loop = readGoalLoopState(session.sessionManager.getCwd(), session.sessionId);
+      if (loop?.status === "paused" && loop.pauseReason === "turn_timeout") {
+        taskError = loop.error || "Goal Loop の進捗が確認できないため時間切れで停止しました。";
+      }
+    } catch { /* retain the SDK error when loop state is unavailable */ }
+  }
+  setTaskStatus(taskId, stoppedByUser || !settledError ? "idle" : "error", stoppedByUser ? null : taskError);
   // Keep the lease while provider-limit fallback still needs to replace the session.
   if (!live.pendingProviderFallback) {
     releaseTaskLease(taskId);
@@ -2771,6 +2858,7 @@ export async function continueBotCodeTask(botId: string, taskId: string, prompt:
  * result is reported as a stop and the Bot cannot continue it on its own.
  */
 export async function stopBotCodeTask(botId: string, taskId: string): Promise<TaskSummary> {
+  invalidateTaskPreparations(taskId);
   const relay = botCodeRelay();
   const requestId = relay.requestIdForCode(taskId);
   await stopBotCodeRequestForTask(botId, taskId);
@@ -2936,6 +3024,21 @@ function registerGoalLoopTurnRouting(taskId: string): (pi: ExtensionAPI) => void
         }
         // Do not route/replace while another prompt is already accepted or streaming.
         if (isLiveBusyForReplace(before)) return "retry";
+        // A prior start-path prepare or abandoned send can leave working+lease while
+        // the durable loop is still queued (送信待ち). Clear that reservation so this
+        // turn can commit cleanly instead of spinning forever.
+        const stranded = getTask(taskId);
+        if (stranded?.status === "working" && ownsTaskLease(taskId)) {
+          const loop = readGoalLoopState(
+            before.session.sessionManager.getCwd(),
+            before.session.sessionId,
+          );
+          if (loop && (loop.status === "queued" || loop.status === "verifying_completed")) {
+            disarmTaskHangWatch(taskId);
+            setTaskStatus(taskId, "idle");
+            emitTaskSnapshot(before, "goal_turn_reservation_recovered");
+          }
+        }
         await waitForSessionReload(before.session);
         if (!ownsRouting()) return false;
         const latestBefore = state().live.get(taskId);
@@ -3019,10 +3122,12 @@ function registerGoalLoopTurnRouting(taskId: string): (pi: ExtensionAPI) => void
           live.session.sessionManager !== manager ||
           !task ||
           task.status !== "working" ||
-          live.promptActive ||
-          isLiveBusyForReplace(live) ||
           !ownsTaskLease(taskId)
         ) return;
+        // promptActive means the SDK already accepted a turn: settle owns lifecycle.
+        // Do not require !isLiveBusyForReplace — compaction/streaming without our
+        // prompt must not strand working+lease while the loop stays queued.
+        if (live.promptActive) return;
         disarmTaskHangWatch(taskId);
         setTaskStatus(taskId, "idle");
         releaseTaskLease(taskId);
@@ -3102,15 +3207,23 @@ export function refreshRuntimeClock(
   const state = session.agent?.state;
   if (!state) return;
   const clock = runtimeClockContext(now);
-  // A replacement session (provider-limit fallback, soul reload) may not have
-  // a system prompt yet. before_agent_start injects the clock later; do not
-  // throw while writing the hidden resume turn.
+  // Older SDKs expose a mutable systemPrompt; SDK 1.0 derives it from messages.
+  // Custom turns bypass before_agent_start, so they also carry a fresh clock
+  // in their hidden content (customPromptWithRuntimeClock).
   const current = typeof state.systemPrompt === "string" ? state.systemPrompt : "";
-  state.systemPrompt = current.includes("<host_clock>")
+  const next = current.includes("<host_clock>")
     ? current.replace(/<host_clock>[\s\S]*?<\/host_clock>/, clock)
     : current
       ? `${current}\n\n${clock}`
       : clock;
+  // Returns false for getter-only/frozen properties without throwing in strict
+  // mode. Unexpected setter errors still surface instead of being swallowed.
+  Reflect.set(state, "systemPrompt", next);
+}
+
+/** sendCustomMessage(triggerTurn) bypasses before_agent_start in SDK 1.0. */
+export function customPromptWithRuntimeClock(content: string, now = new Date()): string {
+  return `${runtimeClockContext(now)}\n\n${content}`;
 }
 
 export function isOneToOneBotTask(
@@ -3362,6 +3475,14 @@ export function sessionExtensionFactories(input: {
           : "";
         return { systemPrompt: [compactSdkDocumentation(event.systemPrompt), references, runtimeClockContext()].filter(Boolean).join("\n\n") };
       });
+      // 設定は毎リクエスト読み直し、実行中セッションにも切替を反映する。
+      api.on("before_provider_request", (event, ctx) =>
+        applyOpenAiFastMode(
+          event.payload,
+          ctx.model?.provider,
+          isOpenAiFastModeEnabled(getSetting(OPENAI_FAST_MODE_SETTING_KEY)),
+        ),
+      );
       api.on("session_before_compact", async (event) => {
         if (isJevCompactionEnabled(getSetting(JEV_COMPACTION_ENABLED_SETTING_KEY))) {
           const compaction = await compactWithJev(
@@ -3946,7 +4067,9 @@ function markedUsage(
     usedPercent: Math.max(usage?.usedPercent ?? 100, 100),
     maxed: true,
     stale: false,
-    resetsAt: mark.resetAt ?? usage?.resetsAt ?? null,
+    // A new limit response overrides the old snapshot, including its reset.
+    // A past snapshot reset would otherwise immediately revive this mark.
+    resetsAt: mark.resetAt,
     // 実行時の制限エラーは枠クレジットより優先する（クレジット残でも再選択させない）。
     credits: null,
   };
@@ -3955,7 +4078,7 @@ function markedUsage(
 async function resolveIntegratedModelRoute(
   providerID: string,
   modelID: string,
-  options?: { excludeAccountId?: string | null },
+  options?: { excludeAccountId?: string | null; excludeTaskId?: string | null },
 ): Promise<ConcreteModelRoute | undefined> {
   const excluded = options?.excludeAccountId ?? null;
   const accounts = listAccounts().filter(
@@ -3971,8 +4094,13 @@ async function resolveIntegratedModelRoute(
   );
   if (records.length === 0) return undefined;
 
+  // 使用量キャッシュはブラウザのウィジェットしか更新しないため、判断前に取り直す。
+  await ensureFreshRoutingUsage();
   const usageProviders = routingUsageProviders();
-  const workingCounts = workingTaskCounts([providerID]);
+  const workingCounts = workingTaskCounts(
+    [providerID],
+    options?.excludeTaskId ?? undefined,
+  );
   const candidates: RoutingCandidate<AccountModelRecord>[] = records.map(
     (record) => ({
       accountId: record.accountId,
@@ -4330,14 +4458,6 @@ export async function peekCodeRequestProgress(taskId: string): Promise<{
     );
   }
   let todoProgress = summary.todoProgress;
-  if (!todoProgress && task.sessionFile && !state().live.has(taskId)) {
-    try {
-      const pi = state().pi ?? (await loadPi());
-      todoProgress = readTodoProgress(pi, summary);
-    } catch {
-      /* Goal loop summary above is enough when Pi cannot open. */
-    }
-  }
   // Latest-only projection keeps Bot list polls off the full transcript path.
   let activity: string | undefined;
   const live = state().live.get(taskId);
@@ -4353,6 +4473,22 @@ export async function peekCodeRequestProgress(taskId: string): Promise<{
         messageContext(live),
       ).at(-1) ?? null;
     activity = activeToolLabel(message)?.slice(0, 80);
+  } else if (localRuntimeBlocked()) {
+    // After cutover this process has no live maps. Shared-disk Todo bars stay cheap;
+    // only a working task needs Backend omit for the live tool label (+ freshest Todo).
+    if (!todoProgress) todoProgress = readDiskTodoProgress(task.sessionFile);
+    if (task.status === "working") {
+      const remote = await fetchRemoteCodeProgress(taskId);
+      if (!todoProgress) todoProgress = remote.todoProgress;
+      activity = remote.activity;
+    }
+  } else if (!todoProgress && task.sessionFile) {
+    try {
+      const pi = state().pi ?? (await loadPi());
+      todoProgress = readTodoProgress(pi, summary);
+    } catch {
+      /* Goal loop summary above is enough when Pi cannot open. */
+    }
   }
   return {
     ...(todoProgress ? { todoProgress } : {}),
@@ -5012,6 +5148,24 @@ export async function getHealth(): Promise<HealthDto> {
 }
 
 async function rebuildHealth(): Promise<HealthDto> {
+  // A client WebUI must not warm the Pi SDK / model catalog on every Sidebar poll:
+  // those sessions and providers live in the Backend after the cutover.
+  if (localRuntimeBlocked()) {
+    const current = state();
+    const value: HealthDto = {
+      ok: true,
+      engine: "pi",
+      engineOk: true,
+      version: packageVersion(),
+      modelCount: current.healthCache?.value.modelCount ?? 0,
+      dataDir: dataDir(),
+      error: null,
+      startedAt: PROCESS_STARTED_AT,
+      platform: process.platform,
+    };
+    current.healthCache = nextHealthCache(value, Date.now());
+    return value;
+  }
   try {
     await ensureRuntime();
   } catch {
@@ -5181,14 +5335,8 @@ export async function resolveRegisteredJevModel(ref: JevModelRef): Promise<{
   }
   await ensureRuntime({ skipDefaultRuntime: Boolean(ref.accountId) });
   const runtime = await getRuntimeFor(ref.accountId);
-  const baseUrl = runtime && registeredJevEndpoint(runtime, ref);
-  if (!baseUrl) throw new Error("選択したJevモデルは未検出です");
-  const auth = (await runtime.getAuth(ref.providerId))?.auth;
-  if (!auth) throw new Error("Jevプロバイダーの認証が見つかりません");
-  const headers = Object.fromEntries(Object.entries(auth.headers ?? {}).filter(
-    (entry): entry is [string, string] => typeof entry[1] === "string",
-  ));
-  return { baseUrl, model: ref.modelId, apiKey: auth.apiKey, headers };
+  if (!runtime) throw new Error("選択したJevモデルは未検出です");
+  return resolveRegisteredJevConnection(runtime, ref);
 }
 
 /** ランタイムごとの有効モデル一覧を構築する（既定・アカウント共通の処理）。 */
@@ -5515,10 +5663,15 @@ function integratedOption(
 
 function workingTaskCounts(
   providerIds: readonly string[],
+  excludeTaskId?: string,
 ): Map<string, number> {
   const counts = new Map<string, number>();
   const allowed = new Set(providerIds);
   for (const task of listTasks(false)) {
+    // The task being routed is already marked working before its route is
+    // re-resolved. Counting it against its own account makes every re-route
+    // prefer a different account (and immediately abandons a limit fallback).
+    if (task.id === excludeTaskId) continue;
     if (
       task.status !== "working" ||
       !task.accountId ||
@@ -6414,7 +6567,7 @@ export async function listProviderAuth(
       (!accountScoped || storedAccountProviders?.has(provider.id) === true);
     return {
       id: provider.id,
-      name: provider.name,
+      name: providerDisplayName(provider),
       authenticated,
       methods,
       authSource: authenticated ? status.source : undefined,
@@ -6549,7 +6702,11 @@ export async function startProviderLogin(
   current.loginSession = session;
   // Let the SSE client attach before the OAuth flow emits prompts.
   queueMicrotask(() => {
-    void session.run(runtime)
+    void session.run(runtime, {
+      // New ChatGPT OAuth registers this installation; keep its identity stable
+      // across account logins without copying legacy Codex credentials.
+      getDeviceId: () => openSettingsManager().getOrCreateDeviceId(),
+    })
       .finally(() => {
         // A login can change both models and account-scoped usage.
         invalidateHealthCache();
@@ -7171,7 +7328,25 @@ async function buildTaskSummariesWithTodoProgress(
   );
 
   let progressByTaskId = new Map<string, TodoProgressDto>();
-  if (tasksToRead.length > 0) {
+  // After the cutover this process does not own live sessions: opening every cold
+  // session via Pi SessionManager for sidebar Todo bars re-parses transcripts (seconds)
+  // on each poll. Goal Loop summaries above are disk-only and stay available.
+  // Remote: only working / live-loop tasks need owner freshness. A completed or stopped
+  // loop cannot advance, so its persisted state (plus the shared-disk Todo scan below)
+  // is authoritative — remote-fetching every task that ever ran a loop stampedes omit GETs.
+  if (tasksToRead.length > 0 && localRuntimeBlocked()) {
+    const remoteIds = tasksToRead
+      .filter((task) =>
+        needsRemoteTodoProgress(task.status, goalLoopByTaskId.get(task.id)?.status),
+      )
+      .map((task) => task.id);
+    progressByTaskId = await fetchRemoteTodoProgressMany(remoteIds);
+    for (const task of tasksToRead) {
+      if (progressByTaskId.has(task.id)) continue;
+      const progress = readDiskTodoProgress(task.sessionFile);
+      if (progress) progressByTaskId.set(task.id, progress);
+    }
+  } else if (tasksToRead.length > 0) {
     try {
       const pi = await loadPi();
       progressByTaskId = new Map(
@@ -7242,7 +7417,22 @@ export async function getBotCodeSessionPanelState(botId: string): Promise<{
       !task.todoProgress,
   );
   let progressByTaskId = new Map<string, TodoProgressDto>();
-  if (coldNeedingTodo.length > 0) {
+  // Same cutover rule as getTaskSummariesWithTodoProgress: only working / live-loop
+  // tasks need the owner's omit read; other loops use the shared-disk Todo scan.
+  if (coldNeedingTodo.length > 0 && localRuntimeBlocked()) {
+    const remoteIds = coldNeedingTodo
+      .filter((task) => {
+        const loop = goalLoopByTaskId.get(task.id) ?? loops[task.id];
+        return needsRemoteTodoProgress(task.status, loop?.status);
+      })
+      .map((task) => task.id);
+    progressByTaskId = await fetchRemoteTodoProgressMany(remoteIds);
+    for (const task of coldNeedingTodo) {
+      if (progressByTaskId.has(task.id)) continue;
+      const progress = readDiskTodoProgress(task.sessionFile);
+      if (progress) progressByTaskId.set(task.id, progress);
+    }
+  } else if (coldNeedingTodo.length > 0) {
     try {
       const pi = await loadPi();
       progressByTaskId = new Map(
@@ -7433,8 +7623,11 @@ export async function getTaskDetail(
 }
 
 /** Optional Backend export: older bundles fall back to their explicit offline reader. */
-export function getTaskDetailReadOnly(id: string): Promise<TaskDetail> {
-  return getTaskDetail(id, { readOnly: true });
+export function getTaskDetailReadOnly(
+  id: string,
+  options: { includeMessages?: boolean } = {},
+): Promise<TaskDetail> {
+  return getTaskDetail(id, { readOnly: true, includeMessages: options.includeMessages });
 }
 
 /**
@@ -7530,7 +7723,15 @@ export async function goalLoopCommand(
       }
     | { action: "pause" | "resume" | "stop" | "complete"; maxTurns?: number },
 ): Promise<GoalLoopDto | null> {
+  assertLocalRuntimeAllowed();
+  if (isGoalLoopControlAction(input.action)) invalidateTaskPreparations(taskId);
+  if (input.action === "resume" && hasTaskPreparation(taskId)) {
+    throw Object.assign(new Error("送信・設定変更の準備中は Goal Loop を再開できません"), { status: 409 });
+  }
+  const preparation = input.action === "start" || input.action === "resume" ? beginTaskPreparation(taskId) : undefined;
+  try {
   let live = await ensureLive(taskId);
+  preparation?.assertCurrent();
   if (input.action === "start") {
     ensureSessionFilePersisted(live.session.sessionManager);
   }
@@ -7573,12 +7774,15 @@ export async function goalLoopCommand(
   const startedEpoch = live.promptEpoch;
   // Apply deferred tools/permission before /goal-start. Use reroute:false so the
   // first Goal turn's prepareGoalLoopTurn still owns integrated account selection
-  // (avoids double resolvePromptRoute on start/resume).
+  // (avoids double resolvePromptRoute on start/resume). Defer working too: marking
+  // working here leaves 送信待ち stranded when the first sendTurn cannot enqueue yet
+  // (releaseGoalLoopTurn only clears a reservation it prepared).
   if (input.action === "start" || input.action === "resume") {
     live = await prepareLiveForPrompt(
       live,
       false,
       copyPendingLiveSettings((state().live.get(live.taskId) ?? live).pendingSettings),
+      { deferWorking: true },
     );
   }
   const current = state().live.get(taskId) ?? live;
@@ -7628,11 +7832,14 @@ export async function goalLoopCommand(
       status: 409,
     });
   }
+  preparation?.assertCurrent();
   await dispatchGoalLoopCommand(latest.session, command);
-  return readGoalLoopState(
-    latest.session.sessionManager.getCwd(),
-    latest.session.sessionId,
-  );
+  const outcome = readGoalLoopState(latest.session.sessionManager.getCwd(), latest.session.sessionId);
+  if (outcome && !isGoalLoopCommandApplied(input.action, outcome)) {
+    throw Object.assign(new Error("Goal Loop の操作が反映されませんでした"), { status: 409 });
+  }
+  return outcome;
+  } finally { preparation?.release(); }
 }
 
 /** Validate a browser-selected model before any prompt is sent to a generation model. */
@@ -8578,9 +8785,12 @@ async function resolvePromptRoute(
   providerID: string,
   modelID: string,
   accountId?: string,
+  excludeTaskId?: string,
 ): Promise<ConcreteModelRoute> {
   try {
-    const resolved = await resolveIntegratedModelRoute(providerID, modelID);
+    const resolved = await resolveIntegratedModelRoute(providerID, modelID, {
+      excludeTaskId,
+    });
     if (!resolved) {
       throw Object.assign(new Error("モデルが見つかりません"), { status: 400 });
     }
@@ -8687,6 +8897,7 @@ async function prepareLiveForPrompt(
         latestTask.providerID!,
         latestTask.modelID!,
         latestTask.accountId,
+        latestTask.id,
       );
       const ids = modelId(route.model);
       const sameRoute =
@@ -9012,11 +9223,15 @@ function queuePrompt(
     });
     const previousManualAbort =
       (state().live.get(live.taskId) ?? activeLive).manualAbortedAssistantId ?? null;
+    const previousRevert = getTask(live.taskId)?.revertLeafId ?? null;
+    // Commit the new branch only at send time, not while a queued request can still be cancelled.
+    persistRevertLeafId(live.taskId, null);
     persistManualAbortedAssistantId(live.taskId, null);
     const restoreManualAbortIfPromptNeverStarted = () => {
       // Abort bumped the epoch and wrote its own sentinel — leave it alone.
       if (!stillQueued()) return;
       persistManualAbortedAssistantId(live.taskId, previousManualAbort);
+      persistRevertLeafId(live.taskId, previousRevert);
     };
     const promptToSend = meta?.files?.length
       ? formatPromptWithFiles(prompt, meta.files, { storeOversized: storePromptFileContent })
@@ -9025,7 +9240,10 @@ function queuePrompt(
       message: Parameters<AgentSession["sendCustomMessage"]>[0],
     ) => {
       refreshRuntimeClock(activeLive.session);
-      return activeLive.session.sendCustomMessage(message, { triggerTurn: true });
+      return activeLive.session.sendCustomMessage({
+        ...message,
+        content: customPromptWithRuntimeClock(promptToSend),
+      }, { triggerTurn: true });
     };
     // Which internal kind this turn is (and its hidden custom type) is decided in core.
     const sendKind = resolvePromptSendKind({
@@ -9330,6 +9548,8 @@ export async function promptTask(
   // A process that does not own the runtime must never start a session: after the cutover the Backend
   // owns it, and a second owner would double-write the store, leases and sessions.
   assertLocalRuntimeAllowed();
+  const preparation = beginTaskPreparation(id);
+  try {
   const taskBeforePrompt = requireTask(id);
   // 送信者はサーバー側でだけ決める。HTTP 本文にマーカーが含まれていてもBot送信にはしない。
   const promptText = options?.fromBot ? markBotPrompt(prompt) : stripBotPromptPrefix(prompt);
@@ -9369,11 +9589,13 @@ export async function promptTask(
     id,
     withCodePermissionSettings(taskBeforePrompt, options),
   );
+  preparation.assertCurrent();
   const live = await ensureLive(id, {
     autoPrompt: promptText,
     hasImages: Boolean(images?.length),
     attachmentCount: (images?.length ?? 0) + (options?.files?.length ?? 0),
   });
+  preparation.assertCurrent();
   if (shouldApplyPromptSubagentPermission({
     hasOption: options?.subagentPermission !== undefined,
     isBot: task.kind === "bot",
@@ -9383,7 +9605,6 @@ export async function promptTask(
       options?.subagentPermission ?? readCodeSubagentPermission(),
     );
   }
-  persistRevertLeafId(id, null);
   // 再開は直前プロンプトの再送。Bot送信のターンを操作者の送信に見せ替えない。
   const resumedPromptText =
     options?.resume && !options.fromBot && lastPromptWasBotSent(live)
@@ -9400,6 +9621,7 @@ export async function promptTask(
   if (options?.waitForCompletion) await completion;
   // The task can be deleted while the prompt runs; report 404 instead of crashing on a missing task.
   return toSummary(requireTask(id));
+  } finally { preparation.release(); }
 }
 
 async function applyLiveSkillPermission(
@@ -9422,6 +9644,7 @@ export async function setTaskSkillPermission(
   id: string,
   permission: SkillPermission,
 ): Promise<TaskSummary> {
+  return withTaskSessionMutation(id, async () => {
   const live = await ensureLive(id);
   const task = getTask(id);
   if (!task)
@@ -9434,12 +9657,14 @@ export async function setTaskSkillPermission(
   if (!updated)
     throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });
   return updated;
+  });
 }
 
 export async function setTaskPermissionMode(
   id: string,
   mode: "allow" | "ask" | "deny",
 ): Promise<TaskSummary> {
+  return withTaskSessionMutation(id, async () => {
   const live = await ensureLive(id);
   const task = getTask(id);
   if (!task)
@@ -9452,6 +9677,7 @@ export async function setTaskPermissionMode(
   if (!updated)
     throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });
   return updated;
+  });
 }
 
 /**
@@ -9671,18 +9897,14 @@ async function stopGoalLoopForTask(live: LiveRuntime): Promise<void> {
     live.session.sessionManager.getCwd(),
     live.session.sessionId,
   );
-  if (!loop || !isGoalLoopLiveStatus(loop.status)) return;
+  if (!isGoalLoopSessionOwned(loop)) return;
 
   const command = live.session.extensionRunner.getCommand("goal-stop");
-  if (!command) return;
-  try {
-    await command.handler(
-      "",
-      live.session.extensionRunner.createCommandContext(),
-    );
-  } catch (error) {
-    const reason = error instanceof Error ? error.message : String(error);
-    console.warn(`[goal-loop] failed to stop before abort: ${reason}`);
+  if (!command) throw Object.assign(new Error("Goal Loop の停止コマンドが利用できません"), { status: 409 });
+  await command.handler("", live.session.extensionRunner.createCommandContext());
+  const stopped = readGoalLoopState(live.session.sessionManager.getCwd(), live.session.sessionId);
+  if (!isGoalLoopCommandApplied("stop", stopped)) {
+    throw Object.assign(new Error("Goal Loop の停止状態を保存できませんでした"), { status: 409 });
   }
 }
 
@@ -9735,6 +9957,7 @@ export const nextPromptEpoch = corePromptControl.nextPromptEpoch;
 export const isStaleHarnessPrompt = corePromptControl.isStaleHarnessPrompt;
 
 export async function abortTask(id: string): Promise<TaskSummary> {
+  invalidateTaskPreparations(id);
   // Ordering lives in backend core; every side effect stays owned by the harness
   // and is resolved at call time so module mocks and hot reloads keep working.
   return runUserAbort(id, {
@@ -9777,6 +10000,7 @@ export async function abortTask(id: string): Promise<TaskSummary> {
  * live session was disposed (worker restart / turn-gap cooldown).
  */
 export async function abortTaskIncludingColdGoalLoop(id: string): Promise<TaskSummary | null> {
+  invalidateTaskPreparations(id);
   const task = getTask(id);
   if (!task || task.status === "archived") return null;
   const live = state().live.get(id);
@@ -9937,12 +10161,14 @@ export function listActiveLlamaAgentModels(): Array<{
 
 /** A Goal Loop can replace its own live or paused run; other busy work still blocks it. */
 export function isTaskRuntimeBusyForGoalLoopStart(taskId: string): boolean {
+  if (isTaskTreeEditing(taskId)) return true;
   const task = getTask(taskId);
   const live = state().live.get(taskId);
   const loop = task
     ? readGoalLoopState(task.directory, live?.session.sessionId ?? task.sessionId)
     : null;
-  if (!isGoalLoopSessionOwned(loop)) return isTaskRuntimeBusyForDestructiveEdit(taskId);
+  // Start owns its own preparation token; unrelated preparers are rejected by the selection facade.
+  if (!isGoalLoopSessionOwned(loop)) return isTaskRuntimeBusyForDestructiveEdit(taskId, { allowPreparation: true });
   return Boolean(live && isLiveBusyForReplace(live) && !isLiveGoalLoopSession(live.session));
 }
 
@@ -9950,7 +10176,8 @@ export function isTaskRuntimeBusyForGoalLoopStart(taskId: string): boolean {
  * True when promote / account disable / tree navigate must wait: leases, fallback,
  * compaction, Goal loop, or an active prompt/stream.
  */
-export function isTaskRuntimeBusyForDestructiveEdit(taskId: string): boolean {
+export function isTaskRuntimeBusyForDestructiveEdit(taskId: string, options?: { allowTreeEdit?: boolean; allowPreparation?: boolean }): boolean {
+  if ((!options?.allowTreeEdit && isTaskTreeEditing(taskId)) || (!options?.allowPreparation && hasTaskPreparation(taskId))) return true;
   const task = getTask(taskId);
   const live = state().live.get(taskId);
   const goalLoop = task
@@ -10045,6 +10272,7 @@ export async function setTaskAgent(
   id: string,
   agentName: string,
 ): Promise<TaskSummary> {
+  return withTaskSessionMutation(id, async () => {
   const task = getTask(id);
   if (!task)
     throw Object.assign(new Error("タスクが見つかりません"), { status: 404 });
@@ -10096,6 +10324,7 @@ export async function setTaskAgent(
   const summary = toSummary(updatedTask);
   emit(id, { type: "snapshot", task: summary, eventType: "agent_changed" });
   return summary;
+  });
 }
 
 async function applyLiveModel(
@@ -10136,6 +10365,7 @@ export async function setTaskModel(
   modelValueRaw: string,
   options?: { accountIdExplicit?: boolean },
 ): Promise<TaskSummary> {
+  return withTaskSessionMutation(id, async () => {
   const task = getTask(id);
   const parsed = parseModelValue(modelValueRaw);
   if (!task || !parsed) {
@@ -10257,12 +10487,14 @@ export async function setTaskModel(
     thinkingLevel,
     accountIdExplicit,
   );
+  });
 }
 
 export async function setTaskThinkingLevel(
   id: string,
   levelRaw: string,
 ): Promise<TaskSummary> {
+  return withTaskSessionMutation(id, async () => {
   if (!isThinkingLevel(levelRaw)) {
     throw Object.assign(new Error("thinkingLevel が不正です"), { status: 400 });
   }
@@ -10287,12 +10519,14 @@ export async function setTaskThinkingLevel(
     ...liveSnapshotFields(live),
   });
   return summary;
+  });
 }
 
 export async function compactTask(
   id: string,
   customInstructions?: string,
 ): Promise<TaskDetail> {
+  return withTaskSessionMutation(id, async () => {
   const live = await ensureLive(id);
   if (
     live.session.isCompacting ||
@@ -10316,6 +10550,7 @@ export async function compactTask(
     live.manualCompactionInProgress = false;
   }
   return getTaskDetail(id);
+  });
 }
 
 export async function abortTaskCompaction(id: string): Promise<TaskDetail> {
@@ -10334,7 +10569,7 @@ export async function abortTaskCompaction(id: string): Promise<TaskDetail> {
  * 移し、破棄した分の入力を editorText として返す。
  */
 function assertIdleForSessionTreeEdit(id: string): void {
-  if (isTaskRuntimeBusyForDestructiveEdit(id)) {
+  if (isTaskRuntimeBusyForDestructiveEdit(id, { allowTreeEdit: true })) {
     throw Object.assign(
       new Error("応答中は巻き戻せません。停止してからお試しください"),
       { status: 409 },
@@ -10351,7 +10586,12 @@ export async function revertTask(
   images: { uri: string; mime: string; name?: string }[];
   files: { uri: string; mime: string; name?: string }[];
 }> {
+  assertLocalRuntimeAllowed();
+  return withTaskTreeEdit(id, async () => {
   const live = await ensureLive(id);
+  // Goal Loop ownership alone blocks tree edits even between turns (task looks idle).
+  // Rewinding the transcript implies ending that autonomous run first.
+  await stopGoalLoopForTask(live);
   assertIdleForSessionTreeEdit(id);
   const entry = messageEntryById(live.session, messageId);
   if (!entry) {
@@ -10366,12 +10606,12 @@ export async function revertTask(
   }
   const previousLeafId = live.session.sessionManager.getLeafId();
   const result = await live.session.navigateTree(entry.id);
-  if (result.cancelled) {
+  if (result.cancelled || result.aborted) {
     throw Object.assign(new Error("巻き戻しがキャンセルされました"), {
       status: 400,
     });
   }
-  live.revertLeafId = captureRevertLeafId(previousLeafId);
+  live.revertLeafId = live.revertLeafId ?? getTask(id)?.revertLeafId ?? captureRevertLeafId(previousLeafId);
   persistRevertLeafId(id, live.revertLeafId);
   // Revert drops the conversational context that raised the prompt; keep abort/reset parity.
   clearPendingAttentionForTask(id);
@@ -10386,9 +10626,7 @@ export async function revertTask(
   const restoredPrompt = parsePromptFileMarkers(
     entry.editorText ?? (typeof result.editorText === "string"
       ? result.editorText
-      : typeof entry.message.content === "string"
-        ? entry.message.content
-        : ""),
+      : rawUserMessageText(entry.message)),
     { readStored: readStoredPromptFileContent },
   );
   return {
@@ -10397,6 +10635,7 @@ export async function revertTask(
     images: imagesFromEntry(entry),
     files: filesFromEntry(entry),
   };
+  });
 }
 
 /** UI のメッセージ id からセッションエントリを取り出す。 */
@@ -10430,7 +10669,9 @@ export function messageEntryById(
     // フォールバック: 旧スナップショットの仮 id `msg-N`（ブランチ上のメッセージ順）
     const fallback = /^msg-(\d+)$/.exec(messageId);
     if (fallback) {
-      const branch = entries.filter((entry) => entry.type === "message");
+      const activeBranch = typeof session.sessionManager.getBranch === "function"
+        ? session.sessionManager.getBranch() : entries;
+      const branch = activeBranch.filter((entry) => entry.type === "message");
       const entry = branch[Number(fallback[1])];
       const message = entry
         ? (entry as { message?: unknown }).message
@@ -10486,8 +10727,7 @@ export function imagesFromEntry(entry: {
 export function filesFromEntry(entry: {
   message: { role: string; content: unknown };
 }): { uri: string; mime: string; name?: string }[] {
-  if (typeof entry.message.content !== "string") return [];
-  return parsePromptFileMarkers(entry.message.content, { readStored: readStoredPromptFileContent }).files.map((file) => ({
+  return parsePromptFileMarkers(rawUserMessageText(entry.message), { readStored: readStoredPromptFileContent }).files.map((file) => ({
     uri: `data:${file.mimeType};base64,${file.data}`,
     mime: file.mimeType,
     name: file.name,
@@ -10549,7 +10789,11 @@ export function restoreExactSessionLeaf(
 
 /** 巻き戻し取消: revert 前の leaf へ戻す。 */
 export async function unrevertTask(id: string): Promise<TaskDetail> {
+  assertLocalRuntimeAllowed();
+  return withTaskTreeEdit(id, async () => {
   const live = await ensureLive(id);
+  // Same as revert: a still-owned Goal Loop must not leave restore stuck behind a 409.
+  await stopGoalLoopForTask(live);
   assertIdleForSessionTreeEdit(id);
   const target = live.revertLeafId ?? getTask(id)?.revertLeafId ?? null;
   if (!target) {
@@ -10574,6 +10818,7 @@ export async function unrevertTask(id: string): Promise<TaskDetail> {
     eventType: "unrevert",
   });
   return taskDetail;
+  });
 }
 
 export async function getCompactionSettings(): Promise<CompactionSettingsDto> {

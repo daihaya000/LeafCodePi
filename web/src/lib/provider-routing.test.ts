@@ -69,11 +69,14 @@ describe("provider routing settings", () => {
     dirs.push(dir);
     const path = providerRoutingPath(dir);
     await Promise.all([
-      setAccountRoutingMode("openai-codex", "integrated", path),
+      setAccountRoutingMode("openai", "integrated", path),
+      setAccountRoutingMode("openai-codex", "separate", path),
       setAccountRoutingMode("anthropic", "integrated", path),
     ]);
     const state = readProviderRouting(path);
-    assert.deepEqual(state.modes, { "openai-codex": "integrated", anthropic: "integrated" });
+    assert.deepEqual(state.modes, { openai: "integrated", "openai-codex": "separate", anthropic: "integrated" });
+    assert.equal(accountRoutingMode("openai", state), "integrated");
+    assert.equal(accountRoutingMode("openai-codex", state), "separate");
   });
 });
 
@@ -101,6 +104,19 @@ describe("routing candidate ranking", () => {
       { accountId: "fresh", accountIndex: 2, value: "fresh", usage: usage(90), workingTaskCount: 0 },
     ]);
     assert.deepEqual(ranked.map((candidate) => candidate.accountId), ["fresh", "stale", "unknown"]);
+  });
+
+  it("treats an expired maxed snapshot as unknown rather than fresh usage", () => {
+    const now = Date.parse("2026-10-02T09:00:00Z");
+    const decision = chooseRoutingCandidate([
+      {
+        accountId: "expired", accountIndex: 0, value: "expired", workingTaskCount: 1,
+        usage: usage(100, { maxed: true, resetsAt: new Date(now - 1).toISOString() }),
+      },
+      { accountId: "unknown", accountIndex: 1, value: "unknown", usage: usage(null), workingTaskCount: 0 },
+    ], now);
+    assert.equal(decision.ranked.find((entry) => entry.accountId === "expired")?.tier, 2);
+    assert.equal(decision.candidate?.accountId, "unknown");
   });
 
   it("keeps a maxed subscription usable while extra usage credits remain", () => {

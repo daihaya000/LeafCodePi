@@ -13,6 +13,7 @@ import type { AccountProviderId } from "@/lib/accounts";
 export type AccountRoutingMode = "integrated" | "separate";
 
 export const ACCOUNT_ROUTING_PROVIDER_IDS: readonly AccountProviderId[] = [
+  "openai",
   "openai-codex",
   "anthropic",
   "ollama-cloud",
@@ -282,7 +283,9 @@ function candidateTier(
   if (!usage) return 2;
   const reset = resetTime(usage);
   const maxedExpired = usage.maxed && reset !== null && reset <= nowMs;
-  if (usage.maxed && !usage.stale && !maxedExpired) {
+  // The reset makes the old 100% unusable as a measurement, not fresh usage.
+  if (maxedExpired) return 2;
+  if (usage.maxed && !usage.stale) {
     // 枠クレジット（extra usage）が残っているサブスクは使い続けられる（保守的に tier 1）。
     if (hasSubscriptionCreditsRemaining(usage)) {
       // ％が表示専用の行は順位付けに使わない（残高が残っている間は tier 2 のまま）。

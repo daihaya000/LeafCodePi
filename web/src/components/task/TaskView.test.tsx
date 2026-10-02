@@ -53,6 +53,18 @@ afterEach(() => {
   clearCachedModels();
 });
 
+it("restores the owner's authoritative rewind text rather than the cached message projection", async () => {
+  const message: UiMessage = { id: "user-input", role: "user", createdAt: 1, parts: [{ id: "text", type: "text", text: "stale cached projection" }] };
+  saveTaskSessionCache({ task, messages: [message], isStreaming: false, isCompacting: false });
+  mocks.partView.mockImplementation(({ message: item, onRevert }: { message: UiMessage; onRevert?: (message: UiMessage) => void }) =>
+    <button onClick={() => onRevert?.(item)}>Restore input</button>);
+  mocks.sendJson.mockResolvedValue({ task: { ...task, messages: [], revertLeafId: "original", isStreaming: false }, text: "authoritative user input", images: [], files: [] });
+  render(<TaskView taskId={task.id} mdUp />);
+  fireEvent.click(await screen.findByRole("button", { name: "Restore input" }));
+  fireEvent.click(screen.getByRole("button", { name: "巻き戻す" }));
+  await waitFor(() => expect((screen.getByRole("textbox", { name: "フォローアップ" }) as HTMLTextAreaElement).value).toBe("authoritative user input"));
+});
+
 it("shares the footer notification switch with Code task browser notifications", async () => {
   const sent: string[] = [];
   class FakeNotification {
@@ -2512,6 +2524,73 @@ describe("TaskView draft submission", () => {
     fireEvent.change(input, { target: { value: "next draft" } });
     await act(async () => { resolve({ loop: null }); });
     expect(input.value).toBe("next draft");
+  });
+
+  it.each([false, true])("confirms a delivered prompt after an HTTP failure without restoring it (new draft: %s)", async (newDraft) => {
+    let reject!: (error: Error) => void;
+    let delivered = false;
+    mocks.sendJson.mockReturnValue(new Promise((_, no) => { reject = no; }));
+    mocks.getJson.mockImplementation((path: string) => Promise.resolve(path === `/api/tasks/${task.id}`
+      ? {
+          task: {
+            ...task,
+            messages: delivered
+              ? [{ id: "received", role: "user", createdAt: 2, parts: [{ id: "text", type: "text", text: "received input" }] }]
+              : [],
+          },
+        }
+      : { models: [], agents: [], skills: [], accounts: [] }));
+    render(<TaskView taskId={task.id} mdUp />);
+    const input = screen.getByRole("textbox", { name: "フォローアップ" }) as HTMLTextAreaElement;
+    fireEvent.change(input, { target: { value: "received input" } });
+    fireEvent.submit(screen.getByRole("form", { name: "フォローアップ" }));
+    expect(input.value).toBe("");
+    if (newDraft) fireEvent.change(input, { target: { value: "next draft" } });
+    await act(async () => {
+      delivered = true;
+      reject(Object.assign(new Error("Backendへ転送できません"), { code: "BACKEND_FORWARD_FAILED", reason: "bad-response" }));
+    });
+    expect(mocks.getJson).toHaveBeenCalledWith(`/api/tasks/${task.id}`, { messages: "page" }, { coalesce: false });
+    expect(screen.queryByText("Backendへ転送できません")).toBeNull();
+    expect(screen.queryByText(/送信結果を確認できません/)).toBeNull();
+    expect(input.value).toBe(newDraft ? "next draft" : "");
+    expect(mocks.sendJson).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(["empty", "old", "different", "wrong-task"])("keeps delivery unconfirmed without matching new history (%s)", async (kind) => {
+    const old: UiMessage = { id: "old", role: "user", createdAt: 1, parts: [{ id: "old-text", type: "text", text: "retry this" }] };
+    saveTaskSessionCache({ task, messages: [old], isStreaming: false, isCompacting: false });
+    let failed = false;
+    mocks.getJson.mockImplementation((path: string) => Promise.resolve(path === `/api/tasks/${task.id}`
+      ? {
+          task: {
+            ...task,
+            id: failed && kind === "wrong-task" ? "other-task" : task.id,
+            status: failed ? "working" : task.status,
+            messages: !failed || kind === "old"
+              ? [old]
+              : kind === "empty"
+                ? []
+                : [{
+                    ...old,
+                    id: "new",
+                    createdAt: 2,
+                    parts: [{ id: "text", type: "text", text: kind === "different" ? "different" : "retry this" }],
+                  }],
+          },
+        }
+      : { models: [], agents: [], skills: [], accounts: [] }));
+    mocks.sendJson.mockImplementation(async () => {
+      failed = true;
+      throw Object.assign(new Error("Backendへ転送できません"), { code: "BACKEND_FORWARD_FAILED", reason: "bad-response" });
+    });
+    render(<TaskView taskId={task.id} mdUp />);
+    const input = screen.getByRole("textbox", { name: "フォローアップ" }) as HTMLTextAreaElement;
+    fireEvent.change(input, { target: { value: "retry this" } });
+    fireEvent.submit(screen.getByRole("form", { name: "フォローアップ" }));
+    await screen.findByText("送信結果を確認できません。再送前に履歴を確認してください（bad-response）");
+    expect(input.value).toBe("retry this");
+    expect(mocks.sendJson).toHaveBeenCalledTimes(1);
   });
 
   it.each([false, true])("restores an untouched draft after failure (goal loop: %s)", async (goalLoop) => {

@@ -26,12 +26,24 @@ export async function runUserAbort(id, deps) {
     // schedule auto-compaction while the final assistant id is being read.
     deps.persistManualAbortedAssistantId(id, "");
     // abort() precedes history projection and cleanup: both can be slow.
-    const abortPromise = deps.abortSession(live);
-    const messages = deps.snapshotMessages(live);
-    deps.persistManualAbortedAssistantId(id, finalAssistantIdOfCurrentTurn(messages));
-    await deps.stopGoalLoop(live);
-    await deps.stopSubagentRuns(live, messages);
-    await abortPromise;
+    // Observe rejection immediately, even if history/Goal cleanup fails first.
+    const abortPromise = Promise.resolve(deps.abortSession(live)).then(
+      () => ({ ok: true }), (error) => ({ ok: false, error }),
+    );
+    let failure;
+    let failed = false;
+    const captureFailure = (error) => { if (!failed) { failure = error; failed = true; } };
+    let messages = [];
+    try {
+      messages = deps.snapshotMessages(live);
+      deps.persistManualAbortedAssistantId(id, finalAssistantIdOfCurrentTurn(messages));
+    } catch (error) { captureFailure(error); }
+    try { await deps.stopGoalLoop(live); } catch (error) { captureFailure(error); }
+    // Detached children must still stop if Goal state cannot be persisted.
+    try { await deps.stopSubagentRuns(live, messages); } catch (error) { captureFailure(error); }
+    const aborted = await abortPromise;
+    if (failed) throw failure;
+    if (!aborted.ok) throw aborted.error;
   }
   const task = deps.setIdle(id);
   deps.releaseLease(id);
@@ -70,14 +82,20 @@ export async function runHangWatchdogAbort(taskId, deps) {
     // Keep the manual-abort guard active even if agent_end is observed before
     // the final assistant id can be projected.
     deps.persistManualAbortedAssistantId(taskId, "");
-    const abortPromise = deps.abortSession(live);
-    const messages = deps.snapshotMessages(live);
-    // Persist before hang_abort so SSE carries the sentinel / assistant id.
-    deps.persistManualAbortedAssistantId(taskId, finalAssistantIdOfCurrentTurn(messages));
-    // Emit before idle so clients clear queued follow-ups before hang_retry.
-    deps.emitHangAbort(live);
-    await deps.stopSubagentRuns(live, messages);
-    await abortPromise;
+    const abortPromise = Promise.resolve(deps.abortSession(live)).then(
+      () => ({ ok: true }), (error) => ({ ok: false, error }),
+    );
+    try {
+      const messages = deps.snapshotMessages(live);
+      // Persist before hang_abort so SSE carries the sentinel / assistant id.
+      deps.persistManualAbortedAssistantId(taskId, finalAssistantIdOfCurrentTurn(messages));
+      // Emit before idle so clients clear queued follow-ups before hang_retry.
+      deps.emitHangAbort(live);
+      await deps.stopSubagentRuns(live, messages);
+    } finally {
+      const aborted = await abortPromise;
+      if (!aborted.ok) throw aborted.error;
+    }
   }
   if (isHangWatchReplaced(startedAtBeforeAbort, deps.getHangWatch(taskId))) {
     // The replacement turn keeps its working state and lease.

@@ -122,9 +122,13 @@ function isMcpServer(value: unknown): value is McpServer {
   return isRecord(value);
 }
 
-function readConfig(path: string): McpConfig {
+function readConfig(path: string, strict = false): McpConfig {
   try {
     const raw = JSON.parse(readFileSync(path, "utf8")) as unknown;
+    if (strict && (!isRecord(raw) || (Object.hasOwn(raw, "mcpServers") && (!isRecord(raw.mcpServers)
+      || Object.values(raw.mcpServers).some((entry) => !isMcpServer(entry)))))) {
+      throw new Error("Invalid MCP configuration");
+    }
     if (!isRecord(raw)) return { mcpServers: {} };
     const mcpServers = isRecord(raw.mcpServers)
       ? (raw.mcpServers as Record<string, McpServer>)
@@ -133,6 +137,7 @@ function readConfig(path: string): McpConfig {
     return { ...raw, mcpServers };
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+      if (strict) throw new Error("MCP configuration unavailable"); // No parser text, paths or credentials in errors/logs.
       console.warn("[mcp] failed to read config", error);
     }
     return { mcpServers: {} };
@@ -168,12 +173,12 @@ function bundledMcpConfigPath(): string | null {
   return extensionsRoot ? join(extensionsRoot, "leafcode-mcp-adapter", "mcp.json") : null;
 }
 
-function readBundledConfig(path = bundledMcpConfigPath()): McpConfig {
-  return path ? readConfig(path) : { mcpServers: {} };
+function readBundledConfig(path = bundledMcpConfigPath(), strict = false): McpConfig {
+  return path ? readConfig(path, strict) : { mcpServers: {} };
 }
 
 function mergeConfigs(base: McpConfig, override: McpConfig): McpConfig {
-  const mcpServers = { ...base.mcpServers };
+  const mcpServers: Record<string, McpServer> = Object.assign(Object.create(null), base.mcpServers);
   for (const [name, entry] of Object.entries(override.mcpServers)) {
     mcpServers[name] = { ...(mcpServers[name] ?? {}), ...entry };
   }
@@ -321,11 +326,11 @@ function dtoFor(name: string, entry: McpServer, bundled: boolean, userConfigured
   };
 }
 
-export function listMcpServers(agentDir = resolvePiAgentDir()): McpListResult {
+export function listMcpServers(agentDir = resolvePiAgentDir(), { strict = false }: { strict?: boolean } = {}): McpListResult {
   const configPath = piMcpConfigPath(agentDir);
   const bundledConfigPath = bundledMcpConfigPath();
-  const bundledConfig = readBundledConfig(bundledConfigPath);
-  const userConfig = readConfig(configPath);
+  const bundledConfig = readBundledConfig(bundledConfigPath, strict);
+  const userConfig = readConfig(configPath, strict);
   const config = mergeConfigs(bundledConfig, userConfig);
   const servers = Object.entries(config.mcpServers)
     .filter(([, entry]) => isMcpServer(entry))

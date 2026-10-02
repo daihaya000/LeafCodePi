@@ -45,6 +45,13 @@ type RuntimeLike = {
 
 export type ProviderModelSnapshot = ReadonlyMap<string, readonly RuntimeModel[]>;
 
+/** Hide the SDK's legacy suffix without changing the provider identity or auth. */
+export function providerDisplayName(provider: { id: string; name: string }): string {
+  return provider.id === "openai-codex"
+    ? provider.name.replace(/\s*\(legacy\)\s*$/i, "")
+    : provider.name;
+}
+
 export function buildProviderModelsCatalog(
   runtime: RuntimeLike,
   state = readProviderModelState(),
@@ -91,7 +98,7 @@ export function buildProviderModelsCatalog(
     );
     rows.push({
       id: provider.id,
-      name: provider.name,
+      name: providerDisplayName(provider),
       enabled: !isProviderDisabled(provider.id, state, accountId),
       models: orderedModels,
       ...(accountId ? { accountId } : {}),

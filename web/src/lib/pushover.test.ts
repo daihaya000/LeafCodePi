@@ -1,6 +1,6 @@
-import { hostname } from "node:os";
+import { hostname, type NetworkInterfaceInfo } from "node:os";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { notifyPushoverCompletion, shouldNotifyPushoverCompletion } from "./pushover";
+import { findTailscaleIPv4, notifyPushoverCompletion, shouldNotifyPushoverCompletion } from "./pushover";
 
 const settings = vi.hoisted(() => ({ get: vi.fn((): string | null => null) }));
 vi.mock("@/lib/pi/web-settings", () => ({ getSetting: settings.get }));
@@ -102,6 +102,34 @@ describe("Pushover HTTP delivery", () => {
     expect(Object.fromEntries(send.mock.calls[2]![1].body as URLSearchParams)).not.toHaveProperty("url");
   });
 
+  it.each([undefined, "tailscale", "Tailscale"])("resolves the Host's %s bind to the Tailscale IPv4 instead of a literal hostname", async (host) => {
+    const send = vi.fn().mockResolvedValue({ ok: true });
+    await notifyPushoverCompletion("Done", {
+      env: { ...env, LEAFCODE_PI_HOST: host, LEAFCODE_PI_PORT: "3010" }, send,
+      task: { id: "task-1", kind: "code" }, findTailscale: () => "100.64.0.9",
+    });
+    expect((send.mock.calls[0]![1].body as URLSearchParams).get("url")).toBe("http://100.64.0.9:3010/task/task-1");
+  });
+
+  it("omits the link when the Tailscale bind cannot be resolved", async () => {
+    const send = vi.fn().mockResolvedValue({ ok: true });
+    await notifyPushoverCompletion("Done", {
+      env: { ...env, LEAFCODE_PI_HOST: "tailscale", LEAFCODE_PI_PORT: "3010" }, send,
+      task: { id: "task-1", kind: "code" }, findTailscale: () => null,
+    });
+    const body = send.mock.calls[0]![1].body as URLSearchParams;
+    expect(body.get("message")).toBe("Done");
+    expect(Object.fromEntries(body)).not.toHaveProperty("url");
+  });
+
+  it("finds the Tailscale IPv4 like the Host does", () => {
+    const nic = (address: string, family = "IPv4", internal = false) =>
+      ({ address, family, internal, netmask: "", mac: "", cidr: null }) as NetworkInterfaceInfo;
+    expect(findTailscaleIPv4({ eth0: [nic("100.70.0.1")], Tailscale: [nic("fd7a::1", "IPv6"), nic("100.100.1.2")] })).toBe("100.100.1.2");
+    expect(findTailscaleIPv4({ eth0: [nic("192.168.1.2"), nic("100.70.0.1")] })).toBe("100.70.0.1");
+    expect(findTailscaleIPv4({ lo: [nic("100.64.0.1", "IPv4", true)], eth0: [nic("100.128.0.1")] })).toBeNull();
+  });
+
   it("keeps long titles within Pushover's message limit when a URL is included", async () => {
     const send = vi.fn().mockResolvedValue({ ok: true });
     await notifyPushoverCompletion("a".repeat(1025), {
@@ -110,7 +138,7 @@ describe("Pushover HTTP delivery", () => {
     });
     const body = send.mock.calls[0]![1].body as URLSearchParams;
     expect(body.get("message")).toHaveLength(1024);
-    expect(body.get("message")).toContain("\nhttp://100.64.0.1:3000/task/task-1");
+    expect(body.get("message")).toContain("\nhttp://100.64.0.1:3010/task/task-1");
   });
 
   it("also labels test notifications with the server name", async () => {

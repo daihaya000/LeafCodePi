@@ -504,6 +504,29 @@ describe("/api/settings/[key]", () => {
     expect(settings.setSetting).not.toHaveBeenCalled();
   });
 
+  it("normalizes and persists the sidebar project order", async () => {
+    const response = await PUT(
+      request("sidebar-project-order", { value: JSON.stringify(["p-2", "p-1", "p-2"]) }),
+      { params: Promise.resolve({ key: "sidebar-project-order" }) },
+    );
+
+    expect(response.status).toBe(200);
+    expect(settings.setSetting).toHaveBeenCalledWith("sidebar-project-order", JSON.stringify(["p-2", "p-1"]));
+  });
+
+  it.each([JSON.stringify({ p: 1 }), JSON.stringify(["p-1", 2]), JSON.stringify([""]), "not-json"])(
+    "rejects an invalid sidebar project order: %s",
+    async (value) => {
+      const response = await PUT(
+        request("sidebar-project-order", { value }),
+        { params: Promise.resolve({ key: "sidebar-project-order" }) },
+      );
+
+      expect(response.status).toBe(400);
+      expect(settings.setSetting).not.toHaveBeenCalled();
+    },
+  );
+
   it("normalizes and persists pinned task ids", async () => {
     const response = await PUT(
       request("sidebar-pinned-tasks", { value: JSON.stringify(["task-2", "task-1", "task-2"]) }),

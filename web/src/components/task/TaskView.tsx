@@ -48,6 +48,7 @@ import { SessionLabelBadge } from "@/components/SessionLabelBadge";
 import { TodoProgressPanel } from "@/components/task/TodoProgressPanel";
 import { ModelSelect, modelOptionForValue } from "@/components/ModelSelect";
 import { ThinkingSelect } from "@/components/ThinkingSelect";
+import { FastModeSelect } from "@/components/FastModeSelect";
 import { AgentSelect } from "@/components/AgentSelect";
 import { StatusBadge } from "@/components/StatusBadge";
 import { MobileMenuButton } from "@/components/shell/MobileMenuHeader";
@@ -123,6 +124,7 @@ import { notifyBotSidebarChanged, notifyTasksChanged } from "@/lib/events";
 import { taskSidebarNotifyKey } from "@/lib/task-sidebar-notify";
 import { markRead } from "@/lib/bot-unread";
 import { getJson, sendJson } from "@/lib/client";
+import { hasReceivedSubmittedPrompt, isUnconfirmedPromptDelivery } from "@/lib/prompt-delivery";
 import { readCachedModels, writeCachedModels } from "@/lib/models-cache";
 import {
   AUTO_AGENT_VALUE,
@@ -2153,20 +2155,13 @@ export const TaskView = memo(function TaskView({
         `/api/tasks/${taskId}/revert`,
         { entryId: target.messageId },
       );
-      if (target.message) {
-        setPrompt(
-          target.message.parts
-            .filter((part) => part.type === "text")
-            .map((part) => part.text)
-            .join("\n\n"),
-        );
-        setAttachments((current) => [
-          ...current,
-          ...[...result.images, ...(result.files ?? [])].filter(
-            (file) => !current.some((item) => item.uri === file.uri),
-          ),
-        ]);
-      }
+      setPrompt(result.text);
+      setAttachments((current) => [
+        ...current,
+        ...[...result.images, ...(result.files ?? [])].filter(
+          (file) => !current.some((item) => item.uri === file.uri),
+        ),
+      ]);
       clearedPermissionIdsRef.current.clear();
       clearedQuestionIdsRef.current.clear();
       setPermissionRequest(null);
@@ -2246,6 +2241,7 @@ export const TaskView = memo(function TaskView({
     setStopRequested(false);
     setSubmitting(true);
     setError(null);
+    const beforeSubmitMessages = messagesRef.current.map((message) => ({ ...message }));
     try {
       const { images, files } = composerPromptAttachments(submittedAttachments);
       const isAuto = modelValue === AUTO_MODEL_VALUE;
@@ -2335,6 +2331,33 @@ export const TaskView = memo(function TaskView({
       if (!queued) setFailedQueuedId(null);
       notifyTasksChanged();
     } catch (err) {
+      // A lost/invalid HTTP reply does not undo a prompt already accepted by the owner.
+      // Reconcile against a fresh persisted user message, never against working=true.
+      if (!goalLoopEnabled && submittedAttachments.length === 0 && isUnconfirmedPromptDelivery(err)) {
+        let received = hasReceivedSubmittedPrompt(beforeSubmitMessages, messagesRef.current, submittedPrompt);
+        if (!received) {
+          let timer: ReturnType<typeof setTimeout> | undefined;
+          try {
+            const response = await Promise.race([
+              getJson<{ task: TaskDetail }>(`/api/tasks/${taskId}`, { messages: "page" }, { coalesce: false }).catch(() => null),
+              new Promise<null>((resolve) => { timer = setTimeout(() => resolve(null), 2_000); }),
+            ]);
+            const detail = response?.task;
+            if (detail?.id === taskId && Array.isArray(detail.messages)
+              && hasReceivedSubmittedPrompt(beforeSubmitMessages, detail.messages, submittedPrompt)) {
+              applyDetail(detail);
+              received = true;
+            }
+          } finally {
+            if (timer !== undefined) clearTimeout(timer);
+          }
+        }
+        if (received) {
+          if (!queued) setFailedQueuedId(null);
+          notifyTasksChanged();
+          return;
+        }
+      }
       if (queued && shouldRestoreQueuedFollowUpOnFailure(sentQueueEpoch, queueClearEpochRef.current)) {
         setFailedQueuedId(queued.id);
         setQueuedFollowUps((current) => [queued, ...current]);
@@ -2345,7 +2368,13 @@ export const TaskView = memo(function TaskView({
           current.length > 0 ? current : submittedAttachments,
         );
       }
-      setError(err instanceof Error ? err.message : "送信に失敗しました");
+      setError(isUnconfirmedPromptDelivery(err)
+        ? `送信結果を確認できません。再送前に履歴を確認してください（${
+            typeof err === "object" && err !== null && "reason" in err && typeof err.reason === "string"
+              ? err.reason
+              : "unknown"
+          }）`
+        : err instanceof Error ? err.message : "送信に失敗しました");
     } finally {
       setSubmitting(false);
     }
@@ -3002,7 +3031,7 @@ export const TaskView = memo(function TaskView({
       className={cx("@container/task flex min-h-0 min-w-0 flex-1 flex-col bg-bot-chat", !active && "hidden")}
     >
       <header
-        className="grid min-h-11 shrink-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-2 border-b border-bot-outline bg-bot-chat px-3 pb-0.5 @min-[500px]/task:px-4"
+        className="relative z-40 grid min-h-11 shrink-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-2 border-b border-bot-outline bg-bot-chat px-3 pb-0.5 @min-[500px]/task:px-4"
         style={{ paddingTop: "env(safe-area-inset-top)" }}
       >
         <div className="col-span-2 flex min-w-0 translate-y-1 items-center gap-2">
@@ -3111,7 +3140,18 @@ export const TaskView = memo(function TaskView({
           <span aria-label="プロジェクトアイコン" className="inline-flex shrink-0">{iconFor(taskId, 24, task ?? undefined)}</span>
           {permissionRequest && <Badge tone="warning" className="shrink-0">承認待ち</Badge>}
           {questionRequest && <Badge tone="warning" className="shrink-0">回答待ち</Badge>}
-          {displayedStatus && <StatusBadge status={displayedStatus} className="shrink-0" />}
+          {/* 狭幅では承認・回答待ちバッジを優先し、同時に出る「実行中」は省いて切れを防ぐ。 */}
+          {displayedStatus && (
+            <StatusBadge
+              status={displayedStatus}
+              className={cx(
+                "shrink-0",
+                displayedStatus === "working" &&
+                  (permissionRequest || questionRequest) &&
+                  "@max-[500px]/task:hidden",
+              )}
+            />
+          )}
           {supervisor && !canManageSupervisor && (
             <span
               title={`監督: ${supervisor.name}`}
@@ -3527,7 +3567,7 @@ export const TaskView = memo(function TaskView({
         {/* 提案・進捗確認とメッセージ移動。移動ボタン間より広い間隔で操作を分ける。 */}
         {(task?.sessionId || navigationMessageIds.length > 0) && (
           <div className={cx(
-            "absolute right-4 bottom-4 z-50 flex flex-col items-center gap-6",
+            "absolute right-4 bottom-4 z-30 flex flex-col items-center gap-6",
             mobilePanelOpen && "hidden",
           )}>
             {navigationMessageIds.length > 0 && (
@@ -4055,6 +4095,11 @@ export const TaskView = memo(function TaskView({
                   }}
                 />
               )}
+              <FastModeSelect
+                providerID={modelValue === AUTO_MODEL_VALUE ? null : selectedModel?.providerID}
+                disabled={compacting || archived}
+                className="h-8 shrink-0"
+              />
               {hasMultipleAgentChoices(agents.length, autoAgentEnabled) && (
                 <AgentSelect
                   value={agentSelection}

@@ -1,0 +1,102 @@
+/**
+ * Pure migration planning for the adapter's mcp.json. No I/O, command execution,
+ * variable expansion, or credential access. Callers must validate with Pi before
+ * writing a backup and applying the result. Issues contain field names, not values.
+ */
+const ROOT_FIELDS = new Set(["mcpServers", "autoEnableCodemode"]);
+const SERVER_FIELDS = new Set([
+  "type", "command", "args", "env", "cwd", "url", "headers", "oauth", "auth",
+  "exposure", "toolExposure", "description", "enabled", "timeout",
+  "disabled", "protocolVersion", "httpTransport",
+]);
+const record = (value) => value !== null && typeof value === "object" && !Array.isArray(value);
+const own = (value, key) => Object.hasOwn(value, key);
+
+/**
+ * User entries shallow-override bundled entries, matching the legacy loader.
+ * Defaults absent from the user file are imported disabled: migration never
+ * starts a previously implicit/default server without an explicit user entry.
+ * Any unsupported conversion refuses the whole plan; inputs are never changed.
+ * A successful plan is NOT a substitute for Pi's full configuration validation.
+ */
+export function planMcpConfigMigration(userConfig, bundledConfig = { mcpServers: {} }) {
+  const issues = [];
+  const issue = (code, field, server) => issues.push({ code, field, ...(server === undefined ? {} : { server }) });
+  const serversOf = (document, source) => {
+    if (!record(document)) {
+      issue("invalid-document", source);
+      return {};
+    }
+    for (const key of Object.keys(document)) {
+      if (!ROOT_FIELDS.has(key)) issue("unsupported-root-field", key);
+    }
+    if (own(document, "autoEnableCodemode") && typeof document.autoEnableCodemode !== "boolean") {
+      issue("invalid-boolean", "autoEnableCodemode");
+    }
+    if (own(document, "mcpServers") && !record(document.mcpServers)) {
+      issue("invalid-server-map", "mcpServers");
+      return {};
+    }
+    return document.mcpServers ?? {};
+  };
+  const defaults = serversOf(bundledConfig, "bundled");
+  const overrides = serversOf(userConfig, "user");
+  const names = new Set([...Object.keys(defaults), ...Object.keys(overrides)]);
+  const namespaces = new Set();
+  const entries = [];
+  for (const name of names) {
+    if (!/^[a-zA-Z0-9_-]+$/.test(name)) issue("invalid-server-name", "mcpServers", name);
+    const namespace = name.replaceAll("-", "_");
+    if (namespaces.has(namespace)) issue("namespace-collision", "mcpServers", name);
+    namespaces.add(namespace);
+    const hasOverride = own(overrides, name);
+    const base = own(defaults, name) ? defaults[name] : {};
+    const override = hasOverride ? overrides[name] : {};
+    if (!record(base) || !record(override)) {
+      issue("invalid-server-entry", "mcpServers", name);
+      continue;
+    }
+    const entry = structuredClone({ ...base, ...override });
+    // A user flag in either dialect supersedes the inherited flag in the other.
+    if (own(override, "enabled") && !own(override, "disabled")) delete entry.disabled;
+    if (own(override, "disabled") && !own(override, "enabled")) delete entry.enabled;
+    for (const field of Object.keys(entry)) {
+      if (!SERVER_FIELDS.has(field)) issue("unsupported-server-field", field, name);
+    }
+    for (const field of ["disabled", "enabled"]) {
+      if (own(entry, field) && typeof entry[field] !== "boolean") issue("invalid-boolean", field, name);
+    }
+    if (own(entry, "disabled")) {
+      const enabled = !entry.disabled;
+      if (own(entry, "enabled") && entry.enabled !== enabled) issue("conflicting-enabled-state", "enabled", name);
+      else entry.enabled = enabled;
+      delete entry.disabled;
+    }
+    if (!hasOverride) entry.enabled = false;
+    if (own(entry, "auth") && typeof entry.auth === "string") {
+      if (entry.auth === "oauth") delete entry.auth;
+      else issue("unsupported-auth-mode", "auth", name);
+    }
+    if (own(entry, "protocolVersion")) {
+      if (entry.protocolVersion !== "auto") issue("pinned-protocol-version", "protocolVersion", name);
+      delete entry.protocolVersion;
+    }
+    if (own(entry, "httpTransport")) {
+      if (entry.httpTransport !== "streamable-http") issue("unsupported-transport", "httpTransport", name);
+      delete entry.httpTransport;
+    }
+    if (entry.type === "sse") issue("unsupported-transport", "type", name);
+    if (entry.exposure === "codemode-deferred") entry.exposure = "codemode";
+    if (record(entry.toolExposure)) {
+      for (const [tool, exposure] of Object.entries(entry.toolExposure)) {
+        if (exposure === "codemode-deferred") entry.toolExposure[tool] = "codemode";
+      }
+    }
+    entries.push([name, entry]);
+  }
+  if (issues.length) return { ok: false, issues, config: null };
+  const config = { mcpServers: Object.fromEntries(entries) };
+  if (own(userConfig, "autoEnableCodemode")) config.autoEnableCodemode = userConfig.autoEnableCodemode;
+  else if (own(bundledConfig, "autoEnableCodemode")) config.autoEnableCodemode = bundledConfig.autoEnableCodemode;
+  return { ok: true, issues: [], config };
+}

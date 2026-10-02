@@ -106,15 +106,25 @@ function maskGitMessageBodies(command: string): string {
  * $PPID/$$, a broadcast kill, or a Node self-kill call. These are never
  * allowed and end the session when attempted.
  */
+function splitShellCommandSegments(command: string): string[] {
+  return command
+    .replace(/\\\r?\n|`\r?\n/g, " ")
+    .split(/\r?\n|;|&&?|\|\|/);
+}
+
 function isLeafCodePiSelfStopCommand(command: string, pid = process.pid, shell?: ShellKind): boolean {
   const normalized = maskGitMessageBodies(command).replace(/\u0000/g, " ");
   if (INLINE_SELF_TERMINATION_PATTERN.test(normalized)) return true;
-  if (!PROCESS_TERMINATION_COMMAND_PATTERN.test(normalized)) return false;
-  if (LEAFCODE_PI_PROCESS_TARGET_PATTERN.test(normalized)) return true;
-  // Unknown shell stays case-insensitive: blocking a bash `$pid` beats missing a PowerShell `$pid`.
-  const selfPid = shell === "bash" ? SELF_PID_PATTERNS.bash : SELF_PID_PATTERNS.insensitive;
-  if (selfPid.reference.test(normalized.replace(selfPid.exclusion, " ")) || BROAD_KILL_TARGET_PATTERN.test(normalized)) return true;
-  return Number.isSafeInteger(pid) && pid > 0 && new RegExp(`\\b${pid}\\b`).test(normalized);
+  // Do not combine a project path or PID mentioned in one command with an
+  // unrelated process termination later in a multiline/compound shell call.
+  return splitShellCommandSegments(normalized).some((segment) => {
+    if (!PROCESS_TERMINATION_COMMAND_PATTERN.test(segment)) return false;
+    if (LEAFCODE_PI_PROCESS_TARGET_PATTERN.test(segment)) return true;
+    // Unknown shell stays case-insensitive: blocking a bash `$pid` beats missing a PowerShell `$pid`.
+    const selfPid = shell === "bash" ? SELF_PID_PATTERNS.bash : SELF_PID_PATTERNS.insensitive;
+    if (selfPid.reference.test(segment.replace(selfPid.exclusion, " ")) || BROAD_KILL_TARGET_PATTERN.test(segment)) return true;
+    return Number.isSafeInteger(pid) && pid > 0 && new RegExp(`\\b${pid}\\b`).test(segment);
+  });
 }
 
 const NODE_PROCESS_TARGET_PATTERN = /\b(?:node|node\.exe|nodejs)(?:\.exe)?\b/i;
@@ -127,9 +137,7 @@ const NODE_PROCESS_TARGET_PATTERN = /\b(?:node|node\.exe|nodejs)(?:\.exe)?\b/i;
  * abandoned the session on `terminate`.
  */
 function terminatesNodeProcess(command: string): boolean {
-  return maskGitMessageBodies(command)
-    .replace(/\u0000/g, " ")
-    .split(/\r?\n|;|&&|\|\|/)
+  return splitShellCommandSegments(maskGitMessageBodies(command).replace(/\u0000/g, " "))
     .some((segment) =>
       PROCESS_TERMINATION_COMMAND_PATTERN.test(segment) && NODE_PROCESS_TARGET_PATTERN.test(segment),
     );

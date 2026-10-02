@@ -9,6 +9,7 @@ import { GenerationModelSettings } from "@/components/settings/GenerationModelSe
 import { JevModelSettings } from "@/components/settings/JevModelSettings";
 import { LlamaServerSettings } from "@/components/settings/LlamaServerSettings";
 import { HostRestartPanel } from "@/components/settings/HostRestartPanel";
+import { PiUpdateSettings } from "@/components/settings/PiUpdateSettings";
 import { ProfileSettings } from "@/components/settings/ProfileSettings";
 import { AgentsMdSettings } from "@/components/settings/AgentsMdSettings";
 import { SoulMdSettings } from "@/components/settings/SoulMdSettings";
@@ -31,6 +32,7 @@ import { SettingsTransfer } from "@/components/settings/SettingsTransfer";
 import { PromptTransfer } from "@/components/settings/PromptTransfer";
 import { ReasoningTranslationSettings } from "@/components/settings/ReasoningTranslationSettings";
 import { HangTimeoutSettings } from "@/components/settings/HangTimeoutSettings";
+import { OpenAiFastModeSettings } from "@/components/settings/OpenAiFastModeSettings";
 import { NotificationSoundSettings } from "@/components/settings/NotificationSoundSettings";
 import { PushoverSettings } from "@/components/settings/PushoverSettings";
 import { TtsSettings } from "@/components/settings/TtsSettings";
@@ -321,6 +323,7 @@ export function SettingsView() {
                     {health?.error && <p role="alert" className="mt-3 text-sm text-danger">{health.error}</p>}
                     {error && <p role="alert" className="mt-3 text-sm text-danger">{error}</p>}
                   </div>
+                  <PiUpdateSettings />
                   <HostRestartPanel onRestarted={reload} />
                   <ProfileSettings />
                   <SettingsTransfer />
@@ -348,6 +351,7 @@ export function SettingsView() {
                   <ReasoningTranslationSettings />
                   <CompactionSettings />
                   <HangTimeoutSettings />
+                  <OpenAiFastModeSettings />
                 </div>
               </SettingsGroup>
 

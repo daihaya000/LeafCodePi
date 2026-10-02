@@ -55,7 +55,9 @@ describe("POST /api/tasks/[id]/unrevert", () => {
     mocks.forwardTaskUnrevert.mockResolvedValue({ ok: false, reason: "incompatible", status: 409 });
     const refused = await POST(request(), params);
     expect(refused.status).toBe(409);
-    await expect(refused.json()).resolves.toEqual({ error: "巻き戻しの復元に失敗しました" });
+    await expect(refused.json()).resolves.toEqual({
+      error: "応答中は巻き戻せません。停止してからお試しください",
+    });
     mocks.forwardTaskUnrevert.mockResolvedValue({ ok: false, reason: "unreachable" });
     expect((await POST(request(), params)).status).toBe(502);
     expect(mocks.unrevertTask).not.toHaveBeenCalled();

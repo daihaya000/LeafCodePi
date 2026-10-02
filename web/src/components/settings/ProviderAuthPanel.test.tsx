@@ -199,6 +199,54 @@ async function accountRegion(name: string) {
 }
 
 describe("ProviderAuthPanel provider-scoped accounts", () => {
+  const modernProvider = {
+    id: "openai", name: "OpenAI", authenticated: false,
+    methods: ["api_key", "oauth"] as ("api_key" | "oauth")[],
+    oauthAvailable: true, highlighted: true, accountRoutingMode: "separate" as const,
+  };
+  const modernAccounts = [
+    { ...accounts[0], id: "modern-1", providers: ["openai"], label: "ChatGPT 1" },
+    { ...accounts[0], id: "modern-2", providers: ["openai"], label: "ChatGPT 2" },
+  ];
+
+  it("adds OpenAI accounts and toggles integration without changing legacy Codex", async () => {
+    mockAccountsApi([...modernAccounts, accounts[0]]);
+    render(<ProviderAuthPanel providers={[modernProvider, providers[1]]} onChanged={() => {}} />);
+    const modern = await accountRegion("OpenAI");
+    await within(modern).findByText("ChatGPT 1");
+    expect(within(modern).queryByText("仕事用")).toBeNull();
+    const legacy = await accountRegion("OpenAI Codex");
+    expect(within(legacy).getByText("仕事用")).toBeTruthy();
+    expect(within(legacy).queryByText("ChatGPT 1")).toBeNull();
+    expect(within(modern).getByText(/利用率は未取得/)).toBeTruthy();
+    fireEvent.click(within(modern).getByRole("checkbox", { name: "統合" }));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining("/api/providers/openai"),
+      expect.objectContaining({ method: "PATCH", body: JSON.stringify({ accountRoutingMode: "integrated" }) }),
+    ));
+    fireEvent.click(within(modern).getByRole("button", { name: "アカウントを追加" }));
+    fireEvent.change(within(modern).getByLabelText("アカウント名"), { target: { value: "New ChatGPT" } });
+    fireEvent.click(within(modern).getByRole("button", { name: "追加" }));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining("/api/accounts"),
+      expect.objectContaining({ method: "POST", body: JSON.stringify({ label: "New ChatGPT", providers: ["openai"] }) }),
+    ));
+  });
+
+  it.each([
+    { authType: "oauth", label: "サブスクでログイン" },
+    { authType: "api_key", label: "API キー" },
+  ])("starts OpenAI $authType login in the selected account", async ({ authType, label }) => {
+    mockAccountsApi([modernAccounts[0]]);
+    render(<ProviderAuthPanel providers={[modernProvider]} onChanged={() => {}} />);
+    const modern = await accountRegion("OpenAI");
+    fireEvent.click(await within(modern).findByRole("button", { name: label }));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringMatching(/\/api\/providers\/openai\/login\?accountId=modern-1/),
+      expect.objectContaining({ method: "POST", body: JSON.stringify({ type: authType }) }),
+    ));
+  });
+
   it("removes legacy Jev keys from provider connections, including inactive endpoints", async () => {
     const providerId = `jev-compatible-${"a".repeat(64)}`;
     const onChanged = vi.fn();

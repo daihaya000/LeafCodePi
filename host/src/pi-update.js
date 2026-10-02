@@ -1,8 +1,8 @@
 import { spawn as defaultSpawn, spawnSync as defaultSpawnSync } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { PI_PACKAGES, PI_SDK_PACKAGE, STABLE_PI_VERSION, assertPiProjectVersions } from "../../shared/pi-dependencies.mjs";
+import { PI_PACKAGES, PI_SDK_PACKAGE, STABLE_PI_VERSION, assertPiProjectVersions, PI_DEPS_LOCK_NAME, reclaimAbandonedPiDepsLock } from "../../shared/pi-dependencies.mjs";
 import { dataDir, DEFAULT_WEBUI_PORT, readPort } from "./config.js";
 import { DEFAULT_BACKEND_PORT } from "../../shared/backend-protocol.mjs";
 import { pidAlive, readLock } from "./lock.js";
@@ -14,8 +14,72 @@ export const PI_UPDATE_TIMEOUT_MS = 120_000;
 /** Extra Host wait after the npm budget for rollback/cleanup (README: excluded from the 120s). */
 export const PI_WORKER_CLEANUP_BUDGET_MS = 180_000;
 /** Written by the worker while it owns the dependency directories; also what build gates check. */
-export const DEPS_LOCK_NAME = ".leafcode-pi-deps.lock";
+export const DEPS_LOCK_NAME = PI_DEPS_LOCK_NAME;
+/** Settings write this request; the next Host start applies it before any runtime starts. */
+export const PI_UPDATE_REQUEST_NAME = "pi-update-request.json";
+export const PI_UPDATE_STATE_NAME = "pi-update-state.json";
+export const PI_UPDATE_MODES = Object.freeze(["default", "latest"]);
 const WORKER = fileURLToPath(new URL("../../scripts/sync-pi-dependencies.mjs", import.meta.url));
+
+function piUpdateRequestPath(dataDir) {
+  return join(dataDir, PI_UPDATE_REQUEST_NAME);
+}
+
+function piUpdateStatePath(dataDir) {
+  return join(dataDir, PI_UPDATE_STATE_NAME);
+}
+
+/** `default` syncs to the shipped version, `latest` resolves npm's latest when the Host starts. */
+export function requestPiUpdate(dataDir, mode, { requestedAt = Date.now() } = {}) {
+  if (!PI_UPDATE_MODES.includes(mode)) throw new Error(`Unknown Pi update mode: ${mode}`);
+  const request = { mode, requestedAt };
+  mkdirSync(dataDir, { recursive: true });
+  writeFileSync(piUpdateRequestPath(dataDir), `${JSON.stringify(request, null, 2)}\n`, "utf8");
+  return request;
+}
+
+export function readPiUpdateRequest(dataDir) {
+  try {
+    const parsed = JSON.parse(readFileSync(piUpdateRequestPath(dataDir), "utf8"));
+    if (!parsed || typeof parsed !== "object" || !PI_UPDATE_MODES.includes(parsed.mode)) return null;
+    return { mode: parsed.mode, requestedAt: Number.isFinite(parsed.requestedAt) ? parsed.requestedAt : null };
+  } catch {
+    return null;
+  }
+}
+
+/** Consume once: a failed attempt is reported in the state file instead of retrying every start. */
+export function consumePiUpdateRequest(dataDir) {
+  const request = readPiUpdateRequest(dataDir);
+  rmSync(piUpdateRequestPath(dataDir), { force: true });
+  return request;
+}
+
+export function readPiUpdateState(dataDir) {
+  try {
+    const parsed = JSON.parse(readFileSync(piUpdateStatePath(dataDir), "utf8"));
+    return parsed && typeof parsed === "object" ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+export function writePiUpdateState(dataDir, state) {
+  mkdirSync(dataDir, { recursive: true });
+  writeFileSync(piUpdateStatePath(dataDir), `${JSON.stringify(state, null, 2)}\n`, "utf8");
+}
+
+function acquireDepsLock(lockPath, pid = process.pid) {
+  reclaimAbandonedPiDepsLock(lockPath);
+  try {
+    writeFileSync(lockPath, JSON.stringify({ pid }), { flag: "wx" });
+  } catch (error) {
+    if (error?.code !== "EEXIST") throw error;
+    // Another writer raced us; only steal if that owner died between reclaim and wx.
+    reclaimAbandonedPiDepsLock(lockPath);
+    writeFileSync(lockPath, JSON.stringify({ pid }), { flag: "wx" });
+  }
+}
 
 export function installedPiVersion(dir, name = PI_PACKAGE_NAME) {
   try {
@@ -64,9 +128,9 @@ export function autoUpdatePi({
   webDir, backendDir, env = process.env, platform = process.platform,
   spawnSync = defaultSpawnSync, log = () => {}, error = () => {},
   startupHostPid = null, now = () => Date.now(), runtimeIsIdle = runtimesAreIdle,
+  targetVersion = null,
   fs = { renameSync, writeFileSync },
 }) {
-  if (env.LEAFCODE_PI_AUTO_UPDATE === "0") return { attempted: false, updated: false, skipped: true, safeToStart: true };
   const projects = [];
   let lockPath;
   let locked = false;
@@ -92,26 +156,31 @@ export function autoUpdatePi({
       throw new Error("Stop the Host before synchronizing Pi dependencies");
     }
     lockPath = join(webDir, DEPS_LOCK_NAME);
-    writeFileSync(lockPath, JSON.stringify({ pid: process.pid }), { flag: "wx" });
+    acquireDepsLock(lockPath, process.pid);
     locked = true;
     for (const dir of [webDir, backendDir]) {
       projects.push({ dir, manifest: readFileSync(join(dir, "package.json")), lock: readFileSync(join(dir, "package-lock.json")) });
     }
-    const versions = PI_PACKAGES.map((name) => {
-      const value = JSON.parse(run(npm, ["view", `${name}@latest`, "version", "--json"], webDir));
-      const version = Array.isArray(value) && value.length === 1 ? value[0] : value;
-      if (typeof version !== "string" || !STABLE_PI_VERSION.test(version)) throw new Error(`${name}@latest is not a stable version`);
-      return version;
-    });
-    if (versions[0] !== versions[1]) throw new Error(`Pi latest tags disagree (SDK ${versions[0]}, AI ${versions[1]}); no partial update`);
-    const version = versions[0];
+    let version = targetVersion;
+    if (version !== null) {
+      if (!STABLE_PI_VERSION.test(version)) throw new Error(`Pinned Pi version ${version} is not a stable version`);
+    } else {
+      const versions = PI_PACKAGES.map((name) => {
+        const value = JSON.parse(run(npm, ["view", `${name}@latest`, "version", "--json"], webDir));
+        const resolved = Array.isArray(value) && value.length === 1 ? value[0] : value;
+        if (typeof resolved !== "string" || !STABLE_PI_VERSION.test(resolved)) throw new Error(`${name}@latest is not a stable version`);
+        return resolved;
+      });
+      if (versions[0] !== versions[1]) throw new Error(`Pi latest tags disagree (SDK ${versions[0]}, AI ${versions[1]}); no partial update`);
+      version = versions[0];
+    }
     const changes = projects.filter((project) => needsUpdate(project, version));
     if (!changes.length) {
-      log(`Pi SDK and AI are synchronized at latest v${version}`);
+      log(`Pi SDK and AI are synchronized at ${targetVersion ? "default" : "latest"} v${version}`);
       return { attempted: true, updated: false, skipped: false, safeToStart: true, version };
     }
     if (!runtimeIsIdle(env, platform)) throw new Error("Web/Backend listeners must be idle before publishing new Pi dependencies");
-    log(`Preparing Web and Backend Pi SDK/AI v${version} before starting sessions`);
+    log(`Preparing Web and Backend Pi SDK/AI at ${targetVersion ? "default" : "latest"} v${version} before starting sessions`);
     for (const project of changes) {
       project.stage = mkdtempSync(join(project.dir, ".leafcode-pi-update-"));
       writeFileSync(join(project.stage, "previous-package.json"), project.manifest);
@@ -162,7 +231,7 @@ export function autoUpdatePi({
       }
     }
     committed = true;
-    log(`Web and Backend Pi SDK/AI synchronized to latest v${version}`);
+    log(`Web and Backend Pi SDK/AI synchronized to ${targetVersion ? "default" : "latest"} v${version}`);
     return { attempted: true, updated: true, skipped: false, safeToStart: true, version };
   } catch (err) {
     if (!committed) {
@@ -207,10 +276,10 @@ export const PI_WORKER_TIMEOUT_MS = PI_UPDATE_TIMEOUT_MS + PI_WORKER_CLEANUP_BUD
 export function updatePiBeforeStartup({
   webDir, backendDir, env = process.env, spawn = defaultSpawn, log = () => {}, error = () => {},
   timeoutMs = PI_WORKER_TIMEOUT_MS,
+  targetVersion = null,
   killTree = (pid) => hardKillTree(pid, { platform: process.platform }),
   isAlive = pidAlive,
 }) {
-  if (env.LEAFCODE_PI_AUTO_UPDATE === "0") return Promise.resolve({ attempted: false, updated: false, skipped: true, safeToStart: true });
   return new Promise((resolveResult) => {
     let child;
     let result;
@@ -223,7 +292,9 @@ export function updatePiBeforeStartup({
       resolveResult(value);
     };
     try {
-      child = spawn(process.execPath, [WORKER, "--web", webDir, "--backend", backendDir, "--startup-host", String(process.pid)], {
+      const args = [WORKER, "--web", webDir, "--backend", backendDir, "--startup-host", String(process.pid)];
+      if (targetVersion) args.push("--target", targetVersion);
+      child = spawn(process.execPath, args, {
         env, windowsHide: true, stdio: ["ignore", "pipe", "pipe", "ipc"],
       });
     } catch (err) {

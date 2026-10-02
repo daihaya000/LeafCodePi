@@ -364,12 +364,30 @@ test("rejects invalid pagination inputs before executing the detail reader", asy
     return { messages: [] };
   } });
   const url = snapshotsUrl.replace("pending-snapshots", "tasks") + "/task-1/detail";
-  for (const query of ["messages=bad", "messages=", "messages=page&messages=page", "messages=page&before=", "messages=page&before=%20", `messages=page&before=${"x".repeat(513)}`, "messages=page&before=a&before=b"]) {
+  for (const query of ["messages=bad", "messages=", "messages=page&messages=page", "messages=page&before=", "messages=page&before=%20", `messages=page&before=${"x".repeat(513)}`, "messages=page&before=a&before=b", "messages=omit&before=m1"]) {
     const response = await request(`${url}?${query}`, { headers });
     await response.arrayBuffer();
     assert.equal(response.status, 400, query);
   }
   assert.equal(calls, 0);
+});
+
+test("messages=omit skips history paging and still returns task metadata", async (t) => {
+  const messages = Array.from({ length: 20 }, (_, index) => ({ id: `m${index}` }));
+  let includeMessages;
+  const { snapshotsUrl, headers } = await fixture(t, {
+    readTaskDetail: async (_id, options = {}) => {
+      includeMessages = options.includeMessages;
+      return { id: "task-1", status: "idle", isStreaming: false, messages };
+    },
+  });
+  const url = snapshotsUrl.replace("pending-snapshots", "tasks") + "/task-1/detail?messages=omit";
+  const response = await request(url, { headers });
+  assert.equal(response.status, 200);
+  assert.equal(includeMessages, false);
+  assert.deepEqual(await response.json(), {
+    detail: { id: "task-1", status: "idle", isStreaming: false, messages },
+  });
 });
 
 test("an invalid history cursor is a conflict without leaking the requested cursor", async (t) => {
@@ -763,6 +781,25 @@ test("Goal Loop start refusals retain their status without leaking runtime error
     assert.equal(body.error, "Backend task action failed");
     assert.equal(JSON.stringify(body).includes("private provider details"), false);
   }
+});
+
+test("task revert forwards Japanese busy refusals to the WebUI", async (t) => {
+  const { snapshotsUrl, headers } = await fixture(t, {
+    revertTaskAction: async () => {
+      throw Object.assign(new Error("応答中は巻き戻せません。停止してからお試しください"), { status: 409 });
+    },
+  });
+  const url = `${snapshotsUrl.replace("pending-snapshots", "tasks")}/task-1/revert`;
+  const response = await request(url, {
+    method: "POST",
+    headers: { ...headers, "content-type": "application/json" },
+    body: JSON.stringify({ entryId: "entry-1" }),
+  });
+  assert.equal(response.status, 409);
+  assert.deepEqual(await response.json(), {
+    error: "応答中は巻き戻せません。停止してからお試しください",
+    code: "BACKEND_BAD_REQUEST",
+  });
 });
 
 test("the Goal Loop control needs a runtime and refuses a non-function handler", async (t) => {

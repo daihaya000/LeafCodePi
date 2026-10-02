@@ -58,8 +58,31 @@ describe("GET /api/tasks/[id]", () => {
     const response = await GET(request(), params);
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toEqual({ task: { id: "task-1", status: "working", live: true } });
-    expect(mocks.forwardTaskDetail).toHaveBeenCalledWith("task-1");
+    expect(mocks.forwardTaskDetail).toHaveBeenCalledWith("task-1", undefined);
     expect(mocks.getTaskDetailBounded).not.toHaveBeenCalled();
+  });
+
+  it("forwards a page/omit messages mode to the owning Backend", async () => {
+    mocks.localRuntimeBlocked.mockReturnValue(true);
+    mocks.forwardTaskDetail.mockResolvedValue({ ok: true, detail: { id: "task-1", status: "idle" } });
+    const omit = await GET(
+      new NextRequest("http://localhost/api/tasks/task-1?messages=omit", { method: "GET" }),
+      params,
+    );
+    expect(omit.status).toBe(200);
+    expect(mocks.forwardTaskDetail).toHaveBeenLastCalledWith("task-1", { messages: "omit" });
+    const page = await GET(
+      new NextRequest("http://localhost/api/tasks/task-1?messages=page", { method: "GET" }),
+      params,
+    );
+    expect(page.status).toBe(200);
+    expect(mocks.forwardTaskDetail).toHaveBeenLastCalledWith("task-1", { messages: "page" });
+    // An unknown mode is not a Backend option; keep the plain read.
+    await GET(
+      new NextRequest("http://localhost/api/tasks/task-1?messages=bogus", { method: "GET" }),
+      params,
+    );
+    expect(mocks.forwardTaskDetail).toHaveBeenLastCalledWith("task-1", undefined);
   });
 
   it("answers 404 when the owning Backend has no such task", async () => {

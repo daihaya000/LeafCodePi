@@ -1,6 +1,7 @@
 import { runtimeGenerationStatus } from "../../shared/backend-generation.mjs";
 import { DEFAULT_BACKEND_PORT } from "../../shared/backend-protocol.mjs";
 import { readPendingRequestSnapshots } from "./pending-requests.mjs";
+import { readMcpMigrationDiagnostics } from "./mcp-migration-diagnostics.mjs";
 import { createRuntimeHost } from "./runtime-host.mjs";
 import { createResumePrompt } from "./restart-resume-prompt.mjs";
 import { DEFAULT_RUNTIME_BUNDLE, loadBackendRuntime } from "./runtime-loader.mjs";
@@ -87,15 +88,108 @@ try {
   const server = createBackendServer({
     token: process.env.LEAFCODE_PI_BACKEND_TOKEN,
     readPendingSnapshots: () => readPendingRequestSnapshots(started.runtime()),
+    // Read-only and useful even before runtime attachment; apply remains unavailable.
+    readMcpMigrationDiagnostics: () => readMcpMigrationDiagnostics(),
+    readMcpServerList: () => {
+      const runtime = started.runtime();
+      if (!runtime) throw Object.assign(new Error("runtime unavailable"), { status: 503 });
+      try { return runtime.readMcpServerList(); }
+      catch (error) {
+        throw Object.assign(new Error("Backend MCP list failed"), { status: runtime.mcpErrorStatus(error) });
+      }
+    },
+    setMcpServerEnabledAction: (name, enabled) => {
+      const runtime = started.runtime();
+      if (!runtime) throw Object.assign(new Error("runtime unavailable"), { status: 503 });
+      try {
+        const listed = runtime.setMcpServerEnabled(name, enabled);
+        // Persist and respond first; the owner alone rebuilds its live sessions.
+        setImmediate(() => {
+          void Promise.resolve().then(() => runtime.reloadLiveSessionsContext()).catch(() => {
+            console.warn("[mcp] Backend live session context reload failed");
+          });
+        });
+        return { ok: true, name, enabled, servers: listed.servers };
+      } catch (error) {
+        throw Object.assign(new Error("Backend MCP setting update failed"), { status: runtime.mcpErrorStatus(error) });
+      }
+    },
+    completeMcpOAuthAuthAction: async (name, input) => {
+      const runtime = started.runtime();
+      if (!runtime) throw Object.assign(new Error("runtime unavailable"), { status: 503 });
+      try { return await runtime.completeMcpOAuthAuth(name, input); }
+      catch (error) {
+        throw Object.assign(new Error("Backend MCP OAuth completion failed"), { status: runtime.mcpErrorStatus(error) });
+      }
+    },
+    startMcpOAuthAuthAction: async (name, input) => {
+      const runtime = started.runtime();
+      if (!runtime) throw Object.assign(new Error("runtime unavailable"), { status: 503 });
+      try { return await runtime.startMcpOAuthAuth(name, input); }
+      catch (error) {
+        throw Object.assign(new Error("Backend MCP OAuth start failed"), { status: runtime.mcpErrorStatus(error) });
+      }
+    },
+    removeMcpAuthAction: async (name, input) => {
+      const runtime = started.runtime();
+      if (!runtime) throw Object.assign(new Error("runtime unavailable"), { status: 503 });
+      try { return await runtime.removeMcpAuth(name, input); }
+      catch (error) {
+        throw Object.assign(new Error("Backend MCP auth removal failed"), { status: runtime.mcpErrorStatus(error) });
+      }
+    },
+    saveMcpHeadersAuthAction: async (name, input) => {
+      const runtime = started.runtime();
+      if (!runtime) throw Object.assign(new Error("runtime unavailable"), { status: 503 });
+      try { return await runtime.saveMcpHeadersAuth(name, input); }
+      catch (error) {
+        throw Object.assign(new Error("Backend MCP headers save failed"), { status: runtime.mcpErrorStatus(error) });
+      }
+    },
+    saveMcpBearerAuthAction: async (name, input) => {
+      const runtime = started.runtime();
+      if (!runtime) throw Object.assign(new Error("runtime unavailable"), { status: 503 });
+      try { return await runtime.saveMcpBearerAuth(name, input); }
+      catch (error) {
+        throw Object.assign(new Error("Backend MCP bearer save failed"), { status: runtime.mcpErrorStatus(error) });
+      }
+    },
+    readMcpAuthStatus: async (name) => {
+      const runtime = started.runtime();
+      if (!runtime) throw Object.assign(new Error("runtime unavailable"), { status: 503 });
+      try { return await runtime.readMcpAuthStatus(name); }
+      catch (error) {
+        throw Object.assign(new Error("Backend MCP auth status failed"), { status: runtime.mcpErrorStatus(error) });
+      }
+    },
+    createMcpPresetAction: async (input) => {
+      const runtime = started.runtime();
+      if (!runtime) throw Object.assign(new Error("runtime unavailable"), { status: 503 });
+      try { return await runtime.createMcpPreset(input); }
+      catch (error) {
+        throw Object.assign(new Error("Backend MCP preset creation failed"), { status: runtime.mcpErrorStatus(error) });
+      }
+    },
     // Attention is the owner's in-memory view; a detached Backend has none, which is honest.
     subscribeRuntimeEvents: (listener) => {
       const runtime = started.runtime();
       if (!runtime) throw new Error("runtime unavailable");
       const unsubscribeCode = runtime.subscribeBotCodeSession((payload) => listener({ event: "snapshot", payload }));
       let unsubscribeRoutine;
-      try { unsubscribeRoutine = runtime.subscribeRoutineRuns((payload) => listener({ event: "routine", payload })); }
-      catch (error) { unsubscribeCode(); throw error; }
-      return () => { unsubscribeCode(); unsubscribeRoutine(); };
+      let unsubscribeDirty;
+      try {
+        unsubscribeRoutine = runtime.subscribeRoutineRuns((payload) => listener({ event: "routine", payload }));
+        unsubscribeDirty = runtime.subscribeTaskDirty((payload) => listener({ event: "task_dirty", payload }));
+      } catch (error) {
+        unsubscribeCode();
+        unsubscribeRoutine?.();
+        throw error;
+      }
+      return () => {
+        unsubscribeCode();
+        unsubscribeRoutine();
+        unsubscribeDirty();
+      };
     },
     runtimeControlAction: async ({ action, value }) => {
       const runtime = started.runtime();
@@ -400,14 +494,14 @@ try {
       }
       return runtime.respondToQuestionPrompt(id, requestId, answer);
     },
-    readTaskDetail: (id) => {
+    readTaskDetail: (id, options = {}) => {
       const runtime = started.runtime();
       if (!runtime) {
         throw Object.assign(new Error("runtime unavailable"), { status: 503 });
       }
       return typeof runtime.getTaskDetailReadOnly === "function"
-        ? runtime.getTaskDetailReadOnly(id)
-        : runtime.getTaskDetail(id, { offline: true });
+        ? runtime.getTaskDetailReadOnly(id, options)
+        : runtime.getTaskDetail(id, { offline: true, includeMessages: options.includeMessages });
     },
     // Ready means the startup sequence finished *and* the runtime is attached *and* every required
     // startup step exists in this process. A missing service (Bot Code relay, routine scheduler,

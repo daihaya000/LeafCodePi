@@ -8,6 +8,8 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { codeOnDemandPrompt, compactSdkDocumentation } from "@/lib/agents-md";
 import { loadAgentDefinition } from "@/lib/agents";
 import { filterExtensionsByState, writeExtensionsState } from "@/lib/extensions";
+import { OPENAI_FAST_MODE_SETTING_KEY } from "@/lib/openai-fast-mode";
+import { setSetting } from "@/lib/pi/web-settings";
 import { applyBotTools, sessionExtensionFactories, sessionResourceOptions, sessionToolNames, settingsManagerExcludingReplacedPackages } from "./harness";
 
 let root: string;
@@ -266,4 +268,22 @@ it("refreshes reference discovery each turn and respects Bot/read permissions", 
   sessionExtensionFactories(input)[0](api);
   rmSync(join(agentDir, "WORKFLOW.md"));
   expect(prompt()).not.toContain("on_demand_context");
+});
+
+it("adds the OpenAI priority service tier per request only while Fast mode is on", () => {
+  vi.stubEnv("LEAFCODE_PI_DATA_DIR", join(root, "data"));
+  const handlers = new Map<string, (event: { payload: unknown }, ctx: { model?: { provider: string } }) => unknown>();
+  const api = {
+    on: (name: string, handler: (event: { payload: unknown }, ctx: { model?: { provider: string } }) => unknown) => handlers.set(name, handler),
+    getActiveTools: () => [],
+  } as unknown as ExtensionAPI;
+  sessionExtensionFactories({ agentDir, hasBotSkills: false, getExtensions: () => [] })[0](api);
+  const request = (provider: string) => handlers.get("before_provider_request")!({ payload: { model: "gpt-5" } }, { model: { provider } });
+  expect(request("openai")).toBeUndefined();
+  setSetting(OPENAI_FAST_MODE_SETTING_KEY, "1");
+  expect(request("openai")).toEqual({ model: "gpt-5", service_tier: "priority" });
+  expect(request("openai-codex")).toEqual({ model: "gpt-5", service_tier: "priority" });
+  expect(request("anthropic")).toBeUndefined();
+  setSetting(OPENAI_FAST_MODE_SETTING_KEY, null);
+  expect(request("openai")).toBeUndefined();
 });

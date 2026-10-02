@@ -53,6 +53,18 @@ export function getCachedUsage(
   return getCachedUsageForKey(key, nowMs, ttlMs);
 }
 
+/**
+ * Age of the latest all-scope snapshot, or null when none is stored.
+ * Unlike getCachedUsage this never evicts, so a freshness probe cannot destroy
+ * the last-known snapshot that routing falls back to when a refresh fails.
+ */
+export function getCachedUsageAgeMs(nowMs = Date.now()): number | null {
+  const globalRef = globalThis as GlobalCache;
+  const key = globalRef[LATEST_ALL_KEY] ?? "all";
+  const entry = cacheStore().get(key);
+  return entry ? Math.max(0, nowMs - entry.storedAt) : null;
+}
+
 export function setCachedUsage(
   usage: CodexBarUsage,
   nowMs = Date.now(),
