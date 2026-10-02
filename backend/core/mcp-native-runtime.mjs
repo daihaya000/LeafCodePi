@@ -5,6 +5,7 @@ import { createBackendMcpCredentialOwner } from "./mcp-native-credential-owner.m
 import { createBackendMcpCredentials } from "./mcp-native-credentials.mjs";
 import { prepareBackendMcpExtensionsFromBinding } from "./mcp-native-extensions.mjs";
 import { createBackendMcpHttpTransportFactory } from "./mcp-native-http-transport.mjs";
+import { setBackendMcpNativeSessionProvider } from "./mcp-native-session.mjs";
 import { createBackendMcpStdioTransportFactory } from "./mcp-native-stdio-transport.mjs";
 import { createBackendMcpConfigStorageCheck, createBackendMcpPrivateStorageCheck } from "./mcp-private-storage.mjs";
 
@@ -16,9 +17,10 @@ const ALLOWED = [...REQUIRED, "urlVariables", "startupWaitMs", "storageChecks"];
 
 /** INTERNAL, INERT Backend composition of the native MCP owner pieces. Construction performs no IO.
  * prepare() reads/validates the fixed config sources once and returns a PRIVATE runtime bound to that
- * snapshot. forSession(cwd) returns SDK extension factories whose transports are chosen from the
- * prepared entry (url -> HTTP, otherwise stdio). Nothing here activates a session, migrates files,
- * quiesces other writers or removes the legacy adapter. Reprepare after any entered write/source change. */
+ * snapshot. install() is the only provider-installation path (prepare + publish for new sessions).
+ * forSession(cwd) returns SDK extension factories whose transports are chosen from the prepared entry
+ * (url -> HTTP, otherwise stdio). Nothing here migrates files, reloads running sessions, quiesces other
+ * writers or removes the legacy adapter; a failed reload leaves the previous provider fail-closed. */
 export function createBackendMcpNativeRuntime(options) {
   try {
     if (!plain(options) || Reflect.ownKeys(options).some((key) => !ALLOWED.includes(key)) || !REQUIRED.every((key) => Object.hasOwn(options, key))) throw unavailable();
@@ -37,39 +39,50 @@ export function createBackendMcpNativeRuntime(options) {
       assertProcessOwner: captured.assertProcessOwner, assertPrivateStorage: checks.config,
     });
     let disposed = false;
+    /** Returns a private per-binding runtime. Old bindings are retired by the config owner. */
+    const prepareRuntime = async () => {
+      if (disposed) throw unavailable();
+      let binding;
+      try { binding = await owner.prepare(); } catch { throw unavailable(); }
+      const authority = createBackendMcpCredentialAuthority({
+        agentDir: captured.agentDir, bundledConfigPath: captured.bundledConfigPath,
+        prepared: binding.prepared, assertRuntimeOwner: binding.assertOwner,
+      });
+      const credentials = createBackendMcpCredentials(createBackendMcpCredentialOwner({
+        agentDir: captured.agentDir, assertOwner: authority, assertPrivateStorage: checks.credentials,
+      }));
+      const snapshot = binding.loadConfig(), configPath = join(captured.agentDir, "mcp.json");
+      return Object.freeze({
+        binding,
+        /** One SDK extension family for one session cwd. No activation. */
+        forSession(sessionCwd) {
+          try {
+            const common = { snapshot, configPath, sessionCwd, assertSnapshotOwner: binding.assertOwner };
+            const stdioFactory = createBackendMcpStdioTransportFactory({ ...common, homeDir: captured.homeDir, environment: captured.environment });
+            const httpFactory = createBackendMcpHttpTransportFactory({ ...common, variables: captured.variables, fetch: captured.fetch });
+            return prepareBackendMcpExtensionsFromBinding({
+              binding,
+              mcp: {
+                credentials, openUrl: captured.openUrl,
+                createTransport: (entry, cwd, authProvider) => (entry?.config?.url !== undefined ? httpFactory : stdioFactory)(entry, cwd, authProvider),
+                ...(captured.startupWaitMs === undefined ? {} : { startupWaitMs: captured.startupWaitMs }),
+              },
+            });
+          } catch { throw unavailable(); }
+        },
+      });
+    };
+
     return Object.freeze({
-      /** Returns a private per-binding runtime. Old bindings are retired by the config owner. */
-      async prepare() {
-        if (disposed) throw unavailable();
-        let binding;
-        try { binding = await owner.prepare(); } catch { throw unavailable(); }
-        const authority = createBackendMcpCredentialAuthority({
-          agentDir: captured.agentDir, bundledConfigPath: captured.bundledConfigPath,
-          prepared: binding.prepared, assertRuntimeOwner: binding.assertOwner,
-        });
-        const credentials = createBackendMcpCredentials(createBackendMcpCredentialOwner({
-          agentDir: captured.agentDir, assertOwner: authority, assertPrivateStorage: checks.credentials,
-        }));
-        const snapshot = binding.loadConfig(), configPath = join(captured.agentDir, "mcp.json");
-        return Object.freeze({
-          binding,
-          /** One SDK extension family for one session cwd. No activation. */
-          forSession(sessionCwd) {
-            try {
-              const common = { snapshot, configPath, sessionCwd, assertSnapshotOwner: binding.assertOwner };
-              const stdioFactory = createBackendMcpStdioTransportFactory({ ...common, homeDir: captured.homeDir, environment: captured.environment });
-              const httpFactory = createBackendMcpHttpTransportFactory({ ...common, variables: captured.variables, fetch: captured.fetch });
-              return prepareBackendMcpExtensionsFromBinding({
-                binding,
-                mcp: {
-                  credentials, openUrl: captured.openUrl,
-                  createTransport: (entry, cwd, authProvider) => (entry?.config?.url !== undefined ? httpFactory : stdioFactory)(entry, cwd, authProvider),
-                  ...(captured.startupWaitMs === undefined ? {} : { startupWaitMs: captured.startupWaitMs }),
-                },
-              });
-            } catch { throw unavailable(); }
-          },
-        });
+      prepare: prepareRuntime,
+      /** Prepares a fresh binding and installs it as the process session provider. This is the only
+       * installation path, so a failed reload leaves the previous provider in place — its retired
+       * binding then fails closed instead of silently serving an old snapshot. Callers must
+       * re-install after any entered config write; new sessions pick it up, running ones do not. */
+      async install() {
+        const prepared = await prepareRuntime();
+        setBackendMcpNativeSessionProvider(prepared.forSession);
+        return prepared;
       },
       runWrite: (work) => owner.runWrite(work),
       drain: () => owner.drain(),

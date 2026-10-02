@@ -58,7 +58,9 @@ function records(value) {
  * INTERNAL opt-in production wiring: assembles the private native MCP runtime from the attached
  * bundle and installs the session provider before the Backend publishes the runtime. Construction is
  * inert and does not import the SDK; the agent directory is resolved from `PI_CODING_AGENT_DIR` only
- * when `initialize` runs. Default (flag unset) never calls this. Environment/variables are snapshotted
+ * when `initialize` runs. Default (flag unset) never calls this. `install()` is the single
+ * provider-installation path, so a stale owner without it refuses instead of leaving a half-built
+ * runtime installed. Environment/variables are snapshotted
  * at construction as the explicit base for `${NAME}`/`$VAR` expansion (the default is the Backend
  * process environment, matching the adapter's inherited env); stdio children still launch with an
  * explicit env map rather than an implicit inheritance. Failure is sanitized and leaves the runtime
@@ -89,8 +91,7 @@ export function createNativeMcpActivation(options = {}) {
       /** Installs the session provider and acknowledges with undefined. At most one successful attempt. */
       async initialize(runtimeModule) {
         if (state !== "idle") throw unavailable();
-        if (!runtimeModule || typeof runtimeModule.createBackendMcpNativeRuntime !== "function"
-          || typeof runtimeModule.setBackendMcpNativeSessionProvider !== "function") throw unavailable();
+        if (!runtimeModule || typeof runtimeModule.createBackendMcpNativeRuntime !== "function") throw unavailable();
         state = "initializing";
         try {
           const directory = agentDir ?? (await import("@earendil-works/pi-coding-agent")).getAgentDir();
@@ -98,8 +99,8 @@ export function createNativeMcpActivation(options = {}) {
             agentDir: directory, bundledConfigPath, homeDir,
             environment: { ...environment }, variables: { ...variables }, fetch, openUrl, assertProcessOwner,
           });
-          const prepared = await owner.prepare();
-          runtimeModule.setBackendMcpNativeSessionProvider(prepared.forSession);
+          if (typeof owner?.install !== "function") throw unavailable();
+          await owner.install();
           state = "active";
           return undefined;
         } catch {

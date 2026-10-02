@@ -6,16 +6,15 @@ import { browserOpenCommand, createBrowserOpener, createNativeMcpActivation, cre
 const safe = (e) => e instanceof Error && e.message === "MCP native activation unavailable" && e.cause === undefined;
 
 /** Fake bundle module: records what activation passes and how the provider is installed. */
-function fakeRuntime({ createThrows = false, prepareThrows = false, forSession } = {}) {
-  const calls = { options: [], prepare: 0, providers: [], dispose: 0 };
+function fakeRuntime({ createThrows = false, installThrows = false, forSession } = {}) {
+  const calls = { options: [], installs: 0, dispose: 0 };
   const prepared = { binding: Object.freeze({}), forSession: forSession ?? (() => "session") };
   return { calls, prepared,
     createBackendMcpNativeRuntime(options) {
       calls.options.push(options);
       if (createThrows) throw Error("private create failure");
-      return { async prepare() { calls.prepare++; if (prepareThrows) throw Error("private prepare failure"); return prepared; }, dispose() { calls.dispose++; } };
+      return { async install() { calls.installs++; if (installThrows) throw Error("private install failure"); return prepared; }, dispose() { calls.dispose++; } };
     },
-    setBackendMcpNativeSessionProvider(next) { calls.providers.push(next); },
   };
 }
 
@@ -47,8 +46,7 @@ test("initialize snapshots explicit options and installs the prepared provider w
   environment.TOKEN = "changed"; variables.URL = "changed"; // snapshotted at construction
   const runtime = fakeRuntime();
   assert.equal(await activation.initialize(runtime), undefined);
-  assert.equal(activation.status(), "active"); assert.equal(runtime.calls.prepare, 1);
-  assert.deepEqual(runtime.calls.providers, [runtime.prepared.forSession]);
+  assert.equal(activation.status(), "active"); assert.equal(runtime.calls.installs, 1);
   const options = runtime.calls.options[0];
   assert.equal(options.agentDir, "C:/private-agent"); assert.equal(options.homeDir, "C:/private-home");
   assert.deepEqual(options.environment, { TOKEN: "one" }); assert.deepEqual(options.variables, { URL: "https://example.test/mcp" });
@@ -70,10 +68,10 @@ test("default services are present: a browser opener, global fetch and a synchro
 });
 
 test("a failed creation/preparation is sanitized, disposes the owner and never installs a provider", async () => {
-  for (const [runtime, expectedDisposals] of [[fakeRuntime({ createThrows: true }), 0], [fakeRuntime({ prepareThrows: true }), 1]]) {
+  for (const [runtime, expectedInstalls, expectedDisposals] of [[fakeRuntime({ createThrows: true }), 0, 0], [fakeRuntime({ installThrows: true }), 1, 1]]) {
     const activation = createNativeMcpActivation({ agentDir: "C:/private-agent", environment: {}, variables: {} });
     await assert.rejects(activation.initialize(runtime), safe);
-    assert.equal(activation.status(), "failed"); assert.deepEqual(runtime.calls.providers, []);
+    assert.equal(activation.status(), "failed"); assert.equal(runtime.calls.installs, expectedInstalls);
     // A created owner is released; a creation that never returned one has nothing to release.
     assert.equal(runtime.calls.dispose, expectedDisposals);
     await assert.rejects(activation.initialize(fakeRuntime()), safe);
@@ -90,16 +88,17 @@ test("the entry composition requires both the attached runtime and the explicit 
   const initialize = createNativeMcpStartup({ runtimeRequested: true, env: on, activation });
   assert.equal(typeof initialize, "function");
   const runtime = fakeRuntime(); assert.equal(await initialize(runtime), undefined);
-  assert.deepEqual(runtime.calls.providers, [runtime.prepared.forSession]); assert.equal(activation.status(), "active");
+  assert.equal(runtime.calls.installs, 1); assert.equal(activation.status(), "active");
   activation.dispose();
 });
 
 test("a malformed bundle module and a non-http auth URL fail closed", async () => {
   const activation = createNativeMcpActivation({ agentDir: "C:/private-agent", environment: {}, variables: {} });
-  for (const module of [undefined, {}, { createBackendMcpNativeRuntime() {} }, { setBackendMcpNativeSessionProvider() {} }]) {
-    await assert.rejects(activation.initialize(module), safe);
-  }
-  assert.equal(activation.status(), "idle"); // an invalid module is not an attempt
+  for (const module of [undefined, {}, "not-a-module"]) await assert.rejects(activation.initialize(module), safe);
+  assert.equal(activation.status(), "idle"); // a module that cannot create an owner is not an attempt
+  for (const module of [{ createBackendMcpNativeRuntime() {} }, { createBackendMcpNativeRuntime: () => ({}) },
+    { createBackendMcpNativeRuntime: () => ({ install: "no-ack" }) }]) await assert.rejects(activation.initialize(module), safe);
+  assert.equal(activation.status(), "failed"); // an owner without the install path is fenced, not half-installed
   const opener = createBrowserOpener();
   for (const url of ["javascript:alert(1)", "file:///C:/private", "not a url", "", undefined]) {
     await assert.rejects(opener(url), safe);

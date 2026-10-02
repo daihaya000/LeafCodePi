@@ -4,8 +4,11 @@ import { createServer } from "node:http";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { test } from "node:test";
+import { afterEach, test } from "node:test";
 import { createBackendMcpNativeRuntime as create } from "./mcp-native-runtime.mjs";
+import { resolveBackendMcpNativeSession, setBackendMcpNativeSessionProvider } from "./mcp-native-session.mjs";
+
+afterEach(() => setBackendMcpNativeSessionProvider(undefined));
 
 const safe = (e) => e instanceof Error && e.message === "MCP native runtime unavailable" && e.cause === undefined;
 const realBundle = resolve("extensions/leafcode-mcp-adapter/mcp.json");
@@ -105,6 +108,32 @@ test("preparing an OAuth server entry does no credential IO and a retired bindin
   await runtime.prepare(); // retire first binding
   assert.equal(prepared.forSession(root).ok, false);
   assert.equal(fs.existsSync(join(root, "mcp-auth.json")), false);
+});
+
+test("install() is the only provider path; reload publishes a fresh snapshot and a failed reload fails closed", async (t) => {
+  const root = await fixture(t, { alpha: { command: process.execPath, args: ["--version"] } });
+  const runtime = create(base(root)); t.after(() => runtime.dispose());
+  assert.equal(resolveBackendMcpNativeSession(root).active, false);
+  const first = await runtime.install();
+  const installed = resolveBackendMcpNativeSession(root);
+  assert.equal(installed.active, true); assert.equal(installed.factories.length, 3); assert.deepEqual(installed.issues, []);
+  assert.deepEqual(first.binding.loadConfig().servers.map((server) => server.name), ["alpha"]);
+  // A source change plus install() republishes: the new snapshot retires the old binding.
+  await writeFile(join(root, "mcp.json"), JSON.stringify({ mcpServers: {
+    alpha: { command: process.execPath, args: ["--version"] }, beta: { command: process.execPath, args: ["--version"] },
+  } }), { mode: 0o600 });
+  const second = await runtime.install();
+  assert.deepEqual(second.binding.loadConfig().servers.map((server) => server.name), ["alpha", "beta"]);
+  const reloaded = resolveBackendMcpNativeSession(root);
+  assert.equal(reloaded.active, true); assert.equal(reloaded.factories.length, 3);
+  assert.equal(first.forSession(root).ok, false); // the previous binding is retired, not silently reused
+  // A malformed source cannot reload: the formerly installed provider stays and now fails closed.
+  await writeFile(join(root, "mcp.json"), "{not json", { mode: 0o600 });
+  await assert.rejects(runtime.install(), safe);
+  const stale = resolveBackendMcpNativeSession(root);
+  assert.equal(stale.active, true); assert.equal(stale.factories.length, 0);
+  assert.deepEqual(stale.issues, [{ code: "native-extension-binding-failed" }]);
+  runtime.dispose(); await assert.rejects(runtime.install(), safe);
 });
 
 test("a failing process owner or storage attestation makes prepare unavailable without leaking causes", async (t) => {

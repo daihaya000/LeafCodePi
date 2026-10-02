@@ -14,14 +14,19 @@ export type BackendMcpPreparedRuntime = Readonly<{
 export type BackendMcpNativeRuntime = Readonly<{
   /** Reads/validates the fixed sources once; retires older bindings. Reprepare after entered writes. */
   prepare(): Promise<BackendMcpPreparedRuntime>;
+  /** Prepare + install as the process session provider (the only install path). A failed reload
+   * leaves the previous provider installed, but its retired binding fails closed. New sessions only. */
+  install(): Promise<BackendMcpPreparedRuntime>;
   runWrite<T>(work: (scope: BackendMcpWriterScope) => T | Promise<T>): Promise<T>;
   drain(): Promise<void>;
   dispose(): void;
 }>;
 /** INERT PRIVATE composition of config owner, credential authority/owner, stdio+HTTP transports and
  * SDK MCP/codemode/tool_search factories. No construction IO, activation, migration, writer
- * quiescence, OS election or adapter removal. Explicit env/variables/fetch/openUrl are mandatory.
- * Default storage checks are the strict read-only ACL policy (Windows spawns a metadata process). */
+ * quiescence, OS election or adapter removal. Explicit env/variables/fetch/openUrl are mandatory and
+ * transport environment/variables are snapshotted at construction. Default storage checks are the
+ * strict read-only ACL policy (Windows spawns a metadata process). `install()` is the only provider
+ * installation path; it does not reload running sessions. */
 export function createBackendMcpNativeRuntime(options: {
   agentDir: string;
   bundledConfigPath: string;
