@@ -4,6 +4,7 @@ import { once } from "node:events";
 import { streamRuntimeEvents } from "./runtime-events.mjs";
 import { parseMcpPresetRequest } from "../../shared/mcp-preset-request.mjs";
 import { publicMcpAuthSnapshot } from "../../shared/mcp-auth-snapshot.mjs";
+import { parseMcpBearerSaveRequest, publicMcpBearerSaveResult } from "../../shared/mcp-bearer-save-request.mjs";
 import { InvalidTaskMessageCursorError, pageTaskMessages } from "../../shared/task-history.mjs";
 import {
   BACKEND_ERROR_CODES,
@@ -215,6 +216,8 @@ export function createBackendServer({
   createMcpPresetAction = null,
   /** Reads auth metadata/status in the owning process; never accepts credential inputs. */
   readMcpAuthStatus = null,
+  /** Saves a validated bearer token through the owner's credential-store bridge. */
+  saveMcpBearerAuthAction = null,
   /** Compacts a session: `(id, customInstructions?) => task`; the summarization runs in the owner. */
   compactTaskAction = null,
   /** Stops a running compaction: `(id) => task`; only the owner can interrupt its own session. */
@@ -280,6 +283,7 @@ export function createBackendServer({
     setMcpServerEnabledAction,
     createMcpPresetAction,
     readMcpAuthStatus,
+    saveMcpBearerAuthAction,
     compactTaskAction,
     abortCompactTaskAction,
     setTaskModelAction,
@@ -416,8 +420,8 @@ export function createBackendServer({
       return;
     }
     if (target.pathname.startsWith(`${BACKEND_MCP_SERVERS_PATH}/`) && target.pathname.endsWith(BACKEND_MCP_AUTH_SUFFIX)) {
-      if (request.method !== "GET") {
-        sendJson(response, 405, { error: "Method not allowed", code: BACKEND_ERROR_CODES.methodNotAllowed }, { Allow: "GET" });
+      if (request.method !== "GET" && request.method !== "POST") {
+        sendJson(response, 405, { error: "Method not allowed", code: BACKEND_ERROR_CODES.methodNotAllowed }, { Allow: "GET, POST" });
         return;
       }
       let name;
@@ -429,8 +433,27 @@ export function createBackendServer({
       }
       let ready = false;
       try { ready = isReady() === true; } catch { /* Refuse without exception detail. */ }
-      if (!readMcpAuthStatus || !ready) {
+      const available = request.method === "POST" ? saveMcpBearerAuthAction : readMcpAuthStatus;
+      if (!available || !ready) {
         sendJson(response, 503, { error: "Backend runtime unavailable", code: BACKEND_ERROR_CODES.runtimeUnavailable });
+        return;
+      }
+      if (request.method === "POST") {
+        const body = await readJsonBody(request, 65_536);
+        const parsed = body.ok ? parseMcpBearerSaveRequest(body.value) : { ok: false };
+        if (!parsed.ok) {
+          sendJson(response, 400, { error: "Invalid MCP bearer save request", code: BACKEND_ERROR_CODES.badRequest });
+          return;
+        }
+        try {
+          const result = publicMcpBearerSaveResult(await saveMcpBearerAuthAction(name, parsed.value));
+          if (!result || result.auth.name !== name) throw new Error("Invalid MCP bearer save result");
+          sendJson(response, 200, result);
+        } catch (error) {
+          const status = [400, 404, 409, 503].includes(error?.status) ? error.status : 500;
+          sendJson(response, status, { error: "Backend MCP bearer save failed",
+            code: status === 404 ? BACKEND_ERROR_CODES.notFound : status < 500 ? BACKEND_ERROR_CODES.badRequest : BACKEND_ERROR_CODES.internal });
+        }
         return;
       }
       try {

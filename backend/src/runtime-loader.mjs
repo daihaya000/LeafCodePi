@@ -78,6 +78,7 @@ export const REQUIRED_RUNTIME_EXPORTS = Object.freeze([
   "mcpErrorStatus",
   "createMcpPreset",
   "readMcpAuthStatus",
+  "saveMcpBearerAuth",
   "cancelBotCodeRequests",
   "botTaskId",
   "revertRoomConversation",

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { createMcpPresetOnBackend, readMcpAuthStatusOnBackend, setMcpServerEnabledOnBackend } from "./backend-client";
+import { createMcpPresetOnBackend, readMcpAuthStatusOnBackend, saveMcpBearerAuthOnBackend, setMcpServerEnabledOnBackend } from "./backend-client";
 const env = { LEAFCODE_PI_BACKEND_TOKEN: "t".repeat(40), LEAFCODE_PI_BACKEND_URL: "http://127.0.0.1:19999" };
 function json(status: number, body: unknown) {
   return new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
@@ -21,6 +21,18 @@ describe("MCP Backend ON/OFF client", () => {
     expect(fetchImpl.mock.calls[0][0]).toBe("http://127.0.0.1:19999/internal/mcp/servers/server%20name/auth");
     expect(fetchImpl.mock.calls[0][1]?.method).toBe("GET");
     expect(fetchImpl.mock.calls[0][1]?.body).toBeUndefined();
+  });
+  it("sends bearer save credentials only as a private authenticated POST body", async () => {
+    const fetchImpl = vi.fn<typeof fetch>(async () => json(200, {}));
+    const input = { type: "bearer" as const, token: "private-fixture-token" };
+    await saveMcpBearerAuthOnBackend("server name", input, { env, fetchImpl });
+    expect(fetchImpl.mock.calls[0][0]).toBe("http://127.0.0.1:19999/internal/mcp/servers/server%20name/auth");
+    const options = fetchImpl.mock.calls[0][1]!;
+    expect(options.method).toBe("POST");
+    expect(JSON.parse(options.body as string)).toEqual(input);
+    expect(options.headers).toMatchObject({ authorization: `Bearer ${env.LEAFCODE_PI_BACKEND_TOKEN}` });
+    expect(await saveMcpBearerAuthOnBackend("server", input, { env: {}, fetchImpl })).toEqual({ ok: false, reason: "not-configured" });
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
   });
   it("forwards a preset and its credentials only to the owner", async () => {
     const fetchImpl = vi.fn<typeof fetch>(async () => json(200, { ok: true, name: "google-workspace", servers: [],

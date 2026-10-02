@@ -35,12 +35,13 @@ describe("shared wire contracts", () => {
       copyFileSync(fileURLToPath(new URL("../../../shared/types.ts", import.meta.url)), join(mirror, "shared", "types.ts"));
       // The mirror copies the whole shared directory in production; the contract files it imports must
       // be present here too, or the probe fails on a missing module instead of a broken contract.
-      for (const contract of ["bot-tools.mjs", "bot-tools.d.mts"]) {
+      for (const contract of ["bot-tools.mjs", "bot-tools.d.mts", "mcp-auth-snapshot.mjs", "mcp-auth-snapshot.d.mts",
+        "mcp-preset-request.mjs", "mcp-preset-request.d.mts", "mcp-bearer-save-request.mjs", "mcp-bearer-save-request.d.mts"]) {
         copyFileSync(fileURLToPath(new URL(`../../../shared/${contract}`, import.meta.url)), join(mirror, "shared", contract));
       }
       copyFileSync(fileURLToPath(new URL("./types.ts", import.meta.url)), join(mirror, "src", "lib", "types.ts"));
       const probe = join(mirror, "probe.ts");
-      writeFileSync(probe, 'import { BOT_ROUTINE_RUN_EVENT, type TaskDetail } from "@/lib/types";\nexport const event: "routine" = BOT_ROUTINE_RUN_EVENT;\nexport type Task = TaskDetail;\n');
+      writeFileSync(probe, 'import { BOT_ROUTINE_RUN_EVENT, type TaskDetail } from "@/lib/types";\nimport { parseMcpBearerSaveRequest, type McpBearerSaveResult } from "@shared/mcp-bearer-save-request.mjs";\nexport const event: "routine" = BOT_ROUTINE_RUN_EVENT;\nexport type Task = TaskDetail;\nexport function parse(input: unknown): string | null { const result = parseMcpBearerSaveRequest(input); return result.ok ? result.value.token : null; }\nexport function status(result: McpBearerSaveResult): string { return result.auth.credentialStatus; }\n');
       const config = ts.readConfigFile(join(mirror, "tsconfig.json"), ts.sys.readFile);
       expect(config.error).toBeUndefined();
       const options: ts.CompilerOptions = {

@@ -86,10 +86,10 @@ test("auth status GET is authenticated, read-only and refuses arbitrary names an
   const url = `${itemUrl}/auth`;
   assert.equal((await request(url)).status, 401);
   assert.equal((await request(url, { headers: { authorization: headers.authorization } })).status, 409);
-  for (const method of ["POST", "DELETE", "PATCH"]) {
+  for (const method of ["DELETE", "PATCH"]) {
     const response = await request(url, { method, headers });
     assert.equal(response.status, 405);
-    assert.equal(response.headers.get("allow"), "GET");
+    assert.equal(response.headers.get("allow"), "GET, POST");
   }
   for (const suffix of ["?configPath=other", "?token=secret"]) assert.equal((await request(url + suffix, { headers })).status, 400);
   assert.equal((await request(url.replace("fixture/auth", "a%2Fb/auth"), { headers })).status, 400);
@@ -107,6 +107,49 @@ test("auth status GET is authenticated, read-only and refuses arbitrary names an
   assert.equal(failed.status, 500);
   assert.equal((await failed.text()).includes("private-fixture-secret"), false);
   assert.throws(() => createBackendServer({ token: "x".repeat(32), readMcpAuthStatus: true }), /readMcpAuthStatus/);
+});
+
+test("bearer save POST is authenticated, whitelisted and never exposes credential or reload errors", async (t) => {
+  const calls = [];
+  const { url: itemUrl, headers } = await endpoint(t, { saveMcpBearerAuthAction: (name, input) => {
+    calls.push([name, input]); return { ok: true, token: input.token,
+      auth: { name, configPath: "owner-private-path", authType: "bearer", credentialConfigured: true,
+        credentialSource: "secure-store", credentialStatus: "present", credentialMessage: input.token },
+      reload: { reloaded: 1, deferred: 0, failed: 1, errors: [input.token] } };
+  } });
+  const url = `${itemUrl}/auth`;
+  const input = { type: "bearer", token: "private-fixture-token" };
+  const post = (body, auth = headers, target = url) => request(target, { method: "POST", headers: auth, body: JSON.stringify(body) });
+  assert.equal((await post(input, {})).status, 401);
+  assert.equal((await post(input, { authorization: headers.authorization })).status, 409);
+  for (const body of [null, [], {}, { token: "" }, { ...input, configPath: "other" }, { ...input, type: "oauth" },
+    { ...input, headers: {} }, { token: "x\ny" }, { token: "x".repeat(8193) }]) assert.equal((await post(body)).status, 400);
+  for (const name of ["%ZZ", "a%2Fb", "a%5Cb", "bad..name"]) {
+    assert.equal((await post(input, headers, url.replace("fixture/auth", `${name}/auth`))).status, 400);
+  }
+  assert.equal((await post(input, headers, `${url}?agentDir=other`)).status, 400);
+  assert.equal((await request(url, { method: "POST", headers, body: "{" })).status, 400);
+  await assert.rejects(post({ token: "x".repeat(70_000) })); // The shared body limiter closes oversized requests.
+  assert.equal(calls.length, 0);
+  const success = await post({ ...input, token: ` ${input.token} ` });
+  assert.equal(success.status, 200);
+  assert.equal((await success.text()).includes("private"), false);
+  assert.deepEqual(calls, [["fixture", input]]);
+  for (const options of [{}, { saveMcpBearerAuthAction: () => { calls.push("unexpected"); }, isReady: () => false },
+    { saveMcpBearerAuthAction: () => { calls.push("unexpected"); }, isReady: () => { throw new Error(input.token); } }]) {
+    const unavailable = await endpoint(t, options);
+    assert.equal((await post(input, unavailable.headers, `${unavailable.url}/auth`)).status, 503);
+  }
+  assert.equal(calls.length, 1);
+  for (const status of [400, 404, 409, 503, 500]) {
+    const failed = await endpoint(t, { saveMcpBearerAuthAction: () => { throw Object.assign(new Error(input.token), { status }); } });
+    const response = await post(input, failed.headers, `${failed.url}/auth`);
+    assert.equal(response.status, status);
+    assert.equal((await response.text()).includes(input.token), false);
+  }
+  const malformed = await endpoint(t, { saveMcpBearerAuthAction: () => ({ token: input.token }) });
+  assert.equal((await post(input, malformed.headers, `${malformed.url}/auth`)).status, 500);
+  assert.throws(() => createBackendServer({ token: "x".repeat(32), saveMcpBearerAuthAction: true }), /saveMcpBearerAuthAction/);
 });
 
 test("preset creation is authenticated, owner-ready and limited to known request shapes", async (t) => {
@@ -212,5 +255,11 @@ test("Backend entry persists ON/OFF through the rebuilt runtime and returns only
   assert.equal(auth.credentialStatus, "unavailable"); // No live bridge in this isolated runtime.
   assert.equal(auth.configPath, "");
   assert.equal(JSON.stringify(auth).includes(root), false);
+  assert.deepEqual(await readFile(configPath), beforeStatus);
+  const detachedSave = await request(`${base}${BACKEND_MCP_SERVERS_PATH}/n8n/auth`, {
+    method: "POST", headers, body: JSON.stringify({ type: "bearer", token: "private-fixture-bearer-token" }),
+  });
+  assert.equal(detachedSave.status, 503); // No live credential-store bridge: fail closed, no selector write.
+  assert.equal((await detachedSave.text()).includes("private-fixture-bearer-token"), false);
   assert.deepEqual(await readFile(configPath), beforeStatus);
 });
