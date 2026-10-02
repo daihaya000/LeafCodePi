@@ -9,6 +9,13 @@ Updated: 2026-10-02
 - **Fix**: Narrow `err` with `typeof err === "object" && err !== null` before `"reason" in err`.
 - **Prior fix**: dead-PID `.leafcode-pi-deps.lock` reclaim (`df5e6e18`) stopped EEXIST Pi sync loop.
 
+## Goal Loop stuck at 送信待ち / queued (resolved)
+
+- **Session evidence**: `01a0efaf-fc6d-7547-9ffa-19d9971df027` — goals-loop stayed `queued` turnCount=0; task `55fa9adb-…` stayed `working` with an active lease; loop file never updated after create.
+- **Root cause**: `goalLoopCommand` start/resume called `prepareLiveForPrompt` **without** `deferWorking`, so working+lease were reserved before the first `sendTurn`. When send could not enqueue, `releaseGoalLoopTurn` also refused to clear if `isLiveBusyForReplace` (e.g. compacting), stranding 送信待ち.
+- **Fix**: defer working on start/resume prepare; release prepared turns unless `promptActive`; recover stranded working+queued on the next prepare.
+- **Ops**: restart Host so Backend loads the fix; open the task — prepare should recover and send, or use Goal resume if still paused.
+
 ## Message revert failure with Goal Loop (resolved)
 
 - **Symptom**: UI shows `巻き戻しに失敗しました` while Goal Loop badge (`ループ 1`) is visible; task often looks idle after `Request was aborted`.

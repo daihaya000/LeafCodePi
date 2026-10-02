@@ -3005,6 +3005,21 @@ function registerGoalLoopTurnRouting(taskId: string): (pi: ExtensionAPI) => void
         }
         // Do not route/replace while another prompt is already accepted or streaming.
         if (isLiveBusyForReplace(before)) return "retry";
+        // A prior start-path prepare or abandoned send can leave working+lease while
+        // the durable loop is still queued (送信待ち). Clear that reservation so this
+        // turn can commit cleanly instead of spinning forever.
+        const stranded = getTask(taskId);
+        if (stranded?.status === "working" && ownsTaskLease(taskId)) {
+          const loop = readGoalLoopState(
+            before.session.sessionManager.getCwd(),
+            before.session.sessionId,
+          );
+          if (loop && (loop.status === "queued" || loop.status === "verifying_completed")) {
+            disarmTaskHangWatch(taskId);
+            setTaskStatus(taskId, "idle");
+            emitTaskSnapshot(before, "goal_turn_reservation_recovered");
+          }
+        }
         await waitForSessionReload(before.session);
         if (!ownsRouting()) return false;
         const latestBefore = state().live.get(taskId);
@@ -3088,10 +3103,12 @@ function registerGoalLoopTurnRouting(taskId: string): (pi: ExtensionAPI) => void
           live.session.sessionManager !== manager ||
           !task ||
           task.status !== "working" ||
-          live.promptActive ||
-          isLiveBusyForReplace(live) ||
           !ownsTaskLease(taskId)
         ) return;
+        // promptActive means the SDK already accepted a turn: settle owns lifecycle.
+        // Do not require !isLiveBusyForReplace — compaction/streaming without our
+        // prompt must not strand working+lease while the loop stays queued.
+        if (live.promptActive) return;
         disarmTaskHangWatch(taskId);
         setTaskStatus(taskId, "idle");
         releaseTaskLease(taskId);
@@ -7706,12 +7723,15 @@ export async function goalLoopCommand(
   const startedEpoch = live.promptEpoch;
   // Apply deferred tools/permission before /goal-start. Use reroute:false so the
   // first Goal turn's prepareGoalLoopTurn still owns integrated account selection
-  // (avoids double resolvePromptRoute on start/resume).
+  // (avoids double resolvePromptRoute on start/resume). Defer working too: marking
+  // working here leaves 送信待ち stranded when the first sendTurn cannot enqueue yet
+  // (releaseGoalLoopTurn only clears a reservation it prepared).
   if (input.action === "start" || input.action === "resume") {
     live = await prepareLiveForPrompt(
       live,
       false,
       copyPendingLiveSettings((state().live.get(live.taskId) ?? live).pendingSettings),
+      { deferWorking: true },
     );
   }
   const current = state().live.get(taskId) ?? live;
