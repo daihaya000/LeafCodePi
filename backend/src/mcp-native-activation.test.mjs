@@ -66,8 +66,20 @@ test("initialize snapshots explicit options and installs the prepared provider w
   assert.equal(options.fetch, fetch); assert.equal(options.openUrl, openUrl); assert.equal(typeof options.assertProcessOwner, "function");
   assert.equal(Object.getPrototypeOf(options.environment), Object.prototype);
   // No default storage checks/browser/fetch are smuggled in: the runtime owns its own defaults.
-  assert.deepEqual(Object.keys(options).sort(), ["agentDir", "assertProcessOwner", "bundledConfigPath", "environment", "fetch", "homeDir", "openUrl", "variables"]);
+  assert.deepEqual(Object.keys(options).sort(), ["agentDir", "assertProcessOwner", "bundledConfigPath", "envCommands", "environment", "fetch", "homeDir", "openUrl", "variables"]);
+  assert.equal(typeof options.envCommands.run, "function");
   await assert.rejects(activation.initialize(fakeRuntime()), safe); // at most one successful attempt
+  activation.dispose();
+});
+
+test("an injected env-command resolver is used instead of the shell default", async () => {
+  const commands = [];
+  const activation = createNativeMcpActivation({ agentDir: "C:/private-agent", environment: {}, variables: {},
+    runEnvCommand: (command) => { commands.push(command); return "resolved"; } });
+  const runtime = fakeRuntime(); await activation.initialize(runtime);
+  assert.equal(runtime.calls.options[0].envCommands.run("print-key"), "resolved");
+  assert.deepEqual(commands, ["print-key"]);
+  assert.throws(() => createNativeMcpActivation({ agentDir: "C:/private-agent", environment: {}, variables: {}, runEnvCommand: async () => "x" }), safe);
   activation.dispose();
 });
 

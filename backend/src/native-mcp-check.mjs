@@ -7,7 +7,8 @@
  *
  * `--skip-storage` is for transport compatibility only and is NOT acceptance: it bypasses the same
  * attestation the runtime requires, so a passing run there does not mean native MCP may be enabled.
- * `--json` prints one machine-readable object (still no secrets/paths/tokens).
+ * `--json` prints one machine-readable object (still no secrets/paths/tokens). `--timeout-ms=N`
+ * raises the per-server handshake timeout (default 30s; browser-use needs well over 10s to boot).
  */
 import { existsSync } from "node:fs";
 import { dirname, isAbsolute, resolve } from "node:path";
@@ -20,7 +21,7 @@ import { prepareBackendMcpConfigLoader } from "../core/mcp-native-config-loader.
 import { createBackendMcpNativeRuntime } from "../core/mcp-native-runtime.mjs";
 import { createBackendMcpHttpTransportFactory } from "../core/mcp-native-http-transport.mjs";
 import { createBackendMcpStdioTransportFactory } from "../core/mcp-native-stdio-transport.mjs";
-import { isNativeMcpRequested } from "./mcp-native-activation.mjs";
+import { isNativeMcpRequested, runEnvCommand } from "./mcp-native-activation.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const BUNDLED_CONFIG = resolve(HERE, "..", "..", "extensions", "leafcode-mcp-adapter", "mcp.json");
@@ -59,16 +60,24 @@ export async function runNativeMcpCheck(options = {}) {
 
   // Real handshake per enabled server through the native transports. Servers start exactly as a
   // session would start them; only initialize/tools-list run, never a tool call.
+  const failedCommands = new Set();
   const runtime = createBackendMcpNativeRuntime({
     agentDir, bundledConfigPath: options.bundledConfigPath ?? BUNDLED_CONFIG, homeDir: options.homeDir ?? homedir(),
     environment: { ...env }, variables: { ...env }, fetch: options.fetch ?? globalThis.fetch,
     openUrl() { report.connect = { ...report.connect, browserRequested: true }; },
     assertProcessOwner() {}, startupWaitMs: 0,
+    // Same owner-side resolution the activation uses, so adapter-style `!command` values are exercised.
+    // Failures are recorded here so the reason can name the key without running a command twice.
+    envCommands: { run: (command) => {
+      const value = (options.runEnvCommand ?? runEnvCommand)(command);
+      if (typeof value !== "string" || value.length === 0) failedCommands.add(command);
+      return value;
+    } },
     ...(skipStorage ? { storageChecks: { config() {}, credentials() {} } } : {}),
   });
   try {
     const prepared = await runtime.prepare();
-    const fresh = prepared.binding.loadConfig();
+    const fresh = prepared.snapshot;
     const sessionCwd = options.sessionCwd ?? process.cwd();
     const common = { snapshot: fresh, configPath: resolve(agentDir, "mcp.json"), sessionCwd, assertSnapshotOwner: prepared.binding.assertOwner };
     const stdioFactory = createBackendMcpStdioTransportFactory({ ...common, homeDir: options.homeDir ?? homedir(), environment: { ...env } });
@@ -76,15 +85,17 @@ export async function runNativeMcpCheck(options = {}) {
     const servers = {};
     for (const server of fresh.servers) {
       if (server.config.enabled === false) continue;
-      // The adapter resolved `!command` env values itself; the native transports never execute config
-      // commands, so name that reason instead of a generic refusal. The value stays private.
-      const envCommands = Object.entries(server.config.env ?? {})
-        .filter(([, value]) => typeof value === "string" && value.startsWith("!")).map(([key]) => key);
-      if (envCommands.length) { servers[server.name] = { error: "unsupported-env-command", envKeys: envCommands }; continue; }
       let transport;
       try { transport = (typeof server.config.url === "string" ? httpFactory : stdioFactory)(server, sessionCwd, undefined); }
-      catch { servers[server.name] = { error: "transport-refused" }; continue; }
-      const client = new McpClient({ name: "leafcode-cutover-check", version: "0.1.0", requestTimeoutMs: options.connectTimeoutMs ?? 10_000 });
+      catch {
+        // The adapter resolved `!command` env values itself; the native transports never execute config
+        // commands, so name the keys the owner could not resolve instead of a generic refusal.
+        const envKeys = Object.entries(server.config.env ?? {})
+          .filter(([, value]) => typeof value === "string" && value.startsWith("!") && failedCommands.has(value.slice(1))).map(([key]) => key);
+        servers[server.name] = envKeys.length ? { error: "unsupported-env-command", envKeys } : { error: "transport-refused" };
+        continue;
+      }
+      const client = new McpClient({ name: "leafcode-cutover-check", version: "0.1.0", requestTimeoutMs: options.connectTimeoutMs ?? 30_000 });
       try {
         await client.connect(transport);
         servers[server.name] = { tools: (await client.listTools()).length };
@@ -108,7 +119,9 @@ export async function runNativeMcpCheck(options = {}) {
 function main() {
   const args = new Set(process.argv.slice(2));
   const json = args.has("--json");
-  const options = { connect: args.has("--connect"), skipStorage: args.has("--skip-storage") };
+  const timeout = [...args].find((value) => value.startsWith("--timeout-ms="));
+  const options = { connect: args.has("--connect"), skipStorage: args.has("--skip-storage"),
+    ...(timeout ? { connectTimeoutMs: Number(timeout.slice("--timeout-ms=".length)) } : {}) };
   void runNativeMcpCheck(options).then((report) => {
     if (json) {
       process.stdout.write(`${JSON.stringify(report)}\n`);

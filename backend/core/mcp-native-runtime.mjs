@@ -1,5 +1,6 @@
 import { join } from "node:path";
 import { createBackendMcpConfigOwner } from "./mcp-native-config-owner.mjs";
+import { resolveMcpEnvCommands } from "./mcp-native-env-commands.mjs";
 import { createBackendMcpCredentialAuthority } from "./mcp-native-credential-authority.mjs";
 import { createBackendMcpCredentialOwner } from "./mcp-native-credential-owner.mjs";
 import { createBackendMcpCredentials } from "./mcp-native-credentials.mjs";
@@ -13,14 +14,16 @@ import { createBackendMcpConfigStorageCheck, createBackendMcpPrivateStorageCheck
 const unavailable = () => new Error("MCP native runtime unavailable");
 const plain = (v) => v && typeof v === "object" && !Array.isArray(v) && [Object.prototype, null].includes(Object.getPrototypeOf(v));
 const sync = (fn) => typeof fn === "function" && fn.constructor?.name !== "AsyncFunction";
+const only = (v, keys) => Reflect.ownKeys(v).every((k) => keys.includes(k));
 const REQUIRED = ["agentDir", "bundledConfigPath", "homeDir", "environment", "variables", "fetch", "openUrl", "assertProcessOwner"];
-const ALLOWED = [...REQUIRED, "urlVariables", "startupWaitMs", "storageChecks"];
+const ALLOWED = [...REQUIRED, "urlVariables", "startupWaitMs", "storageChecks", "envCommands"];
 
 /** INTERNAL, INERT Backend composition of the native MCP owner pieces. Construction performs no IO.
  * prepare() reads/validates the fixed config sources once and returns a PRIVATE runtime bound to that
  * snapshot. install() is the only provider-installation path (prepare + publish for new sessions).
  * forSession(cwd) returns SDK extension factories whose transports are chosen from the prepared entry
- * (url -> HTTP, otherwise stdio). Nothing here migrates files, reloads running sessions, quiesces other
+ * (url -> HTTP, otherwise stdio). Optional `envCommands.run` resolves adapter-style `!command`
+ * env/header secrets in a private copy before the factories see them. Nothing here migrates files, reloads running sessions, quiesces other
  * writers or removes the legacy adapter; a failed reload leaves the previous provider fail-closed. */
 export function createBackendMcpNativeRuntime(options) {
   try {
@@ -34,6 +37,8 @@ export function createBackendMcpNativeRuntime(options) {
       credentials: createBackendMcpPrivateStorageCheck({ agentDir: captured.agentDir }),
     };
     if (!plain(checks) || !sync(checks.config) || !sync(checks.credentials)) throw unavailable();
+    const envCommands = captured.envCommands;
+    if (envCommands !== undefined && (!plain(envCommands) || !only(envCommands, ["run"]) || !sync(envCommands.run))) throw unavailable();
     const owner = createBackendMcpConfigOwner({
       agentDir: captured.agentDir, bundledConfigPath: captured.bundledConfigPath,
       ...(captured.urlVariables ? { urlVariables: captured.urlVariables } : {}),
@@ -54,9 +59,16 @@ export function createBackendMcpNativeRuntime(options) {
       });
       const credentials = createBackendMcpCredentials(credentialOwner);
       const readOAuthStatus = createBackendMcpOAuthStatusReader({ owner: credentialOwner });
-      const snapshot = binding.loadConfig(), configPath = join(captured.agentDir, "mcp.json");
+      const loaded = binding.loadConfig();
+      // Adapter-style `!command` secrets are resolved by the owner before the factories see them, so
+      // the transports keep their "never execute configuration" property. Without an executor the
+      // markers stay and the affected server is refused individually.
+      const snapshot = envCommands ? resolveMcpEnvCommands(loaded, { run: envCommands.run }) : loaded;
+      const configPath = join(captured.agentDir, "mcp.json");
       return Object.freeze({
         binding,
+        /** PRIVATE resolved snapshot (env/header commands already substituted); never a DTO. */
+        snapshot,
         /** Read-only native OAuth status for one configured entry of THIS snapshot. Never refreshes or
          * writes; non-configured, stdio/header and unknown entries are refused by the authority. */
         readOAuthStatus(name) {

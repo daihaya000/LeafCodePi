@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { homedir, platform as osPlatform } from "node:os";
 
 /** Bundled default config: the same file the migration planner reads. Overridable for tests/deployments. */
@@ -6,6 +6,20 @@ export const BUNDLED_MCP_CONFIG = new URL("../../extensions/leafcode-mcp-adapter
 
 const ENABLED_VALUES = new Set(["1", "true", "yes", "on", "native"]);
 const unavailable = () => new Error("MCP native activation unavailable");
+const COMMAND_TIMEOUT_MS = 10_000, COMMAND_MAX_OUTPUT_BYTES = 1024 * 1024;
+
+/** Default resolver for adapter-style `!command` env/header secrets. Shell semantics and the 10s/1MiB
+ * bounds match the legacy adapter so existing configs keep working; stdout is trimmed, and a failure
+ * returns undefined so only the affected server is refused. Values never reach logs. */
+export function runEnvCommand(command) {
+  const result = spawnSync(command, {
+    shell: true, encoding: "utf8", timeout: COMMAND_TIMEOUT_MS, maxBuffer: COMMAND_MAX_OUTPUT_BYTES,
+    stdio: ["ignore", "pipe", "ignore"], windowsHide: true,
+  });
+  if (result?.error || typeof result?.stdout !== "string") return undefined;
+  const value = result.stdout.trim();
+  return value.length > 0 ? value : undefined;
+}
 
 /** Legacy adapter auth writes go to stores the native runtime never reads, so a native session would
  * stay unauthenticated while the UI reported success. Refuse (409) until the native equivalents land. */
@@ -55,8 +69,7 @@ export function createBrowserOpener({ platform: platformName = osPlatform(), lau
   });
 }
 
-function records(value) {
-  if (value === null || typeof value !== "object" || Array.isArray(value)) throw unavailable();
+function records(value) {  if (value === null || typeof value !== "object" || Array.isArray(value)) throw unavailable();
   const result = {};
   for (const key of Reflect.ownKeys(value ?? {})) {
     if (typeof key !== "string") continue;
@@ -81,7 +94,7 @@ function records(value) {
  */
 export function createNativeMcpActivation(options = {}) {
   try {
-    const keys = ["agentDir", "bundledConfigPath", "homeDir", "environment", "variables", "fetch", "openUrl", "assertProcessOwner"];
+    const keys = ["agentDir", "bundledConfigPath", "homeDir", "environment", "variables", "fetch", "openUrl", "assertProcessOwner", "runEnvCommand"];
     if (options === null || typeof options !== "object" || Array.isArray(options)) throw unavailable();
     if (Reflect.ownKeys(options).some((key) => !keys.includes(key))) throw unavailable();
     const agentDir = Object.hasOwn(options, "agentDir") ? options.agentDir : undefined;
@@ -94,8 +107,10 @@ export function createNativeMcpActivation(options = {}) {
     const fetch = Object.hasOwn(options, "fetch") ? options.fetch : globalThis.fetch;
     const openUrl = Object.hasOwn(options, "openUrl") ? options.openUrl : createBrowserOpener();
     const assertProcessOwner = Object.hasOwn(options, "assertProcessOwner") ? options.assertProcessOwner : () => {};
+    const resolveEnvCommand = Object.hasOwn(options, "runEnvCommand") ? options.runEnvCommand : runEnvCommand;
     if (typeof fetch !== "function" || typeof openUrl !== "function"
-      || typeof assertProcessOwner !== "function" || assertProcessOwner.constructor?.name === "AsyncFunction") throw unavailable();
+      || typeof assertProcessOwner !== "function" || assertProcessOwner.constructor?.name === "AsyncFunction"
+      || typeof resolveEnvCommand !== "function" || resolveEnvCommand.constructor?.name === "AsyncFunction") throw unavailable();
 
     let state = "idle";
     let owner, prepared;
@@ -110,6 +125,7 @@ export function createNativeMcpActivation(options = {}) {
           owner = runtimeModule.createBackendMcpNativeRuntime({
             agentDir: directory, bundledConfigPath, homeDir,
             environment: { ...environment }, variables: { ...variables }, fetch, openUrl, assertProcessOwner,
+            envCommands: { run: resolveEnvCommand },
           });
           if (typeof owner?.install !== "function") throw unavailable();
           prepared = await owner.install();

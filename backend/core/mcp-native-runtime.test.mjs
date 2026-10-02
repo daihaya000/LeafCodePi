@@ -174,6 +174,22 @@ test("readOAuthStatus reads only this snapshot's configured OAuth entries and ne
   assert.throws(() => prepared.readOAuthStatus("remote"), safe);
 });
 
+test("envCommands resolves adapter-style secrets into the private snapshot before factories see them", async (t) => {
+  const root = await fixture(t, { local: { command: process.execPath, args: ["--version"], env: { KEY: "!print-key", ESCAPED: "!!literal" } } });
+  removeRoot(t, root);
+  const commands = [];
+  const plain = create(base(root)); const resolved = create(base(root, { envCommands: { run: (command) => { commands.push(command); return "resolved-value"; } } }));
+  t.after(() => { plain.dispose(); resolved.dispose(); });
+  assert.equal((await plain.prepare()).snapshot.servers[0].config.env.KEY, "!print-key");
+  assert.deepEqual(commands, [], "no executor means no command runs");
+  const prepared = await resolved.prepare();
+  assert.deepEqual(prepared.snapshot.servers[0].config.env, { KEY: "resolved-value", ESCAPED: "!literal" });
+  assert.deepEqual(commands, ["print-key"]);
+  assert.equal(prepared.forSession(root).ok, true, "the resolved entry builds its transport factory");
+  prepared.snapshot.servers[0].config.env.KEY = "mutated";
+  assert.equal((await resolved.prepare()).snapshot.servers[0].config.env.KEY, "resolved-value", "each prepare resolves its own copy");
+});
+
 test("a failing process owner or storage attestation makes prepare unavailable without leaking causes", async (t) => {
   const root = await fixture(t, { user: { command: process.execPath } });
   removeRoot(t, root);

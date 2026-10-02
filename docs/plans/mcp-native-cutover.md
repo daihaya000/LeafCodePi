@@ -31,19 +31,15 @@ issues: config-storage-refused, credentials-storage-refused
 result: not ready
 ```
 
-`--skip-storage --connect --json`（transport 互換の確認）:
+`--skip-storage --connect --json`（transport 互換の確認、`--timeout-ms=25000`）:
 
-```
-server browser-use: unsupported-env-command (OPENAI_API_KEY)
-server blendermcp: 26 tools
-server comfy-mcp: 39 tools
-issues: enabled-servers-not-verified
-result: not ready
+```json
+{"connect":{"servers":{"browser-use":{"tools":16},"blendermcp":{"tools":26},"comfy-mcp":{"tools":39}}},"ok":true,"issues":[]}
 ```
 
-blendermcp と comfy-mcp は native の stdio transport で実接続し tools/list まで通った。
+有効な3サーバーすべてが native transport で実接続し tools/list まで通った。browser-use は起動が遅く、
+既定10秒ではハンドシェイクが間に合わないため、既定の待ち時間は 30 秒にした。
 MCPツールは公開設定にかかわらず登録される（codemode/deferred はモデルへの宣言だけを抑える）。
-browser-use は設定の env が adapter 専用の `!command` 解決を必要とするため拒否され、該当キー名が報告される。
 
 また、この過程で判明した不具合を修正した: activation が渡す環境マップに
 `ProgramFiles(x86)` のような非識別子キーが含まれると transport が構築自体を拒否していた。
@@ -95,10 +91,11 @@ blendermcp は native の stdio transport で実接続し 26 の直接ツール�
    ユーザーが URL を定義しておらず、かつ無効な同梱既定は、URL 変数が未解決なら config から落とす。
    ユーザー定義 URL と有効なエントリは従来どおり全体を拒否する（fail-closed）。
    変数を設定すれば従来どおり同梱既定が使われる。
-3. **adapter 専用の `!command` env**（未解決）
-   browser-use の `OPENAI_API_KEY` は adapter が起動時にコマンド実行して解決する値。
-   native は設定のコマンドを実行しない（fail-closed）ため、`${VAR}` 参照（Backend の環境変数）へ
-   書き換えるか、native では browser-use を使わない判断が必要。`native-mcp-check` が該当キー名を報告する。
+3. ~~adapter 専用の `!command` env~~（解決済み: 2026-10-03）
+   所有者（activation）が prepare 時に1回だけコマンドを実行して値を解決する。
+   `!!x` は `!x` へ復号、失敗・タイムアウト・空出力はマーカーを残し、そのサーバーだけが拒否される。
+   シェル実行・10秒/1MiB の上限は adapter と同一（既存設定をそのまま使える）。
+   `headers` の `!` 値も同じ規則で解決する。値はログ・DTO に出さない。
 
 ## 切替手順（承認後）
 
@@ -127,5 +124,5 @@ blendermcp は native の stdio transport で実接続し 26 の直接ツール�
 - 実行中セッションの reload: 設定変更は新規セッションのみに反映される。
 - project config・CLI/adapter writer 群の一本化、migration apply
   （`configuration-writers-not-quiesced`）。
-- 実サーバー受け入れ: transport 層は blendermcp（26）と comfy-mcp（39）で確認済み。ACL 承認後に
-  flag を入れた本番受け入れを行う（browser-use は上記 3 の解消が前提）。
+- 実サーバー受け入れ: transport 層は有効3サーバー（browser-use 16 / blendermcp 26 / comfy-mcp 39 ツール）で
+  確認済み。残るは ACL 承認後の flag 有効化と本番受け入れ。

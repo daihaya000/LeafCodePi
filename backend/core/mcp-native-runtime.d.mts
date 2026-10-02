@@ -1,4 +1,4 @@
-import type { McpExtensionOptions } from "@earendil-works/pi-coding-agent";
+import type { McpExtensionOptions, LoadedMcpConfig } from "@earendil-works/pi-coding-agent";
 import type { McpFetch } from "@earendil-works/pi-mcp";
 import type { BackendMcpConfigBinding } from "./mcp-native-config-owner.mjs";
 import type { BackendMcpOAuthStatus } from "./mcp-native-oauth-status.mjs";
@@ -9,6 +9,8 @@ import type { BackendMcpWriterScope } from "./mcp-native-write-coordinator.mjs";
 export type BackendMcpPreparedRuntime = Readonly<{
   /** PRIVATE binding; never a DTO. */
   binding: BackendMcpConfigBinding;
+  /** PRIVATE resolved snapshot (`!command` env/header values already substituted); never a DTO. */
+  snapshot: LoadedMcpConfig;
   /** SDK extension family for one session cwd (url entries -> HTTP, others -> stdio). No activation. */
   forSession(sessionCwd: string): BackendMcpExtensionsResult;
   /** Read-only native OAuth status for one configured entry of this snapshot; never refreshes/writes. */
@@ -41,6 +43,9 @@ export function createBackendMcpNativeRuntime(options: {
   assertProcessOwner: () => void;
   urlVariables?: Record<string, string>;
   startupWaitMs?: number;
+  /** Synchronous resolver for adapter-style `!command` env/header secrets; shell/timeout policy is
+   * the caller's. Omitted means markers stay and only the affected server is refused. */
+  envCommands?: { run: (command: string) => string | undefined };
   storageChecks?: {
     config: (location: BackendMcpConfigLocation) => void;
     credentials: (location: BackendMcpCredentialLocation) => void;
