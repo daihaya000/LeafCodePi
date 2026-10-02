@@ -132,7 +132,8 @@ import {
 } from "@/lib/pi/ollama-cloud-provider";
 import { registerTypeSafeProvider } from "@/lib/pi/typesafe-provider";
 import { isJevModel, type JevCatalogModel, type JevModelRef } from "@/lib/jev-model-catalog";
-import { clearJevDiscoveryCache, discoverJevModels, registeredJevEndpoint } from "@/lib/pi/jev-model-discovery";
+import { clearJevDiscoveryCache, discoverJevModels } from "@/lib/pi/jev-model-discovery";
+import { resolveRegisteredJevConnection } from "@/lib/pi/jev-model-connection";
 import { readJevModelSettings } from "@/lib/pi/jev-model-config";
 import { hasUsableJevModel, JEV_MODEL_SETTING_KEY } from "@/lib/jev-model-settings";
 import {
@@ -5305,14 +5306,8 @@ export async function resolveRegisteredJevModel(ref: JevModelRef): Promise<{
   }
   await ensureRuntime({ skipDefaultRuntime: Boolean(ref.accountId) });
   const runtime = await getRuntimeFor(ref.accountId);
-  const baseUrl = runtime && registeredJevEndpoint(runtime, ref);
-  if (!baseUrl) throw new Error("選択したJevモデルは未検出です");
-  const auth = (await runtime.getAuth(ref.providerId))?.auth;
-  if (!auth) throw new Error("Jevプロバイダーの認証が見つかりません");
-  const headers = Object.fromEntries(Object.entries(auth.headers ?? {}).filter(
-    (entry): entry is [string, string] => typeof entry[1] === "string",
-  ));
-  return { baseUrl, model: ref.modelId, apiKey: auth.apiKey, headers };
+  if (!runtime) throw new Error("選択したJevモデルは未検出です");
+  return resolveRegisteredJevConnection(runtime, ref);
 }
 
 /** ランタイムごとの有効モデル一覧を構築する（既定・アカウント共通の処理）。 */

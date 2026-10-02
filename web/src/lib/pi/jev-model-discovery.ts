@@ -1,13 +1,25 @@
-import { hasSystemOneEndpoint, isJevModel, jevModelKey, supportsJevModel, type JevCatalogModel, type JevModelRef } from "@/lib/jev-model-catalog";
+import { jevModelKey, selectNativeJevModel, supportsJevModel, type JevCatalogModel, type JevModelRef } from "@/lib/jev-model-catalog";
 import { DEFAULT_JEV_MODEL_SETTINGS } from "@/lib/jev-model-settings";
 import { TYPESAFE_API_BASE_URL, TYPESAFE_PROVIDER_ID } from "./typesafe-provider";
 
 type Provider = { id: string; name: string; baseUrl?: string };
+type DiscoveryModel = { id: string; name?: string; baseUrl?: string };
 export type JevDiscoveryRuntime = {
   getProviders(): readonly Provider[];
-  getModels(providerId?: string): readonly { id: string; name?: string; baseUrl?: string }[];
+  getModels(providerId?: string): readonly DiscoveryModel[];
+  /** SDK getModels() is chat-only; getAllModels() also contains native classifiers. */
+  getAllModels?(providerId?: string): readonly DiscoveryModel[];
   checkAuth(providerId: string): Promise<unknown>;
 };
+
+function nativeModels(runtime: JevDiscoveryRuntime, providerId: string): readonly DiscoveryModel[] {
+  const selected = new Map<string, DiscoveryModel>();
+  for (const model of runtime.getAllModels?.(providerId) ?? runtime.getModels(providerId)) {
+    const previous = selected.get(model.id);
+    selected.set(model.id, selectNativeJevModel(previous ? [previous, model] : [model], { providerId, modelId: model.id })!);
+  }
+  return [...selected.values()];
+}
 
 type Scope = { accountId?: string; accountLabel?: string; providerIds?: readonly string[] };
 const CATALOG_TTL_MS = 5 * 60_000;
@@ -17,7 +29,7 @@ export function clearJevDiscoveryCache(): void {
   remoteCatalogs.clear();
 }
 
-function validBaseUrl(value: string | undefined): string | undefined {
+export function validJevBaseUrl(value: string | undefined): string | undefined {
   if (!value) return undefined;
   try {
     const url = new URL(value);
@@ -28,22 +40,24 @@ function validBaseUrl(value: string | undefined): string | undefined {
 
 function providerBaseUrl(provider: Provider): string | undefined {
   if (provider.id === "commandcode") {
-    const root = validBaseUrl(provider.baseUrl ?? "https://api.commandcode.ai");
+    const root = validJevBaseUrl(provider.baseUrl ?? "https://api.commandcode.ai");
     return root ? root.endsWith("/provider/v1") ? root : `${root}/provider/v1` : undefined;
   }
   // Credential-only providers have no model from which the SDK can expose baseUrl.
   const defaultBaseUrl = provider.id === TYPESAFE_PROVIDER_ID ? TYPESAFE_API_BASE_URL
     : provider.id === "openrouter" ? "https://openrouter.ai/api/v1" : undefined;
-  return validBaseUrl(provider.baseUrl ?? defaultBaseUrl);
+  return validJevBaseUrl(provider.baseUrl ?? defaultBaseUrl);
 }
 
 export function registeredJevEndpoint(runtime: JevDiscoveryRuntime, ref: JevModelRef): string | undefined {
   const provider = runtime.getProviders().find(({ id }) => id === ref.providerId);
   if (!provider) return undefined;
-  const local = runtime.getModels(ref.providerId).find((model) => model.id === ref.modelId);
-  if (local ? !supportsJevModel(ref.providerId, local) :
-      !(["openrouter", "commandcode", "typesafe"].includes(ref.providerId) && isJevModel({ id: ref.modelId }))) return undefined;
-  return providerBaseUrl(provider) ?? (local && hasSystemOneEndpoint(local) ? validBaseUrl(local.baseUrl) : undefined);
+  const local = selectNativeJevModel(nativeModels(runtime, ref.providerId), ref);
+  const documented = provider.id === TYPESAFE_PROVIDER_ID && ref.modelId === DEFAULT_JEV_MODEL_SETTINGS.typesafeModel
+    || provider.id === "commandcode" && ref.modelId === "typesafe/jev";
+  if (local ? !supportsJevModel(ref.providerId, local) : !documented) return undefined;
+  // Native model configuration is authoritative; invalid overrides must not reroute credentials.
+  return local?.baseUrl !== undefined ? validJevBaseUrl(local.baseUrl) : providerBaseUrl(provider);
 }
 
 async function remoteModels(url: string, fetchImpl: typeof fetch): Promise<unknown[]> {
@@ -81,19 +95,21 @@ export async function discoverJevModels(
     try {
       if (!await runtime.checkAuth(provider.id)) return [];
       const baseUrl = providerBaseUrl(provider);
-      const models: unknown[] = [...runtime.getModels(provider.id)];
+      const local = nativeModels(runtime, provider.id);
+      const localIds = new Set(local.map((model) => model.id));
+      const models: Array<{ value: unknown; native: boolean }> = local.map((value) => ({ value, native: true }));
       if (baseUrl && (provider.id === "openrouter" || provider.id === "commandcode")) {
         const query = provider.id === "openrouter" ? "?output_modalities=decisions&limit=1000" : "";
-        models.push(...await remoteModels(`${baseUrl}/models${query}`, fetchImpl));
+        models.push(...(await remoteModels(`${baseUrl}/models${query}`, fetchImpl)).map((value) => ({ value, native: false })));
       }
       const found = new Map<string, JevCatalogModel>();
-      for (const value of models) {
+      for (const { value, native } of models) {
         if (!value || typeof value !== "object" || !supportsJevModel(provider.id, value)) continue;
         const model = value as { id?: unknown; name?: unknown; baseUrl?: string };
         if (typeof model.id !== "string" || !model.id.trim() || model.id.length > 256 || /\s/.test(model.id)) continue;
-        // Never take credential destinations from remote catalog data. Native custom
-        // models may supply a base URL only when they explicitly declare System One.
-        const endpoint = baseUrl ?? (hasSystemOneEndpoint(value) ? validBaseUrl(model.baseUrl) : undefined);
+        // Remote catalogs cannot override native models or choose credential destinations.
+        if (!native && localIds.has(model.id)) continue;
+        const endpoint = native && model.baseUrl !== undefined ? validJevBaseUrl(model.baseUrl) : baseUrl;
         if (!endpoint) continue;
         const row: JevCatalogModel = {
           providerId: provider.id,
@@ -107,7 +123,7 @@ export async function discoverJevModels(
         found.set(jevModelKey(row), row);
       }
       // CommandCode documents Jev separately; its public chat catalog currently omits it.
-      if (provider.id === "commandcode" && baseUrl && ![...found.values()].some((model) => model.modelId === "typesafe/jev")) {
+      if (provider.id === "commandcode" && baseUrl && !localIds.has("typesafe/jev") && ![...found.values()].some((model) => model.modelId === "typesafe/jev")) {
         const row: JevCatalogModel = {
           providerId: provider.id, providerName: provider.name, modelId: "typesafe/jev", name: "Jev",
           baseUrl, source: "documented",
@@ -116,7 +132,7 @@ export async function discoverJevModels(
         found.set(jevModelKey(row), row);
       }
       // TypeSafe has no chat catalog, but its credential is managed by the normal provider panel.
-      if (provider.id === "typesafe" && baseUrl) {
+      if (provider.id === "typesafe" && baseUrl && !localIds.has(DEFAULT_JEV_MODEL_SETTINGS.typesafeModel)) {
         const row: JevCatalogModel = {
           providerId: provider.id, providerName: provider.name,
           modelId: DEFAULT_JEV_MODEL_SETTINGS.typesafeModel, name: "Jev",
