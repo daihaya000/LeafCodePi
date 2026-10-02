@@ -9,6 +9,7 @@ import { parseMcpHeadersSaveRequest, publicMcpHeadersSaveResult } from "../../sh
 import { parseMcpAuthRemoveRequest, publicMcpAuthRemoveResult } from "../../shared/mcp-auth-remove-request.mjs";
 import { parseMcpOAuthStartRequest, publicMcpOAuthStartResult } from "../../shared/mcp-oauth-start-request.mjs";
 import { parseMcpOAuthCompleteRequest, publicMcpOAuthCompleteResult } from "../../shared/mcp-oauth-complete-request.mjs";
+import { publicMcpServerList } from "../../shared/mcp-server-list.mjs";
 import { InvalidTaskMessageCursorError, pageTaskMessages } from "../../shared/task-history.mjs";
 import {
   BACKEND_ERROR_CODES,
@@ -214,6 +215,8 @@ export function createBackendServer({
   reloadLiveSessionsAction = null,
   /** Backend-owned MCP dry-run; no request arguments or configuration writes. */
   readMcpMigrationDiagnostics = null,
+  /** Lists fixed owner configuration metadata without writes or connections. */
+  readMcpServerList = null,
   /** Changes a global MCP ON/OFF flag and schedules the owner's context reload. */
   setMcpServerEnabledAction = null,
   /** Adds a validated known MCP preset and reloads the owner's sessions. */
@@ -292,6 +295,7 @@ export function createBackendServer({
     botAdminAction,
     reloadLiveSessionsAction,
     readMcpMigrationDiagnostics,
+    readMcpServerList,
     setMcpServerEnabledAction,
     createMcpPresetAction,
     readMcpAuthStatus,
@@ -518,8 +522,30 @@ export function createBackendServer({
       return;
     }
     if (target.pathname === BACKEND_MCP_SERVERS_PATH) {
+      if (request.method === "GET") {
+        if (target.search) {
+          sendJson(response, 400, { error: "MCP list takes no parameters", code: BACKEND_ERROR_CODES.badRequest });
+          return;
+        }
+        let ready = false;
+        try { ready = isReady() === true; } catch { /* Refuse without private details. */ }
+        if (!readMcpServerList || !ready) {
+          sendJson(response, 503, { error: "Backend runtime unavailable", code: BACKEND_ERROR_CODES.runtimeUnavailable });
+          return;
+        }
+        try {
+          const result = publicMcpServerList(await readMcpServerList());
+          if (!result) throw new Error("Invalid MCP list result");
+          sendJson(response, 200, result);
+        } catch (error) {
+          const status = [400, 404, 409, 503].includes(error?.status) ? error.status : 500;
+          sendJson(response, status, { error: "Backend MCP list failed",
+            code: status === 404 ? BACKEND_ERROR_CODES.notFound : status < 500 ? BACKEND_ERROR_CODES.badRequest : BACKEND_ERROR_CODES.internal });
+        }
+        return;
+      }
       if (request.method !== "POST") {
-        sendJson(response, 405, { error: "Method not allowed", code: BACKEND_ERROR_CODES.methodNotAllowed }, { Allow: "POST" });
+        sendJson(response, 405, { error: "Method not allowed", code: BACKEND_ERROR_CODES.methodNotAllowed }, { Allow: "GET, POST" });
         return;
       }
       if (target.search) {

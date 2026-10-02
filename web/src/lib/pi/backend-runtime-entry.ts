@@ -79,6 +79,7 @@ export { getTask, patchTask } from "@/lib/store";
 export { setMcpServerEnabled, mcpErrorStatus } from "@/lib/mcp";
 export { createMcpPreset } from "@/lib/mcp-preset-admin";
 export { readMcpAuthStatus } from "@/lib/mcp-auth-status";
+export { readMcpServerList } from "@/lib/mcp-list-admin";
 export { saveMcpBearerAuth } from "@/lib/mcp-bearer-admin";
 export { saveMcpHeadersAuth } from "@/lib/mcp-headers-admin";
 export { removeMcpBearerAuth } from "@/lib/mcp-bearer-remove-admin";

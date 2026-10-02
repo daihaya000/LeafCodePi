@@ -1,9 +1,11 @@
-/** GET lists MCP metadata; POST adds known presets in the runtime owner. */
+/** GET lists owner MCP metadata; POST adds known presets in the runtime owner. */
 import { NextRequest, NextResponse } from "next/server";
 import { parseMcpPresetRequest, publicMcpReload } from "@shared/mcp-preset-request.mjs";
-import { listMcpServers, mcpErrorStatus } from "@/lib/mcp";
+import { mcpErrorStatus } from "@/lib/mcp";
+import { publicMcpServerList } from "@shared/mcp-server-list.mjs";
+import { readMcpServerList } from "@/lib/mcp-list-admin";
 import { createMcpPreset } from "@/lib/mcp-preset-admin";
-import { createMcpPresetOnBackend } from "@/lib/backend-client";
+import { createMcpPresetOnBackend, readMcpServerListOnBackend } from "@/lib/backend-client";
 import { localRuntimeBlocked } from "@/lib/pi/runtime-ownership";
 
 export const runtime = "nodejs";
@@ -11,10 +13,20 @@ export const dynamic = "force-dynamic";
 
 export async function GET() {
   try {
-    return NextResponse.json(listMcpServers());
+    if (localRuntimeBlocked()) {
+      const forwarded = await readMcpServerListOnBackend();
+      if (!forwarded.ok) {
+        const status = forwarded.status && forwarded.status >= 400 && forwarded.status <= 599 ? forwarded.status : 502;
+        return NextResponse.json({ error: "BackendでMCP サーバー一覧を取得できません" }, { status });
+      }
+      const result = publicMcpServerList(forwarded.body);
+      if (!result) return NextResponse.json({ error: "BackendのMCP応答が不正です" }, { status: 502 });
+      return NextResponse.json(result);
+    }
+    return NextResponse.json(readMcpServerList());
   } catch (error) {
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : "MCP サーバー一覧の取得に失敗しました" },
+      { error: "MCP サーバー一覧の取得に失敗しました" },
       { status: mcpErrorStatus(error) },
     );
   }

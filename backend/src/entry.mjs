@@ -90,6 +90,14 @@ try {
     readPendingSnapshots: () => readPendingRequestSnapshots(started.runtime()),
     // Read-only and useful even before runtime attachment; apply remains unavailable.
     readMcpMigrationDiagnostics: () => readMcpMigrationDiagnostics(),
+    readMcpServerList: () => {
+      const runtime = started.runtime();
+      if (!runtime) throw Object.assign(new Error("runtime unavailable"), { status: 503 });
+      try { return runtime.readMcpServerList(); }
+      catch (error) {
+        throw Object.assign(new Error("Backend MCP list failed"), { status: runtime.mcpErrorStatus(error) });
+      }
+    },
     setMcpServerEnabledAction: (name, enabled) => {
       const runtime = started.runtime();
       if (!runtime) throw Object.assign(new Error("runtime unavailable"), { status: 503 });

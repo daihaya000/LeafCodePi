@@ -76,6 +76,59 @@ test("MCP owner refusal statuses survive without exception details", async (t) =
   }
 });
 
+test("MCP list GET is authenticated, parameter-free, owner-ready and sanitized", async (t) => {
+  const calls = [];
+  const row = { id: "fixture", name: "fixture", enabled: false, bundled: true, userConfigured: true, source: "http",
+    authType: "oauth", credentialConfigured: false, credentialSource: "oauth", credentialStatus: "unknown",
+    url: "https://private-user:private-password@example.invalid/mcp?key=private-key", token: "private-token", command: "private-command" };
+  const { url: itemUrl, headers } = await endpoint(t, { readMcpServerList: (...args) => {
+    calls.push(args); return { servers: [row], configPath: "private-path", bundledConfigPath: "private-bundled", env: { KEY: "private-env" } };
+  } });
+  const url = itemUrl.replace(/\/fixture$/, "");
+  assert.equal((await request(url)).status, 401);
+  assert.equal((await request(url, { headers: { authorization: headers.authorization } })).status, 409);
+  for (const query of ["?configPath=other", "?agentDir=other", "?apply=true", "?urlVariables=other"]) {
+    assert.equal((await request(`${url}${query}`, { headers })).status, 400);
+  }
+  for (const method of ["PATCH", "DELETE", "PUT"]) {
+    const response = await request(url, { method, headers });
+    assert.equal(response.status, 405);
+    assert.equal(response.headers.get("allow"), "GET, POST");
+  }
+  assert.equal(calls.length, 0);
+  const response = await request(url, { headers });
+  assert.equal(response.status, 200);
+  const answer = await response.json();
+  assert.equal(JSON.stringify(answer).includes("private"), false);
+  assert.equal(answer.servers[0].url, "https://example.invalid/mcp");
+  assert.equal(answer.configPath, "");
+  assert.equal(answer.bundledConfigPath, null);
+  assert.deepEqual(calls, [[]]);
+});
+
+test("MCP list GET refuses detached/unready/malformed owners without leaking private errors", async (t) => {
+  let calls = 0;
+  const read = () => { calls++; return { servers: [] }; };
+  for (const options of [{}, { readMcpServerList: read, isReady: () => false },
+    { readMcpServerList: read, isReady: () => { throw new Error("private-error"); } },
+    { createMcpPresetAction: () => { calls++; } }]) {
+    const { url, headers } = await endpoint(t, options);
+    assert.equal((await request(url.replace(/\/fixture$/, ""), { headers })).status, 503);
+  }
+  assert.equal(calls, 0);
+  for (const value of [null, { servers: [null] }, { servers: [{ id: "fixture" }] }]) {
+    const { url, headers } = await endpoint(t, { readMcpServerList: () => value });
+    assert.equal((await request(url.replace(/\/fixture$/, ""), { headers })).status, 500);
+  }
+  for (const status of [400, 404, 409, 503, 500]) {
+    const { url, headers } = await endpoint(t, { readMcpServerList: () => { throw Object.assign(new Error("private-error"), { status }); } });
+    const response = await request(url.replace(/\/fixture$/, ""), { headers });
+    assert.equal(response.status, status);
+    assert.equal((await response.text()).includes("private-error"), false);
+  }
+  assert.throws(() => createBackendServer({ token: "x".repeat(32), readMcpServerList: true }), /readMcpServerList/);
+});
+
 test("auth status GET is authenticated, read-only and refuses arbitrary names and parameters", async (t) => {
   const calls = [];
   const { url: itemUrl, headers } = await endpoint(t, { readMcpAuthStatus: (name) => {
@@ -342,7 +395,7 @@ test("preset creation is authenticated, owner-ready and limited to known request
   const missing = await endpoint(t);
   assert.equal((await request(missing.url.replace(/\/fixture$/, ""), { method: "POST", headers: missing.headers,
     body: JSON.stringify({ preset: "notion" }) })).status, 503);
-  assert.equal((await request(url, { headers })).status, 405);
+  assert.equal((await request(url, { method: "DELETE", headers })).status, 405);
   assert.throws(() => createBackendServer({ token: "x".repeat(32), createMcpPresetAction: true }), /createMcpPresetAction/);
 });
 
@@ -379,6 +432,17 @@ test("Backend entry persists ON/OFF through the rebuilt runtime and returns only
     await new Promise((resolve) => setTimeout(resolve, 50));
   }
   assert.equal(ready, true);
+  const beforeList = await readFile(configPath);
+  const listing = await request(`${base}${BACKEND_MCP_SERVERS_PATH}`, { headers });
+  assert.equal(listing.status, 200);
+  const listed = await listing.json();
+  assert.equal(listed.servers.find((server) => server.id === "fixture").enabled, false);
+  assert.equal(listed.configPath, "");
+  assert.equal(listed.bundledConfigPath, null);
+  assert.equal(JSON.stringify(listed).includes("private-fixture-token"), false);
+  assert.equal(JSON.stringify(listed).includes("fixture-server"), false);
+  assert.equal(JSON.stringify(listed).includes(root), false);
+  assert.deepEqual(await readFile(configPath), beforeList);
   const response = await patch(`${base}${BACKEND_MCP_SERVERS_PATH}/fixture`, headers, { enabled: true });
   assert.equal(response.status, 200);
   const body = await response.json();

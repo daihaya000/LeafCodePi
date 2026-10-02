@@ -61,6 +61,7 @@ import type { McpBearerRemoveRequest, McpBearerRemoveResult } from "@shared/mcp-
 import type { McpAuthRemoveRequest, McpAuthRemoveResult } from "@shared/mcp-auth-remove-request.mjs";
 import type { McpOAuthStartRequest, McpOAuthStartResult } from "@shared/mcp-oauth-start-request.mjs";
 import type { McpOAuthCompleteRequest, McpOAuthCompleteResult } from "@shared/mcp-oauth-complete-request.mjs";
+import type { McpPublicServerList } from "@shared/mcp-server-list.mjs";
 
 export const BACKEND_REQUEST_TIMEOUT_MS = 10_000;
 
@@ -208,6 +209,13 @@ export function saveMcpHeadersAuthOnBackend(
   return backendRequest(`${BACKEND_MCP_SERVERS_PATH}/${encodeURIComponent(name)}${BACKEND_MCP_AUTH_SUFFIX}`, {
     ...options, method: "POST", body: input,
   });
+}
+
+/** Reads fixed owner configuration metadata. No local fallback, query, paths or credential input. */
+export function readMcpServerListOnBackend(
+  options: { env?: BackendEnv; fetchImpl?: typeof fetch; timeoutMs?: number } = {},
+): Promise<BackendResult<McpPublicServerList>> {
+  return fetchBackendJson(BACKEND_MCP_SERVERS_PATH, options);
 }
 
 /** Private callback/code travels only to the owner; never execute a local completion fallback. */
