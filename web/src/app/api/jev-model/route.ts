@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { isCrossOriginRequest } from "@/lib/same-origin";
 import { normalizeJevModelSettings } from "@/lib/jev-model-settings";
 import { getJevModelSettingsDto, saveJevModelSettings } from "@/lib/pi/jev-model-config";
 import { readJevLatencyStats } from "@/lib/pi/jev-latency";
@@ -25,8 +26,7 @@ export async function GET(req?: NextRequest) {
 }
 
 export async function PUT(req: NextRequest) {
-  const origin = req.headers.get("origin");
-  if ((origin && origin !== req.nextUrl.origin) || req.headers.get("sec-fetch-site") === "cross-site") {
+  if (isCrossOriginRequest(req)) {
     return NextResponse.json({ error: "Cross-origin request rejected" }, { status: 403 });
   }
   if (req.headers.get("content-type")?.split(";")[0].trim() !== "application/json") {

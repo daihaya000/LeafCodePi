@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { isCrossOriginRequest } from "@/lib/same-origin";
 import { deleteLegacyJevCredential, listLegacyJevCredentials } from "@/lib/pi/jev-model-config";
 
 export const runtime = "nodejs";
@@ -13,8 +14,7 @@ export async function GET() {
 }
 
 export async function DELETE(req: NextRequest) {
-  const origin = req.headers.get("origin");
-  if ((origin && origin !== req.nextUrl.origin) || req.headers.get("sec-fetch-site") === "cross-site") {
+  if (isCrossOriginRequest(req)) {
     return NextResponse.json({ error: "Cross-origin request rejected" }, { status: 403 });
   }
   if (req.headers.get("content-type")?.split(";")[0].trim() !== "application/json") {
