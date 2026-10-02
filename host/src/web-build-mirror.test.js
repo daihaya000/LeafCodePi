@@ -27,6 +27,7 @@ import {
   discardPreviousBuild,
   ensureBuildDependencies,
   ensureExtensionDependencies,
+  extensionDependenciesReady,
   extensionDependencyFingerprint,
   handOffToServedWebUi,
   hostControlUrl,
@@ -399,6 +400,29 @@ test("a valid mirror dependency stamp does not hide an outdated installed AI pac
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
+test("a matching Web dependency stamp cannot hide broken SQLite bindings", () => {
+  const { root, mirror } = sandbox();
+  try {
+    mkdirSync(mirror);
+    writeFileSync(join(mirror, "package.json"), "{}\n");
+    writeFileSync(join(mirror, "package-lock.json"), "{}\n");
+    let installs = 0;
+    const install = (...args) => {
+      installs += 1;
+      return installNextFixture(...args);
+    };
+    assert.equal(ensureBuildDependencies(mirror, { install }), true);
+    const sqlite = join(mirror, "node_modules", "better-sqlite3", "index.js");
+    writeFileSync(sqlite, "module.exports = class Database { constructor() { throw new Error('binding missing'); } };\n");
+    assert.equal(ensureBuildDependencies(mirror, { install }), true);
+    assert.equal(installs, 2);
+    assert.equal(ensureBuildDependencies(mirror, { install }), false);
+    assert.equal(installs, 2);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("failed dependency installs restore legacy dependencies and leave the previous build intact", () => {
   const { root, mirror } = sandbox();
   try {
@@ -431,7 +455,7 @@ test("failed dependency installs restore legacy dependencies and leave the previ
   }
 });
 
-test("extension dependencies are installed only for locked extensions missing one", () => {
+test("extension dependencies repair locked and unlocked manifests with missing packages", () => {
   const root = mkdtempSync(join(tmpdir(), "lcp-ext-deps-"));
   try {
     const manifest = JSON.stringify({ dependencies: { linkedom: "^0.16.0" } });
@@ -449,22 +473,30 @@ test("extension dependencies are installed only for locked extensions missing on
       extensionDependencyFingerprint(join(root, "installed")),
     );
     extension("unlocked", { "package.json": manifest });
+    extension("no-deps", { "package.json": "{}" });
     extension("failing", { "package.json": manifest, "package-lock.json": lock });
     const calls = [];
     const install = (command, args, options) => {
       calls.push(options.cwd);
       assert.equal(command, process.platform === "win32" ? "npm.cmd" : "npm");
       assert.equal(options.shell, process.platform === "win32");
-      assert.deepEqual(args, ["ci", "--include=dev", "--no-audit", "--no-fund"]);
-      return { status: options.cwd.endsWith("failing") ? 1 : 0 };
+      const unlocked = options.cwd.endsWith("unlocked");
+      assert.deepEqual(args, [...(unlocked ? ["install", "--no-save"] : ["ci"]), "--include=dev", "--no-audit", "--no-fund"]);
+      if (options.cwd.endsWith("failing")) return { status: 1 };
+      mkdirSync(join(options.cwd, "node_modules", "linkedom"), { recursive: true });
+      writeFileSync(join(options.cwd, "node_modules", "linkedom", "package.json"), "{}");
+      return { status: 0 };
     };
-    assert.deepEqual(ensureExtensionDependencies(root, { install }), ["missing"]);
-    assert.deepEqual(calls.sort(), [join(root, "failing"), join(root, "missing")]);
+    assert.deepEqual(ensureExtensionDependencies(root, { install }), ["missing", "unlocked"]);
+    assert.deepEqual(calls.sort(), [join(root, "failing"), join(root, "missing"), join(root, "unlocked")]);
     assert.equal(
       existsSync(join(root, "missing", "node_modules", ".leafcode-pi-build-deps")),
       true,
       "a successful install writes the deps stamp",
     );
+    assert.equal(existsSync(join(root, "unlocked", "package-lock.json")), false);
+    assert.deepEqual(ensureExtensionDependencies(root, { install }), []);
+    assert.equal(calls.filter((dir) => !dir.endsWith("failing")).length, 2, "healthy packages must not reinstall");
     assert.deepEqual(ensureExtensionDependencies(join(root, "absent"), { install }), []);
   } finally {
     rmSync(root, { recursive: true, force: true });
@@ -481,8 +513,9 @@ test("extension dependencies reinstall when the lock fingerprint is stale", () =
     writeFileSync(join(dir, "node_modules", "linkedom", "package.json"), "{}");
     writeFileSync(join(dir, "node_modules", ".leafcode-pi-build-deps"), "stale-fingerprint");
     let calls = 0;
-    const install = () => {
+    const install = (_command, args) => {
       calls += 1;
+      assert.deepEqual(args, ["install", "--no-save", "--include=dev", "--no-audit", "--no-fund"]);
       return { status: 0 };
     };
     assert.deepEqual(ensureExtensionDependencies(root, { install }), ["stale"]);
@@ -493,6 +526,131 @@ test("extension dependencies reinstall when the lock fingerprint is stale", () =
     );
     assert.deepEqual(ensureExtensionDependencies(root, { install }), []);
     assert.equal(calls, 1, "matching stamp must not reinstall");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("extension repair preserves a live native module when another dependency is missing", () => {
+  const root = mkdtempSync(join(tmpdir(), "lcp-ext-deps-live-"));
+  try {
+    const dir = join(root, "leafcode-memory");
+    const nativeDir = join(dir, "node_modules", "better-sqlite3");
+    mkdirSync(nativeDir, { recursive: true });
+    const manifest = JSON.stringify({ dependencies: { "better-sqlite3": "12.9.0", "strip-ansi": "7.2.0" } });
+    writeFileSync(join(dir, "package.json"), manifest);
+    writeFileSync(join(dir, "package-lock.json"), "{}");
+    writeFileSync(join(nativeDir, "package.json"), "{}");
+    const nativeFile = join(nativeDir, "better_sqlite3.node");
+    writeFileSync(nativeFile, "live-native-module");
+    const stamp = join(dir, "node_modules", ".leafcode-pi-build-deps");
+    writeFileSync(stamp, extensionDependencyFingerprint(dir));
+    let calls = 0;
+    const install = (_command, args) => {
+      calls += 1;
+      assert.deepEqual(args, ["install", "--no-save", "--include=dev", "--no-audit", "--no-fund"]);
+      assert.equal(readFileSync(nativeFile, "utf8"), "live-native-module");
+      mkdirSync(join(dir, "node_modules", "strip-ansi"), { recursive: true });
+      writeFileSync(join(dir, "node_modules", "strip-ansi", "package.json"), "{}");
+      return { status: 0 };
+    };
+    const probeNative = () => ({ status: 0 });
+    assert.deepEqual(ensureExtensionDependencies(root, { install, probeNative }), ["leafcode-memory"]);
+    assert.deepEqual(ensureExtensionDependencies(root, { install, probeNative }), []);
+    assert.equal(calls, 1);
+    assert.equal(readFileSync(nativeFile, "utf8"), "live-native-module");
+    assert.equal(readFileSync(join(dir, "package.json"), "utf8"), manifest);
+    assert.equal(readFileSync(join(dir, "package-lock.json"), "utf8"), "{}");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("a successful npm exit without restored packages must not write a dependency stamp", () => {
+  const root = mkdtempSync(join(tmpdir(), "lcp-ext-deps-incomplete-"));
+  try {
+    const dir = join(root, "incomplete");
+    mkdirSync(dir);
+    writeFileSync(join(dir, "package.json"), JSON.stringify({ dependencies: { "strip-ansi": "7.2.0" } }));
+    writeFileSync(join(dir, "package-lock.json"), "{}");
+    assert.deepEqual(ensureExtensionDependencies(root, { install: () => ({ status: 0 }) }), []);
+    assert.equal(existsSync(join(dir, "node_modules", ".leafcode-pi-build-deps")), false);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("native SQLite health is checked in a bounded child even with a matching stamp", () => {
+  const root = mkdtempSync(join(tmpdir(), "lcp-ext-deps-native-"));
+  try {
+    const dir = join(root, "leafcode-memory");
+    mkdirSync(join(dir, "node_modules", "better-sqlite3"), { recursive: true });
+    writeFileSync(join(dir, "package.json"), JSON.stringify({ dependencies: { "better-sqlite3": "12.9.0" } }));
+    writeFileSync(join(dir, "package-lock.json"), "{}");
+    writeFileSync(join(dir, "node_modules", "better-sqlite3", "package.json"), "{}");
+    const stamp = join(dir, "node_modules", ".leafcode-pi-build-deps");
+    writeFileSync(stamp, extensionDependencyFingerprint(dir));
+    let healthy = false;
+    let installs = 0;
+    let rebuilds = 0;
+    const probeNative = (command, args, options) => {
+      assert.equal(command, process.execPath);
+      assert.match(args[1], /new Database\(':memory:'\)\.close\(\)/);
+      assert.equal(options.cwd, dir);
+      assert.equal(options.timeout, 10_000);
+      assert.equal(options.stdio, "ignore");
+      assert.equal(options.windowsHide, true);
+      return { status: healthy ? 0 : 1 };
+    };
+    const install = (_command, args) => {
+      if (args[0] === "rebuild") {
+        rebuilds += 1;
+        assert.deepEqual(args, ["rebuild", "better-sqlite3", "--no-audit", "--no-fund"]);
+      } else {
+        installs += 1;
+        assert.equal(args[0], "install");
+      }
+      return { status: 0 };
+    };
+    assert.equal(extensionDependenciesReady(dir, ["better-sqlite3"], { probeNative }), false);
+    assert.deepEqual(ensureExtensionDependencies(root, { install, probeNative }), []);
+    assert.equal(installs, 1, "a matching stamp must not hide a broken native module");
+    assert.equal(rebuilds, 1, "npm success alone must not hide a failed native rebuild");
+    assert.deepEqual(ensureExtensionDependencies(root, { probeNative, install: (...args) => {
+      const result = install(...args);
+      healthy = true;
+      return result;
+    } }), ["leafcode-memory"]);
+    assert.deepEqual(ensureExtensionDependencies(root, { install, probeNative }), []);
+    assert.equal(installs, 2, "healthy native module must not reinstall");
+    assert.equal(extensionDependenciesReady(dir, ["better-sqlite3"], {
+      probeNative: () => ({ status: null, error: new Error("probe timed out") }),
+    }), false);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("extension recovery rebuilds a missing native binding when npm install leaves it broken", () => {
+  const root = mkdtempSync(join(tmpdir(), "lcp-ext-deps-rebuild-"));
+  try {
+    const dir = join(root, "leafcode-memory");
+    mkdirSync(join(dir, "node_modules", "better-sqlite3"), { recursive: true });
+    writeFileSync(join(dir, "package.json"), JSON.stringify({ dependencies: { "better-sqlite3": "12.9.0" } }));
+    writeFileSync(join(dir, "package-lock.json"), "{}");
+    writeFileSync(join(dir, "node_modules", "better-sqlite3", "package.json"), "{}");
+    let healthy = false;
+    const calls = [];
+    const install = (_command, args) => {
+      calls.push(args[0]);
+      if (args[0] === "rebuild") healthy = true;
+      return { status: 0 };
+    };
+    const probeNative = () => ({ status: healthy ? 0 : 1 });
+    assert.deepEqual(ensureExtensionDependencies(root, { install, probeNative }), ["leafcode-memory"]);
+    assert.deepEqual(calls, ["install", "rebuild"]);
+    assert.deepEqual(ensureExtensionDependencies(root, { install, probeNative }), []);
+    assert.deepEqual(calls, ["install", "rebuild"]);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

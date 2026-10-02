@@ -49,7 +49,7 @@ import {
   resolveMirrorRoot,
   syncMirror,
 } from "../../scripts/web-build-mirror.mjs";
-import { ensureBuildDependencies } from "../../scripts/build-web.mjs";
+import { ensureBuildDependencies, ensureExtensionDependencies } from "../../scripts/build-web.mjs";
 
 const SysTray =
   withSafeInitialMenu(SysTrayImport?.default?.default || SysTrayImport?.default || SysTrayImport);
@@ -1248,6 +1248,9 @@ async function main() {
         await buildWeb("stale", { pull: false });
       }
     }
+    // Extension sources load directly from the repo, independently of the Web
+    // build. Repair missing dependencies even when a restart reuses that build.
+    ensureExtensionDependencies(join(REPO_ROOT, "extensions"));
     if (backendService) await buildBackendRuntime({ log });
     await spawnWeb();
   } catch (err) {
