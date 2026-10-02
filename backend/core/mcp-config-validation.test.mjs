@@ -54,6 +54,30 @@ test("does not resolve a URL implicitly from process.env", async (t) => {
   assert.equal(result.issues[0].code, "unresolved-url-variable");
 });
 
+test("a disabled shipped default with an unresolved URL is dropped; user-owned or enabled ones still refuse", async () => {
+  const bundled = { mcpServers: { n8n: { url: "${N8N_MCP_URL}", auth: "oauth", disabled: true } } };
+  // The user only disables the shipped n8n entry (the real LeafCodePi layout): the URL stays bundled.
+  const overridden = await prepareMcpConfigMigration({ mcpServers: { n8n: { disabled: true }, keep: local } }, bundled, { urlVariables: {} });
+  assert.equal(overridden.ok, true);
+  assert.deepEqual(Object.keys(overridden.config.mcpServers), ["keep"]);
+  assert.deepEqual(bundled, { mcpServers: { n8n: { url: "${N8N_MCP_URL}", auth: "oauth", disabled: true } } });
+  // Absent from the user's document entirely: same drop.
+  const bundledOnly = await prepareMcpConfigMigration({ mcpServers: {} }, bundled, { urlVariables: {} });
+  assert.equal(bundledOnly.ok, true); assert.deepEqual(Object.keys(bundledOnly.config.mcpServers), []);
+  // A user-owned URL must be resolved by the user, even when the entry is disabled.
+  const ownUrl = await prepareMcpConfigMigration(doc({ url: "${USER_URL}", disabled: true }), undefined, { urlVariables: {} });
+  assert.deepEqual(ownUrl.issues, [{ code: "unresolved-url-variable", field: "url", server: "server" }]);
+  // The user disables a shipped entry but pins their own URL: still the user's to resolve.
+  const ownOverride = await prepareMcpConfigMigration({ mcpServers: { n8n: { disabled: true, url: "${USER_URL}" } } }, bundled, { urlVariables: {} });
+  assert.deepEqual(ownOverride.issues, [{ code: "unresolved-url-variable", field: "url", server: "n8n" }]);
+  // An enabled shipped default cannot be dropped: the user asked for it, so it must resolve.
+  const enabled = await prepareMcpConfigMigration({ mcpServers: { shipped: { enabled: true } } }, { mcpServers: { shipped: { url: "${SHIPPED_URL}" } } }, { urlVariables: {} });
+  assert.deepEqual(enabled.issues, [{ code: "unresolved-url-variable", field: "url", server: "shipped" }]);
+  // Supplying the variable keeps the shipped default instead of dropping it.
+  const supplied = await prepareMcpConfigMigration({ mcpServers: {} }, bundled, { urlVariables: { N8N_MCP_URL: "https://n8n.example.invalid/mcp" } });
+  assert.equal(supplied.ok, true); assert.deepEqual(supplied.config.mcpServers.n8n, { url: "https://n8n.example.invalid/mcp", enabled: false });
+});
+
 test("real SDK failures return no partial configuration or credential values", async () => {
   const credential = "secret-fixture-not-for-diagnostics";
   const result = await prepareMcpConfigMigration({ mcpServers: {

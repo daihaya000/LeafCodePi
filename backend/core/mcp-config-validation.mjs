@@ -15,6 +15,8 @@ const issue = (code, field = "mcpServers", server) => ({ code, field, ...(server
  * Success config may contain secrets: it is for the internal writer, NOT a WebUI
  * response. Failure diagnostics intentionally omit SDK messages and input values.
  * urlVariables is explicit; process.env is never read implicitly for expansion.
+ * A disabled bundled default whose URL the user never configured is dropped (unreachable anyway);
+ * user-owned or enabled templates still refuse the whole candidate.
  */
 export async function prepareMcpConfigMigration(
   userConfig,
@@ -27,6 +29,15 @@ export async function prepareMcpConfigMigration(
     return failed([issue("invalid-url-variables", "urlVariables")]);
   }
   const issues = [];
+  // Provenance for the scoped drop below: a URL that only the bundled document defines is a shipped
+  // default, not something this user configured.
+  const userServers = userConfig && typeof userConfig === "object" && !Array.isArray(userConfig)
+    && userConfig.mcpServers && typeof userConfig.mcpServers === "object" && !Array.isArray(userConfig.mcpServers)
+    ? userConfig.mcpServers : undefined;
+  const userDefinedUrl = (name) => {
+    const entry = userServers && Object.hasOwn(userServers, name) ? userServers[name] : undefined;
+    return Boolean(entry) && typeof entry === "object" && !Array.isArray(entry) && typeof entry.url === "string";
+  };
   for (const [name, server] of Object.entries(plan.config.mcpServers)) {
     if (typeof server.url !== "string") continue;
     let missing = false;
@@ -38,10 +49,16 @@ export async function prepareMcpConfigMigration(
       }
       return value;
     });
-    if (missing || server.url.includes("${")) issues.push(issue("unresolved-url-variable", "url", name));
-    else if (server.url.startsWith("!")) issues.push(issue("unsupported-url-command", "url", name));
+    if (missing || server.url.includes("${")) {
+      // A disabled shipped default whose URL the user never configured cannot be reached anyway:
+      // dropping it keeps the rest of the config usable. User-owned URLs and enabled servers still
+      // refuse, so an unreachable-but-wanted server is never silently activated or rewritten.
+      if (!userDefinedUrl(name) && server.enabled === false) { delete plan.config.mcpServers[name]; continue; }
+      issues.push(issue("unresolved-url-variable", "url", name));
+    } else if (server.url.startsWith("!")) issues.push(issue("unsupported-url-command", "url", name));
   }
-  // Never drop or activate an invalid disabled server to make validation pass.
+  // Never drop or activate an invalid disabled server to make validation pass, except for the
+  // bundled-default case above.
   if (issues.length) return failed(issues);
 
   let root;

@@ -29,24 +29,32 @@ BUILTIN\Administrators:(I)(OI)(CI)(F)
 X870\Daichi:(I)(OI)(CI)(F)
 ```
 
-## 切替ブロッカー（解決が必要）
+同じ probe を、同梱既定の未解決 URL 変数エントリを落とす修正の適用後に再実行:
 
-1. **私的ストレージ ACL**（Windows）
+```
+loader: ok servers= browser-use notion(off) slack(off) fxhoudini(off) blendermcp mayamcp(off) metatrader(off) mt5-build(off) comfy-mcp
+config storage: REFUSED MCP private storage permissions unavailable
+credential storage: REFUSED MCP private storage permissions unavailable
+```
+
+未設定の `${N8N_MCP_URL}` を持つ同梱既定 n8n は config から落ち、その他のエントリはそのまま読める。
+
+## 切替ブロッカー
+
+1. **私的ストレージ ACL**（Windows・未解決）
    上記の継承 ACE `X870\CodexSandboxUsers:(I)(OI)(CI)(RX)` が strict policy で拒否される。
    `mcp.json` / `mcp-auth.json` も同じ継承で拒否される。
    解除は対象 ACE の削除（要承認）。ポリシー緩和で回避しない。
-2. **未解決 URL 変数**
-   同梱 `extensions/leafcode-mcp-adapter/mcp.json` の n8n `${N8N_MCP_URL}` と
-   slack `oauth.clientId ${SLACK_CLIENT_ID}` が未設定だと、native loader は
-   「未使用（既定 disabled）の同梱既定」でも全体を拒否する（fail-closed）。
-   n8n/slack を使わない環境では、ユーザーが上書きしていない既定サーバーの未解決分を
-   落とす方針変更が必要（未実装・要判断）。使う場合は env を設定する。
+2. ~~未解決 URL 変数~~（解決済み: 2026-10-03）
+   ユーザーが URL を定義しておらず、かつ無効な同梱既定は、URL 変数が未解決なら config から落とす。
+   ユーザー定義 URL と有効なエントリは従来どおり全体を拒否する（fail-closed）。
+   変数を設定すれば従来どおり同梱既定が使われる。
 
 ## 切替手順（承認後）
 
 1. ACL: 対象 ACE を `icacls` で削除し、上記実測を再実行して
    `config storage: ok` / `credential storage: ok` を確認する。
-2. 変数: ブロッカー2 を方針決定どおりに解消する。
+2. 変数（解決済み）: 未設定のままにする場合は同梱既定が自動で落ちる。使う場合は env を設定する。
 3. `LEAFCODE_PI_MCP_NATIVE=1` を Backend/Host の環境に設定し、Backend を再起動する。
 4. 受け入れ（すべて実サーバーで確認するまで完了扱いにしない）:
    - 起動時に `[mcp-native]` の警告が出ない
