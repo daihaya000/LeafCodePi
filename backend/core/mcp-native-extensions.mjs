@@ -53,8 +53,8 @@ function nativeFactories(options) {
   return [createCodemodeExtension({ mode: "on", models: false }), createToolSearchExtension(), createMcpExtension(options)];
 }
 function captureOwnerServices(mcp, includeUpdater) {
-  const required = ["credentials", "openUrl", ...(includeUpdater ? ["updateConfig"] : [])];
-  const allowed = [...required, "createTransport", "startupWaitMs"];
+  const required = ["credentials", "openUrl", ...(includeUpdater ? ["updateConfig"] : ["createTransport"])];
+  const allowed = [...new Set([...required, "createTransport", "startupWaitMs"])];
   if (!plain(mcp) || Reflect.ownKeys(mcp).some((key) => !allowed.includes(key))) return failed("mcp-owner-services-required");
   // Capture handles once: validated services must never become an SDK default through getters.
   const services = Object.fromEntries(allowed.filter((key) => Object.hasOwn(mcp, key)).map((key) => [key, mcp[key]]));
@@ -62,9 +62,50 @@ function captureOwnerServices(mcp, includeUpdater) {
     || !services.credentials || typeof services.credentials !== "object"
     || !["forServer", "tokens", "remove"].every((key) => typeof services.credentials[key] === "function")
     || typeof services.openUrl !== "function" || (includeUpdater && typeof services.updateConfig !== "function")
-    || (Object.hasOwn(services, "createTransport") && typeof services.createTransport !== "function")
+    || (Object.hasOwn(services, "createTransport") && (typeof services.createTransport !== "function"
+      || (!includeUpdater && types.isAsyncFunction(services.createTransport))))
     || (Object.hasOwn(services, "startupWaitMs") && (!Number.isSafeInteger(services.startupWaitMs) || services.startupWaitMs < 0 || services.startupWaitMs > 60_000))) return failed("invalid-mcp-owner-services");
   return { ok: true, services };
+}
+
+// Explicit owner factory only: no SDK default transport. Constructor effects cannot be undone.
+// start is fenced before/after awaiting; send/notifications/OAuth and started effects are not cancelled.
+function guardTransportFactory(createTransport, assertBound) {
+  const unavailable = () => new Error("MCP extension binding unavailable");
+  return (...args) => {
+    assertBound();
+    let transport;
+    try {
+      transport = Reflect.apply(createTransport, undefined, args);
+      if (transport && typeof transport.then === "function") {
+        Promise.resolve(transport).catch(() => undefined); throw unavailable();
+      }
+      if (!transport || typeof transport !== "object") throw unavailable();
+      const methods = Object.fromEntries(["start", "send", "close", "onMessage", "onError", "onClose"].map((key) => [key, transport[key]]));
+      if (Object.values(methods).some((fn) => typeof fn !== "function")) throw unavailable();
+      const start = async (...startArgs) => {
+        assertBound();
+        try { const result = await Reflect.apply(methods.start, transport, startArgs); assertBound(); return result; }
+        catch (error) { assertBound(); throw error; }
+      };
+      const delegates = new WeakMap();
+      // Shadow target supports frozen transports, preserves SDK instanceof StdioTransport/stderr,
+      // and delegates private-field methods/getters to the original receiver. Cleanup stays unguarded.
+      const guarded = new Proxy(Object.create(Object.getPrototypeOf(transport)), { get: (_target, key) => {
+        if (key === "start") return start;
+        const value = Reflect.get(transport, key, transport);
+        if (typeof value !== "function") return value;
+        if (!delegates.has(value)) delegates.set(value, value.bind(transport));
+        return delegates.get(value);
+      } });
+      assertBound(); return guarded;
+    } catch (error) {
+      // The SDK cannot close an object the factory never returned to it. Best-effort only;
+      // no rollback/drain guarantee, and cleanup failure must not revive this binding.
+      try { if (transport && typeof transport.close === "function") Promise.resolve(transport.close()).catch(() => undefined); } catch {}
+      assertBound(); throw error;
+    }
+  };
 }
 
 // Private SDK API view: executable registrations and connection-triggering lifecycle only.
@@ -132,7 +173,9 @@ function guardExecutionApi(pi, assertBound) {
  * tools. Started callbacks can still have effects; a save can persist before command completion is
  * rejected. session_start/mcp_servers_change/turn_start entry and completion are guarded while
  * shutdown/other events and unsubscribe remain callable. Handler completion is NOT background
- * connection drain/cancellation. No OAuth force cancellation, full lifecycle side-effect fence,
+ * connection drain/cancellation. Explicit synchronous owner transport creation and start entry/completion
+ * are guarded; close/listener cleanup and native transport classification remain intact. No send/notification/
+ * OAuth force cancellation, full lifecycle side-effect fence,
  * writer quiescence or nested permission authorization. */
 export function prepareBackendMcpExtensionsFromBinding(options) {
   try {
@@ -185,6 +228,7 @@ export function prepareBackendMcpExtensionsFromBinding(options) {
       } catch { throw unavailable(); } // Invalid selectors may leave the real owner binding retryable.
     };
     const factories = nativeFactories({ ...ownerServices.services, loadConfig,
+      createTransport: guardTransportFactory(ownerServices.services.createTransport, assertBound),
       updateConfig, logPath: captured.logPath }).map((factory) => async (pi) => {
       try { assertBound(); await factory(guardExecutionApi(pi, assertBound)); assertBound(); }
       catch { fenced = true; throw unavailable(); }

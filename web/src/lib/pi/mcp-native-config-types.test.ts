@@ -96,7 +96,12 @@ if (prepared.ok) {
   const binding = await configOwner.prepare();
   const ownerCallbacks: Pick<McpExtensionOptions, "loadConfig" | "updateConfig"> = binding;
   const ownerLogPath: string = binding.logPath;
-  const boundServices: BackendMcpBoundOwnerServices = { credentials, openUrl: (url) => {} };
+  const createTransport: NonNullable<McpExtensionOptions["createTransport"]> = (entry, cwd, authProvider) => { throw Error("Owner transport fixture only"); };
+  const boundServices: BackendMcpBoundOwnerServices = { credentials, openUrl: (url) => {}, createTransport };
+  // @ts-expect-error Bound transport factory is explicit; no SDK transport fallback.
+  const defaultTransportServices: BackendMcpBoundOwnerServices = { credentials, openUrl: (url) => {} };
+  // @ts-expect-error Native transport factory is synchronous, never Promise acknowledgment.
+  const asyncTransportServices: BackendMcpBoundOwnerServices = { ...boundServices, createTransport: async (...args) => createTransport(...args) };
   const boundExtensions = prepareBackendMcpExtensionsFromBinding({ binding, mcp: boundServices });
   if (boundExtensions.ok) {
     const boundFactories: ConstructorParameters<typeof DefaultResourceLoader>[0]["extensionFactories"] = boundExtensions.factories;

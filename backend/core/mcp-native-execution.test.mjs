@@ -4,7 +4,7 @@ import { mkdtemp, writeFile, readFile, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { LATEST_PROTOCOL_VERSION } from "@earendil-works/pi-mcp";
+import { LATEST_PROTOCOL_VERSION, StdioTransport } from "@earendil-works/pi-mcp";
 import { createBackendMcpConfigOwner } from "./mcp-native-config-owner.mjs";
 import { prepareBackendMcpExtensionsFromBinding as compose } from "./mcp-native-extensions.mjs";
 const safe = (e) => e instanceof Error && e.message === "MCP extension binding unavailable" && e.cause === undefined;
@@ -50,20 +50,20 @@ function transportFixture(holdInitialize = false) {
     finish(message) { held.delete(message.id); respond(message.id, { content: [{ type: "text", text: "late fixture result" }] }); },
   };
 }
-async function fixture(t, start = true) {
+async function fixture(t, start = true, modifyTransport = (transport) => transport) {
   const root = await mkdtemp(join(tmpdir(), "leafcode-native-execution-")); fs.chmodSync(root, 0o700);
   t.after(() => rm(root, { recursive: true, force: true }));
   const configPath = join(root, "mcp.json"), bundledConfigPath = join(root, "bundle.json");
   await writeFile(configPath, JSON.stringify({ mcpServers: { fixture: { command: "never-start-fixture", exposure: "direct" } } }), { mode: 0o600 });
   await writeFile(bundledConfigPath, "{}", { mode: 0o600 });
   const owner = createBackendMcpConfigOwner({ agentDir: root, bundledConfigPath, assertProcessOwner() {}, assertPrivateStorage() {} });
-  t.after(() => owner.dispose()); const binding = await owner.prepare(), peer = transportFixture(), ready = deferred();
-  const tools = new Map(), commands = new Map(), events = new Map(), notices = [], registered = [], unsubscribes = [], extraPeers = []; let active = [], registryReads = 0;
+  t.after(() => owner.dispose()); const binding = await owner.prepare(), peer = transportFixture(), ready = deferred(), failed = deferred();
+  const tools = new Map(), commands = new Map(), events = new Map(), notices = [], registered = [], unsubscribes = [], extraPeers = [], factoryCalls = []; let active = [], registryReads = 0;
   const pi = { registerTool(definition) { tools.set(definition.name, definition); if (tools.has("mcp__fixture__echo") && tools.has("read_mcp_resource")) ready.resolve(); },
     registerCommand(name, definition) { commands.set(name, definition); }, on(name, handler) { events.set(name, handler); const unsubscribe = () => events.delete(name); unsubscribes.push(unsubscribe); return unsubscribe; },
     getSettings() { assert.equal(this, pi); return {}; }, getMcpServers: () => { registryReads++; return registered; }, getAllTools: () => [...tools.values()], getActiveTools: () => active, setActiveTools: (names) => { active = names; } };
-  const ctx = { cwd: root, mode: "print", modelRegistry: {}, ui: { notify: (message) => notices.push(message) } };
-  const result = compose({ binding, mcp: { credentials: { forServer() { throw Error("No fixture auth"); }, tokens() {}, remove() {} }, openUrl() { throw Error("No fixture browser"); }, createTransport: (entry) => { if (entry.name === "fixture") return peer.transport; const extra = transportFixture(true); extraPeers.push(extra); return extra.transport; }, startupWaitMs: 0 } });
+  const ctx = { cwd: root, mode: "print", modelRegistry: {}, ui: { notify: (message) => { notices.push(message); failed.resolve(message); } } };
+  const result = compose({ binding, mcp: { credentials: { forServer() { throw Error("No fixture auth"); }, tokens() {}, remove() {} }, openUrl() { throw Error("No fixture browser"); }, createTransport: (...args) => { factoryCalls.push(args); if (args[0].name === "fixture") return modifyTransport(peer.transport, owner); const extra = transportFixture(true); extraPeers.push(extra); return extra.transport; }, startupWaitMs: 0 } });
   assert.equal(result.ok, true);
   for (const factory of result.factories) await factory(Object.freeze(pi)); // API view must not mutate/fail on a frozen SDK host.
   t.after(async () => { await events.get("session_shutdown")?.({}, ctx); });
@@ -71,7 +71,7 @@ async function fixture(t, start = true) {
     assert.equal(events.get("session_start")({}, ctx), undefined); // Synchronous SDK handler stays synchronous.
     await Promise.race([ready.promise, new Promise((_, reject) => { const timer = setTimeout(() => reject(Error("Fixture connection timeout")), 5000); timer.unref(); ready.promise.finally(() => clearTimeout(timer)); })]);
   }
-  return { root, configPath, owner, binding, peer, tools, commands, events, ctx, notices, registered, unsubscribes, extraPeers, connected: ready.promise, registryReads: () => registryReads };
+  return { root, configPath, owner, binding, peer, tools, commands, events, ctx, notices, registered, unsubscribes, extraPeers, factoryCalls, failed: failed.promise, connected: ready.promise, registryReads: () => registryReads };
 }
 const execute = (tool, params = {}, onUpdate) => tool.execute("fixture-call", params, new AbortController().signal, onUpdate, {});
 
@@ -164,12 +164,85 @@ test("mcp_servers_change late completion rejects after supersession, then cleanu
   assert.equal(extra.calls.close, 1); assert.equal(f.peer.calls.close, 1); fresh.assertOwner();
 });
 
-test("synchronous session_start completion is not a background connection drain/cancellation guarantee", async (t) => {
+const within = (promise) => Promise.race([promise, new Promise((_, reject) => {
+  const timer = setTimeout(() => reject(Error("Transport fixture timeout")), 5000); timer.unref(); promise.finally(() => clearTimeout(timer));
+})]);
+
+test("synchronous session_start background work cannot enter the owner transport factory after supersession", async (t) => {
   const f = await fixture(t, false);
   assert.equal(f.events.get("session_start")({}, f.ctx), undefined);
-  const preparing = f.owner.prepare(); // Closes the old binding before SDK setImmediate/runtime load.
-  await Promise.race([f.connected, new Promise((_, reject) => { const timer = setTimeout(() => reject(Error("Background fixture timeout")), 5000); timer.unref(); f.connected.finally(() => clearTimeout(timer)); })]);
-  const fresh = await preparing; fresh.assertOwner(); assert.equal(f.peer.calls.start, 1); // Started background work is explicitly outside this handler guard.
-  await assert.rejects(execute(f.tools.get("mcp__fixture__echo")), safe); assert.equal(f.peer.calls.tools, 0);
-  await f.events.get("session_shutdown")({}, f.ctx); assert.equal(f.peer.calls.close, 1); fresh.assertOwner();
+  const preparing = f.owner.prepare(); // Retires binding before SDK setImmediate/runtime load.
+  const message = await within(f.failed), fresh = await preparing; fresh.assertOwner();
+  assert.match(message, /MCP extension binding unavailable/);
+  assert.equal(f.factoryCalls.length, 0); assert.equal(f.peer.calls.start, 0); assert.equal(f.peer.requests.length, 0);
+  assert.equal(f.tools.has("mcp__fixture__echo"), false);
+  await f.events.get("session_shutdown")({}, f.ctx); assert.equal(f.peer.calls.close, 0); fresh.assertOwner();
+});
+
+test("owner revocation inside creation closes the unreturned transport without ever starting it", async (t) => {
+  const f = await fixture(t, false, (transport, owner) => { owner.dispose(); return transport; });
+  f.events.get("session_start")({}, f.ctx); assert.match(await within(f.failed), /MCP extension binding unavailable/);
+  assert.equal(f.factoryCalls.length, 1); assert.equal(f.peer.calls.start, 0); assert.equal(f.peer.calls.close, 1); assert.equal(f.peer.requests.length, 0);
+  await f.events.get("session_shutdown")({}, f.ctx); assert.equal(f.peer.calls.close, 1);
+});
+
+test("listener setup may revoke after creation; start refuses entry and SDK cleanup still closes/unsubscribes", async (t) => {
+  let unsubscribed = 0;
+  const f = await fixture(t, false, (transport, owner) => ({ ...transport, onMessage(listener) {
+    const unsubscribe = transport.onMessage(listener); owner.dispose(); return () => { unsubscribed++; unsubscribe(); };
+  } }));
+  f.events.get("session_start")({}, f.ctx); assert.match(await within(f.failed), /MCP extension binding unavailable/);
+  assert.equal(f.factoryCalls.length, 1); assert.equal(f.peer.calls.start, 0); assert.equal(f.peer.calls.close, 1); assert.equal(unsubscribed, 1);
+  assert.equal(f.peer.requests.length, 0); await f.events.get("session_shutdown")({}, f.ctx); assert.equal(f.peer.calls.close, 1);
+});
+
+test("late start completion after supersession closes started work before initialize; it does not cancel that work", async (t) => {
+  const entered = deferred(), release = deferred();
+  const f = await fixture(t, false, (transport) => ({ ...transport, async start() { await transport.start(); entered.resolve(); await release.promise; } }));
+  f.events.get("session_start")({}, f.ctx); await within(entered.promise);
+  const fresh = await f.owner.prepare(); release.resolve(); assert.match(await within(f.failed), /MCP extension binding unavailable/); fresh.assertOwner();
+  assert.equal(f.peer.calls.start, 1); assert.equal(f.peer.calls.close, 1); assert.equal(f.peer.requests.length, 0);
+  await f.events.get("session_shutdown")({}, f.ctx); fresh.assertOwner();
+});
+
+test("frozen StdioTransport identity/private receiver/native errors survive the start guard", async (t) => {
+  let stderrReads = 0;
+  class PrivateTransport extends StdioTransport {
+    #peer;
+    constructor(peer) { super({ command: "never-start-fixture" }); this.#peer = peer; Object.freeze(this); }
+    get stderr() { stderrReads++; return "fixture stderr"; }
+    async start() { await this.#peer.start(); throw Error("fixture native start error"); }
+    send(message) { return this.#peer.send(message); }
+    close() { return this.#peer.close(); }
+    onMessage(listener) { return this.#peer.onMessage(listener); }
+    onError(listener) { return this.#peer.onError(listener); }
+    onClose(listener) { return this.#peer.onClose(listener); }
+  }
+  const f = await fixture(t, false, (transport) => new PrivateTransport(transport));
+  f.events.get("session_start")({}, f.ctx); const message = await within(f.failed);
+  assert.match(message, /fixture native start error/); assert.equal(stderrReads > 0, true); // Startup report is first-line only; SDK reads stderr only after instanceof StdioTransport.
+  f.binding.assertOwner();
+  assert.equal(f.factoryCalls[0][0].name, "fixture"); assert.equal(f.factoryCalls[0][1], f.root); assert.equal(f.factoryCalls[0][2], undefined);
+  assert.equal(f.peer.calls.start, 1); assert.equal(f.peer.calls.close, 1); assert.equal(f.peer.requests.length, 0);
+  await f.events.get("turn_start")({}, f.ctx); await f.events.get("session_shutdown")({}, f.ctx); f.binding.assertOwner();
+});
+
+test("invalid owner transport results fail closed; rejected best-effort close never replaces stale errors", async (t) => {
+  for (const result of [undefined, null, {}, { start() {} }]) {
+    const f = await fixture(t, false, () => result);
+    f.events.get("session_start")({}, f.ctx); assert.match(await within(f.failed), /MCP extension binding unavailable/);
+    assert.equal(f.peer.calls.start, 0); assert.equal(f.peer.requests.length, 0); f.binding.assertOwner();
+  }
+  const f = await fixture(t, false, (transport, owner) => {
+    owner.dispose(); return { ...transport, async close() { await transport.close(); throw Error("fixture cleanup failure"); } };
+  });
+  f.events.get("session_start")({}, f.ctx); assert.match(await within(f.failed), /MCP extension binding unavailable/);
+  await new Promise((resolve) => setImmediate(resolve)); assert.equal(f.peer.calls.start, 0); assert.equal(f.peer.calls.close, 1);
+});
+
+test("a lying synchronous factory cannot return a rejected Promise as a native transport", async (t) => {
+  const f = await fixture(t, false, () => Promise.reject(Error("fixture invalid async factory")));
+  f.events.get("session_start")({}, f.ctx); assert.match(await within(f.failed), /MCP extension binding unavailable/);
+  await new Promise((resolve) => setImmediate(resolve)); f.binding.assertOwner();
+  assert.equal(f.factoryCalls.length, 1); assert.equal(f.peer.calls.start, 0); assert.equal(f.peer.requests.length, 0);
 });
