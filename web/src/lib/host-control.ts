@@ -38,6 +38,10 @@ export function hostWebUiAuthPath(): string {
   return "/webui/auth";
 }
 
+export function hostPiUpdatePath(): string {
+  return "/pi/update";
+}
+
 export function isLoopbackControlUrl(url: string): boolean {
   try {
     const parsed = new URL(url);

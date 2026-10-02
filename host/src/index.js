@@ -19,8 +19,8 @@ import { buildHostRestartScript } from "./host-restart.js";
 import { DEFAULT_BACKEND_PORT } from "../../shared/backend-protocol.mjs";
 import { createBackendService, shouldRunBackend } from "./backend-service.js";
 import { readBackendHealth, waitForBackendReady } from "./backend-health.js";
-import { updatePiBeforeStartup } from "./pi-update.js";
-import { assertInstalledPiVersions, assertPiDependencyVersions } from "../../shared/pi-dependencies.mjs";
+import { consumePiUpdateRequest, installedPiVersion, readPiUpdateRequest, readPiUpdateState, requestPiUpdate, updatePiBeforeStartup, writePiUpdateState, PI_UPDATE_MODES } from "./pi-update.js";
+import { assertInstalledPiVersions, assertPiDependencyVersions, DEFAULT_PI_VERSION, PI_DEPS_LOCK_NAME, piDepsLockHeld } from "../../shared/pi-dependencies.mjs";
 import { buildBackendRuntime } from "../../scripts/build-backend-runtime.mjs";
 import { pullLatestSources } from "./git-pull.js";
 import { createTranslationService } from "./translation-service.js";
@@ -1009,6 +1009,22 @@ async function startControlServer() {
     onRestartBackend: () => restartBackend(),
     onRestartBackendBlocked: () => backendRestartBlockReason(),
     onRestartHost: () => restartHost(),
+    onPiUpdateRead: () => ({
+      defaultVersion: DEFAULT_PI_VERSION,
+      current: installedPiVersion(WEB_DIR),
+      pending: readPiUpdateRequest(DATA_DIR),
+      last: readPiUpdateState(DATA_DIR),
+    }),
+    onPiUpdateRequest: ({ mode }) => {
+      // The route validates the mode as well; keep the host entry point safe on its own.
+      if (!PI_UPDATE_MODES.includes(mode)) {
+        throw Object.assign(new Error("mode must be default or latest"), { status: 400 });
+      }
+      if (piDepsLockHeld(join(WEB_DIR, PI_DEPS_LOCK_NAME))) {
+        throw Object.assign(new Error("Pi synchronization is already in progress"), { status: 409 });
+      }
+      return { pending: requestPiUpdate(DATA_DIR, mode), restartRequired: true };
+    },
     onBrowserConfigRead: () => readBrowserConfig(),
     onBrowserConfigWrite: (patch) => writeBrowserConfig(patch),
     onWebUiAuthRead: () => webUiAuthSettings(),
@@ -1189,10 +1205,33 @@ async function main() {
   process.on("exit", onHostExit);
 
   try {
-    // Never change SDK files underneath a running session. Both installs are prepared and
-    // validated before either child starts; a failed preparation retains the previous pair.
-    const synchronized = await updatePiBeforeStartup({ webDir: WEB_DIR, backendDir: join(REPO_ROOT, "backend"), log, error });
-    if (!synchronized.safeToStart) throw new Error("Pi dependency synchronization did not finish safely");
+    // Pi dependencies change only when settings requested it; otherwise the pinned pair is used
+    // as-is. When requested, both installs are prepared and validated before either child starts,
+    // and a failed preparation retains the previous pair.
+    const piUpdateRequest = consumePiUpdateRequest(DATA_DIR);
+    let synchronized = { attempted: false, updated: false, skipped: false, safeToStart: true };
+    if (piUpdateRequest) {
+      const previousVersion = installedPiVersion(WEB_DIR);
+      log(`Pi update requested from settings (${piUpdateRequest.mode})`);
+      synchronized = await updatePiBeforeStartup({
+        webDir: WEB_DIR, backendDir: join(REPO_ROOT, "backend"), log, error,
+        targetVersion: piUpdateRequest.mode === "default" ? DEFAULT_PI_VERSION : null,
+      });
+      // Record the outcome before refusing startup: the next start surfaces it in settings.
+      writePiUpdateState(DATA_DIR, {
+        mode: piUpdateRequest.mode,
+        requestedAt: piUpdateRequest.requestedAt ?? null,
+        finishedAt: Date.now(),
+        ok: !synchronized.error && synchronized.safeToStart,
+        updated: Boolean(synchronized.updated),
+        from: previousVersion,
+        version: synchronized.version ?? null,
+        error:
+          synchronized.error ??
+          (synchronized.safeToStart ? null : "Pi dependency synchronization did not finish safely"),
+      });
+      if (!synchronized.safeToStart) throw new Error("Pi dependency synchronization did not finish safely");
+    }
     const piVersion = assertPiDependencyVersions(WEB_DIR, join(REPO_ROOT, "backend"));
     assertInstalledPiVersions(WEB_DIR, piVersion);
     assertInstalledPiVersions(join(REPO_ROOT, "backend"), piVersion);

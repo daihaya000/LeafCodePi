@@ -5,6 +5,11 @@ export const PI_SDK_PACKAGE = "@earendil-works/pi-coding-agent";
 export const PI_AI_PACKAGE = "@earendil-works/pi-ai";
 export const PI_PACKAGES = Object.freeze([PI_SDK_PACKAGE, PI_AI_PACKAGE]);
 export const STABLE_PI_VERSION = /^\d+\.\d+\.\d+$/;
+/**
+ * The Pi version LeafCodePi ships with. Startup never updates on its own;
+ * a settings request either restores this pair or explicitly moves to latest.
+ */
+export const DEFAULT_PI_VERSION = "1.0.0";
 export const PI_DEPS_LOCK_NAME = ".leafcode-pi-deps.lock";
 
 /**

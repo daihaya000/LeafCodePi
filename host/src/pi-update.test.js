@@ -6,8 +6,11 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
-import { PI_PACKAGES, assertPiDependencyVersions } from "../../shared/pi-dependencies.mjs";
-import { autoUpdatePi, installedPiVersion, PI_UPDATE_TIMEOUT_MS, updatePiBeforeStartup } from "./pi-update.js";
+import { DEFAULT_PI_VERSION, PI_PACKAGES, assertPiDependencyVersions } from "../../shared/pi-dependencies.mjs";
+import {
+  autoUpdatePi, installedPiVersion, PI_UPDATE_TIMEOUT_MS, updatePiBeforeStartup,
+  consumePiUpdateRequest, readPiUpdateRequest, readPiUpdateState, requestPiUpdate, writePiUpdateState,
+} from "./pi-update.js";
 
 function manifest(version) {
   return {
@@ -93,6 +96,32 @@ test("latest SDK and AI are fetched once, pinned and installed for both projects
       assert.equal(/(?<!\r)\n/.test(text), false, "existing CRLF preserved");
     }
     assertClean(f);
+  } finally { f.cleanup(); }
+});
+
+test("the pinned default target installs the shipped version without asking npm for latest", () => {
+  const f = fixture();
+  const npm = fakeNpm();
+  try {
+    const result = autoUpdatePi({ ...f, ...npm, targetVersion: DEFAULT_PI_VERSION });
+    assert.equal(result.updated, true);
+    assert.equal(result.version, DEFAULT_PI_VERSION);
+    assert.deepEqual(npm.calls.map(({ args }) => args[0]), ["install", "ci", "--input-type=module", "install", "ci", "--input-type=module"]);
+    assert.equal(assertPiDependencyVersions(f.webDir, f.backendDir), DEFAULT_PI_VERSION);
+    assertClean(f);
+  } finally { f.cleanup(); }
+});
+
+test("an unstable pinned target is refused before npm runs", () => {
+  const f = fixture();
+  const npm = fakeNpm();
+  try {
+    const before = snapshot(f);
+    const result = autoUpdatePi({ ...f, ...npm, targetVersion: "1.0.0-rc.1" });
+    assert.equal(result.updated, false);
+    assert.match(result.error, /not a stable version/);
+    assert.equal(npm.calls.length, 0);
+    assert.deepEqual(snapshot(f), before);
   } finally { f.cleanup(); }
 });
 
@@ -244,11 +273,10 @@ test("concurrent edits are preserved instead of overwritten by the prepared vers
   } finally { f.cleanup(); }
 });
 
-test("opt-out and an existing synchronization lock never spawn npm", () => {
+test("an existing synchronization lock never spawns npm", () => {
   const f = fixture();
   const npm = fakeNpm();
   try {
-    assert.equal(autoUpdatePi({ ...f, ...npm, env: { LEAFCODE_PI_AUTO_UPDATE: "0" } }).skipped, true);
     writeFileSync(join(f.webDir, ".leafcode-pi-deps.lock"), "other worker");
     assert.equal(autoUpdatePi({ ...f, ...npm }).updated, false);
     assert.equal(npm.calls.length, 0);
@@ -468,12 +496,49 @@ test("a worker that reports in time is not killed", async () => {
   assert.deepEqual(killed, []);
 });
 
-test("startup worker opt-out, spawn throw and spawn error settle without launching a runtime", async () => {
-  const skipped = await updatePiBeforeStartup({ env: { LEAFCODE_PI_AUTO_UPDATE: "0" }, spawn: () => assert.fail("must not spawn") });
-  assert.equal(skipped.skipped, true);
+test("startup spawn throw and spawn error settle without launching a runtime", async () => {
   assert.equal((await updatePiBeforeStartup({ env: {}, spawn: () => { throw new Error("cannot spawn"); } })).safeToStart, false);
   const child = new EventEmitter();
   const pending = updatePiBeforeStartup({ env: {}, spawn: () => child });
   child.emit("error", new Error("cannot spawn"));
   assert.equal((await pending).safeToStart, false);
+});
+
+test("a requested default target reaches the synchronization worker", async () => {
+  const child = new EventEmitter();
+  let spawnedArgs;
+  const pending = updatePiBeforeStartup({
+    webDir: "web", backendDir: "backend", env: {}, targetVersion: DEFAULT_PI_VERSION,
+    spawn: (_command, args) => { spawnedArgs = args; return child; },
+  });
+  child.emit("message", { safeToStart: true, updated: true, version: DEFAULT_PI_VERSION });
+  child.emit("close", 0);
+  const result = await pending;
+  assert.equal(result.safeToStart, true);
+  assert.deepEqual(spawnedArgs.slice(-2), ["--target", DEFAULT_PI_VERSION]);
+});
+
+test("settings requests round-trip through the reservation and state files", () => {
+  const f = fixture();
+  try {
+    assert.equal(readPiUpdateRequest(f.root), null);
+    const request = requestPiUpdate(f.root, "default", { requestedAt: 123 });
+    assert.deepEqual(request, { mode: "default", requestedAt: 123 });
+    assert.deepEqual(readPiUpdateRequest(f.root), request);
+
+    assert.throws(() => requestPiUpdate(f.root, "nightly"), /Unknown Pi update mode/);
+    writeFileSync(join(f.root, "pi-update-request.json"), "{not json");
+    assert.equal(readPiUpdateRequest(f.root), null);
+    writeFileSync(join(f.root, "pi-update-request.json"), JSON.stringify({ mode: "nightly" }));
+    assert.equal(readPiUpdateRequest(f.root), null, "unknown modes are ignored");
+
+    requestPiUpdate(f.root, "default", { requestedAt: 123 });
+    assert.deepEqual(consumePiUpdateRequest(f.root), { mode: "default", requestedAt: 123 });
+    assert.equal(readPiUpdateRequest(f.root), null, "consumed exactly once");
+    assert.equal(consumePiUpdateRequest(f.root), null);
+
+    const state = { mode: "latest", ok: true, updated: true, version: "1.2.3" };
+    writePiUpdateState(f.root, state);
+    assert.deepEqual(readPiUpdateState(f.root), state);
+  } finally { f.cleanup(); }
 });

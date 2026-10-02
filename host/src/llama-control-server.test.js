@@ -348,6 +348,91 @@ test("GET and POST /webui/auth expose safe status and validate updates", async (
   }
 });
 
+test("GET and POST /pi/update expose the pinned default and validate reservations", async () => {
+  let received = null;
+  const port = await freePort();
+  const server = createLlamaControlServer({
+    controlPort: port,
+    onLlamaServerStatus: () => ({ ok: true }),
+    onLlamaServerStart: async () => ({ ok: true }),
+    onLlamaServerStop: () => {},
+    onPiUpdateRead: () => ({ defaultVersion: "1.0.0", current: "0.99.2", pending: null, last: null }),
+    onPiUpdateRequest: ({ mode }) => {
+      received = mode;
+      return { pending: { mode, requestedAt: 123 }, restartRequired: true };
+    },
+  });
+  await listenControlServer(server, port);
+  try {
+    const get = await fetch(`http://127.0.0.1:${port}/pi/update`, {
+      headers: { host: `127.0.0.1:${port}` },
+    });
+    assert.equal(get.status, 200);
+    assert.deepEqual(await get.json(), { ok: true, defaultVersion: "1.0.0", current: "0.99.2", pending: null, last: null });
+
+    const post = await fetch(`http://127.0.0.1:${port}/pi/update`, {
+      method: "POST",
+      headers: { host: `127.0.0.1:${port}`, "content-type": "application/json" },
+      body: JSON.stringify({ mode: "latest" }),
+    });
+    assert.equal(post.status, 202);
+    assert.equal(received, "latest");
+    assert.deepEqual(await post.json(), { ok: true, accepted: true, pending: { mode: "latest", requestedAt: 123 }, restartRequired: true });
+
+    const invalid = await fetch(`http://127.0.0.1:${port}/pi/update`, {
+      method: "POST",
+      headers: { host: `127.0.0.1:${port}`, "content-type": "application/json" },
+      body: JSON.stringify({ mode: "nightly" }),
+    });
+    assert.equal(invalid.status, 400);
+    assert.equal(received, "latest", "invalid modes never reach the host handler");
+  } finally {
+    await closeControlServer(server);
+  }
+});
+
+test("POST /pi/update maps handler conflicts to their status and 501s without handlers", async () => {
+  const port = await freePort();
+  const server = createLlamaControlServer({
+    controlPort: port,
+    onLlamaServerStatus: () => ({ ok: true }),
+    onLlamaServerStart: async () => ({ ok: true }),
+    onLlamaServerStop: () => {},
+    onPiUpdateRead: () => ({ defaultVersion: "1.0.0", current: "1.0.0", pending: null, last: null }),
+    onPiUpdateRequest: () => {
+      throw Object.assign(new Error("Pi synchronization is already in progress"), { status: 409 });
+    },
+  });
+  await listenControlServer(server, port);
+  try {
+    const res = await fetch(`http://127.0.0.1:${port}/pi/update`, {
+      method: "POST",
+      headers: { host: `127.0.0.1:${port}`, "content-type": "application/json" },
+      body: JSON.stringify({ mode: "default" }),
+    });
+    assert.equal(res.status, 409);
+    assert.deepEqual(await res.json(), { ok: false, error: "Pi synchronization is already in progress" });
+  } finally {
+    await closeControlServer(server);
+  }
+
+  const bare = createLlamaControlServer({
+    controlPort: port,
+    onLlamaServerStatus: () => ({ ok: true }),
+    onLlamaServerStart: async () => ({ ok: true }),
+    onLlamaServerStop: () => {},
+  });
+  await listenControlServer(bare, port);
+  try {
+    const res = await fetch(`http://127.0.0.1:${port}/pi/update`, {
+      headers: { host: `127.0.0.1:${port}` },
+    });
+    assert.equal(res.status, 501);
+  } finally {
+    await closeControlServer(bare);
+  }
+});
+
 test("POST /llama-server/start returns a controlled error when launch fails", async () => {
   const port = await freePort();
   const server = createLlamaControlServer({
