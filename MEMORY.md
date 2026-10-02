@@ -9,11 +9,18 @@ Updated: 2026-10-02
 - **Fix**: Narrow `err` with `typeof err === "object" && err !== null` before `"reason" in err`.
 - **Prior fix**: dead-PID `.leafcode-pi-deps.lock` reclaim (`df5e6e18`) stopped EEXIST Pi sync loop.
 
+## Message revert failure with Goal Loop (resolved)
+
+- **Symptom**: UI shows `巻き戻しに失敗しました` while Goal Loop badge (`ループ 1`) is visible; task often looks idle after `Request was aborted`.
+- **Root cause**: `isTaskRuntimeBusyForDestructiveEdit` treats any owned Goal Loop (`queued`/`paused`/`blocked`/…) as busy, but TaskView only gated revert on `working`. Between turns the user could confirm revert → Backend 409 → cutover forward collapsed to the generic error. Yellow `巻き戻し中` can remain from an earlier successful leaf or SSE.
+- **Fix** (`revertTask` / `unrevertTask`): call `stopGoalLoopForTask` before `assertIdleForSessionTreeEdit`. Forwarded 409 now surfaces the busy Japanese message.
+- **Tests**: harness-revert, harness-tree-edit, task revert/unrevert route tests.
+
 ## Remote git pull failed (exit 128) — expected / non-fatal
 
 - Host runs `git pull --ff-only` on startup (`host/src/git-pull.js`). On divergence it logs ERROR and continues with local sources.
-- Current state (2026-10-02): `master` is **ahead 9, behind 2** vs `origin/master` (merge-base `f5c3c0ca`).
-  - Local-only: cutover/perf + deps lock + TaskView typecheck (`79df8123` … `c38f5802`).
+- Current state (2026-10-02): `master` is **ahead 10+, behind 2** vs `origin/master` (merge-base `f5c3c0ca`).
+  - Local-only: cutover/perf + deps lock + TaskView typecheck (`79df8123` …).
   - Remote-only: `d06f30f9` (質問カード), `fe8e0092` (狭幅ヘッダー).
 - Not a crash; Host keeps running local tree. To silence: merge/rebase remote then push, or push local and accept remote lag.
 

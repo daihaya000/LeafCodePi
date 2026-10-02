@@ -124,6 +124,8 @@ describe("unrevertTask", () => {
           revertLeafId: "original-leaf",
           session: {
             isStreaming: true,
+            sessionId: "sess-stream",
+            sessionManager: { getCwd: () => root },
             navigateTree: async () => {
               navigated = true;
               return { cancelled: false };
@@ -145,8 +147,8 @@ describe("unrevertTask", () => {
     }
   });
 
-  it("rejects restore while a Goal loop is live between turns", async () => {
-    const { mkdirSync, mkdtempSync, rmSync, writeFileSync } = await import("node:fs");
+  it("stops an owned Goal Loop then restores the leaf", async () => {
+    const { mkdirSync, mkdtempSync, rmSync, writeFileSync, readFileSync } = await import("node:fs");
     const { tmpdir } = await import("node:os");
     const { join } = await import("node:path");
     const root = mkdtempSync(join(tmpdir(), "leafcode-pi-unrevert-goal-"));
@@ -161,7 +163,8 @@ describe("unrevertTask", () => {
       const task = insertTask({ project, title: "unrevert goal" });
       patchTask(task.id, { revertLeafId: "original-leaf", sessionId: "sess-goal" });
       mkdirSync(join(root, "data", "goals-loop"), { recursive: true });
-      writeFileSync(join(root, "data", "goals-loop", "sess-goal.json"), JSON.stringify({
+      const loopFile = join(root, "data", "goals-loop", "sess-goal.json");
+      const loop = {
         id: "loop-1",
         sessionId: "sess-goal",
         cwd: root,
@@ -182,14 +185,47 @@ describe("unrevertTask", () => {
         blockedReason: "",
         rejectedClaims: 0,
         unreadableStreak: 0,
-      }));
+      };
+      writeFileSync(loopFile, JSON.stringify(loop));
       let navigated = false;
+      let leaf = "parent";
       globalRef[globalKey] = {
+        events: new EventEmitter(),
         live: new Map([[task.id, {
+          taskId: task.id,
           revertLeafId: "original-leaf",
+          accountId: null,
+          agentName: null,
+          accountByMessageId: new Map(),
+          agentByMessageId: new Map(),
+          throughputByStartedAt: new Map(),
+          toolStartedAt: new Map(),
+          toolEndedAt: new Map(),
+          toolPartialOutputByCallId: new Map(),
           session: {
             isStreaming: false,
             sessionId: "sess-goal",
+            messages: [],
+            extensionRunner: {
+              getCommand: (name: string) => name === "goal-stop"
+                ? {
+                  handler: async () => {
+                    writeFileSync(loopFile, JSON.stringify({ ...loop, status: "stopped" }));
+                  },
+                }
+                : undefined,
+              createCommandContext: () => ({}),
+            },
+            sessionManager: {
+              getCwd: () => root,
+              getLeafId: () => leaf,
+              getEntry: (id: string) => id === "original-leaf" ? { type: "message" } : undefined,
+              getBranch: () => [],
+              getEntries: () => [],
+              branch: (id: string) => { leaf = id; },
+              buildSessionContext: () => ({ messages: [] }),
+            },
+            agent: { state: { messages: [] } },
             navigateTree: async () => {
               navigated = true;
               return { cancelled: false };
@@ -198,9 +234,11 @@ describe("unrevertTask", () => {
         }]]),
       };
 
-      await assert.rejects(unrevertTask(task.id), /応答中は巻き戻せません/);
-      assert.equal(navigated, false);
-      assert.equal(getTask(task.id)?.revertLeafId, "original-leaf");
+      await unrevertTask(task.id);
+      assert.equal(navigated, true);
+      assert.equal(leaf, "original-leaf");
+      assert.equal(getTask(task.id)?.revertLeafId, null);
+      assert.equal(JSON.parse(readFileSync(loopFile, "utf8")).status, "stopped");
     } finally {
       if (previousDataDir === undefined) delete process.env.LEAFCODE_PI_DATA_DIR;
       else process.env.LEAFCODE_PI_DATA_DIR = previousDataDir;

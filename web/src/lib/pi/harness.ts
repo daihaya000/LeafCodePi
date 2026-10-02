@@ -10511,6 +10511,9 @@ export async function revertTask(
   assertLocalRuntimeAllowed();
   return withTaskTreeEdit(id, async () => {
   const live = await ensureLive(id);
+  // Goal Loop ownership alone blocks tree edits even between turns (task looks idle).
+  // Rewinding the transcript implies ending that autonomous run first.
+  await stopGoalLoopForTask(live);
   assertIdleForSessionTreeEdit(id);
   const entry = messageEntryById(live.session, messageId);
   if (!entry) {
@@ -10711,6 +10714,8 @@ export async function unrevertTask(id: string): Promise<TaskDetail> {
   assertLocalRuntimeAllowed();
   return withTaskTreeEdit(id, async () => {
   const live = await ensureLive(id);
+  // Same as revert: a still-owned Goal Loop must not leave restore stuck behind a 409.
+  await stopGoalLoopForTask(live);
   assertIdleForSessionTreeEdit(id);
   const target = live.revertLeafId ?? getTask(id)?.revertLeafId ?? null;
   if (!target) {

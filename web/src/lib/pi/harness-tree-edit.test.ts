@@ -95,6 +95,17 @@ it("cancelling a queued resend preserves undo until a turn actually starts", asy
   } finally { release(); await runtime.promptChain; }
   expect(session.prompt).not.toHaveBeenCalled();
 });
+it("rewinding stops an owned Goal Loop between turns then navigates", async () => {
+  const { file, loop } = seedLoop("queued");
+  session.extensionRunner.getCommand.mockReturnValue({
+    handler: () => writeFileSync(file, JSON.stringify({ ...loop, status: "stopped" })),
+  });
+  await revertTask(id, "late");
+  expect(session.extensionRunner.getCommand).toHaveBeenCalledWith("goal-stop");
+  expect(JSON.parse(readFileSync(file, "utf8")).status).toBe("stopped");
+  expect(getTask(id)?.revertLeafId).toBe("tip");
+  expect(leaf).toBe("early");
+});
 it("an SDK-aborted navigation does not report success or set a restore marker", async () => {
   session.navigateTree.mockImplementation(async () => ({ cancelled: false, aborted: true, editorText: "" }));
   await expect(revertTask(id, "late")).rejects.toMatchObject({ status: 400 });
