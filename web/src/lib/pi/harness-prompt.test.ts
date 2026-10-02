@@ -192,6 +192,25 @@ describe("runtimeClockContext", () => {
   });
 });
 
+describe("SDK contract: host code only writes settable Agent state", () => {
+  it("refreshRuntimeClock works against the real pi-agent-core Agent", async () => {
+    // Hand-written fakes hid the getter-only systemPrompt. Use the real class.
+    const { Agent } = await import("@earendil-works/pi-agent-core");
+    const agent = new Agent({
+      initialState: { systemPrompt: "base" },
+      streamFn: () => { throw new Error("This contract test must not call a provider"); },
+    });
+    assert.equal(typeof Object.getOwnPropertyDescriptor(agent.state, "systemPrompt")?.get, "function");
+    assert.equal(Object.getOwnPropertyDescriptor(agent.state, "systemPrompt")?.set, undefined);
+    assert.doesNotThrow(() => refreshRuntimeClock({ agent }));
+    // Fields the harness assigns directly must remain assignable on the real SDK.
+    assert.doesNotThrow(() => {
+      agent.transport = "sse";
+      agent.state.messages = [];
+    });
+  });
+});
+
 describe("refreshRuntimeClock with a getter-only system prompt", () => {
   it("does not throw when agent.state.systemPrompt has no setter (Pi SDK 1.0)", () => {
     const state = {

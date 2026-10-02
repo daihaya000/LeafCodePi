@@ -373,6 +373,7 @@ import {
   resolveProviderFallbackModels,
   setTaskModel,
 } from "./harness";
+import { __setRoutingUsageFetcherForTests } from "./routing-usage";
 
 const GLOBAL_KEY = "__leafcodePiHarness";
 const tempDirs: string[] = [];
@@ -461,6 +462,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  __setRoutingUsageFetcherForTests(null);
   const relay = (globalThis as Record<string, unknown>).__leafcodeBotCodeRelay as { dispose?: () => void } | undefined;
   relay?.dispose?.();
   delete (globalThis as Record<string, unknown>).__leafcodeBotCodeRelay;
@@ -2104,6 +2106,10 @@ describe("integrated session routing", () => {
       }),
       Date.now() - 10 * 60 * 1000,
     );
+    // サーバー側の取り直しが失敗しても、期限切れの last-known で順位付けする。
+    __setRoutingUsageFetcherForTests(async () => {
+      throw new Error("usage fetch unavailable");
+    });
 
     const project = upsertProject({ name: "demo", rootPath: dir });
     const task = await createTask({
@@ -2115,6 +2121,79 @@ describe("integrated session routing", () => {
 
     assert.equal(getTask(task.id)?.accountId, low.id);
     expect(fakePi.sessions[0]).toMatchObject({ accountId: low.id });
+  });
+
+  it("refreshes usage on the server when no browser has populated the cache", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "leafcode-pi-server-usage-routing-"));
+    tempDirs.push(dir);
+    process.env.LEAFCODE_PI_DATA_DIR = dir;
+    const agentDir = join(dir, "agent");
+    process.env.PI_CODING_AGENT_DIR = agentDir;
+    __resetPiAgentDirCacheForTests();
+
+    // 使用量不明だと台帳順の先頭（=上限到達済み）が選ばれる回帰。
+    const maxed = createAccount({ label: "上限到達", providers: ["anthropic"] });
+    const free = createAccount({ label: "余裕あり", providers: ["anthropic"] });
+    storeProviderAuth(maxed.id, agentDir);
+    storeProviderAuth(free.id, agentDir);
+    installHarness(new Map([[maxed.id, runtime(maxed.id)], [free.id, runtime(free.id)]]));
+    await setAccountRoutingMode("anthropic", "integrated");
+    let fetches = 0;
+    __setRoutingUsageFetcherForTests(async () => {
+      fetches += 1;
+      setCachedUsage(
+        parseCodexBarSnapshot({
+          providers: [
+            { codexBarProviderId: "anthropic", accountId: maxed.id, usedPercent: 100 },
+            { codexBarProviderId: "anthropic", accountId: free.id, usedPercent: 20 },
+          ],
+        }),
+      );
+    });
+
+    const project = upsertProject({ name: "demo", rootPath: dir });
+    const task = await createTask({
+      projectId: project.id,
+      prompt: "キャッシュ無しでも上限到達アカウントを避ける",
+      model: "anthropic::claude-sonnet",
+    });
+    await waitFor(() => getTask(task.id)?.status === "idle");
+
+    assert.ok(fetches >= 1);
+    assert.equal(getTask(task.id)?.accountId, free.id);
+  });
+
+  it("never lets an old usage reset erase a new runtime limit mark", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "leafcode-pi-runtime-limit-reset-"));
+    tempDirs.push(dir);
+    process.env.LEAFCODE_PI_DATA_DIR = dir;
+    const agentDir = join(dir, "agent");
+    process.env.PI_CODING_AGENT_DIR = agentDir;
+    __resetPiAgentDirCacheForTests();
+
+    const first = createAccount({ label: "limited", providers: ["anthropic"] });
+    const second = createAccount({ label: "available", providers: ["anthropic"] });
+    storeProviderAuth(first.id, agentDir);
+    storeProviderAuth(second.id, agentDir);
+    installHarness(new Map([[first.id, runtime(first.id)], [second.id, runtime(second.id)]]));
+    await setAccountRoutingMode("anthropic", "integrated");
+    setCachedUsage(parseCodexBarSnapshot({ providers: [
+      {
+        codexBarProviderId: "anthropic", accountId: first.id, usedPercent: 10,
+        resetsAt: new Date(Date.now() - 60_000).toISOString(),
+      },
+    ] }));
+    const project = upsertProject({ name: "demo", rootPath: dir });
+    const task = await createTask({ projectId: project.id, prompt: "start", model: "anthropic::claude-sonnet" });
+    await waitFor(() => getTask(task.id)?.status === "idle");
+    assert.equal(getTask(task.id)?.accountId, first.id);
+
+    // A new 429 has no known reset. The old snapshot's past reset must not
+    // resurrect that account during the very next prompt's ranking.
+    markProviderLimited("anthropic", first.id);
+    await promptTask(task.id, "continue after a limit");
+    await waitFor(() => getTask(task.id)?.status === "idle");
+    assert.equal(getTask(task.id)?.accountId, second.id);
   });
 
   it("keeps an explicitly selected account for later prompts", async () => {

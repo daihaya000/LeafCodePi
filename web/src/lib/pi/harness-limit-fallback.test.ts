@@ -103,7 +103,14 @@ const fakePi = vi.hoisted(() => {
         sessionId: sessionManager.__sessionId,
         sessionManager,
         messages: sessionManager.history,
-        agent: { state: { errorMessage: undefined, streamingMessage: undefined } },
+        agent: {
+          state: {
+            // SDK 1.0: a plain writable fake hid fallback-resume failures.
+            get systemPrompt() { return "base"; },
+            errorMessage: undefined,
+            streamingMessage: undefined,
+          },
+        },
         model: options.model,
         thinkingLevel: "off" as ThinkingLevel,
         extensionRunner: { createContext: () => ({}) },
@@ -343,8 +350,9 @@ describe.each(["openai-codex", "openai"] as const)("provider limit fallback: %s"
       {
         message: {
           customType: "leafcode-pi.provider-fallback",
-          content:
-            "The previous response was interrupted by a provider usage limit. Continue the pending request from the existing conversation. Do not repeat completed actions.",
+          content: expect.stringMatching(
+            /<host_clock>[\s\S]+<\/host_clock>\n\nThe previous response was interrupted by a provider usage limit\./,
+          ),
           display: false,
         },
         options: { triggerTurn: true },

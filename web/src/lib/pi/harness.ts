@@ -309,6 +309,7 @@ import { listSubagentRuns } from "@/lib/pi/subagent-runs";
 import { stopRunningSubagentRuns } from "@/lib/pi/stop-subagent-runs";
 import { getCachedUsage, invalidateCachedUsage } from "@/lib/codexbar/cache";
 import type { CodexBarProvider } from "@/lib/codexbar";
+import { ensureFreshRoutingUsage } from "@/lib/pi/routing-usage";
 import {
   autoModelValue,
   autoProviderUsageFromModels,
@@ -3206,22 +3207,23 @@ export function refreshRuntimeClock(
   const state = session.agent?.state;
   if (!state) return;
   const clock = runtimeClockContext(now);
-  // A replacement session (provider-limit fallback, soul reload) may not have
-  // a system prompt yet. before_agent_start injects the clock later; do not
-  // throw while writing the hidden resume turn.
+  // Older SDKs expose a mutable systemPrompt; SDK 1.0 derives it from messages.
+  // Custom turns bypass before_agent_start, so they also carry a fresh clock
+  // in their hidden content (customPromptWithRuntimeClock).
   const current = typeof state.systemPrompt === "string" ? state.systemPrompt : "";
   const next = current.includes("<host_clock>")
     ? current.replace(/<host_clock>[\s\S]*?<\/host_clock>/, clock)
     : current
       ? `${current}\n\n${clock}`
       : clock;
-  try {
-    state.systemPrompt = next;
-  } catch {
-    // Pi SDK 1.0 derives agent.state.systemPrompt from messages (getter only),
-    // so the assignment throws in strict mode. before_agent_start injects the
-    // clock for every run; a failed refresh must never abort a fallback resume.
-  }
+  // Returns false for getter-only/frozen properties without throwing in strict
+  // mode. Unexpected setter errors still surface instead of being swallowed.
+  Reflect.set(state, "systemPrompt", next);
+}
+
+/** sendCustomMessage(triggerTurn) bypasses before_agent_start in SDK 1.0. */
+export function customPromptWithRuntimeClock(content: string, now = new Date()): string {
+  return `${runtimeClockContext(now)}\n\n${content}`;
 }
 
 export function isOneToOneBotTask(
@@ -4065,7 +4067,9 @@ function markedUsage(
     usedPercent: Math.max(usage?.usedPercent ?? 100, 100),
     maxed: true,
     stale: false,
-    resetsAt: mark.resetAt ?? usage?.resetsAt ?? null,
+    // A new limit response overrides the old snapshot, including its reset.
+    // A past snapshot reset would otherwise immediately revive this mark.
+    resetsAt: mark.resetAt,
     // 実行時の制限エラーは枠クレジットより優先する（クレジット残でも再選択させない）。
     credits: null,
   };
@@ -4090,6 +4094,8 @@ async function resolveIntegratedModelRoute(
   );
   if (records.length === 0) return undefined;
 
+  // 使用量キャッシュはブラウザのウィジェットしか更新しないため、判断前に取り直す。
+  await ensureFreshRoutingUsage();
   const usageProviders = routingUsageProviders();
   const workingCounts = workingTaskCounts(
     [providerID],
@@ -9234,7 +9240,10 @@ function queuePrompt(
       message: Parameters<AgentSession["sendCustomMessage"]>[0],
     ) => {
       refreshRuntimeClock(activeLive.session);
-      return activeLive.session.sendCustomMessage(message, { triggerTurn: true });
+      return activeLive.session.sendCustomMessage({
+        ...message,
+        content: customPromptWithRuntimeClock(promptToSend),
+      }, { triggerTurn: true });
     };
     // Which internal kind this turn is (and its hidden custom type) is decided in core.
     const sendKind = resolvePromptSendKind({

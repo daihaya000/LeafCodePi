@@ -106,6 +106,19 @@ describe("routing candidate ranking", () => {
     assert.deepEqual(ranked.map((candidate) => candidate.accountId), ["fresh", "stale", "unknown"]);
   });
 
+  it("treats an expired maxed snapshot as unknown rather than fresh usage", () => {
+    const now = Date.parse("2026-10-02T09:00:00Z");
+    const decision = chooseRoutingCandidate([
+      {
+        accountId: "expired", accountIndex: 0, value: "expired", workingTaskCount: 1,
+        usage: usage(100, { maxed: true, resetsAt: new Date(now - 1).toISOString() }),
+      },
+      { accountId: "unknown", accountIndex: 1, value: "unknown", usage: usage(null), workingTaskCount: 0 },
+    ], now);
+    assert.equal(decision.ranked.find((entry) => entry.accountId === "expired")?.tier, 2);
+    assert.equal(decision.candidate?.accountId, "unknown");
+  });
+
   it("keeps a maxed subscription usable while extra usage credits remain", () => {
     const decision = chooseRoutingCandidate([
       {
