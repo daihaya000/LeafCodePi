@@ -84,6 +84,7 @@ export { saveMcpHeadersAuth } from "@/lib/mcp-headers-admin";
 export { removeMcpBearerAuth } from "@/lib/mcp-bearer-remove-admin";
 export { removeMcpAuth } from "@/lib/mcp-auth-remove-admin";
 export { startMcpOAuthAuth } from "@/lib/mcp-oauth-start-admin";
+export { completeMcpOAuthAuth } from "@/lib/mcp-oauth-complete-admin";
 export { isGoalLoopSessionOwned, readGoalLoopState } from "@/lib/pi/goal-loop-state";
 export { startGoalLoopWithSelection } from "@/lib/pi/goal-loop-start";
 export { startBotGoalLoop } from "@/lib/pi/bot-goal-loop-start";

@@ -1,35 +1,25 @@
 /**
  * GET/POST/DELETE /api/mcp/:name/auth — inspect and manage MCP credentials.
  *
- * Secret material is accepted only for bearer/header save operations and is
- * forwarded to the MCP adapter's OS credential-store bridge. It is never
- * included in a response or written to mcp.json.
+ * Production forwards all authentication operations to Backend. Credential and
+ * callback/code inputs are never included in a response or written to mcp.json.
  */
 import { NextRequest, NextResponse } from "next/server";
-import { reloadLiveSessionsContext } from "@/lib/live-context";
 import { publicMcpAuthSnapshot } from "@shared/mcp-auth-snapshot.mjs";
-import { readMcpAuthStatusOnBackend, saveMcpBearerAuthOnBackend, saveMcpHeadersAuthOnBackend, removeMcpAuthOnBackend, startMcpOAuthAuthOnBackend } from "@/lib/backend-client";
+import { readMcpAuthStatusOnBackend, saveMcpBearerAuthOnBackend, saveMcpHeadersAuthOnBackend, removeMcpAuthOnBackend, startMcpOAuthAuthOnBackend, completeMcpOAuthAuthOnBackend } from "@/lib/backend-client";
 import { parseMcpHeadersSaveRequest, publicMcpHeadersSaveResult } from "@shared/mcp-headers-save-request.mjs";
 import { saveMcpHeadersAuth } from "@/lib/mcp-headers-admin";
 import { parseMcpAuthRemoveRequest, publicMcpAuthRemoveResult } from "@shared/mcp-auth-remove-request.mjs";
 import { removeMcpAuth } from "@/lib/mcp-auth-remove-admin";
 import { parseMcpOAuthStartRequest, publicMcpOAuthStartResult } from "@shared/mcp-oauth-start-request.mjs";
 import { startMcpOAuthAuth } from "@/lib/mcp-oauth-start-admin";
+import { parseMcpOAuthCompleteRequest, publicMcpOAuthCompleteResult } from "@shared/mcp-oauth-complete-request.mjs";
+import { completeMcpOAuthAuth } from "@/lib/mcp-oauth-complete-admin";
 import { parseMcpBearerSaveRequest, publicMcpBearerSaveResult } from "@shared/mcp-bearer-save-request.mjs";
 import { saveMcpBearerAuth } from "@/lib/mcp-bearer-admin";
 import { readMcpAuthStatus } from "@/lib/mcp-auth-status";
 import { localRuntimeBlocked } from "@/lib/pi/runtime-ownership";
-import {
-  getMcpServerAuth,
-  McpError,
-  mcpErrorStatus,
-  type McpAuthSnapshot,
-} from "@/lib/mcp";
-import {
-  requestMcpWebUiAuth,
-  type McpWebUiAuthRequest,
-  type McpWebUiAuthResponse,
-} from "@/lib/pi/mcp-webui-bridge";
+import { McpError, mcpErrorStatus } from "@/lib/mcp";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -53,95 +43,6 @@ function readName(rawName: string): string {
   }
 }
 
-function authAdapterError(operation: McpWebUiAuthRequest["operation"], error: unknown): McpError {
-  // Do not reflect request values in an API error. In particular, a keyring or
-  // OAuth implementation must not accidentally include the submitted secret.
-  const message = operation === "oauth-complete"
-    ? "OAuth認証の完了に失敗しました。認証の有効期限（開始から5分）が切れている場合は「OAuth認証を開始」からやり直してください"
-    : operation === "oauth-start"
-      ? "OAuth認証を開始できませんでした"
-      : operation.startsWith("bearer")
-        ? "Bearer認証情報を更新できませんでした"
-        : operation.startsWith("headers")
-          ? "HTTPヘッダー認証情報を更新できませんでした"
-          : "MCP認証情報を更新できませんでした";
-  void error;
-  return new McpError("auth-unavailable", message);
-}
-
-async function callAdapter(request: McpWebUiAuthRequest): Promise<McpWebUiAuthResponse> {
-  try {
-    const response = await requestMcpWebUiAuth(request);
-    if (!response) {
-      throw new McpError("auth-unavailable", "MCPアダプターが起動していません。タスクを開いて再試行してください");
-    }
-    if (!response.ok) throw authAdapterError(request.operation, response.error);
-    return response;
-  } catch (error) {
-    if (error instanceof McpError) throw error;
-    throw authAdapterError(request.operation, error);
-  }
-}
-
-function withAdapterStatus(
-  snapshot: McpAuthSnapshot,
-  response: McpWebUiAuthResponse | null,
-): McpAuthSnapshot {
-  if (!response || !response.ok) return snapshot;
-  if (response.operation === "bearer-status") {
-    return {
-      ...snapshot,
-      credentialStatus: response.status,
-      ...(response.message ? { credentialMessage: response.message } : {}),
-    };
-  }
-  if (response.operation === "headers-status") {
-    return {
-      ...snapshot,
-      credentialStatus: response.status,
-      ...(response.message ? { credentialMessage: response.message } : {}),
-    };
-  }
-  if (response.operation === "oauth-status") {
-    return {
-      ...snapshot,
-      credentialStatus: response.status === "authenticated"
-        ? "present"
-        : response.status === "expired"
-          ? "expired"
-          : response.status === "not_authenticated"
-            ? "missing"
-            : "unavailable",
-      ...(response.message ? { credentialMessage: response.message } : {}),
-    };
-  }
-  return snapshot;
-}
-
-async function snapshotWithLiveStatus(name: string): Promise<McpAuthSnapshot> {
-  const snapshot = getMcpServerAuth(name);
-  const operation: McpWebUiAuthRequest["operation"] | null = snapshot.authType === "bearer"
-    ? snapshot.credentialSource === "secure-store" ? "bearer-status" : null
-    : snapshot.authType === "headers"
-      ? snapshot.credentialSource === "secure-store" ? "headers-status" : null
-      : snapshot.authType === "oauth" || snapshot.authType === "auto"
-        ? "oauth-status"
-        : null;
-
-  if (!operation) return snapshot;
-
-  try {
-    const response = await requestMcpWebUiAuth({ operation, serverName: name });
-    return withAdapterStatus(snapshot, response);
-  } catch (error) {
-    return {
-      ...snapshot,
-      credentialStatus: "unavailable",
-      credentialMessage: error instanceof Error ? error.message : "認証状態を確認できませんでした",
-    };
-  }
-}
-
 function bodyObject(body: unknown): AuthBody {
   if (!body || typeof body !== "object" || Array.isArray(body)) {
     throw new McpError("invalid-auth", "認証リクエストが不正です");
@@ -153,15 +54,6 @@ function methodFromBody(body: AuthBody, fallback: AuthMethod): AuthMethod {
   const method = body.type ?? body.action;
   if (method === "bearer" || method === "headers" || method === "oauth") return method;
   return fallback;
-}
-
-function requireText(value: unknown, label: string, maxLength: number): string {
-  if (typeof value !== "string") throw new McpError("invalid-auth", `${label}が必要です`);
-  const text = value.trim();
-  if (!text || text.length > maxLength || /[\r\n]/.test(text)) {
-    throw new McpError("invalid-auth", `${label}が不正です`);
-  }
-  return text;
 }
 
 export async function GET(_req: NextRequest, context: RouteContext) {
@@ -288,23 +180,35 @@ export async function POST(req: NextRequest, context: RouteContext) {
       }
     }
     if (action === "complete") {
-      const input = requireText(body.input, "OAuthコールバックURLまたは認証コード", 16384);
-      const response = await callAdapter({ operation: "oauth-complete", serverName: name, input });
-      if (response.ok !== true || response.operation !== "oauth-complete") {
-        throw new McpError("auth-unavailable", "OAuth認証の完了に失敗しました");
+      const parsed = parseMcpOAuthCompleteRequest(body);
+      const canonicalName = name.trim();
+      if (!parsed.ok) throw new McpError("invalid-auth", "OAuth完了リクエストが不正です");
+      if (!canonicalName || canonicalName.includes("/") || canonicalName.includes("\\") || canonicalName.includes("..")) {
+        throw new McpError("invalid-name", "名前が不正です");
       }
-      const reload = await reloadLiveSessionsContext();
-      return NextResponse.json({
-        ok: true,
-        status: response.status,
-        auth: await snapshotWithLiveStatus(name),
-        reload,
-      });
+      if (localRuntimeBlocked()) {
+        const forwarded = await completeMcpOAuthAuthOnBackend(canonicalName, parsed.value).catch(() => {
+          throw new McpError("auth-unavailable", "BackendでOAuth認証を完了できません");
+        });
+        if (!forwarded.ok) {
+          const status = forwarded.status && forwarded.status >= 400 && forwarded.status <= 599 ? forwarded.status : 502;
+          return NextResponse.json({ error: "BackendでOAuth認証を完了できません" }, { status });
+        }
+        const result = publicMcpOAuthCompleteResult(forwarded.body);
+        if (!result || result.auth.name !== canonicalName) {
+          return NextResponse.json({ error: "BackendのMCP応答が不正です" }, { status: 502 });
+        }
+        return NextResponse.json(result);
+      }
+      try { return NextResponse.json(await completeMcpOAuthAuth(canonicalName, parsed.value)); }
+      catch (error) {
+        return NextResponse.json({ error: "OAuth認証を完了できませんでした。期限切れの場合は認証開始からやり直してください" }, { status: mcpErrorStatus(error) });
+      }
     }
     throw new McpError("invalid-auth", "OAuth操作が不正です");
   } catch (error) {
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : "MCP認証情報の保存に失敗しました" },
+      { error: "MCP認証情報の保存に失敗しました" },
       { status: mcpErrorStatus(error) },
     );
   }

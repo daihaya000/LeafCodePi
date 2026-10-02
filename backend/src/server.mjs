@@ -8,6 +8,7 @@ import { parseMcpBearerSaveRequest, publicMcpBearerSaveResult } from "../../shar
 import { parseMcpHeadersSaveRequest, publicMcpHeadersSaveResult } from "../../shared/mcp-headers-save-request.mjs";
 import { parseMcpAuthRemoveRequest, publicMcpAuthRemoveResult } from "../../shared/mcp-auth-remove-request.mjs";
 import { parseMcpOAuthStartRequest, publicMcpOAuthStartResult } from "../../shared/mcp-oauth-start-request.mjs";
+import { parseMcpOAuthCompleteRequest, publicMcpOAuthCompleteResult } from "../../shared/mcp-oauth-complete-request.mjs";
 import { InvalidTaskMessageCursorError, pageTaskMessages } from "../../shared/task-history.mjs";
 import {
   BACKEND_ERROR_CODES,
@@ -227,6 +228,8 @@ export function createBackendServer({
   removeMcpAuthAction = null,
   /** Creates an OAuth flow only in the owner; callback state stays there. */
   startMcpOAuthAuthAction = null,
+  /** Consumes private callback/code input only in the pending flow's owner. */
+  completeMcpOAuthAuthAction = null,
   /** Compacts a session: `(id, customInstructions?) => task`; the summarization runs in the owner. */
   compactTaskAction = null,
   /** Stops a running compaction: `(id) => task`; only the owner can interrupt its own session. */
@@ -296,6 +299,7 @@ export function createBackendServer({
     saveMcpHeadersAuthAction,
     removeMcpAuthAction,
     startMcpOAuthAuthAction,
+    completeMcpOAuthAuthAction,
     compactTaskAction,
     abortCompactTaskAction,
     setTaskModelAction,
@@ -446,7 +450,7 @@ export function createBackendServer({
       let ready = false;
       try { ready = isReady() === true; } catch { /* Refuse without exception detail. */ }
       const available = request.method === "DELETE" ? removeMcpAuthAction
-        : request.method === "POST" ? saveMcpBearerAuthAction || saveMcpHeadersAuthAction || startMcpOAuthAuthAction : readMcpAuthStatus;
+        : request.method === "POST" ? saveMcpBearerAuthAction || saveMcpHeadersAuthAction || startMcpOAuthAuthAction || completeMcpOAuthAuthAction : readMcpAuthStatus;
       if (!available || !ready) {
         sendJson(response, 503, { error: "Backend runtime unavailable", code: BACKEND_ERROR_CODES.runtimeUnavailable });
         return;
@@ -476,21 +480,24 @@ export function createBackendServer({
         const method = body.value?.type ?? body.value?.action;
         const isHeaders = method === "headers";
         const isOAuth = method === "oauth";
-        const parsed = body.ok ? (isOAuth ? parseMcpOAuthStartRequest(body.value)
+        const isComplete = isOAuth && body.value?.action === "complete";
+        const parsed = body.ok ? (isComplete ? parseMcpOAuthCompleteRequest(body.value)
+          : isOAuth ? parseMcpOAuthStartRequest(body.value)
           : isHeaders ? parseMcpHeadersSaveRequest(body.value) : parseMcpBearerSaveRequest(body.value)) : { ok: false };
         if (!parsed.ok) {
           sendJson(response, 400, { error: "Invalid MCP auth save request", code: BACKEND_ERROR_CODES.badRequest });
           return;
         }
-        const action = isOAuth ? startMcpOAuthAuthAction : isHeaders ? saveMcpHeadersAuthAction : saveMcpBearerAuthAction;
+        const action = isComplete ? completeMcpOAuthAuthAction : isOAuth ? startMcpOAuthAuthAction : isHeaders ? saveMcpHeadersAuthAction : saveMcpBearerAuthAction;
         if (!action) {
           sendJson(response, 503, { error: "Backend runtime unavailable", code: BACKEND_ERROR_CODES.runtimeUnavailable });
           return;
         }
         try {
           const value = await action(name, parsed.value);
-          const result = isOAuth ? publicMcpOAuthStartResult(value) : isHeaders ? publicMcpHeadersSaveResult(value) : publicMcpBearerSaveResult(value);
-          if (!result || (isOAuth ? result.name : result.auth.name) !== name) throw new Error("Invalid MCP auth response");
+          const result = isComplete ? publicMcpOAuthCompleteResult(value) : isOAuth ? publicMcpOAuthStartResult(value)
+            : isHeaders ? publicMcpHeadersSaveResult(value) : publicMcpBearerSaveResult(value);
+          if (!result || (isOAuth && !isComplete ? result.name : result.auth.name) !== name) throw new Error("Invalid MCP auth response");
           sendJson(response, 200, result);
         } catch (error) {
           const status = [400, 404, 409, 503].includes(error?.status) ? error.status : 500;

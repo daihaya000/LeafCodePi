@@ -11,13 +11,14 @@ const adapter = vi.hoisted(() => ({
   requestMcpWebUiAuth: vi.fn(),
 }));
 
-const owner = vi.hoisted(() => ({ localRuntimeBlocked: vi.fn(), readMcpAuthStatusOnBackend: vi.fn(), saveMcpBearerAuthOnBackend: vi.fn(), saveMcpHeadersAuthOnBackend: vi.fn(), removeMcpAuthOnBackend: vi.fn(), startMcpOAuthAuthOnBackend: vi.fn() }));
+const owner = vi.hoisted(() => ({ localRuntimeBlocked: vi.fn(), readMcpAuthStatusOnBackend: vi.fn(), saveMcpBearerAuthOnBackend: vi.fn(), saveMcpHeadersAuthOnBackend: vi.fn(), removeMcpAuthOnBackend: vi.fn(), startMcpOAuthAuthOnBackend: vi.fn(), completeMcpOAuthAuthOnBackend: vi.fn() }));
 vi.mock("@/lib/backend-client", async (importOriginal) => ({
   ...await importOriginal<typeof import("@/lib/backend-client")>(), readMcpAuthStatusOnBackend: owner.readMcpAuthStatusOnBackend,
   saveMcpBearerAuthOnBackend: owner.saveMcpBearerAuthOnBackend,
   saveMcpHeadersAuthOnBackend: owner.saveMcpHeadersAuthOnBackend,
   removeMcpAuthOnBackend: owner.removeMcpAuthOnBackend,
   startMcpOAuthAuthOnBackend: owner.startMcpOAuthAuthOnBackend,
+  completeMcpOAuthAuthOnBackend: owner.completeMcpOAuthAuthOnBackend,
 }));
 vi.mock("@/lib/pi/runtime-ownership", async (importOriginal) => ({
   ...await importOriginal<typeof import("@/lib/pi/runtime-ownership")>(), localRuntimeBlocked: owner.localRuntimeBlocked,
@@ -68,6 +69,7 @@ describe("/api/mcp/:name/auth", () => {
     owner.saveMcpHeadersAuthOnBackend.mockReset();
     owner.removeMcpAuthOnBackend.mockReset();
     owner.startMcpOAuthAuthOnBackend.mockReset();
+    owner.completeMcpOAuthAuthOnBackend.mockReset();
     adapter.requestMcpWebUiAuth.mockReset();
     adapter.requestMcpWebUiAuth.mockImplementation(async (input: { operation: string }) => {
       if (input.operation === "bearer-status") {
@@ -298,6 +300,78 @@ describe("/api/mcp/:name/auth", () => {
     const response = await POST(request("POST", { type: "oauth" }), context());
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ ok: true, name: "n8n", status: "authenticated" });
+  });
+
+  it.each([" private-code ", " http://127.0.0.1:8181/callback?code=private-code&state=private-state "])("production OAuth completion forwards input without local reads/writes/reload", async (input) => {
+    owner.localRuntimeBlocked.mockReturnValue(true);
+    const read = vi.spyOn(mcpLibrary, "getMcpServerAuth");
+    const before = readFileSync(join(agentDir, "mcp.json"));
+    owner.completeMcpOAuthAuthOnBackend.mockResolvedValue({ ok: true, body: { ok: true, status: "authenticated", input: "private-code",
+      auth: { name: "n8n", authType: "oauth", credentialConfigured: true, credentialSource: "oauth", credentialStatus: "present",
+        configPath: "private-path", credentialMessage: "private-token" }, reload: { reloaded: 1, deferred: 0, failed: 1, errors: ["private-error"] } } });
+    const response = await POST(request("POST", { type: "oauth", action: "complete", input }), context());
+    expect(response.status).toBe(200);
+    expect(JSON.stringify(await response.json())).not.toContain("private");
+    expect(owner.completeMcpOAuthAuthOnBackend).toHaveBeenCalledWith("n8n", { type: "oauth", action: "complete", input: input.trim() });
+    expect(read).not.toHaveBeenCalled();
+    expect(adapter.requestMcpWebUiAuth).not.toHaveBeenCalled();
+    expect(harness.reloadLiveSessionsContext).not.toHaveBeenCalled();
+    expect(readFileSync(join(agentDir, "mcp.json"))).toEqual(before);
+  });
+  it.each(["not-configured", "unreachable", "timeout", "unauthorized", "bad-response"])("OAuth completion refuses %s without local fallback", async (reason) => {
+    owner.localRuntimeBlocked.mockReturnValue(true);
+    owner.completeMcpOAuthAuthOnBackend.mockResolvedValue({ ok: false, reason, status: reason === "unauthorized" ? 401 : undefined, error: "private-code" });
+    const response = await POST(request("POST", { type: "oauth", action: "complete", input: "private-code" }), context());
+    expect(response.status).toBe(reason === "unauthorized" ? 401 : 502);
+    expect(JSON.stringify(await response.json())).not.toContain("private-code");
+    expect(adapter.requestMcpWebUiAuth).not.toHaveBeenCalled();
+    expect(harness.reloadLiveSessionsContext).not.toHaveBeenCalled();
+  });
+  it("OAuth completion rejects malformed/private-option inputs before dispatch", async () => {
+    owner.localRuntimeBlocked.mockReturnValue(true);
+    for (const body of [{ type: "oauth", action: "complete" }, { type: "oauth", action: "complete", input: "" },
+      { type: "oauth", action: "complete", input: "private-code", token: "private-token" },
+      { type: "oauth", action: "complete", input: "x".repeat(16385) }, { type: "oauth", action: "complete", input: "private\ncode" }]) {
+      expect((await POST(request("POST", body), context())).status).toBe(400);
+    }
+    expect(owner.completeMcpOAuthAuthOnBackend).not.toHaveBeenCalled();
+    expect(adapter.requestMcpWebUiAuth).not.toHaveBeenCalled();
+  });
+  it("OAuth completion rejects mismatched results and never echoes private Backend exceptions", async () => {
+    owner.localRuntimeBlocked.mockReturnValue(true);
+    for (const body of [{ ok: true }, { ok: true, status: "authenticated",
+      auth: { name: "another-server", authType: "oauth", credentialConfigured: false, credentialSource: "oauth", credentialStatus: "missing" },
+      reload: { reloaded: 0, deferred: 0, failed: 0, errors: [] } }]) {
+      owner.completeMcpOAuthAuthOnBackend.mockResolvedValueOnce({ ok: true, body });
+      expect((await POST(request("POST", { type: "oauth", action: "complete", input: "private-code" }), context())).status).toBe(502);
+    }
+    owner.completeMcpOAuthAuthOnBackend.mockRejectedValueOnce(new Error("private-code"));
+    const response = await POST(request("POST", { type: "oauth", action: "complete", input: "private-code" }), context());
+    expect(response.status).toBe(503);
+    expect(JSON.stringify(await response.json())).not.toContain("private-code");
+  });
+  it.each(["authenticated", "expired", "not_authenticated"])("development OAuth completion keeps %s status and config, with safe reload counters", async (status) => {
+    writeFileSync(join(agentDir, "mcp.json"), JSON.stringify({ mcpServers: { n8n: { url: "https://n8n.example.invalid/mcp", auth: "oauth" } } }));
+    const before = readFileSync(join(agentDir, "mcp.json"));
+    adapter.requestMcpWebUiAuth.mockImplementation(async (input: { operation: string }) => ({ ok: true, operation: input.operation, status,
+      token: "private-token", message: "private-message" }));
+    const response = await POST(request("POST", { type: "oauth", action: "complete", input: "private-code" }), context());
+    expect(response.status).toBe(200);
+    const payload = await response.json();
+    expect(payload.status).toBe(status);
+    expect(JSON.stringify(payload)).not.toContain("private");
+    expect(readFileSync(join(agentDir, "mcp.json"))).toEqual(before);
+    expect(adapter.requestMcpWebUiAuth).toHaveBeenCalledWith({ operation: "oauth-complete", serverName: "n8n", input: "private-code" });
+    expect(harness.reloadLiveSessionsContext).toHaveBeenCalledOnce();
+  });
+  it("OAuth completion sanitizes post-completion reload errors without claiming flow rollback", async () => {
+    writeFileSync(join(agentDir, "mcp.json"), JSON.stringify({ mcpServers: { n8n: { url: "https://n8n.example.invalid/mcp", auth: "oauth" } } }));
+    adapter.requestMcpWebUiAuth.mockResolvedValueOnce({ ok: true, operation: "oauth-complete", status: "authenticated" });
+    harness.reloadLiveSessionsContext.mockRejectedValueOnce(new Error("private-reload-error"));
+    const response = await POST(request("POST", { type: "oauth", action: "complete", input: "private-code" }), context());
+    expect(response.status).toBe(500);
+    expect(JSON.stringify(await response.json())).not.toContain("private-reload-error");
+    expect(adapter.requestMcpWebUiAuth).toHaveBeenCalledOnce();
   });
 
   it("rejects empty bearer tokens before contacting the adapter", async () => {

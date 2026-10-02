@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { createMcpPresetOnBackend, readMcpAuthStatusOnBackend, saveMcpBearerAuthOnBackend, saveMcpHeadersAuthOnBackend, removeMcpBearerAuthOnBackend, removeMcpAuthOnBackend, startMcpOAuthAuthOnBackend, setMcpServerEnabledOnBackend } from "./backend-client";
+import { createMcpPresetOnBackend, readMcpAuthStatusOnBackend, saveMcpBearerAuthOnBackend, saveMcpHeadersAuthOnBackend, removeMcpBearerAuthOnBackend, removeMcpAuthOnBackend, startMcpOAuthAuthOnBackend, completeMcpOAuthAuthOnBackend, setMcpServerEnabledOnBackend } from "./backend-client";
 const env = { LEAFCODE_PI_BACKEND_TOKEN: "t".repeat(40), LEAFCODE_PI_BACKEND_URL: "http://127.0.0.1:19999" };
 function json(status: number, body: unknown) {
   return new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
@@ -85,6 +85,17 @@ describe("MCP Backend ON/OFF client", () => {
     expect(JSON.parse(fetchImpl.mock.calls[0][1]?.body as string)).toEqual(input);
     expect(new Headers(fetchImpl.mock.calls[0][1]?.headers).get("authorization")).toBe(`Bearer ${env.LEAFCODE_PI_BACKEND_TOKEN}`);
     expect(await startMcpOAuthAuthOnBackend("server", input, { env: {}, fetchImpl })).toEqual({ ok: false, reason: "not-configured" });
+    expect(fetchImpl).toHaveBeenCalledOnce();
+  });
+  it("forwards private OAuth completion input only in the authenticated owner's POST body", async () => {
+    const fetchImpl = vi.fn<typeof fetch>(async () => json(200, {}));
+    const input = { type: "oauth" as const, action: "complete" as const, input: "private-code" };
+    await completeMcpOAuthAuthOnBackend("server name", input, { env, fetchImpl });
+    expect(fetchImpl.mock.calls[0][0]).toBe("http://127.0.0.1:19999/internal/mcp/servers/server%20name/auth");
+    expect(fetchImpl.mock.calls[0][1]?.method).toBe("POST");
+    expect(JSON.parse(fetchImpl.mock.calls[0][1]?.body as string)).toEqual(input);
+    expect(new Headers(fetchImpl.mock.calls[0][1]?.headers).get("authorization")).toBe(`Bearer ${env.LEAFCODE_PI_BACKEND_TOKEN}`);
+    expect(await completeMcpOAuthAuthOnBackend("server", input, { env: {}, fetchImpl })).toEqual({ ok: false, reason: "not-configured" });
     expect(fetchImpl).toHaveBeenCalledOnce();
   });
   it("forwards a preset and its credentials only to the owner", async () => {
