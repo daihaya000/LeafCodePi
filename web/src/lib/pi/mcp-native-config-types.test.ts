@@ -22,6 +22,7 @@ describe("Backend native MCP callback public SDK contract", () => {
       const configFileWriterPath = fileURLToPath(new URL("../../../../backend/core/mcp-native-config-file-writer.mjs", import.meta.url));
       const configRevisionPath = fileURLToPath(new URL("../../../../backend/core/mcp-native-config-revision.mjs", import.meta.url));
       const configOwnerPath = fileURLToPath(new URL("../../../../backend/core/mcp-native-config-owner.mjs", import.meta.url));
+      const stdioTransportPath = fileURLToPath(new URL("../../../../backend/core/mcp-native-stdio-transport.mjs", import.meta.url));
       const compilerOptions: ts.CompilerOptions = { module: ts.ModuleKind.NodeNext, moduleResolution: ts.ModuleResolutionKind.NodeNext,
         target: ts.ScriptTarget.ES2022, strict: true, skipLibCheck: true, noEmit: true, types: [] };
       // Resolve the public ESM/types export in Backend scope; this package has no CommonJS main.
@@ -42,6 +43,7 @@ import { createBackendMcpConfigUpdater } from ${JSON.stringify(configUpdaterPath
 import { createBackendMcpConfigFileWriter } from ${JSON.stringify(configFileWriterPath)};
 import { createBackendMcpConfigRevisionCheck } from ${JSON.stringify(configRevisionPath)};
 import { createBackendMcpConfigOwner } from ${JSON.stringify(configOwnerPath)};
+import { createBackendMcpStdioTransportFactory } from ${JSON.stringify(stdioTransportPath)};
 import type { DefaultResourceLoader, ExtensionContext, LoadedMcpConfig, McpExtensionOptions, McpServerEntry } from "@earendil-works/pi-coding-agent";
 const checkStorage = createBackendMcpPrivateStorageCheck({ agentDir: "owner" });
 const owner = createBackendMcpCredentialOwner({ agentDir: "owner", assertOwner: (identity) => {}, assertPrivateStorage: checkStorage });
@@ -96,6 +98,12 @@ if (prepared.ok) {
   const binding = await configOwner.prepare();
   const ownerCallbacks: Pick<McpExtensionOptions, "loadConfig" | "updateConfig"> = binding;
   const ownerLogPath: string = binding.logPath;
+  const stdioOptions = { snapshot: binding.loadConfig({} as ExtensionContext), configPath: "owner/mcp.json", sessionCwd: "workspace", homeDir: "home", environment: { EXPLICIT: "value" }, assertSnapshotOwner: binding.assertOwner };
+  const stdioFactory: NonNullable<McpExtensionOptions["createTransport"]> = createBackendMcpStdioTransportFactory(stdioOptions);
+  // @ts-expect-error No implicit parent environment or prepared authority fallback.
+  createBackendMcpStdioTransportFactory({ snapshot: stdioOptions.snapshot, configPath: stdioOptions.configPath });
+  // @ts-expect-error Environment values must be explicit strings, not commands/callbacks.
+  createBackendMcpStdioTransportFactory({ ...stdioOptions, environment: { EXPLICIT: () => "value" } });
   const createTransport: NonNullable<McpExtensionOptions["createTransport"]> = (entry, cwd, authProvider) => { throw Error("Owner transport fixture only"); };
   const boundServices: BackendMcpBoundOwnerServices = { credentials, openUrl: (url) => {}, createTransport };
   // @ts-expect-error Bound transport factory is explicit; no SDK transport fallback.
