@@ -72,6 +72,14 @@ if (prepared.ok) {
   const writerLease = coordinator.beginGeneration();
   const authority = createBackendMcpCredentialAuthority({ agentDir: "owner", bundledConfigPath: "bundle", prepared, assertRuntimeOwner: writerLease.assertOwner });
   const writerResult: Promise<number> = coordinator.runWrite((scope) => { scope.assertOwner(); return 42; });
+  const synchronousUpdater: NonNullable<McpExtensionOptions["updateConfig"]> = (entry, patch) => {
+    coordinator.runWriteSync((scope) => { scope.assertOwner(); return undefined; });
+  };
+  const synchronousServices: BackendMcpOwnerServices = { ...services, updateConfig: synchronousUpdater };
+  // @ts-expect-error Undefined return excludes Promise callbacks (unlike the SDK void callback).
+  coordinator.runWriteSync(async (scope) => { scope.assertOwner(); });
+  // @ts-expect-error Arbitrary private return data is not a synchronous write acknowledgment.
+  coordinator.runWriteSync((scope) => 42);
   const drained: Promise<void> = coordinator.drain();
   coordinator.dispose();
   // @ts-expect-error Process authority is mandatory; no ambient writer owner.

@@ -120,6 +120,62 @@ test("reentrant process callbacks and ownership loss during awaits cannot publis
   await assert.rejects(a, safe);
 });
 
+test("SDK-style synchronous updater completes or throws inline; scopes/old leases cannot revive", async (t) => {
+  const co = fixture(t), old = co.beginGeneration(); let saved = false, retained;
+  const updateConfig = () => co.runWriteSync((scope) => {
+    retained = scope; assert.equal(Object.isFrozen(scope), true); scope.assertOwner();
+    assert.throws(() => co.beginGeneration(), safe); assert.throws(() => co.captureLease(), safe);
+    saved = true;
+  });
+  assert.equal(updateConfig(), undefined); assert.equal(saved, true);
+  assert.throws(old.assertOwner, leaseError); assert.throws(retained.assertOwner, safe);
+  assert.throws(() => co.captureLease(), safe); co.beginGeneration().assertOwner();
+  assert.throws(() => co.runWriteSync(() => { throw Error("private-update-path-token"); }), safe);
+  assert.equal(await co.runWrite(() => 42), 42); await co.drain();
+});
+
+test("sync writer never overtakes queued/active work, rejects nested sync/async work and stale async descendants", async (t) => {
+  const co = fixture(t), hold = deferred(), started = deferred(); let calls = 0, late;
+  const queued = co.runWrite(async () => { started.resolve(); await hold.promise; });
+  assert.throws(() => co.runWriteSync(() => { calls++; }), safe);
+  await started.promise; assert.throws(() => co.runWriteSync(() => { calls++; }), safe);
+  hold.resolve(); await queued;
+  co.runWriteSync(() => {
+    assert.throws(() => co.runWriteSync(() => { calls++; }), safe);
+    const d = deferred(); late = d.promise;
+    setImmediate(async () => { try {
+      assert.throws(() => co.runWriteSync(() => { calls++; }), safe);
+      await assert.rejects(co.runWrite(() => { calls++; }), safe);
+      await assert.rejects(co.drain(), safe); d.resolve();
+    } catch (e) { d.resolve(e); } });
+  });
+  assert.equal(await late, undefined); assert.equal(calls, 0);
+  co.runWriteSync(() => { calls++; }); assert.equal(calls, 1);
+});
+
+test("sync writer refuses native async functions before invocation and consumes returned rejected promises", async (t) => {
+  const co = fixture(t), current = co.beginGeneration(); let called = false;
+  assert.throws(() => co.runWriteSync(async () => { called = true; }), safe);
+  assert.equal(called, false); current.assertOwner();
+  for (const work of [null, {}, () => 1, () => Promise.reject(Error("private-async-write")), () => ({ then(resolve, reject) { reject(Error("private-thenable")); } })]) {
+    assert.throws(() => co.runWriteSync(work), safe);
+  }
+  await new Promise((resolve) => setImmediate(resolve));
+  co.runWriteSync(() => undefined); co.beginGeneration().assertOwner();
+});
+
+test("sync completion rejects process-owner loss/disposal without rollback or successful publication", async (t) => {
+  let allowed = true, partial = 0;
+  const co = fixture(t, () => { if (!allowed) throw Error("private-owner"); });
+  const old = co.beginGeneration();
+  assert.throws(() => co.runWriteSync(() => { partial = 1; allowed = false; }), safe);
+  allowed = true; assert.equal(partial, 1); assert.throws(old.assertOwner, leaseError);
+  co.runWriteSync(() => undefined);
+  assert.throws(() => co.runWriteSync(() => { co.dispose(); }), safe);
+  assert.throws(() => co.runWriteSync(() => { throw Error("Unexpected disposed work"); }), safe);
+  await co.drain();
+});
+
 test("coordinated config ABA invalidates old authority without manual generation fencing and leaves bytes intact", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "leafcode-mcp-writer-aba-"));
   t.after(() => rm(root, { recursive: true, force: true }));

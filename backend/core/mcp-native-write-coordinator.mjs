@@ -1,4 +1,5 @@
 import { AsyncLocalStorage } from "node:async_hooks";
+import { types } from "node:util";
 import { createBackendMcpGenerationOwner } from "./mcp-native-generation-lease.mjs";
 const plain = (value) => value && typeof value === "object" && !Array.isArray(value)
   && [Object.prototype, null].includes(Object.getPrototypeOf(value));
@@ -11,7 +12,11 @@ const rejected = () => { const promise = Promise.reject(unavailable()); promise.
  * synchronously, block all generation publication while pending, and never auto-reactivate.
  * Process ownership is explicit/synchronous, checked at acceptance/start/completion and
  * via the writer's scoped guard. Observed authority failure cancels older queued tickets.
- * Nested writes/drain from this coordinator's async writer context are rejected, not hung.
+ * Nested writes/drain from this coordinator's writer context are rejected, not hung.
+ * SDK updateConfig is synchronous/NOT awaited: runWriteSync completes or throws inline,
+ * only when the FIFO is idle (never jumps queued work). Its callback MUST return undefined;
+ * detectable native async functions are refused before invocation; other thenables are consumed and
+ * rejected, not force-cancelled. Type contract also excludes async callbacks.
  * No default store, file/config/credential operations, process lease or session activation.
  * Callbacks/results are PRIVATE; callers must whitelist results before HTTP/Web use.
  * Work errors are sanitized, not rolled back. A running callback cannot be force-cancelled:
@@ -44,6 +49,13 @@ export function createBackendMcpWriteCoordinator(options) {
       if (closed || pending !== 0) throw unavailable();
       verifyProcess();
     } });
+    const writerScope = (ticket, isActive) => Object.freeze({ assertOwner: () => {
+      try {
+        if (!isActive() || closed || ticket !== authorityEpoch) throw unavailable();
+        verifyProcess();
+        if (!isActive() || closed || ticket !== authorityEpoch) throw unavailable();
+      } catch { throw unavailable(); }
+    } });
     const publish = (method) => {
       try { if (closed || pending !== 0) throw unavailable(); return generation[method](); }
       catch { throw unavailable(); }
@@ -59,13 +71,7 @@ export function createBackendMcpWriteCoordinator(options) {
           pending++; generation.invalidate();
           const run = tail.then(async () => {
             let active = true;
-            const scope = Object.freeze({ assertOwner: () => {
-              try {
-                if (!active || closed || ticket !== authorityEpoch) throw unavailable();
-                verifyProcess();
-                if (!active || closed || ticket !== authorityEpoch) throw unavailable();
-              } catch { throw unavailable(); }
-            } });
+            const scope = writerScope(ticket, () => active);
             try {
               scope.assertOwner();
               return await context.run(token, async () => { const result = await work(scope); scope.assertOwner(); return result; });
@@ -75,6 +81,23 @@ export function createBackendMcpWriteCoordinator(options) {
           tail = run.then(() => undefined, () => undefined);
           return run;
         } catch { return rejected(); }
+      },
+      runWriteSync: (work) => {
+        let entered = false, active = false;
+        try {
+          if (closed || pending !== 0 || typeof work !== "function" || types.isAsyncFunction(work)
+            || context.getStore() === token) throw unavailable();
+          verifyProcess();
+          const ticket = authorityEpoch;
+          pending++; entered = true; active = true; generation.invalidate();
+          const scope = writerScope(ticket, () => active);
+          scope.assertOwner();
+          const result = context.run(token, () => work(scope));
+          if (result && typeof result.then === "function") { Promise.resolve(result).catch(() => undefined); throw unavailable(); }
+          if (result !== undefined) throw unavailable();
+          scope.assertOwner();
+        } catch { throw unavailable(); }
+        finally { if (entered) { active = false; pending--; generation.invalidate(); } }
       },
       drain: () => context.getStore() === token ? rejected() : tail,
       dispose: () => { if (!closed) { closed = true; authorityEpoch++; generation.dispose(); tail.then(() => context.disable()); } },
