@@ -2,6 +2,7 @@ import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
 import { createServer } from "node:http";
 import { once } from "node:events";
 import { streamRuntimeEvents } from "./runtime-events.mjs";
+import { parseMcpPresetRequest } from "../../shared/mcp-preset-request.mjs";
 import { InvalidTaskMessageCursorError, pageTaskMessages } from "../../shared/task-history.mjs";
 import {
   BACKEND_ERROR_CODES,
@@ -208,6 +209,8 @@ export function createBackendServer({
   readMcpMigrationDiagnostics = null,
   /** Changes a global MCP ON/OFF flag and schedules the owner's context reload. */
   setMcpServerEnabledAction = null,
+  /** Adds a validated known MCP preset and reloads the owner's sessions. */
+  createMcpPresetAction = null,
   /** Compacts a session: `(id, customInstructions?) => task`; the summarization runs in the owner. */
   compactTaskAction = null,
   /** Stops a running compaction: `(id) => task`; only the owner can interrupt its own session. */
@@ -271,6 +274,7 @@ export function createBackendServer({
     reloadLiveSessionsAction,
     readMcpMigrationDiagnostics,
     setMcpServerEnabledAction,
+    createMcpPresetAction,
     compactTaskAction,
     abortCompactTaskAction,
     setTaskModelAction,
@@ -387,6 +391,7 @@ export function createBackendServer({
       || target.pathname === BACKEND_LIVE_SESSIONS_RELOAD_PATH
       || target.pathname === BACKEND_MCP_MIGRATION_PATH
       || target.pathname.startsWith(`${BACKEND_MCP_SERVERS_PATH}/`)
+      || target.pathname === BACKEND_MCP_SERVERS_PATH
       || projectActionPath !== undefined
       || botAdminPath !== undefined
       || target.pathname === BACKEND_PENDING_SNAPSHOTS_PATH
@@ -403,6 +408,35 @@ export function createBackendServer({
       || actionPath !== undefined;
     if (!knownPath) {
       sendJson(response, 404, { error: "Not found", code: BACKEND_ERROR_CODES.notFound });
+      return;
+    }
+    if (target.pathname === BACKEND_MCP_SERVERS_PATH) {
+      if (request.method !== "POST") {
+        sendJson(response, 405, { error: "Method not allowed", code: BACKEND_ERROR_CODES.methodNotAllowed }, { Allow: "POST" });
+        return;
+      }
+      if (target.search) {
+        sendJson(response, 400, { error: "Invalid MCP preset request", code: BACKEND_ERROR_CODES.badRequest });
+        return;
+      }
+      let ready = false;
+      try { ready = isReady() === true; } catch { /* Refuse without exception detail. */ }
+      if (!createMcpPresetAction || !ready) {
+        sendJson(response, 503, { error: "Backend runtime unavailable", code: BACKEND_ERROR_CODES.runtimeUnavailable });
+        return;
+      }
+      const body = await readJsonBody(request, 16_384);
+      const parsed = body.ok ? parseMcpPresetRequest(body.value) : { ok: false };
+      if (!parsed.ok) {
+        sendJson(response, 400, { error: "Invalid MCP preset request", code: BACKEND_ERROR_CODES.badRequest });
+        return;
+      }
+      try { sendJson(response, 200, await createMcpPresetAction(parsed.value)); }
+      catch (error) {
+        const status = [400, 404, 409, 503].includes(error?.status) ? error.status : 500;
+        sendJson(response, status, { error: "Backend MCP preset creation failed",
+          code: status === 404 ? BACKEND_ERROR_CODES.notFound : status < 500 ? BACKEND_ERROR_CODES.badRequest : BACKEND_ERROR_CODES.internal });
+      }
       return;
     }
     if (target.pathname.startsWith(`${BACKEND_MCP_SERVERS_PATH}/`)) {

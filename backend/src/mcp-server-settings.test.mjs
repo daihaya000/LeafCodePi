@@ -76,6 +76,35 @@ test("MCP owner refusal statuses survive without exception details", async (t) =
   }
 });
 
+test("preset creation is authenticated, owner-ready and limited to known request shapes", async (t) => {
+  const calls = [];
+  const { url: itemUrl, headers } = await endpoint(t, { createMcpPresetAction: (input) => {
+    calls.push(input); return { ok: true, name: input.preset, servers: [], reload: { reloaded: 0, deferred: 0, failed: 0, errors: [] } };
+  } });
+  const url = itemUrl.replace(/\/fixture$/, "");
+  const post = (body, auth = headers, target = url) => request(target, { method: "POST", headers: auth, body: JSON.stringify(body) });
+  assert.equal((await post({ preset: "notion" }, {})).status, 401);
+  assert.equal((await post({ preset: "notion" }, { authorization: headers.authorization })).status, 409);
+  for (const body of [null, [], { preset: "other" }, { preset: "notion", configPath: "other" },
+    { preset: "n8n", url: "example.invalid", command: "run" }, { preset: "google-workspace", clientId: "x" }]) {
+    assert.equal((await post(body)).status, 400);
+  }
+  assert.equal((await post({ preset: "notion" }, headers, `${url}?apply=true`)).status, 400);
+  assert.equal(calls.length, 0);
+  for (const body of [{ preset: "n8n", url: "example.invalid" }, { preset: "slack", clientId: "x" },
+    { preset: "google-workspace", clientId: "x", clientSecret: "private-fixture-secret" }, { preset: "notion" }]) {
+    const response = await post(body);
+    assert.equal(response.status, 200);
+    assert.equal((await response.text()).includes("private-fixture-secret"), false);
+    assert.deepEqual(calls.at(-1), body);
+  }
+  const missing = await endpoint(t);
+  assert.equal((await request(missing.url.replace(/\/fixture$/, ""), { method: "POST", headers: missing.headers,
+    body: JSON.stringify({ preset: "notion" }) })).status, 503);
+  assert.equal((await request(url, { headers })).status, 405);
+  assert.throws(() => createBackendServer({ token: "x".repeat(32), createMcpPresetAction: true }), /createMcpPresetAction/);
+});
+
 test("Backend entry persists ON/OFF through the rebuilt runtime and returns only redacted DTOs", { timeout: 15_000 }, async (t) => {
   const root = await mkdtemp(join(tmpdir(), "leafcode-mcp-owner-write-"));
   const configPath = join(root, "mcp.json");
@@ -124,4 +153,21 @@ test("Backend entry persists ON/OFF through the rebuilt runtime and returns only
   assert.equal(config.mcpServers.fixture.env.KEY, "private-fixture-token");
   const missing = await patch(`${base}${BACKEND_MCP_SERVERS_PATH}/missing-fixture`, headers);
   assert.equal(missing.status, 404);
+  for (const input of [{ preset: "n8n", url: "example.app.n8n.cloud" }, { preset: "slack", clientId: "fixture-client" },
+    { preset: "google-workspace", clientId: "fixture-client", clientSecret: "private-fixture-google-secret" }, { preset: "notion" }]) {
+    const added = await request(`${base}${BACKEND_MCP_SERVERS_PATH}`, { method: "POST", headers, body: JSON.stringify(input) });
+    assert.equal(added.status, 200);
+    const answer = await added.json();
+    assert.equal(answer.name, input.preset);
+    assert.deepEqual(answer.reload, { reloaded: 0, deferred: 0, failed: 0, errors: [] });
+    assert.equal(JSON.stringify(answer).includes("private-fixture-google-secret"), false);
+    assert.equal(JSON.stringify(answer).includes(root), false);
+  }
+  const written = JSON.parse(await readFile(configPath, "utf8"));
+  assert.equal(written.mcpServers.n8n.url, "https://example.app.n8n.cloud/mcp-server/http");
+  assert.equal(written.mcpServers.slack.oauth.clientId, "fixture-client");
+  assert.equal(written.mcpServers["gws-calendar"].oauth.clientSecret, "private-fixture-google-secret");
+  assert.equal(written.mcpServers.fixture.env.KEY, "private-fixture-token");
+  const duplicate = await request(`${base}${BACKEND_MCP_SERVERS_PATH}`, { method: "POST", headers, body: JSON.stringify({ preset: "notion" }) });
+  assert.equal(duplicate.status, 409);
 });

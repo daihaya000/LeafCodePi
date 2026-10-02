@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { setMcpServerEnabledOnBackend } from "./backend-client";
+import { createMcpPresetOnBackend, setMcpServerEnabledOnBackend } from "./backend-client";
 const env = { LEAFCODE_PI_BACKEND_TOKEN: "t".repeat(40), LEAFCODE_PI_BACKEND_URL: "http://127.0.0.1:19999" };
 function json(status: number, body: unknown) {
   return new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
@@ -14,6 +14,15 @@ describe("MCP Backend ON/OFF client", () => {
     expect(options.method).toBe("PATCH");
     expect(JSON.parse(options.body as string)).toEqual({ enabled: false });
     expect(options.headers).toMatchObject({ authorization: `Bearer ${env.LEAFCODE_PI_BACKEND_TOKEN}`, "x-leafcode-backend-protocol": "1" });
+  });
+  it("forwards a preset and its credentials only to the owner", async () => {
+    const fetchImpl = vi.fn<typeof fetch>(async () => json(200, { ok: true, name: "google-workspace", servers: [],
+      reload: { reloaded: 0, deferred: 0, failed: 0, errors: [] } }));
+    const input = { preset: "google-workspace" as const, clientId: "fixture-client", clientSecret: "private-fixture-secret" };
+    expect((await createMcpPresetOnBackend(input, { env, fetchImpl })).ok).toBe(true);
+    expect(fetchImpl.mock.calls[0][0]).toBe("http://127.0.0.1:19999/internal/mcp/servers");
+    expect(fetchImpl.mock.calls[0][1]?.method).toBe("POST");
+    expect(JSON.parse(fetchImpl.mock.calls[0][1]?.body as string)).toEqual(input);
   });
   it("makes no request without Backend credentials", async () => {
     const fetchImpl = vi.fn<typeof fetch>();

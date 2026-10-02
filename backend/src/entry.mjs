@@ -106,6 +106,14 @@ try {
         throw Object.assign(new Error("Backend MCP setting update failed"), { status: runtime.mcpErrorStatus(error) });
       }
     },
+    createMcpPresetAction: async (input) => {
+      const runtime = started.runtime();
+      if (!runtime) throw Object.assign(new Error("runtime unavailable"), { status: 503 });
+      try { return await runtime.createMcpPreset(input); }
+      catch (error) {
+        throw Object.assign(new Error("Backend MCP preset creation failed"), { status: runtime.mcpErrorStatus(error) });
+      }
+    },
     // Attention is the owner's in-memory view; a detached Backend has none, which is honest.
     subscribeRuntimeEvents: (listener) => {
       const runtime = started.runtime();

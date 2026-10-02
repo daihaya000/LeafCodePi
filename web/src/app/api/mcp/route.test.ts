@@ -1,16 +1,22 @@
 import { NextRequest } from "next/server";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const harness = vi.hoisted(() => ({
-  reloadLiveSessionsContext: vi.fn(async () => ({ reloaded: 1 })),
+  reloadLiveSessionsContext: vi.fn(async () => ({ reloaded: 1, deferred: 0, failed: 0, errors: [] })),
 }));
 
+const owner = vi.hoisted(() => ({ localRuntimeBlocked: vi.fn(), createMcpPresetOnBackend: vi.fn() }));
 vi.mock("@/lib/pi/harness", () => harness);
+vi.mock("@/lib/backend-client", () => ({ createMcpPresetOnBackend: owner.createMcpPresetOnBackend }));
+vi.mock("@/lib/pi/runtime-ownership", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@/lib/pi/runtime-ownership")>(), localRuntimeBlocked: owner.localRuntimeBlocked,
+}));
 
 import { POST } from "./route";
+import { createMcpPreset } from "@/lib/mcp-preset-admin";
 
 function request(body?: unknown): NextRequest {
   return new NextRequest("http://127.0.0.1:3010/api/mcp", {
@@ -29,9 +35,12 @@ describe("/api/mcp POST", () => {
     previousAgentDir = process.env.PI_CODING_AGENT_DIR;
     process.env.PI_CODING_AGENT_DIR = agentDir;
     harness.reloadLiveSessionsContext.mockClear();
+    owner.localRuntimeBlocked.mockReturnValue(false);
+    owner.createMcpPresetOnBackend.mockReset();
   });
 
   afterEach(() => {
+    vi.unstubAllEnvs();
     if (previousAgentDir === undefined) delete process.env.PI_CODING_AGENT_DIR;
     else process.env.PI_CODING_AGENT_DIR = previousAgentDir;
     rmSync(agentDir, { recursive: true, force: true });
@@ -108,6 +117,54 @@ describe("/api/mcp POST", () => {
     await POST(request({ preset: "n8n", url: "example.app.n8n.cloud" }));
     const duplicate = await POST(request({ preset: "n8n", url: "example.app.n8n.cloud" }));
     expect(duplicate.status).toBe(409);
+  });
+
+  it.each([
+    { preset: "n8n", url: "example.app.n8n.cloud" }, { preset: "slack", clientId: "example-client" },
+    { preset: "google-workspace", clientId: "example-client", clientSecret: "private-fixture-secret" }, { preset: "notion" },
+  ])("production forwards preset $preset without local persistence or duplicate reload", async (input) => {
+    owner.localRuntimeBlocked.mockReturnValue(true);
+    owner.createMcpPresetOnBackend.mockResolvedValue({ ok: true, body: { ok: true, name: input.preset, servers: [],
+      reload: { reloaded: 0, deferred: 0, failed: 1, errors: ["private-fixture-secret"] }, configPath: "owner-private-path" } });
+    const response = await POST(request(input));
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body).toEqual({ ok: true, name: input.preset, servers: [],
+      reload: { reloaded: 0, deferred: 0, failed: 1, errors: ["セッションの再読込に失敗しました"] } });
+    expect(owner.createMcpPresetOnBackend).toHaveBeenCalledWith(input);
+    expect(harness.reloadLiveSessionsContext).not.toHaveBeenCalled();
+    expect(existsSync(join(agentDir, "mcp.json"))).toBe(false);
+  });
+
+  it.each([["not-configured", undefined, 502], ["unreachable", undefined, 502], ["timeout", undefined, 502],
+    ["unauthorized", 401, 401], ["incompatible", 409, 409], ["bad-response", 409, 409]])(
+    "production does not fall back on %s", async (reason, status, expected) => {
+      owner.localRuntimeBlocked.mockReturnValue(true);
+      owner.createMcpPresetOnBackend.mockResolvedValue({ ok: false, reason, status });
+      expect((await POST(request({ preset: "notion" }))).status).toBe(expected);
+      expect(existsSync(join(agentDir, "mcp.json"))).toBe(false);
+      expect(harness.reloadLiveSessionsContext).not.toHaveBeenCalled();
+    });
+
+  it("rejects malformed Backend successes and privileged request fields", async () => {
+    owner.localRuntimeBlocked.mockReturnValue(true);
+    owner.createMcpPresetOnBackend.mockResolvedValue({ ok: true, body: { ok: true, name: "notion", servers: [] } });
+    expect((await POST(request({ preset: "notion" }))).status).toBe(502);
+    owner.createMcpPresetOnBackend.mockClear();
+    for (const input of [{ preset: "notion", configPath: "other" }, { preset: "n8n", url: "example.invalid", command: "run" },
+      { preset: "notion", clientSecret: "private-fixture-secret" }]) {
+      expect((await POST(request(input))).status).toBe(400);
+    }
+    expect(owner.createMcpPresetOnBackend).not.toHaveBeenCalled();
+    expect(existsSync(join(agentDir, "mcp.json"))).toBe(false);
+  });
+
+  it("the owner handler itself refuses a production WebUI before any write", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("LEAFCODE_PI_BACKEND_RUNTIME", "");
+    await expect(createMcpPreset({ preset: "notion" })).rejects.toThrow(/Backend/);
+    expect(existsSync(join(agentDir, "mcp.json"))).toBe(false);
+    expect(harness.reloadLiveSessionsContext).not.toHaveBeenCalled();
   });
 
   it("rejects invalid request bodies", async () => {

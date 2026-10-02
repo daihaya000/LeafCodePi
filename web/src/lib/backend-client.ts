@@ -52,6 +52,7 @@ import {
 } from "@shared/backend-protocol.mjs";
 
 import type { McpDto } from "@/lib/mcp";
+import type { McpPresetRequest, McpPublicReload } from "@shared/mcp-preset-request.mjs";
 
 export const BACKEND_REQUEST_TIMEOUT_MS = 10_000;
 
@@ -172,6 +173,15 @@ async function backendRequest<T>(
 }
 
 export type BackendMcpEnabledResult = { ok: true; name: string; enabled: boolean; servers: McpDto[] };
+export type BackendMcpPresetResult = { ok: true; name: McpPresetRequest["preset"]; servers: McpDto[]; reload: McpPublicReload };
+
+/** Adds a known preset only in the owner; request credentials must not be logged. */
+export function createMcpPresetOnBackend(
+  input: McpPresetRequest,
+  options: { env?: BackendEnv; fetchImpl?: typeof fetch; timeoutMs?: number } = {},
+): Promise<BackendResult<BackendMcpPresetResult>> {
+  return backendRequest(BACKEND_MCP_SERVERS_PATH, { ...options, method: "POST", body: input });
+}
 
 /** Writes MCP ON/OFF only in the owner. No local fallback or path/config arguments. */
 export function setMcpServerEnabledOnBackend(
