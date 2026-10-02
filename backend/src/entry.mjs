@@ -67,7 +67,7 @@ try {
   const runtimeRequested = isRuntimeRequested();
   // Opt-in native MCP: only meaningful with an attached runtime, and never a fallback path. The
   // bundled adapter stays authoritative while the flag is unset, so the two never run together.
-  const initializeNativeMcp = createNativeMcpStartup({ runtimeRequested });
+  const nativeMcp = createNativeMcpStartup({ runtimeRequested });
   const started = createBackendStartup({
     // Only the host may attach the runtime: the Web process still owns the SDK unless it is asked
     // to hand over, and two owners would double-write the store, leases and sessions.
@@ -82,7 +82,7 @@ try {
           promptTask: createResumePrompt({ getRuntime: () => started.runtime() }),
           // The provider must be installed inside the bundle's own module instance, so it is built
           // from the attached runtime module rather than imported here.
-          ...(initializeNativeMcp ? { initializeRuntime: initializeNativeMcp } : {}),
+          ...(nativeMcp ? { initializeRuntime: nativeMcp.initializeRuntime } : {}),
         }
       : {}),
   });
@@ -105,18 +105,24 @@ try {
         throw Object.assign(new Error("Backend MCP list failed"), { status: runtime.mcpErrorStatus(error) });
       }
     },
-    setMcpServerEnabledAction: (name, enabled) => {
+    setMcpServerEnabledAction: async (name, enabled) => {
       const runtime = started.runtime();
       if (!runtime) throw Object.assign(new Error("runtime unavailable"), { status: 503 });
       try {
-        const listed = runtime.setMcpServerEnabled(name, enabled);
+        const write = () => {
+          const listed = runtime.setMcpServerEnabled(name, enabled);
+          return { ok: true, name, enabled, servers: listed.servers };
+        };
+        // Native MCP runs the write in the owner's writer scope and republishes the snapshot for
+        // later sessions; the adapter path keeps its own executor. A republish failure is surfaced.
+        const result = nativeMcp ? await nativeMcp.runConfigWrite(write) : write();
         // Persist and respond first; the owner alone rebuilds its live sessions.
         setImmediate(() => {
           void Promise.resolve().then(() => runtime.reloadLiveSessionsContext()).catch(() => {
             console.warn("[mcp] Backend live session context reload failed");
           });
         });
-        return { ok: true, name, enabled, servers: listed.servers };
+        return result;
       } catch (error) {
         throw Object.assign(new Error("Backend MCP setting update failed"), { status: runtime.mcpErrorStatus(error) });
       }
@@ -172,7 +178,11 @@ try {
     createMcpPresetAction: async (input) => {
       const runtime = started.runtime();
       if (!runtime) throw Object.assign(new Error("runtime unavailable"), { status: 503 });
-      try { return await runtime.createMcpPreset(input); }
+      try {
+        // Adding a preset writes the same config file the native loader reads, so a native runtime
+        // republishes through the owner writer scope before responding.
+        return nativeMcp ? await nativeMcp.runConfigWrite(() => runtime.createMcpPreset(input)) : await runtime.createMcpPreset(input);
+      }
       catch (error) {
         throw Object.assign(new Error("Backend MCP preset creation failed"), { status: runtime.mcpErrorStatus(error) });
       }

@@ -1,19 +1,31 @@
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
+import { readFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { test } from "node:test";
 import { browserOpenCommand, createBrowserOpener, createNativeMcpActivation, createNativeMcpStartup, isNativeMcpRequested } from "./mcp-native-activation.mjs";
 
 const safe = (e) => e instanceof Error && e.message === "MCP native activation unavailable" && e.cause === undefined;
 
 /** Fake bundle module: records what activation passes and how the provider is installed. */
-function fakeRuntime({ createThrows = false, installThrows = false, forSession } = {}) {
-  const calls = { options: [], installs: 0, dispose: 0 };
+function fakeRuntime({ createThrows = false, installThrows = false, republishThrows = false, forSession } = {}) {
+  const calls = { options: [], installs: 0, dispose: 0, scopes: [] };
   const prepared = { binding: Object.freeze({}), forSession: forSession ?? (() => "session") };
   return { calls, prepared,
     createBackendMcpNativeRuntime(options) {
       calls.options.push(options);
       if (createThrows) throw Error("private create failure");
-      return { async install() { calls.installs++; if (installThrows) throw Error("private install failure"); return prepared; }, dispose() { calls.dispose++; } };
+      return {
+        async install() {
+          calls.installs++;
+          if (installThrows) throw Error("private install failure");
+          if (republishThrows && calls.installs > 1) throw Error("private republish failure");
+          return prepared;
+        },
+        runWrite(work) { return Promise.resolve().then(() => work({ fixture: true })); },
+        dispose() { calls.dispose++; },
+      };
     },
   };
 }
@@ -86,10 +98,45 @@ test("the entry composition requires both the attached runtime and the explicit 
   assert.equal(createNativeMcpStartup({ runtimeRequested: undefined, env: on }), null);
   const activation = createNativeMcpActivation({ agentDir: "C:/private-agent", environment: {}, variables: {} });
   const initialize = createNativeMcpStartup({ runtimeRequested: true, env: on, activation });
-  assert.equal(typeof initialize, "function");
-  const runtime = fakeRuntime(); assert.equal(await initialize(runtime), undefined);
+  assert.equal(typeof initialize.initializeRuntime, "function"); assert.equal(typeof initialize.runConfigWrite, "function");
+  const runtime = fakeRuntime(); assert.equal(await initialize.initializeRuntime(runtime), undefined);
   assert.equal(runtime.calls.installs, 1); assert.equal(activation.status(), "active");
+  assert.equal(await initialize.runConfigWrite(() => "written"), "written");
+  assert.equal(runtime.calls.installs, 2);
   activation.dispose();
+});
+
+test("config writes run in the owner writer scope and republish; failures never claim success", async () => {
+  const runtime = fakeRuntime();
+  const activation = createNativeMcpActivation({ agentDir: "C:/private-agent", environment: {}, variables: {} });
+  await assert.rejects(activation.runConfigWrite(() => "too early"), safe); // never active
+  await activation.initialize(runtime);
+  const scopes = [];
+  assert.equal(await activation.runConfigWrite((scope) => { scopes.push(scope); return "written"; }), "written");
+  assert.deepEqual(scopes, [{ fixture: true }]); assert.equal(runtime.calls.installs, 2);
+  // A failing write keeps its own error and is not republished.
+  await assert.rejects(activation.runConfigWrite(() => { throw Error("private write failure"); }), /private write failure/);
+  assert.equal(runtime.calls.installs, 2);
+  await assert.rejects(activation.runConfigWrite("not a function"), safe);
+  // A failing republish is sanitized and already retired the binding: no silent stale snapshot.
+  const republish = fakeRuntime({ republishThrows: true });
+  const second = createNativeMcpActivation({ agentDir: "C:/private-agent", environment: {}, variables: {} });
+  await second.initialize(republish);
+  await assert.rejects(second.runConfigWrite(() => "written"), safe);
+  await assert.rejects(second.runConfigWrite(() => "written"), safe);
+  assert.equal(republish.calls.installs, 3);
+  second.dispose(); await assert.rejects(second.runConfigWrite(() => "written"), safe);
+  activation.dispose();
+});
+
+test("the Backend entry routes both MCP config writes through the native hooks", async () => {
+  // The entry runs the server at import time, so this is a source regression guard: dropping either
+  // hook would silently leave a stale or retired provider after an ON/OFF or preset write.
+  const source = await readFile(join(dirname(fileURLToPath(import.meta.url)), "entry.mjs"), "utf8");
+  assert.ok(source.includes("createNativeMcpStartup({ runtimeRequested })"));
+  assert.ok(source.includes("initializeRuntime: nativeMcp.initializeRuntime"));
+  assert.ok(source.includes("nativeMcp.runConfigWrite(write)"));
+  assert.ok(source.includes("nativeMcp.runConfigWrite(() => runtime.createMcpPreset(input))"));
 });
 
 test("a malformed bundle module and a non-http auth URL fail closed", async () => {

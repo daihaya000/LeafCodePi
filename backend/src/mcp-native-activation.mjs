@@ -13,12 +13,16 @@ export function isNativeMcpRequested(env = process.env) {
 }
 
 /** Composition for the Backend entry: native MCP only when the runtime is attached AND the explicit
- * opt-in flag is set, so the adapter and the native path never run together. Returns the
- * `initializeRuntime` hook for `createBackendStartup`, or null to keep today's behavior. */
+ * opt-in flag is set, so the adapter and the native path never run together. Returns the startup
+ * hooks for `createBackendStartup` and the config-write path, or null to keep today's behavior. */
 export function createNativeMcpStartup({ runtimeRequested, env = process.env, activation } = {}) {
   if (runtimeRequested !== true || !isNativeMcpRequested(env)) return null;
   const instance = activation ?? createNativeMcpActivation();
-  return (runtimeModule) => instance.initialize(runtimeModule);
+  return Object.freeze({
+    initializeRuntime: (runtimeModule) => instance.initialize(runtimeModule),
+    /** Config writes go through the owner's writer scope so the provider is republished afterwards. */
+    runConfigWrite: (work) => instance.runConfigWrite(work),
+  });
 }
 
 /** Browser launcher for a headless process: no shell, so an auth URL cannot become a command line. */
@@ -109,6 +113,16 @@ export function createNativeMcpActivation(options = {}) {
           state = "failed";
           throw unavailable();
         }
+      },
+      /** Serializes one config write in the owner's writer scope, then republishes the provider so
+       * later sessions see it. The write result is returned unchanged; if the republish fails, the
+       * previous binding stays retired (fail-closed) and the failure is surfaced. */
+      async runConfigWrite(work) {
+        if (state !== "active" || !owner) throw unavailable();
+        if (typeof work !== "function") throw unavailable();
+        const result = await owner.runWrite((scope) => work(scope));
+        try { await owner.install(); } catch { throw unavailable(); } // The write already happened; the republish failure is sanitized.
+        return result;
       },
       /** Releases the config owner; already-installed providers/sessions are not revoked. */
       dispose() { try { owner?.dispose(); } catch { /* best-effort */ } state = "disposed"; },
