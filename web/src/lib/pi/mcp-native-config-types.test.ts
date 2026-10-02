@@ -14,6 +14,7 @@ describe("Backend native MCP callback public SDK contract", () => {
       const credentialsPath = fileURLToPath(new URL("../../../../backend/core/mcp-native-credentials.mjs", import.meta.url));
       const credentialOwnerPath = fileURLToPath(new URL("../../../../backend/core/mcp-native-credential-owner.mjs", import.meta.url));
       const privateStoragePath = fileURLToPath(new URL("../../../../backend/core/mcp-private-storage.mjs", import.meta.url));
+      const oauthStatusPath = fileURLToPath(new URL("../../../../backend/core/mcp-native-oauth-status.mjs", import.meta.url));
       const compilerOptions: ts.CompilerOptions = { module: ts.ModuleKind.NodeNext, moduleResolution: ts.ModuleResolutionKind.NodeNext,
         target: ts.ScriptTarget.ES2022, strict: true, skipLibCheck: true, noEmit: true, types: [] };
       // Resolve the public ESM/types export in Backend scope; this package has no CommonJS main.
@@ -26,11 +27,20 @@ import { prepareBackendMcpExtensions, type BackendMcpOwnerServices } from ${JSON
 import { createBackendMcpCredentials, type BackendMcpOAuthState } from ${JSON.stringify(credentialsPath)};
 import { createBackendMcpCredentialOwner } from ${JSON.stringify(credentialOwnerPath)};
 import { createBackendMcpPrivateStorageCheck, assertMcpStoragePermissions } from ${JSON.stringify(privateStoragePath)};
+import { createBackendMcpOAuthStatusReader, type BackendMcpOAuthStatus } from ${JSON.stringify(oauthStatusPath)};
 import type { DefaultResourceLoader, ExtensionContext, LoadedMcpConfig, McpExtensionOptions, McpServerEntry } from "@earendil-works/pi-coding-agent";
 const checkStorage = createBackendMcpPrivateStorageCheck({ agentDir: "owner" });
 const owner = createBackendMcpCredentialOwner({ agentDir: "owner", assertOwner: (identity) => {}, assertPrivateStorage: checkStorage });
 assertMcpStoragePermissions({ platform: "linux", currentUid: 1000, fsType: 0xef53, directory: { uid: 1000, mode: 0o700 }, file: null });
 const credentials = createBackendMcpCredentials(owner);
+const readOAuthStatus = createBackendMcpOAuthStatusReader({ owner, now: () => 1000 });
+const oauthStatus: BackendMcpOAuthStatus = readOAuthStatus("fixture", "https://example.invalid");
+const publicOAuthType: "oauth" = oauthStatus.authType;
+const publicExpiry: "present" | "missing" | "expired" | "unknown" = oauthStatus.credentialStatus;
+// @ts-expect-error Explicit owner is mandatory; no ambient store fallback.
+createBackendMcpOAuthStatusReader({ now: () => 1000 });
+// @ts-expect-error Read-only status never returns access tokens.
+oauthStatus.tokens;
 // @ts-expect-error Storage permission attestation is mandatory.
 createBackendMcpCredentialOwner({ agentDir: "owner", assertOwner: (identity) => {} });
 const serverStore: ReturnType<NonNullable<McpExtensionOptions["credentials"]>["forServer"]> = credentials.forServer("fixture", "https://example.invalid");
