@@ -99,6 +99,7 @@ import {
   buildProviderModelsCatalog,
   enabledModelOptionsFromCatalog,
   mergeIntegratedProviderRows,
+  providerDisplayName,
   type ProviderModelSnapshot,
   type ProviderModelsRow,
 } from "@/lib/provider-models";
@@ -6526,7 +6527,7 @@ export async function listProviderAuth(
       (!accountScoped || storedAccountProviders?.has(provider.id) === true);
     return {
       id: provider.id,
-      name: provider.name,
+      name: providerDisplayName(provider),
       authenticated,
       methods,
       authSource: authenticated ? status.source : undefined,

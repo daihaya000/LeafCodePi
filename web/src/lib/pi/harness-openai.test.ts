@@ -64,7 +64,7 @@ function makeRuntime(provider: string, subscription: boolean) {
   const model = { provider, id: MODEL_ID, name: "GPT-6.1 Sol", input: ["text"], reasoning: false };
   return {
     getProvider: (id: string) => ({ id }),
-    getProviders: () => [{ id: provider, name: provider, auth: { apiKey: {}, oauth: {} } }],
+    getProviders: () => [{ id: provider, name: provider === "openai-codex" ? "OpenAI Codex (legacy)" : provider, auth: { apiKey: {}, oauth: {} } }],
     getModels: () => [model],
     getModel: (id: string, modelId: string) => id === provider && modelId === MODEL_ID ? model : undefined,
     registerProvider: () => undefined,
@@ -121,6 +121,10 @@ describe("new OpenAI account integration", () => {
     const catalog = await listProviderModelsCatalog();
     assert.deepEqual(catalog.find((row) => row.id === "openai")?.accountIds, [first.id, second.id]);
     assert.equal(catalog.find((row) => row.id === "openai-codex")?.accountId, legacy.id);
+    assert.equal(catalog.find((row) => row.id === "openai-codex")?.name, "OpenAI Codex");
+    const legacyAuth = (await listProviderAuth(legacy.id)).find((item) => item.id === "openai-codex");
+    assert.equal(legacyAuth?.name, "OpenAI Codex");
+    assert.equal(legacyAuth?.oauthAvailable, true);
 
     markProviderLimited("openai", first.id);
     markProviderLimited("openai", second.id);
