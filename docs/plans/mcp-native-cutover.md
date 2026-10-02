@@ -114,6 +114,8 @@ blendermcp は native の stdio transport で実接続し 26 の直接ツール�
 3. `LEAFCODE_PI_MCP_NATIVE=1` を Backend/Host の環境に設定し、Backend を再起動する。
    native 初期化に失敗した場合は runtime が未接続のまま起動し（adapter への黙った fallback なし）、
    health の `runtimeStartupIncomplete` に `initializeRuntime` が載る。全体停止にはならない。
+   この挙動は実プロセスで検証済み（`backend/src/native-mcp-entry.test.mjs`: 不正な config でも
+   Backend は 503 で応答を続け、`initializeRuntime` を報告する）。
 4. 受け入れ（すべて実サーバーで確認するまで完了扱いにしない）:
    - `node backend/src/native-mcp-check.mjs --connect` が `result: ok`（実サーバー接続を含む）
    - 起動時に `[mcp-native]` の警告が出ない
