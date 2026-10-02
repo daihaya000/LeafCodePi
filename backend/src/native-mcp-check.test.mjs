@@ -64,19 +64,47 @@ test("the CLI prints one JSON report and exits with the report result", async (t
   assert.equal(JSON.stringify(report).includes("mcp-auth.json"), false);
 });
 
-test("connect reports registered tools and the enabled servers that produced none", async (t) => {
+test("connect handshakes every enabled server and fails acceptance when one cannot", async (t) => {
   const agentDir = await emptyAgentDir(t);
-  // A shipped-only config has no enabled server at all: acceptance must fail rather than report
-  // success from an empty tool set.
+  // A shipped-only config has no enabled server at all: acceptance must fail instead of passing vacuously.
   const shipped = await runNativeMcpCheck({ agentDir, skipStorage: true, connect: true, env: {}, connectTimeoutMs: 2_000 });
   assert.equal(shipped.ok, false);
-  assert.deepEqual(shipped.issues, ["no-server-registered-tools"]);
-  assert.deepEqual(shipped.connect.registeredTools, {});
-  assert.deepEqual(shipped.connect.unverifiedServers, []);
-  // An enabled server that cannot stay up is reported as unverified instead of a silent success.
+  assert.deepEqual(shipped.issues, ["enabled-servers-not-verified"]);
+  assert.deepEqual(shipped.connect.servers, {});
+  // An enabled server that exits immediately is reported per server instead of a silent success.
   await writeFile(join(agentDir, "mcp.json"), JSON.stringify({ mcpServers: { broken: { command: process.execPath, args: ["-e", "process.exit(1)"] } } }));
-  const broken = await runNativeMcpCheck({ agentDir, skipStorage: true, connect: true, env: {}, connectTimeoutMs: 3_000 });
+  const broken = await runNativeMcpCheck({ agentDir, skipStorage: true, connect: true, env: {}, connectTimeoutMs: 4_000 });
   assert.equal(broken.ok, false);
-  assert.deepEqual(broken.connect.unverifiedServers, ["broken"]);
-  assert.equal(broken.issues.includes("no-server-registered-tools"), true);
+  assert.deepEqual(broken.connect.servers.broken, { error: "handshake-failed" });
+  assert.equal(broken.issues.includes("enabled-servers-not-verified"), true);
+});
+
+test("an env value that needs the adapter's command resolution is reported per key", async (t) => {
+  const agentDir = await emptyAgentDir(t);
+  await writeFile(join(agentDir, "mcp.json"), JSON.stringify({ mcpServers: {
+    fixture: { command: process.execPath, args: ["--version"], env: { OPENAI_API_KEY: "!private-command", OK: "literal" } },
+  } }), { mode: 0o600 });
+  const report = await runNativeMcpCheck({ agentDir, skipStorage: true, connect: true, env: {}, connectTimeoutMs: 3_000 });
+  assert.equal(report.ok, false);
+  assert.deepEqual(report.connect.servers.fixture, { error: "unsupported-env-command", envKeys: ["OPENAI_API_KEY"] });
+  assert.equal(JSON.stringify(report).includes("private-command"), false);
+  assert.equal(report.issues.includes("enabled-servers-not-verified"), true);
+});
+
+test("connect verifies a real local MCP server through the native stdio transport", async (t) => {
+  const agentDir = await emptyAgentDir(t);
+  const script = join(agentDir, "peer.mjs");
+  await writeFile(script, `import readline from 'node:readline';
+const lines = readline.createInterface({ input: process.stdin });
+const send = (id, result) => process.stdout.write(JSON.stringify({ jsonrpc: '2.0', id, result }) + '\\n');
+lines.on('line', (line) => { const message = JSON.parse(line); if (message.id === undefined) return;
+  if (message.method === 'initialize') send(message.id, { protocolVersion: message.params.protocolVersion, capabilities: { tools: {} }, serverInfo: { name: 'fixture', version: '1' } });
+  else if (message.method === 'tools/list') send(message.id, { tools: [{ name: 'echo', inputSchema: { type: 'object', properties: {} } }] });
+  else throw Error('Unexpected fixture request'); });
+lines.on('close', () => process.exit(0));\n`, { mode: 0o600 });
+  await writeFile(join(agentDir, "mcp.json"), JSON.stringify({ mcpServers: { fixture: { command: process.execPath, args: [script] } } }), { mode: 0o600 });
+  const report = await runNativeMcpCheck({ agentDir, skipStorage: true, connect: true, env: {}, connectTimeoutMs: 8_000 });
+  assert.equal(report.ok, true, JSON.stringify(report.issues));
+  assert.deepEqual(report.connect.servers, { fixture: { tools: 1 } });
+  assert.deepEqual(report.issues, []);
 });

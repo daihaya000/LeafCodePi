@@ -33,14 +33,17 @@ result: not ready
 
 `--skip-storage --connect --json`（transport 互換の確認）:
 
-```json
-{"ok":true,"storage":"skipped","servers":[{"name":"browser-use","enabled":true,"transport":"stdio","exposure":"codemode"},{"name":"blendermcp","enabled":true,"transport":"stdio","exposure":"codemode"},{"name":"comfy-mcp","enabled":true,"transport":"stdio","exposure":"codemode"},...],"connect":{"registeredTools":{"blendermcp":26},"unverifiedServers":["browser-use","comfy-mcp"],"browserRequested":false},"issues":[]}
+```
+server browser-use: unsupported-env-command (OPENAI_API_KEY)
+server blendermcp: 26 tools
+server comfy-mcp: 39 tools
+issues: enabled-servers-not-verified
+result: not ready
 ```
 
-blendermcp は native の stdio transport で実接続し 26 のツールを登録できた。MCPツールは公開設定に
-かかわらず登録される（codemode/deferred はモデルへの宣言だけを抑える）ので、登録数は接続の証拠になる。
-browser-use と comfy-mcp は codemode 公開で接続が遅延するため `unverifiedServers` として報告される
-（成功とも失敗とも見なさない）。
+blendermcp と comfy-mcp は native の stdio transport で実接続し tools/list まで通った。
+MCPツールは公開設定にかかわらず登録される（codemode/deferred はモデルへの宣言だけを抑える）。
+browser-use は設定の env が adapter 専用の `!command` 解決を必要とするため拒否され、該当キー名が報告される。
 
 また、この過程で判明した不具合を修正した: activation が渡す環境マップに
 `ProgramFiles(x86)` のような非識別子キーが含まれると transport が構築自体を拒否していた。
@@ -92,6 +95,10 @@ blendermcp は native の stdio transport で実接続し 26 の直接ツール�
    ユーザーが URL を定義しておらず、かつ無効な同梱既定は、URL 変数が未解決なら config から落とす。
    ユーザー定義 URL と有効なエントリは従来どおり全体を拒否する（fail-closed）。
    変数を設定すれば従来どおり同梱既定が使われる。
+3. **adapter 専用の `!command` env**（未解決）
+   browser-use の `OPENAI_API_KEY` は adapter が起動時にコマンド実行して解決する値。
+   native は設定のコマンドを実行しない（fail-closed）ため、`${VAR}` 参照（Backend の環境変数）へ
+   書き換えるか、native では browser-use を使わない判断が必要。`native-mcp-check` が該当キー名を報告する。
 
 ## 切替手順（承認後）
 
@@ -120,5 +127,5 @@ blendermcp は native の stdio transport で実接続し 26 の直接ツール�
 - 実行中セッションの reload: 設定変更は新規セッションのみに反映される。
 - project config・CLI/adapter writer 群の一本化、migration apply
   （`configuration-writers-not-quiesced`）。
-- 実サーバー受け入れ: transport 層は blendermcp で確認済み（登録ツール 26）。ACL 承認後に flag を入れた
-  本番受け入れ（codemode 経由の browser-use / comfy-mcp を含む）を行う。
+- 実サーバー受け入れ: transport 層は blendermcp（26）と comfy-mcp（39）で確認済み。ACL 承認後に
+  flag を入れた本番受け入れを行う（browser-use は上記 3 の解消が前提）。

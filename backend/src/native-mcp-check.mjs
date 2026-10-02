@@ -2,10 +2,8 @@
 /**
  * Read-only native MCP cutover check. Writes nothing: no config, credential, lock or session file.
  * Steps: opt-in flag, private-storage attestation, config load/validation, bundled adapter presence,
- * and (only with `--connect`) a real handshake against the configured servers through the native
- * transports. `--connect` starts local MCP servers exactly as a session would; it never calls a tool.
- * Registered MCP tools prove connectivity; exposure (codemode/deferred/direct) only decides which of
- * them the model sees, so a codemode server still registers its tools.
+ * and (only with `--connect`) a real per-server handshake (initialize + tools/list, never a tool call)
+ * against every enabled server through the native transports.
  *
  * `--skip-storage` is for transport compatibility only and is NOT acceptance: it bypasses the same
  * attestation the runtime requires, so a passing run there does not mean native MCP may be enabled.
@@ -16,9 +14,12 @@ import { dirname, isAbsolute, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { homedir } from "node:os";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
+import { McpClient } from "@earendil-works/pi-mcp";
 import { createBackendMcpConfigStorageCheck, createBackendMcpPrivateStorageCheck } from "../core/mcp-private-storage.mjs";
 import { prepareBackendMcpConfigLoader } from "../core/mcp-native-config-loader.mjs";
 import { createBackendMcpNativeRuntime } from "../core/mcp-native-runtime.mjs";
+import { createBackendMcpHttpTransportFactory } from "../core/mcp-native-http-transport.mjs";
+import { createBackendMcpStdioTransportFactory } from "../core/mcp-native-stdio-transport.mjs";
 import { isNativeMcpRequested } from "./mcp-native-activation.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -56,7 +57,8 @@ export async function runNativeMcpCheck(options = {}) {
   }));
   if (options.connect !== true) { report.ok = true; return report; }
 
-  // Real handshake: local servers are started by the SDK, tools are only listed, never called.
+  // Real handshake per enabled server through the native transports. Servers start exactly as a
+  // session would start them; only initialize/tools-list run, never a tool call.
   const runtime = createBackendMcpNativeRuntime({
     agentDir, bundledConfigPath: options.bundledConfigPath ?? BUNDLED_CONFIG, homeDir: options.homeDir ?? homedir(),
     environment: { ...env }, variables: { ...env }, fetch: options.fetch ?? globalThis.fetch,
@@ -64,41 +66,37 @@ export async function runNativeMcpCheck(options = {}) {
     assertProcessOwner() {}, startupWaitMs: 0,
     ...(skipStorage ? { storageChecks: { config() {}, credentials() {} } } : {}),
   });
-  const tools = new Map(), events = new Map();
-  const pi = {
-    registerTool(tool) { tools.set(tool.name, tool); }, registerCommand() {},
-    on(name, callback) { events.set(name, callback); }, getSettings: () => ({}), getMcpServers: () => [],
-    getAllTools: () => [...tools.values()], getActiveTools: () => [...tools.keys()], setActiveTools() {},
-  };
   try {
     const prepared = await runtime.prepare();
-    const composed = prepared.forSession(options.sessionCwd ?? process.cwd());
-    if (!composed.ok) { report.issues.push(...composed.issues.map((issue) => issue.code)); return report; }
-    for (const factory of composed.factories) await factory(pi);
-    const ctx = { cwd: options.sessionCwd ?? process.cwd(), mode: "print", modelRegistry: {}, ui: { notify() {} } };
-    events.get("session_start")({}, ctx);
-    const deadline = Date.now() + (options.connectTimeoutMs ?? 20_000);
-    while (Date.now() < deadline) {
-      if ([...tools.keys()].some((name) => name.startsWith("mcp__"))) break;
-      await new Promise((done) => setTimeout(done, 250));
+    const fresh = prepared.binding.loadConfig();
+    const sessionCwd = options.sessionCwd ?? process.cwd();
+    const common = { snapshot: fresh, configPath: resolve(agentDir, "mcp.json"), sessionCwd, assertSnapshotOwner: prepared.binding.assertOwner };
+    const stdioFactory = createBackendMcpStdioTransportFactory({ ...common, homeDir: options.homeDir ?? homedir(), environment: { ...env } });
+    const httpFactory = createBackendMcpHttpTransportFactory({ ...common, variables: { ...env }, fetch: options.fetch ?? globalThis.fetch });
+    const servers = {};
+    for (const server of fresh.servers) {
+      if (server.config.enabled === false) continue;
+      // The adapter resolved `!command` env values itself; the native transports never execute config
+      // commands, so name that reason instead of a generic refusal. The value stays private.
+      const envCommands = Object.entries(server.config.env ?? {})
+        .filter(([, value]) => typeof value === "string" && value.startsWith("!")).map(([key]) => key);
+      if (envCommands.length) { servers[server.name] = { error: "unsupported-env-command", envKeys: envCommands }; continue; }
+      let transport;
+      try { transport = (typeof server.config.url === "string" ? httpFactory : stdioFactory)(server, sessionCwd, undefined); }
+      catch { servers[server.name] = { error: "transport-refused" }; continue; }
+      const client = new McpClient({ name: "leafcode-cutover-check", version: "0.1.0", requestTimeoutMs: options.connectTimeoutMs ?? 10_000 });
+      try {
+        await client.connect(transport);
+        servers[server.name] = { tools: (await client.listTools()).length };
+      } catch { servers[server.name] = { error: "handshake-failed" }; }
+      finally { await client.close().catch(() => {}); await transport.close().catch(() => {}); }
     }
-    const counts = {};
-    for (const name of tools.keys()) {
-      if (!name.startsWith("mcp__")) continue;
-      const server = name.split("__")[1] ?? "unknown";
-      counts[server] = (counts[server] ?? 0) + 1;
-    }
-    // Every MCP tool is registered in the plugin registry; exposure decides whether the model sees it
-    // (codemode/deferred servers stay out of the tool declarations). So this counts real connections,
-    // not the model-facing surface.
-    const enabled = report.servers.filter((server) => server.enabled).map((server) => server.name);
-    report.connect = { ...report.connect, registeredTools: counts, browserRequested: report.connect?.browserRequested === true,
-      unverifiedServers: enabled.filter((name) => !Object.hasOwn(counts, name)) };
-    await events.get("session_shutdown")?.({}, ctx);
-    // Acceptance needs at least one enabled server connected end to end; empty/unverified servers are
-    // reported separately instead of being presented as success or failure.
-    report.ok = enabled.some((name) => Object.hasOwn(counts, name));
-    if (!report.ok) report.issues.push("no-server-registered-tools");
+    report.connect = { ...report.connect, servers, browserRequested: report.connect?.browserRequested === true };
+    // Acceptance needs every enabled server to complete a handshake; exposure decides only which tools
+    // the model sees, so a codemode server still has to answer tools/list.
+    const enabled = fresh.servers.filter((server) => server.config.enabled !== false).map((server) => server.name);
+    report.ok = enabled.length > 0 && enabled.every((name) => typeof servers[name]?.tools === "number");
+    if (!report.ok) report.issues.push("enabled-servers-not-verified");
   } catch (error) {
     report.issues.push(error?.message === "MCP native runtime unavailable" ? "native-runtime-refused" : "connect-failed");
   } finally {
@@ -119,8 +117,11 @@ function main() {
       process.stdout.write(`storage attestation: ${report.storage}${options.skipStorage ? " (SKIPPED: not acceptance)" : ""}\n`);
       process.stdout.write(`bundled adapter present: ${report.adapterPresent}\n`);
       for (const server of report.servers) process.stdout.write(`server ${server.name}: ${server.transport} ${server.exposure}${server.enabled ? "" : " (off)"}\n`);
-      if (report.connect) process.stdout.write(`registered MCP tools: ${JSON.stringify(report.connect.registeredTools)}\n`);
-      if (report.connect?.unverifiedServers?.length) process.stdout.write(`enabled servers without registered tools: ${report.connect.unverifiedServers.join(", ")}\n`);
+      if (report.connect) {
+        for (const [name, value] of Object.entries(report.connect.servers ?? {})) {
+          process.stdout.write(`server ${name}: ${typeof value.tools === "number" ? `${value.tools} tools` : `${value.error}${value.envKeys ? ` (${value.envKeys.join(", ")})` : ""}`}\n`);
+        }
+      }
       if (report.issues.length) process.stdout.write(`issues: ${report.issues.join(", ")}\n`);
       process.stdout.write(`result: ${report.ok ? "ok" : "not ready"}\n`);
     }
