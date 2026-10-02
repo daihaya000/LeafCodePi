@@ -1,4 +1,8 @@
-/** OpenAI の Fast モード（Priority processing）。リクエストに service_tier=priority を付ける。 */
+/**
+ * Fast の送信値は Codex 公式クライアントと同じ priority。
+ * Codex OAuth の応答 tier=default は Fast 無効を意味しない（APIキー経路とは仕様が異なる）。
+ * https://github.com/openai/codex/issues/14204#issuecomment-4033184620
+ */
 export const OPENAI_FAST_MODE_SETTING_KEY = "openai-fast-mode";
 
 export const OPENAI_FAST_SERVICE_TIER = "priority";
