@@ -466,7 +466,7 @@ npm run check
 | `LEAFCODE_PI_MODE` | `prod`（既定・start.bat / start.sh）または `dev` |
 | `LEAFCODE_PI_BUILD_DIR` | production build のミラー先（未設定時は Windows `%LOCALAPPDATA%\leafcode-pi\build\...`、Linux/macOS `$XDG_CACHE_HOME/leafcode-pi/build/...`） |
 | `LEAFCODE_PI_EXTENSIONS_DIR` | 組み込み拡張のディレクトリ（host が自動設定） |
-| `LEAFCODE_PI_MCP_NATIVE` | `1` で Pi 標準の MCP（native）を使う。未設定は同梱の `leafcode-mcp-adapter`。切替前に認証情報と設定writerの移行が必要なため、既定では native を使わない |
+| `LEAFCODE_PI_MCP_NATIVE` | `1` で Pi 標準の MCP（native）を使う。未設定は同梱の `leafcode-mcp-adapter`。切替前には認証情報の移行が必要で、native 中は認証情報の保存操作（bearer/headers/OAuth）が 409 で拒否される |
 | `LEAFCODE_PI_SKILLS_DIR` | 組み込みスキルのディレクトリ（host が自動設定、既定はリポジトリの `skills/`） |
 | `XDG_CACHE_HOME` | Linux/macOS の production build ミラー基底ディレクトリ |
 | `LEAFCODE_PI_USE_WEBPACK` | 未設定・`1` は本番ビルドに Webpack を使用。`0` のときだけ Turbopack を使用（切り分け用、Pi SDK の WASM 追跡に既知の問題あり） |

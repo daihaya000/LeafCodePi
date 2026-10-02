@@ -2,7 +2,7 @@ import { runtimeGenerationStatus } from "../../shared/backend-generation.mjs";
 import { DEFAULT_BACKEND_PORT } from "../../shared/backend-protocol.mjs";
 import { readPendingRequestSnapshots } from "./pending-requests.mjs";
 import { readMcpMigrationDiagnostics } from "./mcp-migration-diagnostics.mjs";
-import { createNativeMcpStartup } from "./mcp-native-activation.mjs";
+import { createNativeMcpStartup, legacyAuthWriteRefusal } from "./mcp-native-activation.mjs";
 import { createRuntimeHost } from "./runtime-host.mjs";
 import { createResumePrompt } from "./restart-resume-prompt.mjs";
 import { DEFAULT_RUNTIME_BUNDLE, loadBackendRuntime } from "./runtime-loader.mjs";
@@ -130,6 +130,7 @@ try {
     completeMcpOAuthAuthAction: async (name, input) => {
       const runtime = started.runtime();
       if (!runtime) throw Object.assign(new Error("runtime unavailable"), { status: 503 });
+      if (nativeMcp) throw legacyAuthWriteRefusal();
       try { return await runtime.completeMcpOAuthAuth(name, input); }
       catch (error) {
         throw Object.assign(new Error("Backend MCP OAuth completion failed"), { status: runtime.mcpErrorStatus(error) });
@@ -138,6 +139,7 @@ try {
     startMcpOAuthAuthAction: async (name, input) => {
       const runtime = started.runtime();
       if (!runtime) throw Object.assign(new Error("runtime unavailable"), { status: 503 });
+      if (nativeMcp) throw legacyAuthWriteRefusal();
       try { return await runtime.startMcpOAuthAuth(name, input); }
       catch (error) {
         throw Object.assign(new Error("Backend MCP OAuth start failed"), { status: runtime.mcpErrorStatus(error) });
@@ -146,6 +148,7 @@ try {
     removeMcpAuthAction: async (name, input) => {
       const runtime = started.runtime();
       if (!runtime) throw Object.assign(new Error("runtime unavailable"), { status: 503 });
+      if (nativeMcp) throw legacyAuthWriteRefusal();
       try { return await runtime.removeMcpAuth(name, input); }
       catch (error) {
         throw Object.assign(new Error("Backend MCP auth removal failed"), { status: runtime.mcpErrorStatus(error) });
@@ -154,6 +157,7 @@ try {
     saveMcpHeadersAuthAction: async (name, input) => {
       const runtime = started.runtime();
       if (!runtime) throw Object.assign(new Error("runtime unavailable"), { status: 503 });
+      if (nativeMcp) throw legacyAuthWriteRefusal();
       try { return await runtime.saveMcpHeadersAuth(name, input); }
       catch (error) {
         throw Object.assign(new Error("Backend MCP headers save failed"), { status: runtime.mcpErrorStatus(error) });
@@ -162,6 +166,7 @@ try {
     saveMcpBearerAuthAction: async (name, input) => {
       const runtime = started.runtime();
       if (!runtime) throw Object.assign(new Error("runtime unavailable"), { status: 503 });
+      if (nativeMcp) throw legacyAuthWriteRefusal();
       try { return await runtime.saveMcpBearerAuth(name, input); }
       catch (error) {
         throw Object.assign(new Error("Backend MCP bearer save failed"), { status: runtime.mcpErrorStatus(error) });
@@ -170,6 +175,11 @@ try {
     readMcpAuthStatus: async (name) => {
       const runtime = started.runtime();
       if (!runtime) throw Object.assign(new Error("runtime unavailable"), { status: 503 });
+      // Native MCP reads its own fixed credential store; the adapter's store would report the wrong state.
+      if (nativeMcp) {
+        try { return nativeMcp.readAuthStatus(name); }
+        catch { throw Object.assign(new Error("Backend MCP auth status failed"), { status: 409 }); }
+      }
       try { return await runtime.readMcpAuthStatus(name); }
       catch (error) {
         throw Object.assign(new Error("Backend MCP auth status failed"), { status: runtime.mcpErrorStatus(error) });

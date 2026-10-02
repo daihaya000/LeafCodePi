@@ -5,6 +5,9 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { afterEach, test } from "node:test";
+import { readFile } from "node:fs/promises";
+import { createBackendMcpCredentialOwner } from "./mcp-native-credential-owner.mjs";
+import { createBackendMcpCredentials } from "./mcp-native-credentials.mjs";
 import { createBackendMcpNativeRuntime as create } from "./mcp-native-runtime.mjs";
 import { resolveBackendMcpNativeSession, setBackendMcpNativeSessionProvider } from "./mcp-native-session.mjs";
 
@@ -134,6 +137,41 @@ test("install() is the only provider path; reload publishes a fresh snapshot and
   assert.equal(stale.active, true); assert.equal(stale.factories.length, 0);
   assert.deepEqual(stale.issues, [{ code: "native-extension-binding-failed" }]);
   runtime.dispose(); await assert.rejects(runtime.install(), safe);
+});
+
+test("readOAuthStatus reads only this snapshot's configured OAuth entries and never mutates the store", async (t) => {
+  const remoteUrl = "https://remote.example/mcp";
+  const root = await fixture(t, {
+    remote: { url: remoteUrl, auth: "oauth" },
+    plain: { url: "https://plain.example/mcp" },
+    header: { url: "https://header.example/mcp", headers: { Authorization: "Bearer private-header-token" } },
+    local: { command: process.execPath, args: ["--version"] },
+  });
+  const runtime = create(base(root)); t.after(() => runtime.dispose());
+  const prepared = await runtime.prepare();
+  // A configured HTTP entry without header/provider auth may be credential-managed; the others are not.
+  assert.equal(prepared.readOAuthStatus("plain").credentialStatus, "missing");
+  assert.throws(() => prepared.readOAuthStatus("header"), safe);
+  assert.throws(() => prepared.readOAuthStatus("local"), safe);
+  assert.throws(() => prepared.readOAuthStatus("unknown"), safe);
+  assert.throws(() => prepared.readOAuthStatus(""), safe);
+  // A permissive fixture store writes the same fixed mcp-auth.json the runtime reads.
+  const store = createBackendMcpCredentials(createBackendMcpCredentialOwner({ agentDir: root, assertOwner() {}, assertPrivateStorage() {} }));
+  const token = { access_token: "private-token", token_type: "Bearer", refresh_token: "private-refresh" };
+  store.forServer("remote", remoteUrl).save({ serverUrl: remoteUrl, tokens: token, tokensExpireAt: Date.now() + 60_000 });
+  const before = await readFile(join(root, "mcp-auth.json"));
+  const present = prepared.readOAuthStatus("remote");
+  assert.equal(present.credentialStatus, "present"); assert.equal(present.authType, "oauth"); assert.equal(present.credentialSource, "oauth");
+  assert.equal(present.credentialConfigured, true); assert.equal(present.name, "remote"); assert.equal(present.url, "https://remote.example/mcp");
+  assert.equal(JSON.stringify(present).includes("private"), false);
+  assert.deepEqual(await readFile(join(root, "mcp-auth.json")), before, "a present-status read must not rewrite the store");
+  store.forServer("remote", remoteUrl).save({ serverUrl: remoteUrl, tokens: token, tokensExpireAt: Date.now() - 1_000 });
+  const expiredBytes = await readFile(join(root, "mcp-auth.json"));
+  assert.equal(prepared.readOAuthStatus("remote").credentialStatus, "expired");
+  assert.deepEqual(await readFile(join(root, "mcp-auth.json")), expiredBytes, "an expired-status read must not rewrite the store");
+  // A retired binding refuses the read instead of serving a cached snapshot.
+  await runtime.prepare();
+  assert.throws(() => prepared.readOAuthStatus("remote"), safe);
 });
 
 test("a failing process owner or storage attestation makes prepare unavailable without leaking causes", async (t) => {

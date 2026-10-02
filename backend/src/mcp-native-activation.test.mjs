@@ -4,14 +4,15 @@ import { readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { test } from "node:test";
-import { browserOpenCommand, createBrowserOpener, createNativeMcpActivation, createNativeMcpStartup, isNativeMcpRequested } from "./mcp-native-activation.mjs";
+import { browserOpenCommand, createBrowserOpener, createNativeMcpActivation, createNativeMcpStartup, isNativeMcpRequested, legacyAuthWriteRefusal } from "./mcp-native-activation.mjs";
 
 const safe = (e) => e instanceof Error && e.message === "MCP native activation unavailable" && e.cause === undefined;
 
 /** Fake bundle module: records what activation passes and how the provider is installed. */
 function fakeRuntime({ createThrows = false, installThrows = false, republishThrows = false, forSession } = {}) {
-  const calls = { options: [], installs: 0, dispose: 0, scopes: [] };
-  const prepared = { binding: Object.freeze({}), forSession: forSession ?? (() => "session") };
+  const calls = { options: [], installs: 0, dispose: 0, scopes: [], statusReads: [] };
+  const prepared = { binding: Object.freeze({}), forSession: forSession ?? (() => "session"),
+    readOAuthStatus(name) { calls.statusReads.push(name); return { name, configPath: "", authType: "oauth", credentialSource: "oauth", credentialConfigured: true, credentialStatus: "present" }; } };
   return { calls, prepared,
     createBackendMcpNativeRuntime(options) {
       calls.options.push(options);
@@ -137,6 +138,35 @@ test("the Backend entry routes both MCP config writes through the native hooks",
   assert.ok(source.includes("initializeRuntime: nativeMcp.initializeRuntime"));
   assert.ok(source.includes("nativeMcp.runConfigWrite(write)"));
   assert.ok(source.includes("nativeMcp.runConfigWrite(() => runtime.createMcpPreset(input))"));
+  assert.ok(source.includes("return nativeMcp.readAuthStatus(name)") || source.includes("return nativeMcp.readAuthStatus(name);"));
+  assert.ok(source.includes("if (nativeMcp) throw legacyAuthWriteRefusal();"));
+});
+
+test("native auth status reads come from the installed snapshot; a retired or unsupported read refuses", async () => {
+  const runtime = fakeRuntime();
+  const activation = createNativeMcpActivation({ agentDir: "C:/private-agent", environment: {}, variables: {} });
+  assert.throws(() => activation.readAuthStatus("remote"), safe); // before install
+  await activation.initialize(runtime);
+  const status = activation.readAuthStatus("remote");
+  assert.equal(status.credentialStatus, "present"); assert.deepEqual(runtime.calls.statusReads, ["remote"]);
+  // The republish keeps the newest snapshot: a config write reads through the same prepared handle.
+  const republished = fakeRuntime(); const second = createNativeMcpActivation({ agentDir: "C:/private-agent", environment: {}, variables: {} });
+  await second.initialize(republished);
+  await second.runConfigWrite(() => "written");
+  assert.equal(second.readAuthStatus("remote").credentialStatus, "present");
+  assert.deepEqual(republished.calls.statusReads, ["remote"]);
+  second.dispose(); assert.throws(() => second.readAuthStatus("remote"), safe);
+  // A prepared handle without the read entry (older runtime) refuses instead of guessing.
+  const legacy = { calls: {}, createBackendMcpNativeRuntime: () => ({ async install() { return { binding: {}, forSession: () => "session" }; }, runWrite: (work) => work({}), dispose() {} }) };
+  const third = createNativeMcpActivation({ agentDir: "C:/private-agent", environment: {}, variables: {} });
+  await third.initialize(legacy); assert.throws(() => third.readAuthStatus("remote"), safe);
+  activation.dispose(); third.dispose();
+});
+
+test("legacy adapter auth writes are refused with a 409 while native MCP is active", () => {
+  const refusal = legacyAuthWriteRefusal();
+  assert.equal(refusal.status, 409); assert.equal(refusal.cause, undefined);
+  assert.equal(/private|token|store/i.test(refusal.message), false);
 });
 
 test("a malformed bundle module and a non-http auth URL fail closed", async () => {

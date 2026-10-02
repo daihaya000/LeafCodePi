@@ -1,6 +1,7 @@
 import type { McpExtensionOptions } from "@earendil-works/pi-coding-agent";
 import type { McpFetch } from "@earendil-works/pi-mcp";
 import type { BackendMcpConfigBinding } from "./mcp-native-config-owner.mjs";
+import type { BackendMcpOAuthStatus } from "./mcp-native-oauth-status.mjs";
 import type { BackendMcpConfigLocation } from "./mcp-native-config-file-writer.mjs";
 import type { BackendMcpCredentialLocation } from "./mcp-native-credential-owner.mjs";
 import type { BackendMcpExtensionsResult } from "./mcp-native-extensions.mjs";
@@ -10,6 +11,8 @@ export type BackendMcpPreparedRuntime = Readonly<{
   binding: BackendMcpConfigBinding;
   /** SDK extension family for one session cwd (url entries -> HTTP, others -> stdio). No activation. */
   forSession(sessionCwd: string): BackendMcpExtensionsResult;
+  /** Read-only native OAuth status for one configured entry of this snapshot; never refreshes/writes. */
+  readOAuthStatus(name: string): BackendMcpOAuthStatus;
 }>;
 export type BackendMcpNativeRuntime = Readonly<{
   /** Reads/validates the fixed sources once; retires older bindings. Reprepare after entered writes. */

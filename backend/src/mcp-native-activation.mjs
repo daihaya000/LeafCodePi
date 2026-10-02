@@ -7,6 +7,12 @@ export const BUNDLED_MCP_CONFIG = new URL("../../extensions/leafcode-mcp-adapter
 const ENABLED_VALUES = new Set(["1", "true", "yes", "on", "native"]);
 const unavailable = () => new Error("MCP native activation unavailable");
 
+/** Legacy adapter auth writes go to stores the native runtime never reads, so a native session would
+ * stay unauthenticated while the UI reported success. Refuse (409) until the native equivalents land. */
+export function legacyAuthWriteRefusal() {
+  return Object.assign(new Error("native MCP auth writes are not implemented"), { status: 409 });
+}
+
 /** Explicit opt-in only. Unset or any other value keeps the bundled adapter path. */
 export function isNativeMcpRequested(env = process.env) {
   return ENABLED_VALUES.has(String(env?.LEAFCODE_PI_MCP_NATIVE ?? "").trim().toLowerCase());
@@ -22,6 +28,8 @@ export function createNativeMcpStartup({ runtimeRequested, env = process.env, ac
     initializeRuntime: (runtimeModule) => instance.initialize(runtimeModule),
     /** Config writes go through the owner's writer scope so the provider is republished afterwards. */
     runConfigWrite: (work) => instance.runConfigWrite(work),
+    /** Read-only native OAuth status for one configured entry (public whitelist shape). */
+    readAuthStatus: (name) => instance.readAuthStatus(name),
   });
 }
 
@@ -90,7 +98,7 @@ export function createNativeMcpActivation(options = {}) {
       || typeof assertProcessOwner !== "function" || assertProcessOwner.constructor?.name === "AsyncFunction") throw unavailable();
 
     let state = "idle";
-    let owner;
+    let owner, prepared;
     return Object.freeze({
       /** Installs the session provider and acknowledges with undefined. At most one successful attempt. */
       async initialize(runtimeModule) {
@@ -104,7 +112,7 @@ export function createNativeMcpActivation(options = {}) {
             environment: { ...environment }, variables: { ...variables }, fetch, openUrl, assertProcessOwner,
           });
           if (typeof owner?.install !== "function") throw unavailable();
-          await owner.install();
+          prepared = await owner.install();
           state = "active";
           return undefined;
         } catch {
@@ -121,11 +129,16 @@ export function createNativeMcpActivation(options = {}) {
         if (state !== "active" || !owner) throw unavailable();
         if (typeof work !== "function") throw unavailable();
         const result = await owner.runWrite((scope) => work(scope));
-        try { await owner.install(); } catch { throw unavailable(); } // The write already happened; the republish failure is sanitized.
+        try { prepared = await owner.install(); } catch { throw unavailable(); } // The write already happened; the republish failure is sanitized.
         return result;
       },
+      /** Read-only native auth status for one configured entry of the installed snapshot. */
+      readAuthStatus(name) {
+        if (state !== "active" || !prepared || typeof prepared.readOAuthStatus !== "function") throw unavailable();
+        return prepared.readOAuthStatus(name);
+      },
       /** Releases the config owner; already-installed providers/sessions are not revoked. */
-      dispose() { try { owner?.dispose(); } catch { /* best-effort */ } state = "disposed"; },
+      dispose() { try { owner?.dispose(); } catch { /* best-effort */ } owner = undefined; prepared = undefined; state = "disposed"; },
       status: () => state,
     });
   } catch { throw unavailable(); }

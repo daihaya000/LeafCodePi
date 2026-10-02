@@ -3,6 +3,7 @@ import { createBackendMcpConfigOwner } from "./mcp-native-config-owner.mjs";
 import { createBackendMcpCredentialAuthority } from "./mcp-native-credential-authority.mjs";
 import { createBackendMcpCredentialOwner } from "./mcp-native-credential-owner.mjs";
 import { createBackendMcpCredentials } from "./mcp-native-credentials.mjs";
+import { createBackendMcpOAuthStatusReader } from "./mcp-native-oauth-status.mjs";
 import { prepareBackendMcpExtensionsFromBinding } from "./mcp-native-extensions.mjs";
 import { createBackendMcpHttpTransportFactory } from "./mcp-native-http-transport.mjs";
 import { setBackendMcpNativeSessionProvider } from "./mcp-native-session.mjs";
@@ -48,12 +49,24 @@ export function createBackendMcpNativeRuntime(options) {
         agentDir: captured.agentDir, bundledConfigPath: captured.bundledConfigPath,
         prepared: binding.prepared, assertRuntimeOwner: binding.assertOwner,
       });
-      const credentials = createBackendMcpCredentials(createBackendMcpCredentialOwner({
+      const credentialOwner = createBackendMcpCredentialOwner({
         agentDir: captured.agentDir, assertOwner: authority, assertPrivateStorage: checks.credentials,
-      }));
+      });
+      const credentials = createBackendMcpCredentials(credentialOwner);
+      const readOAuthStatus = createBackendMcpOAuthStatusReader({ owner: credentialOwner });
       const snapshot = binding.loadConfig(), configPath = join(captured.agentDir, "mcp.json");
       return Object.freeze({
         binding,
+        /** Read-only native OAuth status for one configured entry of THIS snapshot. Never refreshes or
+         * writes; non-configured, stdio/header and unknown entries are refused by the authority. */
+        readOAuthStatus(name) {
+          try {
+            if (typeof name !== "string" || !name) throw unavailable();
+            const entry = snapshot.servers.find((server) => server.name === name);
+            if (!entry || typeof entry.config?.url !== "string" || !entry.config.url) throw unavailable();
+            return readOAuthStatus(entry.name, entry.config.url);
+          } catch { throw unavailable(); }
+        },
         /** One SDK extension family for one session cwd. No activation. */
         forSession(sessionCwd) {
           try {
