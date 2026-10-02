@@ -31,8 +31,13 @@ function environment(value) {
  * shims and HTTP fail closed; broader SDK template syntax is a separate compatibility gate.
  * Arguments are literal, as in the SDK. Executable contents/ancestors are NOT pinned or attested;
  * cross-spawn/OS internals still have platform behavior. Not a sandbox or full process authorization.
- * Creation/start entry/completion are fenced; close remains usable, started work is not cancelled.
- * Always close in finally, even after start failure. Snapshot/env/options are PRIVATE, never DTOs.
+ * Creation/start entry/completion and synchronous JSON-RPC listener dispatch are fenced.
+ * Async listener work is not awaited/cancelled. Observed delivery failure emits immediate close
+ * to release SDK pending requests, then attempts native child cleanup; close observers are isolated.
+ * Already delivered callbacks/started effects are not undone. Send is still the native SDK method;
+ * outbound authorization remains a separate gate. No idle revocation monitoring/process drain.
+ * Close/unsubscribe remain usable. Always close in finally, even after start failure.
+ * Snapshot/env/options are PRIVATE, never DTOs.
  */
 export function createBackendMcpStdioTransportFactory(options) {
   try {
@@ -74,6 +79,25 @@ export function createBackendMcpStdioTransportFactory(options) {
       finally { checking = false; }
     };
     class OwnerStdioTransport extends StdioTransport {
+      #deliveryStopped = false;
+      #stopDelivery() {
+        if (this.#deliveryStopped) return;
+        this.#deliveryStopped = true;
+        try { this.emitError(unavailable()); } catch {} // A throwing observer must not block pending release/cleanup.
+        // SDK onError does not reject pending requests. Close notification precedes child shutdown;
+        // it does not claim the process has exited or that started effects have been cancelled.
+        try { this.emitClose(); } finally { void this.close().catch(() => undefined); }
+      }
+      onMessage(listener) {
+        return super.onMessage((message) => {
+          if (this.#deliveryStopped) return;
+          try { assertOwner(); } catch { this.#stopDelivery(); return; }
+          try { listener(message); }
+          finally { try { assertOwner(); } catch { this.#stopDelivery(); } }
+        });
+      }
+      onClose(listener) { return super.onClose(() => { try { listener(); } catch {} }); }
+      async close() { this.#deliveryStopped = true; await super.close(); }
       async start() {
         assertOwner();
         try { await super.start(); assertOwner(); }

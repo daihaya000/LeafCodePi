@@ -4,7 +4,7 @@ import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { StdioTransport } from "@earendil-works/pi-mcp";
+import { McpClient, McpConnectionClosedError, StdioTransport } from "@earendil-works/pi-mcp";
 import { createBackendMcpStdioTransportFactory as create } from "./mcp-native-stdio-transport.mjs";
 import { createBackendMcpConfigOwner } from "./mcp-native-config-owner.mjs";
 import { prepareBackendMcpExtensionsFromBinding as compose } from "./mcp-native-extensions.mjs";
@@ -101,6 +101,87 @@ test("actual spawned process is not rolled back when start completion loses auth
   await assert.rejects(transport.start(), safe); assert.equal(transport.pid > 0, true);
   assert.throws(() => call(create({ ...options, assertSnapshotOwner: () => { throw Error("private stale owner"); } }), options), safe);
   await transport.close(); await transport.close(); assert.equal(transport.pid, undefined);
+});
+
+test("partial stdout completed after revocation suppresses messages and keeps unsubscribe/close usable", async () => {
+  const options = input(); let allowed = true, delivered = 0, errors = 0, closed = 0;
+  options.assertSnapshotOwner = () => { if (!allowed) throw Error("private revoked"); };
+  const factory = create(options), transport = call(factory, options);
+  const unsubscribe = transport.onMessage(() => { delivered++; });
+  const removed = transport.onMessage(() => { throw Error("Unsubscribed callback ran"); }); removed();
+  transport.onError((error) => { assert.equal(safe(error), true); errors++; }); transport.onClose(() => { closed++; });
+  transport.handleStdout('{"jsonrpc":"2.0","method":"fixture/notification"');
+  allowed = false; transport.handleStdout('}\n{"jsonrpc":"2.0","id":1,"result":{}}\n');
+  assert.equal(delivered, 0); assert.equal(errors, 1); assert.equal(closed, 1); unsubscribe();
+  allowed = true; transport.handleStdout('{"jsonrpc":"2.0","method":"fixture/later"}\n');
+  assert.equal(delivered, 0); assert.throws(() => call(factory, options), safe);
+  await transport.close(); await transport.close(); assert.equal(closed, 1); assert.equal(transport.pid, undefined);
+});
+
+test("callback-side revocation preserves its effect but stops remaining listeners and buffered JSON-RPC messages", async () => {
+  const options = input(); let allowed = true, first = 0, second = 0, closed = 0;
+  options.assertSnapshotOwner = () => { if (!allowed) throw Error("private revoked"); };
+  const transport = call(create(options), options);
+  transport.onMessage(() => { first++; allowed = false; }); transport.onMessage(() => { second++; }); transport.onClose(() => { closed++; });
+  transport.handleStdout('{"jsonrpc":"2.0","id":1,"result":{}}\n{"jsonrpc":"2.0","id":2,"result":{}}\n');
+  assert.equal(first, 1); assert.equal(second, 0); assert.equal(closed, 1); await transport.close();
+});
+
+test("healthy parser/callback errors retain native identity and do not poison authority or unsubscribes", async () => {
+  const options = input(), factory = create(options), transport = call(factory, options), nativeError = Error("fixture message observer");
+  const errors = [], delivered = []; transport.onError((error) => errors.push(error));
+  const unsubscribe = transport.onMessage(() => { throw nativeError; });
+  transport.handleStdout('{"jsonrpc":"2.0","id":1,"result":{}}\n'); assert.equal(errors[0], nativeError); unsubscribe();
+  transport.onMessage((message) => delivered.push(message.id)); transport.handleStdout('invalid fixture JSON\n{"jsonrpc":"2.0","id":2,"result":{}}\n');
+  assert.equal(errors[1] instanceof SyntaxError, true); assert.deepEqual(delivered, [2]);
+  const another = call(factory, options); let sibling = 0; another.onMessage(() => { sibling++; });
+  await transport.close(); another.handleStdout('{"jsonrpc":"2.0","id":3,"result":{}}\n');
+  assert.equal(sibling, 1); await another.close();
+});
+
+function deferred() { let resolve; const promise = new Promise((done) => { resolve = done; }); return { promise, resolve }; }
+function within(promise) {
+  let timer; const timeout = new Promise((_, reject) => { timer = setTimeout(() => reject(Error("Stdio fixture timeout")), 4000); timer.unref(); });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+}
+async function waitUntil(check) {
+  const deadline = Date.now() + 4000;
+  while (!check()) { if (Date.now() >= deadline) throw Error("Stdio fixture condition timeout"); await new Promise((resolve) => setTimeout(resolve, 5)); }
+}
+
+test("real SDK late child reply releases pending before process exit, despite throwing observers, and preserves stderr/cleanup", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "leafcode-stdio-delivery-"));
+  const script = join(root, "peer.mjs"), release = join(root, "release"), allowExit = join(root, "allow-exit"), stdinClosed = join(root, "stdin-closed");
+  let transport, client;
+  t.after(async () => { try { await writeFile(allowExit, "exit"); await client?.close(); await transport?.close(); await within(waitUntil(() => !transport || transport.pid === undefined)); } finally { await rm(root, { recursive: true, force: true }); } });
+  await writeFile(script, `import fs from 'node:fs';import readline from 'node:readline';
+const [release,allowExit,stdinClosed]=process.argv.slice(2);let held,ended=false;
+const lines=readline.createInterface({input:process.stdin});
+const send=(value)=>process.stdout.write(JSON.stringify({jsonrpc:'2.0',...value})+'\\n');
+lines.on('line',line=>{const message=JSON.parse(line);if(message.id===undefined)return;
+if(message.method==='initialize')send({id:message.id,result:{protocolVersion:message.params.protocolVersion,capabilities:{tools:{}},serverInfo:{name:'fixture',version:'1'}}});
+else if(message.method==='tools/call'){held=message.id;send({method:'fixture/ready'});}
+else throw Error('Unexpected fixture request');});
+lines.on('close',()=>{ended=true;fs.writeFileSync(stdinClosed,'closed');});
+setInterval(()=>{if(held!==undefined&&fs.existsSync(release)){process.stderr.write('fixture stderr 日本語😀\\n');
+process.stdout.write(JSON.stringify({jsonrpc:'2.0',id:held,result:{content:[{type:'text',text:'stale private result'}]}})+'\\n'+JSON.stringify({jsonrpc:'2.0',method:'fixture/stale'})+'\\n');held=undefined;}
+if(ended&&fs.existsSync(allowExit))process.exit(0);},5);\n`, { mode: 0o600 });
+  const options = input(); options.sessionCwd = root; options.snapshot.servers[0].config.args = [script, release, allowExit, stdinClosed];
+  let allowed = true, stale = 0, closed = 0; options.assertSnapshotOwner = () => { if (!allowed) throw Error("private revoked"); };
+  transport = call(create(options), options); const ready = deferred(), observedClose = deferred();
+  transport.onError(() => { throw Error("fixture throwing error observer"); }); transport.onClose(() => { throw Error("fixture throwing close observer"); });
+  const unsubscribe = transport.onMessage((message) => { if (message.method === "fixture/ready") ready.resolve(); if ((message.id !== undefined && message.result?.content) || message.method === "fixture/stale") stale++; });
+  transport.onClose(() => { closed++; observedClose.resolve(); });
+  client = new McpClient({ name: "fixture", version: "1", requestTimeoutMs: 60000 });
+  await client.connect(transport); const pid = transport.pid; assert.equal(pid > 0, true);
+  const rejected = assert.rejects(client.callTool("held", {}), (error) => error instanceof McpConnectionClosedError);
+  await within(ready.promise); allowed = false; await writeFile(release, "release");
+  await within(rejected); await within(observedClose.promise); assert.equal(client.connectionState, "closed");
+  assert.equal(stale, 0); assert.equal(closed, 1); assert.equal(transport.pid, pid); // Notification does not claim completed shutdown.
+  await within(waitUntil(() => fs.existsSync(stdinClosed))); assert.equal(await readFile(stdinClosed, "utf8"), "closed");
+  unsubscribe(); await writeFile(allowExit, "exit"); await within(waitUntil(() => transport.pid === undefined));
+  assert.equal(transport.stderr.includes("fixture stderr 日本語😀"), true); assert.equal(stale, 0); assert.equal(closed, 1);
+  await client.close(); await transport.close(); await transport.close(); assert.equal(transport instanceof StdioTransport, true);
 });
 
 test("real SDK connected tool uses actual stdio child: explicit Japanese env, no inherited secret, fresh snapshot fences next start", async (t) => {
