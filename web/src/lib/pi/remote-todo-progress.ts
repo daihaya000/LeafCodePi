@@ -1,4 +1,5 @@
 import { forwardTaskDetail } from "@/lib/backend-forward";
+import { isGoalLoopLiveStatus } from "@/lib/goal-loop-settings";
 import type { TodoDto, TodoProgressDto } from "@/lib/types";
 import { todoProgressFromTodos } from "@/lib/pi/todowrite-state";
 
@@ -30,6 +31,19 @@ export type RemoteCodeProgress = {
   todoProgress?: TodoProgressDto;
   activity?: string;
 };
+
+/**
+ * Which cold tasks need the owner's omit read after the cutover: a working task, or a
+ * Goal Loop that can still advance (queued/running/verifying). Completed, stopped and
+ * paused loops cannot change until resumed, so their persisted state is authoritative;
+ * remote-fetching every task that ever ran a loop stampedes the Backend on each poll.
+ */
+export function needsRemoteTodoProgress(
+  status: string | null | undefined,
+  loopStatus: string | null | undefined,
+): boolean {
+  return status === "working" || isGoalLoopLiveStatus(loopStatus);
+}
 
 const inflight = new Map<string, Promise<RemoteCodeProgress>>();
 

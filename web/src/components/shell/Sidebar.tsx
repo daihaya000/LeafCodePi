@@ -42,6 +42,7 @@ import { BotAvatar, type BotFace } from "@/components/bot/BotAvatar";
 import { isTaskDrag, setTaskDragData } from "@/lib/task-drag";
 import { notifyBotSidebarChanged, notifyTasksChanged } from "@/lib/events";
 import { getJson, sendJson } from "@/lib/client";
+import { subscribeBotsEvents } from "@/lib/bots-events-hub";
 import {
   getBotSidebarServerSnapshot,
   getBotSidebarSnapshot,
@@ -1653,7 +1654,7 @@ const SidebarView = memo(function SidebarView({
     let closed = false;
     let dirtyAttached = false;
     let timer: ReturnType<typeof setTimeout> | null = null;
-    let dirtySource: EventSource | null = null;
+    let unsubscribeDirty: (() => void) | null = null;
 
     const schedule = () => {
       if (closed) return;
@@ -1677,29 +1678,26 @@ const SidebarView = memo(function SidebarView({
     };
 
     // Cutover: Backend task_dirty wakes the sidebar; safety-net poll stretches when attached.
-    if (typeof EventSource !== "undefined") {
-      try {
-        dirtySource = new EventSource(`/api/bots/events?epoch=${Date.now()}`);
-        dirtySource.addEventListener("task_dirty", wakeFromDirty);
-        dirtySource.onopen = () => {
+    // Shared per tab so the sidebar does not spend its own browser connection on it.
+    try {
+      unsubscribeDirty = subscribeBotsEvents({
+        events: { task_dirty: wakeFromDirty },
+        onOpen: () => {
           dirtyAttached = true;
-        };
-        dirtySource.onerror = () => {
+        },
+        onError: () => {
           dirtyAttached = false;
-        };
-      } catch {
-        dirtySource = null;
-      }
+        },
+      });
+    } catch {
+      unsubscribeDirty = null;
     }
 
     schedule();
     return () => {
       closed = true;
       if (timer) clearTimeout(timer);
-      if (dirtySource) {
-        dirtySource.removeEventListener("task_dirty", wakeFromDirty);
-        dirtySource.close();
-      }
+      unsubscribeDirty?.();
     };
   }, [refresh, hasWorking, pageVisible]);
 

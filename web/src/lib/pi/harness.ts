@@ -15,7 +15,7 @@ import {
 import { prepareWorkspaceMove, type PreparedWorkspaceMove } from "@/lib/workspace-move";
 import { assertLocalRuntimeAllowed, localRuntimeBlocked } from "@/lib/pi/runtime-ownership";
 import { readDiskTodoProgress } from "@/lib/pi/disk-todo-progress";
-import { fetchRemoteCodeProgress, fetchRemoteTodoProgressMany } from "@/lib/pi/remote-todo-progress";
+import { fetchRemoteCodeProgress, fetchRemoteTodoProgressMany, needsRemoteTodoProgress } from "@/lib/pi/remote-todo-progress";
 import { beginTaskPreparation, hasTaskPreparation, invalidateTaskPreparations, isTaskTreeEditing, withTaskSessionMutation, withTaskTreeEdit } from "./task-operation-guard";
 import { dispatchGoalLoopCommand, isGoalLoopCommandApplied } from "@/lib/pi/goal-loop-command";
 import { notifyPushoverCompletion, shouldNotifyPushoverCompletion } from "@/lib/pushover";
@@ -7310,11 +7310,14 @@ async function buildTaskSummariesWithTodoProgress(
   // After the cutover this process does not own live sessions: opening every cold
   // session via Pi SessionManager for sidebar Todo bars re-parses transcripts (seconds)
   // on each poll. Goal Loop summaries above are disk-only and stay available.
-  // Remote: omit only working / goal-loop (live accuracy); idle bars use shared-disk
-  // todowrite scans (mtime-cached) so a large idle list cannot stampede omit GETs.
+  // Remote: only working / live-loop tasks need owner freshness. A completed or stopped
+  // loop cannot advance, so its persisted state (plus the shared-disk Todo scan below)
+  // is authoritative — remote-fetching every task that ever ran a loop stampedes omit GETs.
   if (tasksToRead.length > 0 && localRuntimeBlocked()) {
     const remoteIds = tasksToRead
-      .filter((task) => task.status === "working" || goalLoopByTaskId.has(task.id))
+      .filter((task) =>
+        needsRemoteTodoProgress(task.status, goalLoopByTaskId.get(task.id)?.status),
+      )
       .map((task) => task.id);
     progressByTaskId = await fetchRemoteTodoProgressMany(remoteIds);
     for (const task of tasksToRead) {
@@ -7393,11 +7396,14 @@ export async function getBotCodeSessionPanelState(botId: string): Promise<{
       !task.todoProgress,
   );
   let progressByTaskId = new Map<string, TodoProgressDto>();
-  // Same cutover rule as getTaskSummariesWithTodoProgress: omit for live / goal-loop,
-  // shared-disk for idle Todo bars (no Pi SessionManager, no N×omit).
+  // Same cutover rule as getTaskSummariesWithTodoProgress: only working / live-loop
+  // tasks need the owner's omit read; other loops use the shared-disk Todo scan.
   if (coldNeedingTodo.length > 0 && localRuntimeBlocked()) {
     const remoteIds = coldNeedingTodo
-      .filter((task) => task.status === "working" || goalLoopByTaskId.has(task.id) || loops[task.id])
+      .filter((task) => {
+        const loop = goalLoopByTaskId.get(task.id) ?? loops[task.id];
+        return needsRemoteTodoProgress(task.status, loop?.status);
+      })
       .map((task) => task.id);
     progressByTaskId = await fetchRemoteTodoProgressMany(remoteIds);
     for (const task of coldNeedingTodo) {

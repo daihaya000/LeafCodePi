@@ -5,7 +5,7 @@ import { getBotSidebarSnapshot } from "@/lib/bot-sidebar-store";
 import { isRoutineRunHandledInline, routineRunNotificationText } from "@/lib/notify";
 import { getNotificationDeliveryEnabled } from "@/lib/notification-delivery-client";
 import { playSessionCompleteSound } from "@/lib/session-complete-sound";
-import { sseReconnectDelayMs } from "@/lib/sse-reconnect";
+import { subscribeBotsEvents } from "@/lib/bots-events-hub";
 import { BOT_ROUTINE_RUN_EVENT, type RoutineRunEventDto } from "@/lib/types";
 
 /** 許可ダイアログは1ページに1回だけ出す（連続で出すとブラウザに無視される）。 */
@@ -50,51 +50,16 @@ export function notifyRoutineRun(run: RoutineRunEventDto): void {
 }
 
 function subscribeRoutineRuns(listener: (run: RoutineRunEventDto) => void): () => void {
-  if (typeof EventSource === "undefined") return () => {};
-  let source: EventSource | null = null;
-  let retryTimer: ReturnType<typeof setTimeout> | null = null;
-  let attempt = 0;
-  let stopped = false;
-
-  const onRoutine: EventListener = (event) => {
-    let run: RoutineRunEventDto;
-    try {
-      run = JSON.parse(String((event as MessageEvent).data)) as RoutineRunEventDto;
-    } catch {
-      return; // 壊れたイベントは無視する（次の実行でまた届く）。
-    }
-    if (typeof run?.botId !== "string") return;
-    listener(run);
-  };
-
-  const open = () => {
-    if (stopped) return;
-    const next = new EventSource(`/api/bots/events?epoch=${Date.now()}`);
-    source = next;
-    next.addEventListener("open", () => { attempt = 0; });
-    next.addEventListener(BOT_ROUTINE_RUN_EVENT, onRoutine);
-    // 接続が恒久的に失敗した場合（サーバー再起動中など）は EventSource が
-    // 再接続しないので、自前で張り直す。黙って通知が止まるのを避ける。
-    next.addEventListener("error", () => {
-      if (stopped || source !== next) return;
-      next.close();
-      source = null;
-      attempt += 1;
-      retryTimer = setTimeout(() => {
-        retryTimer = null;
-        open();
-      }, sseReconnectDelayMs(attempt));
-    });
-  };
-  open();
-
-  return () => {
-    stopped = true;
-    if (retryTimer) clearTimeout(retryTimer);
-    retryTimer = null;
-    source?.close();
-    source = null;
-  };
+  // The shared tab-wide source owns reconnect/backoff; malformed frames are dropped here.
+  return subscribeBotsEvents({
+    events: {
+      [BOT_ROUTINE_RUN_EVENT]: (payload) => {
+        const run = payload as RoutineRunEventDto | undefined;
+        if (typeof run?.botId !== "string") return;
+        listener(run);
+      },
+    },
+  });
 }
 
 export function BotRoutineNotifier() {
