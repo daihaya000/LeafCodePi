@@ -6,7 +6,7 @@ import { parseMcpPresetRequest } from "../../shared/mcp-preset-request.mjs";
 import { publicMcpAuthSnapshot } from "../../shared/mcp-auth-snapshot.mjs";
 import { parseMcpBearerSaveRequest, publicMcpBearerSaveResult } from "../../shared/mcp-bearer-save-request.mjs";
 import { parseMcpHeadersSaveRequest, publicMcpHeadersSaveResult } from "../../shared/mcp-headers-save-request.mjs";
-import { parseMcpBearerRemoveRequest, publicMcpBearerRemoveResult } from "../../shared/mcp-bearer-remove-request.mjs";
+import { parseMcpAuthRemoveRequest, publicMcpAuthRemoveResult } from "../../shared/mcp-auth-remove-request.mjs";
 import { InvalidTaskMessageCursorError, pageTaskMessages } from "../../shared/task-history.mjs";
 import {
   BACKEND_ERROR_CODES,
@@ -222,8 +222,8 @@ export function createBackendServer({
   saveMcpBearerAuthAction = null,
   /** Saves validated private headers through the owner's credential-store bridge. */
   saveMcpHeadersAuthAction = null,
-  /** Removes only bearer credentials/selectors in the owning process. */
-  removeMcpBearerAuthAction = null,
+  /** Removes bearer/headers credentials/selectors; defaults are resolved only by the owner. */
+  removeMcpAuthAction = null,
   /** Compacts a session: `(id, customInstructions?) => task`; the summarization runs in the owner. */
   compactTaskAction = null,
   /** Stops a running compaction: `(id) => task`; only the owner can interrupt its own session. */
@@ -291,7 +291,7 @@ export function createBackendServer({
     readMcpAuthStatus,
     saveMcpBearerAuthAction,
     saveMcpHeadersAuthAction,
-    removeMcpBearerAuthAction,
+    removeMcpAuthAction,
     compactTaskAction,
     abortCompactTaskAction,
     setTaskModelAction,
@@ -441,7 +441,7 @@ export function createBackendServer({
       }
       let ready = false;
       try { ready = isReady() === true; } catch { /* Refuse without exception detail. */ }
-      const available = request.method === "DELETE" ? removeMcpBearerAuthAction
+      const available = request.method === "DELETE" ? removeMcpAuthAction
         : request.method === "POST" ? saveMcpBearerAuthAction || saveMcpHeadersAuthAction : readMcpAuthStatus;
       if (!available || !ready) {
         sendJson(response, 503, { error: "Backend runtime unavailable", code: BACKEND_ERROR_CODES.runtimeUnavailable });
@@ -449,19 +449,19 @@ export function createBackendServer({
       }
       if (request.method === "DELETE") {
         const body = await readJsonBody(request, 4096);
-        const parsed = body.ok ? parseMcpBearerRemoveRequest(body.value)
-          : body.reason === "empty" ? parseMcpBearerRemoveRequest({}) : { ok: false };
+        const parsed = body.ok ? parseMcpAuthRemoveRequest(body.value)
+          : body.reason === "empty" ? parseMcpAuthRemoveRequest({}) : { ok: false };
         if (!parsed.ok) {
-          sendJson(response, 400, { error: "Invalid MCP bearer removal request", code: BACKEND_ERROR_CODES.badRequest });
+          sendJson(response, 400, { error: "Invalid MCP auth removal request", code: BACKEND_ERROR_CODES.badRequest });
           return;
         }
         try {
-          const result = publicMcpBearerRemoveResult(await removeMcpBearerAuthAction(name, parsed.value));
-          if (!result || result.auth.name !== name) throw new Error("Invalid MCP bearer removal result");
+          const result = publicMcpAuthRemoveResult(await removeMcpAuthAction(name, parsed.value));
+          if (!result || result.auth.name !== name) throw new Error("Invalid MCP auth removal result");
           sendJson(response, 200, result);
         } catch (error) {
           const status = [400, 404, 409, 503].includes(error?.status) ? error.status : 500;
-          sendJson(response, status, { error: "Backend MCP bearer removal failed",
+          sendJson(response, status, { error: "Backend MCP auth removal failed",
             code: status === 404 ? BACKEND_ERROR_CODES.notFound : status < 500 ? BACKEND_ERROR_CODES.badRequest : BACKEND_ERROR_CODES.internal });
         }
         return;

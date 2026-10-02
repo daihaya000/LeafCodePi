@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { createMcpPresetOnBackend, readMcpAuthStatusOnBackend, saveMcpBearerAuthOnBackend, saveMcpHeadersAuthOnBackend, removeMcpBearerAuthOnBackend, setMcpServerEnabledOnBackend } from "./backend-client";
+import { createMcpPresetOnBackend, readMcpAuthStatusOnBackend, saveMcpBearerAuthOnBackend, saveMcpHeadersAuthOnBackend, removeMcpBearerAuthOnBackend, removeMcpAuthOnBackend, setMcpServerEnabledOnBackend } from "./backend-client";
 const env = { LEAFCODE_PI_BACKEND_TOKEN: "t".repeat(40), LEAFCODE_PI_BACKEND_URL: "http://127.0.0.1:19999" };
 function json(status: number, body: unknown) {
   return new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
@@ -53,6 +53,17 @@ describe("MCP Backend ON/OFF client", () => {
     await removeMcpBearerAuthOnBackend("server", {}, { env, fetchImpl });
     expect(JSON.parse(fetchImpl.mock.calls[1][1]?.body as string)).toEqual({});
     expect(await removeMcpBearerAuthOnBackend("server", {}, { env: {}, fetchImpl })).toEqual({ ok: false, reason: "not-configured" });
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+  });
+  it("forwards header/default DELETE only to the authenticated owner", async () => {
+    const fetchImpl = vi.fn<typeof fetch>(async () => json(200, {}));
+    for (const input of [{ type: "headers" as const }, {}]) await removeMcpAuthOnBackend("server name", input, { env, fetchImpl });
+    expect(fetchImpl.mock.calls[0][0]).toBe("http://127.0.0.1:19999/internal/mcp/servers/server%20name/auth");
+    expect(fetchImpl.mock.calls[0][1]?.method).toBe("DELETE");
+    expect(new Headers(fetchImpl.mock.calls[0][1]?.headers).get("authorization")).toBe(`Bearer ${env.LEAFCODE_PI_BACKEND_TOKEN}`);
+    expect(JSON.parse(fetchImpl.mock.calls[0][1]?.body as string)).toEqual({ type: "headers" });
+    expect(JSON.parse(fetchImpl.mock.calls[1][1]?.body as string)).toEqual({});
+    expect(await removeMcpAuthOnBackend("server", {}, { env: {}, fetchImpl })).toEqual({ ok: false, reason: "not-configured" });
     expect(fetchImpl).toHaveBeenCalledTimes(2);
   });
   it("forwards a preset and its credentials only to the owner", async () => {

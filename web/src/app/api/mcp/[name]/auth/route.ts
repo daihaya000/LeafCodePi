@@ -8,17 +8,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import { reloadLiveSessionsContext } from "@/lib/live-context";
 import { publicMcpAuthSnapshot } from "@shared/mcp-auth-snapshot.mjs";
-import { readMcpAuthStatusOnBackend, saveMcpBearerAuthOnBackend, saveMcpHeadersAuthOnBackend, removeMcpBearerAuthOnBackend } from "@/lib/backend-client";
+import { readMcpAuthStatusOnBackend, saveMcpBearerAuthOnBackend, saveMcpHeadersAuthOnBackend, removeMcpAuthOnBackend } from "@/lib/backend-client";
 import { parseMcpHeadersSaveRequest, publicMcpHeadersSaveResult } from "@shared/mcp-headers-save-request.mjs";
 import { saveMcpHeadersAuth } from "@/lib/mcp-headers-admin";
-import { parseMcpBearerRemoveRequest, publicMcpBearerRemoveResult } from "@shared/mcp-bearer-remove-request.mjs";
-import { removeMcpBearerAuth } from "@/lib/mcp-bearer-remove-admin";
+import { parseMcpAuthRemoveRequest, publicMcpAuthRemoveResult } from "@shared/mcp-auth-remove-request.mjs";
+import { removeMcpAuth } from "@/lib/mcp-auth-remove-admin";
 import { parseMcpBearerSaveRequest, publicMcpBearerSaveResult } from "@shared/mcp-bearer-save-request.mjs";
 import { saveMcpBearerAuth } from "@/lib/mcp-bearer-admin";
 import { readMcpAuthStatus } from "@/lib/mcp-auth-status";
 import { localRuntimeBlocked } from "@/lib/pi/runtime-ownership";
 import {
-  disableMcpHeadersStore,
   getMcpServerAuth,
   McpError,
   mcpErrorStatus,
@@ -309,54 +308,39 @@ export async function DELETE(req: NextRequest, context: RouteContext) {
     } catch {
       throw new McpError("invalid-auth", "認証削除リクエストが不正です");
     }
+    const parsed = parseMcpAuthRemoveRequest(body);
     if (localRuntimeBlocked()) {
-      const parsed = parseMcpBearerRemoveRequest(body);
       if (!parsed.ok) throw new McpError("invalid-auth", "この認証方式の削除は未移管か、リクエストが不正です");
-      const forwarded = await removeMcpBearerAuthOnBackend(name, parsed.value).catch(() => {
-        throw new McpError("auth-unavailable", "BackendでBearer認証情報を削除できません");
+      const forwarded = await removeMcpAuthOnBackend(name, parsed.value).catch(() => {
+        throw new McpError("auth-unavailable", "BackendでMCP認証情報を削除できません");
       });
       if (!forwarded.ok) {
         const status = forwarded.status && forwarded.status >= 400 && forwarded.status <= 599 ? forwarded.status : 502;
-        return NextResponse.json({ error: "BackendでBearer認証情報を削除できません" }, { status });
+        return NextResponse.json({ error: "BackendでMCP認証情報を削除できません" }, { status });
       }
-      const result = publicMcpBearerRemoveResult(forwarded.body);
+      const result = publicMcpAuthRemoveResult(forwarded.body);
       if (!result || result.auth.name !== name) {
         return NextResponse.json({ error: "BackendのMCP応答が不正です" }, { status: 502 });
       }
       return NextResponse.json(result);
     }
-    const snapshot = getMcpServerAuth(name);
-    const method = methodFromBody(
-      body,
-      snapshot.authType === "oauth" || snapshot.authType === "auto"
-        ? "oauth"
-        : snapshot.authType === "headers"
-          ? "headers"
-          : "bearer",
-    );
-
-    if (method === "bearer") {
-      const parsed = parseMcpBearerRemoveRequest(body);
-      if (!parsed.ok) throw new McpError("invalid-auth", "Bearer認証削除リクエストが不正です");
-      try { return NextResponse.json(await removeMcpBearerAuth(name, parsed.value)); }
-      catch (error) {
-        return NextResponse.json({ error: "Bearer認証情報を削除できませんでした" }, { status: mcpErrorStatus(error) });
-      }
+    // OAuth deletion stays legacy/development-only until its own migration step.
+    const explicitOauth = body.type === "oauth" || body.action === "oauth";
+    if (explicitOauth && (Object.keys(body).some((key) => !["type", "action"].includes(key))
+      || [body.type, body.action].some((value) => value !== undefined && value !== "oauth"))) {
+      throw new McpError("invalid-auth", "OAuth認証削除リクエストが不正です");
     }
-
-    if (method === "headers") {
-      await callAdapter({ operation: "headers-remove", serverName: name });
-      disableMcpHeadersStore(name);
+    if (!parsed.ok && !explicitOauth) throw new McpError("invalid-auth", "認証削除リクエストが不正です");
+    if (explicitOauth || (parsed.ok && !parsed.value.type && ["oauth", "auto"].includes(getMcpServerAuth(name).authType))) {
+      await callAdapter({ operation: "oauth-remove", serverName: name });
       const reload = await reloadLiveSessionsContext();
       return NextResponse.json({ ok: true, auth: await snapshotWithLiveStatus(name), reload });
     }
-
-    await callAdapter({ operation: "oauth-remove", serverName: name });
-    const reload = await reloadLiveSessionsContext();
-    return NextResponse.json({ ok: true, auth: await snapshotWithLiveStatus(name), reload });
+    if (!parsed.ok) throw new McpError("invalid-auth", "認証削除リクエストが不正です");
+    return NextResponse.json(await removeMcpAuth(name, parsed.value));
   } catch (error) {
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : "MCP認証情報の削除に失敗しました" },
+      { error: "MCP認証情報の削除に失敗しました" },
       { status: mcpErrorStatus(error) },
     );
   }

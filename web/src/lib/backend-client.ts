@@ -58,6 +58,7 @@ import type { McpPublicAuthSnapshot } from "@shared/mcp-auth-snapshot.mjs";
 import type { McpBearerSaveRequest, McpBearerSaveResult } from "@shared/mcp-bearer-save-request.mjs";
 import type { McpHeadersSaveRequest, McpHeadersSaveResult } from "@shared/mcp-headers-save-request.mjs";
 import type { McpBearerRemoveRequest, McpBearerRemoveResult } from "@shared/mcp-bearer-remove-request.mjs";
+import type { McpAuthRemoveRequest, McpAuthRemoveResult } from "@shared/mcp-auth-remove-request.mjs";
 
 export const BACKEND_REQUEST_TIMEOUT_MS = 10_000;
 
@@ -207,7 +208,18 @@ export function saveMcpHeadersAuthOnBackend(
   });
 }
 
-/** Owner-resolved default or explicit bearer removal; never read/write credentials locally. */
+/** Owner-resolved default or explicit bearer/headers removal; no local fallback. */
+export function removeMcpAuthOnBackend(
+  name: string,
+  input: McpAuthRemoveRequest = {},
+  options: { env?: BackendEnv; fetchImpl?: typeof fetch; timeoutMs?: number } = {},
+): Promise<BackendResult<McpAuthRemoveResult>> {
+  return backendRequest(`${BACKEND_MCP_SERVERS_PATH}/${encodeURIComponent(name)}${BACKEND_MCP_AUTH_SUFFIX}`, {
+    ...options, method: "DELETE", body: input,
+  });
+}
+
+/** Compatibility client; omitted selectors continue to be resolved by the owner. */
 export function removeMcpBearerAuthOnBackend(
   name: string,
   input: McpBearerRemoveRequest = {},

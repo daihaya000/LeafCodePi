@@ -106,12 +106,12 @@ try {
         throw Object.assign(new Error("Backend MCP setting update failed"), { status: runtime.mcpErrorStatus(error) });
       }
     },
-    removeMcpBearerAuthAction: async (name, input) => {
+    removeMcpAuthAction: async (name, input) => {
       const runtime = started.runtime();
       if (!runtime) throw Object.assign(new Error("runtime unavailable"), { status: 503 });
-      try { return await runtime.removeMcpBearerAuth(name, input); }
+      try { return await runtime.removeMcpAuth(name, input); }
       catch (error) {
-        throw Object.assign(new Error("Backend MCP bearer removal failed"), { status: runtime.mcpErrorStatus(error) });
+        throw Object.assign(new Error("Backend MCP auth removal failed"), { status: runtime.mcpErrorStatus(error) });
       }
     },
     saveMcpHeadersAuthAction: async (name, input) => {
