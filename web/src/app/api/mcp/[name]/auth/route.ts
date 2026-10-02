@@ -7,6 +7,10 @@
  */
 import { NextRequest, NextResponse } from "next/server";
 import { reloadLiveSessionsContext } from "@/lib/live-context";
+import { publicMcpAuthSnapshot } from "@shared/mcp-auth-snapshot.mjs";
+import { readMcpAuthStatusOnBackend } from "@/lib/backend-client";
+import { readMcpAuthStatus } from "@/lib/mcp-auth-status";
+import { localRuntimeBlocked } from "@/lib/pi/runtime-ownership";
 import {
   disableMcpBearerStore,
   disableMcpHeadersStore,
@@ -186,11 +190,25 @@ function requireHeaders(value: unknown): Record<string, string> {
 export async function GET(_req: NextRequest, context: RouteContext) {
   try {
     const { name: rawName } = await context.params;
-    const name = readName(rawName);
-    return NextResponse.json(await snapshotWithLiveStatus(name));
+    const name = readName(rawName).trim();
+    if (!name || name.includes("/") || name.includes("\\") || name.includes("..")) {
+      throw new McpError("invalid-name", "名前が不正です");
+    }
+    if (localRuntimeBlocked()) {
+      const forwarded = await readMcpAuthStatusOnBackend(name);
+      if (!forwarded.ok) {
+        return NextResponse.json({ error: "BackendでMCP認証状態を取得できません" }, { status: forwarded.status ?? 502 });
+      }
+      const snapshot = publicMcpAuthSnapshot(forwarded.body);
+      if (!snapshot || snapshot.name !== name) {
+        return NextResponse.json({ error: "BackendのMCP応答が不正です" }, { status: 502 });
+      }
+      return NextResponse.json(snapshot);
+    }
+    return NextResponse.json(await readMcpAuthStatus(name));
   } catch (error) {
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : "MCP認証状態の取得に失敗しました" },
+      { error: "MCP認証状態の取得に失敗しました" },
       { status: mcpErrorStatus(error) },
     );
   }

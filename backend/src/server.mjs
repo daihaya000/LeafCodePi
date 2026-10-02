@@ -3,6 +3,7 @@ import { createServer } from "node:http";
 import { once } from "node:events";
 import { streamRuntimeEvents } from "./runtime-events.mjs";
 import { parseMcpPresetRequest } from "../../shared/mcp-preset-request.mjs";
+import { publicMcpAuthSnapshot } from "../../shared/mcp-auth-snapshot.mjs";
 import { InvalidTaskMessageCursorError, pageTaskMessages } from "../../shared/task-history.mjs";
 import {
   BACKEND_ERROR_CODES,
@@ -12,6 +13,7 @@ import {
   BACKEND_LIVE_SESSIONS_RELOAD_PATH,
   BACKEND_MCP_MIGRATION_PATH,
   BACKEND_MCP_SERVERS_PATH,
+  BACKEND_MCP_AUTH_SUFFIX,
   BACKEND_BOT_ADMIN_SUFFIX,
   BACKEND_BOT_CODE_REQUESTS_SUFFIX,
   BACKEND_BOT_CODE_SESSIONS_SUFFIX,
@@ -211,6 +213,8 @@ export function createBackendServer({
   setMcpServerEnabledAction = null,
   /** Adds a validated known MCP preset and reloads the owner's sessions. */
   createMcpPresetAction = null,
+  /** Reads auth metadata/status in the owning process; never accepts credential inputs. */
+  readMcpAuthStatus = null,
   /** Compacts a session: `(id, customInstructions?) => task`; the summarization runs in the owner. */
   compactTaskAction = null,
   /** Stops a running compaction: `(id) => task`; only the owner can interrupt its own session. */
@@ -275,6 +279,7 @@ export function createBackendServer({
     readMcpMigrationDiagnostics,
     setMcpServerEnabledAction,
     createMcpPresetAction,
+    readMcpAuthStatus,
     compactTaskAction,
     abortCompactTaskAction,
     setTaskModelAction,
@@ -408,6 +413,35 @@ export function createBackendServer({
       || actionPath !== undefined;
     if (!knownPath) {
       sendJson(response, 404, { error: "Not found", code: BACKEND_ERROR_CODES.notFound });
+      return;
+    }
+    if (target.pathname.startsWith(`${BACKEND_MCP_SERVERS_PATH}/`) && target.pathname.endsWith(BACKEND_MCP_AUTH_SUFFIX)) {
+      if (request.method !== "GET") {
+        sendJson(response, 405, { error: "Method not allowed", code: BACKEND_ERROR_CODES.methodNotAllowed }, { Allow: "GET" });
+        return;
+      }
+      let name;
+      try { name = decodeURIComponent(target.pathname.slice(BACKEND_MCP_SERVERS_PATH.length + 1, -BACKEND_MCP_AUTH_SUFFIX.length)).trim(); }
+      catch { sendJson(response, 400, { error: "Invalid MCP server name", code: BACKEND_ERROR_CODES.badRequest }); return; }
+      if (!name || name.includes("/") || name.includes("\\") || name.includes("..") || target.search) {
+        sendJson(response, 400, { error: "Invalid MCP auth status request", code: BACKEND_ERROR_CODES.badRequest });
+        return;
+      }
+      let ready = false;
+      try { ready = isReady() === true; } catch { /* Refuse without exception detail. */ }
+      if (!readMcpAuthStatus || !ready) {
+        sendJson(response, 503, { error: "Backend runtime unavailable", code: BACKEND_ERROR_CODES.runtimeUnavailable });
+        return;
+      }
+      try {
+        const snapshot = publicMcpAuthSnapshot(await readMcpAuthStatus(name));
+        if (!snapshot || snapshot.name !== name) throw new Error("Invalid MCP auth metadata");
+        sendJson(response, 200, snapshot);
+      } catch (error) {
+        const status = [400, 404, 503].includes(error?.status) ? error.status : 500;
+        sendJson(response, status, { error: "Backend MCP auth status failed",
+          code: status === 404 ? BACKEND_ERROR_CODES.notFound : status < 500 ? BACKEND_ERROR_CODES.badRequest : BACKEND_ERROR_CODES.internal });
+      }
       return;
     }
     if (target.pathname === BACKEND_MCP_SERVERS_PATH) {

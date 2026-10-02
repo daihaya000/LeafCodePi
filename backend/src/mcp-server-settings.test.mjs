@@ -76,6 +76,39 @@ test("MCP owner refusal statuses survive without exception details", async (t) =
   }
 });
 
+test("auth status GET is authenticated, read-only and refuses arbitrary names and parameters", async (t) => {
+  const calls = [];
+  const { url: itemUrl, headers } = await endpoint(t, { readMcpAuthStatus: (name) => {
+    calls.push(name); return { name, configPath: "owner-private-path", token: "private-fixture-secret", credentialMessage: "private-fixture-secret",
+      authType: "none", credentialConfigured: false,
+      credentialSource: "none", credentialStatus: "missing" };
+  } });
+  const url = `${itemUrl}/auth`;
+  assert.equal((await request(url)).status, 401);
+  assert.equal((await request(url, { headers: { authorization: headers.authorization } })).status, 409);
+  for (const method of ["POST", "DELETE", "PATCH"]) {
+    const response = await request(url, { method, headers });
+    assert.equal(response.status, 405);
+    assert.equal(response.headers.get("allow"), "GET");
+  }
+  for (const suffix of ["?configPath=other", "?token=secret"]) assert.equal((await request(url + suffix, { headers })).status, 400);
+  assert.equal((await request(url.replace("fixture/auth", "a%2Fb/auth"), { headers })).status, 400);
+  assert.equal(calls.length, 0);
+  const success = await request(url, { headers });
+  assert.equal(success.status, 200);
+  const snapshot = await success.json();
+  assert.equal(snapshot.configPath, "");
+  assert.equal(JSON.stringify(snapshot).includes("private"), false);
+  assert.deepEqual(calls, ["fixture"]);
+  const missing = await endpoint(t);
+  assert.equal((await request(`${missing.url}/auth`, { headers: missing.headers })).status, 503);
+  const failing = await endpoint(t, { readMcpAuthStatus: () => { throw new Error("private-fixture-secret"); } });
+  const failed = await request(`${failing.url}/auth`, { headers: failing.headers });
+  assert.equal(failed.status, 500);
+  assert.equal((await failed.text()).includes("private-fixture-secret"), false);
+  assert.throws(() => createBackendServer({ token: "x".repeat(32), readMcpAuthStatus: true }), /readMcpAuthStatus/);
+});
+
 test("preset creation is authenticated, owner-ready and limited to known request shapes", async (t) => {
   const calls = [];
   const { url: itemUrl, headers } = await endpoint(t, { createMcpPresetAction: (input) => {
@@ -170,4 +203,14 @@ test("Backend entry persists ON/OFF through the rebuilt runtime and returns only
   assert.equal(written.mcpServers.fixture.env.KEY, "private-fixture-token");
   const duplicate = await request(`${base}${BACKEND_MCP_SERVERS_PATH}`, { method: "POST", headers, body: JSON.stringify({ preset: "notion" }) });
   assert.equal(duplicate.status, 409);
+  const beforeStatus = await readFile(configPath);
+  const authResponse = await request(`${base}${BACKEND_MCP_SERVERS_PATH}/n8n/auth`, { headers });
+  assert.equal(authResponse.status, 200);
+  const auth = await authResponse.json();
+  assert.equal(auth.name, "n8n");
+  assert.equal(auth.authType, "oauth");
+  assert.equal(auth.credentialStatus, "unavailable"); // No live bridge in this isolated runtime.
+  assert.equal(auth.configPath, "");
+  assert.equal(JSON.stringify(auth).includes(root), false);
+  assert.deepEqual(await readFile(configPath), beforeStatus);
 });

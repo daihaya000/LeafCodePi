@@ -11,10 +11,18 @@ const adapter = vi.hoisted(() => ({
   requestMcpWebUiAuth: vi.fn(),
 }));
 
+const owner = vi.hoisted(() => ({ localRuntimeBlocked: vi.fn(), readMcpAuthStatusOnBackend: vi.fn() }));
+vi.mock("@/lib/backend-client", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@/lib/backend-client")>(), readMcpAuthStatusOnBackend: owner.readMcpAuthStatusOnBackend,
+}));
+vi.mock("@/lib/pi/runtime-ownership", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@/lib/pi/runtime-ownership")>(), localRuntimeBlocked: owner.localRuntimeBlocked,
+}));
 vi.mock("@/lib/pi/harness", () => harness);
 vi.mock("@/lib/pi/mcp-webui-bridge", () => adapter);
 
 import { DELETE, GET, POST } from "./route";
+import * as mcpLibrary from "@/lib/mcp";
 
 function request(method: string, body?: unknown): NextRequest {
   return new NextRequest("http://127.0.0.1:3010/api/mcp/n8n/auth", {
@@ -50,6 +58,8 @@ describe("/api/mcp/:name/auth", () => {
     );
     previousAgentDir = process.env.PI_CODING_AGENT_DIR;
     process.env.PI_CODING_AGENT_DIR = agentDir;
+    owner.localRuntimeBlocked.mockReturnValue(false);
+    owner.readMcpAuthStatusOnBackend.mockReset();
     adapter.requestMcpWebUiAuth.mockReset();
     adapter.requestMcpWebUiAuth.mockImplementation(async (input: { operation: string }) => {
       if (input.operation === "bearer-status") {
@@ -64,6 +74,7 @@ describe("/api/mcp/:name/auth", () => {
   });
 
   afterEach(() => {
+    vi.restoreAllMocks();
     if (previousAgentDir === undefined) delete process.env.PI_CODING_AGENT_DIR;
     else process.env.PI_CODING_AGENT_DIR = previousAgentDir;
     rmSync(agentDir, { recursive: true, force: true });
@@ -155,6 +166,73 @@ describe("/api/mcp/:name/auth", () => {
     expect(payload.credentialSource).toBe("secure-store");
     expect(payload.credentialStatus).toBe("present");
     expect(payload.token).toBeUndefined();
+  });
+
+  it.each(["oauth", "auto"])("GET maps %s status without exposing provider messages", async (authType) => {
+    const raw = JSON.parse(readFileSync(join(agentDir, "mcp.json"), "utf8"));
+    raw.mcpServers.n8n.auth = authType;
+    delete raw.mcpServers.n8n.bearerTokenEnv;
+    writeFileSync(join(agentDir, "mcp.json"), JSON.stringify(raw));
+    for (const [status, expected] of [["authenticated", "present"], ["expired", "expired"],
+      ["not_authenticated", "missing"], ["unavailable", "unavailable"]]) {
+      adapter.requestMcpWebUiAuth.mockResolvedValueOnce({ ok: true, operation: "oauth-status", status, message: "private-fixture-secret" });
+      const body = await (await GET(request("GET"), context())).json();
+      expect(body.credentialStatus).toBe(expected);
+      expect(JSON.stringify(body)).not.toContain("private-fixture-secret");
+    }
+  });
+
+  it("GET maps secure header status without exposing stored headers", async () => {
+    const raw = JSON.parse(readFileSync(join(agentDir, "mcp.json"), "utf8"));
+    raw.mcpServers.n8n.headersStore = true;
+    raw.mcpServers.n8n.auth = false;
+    writeFileSync(join(agentDir, "mcp.json"), JSON.stringify(raw));
+    const body = await (await GET(request("GET"), context())).json();
+    expect(body.authType).toBe("headers");
+    expect(body.credentialStatus).toBe("present");
+    expect(adapter.requestMcpWebUiAuth).toHaveBeenCalledWith({ operation: "headers-status", serverName: "n8n" });
+  });
+
+  it("production GET reads the owner's state without local config or bridge access", async () => {
+    owner.localRuntimeBlocked.mockReturnValue(true);
+    const localRead = vi.spyOn(mcpLibrary, "getMcpServerAuth");
+    owner.readMcpAuthStatusOnBackend.mockResolvedValue({ ok: true, body: { name: "n8n", authType: "oauth",
+      credentialConfigured: true, credentialSource: "oauth", credentialStatus: "present", configPath: "owner-private-path",
+      credentialMessage: "private-fixture-secret", token: "private-fixture-secret" } });
+    const response = await GET(request("GET"), context());
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ name: "n8n", authType: "oauth", credentialConfigured: true,
+      credentialSource: "oauth", credentialStatus: "present", configPath: "" });
+    expect(owner.readMcpAuthStatusOnBackend).toHaveBeenCalledWith("n8n");
+    expect(localRead).not.toHaveBeenCalled();
+    expect(adapter.requestMcpWebUiAuth).not.toHaveBeenCalled();
+    expect(harness.reloadLiveSessionsContext).not.toHaveBeenCalled();
+  });
+
+  it.each([["not-configured", undefined, 502], ["unreachable", undefined, 502], ["timeout", undefined, 502],
+    ["unauthorized", 401, 401], ["bad-response", 404, 404]])("GET refuses %s without local fallback", async (reason, status, expected) => {
+    owner.localRuntimeBlocked.mockReturnValue(true);
+    owner.readMcpAuthStatusOnBackend.mockResolvedValue({ ok: false, reason, status });
+    expect((await GET(request("GET"), context())).status).toBe(expected);
+    expect(adapter.requestMcpWebUiAuth).not.toHaveBeenCalled();
+  });
+
+  it("GET rejects mismatched responses and redacts local status errors", async () => {
+    owner.localRuntimeBlocked.mockReturnValue(true);
+    owner.readMcpAuthStatusOnBackend.mockResolvedValue({ ok: true, body: { name: "other" } });
+    expect((await GET(request("GET"), context())).status).toBe(502);
+    owner.localRuntimeBlocked.mockReturnValue(false);
+    const raw = JSON.parse(readFileSync(join(agentDir, "mcp.json"), "utf8"));
+    raw.mcpServers.n8n.bearerTokenStore = true;
+    delete raw.mcpServers.n8n.bearerTokenEnv;
+    writeFileSync(join(agentDir, "mcp.json"), JSON.stringify(raw));
+    adapter.requestMcpWebUiAuth.mockRejectedValueOnce(new Error("private-fixture-secret"));
+    const response = await GET(request("GET"), context());
+    const body = await response.json();
+    expect(body.credentialStatus).toBe("unavailable");
+    expect(JSON.stringify(body)).not.toContain("private-fixture-secret");
+    adapter.requestMcpWebUiAuth.mockResolvedValueOnce(null);
+    expect((await (await GET(request("GET"), context())).json()).credentialStatus).toBe("unavailable");
   });
 
   it("removes a bearer store reference after the adapter removes the secret", async () => {

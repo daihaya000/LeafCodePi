@@ -18,6 +18,7 @@ import {
   BACKEND_BOT_ADMIN_SUFFIX,
   BACKEND_LIVE_SESSIONS_RELOAD_PATH,
   BACKEND_MCP_SERVERS_PATH,
+  BACKEND_MCP_AUTH_SUFFIX,
   BACKEND_BOT_REVERT_SUFFIX,
   BACKEND_BOT_ROUTINES_SEGMENT,
   BACKEND_BOTS_PATH,
@@ -53,6 +54,7 @@ import {
 
 import type { McpDto } from "@/lib/mcp";
 import type { McpPresetRequest, McpPublicReload } from "@shared/mcp-preset-request.mjs";
+import type { McpPublicAuthSnapshot } from "@shared/mcp-auth-snapshot.mjs";
 
 export const BACKEND_REQUEST_TIMEOUT_MS = 10_000;
 
@@ -170,6 +172,14 @@ async function backendRequest<T>(
   } finally {
     clearTimeout(timer);
   }
+}
+
+/** Reads only the owning process's auth status. No local bridge/config fallback. */
+export function readMcpAuthStatusOnBackend(
+  name: string,
+  options: { env?: BackendEnv; fetchImpl?: typeof fetch; timeoutMs?: number } = {},
+): Promise<BackendResult<McpPublicAuthSnapshot>> {
+  return backendRequest(`${BACKEND_MCP_SERVERS_PATH}/${encodeURIComponent(name)}${BACKEND_MCP_AUTH_SUFFIX}`, options);
 }
 
 export type BackendMcpEnabledResult = { ok: true; name: string; enabled: boolean; servers: McpDto[] };

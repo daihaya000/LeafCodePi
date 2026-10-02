@@ -106,6 +106,14 @@ try {
         throw Object.assign(new Error("Backend MCP setting update failed"), { status: runtime.mcpErrorStatus(error) });
       }
     },
+    readMcpAuthStatus: async (name) => {
+      const runtime = started.runtime();
+      if (!runtime) throw Object.assign(new Error("runtime unavailable"), { status: 503 });
+      try { return await runtime.readMcpAuthStatus(name); }
+      catch (error) {
+        throw Object.assign(new Error("Backend MCP auth status failed"), { status: runtime.mcpErrorStatus(error) });
+      }
+    },
     createMcpPresetAction: async (input) => {
       const runtime = started.runtime();
       if (!runtime) throw Object.assign(new Error("runtime unavailable"), { status: 503 });
