@@ -43,6 +43,28 @@ import {
   DEFAULT_BACKEND_PORT,
 } from "../../shared/backend-protocol.mjs";
 
+/** Prefer a short Japanese client message; never forward English/provider exception text. */
+function clientFacingActionError(error, fallback) {
+  const status = typeof error?.status === "number" ? error.status : 500;
+  const message = error instanceof Error ? error.message : "";
+  const safe = status >= 400 && status < 500
+    && message.length > 0 && message.length < 240
+    && /[\u3040-\u30ff\u3400-\u9fff]/.test(message);
+  if (safe) {
+    return {
+      status,
+      body: {
+        error: message,
+        code: status === 404 ? BACKEND_ERROR_CODES.notFound : BACKEND_ERROR_CODES.badRequest,
+      },
+    };
+  }
+  return {
+    status,
+    body: { error: fallback, code: BACKEND_ERROR_CODES.internal },
+  };
+}
+
 function tokenDigest(value) {
   return createHash("sha256").update(value).digest();
 }
@@ -605,11 +627,9 @@ export function createBackendServer({
             : { error: "Question request not found", code: BACKEND_ERROR_CODES.notFound });
         }
       } catch (error) {
-        // Never send exception text: provider errors can contain credentials.
-        sendJson(response, typeof error?.status === "number" ? error.status : 500, {
-          error: "Backend task action failed",
-          code: BACKEND_ERROR_CODES.internal,
-        });
+        // Status-tagged Japanese messages are intentional UI copy; English/provider text stays opaque.
+        const facing = clientFacingActionError(error, "Backend task action failed");
+        sendJson(response, facing.status, facing.body);
       }
       return;
     }

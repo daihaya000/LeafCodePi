@@ -783,6 +783,25 @@ test("Goal Loop start refusals retain their status without leaking runtime error
   }
 });
 
+test("task revert forwards Japanese busy refusals to the WebUI", async (t) => {
+  const { snapshotsUrl, headers } = await fixture(t, {
+    revertTaskAction: async () => {
+      throw Object.assign(new Error("応答中は巻き戻せません。停止してからお試しください"), { status: 409 });
+    },
+  });
+  const url = `${snapshotsUrl.replace("pending-snapshots", "tasks")}/task-1/revert`;
+  const response = await request(url, {
+    method: "POST",
+    headers: { ...headers, "content-type": "application/json" },
+    body: JSON.stringify({ entryId: "entry-1" }),
+  });
+  assert.equal(response.status, 409);
+  assert.deepEqual(await response.json(), {
+    error: "応答中は巻き戻せません。停止してからお試しください",
+    code: "BACKEND_BAD_REQUEST",
+  });
+});
+
 test("the Goal Loop control needs a runtime and refuses a non-function handler", async (t) => {
   const { snapshotsUrl, headers } = await fixture(t);
   const url = `${snapshotsUrl.replace("pending-snapshots", "tasks")}/task-1/goal-loop`;

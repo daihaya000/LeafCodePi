@@ -62,7 +62,17 @@ export type BackendFailureReason =
 
 export type BackendResult<T> =
   | { ok: true; status: number; body: T }
-  | { ok: false; reason: BackendFailureReason; status?: number };
+  | { ok: false; reason: BackendFailureReason; status?: number; error?: string };
+
+/** Keep only short Japanese owner messages; opaque Backend placeholders stay local. */
+function clientFacingBackendError(body: unknown): string | undefined {
+  if (!body || typeof body !== "object" || Array.isArray(body)) return undefined;
+  const error = (body as { error?: unknown }).error;
+  if (typeof error !== "string" || error.length === 0 || error.length >= 240) return undefined;
+  if (error.startsWith("Backend ")) return undefined;
+  if (!/[\u3040-\u30ff\u3400-\u9fff]/.test(error)) return undefined;
+  return error;
+}
 
 /** The environment the client reads; `process.env` satisfies it, and tests pass a literal. */
 export type BackendEnv = Record<string, string | undefined>;
@@ -126,7 +136,8 @@ async function backendRequest<T>(
       try {
         const body = await response.json();
         if (body?.code === BACKEND_ERROR_CODES.badRequest || body?.code === BACKEND_ERROR_CODES.internal) {
-          return { ok: false, reason: "bad-response", status: 409 };
+          const error = clientFacingBackendError(body);
+          return { ok: false, reason: "bad-response", status: 409, ...(error ? { error } : {}) };
         }
       } catch (error) {
         if (controller.signal.aborted) throw error;
@@ -134,7 +145,16 @@ async function backendRequest<T>(
       }
       return { ok: false, reason: "incompatible", status: 409 };
     }
-    if (!response.ok) return { ok: false, reason: "bad-response", status: response.status };
+    if (!response.ok) {
+      try {
+        const body = await response.json();
+        const error = clientFacingBackendError(body);
+        return { ok: false, reason: "bad-response", status: response.status, ...(error ? { error } : {}) };
+      } catch (error) {
+        if (controller.signal.aborted) throw error;
+        return { ok: false, reason: "bad-response", status: response.status };
+      }
+    }
     return { ok: true, status: response.status, body: (await response.json()) as T };
   } catch (error) {
     const aborted = controller.signal.aborted || (error instanceof Error && error.name === "AbortError");

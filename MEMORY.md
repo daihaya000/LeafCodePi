@@ -14,7 +14,8 @@ Updated: 2026-10-02
 - **Symptom**: UI shows `巻き戻しに失敗しました` while Goal Loop badge (`ループ 1`) is visible; task often looks idle after `Request was aborted`.
 - **Root cause**: `isTaskRuntimeBusyForDestructiveEdit` treats any owned Goal Loop (`queued`/`paused`/`blocked`/…) as busy, but TaskView only gated revert on `working`. Between turns the user could confirm revert → Backend 409 → cutover forward collapsed to the generic error. Yellow `巻き戻し中` can remain from an earlier successful leaf or SSE.
 - **Fix** (`revertTask` / `unrevertTask`): call `stopGoalLoopForTask` before `assertIdleForSessionTreeEdit`. Forwarded 409 now surfaces the busy Japanese message.
-- **Tests**: harness-revert, harness-tree-edit, task revert/unrevert route tests.
+- **Follow-up**: Backend task-action catch now forwards short Japanese 4xx messages (`badRequest`/`notFound`) while English/provider text stays `Backend task action failed`. `backend-client` + `forwardTaskRevert`/`Unrevert` carry `error` to the WebUI route.
+- **Tests**: harness-revert, harness-tree-edit, task revert/unrevert route tests, server Japanese busy refusal, backend-forward 409 body.
 
 ## Remote git pull failed (exit 128) — expected / non-fatal
 

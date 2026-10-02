@@ -3027,7 +3027,7 @@ export const TaskView = memo(function TaskView({
       className={cx("@container/task flex min-h-0 min-w-0 flex-1 flex-col bg-bot-chat", !active && "hidden")}
     >
       <header
-        className="grid min-h-11 shrink-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-2 border-b border-bot-outline bg-bot-chat px-3 pb-0.5 @min-[500px]/task:px-4"
+        className="relative z-40 grid min-h-11 shrink-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-2 border-b border-bot-outline bg-bot-chat px-3 pb-0.5 @min-[500px]/task:px-4"
         style={{ paddingTop: "env(safe-area-inset-top)" }}
       >
         <div className="col-span-2 flex min-w-0 translate-y-1 items-center gap-2">
@@ -3136,7 +3136,18 @@ export const TaskView = memo(function TaskView({
           <span aria-label="プロジェクトアイコン" className="inline-flex shrink-0">{iconFor(taskId, 24, task ?? undefined)}</span>
           {permissionRequest && <Badge tone="warning" className="shrink-0">承認待ち</Badge>}
           {questionRequest && <Badge tone="warning" className="shrink-0">回答待ち</Badge>}
-          {displayedStatus && <StatusBadge status={displayedStatus} className="shrink-0" />}
+          {/* 狭幅では承認・回答待ちバッジを優先し、同時に出る「実行中」は省いて切れを防ぐ。 */}
+          {displayedStatus && (
+            <StatusBadge
+              status={displayedStatus}
+              className={cx(
+                "shrink-0",
+                displayedStatus === "working" &&
+                  (permissionRequest || questionRequest) &&
+                  "@max-[500px]/task:hidden",
+              )}
+            />
+          )}
           {supervisor && !canManageSupervisor && (
             <span
               title={`監督: ${supervisor.name}`}
@@ -3552,7 +3563,7 @@ export const TaskView = memo(function TaskView({
         {/* 提案・進捗確認とメッセージ移動。移動ボタン間より広い間隔で操作を分ける。 */}
         {(task?.sessionId || navigationMessageIds.length > 0) && (
           <div className={cx(
-            "absolute right-4 bottom-4 z-50 flex flex-col items-center gap-6",
+            "absolute right-4 bottom-4 z-30 flex flex-col items-center gap-6",
             mobilePanelOpen && "hidden",
           )}>
             {navigationMessageIds.length > 0 && (

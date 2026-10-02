@@ -109,53 +109,59 @@ export function QuestionCard({
 
   return (
     <div
-      className="mx-auto max-w-5xl rounded-card border border-accent/40 bg-surface px-3 py-3 text-sm"
+      className="mx-auto flex max-h-[min(70dvh,40rem)] max-w-5xl flex-col rounded-card border border-accent/40 bg-surface px-3 py-3 text-sm"
       role="alertdialog"
       aria-label="確認が必要です"
     >
-      <div className="mb-1 flex items-center gap-1.5 text-sm font-medium text-accent">
+      <div className="mb-1 flex shrink-0 items-center gap-1.5 text-sm font-medium text-accent">
         <HelpCircle className="h-4 w-4" />
         確認が必要です
       </div>
-      {question.header && (
-        <p className="text-xs font-medium text-faint">{question.header}</p>
-      )}
-      <p className="mb-2 break-words text-text">{question.question}</p>
-      {question.options.length > 0 && (
-        <div
-          className="mb-2 flex flex-col gap-1.5"
-          role={question.multiple ? "group" : "radiogroup"}
-          aria-label={question.header ?? question.question}
-          aria-multiselectable={question.multiple || undefined}
-        >
-          {question.options.map((opt) => {
-            const on = selected.includes(opt.label);
-            return (
-              <button
-                key={opt.label}
-                type="button"
-                disabled={busy !== null}
-                role={question.multiple ? "checkbox" : "radio"}
-                aria-checked={on}
-                onClick={() => quickReply(opt.label)}
-                className={cx(
-                  "cursor-pointer rounded-lg border px-3 py-2 text-left transition-colors disabled:opacity-50",
-                  on
-                    ? "border-accent bg-accent/10 text-text"
-                    : "border-border bg-surface-2 text-muted hover:border-border-strong hover:text-text",
-                )}
-              >
-                <span className="block text-sm font-medium">{opt.label}</span>
-                {opt.description && (
-                  <span className="mt-0.5 block text-xs text-faint">
-                    {opt.description}
-                  </span>
-                )}
-              </button>
-            );
-          })}
-        </div>
-      )}
+      {/* 長い質問・多数の選択肢でも入力欄と操作ボタンが画面外へ出ないよう本文だけをスクロールさせる。 */}
+      <div
+        className="min-h-0 flex-1 overflow-y-auto overscroll-contain"
+        data-testid="question-body"
+      >
+        {question.header && (
+          <p className="text-xs font-medium text-faint">{question.header}</p>
+        )}
+        <p className="mb-2 whitespace-pre-wrap break-words text-text">{question.question}</p>
+        {question.options.length > 0 && (
+          <div
+            className="mb-2 flex flex-col gap-1.5"
+            role={question.multiple ? "group" : "radiogroup"}
+            aria-label={question.header ?? question.question}
+            aria-multiselectable={question.multiple || undefined}
+          >
+            {question.options.map((opt) => {
+              const on = selected.includes(opt.label);
+              return (
+                <button
+                  key={opt.label}
+                  type="button"
+                  disabled={busy !== null}
+                  role={question.multiple ? "checkbox" : "radio"}
+                  aria-checked={on}
+                  onClick={() => quickReply(opt.label)}
+                  className={cx(
+                    "cursor-pointer rounded-lg border px-3 py-2 text-left transition-colors disabled:opacity-50",
+                    on
+                      ? "border-accent bg-accent/10 text-text"
+                      : "border-border bg-surface-2 text-muted hover:border-border-strong hover:text-text",
+                  )}
+                >
+                  <span className="block text-sm font-medium">{opt.label}</span>
+                  {opt.description && (
+                    <span className="mt-0.5 block text-xs text-faint">
+                      {opt.description}
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </div>
       {customEnabled && (
         <input
           type="text"
@@ -176,10 +182,10 @@ export function QuestionCard({
           placeholder={
             question.options.length > 0 ? "その他（自由入力）" : "自由に入力してください"
           }
-          className="mb-2 w-full rounded-lg border border-border bg-surface-2 px-3 py-2 text-sm text-text outline-none placeholder:text-muted focus:border-border-strong"
+          className="mb-2 w-full shrink-0 rounded-lg border border-border bg-surface-2 px-3 py-2 text-sm text-text outline-none placeholder:text-muted focus:border-border-strong"
         />
       )}
-      <div className="flex flex-wrap gap-2">
+      <div className="flex shrink-0 flex-wrap gap-2">
         {needsSubmitButton && (
           <Button
             variant="primary"

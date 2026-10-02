@@ -401,12 +401,19 @@ export async function forwardTaskRevert(
   options: { env?: BackendEnv; fetchImpl?: typeof fetch; timeoutMs?: number } = {},
 ): Promise<
   | { ok: true; result: Record<string, unknown> }
-  | { ok: false; reason: BackendFailureReason | "not-found"; status?: number }
+  | { ok: false; reason: BackendFailureReason | "not-found"; status?: number; error?: string }
 > {
   const result = await revertTaskOnBackend(id, entryId, options);
   if (!result.ok) {
-    if (result.status === 404) return { ok: false, reason: "not-found", status: 404 };
-    return { ok: false, reason: result.reason, ...(result.status ? { status: result.status } : {}) };
+    if (result.status === 404) {
+      return { ok: false, reason: "not-found", status: 404, ...(result.error ? { error: result.error } : {}) };
+    }
+    return {
+      ok: false,
+      reason: result.reason,
+      ...(result.status ? { status: result.status } : {}),
+      ...(result.error ? { error: result.error } : {}),
+    };
   }
   return { ok: true, result: result.body ?? {} };
 }
@@ -504,12 +511,19 @@ export async function forwardTaskUnrevert(
   options: { env?: BackendEnv; fetchImpl?: typeof fetch; timeoutMs?: number } = {},
 ): Promise<
   | { ok: true; task: Record<string, unknown> | null }
-  | { ok: false; reason: BackendFailureReason | "not-found"; status?: number }
+  | { ok: false; reason: BackendFailureReason | "not-found"; status?: number; error?: string }
 > {
   const result = await unrevertTaskOnBackend(id, options);
   if (!result.ok) {
-    if (result.status === 404) return { ok: false, reason: "not-found", status: 404 };
-    return { ok: false, reason: result.reason, ...(result.status ? { status: result.status } : {}) };
+    if (result.status === 404) {
+      return { ok: false, reason: "not-found", status: 404, ...(result.error ? { error: result.error } : {}) };
+    }
+    return {
+      ok: false,
+      reason: result.reason,
+      ...(result.status ? { status: result.status } : {}),
+      ...(result.error ? { error: result.error } : {}),
+    };
   }
   const task = result.body?.task;
   return { ok: true, task: task && typeof task === "object" ? task : null };

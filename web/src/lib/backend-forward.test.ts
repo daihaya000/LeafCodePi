@@ -531,6 +531,16 @@ describe("forwardTaskRevert and forwardTaskUnrevert", () => {
     await expect(forwardTaskRevert("task-1", "entry-1", { env, fetchImpl: missing })).resolves.toEqual({
       ok: false, reason: "not-found", status: 404,
     });
+    const busy = vi.fn<typeof fetch>(async () => jsonResponse(409, {
+      error: "応答中は巻き戻せません。停止してからお試しください",
+      code: "BACKEND_BAD_REQUEST",
+    }));
+    await expect(forwardTaskRevert("task-1", "entry-1", { env, fetchImpl: busy })).resolves.toEqual({
+      ok: false,
+      reason: "bad-response",
+      status: 409,
+      error: "応答中は巻き戻せません。停止してからお試しください",
+    });
     const unreachable = vi.fn<typeof fetch>(async () => { throw new Error("connect refused"); });
     await expect(forwardTaskUnrevert("task-1", { env, fetchImpl: unreachable })).resolves.toEqual({
       ok: false, reason: "unreachable",
