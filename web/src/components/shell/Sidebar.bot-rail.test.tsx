@@ -315,20 +315,40 @@ describe("Bot mode list", () => {
     localStorage.setItem("webui.sidebar.collapsed", "0");
     const hidden = vi.spyOn(document, "hidden", "get").mockReturnValue(true);
     const setIntervalSpy = vi.spyOn(window, "setInterval");
+    const setTimeoutSpy = vi.spyOn(window, "setTimeout");
     try {
       render(<Sidebar mobileOpen={false} onClose={vi.fn()} />);
       await screen.findByText("Bot A");
+      // 初期refreshの完了（in-flight中に次のpollを呼ばない）を待ってから履歴を消す。
+      await waitFor(() =>
+        expect(mocks.getJson.mock.calls.some(([path]) => path === "/api/tasks?kind=all")).toBe(true),
+      );
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
       mocks.getJson.mockClear();
-      const pollCallbacks = setIntervalSpy.mock.calls
-        .filter(([, delay]) => delay === 12_000)
-        .map(([callback]) => callback as () => void);
-      expect(pollCallbacks.length).toBeGreaterThan(0);
-      pollCallbacks.forEach((callback) => callback());
+      // cutover後、未読更新の定期pollは setTimeout スケジュール（setInterval はBotサイドバー用）。
+      const latestWithDelay = (calls: ReadonlyArray<readonly unknown[]>, delays: readonly number[]) => {
+        for (let index = calls.length - 1; index >= 0; index -= 1) {
+          const [callback, delay] = calls[index]!;
+          if (typeof delay === "number" && delays.includes(delay)) return callback as () => void;
+        }
+        return null;
+      };
+      const scheduledPoll = latestWithDelay(setTimeoutSpy.mock.calls, [12_000, 20_000]);
+      const botPoll = latestWithDelay(setIntervalSpy.mock.calls, [12_000]);
+      expect(scheduledPoll).not.toBeNull();
+      expect(botPoll).not.toBeNull();
+      act(() => {
+        scheduledPoll?.();
+        botPoll?.();
+      });
       expect(mocks.getJson.mock.calls.filter(([path]) => path === "/api/bots/sidebar")).toHaveLength(1);
       expect(mocks.getJson.mock.calls.filter(([path]) => path === "/api/tasks?kind=all")).toHaveLength(1);
       expect(mocks.getJson.mock.calls.filter(([path]) => path === "/api/projects?archived=1")).toHaveLength(0);
       expect(mocks.getJson.mock.calls.filter(([path]) => path === "/api/health")).toHaveLength(0);
     } finally {
+      setTimeoutSpy.mockRestore();
       setIntervalSpy.mockRestore();
       hidden.mockRestore();
     }
