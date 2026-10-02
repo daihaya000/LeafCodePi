@@ -396,12 +396,14 @@ try {
     taskAdminAction: async (id, request) => {
       const runtime = started.runtime();
       const run = request.action === "promote" ? runtime?.promoteTask
+        : request.action === "fork" ? runtime?.forkTask
         : request.action === "handoff" ? runtime?.handoffTaskToBot : runtime?.releaseTaskFromBot;
       if (typeof run !== "function") {
         throw Object.assign(new Error("runtime unavailable"), { status: 503 });
       }
       try {
         if (request.action === "promote") return { status: 200, body: await run(id, request.destinationPath) };
+        if (request.action === "fork") return { status: 200, body: await run(id, request.entryId) };
         if (request.action === "handoff") return { status: 200, body: { task: await run(request.botId, id) } };
         return { status: 200, body: { task: await run(id) } };
       } catch (error) {

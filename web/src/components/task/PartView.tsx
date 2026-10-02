@@ -50,6 +50,7 @@ import {
 import { isSkillRead, toolInputFields, toolLabel, toolSummary } from "@/lib/tool-labels";
 import { truncateUiToolOutput } from "@/lib/pi/messages";
 import { subagentAgentNames, useSubagentRuns } from "@/components/task/use-subagent-runs";
+import { ForkButton } from "@/components/task/ForkButton";
 import {
   saveReasoningTranslationOverride,
   useReasoningTranslation,
@@ -1228,11 +1229,14 @@ export const PartView = memo(
             return <ToolCard key={cardKey} part={part} taskId={taskId} nested={nested} tabActive={active} />;
           })
         )}
-        {isUser && !nested && onRevert && (
-          <BotRevertButton
-            title="このコメントを入力欄に戻して巻き戻す"
-            onClick={() => onRevert(message)}
-          />
+        {isUser && !nested && (onRevert || (taskId && !taskId.startsWith("bot:"))) && (
+          <div className="flex max-w-full flex-wrap items-center gap-2 pr-14">
+            {onRevert && <BotRevertButton
+              title="このコメントを入力欄に戻して巻き戻す"
+              onClick={() => onRevert(message)}
+            />}
+            {taskId && !taskId.startsWith("bot:") && <ForkButton taskId={taskId} entryId={message.id} />}
+          </div>
         )}
         {message.error && (
           <p

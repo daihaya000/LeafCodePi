@@ -96,6 +96,21 @@ function readMessage(status: "running" | "error"): UiMessage {
   };
 }
 
+describe("PartView fork actions", () => {
+  afterEach(() => cleanup());
+
+  it("shows a fork action only on top-level Code user inputs", () => {
+    const view = render(<PartView message={userMessage("別案")} taskId="task-1" />);
+    expect(screen.getByRole("button", { name: "ここから分岐" })).toBeTruthy();
+    view.rerender(<PartView message={userMessage("別案")} taskId="task-1" nested />);
+    expect(screen.queryByRole("button", { name: "ここから分岐" })).toBeNull();
+    view.rerender(<PartView message={userMessage("別案")} taskId="bot:bot-1" />);
+    expect(screen.queryByRole("button", { name: "ここから分岐" })).toBeNull();
+    view.rerender(<PartView message={bashMessage("done", "completed")} taskId="task-1" />);
+    expect(screen.queryByRole("button", { name: "ここから分岐" })).toBeNull();
+  });
+});
+
 describe("PartView Markdown images", () => {
   afterEach(() => cleanup());
 
@@ -239,7 +254,7 @@ describe("PartView sender and response metadata", () => {
     expect(bubble.className).toContain("bg-bot-user");
     expect(bubble.className).toContain("text-white");
     expect(bubble.previousElementSibling?.querySelector("time")).not.toBeNull();
-    expect(bubble.nextElementSibling?.tagName).toBe("BUTTON");
+    expect(bubble.nextElementSibling?.querySelector("button")?.textContent).toBe("入力欄に戻す");
     expect(screen.queryByText("Code Bot")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "入力欄に戻す" }));
     expect(reverted).toBe(message);
