@@ -192,6 +192,21 @@ describe("runtimeClockContext", () => {
   });
 });
 
+describe("refreshRuntimeClock with a getter-only system prompt", () => {
+  it("does not throw when agent.state.systemPrompt has no setter (Pi SDK 1.0)", () => {
+    const state = {
+      get systemPrompt() {
+        return "base";
+      },
+    };
+    const session = { agent: { state } };
+    assert.doesNotThrow(() =>
+      refreshRuntimeClock(session, new Date("2026-09-14T00:00:01.234Z")),
+    );
+    assert.equal(state.systemPrompt, "base");
+  });
+});
+
 describe("harness prompt abort generation", () => {
   it("treats a queued prompt as stale after abort bumps the epoch", () => {
     const started = 0;

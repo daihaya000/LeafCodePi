@@ -3210,11 +3210,18 @@ export function refreshRuntimeClock(
   // a system prompt yet. before_agent_start injects the clock later; do not
   // throw while writing the hidden resume turn.
   const current = typeof state.systemPrompt === "string" ? state.systemPrompt : "";
-  state.systemPrompt = current.includes("<host_clock>")
+  const next = current.includes("<host_clock>")
     ? current.replace(/<host_clock>[\s\S]*?<\/host_clock>/, clock)
     : current
       ? `${current}\n\n${clock}`
       : clock;
+  try {
+    state.systemPrompt = next;
+  } catch {
+    // Pi SDK 1.0 derives agent.state.systemPrompt from messages (getter only),
+    // so the assignment throws in strict mode. before_agent_start injects the
+    // clock for every run; a failed refresh must never abort a fallback resume.
+  }
 }
 
 export function isOneToOneBotTask(
