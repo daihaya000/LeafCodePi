@@ -185,13 +185,12 @@ import {
 } from "./harness";
 
 const GLOBAL_KEY = "__leafcodePiHarness";
-const PROVIDER = "openai-codex";
 const MODEL_ID = "gpt-6-astra";
 const tempDirs: string[] = [];
 const previousPiAgentDir = process.env.PI_CODING_AGENT_DIR;
 const previousDataDir = process.env.LEAFCODE_PI_DATA_DIR;
 
-function runtime(accountId: string, provider = PROVIDER, modelID = MODEL_ID) {
+function runtime(accountId: string, provider: string, modelID = MODEL_ID) {
   const model = {
     provider,
     id: modelID,
@@ -208,6 +207,7 @@ function runtime(accountId: string, provider = PROVIDER, modelID = MODEL_ID) {
     getModel: (providerID: string, requested: string) =>
       providerID === model.provider && requested === model.id ? { ...model } : undefined,
     hasConfiguredAuth: () => true,
+    isUsingSubscription: () => true,
     getAvailable: async () => [model],
   };
 }
@@ -237,7 +237,7 @@ function installHarness(runtimes: Map<string, ReturnType<typeof runtime>>) {
   };
 }
 
-function storeProviderAuth(accountId: string, agentDir: string, provider = PROVIDER): void {
+function storeProviderAuth(accountId: string, agentDir: string, provider: string): void {
   const path = accountAuthPath(accountId, agentDir);
   mkdirSync(dirname(path), { recursive: true });
   writeFileSync(
@@ -274,7 +274,7 @@ afterEach(async () => {
   vi.restoreAllMocks();
 });
 
-describe("provider limit fallback", () => {
+describe.each(["openai-codex", "openai"] as const)("provider limit fallback: %s", (PROVIDER) => {
   it("moves an integrated task to another account after a usage limit", async () => {
     const factorySession = vi.spyOn(SdkRuntimeFactory.prototype, "createAgentSession");
     const dir = mkdtempSync(join(tmpdir(), "leafcode-pi-limit-fallback-"));
@@ -286,16 +286,17 @@ describe("provider limit fallback", () => {
 
     const first = createAccount({ label: "codex-1", providers: [PROVIDER] });
     const second = createAccount({ label: "codex-2", providers: [PROVIDER] });
-    storeProviderAuth(first.id, agentDir);
-    storeProviderAuth(second.id, agentDir);
+    storeProviderAuth(first.id, agentDir, PROVIDER);
+    storeProviderAuth(second.id, agentDir, PROVIDER);
     installHarness(
       new Map([
-        [first.id, runtime(first.id)],
-        [second.id, runtime(second.id)],
+        [first.id, runtime(first.id, PROVIDER)],
+        [second.id, runtime(second.id, PROVIDER)],
       ]),
     );
     await setAccountRoutingMode(PROVIDER, "integrated");
-    setCachedUsage(
+    // New ChatGPT OAuth has no legacy Codex usage endpoint: exercise unknown usage.
+    if (PROVIDER === "openai-codex") setCachedUsage(
       parseCodexBarSnapshot({
         providers: [
           { codexBarProviderId: PROVIDER, accountId: first.id, usedPercent: 10 },
@@ -319,9 +320,14 @@ describe("provider limit fallback", () => {
       modelRuntime: { accountId: first.id },
     });
 
-    fakePi.sessions[0].nextError =
-      "You have hit your ChatGPT usage limit (team plan). Try again in ~286 min.";
-    await promptTask(task.id, "continue working");
+    fakePi.sessions[0].nextError = PROVIDER === "openai"
+      ? "OpenAI API error: subscription_sharing_usage_limit_exceeded"
+      : "You have hit your ChatGPT usage limit (team plan). Try again in ~286 min.";
+    // Unknown usage can rebalance before the turn; pin the failing account so
+    // this exercises error recovery rather than ordinary load balancing.
+    await promptTask(task.id, "continue working", undefined, PROVIDER === "openai"
+      ? { model: `${first.id}::${PROVIDER}::${MODEL_ID}` }
+      : undefined);
 
     await waitFor(() => fakePi.sessions.length === 2);
     expect(fakePi.sessions[1]).toMatchObject({ accountId: second.id });
@@ -358,11 +364,11 @@ describe("provider limit fallback", () => {
 
     const codex = createAccount({ label: "codex", providers: [PROVIDER] });
     const claude = createAccount({ label: "claude", providers: ["anthropic"] });
-    storeProviderAuth(codex.id, agentDir);
+    storeProviderAuth(codex.id, agentDir, PROVIDER);
     storeProviderAuth(claude.id, agentDir, "anthropic");
     installHarness(
       new Map([
-        [codex.id, runtime(codex.id)],
+        [codex.id, runtime(codex.id, PROVIDER)],
         [claude.id, runtime(claude.id, "anthropic", "claude-sonnet")],
       ]),
     );
@@ -428,12 +434,12 @@ describe("provider limit fallback", () => {
     const codex = createAccount({ label: "codex", providers: [PROVIDER] });
     storeProviderAuth(claude.id, agentDir, "anthropic");
     storeProviderAuth(claudeOther.id, agentDir, "anthropic");
-    storeProviderAuth(codex.id, agentDir);
+    storeProviderAuth(codex.id, agentDir, PROVIDER);
     installHarness(
       new Map([
         [claude.id, runtime(claude.id, "anthropic", "claude-sonnet")],
         [claudeOther.id, runtime(claudeOther.id, "anthropic", "claude-sonnet")],
-        [codex.id, runtime(codex.id)],
+        [codex.id, runtime(codex.id, PROVIDER)],
       ]),
     );
     // Separate mode keeps the anthropic accounts as distinct picker rows.

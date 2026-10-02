@@ -15,6 +15,7 @@ import { accountAuthPath } from "@/lib/accounts";
  */
 
 export type PiAuthProviderId =
+  | "openai"
   | "openai-codex"
   | "anthropic"
   | "ollama-cloud"

@@ -28,6 +28,7 @@ export type CodexBarCredits = {
 
 /** accounts.ts の AccountProviderId と同期。client bundle へ node 依存を持ち込まないため別定義。 */
 export type CodexBarAccountProviderId =
+  | "openai"
   | "openai-codex"
   | "anthropic"
   | "ollama-cloud"
@@ -173,6 +174,7 @@ export function parseCodexBarSnapshot(raw: unknown): CodexBarUsage {
         const providers = Array.isArray(account.providers)
           ? account.providers.filter(
               (provider): provider is CodexBarAccountProviderId =>
+                provider === "openai" ||
                 provider === "openai-codex" ||
                 provider === "anthropic" ||
                 provider === "ollama-cloud" ||
@@ -187,6 +189,7 @@ export function parseCodexBarSnapshot(raw: unknown): CodexBarUsage {
         const configuredProviders = Array.isArray(account.configuredProviders)
           ? account.configuredProviders.filter(
               (provider): provider is CodexBarAccountProviderId =>
+                provider === "openai" ||
                 provider === "openai-codex" ||
                 provider === "anthropic" ||
                 provider === "ollama-cloud" ||
@@ -315,6 +318,7 @@ export function parseCodexBarSnapshot(raw: unknown): CodexBarUsage {
 }
 
 const ACCOUNT_MANAGED_PROVIDER_IDS = new Set([
+  "openai",
   "openai-codex",
   "anthropic",
   "ollama-cloud",
@@ -505,6 +509,7 @@ export function groupCodexBarProviders(
 }
 
 const PROVIDER_LABELS: Record<string, string> = {
+  openai: "OpenAI",
   "openai-codex": "Codex",
   anthropic: "Claude",
   commandcode: "CommandCode",

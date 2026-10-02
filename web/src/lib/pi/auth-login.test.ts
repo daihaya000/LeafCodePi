@@ -25,6 +25,18 @@ describe("ProviderLoginSession", () => {
     assert.ok(events.some((event) => event.type === "done"));
   });
 
+  it("forwards the installation identity required by new ChatGPT OAuth", async () => {
+    const session = new ProviderLoginSession("openai", "oauth", "new-account");
+    const getDeviceId = vi.fn(() => "11111111-1111-4111-8111-111111111111");
+    const login = vi.fn(async (_provider: string, _type: string, _interaction: unknown, options: { getDeviceId: () => string }) => {
+      assert.equal(options.getDeviceId(), "11111111-1111-4111-8111-111111111111");
+    });
+    await session.run({ login } as unknown as Parameters<typeof session.run>[0], { getDeviceId });
+    assert.equal(login.mock.calls[0][0], "openai");
+    assert.equal(login.mock.calls[0][1], "oauth");
+    assert.equal(getDeviceId.mock.calls.length, 1);
+  });
+
   it("defaults accountId to null for the default auth store", async () => {
     const session = new ProviderLoginSession("anthropic", "oauth");
     assert.equal(session.accountId, null);
@@ -91,12 +103,12 @@ describe("providerAuthMethods", () => {
 });
 
 describe("subscription provider ids", () => {
-  it("covers Anthropic and OpenAI Codex", () => {
+  it("covers Anthropic, new OpenAI and legacy Codex", () => {
     assert.ok(SUBSCRIPTION_PROVIDER_IDS.has("anthropic"));
     assert.ok(SUBSCRIPTION_PROVIDER_IDS.has("openai-codex"));
     assert.ok(SUBSCRIPTION_PROVIDER_IDS.has("cursor"));
     assert.ok(SUBSCRIPTION_PROVIDER_IDS.has("meta"));
-    assert.equal(SUBSCRIPTION_PROVIDER_IDS.has("openai"), false);
+    assert.ok(SUBSCRIPTION_PROVIDER_IDS.has("openai"));
   });
 
   it("highlights API providers with subscriptions", () => {
@@ -107,6 +119,6 @@ describe("subscription provider ids", () => {
     assert.ok(isHighlightedProvider("orcarouter"));
     assert.ok(isHighlightedProvider("anthropic"));
     assert.ok(isHighlightedProvider("meta"));
-    assert.equal(isHighlightedProvider("openai"), false);
+    assert.ok(isHighlightedProvider("openai"));
   });
 });

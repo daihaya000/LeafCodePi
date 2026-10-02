@@ -13,6 +13,7 @@ import type { AccountProviderId } from "@/lib/accounts";
 export type AccountRoutingMode = "integrated" | "separate";
 
 export const ACCOUNT_ROUTING_PROVIDER_IDS: readonly AccountProviderId[] = [
+  "openai",
   "openai-codex",
   "anthropic",
   "ollama-cloud",

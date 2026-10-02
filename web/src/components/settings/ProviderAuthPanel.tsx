@@ -165,6 +165,7 @@ function isAccountProviderId(
   providerId: string,
 ): providerId is AccountProviderId {
   return (
+    providerId === "openai" ||
     providerId === "openai-codex" ||
     providerId === "anthropic" ||
     providerId === "ollama-cloud" ||
@@ -181,7 +182,7 @@ function sourceHint(provider: ProviderAuthDto): string | null {
   if (!provider.authenticated) return null;
   if (provider.subscription) {
     if (provider.id === "cursor") return "Cursor サブスク";
-    if (provider.id === "openai-codex") return "ChatGPT Plus/Pro サブスク";
+    if (provider.id === "openai" || provider.id === "openai-codex") return "ChatGPT サブスク";
     if (provider.id === "anthropic") return "Claude Pro/Max サブスク";
     return "サブスクリプション";
   }
@@ -1406,6 +1407,11 @@ export const ProviderAuthPanel = memo(function ProviderAuthPanel({
             </Button>
           )}
         </div>
+        {providerId === "openai" && (
+          <p className="mt-1 text-xs text-muted">
+            ChatGPT サブスクは新方式で再認証。利用率は未取得のため、統合時は稼働タスク数で分散し、制限応答で切り替えます。
+          </p>
+        )}
         {routingErrors[providerId] && (
           <p className="mt-1 text-xs text-danger" role="alert">
             {routingErrors[providerId]}

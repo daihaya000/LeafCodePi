@@ -69,11 +69,14 @@ describe("provider routing settings", () => {
     dirs.push(dir);
     const path = providerRoutingPath(dir);
     await Promise.all([
-      setAccountRoutingMode("openai-codex", "integrated", path),
+      setAccountRoutingMode("openai", "integrated", path),
+      setAccountRoutingMode("openai-codex", "separate", path),
       setAccountRoutingMode("anthropic", "integrated", path),
     ]);
     const state = readProviderRouting(path);
-    assert.deepEqual(state.modes, { "openai-codex": "integrated", anthropic: "integrated" });
+    assert.deepEqual(state.modes, { openai: "integrated", "openai-codex": "separate", anthropic: "integrated" });
+    assert.equal(accountRoutingMode("openai", state), "integrated");
+    assert.equal(accountRoutingMode("openai-codex", state), "separate");
   });
 });
 

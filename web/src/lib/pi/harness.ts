@@ -6661,7 +6661,11 @@ export async function startProviderLogin(
   current.loginSession = session;
   // Let the SSE client attach before the OAuth flow emits prompts.
   queueMicrotask(() => {
-    void session.run(runtime)
+    void session.run(runtime, {
+      // New ChatGPT OAuth registers this installation; keep its identity stable
+      // across account logins without copying legacy Codex credentials.
+      getDeviceId: () => openSettingsManager().getOrCreateDeviceId(),
+    })
       .finally(() => {
         // A login can change both models and account-scoped usage.
         invalidateHealthCache();
