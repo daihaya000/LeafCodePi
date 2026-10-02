@@ -323,16 +323,19 @@ test("owner initialization completes before publication, reconciliation and runt
   assert.deepEqual(calls, ["initialize", "initialized", "relay", "routines", "rooms"]);
 });
 
-test("failed or unacknowledged initialization blocks startup with no resume, service or reconciliation effects", async (t) => {
+test("failed or unacknowledged initialization detaches the runtime, reports the step and still reconciles", async (t) => {
   for (const initializeRuntime of [async () => { throw Error("private credentials/path"); }, () => ({ success: true })]) {
     const { dir, file } = fixture(t, [task("orphan", "working")]); const calls = [];
     const started = createBackendStartup({ dataDir: () => dir, warn() {}, initializeRuntime,
       loadRuntime: async () => ({ ok: true, runtime: { startBotCodeRelay() { calls.push("relay"); } } }),
       promptTask: async () => { calls.push("resume"); },
     }); started.store.storePath = () => file;
-    await assert.rejects(started.startup.start(), (error) => error.message === "Backend runtime initialization failed" && error.cause === undefined);
+    await started.startup.start();
     assert.deepEqual(started.runtimeStatus(), { ok: false, reason: "initialization-failed" }); assert.equal(started.runtime(), null);
-    assert.equal(started.store.getTask("orphan").status, "working"); assert.deepEqual(calls, []);
+    // Health must name the failed step, and the store-only reconciliation prefix still runs.
+    assert.deepEqual(started.unavailable(), ["initializeRuntime"]);
+    assert.equal(started.store.getTask("orphan").status, "error");
+    assert.deepEqual(calls, []); assert.deepEqual(started.resumePending(), ["orphan"]);
     assert.equal(existsSync(join(dir, "restart-resume.json")), false);
   }
 });

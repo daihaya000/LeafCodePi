@@ -164,8 +164,10 @@ export function createBackendStartup({
         leases.setOrphanedTaskListener(orphanListener);
       },
       reconcileOrphanedWorkingTasks: () => leases.reconcileOrphanedWorkingTasks(),
-      // The loader may report detachment so the reconciliation prefix can still run. Explicit
-      // owner-initialization failure instead rejects before publication or any writer/service.
+      // The loader may report detachment so the reconciliation prefix can still run. Owner
+      // initialization failure also leaves the runtime detached — no adapter fallback and no
+      // half-installed provider — but it must not take the whole Backend down: the failed step is
+      // reported in health so an operator can fix the config and restart.
       ...(typeof loadRuntime === "function"
         ? { loadRuntime: async () => {
             const loaded = await loadRuntime();
@@ -174,7 +176,8 @@ export function createBackendStartup({
                 if (await initializeRuntime(loaded.runtime) !== undefined) throw new Error("invalid initialization acknowledgment");
               } catch {
                 runtimeStatus = { ok: false, reason: "initialization-failed" };
-                throw new Error("Backend runtime initialization failed");
+                if (!unavailable.includes("initializeRuntime")) unavailable.push("initializeRuntime");
+                return;
               }
             }
             runtimeStatus = loaded;

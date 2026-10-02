@@ -103,6 +103,8 @@ blendermcp は native の stdio transport で実接続し 26 の直接ツール�
    `storage attestation: ok` と `result: ok` を確認する。
 2. 変数（解決済み）: 未設定のままにする場合は同梱既定が自動で落ちる。使う場合は env を設定する。
 3. `LEAFCODE_PI_MCP_NATIVE=1` を Backend/Host の環境に設定し、Backend を再起動する。
+   native 初期化に失敗した場合は runtime が未接続のまま起動し（adapter への黙った fallback なし）、
+   health の `runtimeStartupIncomplete` に `initializeRuntime` が載る。全体停止にはならない。
 4. 受け入れ（すべて実サーバーで確認するまで完了扱いにしない）:
    - `node backend/src/native-mcp-check.mjs --connect` が `result: ok`（実サーバー接続を含む）
    - 起動時に `[mcp-native]` の警告が出ない
@@ -121,8 +123,9 @@ blendermcp は native の stdio transport で実接続し 26 の直接ツール�
 
 - 認証情報の書込み: native 中は bearer/headers/OAuth の保存操作が 409。
   OAuth は SDK の接続時フロー（openUrl + callback）へ置き換える設計判断が必要。
+  bearer を config `headers` へ平文保存するのは既存の秘密ストアより劣化するため実装しない。
 - 実行中セッションの reload: 設定変更は新規セッションのみに反映される。
-- project config・CLI/adapter writer 群の一本化、migration apply
-  （`configuration-writers-not-quiesced`）。
-- 実サーバー受け入れ: transport 層は有効3サーバー（browser-use 16 / blendermcp 26 / comfy-mcp 39 ツール）で
-  確認済み。残るは ACL 承認後の flag 有効化と本番受け入れ。
+- adapter 固有の設定面: `MCP_DIRECT_TOOLS` env、`settings.mcp`、プロジェクト `.pi/mcp.json` は
+  native が読まない（この環境ではいずれも未使用を確認済み）。使う場合は別途対応が必要。
+- CLI/adapter writer 群の一本化、migration apply（`configuration-writers-not-quiesced`）。
+- 実サーバー受け入れ（上記4）は transport 層のみ確認済み。flag を入れた本番受け入れは未実施。
