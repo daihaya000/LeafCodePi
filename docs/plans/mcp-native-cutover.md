@@ -8,17 +8,40 @@ native の有効化は `LEAFCODE_PI_MCP_NATIVE=1`（Backend 起動時のみ、�
 有効時は同梱 adapter を読み込まず、Backend が所有する native runtime が
 セッションへ MCP/codemode/tool_search を供給する。
 
+## 確認ツール（読み取り専用）
+
+```powershell
+node backend/src/native-mcp-check.mjs            # flag / ACL / config / adapter の検査
+node backend/src/native-mcp-check.mjs --json     # 機械可読（秘密・パスは出ない）
+node backend/src/native-mcp-check.mjs --skip-storage --connect   # transport 互換のみ（受け入れではない）
+```
+
+`--skip-storage` は runtime が要求する attestation を飛ばすため、成功しても切替可の証明にはならない。
+`--connect` は設定済みサーバーを実際に起動して MCP ハンドシェイクと tools/list を行うが、ツールは実行しない。
+
 ## 実測（2026-10-03・このマシン・読取りのみ）
 
-実 agentDir と同梱 config で `prepare()` を実行（書込み・接続・セッション起動なし）。
-使い捨てスクリプトは実行後に削除した。
+`node backend/src/native-mcp-check.mjs`（実 agentDir・実同梱 config・書込み/接続なし）:
 
 ```
-config storage: REFUSED (MCP private storage permissions unavailable)
-credential storage: REFUSED (MCP private storage permissions unavailable)
-loader: issues=[unresolved-url-variable ...]
-prepare: FAILED
+native flag requested: false
+storage attestation: refused
+bundled adapter present: true
+issues: config-storage-refused, credentials-storage-refused
+result: not ready
 ```
+
+`--skip-storage --connect --json`（transport 互換の確認）:
+
+```json
+{"ok":true,"storage":"skipped","servers":[{"name":"browser-use","enabled":true,"transport":"stdio","exposure":"codemode"},{"name":"blendermcp","enabled":true,"transport":"stdio","exposure":"codemode"},{"name":"comfy-mcp","enabled":true,"transport":"stdio","exposure":"codemode"},...],"connect":{"directTools":{"blendermcp":26},"browserRequested":false},"issues":[]}
+```
+
+blendermcp は native の stdio transport で実接続し 26 の直接ツールを登録できた。
+三点とも codemode 公開なので、browser-use と comfy-mcp の接続は遅延（初回 codemode 実行時）で未検証。
+また、この過程で判明した不具合を修正した: activation が渡す環境マップに
+`ProgramFiles(x86)` のような非識別子キーが含まれると transport が構築自体を拒否していた。
+基底環境は任意の有効なキーを保持し、サーバー定義 `env` のキーだけ識別子を要求する。
 
 `icacls C:\Users\Daichi\.pi\agent`:
 
@@ -69,11 +92,12 @@ blendermcp は native の stdio transport で実接続し 26 の直接ツール�
 
 ## 切替手順（承認後）
 
-1. ACL: 対象 ACE を `icacls` で削除し、上記実測を再実行して
-   `config storage: ok` / `credential storage: ok` を確認する。
+1. ACL: 対象 ACE を `icacls` で削除し、`node backend/src/native-mcp-check.mjs` で
+   `storage attestation: ok` と `result: ok` を確認する。
 2. 変数（解決済み）: 未設定のままにする場合は同梱既定が自動で落ちる。使う場合は env を設定する。
 3. `LEAFCODE_PI_MCP_NATIVE=1` を Backend/Host の環境に設定し、Backend を再起動する。
 4. 受け入れ（すべて実サーバーで確認するまで完了扱いにしない）:
+   - `node backend/src/native-mcp-check.mjs --connect` が `result: ok`（実サーバー接続を含む）
    - 起動時に `[mcp-native]` の警告が出ない
    - 実サーバー（blendermcp / comfy-mcp / browser-use）で接続・`tools/list`・1ツール実行
    - ON/OFF トグルと preset 追加が再公開される（応答後に新規セッションへ反映）
