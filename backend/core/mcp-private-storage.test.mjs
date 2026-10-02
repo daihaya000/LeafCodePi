@@ -1,12 +1,14 @@
 import assert from "node:assert/strict";
 import childProcess from "node:child_process";
 import fs from "node:fs";
+import { createHash } from "node:crypto";
 import { mkdtemp, mkdir, writeFile, readFile, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test, mock } from "node:test";
-import { assertMcpStoragePermissions, createBackendMcpPrivateStorageCheck } from "./mcp-private-storage.mjs";
+import { assertMcpStoragePermissions, createBackendMcpPrivateStorageCheck, createBackendMcpConfigStorageCheck } from "./mcp-private-storage.mjs";
 import { createBackendMcpCredentialOwner } from "./mcp-native-credential-owner.mjs";
+import { createBackendMcpConfigFileWriter } from "./mcp-native-config-file-writer.mjs";
 const sid = "S-1-5-21-1-2-3-1001", full = 2_032_127;
 const ace = (sid, flags = 0, mask = full) => ({ sid, type: 0, mask, flags });
 const acl = (rules) => ({ ownerSid: sid, daclPresent: true, rules });
@@ -44,6 +46,32 @@ $directory.Create($acl)
   childProcess.execFileSync(join(process.env.SystemRoot, "System32", "WindowsPowerShell", "v1.0", "powershell.exe"),
     ["-NoProfile", "-NonInteractive", "-EncodedCommand", Buffer.from(code, "utf16le").toString("base64")],
     { input: Buffer.from(JSON.stringify({ path, broadRead }), "utf8"), timeout: 5000, windowsHide: true, stdio: ["pipe", "pipe", "pipe"] });
+}
+async function broadFile(path, bytes) {
+  // Create ONLY a new Windows fixture file with a deliberately unsafe explicit DACL.
+  const code = String.raw`
+$ErrorActionPreference = 'Stop'
+$utf8 = New-Object System.Text.UTF8Encoding($false, $true)
+[Console]::InputEncoding = $utf8
+$d = [Console]::In.ReadToEnd() | ConvertFrom-Json
+if (Test-Path -LiteralPath $d.path) { throw 'Fixture already exists' }
+$user = [Security.Principal.WindowsIdentity]::GetCurrent().User
+$acl = New-Object Security.AccessControl.FileSecurity
+$acl.SetAccessRuleProtection($true, $false)
+$acl.SetOwner($user)
+foreach ($sid in @($user.Value, 'S-1-5-18', 'S-1-5-32-544', 'S-1-1-0')) {
+  $identity = New-Object Security.Principal.SecurityIdentifier($sid)
+  $rights = [Security.AccessControl.FileSystemRights]::FullControl
+  if ($sid -eq 'S-1-1-0') { $rights = [Security.AccessControl.FileSystemRights]::Read }
+  $rule = New-Object Security.AccessControl.FileSystemAccessRule($identity, $rights, [Security.AccessControl.AccessControlType]::Allow)
+  $acl.AddAccessRule($rule)
+}
+$stream = [IO.File]::Create($d.path, 4096, [IO.FileOptions]::None, $acl)
+try { $bytes = [Convert]::FromBase64String($d.bytes); $stream.Write($bytes, 0, $bytes.Length) } finally { $stream.Dispose() }
+`;
+  childProcess.execFileSync(join(process.env.SystemRoot, "System32", "WindowsPowerShell", "v1.0", "powershell.exe"),
+    ["-NoProfile", "-NonInteractive", "-EncodedCommand", Buffer.from(code, "utf16le").toString("base64")],
+    { input: Buffer.from(JSON.stringify({ path, bytes: bytes.toString("base64") }), "utf8"), timeout: 5000, windowsHide: true, stdio: ["pipe", "pipe", "pipe"] });
 }
 async function fixture(t) {
   const root = await mkdtemp(join(tmpdir(), "leafcode-mcp-private-storage-"));
@@ -181,4 +209,59 @@ test("metadata process failures are sanitized; encoded script is fixed and paths
     assert.throws(() => check(location), safe);
     bad.mock.restore();
   }
+});
+
+test("config attestor is inert and cannot select auth/project/arbitrary targets", async (t) => {
+  const { root } = await fixture(t), location = { agentDir: root, configPath: join(root, "mcp.json") };
+  t.after(() => mock.restoreAll());
+  const exec = mock.method(childProcess, "execFileSync", () => { throw Error("Unexpected metadata process"); });
+  const stat = mock.method(fs, "lstatSync", () => { throw Error("Unexpected metadata read"); });
+  for (const options of [undefined, {}, { agentDir: "relative" }, { agentDir: root, fileName: "private.json" }]) assert.throws(() => createBackendMcpConfigStorageCheck(options), safe);
+  const check = createBackendMcpConfigStorageCheck({ agentDir: root });
+  for (const value of [{ ...location, configPath: join(root, "mcp-auth.json") }, { ...location, configPath: join(root, "project.json") }, { ...location, credentialPath: location.configPath }, Object.create(location), { agentDir: root, credentialPath: location.configPath }]) assert.throws(() => check(value), safe);
+  assert.equal(exec.mock.callCount(), 0); assert.equal(stat.mock.callCount(), 0);
+});
+
+test("real config metadata check reads no bytes and cannot be substituted by a safe auth file", { timeout: 15_000 }, async (t) => {
+  const { root: parent } = await fixture(t), root = join(parent, "config 日本語 💾 '$literal;"); await privateDirectory(root);
+  const configPath = join(root, "mcp.json"), location = { agentDir: root, configPath }, check = createBackendMcpConfigStorageCheck({ agentDir: root });
+  check(location); assert.deepEqual(await readdir(root), []);
+  const bytes = Buffer.from("private invalid-JSON config bytes"); await writeFile(configPath, bytes, { mode: 0o600 });
+  const before = fs.statSync(configPath), noRead = mock.method(fs, "readFileSync", () => { throw Error("Unexpected config byte read"); });
+  try { check(location); } finally { noRead.mock.restore(); }
+  assert.deepEqual(await readFile(configPath), bytes); assert.equal(fs.statSync(configPath).ino, before.ino); assert.equal(fs.statSync(configPath).mode, before.mode);
+  await writeFile(join(root, "mcp-auth.json"), "private auth", { mode: 0o600 });
+  if (process.platform === "win32") { fs.unlinkSync(configPath); await broadFile(configPath, bytes); }
+  else fs.chmodSync(configPath, 0o644); // Only this newly created temporary fixture.
+  createBackendMcpPrivateStorageCheck({ agentDir: root })({ agentDir: root, credentialPath: join(root, "mcp-auth.json") });
+  assert.throws(() => check(location), safe); assert.deepEqual(await readFile(configPath), bytes);
+});
+
+test("real config attestor composes with atomic writer and accepts private replacement inheritance", { timeout: 15_000 }, async (t) => {
+  const { root: parent } = await fixture(t), root = join(parent, "private-config-writer"); await privateDirectory(root);
+  const configPath = join(root, "mcp.json"), bundledConfigPath = join(root, "bundle.json");
+  const original = Buffer.from(JSON.stringify({ mcpServers: { fixture: { command: "never-start", enabled: false } } }));
+  await writeFile(configPath, original, { mode: 0o600 }); await writeFile(bundledConfigPath, "{}", { mode: 0o600 });
+  const check = createBackendMcpConfigStorageCheck({ agentDir: root });
+  const writer = createBackendMcpConfigFileWriter({ agentDir: root, bundledConfigPath, assertPrivateStorage: check });
+  const hash = (bytes) => createHash("sha256").update(bytes).digest("hex");
+  writer({ configPath, bundledConfigPath, expectedSha256: hash(original), expectedBundledSha256: hash(Buffer.from("{}")), serverName: "fixture", patch: { enabled: true } }, { assertOwner() {} });
+  assert.equal(JSON.parse(await readFile(configPath, "utf8")).mcpServers.fixture.enabled, undefined);
+  check({ agentDir: root, configPath });
+  assert.deepEqual((await readdir(root)).sort(), ["bundle.json", "mcp.json"]);
+});
+
+test("real broad directory policy refuses config IO without silently tightening permissions or creating artifacts", { timeout: 15_000 }, async (t) => {
+  const { root: parent } = await fixture(t), root = join(parent, "broad-config-writer"); await privateDirectory(root, true);
+  if (process.platform !== "win32") fs.chmodSync(root, 0o755);
+  const configPath = join(root, "mcp.json"), bundledConfigPath = join(root, "bundle.json");
+  const bytes = Buffer.from(JSON.stringify({ mcpServers: { fixture: { command: "never-start", enabled: false } } }));
+  await writeFile(configPath, bytes, { mode: 0o600 }); await writeFile(bundledConfigPath, "{}", { mode: 0o600 });
+  const before = fs.statSync(root).mode, check = createBackendMcpConfigStorageCheck({ agentDir: root });
+  assert.throws(() => check({ agentDir: root, configPath }), safe);
+  const writer = createBackendMcpConfigFileWriter({ agentDir: root, bundledConfigPath, assertPrivateStorage: check });
+  const hash = (b) => createHash("sha256").update(b).digest("hex");
+  assert.throws(() => writer({ configPath, bundledConfigPath, expectedSha256: hash(bytes), expectedBundledSha256: hash(Buffer.from("{}")), serverName: "fixture", patch: { enabled: true } }, { assertOwner() {} }), (error) => error.message === "MCP configuration file unavailable" && error.cause === undefined);
+  assert.deepEqual(await readFile(configPath), bytes); assert.equal(fs.statSync(root).mode, before);
+  assert.deepEqual((await readdir(root)).sort(), ["bundle.json", "mcp.json"]);
 });

@@ -99,17 +99,19 @@ function statLocation(location) {
  * Metadata checks do not remove path-replacement/ancestor/TOCTOU races or provide a sandbox.
  * Windows launches the trusted Backend environment's built-in PowerShell (bounded 5s).
  */
-export function createBackendMcpPrivateStorageCheck(options) {
+function createStorageCheck(options, fileName, pathKey) {
   try {
     if (!own(options, ["agentDir"]) || Object.keys(options).some((key) => key !== "agentDir")) throw failed();
     const value = options.agentDir;
     if (typeof value !== "string" || !isAbsolute(value)) throw failed();
-    const agentDir = resolve(value), credentialPath = join(agentDir, "mcp-auth.json");
+    const agentDir = resolve(value), credentialPath = join(agentDir, fileName);
     const powershell = process.platform === "win32" ? join(process.env.SystemRoot ?? "", "System32", "WindowsPowerShell", "v1.0", "powershell.exe") : undefined;
     return (input) => {
       try {
-        if (!own(input, ["agentDir", "credentialPath"]) || Object.keys(input).some((key) => !["agentDir", "credentialPath"].includes(key))) throw failed();
-        const location = Object.freeze({ agentDir: input.agentDir, credentialPath: input.credentialPath });
+        if (!own(input, ["agentDir", pathKey]) || Object.keys(input).some((key) => !["agentDir", pathKey].includes(key))) throw failed();
+        // Metadata transport retains its private field name; selectors stay fixed by factory,
+        // never by caller input. No config/credential file bytes are read.
+        const location = Object.freeze({ agentDir: input.agentDir, credentialPath: input[pathKey] });
         if (location.agentDir !== agentDir || location.credentialPath !== credentialPath) throw failed();
         const before = statLocation(location);
         let data;
@@ -132,4 +134,15 @@ export function createBackendMcpPrivateStorageCheck(options) {
       } catch { throw failed(); }
     };
   } catch { throw failed(); }
+}
+
+/** Fixed mcp-auth.json attestor; no caller-selected target or constructor IO. */
+export function createBackendMcpPrivateStorageCheck(options) {
+  return createStorageCheck(options, "mcp-auth.json", "credentialPath");
+}
+
+/** Fixed mcp.json attestor for the atomic config writer. Same strict/read-only policy,
+ * including private replacement inheritance. No default writer, ACL changes or activation. */
+export function createBackendMcpConfigStorageCheck(options) {
+  return createStorageCheck(options, "mcp.json", "configPath");
 }

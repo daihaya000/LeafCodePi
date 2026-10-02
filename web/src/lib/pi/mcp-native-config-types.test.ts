@@ -31,7 +31,7 @@ describe("Backend native MCP callback public SDK contract", () => {
 import { prepareBackendMcpExtensions, type BackendMcpOwnerServices } from ${JSON.stringify(extensionsPath)};
 import { createBackendMcpCredentials, type BackendMcpOAuthState } from ${JSON.stringify(credentialsPath)};
 import { createBackendMcpCredentialOwner } from ${JSON.stringify(credentialOwnerPath)};
-import { createBackendMcpPrivateStorageCheck, assertMcpStoragePermissions } from ${JSON.stringify(privateStoragePath)};
+import { createBackendMcpPrivateStorageCheck, createBackendMcpConfigStorageCheck, assertMcpStoragePermissions } from ${JSON.stringify(privateStoragePath)};
 import { createBackendMcpOAuthStatusReader, type BackendMcpOAuthStatus } from ${JSON.stringify(oauthStatusPath)};
 import { createBackendMcpCredentialAuthority } from ${JSON.stringify(authorityPath)};
 import { createBackendMcpGenerationOwner } from ${JSON.stringify(generationLeasePath)};
@@ -81,7 +81,11 @@ if (prepared.ok) {
   };
   const synchronousServices: BackendMcpOwnerServices = { ...services, updateConfig: synchronousUpdater };
   const updaterOptions = { agentDir: "owner", bundledConfigPath: "bundle", prepared, coordinator, assertSnapshotOwner: writerLease.assertOwner };
-  const fileWriter = createBackendMcpConfigFileWriter({ agentDir: "owner", bundledConfigPath: "bundle", assertPrivateStorage: (location) => { const path: string = location.configPath; } });
+  const checkConfigStorage = createBackendMcpConfigStorageCheck({ agentDir: "owner" });
+  const fileWriter = createBackendMcpConfigFileWriter({ agentDir: "owner", bundledConfigPath: "bundle", assertPrivateStorage: checkConfigStorage });
+  checkConfigStorage({ agentDir: "owner", configPath: "owner/mcp.json" });
+  // @ts-expect-error Auth and config locations are not interchangeable.
+  checkConfigStorage({ agentDir: "owner", credentialPath: "owner/mcp-auth.json" });
   const nativeUpdater: NonNullable<McpExtensionOptions["updateConfig"]> = createBackendMcpConfigUpdater({ ...updaterOptions, writeConfig: fileWriter });
   // @ts-expect-error Private storage attestation is mandatory; never use SDK/default writer fallback.
   createBackendMcpConfigFileWriter({ agentDir: "owner", bundledConfigPath: "bundle" });
