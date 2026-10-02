@@ -3095,7 +3095,7 @@ export const TaskView = memo(function TaskView({
                 aria-label={task?.title ?? "読み込み中…"}
                 tabIndex={task && !archived && !titleBusy ? 0 : undefined}
                 title={task?.title}
-                onClick={beginTitleEdit}
+                onDoubleClick={beginTitleEdit}
                 onKeyDown={(event) => {
                   if (event.key === "Enter" || event.key === " ") {
                     event.preventDefault();

@@ -123,9 +123,9 @@ export const ALLOWED_SETTING_KEYS: ReadonlySet<string> = new Set<string>([
   TITLE_AUTO_UPDATE_ENABLED_SETTING_KEY,
   AUTO_ARCHIVE_DAYS_SETTING_KEY,
   PINNED_TASKS_SETTING_KEY,
+  PROJECT_ORDER_SETTING_KEY,
   COMPOSER_PROMPT_PRESETS_SETTING_KEY,
   SESSION_LABELS_SETTING_KEY,
-  PROJECT_ORDER_SETTING_KEY,
   SESSION_LABEL_JEV_SETTING_KEY,
   CODEXBAR_WIDGET_SETTING_KEY,
   SYSMON_WIDGET_SETTING_KEY,
@@ -214,12 +214,12 @@ export function validateSettingValue(key: string, value: string, importedAccount
     const ids = parsePinnedTaskIds(value);
     return ids === null ? null : JSON.stringify(ids);
   }
-  if (key === AUTO_ARCHIVE_DAYS_SETTING_KEY) {
-    return isAutoArchiveDaysOption(value) ? value : null;
   if (key === PROJECT_ORDER_SETTING_KEY) {
     const ids = parseProjectOrder(value);
     return ids === null ? null : JSON.stringify(ids);
   }
+  if (key === AUTO_ARCHIVE_DAYS_SETTING_KEY) {
+    return isAutoArchiveDaysOption(value) ? value : null;
   }
   if (key === SESSION_LABELS_SETTING_KEY) {
     const labels = parseSessionLabels(value);

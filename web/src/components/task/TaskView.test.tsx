@@ -1881,6 +1881,8 @@ describe("TaskView draft submission", () => {
     expect(heading.parentElement?.contains(wideButton!)).toBe(false);
     expect(narrowButton!.compareDocumentPosition(botControl!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     fireEvent.click(heading);
+    expect(screen.queryByRole("textbox", { name: "セッションタイトル" })).toBeNull();
+    fireEvent.doubleClick(heading);
     const input = screen.getByRole("textbox", { name: "セッションタイトル" });
     expect(document.activeElement).toBe(input);
     fireEvent.keyDown(input, { key: "Escape" });
@@ -1895,7 +1897,7 @@ describe("TaskView draft submission", () => {
     mocks.sendJson.mockResolvedValue({ task: updatedTask });
     render(<TaskView taskId={task.id} mdUp />);
 
-    fireEvent.click(screen.getByRole("heading", { name: task.title }));
+    fireEvent.doubleClick(screen.getByRole("heading", { name: task.title }));
     const input = screen.getByRole("textbox", { name: "セッションタイトル" }) as HTMLInputElement;
     fireEvent.change(input, { target: { value: "手動タイトル" } });
     fireEvent.click(screen.getByRole("button", { name: "タイトルを保存" }));
