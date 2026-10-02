@@ -337,6 +337,11 @@ import {
   parseJevCompactionThreshold,
 } from "@/lib/jev-compaction-settings";
 import {
+  applyOpenAiFastMode,
+  isOpenAiFastModeEnabled,
+  OPENAI_FAST_MODE_SETTING_KEY,
+} from "@/lib/openai-fast-mode";
+import {
   AUTO_JEV_ENABLED_SETTING_KEY,
   AUTO_JEV_MIN_CONFIDENCE_SETTING_KEY,
   isAutoJevEnabled,
@@ -3461,6 +3466,14 @@ export function sessionExtensionFactories(input: {
           : "";
         return { systemPrompt: [compactSdkDocumentation(event.systemPrompt), references, runtimeClockContext()].filter(Boolean).join("\n\n") };
       });
+      // 設定は毎リクエスト読み直し、実行中セッションにも切替を反映する。
+      api.on("before_provider_request", (event, ctx) =>
+        applyOpenAiFastMode(
+          event.payload,
+          ctx.model?.provider,
+          isOpenAiFastModeEnabled(getSetting(OPENAI_FAST_MODE_SETTING_KEY)),
+        ),
+      );
       api.on("session_before_compact", async (event) => {
         if (isJevCompactionEnabled(getSetting(JEV_COMPACTION_ENABLED_SETTING_KEY))) {
           const compaction = await compactWithJev(

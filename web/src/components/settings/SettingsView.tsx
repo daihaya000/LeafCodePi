@@ -31,6 +31,7 @@ import { SettingsTransfer } from "@/components/settings/SettingsTransfer";
 import { PromptTransfer } from "@/components/settings/PromptTransfer";
 import { ReasoningTranslationSettings } from "@/components/settings/ReasoningTranslationSettings";
 import { HangTimeoutSettings } from "@/components/settings/HangTimeoutSettings";
+import { OpenAiFastModeSettings } from "@/components/settings/OpenAiFastModeSettings";
 import { NotificationSoundSettings } from "@/components/settings/NotificationSoundSettings";
 import { PushoverSettings } from "@/components/settings/PushoverSettings";
 import { TtsSettings } from "@/components/settings/TtsSettings";
@@ -348,6 +349,7 @@ export function SettingsView() {
                   <ReasoningTranslationSettings />
                   <CompactionSettings />
                   <HangTimeoutSettings />
+                  <OpenAiFastModeSettings />
                 </div>
               </SettingsGroup>
 

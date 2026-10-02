@@ -38,6 +38,7 @@ import {
   JEV_COMPACTION_THRESHOLD_SETTING_KEY,
   parseJevCompactionThreshold,
 } from "@/lib/jev-compaction-settings";
+import { OPENAI_FAST_MODE_SETTING_KEY } from "@/lib/openai-fast-mode";
 import {
   AUTO_JEV_ENABLED_SETTING_KEY,
   AUTO_JEV_MIN_CONFIDENCE_SETTING_KEY,
@@ -100,6 +101,7 @@ export const ALLOWED_SETTING_KEYS: ReadonlySet<string> = new Set<string>([
   AUTO_AGENT_ENABLED_SETTING_KEY,
   JEV_COMPACTION_ENABLED_SETTING_KEY,
   JEV_COMPACTION_THRESHOLD_SETTING_KEY,
+  OPENAI_FAST_MODE_SETTING_KEY,
   "auto-agent-prompt",
   BOT_DEFAULT_PERMISSION_KEY,
   BOT_DEFAULT_THINKING_KEY,
@@ -191,7 +193,7 @@ export function validateSettingValue(key: string, value: string, importedAccount
     const minConfidence = Number(value);
     return isAutoJevMinConfidence(minConfidence) ? String(minConfidence) : null;
   }
-  if (key === JEV_COMPACTION_ENABLED_SETTING_KEY) {
+  if (key === JEV_COMPACTION_ENABLED_SETTING_KEY || key === OPENAI_FAST_MODE_SETTING_KEY) {
     return value === "1" ? value : null;
   }
   if (key === JEV_COMPACTION_THRESHOLD_SETTING_KEY) {
