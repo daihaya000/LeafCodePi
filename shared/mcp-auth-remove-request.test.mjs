@@ -2,9 +2,9 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { parseMcpAuthRemoveRequest, publicMcpAuthRemoveResult } from "./mcp-auth-remove-request.mjs";
 
-test("auth removal keeps owner defaults and normalizes bearer/header aliases", () => {
+test("auth removal keeps owner defaults and normalizes bearer/header/OAuth aliases", () => {
   assert.deepEqual(parseMcpAuthRemoveRequest({}), { ok: true, value: {} });
-  for (const type of ["bearer", "headers"]) {
+  for (const type of ["bearer", "headers", "oauth"]) {
     for (const body of [{ type }, { action: type }, { type, action: type }]) {
       assert.deepEqual(parseMcpAuthRemoveRequest(body), { ok: true, value: { type } });
     }
@@ -12,7 +12,8 @@ test("auth removal keeps owner defaults and normalizes bearer/header aliases", (
   assert.deepEqual(parseMcpAuthRemoveRequest(Object.create(null)), { ok: true, value: {} });
 });
 test("auth removal rejects malformed, conflicting, inherited and privileged fields", () => {
-  for (const body of [null, [], new Date(), "headers", { type: "oauth" }, { type: "auto" }, { type: undefined },
+  for (const body of [null, [], new Date(), "headers", { type: "unknown" }, { type: "auto" }, { type: undefined },
+    { type: "oauth", input: "private-fixture" }, { type: "oauth", action: "start" },
     { type: "headers", action: "bearer" }, { type: "headers", headers: { Authorization: "private-fixture" } },
     { token: "private-fixture" }, { configPath: "private-fixture" }, Object.create({ type: "headers" })]) {
     assert.deepEqual(parseMcpAuthRemoveRequest(body), { ok: false });

@@ -66,6 +66,16 @@ describe("MCP Backend ON/OFF client", () => {
     expect(await removeMcpAuthOnBackend("server", {}, { env: {}, fetchImpl })).toEqual({ ok: false, reason: "not-configured" });
     expect(fetchImpl).toHaveBeenCalledTimes(2);
   });
+  it("forwards OAuth removal without client credentials, callbacks or local fallback", async () => {
+    const fetchImpl = vi.fn<typeof fetch>(async () => json(200, {}));
+    await removeMcpAuthOnBackend("server name", { type: "oauth" }, { env, fetchImpl });
+    expect(fetchImpl.mock.calls[0][0]).toBe("http://127.0.0.1:19999/internal/mcp/servers/server%20name/auth");
+    expect(fetchImpl.mock.calls[0][1]?.method).toBe("DELETE");
+    expect(JSON.parse(fetchImpl.mock.calls[0][1]?.body as string)).toEqual({ type: "oauth" });
+    expect(new Headers(fetchImpl.mock.calls[0][1]?.headers).get("authorization")).toBe(`Bearer ${env.LEAFCODE_PI_BACKEND_TOKEN}`);
+    expect(await removeMcpAuthOnBackend("server", { type: "oauth" }, { env: {}, fetchImpl })).toEqual({ ok: false, reason: "not-configured" });
+    expect(fetchImpl).toHaveBeenCalledOnce();
+  });
   it("forwards a preset and its credentials only to the owner", async () => {
     const fetchImpl = vi.fn<typeof fetch>(async () => json(200, { ok: true, name: "google-workspace", servers: [],
       reload: { reloaded: 0, deferred: 0, failed: 0, errors: [] } }));

@@ -208,7 +208,7 @@ export function saveMcpHeadersAuthOnBackend(
   });
 }
 
-/** Owner-resolved default or explicit bearer/headers removal; no local fallback. */
+/** Owner-resolved default or explicit bearer/headers/OAuth removal; no local fallback. */
 export function removeMcpAuthOnBackend(
   name: string,
   input: McpAuthRemoveRequest = {},

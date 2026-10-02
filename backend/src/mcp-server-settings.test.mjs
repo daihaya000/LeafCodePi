@@ -192,7 +192,7 @@ test("header save POST is owner-only, validates private headers and sanitizes ev
   assert.throws(() => createBackendServer({ token: "x".repeat(32), saveMcpHeadersAuthAction: true }), /saveMcpHeadersAuthAction/);
 });
 
-test("bearer/header DELETE reaches only the owner with explicit or owner-resolved defaults", async (t) => {
+test("bearer/header/OAuth DELETE reaches only the owner with explicit or owner-resolved defaults", async (t) => {
   const calls = [];
   const { url: itemUrl, headers } = await endpoint(t, { removeMcpAuthAction: (name, input) => {
     calls.push([name, input]); return { ok: true, token: "private-fixture-secret",
@@ -205,7 +205,7 @@ test("bearer/header DELETE reaches only the owner with explicit or owner-resolve
     ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
   assert.equal((await del({ type: "headers" }, {})).status, 401);
   assert.equal((await del({}, { authorization: headers.authorization })).status, 409);
-  for (const body of [null, [], { type: "headers", action: "bearer" }, { type: "oauth" }, { type: "bearer", token: "private-fixture-secret" },
+  for (const body of [null, [], { type: "headers", action: "bearer" }, { type: "auto" }, { type: "oauth", input: "private-fixture-secret" }, { type: "bearer", token: "private-fixture-secret" },
     { type: "headers", headers: { Authorization: "private-fixture-secret" } }, { type: "headers", configPath: "other" }]) {
     assert.equal((await del(body)).status, 400);
   }
@@ -213,19 +213,19 @@ test("bearer/header DELETE reaches only the owner with explicit or owner-resolve
   assert.equal((await del({}, headers, `${url}?agentDir=other`)).status, 400);
   assert.equal((await del({}, headers, url.replace("fixture/auth", "a%2Fb/auth"))).status, 400);
   assert.equal(calls.length, 0);
-  for (const body of [{ action: "bearer" }, { type: "headers" }, { action: "headers" }, {}, undefined]) {
+  for (const body of [{ action: "bearer" }, { type: "headers" }, { action: "headers" }, { type: "oauth" }, { action: "oauth" }, {}, undefined]) {
     const response = await del(body);
     assert.equal(response.status, 200);
     assert.equal((await response.text()).includes("private"), false);
   }
   assert.deepEqual(calls, [["fixture", { type: "bearer" }], ["fixture", { type: "headers" }],
-    ["fixture", { type: "headers" }], ["fixture", {}], ["fixture", {}]]);
+    ["fixture", { type: "headers" }], ["fixture", { type: "oauth" }], ["fixture", { type: "oauth" }], ["fixture", {}], ["fixture", {}]]);
   for (const options of [{}, { removeMcpAuthAction: () => { calls.push("unexpected"); }, isReady: () => false },
     { removeMcpAuthAction: () => { calls.push("unexpected"); }, isReady: () => { throw new Error("private-fixture-secret"); } }]) {
     const unavailable = await endpoint(t, options);
     assert.equal((await del({}, unavailable.headers, `${unavailable.url}/auth`)).status, 503);
   }
-  assert.equal(calls.length, 5);
+  assert.equal(calls.length, 7);
   for (const status of [400, 404, 409, 503, 500]) {
     const failed = await endpoint(t, { removeMcpAuthAction: () => { throw Object.assign(new Error("private-fixture-secret"), { status }); } });
     const response = await del({ type: "headers" }, failed.headers, `${failed.url}/auth`);
@@ -352,7 +352,12 @@ test("Backend entry persists ON/OFF through the rebuilt runtime and returns only
   assert.equal(detachedHeaders.status, 503);
   assert.equal((await detachedHeaders.text()).includes("private-fixture-header-secret"), false);
   const defaultDelete = await request(`${base}${BACKEND_MCP_SERVERS_PATH}/n8n/auth`, { method: "DELETE", headers });
-  assert.equal(defaultDelete.status, 400); // OAuth default must not silently delete bearer credentials.
+  assert.equal(defaultDelete.status, 503); // Owner resolves OAuth; absent credential bridge must fail closed.
+  const explicitOAuthDelete = await request(`${base}${BACKEND_MCP_SERVERS_PATH}/n8n/auth`, {
+    method: "DELETE", headers, body: JSON.stringify({ type: "oauth" }),
+  });
+  assert.equal(explicitOAuthDelete.status, 503);
+  assert.equal((await explicitOAuthDelete.text()).includes(root), false);
   const explicitDelete = await request(`${base}${BACKEND_MCP_SERVERS_PATH}/n8n/auth`, {
     method: "DELETE", headers, body: JSON.stringify({ type: "bearer" }),
   });

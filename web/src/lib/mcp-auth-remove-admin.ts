@@ -15,17 +15,21 @@ export async function removeMcpAuth(name: string, input: McpAuthRemoveRequest = 
   if (!listMcpServers().servers.some((server) => server.name === current.name)) {
     throw new McpError("not-found", "MCP サーバーが見つかりません");
   }
-  const method = parsed.value.type ?? (current.authType === "none" ? "bearer" : current.authType);
+  const method = parsed.value.type ?? (current.authType === "none" ? "bearer"
+    : current.authType === "auto" ? "oauth" : current.authType);
   if (method === "bearer") return removeMcpBearerAuth(current.name, { type: "bearer" });
-  if (method !== "headers") throw new McpError("invalid-auth", "この認証方式の削除は未移管です");
+  if (method !== "headers" && method !== "oauth") throw new McpError("invalid-auth", "認証方式が不正です");
+  const operation = method === "headers" ? "headers-remove" : "oauth-remove";
   try {
-    const response = await requestMcpWebUiAuth({ operation: "headers-remove", serverName: current.name });
-    if (response?.ok !== true || response.operation !== "headers-remove") throw new Error("Store refused");
+    const response = await requestMcpWebUiAuth({ operation, serverName: current.name });
+    if (response?.ok !== true || response.operation !== operation) throw new Error("Store refused");
   } catch {
-    throw new McpError("auth-unavailable", "HTTPヘッダー認証情報を削除できませんでした");
+    throw new McpError("auth-unavailable", method === "headers"
+      ? "HTTPヘッダー認証情報を削除できませんでした" : "OAuth認証情報を解除できませんでした");
   }
-  // Store -> selector -> reload. Later failures do not imply credential rollback.
-  disableMcpHeadersStore(current.name);
+  // Store -> optional selector -> reload. Later failures do not imply credential rollback.
+  // OAuth removal clears its tokens/pending flow, not the provider configuration or other stores.
+  if (method === "headers") disableMcpHeadersStore(current.name);
   const reload = await reloadLiveSessionsContext();
   const result = publicMcpAuthRemoveResult({ ok: true, auth: await readMcpAuthStatus(current.name), reload });
   if (!result) throw new Error("Invalid MCP auth removal result");

@@ -9,7 +9,7 @@ vi.mock("@/lib/pi/harness", () => harness);
 import { removeMcpAuth } from "./mcp-auth-remove-admin";
 import * as mcp from "./mcp";
 
-describe("owner-resolved header removal", () => {
+describe("owner-resolved credential removal", () => {
   let root: string;
   let previous: Record<string, string | undefined>;
   const keys = ["PI_CODING_AGENT_DIR", "LEAFCODE_PI_BACKEND_RUNTIME"];
@@ -25,7 +25,8 @@ describe("owner-resolved header removal", () => {
     write({ url: "https://fixture.example.invalid/mcp", headersStore: true, auth: false, disabled: true });
     bridge.requestMcpWebUiAuth.mockReset();
     bridge.requestMcpWebUiAuth.mockImplementation(async (request: { operation: string }) => ({
-      ok: true, operation: request.operation, ...(request.operation.endsWith("-status") ? { status: "present" } : {}),
+      ok: true, operation: request.operation, ...(request.operation.endsWith("-status")
+        ? { status: request.operation === "oauth-status" ? "not_authenticated" : "present" } : {}),
     }));
     harness.reloadLiveSessionsContext.mockReset();
     harness.reloadLiveSessionsContext.mockResolvedValue({ reloaded: 1, deferred: 0, failed: 1, errors: ["private-fixture-secret"] });
@@ -91,12 +92,10 @@ describe("owner-resolved header removal", () => {
     expect(config().headers).toEqual({ "x-static": "private-config-value" });
     expect(JSON.stringify(result)).not.toContain("private-config-value");
   });
-  it("refuses unknown/prototype names, invalid inputs and OAuth/auto defaults before storage", async () => {
-    for (const name of ["missing-fixture", "__proto__"]) await expect(removeMcpAuth(name)).rejects.toMatchObject({ code: "not-found" });
-    await expect(removeMcpAuth("owner-fixture", { type: "oauth" } as never)).rejects.toMatchObject({ code: "invalid-auth" });
-    for (const auth of ["oauth", "auto"]) {
-      write({ url: "https://example.invalid", auth });
-      await expect(removeMcpAuth("owner-fixture")).rejects.toMatchObject({ code: "invalid-auth" });
+  it("refuses unknown/prototype names and invalid inputs before storage", async () => {
+    for (const name of ["missing-fixture", "__proto__"]) await expect(removeMcpAuth(name, { type: "oauth" })).rejects.toMatchObject({ code: "not-found" });
+    for (const input of [{ type: "auto" }, { type: "oauth", action: "headers" }, { type: "oauth", input: "private-fixture" }]) {
+      await expect(removeMcpAuth("owner-fixture", input as never)).rejects.toMatchObject({ code: "invalid-auth" });
     }
     expect(bridge.requestMcpWebUiAuth).not.toHaveBeenCalled();
     expect(harness.reloadLiveSessionsContext).not.toHaveBeenCalled();
@@ -113,6 +112,59 @@ describe("owner-resolved header removal", () => {
     bridge.requestMcpWebUiAuth.mockRejectedValueOnce(new Error("private-fixture-secret"));
     await expect(removeMcpAuth("owner-fixture")).rejects.not.toThrow("private-fixture-secret");
     expect(config().headersStore).toBe(true);
+  });
+  it.each([
+    { auth: "oauth", input: {} }, { auth: "auto", input: {} }, { auth: "oauth", input: { type: "oauth" as const } },
+  ])("resolves OAuth/auto defaults in Backend and retains configuration byte-for-byte: %j", async ({ auth, input }) => {
+    vi.stubEnv("NODE_ENV", "production");
+    process.env.LEAFCODE_PI_BACKEND_RUNTIME = "attach";
+    write({ url: "https://example.invalid/mcp?key=private-url-secret", auth, disabled: true,
+      ...(auth === "oauth" ? { oauth: { clientId: "fixture-client", clientSecret: "private-client-secret" } } : {}) });
+    const before = bytes();
+    const result = await removeMcpAuth("owner-fixture", input);
+    expect(bytes()).toEqual(before);
+    expect(result.auth.authType).toBe(auth);
+    expect(result.auth.credentialStatus).toBe("missing");
+    expect(JSON.stringify(result)).not.toContain("private");
+    expect(bridge.requestMcpWebUiAuth).toHaveBeenCalledWith({ operation: "oauth-remove", serverName: "owner-fixture" });
+    expect(bridge.requestMcpWebUiAuth).toHaveBeenLastCalledWith({ operation: "oauth-status", serverName: "owner-fixture" });
+    expect(bridge.requestMcpWebUiAuth.mock.invocationCallOrder[0]).toBeLessThan(harness.reloadLiveSessionsContext.mock.invocationCallOrder[0]);
+    expect(harness.reloadLiveSessionsContext).toHaveBeenCalledOnce();
+  });
+  it.each(["bearer", "headers"])("explicit OAuth removal leaves selected %s credentials/config intact", async (selected) => {
+    write({ url: "https://example.invalid", auth: selected === "headers" ? false : "bearer",
+      ...(selected === "headers" ? { headersStore: true } : { bearerTokenStore: true }) });
+    const before = bytes();
+    const result = await removeMcpAuth("owner-fixture", { type: "oauth" });
+    expect(bytes()).toEqual(before);
+    expect(result.auth.authType).toBe(selected);
+    expect(bridge.requestMcpWebUiAuth).toHaveBeenCalledWith({ operation: "oauth-remove", serverName: "owner-fixture" });
+    expect(bridge.requestMcpWebUiAuth).not.toHaveBeenCalledWith({ operation: `${selected}-remove`, serverName: "owner-fixture" });
+  });
+  it.each([null, { ok: false, operation: "oauth-remove", error: "private-fixture-secret" },
+    { ok: true, operation: "headers-remove" }, { ok: "true", operation: "oauth-remove" }])("refuses invalid OAuth removal acknowledgements before reload", async (response) => {
+    write({ url: "https://example.invalid", auth: "oauth" });
+    const before = bytes();
+    bridge.requestMcpWebUiAuth.mockResolvedValueOnce(response);
+    await expect(removeMcpAuth("owner-fixture")).rejects.toMatchObject({ code: "auth-unavailable" });
+    expect(bytes()).toEqual(before);
+    expect(harness.reloadLiveSessionsContext).not.toHaveBeenCalled();
+  });
+  it("sanitizes OAuth bridge exceptions and refuses unowned production calls", async () => {
+    bridge.requestMcpWebUiAuth.mockRejectedValueOnce(new Error("private-oauth-secret"));
+    await expect(removeMcpAuth("owner-fixture", { type: "oauth" })).rejects.not.toThrow("private-oauth-secret");
+    expect(harness.reloadLiveSessionsContext).not.toHaveBeenCalled();
+    vi.stubEnv("NODE_ENV", "production");
+    await expect(removeMcpAuth("owner-fixture", { type: "oauth" })).rejects.toMatchObject({ code: "RUNTIME_NOT_OWNED" });
+    expect(bridge.requestMcpWebUiAuth).toHaveBeenCalledOnce();
+  });
+  it("does not claim OAuth credential rollback after a reload failure", async () => {
+    const before = bytes();
+    harness.reloadLiveSessionsContext.mockRejectedValueOnce(new Error("private-reload-failure"));
+    await expect(removeMcpAuth("owner-fixture", { type: "oauth" })).rejects.toThrow("private-reload-failure");
+    expect(bytes()).toEqual(before);
+    expect(bridge.requestMcpWebUiAuth).toHaveBeenCalledOnce();
+    expect(bridge.requestMcpWebUiAuth).toHaveBeenCalledWith({ operation: "oauth-remove", serverName: "owner-fixture" });
   });
   it("does not claim rollback or reload after a post-store config failure", async () => {
     vi.spyOn(mcp, "disableMcpHeadersStore").mockImplementationOnce(() => { throw new Error("private-config-failure"); });

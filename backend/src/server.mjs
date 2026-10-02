@@ -222,7 +222,7 @@ export function createBackendServer({
   saveMcpBearerAuthAction = null,
   /** Saves validated private headers through the owner's credential-store bridge. */
   saveMcpHeadersAuthAction = null,
-  /** Removes bearer/headers credentials/selectors; defaults are resolved only by the owner. */
+  /** Removes bearer/headers/OAuth credentials; defaults are resolved only by the owner. */
   removeMcpAuthAction = null,
   /** Compacts a session: `(id, customInstructions?) => task`; the summarization runs in the owner. */
   compactTaskAction = null,

@@ -343,7 +343,7 @@ describe("/api/mcp/:name/auth", () => {
     expect((await (await GET(request("GET"), context())).json()).credentialStatus).toBe("unavailable");
   });
 
-  it.each([{ type: "bearer" }, { type: "headers" }, undefined])("production DELETE forwards explicit/default requests without local reads or writes", async (body) => {
+  it.each([{ type: "bearer" }, { type: "headers" }, { type: "oauth" }, undefined])("production DELETE forwards explicit/default requests without local reads or writes", async (body) => {
     owner.localRuntimeBlocked.mockReturnValue(true);
     const localRead = vi.spyOn(mcpLibrary, "getMcpServerAuth");
     const localWrite = vi.spyOn(mcpLibrary, "disableMcpBearerStore");
@@ -381,7 +381,7 @@ describe("/api/mcp/:name/auth", () => {
 
   it("DELETE rejects malformed/privileged/unsupported requests instead of defaulting to a destructive action", async () => {
     owner.localRuntimeBlocked.mockReturnValue(true);
-    for (const body of [null, [], { type: "headers", action: "bearer" }, { type: "oauth" }, { type: "bearer", token: "private-fixture-secret" },
+    for (const body of [null, [], { type: "headers", action: "bearer" }, { type: "auto" }, { type: "oauth", input: "private-fixture-secret" }, { type: "bearer", token: "private-fixture-secret" },
       { type: "bearer", configPath: "other" }]) expect((await DELETE(request("DELETE", body), context())).status).toBe(400);
     const malformed = new NextRequest("http://127.0.0.1/api/mcp/n8n/auth", { method: "DELETE", body: "{" });
     expect((await DELETE(malformed, context())).status).toBe(400);
@@ -414,11 +414,60 @@ describe("/api/mcp/:name/auth", () => {
     expect(harness.reloadLiveSessionsContext).toHaveBeenCalledOnce();
   });
 
-  it("development DELETE keeps OAuth legacy behavior but refuses conflicting selectors", async () => {
+  it("development DELETE uses guarded OAuth removal and refuses conflicting selectors", async () => {
     const before = readFileSync(join(agentDir, "mcp.json"));
     expect((await DELETE(request("DELETE", { type: "oauth", action: "headers" }), context())).status).toBe(400);
     expect(adapter.requestMcpWebUiAuth).not.toHaveBeenCalled();
     expect((await DELETE(request("DELETE", { type: "oauth" }), context())).status).toBe(200);
+    expect(adapter.requestMcpWebUiAuth).toHaveBeenCalledWith({ operation: "oauth-remove", serverName: "n8n" });
+    expect(readFileSync(join(agentDir, "mcp.json"))).toEqual(before);
+  });
+
+  it.each(["oauth", "auto"])("development DELETE resolves %s defaults in the owner and returns safe status", async (auth) => {
+    writeFileSync(join(agentDir, "mcp.json"), JSON.stringify({ mcpServers: {
+      n8n: { url: "https://n8n.example.invalid/mcp?key=private-url-secret", auth,
+        ...(auth === "oauth" ? { oauth: { clientId: "fixture-client", clientSecret: "private-client-secret" } } : {}) },
+    } }));
+    const before = readFileSync(join(agentDir, "mcp.json"));
+    adapter.requestMcpWebUiAuth.mockImplementation(async (input: { operation: string }) => ({
+      ok: true, operation: input.operation, ...(input.operation === "oauth-status" ? { status: "not_authenticated", message: "private-fixture-secret" } : {}),
+    }));
+    const response = await DELETE(request("DELETE"), context());
+    expect(response.status).toBe(200);
+    const payload = await response.json();
+    expect(payload.auth.authType).toBe(auth);
+    expect(payload.auth.credentialStatus).toBe("missing");
+    expect(payload.auth.configPath).toBe("");
+    expect(JSON.stringify(payload)).not.toContain("private");
+    expect(readFileSync(join(agentDir, "mcp.json"))).toEqual(before);
+    expect(adapter.requestMcpWebUiAuth).toHaveBeenCalledWith({ operation: "oauth-remove", serverName: "n8n" });
+    expect(harness.reloadLiveSessionsContext).toHaveBeenCalledOnce();
+  });
+
+  it("production OAuth DELETE retains the owner's mode and rejects another server's response", async () => {
+    owner.localRuntimeBlocked.mockReturnValue(true);
+    owner.removeMcpAuthOnBackend.mockResolvedValueOnce({ ok: true, body: { ok: true,
+      auth: { name: "n8n", authType: "oauth", credentialConfigured: false, credentialSource: "oauth", credentialStatus: "missing",
+        configPath: "private-owner-path", credentialMessage: "private-token" },
+      reload: { reloaded: 0, deferred: 0, failed: 0, errors: [] } } });
+    const response = await DELETE(request("DELETE", { action: "oauth" }), context());
+    expect(response.status).toBe(200);
+    const payload = await response.json();
+    expect(payload.auth.authType).toBe("oauth");
+    expect(JSON.stringify(payload)).not.toContain("private");
+    expect(owner.removeMcpAuthOnBackend).toHaveBeenCalledWith("n8n", { type: "oauth" });
+    payload.auth.name = "another-server";
+    owner.removeMcpAuthOnBackend.mockResolvedValueOnce({ ok: true, body: payload });
+    expect((await DELETE(request("DELETE", { type: "oauth" }), context())).status).toBe(502);
+    expect(adapter.requestMcpWebUiAuth).not.toHaveBeenCalled();
+  });
+
+  it("OAuth DELETE sanitizes post-store reload failures without claiming rollback", async () => {
+    const before = readFileSync(join(agentDir, "mcp.json"));
+    harness.reloadLiveSessionsContext.mockRejectedValueOnce(new Error("private-reload-secret"));
+    const response = await DELETE(request("DELETE", { type: "oauth" }), context());
+    expect(response.status).toBe(500);
+    expect(JSON.stringify(await response.json())).not.toContain("private-reload-secret");
     expect(adapter.requestMcpWebUiAuth).toHaveBeenCalledWith({ operation: "oauth-remove", serverName: "n8n" });
     expect(readFileSync(join(agentDir, "mcp.json"))).toEqual(before);
   });

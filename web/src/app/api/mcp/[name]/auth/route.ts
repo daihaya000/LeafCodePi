@@ -309,8 +309,8 @@ export async function DELETE(req: NextRequest, context: RouteContext) {
       throw new McpError("invalid-auth", "認証削除リクエストが不正です");
     }
     const parsed = parseMcpAuthRemoveRequest(body);
+    if (!parsed.ok) throw new McpError("invalid-auth", "認証削除リクエストが不正です");
     if (localRuntimeBlocked()) {
-      if (!parsed.ok) throw new McpError("invalid-auth", "この認証方式の削除は未移管か、リクエストが不正です");
       const forwarded = await removeMcpAuthOnBackend(name, parsed.value).catch(() => {
         throw new McpError("auth-unavailable", "BackendでMCP認証情報を削除できません");
       });
@@ -324,19 +324,7 @@ export async function DELETE(req: NextRequest, context: RouteContext) {
       }
       return NextResponse.json(result);
     }
-    // OAuth deletion stays legacy/development-only until its own migration step.
-    const explicitOauth = body.type === "oauth" || body.action === "oauth";
-    if (explicitOauth && (Object.keys(body).some((key) => !["type", "action"].includes(key))
-      || [body.type, body.action].some((value) => value !== undefined && value !== "oauth"))) {
-      throw new McpError("invalid-auth", "OAuth認証削除リクエストが不正です");
-    }
-    if (!parsed.ok && !explicitOauth) throw new McpError("invalid-auth", "認証削除リクエストが不正です");
-    if (explicitOauth || (parsed.ok && !parsed.value.type && ["oauth", "auto"].includes(getMcpServerAuth(name).authType))) {
-      await callAdapter({ operation: "oauth-remove", serverName: name });
-      const reload = await reloadLiveSessionsContext();
-      return NextResponse.json({ ok: true, auth: await snapshotWithLiveStatus(name), reload });
-    }
-    if (!parsed.ok) throw new McpError("invalid-auth", "認証削除リクエストが不正です");
+    // Development uses the same guarded owner operation for all deletion methods.
     return NextResponse.json(await removeMcpAuth(name, parsed.value));
   } catch (error) {
     return NextResponse.json(
