@@ -17,6 +17,7 @@ describe("Backend native MCP callback public SDK contract", () => {
       const oauthStatusPath = fileURLToPath(new URL("../../../../backend/core/mcp-native-oauth-status.mjs", import.meta.url));
       const authorityPath = fileURLToPath(new URL("../../../../backend/core/mcp-native-credential-authority.mjs", import.meta.url));
       const generationLeasePath = fileURLToPath(new URL("../../../../backend/core/mcp-native-generation-lease.mjs", import.meta.url));
+      const writeCoordinatorPath = fileURLToPath(new URL("../../../../backend/core/mcp-native-write-coordinator.mjs", import.meta.url));
       const compilerOptions: ts.CompilerOptions = { module: ts.ModuleKind.NodeNext, moduleResolution: ts.ModuleResolutionKind.NodeNext,
         target: ts.ScriptTarget.ES2022, strict: true, skipLibCheck: true, noEmit: true, types: [] };
       // Resolve the public ESM/types export in Backend scope; this package has no CommonJS main.
@@ -32,6 +33,7 @@ import { createBackendMcpPrivateStorageCheck, assertMcpStoragePermissions } from
 import { createBackendMcpOAuthStatusReader, type BackendMcpOAuthStatus } from ${JSON.stringify(oauthStatusPath)};
 import { createBackendMcpCredentialAuthority } from ${JSON.stringify(authorityPath)};
 import { createBackendMcpGenerationOwner } from ${JSON.stringify(generationLeasePath)};
+import { createBackendMcpWriteCoordinator } from ${JSON.stringify(writeCoordinatorPath)};
 import type { DefaultResourceLoader, ExtensionContext, LoadedMcpConfig, McpExtensionOptions, McpServerEntry } from "@earendil-works/pi-coding-agent";
 const checkStorage = createBackendMcpPrivateStorageCheck({ agentDir: "owner" });
 const owner = createBackendMcpCredentialOwner({ agentDir: "owner", assertOwner: (identity) => {}, assertPrivateStorage: checkStorage });
@@ -66,7 +68,16 @@ const prepared = await prepareBackendMcpConfigLoader({ agentDir: "owner", bundle
 if (prepared.ok) {
   const generationOwner = createBackendMcpGenerationOwner({ assertProcessOwner: () => {} });
   const generationLease = generationOwner.beginGeneration();
-  const authority = createBackendMcpCredentialAuthority({ agentDir: "owner", bundledConfigPath: "bundle", prepared, assertRuntimeOwner: generationLease.assertOwner });
+  const coordinator = createBackendMcpWriteCoordinator({ assertProcessOwner: () => {} });
+  const writerLease = coordinator.beginGeneration();
+  const authority = createBackendMcpCredentialAuthority({ agentDir: "owner", bundledConfigPath: "bundle", prepared, assertRuntimeOwner: writerLease.assertOwner });
+  const writerResult: Promise<number> = coordinator.runWrite((scope) => { scope.assertOwner(); return 42; });
+  const drained: Promise<void> = coordinator.drain();
+  coordinator.dispose();
+  // @ts-expect-error Process authority is mandatory; no ambient writer owner.
+  createBackendMcpWriteCoordinator({});
+  // @ts-expect-error Raw generation manager is intentionally inaccessible.
+  coordinator.generation;
   generationOwner.captureLease().assertOwner();
   generationLease.revoke();
   generationOwner.invalidate();
