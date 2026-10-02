@@ -78,6 +78,12 @@ test("a disabled shipped default with an unresolved URL is dropped; user-owned o
   assert.equal(supplied.ok, true); assert.deepEqual(supplied.config.mcpServers.n8n, { url: "https://n8n.example.invalid/mcp", enabled: false });
 });
 
+test("a migrated bearer entry validates through the SDK with an explicit variable", async () => {
+  const result = await prepareMcpConfigMigration({ mcpServers: { n8n: { url: "${N8N_MCP_URL}", auth: "bearer", bearerTokenEnv: "N8N_MCP_ACCESS_TOKEN" } } }, undefined, { urlVariables: { N8N_MCP_URL: "https://n8n.example.invalid/mcp" } });
+  assert.equal(result.ok, true);
+  assert.deepEqual(result.config.mcpServers.n8n, { url: "https://n8n.example.invalid/mcp", headers: { Authorization: "Bearer ${N8N_MCP_ACCESS_TOKEN}" } });
+});
+
 test("real SDK failures return no partial configuration or credential values", async () => {
   const credential = "secret-fixture-not-for-diagnostics";
   const result = await prepareMcpConfigMigration({ mcpServers: {

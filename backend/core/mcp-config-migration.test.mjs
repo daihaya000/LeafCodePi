@@ -14,6 +14,21 @@ test("maps both disabled states without silently enabling a disabled server", ()
   }
 });
 
+test("legacy bearer auth becomes a native Authorization header (shipped n8n preset shape)", () => {
+  const preset = { url: "${N8N_MCP_URL}", auth: "bearer", bearerTokenEnv: "N8N_MCP_ACCESS_TOKEN", httpTransport: "streamable-http", protocolVersion: "auto" };
+  const result = planMcpConfigMigration({ mcpServers: { n8n: preset } });
+  assert.equal(result.ok, true);
+  assert.deepEqual(result.config.mcpServers.n8n, { url: "${N8N_MCP_URL}", headers: { Authorization: "Bearer ${N8N_MCP_ACCESS_TOKEN}" } });
+  const literal = planMcpConfigMigration({ mcpServers: { server: { url: "https://example.invalid/mcp", auth: "bearer", bearerToken: "private-literal" } } });
+  assert.deepEqual(literal.config.mcpServers.server.headers, { Authorization: "Bearer private-literal" });
+  const conflict = planMcpConfigMigration({ mcpServers: { server: { url: "https://example.invalid/mcp", auth: "bearer", bearerToken: "private", headers: { Authorization: "Bearer other" } } } });
+  assert.deepEqual(conflict.issues, [{ code: "conflicting-authorization-header", field: "headers", server: "server" }]);
+  for (const entry of [{ auth: "bearer" }, { auth: "bearer", bearerTokenEnv: "BAD-NAME" }, { auth: "bearer", bearerToken: "" }, { auth: "digest" }]) {
+    const bad = planMcpConfigMigration({ mcpServers: { server: { url: "https://example.invalid/mcp", ...entry } } });
+    assert.equal(bad.ok, false); assert.equal(bad.issues.some((issue) => issue.code === "unsupported-auth-mode"), true);
+  }
+});
+
 test("preserves transport, credentials references and modern provider auth verbatim", () => {
   const input = { mcpServers: {
     local: { ...stdio, cwd: "C:\\tools", env: { KEY: "!read-key", HOST: "${HOST}" } },

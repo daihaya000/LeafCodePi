@@ -96,6 +96,11 @@ blendermcp は native の stdio transport で実接続し 26 の直接ツール�
    `!!x` は `!x` へ復号、失敗・タイムアウト・空出力はマーカーを残し、そのサーバーだけが拒否される。
    シェル実行・10秒/1MiB の上限は adapter と同一（既存設定をそのまま使える）。
    `headers` の `!` 値も同じ規則で解決する。値はログ・DTO に出さない。
+4. ~~legacy `auth: "bearer"`~~（解決済み: 2026-10-03）
+   移行時に `Authorization: Bearer ${VAR}`（`bearerTokenEnv`）またはリテラルヘッダ（`bearerToken`）へ変換する。
+   既存の Authorization ヘッダとの衝突は `conflicting-authorization-header` で拒否する。
+   同梱 n8n プリセット（bearer）はこれで通る。adapter 固有の秘密ストア
+   （`bearerTokenStore` / `headersStore` / `requestHeadersCommand`）は native に等価物がなく未対応のまま。
 
 ## 切替手順（承認後）
 
@@ -127,5 +132,6 @@ blendermcp は native の stdio transport で実接続し 26 の直接ツール�
 - 実行中セッションの reload: 設定変更は新規セッションのみに反映される。
 - adapter 固有の設定面: `MCP_DIRECT_TOOLS` env、`settings.mcp`、プロジェクト `.pi/mcp.json` は
   native が読まない（この環境ではいずれも未使用を確認済み）。使う場合は別途対応が必要。
+  adapter 固有の秘密ストア（`bearerTokenStore` / `headersStore` / `requestHeadersCommand`）も未対応。
 - CLI/adapter writer 群の一本化、migration apply（`configuration-writers-not-quiesced`）。
 - 実サーバー受け入れ（上記4）は transport 層のみ確認済み。flag を入れた本番受け入れは未実施。

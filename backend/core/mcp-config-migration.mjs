@@ -6,6 +6,7 @@
 const ROOT_FIELDS = new Set(["mcpServers", "autoEnableCodemode"]);
 const SERVER_FIELDS = new Set([
   "type", "command", "args", "env", "cwd", "url", "headers", "oauth", "auth",
+  "bearerToken", "bearerTokenEnv",
   "exposure", "toolExposure", "description", "enabled", "timeout",
   "disabled", "protocolVersion", "httpTransport",
 ]);
@@ -73,9 +74,25 @@ export function planMcpConfigMigration(userConfig, bundledConfig = { mcpServers:
       delete entry.disabled;
     }
     if (!hasOverride) entry.enabled = false;
+    // Native has no auth mode: a static bearer token becomes an Authorization header, so legacy
+    // `auth: "bearer"` entries (including the shipped n8n preset) keep working after migration.
+    // Non-string auth (the SDK's provider object) is passed through untouched, as before.
     if (own(entry, "auth") && typeof entry.auth === "string") {
-      if (entry.auth === "oauth") delete entry.auth;
-      else issue("unsupported-auth-mode", "auth", name);
+      const mode = entry.auth;
+      if (mode === "oauth") { delete entry.auth; }
+      else if (mode === "bearer") {
+        const envName = own(entry, "bearerTokenEnv") ? entry.bearerTokenEnv : undefined;
+        const literal = own(entry, "bearerToken") ? entry.bearerToken : undefined;
+        const value = typeof envName === "string" && /^[A-Za-z_][A-Za-z0-9_]*$/.test(envName) ? `Bearer \${${envName}}`
+          : typeof literal === "string" && literal.length > 0 ? `Bearer ${literal}`
+            : undefined;
+        if (!value) issue("unsupported-auth-mode", "auth", name);
+        else if (own(entry, "headers") && record(entry.headers) && own(entry.headers, "Authorization")) issue("conflicting-authorization-header", "headers", name);
+        else entry.headers = { ...(record(entry.headers) ? entry.headers : {}), Authorization: value };
+        delete entry.auth; delete entry.bearerToken; delete entry.bearerTokenEnv;
+      } else {
+        issue("unsupported-auth-mode", "auth", name);
+      }
     }
     if (own(entry, "protocolVersion")) {
       if (entry.protocolVersion !== "auto") issue("pinned-protocol-version", "protocolVersion", name);
