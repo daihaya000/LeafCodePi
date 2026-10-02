@@ -50,7 +50,14 @@ import {
 } from "@/lib/bot-sidebar-store";
 import { getLastReadAt, getUnreadSnapshot, hasUnread, hydrateLastReadState, markRead, subscribeUnreadState, unreadSessionTabIds } from "@/lib/bot-unread";
 import { HOME_TAB_ID, paneTabIdsForWorkingTasks, SETTINGS_TAB_ID, type TaskPanesAction } from "@/lib/task-panes";
-import { PINNED_TASKS_API_PATH, parsePinnedTaskIds, serializePinnedTaskIds } from "@/lib/sidebar-settings";
+import {
+  PINNED_TASKS_API_PATH,
+  PROJECT_ORDER_API_PATH,
+  parsePinnedTaskIds,
+  parseProjectOrder,
+  serializePinnedTaskIds,
+  serializeProjectOrder,
+} from "@/lib/sidebar-settings";
 import { isGoalLoopLiveStatus } from "@/lib/goal-loop-settings";
 import { NO_PROJECT_NAME, type BotDto, type HealthDto, type RoomDto, type ProjectDto, type ProjectIconColor, type TaskSummary } from "@/lib/types";
 
@@ -66,7 +73,8 @@ type ProjectDropPlacement = "before" | "after";
 const WIDTH_KEY = "webui.sidebar.width";
 const COLLAPSED_KEY = "webui.sidebar.collapsed";
 const EXPANDED_KEY = "webui.sidebar.expanded";
-const PROJECT_ORDER_KEY = "webui.sidebar.project_order";
+/** 旧: localStorage 保存。サーバー設定へ移行後は削除する。 */
+const LEGACY_PROJECT_ORDER_KEY = "webui.sidebar.project_order";
 /** 旧localStorage値の一度きりのサーバー移行にだけ使う。 */
 const LEGACY_PINNED_TASKS_KEY = "webui.sidebar.pinned_tasks";
 const ARCHIVED_EXPANDED_KEY = "webui.sidebar.archived_expanded";
@@ -990,23 +998,17 @@ function clearLegacyPinnedTaskIds(): void {
   }
 }
 
-function loadProjectOrder(): string[] {
+function loadLegacyProjectOrder(): string[] {
   try {
-    const raw = localStorage.getItem(PROJECT_ORDER_KEY);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw) as unknown;
-    if (Array.isArray(parsed) && parsed.every((item) => typeof item === "string")) {
-      return parsed;
-    }
+    return parseProjectOrder(localStorage.getItem(LEGACY_PROJECT_ORDER_KEY)) ?? [];
   } catch {
-    /* ignore */
+    return [];
   }
-  return [];
 }
 
-function saveProjectOrder(ids: string[]): void {
+function clearLegacyProjectOrder(): void {
   try {
-    localStorage.setItem(PROJECT_ORDER_KEY, JSON.stringify(ids));
+    localStorage.removeItem(LEGACY_PROJECT_ORDER_KEY);
   } catch {
     /* ignore */
   }
@@ -1344,7 +1346,13 @@ const SidebarView = memo(function SidebarView({
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   /** グループごとに一度に描画するタスク行数の上限（未指定は SIDEBAR_TASK_RENDER_STEP）。 */
   const [renderLimits, setRenderLimits] = useState<Record<string, number>>({});
-  const [projectOrder, setProjectOrder] = useState<string[]>(() => loadProjectOrder());
+  // 初期値は旧 localStorage の値（サーバー取得までのちらつき防止と移行元）。確定値はサーバー設定。
+  const [projectOrder, setProjectOrder] = useState<string[]>(() => loadLegacyProjectOrder());
+  const projectOrderLoadedRef = useRef(false);
+  /** サーバー取得前にユーザーが並べ替えた場合 true。取得後も操作結果を優先して保存する。 */
+  const projectOrderTouchedRef = useRef(false);
+  const projectOrderRef = useRef<string[]>([]);
+  const projectOrderWriteQueueRef = useRef<Promise<unknown>>(Promise.resolve());
   const [pinnedTaskIds, setPinnedTaskIds] = useState<Set<string>>(new Set());
   const pinnedTaskIdsRef = useRef(new Set<string>());
   const pinnedPendingTogglesRef = useRef<string[]>([]);
@@ -1470,6 +1478,16 @@ const SidebarView = memo(function SidebarView({
     return request;
   }, []);
 
+  const persistProjectOrder = useCallback((ids: readonly string[]): Promise<unknown> => {
+    const request = projectOrderWriteQueueRef.current
+      .catch(() => undefined)
+      .then(() => sendJson(PROJECT_ORDER_API_PATH, { value: serializeProjectOrder(ids) }, "PUT"));
+    projectOrderWriteQueueRef.current = request.catch((error) => {
+      setActionError(error instanceof Error && error.message ? error.message : "プロジェクト並び順の保存に失敗しました");
+    });
+    return request;
+  }, []);
+
   const workingTaskIds = useMemo(
     () => paneTabIdsForWorkingTasks(
       tasksForSidebar(tasks.filter((task) => task.status === "working"), pinnedTaskIds),
@@ -1576,6 +1594,47 @@ const SidebarView = memo(function SidebarView({
       cancelled = true;
     };
   }, [persistPinnedTaskIds]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void getJson<{ value?: string | null }>(PROJECT_ORDER_API_PATH)
+      .then((data) => {
+        if (cancelled) return;
+        const raw = data?.value;
+        const serverIds = raw === null || raw === undefined ? null : parseProjectOrder(raw);
+        // 設定ファイルが壊れている場合は、既存値を推測で上書きしない。
+        if (typeof raw === "string" && serverIds === null) {
+          projectOrderLoadedRef.current = true;
+          return;
+        }
+        projectOrderLoadedRef.current = true;
+
+        if (projectOrderTouchedRef.current) {
+          // 取得中に並べ替え済み。現在のUI順をサーバーへ保存する。
+          void persistProjectOrder(projectOrderRef.current)
+            .then(clearLegacyProjectOrder)
+            .catch(() => undefined);
+          return;
+        }
+        if (serverIds === null) {
+          // サーバー未設定: 旧 localStorage の順序を移行する。
+          const legacy = loadLegacyProjectOrder();
+          if (legacy.length === 0) return;
+          setProjectOrder(legacy);
+          void persistProjectOrder(legacy).then(clearLegacyProjectOrder).catch(() => undefined);
+          return;
+        }
+        setProjectOrder(serverIds);
+        clearLegacyProjectOrder();
+      })
+      .catch(() => {
+        // サーバーに接続できない場合も、現在のUI状態は維持する。
+        if (!cancelled) projectOrderLoadedRef.current = true;
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [persistProjectOrder]);
 
   const changeMode = useCallback((next: AppMode) => {
     setMode(next);
@@ -1968,11 +2027,13 @@ const SidebarView = memo(function SidebarView({
         placement,
       );
       if (!nextOrder) return false;
+      projectOrderRef.current = nextOrder;
       setProjectOrder(nextOrder);
-      saveProjectOrder(nextOrder);
+      if (projectOrderLoadedRef.current) void persistProjectOrder(nextOrder).catch(() => undefined);
+      else projectOrderTouchedRef.current = true;
       return true;
     },
-    [orderedProjects],
+    [orderedProjects, persistProjectOrder],
   );
 
   const handleProjectDragStart = useCallback(

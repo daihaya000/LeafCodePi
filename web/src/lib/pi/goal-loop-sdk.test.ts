@@ -15,7 +15,61 @@ import {
   type ModelRegistry,
 } from "@earendil-works/pi-coding-agent";
 import type { AssistantMessage } from "@earendil-works/pi-ai";
-import goalLoopExtension, { HOST_ROUTING_CHANNEL } from "../../../../extensions/leafcode-goal-loop/index";
+import goalLoopExtension, { HOST_ROUTING_CHANNEL, goalLoopTestSeams } from "../../../../extensions/leafcode-goal-loop/index";
+
+it.each(["provider-abort", "timeout-abort"])("automatically retries an aborted Goal Loop turn through the real SDK without consuming its budget (%s)", async (cause) => {
+  const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-abort-sdk-"));
+  vi.stubEnv("LEAFCODE_PI_DATA_DIR", cwd);
+  const manager = SessionManager.inMemory(cwd);
+  const faux = fauxProvider();
+  if (cause === "timeout-abort") goalLoopTestSeams.setTurnTimeoutMs(50);
+  faux.setResponses([
+    cause === "timeout-abort"
+      ? async (_context, options) => {
+        // The extension watchdog aborts a real in-flight SDK request.
+        await new Promise<void>((resolve) => {
+          if (options?.signal?.aborted) resolve();
+          else options?.signal?.addEventListener("abort", () => resolve(), { once: true });
+        });
+        return fauxAssistantMessage("", { stopReason: "aborted" });
+      }
+      : fauxAssistantMessage("", { stopReason: "aborted", errorMessage: "Request was aborted" }),
+    fauxAssistantMessage(JSON.stringify({ status: "progress", summary: "recovered" })),
+  ]);
+  const modelRuntime = await ModelRuntime.create({ authPath: join(cwd, "auth.json"), modelsPath: null, refreshOnCreate: false });
+  modelRuntime.registerNativeProvider(faux.provider);
+  const settingsManager = SettingsManager.inMemory({ retry: { enabled: false } });
+  const loader = new DefaultResourceLoader({
+    cwd, agentDir: cwd, settingsManager,
+    noExtensions: true, noSkills: true, noPromptTemplates: true, noThemes: true, noContextFiles: true,
+    extensionFactories: [goalLoopExtension as unknown as ExtensionFactory],
+  });
+  let session: Awaited<ReturnType<typeof createAgentSession>>["session"] | undefined;
+  try {
+    await loader.reload();
+    ({ session } = await createAgentSession({
+      cwd, agentDir: cwd, resourceLoader: loader, settingsManager, sessionManager: manager,
+      modelRuntime, model: faux.getModel(), tools: [],
+    }));
+    await session.bindExtensions({ onError: (error) => { throw new Error(error.error); } });
+    const runner = session.extensionRunner;
+    await runner.getCommand("goal-start")!.handler(Buffer.from(JSON.stringify({
+      goal: "Recover after automatic abort", maxTurns: 1, forceFullRun: true,
+    })).toString("base64url"), runner.createCommandContext());
+    const state = () => JSON.parse(readFileSync(join(cwd, "goals-loop", `${manager.getSessionId()}.json`), "utf8"));
+    await vi.waitFor(() => expect(state()).toMatchObject({ status: "paused", pauseReason: "turn_limit", turnCount: 1 }), { timeout: 8_000, interval: 25 });
+    expect(faux.state.callCount).toBe(2);
+    expect(state().progress.map((item: { summary: string }) => item.summary)).toEqual(["recovered"]);
+    const turns = manager.getBranch().filter((entry) => entry.type === "custom_message" && entry.customType === "leafcode-goal-turn");
+    expect(turns).toHaveLength(2);
+  } finally {
+    await session?.extensionRunner.emit({ type: "session_shutdown", reason: "quit" });
+    session?.dispose();
+    goalLoopTestSeams.setTurnTimeoutMs();
+    vi.unstubAllEnvs();
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
 
 it("continues a queued Goal Loop across a real SDK session.reload during turn preparation", async () => {
   const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-reload-sdk-"));

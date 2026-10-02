@@ -80,6 +80,7 @@ export { setMcpServerEnabled, mcpErrorStatus } from "@/lib/mcp";
 export { createMcpPreset } from "@/lib/mcp-preset-admin";
 export { readMcpAuthStatus } from "@/lib/mcp-auth-status";
 export { saveMcpBearerAuth } from "@/lib/mcp-bearer-admin";
+export { saveMcpHeadersAuth } from "@/lib/mcp-headers-admin";
 export { isGoalLoopSessionOwned, readGoalLoopState } from "@/lib/pi/goal-loop-state";
 export { startGoalLoopWithSelection } from "@/lib/pi/goal-loop-start";
 export { startBotGoalLoop } from "@/lib/pi/bot-goal-loop-start";

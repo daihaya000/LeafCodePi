@@ -27,6 +27,7 @@ import { canAttachComposerImages, pasteImage } from "@/lib/clipboard-image";
 import { isImeComposingEvent } from "@/lib/composer-ime";
 import { ModelSelect, modelOptionForValue } from "@/components/ModelSelect";
 import { ThinkingSelect } from "@/components/ThinkingSelect";
+import { FastModeSelect } from "@/components/FastModeSelect";
 import { MobileMenuHeader } from "@/components/shell/MobileMenuHeader";
 import { HostnameLabel } from "@/components/shell/HostnameContext";
 import { Button, cx, GhostSelect } from "@/components/ui";
@@ -710,6 +711,11 @@ export const HomeView = memo(function HomeView({
                       className="min-w-0 max-w-[7rem] shrink sm:max-w-[8rem]"
                     />
                   )}
+                  <FastModeSelect
+                    providerID={model === AUTO_MODEL_VALUE ? null : selectedModel?.providerID}
+                    disabled={submitting}
+                    className="min-w-0 max-w-[6rem] shrink"
+                  />
                   {hasMultipleAgentChoices(agents.length, autoAgentEnabled) && (
                     <AgentSelect
                       value={agent}

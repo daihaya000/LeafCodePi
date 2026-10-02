@@ -56,6 +56,7 @@ import type { McpDto } from "@/lib/mcp";
 import type { McpPresetRequest, McpPublicReload } from "@shared/mcp-preset-request.mjs";
 import type { McpPublicAuthSnapshot } from "@shared/mcp-auth-snapshot.mjs";
 import type { McpBearerSaveRequest, McpBearerSaveResult } from "@shared/mcp-bearer-save-request.mjs";
+import type { McpHeadersSaveRequest, McpHeadersSaveResult } from "@shared/mcp-headers-save-request.mjs";
 
 export const BACKEND_REQUEST_TIMEOUT_MS = 10_000;
 
@@ -189,6 +190,17 @@ export function saveMcpBearerAuthOnBackend(
   input: McpBearerSaveRequest,
   options: { env?: BackendEnv; fetchImpl?: typeof fetch; timeoutMs?: number } = {},
 ): Promise<BackendResult<McpBearerSaveResult>> {
+  return backendRequest(`${BACKEND_MCP_SERVERS_PATH}/${encodeURIComponent(name)}${BACKEND_MCP_AUTH_SUFFIX}`, {
+    ...options, method: "POST", body: input,
+  });
+}
+
+/** Header values travel only in the private owner's POST body; no local fallback. */
+export function saveMcpHeadersAuthOnBackend(
+  name: string,
+  input: McpHeadersSaveRequest,
+  options: { env?: BackendEnv; fetchImpl?: typeof fetch; timeoutMs?: number } = {},
+): Promise<BackendResult<McpHeadersSaveResult>> {
   return backendRequest(`${BACKEND_MCP_SERVERS_PATH}/${encodeURIComponent(name)}${BACKEND_MCP_AUTH_SUFFIX}`, {
     ...options, method: "POST", body: input,
   });

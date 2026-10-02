@@ -571,6 +571,19 @@ describe("system safety classifier", () => {
 
   it("recognizes LeafCodePi self-termination targets", () => {
     assert.equal(isLeafCodePiStopCommand("taskkill /F /IM LeafCodePi.exe"), true);
+    const externalServerCleanup = [
+      "cd /home/daichi/デスクトップ/LeafCodePi",
+      "node /tmp/echo-server.cjs 2>/tmp/echo.log &",
+      "SRV=$!",
+      "timeout 60 node web/node_modules/@earendil-works/pi-coding-agent/dist/bundle/cli.js -e /tmp/dbg2-ext.ts -p hi >/tmp/pi.out 2>&1",
+      "kill $SRV 2>/dev/null",
+    ].join("\n");
+    assert.equal(isLeafCodePiStopCommand(externalServerCleanup, 1357, "bash"), false);
+    assert.equal(isLeafCodePiStopCommand("node /tmp/echo-server.cjs & kill $SRV", 1357, "bash"), false);
+    assert.equal(
+      isLeafCodePiStopCommand("cd /home/daichi/デスクトップ/LeafCodePi && kill $PPID", 1357, "bash"),
+      true,
+    );
     assert.equal(isLeafCodePiStopCommand("Stop-Process -Name node -Force"), true);
     assert.equal(isLeafCodePiStopCommand("kill -TERM 2468", 2468), true);
     assert.equal(isLeafCodePiStopCommand("taskkill /F /PID $PPID"), true);
