@@ -13,6 +13,7 @@ describe("Backend native MCP callback public SDK contract", () => {
       const extensionsPath = fileURLToPath(new URL("../../../../backend/core/mcp-native-extensions.mjs", import.meta.url));
       const credentialsPath = fileURLToPath(new URL("../../../../backend/core/mcp-native-credentials.mjs", import.meta.url));
       const credentialOwnerPath = fileURLToPath(new URL("../../../../backend/core/mcp-native-credential-owner.mjs", import.meta.url));
+      const privateStoragePath = fileURLToPath(new URL("../../../../backend/core/mcp-private-storage.mjs", import.meta.url));
       const compilerOptions: ts.CompilerOptions = { module: ts.ModuleKind.NodeNext, moduleResolution: ts.ModuleResolutionKind.NodeNext,
         target: ts.ScriptTarget.ES2022, strict: true, skipLibCheck: true, noEmit: true, types: [] };
       // Resolve the public ESM/types export in Backend scope; this package has no CommonJS main.
@@ -24,8 +25,11 @@ describe("Backend native MCP callback public SDK contract", () => {
 import { prepareBackendMcpExtensions, type BackendMcpOwnerServices } from ${JSON.stringify(extensionsPath)};
 import { createBackendMcpCredentials, type BackendMcpOAuthState } from ${JSON.stringify(credentialsPath)};
 import { createBackendMcpCredentialOwner } from ${JSON.stringify(credentialOwnerPath)};
+import { createBackendMcpPrivateStorageCheck, assertMcpStoragePermissions } from ${JSON.stringify(privateStoragePath)};
 import type { DefaultResourceLoader, ExtensionContext, LoadedMcpConfig, McpExtensionOptions, McpServerEntry } from "@earendil-works/pi-coding-agent";
-const owner = createBackendMcpCredentialOwner({ agentDir: "owner", assertOwner: (identity) => {}, assertPrivateStorage: (location) => {} });
+const checkStorage = createBackendMcpPrivateStorageCheck({ agentDir: "owner" });
+const owner = createBackendMcpCredentialOwner({ agentDir: "owner", assertOwner: (identity) => {}, assertPrivateStorage: checkStorage });
+assertMcpStoragePermissions({ platform: "linux", currentUid: 1000, fsType: 0xef53, directory: { uid: 1000, mode: 0o700 }, file: null });
 const credentials = createBackendMcpCredentials(owner);
 // @ts-expect-error Storage permission attestation is mandatory.
 createBackendMcpCredentialOwner({ agentDir: "owner", assertOwner: (identity) => {} });
