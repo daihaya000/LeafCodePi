@@ -1,7 +1,8 @@
 import type { ExtensionFactory, McpExtensionOptions } from "@earendil-works/pi-coding-agent";
 import type { McpConfigLoaderIssue } from "./mcp-native-config-loader.mjs";
+import type { BackendMcpNativeCredentials } from "./mcp-native-credentials.mjs";
 export type BackendMcpOwnerServices = {
-  credentials: NonNullable<McpExtensionOptions["credentials"]>;
+  credentials: BackendMcpNativeCredentials;
   openUrl: NonNullable<McpExtensionOptions["openUrl"]>;
   updateConfig: NonNullable<McpExtensionOptions["updateConfig"]>;
 } & Pick<McpExtensionOptions, "createTransport" | "startupWaitMs">;

@@ -11,6 +11,7 @@ describe("Backend native MCP callback public SDK contract", () => {
     try {
       const modulePath = fileURLToPath(new URL("../../../../backend/core/mcp-native-config-loader.mjs", import.meta.url));
       const extensionsPath = fileURLToPath(new URL("../../../../backend/core/mcp-native-extensions.mjs", import.meta.url));
+      const credentialsPath = fileURLToPath(new URL("../../../../backend/core/mcp-native-credentials.mjs", import.meta.url));
       const compilerOptions: ts.CompilerOptions = { module: ts.ModuleKind.NodeNext, moduleResolution: ts.ModuleResolutionKind.NodeNext,
         target: ts.ScriptTarget.ES2022, strict: true, skipLibCheck: true, noEmit: true, types: [] };
       // Resolve the public ESM/types export in Backend scope; this package has no CommonJS main.
@@ -20,8 +21,19 @@ describe("Backend native MCP callback public SDK contract", () => {
       const probe = join(root, "probe.mts");
       writeFileSync(probe, `import { prepareBackendMcpConfigLoader } from ${JSON.stringify(modulePath)};
 import { prepareBackendMcpExtensions, type BackendMcpOwnerServices } from ${JSON.stringify(extensionsPath)};
+import { createBackendMcpCredentials, type BackendMcpOAuthState } from ${JSON.stringify(credentialsPath)};
 import type { DefaultResourceLoader, ExtensionContext, LoadedMcpConfig, McpExtensionOptions, McpServerEntry } from "@earendil-works/pi-coding-agent";
-declare const credentials: NonNullable<McpExtensionOptions["credentials"]>;
+const credentials = createBackendMcpCredentials({
+  assertOwner: (identity) => {}, readState: (identity) => undefined,
+  writeState: (identity, state) => {}, removeState: (identity) => false,
+  withRefreshLock: async (identity, work) => work()
+});
+const serverStore: ReturnType<NonNullable<McpExtensionOptions["credentials"]>["forServer"]> = credentials.forServer("fixture", "https://example.invalid");
+const nativeState: BackendMcpOAuthState = { serverUrl: "https://example.invalid", tokens: { access_token: "fixture", token_type: "Bearer" } };
+serverStore.save(nativeState);
+const storedTokens: ReturnType<NonNullable<McpExtensionOptions["credentials"]>["tokens"]> = credentials.tokens("fixture", "https://example.invalid");
+// @ts-expect-error Structural boundary is intentionally NOT the SDK's unexported concrete class.
+const concreteCredentials: NonNullable<McpExtensionOptions["credentials"]> = credentials;
 const services: BackendMcpOwnerServices = { credentials, openUrl: (url) => {}, updateConfig: (entry, patch) => {} };
 const extensions = await prepareBackendMcpExtensions({ agentDir: "owner", bundledConfigPath: "bundle", mcp: services });
 if (extensions.ok) {
