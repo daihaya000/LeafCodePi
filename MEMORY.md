@@ -22,6 +22,18 @@ Updated: 2026-10-02
 - **Root cause**: `backendRuntimeSourceStamp` roots were `[entry.ts, CORE, SHARED]` only — harness changes did not change the stamp hash.
 - **Fix**: `scripts/build-backend-runtime.mjs` stamps `[WEB_SRC, CORE, SHARED]` so any Web source pulled into the bundle invalidates reuse.
 
+## Stamp / reuse-gate audit (2026-10-02)
+
+Similar under-fingerprinting survey after the runtime-stamp fix. Ranked leftovers:
+
+1. **Defect (residual)**: `backendRuntimeSourceStamp` still omits inlined `node_modules` (+ `package-lock.json`). esbuild metafile for the runtime entry has 816 inputs; first-party roots cover all non-`node_modules` paths (`outsideRoots: []`), but inlined packages include `yaml`, `undici`, `typebox`, `jiti`, `@bufbuild/protobuf`, `@rahularya01/pi-cursor`. Stamp only hashes WEB_SRC+CORE+SHARED + web/backend `package.json` size/mtime — lockfile-only or node_modules refreshes can reuse a stale bundle.
+2. **Defect**: `ensureExtensionDependencies` (`scripts/build-web.mjs` ~206) skips `npm ci` when each declared dependency folder exists — no lock/package fingerprint (unlike `ensureBuildDependencies`).
+3. **Test gap**: `scripts/build-backend-runtime.test.mjs` injects custom roots; does not regress that default roots are `WEB_SRC` (not entry-only) or that `harness.ts` invalidates the stamp.
+4. **Latent**: stamp ignores `scripts/build-backend-runtime.mjs` itself (banner/alias/external changes).
+5. **Latent**: `isWebBuildStale` extension allowlist omits image/font types; currently only `.svg` assets under `public/` (watched). Safe today.
+6. **Safe**: web mirror `isUpToDate` (size/mtime then byte compare); build-deps stamp (package.json+lock+Node); `isWebBuildStale` watches `src`/`public`/`shared`/`backend/core` (+ configs); computer-use `copyIfChanged` content hash.
+7. **Docs**: MEMORY describes the fix correctly; no doc still claiming entry-only stamp coverage.
+
 ## Message revert failure with Goal Loop (resolved)
 
 - **Symptom**: UI shows `巻き戻しに失敗しました` while Goal Loop badge (`ループ 1`) is visible; task often looks idle after `Request was aborted`.
