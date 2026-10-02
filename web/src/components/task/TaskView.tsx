@@ -2365,7 +2365,11 @@ export const TaskView = memo(function TaskView({
         );
       }
       setError(isUnconfirmedPromptDelivery(err)
-        ? `送信結果を確認できません。再送前に履歴を確認してください（${"reason" in err && typeof err.reason === "string" ? err.reason : "unknown"}）`
+        ? `送信結果を確認できません。再送前に履歴を確認してください（${
+            typeof err === "object" && err !== null && "reason" in err && typeof err.reason === "string"
+              ? err.reason
+              : "unknown"
+          }）`
         : err instanceof Error ? err.message : "送信に失敗しました");
     } finally {
       setSubmitting(false);

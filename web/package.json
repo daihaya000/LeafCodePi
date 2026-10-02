@@ -11,8 +11,8 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@earendil-works/pi-ai": "0.99.2",
-    "@earendil-works/pi-coding-agent": "0.99.2",
+    "@earendil-works/pi-ai": "1.0.0",
+    "@earendil-works/pi-coding-agent": "1.0.0",
     "@rahularya01/pi-cursor": "^1.4.34",
     "better-sqlite3": "^12.9.0",
     "lucide-react": "^1.24.0",
