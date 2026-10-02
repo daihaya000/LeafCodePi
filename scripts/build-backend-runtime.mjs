@@ -65,11 +65,18 @@ function collectSourceFiles(dir, files = []) {
  * Include all of `web/src` (not just the entry file): the entry re-exports harness and
  * store modules via `@/`, so a harness-only change must invalidate the stamp or Host
  * will keep reusing a stale `runtime.bundle.mjs` after restart.
+ *
+ * Also stamp lockfiles (inlined deps like undici/yaml resolve from them), and this
+ * build script itself (banner / aliases / externals), so Host cannot reuse after those
+ * change without a content rebuild.
  */
 export function backendRuntimeSourceStamp({
   roots = [WEB_SRC, CORE, SHARED],
   webPackage = join(ROOT, "web", "package.json"),
   backendPackage = join(ROOT, "backend", "package.json"),
+  webLock = join(ROOT, "web", "package-lock.json"),
+  backendLock = join(ROOT, "backend", "package-lock.json"),
+  buildScript = HERE,
 } = {}) {
   const hash = createHash("sha1");
   const files = new Set();
@@ -79,7 +86,7 @@ export function backendRuntimeSourceStamp({
       else files.add(root);
     } catch { /* missing optional root */ }
   }
-  for (const manifest of [webPackage, backendPackage]) {
+  for (const manifest of [webPackage, backendPackage, webLock, backendLock, buildScript]) {
     if (existsSync(manifest)) files.add(manifest);
   }
   for (const file of [...files].sort()) {

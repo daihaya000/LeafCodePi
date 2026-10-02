@@ -131,7 +131,10 @@ export function isWebBuildStale(webDir, distDir, fsApi = {}) {
   ];
   for (const root of watchedRoots) {
     if (!existsSync(root)) continue;
-    if (hasNewerFile(root, buildMtimeMs, distDir, { existsSync, statSync, readdirSync })) {
+    // public/ is copied as static assets: watch every file type so a new .png/.woff2
+    // cannot leave a stale .next serving the previous asset set.
+    const watchAllFiles = resolve(root) === resolve(join(webDir, "public"));
+    if (hasNewerFile(root, buildMtimeMs, distDir, { existsSync, statSync, readdirSync }, { watchAllFiles })) {
       return true;
     }
   }
@@ -141,7 +144,7 @@ export function isWebBuildStale(webDir, distDir, fsApi = {}) {
   return false;
 }
 
-function hasNewerFile(dir, buildMtimeMs, distDir, fsApi) {
+function hasNewerFile(dir, buildMtimeMs, distDir, fsApi, options = {}) {
   let entries;
   try {
     entries = fsApi.readdirSync(dir);
@@ -160,16 +163,18 @@ function hasNewerFile(dir, buildMtimeMs, distDir, fsApi) {
       continue;
     }
     if (st.isDirectory()) {
-      if (hasNewerFile(path, buildMtimeMs, distDir, fsApi)) return true;
+      if (hasNewerFile(path, buildMtimeMs, distDir, fsApi, options)) return true;
       continue;
     }
     if (!st.isFile()) continue;
     // テストは本番バンドルに含まれないため、変更で .next を無効化しない。
     if (/\.(test|spec)\.[^.]+$/i.test(name)) continue;
-    const dot = name.lastIndexOf(".");
-    if (dot < 0) continue;
-    const ext = name.slice(dot).toLowerCase();
-    if (!WATCHED_EXTENSIONS.has(ext)) continue;
+    if (!options.watchAllFiles) {
+      const dot = name.lastIndexOf(".");
+      if (dot < 0) continue;
+      const ext = name.slice(dot).toLowerCase();
+      if (!WATCHED_EXTENSIONS.has(ext)) continue;
+    }
     if (st.mtimeMs > buildMtimeMs) return true;
   }
   return false;

@@ -22,17 +22,16 @@ Updated: 2026-10-02
 - **Root cause**: `backendRuntimeSourceStamp` roots were `[entry.ts, CORE, SHARED]` only — harness changes did not change the stamp hash.
 - **Fix**: `scripts/build-backend-runtime.mjs` stamps `[WEB_SRC, CORE, SHARED]` so any Web source pulled into the bundle invalidates reuse.
 
-## Stamp / reuse-gate audit (2026-10-02)
+## Stamp / reuse-gate audit + prevention (2026-10-02, resolved)
 
-Similar under-fingerprinting survey after the runtime-stamp fix. Ranked leftovers:
+Similar under-fingerprinting survey after the runtime-stamp fix. Fixed leftovers:
 
-1. **Defect (residual)**: `backendRuntimeSourceStamp` still omits inlined `node_modules` (+ `package-lock.json`). esbuild metafile for the runtime entry has 816 inputs; first-party roots cover all non-`node_modules` paths (`outsideRoots: []`), but inlined packages include `yaml`, `undici`, `typebox`, `jiti`, `@bufbuild/protobuf`, `@rahularya01/pi-cursor`. Stamp only hashes WEB_SRC+CORE+SHARED + web/backend `package.json` size/mtime — lockfile-only or node_modules refreshes can reuse a stale bundle.
-2. **Defect**: `ensureExtensionDependencies` (`scripts/build-web.mjs` ~206) skips `npm ci` when each declared dependency folder exists — no lock/package fingerprint (unlike `ensureBuildDependencies`).
-3. **Test gap**: `scripts/build-backend-runtime.test.mjs` injects custom roots; does not regress that default roots are `WEB_SRC` (not entry-only) or that `harness.ts` invalidates the stamp.
-4. **Latent**: stamp ignores `scripts/build-backend-runtime.mjs` itself (banner/alias/external changes).
-5. **Latent**: `isWebBuildStale` extension allowlist omits image/font types; currently only `.svg` assets under `public/` (watched). Safe today.
-6. **Safe**: web mirror `isUpToDate` (size/mtime then byte compare); build-deps stamp (package.json+lock+Node); `isWebBuildStale` watches `src`/`public`/`shared`/`backend/core` (+ configs); computer-use `copyIfChanged` content hash.
-7. **Docs**: MEMORY describes the fix correctly; no doc still claiming entry-only stamp coverage.
+1. **Runtime stamp**: also fingerprints web/backend `package-lock.json` and `scripts/build-backend-runtime.mjs` itself (inlined deps + banner/alias/externals).
+2. **Extension deps**: `ensureExtensionDependencies` now uses `.leafcode-pi-build-deps` (package.json+lock+Node), same class as `ensureBuildDependencies` — lock-only updates re-run `npm ci`.
+3. **Regression tests**: default stamp covers `harness.ts` (broader than entry-only); lock/build-script invalidate; extension stale-fingerprint reinstall; `isWebBuildStale` watches every file under `public/`.
+4. **Web stale gate**: `public/` uses `watchAllFiles` so `.png`/`.woff2` etc. invalidate `.next` (src still uses the extension allowlist).
+
+Still safe / intentional: web mirror byte-compare; build-deps stamp; extensions excluded from `.next` stale (runtime-loaded).
 
 ## Message revert failure with Goal Loop (resolved)
 

@@ -181,10 +181,25 @@ export function ensureBuildDependencies(mirrorRoot, { install = spawnSync } = {}
 }
 
 /**
+ * Fingerprint for an extension install: package.json + lock + Node identity.
+ * Existence of node_modules alone is not enough — lock updates must re-run npm ci.
+ */
+export function extensionDependencyFingerprint(extensionDir) {
+  return createHash("sha256")
+    .update(JSON.stringify([
+      readFileSync(join(extensionDir, "package.json"), "utf8").replace(/^\uFEFF/, ""),
+      readFileSync(join(extensionDir, "package-lock.json"), "utf8"),
+      process.version, process.platform, process.arch,
+    ]))
+    .digest("hex");
+}
+
+/**
  * The WebUI loads bundled extensions straight from the repository, but setup
  * installs only web/ and host/. Install each extension's locked dependencies
- * when one is missing; otherwise a fresh clone silently loses tools such as
- * web_search. A failure is logged and the WebUI starts without those tools.
+ * when the fingerprint is missing/stale or a declared package is absent; otherwise
+ * a fresh clone (or lock-only update) silently loses tools such as web_search.
+ * A failure is logged and the WebUI starts without those tools.
  */
 export function ensureExtensionDependencies(extensionsDir = join(REPO_ROOT, "extensions"), { install = spawnSync } = {}) {
   let entries;
@@ -198,12 +213,23 @@ export function ensureExtensionDependencies(extensionsDir = join(REPO_ROOT, "ext
     const dir = join(extensionsDir, entry.name);
     if (!entry.isDirectory() || !existsSync(join(dir, "package-lock.json"))) continue;
     let dependencies;
+    let fingerprint;
     try {
-      dependencies = Object.keys(JSON.parse(readFileSync(join(dir, "package.json"), "utf8").replace(/^\uFEFF/, "")).dependencies ?? {});
+      const packageJson = readFileSync(join(dir, "package.json"), "utf8").replace(/^\uFEFF/, "");
+      dependencies = Object.keys(JSON.parse(packageJson).dependencies ?? {});
+      fingerprint = extensionDependencyFingerprint(dir);
     } catch {
       continue;
     }
-    if (dependencies.every((name) => existsSync(join(dir, "node_modules", name, "package.json")))) continue;
+    const stamp = join(dir, "node_modules", ".leafcode-pi-build-deps");
+    const packagesPresent = dependencies.every((name) => existsSync(join(dir, "node_modules", name, "package.json")));
+    let stampMatches = false;
+    try {
+      stampMatches = readFileSync(stamp, "utf8") === fingerprint;
+    } catch {
+      stampMatches = false;
+    }
+    if (packagesPresent && stampMatches) continue;
     console.error(`[build-web] installing extension dependencies in ${dir}`);
     const result = install(process.platform === "win32" ? "npm.cmd" : "npm",
       ["ci", "--include=dev", "--no-audit", "--no-fund"], {
@@ -215,6 +241,12 @@ export function ensureExtensionDependencies(extensionsDir = join(REPO_ROOT, "ext
     if (result.error || result.status !== 0) {
       console.error(`[build-web] npm ci failed in ${dir} (${result.error?.message ?? `exit ${result.status}`}); its tools stay unavailable`);
       continue;
+    }
+    try {
+      mkdirSync(join(dir, "node_modules"), { recursive: true });
+      writeFileSync(stamp, fingerprint, "utf8");
+    } catch (error) {
+      console.error(`[build-web] could not write extension deps stamp in ${dir} (${error instanceof Error ? error.message : String(error)})`);
     }
     installed.push(entry.name);
   }
