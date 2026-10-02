@@ -15,6 +15,7 @@ describe("Backend native MCP callback public SDK contract", () => {
       const credentialOwnerPath = fileURLToPath(new URL("../../../../backend/core/mcp-native-credential-owner.mjs", import.meta.url));
       const privateStoragePath = fileURLToPath(new URL("../../../../backend/core/mcp-private-storage.mjs", import.meta.url));
       const oauthStatusPath = fileURLToPath(new URL("../../../../backend/core/mcp-native-oauth-status.mjs", import.meta.url));
+      const authorityPath = fileURLToPath(new URL("../../../../backend/core/mcp-native-credential-authority.mjs", import.meta.url));
       const compilerOptions: ts.CompilerOptions = { module: ts.ModuleKind.NodeNext, moduleResolution: ts.ModuleResolutionKind.NodeNext,
         target: ts.ScriptTarget.ES2022, strict: true, skipLibCheck: true, noEmit: true, types: [] };
       // Resolve the public ESM/types export in Backend scope; this package has no CommonJS main.
@@ -28,6 +29,7 @@ import { createBackendMcpCredentials, type BackendMcpOAuthState } from ${JSON.st
 import { createBackendMcpCredentialOwner } from ${JSON.stringify(credentialOwnerPath)};
 import { createBackendMcpPrivateStorageCheck, assertMcpStoragePermissions } from ${JSON.stringify(privateStoragePath)};
 import { createBackendMcpOAuthStatusReader, type BackendMcpOAuthStatus } from ${JSON.stringify(oauthStatusPath)};
+import { createBackendMcpCredentialAuthority } from ${JSON.stringify(authorityPath)};
 import type { DefaultResourceLoader, ExtensionContext, LoadedMcpConfig, McpExtensionOptions, McpServerEntry } from "@earendil-works/pi-coding-agent";
 const checkStorage = createBackendMcpPrivateStorageCheck({ agentDir: "owner" });
 const owner = createBackendMcpCredentialOwner({ agentDir: "owner", assertOwner: (identity) => {}, assertPrivateStorage: checkStorage });
@@ -60,6 +62,13 @@ if (extensions.ok) {
 const missing: BackendMcpOwnerServices = {};
 const prepared = await prepareBackendMcpConfigLoader({ agentDir: "owner", bundledConfigPath: "bundle", urlVariables: { URL: "value" } });
 if (prepared.ok) {
+  const authority = createBackendMcpCredentialAuthority({ agentDir: "owner", bundledConfigPath: "bundle", prepared, assertRuntimeOwner: () => {} });
+  const scopedOwner = createBackendMcpCredentialOwner({ agentDir: "owner", assertOwner: authority, assertPrivateStorage: checkStorage });
+  authority({ namespace: "mcp__fixture", serverUrl: "https://example.invalid/" });
+  // @ts-expect-error Runtime lease assertion is mandatory.
+  createBackendMcpCredentialAuthority({ agentDir: "owner", bundledConfigPath: "bundle", prepared });
+  // @ts-expect-error Caller server names are not canonical credential identities.
+  authority({ name: "fixture", serverUrl: "https://example.invalid/" });
   const options: McpExtensionOptions = { loadConfig: prepared.loadConfig };
   const loaded: LoadedMcpConfig = options.loadConfig!({} as ExtensionContext);
   const entries: McpServerEntry[] = loaded.servers;
