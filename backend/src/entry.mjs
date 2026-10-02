@@ -2,6 +2,7 @@ import { runtimeGenerationStatus } from "../../shared/backend-generation.mjs";
 import { DEFAULT_BACKEND_PORT } from "../../shared/backend-protocol.mjs";
 import { readPendingRequestSnapshots } from "./pending-requests.mjs";
 import { readMcpMigrationDiagnostics } from "./mcp-migration-diagnostics.mjs";
+import { createNativeMcpStartup } from "./mcp-native-activation.mjs";
 import { createRuntimeHost } from "./runtime-host.mjs";
 import { createResumePrompt } from "./restart-resume-prompt.mjs";
 import { DEFAULT_RUNTIME_BUNDLE, loadBackendRuntime } from "./runtime-loader.mjs";
@@ -64,6 +65,9 @@ try {
   }
   const port = rawPort === undefined ? DEFAULT_BACKEND_PORT : Number(rawPort);
   const runtimeRequested = isRuntimeRequested();
+  // Opt-in native MCP: only meaningful with an attached runtime, and never a fallback path. The
+  // bundled adapter stays authoritative while the flag is unset, so the two never run together.
+  const initializeNativeMcp = createNativeMcpStartup({ runtimeRequested });
   const started = createBackendStartup({
     // Only the host may attach the runtime: the Web process still owns the SDK unless it is asked
     // to hand over, and two owners would double-write the store, leases and sessions.
@@ -76,6 +80,9 @@ try {
           // Restart resume prompts a session, which only the attached runtime can do; the lookup is
           // late-bound because the attach runs before the reconciliation that offers orphaned tasks.
           promptTask: createResumePrompt({ getRuntime: () => started.runtime() }),
+          // The provider must be installed inside the bundle's own module instance, so it is built
+          // from the attached runtime module rather than imported here.
+          ...(initializeNativeMcp ? { initializeRuntime: initializeNativeMcp } : {}),
         }
       : {}),
   });
