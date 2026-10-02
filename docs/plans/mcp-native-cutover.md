@@ -101,6 +101,10 @@ blendermcp は native の stdio transport で実接続し 26 の直接ツール�
    既存の Authorization ヘッダとの衝突は `conflicting-authorization-header` で拒否する。
    同梱 n8n プリセット（bearer）はこれで通る。adapter 固有の秘密ストア
    （`bearerTokenStore` / `headersStore` / `requestHeadersCommand`）は native に等価物がなく未対応のまま。
+5. ~~legacy `oauth.scopes`~~（一部解決: 2026-10-03）
+   配列の `scopes` は native の単一 `scope`（空白区切り）へ変換する。
+   `oauth.authorizationParams` は SDK が OAuth フローを所有するため等価物がなく、`unsupported-oauth-authorization-params` で拒否する
+   （google-workspace プリセットは native 非対応。UI からの追加は native 切替後に再設計が必要）。
 
 ## 切替手順（承認後）
 

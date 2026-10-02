@@ -103,6 +103,23 @@ export function planMcpConfigMigration(userConfig, bundledConfig = { mcpServers:
       delete entry.httpTransport;
     }
     if (entry.type === "sse") issue("unsupported-transport", "type", name);
+    // Legacy OAuth client settings: `scopes` is the adapter's array, native takes one space-separated
+    // `scope`. `authorizationParams` has no native equivalent (the SDK owns the flow), so it refuses
+    // instead of silently dropping behavior the caller asked for.
+    if (own(entry, "oauth") && record(entry.oauth)) {
+      const oauth = entry.oauth;
+      if (own(oauth, "scopes")) {
+        const scopes = oauth.scopes;
+        if (!Array.isArray(scopes) || scopes.length === 0 || scopes.some((scope) => typeof scope !== "string" || scope.length === 0)) {
+          issue("invalid-oauth-scopes", "oauth.scopes", name);
+        } else if (own(oauth, "scope")) issue("conflicting-oauth-scope", "oauth.scope", name);
+        else oauth.scope = scopes.join(" ");
+        delete oauth.scopes;
+      }
+      if (own(oauth, "authorizationParams") && record(oauth.authorizationParams) && Object.keys(oauth.authorizationParams).length > 0) {
+        issue("unsupported-oauth-authorization-params", "oauth.authorizationParams", name);
+      }
+    }
     if (entry.exposure === "codemode-deferred") entry.exposure = "codemode";
     if (record(entry.toolExposure)) {
       for (const [tool, exposure] of Object.entries(entry.toolExposure)) {

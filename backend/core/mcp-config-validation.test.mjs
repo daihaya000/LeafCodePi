@@ -3,10 +3,38 @@ import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
+import { planMcpConfigMigration } from "./mcp-config-migration.mjs";
 import { prepareMcpConfigMigration } from "./mcp-config-validation.mjs";
 
 const local = { command: "fixture-server", args: ["--mcp"] };
 const doc = (entry) => ({ mcpServers: { server: entry } });
+
+test("the shipped preset shapes migrate: n8n/slack/notion pass, google-workspace scopes convert and refuse", async () => {
+  // Exactly what web/src/lib/mcp.ts writes for each preset.
+  const presets = {
+    n8n: { url: "https://n8n.example.invalid/mcp-server/http", auth: "oauth", httpTransport: "streamable-http", protocolVersion: "auto" },
+    slack: { url: "https://mcp.slack.com/mcp", auth: "oauth", httpTransport: "streamable-http", protocolVersion: "auto", oauth: { clientId: "fixture-client-id" } },
+    notion: { url: "https://mcp.notion.com/mcp", auth: "oauth", protocolVersion: "auto" },
+    gws: { url: "https://gmail.googleapis.com/mcp/v1", auth: "oauth", httpTransport: "streamable-http", protocolVersion: "auto",
+      oauth: { clientId: "fixture-client-id", clientSecret: "fixture-client-secret", scopes: ["gmail.readonly", "gmail.send"], authorizationParams: { access_type: "offline" } } },
+  };
+  for (const name of ["n8n", "slack", "notion"]) {
+    const result = await prepareMcpConfigMigration({ mcpServers: { [name]: presets[name] } });
+    assert.equal(result.ok, true, `${name}: ${JSON.stringify(result.issues)}`);
+    assert.equal(Object.hasOwn(result.config.mcpServers[name], "auth"), false);
+  }
+  // Scopes convert to the SDK's single space-separated field; extra authorization params refuse.
+  const scopes = planMcpConfigMigration({ mcpServers: { gws: { ...presets.gws, oauth: { ...presets.gws.oauth, authorizationParams: undefined } } } });
+  assert.equal(scopes.ok, true);
+  assert.equal(scopes.config.mcpServers.gws.oauth.scope, "gmail.readonly gmail.send");
+  const refused = planMcpConfigMigration({ mcpServers: { gws: presets.gws } });
+  assert.equal(refused.ok, false);
+  assert.equal(refused.issues.some((issue) => issue.code === "unsupported-oauth-authorization-params"), true);
+  for (const oauth of [{ scopes: [] }, { scopes: [""] }, { scopes: [1] }, { scope: "a", scopes: ["b"] }]) {
+    const bad = planMcpConfigMigration({ mcpServers: { server: { url: "https://example.invalid/mcp", oauth } } });
+    assert.equal(bad.ok, false);
+  }
+});
 
 test("preflight composes conversion and actual SDK validation without mutating input", async () => {
   const input = { ...doc({ ...local, disabled: true, exposure: "codemode-deferred", env: { KEY: "!read-key" } }),
