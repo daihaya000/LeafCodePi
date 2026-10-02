@@ -21,6 +21,7 @@ describe("Backend native MCP callback public SDK contract", () => {
       const configUpdaterPath = fileURLToPath(new URL("../../../../backend/core/mcp-native-config-updater.mjs", import.meta.url));
       const configFileWriterPath = fileURLToPath(new URL("../../../../backend/core/mcp-native-config-file-writer.mjs", import.meta.url));
       const configRevisionPath = fileURLToPath(new URL("../../../../backend/core/mcp-native-config-revision.mjs", import.meta.url));
+      const configOwnerPath = fileURLToPath(new URL("../../../../backend/core/mcp-native-config-owner.mjs", import.meta.url));
       const compilerOptions: ts.CompilerOptions = { module: ts.ModuleKind.NodeNext, moduleResolution: ts.ModuleResolutionKind.NodeNext,
         target: ts.ScriptTarget.ES2022, strict: true, skipLibCheck: true, noEmit: true, types: [] };
       // Resolve the public ESM/types export in Backend scope; this package has no CommonJS main.
@@ -40,6 +41,7 @@ import { createBackendMcpWriteCoordinator } from ${JSON.stringify(writeCoordinat
 import { createBackendMcpConfigUpdater } from ${JSON.stringify(configUpdaterPath)};
 import { createBackendMcpConfigFileWriter } from ${JSON.stringify(configFileWriterPath)};
 import { createBackendMcpConfigRevisionCheck } from ${JSON.stringify(configRevisionPath)};
+import { createBackendMcpConfigOwner } from ${JSON.stringify(configOwnerPath)};
 import type { DefaultResourceLoader, ExtensionContext, LoadedMcpConfig, McpExtensionOptions, McpServerEntry } from "@earendil-works/pi-coding-agent";
 const checkStorage = createBackendMcpPrivateStorageCheck({ agentDir: "owner" });
 const owner = createBackendMcpCredentialOwner({ agentDir: "owner", assertOwner: (identity) => {}, assertPrivateStorage: checkStorage });
@@ -90,6 +92,17 @@ if (prepared.ok) {
   const checkConfigStorage = createBackendMcpConfigStorageCheck({ agentDir: "owner" });
   const fileWriter = createBackendMcpConfigFileWriter({ agentDir: "owner", bundledConfigPath: "bundle", assertPrivateStorage: checkConfigStorage });
   checkConfigStorage({ agentDir: "owner", configPath: "owner/mcp.json" });
+  const configOwner = createBackendMcpConfigOwner({ agentDir: "owner", bundledConfigPath: "bundle", assertProcessOwner: () => {}, assertPrivateStorage: checkConfigStorage });
+  const binding = await configOwner.prepare();
+  const ownerCallbacks: Pick<McpExtensionOptions, "loadConfig" | "updateConfig"> = binding;
+  const ownerPrepared: typeof prepared = binding.prepared;
+  const ownerWrite: Promise<number> = configOwner.runWrite((scope) => { scope.assertOwner(); return 42; });
+  const ownerDrain: Promise<void> = configOwner.drain();
+  configOwner.dispose();
+  // @ts-expect-error Owner authority/storage are explicit; no default backend or ACL bypass.
+  createBackendMcpConfigOwner({ agentDir: "owner", bundledConfigPath: "bundle" });
+  // @ts-expect-error Raw coordinator/generation are not exposed.
+  configOwner.beginGeneration();
   // @ts-expect-error Auth and config locations are not interchangeable.
   checkConfigStorage({ agentDir: "owner", credentialPath: "owner/mcp-auth.json" });
   const nativeUpdater: NonNullable<McpExtensionOptions["updateConfig"]> = createBackendMcpConfigUpdater({ ...updaterOptions, writeConfig: fileWriter });
