@@ -60,6 +60,8 @@ export const BACKEND_TASK_ADMIN_SUFFIX = "/admin";
 export const BACKEND_LIVE_SESSIONS_RELOAD_PATH = "/internal/live-sessions/reload";
 /** Backend-owned MCP migration dry-run only: GET, no parameters or apply operation. */
 export const BACKEND_MCP_MIGRATION_PATH = "/internal/mcp/migration";
+/** MCP ON/OFF: PATCH /internal/mcp/servers/:name with { enabled: boolean }. */
+export const BACKEND_MCP_SERVERS_PATH = "/internal/mcp/servers";
 /**
  * Compaction: `POST /internal/tasks/:id/compact` with `{ customInstructions? }`, and
  * `POST /internal/tasks/:id/compact/abort` to stop it. Compaction runs inside the owning session.

@@ -10,6 +10,7 @@ import {
   BACKEND_RUNTIME_EVENTS_PATH,
   BACKEND_LIVE_SESSIONS_RELOAD_PATH,
   BACKEND_MCP_MIGRATION_PATH,
+  BACKEND_MCP_SERVERS_PATH,
   BACKEND_BOT_ADMIN_SUFFIX,
   BACKEND_BOT_CODE_REQUESTS_SUFFIX,
   BACKEND_BOT_CODE_SESSIONS_SUFFIX,
@@ -205,6 +206,8 @@ export function createBackendServer({
   reloadLiveSessionsAction = null,
   /** Backend-owned MCP dry-run; no request arguments or configuration writes. */
   readMcpMigrationDiagnostics = null,
+  /** Changes a global MCP ON/OFF flag and schedules the owner's context reload. */
+  setMcpServerEnabledAction = null,
   /** Compacts a session: `(id, customInstructions?) => task`; the summarization runs in the owner. */
   compactTaskAction = null,
   /** Stops a running compaction: `(id) => task`; only the owner can interrupt its own session. */
@@ -267,6 +270,7 @@ export function createBackendServer({
     botAdminAction,
     reloadLiveSessionsAction,
     readMcpMigrationDiagnostics,
+    setMcpServerEnabledAction,
     compactTaskAction,
     abortCompactTaskAction,
     setTaskModelAction,
@@ -382,6 +386,7 @@ export function createBackendServer({
       || target.pathname === BACKEND_RUNTIME_EVENTS_PATH
       || target.pathname === BACKEND_LIVE_SESSIONS_RELOAD_PATH
       || target.pathname === BACKEND_MCP_MIGRATION_PATH
+      || target.pathname.startsWith(`${BACKEND_MCP_SERVERS_PATH}/`)
       || projectActionPath !== undefined
       || botAdminPath !== undefined
       || target.pathname === BACKEND_PENDING_SNAPSHOTS_PATH
@@ -398,6 +403,38 @@ export function createBackendServer({
       || actionPath !== undefined;
     if (!knownPath) {
       sendJson(response, 404, { error: "Not found", code: BACKEND_ERROR_CODES.notFound });
+      return;
+    }
+    if (target.pathname.startsWith(`${BACKEND_MCP_SERVERS_PATH}/`)) {
+      if (request.method !== "PATCH") {
+        sendJson(response, 405, { error: "Method not allowed", code: BACKEND_ERROR_CODES.methodNotAllowed }, { Allow: "PATCH" });
+        return;
+      }
+      let name;
+      try { name = decodeURIComponent(target.pathname.slice(BACKEND_MCP_SERVERS_PATH.length + 1)).trim(); }
+      catch { sendJson(response, 400, { error: "Invalid MCP server name", code: BACKEND_ERROR_CODES.badRequest }); return; }
+      if (!name || name.includes("/") || name.includes("\\") || name.includes("..") || target.search) {
+        sendJson(response, 400, { error: "Invalid MCP setting request", code: BACKEND_ERROR_CODES.badRequest });
+        return;
+      }
+      let ready = false;
+      try { ready = isReady() === true; } catch { /* Refuse without exception detail. */ }
+      if (!setMcpServerEnabledAction || !ready) {
+        sendJson(response, 503, { error: "Backend runtime unavailable", code: BACKEND_ERROR_CODES.runtimeUnavailable });
+        return;
+      }
+      const body = await readJsonBody(request, 4096);
+      if (!body.ok || !body.value || typeof body.value !== "object" || Array.isArray(body.value)
+        || typeof body.value.enabled !== "boolean" || Object.keys(body.value).some((key) => key !== "enabled")) {
+        sendJson(response, 400, { error: "Invalid MCP setting request", code: BACKEND_ERROR_CODES.badRequest });
+        return;
+      }
+      try { sendJson(response, 200, await setMcpServerEnabledAction(name, body.value.enabled)); }
+      catch (error) {
+        const status = [400, 404, 409, 503].includes(error?.status) ? error.status : 500;
+        sendJson(response, status, { error: "Backend MCP setting update failed",
+          code: status === 404 ? BACKEND_ERROR_CODES.notFound : status < 500 ? BACKEND_ERROR_CODES.badRequest : BACKEND_ERROR_CODES.internal });
+      }
       return;
     }
     if (target.pathname === BACKEND_MCP_MIGRATION_PATH) {

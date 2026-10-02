@@ -90,6 +90,22 @@ try {
     readPendingSnapshots: () => readPendingRequestSnapshots(started.runtime()),
     // Read-only and useful even before runtime attachment; apply remains unavailable.
     readMcpMigrationDiagnostics: () => readMcpMigrationDiagnostics(),
+    setMcpServerEnabledAction: (name, enabled) => {
+      const runtime = started.runtime();
+      if (!runtime) throw Object.assign(new Error("runtime unavailable"), { status: 503 });
+      try {
+        const listed = runtime.setMcpServerEnabled(name, enabled);
+        // Persist and respond first; the owner alone rebuilds its live sessions.
+        setImmediate(() => {
+          void Promise.resolve().then(() => runtime.reloadLiveSessionsContext()).catch(() => {
+            console.warn("[mcp] Backend live session context reload failed");
+          });
+        });
+        return { ok: true, name, enabled, servers: listed.servers };
+      } catch (error) {
+        throw Object.assign(new Error("Backend MCP setting update failed"), { status: runtime.mcpErrorStatus(error) });
+      }
+    },
     // Attention is the owner's in-memory view; a detached Backend has none, which is honest.
     subscribeRuntimeEvents: (listener) => {
       const runtime = started.runtime();

@@ -17,6 +17,7 @@ import {
   BACKEND_BOT_CODE_SESSIONS_SUFFIX,
   BACKEND_BOT_ADMIN_SUFFIX,
   BACKEND_LIVE_SESSIONS_RELOAD_PATH,
+  BACKEND_MCP_SERVERS_PATH,
   BACKEND_BOT_REVERT_SUFFIX,
   BACKEND_BOT_ROUTINES_SEGMENT,
   BACKEND_BOTS_PATH,
@@ -49,6 +50,8 @@ import {
   BACKEND_TASKS_PATH,
   DEFAULT_BACKEND_PORT,
 } from "@shared/backend-protocol.mjs";
+
+import type { McpDto } from "@/lib/mcp";
 
 export const BACKEND_REQUEST_TIMEOUT_MS = 10_000;
 
@@ -166,6 +169,19 @@ async function backendRequest<T>(
   } finally {
     clearTimeout(timer);
   }
+}
+
+export type BackendMcpEnabledResult = { ok: true; name: string; enabled: boolean; servers: McpDto[] };
+
+/** Writes MCP ON/OFF only in the owner. No local fallback or path/config arguments. */
+export function setMcpServerEnabledOnBackend(
+  name: string,
+  enabled: boolean,
+  options: { env?: BackendEnv; fetchImpl?: typeof fetch; timeoutMs?: number } = {},
+): Promise<BackendResult<BackendMcpEnabledResult>> {
+  return backendRequest(`${BACKEND_MCP_SERVERS_PATH}/${encodeURIComponent(name)}`, {
+    ...options, method: "PATCH", body: { enabled },
+  });
 }
 
 /** Read owner-scoped state without opening or driving a session. */
