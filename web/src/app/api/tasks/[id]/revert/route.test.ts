@@ -63,6 +63,17 @@ describe("POST /api/tasks/[id]/revert", () => {
     const missing = await POST(request({ entryId: "entry-1" }), params);
     expect(missing.status).toBe(404);
     await expect(missing.json()).resolves.toEqual({ error: "巻き戻しに失敗しました" });
+    mocks.forwardTaskRevert.mockResolvedValue({
+      ok: false,
+      reason: "bad-response",
+      status: 409,
+      error: "セッションの操作中です。完了してから再試行してください",
+    });
+    const busy = await POST(request({ entryId: "entry-1" }), params);
+    expect(busy.status).toBe(409);
+    await expect(busy.json()).resolves.toEqual({
+      error: "セッションの操作中です。完了してから再試行してください",
+    });
     mocks.forwardTaskRevert.mockResolvedValue({ ok: false, reason: "unreachable" });
     expect((await POST(request({ entryId: "entry-1" }), params)).status).toBe(502);
     expect(mocks.revertTask).not.toHaveBeenCalled();

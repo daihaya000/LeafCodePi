@@ -18,6 +18,7 @@ import { hasActiveTaskLease } from "./task-runtime-lease";
  */
 
 export type AccountProviderId =
+  | "openai"
   | "openai-codex"
   | "anthropic"
   | "ollama-cloud"
@@ -29,6 +30,7 @@ export type AccountProviderId =
   | "orcarouter";
 
 export const ACCOUNT_PROVIDER_IDS: readonly AccountProviderId[] = [
+  "openai",
   "openai-codex",
   "anthropic",
   "ollama-cloud",

@@ -76,6 +76,8 @@ const COLLAPSED_WIDTH = 80;
 const MIN_WIDTH = 180;
 const MAX_WIDTH = 480;
 const POLL_IDLE_MS = 12_000;
+/** When Backend task_dirty is attached, idle sidebar polls can stretch. */
+const DIRTY_IDLE_POLL_MS = 20_000;
 const POLL_WORKING_MS = 4_000;
 const PROJECT_DRAG_MIME = "application/x-leafcode-project";
 const HOVER_QUERY = "(hover: hover)";
@@ -1589,9 +1591,57 @@ const SidebarView = memo(function SidebarView({
   }, []);
 
   useEffect(() => {
-    const intervalMs = pageVisible && hasWorking ? POLL_WORKING_MS : POLL_IDLE_MS;
-    const timer = setInterval(() => void refresh(!pageVisible), intervalMs);
-    return () => clearInterval(timer);
+    let closed = false;
+    let dirtyAttached = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    let dirtySource: EventSource | null = null;
+
+    const schedule = () => {
+      if (closed) return;
+      if (timer) clearTimeout(timer);
+      const intervalMs = pageVisible && hasWorking
+        ? POLL_WORKING_MS
+        : dirtyAttached
+          ? DIRTY_IDLE_POLL_MS
+          : POLL_IDLE_MS;
+      timer = setTimeout(() => {
+        void refresh(!pageVisible).finally(schedule);
+      }, intervalMs);
+    };
+
+    const wakeFromDirty = () => {
+      if (closed || document.visibilityState === "hidden") return;
+      if (timer) clearTimeout(timer);
+      timer = null;
+      // Full refresh so status / working set changes land without waiting for the idle interval.
+      void refresh(false).finally(schedule);
+    };
+
+    // Cutover: Backend task_dirty wakes the sidebar; safety-net poll stretches when attached.
+    if (typeof EventSource !== "undefined") {
+      try {
+        dirtySource = new EventSource(`/api/bots/events?epoch=${Date.now()}`);
+        dirtySource.addEventListener("task_dirty", wakeFromDirty);
+        dirtySource.onopen = () => {
+          dirtyAttached = true;
+        };
+        dirtySource.onerror = () => {
+          dirtyAttached = false;
+        };
+      } catch {
+        dirtySource = null;
+      }
+    }
+
+    schedule();
+    return () => {
+      closed = true;
+      if (timer) clearTimeout(timer);
+      if (dirtySource) {
+        dirtySource.removeEventListener("task_dirty", wakeFromDirty);
+        dirtySource.close();
+      }
+    };
   }, [refresh, hasWorking, pageVisible]);
 
   useEffect(() => {

@@ -94,7 +94,7 @@ test("isWebBuildStale skips node_modules, dotfiles, and ignored extensions", () 
       [path("src", "README.md")]: 5000, // not a watched extension
       [path("src", ".env")]: 5000, // dotfile
       [path("node_modules", "x.js")]: 5000, // node_modules
-      [path("src", "logo.png")]: 5000, // not a watched extension
+      [path("src", "logo.png")]: 5000, // not a watched extension under src/
     },
     dirs: {
       [WEB_DIR]: ["src", "node_modules", ".next"],
@@ -104,6 +104,21 @@ test("isWebBuildStale skips node_modules, dotfiles, and ignored extensions", () 
     },
   });
   assert.equal(isWebBuildStale(WEB_DIR, DIST_DIR, fs), false);
+});
+
+test("isWebBuildStale watches every file under public/", () => {
+  const fs = fakeFs({
+    files: {
+      [join(DIST_DIR, "BUILD_ID")]: 1000,
+      [path("public", "brand.png")]: 5000,
+    },
+    dirs: {
+      [WEB_DIR]: ["public", ".next"],
+      [path("public")]: ["brand.png"],
+      [DIST_DIR]: ["BUILD_ID"],
+    },
+  });
+  assert.equal(isWebBuildStale(WEB_DIR, DIST_DIR, fs), true);
 });
 
 test("isWebBuildStale ignores test-only changes", () => {

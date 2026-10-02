@@ -27,6 +27,7 @@ import {
   discardPreviousBuild,
   ensureBuildDependencies,
   ensureExtensionDependencies,
+  extensionDependencyFingerprint,
   handOffToServedWebUi,
   hostControlUrl,
   nextBuildArgs,
@@ -434,16 +435,21 @@ test("extension dependencies are installed only for locked extensions missing on
   const root = mkdtempSync(join(tmpdir(), "lcp-ext-deps-"));
   try {
     const manifest = JSON.stringify({ dependencies: { linkedom: "^0.16.0" } });
+    const lock = "{}";
     const extension = (name, files) => {
       mkdirSync(join(root, name), { recursive: true });
       for (const [file, text] of Object.entries(files)) writeFileSync(join(root, name, file), text);
     };
-    extension("missing", { "package.json": `\uFEFF${manifest}`, "package-lock.json": "{}" });
-    extension("installed", { "package.json": manifest, "package-lock.json": "{}" });
+    extension("missing", { "package.json": `\uFEFF${manifest}`, "package-lock.json": lock });
+    extension("installed", { "package.json": manifest, "package-lock.json": lock });
     mkdirSync(join(root, "installed", "node_modules", "linkedom"), { recursive: true });
     writeFileSync(join(root, "installed", "node_modules", "linkedom", "package.json"), "{}");
+    writeFileSync(
+      join(root, "installed", "node_modules", ".leafcode-pi-build-deps"),
+      extensionDependencyFingerprint(join(root, "installed")),
+    );
     extension("unlocked", { "package.json": manifest });
-    extension("failing", { "package.json": manifest, "package-lock.json": "{}" });
+    extension("failing", { "package.json": manifest, "package-lock.json": lock });
     const calls = [];
     const install = (command, args, options) => {
       calls.push(options.cwd);
@@ -454,7 +460,39 @@ test("extension dependencies are installed only for locked extensions missing on
     };
     assert.deepEqual(ensureExtensionDependencies(root, { install }), ["missing"]);
     assert.deepEqual(calls.sort(), [join(root, "failing"), join(root, "missing")]);
+    assert.equal(
+      existsSync(join(root, "missing", "node_modules", ".leafcode-pi-build-deps")),
+      true,
+      "a successful install writes the deps stamp",
+    );
     assert.deepEqual(ensureExtensionDependencies(join(root, "absent"), { install }), []);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("extension dependencies reinstall when the lock fingerprint is stale", () => {
+  const root = mkdtempSync(join(tmpdir(), "lcp-ext-deps-stale-"));
+  try {
+    const dir = join(root, "stale");
+    mkdirSync(join(dir, "node_modules", "linkedom"), { recursive: true });
+    writeFileSync(join(dir, "package.json"), JSON.stringify({ dependencies: { linkedom: "^0.16.0" } }));
+    writeFileSync(join(dir, "package-lock.json"), '{"lockfileVersion":1}');
+    writeFileSync(join(dir, "node_modules", "linkedom", "package.json"), "{}");
+    writeFileSync(join(dir, "node_modules", ".leafcode-pi-build-deps"), "stale-fingerprint");
+    let calls = 0;
+    const install = () => {
+      calls += 1;
+      return { status: 0 };
+    };
+    assert.deepEqual(ensureExtensionDependencies(root, { install }), ["stale"]);
+    assert.equal(calls, 1);
+    assert.equal(
+      readFileSync(join(dir, "node_modules", ".leafcode-pi-build-deps"), "utf8"),
+      extensionDependencyFingerprint(dir),
+    );
+    assert.deepEqual(ensureExtensionDependencies(root, { install }), []);
+    assert.equal(calls, 1, "matching stamp must not reinstall");
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

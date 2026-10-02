@@ -17,6 +17,8 @@ import {
   BACKEND_BOT_CODE_SESSIONS_SUFFIX,
   BACKEND_BOT_ADMIN_SUFFIX,
   BACKEND_LIVE_SESSIONS_RELOAD_PATH,
+  BACKEND_MCP_SERVERS_PATH,
+  BACKEND_MCP_AUTH_SUFFIX,
   BACKEND_BOT_REVERT_SUFFIX,
   BACKEND_BOT_ROUTINES_SEGMENT,
   BACKEND_BOTS_PATH,
@@ -50,6 +52,11 @@ import {
   DEFAULT_BACKEND_PORT,
 } from "@shared/backend-protocol.mjs";
 
+import type { McpDto } from "@/lib/mcp";
+import type { McpPresetRequest, McpPublicReload } from "@shared/mcp-preset-request.mjs";
+import type { McpPublicAuthSnapshot } from "@shared/mcp-auth-snapshot.mjs";
+import type { McpBearerSaveRequest, McpBearerSaveResult } from "@shared/mcp-bearer-save-request.mjs";
+
 export const BACKEND_REQUEST_TIMEOUT_MS = 10_000;
 
 export type BackendFailureReason =
@@ -62,7 +69,17 @@ export type BackendFailureReason =
 
 export type BackendResult<T> =
   | { ok: true; status: number; body: T }
-  | { ok: false; reason: BackendFailureReason; status?: number };
+  | { ok: false; reason: BackendFailureReason; status?: number; error?: string };
+
+/** Keep only short Japanese owner messages; opaque Backend placeholders stay local. */
+function clientFacingBackendError(body: unknown): string | undefined {
+  if (!body || typeof body !== "object" || Array.isArray(body)) return undefined;
+  const error = (body as { error?: unknown }).error;
+  if (typeof error !== "string" || error.length === 0 || error.length >= 240) return undefined;
+  if (error.startsWith("Backend ")) return undefined;
+  if (!/[\u3040-\u30ff\u3400-\u9fff]/.test(error)) return undefined;
+  return error;
+}
 
 /** The environment the client reads; `process.env` satisfies it, and tests pass a literal. */
 export type BackendEnv = Record<string, string | undefined>;
@@ -126,7 +143,8 @@ async function backendRequest<T>(
       try {
         const body = await response.json();
         if (body?.code === BACKEND_ERROR_CODES.badRequest || body?.code === BACKEND_ERROR_CODES.internal) {
-          return { ok: false, reason: "bad-response", status: 409 };
+          const error = clientFacingBackendError(body);
+          return { ok: false, reason: "bad-response", status: 409, ...(error ? { error } : {}) };
         }
       } catch (error) {
         if (controller.signal.aborted) throw error;
@@ -134,7 +152,16 @@ async function backendRequest<T>(
       }
       return { ok: false, reason: "incompatible", status: 409 };
     }
-    if (!response.ok) return { ok: false, reason: "bad-response", status: response.status };
+    if (!response.ok) {
+      try {
+        const body = await response.json();
+        const error = clientFacingBackendError(body);
+        return { ok: false, reason: "bad-response", status: response.status, ...(error ? { error } : {}) };
+      } catch (error) {
+        if (controller.signal.aborted) throw error;
+        return { ok: false, reason: "bad-response", status: response.status };
+      }
+    }
     return { ok: true, status: response.status, body: (await response.json()) as T };
   } catch (error) {
     const aborted = controller.signal.aborted || (error instanceof Error && error.name === "AbortError");
@@ -146,6 +173,47 @@ async function backendRequest<T>(
   } finally {
     clearTimeout(timer);
   }
+}
+
+/** Reads only the owning process's auth status. No local bridge/config fallback. */
+export function readMcpAuthStatusOnBackend(
+  name: string,
+  options: { env?: BackendEnv; fetchImpl?: typeof fetch; timeoutMs?: number } = {},
+): Promise<BackendResult<McpPublicAuthSnapshot>> {
+  return backendRequest(`${BACKEND_MCP_SERVERS_PATH}/${encodeURIComponent(name)}${BACKEND_MCP_AUTH_SUFFIX}`, options);
+}
+
+/** Private bearer save payload goes only to the owner, never into a URL or local config. */
+export function saveMcpBearerAuthOnBackend(
+  name: string,
+  input: McpBearerSaveRequest,
+  options: { env?: BackendEnv; fetchImpl?: typeof fetch; timeoutMs?: number } = {},
+): Promise<BackendResult<McpBearerSaveResult>> {
+  return backendRequest(`${BACKEND_MCP_SERVERS_PATH}/${encodeURIComponent(name)}${BACKEND_MCP_AUTH_SUFFIX}`, {
+    ...options, method: "POST", body: input,
+  });
+}
+
+export type BackendMcpEnabledResult = { ok: true; name: string; enabled: boolean; servers: McpDto[] };
+export type BackendMcpPresetResult = { ok: true; name: McpPresetRequest["preset"]; servers: McpDto[]; reload: McpPublicReload };
+
+/** Adds a known preset only in the owner; request credentials must not be logged. */
+export function createMcpPresetOnBackend(
+  input: McpPresetRequest,
+  options: { env?: BackendEnv; fetchImpl?: typeof fetch; timeoutMs?: number } = {},
+): Promise<BackendResult<BackendMcpPresetResult>> {
+  return backendRequest(BACKEND_MCP_SERVERS_PATH, { ...options, method: "POST", body: input });
+}
+
+/** Writes MCP ON/OFF only in the owner. No local fallback or path/config arguments. */
+export function setMcpServerEnabledOnBackend(
+  name: string,
+  enabled: boolean,
+  options: { env?: BackendEnv; fetchImpl?: typeof fetch; timeoutMs?: number } = {},
+): Promise<BackendResult<BackendMcpEnabledResult>> {
+  return backendRequest(`${BACKEND_MCP_SERVERS_PATH}/${encodeURIComponent(name)}`, {
+    ...options, method: "PATCH", body: { enabled },
+  });
 }
 
 /** Read owner-scoped state without opening or driving a session. */
@@ -515,11 +583,20 @@ export function readBackendPendingSnapshots(
 /** A task's detail as the owning Backend sees it (offline transcript read). */
 export function readBackendTaskDetail(
   id: string,
-  options: { env?: BackendEnv; fetchImpl?: typeof fetch; timeoutMs?: number; messages?: "page"; before?: string } = {},
+  options: {
+    env?: BackendEnv;
+    fetchImpl?: typeof fetch;
+    timeoutMs?: number;
+    messages?: "page" | "omit";
+    before?: string;
+  } = {},
 ): Promise<BackendResult<{ detail: Record<string, unknown> | null }>> {
-  const query = options.messages === "page" ? new URLSearchParams({
-    messages: "page", ...(options.before !== undefined ? { before: options.before } : {}),
-  }) : null;
+  const query = options.messages
+    ? new URLSearchParams({
+        messages: options.messages,
+        ...(options.messages === "page" && options.before !== undefined ? { before: options.before } : {}),
+      })
+    : null;
   return fetchBackendJson(`${BACKEND_TASKS_PATH}/${encodeURIComponent(id)}${BACKEND_TASK_DETAIL_SUFFIX}${query ? `?${query}` : ""}`, options);
 }
 

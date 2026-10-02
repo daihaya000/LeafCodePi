@@ -5516,6 +5516,172 @@ test("resume after an interrupted turn re-sends the same turn number", async () 
   }
 });
 
+for (const eventType of ["message_update", "message_end", "tool_execution_start", "tool_execution_update", "tool_execution_end", "turn_start"]) {
+  test(`turn inactivity timeout follows ${eventType} progress instead of total elapsed time`, async (t) => {
+    const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-progress-timeout-"));
+    process.env.LEAFCODE_PI_DATA_DIR = cwd;
+    goalLoopTestSeams.setTurnTimeoutMs(1000);
+    t.mock.timers.enable({ apis: ["setTimeout", "Date"] });
+    const { readState, handlers, commands, ctx, pi } = loopEndNoticeHarness(`progress-${eventType}`);
+    let aborts = 0;
+    ctx.abort = () => { aborts += 1; };
+    try {
+      goalLoopExtension(pi);
+      await handlers.get("session_start")?.({}, ctx);
+      await commands.get("goal-start")?.(Buffer.from(JSON.stringify({ goal: "demo" })).toString("base64url"), ctx);
+      t.mock.timers.tick(250);
+      assert.equal(readState().status, "running");
+      t.mock.timers.tick(600);
+      await handlers.get(eventType)?.({ type: eventType, turnIndex: 0 }, ctx);
+      t.mock.timers.tick(500);
+      assert.equal(readState().status, "running", "productive turn survives the old fixed deadline");
+      assert.equal(aborts, 0);
+      t.mock.timers.tick(500);
+      assert.equal(readState().pauseReason, "turn_timeout", "no progress still times out");
+      assert.equal(readState().retryInterruptedTurn, true);
+      assert.equal(aborts, 1);
+    } finally {
+      await handlers.get("session_shutdown")?.({}, ctx);
+      t.mock.timers.reset();
+      goalLoopTestSeams.setTurnTimeoutMs();
+      delete process.env.LEAFCODE_PI_DATA_DIR;
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+}
+
+test("turn inactivity timeout excludes blocking UI wait and grants a fresh deadline after the answer", async (t) => {
+  const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-ui-timeout-"));
+  process.env.LEAFCODE_PI_DATA_DIR = cwd;
+  goalLoopTestSeams.setTurnTimeoutMs(1000);
+  t.mock.timers.enable({ apis: ["setTimeout", "Date"] });
+  const { readState, handlers, commands, ctx, pi } = loopEndNoticeHarness("ui-timeout-session");
+  let aborts = 0;
+  ctx.abort = () => { aborts += 1; };
+  try {
+    goalLoopExtension(pi);
+    await handlers.get("session_start")?.({}, ctx);
+    await commands.get("goal-start")?.(Buffer.from(JSON.stringify({ goal: "demo" })).toString("base64url"), ctx);
+    t.mock.timers.tick(250);
+    await handlers.get("ui_prompt_start")?.({ type: "ui_prompt_start" }, ctx);
+    await handlers.get("ui_prompt_start")?.({ type: "ui_prompt_start" }, ctx);
+    await handlers.get("ui_prompt_end")?.({ type: "ui_prompt_end" }, ctx);
+    t.mock.timers.tick(5000);
+    assert.equal(readState().status, "running");
+    assert.equal(aborts, 0);
+    await handlers.get("ui_prompt_end")?.({ type: "ui_prompt_end" }, ctx);
+    t.mock.timers.tick(999);
+    assert.equal(readState().status, "running");
+    t.mock.timers.tick(1);
+    assert.equal(readState().pauseReason, "turn_timeout");
+    assert.equal(aborts, 1);
+  } finally {
+    await handlers.get("session_shutdown")?.({}, ctx);
+    t.mock.timers.reset();
+    goalLoopTestSeams.setTurnTimeoutMs();
+    delete process.env.LEAFCODE_PI_DATA_DIR;
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test("continued tool progress survives multiple timeout windows without extra turns or aborts", async (t) => {
+  const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-long-progress-"));
+  process.env.LEAFCODE_PI_DATA_DIR = cwd;
+  goalLoopTestSeams.setTurnTimeoutMs(1000);
+  t.mock.timers.enable({ apis: ["setTimeout", "Date"] });
+  const { readState, handlers, commands, ctx, pi, sent } = loopEndNoticeHarness("long-progress-session");
+  let aborts = 0;
+  ctx.abort = () => { aborts += 1; };
+  try {
+    goalLoopExtension(pi);
+    await handlers.get("session_start")?.({}, ctx);
+    await commands.get("goal-start")?.(Buffer.from(JSON.stringify({ goal: "demo" })).toString("base64url"), ctx);
+    t.mock.timers.tick(250);
+    for (let i = 0; i < 10; i += 1) {
+      t.mock.timers.tick(600);
+      await handlers.get("tool_execution_end")?.({ type: "tool_execution_end" }, ctx);
+      assert.equal(readState().status, "running");
+    }
+    assert.equal(aborts, 0);
+    assert.equal(readState().turnCount, 1);
+    assert.equal(sent.filter((item) => item.message.customType === "leafcode-goal-turn").length, 1);
+  } finally {
+    await handlers.get("session_shutdown")?.({}, ctx);
+    t.mock.timers.reset();
+    goalLoopTestSeams.setTurnTimeoutMs();
+    delete process.env.LEAFCODE_PI_DATA_DIR;
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test("failed timeout state persistence retains the inactivity watchdog until it can safely stop", async (t) => {
+  const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-timeout-write-"));
+  process.env.LEAFCODE_PI_DATA_DIR = cwd;
+  goalLoopTestSeams.setTurnTimeoutMs(1000);
+  t.mock.timers.enable({ apis: ["setTimeout", "Date"] });
+  const { readState, handlers, commands, ctx, pi } = loopEndNoticeHarness("timeout-write-session");
+  let aborts = 0;
+  ctx.abort = () => { aborts += 1; };
+  try {
+    goalLoopExtension(pi);
+    await handlers.get("session_start")?.({}, ctx);
+    await commands.get("goal-start")?.(Buffer.from(JSON.stringify({ goal: "demo" })).toString("base64url"), ctx);
+    t.mock.timers.tick(250);
+    goalLoopTestSeams.setWriteLoopFail(true);
+    t.mock.timers.tick(1000);
+    assert.equal(readState().status, "running");
+    assert.equal(aborts, 0);
+    goalLoopTestSeams.setWriteLoopFail(false);
+    t.mock.timers.tick(1000);
+    assert.equal(readState().pauseReason, "turn_timeout");
+    assert.equal(aborts, 1);
+  } finally {
+    goalLoopTestSeams.setWriteLoopFail(false);
+    await handlers.get("session_shutdown")?.({}, ctx);
+    t.mock.timers.reset();
+    goalLoopTestSeams.setTurnTimeoutMs();
+    delete process.env.LEAFCODE_PI_DATA_DIR;
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test("stale session activity cannot extend a turn and late progress cannot undo manual pause", async (t) => {
+  const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-stale-progress-"));
+  process.env.LEAFCODE_PI_DATA_DIR = cwd;
+  goalLoopTestSeams.setTurnTimeoutMs(1000);
+  t.mock.timers.enable({ apis: ["setTimeout", "Date"] });
+  const { readState, handlers, commands, ctx, pi, setBusy } = loopEndNoticeHarness("stale-progress-session");
+  let aborts = 0;
+  ctx.abort = () => { aborts += 1; setBusy(false); };
+  try {
+    goalLoopExtension(pi);
+    await handlers.get("session_start")?.({}, ctx);
+    await commands.get("goal-start")?.(Buffer.from(JSON.stringify({ goal: "demo" })).toString("base64url"), ctx);
+    t.mock.timers.tick(250);
+    t.mock.timers.tick(600);
+    const staleCtx = { ...ctx, sessionManager: { ...ctx.sessionManager } };
+    await handlers.get("message_update")?.({ type: "message_update" }, staleCtx);
+    await handlers.get("ui_prompt_start")?.({ type: "ui_prompt_start" }, staleCtx);
+    t.mock.timers.tick(400);
+    assert.equal(readState().pauseReason, "turn_timeout");
+    assert.equal(aborts, 1);
+    await commands.get("goal-resume")?.("", ctx);
+    t.mock.timers.tick(250);
+    assert.equal(readState().status, "running");
+    await commands.get("goal-pause")?.("", ctx);
+    await handlers.get("tool_execution_end")?.({ type: "tool_execution_end" }, ctx);
+    t.mock.timers.tick(2000);
+    assert.equal(readState().pauseReason, "user");
+    assert.equal(aborts, 2);
+  } finally {
+    await handlers.get("session_shutdown")?.({}, ctx);
+    t.mock.timers.reset();
+    goalLoopTestSeams.setTurnTimeoutMs();
+    delete process.env.LEAFCODE_PI_DATA_DIR;
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
 test("resume after a turn timeout re-sends the same turn without a budget bump", async () => {
   const cwd = mkdtempSync(join(tmpdir(), "leafcode-goal-loop-timeout-resume-"));
   process.env.LEAFCODE_PI_DATA_DIR = cwd;

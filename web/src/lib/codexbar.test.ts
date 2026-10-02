@@ -49,6 +49,21 @@ const SAMPLE = {
 };
 
 describe("parseCodexBarSnapshot", () => {
+  it("preserves new OpenAI account metadata without borrowing legacy Codex usage", () => {
+    const snapshot = parseCodexBarSnapshot({
+      providers: [{ codexBarProviderId: "openai-codex", accountId: "legacy", usedPercent: 100 }],
+      accounts: [
+        { id: "modern", label: "ChatGPT", providers: ["openai"], configuredProviders: ["openai"] },
+        { id: "legacy", label: "Codex", providers: ["openai-codex"], configuredProviders: ["openai-codex"] },
+      ],
+    });
+    expect(snapshot.accounts?.[0].configuredProviders).toEqual(["openai"]);
+    const modern = groupCodexBarProviders(snapshot).find((group) => group.id === "openai");
+    expect(modern?.accountRows).toEqual([{ id: "modern::openai", label: "ChatGPT", provider: null, configured: true }]);
+    expect(modern?.provider.usedPercent).toBeNull();
+    expect(providerLabel("openai")).toBe("OpenAI");
+  });
+
   it("parses a valid snapshot", () => {
     const u = parseCodexBarSnapshot(SAMPLE);
     expect(u.available).toBe(true);

@@ -9,9 +9,18 @@
  * Output is a build artifact (`backend/runtime/runtime.bundle.mjs`), not source: it is ignored by
  * git and rebuilt by `npm run build:backend-runtime`.
  */
-import { mkdirSync, rmSync, statSync } from "node:fs";
+import { createHash } from "node:crypto";
+import {
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { createRequire } from "node:module";
-import { dirname, join, resolve } from "node:path";
+import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { assertInstalledPiVersions, assertPiDependencyVersions } from "../shared/pi-dependencies.mjs";
 
@@ -21,6 +30,7 @@ const WEB_SRC = join(ROOT, "web", "src");
 const CORE = join(ROOT, "backend", "core");
 const SHARED = join(ROOT, "shared");
 export const BUNDLE_PATH = join(ROOT, "backend", "runtime", "runtime.bundle.mjs");
+export const BUNDLE_STAMP_PATH = `${BUNDLE_PATH}.stamp`;
 
 /** Aliases mirror the Web app's tsconfig paths plus the extracted core and shared contracts. */
 export function runtimeAliases() {
@@ -39,10 +49,76 @@ export function runtimeExternals() {
   return ["@earendil-works/pi-coding-agent", "@earendil-works/pi-ai", "node:*"];
 }
 
-export async function buildBackendRuntime({ log = console.log } = {}) {
+function collectSourceFiles(dir, files = []) {
+  if (!existsSync(dir)) return files;
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    if (entry.name === "node_modules" || entry.name === ".git" || entry.name.startsWith(".")) continue;
+    const path = join(dir, entry.name);
+    if (entry.isDirectory()) collectSourceFiles(path, files);
+    else if (/\.(mjs|js|ts|tsx|mts|cts|json)$/.test(entry.name)) files.push(path);
+  }
+  return files;
+}
+
+/**
+ * Fingerprint of the sources esbuild would pull in for the Backend runtime bundle.
+ * Include all of `web/src` (not just the entry file): the entry re-exports harness and
+ * store modules via `@/`, so a harness-only change must invalidate the stamp or Host
+ * will keep reusing a stale `runtime.bundle.mjs` after restart.
+ *
+ * Also stamp lockfiles (inlined deps like undici/yaml resolve from them), and this
+ * build script itself (banner / aliases / externals), so Host cannot reuse after those
+ * change without a content rebuild.
+ */
+export function backendRuntimeSourceStamp({
+  roots = [WEB_SRC, CORE, SHARED],
+  webPackage = join(ROOT, "web", "package.json"),
+  backendPackage = join(ROOT, "backend", "package.json"),
+  webLock = join(ROOT, "web", "package-lock.json"),
+  backendLock = join(ROOT, "backend", "package-lock.json"),
+  buildScript = HERE,
+} = {}) {
+  const hash = createHash("sha1");
+  const files = new Set();
+  for (const root of roots) {
+    try {
+      if (statSync(root).isDirectory()) collectSourceFiles(root).forEach((file) => files.add(file));
+      else files.add(root);
+    } catch { /* missing optional root */ }
+  }
+  for (const manifest of [webPackage, backendPackage, webLock, backendLock, buildScript]) {
+    if (existsSync(manifest)) files.add(manifest);
+  }
+  for (const file of [...files].sort()) {
+    const st = statSync(file);
+    hash.update(`${relative(ROOT, file)}\0${st.size}\0${Math.trunc(st.mtimeMs)}\n`);
+  }
+  return hash.digest("hex");
+}
+
+export function backendRuntimeBundleIsCurrent({
+  bundlePath = BUNDLE_PATH,
+  stampPath = BUNDLE_STAMP_PATH,
+  sourceStamp = backendRuntimeSourceStamp(),
+} = {}) {
+  if (!existsSync(bundlePath) || !existsSync(stampPath)) return false;
+  try {
+    return readFileSync(stampPath, "utf8").trim() === sourceStamp;
+  } catch {
+    return false;
+  }
+}
+
+export async function buildBackendRuntime({ log = console.log, force = false } = {}) {
   const version = assertPiDependencyVersions(join(ROOT, "web"), join(ROOT, "backend"));
   for (const dir of ["web", "backend"]) assertInstalledPiVersions(join(ROOT, dir), version);
   mkdirSync(dirname(BUNDLE_PATH), { recursive: true });
+  const sourceStamp = backendRuntimeSourceStamp();
+  if (!force && backendRuntimeBundleIsCurrent({ sourceStamp })) {
+    const size = statSync(BUNDLE_PATH).size;
+    log(`[backend-runtime] reused ${BUNDLE_PATH} (${Math.round(size / 1024)} KiB)`);
+    return { outfile: BUNDLE_PATH, size, reused: true };
+  }
   // esbuild is a Web devDependency (through vitest); resolve it from the Web project so the root
   // script does not need its own copy.
   const webRequire = createRequire(join(ROOT, "web", "package.json"));
@@ -75,15 +151,17 @@ export async function buildBackendRuntime({ log = console.log } = {}) {
     for (const error of result.errors) log(`[backend-runtime] ${error.text}`);
     throw new Error("Backend runtime bundle failed");
   }
+  writeFileSync(BUNDLE_STAMP_PATH, `${sourceStamp}\n`, "utf8");
   const size = statSync(BUNDLE_PATH).size;
   log(`[backend-runtime] wrote ${BUNDLE_PATH} (${Math.round(size / 1024)} KiB)`);
-  return { outfile: BUNDLE_PATH, size };
+  return { outfile: BUNDLE_PATH, size, reused: false };
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === resolve(HERE)) {
   mkdirSync(dirname(BUNDLE_PATH), { recursive: true });
-  buildBackendRuntime().catch((error) => {
+  buildBackendRuntime({ force: process.argv.includes("--force") }).catch((error) => {
     rmSync(BUNDLE_PATH, { force: true });
+    rmSync(BUNDLE_STAMP_PATH, { force: true });
     console.error(`Backend runtime build failed: ${error instanceof Error ? error.message : String(error)}`);
     process.exitCode = 1;
   });

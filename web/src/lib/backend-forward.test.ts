@@ -531,6 +531,16 @@ describe("forwardTaskRevert and forwardTaskUnrevert", () => {
     await expect(forwardTaskRevert("task-1", "entry-1", { env, fetchImpl: missing })).resolves.toEqual({
       ok: false, reason: "not-found", status: 404,
     });
+    const busy = vi.fn<typeof fetch>(async () => jsonResponse(409, {
+      error: "応答中は巻き戻せません。停止してからお試しください",
+      code: "BACKEND_BAD_REQUEST",
+    }));
+    await expect(forwardTaskRevert("task-1", "entry-1", { env, fetchImpl: busy })).resolves.toEqual({
+      ok: false,
+      reason: "bad-response",
+      status: 409,
+      error: "応答中は巻き戻せません。停止してからお試しください",
+    });
     const unreachable = vi.fn<typeof fetch>(async () => { throw new Error("connect refused"); });
     await expect(forwardTaskUnrevert("task-1", { env, fetchImpl: unreachable })).resolves.toEqual({
       ok: false, reason: "unreachable",
@@ -650,15 +660,18 @@ describe("forwardTaskPendingRequests", () => {
       ok: true, permissionRequest: permission, questionRequest: question,
     });
     await expect(forwardPendingRequestsByTask(options)).resolves.toEqual({
-      "code-1": { permissionRequest: permission, questionRequest: question },
-      "bot:room:one": { permissionRequest: permission, questionRequest: question },
+      ok: true,
+      byTask: {
+        "code-1": { permissionRequest: permission, questionRequest: question },
+        "bot:room:one": { permissionRequest: permission, questionRequest: question },
+      },
     });
     permission = null;
     question = null;
     await expect(forwardTaskPendingRequests("code-1", options)).resolves.toEqual({
       ok: true, permissionRequest: null, questionRequest: null,
     });
-    await expect(forwardPendingRequestsByTask(options)).resolves.toEqual({});
+    await expect(forwardPendingRequestsByTask(options)).resolves.toEqual({ ok: true, byTask: {} });
   });
 
   it("reads the pending request the owning Backend is waiting on", async () => {
@@ -707,14 +720,24 @@ describe("forwardPendingRequestsByTask", () => {
     await expect(
       forwardPendingRequestsByTask({ env, fetchImpl: fetchImpl as unknown as typeof fetch }),
     ).resolves.toEqual({
-      t1: { permissionRequest: { requestId: "p1" }, questionRequest: null },
-      t2: { permissionRequest: null, questionRequest: { requestId: "q1" } },
+      ok: true,
+      byTask: {
+        t1: { permissionRequest: { requestId: "p1" }, questionRequest: null },
+        t2: { permissionRequest: null, questionRequest: { requestId: "q1" } },
+      },
     });
   });
 
-  it("is empty when the Backend cannot answer", async () => {
+  it("reports a failed by-task pending read instead of an empty map", async () => {
     const broken = vi.fn(async () => jsonResponse(500, {}));
-    await expect(forwardPendingRequestsByTask({ env, fetchImpl: broken as unknown as typeof fetch })).resolves.toEqual({});
-    await expect(forwardPendingRequestsByTask({ env: {} })).resolves.toEqual({});
+    await expect(forwardPendingRequestsByTask({ env, fetchImpl: broken as unknown as typeof fetch })).resolves.toEqual({
+      ok: false,
+      reason: "bad-response",
+      status: 500,
+    });
+    await expect(forwardPendingRequestsByTask({ env: {} })).resolves.toEqual({
+      ok: false,
+      reason: "not-configured",
+    });
   });
 });

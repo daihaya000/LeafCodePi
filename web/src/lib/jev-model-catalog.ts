@@ -41,8 +41,19 @@ export function isJevModel(value: unknown): boolean {
     (Array.isArray(architecture.output_modalities) && architecture.output_modalities.includes("decisions"));
 }
 
+/** The SDK permits chat/classifier entries with the same id; prefer explicit System One. */
+export function selectNativeJevModel<T extends { id: string }>(models: readonly T[], ref: JevModelRef): T | undefined {
+  const matching = models.filter((model) => model.id === ref.modelId);
+  const supported = matching.filter((model) => supportsJevModel(ref.providerId, model));
+  return supported.find(hasSystemOneEndpoint) ?? supported[0] ?? matching[0];
+}
+
 /** Only explicit System One support or a documented provider establishes compatibility. */
 export function supportsJevModel(providerId: string, value: unknown): boolean {
+  const model = record(value);
+  if (model.type !== undefined && model.type !== "chat" && model.type !== "classifier") return false;
+  // Other classifier APIs have incompatible request/response contracts despite a Jev-like name.
+  if (model.type === "classifier") return hasSystemOneEndpoint(value);
   return hasSystemOneEndpoint(value) ||
     (["typesafe", "openrouter", "commandcode"].includes(providerId) && isJevModel(value));
 }

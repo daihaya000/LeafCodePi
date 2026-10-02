@@ -34,6 +34,7 @@ export {
   setCacheWarmingMode,
   refreshCompactionSuggestions,
   subscribeBotCodeSession,
+  subscribeTaskDirty,
   startBotCodeRelay,
   applyCodePermissionSettingsToLiveTasks,
   // Rewinding a transcript rewrites the session and clears the owner's pending attention.
@@ -74,6 +75,11 @@ export { handleRoomPrompt } from "@/lib/room-prompt";
 export { handleRoomDelete, handleRoomPatch } from "@/lib/room-admin";
 export { handleBotDelete, handleBotPatch } from "@/lib/bot-admin";
 export { getTask, patchTask } from "@/lib/store";
+// MCP settings writes and their redacted list belong to the Backend, not production WebUI.
+export { setMcpServerEnabled, mcpErrorStatus } from "@/lib/mcp";
+export { createMcpPreset } from "@/lib/mcp-preset-admin";
+export { readMcpAuthStatus } from "@/lib/mcp-auth-status";
+export { saveMcpBearerAuth } from "@/lib/mcp-bearer-admin";
 export { isGoalLoopSessionOwned, readGoalLoopState } from "@/lib/pi/goal-loop-state";
 export { startGoalLoopWithSelection } from "@/lib/pi/goal-loop-start";
 export { startBotGoalLoop } from "@/lib/pi/bot-goal-loop-start";

@@ -2,6 +2,9 @@ import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
 import { createServer } from "node:http";
 import { once } from "node:events";
 import { streamRuntimeEvents } from "./runtime-events.mjs";
+import { parseMcpPresetRequest } from "../../shared/mcp-preset-request.mjs";
+import { publicMcpAuthSnapshot } from "../../shared/mcp-auth-snapshot.mjs";
+import { parseMcpBearerSaveRequest, publicMcpBearerSaveResult } from "../../shared/mcp-bearer-save-request.mjs";
 import { InvalidTaskMessageCursorError, pageTaskMessages } from "../../shared/task-history.mjs";
 import {
   BACKEND_ERROR_CODES,
@@ -9,6 +12,9 @@ import {
   BACKEND_RUNTIME_CONTROL_PATH,
   BACKEND_RUNTIME_EVENTS_PATH,
   BACKEND_LIVE_SESSIONS_RELOAD_PATH,
+  BACKEND_MCP_MIGRATION_PATH,
+  BACKEND_MCP_SERVERS_PATH,
+  BACKEND_MCP_AUTH_SUFFIX,
   BACKEND_BOT_ADMIN_SUFFIX,
   BACKEND_BOT_CODE_REQUESTS_SUFFIX,
   BACKEND_BOT_CODE_SESSIONS_SUFFIX,
@@ -42,6 +48,28 @@ import {
   BACKEND_TASKS_PATH,
   DEFAULT_BACKEND_PORT,
 } from "../../shared/backend-protocol.mjs";
+
+/** Prefer a short Japanese client message; never forward English/provider exception text. */
+function clientFacingActionError(error, fallback) {
+  const status = typeof error?.status === "number" ? error.status : 500;
+  const message = error instanceof Error ? error.message : "";
+  const safe = status >= 400 && status < 500
+    && message.length > 0 && message.length < 240
+    && /[\u3040-\u30ff\u3400-\u9fff]/.test(message);
+  if (safe) {
+    return {
+      status,
+      body: {
+        error: message,
+        code: status === 404 ? BACKEND_ERROR_CODES.notFound : BACKEND_ERROR_CODES.badRequest,
+      },
+    };
+  }
+  return {
+    status,
+    body: { error: fallback, code: BACKEND_ERROR_CODES.internal },
+  };
+}
 
 function tokenDigest(value) {
   return createHash("sha256").update(value).digest();
@@ -180,6 +208,16 @@ export function createBackendServer({
   botAdminAction = null,
   /** Rebuilds live sessions after a settings change: `({ action, agentName? }) => result`; the owner holds them. */
   reloadLiveSessionsAction = null,
+  /** Backend-owned MCP dry-run; no request arguments or configuration writes. */
+  readMcpMigrationDiagnostics = null,
+  /** Changes a global MCP ON/OFF flag and schedules the owner's context reload. */
+  setMcpServerEnabledAction = null,
+  /** Adds a validated known MCP preset and reloads the owner's sessions. */
+  createMcpPresetAction = null,
+  /** Reads auth metadata/status in the owning process; never accepts credential inputs. */
+  readMcpAuthStatus = null,
+  /** Saves a validated bearer token through the owner's credential-store bridge. */
+  saveMcpBearerAuthAction = null,
   /** Compacts a session: `(id, customInstructions?) => task`; the summarization runs in the owner. */
   compactTaskAction = null,
   /** Stops a running compaction: `(id) => task`; only the owner can interrupt its own session. */
@@ -241,6 +279,11 @@ export function createBackendServer({
     teardownProjectAction,
     botAdminAction,
     reloadLiveSessionsAction,
+    readMcpMigrationDiagnostics,
+    setMcpServerEnabledAction,
+    createMcpPresetAction,
+    readMcpAuthStatus,
+    saveMcpBearerAuthAction,
     compactTaskAction,
     abortCompactTaskAction,
     setTaskModelAction,
@@ -355,6 +398,9 @@ export function createBackendServer({
       || target.pathname === BACKEND_RUNTIME_CONTROL_PATH
       || target.pathname === BACKEND_RUNTIME_EVENTS_PATH
       || target.pathname === BACKEND_LIVE_SESSIONS_RELOAD_PATH
+      || target.pathname === BACKEND_MCP_MIGRATION_PATH
+      || target.pathname.startsWith(`${BACKEND_MCP_SERVERS_PATH}/`)
+      || target.pathname === BACKEND_MCP_SERVERS_PATH
       || projectActionPath !== undefined
       || botAdminPath !== undefined
       || target.pathname === BACKEND_PENDING_SNAPSHOTS_PATH
@@ -371,6 +417,134 @@ export function createBackendServer({
       || actionPath !== undefined;
     if (!knownPath) {
       sendJson(response, 404, { error: "Not found", code: BACKEND_ERROR_CODES.notFound });
+      return;
+    }
+    if (target.pathname.startsWith(`${BACKEND_MCP_SERVERS_PATH}/`) && target.pathname.endsWith(BACKEND_MCP_AUTH_SUFFIX)) {
+      if (request.method !== "GET" && request.method !== "POST") {
+        sendJson(response, 405, { error: "Method not allowed", code: BACKEND_ERROR_CODES.methodNotAllowed }, { Allow: "GET, POST" });
+        return;
+      }
+      let name;
+      try { name = decodeURIComponent(target.pathname.slice(BACKEND_MCP_SERVERS_PATH.length + 1, -BACKEND_MCP_AUTH_SUFFIX.length)).trim(); }
+      catch { sendJson(response, 400, { error: "Invalid MCP server name", code: BACKEND_ERROR_CODES.badRequest }); return; }
+      if (!name || name.includes("/") || name.includes("\\") || name.includes("..") || target.search) {
+        sendJson(response, 400, { error: "Invalid MCP auth status request", code: BACKEND_ERROR_CODES.badRequest });
+        return;
+      }
+      let ready = false;
+      try { ready = isReady() === true; } catch { /* Refuse without exception detail. */ }
+      const available = request.method === "POST" ? saveMcpBearerAuthAction : readMcpAuthStatus;
+      if (!available || !ready) {
+        sendJson(response, 503, { error: "Backend runtime unavailable", code: BACKEND_ERROR_CODES.runtimeUnavailable });
+        return;
+      }
+      if (request.method === "POST") {
+        const body = await readJsonBody(request, 65_536);
+        const parsed = body.ok ? parseMcpBearerSaveRequest(body.value) : { ok: false };
+        if (!parsed.ok) {
+          sendJson(response, 400, { error: "Invalid MCP bearer save request", code: BACKEND_ERROR_CODES.badRequest });
+          return;
+        }
+        try {
+          const result = publicMcpBearerSaveResult(await saveMcpBearerAuthAction(name, parsed.value));
+          if (!result || result.auth.name !== name) throw new Error("Invalid MCP bearer save result");
+          sendJson(response, 200, result);
+        } catch (error) {
+          const status = [400, 404, 409, 503].includes(error?.status) ? error.status : 500;
+          sendJson(response, status, { error: "Backend MCP bearer save failed",
+            code: status === 404 ? BACKEND_ERROR_CODES.notFound : status < 500 ? BACKEND_ERROR_CODES.badRequest : BACKEND_ERROR_CODES.internal });
+        }
+        return;
+      }
+      try {
+        const snapshot = publicMcpAuthSnapshot(await readMcpAuthStatus(name));
+        if (!snapshot || snapshot.name !== name) throw new Error("Invalid MCP auth metadata");
+        sendJson(response, 200, snapshot);
+      } catch (error) {
+        const status = [400, 404, 503].includes(error?.status) ? error.status : 500;
+        sendJson(response, status, { error: "Backend MCP auth status failed",
+          code: status === 404 ? BACKEND_ERROR_CODES.notFound : status < 500 ? BACKEND_ERROR_CODES.badRequest : BACKEND_ERROR_CODES.internal });
+      }
+      return;
+    }
+    if (target.pathname === BACKEND_MCP_SERVERS_PATH) {
+      if (request.method !== "POST") {
+        sendJson(response, 405, { error: "Method not allowed", code: BACKEND_ERROR_CODES.methodNotAllowed }, { Allow: "POST" });
+        return;
+      }
+      if (target.search) {
+        sendJson(response, 400, { error: "Invalid MCP preset request", code: BACKEND_ERROR_CODES.badRequest });
+        return;
+      }
+      let ready = false;
+      try { ready = isReady() === true; } catch { /* Refuse without exception detail. */ }
+      if (!createMcpPresetAction || !ready) {
+        sendJson(response, 503, { error: "Backend runtime unavailable", code: BACKEND_ERROR_CODES.runtimeUnavailable });
+        return;
+      }
+      const body = await readJsonBody(request, 16_384);
+      const parsed = body.ok ? parseMcpPresetRequest(body.value) : { ok: false };
+      if (!parsed.ok) {
+        sendJson(response, 400, { error: "Invalid MCP preset request", code: BACKEND_ERROR_CODES.badRequest });
+        return;
+      }
+      try { sendJson(response, 200, await createMcpPresetAction(parsed.value)); }
+      catch (error) {
+        const status = [400, 404, 409, 503].includes(error?.status) ? error.status : 500;
+        sendJson(response, status, { error: "Backend MCP preset creation failed",
+          code: status === 404 ? BACKEND_ERROR_CODES.notFound : status < 500 ? BACKEND_ERROR_CODES.badRequest : BACKEND_ERROR_CODES.internal });
+      }
+      return;
+    }
+    if (target.pathname.startsWith(`${BACKEND_MCP_SERVERS_PATH}/`)) {
+      if (request.method !== "PATCH") {
+        sendJson(response, 405, { error: "Method not allowed", code: BACKEND_ERROR_CODES.methodNotAllowed }, { Allow: "PATCH" });
+        return;
+      }
+      let name;
+      try { name = decodeURIComponent(target.pathname.slice(BACKEND_MCP_SERVERS_PATH.length + 1)).trim(); }
+      catch { sendJson(response, 400, { error: "Invalid MCP server name", code: BACKEND_ERROR_CODES.badRequest }); return; }
+      if (!name || name.includes("/") || name.includes("\\") || name.includes("..") || target.search) {
+        sendJson(response, 400, { error: "Invalid MCP setting request", code: BACKEND_ERROR_CODES.badRequest });
+        return;
+      }
+      let ready = false;
+      try { ready = isReady() === true; } catch { /* Refuse without exception detail. */ }
+      if (!setMcpServerEnabledAction || !ready) {
+        sendJson(response, 503, { error: "Backend runtime unavailable", code: BACKEND_ERROR_CODES.runtimeUnavailable });
+        return;
+      }
+      const body = await readJsonBody(request, 4096);
+      if (!body.ok || !body.value || typeof body.value !== "object" || Array.isArray(body.value)
+        || typeof body.value.enabled !== "boolean" || Object.keys(body.value).some((key) => key !== "enabled")) {
+        sendJson(response, 400, { error: "Invalid MCP setting request", code: BACKEND_ERROR_CODES.badRequest });
+        return;
+      }
+      try { sendJson(response, 200, await setMcpServerEnabledAction(name, body.value.enabled)); }
+      catch (error) {
+        const status = [400, 404, 409, 503].includes(error?.status) ? error.status : 500;
+        sendJson(response, status, { error: "Backend MCP setting update failed",
+          code: status === 404 ? BACKEND_ERROR_CODES.notFound : status < 500 ? BACKEND_ERROR_CODES.badRequest : BACKEND_ERROR_CODES.internal });
+      }
+      return;
+    }
+    if (target.pathname === BACKEND_MCP_MIGRATION_PATH) {
+      if (request.method !== "GET") {
+        sendJson(response, 405, {
+          error: "Method not allowed", code: BACKEND_ERROR_CODES.methodNotAllowed,
+        }, { Allow: "GET" });
+        return;
+      }
+      if (target.search) {
+        sendJson(response, 400, { error: "Migration diagnostics take no parameters", code: BACKEND_ERROR_CODES.badRequest });
+        return;
+      }
+      if (!readMcpMigrationDiagnostics) {
+        sendJson(response, 503, { error: "Backend migration diagnostics unavailable", code: BACKEND_ERROR_CODES.runtimeUnavailable });
+        return;
+      }
+      try { sendJson(response, 200, { result: await readMcpMigrationDiagnostics() }); }
+      catch { sendJson(response, 500, { error: "Backend migration diagnostics failed", code: BACKEND_ERROR_CODES.internal }); }
       return;
     }
     if (target.pathname === BACKEND_RUNTIME_EVENTS_PATH && request.method === "GET") {
@@ -605,11 +779,9 @@ export function createBackendServer({
             : { error: "Question request not found", code: BACKEND_ERROR_CODES.notFound });
         }
       } catch (error) {
-        // Never send exception text: provider errors can contain credentials.
-        sendJson(response, typeof error?.status === "number" ? error.status : 500, {
-          error: "Backend task action failed",
-          code: BACKEND_ERROR_CODES.internal,
-        });
+        // Status-tagged Japanese messages are intentional UI copy; English/provider text stays opaque.
+        const facing = clientFacingActionError(error, "Backend task action failed");
+        sendJson(response, facing.status, facing.body);
       }
       return;
     }
@@ -925,10 +1097,12 @@ export function createBackendServer({
       }
       const messagesMode = target.searchParams.get("messages");
       const paged = messagesMode === "page";
+      const omitMessages = messagesMode === "omit";
       const before = target.searchParams.get("before");
-      if ((messagesMode !== null && (!paged || target.searchParams.getAll("messages").length !== 1))
+      if ((messagesMode !== null && ((!paged && !omitMessages) || target.searchParams.getAll("messages").length !== 1))
         || (paged && (target.searchParams.getAll("before").length > 1
-          || (before !== null && (!before.trim() || before.length > 512))))) {
+          || (before !== null && (!before.trim() || before.length > 512))))
+        || (omitMessages && before !== null)) {
         sendJson(response, 400, { error: "Invalid history page request", code: BACKEND_ERROR_CODES.badRequest });
         return;
       }
@@ -939,7 +1113,7 @@ export function createBackendServer({
         return;
       }
       try {
-        const detail = await readTaskDetail(detailPath);
+        const detail = await readTaskDetail(detailPath, { includeMessages: !omitMessages });
         if (!detail) {
           sendJson(response, 404, { error: "Not found", code: BACKEND_ERROR_CODES.notFound });
           return;

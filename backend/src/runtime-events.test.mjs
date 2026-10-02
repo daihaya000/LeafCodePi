@@ -20,10 +20,15 @@ test("owner Bot/routine events cross HTTP and disconnect releases both subscript
   await reader.read(); // connected comment; neither event is generated in the Web process.
   owner.emit("event", { event: "routine", payload: { botId: "bot", ok: true } });
   owner.emit("event", { event: "snapshot", payload: { eventType: "code_session_changed" } });
+  owner.emit("event", { event: "task_dirty", payload: { taskId: "task-1", reason: "prompt_accepted" } });
   let text = "";
-  while (!text.includes("code_session_changed")) text += new TextDecoder().decode((await reader.read()).value);
+  while (!text.includes("task_dirty") || !text.includes("code_session_changed")) {
+    text += new TextDecoder().decode((await reader.read()).value);
+  }
   assert.match(text, /event: routine/);
   assert.match(text, /event: snapshot/);
+  assert.match(text, /event: task_dirty/);
+  assert.match(text, /task-1/);
   await reader.cancel();
   for (let i = 0; i < 20 && owner.listenerCount("event") > 0; i++) await delay(10);
   assert.equal(owner.listenerCount("event"), 0);

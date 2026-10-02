@@ -638,6 +638,44 @@ describe("integrated session routing", () => {
     expect(getTask(task.id)).toMatchObject({ status: "idle", manualAbortedAssistantId: "" });
   });
 
+  it("reports the recorded Goal Loop timeout cause without treating it as a manual Stop", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "leafcode-pi-goal-timeout-status-"));
+    tempDirs.push(dir);
+    process.env.LEAFCODE_PI_DATA_DIR = dir;
+    process.env.PI_CODING_AGENT_DIR = join(dir, "agent");
+    __resetPiAgentDirCacheForTests();
+    installHarness(new Map());
+
+    const project = upsertProject({ name: "demo", rootPath: dir });
+    const task = await createTask({ projectId: project.id, prompt: "初回" });
+    await waitFor(() => getTask(task.id)?.status === "idle");
+    const harness = (globalThis as Record<string, unknown>)[GLOBAL_KEY] as {
+      live: Map<string, { session: { sessionId: string; agent: { state: { errorMessage?: string } } }; manualAbortedAssistantId: string | null }>;
+    };
+    const live = harness.live.get(task.id)!;
+    const loopFile = goalLoopStateFile(dir, live.session.sessionId);
+    mkdirSync(dirname(loopFile), { recursive: true });
+    const timeoutError = "進捗が確認できないまま時間切れになったため一時停止しました。";
+    writeFileSync(loopFile, JSON.stringify({
+      id: live.session.sessionId, sessionId: live.session.sessionId, cwd: dir,
+      status: "paused", pauseReason: "turn_timeout", error: timeoutError,
+      goal: "目標", acceptance: [], maxTurns: 1, turnCount: 1,
+    }), "utf8");
+    live.session.agent.state.errorMessage = "Request was aborted";
+    fakePi.sessions[0]?.emit?.({ type: "agent_settled" });
+    expect(getTask(task.id)).toMatchObject({ status: "error", error: timeoutError, manualAbortedAssistantId: null });
+
+    // A real provider error must not be masked by an earlier timeout record.
+    live.session.agent.state.errorMessage = "接続に失敗しました";
+    fakePi.sessions[0]?.emit?.({ type: "agent_settled" });
+    expect(getTask(task.id)?.error).toBe("接続に失敗しました");
+
+    live.manualAbortedAssistantId = "";
+    live.session.agent.state.errorMessage = "Request was aborted";
+    fakePi.sessions[0]?.emit?.({ type: "agent_settled" });
+    expect(getTask(task.id)).toMatchObject({ status: "idle", error: null });
+  });
+
   it("hands unlabelled tasks to the background labeller at creation and after each settled turn", async () => {
     const dir = mkdtempSync(join(tmpdir(), "leafcode-pi-session-label-jobs-"));
     tempDirs.push(dir);
@@ -796,7 +834,7 @@ describe("integrated session routing", () => {
     const task = await createTask({ projectId: project.id, prompt: "初回" });
     await waitFor(() => getTask(task.id)?.status === "idle");
     const harness = (globalThis as Record<string, unknown>)[GLOBAL_KEY] as {
-      live: Map<string, { promptActive: boolean; session: { sessionManager: unknown } }>;
+      live: Map<string, { promptActive: boolean; session: { sessionManager: unknown; isCompacting?: boolean } }>;
     };
     const live = harness.live.get(task.id)!;
     live.promptActive = true;
@@ -809,6 +847,76 @@ describe("integrated session routing", () => {
       | undefined;
     assert.ok(prepare);
     assert.equal(await prepare("busy"), "retry");
+  });
+
+  it("recovers a stranded working reservation while the Goal Loop is still queued", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "leafcode-pi-goal-loop-stranded-"));
+    tempDirs.push(dir);
+    process.env.LEAFCODE_PI_DATA_DIR = dir;
+    process.env.PI_CODING_AGENT_DIR = join(dir, "agent");
+    __resetPiAgentDirCacheForTests();
+    installHarness(new Map());
+
+    const project = upsertProject({ name: "demo", rootPath: dir });
+    const task = await createTask({ projectId: project.id, prompt: "初回" });
+    await waitFor(() => getTask(task.id)?.status === "idle");
+    disarmTaskHangWatch(task.id);
+    const loopFile = goalLoopStateFile(dir, task.sessionId!);
+    mkdirSync(dirname(loopFile), { recursive: true });
+    writeFileSync(loopFile, JSON.stringify({
+      id: task.sessionId,
+      sessionId: task.sessionId,
+      cwd: task.directory,
+      status: "queued",
+      goal: "stranded send",
+      acceptance: [],
+      maxTurns: 0,
+      turnCount: 0,
+    }), "utf8");
+    // Simulate the pre-fix start-path prepare that marked working before sendTurn.
+    const { acquireTaskLease } = await import("@/lib/task-runtime-lease");
+    expect(acquireTaskLease(task.id)).toBe(true);
+    const { patchTask } = await import("@/lib/store");
+    patchTask(task.id, { status: "working" });
+    expect(getTask(task.id)?.status).toBe("working");
+
+    const prepare = fakePi.sessions[0]?.routingHooks?.prepareGoalLoopTurn as
+      | ((prompt: string) => Promise<boolean | "retry">)
+      | undefined;
+    assert.ok(prepare);
+    expect(await prepare("recover")).toBe(true);
+    expect(getTask(task.id)?.status).toBe("working");
+  });
+
+  it("releases a prepared Goal turn even when the session is compacting", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "leafcode-pi-goal-loop-release-compact-"));
+    tempDirs.push(dir);
+    process.env.LEAFCODE_PI_DATA_DIR = dir;
+    process.env.PI_CODING_AGENT_DIR = join(dir, "agent");
+    __resetPiAgentDirCacheForTests();
+    installHarness(new Map());
+
+    const project = upsertProject({ name: "demo", rootPath: dir });
+    const task = await createTask({ projectId: project.id, prompt: "初回" });
+    await waitFor(() => getTask(task.id)?.status === "idle");
+    disarmTaskHangWatch(task.id);
+    const harness = (globalThis as Record<string, unknown>)[GLOBAL_KEY] as {
+      live: Map<string, { promptActive: boolean; session: { sessionManager: unknown; isCompacting?: boolean } }>;
+    };
+    const live = harness.live.get(task.id)!;
+    const prepare = fakePi.sessions[0]?.routingHooks?.prepareGoalLoopTurn as
+      | ((prompt: string) => Promise<boolean | "retry">)
+      | undefined;
+    const release = fakePi.sessions[0]?.routingHooks?.releaseGoalLoopTurn as (() => void) | undefined;
+    assert.ok(prepare);
+    assert.ok(release);
+    expect(await prepare("turn one")).toBe(true);
+    expect(getTask(task.id)?.status).toBe("working");
+    // sendTurn abandons when !isIdle/hasPendingMessages; compaction must not strand working.
+    Object.defineProperty(live.session, "isCompacting", { configurable: true, get: () => true });
+    release!();
+    expect(getTask(task.id)?.status).toBe("idle");
+    expect(getTaskHangWatch(task.id)).toBeNull();
   });
 
   it("does not commit a retired Goal Loop prepare across deferred context reload", async () => {

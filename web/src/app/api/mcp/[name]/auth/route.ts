@@ -7,10 +7,15 @@
  */
 import { NextRequest, NextResponse } from "next/server";
 import { reloadLiveSessionsContext } from "@/lib/live-context";
+import { publicMcpAuthSnapshot } from "@shared/mcp-auth-snapshot.mjs";
+import { readMcpAuthStatusOnBackend, saveMcpBearerAuthOnBackend } from "@/lib/backend-client";
+import { parseMcpBearerSaveRequest, publicMcpBearerSaveResult } from "@shared/mcp-bearer-save-request.mjs";
+import { saveMcpBearerAuth } from "@/lib/mcp-bearer-admin";
+import { readMcpAuthStatus } from "@/lib/mcp-auth-status";
+import { localRuntimeBlocked } from "@/lib/pi/runtime-ownership";
 import {
   disableMcpBearerStore,
   disableMcpHeadersStore,
-  enableMcpBearerStore,
   enableMcpHeadersStore,
   getMcpServerAuth,
   McpError,
@@ -186,11 +191,25 @@ function requireHeaders(value: unknown): Record<string, string> {
 export async function GET(_req: NextRequest, context: RouteContext) {
   try {
     const { name: rawName } = await context.params;
-    const name = readName(rawName);
-    return NextResponse.json(await snapshotWithLiveStatus(name));
+    const name = readName(rawName).trim();
+    if (!name || name.includes("/") || name.includes("\\") || name.includes("..")) {
+      throw new McpError("invalid-name", "名前が不正です");
+    }
+    if (localRuntimeBlocked()) {
+      const forwarded = await readMcpAuthStatusOnBackend(name);
+      if (!forwarded.ok) {
+        return NextResponse.json({ error: "BackendでMCP認証状態を取得できません" }, { status: forwarded.status ?? 502 });
+      }
+      const snapshot = publicMcpAuthSnapshot(forwarded.body);
+      if (!snapshot || snapshot.name !== name) {
+        return NextResponse.json({ error: "BackendのMCP応答が不正です" }, { status: 502 });
+      }
+      return NextResponse.json(snapshot);
+    }
+    return NextResponse.json(await readMcpAuthStatus(name));
   } catch (error) {
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : "MCP認証状態の取得に失敗しました" },
+      { error: "MCP認証状態の取得に失敗しました" },
       { status: mcpErrorStatus(error) },
     );
   }
@@ -211,21 +230,31 @@ export async function POST(req: NextRequest, context: RouteContext) {
     const method = methodFromBody(body, "bearer");
 
     if (method === "bearer") {
-      const token = requireText(body.token, "Bearerトークン", 8192);
-      const current = getMcpServerAuth(name);
-      await callAdapter({ operation: "bearer-save", serverName: name, token });
-      if (current.authType === "headers" && current.credentialSource === "secure-store") {
-        await callAdapter({ operation: "headers-remove", serverName: name });
+      const parsed = parseMcpBearerSaveRequest(body);
+      const canonicalName = name.trim();
+      if (!parsed.ok) throw new McpError("invalid-auth", "Bearer認証リクエストが不正です");
+      if (!canonicalName || canonicalName.includes("/") || canonicalName.includes("\\") || canonicalName.includes("..")) {
+        throw new McpError("invalid-name", "名前が不正です");
       }
-      // This only enables the adapter's store flag. The token itself never
-      // reaches this config writer.
-      enableMcpBearerStore(name);
-      const reload = await reloadLiveSessionsContext();
-      return NextResponse.json({
-        ok: true,
-        auth: await snapshotWithLiveStatus(name),
-        reload,
-      });
+      if (localRuntimeBlocked()) {
+        const forwarded = await saveMcpBearerAuthOnBackend(canonicalName, parsed.value).catch(() => {
+          throw new McpError("auth-unavailable", "BackendでBearer認証情報を保存できません");
+        });
+        if (!forwarded.ok) {
+          const status = forwarded.status && forwarded.status >= 400 && forwarded.status <= 599 ? forwarded.status : 502;
+          return NextResponse.json({ error: "BackendでBearer認証情報を保存できません" }, { status });
+        }
+        const result = publicMcpBearerSaveResult(forwarded.body);
+        if (!result || result.auth.name !== canonicalName) {
+          return NextResponse.json({ error: "BackendのMCP応答が不正です" }, { status: 502 });
+        }
+        return NextResponse.json(result);
+      }
+      // Development keeps local ownership, using the same guarded operation as Backend.
+      try { return NextResponse.json(await saveMcpBearerAuth(canonicalName, parsed.value)); }
+      catch (error) {
+        return NextResponse.json({ error: "Bearer認証情報を保存できませんでした" }, { status: mcpErrorStatus(error) });
+      }
     }
 
     if (method === "headers") {

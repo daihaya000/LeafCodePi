@@ -2,7 +2,7 @@ import { spawn as defaultSpawn, spawnSync as defaultSpawnSync } from "node:child
 import { existsSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { PI_PACKAGES, PI_SDK_PACKAGE, STABLE_PI_VERSION, assertPiProjectVersions } from "../../shared/pi-dependencies.mjs";
+import { PI_PACKAGES, PI_SDK_PACKAGE, STABLE_PI_VERSION, assertPiProjectVersions, PI_DEPS_LOCK_NAME, reclaimAbandonedPiDepsLock } from "../../shared/pi-dependencies.mjs";
 import { dataDir, DEFAULT_WEBUI_PORT, readPort } from "./config.js";
 import { DEFAULT_BACKEND_PORT } from "../../shared/backend-protocol.mjs";
 import { pidAlive, readLock } from "./lock.js";
@@ -14,8 +14,20 @@ export const PI_UPDATE_TIMEOUT_MS = 120_000;
 /** Extra Host wait after the npm budget for rollback/cleanup (README: excluded from the 120s). */
 export const PI_WORKER_CLEANUP_BUDGET_MS = 180_000;
 /** Written by the worker while it owns the dependency directories; also what build gates check. */
-export const DEPS_LOCK_NAME = ".leafcode-pi-deps.lock";
+export const DEPS_LOCK_NAME = PI_DEPS_LOCK_NAME;
 const WORKER = fileURLToPath(new URL("../../scripts/sync-pi-dependencies.mjs", import.meta.url));
+
+function acquireDepsLock(lockPath, pid = process.pid) {
+  reclaimAbandonedPiDepsLock(lockPath);
+  try {
+    writeFileSync(lockPath, JSON.stringify({ pid }), { flag: "wx" });
+  } catch (error) {
+    if (error?.code !== "EEXIST") throw error;
+    // Another writer raced us; only steal if that owner died between reclaim and wx.
+    reclaimAbandonedPiDepsLock(lockPath);
+    writeFileSync(lockPath, JSON.stringify({ pid }), { flag: "wx" });
+  }
+}
 
 export function installedPiVersion(dir, name = PI_PACKAGE_NAME) {
   try {
@@ -92,7 +104,7 @@ export function autoUpdatePi({
       throw new Error("Stop the Host before synchronizing Pi dependencies");
     }
     lockPath = join(webDir, DEPS_LOCK_NAME);
-    writeFileSync(lockPath, JSON.stringify({ pid: process.pid }), { flag: "wx" });
+    acquireDepsLock(lockPath, process.pid);
     locked = true;
     for (const dir of [webDir, backendDir]) {
       projects.push({ dir, manifest: readFileSync(join(dir, "package.json")), lock: readFileSync(join(dir, "package-lock.json")) });

@@ -58,6 +58,12 @@ export const BACKEND_TASK_ADMIN_SUFFIX = "/admin";
  * `{ action: "refresh-agent", agentName }`. The sessions live in the owner, so only it can rebuild them.
  */
 export const BACKEND_LIVE_SESSIONS_RELOAD_PATH = "/internal/live-sessions/reload";
+/** Backend-owned MCP migration dry-run only: GET, no parameters or apply operation. */
+export const BACKEND_MCP_MIGRATION_PATH = "/internal/mcp/migration";
+/** MCP settings: POST known presets here; PATCH /:name accepts only { enabled: boolean }. */
+export const BACKEND_MCP_SERVERS_PATH = "/internal/mcp/servers";
+/** Read-only auth status in the owner: GET /internal/mcp/servers/:name/auth. */
+export const BACKEND_MCP_AUTH_SUFFIX = "/auth";
 /**
  * Compaction: `POST /internal/tasks/:id/compact` with `{ customInstructions? }`, and
  * `POST /internal/tasks/:id/compact/abort` to stop it. Compaction runs inside the owning session.

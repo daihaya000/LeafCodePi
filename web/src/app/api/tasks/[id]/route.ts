@@ -13,15 +13,18 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function GET(
-  _req: NextRequest,
+  req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
   try {
     const { id } = await params;
+    const messages = req.nextUrl.searchParams.get("messages");
+    const detailMessages =
+      messages === "page" || messages === "omit" ? { messages } as const : undefined;
     // After the cutover the Backend owns the session, so its detail is the real one. There is no local
     // fallback: reading a session this process does not own would report stale state as current.
     if (localRuntimeBlocked()) {
-      const forwarded = await forwardTaskDetail(id);
+      const forwarded = await forwardTaskDetail(id, detailMessages);
       if (forwarded.ok) return NextResponse.json({ task: forwarded.detail });
       if (forwarded.reason === "not-found") {
         return NextResponse.json({ error: "タスクが見つかりません" }, { status: 404 });

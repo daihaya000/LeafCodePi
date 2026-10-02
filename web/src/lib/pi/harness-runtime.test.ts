@@ -211,6 +211,34 @@ describe("getRuntimeFor", () => {
     );
   });
 
+  it("resolves native Jev classifiers with model-scoped auth and URL overrides", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "leafcode-pi-jev-native-"));
+    tempDirs.push(dir);
+    process.env.LEAFCODE_PI_DATA_DIR = dir;
+    useTestAgentDir(dir);
+    const model = { id: "judge-v1", name: "Judge", type: "classifier", api: "typesafe-system-one", baseUrl: "https://native.example/v1/" };
+    const getAuth = vi.fn(async () => ({ auth: { apiKey: "native-test-key", headers: { "X-Model": "native-header" } } }));
+    const runtime = {
+      getProvider: (id: string) => ({ id }),
+      registerProvider: () => undefined,
+      getProviders: () => [{ id: "custom-systemone", name: "Custom" }],
+      getModels: () => [],
+      getAllModels: () => [model],
+      checkAuth: async () => ({ type: "api_key" }),
+      getAuth,
+    };
+    (globalThis as Record<string, unknown>)[GLOBAL_KEY] = {
+      modelRuntime: runtime, initPromise: null, initError: null, live: new Map(),
+      watchdogRegistered: true, lastProviderSyncWarnings: [],
+    };
+    const models = await listJevModels(true);
+    assert.equal(models.length, 1);
+    assert.deepEqual(await resolveRegisteredJevModel(models[0]), {
+      baseUrl: "https://native.example/v1", model: "judge-v1", apiKey: "native-test-key", headers: { "X-Model": "native-header" },
+    });
+    assert.deepEqual(getAuth.mock.calls[0], [model]);
+  });
+
   it("keeps integrated Jev accounts together after switching from separate order", async () => {
     const dir = mkdtempSync(join(tmpdir(), "leafcode-pi-jev-integrated-order-"));
     tempDirs.push(dir);
