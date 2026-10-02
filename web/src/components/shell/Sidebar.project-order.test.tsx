@@ -855,10 +855,51 @@ describe("Sidebar project ordering", () => {
 
     await waitFor(() => {
       expect(projectOrder()).toEqual(["project-b", "project-a", "project-c"]);
-      expect(localStorage.getItem("webui.sidebar.project_order")).toBe(
-        JSON.stringify(["project-b", "project-a", "project-c"]),
+      expect(mocks.sendJson).toHaveBeenCalledWith(
+        "/api/settings/sidebar-project-order",
+        { value: JSON.stringify(["project-b", "project-a", "project-c"]) },
+        "PUT",
       );
     });
+    expect(localStorage.getItem("webui.sidebar.project_order")).toBeNull();
+  });
+
+  it("loads the saved project order from the server", async () => {
+    const getJson = mocks.getJson.getMockImplementation()!;
+    mocks.getJson.mockImplementation((path: string) =>
+      path === "/api/settings/sidebar-project-order"
+        ? Promise.resolve({ value: JSON.stringify(["project-c", "project-a", "project-b"]) })
+        : getJson(path),
+    );
+    localStorage.setItem("webui.sidebar.project_order", JSON.stringify(["project-b"]));
+
+    render(<Sidebar mobileOpen={false} onClose={vi.fn()} />);
+
+    await waitFor(() => expect(projectOrder()).toEqual(["project-c", "project-a", "project-b"]));
+    await waitFor(() => expect(localStorage.getItem("webui.sidebar.project_order")).toBeNull());
+    expect(mocks.sendJson).not.toHaveBeenCalledWith(
+      "/api/settings/sidebar-project-order",
+      expect.anything(),
+      "PUT",
+    );
+  });
+
+  it("migrates the legacy localStorage project order to the server", async () => {
+    const getJson = mocks.getJson.getMockImplementation()!;
+    mocks.getJson.mockImplementation((path: string) =>
+      path === "/api/settings/sidebar-project-order" ? Promise.resolve({ value: null }) : getJson(path),
+    );
+    localStorage.setItem("webui.sidebar.project_order", JSON.stringify(["project-c", "project-b"]));
+
+    render(<Sidebar mobileOpen={false} onClose={vi.fn()} />);
+
+    await waitFor(() => expect(mocks.sendJson).toHaveBeenCalledWith(
+      "/api/settings/sidebar-project-order",
+      { value: JSON.stringify(["project-c", "project-b"]) },
+      "PUT",
+    ));
+    await waitFor(() => expect(localStorage.getItem("webui.sidebar.project_order")).toBeNull());
+    expect(projectOrder()).toEqual(["project-c", "project-b", "project-a"]);
   });
 
   it("reorders projects when dragging from the project title", async () => {
@@ -899,8 +940,10 @@ describe("Sidebar project ordering", () => {
 
     await waitFor(() => {
       expect(projectOrder()).toEqual(["project-b", "project-a", "project-c"]);
-      expect(localStorage.getItem("webui.sidebar.project_order")).toBe(
-        JSON.stringify(["project-b", "project-a", "project-c"]),
+      expect(mocks.sendJson).toHaveBeenCalledWith(
+        "/api/settings/sidebar-project-order",
+        { value: JSON.stringify(["project-b", "project-a", "project-c"]) },
+        "PUT",
       );
     });
   });

@@ -26,3 +26,31 @@ export function parsePinnedTaskIds(value: unknown): string[] | null {
 export function serializePinnedTaskIds(ids: Iterable<string>): string {
   return JSON.stringify(normalizePinnedTaskIds([...ids]) ?? []);
 }
+
+export const PROJECT_ORDER_SETTING_KEY = "sidebar-project-order";
+export const PROJECT_ORDER_API_PATH = `/api/settings/${PROJECT_ORDER_SETTING_KEY}`;
+
+const MAX_PROJECT_ORDER_IDS = 2000;
+
+/** 設定APIへ保存するプロジェクト並び順を検証・重複排除する。 */
+export function normalizeProjectOrder(value: unknown): string[] | null {
+  if (!Array.isArray(value) || value.length > MAX_PROJECT_ORDER_IDS) return null;
+  if (value.some((item) => typeof item !== "string" || item.length === 0 || item.length > MAX_TASK_ID_LENGTH)) {
+    return null;
+  }
+  return [...new Set(value)];
+}
+
+/** JSON文字列の設定値を検証してプロジェクトID一覧へ変換する。 */
+export function parseProjectOrder(value: unknown): string[] | null {
+  if (typeof value !== "string") return null;
+  try {
+    return normalizeProjectOrder(JSON.parse(value));
+  } catch {
+    return null;
+  }
+}
+
+export function serializeProjectOrder(ids: Iterable<string>): string {
+  return JSON.stringify(normalizeProjectOrder([...ids]) ?? []);
+}

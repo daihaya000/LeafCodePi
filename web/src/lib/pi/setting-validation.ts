@@ -47,7 +47,12 @@ import { BOT_DEFAULT_PERMISSION_KEY, BOT_DEFAULT_THINKING_KEY, BOT_DEFAULT_PERMI
 import { isPermissionMode, PERMISSION_MODE_SETTING_KEY } from "@/lib/permission-gate";
 import { isSkillPermission, SKILL_PERMISSION_SETTING_KEY } from "@/lib/skill-permission";
 import { isSubagentPermission, SUBAGENT_PERMISSION_SETTING_KEY } from "@/lib/subagent-permission";
-import { PINNED_TASKS_SETTING_KEY, parsePinnedTaskIds } from "@/lib/sidebar-settings";
+import {
+  PINNED_TASKS_SETTING_KEY,
+  PROJECT_ORDER_SETTING_KEY,
+  parsePinnedTaskIds,
+  parseProjectOrder,
+} from "@/lib/sidebar-settings";
 import { AUTO_ARCHIVE_DAYS_SETTING_KEY, isAutoArchiveDaysOption } from "@/lib/auto-archive-settings";
 import {
   COMPOSER_PROMPT_PRESETS_SETTING_KEY,
@@ -118,6 +123,7 @@ export const ALLOWED_SETTING_KEYS: ReadonlySet<string> = new Set<string>([
   PINNED_TASKS_SETTING_KEY,
   COMPOSER_PROMPT_PRESETS_SETTING_KEY,
   SESSION_LABELS_SETTING_KEY,
+  PROJECT_ORDER_SETTING_KEY,
   SESSION_LABEL_JEV_SETTING_KEY,
   CODEXBAR_WIDGET_SETTING_KEY,
   SYSMON_WIDGET_SETTING_KEY,
@@ -208,6 +214,10 @@ export function validateSettingValue(key: string, value: string, importedAccount
   }
   if (key === AUTO_ARCHIVE_DAYS_SETTING_KEY) {
     return isAutoArchiveDaysOption(value) ? value : null;
+  if (key === PROJECT_ORDER_SETTING_KEY) {
+    const ids = parseProjectOrder(value);
+    return ids === null ? null : JSON.stringify(ids);
+  }
   }
   if (key === SESSION_LABELS_SETTING_KEY) {
     const labels = parseSessionLabels(value);
