@@ -60,9 +60,14 @@ function collectSourceFiles(dir, files = []) {
   return files;
 }
 
-/** Fingerprint of the sources esbuild would pull in for the Backend runtime bundle. */
+/**
+ * Fingerprint of the sources esbuild would pull in for the Backend runtime bundle.
+ * Include all of `web/src` (not just the entry file): the entry re-exports harness and
+ * store modules via `@/`, so a harness-only change must invalidate the stamp or Host
+ * will keep reusing a stale `runtime.bundle.mjs` after restart.
+ */
 export function backendRuntimeSourceStamp({
-  roots = [join(WEB_SRC, "lib", "pi", "backend-runtime-entry.ts"), CORE, SHARED],
+  roots = [WEB_SRC, CORE, SHARED],
   webPackage = join(ROOT, "web", "package.json"),
   backendPackage = join(ROOT, "backend", "package.json"),
 } = {}) {
