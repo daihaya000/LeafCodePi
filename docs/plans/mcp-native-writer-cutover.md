@@ -18,7 +18,7 @@
 | adapter `/mcp enable/disable` | [index](../../extensions/leafcode-mcp-adapter/index.ts) → [config](../../extensions/leafcode-mcp-adapter/config.ts)の`writeProjectServerDisabledOverride` → project Pi config | Web管理APIの停止では止まらない。旧session/commandと子sessionを停止する。native global-only loaderはproject設定を暗黙採用しない |
 | adapter setup・direct tools | [commands](../../extensions/leafcode-mcp-adapter/commands.ts) → `ensureCompatibilityImports` / `writeStarterProjectConfig` / `writeSharedServerEntry` / `writeDirectToolsConfig` → `writeRawConfigObject` | global imports、project `.mcp.json`、provenance別sourceへの書込みがある。setup/TUI/quick-addを閉じ、directTools等の非互換を移行前に解決する |
 | standalone adapter CLI | [cli.js](../../extensions/leafcode-mcp-adapter/cli.js)の`runInit` → `writePiConfig` → global `mcp.json`へ直接write | Backendのprocess-local coordinatorでは止まらない。CLI利用停止・別プロセスowner排除が必要。token CLIも資格情報writerとして別途対象にする |
-| profile import/restore/reset | [profile route](../../web/src/app/api/profile/route.ts) → [profile library](../../web/src/lib/profile.ts)の`importProfileWithBackup` / `restoreProfile` / `resetProfile` → `applyProfile` / `removeConfiguredPaths` | exported filesに`mcp.json`を含む。全体置換・削除・失敗時rollbackもnative lockを使わない。routeにはruntime所有権ガードがないため、production WebUIの別writerとして必ず塞ぐ |
+| profile import/restore/reset | [profile route](../../web/src/app/api/profile/route.ts) → [profile library](../../web/src/lib/profile.ts)の`importProfileWithBackup` / `restoreProfile` / `resetProfile` → `applyProfile` / `removeConfiguredPaths` | exported filesに`mcp.json`を含む。全体置換・削除・失敗時rollbackもnative lockを使わない。調査時点のrouteにはruntime所有権ガードがなかった。後述のprofile guardを追加済みだが、Backendへの委譲／writer集約は未実施 |
 | profile package復元 | 同routeのPATCH `restore-packages` → `restoreProfilePackages` → `pi update --extensions` | MCP本体への直接writeとは区別するが、古いextension/package writerを再導入し得る。切替中の再取得を閉じる。exportはread-only、backup作成はlive configを書かない別操作として区別する |
 | migration apply primitive | [migration file](../../backend/core/mcp-config-migration-file.mjs)の`migrateMcpConfigFile({apply:true})`。`.migration.lock`・exact backup・temp→rename | native `.native-write.lock`とは別protocol。applyは明示的なmaintenance ownerだけに限定し、他writer停止後に行う |
 | native SDK settings保存 | [updater](../../backend/core/mcp-native-config-updater.mjs) → `runWriteSync` → [file writer](../../backend/core/mcp-native-config-file-writer.mjs) + [config attestor](../../backend/core/mcp-private-storage.mjs) | 固定の既存native global file/server、`enabled`/`exposure`だけ。両source hash・private storage・協調lockを検証。updaterはentered attempt後に消費済みとなり、再prepare/rebindが必要 |
@@ -34,15 +34,19 @@
 - OAuth removeはadapter側でpending runtimeとmanager closeまで扱う。native credential fileの削除だけに置換すると、進行中refresh/callbackが再保存する可能性を残す。
 - [coordinator](../../backend/core/mcp-native-write-coordinator.d.mts)の`drain`は既受付workの待機であって受付freezeではない。`dispose`も実行中workの強制中断／rollbackではない。跨process・OS ownershipの代わりにしない。
 
-## 次の最小実装
+## 最初の安全化（実装済み・本番未deploy）
 
-**production WebUIのprofile mutationをfail-closedにする。**
+**production WebUIのprofile mutationをfail-closedにした。**
+
+[route回帰テスト](../../web/src/app/api/profile/route.test.ts)は実runtime ownership policyでproduction clientの503拒否とdev/test/Backend ownerの既存処理を検証する。[handler coverage](../../web/src/lib/pi/runtime-ownership-coverage.test.ts)にも4変更handlerを追加した。Backendへのprofile変更委譲は未提供で、production clientのimport/restore/reset/package復元は再開しない。
 
 - `/api/profile`のPOST(import)、PUT(restore)、DELETE(reset)、PATCHの`restore-packages`を、既存runtime ownership判定に従って処理の前に拒否する。
 - Backendへのprofile mutation委譲が未提供の間は、明示的な非ownerエラーを返す。受付成功、local fallback、stop/restartの推測はしない。
 - GET/export/listとbackup-only操作はこのconfig writer問題とは分離する。dev/testのlocal owner動作は維持する。
 - 回帰テストで非owner時のprofile archive解析・mutation library・package processが未呼出、owner時の既存処理が維持されることを確認する。
 - これはwriter集約の第一歩だけで、MCP移行applyを解除する条件ではない。
+
+次の最小実装は、未配線のnative設定owner合成と同期保存後のsnapshot再準備境界。下記の本番切替は別途gate・承認・受入確認が必要。
 
 ## その後の切替順序（すべて未完了）
 

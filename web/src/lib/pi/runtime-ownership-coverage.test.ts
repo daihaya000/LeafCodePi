@@ -131,7 +131,7 @@ describe("runtime ownership coverage", () => {
  * wider set of operations that tear down, stop or reload sessions the Backend owns.
  */
 const OWNER_OPERATIONS =
-  /\b(handleTaskPrompt|createTask|handleBotPatch|handleBotDelete|destroyArchivedTasksByProject|archiveTask|destroyTask|archiveProjectAndStopTasks|destroyProject|migrateProject|promoteTask|handoffTaskToBot|releaseTaskFromBot|resetTaskConversation|setBotModel|setBotPermissionMode|setBotThinkingLevel|setBotTools|requestBotSoulReload|createBotCodeTask|continueBotCodeTask|completeBotCodeRequest|promptTask|goalLoopCommand|abortTask|abortTaskIncludingColdGoalLoop|stopBotCodeTask|respondToPermissionPrompt|respondToQuestionPrompt|revertTask|forkTask|unrevertTask|compactTask|abortTaskCompaction|setTaskModel|setTaskThinkingLevel|setTaskAgent|runRoutine|handleRoomPrompt|handleRoomPatch|handleRoomDelete|revertRoomConversation)\b/;
+  /\b(handleTaskPrompt|createTask|handleBotPatch|handleBotDelete|destroyArchivedTasksByProject|archiveTask|destroyTask|archiveProjectAndStopTasks|destroyProject|migrateProject|promoteTask|handoffTaskToBot|releaseTaskFromBot|resetTaskConversation|setBotModel|setBotPermissionMode|setBotThinkingLevel|setBotTools|requestBotSoulReload|createBotCodeTask|continueBotCodeTask|completeBotCodeRequest|promptTask|goalLoopCommand|abortTask|abortTaskIncludingColdGoalLoop|stopBotCodeTask|respondToPermissionPrompt|respondToQuestionPrompt|revertTask|forkTask|unrevertTask|compactTask|abortTaskCompaction|setTaskModel|setTaskThinkingLevel|setTaskAgent|runRoutine|handleRoomPrompt|handleRoomPatch|handleRoomDelete|revertRoomConversation|importProfileWithBackup|restoreProfile|resetProfile|restoreProfilePackages)\b/;
 
 const HANDLER_GUARDS = /\b(localRuntimeBlocked|forward[A-Z]\w*|\w+OnBackend|relayFallbackAllowed|readBackend\w+)\b/;
 
@@ -182,6 +182,15 @@ describe("runtime ownership coverage per handler", () => {
       (id) => !handlers.some((handler) => handler.id === id && !handler.guarded),
     );
     expect(staleByDesign, "a handler that now guards itself must leave the by-design list").toEqual([]);
+  });
+
+  it("profile replacement/reset/package restore handlers cannot bypass ownership coverage", () => {
+    expect(ownerHandlers().filter(({ id }) => id.startsWith("profile/route.ts "))).toEqual([
+      { id: "profile/route.ts POST", guarded: true },
+      { id: "profile/route.ts PATCH", guarded: true },
+      { id: "profile/route.ts PUT", guarded: true },
+      { id: "profile/route.ts DELETE", guarded: true },
+    ]);
   });
 
   it("no handler is left as unfinished work", () => {

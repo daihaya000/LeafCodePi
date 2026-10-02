@@ -1,8 +1,19 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createProfileBackup, exportProfile, importProfileWithBackup, listProfileBackups, resetProfile, restoreProfile, restoreProfilePackages } from "@/lib/profile";
 
+import { localRuntimeBlocked } from "@/lib/pi/runtime-ownership";
+
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+
+function profileMutationUnavailable() {
+  // Profile replacement also changes mcp.json. No Backend mutation bridge exists yet;
+  // never write from the production client or acknowledge a queued/local fallback.
+  return NextResponse.json({
+    error: "設定の変更・パッケージ復元はBackendでの実行が必要です",
+    code: "RUNTIME_NOT_OWNED",
+  }, { status: 503 });
+}
 
 function profileFilename(): string {
   return `leafcode-pi-profile-${new Date().toISOString().replaceAll(/[:.]/g, "-")}.lcp.gz`;
@@ -30,6 +41,7 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
+  if (localRuntimeBlocked()) return profileMutationUnavailable();
   try {
     const form = await request.formData();
     const file = form.get("profile");
@@ -50,6 +62,7 @@ export async function PATCH(request: NextRequest) {
   try {
     const body = await request.json().catch(() => null) as { action?: unknown } | null;
     if (body?.action === "restore-packages") {
+      if (localRuntimeBlocked()) return profileMutationUnavailable();
       return NextResponse.json({ ok: true, ...await restoreProfilePackages() });
     }
     return NextResponse.json({ ok: true, ...createProfileBackup() });
@@ -62,6 +75,7 @@ export async function PATCH(request: NextRequest) {
 }
 
 export async function PUT(request: NextRequest) {
+  if (localRuntimeBlocked()) return profileMutationUnavailable();
   try {
     const body = await request.json() as { backup?: unknown };
     if (typeof body.backup !== "string") {
@@ -77,6 +91,7 @@ export async function PUT(request: NextRequest) {
 }
 
 export async function DELETE() {
+  if (localRuntimeBlocked()) return profileMutationUnavailable();
   try {
     return NextResponse.json({ ok: true, ...resetProfile() });
   } catch (error) {
