@@ -86,10 +86,10 @@ test("auth status GET is authenticated, read-only and refuses arbitrary names an
   const url = `${itemUrl}/auth`;
   assert.equal((await request(url)).status, 401);
   assert.equal((await request(url, { headers: { authorization: headers.authorization } })).status, 409);
-  for (const method of ["DELETE", "PATCH"]) {
+  for (const method of ["PATCH"]) {
     const response = await request(url, { method, headers });
     assert.equal(response.status, 405);
-    assert.equal(response.headers.get("allow"), "GET, POST");
+    assert.equal(response.headers.get("allow"), "GET, POST, DELETE");
   }
   for (const suffix of ["?configPath=other", "?token=secret"]) assert.equal((await request(url + suffix, { headers })).status, 400);
   assert.equal((await request(url.replace("fixture/auth", "a%2Fb/auth"), { headers })).status, 400);
@@ -190,6 +190,48 @@ test("header save POST is owner-only, validates private headers and sanitizes ev
     assert.equal((await response.text()).includes("private"), false);
   }
   assert.throws(() => createBackendServer({ token: "x".repeat(32), saveMcpHeadersAuthAction: true }), /saveMcpHeadersAuthAction/);
+});
+
+test("bearer DELETE reaches only the owner with explicit or owner-resolved defaults", async (t) => {
+  const calls = [];
+  const { url: itemUrl, headers } = await endpoint(t, { removeMcpBearerAuthAction: (name, input) => {
+    calls.push([name, input]); return { ok: true, token: "private-fixture-secret",
+      auth: { name, configPath: "owner-private-path", authType: "bearer", credentialConfigured: false,
+        credentialSource: "none", credentialStatus: "missing", credentialMessage: "private-fixture-secret" },
+      reload: { reloaded: 0, deferred: 0, failed: 1, errors: ["private-fixture-secret"] } };
+  } });
+  const url = `${itemUrl}/auth`;
+  const del = (body, auth = headers, target = url) => request(target, { method: "DELETE", headers: auth,
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
+  assert.equal((await del({ type: "bearer" }, {})).status, 401);
+  assert.equal((await del({}, { authorization: headers.authorization })).status, 409);
+  for (const body of [null, [], { type: "headers" }, { type: "oauth" }, { type: "bearer", token: "private-fixture-secret" },
+    { type: "bearer", configPath: "other" }]) assert.equal((await del(body)).status, 400);
+  assert.equal((await request(url, { method: "DELETE", headers, body: "{" })).status, 400);
+  assert.equal((await del({}, headers, `${url}?agentDir=other`)).status, 400);
+  assert.equal((await del({}, headers, url.replace("fixture/auth", "a%2Fb/auth"))).status, 400);
+  assert.equal(calls.length, 0);
+  for (const body of [{ action: "bearer" }, {}, undefined]) {
+    const response = await del(body);
+    assert.equal(response.status, 200);
+    assert.equal((await response.text()).includes("private"), false);
+  }
+  assert.deepEqual(calls, [["fixture", { type: "bearer" }], ["fixture", {}], ["fixture", {}]]);
+  for (const options of [{}, { removeMcpBearerAuthAction: () => { calls.push("unexpected"); }, isReady: () => false },
+    { removeMcpBearerAuthAction: () => { calls.push("unexpected"); }, isReady: () => { throw new Error("private-fixture-secret"); } }]) {
+    const unavailable = await endpoint(t, options);
+    assert.equal((await del({}, unavailable.headers, `${unavailable.url}/auth`)).status, 503);
+  }
+  assert.equal(calls.length, 3);
+  for (const status of [400, 404, 409, 503, 500]) {
+    const failed = await endpoint(t, { removeMcpBearerAuthAction: () => { throw Object.assign(new Error("private-fixture-secret"), { status }); } });
+    const response = await del({}, failed.headers, `${failed.url}/auth`);
+    assert.equal(response.status, status);
+    assert.equal((await response.text()).includes("private"), false);
+  }
+  const malformed = await endpoint(t, { removeMcpBearerAuthAction: () => ({ token: "private-fixture-secret" }) });
+  assert.equal((await del({}, malformed.headers, `${malformed.url}/auth`)).status, 500);
+  assert.throws(() => createBackendServer({ token: "x".repeat(32), removeMcpBearerAuthAction: true }), /removeMcpBearerAuthAction/);
 });
 
 test("preset creation is authenticated, owner-ready and limited to known request shapes", async (t) => {
@@ -306,5 +348,11 @@ test("Backend entry persists ON/OFF through the rebuilt runtime and returns only
   });
   assert.equal(detachedHeaders.status, 503);
   assert.equal((await detachedHeaders.text()).includes("private-fixture-header-secret"), false);
+  const defaultDelete = await request(`${base}${BACKEND_MCP_SERVERS_PATH}/n8n/auth`, { method: "DELETE", headers });
+  assert.equal(defaultDelete.status, 400); // OAuth default must not silently delete bearer credentials.
+  const explicitDelete = await request(`${base}${BACKEND_MCP_SERVERS_PATH}/n8n/auth`, {
+    method: "DELETE", headers, body: JSON.stringify({ type: "bearer" }),
+  });
+  assert.equal(explicitDelete.status, 503); // No live credential store in this isolated Backend.
   assert.deepEqual(await readFile(configPath), beforeStatus);
 });

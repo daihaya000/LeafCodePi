@@ -11,11 +11,12 @@ const adapter = vi.hoisted(() => ({
   requestMcpWebUiAuth: vi.fn(),
 }));
 
-const owner = vi.hoisted(() => ({ localRuntimeBlocked: vi.fn(), readMcpAuthStatusOnBackend: vi.fn(), saveMcpBearerAuthOnBackend: vi.fn(), saveMcpHeadersAuthOnBackend: vi.fn() }));
+const owner = vi.hoisted(() => ({ localRuntimeBlocked: vi.fn(), readMcpAuthStatusOnBackend: vi.fn(), saveMcpBearerAuthOnBackend: vi.fn(), saveMcpHeadersAuthOnBackend: vi.fn(), removeMcpBearerAuthOnBackend: vi.fn() }));
 vi.mock("@/lib/backend-client", async (importOriginal) => ({
   ...await importOriginal<typeof import("@/lib/backend-client")>(), readMcpAuthStatusOnBackend: owner.readMcpAuthStatusOnBackend,
   saveMcpBearerAuthOnBackend: owner.saveMcpBearerAuthOnBackend,
   saveMcpHeadersAuthOnBackend: owner.saveMcpHeadersAuthOnBackend,
+  removeMcpBearerAuthOnBackend: owner.removeMcpBearerAuthOnBackend,
 }));
 vi.mock("@/lib/pi/runtime-ownership", async (importOriginal) => ({
   ...await importOriginal<typeof import("@/lib/pi/runtime-ownership")>(), localRuntimeBlocked: owner.localRuntimeBlocked,
@@ -64,6 +65,7 @@ describe("/api/mcp/:name/auth", () => {
     owner.readMcpAuthStatusOnBackend.mockReset();
     owner.saveMcpBearerAuthOnBackend.mockReset();
     owner.saveMcpHeadersAuthOnBackend.mockReset();
+    owner.removeMcpBearerAuthOnBackend.mockReset();
     adapter.requestMcpWebUiAuth.mockReset();
     adapter.requestMcpWebUiAuth.mockImplementation(async (input: { operation: string }) => {
       if (input.operation === "bearer-status") {
@@ -339,6 +341,60 @@ describe("/api/mcp/:name/auth", () => {
     expect(JSON.stringify(body)).not.toContain("private-fixture-secret");
     adapter.requestMcpWebUiAuth.mockResolvedValueOnce(null);
     expect((await (await GET(request("GET"), context())).json()).credentialStatus).toBe("unavailable");
+  });
+
+  it.each([{ type: "bearer" }, undefined])("production DELETE forwards explicit/default requests without local reads or writes", async (body) => {
+    owner.localRuntimeBlocked.mockReturnValue(true);
+    const localRead = vi.spyOn(mcpLibrary, "getMcpServerAuth");
+    const localWrite = vi.spyOn(mcpLibrary, "disableMcpBearerStore");
+    const before = readFileSync(join(agentDir, "mcp.json"));
+    owner.removeMcpBearerAuthOnBackend.mockResolvedValue({ ok: true, body: { ok: true, token: "private-fixture-secret",
+      auth: { name: "n8n", authType: "bearer", credentialConfigured: false, credentialSource: "none", credentialStatus: "missing",
+        configPath: "owner-private-path", credentialMessage: "private-fixture-secret" },
+      reload: { reloaded: 0, deferred: 0, failed: 1, errors: ["private-fixture-secret"] } } });
+    const response = await DELETE(request("DELETE", body), context());
+    expect(response.status).toBe(200);
+    expect(JSON.stringify(await response.json())).not.toContain("private");
+    expect(owner.removeMcpBearerAuthOnBackend).toHaveBeenCalledWith("n8n", body ?? {});
+    expect(localRead).not.toHaveBeenCalled();
+    expect(localWrite).not.toHaveBeenCalled();
+    expect(adapter.requestMcpWebUiAuth).not.toHaveBeenCalled();
+    expect(harness.reloadLiveSessionsContext).not.toHaveBeenCalled();
+    expect(readFileSync(join(agentDir, "mcp.json"))).toEqual(before);
+  });
+
+  it.each([["not-configured", undefined, 502], ["unreachable", undefined, 502], ["timeout", undefined, 502],
+    ["unauthorized", 401, 401], ["bad-response", 404, 404], ["bad-response", 200, 502]])(
+    "DELETE refuses %s/%s without fallback", async (reason, status, expected) => {
+      owner.localRuntimeBlocked.mockReturnValue(true);
+      const before = readFileSync(join(agentDir, "mcp.json"));
+      owner.removeMcpBearerAuthOnBackend.mockResolvedValue({ ok: false, reason, status, error: "private-fixture-secret" });
+      const response = await DELETE(request("DELETE", { type: "bearer" }), context());
+      expect(response.status).toBe(expected);
+      expect(JSON.stringify(await response.json())).not.toContain("private-fixture-secret");
+      expect(adapter.requestMcpWebUiAuth).not.toHaveBeenCalled();
+      expect(harness.reloadLiveSessionsContext).not.toHaveBeenCalled();
+      expect(readFileSync(join(agentDir, "mcp.json"))).toEqual(before);
+    });
+
+  it("DELETE rejects malformed/privileged/unsupported requests instead of defaulting to a destructive action", async () => {
+    owner.localRuntimeBlocked.mockReturnValue(true);
+    for (const body of [null, [], { type: "headers" }, { type: "oauth" }, { type: "bearer", token: "private-fixture-secret" },
+      { type: "bearer", configPath: "other" }]) expect((await DELETE(request("DELETE", body), context())).status).toBe(400);
+    const malformed = new NextRequest("http://127.0.0.1/api/mcp/n8n/auth", { method: "DELETE", body: "{" });
+    expect((await DELETE(malformed, context())).status).toBe(400);
+    expect(owner.removeMcpBearerAuthOnBackend).not.toHaveBeenCalled();
+    expect(adapter.requestMcpWebUiAuth).not.toHaveBeenCalled();
+  });
+
+  it("DELETE rejects invalid owner responses and redacts unexpected errors", async () => {
+    owner.localRuntimeBlocked.mockReturnValue(true);
+    owner.removeMcpBearerAuthOnBackend.mockResolvedValueOnce({ ok: true, body: {} });
+    expect((await DELETE(request("DELETE"), context())).status).toBe(502);
+    owner.removeMcpBearerAuthOnBackend.mockRejectedValueOnce(new Error("private-fixture-secret"));
+    const response = await DELETE(request("DELETE"), context());
+    expect(response.status).toBe(503);
+    expect(JSON.stringify(await response.json())).not.toContain("private-fixture-secret");
   });
 
   it("removes a bearer store reference after the adapter removes the secret", async () => {

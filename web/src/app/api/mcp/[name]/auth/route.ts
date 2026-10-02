@@ -8,15 +8,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import { reloadLiveSessionsContext } from "@/lib/live-context";
 import { publicMcpAuthSnapshot } from "@shared/mcp-auth-snapshot.mjs";
-import { readMcpAuthStatusOnBackend, saveMcpBearerAuthOnBackend, saveMcpHeadersAuthOnBackend } from "@/lib/backend-client";
+import { readMcpAuthStatusOnBackend, saveMcpBearerAuthOnBackend, saveMcpHeadersAuthOnBackend, removeMcpBearerAuthOnBackend } from "@/lib/backend-client";
 import { parseMcpHeadersSaveRequest, publicMcpHeadersSaveResult } from "@shared/mcp-headers-save-request.mjs";
 import { saveMcpHeadersAuth } from "@/lib/mcp-headers-admin";
+import { parseMcpBearerRemoveRequest, publicMcpBearerRemoveResult } from "@shared/mcp-bearer-remove-request.mjs";
+import { removeMcpBearerAuth } from "@/lib/mcp-bearer-remove-admin";
 import { parseMcpBearerSaveRequest, publicMcpBearerSaveResult } from "@shared/mcp-bearer-save-request.mjs";
 import { saveMcpBearerAuth } from "@/lib/mcp-bearer-admin";
 import { readMcpAuthStatus } from "@/lib/mcp-auth-status";
 import { localRuntimeBlocked } from "@/lib/pi/runtime-ownership";
 import {
-  disableMcpBearerStore,
   disableMcpHeadersStore,
   getMcpServerAuth,
   McpError,
@@ -296,12 +297,33 @@ export async function POST(req: NextRequest, context: RouteContext) {
 export async function DELETE(req: NextRequest, context: RouteContext) {
   try {
     const { name: rawName } = await context.params;
-    const name = readName(rawName);
+    const name = readName(rawName).trim();
+    if (!name || name.includes("/") || name.includes("\\") || name.includes("..")) {
+      throw new McpError("invalid-name", "名前が不正です");
+    }
     let body: AuthBody = {};
     try {
-      body = bodyObject(await req.json());
+      const text = await req.text();
+      if (text.length > 4096) throw new Error("Body too large");
+      if (text.trim()) body = bodyObject(JSON.parse(text));
     } catch {
-      // An empty DELETE body defaults to the configured authentication method.
+      throw new McpError("invalid-auth", "認証削除リクエストが不正です");
+    }
+    if (localRuntimeBlocked()) {
+      const parsed = parseMcpBearerRemoveRequest(body);
+      if (!parsed.ok) throw new McpError("invalid-auth", "この認証方式の削除は未移管か、リクエストが不正です");
+      const forwarded = await removeMcpBearerAuthOnBackend(name, parsed.value).catch(() => {
+        throw new McpError("auth-unavailable", "BackendでBearer認証情報を削除できません");
+      });
+      if (!forwarded.ok) {
+        const status = forwarded.status && forwarded.status >= 400 && forwarded.status <= 599 ? forwarded.status : 502;
+        return NextResponse.json({ error: "BackendでBearer認証情報を削除できません" }, { status });
+      }
+      const result = publicMcpBearerRemoveResult(forwarded.body);
+      if (!result || result.auth.name !== name) {
+        return NextResponse.json({ error: "BackendのMCP応答が不正です" }, { status: 502 });
+      }
+      return NextResponse.json(result);
     }
     const snapshot = getMcpServerAuth(name);
     const method = methodFromBody(
@@ -314,10 +336,12 @@ export async function DELETE(req: NextRequest, context: RouteContext) {
     );
 
     if (method === "bearer") {
-      await callAdapter({ operation: "bearer-remove", serverName: name });
-      disableMcpBearerStore(name);
-      const reload = await reloadLiveSessionsContext();
-      return NextResponse.json({ ok: true, auth: await snapshotWithLiveStatus(name), reload });
+      const parsed = parseMcpBearerRemoveRequest(body);
+      if (!parsed.ok) throw new McpError("invalid-auth", "Bearer認証削除リクエストが不正です");
+      try { return NextResponse.json(await removeMcpBearerAuth(name, parsed.value)); }
+      catch (error) {
+        return NextResponse.json({ error: "Bearer認証情報を削除できませんでした" }, { status: mcpErrorStatus(error) });
+      }
     }
 
     if (method === "headers") {

@@ -57,6 +57,7 @@ import type { McpPresetRequest, McpPublicReload } from "@shared/mcp-preset-reque
 import type { McpPublicAuthSnapshot } from "@shared/mcp-auth-snapshot.mjs";
 import type { McpBearerSaveRequest, McpBearerSaveResult } from "@shared/mcp-bearer-save-request.mjs";
 import type { McpHeadersSaveRequest, McpHeadersSaveResult } from "@shared/mcp-headers-save-request.mjs";
+import type { McpBearerRemoveRequest, McpBearerRemoveResult } from "@shared/mcp-bearer-remove-request.mjs";
 
 export const BACKEND_REQUEST_TIMEOUT_MS = 10_000;
 
@@ -203,6 +204,17 @@ export function saveMcpHeadersAuthOnBackend(
 ): Promise<BackendResult<McpHeadersSaveResult>> {
   return backendRequest(`${BACKEND_MCP_SERVERS_PATH}/${encodeURIComponent(name)}${BACKEND_MCP_AUTH_SUFFIX}`, {
     ...options, method: "POST", body: input,
+  });
+}
+
+/** Owner-resolved default or explicit bearer removal; never read/write credentials locally. */
+export function removeMcpBearerAuthOnBackend(
+  name: string,
+  input: McpBearerRemoveRequest = {},
+  options: { env?: BackendEnv; fetchImpl?: typeof fetch; timeoutMs?: number } = {},
+): Promise<BackendResult<McpBearerRemoveResult>> {
+  return backendRequest(`${BACKEND_MCP_SERVERS_PATH}/${encodeURIComponent(name)}${BACKEND_MCP_AUTH_SUFFIX}`, {
+    ...options, method: "DELETE", body: input,
   });
 }
 
