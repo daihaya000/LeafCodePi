@@ -10,6 +10,7 @@ describe("Backend native MCP callback public SDK contract", () => {
     const root = mkdtempSync(join(tmpdir(), "leafcode-native-mcp-types-"));
     try {
       const modulePath = fileURLToPath(new URL("../../../../backend/core/mcp-native-config-loader.mjs", import.meta.url));
+      const extensionsPath = fileURLToPath(new URL("../../../../backend/core/mcp-native-extensions.mjs", import.meta.url));
       const compilerOptions: ts.CompilerOptions = { module: ts.ModuleKind.NodeNext, moduleResolution: ts.ModuleResolutionKind.NodeNext,
         target: ts.ScriptTarget.ES2022, strict: true, skipLibCheck: true, noEmit: true, types: [] };
       // Resolve the public ESM/types export in Backend scope; this package has no CommonJS main.
@@ -18,7 +19,18 @@ describe("Backend native MCP callback public SDK contract", () => {
       expect(sdk).toBeDefined();
       const probe = join(root, "probe.mts");
       writeFileSync(probe, `import { prepareBackendMcpConfigLoader } from ${JSON.stringify(modulePath)};
-import type { ExtensionContext, LoadedMcpConfig, McpExtensionOptions, McpServerEntry } from "@earendil-works/pi-coding-agent";
+import { prepareBackendMcpExtensions, type BackendMcpOwnerServices } from ${JSON.stringify(extensionsPath)};
+import type { DefaultResourceLoader, ExtensionContext, LoadedMcpConfig, McpExtensionOptions, McpServerEntry } from "@earendil-works/pi-coding-agent";
+declare const credentials: NonNullable<McpExtensionOptions["credentials"]>;
+const services: BackendMcpOwnerServices = { credentials, openUrl: (url) => {}, updateConfig: (entry, patch) => {} };
+const extensions = await prepareBackendMcpExtensions({ agentDir: "owner", bundledConfigPath: "bundle", mcp: services });
+if (extensions.ok) {
+  const factories: ConstructorParameters<typeof DefaultResourceLoader>[0]["extensionFactories"] = extensions.factories;
+} else {
+  const unavailableFactories: null = extensions.factories;
+}
+// @ts-expect-error Owner credentials/browser/writer are mandatory.
+const missing: BackendMcpOwnerServices = {};
 const prepared = await prepareBackendMcpConfigLoader({ agentDir: "owner", bundledConfigPath: "bundle", urlVariables: { URL: "value" } });
 if (prepared.ok) {
   const options: McpExtensionOptions = { loadConfig: prepared.loadConfig };
