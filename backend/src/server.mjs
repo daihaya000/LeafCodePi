@@ -9,6 +9,7 @@ import {
   BACKEND_RUNTIME_CONTROL_PATH,
   BACKEND_RUNTIME_EVENTS_PATH,
   BACKEND_LIVE_SESSIONS_RELOAD_PATH,
+  BACKEND_MCP_MIGRATION_PATH,
   BACKEND_BOT_ADMIN_SUFFIX,
   BACKEND_BOT_CODE_REQUESTS_SUFFIX,
   BACKEND_BOT_CODE_SESSIONS_SUFFIX,
@@ -202,6 +203,8 @@ export function createBackendServer({
   botAdminAction = null,
   /** Rebuilds live sessions after a settings change: `({ action, agentName? }) => result`; the owner holds them. */
   reloadLiveSessionsAction = null,
+  /** Backend-owned MCP dry-run; no request arguments or configuration writes. */
+  readMcpMigrationDiagnostics = null,
   /** Compacts a session: `(id, customInstructions?) => task`; the summarization runs in the owner. */
   compactTaskAction = null,
   /** Stops a running compaction: `(id) => task`; only the owner can interrupt its own session. */
@@ -263,6 +266,7 @@ export function createBackendServer({
     teardownProjectAction,
     botAdminAction,
     reloadLiveSessionsAction,
+    readMcpMigrationDiagnostics,
     compactTaskAction,
     abortCompactTaskAction,
     setTaskModelAction,
@@ -377,6 +381,7 @@ export function createBackendServer({
       || target.pathname === BACKEND_RUNTIME_CONTROL_PATH
       || target.pathname === BACKEND_RUNTIME_EVENTS_PATH
       || target.pathname === BACKEND_LIVE_SESSIONS_RELOAD_PATH
+      || target.pathname === BACKEND_MCP_MIGRATION_PATH
       || projectActionPath !== undefined
       || botAdminPath !== undefined
       || target.pathname === BACKEND_PENDING_SNAPSHOTS_PATH
@@ -393,6 +398,25 @@ export function createBackendServer({
       || actionPath !== undefined;
     if (!knownPath) {
       sendJson(response, 404, { error: "Not found", code: BACKEND_ERROR_CODES.notFound });
+      return;
+    }
+    if (target.pathname === BACKEND_MCP_MIGRATION_PATH) {
+      if (request.method !== "GET") {
+        sendJson(response, 405, {
+          error: "Method not allowed", code: BACKEND_ERROR_CODES.methodNotAllowed,
+        }, { Allow: "GET" });
+        return;
+      }
+      if (target.search) {
+        sendJson(response, 400, { error: "Migration diagnostics take no parameters", code: BACKEND_ERROR_CODES.badRequest });
+        return;
+      }
+      if (!readMcpMigrationDiagnostics) {
+        sendJson(response, 503, { error: "Backend migration diagnostics unavailable", code: BACKEND_ERROR_CODES.runtimeUnavailable });
+        return;
+      }
+      try { sendJson(response, 200, { result: await readMcpMigrationDiagnostics() }); }
+      catch { sendJson(response, 500, { error: "Backend migration diagnostics failed", code: BACKEND_ERROR_CODES.internal }); }
       return;
     }
     if (target.pathname === BACKEND_RUNTIME_EVENTS_PATH && request.method === "GET") {

@@ -1,6 +1,7 @@
 import { runtimeGenerationStatus } from "../../shared/backend-generation.mjs";
 import { DEFAULT_BACKEND_PORT } from "../../shared/backend-protocol.mjs";
 import { readPendingRequestSnapshots } from "./pending-requests.mjs";
+import { readMcpMigrationDiagnostics } from "./mcp-migration-diagnostics.mjs";
 import { createRuntimeHost } from "./runtime-host.mjs";
 import { createResumePrompt } from "./restart-resume-prompt.mjs";
 import { DEFAULT_RUNTIME_BUNDLE, loadBackendRuntime } from "./runtime-loader.mjs";
@@ -87,6 +88,8 @@ try {
   const server = createBackendServer({
     token: process.env.LEAFCODE_PI_BACKEND_TOKEN,
     readPendingSnapshots: () => readPendingRequestSnapshots(started.runtime()),
+    // Read-only and useful even before runtime attachment; apply remains unavailable.
+    readMcpMigrationDiagnostics: () => readMcpMigrationDiagnostics(),
     // Attention is the owner's in-memory view; a detached Backend has none, which is honest.
     subscribeRuntimeEvents: (listener) => {
       const runtime = started.runtime();
