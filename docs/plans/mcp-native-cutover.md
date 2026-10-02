@@ -106,6 +106,28 @@ blendermcp は native の stdio transport で実接続し 26 の直接ツール�
    `oauth.authorizationParams` は SDK が OAuth フローを所有するため等価物がなく、`unsupported-oauth-authorization-params` で拒否する
    （google-workspace プリセットは native 非対応。UI からの追加は native 切替後に再設計が必要）。
 
+## 厳格ACL下での本番等価受け入れ（2026-10-03）
+
+一時ディレクトリに実 config をコピーし、所有者のみの厳格ACLを付けて `storage attestation` を
+有効にしたまま接続まで実行した（実 agentDir は変更していない）:
+
+```
+storage: ok
+issues: (none)
+connect: {"browser-use":{"tools":16},"blendermcp":{"tools":26},"comfy-mcp":{"tools":39}}
+ok: true
+```
+
+ACLの作り方（一時ディレクトリ・実行後に削除）:
+
+```powershell
+icacls <dir> /inheritance:r /grant:r "$env:USERNAME:(OI)(CI)F"
+icacls <dir>\mcp.json /inheritance:r /grant:r "$env:USERNAME:F"   # inherit-only 無しの明示 FullControl が必要
+```
+
+つまり実機の `~/.pi/agent` から `X870\CodexSandboxUsers` の継承ACEを外せば同じ結果が得られる見込みで、
+残る作業は ACL 変更の承認だけになる。所要時間は約1分（browser-use の起動が遅いため）。
+
 ## 切替手順（承認後）
 
 1. ACL: 対象 ACE を `icacls` で削除し、`node backend/src/native-mcp-check.mjs` で
