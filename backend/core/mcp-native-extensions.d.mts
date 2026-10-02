@@ -14,7 +14,10 @@ export type BackendMcpExtensionsResult =
 export type BackendMcpBoundOwnerServices = Omit<BackendMcpOwnerServices, "updateConfig">;
 /** Synchronous composition from a private prepared owner binding. No fresh snapshot read,
  * SDK fallback or implicit reprepare. Registration checks are not transactional/session activation;
- * refuse publication on any error. Connected tools/OAuth/nested permissions remain separate gates. */
+ * refuse publication on any error. Registered tool/command entry, progress and async completion
+ * are guarded; started effects cannot be rolled back (including saved settings before command
+ * rejection). Shutdown/events remain callable. OAuth cancellation/lifecycle/nested permissions
+ * remain separate gates. */
 export function prepareBackendMcpExtensionsFromBinding(options: {
   binding: BackendMcpConfigBinding;
   mcp: BackendMcpBoundOwnerServices;

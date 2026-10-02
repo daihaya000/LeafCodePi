@@ -83,7 +83,9 @@ test("real SDK manager saves through the binding synchronously; invalid selector
       view.menu = async (menu) => { menus.push(menu()); return choices.shift(); };
       view.handleInput("\r");
     }) } };
-    host.events.get("session_start")({}, ctx); await host.commands.get("mcp").handler("", ctx);
+    host.events.get("session_start")({}, ctx);
+    // A successful inline save or async-ack rejection closes the binding before command completion.
+    await assert.rejects(host.commands.get("mcp").handler("", ctx), safe);
     assert.deepEqual(messages, []); return { host, menus };
   }
   const { menus } = await manage(f.binding, ["exposure", "private-invalid-exposure", "exposure", "direct", undefined, undefined]);

@@ -67,11 +67,53 @@ function captureOwnerServices(mcp, includeUpdater) {
   return { ok: true, services };
 }
 
+// Private SDK API view: only executable registrations change. Metadata/exposure and the host's
+// normal tool pipeline remain intact. Late tool-list/resource registrations use the same guard.
+// Event handlers (especially session_shutdown) pass through unchanged: cleanup must not depend
+// on a still-valid config binding. No implicit cancellation, effect rollback or session reload.
+function guardExecutionApi(pi, assertBound) {
+  const toolRegistration = pi.registerTool, commandRegistration = pi.registerCommand;
+  if (typeof toolRegistration !== "function" || typeof commandRegistration !== "function") throw new Error("MCP extension binding unavailable");
+  const wrap = (callback, receiver, tool) => {
+    if (typeof callback !== "function") throw new Error("MCP extension binding unavailable");
+    return async (...args) => {
+      assertBound();
+      if (tool && typeof args[3] === "function") {
+        const onUpdate = args[3];
+        args[3] = (...updates) => { assertBound(); return Reflect.apply(onUpdate, undefined, updates); };
+      }
+      try { const result = await Reflect.apply(callback, receiver, args); assertBound(); return result; }
+      catch (error) { assertBound(); throw error; } // Preserve native errors only while the binding is valid.
+    };
+  };
+  const registerTool = (definition) => {
+    const captured = { ...definition };
+    return Reflect.apply(toolRegistration, pi, [{ ...captured, execute: wrap(captured.execute, definition, true) }]);
+  };
+  const registerCommand = (name, definition) => {
+    const captured = { ...definition };
+    return Reflect.apply(commandRegistration, pi, [name, { ...captured, handler: wrap(captured.handler, definition, false) }]);
+  };
+  const delegates = new WeakMap();
+  // Separate target also supports frozen host API properties without Proxy invariant violations.
+  return new Proxy({}, { get: (_target, key) => {
+    if (key === "registerTool") return registerTool;
+    if (key === "registerCommand") return registerCommand;
+    const value = Reflect.get(pi, key, pi);
+    if (typeof value !== "function") return value;
+    if (!delegates.has(value)) delegates.set(value, value.bind(pi));
+    return delegates.get(value);
+  } });
+}
+
 /** INTERNAL synchronous composition from an already prepared owner binding. No loader,
  * reprepare, migration, activation or SDK config/storage/browser fallback. Factory registration
  * checks authority before and after (including async registration), but is NOT transactional:
- * callers must refuse publication after any registration error and rebind explicitly. This does
- * not fence already connected tools, cancel OAuth, or establish writer quiescence/permissions. */
+ * callers must refuse publication after any registration error and rebind explicitly. This
+ * fences registered tool/command entry, progress and async completion, including existing connected
+ * tools. Started callbacks can still have effects; a save can persist before command completion is
+ * rejected. Shutdown/event handlers remain callable. No OAuth/connection force cancellation, full
+ * lifecycle side-effect fence, writer quiescence or nested permission authorization. */
 export function prepareBackendMcpExtensionsFromBinding(options) {
   try {
     if (!plain(options) || !["binding", "mcp"].every((key) => Object.hasOwn(options, key))
@@ -124,7 +166,7 @@ export function prepareBackendMcpExtensionsFromBinding(options) {
     };
     const factories = nativeFactories({ ...ownerServices.services, loadConfig,
       updateConfig, logPath: captured.logPath }).map((factory) => async (pi) => {
-      try { assertBound(); await factory(pi); assertBound(); }
+      try { assertBound(); await factory(guardExecutionApi(pi, assertBound)); assertBound(); }
       catch { fenced = true; throw unavailable(); }
     });
     assertBound();
