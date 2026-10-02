@@ -89,7 +89,7 @@ export function createBackendMcpConfigOwner(options) {
           const loadConfig = () => { assertOwner(); return prepared.loadConfig(); };
           const updater = createBackendMcpConfigUpdater({ agentDir, bundledConfigPath, prepared, assertSnapshotOwner: assertOwner,
             coordinator: { runWriteSync: (work) => coordinator.runWriteSync((scope) => { retire(); return work(scope); }) }, writeConfig });
-          binding = Object.freeze({ assertOwner, loadConfig,
+          binding = Object.freeze({ assertOwner, loadConfig, logPath: join(agentDir, "mcp.log"),
             prepared: Object.freeze({ ...prepared, issues: Object.freeze([]), loadConfig }),
             updateConfig: (entry, patch) => {
               try { if (closed || current !== binding) throw unavailable(); updater(entry, patch); }

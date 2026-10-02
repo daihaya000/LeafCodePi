@@ -30,7 +30,7 @@ describe("Backend native MCP callback public SDK contract", () => {
       expect(sdk).toBeDefined();
       const probe = join(root, "probe.mts");
       writeFileSync(probe, `import { prepareBackendMcpConfigLoader } from ${JSON.stringify(modulePath)};
-import { prepareBackendMcpExtensions, type BackendMcpOwnerServices } from ${JSON.stringify(extensionsPath)};
+import { prepareBackendMcpExtensions, prepareBackendMcpExtensionsFromBinding, type BackendMcpOwnerServices, type BackendMcpBoundOwnerServices } from ${JSON.stringify(extensionsPath)};
 import { createBackendMcpCredentials, type BackendMcpOAuthState } from ${JSON.stringify(credentialsPath)};
 import { createBackendMcpCredentialOwner } from ${JSON.stringify(credentialOwnerPath)};
 import { createBackendMcpPrivateStorageCheck, createBackendMcpConfigStorageCheck, assertMcpStoragePermissions } from ${JSON.stringify(privateStoragePath)};
@@ -95,6 +95,16 @@ if (prepared.ok) {
   const configOwner = createBackendMcpConfigOwner({ agentDir: "owner", bundledConfigPath: "bundle", assertProcessOwner: () => {}, assertPrivateStorage: checkConfigStorage });
   const binding = await configOwner.prepare();
   const ownerCallbacks: Pick<McpExtensionOptions, "loadConfig" | "updateConfig"> = binding;
+  const ownerLogPath: string = binding.logPath;
+  const boundServices: BackendMcpBoundOwnerServices = { credentials, openUrl: (url) => {} };
+  const boundExtensions = prepareBackendMcpExtensionsFromBinding({ binding, mcp: boundServices });
+  if (boundExtensions.ok) {
+    const boundFactories: ConstructorParameters<typeof DefaultResourceLoader>[0]["extensionFactories"] = boundExtensions.factories;
+  }
+  // @ts-expect-error No binding means no prepared/guarded callbacks and cannot fall back.
+  prepareBackendMcpExtensionsFromBinding({ mcp: boundServices });
+  // @ts-expect-error Bound owner is the only config writer; cannot supply an unrelated updater.
+  prepareBackendMcpExtensionsFromBinding({ binding, mcp: { ...boundServices, updateConfig: synchronousUpdater } });
   const ownerPrepared: typeof prepared = binding.prepared;
   const ownerWrite: Promise<number> = configOwner.runWrite((scope) => { scope.assertOwner(); return 42; });
   const ownerDrain: Promise<void> = configOwner.drain();

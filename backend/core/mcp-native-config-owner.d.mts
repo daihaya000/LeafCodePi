@@ -5,6 +5,8 @@ import type { BackendMcpWriterScope } from "./mcp-native-write-coordinator.mjs";
 export type BackendMcpConfigBinding = Readonly<{
   /** Private revisions + guarded loader; never a DTO or unguarded snapshot callback. */
   prepared: Readonly<Extract<BackendMcpConfigLoaderResult, { ok: true }>>;
+  /** Fixed private owner path for native extension logging; caller cannot select another root. */
+  logPath: string;
   assertOwner: () => void;
   loadConfig: NonNullable<McpExtensionOptions["loadConfig"]>;
   updateConfig: NonNullable<McpExtensionOptions["updateConfig"]>;
