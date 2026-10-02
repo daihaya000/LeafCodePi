@@ -1,6 +1,7 @@
 /**
  * OpenCode Go usage from the Console status API (cookie + workspace id).
  *
+ * Workspace IDs use the Console orgs API, with a legacy dashboard fallback.
  * Credential order: OpenCodeTray DPAPI → Netscape cookies + config workspace id.
  */
 
@@ -286,16 +287,54 @@ export function parseOpenCodeGoStatus(
   return { windows };
 }
 
+export function parseOpenCodeGoWorkspaceIds(payload: string): string[] {
+  let root: unknown;
+  try {
+    root = JSON.parse(payload);
+  } catch {
+    return [];
+  }
+  if (!Array.isArray(root)) return [];
+  return root.flatMap((entry) => {
+    const id = asRecord(entry)?.id;
+    return typeof id === "string" && /^(?:wrk_|org_)[A-Za-z0-9_-]+$/.test(id)
+      ? [id]
+      : [];
+  });
+}
+
 async function autoDetectWorkspaceId(
   cookieHeader: string,
   signal?: AbortSignal,
 ): Promise<string | null> {
+  try {
+    const { body, ok } = await fetchText(
+      "https://opencode.ai/console/api/orgs",
+      {
+        headers: {
+          Accept: "application/json",
+          "Accept-Language": "en-US,en;q=0.9",
+          "User-Agent": "CodexBar/1.0",
+          Cookie: cookieHeader,
+        },
+        timeoutMs: 30_000,
+        signal,
+      },
+    );
+    if (ok) {
+      const [workspaceId] = parseOpenCodeGoWorkspaceIds(body);
+      if (workspaceId) return workspaceId;
+    }
+  } catch {
+    /* fall back to the legacy dashboard lookup */
+  }
+
   for (let attempt = 0; attempt < 3; attempt++) {
     if (attempt > 0) {
       await new Promise((r) => setTimeout(r, 500 * attempt));
     }
     try {
-      const { status, body, ok } = await fetchText("https://opencode.ai/go", {
+      const { body, ok } = await fetchText("https://opencode.ai/go", {
         headers: {
           Accept: "text/html",
           "Accept-Language": "en-US,en;q=0.9",
@@ -306,12 +345,11 @@ async function autoDetectWorkspaceId(
         signal,
         redirect: "follow",
       });
-      // Node fetch doesn't expose final URL easily; parse HTML/body redirects.
       const fromBody =
         /\/workspace\/([a-zA-Z0-9_-]+)/.exec(body) ??
         /\/console\/((?:wrk|org)_[a-zA-Z0-9_-]+)\/go/.exec(body);
       if (fromBody) return fromBody[1];
-      if (!ok && status !== 302 && status !== 301) continue;
+      if (!ok) continue;
     } catch {
       /* retry */
     }
