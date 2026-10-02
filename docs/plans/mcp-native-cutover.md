@@ -128,24 +128,39 @@ icacls <dir>\mcp.json /inheritance:r /grant:r "$env:USERNAME:F"   # inherit-only
 つまり実機の `~/.pi/agent` から `X870\CodexSandboxUsers` の継承ACEを外せば同じ結果が得られる見込みで、
 残る作業は ACL 変更の承認だけになる。所要時間は約1分（browser-use の起動が遅いため）。
 
+## 実Backendでの受け入れ（2026-10-03）
+
+厳格ACLの一時 agentDir + 最小configで実 Backend を起動（`backend/src/native-mcp-toggle.test.mjs`、Windowsのみ）:
+
+- `ready: true` / `runtimeStartupIncomplete: []`（storage attestation を通って native runtime が接続される）
+- `PATCH /internal/mcp/servers/fixture {enabled:false}` → 200、`mcp.json` に `disabled: true` が永続化
+- 再度 `{enabled:true}` → 200、`disabled` が消える
+
+この検証で判明した不具合を修正した: `createNativeMcpActivation` が runtime へ `URL` オブジェクトを渡していた
+（runtime は絶対パス文字列を要求する）ため、opt-in の native 初期化が常に失敗していた。
+また runtime bundle が古いと `install()` が無く同じく失敗するため、切替前に再ビルドが必要。
+
 ## 切替手順（承認後）
 
 1. ACL: 対象 ACE を `icacls` で削除し、`node backend/src/native-mcp-check.mjs` で
    `storage attestation: ok` と `result: ok` を確認する。
 2. 変数（解決済み）: 未設定のままにする場合は同梱既定が自動で落ちる。使う場合は env を設定する。
-3. `LEAFCODE_PI_MCP_NATIVE=1` を Backend/Host の環境に設定し、Backend を再起動する。
+3. `node scripts/build-backend-runtime.mjs` で runtime bundle を作り直す（ビルド成果物。Host はソースstampで
+   自動再ビルドするが、手動確認時は明示的に。古い bundle は `install()` を持たず native 初期化が必ず失敗する）。
+4. `LEAFCODE_PI_MCP_NATIVE=1` を Backend/Host の環境に設定し、Backend を再起動する。
    native 初期化に失敗した場合は runtime が未接続のまま起動し（adapter への黙った fallback なし）、
    health の `runtimeStartupIncomplete` に `initializeRuntime` が載る。全体停止にはならない。
    この挙動は実プロセスで検証済み（`backend/src/native-mcp-entry.test.mjs`: 不正な config でも
    Backend は 503 で応答を続け、`initializeRuntime` を報告する）。
-4. 受け入れ（すべて実サーバーで確認するまで完了扱いにしない）:
+5. 受け入れ（すべて実サーバーで確認するまで完了扱いにしない）:
    - `node backend/src/native-mcp-check.mjs --connect` が `result: ok`（実サーバー接続を含む）
    - 起動時に `[mcp-native]` の警告が出ない
    - 実サーバー（blendermcp / comfy-mcp / browser-use）で接続・`tools/list`・1ツール実行
    - ON/OFF トグルと preset 追加が再公開される（応答後に新規セッションへ反映）
    - Backend 再起動後も同じ結果になる
-5. adapter 撤去（別コミット）: bundled 読み込み対象から `leafcode-mcp-adapter` を外し、
-   `FORK_REPLACED_EXTENSIONS` と profile 書込み 503 を維持する。
+6. adapter 撤去（別コミット）: bundled 読み込み対象から `leafcode-mcp-adapter` を外し、
+   `FORK_REPLACED_EXTENSIONS` と profile 書込み 503 を維持する。同梱既定の MCP 定義
+   （`extensions/leafcode-mcp-adapter/mcp.json`）は native が読むため、中立な場所へ移してから削除する。
 
 ## 復旧
 

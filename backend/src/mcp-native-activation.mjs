@@ -1,5 +1,6 @@
 import { spawn, spawnSync } from "node:child_process";
 import { homedir, platform as osPlatform } from "node:os";
+import { fileURLToPath } from "node:url";
 
 /** Bundled default config: the same file the migration planner reads. Overridable for tests/deployments. */
 export const BUNDLED_MCP_CONFIG = new URL("../../extensions/leafcode-mcp-adapter/mcp.json", import.meta.url);
@@ -99,7 +100,8 @@ export function createNativeMcpActivation(options = {}) {
     if (Reflect.ownKeys(options).some((key) => !keys.includes(key))) throw unavailable();
     const agentDir = Object.hasOwn(options, "agentDir") ? options.agentDir : undefined;
     if (agentDir !== undefined && (typeof agentDir !== "string" || !agentDir)) throw unavailable();
-    const bundledConfigPath = Object.hasOwn(options, "bundledConfigPath") ? options.bundledConfigPath : BUNDLED_MCP_CONFIG;
+    // The runtime requires an absolute path STRING (it compares paths and reads the file itself).
+    const bundledConfigPath = Object.hasOwn(options, "bundledConfigPath") ? options.bundledConfigPath : fileURLToPath(BUNDLED_MCP_CONFIG);
     const homeDir = Object.hasOwn(options, "homeDir") ? options.homeDir : homedir();
     if (typeof homeDir !== "string" || !homeDir) throw unavailable();
     const environment = records(Object.hasOwn(options, "environment") ? options.environment : process.env);

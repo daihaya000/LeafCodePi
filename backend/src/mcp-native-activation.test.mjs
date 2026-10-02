@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
 import { readFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { dirname, join, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { test } from "node:test";
 import { browserOpenCommand, createBrowserOpener, createNativeMcpActivation, createNativeMcpStartup, isNativeMcpRequested, legacyAuthWriteRefusal } from "./mcp-native-activation.mjs";
@@ -68,6 +68,9 @@ test("initialize snapshots explicit options and installs the prepared provider w
   // No default storage checks/browser/fetch are smuggled in: the runtime owns its own defaults.
   assert.deepEqual(Object.keys(options).sort(), ["agentDir", "assertProcessOwner", "bundledConfigPath", "envCommands", "environment", "fetch", "homeDir", "openUrl", "variables"]);
   assert.equal(typeof options.envCommands.run, "function");
+  // The runtime takes an absolute path string; a URL here made every activation refuse.
+  assert.equal(typeof options.bundledConfigPath, "string");
+  assert.equal(options.bundledConfigPath.endsWith(`${sep}extensions${sep}leafcode-mcp-adapter${sep}mcp.json`), true);
   await assert.rejects(activation.initialize(fakeRuntime()), safe); // at most one successful attempt
   activation.dispose();
 });
@@ -88,7 +91,7 @@ test("default services are present: a browser opener, global fetch and a synchro
   const runtime = fakeRuntime(); await activation.initialize(runtime);
   const options = runtime.calls.options[0];
   assert.equal(typeof options.fetch, "function"); assert.equal(typeof options.openUrl, "function");
-  assert.equal(options.assertProcessOwner(), undefined); assert.equal(options.bundledConfigPath instanceof URL, true);
+  assert.equal(options.assertProcessOwner(), undefined); assert.equal(typeof options.bundledConfigPath, "string");
   activation.dispose();
 });
 
