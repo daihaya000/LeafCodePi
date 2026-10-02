@@ -4054,7 +4054,7 @@ function markedUsage(
 async function resolveIntegratedModelRoute(
   providerID: string,
   modelID: string,
-  options?: { excludeAccountId?: string | null },
+  options?: { excludeAccountId?: string | null; excludeTaskId?: string | null },
 ): Promise<ConcreteModelRoute | undefined> {
   const excluded = options?.excludeAccountId ?? null;
   const accounts = listAccounts().filter(
@@ -4071,7 +4071,10 @@ async function resolveIntegratedModelRoute(
   if (records.length === 0) return undefined;
 
   const usageProviders = routingUsageProviders();
-  const workingCounts = workingTaskCounts([providerID]);
+  const workingCounts = workingTaskCounts(
+    [providerID],
+    options?.excludeTaskId ?? undefined,
+  );
   const candidates: RoutingCandidate<AccountModelRecord>[] = records.map(
     (record) => ({
       accountId: record.accountId,
@@ -5634,10 +5637,15 @@ function integratedOption(
 
 function workingTaskCounts(
   providerIds: readonly string[],
+  excludeTaskId?: string,
 ): Map<string, number> {
   const counts = new Map<string, number>();
   const allowed = new Set(providerIds);
   for (const task of listTasks(false)) {
+    // The task being routed is already marked working before its route is
+    // re-resolved. Counting it against its own account makes every re-route
+    // prefer a different account (and immediately abandons a limit fallback).
+    if (task.id === excludeTaskId) continue;
     if (
       task.status !== "working" ||
       !task.accountId ||
@@ -8745,9 +8753,12 @@ async function resolvePromptRoute(
   providerID: string,
   modelID: string,
   accountId?: string,
+  excludeTaskId?: string,
 ): Promise<ConcreteModelRoute> {
   try {
-    const resolved = await resolveIntegratedModelRoute(providerID, modelID);
+    const resolved = await resolveIntegratedModelRoute(providerID, modelID, {
+      excludeTaskId,
+    });
     if (!resolved) {
       throw Object.assign(new Error("モデルが見つかりません"), { status: 400 });
     }
@@ -8854,6 +8865,7 @@ async function prepareLiveForPrompt(
         latestTask.providerID!,
         latestTask.modelID!,
         latestTask.accountId,
+        latestTask.id,
       );
       const ids = modelId(route.model);
       const sameRoute =

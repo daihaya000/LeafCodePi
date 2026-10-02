@@ -484,3 +484,95 @@ describe.each(["openai-codex", "openai"] as const)("provider limit fallback: %s"
     assert.equal(getTask(task.id)?.accountIdExplicit, undefined);
   });
 });
+
+// A queued prompt marks its task working before the integrated route is
+// re-resolved. The task must not count against its own account in that ranking,
+// or every re-route prefers another account and abandons the limit fallback.
+describe.each(["openai-codex", "openai"] as const)("integrated routing load count: %s", (PROVIDER) => {
+  it("keeps a later prompt on the current account when usage is unknown", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "leafcode-pi-self-load-route-"));
+    tempDirs.push(dir);
+    process.env.LEAFCODE_PI_DATA_DIR = dir;
+    const agentDir = join(dir, "agent");
+    process.env.PI_CODING_AGENT_DIR = agentDir;
+    __resetPiAgentDirCacheForTests();
+
+    const first = createAccount({ label: "codex-1", providers: [PROVIDER] });
+    const second = createAccount({ label: "codex-2", providers: [PROVIDER] });
+    const third = createAccount({ label: "codex-3", providers: [PROVIDER] });
+    for (const account of [first, second, third]) {
+      storeProviderAuth(account.id, agentDir, PROVIDER);
+    }
+    installHarness(
+      new Map([
+        [first.id, runtime(first.id, PROVIDER)],
+        [second.id, runtime(second.id, PROVIDER)],
+        [third.id, runtime(third.id, PROVIDER)],
+      ]),
+    );
+    await setAccountRoutingMode(PROVIDER, "integrated");
+
+    const project = upsertProject({ name: "demo", rootPath: dir });
+    const task = await createTask({
+      projectId: project.id,
+      prompt: "start",
+      model: `${PROVIDER}::${MODEL_ID}`,
+    });
+    await waitFor(() => getTask(task.id)?.status === "idle");
+    assert.equal(getTask(task.id)?.accountId, first.id);
+    assert.equal(fakePi.sessions.length, 1);
+
+    await promptTask(task.id, "second prompt");
+    await waitFor(() => getTask(task.id)?.status === "idle");
+
+    assert.equal(getTask(task.id)?.accountId, first.id);
+    assert.equal(fakePi.sessions.length, 1, "the same account must keep the session");
+    expect(fakePi.sessions[0]?.prompts).toEqual(["start", "second prompt"]);
+  });
+
+  it("keeps the fallback account on the hidden resume prompt", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "leafcode-pi-fallback-resume-"));
+    tempDirs.push(dir);
+    process.env.LEAFCODE_PI_DATA_DIR = dir;
+    const agentDir = join(dir, "agent");
+    process.env.PI_CODING_AGENT_DIR = agentDir;
+    __resetPiAgentDirCacheForTests();
+
+    const first = createAccount({ label: "codex-1", providers: [PROVIDER] });
+    const second = createAccount({ label: "codex-2", providers: [PROVIDER] });
+    const third = createAccount({ label: "codex-3", providers: [PROVIDER] });
+    for (const account of [first, second, third]) {
+      storeProviderAuth(account.id, agentDir, PROVIDER);
+    }
+    installHarness(
+      new Map([
+        [first.id, runtime(first.id, PROVIDER)],
+        [second.id, runtime(second.id, PROVIDER)],
+        [third.id, runtime(third.id, PROVIDER)],
+      ]),
+    );
+    await setAccountRoutingMode(PROVIDER, "integrated");
+
+    const project = upsertProject({ name: "demo", rootPath: dir });
+    const task = await createTask({
+      projectId: project.id,
+      prompt: "start",
+      model: `${PROVIDER}::${MODEL_ID}`,
+    });
+    await waitFor(() => getTask(task.id)?.status === "idle");
+    assert.equal(getTask(task.id)?.accountId, first.id);
+
+    fakePi.sessions[0].nextError = PROVIDER === "openai"
+      ? "OpenAI API error: subscription_sharing_usage_limit_exceeded"
+      : "You have hit your ChatGPT usage limit (team plan). Try again in ~286 min.";
+    // Pin the failing account so the turn reaches the limit on the account under
+    // test instead of being rebalanced before it starts.
+    await promptTask(task.id, "continue working", undefined, {
+      model: `${first.id}::${PROVIDER}::${MODEL_ID}`,
+    });
+
+    await waitFor(() => fakePi.sessions.length === 2 && fakePi.sessions[1]?.prompts.length === 1);
+    expect(fakePi.sessions[1]).toMatchObject({ accountId: second.id });
+    assert.equal(getTask(task.id)?.accountId, second.id);
+  });
+});
