@@ -34,11 +34,14 @@ result: not ready
 `--skip-storage --connect --json`（transport 互換の確認）:
 
 ```json
-{"ok":true,"storage":"skipped","servers":[{"name":"browser-use","enabled":true,"transport":"stdio","exposure":"codemode"},{"name":"blendermcp","enabled":true,"transport":"stdio","exposure":"codemode"},{"name":"comfy-mcp","enabled":true,"transport":"stdio","exposure":"codemode"},...],"connect":{"directTools":{"blendermcp":26},"browserRequested":false},"issues":[]}
+{"ok":true,"storage":"skipped","servers":[{"name":"browser-use","enabled":true,"transport":"stdio","exposure":"codemode"},{"name":"blendermcp","enabled":true,"transport":"stdio","exposure":"codemode"},{"name":"comfy-mcp","enabled":true,"transport":"stdio","exposure":"codemode"},...],"connect":{"registeredTools":{"blendermcp":26},"unverifiedServers":["browser-use","comfy-mcp"],"browserRequested":false},"issues":[]}
 ```
 
-blendermcp は native の stdio transport で実接続し 26 の直接ツールを登録できた。
-三点とも codemode 公開なので、browser-use と comfy-mcp の接続は遅延（初回 codemode 実行時）で未検証。
+blendermcp は native の stdio transport で実接続し 26 のツールを登録できた。MCPツールは公開設定に
+かかわらず登録される（codemode/deferred はモデルへの宣言だけを抑える）ので、登録数は接続の証拠になる。
+browser-use と comfy-mcp は codemode 公開で接続が遅延するため `unverifiedServers` として報告される
+（成功とも失敗とも見なさない）。
+
 また、この過程で判明した不具合を修正した: activation が渡す環境マップに
 `ProgramFiles(x86)` のような非識別子キーが含まれると transport が構築自体を拒否していた。
 基底環境は任意の有効なキーを保持し、サーバー定義 `env` のキーだけ識別子を要求する。
@@ -117,5 +120,5 @@ blendermcp は native の stdio transport で実接続し 26 の直接ツール�
 - 実行中セッションの reload: 設定変更は新規セッションのみに反映される。
 - project config・CLI/adapter writer 群の一本化、migration apply
   （`configuration-writers-not-quiesced`）。
-- 実サーバー受け入れ: transport 層は blendermcp で確認済み。ACL 承認後に flag を入れた
+- 実サーバー受け入れ: transport 層は blendermcp で確認済み（登録ツール 26）。ACL 承認後に flag を入れた
   本番受け入れ（codemode 経由の browser-use / comfy-mcp を含む）を行う。

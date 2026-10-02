@@ -4,6 +4,8 @@
  * Steps: opt-in flag, private-storage attestation, config load/validation, bundled adapter presence,
  * and (only with `--connect`) a real handshake against the configured servers through the native
  * transports. `--connect` starts local MCP servers exactly as a session would; it never calls a tool.
+ * Registered MCP tools prove connectivity; exposure (codemode/deferred/direct) only decides which of
+ * them the model sees, so a codemode server still registers its tools.
  *
  * `--skip-storage` is for transport compatibility only and is NOT acceptance: it bypasses the same
  * attestation the runtime requires, so a passing run there does not mean native MCP may be enabled.
@@ -86,10 +88,17 @@ export async function runNativeMcpCheck(options = {}) {
       const server = name.split("__")[1] ?? "unknown";
       counts[server] = (counts[server] ?? 0) + 1;
     }
-    report.connect = { ...report.connect, directTools: counts, browserRequested: report.connect?.browserRequested === true };
+    // Every MCP tool is registered in the plugin registry; exposure decides whether the model sees it
+    // (codemode/deferred servers stay out of the tool declarations). So this counts real connections,
+    // not the model-facing surface.
+    const enabled = report.servers.filter((server) => server.enabled).map((server) => server.name);
+    report.connect = { ...report.connect, registeredTools: counts, browserRequested: report.connect?.browserRequested === true,
+      unverifiedServers: enabled.filter((name) => !Object.hasOwn(counts, name)) };
     await events.get("session_shutdown")?.({}, ctx);
-    report.ok = Object.keys(counts).length > 0;
-    if (!report.ok) report.issues.push("no-direct-tools-registered");
+    // Acceptance needs at least one enabled server connected end to end; empty/unverified servers are
+    // reported separately instead of being presented as success or failure.
+    report.ok = enabled.some((name) => Object.hasOwn(counts, name));
+    if (!report.ok) report.issues.push("no-server-registered-tools");
   } catch (error) {
     report.issues.push(error?.message === "MCP native runtime unavailable" ? "native-runtime-refused" : "connect-failed");
   } finally {
@@ -110,7 +119,8 @@ function main() {
       process.stdout.write(`storage attestation: ${report.storage}${options.skipStorage ? " (SKIPPED: not acceptance)" : ""}\n`);
       process.stdout.write(`bundled adapter present: ${report.adapterPresent}\n`);
       for (const server of report.servers) process.stdout.write(`server ${server.name}: ${server.transport} ${server.exposure}${server.enabled ? "" : " (off)"}\n`);
-      if (report.connect) process.stdout.write(`direct tools: ${JSON.stringify(report.connect.directTools)}\n`);
+      if (report.connect) process.stdout.write(`registered MCP tools: ${JSON.stringify(report.connect.registeredTools)}\n`);
+      if (report.connect?.unverifiedServers?.length) process.stdout.write(`enabled servers without registered tools: ${report.connect.unverifiedServers.join(", ")}\n`);
       if (report.issues.length) process.stdout.write(`issues: ${report.issues.join(", ")}\n`);
       process.stdout.write(`result: ${report.ok ? "ok" : "not ready"}\n`);
     }

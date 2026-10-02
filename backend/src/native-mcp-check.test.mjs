@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtemp, readdir, rm } from "node:fs/promises";
+import { mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -43,8 +43,7 @@ test("a configured URL variable is honoured and keeps its shipped entry", async 
   assert.equal(n8n.enabled, false); assert.equal(n8n.transport, "http");
 });
 
-test("an unreadable bundled config fails closed with a sanitized issue code", async (t) => {
-  const agentDir = await emptyAgentDir(t);
+test("an unreadable bundled config fails closed with a sanitized issue code", async (t) => {  const agentDir = await emptyAgentDir(t);
   const report = await runNativeMcpCheck({ agentDir, skipStorage: true, bundledConfigPath: join(agentDir, "missing.json") });
   assert.equal(report.ok, false); assert.deepEqual(report.issues, ["bundled-unreadable"]);
 });
@@ -63,4 +62,21 @@ test("the CLI prints one JSON report and exits with the report result", async (t
   assert.equal(attested.status, report.ok ? 0 : 1);
   if (!report.ok) assert.equal(report.issues.length > 0, true);
   assert.equal(JSON.stringify(report).includes("mcp-auth.json"), false);
+});
+
+test("connect reports registered tools and the enabled servers that produced none", async (t) => {
+  const agentDir = await emptyAgentDir(t);
+  // A shipped-only config has no enabled server at all: acceptance must fail rather than report
+  // success from an empty tool set.
+  const shipped = await runNativeMcpCheck({ agentDir, skipStorage: true, connect: true, env: {}, connectTimeoutMs: 2_000 });
+  assert.equal(shipped.ok, false);
+  assert.deepEqual(shipped.issues, ["no-server-registered-tools"]);
+  assert.deepEqual(shipped.connect.registeredTools, {});
+  assert.deepEqual(shipped.connect.unverifiedServers, []);
+  // An enabled server that cannot stay up is reported as unverified instead of a silent success.
+  await writeFile(join(agentDir, "mcp.json"), JSON.stringify({ mcpServers: { broken: { command: process.execPath, args: ["-e", "process.exit(1)"] } } }));
+  const broken = await runNativeMcpCheck({ agentDir, skipStorage: true, connect: true, env: {}, connectTimeoutMs: 3_000 });
+  assert.equal(broken.ok, false);
+  assert.deepEqual(broken.connect.unverifiedServers, ["broken"]);
+  assert.equal(broken.issues.includes("no-server-registered-tools"), true);
 });
