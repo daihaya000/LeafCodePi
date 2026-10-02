@@ -279,7 +279,7 @@ import {
   softLiveSettings,
 } from "@backend-core/live-lifecycle.mjs";
 import { isReplacedPackageSource, keepsLoadedExtension, replacedUpstreamPackages } from "@backend-core/replaced-packages.mjs";
-import { bundledPathsForNativeMcp, resolveBackendMcpNativeSession } from "@backend-core/mcp-native-session.mjs";
+import { bundledPathsForNativeMcp, nativeMcpExtensionFactory, resolveBackendMcpNativeSession } from "@backend-core/mcp-native-session.mjs";
 import { resolveBotSessionOptions } from "@backend-core/bot-session-options.mjs";
 import { runSessionEventEffects } from "@backend-core/session-event-effects.mjs";
 import { isBotTask, liveSessionName, liveSessionRefusalError, liveSessionWorkspace, preflightLiveSession, resolveSessionPermissionDefaults, TASK_ARCHIVED_MESSAGE, TASK_NOT_FOUND_MESSAGE, resolveSessionAccountId, resolveSessionAccountRefusal, resolveSessionPermissionMode, resolveSessionSkillPermission, resolveSessionThinkingLevelSource, resolveStoredModelOutcome } from "@backend-core/live-session-preflight.mjs";
@@ -3782,7 +3782,9 @@ async function createSession(options: {
     ...(settingsManager ? { settingsManager } : {}),
     additionalExtensionPaths: loadedBundled.map((entry) => entry.filePath),
     additionalSkillPaths: bundledSkills,
-    extensionFactories: [...nativeMcp.factories, ...sessionExtensionFactories({
+    // Resolved per loader run: a reload after a config write must pick up the newly published provider
+    // instead of re-running factories bound to a binding that write already retired.
+    extensionFactories: [nativeMcpExtensionFactory(options.cwd), ...sessionExtensionFactories({
       agentDir,
       botSoulBotId,
       botToolAllowlist,

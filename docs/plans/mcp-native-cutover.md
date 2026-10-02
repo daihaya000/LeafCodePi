@@ -133,7 +133,9 @@ blendermcp は native の stdio transport で実接続し 26 の直接ツール�
 - 認証情報の書込み: native 中は bearer/headers/OAuth の保存操作が 409。
   OAuth は SDK の接続時フロー（openUrl + callback）へ置き換える設計判断が必要。
   bearer を config `headers` へ平文保存するのは既存の秘密ストアより劣化するため実装しない。
-- 実行中セッションの reload: 設定変更は新規セッションのみに反映される。
+- 実行中セッションの reload: ON/OFF・preset 書込みは応答後に provider を再公開し、`reloadLiveSessionsContext()` の
+  `session.reload()` が loader を再実行するため、そのセッションにも反映される（harness は provider を
+  loader 実行ごとに解決する）。外部 writer が直接書き換えた場合は再起動まで反映されない。
 - adapter 固有の設定面: `MCP_DIRECT_TOOLS` env、`settings.mcp`、プロジェクト `.pi/mcp.json` は
   native が読まない（この環境ではいずれも未使用を確認済み）。使う場合は別途対応が必要。
   adapter 固有の秘密ストア（`bearerTokenStore` / `headersStore` / `requestHeadersCommand`）も未対応。

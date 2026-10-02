@@ -23,6 +23,15 @@ export function resolveBackendMcpNativeSession(sessionCwd) {
   return { active: true, factories: [], issues: issues.length ? issues : [{ code: "native-session-unavailable" }] };
 }
 
+/** Extension factory for a session loader. The provider is resolved when the loader runs (and again on
+ * every reload), so a reload after a config write uses the newly published binding instead of
+ * re-running factories bound to a retired one. A failed preparation yields no factories. */
+export function nativeMcpExtensionFactory(sessionCwd) {
+  return (api) => {
+    for (const factory of resolveBackendMcpNativeSession(sessionCwd).factories) factory(api);
+  };
+}
+
 /** Bundled entries to load as extension paths. Names stay complete so replaced upstream packages remain excluded. */
 export function bundledPathsForNativeMcp(entries, active) {
   return active ? entries.filter((entry) => entry.name !== ADAPTER) : [...entries];

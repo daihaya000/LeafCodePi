@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { afterEach, test } from "node:test";
-import { bundledPathsForNativeMcp, resolveBackendMcpNativeSession, setBackendMcpNativeSessionProvider } from "./mcp-native-session.mjs";
+import { bundledPathsForNativeMcp, nativeMcpExtensionFactory, resolveBackendMcpNativeSession, setBackendMcpNativeSessionProvider } from "./mcp-native-session.mjs";
 
 afterEach(() => setBackendMcpNativeSessionProvider(undefined));
 
@@ -25,6 +25,20 @@ test("failed or throwing preparation never falls back to the adapter and leaks n
   assert.deepEqual(resolveBackendMcpNativeSession("C:/work"), { active: true, factories: [], issues: [{ code: "native-session-provider-failed" }] });
   setBackendMcpNativeSessionProvider(() => undefined);
   assert.deepEqual(resolveBackendMcpNativeSession("C:/work").issues, [{ code: "native-session-unavailable" }]);
+});
+
+test("nativeMcpExtensionFactory resolves the provider on every run so a reload picks up the newest binding", () => {
+  const called = [];
+  const factoryA = () => called.push("A"), factoryB = () => called.push("B");
+  const loader = nativeMcpExtensionFactory("C:/work");
+  assert.equal(loader({ id: 1 }), undefined); assert.deepEqual(called, [], "no provider means no factories");
+  setBackendMcpNativeSessionProvider(() => ({ ok: true, factories: [factoryA] }));
+  loader({ id: 1 }); assert.deepEqual(called, ["A"]);
+  // A config write republishes the provider: the same loader must not replay the retired binding.
+  setBackendMcpNativeSessionProvider(() => ({ ok: true, factories: [factoryB] }));
+  loader({ id: 2 }); assert.deepEqual(called, ["A", "B"]);
+  setBackendMcpNativeSessionProvider(() => ({ ok: false, issues: [{ code: "x" }], factories: null }));
+  loader({ id: 3 }); assert.deepEqual(called, ["A", "B"], "a failed preparation yields no factories");
 });
 
 test("provider must be synchronous; uninstalling restores the legacy path", () => {

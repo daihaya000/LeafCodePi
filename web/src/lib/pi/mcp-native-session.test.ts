@@ -1,12 +1,12 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, it, vi } from "vitest";
 import { DefaultResourceLoader, SettingsManager } from "@earendil-works/pi-coding-agent";
 import { createBackendMcpNativeRuntime } from "@backend-core/mcp-native-runtime.mjs";
-import { bundledPathsForNativeMcp, resolveBackendMcpNativeSession, setBackendMcpNativeSessionProvider } from "@backend-core/mcp-native-session.mjs";
+import { bundledPathsForNativeMcp, nativeMcpExtensionFactory, resolveBackendMcpNativeSession, setBackendMcpNativeSessionProvider } from "@backend-core/mcp-native-session.mjs";
 import { replacedUpstreamPackages } from "@backend-core/replaced-packages.mjs";
 import { basenameKey, bundledExtensionEntries } from "../extensions";
 import { sessionExtensionsOverride } from "./harness";
@@ -45,7 +45,7 @@ async function loadWith(active: boolean) {
     cwd: agentDir, agentDir,
     settingsManager: SettingsManager.inMemory({ packages: [] }),
     additionalExtensionPaths: loadedBundled.map((entry) => entry.filePath),
-    extensionFactories: [...nativeMcp.factories],
+    extensionFactories: [nativeMcpExtensionFactory(agentDir)],
     extensionsOverride: sessionExtensionsOverride(index),
     noSkills: true, noPromptTemplates: true, noThemes: true, noContextFiles: true,
   });
@@ -71,5 +71,9 @@ describe("native MCP session selection", () => {
     assert.equal(loaded.extensions.some((extension) => basenameKey(extension.path) === "leafcode-mcp-adapter"), false);
     assert.equal(loaded.extensions.some((extension) => extension.tools.has("codemode")), true);
     assert.equal(loaded.extensions.some((extension) => extension.tools.has("tool_search")), true);
+    // The harness must resolve the provider per loader run (and per reload), not capture its factories.
+    const harnessSource = readFileSync(new URL("./harness.ts", import.meta.url), "utf8");
+    assert.equal(harnessSource.includes("nativeMcpExtensionFactory(options.cwd)"), true);
+    assert.equal(harnessSource.includes("...nativeMcp.factories"), false);
   }, 30_000);
 });
