@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { isJevModel, jevModelKey, supportsJevModel } from "@/lib/jev-model-catalog";
 import { buildProviderModelsCatalog, enabledModelOptionsFromCatalog } from "@/lib/provider-models";
-import { clearJevDiscoveryCache, discoverJevModels, type JevDiscoveryRuntime } from "./jev-model-discovery";
+import { clearJevDiscoveryCache, discoverJevModels, registeredJevEndpoint, type JevDiscoveryRuntime } from "./jev-model-discovery";
 
 const jev = { id: "typesafe/jev-1.13", name: "Jev 1.13", architecture: { output_modalities: ["decisions"] } };
 const alias = { id: "~typesafe/jev-latest", name: "Jev Latest" };
@@ -47,12 +47,30 @@ describe("Jev discovery", () => {
     expect(fetchImpl.mock.calls[0][0]).toBe("https://api.commandcode.ai/provider/v1/models");
   });
 
-  it("finds TypeSafe through the shared provider credential without adding a chat model", async () => {
-    const rt = { ...runtime(), getProviders: () => [{ id: "typesafe", name: "TypeSafe", baseUrl: "https://api.typesafe.ai/v1" }] };
-    expect(await discoverJevModels(rt, {}, reply([]))).toEqual([{
+  it.each([
+    [undefined, "https://api.typesafe.ai/v1"],
+    ["https://api.typesafe.ai/v1", "https://api.typesafe.ai/v1"],
+    ["https://custom.example/v1/", "https://custom.example/v1"],
+  ])("finds and resolves TypeSafe without chat models (baseUrl: %s)", async (baseUrl, endpoint) => {
+    // ModelRuntime.getProviders() omits baseUrl for credential-only providers.
+    const rt = { ...runtime(), getProviders: () => [{ id: "typesafe", name: "TypeSafe", ...(baseUrl ? { baseUrl } : {}) }] };
+    const fetchImpl = reply([]);
+    expect(await discoverJevModels(rt, {}, fetchImpl)).toEqual([{
       providerId: "typesafe", providerName: "TypeSafe", modelId: "jev-latest", name: "Jev",
-      baseUrl: "https://api.typesafe.ai/v1", source: "documented",
+      baseUrl: endpoint, source: "documented",
     }]);
+    expect(registeredJevEndpoint(rt, { providerId: "typesafe", modelId: "jev-latest" })).toBe(endpoint);
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it("does not expose TypeSafe without authentication or fall back from an invalid explicit URL", async () => {
+    const rt = { ...runtime(), getProviders: () => [{ id: "typesafe", name: "TypeSafe" }] };
+    const fetchImpl = reply([]);
+    expect(await discoverJevModels({ ...rt, checkAuth: async () => undefined }, {}, fetchImpl)).toEqual([]);
+    const invalid = { ...rt, getProviders: () => [{ id: "typesafe", name: "TypeSafe", baseUrl: "https://user:password@example.com" }] };
+    expect(await discoverJevModels(invalid, {}, fetchImpl)).toEqual([]);
+    expect(registeredJevEndpoint(invalid, { providerId: "typesafe", modelId: "jev-latest" })).toBeUndefined();
+    expect(fetchImpl).not.toHaveBeenCalled();
   });
 
   it("does not infer another provider's API format solely from a Jev name", async () => {

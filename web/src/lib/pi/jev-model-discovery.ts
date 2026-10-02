@@ -1,5 +1,6 @@
 import { hasSystemOneEndpoint, isJevModel, jevModelKey, supportsJevModel, type JevCatalogModel, type JevModelRef } from "@/lib/jev-model-catalog";
 import { DEFAULT_JEV_MODEL_SETTINGS } from "@/lib/jev-model-settings";
+import { TYPESAFE_API_BASE_URL, TYPESAFE_PROVIDER_ID } from "./typesafe-provider";
 
 type Provider = { id: string; name: string; baseUrl?: string };
 export type JevDiscoveryRuntime = {
@@ -30,7 +31,10 @@ function providerBaseUrl(provider: Provider): string | undefined {
     const root = validBaseUrl(provider.baseUrl ?? "https://api.commandcode.ai");
     return root ? root.endsWith("/provider/v1") ? root : `${root}/provider/v1` : undefined;
   }
-  return validBaseUrl(provider.baseUrl ?? (provider.id === "openrouter" ? "https://openrouter.ai/api/v1" : undefined));
+  // Credential-only providers have no model from which the SDK can expose baseUrl.
+  const defaultBaseUrl = provider.id === TYPESAFE_PROVIDER_ID ? TYPESAFE_API_BASE_URL
+    : provider.id === "openrouter" ? "https://openrouter.ai/api/v1" : undefined;
+  return validBaseUrl(provider.baseUrl ?? defaultBaseUrl);
 }
 
 export function registeredJevEndpoint(runtime: JevDiscoveryRuntime, ref: JevModelRef): string | undefined {
