@@ -38,7 +38,14 @@ export function createBackendStartup({
    * Backend only attaches a runtime when the host explicitly asks for it.
    */
   loadRuntime,
+  /** Explicit owner initialization (e.g. native MCP provider installation) before runtime publication
+   * or any resume/relay/scheduler. Unset keeps current startup unchanged. Must acknowledge undefined;
+   * failure blocks startup, without rollback of effects already started inside the callback. */
+  initializeRuntime,
 } = {}) {
+  if (initializeRuntime !== undefined && typeof initializeRuntime !== "function") {
+    throw new Error("initializeRuntime must be a function");
+  }
   const store = new AppStore({
     storePath,
     noProjectSessionDir,
@@ -157,10 +164,21 @@ export function createBackendStartup({
         leases.setOrphanedTaskListener(orphanListener);
       },
       reconcileOrphanedWorkingTasks: () => leases.reconcileOrphanedWorkingTasks(),
-      // The runtime is attached before anything that needs it; a failure is reported, never thrown,
-      // so the startup prefix still completes and the host decides what readiness means.
+      // The loader may report detachment so the reconciliation prefix can still run. Explicit
+      // owner-initialization failure instead rejects before publication or any writer/service.
       ...(typeof loadRuntime === "function"
-        ? { loadRuntime: async () => { runtimeStatus = await loadRuntime(); } }
+        ? { loadRuntime: async () => {
+            const loaded = await loadRuntime();
+            if (loaded.ok === true && initializeRuntime) {
+              try {
+                if (await initializeRuntime(loaded.runtime) !== undefined) throw new Error("invalid initialization acknowledgment");
+              } catch {
+                runtimeStatus = { ok: false, reason: "initialization-failed" };
+                throw new Error("Backend runtime initialization failed");
+              }
+            }
+            runtimeStatus = loaded;
+          } }
         : {}),
       // The relay publishes Bot Code work by prompting a session, which only the owner can do.
       startBotCodeRelay: () => {

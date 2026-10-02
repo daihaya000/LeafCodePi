@@ -91,3 +91,7 @@ export { startGoalLoopWithSelection } from "@/lib/pi/goal-loop-start";
 export { startBotGoalLoop } from "@/lib/pi/bot-goal-loop-start";
 export { handleTaskPrompt } from "@/lib/pi/task-prompt";
 export { forkTask } from "@/lib/pi/task-fork";
+// PRIVATE startup API: the provider must share the harness's bundled module instance.
+// Merely exporting these does not install it or switch MCP. No implicit env/storage/network defaults.
+export { createBackendMcpNativeRuntime } from "@backend-core/mcp-native-runtime.mjs";
+export { setBackendMcpNativeSessionProvider, resolveBackendMcpNativeSession } from "@backend-core/mcp-native-session.mjs";

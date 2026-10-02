@@ -42,11 +42,12 @@ export function runtimeAliases() {
 }
 
 /**
- * Packages that must stay external. Both Pi packages are pinned by the Backend's own package.json,
- * and Node builtins are never bundled.
+ * Packages that must stay external. Pi AI/agent and the SDK's native MCP dependency must come from
+ * the installed Backend generation; embedding MCP here would duplicate its transports/OAuth classes.
+ * Node builtins are never bundled.
  */
 export function runtimeExternals() {
-  return ["@earendil-works/pi-coding-agent", "@earendil-works/pi-ai", "node:*"];
+  return ["@earendil-works/pi-coding-agent", "@earendil-works/pi-ai", "@earendil-works/pi-mcp", "node:*"];
 }
 
 function collectSourceFiles(dir, files = []) {

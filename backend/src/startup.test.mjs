@@ -307,6 +307,47 @@ test("a restart-resume listener that fails does not stop the sequence", async (t
   assert.equal(started.store.getTask("orphan").status, "error", "reconciliation still runs after a failed registration");
 });
 
+test("owner initialization completes before publication, reconciliation and runtime services; concurrent starts share it", async (t) => {
+  const { dir, file } = fixture(t, [task("orphan", "working")]); const calls = [];
+  let release, entered; const held = new Promise((resolve) => { release = resolve; }); const initializing = new Promise((resolve) => { entered = resolve; });
+  const runtime = { startBotCodeRelay() { calls.push("relay"); }, ensureRoutineScheduler() { calls.push("routines"); }, reconcileRoomRuntime() { calls.push("rooms"); } };
+  const started = createBackendStartup({ dataDir: () => dir, warn() {},
+    loadRuntime: async () => ({ ok: true, runtime, generation: "fixture-generation" }),
+    initializeRuntime: async (loaded) => { assert.equal(loaded, runtime); calls.push("initialize"); entered(); await held; calls.push("initialized"); },
+  }); started.store.storePath = () => file;
+  const pending = started.startup.start(); assert.equal(started.startup.start(), pending); await initializing;
+  assert.equal(started.runtime(), null); assert.equal(started.resumesOrphanedTasks(), false);
+  assert.equal(started.store.getTask("orphan").status, "working"); assert.deepEqual(calls, ["initialize"]);
+  release(); await pending; assert.equal(started.runtime(), runtime);
+  assert.equal(started.runtimeStatus().generation, "fixture-generation"); assert.equal(started.store.getTask("orphan").status, "error");
+  assert.deepEqual(calls, ["initialize", "initialized", "relay", "routines", "rooms"]);
+});
+
+test("failed or unacknowledged initialization blocks startup with no resume, service or reconciliation effects", async (t) => {
+  for (const initializeRuntime of [async () => { throw Error("private credentials/path"); }, () => ({ success: true })]) {
+    const { dir, file } = fixture(t, [task("orphan", "working")]); const calls = [];
+    const started = createBackendStartup({ dataDir: () => dir, warn() {}, initializeRuntime,
+      loadRuntime: async () => ({ ok: true, runtime: { startBotCodeRelay() { calls.push("relay"); } } }),
+      promptTask: async () => { calls.push("resume"); },
+    }); started.store.storePath = () => file;
+    await assert.rejects(started.startup.start(), (error) => error.message === "Backend runtime initialization failed" && error.cause === undefined);
+    assert.deepEqual(started.runtimeStatus(), { ok: false, reason: "initialization-failed" }); assert.equal(started.runtime(), null);
+    assert.equal(started.store.getTask("orphan").status, "working"); assert.deepEqual(calls, []);
+    assert.equal(existsSync(join(dir, "restart-resume.json")), false);
+  }
+});
+
+test("initialization is never invoked for a detached/missing runtime and invalid initializer options refuse", async (t) => {
+  let calls = 0; const initializeRuntime = () => { calls++; };
+  assert.throws(() => createBackendStartup({ initializeRuntime: true }), /initializeRuntime must be a function/);
+  for (const extra of [{}, { loadRuntime: async () => ({ ok: false, reason: "missing" }) }]) {
+    const { dir, file } = fixture(t);
+    const started = createBackendStartup({ dataDir: () => dir, warn() {}, initializeRuntime, ...extra }); started.store.storePath = () => file;
+    await started.startup.start(); assert.equal(started.runtime(), null);
+  }
+  assert.equal(calls, 0);
+});
+
 test("cancelWarmups is safe on a startup with no warmup services", async (t) => {
   const { dir, file } = fixture(t);
   const started = createBackendStartup({ dataDir: () => dir, warn: () => {} });

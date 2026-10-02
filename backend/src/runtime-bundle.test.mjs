@@ -1,5 +1,9 @@
 import assert from "node:assert/strict";
-import { existsSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { createBackendStartup } from "./startup.mjs";
+import { runtimeExternals } from "../../scripts/build-backend-runtime.mjs";
+import { resolveBackendMcpNativeSession as sourceSession } from "../core/mcp-native-session.mjs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { test } from "node:test";
@@ -39,6 +43,35 @@ test("the bundle is loadable from a plain Node process", { skip: !existsSync(BUN
   const runtime = await import(pathToFileURL(BUNDLE).href);
   assert.equal(typeof runtime.promptTask, "function");
   assert.equal(typeof runtime.getTaskDetail, "function");
+});
+
+test("native MCP transport classes stay external to the runtime bundle", () => {
+  assert.ok(runtimeExternals().includes("@earendil-works/pi-mcp"));
+});
+
+test("startup initializes native MCP inside the real bundle, not the separate source module", { skip: !existsSync(BUNDLE) }, async (t) => {
+  const runtime = await import(pathToFileURL(BUNDLE).href);
+  for (const name of ["createBackendMcpNativeRuntime", "setBackendMcpNativeSessionProvider", "resolveBackendMcpNativeSession"]) assert.equal(typeof runtime[name], "function", name);
+  const root = mkdtempSync(join(tmpdir(), "leafcode-mcp-bundle-startup-")); let owner;
+  t.after(() => { runtime.setBackendMcpNativeSessionProvider(undefined); owner?.dispose(); rmSync(root, { recursive: true, force: true }); });
+  writeFileSync(join(root, "mcp.json"), '{"mcpServers":{}}', { mode: 0o600 }); writeFileSync(join(root, "bundle.json"), "{}", { mode: 0o600 });
+  writeFileSync(join(root, "store.json"), '{"version":1,"projects":[],"tasks":[]}');
+  assert.equal(runtime.resolveBackendMcpNativeSession(root).active, false);
+  // Only pass the private initialization API: real relay/scheduler services must NOT run in this fixture.
+  const api = Object.fromEntries(["createBackendMcpNativeRuntime", "setBackendMcpNativeSessionProvider"].map((name) => [name, runtime[name]]));
+  const started = createBackendStartup({ dataDir: () => root, warn() {},
+    loadRuntime: async () => ({ ok: true, runtime: api }),
+    initializeRuntime: async (loaded) => {
+      owner = loaded.createBackendMcpNativeRuntime({ agentDir: root, bundledConfigPath: join(root, "bundle.json"), homeDir: root,
+        environment: {}, variables: {}, fetch: async () => { throw Error("No network"); }, openUrl() { throw Error("No browser"); }, assertProcessOwner() {},
+        storageChecks: { config() {}, credentials() {} },
+      });
+      const prepared = await owner.prepare(); loaded.setBackendMcpNativeSessionProvider(prepared.forSession);
+    },
+  }); started.store.storePath = () => join(root, "store.json"); await started.startup.start();
+  const selected = runtime.resolveBackendMcpNativeSession(root); assert.equal(selected.active, true); assert.equal(selected.factories.length, 3); assert.deepEqual(selected.issues, []);
+  assert.equal(sourceSession(root).active, false, "an entry.mjs source-module setter would not initialize the bundled harness");
+  assert.equal(existsSync(join(root, "mcp-auth.json")), false);
 });
 
 test("the runtime entry source and build script exist", () => {
