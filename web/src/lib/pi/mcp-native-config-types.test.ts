@@ -12,6 +12,7 @@ describe("Backend native MCP callback public SDK contract", () => {
       const modulePath = fileURLToPath(new URL("../../../../backend/core/mcp-native-config-loader.mjs", import.meta.url));
       const extensionsPath = fileURLToPath(new URL("../../../../backend/core/mcp-native-extensions.mjs", import.meta.url));
       const credentialsPath = fileURLToPath(new URL("../../../../backend/core/mcp-native-credentials.mjs", import.meta.url));
+      const credentialOwnerPath = fileURLToPath(new URL("../../../../backend/core/mcp-native-credential-owner.mjs", import.meta.url));
       const compilerOptions: ts.CompilerOptions = { module: ts.ModuleKind.NodeNext, moduleResolution: ts.ModuleResolutionKind.NodeNext,
         target: ts.ScriptTarget.ES2022, strict: true, skipLibCheck: true, noEmit: true, types: [] };
       // Resolve the public ESM/types export in Backend scope; this package has no CommonJS main.
@@ -22,12 +23,12 @@ describe("Backend native MCP callback public SDK contract", () => {
       writeFileSync(probe, `import { prepareBackendMcpConfigLoader } from ${JSON.stringify(modulePath)};
 import { prepareBackendMcpExtensions, type BackendMcpOwnerServices } from ${JSON.stringify(extensionsPath)};
 import { createBackendMcpCredentials, type BackendMcpOAuthState } from ${JSON.stringify(credentialsPath)};
+import { createBackendMcpCredentialOwner } from ${JSON.stringify(credentialOwnerPath)};
 import type { DefaultResourceLoader, ExtensionContext, LoadedMcpConfig, McpExtensionOptions, McpServerEntry } from "@earendil-works/pi-coding-agent";
-const credentials = createBackendMcpCredentials({
-  assertOwner: (identity) => {}, readState: (identity) => undefined,
-  writeState: (identity, state) => {}, removeState: (identity) => false,
-  withRefreshLock: async (identity, work) => work()
-});
+const owner = createBackendMcpCredentialOwner({ agentDir: "owner", assertOwner: (identity) => {}, assertPrivateStorage: (location) => {} });
+const credentials = createBackendMcpCredentials(owner);
+// @ts-expect-error Storage permission attestation is mandatory.
+createBackendMcpCredentialOwner({ agentDir: "owner", assertOwner: (identity) => {} });
 const serverStore: ReturnType<NonNullable<McpExtensionOptions["credentials"]>["forServer"]> = credentials.forServer("fixture", "https://example.invalid");
 const nativeState: BackendMcpOAuthState = { serverUrl: "https://example.invalid", tokens: { access_token: "fixture", token_type: "Bearer" } };
 serverStore.save(nativeState);
